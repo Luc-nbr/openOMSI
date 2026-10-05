@@ -22979,6 +22979,11 @@ _version: 2
 
 "Depot":
   fr: "Dépôt"
+  nl: "Remise"
+  de: "Betriebshof"
+  ru: "Депо"
+  uk: "Депо"
+  pl: "Zajezdnia"
 
 "Station":
   fr: "Gare"
@@ -30761,13 +30766,6 @@ _version: 2
   ru: "Страховка"
   uk: "Страхування"
   pl: "Ubezpieczenie"
-"Depot":
-  nl: "Remise"
-  de: "Betriebshof"
-  fr: "Dépôt"
-  ru: "Депо"
-  uk: "Депо"
-  pl: "Zajezdnia"
 "Wages":
   nl: "Lonen"
   de: "Löhne"
