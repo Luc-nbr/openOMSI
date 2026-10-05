@@ -54,7 +54,13 @@
     qr: null,
     /* until when the QR code is uncovered (streaming) */
     qrShown: 0,
-    sheetAt: null
+    sheetAt: null,
+    /* the Company tab: what came last (and when), an order on its way, what the last one did */
+    company: null,
+    companyAt: 0,
+    companyBusy: false,
+    companySending: false,
+    companyNote: null
   };
 
   /* A pairing code in the address (the game's QR code): paired with at once. */
@@ -191,7 +197,8 @@
     logout: 'M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10',
     flag: 'M5 21V4M5 4h11l-2 4 2 4H5',
     lock: 'M6 11h12v9H6zM8.5 11V8a3.5 3.5 0 0 1 7 0v3',
-    eye: 'M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12ZM12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z'
+    eye: 'M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12ZM12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z',
+    company: 'M3 20V9l9-5 9 5v11M7 20v-7h10v7M7 16.5h10'
   };
 
   function icon(name, cls) {
@@ -380,6 +387,7 @@
         report();
         if (mapView) mapView.update();
         if (ui.tab === 'more' && ui.qr && ui.qr.when && Date.now() - ui.qr.when > 20000) loadQr();
+        if (ui.tab === 'company' && !ui.companyBusy && Date.now() - ui.companyAt > 10000) loadCompany();
       })
       .catch(function (e) {
         if (e && e.message === 'not_paired') return;
@@ -405,7 +413,7 @@
    * next (see `mapView`).
    */
   function render(force) {
-    var signature = JSON.stringify([key ? 1 : 0, ui.tab, ui.menu, ui.lines, ui.line, ui.tours, ui.note, ui.busy, ui.signOn, ui.pair, ui.qr, prefs, wide(), view()]);
+    var signature = JSON.stringify([key ? 1 : 0, ui.tab, ui.menu, ui.lines, ui.line, ui.tours, ui.note, ui.busy, ui.signOn, ui.pair, ui.qr, prefs, wide(), view(), ui.tab === 'company' ? [ui.company, ui.companySending, ui.companyNote] : null]);
     if (!force && signature === lastSignature) return;
     lastSignature = signature;
     var kept = {};
@@ -796,7 +804,7 @@
   // ---- the navigator: the map, and the duty beside it or under it
 
   function navigator() {
-    var tabs = [['duty', 'duty', t('Duty')], ['break', 'pause', t('Break')], ['screens', 'screen', t('Screens')], ['more', 'device', t('Device')]];
+    var tabs = [['duty', 'duty', t('Duty')], ['break', 'pause', t('Break')], ['screens', 'screen', t('Screens')], ['company', 'company', t('Company')], ['more', 'device', t('Device')]];
     var tab = function (id, ic, label) {
       var on = state.break_since !== null && state.break_since !== undefined;
       return h('button', { type: 'button', 'aria-pressed': ui.tab === id ? 'true' : 'false', onclick: function () { ui.tab = id; render(true); } },
@@ -820,8 +828,155 @@
   function page(id) {
     if (id === 'break') return breakApp();
     if (id === 'screens') return screensApp();
+    if (id === 'company') return companyApp();
     if (id === 'more') return deviceApp();
     return dutyApp();
+  }
+
+  // ---- the company: the bus company the launcher has open (its money, today, the depot)
+
+  function loadCompany() {
+    ui.companyBusy = true;
+    return call('api/company')
+      .then(function (r) { return r.status === 200 ? r.json() : { failed: true }; })
+      .catch(function () { return { failed: true }; })
+      .then(function (j) {
+        ui.companyBusy = false;
+        ui.companyAt = Date.now();
+        /* (a moment without the game keeps what was shown) */
+        if (!(j && j.failed && ui.company && !ui.company.failed)) ui.company = j;
+        if (ui.companyNote && Date.now() - ui.companyNote.when > 8000) ui.companyNote = null;
+        render(false);
+      });
+  }
+
+  function money(c) {
+    if (c === null || c === undefined) return '—';
+    try {
+      return new Intl.NumberFormat(document.documentElement.lang || 'en', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(c / 100);
+    } catch (e) {
+      return '€' + Math.round(c / 100);
+    }
+  }
+
+  function dayText(d) {
+    var p = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d || '');
+    if (!p) return d || '';
+    return new Intl.DateTimeFormat(document.documentElement.lang || 'en', { weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(+p[1], +p[2] - 1, +p[3]));
+  }
+
+  function monthText(m) {
+    var p = /^(\d{4})-(\d{2})$/.exec(m || '');
+    if (!p) return m || '';
+    return new Intl.DateTimeFormat(document.documentElement.lang || 'en', { month: 'short' }).format(new Date(+p[1], +p[2] - 1, 1));
+  }
+
+  /* An order for the company: checked by the game, carried out by the launcher. */
+  function companyOrder(o) {
+    ui.companySending = true;
+    render(true);
+    call('api/company', o)
+      .then(function (r) { return r.json().catch(function () { return { error: 'bad_order' }; }); })
+      .catch(function () { return { error: 'lost' }; })
+      .then(function (j) {
+        ui.companySending = false;
+        var why = j && j.error;
+        ui.companyNote = j && j.ok
+          ? { text: t('Sent: the launcher carries it out in a moment.'), bad: false, when: Date.now() }
+          : { text: why === 'bad_order' ? t('The order was not understood.') : why === 'lost' ? t('Connection lost. Trying again…') : t(String(why)), bad: true, when: Date.now() };
+        return loadCompany();
+      });
+  }
+
+  function companyAlert(a) {
+    switch (a.kind) {
+      case 'no_lines': return t('The company runs no line yet.');
+      case 'no_buses': return t('The company has no bus yet.');
+      case 'no_drivers': return t('The company has no driver yet.');
+      case 'uncovered': return t('%{n} tours today have no bus or no driver.', { n: a.n });
+      case 'low_cash': return t('Less cash than a month of wages.');
+      case 'service_due': return t('%{n} buses are due for their service.', { n: a.n });
+      case 'unhappy': return t('%{n} people are unhappy.', { n: a.n });
+      case 'going_back': return t('Bus %{n} goes back on %{date}.', { n: a.number, date: dayText(a.until) });
+    }
+    return '';
+  }
+
+  function companyApp() {
+    var co = ui.company;
+    if (!co) {
+      if (!ui.companyBusy) loadCompany();
+      return [h('p', { class: 'empty' }, t('Loading…'))];
+    }
+    if (co.failed) return [h('p', { class: 'empty' }, t('The company cannot be read now.'))];
+    if (co.none) return [h('p', { class: 'empty' }, t('No company is open in the launcher.'))];
+    var sending = ui.companySending;
+    var m = co.month || {};
+    var waiting = (co.pending || []).length;
+    var head = h('div', { class: 'co-head' },
+      h('span', { class: 'co-mark', style: { background: co.colour || '#f28c28' } }, co.short || ''),
+      h('div', null, h('h2', null, co.name), h('small', null, t('Company day') + ' · ' + dayText(co.date))));
+    var note = ui.companyNote ? h('p', { class: 'co-note' + (ui.companyNote.bad ? ' bad' : '') }, ui.companyNote.text) : null;
+    var tiles = h('div', { class: 'tiles three' },
+      h('div', null, h('b', { class: co.cash < 0 ? 'co-bad' : '' }, money(co.cash)), h('span', null, t('Cash'))),
+      h('div', null, h('b', { class: m.result < 0 ? 'co-bad' : 'co-good' }, money(m.result)), h('span', null, t('This month'))),
+      h('div', null, h('b', null, String(co.reputation)), h('span', null, t('Reputation'))));
+    var alerts = (co.alerts || []).map(companyAlert).filter(function (x) { return x; });
+    var alertCard = alerts.length ? h('section', { class: 'card co-card co-alerts' }, alerts.map(function (a) { return h('p', null, icon('bell'), h('span', null, a)); })) : null;
+
+    var td = co.today;
+    var today = h('section', { class: 'card co-card' },
+      h('h2', null, t('Today')),
+      td ? h('p', { class: 'co-big' }, t('%{c} of %{n} tours covered', { c: td.covered, n: td.tours })) : h('p', { class: 'explain small' }, t('The timetable of the day cannot be read.')),
+      td && td.open.length ? h('ul', { class: 'co-list' }, td.open.map(function (o) {
+        return h('li', null, h('span', { class: 'plate' }, o.line), h('span', null, t('Tour') + ' ' + o.tour + ' · ' + o.from + '–' + o.to), h('em', { class: 'co-bad' }, o.why === 'bus' ? t('no bus') : t('no driver')));
+      })) : null,
+      (co.breakdowns || []).length ? h('ul', { class: 'co-list' }, co.breakdowns.map(function (b) {
+        return h('li', null, h('b', null, b.number), h('span', null, t('in the workshop until %{date}', { date: dayText(b.until) })));
+      })) : null);
+
+    var months = co.months || [];
+    var top = months.reduce(function (a, x) { return Math.max(a, x.income, x.expenses); }, 1);
+    var bar = function (cls, v) { return h('i', { class: cls, style: { height: Math.max(2, Math.round(v / top * 100)) + '%' } }); };
+    var money6 = h('section', { class: 'card co-card' },
+      h('h2', null, t('Finances')),
+      months.length ? h('div', { class: 'co-bars' }, months.map(function (x) {
+        return h('div', { class: 'co-bar' },
+          h('div', { class: 'co-pair' }, bar('in', x.income), bar('out', x.expenses)),
+          h('b', { class: x.result < 0 ? 'co-bad' : 'co-good' }, money(x.result)),
+          h('span', null, monthText(x.month)));
+      })) : h('p', { class: 'explain small' }, t('No month closed yet.')),
+      h('div', { class: 'co-legend' },
+        h('span', null, h('i', { class: 'in' }), t('Income')),
+        h('span', null, h('i', { class: 'out' }), t('Expenses')),
+        co.debt ? h('span', null, t('Debt') + ' ' + money(co.debt)) : null));
+
+    var fleet = co.fleet || {};
+    var depot = h('section', { class: 'card co-card' },
+      h('h2', null, t('Depot')),
+      h('p', { class: 'explain small' }, t('%{b} buses on %{s} spaces · cleanliness %{c} % · upkeep %{u} a month', { b: fleet.buses, s: fleet.spaces, c: co.clean, u: money(co.upkeep) })),
+      h('ul', { class: 'co-rows' }, (co.areas || []).map(function (a) {
+        var right;
+        if (a.building_until) right = h('em', { class: 'co-warn' }, t('ready %{date}', { date: dayText(a.building_until) }));
+        else if (a.cost === null || a.cost === undefined) right = h('em', { class: 'co-good' }, t('complete'));
+        else right = h('button', { type: 'button', class: 'action co-small', disabled: !a.can || !a.allowed || sending, onclick: function () { companyOrder({ do: 'build', area: a.key }); } }, money(a.cost));
+        return h('li', null, h('div', null, h('b', null, t(a.label)), h('small', null, t('level %{n} of %{m}', { n: a.level, m: a.max }) + (a.days && !a.building_until ? ' · ' + t('%{d} days of work', { d: a.days }) : ''))), right);
+      })),
+      waiting ? h('p', { class: 'explain small' }, t('%{n} orders wait for the launcher.', { n: waiting })) : null);
+
+    var shop = h('section', { class: 'card co-card' },
+      h('h2', null, t('Workshop')),
+      (co.jobs || []).length ? h('ul', { class: 'co-list' }, co.jobs.map(function (j) {
+        return h('li', null, h('b', null, j.number), h('span', null, t(j.job)), h('em', null, j.started ? t('until %{date}', { date: dayText(j.until) }) : t('waiting for a bay')));
+      })) : h('p', { class: 'explain small' }, t('No bus is in the workshop.')),
+      (co.buses || []).length ? h('ul', { class: 'co-rows' }, co.buses.map(function (b) {
+        return h('li', null,
+          h('div', null, h('b', null, b.number + ' ' + b.name), h('small', { class: b.due ? 'co-warn' : '' }, b.due ? t('service due') : t('condition %{n} %', { n: b.condition }))),
+          h('button', { type: 'button', class: 'action co-small', disabled: sending, onclick: function () { companyOrder({ do: 'job', bus: b.id, job: b.job }); } }, t(b.job_label)));
+      })) : null);
+
+    return [head, note, tiles, alertCard, today, money6, depot, shop,
+      h('p', { class: 'explain small' }, t('The company is the launcher’s: what you order here is carried out there.'))];
   }
 
   // ---- the map and what lies over it (as the game's small navigator)

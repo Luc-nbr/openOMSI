@@ -3,7 +3,9 @@
 //! Omsi-Hub's end-of-trip popup did: the line and where it went, the stops served and how many
 //! of them early, on time and late as OMSI 2 counts them, a bar of the three, the stop
 //! furthest off the timetable and the average, and the distance, the jolts, the collisions and
-//! the passengers on the way. It stays some seconds of the game running (Enter or a click puts
+//! the passengers on the way, and how the trip is judged (`career::evaluate`: punctuality,
+//! comfort and safety from the drive watch, a grade, the experience it earned and the fines
+//! it cost). It stays some seconds of the game running (Enter or a click puts
 //! it away sooner), and the trip is written into the driver's record as it ends
 //! (`~/.openomsi/trips/<driver>.jsonl`, `Career::write_trip`), where the launcher's service
 //! record shows it.
@@ -19,6 +21,7 @@ use omsi_ui::paint::Align;
 use omsi_ui::{Atlas, Color, Draw, Fonts, Gpu, Layer, Painter, Rect, Weight};
 
 use crate::career::{Career, EARLY_DEPARTURE, LATE_ARRIVAL};
+use omsi_launcher_lib::company::career as judge;
 use crate::nav_duty::{accent_ink, hhmm, offset, punctuality, tr_with, Pen, Punctuality, EARLY, EDGE, FIELD, HAIRLINE, LATE, LATE_INK, LINE, NOW, ON_TIME, ON_TIME_INK, SHEET, TEXT, TEXT_DIM, TEXT_FAINT, TEXT_SOFT};
 use crate::schedule::PlayerDuty;
 
@@ -287,6 +290,46 @@ pub(crate) struct Card {
     pub tiles: Vec<(String, Color, &'static str)>,
     /// A row of smaller ones: an icon, the value and what it is.
     pub facts: Vec<(&'static str, String, &'static str)>,
+    /// How the trip is judged.
+    pub judged: Judged,
+}
+
+/// The trip's evaluation as the card shows it.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Judged {
+    pub score: u32,
+    pub grade: &'static str,
+    pub stars: u32,
+    pub ink: Color,
+    pub xp: i64,
+    /// Punctuality (None on a free drive), comfort, safety: 0 - 100.
+    pub parts: [Option<u32>; 3],
+    /// The fines and what they were for ("1 red light, 1 speed camera"); 0: none.
+    pub fines: i64,
+    pub offences: String,
+}
+
+/// The colour of a score.
+fn score_ink(score: u32) -> Color {
+    if score >= 75 {
+        ON_TIME_INK
+    } else if score >= 50 {
+        NOW
+    } else {
+        LATE_INK
+    }
+}
+
+fn judged(run: &TripRun) -> Judged {
+    let e = judge::evaluate(run);
+    let mut what = Vec::new();
+    if run.red_lights > 0 {
+        what.push(tr_with(if run.red_lights == 1 { "%{n} red light" } else { "%{n} red lights" }, &[("n", run.red_lights.to_string())]));
+    }
+    if run.speeding > 0 {
+        what.push(tr_with(if run.speeding == 1 { "%{n} speed camera" } else { "%{n} speed cameras" }, &[("n", run.speeding.to_string())]));
+    }
+    Judged { score: e.score, grade: e.grade.label(), stars: e.grade.stars(), ink: score_ink(e.score), xp: e.xp, parts: [e.punctuality, Some(e.comfort), Some(e.safety)], fines: run.fines.max(0), offences: what.join(", ") }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -345,6 +388,7 @@ pub(crate) fn card(run: &TripRun) -> Card {
         note: if run.free { ("Free drive", "No timetable: nothing to be early or late for") } else { ("Punctuality", "No stop of this trip was served") },
         tiles,
         facts,
+        judged: judged(run),
     }
 }
 
@@ -356,11 +400,14 @@ const VERDICT: f32 = 96.0;
 const NOTE: f32 = 62.0;
 const TILES: f32 = 64.0;
 const FACTS: f32 = 30.0;
+const JUDGED: f32 = 76.0;
+/// The line under it saying what a fined trip's fines were for.
+const FINED: f32 = 20.0;
 const FOOT: f32 = 44.0;
 
 /// How tall the card is (at scale 1).
 pub(crate) fn card_height(c: &Card) -> f32 {
-    HEAD + if c.verdict.is_some() { VERDICT } else { NOTE } + TILES + FACTS + FOOT
+    HEAD + if c.verdict.is_some() { VERDICT } else { NOTE } + TILES + FACTS + JUDGED + if c.judged.fines > 0 { FINED } else { 0.0 } + FOOT
 }
 
 /// The card's scale: the navigator's (a third of the window's height, see `Navigator::frame`)
@@ -481,6 +528,8 @@ pub(crate) fn draw_card(pen: &mut Pen, c: &Card, r: Rect, s: f32, left: f32, sav
         }
     }
     y += FACTS * s;
+    draw_judged(pen, &c.judged, Rect::new(x0, y, w, JUDGED * s), s);
+    y += (JUDGED + if c.judged.fines > 0 { FINED } else { 0.0 }) * s;
     // the foot: that the trip is in the record, how to put the card away, and the time it has
     // left as a line along its bottom
     pen.p.rect(Rect::new(x0, y, w, 1.0), HAIRLINE);
@@ -494,6 +543,50 @@ pub(crate) fn draw_card(pen: &mut Pen, c: &Card, r: Rect, s: f32, left: f32, sav
     let line = Rect::new(r.x + radius, r.bottom() - 3.0 * s, (r.w - 2.0 * radius) * left.clamp(0.0, 1.0), 2.0 * s);
     if line.w > 0.5 {
         pen.p.rounded(line, 1.0 * s, ink.alpha(0.85));
+    }
+}
+
+/// The evaluation's band: the score in a ring with the grade, its stars, the experience and
+/// the fines on the left; the three parts as bars on the right.
+fn draw_judged(pen: &mut Pen, j: &Judged, r: Rect, s: f32) {
+    pen.p.rect(Rect::new(r.x, r.y, r.w, 1.0), HAIRLINE);
+    let top = r.y + 10.0 * s;
+    // the score
+    let c = Vec2::new(r.x + 27.0 * s, top + 29.0 * s);
+    pen.p.circle(c, 27.0 * s, j.ink.alpha(0.16));
+    pen.p.circle(c, 22.5 * s, SHEET);
+    pen.text_in(&j.score.to_string(), 19.0 * s, Weight::Bold, Rect::new(c.x - 24.0 * s, c.y - 12.0 * s, 48.0 * s, 24.0 * s), Align::Center, j.ink);
+    let lx = r.x + 66.0 * s;
+    let left_w = r.w * 0.58 - 76.0 * s;
+    pen.text_in(&omsi_ui::tr(j.grade).to_uppercase(), 11.0 * s, Weight::Bold, Rect::new(lx, top + 2.0 * s, left_w, 15.0 * s), Align::Left, j.ink);
+    for k in 0..5 {
+        let on = (k as u32) < j.stars;
+        pen.p.icon(pen.atlas, "star", Vec2::new(lx + 5.0 * s + k as f32 * 11.0 * s, top + 29.0 * s), 10.5 * s, if on { LINE } else { TEXT_FAINT.alpha(0.6) });
+    }
+    let xx = lx + 62.0 * s;
+    pen.text_in(&tr_with("+%{n} XP", &[("n", j.xp.to_string())]), 13.0 * s, Weight::Bold, Rect::new(xx, top + 20.0 * s, (lx + left_w - xx).max(0.0), 18.0 * s), Align::Left, accent_ink());
+    let (fine, ink) = if j.fines > 0 { (tr_with("Fines %{amount}", &[("amount", crate::drive_watch::euros(j.fines))]), LATE_INK) } else { (omsi_ui::tr("No fines").into_owned(), TEXT_DIM) };
+    pen.text_in(&fine, 11.5 * s, Weight::Medium, Rect::new(lx, top + 41.0 * s, left_w, 16.0 * s), Align::Left, ink);
+    // what the fines were for, across the card
+    if j.fines > 0 && !j.offences.is_empty() {
+        pen.p.icon(pen.atlas, "warning", Vec2::new(r.x + 7.0 * s, r.y + (JUDGED + 6.0) * s), 12.0 * s, LATE_INK);
+        pen.text_in(&j.offences, 11.5 * s, Weight::Medium, Rect::new(r.x + 18.0 * s, r.y + (JUDGED - 2.0) * s, r.w - 18.0 * s, 16.0 * s), Align::Left, TEXT_SOFT);
+    }
+    // the parts
+    let bx = r.x + r.w * 0.58;
+    let bw = r.right() - bx;
+    for (k, (label, v)) in ["Punctuality", "Comfort", "Safety"].iter().zip(j.parts).enumerate() {
+        let y = top + k as f32 * 20.0 * s;
+        let lw = bw * 0.45;
+        pen.text_in(&omsi_ui::tr(label).to_uppercase(), 9.5 * s, Weight::Bold, Rect::new(bx, y, lw, 14.0 * s), Align::Left, TEXT_DIM);
+        let value = v.map_or("–".to_string(), |v| v.to_string());
+        pen.text_in(&value, 11.5 * s, Weight::Bold, Rect::new(r.right() - 28.0 * s, y - 1.0 * s, 28.0 * s, 15.0 * s), Align::Right, TEXT);
+        let bar = Rect::new(bx + lw, y + 5.0 * s, (bw - lw - 34.0 * s).max(0.0), 4.0 * s);
+        pen.p.rounded(bar, 2.0 * s, FIELD);
+        if let Some(v) = v {
+            let fw = (bar.w * v.min(100) as f32 / 100.0).max(bar.h);
+            pen.p.rounded(Rect::new(bar.x, bar.y, fw.min(bar.w), bar.h), 2.0 * s, score_ink(v));
+        }
     }
 }
 
@@ -547,9 +640,11 @@ fn publish(run: &TripRun) {
 impl TripReport {
     /// One frame of the duty, after `PlayerDuty::update` (whose answer `served` is): a trip
     /// that ended is written into the driver's record and its card shown.
-    pub fn observe(&mut self, d: &PlayerDuty, served: Option<(f64, f64)>, career: &Career, map: &str, bus: &str) {
+    pub fn observe(&mut self, d: &PlayerDuty, served: Option<(f64, f64)>, career: &Career, watch: &crate::drive_watch::DriveWatch, map: &str, bus: &str) {
         let Some(view) = TripView::of(d) else { return };
-        let Some(run) = self.recorder.observe(view, served, Counters::of(career)) else { return };
+        let Some(mut run) = self.recorder.observe(view, served, Counters::of(career)) else { return };
+        // (what the drive watch saw on the trip's stretch of the career's clock)
+        watch.fill(&mut run, career.seconds);
         let saved = match career.write_trip(&run, map, bus) {
             Ok(_) => true,
             Err(e) => {
@@ -569,6 +664,12 @@ impl TripReport {
     /// Show the card of `run`.
     pub fn show(&mut self, run: TripRun, saved: bool) {
         self.shown = Some(Shown { card: card(&run), saved, left: SHOW_FOR, shown: 0.0, closing: false, rect: [0.0; 4] });
+    }
+
+    /// Where the card's bottom is on the window while it is shown (the drive watch's notice
+    /// goes under it).
+    pub fn bottom(&self) -> Option<f32> {
+        self.shown.as_ref().filter(|s| s.rect[3] > 0.0).map(|s| s.rect[3])
     }
 
     /// Put the card away (Enter): whether there was one.
@@ -651,7 +752,7 @@ impl TripReport {
 }
 
 /// Multisampling for the card's texture, as the navigator's (`navigator::map_samples`).
-fn samples(format: wgpu::TextureFormat) -> u32 {
+pub(crate) fn samples(format: wgpu::TextureFormat) -> u32 {
     if format.guaranteed_format_features(wgpu::Features::empty()).flags.sample_count_supported(4) {
         4
     } else {
@@ -793,7 +894,7 @@ mod tests {
     }
 
     fn run() -> TripRun {
-        TripRun { line: "307".into(), tour: "16".into(), terminus: "Markgraf-Berthold-Platz".into(), trip: 2, trips: 5, departure: 19.0 * 3600.0 + 5.0 * 60.0, arrival: 19.0 * 3600.0 + 29.0 * 60.0, completed: true, planned: 14, stops: 12, early: 1, late: 2, worst: Some(252.0), average: Some(65.0), seconds: 1500.0, metres: 11_240.0, jolts: 2, crashes: 0, passengers: 37, ..Default::default() }
+        TripRun { line: "307".into(), tour: "16".into(), terminus: "Markgraf-Berthold-Platz".into(), trip: 2, trips: 5, departure: 19.0 * 3600.0 + 5.0 * 60.0, arrival: 19.0 * 3600.0 + 29.0 * 60.0, completed: true, planned: 14, stops: 12, early: 1, late: 2, worst: Some(252.0), average: Some(65.0), seconds: 1500.0, metres: 11_240.0, jolts: 2, crashes: 0, passengers: 37, watched: true, hard_brakes: 1, ..Default::default() }
     }
 
     #[test]
@@ -808,6 +909,14 @@ mod tests {
         // (more than three minutes is late, in its colour)
         assert_eq!(c.tiles[0].1, LATE_INK);
         assert_eq!(c.facts.iter().map(|f| f.1.as_str()).collect::<Vec<_>>(), ["11.2 km", "2", "0", "37"]);
+        // judged: 75 % punctual, two jolts and a hard brake, safe
+        assert_eq!(c.judged.parts, [Some(75), Some(80), Some(100)]);
+        assert_eq!((c.judged.score, c.judged.grade, c.judged.fines), (84, "Good", 0));
+        let fined = card(&TripRun { red_lights: 1, speeding: 2, fines: 290_00, ..run() });
+        assert_eq!(fined.judged.fines, 290_00);
+        // ("1 red light, 2 speed cameras" in the language of the moment: other tests change it)
+        assert_eq!(fined.judged.offences.matches(", ").count(), 1);
+        assert!(fined.judged.score < c.judged.score);
         let all = card(&TripRun { early: 0, late: 0, worst: Some(-20.0), seconds: 3900.0, ..run() });
         assert!(all.verdict.as_ref().unwrap().spotless);
         assert_eq!(all.verdict.as_ref().unwrap().ink, ON_TIME_INK);
@@ -854,7 +963,7 @@ mod tests {
     /// languages that matter most.
     #[test]
     fn the_reports_are_translated() {
-        let keys = ["Trip completed", "Trip ended", "Worst delay", "Average delay", "Driving time", "Distance", "Jolts", "%{m} min", "Saved to your service record", "The trip could not be saved", "Enter or click to close", "No timetable: nothing to be early or late for", "No stop of this trip was served", "Trip reports", "Average", "Worst", "Free drive", "Punctuality", "%{good} of %{all} stops on time", "Stops served", "trip %{k} of %{n}"];
+        let keys = ["Trip completed", "Trip ended", "Worst delay", "Average delay", "Driving time", "Distance", "Jolts", "%{m} min", "Saved to your service record", "The trip could not be saved", "Enter or click to close", "No timetable: nothing to be early or late for", "No stop of this trip was served", "Trip reports", "Average", "Worst", "Free drive", "Punctuality", "%{good} of %{all} stops on time", "Stops served", "trip %{k} of %{n}", "Comfort", "Safety", "+%{n} XP", "Fines %{amount}", "No fines", "%{n} red light", "%{n} red lights", "%{n} speed camera", "%{n} speed cameras", "Excellent", "Good", "Fair", "Poor", "Bad"];
         for language in ["nl", "de", "fr", "ru", "uk", "pl"] {
             for key in keys {
                 let t = crate::_rust_i18n_try_translate(language, key);
@@ -874,7 +983,7 @@ mod tests {
         let fonts = Fonts::hanken();
         let mut atlas = Atlas::new(2048);
         let s = 2.0;
-        let runs = [run(), TripRun { early: 0, late: 0, worst: Some(-40.0), average: Some(12.0), ..run() }, TripRun { free: true, stops: 9, completed: true, ..run() }];
+        let runs = [TripRun { red_lights: 1, speeding: 1, fines: 250_00, ..run() }, TripRun { early: 0, late: 0, worst: Some(-40.0), average: Some(12.0), hard_brakes: 0, jolts: 0, ..run() }, TripRun { free: true, stops: 9, completed: true, ..run() }];
         let cards: Vec<Card> = runs.iter().map(card).collect();
         let tall = cards.iter().map(|c| card_height(c) * s).fold(0.0, f32::max);
         let mut img = image::RgbaImage::from_pixel(((CARD_W * s + 60.0) * 3.0) as u32, (tall + 60.0) as u32, image::Rgba([70, 84, 96, 255]));

@@ -315,6 +315,9 @@ pub(crate) struct App {
     pub(crate) journey: Option<crate::journey::Journey>,
     /// The report of each trip of the duty as it ends: its card and the driver's record.
     pub(crate) trip_report: crate::trip_report::TripReport,
+    /// Red lights, speed cameras and the passengers' comfort, said on the screen and taken
+    /// into each trip's report.
+    pub(crate) drive_watch: crate::drive_watch::DriveWatch,
     /// How wet the roads are (0..1), built up by rain and dried by the sun.
     pub(crate) wetness: f32,
     /// How far the cloud cover has drifted with the wind (fractions of its tiling), summed

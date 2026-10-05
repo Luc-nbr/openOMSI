@@ -171,6 +171,9 @@ pub struct EditorLayer {
     /// (world points, colour, width in points).
     pub lines: Vec<(Vec<DVec2>, Color, f32)>,
     pub dots: Vec<Dot>,
+    /// The look's trips are not drawn as the duty's route (the company's fleet map draws its
+    /// lines itself, each in its colour).
+    pub plain: bool,
 }
 
 /// A stop of the line editor on the map.
@@ -259,6 +262,8 @@ pub struct MapView {
     /// a click anywhere is the editor's (`take_click_at`).
     pub editor: Option<EditorLayer>,
     click_at: Option<Vec2>,
+    /// Counts the reads that arrived (a page that builds on the trips' routes builds again).
+    reads: u64,
 
     /// The plan and the markers (buffers 0 and 1); the markers are built every frame, the
     /// plan only when its key changes.
@@ -300,6 +305,7 @@ impl MapView {
             stop_style: crate::stop_signs::Style::German,
             editor: None,
             click_at: None,
+            reads: 0,
             plan: None,
             gpu: None,
             target: None,
@@ -465,6 +471,46 @@ impl MapView {
         }
     }
 
+    /// The company's fleet map: its lines over the map, each in its colour (made anew only
+    /// when their revision changes), and the look's trips not drawn as a duty's route.
+    pub fn company_lines(&mut self, revision: u64, lines: impl FnOnce() -> Vec<(Vec<DVec2>, Color, f32)>) {
+        self.editor_lines(revision, lines);
+        if let Some(e) = self.editor.as_mut() {
+            e.plain = true;
+        }
+    }
+
+    /// How many reads have arrived (a page building on `trip_tracks` builds again).
+    pub fn reads(&self) -> u64 {
+        self.reads
+    }
+
+    /// The shown look's trips as the map has them, in its order: the trip's name, its route
+    /// as a line in world metres (the lanes its road pieces run on, end to end; empty where
+    /// the map lacks them) and the place of each of its stops.
+    pub fn trip_tracks(&self) -> Vec<(String, Vec<DVec2>, Vec<Option<DVec2>>)> {
+        let (Some(shown), Some(roads)) = (self.shown.as_ref(), self.roads.as_deref()) else { return Vec::new() };
+        shown
+            .trips
+            .iter()
+            .zip(self.paths.iter())
+            .map(|(name, path)| {
+                let mut pts: Vec<DVec2> = Vec::new();
+                for piece in &path.route {
+                    let Some(lane) = roads.routes_of(piece).first().and_then(|i| roads.net.lanes.get(*i)) else { continue };
+                    for q in &lane.points {
+                        let p = q.truncate();
+                        if pts.last().is_none_or(|x| (*x - p).length() > 0.05) {
+                            pts.push(p);
+                        }
+                    }
+                }
+                let stops = path.stops.iter().map(|id| roads.objects.get(id).copied()).collect();
+                (name.clone(), pts, stops)
+            })
+            .collect()
+    }
+
     /// Where a placed object of the map stands, in world metres: the free drive marks the
     /// stop chosen to start at with it.
     pub fn object_place(&self, id: i64) -> Option<DVec2> {
@@ -611,6 +657,7 @@ impl MapView {
                     self.known = (r.look.global.clone(), r.look.date.clone(), r.paths);
                     self.error = r.error;
                     self.shown = Some(r.look);
+                    self.reads += 1;
                     self.plan = None;
                     self.place();
                     if another || another_trip {
@@ -850,7 +897,8 @@ impl MapView {
         // casings of all of it under the blue of all of it (a trip coming back over a street
         // is not cut by the casing of the one that went out)
         let (mut found, mut pieces) = (0, 0);
-        let lanes: Vec<Vec<Vec3>> = route_lanes(roads, &self.paths, &mut found, &mut pieces)
+        let plain = self.editor.as_ref().is_some_and(|e| e.plain);
+        let lanes: Vec<Vec<Vec3>> = route_lanes(roads, if plain { &[] } else { &self.paths }, &mut found, &mut pieces)
             .into_iter()
             .filter_map(|i| roads.net.lanes.get(i))
             .map(|l| simplify(&l.points.iter().map(|q| rel(*q)).collect::<Vec<_>>(), tolerance))

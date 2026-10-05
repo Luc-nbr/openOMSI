@@ -108,10 +108,20 @@ pub enum BookingKind {
     Severance,
     /// Contract penalties: trips dropped, trips late.
     Penalty,
+    /// Traffic fines of the player's own tours (red lights, speed cameras).
+    Fine,
+    /// The authority's quality bonus for the player's good tours.
+    Bonus,
+    /// Training courses.
+    Training,
+    /// Building the depot's areas (an investment, like a bus).
+    Construction,
+    /// Tender fees and the licences of the company's own lines.
+    Concession,
 }
 
 impl BookingKind {
-    pub const ALL: [BookingKind; 19] = [
+    pub const ALL: [BookingKind; 24] = [
         BookingKind::Capital,
         BookingKind::Loan,
         BookingKind::Repayment,
@@ -131,6 +141,11 @@ impl BookingKind {
         BookingKind::Wages,
         BookingKind::Severance,
         BookingKind::Penalty,
+        BookingKind::Fine,
+        BookingKind::Bonus,
+        BookingKind::Training,
+        BookingKind::Construction,
+        BookingKind::Concession,
     ];
 
     pub fn label(self) -> &'static str {
@@ -154,13 +169,18 @@ impl BookingKind {
             BookingKind::Wages => "Wages",
             BookingKind::Severance => "Severance",
             BookingKind::Penalty => "Penalties",
+            BookingKind::Fine => "Traffic fines",
+            BookingKind::Bonus => "Quality bonus",
+            BookingKind::Training => "Training",
+            BookingKind::Construction => "Depot building",
+            BookingKind::Concession => "Concessions and licences",
         }
     }
 
     /// Money that comes or goes with the company's capital (founding, loans, buying and
     /// selling buses): not part of what running the lines earns. A purchase is no bad day.
     pub fn is_capital(self) -> bool {
-        matches!(self, BookingKind::Capital | BookingKind::Loan | BookingKind::Repayment | BookingKind::Purchase | BookingKind::Sale | BookingKind::Subsidy)
+        matches!(self, BookingKind::Capital | BookingKind::Loan | BookingKind::Repayment | BookingKind::Purchase | BookingKind::Sale | BookingKind::Subsidy | BookingKind::Construction)
     }
 }
 
@@ -313,6 +333,9 @@ pub struct Employee {
     pub sick_until: Option<String>,
     #[serde(default)]
     pub holiday_until: Option<String>,
+    /// Away on a training course up to and including this day (`training::enrol`).
+    #[serde(default)]
+    pub training_until: Option<String>,
     /// Holiday days left this year.
     pub holiday_left: u32,
     /// Days worked in the running week (at most five).
@@ -329,7 +352,7 @@ pub struct Employee {
 impl Employee {
     pub fn absent(&self, today: &str) -> bool {
         let until = |u: &Option<String>| u.as_deref().is_some_and(|u| dates::between(today, u) >= 0);
-        until(&self.sick_until) || until(&self.holiday_until)
+        until(&self.sick_until) || until(&self.holiday_until) || until(&self.training_until)
     }
 
     pub fn employed_on(&self, today: &str) -> bool {
@@ -475,6 +498,18 @@ pub struct Company {
     pub live: Vec<LiveEvent>,
     #[serde(default)]
     pub last_report: Option<DayReport>,
+    /// The weekly roster and the dispatcher's choices for the day (see `plan`).
+    #[serde(default)]
+    pub planning: super::plan::Planning,
+    /// Its level, its courses, the player's tours judged (`levels`, `training`).
+    #[serde(default)]
+    pub progress: super::levels::Progress,
+    /// The depot's buildings and its workshop's jobs (see `depot`).
+    #[serde(default)]
+    pub site: super::depot::Site,
+    /// The lines' concessions and the tenders (see `concessions`).
+    #[serde(default)]
+    pub concessions: super::concessions::Concessions,
 }
 
 fn one() -> f64 {

@@ -66,6 +66,7 @@ mod puddles;
 mod quit;
 mod rain;
 mod scene;
+mod company_live;
 mod schedule;
 mod schedule_paper;
 mod real_time;
@@ -74,6 +75,8 @@ mod threads;
 mod tiles;
 mod traffic;
 mod trip_report;
+// red lights, speed cameras and comfort: what a trip is judged by besides the timetable
+mod drive_watch;
 mod ui;
 
 // the game itself, split by what each part does
@@ -608,6 +611,7 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
         career: Default::default(),
         journey: None,
         trip_report: Default::default(),
+        drive_watch: Default::default(),
         wetness: 0.0,
         cloud_drift: [0.0; 2],
         menu_edit: None,

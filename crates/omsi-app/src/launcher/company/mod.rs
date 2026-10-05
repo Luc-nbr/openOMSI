@@ -8,11 +8,17 @@
 //! nothing moves but what is under the mouse. What takes time - reading the buses for the
 //! market, the timetable of the company's day, closing a day - runs on a thread of its own.
 
+mod career;
+mod concessions;
+mod depot;
 mod fleet;
 mod lines;
+mod map;
 mod money;
 mod overview;
 mod people;
+mod planning;
+mod repair_game;
 mod wizard;
 
 use super::theme::*;
@@ -43,7 +49,11 @@ pub(super) struct Today {
     error: Option<String>,
 }
 
-pub(super) const TABS: [&str; 5] = ["Overview", "Fleet", "Staff", "Lines", "Finances"];
+pub(super) const TABS: [&str; 10] = ["Overview", "Fleet", "Staff", "Lines", "Finances", "Planning", "Career", "Depot", "Concessions", "Map"];
+/// The tabs of the depot, the concession market and the fleet map (see `TABS`).
+pub(super) const DEPOT_TAB: usize = 7;
+pub(super) const CONCESSIONS_TAB: usize = 8;
+pub(super) const MAP_TAB: usize = 9;
 
 /// A dialog over the company's pages.
 pub(super) enum Dialog {
@@ -55,6 +65,8 @@ pub(super) enum Dialog {
     Vehicle { id: u32, livery: usize },
     /// Something that cannot be undone.
     Confirm { what: Confirm },
+    /// A bid on a tender of the concession market (its price, of the reference).
+    Bid { tender: u32, price: f32 },
 }
 
 #[derive(Clone, Debug)]
@@ -91,6 +103,13 @@ pub struct CompanyView {
     pub(super) people: people::PeopleView,
     pub(super) lines: lines::LinesView,
     pub(super) money: money::MoneyView,
+    pub(super) planning: planning::PlanningView,
+    /// Raised whenever the company changed (the planning keeps its plans until then).
+    pub(super) generation: u64,
+    pub(super) career: career::CareerView,
+    pub(super) depot: depot::DepotView,
+    pub(super) tenders: concessions::TendersView,
+    pub(super) map: map::FleetMap,
 }
 
 impl Default for CompanyView {
@@ -119,6 +138,12 @@ impl Default for CompanyView {
             people: Default::default(),
             lines: Default::default(),
             money: Default::default(),
+            planning: Default::default(),
+            generation: 0,
+            career: Default::default(),
+            depot: Default::default(),
+            tenders: Default::default(),
+            map: Default::default(),
         }
     }
 }
@@ -333,13 +358,19 @@ fn work(l: &mut Launcher) {
             spawn(&view.tx, move || Msg::Own(map.clone(), core::lines::own_lines_of_map(&map)));
         }
     }
-    // today's plan
+    // today's plan (the roster's, see `planning`), and the company's day for the game: its
+    // tours run on the map with the company's buses while the player drives
     let view = &mut l.company;
     if view.plan.is_none() {
+        view.generation += 1;
         if let (Some(c), Some(t)) = (view.company.as_ref(), view.today.as_ref()) {
             if t.map == c.map && t.date == c.date {
                 let tours = co::network::tours_of_day(c, &t.lines);
-                view.plan = Some(co::day::assign(c, tours, &[], &[]));
+                let day = co::plan::day_plan(c, &c.date, tours, &[], &[], false);
+                view.plan = Some(day.to_plan());
+                if let Err(e) = co::plan::save_live_plan(&data(), &co::plan::live_plan(c, &day)) {
+                    log::warn!("company: the day's plan for the game: {e:#}");
+                }
             }
         }
     }
@@ -398,6 +429,7 @@ pub(super) fn act<T>(l: &mut Launcher, f: impl FnOnce(&mut Company) -> Result<T,
 /// The company's page: the founding wizard, or the company with its tabs.
 pub fn draw(l: &mut Launcher, area: Rect) {
     work(l);
+    depot::tick(l);
     if l.company.companies.is_none() {
         l.ui.text_in("Reading your companies…", Rect::new(area.x, area.y, area.w, 30.0), 14.0, Weight::Medium, TEXT_DIM, Align::Left);
         return;
@@ -427,6 +459,11 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         2 => people::draw(l, body),
         3 => lines::draw(l, body),
         4 => money::draw(l, body),
+        5 => planning::draw(l, body),
+        6 => career::draw(l, body),
+        DEPOT_TAB => depot::draw(l, body),
+        CONCESSIONS_TAB => concessions::draw(l, body),
+        MAP_TAB => map::draw(l, body),
         _ => overview::draw(l, body),
     }
     if let Some(i) = saved {
@@ -447,7 +484,7 @@ fn strip(l: &mut Launcher, area: Rect) -> Rect {
     let Some(c) = l.company.company.clone() else { return area };
     let mark = Rect::new(area.x, area.y, 44.0, 44.0);
     monogram(&mut l.ui, mark, &c);
-    let tabs_w = (area.w * 0.5).clamp(380.0, 640.0);
+    let tabs_w = (area.w * 0.66).clamp(380.0, 860.0);
     let text_w = (area.w - tabs_w - 70.0).max(80.0);
     l.ui.text_in(&c.name, Rect::new(mark.right() + 14.0, area.y, text_w, 24.0), 18.0, Weight::Bold, TEXT, Align::Left);
     let map = if c.map_name.is_empty() { super::state::short_map(&c.map) } else { c.map_name.clone() };
@@ -541,6 +578,7 @@ fn dialog(l: &mut Launcher) {
             let what = what.clone();
             confirm_dialog(l, what);
         }
+        Some(Dialog::Bid { .. }) => concessions::dialog(l),
         None => {}
     }
 }
@@ -628,6 +666,11 @@ fn note_text(n: &Note) -> (String, Color) {
             omsi_ui::tr("%{month} is closed: wages, leases, insurance, the depot and loan rates are booked. The month's result: %{amount}.").replace("%{month}", &month_label(month)).replace("%{amount}", &eur(*result)),
             if *result >= 0 { OK } else { WARN },
         ),
+        Note::Built { area } => (omsi_ui::tr("The depot's building work is done: %{what}.").replace("%{what}", &omsi_ui::tr(area)), OK),
+        Note::BayWait { number } => (omsi_ui::tr("Bus %{n} waits for a free workshop bay.").replace("%{n}", number), WARN),
+        Note::Won { number, until } => (omsi_ui::tr("The concession for line %{n} is yours until %{date}.").replace("%{n}", number).replace("%{date}", &day_label(until)), OK),
+        Note::Lost { number, winner } => (omsi_ui::tr("%{who} won the tender for line %{n}.").replace("%{n}", number).replace("%{who}", winner), WARN),
+        Note::Ended { number } => (omsi_ui::tr("The concession for line %{n} has ended: the line is no longer yours.").replace("%{n}", number), DANGER.lighten(0.25)),
     }
 }
 

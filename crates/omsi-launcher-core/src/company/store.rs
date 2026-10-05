@@ -121,6 +121,7 @@ pub fn close_day(data: &Path, c: &mut Company) -> Result<DayReport> {
     network::refresh_lines(c, &lines);
     let trips = crate::trips_of(data, &c.profile);
     let report = day::close_day(c, tours, &trips);
+    let report = super::depot::after_close(c, report, &lines);
     save(data, c)?;
     Ok(report)
 }

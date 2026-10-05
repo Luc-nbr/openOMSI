@@ -1630,6 +1630,18 @@ pub struct TripRun {
     pub jolts: i32,
     pub crashes: i32,
     pub passengers: i32,
+    /// What the game's drive watch saw on the way (`omsi-app`'s `drive_watch`; a trip of an
+    /// older game has none): red lights run and speed cameras that flashed, with what they
+    /// cost in fines (cents), and the trip's comfort - hard braking, hard starts and stops
+    /// that jerked the passengers. `watched`: the watch ran.
+    pub watched: bool,
+    pub red_lights: i32,
+    pub speeding: i32,
+    pub fines: i64,
+    pub hard_brakes: i32,
+    pub hard_starts: i32,
+    pub rough_stops: i32,
+    pub offences: Vec<company::career::Offence>,
 }
 
 impl TripRun {

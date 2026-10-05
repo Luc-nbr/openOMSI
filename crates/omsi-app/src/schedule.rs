@@ -460,6 +460,9 @@ pub struct Schedule {
     /// hashing each tour to a number put the same fleet number on two buses at once.
     tour_vehicle: HashMap<u64, (usize, usize)>,
     used_numbers: HashSet<(String, String)>,
+    /// The player's bus company on this map and day: its tours run with its own buses, and
+    /// what they drive is reported to it (`company_live`).
+    company: crate::company_live::CompanyLive,
 }
 
 /// A tour's bus waits at the end of a trip for the next one of its tour when that leaves
@@ -749,6 +752,7 @@ impl Schedule {
             car_use,
             tour_vehicle: HashMap::new(),
             used_numbers: HashSet::new(),
+            company: crate::company_live::CompanyLive::new(&world.map_dir, date, crate::company_live::data_dir()),
         };
         s.assign_car_use();
         s
@@ -873,6 +877,7 @@ impl Schedule {
             return;
         }
         self.day = date;
+        self.company.set_day(date);
         self.day_bits = day_bits(&self.calendar, clock);
         self.next_day_bit = 1 << ((clock.weekday() + 1) % 7);
         let busy: HashSet<usize> = self
@@ -911,6 +916,43 @@ impl Schedule {
             .position(|c| c.is_bus() && !c.gone && self.car_departure.get(&c.id) == Some(&k))
     }
 
+    /// A trip of the player's company that its bus drove to the end (departure `k`): told to
+    /// the company once, with its kilometres and how late it was (`company_live`).
+    fn report_company_trip(&mut self, k: usize, delay: f64) {
+        if !self.company.active() {
+            return;
+        }
+        let d = &self.departures[k];
+        if self.company.tour(&d.line, &d.tour).is_none() {
+            return;
+        }
+        let trip = &self.data.trips[d.trip];
+        let stations = trip_stations(trip);
+        let (steps, _) = self.steps_of(&trip.name, &stations);
+        let km = steps.iter().map(|s| s.length).sum::<f64>() / 1000.0;
+        let (line, tour, dep) = (d.line.clone(), d.tour.clone(), (d.time / 60.0).round() as i32);
+        self.company.report(k, &line, &tour, dep, km, stations.len(), delay);
+    }
+
+    /// The vehicle of a tour the player's company runs: its own bus, in its paint, with its
+    /// fleet number and plate, carrying the company's depot (None: not the company's tour,
+    /// or a rental bus - the map's own vehicle then).
+    fn company_choice(&mut self, i: usize, world: &World) -> Option<Choice> {
+        if !self.company.active() {
+            return None;
+        }
+        let d = &self.departures[i];
+        let lt = self.company.tour(&d.line, &d.tour)?.clone();
+        let group = d.ai_group.to_ascii_lowercase();
+        let ty = self.company.vehicle_type(&world.root, &lt.bus)?;
+        let depot = self.company.depot().map(str::to_string);
+        let hof = depot
+            .and_then(|name| depot_file(&mut self.company.hofs, ty.def.dir(), &name))
+            .or_else(|| self.depots.get(&group).and_then(|v| v.first()).and_then(|x| x.2.clone()));
+        let scheme = if lt.paint.trim().is_empty() { None } else { ty.paint_schemes.iter().position(|s| s.name.trim().eq_ignore_ascii_case(lt.paint.trim())) };
+        Some(Choice { ty, number: Some((lt.fleet_number.clone(), lt.plate.clone())), hof, scheme, train: None })
+    }
+
     /// The timetable buses at the end of their trip: each takes its tour's next trip on
     /// where it stands, or goes.
     fn tour_handover(
@@ -924,6 +966,9 @@ impl Schedule {
         let done: Vec<u64> = traffic.cars.iter().filter(|c| c.trip_done()).map(|c| c.id).collect();
         for id in done {
             let Some(ci) = traffic.cars.iter().position(|c| c.id == id) else { continue };
+            if let Some(&k) = self.car_departure.get(&id) {
+                self.report_company_trip(k, traffic.cars[ci].bus.as_ref().map(|b| b.delay).unwrap_or(0.0));
+            }
             let next = self.car_departure.get(&id).and_then(|&k| self.tour_next[k]);
             let mut taken = false;
             if let Some(j) = next {
@@ -1290,6 +1335,9 @@ impl Schedule {
 
     /// The vehicle departure `i` is driven with (see [`Choice`]).
     fn choose(&mut self, i: usize, world: &World) -> Option<Choice> {
+        if let Some(c) = self.company_choice(i, world) {
+            return Some(c);
+        }
         let group = self.departures[i].ai_group.to_ascii_lowercase();
         let h = self.tour_key(i);
         // trains: the group lists .zug files instead of depot vehicles
@@ -1788,7 +1836,7 @@ impl Schedule {
             .departures
             .iter()
             .enumerate()
-            .filter(|(i, d)| !d.spawned && d.time <= tod && d.time > tod - window && self.runs(*i))
+            .filter(|(i, d)| !d.spawned && d.time <= tod && d.time > tod - window && self.runs(*i) && !self.company.dropped(&d.line, &d.tour))
             .map(|(i, _)| i)
             .collect();
         for i in due {

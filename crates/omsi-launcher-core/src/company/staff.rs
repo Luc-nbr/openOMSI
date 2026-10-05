@@ -206,6 +206,7 @@ pub fn hire(c: &mut Company, a: &Applicant) -> Result<u32, &'static str> {
         resigned: false,
         sick_until: None,
         holiday_until: None,
+        training_until: None,
         holiday_left: left.unwrap_or(HOLIDAYS),
         week_days: 0,
         last_end: None,

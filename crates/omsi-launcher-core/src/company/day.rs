@@ -2,8 +2,8 @@
 //!
 //! Omsi-Hub's company day: OMSI runs one to one, and a whole company's day cannot be played,
 //! so a day is a step the player takes. Its tours (those of the company's lines that run on
-//! the date, `network::tours_of_day`) are given buses and drivers (`assign`: what free buses
-//! and people can cover is run, the rest is dropped - the full planning comes later), and the
+//! the date, `network::tours_of_day`) are given buses and drivers (`plan::day_plan`: the
+//! weekly roster, the dispatcher's own, and what fell out in the morning), and the
 //! close settles it: what the player drove himself counts measured, from the trip reports the
 //! game writes (`crate::TripRun`); what the game reported of the company's buses while it ran
 //! counts measured too (`record_live`, the hook for the live company of the next phase); the
@@ -42,6 +42,10 @@ pub enum LiveEvent {
         /// Seconds off the timetable at its end (negative early).
         delay: f64,
         completed: bool,
+        /// When the trip left (minutes of the day, as the timetable has it): the close leaves
+        /// that trip out of the model; without it the whole tour counts as reported.
+        #[serde(default)]
+        dep: Option<i32>,
     },
     /// A bus of the fleet broke down in the game.
     Breakdown { vehicle: u32 },
@@ -63,6 +67,9 @@ pub struct DutyPlan {
     pub from: i32,
     pub to: i32,
     pub driver: Option<u32>,
+    /// The driver comes late: the trips that leave before this minute are dropped.
+    #[serde(default)]
+    pub dropped_before: Option<i32>,
 }
 
 /// A tour of the day with its bus and duties.
@@ -133,7 +140,7 @@ pub fn assign(c: &Company, tours: Vec<TourOfDay>, player: &[(String, String)], l
     for t in tours {
         let duties: Vec<DutyPlan> = network::duties_of(&t)
             .into_iter()
-            .map(|r| DutyPlan { from: t.trips[r.start].dep, to: t.trips[r.clone()].iter().map(|x| x.arr).max().unwrap_or(0), start: r.start, end: r.end, driver: None })
+            .map(|r| DutyPlan { from: t.trips[r.start].dep, to: t.trips[r.clone()].iter().map(|x| x.arr).max().unwrap_or(0), start: r.start, end: r.end, driver: None, dropped_before: None })
             .collect();
         let by_player = is_one_of(&t, player);
         let is_live = !by_player && is_one_of(&t, live);
@@ -224,6 +231,16 @@ pub enum Note {
     LoanPaid { purpose: String },
     /// The month was closed: wages, leases, insurance, depot and loan rates were booked.
     Month { month: String, result: Cents },
+    /// Building work at the depot was finished (the area's label).
+    Built { area: String },
+    /// A bus waits for a free workshop bay.
+    BayWait { number: String },
+    /// A concession was won (from tomorrow, or renewed) until `until`.
+    Won { number: String, until: String },
+    /// A tender was lost to another operator.
+    Lost { number: String, winner: String },
+    /// A concession ended: the line is no longer the company's.
+    Ended { number: String },
 }
 
 /// What a closed day came to.
@@ -331,6 +348,8 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
         report.measured_revenue += fares + comp;
         c.book(BookingKind::Fares, fares, format!("Line {} (own trip)", l.number), true);
         c.book(BookingKind::Compensation, comp, format!("Line {} (own trip)", l.number), true);
+        // (its fines, its quality bonus and its experience: `levels`)
+        super::levels::book_trip(c, t, &l.number);
         if !t.tour.trim().is_empty() {
             player.push((t.line.clone(), t.tour.clone()));
         }
@@ -339,10 +358,12 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
 
     // 2. what the game reported live (measured)
     let mut live: Vec<(String, String)> = Vec::new();
+    let mut live_trips: Vec<(String, String, Option<i32>)> = Vec::new();
     let mut live_broken: Vec<u32> = Vec::new();
     for ev in std::mem::take(&mut c.live) {
         match ev {
-            LiveEvent::Trip { line, tour, vehicle, km, passengers, delay, completed: _ } => {
+            LiveEvent::Trip { line, tour, vehicle, km, passengers, delay, completed: _, dep } => {
+                live_trips.push((line.clone(), tour.clone(), dep));
                 let Some(li) = line_index(c, &line) else { continue };
                 let fares = passengers as Cents * r.fare;
                 let comp = (km.max(0.0) * comp_km).round() as Cents;
@@ -371,8 +392,11 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
         }
     }
 
-    // 3. the plan, and what breaks down on the way (the trips after it are dropped)
-    let plan = assign(c, tours, &player, &live);
+    // 3. the plan (the roster, the dispatcher's own, what fell out in the morning: see
+    // `plan`), and what breaks down on the way (the trips after it are dropped)
+    let day_plan = super::plan::day_plan(c, &date, tours, &player, &live, true);
+    let (plan, morning) = super::plan::settle_morning(c, &day_plan);
+    report.notes.extend(morning);
     let mut cut: Vec<(u32, i32)> = Vec::new();
     let mut used: Vec<u32> = plan.tours.iter().filter_map(|t| t.bus).collect();
     used.sort();
@@ -399,15 +423,18 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
             lines[li].covered += 1;
             report.covered += 1;
         }
-        if tp.by_player || tp.live {
-            report.by_player += u32::from(tp.by_player);
+        if tp.by_player {
+            report.by_player += 1;
             continue;
         }
+        // (a tour the game ran live: the trips it reported are booked already, the rest of
+        // the day is the model's)
+        let reported = |trip: &network::PlannedTrip| tp.live && live_trips.iter().any(|(l, n, dep)| is_one_of(&tp.tour, &[(l.clone(), n.clone())]) && dep.is_none_or(|d| (d - trip.dep).abs() <= 2));
         let v = tp.bus.and_then(|b| c.vehicle(b)).cloned();
         let broken_at = tp.bus.and_then(|b| cut.iter().find(|x| x.0 == b)).map(|x| x.1);
         for d in &tp.duties {
-            let driver = d.driver.and_then(|id| c.employee(id)).cloned();
-            if let Some(e) = &driver {
+            let driver = d.driver.and_then(|id| if id == super::plan::AGENCY { Some(super::plan::agency_driver()) } else { c.employee(id).cloned() });
+            if let Some(e) = driver.as_ref().filter(|e| e.id != super::plan::AGENCY) {
                 match worked.iter_mut().find(|w| w.0 == e.id) {
                     Some(w) => {
                         w.1 += d.to - d.from;
@@ -418,11 +445,14 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
             }
             for trip in &tp.tour.trips[d.start..d.end] {
                 let counts = trip.counts();
-                let run = v.is_some() && driver.is_some() && broken_at.is_none_or(|at| trip.dep < at);
                 if counts {
                     lines[li].trips += 1;
                     report.trips += 1;
                 }
+                if reported(trip) {
+                    continue;
+                }
+                let run = v.is_some() && driver.is_some() && broken_at.is_none_or(|at| trip.dep < at) && d.dropped_before.is_none_or(|t| trip.dep >= t);
                 if !run {
                     if counts {
                         lines[li].dropped += 1;
@@ -584,6 +614,11 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
     report.reputation = c.reputation;
     report.reputation_change = c.reputation - rep0;
 
+    // the company's progress: the day's experience, the courses that end, what its own
+    // mechanics and eco drivers saved (`levels::day_closed`)
+    let day_passengers: u32 = lines.iter().map(|l| l.passengers).sum();
+    super::levels::day_closed(c, &date, report.covered, report.dropped, punctuality, day_passengers);
+
     // 10. the day's figures, and on to the next
     let after = c.month(&month);
     for k in super::model::BookingKind::ALL.iter().filter(|k| !k.is_capital()) {
@@ -741,7 +776,7 @@ mod tests {
         let r = close_day(&mut c, vec![], &[run]);
         assert_eq!(r.measured, 0);
         // the live hook counts too
-        record_live(&mut c, LiveEvent::Trip { line: "5".into(), tour: "2".into(), vehicle: None, km: 8.0, passengers: 20, delay: 30.0, completed: true });
+        record_live(&mut c, LiveEvent::Trip { line: "5".into(), tour: "2".into(), vehicle: None, km: 8.0, passengers: 20, delay: 30.0, completed: true, dep: None });
         let r = close_day(&mut c, vec![tour("2", 6 * 60, 4)], &[]);
         assert_eq!((r.covered, r.dropped), (1, 0));
         assert!(c.live.is_empty());

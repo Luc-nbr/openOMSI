@@ -731,6 +731,11 @@ pub(crate) fn handle(req: &Request, shared: &Shared, lookup: Lookup, stop: &Atom
                 None => Response::json(&json!({ "url": Value::Null, "code": code })),
             }
         }
+        Route::Company => Response::json(&super::company::state()).with("Cache-Control", "no-store"),
+        Route::CompanyOrder => {
+            let (status, v) = super::company::order(&req.body);
+            Response::json(&v).with_status(status)
+        }
         Route::NotFound => Response::status(404),
         Route::Method => Response::status(405),
     }

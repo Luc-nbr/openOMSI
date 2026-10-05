@@ -195,8 +195,26 @@ pub fn new_offer(c: &Company, bus: &MarketBus) -> (Cents, Cents) {
     (price, economy::grant(bus.kind, price, &r, c.price_index))
 }
 
+/// Whether the company's level allows a bus of this kind: articulated, electric and
+/// double-decker buses open with its levels (`levels::Feature`).
+pub fn kind_allowed(c: &Company, kind: BusKind) -> Result<(), &'static str> {
+    use super::levels::{unlocked, Feature};
+    if kind.size == BusSize::Articulated && !unlocked(c, Feature::ArticulatedBuses) {
+        return Err("Articulated buses open at a higher company level.");
+    }
+    if kind.size == BusSize::Double && !unlocked(c, Feature::DoubleDeckers) {
+        return Err("Double-deckers open at a higher company level.");
+    }
+    if kind.drive == Drive::Electric && !unlocked(c, Feature::ElectricBuses) {
+        return Err("Electric buses open at a higher company level.");
+    }
+    Ok(())
+}
+
 /// Buy a new bus. Returns its id.
 pub fn buy_new(c: &mut Company, bus: &MarketBus, how: Payment, livery: &str) -> Result<u32, &'static str> {
+    super::depot::room(c)?;
+    kind_allowed(c, bus.kind)?;
     let (price, grant) = new_offer(c, bus);
     pay(c, price - grant, how, &bus.name)?;
     c.book(BookingKind::Purchase, -price, format!("{} (new)", bus.name), false);
@@ -207,6 +225,8 @@ pub fn buy_new(c: &mut Company, bus: &MarketBus, how: Payment, livery: &str) -> 
 
 /// Buy one of the week's used offers.
 pub fn buy_used(c: &mut Company, offer: &UsedOffer, how: Payment, livery: &str) -> Result<u32, &'static str> {
+    super::depot::room(c)?;
+    kind_allowed(c, offer.bus.kind)?;
     let week = dates::week_of(&c.date);
     if c.taken.week == week && c.taken.used.contains(&offer.no) {
         return Err("This bus has been sold.");
@@ -231,6 +251,8 @@ pub fn lease_offer(c: &Company, bus: &MarketBus) -> (Cents, u32, Cents) {
 
 /// Lease a new bus: no price now, a rate at every month's end (the first month pro rata).
 pub fn lease(c: &mut Company, bus: &MarketBus, livery: &str) -> Result<u32, &'static str> {
+    super::depot::room(c)?;
+    kind_allowed(c, bus.kind)?;
     let (monthly, months, residual) = lease_offer(c, bus);
     // (the leasing company wants to see a month's rate in the bank)
     if c.cash < monthly {
@@ -243,6 +265,8 @@ pub fn lease(c: &mut Company, bus: &MarketBus, livery: &str) -> Result<u32, &'st
 
 /// Rent a bus for `days` days from today (paid by the day at each day's close).
 pub fn rent(c: &mut Company, bus: &MarketBus, days: u32, livery: &str) -> Result<u32, &'static str> {
+    super::depot::room(c)?;
+    kind_allowed(c, bus.kind)?;
     let r = economy::rules(c.difficulty);
     let daily = economy::rent_per_day(bus.kind, &r, c.price_index);
     if days == 0 {
@@ -352,7 +376,22 @@ mod tests {
     }
 
     fn company(d: Difficulty) -> Company {
-        found(&Founding { name: "Stadtbus".into(), short: "SB".into(), difficulty: d, date: "2024-03-04".into(), ..Default::default() }, "Luc")
+        let mut c = found(&Founding { name: "Stadtbus".into(), short: "SB".into(), difficulty: d, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+        // (every kind of bus open: the levels' gates have a test of their own)
+        c.progress.xp = super::super::levels::LEVEL_XP[9];
+        c
+    }
+
+    /// A new company buys solo diesel buses only: articulated, electric and double-decker
+    /// buses open with its levels.
+    #[test]
+    fn the_company_level_opens_the_bigger_and_electric_buses() {
+        let mut c = found(&Founding { name: "Klein".into(), short: "KL".into(), difficulty: Difficulty::Realistic, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+        assert!(buy_new(&mut c, &bus("Citaro", BusSize::Solo, Drive::Diesel), Payment::Cash, "").is_ok());
+        assert_eq!(buy_new(&mut c, &bus("Citaro G", BusSize::Articulated, Drive::Diesel), Payment::Cash, ""), Err("Articulated buses open at a higher company level."));
+        assert_eq!(lease(&mut c, &bus("eCitaro", BusSize::Solo, Drive::Electric), ""), Err("Electric buses open at a higher company level."));
+        c.progress.xp = super::super::levels::LEVEL_XP[1];
+        assert!(buy_new(&mut c, &bus("Citaro G", BusSize::Articulated, Drive::Diesel), Payment::Cash, "").is_ok());
     }
 
     #[test]

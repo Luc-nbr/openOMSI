@@ -14,16 +14,25 @@
 //! Everything here is plain functions over plain data, without a window; the launcher's pages
 //! call them, and the rules are tested on their own.
 
+pub mod career;
+pub mod concessions;
 pub mod dates;
 pub mod day;
+pub mod depot;
 pub mod economy;
 pub mod finance;
+pub mod fleetmap;
+pub mod levels;
 pub mod market;
 pub mod model;
 pub mod network;
+pub mod plan;
+pub mod rankings;
+pub mod remote;
 pub mod rng;
 pub mod staff;
 pub mod store;
+pub mod training;
 
 pub use model::*;
 
@@ -105,6 +114,10 @@ pub fn found(f: &Founding, profile: &str) -> Company {
         trips_seen: 0,
         live: Vec::new(),
         last_report: None,
+        planning: Default::default(),
+        progress: Default::default(),
+        site: Default::default(),
+        concessions: Default::default(),
     };
     c.book(BookingKind::Capital, r.start_capital, c.name.clone(), false);
     c

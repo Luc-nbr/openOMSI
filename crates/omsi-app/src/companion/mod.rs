@@ -42,8 +42,13 @@
 //! * Pairing by QR code ([`qr`], [`pair_qr`]): the page's address with the pairing code in
 //!   it, scanned with a camera, pairs a device without typing.
 //!
+//! * The company ([`company`]): the bus company the launcher has open, on its own tab - money,
+//!   today's dispositions, the depot and its workshop - and the few orders a paired device may
+//!   send for it (queued for the launcher, which owns the company).
+//!
 //! The game calls [`frame`] once a frame; everything a device asks waits for that.
 
+mod company;
 mod device;
 mod form;
 mod http;

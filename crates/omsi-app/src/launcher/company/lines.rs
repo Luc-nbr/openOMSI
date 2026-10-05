@@ -177,6 +177,9 @@ fn to_add(l: &mut Launcher, r: Rect, c: &Company) {
         return;
     }
     let mut add = None;
+    // (on Realistic and Hard a map line is applied for: its concession's tender)
+    let direct = co::concessions::may_add_directly(c);
+    let bids: Vec<(String, Option<f64>)> = c.concessions.tenders.iter().filter(|t| t.open()).map(|t| (t.line.to_lowercase(), t.bid)).collect();
     l.ui.scroll_area("company-lines-add", rows, &mut |ui, v| {
         let rh = 54.0;
         for (k, line) in list.iter().enumerate() {
@@ -197,13 +200,25 @@ fn to_add(l: &mut Launcher, r: Rect, c: &Company) {
                 Some(o) => ownlines::caption_of(o, line),
                 None => format!("{}  ·  {}", line.name, line.termini.join(" – ")),
             };
-            ui.text_in(&caption, Rect::new(r.x + w + 22.0, r.y + 4.0, r.w - w - 150.0, 22.0), 13.0, Weight::Bold, TEXT, Align::Left);
+            ui.text_in(&caption, Rect::new(r.x + w + 22.0, r.y + 4.0, r.w - w - 170.0, 22.0), 13.0, Weight::Bold, TEXT, Align::Left);
             let runs = line.tours.iter().filter(|t| t.runs).count();
             let km: f64 = line.tours.iter().filter(|t| t.runs).flat_map(|t| t.trips.iter()).map(|t| t.km).sum();
             let sub = omsi_ui::tr("%{n} tours today  ·  %{km} km").replace("%{n}", &runs.to_string()).replace("%{km}", &format!("{km:.0}"));
-            ui.text_in(&sub, Rect::new(r.x + w + 22.0, r.y + 24.0, r.w - w - 150.0, 18.0), 11.5, Weight::Regular, TEXT_DIM, Align::Left);
-            if ui.button(&format!("company-add-{}", line.name), Rect::new(r.right() - 110.0, r.y + 8.0, 100.0, 32.0), "Add", Some("add"), ButtonKind::Normal) {
+            ui.text_in(&sub, Rect::new(r.x + w + 22.0, r.y + 24.0, r.w - w - 170.0, 18.0), 11.5, Weight::Regular, TEXT_DIM, Align::Left);
+            let tender = bids.iter().find(|b| b.0 == line.name.to_lowercase());
+            let (label, icon) = if direct || o.is_some() {
+                ("Add", "add")
+            } else if tender.is_some_and(|t| t.1.is_some()) {
+                ("Bid made", "receipt_long")
+            } else {
+                ("Apply", "receipt_long")
+            };
+            let br = Rect::new(r.right() - 130.0, r.y + 8.0, 120.0, 32.0);
+            if ui.button(&format!("company-add-{}", line.name), br, label, Some(icon), ButtonKind::Normal) {
                 add = Some(k);
+            }
+            if label != "Add" {
+                ui.tooltip(br, "A line of the map is run under a concession: bid in its tender, and the line is the company's if the bid wins");
             }
         }
         list.len() as f32 * rh
@@ -211,6 +226,13 @@ fn to_add(l: &mut Launcher, r: Rect, c: &Company) {
     if let Some(k) = add {
         let line = list[k].clone();
         let o = core::lines::own_line_of(&line.name, &own);
+        if !direct && o.is_none() {
+            if let Some(id) = act(l, |c| co::concessions::apply(c, &line)) {
+                let price = l.company.company.as_ref().and_then(|c| c.concessions.tenders.iter().find(|t| t.id == id)).and_then(|t| t.bid).unwrap_or(1.0);
+                l.company.dialog = Some(Dialog::Bid { tender: id, price: price as f32 });
+            }
+            return;
+        }
         if act(l, |c| co::network::add_line(c, &line, o.as_ref())).is_some() {
             let n = l.company.company.as_ref().and_then(|c| c.lines.last()).map(|x| x.number.clone()).unwrap_or_default();
             l.state.set_status(omsi_ui::tr("The company runs line %{n} from today.").replace("%{n}", &n), false);

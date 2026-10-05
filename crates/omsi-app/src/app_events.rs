@@ -1440,7 +1440,7 @@ impl ApplicationHandler for App {
                     }
                     crate::journey::note(&mut self.journey, d, due, served, &self.args.root, || crate::journey::head(&self.career, &w.global.name, &p.vehicle, &self.clock));
                     // (a trip that ended: its card, and it into the driver's record)
-                    self.trip_report.observe(d, served, &self.career, &self.args.map, self.args.bus.as_deref().unwrap_or_default());
+                    self.trip_report.observe(d, served, &self.career, &self.drive_watch, &self.args.map, self.args.bus.as_deref().unwrap_or_default());
                     if d.take_trip_change() && p.duty_typed {
                         let (trip, stop) = d.trip_for_ibis();
                         p.set_duty_destination(trip, stop);
@@ -1466,6 +1466,9 @@ impl ApplicationHandler for App {
                     // (a frame after the session was written must not start another one)
                     if !self.exiting && !self.paused {
                         self.career.tick(dt, &p.vehicle, riders);
+                        // red lights, speed cameras, comfort (`drive_watch`), on the career's clock
+                        let outline = crate::traffic_link::player_outline(p);
+                        self.drive_watch.tick(self.career.seconds, dt, outline, self.traffic.as_ref());
                     }
                     if crash > 0.0 {
                         self.career.crashed(crash, p.vehicle.physics.velocity_kmh() / 3.6);
@@ -2297,6 +2300,9 @@ impl ApplicationHandler for App {
                     // the menus; its time runs with the game
                     let running = !self.paused && self.game_menu.is_none();
                     self.trip_report.frame(r, scene, hud, &self.settings, dt, running);
+                    // a red light or a speed camera: its notice, under the trip's card if one is up
+                    let under = self.trip_report.bottom();
+                    self.drive_watch.frame(r, scene, hud, self.settings.ui_scale, under, dt, running);
                     if let (Some(ui), Some(s)) = (self.ui.as_mut(), self.surface.as_ref()) {
                         let scale = self.window.as_ref().map(|w| w.scale_factor() as f32).unwrap_or(1.0);
                         let (w, h) = (hud[2], hud[3]);

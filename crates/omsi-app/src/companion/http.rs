@@ -159,6 +159,10 @@ pub(crate) enum Route {
     /// `GET /api/qr`: the QR code another device scans to open the page and pair at once (a
     /// paired device may show it: the code is no secret to it).
     PairQr,
+    /// `GET /api/company`: the bus company the launcher has open (`companion::company`), and
+    /// `POST /api/company`: an order for it, as strict JSON.
+    Company,
+    CompanyOrder,
     NotFound,
     /// A known path with the wrong method.
     Method,
@@ -167,7 +171,7 @@ pub(crate) enum Route {
 impl Route {
     /// Whether the route wants a paired device's key.
     pub(crate) fn needs_key(&self) -> bool {
-        matches!(self, Route::State(_) | Route::Frame(..) | Route::View(..) | Route::Form(_) | Route::Live(..) | Route::Tex(_) | Route::Font(_) | Route::FontImg(_) | Route::Do | Route::Nav(_) | Route::Trip | Route::Roads { .. } | Route::PairQr)
+        matches!(self, Route::State(_) | Route::Frame(..) | Route::View(..) | Route::Form(_) | Route::Live(..) | Route::Tex(_) | Route::Font(_) | Route::FontImg(_) | Route::Do | Route::Nav(_) | Route::Trip | Route::Roads { .. } | Route::PairQr | Route::Company | Route::CompanyOrder)
     }
 }
 
@@ -231,6 +235,13 @@ pub(crate) fn route(r: &Request) -> Route {
             wants(get, Route::Roads { x, y, r: radius, tol })
         }
         "/api/qr" => wants(get, Route::PairQr),
+        "/api/company" => {
+            if post {
+                Route::CompanyOrder
+            } else {
+                wants(get, Route::Company)
+            }
+        }
         _ => Route::NotFound,
     }
 }

@@ -377,6 +377,8 @@ impl Launcher {
             // controllers, settings:3 Sound)
             app.pages.controls_tab = step;
             app.pages.settings_tab = step.min(pages::SETTINGS_TABS.len() - 1);
+            // (and the bus company's: "bus company:7" its fleet map)
+            app.company.tab = step.min(company::TABS.len() - 1);
         }
     }
     // (`OMSI_LAUNCHER_LIVERY=<bus file>`: the livery studio at once)
@@ -1429,8 +1431,9 @@ impl Launcher {
 
     pub fn go(&mut self, p: Page) {
         if self.page != p {
-            // (the line editor's layer goes with it: the map is the duty's again)
-            if self.page == Page::Lines {
+            // (the line editor's layer goes with it, and the company's fleet map's: the map is
+            // the duty's again)
+            if self.page == Page::Lines || self.page == Page::Company {
                 self.mapview.editor_off();
             }
             self.page = p;
