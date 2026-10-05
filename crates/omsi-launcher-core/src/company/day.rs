@@ -1,0 +1,794 @@
+//! The company day: who drives what, and "Close the day".
+//!
+//! Omsi-Hub's company day: OMSI runs one to one, and a whole company's day cannot be played,
+//! so a day is a step the player takes. Its tours (those of the company's lines that run on
+//! the date, `network::tours_of_day`) are given buses and drivers (`assign`: what free buses
+//! and people can cover is run, the rest is dropped - the full planning comes later), and the
+//! close settles it: what the player drove himself counts measured, from the trip reports the
+//! game writes (`crate::TripRun`); what the game reported of the company's buses while it ran
+//! counts measured too (`record_live`, the hook for the live company of the next phase); the
+//! rest is modelled - passengers from the line and the hour, fares and the authority's payment
+//! per kilometre, energy, maintenance, breakdowns, late trips, and penalties for what was
+//! dropped. Then the night: wear and services, the staff (`staff::after_day`), and on a
+//! month's last day the wages, leases, insurance, depot and loan rates.
+
+use super::dates;
+use super::economy;
+use super::finance;
+use super::market;
+use super::model::{BookingKind, BusKind, BusSize, Cents, Company, DayRecord, Drive, Tenure, HISTORY_KEPT};
+use super::network::{self, line_of_number, TourOfDay};
+use super::rng::Rng;
+use super::staff::{self, Block, StaffNote, BUS_MARGIN, WEEK_DAYS};
+use crate::TripRun;
+use serde::{Deserialize, Serialize};
+
+// --- the live hook ---------------------------------------------------------------------------
+
+/// What the game reports of the company while it runs (the next phase: the company's buses
+/// drive the map as AI and the player's own duties are known).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LiveEvent {
+    /// A trip of a company tour, driven by one of its buses (`vehicle`) or by the player.
+    Trip {
+        /// The company line's number (as the displays show it) and the tour.
+        line: String,
+        tour: String,
+        #[serde(default)]
+        vehicle: Option<u32>,
+        km: f64,
+        passengers: u32,
+        /// Seconds off the timetable at its end (negative early).
+        delay: f64,
+        completed: bool,
+    },
+    /// A bus of the fleet broke down in the game.
+    Breakdown { vehicle: u32 },
+}
+
+/// The hook the game calls with what happened (kept until the day is closed, which books it
+/// as measured and leaves those tours out of the model).
+pub fn record_live(c: &mut Company, ev: LiveEvent) {
+    c.live.push(ev);
+}
+
+// --- the plan of a day -----------------------------------------------------------------------
+
+/// A duty of a tour: its trips (indices) and who drives it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct DutyPlan {
+    pub start: usize,
+    pub end: usize,
+    pub from: i32,
+    pub to: i32,
+    pub driver: Option<u32>,
+}
+
+/// A tour of the day with its bus and duties.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct TourPlan {
+    pub tour: TourOfDay,
+    pub bus: Option<u32>,
+    pub duties: Vec<DutyPlan>,
+    /// The player drove it (a trip report says so), or the game reported it live.
+    pub by_player: bool,
+    pub live: bool,
+}
+
+impl TourPlan {
+    pub fn covered(&self) -> bool {
+        self.by_player || self.live || (self.bus.is_some() && self.duties.iter().all(|d| d.driver.is_some()))
+    }
+
+    /// Run in part (a bus, but not a driver for every duty).
+    pub fn partly(&self) -> bool {
+        !self.covered() && self.bus.is_some() && self.duties.iter().any(|d| d.driver.is_some())
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct Plan {
+    pub tours: Vec<TourPlan>,
+}
+
+impl Plan {
+    pub fn uncovered(&self) -> usize {
+        self.tours.iter().filter(|t| !t.covered()).count()
+    }
+
+    /// A line's tours: (covered, all).
+    pub fn coverage_of(&self, line: &str) -> (usize, usize) {
+        let mine: Vec<&TourPlan> = self.tours.iter().filter(|t| t.tour.line.eq_ignore_ascii_case(line)).collect();
+        (mine.iter().filter(|t| t.covered()).count(), mine.len())
+    }
+
+    /// Tours without a bus, and duties without a driver (of tours with one).
+    pub fn short_of(&self) -> (usize, usize) {
+        let buses = self.tours.iter().filter(|t| !t.by_player && !t.live && t.bus.is_none()).count();
+        let drivers = self.tours.iter().filter(|t| !t.by_player && !t.live && t.bus.is_some()).flat_map(|t| t.duties.iter()).filter(|d| d.driver.is_none()).count();
+        (buses, drivers)
+    }
+}
+
+/// Whether a tour is one of `keys` (a line's number or name, and the tour).
+fn is_one_of(t: &TourOfDay, keys: &[(String, String)]) -> bool {
+    keys.iter().any(|(l, n)| (t.number.eq_ignore_ascii_case(l) || t.line.eq_ignore_ascii_case(l) || t.trips.iter().any(|x| x.line.eq_ignore_ascii_case(l))) && t.tour.trim() == n.trim())
+}
+
+/// Give the day's tours buses and drivers: the buses that are there (held, not in the
+/// workshop, fit to drive) one tour after the other with `BUS_MARGIN` between, the bus of the
+/// size a tour's group names first; the drivers that are there (employed, not ill or on
+/// holiday, under five days this week) each duty by the working-time rules, a driver who
+/// works already today first while their day stays under eight hours, those who drive a big
+/// bus without a warning first. Tours the player drove (`player`) or the game reported
+/// (`live`) need neither.
+pub fn assign(c: &Company, tours: Vec<TourOfDay>, player: &[(String, String)], live: &[(String, String)]) -> Plan {
+    let date = c.date.clone();
+    let mut buses: Vec<(u32, BusSize, i32)> = c.fleet.iter().filter(|v| v.held_on(&date) && !v.in_workshop(&date) && v.condition >= 20.0).map(|v| (v.id, v.kind.size, i32::MIN)).collect();
+    let mut people: Vec<(u32, Vec<Block>)> = c.staff.iter().filter(|e| e.employed_on(&date) && !e.absent(&date) && e.week_days < WEEK_DAYS).map(|e| (e.id, Vec::new())).collect();
+    let mut plans: Vec<TourPlan> = Vec::new();
+    let mut tours = tours;
+    tours.sort_by_key(|t| t.from());
+    for t in tours {
+        let duties: Vec<DutyPlan> = network::duties_of(&t)
+            .into_iter()
+            .map(|r| DutyPlan { from: t.trips[r.start].dep, to: t.trips[r.clone()].iter().map(|x| x.arr).max().unwrap_or(0), start: r.start, end: r.end, driver: None })
+            .collect();
+        let by_player = is_one_of(&t, player);
+        let is_live = !by_player && is_one_of(&t, live);
+        let mut plan = TourPlan { tour: t, bus: None, duties, by_player, live: is_live };
+        if !by_player && !is_live {
+            let from = plan.tour.from();
+            let wants = plan.tour.wants();
+            // (free in time; the size asked for first, then the one free the latest: the
+            // others stay free for later tours)
+            let best = buses
+                .iter_mut()
+                .filter(|b| b.2 == i32::MIN || b.2 + BUS_MARGIN <= from)
+                .max_by_key(|b| (wants.is_none_or(|w| w == b.1), b.2, std::cmp::Reverse(b.0)));
+            if let Some(b) = best {
+                b.2 = plan.tour.to();
+                plan.bus = Some(b.0);
+            }
+        }
+        plans.push(plan);
+    }
+    // the drivers, duty by duty in the order they begin
+    let mut order: Vec<(usize, usize)> = plans.iter().enumerate().filter(|(_, p)| p.bus.is_some() && !p.by_player && !p.live).flat_map(|(i, p)| (0..p.duties.len()).map(move |k| (i, k))).collect();
+    order.sort_by_key(|&(i, k)| plans[i].duties[k].from);
+    for (i, k) in order {
+        let p = &plans[i];
+        let d = &p.duties[k];
+        let size = p.bus.and_then(|b| c.vehicle(b)).map(|v| v.kind.size).unwrap_or_default();
+        let block = Block {
+            key: format!("{}/{}/{}", p.tour.line, p.tour.tour, k),
+            from: d.from,
+            to: d.to,
+            from_stop: p.tour.trips[d.start].from.clone(),
+            to_stop: p.tour.trips[d.end - 1].to.clone(),
+        };
+        let mut best: Option<(usize, (bool, bool, i32, u32, i64))> = None;
+        for (pi, (id, blocks)) in people.iter().enumerate() {
+            let Some(e) = c.employee(*id) else { continue };
+            if !staff::may_drive(e, size) {
+                continue;
+            }
+            let k = staff::check(blocks, &block, e.last_end, None);
+            if !k.allowed() {
+                continue;
+            }
+            let worked: i32 = staff::work_minutes(blocks);
+            let fills = worked > 0 && k.overtime == 0;
+            let score = (staff::qualified(e, size), fills, -worked, WEEK_DAYS - e.week_days, (e.experience * 10.0) as i64);
+            if best.as_ref().is_none_or(|b| score > b.1) {
+                best = Some((pi, score));
+            }
+        }
+        if let Some((pi, _)) = best {
+            people[pi].1.push(block);
+            plans[i].duties[k].driver = Some(people[pi].0);
+        }
+    }
+    Plan { tours: plans }
+}
+
+// --- the close -------------------------------------------------------------------------------
+
+/// A company line's day.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct LineDay {
+    pub line: String,
+    pub number: String,
+    pub colour: String,
+    pub tours: u32,
+    pub covered: u32,
+    pub trips: u32,
+    pub dropped: u32,
+    pub late: u32,
+    pub km: f64,
+    pub passengers: u32,
+    pub revenue: Cents,
+}
+
+/// Something the day's report tells besides the figures.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Note {
+    /// A bus broke down on its tour and is in the workshop until `until`.
+    Breakdown { number: String, until: String, cost: Cents },
+    /// A bus is due for its service: in the workshop tomorrow.
+    Service { number: String },
+    /// A leased or rented bus went back.
+    Returned { number: String, name: String },
+    LoanPaid { purpose: String },
+    /// The month was closed: wages, leases, insurance, depot and loan rates were booked.
+    Month { month: String, result: Cents },
+}
+
+/// What a closed day came to.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct DayReport {
+    pub date: String,
+    pub tours: u32,
+    pub covered: u32,
+    pub by_player: u32,
+    /// Trips with passengers: planned, dropped, late.
+    pub trips: u32,
+    pub dropped: u32,
+    pub late: u32,
+    pub km: f64,
+    pub passengers: u32,
+    pub income: Cents,
+    pub expenses: Cents,
+    pub result: Cents,
+    pub cash: Cents,
+    pub penalties: Cents,
+    /// The player's own trips booked (measured), and what they earned.
+    pub measured: u32,
+    pub measured_revenue: Cents,
+    pub punctuality: Option<f64>,
+    pub reputation: f64,
+    pub reputation_change: f64,
+    pub lines: Vec<LineDay>,
+    pub notes: Vec<Note>,
+    pub staff: Vec<StaffNote>,
+}
+
+/// Maps named alike (`maps/Grundorf/global.cfg`, with either slash and any case).
+fn same_map(a: &str, b: &str) -> bool {
+    let n = |s: &str| s.trim().replace('\\', "/").to_lowercase();
+    n(a) == n(b)
+}
+
+/// Wear a kilometre takes off a bus's condition.
+fn wear_per_km(r: &economy::Rules) -> f64 {
+    0.0012 * (0.7 + 0.3 * r.breakdown_factor)
+}
+
+/// The sums of a closing day, per line and in all.
+#[derive(Default)]
+struct Sums {
+    fares: Cents,
+    compensation: Cents,
+    energy: f64,
+    maintenance: f64,
+    penalty: Cents,
+}
+
+/// Close the company's day: `tours` are its tours of the day (`network::tours_of_day` of the
+/// timetable read for `c.date`), `trips` the player's trip reports (all of them; those of
+/// the company's map and lines not booked yet count). Moves the company to the next day.
+pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> DayReport {
+    let r = economy::rules(c.difficulty);
+    let date = c.date.clone();
+    let month = dates::month_of(&date);
+    let before = c.month(&month);
+    let mut rng = Rng::of(&[&c.id, "day"], dates::parse(&date).unwrap_or(0));
+    let mut report = DayReport { date: date.clone(), ..Default::default() };
+    let mut lines: Vec<LineDay> = c.lines.iter().map(|l| LineDay { line: l.name.clone(), number: l.number.clone(), colour: l.colour.clone(), ..Default::default() }).collect();
+    let mut sums: Vec<Sums> = lines.iter().map(|_| Sums::default()).collect();
+    let line_index = |c: &Company, number: &str| line_of_number(c, number).and_then(|l| c.lines.iter().position(|x| x.name == l.name));
+    let comp_km = economy::compensation_per_km(&r, c.reputation, c.contract_index);
+    let mut on_time = 0u32;
+    let mut timed = 0u32;
+
+    // 1. what the player drove himself (measured)
+    let mut player: Vec<(String, String)> = Vec::new();
+    let mut seen = c.trips_seen;
+    let mine: Vec<&TripRun> = trips.iter().filter(|t| t.time > c.trips_seen && !t.free && same_map(&t.map, &c.map) && line_of_number(c, &t.line).is_some()).collect();
+    for t in mine {
+        seen = seen.max(t.time);
+        let Some(li) = line_index(c, &t.line) else { continue };
+        let km = t.metres / 1000.0;
+        let km = if km.is_finite() && km > 0.0 && km <= (t.seconds / 3600.0 * 100.0).max(10.0) { km } else { 0.0 };
+        let fares = t.passengers.max(0) as Cents * r.fare;
+        let comp = (km * comp_km).round() as Cents;
+        let vehicle = c.fleet.iter_mut().find(|v| v.bus.eq_ignore_ascii_case(&t.bus));
+        let (kind, age) = match vehicle {
+            Some(v) => {
+                v.km += km;
+                v.condition = (v.condition - km * wear_per_km(&r)).max(0.0);
+                (v.kind, dates::years_between(&v.built, &date))
+            }
+            None => (BusKind { size: BusSize::Solo, drive: Drive::Diesel }, 5.0),
+        };
+        let s = &mut sums[li];
+        s.energy += km * economy::energy_per_km(kind, c.price_index);
+        s.maintenance += km * economy::maintenance_per_km(kind, age, c.price_index);
+        let late = t.average.is_some_and(|a| a > 180.0) || (t.stops > 0 && t.late * 4 > t.stops);
+        if t.timed() {
+            timed += 1;
+            if !late {
+                on_time += 1;
+            }
+        }
+        let l = &mut lines[li];
+        l.km += km;
+        l.passengers += t.passengers.max(0) as u32;
+        l.revenue += fares + comp;
+        report.measured += 1;
+        report.measured_revenue += fares + comp;
+        c.book(BookingKind::Fares, fares, format!("Line {} (own trip)", l.number), true);
+        c.book(BookingKind::Compensation, comp, format!("Line {} (own trip)", l.number), true);
+        if !t.tour.trim().is_empty() {
+            player.push((t.line.clone(), t.tour.clone()));
+        }
+    }
+    c.trips_seen = seen;
+
+    // 2. what the game reported live (measured)
+    let mut live: Vec<(String, String)> = Vec::new();
+    let mut live_broken: Vec<u32> = Vec::new();
+    for ev in std::mem::take(&mut c.live) {
+        match ev {
+            LiveEvent::Trip { line, tour, vehicle, km, passengers, delay, completed: _ } => {
+                let Some(li) = line_index(c, &line) else { continue };
+                let fares = passengers as Cents * r.fare;
+                let comp = (km.max(0.0) * comp_km).round() as Cents;
+                if let Some(v) = vehicle.and_then(|id| c.fleet.iter_mut().find(|v| v.id == id)) {
+                    v.km += km.max(0.0);
+                    v.condition = (v.condition - km.max(0.0) * wear_per_km(&r)).max(0.0);
+                    let age = dates::years_between(&v.built, &date);
+                    sums[li].energy += km.max(0.0) * economy::energy_per_km(v.kind, c.price_index);
+                    sums[li].maintenance += km.max(0.0) * economy::maintenance_per_km(v.kind, age, c.price_index);
+                }
+                timed += 1;
+                if delay <= 180.0 {
+                    on_time += 1;
+                }
+                let l = &mut lines[li];
+                l.km += km.max(0.0);
+                l.passengers += passengers;
+                l.revenue += fares + comp;
+                c.book(BookingKind::Fares, fares, format!("Line {} (live)", l.number), true);
+                c.book(BookingKind::Compensation, comp, format!("Line {} (live)", l.number), true);
+                if !live.iter().any(|x| x.0 == line && x.1 == tour) {
+                    live.push((line, tour));
+                }
+            }
+            LiveEvent::Breakdown { vehicle } => live_broken.push(vehicle),
+        }
+    }
+
+    // 3. the plan, and what breaks down on the way (the trips after it are dropped)
+    let plan = assign(c, tours, &player, &live);
+    let mut cut: Vec<(u32, i32)> = Vec::new();
+    let mut used: Vec<u32> = plan.tours.iter().filter_map(|t| t.bus).collect();
+    used.sort();
+    used.dedup();
+    for id in used {
+        let Some(v) = c.vehicle(id) else { continue };
+        let overdue = if v.km > v.next_service_km { 2.0 } else { 1.0 };
+        let p = 0.004 * r.breakdown_factor * (1.0 + (100.0 - v.condition) / 25.0) * overdue;
+        let span: Vec<&TourPlan> = plan.tours.iter().filter(|t| t.bus == Some(id)).collect();
+        let (a, b) = (span.iter().map(|t| t.tour.from()).min().unwrap_or(0), span.iter().map(|t| t.tour.to()).max().unwrap_or(0));
+        if rng.chance(p) || live_broken.contains(&id) {
+            cut.push((id, rng.int(a as i64, b.max(a) as i64) as i32));
+        }
+    }
+
+    // 4. the modelled trips
+    let mut bus_km: Vec<(u32, f64)> = Vec::new();
+    let mut worked: Vec<(u32, i32, i32)> = Vec::new();
+    for tp in &plan.tours {
+        let Some(li) = lines.iter().position(|l| l.line.eq_ignore_ascii_case(&tp.tour.line)) else { continue };
+        lines[li].tours += 1;
+        report.tours += 1;
+        if tp.covered() {
+            lines[li].covered += 1;
+            report.covered += 1;
+        }
+        if tp.by_player || tp.live {
+            report.by_player += u32::from(tp.by_player);
+            continue;
+        }
+        let v = tp.bus.and_then(|b| c.vehicle(b)).cloned();
+        let broken_at = tp.bus.and_then(|b| cut.iter().find(|x| x.0 == b)).map(|x| x.1);
+        for d in &tp.duties {
+            let driver = d.driver.and_then(|id| c.employee(id)).cloned();
+            if let Some(e) = &driver {
+                match worked.iter_mut().find(|w| w.0 == e.id) {
+                    Some(w) => {
+                        w.1 += d.to - d.from;
+                        w.2 = w.2.max(d.to);
+                    }
+                    None => worked.push((e.id, d.to - d.from, d.to)),
+                }
+            }
+            for trip in &tp.tour.trips[d.start..d.end] {
+                let counts = trip.counts();
+                let run = v.is_some() && driver.is_some() && broken_at.is_none_or(|at| trip.dep < at);
+                if counts {
+                    lines[li].trips += 1;
+                    report.trips += 1;
+                }
+                if !run {
+                    if counts {
+                        lines[li].dropped += 1;
+                        report.dropped += 1;
+                        sums[li].penalty += r.drop_per_trip + (trip.km * r.drop_per_km as f64).round() as Cents;
+                    }
+                    continue;
+                }
+                let (Some(v), Some(e)) = (&v, &driver) else { continue };
+                let age = dates::years_between(&v.built, &date);
+                lines[li].km += trip.km;
+                match bus_km.iter_mut().find(|b| b.0 == v.id) {
+                    Some(b) => b.1 += trip.km,
+                    None => bus_km.push((v.id, trip.km)),
+                }
+                sums[li].energy += trip.km * economy::energy_per_km(v.kind, c.price_index);
+                sums[li].maintenance += trip.km * economy::maintenance_per_km(v.kind, age, c.price_index);
+                if !counts {
+                    continue;
+                }
+                let pax = (economy::passengers_for(trip.km, trip.dep, &r) * rng.range(0.8, 1.2) * (0.85 + 0.3 * c.reputation / 100.0) * (0.95 + 0.1 * e.skills.service / 100.0)).round().max(0.0) as u32;
+                let fares = pax as Cents * r.fare;
+                let comp = (trip.km * comp_km).round() as Cents;
+                sums[li].fares += fares;
+                sums[li].compensation += comp;
+                lines[li].passengers += pax;
+                lines[li].revenue += fares + comp;
+                let p_late = 0.04 + 0.12 * (1.0 - e.skills.punctuality / 100.0) + 0.10 * (1.0 - v.condition / 100.0);
+                timed += 1;
+                if rng.chance(p_late) {
+                    lines[li].late += 1;
+                    report.late += 1;
+                    sums[li].penalty += r.late_per_trip;
+                } else {
+                    on_time += 1;
+                }
+            }
+        }
+    }
+    for (li, s) in sums.iter().enumerate() {
+        let text = format!("Line {}", lines[li].number);
+        c.book(BookingKind::Fares, s.fares, text.clone(), false);
+        c.book(BookingKind::Compensation, s.compensation, text.clone(), false);
+        c.book(BookingKind::Energy, -s.energy.round() as Cents, text.clone(), false);
+        c.book(BookingKind::Maintenance, -s.maintenance.round() as Cents, text.clone(), false);
+        c.book(BookingKind::Penalty, -s.penalty, text, false);
+        report.penalties += s.penalty;
+    }
+
+    // 5. rentals by the day
+    let rented: Vec<(Cents, String)> = c.fleet.iter().filter(|v| v.held_on(&date)).filter_map(|v| match &v.tenure {
+        Tenure::Rented { daily, .. } => Some((*daily, format!("{} {}", v.number, v.name))),
+        _ => None,
+    }).collect();
+    for (daily, text) in rented {
+        c.book(BookingKind::Rent, -daily, text, false);
+    }
+
+    // 6. the buses tonight: kilometres, wear, breakdowns, services
+    let tomorrow = dates::add(&date, 1);
+    let mut repairs: Vec<(Cents, String)> = Vec::new();
+    let price_index = c.price_index;
+    for v in c.fleet.iter_mut() {
+        if let Some((_, km)) = bus_km.iter().find(|b| b.0 == v.id) {
+            v.km += km;
+            v.condition = (v.condition - km * wear_per_km(&r)).max(0.0);
+        }
+        if cut.iter().any(|x| x.0 == v.id) {
+            let days = rng.int(1, 3);
+            let until = dates::add(&date, days);
+            let size = match v.kind.size {
+                BusSize::Midi => 0.8,
+                BusSize::Solo => 1.0,
+                _ => 1.35,
+            };
+            let cost = ((rng.range(800.0, 5_000.0) * size * price_index).round() as Cents) * 100;
+            v.workshop_until = Some(until.clone());
+            v.breakdowns += 1;
+            v.condition = (v.condition - 5.0).max(0.0);
+            repairs.push((cost, format!("{} {}", v.number, v.name)));
+            report.notes.push(Note::Breakdown { number: v.number.clone(), until, cost });
+        } else if v.km >= v.next_service_km && !v.in_workshop(&tomorrow) && v.held_on(&tomorrow) {
+            v.workshop_until = Some(tomorrow.clone());
+            v.condition = v.condition.max(market::serviced_condition(dates::years_between(&v.built, &date)));
+            v.next_service_km = ((v.km / market::SERVICE_KM).floor() + 1.0) * market::SERVICE_KM;
+            report.notes.push(Note::Service { number: v.number.clone() });
+        }
+    }
+    for (cost, text) in repairs {
+        c.book(BookingKind::Repair, -cost, text, false);
+    }
+
+    // 7. the people tonight
+    report.staff = staff::after_day(c, &worked, &mut rng);
+
+    // 8. the month's end
+    if dates::last_of_month(&date) {
+        for e in c.staff.clone() {
+            c.book(BookingKind::Wages, -staff::wage_for_month(&e, &month), e.name.clone(), false);
+        }
+        let first = dates::parse(&format!("{month}-01")).unwrap_or(0);
+        let last = dates::parse(&date).unwrap_or(first);
+        let len = (last - first + 1).max(1) as f64;
+        let held_days = |acquired: &str, until: Option<&str>| {
+            let a = dates::parse(acquired).unwrap_or(first).max(first);
+            let b = until.and_then(dates::parse).unwrap_or(last).min(last);
+            (b - a + 1).max(0) as f64
+        };
+        let mut monthly: Vec<(BookingKind, Cents, String)> = Vec::new();
+        let mut depot_buses = 0;
+        for v in &c.fleet {
+            let text = format!("{} {}", v.number, v.name);
+            match &v.tenure {
+                Tenure::Leased { monthly: m, until, .. } => {
+                    let days = held_days(&v.acquired, Some(until));
+                    monthly.push((BookingKind::Lease, -(*m as f64 * days / len).round() as Cents, text.clone()));
+                    monthly.push((BookingKind::Insurance, -(economy::insurance_per_month(v.kind, c.price_index) as f64 * days / len).round() as Cents, text));
+                    depot_buses += 1;
+                }
+                Tenure::Owned { .. } => {
+                    let days = held_days(&v.acquired, None);
+                    monthly.push((BookingKind::Insurance, -(economy::insurance_per_month(v.kind, c.price_index) as f64 * days / len).round() as Cents, text));
+                    depot_buses += 1;
+                }
+                Tenure::Rented { .. } => {}
+            }
+        }
+        monthly.push((BookingKind::Depot, -economy::depot_per_month(depot_buses, c.price_index), c.depot.clone()));
+        for (k, a, t) in monthly {
+            c.book(k, a, t, false);
+        }
+        for purpose in finance::pay_rates(c) {
+            report.notes.push(Note::LoanPaid { purpose });
+        }
+        c.price_index *= 1.0 + r.inflation / 12.0;
+        c.contract_index *= 1.0 + r.indexation / 12.0;
+        if date.ends_with("-12-31") {
+            for e in c.staff.iter_mut() {
+                e.holiday_left = staff::HOLIDAYS;
+            }
+        }
+        report.notes.push(Note::Month { month: month.clone(), result: c.month(&month).result() });
+    }
+
+    // 9. reputation and punctuality
+    let punctuality = (timed > 0).then(|| on_time as f64 / timed as f64 * 100.0);
+    let rep0 = c.reputation;
+    let mut change = -(0.25 * report.dropped as f64).min(5.0);
+    if let Some(p) = punctuality {
+        if report.dropped == 0 && p >= 90.0 {
+            change += 0.3;
+        } else if p < 75.0 {
+            change -= 0.3;
+        }
+        c.punctuality = c.punctuality * 0.85 + p * 0.15;
+    }
+    c.reputation = (c.reputation + change).clamp(0.0, 100.0);
+    report.punctuality = punctuality;
+    report.reputation = c.reputation;
+    report.reputation_change = c.reputation - rep0;
+
+    // 10. the day's figures, and on to the next
+    let after = c.month(&month);
+    for k in super::model::BookingKind::ALL.iter().filter(|k| !k.is_capital()) {
+        let delta = after.get(*k) - before.get(*k);
+        if delta > 0 {
+            report.income += delta;
+        } else {
+            report.expenses -= delta;
+        }
+    }
+    report.result = report.income - report.expenses;
+    report.cash = c.cash;
+    report.km = lines.iter().map(|l| l.km).sum();
+    report.passengers = lines.iter().map(|l| l.passengers).sum();
+    report.lines = lines;
+    c.history.push(DayRecord {
+        date: date.clone(),
+        cash: c.cash,
+        income: report.income,
+        expenses: report.expenses,
+        result: report.result,
+        tours: report.tours,
+        dropped_tours: report.tours - report.covered,
+        trips: report.trips,
+        dropped_trips: report.dropped,
+        km: report.km,
+        passengers: report.passengers,
+        punctuality,
+    });
+    if c.history.len() > HISTORY_KEPT {
+        let extra = c.history.len() - HISTORY_KEPT;
+        c.history.drain(..extra);
+    }
+    c.date = tomorrow.clone();
+    if dates::parse(&tomorrow).map(dates::weekday) == Some(0) {
+        for e in c.staff.iter_mut() {
+            e.week_days = 0;
+        }
+    }
+    let gone: Vec<(String, String)> = c.fleet.iter().filter(|v| !v.held_on(&tomorrow)).map(|v| (v.number.clone(), v.name.clone())).collect();
+    c.fleet.retain(|v| v.held_on(&tomorrow));
+    for (number, name) in gone {
+        report.notes.push(Note::Returned { number, name });
+    }
+    c.last_report = Some(report.clone());
+    report
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::market::{self, Payment};
+    use super::super::network::tests::trip;
+    use super::super::staff::{applicants, hire};
+    use super::super::{found, Founding};
+    use super::*;
+    use crate::company::model::{CompanyLine, Difficulty};
+
+    fn tour(no: &str, from: i32, n: i32) -> TourOfDay {
+        TourOfDay { line: "Linie5".into(), number: "5".into(), tour: no.into(), ai_group: String::new(), trips: (0..n).map(|k| trip(from + k * 60, from + 50 + k * 60, 12)).collect() }
+    }
+
+    fn company(d: Difficulty, buses: usize, people: usize) -> Company {
+        let mut c = found(&Founding { name: "Tag".into(), difficulty: d, date: "2024-03-04".into(), map: "maps/Grundorf/global.cfg".into(), ..Default::default() }, "Luc");
+        c.lines.push(CompanyLine { name: "Linie5".into(), number: "5".into(), numbers: vec!["5".into()], added: c.date.clone(), ..Default::default() });
+        let bus = market::MarketBus { file: "Vehicles/Citaro/Citaro.bus".into(), name: "Citaro".into(), ..Default::default() };
+        // (money enough for the buses on any difficulty)
+        c.cash += 5_000_000_00;
+        for _ in 0..buses {
+            market::buy_new(&mut c, &bus, Payment::Cash, "").unwrap();
+        }
+        // (enough applicants: another market each round)
+        let id = c.id.clone();
+        while c.staff.len() < people {
+            for a in applicants(&c) {
+                if c.staff.len() < people && a.licence == crate::company::model::Licence::D {
+                    hire(&mut c, &a).unwrap();
+                }
+            }
+            c.id.push('x');
+            c.taken = Default::default();
+        }
+        c.id = id;
+        for e in c.staff.iter_mut() {
+            e.sick_until = None;
+            e.holiday_until = None;
+        }
+        c
+    }
+
+    #[test]
+    fn free_buses_and_drivers_cover_what_they_can() {
+        // three tours, two buses, drivers for all: one tour without a bus
+        let c = company(Difficulty::Realistic, 2, 6);
+        let tours = vec![tour("1", 6 * 60, 8), tour("2", 6 * 60 + 20, 8), tour("3", 7 * 60, 8)];
+        let plan = assign(&c, tours.clone(), &[], &[]);
+        assert_eq!(plan.uncovered(), 1);
+        assert_eq!(plan.short_of(), (1, 0));
+        assert!(plan.tours.iter().filter(|t| t.bus.is_some()).all(|t| t.duties.iter().all(|d| d.driver.is_some())));
+        // a bus does a later tour after an earlier one
+        let later = vec![tour("1", 6 * 60, 3), tour("2", 10 * 60, 3)];
+        let plan = assign(&company(Difficulty::Realistic, 1, 2), later, &[], &[]);
+        assert_eq!(plan.uncovered(), 0);
+        assert_eq!(plan.tours[0].bus, plan.tours[1].bus);
+        // no drivers: nothing covered; the player's own tour needs neither
+        let none = company(Difficulty::Realistic, 2, 0);
+        let plan = assign(&none, tours.clone(), &[("5".into(), "2".into())], &[]);
+        assert_eq!(plan.uncovered(), 2);
+        assert!(plan.tours.iter().find(|t| t.tour.tour == "2").unwrap().covered());
+        assert_eq!(plan.coverage_of("Linie5"), (1, 3));
+        // one driver: a long tour's two duties cannot both be theirs (over ten hours)
+        let long = vec![tour("1", 5 * 60, 18)];
+        let plan = assign(&company(Difficulty::Realistic, 1, 1), long, &[], &[]);
+        assert_eq!(plan.tours[0].duties.len(), 2);
+        assert!(plan.tours[0].partly());
+    }
+
+    #[test]
+    fn closing_a_day_books_it_and_moves_on() {
+        let mut c = company(Difficulty::Realistic, 2, 4);
+        let tours = vec![tour("1", 6 * 60, 10), tour("2", 6 * 60 + 30, 10), tour("3", 8 * 60, 6)];
+        let cash = c.cash;
+        let r = close_day(&mut c, tours, &[]);
+        assert_eq!(c.date, "2024-03-05");
+        assert_eq!((r.tours, r.covered), (3, 2));
+        // the tour without a bus was dropped, with its penalty
+        assert_eq!(r.dropped, 6);
+        assert_eq!(r.penalties - r.late as Cents * 15_00, 6 * 80_00 + (6.0 * 15.0 * 2_00 as f64).round() as Cents);
+        assert!(r.passengers > 0 && r.km > 0.0 && r.income > 0 && r.expenses > 0);
+        assert_eq!(c.cash - cash, r.result);
+        assert_eq!(c.history.len(), 1);
+        assert!(c.reputation < 50.0);
+        // the buses ran their kilometres; the drivers worked
+        assert!(c.fleet.iter().all(|v| v.km > 0.0 && v.condition < 100.0));
+        assert!(c.staff.iter().filter(|e| e.days_worked == 1).count() >= 2);
+        assert!(c.last_report.is_some());
+        // the same day closed again on a copy draws the same
+        let mut a = company(Difficulty::Realistic, 2, 4);
+        let mut b = a.clone();
+        let t = vec![tour("1", 6 * 60, 10)];
+        assert_eq!(close_day(&mut a, t.clone(), &[]), close_day(&mut b, t, &[]));
+    }
+
+    #[test]
+    fn the_players_own_trips_are_measured() {
+        let mut c = company(Difficulty::Realistic, 0, 0);
+        let run = TripRun { time: 1_700_000_000, map: "maps\\Grundorf\\global.cfg".into(), line: "5".into(), tour: "1".into(), stops: 12, passengers: 30, seconds: 1800.0, metres: 9000.0, completed: true, ..Default::default() };
+        let elsewhere = TripRun { map: "maps/Other/global.cfg".into(), time: 1_700_000_001, ..run.clone() };
+        let r = close_day(&mut c, vec![tour("1", 6 * 60, 4)], &[run.clone(), elsewhere]);
+        assert_eq!(r.measured, 1);
+        assert_eq!((r.tours, r.covered, r.by_player), (1, 1, 1));
+        assert_eq!(r.dropped, 0);
+        assert!(c.ledger.iter().any(|b| b.measured && b.kind == BookingKind::Fares && b.amount == 30 * 1_10));
+        assert_eq!(c.trips_seen, 1_700_000_000);
+        // booked once
+        let r = close_day(&mut c, vec![], &[run]);
+        assert_eq!(r.measured, 0);
+        // the live hook counts too
+        record_live(&mut c, LiveEvent::Trip { line: "5".into(), tour: "2".into(), vehicle: None, km: 8.0, passengers: 20, delay: 30.0, completed: true });
+        let r = close_day(&mut c, vec![tour("2", 6 * 60, 4)], &[]);
+        assert_eq!((r.covered, r.dropped), (1, 0));
+        assert!(c.live.is_empty());
+    }
+
+    #[test]
+    fn a_month_end_books_the_wages_and_the_fixed_costs() {
+        let mut c = company(Difficulty::Realistic, 1, 2);
+        c.date = "2024-03-31".into();
+        let r = close_day(&mut c, vec![], &[]);
+        let m = c.month("2024-03");
+        assert!(m.get(BookingKind::Wages) < 0 && m.get(BookingKind::Insurance) < 0 && m.get(BookingKind::Depot) < 0);
+        assert!(r.notes.iter().any(|n| matches!(n, Note::Month { .. })));
+        assert!(c.price_index > 1.0);
+        assert_eq!(c.date, "2024-04-01");
+        // a rented bus goes back after its last day
+        let bus = market::MarketBus { file: "Vehicles/Citaro/Citaro.bus".into(), name: "Citaro".into(), ..Default::default() };
+        market::rent(&mut c, &bus, 1, "").unwrap();
+        let n = c.fleet.len();
+        let r = close_day(&mut c, vec![], &[]);
+        assert_eq!(c.fleet.len(), n - 1);
+        assert!(r.notes.iter().any(|x| matches!(x, Note::Returned { .. })));
+        assert!(c.month("2024-04").get(BookingKind::Rent) < 0);
+    }
+
+    #[test]
+    fn hard_days_break_more_buses_than_easy_ones() {
+        let count = |d: Difficulty| {
+            let mut c = company(d, 4, 10);
+            let mut n = 0;
+            for _ in 0..120 {
+                let tours = vec![tour("1", 6 * 60, 8), tour("2", 6 * 60 + 10, 8)];
+                for v in c.fleet.iter_mut() {
+                    v.condition = 25.0;
+                    v.workshop_until = None;
+                }
+                let r = close_day(&mut c, tours, &[]);
+                n += r.notes.iter().filter(|x| matches!(x, Note::Breakdown { .. })).count();
+                for e in c.staff.iter_mut() {
+                    e.sick_until = None;
+                    e.holiday_until = None;
+                    e.week_days = 0;
+                    e.last_end = None;
+                }
+            }
+            n
+        };
+        assert!(count(Difficulty::Hard) > count(Difficulty::Easy));
+    }
+}

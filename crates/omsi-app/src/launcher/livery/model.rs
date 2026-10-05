@@ -70,6 +70,9 @@ impl Project {
 fn yes() -> bool {
     true
 }
+fn is_true(b: &bool) -> bool {
+    *b
+}
 fn full() -> f32 {
     1.0
 }
@@ -541,10 +544,14 @@ pub struct Place {
     pub centre: Vec3,
     #[serde(rename = "breedteM")]
     pub width_m: f32,
-    /// A shape's own height (metres); None: as wide as high (a text's and a picture's come from
-    /// their letters and their picture).
+    /// Its own height (metres), a shape's or a stretched picture's; None: a shape as wide as
+    /// high, a picture in its own proportions (a text's comes from its letters).
     #[serde(rename = "hoogteM", default, skip_serializing_if = "Option::is_none")]
     pub height_m: Option<f32>,
+    /// Width and height change together (the size fields); off: the one stretches without the
+    /// other. A project from before keeps its proportions.
+    #[serde(rename = "verhoudingVast", default = "yes", skip_serializing_if = "is_true")]
+    pub keep_ratio: bool,
     /// Degrees, in the side's plane.
     #[serde(rename = "draai", default)]
     pub rotation: f32,
@@ -585,7 +592,53 @@ mod o3d {
 
 impl Place {
     pub fn new(side: Side, centre: Vec3, width_m: f32) -> Place {
-        Place { side, centre, width_m, height_m: None, rotation: 0.0, mirror: Coupling::Coupled, same_direction: false, mirror_image: None }
+        Place { side, centre, width_m, height_m: None, keep_ratio: true, rotation: 0.0, mirror: Coupling::Coupled, same_direction: false, mirror_image: None }
+    }
+
+    /// The width or the height (metres) set in the size fields, the other kept in proportion
+    /// while `keep_ratio` holds (else it stays as it was: the decal stretches). `aspect` is a
+    /// picture's own height over width, which its height follows until it is stretched (None: a
+    /// shape, as high as wide until it has a height of its own).
+    pub fn resize(&mut self, width: Option<f32>, height: Option<f32>, aspect: Option<f32>) {
+        let lim = |v: f32| v.clamp(0.02, 20.0);
+        let w0 = self.width_m.max(1e-3);
+        let h0 = self.height_m.unwrap_or(w0 * aspect.unwrap_or(1.0)).max(1e-3);
+        if let Some(w) = width {
+            let w = lim(w);
+            self.height_m = match (self.keep_ratio, self.height_m) {
+                (true, Some(_)) => Some(lim(h0 * w / w0)),
+                (true, None) => None,
+                (false, _) => Some(h0),
+            };
+            self.width_m = w;
+        }
+        if let Some(h) = height {
+            let h = lim(h);
+            if self.keep_ratio {
+                self.width_m = lim(self.width_m * h / h0);
+                if self.height_m.is_some() {
+                    self.height_m = Some(h);
+                }
+            } else {
+                self.height_m = Some(h);
+            }
+        }
+    }
+
+    /// A handle pulled (see [`grip_size`]): the decal gets that size around its middle. A
+    /// corner keeps its proportions (a picture or a square shape keeps following its width);
+    /// a side handle and a corner pulled freely stretch it, and the size fields stop keeping
+    /// the proportions it had.
+    pub fn pulled(&mut self, start: &Place, grip: Grip, size: (f32, f32), from: Vec2, now: Vec2, free: bool) {
+        let free = free && grip == Grip::Corner;
+        let (w, h) = grip_size(grip, size, from, now, free);
+        self.width_m = w;
+        if grip != Grip::Corner || free {
+            self.height_m = Some(h);
+            self.keep_ratio = false;
+        } else {
+            self.height_m = start.height_m.map(|_| h);
+        }
     }
 
     /// Choose whether the copy on the other side is a mirror image (Omsi-Hub's flag kept in
@@ -620,6 +673,50 @@ impl Place {
         let (du, dv) = (d.dot(u), d.dot(v));
         let (s, c) = self.rotation.to_radians().sin_cos();
         Vec2::new(du * c + dv * s, -du * s + dv * c)
+    }
+}
+
+/// A handle on a decal's outline: a corner, or the middle of a side (left and right: the
+/// width, top and bottom: the height).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Grip {
+    Corner,
+    Width,
+    Height,
+}
+
+impl Grip {
+    /// The handles on the outline of corners `c` (as `Place::corners`): the four corners, then
+    /// the middles of the bottom, the right, the top and the left side.
+    pub fn handles(c: &[Vec3; 4]) -> [(Grip, Vec3); 8] {
+        let mid = |a: usize, b: usize| (c[a] + c[b]) * 0.5;
+        [
+            (Grip::Corner, c[0]),
+            (Grip::Corner, c[1]),
+            (Grip::Corner, c[2]),
+            (Grip::Corner, c[3]),
+            (Grip::Height, mid(0, 1)),
+            (Grip::Width, mid(1, 2)),
+            (Grip::Height, mid(2, 3)),
+            (Grip::Width, mid(3, 0)),
+        ]
+    }
+}
+
+/// The size (metres) a decal of `size` gets when its handle `grip`, grabbed at `from` in the
+/// decal's own box (metres from its middle, as `Place::local` has it), is pulled to `now`; its
+/// middle stays. A corner scales both ways by the same factor (`free`: each way to the mouse);
+/// a side handle stretches its own way only.
+pub fn grip_size(grip: Grip, size: (f32, f32), from: Vec2, now: Vec2, free: bool) -> (f32, f32) {
+    let lim = |v: f32| v.clamp(0.02, 20.0);
+    match grip {
+        Grip::Corner if free => (lim(now.x.abs() * 2.0), lim(now.y.abs() * 2.0)),
+        Grip::Corner => {
+            let k = (now.length() / from.length().max(1e-3)).clamp(0.05, 20.0);
+            (lim(size.0 * k), lim(size.1 * k))
+        }
+        Grip::Width => (lim(now.x.abs() * 2.0), size.1),
+        Grip::Height => (size.0, lim(now.y.abs() * 2.0)),
     }
 }
 
@@ -1580,5 +1677,89 @@ mod tests {
         let r = Gradient { kind: GradientKind::Radial, ..g };
         assert_eq!(r.t(Vec2::splat(0.5)), 0.0);
         assert_eq!(r.t(Vec2::new(1.0, 0.5)), 1.0);
+    }
+
+    #[test]
+    fn the_handles_scale_at_the_corners_and_stretch_at_the_sides() {
+        let close = |a: (f32, f32), b: (f32, f32)| (a.0 - b.0).abs() < 1e-5 && (a.1 - b.1).abs() < 1e-5;
+        let size = (2.0, 1.0);
+        let corner = Vec2::new(1.0, 0.5);
+        // a corner: both ways by the same factor, wherever the mouse goes
+        assert!(close(grip_size(Grip::Corner, size, corner, Vec2::new(2.0, 1.0), false), (4.0, 2.0)));
+        assert!(close(grip_size(Grip::Corner, size, corner, Vec2::new(0.5, 0.25), false), (1.0, 0.5)));
+        // with Shift each way to the mouse
+        assert!(close(grip_size(Grip::Corner, size, corner, Vec2::new(1.5, 0.25), true), (3.0, 0.5)));
+        // a side: its own way only, the other way where the mouse is up or down makes no change
+        assert!(close(grip_size(Grip::Width, size, Vec2::new(1.0, 0.0), Vec2::new(-1.5, 9.0), false), (3.0, 1.0)));
+        assert!(close(grip_size(Grip::Height, size, Vec2::new(0.0, 0.5), Vec2::new(9.0, 1.0), true), (2.0, 2.0)));
+        // never to nothing
+        assert!(close(grip_size(Grip::Width, size, Vec2::new(1.0, 0.0), Vec2::ZERO, false), (0.02, 1.0)));
+        // the handles: the corners, then the middles of the bottom, the right, the top, the left
+        let p = Place::new(Side::R, Vec3::new(1.25, 0.0, 1.5), 2.0);
+        let c = p.corners(2.0, 1.0);
+        let h = Grip::handles(&c);
+        assert!(h[..4].iter().all(|(g, _)| *g == Grip::Corner));
+        assert_eq!(h[4..].iter().map(|(g, _)| *g).collect::<Vec<_>>(), vec![Grip::Height, Grip::Width, Grip::Height, Grip::Width]);
+        for (g, q) in &h[4..] {
+            let l = p.local(*q);
+            match g {
+                Grip::Width => assert!((l.x.abs() - 1.0).abs() < 1e-4 && l.y.abs() < 1e-4, "{l}"),
+                _ => assert!((l.y.abs() - 0.5).abs() < 1e-4 && l.x.abs() < 1e-4, "{l}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_picture_stretches_with_its_side_handles_and_its_copy_alike() {
+        let pictures = std::collections::HashMap::new();
+        let start = Place::new(Side::R, Vec3::new(1.25, 0.0, 1.5), 2.0);
+        let image = |place: Place| Kind::Image { image: "h".into(), white_clear: false, aspect: Some(0.5), place };
+        let size_of = |k: &Kind| super::super::paint::decal_size(k, &pictures).unwrap();
+        assert_eq!(size_of(&image(start.clone())), (2.0, 1.0), "its own proportions");
+        // a corner: it keeps them, its height still the picture's
+        let mut p = start.clone();
+        p.pulled(&start, Grip::Corner, (2.0, 1.0), Vec2::new(1.0, 0.5), Vec2::new(1.5, 0.75), false);
+        assert!((p.width_m - 3.0).abs() < 1e-4 && p.height_m.is_none() && p.keep_ratio, "{p:?}");
+        let (w, h) = size_of(&image(p));
+        assert!((h - w * 0.5).abs() < 1e-5);
+        // the right side's handle: wider, as high as it was, the size fields stop keeping the ratio
+        let mut p = start.clone();
+        p.pulled(&start, Grip::Width, (2.0, 1.0), Vec2::new(1.0, 0.0), Vec2::new(2.0, 0.3), false);
+        assert_eq!((p.width_m, p.height_m, p.keep_ratio), (4.0, Some(1.0), false));
+        assert_eq!(size_of(&image(p.clone())), (4.0, 1.0));
+        // the copy on the other side the same size
+        let (m, _) = mirror_place(&p, 0.0, false).unwrap();
+        assert_eq!(size_of(&image(m)), (4.0, 1.0));
+        // kept in the project; a project from before keeps its proportions
+        let json = serde_json::to_value(&p).unwrap();
+        assert_eq!(json["verhoudingVast"], false);
+        assert_eq!(serde_json::from_value::<Place>(json).unwrap(), p);
+        let old: Place = serde_json::from_str(r#"{"zijde":"R","midden":[1.2,1.5,3.0],"breedteM":1.4}"#).unwrap();
+        assert!(old.keep_ratio && old.height_m.is_none());
+        assert!(serde_json::to_value(&old).unwrap().get("verhoudingVast").is_none(), "nothing new written for it");
+    }
+
+    #[test]
+    fn the_size_fields_keep_the_proportions_until_the_lock_is_off() {
+        // a picture (half as high as wide) in its own proportions
+        let mut p = Place::new(Side::R, Vec3::ZERO, 2.0);
+        p.resize(Some(3.0), None, Some(0.5));
+        assert_eq!((p.width_m, p.height_m), (3.0, None));
+        p.resize(None, Some(0.75), Some(0.5));
+        assert_eq!((p.width_m, p.height_m), (1.5, None));
+        // unlocked: the height alone, then the width alone
+        p.keep_ratio = false;
+        p.resize(None, Some(2.0), Some(0.5));
+        assert_eq!((p.width_m, p.height_m), (1.5, Some(2.0)));
+        p.resize(Some(3.0), None, Some(0.5));
+        assert_eq!((p.width_m, p.height_m), (3.0, Some(2.0)));
+        // locked again: the stretched proportions kept
+        p.keep_ratio = true;
+        p.resize(Some(1.5), None, Some(0.5));
+        assert_eq!((p.width_m, p.height_m), (1.5, Some(1.0)));
+        // a square shape stays square while locked
+        let mut q = Place::new(Side::L, Vec3::ZERO, 1.0);
+        q.resize(None, Some(0.4), None);
+        assert_eq!((q.width_m, q.height_m), (0.4, None));
     }
 }

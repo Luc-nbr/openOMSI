@@ -6,7 +6,7 @@
 //! bus options, the colour picker, the stripes, texts, pictures, shapes and the brush.
 
 use super::bake::BusGeom;
-use super::model::{self, Coupling, Kind, Layer, Place, Side, StripeTemplate};
+use super::model::{self, Coupling, Grip, Kind, Layer, Place, Side, StripeTemplate};
 use super::{colour, paint, shapes, Launcher, Session};
 use crate::launcher::busoptions;
 use crate::launcher::theme::*;
@@ -171,7 +171,9 @@ enum Drag {
     Pan,
     /// Moving a decal: the point grabbed relative to its middle, on its mirrored copy.
     Move { id: String, offset: Vec3, copy: bool },
-    Scale { id: String, start: Place, from: Vec2, size: (f32, f32), height_cm: f32 },
+    /// A handle of a decal pulled: which, the decal and its size when it was grabbed, and where
+    /// in its box.
+    Scale { id: String, grip: Grip, start: Place, from: Vec2, size: (f32, f32), height_cm: f32 },
     Rotate { id: String, start: f32, from: f32 },
     Edge { id: String, upper: bool },
     /// The pen's corner being pulled into a curve.
@@ -1113,6 +1115,11 @@ fn layer_props(ui: &mut Ui, s: &mut Session, i: usize, r: Rect, shape_tex: &std:
         }
     }
     let recent = s.recent.clone();
+    // (a picture's own proportions, for its size fields)
+    let picture_aspect = match s.project.layers.get(i).map(|l| &l.kind) {
+        Some(Kind::Image { image, aspect, .. }) => Some(paint::picture_aspect(image, *aspect, &s.pictures)),
+        _ => None,
+    };
     let Some(layer) = s.project.layers.get_mut(i) else { return y };
     let label = layer.kind.label();
     ui.icon(layer.kind.icon(), Vec2::new(x + 10.0, y + 14.0), 18.0, TEXT);
@@ -1192,8 +1199,7 @@ fn layer_props(ui: &mut Ui, s: &mut Session, i: usize, r: Rect, shape_tex: &std:
             y += 44.0;
             ui.toggle("livery-image-white", Rect::new(x, y, w, 30.0), white_clear, "White becomes transparent");
             y += 38.0;
-            ui.slider("livery-image-width", Rect::new(x, y, w, 30.0), &mut place.width_m, 0.05, 12.0, 0.01, "Width", &|v| format!("{v:.2} m"));
-            y += 40.0;
+            y = size_props(ui, place, picture_aspect, x, y, w);
             y = place_props(ui, place, x, y, w, mirror_on, false);
         }
         Kind::Shape { shape, place, .. } => {
@@ -1201,11 +1207,11 @@ fn layer_props(ui: &mut Ui, s: &mut Session, i: usize, r: Rect, shape_tex: &std:
                 *shape = k.to_string();
             }
             y += 6.0;
-            y = size_props(ui, place, x, y, w);
+            y = size_props(ui, place, None, x, y, w);
             y = place_props(ui, place, x, y, w, mirror_on, true);
         }
         Kind::Path { place, .. } => {
-            y = size_props(ui, place, x, y, w);
+            y = size_props(ui, place, None, x, y, w);
             y = place_props(ui, place, x, y, w, mirror_on, true);
         }
         Kind::Brush { strokes, .. } => {
@@ -1334,14 +1340,20 @@ fn shape_key(s: &str) -> &'static str {
     shapes::SHAPES.iter().find(|(k, _)| *k == s).map(|(k, _)| *k).unwrap_or("rechthoek")
 }
 
-/// A decal's size (a shape's width and height).
-fn size_props(ui: &mut Ui, place: &mut Place, x: f32, mut y: f32, w: f32) -> f32 {
-    ui.slider("livery-place-width", Rect::new(x, y, w, 30.0), &mut place.width_m, 0.05, 12.0, 0.01, "Width", &|v| format!("{v:.2} m"));
-    y += 36.0;
-    let mut h = place.height_m.unwrap_or(place.width_m);
-    if ui.slider("livery-place-height", Rect::new(x, y, w, 30.0), &mut h, 0.05, 4.0, 0.01, "Height", &|v| format!("{v:.2} m")) {
-        place.height_m = Some(h);
+/// A decal's size: its width and height, and the lock that keeps them in proportion (off: the
+/// one stretches without the other). `aspect`: a picture's own height over its width.
+fn size_props(ui: &mut Ui, place: &mut Place, aspect: Option<f32>, x: f32, mut y: f32, w: f32) -> f32 {
+    let mut width = place.width_m;
+    if ui.slider("livery-place-width", Rect::new(x, y, w, 30.0), &mut width, 0.05, 12.0, 0.01, "Width", &|v| format!("{v:.2} m")) {
+        place.resize(Some(width), None, aspect);
     }
+    y += 36.0;
+    let mut h = place.height_m.unwrap_or(place.width_m * aspect.unwrap_or(1.0));
+    if ui.slider("livery-place-height", Rect::new(x, y, w, 30.0), &mut h, 0.05, 4.0, 0.01, "Height", &|v| format!("{v:.2} m")) {
+        place.resize(None, Some(h), aspect);
+    }
+    y += 36.0;
+    ui.toggle("livery-place-ratio", Rect::new(x, y, w, 30.0), &mut place.keep_ratio, "Keep proportions");
     y + 40.0
 }
 
@@ -1951,15 +1963,18 @@ fn handle_at(s: &Session, view: Rect, cam: &Camera, m: Vec2) -> Option<Drag> {
             let place = kind.place()?;
             let (w, h) = size_of(s, l)?;
             let corners = place.corners(w, h);
-            for c in corners {
-                if screen(view, cam, c).is_some_and(|q| q.distance(m) < 10.0) {
-                    let from = place.local(c);
-                    let height_cm = match kind {
-                        Kind::Text { height_cm, .. } => *height_cm,
-                        _ => 0.0,
-                    };
-                    return Some(Drag::Scale { id, start: place.clone(), from, size: (place.width_m, place.height_m.unwrap_or(place.width_m)), height_cm });
+            // (a text keeps its proportions: only its corners)
+            let text = matches!(kind, Kind::Text { .. });
+            for (grip, c) in Grip::handles(&corners) {
+                if (text && grip != Grip::Corner) || !screen(view, cam, c).is_some_and(|q| q.distance(m) < 10.0) {
+                    continue;
                 }
+                let from = place.local(c);
+                let height_cm = match kind {
+                    Kind::Text { height_cm, .. } => *height_cm,
+                    _ => 0.0,
+                };
+                return Some(Drag::Scale { id, grip, start: place.clone(), from, size: (w, h), height_cm });
             }
             let rot = rotate_handle(place, w, h);
             if screen(view, cam, rot).is_some_and(|q| q.distance(m) < 10.0) {
@@ -2021,27 +2036,21 @@ fn drag_on(s: &mut Session, drag: Drag, o: Vec3, dir: Vec3, hit: Option<(usize, 
                 }
             }
         }
-        Drag::Scale { id, start, from, size, height_cm } => {
+        Drag::Scale { id, grip, start, from, size, height_cm } => {
             let (_, _, sn) = start.side.axes();
             let Some(q) = on_plane(o, dir, start.centre, sn) else { return };
             let now = start.local(q);
             let Some(l) = s.project.layer_mut(&id) else { return };
-            let k = (now.length() / from.length().max(1e-3)).clamp(0.05, 20.0);
             match &mut l.kind {
                 Kind::Text { height_cm: hc, place, .. } => {
+                    let k = (now.length() / from.length().max(1e-3)).clamp(0.05, 20.0);
                     *hc = (height_cm * k).clamp(2.0, 150.0);
                     place.width_m = start.width_m * k;
                 }
-                Kind::Shape { place, .. } | Kind::Path { place, .. } if shift => {
-                    place.width_m = (now.x.abs() * 2.0).max(0.02);
-                    place.height_m = Some((now.y.abs() * 2.0).max(0.02));
-                }
+                // (a corner with Shift: freely; the copy on the other side has the same place)
                 kind => {
                     if let Some(place) = kind.place_mut() {
-                        place.width_m = (size.0 * k).clamp(0.02, 20.0);
-                        if place.height_m.is_some() {
-                            place.height_m = Some((size.1 * k).clamp(0.02, 20.0));
-                        }
+                        place.pulled(&start, grip, size, from, now, shift);
                     }
                 }
             }
@@ -2243,6 +2252,15 @@ fn overlay(l: &mut Launcher, view: Rect) {
                         for q in &ring[..4] {
                             l.ui.p().circle(*q, 6.0, Color::WHITE);
                             l.ui.p().circle(*q, 4.0, accent());
+                        }
+                        // the handles in the middle of the sides (stretching), not on a text
+                        if !matches!(kind, Kind::Text { .. }) {
+                            for (_, p) in Grip::handles(&c).into_iter().skip(4) {
+                                if let Some(q) = screen(view, &cam, p) {
+                                    l.ui.p().rounded(Rect::new(q.x - 4.5, q.y - 4.5, 9.0, 9.0), 2.0, Color::WHITE);
+                                    l.ui.p().rounded(Rect::new(q.x - 3.0, q.y - 3.0, 6.0, 6.0), 1.5, accent());
+                                }
+                            }
                         }
                         let top = screen(view, &cam, (c[2] + c[3]) * 0.5);
                         if let (Some(top), Some(r)) = (top, screen(view, &cam, rotate_handle(place, w, h))) {

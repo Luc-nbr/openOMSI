@@ -8,6 +8,7 @@
 //! tells the page when they changed, `instances` keeps track of the games started.
 
 pub mod busoptions;
+pub mod company;
 pub mod compose;
 pub mod depot;
 pub mod index;
@@ -872,7 +873,7 @@ pub fn list_vehicles_progress(progress: impl Fn(&[VehicleInfo], usize, usize)) -
     root()?;
     let lang = content_language();
     let folders = merged_folders("Vehicles");
-    let keys: Vec<String> = folders.iter().map(|(_, dirs)| format!("bus4|{lang}|{}", dirs.iter().map(|d| d.to_string_lossy()).collect::<Vec<_>>().join("|"))).collect();
+    let keys: Vec<String> = folders.iter().map(|(_, dirs)| format!("bus5|{lang}|{}", dirs.iter().map(|d| d.to_string_lossy()).collect::<Vec<_>>().join("|"))).collect();
     let read = |(folder, dirs): &(String, Vec<PathBuf>), key: &String| -> Vec<VehicleInfo> {
         // the stamp covers every copy of the folder and their direct entries (Model/,
         // Texture/ ...); the paint folders the entry read are its dependencies
@@ -903,13 +904,13 @@ pub fn list_vehicles_progress(progress: impl Fn(&[VehicleInfo], usize, usize)) -
         // what was read is kept every few seconds: a first reading left half-way (the
         // launcher closed) starts from there the next time
         if saved.elapsed().as_secs() >= 10 {
-            index::save("bus4|", None);
+            index::save("bus5|", None);
             saved = std::time::Instant::now();
         }
         progress(&batch, done, total);
         out.extend(batch);
     }
-    index::save("bus4|", Some(&keys));
+    index::save("bus5|", Some(&keys));
     if out.is_empty() {
         log_empty("Vehicles", ".bus file");
     }
@@ -977,6 +978,12 @@ fn read_vehicle_folder(folder: &str, dirs: &[PathBuf], lang: &str) -> (Vec<Vehic
         let model = v.model.as_ref().map(|m| omsi_cfg::resolve_path(v.dir(), m));
         if !model.as_ref().map(|m| omsi_cfg::vfs::is_file(m)).unwrap_or(false) {
             log_line(&format!("vehicles: {} - its model {} is missing, not listed", f.display(), model.map(|m| m.display().to_string()).unwrap_or_else(|| "(none)".into())));
+            continue;
+        }
+        // (a vehicle made for the AI traffic - `[ai_veh_type]`: Bad Huegelsdorf's fire engines,
+        // the lorries and taxis of other packs - has no cab to drive from)
+        if v.ai_only {
+            log_line(&format!("vehicles: {} is a vehicle for the AI traffic ([ai_veh_type]) - not listed", f.display()));
             continue;
         }
         let rel = format!("Vehicles/{}/{}", folder, rel_of.get(f).cloned().unwrap_or_else(|| f.file_name().unwrap().to_string_lossy().to_string()));

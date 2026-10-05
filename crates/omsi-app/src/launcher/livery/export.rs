@@ -190,6 +190,11 @@ fn write(job: &Job, tx: &std::sync::mpsc::Sender<Msg>) -> Result<Vec<String>, St
             }
         }
     }
+    // the folder listings this process keeps are read again: the launcher had listed the
+    // content folder before the livery was there (often before its bus's folder was), and
+    // its `.cti` stayed unseen - the bus step then found no paint of that name and showed
+    // the bus in the model's own white base
+    omsi_cfg::content_changed();
     log::info!("livery studio: '{}' saved as {} files in {}", job.name, written.len(), dirs.iter().map(|d| d.0.display().to_string()).collect::<Vec<_>>().join(", "));
     Ok(written)
 }
@@ -302,6 +307,88 @@ mod tests {
         assert_eq!(next_number(&ctc), 2);
         assert!(!inside(&tmp.join("elsewhere"), &content));
         assert!(!inside(&content.join("..").join("x"), &content));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// Luc's white bus: the launcher had listed the content folder before the save (its bus
+    /// step looked at the bus), kept those listings, and after the save found no paint of the
+    /// livery's name - the bus showed in the model's own white base. Read back the way the
+    /// showroom reads it (the bus type, the paint by name, its texture swaps and the texture
+    /// search with the paint's folder first, the GPU loader), in the same process.
+    #[test]
+    fn a_saved_livery_is_shown_at_once_by_the_launcher_that_saved_it() {
+        let tmp = std::env::temp_dir().join(format!("livery-shown-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let (content, install) = (tmp.join("content"), tmp.join("OMSI 2"));
+        let bus_dir = install.join("Vehicles").join("Box");
+        std::fs::create_dir_all(bus_dir.join("model")).unwrap();
+        std::fs::create_dir_all(bus_dir.join("Texture")).unwrap();
+        std::fs::create_dir_all(content.join("Vehicles")).unwrap();
+        std::fs::write(bus_dir.join("box.bus"), "[model]\r\nmodel\\model.cfg\r\n").unwrap();
+        std::fs::write(bus_dir.join("model").join("model.cfg"), "[CTC]\r\nColorscheme\r\nTexture\r\n0\r\n\r\n[CTCTexture]\r\nfarbschema\r\nbox.dds\r\n").unwrap();
+        std::fs::write(bus_dir.join("Texture").join("stock.cti"), "[item]\r\nStock\r\nfarbschema\r\nbox.dds\r\n").unwrap();
+        // the model's own texture: a white base
+        let base = bus_dir.join("Texture").join("box.dds");
+        let white = vec![255u8; 64 * 32 * 4];
+        std::fs::write(&base, omsi_texture::dds::encode(&white, 64, 32, omsi_texture::bc::Bc::Bc1 { punch: false })).unwrap();
+        omsi_cfg::add_content_root(content.clone());
+        omsi_cfg::add_content_root(install.clone());
+        let bus = bus_dir.join("box.bus");
+        // the bus step looks at the bus before the livery is there
+        let before = omsi_sim::VehicleType::load(&install, &bus).unwrap();
+        assert_eq!(crate::spawn::paint_scheme(&before, Some("Lucstad")), None);
+        // the save, into the content folder's copy of the [CTC] folder (as `save` makes it)
+        let ctc = content.join(bus_dir.join("Texture").strip_prefix(&install).unwrap());
+        std::fs::create_dir_all(&ctc).unwrap();
+        let geom = Arc::new(box_bus());
+        let outside = Arc::new(Outside::build(&geom.tris));
+        let mut layers = vec![model::layer("Base", model::base_colour("#ff0000"))];
+        layers[0].detail = 0.0;
+        let job = Job {
+            name: "Lucstad".into(),
+            nnnn: next_number(&ctc),
+            date: "05-10-2026".into(),
+            content: content.clone(),
+            parts: vec![Some(Part { ctc_dir: ctc.clone(), setvars: Vec::new() })],
+            targets: vec![Target { index: 0, default: "box.dds".into(), slots: vec![(0, "farbschema".into())], base: base.clone(), template: None }],
+            geom,
+            outside,
+            zones: Arc::new(vec![Zones::of(&[[255, 255, 255]])]),
+            layers,
+            pictures: Arc::new(HashMap::new()),
+            mirror: Some(0.0),
+            old: Vec::new(),
+        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        run(job, tx);
+        while let Ok(m) = rx.recv() {
+            match m {
+                Msg::Done(_) => break,
+                Msg::Failed(e) => panic!("{e}"),
+                Msg::Progress(..) => {}
+            }
+        }
+        // the same launcher picks it: the paint is there, its body texture the one written
+        let vt = omsi_sim::VehicleType::load(&install, &bus).unwrap();
+        let scheme = crate::spawn::paint_scheme(&vt, Some("Lucstad"));
+        let names: Vec<&str> = vt.paint_schemes.iter().map(|s| s.name.as_str()).collect();
+        assert!(scheme.is_some(), "the saved livery among the bus's paints: {names:?}");
+        let (subst, scheme_dir) = vt.scheme_substitutions(scheme.unwrap());
+        let name = subst.get("box.dds").expect("the body texture swapped").clone();
+        let mut dirs = vt.texture_dirs(&install);
+        dirs.insert(0, scheme_dir.unwrap());
+        let dirs: Vec<&Path> = dirs.iter().map(|d| d.as_path()).collect();
+        let found = omsi_texture::find_texture(&name, &dirs).expect("the livery's texture found");
+        assert!(found.starts_with(&content) && found.to_string_lossy().contains("LiveryStudio"), "{}", found.display());
+        let bytes = std::fs::read(&found).unwrap();
+        assert_eq!(u32::from_le_bytes(bytes[24..28].try_into().unwrap()), 1, "depth 1, as OMSI's own textures");
+        let (t, _) = omsi_texture::gpu::load_gpu_bytes(&bytes, &found, omsi_texture::gpu::GpuOptions { bc: true, compress: false }).unwrap();
+        assert_eq!((t.width, t.height, t.levels.len()), (64, 32, 7), "the whole chain as blocks");
+        let img = omsi_texture::decode_file(&found).unwrap();
+        let p = &img.rgba[(16 * 64 + 48) * 4..(16 * 64 + 48) * 4 + 4];
+        assert!(p[0] > 240 && p[1] < 20 && p[2] < 20, "red, not the white base: {p:?}");
+        omsi_cfg::remove_content_root(&content);
+        omsi_cfg::remove_content_root(&install);
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

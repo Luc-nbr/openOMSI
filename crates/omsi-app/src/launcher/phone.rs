@@ -51,7 +51,7 @@ pub enum Sheet {
 }
 
 /// The pages More opens.
-const MORE: [(Page, &str, &str, &str); 8] = [
+const MORE: [(Page, &str, &str, &str); 9] = [
     (Page::Profile, "Profile", "badge", "Your driver, level and records"),
     (Page::Settings, "Settings", "tune", "Graphics, sound, gameplay"),
     (Page::Controls, "Controls", "sports_esports", "Touch, wheels and gamepads"),
@@ -60,6 +60,7 @@ const MORE: [(Page, &str, &str, &str); 8] = [
     (Page::Timetable, "Timetable", "schedule", "The map's lines and trips"),
     (Page::Setup, "Setup", "folder_open", "The OMSI 2 folder and content"),
     (Page::Editor, "Editor", "construction", "Own lines, liveries, the timetable"),
+    (Page::Company, "Bus company", "garage", "Buses, staff and lines of your own"),
 ];
 
 #[derive(Default)]
@@ -1271,6 +1272,7 @@ fn embedded(l: &mut Launcher, page: Page, body: Rect, back: bool) {
         Page::Editor => super::editor_hub::draw(l, content),
         Page::Lines => super::lineeditor::draw(l, content),
         Page::Livery => super::livery::draw_phone(l, content),
+        Page::Company => super::company::draw(l, content),
     }
     l.ui.pop_clip();
     if back {

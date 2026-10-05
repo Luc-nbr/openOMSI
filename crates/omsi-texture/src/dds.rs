@@ -402,6 +402,8 @@ pub fn header(w: u32, h: u32, levels: u32, format: crate::bc::Bc) -> [u8; 128] {
     put(12, h);
     put(16, w);
     put(20, level_bytes(w, h, format) as u32);
+    // (depth 1 for a flat texture, as D3DX and the NVIDIA tools write it)
+    put(24, 1);
     put(28, levels);
     put(76, 32);
     put(80, DDPF_FOURCC);
@@ -453,7 +455,8 @@ mod writer_tests {
         assert_eq!((at(4), at(12), at(16), at(28)), (124, h, w, 7), "size, height, width, levels down to 1x1");
         assert_eq!(&bytes[84..88], b"DXT1");
         assert_eq!(at(20) as usize, 16 * 8 * 8, "the top level's bytes");
-        assert!(at(108) & 0x400000 != 0, "a mip-mapped texture");
+        assert_eq!(at(108), 0x1000 | 0x8 | 0x400000, "caps: texture, complex, mip-mapped");
+        assert_eq!(at(24), 1, "depth 1, as OMSI's own textures");
         // the levels exactly: 64x32, 32x16, ... 1x1
         let mut n = 128;
         let (mut lw, mut lh) = (w, h);

@@ -12,6 +12,7 @@ mod accent_pick;
 mod busoptions;
 mod busphoto;
 mod buspick;
+mod company;
 mod daytime;
 pub(crate) mod drive;
 mod editor_hub;
@@ -75,9 +76,11 @@ pub enum Page {
     Lines,
     /// The livery studio (see `livery`): a bus painted in 3D.
     Livery,
+    /// The bus company (see `company`).
+    Company,
 }
 
-const PAGES: [(Page, &str, &str); 13] = [
+const PAGES: [(Page, &str, &str); 14] = [
     (Page::Drive, "Drive", "directions_bus"),
     (Page::Multiplayer, "Multiplayer", "groups"),
     (Page::Profile, "Profile", "badge"),
@@ -91,6 +94,7 @@ const PAGES: [(Page, &str, &str); 13] = [
     (Page::Editor, "Editor", "construction"),
     (Page::Lines, "Line editor", "route"),
     (Page::Livery, "Livery", "livery_fill"),
+    (Page::Company, "Bus company", "garage"),
 ];
 
 #[cfg(not(target_os = "android"))]
@@ -117,7 +121,8 @@ impl Clipboard {
 
 /// The setup world's pictures: the photos of the ways to drive and the start's ground (Omsi-Hub's),
 /// and the welcome's pictures of the new launcher and the classic one.
-const PICTURES: [(&str, &[u8]); 7] = [
+const PICTURES: [(&str, &[u8]); 8] = [
+    ("mode-company", include_bytes!("../../../../assets/launcher/bedrijf.jpg")),
     ("mode-shift", include_bytes!("../../../../assets/launcher/dienst.jpg")),
     ("mode-tour", include_bytes!("../../../../assets/launcher/omloop.jpg")),
     ("mode-free", include_bytes!("../../../../assets/launcher/vrij.jpg")),
@@ -170,6 +175,8 @@ pub struct Launcher {
     pub mapchoice: mapchoice::MapChoiceView,
     /// The livery studio (see `livery`).
     pub livery: livery::LiveryView,
+    /// The bus company's pages (see `company`).
+    pub company: company::CompanyView,
     /// Server icons in the interface pipeline (by server address), and those decoded but
     /// not yet uploaded.
     pub icons: std::collections::HashMap<String, usize>,
@@ -268,6 +275,7 @@ impl Launcher {
         mp: multiplayer::MultiplayerView::default(),
         mapchoice: mapchoice::MapChoiceView::new(),
         livery: Default::default(),
+        company: Default::default(),
         icons: Default::default(),
         icons_pending: Vec::new(),
         pictures: std::collections::HashMap::new(),

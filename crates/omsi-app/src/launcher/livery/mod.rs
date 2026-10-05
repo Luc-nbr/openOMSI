@@ -1116,6 +1116,7 @@ pub fn remove_from_game(l: &mut Launcher) {
         s.say(omsi_ui::tr("Some files of the livery could not be removed (is the game using them?)."), true);
         return;
     }
+    omsi_cfg::content_changed();
     log::info!("livery studio: '{}' removed from the game", placed.name);
     s.project.placed = None;
     s.save_project();
@@ -1197,6 +1198,8 @@ fn saved(l: &mut Launcher, files: Vec<String>) {
         }
     }
     l.showroom.photos.forget(&root, &bus, &name);
+    // (the bus step's bus read again: a save under a name it already shows has new textures)
+    l.showroom.reread(&bus);
     if l.state.choice.bus == bus {
         l.state.choice.paint = name;
         l.state.touched();

@@ -406,8 +406,13 @@ impl RasterCache {
     }
 }
 
+/// A picture's own height over its width: the picture's, else what the layer kept of it.
+pub fn picture_aspect(image: &str, aspect: Option<f32>, pictures: &HashMap<String, Arc<Raster>>) -> f32 {
+    pictures.get(image).map(|r| r.h as f32 / r.w.max(1) as f32).or(aspect).unwrap_or(0.5)
+}
+
 /// A decal's size on the bus (metres) for a layer: a text's from its letters, a picture's from its
-/// picture, a shape's from its place.
+/// picture (unless it was stretched), a shape's from its place.
 pub fn decal_size(kind: &Kind, pictures: &HashMap<String, Arc<Raster>>) -> Option<(f32, f32)> {
     match kind {
         Kind::Text { text, font, height_cm, spacing, outline, .. } => {
@@ -417,8 +422,8 @@ pub fn decal_size(kind: &Kind, pictures: &HashMap<String, Arc<Raster>>) -> Optio
             Some((m.width * em + 2.0 * pad, model::TEXT_BOX * em))
         }
         Kind::Image { image, aspect, place, .. } => {
-            let a = pictures.get(image).map(|r| r.h as f32 / r.w.max(1) as f32).or(*aspect).unwrap_or(0.5);
-            Some((place.width_m, place.width_m * a))
+            let a = picture_aspect(image, *aspect, pictures);
+            Some((place.width_m, place.height_m.unwrap_or(place.width_m * a)))
         }
         Kind::Shape { place, .. } | Kind::Path { place, .. } => Some((place.width_m, place.height_m.unwrap_or(place.width_m))),
         _ => None,

@@ -68,6 +68,9 @@ pub struct Showroom {
     wanted: Option<Look>,
     /// The last look that could not be shown (not read again until something changes).
     failed: Option<Look>,
+    /// The bus shown is read again even when the look stays (its files changed: a livery
+    /// saved from the studio).
+    reread: bool,
     loading: Option<(Look, Receiver<Result<Ready, String>>)>,
     /// The bus options to put on the bus (see `dress`), and the bus being made anew with
     /// them (the options it gets, the bus when it is made).
@@ -180,6 +183,7 @@ impl Showroom {
             generation: 0,
             aim: 0.0,
             photos: Default::default(),
+            reread: false,
             camera: None,
             second: None,
             second_camera: None,
@@ -282,6 +286,17 @@ impl Showroom {
     /// `look` will not be shown: the bus did not load, or the map did not open.
     pub fn gave_up(&self, look: &Look) -> bool {
         self.failed.as_ref() == Some(look) || (self.wanted.is_none() && self.loading.is_none() && !self.shows(look))
+    }
+
+    /// The files of bus `bus` changed (a livery saved into the game): when it is the bus
+    /// shown or asked for, it is read again with whatever paint is chosen; the picture before
+    /// stays until then.
+    pub fn reread(&mut self, bus: &str) {
+        let of_bus = |l: &Look| l.bus == bus;
+        if self.wanted.as_ref().is_some_and(of_bus) || self.shown.as_ref().is_some_and(|s| of_bus(&s.look)) {
+            self.reread = true;
+            self.failed = None;
+        }
     }
 
     /// Let go of the bus shown and its scene (the studio between two photos holds nothing).
@@ -390,9 +405,9 @@ impl Showroom {
         if let Some(w) = self.wanted.clone() {
             let shown = self.shown.as_ref().map(|s| &s.look);
             let loading = self.loading.as_ref().map(|l| &l.0);
-            if shown != Some(&w) && loading != Some(&w) && self.loading.is_none() && self.failed.as_ref() != Some(&w) {
+            if (shown != Some(&w) || self.reread) && loading != Some(&w) && self.loading.is_none() && self.failed.as_ref() != Some(&w) {
                 // only the light changed: no need to read the bus again
-                let same_bus = shown.map(|s| s.bus == w.bus && s.paint == w.paint && s.map == w.map && s.root == w.root).unwrap_or(false);
+                let same_bus = !self.reread && shown.map(|s| s.bus == w.bus && s.paint == w.paint && s.map == w.map && s.root == w.root).unwrap_or(false);
                 if same_bus {
                     if let Some(s) = self.shown.as_mut() {
                         s.look = w.clone();
@@ -464,6 +479,7 @@ impl Showroom {
     }
 
     fn start_loading(&mut self, renderer: &Renderer, look: Look) {
+        self.reread = false;
         let args = args_for(&look);
         let root = look.root.clone();
         let map_cfg = omsi_cfg::resolve_path(&root, &look.map);

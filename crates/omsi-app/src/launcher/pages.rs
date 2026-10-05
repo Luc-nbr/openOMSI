@@ -122,6 +122,7 @@ pub fn about(page: Page, controls_tab: usize) -> (&'static str, &'static str) {
         Page::Editor => ("construction", "Make the map your own: lines of your own, liveries, the timetable and the map's objects."),
         Page::Lines => ("route", "Click the stops in order: the way between them is found over the roads. Saved, the line is driven by you and by the timetable's buses."),
         Page::Livery => ("livery_fill", "Paint a bus in 3D: colours, stripes, texts, pictures and shapes, saved as a livery the game offers."),
+        Page::Company => ("garage", "Your own transport company: buses, people and lines, settled day by day."),
         Page::Drive => ("directions_bus", ""),
     }
 }
@@ -131,6 +132,7 @@ pub fn about(page: Page, controls_tab: usize) -> (&'static str, &'static str) {
 pub fn head_tools(l: &mut Launcher, page: Page, r: Rect) -> f32 {
     match page {
         Page::Profile => driver_tools(l, r),
+        Page::Company => super::company::head_tools(l, r),
         _ => r.right(),
     }
 }

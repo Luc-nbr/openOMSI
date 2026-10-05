@@ -624,6 +624,7 @@ pub fn page(l: &mut Launcher, page: Page, title: &str) {
         Page::Setup => super::pages::setup(l, inner),
         Page::Editor => super::editor_hub::draw(l, inner),
         Page::Lines => super::lineeditor::draw(l, inner),
+        Page::Company => super::company::draw(l, inner),
         Page::Drive | Page::Livery => {}
     }
     bar(l, Some(step_of(page)), Some(title));
@@ -805,13 +806,15 @@ fn step_mode(l: &mut Launcher, window: Rect) {
     l.ui.text_in(&omsi_ui::tr(greeting).replace("%{name}", &name), Rect::new(inner.x, gy, inner.w, 40.0), 32.0, Weight::Bold, TEXT, Align::Center);
     l.ui.text_in("How do you want to drive today?", Rect::new(inner.x, gy + 46.0, inner.w, 20.0), 14.0, Weight::Regular, TEXT_SOFT, Align::Center);
     // the ways to drive (kinds: 0 a tour, 1 a shift, 2 free)
-    // (and a fourth tile, the editor: no way to drive but a place of its own, never shown as
-    // the chosen one - Omsi-Hub's bus company tile beside its modes)
-    let modes: [(usize, &str, &str, &str, &str); 4] = [
+    // (and a fourth tile, the editor, and a fifth, the bus company: no ways to drive but
+    // places of their own, never shown as the chosen one - Omsi-Hub's bus company tile beside
+    // its modes)
+    let modes: [(usize, &str, &str, &str, &str); 5] = [
         (1, "Work shift", "schedule", "mode-shift", "Choose how long you want to drive and when: openOMSI puts a shift together from the timetable's real trips, on with another line where lines meet."),
         (0, "Tour", "route", "mode-tour", "One bus's trips on one line, as OMSI's timetable dialog gives them: pick the line, the tour and the trip to start with."),
         (2, "Free drive", "map", "mode-free", "Only a map and a bus. The traffic and the timetable's buses drive around you; nothing is booked."),
         (3, "Editor", "construction", "mode-editor", "Lines of your own on any map, liveries, the timetable and the map's objects."),
+        (4, "Bus company", "garage", "mode-company", "Your own transport company: buy, lease or rent buses, hire drivers and run lines day by day."),
     ];
     let c = &l.state.choice;
     let current = if c.free { 2 } else if c.composed { 1 } else { 0 };
@@ -860,6 +863,8 @@ fn step_mode(l: &mut Launcher, window: Rect) {
     super::tour::anchor("editor-tile", Rect::new(inner.x + 3.0 * (tw + gap), ty, tw, tile_h));
     if chosen == Some(3) {
         l.go(Page::Editor);
+    } else if chosen == Some(4) {
+        l.go(Page::Company);
     } else if let Some(kind) = chosen {
         l.state.choice.free = kind == 2;
         l.state.choice.composed = kind == 1;
