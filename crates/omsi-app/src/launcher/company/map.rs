@@ -79,16 +79,17 @@ fn colour_of_line(c: &Company, line: &str) -> Color {
     }
 }
 
-/// The time of day the map follows: the game's while it runs on the company's map (from the
-/// time it was started at and how long it has run), else this computer's.
-fn time_of_day(l: &Launcher, c: &Company) -> (f64, bool) {
+/// The time of day the map follows (seconds): the game's while it runs on the company's map
+/// (from the time it was started at and how long it has run), else the company's clock.
+pub(super) fn time_of_day(l: &Launcher, c: &Company) -> (f64, bool) {
     let unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     let same = |m: &str| m.replace('\\', "/").eq_ignore_ascii_case(&c.map.replace('\\', "/"));
     if let Some(i) = l.state.instances.iter().find(|i| i.running && same(&i.map)) {
         let start = l.state.choice.time as f64 * 60.0;
         return ((start + unix.saturating_sub(i.started) as f64).rem_euclid(86_400.0), true);
     }
-    (crate::real_time::now().map(|n| n.secs).unwrap_or(8.0 * 3600.0), false)
+    let now = omsi_launcher_lib::company::clock::now(c);
+    (omsi_launcher_lib::company::clock::minute_of(now) as f64 * 60.0, false)
 }
 
 fn hhmmss(s: f64) -> String {
@@ -335,7 +336,7 @@ fn side(l: &mut Launcher, r: Rect, c: &Company, markers: &[Marker], in_game: boo
     let mut y = inner.y;
     l.ui.text_in(&omsi_ui::tr("Fleet map").to_uppercase(), Rect::new(inner.x, y, inner.w, 14.0), 10.5, Weight::Bold, TEXT_DIM, Align::Left);
     if l.company.map.live {
-        let t = if in_game { "Live: the game's time" } else { "Live: the time of day" };
+        let t = if in_game { "Live: the game's time" } else { "Live: the company's time" };
         let w = l.ui.width(&omsi_ui::tr(t), 10.0, Weight::Bold) + 10.0;
         l.ui.badge(Vec2::new(inner.right() - w, y - 1.0), &omsi_ui::tr(t), if in_game { OK } else { accent_2() });
     }

@@ -1877,6 +1877,29 @@ mod record_tests {
         assert!(text.contains("stop_style=fr\n") && text.contains("nav_scale=1\n"), "{text}");
     }
 
+    /// The duty board under the navigator is on unless switched off; the navigator's dragged
+    /// place and size read back as written, and a place dragged before it could be sized
+    /// (`navigator_corner = at x,y`) becomes the rect's, the corner the default one.
+    #[test]
+    fn the_navigator_rect_and_board_are_read_written_and_migrated() {
+        let v = settings_from_text(None);
+        assert_eq!((v["nav_board"].clone(), v["nav_rect"].clone()), (json!(true), json!("")));
+        let v = settings_from_text(Some("nav_board=0\nnav_rect=0.5,0.25,0.4,0.6\n"));
+        assert_eq!(v["nav_board"], json!(false));
+        assert_eq!(nav_rect_parts(v["nav_rect"].as_str().unwrap()), (Some([0.5, 0.25]), Some([0.4, 0.6])));
+        let text = settings_to_text(&v, None);
+        assert!(text.contains("nav_board=0\n") && text.contains("nav_rect=0.5000,0.2500,0.4000,0.6000\n"), "{text}");
+        assert_eq!(nav_rect("-,-,0.3,0.5"), "-,-,0.3000,0.5000");
+        assert_eq!(nav_rect_parts("0.2,0.9,-,-"), (Some([0.2, 0.9]), None));
+        assert_eq!(nav_rect("rubbish"), "");
+        assert_eq!(nav_rect_parts("2,-1,9,0.01"), (Some([1.0, 0.0]), Some([4.0, 0.05])));
+        // (#940's place, migrated)
+        let v = settings_from_text(Some("navigator_corner=at 0.25,0.75\n"));
+        assert_eq!((v["navigator_corner"].clone(), v["nav_rect"].clone()), (json!("bottom-left"), json!("0.2500,0.7500,-,-")));
+        let v = settings_from_text(Some("navigator_corner=top-right\n"));
+        assert_eq!((v["navigator_corner"].clone(), v["nav_rect"].clone()), (json!("top-right"), json!("")));
+    }
+
     /// A deleted driver that has no file of openOMSI's own is hidden from the lists, whatever
     /// the case it is written in, and the list keeps the others in their order.
     #[test]
@@ -2296,6 +2319,43 @@ pub fn nav_scale(v: Option<f64>) -> f64 {
     (x * 20.0).round() / 20.0
 }
 
+/// The small navigator's place and size as the player dragged them (`nav_rect`), read: where
+/// its top-left corner is as a share of the room the window leaves it across and down (None:
+/// the `navigator_corner`), and its width and height as shares of the window's height (None:
+/// its own size). Written `x,y,w,h`, a `-` for what is not set.
+pub fn nav_rect_parts(v: &str) -> (Option<[f64; 2]>, Option<[f64; 2]>) {
+    let parts: Vec<Option<f64>> = v.split(',').map(|p| p.trim().parse::<f64>().ok().filter(|x| x.is_finite())).collect();
+    if parts.len() != 4 {
+        return (None, None);
+    }
+    let at = parts[0].zip(parts[1]).map(|(x, y)| [x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)]);
+    let size = parts[2].zip(parts[3]).filter(|(w, h)| *w > 0.0 && *h > 0.0).map(|(w, h)| [w.clamp(0.05, 4.0), h.clamp(0.05, 1.0)]);
+    (at, size)
+}
+
+/// `nav_rect` as it is written (see [`nav_rect_parts`]): empty when neither is set.
+pub fn nav_rect_text(at: Option<[f64; 2]>, size: Option<[f64; 2]>) -> String {
+    if at.is_none() && size.is_none() {
+        return String::new();
+    }
+    let pair = |p: Option<[f64; 2]>| p.map(|p| format!("{:.4},{:.4}", p[0], p[1])).unwrap_or_else(|| "-,-".into());
+    format!("{},{}", pair(at), pair(size))
+}
+
+/// `nav_rect` made tidy (anything unreadable: empty).
+pub fn nav_rect(v: &str) -> String {
+    let (at, size) = nav_rect_parts(v);
+    nav_rect_text(at, size)
+}
+
+/// A `navigator_corner` of the form `at x,y` (where the navigator was dragged to before
+/// `nav_rect`, #940).
+pub fn corner_placed_at(corner: &str) -> Option<[f64; 2]> {
+    let (x, y) = corner.trim().strip_prefix("at")?.trim().split_once(',')?;
+    let (x, y) = (x.trim().parse::<f64>().ok()?, y.trim().parse::<f64>().ok()?);
+    (x.is_finite() && y.is_finite()).then(|| [x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)])
+}
+
 /// The stop signs on the navigator's map (`stop_style`): "de" (the German H), "uk" (the
 /// British bus stop flag) or "fr" (the French arrêt); anything else the German.
 pub fn stop_style(v: &str) -> &'static str {
@@ -2404,6 +2464,10 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
     // signing on in the navigator with the personnel number and the code, then the duty
     // order (off: signed on and signed for by itself, the map and the duty at once)
     v["nav_signon"] = json!(false);
+    // the duty board under the small navigator, and the navigator's own place and size as
+    // the player dragged them (`nav_rect`; empty: its corner and its own size)
+    v["nav_board"] = json!(true);
+    v["nav_rect"] = json!("");
     let Some(t) = text else { return v };
     let mut version = 0;
     let mut graphics: Option<&str> = None;
@@ -2449,7 +2513,8 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
             "nav_scale" => v[&k] = json!(nav_scale(val.parse::<f64>().ok())),
             "stop_style" => v[&k] = json!(stop_style(val)),
             "accent" => v[&k] = json!(accent_text(val)),
-            "nav_signon" => v[&k] = json!(b(val)),
+            "nav_signon" | "nav_board" => v[&k] = json!(b(val)),
+            "nav_rect" => v[&k] = json!(nav_rect(val)),
             "ctrl_off" => v[&k] = json!(val),
             "metar_station" => v[&k] = json!(val.chars().filter(|c| c.is_ascii_alphabetic()).take(4).collect::<String>().to_ascii_uppercase()),
             "discord_app_id" => v[&k] = json!(val),
@@ -2511,6 +2576,13 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
     // (passengers then waited at the cash desk for the driver): the game reads that as auto
     if version < 2 && v["boarding"] == "pay" {
         v["boarding"] = json!("auto");
+    }
+    // a navigator dragged before it could be sized said where in `navigator_corner` (`at x,y`,
+    // #940): that place is the rect's now, and the corner the default one again
+    if let Some(at) = v["navigator_corner"].as_str().and_then(corner_placed_at) {
+        let (old, size) = nav_rect_parts(v["nav_rect"].as_str().unwrap_or(""));
+        v["nav_rect"] = json!(nav_rect_text(old.or(Some(at)), size));
+        v["navigator_corner"] = json!("bottom-left");
     }
     v
 }
@@ -2825,6 +2897,7 @@ pub fn settings_to_text(v: &Value, old: Option<&str>) -> String {
     text.push_str(&format!("nav_scale={}\nstop_style={}\n", nav_scale(v.get("nav_scale").and_then(|x| x.as_f64())), stop_style(v.get("stop_style").and_then(|x| x.as_str()).unwrap_or("de"))));
     text.push_str(&format!("accent={}\n", accent_text(v.get("accent").and_then(|x| x.as_str()).unwrap_or(ACCENT_DEFAULT))));
     text.push_str(&format!("nav_signon={}\n", b("nav_signon", false)));
+    text.push_str(&format!("nav_board={}\nnav_rect={}\n", b("nav_board", true), nav_rect(v.get("nav_rect").and_then(|x| x.as_str()).unwrap_or(""))));
     let written: Vec<String> = text.lines().filter_map(|l| l.split_once('=')).map(|(k, _)| k.trim().to_ascii_lowercase()).collect();
     for line in old.unwrap_or("").lines() {
         let t = line.trim();

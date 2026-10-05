@@ -151,7 +151,7 @@ pub fn used_offers(c: &Company, market: &[MarketBus]) -> Vec<UsedOffer> {
 }
 
 /// A bus into the fleet: its number, plate and first service.
-fn add_vehicle(c: &mut Company, bus: &MarketBus, built: String, km: f64, condition: f64, tenure: Tenure, livery: &str) -> u32 {
+pub(crate) fn add_vehicle(c: &mut Company, bus: &MarketBus, built: String, km: f64, condition: f64, tenure: Tenure, livery: &str) -> u32 {
     c.counters.vehicle += 1;
     let id = c.counters.vehicle;
     let number = c.next_fleet_number();

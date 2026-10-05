@@ -722,6 +722,8 @@ impl App {
                     n.arrows = self.settings.nav_arrows;
                     n.show_ai = self.settings.nav_ai;
                     n.size = self.settings.nav_scale;
+                    n.board = self.settings.nav_board;
+                    n.set_rect(&self.settings.nav_rect);
                 }
                 crate::stop_signs::set_style(crate::stop_signs::Style::from_setting(&self.settings.stop_style));
                 if let Some(d) = self.args.driver.as_deref() {

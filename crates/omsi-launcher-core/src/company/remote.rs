@@ -200,7 +200,7 @@ pub fn summary(c: &Company, plan: Option<&Plan>, waiting: &[Order]) -> Value {
         "buses": buses,
         "pending": pend,
         "concessions": c.concessions.held.iter().map(|h| json!({ "number": h.number, "until": h.until, "price": h.price })).collect::<Vec<_>>(),
-        "tenders": c.concessions.tenders.iter().filter(|t| t.open()).map(|t| json!({ "number": t.number, "closes": t.closes, "bid": t.bid })).collect::<Vec<_>>(),
+        "tenders": c.concessions.tenders.iter().filter(|t| t.open()).map(|t| json!({ "number": t.number, "closes": t.closes, "closes_at": super::clock::hhmm(t.closes_at), "bid": serde_json::Value::Null, "offer": t.offers.last().map(|o| o.1) })).collect::<Vec<_>>(),
     })
 }
 

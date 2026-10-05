@@ -14,10 +14,13 @@
 //! Everything here is plain functions over plain data, without a window; the launcher's pages
 //! call them, and the rules are tested on their own.
 
+pub mod auction;
 pub mod career;
+pub mod clock;
 pub mod concessions;
 pub mod dates;
 pub mod day;
+pub mod dealer;
 pub mod depot;
 pub mod economy;
 pub mod finance;
@@ -26,10 +29,12 @@ pub mod levels;
 pub mod market;
 pub mod model;
 pub mod network;
+pub mod ownline;
 pub mod plan;
 pub mod rankings;
 pub mod remote;
 pub mod rng;
+pub mod specials;
 pub mod staff;
 pub mod store;
 pub mod training;
@@ -49,6 +54,8 @@ pub struct Founding {
     /// The first company day (empty: the launcher's default date).
     pub date: String,
     pub difficulty: Difficulty,
+    /// How the dealer sells buses first: the quick buy or haggling and a contract.
+    pub buying: dealer::BuyingMode,
 }
 
 /// A name as a file name: lower case, letters and digits, dashes between.
@@ -118,6 +125,8 @@ pub fn found(f: &Founding, profile: &str) -> Company {
         progress: Default::default(),
         site: Default::default(),
         concessions: Default::default(),
+        clock: Default::default(),
+        dealer: dealer::DealerState { mode: f.buying, ..Default::default() },
     };
     c.book(BookingKind::Capital, r.start_capital, c.name.clone(), false);
     c

@@ -1436,6 +1436,10 @@ impl Launcher {
             if self.page == Page::Lines || self.page == Page::Company {
                 self.mapview.editor_off();
             }
+            // (the line editor works for the bus company only when the company opened it)
+            if p == Page::Lines && self.page != Page::Company {
+                self.pages.lines.leave_company();
+            }
             self.page = p;
             self.page_scroll = 0.0;
             self.phone.page = match p {

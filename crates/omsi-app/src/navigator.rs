@@ -84,24 +84,6 @@ fn traffic_kind(c: &crate::traffic::AiCar) -> (Color, Option<String>) {
     };
     (color, line)
 }
-/// A bus, trolleybus or tram on the map as a pictogram, not a dot: a body with a cut front and
-/// a windscreen, turned to the way it heads (`heading`: degrees clockwise from north), a dark
-/// edge round it. `min_px` keeps it readable from far away; the line number is drawn beside it.
-fn vehicle_icon(p: &mut Painter, at: Vec3, heading: f64, color: Color, long: bool, min_px: f32) {
-    let h = heading.to_radians() as f32;
-    let (sn, cs) = h.sin_cos();
-    // local: x to the right, y forward; turned onto the world (x east, y north)
-    let turn = |v: Vec2| Vec2::new(v.x * cs + v.y * sn, -v.x * sn + v.y * cs);
-    let l = if long { 1.5 } else { 1.0 };
-    let body = |k: f32| -> Vec<Vec2> {
-        [(-0.34, -1.0), (0.34, -1.0), (0.34, 0.55), (0.2, 1.0), (-0.2, 1.0), (-0.34, 0.55)].iter().map(|&(x, y)| turn(Vec2::new(x * k, y * l * k))).collect()
-    };
-    let (m, px) = (6.0, min_px);
-    p.world_shape(at, &body(1.28), m, px * 1.28, Color::rgba(8, 8, 8, 0.92));
-    p.world_shape(at, &body(1.0), m, px, color);
-    let glass: Vec<Vec2> = [(-0.24, 0.5), (0.24, 0.5), (0.15, 0.8), (-0.15, 0.8)].iter().map(|&(x, y)| turn(Vec2::new(x, y * l))).collect();
-    p.world_shape(at, &glass, m, px, Color::rgba(240, 244, 248, 0.9));
-}
 
 /// The route by how busy its roads are: empty, light, busy, heavy, jammed.
 const LEVEL: [Color; 5] = [
@@ -303,6 +285,23 @@ pub struct Navigator {
     pub enabled: bool,
     /// The duty board under the map (`nav_duty`; Shift+N cycles map, map and board, off).
     pub schedule: bool,
+    /// The board is wanted under the map (the `nav_board` setting, and its handle on the
+    /// panel): it opens by itself on a duty and is a step of Shift+N; off, the map alone.
+    pub board: bool,
+    /// The board's handle was pressed: the setting to keep (taken by [`Navigator::take_board`]).
+    board_changed: Option<bool>,
+    /// The panel's size as the player dragged it, as shares of the window's height (the
+    /// `nav_rect` setting's); None: its own size, from the interface's and `size`.
+    pub custom: Option<[f32; 2]>,
+    /// The place or the size changed in the game: `nav_rect` to keep ([`Navigator::take_rect`]).
+    rect_changed: bool,
+    /// How the small navigator was laid out last (its own pixels): the handle's place.
+    layout: Option<crate::nav_panel::Layout>,
+    /// What the mouse is over on the small navigator (the handle lit, the edge marked).
+    panel_hover: Option<HoverPart>,
+    /// The window (physical pixels) and the interface's pixels a point, when last placed.
+    window: [f32; 2],
+    unit: f32,
     /// A duty has been seen: the board opened by itself for it once.
     duty_seen: bool,
     /// Smoothed speed (m/s) for the time to the next stop.
@@ -313,9 +312,10 @@ pub struct Navigator {
     /// room the window leaves it across and down (`navigator_corner = at x,y`); None: the
     /// corner.
     pub at: Option<[f32; 2]>,
-    /// A press on the navigator: where it was (cursor and the panel's top-left) and whether
-    /// it has moved far enough to be a drag rather than a click.
-    panel_drag: Option<([f32; 2], [f32; 2], bool)>,
+    /// A press on the navigator: where it was, the panel as it was then, what it took hold of
+    /// (the panel, or edges to size it by), and whether it has moved far enough to be a drag
+    /// rather than a click.
+    panel_drag: Option<PanelGrab>,
     /// The room the window leaves the navigator (width, height) when it was last placed.
     panel_room: [f32; 2],
     /// The city map (a click on the navigator or Shift+M) and where the navigator is on the
@@ -400,6 +400,16 @@ pub struct Navigator {
     stop_names: Option<Vec<(i64, String)>>,
 }
 
+/// A press held on the small navigator: where the cursor was, the panel then (x0, y0, x1,
+/// y1, the window's pixels without the origin), what it holds, and whether it has moved yet.
+#[derive(Debug, Clone, Copy)]
+struct PanelGrab {
+    from: [f32; 2],
+    rect: [f32; 4],
+    grip: crate::nav_panel::Grip,
+    moved: bool,
+}
+
 /// The small navigator as the sign-on page: the page as it fits, where a press does what
 /// (the panel's pixels), and the stage it was laid out at.
 struct PanelPage {
@@ -475,6 +485,14 @@ impl Navigator {
             drawn_at: f32::MIN,
             enabled,
             schedule: false,
+            board: true,
+            board_changed: None,
+            custom: None,
+            rect_changed: false,
+            layout: None,
+            panel_hover: None,
+            window: [0.0; 2],
+            unit: 1.0,
             duty_seen: false,
             speed_avg: 8.0,
             opacity: opacity.clamp(0.2, 1.0),
@@ -1309,22 +1327,35 @@ impl Navigator {
         // schedule)
         let base = (sh * 0.33).max(300.0);
         let base = if f.follow_window { base } else { base.min(480.0) };
+        // (the interface's pixels a point here: the smallest panel and its scale's range)
+        let unit = base * f.ui_scale / crate::nav_panel::WIDTH;
+        self.unit = unit;
+        self.window = [sw, sh];
         // (the navigator's own size on top of the interface's; the cockpit's display is the
         // bus's, as large as it is)
         let size = if self.cockpit_display { 1.0 } else { self.size };
-        let pw = (base * f.ui_scale * size).min((sh * 0.7).max(300.0)).min((sw * 0.9).max(300.0)).round();
-        let map_h = (pw * 0.62).round();
-        let s = pw / 360.0;
-        let bars = (34.0 + 46.0) * s;
         let margin = (sh * 0.018).max(10.0).round();
-        // the duty board under the map (Shift+N's second step): as many stops ahead as the
-        // window has room for, four at most
+        // (with the on-screen controls the corners are theirs: the top middle)
+        let touch = crate::platform::touch_controls();
+        // the size the player dragged it to (by its corners and edges): what is in it is laid
+        // out for that shape; else its own, as wide as the interface makes it
+        let custom = self
+            .custom
+            .filter(|_| !self.cockpit_display && !touch)
+            .map(|c| crate::nav_panel::clamp_size(c[0] * sh, c[1] * sh, self.min_size(), [sw, sh]));
+        let pw = match custom {
+            Some((w, _)) => w,
+            None => (base * f.ui_scale * size).min((sh * 0.7).max(300.0)).min((sw * 0.9).max(300.0)).round(),
+        };
+        // the duty board under the map (Shift+N's second step, the handle on the bar): as
+        // many stops ahead as there is room for, four at most
         let duty = f.duty.and_then(|d| crate::nav_duty::DutyState::of(d, f.time));
-        // (on a duty the board opens by itself, once: Omsi-Hub's duty overlay was there
-        // whenever a duty ran; Shift+N puts it away)
+        // (on a duty the board opens by itself, once - Omsi-Hub's duty overlay was there
+        // whenever a duty ran - unless the player wants the map alone; Shift+N and the
+        // handle put it away)
         if duty.is_some() && !self.duty_seen {
             self.duty_seen = true;
-            self.schedule = true;
+            self.schedule = self.board;
         }
         // (until the duty is signed for the whole navigator is the sign-on page - Omsi-Hub's
         // duty panel was "sign on first" and nothing else until then; signed, the map and the
@@ -1333,14 +1364,33 @@ impl Navigator {
         if self.schedule && duty.is_some() {
             let companion = crate::companion::state();
             if crate::nav_signon::waiting(&companion) {
-                self.signing = Some(self.panel_page(&companion, duty.as_ref(), f.time, pw, sh - 2.0 * margin));
+                let (s, room) = match custom {
+                    Some((cw, ch)) => (crate::nav_panel::scale(cw, ch, unit * size, false).0, ch),
+                    None => (pw / crate::nav_panel::WIDTH, sh - 2.0 * margin),
+                };
+                self.signing = Some(self.panel_page(&companion, duty.as_ref(), f.time, pw, s, room, custom.is_some()));
             }
         }
-        let room = sh - 2.0 * margin - map_h - bars;
-        let (board, sched) = if self.schedule && self.signing.is_none() { crate::nav_duty::board_fitting(duty.as_ref(), s, room) } else { (Vec::new(), 0.0) };
-        let ph = match self.signing.as_ref() {
-            Some(p) => p.fit.height.round(),
-            None => (map_h + bars + sched).round(),
+        let handle = duty.is_some() || self.schedule;
+        let (ph, board) = if let Some(p) = self.signing.as_ref() {
+            self.layout = None;
+            (p.fit.height.round(), Vec::new())
+        } else if let Some((cw, ch)) = custom {
+            // (the navigator's own size on top: its texts as large as they fit in the shape)
+            let (s, beside) = crate::nav_panel::scale(cw, ch, unit * size, self.schedule);
+            let (rows, bh) = if self.schedule { crate::nav_duty::board_within(duty.as_ref(), s, crate::nav_panel::board_room(ch, s, beside)) } else { (Vec::new(), 0.0) };
+            let shown = !rows.is_empty();
+            self.layout = Some(crate::nav_panel::layout(cw, ch, s, shown.then_some(bh), beside, handle));
+            (ch, rows)
+        } else {
+            let s = pw / crate::nav_panel::WIDTH;
+            let map_h = (pw * 0.62).round();
+            let bars = (crate::nav_panel::HEAD * s).round() + (crate::nav_panel::NEXT * s).round();
+            let room = sh - 2.0 * margin - map_h - bars;
+            let (rows, sched) = if self.schedule { crate::nav_duty::board_fitting(duty.as_ref(), s, room) } else { (Vec::new(), 0.0) };
+            let ph = (map_h + bars + sched).round();
+            self.layout = Some(crate::nav_panel::layout(pw, ph, s, (!rows.is_empty()).then_some(sched), false, handle));
+            (ph, rows)
         };
         let (w, h) = (pw as u32, ph as u32);
         let (x0, y0) = self.panel_origin((sw, sh), (pw, ph), crate::platform::touch_controls(), f.info_rect);
@@ -1362,10 +1412,9 @@ impl Navigator {
         let Some(view) = renderer.texture_view(scene, tex) else { return };
         if !self.city.open && (resized || self.time - self.drawn_at >= NAV_REDRAW_S) {
             self.drawn_at = self.time;
-            if self.signing.is_some() {
-                self.draw_signon(renderer, &view, (w, h));
-            } else {
-                self.draw(renderer, &view, (w, h), map_h, f, &board);
+            match self.layout {
+                Some(lay) if self.signing.is_none() => self.draw(renderer, &view, (w, h), &lay, f, &board),
+                _ => self.draw_signon(renderer, &view, (w, h)),
             }
         }
         // (the small navigator steps aside while the city map is open)
@@ -1379,16 +1428,72 @@ impl Navigator {
         }
     }
 
-    fn draw(&mut self, renderer: &Renderer, target: &wgpu::TextureView, size: (u32, u32), map_h: f32, f: &NavFrame, board: &[crate::nav_duty::Row]) {
-        let (pw, ph) = (size.0 as f32, size.1 as f32);
-        let s = pw / 360.0;
+    /// Draw the small navigator into its texture (`size` pixels), laid out as `lay`.
+    fn draw(&mut self, renderer: &Renderer, target: &wgpu::TextureView, size: (u32, u32), lay: &crate::nav_panel::Layout, f: &NavFrame, board: &[crate::nav_duty::Row]) {
+        let reach = self.map_zoom(lay) * 3.5 + 150.0;
+        let vehicles = map_vehicles(f.traffic.filter(|_| self.show_ai), f.bus, reach);
+        let p = self.paint_panel((size.0 as f32, size.1 as f32), lay, f, board, &vehicles);
+        let (Some(gpu), device, queue) = (self.gpu.as_mut(), &renderer.device, &renderer.queue) else { return };
+        if let Some(v) = p.roads {
+            if let Some(r) = self.roads.as_mut() {
+                r.verts = v.len();
+            }
+            gpu.upload(device, queue, 0, &v);
+        }
+        if let Some(v) = p.route {
+            gpu.upload(device, queue, 1, &v);
+        }
+        let (n_bg, n_traffic) = (p.bg.len(), p.traffic.len());
+        let n_world = n_traffic + p.vehicles.len();
+        let mut all = p.bg.verts;
+        all.extend(p.traffic.verts);
+        all.extend(p.vehicles.verts);
+        let n_ui_start = all.len() as u32;
+        all.extend(p.ui.verts);
+        gpu.upload(device, queue, 2, &all);
+        gpu.upload_atlas(queue, &mut self.atlas);
+        let clip_panel = [0.0, 0.0, size.0 as f32, size.1 as f32];
+        // (the opacity setting is the background's: the map and the text stay solid)
+        let flat = Layer::flat(clip_panel, p.radius, 1.0);
+        let backdrop = Layer::flat(clip_panel, p.radius, if self.cockpit_display { self.opacity } else { crate::ui::backdrop(self.opacity).min(1.0) });
+        let mut layers = [flat, p.map_layer, backdrop];
+        for l in layers.iter_mut() {
+            l.opacity *= self.shown;
+        }
+        let roads_n = self.roads.as_ref().map(|r| r.verts as u32).unwrap_or(0);
+        let draws = [
+            Draw { buffer: 2, range: 0..n_bg, layer: 2, texture: 0 },
+            Draw { buffer: 0, range: 0..roads_n, layer: 1, texture: 0 },
+            Draw { buffer: 2, range: n_bg..n_bg + n_traffic, layer: 1, texture: 0 },
+            Draw { buffer: 1, range: 0..self.route_mesh.3, layer: 1, texture: 0 },
+            Draw { buffer: 2, range: n_bg + n_traffic..n_bg + n_world, layer: 1, texture: 0 },
+            Draw { buffer: 2, range: n_ui_start..all.len() as u32, layer: 0, texture: 0 },
+        ];
+        let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("navigator") });
+        gpu.render(device, queue, &mut enc, target, size, Some(wgpu::Color::TRANSPARENT), &layers, &draws);
+        queue.submit([enc.finish()]);
+    }
+
+    /// The map camera's distance for the map's part of the panel: the eased zoom, made
+    /// larger as the map is taller than the design's (a tall map shows more of the way, the
+    /// things on it as large as ever).
+    fn map_zoom(&self, lay: &crate::nav_panel::Layout) -> f64 {
+        let design = 0.62 * crate::nav_panel::WIDTH * lay.s;
+        self.zoom * (lay.map.h / design.max(1.0)).clamp(0.5, 3.0) as f64
+    }
+
+    /// The small navigator as painted, before it goes to the GPU (`size` pixels, laid out as
+    /// `lay`), with the other `vehicles` on the map.
+    fn paint_panel(&mut self, size: (f32, f32), lay: &crate::nav_panel::Layout, f: &NavFrame, board: &[crate::nav_duty::Row], vehicles: &[MapVehicle]) -> PanelPaint {
+        let (pw, ph) = size;
+        let s = lay.s;
         let wd = words(f.language);
         self.atlas.begin_frame();
         let panel = Rect::new(0.0, 0.0, pw, ph);
         let radius = 7.0 * s;
-        let top_h = (34.0 * s).round();
-        let map = Rect::new(0.0, top_h, pw, map_h);
-        let vp = [map.x, map.y, map.w, map.h];
+        let map = lay.map;
+        let zoom = self.map_zoom(lay);
+        let vp = [map.x, map.y, map.w, map.h.max(1.0)];
 
         // --- roads (buffer 0): rebuilt when the bus went far or tiles brought lanes
         let own = self.own_net.clone();
@@ -1419,12 +1524,11 @@ impl Navigator {
         let rel = |p: DVec3| Vec3::new((p.x - anchor.x) as f32, (p.y - anchor.y) as f32, 0.0);
         let hd = self.cam_heading.to_radians();
         let fwd = DVec2::new(hd.sin(), hd.cos());
-        let look_at = f.bus.truncate() - anchor + fwd * self.zoom * 0.28;
+        let look_at = f.bus.truncate() - anchor + fwd * zoom * 0.28;
         let pitch = PITCH.to_radians();
-        let back = fwd * self.zoom * pitch.cos();
-        let eye = DVec3::new(look_at.x - back.x, look_at.y - back.y, self.zoom * pitch.sin());
+        let back = fwd * zoom * pitch.cos();
+        let eye = DVec3::new(look_at.x - back.x, look_at.y - back.y, zoom * pitch.sin());
         let view = Mat4::look_at_rh(eye.as_vec3(), Vec3::new(look_at.x as f32, look_at.y as f32, 0.0), Vec3::Z);
-        let clip_panel = [0.0, 0.0, pw, ph];
         let map_layer = Layer::world(view, FOV.to_radians(), vp, [map.x, map.y, map.right(), map.bottom()], 0.0, 1.0);
         let vpm = map_layer.view_proj;
 
@@ -1450,7 +1554,6 @@ impl Navigator {
         // --- background (half transparent), traffic, markers, text
         let mut bg = Painter::new();
         bg.rounded(panel, radius, if self.cockpit_display { Color::rgba(10, 10, 10, 1.0) } else { PANEL });
-        let n_bg = bg.len();
 
         let mut dy = Painter::new();
         // other roads where the traffic is heavy or stands
@@ -1468,28 +1571,13 @@ impl Navigator {
                 dy.ribbon(&pts, l.width.max(2.5) * 0.6, 2.0, LEVEL[lv].alpha(0.8), true);
             }
         }
-        let n_traffic = dy.len();
-        // the other vehicles: blue dots, as the other drivers in ETS2; the public transport in
-        // its own colours (trolleybus, bus, tram), a little bigger, its line beside it
-        let mut lines: Vec<(DVec3, Color, String)> = Vec::new();
-        if let Some(t) = f.traffic.filter(|_| self.show_ai) {
-            for c in &t.cars {
-                if c.gone || (c.vehicle.position - f.bus).truncate().length() > self.zoom * 3.5 + 150.0 {
-                    continue;
-                }
-                let (color, line) = traffic_kind(c);
-                if color == DOT {
-                    dy.world_disc(rel(c.vehicle.position), 1.7, 3.6, Color::rgba(8, 8, 8, 0.9));
-                    dy.world_disc(rel(c.vehicle.position), 1.2, 2.6, color);
-                } else {
-                    vehicle_icon(&mut dy, rel(c.vehicle.position), c.vehicle.heading, color, c.is_rail(), 7.0);
-                }
-                if let Some(l) = line {
-                    lines.push((c.vehicle.position, color, l));
-                }
-            }
-        }
-        let n_world = dy.len();
+        // the other vehicles: small cars in blue, as the other drivers in ETS2; the public
+        // transport as buses in its own colours (trolleybus, bus, tram), its line above it -
+        // turned as they head, a dot with a tip where they would be too small to make out
+        let mut cars = Painter::new();
+        let mpp_here = zoom as f32 * map_layer.px_scale;
+        paint_vehicles(&mut cars, vehicles, &rel, mpp_here, s);
+        let mut lines: Vec<(DVec3, Color, String, [DVec3; 2])> = vehicles.iter().filter_map(|v| v.line.clone().map(|l| (v.at, v.color, l, v.drawn_ends(mpp_here, s)))).collect();
 
         let mut ui = Painter::new();
         // the far end of the map fades into the panel
@@ -1566,15 +1654,17 @@ impl Navigator {
             ui.rounded(r, 3.5 * s, PLAYER);
             ui.text_in(&mut self.atlas, &self.fonts, &name, px, Weight::Bold, r, Align::Center, LINE_TEXT);
         }
-        for (pos, color, l) in &lines {
+        for (pos, color, l, ends) in &lines {
             let Some(p) = project(vpm, vp, rel(*pos)).filter(|p| map.contains(*p)) else { continue };
             let px = 9.5 * s;
-            // (a rounded chip in its kind's colour, the duty's own line on its yellow plate)
+            // (a rounded chip in its kind's colour, the duty's own line on its yellow plate -
+            // above the bus's end that is higher on the map, not over the bus)
             let own = f.line.as_deref().is_some_and(|o| o.trim().eq_ignore_ascii_case(l.trim()));
             let l = self.fonts.fit(l, px, Weight::Bold, 40.0 * s);
             let w = self.fonts.width(&l, px, Weight::Bold) + crate::stop_signs::CHIP_PAD * s;
-            let r = Rect::new(p.x - w * 0.5, p.y - 19.0 * s, w, 13.0 * s);
-            if taken.iter().any(|o| o.x < r.right() && r.x < o.right() && o.y < r.bottom() && r.y < o.bottom()) {
+            let top = ends.iter().filter_map(|e| project(vpm, vp, rel(*e))).fold(p.y, |t, e| t.min(e.y));
+            let r = Rect::new(p.x - w * 0.5, top.min(p.y - 6.0 * s) - 15.0 * s, w, 13.0 * s);
+            if r.y < map.y || taken.iter().any(|o| o.x < r.right() && r.x < o.right() && o.y < r.bottom() && r.y < o.bottom()) {
                 continue;
             }
             taken.push(r);
@@ -1587,7 +1677,7 @@ impl Navigator {
         }
 
         // top bar: speed (and the limit) · line ……… game time
-        let top = Rect::new(0.0, 0.0, pw, top_h);
+        let top = lay.head;
         ui.rect(top, BAR);
         let pad = 11.0 * s;
         let base = top.y + top.h * 0.5 + self.fonts.cap_height(17.0 * s, Weight::Bold) * 0.5;
@@ -1636,53 +1726,172 @@ impl Navigator {
 
         // bottom bar: the next stop (or the player's own destination); its distance, the time
         // to it, the planned time and whether the bus is early or late
-        let bottom = Rect::new(0.0, map.bottom(), pw, 46.0 * s);
-        self.paint_next(&mut ui, f, bottom, s, board);
+        let next = lay.next_text();
+        self.paint_next(&mut ui, f, next, s, board);
+        // (the board's handle at the bar's right end: a chevron - down to show the board,
+        // up to put it away; beside the map, towards it)
+        if let Some(h) = lay.handle {
+            ui.rect(Rect::new(next.right(), lay.next.y, lay.next.right() - next.right(), lay.next.h), BAR);
+            let on = self.schedule;
+            let lit = self.panel_hover == Some(HoverPart::Handle);
+            ui.rounded(h, 6.0 * s, Color::WHITE.alpha(if lit { 0.2 } else { 0.08 }));
+            ui.rounded_border(h, 6.0 * s, 1.0, Color::WHITE.alpha(if lit { 0.35 } else { 0.16 }));
+            let icon = match (on, lay.beside) {
+                (true, true) => "chevron_right",
+                (true, false) => "expand_less",
+                (false, _) => "expand_more",
+            };
+            ui.icon(&mut self.atlas, icon, h.center(), h.w * 0.8, if on { TEXT_DIM } else { crate::nav_duty::NOW });
+        }
         // the duty board (Omsi-Hub's duty overlay): the trip, its stops behind and ahead
-        // with their times, and what comes after it
-        if self.schedule && !board.is_empty() {
-            let area = Rect::new(0.0, bottom.bottom(), pw, ph - bottom.bottom());
+        // with their times, and what comes after it - under the bar, or beside the map
+        if let Some(area) = lay.board.filter(|_| self.schedule && !board.is_empty()) {
+            if lay.beside {
+                ui.rect(Rect::new(area.x, area.y, 1.0, area.h), Color::WHITE.alpha(0.1));
+            }
             crate::nav_duty::draw_board(&mut crate::nav_duty::Pen { p: &mut ui, atlas: &mut self.atlas, fonts: &self.fonts }, board, area, s);
         }
         // (the size just changed with Ctrl + the wheel: the new one, over the map)
         self.size_note(&mut ui, Vec2::new(map.center().x, map.y + 22.0 * s), s);
-
-        // --- to the GPU
-        let (Some(gpu), device, queue) = (self.gpu.as_mut(), &renderer.device, &renderer.queue) else { return };
-        if let Some(v) = road_verts {
-            if let Some(r) = self.roads.as_mut() {
-                r.verts = v.len();
+        // (the mouse over an edge or a corner: a mark along it, where a drag sizes the panel)
+        if let Some(HoverPart::Grip(crate::nav_panel::Grip::Size { left, right, top, bottom })) = self.panel_hover {
+            let (t, c) = (3.0 * s.max(1.0), crate::nav_duty::NOW.alpha(0.9));
+            let (len_x, len_y) = ((pw * 0.25).min(80.0 * s), (ph * 0.25).min(80.0 * s));
+            let (x0, x1) = if left { (0.0, len_x) } else if right { (pw - len_x, pw) } else { (pw * 0.5 - len_x, pw * 0.5 + len_x) };
+            let (y0, y1) = if top { (0.0, len_y) } else if bottom { (ph - len_y, ph) } else { (ph * 0.5 - len_y, ph * 0.5 + len_y) };
+            if top || bottom {
+                ui.rect(Rect::new(x0, if top { 0.0 } else { ph - t }, x1 - x0, t), c);
             }
-            gpu.upload(device, queue, 0, &v);
+            if left || right {
+                ui.rect(Rect::new(if left { 0.0 } else { pw - t }, y0, t, y1 - y0), c);
+            }
         }
-        if let Some(v) = route_verts {
-            gpu.upload(device, queue, 1, &v);
+
+        PanelPaint { bg, traffic: dy, vehicles: cars, ui, roads: road_verts, route: route_verts, map_layer, radius }
+    }
+}
+
+/// The small navigator as painted, before it goes to the GPU: the background, the jams on
+/// the map, the other vehicles (both in the map's world, relative to the roads' anchor),
+/// what lies over it, the roads' and the route's meshes when they were built again, the map's
+/// view and the panel's corner radius.
+struct PanelPaint {
+    bg: Painter,
+    traffic: Painter,
+    vehicles: Painter,
+    ui: Painter,
+    roads: Option<Vec<omsi_ui::Vertex>>,
+    route: Option<Vec<omsi_ui::Vertex>>,
+    map_layer: Layer,
+    radius: f32,
+}
+
+/// What the mouse is over on the small navigator: the board's handle, or what a press
+/// there takes hold of.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum HoverPart {
+    Handle,
+    Grip(crate::nav_panel::Grip),
+}
+
+/// Another vehicle as the maps draw it: the middle of its body (world), its heading, its
+/// length and width (m), its colour (cars blue, the public transport by kind), whether it is
+/// public transport (drawn as a bus) and the line it shows.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct MapVehicle {
+    pub at: DVec3,
+    pub heading: f64,
+    pub len: f32,
+    pub width: f32,
+    pub color: Color,
+    pub bus: bool,
+    pub line: Option<String>,
+}
+
+/// The traffic's vehicles within `reach` metres of `bus`, as the maps draw them.
+fn map_vehicles(traffic: Option<&Traffic>, bus: DVec3, reach: f64) -> Vec<MapVehicle> {
+    let Some(t) = traffic else { return Vec::new() };
+    t.cars
+        .iter()
+        .filter(|c| !c.gone && (c.vehicle.position - bus).truncate().length() <= reach)
+        .map(|c| {
+            let (color, line) = traffic_kind(c);
+            let h = c.vehicle.heading.to_radians();
+            let (front, rear) = (c.state.front.max(0.5), c.state.rear.max(0.5));
+            // (the body's middle: its origin is where its front and rear are measured from)
+            let mid = c.vehicle.position.truncate() + DVec2::new(h.sin(), h.cos()) * ((front - rear) * 0.5) as f64;
+            MapVehicle { at: mid.extend(c.vehicle.position.z), heading: c.vehicle.heading, len: front + rear, width: (c.half_width * 2.0).max(1.2), color, bus: color != DOT, line }
+        })
+        .collect()
+}
+
+/// The other vehicles onto the map `p` (its world, `rel` giving a world point relative to its
+/// anchor), at `mpp` metres a pixel where they stand and scale `s`: each turned as it heads, at
+/// its own size or - when that is small - a little larger, with a dark outline; a dot with a tip
+/// where even that would be too small.
+fn paint_vehicles(p: &mut Painter, vehicles: &[MapVehicle], rel: &dyn Fn(DVec3) -> Vec3, mpp: f32, s: f32) {
+    use crate::nav_panel::{self as np, Tone};
+    let outline = Color::rgba(8, 8, 8, 0.9);
+    // (the cars first: the buses over them)
+    for pass in [false, true] {
+        for v in vehicles.iter().filter(|v| v.bus == pass) {
+            let at = rel(v.at);
+            match vehicle_size(v, mpp, s) {
+                Some((_, width)) => {
+                    // (metres, but at least `min_px` long: a scale of at least that a metre;
+                    // wide enough to make out as a bus or a car)
+                    let px_m = min_len(v, s) / v.len.max(1.0);
+                    let parts = np::vehicle_shape(v.len, width, v.bus);
+                    let edge = (1.1 * mpp).clamp(0.25, 0.9);
+                    p.world_shape(at, &np::turned(&np::grown(&parts[0].1, edge), v.heading as f32), 1.0, px_m, outline);
+                    for (tone, pts) in &parts {
+                        let c = match tone {
+                            Tone::Body => v.color,
+                            Tone::Glass => Color::rgba(18, 24, 34, 0.9),
+                            Tone::Roof => v.color.lighten(0.28),
+                            Tone::Joint => v.color.darken(0.45),
+                        };
+                        p.world_shape(at, &np::turned(pts, v.heading as f32), 1.0, px_m, c);
+                    }
+                }
+                None => {
+                    let (disc, tip) = np::dot_shape();
+                    let r = if v.bus { 3.4 } else { 2.6 } * s;
+                    let turn = |pts: &[Vec2]| np::turned(pts, v.heading as f32);
+                    p.world_shape(at, &turn(&np::grown(&tip, 0.3)), 0.0, r, outline);
+                    p.world_shape(at, &turn(&disc), 0.0, r + 1.2 * s, outline);
+                    p.world_shape(at, &turn(&disc), 0.0, r, v.color);
+                    p.world_shape(at, &turn(&tip), 0.0, r, v.color);
+                }
+            }
         }
-        let mut all = bg.verts;
-        all.extend(dy.verts);
-        let n_ui_start = all.len() as u32;
-        all.extend(ui.verts);
-        gpu.upload(device, queue, 2, &all);
-        gpu.upload_atlas(queue, &mut self.atlas);
-        // (the opacity setting is the background's: the map and the text stay solid)
-        let flat = Layer::flat(clip_panel, radius, 1.0);
-        let backdrop = Layer::flat(clip_panel, radius, if self.cockpit_display { self.opacity } else { crate::ui::backdrop(self.opacity).min(1.0) });
-        let mut layers = [flat, map_layer, backdrop];
-        for l in layers.iter_mut() {
-            l.opacity *= self.shown;
-        }
-        let roads_n = self.roads.as_ref().map(|r| r.verts as u32).unwrap_or(0);
-        let draws = [
-            Draw { buffer: 2, range: 0..n_bg, layer: 2, texture: 0 },
-            Draw { buffer: 0, range: 0..roads_n, layer: 1, texture: 0 },
-            Draw { buffer: 2, range: n_bg..n_bg + n_traffic, layer: 1, texture: 0 },
-            Draw { buffer: 1, range: 0..self.route_mesh.3, layer: 1, texture: 0 },
-            Draw { buffer: 2, range: n_bg + n_traffic..n_bg + n_world, layer: 1, texture: 0 },
-            Draw { buffer: 2, range: n_ui_start..all.len() as u32, layer: 0, texture: 0 },
-        ];
-        let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("navigator") });
-        gpu.render(device, queue, &mut enc, target, size, Some(wgpu::Color::TRANSPARENT), &layers, &draws);
-        queue.submit([enc.finish()]);
+    }
+}
+
+/// The least length a vehicle is drawn at as its shape (pixels at scale `s`).
+fn min_len(v: &MapVehicle, s: f32) -> f32 {
+    (if v.bus { 15.0 } else { 9.0 }) * s
+}
+
+/// How a vehicle is drawn at `mpp` metres a pixel and scale `s`: as its shape - how many
+/// times its own size, and its width (m) as drawn - or None: as a dot.
+fn vehicle_size(v: &MapVehicle, mpp: f32, s: f32) -> Option<(f32, f32)> {
+    let min_px = min_len(v, s);
+    (crate::nav_panel::glyph(v.len, mpp, min_px) == crate::nav_panel::Glyph::Shape).then(|| {
+        let k = (min_px / v.len.max(1.0) * mpp).max(1.0);
+        let min_w = if v.bus { 6.0 } else { 5.0 } * s;
+        (k, v.width.max(min_w * mpp / k))
+    })
+}
+
+impl MapVehicle {
+    /// Its front and its back as drawn at `mpp` metres a pixel and scale `s` (a dot: its
+    /// middle), for the line's tag to stand above.
+    fn drawn_ends(&self, mpp: f32, s: f32) -> [DVec3; 2] {
+        let half = vehicle_size(self, mpp, s).map(|(k, _)| self.len * k * 0.5).unwrap_or(0.0) as f64;
+        let h = self.heading.to_radians();
+        let ahead = DVec3::new(h.sin(), h.cos(), 0.0) * half;
+        [self.at + ahead, self.at - ahead]
     }
 }
 
@@ -1833,8 +2042,10 @@ impl Navigator {
         self.qr.2.clone()
     }
 
-    /// The small navigator as the sign-on page, `pw` pixels wide and at most `room` tall.
-    fn panel_page(&mut self, st: &crate::companion::CompanionState, duty: Option<&crate::nav_duty::DutyState>, time: f64, pw: f32, room: f32) -> PanelPage {
+    /// The small navigator as the sign-on page, `pw` pixels wide at scale `s` and at most
+    /// `room` tall - all of it when `fill` (a panel the player sized: its height is theirs).
+    #[allow(clippy::too_many_arguments)]
+    fn panel_page(&mut self, st: &crate::companion::CompanionState, duty: Option<&crate::nav_duty::DutyState>, time: f64, pw: f32, s: f32, room: f32, fill: bool) -> PanelPage {
         use crate::nav_signon as signon;
         self.city.phone.follow(st);
         if let Some(r) = self.city.phone.wants(st) {
@@ -1842,7 +2053,10 @@ impl Navigator {
         }
         let qr = self.pair_qr(st);
         let page = signon::page_in(st, &self.city.phone, duty, time, signon::Room::Panel, qr.as_ref());
-        let fit = signon::fit_panel(page, pw, pw / 360.0, room, &self.fonts);
+        let mut fit = signon::fit_panel(page, pw, s, room, &self.fonts);
+        if fill {
+            fit.height = room.round();
+        }
         // (a page that is taller than the window scrolls: the wheel over it)
         self.city.phone.scroll = self.city.phone.scroll.clamp(0.0, signon::panel_scroll_max(&fit)).round();
         let hits = signon::panel_hits(&fit, self.city.phone.scroll);
@@ -1921,7 +2135,10 @@ impl Navigator {
     pub fn resize_by(&mut self, steps: i32) {
         let to = omsi_launcher_lib::nav_scale(Some(self.size as f64 + (steps as f64) * SIZE_STEP as f64)) as f32;
         if (to - self.size).abs() > 1e-4 {
+            // (a panel the player sized keeps its size: its texts grow or shrink in it, as far
+            // as they fit - see `nav_panel::scale`)
             self.size = to;
+            self.drawn_at = f32::MIN;
             self.resized = Some(to);
         }
         // (also at the end of the range: the note says where it stands)
@@ -2979,7 +3196,7 @@ impl Navigator {
         let room = [(sw - pw).max(0.0), (sh - ph).max(0.0)];
         self.panel_room = room;
         match self.at {
-            Some(a) => ((a[0].clamp(0.0, 1.0) * room[0]).round(), (a[1].clamp(0.0, 1.0) * room[1]).round()),
+            Some(a) => crate::nav_panel::place(a, pw, ph, [sw, sh]).into(),
             None => (x0, y0),
         }
     }
@@ -2996,6 +3213,8 @@ impl Navigator {
     /// drag moves the navigator (see [`Navigator::panel_move`]). While it is the sign-on page
     /// a press on a key or a button works it there and then (as on the city map), and is no
     /// click nor drag.
+    /// A press on the board's handle shows or hides the board (the setting kept, see
+    /// [`Navigator::take_board`]); on an edge or a corner a drag sizes the panel by it.
     pub fn panel_press(&mut self, x: f32, y: f32) {
         if let Some(a) = self.panel_action(x, y) {
             self.panel_drag = None;
@@ -3004,40 +3223,157 @@ impl Navigator {
             self.drawn_at = f32::MIN;
             return;
         }
-        self.panel_drag = Some((
-            [x, y],
-            [self.panel_rect[0] - self.origin_x, self.panel_rect[1]],
-            false,
-        ));
+        if self.over_handle(x, y) {
+            self.panel_drag = None;
+            self.toggle_board();
+            return;
+        }
+        let r = self.panel_rect;
+        let grip = self.grip_at(x, y).unwrap_or(crate::nav_panel::Grip::Move);
+        self.panel_drag = Some(PanelGrab { from: [x, y], rect: [r[0] - self.origin_x, r[1], r[2] - self.origin_x, r[3]], grip, moved: false });
     }
 
-    /// The cursor moved with the button held on the navigator: past a few pixels it follows
-    /// the cursor. True while it is being dragged.
+    /// What a press at (`x`, `y`) takes hold of on the small navigator: its edges only where
+    /// it can be sized (not on the cockpit's display, not with the on-screen controls).
+    fn grip_at(&self, x: f32, y: f32) -> Option<crate::nav_panel::Grip> {
+        let grip = crate::nav_panel::grip_at(self.panel_rect, x, y, self.edge())?;
+        Some(if self.cockpit_display || crate::platform::touch_controls() { crate::nav_panel::Grip::Move } else { grip })
+    }
+
+    /// How far in from its border an edge of the small navigator can be taken hold of.
+    fn edge(&self) -> f32 {
+        (7.0 * self.unit).clamp(6.0, 14.0)
+    }
+
+    /// The smallest the player can make the small navigator (pixels).
+    fn min_size(&self) -> [f32; 2] {
+        let u = self.unit.max(0.5);
+        [crate::nav_panel::MIN_SIZE[0] * u, crate::nav_panel::MIN_SIZE[1] * u]
+    }
+
+    /// The point (physical pixels) is on the duty board's handle.
+    fn over_handle(&self, x: f32, y: f32) -> bool {
+        let Some(l) = self.layout.filter(|_| self.signing.is_none() && self.enabled && !self.city.open) else { return false };
+        let local = Vec2::new(x - self.panel_rect[0], y - self.panel_rect[1]);
+        l.handle.is_some_and(|h| h.inset(-4.0 * l.s).contains(local))
+    }
+
+    /// The board under the map shown or put away (its handle): kept as the player's choice,
+    /// for Shift+N and the next game too.
+    pub fn toggle_board(&mut self) {
+        self.schedule = !self.schedule;
+        self.board = self.schedule;
+        self.board_changed = Some(self.board);
+        self.drawn_at = f32::MIN;
+    }
+
+    /// The board wanted under the map or not (the game's settings): shown or put away at once.
+    pub fn set_board(&mut self, on: bool) {
+        self.board = on;
+        self.schedule = on;
+        self.drawn_at = f32::MIN;
+    }
+
+    /// The board was shown or put away on the panel: the `nav_board` setting to keep.
+    pub fn take_board(&mut self) -> Option<bool> {
+        self.board_changed.take()
+    }
+
+    /// The cursor moved with the button held on the navigator: past a few pixels the panel
+    /// follows it, or the edges it holds do. True while it is being dragged.
     pub fn panel_move(&mut self, x: f32, y: f32) -> bool {
-        let Some((from, rect, moved)) = self.panel_drag.as_mut() else { return false };
-        let (dx, dy) = (x - from[0], y - from[1]);
-        if !*moved && dx.hypot(dy) < 6.0 {
+        use crate::nav_panel::{self as np, Grip};
+        let Some(g) = self.panel_drag.as_mut() else { return false };
+        let (dx, dy) = (x - g.from[0], y - g.from[1]);
+        if !g.moved && dx.hypot(dy) < if g.grip == Grip::Move { 6.0 } else { 2.0 } {
             return false;
         }
-        *moved = true;
-        let room = self.panel_room;
-        let share = |p: f32, r: f32| if r > 0.0 { (p / r).clamp(0.0, 1.0) } else { 0.0 };
-        self.at = Some([share(rect[0] + dx, room[0]), share(rect[1] + dy, room[1])]);
+        g.moved = true;
+        let g = *g;
+        match g.grip {
+            Grip::Move => {
+                let room = self.panel_room;
+                let share = |p: f32, r: f32| if r > 0.0 { (p / r).clamp(0.0, 1.0) } else { 0.0 };
+                self.at = Some([share(g.rect[0] + dx, room[0]), share(g.rect[1] + dy, room[1])]);
+            }
+            sides => {
+                let r = np::resized(g.rect, sides, dx, dy, self.min_size(), self.window);
+                let (w, h) = (r[2] - r[0], r[3] - r[1]);
+                let sh = self.window[1].max(1.0);
+                self.custom = Some([w / sh, h / sh]);
+                self.at = Some(np::share(Vec2::new(r[0], r[1]), w, h, self.window));
+                self.drawn_at = f32::MIN;
+            }
+        }
         true
     }
 
     /// The button came up after a press on the navigator: Some(true) when it was dragged
-    /// (the place is then the setting's, [`Navigator::placement`]), Some(false) for a click.
+    /// (moved or sized: the place and size are then kept, [`Navigator::take_rect`]),
+    /// Some(false) for a click.
     pub fn panel_release(&mut self) -> Option<bool> {
-        self.panel_drag.take().map(|d| d.2)
+        let g = self.panel_drag.take()?;
+        self.rect_changed |= g.moved;
+        Some(g.moved)
     }
 
-    /// The setting `navigator_corner` for where the navigator is now.
-    pub fn placement(&self) -> String {
-        match self.at {
-            Some(a) => format!("at {:.3},{:.3}", a[0], a[1]),
-            None => self.corner.clone(),
+    /// The mouse at (`x`, `y`) (no button held, or the navigator held): what it is over on the
+    /// small navigator - the handle lit, an edge marked - and the cursor for it (as
+    /// `App::set_cursor_kind` has them); None where it is not over the navigator.
+    pub fn hover(&mut self, x: f32, y: f32) -> Option<u8> {
+        let part = if let Some(g) = self.panel_drag.filter(|g| g.moved) {
+            Some(HoverPart::Grip(g.grip))
+        } else if !self.over_panel(x, y) || self.city.open {
+            None
+        } else if self.over_handle(x, y) {
+            Some(HoverPart::Handle)
+        } else {
+            self.grip_at(x, y).map(HoverPart::Grip)
+        };
+        if part != self.panel_hover {
+            self.panel_hover = part;
+            self.drawn_at = f32::MIN;
         }
+        part.map(|p| match p {
+            HoverPart::Handle => 1,
+            HoverPart::Grip(crate::nav_panel::Grip::Move) if self.panel_drag.is_some_and(|g| g.moved) => 3,
+            HoverPart::Grip(crate::nav_panel::Grip::Move) => 0,
+            HoverPart::Grip(g) => g.cursor(),
+        })
+    }
+
+    /// The `nav_rect` setting for where the navigator is and how large the player made it.
+    pub fn rect_setting(&self) -> String {
+        let wide = |p: [f32; 2]| [p[0] as f64, p[1] as f64];
+        omsi_launcher_lib::nav_rect_text(self.at.map(wide), self.custom.map(wide))
+    }
+
+    /// The place and size from the `nav_rect` setting (a place there wins over the corner).
+    pub fn set_rect(&mut self, setting: &str) {
+        let (at, size) = omsi_launcher_lib::nav_rect_parts(setting);
+        let narrow = |p: [f64; 2]| [p[0] as f32, p[1] as f32];
+        if at.is_some() {
+            self.at = at.map(narrow);
+        }
+        self.custom = size.map(narrow);
+    }
+
+    /// The navigator was moved or sized in the game: the `nav_rect` setting to keep.
+    pub fn take_rect(&mut self) -> Option<String> {
+        std::mem::take(&mut self.rect_changed).then(|| self.rect_setting())
+    }
+
+    /// The navigator as it came: in the bottom-left corner at its own size, at 100 %, the
+    /// board under the map (shown again when a duty runs).
+    pub fn reset_panel(&mut self) {
+        self.at = None;
+        self.custom = None;
+        self.corner = "bottom-left".into();
+        self.size = 1.0;
+        self.board = true;
+        self.schedule = self.duty_seen;
+        self.panel_drag = None;
+        self.drawn_at = f32::MIN;
     }
 
     fn map_hit(&self, x: f32, y: f32) -> bool {
@@ -3452,21 +3788,9 @@ impl Navigator {
         // traffic: blue dots, the public transport in its colours with its line (as on the
         // small map)
         let mut dots = Painter::new();
-        let mut lines: Vec<(DVec3, Color, String)> = Vec::new();
-        if let Some(t) = f.traffic.filter(|_| self.show_ai) {
-            for car in t.cars.iter().filter(|c| !c.gone) {
-                let (color, line) = traffic_kind(car);
-                if color == DOT {
-                    dots.world_disc(rel(car.vehicle.position), 2.2, 3.4, Color::rgba(8, 8, 8, 0.9));
-                    dots.world_disc(rel(car.vehicle.position), 1.5, 2.3, color);
-                } else {
-                    vehicle_icon(&mut dots, rel(car.vehicle.position), car.vehicle.heading, color, car.is_rail(), 7.5);
-                }
-                if let Some(l) = line {
-                    lines.push((car.vehicle.position, color, l));
-                }
-            }
-        }
+        let vehicles = map_vehicles(f.traffic.filter(|_| self.show_ai), f.bus, f64::INFINITY);
+        paint_vehicles(&mut dots, &vehicles, &rel, self.city.mpp as f32, s);
+        let lines: Vec<(DVec3, Color, String, [DVec3; 2])> = vehicles.iter().filter_map(|v| v.line.clone().map(|l| (v.at, v.color, l, v.drawn_ends(self.city.mpp as f32, s)))).collect();
         // stops with their names, the bus, the frame and the header
         let mut ui = Painter::new();
         let n_stops = f.stops.len();
@@ -3494,7 +3818,7 @@ impl Navigator {
             }
         }
         // the public transport's line tags, above their dots, where there is room
-        for (pos, color, l) in &lines {
+        for (pos, color, l, ends) in &lines {
             let p = to_screen(*pos);
             if !win.contains(p) {
                 continue;
@@ -3503,7 +3827,9 @@ impl Navigator {
             let own = f.line.as_deref().is_some_and(|o| o.trim().eq_ignore_ascii_case(l.trim()));
             let l = self.fonts.fit(l, px, Weight::Bold, 50.0 * s);
             let tw = self.fonts.width(&l, px, Weight::Bold) + crate::stop_signs::CHIP_PAD * s;
-            let r = Rect::new(p.x - tw * 0.5, p.y - 22.0 * s, tw, 15.0 * s);
+            // (above the bus's higher end, not over the bus)
+            let top = ends.iter().map(|e| to_screen(*e).y).fold(p.y, f32::min);
+            let r = Rect::new(p.x - tw * 0.5, top.min(p.y - 7.0 * s) - 17.0 * s, tw, 15.0 * s);
             if taken.iter().any(|o| o.x < r.right() && r.x < o.right() && o.y < r.bottom() && r.y < o.bottom()) {
                 continue;
             }
@@ -3936,8 +4262,9 @@ mod tests {
         assert_eq!(n.panel_release(), Some(true));
         let at = n.at.unwrap();
         assert!((at[0] - 0.5).abs() < 1e-3 && (at[1] - 0.5).abs() < 1e-3, "{at:?}");
-        let back = placed_at(&n.placement()).unwrap();
+        let back = omsi_launcher_lib::nav_rect_parts(&n.take_rect().unwrap()).0.unwrap();
         assert!((back[0] - 0.5).abs() < 1e-3 && (back[1] - 0.5).abs() < 1e-3);
+        assert_eq!(n.take_rect(), None, "handed over once");
         // (dragged past the window's edge: held inside it)
         n.panel_press(100.0, 700.0);
         n.panel_move(5000.0, -5000.0);
@@ -4248,7 +4575,7 @@ mod tests {
         // (and in a short window, its page scrolled a little: the bar says so)
         for (name, room, scroll) in [("panel-live", 1080.0 - 2.0 * 19.0, 0.0), ("panel-short", 330.0, 40.0)] {
             n.city.phone.scroll = scroll;
-            let page = n.panel_page(&st, None, 0.0, pw, room);
+            let page = n.panel_page(&st, None, 0.0, pw, pw / 360.0, room, false);
             let ph = page.fit.height.round();
             n.signing = Some(page);
             n.size_at = if scroll > 0.0 { f32::MIN } else { 0.0 };
@@ -4830,6 +5157,215 @@ mod tests {
         picture(&mut d, &f, Some(&state), Left::Duty, "pins-diversion");
         bars(&mut d, &f, &mut img, 290.0);
         img.save(format!("{dir}/pins-bar.png")).unwrap();
+    }
+
+    /// The map's world vertices as the GPU's shader places them (`ui.wgsl`): through the
+    /// layer's view, at least their pixel width at their depth - as pixels, for `raster`.
+    fn on_screen(verts: &[omsi_ui::Vertex], l: &Layer) -> Vec<omsi_ui::Vertex> {
+        let px = |p: Vec3| {
+            let c = l.view_proj * p.extend(1.0);
+            // (the GPU clips at the near plane, a metre from the eye: no triangle across it)
+            (c.w > 0.999).then(|| Vec2::new(l.viewport[0] + (c.x / c.w * 0.5 + 0.5) * l.viewport[2], l.viewport[1] + (0.5 - c.y / c.w * 0.5) * l.viewport[3]))
+        };
+        let mut out = Vec::with_capacity(verts.len());
+        for t in verts.chunks_exact(3) {
+            let pts: Vec<Option<Vec2>> = t
+                .iter()
+                .map(|v| {
+                    let p = Vec3::from_array(v.pos);
+                    let c = l.view_proj * p.extend(1.0);
+                    let mpp = c.w.max(0.01) * l.px_scale;
+                    let w = v.width[0].max(v.width[1] * mpp);
+                    px(p + Vec3::new(v.ext[0] * w, v.ext[1] * w, 0.0))
+                })
+                .collect();
+            if pts.iter().all(|p| p.is_some()) {
+                for (v, p) in t.iter().zip(pts) {
+                    let p = p.unwrap();
+                    out.push(omsi_ui::Vertex { pos: [p.x, p.y, 0.0], ext: [0.0, 0.0], width: [0.0, 0.0], mode: [0.0, v.mode[1]], ..*v });
+                }
+            }
+        }
+        out
+    }
+
+    /// Some traffic round the bus on the grid's street (x 1.5, heading north): buses of each
+    /// kind with their lines (one of the duty's own), an articulated one, a tram and cars.
+    fn traffic_round() -> Vec<MapVehicle> {
+        let v = |x: f64, y: f64, heading: f64, len: f32, width: f32, color: Color, line: Option<&str>| MapVehicle { at: DVec3::new(x, y, 0.0), heading, len, width, color, bus: color != DOT, line: line.map(str::to_string) };
+        vec![
+            v(1.5, 112.0, 0.0, 12.0, 2.55, BUS, Some("314")),
+            v(-1.5, 150.0, 180.0, 18.0, 2.55, BUS, Some("35")),
+            v(60.0, 198.5, 90.0, 12.0, 2.55, TROLLEY, Some("1")),
+            v(150.0, 201.5, 270.0, 30.0, 2.4, TRAM, Some("8")),
+            v(1.5, 88.0, 0.0, 4.4, 1.8, DOT, None),
+            v(-1.5, 128.0, 180.0, 4.6, 1.85, DOT, None),
+            v(-1.5, 236.0, 180.0, 4.2, 1.75, DOT, None),
+            v(28.0, 201.5, 270.0, 4.4, 1.8, DOT, None),
+            v(105.0, 198.5, 90.0, 4.8, 1.9, DOT, None),
+            v(1.5, 262.0, 30.0, 4.4, 1.8, DOT, None),
+        ]
+    }
+
+    /// Pictures of the small navigator as the game paints it - in its own size, and dragged to
+    /// a narrow tall shape, a wide short one, a square, the smallest and a huge one, each with
+    /// the duty board and without - with the other vehicles as shapes, and far out as dots; and
+    /// the vehicles' shapes at the city map's zooms. In Dutch:
+    /// `OMSI_NAV_PANEL_PREVIEW=<folder> cargo test -p omsi-app --lib navigator -- --ignored`.
+    #[test]
+    #[ignore]
+    fn preview_panel_shapes() {
+        use crate::nav_panel as np;
+        let Ok(dir) = std::env::var("OMSI_NAV_PANEL_PREVIEW") else { return };
+        crate::ui_language("NLD");
+        let raster = crate::nav_duty::tests::raster;
+        let mut n = Navigator::new(true, 0.85, "bottom-left");
+        n.atlas = Atlas::new(2048);
+        let net = on_grid(&mut n, 3);
+        let signs = vec![(DVec3::new(10.0, 300.0, 0.0), 90.0, "Hauptstraße".to_string()), (DVec3::new(300.0, 190.0, 0.0), 0.0, "Kirchweg".to_string())];
+        n.streets = Some(std::sync::Arc::new(build_streets(&net, &signs)));
+        let route: Vec<usize> = (0..3).map(|j| find(&net, (1.5, j as f64 * 200.0), (1.5, (j + 1) as f64 * 200.0))).collect();
+        n.set_route("0/trip", route, true, n.global_version + (1 << 40));
+        let stop = |name: &str, y: f64, min: f64| NavStop { object_id: 0, position: DVec3::new(4.0, y, 0.0), name: name.into(), arrival: 7.0 * 3600.0 + min * 60.0 };
+        let f = NavFrame {
+            line: Some("314".into()),
+            terminus: Some("Großweier".into()),
+            stops: vec![stop("Stadttheater", 300.0, 52.0), stop("Altstadtring", 450.0, 53.0), stop("Alter Bahnhof - Altstadtforum", 590.0, 55.0)],
+            delay: Some(20.0),
+            speed_kmh: 34.0,
+            time: 7.0 * 3600.0 + 51.0 * 60.0,
+            ..at((1.5, 60.0), 0.0)
+        };
+        n.follow(&f);
+        n.follow(&f);
+        n.speed_avg = 9.0;
+        n.next_dist = Some(160.0);
+        // (as the camera stands at 34 km/h)
+        n.zoom = 110.0 + 34.0 * 2.2;
+        let (trips, tours) = crate::nav_duty::tests::duty();
+        let duty = crate::nav_duty::tests::state(&trips, &tours, 0, 3, false, 20.0);
+        let vehicles = traffic_round();
+        let unit = 1.0;
+        // (the panel painted as the game does, flattened on the CPU over a cab-grey ground)
+        let paint = |n: &mut Navigator, img: &mut image::RgbaImage, x0: f32, y0: f32, w: f32, h: f32, board_on: bool, auto: bool| {
+            n.roads = None;
+            n.route_mesh.0 = u64::MAX;
+            let lay = if auto {
+                let s = w / np::WIDTH;
+                let (rows, bh) = if board_on { crate::nav_duty::board_fitting(Some(&duty), s, 1e4) } else { (Vec::new(), 0.0) };
+                let ph = ((w * 0.62).round() + (np::HEAD * s).round() + (np::NEXT * s).round() + bh).round();
+                (np::layout(w, ph, s, board_on.then_some(bh), false, true), rows)
+            } else {
+                let (s, beside) = np::scale(w, h, unit, board_on);
+                let (rows, bh) = if board_on { crate::nav_duty::board_within(Some(&duty), s, np::board_room(h, s, beside)) } else { (Vec::new(), 0.0) };
+                (np::layout(w, h, s, (!rows.is_empty()).then_some(bh), beside, true), rows)
+            };
+            let (lay, rows) = lay;
+            let h = if auto { lay.next.bottom() + lay.board.map(|b| b.h).unwrap_or(0.0) } else { h };
+            n.schedule = board_on;
+            let p = n.paint_panel((w, h), &lay, &f, &rows, &vehicles);
+            let mut panel = image::RgbaImage::from_pixel(w as u32, h as u32, image::Rgba([70, 84, 96, 255]));
+            let all = Rect::new(0.0, 0.0, w, h);
+            raster(&p.bg.verts, &n.atlas, &mut panel, all);
+            let map = lay.map;
+            for world in [p.roads.unwrap_or_default(), p.traffic.verts, p.route.unwrap_or_default(), p.vehicles.verts] {
+                raster(&on_screen(&world, &p.map_layer), &n.atlas, &mut panel, map);
+            }
+            raster(&p.ui.verts, &n.atlas, &mut panel, all);
+            image::imageops::overlay(img, &panel, x0 as i64, y0 as i64);
+            h
+        };
+        let shapes: [(&str, f32, f32); 6] = [("own-size", 356.0, 0.0), ("narrow-tall", 280.0, 900.0), ("wide-short", 1100.0, 330.0), ("square", 520.0, 520.0), ("smallest", 220.0, 150.0), ("huge", 1000.0, 1000.0)];
+        for (name, w, h) in shapes {
+            let auto = h == 0.0;
+            let tall = if auto { 900.0 } else { h };
+            let mut img = image::RgbaImage::from_pixel((2.0 * w + 60.0) as u32, (tall + 40.0) as u32, image::Rgba([40, 46, 54, 255]));
+            for (k, board_on) in [true, false].into_iter().enumerate() {
+                paint(&mut n, &mut img, 20.0 + k as f32 * (w + 20.0), 20.0, w, h, board_on, auto);
+            }
+            img.save(format!("{dir}/panel-{name}.png")).unwrap();
+        }
+        // far out: the vehicles as dots with their tips
+        n.zoom = 900.0;
+        let mut img = image::RgbaImage::from_pixel(560, 560, image::Rgba([40, 46, 54, 255]));
+        paint(&mut n, &mut img, 20.0, 20.0, 520.0, 520.0, false, false);
+        img.save(format!("{dir}/panel-far.png")).unwrap();
+        // the shapes themselves at the city map's zooms (north up, metres a pixel), each in a
+        // row of its own: 70 px apart, as they head
+        let (cw, ch) = (760.0f32, 150.0f32);
+        let mpps = [0.08f64, 0.2, 0.6, 1.6, 4.0];
+        let mut img = image::RgbaImage::from_pixel(cw as u32, (ch * mpps.len() as f32) as u32, image::Rgba([12, 16, 26, 255]));
+        for (k, mpp) in mpps.into_iter().enumerate() {
+            let (hw, hh) = (cw as f64 * 0.5 * mpp, ch as f64 * 0.5 * mpp);
+            let proj = Mat4::orthographic_rh(-hw as f32, hw as f32, -hh as f32, hh as f32, -1000.0, 1000.0);
+            let row = Rect::new(0.0, k as f32 * ch, cw, ch);
+            let layer = Layer { view_proj: proj, viewport: [row.x, row.y, row.w, row.h], clip: [0.0; 4], radius: 0.0, opacity: 1.0, px_scale: mpp as f32 };
+            let row_of: Vec<MapVehicle> = vehicles.iter().enumerate().map(|(j, v)| MapVehicle { at: DVec3::new((-(cw as f64) * 0.5 + 50.0 + j as f64 * 72.0) * mpp, 0.0, 0.0), ..v.clone() }).collect();
+            let mut p = Painter::new();
+            paint_vehicles(&mut p, &row_of, &|q: DVec3| Vec3::new(q.x as f32, q.y as f32, 0.0), mpp as f32, 1.2);
+            raster(&on_screen(&p.verts, &layer), &n.atlas, &mut img, row);
+        }
+        img.save(format!("{dir}/vehicles.png")).unwrap();
+    }
+
+    /// The board's handle shows and hides the board and is kept; an edge of the panel sizes
+    /// it (the place following when the top or left edge goes), a corner both ways, held to
+    /// the smallest size and the window; the place and size are kept as `nav_rect` and read
+    /// back; Ctrl + the wheel leaves a sized panel's size; the reset forgets it all.
+    #[test]
+    fn the_navigator_is_sized_by_its_edges_and_its_board_switched() {
+        let mut n = Navigator::new(true, 0.85, "bottom-left");
+        n.window = [1920.0, 1080.0];
+        n.unit = 1.0;
+        n.panel_rect = [20.0, 500.0, 380.0, 1060.0];
+        n.panel_room = [1560.0, 520.0];
+        n.layout = Some(crate::nav_panel::layout(360.0, 560.0, 1.0, Some(240.0), false, true));
+        // the handle: the board away and back, kept each time; no click, no drag
+        let hd = n.layout.unwrap().handle.unwrap();
+        let (hx, hy) = (20.0 + hd.center().x, 500.0 + hd.center().y);
+        assert_eq!(n.hover(hx, hy), Some(1));
+        n.schedule = true;
+        n.panel_press(hx, hy);
+        assert_eq!(n.panel_release(), None);
+        assert!(!n.schedule && !n.board);
+        assert_eq!(n.take_board(), Some(false));
+        n.panel_press(hx, hy);
+        assert!(n.schedule && n.board && n.take_board() == Some(true) && n.take_board().is_none());
+        // the right edge: wider, the place where it was
+        assert_eq!(n.hover(378.0, 800.0), Some(5));
+        n.panel_press(378.0, 800.0);
+        assert!(n.panel_move(478.0, 800.0));
+        let c = n.custom.unwrap();
+        assert!((c[0] * 1080.0 - 460.0).abs() < 0.5 && (c[1] * 1080.0 - 560.0).abs() < 0.5, "{c:?}");
+        assert_eq!(n.panel_release(), Some(true));
+        let kept = n.take_rect().unwrap();
+        let (at, size) = omsi_launcher_lib::nav_rect_parts(&kept);
+        assert!(size.is_some_and(|z| (z[0] * 1080.0 - 460.0).abs() < 0.5));
+        let p = crate::nav_panel::place([at.unwrap()[0] as f32, at.unwrap()[1] as f32], 460.0, 560.0, [1920.0, 1080.0]);
+        assert!((p.x - 20.0).abs() < 0.6 && (p.y - 500.0).abs() < 0.6, "{p}");
+        // the top-left corner, far past the smallest size: held there, the bottom right staying
+        n.panel_rect = [20.0, 500.0, 480.0, 1060.0];
+        n.panel_press(22.0, 502.0);
+        n.panel_move(2000.0, 2000.0);
+        let c = n.custom.unwrap();
+        assert!((c[0] * 1080.0 - 220.0).abs() < 0.5 && (c[1] * 1080.0 - 150.0).abs() < 0.5, "{c:?}");
+        n.panel_release();
+        // read back as the game starts
+        let mut m = Navigator::new(true, 0.85, "bottom-left");
+        m.set_rect(&n.take_rect().unwrap());
+        assert!(m.custom.is_some() && m.at.is_some());
+        // Ctrl + the wheel: a sized panel keeps its size (its texts follow the size)
+        let before = n.custom.unwrap();
+        n.resize_by(2);
+        assert!(n.custom == Some(before) && n.take_rect().is_none() && n.take_resized().is_some());
+        // the middle of it still moves it, the cockpit's display is only moved
+        assert_eq!(n.hover(300.0, 700.0), Some(0));
+        n.cockpit_display = true;
+        assert_eq!(n.hover(378.0, 800.0), Some(0));
+        n.cockpit_display = false;
+        n.reset_panel();
+        assert!(n.custom.is_none() && n.at.is_none() && n.board && n.size == 1.0);
+        assert_eq!(n.rect_setting(), "");
     }
 
     #[test]

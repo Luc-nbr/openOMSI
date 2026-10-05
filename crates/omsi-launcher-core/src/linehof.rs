@@ -14,7 +14,7 @@
 //! folder's file itself - never the OMSI 2 folder's. The file keeps its code page and its
 //! line ends.
 
-use crate::lines::{problems, Direction, LineDesign, Registry};
+use crate::lines::{Direction, LineDesign, Registry};
 use omsi_cfg::codepage::CodePage;
 use omsi_vehicle::hof::{BusStop, Terminus};
 use omsi_vehicle::Hof;
@@ -569,7 +569,7 @@ pub fn terminus_code(wanted: i32, taken: &HashSet<i32>) -> i32 {
 /// The lines whose files are written (see `lines::problems`) and whose depot group uses the
 /// depot file `depot`, in the registry's order.
 fn lines_of<'a>(reg: &'a Registry, groups: &HashMap<String, String>, depot: &str) -> Vec<&'a LineDesign> {
-    reg.lines.iter().filter(|l| problems(l).is_empty() && depot_of(l, groups).is_some_and(|d| d.eq_ignore_ascii_case(depot))).collect()
+    reg.lines.iter().filter(|l| crate::lines::written(l) && depot_of(l, groups).is_some_and(|d| d.eq_ignore_ascii_case(depot))).collect()
 }
 
 /// The depot file (its name) of a line's depot group.
@@ -826,7 +826,7 @@ pub type Plan = Vec<(String, Vec<Copy>)>;
 /// time (`Registry::depots`, whose blocks may have to go).
 pub fn prepare(reg: &mut Registry, groups: &HashMap<String, String>, bases: &[PathBuf]) -> Plan {
     let mut names: Vec<String> = Vec::new();
-    for l in reg.lines.iter().filter(|l| problems(l).is_empty()) {
+    for l in reg.lines.iter().filter(|l| crate::lines::written(l)) {
         if let Some(d) = depot_of(l, groups) {
             if !names.iter().any(|n| n.eq_ignore_ascii_case(&d)) {
                 names.push(d);

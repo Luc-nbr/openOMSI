@@ -271,7 +271,7 @@ impl Site {
         }
     }
 
-    fn set_level(&mut self, a: Area, v: u32) {
+    pub fn set_level(&mut self, a: Area, v: u32) {
         let v = v.min(a.max());
         match a {
             Area::Parking => self.parking = v,
@@ -501,7 +501,13 @@ fn start_jobs(c: &mut Company, day: &str) {
             x.started = Some(day.to_string());
             x.until = Some(until);
         }
-        c.book(BookingKind::Repair, -j.cost, text, false);
+        // (the dealer's free first service, and repairs under his warranty, cost nothing)
+        let free_of_charge = match j.kind {
+            JobKind::Service => super::dealer::take_free_service(c, j.vehicle),
+            JobKind::Repair => super::dealer::under_warranty(c, j.vehicle, day),
+            _ => false,
+        };
+        c.book(BookingKind::Repair, if free_of_charge { 0 } else { -j.cost }, text, false);
         free -= 1;
     }
 }

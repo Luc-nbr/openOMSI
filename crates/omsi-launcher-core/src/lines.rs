@@ -86,6 +86,15 @@ pub struct LineDesign {
     /// Seconds since 1970.
     pub created: u64,
     pub modified: u64,
+    /// The bus company (its id) the line was made for; empty: a line of the player's own.
+    /// The line editor shows a company's lines only when it works for that company.
+    pub company: String,
+    /// Kept out of the timetable: a company's line not confirmed and paid for yet
+    /// (`company::ownline::confirm`).
+    pub draft: bool,
+    /// Dynamic passenger information (live departure displays) at the line's transfer stops
+    /// (what a company pays for when it confirms the line).
+    pub live_displays: bool,
 }
 
 impl Default for LineDesign {
@@ -100,6 +109,9 @@ impl Default for LineDesign {
             days: default_days(),
             created: 0,
             modified: 0,
+            company: String::new(),
+            draft: false,
+            live_displays: false,
         }
     }
 }
@@ -174,7 +186,9 @@ pub struct Direction {
 }
 
 /// When a line runs on the days of one `DAY_GROUPS` entry: buses from the first to the last
-/// departure every `headway` minutes, each standing at least `layover` at the end.
+/// departure every `headway` minutes, each standing at least `layover` at the end - or, with
+/// `bands`, a headway of its own for each part of the day (the rush hours denser than the
+/// quiet ones), each band with the size of bus it wants.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct DayPattern {
@@ -185,11 +199,93 @@ pub struct DayPattern {
     pub last: f32,
     pub headway: f32,
     pub layover: f32,
+    /// The time bands (none: `first` to `last` every `headway`).
+    pub bands: Vec<TimeBand>,
 }
 
 impl Default for DayPattern {
     fn default() -> Self {
-        DayPattern { on: true, days: DAY_GROUPS[0].1, first: 6.0 * 60.0, last: 22.0 * 60.0, headway: 20.0, layover: 5.0 }
+        DayPattern { on: true, days: DAY_GROUPS[0].1, first: 6.0 * 60.0, last: 22.0 * 60.0, headway: 20.0, layover: 5.0, bands: Vec::new() }
+    }
+}
+
+/// A part of the day with its own headway: departures from `from` every `headway` minutes,
+/// the last before `to` (minutes after midnight; a band ends where the next begins).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[serde(default)]
+pub struct TimeBand {
+    pub from: f32,
+    pub to: f32,
+    pub headway: f32,
+    /// The bus size the band wants (None: the company's demand model chooses, see
+    /// `company::ownline`).
+    pub size: Option<crate::company::BusSize>,
+}
+
+impl Default for TimeBand {
+    fn default() -> Self {
+        TimeBand { from: 6.0 * 60.0, to: 9.0 * 60.0, headway: 15.0, size: None }
+    }
+}
+
+/// The latest a band may end (the timetable's day ends at midnight).
+pub const DAY_END: f32 = 24.0 * 60.0;
+
+/// The bands a day group starts from when the player asks for them: the working days with
+/// their two rush hours, Saturday's busy middle of the day, Sunday's quiet one.
+pub fn default_bands(group: usize) -> Vec<TimeBand> {
+    let b = |from: f32, to: f32, headway: f32| TimeBand { from: from * 60.0, to: to * 60.0, headway, size: None };
+    match group {
+        0 => vec![b(5.0, 6.0, 30.0), b(6.0, 9.0, 10.0), b(9.0, 15.0, 15.0), b(15.0, 18.0, 10.0), b(18.0, 21.0, 20.0), b(21.0, 24.0, 30.0)],
+        1 => vec![b(6.0, 9.0, 30.0), b(9.0, 18.0, 20.0), b(18.0, 24.0, 30.0)],
+        _ => vec![b(8.0, 20.0, 30.0), b(20.0, 24.0, 60.0)],
+    }
+}
+
+impl DayPattern {
+    /// The bands in order of the day, each ending where the next begins and before midnight
+    /// (what the player typed, made to fit).
+    pub fn clean_bands(&self) -> Vec<TimeBand> {
+        let mut v: Vec<TimeBand> = self.bands.iter().copied().filter(|b| b.headway >= 1.0).collect();
+        v.sort_by(|a, b| a.from.total_cmp(&b.from));
+        for i in 0..v.len() {
+            let next = v.get(i + 1).map(|n| n.from).unwrap_or(DAY_END);
+            v[i].to = v[i].to.min(next).min(DAY_END);
+        }
+        v.retain(|b| b.to > b.from);
+        v
+    }
+
+    /// Every departure of a direction (minutes after midnight), with the band it is in.
+    pub fn departures(&self) -> Vec<(f32, Option<usize>)> {
+        let mut out = Vec::new();
+        if !self.on {
+            return out;
+        }
+        if self.bands.is_empty() {
+            if self.headway < 1.0 || self.last < self.first {
+                return out;
+            }
+            let mut t = self.first;
+            while t <= self.last + 1e-3 && out.len() < 2000 {
+                out.push((t, None));
+                t += self.headway;
+            }
+            return out;
+        }
+        for (i, b) in self.clean_bands().iter().enumerate() {
+            let mut t = b.from;
+            while t < b.to - 1e-3 && out.len() < 2000 {
+                out.push((t, Some(i)));
+                t += b.headway;
+            }
+        }
+        out
+    }
+
+    /// It runs (it has a departure).
+    pub fn runs(&self) -> bool {
+        !self.departures().is_empty()
     }
 }
 
@@ -383,30 +479,35 @@ pub fn opposite_stops(out: &[StopRef], all: &[StopRef], reach: f64) -> Vec<StopR
 
 // --- tours from a pattern ------------------------------------------------------------------
 
-/// A trip of a bus's day: the direction and its departure (minutes after midnight).
+/// A trip of a bus's day: the direction, its departure (minutes after midnight) and the time
+/// band it is in (an index into the pattern's `clean_bands`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Planned {
     pub dir: usize,
     pub departure: f32,
+    pub band: Option<usize>,
 }
 
-/// The buses a pattern needs and the trips of each, in order: every direction leaves from its
-/// first to its last departure every `headway` minutes, and each departure is given to the
-/// bus that has stood longest at that end, ready (`run` minutes of its trip and the
-/// `layover` after it), else to a new bus. A bus so drives back and forth; with one direction
-/// it goes round.
+/// A bus standing longer than this at the end (minutes) goes back to the depot between its
+/// trips: the day of a bus that is wanted only in the rush hours is two tours, not one.
+pub const PARK: f32 = 90.0;
+
+/// The buses a pattern needs and the trips of each, in order: every direction leaves at the
+/// pattern's departures, and each departure is given to a bus ready at that end (`run`
+/// minutes of its trip and the `layover` after it), else to a new bus. A bus so drives back
+/// and forth; with one direction it goes round. Without time bands the bus that has stood
+/// longest takes the departure; with them the bus that came out first does, so that the buses
+/// added for a rush hour are free again after it (`tours` sends them back to the depot).
 pub fn blocks(run: &[f32], p: &DayPattern) -> Vec<Vec<Planned>> {
-    let dirs = run.len().clamp(1, 2);
-    if !p.on || p.headway < 1.0 || p.last < p.first {
+    // (a line without a direction yet has no buses)
+    if run.is_empty() {
         return Vec::new();
     }
+    let dirs = run.len().clamp(1, 2);
+    let banded = !p.bands.is_empty();
     let mut deps: Vec<Planned> = Vec::new();
     for dir in 0..dirs {
-        let mut t = p.first;
-        while t <= p.last + 1e-3 && deps.len() < 4000 {
-            deps.push(Planned { dir, departure: t });
-            t += p.headway;
-        }
+        deps.extend(p.departures().into_iter().take(4000 / dirs).map(|(departure, band)| Planned { dir, departure, band }));
     }
     deps.sort_by(|a, b| a.departure.total_cmp(&b.departure).then(a.dir.cmp(&b.dir)));
     // (where a direction leaves from and where it ends: the two ends of the line, or the one
@@ -420,7 +521,8 @@ pub fn blocks(run: &[f32], p: &DayPattern) -> Vec<Vec<Planned>> {
     }
     let mut buses: Vec<Bus> = Vec::new();
     for d in deps {
-        let ready = buses.iter().enumerate().filter(|(_, b)| b.at == from(d.dir) && b.free <= d.departure + 1e-3).min_by(|a, b| a.1.free.total_cmp(&b.1.free)).map(|(i, _)| i);
+        let mut ready_buses = buses.iter().enumerate().filter(|(_, b)| b.at == from(d.dir) && b.free <= d.departure + 1e-3);
+        let ready = if banded { ready_buses.next().map(|(i, _)| i) } else { ready_buses.min_by(|a, b| a.1.free.total_cmp(&b.1.free)).map(|(i, _)| i) };
         let i = ready.unwrap_or_else(|| {
             buses.push(Bus { at: from(d.dir), free: 0.0, trips: Vec::new() });
             buses.len() - 1
@@ -431,6 +533,82 @@ pub fn blocks(run: &[f32], p: &DayPattern) -> Vec<Vec<Planned>> {
         b.free = d.departure + run[d.dir].max(1.0) + p.layover.max(0.0);
     }
     buses.into_iter().map(|b| b.trips).collect()
+}
+
+/// The tours of a pattern: each bus's day (`blocks`), cut where - with time bands - it
+/// stands longer than `PARK` at the end (it goes back to the depot and out again later, as a
+/// tour of its own: a bus for a rush hour only).
+pub fn tours(run: &[f32], p: &DayPattern) -> Vec<Vec<Planned>> {
+    let all = blocks(run, p);
+    if p.bands.is_empty() {
+        return all;
+    }
+    let mut out = Vec::new();
+    for bus in all {
+        let mut cur: Vec<Planned> = Vec::new();
+        for t in bus {
+            if let Some(last) = cur.last() {
+                let back = last.departure + run.get(last.dir).copied().unwrap_or(1.0).max(1.0);
+                if t.departure - back > PARK {
+                    out.push(std::mem::take(&mut cur));
+                }
+            }
+            cur.push(t);
+        }
+        if !cur.is_empty() {
+            out.push(cur);
+        }
+    }
+    out.sort_by(|a, b| a[0].departure.total_cmp(&b[0].departure));
+    out
+}
+
+/// A tour of a line as it is written: its number, the day group (an index into the line's
+/// `days`) and its trips.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlannedTour {
+    pub number: String,
+    pub day: usize,
+    pub trips: Vec<Planned>,
+}
+
+impl PlannedTour {
+    /// When its first trip leaves and its last arrives (minutes), with the run times of the
+    /// directions.
+    pub fn span(&self, run: &[f32]) -> (f32, f32) {
+        let a = self.trips.first().map(|t| t.departure).unwrap_or(0.0);
+        let z = self.trips.iter().map(|t| t.departure + run.get(t.dir).copied().unwrap_or(1.0).max(1.0)).fold(a, f32::max);
+        (a, z)
+    }
+}
+
+/// Minutes each direction of a line takes from its first stop to its last (one entry per
+/// direction with stops).
+pub fn run_minutes(l: &LineDesign) -> Vec<f32> {
+    l.directions
+        .iter()
+        .filter(|d| d.stops.len() >= 2)
+        .map(|d| {
+            let mut times = d.times.clone();
+            if times.len() != d.stops.len() {
+                times = auto_times(&d.legs);
+                times.resize(d.stops.len(), times.last().copied().unwrap_or(0.0));
+            }
+            times.last().copied().unwrap_or(1.0).max(1.0)
+        })
+        .collect()
+}
+
+/// Every tour of a line, numbered on through the day groups as the `.ttl` has them.
+pub fn tour_plan(l: &LineDesign) -> Vec<PlannedTour> {
+    let run = run_minutes(l);
+    let mut out: Vec<PlannedTour> = Vec::new();
+    for (day, p) in l.days.iter().enumerate() {
+        for trips in tours(&run, p) {
+            out.push(PlannedTour { number: (out.len() + 1).to_string(), day, trips });
+        }
+    }
+    out
 }
 
 // --- the files --------------------------------------------------------------------------------
@@ -494,7 +672,7 @@ pub fn own_lines(reg: &Registry) -> Vec<OwnLine> {
     let stems = stems(reg);
     reg.lines
         .iter()
-        .filter(|l| problems(l).is_empty())
+        .filter(|l| written(l))
         .map(|l| {
             let mut destinations: Vec<String> = Vec::new();
             for d in l.directions.iter().filter(|d| d.stops.len() >= 2) {
@@ -578,10 +756,16 @@ pub fn problems(l: &LineDesign) -> Vec<Problem> {
             out.push(p(if k == 0 { "%{n} leg(s) of the outbound direction have no way over the roads" } else { "%{n} leg(s) of the way back have no way over the roads" }, bad));
         }
     }
-    if !l.days.iter().any(|p| p.on && p.headway >= 1.0 && p.last >= p.first) {
+    if !l.days.iter().any(DayPattern::runs) {
         out.push(p("The line runs on no day", 0));
     }
     out
+}
+
+/// The line goes into the map's timetable: it can be saved (`problems`) and is no company's
+/// draft.
+pub fn written(l: &LineDesign) -> bool {
+    !l.draft && problems(l).is_empty()
 }
 
 /// The files of every line of the registry that can be saved (`problems` empty). `raw_tiles`
@@ -593,10 +777,9 @@ pub fn export(reg: &Registry, raw_tiles: &[(i32, i32)], map_links: &HashSet<(i64
     let mut out = Export::default();
     let mut links_done: HashSet<(i64, i64)> = map_links.clone();
     let mut stops_done: HashSet<i64> = map_stops.clone();
-    for l in reg.lines.iter().filter(|l| problems(l).is_empty()) {
+    for l in reg.lines.iter().filter(|l| written(l)) {
         let stem = &stems[&l.id];
         let number = l.number.trim().to_string();
-        let mut run = Vec::new();
         for (dir, d) in l.directions.iter().enumerate() {
             let name = trip_name(stem, dir);
             let mut times = d.times.clone();
@@ -605,7 +788,6 @@ pub fn export(reg: &Registry, raw_tiles: &[(i32, i32)], map_links: &HashSet<(i64
                 times.resize(d.stops.len(), times.last().copied().unwrap_or(0.0));
             }
             let total = times.last().copied().unwrap_or(1.0).max(1.0);
-            run.push(total);
             let man_dep_time = (1..d.stops.len().saturating_sub(1)).map(|i| (i as i32, times[i])).collect();
             let trip = Trip {
                 name: name.clone(),
@@ -656,17 +838,15 @@ pub fn export(reg: &Registry, raw_tiles: &[(i32, i32)], map_links: &HashSet<(i64
             }
         }
         // the tours: the buses of every day pattern, numbered on through the day groups
-        let mut tours = Vec::new();
-        for p in &l.days {
-            for b in blocks(&run, p) {
-                tours.push(Tour {
-                    number: (tours.len() + 1).to_string(),
-                    ai_group: l.ai_group.trim().to_string(),
-                    extra: mask_of(p.days).to_string(),
-                    trips: b.iter().map(|t| TourTrip { trip: trip_name(stem, t.dir), profile: 0, departure: t.departure }).collect(),
-                });
-            }
-        }
+        let tours: Vec<Tour> = tour_plan(l)
+            .into_iter()
+            .map(|t| Tour {
+                number: t.number,
+                ai_group: l.ai_group.trim().to_string(),
+                extra: mask_of(l.days[t.day].days).to_string(),
+                trips: t.trips.iter().map(|x| TourTrip { trip: trip_name(stem, x.dir), profile: 0, departure: x.departure }).collect(),
+            })
+            .collect();
         out.tours.insert(l.id, tours.len());
         let line = Line { path: PathBuf::new(), name: stem.clone(), user_allowed: true, priority: 1, tours };
         out.files.push((format!("{stem}.ttl"), line.to_text()));
@@ -778,7 +958,7 @@ mod tests {
     fn the_buses_go_back_and_forth() {
         // 15 minutes each way, 5 at the end: a round takes 40, so every 20 minutes needs two
         // buses - one starting at each end, each taking the other's departures from there on
-        let p = DayPattern { on: true, days: 31, first: 360.0, last: 480.0, headway: 20.0, layover: 5.0 };
+        let p = DayPattern { on: true, days: 31, first: 360.0, last: 480.0, headway: 20.0, layover: 5.0, ..Default::default() };
         let b = blocks(&[15.0, 15.0], &p);
         let trips: usize = b.iter().map(|x| x.len()).sum();
         assert_eq!(trips, 14);
@@ -798,6 +978,58 @@ mod tests {
         assert!(round.iter().flatten().all(|t| t.dir == 0));
         // a pattern that is off has no buses
         assert!(blocks(&[15.0, 15.0], &DayPattern { on: false, ..p }).is_empty());
+    }
+
+    #[test]
+    fn time_bands_add_buses_for_the_rush_hour_and_send_them_back() {
+        // every 30 minutes, every 10 from 7 to 9, every 30 again until 12; 20 minutes a way
+        let b = |from: f32, to: f32, headway: f32| TimeBand { from, to, headway, size: None };
+        let p = DayPattern { bands: vec![b(420.0, 540.0, 10.0), b(360.0, 420.0, 30.0), b(540.0, 720.0, 30.0)], ..Default::default() };
+        // (the bands in order of the day, each to where the next begins)
+        let clean = p.clean_bands();
+        assert_eq!(clean.iter().map(|x| (x.from, x.to)).collect::<Vec<_>>(), vec![(360.0, 420.0), (420.0, 540.0), (540.0, 720.0)]);
+        let deps = p.departures();
+        assert_eq!(deps.len(), 2 + 12 + 6);
+        assert_eq!(deps[2], (420.0, Some(1)));
+        let run = [20.0, 20.0];
+        let buses = blocks(&run, &p);
+        let t = tours(&run, &p);
+        // the rush hour needs more buses than the quiet hours (a round of 50 minutes: two buses
+        // at a 30-minute headway, six at 10)
+        assert!(buses.len() >= 5, "{}", buses.len());
+        // the buses added for it run in the rush hour only; the first ones go on all morning
+        let peak_only = t.iter().filter(|x| x.iter().all(|y| y.band == Some(1))).count();
+        assert!(peak_only >= 3, "{peak_only}");
+        assert!(t.iter().any(|x| x.first().unwrap().departure < 420.0 && x.last().unwrap().departure >= 600.0));
+        // no tour leaves a trip out, none takes a trip twice
+        assert_eq!(t.iter().map(|x| x.len()).sum::<usize>(), 2 * deps.len());
+        // a bus standing more than `PARK` goes back to the depot: two tours
+        let gap = DayPattern { bands: vec![b(360.0, 420.0, 30.0), b(420.0, 900.0, 240.0)], ..Default::default() };
+        assert!(tours(&run, &gap).len() > blocks(&run, &gap).len());
+        // a line without stops yet has no tours
+        assert!(tours(&[], &p).is_empty());
+        // without bands nothing changes
+        let plain = DayPattern::default();
+        assert_eq!(tours(&run, &plain), blocks(&run, &plain));
+        assert!(plain.departures().iter().all(|d| d.1.is_none()));
+        // and a line's tours are numbered on through its day groups
+        let mut reg = Registry::default();
+        let id = line(&mut reg);
+        let l = reg.line_mut(id).unwrap();
+        l.days[0].bands = default_bands(0);
+        let plan = tour_plan(l);
+        assert!(plan.iter().enumerate().all(|(k, x)| x.number == (k + 1).to_string()));
+        assert!(plan.iter().any(|x| x.day == 2));
+    }
+
+    #[test]
+    fn a_companys_draft_is_kept_out_of_the_timetable() {
+        let mut reg = Registry::default();
+        let id = line(&mut reg);
+        reg.line_mut(id).unwrap().draft = true;
+        assert!(problems(reg.line(id).unwrap()).is_empty() && !written(reg.line(id).unwrap()));
+        assert!(export(&reg, &[(0, 0)], &HashSet::new(), &HashSet::new()).unwrap().files.is_empty());
+        assert!(own_lines(&reg).is_empty());
     }
 
     #[test]

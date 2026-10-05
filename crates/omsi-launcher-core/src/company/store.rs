@@ -126,6 +126,65 @@ pub fn close_day(data: &Path, c: &mut Company) -> Result<DayReport> {
     Ok(report)
 }
 
+/// What the game reported of the company since the day's last close, without taking it in
+/// (the clock tells it as it comes, the day's close books it): the events after the first
+/// `seen`.
+pub fn peek_live(data: &Path, id: &str, seen: usize) -> Vec<LiveEvent> {
+    let Ok(text) = std::fs::read_to_string(live_file(data, id)) else { return Vec::new() };
+    text.lines().filter_map(|l| serde_json::from_str::<LiveEvent>(l).ok()).skip(seen).collect()
+}
+
+/// The company's world on the disk, for its clock: the map's timetable of a date (read once
+/// per date), and the night as `close_day` runs it (saved by the caller).
+pub struct Disk<'a> {
+    data: &'a Path,
+    read: Vec<(String, String, Vec<crate::LineInfo>)>,
+}
+
+impl<'a> Disk<'a> {
+    pub fn new(data: &'a Path) -> Self {
+        Disk { data, read: Vec::new() }
+    }
+
+    /// The timetable of a date read already (the pages have the company's day).
+    pub fn knowing(mut self, map: &str, date: &str, lines: Vec<crate::LineInfo>) -> Self {
+        self.read.push((map.to_string(), date.to_string(), lines));
+        self
+    }
+}
+
+impl super::clock::World for Disk<'_> {
+    fn lines(&mut self, c: &Company, date: &str) -> std::result::Result<Vec<crate::LineInfo>, String> {
+        if let Some(x) = self.read.iter().find(|x| x.0 == c.map && x.1 == date) {
+            return Ok(x.2.clone());
+        }
+        let lines = crate::list_lines(&c.map, date).map_err(|e| format!("{e:#}"))?;
+        // (the last few days are enough)
+        if self.read.len() > 3 {
+            self.read.remove(0);
+        }
+        self.read.push((c.map.clone(), date.to_string(), lines.clone()));
+        Ok(lines)
+    }
+
+    fn close_day(&mut self, c: &mut Company, lines: &[crate::LineInfo]) -> std::result::Result<DayReport, String> {
+        take_live(self.data, c);
+        network::refresh_lines(c, lines);
+        let tours = network::tours_of_day(c, lines);
+        let trips = crate::trips_of(self.data, &c.profile);
+        let report = day::close_day(c, tours, &trips);
+        Ok(super::depot::after_close(c, report, lines))
+    }
+}
+
+/// Simulate the company until `to` (the clock's minutes, `clock::target`) and save it.
+pub fn simulate(data: &Path, c: &mut Company, to: i64, quick: bool, w: Option<Disk>) -> Result<super::clock::Run> {
+    let mut w = w.unwrap_or_else(|| Disk::new(data));
+    let run = super::clock::advance(c, to, &mut w, quick).map_err(|e| anyhow::anyhow!(e))?;
+    save(data, c)?;
+    Ok(run)
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{found, Founding};

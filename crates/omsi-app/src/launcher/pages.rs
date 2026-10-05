@@ -122,7 +122,7 @@ pub fn about(page: Page, controls_tab: usize) -> (&'static str, &'static str) {
         Page::Editor => ("construction", "Make the map your own: lines of your own, liveries, the timetable and the map's objects."),
         Page::Lines => ("route", "Click the stops in order: the way between them is found over the roads. Saved, the line is driven by you and by the timetable's buses."),
         Page::Livery => ("livery_fill", "Paint a bus in 3D: colours, stripes, texts, pictures and shapes, saved as a livery the game offers."),
-        Page::Company => ("garage", "Your own transport company: buses, people and lines, settled day by day."),
+        Page::Company => ("garage", "Your own transport company: buses, people and lines, in a time of its own."),
         Page::Drive => ("directions_bus", ""),
     }
 }
@@ -1766,6 +1766,9 @@ fn general_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, c
     toggle_setting(ui, s, dirty, c.row(), "Navigator (Shift+N: map, schedule, off)", "navigator");
     toggle_setting(ui, s, dirty, c.row(), "Route arrows (as in OMSI 2)", "nav_arrows");
     toggle_setting(ui, s, dirty, c.row(), "AI vehicles on the map", "nav_ai");
+    // (the trip, its stops and what comes next under the map - its handle on the navigator
+    // switches it in the game too)
+    toggle_setting(ui, s, dirty, c.row(), "Duty board under the navigator", "nav_board");
     let mut nav = core::nav_scale(get(s, "nav_scale").as_f64()) as f32;
     if ui.slider("s-nav-scale", c.row(), &mut nav, 0.6, 2.0, 0.05, "Navigator size", &|v| format!("{:.0}%", v * 100.0)) {
         s["nav_scale"] = json!(core::nav_scale(Some(nav as f64)));
@@ -1786,20 +1789,38 @@ fn general_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, c
     for (name, x, yy) in [("top-left", 0.0, 0.0), ("top-right", 1.0, 0.0), ("bottom-left", 0.0, 1.0), ("bottom-right", 1.0, 1.0)] {
         let cell = Rect::new(screen.x + 5.0 + x * (screen.w * 0.5), screen.y + 5.0 + yy * (screen.h * 0.5), screen.w * 0.5 - 10.0, screen.h * 0.5 - 10.0);
         let (h, _, clicked) = ui.interact(id_of(&format!("corner-{name}")), cell);
+        let (dragged, size) = core::nav_rect_parts(get(s, "nav_rect").as_str().unwrap_or(""));
         if clicked {
+            // (a corner chosen: the place it was dragged to in the game is forgotten, its size
+            // stays)
             s["navigator_corner"] = json!(name);
+            s["nav_rect"] = json!(core::nav_rect_text(None, size));
             *dirty = 0.3;
         }
-        let on = cur == name;
+        let on = cur == name && dragged.is_none();
         ui.p().rounded(cell, 3.0, if on { accent() } else { Color::WHITE.alpha(if h { 0.2 } else { 0.08 }) });
     }
-    // (dragged somewhere else in the game, #940: that place, until a corner is chosen)
-    if let Some(a) = crate::navigator::placed_at(&cur) {
-        let (cw, ch) = (screen.w * 0.5 - 10.0, screen.h * 0.5 - 10.0);
-        let cell = Rect::new(screen.x + 5.0 + a[0] * (screen.w - 10.0 - cw), screen.y + 5.0 + a[1] * (screen.h - 10.0 - ch), cw, ch);
+    // (dragged and sized in the game: that place and shape on the little screen, until a
+    // corner is chosen)
+    let (dragged, size) = core::nav_rect_parts(get(s, "nav_rect").as_str().unwrap_or(""));
+    if let Some(a) = dragged {
+        let inner = screen.inset(5.0);
+        // (its size in shares of the window's height, on the little screen - as wide as a
+        // 16:9 window)
+        let (cw, ch) = size.map(|z| ((z[0] as f32 * inner.h).min(inner.w), (z[1] as f32 * inner.h).min(inner.h))).unwrap_or((screen.w * 0.5 - 10.0, screen.h * 0.5 - 10.0));
+        let (cw, ch) = (cw.max(6.0), ch.max(5.0));
+        let cell = Rect::new(inner.x + a[0] as f32 * (inner.w - cw), inner.y + a[1] as f32 * (inner.h - ch), cw, ch);
         ui.p().rounded(cell, 3.0, accent());
     }
     c.y += 74.0;
+    // (back to its corner and its own size, the board under the map, 100 %)
+    if ui.button("s-nav-reset", c.row(), "Reset navigator", Some("restart_alt"), ButtonKind::Normal) {
+        s["navigator_corner"] = json!("bottom-left");
+        s["nav_rect"] = json!("");
+        s["nav_scale"] = json!(1.0);
+        s["nav_board"] = json!(true);
+        *dirty = 0.3;
+    }
     let left = c.used();
     // updates from the GitHub releases (see `crate::updater`)
     let mut c = Col::new(ui, cols[1], "Updates");
@@ -3520,7 +3541,7 @@ mod settings_tests {
         ];
         let general = vec![
             "s-lang", "set-machine_translation", "set-launcher_rest", "set-discord_status", "set-voice_chat", "set-companion", "s-launcher-scale", "set-animations", "set-page_bus", "s-accent-sw0", "s-accent-sw1", "s-accent-sw2", "s-accent-sw3", "s-accent-sw4", "s-accent-sw5", "s-accent-sw6", "s-accent-sw7", "s-accent-custom", "s-welcome-again", "s-tour-start", "s-uiscale", "set-ui_scale_window", "s-uiop", "set-tooltips", "set-show_fps", "set-notes", "set-chat", "s-chatsize", "set-name_tags",
-            "set-navigator", "set-nav_arrows", "set-nav_ai", "s-nav-scale", "s-stop-style", "set-nav_signon", "corner-top-left", "corner-top-right", "corner-bottom-left", "corner-bottom-right",
+            "set-navigator", "set-nav_arrows", "set-nav_ai", "set-nav_board", "s-nav-scale", "s-stop-style", "set-nav_signon", "corner-top-left", "corner-top-right", "corner-bottom-left", "corner-bottom-right", "s-nav-reset",
             "set-update_check", "set-update_auto", "set-update_notify", "set-presence", "s-upd-check", "s-upd-github", "s-reset",
         ];
         vec![graphics, driving, camera, sound, gameplay, general]

@@ -1,6 +1,8 @@
 //! The company's lines: those it runs, with today's tours and how they are covered (a bus for
 //! each tour, a driver for each duty), and the lines it can add - the map's timetable lines
-//! and the player's own from the line editor (the switch of `ownlines`).
+//! and the player's own from the line editor (the switch of `ownlines`). "Make a new line"
+//! opens the line editor for the company (`lineeditor::open_for_company`): a line made there
+//! is confirmed and paid for, and an own line of the company's is changed there too.
 
 use super::super::ownlines;
 use super::super::theme::*;
@@ -53,6 +55,7 @@ fn ours(l: &mut Launcher, r: Rect, c: &Company) {
     let selected = l.company.lines.selected.clone();
     let mut pick = None;
     let mut remove = None;
+    let mut edit = None;
     l.ui.scroll_area("company-lines", inner, &mut |ui, v| {
         let rh = 62.0;
         for (k, line) in list.iter().enumerate() {
@@ -69,21 +72,29 @@ fn ours(l: &mut Launcher, r: Rect, c: &Company) {
             let caption = if line.caption.is_empty() { line.name.clone() } else { line.caption.clone() };
             ui.text_in(&caption, Rect::new(r.x + w + 22.0, r.y + 8.0, r.w - w - 80.0, 20.0), 13.5, Weight::Bold, ink, Align::Left);
             let (covered, all) = plan.as_ref().map(|p| p.coverage_of(&line.name)).unwrap_or((0, line.tours as usize));
-            let sub = omsi_ui::tr("%{c} of %{t} tours covered today  ·  %{km} km a day").replace("%{c}", &covered.to_string()).replace("%{t}", &all.to_string()).replace("%{km}", &format!("{:.0}", line.km));
+            let sub = omsi_ui::tr("%{c} of %{t} tours covered today  ·  %{km} km a day").replace("%{c}", &covered.to_string()).replace("%{t}", &all.to_string()).replace("%{km}", &super::grouped(line.km));
             ui.text_in(&sub, Rect::new(r.x + 10.0, r.y + 36.0, r.w * 0.62, 16.0), 11.5, Weight::Regular, if on { on_accent() } else { TEXT_DIM }, Align::Left);
             if all > 0 {
                 meter(ui, Rect::new(r.x + r.w * 0.66, r.y + 42.0, r.w * 0.26, 5.0), covered as f64 / all as f64, if covered == all { OK } else { WARN });
             }
             if line.own {
-                ui.badge(Vec2::new(r.right() - 90.0, r.y + 12.0), &omsi_ui::tr("own").to_uppercase(), accent_2());
+                ui.badge(Vec2::new(r.right() - 120.0, r.y + 12.0), &omsi_ui::tr("own").to_uppercase(), accent_2());
             }
             if ui.icon_button(&format!("company-line-remove-{}", line.name), Vec2::new(r.right() - 22.0, r.y + 20.0), 14.0, "close", "Stop running this line") {
                 remove = Some(line.name.clone());
             }
+            // (a line the company made: changed in the line editor)
+            if let Some(p) = line.plan.as_ref() {
+                if ui.icon_button(&format!("company-line-edit-{}", line.name), Vec2::new(r.right() - 52.0, r.y + 20.0), 14.0, "route", "Change the line in the line editor") {
+                    edit = Some(p.line_id);
+                }
+            }
         }
         list.len() as f32 * rh
     });
-    if let Some(name) = remove {
+    if let Some(id) = edit {
+        super::super::lineeditor::open_for_company(l, Some(id));
+    } else if let Some(name) = remove {
         l.company.dialog = Some(Dialog::Confirm { what: Confirm::RemoveLine(name) });
     } else if let Some(name) = pick {
         l.company.lines.selected = if selected.as_deref() == Some(name.as_str()) { None } else { Some(name) };
@@ -119,8 +130,13 @@ fn tours_of(l: &mut Launcher, r: Rect, c: &Company, name: &str) {
             ui.p().rect(Rect::new(r.x, r.bottom(), r.w, 1.0), HAIRLINE);
             let head = format!("{} {}", omsi_ui::tr("Tour"), t.tour.tour);
             ui.text_in(&head, Rect::new(r.x, r.y + 4.0, 110.0, 20.0), 13.5, Weight::Bold, TEXT, Align::Left);
-            let when = format!("{} – {}  ·  {:.0} km", hhmm(t.tour.from()), hhmm(t.tour.to()), t.tour.km());
-            ui.text_in(&when, Rect::new(r.x, r.y + 24.0, 200.0, 16.0), 11.5, Weight::Regular, TEXT_DIM, Align::Left);
+            let mut when = format!("{} – {}  ·  {:.0} km", hhmm(t.tour.from()), hhmm(t.tour.to()), t.tour.km());
+            // (the size of bus the tour asks for)
+            if let Some(size) = co::ownline::wanted(c, &t.tour) {
+                when.push_str("  ·  ");
+                when.push_str(&omsi_ui::tr(co::BusKind { size, drive: co::Drive::Diesel }.label()));
+            }
+            ui.text_in(&when, Rect::new(r.x, r.y + 24.0, 205.0, 16.0), 11.5, Weight::Regular, TEXT_DIM, Align::Left);
             let bus = t.bus.and_then(|b| fleet.iter().find(|f| f.0 == b)).map(|f| omsi_ui::tr("Bus %{n}").replace("%{n}", &f.1));
             let drivers: Vec<String> = t.duties.iter().filter_map(|d| d.driver.and_then(|id| staff.iter().find(|s| s.0 == id)).map(|s| s.1.clone())).collect();
             let (what, colour) = if t.by_player {
@@ -149,9 +165,16 @@ fn tours_of(l: &mut Launcher, r: Rect, c: &Company, name: &str) {
     });
 }
 
-/// The lines that can be added: the map's or the player's own.
+/// The lines that can be added: the map's or the player's own - or a new one, made in the
+/// line editor for the company.
 fn to_add(l: &mut Launcher, r: Rect, c: &Company) {
     let inner = section(&mut l.ui, r, "Add a line");
+    let make = Rect::new(r.right() - 196.0, r.y + 6.0, 186.0, 28.0);
+    if l.ui.button("company-line-make", make, "Make a new line", Some("route"), ButtonKind::Ghost) {
+        super::super::lineeditor::open_for_company(l, None);
+        return;
+    }
+    l.ui.tooltip(make, "Draw a line of the company's own in the line editor: it shows what the line costs and brings, and you confirm and pay for it there");
     let Some(today) = l.company.today.as_ref() else {
         l.ui.text_in("Reading the timetable…", Rect::new(inner.x, inner.y, inner.w, 20.0), 13.0, Weight::Regular, TEXT_DIM, Align::Left);
         return;
@@ -171,7 +194,16 @@ fn to_add(l: &mut Launcher, r: Rect, c: &Company) {
     }
     let list: Vec<core::LineInfo> = if showing_mine { mine.into_iter().cloned().collect() } else { maps.into_iter().cloned().collect() };
     let list: Vec<core::LineInfo> = list.into_iter().filter(|x| !c.lines.iter().any(|y| y.name.eq_ignore_ascii_case(&x.name))).collect();
-    let rows = Rect::new(inner.x, inner.y + ROW + 12.0, inner.w, (inner.h - ROW - 12.0).max(0.0));
+    // (the map's depot runs, empty runs, test drives and specials are no lines of their own:
+    // they go with the tours that need them, or are other contracts - `specials`)
+    let n = list.len();
+    let list: Vec<core::LineInfo> = list.into_iter().filter(|x| showing_mine || co::specials::special_line(x, &[&c.depot]).is_none()).collect();
+    let hidden = n - list.len();
+    let rows = Rect::new(inner.x, inner.y + ROW + 12.0, inner.w, (inner.h - ROW - 12.0 - if hidden > 0 { 22.0 } else { 0.0 }).max(0.0));
+    if hidden > 0 {
+        let t = omsi_ui::tr("%{n} timetables of the map are no lines of their own (depot and empty runs, specials): they go with the tours that need them.").replace("%{n}", &hidden.to_string());
+        l.ui.text_in(&t, Rect::new(inner.x, inner.bottom() - 18.0, inner.w, 18.0), 11.0, Weight::Regular, TEXT_FAINT, Align::Left);
+    }
     if list.is_empty() {
         l.ui.text_in("The company runs all of them already.", Rect::new(rows.x, rows.y, rows.w, 20.0), 13.0, Weight::Regular, TEXT_DIM, Align::Left);
         return;
@@ -179,7 +211,8 @@ fn to_add(l: &mut Launcher, r: Rect, c: &Company) {
     let mut add = None;
     // (on Realistic and Hard a map line is applied for: its concession's tender)
     let direct = co::concessions::may_add_directly(c);
-    let bids: Vec<(String, Option<f64>)> = c.concessions.tenders.iter().filter(|t| t.open()).map(|t| (t.line.to_lowercase(), t.bid)).collect();
+    let depot = c.depot.clone();
+    let bids: Vec<(String, Option<i64>)> = c.concessions.tenders.iter().filter(|t| t.open()).map(|t| (t.line.to_lowercase(), t.offers.last().map(|o| o.1))).collect();
     l.ui.scroll_area("company-lines-add", rows, &mut |ui, v| {
         let rh = 54.0;
         for (k, line) in list.iter().enumerate() {
@@ -198,7 +231,7 @@ fn to_add(l: &mut Launcher, r: Rect, c: &Company) {
             };
             let caption = match &o {
                 Some(o) => ownlines::caption_of(o, line),
-                None => format!("{}  ·  {}", line.name, line.termini.join(" – ")),
+                None => format!("{}  ·  {}", line.name, co::specials::caption_of(line, &[&depot])),
             };
             ui.text_in(&caption, Rect::new(r.x + w + 22.0, r.y + 4.0, r.w - w - 170.0, 22.0), 13.0, Weight::Bold, TEXT, Align::Left);
             let runs = line.tours.iter().filter(|t| t.runs).count();
@@ -227,9 +260,10 @@ fn to_add(l: &mut Launcher, r: Rect, c: &Company) {
         let line = list[k].clone();
         let o = core::lines::own_line_of(&line.name, &own);
         if !direct && o.is_none() {
+            // (its auction opens now: to the concessions, where it is bid on)
             if let Some(id) = act(l, |c| co::concessions::apply(c, &line)) {
-                let price = l.company.company.as_ref().and_then(|c| c.concessions.tenders.iter().find(|t| t.id == id)).and_then(|t| t.bid).unwrap_or(1.0);
-                l.company.dialog = Some(Dialog::Bid { tender: id, price: price as f32 });
+                l.company.tenders.selected = Some(id);
+                l.company.tab = super::CONCESSIONS_TAB;
             }
             return;
         }

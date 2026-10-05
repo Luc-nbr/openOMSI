@@ -815,10 +815,12 @@ impl App {
             }
             return true;
         }
+        // (the board is a step only for a player who wants it under the map - the setting and
+        // the handle on the panel: else the map, off)
         if let Some(n) = self.navigator.as_mut() {
             match (n.enabled, n.schedule) {
-                (true, false) => n.schedule = true,
-                (true, true) => {
+                (true, false) if n.board => n.schedule = true,
+                (true, _) => {
                     n.enabled = false;
                     n.schedule = false;
                 }
@@ -1255,6 +1257,16 @@ impl App {
             self.settings.nav_scale = v;
             crate::game_lists::remember_setting("nav_scale", &v.to_string());
         }
+        // (moved, sized by its edges, or a sized one grown with the size: its place and size;
+        // the board shown or put away with its handle)
+        if let Some(r) = self.navigator.as_mut().and_then(|n| n.take_rect()) {
+            self.settings.nav_rect = r.clone();
+            crate::game_lists::remember_setting("nav_rect", &r);
+        }
+        if let Some(on) = self.navigator.as_mut().and_then(|n| n.take_board()) {
+            self.settings.nav_board = on;
+            crate::game_lists::remember_setting("nav_board", if on { "1" } else { "0" });
+        }
     }
 
     pub(crate) fn on_left(&mut self, pressed: bool) {
@@ -1289,8 +1301,10 @@ impl App {
                 return;
             }
             // (a click opens the city map, a drag moves the navigator: #940)
+            // (its edges and corners size it, its handle shows or hides the duty board)
             if pressed && !vr_active && n.over_panel(x, y) {
                 n.panel_press(x, y);
+                self.keep_nav_size();
                 return;
             }
             if !pressed {
@@ -1300,9 +1314,7 @@ impl App {
                         return;
                     }
                     Some(true) => {
-                        let at = n.placement();
-                        self.settings.navigator_corner = at.clone();
-                        crate::game_lists::remember_setting("navigator_corner", &at);
+                        self.keep_nav_size();
                         return;
                     }
                     None => {}
@@ -4094,6 +4106,12 @@ impl App {
                 self.hover_part = None;
             }
         }
+        // (over the small navigator: its handle a hand, its edges and corners the arrows they
+        // size it by, the cross of arrows while it is dragged)
+        let (cx, cy) = self.cursor;
+        let vr_active = self.vr_active();
+        let menu = self.game_menu.is_some();
+        let nav_cursor = self.navigator.as_mut().filter(|_| !vr_active && !menu).and_then(|n| n.hover(cx, cy));
         // the cursor itself says when it is over something that can be operated
         // (steering with the mouse: a cross, as OMSI shows it; turning the view with the
         // right button held: the four arrows OMSI shows then, #185)
@@ -4106,7 +4124,10 @@ impl App {
             && self.player.is_some()
             && self.both_drag.is_none()
             && matches!(self.view.as_str(), "driver" | "outside" | "pax" | "free");
-        let kind: u8 = if self.both_drag.is_some() && self.game_menu.is_none() {
+        let steering = self.mouse_drive && self.mouse_steers_in_view();
+        let kind: u8 = if let Some(k) = nav_cursor.filter(|_| !self.mouse_look && self.both_drag.is_none() && !steering) {
+            k
+        } else if self.both_drag.is_some() && self.game_menu.is_none() {
             4
         } else if rmb_zoom && self.game_menu.is_none() {
             4
@@ -4125,12 +4146,17 @@ impl App {
         self.set_cursor_kind(kind);
     }
 
-    /// Show the mouse cursor `kind` (0 arrow, 1 pointing hand, 2 cross, 3 arrows, 4 closed hand).
+    /// Show the mouse cursor `kind` (0 arrow, 1 pointing hand, 2 cross, 3 arrows, 4 closed hand
+    /// - the up-down arrows -, 5 the left-right arrows, 6 and 7 the diagonal ones: top-left to
+    /// bottom-right, top-right to bottom-left).
     pub(crate) fn set_cursor_kind(&mut self, kind: u8) {
         if kind != self.cursor_kind {
             self.cursor_kind = kind;
             if let Some(w) = self.window.as_ref() {
                 w.set_cursor(match kind {
+                    7 => winit::window::CursorIcon::NeswResize,
+                    6 => winit::window::CursorIcon::NwseResize,
+                    5 => winit::window::CursorIcon::EwResize,
                     4 => winit::window::CursorIcon::NsResize,
                     3 => winit::window::CursorIcon::Move,
                     2 => winit::window::CursorIcon::Crosshair,

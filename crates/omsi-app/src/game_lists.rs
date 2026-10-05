@@ -598,6 +598,17 @@ pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -
                         app.menu_edit = Some(String::new());
                     }
                 }
+                "nav_reset" if step => {
+                    if let Some(n) = app.navigator.as_mut() {
+                        n.reset_panel();
+                    }
+                    let s = &mut app.settings;
+                    (s.navigator_corner, s.nav_rect, s.nav_scale, s.nav_board) = ("bottom-left".into(), String::new(), 1.0, true);
+                    for (k, v) in [("navigator_corner", "bottom-left"), ("nav_rect", ""), ("nav_scale", "1"), ("nav_board", "1")] {
+                        remember_setting(k, v);
+                    }
+                    LIST_DIRTY.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
                 "seat_reset" if step => {
                     app.settings.seat = [0.0; 3];
                     app.settings.seat_pitch_deg = 0.0;
@@ -1227,6 +1238,7 @@ fn toggle_now(app: &App, id: &str) -> Option<bool> {
     Some(match id {
         "navigator" => if app.vr_active() { app.vr_nav_profile().enabled } else { app.navigator.as_ref().is_some_and(|n| n.enabled) },
         "nav_ai" => app.navigator.as_ref().map_or(s.nav_ai, |n| n.show_ai),
+        "nav_board" => app.navigator.as_ref().map_or(s.nav_board, |n| n.board),
         "shadows" => s.shadows,
         "head" => s.head_movement,
         "cam_smooth" => s.driverview_smooth,
@@ -1308,6 +1320,14 @@ fn toggle_set(app: &mut App, id: &str, on: bool) -> Option<(&'static str, String
             }
             app.settings.nav_ai = on;
             Some(("nav_ai", bit))
+        }
+        "nav_board" => {
+            // (on, it shows at once; off, it goes)
+            if let Some(n) = app.navigator.as_mut() {
+                n.set_board(on);
+            }
+            app.settings.nav_board = on;
+            Some(("nav_board", bit))
         }
         "shadows" => {
             app.settings.shadows = on;
@@ -1750,6 +1770,16 @@ pub(crate) fn dropdown_apply(app: &mut App, action: &str) {
         "pick" => {
             if let Some((key, value)) = arg.split_once(' ') {
                 remember_setting(key, value);
+                // (a corner chosen: the navigator goes there, a place it was dragged to is
+                // forgotten - its size stays)
+                if key == "navigator_corner" {
+                    let size = omsi_launcher_lib::nav_rect_parts(&app.settings.nav_rect).1;
+                    remember_setting("nav_rect", &omsi_launcher_lib::nav_rect_text(None, size));
+                    if let Some(n) = app.navigator.as_mut() {
+                        n.corner = value.to_string();
+                        n.at = None;
+                    }
+                }
                 reload_settings(app);
             }
         }
@@ -1952,7 +1982,9 @@ fn options_pages(app: &App) -> Vec<Page> {
         switch_row(app, "navigator", "Navigator", "Enables/Disables the Minimap"),
         switch_row(app, "nav_ai", "AI vehicles on the map", "Shows/hides the other (AI) vehicles on the Minimap and the city map"),
         switch_row(app, "nav_arrows", "Route arrows (as in OMSI 2)", "Shows OMSI 2's route arrows over the road"),
+        switch_row(app, "nav_board", "Duty board under the navigator", "The trip, its stops and what comes next under the map; off, the map alone (the handle on the navigator switches it too)"),
         pick("navigator_corner", "Corner", later),
+        Some(button("Reset navigator", "Reset", "Back to its corner and its own size, with the duty board (drag its edges and corners to size it)", "nav_reset")),
         switch_row(app, "get_up", "Ability to get up (Ctrl+Shift+G)", "Allows you to get out of the car and explore the world"),
         switch_row(app, "ibis_auto", "Fill in the IBIS automatically", "The game types the duty's line, route and destination into the IBIS; off, you type them yourself"),
         switch_row(app, "coll_objects", "Collisions with objects", "Enables/disables collisions with objects such as buildings, streetlights, etc."),

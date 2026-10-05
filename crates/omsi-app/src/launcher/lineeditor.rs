@@ -15,6 +15,12 @@
 //! truth) and from there into the map's timetable files (`core::lines::export_to_map`), so
 //! that the player drives it from the Drive page like any line and the timetable's buses
 //! drive it too.
+//!
+//! Opened from the bus company's Lines page it works for the company (`ForCompany`): the
+//! company's map, colours and depot, only its lines; a running estimate over the map of what
+//! the line costs once and a month, its passengers through the day and the buses it needs
+//! (`core::company::ownline`); and "Confirm and pay", after which the company runs it. A
+//! company line changed later pays its route's approval anew.
 
 use super::lineroute::{Anchor, Router};
 use super::mapview::{Dot, Look, Pointer};
@@ -24,7 +30,8 @@ use super::Launcher;
 use glam::{DVec2, Vec2};
 use omsi_launcher_lib as core;
 use omsi_launcher_lib::linehof;
-use omsi_launcher_lib::lines::{self as reg, Direction, LineDesign, Registry, StopRef, DAY_GROUPS};
+use omsi_launcher_lib::company::{ownline, BusKind, BusSize, Cents, Drive};
+use omsi_launcher_lib::lines::{self as reg, Direction, LineDesign, Registry, StopRef, TimeBand, DAY_GROUPS};
 use omsi_ui::paint::Align;
 use omsi_ui::{Color, Rect, Weight};
 use std::collections::HashMap;
@@ -90,6 +97,75 @@ pub struct LineEditorView {
     hover_stop: Option<usize>,
     /// "Drive it" was pressed: the Drive page next.
     go_drive: bool,
+    /// Working for a bus company (its Lines page opened the editor).
+    company: Option<ForCompany>,
+    /// What the company's buttons asked for (done after the panels).
+    company_act: Option<CompanyAct>,
+}
+
+/// What the line editor keeps while it works for a bus company.
+pub struct ForCompany {
+    id: String,
+    name: String,
+    map: String,
+    colours: [String; 2],
+    /// The depot file its buses carry (the depot group of that file is the line's).
+    depot: String,
+    /// What to show once the map is read: a new line (None), or the company's line.
+    start: Option<Option<u64>>,
+    /// The other lines at the map's stops, for the line shown (its own left out).
+    stop_lines: Option<(u64, ownline::StopLines)>,
+    /// The figures of the line shown, for its revision, and the estimate's details open.
+    cache: Option<Figures>,
+    details: bool,
+}
+
+/// The company's figures of the line shown.
+#[derive(Clone)]
+struct Figures {
+    key: (u64, u64, Cents, usize),
+    shape: ownline::Shape,
+    est: ownline::Estimate,
+    /// The company runs it already, and what saving it now costs.
+    confirmed: bool,
+    fee: Option<Cents>,
+    cash: Cents,
+    /// What the company paid to start it (and to change it since).
+    paid: Cents,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum CompanyAct {
+    Confirm,
+    SaveChange,
+    Discard,
+}
+
+/// The sizes a time band can ask for ("auto" first: the demand model's choice).
+const SIZES: [Option<BusSize>; 5] = [None, Some(BusSize::Midi), Some(BusSize::Solo), Some(BusSize::Articulated), Some(BusSize::Double)];
+
+fn size_label(s: Option<BusSize>) -> String {
+    match s {
+        None => omsi_ui::tr("Auto").into_owned(),
+        Some(size) => omsi_ui::tr(BusKind { size, drive: Drive::Diesel }.label()).into_owned(),
+    }
+}
+
+/// Maps named alike (`maps/Grundorf/global.cfg`, either slash, any case).
+fn same_map(a: &str, b: &str) -> bool {
+    let n = |s: &str| s.trim().replace('\\', "/").to_lowercase();
+    n(a) == n(b)
+}
+
+/// The line editor opened for the bus company: its map, a new line of its own (`line`
+/// None) or one of its lines.
+pub fn open_for_company(l: &mut Launcher, line: Option<u64>) {
+    let Some(c) = l.company.company.as_ref() else { return };
+    let v = &mut l.pages.lines;
+    v.company = Some(ForCompany { id: c.id.clone(), name: c.name.clone(), map: c.map.clone(), colours: c.colours.clone(), depot: c.depot.clone(), start: Some(line), stop_lines: None, cache: None, details: false });
+    v.company_act = None;
+    v.loaded = None;
+    l.go(super::Page::Lines);
 }
 
 fn colour_of(hex: &str) -> Color {
@@ -171,6 +247,31 @@ fn to_polyline(p: Vec2, pts: &[Vec2]) -> f32 {
 }
 
 impl LineEditorView {
+    /// It works for a bus company.
+    pub fn for_company(&self) -> bool {
+        self.company.is_some()
+    }
+
+    /// Back to the player's own lines (the next draw reads the map again).
+    pub fn leave_company(&mut self) {
+        if self.company.take().is_some() {
+            self.loaded = None;
+            self.company_act = None;
+        }
+    }
+
+    /// A line the list shows: the company's when working for one, else the player's own.
+    fn shows(&self, l: &LineDesign) -> bool {
+        match &self.company {
+            Some(fc) => l.company == fc.id,
+            None => l.company.is_empty(),
+        }
+    }
+
+    fn first_shown(&self) -> Option<u64> {
+        self.reg.lines.iter().find(|l| self.shows(l)).map(|l| l.id)
+    }
+
     fn line(&self) -> Option<&LineDesign> {
         self.sel.and_then(|id| self.reg.line(id))
     }
@@ -207,7 +308,7 @@ impl LineEditorView {
         self.reg = reg::load_registry(&self.reg_path);
         self.reg.map = self.folder.clone();
         self.reg.global = file.to_string();
-        self.sel = self.reg.lines.first().map(|l| l.id);
+        self.sel = self.first_shown();
         (self.dir, self.sel_stop, self.dirty, self.delete_armed, self.drag) = (0, None, false, false, None);
         self.shapes_for = None;
         self.router = None;
@@ -281,7 +382,18 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     }
     {
         let v = &mut l.pages.lines;
-        if v.loaded.is_none() {
+        // (working for the bus company: its map, and no other)
+        let company_map = v.company.as_ref().map(|f| f.map.clone());
+        if let Some(cm) = company_map {
+            match maps.iter().position(|m| same_map(&m.1, &cm)) {
+                Some(i) => v.map = i,
+                None => {
+                    v.leave_company();
+                    l.state.set_status(omsi_ui::tr("The company's map is not installed.").into_owned(), true);
+                    return;
+                }
+            }
+        } else if v.loaded.is_none() {
             v.map = maps.iter().position(|m| m.1 == l.state.choice.map).unwrap_or(0);
         }
         v.map = v.map.min(maps.len() - 1);
@@ -290,6 +402,8 @@ pub fn draw(l: &mut Launcher, area: Rect) {
             v.load_map(&maps[v.map].1.clone(), &root, &l.state.choice.date);
         }
     }
+    company_start(l);
+    company_figures(l);
     // (a phone, or a window too narrow for the map and both panels: the lines only)
     if area.w < 900.0 {
         narrow(l, area);
@@ -313,8 +427,12 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     right_panel(l, right, &mut status);
     map_layer(l, map_r);
     map_buttons(l, map_r);
+    estimate_card(l, map_r);
     map_pointer(l, map_r);
     l.ui.over_ui = true;
+    if let Some(act) = l.pages.lines.company_act.take() {
+        company_action(l, act, &mut status);
+    }
     if let Some((s, e)) = status.filter(|s| !s.0.is_empty()) {
         l.state.set_status(s, e);
     }
@@ -358,6 +476,7 @@ fn take_network(l: &mut Launcher) {
 // --- the left panel: the lines and the line's settings ---------------------------------------
 
 fn left_panel(l: &mut Launcher, r: Rect, maps: &[(String, String)], status: &mut Option<(String, bool)>) {
+    let figures = l.pages.lines.company.as_ref().and_then(|f| f.cache.clone()).filter(|f| Some(f.key.0) == l.pages.lines.sel);
     let Launcher { ui, pages, state, .. } = l;
     let v = &mut pages.lines;
     ui.card(r);
@@ -365,7 +484,13 @@ fn left_panel(l: &mut Launcher, r: Rect, maps: &[(String, String)], status: &mut
     let body = ui.heading(inner, "Your lines", Some("route"));
     let names: Vec<String> = maps.iter().map(|m| m.0.clone()).collect();
     let mut m = v.map;
-    if ui.select("le-map", Rect::new(body.x, body.y, body.w, ROW), &mut m, &names) && m != v.map {
+    if let Some(fc) = v.company.as_ref() {
+        // (the company's map: its lines are made there)
+        let text = format!("{}  ·  {}", fc.name, names.get(v.map).cloned().unwrap_or_default());
+        ui.p().rounded(Rect::new(body.x, body.y, body.w, ROW), RADIUS, FIELD);
+        ui.icon("garage", Vec2::new(body.x + 18.0, body.y + ROW * 0.5), 17.0, accent_2());
+        ui.text_in(&text, Rect::new(body.x + 36.0, body.y, body.w - 44.0, ROW), 13.0, Weight::Medium, TEXT, Align::Left);
+    } else if ui.select("le-map", Rect::new(body.x, body.y, body.w, ROW), &mut m, &names) && m != v.map {
         if v.dirty {
             *status = Some(("The changes to the line on the map before were not saved".into(), true));
         }
@@ -375,12 +500,12 @@ fn left_panel(l: &mut Launcher, r: Rect, maps: &[(String, String)], status: &mut
     }
     // the lines of the map
     let list_y = body.y + ROW + 10.0;
-    let rows: Vec<(u64, String, String, Color)> = v.reg.lines.iter().map(|x| (x.id, x.number.clone(), x.name.clone(), colour_of(&x.colour))).collect();
+    let rows: Vec<(u64, String, String, Color, bool)> = v.reg.lines.iter().filter(|x| v.shows(x)).map(|x| (x.id, x.number.clone(), x.name.clone(), colour_of(&x.colour), x.draft && v.company.is_some())).collect();
     let list_h = ((rows.len().max(1) as f32) * 40.0).min(r.h * 0.28);
     let sel = v.sel;
     let mut pick = None;
     ui.scroll_area("le-lines", Rect::new(body.x - 6.0, list_y, body.w + 12.0, list_h), &mut |ui, a| {
-        for (i, (id, number, name, c)) in rows.iter().enumerate() {
+        for (i, (id, number, name, c, draft)) in rows.iter().enumerate() {
             let rr = Rect::new(a.x + 6.0, a.y + i as f32 * 40.0, a.w - 12.0, 36.0);
             if ui.row(&format!("le-line-{id}"), rr, Some(*id) == sel) {
                 pick = Some(*id);
@@ -389,12 +514,17 @@ fn left_panel(l: &mut Launcher, r: Rect, maps: &[(String, String)], status: &mut
             ui.p().rounded(plate, 5.0, LINE);
             ui.text_in(number, plate, 13.0, Weight::Black, ON_LINE, Align::Center);
             ui.p().rounded(Rect::new(plate.right() + 8.0, rr.y + 12.0, 4.0, 12.0), 2.0, *c);
-            ui.text_in(name, Rect::new(plate.right() + 20.0, rr.y, rr.right() - plate.right() - 24.0, rr.h), 13.0, Weight::Medium, TEXT, Align::Left);
+            let badge_w = if *draft { 70.0 } else { 0.0 };
+            ui.text_in(name, Rect::new(plate.right() + 20.0, rr.y, rr.right() - plate.right() - 24.0 - badge_w, rr.h), 13.0, Weight::Medium, TEXT, Align::Left);
+            if *draft {
+                ui.badge(Vec2::new(rr.right() - badge_w + 4.0, rr.y + 10.0), &omsi_ui::tr("draft").to_uppercase(), if Some(*id) == sel { on_accent() } else { WARN });
+            }
         }
         rows.len() as f32 * 40.0
     });
     if rows.is_empty() {
-        ui.text_in("No lines of your own on this map yet", Rect::new(body.x, list_y, body.w, 36.0), 12.5, Weight::Regular, TEXT_DIM, Align::Left);
+        let none = if v.company.is_some() { "The company has no line of its own yet" } else { "No lines of your own on this map yet" };
+        ui.text_in(none, Rect::new(body.x, list_y, body.w, 36.0), 12.5, Weight::Regular, TEXT_DIM, Align::Left);
     }
     if let Some(id) = pick {
         if v.sel != Some(id) {
@@ -403,14 +533,7 @@ fn left_panel(l: &mut Launcher, r: Rect, maps: &[(String, String)], status: &mut
     }
     let mut y = list_y + list_h + 8.0;
     if ui.button("le-new", Rect::new(body.x, y, body.w, ROW), "New line", Some("add"), ButtonKind::Normal) {
-        let group = v.groups.first().map(|g| g.0.clone()).unwrap_or_default();
-        let n = v.reg.lines.len();
-        let line = v.reg.add_line(&group);
-        line.colour = PALETTE[n % PALETTE.len()].to_string();
-        line.name = format!("{} {}", omsi_ui::tr("Line"), line.number);
-        let id = line.id;
-        (v.sel, v.dir, v.sel_stop) = (Some(id), 0, None);
-        v.touched();
+        new_line(v);
         *status = Some(("Now click the line's stops on the map, in the order the bus calls at them".into(), false));
     }
     y += ROW + 14.0;
@@ -430,10 +553,14 @@ fn left_panel(l: &mut Launcher, r: Rect, maps: &[(String, String)], status: &mut
         changed |= ui.text_input("le-name", Rect::new(body.x + 100.0, y, body.w - 100.0, ROW), &mut line.name, "Name", None);
     }
     y += ROW + 12.0;
-    // its colour
+    // its colour (the company's two first, working for one)
     let current = v.line().map(|x| x.colour.clone()).unwrap_or_default();
+    let palette: Vec<String> = match &v.company {
+        Some(fc) => fc.colours.iter().cloned().chain(PALETTE.iter().take(6).map(|s| s.to_string())).collect(),
+        None => PALETTE.iter().map(|s| s.to_string()).collect(),
+    };
     let sw = ((body.w - 7.0 * 8.0) / 8.0).min(30.0);
-    for (k, hex) in PALETTE.iter().enumerate() {
+    for (k, hex) in palette.iter().enumerate() {
         let c = Rect::new(body.x + k as f32 * (sw + 8.0), y, sw, sw);
         let on = current.eq_ignore_ascii_case(hex);
         let hover = ui.hover(c);
@@ -443,7 +570,7 @@ fn left_panel(l: &mut Launcher, r: Rect, maps: &[(String, String)], status: &mut
         }
         let (_, _, clicked) = ui.interact(super::ui::id_of(&format!("le-colour-{k}")), c);
         if clicked && !on {
-            v.line_mut().unwrap().colour = hex.to_string();
+            v.line_mut().unwrap().colour = hex.clone();
             changed = true;
         }
     }
@@ -469,8 +596,25 @@ fn left_panel(l: &mut Launcher, r: Rect, maps: &[(String, String)], status: &mut
             changed = true;
         }
     }
+    // working for the company: live departure displays at the transfer stops
+    if let Some(f) = figures.as_ref() {
+        y += ROW + 12.0;
+        let n = f.shape.transfer_stops();
+        let label = omsi_ui::tr("Live displays at %{n} transfer stops").replace("%{n}", &n.to_string());
+        let line = v.line_mut().unwrap();
+        let mut on = line.live_displays;
+        if ui.toggle("le-live", Rect::new(body.x, y, body.w, ROW), &mut on, &label) {
+            line.live_displays = on;
+            changed = true;
+        }
+    }
     if changed {
         v.touched();
+    }
+    if v.company.is_some() {
+        let problems = v.line().map(reg::problems).unwrap_or_default();
+        company_foot(ui, v, state, body, r.bottom() - 12.0 - ROW, &problems, figures.as_ref(), status);
+        return;
     }
     // at the foot: save, and delete (two presses)
     let foot = r.bottom() - 12.0 - ROW;
@@ -532,7 +676,7 @@ fn delete(v: &mut LineEditorView, state: &mut super::state::State) -> (String, b
     let Some(id) = v.sel else { return (String::new(), false) };
     let number = v.line().map(|x| x.number.clone()).unwrap_or_default();
     v.reg.lines.retain(|x| x.id != id);
-    v.sel = v.reg.lines.first().map(|x| x.id);
+    v.sel = v.first_shown();
     (v.dir, v.sel_stop, v.delete_armed, v.dirty) = (0, None, false, false);
     v.shapes_for = None;
     v.revision += 1;
@@ -982,52 +1126,409 @@ fn displays_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect) {
     }
 }
 
-/// When the line runs: per group of days the first and last departure, how often, and how long
-/// a bus stands at the end; how many buses that takes.
+/// When the line runs: per group of days the first and last departure and how often - or time
+/// bands, each part of the day with a headway of its own (the rush hours denser) and, for a
+/// company, the bus it wants - and how long a bus stands at the end; how many buses that
+/// takes.
 fn timetable_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect) {
-    let run: Vec<f32> = v.line().map(|l| l.directions.iter().filter(|d| d.stops.len() >= 2).map(|d| d.minutes().max(1.0)).collect()).unwrap_or_default();
+    let run: Vec<f32> = v.line().map(reg::run_minutes).unwrap_or_default();
+    let for_company = v.company.is_some();
     let mut changed = false;
-    let mut y = body.y;
     let line = v.line_mut().unwrap();
     if line.days.len() < DAY_GROUPS.len() {
         line.days = reg::default_days();
     }
-    for (k, (name, _)) in DAY_GROUPS.iter().enumerate() {
-        let p = &mut line.days[k];
-        changed |= ui.toggle(&format!("le-day-{k}"), Rect::new(body.x, y, body.w, ROW), &mut p.on, name);
-        y += ROW + 4.0;
-        if p.on {
-            let half = (body.w - GAP) * 0.5;
-            ui.text_in("First", Rect::new(body.x, y, half, 16.0), 10.5, Weight::Bold, TEXT_DIM, Align::Left);
-            ui.text_in("Last", Rect::new(body.x + half + GAP, y, half, 16.0), 10.5, Weight::Bold, TEXT_DIM, Align::Left);
-            y += 18.0;
-            let (mut first, mut last) = (p.first.round() as i32, p.last.round() as i32);
-            if ui.time_field(&format!("le-first-{k}"), Rect::new(body.x, y, half, ROW), &mut first) {
-                p.first = first as f32;
-                changed = true;
+    let days = &mut line.days;
+    let sizes: Vec<String> = SIZES.iter().map(|s| size_label(*s)).collect();
+    ui.scroll_area("le-timetable", Rect::new(body.x - 6.0, body.y, body.w + 12.0, body.h), &mut |ui, a| {
+        let x = a.x + 6.0;
+        let w = a.w - 12.0;
+        let mut y = a.y;
+        for (k, (name, _)) in DAY_GROUPS.iter().enumerate() {
+            let p = &mut days[k];
+            changed |= ui.toggle(&format!("le-day-{k}"), Rect::new(x, y, w, ROW), &mut p.on, name);
+            y += ROW + 4.0;
+            if p.on {
+                let mut mode = usize::from(!p.bands.is_empty());
+                if ui.segmented(&format!("le-mode-{k}"), Rect::new(x, y, w, ROW - 4.0), &mut mode, &["One headway", "Time bands"]) {
+                    p.bands = if mode == 1 { reg::default_bands(k) } else { Vec::new() };
+                    changed = true;
+                }
+                y += ROW + 4.0;
+                if p.bands.is_empty() {
+                    let half = (w - GAP) * 0.5;
+                    ui.text_in("First", Rect::new(x, y, half, 16.0), 10.5, Weight::Bold, TEXT_DIM, Align::Left);
+                    ui.text_in("Last", Rect::new(x + half + GAP, y, half, 16.0), 10.5, Weight::Bold, TEXT_DIM, Align::Left);
+                    y += 18.0;
+                    let (mut first, mut last) = (p.first.round() as i32, p.last.round() as i32);
+                    if ui.time_field(&format!("le-first-{k}"), Rect::new(x, y, half, ROW), &mut first) {
+                        p.first = first as f32;
+                        changed = true;
+                    }
+                    if ui.time_field(&format!("le-last-{k}"), Rect::new(x + half + GAP, y, half, ROW), &mut last) {
+                        p.last = last as f32;
+                        changed = true;
+                    }
+                    y += ROW + 6.0;
+                    changed |= ui.slider(&format!("le-every-{k}"), Rect::new(x, y, w, 28.0), &mut p.headway, 5.0, 120.0, 5.0, "Every", &|x| format!("{x:.0} min"));
+                    y += 30.0;
+                } else {
+                    // the bands: from - to, how often, the bus (a company's)
+                    let tw = (w - 16.0 - 30.0) * 0.5;
+                    let mut remove = None;
+                    for (i, b) in p.bands.iter_mut().enumerate() {
+                        let (mut from, mut to) = (b.from.round() as i32, if b.to >= reg::DAY_END { 0 } else { b.to.round() as i32 });
+                        if ui.time_field(&format!("le-band-from-{k}-{i}"), Rect::new(x, y, tw, ROW - 4.0), &mut from) {
+                            b.from = from as f32;
+                            changed = true;
+                        }
+                        ui.text_in("–", Rect::new(x + tw, y, 16.0, ROW - 4.0), 14.0, Weight::Medium, TEXT_DIM, Align::Center);
+                        if ui.time_field(&format!("le-band-to-{k}-{i}"), Rect::new(x + tw + 16.0, y, tw, ROW - 4.0), &mut to) {
+                            // (00:00 at the end of a band is midnight)
+                            b.to = if to == 0 { reg::DAY_END } else { to as f32 };
+                            changed = true;
+                        }
+                        if ui.icon_button(&format!("le-band-x-{k}-{i}"), Vec2::new(x + w - 12.0, y + (ROW - 4.0) * 0.5), 10.0, "close", "Take the band out") {
+                            remove = Some(i);
+                        }
+                        y += ROW;
+                        let sw = if for_company { w * 0.56 } else { w };
+                        changed |= ui.slider(&format!("le-band-every-{k}-{i}"), Rect::new(x, y, sw, 28.0), &mut b.headway, 5.0, 60.0, 5.0, "Every", &|x| format!("{x:.0} min"));
+                        if for_company {
+                            let mut si = SIZES.iter().position(|s| *s == b.size).unwrap_or(0);
+                            if ui.select(&format!("le-band-size-{k}-{i}"), Rect::new(x + sw + 8.0, y - 2.0, w - sw - 8.0, 32.0), &mut si, &sizes) {
+                                b.size = SIZES[si];
+                                changed = true;
+                            }
+                        }
+                        y += 38.0;
+                    }
+                    if let Some(i) = remove {
+                        p.bands.remove(i);
+                        changed = true;
+                    }
+                    if ui.button(&format!("le-band-add-{k}"), Rect::new(x, y, w, ROW - 6.0), "Add a band", Some("add"), ButtonKind::Ghost) {
+                        let from = p.bands.iter().map(|b| b.to).fold(0.0, f32::max).min(reg::DAY_END - 60.0);
+                        p.bands.push(TimeBand { from, to: (from + 120.0).min(reg::DAY_END), headway: 30.0, size: None });
+                        changed = true;
+                    }
+                    y += ROW;
+                }
+                changed |= ui.slider(&format!("le-layover-{k}"), Rect::new(x, y, w, 28.0), &mut p.layover, 0.0, 30.0, 1.0, "Stands", &|x| format!("{x:.0} min"));
+                y += 30.0;
+                let (buses, tours, trips) = if run.is_empty() {
+                    (0, 0, 0)
+                } else {
+                    let t = reg::tours(&run, p);
+                    (reg::blocks(&run, p).len(), t.len(), t.iter().map(|b| b.len()).sum::<usize>())
+                };
+                let text = if tours > buses {
+                    omsi_ui::tr("%{b} buses in %{n} tours (some for the rush hours only), %{t} trips").replace("%{n}", &tours.to_string())
+                } else {
+                    omsi_ui::tr("%{b} buses, %{t} trips").into_owned()
+                };
+                ui.text_in(&text.replace("%{b}", &buses.to_string()).replace("%{t}", &trips.to_string()), Rect::new(x, y, w, 18.0), 11.5, Weight::Regular, TEXT_DIM, Align::Left);
+                y += 26.0;
             }
-            if ui.time_field(&format!("le-last-{k}"), Rect::new(body.x + half + GAP, y, half, ROW), &mut last) {
-                p.last = last as f32;
-                changed = true;
-            }
-            y += ROW + 6.0;
-            changed |= ui.slider(&format!("le-every-{k}"), Rect::new(body.x, y, body.w, 28.0), &mut p.headway, 5.0, 120.0, 5.0, "Every", &|x| format!("{x:.0} min"));
-            y += 30.0;
-            changed |= ui.slider(&format!("le-layover-{k}"), Rect::new(body.x, y, body.w, 28.0), &mut p.layover, 0.0, 30.0, 1.0, "Stands", &|x| format!("{x:.0} min"));
-            y += 30.0;
-            let buses = if run.is_empty() { 0 } else { reg::blocks(&run, p).len() };
-            let trips: usize = if run.is_empty() { 0 } else { reg::blocks(&run, p).iter().map(|b| b.len()).sum() };
-            ui.text_in(&omsi_ui::tr("%{b} buses, %{t} trips").replace("%{b}", &buses.to_string()).replace("%{t}", &trips.to_string()), Rect::new(body.x, y, body.w, 18.0), 11.5, Weight::Regular, TEXT_DIM, Align::Left);
-            y += 26.0;
+            ui.p().rect(Rect::new(x, y, w, 1.0), HAIRLINE);
+            y += 10.0;
         }
-        ui.p().rect(Rect::new(body.x, y, body.w, 1.0), HAIRLINE);
-        y += 10.0;
-    }
-    if y < body.bottom() - 40.0 {
-        ui.paragraph("Each group of days becomes tours of its own; the buses go back and forth, each standing at the end for at least as long as set.", Vec2::new(body.x, y), body.w, 11.5, Weight::Regular, TEXT_FAINT);
-    }
+        let note = "Each group of days becomes tours of its own; the buses go back and forth, each standing at the end for at least as long as set. With time bands the buses added for the rush hours go back to the depot after them.";
+        let h = ui.paragraph(note, Vec2::new(x, y), w, 11.5, Weight::Regular, TEXT_FAINT);
+        y - a.y + h + 12.0
+    });
     if changed {
         v.touched();
+    }
+}
+
+// --- working for the bus company ---------------------------------------------------------------
+
+/// A new line in the registry, chosen: the player's own, or - working for the company - the
+/// company's draft in its colour, driven by its depot's buses.
+fn new_line(v: &mut LineEditorView) {
+    let group = match &v.company {
+        Some(fc) => company_group(&v.groups, &fc.depot),
+        None => v.groups.first().map(|g| g.0.clone()).unwrap_or_default(),
+    };
+    let n = v.reg.lines.len();
+    let line = v.reg.add_line(&group);
+    line.colour = PALETTE[n % PALETTE.len()].to_string();
+    line.name = format!("{} {}", omsi_ui::tr("Line"), line.number);
+    if let Some(fc) = &v.company {
+        line.company = fc.id.clone();
+        line.draft = true;
+        line.colour = fc.colours[0].clone();
+        // (the company's lines start with the rush hours in their timetable)
+        for (k, p) in line.days.iter_mut().enumerate() {
+            p.bands = reg::default_bands(k);
+        }
+    }
+    let id = line.id;
+    (v.sel, v.dir, v.sel_stop) = (Some(id), 0, None);
+    v.touched();
+}
+
+/// The depot group whose depot file is the company's (else the first).
+fn company_group(groups: &[(String, String)], depot: &str) -> String {
+    let file = |s: &str| {
+        let name = s.trim().replace('\\', "/").rsplit('/').next().unwrap_or("").to_lowercase();
+        name.strip_suffix(".hof").map(str::to_string).unwrap_or(name)
+    };
+    groups.iter().find(|g| !depot.trim().is_empty() && file(&g.1) == file(depot)).or(groups.first()).map(|g| g.0.clone()).unwrap_or_default()
+}
+
+/// The company's wish once its map is read: a new line, or the line it asked for.
+fn company_start(l: &mut Launcher) {
+    let v = &mut l.pages.lines;
+    if v.loaded.is_none() {
+        return;
+    }
+    let Some(start) = v.company.as_mut().and_then(|f| f.start.take()) else { return };
+    match start {
+        Some(id) if v.reg.line(id).is_some() => (v.sel, v.dir, v.sel_stop) = (Some(id), 0, None),
+        Some(_) => {}
+        None => {
+            new_line(v);
+            l.state.set_status(omsi_ui::tr("Click the line's stops on the map; the estimate shows what it costs and brings.").into_owned(), false);
+        }
+    }
+}
+
+/// The company's figures of the line shown (made again when the line or the company's money
+/// changed): its shape with the other lines at its stops, the estimate, and what saving costs.
+fn company_figures(l: &mut Launcher) {
+    let Launcher { pages, company, .. } = l;
+    let company = &*company;
+    let v = &mut pages.lines;
+    let (Some(fc), Some(c)) = (v.company.as_mut(), company.company.as_ref()) else { return };
+    let Some(line) = v.sel.and_then(|id| v.reg.lines.iter().find(|x| x.id == id)) else {
+        fc.cache = None;
+        return;
+    };
+    if fc.stop_lines.as_ref().map(|s| s.0) != Some(line.id) {
+        if let Some(lines) = super::company::map_lines(company) {
+            let stem = reg::stems(&v.reg).get(&line.id).cloned().unwrap_or_default();
+            fc.stop_lines = Some((line.id, ownline::StopLines::of(lines, &stem)));
+        }
+    }
+    let known = fc.stop_lines.as_ref().is_some_and(|s| s.0 == line.id);
+    let key = (line.id, v.revision * 2 + known as u64, c.cash, c.lines.len());
+    if fc.cache.as_ref().is_some_and(|f| f.key == key) {
+        return;
+    }
+    let sl = fc.stop_lines.as_ref().filter(|s| s.0 == line.id).map(|s| &s.1);
+    let shape = ownline::shape_of(line, &|s| sl.map(|x| x.count(s)).unwrap_or(0));
+    let est = ownline::estimate(c, line, &shape);
+    let plan = ownline::line_of(c, line.id).and_then(|x| x.plan.as_ref());
+    let (confirmed, paid) = (plan.is_some(), plan.map(|p| p.paid).unwrap_or(0));
+    let fee = if confirmed { ownline::change_fee(c, line, &shape) } else { None };
+    fc.cache = Some(Figures { key, shape, est, confirmed, fee, cash: c.cash, paid });
+}
+
+/// The foot of the left panel working for the company: a draft is confirmed and paid (or
+/// saved, or deleted); a line the company runs is saved - paying its route's approval anew
+/// when the stops changed - or its changes undone.
+#[allow(clippy::too_many_arguments)]
+fn company_foot(ui: &mut Ui, v: &mut LineEditorView, state: &mut super::state::State, body: Rect, foot: f32, problems: &[reg::Problem], f: Option<&Figures>, status: &mut Option<(String, bool)>) {
+    let half = (body.w - GAP) * 0.5;
+    let Some(f) = f else {
+        ui.paragraph("Reading the company…", Vec2::new(body.x, foot - 30.0), body.w, 11.5, Weight::Regular, TEXT_DIM);
+        return;
+    };
+    let total = f.est.one_off_total();
+    let why: Option<String> = if let Some(p) = problems.first() {
+        Some(omsi_ui::tr(p.text).replace("%{n}", &p.n.to_string()))
+    } else if !f.confirmed && f.cash < total {
+        Some(omsi_ui::tr("The company has %{cash}: not enough for the line. A loan on the Finances page helps.").replace("%{cash}", &super::company::eur(f.cash)))
+    } else if f.confirmed && f.fee.is_some_and(|x| x > f.cash) {
+        Some(omsi_ui::tr("The company has %{cash}: not enough for the change.").replace("%{cash}", &super::company::eur(f.cash)))
+    } else {
+        None
+    };
+    if let Some(w) = &why {
+        let h = ui.paragraph_height(w, body.w, 11.5, Weight::Regular);
+        ui.paragraph(w, Vec2::new(body.x, foot - ROW - 14.0 - h), body.w, 11.5, Weight::Regular, WARN);
+    }
+    if !f.confirmed {
+        let label = omsi_ui::tr("Confirm and pay %{amount}").replace("%{amount}", &super::company::eur(total));
+        if ui.button("le-confirm", Rect::new(body.x, foot - ROW - 8.0, body.w, ROW), &label, Some("check_circle"), if why.is_none() { ButtonKind::Primary } else { ButtonKind::Normal }) {
+            match why {
+                Some(w) => *status = Some((w, true)),
+                None => v.company_act = Some(CompanyAct::Confirm),
+            }
+        }
+        if ui.button("le-save", Rect::new(body.x, foot, half, ROW), if v.dirty { "Save draft" } else { "Saved" }, Some("save"), ButtonKind::Normal) && v.dirty {
+            *status = Some(save(v, state, problems));
+        }
+        if ui.button("le-delete", Rect::new(body.x + half + GAP, foot, half, ROW), if v.delete_armed { "Press again" } else { "Delete draft" }, Some("delete"), ButtonKind::Normal) {
+            if v.delete_armed {
+                *status = Some(delete(v, state));
+            } else {
+                v.delete_armed = true;
+                *status = Some(("Press \"Delete draft\" again: the draft goes".into(), false));
+            }
+        }
+        return;
+    }
+    let label = match f.fee {
+        Some(fee) if v.dirty => omsi_ui::tr("Pay %{amount} and save").replace("%{amount}", &super::company::eur(fee)),
+        _ if v.dirty => omsi_ui::tr("Save line").into_owned(),
+        _ => omsi_ui::tr("Saved").into_owned(),
+    };
+    if ui.button("le-save", Rect::new(body.x, foot - ROW - 8.0, body.w, ROW), &label, Some("save"), if v.dirty && why.is_none() { ButtonKind::Primary } else { ButtonKind::Normal }) && v.dirty {
+        match why {
+            Some(w) => *status = Some((w, true)),
+            None => v.company_act = Some(CompanyAct::SaveChange),
+        }
+    }
+    if v.dirty {
+        if ui.button("le-discard", Rect::new(body.x, foot, body.w, ROW), "Undo the changes", Some("restart_alt"), ButtonKind::Normal) {
+            v.company_act = Some(CompanyAct::Discard);
+        }
+    } else {
+        ui.paragraph("The company runs this line. A changed route is approved anew; the line is given up on the company's Lines page.", Vec2::new(body.x, foot), body.w, 11.5, Weight::Regular, TEXT_DIM);
+    }
+}
+
+/// What the company's buttons asked for: the line confirmed and paid, a change paid and
+/// saved, or the changes undone.
+fn company_action(l: &mut Launcher, act: CompanyAct, status: &mut Option<(String, bool)>) {
+    let Some(id) = l.pages.lines.sel else { return };
+    if act == CompanyAct::Discard {
+        let v = &mut l.pages.lines;
+        let (map, global) = (v.reg.map.clone(), v.reg.global.clone());
+        v.reg = reg::load_registry(&v.reg_path);
+        (v.reg.map, v.reg.global) = (map, global);
+        if v.reg.line(id).is_none() {
+            v.sel = v.first_shown();
+        }
+        (v.dirty, v.sel_stop, v.drag, v.delete_armed) = (false, None, None, false);
+        v.shapes_for = None;
+        v.revision += 1;
+        *status = Some(("The changes are undone".into(), false));
+        return;
+    }
+    let v = &l.pages.lines;
+    let Some(line) = v.reg.line(id).cloned() else { return };
+    let Some(f) = v.company.as_ref().and_then(|f| f.cache.clone()).filter(|f| f.key.0 == id) else { return };
+    let stem = reg::stems(&v.reg).get(&id).cloned().unwrap_or_default();
+    let paid = if act == CompanyAct::Confirm {
+        super::company::act(l, |c| ownline::confirm(c, &line, &stem, &f.shape))
+    } else {
+        super::company::act(l, |c| ownline::apply_change(c, &line, &stem, &f.shape))
+    };
+    // (refused: `act` said why)
+    let Some(paid) = paid else { return };
+    let Launcher { pages, state, .. } = l;
+    let v = &mut pages.lines;
+    if let Some(x) = v.reg.line_mut(id) {
+        x.draft = false;
+    }
+    v.dirty = true;
+    let (text, err) = save(v, state, &[]);
+    super::company::reload_timetable(l);
+    let number = line.number.trim().to_string();
+    *status = Some(if err {
+        (text, true)
+    } else if act == CompanyAct::Confirm {
+        (omsi_ui::tr("Line %{n} is the company's now: %{amount} paid. Its tours are on the Planning page.").replace("%{n}", &number).replace("%{amount}", &super::company::eur(paid)), false)
+    } else if paid > 0 {
+        (omsi_ui::tr("Line %{n} saved: its new route is approved for %{amount}.").replace("%{n}", &number).replace("%{amount}", &super::company::eur(paid)), false)
+    } else {
+        (text, false)
+    });
+}
+
+/// The estimate over the map's foot: what the line costs once and brings a month, its
+/// passengers and its buses; opened, every item and the parts of a working day.
+fn estimate_card(l: &mut Launcher, map_r: Rect) {
+    let Some(fc) = l.pages.lines.company.as_ref() else { return };
+    let Some(f) = fc.cache.clone().filter(|f| Some(f.key.0) == l.pages.lines.sel) else { return };
+    let mut details = fc.details;
+    let eur = super::company::eur;
+    let e = &f.est;
+    let ui = &mut l.ui;
+    let w = (map_r.w - 24.0).min(800.0);
+    let strip = Rect::new(map_r.x + 12.0, map_r.bottom() - 12.0 - 66.0, w, 66.0);
+    ui.panel(strip);
+    let cols = 4.0;
+    let cw = (strip.w - 44.0) / cols;
+    let result = e.result();
+    let fleet: Vec<String> = e.fleet.iter().map(|(s, n)| format!("{n} × {}", size_label(Some(*s)))).collect();
+    let figures: [(&str, String, String, Color); 4] = [
+        (if f.confirmed { "Paid to start" } else { "To start" }, eur(if f.confirmed { f.paid } else { e.one_off_total() }), if f.confirmed { omsi_ui::tr("the company runs it").into_owned() } else { omsi_ui::tr("licence, stops, tariff, launch").into_owned() }, TEXT),
+        ("A month", eur(result), format!("{} {}  ·  {} {}", omsi_ui::tr("in"), eur(e.revenue()), omsi_ui::tr("out"), eur(e.costs())), if result >= 0 { OK } else { WARN }),
+        ("Passengers a day", format!("{:.0}", e.passengers[0]), omsi_ui::tr("Sat %{s} · Sun %{u}").replace("%{s}", &format!("{:.0}", e.passengers[1])).replace("%{u}", &format!("{:.0}", e.passengers[2])), TEXT),
+        ("Buses peak / midday", format!("{} / {}", e.buses_peak, e.buses_offpeak), if fleet.is_empty() { omsi_ui::tr("none yet").into_owned() } else { fleet.join(", ") }, TEXT),
+    ];
+    for (k, (label, value, under, c)) in figures.iter().enumerate() {
+        let x = strip.x + 14.0 + k as f32 * cw;
+        ui.text_in(&omsi_ui::tr(label).to_uppercase(), Rect::new(x, strip.y + 8.0, cw - 10.0, 14.0), 10.0, Weight::Bold, TEXT_DIM, Align::Left);
+        ui.text_in(value, Rect::new(x, strip.y + 22.0, cw - 10.0, 22.0), 16.0, Weight::Bold, *c, Align::Left);
+        ui.text_in(under, Rect::new(x, strip.y + 44.0, cw - 10.0, 16.0), 11.0, Weight::Regular, TEXT_DIM, Align::Left);
+    }
+    if ui.icon_button("le-estimate-more", Vec2::new(strip.right() - 20.0, strip.center().y), 13.0, if details { "expand_more" } else { "expand_less" }, "The costs in detail") {
+        details = !details;
+    }
+    if details {
+        let h = (map_r.h - strip.h - 40.0).min(330.0);
+        let r = Rect::new(strip.x, strip.y - 8.0 - h, strip.w, h);
+        ui.panel(r);
+        let gap = 18.0;
+        let cw = (r.w - 32.0 - 2.0 * gap) / 3.0;
+        let head = |ui: &mut Ui, text: &str, x: f32| ui.text_in(&omsi_ui::tr(text).to_uppercase(), Rect::new(x, r.y + 12.0, cw, 14.0), 10.0, Weight::Bold, TEXT_DIM, Align::Left);
+        let item = |ui: &mut Ui, x: f32, y: f32, text: &str, amount: Cents, strong: bool| {
+            let weight = if strong { Weight::Bold } else { Weight::Regular };
+            ui.text_in(&omsi_ui::tr(text), Rect::new(x, y, cw - 74.0, 18.0), 11.5, weight, if strong { TEXT } else { TEXT_SOFT }, Align::Left);
+            ui.text_in(&eur(amount), Rect::new(x + cw - 74.0, y, 74.0, 18.0), 11.5, weight, if amount < 0 { TEXT_SOFT } else { TEXT }, Align::Right);
+        };
+        // once
+        let x0 = r.x + 16.0;
+        head(ui, "Once", x0);
+        let mut y = r.y + 32.0;
+        for (text, amount) in &e.one_off {
+            item(ui, x0, y, text, *amount, false);
+            y += 20.0;
+        }
+        ui.p().rect(Rect::new(x0, y + 2.0, cw, 1.0), HAIRLINE);
+        item(ui, x0, y + 6.0, "Together", e.one_off_total(), true);
+        // a month
+        let x1 = x0 + cw + gap;
+        head(ui, "A month", x1);
+        let mut y = r.y + 32.0;
+        for (text, amount) in &e.monthly {
+            item(ui, x1, y, text, *amount, false);
+            y += 20.0;
+        }
+        ui.p().rect(Rect::new(x1, y + 2.0, cw, 1.0), HAIRLINE);
+        item(ui, x1, y + 6.0, "Result", result, true);
+        // a working day's parts: passengers, the bus, and whether it fits
+        let x2 = x1 + cw + gap;
+        head(ui, "A working day", x2);
+        let mut y = r.y + 32.0;
+        for (k, b) in e.bands.iter().enumerate() {
+            let (a, z) = ownline::BAND_HOURS[k];
+            ui.text_in(&format!("{}  {:02}–{:02}", omsi_ui::tr(ownline::BANDS[k]), a, z), Rect::new(x2, y, cw - 60.0, 18.0), 12.0, Weight::Medium, TEXT_SOFT, Align::Left);
+            ui.text_in(&format!("{:.0}", b.passengers), Rect::new(x2 + cw - 60.0, y, 60.0, 18.0), 12.0, Weight::Bold, TEXT, Align::Right);
+            y += 18.0;
+            let (note, c) = if b.trips == 0 {
+                (omsi_ui::tr("no buses").into_owned(), TEXT_FAINT)
+            } else if b.crowded > 0 {
+                (omsi_ui::tr("%{bus}: full on %{n} trips, %{need} would fit").replace("%{bus}", &size_label(b.size)).replace("%{n}", &b.crowded.to_string()).replace("%{need}", &size_label(b.needed)), WARN)
+            } else if b.oversized > b.trips / 2 {
+                (omsi_ui::tr("%{bus}: bigger than needed, %{need} would do").replace("%{bus}", &size_label(b.size)).replace("%{need}", &size_label(b.needed)), TEXT_DIM)
+            } else {
+                (omsi_ui::tr("%{bus}, up to %{n} on board").replace("%{bus}", &size_label(b.size)).replace("%{n}", &format!("{:.0}", b.load)), TEXT_DIM)
+            };
+            ui.text_in(&note, Rect::new(x2 + 8.0, y, cw - 8.0, 16.0), 11.0, Weight::Regular, c, Align::Left);
+            y += 22.0;
+        }
+        let foot = omsi_ui::tr("Passengers from the stops, the transfers at them and the service; the rush hours busiest. A month: the drivers, buses and running at full cost.");
+        ui.paragraph(&foot, Vec2::new(x0, r.bottom() - 36.0), r.w - 32.0, 10.5, Weight::Regular, TEXT_FAINT);
+    }
+    if let Some(fc) = l.pages.lines.company.as_mut() {
+        fc.details = details;
     }
 }
 

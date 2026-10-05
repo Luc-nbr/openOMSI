@@ -1158,6 +1158,7 @@ fn general_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, c
     toggle_setting(ui, s, dirty, c.row(), "Navigator (Shift+N: map, schedule, off)", "navigator");
     toggle_setting(ui, s, dirty, c.row(), "Route arrows (as in OMSI 2)", "nav_arrows");
     toggle_setting(ui, s, dirty, c.row(), "AI vehicles on the map", "nav_ai");
+    toggle_setting(ui, s, dirty, c.row(), "Duty board under the navigator", "nav_board");
     // (signing on as at a depot: off, the duty is there at once)
     toggle_setting(ui, s, dirty, c.row(), "Sign on with personnel number and code", "nav_signon");
     c.y += ui.paragraph("Before a duty the navigator asks for your number and code and for the duty order to be accepted. Off, the map and the duty show at once.", Vec2::new(c.inner.x + 12.0, c.y - 5.0), c.inner.w - 24.0, 11.5, omsi_ui::Weight::Regular, TEXT_FAINT) + 3.0;
@@ -1172,15 +1173,18 @@ fn general_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, c
     for (name, x, yy) in [("top-left", 0.0, 0.0), ("top-right", 1.0, 0.0), ("bottom-left", 0.0, 1.0), ("bottom-right", 1.0, 1.0)] {
         let cell = Rect::new(screen.x + 5.0 + x * (screen.w * 0.5), screen.y + 5.0 + yy * (screen.h * 0.5), screen.w * 0.5 - 10.0, screen.h * 0.5 - 10.0);
         let (h, _, clicked) = ui.interact(id_of(&format!("corner-{name}")), cell);
+        let (dragged, size) = omsi_launcher_lib::nav_rect_parts(get(s, "nav_rect").as_str().unwrap_or(""));
         if clicked {
+            // (a corner chosen: the place it was dragged to in the game is forgotten)
             s["navigator_corner"] = json!(name);
+            s["nav_rect"] = json!(omsi_launcher_lib::nav_rect_text(None, size));
             *dirty = 0.3;
         }
-        let on = cur == name;
+        let on = cur == name && dragged.is_none();
         ui.p().rounded(cell, 3.0, if on { accent() } else { Color::WHITE.alpha(if h { 0.2 } else { 0.08 }) });
     }
     // (dragged somewhere else in the game, #940: that place, until a corner is chosen)
-    if let Some(a) = crate::navigator::placed_at(&cur) {
+    if let Some(a) = omsi_launcher_lib::nav_rect_parts(get(s, "nav_rect").as_str().unwrap_or("")).0.map(|a| [a[0] as f32, a[1] as f32]) {
         let (cw, ch) = (screen.w * 0.5 - 10.0, screen.h * 0.5 - 10.0);
         let cell = Rect::new(screen.x + 5.0 + a[0] * (screen.w - 10.0 - cw), screen.y + 5.0 + a[1] * (screen.h - 10.0 - ch), cw, ch);
         ui.p().rounded(cell, 3.0, accent());
@@ -2728,7 +2732,7 @@ mod settings_tests {
         ];
         let general = vec![
             "s-lang", "set-machine_translation", "set-launcher_rest", "set-discord_status", "set-voice_chat", "s-uiscale", "set-ui_scale_window", "s-uiop", "set-tooltips", "set-show_fps", "set-notes", "set-chat", "s-chatsize", "set-name_tags", "s-accent-sw0", "s-accent-sw1", "s-accent-sw2", "s-accent-sw3", "s-accent-sw4", "s-accent-sw5", "s-accent-sw6", "s-accent-sw7", "s-accent-custom",
-            "set-navigator", "set-nav_arrows", "set-nav_ai", "set-nav_signon", "corner-top-left", "corner-top-right", "corner-bottom-left", "corner-bottom-right",
+            "set-navigator", "set-nav_arrows", "set-nav_ai", "set-nav_board", "set-nav_signon", "corner-top-left", "corner-top-right", "corner-bottom-left", "corner-bottom-right",
             "set-update_check", "set-update_auto", "set-update_notify", "set-presence", "s-upd-check", "s-upd-github", "s-reset",
         ];
         vec![graphics, driving, camera, sound, gameplay, general]

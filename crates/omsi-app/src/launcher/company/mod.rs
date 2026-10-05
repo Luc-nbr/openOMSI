@@ -1,15 +1,18 @@
 //! The bus company's pages (the rules are `omsi_launcher_lib::company`'s): founding a
 //! company, its overview, its fleet and the vehicle market, its staff and the labour market,
-//! its lines and how today's tours are covered, its finances, and "Close the day" with the
-//! day's report. Reached from the start's fifth tile, as Omsi-Hub's bus company is from the
+//! its lines and how today's tours are covered, its finances, and its clock: the company's
+//! time simulated by the hour or the day ("Simulate to tomorrow"), with the days' reports. Reached from the start's fifth tile, as Omsi-Hub's bus company is from the
 //! tile beside its ways to drive.
 //!
 //! Calm, as Omsi-Hub's company pages are: sections with a hairline, figures in big type,
 //! nothing moves but what is under the mouse. What takes time - reading the buses for the
 //! market, the timetable of the company's day, closing a day - runs on a thread of its own.
 
+mod bank;
 mod career;
+mod clock;
 mod concessions;
+mod dealer;
 mod depot;
 mod fleet;
 mod lines;
@@ -38,7 +41,8 @@ enum Msg {
     Market(usize, Vec<MarketBus>),
     Lines { map: String, date: String, result: Result<Vec<core::LineInfo>, String> },
     Own(String, Vec<core::lines::OwnLine>),
-    Closed(Result<(Company, Vec<DayReport>), String>),
+    /// A simulation past midnight came back (`clock::simulate`).
+    Simulated(Result<(Company, co::clock::Run), String>),
 }
 
 /// The timetable of the company's day.
@@ -57,16 +61,16 @@ pub(super) const MAP_TAB: usize = 9;
 
 /// A dialog over the company's pages.
 pub(super) enum Dialog {
-    /// A new bus of the market: bought (cash or loan), leased or rented.
+    /// A bus of the dealer leased (0) or rented (1).
     New { bus: MarketBus, how: usize, days: f32, livery: usize },
-    /// A used offer of the week.
-    Used { offer: co::market::UsedOffer, how: usize, livery: usize },
+    /// One of the dealer's sheets (`dealer::Sheet`: a bus, an offer, a talk, a contract).
+    Dealer,
     /// A bus of the fleet: its livery, a service, selling or giving it back.
     Vehicle { id: u32, livery: usize },
     /// Something that cannot be undone.
     Confirm { what: Confirm },
-    /// A bid on a tender of the concession market (its price, of the reference).
-    Bid { tender: u32, price: f32 },
+    /// The company's time: every step, the clock's speed, the dispatcher.
+    Time,
 }
 
 #[derive(Clone, Debug)]
@@ -110,6 +114,9 @@ pub struct CompanyView {
     pub(super) depot: depot::DepotView,
     pub(super) tenders: concessions::TendersView,
     pub(super) map: map::FleetMap,
+    pub(super) clock: clock::ClockView,
+    /// The feed shows the ordinary run of the day too.
+    pub(super) feed_minor: bool,
 }
 
 impl Default for CompanyView {
@@ -144,6 +151,8 @@ impl Default for CompanyView {
             depot: Default::default(),
             tenders: Default::default(),
             map: Default::default(),
+            clock: Default::default(),
+            feed_minor: false,
         }
     }
 }
@@ -162,51 +171,102 @@ fn data() -> std::path::PathBuf {
 
 // --- money and dates as the pages show them -------------------------------------------------
 
+/// How the interface's language writes a number: its thousands separator, its decimal mark,
+/// and where the euro sign goes. Every amount, kilometre and count of the company's pages
+/// (the dealer, the contracts, the bank, the concessions, the depot, the phone's tab) is
+/// written through `eur`, `eur_cents`, `grouped` and `num`, which ask this.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct NumberStyle {
+    thousands: char,
+    decimal: char,
+    /// "€17,968" (en), "€ 17.968" (nl) or "17.968 €".
+    euro: EuroAt,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum EuroAt {
+    Before,
+    BeforeSpaced,
+    After,
+}
+
+/// The narrow no-break space French, Russian, Ukrainian and Polish group thousands with.
+const NARROW: char = '\u{202F}';
+
+fn style(lang: &str) -> NumberStyle {
+    let (thousands, decimal, euro) = match lang {
+        "" | "en" => (',', '.', EuroAt::Before),
+        "nl" => ('.', ',', EuroAt::BeforeSpaced),
+        "de" | "it" | "es" | "pt" | "pt-pt" | "tr" | "da" | "id" => ('.', ',', EuroAt::After),
+        _ => (NARROW, ',', EuroAt::After),
+    };
+    NumberStyle { thousands, decimal, euro }
+}
+
+/// `x` rounded to `places` decimals, its thousands grouped, as `lang` writes it.
+fn num_in(x: f64, places: usize, lang: &str) -> String {
+    let st = style(lang);
+    let x = if x.is_finite() { x } else { 0.0 };
+    let text = format!("{:.*}", places, x.abs());
+    let (whole, frac) = text.split_once('.').unwrap_or((text.as_str(), ""));
+    let mut out = String::new();
+    // (-0 is 0)
+    if x < 0.0 && text.chars().any(|c| c.is_ascii_digit() && c != '0') {
+        out.push('-');
+    }
+    for (i, ch) in whole.chars().enumerate() {
+        if i > 0 && (whole.len() - i) % 3 == 0 {
+            out.push(st.thousands);
+        }
+        out.push(ch);
+    }
+    if !frac.is_empty() {
+        out.push(st.decimal);
+        out.push_str(frac);
+    }
+    out
+}
+
+/// An amount with its euro sign where `lang` puts it (the minus before all).
+fn with_euro(n: String, lang: &str) -> String {
+    let (sign, n) = match n.strip_prefix('-') {
+        Some(rest) => ("-", rest.to_string()),
+        None => ("", n),
+    };
+    match style(lang).euro {
+        EuroAt::Before => format!("{sign}€{n}"),
+        EuroAt::BeforeSpaced => format!("{sign}€ {n}"),
+        EuroAt::After => format!("{sign}{n} €"),
+    }
+}
+
+fn eur_in(c: Cents, lang: &str) -> String {
+    with_euro(num_in((c as f64 / 100.0).round(), 0, lang), lang)
+}
+
+fn eur_cents_in(c: f64, lang: &str) -> String {
+    with_euro(num_in(c / 100.0, 2, lang), lang)
+}
+
 /// Whole euros, grouped as the language groups them ("€1,234,567", "€ 1.234.567",
 /// "1.234.567 €", "1 234 567 €").
 pub(super) fn eur(c: Cents) -> String {
     eur_in(c, &omsi_ui::i18n::language())
 }
 
-fn eur_in(c: Cents, lang: &str) -> String {
-    let neg = c < 0;
-    let whole = ((c.abs() as f64) / 100.0).round() as i64;
-    let sep = match lang {
-        "" | "en" => ',',
-        "nl" | "de" | "it" | "es" | "pt" | "tr" => '.',
-        _ => ' ',
-    };
-    let digits = whole.to_string();
-    let mut grouped = String::new();
-    for (i, ch) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
-            grouped.push(sep);
-        }
-        grouped.push(ch);
-    }
-    let sign = if neg { "-" } else { "" };
-    match lang {
-        "" | "en" => format!("{sign}€{grouped}"),
-        "nl" => format!("{sign}€ {grouped}"),
-        _ => format!("{sign}{grouped} €"),
-    }
-}
-
-/// Euros with their cents (a fare, a price per kilometre).
+/// Euros with their cents (a fare, a price per kilometre): "€17,968.50", "€ 17.968,50".
 pub(super) fn eur_cents(c: f64) -> String {
-    let lang = omsi_ui::i18n::language();
-    let v = format!("{:.2}", c / 100.0);
-    match lang.as_str() {
-        "" | "en" => format!("€{v}"),
-        "nl" => format!("€ {}", v.replace('.', ",")),
-        _ => format!("{} €", v.replace('.', ",")),
-    }
+    eur_cents_in(c, &omsi_ui::i18n::language())
 }
 
-/// A number grouped like money (kilometres, passengers).
+/// A whole number grouped like money (kilometres, passengers).
 pub(super) fn grouped(n: f64) -> String {
-    let s = eur((n * 100.0).round() as Cents);
-    s.replace('€', "").trim().to_string()
+    num_in(n.round(), 0, &omsi_ui::i18n::language())
+}
+
+/// A number with `places` decimals as the language writes it ("4.5", "4,5").
+pub(super) fn num(x: f64, places: usize) -> String {
+    num_in(x, places, &omsi_ui::i18n::language())
 }
 
 const WEEKDAYS: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -314,20 +374,25 @@ fn work(l: &mut Launcher) {
                     view.own = own;
                 }
             }
-            Msg::Closed(r) => {
+            Msg::Simulated(r) => {
                 view.closing = false;
                 match r {
-                    Ok((c, reports)) => {
+                    Ok((c, run)) => {
                         if let Some(list) = view.companies.as_mut() {
                             if let Some(x) = list.iter_mut().find(|x| x.id == c.id) {
                                 *x = c.clone();
                             }
                         }
                         view.company = Some(c);
-                        view.reports = Some(reports);
+                        if !run.reports.is_empty() {
+                            view.reports = Some(run.reports);
+                        }
                         view.plan = None;
                     }
-                    Err(e) => l.state.set_status(e, true),
+                    Err(e) => {
+                        view.clock.speed = 0.0;
+                        l.state.set_status(e, true);
+                    }
                 }
             }
         }
@@ -411,6 +476,21 @@ pub(super) fn changed(l: &mut Launcher) {
     }
 }
 
+/// The lines of the company's map in the timetable of its day (None: not read yet).
+pub(super) fn map_lines(view: &CompanyView) -> Option<&[core::LineInfo]> {
+    let c = view.company.as_ref()?;
+    view.today.as_ref().filter(|t| t.map == c.map && t.error.is_none()).map(|t| t.lines.as_slice())
+}
+
+/// The timetable of the company's day and its map's own lines read again (the line editor
+/// wrote the map's timetable).
+pub(super) fn reload_timetable(l: &mut Launcher) {
+    let view = &mut l.company;
+    view.today_asked = None;
+    view.own_for = None;
+    view.plan = None;
+}
+
 /// Do something to the company; its refusal is said in the status line.
 pub(super) fn act<T>(l: &mut Launcher, f: impl FnOnce(&mut Company) -> Result<T, &'static str>) -> Option<T> {
     let c = l.company.company.as_mut()?;
@@ -430,6 +510,7 @@ pub(super) fn act<T>(l: &mut Launcher, f: impl FnOnce(&mut Company) -> Result<T,
 pub fn draw(l: &mut Launcher, area: Rect) {
     work(l);
     depot::tick(l);
+    dealer::tick(l);
     if l.company.companies.is_none() {
         l.ui.text_in("Reading your companies…", Rect::new(area.x, area.y, area.w, 30.0), 14.0, Weight::Medium, TEXT_DIM, Align::Left);
         return;
@@ -441,8 +522,11 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         wizard::draw(l, area);
         return;
     }
-    // a dialog lies over the pages: they get no mouse meanwhile
-    let modal = l.company.dialog.is_some() || l.company.reports.is_some() || l.company.closing;
+    // a dialog lies over the pages: they get no mouse meanwhile (the company's clock waits for
+    // a decision in one too)
+    let asking = l.company.company.as_ref().is_some_and(|c| c.clock.ask.is_some());
+    let modal = l.company.dialog.is_some() || l.company.reports.is_some() || l.company.closing || asking;
+    clock::tick(l, modal);
     let saved = modal.then(|| {
         let i = l.ui.input.clone();
         l.ui.input.mouse = Vec2::new(-1e4, -1e4);
@@ -472,6 +556,8 @@ pub fn draw(l: &mut Launcher, area: Rect) {
             closing_cover(l);
         } else if l.company.reports.is_some() {
             report_dialog(l);
+        } else if asking {
+            clock::ask_dialog(l);
         } else {
             dialog(l);
         }
@@ -499,49 +585,13 @@ fn strip(l: &mut Launcher, area: Rect) -> Rect {
     Rect::new(area.x, area.y + 60.0, area.w, (area.h - 60.0).max(0.0))
 }
 
-/// What the page keeps in its sheet's head: the company's day and "Close the day". Returns
-/// where it begins.
+/// What the page keeps in its sheet's head: the company's day and time and the steps to
+/// simulate it (`clock::head`). Returns where it begins.
 pub fn head_tools(l: &mut Launcher, r: Rect) -> f32 {
-    let Some(c) = l.company.company.as_ref() else { return r.right() };
-    if l.company.wizard.is_some() {
+    if l.company.company.is_none() || l.company.wizard.is_some() {
         return r.right();
     }
-    let date = day_label(&c.date);
-    let week_w = 92.0;
-    let close_w = 170.0;
-    let x_week = r.right() - week_w;
-    let x_close = x_week - 10.0 - close_w;
-    let busy = l.company.closing || l.state.in_game();
-    if l.ui.button("company-week", Rect::new(x_week, r.y, week_w, r.h), "7 days", None, ButtonKind::Normal) && !busy {
-        close(l, 7);
-    }
-    l.ui.tooltip(Rect::new(x_week, r.y, week_w, r.h), "Close the next seven days one after the other");
-    if l.ui.button("company-close", Rect::new(x_close, r.y, close_w, r.h), "Close the day", Some("check_circle"), ButtonKind::Primary) && !busy {
-        close(l, 1);
-    }
-    let dw = l.ui.width(&date, 15.0, Weight::Bold).max(l.ui.width(&omsi_ui::tr("Company day"), 11.0, Weight::Bold)) + 8.0;
-    let dx = x_close - 16.0 - dw;
-    l.ui.text_in(&omsi_ui::tr("Company day").to_uppercase(), Rect::new(dx, r.y, dw, 16.0), 10.0, Weight::Bold, TEXT_DIM, Align::Right);
-    l.ui.text_in(&date, Rect::new(dx, r.y + 16.0, dw, 22.0), 15.0, Weight::Bold, TEXT, Align::Right);
-    dx
-}
-
-/// Close `n` days on a thread of their own (the company as it is now; the page shows the
-/// result when it is back).
-fn close(l: &mut Launcher, n: usize) {
-    let Some(c) = l.company.company.clone() else { return };
-    l.company.closing = true;
-    spawn(&l.company.tx, move || {
-        let mut c = c;
-        let mut reports = Vec::new();
-        for _ in 0..n {
-            match co::store::close_day(&data(), &mut c) {
-                Ok(r) => reports.push(r),
-                Err(e) => return Msg::Closed(Err(format!("{e:#}"))),
-            }
-        }
-        Msg::Closed(Ok((c, reports)))
-    });
+    clock::head(l, r)
 }
 
 fn closing_cover(l: &mut Launcher) {
@@ -551,7 +601,7 @@ fn closing_cover(l: &mut Launcher) {
     l.ui.p().rect(full, Color::rgba(0, 0, 0, 0.45));
     let r = Rect::new((size.x - 320.0) * 0.5, (size.y - 90.0) * 0.5, 320.0, 90.0);
     l.ui.panel(r);
-    l.ui.text_in("Closing the day…", Rect::new(r.x, r.y + 18.0, r.w, 24.0), 16.0, Weight::Bold, TEXT, Align::Center);
+    l.ui.text_in(&omsi_ui::tr("Simulating the company's time…"), Rect::new(r.x, r.y + 18.0, r.w, 24.0), 16.0, Weight::Bold, TEXT, Align::Center);
     l.ui.progress(Rect::new(r.x + 40.0, r.y + 58.0, r.w - 80.0, 6.0), 1.0, true);
 }
 
@@ -573,12 +623,13 @@ pub(super) fn dialog_panel(l: &mut Launcher, w: f32, h: f32, icon: &str, title: 
 
 fn dialog(l: &mut Launcher) {
     match &l.company.dialog {
-        Some(Dialog::New { .. }) | Some(Dialog::Used { .. }) | Some(Dialog::Vehicle { .. }) => fleet::dialog(l),
+        Some(Dialog::New { .. }) | Some(Dialog::Vehicle { .. }) => fleet::dialog(l),
+        Some(Dialog::Dealer) => dealer::dialog(l),
         Some(Dialog::Confirm { what }) => {
             let what = what.clone();
             confirm_dialog(l, what);
         }
-        Some(Dialog::Bid { .. }) => concessions::dialog(l),
+        Some(Dialog::Time) => clock::time_dialog(l),
         None => {}
     }
 }
@@ -727,9 +778,15 @@ fn report_dialog(l: &mut Launcher) {
     if penalties > 0 {
         facts.push((omsi_ui::tr("Contract penalties: %{amount}.").replace("%{amount}", &eur(penalties)), WARN));
     }
+    // (the own lines' buses too small for the rush hour)
+    let crowded = sum(&|r| r.crowded as i64);
+    if crowded > 0 {
+        let left = sum(&|r| r.left_behind as i64);
+        facts.push((omsi_ui::tr("%{n} trips of your own lines were full; %{p} passengers were left at the stop.").replace("%{n}", &crowded.to_string()).replace("%{p}", &left.to_string()), WARN));
+    }
     if rep.abs() >= 0.05 {
         let t = if rep > 0.0 { "Your reputation rose to %{n}." } else { "Your reputation fell to %{n}." };
-        facts.push((omsi_ui::tr(t).replace("%{n}", &format!("{:.1}", last.reputation)), if rep > 0.0 { OK } else { WARN }));
+        facts.push((omsi_ui::tr(t).replace("%{n}", &num(last.reputation, 1)), if rep > 0.0 { OK } else { WARN }));
     }
     for r in &reports {
         facts.extend(r.notes.iter().map(note_text));
@@ -817,7 +874,39 @@ mod tests {
         assert_eq!(eur_in(0, "en"), "€0");
         assert_eq!(eur_in(123_456_789, "nl"), "€ 1.234.568");
         assert_eq!(eur_in(123_456_789, "de"), "1.234.568 €");
-        assert_eq!(eur_in(123_456_789, "fr"), "1 234 568 €");
+        assert_eq!(eur_in(123_456_789, "fr"), "1\u{202F}234\u{202F}568 €");
         assert_eq!(day_label("nonsense"), "nonsense");
+    }
+
+    #[test]
+    fn every_language_writes_its_numbers_its_own_way() {
+        // (whole euros, euros and cents, a number with a decimal, kilometres)
+        let n = "\u{202F}";
+        let cases: [(&str, &str, &str, &str, &str); 8] = [
+            ("en", "€17,968", "€17,968.50", "4.5", "1,234,567"),
+            ("", "€17,968", "€17,968.50", "4.5", "1,234,567"),
+            ("nl", "€ 17.968", "€ 17.968,50", "4,5", "1.234.567"),
+            ("de", "17.968 €", "17.968,50 €", "4,5", "1.234.567"),
+            ("fr", "17 968 €", "17 968,50 €", "4,5", "1 234 567"),
+            ("ru", "17 968 €", "17 968,50 €", "4,5", "1 234 567"),
+            ("uk", "17 968 €", "17 968,50 €", "4,5", "1 234 567"),
+            ("pl", "17 968 €", "17 968,50 €", "4,5", "1 234 567"),
+        ];
+        for (lang, whole, cents, dec, km) in cases {
+            // (the cases write the narrow space as a plain one, for reading)
+            let fix = |s: &str| if style(lang).thousands == NARROW { s.replace(' ', n).replacen(&format!("{n}€"), " €", 1) } else { s.to_string() };
+            assert_eq!(eur_in(17_968_00, lang), fix(whole), "{lang}");
+            assert_eq!(eur_cents_in(17_968_50.0, lang), fix(cents), "{lang}");
+            assert_eq!(num_in(4.5, 1, lang), dec, "{lang}");
+            assert_eq!(num_in(1_234_567.0, 0, lang), fix(km), "{lang}");
+        }
+        // small amounts, negative ones, rounding
+        assert_eq!(eur_in(90_00, "en"), "€90");
+        assert_eq!(eur_in(-1_234_00, "nl"), "-€ 1.234");
+        assert_eq!(eur_in(-1_234_00, "de"), "-1.234 €");
+        assert_eq!(eur_cents_in(-50.0, "en"), "-€0.50");
+        assert_eq!(num_in(-0.04, 1, "nl"), "0,0");
+        assert_eq!(num_in(999.96, 1, "en"), "1,000.0");
+        assert_eq!(num_in(f64::NAN, 0, "en"), "0");
     }
 }

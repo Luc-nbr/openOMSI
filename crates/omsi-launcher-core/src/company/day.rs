@@ -270,6 +270,12 @@ pub struct DayReport {
     pub lines: Vec<LineDay>,
     pub notes: Vec<Note>,
     pub staff: Vec<StaffNote>,
+    /// Trips of the own lines fuller than their bus's places, and the passengers they left
+    /// behind (`ownline::carried`).
+    #[serde(default)]
+    pub crowded: u32,
+    #[serde(default)]
+    pub left_behind: u32,
 }
 
 /// Maps named alike (`maps/Grundorf/global.cfg`, with either slash and any case).
@@ -397,20 +403,9 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
     let day_plan = super::plan::day_plan(c, &date, tours, &player, &live, true);
     let (plan, morning) = super::plan::settle_morning(c, &day_plan);
     report.notes.extend(morning);
-    let mut cut: Vec<(u32, i32)> = Vec::new();
-    let mut used: Vec<u32> = plan.tours.iter().filter_map(|t| t.bus).collect();
-    used.sort();
-    used.dedup();
-    for id in used {
-        let Some(v) = c.vehicle(id) else { continue };
-        let overdue = if v.km > v.next_service_km { 2.0 } else { 1.0 };
-        let p = 0.004 * r.breakdown_factor * (1.0 + (100.0 - v.condition) / 25.0) * overdue;
-        let span: Vec<&TourPlan> = plan.tours.iter().filter(|t| t.bus == Some(id)).collect();
-        let (a, b) = (span.iter().map(|t| t.tour.from()).min().unwrap_or(0), span.iter().map(|t| t.tour.to()).max().unwrap_or(0));
-        if rng.chance(p) || live_broken.contains(&id) {
-            cut.push((id, rng.int(a as i64, b.max(a) as i64) as i32));
-        }
-    }
+    // (as the company's clock went through the day: `clock::breakdowns`; a rental bus ordered
+    // runs the trips from when it came)
+    let cut = super::clock::breakdowns(c, &plan, &date, &live_broken);
 
     // 4. the modelled trips
     let mut bus_km: Vec<(u32, f64)> = Vec::new();
@@ -431,7 +426,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
         // the day is the model's)
         let reported = |trip: &network::PlannedTrip| tp.live && live_trips.iter().any(|(l, n, dep)| is_one_of(&tp.tour, &[(l.clone(), n.clone())]) && dep.is_none_or(|d| (d - trip.dep).abs() <= 2));
         let v = tp.bus.and_then(|b| c.vehicle(b)).cloned();
-        let broken_at = tp.bus.and_then(|b| cut.iter().find(|x| x.0 == b)).map(|x| x.1);
+        let broken_at = tp.bus.and_then(|b| cut.iter().find(|x| x.0 == b)).map(|x| (x.1, x.2));
         for d in &tp.duties {
             let driver = d.driver.and_then(|id| if id == super::plan::AGENCY { Some(super::plan::agency_driver()) } else { c.employee(id).cloned() });
             if let Some(e) = driver.as_ref().filter(|e| e.id != super::plan::AGENCY) {
@@ -452,7 +447,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
                 if reported(trip) {
                     continue;
                 }
-                let run = v.is_some() && driver.is_some() && broken_at.is_none_or(|at| trip.dep < at) && d.dropped_before.is_none_or(|t| trip.dep >= t);
+                let run = v.is_some() && driver.is_some() && broken_at.is_none_or(|(at, back)| trip.dep < at || back.is_some_and(|b| trip.dep >= b)) && d.dropped_before.is_none_or(|t| trip.dep >= t);
                 if !run {
                     if counts {
                         lines[li].dropped += 1;
@@ -473,7 +468,17 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
                 if !counts {
                     continue;
                 }
-                let pax = (economy::passengers_for(trip.km, trip.dep, &r) * rng.range(0.8, 1.2) * (0.85 + 0.3 * c.reputation / 100.0) * (0.95 + 0.1 * e.skills.service / 100.0)).round().max(0.0) as u32;
+                // (an own line: its passengers by the hour, and what its bus can take)
+                let own = c.lines.get(li).filter(|cl| cl.plan.is_some());
+                let base = own.and_then(|cl| super::ownline::trip_boardings(cl, &date, trip.dep)).unwrap_or_else(|| economy::passengers_for(trip.km, trip.dep, &r));
+                let mut pax = base * rng.range(0.8, 1.2) * (0.85 + 0.3 * c.reputation / 100.0) * (0.95 + 0.1 * e.skills.service / 100.0);
+                if own.is_some() {
+                    let (taken, left, crowded) = super::ownline::carried(pax, (trip.dep.rem_euclid(1440) / 60) as usize, v.kind.size);
+                    pax = taken;
+                    report.crowded += crowded as u32;
+                    report.left_behind += left.round() as u32;
+                }
+                let pax = pax.round().max(0.0) as u32;
                 let fares = pax as Cents * r.fare;
                 let comp = (trip.km * comp_km).round() as Cents;
                 sums[li].fares += fares;
@@ -495,6 +500,13 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
     for (li, s) in sums.iter().enumerate() {
         let text = format!("Line {}", lines[li].number);
         c.book(BookingKind::Fares, s.fares, text.clone(), false);
+        // (the fare association keeps its share of an own line's fares)
+        let share = c.lines.get(li).map(|cl| super::ownline::association_share(c, cl)).unwrap_or(0.0);
+        let kept = (s.fares as f64 * share).round() as Cents;
+        if kept > 0 {
+            c.book(BookingKind::Fares, -kept, format!("Line {}: fare association's share", lines[li].number), false);
+            lines[li].revenue -= kept;
+        }
         c.book(BookingKind::Compensation, s.compensation, text.clone(), false);
         c.book(BookingKind::Energy, -s.energy.round() as Cents, text.clone(), false);
         c.book(BookingKind::Maintenance, -s.maintenance.round() as Cents, text.clone(), false);
@@ -515,6 +527,8 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
     let tomorrow = dates::add(&date, 1);
     let mut repairs: Vec<(Cents, String)> = Vec::new();
     let price_index = c.price_index;
+    // (a bus under the dealer's warranty is repaired at the dealer's cost)
+    let warranted = super::dealer::warranted(c, &date);
     for v in c.fleet.iter_mut() {
         if let Some((_, km)) = bus_km.iter().find(|b| b.0 == v.id) {
             v.km += km;
@@ -532,6 +546,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
             v.workshop_until = Some(until.clone());
             v.breakdowns += 1;
             v.condition = (v.condition - 5.0).max(0.0);
+            let cost = if warranted.contains(&v.id) { 0 } else { cost };
             repairs.push((cost, format!("{} {}", v.number, v.name)));
             report.notes.push(Note::Breakdown { number: v.number.clone(), until, cost });
         } else if v.km >= v.next_service_km && !v.in_workshop(&tomorrow) && v.held_on(&tomorrow) {
@@ -581,6 +596,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
             }
         }
         monthly.push((BookingKind::Depot, -economy::depot_per_month(depot_buses, c.price_index), c.depot.clone()));
+        super::ownline::month_end(c);
         for (k, a, t) in monthly {
             c.book(k, a, t, false);
         }
@@ -601,6 +617,8 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
     let punctuality = (timed > 0).then(|| on_time as f64 / timed as f64 * 100.0);
     let rep0 = c.reputation;
     let mut change = -(0.25 * report.dropped as f64).min(5.0);
+    // (full buses on the own lines, and people left at the stop)
+    change -= (0.01 * report.crowded as f64 + 0.002 * report.left_behind as f64).min(1.5);
     if let Some(p) = punctuality {
         if report.dropped == 0 && p >= 90.0 {
             change += 0.3;

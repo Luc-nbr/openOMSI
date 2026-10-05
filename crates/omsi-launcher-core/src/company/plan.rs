@@ -416,7 +416,7 @@ impl DayTour {
     pub fn size(&self, c: &Company) -> BusSize {
         match self.bus {
             Some(BusOf::Own(id)) => c.vehicle(id).map(|v| v.kind.size).unwrap_or_default(),
-            _ => self.tour.wants().unwrap_or_default(),
+            _ => super::ownline::wanted(c, &self.tour).unwrap_or_default(),
         }
     }
 }
@@ -592,6 +592,17 @@ fn unavailable(e: &Employee, date: &str, today: bool) -> Option<Problem> {
     }
 }
 
+/// How well a bus of `size` fits a tour asking for `wants`: the size asked for (or none
+/// asked), a bigger bus (it carries the load), a smaller one.
+fn size_fit(wants: Option<BusSize>, size: BusSize) -> u8 {
+    match wants {
+        None => 2,
+        Some(w) if w == size => 2,
+        Some(w) if super::ownline::capacity(size) >= super::ownline::capacity(w) => 1,
+        Some(_) => 0,
+    }
+}
+
 /// How a duty (or a piece) fits a driver: allowed, and the warnings.
 pub fn fits(e: &Employee, size: BusSize, work: &[Block], b: &Block, today: bool) -> Result<Vec<Warn>, Problem> {
     if !staff::may_drive(e, size) {
@@ -668,14 +679,14 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
             t.bus_problem = Some(Problem::Unassigned);
             continue;
         }
-        let (from, to, wants) = (t.tour.from(), t.tour.to(), t.tour.wants());
+        let (from, to, wants) = (t.tour.from(), t.tour.to(), super::ownline::wanted(c, &t.tour));
         // (free in time; the size asked for first, a bus no roster tour has, then the one
         // free the latest: the others stay free for later tours)
         let best = c
             .fleet
             .iter()
             .filter(|v| usable(v.id) && buses.free(v.id, from, to))
-            .max_by_key(|v| (wants.is_none_or(|w| w == v.kind.size), !rostered_bus.contains(&v.id), buses.last_end(v.id, from), std::cmp::Reverse(v.id)));
+            .max_by_key(|v| (size_fit(wants, v.kind.size), !rostered_bus.contains(&v.id), buses.last_end(v.id, from), std::cmp::Reverse(v.id)));
         match best {
             Some(v) => {
                 buses.take(v.id, from, to);
@@ -687,7 +698,7 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
     }
     if today {
         for t in out.iter_mut().filter(|t| !t.by_player && t.bus.is_none()) {
-            let (from, to, wants) = (t.tour.from(), t.tour.to(), t.tour.wants());
+            let (from, to, wants) = (t.tour.from(), t.tour.to(), super::ownline::wanted(c, &t.tour));
             let rent = economy::rent_per_day(BusKind { size: wants.unwrap_or_default(), drive: Drive::Diesel }, &economy::rules(c.difficulty), c.price_index);
             match fill_of(c, date, &t.key()) {
                 Some(Fill::Bus { id }) if usable(id) && buses.free(id, from, to) => {
@@ -702,7 +713,7 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
                 Some(Fill::Drop) => t.bus_from = Source::Dispatcher,
                 _ if t.bus_problem.is_some_and(Problem::sudden) => {
                     let best = c.fleet.iter().filter(|v| usable(v.id) && buses.free(v.id, from, to)).max_by(|a, b| {
-                        (wants.is_none_or(|w| w == a.kind.size), a.condition).partial_cmp(&(wants.is_none_or(|w| w == b.kind.size), b.condition)).unwrap_or(std::cmp::Ordering::Equal)
+                        (size_fit(wants, a.kind.size), a.condition).partial_cmp(&(size_fit(wants, b.kind.size), b.condition)).unwrap_or(std::cmp::Ordering::Equal)
                     });
                     if let Some(v) = best {
                         buses.take(v.id, from, to);
@@ -905,7 +916,7 @@ pub fn settle_morning(c: &mut Company, dp: &DayPlan) -> (Plan, Vec<Note>) {
         if t.bus != Some(BusOf::Rental) {
             continue;
         }
-        let wants = t.tour.wants();
+        let wants = super::ownline::wanted(c, &t.tour);
         let model = c.fleet.iter().find(|v| wants.is_none_or(|w| w == v.kind.size) && !v.bus.is_empty()).or(c.fleet.iter().find(|v| !v.bus.is_empty()));
         let bus = match model {
             Some(v) => MarketBus { file: v.bus.clone(), name: v.name.clone(), kind: v.kind, ..Default::default() },

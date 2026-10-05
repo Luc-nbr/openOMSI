@@ -598,8 +598,13 @@ pub fn page(l: &mut Launcher, page: Page, title: &str) {
     let title = if page == Page::Profile { "Service record" } else { title };
     let back = Rect::new(r.right() - 24.0 - 108.0, r.y + 20.0, 108.0, 40.0);
     if l.ui.button("page-back", back, "Back", Some("chevron_left"), ButtonKind::Normal) {
-        // (the line editor is a page of the editor's)
-        l.go(if page == Page::Lines { Page::Editor } else { Page::Drive });
+        // (the line editor is a page of the editor's - or, working for the bus company, of
+        // the company's)
+        l.go(match page {
+            Page::Lines if l.pages.lines.for_company() => Page::Company,
+            Page::Lines => Page::Editor,
+            _ => Page::Drive,
+        });
     }
     // what a page keeps in its head (the drivers on the service record), and its name and
     // what it is for in what is left of the head
@@ -783,8 +788,10 @@ fn step_mode(l: &mut Launcher, window: Rect) {
     // along the line under the mouse); the tiles give way to it on a lower window
     let logo_h = (avail.h * 0.13).clamp(64.0, 120.0);
     let head = logo_h + 16.0 + 92.0;
-    let tile_h = ((avail.h - head - 22.0 - 238.0 - 56.0) * 0.9).clamp(170.0, 270.0);
-    let content_h = head + tile_h + 22.0 + 238.0;
+    // (under the tiles: the record beside four rows of links, the last the editor's)
+    let bh = 280.0;
+    let tile_h = ((avail.h - head - 22.0 - bh - 56.0) * 0.9).clamp(170.0, 270.0);
+    let content_h = head + tile_h + 22.0 + bh;
     // (a card in the middle of the window, both ways, at most `CARD_MAX_W` wide)
     let avail = centred(avail, CARD_MAX_W);
     let h = (content_h + 56.0).min(avail.h);
@@ -806,14 +813,13 @@ fn step_mode(l: &mut Launcher, window: Rect) {
     l.ui.text_in(&omsi_ui::tr(greeting).replace("%{name}", &name), Rect::new(inner.x, gy, inner.w, 40.0), 32.0, Weight::Bold, TEXT, Align::Center);
     l.ui.text_in("How do you want to drive today?", Rect::new(inner.x, gy + 46.0, inner.w, 20.0), 14.0, Weight::Regular, TEXT_SOFT, Align::Center);
     // the ways to drive (kinds: 0 a tour, 1 a shift, 2 free)
-    // (and a fourth tile, the editor, and a fifth, the bus company: no ways to drive but
-    // places of their own, never shown as the chosen one - Omsi-Hub's bus company tile beside
-    // its modes)
-    let modes: [(usize, &str, &str, &str, &str); 5] = [
+    // (and a fourth tile, the bus company: no way to drive but a place of its own, never shown
+    // as the chosen one - Omsi-Hub's bus company tile beside its modes; the editor is a long
+    // button under the links)
+    let modes: [(usize, &str, &str, &str, &str); 4] = [
         (1, "Work shift", "schedule", "mode-shift", "Choose how long you want to drive and when: openOMSI puts a shift together from the timetable's real trips, on with another line where lines meet."),
         (0, "Tour", "route", "mode-tour", "One bus's trips on one line, as OMSI's timetable dialog gives them: pick the line, the tour and the trip to start with."),
         (2, "Free drive", "map", "mode-free", "Only a map and a bus. The traffic and the timetable's buses drive around you; nothing is booked."),
-        (3, "Editor", "construction", "mode-editor", "Lines of your own on any map, liveries, the timetable and the map's objects."),
         (4, "Bus company", "garage", "mode-company", "Your own transport company: buy, lease or rent buses, hire drivers and run lines day by day."),
     ];
     let c = &l.state.choice;
@@ -860,10 +866,7 @@ fn step_mode(l: &mut Launcher, window: Rect) {
         }
     }
     super::tour::anchor("mode-tiles", Rect::new(inner.x, ty, inner.w, tile_h));
-    super::tour::anchor("editor-tile", Rect::new(inner.x + 3.0 * (tw + gap), ty, tw, tile_h));
-    if chosen == Some(3) {
-        l.go(Page::Editor);
-    } else if chosen == Some(4) {
+    if chosen == Some(4) {
         l.go(Page::Company);
     } else if let Some(kind) = chosen {
         l.state.choice.free = kind == 2;
@@ -873,7 +876,6 @@ fn step_mode(l: &mut Launcher, window: Rect) {
     }
     // under the tiles: the record and the ways to the rest
     let by = ty + tile_h + 22.0;
-    let bh = 238.0;
     let rec = Rect::new(inner.x, by, inner.w * 0.44, bh);
     record_box(l, rec);
     // (every page of the launcher has its way in here: the service record is the box beside)
@@ -891,7 +893,7 @@ fn step_mode(l: &mut Launcher, window: Rect) {
     super::tour::anchor("start-links", Rect::new(inner.x, by, inner.w, bh));
     let lx = rec.right() + 18.0;
     let lw = (inner.right() - lx - 24.0) / 3.0;
-    let lh = ((bh - 2.0 * 12.0) / 3.0).min(58.0);
+    let lh = ((bh - 3.0 * 12.0) / 4.0).min(58.0);
     for (k, (label, icon, page)) in links.iter().enumerate() {
         let b = Rect::new(lx + (k % 3) as f32 * (lw + 12.0), by + (k / 3) as f32 * (lh + 12.0), lw, lh);
         let label = omsi_ui::tr(label).replace("%{name}", &name);
@@ -902,6 +904,13 @@ fn step_mode(l: &mut Launcher, window: Rect) {
                 l.go(*page);
             }
         }
+    }
+    // the editor: one long button under the links (lines of one's own, liveries, the
+    // timetable, the map's objects)
+    let eb = Rect::new(lx, by + 3.0 * (lh + 12.0), 3.0 * lw + 2.0 * 12.0, lh);
+    super::tour::anchor("editor-tile", eb);
+    if link(l, "hub-editor", eb, &omsi_ui::tr("Editor: lines, liveries, the timetable and the map's objects"), "construction") {
+        l.go(Page::Editor);
     }
 }
 

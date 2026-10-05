@@ -23,13 +23,17 @@ pub struct PlannedTrip {
     pub arr: i32,
     pub km: f64,
     pub stops: u32,
+    /// A depot run, an empty run or another trip without passengers (`specials::Kind::empty`):
+    /// run with its tour, booked as empty kilometres.
+    #[serde(default)]
+    pub empty: bool,
 }
 
 impl PlannedTrip {
-    /// A trip with passengers (a depot run or a short positioning trip has fewer than three
-    /// stops and carries none: a duty is not cut before one).
+    /// A trip with passengers (a depot run or a short positioning trip carries none: a duty is
+    /// not cut before one).
     pub fn counts(&self) -> bool {
-        self.stops >= 3
+        !self.empty && self.stops >= 3
     }
 }
 
@@ -87,7 +91,8 @@ pub fn add_line(c: &mut Company, line: &LineInfo, own: Option<&OwnLine>) -> Resu
         return Err("The company runs this line already.");
     }
     let mut numbers: Vec<String> = Vec::new();
-    for t in line.tours.iter().flat_map(|t| t.trips.iter()) {
+    // (the passenger trips' numbers: not a depot run's "X")
+    for t in line.tours.iter().flat_map(|t| t.trips.iter()).filter(|t| !super::specials::trip_kind(&t.line, &t.name, &t.terminus, t.stops.len(), &[&c.depot]).empty()) {
         let n = t.line.trim();
         if !n.is_empty() && !numbers.iter().any(|x| x == n) {
             numbers.push(n.to_string());
@@ -97,7 +102,7 @@ pub fn add_line(c: &mut Company, line: &LineInfo, own: Option<&OwnLine>) -> Resu
         Some(o) if !o.number.trim().is_empty() => o.number.trim().to_string(),
         _ => numbers.first().cloned().unwrap_or_else(|| line.name.clone()),
     };
-    let caption = own.map(|o| o.caption()).filter(|c| !c.is_empty()).unwrap_or_else(|| line.termini.join(" – "));
+    let caption = own.map(|o| o.caption()).filter(|c| !c.is_empty()).unwrap_or_else(|| super::specials::caption_of(line, &[&c.depot]));
     let runs: Vec<_> = line.tours.iter().filter(|t| t.runs).collect();
     c.lines.push(CompanyLine {
         name: line.name.clone(),
@@ -109,6 +114,7 @@ pub fn add_line(c: &mut Company, line: &LineInfo, own: Option<&OwnLine>) -> Resu
         added: c.date.clone(),
         tours: runs.len() as u32,
         km: runs.iter().flat_map(|t| t.trips.iter()).map(|t| t.km).sum(),
+        plan: None,
     });
     Ok(())
 }
@@ -145,6 +151,7 @@ pub fn tours_of_day(c: &Company, lines: &[LineInfo]) -> Vec<TourOfDay> {
                     arr: (x.arrival / 60.0).round() as i32,
                     km: x.km,
                     stops: x.stops.len() as u32,
+                    empty: super::specials::trip_kind(&x.line, &x.name, &x.terminus, x.stops.len(), &[&c.depot]).empty(),
                 })
                 .collect();
             trips.sort_by_key(|x| x.dep);
@@ -153,6 +160,8 @@ pub fn tours_of_day(c: &Company, lines: &[LineInfo]) -> Vec<TourOfDay> {
             }
         }
     }
+    // (the own lines' tours with their depot runs: their timetable has none)
+    super::ownline::add_depot_runs(c, &mut out);
     out.sort_by_key(|t| t.from());
     out
 }
@@ -235,7 +244,7 @@ pub(crate) mod tests {
     use super::*;
 
     pub fn trip(dep: i32, arr: i32, stops: u32) -> PlannedTrip {
-        PlannedTrip { name: format!("t{dep}"), line: "5".into(), from: "A".into(), to: "B".into(), dep, arr, km: (arr - dep) as f64 * 0.3, stops }
+        PlannedTrip { name: format!("t{dep}"), line: "5".into(), from: "A".into(), to: "B".into(), dep, arr, km: (arr - dep) as f64 * 0.3, stops, empty: false }
     }
 
     #[test]

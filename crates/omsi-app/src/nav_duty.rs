@@ -380,6 +380,48 @@ pub fn board_fitting(state: Option<&DutyState>, s: f32, room: f32) -> (Vec<Row>,
     out
 }
 
+/// The board within `room` points at scale `s` whatever it costs, for a navigator the player
+/// sized (its height is the player's): as many stops ahead as fit, four at most; when not even
+/// one does, what matters least goes first - how many more there are, the change of line, what
+/// comes after the trip, the stop behind the bus, the stops after the next one - and with no
+/// room for the trip's head at all, no board. Returns the rows and their height in points.
+pub fn board_within(state: Option<&DutyState>, s: f32, room: f32) -> (Vec<Row>, f32) {
+    let height = |rows: &[Row]| (board_height(rows) * s).round();
+    for ahead in (1..=4).rev() {
+        let rows = board(state, ahead);
+        if height(&rows) <= room {
+            let h = height(&rows);
+            return (rows, h);
+        }
+    }
+    let mut rows = board(state, 1);
+    let drops: [fn(&Row) -> bool; 4] = [
+        |r| matches!(r, Row::More { .. }),
+        |r| matches!(r, Row::Change { .. }),
+        |r| matches!(r, Row::Next { .. }),
+        |r| matches!(r, Row::Stop { state: StopState::Done, .. }),
+    ];
+    for drop in drops {
+        if height(&rows) <= room {
+            break;
+        }
+        rows.retain(|r| !drop(r));
+    }
+    // (the stops after the one the bus heads for, from the last)
+    while height(&rows) > room && rows.iter().filter(|r| matches!(r, Row::Stop { .. })).count() > 1 {
+        let Some(k) = rows.iter().rposition(|r| matches!(r, Row::Stop { .. })) else { break };
+        rows.remove(k);
+    }
+    while height(&rows) > room && rows.len() > 1 {
+        rows.pop();
+    }
+    if height(&rows) > room {
+        return (Vec::new(), 0.0);
+    }
+    let h = height(&rows);
+    (rows, h)
+}
+
 /// How tall a row of the board is (at scale 1).
 pub(crate) fn row_height(row: &Row) -> f32 {
     match row {
@@ -988,6 +1030,26 @@ pub(crate) mod tests {
         let (least, _) = board_fitting(Some(&d), 1.0, 0.0);
         assert_eq!(names(&least).len(), 3);
         assert_eq!(board_fitting(None, 1.0, 0.0).0, [Row::NoDuty]);
+    }
+
+    /// A navigator the player sized keeps its board inside its room: fewer stops ahead, then
+    /// the rows that matter least, and no board where not even the trip's head fits.
+    #[test]
+    fn the_board_keeps_within_a_sized_navigator() {
+        let (trips, tours) = duty();
+        let d = state(&trips, &tours, 0, 3, false, 0.0);
+        let (all, h) = board_within(Some(&d), 1.0, 1000.0);
+        assert_eq!(all, board(Some(&d), 4));
+        for room in [h - 1.0, 180.0, 140.0, 100.0, 70.0, 60.0] {
+            let (rows, rh) = board_within(Some(&d), 1.0, room);
+            assert!(rh <= room && rh == (board_height(&rows) * 1.0).round(), "{room}: {rh}");
+            assert!(matches!(rows.first(), Some(Row::Head { .. })), "{room}: the trip's head first");
+            assert!(rows.iter().any(|r| matches!(r, Row::Stop { state: StopState::Now, .. })) || room < 90.0, "{room}: the next stop stays while it fits");
+        }
+        assert_eq!(board_within(Some(&d), 1.0, 59.0), (Vec::new(), 0.0), "not even the trip's head: no board");
+        // (at a larger scale it needs room in proportion)
+        let (big, bh) = board_within(Some(&d), 2.0, 2.0 * 140.0);
+        assert!(bh <= 280.0 && big.len() == board_within(Some(&d), 1.0, 140.0).0.len());
     }
 
     /// The board draws inside the room its rows ask for, at any interface size.

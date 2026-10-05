@@ -55,6 +55,7 @@ mod menu;
 mod mirror_hud;
 mod navigator;
 mod nav_duty;
+mod nav_panel;
 mod nav_signon;
 mod nav_pins;
 mod stop_signs;

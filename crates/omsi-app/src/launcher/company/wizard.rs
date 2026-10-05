@@ -1,6 +1,7 @@
 //! Founding a company: its name and short name, its colours (and a logo picture if there is
-//! one), its home map and depot, its first day and how hard the economy is - with the
-//! starting capital each difficulty gives.
+//! one), its home map and depot, its first day (its year decides which buses are still
+//! built new), how hard the economy is - with the starting capital each difficulty gives -
+//! and how it buys its buses (the dealer's quick buy, or haggling and contracts).
 
 use super::super::theme::*;
 use super::super::ui::ButtonKind;
@@ -24,13 +25,15 @@ pub struct Wizard {
     depot: usize,
     date: String,
     difficulty: usize,
+    /// 0 simple, 1 advanced (`dealer::BuyingMode::ALL`).
+    buying: usize,
 }
 
 impl Wizard {
     pub fn new(l: &Launcher) -> Wizard {
         let map = l.state.maps.iter().position(|m| m.file == l.state.choice.map).unwrap_or(0);
         let date = if co::dates::parse(&l.state.choice.date).is_some() { l.state.choice.date.clone() } else { core::DEFAULT_DATE.to_string() };
-        Wizard { name: String::new(), short: String::new(), colours: [0, 4], logo: None, map, depot: 0, date, difficulty: 1 }
+        Wizard { name: String::new(), short: String::new(), colours: [0, 4], logo: None, map, depot: 0, date, difficulty: 1, buying: 1 }
     }
 }
 
@@ -76,7 +79,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     let has = l.company.companies.as_ref().is_some_and(|c| !c.is_empty());
     // the head: what this is
     l.ui.text_in("Found your bus company", Rect::new(area.x, area.y, area.w, 30.0), 22.0, Weight::Bold, TEXT, Align::Left);
-    l.ui.paragraph("Run your own transport company on a map: buy, lease or rent buses, hire drivers and run the map's lines or your own. Every day of the company is settled with \"Close the day\"; what you drive yourself counts as it was driven.", Vec2::new(area.x, area.y + 36.0), area.w.min(900.0), 13.5, Weight::Regular, TEXT_DIM);
+    l.ui.paragraph("Run your own transport company on a map: buy, lease or rent buses, hire drivers and run the map's lines or your own. The company has its own clock: simulate its time by the hour or by days, and what happens is told as it comes; what you drive yourself counts as it was driven.", Vec2::new(area.x, area.y + 36.0), area.w.min(900.0), 13.5, Weight::Regular, TEXT_DIM);
     let top = area.y + 92.0;
     let gap = 18.0;
     let col_w = (area.w - gap) / 2.0;
@@ -159,6 +162,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
             }
         }
         l.ui.date_field("company-date", Rect::new(right.x + right.w * 0.6 + GAP, y, right.w * 0.4 - GAP, ROW), &mut w.date);
+        l.ui.tooltip(Rect::new(right.x + right.w * 0.6 + GAP, y, right.w * 0.4 - GAP, ROW), "Its year decides the buses: models no longer built then are sold second-hand only, models not built yet are not sold.");
         y += ROW + 18.0;
     }
     l.ui.label(Rect::new(right.x, y, right.w, 18.0), "Difficulty");
@@ -169,7 +173,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         "Tight: prices rise faster than the contract pays, dear loans, more breakdowns and illness.",
     ];
     let cw = (right.w - 2.0 * GAP) / 3.0;
-    let ch = (right.bottom() - y).clamp(110.0, 170.0);
+    let ch = (right.bottom() - y - 86.0).clamp(110.0, 170.0);
     for (k, d) in Difficulty::ALL.iter().enumerate() {
         let r = Rect::new(right.x + k as f32 * (cw + GAP), y, cw, ch);
         let on = w.difficulty == k;
@@ -182,6 +186,15 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         l.ui.text_in(&eur(capital), Rect::new(r.x + 12.0, r.y + 32.0, r.w - 24.0, 18.0), 13.0, Weight::Bold, LINE, Align::Left);
         l.ui.paragraph(texts[k], Vec2::new(r.x + 12.0, r.y + 56.0), r.w - 24.0, 11.5, Weight::Regular, TEXT_DIM);
     }
+    // how it buys its buses
+    let y = y + ch + 16.0;
+    l.ui.label(Rect::new(right.x, y, right.w, 18.0), "Buying buses");
+    let modes: Vec<String> = co::dealer::BuyingMode::ALL.iter().map(|m| omsi_ui::tr(m.label()).into_owned()).collect();
+    let refs: Vec<&str> = modes.iter().map(String::as_str).collect();
+    let sw = (right.w * 0.4).clamp(180.0, 260.0);
+    l.ui.segmented("company-buying", Rect::new(right.x, y + 22.0, sw, 32.0), &mut w.buying, &refs);
+    let say = if w.buying == 0 { "A model, a number, the list price: the buses are yours at once." } else { "Haggle with the dealer, agree on extras and sign a contract; new buses are delivered." };
+    l.ui.paragraph(say, Vec2::new(right.x + sw + GAP, y + 22.0), right.w - sw - GAP, 11.5, Weight::Regular, TEXT_DIM);
     // found it
     let by = area.bottom() - 42.0;
     let ok = !w.name.trim().is_empty() && !maps.is_empty();
@@ -205,6 +218,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
             depot: depots.get(w.depot).cloned().unwrap_or_default(),
             date: w.date.clone(),
             difficulty: Difficulty::ALL[w.difficulty.min(2)],
+            buying: co::dealer::BuyingMode::ALL[w.buying.min(1)],
         };
         let mut c = co::found(&f, &l.state.config.profile);
         c.id = co::store::unused_id(&data(), &c.name);

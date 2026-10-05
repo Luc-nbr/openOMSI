@@ -610,7 +610,7 @@ fn statistics_part(l: &mut Launcher, area: Rect, c: &Company) {
         Some((s, trips)) => {
             let fw = (half - 3.0 * gap) / 4.0;
             let figures = [
-                ("Trips", s.trips.to_string(), omsi_ui::tr("%{n} hours").replace("%{n}", &format!("{:.1}", s.hours)), TEXT),
+                ("Trips", s.trips.to_string(), omsi_ui::tr("%{n} hours").replace("%{n}", &super::num(s.hours, 1)), TEXT),
                 ("Kilometres", grouped(s.km.round()), omsi_ui::tr("%{n} passengers").replace("%{n}", &grouped(s.passengers as f64)), TEXT),
                 ("On time", s.punctuality.map_or("–".into(), |p| format!("{p:.0} %")), omsi_ui::tr("%{n} excellent trips").replace("%{n}", &s.excellent.to_string()), TEXT),
                 ("Fines", eur(s.fines), omsi_ui::tr("%{r} red · %{c} cameras").replace("%{r}", &s.red_lights.to_string()).replace("%{c}", &s.speeding.to_string()), if s.fines > 0 { WARN } else { TEXT }),

@@ -40,11 +40,15 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     chart_of(&mut l.ui, chart, &c.history);
     // today
     today(l, Rect::new(area.x + left_w + gap, y, right_w, h1), &c);
-    // the last day, and the companies
+    // the company's day as it went, the last day closed, and the companies
     let y2 = y + h1 + gap;
     let h2 = (area.bottom() - y2).max(120.0);
-    last_day(l, Rect::new(area.x, y2, left_w, h2), &c);
-    companies(l, Rect::new(area.x + left_w + gap, y2, right_w, h2), &c);
+    let mut minor = l.company.feed_minor;
+    super::clock::feed(l, Rect::new(area.x, y2, left_w, h2), &c, &mut minor);
+    l.company.feed_minor = minor;
+    let h3 = (h2 * 0.56).max(130.0);
+    last_day(l, Rect::new(area.x + left_w + gap, y2, right_w, h3), &c);
+    companies(l, Rect::new(area.x + left_w + gap, y2 + h3 + gap, right_w, (h2 - h3 - gap).max(60.0)), &c);
 }
 
 /// The days' results as bars around the zero line (green above, red under), with the
@@ -164,7 +168,7 @@ fn alert_text(a: &Alert) -> (&'static str, String, Color, usize) {
 fn last_day(l: &mut Launcher, r: Rect, c: &Company) {
     let inner = section(&mut l.ui, r, "The last day closed");
     let Some(rep) = c.last_report.clone() else {
-        l.ui.paragraph("When the company's day is over, close it with \"Close the day\" at the top: the tours are run, the money booked, and the next day begins. What you drove yourself on the company's lines counts as measured.", Vec2::new(inner.x, inner.y), inner.w, 13.0, Weight::Regular, TEXT_DIM);
+        l.ui.paragraph("\"Simulate to tomorrow\" at the top runs the rest of the day and closes it at midnight: the tours are run, the money booked, and the next day begins. What you drove yourself on the company's lines counts as measured.", Vec2::new(inner.x, inner.y), inner.w, 13.0, Weight::Regular, TEXT_DIM);
         return;
     };
     l.ui.text_in(&day_label(&rep.date), Rect::new(inner.x, inner.y, inner.w * 0.5, 22.0), 15.0, Weight::Bold, TEXT, Align::Left);
@@ -175,11 +179,12 @@ fn last_day(l: &mut Launcher, r: Rect, c: &Company) {
         omsi_ui::tr("%{n} passengers").replace("%{n}", &grouped(rep.passengers as f64)),
         format!("{} km", grouped(rep.km.round())),
     ];
-    let fw = inner.w / 4.0;
+    // (two by two: the column is narrow)
+    let fw = inner.w / 2.0;
     for (k, f) in facts.iter().enumerate() {
-        l.ui.text_in(f, Rect::new(inner.x + k as f32 * fw, inner.y + 30.0, fw - 8.0, 20.0), 13.0, Weight::Regular, TEXT_SOFT, Align::Left);
+        l.ui.text_in(f, Rect::new(inner.x + (k % 2) as f32 * fw, inner.y + 28.0 + (k / 2) as f32 * 20.0, fw - 8.0, 20.0), 13.0, Weight::Regular, TEXT_SOFT, Align::Left);
     }
-    let by = (inner.y + 62.0).min(inner.bottom() - 34.0);
+    let by = (inner.y + 76.0).min(inner.bottom() - 34.0);
     if l.ui.button("company-show-report", Rect::new(inner.x, by, 180.0, 34.0), "Show the report", Some("receipt_long"), ButtonKind::Normal) {
         l.company.reports = Some(vec![rep]);
     }

@@ -485,8 +485,19 @@ fn tools(l: &mut Launcher, r: Rect, c: &Company, date: &str) {
             Ok(())
         });
     }
-    let text = omsi_ui::tr("%{day}: the roster of this weekday repeats every week.").replace("%{day}", &day_label(date));
-    l.ui.text_in(&text, Rect::new(r.x, r.y, (x - r.x - 12.0).max(0.0), r.h), 12.5, Weight::Regular, TEXT_DIM, Align::Left);
+    // (a fleet without the buses the tours ask for at their busiest: said instead)
+    let lack = l.company.planning.days.iter().find(|d| d.0 == c.map && d.1 == date).and_then(|d| d.2.as_ref().ok()).map(|lines| co::ownline::shortfall(c, &co::network::tours_of_day(c, lines))).unwrap_or_default();
+    let (text, colour) = match lack.first() {
+        Some(s) => (
+            omsi_ui::tr("At the busiest the tours ask for %{n} × %{bus} (or bigger); the fleet has %{have}.")
+                .replace("%{n}", &s.needed.to_string())
+                .replace("%{bus}", &omsi_ui::tr(co::BusKind { size: s.size, drive: co::Drive::Diesel }.label()))
+                .replace("%{have}", &s.have.to_string()),
+            WARN,
+        ),
+        None => (omsi_ui::tr("%{day}: the roster of this weekday repeats every week.").replace("%{day}", &day_label(date)), TEXT_DIM),
+    };
+    l.ui.text_in(&text, Rect::new(r.x, r.y, (x - r.x - 12.0).max(0.0), r.h), 12.5, Weight::Regular, colour, Align::Left);
     if fill {
         if let Some(lines) = l.company.planning.days.iter().find(|d| d.0 == c.map && d.1 == date).and_then(|d| d.2.as_ref().ok()).cloned() {
             let d = date.to_string();
@@ -661,6 +672,13 @@ fn gantt(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan) -> Vec<Hit> {
                     }
                     if sel == Some(Sel::Duty(t.tour.line.clone(), t.tour.tour.clone(), k)) {
                         ui.p().rounded_border(br.inset(-2.0), 6.0, 2.0, TEXT);
+                    }
+                    // its depot and empty runs, shaded: run with it, without passengers
+                    for x in t.tour.trips[d.start..d.end].iter().filter(|x| x.empty) {
+                        let a = x_of(x.dep.max(d.from));
+                        let b = x_of(x.arr.min(d.to)).max(a + 2.0);
+                        ui.p().rect(Rect::new(a, br.y + br.h - 6.0, b - a, 6.0), Color::rgba(0, 0, 0, 0.45));
+                        ui.p().rect(Rect::new(a, br.y + br.h - 6.0, b - a, 1.0), TEXT_FAINT.alpha(0.6));
                     }
                     if br.w > 30.0 {
                         ui.text_in(&label, Rect::new(br.x + 6.0, br.y, br.w - 10.0, br.h), 11.0, Weight::Bold, ink, Align::Left);

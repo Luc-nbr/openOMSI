@@ -1,11 +1,12 @@
 //! The company's finances: cash, debt and what the fleet is worth, a month's bookings by kind
-//! (what running the lines earned apart from buying, selling and financing), the loans and a
-//! new one, and the ledger - every booking marked measured (driven) or modelled.
+//! (what running the lines earned apart from buying, selling and financing), the bank's credit
+//! room and the loans (a new one, and paying back: `bank`), and the ledger - every booking
+//! marked measured (driven) or modelled.
 
 use super::super::theme::*;
 use super::super::ui::ButtonKind;
 use super::super::Launcher;
-use super::{act, day_label, eur, figure, month_label, section};
+use super::{day_label, eur, figure, month_label, section};
 use glam::Vec2;
 use omsi_launcher_lib::company::{self as co, BookingKind, Company};
 use omsi_ui::paint::Align;
@@ -15,11 +16,7 @@ use omsi_ui::{Rect, Weight};
 pub struct MoneyView {
     /// The month shown (0: the company's current one, 1 the one before, ...).
     month: usize,
-    /// The loan asked for (an index into `AMOUNTS`).
-    amount: usize,
 }
-
-const AMOUNTS: [i64; 5] = [50_000_00, 100_000_00, 250_000_00, 500_000_00, 1_000_000_00];
 
 pub fn draw(l: &mut Launcher, area: Rect) {
     let Some(c) = l.company.company.clone() else { return };
@@ -96,53 +93,59 @@ fn month_overview(l: &mut Launcher, r: Rect, c: &Company) {
     }
 }
 
-/// The loans, and a new one.
+/// The loans: how much more the bank lends (big, in its colour, with what it is made of), the
+/// loans running, and a new one (its dialog and contract: `bank`).
 fn loans(l: &mut Launcher, r: Rect, c: &Company) {
     let inner = section(&mut l.ui, r, "Loans");
-    let mut y = inner.y;
+    let h = super::bank::credit_figure(l, inner, c);
+    let list_top = inner.y + h + 10.0;
+    l.ui.p().rect(Rect::new(inner.x, list_top - 6.0, inner.w, 1.0), HAIRLINE);
+    let by = inner.bottom() - 34.0;
+    let list = Rect::new(inner.x, list_top, inner.w, (by - 10.0 - list_top).max(0.0));
     let mut repay: Option<(u32, i64)> = None;
+    let mut show: Option<u32> = None;
     if c.loans.is_empty() {
-        l.ui.text_in("The company owes nothing.", Rect::new(inner.x, y, inner.w, 20.0), 13.0, Weight::Regular, TEXT_DIM, Align::Left);
-        y += 30.0;
-    }
-    for loan in &c.loans {
-        if y + 44.0 > inner.bottom() - 110.0 {
-            break;
-        }
-        let what = if loan.purpose.is_empty() { omsi_ui::tr("Loan").into_owned() } else { loan.purpose.clone() };
-        l.ui.text_in(&what, Rect::new(inner.x, y, inner.w * 0.55, 20.0), 13.5, Weight::Bold, TEXT, Align::Left);
-        let sub = omsi_ui::tr("%{left} of %{principal} left  ·  %{rate} %  ·  %{monthly} a month, %{n} months").replace("%{left}", &eur(loan.remaining)).replace("%{principal}", &eur(loan.principal)).replace("%{rate}", &format!("{:.1}", loan.rate * 100.0)).replace("%{monthly}", &eur(loan.monthly)).replace("%{n}", &loan.months_left.to_string());
-        l.ui.text_in(&sub, Rect::new(inner.x, y + 20.0, inner.w - 150.0, 18.0), 11.5, Weight::Regular, TEXT_DIM, Align::Left);
-        let amount = loan.remaining.min(c.cash.max(0));
-        if amount > 0 {
-            let label = if amount >= loan.remaining { omsi_ui::tr("Pay it off").into_owned() } else { omsi_ui::tr("Repay %{amount}").replace("%{amount}", &eur(amount)) };
-            if l.ui.button(&format!("company-repay-{}", loan.id), Rect::new(inner.right() - 140.0, y + 4.0, 140.0, 30.0), &label, None, ButtonKind::Normal) {
-                repay = Some((loan.id, amount));
+        l.ui.text_in("The company owes nothing.", Rect::new(list.x, list.y + 4.0, list.w, 20.0), 13.0, Weight::Regular, TEXT_DIM, Align::Left);
+    } else {
+        let loans = c.loans.clone();
+        let papers: Vec<u32> = c.dealer.loan_contracts.iter().map(|k| k.no).collect();
+        let cash = c.cash;
+        l.ui.scroll_area("company-loans", list, &mut |ui, v| {
+            let mut y = v.y;
+            for loan in &loans {
+                let what = if loan.purpose.is_empty() { omsi_ui::tr("Loan").into_owned() } else { loan.purpose.clone() };
+                ui.text_in(&what, Rect::new(v.x, y, v.w - 250.0, 20.0), 13.5, Weight::Bold, TEXT, Align::Left);
+                let sub = omsi_ui::tr("%{left} of %{principal} left  ·  %{rate} %  ·  %{monthly} a month, %{n} months").replace("%{left}", &eur(loan.remaining)).replace("%{principal}", &eur(loan.principal)).replace("%{rate}", &super::num(loan.rate * 100.0, 1)).replace("%{monthly}", &eur(loan.monthly)).replace("%{n}", &loan.months_left.to_string());
+                ui.text_in(&sub, Rect::new(v.x, y + 20.0, v.w - 250.0, 18.0), 11.5, Weight::Regular, TEXT_DIM, Align::Left);
+                let amount = loan.remaining.min(cash.max(0));
+                if amount > 0 && ui.button(&format!("company-repay-{}", loan.id), Rect::new(v.right() - 140.0, y + 4.0, 140.0, 30.0), "Pay back…", None, ButtonKind::Normal) {
+                    repay = Some((loan.id, loan.remaining));
+                }
+                if papers.contains(&loan.id) && ui.button(&format!("company-loan-paper-{}", loan.id), Rect::new(v.right() - 244.0, y + 4.0, 96.0, 30.0), "Contract", Some("description"), ButtonKind::Normal) {
+                    show = Some(loan.id);
+                }
+                y += 46.0;
             }
-        }
-        y += 46.0;
+            loans.len() as f32 * 46.0
+        });
     }
     // a new loan
-    let by = inner.bottom() - 100.0;
-    l.ui.p().rect(Rect::new(inner.x, by - 8.0, inner.w, 1.0), HAIRLINE);
-    let left = co::finance::credit_left(c, 0);
-    let t = omsi_ui::tr("The bank lends %{amount} more.").replace("%{amount}", &eur(left));
-    l.ui.text_in(&t, Rect::new(inner.x, by, inner.w, 20.0), 13.0, Weight::Medium, TEXT_SOFT, Align::Left);
-    let labels: Vec<String> = AMOUNTS.iter().map(|a| eur(*a)).collect();
-    let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
-    let mut k = l.company.money.amount;
-    if l.ui.chips("company-loan-amount", Rect::new(inner.x, by + 26.0, inner.w, 30.0), &mut k, &refs) {
-        l.company.money.amount = k;
+    let room = co::finance::room(&co::finance::credit(c, 0));
+    if room == co::finance::Room::None {
+        l.ui.text_in("The bank lends nothing more: pay loans back, or let the fleet and the results grow.", Rect::new(inner.x, by, inner.w - 190.0, 34.0), 12.0, Weight::Medium, DANGER.lighten(0.25), Align::Left);
     }
-    let amount = AMOUNTS[l.company.money.amount.min(AMOUNTS.len() - 1)];
-    let (monthly, months, rate) = co::finance::loan_terms(c, amount);
-    let terms = omsi_ui::tr("%{monthly} a month for %{n} months at %{rate} %").replace("%{monthly}", &eur(monthly)).replace("%{n}", &months.to_string()).replace("%{rate}", &format!("{:.1}", rate * 100.0));
-    l.ui.text_in(&terms, Rect::new(inner.x, by + 64.0, inner.w - 170.0, 30.0), 12.0, Weight::Regular, TEXT_DIM, Align::Left);
-    if l.ui.button("company-take-loan", Rect::new(inner.right() - 160.0, by + 62.0, 160.0, 32.0), "Take the loan", Some("payments"), ButtonKind::Normal) && act(l, |c| co::finance::take_loan(c, amount, "Loan", 0)).is_some() {
-        l.state.set_status(omsi_ui::tr("The bank paid %{amount} into the cash.").replace("%{amount}", &eur(amount)), false);
+    if l.ui.button("company-take-loan", Rect::new(inner.right() - 180.0, by, 180.0, 34.0), "Take a loan…", Some("payments"), if room == co::finance::Room::None { ButtonKind::Normal } else { ButtonKind::Primary }) && room != co::finance::Room::None {
+        super::bank::open_loan(l);
     }
     if let Some((id, amount)) = repay {
-        act(l, |c| co::finance::repay(c, id, amount));
+        // (as much as the cash allows: the dialog says what it costs)
+        let amount = amount.min(c.cash.max(0) * 100 / (100 + (co::finance::early_fee_rate(c.difficulty) * 100.0).round() as i64));
+        super::dealer::open(l, super::dealer::Sheet::Repay { id, amount });
+    }
+    if let Some(no) = show {
+        if let Some(k) = c.dealer.loan_contracts.iter().find(|k| k.no == no).cloned() {
+            super::dealer::open(l, super::dealer::Sheet::LoanContract { contract: k, strokes: Vec::new(), readonly: true, collateral: 0, then: super::dealer::Then::Nothing });
+        }
     }
 }
 

@@ -400,6 +400,10 @@ pub struct CompanyLine {
     pub tours: u32,
     #[serde(default)]
     pub km: f64,
+    /// An own line the company confirmed and paid for in the line editor: what it keeps of it
+    /// (its passengers through the day, its tours' bus sizes; see `ownline`).
+    #[serde(default)]
+    pub plan: Option<super::ownline::OwnPlan>,
 }
 
 /// How a closed day ended, for the dashboard's chart.
@@ -510,6 +514,13 @@ pub struct Company {
     /// The lines' concessions and the tenders (see `concessions`).
     #[serde(default)]
     pub concessions: super::concessions::Concessions,
+    /// The company's now within its day, the feed of what happened, today's events (see
+    /// `clock`).
+    #[serde(default)]
+    pub clock: super::clock::Clock,
+    /// The dealer: the buying mode, offers bought, orders, talks, warranties (see `dealer`).
+    #[serde(default)]
+    pub dealer: super::dealer::DealerState,
 }
 
 fn one() -> f64 {

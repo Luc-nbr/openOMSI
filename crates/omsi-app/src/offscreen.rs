@@ -2643,6 +2643,7 @@ pub(crate) fn run_offscreen(
             let mut nav = navigator::Navigator::new(true, settings.ui_opacity, &settings.navigator_corner);
             nav.schedule = omsi_cfg::env::var_os("OMSI_NAV_SCHEDULE").is_some();
             nav.show_ai = settings.nav_ai;
+            nav.set_rect(&settings.nav_rect);
             crate::stop_signs::set_style(crate::stop_signs::Style::from_setting(&settings.stop_style));
             if omsi_cfg::env::var_os("OMSI_NAV_MAP").is_some() {
                 nav.toggle_map();
