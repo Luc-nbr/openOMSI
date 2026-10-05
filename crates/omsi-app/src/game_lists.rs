@@ -5,6 +5,7 @@
 //! the list again (or the next one: a line's tours).
 
 use crate::App;
+use omsi_launcher_lib::lines::is_own_file;
 
 /// Which list the chooser shows.
 #[derive(Debug, Clone, PartialEq)]
@@ -275,9 +276,10 @@ pub(crate) fn items(app: &App, kind: &ListKind) -> Vec<(String, String)> {
         ListKind::Lines => {
             if let Some(sch) = app.schedule.as_ref() {
                 let mut lines: Vec<&omsi_timetable::Line> = sch.data.lines.iter().filter(|l| l.user_allowed && l.tours.iter().any(|t| tour_listed(sch, &l.name, t, app.clock.time))).collect();
-                lines.sort_by(|a, b| natural(&a.name, &b.name));
+                // (the player's own lines - the line editor's - after the map's)
+                lines.sort_by(|a, b| is_own_file(&a.name).cmp(&is_own_file(&b.name)).then_with(|| natural(&a.name, &b.name)));
                 for l in lines {
-                    out.push((format!("{} {}  ({} {})", tr("Line"), l.name, l.tours.iter().filter(|t| tour_listed(sch, &l.name, t, app.clock.time)).count(), tr("tours")), format!("line {}", l.name)));
+                    out.push((format!("{}  ({} {})", line_title(Some(sch), l), l.tours.iter().filter(|t| tour_listed(sch, &l.name, t, app.clock.time)).count(), tr("tours")), format!("line {}", l.name)));
                 }
             }
             if out.is_empty() {
@@ -491,9 +493,10 @@ pub(crate) fn menu_extras(
                         (what, when)
                     })
                     .collect();
-                Some(Preview { title: format!("{} {}", tr("Line"), line.name), meta: format!("{} {}", line.tours.iter().filter(|t| schedule.is_some_and(|s| tour_listed(s, &line.name, t, now))).count(), tr("tours")), rows, chosen: None, button: None, time: None })
+                Some(Preview { title: line_title(schedule, line), meta: format!("{} {}", line.tours.iter().filter(|t| schedule.is_some_and(|s| tour_listed(s, &line.name, t, now))).count(), tr("tours")), rows, chosen: None, button: None, time: None })
             });
-            (MenuKind::Lines, head("Line and tour..."), preview)
+            // (the small line above: the driver's personnel number and code, to sign on with)
+            (MenuKind::Lines, Some((title("Line and tour..."), crate::companion::duty_menu_note())), preview)
         }
         ListKind::Tours(line_name, pick) => {
             // (the line number of the trip of a tour shown: a tour may run trips of several lines)
@@ -1235,6 +1238,7 @@ fn toggle_now(app: &App, id: &str) -> Option<bool> {
         "blinker_cancel" => s.blinker_cancel,
         "fps" => s.show_fps,
         "get_up" => s.get_up,
+        "ibis_auto" => s.ibis_auto,
         "time_sync" => s.time_sync,
         "metar_sync" => s.metar_sync,
         "snow_cover" => app.weather.as_ref().is_some_and(|w|w.snow),
@@ -1354,6 +1358,13 @@ fn toggle_set(app: &mut App, id: &str, on: bool) -> Option<(&'static str, String
         "get_up" => {
             app.settings.get_up = on;
             Some(("get_up", bit))
+        }
+        "ibis_auto" => {
+            app.settings.ibis_auto = on;
+            if let Some(p) = app.player.as_mut() {
+                p.ibis_auto = on;
+            }
+            Some(("ibis_auto", bit))
         }
         // the real-time sync: the clock takes the device's date and time at once (a host's
         // clock runs at real time while it is on, at its time speed again after)
@@ -1943,6 +1954,7 @@ fn options_pages(app: &App) -> Vec<Page> {
         switch_row(app, "nav_arrows", "Route arrows (as in OMSI 2)", "Shows OMSI 2's route arrows over the road"),
         pick("navigator_corner", "Corner", later),
         switch_row(app, "get_up", "Ability to get up (Ctrl+Shift+G)", "Allows you to get out of the car and explore the world"),
+        switch_row(app, "ibis_auto", "Fill in the IBIS automatically", "The game types the duty's line, route and destination into the IBIS; off, you type them yourself"),
         switch_row(app, "coll_objects", "Collisions with objects", "Enables/disables collisions with objects such as buildings, streetlights, etc."),
         switch_row(app, "coll_vehicles", "Collisions with vehicles", "Enables/Disables Collisions with Other Vehicles"),
         switch_row(app, "collision_pedestrians", "Collisions with people", "Enables/disables knocking down people"),
@@ -2382,6 +2394,19 @@ fn line_sign(schedule: Option<&crate::schedule::Schedule>, line: &omsi_timetable
     sign.unwrap_or_else(|| line.name.clone())
 }
 
+/// "Line 12" for a line of the map's (its file's name, as OMSI lists it); a line the player
+/// made in the line editor (`oo_…`) by the number its trips carry, and marked as theirs.
+fn line_title(schedule: Option<&crate::schedule::Schedule>, line: &omsi_timetable::Line) -> String {
+    let tr = |t: &str| omsi_ui::tr(t).into_owned();
+    if is_own_file(&line.name) {
+        let sign = line_sign(schedule, line);
+        let number = if sign == line.name { sign.trim().get(omsi_launcher_lib::lines::FILE_PREFIX.len()..).unwrap_or(&sign).to_string() } else { sign };
+        format!("{} {number}  · {}", tr("Line"), tr("own line"))
+    } else {
+        format!("{} {}", tr("Line"), line.name)
+    }
+}
+
 /// A line's tours in alphabetical order of their numbers (numbers inside them as numbers:
 /// "2" before "10"; equal numbers by the time they start).
 fn sorted_tours(line: &omsi_timetable::Line) -> Vec<&omsi_timetable::Tour> {
@@ -2680,6 +2705,15 @@ mod tests {
         let mut v = vec!["13N", "5", "137", "N30", "92"];
         v.sort_by(|a, b| super::natural(a, b));
         assert_eq!(v, vec!["5", "13N", "92", "137", "N30"]);
+    }
+
+    #[test]
+    fn the_players_own_lines_are_marked_in_the_timetable_dialog() {
+        let tr = |t: &str| omsi_ui::tr(t).into_owned();
+        let line = |name: &str| omsi_timetable::Line { path: Default::default(), name: name.into(), user_allowed: true, priority: 1, tours: Vec::new() };
+        assert_eq!(super::line_title(None, &line("12")), format!("{} 12", tr("Line")));
+        // (without the timetable at hand, the number from the file's name)
+        assert_eq!(super::line_title(None, &line("oo_42")), format!("{} 42  · {}", tr("Line"), tr("own line")));
     }
 
     #[test]

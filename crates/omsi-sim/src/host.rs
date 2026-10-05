@@ -22,6 +22,11 @@ pub struct VehicleHost {
     /// `{init}`, as Omsi.exe sets them when it makes the vehicle (0x70a174), before the
     /// scripts start. None: not known yet (`apply_paint_vars` later).
     pub paint_scheme: Option<Option<usize>>,
+    /// Variables set before `{init}` too, after the paint scheme's: the player's bus options
+    /// (`--setvar`, the launcher's bus step). They are `[setvar]`s of the bus's liveries, and
+    /// a script that takes those over in `{init}` (the Kajosoft O530's `setvar_reset` copies
+    /// them into its own) never saw them set after the spawn.
+    pub start_vars: Vec<(String, f32)>,
     /// Fleet number and registration chosen by the vehicle dialog. They are copied to the
     /// script's `number` / `ident` strings before `{init}`, like Omsi.exe does.
     pub initial_number: Option<String>,

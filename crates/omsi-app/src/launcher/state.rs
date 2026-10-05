@@ -18,7 +18,7 @@ pub enum Msg {
     /// The first reading of the content: the buses of the next few folders, how many
     /// folders are read and how many there are.
     VehiclesRead { batch: Vec<core::VehicleInfo>, done: usize, total: usize },
-    Lines { map: String, date: String, lines: Result<Vec<core::LineInfo>, String> },
+    Lines { map: String, date: String, lines: Result<Vec<core::LineInfo>, String>, own: Vec<core::lines::OwnLine> },
     Poll(Result<core::Poll, String>),
     Profile(Result<core::Profile, String>),
     Profiles(Vec<String>),
@@ -123,7 +123,41 @@ pub struct Choice {
     pub lan_addr: String,
     /// 2: `entry` may be -1 (automatic); older files had a fixed entry point there.
     pub version: u32,
+    /// The duty is put together of trips of several tours (see `composed_duties`), not one
+    /// tour of one line.
+    pub composed: bool,
+    /// The length of such a duty (minutes) and the part of the day it begins in (an index
+    /// into `DAYPARTS`).
+    pub duty_minutes: i32,
+    pub daypart: usize,
+    /// The composed duty chosen: its parts as `--duty-leg` takes them. Its first part is
+    /// also `line`, `tour` and `start_trip`.
+    pub legs: Vec<String>,
+    /// Free drive with a line the player chose ("Choose a line yourself", see `freedrive`):
+    /// the switch, the timetable's line (`LineInfo::name`) and the route driven (its trip
+    /// file, `TripInfo::name`). The bus starts at the route's first stop; nothing is booked.
+    pub own_line: bool,
+    pub free_line: String,
+    pub free_route: String,
+    /// Free drive without a line: the stop chosen to start at (its name; the bus stands at
+    /// the entry point nearest to it), and the entry point the bus stands at - the free
+    /// drive's own, so that a stop chosen there does not move a duty's start (`entry`).
+    /// Empty and -1: the map's first entry point.
+    pub free_stop: String,
+    pub free_entry: i32,
+    /// The line lists show the player's own lines (the line editor's) instead of the map's.
+    pub my_lines: bool,
 }
+
+/// The parts of the day a composed duty may begin in: name, and from-to in minutes of the
+/// day (the night runs past midnight).
+pub const DAYPARTS: [(&str, Option<(i32, i32)>); 5] = [
+    ("All day", None),
+    ("Morning", Some((4 * 60, 11 * 60))),
+    ("Midday", Some((11 * 60, 16 * 60))),
+    ("Evening", Some((16 * 60, 22 * 60))),
+    ("Night", Some((22 * 60, 30 * 60))),
+];
 
 impl Default for Choice {
     fn default() -> Self {
@@ -152,6 +186,16 @@ impl Default for Choice {
             lan_mode: "off".into(),
             lan_addr: String::new(),
             version: 2,
+            composed: false,
+            duty_minutes: 120,
+            daypart: 0,
+            legs: Vec::new(),
+            own_line: false,
+            free_line: String::new(),
+            free_route: String::new(),
+            free_stop: String::new(),
+            free_entry: -1,
+            my_lines: false,
         }
     }
 }
@@ -198,6 +242,8 @@ pub struct State {
     pub vehicles: Vec<core::VehicleInfo>,
     pub weathers: Vec<core::WeatherInfo>,
     pub lines: Vec<core::LineInfo>,
+    /// The player's own lines of the map (see `ownlines`), read with the lines.
+    pub own_lines: Vec<core::lines::OwnLine>,
     pub lines_for: (String, String),
     pub loading_content: bool,
     /// The lists are filled while they are read (the first reading: nothing to show yet).
@@ -207,6 +253,8 @@ pub struct State {
     pub loading_lines: bool,
     pub choice: Choice,
     pub choice_dirty: f32,
+    /// The bus options chosen per bus, and what each bus offers (see `busoptions`).
+    pub bus_options: super::busoptions::Options,
     /// Map, whether it has a `laststn.osn`, when that was looked up.
     pub last_sit: Option<(String, Vec<core::SavedSituation>, std::time::Instant)>,
     /// Which of them "Continue" starts (0: the newest, the last situation when there is one).
@@ -256,6 +304,12 @@ pub struct State {
     pub server_info: std::collections::HashMap<String, (Instant, Result<omsi_net::ws::ServerInfo, String>)>,
     pub server_asked: std::collections::HashMap<String, Instant>,
     pub joined_server: Option<String>,
+    /// The composed duties offered (see `composed_duties`) and what they were made for: the
+    /// lines' map and date, the length, the part of the day, the seed, the number of lines.
+    composed: Vec<core::compose::ComposedDuty>,
+    composed_for: Option<(String, String, i32, usize, u64, usize)>,
+    /// What the composed duties are drawn with: "Other shifts" takes another.
+    pub compose_seed: u64,
     tx: Sender<Msg>,
     rx: Receiver<Msg>,
 }
@@ -275,6 +329,7 @@ impl State {
             vehicles: Vec::new(),
             weathers: Vec::new(),
             lines: Vec::new(),
+            own_lines: Vec::new(),
             lines_for: (String::new(), String::new()),
             loading_content: false,
             content_first: false,
@@ -282,6 +337,7 @@ impl State {
             loading_lines: false,
             choice,
             choice_dirty: 0.0,
+            bus_options: super::busoptions::Options::load(),
             last_sit: None,
             save_pick: 0,
             profiles: Vec::new(),
@@ -319,6 +375,10 @@ impl State {
             server_info: Default::default(),
             server_asked: Default::default(),
             joined_server: None,
+            composed: Vec::new(),
+            composed_for: None,
+            // (another set of duties at each start of the launcher)
+            compose_seed: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(1),
             tx,
             rx,
         };
@@ -432,7 +492,9 @@ impl State {
         self.lines_for = (map.clone(), date.clone());
         self.spawn(move || {
             let lines = core::list_lines(&map, &date).map_err(|e| format!("{e:#}"));
-            Msg::Lines { map, date, lines }
+            // (the player's own lines of the map, from the line editor's registry)
+            let own = core::lines::own_lines_of_map(&map);
+            Msg::Lines { map, date, lines, own }
         });
     }
 
@@ -458,6 +520,16 @@ impl State {
             return;
         }
         self.spawn(move || Msg::Ibis { key, info: core::ibis_info(&bus, &hof, &line).map_err(|e| format!("{e:#}")) });
+    }
+
+    /// What the bus options section asked for `bus` (see `busoptions`): done and kept, and
+    /// the command line made again.
+    pub fn edit_bus_options(&mut self, bus: &str, e: super::busoptions::Edit) {
+        let fold = e == super::busoptions::Edit::Technical;
+        self.bus_options.edit(bus, e);
+        if !fold {
+            self.load_args();
+        }
     }
 
     pub fn load_args(&mut self) {
@@ -605,6 +677,37 @@ impl State {
         self.queued_launch = Some(d);
     }
 
+    /// The game's object editor on `map`: a free drive there with the chosen bus, nothing of
+    /// the timetable, the editor on once the world is loaded (`--editor`).
+    pub fn launch_editor(&mut self, map: &str) {
+        if !self.save_pending_settings() {
+            return;
+        }
+        if !omsi_cfg::missing_original_essentials(std::path::Path::new(&self.config.root)).is_empty() {
+            self.set_status("A session needs the original OMSI 2: choose its folder under Setup first.", true);
+            return;
+        }
+        if self.choice.bus.trim().is_empty() {
+            self.set_status("Choose a bus on the Drive page first: the editor starts with it on the map.", true);
+            return;
+        }
+        let mut d = self.duty();
+        if d.map != map {
+            // (another map than the duty's: its first entry point, its own depot)
+            d.entry = Some(0);
+            d.hof = None;
+        }
+        d.map = map.to_string();
+        (d.line, d.tour, d.trip, d.free_line, d.whole_tour) = (None, None, None, None, false);
+        d.legs.clear();
+        d.schedule = Some(false);
+        d.traffic = Some(0);
+        d.lan = Some("off".into());
+        d.editor = true;
+        self.set_status("Starting the object editor…", false);
+        self.queued_launch = Some(d);
+    }
+
     /// The duty as the backend takes it.
     pub fn duty(&self) -> core::Duty {
         let c = &self.choice;
@@ -622,18 +725,27 @@ impl State {
             .then(|| self.joined_server.clone().unwrap_or_else(|| c.lan_addr.clone()))
             .and_then(|k| self.server_info.get(&k).and_then(|x| x.1.as_ref().ok()).map(|i| i.map.trim().replace('\\', "/")))
             .filter(|m| m.to_ascii_lowercase().contains("maps/"));
+        // a composed duty: its parts; none chosen (or one that no longer holds) is a free drive
+        let legs = self.composed_legs().map(|l| l.to_vec());
+        let free = c.free || (c.composed && legs.is_none());
+        // a free drive along a line the player chose: its line and route, the bus at the
+        // entry point nearest to the route's first stop
+        let free_route = super::freedrive::free_route(c);
         core::Duty {
             map: host_map.unwrap_or_else(|| c.map.clone()),
             bus: c.bus.clone(),
             paint: Some(c.paint.clone()).filter(|p| !p.is_empty()),
+            set_vars: self.bus_options.for_game(&self.config.root, &c.bus, &c.paint),
             plate: Some(c.plate.clone()).filter(|p| !p.trim().is_empty()),
             number: Some(c.number.clone()).filter(|n| !n.trim().is_empty()),
             hof: Some(c.hof.clone()).filter(|p| !p.is_empty()),
-            entry: Some(c.entry),
-            line: if c.free { None } else { c.line.clone() },
-            tour: if c.free { None } else { c.tour.clone() },
-            trip: if c.free { None } else { self.picked_trip().map(|i| i.to_string()) },
-            whole_tour: !c.free && self.picked_trip().is_some(),
+            entry: Some(if free_route.is_some() { -1 } else if c.free { c.free_entry } else { c.entry }),
+            line: if let Some((line, _)) = &free_route { Some(line.clone()) } else if free { None } else { c.line.clone() },
+            tour: if free { None } else { c.tour.clone() },
+            trip: if free { None } else { self.picked_trip().map(|i| i.to_string()) },
+            whole_tour: !free && self.picked_trip().is_some(),
+            legs: legs.unwrap_or_default(),
+            free_line: free_route.map(|r| r.1),
             time: format!("{:02}:{:02}", c.time / 60, c.time % 60),
             date: Some(c.date.clone()),
             weather: Some(c.weather.clone()).filter(|w| !w.is_empty()),
@@ -648,6 +760,7 @@ impl State {
             season: Some(c.season.clone()).filter(|s| s != "auto"),
             tutorial: None,
             situation: None,
+            editor: false,
         }
     }
 
@@ -863,6 +976,8 @@ impl State {
                 self.vehicles = vehicles;
                 self.weathers = weathers;
                 self.loading_content = false;
+                // (a bus may have had liveries added or taken away)
+                self.bus_options.forget();
                 // what was chosen last time, where it still exists
                 if !self.vehicles.iter().any(|v| v.file == self.choice.bus) {
                     if let Some(v) = self.vehicles.first() {
@@ -890,14 +1005,17 @@ impl State {
                     self.set_status(root_problem(&self.config.root), true);
                 }
             }
-            Msg::Lines { map, date, lines } => {
+            Msg::Lines { map, date, lines, own } => {
                 if let Ok(ls) = lines.as_ref() {
                     crate::mt::protect(ls.iter().flat_map(|l| l.termini.iter().map(|t| t.as_str()).chain([l.name.as_str()])).chain(ls.iter().flat_map(|l| l.tours.iter().map(|t| t.number.as_str()))));
                 }
+                let captions: Vec<String> = own.iter().map(|o| o.caption()).collect();
+                crate::mt::protect(own.iter().flat_map(|o| o.destinations.iter().map(|d| d.as_str()).chain([o.name.as_str()])).chain(captions.iter().map(|c| c.as_str())));
                 if (map, date) != self.lines_for {
                     return;
                 }
                 self.loading_lines = false;
+                self.own_lines = own;
                 match lines {
                     Ok(l) => {
                         self.lines = l;
@@ -1094,11 +1212,7 @@ impl State {
     /// (the chrono scenarios change it: Berlin's 1994 depot has line 137 where 1986's had
     /// 92), which the bus has, else its first.
     pub fn default_hof(&self) -> String {
-        let on_date = self.map().and_then(|m| {
-            let dir = omsi_cfg::resolve_path(std::path::Path::new(&self.config.root), &m.file);
-            omsi_map::ailists::depot_hof_on(dir.parent()?, omsi_map::ailists::date_code(&self.choice.date)?)
-        });
-        let want = on_date.or_else(|| self.map().map(|m| m.hof.clone())).unwrap_or_default();
+        let want = self.map_hof();
         let Some(v) = self.bus() else { return want };
         // (the bus's own depot of the same place before the map's borrowed from another
         // bus, and one named like the map before its first, #896)
@@ -1115,6 +1229,17 @@ impl State {
             .or_else(|| like(&map_hints))
             .or_else(|| v.hofs.first().cloned())
             .unwrap_or_default()
+    }
+
+    /// The depot file of the chosen map: the one its own buses use on the chosen date, else the
+    /// one its ailists name ("" for a map without one) - what a bus needs beside it to know the
+    /// map's destinations.
+    pub fn map_hof(&self) -> String {
+        let on_date = self.map().and_then(|m| {
+            let dir = omsi_cfg::resolve_path(std::path::Path::new(&self.config.root), &m.file);
+            omsi_map::ailists::depot_hof_on(dir.parent()?, omsi_map::ailists::date_code(&self.choice.date)?)
+        });
+        on_date.or_else(|| self.map().map(|m| m.hof.clone())).unwrap_or_default()
     }
 
     pub fn select_bus(&mut self, file: &str) {
@@ -1141,6 +1266,11 @@ impl State {
         self.choice.entry = -1;
         self.choice.line = None;
         self.choice.tour = None;
+        // (the free drive's line and stop are the old map's)
+        self.choice.free_line.clear();
+        self.choice.free_route.clear();
+        self.choice.free_stop.clear();
+        self.choice.free_entry = -1;
         self.choice.hof = self.default_hof();
         self.lines.clear();
         self.load_lines();
@@ -1191,6 +1321,58 @@ impl State {
     pub fn picked_trip(&self) -> Option<usize> {
         let (line, tour, index, time) = self.choice.start_trip.as_ref()?;
         (self.choice.line.as_ref() == Some(line) && self.choice.tour.as_ref() == Some(tour) && *time == self.choice.time).then_some(*index)
+    }
+
+    /// The duties put together of the day's tours for the chosen length and part of the day
+    /// (made again when one of them changes, when the day's lines are read anew, or for
+    /// "Other shifts"). Making them takes a millisecond: no thread for it.
+    pub fn composed_duties(&mut self) -> &[core::compose::ComposedDuty] {
+        let c = &self.choice;
+        let key = (self.lines_for.0.clone(), self.lines_for.1.clone(), c.duty_minutes, c.daypart, self.compose_seed, self.lines.len());
+        if self.composed_for.as_ref() != Some(&key) {
+            let window = DAYPARTS.get(c.daypart).and_then(|d| d.1);
+            let wish = core::compose::Wish {
+                seconds: c.duty_minutes as f64 * 60.0,
+                from: window.map(|w| w.0 as f64 * 60.0),
+                to: window.map(|w| w.1 as f64 * 60.0),
+                lines: Vec::new(),
+                seed: self.compose_seed,
+            };
+            self.composed = core::compose::compose(&self.lines, &wish, 8);
+            self.composed_for = Some(key);
+        }
+        &self.composed
+    }
+
+    /// Takes a composed duty: its first part is the line, the tour and the trip the game
+    /// starts with, at that trip's departure.
+    pub fn pick_composed(&mut self, d: &core::compose::ComposedDuty) {
+        let blocks = d.blocks();
+        let Some(first) = blocks.first() else { return };
+        let time = (first.departure / 60.0).floor() as i32;
+        self.choice.line = Some(first.line.clone());
+        self.choice.tour = Some(first.tour.clone());
+        self.choice.time = time;
+        self.choice.start_trip = Some((first.line.clone(), first.tour.clone(), first.first, time));
+        self.choice.legs = blocks.iter().map(|b| b.arg()).collect();
+        self.touched();
+    }
+
+    /// The parts of the composed duty chosen while it still holds: its start as picked (not
+    /// moved by another time, line or tour, nor taken by a trip picked in the roadbook of a
+    /// tour since) and each part's tour running on the day.
+    pub fn composed_legs(&self) -> Option<&[String]> {
+        let c = &self.choice;
+        if c.free || !c.composed || c.legs.is_empty() {
+            return None;
+        }
+        let first = core::compose::Block::parse(&c.legs[0]);
+        let picked = self.picked_trip().zip(c.start_trip.as_ref());
+        if !matches!((first, picked), (Some((line, tour, k, _)), Some((i, (l, t, ..)))) if line == *l && tour == *t && k == i) {
+            return None;
+        }
+        let runs =|leg: &String| core::compose::Block::parse(leg).is_some_and(|(line, tour, ..)| self.lines.iter().any(|l| l.name == line && l.tours.iter().any(|t| t.number == tour && t.runs)));
+        c.legs.iter().all(runs).then_some(c.legs.as_slice())
     }
 }
 

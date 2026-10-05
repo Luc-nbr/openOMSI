@@ -281,10 +281,10 @@ fn axis_slot(guid: GUID, has_axis: &[bool; 8]) -> Option<usize> {
 /// Build the DirectInput data format from the controls the device actually exposes.
 /// Some button boxes have no axes or POVs and reject a generic joystick format even when
 /// its missing entries are marked optional.
-fn format_objects(objects: &[InputObject]) -> (Vec<DIOBJECTDATAFORMAT>, [bool; 8], Option<u32>) {
+fn format_objects(objects: &[InputObject]) -> (Vec<DIOBJECTDATAFORMAT>, [bool; 8], Vec<u32>) {
     let mut objs = Vec::new();
     let mut has_axis = [false; 8];
-    let mut ff_axis = None;
+    let mut ff_axes = Vec::new();
     let mut pov = 0;
     let mut buttons = [false; 128];
     for object in objects {
@@ -296,7 +296,7 @@ fn format_objects(objects: &[InputObject]) -> (Vec<DIOBJECTDATAFORMAT>, [bool; 8
             has_axis[slot] = true;
             let offset = (slot * 4) as u32;
             if object.flags & DIDOI_FFACTUATOR != 0 {
-                ff_axis.get_or_insert(offset);
+                ff_axes.push(offset);
             }
             (offset, DIDOI_ASPECTPOSITION)
         } else if object.ty & DIDFT_POV != 0 && pov < 4 {
@@ -318,15 +318,35 @@ fn format_objects(objects: &[InputObject]) -> (Vec<DIOBJECTDATAFORMAT>, [bool; 8
         // here and we do not keep pointers into the temporary enumeration buffer.
         objs.push(DIOBJECTDATAFORMAT { pguid: std::ptr::null(), dwOfs: offset, dwType: object.ty, dwFlags: flags });
     }
-    (objs, has_axis, ff_axis)
+    (objs, has_axis, ff_axes)
 }
 
-fn data_format(dev: &IDirectInputDevice8W) -> Option<(Vec<DIOBJECTDATAFORMAT>, DIDATAFORMAT, [bool; 8], Option<u32>)> {
+/// The axes (data offsets) a wheel's constant force is tried on, in order: the X axis first -
+/// a wheel steers with it, as OMSI's forces assume - whether or not the driver marks it as a
+/// force actuator, then the axes the driver marks. (The MOZA R5 reports its Y axis as its
+/// first actuator: the forces went to an axis without a motor and the wheel stayed slack.)
+fn force_axes(has_axis: &[bool; 8], actuators: &[u32]) -> Vec<u32> {
+    let mut out = Vec::new();
+    if has_axis[0] {
+        out.push(0);
+    }
+    for &a in actuators {
+        if !out.contains(&a) {
+            out.push(a);
+        }
+    }
+    if out.is_empty() {
+        out.push(0);
+    }
+    out
+}
+
+fn data_format(dev: &IDirectInputDevice8W) -> Option<(Vec<DIOBJECTDATAFORMAT>, DIDATAFORMAT, [bool; 8], Vec<u32>)> {
     let mut objects = Vec::new();
     unsafe {
         dev.EnumObjects(Some(collect_object), &mut objects as *mut _ as *mut core::ffi::c_void, DIDFT_ALL).ok()?;
     }
-    let (objs, has_axis, ff_axis) = format_objects(&objects);
+    let (objs, has_axis, ff_axes) = format_objects(&objects);
     if objs.is_empty() {
         return None;
     }
@@ -339,7 +359,7 @@ fn data_format(dev: &IDirectInputDevice8W) -> Option<(Vec<DIOBJECTDATAFORMAT>, D
         dwNumObjs: objs.len() as u32,
         rgodf: std::ptr::null_mut(),
     };
-    Some((objs, f, has_axis, ff_axis))
+    Some((objs, f, has_axis, ff_axes))
 }
 
 /// `MAKEDIPROP(n)`: DirectInput's own properties are numbers passed where a GUID's address
@@ -507,7 +527,7 @@ impl DirectInput {
                 let pid = (info.guidProduct.data1 >> 16) as u16;
                 (vid != 0 && pid != 0).then_some((vid, pid))
             });
-            let Some((mut objs, mut fmt, has_axis, ff_axis)) = data_format(&dev) else {
+            let Some((mut objs, mut fmt, has_axis, ff_axes)) = data_format(&dev) else {
                 log::warn!("{name}: DirectInput could not list the device's controls");
                 return None;
             };
@@ -541,7 +561,8 @@ impl DirectInput {
                 let mut d = DIPROPDWORD { diph: DIPROPHEADER { dwSize: std::mem::size_of::<DIPROPDWORD>() as u32, dwHeaderSize: std::mem::size_of::<DIPROPHEADER>() as u32, dwObj: 0, dwHow: DIPH_DEVICE }, dwData: v };
                 let _ = dev.SetProperty(prop(p_id), &mut d.diph);
             }
-            let ff_axis = ff_axis.unwrap_or(0);
+            let candidates = force_axes(&has_axis, &ff_axes);
+            let mut ff_axis = candidates[0];
             let mut ff = None;
             let mut vib = None;
             if wants_ff {
@@ -553,9 +574,47 @@ impl DirectInput {
             }
             let _ = dev.Acquire();
             if wants_ff {
-                let mut axes = [ff_axis; 1];
                 let mut dirs = [0i32; 1];
                 let mut cf = DICONSTANTFORCE { lMagnitude: 0 };
+                let mut refused = None;
+                for &axis in &candidates {
+                    let mut axes = [axis; 1];
+                    let mut eff = DIEFFECT {
+                        dwSize: std::mem::size_of::<DIEFFECT>() as u32,
+                        dwFlags: DIEFF_CARTESIAN | DIEFF_OBJECTOFFSETS,
+                        dwDuration: u32::MAX, // INFINITE
+                        dwGain: DI_FFNOMINALMAX,
+                        dwTriggerButton: DIEB_NOTRIGGER,
+                        cAxes: 1,
+                        rgdwAxes: axes.as_mut_ptr(),
+                        rglDirection: dirs.as_mut_ptr(),
+                        cbTypeSpecificParams: std::mem::size_of::<DICONSTANTFORCE>() as u32,
+                        lpvTypeSpecificParams: &mut cf as *mut _ as *mut core::ffi::c_void,
+                        ..Default::default()
+                    };
+                    let mut e: Option<IDirectInputEffect> = None;
+                    match dev.CreateEffect(&GUID_ConstantForce, &mut eff, &mut e, None) {
+                        Ok(()) if e.is_some() => {
+                            if let Some(e) = e.as_ref() {
+                                if let Err(err) = e.Start(1, 0) {
+                                    log::warn!("{name}: force feedback effect could not start ({err})");
+                                }
+                            }
+                            ff = e;
+                            ff_axis = axis;
+                            break;
+                        }
+                        Ok(()) => {}
+                        Err(err) => refused = Some(err),
+                    }
+                }
+                if ff.is_none() {
+                    match refused {
+                        Some(err) => log::warn!("{name}: says it has force feedback, but its constant force could not be made ({err}): no forces"),
+                        None => log::warn!("{name}: says it has force feedback, but its constant force could not be made: no forces"),
+                    }
+                }
+                let mut axes = [ff_axis; 1];
                 let mut eff = DIEFFECT {
                     dwSize: std::mem::size_of::<DIEFFECT>() as u32,
                     dwFlags: DIEFF_CARTESIAN | DIEFF_OBJECTOFFSETS,
@@ -565,22 +624,8 @@ impl DirectInput {
                     cAxes: 1,
                     rgdwAxes: axes.as_mut_ptr(),
                     rglDirection: dirs.as_mut_ptr(),
-                    cbTypeSpecificParams: std::mem::size_of::<DICONSTANTFORCE>() as u32,
-                    lpvTypeSpecificParams: &mut cf as *mut _ as *mut core::ffi::c_void,
                     ..Default::default()
                 };
-                let mut e: Option<IDirectInputEffect> = None;
-                match dev.CreateEffect(&GUID_ConstantForce, &mut eff, &mut e, None) {
-                    Ok(()) => {
-                        if let Some(e) = e.as_ref() {
-                            if let Err(err) = e.Start(1, 0) {
-                                log::warn!("{name}: force feedback effect could not start ({err})");
-                            }
-                        }
-                        ff = e;
-                    }
-                    Err(err) => log::warn!("{name}: says it has force feedback, but its constant force could not be made ({err}): no forces"),
-                }
                 if ff.is_some() && hardware_id != Some(VJOY_HARDWARE_ID) {
                     let mut pf = DIPERIODIC { dwMagnitude: 0, lOffset: 0, dwPhase: 0, dwPeriod: 100_000 };
                     eff.cbTypeSpecificParams = std::mem::size_of::<DIPERIODIC>() as u32;
@@ -592,7 +637,7 @@ impl DirectInput {
                     }
                 }
             }
-            log::info!("game controller (DirectInput): {name}, {} axes, {} buttons{}", has_axis.iter().filter(|a| **a).count(), caps.dwButtons, if ff.is_some() { format!(", force feedback on axis {}", ff_axis / 4) } else if ff_capable && self.ff { ", force feedback capable (effect unavailable)".into() } else if ff_capable { ", force feedback capable".into() } else { String::new() });
+            log::info!("game controller (DirectInput): {name}, {} axes, {} buttons{}", has_axis.iter().filter(|a| **a).count(), caps.dwButtons, if ff.is_some() { format!(", force feedback on axis {} (the driver's actuators: {:?})", ff_axis / 4, ff_axes.iter().map(|a| a / 4).collect::<Vec<_>>()) } else if ff_capable && self.ff { ", force feedback capable (effect unavailable)".into() } else if ff_capable { ", force feedback capable".into() } else { String::new() });
             Some(Device { name: name.to_string(), guid: *guid, hardware_id, dev, has_axis, ff_capable, ff_axis, state: RawState::default(), valid: false, read_failures: 0, ff, ff_error_logged: false, vib, vib_last: (0, 0), vib_at: None, buttons: caps.dwButtons as usize })
         }
     }
@@ -894,6 +939,20 @@ mod tests {
         assert!(!is_controller_device(DI8DEVTYPE_DEVICE, 0xFF00, 0x01)); // Vendor specific
     }
 
+    /// A wheel's force goes to its X axis first, even where the driver lists another axis as
+    /// its first actuator (the MOZA R5's Y); a device without an X axis gets its actuators.
+    #[test]
+    fn the_wheel_force_is_tried_on_the_x_axis_first() {
+        let mut has = [false; 8];
+        has[0] = true;
+        has[1] = true;
+        assert_eq!(force_axes(&has, &[4, 0]), vec![0, 4]);
+        assert_eq!(force_axes(&has, &[4]), vec![0, 4]);
+        assert_eq!(force_axes(&has, &[]), vec![0]);
+        let only_z = [false, false, true, false, false, false, false, false];
+        assert_eq!(force_axes(&only_z, &[8]), vec![8]);
+    }
+
     #[test]
     fn button_box_without_axes_formats_successfully() {
         let objects: Vec<InputObject> = (0..16)
@@ -903,10 +962,10 @@ mod tests {
                 flags: 0,
             })
             .collect();
-        let (objs, has_axis, ff_axis) = format_objects(&objects);
+        let (objs, has_axis, ff_axes) = format_objects(&objects);
         assert_eq!(objs.len(), 16);
         assert_eq!(has_axis, [false; 8]);
-        assert_eq!(ff_axis, None);
+        assert!(ff_axes.is_empty());
         for (i, obj) in objs.iter().enumerate() {
             assert_eq!(obj.dwOfs, (48 + i) as u32);
         }

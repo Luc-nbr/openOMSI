@@ -3232,6 +3232,7 @@ dependencies = [
  "parking_lot",
  "pollster",
  "rayon",
+ "resvg",
  "rfd",
  "rust-i18n",
  "rustrict",

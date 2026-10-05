@@ -147,6 +147,19 @@ impl App {
                 return;
             }
         }
+        // the sign-on page's keypad takes the digits while it asks for the personnel number or
+        // the code (else they went to the bus's keys as well): on the city map, or on the small
+        // navigator while that is the page - there not with Shift, Ctrl or Alt held (Shift+1
+        // works a door), nor while the menu or the chat's line has the keys
+        if pressed {
+            let held = [KeyCode::ShiftLeft, KeyCode::ShiftRight, KeyCode::ControlLeft, KeyCode::ControlRight, KeyCode::AltLeft, KeyCode::AltRight].iter().any(|k| self.keys.contains(k));
+            let busy = held || self.game_menu.is_some() || self.menu.is_some() || lan::chat_open(&self.remotes);
+            if let Some(n) = self.navigator.as_mut().filter(|n| n.map_open() || !busy) {
+                if n.page_key(code) {
+                    return;
+                }
+            }
+        }
         let event_key = PhysicalKey::Code(code);
         if let (Some(m), PhysicalKey::Code(code)) = (self.menu.as_mut(), event_key) {
             if pressed {
@@ -1235,6 +1248,15 @@ impl App {
         true
     }
 
+    /// The navigator's size changed in the game (Ctrl + the wheel over it, the city map's -
+    /// and +): kept as the launcher's setting `nav_scale`, as a dragged navigator's place is.
+    pub(crate) fn keep_nav_size(&mut self) {
+        if let Some(v) = self.navigator.as_mut().and_then(|n| n.take_resized()) {
+            self.settings.nav_scale = v;
+            crate::game_lists::remember_setting("nav_scale", &v.to_string());
+        }
+    }
+
     pub(crate) fn on_left(&mut self, pressed: bool) {
         if self.vr_nav_edit.is_some() { return; }
         // the object editor: the mouse picks and drags
@@ -1262,6 +1284,8 @@ impl App {
                 } else {
                     n.map_release();
                 }
+                // (its - and + size the navigator: kept for the next game)
+                self.keep_nav_size();
                 return;
             }
             // (a click opens the city map, a drag moves the navigator: #940)
@@ -2428,6 +2452,8 @@ impl App {
             autostart: false,
             paint,
             hof: hof.or(self.args.hof.clone()),
+            // (the launcher's bus options are for the bus it started with: kept for that file)
+            setvar: self.args.setvar.clone().filter(|_| self.args.bus.as_deref().is_some_and(|b| b.replace('\\', "/").eq_ignore_ascii_case(&bus.replace('\\', "/")))),
             ..self.args.clone()
         };
         match spawn_player(&one, &w, r, scene) {
@@ -2513,6 +2539,7 @@ impl App {
             trip: None,
             autostart: false,
             paint: None,
+            setvar: None,
             ..self.args.clone()
         };
         match spawn_player(&one, &w, r, scene) {

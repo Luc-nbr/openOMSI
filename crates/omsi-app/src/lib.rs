@@ -29,9 +29,11 @@ mod mt;
 mod updater;
 mod update_watch;
 mod presence;
+mod accent;
 mod ambience;
 mod camera_arm;
 mod career;
+mod companion;
 mod describe;
 mod editor;
 mod game_lists;
@@ -46,9 +48,16 @@ mod lan;
 mod lan_world;
 mod lights;
 mod launcher;
+// openOMSI's own launcher as it was before the new one, for players who choose it
+// (`launcher_ui=classic`); the game side keeps using `launcher`
+mod launcher_classic;
 mod menu;
 mod mirror_hud;
 mod navigator;
+mod nav_duty;
+mod nav_signon;
+mod nav_pins;
+mod stop_signs;
 mod vr_navigator;
 mod money;
 mod radio;
@@ -64,6 +73,7 @@ mod settings;
 mod threads;
 mod tiles;
 mod traffic;
+mod trip_report;
 mod ui;
 
 // the game itself, split by what each part does
@@ -151,6 +161,9 @@ use traffic_link::*;
 use weather_setup::*;
 use world_load::*;
 
+/// Whether a panic is written into ~/.openomsi/launcher.log too (this process is the launcher).
+static PANICS_TO_LAUNCHER_LOG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// The game (and its launcher) from the command line: what `main` does.
 pub fn run() -> Result<()> {
     omsi_cfg::migrate_legacy_data_dir();
@@ -167,10 +180,12 @@ pub fn run() -> Result<()> {
             log::warn!("caught by the renderer: {info}");
             return;
         }
-        log::error!(
-            "the game stopped on an error (build {BUILD}): {info}\n{}",
-            std::backtrace::Backtrace::force_capture()
-        );
+        let trace = std::backtrace::Backtrace::force_capture();
+        log::error!("the game stopped on an error (build {BUILD}): {info}\n{trace}");
+        // (the launcher's own log is a file: its window has no terminal to show the panic in)
+        if PANICS_TO_LAUNCHER_LOG.load(std::sync::atomic::Ordering::Relaxed) {
+            omsi_launcher_lib::log_to_file(&format!("the launcher stopped on an error (build {BUILD}): {info}\n{trace}"));
+        }
         default_hook(info);
     }));
     log::info!(
@@ -192,7 +207,12 @@ pub fn run() -> Result<()> {
         if omsi_cfg::env::var_os("OMSI_LAUNCHER").is_some() && open_launcher()? {
             return Ok(());
         }
+        PANICS_TO_LAUNCHER_LOG.store(true, std::sync::atomic::Ordering::Relaxed);
         launcher_statics();
+        // (the classic launcher when the player chose it; the new one otherwise)
+        if launcher_classic::chosen() {
+            return launcher_classic::run(graphics_instance());
+        }
         return launcher::run(graphics_instance());
     }
     let Some(app) = make_app(args, server_cfg)? else { return Ok(()) };
@@ -223,6 +243,8 @@ pub(crate) fn launcher_statics() {
 /// nothing more to do (a fatal error was shown).
 pub(crate) fn prepare(mut args: Args, bare: bool) -> Result<Option<(Args, Option<server::ServerCfg>)>> {
     ui_language(&settings::Settings::load().language);
+    // (the interface's accent colour, as the launcher's Settings chose it)
+    accent::set_from_setting(Some(&settings::Settings::load().accent));
     // (a server has no interface to translate)
     mt::enable(settings::Settings::load().machine_translation && args.server.is_none());
     // the dedicated server: server.cfg decides the world, the rest is a host without a window
@@ -585,6 +607,7 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
         plugins: None,
         career: Default::default(),
         journey: None,
+        trip_report: Default::default(),
         wetness: 0.0,
         cloud_drift: [0.0; 2],
         menu_edit: None,
