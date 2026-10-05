@@ -23,6 +23,7 @@ pub mod day;
 pub mod dealer;
 pub mod depot;
 pub mod economy;
+pub mod fares;
 pub mod finance;
 pub mod fleetmap;
 pub mod levels;
@@ -148,6 +149,17 @@ pub enum Alert {
     Unhappy(usize),
     /// A leased or rented bus goes back within a week.
     GoingBack { number: String, until: String },
+    /// Lines not in service yet (not planned): their numbers.
+    NotPlanned(Vec<String>),
+    /// Tours of tomorrow not covered (lines in service): without a bus, duties without a driver.
+    Tomorrow { tours: usize, buses: usize, duties: usize },
+}
+
+/// Tomorrow's tours not covered, from tomorrow's plan.
+pub fn tomorrow_alert(p: &day::Plan) -> Option<Alert> {
+    let n = p.uncovered();
+    let (buses, duties) = p.short_of();
+    (n > 0).then_some(Alert::Tomorrow { tours: n, buses, duties })
 }
 
 /// The company's alerts, with today's plan when it is known.
@@ -161,6 +173,11 @@ pub fn alerts(c: &Company, plan: Option<&day::Plan>) -> Vec<Alert> {
     }
     if c.staff.is_empty() {
         out.push(Alert::NoDrivers);
+    }
+    let now = clock::now(c);
+    let waiting: Vec<String> = c.lines.iter().filter(|l| !network::in_service(l, now) && l.service_from.is_none_or(|s| s > now)).map(|l| l.number.clone()).collect();
+    if !waiting.is_empty() {
+        out.push(Alert::NotPlanned(waiting));
     }
     if let Some(p) = plan {
         let n = p.uncovered();

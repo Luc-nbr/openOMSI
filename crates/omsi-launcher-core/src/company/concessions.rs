@@ -460,6 +460,7 @@ fn new_tender(c: &mut Company, l: &LineInfo, opens_at: i64, renewal: bool) -> u3
 pub fn refresh(c: &mut Company, lines: &[LineInfo]) -> bool {
     let r = rules(c.difficulty);
     let mut changed = ensure(c);
+    changed |= mend_tenders(c, lines);
     let today = c.date.clone();
     let now = clock::now(c);
     // renewals: on an easy economy they renew by themselves
@@ -508,6 +509,28 @@ pub fn refresh(c: &mut Company, lines: &[LineInfo]) -> bool {
             // one a day, in the office hours, half an hour from now at the soonest
             let at = clock::moment(&dates::add(&today, k as i64), 9 * 60 + rng.int(0, 24) * 15).max(now + 30);
             new_tender(c, &l, at, false);
+        }
+    }
+    changed
+}
+
+/// Open tenders as `specials` reads their timetables now. Older versions offered timetables
+/// that are no line of their own and named a whole-day timetable after its first trip - in Bad
+/// Hügelsdorf the depot run "X" that opens "Montag - Freitag" - and the file kept both: such
+/// tenders are withdrawn, the others get the number and caption of their passenger trips.
+/// Returns whether anything changed.
+fn mend_tenders(c: &mut Company, lines: &[LineInfo]) -> bool {
+    let depot = c.depot.clone();
+    let of = |name: &str| lines.iter().find(|l| l.name.eq_ignore_ascii_case(name));
+    let before = c.concessions.tenders.len();
+    c.concessions.tenders.retain(|t| !t.open() || of(&t.line).is_none_or(|l| specials::line_kind(l, &[&depot]).line()));
+    let mut changed = before != c.concessions.tenders.len();
+    for t in c.concessions.tenders.iter_mut().filter(|t| t.open()) {
+        let Some(l) = of(&t.line) else { continue };
+        let (number, caption) = (specials::number_of(l, &[&depot]), specials::caption_of(l, &[&depot]));
+        if t.number != number || t.caption != caption {
+            (t.number, t.caption) = (number, caption);
+            changed = true;
         }
     }
     changed
@@ -983,6 +1006,34 @@ pub(crate) mod tests {
         refresh(&mut c, &lines);
         assert_eq!(c.concessions.tenders.iter().map(|t| t.line.as_str()).collect::<Vec<_>>(), vec!["Linie7"]);
         assert!(apply(&mut c, &depot).is_err() && apply(&mut c, &shuttle).is_err());
+    }
+
+    #[test]
+    fn tenders_of_older_files_are_read_again() {
+        // Bad Hügelsdorf: the weekday timetable opens with the depot run X; an older version
+        // named its tender "Line X" after it, and offered other operators' traffic too
+        let mut day = line("Montag - Freitag", "301", 2, true);
+        let first = &mut day.tours[0].trips[0];
+        (first.line, first.name, first.terminus) = ("X".into(), "(leer) Betriebshof VBBH - Hildegardplatz".into(), "Betriebsfahrt".into());
+        for t in day.tours.iter_mut().flat_map(|t| t.trips.iter_mut()).skip(1) {
+            t.terminus = "Hauptbahnhof                              301".into();
+        }
+        let mut other = line("251", "251", 1, true);
+        other.user_allowed = false;
+        let lines = vec![day.clone(), other.clone()];
+        let mut c = company(Difficulty::Realistic);
+        c.clock.minute = 9 * 60;
+        let now = clock::now(&c);
+        let a = new_tender(&mut c, &day, now, false);
+        let b = new_tender(&mut c, &other, now, false);
+        for t in c.concessions.tenders.iter_mut() {
+            (t.number, t.caption) = ("X".into(), "Betriebsfahrt – Hauptbahnhof                              301".into());
+        }
+        assert!(mend_tenders(&mut c, &lines));
+        let t = c.concessions.tenders.iter().find(|t| t.id == a).unwrap();
+        assert_eq!((t.number.as_str(), t.caption.as_str()), ("301", "Hauptbahnhof"));
+        assert!(c.concessions.tenders.iter().all(|t| t.id != b), "no line of its own: withdrawn");
+        assert!(!mend_tenders(&mut c, &lines), "nothing more to mend");
     }
 
     #[test]

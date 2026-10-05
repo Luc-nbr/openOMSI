@@ -6,6 +6,7 @@
 use super::super::theme::*;
 use super::super::ui::ButtonKind;
 use super::super::Launcher;
+use super::kit::{self, Foot};
 use super::{data, eur, monogram, section};
 use glam::Vec2;
 use omsi_launcher_lib as core;
@@ -23,6 +24,9 @@ pub struct Wizard {
     logo: Option<String>,
     map: usize,
     depot: usize,
+    /// The first company day: today (0), the map's date (1), or one of the player's own (2,
+    /// `date`).
+    when: usize,
     date: String,
     difficulty: usize,
     /// 0 simple, 1 advanced (`dealer::BuyingMode::ALL`).
@@ -32,8 +36,45 @@ pub struct Wizard {
 impl Wizard {
     pub fn new(l: &Launcher) -> Wizard {
         let map = l.state.maps.iter().position(|m| m.file == l.state.choice.map).unwrap_or(0);
-        let date = if co::dates::parse(&l.state.choice.date).is_some() { l.state.choice.date.clone() } else { core::DEFAULT_DATE.to_string() };
-        Wizard { name: String::new(), short: String::new(), colours: [0, 4], logo: None, map, depot: 0, date, difficulty: 1, buying: 1 }
+        Wizard { name: String::new(), short: String::new(), colours: [0, 4], logo: None, map, depot: 0, when: 0, date: today(), difficulty: 1, buying: 1 }
+    }
+}
+
+/// Today's date as the computer has it, in its own time zone (taken anew each time; the UTC
+/// date where the machine does not say).
+pub(super) fn today() -> String {
+    if let Some((y, m, d, _, _)) = omsi_launcher_lib::local_now() {
+        return format!("{y:04}-{m:02}-{d:02}");
+    }
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    co::dates::fmt((secs / 86_400) as i64)
+}
+
+/// The date a map is set in: the date the launcher drives it on when it is the map chosen
+/// there, else the year in its name ("Bad_Huegelsdorf_2020", "Vienna 2005") on the game's day
+/// of the year, else the game's own first day.
+pub(super) fn map_date(map: &core::MapInfo, chosen_map: &str, chosen_date: &str) -> String {
+    if map.file == chosen_map && co::dates::parse(chosen_date).is_some() {
+        return chosen_date.to_string();
+    }
+    let text = format!("{} {} {}", map.file, map.name, map.friendly);
+    let year = text
+        .split(|c: char| !c.is_ascii_digit())
+        .filter(|w| w.len() == 4)
+        .filter_map(|w| w.parse::<i32>().ok())
+        .find(|y| (1950..=2099).contains(y));
+    match year {
+        Some(y) => format!("{y}{}", &core::DEFAULT_DATE[4..]),
+        None => core::DEFAULT_DATE.to_string(),
+    }
+}
+
+/// The first company day the wizard's choice comes to.
+pub(super) fn first_day(when: usize, map: Option<&core::MapInfo>, chosen_map: &str, chosen_date: &str, own: &str) -> String {
+    match when {
+        1 => map.map(|m| map_date(m, chosen_map, chosen_date)).unwrap_or_else(today),
+        2 if co::dates::parse(own).is_some() => own.to_string(),
+        _ => today(),
     }
 }
 
@@ -78,33 +119,33 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     let Some(mut w) = l.company.wizard.take() else { return };
     let has = l.company.companies.as_ref().is_some_and(|c| !c.is_empty());
     // the head: what this is
-    l.ui.text_in("Found your bus company", Rect::new(area.x, area.y, area.w, 30.0), 22.0, Weight::Bold, TEXT, Align::Left);
-    l.ui.paragraph("Run your own transport company on a map: buy, lease or rent buses, hire drivers and run the map's lines or your own. The company has its own clock: simulate its time by the hour or by days, and what happens is told as it comes; what you drive yourself counts as it was driven.", Vec2::new(area.x, area.y + 36.0), area.w.min(900.0), 13.5, Weight::Regular, TEXT_DIM);
-    let top = area.y + 92.0;
+    l.ui.text_in("Found your bus company", Rect::new(area.x, area.y, area.w, 32.0), 24.0, Weight::Bold, TEXT, Align::Left);
+    let ih = l.ui.paragraph("Run your own transport company on a map: buy, lease or rent buses, hire drivers and run the map's lines or your own. The company has its own clock: simulate its time by the hour or by days, and what happens is told as it comes; what you drive yourself counts as it was driven.", Vec2::new(area.x, area.y + 40.0), area.w.min(1100.0), kit::BODY, Weight::Regular, TEXT_SOFT);
+    let top = area.y + 40.0 + ih + 18.0;
     let gap = 18.0;
     let col_w = (area.w - gap) / 2.0;
-    let h = (area.bottom() - top - 58.0).max(200.0);
+    let h = (area.bottom() - top - 64.0).max(200.0);
     // who the company is
     let left = section(&mut l.ui, Rect::new(area.x, top, col_w, h), "The company");
     let mut y = left.y;
-    l.ui.label(Rect::new(left.x, y, left.w, 18.0), "Name");
-    y += 20.0;
-    l.ui.text_input("company-name", Rect::new(left.x, y, left.w, ROW), &mut w.name, "Stadtbus Grundorf", None);
-    y += ROW + 14.0;
+    l.ui.label(Rect::new(left.x, y, left.w, 20.0), "Name");
+    y += 24.0;
+    l.ui.text_input("company-name", Rect::new(left.x, y, left.w, 40.0), &mut w.name, "Stadtbus Grundorf", None);
+    y += 40.0 + 16.0;
     let half = (left.w - GAP) / 2.0;
-    l.ui.label(Rect::new(left.x, y, half, 18.0), "Short name (plates and logo)");
-    y += 20.0;
+    l.ui.label(Rect::new(left.x, y, left.w, 20.0), "Short name (plates and logo)");
+    y += 24.0;
     let suggested = co::short_of(&w.name);
     let placeholder = if suggested.is_empty() { "SG".to_string() } else { suggested };
-    l.ui.text_input("company-short", Rect::new(left.x, y, half, ROW), &mut w.short, &placeholder, None);
+    l.ui.text_input("company-short", Rect::new(left.x, y, half, 40.0), &mut w.short, &placeholder, None);
     if w.short.chars().count() > 4 {
         w.short = w.short.chars().take(4).collect();
     }
-    y += ROW + 14.0;
+    y += 40.0 + 16.0;
     for (k, title) in ["Main colour", "Second colour"].iter().enumerate() {
-        l.ui.label(Rect::new(left.x, y, left.w, 18.0), title);
-        y += 22.0;
-        let sw = ((left.w - 11.0 * 6.0) / 12.0).min(30.0);
+        l.ui.label(Rect::new(left.x, y, left.w, 20.0), title);
+        y += 26.0;
+        let sw = ((left.w - 11.0 * 6.0) / 12.0).min(34.0);
         for (i, hex) in PALETTE.iter().enumerate() {
             let r = Rect::new(left.x + i as f32 * (sw + 6.0), y, sw, sw);
             let (hov, _, clicked) = l.ui.interact(super::super::ui::id_of(&format!("company-colour-{k}-{i}")), r);
@@ -118,14 +159,15 @@ pub fn draw(l: &mut Launcher, area: Rect) {
                 w.colours[k] = i;
             }
         }
-        y += sw + 14.0;
+        y += sw + 16.0;
     }
     // the mark as it will look, and a logo picture
     let preview = co::Company { short: if w.short.trim().is_empty() { placeholder.clone() } else { w.short.trim().to_uppercase() }, colours: [PALETTE[w.colours[0]].into(), PALETTE[w.colours[1]].into()], ..co::found(&co::Founding::default(), "") };
-    monogram(&mut l.ui, Rect::new(left.x, y, 64.0, 64.0), &preview);
+    monogram(&mut l.ui, Rect::new(left.x, y, 68.0, 68.0), &preview);
     let logo_text = w.logo.as_deref().map(|p| p.rsplit(['/', '\\']).next().unwrap_or(p).to_string()).unwrap_or_else(|| omsi_ui::tr("No logo picture: the short name is the mark.").into_owned());
-    l.ui.text_in(&logo_text, Rect::new(left.x + 80.0, y + 4.0, left.w - 80.0, 20.0), 12.5, Weight::Regular, TEXT_DIM, Align::Left);
-    if l.ui.button("company-logo", Rect::new(left.x + 80.0, y + 28.0, 200.0f32.min(left.w - 80.0), 32.0), "Choose a logo picture", Some("photo_camera"), ButtonKind::Normal) {
+    l.ui.text_in(&logo_text, Rect::new(left.x + 84.0, y + 2.0, left.w - 84.0, 22.0), kit::NOTE, Weight::Regular, TEXT_SOFT, Align::Left);
+    let lw = Foot::width(&l.ui, "Choose a logo picture", Some("photo_camera")).min(left.w - 84.0);
+    if l.ui.button("company-logo", Rect::new(left.x + 84.0, y + 30.0, lw, 36.0), "Choose a logo picture", Some("photo_camera"), ButtonKind::Normal) {
         if let Some(p) = core::pick_file("Choose a logo picture") {
             w.logo = Some(p.to_string_lossy().to_string());
         }
@@ -136,44 +178,58 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     let mut y = right.y;
     let maps: Vec<core::MapInfo> = l.state.maps.clone();
     if maps.is_empty() {
-        l.ui.paragraph("No maps found: the company needs a map to be at home on.", Vec2::new(right.x, y), right.w, 13.0, Weight::Regular, WARN);
+        l.ui.paragraph("No maps found: the company needs a map to be at home on.", Vec2::new(right.x, y), right.w, kit::BODY, Weight::Regular, WARN);
     } else {
         w.map = w.map.min(maps.len() - 1);
-        l.ui.label(Rect::new(right.x, y, right.w, 18.0), "Home map");
-        y += 20.0;
+        l.ui.label(Rect::new(right.x, y, right.w * 0.5, 20.0), "Home map");
+        l.ui.label(Rect::new(right.x + right.w * 0.5 + GAP * 0.5, y, right.w * 0.5 - GAP * 0.5, 20.0), "Depot (the buses' depot file)");
+        y += 24.0;
         let names: Vec<String> = maps.iter().map(map_label).collect();
         let mut m = w.map;
-        if l.ui.select("company-map", Rect::new(right.x, y, right.w, ROW), &mut m, &names) {
+        if l.ui.select("company-map", Rect::new(right.x, y, right.w * 0.5 - GAP * 0.5, 40.0), &mut m, &names) {
             w.map = m;
             w.depot = 0;
         }
-        y += ROW + 14.0;
         let depots = depots_for(&maps[w.map], &l.state.vehicles);
-        l.ui.label(Rect::new(right.x, y, half.max(200.0), 18.0), "Depot (the buses' depot file)");
-        l.ui.label(Rect::new(right.x + right.w * 0.6 + GAP, y, right.w * 0.4 - GAP, 18.0), "First company day");
-        y += 20.0;
+        let dr = Rect::new(right.x + right.w * 0.5 + GAP * 0.5, y, right.w * 0.5 - GAP * 0.5, 40.0);
         if depots.is_empty() {
-            l.ui.text_in("The map has no depot file.", Rect::new(right.x, y, right.w * 0.6, ROW), 13.0, Weight::Regular, TEXT_DIM, Align::Left);
+            l.ui.text_in("The map has no depot file.", dr, kit::BODY, Weight::Regular, TEXT_SOFT, Align::Left);
         } else {
             w.depot = w.depot.min(depots.len() - 1);
             let mut d = w.depot;
-            if l.ui.select("company-depot", Rect::new(right.x, y, right.w * 0.6, ROW), &mut d, &depots) {
+            if l.ui.select("company-depot", dr, &mut d, &depots) {
                 w.depot = d;
             }
         }
-        l.ui.date_field("company-date", Rect::new(right.x + right.w * 0.6 + GAP, y, right.w * 0.4 - GAP, ROW), &mut w.date);
-        l.ui.tooltip(Rect::new(right.x + right.w * 0.6 + GAP, y, right.w * 0.4 - GAP, ROW), "Its year decides the buses: models no longer built then are sold second-hand only, models not built yet are not sold.");
-        y += ROW + 18.0;
+        y += 40.0 + 16.0;
+        // the first company day: today, the map's own date, or one of the player's own
+        l.ui.label(Rect::new(right.x, y, right.w, 20.0), "First company day");
+        y += 24.0;
+        let labels: Vec<String> = ["Today", "The map's date", "A date of my own"].iter().map(|s| omsi_ui::tr(s).into_owned()).collect();
+        let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+        let cw = l.ui.chips_height(right.w, 36.0, &refs);
+        l.ui.chips("company-when", Rect::new(right.x, y, right.w, 36.0), &mut w.when, &refs);
+        y += cw + 10.0;
+        let first = first_day(w.when, maps.get(w.map), &l.state.choice.map, &l.state.choice.date, &w.date);
+        if w.when == 2 {
+            l.ui.date_field("company-date", Rect::new(right.x, y, 220.0, 40.0), &mut w.date);
+            y += 50.0;
+        } else {
+            let t = omsi_ui::tr("The company begins on %{date}.").replace("%{date}", &super::day_label(&first));
+            l.ui.text_in(&t, Rect::new(right.x, y, right.w, 24.0), kit::BODY, Weight::Medium, TEXT, Align::Left);
+            y += 34.0;
+        }
+        y += 4.0;
     }
-    l.ui.label(Rect::new(right.x, y, right.w, 18.0), "Difficulty");
-    y += 22.0;
+    l.ui.label(Rect::new(right.x, y, right.w, 20.0), "Difficulty");
+    y += 26.0;
     let texts = [
         "Generous: grants on new buses, more passengers, few breakdowns, loans without interest.",
         "German city bus prices and wages, contracts with penalties, a margin of a few per cent.",
         "Tight: prices rise faster than the contract pays, dear loans, more breakdowns and illness.",
     ];
     let cw = (right.w - 2.0 * GAP) / 3.0;
-    let ch = (right.bottom() - y - 86.0).clamp(110.0, 170.0);
+    let ch = (right.bottom() - y - 96.0).clamp(140.0, 210.0);
     for (k, d) in Difficulty::ALL.iter().enumerate() {
         let r = Rect::new(right.x + k as f32 * (cw + GAP), y, cw, ch);
         let on = w.difficulty == k;
@@ -181,31 +237,43 @@ pub fn draw(l: &mut Launcher, area: Rect) {
             w.difficulty = k;
         }
         l.ui.p().rounded_border(r, RADIUS, if on { 2.0 } else { 1.0 }, if on { accent() } else { HAIRLINE });
-        l.ui.text_in(d.label(), Rect::new(r.x + 12.0, r.y + 10.0, r.w - 24.0, 20.0), 15.0, Weight::Bold, if on { TEXT } else { TEXT_SOFT }, Align::Left);
+        l.ui.text_in(d.label(), Rect::new(r.x + 14.0, r.y + 12.0, r.w - 28.0, 24.0), kit::HEAD, Weight::Bold, if on { TEXT } else { TEXT_SOFT }, Align::Left);
         let capital = co::economy::rules(*d).start_capital;
-        l.ui.text_in(&eur(capital), Rect::new(r.x + 12.0, r.y + 32.0, r.w - 24.0, 18.0), 13.0, Weight::Bold, LINE, Align::Left);
-        l.ui.paragraph(texts[k], Vec2::new(r.x + 12.0, r.y + 56.0), r.w - 24.0, 11.5, Weight::Regular, TEXT_DIM);
+        l.ui.text_in(&eur(capital), Rect::new(r.x + 14.0, r.y + 38.0, r.w - 28.0, 22.0), kit::ROWS, Weight::Bold, LINE, Align::Left);
+        l.ui.paragraph(texts[k], Vec2::new(r.x + 14.0, r.y + 66.0), r.w - 28.0, kit::NOTE, Weight::Regular, TEXT_SOFT);
     }
     // how it buys its buses
-    let y = y + ch + 16.0;
-    l.ui.label(Rect::new(right.x, y, right.w, 18.0), "Buying buses");
+    let y = y + ch + 18.0;
+    l.ui.label(Rect::new(right.x, y, right.w, 20.0), "Buying buses");
     let modes: Vec<String> = co::dealer::BuyingMode::ALL.iter().map(|m| omsi_ui::tr(m.label()).into_owned()).collect();
     let refs: Vec<&str> = modes.iter().map(String::as_str).collect();
-    let sw = (right.w * 0.4).clamp(180.0, 260.0);
-    l.ui.segmented("company-buying", Rect::new(right.x, y + 22.0, sw, 32.0), &mut w.buying, &refs);
+    let sw = (right.w * 0.4).clamp(200.0, 280.0);
+    l.ui.segmented("company-buying", Rect::new(right.x, y + 26.0, sw, 38.0), &mut w.buying, &refs);
     let say = if w.buying == 0 { "A model, a number, the list price: the buses are yours at once." } else { "Haggle with the dealer, agree on extras and sign a contract; new buses are delivered." };
-    l.ui.paragraph(say, Vec2::new(right.x + sw + GAP, y + 22.0), right.w - sw - GAP, 11.5, Weight::Regular, TEXT_DIM);
+    l.ui.paragraph(say, Vec2::new(right.x + sw + GAP, y + 26.0), right.w - sw - GAP, kit::NOTE, Weight::Regular, TEXT_SOFT);
     // found it
-    let by = area.bottom() - 42.0;
+    let by = area.bottom() - 44.0;
     let ok = !w.name.trim().is_empty() && !maps.is_empty();
-    if has && l.ui.button("company-wizard-cancel", Rect::new(area.right() - 400.0, by, 140.0, 40.0), "Cancel", None, ButtonKind::Normal) {
+    let fw = Foot::width(&l.ui, "Found the company", Some("check_circle"));
+    let found_r = Rect::new(area.right() - fw, by, fw, 44.0);
+    if has && l.ui.button("company-wizard-cancel", Rect::new(found_r.x - 12.0 - 140.0, by, 140.0, 44.0), "Cancel", None, ButtonKind::Normal) {
         l.company.wizard = None;
         return;
     }
     if !ok {
-        l.ui.text_in("Give the company a name.", Rect::new(area.x, by, area.w - 420.0, 40.0), 13.0, Weight::Regular, TEXT_DIM, Align::Left);
+        l.ui.text_in("Give the company a name.", Rect::new(area.x, by, area.w - 460.0, 44.0), kit::BODY, Weight::Regular, TEXT_SOFT, Align::Left);
     }
-    if l.ui.button("company-found", Rect::new(area.right() - 240.0, by, 240.0, 40.0), "Found the company", Some("check_circle"), ButtonKind::Primary) && ok {
+    if l.ui.button("company-found", found_r, "Found the company", Some("check_circle"), ButtonKind::Primary) {
+        if !ok {
+            let p = if maps.is_empty() {
+                kit::Popup::new("map", "No map", omsi_ui::tr("The company needs a map to be at home on: none was found in the OMSI folder."), omsi_ui::tr("Install a map, or choose the OMSI folder under Setup."), None)
+            } else {
+                kit::Popup::new("badge", "A name first", omsi_ui::tr("The company needs a name: it is on its buses, its papers and its contracts."), omsi_ui::tr("Type one in the field \"Name\"; the short name is made of it."), None)
+            };
+            kit::show(l, p);
+            l.company.wizard = Some(w);
+            return;
+        }
         let m = &maps[w.map];
         let depots = depots_for(m, &l.state.vehicles);
         let f = co::Founding {
@@ -216,7 +284,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
             map: m.file.clone(),
             map_name: map_label(m),
             depot: depots.get(w.depot).cloned().unwrap_or_default(),
-            date: w.date.clone(),
+            date: first_day(w.when, Some(m), &l.state.choice.map, &l.state.choice.date, &w.date),
             difficulty: Difficulty::ALL[w.difficulty.min(2)],
             buying: co::dealer::BuyingMode::ALL[w.buying.min(1)],
         };
@@ -254,6 +322,29 @@ mod tests {
             missing_packs: Vec::new(),
             numbers: Vec::new(),
         }
+    }
+
+    #[test]
+    fn the_first_day_is_today_or_the_maps() {
+        // today, as the computer has it in its own time zone (not the UTC date, which is
+        // another day around midnight)
+        let t = today();
+        if let Some((y, m, d, _, _)) = omsi_launcher_lib::local_now() {
+            assert_eq!(t, format!("{y:04}-{m:02}-{d:02}"));
+        }
+        assert!(co::dates::parse(&t).is_some(), "{t}");
+        assert_eq!(first_day(0, None, "", "", ""), t);
+        // the map's: the launcher's date when it is the map chosen there, else the year in its
+        // name on the game's day, else the game's first day
+        let mut bh = map("maps/Bad_Huegelsdorf_2020/global.cfg", "VBBH");
+        bh.name = "Bad_Huegelsdorf_2020".into();
+        assert_eq!(map_date(&bh, "maps/Bad_Huegelsdorf_2020/global.cfg", "2005-10-12"), "2005-10-12");
+        assert_eq!(map_date(&bh, "maps/Other/global.cfg", "2005-10-12"), "2020-05-30");
+        assert_eq!(map_date(&map("maps/Grundorf/global.cfg", ""), "", ""), core::DEFAULT_DATE);
+        assert_eq!(first_day(1, Some(&bh), "", "", ""), "2020-05-30");
+        // one of the player's own, when it is a date
+        assert_eq!(first_day(2, None, "", "", "1999-01-02"), "1999-01-02");
+        assert_eq!(first_day(2, None, "", "", "nonsense"), t);
     }
 
     #[test]

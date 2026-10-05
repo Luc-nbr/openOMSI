@@ -15,6 +15,7 @@ use super::super::ownlines;
 use super::super::theme::*;
 use super::super::ui::ButtonKind;
 use super::super::Launcher;
+use super::kit;
 use super::{data, grade, line_plate, meter, plate};
 use glam::{DVec2, Vec2};
 use omsi_launcher_lib as core;
@@ -198,7 +199,7 @@ struct Marker {
 pub fn draw(l: &mut Launcher, area: Rect) {
     let Some(c) = l.company.company.clone() else { return };
     let Some(today) = l.company.today.as_ref().filter(|t| t.map == c.map && t.date == c.date) else {
-        l.ui.text_in("Reading the timetable…", Rect::new(area.x, area.y, area.w, 24.0), 13.0, Weight::Regular, TEXT_DIM, Align::Left);
+        l.ui.text_in("Reading the timetable…", Rect::new(area.x, area.y, area.w, 24.0), kit::ROWS, Weight::Regular, TEXT_DIM, Align::Left);
         return;
     };
     let lines = today.lines.clone();
@@ -286,7 +287,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     l.mapview.editor_dots(dots);
 
     // the panel over the map's left side
-    let panel = Rect::new(area.x + 12.0, area.y + 12.0, 300.0f32.min(area.w * 0.4), (area.h - 24.0).max(0.0));
+    let panel = Rect::new(area.x + 12.0, area.y + 12.0, 360.0f32.min(area.w * 0.42), (area.h - 24.0).max(0.0));
     let window = Rect::new(panel.right(), area.y, (area.right() - panel.right()).max(1.0), area.h);
     side(l, panel, &c, &markers, in_game);
 
@@ -306,10 +307,10 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         }
         let p = l.mapview.project(m.at);
         let text = format!("{} / {}", t.number, t.tour);
-        let w = l.ui.width(&text, 12.0, Weight::Bold) + 16.0;
+        let w = l.ui.width(&text, kit::NOTE, Weight::Bold) + 16.0;
         let r = Rect::new(p.x + 12.0, p.y - 11.0, w, 22.0);
         l.ui.p().rounded(r, 6.0, ON_MAP);
-        l.ui.text_in(&text, r, 12.0, Weight::Bold, TEXT, Align::Center);
+        l.ui.text_in(&text, r, kit::NOTE, Weight::Bold, TEXT, Align::Center);
     }
     l.ui.pop_clip();
     if hover.is_some() {
@@ -334,13 +335,13 @@ fn side(l: &mut Launcher, r: Rect, c: &Company, markers: &[Marker], in_game: boo
     l.ui.panel(r);
     let inner = Rect::new(r.x + 16.0, r.y + 14.0, r.w - 32.0, r.h - 28.0);
     let mut y = inner.y;
-    l.ui.text_in(&omsi_ui::tr("Fleet map").to_uppercase(), Rect::new(inner.x, y, inner.w, 14.0), 10.5, Weight::Bold, TEXT_DIM, Align::Left);
+    l.ui.text_in(&omsi_ui::tr("Fleet map").to_uppercase(), Rect::new(inner.x, y, inner.w, 14.0), kit::CAPS, Weight::Bold, TEXT_DIM, Align::Left);
     if l.company.map.live {
         let t = if in_game { "Live: the game's time" } else { "Live: the company's time" };
-        let w = l.ui.width(&omsi_ui::tr(t), 10.0, Weight::Bold) + 10.0;
-        l.ui.badge(Vec2::new(inner.right() - w, y - 1.0), &omsi_ui::tr(t), if in_game { OK } else { accent_2() });
+        let w = l.ui.width(&omsi_ui::tr(t), 12.0, Weight::Bold) + 16.0;
+        kit::tag(&mut l.ui, Vec2::new(inner.right() - w, y - 3.0), &omsi_ui::tr(t), if in_game { OK } else { accent_2() });
     }
-    y += 20.0;
+    y += 24.0;
     let clock = l.company.map.clock;
     l.ui.text_in(&hhmmss(clock), Rect::new(inner.x, y, inner.w, 34.0), 28.0, Weight::Bold, TEXT, Align::Left);
     y += 40.0;
@@ -349,7 +350,7 @@ fn side(l: &mut Launcher, r: Rect, c: &Company, markers: &[Marker], in_game: boo
     let m = &l.company.map;
     let (live, speed) = (m.live, m.speed);
     let playing = !live && speed > 0.0;
-    let b = |k: usize| Rect::new(inner.x + k as f32 * (bw + 6.0), y, bw, 30.0);
+    let b = |k: usize| Rect::new(inner.x + k as f32 * (bw + 6.0), y, bw, 36.0);
     if l.ui.button("fleetmap-play", b(0), "", Some(if playing || live { "pause" } else { "play_arrow" }), ButtonKind::Ghost) {
         let m = &mut l.company.map;
         if m.live || m.speed > 0.0 {
@@ -374,25 +375,26 @@ fn side(l: &mut Launcher, r: Rect, c: &Company, markers: &[Marker], in_game: boo
         m.speed = 0.0;
     }
     l.ui.tooltip(b(3), "Back to now");
-    y += 40.0;
+    l.ui.tooltip(b(1), "Ten times as fast");
+    l.ui.tooltip(b(2), "Sixty times as fast");
+    y += 46.0;
     // how many are where
     let on_road = markers.iter().filter(|m| matches!(m.place.state, State::Trip | State::Empty)).count();
     let pausing = markers.iter().filter(|m| m.place.state == State::Pause).count();
     let total = l.company.map.tours.len();
     let t = omsi_ui::tr("On the road: %{n}  ·  at a terminus: %{p}  ·  tours today: %{t}").replace("%{n}", &on_road.to_string()).replace("%{p}", &pausing.to_string()).replace("%{t}", &total.to_string());
-    l.ui.paragraph(&t, Vec2::new(inner.x, y), inner.w, 12.0, Weight::Regular, TEXT_DIM);
-    y += 40.0;
+    y += l.ui.paragraph(&t, Vec2::new(inner.x, y), inner.w, kit::NOTE, Weight::Regular, TEXT_SOFT) + 12.0;
     let picked = l.company.map.picked.clone();
-    let card_h = 250.0;
+    let card_h = 300.0;
     let legend_h = (inner.bottom() - y - if picked.is_some() { card_h + 12.0 } else { 0.0 }).max(0.0);
     // the lines
     let legend = l.company.map.legend.clone();
     let tours: Vec<(String, usize)> = markers.iter().map(|m| (l.company.map.tours[m.k].line.clone(), 1)).collect();
     if legend.is_empty() {
-        l.ui.paragraph("The company runs no line on this day.", Vec2::new(inner.x, y), inner.w, 12.5, Weight::Regular, TEXT_DIM);
+        l.ui.paragraph("The company runs no line on this day.", Vec2::new(inner.x, y), inner.w, 14.0, Weight::Regular, TEXT_SOFT);
     } else if legend_h > 30.0 {
         l.ui.scroll_area("fleetmap-legend", Rect::new(inner.x, y, inner.w, legend_h), &mut |ui, v| {
-            let rh = 34.0;
+            let rh = 40.0;
             for (k, (line, colour)) in legend.iter().enumerate() {
                 let r = Rect::new(v.x, v.y + k as f32 * rh, v.w - 8.0, rh - 4.0);
                 if !ui.rect_visible(r) {
@@ -401,9 +403,9 @@ fn side(l: &mut Launcher, r: Rect, c: &Company, markers: &[Marker], in_game: boo
                 ui.p().rounded(Rect::new(r.x, r.y + 8.0, 4.0, 14.0), 2.0, *colour);
                 let w = line_plate(ui, Vec2::new(r.x + 12.0, r.y + 5.0), line, 20.0);
                 let caption = if line.caption.is_empty() { line.name.clone() } else { line.caption.clone() };
-                ui.text_in(&caption, Rect::new(r.x + w + 20.0, r.y, r.w - w - 60.0, r.h), 12.0, Weight::Medium, TEXT_SOFT, Align::Left);
+                ui.text_in(&caption, Rect::new(r.x + w + 20.0, r.y, r.w - w - 60.0, r.h), kit::NOTE, Weight::Medium, TEXT_SOFT, Align::Left);
                 let n = tours.iter().filter(|t| t.0 == line.name).count();
-                ui.text_in(&n.to_string(), Rect::new(r.right() - 34.0, r.y, 34.0, r.h), 12.0, Weight::Bold, if n > 0 { TEXT } else { TEXT_FAINT }, Align::Right);
+                ui.text_in(&n.to_string(), Rect::new(r.right() - 34.0, r.y, 34.0, r.h), kit::NOTE, Weight::Bold, if n > 0 { TEXT } else { TEXT_FAINT }, Align::Right);
             }
             legend.len() as f32 * rh
         });
@@ -434,13 +436,13 @@ fn bus_card(l: &mut Launcher, r: Rect, c: &Company, line: &str, tour: &str, m: O
         None => plate(&mut l.ui, Vec2::new(inner.x, inner.y), &number, 22.0),
     };
     l.ui.p().rounded(Rect::new(inner.x + w + 8.0, inner.y + 4.0, 4.0, 14.0), 2.0, colour);
-    l.ui.text_in(&format!("{} {}", omsi_ui::tr("Tour"), tour), Rect::new(inner.x + w + 18.0, inner.y, inner.w - w - 40.0, 22.0), 14.0, Weight::Bold, TEXT, Align::Left);
+    l.ui.text_in(&format!("{} {}", omsi_ui::tr("Tour"), tour), Rect::new(inner.x + w + 18.0, inner.y, inner.w - w - 40.0, 22.0), 15.5, Weight::Bold, TEXT, Align::Left);
     let mut y = inner.y + 32.0;
     let tp = l.company.plan.as_ref().and_then(|p| p.tours.iter().find(|x| x.tour.line.eq_ignore_ascii_case(line) && x.tour.tour == tour)).cloned();
     let Some(m) = m else {
         let first = trips.first().map(|f| f.dep).unwrap_or(0.0);
         let t = if l.company.map.clock < first { omsi_ui::tr("In the depot: leaves at %{time}").replace("%{time}", &hhmm(first)) } else { omsi_ui::tr("Its day is done.").into_owned() };
-        l.ui.paragraph(&t, Vec2::new(inner.x, y), inner.w, 12.5, Weight::Regular, TEXT_DIM);
+        l.ui.paragraph(&t, Vec2::new(inner.x, y), inner.w, 14.0, Weight::Regular, TEXT_SOFT);
         return;
     };
     let trip = trips.get(m.place.trip);
@@ -452,35 +454,35 @@ fn bus_card(l: &mut Launcher, r: Rect, c: &Company, line: &str, tour: &str, m: O
         State::Depot => omsi_ui::tr("Leaves the depot at %{time}").replace("%{time}", &hhmm(m.place.next_time.unwrap_or(0.0))),
         State::Done => omsi_ui::tr("Its day is done.").into_owned(),
     };
-    l.ui.text_in(&what, Rect::new(inner.x, y, inner.w, 18.0), 12.5, Weight::Medium, TEXT_SOFT, Align::Left);
-    y += 22.0;
+    l.ui.text_in(&what, Rect::new(inner.x, y, inner.w, 18.0), 14.0, Weight::Medium, TEXT_SOFT, Align::Left);
+    y += 26.0;
     if let (Some(n), Some(tm)) = (next, m.place.next_time) {
         let t = omsi_ui::tr("Next: %{stop} at %{time}").replace("%{stop}", n).replace("%{time}", &hhmm(tm));
-        l.ui.text_in(&t, Rect::new(inner.x, y, inner.w, 18.0), 12.0, Weight::Regular, TEXT_DIM, Align::Left);
-        y += 22.0;
+        l.ui.text_in(&t, Rect::new(inner.x, y, inner.w, 18.0), kit::NOTE, Weight::Regular, TEXT_DIM, Align::Left);
+        y += 26.0;
     }
     let row = |l: &mut Launcher, y: f32, label: &str, value: &str, c: Color| {
-        l.ui.text_in(label, Rect::new(inner.x, y, inner.w * 0.45, 20.0), 12.0, Weight::Regular, TEXT_DIM, Align::Left);
-        l.ui.text_in(value, Rect::new(inner.x + inner.w * 0.4, y, inner.w * 0.6, 20.0), 12.0, Weight::Medium, c, Align::Right);
+        l.ui.text_in(label, Rect::new(inner.x, y, inner.w * 0.45, 22.0), kit::NOTE, Weight::Regular, TEXT_SOFT, Align::Left);
+        l.ui.text_in(value, Rect::new(inner.x + inner.w * 0.4, y, inner.w * 0.6, 22.0), kit::NOTE, Weight::Medium, c, Align::Right);
     };
     let bus = tp.as_ref().and_then(|p| p.bus).and_then(|b| c.vehicle(b));
     let duty = tp.as_ref().and_then(|p| p.duties.iter().position(|d| (d.start..d.end).contains(&m.place.trip)));
     let driver = tp.as_ref().and_then(|p| duty.and_then(|k| p.duties.get(k)).and_then(|d| d.driver)).and_then(|id| c.employee(id));
     let by_player = tp.as_ref().is_some_and(|p| p.by_player);
     row(l, y, &omsi_ui::tr("Bus"), &bus.map(|v| format!("{} {}", v.number, v.name)).unwrap_or_else(|| "—".into()), TEXT);
-    y += 22.0;
+    y += 26.0;
     let duty_text = match (duty, tp.as_ref()) {
         (Some(k), Some(p)) => format!("{} / {}", k + 1, p.duties.len()),
         _ => "—".into(),
     };
     row(l, y, &omsi_ui::tr("Duty"), &duty_text, TEXT);
-    y += 22.0;
+    y += 26.0;
     let driver_text = if by_player { omsi_ui::tr("You").into_owned() } else { driver.map(|e| e.name.clone()).unwrap_or_else(|| "—".into()) };
     row(l, y, &omsi_ui::tr("Driver"), &driver_text, TEXT);
-    y += 22.0;
+    y += 26.0;
     let late = m.delay > 180.0;
     row(l, y, &omsi_ui::tr("Delay"), &offset(m.delay), if late { WARN } else if m.delay < -60.0 { EARLY_SOFT } else { OK });
-    y += 22.0;
+    y += 26.0;
     let pax = match (trip, km.get(m.place.trip)) {
         (Some(t), Some(k)) if !t.empty => {
             let r = co::economy::rules(c.difficulty);
@@ -489,7 +491,7 @@ fn bus_card(l: &mut Launcher, r: Rect, c: &Company, line: &str, tour: &str, m: O
         _ => "—".into(),
     };
     row(l, y, &omsi_ui::tr("Passengers this trip"), &pax, TEXT);
-    y += 22.0;
+    y += 26.0;
     if let Some(v) = bus {
         row(l, y, &omsi_ui::tr("Condition"), &format!("{:.0} %", v.condition), grade(v.condition));
         meter(&mut l.ui, Rect::new(inner.x, y + 24.0, inner.w, 4.0), v.condition / 100.0, grade(v.condition));

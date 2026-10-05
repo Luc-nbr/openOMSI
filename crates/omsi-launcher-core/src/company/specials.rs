@@ -213,7 +213,7 @@ fn by_trips(l: &LineInfo, depots: &[&str], schulbus: bool) -> Kind {
 pub fn caption_of(l: &LineInfo, depots: &[&str]) -> String {
     let mut seen: Vec<(String, usize, usize)> = Vec::new();
     for t in l.tours.iter().flat_map(|t| t.trips.iter()).filter(|t| !trip_kind(&t.line, &t.name, &t.terminus, t.stops.len(), depots).empty()) {
-        let name = t.terminus.trim();
+        let name = destination(&t.terminus);
         if name.is_empty() {
             continue;
         }
@@ -227,6 +227,13 @@ pub fn caption_of(l: &LineInfo, depots: &[&str]) -> String {
     let mut two: Vec<&(String, usize, usize)> = seen.iter().take(2).collect();
     two.sort_by_key(|x| x.2);
     two.iter().map(|x| x.0.as_str()).collect::<Vec<_>>().join(" – ")
+}
+
+/// A display's destination: its first field (Bad Hügelsdorf writes "Hauptbahnhof", a run of
+/// spaces and "301" for the display's two parts).
+fn destination(terminus: &str) -> &str {
+    let t = terminus.trim();
+    t.find("   ").map_or(t, |k| t[..k].trim_end())
 }
 
 /// The number a line shows: its first passenger trip's, else its name.
@@ -349,6 +356,30 @@ mod tests {
             println!("== {}
    {}", d.file_name().to_string_lossy(), out.join("
    "));
+        }
+    }
+
+    #[test]
+    fn bad_huegelsdorfs_depot_run_x_is_never_a_line_of_its_own() {
+        // (the map's real timetables, read only, where the game is installed)
+        let dir = std::path::Path::new("C:/Program Files (x86)/Steam/steamapps/common/OMSI 2/maps/Bad_Huegelsdorf_2020");
+        let Ok(lines) = crate::lines_on(dir, "2005-10-14") else { return };
+        let depots = ["Bad Huegelsdorf 2020 VBBH"];
+        let mut days = 0;
+        for l in &lines {
+            for t in l.tours.iter().flat_map(|t| t.trips.iter()).filter(|t| t.line.trim().eq_ignore_ascii_case("x")) {
+                assert_eq!(trip_kind(&t.line, &t.name, &t.terminus, t.stops.len(), &depots), Kind::Depot, "{}", t.name);
+            }
+            if line_kind(l, &depots).line() {
+                days += 1;
+                // (the whole-day timetables open with a run of X: named after their passenger trips)
+                assert_ne!(number_of(l, &depots), "X", "{}", l.name);
+                let caption = caption_of(l, &depots);
+                assert!(!caption.contains("Betriebsfahrt") && !caption.contains("   "), "{}: {caption}", l.name);
+            }
+        }
+        if !lines.is_empty() {
+            assert!(days >= 3, "the weekday, Saturday and Sunday timetables");
         }
     }
 }

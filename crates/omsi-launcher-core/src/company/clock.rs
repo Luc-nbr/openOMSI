@@ -65,6 +65,29 @@ pub fn moment(date: &str, minute: i64) -> i64 {
     dates::parse(date).unwrap_or(0) * DAY + minute
 }
 
+/// The first day the company may be moved to (`move_to`): its last day booked or closed
+/// (None: any).
+pub fn earliest_date(c: &Company) -> Option<String> {
+    c.ledger.iter().map(|b| b.date.as_str()).chain(c.history.iter().map(|h| h.date.as_str())).filter_map(dates::parse).max().map(dates::fmt)
+}
+
+/// Move the company to another day (the company's settings): its clock to that day's
+/// midnight, the day's events made anew. Nothing between is simulated - the days skipped bring
+/// no money and no wear - and offers, deliveries and contracts keep their own dates. Back only
+/// as far as its last day booked or closed: the books would not add up before it.
+pub fn move_to(c: &mut Company, date: &str) -> Result<(), &'static str> {
+    let Some(d) = dates::parse(date) else { return Err("That is no date.") };
+    if earliest_date(c).and_then(|e| dates::parse(&e)).is_some_and(|e| d < e) {
+        return Err("The company's books go further: it cannot go back before its last booking.");
+    }
+    c.date = dates::fmt(d);
+    c.clock.minute = 0;
+    c.clock.today = None;
+    c.clock.ask = None;
+    c.clock.target = None;
+    Ok(())
+}
+
 pub fn date_of(m: i64) -> String {
     dates::fmt(m.div_euclid(DAY))
 }
@@ -352,6 +375,7 @@ fn told_notes(c: &Company, date: &str) -> Vec<(i64, String, Vec<(String, String)
             Note::BayWait { number } => (6 * 60, "Bus %{bus} waits for a free workshop bay", vec![arg("bus", number)], Level::Warn),
             Note::Won { number, until } => (0, "The concession of line %{n} runs until %{date}", vec![arg("n", number), arg("date", until)], Level::Good),
             Note::Ended { number } => (0, "Line %{n} is no longer the company's: its concession ended", vec![arg("n", number)], Level::Bad),
+            Note::NotStarted { number, charge, .. } => (0, "Line %{n} is not in service yet: the authority charged %{amount}", vec![arg("n", number), arg("amount", charge)], Level::Bad),
             Note::Breakdown { .. } | Note::LoanPaid { .. } | Note::Lost { .. } => continue,
         };
         out.push((x.0, x.1.to_string(), x.2, x.3));
@@ -449,7 +473,7 @@ fn begin_day(c: &mut Company, w: &mut dyn World) -> Result<(), String> {
     let date = c.date.clone();
     let lines = w.lines(c, &date)?;
     cn::refresh(c, &lines);
-    let tours = network::tours_of_day(c, &lines);
+    let tours = network::in_service_only(network::tours_of_day(c, &lines, &date));
     let dp = plan::day_plan(c, &date, tours, &[], &[], false);
     c.clock.today = Some(script(c, &dp));
     Ok(())
@@ -792,7 +816,8 @@ mod tests {
 
         fn close_day(&mut self, c: &mut Company, lines: &[LineInfo]) -> Result<DayReport, String> {
             network::refresh_lines(c, lines);
-            let tours = network::tours_of_day(c, lines);
+            let date = c.date.clone();
+            let tours = network::tours_of_day(c, lines, &date);
             let r = day::close_day(c, tours, &[]);
             Ok(depot::after_close(c, r, lines))
         }
@@ -803,6 +828,9 @@ mod tests {
         let mut c = found(&Founding { name: "Uhr".into(), difficulty: Difficulty::Realistic, date: "2024-03-04".into(), ..Default::default() }, "Luc");
         c.cash += 5_000_000_00;
         network::add_line(&mut c, &lines[0], None).unwrap();
+        // (in service from the start, the dispatcher's own filling the roster's gaps)
+        network::start_service(&mut c, "Linie5", 0).unwrap();
+        c.planning.auto = true;
         let bus = MarketBus { file: "Vehicles/Citaro/Citaro.bus".into(), name: "Citaro".into(), ..Default::default() };
         for _ in 0..buses {
             market::buy_new(&mut c, &bus, Payment::Cash, "").unwrap();
@@ -839,6 +867,19 @@ mod tests {
         assert_eq!(target(&c, Step::Until(9 * 60)), moment("2024-03-05", 9 * 60));
         c.clock.minute = 0;
         assert_eq!(date_of(target(&c, Step::Morning)), "2024-03-04", "from midnight: this morning");
+    }
+
+    #[test]
+    fn the_company_moves_to_another_day_but_not_before_its_books() {
+        let (mut c, _) = company(1, 1);
+        let start = c.date.clone();
+        move_to(&mut c, "2030-01-15").unwrap();
+        assert_eq!((c.date.as_str(), c.clock.minute), ("2030-01-15", 0));
+        // (the founding's capital is booked on its first day: back to it, not before)
+        assert_eq!(earliest_date(&c), Some(start.clone()));
+        move_to(&mut c, &start).unwrap();
+        assert!(move_to(&mut c, &dates::add(&start, -1)).is_err());
+        assert!(move_to(&mut c, "nonsense").is_err());
     }
 
     #[test]

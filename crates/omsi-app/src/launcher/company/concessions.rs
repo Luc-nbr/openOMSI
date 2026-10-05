@@ -12,6 +12,7 @@
 use super::super::theme::*;
 use super::super::ui::{ButtonKind, Ui};
 use super::super::Launcher;
+use super::kit;
 use super::{act, day_label, eur, eur_cents, plate, section};
 use glam::Vec2;
 use omsi_launcher_lib as core;
@@ -124,7 +125,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     let gap = 16.0;
     let q = cn::quality(&c, false);
     let foot = omsi_ui::tr("An auction runs a few hours of the company's time; the best offer when it closes wins, weighed with the bidder's name - yours is %{q} of 100, from your reputation and punctuality.").replace("%{q}", &format!("{q:.0}"));
-    l.ui.text_in(&foot, Rect::new(area.x, area.bottom() - 22.0, area.w, 22.0), 12.0, Weight::Regular, TEXT_FAINT, Align::Left);
+    l.ui.text_in(&foot, Rect::new(area.x, area.bottom() - 22.0, area.w, 22.0), kit::NOTE, Weight::Regular, TEXT_DIM, Align::Left);
     let area = Rect::new(area.x, area.y, area.w, (area.h - 32.0).max(0.0));
     let left_w = ((area.w - gap) * 0.5).max(360.0);
     let list_h = ((area.h - gap) * 0.58).max(200.0);
@@ -137,7 +138,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
 fn tenders(l: &mut Launcher, r: Rect, c: &Company) {
     let inner = section(&mut l.ui, r, "Tenders");
     let top = if cn::may_add_directly(c) {
-        l.ui.paragraph("On an easy economy the map's lines are taken on directly on the Lines page and their concessions renew by themselves; tenders are offered all the same, for the practice.", Vec2::new(inner.x, inner.y), inner.w, 12.5, Weight::Regular, TEXT_DIM);
+        l.ui.paragraph("On an easy economy the map's lines are taken on directly on the Lines page and their concessions renew by themselves; tenders are offered all the same, for the practice.", Vec2::new(inner.x, inner.y), inner.w, 14.0, Weight::Regular, TEXT_DIM);
         48.0
     } else {
         0.0
@@ -148,7 +149,7 @@ fn tenders(l: &mut Launcher, r: Rect, c: &Company) {
     list.sort_by(|a, b| b.open().cmp(&a.open()).then(if a.open() { a.opens_at.cmp(&b.opens_at) } else { b.closes_at.cmp(&a.closes_at) }));
     if list.is_empty() {
         let t = if l.company.today.is_none() { "Reading the timetable…" } else { "No line is out to tender now. A new round comes every four weeks; a line of the map can also be applied for on the Lines page." };
-        l.ui.paragraph(t, Vec2::new(rows.x, rows.y), rows.w, 13.0, Weight::Regular, TEXT_DIM);
+        l.ui.paragraph(t, Vec2::new(rows.x, rows.y), rows.w, kit::ROWS, Weight::Regular, TEXT_SOFT);
         return;
     }
     // (the panel shows the one picked, else the first running or announced)
@@ -161,7 +162,7 @@ fn tenders(l: &mut Launcher, r: Rect, c: &Company) {
     let cc = c.clone();
     let mut pick: Option<u32> = None;
     l.ui.scroll_area("company-tenders", rows, &mut |ui: &mut Ui, v: Rect| {
-        let rh = 74.0;
+        let rh = 88.0;
         for (k, t) in list.iter().enumerate() {
             let r = Rect::new(v.x, v.y + k as f32 * rh, v.w - 10.0, rh - 6.0);
             if !ui.rect_visible(r) {
@@ -176,18 +177,18 @@ fn tenders(l: &mut Launcher, r: Rect, c: &Company) {
             }
             let dim = !t.open();
             let x = r.x + 10.0;
-            let w = plate(ui, Vec2::new(x, r.y + 8.0), &t.number, 24.0);
+            let w = plate(ui, Vec2::new(x, r.y + 10.0), &t.number, 26.0);
             let caption = if t.caption.is_empty() { t.line.clone() } else { t.caption.clone() };
-            ui.text_in(&caption, Rect::new(x + w + 12.0, r.y + 6.0, r.w - w - 120.0, 18.0), 13.5, Weight::Bold, if dim { TEXT_DIM } else { TEXT }, Align::Left);
+            ui.text_in(&caption, Rect::new(x + w + 12.0, r.y + 8.0, r.w - w - 120.0, 22.0), kit::ROWS, Weight::Bold, if dim { TEXT_DIM } else { TEXT }, Align::Left);
             let figures = match weeks[k] {
                 Some(wk) if wk.km < 1.0 => omsi_ui::tr("%{t} tours, %{n} trips a week").replace("%{t}", &wk.tours.to_string()).replace("%{n}", &wk.trips.to_string()),
                 Some(wk) => omsi_ui::tr("%{t} tours, %{km} km a week  ·  about %{amount}").replace("%{t}", &wk.tours.to_string()).replace("%{km}", &format!("{:.0}", wk.km)).replace("%{amount}", &eur(cn::week_revenue(&cc, &wk, 1.0))),
                 None if reading => omsi_ui::tr("Reading its week…").into_owned(),
                 None => omsi_ui::tr("%{t} tours, %{km} km on the day it was offered").replace("%{t}", &t.day_tours.to_string()).replace("%{km}", &format!("{:.0}", t.day_km)),
             };
-            ui.text_in(&figures, Rect::new(x + w + 12.0, r.y + 26.0, r.w - w - 30.0, 16.0), 11.5, Weight::Regular, TEXT_DIM, Align::Left);
+            ui.text_in(&figures, Rect::new(x + w + 12.0, r.y + 34.0, r.w - w - 30.0, 20.0), kit::NOTE, Weight::Regular, TEXT_DIM, Align::Left);
             let (state, colour) = state_of(&cc, t);
-            ui.text_in(&state, Rect::new(x + w + 12.0, r.y + 45.0, r.w - w - 30.0, 16.0), 11.5, Weight::Medium, colour, Align::Left);
+            ui.text_in(&state, Rect::new(x + w + 12.0, r.y + 58.0, r.w - w - 30.0, 20.0), kit::NOTE, Weight::Medium, colour, Align::Left);
             if t.renewal {
                 ui.badge(Vec2::new(r.right() - 90.0, r.y + 8.0), &omsi_ui::tr("renewal").to_uppercase(), accent_2());
             } else if t.running(now) {
@@ -206,7 +207,7 @@ fn held(l: &mut Launcher, r: Rect, c: &Company) {
     let held = c.concessions.held.clone();
     let own: Vec<&omsi_launcher_lib::company::CompanyLine> = c.lines.iter().filter(|x| x.own).collect();
     if held.is_empty() && own.is_empty() {
-        l.ui.paragraph("The company holds no concession yet. Win a tender, or apply for a line of the map on the Lines page.", Vec2::new(inner.x, inner.y), inner.w, 13.0, Weight::Regular, TEXT_DIM);
+        l.ui.paragraph("The company holds no concession yet. Win a tender, or apply for a line of the map on the Lines page.", Vec2::new(inner.x, inner.y), inner.w, kit::ROWS, Weight::Regular, TEXT_SOFT);
         return;
     }
     let today = c.date.clone();
@@ -214,7 +215,7 @@ fn held(l: &mut Launcher, r: Rect, c: &Company) {
     let own: Vec<(String, String)> = own.iter().map(|x| (x.number.clone(), x.caption.clone())).collect();
     let per_km = cn::reference_per_km(c);
     l.ui.scroll_area("company-concessions", inner, &mut |ui: &mut Ui, v: Rect| {
-        let rh = 52.0;
+        let rh = 60.0;
         let mut y = v.y;
         for h in &held {
             let r = Rect::new(v.x, y, v.w - 10.0, rh - 6.0);
@@ -226,9 +227,9 @@ fn held(l: &mut Launcher, r: Rect, c: &Company) {
             let left = dates::between(&today, &h.until);
             let until = if dates::between(&today, &h.from) > 0 { omsi_ui::tr("from %{date}").replace("%{date}", &day_label(&h.from)) } else { omsi_ui::tr("until %{date}").replace("%{date}", &day_label(&h.until)) };
             let colour = if left <= cn::RENEW_BEFORE { WARN } else { TEXT };
-            ui.text_in(&until, Rect::new(r.x + w + 12.0, r.y + 2.0, r.w - w - 12.0, 18.0), 13.0, Weight::Bold, colour, Align::Left);
+            ui.text_in(&until, Rect::new(r.x + w + 12.0, r.y + 2.0, r.w - w - 12.0, 22.0), kit::ROWS, Weight::Bold, colour, Align::Left);
             let price = omsi_ui::tr("%{p} % of the reference: %{km} a kilometre").replace("%{p}", &format!("{:.0}", h.price * 100.0)).replace("%{km}", &eur_cents(per_km * h.price));
-            ui.text_in(&price, Rect::new(r.x + w + 12.0, r.y + 22.0, r.w - w - 12.0, 16.0), 11.5, Weight::Regular, TEXT_DIM, Align::Left);
+            ui.text_in(&price, Rect::new(r.x + w + 12.0, r.y + 27.0, r.w - w - 12.0, 20.0), kit::NOTE, Weight::Regular, TEXT_DIM, Align::Left);
             if h.direct {
                 ui.badge(Vec2::new(r.right() - 80.0, r.y + 4.0), &omsi_ui::tr("direct").to_uppercase(), TEXT_DIM);
             }
@@ -240,9 +241,9 @@ fn held(l: &mut Launcher, r: Rect, c: &Company) {
                 continue;
             }
             let w = plate(ui, Vec2::new(r.x, r.y + 4.0), number, 22.0);
-            ui.text_in(caption, Rect::new(r.x + w + 12.0, r.y + 2.0, r.w - w - 12.0, 18.0), 13.0, Weight::Bold, TEXT, Align::Left);
+            ui.text_in(caption, Rect::new(r.x + w + 12.0, r.y + 2.0, r.w - w - 12.0, 22.0), kit::ROWS, Weight::Bold, TEXT, Align::Left);
             let t = omsi_ui::tr("Your own line: no concession, a licence of %{amount} a month").replace("%{amount}", &lic);
-            ui.text_in(&t, Rect::new(r.x + w + 12.0, r.y + 22.0, r.w - w - 12.0, 16.0), 11.5, Weight::Regular, TEXT_DIM, Align::Left);
+            ui.text_in(&t, Rect::new(r.x + w + 12.0, r.y + 27.0, r.w - w - 12.0, 20.0), kit::NOTE, Weight::Regular, TEXT_DIM, Align::Left);
         }
         y - v.y
     });
@@ -253,30 +254,30 @@ fn held(l: &mut Launcher, r: Rect, c: &Company) {
 fn auction(l: &mut Launcher, r: Rect, c: &Company) {
     let inner = section(&mut l.ui, r, "Auction");
     let Some(t) = l.company.tenders.selected.and_then(|id| c.concessions.tenders.iter().find(|t| t.id == id)).cloned() else {
-        l.ui.paragraph("Pick a tender on the left: its auction is shown here as it runs.", Vec2::new(inner.x, inner.y), inner.w, 13.0, Weight::Regular, TEXT_DIM);
+        l.ui.paragraph("Pick a tender on the left: its auction is shown here as it runs.", Vec2::new(inner.x, inner.y), inner.w, kit::ROWS, Weight::Regular, TEXT_SOFT);
         return;
     };
     let now = ck::now(c);
     let mut y = inner.y;
     let w = plate(&mut l.ui, Vec2::new(inner.x, y + 2.0), &t.number, 26.0);
     let caption = if t.caption.is_empty() { t.line.clone() } else { t.caption.clone() };
-    l.ui.text_in(&caption, Rect::new(inner.x + w + 12.0, y, inner.w - w - 12.0, 30.0), 15.0, Weight::Bold, TEXT, Align::Left);
+    l.ui.text_in(&caption, Rect::new(inner.x + w + 12.0, y, inner.w - w - 12.0, 30.0), 16.0, Weight::Bold, TEXT, Align::Left);
     y += 38.0;
     let (state, colour) = state_of(c, &t);
-    l.ui.text_in(&state, Rect::new(inner.x, y, inner.w, 18.0), 13.0, Weight::Medium, colour, Align::Left);
+    l.ui.text_in(&state, Rect::new(inner.x, y, inner.w, 18.0), kit::ROWS, Weight::Medium, colour, Align::Left);
     y += 26.0;
     // the frame: the line's worth, the least bid now, buying it outright
     let least = cn::min_bid(c, &t);
     let fw = (inner.w - 16.0) / 3.0;
     let figure = |l: &mut Launcher, k: usize, label: &str, value: String, col: Color| {
         let x = inner.x + k as f32 * (fw + 8.0);
-        l.ui.text_in(&omsi_ui::tr(label).to_uppercase(), Rect::new(x, y, fw, 14.0), 10.0, Weight::Bold, TEXT_DIM, Align::Left);
-        l.ui.text_in(&value, Rect::new(x, y + 15.0, fw, 24.0), 17.0, Weight::Bold, col, Align::Left);
+        l.ui.text_in(&omsi_ui::tr(label).to_uppercase(), Rect::new(x, y, fw, 14.0), kit::CAPS, Weight::Bold, TEXT_DIM, Align::Left);
+        l.ui.text_in(&value, Rect::new(x, y + 18.0, fw, 28.0), 19.0, Weight::Bold, col, Align::Left);
     };
     figure(l, 0, "The line's worth", eur(t.value), TEXT);
     figure(l, 1, if t.open() { "Least bid now" } else { "Term" }, if t.open() { eur(least) } else { omsi_ui::tr("%{n} weeks").replace("%{n}", &t.weeks.to_string()) }, TEXT);
     figure(l, 2, "Buy outright", eur(t.buy_out()), accent_2());
-    y += 48.0;
+    y += 58.0;
     // its time
     let len = (t.closes_at - t.opens_at).max(1);
     let frac = ((now - t.opens_at) as f32 / len as f32).clamp(0.0, 1.0);
@@ -289,12 +290,12 @@ fn auction(l: &mut Launcher, r: Rect, c: &Company) {
     } else {
         omsi_ui::tr("Closes at %{time}: %{left} left").replace("%{time}", &ck::hhmm(t.closes_at)).replace("%{left}", &span(t.closes_at - now))
     };
-    l.ui.text_in(&times, Rect::new(inner.x, y, inner.w, 16.0), 11.5, Weight::Regular, TEXT_DIM, Align::Left);
+    l.ui.text_in(&times, Rect::new(inner.x, y, inner.w, 16.0), kit::NOTE, Weight::Regular, TEXT_DIM, Align::Left);
     y += 26.0;
     // the bidders
     let placed = cn::bids(c, &t, if t.open() { now } else { t.closes_at });
     let leader = placed.last().map(|p| p.who);
-    let rh = 28.0;
+    let rh = 34.0;
     let mut rows: Vec<(String, String, Option<i64>, bool)> = t
         .bidders
         .iter()
@@ -312,31 +313,31 @@ fn auction(l: &mut Launcher, r: Rect, c: &Company) {
             l.ui.p().rounded(Rect::new(inner.x - 6.0, y - 2.0, inner.w + 12.0, rh - 2.0), 6.0, Color::WHITE.alpha(0.05));
         }
         l.ui.p().circle(Vec2::new(inner.x + 4.0, y + rh * 0.5 - 1.0), 3.5, if *leads { OK } else { TEXT_FAINT });
-        l.ui.text_in(name, Rect::new(inner.x + 16.0, y, inner.w * 0.45, rh - 4.0), 13.0, Weight::Medium, TEXT, Align::Left);
-        l.ui.text_in(kind, Rect::new(inner.x + 16.0 + inner.w * 0.45, y, inner.w * 0.3, rh - 4.0), 11.5, Weight::Regular, TEXT_DIM, Align::Left);
+        l.ui.text_in(name, Rect::new(inner.x + 16.0, y, inner.w * 0.45, rh - 4.0), kit::ROWS, Weight::Medium, TEXT, Align::Left);
+        l.ui.text_in(kind, Rect::new(inner.x + 16.0 + inner.w * 0.45, y, inner.w * 0.3, rh - 4.0), kit::NOTE, Weight::Regular, TEXT_DIM, Align::Left);
         let v = last.map(eur).unwrap_or_else(|| omsi_ui::tr("no bid").into_owned());
         l.ui.text_in(&v, Rect::new(inner.right() - 130.0, y, 130.0, rh - 4.0), 13.0, if *leads { Weight::Bold } else { Weight::Regular }, if last.is_some() { TEXT } else { TEXT_FAINT }, Align::Right);
         y += rh;
     }
     y += 8.0;
     // what to do
-    let actions_h = if t.running(now) { 150.0 } else { 46.0 };
+    let actions_h = if t.running(now) { 168.0 } else { 52.0 };
     let log_h = (inner.bottom() - actions_h - y).max(0.0);
     if log_h > 40.0 {
         let log: Vec<(String, String, i64, bool)> = placed.iter().rev().take(30).map(|p| (ck::hhmm(p.at), if p.who == Who::Player { omsi_ui::tr("You").into_owned() } else { cn::bidder_name(c, &t, p.who) }, p.amount, p.who == Who::Player)).collect();
-        l.ui.text_in(&omsi_ui::tr("Bids").to_uppercase(), Rect::new(inner.x, y, inner.w, 14.0), 10.0, Weight::Bold, TEXT_DIM, Align::Left);
+        l.ui.text_in(&omsi_ui::tr("Bids").to_uppercase(), Rect::new(inner.x, y, inner.w, 14.0), kit::CAPS, Weight::Bold, TEXT_DIM, Align::Left);
         let area = Rect::new(inner.x, y + 18.0, inner.w, log_h - 22.0);
         if log.is_empty() {
-            l.ui.text_in(&omsi_ui::tr("No bid yet."), Rect::new(area.x, area.y, area.w, 18.0), 12.0, Weight::Regular, TEXT_FAINT, Align::Left);
+            l.ui.text_in(&omsi_ui::tr("No bid yet."), Rect::new(area.x, area.y, area.w, 18.0), kit::NOTE, Weight::Regular, TEXT_DIM, Align::Left);
         } else {
             l.ui.scroll_area("company-auction-log", area, &mut |ui: &mut Ui, v: Rect| {
                 for (k, (at, who, amount, me)) in log.iter().enumerate() {
-                    let yy = v.y + k as f32 * 22.0;
-                    ui.text_in(at, Rect::new(v.x, yy, 48.0, 20.0), 12.0, Weight::Bold, TEXT_DIM, Align::Left);
-                    ui.text_in(who, Rect::new(v.x + 52.0, yy, v.w * 0.6, 20.0), 12.0, Weight::Regular, if *me { accent_2() } else { TEXT_SOFT }, Align::Left);
-                    ui.text_in(&eur(*amount), Rect::new(v.right() - 130.0, yy, 120.0, 20.0), 12.0, Weight::Medium, TEXT, Align::Right);
+                    let yy = v.y + k as f32 * 26.0;
+                    ui.text_in(at, Rect::new(v.x, yy, 56.0, 24.0), kit::NOTE, Weight::Bold, TEXT_DIM, Align::Left);
+                    ui.text_in(who, Rect::new(v.x + 60.0, yy, v.w * 0.6, 24.0), kit::NOTE, Weight::Regular, if *me { accent_2() } else { TEXT_SOFT }, Align::Left);
+                    ui.text_in(&eur(*amount), Rect::new(v.right() - 150.0, yy, 140.0, 24.0), kit::NOTE, Weight::Medium, TEXT, Align::Right);
                 }
-                log.len() as f32 * 22.0
+                log.len() as f32 * 26.0
             });
         }
     }
@@ -362,34 +363,54 @@ fn auction(l: &mut Launcher, r: Rect, c: &Company) {
         if !t.fee_paid && cn::fee(c, &t) > 0 {
             s = format!("{s}  ·  {}", omsi_ui::tr("taking part costs %{amount}").replace("%{amount}", &eur(cn::fee(c, &t))));
         }
-        l.ui.text_in(&s, Rect::new(inner.x, ay + ROW + 6.0, inner.w, 18.0), 12.0, Weight::Medium, col, Align::Left);
-        let by = ay + ROW + 34.0;
+        l.ui.text_in(&s, Rect::new(inner.x, ay + ROW + 6.0, inner.w, 22.0), kit::NOTE, Weight::Medium, col, Align::Left);
+        let by = ay + ROW + 36.0;
         let bw = (inner.w - 8.0) / 2.0;
         let label = omsi_ui::tr("Bid %{amount}").replace("%{amount}", &eur(amount));
-        if l.ui.button("company-auction-bid", Rect::new(inner.x, by, bw, 38.0), &label, Some("payments"), ButtonKind::Primary) && ok && act(l, |c| cn::bid(c, id, amount)).is_some() {
-            l.state.set_status(omsi_ui::tr("Your bid is in. The rivals answer as the clock goes on."), false);
+        if l.ui.button("company-auction-bid", Rect::new(inner.x, by, bw, 40.0), &label, Some("payments"), ButtonKind::Primary) {
+            if !ok {
+                super::clock::busy(l);
+            } else if act(l, |c| cn::bid(c, id, amount)).is_some() {
+                l.state.set_status(omsi_ui::tr("Your bid is in. The rivals answer as the clock goes on."), false);
+            }
         }
         let label = omsi_ui::tr("Buy outright, %{amount}").replace("%{amount}", &eur(t.buy_out()));
-        if l.ui.button("company-auction-buy", Rect::new(inner.x + bw + 8.0, by, bw, 38.0), &label, Some("check_circle"), ButtonKind::Normal) && ok && act(l, |c| cn::buy_out(c, id)).is_some() {
-            l.state.set_status(omsi_ui::tr("Line %{n} is yours: it runs from tomorrow.").replace("%{n}", &t.number), false);
+        if l.ui.button("company-auction-buy", Rect::new(inner.x + bw + 8.0, by, bw, 40.0), &label, Some("check_circle"), ButtonKind::Normal) {
+            if !ok {
+                super::clock::busy(l);
+            } else if act(l, |c| cn::buy_out(c, id)).is_some() {
+                l.state.set_status(omsi_ui::tr("Line %{n} is yours: plan its tours and start its service on the Planning page.").replace("%{n}", &t.number), false);
+            }
         }
-        l.ui.tooltip(Rect::new(inner.x + bw + 8.0, by, bw, 38.0), "Certain: the auction ends at once in your favour");
-        let cy = by + 46.0;
+        l.ui.tooltip(Rect::new(inner.x + bw + 8.0, by, bw, 40.0), "Certain: the auction ends at once in your favour");
+        let cy = by + 50.0;
         let cw = (inner.w - 8.0) / 2.0;
-        if l.ui.button("company-auction-15", Rect::new(inner.x, cy, cw, 30.0), "+15 min", Some("timer"), ButtonKind::Ghost) && ok {
-            super::clock::simulate(l, ck::target(c, Step::Minutes(15)), false);
+        if l.ui.button("company-auction-15", Rect::new(inner.x, cy, cw, 36.0), "+15 min", Some("timer"), ButtonKind::Ghost) {
+            if ok {
+                super::clock::simulate(l, ck::target(c, Step::Minutes(15)), false);
+            } else {
+                super::clock::busy(l);
+            }
         }
-        if l.ui.button("company-auction-close", Rect::new(inner.x + cw + 8.0, cy, cw, 30.0), "To its close", Some("sports_score"), ButtonKind::Ghost) && ok {
-            super::clock::simulate(l, t.closes_at, false);
+        if l.ui.button("company-auction-close", Rect::new(inner.x + cw + 8.0, cy, cw, 36.0), "To its close", Some("sports_score"), ButtonKind::Ghost) {
+            if ok {
+                super::clock::simulate(l, t.closes_at, false);
+            } else {
+                super::clock::busy(l);
+            }
         }
     } else if t.open() {
-        if l.ui.button("company-auction-wait", Rect::new(inner.x, ay + 4.0, inner.w, 38.0), "Simulate until it opens", Some("schedule"), ButtonKind::Normal) && ok {
-            super::clock::simulate(l, t.opens_at, false);
+        if l.ui.button("company-auction-wait", Rect::new(inner.x, ay + 4.0, inner.w, 40.0), "Simulate until it opens", Some("schedule"), ButtonKind::Normal) {
+            if ok {
+                super::clock::simulate(l, t.opens_at, false);
+            } else {
+                super::clock::busy(l);
+            }
         }
     } else if let Some(Outcome::Lost { winner, amount, .. } | Outcome::NoBid { winner, amount }) = &t.outcome {
         if !winner.is_empty() {
             let s = omsi_ui::tr("%{who} won the line for %{amount}.").replace("%{who}", winner).replace("%{amount}", &eur(*amount));
-            l.ui.text_in(&s, Rect::new(inner.x, ay + 12.0, inner.w, 20.0), 13.0, Weight::Medium, TEXT_SOFT, Align::Left);
+            l.ui.text_in(&s, Rect::new(inner.x, ay + 12.0, inner.w, 20.0), kit::ROWS, Weight::Medium, TEXT_SOFT, Align::Left);
         }
     } else if let Some(Outcome::Won { .. }) = &t.outcome {
         let s = match cn::of_line(c, &t.line) {
@@ -397,6 +418,6 @@ fn auction(l: &mut Launcher, r: Rect, c: &Company) {
             Some(h) => omsi_ui::tr("The concession runs until %{date}.").replace("%{date}", &day_label(&h.until)),
             None => String::new(),
         };
-        l.ui.text_in(&s, Rect::new(inner.x, ay + 12.0, inner.w, 20.0), 13.0, Weight::Medium, OK, Align::Left);
+        l.ui.text_in(&s, Rect::new(inner.x, ay + 12.0, inner.w, 20.0), kit::ROWS, Weight::Medium, OK, Align::Left);
     }
 }

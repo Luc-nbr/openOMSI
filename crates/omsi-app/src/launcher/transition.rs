@@ -161,12 +161,25 @@ pub struct Transition {
     /// `OMSI_LAUNCHER_TRANSITION_AT` and `OMSI_LAUNCHER_TRANSITION_SLOW` (see the module).
     freeze: Option<f32>,
     slow: f32,
+    /// The plain change of screen (the bus between pages off, its default): the screen seen
+    /// last, and how long ago the new one came (seconds) while it still fades in.
+    fade_last: Option<Screen>,
+    fade: Option<f32>,
+}
+
+/// How long a new screen takes to fade in from the ground (seconds).
+const FADE_S: f32 = 0.24;
+
+/// How much of the ground still lies over a screen that came `age` seconds ago (1: all of
+/// it, 0: none): quick at first, settling softly.
+fn fade_cover(age: f32) -> f32 {
+    1.0 - ease_out_cubic((age / FADE_S).clamp(0.0, 1.0))
 }
 
 impl Transition {
     pub fn new() -> Transition {
         let num = |name: &str| omsi_cfg::env::var(name).ok().and_then(|v| v.trim().parse::<f32>().ok());
-        Transition { last: None, runs: Vec::new(), mouse: None, freeze: num("OMSI_LAUNCHER_TRANSITION_AT").map(|t| t.max(0.0)), slow: num("OMSI_LAUNCHER_TRANSITION_SLOW").unwrap_or(1.0).max(0.01) }
+        Transition { last: None, runs: Vec::new(), mouse: None, freeze: num("OMSI_LAUNCHER_TRANSITION_AT").map(|t| t.max(0.0)), slow: num("OMSI_LAUNCHER_TRANSITION_SLOW").unwrap_or(1.0).max(0.01), fade_last: None, fade: None }
     }
 
     /// The pass that holds the cover, if one is on its way.
@@ -287,6 +300,24 @@ pub fn after_page(l: &mut Launcher) {
     let bus = l.state.settings.get("page_bus").and_then(|v| v.as_bool()).unwrap_or(false);
     let wanted = l.ui.motion && bus && !(l.state.in_game() && !l.awake());
     let now = Screen::of(l);
+    // without the bus, a new screen fades in from the ground (with the animations on)
+    let quiet = l.ui.motion && !bus && !(l.state.in_game() && !l.awake());
+    let changed = l.transition.fade_last.replace(now).is_some_and(|was| was != now);
+    if quiet && changed {
+        l.transition.fade = Some(0.0);
+    } else if !quiet {
+        l.transition.fade = None;
+    }
+    if let Some(age) = l.transition.fade {
+        let cover = fade_cover(age);
+        if cover <= 0.001 {
+            l.transition.fade = None;
+        } else {
+            l.ui.keep_moving();
+            l.ui.p().rect(Rect::new(0.0, 0.0, size.x, size.y), GROUND.alpha(cover));
+            l.transition.fade = Some(age + l.ui.dt / l.transition.slow);
+        }
+    }
     l.transition.see(now, &pass, wanted);
     l.transition.tidy(&pass);
     if l.transition.runs.is_empty() {
@@ -871,6 +902,20 @@ fn bus(p: &mut Painter, pass: &Pass, road_y: f32, run: &Run, haze: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A new screen fades in from the ground: all of it at first, none after `FADE_S`, and
+    /// less with every moment between.
+    #[test]
+    fn a_new_screen_fades_in() {
+        assert_eq!(fade_cover(0.0), 1.0);
+        assert_eq!(fade_cover(FADE_S), 0.0);
+        let mut last = 1.0;
+        for k in 1..10 {
+            let c = fade_cover(FADE_S * k as f32 / 10.0);
+            assert!(c < last && c > 0.0, "{k}: {c}");
+            last = c;
+        }
+    }
     use super::super::ui::Key;
 
     const DESKTOP: Vec2 = Vec2::new(1440.0, 900.0);
@@ -1184,7 +1229,7 @@ mod tests {
     }
 
     fn quiet() -> Transition {
-        Transition { last: None, runs: Vec::new(), mouse: None, freeze: None, slow: 1.0 }
+        Transition { last: None, runs: Vec::new(), mouse: None, freeze: None, slow: 1.0, fade_last: None, fade: None }
     }
 
     /// A frame of the launcher with the screen `now`: the clock goes on, the change is seen,
@@ -1312,7 +1357,7 @@ mod tests {
     #[test]
     fn stood_still_for_a_picture_a_pass_looks_as_one_from_a_quiet_screen() {
         let pass = Pass::new(DESKTOP, false);
-        let mut tr = Transition { last: None, runs: Vec::new(), mouse: None, freeze: Some(0.05), slow: 1.0 };
+        let mut tr = Transition { last: None, runs: Vec::new(), mouse: None, freeze: Some(0.05), slow: 1.0, fade_last: None, fade: None };
         tr.see(Screen::Step(Step::Mode), &pass, true);
         tr.see(Screen::Step(Step::Map), &pass, true);
         tr.advance(1.0 / 60.0);
@@ -1324,7 +1369,7 @@ mod tests {
         assert_eq!(tr.runs.len(), 1);
         assert!(tr.covering(&pass));
         // held in the pop, the page has its input
-        let mut tr = Transition { last: None, runs: Vec::new(), mouse: None, freeze: Some(pass.dur + 0.1), slow: 1.0 };
+        let mut tr = Transition { last: None, runs: Vec::new(), mouse: None, freeze: Some(pass.dur + 0.1), slow: 1.0, fade_last: None, fade: None };
         tr.see(Screen::Step(Step::Mode), &pass, true);
         tr.see(Screen::Step(Step::Map), &pass, true);
         tr.advance(1.0 / 60.0);

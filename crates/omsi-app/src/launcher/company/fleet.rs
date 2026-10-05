@@ -4,11 +4,12 @@
 //! A bus of the dealer can also be leased or rented here.
 
 use super::super::theme::*;
-use super::super::ui::{id_of, ButtonKind, Key, Ui};
+use super::super::ui::{id_of, ButtonKind, Ui};
 use super::super::Launcher;
-use super::{act, day_label, dialog_panel, eur, grade, grouped, meter, Confirm, Dialog};
+use super::kit::{self, Foot};
+use super::{act, day_label, eur, grade, grouped, meter, Confirm, Dialog};
 use glam::Vec2;
-use omsi_launcher_lib::company::dealer::{self as dl, Availability};
+use omsi_launcher_lib::company::dealer as dl;
 use omsi_launcher_lib::company::market;
 use omsi_launcher_lib::company::{self as co, BusKind, Company, Tenure, Vehicle};
 use omsi_ui::paint::Align;
@@ -31,10 +32,10 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     let labels = [omsi_ui::tr("Our buses (%{n})").replace("%{n}", &c.fleet.len().to_string()), omsi_ui::tr("Dealer").into_owned()];
     let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
     let mut tab = l.company.fleet.tab.min(1);
-    if l.ui.segmented("company-fleet-tabs", Rect::new(area.x, area.y, 340.0f32.min(area.w), ROW), &mut tab, &refs) {
+    if l.ui.segmented("company-fleet-tabs", Rect::new(area.x, area.y, 380.0f32.min(area.w), 40.0), &mut tab, &refs) {
         l.company.fleet.tab = tab;
     }
-    let body = Rect::new(area.x, area.y + ROW + 14.0, area.w, (area.h - ROW - 14.0).max(0.0));
+    let body = Rect::new(area.x, area.y + 40.0 + 16.0, area.w, (area.h - 40.0 - 16.0).max(0.0));
     match l.company.fleet.tab {
         1 => super::dealer::draw(l, body),
         _ => our_buses(l, body, &c),
@@ -44,10 +45,10 @@ pub fn draw(l: &mut Launcher, area: Rect) {
 /// The grid's layout: columns, tile width, photo height and tile height.
 pub(super) fn layout(w: f32) -> (usize, f32, f32, f32) {
     let gap = 14.0;
-    let cols = (((w + gap) / (250.0 + gap)).floor() as usize).max(1);
+    let cols = (((w + gap) / (270.0 + gap)).floor() as usize).max(1);
     let tw = (w - gap * (cols as f32 - 1.0)) / cols as f32;
     let ph = tw * 0.52;
-    (cols, tw, ph, ph + 96.0)
+    (cols, tw, ph, ph + 118.0)
 }
 
 /// A tile's ground and photo (the bus's initials while it is drawn). Returns (hovered,
@@ -63,15 +64,15 @@ pub(super) fn tile(ui: &mut Ui, r: Rect, id: &str, name: &str, pic: Photo) -> (b
         Some((tex, w, hh)) => ui.image_cover(under, tex, SHEET_RADIUS, w, hh),
         None => {
             ui.p().rounded_gradient(under, SHEET_RADIUS, Color::rgba(38, 48, 70, 1.0), Color::rgba(24, 31, 46, 1.0));
-            let mono = Rect::new(r.center().x - 26.0, r.y + ph * 0.5 - 26.0, 52.0, 52.0);
+            let mono = Rect::new(r.center().x - 28.0, r.y + ph * 0.5 - 28.0, 56.0, 56.0);
             ui.p().rounded(mono, RADIUS, Color::WHITE.alpha(0.09));
-            ui.text_in(&super::super::buspick::initials(name), mono, 19.0, Weight::Bold, TEXT, Align::Center);
+            ui.text_in(&super::super::buspick::initials(name), mono, 20.0, Weight::Bold, TEXT, Align::Center);
         }
     }
     ui.p().rect(Rect::new(r.x, r.y + ph, r.w, SHEET_RADIUS), fill);
     ui.p().rounded(Rect::new(r.x, r.y + ph, r.w, r.h - ph), SHEET_RADIUS, fill);
     ui.p().rounded_border(r, SHEET_RADIUS, 1.0, EDGE.mix(accent().alpha(0.7), t));
-    (clicked, Rect::new(r.x + 14.0, r.y + ph + 10.0, r.w - 28.0, r.h - ph - 20.0))
+    (clicked, Rect::new(r.x + 16.0, r.y + ph + 12.0, r.w - 32.0, r.h - ph - 22.0))
 }
 
 /// A bus's paint names: the bus's own first (empty), then its liveries.
@@ -111,15 +112,16 @@ fn our_buses(l: &mut Launcher, area: Rect, c: &Company) {
     let area = if let Some(first) = c.dealer.orders.iter().min_by_key(|o| dl::minutes_of(&o.delivery)) {
         let n: u32 = c.dealer.orders.iter().map(|o| o.contract.count).sum();
         let text = omsi_ui::tr("%{n} buses on order: the next arrive on %{date}.").replace("%{n}", &n.to_string()).replace("%{date}", &day_label(&dl::day_of(&first.delivery)));
-        l.ui.icon("schedule", Vec2::new(area.x + 8.0, area.y + 10.0), 16.0, accent_2());
-        l.ui.text_in(&text, Rect::new(area.x + 24.0, area.y, area.w - 24.0, 20.0), 13.0, Weight::Medium, TEXT_SOFT, Align::Left);
-        Rect::new(area.x, area.y + 32.0, area.w, (area.h - 32.0).max(0.0))
+        l.ui.icon("schedule", Vec2::new(area.x + 10.0, area.y + 12.0), 18.0, accent_2());
+        l.ui.text_in(&text, Rect::new(area.x + 28.0, area.y, area.w - 28.0, 24.0), kit::BODY, Weight::Medium, TEXT, Align::Left);
+        Rect::new(area.x, area.y + 38.0, area.w, (area.h - 38.0).max(0.0))
     } else {
         area
     };
     if c.fleet.is_empty() {
-        l.ui.paragraph("The fleet is empty. Buy buses at the dealer - new, second-hand or one of the day's offers - or lease one for years or rent one for a few days: each is a bus installed in your OMSI.", Vec2::new(area.x, area.y + 4.0), area.w.min(760.0), 14.0, Weight::Regular, TEXT_DIM);
-        if l.ui.button("company-fleet-to-market", Rect::new(area.x, area.y + 64.0, 200.0, 38.0), "To the dealer", Some("directions_bus"), ButtonKind::Primary) {
+        let h = l.ui.paragraph("The fleet is empty. Buy buses at the dealer - new, second-hand or one of the day's offers - or lease one for years or rent one for a few days: each is a bus installed in your OMSI.", Vec2::new(area.x, area.y + 4.0), area.w.min(860.0), kit::BODY, Weight::Regular, TEXT_SOFT);
+        let bw = Foot::width(&l.ui, "To the dealer", Some("directions_bus"));
+        if l.ui.button("company-fleet-to-market", Rect::new(area.x, area.y + h + 18.0, bw, 40.0), "To the dealer", Some("directions_bus"), ButtonKind::Primary) {
             l.company.fleet.tab = 1;
         }
         return;
@@ -140,19 +142,21 @@ fn our_buses(l: &mut Launcher, area: Rect, c: &Company) {
             let pic = showroom.photos.get(&root, &bus.bus, &bus.livery, now);
             let (clicked, info) = tile(ui, r, &format!("company-bus-{}", bus.id), &bus.name, pic);
             // the fleet number on the photo, as on the bus
-            let nw = ui.width(&bus.number, 14.0, Weight::Black) + 18.0;
-            let badge = Rect::new(r.x + 10.0, r.y + 10.0, nw, 24.0);
-            ui.p().rounded(badge, 6.0, Color::rgba(9, 12, 24, 0.82));
-            ui.text_in(&bus.number, badge, 14.0, Weight::Black, TEXT, Align::Center);
-            ui.text_in(&bus.name, Rect::new(info.x, info.y, info.w, 20.0), 14.5, Weight::Bold, TEXT, Align::Left);
+            let nw = ui.width(&bus.number, 15.0, Weight::Black) + 20.0;
+            let badge = Rect::new(r.x + 10.0, r.y + 10.0, nw, 28.0);
+            ui.p().rounded(badge, 6.0, Color::rgba(9, 12, 24, 0.85));
+            ui.text_in(&bus.number, badge, 15.0, Weight::Black, TEXT, Align::Center);
+            ui.text_in(&bus.name, Rect::new(info.x, info.y, info.w, 24.0), 16.0, Weight::Bold, TEXT, Align::Left);
             let sub = format!("{}  ·  {}", bus.plate, omsi_ui::tr(bus.kind.label()));
-            ui.text_in(&sub, Rect::new(info.x, info.y + 20.0, info.w, 18.0), 12.0, Weight::Regular, TEXT_DIM, Align::Left);
+            ui.text_in(&sub, Rect::new(info.x, info.y + 25.0, info.w, 20.0), kit::NOTE, Weight::Regular, TEXT_SOFT, Align::Left);
             let facts = format!("{} km  ·  {}", grouped(bus.km.round()), omsi_ui::tr("%{n} years").replace("%{n}", &format!("{:.0}", bus.age_years(&c.date))));
-            ui.text_in(&facts, Rect::new(info.x, info.y + 38.0, info.w * 0.62, 18.0), 12.0, Weight::Regular, TEXT_SOFT, Align::Left);
-            meter(ui, Rect::new(info.x + info.w * 0.66, info.y + 45.0, info.w * 0.34, 5.0), bus.condition / 100.0, grade(bus.condition));
+            ui.text_in(&facts, Rect::new(info.x, info.y + 47.0, info.w * 0.62, 20.0), kit::NOTE, Weight::Regular, TEXT_SOFT, Align::Left);
+            let mr = Rect::new(info.x + info.w * 0.66, info.y + 55.0, info.w * 0.34, 6.0);
+            meter(ui, mr, bus.condition / 100.0, grade(bus.condition));
+            ui.tooltip(Rect::new(mr.x, mr.y - 9.0, mr.w, 24.0), &omsi_ui::tr("Condition: %{n} of 100").replace("%{n}", &format!("{:.0}", bus.condition)));
             let (status, colour) = status_of(c, bus);
-            ui.p().circle(Vec2::new(info.x + 4.0, info.y + 66.0), 3.5, colour);
-            ui.text_in(&status, Rect::new(info.x + 14.0, info.y + 57.0, info.w - 14.0, 18.0), 12.0, Weight::Medium, colour, Align::Left);
+            ui.p().circle(Vec2::new(info.x + 5.0, info.y + 82.0), 4.0, colour);
+            ui.text_in(&status, Rect::new(info.x + 16.0, info.y + 71.0, info.w - 16.0, 22.0), kit::NOTE, Weight::Medium, colour, Align::Left);
             if clicked {
                 open = Some(bus.id);
             }
@@ -171,8 +175,8 @@ fn our_buses(l: &mut Launcher, area: Rect, c: &Company) {
 
 /// A row of a price table: what, and the amount.
 pub(super) fn price_row(ui: &mut Ui, r: Rect, label: &str, value: &str, strong: bool) {
-    ui.text_in(label, Rect::new(r.x, r.y, r.w * 0.6, r.h), 13.0, Weight::Regular, TEXT_SOFT, Align::Left);
-    ui.text_in(value, Rect::new(r.x + r.w * 0.4, r.y, r.w * 0.6, r.h), if strong { 15.0 } else { 13.0 }, if strong { Weight::Bold } else { Weight::Medium }, TEXT, Align::Right);
+    ui.text_in(label, Rect::new(r.x, r.y, r.w * 0.6, r.h), kit::ROWS, Weight::Regular, TEXT_SOFT, Align::Left);
+    ui.text_in(value, Rect::new(r.x + r.w * 0.36, r.y, r.w * 0.64, r.h), if strong { 16.5 } else { kit::ROWS }, if strong { Weight::Bold } else { Weight::Medium }, TEXT, Align::Right);
     ui.p().rect(Rect::new(r.x, r.bottom() - 1.0, r.w, 1.0), HAIRLINE);
 }
 
@@ -188,41 +192,39 @@ pub(super) fn bus_side(l: &mut Launcher, r: Rect, bus: &str, name: &str, kind: B
         Some((tex, w, h)) => l.ui.image_cover(photo, tex, RADIUS, w, h),
         None => {
             l.ui.p().rounded_gradient(photo, RADIUS, Color::rgba(38, 48, 70, 1.0), Color::rgba(24, 31, 46, 1.0));
-            l.ui.text_in(&super::super::buspick::initials(name), photo, 22.0, Weight::Bold, TEXT, Align::Center);
+            l.ui.text_in(&super::super::buspick::initials(name), photo, 24.0, Weight::Bold, TEXT, Align::Center);
         }
     }
-    l.ui.text_in(kind.label(), Rect::new(r.x, photo.bottom() + 8.0, r.w, 18.0), 12.5, Weight::Medium, TEXT_DIM, Align::Left);
-    l.ui.label(Rect::new(r.x, photo.bottom() + 34.0, r.w, 18.0), "Livery");
+    l.ui.text_in(kind.label(), Rect::new(r.x, photo.bottom() + 10.0, r.w, 22.0), kit::BODY, Weight::Medium, TEXT_SOFT, Align::Left);
+    l.ui.label(Rect::new(r.x, photo.bottom() + 42.0, r.w, 20.0), "Livery");
     let names: Vec<String> = liveries.iter().map(|p| livery_label(p)).collect();
     let mut k = livery.min(names.len().saturating_sub(1));
-    l.ui.select("company-dialog-livery", Rect::new(r.x, photo.bottom() + 54.0, r.w, ROW), &mut k, &names);
-    l.ui.paragraph("A house livery of your own comes with the livery studio.", Vec2::new(r.x, photo.bottom() + 100.0), r.w, 11.5, Weight::Regular, TEXT_FAINT);
+    l.ui.select("company-dialog-livery", Rect::new(r.x, photo.bottom() + 66.0, r.w, 40.0), &mut k, &names);
+    l.ui.paragraph("A house livery of your own comes with the livery studio.", Vec2::new(r.x, photo.bottom() + 118.0), r.w, kit::NOTE, Weight::Regular, TEXT_SOFT);
     k
 }
 
 pub fn dialog(l: &mut Launcher) {
     let Some(c) = l.company.company.clone() else { return };
-    let esc = l.ui.input.keys.contains(&Key::Escape);
     match l.company.dialog.take() {
         Some(Dialog::New { bus, how, days, livery }) => {
-            let inner = dialog_panel(l, 760.0, 470.0, "directions_bus", &bus.name);
+            let f = kit::frame(l, 920.0, 600.0, "directions_bus", &bus.name);
+            let inner = f.body;
             let liveries = liveries_of(l, &bus.file);
-            let side = Rect::new(inner.x, inner.y, 250.0, inner.h - 50.0);
+            let side_w = 290.0;
+            let side = Rect::new(inner.x, inner.y, side_w, inner.h);
             let livery = bus_side(l, side, &bus.file, &bus.name, bus.kind, livery, &liveries);
-            let right = Rect::new(inner.x + 274.0, inner.y, inner.w - 274.0, inner.h - 50.0);
-            // (a model no longer built is not leased new: it is rented, a few years old)
-            let years = l.company.fleet.dealer.listings.as_ref().and_then(|ls| ls.iter().find(|x| x.bus.file == bus.file)).and_then(|x| x.years);
-            let new_ok = dl::availability(years, dl::year_of(&c.date)) == Availability::New;
+            let right = Rect::new(inner.x + side_w + 28.0, inner.y, inner.w - side_w - 28.0, inner.h);
             let labels: Vec<String> = ["Lease", "Rent"].iter().map(|s| omsi_ui::tr(s).into_owned()).collect();
             let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
-            let mut how = if new_ok { how.min(1) } else { 1 };
-            l.ui.segmented_some("company-new-how", Rect::new(right.x, right.y, right.w, ROW), &mut how, &refs, if new_ok { &[] } else { &[0] });
+            let mut how = how.min(1);
+            l.ui.segmented("company-new-how", Rect::new(right.x, right.y, right.w, 40.0), &mut how, &refs);
             let r = co::economy::rules(c.difficulty);
-            let mut y = right.y + ROW + 16.0;
-            let rh = 30.0;
+            let mut y = right.y + 40.0 + 18.0;
+            let rh = 34.0;
             let mut days = days;
             let action: String;
-            let ok: bool;
+            let cost: i64;
             if how == 0 {
                 let (monthly, months, residual) = market::lease_offer(&c, &bus);
                 price_row(&mut l.ui, Rect::new(right.x, y, right.w, rh), &omsi_ui::tr("Monthly rate"), &eur(monthly), true);
@@ -230,46 +232,50 @@ pub fn dialog(l: &mut Launcher) {
                 price_row(&mut l.ui, Rect::new(right.x, y, right.w, rh), &omsi_ui::tr("Term"), &omsi_ui::tr("%{n} months").replace("%{n}", &months.to_string()), false);
                 y += rh;
                 price_row(&mut l.ui, Rect::new(right.x, y, right.w, rh), &omsi_ui::tr("Residual value"), &eur(residual), false);
-                y += rh + 10.0;
-                l.ui.paragraph("No price now: the rate is booked at every month's end, and the bus goes back when the term ends. Insurance is the company's. A lease with a haggled rate comes with the dealer's contract.", Vec2::new(right.x, y), right.w, 12.5, Weight::Regular, TEXT_DIM);
-                ok = c.cash >= monthly;
+                y += rh + 12.0;
+                l.ui.paragraph("No price now: the rate is booked at every month's end, and the bus goes back when the term ends. Insurance is the company's. A lease with a haggled rate comes with the dealer's contract.", Vec2::new(right.x, y), right.w, kit::BODY, Weight::Regular, TEXT_SOFT);
+                cost = monthly;
                 action = omsi_ui::tr("Lease for %{amount} a month").replace("%{amount}", &eur(monthly));
             } else {
                 let daily = co::economy::rent_per_day(bus.kind, &r, c.price_index);
                 price_row(&mut l.ui, Rect::new(right.x, y, right.w, rh), &omsi_ui::tr("Per day"), &eur(daily), false);
-                y += rh + 10.0;
-                l.ui.slider("company-rent-days", Rect::new(right.x, y, right.w, 44.0), &mut days, 1.0, 60.0, 1.0, "Days", &|v| format!("{v:.0}"));
-                y += 54.0;
+                y += rh + 12.0;
+                l.ui.slider("company-rent-days", Rect::new(right.x, y, right.w, 40.0), &mut days, 1.0, 60.0, 1.0, "Days", &|v| format!("{v:.0}"));
+                y += 52.0;
                 let n = days.round().max(1.0) as i64;
                 price_row(&mut l.ui, Rect::new(right.x, y, right.w, rh), &omsi_ui::tr("Together"), &eur(daily * n), true);
-                y += rh + 10.0;
-                l.ui.paragraph("Paid by the day at each day's close; the bus goes back after the last day. A rented bus is a few years old and kept well.", Vec2::new(right.x, y), right.w, 12.5, Weight::Regular, TEXT_DIM);
-                ok = c.cash >= daily * n;
+                y += rh + 12.0;
+                l.ui.paragraph("Paid by the day at each day's close; the bus goes back after the last day. A rented bus is a few years old and kept well.", Vec2::new(right.x, y), right.w, kit::BODY, Weight::Regular, TEXT_SOFT);
+                cost = daily * n;
                 action = omsi_ui::tr("Rent for %{n} days").replace("%{n}", &n.to_string());
             }
-            let by = inner.bottom() - 38.0;
-            if l.ui.button("company-new-cancel", Rect::new(inner.right() - 420.0, by, 120.0, 38.0), "Cancel", None, ButtonKind::Normal) || esc {
+            let mut foot = Foot::new(&f);
+            let go = foot.right(l, "company-new-do", &action, Some("check_circle"), ButtonKind::Primary);
+            if foot.right(l, "company-new-cancel", "Cancel", None, ButtonKind::Normal) || f.close {
                 return;
             }
-            if !ok {
-                l.ui.text_in("Not enough cash.", Rect::new(right.x, by, 160.0, 38.0), 13.0, Weight::Medium, WARN, Align::Left);
-            }
-            if l.ui.button("company-new-do", Rect::new(inner.right() - 290.0, by, 290.0, 38.0), &action, Some("check_circle"), ButtonKind::Primary) && ok {
-                let paint = liveries.get(livery).cloned().unwrap_or_default();
-                let n = days.round().max(1.0) as u32;
-                let done = act(l, |c| if how == 0 { market::lease(c, &bus, &paint) } else { market::rent(c, &bus, n, &paint) });
-                if let Some(id) = done {
-                    joined(l, id);
-                    return;
+            if go {
+                if c.cash < cost {
+                    kit::show(l, kit::no_cash(&c, cost));
+                } else {
+                    let paint = liveries.get(livery).cloned().unwrap_or_default();
+                    let n = days.round().max(1.0) as u32;
+                    let done = act(l, |c| if how == 0 { market::lease(c, &bus, &paint) } else { market::rent(c, &bus, n, &paint) });
+                    if let Some(id) = done {
+                        joined(l, id);
+                        return;
+                    }
                 }
             }
             l.company.dialog = Some(Dialog::New { bus, how, days, livery });
         }
         Some(Dialog::Vehicle { id, livery }) => {
             let Some(v) = c.vehicle(id).cloned() else { return };
-            let inner = dialog_panel(l, 760.0, 500.0, "directions_bus", &format!("{}  ·  {}", v.number, v.name));
+            let f = kit::frame(l, 920.0, 640.0, "directions_bus", &format!("{}  ·  {}", v.number, v.name));
+            let inner = f.body;
             let liveries = liveries_of(l, &v.bus);
-            let side = Rect::new(inner.x, inner.y, 250.0, inner.h - 50.0);
+            let side_w = 290.0;
+            let side = Rect::new(inner.x, inner.y, side_w, inner.h);
             let chosen = bus_side(l, side, &v.bus, &v.name, v.kind, livery, &liveries);
             if chosen != livery {
                 let paint = liveries.get(chosen).cloned().unwrap_or_default();
@@ -278,8 +284,8 @@ pub fn dialog(l: &mut Launcher) {
                     Ok(())
                 });
             }
-            let right = Rect::new(inner.x + 274.0, inner.y, inner.w - 274.0, inner.h - 50.0);
-            let rh = 29.0;
+            let right = Rect::new(inner.x + side_w + 28.0, inner.y, inner.w - side_w - 28.0, inner.h);
+            let rh = 34.0;
             let mut y = right.y;
             let rows: Vec<(String, String)> = vec![
                 (omsi_ui::tr("Plate").into_owned(), v.plate.clone()),
@@ -299,22 +305,22 @@ pub fn dialog(l: &mut Launcher) {
                 y += rh;
             }
             let (status, colour) = status_of(&c, &v);
-            l.ui.text_in(&status, Rect::new(right.x, y + 6.0, right.w, 22.0), 13.5, Weight::Bold, colour, Align::Left);
-            let by = inner.bottom() - 38.0;
+            l.ui.text_in(&status, Rect::new(right.x, y + 10.0, right.w, 26.0), kit::BODY, Weight::Bold, colour, Align::Left);
             let sell = match v.tenure {
                 Tenure::Owned { .. } => "Sell",
                 _ => "Give back",
             };
-            if l.ui.button("company-bus-sell", Rect::new(inner.x, by, 150.0, 38.0), sell, None, ButtonKind::Danger) {
+            let mut foot = Foot::new(&f);
+            if foot.right(l, "company-bus-close", "Close", None, ButtonKind::Primary) || f.close {
+                l.company.fleet.selected = None;
+                return;
+            }
+            if foot.left(l, "company-bus-sell", sell, None, ButtonKind::Danger) {
                 l.company.dialog = Some(Dialog::Confirm { what: Confirm::Sell(id) });
                 return;
             }
-            if l.ui.button("company-bus-service", Rect::new(inner.x + 162.0, by, 220.0, 38.0), "Service tomorrow", Some("construction"), ButtonKind::Normal) && act(l, |c| market::service(c, id)).is_some() {
+            if foot.left(l, "company-bus-service", "Service tomorrow", Some("construction"), ButtonKind::Normal) && act(l, |c| market::service(c, id)).is_some() {
                 l.state.set_status(omsi_ui::tr("Bus %{n} goes to the workshop tomorrow.").replace("%{n}", &v.number), false);
-            }
-            if l.ui.button("company-bus-close", Rect::new(inner.right() - 130.0, by, 130.0, 38.0), "Close", None, ButtonKind::Primary) || esc {
-                l.company.fleet.selected = None;
-                return;
             }
             l.company.dialog = Some(Dialog::Vehicle { id, livery: chosen });
         }
@@ -337,7 +343,7 @@ mod tests {
     #[test]
     fn the_grid_fits_its_tiles() {
         let (cols, tw, ph, th) = layout(1100.0);
-        assert_eq!(cols, 4);
-        assert!(tw >= 250.0 && ph < tw && th > ph);
+        assert_eq!(cols, 3);
+        assert!(tw >= 270.0 && ph < tw && th > ph + 100.0);
     }
 }

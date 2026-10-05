@@ -404,6 +404,24 @@ pub struct CompanyLine {
     /// (its passengers through the day, its tours' bus sizes; see `ownline`).
     #[serde(default)]
     pub plan: Option<super::ownline::OwnPlan>,
+    /// From when the line runs (the company clock's minutes, `clock::moment`): None while it
+    /// is not planned yet - its tours are neither run nor penalised (`network::in_service`). A
+    /// file of an older version, which ran every line, reads `LEGACY_SERVICE` (`store::migrate`).
+    #[serde(default = "legacy_service")]
+    pub service_from: Option<i64>,
+    /// The single ticket's price the line asks (None: the fare association's; `fares`).
+    #[serde(default)]
+    pub fare: Option<Cents>,
+    /// How the passengers have taken the fare so far (`fares::Demand`).
+    #[serde(default)]
+    pub demand: super::fares::Demand,
+}
+
+/// What a line of an older file says of its service until `store::migrate` decides it.
+pub const LEGACY_SERVICE: i64 = i64::MIN;
+
+fn legacy_service() -> Option<i64> {
+    Some(LEGACY_SERVICE)
 }
 
 /// How a closed day ended, for the dashboard's chart.

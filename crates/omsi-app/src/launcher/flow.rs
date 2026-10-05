@@ -591,6 +591,12 @@ pub fn draw(l: &mut Launcher) {
 /// what it is and for what (once - the bar names it in passing), the way back in its corner.
 /// The sheet stops short of the window's foot, where the status line is.
 pub fn page(l: &mut Launcher, page: Page, title: &str) {
+    // (the bus company is an application screen of its own: the whole window, its own bar -
+    // Luc: "in plaats van een tegel")
+    if page == Page::Company {
+        super::company::screen(l);
+        return;
+    }
     let size = l.ui.size;
     ground_picture(l, Rect::new(0.0, 0.0, size.x, size.y));
     let r = centred(Rect::new(EDGE_IN, SHEET_TOP, size.x - 2.0 * EDGE_IN, (size.y - SHEET_TOP - 40.0).max(200.0)), PAGE_MAX_W);
@@ -629,8 +635,7 @@ pub fn page(l: &mut Launcher, page: Page, title: &str) {
         Page::Setup => super::pages::setup(l, inner),
         Page::Editor => super::editor_hub::draw(l, inner),
         Page::Lines => super::lineeditor::draw(l, inner),
-        Page::Company => super::company::draw(l, inner),
-        Page::Drive | Page::Livery => {}
+        Page::Drive | Page::Livery | Page::Company => {}
     }
     bar(l, Some(step_of(page)), Some(title));
 }

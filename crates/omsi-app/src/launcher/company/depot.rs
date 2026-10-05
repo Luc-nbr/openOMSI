@@ -11,6 +11,7 @@ use super::super::ownlines;
 use super::super::theme::*;
 use super::super::ui::{id_of, ButtonKind, Ui};
 use super::super::Launcher;
+use super::kit;
 use super::{act, changed, data, day_label, eur, figure, grade, meter, section};
 use glam::Vec2;
 use omsi_launcher_lib::company::depot::{self as dp, Area, JobKind};
@@ -75,7 +76,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     // the figures
     let held = c.fleet.iter().filter(|v| v.held_on(&c.date)).count();
     let spaces = c.site.spaces();
-    let fh = 84.0;
+    let fh = kit::FIGURE_H;
     let fw = (left.w - 3.0 * 12.0) / 4.0;
     let fr = |k: usize| Rect::new(left.x + k as f32 * (fw + 12.0), left.y, fw, fh);
     let out = dp::outside(&c);
@@ -88,7 +89,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     figure(&mut l.ui, fr(2), "Cleanliness", &format!("{:.0} %", c.site.clean), &omsi_ui::tr("of the fleet"), grade(c.site.clean));
     figure(&mut l.ui, fr(3), "Upkeep", &eur(dp::upkeep_month(&c)), &omsi_ui::tr("a month for the buildings"), TEXT);
     plan(l, Rect::new(left.x, left.y + fh + 12.0, left.w, (left.h - fh - 12.0).max(0.0)), &c);
-    let bh = (6.0 * 50.0 + 48.0f32).min(right.h * 0.62);
+    let bh = (6.0 * 62.0 + 56.0f32).min(right.h * 0.62);
     buildings(l, Rect::new(right.x, right.y, right.w, bh), &c);
     workshop(l, Rect::new(right.x, right.y + bh + 12.0, right.w, (right.h - bh - 12.0).max(0.0)), &c);
 }
@@ -133,10 +134,10 @@ fn building(ui: &mut Ui, r: Rect, c: &Company, area: Area, title: &str) -> bool 
     if let Some(w) = &works {
         ui.p().rounded_border(r.inset(2.0), 5.0, 1.5, WARN.alpha(0.8));
         let t = omsi_ui::tr("Ready %{date}").replace("%{date}", &day_label(&w.until));
-        ui.text_in(&t, Rect::new(r.x + 8.0, r.bottom() - 18.0, r.w - 16.0, 14.0), 10.0, Weight::Bold, WARN, Align::Left);
+        ui.text_in(&t, Rect::new(r.x + 8.0, r.bottom() - 18.0, r.w - 16.0, 14.0), kit::CAPS, Weight::Bold, WARN, Align::Left);
     }
-    let head = if built { title.to_uppercase() } else { omsi_ui::tr("Free plot").to_uppercase() };
-    ui.text_in(&head, Rect::new(r.x + 8.0, r.y + 4.0, r.w - 16.0, 14.0), 9.5, Weight::Bold, if built { TEXT_DIM } else { TEXT_FAINT }, Align::Left);
+    let head = if built { omsi_ui::tr(title).to_uppercase() } else { omsi_ui::tr("Free plot").to_uppercase() };
+    ui.text_in(&head, Rect::new(r.x + 8.0, r.y + 4.0, r.w - 16.0, 14.0), 12.0, Weight::Bold, if built { TEXT_DIM } else { TEXT_FAINT }, Align::Left);
     built
 }
 
@@ -200,7 +201,7 @@ fn plan(l: &mut Launcher, r: Rect, c: &Company) {
             l.ui.p().rounded(fr, 2.0, TEXT_FAINT.alpha(0.35));
         }
         let t = omsi_ui::tr("room for %{n}").replace("%{n}", &c.site.staff_room().to_string());
-        l.ui.text_in(&t, Rect::new(offices.x + 8.0, offices.bottom() - 18.0, offices.w - 16.0, 14.0), 10.0, Weight::Regular, TEXT_DIM, Align::Left);
+        l.ui.text_in(&t, Rect::new(offices.x + 8.0, offices.bottom() - 18.0, offices.w - 16.0, 14.0), kit::CAPS, Weight::Regular, TEXT_DIM, Align::Left);
     }
     // the hall: a bay a level, the buses being worked on in them, the ones waiting before it
     let hall = Rect::new(offices.right() + g, top.y, ww, top.h);
@@ -253,10 +254,10 @@ fn plan(l: &mut Launcher, r: Rect, c: &Company) {
     // the parking: four rows of two blocks of twelve spaces, a level a block
     let park = Rect::new(yard.x + pad, top.bottom() + 26.0, yard.w - 2.0 * pad, (yard.bottom() - pad - top.bottom() - 26.0).max(40.0));
     let label = omsi_ui::tr(Area::Parking.label()).to_uppercase();
-    l.ui.text_in(&label, Rect::new(park.x, park.y - 18.0, park.w * 0.5, 14.0), 9.5, Weight::Bold, TEXT_DIM, Align::Left);
+    l.ui.text_in(&label, Rect::new(park.x, park.y - 18.0, park.w * 0.5, 14.0), 12.0, Weight::Bold, TEXT_DIM, Align::Left);
     if let Some(w) = c.site.works_on(Area::Parking) {
         let t = omsi_ui::tr("More spaces ready %{date}").replace("%{date}", &day_label(&w.until));
-        l.ui.text_in(&t, Rect::new(park.x + park.w * 0.5, park.y - 18.0, park.w * 0.5, 14.0), 10.0, Weight::Bold, WARN, Align::Right);
+        l.ui.text_in(&t, Rect::new(park.x + park.w * 0.5, park.y - 18.0, park.w * 0.5, 14.0), kit::CAPS, Weight::Bold, WARN, Align::Right);
     }
     let blocks = Area::Parking.max() as usize;
     let rows = blocks / 2;
@@ -344,7 +345,7 @@ fn buildings(l: &mut Launcher, r: Rect, c: &Company) {
     let mut build = None;
     let cc = c.clone();
     l.ui.scroll_area("depot-areas", inner, &mut |ui, v| {
-        let rh = 50.0;
+        let rh = 62.0;
         for (k, a) in Area::ALL.iter().enumerate() {
             let r = Rect::new(v.x, v.y + k as f32 * rh, v.w - 10.0, rh - 6.0);
             if !ui.rect_visible(r) {
@@ -353,37 +354,42 @@ fn buildings(l: &mut Launcher, r: Rect, c: &Company) {
             if k > 0 {
                 ui.p().rect(Rect::new(r.x, r.y - 3.0, r.w, 1.0), HAIRLINE);
             }
-            ui.icon(a.icon(), Vec2::new(r.x + 14.0, r.y + 18.0), 20.0, accent_2());
+            ui.icon(a.icon(), Vec2::new(r.x + 15.0, r.y + 20.0), 22.0, accent_2());
             let lv = cc.site.level(*a);
-            ui.text_in(a.label(), Rect::new(r.x + 34.0, r.y + 6.0, r.w - 210.0, 18.0), 13.5, Weight::Bold, TEXT, Align::Left);
-            let lvl = format!("{} / {}", lv, a.max());
-            let tw = ui.width(&lvl, 11.0, Weight::Bold);
-            let lx = r.x + 34.0 + ui.width(&omsi_ui::tr(a.label()), 13.5, Weight::Bold) + 10.0;
-            if lx + tw < r.right() - 180.0 {
-                ui.badge(Vec2::new(lx, r.y + 7.0), &lvl, TEXT_DIM);
+            ui.text_in(a.label(), Rect::new(r.x + 38.0, r.y + 6.0, r.w - 230.0, 24.0), kit::ROWS, Weight::Bold, TEXT, Align::Left);
+            let lvl = omsi_ui::tr("level %{n} of %{max}").replace("%{n}", &lv.to_string()).replace("%{max}", &a.max().to_string());
+            let tw = ui.width(&lvl, 12.0, Weight::Bold) + 16.0;
+            let lx = r.x + 38.0 + ui.width(&omsi_ui::tr(a.label()), kit::ROWS, Weight::Bold) + 12.0;
+            if lx + tw < r.right() - 190.0 {
+                kit::tag(ui, Vec2::new(lx, r.y + 7.0), &lvl, TEXT_SOFT);
             }
-            ui.text_in(&effect(&cc, *a), Rect::new(r.x + 34.0, r.y + 26.0, r.w - 210.0, 16.0), 11.5, Weight::Regular, TEXT_DIM, Align::Left);
-            let br = Rect::new(r.right() - 168.0, r.y + 8.0, 168.0, 32.0);
+            ui.text_in(&effect(&cc, *a), Rect::new(r.x + 38.0, r.y + 32.0, r.w - 230.0, 20.0), kit::NOTE, Weight::Regular, TEXT_SOFT, Align::Left);
+            let br = Rect::new(r.right() - 180.0, r.y + 9.0, 180.0, 38.0);
             if let Some(w) = cc.site.works_on(*a) {
                 let t = omsi_ui::tr("Building until %{date}").replace("%{date}", &day_label(&w.until));
-                ui.text_in(&t, br, 12.0, Weight::Medium, WARN, Align::Right);
+                ui.text_in(&t, br, kit::NOTE, Weight::Medium, WARN, Align::Right);
             } else if let Some((cost, days)) = dp::next_cost(&cc, *a) {
-                let ok = cc.cash >= cost && dp::area_allowed(&cc, *a);
-                let kind = if ok { ButtonKind::Normal } else { ButtonKind::Ghost };
-                if ui.button(&format!("depot-build-{}", a.key()), br, &eur(cost), Some("add"), kind) {
-                    build = Some(*a);
+                let open = dp::area_allowed(&cc, *a);
+                if ui.button(&format!("depot-build-{}", a.key()), br, &eur(cost), Some(if open { "add" } else { "lock" }), ButtonKind::Normal) {
+                    build = Some((*a, cost));
                 }
                 let up = dp::step(*a, lv + 1).upkeep as f64 * cc.price_index;
                 let tip = omsi_ui::tr("Build the next level: %{days} days of work, then %{amount} a month").replace("%{days}", &days.to_string()).replace("%{amount}", &eur(up.round() as i64));
                 ui.tooltip(br, &tip);
             } else {
-                ui.text_in("Complete", br, 12.0, Weight::Medium, OK, Align::Right);
+                ui.text_in("Complete", br, kit::NOTE, Weight::Medium, OK, Align::Right);
             }
         }
         Area::ALL.len() as f32 * rh
     });
-    if let Some(a) = build {
-        if act(l, |c| dp::build(c, a)).is_some() {
+    if let Some((a, cost)) = build {
+        // (what is in the way is said first: the level that opens it, or the money)
+        if !dp::area_allowed(c, a) {
+            let f = if a == Area::Workshop { co::levels::Feature::Workshop } else { co::levels::Feature::ElectricBuses };
+            kit::show(l, kit::locked(c, f));
+        } else if c.cash < cost {
+            kit::show(l, kit::no_cash(c, cost));
+        } else if act(l, |c| dp::build(c, a)).is_some() {
             l.state.set_status(omsi_ui::tr("Building work has begun: %{what}.").replace("%{what}", &omsi_ui::tr(a.label())), false);
         }
     }
@@ -403,7 +409,7 @@ fn workshop(l: &mut Launcher, r: Rect, c: &Company) {
     let mut buses: Vec<co::Vehicle> = c.fleet.iter().filter(|v| v.held_on(&today) && c.site.job_of(v.id).is_none()).cloned().collect();
     buses.sort_by(|a, b| (Some(b.id) == selected).cmp(&(Some(a.id) == selected)).then(a.condition.total_cmp(&b.condition)));
     if jobs.is_empty() && buses.is_empty() {
-        l.ui.paragraph("No bus yet: the workshop services, repairs and overhauls the fleet's buses, one a bay.", Vec2::new(inner.x, inner.y), inner.w, 13.0, Weight::Regular, TEXT_DIM);
+        l.ui.paragraph("No bus yet: the workshop services, repairs and overhauls the fleet's buses, one a bay.", Vec2::new(inner.x, inner.y), inner.w, kit::ROWS, Weight::Regular, TEXT_SOFT);
         return;
     }
     let cc = c.clone();
@@ -411,7 +417,7 @@ fn workshop(l: &mut Launcher, r: Rect, c: &Company) {
     let mut cancel: Option<u32> = None;
     let mut pick: Option<u32> = None;
     l.ui.scroll_area("depot-workshop", inner, &mut |ui, v| {
-        let rh = 48.0;
+        let rh = 56.0;
         let mut y = v.y;
         for j in &jobs {
             let r = Rect::new(v.x, y, v.w - 10.0, rh - 6.0);
@@ -421,14 +427,14 @@ fn workshop(l: &mut Launcher, r: Rect, c: &Company) {
             }
             let Some(bus) = cc.vehicle(j.vehicle) else { continue };
             let w = super::plate(ui, Vec2::new(r.x, r.y + 4.0), &bus.number, 20.0);
-            ui.text_in(&format!("{}  ·  {}", omsi_ui::tr(j.kind.label()), bus.name), Rect::new(r.x + w + 10.0, r.y + 2.0, r.w - w - 130.0, 18.0), 13.0, Weight::Bold, TEXT, Align::Left);
+            ui.text_in(&format!("{}  ·  {}", omsi_ui::tr(j.kind.label()), bus.name), Rect::new(r.x + w + 10.0, r.y + 3.0, r.w - w - 140.0, 22.0), kit::ROWS, Weight::Bold, TEXT, Align::Left);
             let (what, colour) = match (&j.started, &j.until) {
                 (Some(_), Some(u)) => (omsi_ui::tr("In a bay until %{date}").replace("%{date}", &day_label(u)), accent_2()),
                 _ => (omsi_ui::tr("Waiting for a free bay").into_owned(), WARN),
             };
-            ui.text_in(&what, Rect::new(r.x + w + 10.0, r.y + 22.0, r.w - w - 130.0, 16.0), 11.5, Weight::Medium, colour, Align::Left);
+            ui.text_in(&what, Rect::new(r.x + w + 10.0, r.y + 27.0, r.w - w - 140.0, 20.0), kit::NOTE, Weight::Medium, colour, Align::Left);
             if j.cost > 0 {
-                ui.text_in(&eur(j.cost), Rect::new(r.right() - 120.0, r.y + 2.0, 80.0, 18.0), 12.0, Weight::Medium, TEXT_SOFT, Align::Right);
+                ui.text_in(&eur(j.cost), Rect::new(r.right() - 120.0, r.y + 2.0, 80.0, 18.0), kit::NOTE, Weight::Medium, TEXT_SOFT, Align::Right);
             }
             if j.started.is_none() && ui.icon_button(&format!("depot-job-cancel-{}", j.id), Vec2::new(r.right() - 16.0, r.y + 16.0), 14.0, "close", "Take the job back") {
                 cancel = Some(j.id);
@@ -449,7 +455,7 @@ fn workshop(l: &mut Launcher, r: Rect, c: &Company) {
             }
             let w = super::plate(ui, Vec2::new(r.x + 6.0, r.y + 4.0), &b.number, 20.0);
             let ink = if on { on_accent() } else { TEXT };
-            ui.text_in(&b.name, Rect::new(r.x + w + 14.0, r.y + 2.0, r.w * 0.42 - w - 18.0, 18.0), 12.5, Weight::Bold, ink, Align::Left);
+            ui.text_in(&b.name, Rect::new(r.x + w + 14.0, r.y + 3.0, r.w * 0.42 - w - 18.0, 22.0), 14.0, Weight::Bold, ink, Align::Left);
             let due = b.km >= b.next_service_km - 1_000.0;
             let sub = if b.in_workshop(&today) {
                 omsi_ui::tr("in the workshop").into_owned()
@@ -458,11 +464,13 @@ fn workshop(l: &mut Launcher, r: Rect, c: &Company) {
             } else {
                 format!("{:.0} %", b.condition)
             };
-            ui.text_in(&sub, Rect::new(r.x + w + 14.0, r.y + 22.0, 90.0, 16.0), 11.0, Weight::Medium, if due { WARN } else if on { on_accent() } else { TEXT_DIM }, Align::Left);
-            meter(ui, Rect::new(r.x + w + 104.0, r.y + 28.0, (r.w * 0.42 - w - 112.0).max(10.0), 4.0), b.condition / 100.0, grade(b.condition));
+            ui.text_in(&sub, Rect::new(r.x + w + 14.0, r.y + 27.0, 110.0, 20.0), kit::NOTE, Weight::Medium, if due { WARN } else if on { on_accent() } else { TEXT_DIM }, Align::Left);
+            let mr = Rect::new(r.x + w + 128.0, r.y + 35.0, (r.w * 0.42 - w - 136.0).max(10.0), 5.0);
+            meter(ui, mr, b.condition / 100.0, grade(b.condition));
+            ui.tooltip(Rect::new(mr.x, mr.y - 9.0, mr.w, 22.0), &omsi_ui::tr("Condition: %{n} of 100").replace("%{n}", &format!("{:.0}", b.condition)));
             let bw = ((r.w * 0.58 - 12.0) / 3.0).min(110.0);
             for (k, kind) in JobKind::ALL.iter().enumerate() {
-                let br = Rect::new(r.right() - (3 - k) as f32 * (bw + 4.0), r.y + 6.0, bw, 30.0);
+                let br = Rect::new(r.right() - (3 - k) as f32 * (bw + 4.0), r.y + 8.0, bw, 34.0);
                 if ui.button(&format!("depot-job-{}-{}", b.id, kind.key()), br, kind.label(), None, ButtonKind::Ghost) {
                     order = Some((b.id, *kind));
                 }

@@ -1,16 +1,13 @@
 //! The bus dealer (Luc: "a better dealer"): the installed buses as a showroom by maker, model
-//! and version, each with the years it was built in; the day's special offers (new buses
+//! and version; the day's special offers (new buses
 //! from stock at a discount, demonstrators, a batch of used buses another operator sells) and
 //! the used market, both new every company day; haggling with the dealer; a contract that is
 //! signed before anything is booked, and the bus that comes on its delivery day. Or, for who
 //! wants buses quickly, the quick buy: a model, a number, the list price, at once. The
 //! company's setting `BuyingMode` says which of the two the dealer shows first.
 //!
-//! The company's year decides what can be had: a model whose production ended before it is
-//! sold second-hand only (as old and as worn as fits), one not built yet is not sold at all.
-//! The years come from a user's file (`bus-years.txt`), from the bus's names ("1992-2003"),
-//! from a table of the well-known OMSI buses, from a lone year in its names or from its
-//! emission standard ("Euro V"); a bus of which nothing is known is always to be had.
+//! Every installed bus is to be had new at any company date (Luc: the model years were too
+//! complicated - "laat die bouwjaren maar los"); the used market offers buses of some age.
 //!
 //! Time: what happens at a moment - an offer that expires, a bus that is delivered - is kept
 //! as "YYYY-MM-DD HH:MM". The company clock calls `tick` with its time; until it does, the
@@ -27,7 +24,7 @@ use super::market::{self, MarketBus, Payment};
 use super::model::{BookingKind, BusKind, BusSize, Cents, Company, Difficulty, Drive, Tenure};
 use super::rng::Rng;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 // --- moments ---------------------------------------------------------------------------------
 
@@ -81,340 +78,18 @@ pub fn year_of(date: &str) -> i32 {
     date.trim().get(..4).and_then(|y| y.parse().ok()).unwrap_or(2000)
 }
 
-// --- model years ------------------------------------------------------------------------------
-
-/// The years a model was built in: from the first, to the last (None: still built).
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Years {
-    pub from: i32,
-    #[serde(default)]
-    pub to: Option<i32>,
-}
-
-impl Years {
-    pub fn new(from: i32, to: Option<i32>) -> Years {
-        Years { from, to: to.map(|t| t.max(from)) }
-    }
-
-    /// The last year a bus of it can have been built in by `year`.
-    pub fn last_by(&self, year: i32) -> i32 {
-        self.to.unwrap_or(year).min(year)
-    }
-}
-
-/// Lower-case letters and digits only: "Lion's City" is "lionscity", "SD 202" "sd202".
-fn squash(s: &str) -> String {
-    s.to_lowercase().chars().filter(|c| c.is_alphanumeric()).collect()
-}
-
-/// The well-known OMSI buses (and their real sisters): words all of which are in the bus's
-/// names (squashed), and the years the model was built. The first that fits counts: the
-/// more particular ones first.
-const KNOWN: &[(&[&str], i32, Option<i32>)] = &[
-    // MAN
-    (&["sd200"], 1973, Some(1985)),
-    (&["sd202"], 1984, Some(1992)),
-    (&["sl200"], 1973, Some(1988)),
-    (&["sl202"], 1984, Some(1993)),
-    (&["sg242"], 1985, Some(1992)),
-    (&["nl202"], 1989, Some(1993)),
-    (&["ng272"], 1992, Some(1998)),
-    (&["nl222"], 1993, Some(1998)),
-    (&["nl223"], 1997, Some(2004)),
-    (&["ng263"], 1998, Some(2004)),
-    (&["lionscity", "2018"], 2018, None),
-    (&["lionscity"], 1996, Some(2019)),
-    // Mercedes-Benz
-    (&["o305"], 1967, Some(1987)),
-    (&["o405n"], 1989, Some(2001)),
-    (&["o405"], 1984, Some(2001)),
-    (&["ecitaro"], 2018, None),
-    (&["citaro", "c2"], 2011, None),
-    (&["citaro", "facelift"], 2005, Some(2012)),
-    (&["o530", "facelift"], 2005, Some(2012)),
-    (&["o530"], 1997, None),
-    (&["citaro"], 1997, None),
-    (&["o560"], 2006, None),
-    (&["intouro"], 2006, None),
-    // Solaris, Volvo, Setra, Ikarus and the others
-    (&["urbino", "electric"], 2011, None),
-    (&["urbino"], 1999, None),
-    (&["volvo", "7900"], 2011, None),
-    (&["volvo", "7700"], 2003, Some(2011)),
-    (&["s315nf"], 1995, Some(2006)),
-    (&["s415nf"], 2005, Some(2016)),
-    (&["ikarus", "260"], 1971, Some(2002)),
-    (&["ikarus", "280"], 1973, Some(2002)),
-    (&["citelis"], 2005, Some(2013)),
-    (&["urbanway"], 2013, None),
-    (&["citea"], 2009, None),
-    (&["citywide"], 2011, None),
-    (&["newroutemaster"], 2012, Some(2017)),
-    (&["routemaster"], 1956, Some(1968)),
-    (&["enviro400"], 2005, None),
-];
-
-/// A line of the user's model years file: words that all are in the bus's names, and its
-/// years (None: always to be had).
-#[derive(Clone, Debug, PartialEq)]
-pub struct Override {
-    pub words: Vec<String>,
-    pub years: Option<Years>,
-}
-
-/// The user's model years file, in the data folder.
-pub fn overrides_file(data: &Path) -> PathBuf {
-    data.join("bus-years.txt")
-}
-
-/// What a new model years file says (the user's lines go under it).
-pub const OVERRIDES_TEMPLATE: &str = "\
-# The years a bus model was built, for the company's dealer (openOMSI).
-# One model a line: words of its name, maker, type or folder, \"=\", and its years.
-#   MAN SD202 = 1984-1992      built from 1984 to 1992
-#   eCitaro = 2018-            built since 2018
-#   My bus = always            always to be had
-# A line here wins over what openOMSI guesses.
-";
-
-/// The lines of a model years file.
-pub fn parse_overrides(text: &str) -> Vec<Override> {
-    let mut out = Vec::new();
-    for line in text.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let Some((names, years)) = line.split_once('=') else { continue };
-        let words: Vec<String> = names.split_whitespace().map(squash).filter(|w| !w.is_empty()).collect();
-        if words.is_empty() {
-            continue;
-        }
-        let y = years.trim().to_lowercase();
-        let years = if y == "always" || y == "immer" || y == "altijd" {
-            None
-        } else {
-            let (a, b) = match y.split_once(['-', '–']) {
-                Some((a, b)) => (a.trim(), Some(b.trim())),
-                None => (y.as_str(), None),
-            };
-            let Ok(from) = a.parse::<i32>() else { continue };
-            let to = match b {
-                None => Some(from),
-                Some("") => None,
-                Some(b) => match b.parse::<i32>() {
-                    Ok(t) => Some(t),
-                    Err(_) => continue,
-                },
-            };
-            Some(Years::new(from, to))
-        };
-        out.push(Override { words, years });
-    }
-    out
-}
-
-/// The user's model years (none without the file).
-pub fn load_overrides(data: &Path) -> Vec<Override> {
-    std::fs::read_to_string(overrides_file(data)).map(|t| parse_overrides(&t)).unwrap_or_default()
-}
-
-fn plausible(y: i32) -> bool {
-    (1950..=2040).contains(&y)
-}
-
-/// The years written in a text: four digits standing alone, and a range of two ("1992-2003",
-/// "1992 – 2003", "1992/2003"). With `keyed`, only those after a word that says they are
-/// the bus's years ("Baujahr", "built", "bouwjaar"): a description's other years are those of
-/// the mod.
-fn years_in(text: &str, keyed: bool) -> (Option<(i32, i32)>, Vec<i32>) {
-    const KEYS: [&str; 12] = ["baujahr", "bj.", "built", "model year", "modelljahr", "modeljaar", "bouwjaar", "gebaut", "produced", "production", "produktion", "year of"];
-    let low = text.to_lowercase();
-    let b = low.as_bytes();
-    let mut found: Vec<(usize, usize, i32)> = Vec::new();
-    let mut i = 0;
-    while i < b.len() {
-        if b[i].is_ascii_digit() {
-            let s = i;
-            while i < b.len() && b[i].is_ascii_digit() {
-                i += 1;
-            }
-            let alnum_before = s > 0 && (b[s - 1] as char).is_ascii_alphabetic();
-            let alnum_after = i < b.len() && (b[i] as char).is_ascii_alphabetic();
-            if i - s == 4 && !alnum_before && !alnum_after {
-                if let Ok(y) = low[s..i].parse::<i32>() {
-                    if plausible(y) {
-                        found.push((s, i, y));
-                    }
-                }
-            }
-        } else {
-            i += 1;
-        }
-    }
-    let keyed_at = |s: usize| !keyed || KEYS.iter().any(|k| low[..s].rfind(k).is_some_and(|p| s - p <= 24));
-    let mut range = None;
-    let mut singles = Vec::new();
-    let mut k = 0;
-    while k < found.len() {
-        let (s, e, y) = found[k];
-        if let Some(&(s2, _, y2)) = found.get(k + 1) {
-            let between = &low[e..s2];
-            let sep = between.trim();
-            if (sep == "-" || sep == "–" || sep == "—" || sep == "/" || sep == "bis" || sep == "to" || sep == "tot") && y2 >= y && y2 - y <= 40 {
-                if range.is_none() && keyed_at(s) {
-                    range = Some((y, y2));
-                }
-                k += 2;
-                continue;
-            }
-        }
-        if keyed_at(s) {
-            singles.push(y);
-        }
-        k += 1;
-    }
-    (range, singles)
-}
-
-/// The years an emission standard says ("Euro V", "Euro 6", "EEV"; with `short`, as a bus's
-/// name has it too: "o530 U e3" - a sound file's "E5" is no standard).
-fn euro_years(texts: &str, short: bool) -> Option<Years> {
-    let low = texts.to_lowercase();
-    let w: Vec<&str> = low.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
-    let norm = |s: &str| -> Option<u32> {
-        match s {
-            "1" | "i" => Some(1),
-            "2" | "ii" => Some(2),
-            "3" | "iii" => Some(3),
-            "4" | "iv" => Some(4),
-            "5" | "v" => Some(5),
-            "6" | "vi" => Some(6),
-            _ => None,
-        }
-    };
-    let mut best = None;
-    for (k, x) in w.iter().enumerate() {
-        let n = if *x == "euro" {
-            w.get(k + 1).and_then(|n| norm(n))
-        } else if let Some(rest) = x.strip_prefix("euro") {
-            norm(rest)
-        } else if *x == "eev" {
-            Some(5)
-        } else if short && x.len() == 2 && x.starts_with('e') && x.as_bytes()[1].is_ascii_digit() {
-            norm(&x[1..])
-        } else {
-            None
-        };
-        if n.is_some() {
-            best = n;
-            break;
-        }
-    }
-    Some(match best? {
-        1 => Years::new(1992, Some(1996)),
-        2 => Years::new(1996, Some(2001)),
-        3 => Years::new(2001, Some(2006)),
-        4 => Years::new(2006, Some(2009)),
-        5 => Years::new(2009, Some(2014)),
-        _ => Years::new(2014, None),
-    })
-}
-
-/// The years both say (None: they do not meet).
-fn meet(a: Years, b: Years) -> Option<Years> {
-    let from = a.from.max(b.from);
-    let to = match (a.to, b.to) {
-        (Some(x), Some(y)) => Some(x.min(y)),
-        (x, None) => x,
-        (None, y) => y,
-    };
-    if to.is_some_and(|t| t < from) {
-        None
-    } else {
-        Some(Years { from, to })
-    }
-}
-
-/// The years a bus was built in, from its `names` (its name, maker, type, file and folder),
-/// its `description` and the names of its `parts` (scripts and sounds): the user's file
-/// first, then a range in its names, the table of the well-known ones, a lone year in its
-/// names, a year its description gives as its own, its emission standard. None: unknown.
-pub fn years_of(names: &[&str], description: &str, parts: &[&str], overrides: &[Override]) -> Option<Years> {
-    let squashed: Vec<String> = names.iter().map(|n| squash(n)).collect();
-    let all = squashed.join(" ");
-    let has = |w: &str| all.contains(w);
-    for o in overrides {
-        if o.words.iter().all(|w| has(w)) {
-            return o.years;
-        }
-    }
-    let text = names.join(" | ");
-    let (range, singles) = years_in(&text, false);
-    if let Some((a, b)) = range {
-        return Some(Years::new(a, Some(b)));
-    }
-    // (the standard in its name narrows the model's years down: a Citaro "e3" is of 2001-2006)
-    let euro = euro_years(&text, true);
-    let narrowed = |y: Years| euro.and_then(|e| meet(y, e)).unwrap_or(y);
-    if let Some((_, from, to)) = KNOWN.iter().find(|(words, _, _)| words.iter().all(|w| has(w))) {
-        return Some(narrowed(Years::new(*from, *to)));
-    }
-    if let Some(y) = singles.first() {
-        return Some(narrowed(Years::new(*y, Some(y + 8))));
-    }
-    if euro.is_some() {
-        return euro;
-    }
-    let (range, singles) = years_in(description, true);
-    if let Some((a, b)) = range {
-        return Some(Years::new(a, Some(b)));
-    }
-    if let Some(y) = singles.first() {
-        return Some(Years::new(*y, Some(y + 8)));
-    }
-    euro_years(&format!("{description} {}", parts.join(" ")), false)
-}
-
-/// Whether a model can be had in `year`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Availability {
-    /// New (and used).
-    New,
-    /// Its production has ended: second-hand only.
-    UsedOnly,
-    /// Not built yet: not to be had at all.
-    NotYet,
-}
-
-pub fn availability(years: Option<Years>, year: i32) -> Availability {
-    match years {
-        None => Availability::New,
-        Some(y) if year < y.from => Availability::NotYet,
-        Some(y) if y.to.is_some_and(|t| year > t) => Availability::UsedOnly,
-        Some(_) => Availability::New,
-    }
-}
-
 // --- the showroom -----------------------------------------------------------------------------
 
 /// A bus as the dealer shows it: the market's bus, its family (maker, model, version: the bus
-/// step's tree), its years and what its cabin holds.
+/// step's tree) and what its cabin holds. (An older file's "years" are passed over.)
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct Listing {
     pub bus: MarketBus,
     pub maker: String,
     pub model: String,
     pub version: String,
-    pub years: Option<Years>,
     pub seats: Option<u32>,
     pub standing: Option<u32>,
-}
-
-impl Listing {
-    pub fn availability(&self, year: i32) -> Availability {
-        availability(self.years, year)
-    }
 }
 
 /// What a bus's files say beyond its kind: seats and standing places (its passenger cabin
@@ -459,11 +134,8 @@ pub fn read_specs(file: &str) -> Specs {
 
 /// A listing of an installed bus: `family` is its maker, model and version as the bus step
 /// groups them.
-pub fn listing_of(v: &crate::VehicleInfo, bus: MarketBus, family: (String, String, String), specs: &Specs, overrides: &[Override]) -> Listing {
-    let names = [v.name.as_str(), v.manufacturer.as_str(), v.type_name.as_str(), v.file.as_str(), v.folder.as_str()];
-    let parts: Vec<&str> = specs.parts.iter().map(String::as_str).collect();
-    let years = years_of(&names, &v.description, &parts, overrides);
-    Listing { bus, maker: family.0, model: family.1, version: family.2, years, seats: specs.seats, standing: specs.standing }
+pub fn listing_of(bus: MarketBus, family: (String, String, String), specs: &Specs) -> Listing {
+    Listing { bus, maker: family.0, model: family.1, version: family.2, seats: specs.seats, standing: specs.standing }
 }
 
 /// What the showroom's filters ask.
@@ -472,21 +144,12 @@ pub struct Filter {
     pub search: String,
     pub size: Option<BusSize>,
     pub drive: Option<Drive>,
-    /// Some(true): to be had new; Some(false): second-hand only.
-    pub new: Option<bool>,
     /// The highest new price (0: any).
     pub max_price: Cents,
-    /// Built in this year (0: any).
-    pub year: i32,
 }
 
 impl Filter {
     pub fn fits(&self, l: &Listing, c: &Company) -> bool {
-        let year = year_of(&c.date);
-        let a = l.availability(year);
-        if a == Availability::NotYet {
-            return false;
-        }
         let q = self.search.trim().to_lowercase();
         if !q.is_empty() && ![&l.bus.name, &l.maker, &l.model, &l.version, &l.bus.file].iter().any(|s| s.to_lowercase().contains(&q)) {
             return false;
@@ -494,15 +157,7 @@ impl Filter {
         if self.size.is_some_and(|s| s != l.bus.kind.size) || self.drive.is_some_and(|d| d != l.bus.kind.drive) {
             return false;
         }
-        match self.new {
-            Some(true) if a != Availability::New => return false,
-            Some(false) if a != Availability::UsedOnly => return false,
-            _ => {}
-        }
         if self.max_price > 0 && list_price(c, l.bus.kind) > self.max_price {
-            return false;
-        }
-        if self.year > 0 && l.years.is_some_and(|y| self.year < y.from || y.to.is_some_and(|t| self.year > t)) {
             return false;
         }
         true
@@ -677,14 +332,10 @@ fn used_price(c: &Company, kind: BusKind, age: f64, km: f64, condition: f64) -> 
     (round_to(value as f64 * r.used_markup, 500_00), round_to(value as f64, 100_00))
 }
 
-/// A used bus of a model as old as fits `year`: built between its first year (and at most 25
-/// years back) and its last (and a year back). None: no such bus can be used yet.
-fn used_build(l: &Listing, today: i64, rng: &mut Rng, ages: (f64, f64)) -> Option<(String, f64)> {
+/// A used bus `ages` years old (the least, the most). None: no such bus.
+fn used_build(today: i64, rng: &mut Rng, ages: (f64, f64)) -> Option<(String, f64)> {
     let year = dates::civil_from_days(today).0;
-    let (lo, hi) = match l.years {
-        Some(y) => ((y.from).max(year - 25), y.last_by(year - 1)),
-        None => (year - ages.1.round() as i32, year - ages.0.round() as i32),
-    };
+    let (lo, hi) = (year - ages.1.round() as i32, year - ages.0.round() as i32);
     if hi < lo {
         return None;
     }
@@ -696,8 +347,7 @@ fn used_build(l: &Listing, today: i64, rng: &mut Rng, ages: (f64, f64)) -> Optio
 
 /// The used market's buses put up on `day`: each stays four days or until sold.
 fn used_of_day(c: &Company, listings: &[Listing], day: i64) -> Vec<Offer> {
-    let year = dates::civil_from_days(day).0;
-    let pool: Vec<&Listing> = listings.iter().filter(|l| l.availability(year) != Availability::NotYet).collect();
+    let pool: Vec<&Listing> = listings.iter().collect();
     if pool.is_empty() {
         return Vec::new();
     }
@@ -708,7 +358,7 @@ fn used_of_day(c: &Company, listings: &[Listing], day: i64) -> Vec<Offer> {
     let mut out = Vec::new();
     for k in 0..n {
         let Some(l) = rng.pick(&pool).copied() else { break };
-        let Some((built, age)) = used_build(l, day, &mut rng, (2.0, 15.0)) else { continue };
+        let Some((built, age)) = used_build(day, &mut rng, (2.0, 15.0)) else { continue };
         let km = (age * rng.range(45_000.0, 72_000.0) / 1000.0).round() * 1000.0;
         let condition = (95.0 - age * 3.0 + rng.range(-15.0, 10.0)).clamp(20.0, 92.0).round();
         let (price, value) = used_price(c, l.bus.kind, age, km, condition);
@@ -733,9 +383,8 @@ fn used_of_day(c: &Company, listings: &[Listing], day: i64) -> Vec<Offer> {
 /// The special offers put up on `day`: two or three of a discount on new buses from stock, a
 /// demonstrator, a batch of used buses another operator sells.
 fn offers_of_day(c: &Company, listings: &[Listing], day: i64) -> Vec<Offer> {
-    let year = dates::civil_from_days(day).0;
-    let new: Vec<&Listing> = listings.iter().filter(|l| l.availability(year) == Availability::New).collect();
-    let used: Vec<&Listing> = listings.iter().filter(|l| l.availability(year) != Availability::NotYet).collect();
+    let new: Vec<&Listing> = listings.iter().collect();
+    let used = new.clone();
     let mut rng = Rng::of(&[&c.id, "offers"], day);
     let date = dates::fmt(day);
     let r = economy::rules(c.difficulty);
@@ -775,7 +424,7 @@ fn offers_of_day(c: &Company, listings: &[Listing], day: i64) -> Vec<Offer> {
             });
         } else {
             let Some(l) = rng.pick(&used).copied() else { continue };
-            let Some((built, age)) = used_build(l, day, &mut rng, (6.0, 14.0)) else { continue };
+            let Some((built, age)) = used_build(day, &mut rng, (6.0, 14.0)) else { continue };
             let km = (age * rng.range(50_000.0, 68_000.0) / 1000.0).round() * 1000.0;
             let condition = (90.0 - age * 2.8 + rng.range(-8.0, 6.0)).clamp(30.0, 90.0).round();
             let (price, value) = used_price(c, l.bus.kind, age, km, condition);
@@ -1301,13 +950,8 @@ pub fn room_for(c: &Company, n: usize) -> Result<(), &'static str> {
     Ok(())
 }
 
-fn can_have(c: &Company, l: &Listing, new: bool) -> Result<(), &'static str> {
-    market::kind_allowed(c, l.bus.kind)?;
-    match l.availability(year_of(&c.date)) {
-        Availability::NotYet => Err("This bus is not built yet."),
-        Availability::UsedOnly if new => Err("This bus is no longer built: it is to be had second-hand only."),
-        _ => Ok(()),
-    }
+fn can_have(c: &Company, l: &Listing) -> Result<(), &'static str> {
+    market::kind_allowed(c, l.bus.kind)
 }
 
 /// Pay `amount` (with `security` the bank's for a loan).
@@ -1329,7 +973,7 @@ pub fn sign(c: &mut Company, k: &Contract, listings: &[Listing], now: &str) -> R
     if k.count == 0 {
         return Err("Choose how many buses.");
     }
-    can_have(c, &k.listing, k.new)?;
+    can_have(c, &k.listing)?;
     room_for(c, k.count as usize)?;
     if let Some(id) = &k.offer {
         let Some(o) = offer(c, listings, id, now) else { return Err("This offer has ended or is sold.") };
@@ -1602,13 +1246,12 @@ mod tests {
         c
     }
 
-    fn listing(name: &str, maker: &str, size: BusSize, drive: Drive, years: Option<Years>) -> Listing {
+    fn listing(name: &str, maker: &str, size: BusSize, drive: Drive) -> Listing {
         Listing {
             bus: MarketBus { file: format!("Vehicles/{name}/{name}.bus"), name: name.into(), kind: BusKind { size, drive }, paints: vec!["Red".into()], default_paint: "Red".into() },
             maker: maker.into(),
             model: name.into(),
             version: "3 doors".into(),
-            years,
             seats: Some(32),
             standing: Some(60),
         }
@@ -1626,82 +1269,36 @@ mod tests {
     }
 
     #[test]
-    fn the_years_of_a_bus_come_from_its_names_the_table_and_the_user() {
-        let y = |names: &[&str]| years_of(names, "", &[], &[]);
-        // the table of the well-known ones
-        assert_eq!(y(&["MAN SD202", "Vehicles/MAN_SD2/SD202.bus"]), Some(Years::new(1984, Some(1992))));
-        assert_eq!(y(&["MAN Lion's City", "Vehicles/MAN_LC/LC.bus"]), Some(Years::new(1996, Some(2019))));
-        assert_eq!(y(&["Mercedes-Benz", "O530 Citaro Facelift"]), Some(Years::new(2005, Some(2012))));
-        assert_eq!(y(&["MB O 405 N2"]), Some(Years::new(1989, Some(2001))));
-        assert_eq!(y(&["Volvo 7900 Hybrid"]), Some(Years::new(2011, None)));
-        // a range in the names wins over the table, a lone year counts after it
-        assert_eq!(y(&["NL202 (1990-1992)"]), Some(Years::new(1990, Some(1992))));
-        assert_eq!(y(&["Stadtbus 2012"]), Some(Years::new(2012, Some(2020))));
-        // a description's year only after a word that says so; a mod's year is no bus's
-        assert_eq!(years_of(&["Kleinbus"], "Version 1.2 (c) 2015 by X. Baujahr 1994.", &[], &[]), Some(Years::new(1994, Some(2002))));
-        assert_eq!(years_of(&["Kleinbus"], "Version 1.2 (c) 2015 by X.", &[], &[]), None);
-        // the emission standard as the last hint; "E5" in a sound's name is none
-        assert_eq!(years_of(&["Kleinbus Euro V"], "", &[], &[]), Some(Years::new(2009, Some(2014))));
-        assert_eq!(years_of(&["Kleinbus"], "", &["Sound_926LA_E5_z.cfg"], &[]), None);
-        assert_eq!(years_of(&["Kleinbus"], "", &["euro6_engine.osc"], &[]), Some(Years::new(2014, None)));
-        // a standard in the name: alone, or narrowing the table's years down
-        assert_eq!(y(&["Citybus by Kajosoft", "628g LF e6 - 6AP1700"]), Some(Years::new(2014, None)));
-        assert_eq!(y(&["Citybus by Kajosoft", "o530 U e3 1-2d"]), Some(Years::new(2001, Some(2006))));
-        assert_eq!(y(&["MB O405 e2"]), Some(Years::new(1996, Some(2001))));
-        // nothing known: always to be had
-        assert_eq!(y(&["Bus", "Vehicles/Bus/bus.bus"]), None);
-        // the user's file wins over all
-        let o = parse_overrides("# a comment\nMAN SD202 = 1986-1990\nKleinbus = always\neCitaro = 2019-\nbroken line\nX = soon\n");
-        assert_eq!(o.len(), 3);
-        assert_eq!(years_of(&["MAN SD202"], "", &[], &o), Some(Years::new(1986, Some(1990))));
-        assert_eq!(years_of(&["Kleinbus Euro V"], "", &[], &o), None);
-        assert_eq!(years_of(&["Mercedes eCitaro"], "", &[], &o), Some(Years::new(2019, None)));
-    }
-
-    #[test]
-    fn the_company_year_decides_new_used_or_nothing() {
-        let sd = Some(Years::new(1984, Some(1992)));
-        assert_eq!(availability(sd, 1990), Availability::New);
-        assert_eq!(availability(sd, 2005), Availability::UsedOnly);
-        assert_eq!(availability(sd, 1980), Availability::NotYet);
-        assert_eq!(availability(None, 1950), Availability::New);
-        // a company of 2005: the SD202 is second-hand only, the eCitaro not there, used SD202s
-        // are of their years
-        let c = company(Difficulty::Realistic, "2005-06-01");
-        let ls = vec![listing("SD202", "MAN", BusSize::Double, Drive::Diesel, sd), listing("eCitaro", "Mercedes-Benz", BusSize::Solo, Drive::Electric, Some(Years::new(2018, None))), listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel, Some(Years::new(1997, None)))];
+    fn every_bus_is_to_be_had_new_at_any_date() {
+        // (no model years: a company of 1985 buys an eCitaro new, and an old one's used ones
+        // are of some age)
+        let c = company(Difficulty::Realistic, "1985-06-01");
+        let ls = vec![listing("SD202", "MAN", BusSize::Double, Drive::Diesel), listing("eCitaro", "Mercedes-Benz", BusSize::Solo, Drive::Electric), listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel)];
         let f = Filter::default();
-        assert!(f.fits(&ls[0], &c) && !f.fits(&ls[1], &c) && f.fits(&ls[2], &c));
-        assert!(!Filter { new: Some(true), ..Default::default() }.fits(&ls[0], &c));
-        assert!(Filter { new: Some(false), ..Default::default() }.fits(&ls[0], &c));
+        assert!(ls.iter().all(|l| f.fits(l, &c)));
         assert!(Filter { search: "citaro".into(), size: Some(BusSize::Solo), ..Default::default() }.fits(&ls[2], &c));
+        assert!(!Filter { drive: Some(Drive::Diesel), ..Default::default() }.fits(&ls[1], &c));
         assert!(!Filter { max_price: 200_000_00, ..Default::default() }.fits(&ls[2], &c));
-        assert!(!Filter { year: 1995, ..Default::default() }.fits(&ls[2], &c));
-        let now = now_of(&c);
+        let mut c2 = c.clone();
+        assert!(quick_buy(&mut c2, &ls[1], 1, Payment::Cash, "").is_ok());
         let mut seen = 0;
         for d in 0..20 {
             let mut c = c.clone();
             c.date = dates::add(&c.date, d);
             for o in used_market(&c, &ls, &now_of(&c)) {
-                assert_ne!(o.listing.bus.name, "eCitaro");
-                if o.listing.bus.name == "SD202" {
-                    let y = year_of(&o.built);
-                    assert!((1984..=1992).contains(&y), "{y}");
-                    assert!(o.km > 100_000.0 && o.price > 0);
-                    seen += 1;
-                }
+                let age = 1985 - year_of(&o.built);
+                assert!((1..=16).contains(&age), "{age}");
+                assert!(o.km > 50_000.0 && o.price > 0);
+                seen += 1;
             }
         }
         assert!(seen > 0);
-        // a new one cannot be had
-        let mut c2 = c.clone();
-        assert_eq!(quick_buy(&mut c2, &ls[0], 1, Payment::Cash, ""), Err("This bus is no longer built: it is to be had second-hand only."));
-        assert!(!used_market(&c, &ls, &now).is_empty());
     }
 
     #[test]
     fn the_offers_change_every_day_and_expire() {
         let c = company(Difficulty::Realistic, "2024-03-04");
-        let ls = vec![listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel, None), listing("Lion's City", "MAN", BusSize::Solo, Drive::Diesel, None), listing("Urbino 18", "Solaris", BusSize::Articulated, Drive::Diesel, None)];
+        let ls = vec![listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel), listing("Lion's City", "MAN", BusSize::Solo, Drive::Diesel), listing("Urbino 18", "Solaris", BusSize::Articulated, Drive::Diesel)];
         let now = now_of(&c);
         let today = day_offers(&c, &ls, &now);
         assert!(!today.is_empty());
@@ -1747,7 +1344,7 @@ mod tests {
     #[test]
     fn haggling_can_bring_the_price_down_but_not_below_the_floor() {
         let mut c = company(Difficulty::Realistic, "2024-03-04");
-        let l = listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel, None);
+        let l = listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel);
         let q = Quote::new_bus(&c, &l, 1);
         assert_eq!(q.list, 280_000_00);
         // the room: a margin of some per cent, more for a fleet buyer and several buses
@@ -1791,7 +1388,7 @@ mod tests {
     #[test]
     fn pushing_too_hard_makes_the_dealer_break_off() {
         let mut c = company(Difficulty::Hard, "2024-03-04");
-        let l = listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel, None);
+        let l = listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel);
         let q = Quote::new_bus(&c, &l, 1);
         let (t, replies) = haggle(&mut c, &q, &[Move::Offer(100_000_00), Move::Offer(100_000_00), Move::Offer(100_000_00)]);
         assert!(t.closed && !t.agreed);
@@ -1800,7 +1397,7 @@ mod tests {
         // no talks with that maker's dealer until then; the quick buy still sells at list
         assert!(open_talk(&c, &q, &now_of(&c)).is_err());
         assert!(sulking(&c, "mercedes-benz", &now_of(&c)).is_some());
-        let other = listing("Lion's City", "MAN", BusSize::Solo, Drive::Diesel, None);
+        let other = listing("Lion's City", "MAN", BusSize::Solo, Drive::Diesel);
         assert!(open_talk(&c, &Quote::new_bus(&c, &other, 1), &now_of(&c)).is_ok());
         assert!(quick_buy(&mut c, &l, 1, Payment::Cash, "").is_ok());
         c.date = "2024-03-09".into();
@@ -1812,7 +1409,7 @@ mod tests {
     #[test]
     fn extras_are_granted_from_what_the_dealer_can_give() {
         let mut c = company(Difficulty::Easy, "2024-03-04");
-        let l = listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel, None);
+        let l = listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel);
         let q = Quote::new_bus(&c, &l, 2);
         let now = now_of(&c);
         let mut t = open_talk(&c, &q, &now).unwrap();
@@ -1838,7 +1435,7 @@ mod tests {
     #[test]
     fn a_signed_contract_is_paid_and_its_buses_come_on_their_day() {
         let mut c = company(Difficulty::Realistic, "2024-03-04");
-        let l = listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel, None);
+        let l = listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel);
         let mut k = draft_new(&c, &l, 2, 260_000_00, &[Extra::FreeService], "", None);
         // unsigned: nothing
         let now0 = now_of(&c);
@@ -1886,7 +1483,7 @@ mod tests {
         let mut low = c.clone();
         low.progress.xp = 0;
         let before = low.clone();
-        let big = listing("Citaro G", "Mercedes-Benz", BusSize::Articulated, Drive::Diesel, None);
+        let big = listing("Citaro G", "Mercedes-Benz", BusSize::Articulated, Drive::Diesel);
         let mut gk = draft_new(&low, &big, 1, 400_000_00, &[], "", None);
         gk.signed_by = "Luc".into();
         gk.pay = PayWay::Loan;
@@ -1899,7 +1496,7 @@ mod tests {
     #[test]
     fn an_offer_is_bought_once_and_used_ones_come_at_once() {
         let mut c = company(Difficulty::Realistic, "2024-03-04");
-        let ls = vec![listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel, None)];
+        let ls = vec![listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel)];
         let now = now_of(&c);
         let used = used_market(&c, &ls, &now);
         let o = used[0].clone();
@@ -1931,7 +1528,7 @@ mod tests {
     #[test]
     fn there_is_no_buying_beyond_the_depot() {
         let mut c = company(Difficulty::Easy, "2024-03-04");
-        let l = listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel, None);
+        let l = listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel);
         let cap = c.site.spaces() + levels::extra_places(&c) as usize + super::super::depot::OUTSIDE_MAX;
         assert!(room_for(&c, cap).is_ok() && room_for(&c, cap + 1).is_err());
         let mut k = draft_new(&c, &l, 2, 250_000_00, &[], "", None);

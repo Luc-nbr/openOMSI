@@ -145,6 +145,8 @@ pub fn summary(c: &Company, plan: Option<&Plan>, waiting: &[Order]) -> Value {
             Alert::ServiceDue(n) => json!({ "kind": "service_due", "n": n }),
             Alert::Unhappy(n) => json!({ "kind": "unhappy", "n": n }),
             Alert::GoingBack { number, until } => json!({ "kind": "going_back", "number": number, "until": until }),
+            Alert::NotPlanned(lines) => json!({ "kind": "not_planned", "lines": lines }),
+            Alert::Tomorrow { tours, buses, duties } => json!({ "kind": "tomorrow", "tours": tours, "buses": buses, "duties": duties }),
         })
         .collect();
     let areas: Vec<Value> = Area::ALL

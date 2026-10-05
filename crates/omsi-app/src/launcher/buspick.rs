@@ -855,8 +855,9 @@ fn draw_tile(ui: &mut Ui, tile: Rect, ph: f32, t: &Tile, key: &str, pic: Option<
 /// clicked.
 pub fn crumbs(ui: &mut Ui, r: Rect, parts: &[String]) -> Option<usize> {
     let mut x = r.x;
+    let px = ui.wpx(13.0);
     // (too long for the room: the parts on the way are cut, all alike, before the last one is)
-    let widths: Vec<f32> = parts.iter().enumerate().map(|(k, p)| ui.width(p, 13.0, if k + 1 == parts.len() { Weight::Bold } else { Weight::Medium }) + 1.0).collect();
+    let widths: Vec<f32> = parts.iter().enumerate().map(|(k, p)| ui.width(p, px, if k + 1 == parts.len() { Weight::Bold } else { Weight::Medium }) + 1.0).collect();
     let joins = 20.0 * parts.len().saturating_sub(1) as f32;
     let last_w = widths.last().copied().unwrap_or(0.0).min(r.w * 0.5);
     let way: Vec<f32> = widths.iter().take(parts.len().saturating_sub(1)).copied().collect();
@@ -871,10 +872,10 @@ pub fn crumbs(ui: &mut Ui, r: Rect, parts: &[String]) -> Option<usize> {
         let w = if last { widths[k] } else { widths[k].min(cap) }.min((r.right() - x).max(0.0));
         let cell = Rect::new(x, r.y, w, r.h);
         if last {
-            ui.text_in(p, cell, 13.0, Weight::Bold, TEXT, Align::Left);
+            ui.text_in(p, cell, px, Weight::Bold, TEXT, Align::Left);
         } else {
             let (h, _, c) = ui.interact(id_of(&format!("bus-crumb-{k}")), cell);
-            ui.text_in(p, cell, 13.0, Weight::Medium, if h { accent_2() } else { accent() }, Align::Left);
+            ui.text_in(p, cell, px, Weight::Medium, if h { accent_2() } else { accent() }, Align::Left);
             if h {
                 ui.p().rect(Rect::new(cell.x, cell.bottom() - 2.0, cell.w, 1.0), accent_2());
             }

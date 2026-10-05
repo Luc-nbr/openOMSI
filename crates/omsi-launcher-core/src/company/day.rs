@@ -100,20 +100,28 @@ pub struct Plan {
 }
 
 impl Plan {
+    /// Tours of lines in service not covered (a line not planned yet runs nothing).
     pub fn uncovered(&self) -> usize {
-        self.tours.iter().filter(|t| !t.covered()).count()
+        self.tours.iter().filter(|t| !t.tour.unplanned && !t.covered()).count()
     }
 
-    /// A line's tours: (covered, all).
+    /// A line's tours in service: (covered, all).
     pub fn coverage_of(&self, line: &str) -> (usize, usize) {
+        let mine: Vec<&TourPlan> = self.tours.iter().filter(|t| !t.tour.unplanned && t.tour.line.eq_ignore_ascii_case(line)).collect();
+        (mine.iter().filter(|t| t.covered()).count(), mine.len())
+    }
+
+    /// A line's tours as planned, whether it is in service or not: (covered, all).
+    pub fn planned_of(&self, line: &str) -> (usize, usize) {
         let mine: Vec<&TourPlan> = self.tours.iter().filter(|t| t.tour.line.eq_ignore_ascii_case(line)).collect();
         (mine.iter().filter(|t| t.covered()).count(), mine.len())
     }
 
-    /// Tours without a bus, and duties without a driver (of tours with one).
+    /// Tours (in service) without a bus, and duties without a driver (of tours with one).
     pub fn short_of(&self) -> (usize, usize) {
-        let buses = self.tours.iter().filter(|t| !t.by_player && !t.live && t.bus.is_none()).count();
-        let drivers = self.tours.iter().filter(|t| !t.by_player && !t.live && t.bus.is_some()).flat_map(|t| t.duties.iter()).filter(|d| d.driver.is_none()).count();
+        let open = || self.tours.iter().filter(|t| !t.tour.unplanned && !t.by_player && !t.live);
+        let buses = open().filter(|t| t.bus.is_none()).count();
+        let drivers = open().filter(|t| t.bus.is_some()).flat_map(|t| t.duties.iter()).filter(|d| d.driver.is_none()).count();
         (buses, drivers)
     }
 }
@@ -216,6 +224,19 @@ pub struct LineDay {
     pub km: f64,
     pub passengers: u32,
     pub revenue: Cents,
+    /// What the day brought and cost the line: the fares (the association's share off), the
+    /// authority's payment for its kilometres, energy and maintenance, the penalties.
+    #[serde(default)]
+    pub fares: Cents,
+    #[serde(default)]
+    pub compensation: Cents,
+    #[serde(default)]
+    pub running: Cents,
+    #[serde(default)]
+    pub penalty: Cents,
+    /// Not in service yet (not planned): its tours did not run.
+    #[serde(default)]
+    pub unplanned: bool,
 }
 
 /// Something the day's report tells besides the figures.
@@ -241,6 +262,9 @@ pub enum Note {
     Lost { number: String, winner: String },
     /// A concession ended: the line is no longer the company's.
     Ended { number: String },
+    /// A concession line not in service yet `days` after it was taken on: the authority
+    /// charged for the day.
+    NotStarted { number: String, days: i64, charge: Cents },
 }
 
 /// What a closed day came to.
@@ -276,6 +300,14 @@ pub struct DayReport {
     pub crowded: u32,
     #[serde(default)]
     pub left_behind: u32,
+    /// The tours in service not covered, and what they lacked: tours without a bus, duties
+    /// without a driver.
+    #[serde(default)]
+    pub uncovered: u32,
+    #[serde(default)]
+    pub short_buses: u32,
+    #[serde(default)]
+    pub short_drivers: u32,
 }
 
 /// Maps named alike (`maps/Grundorf/global.cfg`, with either slash and any case).
@@ -303,13 +335,19 @@ struct Sums {
 /// timetable read for `c.date`), `trips` the player's trip reports (all of them; those of
 /// the company's map and lines not booked yet count). Moves the company to the next day.
 pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> DayReport {
+    // (only what is planned runs: a line not in service books nothing)
+    let tours = network::in_service_only(tours);
+    // (the passengers answer the fares: `fares`)
+    super::fares::day(c);
     let r = economy::rules(c.difficulty);
     let date = c.date.clone();
     let month = dates::month_of(&date);
     let before = c.month(&month);
     let mut rng = Rng::of(&[&c.id, "day"], dates::parse(&date).unwrap_or(0));
     let mut report = DayReport { date: date.clone(), ..Default::default() };
-    let mut lines: Vec<LineDay> = c.lines.iter().map(|l| LineDay { line: l.name.clone(), number: l.number.clone(), colour: l.colour.clone(), ..Default::default() }).collect();
+    let day_end = super::clock::moment(&date, 24 * 60 - 1);
+    let mut lines: Vec<LineDay> = c.lines.iter().map(|l| LineDay { line: l.name.clone(), number: l.number.clone(), colour: l.colour.clone(), unplanned: !network::in_service(l, day_end), ..Default::default() }).collect();
+    let per_passenger: Vec<f64> = c.lines.iter().map(|l| super::fares::per_passenger(c, l)).collect();
     let mut sums: Vec<Sums> = lines.iter().map(|_| Sums::default()).collect();
     let line_index = |c: &Company, number: &str| line_of_number(c, number).and_then(|l| c.lines.iter().position(|x| x.name == l.name));
     let comp_km = economy::compensation_per_km(&r, c.reputation, c.contract_index);
@@ -325,7 +363,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
         let Some(li) = line_index(c, &t.line) else { continue };
         let km = t.metres / 1000.0;
         let km = if km.is_finite() && km > 0.0 && km <= (t.seconds / 3600.0 * 100.0).max(10.0) { km } else { 0.0 };
-        let fares = t.passengers.max(0) as Cents * r.fare;
+        let fares = (t.passengers.max(0) as f64 * per_passenger[li]).round() as Cents;
         let comp = (km * comp_km).round() as Cents;
         let vehicle = c.fleet.iter_mut().find(|v| v.bus.eq_ignore_ascii_case(&t.bus));
         let (kind, age) = match vehicle {
@@ -350,6 +388,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
         l.km += km;
         l.passengers += t.passengers.max(0) as u32;
         l.revenue += fares + comp;
+        (l.fares, l.compensation) = (l.fares + fares, l.compensation + comp);
         report.measured += 1;
         report.measured_revenue += fares + comp;
         c.book(BookingKind::Fares, fares, format!("Line {} (own trip)", l.number), true);
@@ -371,7 +410,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
             LiveEvent::Trip { line, tour, vehicle, km, passengers, delay, completed: _, dep } => {
                 live_trips.push((line.clone(), tour.clone(), dep));
                 let Some(li) = line_index(c, &line) else { continue };
-                let fares = passengers as Cents * r.fare;
+                let fares = (passengers as f64 * per_passenger[li]).round() as Cents;
                 let comp = (km.max(0.0) * comp_km).round() as Cents;
                 if let Some(v) = vehicle.and_then(|id| c.fleet.iter_mut().find(|v| v.id == id)) {
                     v.km += km.max(0.0);
@@ -388,6 +427,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
                 l.km += km.max(0.0);
                 l.passengers += passengers;
                 l.revenue += fares + comp;
+                (l.fares, l.compensation) = (l.fares + fares, l.compensation + comp);
                 c.book(BookingKind::Fares, fares, format!("Line {} (live)", l.number), true);
                 c.book(BookingKind::Compensation, comp, format!("Line {} (live)", l.number), true);
                 if !live.iter().any(|x| x.0 == line && x.1 == tour) {
@@ -403,6 +443,8 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
     let day_plan = super::plan::day_plan(c, &date, tours, &player, &live, true);
     let (plan, morning) = super::plan::settle_morning(c, &day_plan);
     report.notes.extend(morning);
+    let (short_buses, short_drivers) = plan.short_of();
+    (report.uncovered, report.short_buses, report.short_drivers) = (plan.uncovered() as u32, short_buses as u32, short_drivers as u32);
     // (as the company's clock went through the day: `clock::breakdowns`; a rental bus ordered
     // runs the trips from when it came)
     let cut = super::clock::breakdowns(c, &plan, &date, &live_broken);
@@ -471,7 +513,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
                 // (an own line: its passengers by the hour, and what its bus can take)
                 let own = c.lines.get(li).filter(|cl| cl.plan.is_some());
                 let base = own.and_then(|cl| super::ownline::trip_boardings(cl, &date, trip.dep)).unwrap_or_else(|| economy::passengers_for(trip.km, trip.dep, &r));
-                let mut pax = base * rng.range(0.8, 1.2) * (0.85 + 0.3 * c.reputation / 100.0) * (0.95 + 0.1 * e.skills.service / 100.0);
+                let mut pax = base * rng.range(0.8, 1.2) * (0.85 + 0.3 * c.reputation / 100.0) * (0.95 + 0.1 * e.skills.service / 100.0) * c.lines.get(li).map(|l| l.demand.share()).unwrap_or(1.0);
                 if own.is_some() {
                     let (taken, left, crowded) = super::ownline::carried(pax, (trip.dep.rem_euclid(1440) / 60) as usize, v.kind.size);
                     pax = taken;
@@ -479,7 +521,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
                     report.left_behind += left.round() as u32;
                 }
                 let pax = pax.round().max(0.0) as u32;
-                let fares = pax as Cents * r.fare;
+                let fares = (pax as f64 * per_passenger[li]).round() as Cents;
                 let comp = (trip.km * comp_km).round() as Cents;
                 sums[li].fares += fares;
                 sums[li].compensation += comp;
@@ -512,6 +554,20 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
         c.book(BookingKind::Maintenance, -s.maintenance.round() as Cents, text.clone(), false);
         c.book(BookingKind::Penalty, -s.penalty, text, false);
         report.penalties += s.penalty;
+        let l = &mut lines[li];
+        l.fares += s.fares - kept;
+        l.compensation += s.compensation;
+        l.running += (s.energy + s.maintenance).round() as Cents;
+        l.penalty += s.penalty;
+    }
+    // a concession not in service after its grace: the authority charges for the day
+    for (li, cl) in c.lines.clone().iter().enumerate() {
+        if let Some((days, charge)) = network::late_start(c, cl, &date) {
+            c.book(BookingKind::Penalty, -charge, format!("Line {}: service not started", cl.number), false);
+            report.penalties += charge;
+            lines[li].penalty += charge;
+            report.notes.push(Note::NotStarted { number: cl.number.clone(), days, charge });
+        }
     }
 
     // 5. rentals by the day
@@ -695,12 +751,15 @@ mod tests {
     use crate::company::model::{CompanyLine, Difficulty};
 
     fn tour(no: &str, from: i32, n: i32) -> TourOfDay {
-        TourOfDay { line: "Linie5".into(), number: "5".into(), tour: no.into(), ai_group: String::new(), trips: (0..n).map(|k| trip(from + k * 60, from + 50 + k * 60, 12)).collect() }
+        TourOfDay { line: "Linie5".into(), number: "5".into(), tour: no.into(), ai_group: String::new(), trips: (0..n).map(|k| trip(from + k * 60, from + 50 + k * 60, 12)).collect(), unplanned: false }
     }
 
     fn company(d: Difficulty, buses: usize, people: usize) -> Company {
         let mut c = found(&Founding { name: "Tag".into(), difficulty: d, date: "2024-03-04".into(), map: "maps/Grundorf/global.cfg".into(), ..Default::default() }, "Luc");
-        c.lines.push(CompanyLine { name: "Linie5".into(), number: "5".into(), numbers: vec!["5".into()], added: c.date.clone(), ..Default::default() });
+        // (in service from the start, and the dispatcher's own filling what the roster leaves
+        // free - as "Fill the roster" does when asked)
+        c.lines.push(CompanyLine { name: "Linie5".into(), number: "5".into(), numbers: vec!["5".into()], added: c.date.clone(), service_from: Some(0), ..Default::default() });
+        c.planning.auto = true;
         let bus = market::MarketBus { file: "Vehicles/Citaro/Citaro.bus".into(), name: "Citaro".into(), ..Default::default() };
         // (money enough for the buses on any difficulty)
         c.cash += 5_000_000_00;
@@ -751,6 +810,71 @@ mod tests {
         let plan = assign(&company(Difficulty::Realistic, 1, 1), long, &[], &[]);
         assert_eq!(plan.tours[0].duties.len(), 2);
         assert!(plan.tours[0].partly());
+    }
+
+    #[test]
+    fn only_a_planned_line_in_service_runs() {
+        // a line of two tours, at 06:00 and at 14:00
+        let mut li = super::super::concessions::tests::line("Linie5", "5", 2, true);
+        for t in li.tours[1].trips.iter_mut() {
+            (t.departure, t.arrival) = (t.departure + 8.0 * 3600.0, t.arrival + 8.0 * 3600.0);
+        }
+        let lines = vec![li];
+        let fares_of = |c: &Company, date: &str| c.ledger.iter().filter(|b| b.date == date && matches!(b.kind, BookingKind::Fares | BookingKind::Penalty)).count();
+        // not planned yet: its tours are shown for the planning, but nothing runs, nothing is
+        // booked or penalised
+        let mut c = company(Difficulty::Realistic, 2, 4);
+        c.lines[0].service_from = None;
+        let date = c.date.clone();
+        let tours = network::tours_of_day(&c, &lines, &date);
+        assert!(tours.len() == 2 && tours.iter().all(|t| t.unplanned));
+        let r = close_day(&mut c, tours, &[]);
+        assert_eq!((r.tours, r.trips, r.dropped, r.penalties), (0, 0, 0, 0));
+        assert!(r.lines[0].unplanned && r.lines[0].revenue == 0);
+        assert_eq!(fares_of(&c, &date), 0);
+        // planned and in service, but a tour without a bus: dropped, with the contract's penalty
+        let mut c = company(Difficulty::Realistic, 0, 4);
+        let date = c.date.clone();
+        let tours = network::tours_of_day(&c, &lines, &date);
+        assert!(tours.iter().all(|t| !t.unplanned));
+        let r = close_day(&mut c, tours, &[]);
+        assert_eq!((r.tours, r.covered, r.uncovered, r.short_buses), (2, 0, 2, 2));
+        assert!(r.dropped == 8 && r.penalties > 0 && r.lines[0].penalty == r.penalties);
+        // in service from noon: the morning's tour waits, the afternoon's runs
+        let mut c = company(Difficulty::Realistic, 2, 4);
+        let date = c.date.clone();
+        network::start_service(&mut c, "Linie5", super::super::clock::moment(&date, 12 * 60)).unwrap();
+        let tours = network::tours_of_day(&c, &lines, &date);
+        assert_eq!(tours.iter().map(|t| t.unplanned).collect::<Vec<_>>(), vec![true, false]);
+        let r = close_day(&mut c, tours, &[]);
+        assert_eq!((r.tours, r.covered), (1, 1));
+        assert!(r.lines[0].fares > 0 && r.lines[0].compensation > 0 && r.lines[0].running > 0);
+        // and the next day both run
+        let date = c.date.clone();
+        assert!(network::tours_of_day(&c, &lines, &date).iter().all(|t| !t.unplanned));
+    }
+
+    #[test]
+    fn a_concession_not_started_after_its_grace_is_charged() {
+        for (d, charged) in [(Difficulty::Easy, false), (Difficulty::Realistic, true), (Difficulty::Hard, true)] {
+            let mut c = company(d, 1, 2);
+            c.lines[0].service_from = None;
+            c.lines[0].km = 400.0;
+            c.lines[0].added = dates::add(&c.date, -10);
+            let r = close_day(&mut c, Vec::new(), &[]);
+            let note = r.notes.iter().any(|n| matches!(n, Note::NotStarted { days: 10, charge, .. } if *charge > 0));
+            assert_eq!(note, charged, "{d:?}");
+            assert_eq!(r.penalties > 0, charged);
+        }
+        // within its grace, or an own line: nothing
+        let mut c = company(Difficulty::Hard, 1, 2);
+        c.lines[0].service_from = None;
+        c.lines[0].km = 400.0;
+        c.lines[0].added = dates::add(&c.date, -2);
+        assert_eq!(close_day(&mut c, Vec::new(), &[]).penalties, 0);
+        c.lines[0].own = true;
+        c.lines[0].added = dates::add(&c.date, -20);
+        assert_eq!(close_day(&mut c, Vec::new(), &[]).penalties, 0);
     }
 
     #[test]

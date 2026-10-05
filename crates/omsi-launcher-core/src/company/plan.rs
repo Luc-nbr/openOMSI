@@ -4,8 +4,10 @@
 //! The company's lines give it tours every day (`network::tours_of_day`), each cut into
 //! duties (`network::duties_of`, Omsi-Hub's `knipOmloop`). The roster is fixed per weekday
 //! and repeats every week: a bus for a tour, a driver - or the player himself - for each
-//! duty. What it leaves free the dispatcher fills by itself while `Planning::auto` is on
-//! (the free buses, the free drivers by the working-time rules, `staff::check`). What falls
+//! duty. Only what is planned runs: "Fill the roster" asks the dispatcher to fill what the
+//! roster leaves free (the free buses, the free drivers by the working-time rules,
+//! `staff::check`) and fixes it in the roster for the player to see; a line runs only once it
+//! is put into service (`network::start_service`). What falls
 //! out on the day is open: someone ill or late, a bus that does not start in the morning,
 //! the player's own duty not driven. The dispatcher's choice for it counts (a colleague, an
 //! agency driver, another bus, a rental bus, or dropping its trips); without one the
@@ -98,8 +100,11 @@ pub struct FillChoice {
 pub struct Planning {
     #[serde(default)]
     pub week: Vec<RosterTour>,
-    /// The dispatcher fills what the roster leaves free.
-    #[serde(default = "yes")]
+    /// The dispatcher fills what the roster leaves free - only for "Fill the roster"
+    /// (`fill_day`), which shows the player what it would take and fixes it in the roster: the
+    /// day itself runs what is planned, nothing behind the player's back. (Not kept: an older
+    /// file's "auto" is read as off.)
+    #[serde(skip)]
     pub auto: bool,
     /// The day the dispatcher's choices are for (they hold for that day only).
     #[serde(default)]
@@ -108,13 +113,9 @@ pub struct Planning {
     pub fills: Vec<FillChoice>,
 }
 
-fn yes() -> bool {
-    true
-}
-
 impl Default for Planning {
     fn default() -> Self {
-        Planning { week: Vec::new(), auto: true, date: String::new(), fills: Vec::new() }
+        Planning { week: Vec::new(), auto: false, date: String::new(), fills: Vec::new() }
     }
 }
 
@@ -313,7 +314,7 @@ pub enum Problem {
     Gone,
     /// On another tour then.
     BusBusy,
-    /// Nobody, or no bus, fixed, and none free.
+    /// Nobody, or no bus, planned (only what is planned runs).
     Unassigned,
     /// The player's own duty, not driven.
     Player,
@@ -336,7 +337,7 @@ impl Problem {
             Problem::Workshop => "In the workshop",
             Problem::Gone => "No longer in the fleet",
             Problem::BusBusy => "On another tour then",
-            Problem::Unassigned => "Nobody free",
+            Problem::Unassigned => "Not planned",
             Problem::Player => "Your duty, not driven",
         }
     }
@@ -1003,7 +1004,8 @@ pub fn live_plan(c: &Company, dp: &DayPlan) -> LivePlan {
     let tours = dp
         .tours
         .iter()
-        .filter(|t| !t.by_player)
+        // (a line not in service runs nothing, not even in the game)
+        .filter(|t| !t.by_player && !t.tour.unplanned)
         .map(|t| {
             let mut lt = LiveTour { line: t.tour.line.clone(), number: t.tour.number.clone(), tour: t.tour.tour.clone(), ..Default::default() };
             match t.bus {
@@ -1066,13 +1068,16 @@ mod tests {
     use crate::company::model::CompanyLine;
 
     fn tour(no: &str, from: i32, n: i32) -> TourOfDay {
-        TourOfDay { line: "Linie5".into(), number: "5".into(), tour: no.into(), ai_group: String::new(), trips: (0..n).map(|k| trip(from + k * 60, from + 50 + k * 60, 12)).collect() }
+        TourOfDay { line: "Linie5".into(), number: "5".into(), tour: no.into(), ai_group: String::new(), trips: (0..n).map(|k| trip(from + k * 60, from + 50 + k * 60, 12)).collect(), unplanned: false }
     }
 
     fn company(buses: usize, people: usize) -> Company {
         // (Easy: the fewest late mornings and breakdowns; the tests that want them make them)
         let mut c = found(&Founding { name: "Plan".into(), difficulty: Difficulty::Easy, date: "2024-03-04".into(), map: "maps/Grundorf/global.cfg".into(), ..Default::default() }, "Luc");
-        c.lines.push(CompanyLine { name: "Linie5".into(), number: "5".into(), numbers: vec!["5".into()], added: c.date.clone(), ..Default::default() });
+        // (in service from the start, and the dispatcher's own filling what the roster leaves
+        // free - as "Fill the roster" does when asked)
+        c.lines.push(CompanyLine { name: "Linie5".into(), number: "5".into(), numbers: vec!["5".into()], added: c.date.clone(), service_from: Some(0), ..Default::default() });
+        c.planning.auto = true;
         let bus = MarketBus { file: "Vehicles/Citaro/Citaro.bus".into(), name: "Citaro".into(), ..Default::default() };
         c.cash += 5_000_000_00;
         for _ in 0..buses {

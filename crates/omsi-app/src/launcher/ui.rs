@@ -166,6 +166,8 @@ struct Popup {
     /// Typed while the list is open: only the options with it in their name are shown (a
     /// map's many entry points, #747).
     query: String,
+    /// The size of its options' text (the page's `widget_px` when it opened).
+    px: f32,
 }
 
 impl Popup {
@@ -265,7 +267,11 @@ pub struct Ui {
     pub clipboard_in: Option<String>,
     /// Rects the mouse is over UI in (the rest of the window is the 3D showroom).
     pub over_ui: bool,
-    tooltip: Option<(String, Vec2)>,
+    tooltip: Option<(String, Vec2, f32)>,
+    /// The least size of the controls' words (labels, buttons, fields, lists, tooltips): 0
+    /// for their own; a page that wants larger text sets it while it draws (the bus company's
+    /// pages). Back to 0 at every frame's start.
+    pub widget_px: f32,
     /// (tests) Where each clickable widget was this frame, by id.
     #[cfg(test)]
     pub drawn: HashMap<Id, Rect>,
@@ -306,6 +312,7 @@ impl Ui {
             clipboard_in: None,
             over_ui: false,
             tooltip: None,
+            widget_px: 0.0,
             #[cfg(test)]
             drawn: HashMap::new(),
         }
@@ -328,6 +335,7 @@ impl Ui {
         self.cursor = winit::window::CursorIcon::Default;
         self.over_ui = false;
         self.tooltip = None;
+        self.widget_px = 0.0;
         #[cfg(test)]
         self.drawn.clear();
         self.push_layer(Rect::new(0.0, 0.0, size.x, size.y), 0.0);
@@ -714,7 +722,7 @@ impl Ui {
         if self.hover(r) && !self.input.down {
             let t = self.anim(id_of(&format!("tip{}{}", r.x, r.y)) ^ 0x55, 1.0, 0.4);
             if t > 0.9 {
-                self.tooltip = Some((text.to_string(), self.input.mouse));
+                self.tooltip = Some((text.to_string(), self.input.mouse, self.wpx(12.5)));
             }
         }
     }
@@ -780,6 +788,13 @@ impl Ui {
         n as f32 * lh
     }
 
+    /// Text turned by `angle` (radians) about its middle `at`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn text_rotated(&mut self, text: &str, px: f32, weight: Weight, at: Vec2, angle: f32, c: Color) {
+        let Ui { atlas, fonts, layers, .. } = self;
+        layers.last_mut().unwrap().1.text_rotated(atlas, fonts, text, px, weight, at, angle, c);
+    }
+
     pub fn icon(&mut self, name: &str, center: Vec2, size: f32, c: Color) {
         let Ui { atlas, layers, .. } = self;
         layers.last_mut().unwrap().1.icon(atlas, name, center, size, c)
@@ -787,6 +802,11 @@ impl Ui {
 
     pub fn width(&self, text: &str, px: f32, weight: Weight) -> f32 {
         self.fonts.width(text, px, weight)
+    }
+
+    /// A control's text size: its own, or the page's least (`widget_px`).
+    pub fn wpx(&self, px: f32) -> f32 {
+        px.max(self.widget_px)
     }
 
     // --- surfaces ------------------------------------------------------------------------
@@ -814,7 +834,8 @@ impl Ui {
     }
 
     pub fn label(&mut self, r: Rect, text: &str) {
-        self.text_in(text, r, 13.0, Weight::Medium, TEXT_DIM, Align::Left);
+        let px = self.wpx(13.0);
+        self.text_in(text, r, px, Weight::Medium, TEXT_DIM, Align::Left);
     }
 
     // --- controls ------------------------------------------------------------------------
@@ -857,7 +878,7 @@ impl Ui {
         let caps = big && kind == ButtonKind::Primary && rr.h >= 50.0;
         let shown = if caps { omsi_ui::tr(label).to_uppercase() } else { label.to_string() };
         let label = shown.as_str();
-        let px = if caps { 18.0 } else if big { 14.5 } else { 13.0 };
+        let px = self.wpx(if caps { 18.0 } else if big { 14.5 } else { 13.0 });
         let weight = if kind == ButtonKind::Ghost { Weight::Medium } else { Weight::Bold };
         let tw = self.width(label, px, weight);
         // (the gap after the icon only when a label follows it)
@@ -934,7 +955,8 @@ impl Ui {
         self.p().rounded(track, th * 0.5, Color::WHITE.alpha(0.16 + 0.06 * lit).mix(accent(), on.clamp(0.0, 1.0)));
         let kx = track.x + th * 0.5 + (tw - th) * on;
         self.p().circle(Vec2::new(kx, track.center().y), th * 0.5 - 3.0 + 0.8 * lit, Color::rgba(240, 240, 240, 1.0));
-        self.text_in(label, Rect::new(r.x, r.y, r.w - tw - 10.0, r.h), 13.0, Weight::Regular, if h { TEXT } else { TEXT_SOFT }, Align::Left);
+        let px = self.wpx(13.0);
+        self.text_in(label, Rect::new(r.x, r.y, r.w - tw - 10.0, r.h), px, Weight::Regular, if h { TEXT } else { TEXT_SOFT }, Align::Left);
         clicked
     }
 
@@ -985,7 +1007,8 @@ impl Ui {
         let frac = ((*value - min) / (max - min).max(1e-6)).clamp(0.0, 1.0);
         let shown = self.anim(id ^ 3, frac, 0.06);
         if !label.is_empty() {
-            self.text_in(label, Rect::new(r.x, r.y, label_w - 8.0, r.h), 13.0, Weight::Regular, TEXT_SOFT, Align::Left);
+            let px = self.wpx(13.0);
+            self.text_in(label, Rect::new(r.x, r.y, label_w - 8.0, r.h), px, Weight::Regular, TEXT_SOFT, Align::Left);
         }
         let cy = track_r.center().y;
         // (Omsi-Hub's: the slider is the line, four points thick, the knob sitting on it)
@@ -1002,7 +1025,8 @@ impl Ui {
         }
         self.p().circle(kc, 8.0 + swell * 0.9, accent());
         let txt = fmt(*value);
-        self.text_in(&txt, Rect::new(r.right() - val_w + 8.0, r.y, val_w - 8.0, r.h), 12.5, Weight::Medium, TEXT, Align::Right);
+        let px = self.wpx(12.5);
+        self.text_in(&txt, Rect::new(r.right() - val_w + 8.0, r.y, val_w - 8.0, r.h), px, Weight::Medium, TEXT, Align::Right);
         *value != before
     }
 
@@ -1040,7 +1064,8 @@ impl Ui {
             let cell = Rect::new(r.x + w * k as f32, r.y, w, r.h);
             let h = hovered[k];
             let c = if *selected == k { on_accent() } else if off.contains(&k) { TEXT_FAINT } else if h { TEXT } else { TEXT_DIM };
-            self.text_in(l, cell.pad(4.0, 0.0), 12.5, if *selected == k { Weight::Bold } else { Weight::Medium }, c, Align::Center);
+            let px = self.wpx(12.5);
+            self.text_in(l, cell.pad(4.0, 0.0), px, if *selected == k { Weight::Bold } else { Weight::Medium }, c, Align::Center);
         }
         changed
     }
@@ -1054,7 +1079,7 @@ impl Ui {
         let (mut x, mut y) = (r.x, r.y);
         let mut cells = Vec::with_capacity(labels.len());
         for (k, label) in labels.iter().enumerate() {
-            let w = self.width(label, 13.0, Weight::Bold) + 30.0;
+            let w = self.width(label, self.wpx(13.0), Weight::Bold) + 30.0;
             // (more than a row holds - a phone - goes on in the next)
             if x > r.x && x + w > r.right() {
                 x = r.x;
@@ -1086,7 +1111,8 @@ impl Ui {
         }
         for (k, (label, (cell, _))) in labels.iter().zip(cells.iter()).enumerate() {
             let on = *selected == k;
-            self.text_in(label, *cell, 13.0, if on { Weight::Bold } else { Weight::Medium }, if on { on_accent() } else { TEXT }, Align::Center);
+            let px = self.wpx(13.0);
+            self.text_in(label, *cell, px, if on { Weight::Bold } else { Weight::Medium }, if on { on_accent() } else { TEXT }, Align::Center);
         }
         changed
     }
@@ -1108,7 +1134,7 @@ impl Ui {
     pub fn chips_height(&self, w: f32, h: f32, labels: &[&str]) -> f32 {
         let (mut x, mut rows) = (0.0, 1.0);
         for label in labels {
-            let cw = self.width(label, 13.0, Weight::Bold) + 30.0;
+            let cw = self.width(label, self.wpx(13.0), Weight::Bold) + 30.0;
             if x > 0.0 && x + cw > w {
                 x = 0.0;
                 rows += 1.0;
@@ -1163,7 +1189,7 @@ impl Ui {
     /// Open the list of a dropdown under (or over) `anchor`, the chosen option in view.
     fn open_popup(&mut self, id: Id, anchor: Rect, selected: usize, options: &[String]) {
         let sel = selected.min(options.len().saturating_sub(1));
-        let mut p = Popup { id, anchor, options: options.to_vec(), selected: sel, scroll: 0.0, opened: 0.0, picked: None, drag: None, query: String::new() };
+        let mut p = Popup { id, anchor, options: options.to_vec(), selected: sel, scroll: 0.0, opened: 0.0, picked: None, drag: None, query: String::new(), px: self.wpx(13.0) };
         let row = 34.0;
         let visible = popup_rect(&p, self.size).h;
         p.scroll = ((sel as f32 + 0.5) * row - visible * 0.5).clamp(0.0, (options.len() as f32 * row - visible).max(0.0));
@@ -1210,7 +1236,8 @@ impl Ui {
         self.p().rounded(r, RADIUS, FIELD.mix(HOVER, t));
         self.p().rounded_border(r, RADIUS, 1.0, if open { accent().alpha(0.7) } else { EDGE });
         let txt = options.get(*selected).cloned().unwrap_or_default();
-        self.option_text(&txt, Rect::new(r.x + 12.0, r.y, r.w - 40.0, r.h), 13.0, TEXT);
+        let px = self.wpx(13.0);
+        self.option_text(&txt, Rect::new(r.x + 12.0, r.y, r.w - 40.0, r.h), px, TEXT);
         let rot = self.anim(id ^ 9, if open { 1.0 } else { 0.0 }, 0.08);
         self.icon(if rot > 0.5 { "expand_less" } else { "expand_more" }, Vec2::new(r.right() - 18.0, r.center().y), 20.0, if h { TEXT } else { TEXT_DIM });
         if clicked {
@@ -1354,7 +1381,7 @@ impl Ui {
         }
         let inner = Rect::new(x, r.y, r.right() - x - 10.0, r.h);
         self.push_clip(inner, 0.0);
-        let px = 13.0;
+        let px = self.wpx(13.0);
 
         if let Some(click_x) = click_x {
                 let local_x = (click_x - inner.x).clamp(0.0, inner.w);
@@ -1495,7 +1522,8 @@ impl Ui {
         self.icon("calendar_month", Vec2::new(r.x + 20.0, r.center().y), 17.0, TEXT_DIM);
         let (y, m, d) = parse_date(date);
         let shown = format!("{} {} {}", d, MONTHS[(m as usize).clamp(1, 12) - 1], y);
-        self.text_in(&shown, Rect::new(r.x + 38.0, r.y, r.w - 60.0, r.h), 13.0, Weight::Regular, TEXT, Align::Left);
+        let px = self.wpx(13.0);
+        self.text_in(&shown, Rect::new(r.x + 38.0, r.y, r.w - 60.0, r.h), px, Weight::Regular, TEXT, Align::Left);
         self.icon("expand_more", Vec2::new(r.right() - 18.0, r.center().y), 20.0, TEXT_DIM);
         if clicked {
             if open {
@@ -1613,9 +1641,9 @@ impl Ui {
         self.push_layer(Rect::new(0.0, 0.0, self.size.x, self.size.y), 0.0);
         self.draw_popup();
         self.draw_date_popup();
-        if let Some((t, at)) = self.tooltip.take() {
-            let w = (self.width(&t, 12.5, Weight::Medium) + 20.0).min(360.0);
-            let h = self.paragraph_height(&t, w - 20.0, 12.5, Weight::Medium) + 12.0;
+        if let Some((t, at, px)) = self.tooltip.take() {
+            let w = (self.width(&t, px, Weight::Medium) + 20.0).min(360.0 * px / 12.5);
+            let h = self.paragraph_height(&t, w - 20.0, px, Weight::Medium) + 12.0;
             let mut r = Rect::new(at.x + 14.0, at.y + 18.0, w, h);
             if r.right() > self.size.x - 8.0 {
                 r.x = self.size.x - 8.0 - r.w;
@@ -1625,7 +1653,7 @@ impl Ui {
             }
             self.p().rounded(r, 6.0, FIELD);
             self.p().rounded_border(r, 7.0, 1.0, Color::WHITE.alpha(0.1));
-            self.paragraph(&t, Vec2::new(r.x + 10.0, r.y + 4.0), w - 20.0, 12.5, Weight::Medium, TEXT_SOFT);
+            self.paragraph(&t, Vec2::new(r.x + 10.0, r.y + 4.0), w - 20.0, px, Weight::Medium, TEXT_SOFT);
         }
         let mut layers = Vec::new();
         let mut verts = Vec::new();
@@ -1729,7 +1757,7 @@ impl Ui {
             } else if h {
                 self.p().rounded(cell, 5.0, HOVER);
             }
-            self.option_text(o, Rect::new(cell.x + 10.0, cell.y, cell.w - 36.0, cell.h), 13.0, TEXT);
+            self.option_text(o, Rect::new(cell.x + 10.0, cell.y, cell.w - 36.0, cell.h), p.px, TEXT);
             if h {
                 self.cursor = winit::window::CursorIcon::Pointer;
                 if self.input.released && !fresh {

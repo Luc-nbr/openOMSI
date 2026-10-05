@@ -34,6 +34,15 @@ pub fn unused_id(data: &Path, name: &str) -> String {
 
 /// A file of an older version brought up to date.
 pub fn migrate(mut c: Company) -> Company {
+    // (an older file ran every line: those its roster plans run on, the others wait for the
+    // planning - a line runs only once it is planned)
+    for k in 0..c.lines.len() {
+        if c.lines[k].service_from == Some(super::model::LEGACY_SERVICE) {
+            let name = c.lines[k].name.clone();
+            let planned = c.planning.week.iter().any(|r| r.line.eq_ignore_ascii_case(&name) && (r.bus.is_some() || r.duties.iter().any(Option::is_some)));
+            c.lines[k].service_from = planned.then_some(0);
+        }
+    }
     if c.contract_index <= 0.0 {
         c.contract_index = 1.0;
     }
@@ -109,7 +118,7 @@ pub fn take_live(data: &Path, c: &mut Company) {
 /// The company's tours of its current day, from the map's timetable of that date.
 pub fn tours_today(c: &Company) -> Result<(Vec<crate::LineInfo>, Vec<network::TourOfDay>)> {
     let lines = crate::list_lines(&c.map, &c.date)?;
-    let tours = network::tours_of_day(c, &lines);
+    let tours = network::tours_of_day(c, &lines, &c.date);
     Ok((lines, tours))
 }
 
@@ -170,7 +179,7 @@ impl super::clock::World for Disk<'_> {
     fn close_day(&mut self, c: &mut Company, lines: &[crate::LineInfo]) -> std::result::Result<DayReport, String> {
         take_live(self.data, c);
         network::refresh_lines(c, lines);
-        let tours = network::tours_of_day(c, lines);
+        let tours = network::tours_of_day(c, lines, &c.date);
         let trips = crate::trips_of(self.data, &c.profile);
         let report = day::close_day(c, tours, &trips);
         Ok(super::depot::after_close(c, report, lines))

@@ -5,7 +5,8 @@
 //! stands long enough (Omsi-Hub's `omlopenVanDag` and `knipOmloop`).
 
 use super::dates;
-use super::model::{BusSize, Company, CompanyLine};
+use super::economy;
+use super::model::{BusSize, Cents, Company, CompanyLine, Difficulty, LEGACY_SERVICE};
 use super::staff::{DUTY_MAX, SPLIT_PAUSE};
 use crate::lines::OwnLine;
 use crate::LineInfo;
@@ -46,6 +47,10 @@ pub struct TourOfDay {
     pub tour: String,
     pub ai_group: String,
     pub trips: Vec<PlannedTrip>,
+    /// Its line is not in service when it begins (not planned yet, or from later on): shown
+    /// on the planning to be planned, but neither run nor penalised (`in_service`).
+    #[serde(default)]
+    pub unplanned: bool,
 }
 
 impl TourOfDay {
@@ -115,8 +120,67 @@ pub fn add_line(c: &mut Company, line: &LineInfo, own: Option<&OwnLine>) -> Resu
         tours: runs.len() as u32,
         km: runs.iter().flat_map(|t| t.trips.iter()).map(|t| t.km).sum(),
         plan: None,
+        // (a line runs only once it is planned: `start_service`)
+        service_from: None,
+        fare: None,
+        demand: Default::default(),
     });
     Ok(())
+}
+
+/// The line runs at `moment` (the clock's minutes): it was put into service by then.
+pub fn in_service(l: &CompanyLine, moment: i64) -> bool {
+    l.service_from.is_some_and(|s| s == LEGACY_SERVICE || moment >= s)
+}
+
+/// Put a line into service from `from` (the clock's minutes; now at the soonest): its tours
+/// from then on run as they are planned, and what is not covered is dropped with the
+/// contract's penalty. Returns when it begins.
+pub fn start_service(c: &mut Company, name: &str, from: i64) -> Result<i64, &'static str> {
+    let now = super::clock::now(c);
+    let Some(l) = c.lines.iter_mut().find(|l| l.name.eq_ignore_ascii_case(name)) else { return Err("The company does not run this line.") };
+    let from = from.max(now);
+    l.service_from = Some(from);
+    Ok(from)
+}
+
+/// Take a line out of service again (its tours wait for the planning).
+pub fn stop_service(c: &mut Company, name: &str) -> Result<(), &'static str> {
+    let Some(l) = c.lines.iter_mut().find(|l| l.name.eq_ignore_ascii_case(name)) else { return Err("The company does not run this line.") };
+    l.service_from = None;
+    Ok(())
+}
+
+/// The days of grace a concession line has to start its service, and the share of the
+/// authority's payment for its kilometres charged for every day after them it does not run
+/// (None: never charged - Easy).
+pub fn start_grace(d: Difficulty) -> Option<(i64, f64)> {
+    match d {
+        Difficulty::Easy => None,
+        Difficulty::Realistic => Some((7, 0.2)),
+        Difficulty::Hard => Some((3, 0.35)),
+    }
+}
+
+/// What a concession line not in service on `date` costs that day: after its grace, a share
+/// of what the authority pays for its kilometres (an own line costs nothing). (days since it
+/// was taken on, the charge)
+pub fn late_start(c: &Company, l: &CompanyLine, date: &str) -> Option<(i64, Cents)> {
+    if l.own {
+        return None;
+    }
+    let (grace, share) = start_grace(c.difficulty)?;
+    let end = super::clock::moment(date, 24 * 60 - 1);
+    if l.service_from.is_some_and(|s| s == LEGACY_SERVICE || s <= end) {
+        return None;
+    }
+    let days = dates::between(&l.added, date);
+    if days < grace {
+        return None;
+    }
+    let r = economy::rules(c.difficulty);
+    let charge = (economy::compensation_per_km(&r, c.reputation, c.contract_index) * l.km * share).round() as Cents;
+    (charge > 0).then_some((days, charge))
 }
 
 pub fn remove_line(c: &mut Company, name: &str) {
@@ -132,9 +196,11 @@ pub fn line_of_number<'a>(c: &'a Company, number: &str) -> Option<&'a CompanyLin
     c.lines.iter().find(|l| l.number.eq_ignore_ascii_case(n) || l.numbers.iter().any(|x| x.eq_ignore_ascii_case(n)) || l.name.eq_ignore_ascii_case(n))
 }
 
-/// The tours of the company's lines on the day `lines` were read for (the timetable's lines
-/// of that date): those that run that day, their trips in order of departure.
-pub fn tours_of_day(c: &Company, lines: &[LineInfo]) -> Vec<TourOfDay> {
+/// The tours of the company's lines on `date` (`lines` the timetable read for it): those that
+/// run that day, their trips in order of departure, each marked `unplanned` when its line is
+/// not in service as it begins. The one source of a day's tours - the Lines page, the
+/// planning, the clock and the day's close all take them from here.
+pub fn tours_of_day(c: &Company, lines: &[LineInfo], date: &str) -> Vec<TourOfDay> {
     let mut out = Vec::new();
     for cl in &c.lines {
         let Some(line) = lines.iter().find(|l| l.name.eq_ignore_ascii_case(&cl.name)) else { continue };
@@ -156,14 +222,94 @@ pub fn tours_of_day(c: &Company, lines: &[LineInfo]) -> Vec<TourOfDay> {
                 .collect();
             trips.sort_by_key(|x| x.dep);
             if trips.iter().any(PlannedTrip::counts) {
-                out.push(TourOfDay { line: cl.name.clone(), number: cl.number.clone(), tour: t.number.clone(), ai_group: t.ai_group.clone(), trips });
+                out.push(TourOfDay { line: cl.name.clone(), number: cl.number.clone(), tour: t.number.clone(), ai_group: t.ai_group.clone(), trips, unplanned: false });
             }
         }
     }
     // (the own lines' tours with their depot runs: their timetable has none)
     super::ownline::add_depot_runs(c, &mut out);
+    for t in out.iter_mut() {
+        let begins = super::clock::moment(date, t.from() as i64);
+        t.unplanned = !c.lines.iter().find(|l| l.name.eq_ignore_ascii_case(&t.line)).is_some_and(|l| in_service(l, begins));
+    }
     out.sort_by_key(|t| t.from());
     out
+}
+
+/// The tours that run: those of lines in service.
+pub fn in_service_only(tours: Vec<TourOfDay>) -> Vec<TourOfDay> {
+    tours.into_iter().filter(|t| !t.unplanned).collect()
+}
+
+/// What a line asks of the company on a day, against what it has.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Needs {
+    /// Buses at the line's busiest, and of them how many of each size its tours ask for
+    /// (a solo bus where they name none).
+    pub buses: usize,
+    pub sizes: Vec<(BusSize, usize)>,
+    /// Its duties, and about the drivers they need: one and a half a duty (a driver works
+    /// five days a week and has holidays and ill days).
+    pub duties: usize,
+    pub drivers: usize,
+    /// The company's buses and drivers, and what its lines in service take of them already.
+    pub have_buses: usize,
+    pub have_drivers: usize,
+    pub busy_buses: usize,
+    pub busy_drivers: usize,
+}
+
+impl Needs {
+    /// Buses and drivers the company lacks for the line beside its others.
+    pub fn short(&self) -> (usize, usize) {
+        ((self.buses + self.busy_buses).saturating_sub(self.have_buses), (self.drivers + self.busy_drivers).saturating_sub(self.have_drivers))
+    }
+}
+
+/// The most tours running at once.
+fn peak(tours: &[&TourOfDay]) -> usize {
+    tours.iter().map(|t| tours.iter().filter(|x| x.from() <= t.from() && t.from() < x.to()).count()).max().unwrap_or(0)
+}
+
+/// About the drivers `duties` duties a day need.
+pub fn drivers_for(duties: usize) -> usize {
+    (duties as f64 * 1.5).ceil() as usize
+}
+
+/// What `line` asks of the company on `date` (`all` the timetable of that day, for what its
+/// lines in service take already).
+pub fn needs(c: &Company, line: &LineInfo, all: &[LineInfo], date: &str) -> Needs {
+    let mut probe = c.clone();
+    probe.lines.retain(|l| l.name.eq_ignore_ascii_case(&line.name));
+    if probe.lines.is_empty() {
+        let _ = add_line(&mut probe, line, None);
+    }
+    for l in probe.lines.iter_mut() {
+        l.service_from = Some(LEGACY_SERVICE);
+    }
+    let mine = tours_of_day(&probe, std::slice::from_ref(line), date);
+    let refs: Vec<&TourOfDay> = mine.iter().collect();
+    let mut sizes: Vec<(BusSize, usize)> = Vec::new();
+    for size in [BusSize::Midi, BusSize::Solo, BusSize::Articulated, BusSize::Double] {
+        let of: Vec<&TourOfDay> = mine.iter().filter(|t| super::ownline::wanted(&probe, t).unwrap_or(BusSize::Solo) == size).collect();
+        let n = peak(&of);
+        if n > 0 {
+            sizes.push((size, n));
+        }
+    }
+    let duties: usize = mine.iter().map(|t| duties_of(t).len()).sum();
+    let others: Vec<TourOfDay> = in_service_only(tours_of_day(c, all, date)).into_iter().filter(|t| !t.line.eq_ignore_ascii_case(&line.name)).collect();
+    let other_refs: Vec<&TourOfDay> = others.iter().collect();
+    Needs {
+        buses: peak(&refs),
+        sizes,
+        duties,
+        drivers: drivers_for(duties),
+        have_buses: c.fleet.iter().filter(|v| v.held_on(date)).count(),
+        have_drivers: c.staff.iter().filter(|e| e.employed_on(date) && e.notice_until.is_none()).count(),
+        busy_buses: peak(&other_refs),
+        busy_drivers: drivers_for(others.iter().map(|t| duties_of(t).len()).sum()),
+    }
 }
 
 /// What the timetable gives each company line on that day: tours and kilometres (kept with
@@ -268,6 +414,44 @@ pub(crate) mod tests {
         let d = split_tour(&with_run, DUTY_MAX);
         assert_eq!(d.last().unwrap().end, 19);
         assert!(split_tour(&[], DUTY_MAX).is_empty());
+    }
+
+    #[test]
+    fn a_line_says_what_it_needs_against_what_the_company_has() {
+        use super::super::concessions::tests::line;
+        use super::super::{found, Founding};
+        let c = found(&Founding { name: "Needs".into(), date: "2024-03-04".into(), ..Default::default() }, "Luc");
+        // three tours at the same hours (four trips of an hour from 06:00): three buses at the
+        // busiest, a duty each, five drivers or so; the company has none
+        let l = line("Linie5", "5", 3, true);
+        let n = needs(&c, &l, std::slice::from_ref(&l), &c.date);
+        assert_eq!((n.buses, n.duties, n.drivers), (3, 3, 5));
+        assert_eq!(n.sizes, vec![(BusSize::Solo, 3)]);
+        assert_eq!(n.short(), (3, 5));
+        // a day the line does not run: nothing
+        let off = line("Linie6", "6", 2, false);
+        assert_eq!(needs(&c, &off, &[], &c.date).buses, 0);
+    }
+
+    #[test]
+    fn an_own_line_has_its_tours_every_day_it_runs() {
+        // (one source of a day's tours: an own line's timetable is a line of the map's like
+        // the others, its depot runs added)
+        use super::super::concessions::tests::line;
+        use super::super::{found, Founding};
+        let mut c = found(&Founding { name: "Own".into(), date: "2024-03-04".into(), ..Default::default() }, "Luc");
+        let own = crate::lines::OwnLine { number: "1".into(), colour: "#7b1fa2".into(), ..Default::default() };
+        let mut l = line("oo_1", "1", 2, true);
+        l.tours[1].ai_group = "Midibus".into();
+        add_line(&mut c, &l, Some(&own)).unwrap();
+        for k in 0..7 {
+            let date = dates::add(&c.date, k);
+            let tours = tours_of_day(&c, std::slice::from_ref(&l), &date);
+            assert_eq!(tours.len(), 2, "{date}");
+            assert!(tours.iter().all(|t| t.unplanned), "not planned yet");
+        }
+        start_service(&mut c, "oo_1", 0).unwrap();
+        assert!(tours_of_day(&c, std::slice::from_ref(&l), &c.date.clone()).iter().all(|t| !t.unplanned));
     }
 
     #[test]

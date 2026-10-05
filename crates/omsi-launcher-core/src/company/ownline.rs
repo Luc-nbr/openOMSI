@@ -761,6 +761,10 @@ pub fn confirm(c: &mut Company, l: &LineDesign, stem: &str, shape: &Shape) -> Re
         tours: e.tours[0] as u32,
         km: e.km[0],
         plan: Some(plan),
+        // (a line runs only once it is planned: `network::start_service`)
+        service_from: None,
+        fare: None,
+        demand: Default::default(),
     });
     Ok(total)
 }
@@ -1053,7 +1057,7 @@ mod tests {
         l.days[0].bands = vec![TimeBand { from: 360.0, to: 540.0, headway: 10.0, size: Some(BusSize::Articulated) }];
         let s = shape_of(&l, &|_| 0);
         confirm(&mut c, &l, "oo_9", &s).unwrap();
-        let t = TourOfDay { line: "oo_9".into(), number: "9".into(), tour: "1".into(), ai_group: String::new(), trips: vec![super::super::network::PlannedTrip { dep: 360, arr: 400, stops: 12, ..Default::default() }] };
+        let t = TourOfDay { line: "oo_9".into(), number: "9".into(), tour: "1".into(), ai_group: String::new(), trips: vec![super::super::network::PlannedTrip { dep: 360, arr: 400, stops: 12, ..Default::default() }], unplanned: false };
         assert_eq!(wanted(&c, &t), Some(BusSize::Articulated));
         let lack = shortfall(&c, &[t.clone(), TourOfDay { tour: "2".into(), ..t.clone() }]);
         assert_eq!(lack, vec![Shortfall { size: BusSize::Articulated, needed: 2, have: 0 }]);
