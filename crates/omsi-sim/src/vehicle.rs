@@ -1365,6 +1365,22 @@ impl VehicleInstance {
             .collect();
     }
 
+    /// Draw the bus's destination displays - and those of its coupled parts - in the display
+    /// font `font` the player chose for it (`texttex::apply_display_font`), after
+    /// `init_text_textures`. Returns how many displays it changed.
+    pub fn apply_display_font(
+        &mut self,
+        font: &str,
+        lib: &mut crate::texttex::FontLibrary,
+        decode: &dyn Fn(&Path) -> Option<(u32, u32, Vec<u8>)>,
+    ) -> usize {
+        let mut n = crate::texttex::apply_display_font(&mut self.text_textures, &self.ty.model, font, lib, decode);
+        for t in &mut self.trailers {
+            n += crate::texttex::apply_display_font(&mut t.text_textures, &t.ty.model, font, lib, decode);
+        }
+        n
+    }
+
     /// Current text of a string variable (empty when it does not exist).
     pub fn str_var(&self, name: &str) -> String {
         self.ty

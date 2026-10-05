@@ -1156,6 +1156,17 @@ pub(super) fn bus_sheet(l: &mut Launcher, r: Rect) {
         l.ui.p().rect(Rect::new(r.x, y, w, 1.0), HAIRLINE);
         y += 14.0;
     }
+    // the font of its destination displays
+    {
+        let sample = super::displayfont::sample_of(&l.state);
+        let (h, edit) = super::displayfont::section(&mut l.ui, r.x, y, w, &mut l.state.display_fonts, &root, &vehicle.file, &sample);
+        if let Some(e) = edit {
+            l.state.display_fonts.edit(&root, &vehicle.file, e);
+        }
+        y += h + 6.0;
+        l.ui.p().rect(Rect::new(r.x, y, w, 1.0), HAIRLINE);
+        y += 14.0;
+    }
     let field = |y: f32| Rect::new(r.x + 116.0, y, w - 116.0, ROW);
     let (used, open) = super::hof::field(l, r.x, y, w);
     y += used + 8.0;

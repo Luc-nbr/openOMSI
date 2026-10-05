@@ -626,8 +626,9 @@ impl State {
             map: host_map.unwrap_or_else(|| c.map.clone()),
             bus: c.bus.clone(),
             paint: Some(c.paint.clone()).filter(|p| !p.is_empty()),
-            // (the bus options are chosen in the new launcher's bus step only)
+            // (the bus options and the display font are chosen in the new launcher's bus step only)
             set_vars: Vec::new(),
+            display_font: None,
             plate: Some(c.plate.clone()).filter(|p| !p.trim().is_empty()),
             number: Some(c.number.clone()).filter(|n| !n.trim().is_empty()),
             hof: Some(c.hof.clone()).filter(|p| !p.is_empty()),

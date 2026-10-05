@@ -14,6 +14,7 @@ mod busphoto;
 mod buspick;
 mod company;
 mod daytime;
+mod displayfont;
 pub(crate) mod drive;
 mod editor_hub;
 pub(crate) mod flow;
@@ -402,6 +403,7 @@ impl Launcher {
         self.pictures_rx = Some(decode_pictures());
         self.mapchoice.drop_gpu();
         self.livery.drop_gpu();
+        self.state.display_fonts.drop_gpu();
     }
 
     /// The window, its surface and the renderer, given up for the game (a phone plays in the
@@ -950,6 +952,8 @@ impl Launcher {
         if !look.bus.is_empty() && !look.map.is_empty() && !self.state.in_game() {
             // (with the bus options chosen for it, put on over the livery)
             self.showroom.dress(self.state.bus_options.for_preview(&look.bus));
+            // (and its destination displays in the display font chosen for it)
+            self.showroom.letter(self.state.display_fonts.font_for(&look.bus));
             self.showroom.want(look);
         }
         if let Some(r) = self.renderer.as_ref() {
@@ -1047,6 +1051,8 @@ impl Launcher {
         // the maps' own pictures for the map step, as they are read
         if let Some(gpu) = self.gpu.as_mut() {
             self.mapchoice.upload(&renderer.device, &renderer.queue, gpu);
+            // (and the bus step's display font signs, as they are drawn)
+            self.state.display_fonts.upload(&renderer.device, &renderer.queue, gpu);
         }
         let draws: Vec<Draw> = ranges.iter().enumerate().map(|(k, (r, tex))| Draw { buffer: 0, range: r.clone(), layer: k, texture: *tex }).collect();
         let bg = wgpu::Color { r: 0.0027, g: 0.0037, b: 0.0091, a: 1.0 };

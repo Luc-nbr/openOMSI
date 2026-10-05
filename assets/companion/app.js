@@ -1786,11 +1786,95 @@
     });
   }
 
+  /* `fit_scale`: a smaller font magnified by whole times (a pixel font stays crisp), a taller
+   * one shrunk to the line. */
+  function fitScale(lineH, fontH) {
+    if (!(lineH > 0 && fontH > 0)) return 1;
+    var s = lineH / fontH;
+    return s >= 1 ? Math.floor(s + 1e-4) : s;
+  }
+
+  /* `resample_into`: `src` (sw x sh) scaled to dw x dh over `out` (w x h) at (x0, y0), every
+   * pixel the average of the part of `src` under it. */
+  function resampleInto(src, sw, sh, out, w, h, x0, y0, dw, dh) {
+    if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) return;
+    var fx = sw / dw, fy = sh / dh;
+    var span = function (a, b, n) {
+      var v = [];
+      for (var i = Math.max(0, Math.floor(a)); i < b && i < n; i++) {
+        var lo = Math.max(a, i), hi = Math.min(b, i + 1);
+        if (hi > lo) v.push([i, hi - lo]);
+      }
+      return v;
+    };
+    var cols = [];
+    for (var x = 0; x < dw; x++) cols.push(span(x * fx, (x + 1) * fx, sw));
+    for (var y = 0; y < dh; y++) {
+      var oy = y0 + y;
+      if (oy < 0 || oy >= h) continue;
+      var rows = span(y * fy, (y + 1) * fy, sh);
+      for (var cx = 0; cx < dw; cx++) {
+        var ox = x0 + cx;
+        if (ox < 0 || ox >= w) continue;
+        var a = 0, r = 0, g = 0, b = 0, total = 0;
+        for (var ri = 0; ri < rows.length; ri++) {
+          for (var ci = 0; ci < cols[cx].length; ci++) {
+            var k = rows[ri][1] * cols[cx][ci][1];
+            var si = (rows[ri][0] * sw + cols[cx][ci][0]) * 4;
+            a += src[si + 3] * k;
+            r += src[si] * k;
+            g += src[si + 1] * k;
+            b += src[si + 2] * k;
+            total += k;
+          }
+        }
+        if (a <= 0 || total <= 0) continue;
+        var cover = Math.min(255, Math.max(0, Math.round(a / total)));
+        if (cover === 0) continue;
+        var di = (oy * w + ox) * 4, inv = 1 - cover / 255;
+        out[di] = Math.min(255, Math.round(r / total + out[di] * inv));
+        out[di + 1] = Math.min(255, Math.round(g / total + out[di + 1] * inv));
+        out[di + 2] = Math.min(255, Math.round(b / total + out[di + 2] * inv));
+        out[di + 3] = Math.max(out[di + 3], cover);
+      }
+    }
+  }
+
+  /* `FontAtlas::render_fitted`: a display font the player chose for the bus, every line in the
+   * place a line of the bus's own font has (`t.lh` rows), its letters scaled to fill it; a line
+   * too wide at that size drawn smaller. */
+  function writeFitted(f, t, text) {
+    var w = t.w, h = t.h, lh = Math.max(1, t.lh);
+    var out = new Uint8Array(w * h * 4);
+    var lines = text.split('@');
+    var block = lh * lines.length;
+    var top = lines.length === 1 ? Math.trunc((h - block) / 2) : Math.floor(Math.max(0, h - block) / 2);
+    var scale = fitScale(lh, f.h);
+    for (var i = 0; i < lines.length; i++) {
+      var slot = top + i * lh;
+      if (slot >= h) break;
+      var chars = Array.from(lines[i]);
+      var adv = textWidth(f, chars);
+      var visible = Math.max(0, adv - Math.max(0, f.gap));
+      if (visible <= 0) continue;
+      var s = scale;
+      if (visible * s > w) s = Math.min(s, fitScale(w, visible));
+      var tw = Math.max(1, adv), th = f.h;
+      var src = new Uint8Array(tw * th * 4);
+      writeLine(f, { o: 1, g: 1, full: t.full, rgb: t.rgb }, chars, src, tw, th, 0, th);
+      var dw = Math.max(1, roundAway(tw * s)), dh = Math.max(1, roundAway(th * s));
+      var x0 = alignOffset(t.o, t.g, w, dw, roundAway(f.gap * s));
+      resampleInto(src, tw, th, out, w, h, x0, slot + Math.trunc((lh - dh) / 2), dw, dh);
+    }
+    return out;
+  }
+
   /* A text texture's picture of `text`: `FontAtlas::render_aligned` ('@' breaks lines). */
   function writeText(f, t, text) {
     var w = t.w, h = t.h;
     var out = new Uint8Array(w * h * 4);
     if (!f) return out;
+    if (t.lh > 0) return writeFitted(f, t, text);
     if (text.indexOf('@') >= 0) {
       var lines = text.split('@');
       var lh = f.h;

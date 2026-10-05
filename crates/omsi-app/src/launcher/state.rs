@@ -255,6 +255,9 @@ pub struct State {
     pub choice_dirty: f32,
     /// The bus options chosen per bus, and what each bus offers (see `busoptions`).
     pub bus_options: super::busoptions::Options,
+    /// The display font chosen per bus, the fonts installed and their previews (see
+    /// `displayfont`).
+    pub display_fonts: super::displayfont::DisplayFonts,
     /// Map, whether it has a `laststn.osn`, when that was looked up.
     pub last_sit: Option<(String, Vec<core::SavedSituation>, std::time::Instant)>,
     /// Which of them "Continue" starts (0: the newest, the last situation when there is one).
@@ -338,6 +341,7 @@ impl State {
             choice,
             choice_dirty: 0.0,
             bus_options: super::busoptions::Options::load(),
+            display_fonts: super::displayfont::DisplayFonts::load(),
             last_sit: None,
             save_pick: 0,
             profiles: Vec::new(),
@@ -736,6 +740,7 @@ impl State {
             bus: c.bus.clone(),
             paint: Some(c.paint.clone()).filter(|p| !p.is_empty()),
             set_vars: self.bus_options.for_game(&self.config.root, &c.bus, &c.paint),
+            display_font: self.display_fonts.font_for(&c.bus),
             plate: Some(c.plate.clone()).filter(|p| !p.trim().is_empty()),
             number: Some(c.number.clone()).filter(|n| !n.trim().is_empty()),
             hof: Some(c.hof.clone()).filter(|p| !p.is_empty()),

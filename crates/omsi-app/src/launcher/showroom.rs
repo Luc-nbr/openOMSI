@@ -49,6 +49,8 @@ struct Shown {
     /// Its livery, and the bus options it wears.
     scheme: Option<usize>,
     options: Vec<(String, f32)>,
+    /// The display font its destination displays are drawn in (None: its own).
+    letters: Option<String>,
     render: Option<scene::VehicleRender>,
     trailers: Vec<scene::VehicleRender>,
     /// The bus's type (the livery studio reads its meshes and paint slots).
@@ -76,6 +78,8 @@ pub struct Showroom {
     /// them (the options it gets, the bus when it is made).
     options: Vec<(String, f32)>,
     dressing: Option<(Vec<(String, f32)>, Receiver<omsi_sim::VehicleInstance>)>,
+    /// The display font to draw the bus's destination displays in (see `letter`).
+    letters: Option<String>,
     pub error: Option<String>,
     /// Orbit: yaw and pitch (degrees) and distance factor, eased towards the targets.
     pub yaw: f32,
@@ -164,6 +168,7 @@ impl Showroom {
             loading: None,
             options: Vec::new(),
             dressing: None,
+            letters: None,
             error: None,
             yaw: 215.0,
             pitch: 8.0,
@@ -355,6 +360,12 @@ impl Showroom {
         self.options = options;
     }
 
+    /// Draw the bus's destination displays in the display font `font` (None: its own), as the
+    /// game will (`--display-font`): the bus shown takes it at once.
+    pub fn letter(&mut self, font: Option<String>) {
+        self.letters = font;
+    }
+
     /// The bus options the bus shown wears (None: no bus shown).
     pub fn dressed(&self) -> Option<&[(String, f32)]> {
         self.shown.as_ref().map(|s| s.options.as_slice())
@@ -453,6 +464,16 @@ impl Showroom {
                 self.dressing = Some((options, rx));
             }
         }
+        // another display font: the bus shown writes its displays in it
+        if self.dressing.is_none() {
+            if let Some(s) = self.shown.as_mut().filter(|s| s.letters != self.letters) {
+                if let (Some(w), Some(v)) = (s.world.as_ref(), s.vehicle.as_mut()) {
+                    fonts_on(w, v, self.letters.as_deref());
+                    self.dirty = true;
+                }
+                s.letters = self.letters.clone();
+            }
+        }
         self.busy = self.loading.is_some();
         // camera
         self.idle += dt;
@@ -534,7 +555,7 @@ impl Showroom {
         vehicle.heading = 0.0;
         let render = world.add_vehicle(renderer, &mut scene, &r.vt, r.scheme);
         let trailers: Vec<scene::VehicleRender> = vehicle.trailers.iter().map(|t| world.add_vehicle_part(renderer, &mut scene, &t.ty, crate::spawn::part_scheme(&r.vt, r.scheme, &t.ty), &render)).collect();
-        fonts_on(&world, &mut vehicle);
+        fonts_on(&world, &mut vehicle, self.letters.as_deref());
         vehicle.update(1.0 / 30.0);
         // the bus's size from its bounding box (with the rear section behind it)
         let bb = r.vt.def.bounding_box.unwrap_or([2.5, 12.0, 3.0, 0.0, 0.0, 1.5]);
@@ -555,7 +576,7 @@ impl Showroom {
         }
         let lighting = lighting_for(&args, &weather);
         log::info!("showroom: {} ({} meshes, {:.1} m long) placed in {:.2} s", r.look.bus, render.instances.len(), length, t0.elapsed().as_secs_f64());
-        Shown { look: r.look, scene, world: Some(world), vehicle: Some(vehicle), scheme: r.scheme, options: r.options, render: Some(render), trailers, vt: Some(r.vt.clone()), centre, length, bus, weather, lighting }
+        Shown { look: r.look, scene, world: Some(world), vehicle: Some(vehicle), scheme: r.scheme, options: r.options, letters: self.letters.clone(), render: Some(render), trailers, vt: Some(r.vt.clone()), centre, length, bus, weather, lighting }
     }
 
     /// The bus made anew with the bus options `options` takes the place of the one shown (the
@@ -568,7 +589,7 @@ impl Showroom {
         vehicle.position = DVec3::ZERO;
         vehicle.heading = 0.0;
         if let Some(w) = s.world.as_ref() {
-            fonts_on(w, &mut vehicle);
+            fonts_on(w, &mut vehicle, s.letters.as_deref());
         }
         vehicle.update(1.0 / 30.0);
         log::info!("showroom: {} made anew with {} bus option(s)", s.look.bus, options.len());
@@ -680,11 +701,15 @@ fn made(root: &Path, vt: &Arc<omsi_sim::VehicleType>, parts: Option<&[(Arc<omsi_
     vehicle
 }
 
-/// The fonts of the bus's text displays (its rear sections' too).
-fn fonts_on(world: &scene::World, vehicle: &mut omsi_sim::VehicleInstance) {
+/// The fonts of the bus's text displays (its rear sections' too), its destination displays in
+/// the display font `letters` the player chose (None: their own).
+fn fonts_on(world: &scene::World, vehicle: &mut omsi_sim::VehicleInstance, letters: Option<&str>) {
     vehicle.init_text_textures(&mut world.fonts.lock(), &|p| omsi_texture::decode_file(p).ok().map(|i| (i.width, i.height, i.rgba)));
     for t in vehicle.trailers.iter_mut() {
         t.init_text_textures(&mut world.fonts.lock(), &|p| omsi_texture::decode_file(p).ok().map(|i| (i.width, i.height, i.rgba)));
+    }
+    if let Some(font) = letters.map(str::trim).filter(|f| !f.is_empty()) {
+        vehicle.apply_display_font(font, &mut world.fonts.lock(), &|p| omsi_texture::decode_file(p).ok().map(|i| (i.width, i.height, i.rgba)));
     }
 }
 

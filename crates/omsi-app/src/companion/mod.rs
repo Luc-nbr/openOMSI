@@ -634,7 +634,7 @@ impl Companion {
                                 fonts.len() - 1
                             }
                         });
-                        Some(form::text_json(&t.def, n, font))
+                        Some(form::text_json(t, n, font))
                     })
                     .collect();
                 let pages: Vec<usize> = v.html_textures.iter().map(|h| h.script_index).collect();

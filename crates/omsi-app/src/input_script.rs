@@ -2454,6 +2454,8 @@ impl App {
             hof: hof.or(self.args.hof.clone()),
             // (the launcher's bus options are for the bus it started with: kept for that file)
             setvar: self.args.setvar.clone().filter(|_| self.args.bus.as_deref().is_some_and(|b| b.replace('\\', "/").eq_ignore_ascii_case(&bus.replace('\\', "/")))),
+            // (and so is its display font)
+            display_font: self.args.display_font.clone().filter(|_| self.args.bus.as_deref().is_some_and(|b| b.replace('\\', "/").eq_ignore_ascii_case(&bus.replace('\\', "/")))),
             ..self.args.clone()
         };
         match spawn_player(&one, &w, r, scene) {
@@ -2540,6 +2542,7 @@ impl App {
             autostart: false,
             paint: None,
             setvar: None,
+            display_font: None,
             ..self.args.clone()
         };
         match spawn_player(&one, &w, r, scene) {

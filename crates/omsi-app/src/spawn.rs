@@ -334,6 +334,16 @@ pub(crate) fn spawn_player(
                 .map(|i| (i.width, i.height, i.rgba))
         });
     }
+    // the display font the player chose for the bus (`--display-font`, the launcher's bus
+    // step) on its destination displays
+    if let Some(font) = args.display_font.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
+        let n = vehicle.apply_display_font(font, &mut world.fonts.lock(), &|p| {
+            omsi_texture::decode_file(p)
+                .ok()
+                .map(|i| (i.width, i.height, i.rgba))
+        });
+        log::info!("display font \"{font}\": {n} destination display(s) of the bus");
+    }
     // number / ident were installed before {init}; do not rewrite them here.
     // ground following through the loaded tiles (road surfaces first, then terrain)
     let terrains = world.terrains.clone();

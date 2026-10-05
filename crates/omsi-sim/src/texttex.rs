@@ -137,6 +137,33 @@ impl FontLibrary {
         Some(sibling.clone())
     }
 
+    /// Every font installed - each `[newfont]` of every content root's `Fonts/*.oft` once, in
+    /// lookup order (the launcher's list of display fonts).
+    pub fn installed(&mut self) -> Vec<Font> {
+        self.index().to_vec()
+    }
+
+    /// The display font `chosen` (a `[newfont]` name) for a display whose own font is
+    /// `line_h` pixels high: the font itself, or - when it is taller than the line - the
+    /// tallest size of the same `.oft` file that fits (the Krüger pack's "Krueger 16x9" chosen
+    /// for a 7-pixel line number becomes its "Krueger 7x4", not 16x9 squeezed into a smear);
+    /// none fitting, its smallest, which `FontAtlas::render_fitted` shrinks. None when no font
+    /// of that name is installed.
+    pub fn display_atlas(&mut self, chosen: &str, line_h: i32, decode: &dyn Fn(&Path) -> Option<(u32, u32, Vec<u8>)>) -> Option<Arc<FontAtlas>> {
+        let wanted = chosen.trim();
+        if wanted.is_empty() {
+            return None;
+        }
+        let index = self.index();
+        let first = index.iter().position(|f| f.name.trim().eq_ignore_ascii_case(wanted))?;
+        let file = index[first].path.clone();
+        let family: Vec<(String, i32)> = index.iter().filter(|f| f.path == file).map(|f| (f.name.clone(), f.height)).collect();
+        let me = family.iter().position(|(n, _)| n.trim().eq_ignore_ascii_case(wanted)).unwrap_or(0);
+        let heights: Vec<i32> = family.iter().map(|f| f.1).collect();
+        let k = pick_size(&heights, me, line_h);
+        self.get(&family[k].0, decode)
+    }
+
     /// `get` with the built-in image decoder.
     pub fn load(&mut self, name: &str) -> Option<Arc<FontAtlas>> {
         self.get(name, &|p| omsi_texture::decode_file(p).ok().map(|i| (i.width, i.height, i.rgba)))
@@ -152,19 +179,8 @@ impl FontLibrary {
             return a.clone();
         }
         let found = self.find(name);
-        let atlas = found.and_then(|f| {
-            // the bitmaps sit beside the .oft that names them
-            let fonts_dir = f.path.parent().map(Path::to_path_buf).unwrap_or_else(|| self.root.join("Fonts"));
-            let alpha_path = omsi_cfg::resolve_path(&fonts_dir, &f.alpha);
-            let color_path = omsi_cfg::resolve_path(&fonts_dir, &f.bitmap);
-            let (aw, ah, alpha) = decode(&alpha_path)?;
-            let color = match (color_path != alpha_path).then(|| decode(&color_path)).flatten() {
-                Some((cw, ch, c)) if (cw, ch) == (aw, ah) => c,
-                Some((cw, ch, c)) if cw > 0 && ch > 0 && c.len() == (cw * ch * 4) as usize => color_at_alpha_pixels(&c, cw, ch, aw, ah),
-                _ => alpha.clone(),
-            };
-            Some(Arc::new(FontAtlas::new(f, aw, ah, color, alpha)))
-        });
+        let fonts_dir = self.root.join("Fonts");
+        let atlas = found.and_then(|f| atlas_of(f, &fonts_dir, decode)).map(Arc::new);
         if atlas.is_none() && !name.trim().is_empty() {
             log::warn!("font \"{name}\" not found");
         }
@@ -192,6 +208,154 @@ fn color_at_alpha_pixels(color: &[u8], cw: u32, ch: u32, aw: u32, ah: u32) -> Ve
     out
 }
 
+/// `font` with its bitmaps, read with `decode` - not kept anywhere (the launcher's previews of
+/// every installed font draw each once). The bitmaps sit beside the `.oft` that names them
+/// (`fonts_dir` for a font read from nowhere).
+pub fn atlas_of(font: Font, fonts_dir: &Path, decode: &dyn Fn(&Path) -> Option<(u32, u32, Vec<u8>)>) -> Option<FontAtlas> {
+    let dir = font.path.parent().map(Path::to_path_buf).unwrap_or_else(|| fonts_dir.to_path_buf());
+    let alpha_path = omsi_cfg::resolve_path(&dir, &font.alpha);
+    let color_path = omsi_cfg::resolve_path(&dir, &font.bitmap);
+    let (aw, ah, alpha) = decode(&alpha_path)?;
+    // (a colour bitmap of another size is laid over the alpha pixel for pixel, as Omsi.exe
+    // reads it - see `color_at_alpha_pixels`)
+    let color = match (color_path != alpha_path).then(|| decode(&color_path)).flatten() {
+        Some((cw, ch, c)) if (cw, ch) == (aw, ah) => c,
+        Some((cw, ch, c)) if cw > 0 && ch > 0 && c.len() == (cw * ch * 4) as usize => color_at_alpha_pixels(&c, cw, ch, aw, ah),
+        _ => alpha.clone(),
+    };
+    Some(FontAtlas::new(font, aw, ah, color, alpha))
+}
+
+/// Which size of a display font fits a line `line_h` high (see `FontLibrary::display_atlas`):
+/// `heights` are the sizes of one font file, `chosen` the one the player picked. The chosen
+/// one when it is no taller than the line (it is magnified by a whole number to fill it);
+/// else the tallest that is; none fitting, the smallest.
+pub fn pick_size(heights: &[i32], chosen: usize, line_h: i32) -> usize {
+    let Some(&own) = heights.get(chosen) else { return 0 };
+    if own <= line_h.max(1) {
+        return chosen;
+    }
+    let fitting = heights.iter().enumerate().filter(|(_, &h)| h > 0 && h <= line_h).max_by_key(|(i, &h)| (h, std::cmp::Reverse(*i)));
+    match fitting {
+        Some((i, _)) => i,
+        None => heights.iter().enumerate().filter(|(_, &h)| h > 0).min_by_key(|(i, &h)| (h, *i)).map(|(i, _)| i).unwrap_or(chosen),
+    }
+}
+
+/// Parts of a name that make a text texture one of the bus's destination displays: the
+/// display itself (matrix, Ziel, terminus, line - the SD200's `Matrix_Terminus`, the Hamburg
+/// buses' `LW_show_linie`) or a maker of destination signs whose name its font carries
+/// (Annax, Lawo, Krüger, Mobitec - the Hamburg buses' `4_LW_Benefit_*`).
+const DISPLAY_PARTS: &[&str] = &[
+    "matrix", "ziel", "terminus", "linie", "destination", "kierunek", "annax", "lawo", "benefit", "krueger", "krüger", "mobitec", "aesys", "gorba", "hanover", "brose", "buse", "streetberlin", "flipdot", "rollband",
+];
+
+/// Whole words of a name that say the same (`17_LED_Klein`, a `front` or `heck` sign).
+const DISPLAY_WORDS: &[&str] = &["led", "lw", "front", "side", "seite", "heck", "rear", "back", "line", "route", "dest"];
+
+/// Words of displays that a display font may be meant for only on a mesh that is seen from
+/// outside alone.
+const WEAK_WORDS: &[&str] = &["lcd", "display", "anzeige", "sign"];
+
+/// Parts of a name that make a text texture something else, whatever else it says: the cab's
+/// and the saloon's devices (IBIS, ticket printers, the ALMEX, the dashboard, the passenger
+/// information inside - the O530's `interior_display_monitor_kierunek`), plates and fleet
+/// numbers, paper.
+const NOT_DISPLAY: &[&str] = &[
+    "ibis", "drucker", "ticket", "printer", "almex", "kasownik", "faremaster", "validator", "cockpit", "dash", "tacho", "odo", "innen", "interior", "inside", "monitor", "infotainment", "setvar", "radio", "kennz", "plate", "wagennummer", "vehno", "zettel", "handschrift", "schedule", "fahrplan", "menu", "tablet", "rg6000", "segment", "clock", "uhr",
+];
+
+/// Whole words of a name that say the same: `LK_Linie` and `LK_Route` are the Lion's City's
+/// ticket printer's line and route, `CD_LineTerminus` its cab display, `ianz_*` the MAN SL's
+/// saloon displays (Innenanzeige), `ZD_*` a dashboard's central display, `Hst*` the stops a
+/// printer lists.
+const NOT_DISPLAY_WORDS: &[&str] = &["lk", "cd", "zd", "ianz", "hst"];
+
+/// The words of a name: apart at everything that is no letter or digit, in lower case.
+fn name_words(s: &str) -> Vec<String> {
+    s.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(|w| w.to_lowercase()).collect()
+}
+
+/// Whether a text texture is one of the destination displays a display font is for, by its
+/// variable's and its font's names: the sign's own words, and none of a device's. `outside`:
+/// a mesh that shows it is seen from outside (see `seen_from_outside`); `outside_only`:
+/// every mesh that shows it is seen only from outside (an LCD there is a sign, not a dashboard).
+pub fn is_destination_display(tt: &TextTexture, outside: bool, outside_only: bool) -> bool {
+    // a plate's and a fleet number's colours come from their font's bitmap
+    if tt.full_color || !outside {
+        return false;
+    }
+    let var = tt.variable.trim().to_lowercase();
+    if var == "ident" || var == "number" || var.parse::<usize>().is_ok() {
+        return false;
+    }
+    let names = [var, tt.font.trim().to_lowercase()];
+    if names.iter().any(|n| NOT_DISPLAY.iter().any(|p| n.contains(p))) {
+        return false;
+    }
+    let words: Vec<String> = names.iter().flat_map(|n| name_words(n)).collect();
+    if words.iter().any(|w| NOT_DISPLAY_WORDS.contains(&w.as_str())) {
+        return false;
+    }
+    if names.iter().any(|n| DISPLAY_PARTS.iter().any(|p| n.contains(p))) || words.iter().any(|w| DISPLAY_WORDS.contains(&w.as_str())) {
+        return true;
+    }
+    outside_only && words.iter().any(|w| WEAK_WORDS.contains(&w.as_str()))
+}
+
+/// For every text texture of `model`: whether a mesh showing it is seen from outside
+/// (`[viewpoint]` 0, all views, or one with the outside view, bit 1), and whether every mesh
+/// showing it is seen only from there. One no mesh shows is seen from nowhere (the Lion's
+/// City's `Matrix_Liniennummerstring`: its matrix is a script texture).
+pub fn seen_from_outside(model: &omsi_model::Model) -> Vec<(bool, bool)> {
+    let mut out: Vec<(bool, bool, bool)> = vec![(false, true, false); model.text_textures.len()];
+    for m in &model.meshes {
+        let outside = m.viewpoint == 0 || m.viewpoint & 1 != 0;
+        let only = m.viewpoint == 1;
+        for t in m.materials.iter().filter_map(|t| t.use_text_texture) {
+            if let Some(o) = usize::try_from(t).ok().and_then(|t| out.get_mut(t)) {
+                o.0 |= outside;
+                o.1 &= only;
+                o.2 = true;
+            }
+        }
+    }
+    out.into_iter().map(|(outside, only, used)| if used { (outside, only) } else { (false, false) }).collect()
+}
+
+/// The text textures of `model` that are its destination displays (see
+/// `is_destination_display`), by their place in its `[texttexture]` list.
+pub fn destination_displays(model: &omsi_model::Model) -> Vec<usize> {
+    let seen = seen_from_outside(model);
+    model.text_textures.iter().enumerate().filter(|(i, t)| seen.get(*i).is_some_and(|&(o, only)| is_destination_display(t, o, only))).map(|(i, _)| i).collect()
+}
+
+/// Draw the destination displays among `states` (the text textures of `model`, in its
+/// order) in the display font `chosen` the player picked for the bus, each fitted to the
+/// height of the display's own font (`FontAtlas::render_fitted`) - its size, colour and
+/// placement stay the bus's. Returns how many it changed (none when the font is missing).
+pub fn apply_display_font(states: &mut [TextTextureState], model: &omsi_model::Model, chosen: &str, lib: &mut FontLibrary, decode: &dyn Fn(&Path) -> Option<(u32, u32, Vec<u8>)>) -> usize {
+    if chosen.trim().is_empty() {
+        return 0;
+    }
+    let mut changed = 0;
+    for i in destination_displays(model) {
+        let Some(s) = states.get_mut(i) else { continue };
+        // the display's line: its own font's height (a font missing: the texture's)
+        let line_h = s.atlas.as_ref().map(|a| a.font.height).filter(|h| *h > 0).unwrap_or(s.def.height).max(1);
+        let Some(atlas) = lib.display_atlas(chosen, line_h, decode) else {
+            log::warn!("display font \"{}\" is in no Fonts folder: the bus's own is kept", chosen.trim());
+            return changed;
+        };
+        log::info!("display font: {} ({}) drawn in \"{}\" for a line of {line_h} px", s.def.variable, s.def.font, atlas.font.name.trim());
+        s.atlas = Some(atlas);
+        s.fit = Some(line_h as u32);
+        s.last_text = None;
+        changed += 1;
+    }
+    changed
+}
+
 /// Runtime state of one `[texttexture]`.
 pub struct TextTextureState {
     pub def: TextTexture,
@@ -199,11 +363,14 @@ pub struct TextTextureState {
     pub last_text: Option<String>,
     /// Latest rendered RGBA image, present when it changed since the last upload.
     pub pending: Option<Vec<u8>>,
+    /// Drawn in a display font the player chose instead of the bus's own: the height of a
+    /// line of the bus's own font, which the chosen one is fitted to (`render_fitted`).
+    pub fit: Option<u32>,
 }
 
 impl TextTextureState {
     pub fn new(def: TextTexture, atlas: Option<Arc<FontAtlas>>) -> Self {
-        Self { def, atlas, last_text: None, pending: None }
+        Self { def, atlas, last_text: None, pending: None, fit: None }
     }
 
     /// Re-render when the string variable changed. Returns true when a new image is pending.
@@ -221,9 +388,10 @@ impl TextTextureState {
         let (w, h) = (self.def.width.max(1) as u32, self.def.height.max(1) as u32);
         let rgb = [self.def.color[0] as u8, self.def.color[1] as u8, self.def.color[2] as u8];
         let align = omsi_content::font::TextAlign { orientation: self.def.orientation, grid: self.def.grid };
-        match &self.atlas {
-            Some(a) => a.render_aligned(text, w, h, self.def.full_color, rgb, align),
-            None => vec![0u8; (w * h * 4) as usize],
+        match (&self.atlas, self.fit) {
+            (Some(a), Some(line_h)) => a.render_fitted(text, w, h, self.def.full_color, rgb, align, line_h),
+            (Some(a), None) => a.render_aligned(text, w, h, self.def.full_color, rgb, align),
+            (None, _) => vec![0u8; (w * h * 4) as usize],
         }
     }
 }
@@ -265,5 +433,136 @@ mod tests {
         assert_eq!(family_of("churafont++ 14x10"), "churafont++ 14x10");
         assert_eq!(family_of("Bold"), "bold");
         assert_eq!(family_of("LEERFELD"), "leerfeld");
+    }
+
+    fn tt(variable: &str, font: &str) -> TextTexture {
+        TextTexture { variable: variable.into(), font: font.into(), width: 512, height: 128, full_color: false, color: [255.0, 160.0, 0.0], orientation: 0, grid: 1 }
+    }
+
+    /// The installed buses' text textures (OMSI 2's `Vehicles`): their destination displays,
+    /// and the cab's, the saloon's and the plates' that a display font must leave alone.
+    #[test]
+    fn destination_displays_by_their_names() {
+        let sign = |v: &str, f: &str| is_destination_display(&tt(v, f), true, false);
+        // MAN SD200, Kajosoft O530, Hamburg electric bus and city bus 2017
+        assert!(sign("Matrix_Terminus", "Annax Small"));
+        assert!(sign("Matrix_Nr", "Annax Large"));
+        assert!(sign("Matrix_Nr", "StreetBerlin"));
+        assert!(sign("LW_show_linie", "4_LW_Benefit_Linie"));
+        assert!(sign("LW_show_zeile1", "4_LW_Benefit_Klein"));
+        assert!(sign("LW_show_voll", "17_LED_Gross"));
+        assert!(sign("stringoutput_zielG_A", "krueger-font_gross"));
+        assert!(sign("Rollband_Dest1", "SG_Rlbnd_Dest"));
+        // the cab, the saloon, the ticket machines, the dashboards
+        for (v, f) in [
+            ("IBIS", "IBIS_5x7"),
+            ("ticketprinter_display", "IBIS-2_5x7"),
+            ("cockpit_temperatur", "LCD_7-Segment"),
+            ("odometer", "NLC_LCD_7-Segment"),
+            ("innenanz_hst", "HH4_barlow"),
+            ("interior_display_monitor_kierunek", "KJT3D_monitor"),
+            ("almex_s_ziel", "HH20_HHAschedule_font"),
+            ("Drucker_TerminusString", "DIN Narrow"),
+            ("Faremaster_terminus_name", "O560_US_MSFont_Faremaster"),
+            ("IBIS_cabindisplay", "LCD-Innenanzeige"),
+            ("Innenanzeige_Haltestelle", "nlc_Innenanzeige_8px"),
+            ("rg6_przystanki", "KJT3D_rg6000"),
+            ("LK_Linie", "DIN Narrow"),
+            ("CD_LineTerminus", "DIN Narrow"),
+            ("ianz_Brose_LVA", "SG_Brose_LVA"),
+            ("number", "21_vehno"),
+            ("number", "Annax Large"),
+        ] {
+            assert!(!sign(v, f), "{v} / {f}");
+        }
+        // a plate (its colours from the font) is none, nor is a display seen from the cab only
+        assert!(!is_destination_display(&tt("Kennzeichen_Ziel", "Kennz_DtAlt"), true, false));
+        let mut coloured = tt("Matrix_Terminus", "Annax Small");
+        coloured.full_color = true;
+        assert!(!is_destination_display(&coloured, true, true));
+        assert!(!is_destination_display(&tt("ident", "nlc_Kennzeichen"), true, true));
+        assert!(!is_destination_display(&tt("Matrix_Terminus", "Annax Small"), false, false));
+        // an LCD or a display of no other name: a sign only where it is seen from outside alone
+        assert!(is_destination_display(&tt("Anzeige_aussen", "MyFont"), true, true));
+        assert!(!is_destination_display(&tt("Anzeige_aussen", "MyFont"), true, false));
+        assert!(is_destination_display(&tt("front_text", "MyFont"), true, false));
+        // ("led" a word, not a part of one)
+        assert!(!sign("filled_text", "Called"));
+    }
+
+    #[test]
+    fn displays_seen_from_outside() {
+        use omsi_model::{MaterialDef, MeshDef, Model};
+        let mesh = |vp: i32, tex: &[i32]| MeshDef { viewpoint: vp, materials: tex.iter().map(|t| MaterialDef { use_text_texture: Some(*t), ..Default::default() }).collect(), ..Default::default() };
+        let model = Model {
+            text_textures: vec![tt("Matrix_Terminus", "Annax Small"), tt("Matrix_Nr", "Annax Large"), tt("Anzeige", "X"), tt("Matrix_script", "Y"), tt("Anzeige_heck", "Z")],
+            // 0: all views and the cab; 1: the cab alone; 2: outside alone; 3: none; 4: outside + passengers
+            meshes: vec![mesh(0, &[0]), mesh(2, &[0, 1]), mesh(1, &[2]), mesh(5, &[4])],
+            ..Default::default()
+        };
+        assert_eq!(seen_from_outside(&model), vec![(true, false), (false, false), (true, true), (false, false), (true, false)]);
+        assert_eq!(destination_displays(&model), vec![0, 2, 4]);
+    }
+
+    #[test]
+    fn a_display_font_size_that_fits_the_line() {
+        // (Krueger 7x4, 9x5, 16x9 of one file)
+        let h = [7, 9, 16];
+        assert_eq!(pick_size(&h, 0, 16), 0, "smaller: kept, magnified twice");
+        assert_eq!(pick_size(&h, 2, 16), 2);
+        assert_eq!(pick_size(&h, 2, 12), 1, "taller than the line: the tallest that fits");
+        assert_eq!(pick_size(&h, 2, 8), 0);
+        assert_eq!(pick_size(&h, 2, 5), 0, "none fits: the smallest, shrunk");
+        assert_eq!(pick_size(&[32], 0, 16), 0);
+        assert_eq!(pick_size(&[], 0, 16), 0);
+    }
+
+    /// The installed OMSI 2's buses (`OMSI_ROOT`; skipped without it): the destination
+    /// displays each model has (printed), the SD200's matrix among them and none of a cab's
+    /// IBIS or a plate.
+    #[test]
+    fn installed_buses_destination_displays() {
+        let Some(root) = omsi_cfg::env::var_os("OMSI_ROOT").map(std::path::PathBuf::from) else {
+            eprintln!("skipped: no OMSI_ROOT");
+            return;
+        };
+        let mut found: Vec<(String, String)> = Vec::new();
+        for bus in std::fs::read_dir(root.join("Vehicles")).into_iter().flatten().flatten() {
+            let model_dir = bus.path().join("model");
+            for cfg in std::fs::read_dir(&model_dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("cfg"))) {
+                let Ok(model) = omsi_model::Model::load(&cfg) else { continue };
+                let shown: Vec<String> = destination_displays(&model).iter().map(|&i| format!("{} ({})", model.text_textures[i].variable, model.text_textures[i].font)).collect();
+                if !shown.is_empty() {
+                    eprintln!("{}: {}", cfg.strip_prefix(&root).unwrap_or(&cfg).display(), shown.join(", "));
+                }
+                let dir = bus.file_name().to_string_lossy().to_string();
+                found.extend(destination_displays(&model).iter().map(|&i| (dir.clone(), model.text_textures[i].variable.clone())));
+            }
+        }
+        if found.iter().any(|(d, _)| d == "MAN_SD200") {
+            assert!(found.iter().any(|(d, v)| d == "MAN_SD200" && v == "Matrix_Terminus"));
+        }
+        assert!(!found.iter().any(|(_, v)| v.eq_ignore_ascii_case("ibis") || v.eq_ignore_ascii_case("ident")), "{found:?}");
+    }
+
+    /// A text texture fitted to a display font draws it in the bus's own size and place.
+    #[test]
+    fn a_display_font_keeps_the_display_size_colour_and_place() {
+        use omsi_content::font::{Font, FontChar};
+        // a 5x7 pixel font: one letter, solid
+        let font = Font { name: "Pix 7".into(), height: 7, gap: 1, chars: vec![FontChar { ch: 'A', x0: 0, x1: 5, y: 0 }], ..Default::default() };
+        let alpha: Vec<u8> = (0..5 * 7).flat_map(|_| [255u8, 255, 255, 255]).collect();
+        let atlas = Arc::new(FontAtlas::new(font, 5, 7, alpha.clone(), alpha));
+        let mut def = tt("Matrix_Terminus", "Annax Small");
+        (def.width, def.height) = (40, 16);
+        let mut s = TextTextureState::new(def, Some(atlas));
+        s.fit = Some(16);
+        let img = s.image("A");
+        let ink: Vec<(usize, usize)> = (0..16).flat_map(|y| (0..40).map(move |x| (x, y))).filter(|(x, y)| img[(y * 40 + x) * 4 + 3] > 0).collect();
+        // twice the size (10 x 14), centred, the bus's colour, every pixel whole
+        assert_eq!(ink.len(), 10 * 14);
+        assert_eq!(ink.iter().map(|p| p.0).min(), Some(15));
+        assert_eq!(ink.iter().map(|p| p.1).min(), Some(1));
+        assert!(ink.iter().all(|(x, y)| img[(y * 40 + x) * 4..(y * 40 + x) * 4 + 4] == [255, 160, 0, 255]));
     }
 }

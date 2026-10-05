@@ -690,9 +690,11 @@ pub(crate) fn font_rgba(a: &omsi_content::font::FontAtlas) -> Vec<u8> {
 }
 
 /// A text texture's definition for the page (`texts` of the form): its size, font (the id the
-/// server has it under, or -1), colour, whether the font's own colours are taken, and its
-/// placement.
-pub(crate) fn text_json(t: &omsi_model::TextTexture, n: usize, font: Option<usize>) -> Value {
+/// server has it under, or -1), colour, whether the font's own colours are taken, its
+/// placement, and - drawn in a display font the player chose - the height of the line of the
+/// bus's own font that font is fitted to (`lh`, `FontAtlas::render_fitted`; 0: none).
+pub(crate) fn text_json(s: &omsi_sim::texttex::TextTextureState, n: usize, font: Option<usize>) -> Value {
+    let t = &s.def;
     json!({
         "n": n,
         "w": t.width.max(1),
@@ -702,6 +704,7 @@ pub(crate) fn text_json(t: &omsi_model::TextTexture, n: usize, font: Option<usiz
         "full": t.full_color,
         "o": t.orientation,
         "g": t.grid,
+        "lh": s.fit.unwrap_or(0),
     })
 }
 
@@ -1222,7 +1225,7 @@ mod tests {
                             std::fs::write(dir.join(format!("font_{id}.png")), png).unwrap();
                             id
                         });
-                        texts_json.push(text_json(&t.def, n, font));
+                        texts_json.push(text_json(t, n, font));
                     }
                     for &n in &f.scripts {
                         if let Some(st) = vehicle.host.script_textures.get(n).filter(|st| st.rgba.len() == (st.width * st.height * 4) as usize) {

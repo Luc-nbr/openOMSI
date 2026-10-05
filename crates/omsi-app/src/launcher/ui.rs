@@ -172,8 +172,37 @@ impl Popup {
     /// The options shown (their places in `options`): those with the typed text in them.
     fn shown(&self) -> Vec<usize> {
         let q = self.query.to_lowercase();
-        (0..self.options.len()).filter(|&k| q.is_empty() || self.options[k].to_lowercase().contains(&q)).collect()
+        (0..self.options.len()).filter(|&k| q.is_empty() || option_words(&self.options[k]).to_lowercase().contains(&q)).collect()
     }
+}
+
+/// The mark a dropdown option with a picture begins with (see `picture_option`).
+const PICTURE_MARK: char = '\u{1}';
+
+/// A dropdown option shown as a picture before its text (the bus step's display fonts, each
+/// with its sign): the texture `tex` of `w` x `h` pixels, or none (yet).
+pub fn picture_option(picture: Option<(usize, u32, u32)>, text: &str) -> String {
+    match picture {
+        Some((tex, w, h)) => format!("{PICTURE_MARK}{tex},{w},{h}{PICTURE_MARK}{text}"),
+        None => format!("{PICTURE_MARK}{PICTURE_MARK}{text}"),
+    }
+}
+
+/// A `picture_option`'s picture (if it has one yet) and text.
+fn parse_picture(o: &str) -> Option<(Option<(usize, u32, u32)>, &str)> {
+    let rest = o.strip_prefix(PICTURE_MARK)?;
+    let (head, text) = rest.split_once(PICTURE_MARK)?;
+    let mut n = head.split(',').map(|v| v.parse::<u64>().ok());
+    let picture = match (n.next().flatten(), n.next().flatten(), n.next().flatten()) {
+        (Some(t), Some(w), Some(h)) => Some((t as usize, w as u32, h as u32)),
+        _ => None,
+    };
+    Some((picture, text))
+}
+
+/// What an option says, as typing into an open list finds it (a picture's numbers left out).
+fn option_words(o: &str) -> &str {
+    parse_picture(o).map(|p| p.1).unwrap_or(o)
 }
 
 /// A calendar dropdown for a date field.
@@ -1145,6 +1174,20 @@ impl Ui {
     /// A dropdown's option: its text, or - a player's line (`ownlines::plate_option`) - the
     /// line's plate in its colour and the text after it.
     fn option_text(&mut self, o: &str, r: Rect, px: f32, ink: Color) {
+        if let Some((picture, rest)) = parse_picture(o) {
+            // (a sign's picture on its dark panel, as wide as the slot lets it be)
+            let slot = Rect::new(r.x - 4.0, r.y + 5.0, (r.w * 0.5).min(150.0), (r.h - 10.0).max(8.0));
+            self.p().rounded(slot, 4.0, Color::rgba(8, 8, 10, 1.0));
+            if let Some((tex, w, h)) = picture.filter(|p| p.1 > 0 && p.2 > 0) {
+                let room = slot.inset(3.0);
+                let k = (room.h / h as f32).min(room.w / w as f32);
+                let (pw, ph) = (w as f32 * k, h as f32 * k);
+                self.image(Rect::new(room.x, room.center().y - ph * 0.5, pw, ph), tex, 0.0);
+            }
+            let x = slot.right() + 10.0;
+            self.text_in(rest, Rect::new(x, r.y, (r.right() - x).max(0.0), r.h), px, Weight::Regular, ink, Align::Left);
+            return;
+        }
         match super::ownlines::parse_plate(o) {
             Some((colour, number, rest)) => {
                 let h = (r.h - 14.0).clamp(14.0, 20.0);

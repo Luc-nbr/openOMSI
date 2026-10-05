@@ -7,6 +7,7 @@
 //! `install` runs mod installs as background jobs, `index` caches the content lists and
 //! tells the page when they changed, `instances` keeps track of the games started.
 
+pub mod busfonts;
 pub mod busoptions;
 pub mod company;
 pub mod compose;
@@ -2867,6 +2868,10 @@ pub struct Duty {
     /// `--setvar` after the paint: none left as the livery has them.
     #[serde(default)]
     pub set_vars: Vec<(String, f32)>,
+    /// The display font chosen for the bus's destination displays (see `busfonts`), passed
+    /// as `--display-font`: none as the bus has them.
+    #[serde(default)]
+    pub display_font: Option<String>,
     /// The number plate (registration) the player typed: it wins over the plate the bus's
     /// `[number]` list or the map's `registrations.txt` gives it (empty: as the content says).
     #[serde(default)]
@@ -3027,6 +3032,9 @@ pub fn duty_args(d: &Duty) -> Result<Vec<String>> {
     }
     if let Some(sv) = busoptions::setvar_arg(&d.set_vars) {
         a.extend(["--setvar".into(), sv]);
+    }
+    if let Some(f) = d.display_font.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
+        a.extend(["--display-font".into(), f.to_string()]);
     }
     if let Some(pl) = d.plate.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
         a.extend(["--plate".into(), pl.to_string()]);
@@ -3228,6 +3236,20 @@ pub fn pick_file(title: &str) -> Option<PathBuf> {
     #[cfg(target_os = "android")]
     {
         let _ = title;
+        None
+    }
+}
+
+/// File picker that offers only files of `extensions` (without the dot), under the filter
+/// name `kind` (the bus step's "Add font…": `.oft`).
+pub fn pick_file_of(title: &str, kind: &str, extensions: &[&str]) -> Option<PathBuf> {
+    #[cfg(not(target_os = "android"))]
+    {
+        rfd::FileDialog::new().set_title(title).add_filter(kind, extensions).pick_file()
+    }
+    #[cfg(target_os = "android")]
+    {
+        let _ = (title, kind, extensions);
         None
     }
 }
@@ -3471,6 +3493,22 @@ mod tests {
         // (a situation continued: its bus as it was saved, no options)
         let sit = duty_args(&Duty { situation: Some("maps/x/laststn.osn".into()), set_vars: vec![("vis_mirrors".into(), 0.0)], ..Default::default() }).unwrap();
         assert!(!sit.iter().any(|x| x == "--setvar"), "{sit:?}");
+    }
+
+    /// The display font chosen for the bus goes to the game; none chosen (or a blank one),
+    /// none passed - and a duty written before it loads without one.
+    #[test]
+    fn a_duty_passes_its_display_font() {
+        let d = Duty { map: "maps/x/global.cfg".into(), bus: "Vehicles/x.bus".into(), time: "09:00".into(), display_font: Some(" Annax Small ".into()), ..Default::default() };
+        let a = duty_args(&d).unwrap();
+        let p = a.iter().position(|x| x == "--display-font").unwrap();
+        assert_eq!(a[p + 1], "Annax Small");
+        for none in [None, Some("  ".to_string())] {
+            let a = duty_args(&Duty { display_font: none, ..d.clone() }).unwrap();
+            assert!(!a.iter().any(|x| x == "--display-font"), "{a:?}");
+        }
+        let old: Duty = serde_json::from_str(r#"{"map":"maps/x/global.cfg","bus":"Vehicles/x.bus","time":"09:00"}"#).unwrap();
+        assert_eq!(old.display_font, None);
     }
 
     /// The fleet number picked in the launcher reaches the game.

@@ -468,6 +468,10 @@ fn livery_sheet(l: &mut Launcher, r: Rect) -> bool {
     let options = l.state.bus_options.catalogue(&l.state.config.root, &bus).filter(|c| !c.options.is_empty());
     let (picks, technical) = (l.state.bus_options.picks(&bus), l.state.bus_options.technical_open);
     let mut option_edit = None;
+    // (and the font of its destination displays under them, see `displayfont`)
+    let (root, sample) = (l.state.config.root.clone(), super::displayfont::sample_of(&l.state));
+    let mut font_edit = None;
+    let fonts = &mut l.state.display_fonts;
     l.ui.scroll_area("ps-paints", r, &mut |ui, v| {
         let all: Vec<String> = std::iter::once(String::new()).chain(paints.iter().cloned()).collect();
         for (k, p) in all.iter().enumerate() {
@@ -484,10 +488,18 @@ fn livery_sheet(l: &mut Launcher, r: Rect) -> bool {
             option_edit = e;
             h += sh + 30.0;
         }
+        if !bus.is_empty() {
+            let (fh, e) = super::displayfont::section(ui, v.x + 8.0, v.y + h + 14.0, v.w - 24.0, fonts, &root, &bus, &sample);
+            font_edit = e;
+            h += fh + 30.0;
+        }
         h
     });
     if let Some(e) = option_edit {
         l.state.edit_bus_options(&bus, e);
+    }
+    if let Some(e) = font_edit {
+        l.state.display_fonts.edit(&root, &bus, e);
     }
     if let Some(p) = pick {
         l.state.choice.paint = p;

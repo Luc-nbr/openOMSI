@@ -106,6 +106,11 @@ pub(crate) struct Args {
     /// variable and, unless the plate is free, gives the plate that list pairs with it.
     #[arg(long)]
     pub(crate) number: Option<String>,
+    /// Display font of the player vehicle's destination displays, e.g. `--display-font
+    /// "Annax Small"`: a `[newfont]` name from a `Fonts/*.oft` of any content root, drawn in
+    /// place of the bus's own matrix fonts and fitted to their height (the launcher's bus step).
+    #[arg(long)]
+    pub(crate) display_font: Option<String>,
     /// Time of day at start, HH:MM (default 09:00).
     #[arg(long, default_value = "09:00")]
     pub(crate) time: String,
