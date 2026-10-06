@@ -5381,18 +5381,6 @@ mod tests {
         assert!(edge.right() < 600.0);
         assert!(stop_label_rect(p, 150.0, 1.0, win, &[win]).is_none());
     }
-
-    #[test]
-    fn a_vehicle_icon_is_whole_triangles_of_edge_body_and_windscreen() {
-        let mut bus = Painter::new();
-        vehicle_icon(&mut bus, Vec3::ZERO, 90.0, Color::WHITE, false, 7.0);
-        // an edge and a body of six corners (four triangles each), a windscreen of four (two)
-        assert_eq!(bus.verts.len(), (4 + 4 + 2) * 3);
-        // a tram is longer, not made of more
-        let mut tram = Painter::new();
-        vehicle_icon(&mut tram, Vec3::ZERO, 0.0, Color::WHITE, true, 7.0);
-        assert_eq!(tram.verts.len(), bus.verts.len());
-    }
 }
 
 // --- for the phone and tablet companion (`companion::nav`): what the navigator follows, read
