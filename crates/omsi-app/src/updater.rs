@@ -224,9 +224,11 @@ fn version_parts(v: &str) -> Vec<u64> {
     v.trim().trim_start_matches(['v', 'V']).split(['.', '-', '+']).map_while(|p| p.parse::<u64>().ok()).collect()
 }
 
-/// A pull request's test build: `release.yml` gives it the version `<release>-pr<number>`.
+/// A pull request's test build: `release.yml` gives it the version `<release>-pr<number>`;
+/// and a build of the Omsi-Hub interface for testing (`<release>-hub<number>`, Luc's fork):
+/// the project's releases, which do not have that interface, would replace it.
 pub fn is_test_build(version: &str) -> bool {
-    version.contains("-pr")
+    version.contains("-pr") || version.contains("-hub")
 }
 
 /// Whether `candidate` is a newer version than `current`.
@@ -372,7 +374,7 @@ fn parse_release(v: &serde_json::Value, current: &str) -> anyhow::Result<Option<
     let tag = v["tag_name"].as_str().ok_or_else(|| anyhow::anyhow!("the release has no tag"))?;
     let version = tag.trim_start_matches(['v', 'V']).to_string();
     if is_test_build(current) {
-        log::info!("update check: {current} is a pull request's test build, {version} is not offered");
+        log::info!("update check: {current} is a test build, {version} is not offered");
         return Ok(None);
     }
     if v["draft"].as_bool() == Some(true) || v["prerelease"].as_bool() == Some(true) || !newer(&version, current) {
@@ -892,6 +894,8 @@ mod tests {
         // a pull request's test build keeps itself, however new the release
         assert!(parse_release(&v, "0.1.7-pr12").unwrap().is_none());
         assert!(is_test_build("0.1.1313-pr1192") && !is_test_build("0.1.1313"));
+        // (and an Omsi-Hub test build)
+        assert!(is_test_build("0.1.1554-hub16") && parse_release(&v, "0.1.7-hub16").unwrap().is_none());
     }
 
     /// A server on this computer that cuts the first answer off half way (as a connection
