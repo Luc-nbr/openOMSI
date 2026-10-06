@@ -1,13 +1,10 @@
 # The main thread's stack on Windows is 1 MB unless the program says otherwise; macOS and
-# Linux give 8 MB. The game does the same work on every system, so Windows gets 8 MB too -
-# and 32 MB in this fork: the Omsi-Hub launcher on the main thread with openOMSI 0.2's sky and
-# cloud shaders compiled after it overflowed 8 MB at the start ("thread 'main' has
-# overflowed its stack"). A reserve, not memory taken.
+# Linux give 8 MB. The game does the same work on every system, so Windows gets 8 MB too.
 [target.x86_64-pc-windows-msvc]
-rustflags = ["-C", "link-arg=/STACK:33554432"]
+rustflags = ["-C", "link-arg=/STACK:8388608"]
 
 [target.aarch64-pc-windows-msvc]
-rustflags = ["-C", "link-arg=/STACK:33554432"]
+rustflags = ["-C", "link-arg=/STACK:8388608"]
 
 [target.x86_64-pc-windows-gnu]
-rustflags = ["-C", "link-arg=-Wl,--stack,33554432"]
+rustflags = ["-C", "link-arg=-Wl,--stack,8388608"]
