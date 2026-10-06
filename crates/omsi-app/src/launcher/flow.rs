@@ -984,8 +984,11 @@ fn step_mode(l: &mut Launcher, window: Rect) {
             Some((tex, w, hh)) => l.ui.tile_photo(&t, tile, SHEET_RADIUS, tex, w, hh),
             None => l.ui.p().rounded(tile, SHEET_RADIUS, FIELD),
         }
-        // the text on the photo: the lower part darkened to the ground's colour
+        // the text on the photo: the lower part darkened to the ground's colour - and once more
+        // under the words (Luc's photos are bright and busy: a white bus under white words)
         l.ui.p().rounded_gradient(tile, SHEET_RADIUS, Color::rgba(9, 12, 24, 0.05), Color::rgba(9, 12, 24, 0.9));
+        let low = Rect::new(tile.x, tile.y + tile.h * 0.3, tile.w, tile.h * 0.7);
+        l.ui.p().rounded_gradient(low, SHEET_RADIUS, Color::rgba(9, 12, 24, 0.0), Color::rgba(9, 12, 24, 0.75));
         l.ui.tile_light(&t, 0.15);
         if on {
             l.ui.p().rounded_border(tile, SHEET_RADIUS, 2.5, accent());
