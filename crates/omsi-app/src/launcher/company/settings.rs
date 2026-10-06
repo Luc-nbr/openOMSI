@@ -1,5 +1,5 @@
-//! The company's settings: its date (Luc: a company date of one's own, later on as well) and
-//! how it buys its buses. Moving the date moves the company's clock to that day's midnight and
+//! The company's settings: its mark (a logo picture, or its monogram), its date (Luc: a
+//! company date of one's own, later on as well) and how it buys its buses. Moving the date moves the company's clock to that day's midnight and
 //! simulates nothing in between; it may not go back before the company's last booking
 //! (`clock::move_to`).
 
@@ -20,9 +20,35 @@ pub(super) fn dialog(l: &mut Launcher) {
         l.company.dialog = None;
         return;
     };
-    let f = kit::frame(l, 760.0, 560.0, "settings", &omsi_ui::tr("The company's settings"));
+    let f = kit::frame(l, 760.0, 690.0, "settings", &omsi_ui::tr("The company's settings"));
     let inner = f.body;
     let mut y = inner.y;
+    // its mark
+    kit::caps(&mut l.ui, Rect::new(inner.x, y, inner.w, 16.0), "The company's mark");
+    y += 26.0;
+    super::company_mark(l, Rect::new(inner.x, y, 68.0, 68.0), &c);
+    let logo_text = c.logo.as_deref().map(|p| p.rsplit(['/', '\\']).next().unwrap_or(p).to_string()).unwrap_or_else(|| omsi_ui::tr("No logo picture: the short name is the mark.").into_owned());
+    l.ui.text_in(&logo_text, Rect::new(inner.x + 84.0, y + 2.0, inner.w - 84.0, 22.0), kit::NOTE, Weight::Regular, TEXT_SOFT, Align::Left);
+    let lw = Foot::width(&l.ui, "Choose a logo picture", Some("photo_camera"));
+    if l.ui.button("company-settings-logo", Rect::new(inner.x + 84.0, y + 30.0, lw, 36.0), "Choose a logo picture", Some("photo_camera"), ButtonKind::Normal) {
+        if let Some(p) = omsi_launcher_lib::pick_file("Choose a logo picture") {
+            let p = p.to_string_lossy().to_string();
+            act(l, |c| {
+                c.logo = Some(p);
+                Ok(())
+            });
+        }
+    }
+    if c.logo.is_some() {
+        let rw = Foot::width(&l.ui, "Remove the picture", Some("close"));
+        if l.ui.button("company-settings-logo-remove", Rect::new(inner.x + 84.0 + lw + 10.0, y + 30.0, rw, 36.0), "Remove the picture", Some("close"), ButtonKind::Normal) {
+            act(l, |c| {
+                c.logo = None;
+                Ok(())
+            });
+        }
+    }
+    y += 68.0 + 26.0;
     // how it buys
     kit::caps(&mut l.ui, Rect::new(inner.x, y, inner.w, 16.0), "Buying buses");
     y += 26.0;

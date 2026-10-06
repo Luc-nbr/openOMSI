@@ -7,7 +7,7 @@ use super::super::theme::*;
 use super::super::ui::ButtonKind;
 use super::super::Launcher;
 use super::kit::{self, Foot};
-use super::{data, eur, monogram, section};
+use super::{data, eur, section};
 use glam::Vec2;
 use omsi_launcher_lib as core;
 use omsi_launcher_lib::company::{self as co, Difficulty};
@@ -162,14 +162,20 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         y += sw + 16.0;
     }
     // the mark as it will look, and a logo picture
-    let preview = co::Company { short: if w.short.trim().is_empty() { placeholder.clone() } else { w.short.trim().to_uppercase() }, colours: [PALETTE[w.colours[0]].into(), PALETTE[w.colours[1]].into()], ..co::found(&co::Founding::default(), "") };
-    monogram(&mut l.ui, Rect::new(left.x, y, 68.0, 68.0), &preview);
+    let preview = co::Company { short: if w.short.trim().is_empty() { placeholder.clone() } else { w.short.trim().to_uppercase() }, colours: [PALETTE[w.colours[0]].into(), PALETTE[w.colours[1]].into()], logo: w.logo.clone(), ..co::found(&co::Founding::default(), "") };
+    super::company_mark(l, Rect::new(left.x, y, 68.0, 68.0), &preview);
     let logo_text = w.logo.as_deref().map(|p| p.rsplit(['/', '\\']).next().unwrap_or(p).to_string()).unwrap_or_else(|| omsi_ui::tr("No logo picture: the short name is the mark.").into_owned());
     l.ui.text_in(&logo_text, Rect::new(left.x + 84.0, y + 2.0, left.w - 84.0, 22.0), kit::NOTE, Weight::Regular, TEXT_SOFT, Align::Left);
     let lw = Foot::width(&l.ui, "Choose a logo picture", Some("photo_camera")).min(left.w - 84.0);
     if l.ui.button("company-logo", Rect::new(left.x + 84.0, y + 30.0, lw, 36.0), "Choose a logo picture", Some("photo_camera"), ButtonKind::Normal) {
         if let Some(p) = core::pick_file("Choose a logo picture") {
             w.logo = Some(p.to_string_lossy().to_string());
+        }
+    }
+    if w.logo.is_some() {
+        let rw = Foot::width(&l.ui, "Remove the picture", Some("close")).min((left.w - 84.0 - lw - 10.0).max(0.0));
+        if rw > 60.0 && l.ui.button("company-logo-remove", Rect::new(left.x + 84.0 + lw + 10.0, y + 30.0, rw, 36.0), "Remove the picture", Some("close"), ButtonKind::Normal) {
+            w.logo = None;
         }
     }
     // where and how

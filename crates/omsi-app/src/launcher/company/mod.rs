@@ -357,6 +357,51 @@ pub(super) fn monogram(ui: &mut Ui, r: Rect, c: &Company) {
     ui.text_in(&c.short, Rect::new(r.x, r.y, r.w, r.h * 0.8), (r.h * 0.34).min(18.0), Weight::Black, super::ownlines::ink_on(main), Align::Center);
 }
 
+/// The company's mark: its logo picture when it has one (fitted into the square, on white),
+/// else its monogram. (The picture was chosen and kept, but only the monogram was drawn:
+/// Luc saw nothing change.)
+pub(super) fn company_mark(l: &mut Launcher, r: Rect, c: &Company) {
+    match c.logo.as_deref().and_then(|p| logo_texture(l, p)) {
+        Some(tex) => {
+            l.ui.p().rounded(r, RADIUS, Color::WHITE);
+            l.ui.image(r.inset(3.0), tex, (RADIUS - 2.0).max(0.0));
+        }
+        None => monogram(&mut l.ui, r, c),
+    }
+}
+
+thread_local! {
+    /// Logo pictures that could not be read (not tried again every frame).
+    static LOGO_UNREAD: std::cell::RefCell<std::collections::HashSet<String>> = Default::default();
+}
+
+/// The texture of the logo picture at `path`: read the first time it is asked for - at most
+/// 256 pixels, square, the picture in its middle on a clear ground - and uploaded with the
+/// launcher's other pictures (`Launcher::icons`) a frame later. None until then, and for a
+/// file that cannot be read.
+fn logo_texture(l: &mut Launcher, path: &str) -> Option<usize> {
+    let key = format!("logo:{path}");
+    if let Some(t) = l.icons.get(&key) {
+        return Some(*t);
+    }
+    if l.icons_pending.iter().any(|p| p.0 == key) || LOGO_UNREAD.with(|u| u.borrow().contains(&key)) {
+        return None;
+    }
+    match image::open(path) {
+        Ok(img) => {
+            let img = img.thumbnail(256, 256).to_rgba8();
+            let side = img.width().max(img.height()).max(1);
+            let mut square = image::RgbaImage::new(side, side);
+            image::imageops::overlay(&mut square, &img, ((side - img.width()) / 2) as i64, ((side - img.height()) / 2) as i64);
+            l.icons_pending.push((key, square));
+        }
+        Err(_) => LOGO_UNREAD.with(|u| {
+            u.borrow_mut().insert(key);
+        }),
+    }
+    None
+}
+
 /// A plain text line, cut to fit.
 pub(super) fn line(ui: &mut Ui, r: Rect, text: &str, px: f32, c: Color) {
     ui.text_in(text, r, px, Weight::Regular, c, Align::Left);
@@ -677,7 +722,7 @@ pub fn screen(l: &mut Launcher) {
     match &company {
         Some(c) => {
             let mark = Rect::new(m, 14.0, 44.0, 44.0);
-            monogram(&mut l.ui, mark, c);
+            company_mark(l, mark, c);
             let tw = (right - mark.right() - 16.0).max(60.0);
             l.ui.text_in(&c.name, Rect::new(mark.right() + 14.0, 12.0, tw, 26.0), 19.0, Weight::Bold, TEXT, Align::Left);
             let map = if c.map_name.is_empty() { super::state::short_map(&c.map) } else { c.map_name.clone() };
@@ -740,7 +785,7 @@ fn pages(l: &mut Launcher, body: Rect) {
 fn strip(l: &mut Launcher, area: Rect) -> Rect {
     let Some(c) = l.company.company.clone() else { return area };
     let mark = Rect::new(area.x, area.y, 44.0, 44.0);
-    monogram(&mut l.ui, mark, &c);
+    company_mark(l, mark, &c);
     l.ui.text_in(&c.name, Rect::new(mark.right() + 14.0, area.y, area.w - 60.0, 24.0), 18.0, Weight::Bold, TEXT, Align::Left);
     let map = if c.map_name.is_empty() { super::state::short_map(&c.map) } else { c.map_name.clone() };
     let sub = format!("{}  ·  {}  ·  {}", map, c.depot, omsi_ui::tr(c.difficulty.label()));
