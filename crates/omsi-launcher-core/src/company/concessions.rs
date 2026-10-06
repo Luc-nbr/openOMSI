@@ -357,8 +357,9 @@ pub fn week_of(days: &[Vec<LineInfo>], line: &str) -> Week {
     w
 }
 
-/// A timetable of the map is a line of its own (not depot runs, empty runs, specials or other
-/// traffic: `specials`).
+/// A timetable of the map is a line of the company's to run (not depot runs, empty runs,
+/// specials, nor other operators' traffic - a timetable the player may not drive: `specials`).
+/// The Lines page offers only these (it offered the others too, and Apply refused them, Luc).
 pub fn is_line(c: &Company, l: &LineInfo) -> bool {
     specials::line_kind(l, &[&c.depot]).line()
 }
@@ -543,7 +544,7 @@ pub fn apply(c: &mut Company, l: &LineInfo) -> Result<u32, &'static str> {
         return Err("The company runs this line already.");
     }
     if !is_line(c, l) {
-        return Err("This is no line of its own: depot and empty runs go with the tours that need them.");
+        return Err("This timetable carries no passengers of its own: depot runs, empty runs or other traffic.");
     }
     if let Some(t) = open_tender(c, &l.name) {
         let id = t.id;

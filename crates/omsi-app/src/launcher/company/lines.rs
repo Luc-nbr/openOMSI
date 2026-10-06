@@ -390,13 +390,14 @@ fn to_add(l: &mut Launcher, r: Rect, c: &Company) {
     let list: Vec<core::LineInfo> = if showing_mine { mine.into_iter().cloned().collect() } else { maps.into_iter().cloned().collect() };
     let list: Vec<core::LineInfo> = list.into_iter().filter(|x| !c.lines.iter().any(|y| y.name.eq_ignore_ascii_case(&x.name))).collect();
     // (the map's depot runs, empty runs, test drives and specials are no lines of their own:
-    // they go with the tours that need them, or are other contracts - `specials`)
+    // they go with the tours that need them, or are other contracts; nor is other operators'
+    // traffic the company's - `specials`. The same rule as Apply's, `concessions::is_line`.)
     let n = list.len();
-    let list: Vec<core::LineInfo> = list.into_iter().filter(|x| showing_mine || co::specials::special_line(x, &[&c.depot]).is_none()).collect();
+    let list: Vec<core::LineInfo> = list.into_iter().filter(|x| showing_mine || co::concessions::is_line(&c, x)).collect();
     let hidden = n - list.len();
     let rows = Rect::new(inner.x, inner.y + 40.0 + 14.0, inner.w, (inner.h - 40.0 - 14.0 - if hidden > 0 { 28.0 } else { 0.0 }).max(0.0));
     if hidden > 0 {
-        let t = omsi_ui::tr("%{n} timetables of the map are no lines of their own (depot and empty runs, specials): they go with the tours that need them.").replace("%{n}", &hidden.to_string());
+        let t = omsi_ui::tr("%{n} timetables of the map are not the company's to run: depot and empty runs (they go with the tours that need them), specials and other operators' traffic.").replace("%{n}", &hidden.to_string());
         l.ui.text_in(&t, Rect::new(inner.x, inner.bottom() - 22.0, inner.w, 22.0), kit::NOTE, Weight::Regular, TEXT_DIM, Align::Left);
     }
     if list.is_empty() {

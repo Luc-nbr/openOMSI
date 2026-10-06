@@ -328,6 +328,13 @@ pub(super) fn refusal(c: &Company, reason: &str) -> Popup {
         "Sign the contract first." => Popup::new("livery_pen", "Not signed yet", omsi_ui::tr("Sign in the field with the mouse, or type your name beside it."), "", None),
         "This tender is closed." | "This tender has not opened yet." | "Another bid leads with more: bid at least the least shown." | "That is the buy-out price: buy the line instead." | "There is no such tender." => Popup::new("receipt_long", "The bid cannot be placed", said, "", None),
         "The dealer does not want to talk to you for now." => Popup::new("forum", "The dealer will not talk", said, omsi_ui::tr("Come back another day - or buy at the list price."), None),
+        "This timetable carries no passengers of its own: depot runs, empty runs or other traffic." => Popup::new(
+            "route",
+            "Not a line with passengers",
+            said,
+            omsi_ui::tr("Depot and empty runs are part of the tours of the lines that start or end there: take those lines on and these runs are driven with them, as empty kilometres. Choose a line with passengers in the list."),
+            None,
+        ),
         _ => Popup::new("error", "This cannot be done", said, "", None),
     }
 }

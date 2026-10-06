@@ -106,7 +106,7 @@ pub fn trip_kind(line: &str, name: &str, terminus: &str, stops: usize, depots: &
     let has = |k: &str| all.contains(k);
     let nw = words(&n);
     // other traffic
-    if n.starts_with("ki-") || n.starts_with("ki_") || nw.first() == Some(&"ki") || has("taxi") || has("muellwagen") || words(&all).contains(&"muell") || has("postdrohne") || has("falschpark") {
+    if n.starts_with("ki-") || n.starts_with("ki_") || nw.first() == Some(&"ki") || has("taxi") || has("muellwagen") || words(&all).contains(&"muell") || has("postdrohne") || has("falschpark") || has("flugzeug") || has("hubschrauber") || has("schiff") || has("faehre") {
         return Kind::Other;
     }
     if has("fahrschul") {
@@ -181,11 +181,18 @@ fn by_name(name: &str) -> Option<Kind> {
         Kind::RailReplacement
     } else if nm.contains("shuttle") || nm.contains("sonderverkehr") || nm.contains("sonderfahrt") || nm.contains("stadtrund") {
         Kind::Occasional
-    } else if nm.starts_with("ki-") || w.first() == Some(&"ki") {
+    } else if nm.starts_with("ki-") || w.first() == Some(&"ki") || other_traffic(&nm) {
         Kind::Other
     } else {
         return None;
     })
+}
+
+/// A name of traffic no bus company runs: planes, helicopters, ships and ferries, trains, taxis,
+/// lorries (a timetable "Flugzeug" was offered as a line, Luc).
+fn other_traffic(folded: &str) -> bool {
+    let w = words(folded);
+    ["flugzeug", "flieger", "hubschrauber", "helikopter", "schiff", "faehre", "taxi", "lkw"].iter().any(|k| folded.contains(k)) || ["zug", "zuege", "ice", "re", "rb"].iter().any(|k| w.first() == Some(k))
 }
 
 fn by_trips(l: &LineInfo, depots: &[&str], schulbus: bool) -> Kind {
@@ -331,6 +338,9 @@ mod tests {
         assert_eq!(line_kind(&timetable("76", true, &[("76", "", "Bauernhof", 7)]), &[]), Kind::Service);
         // the Lines page: an AI-only line is still a line there, a timetable of depot runs not
         assert_eq!(special_line(&timetable("251", false, &[("251", "", "Bahnhof", 9)]), &[]), None);
+        // (other traffic by its name: a plane is no line, an airfield's bus is)
+        assert_eq!(special_line(&timetable("Flugzeug", false, &[("Flugplatz BDL", "", "Flugzeug", 5)]), &[]), Some(Kind::Other));
+        assert_eq!(special_line(&timetable("Flugplatz", true, &[("F", "", "Flugplatz", 6)]), &[]), None);
         assert_eq!(special_line(&timetable("Leer", false, &[("", "Leer_D-FAR", "", 2)]), &[]), Some(Kind::Empty));
         // "Mueller-Touristik" is an operator, not a refuse lorry
         assert_eq!(k("B", "B_ZOBC_Kessler", "Mueller-Touristik", 3), Kind::Depot);

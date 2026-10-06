@@ -1242,6 +1242,22 @@ pub(super) fn step_time(l: &mut Launcher, r: Rect) {
         l.state.touched();
     }
     y += 54.0;
+    // (Luc: the moment it is now, at a click - the computer's time, its date)
+    if l.ui.button("time-now", Rect::new(r.x, y, col, 40.0), "Current time", None, ButtonKind::Normal) {
+        if let Some((_, t)) = super::daytime::clock_now() {
+            l.state.choice.time = t;
+            l.state.touched();
+        }
+    }
+    if l.ui.button("date-now", Rect::new(r.x + col + 12.0, y, col, 40.0), "Current date", None, ButtonKind::Normal) {
+        if let Some((d, _)) = super::daytime::clock_now().filter(|(d, _)| *d != l.state.choice.date) {
+            l.state.choice.date = d;
+            l.state.choice.season = "auto".into();
+            l.state.load_lines();
+            l.state.touched();
+        }
+    }
+    y += 50.0;
     let seasons = ["auto", "spring", "summer", "autumn", "winter"];
     let mut s = seasons.iter().position(|x| *x == l.state.choice.season).unwrap_or(0);
     if l.ui.segmented("season", Rect::new(r.x, y, r.w, 34.0), &mut s, &["By date", "Spring", "Summer", "Autumn", "Winter"]) {

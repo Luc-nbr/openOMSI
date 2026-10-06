@@ -182,6 +182,12 @@ pub(super) fn day_panel(l: &mut Launcher, s: Rect, body: Rect) {
     }
 }
 
+/// The computer's clock: its date (`YYYY-MM-DD`) and the minutes since midnight - the
+/// "Current time" and "Current date" of the day's sheet and the time step.
+pub(super) fn clock_now() -> Option<(String, i32)> {
+    omsi_launcher_lib::local_now().map(|(y, m, d, h, mi)| (format!("{y:04}-{m:02}-{d:02}"), h * 60 + mi))
+}
+
 /// The day and the weather chosen, in one line under the sheet's title.
 pub(super) fn day_line(l: &Launcher) -> String {
     // (on a server: its clock and its weather)
@@ -256,7 +262,24 @@ pub(super) fn day_body(ui: &mut Ui, v: Rect, c: &mut Choice, ctx: &DayCtx, out: 
         out.season_changed = true;
         out.touched = true;
     }
-    y += 44.0 + 24.0;
+    y += 44.0 + 10.0;
+    // (Luc: the moment it is now, at a click - the computer's time, its date)
+    if ui.button("time-now", Rect::new(x, y, half, 38.0), "Current time", None, ButtonKind::Normal) {
+        if let Some((_, t)) = clock_now() {
+            c.time = t;
+            out.touched = true;
+        }
+    }
+    if ui.button("date-now", Rect::new(x + half + 10.0, y, half, 38.0), "Current date", None, ButtonKind::Normal) {
+        if let Some((d, _)) = clock_now().filter(|(d, _)| *d != c.date) {
+            c.date = d;
+            c.season = "auto".into();
+            out.date_changed = true;
+            out.season_changed = true;
+            out.touched = true;
+        }
+    }
+    y += 38.0 + 24.0;
     // the season: by the date, or one of the four (the date moves into it, so the
     // timetable is the season's too)
     let s = SEASONS.iter().position(|x| *x == c.season).unwrap_or(0);
@@ -469,6 +492,19 @@ mod tests {
             assert!(ui.drawn.contains_key(&id_of(name)), "{name} is not on the sheet");
         }
         assert!(ui.drawn.contains_key(&(id_of("time.0") ^ 1)), "the time's arrows are not on the sheet");
+    }
+
+    #[test]
+    fn the_current_time_and_date_are_a_click_away() {
+        let (today, now) = clock_now().expect("the computer has a clock");
+        let mut c = Choice { date: "1989-05-30".into(), time: 0, season: "winter".into(), ..Default::default() };
+        assert!(click(&mut c, "time-now").touched);
+        // (a minute may have passed in between)
+        assert!((c.time - now).abs() <= 1, "{} against {now}", c.time);
+        assert_eq!(c.date, "1989-05-30");
+        let out = click(&mut c, "date-now");
+        assert_eq!((c.date.as_str(), c.season.as_str()), (today.as_str(), "auto"));
+        assert!(out.date_changed && out.season_changed);
     }
 
     #[test]
