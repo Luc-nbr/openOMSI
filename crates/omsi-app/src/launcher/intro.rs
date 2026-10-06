@@ -285,7 +285,7 @@ impl Intro {
         }
         // the bus front, springing up once the ring has closed round it
         if look.bus > 0.0 {
-            bus_front(ui.p(), at(mark.bus), u * k * look.bus, a, 0.0);
+            bus_front(ui.p(), at(mark.bus), u * k * look.bus, a, 0.0, INK);
         }
         // the stops, as the pen reaches them (each drawn at its size at rest, then only scaled);
         // the ring going out from the terminus
@@ -338,6 +338,9 @@ pub struct Logo {
     /// mark last frame (the light sets off when it comes onto it, not for as long as it stays).
     light_from: Option<f32>,
     over: bool,
+    /// The colour of "open" and of the bus front: white (on a dark ground) when none; the
+    /// start's light glass gives its dark ink.
+    pub ink: Option<Color>,
 }
 
 /// The light's run along the whole line (s), how much of the line it lights at once, and the
@@ -458,7 +461,7 @@ impl Logo {
         }
         // the bus front, hopping and flashing its lights once the light has gone round it
         let (hop, flash) = t.and_then(|t| passed(t, mark.timing.ring)).map_or((0.0, 0.0), bus_hop);
-        bus_front(ui.p(), at(mark.bus) - Vec2::new(0.0, hop * HOP_H * u * k), u * k, 1.0, flash);
+        bus_front(ui.p(), at(mark.bus) - Vec2::new(0.0, hop * HOP_H * u * k), u * k, 1.0, flash, self.ink.unwrap_or(INK));
         // the stops, lit and swelling as the light passes them; the terminus ringing after it
         for (stop, share) in mark.stops.iter().zip(mark.timing.stops) {
             let lit = t.map_or(0.0, |t| stop_lit(t, share));
@@ -472,7 +475,8 @@ impl Logo {
         }
         // the name on its baselines, on whole pixels (text between them goes soft)
         for l in &mark.letters {
-            letter(ui, l, at(Vec2::new(l.x, l.base)), k, 1.0, Vec2::ZERO, l.color);
+            let color = if l.color == INK { self.ink.unwrap_or(INK) } else { l.color };
+            letter(ui, l, at(Vec2::new(l.x, l.base)), k, 1.0, Vec2::ZERO, color);
         }
         r
     }
@@ -600,11 +604,11 @@ fn annulus(p: &mut Painter, c: Vec2, r0: f32, r1: f32, n: usize, col: Color) {
 /// its windscreen, destination band and headlights cut out of it (in pieces that meet edge to
 /// edge: what is cut out shows what lies under it, and it fades evenly), wheels under it,
 /// mirrors beside it. `lamps` lights the headlights (0..1).
-fn bus_front(p: &mut Painter, c: Vec2, k: f32, a: f32, lamps: f32) {
+fn bus_front(p: &mut Painter, c: Vec2, k: f32, a: f32, lamps: f32, ink: Color) {
     if k <= 0.0 {
         return;
     }
-    let col = INK.alpha(a);
+    let col = ink.alpha(a);
     let at = |q: Vec2| c + q * k;
     let mut piece = |pts: Vec<Vec2>| {
         if pts.len() >= 3 {
@@ -1258,7 +1262,7 @@ mod tests {
     #[test]
     fn the_bus_front_is_drawn_once_over() {
         let mut p = Painter::new();
-        bus_front(&mut p, Vec2::ZERO, 1.0, 1.0, 0.0);
+        bus_front(&mut p, Vec2::ZERO, 1.0, 1.0, 0.0, INK);
         let area: f32 = p.verts.chunks(3).map(|t| {
             let (a, b, c) = (Vec2::new(t[0].pos[0], t[0].pos[1]), Vec2::new(t[1].pos[0], t[1].pos[1]), Vec2::new(t[2].pos[0], t[2].pos[1]));
             (b - a).perp_dot(c - a).abs() * 0.5

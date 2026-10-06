@@ -85,7 +85,7 @@ pub(super) fn wide_rect(size: Vec2, actions: bool) -> Rect {
 
 /// The widest the start's card and a page's sheet grow: on a large screen they stay in the
 /// middle at this width, as Omsi-Hub's do, instead of stretching their rows across it.
-const CARD_MAX_W: f32 = 1400.0;
+const CARD_MAX_W: f32 = 1720.0;
 const PAGE_MAX_W: f32 = 1480.0;
 
 /// `r` no wider than `max`, in the middle of where it was.
@@ -104,6 +104,136 @@ fn action_rect(size: Vec2) -> Rect {
 pub(super) fn sheet(l: &mut Launcher, r: Rect) {
     l.ui.p().shadow(r.inset(-2.0), SHEET_RADIUS, 24.0, Color::rgba(0, 0, 0, 0.45));
     l.ui.panel(r);
+}
+
+/// The start's card as glass, after Apple's liquid glass (Luc): a clear pane over the ground
+/// - the route runs on under it unbroken - frosted white under dark words (or, dark, smoked
+/// under white ones); light caught in its thickness all round its edge, a rim with the
+/// light's glints at the upper left and the lower right, and a glow round it in the accent.
+/// (A dark, smoky pane was tried first, then the ground magnified under it and a shadow under
+/// it: Luc found them ugly - the route jumped at the pane's edge, the shadow showed through.)
+pub(super) fn glass_sheet(l: &mut Launcher, r: Rect) {
+    glass(l, r, SHEET_RADIUS, true);
+}
+
+/// A pane of that glass with corners of `radius` (the start's card, the top bar); `glow`:
+/// with the accent's glow round it (not the bar).
+fn glass(l: &mut Launcher, r: Rect, radius: f32, glow: bool) {
+    let g = glass_look();
+    l.ui.solid(r);
+    let p = l.ui.p();
+    // the glow: rings outside the pane, fading outwards (none under it: through the glass it
+    // showed as a dark band inside its edge)
+    if glow {
+        let n = 20;
+        let reach = 30.0;
+        for i in 0..n {
+            let t = i as f32 / n as f32;
+            let d = reach * t;
+            p.rounded_border(r.inset(-d - 1.0), radius + d + 1.0, reach / n as f32 + 0.5, accent().alpha(g.glow * (1.0 - t).powi(3)));
+        }
+    }
+    p.rounded(r, radius, g.tint);
+    // (the light the pane catches: white on the light glass, the accent on the dark one)
+    let light = if g.shine_accent { accent() } else { Color::WHITE };
+    // (the bar, without the glow, quieter still)
+    let shine = if glow { g.shine } else { g.shine * 0.5 };
+    let white = |a: f32| light.alpha(a * shine);
+    // the sheen over the top, gone a little under half way down (none on the dark glass: a
+    // white haze there)
+    if g.sheen > 0.0 {
+        let top = Rect::new(r.x, r.y, r.w, r.h * 0.45);
+        p.rounded_gradient(top, radius, Color::rgba(255, 255, 255, 0.30 * g.sheen), Color::rgba(255, 255, 255, 0.0));
+    }
+    // the pane's thickness: light caught inside its edge all round, brightest at the rim
+    let band = (r.h * 0.25).min(16.0);
+    let n = 10;
+    for i in 0..n {
+        let d = band * i as f32 / n as f32;
+        let a = 0.30 * (1.0 - i as f32 / n as f32).powi(2);
+        p.rounded_border(r.inset(d), (radius - d).max(2.0), band / n as f32 + 0.5, white(a));
+    }
+    // the rim: a faint line outside it against the ground, a bright one on it
+    p.rounded_border(r.inset(-1.0), radius + 1.0, 1.0, g.outline);
+    p.rounded_border(r, radius, 1.5, white(0.85));
+    // the light's glints: along the top and down the left, weaker along the bottom and up the
+    // right (the light through the pane, caught on its far edge)
+    let rad = radius;
+    let mut glint = |a: Vec2, b: Vec2, w: f32, alpha: f32| p.stroke(&[a, b], w, white(alpha));
+    glint(Vec2::new(r.x + rad, r.y + 1.5), Vec2::new(r.x + r.w * 0.6, r.y + 1.5), 2.0, 0.95);
+    glint(Vec2::new(r.x + 1.5, r.y + rad), Vec2::new(r.x + 1.5, r.y + r.h * 0.45), 2.0, 0.80);
+    glint(Vec2::new(r.x + r.w * 0.45, r.bottom() - 1.5), Vec2::new(r.right() - rad, r.bottom() - 1.5), 1.5, 0.70);
+    glint(Vec2::new(r.right() - 1.5, r.y + r.h * 0.55), Vec2::new(r.right() - 1.5, r.bottom() - rad), 1.5, 0.60);
+}
+
+/// The glass's colours: light - a white frost, light enough to show the ground and thick
+/// enough for dark words - or, with the setting "dark mode", dark - smoked glass under white
+/// words, on the night ground.
+pub(super) struct Glass {
+    tint: Color,
+    /// What lies on the glass (the record, the links), more under the mouse, and its rim.
+    on: Color,
+    on_hover: Color,
+    edge: Color,
+    /// The words on the glass: the ink, softer, quieter and quietest.
+    pub(super) ink: Color,
+    pub(super) ink_soft: Color,
+    ink_dim: Color,
+    ink_faint: Color,
+    /// What the glass looks like behind the small logo's windscreen and lamps.
+    ground: Color,
+    /// The glow round the pane, in the accent: how strong at its edge.
+    glow: f32,
+    /// The faint line round the pane, against the ground.
+    outline: Color,
+    /// How strongly the light catches the pane (the rims, the glints), and whether in the
+    /// accent rather than white; the sheen over its top.
+    shine: f32,
+    shine_accent: bool,
+    sheen: f32,
+}
+
+/// The glass as the dark mode has it now.
+pub(super) fn glass_look() -> Glass {
+    if crate::accent::dark() {
+        Glass {
+            tint: Color::rgba(6, 12, 30, 0.55),
+            on: Color::rgba(255, 255, 255, 0.05),
+            on_hover: Color::rgba(255, 255, 255, 0.10),
+            edge: Color::rgba(255, 255, 255, 0.07),
+            ink: TEXT,
+            ink_soft: TEXT_SOFT,
+            ink_dim: TEXT_DIM,
+            ink_faint: TEXT_FAINT,
+            ground: Color::rgba(22, 32, 60, 1.0),
+            // (low: blended in linear light, a little of the accent on the night blue shows
+            // far brighter than its share)
+            glow: 0.045,
+            outline: Color::rgba(0, 0, 0, 0.35),
+            // (white rims, glints and sheen on the dark pane looked harsh, a white haze (Luc):
+            // the rims in the accent instead, no sheen)
+            shine: 0.10,
+            shine_accent: true,
+            sheen: 0.0,
+        }
+    } else {
+        Glass {
+            tint: Color::rgba(255, 255, 255, 0.40),
+            on: Color::rgba(255, 255, 255, 0.38),
+            on_hover: Color::rgba(255, 255, 255, 0.62),
+            edge: Color::rgba(255, 255, 255, 0.85),
+            ink: Color::rgba(32, 30, 36, 1.0),
+            ink_soft: Color::rgba(72, 68, 74, 1.0),
+            ink_dim: Color::rgba(108, 102, 104, 1.0),
+            ink_faint: Color::rgba(150, 142, 140, 1.0),
+            ground: Color::rgba(250, 244, 236, 1.0),
+            glow: 0.10,
+            outline: Color::rgba(120, 80, 30, 0.14),
+            shine: 1.0,
+            shine_accent: false,
+            sheen: 1.0,
+        }
+    }
 }
 
 /// A sheet's head: its icon, its title and the line under it. Returns the rest of the sheet.
@@ -175,10 +305,8 @@ fn step_of(page: Page) -> Step {
 fn bar(l: &mut Launcher, step: Option<Step>, page_title: Option<&str>) {
     let size = l.ui.size;
     let r = Rect::new(EDGE_IN, EDGE_IN, size.x - 2.0 * EDGE_IN, BAR_H);
-    l.ui.solid(r);
-    l.ui.p().shadow(r.inset(-2.0), RADIUS, 20.0, Color::rgba(0, 0, 0, 0.4));
-    l.ui.p().rounded(r, RADIUS, PANEL);
-    l.ui.p().rounded_border(r, RADIUS, 1.0, EDGE);
+    // (glass, as the start's card)
+    glass(l, r, RADIUS, false);
     let on_page = l.page != Page::Drive;
     let start = !on_page && step == Some(Step::Mode);
     // (a page reached from the start's buttons - Settings, Mods, Controls... - is no step of
@@ -189,7 +317,7 @@ fn bar(l: &mut Launcher, step: Option<Step>, page_title: Option<&str>) {
     let mut rx = languages(l, r, r.right() - 10.0) - 12.0;
     if !plain {
         let vw = l.ui.width(version, 11.5, Weight::Regular);
-        l.ui.text_in(version, Rect::new(rx - vw, r.y, vw, r.h), 11.5, Weight::Regular, TEXT_DIM, Align::Left);
+        l.ui.text_in(version, Rect::new(rx - vw, r.y, vw, r.h), 11.5, Weight::Regular, glass_look().ink_dim, Align::Left);
         rx -= vw + 14.0;
     }
     let running = l.state.instances.iter().filter(|i| i.running).count();
@@ -211,7 +339,7 @@ fn bar(l: &mut Launcher, step: Option<Step>, page_title: Option<&str>) {
         if on {
             l.ui.p().rounded_border(hit, 6.0, 1.0, accent());
         }
-        l.ui.icon(icon, hit.center(), 17.0, if on || h { TEXT } else { TEXT_SOFT });
+        l.ui.icon(icon, hit.center(), 17.0, if on || h { glass_look().ink } else { glass_look().ink_soft });
         l.ui.tooltip(hit, tip);
         if help {
             super::tour::anchor("bar-help", hit);
@@ -238,9 +366,9 @@ fn bar(l: &mut Launcher, step: Option<Step>, page_title: Option<&str>) {
     // left: the logo on the start and on a page, else the plate and the steps
     let mut x = r.x + 18.0;
     if plain {
-        let (verts, at) = brand(&mut l.ui.atlas, &l.ui.fonts, l.ui.scale, x - 4.0, r.center().y, BAR_BRAND_H, PANEL);
+        let (verts, at) = brand_inked(&mut l.ui.atlas, &l.ui.fonts, l.ui.scale, x - 4.0, r.center().y, BAR_BRAND_H, glass_look().ground, glass_look().ink);
         l.ui.p().verts.extend(verts);
-        l.ui.text_in(version, Rect::new(at.right() + 12.0, r.y, 200.0, r.h), 11.5, Weight::Regular, TEXT_DIM, Align::Left);
+        l.ui.text_in(version, Rect::new(at.right() + 12.0, r.y, 200.0, r.h), 11.5, Weight::Regular, glass_look().ink_dim, Align::Left);
         return;
     }
     match chosen_line(l).filter(|_| !on_page) {
@@ -255,8 +383,8 @@ fn bar(l: &mut Launcher, step: Option<Step>, page_title: Option<&str>) {
         let word = omsi_ui::tr(title).to_uppercase();
         let room = (rx - 10.0 - end - 26.0).max(0.0);
         if room > 40.0 {
-            l.ui.icon("chevron_right", Vec2::new(end + 9.0, r.center().y), 16.0, TEXT_DIM);
-            l.ui.text_in(&word, Rect::new(end + 22.0, r.y, room, r.h), 12.0, Weight::Bold, TEXT, Align::Left);
+            l.ui.icon("chevron_right", Vec2::new(end + 9.0, r.center().y), 16.0, glass_look().ink_dim);
+            l.ui.text_in(&word, Rect::new(end + 22.0, r.y, room, r.h), 12.0, Weight::Bold, glass_look().ink, Align::Left);
         }
     }
 }
@@ -341,7 +469,7 @@ impl Brand {
 
     /// Draws it with the ring's centre at `c`; `ground` is what it stands on (the bus's
     /// windscreen and lamps are of it).
-    fn draw(&self, p: &mut Painter, atlas: &mut Atlas, fonts: &Fonts, c: Vec2, ground: Color) {
+    fn draw(&self, p: &mut Painter, atlas: &mut Atlas, fonts: &Fonts, c: Vec2, ground: Color, ink: Color) {
         let r = self.r;
         // the ring from its end at the lower right, up and round against the clock to its
         // foot, and on as the line under the words
@@ -354,9 +482,9 @@ impl Brand {
         let part = |x0: f32, y0: f32, x1: f32, y1: f32| Rect::new(c.x + x0 * k, c.y + y0 * k, (x1 - x0) * k, (y1 - y0) * k);
         for s in [-1.0f32, 1.0] {
             let (a, b) = (46.0 * s, 76.0 * s);
-            p.rounded(part(a.min(b), 60.0, a.max(b), 100.0), 6.0 * k, BRAND_INK);
+            p.rounded(part(a.min(b), 60.0, a.max(b), 100.0), 6.0 * k, ink);
         }
-        p.rounded(part(-88.0, -80.0, 88.0, 76.0), 18.0 * k, BRAND_INK);
+        p.rounded(part(-88.0, -80.0, 88.0, 76.0), 18.0 * k, ink);
         p.rounded(part(-68.0, -58.0, 68.0, 18.0), 8.0 * k, ground);
         for s in [-1.0f32, 1.0] {
             p.circle(c + Vec2::new(55.0 * s, 47.0) * k, 14.0 * k, ground);
@@ -369,7 +497,7 @@ impl Brand {
         let pad = omsi_ui::text::PAD as f32 * d;
         let (x, base, px) = self.open;
         let s = atlas.text(fonts, "open", px * scale, Weight::Bold);
-        p.sprite(s, Vec2::new(snap(c.x + x - pad), snap(c.y + base - s.ascent * d)), Vec2::new(s.w, s.h) * d, BRAND_INK);
+        p.sprite(s, Vec2::new(snap(c.x + x - pad), snap(c.y + base - s.ascent * d)), Vec2::new(s.w, s.h) * d, ink);
         let (x, base, px) = self.omsi;
         let s = atlas.text(fonts, "OMSI", px * scale, Weight::Black);
         let (x0, top, w, h, up) = (snap(c.x + x - pad), snap(c.y + base - s.ascent * d), s.w * d, s.h * d, s.ascent * d);
@@ -409,10 +537,16 @@ impl Brand {
 /// `mid_y`, on `ground`. Drawn into vertices of its own (both launchers' `Ui` keep their
 /// painter behind the atlas it needs); returns them and where it stands.
 pub(crate) fn brand(atlas: &mut Atlas, fonts: &Fonts, scale: f32, left: f32, mid_y: f32, h: f32, ground: Color) -> (Vec<Vertex>, Rect) {
+    brand_inked(atlas, fonts, scale, left, mid_y, h, ground, BRAND_INK)
+}
+
+/// `brand` with "open" and the bus front in `ink` (dark on the light glass of the bar).
+#[allow(clippy::too_many_arguments)]
+fn brand_inked(atlas: &mut Atlas, fonts: &Fonts, scale: f32, left: f32, mid_y: f32, h: f32, ground: Color, ink: Color) -> (Vec<Vertex>, Rect) {
     let b = Brand::new(fonts, h);
     let c = Vec2::new(left - b.bounds.x, mid_y - b.bounds.center().y);
     let mut p = Painter::with_scale(scale);
-    b.draw(&mut p, atlas, fonts, c, ground);
+    b.draw(&mut p, atlas, fonts, c, ground, ink);
     (p.verts, Rect::new(left, c.y + b.bounds.y, b.bounds.w, b.bounds.h))
 }
 
@@ -430,15 +564,12 @@ fn languages(l: &mut Launcher, r: Rect, right: f32) -> f32 {
     let mut x = more.x - 6.0;
     for code in FLAGS.iter().rev() {
         let b = Rect::new(x - 26.0, r.center().y - 10.0, 26.0, 20.0);
-        let (h, _, clicked) = l.ui.interact(id_of(&format!("bar-flag-{code}")), b);
+        let (_, _, clicked) = l.ui.interact(id_of(&format!("bar-flag-{code}")), b);
         let on = current == *code;
         let f = Rect::new(b.center().x - 9.0, b.center().y - 6.5, 18.0, 13.0);
         super::ui::flag(l.ui.p(), f, code);
         if on {
             l.ui.p().rounded_border(b, 6.0, 1.0, accent());
-        } else if !h {
-            // (the others quiet, as Omsi-Hub's: the bar's own colour over them)
-            l.ui.p().rect(f, PANEL.alpha(0.5));
         }
         if let Some(name) = omsi_launcher_lib::LANGUAGES.iter().find(|x| x.0 == *code) {
             l.ui.tooltip(b, name.1);
@@ -499,9 +630,9 @@ fn step_list(l: &mut Launcher, r: Rect, now: Step) -> f32 {
         let c = if current {
             accent()
         } else if done || (h && open) {
-            TEXT
+            glass_look().ink
         } else {
-            TEXT_FAINT
+            glass_look().ink_faint
         };
         l.ui.icon(icon, Vec2::new(cell.x + 9.0, cell.center().y), 15.0, c);
         if !word.is_empty() {
@@ -515,7 +646,7 @@ fn step_list(l: &mut Launcher, r: Rect, now: Step) -> f32 {
             let line = Rect::new(x + 4.0, r.center().y - 1.0, join, 2.0);
             let done = (route - k as f32).clamp(0.0, 1.0);
             if done < 1.0 {
-                l.ui.p().rect(line, Color::WHITE.alpha(0.18));
+                l.ui.p().rect(line, glass_look().ink.alpha(0.15));
             }
             if done > 0.0 {
                 l.ui.p().rect(Rect::new(line.x, line.y, line.w * done, line.h), accent());
@@ -795,13 +926,13 @@ fn step_mode(l: &mut Launcher, window: Rect) {
     let head = logo_h + 16.0 + 92.0;
     // (under the tiles: the record beside four rows of links, the last the editor's)
     let bh = 280.0;
-    let tile_h = ((avail.h - head - 22.0 - bh - 56.0) * 0.9).clamp(170.0, 270.0);
+    let tile_h = ((avail.h - head - 22.0 - bh - 56.0) * 0.95).clamp(180.0, 340.0);
     let content_h = head + tile_h + 22.0 + bh;
     // (a card in the middle of the window, both ways, at most `CARD_MAX_W` wide)
     let avail = centred(avail, CARD_MAX_W);
     let h = (content_h + 56.0).min(avail.h);
     let r = Rect::new(avail.x, avail.y + ((avail.h - h) * 0.5).max(0.0), avail.w, h);
-    sheet(l, r);
+    glass_sheet(l, r);
     let inner = Rect::new(r.x + pad, r.y + 28.0, r.w - 2.0 * pad, r.h - 56.0);
     let name = l.state.profile.as_ref().map(|p| p.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| l.state.config.profile.clone());
     let hour = omsi_launcher_lib::local_now().map(|t| t.3).unwrap_or(12);
@@ -813,10 +944,11 @@ fn step_mode(l: &mut Launcher, window: Rect) {
     let logo_w = (inner.w * 0.5).min(620.0);
     let logo_r = Rect::new(inner.center().x - logo_w * 0.5, inner.y, logo_w, logo_h);
     let Launcher { ui, start_logo, .. } = l;
+    start_logo.ink = Some(glass_look().ink);
     start_logo.draw(ui, "start-logo", logo_r);
     let gy = inner.y + logo_h + 16.0;
-    l.ui.text_in(&omsi_ui::tr(greeting).replace("%{name}", &name), Rect::new(inner.x, gy, inner.w, 40.0), 32.0, Weight::Bold, TEXT, Align::Center);
-    l.ui.text_in("How do you want to drive today?", Rect::new(inner.x, gy + 46.0, inner.w, 20.0), 14.0, Weight::Regular, TEXT_SOFT, Align::Center);
+    l.ui.text_in(&omsi_ui::tr(greeting).replace("%{name}", &name), Rect::new(inner.x, gy, inner.w, 40.0), 32.0, Weight::Bold, glass_look().ink, Align::Center);
+    l.ui.text_in("How do you want to drive today?", Rect::new(inner.x, gy + 46.0, inner.w, 20.0), 14.0, Weight::Regular, glass_look().ink_soft, Align::Center);
     // the ways to drive (kinds: 0 a tour, 1 a shift, 2 free)
     // (and a fourth tile, the bus company: no way to drive but a place of its own, never shown
     // as the chosen one - Omsi-Hub's bus company tile beside its modes; the editor is a long
@@ -925,10 +1057,10 @@ fn record_box(l: &mut Launcher, rec: Rect) {
     let t = l.ui.tile(id_of("hub-record"), rec, SHEET_RADIUS);
     let (rec, hover, clicked) = (t.r, t.hover, t.clicked);
     l.ui.tile_shadow(&t);
-    l.ui.p().rounded(rec, SHEET_RADIUS, PANEL.mix(HOVER, 0.6 * hover));
+    l.ui.p().rounded(rec, SHEET_RADIUS, glass_look().on.mix(glass_look().on_hover, 0.6 * hover));
     l.ui.tile_light(&t, 0.04);
-    l.ui.tile_edge(&t, 1.0, EDGE);
-    l.ui.text_in(&omsi_ui::tr("Your service record").to_uppercase(), Rect::new(rec.x + 24.0, rec.y + 22.0, rec.w - 48.0, 16.0), 10.5, Weight::Bold, TEXT_DIM, Align::Left);
+    l.ui.tile_edge(&t, 1.0, glass_look().edge);
+    l.ui.text_in(&omsi_ui::tr("Your service record").to_uppercase(), Rect::new(rec.x + 24.0, rec.y + 22.0, rec.w - 48.0, 16.0), 10.5, Weight::Bold, glass_look().ink_dim, Align::Left);
     let p = l.state.profile.as_ref();
     let stats: [(String, &str); 4] = [
         (p.map(|p| p.record.runs).unwrap_or(0).to_string(), "duties"),
@@ -939,21 +1071,22 @@ fn record_box(l: &mut Launcher, rec: Rect) {
     let mut sx = rec.x + 24.0;
     for (value, what) in stats {
         let vw = l.ui.width(&value, 28.0, Weight::Bold).max(l.ui.width(what, 12.5, Weight::Regular)) + 30.0;
-        l.ui.text_in(&value, Rect::new(sx, rec.y + 52.0, vw, 34.0), 28.0, Weight::Bold, TEXT, Align::Left);
-        l.ui.text_in(what, Rect::new(sx, rec.y + 88.0, vw, 16.0), 12.5, Weight::Regular, TEXT_DIM, Align::Left);
+        l.ui.text_in(&value, Rect::new(sx, rec.y + 52.0, vw, 34.0), 28.0, Weight::Bold, glass_look().ink, Align::Left);
+        l.ui.text_in(what, Rect::new(sx, rec.y + 88.0, vw, 16.0), 12.5, Weight::Regular, glass_look().ink_dim, Align::Left);
         sx += vw;
     }
     if let Some(p) = l.state.profile.clone() {
         let line = omsi_ui::tr("Level %{level} · %{xp} of %{next} points").replace("%{level}", &p.level.to_string()).replace("%{xp}", &p.xp.to_string()).replace("%{next}", &p.next_level_xp.to_string());
-        l.ui.text_in(&line, Rect::new(rec.x + 24.0, rec.y + 124.0, rec.w - 48.0, 18.0), 13.0, Weight::Medium, TEXT_SOFT, Align::Left);
+        l.ui.text_in(&line, Rect::new(rec.x + 24.0, rec.y + 124.0, rec.w - 48.0, 18.0), 13.0, Weight::Medium, glass_look().ink_soft, Align::Left);
         let bar = Rect::new(rec.x + 24.0, rec.y + 150.0, (rec.w - 48.0).min(420.0), 6.0);
+        l.ui.p().rounded(bar, bar.h * 0.5, glass_look().ink.alpha(0.10));
         l.ui.progress(bar, super::pages::level_progress(p.xp, p.level, p.next_level_xp), false);
     }
     // the way in, said at the box's foot
     let more = omsi_ui::tr("Open the service record");
     let mw = l.ui.width(&more, 13.0, Weight::Bold);
     let at = Rect::new(rec.right() - 24.0 - mw - 18.0, rec.bottom() - 40.0, mw + 18.0, 20.0);
-    let ink = TEXT_SOFT.mix(TEXT, hover);
+    let ink = glass_look().ink_soft.mix(glass_look().ink, hover);
     l.ui.text_in(&more, Rect::new(at.x, at.y, mw, at.h), 13.0, Weight::Bold, ink, Align::Left);
     // (the arrow a step on, the way the box leads)
     l.ui.icon("chevron_right", Vec2::new(at.right() - 6.0 + 2.5 * t.rise.max(0.0), at.center().y), 16.0, ink);
@@ -964,10 +1097,82 @@ fn record_box(l: &mut Launcher, rec: Rect) {
 
 /// The ground of the steps without a map: Omsi-Hub's night city, darkened under the sheets.
 pub(super) fn ground_picture(l: &mut Launcher, window: Rect) {
-    if let Some((tex, w, h)) = l.pictures.get("ground-start").copied() {
-        l.ui.image_cover(window, tex, 0.0, w, h);
-        l.ui.p().rect(window, Color::rgba(9, 12, 24, 0.35));
+    paint_ground(l.ui.p(), window);
+}
+
+/// The launcher's ground: openOMSI's route in the accent colour (Luc's backgrounds, drawn
+/// rather than pictures so that they stay sharp and follow any colour) - a ring round a bus
+/// seen from the front, the line out of it with two stops, rising to the upper right.
+fn paint_ground(p: &mut Painter, window: Rect) {
+    let (ground, ink) = ground_colours(crate::accent::chosen());
+    p.rect(window, ground);
+    // (the drawing is 1672 x 941; it covers the window, held to the left - the ring with its
+    // bus stays in view in a narrow window - and in the middle the other way)
+    let k = (window.w / GROUND_W).max(window.h / GROUND_H);
+    let o = Vec2::new(window.x, window.y + (window.h - GROUND_H * k) * 0.5);
+    let k2 = k;
+    let at = |x: f32, y: f32| o + Vec2::new(x, y) * k;
+    let (c, r) = (Vec2::new(167.0, 528.0), 282.5);
+    let on_ring = |deg: f32| c + Vec2::new(deg.to_radians().cos(), deg.to_radians().sin()) * r;
+    // the route: from the ring's open end round over its top and down its left into the line,
+    // along the line, up the bend and away to the upper right
+    let e = on_ring(27.0);
+    let mut path = Path::new(at(e.x, e.y));
+    path.arc_around(at(c.x, c.y), (-242.0f32).to_radians());
+    path.cubic_to(at(-24.2, 747.3), at(100.0, 757.0), at(175.0, 757.0));
+    path.line_to(at(1060.0, 757.0));
+    path.cubic_to(at(1118.0, 757.0), at(1180.3, 728.5), at(1210.3, 702.1));
+    path.line_to(at(1752.0, 224.5));
+    p.stroke(path.points(), 70.0 * k2, ink);
+    // its two stops
+    for (x, y) in [(340.0, 757.0), (1343.0, 585.0)] {
+        p.circle(at(x, y), 52.0 * k2, ink);
+        // (the hole twice, the second a polygon fanned from its edge: a sample on a seam of
+        // the one let the route through as a hairline (Luc), the other has its seams elsewhere)
+        let (c, r) = (at(x, y), 33.0 * k2);
+        p.circle(c, r, ground);
+        let ring: Vec<Vec2> = (0..64).map(|i| c + Vec2::from_angle((i as f32 + 0.5) * std::f32::consts::TAU / 64.0) * r).collect();
+        p.convex(&ring, ground);
     }
+    // the bus in the ring, from the front
+    let rr = |x0: f32, y0: f32, x1: f32, y1: f32| {
+        let a = at(x0, y0);
+        let b = at(x1, y1);
+        Rect::new(a.x, a.y, b.x - a.x, b.y - a.y)
+    };
+    p.rounded(rr(28.0, 392.0, 54.0, 463.0), 13.0 * k2, ink);
+    p.rounded(rr(296.0, 392.0, 322.0, 463.0), 13.0 * k2, ink);
+    p.rounded(rr(83.0, 560.0, 122.0, 617.0), 10.0 * k2, ink);
+    p.rounded(rr(228.0, 560.0, 267.0, 617.0), 10.0 * k2, ink);
+    p.rounded(rr(65.0, 338.0, 286.0, 590.0), 24.0 * k2, ink);
+    p.rounded(rr(120.0, 357.0, 231.0, 376.0), 6.0 * k2, ground);
+    p.rounded(rr(85.0, 393.0, 266.0, 511.0), 13.0 * k2, ground);
+    for x in [103.0, 246.0] {
+        p.circle(at(x, 551.0), 18.0 * k2, ground);
+    }
+}
+
+/// The dark mode's ground: a deep night blue.
+const NIGHT: Color = Color::rgba(10, 20, 46, 1.0);
+
+/// The size of the launcher's ground drawing (Luc's backgrounds were made at this size).
+const GROUND_W: f32 = 1672.0;
+const GROUND_H: f32 = 941.0;
+
+/// The ground's colours for the accent `rgb`: the ground and the route drawn on it - a light
+/// ground under the route in the colour itself (the default orange on Luc's cream).
+fn ground_colours(rgb: u32) -> (Color, Color) {
+    if crate::accent::dark() {
+        // (dark: a deep night blue (Luc), the route in the colour a little sunk into it)
+        let [r, g, b] = crate::accent::unpack(rgb);
+        return (NIGHT, Color::rgba(r, g, b, 1.0).mix(NIGHT, 0.25));
+    }
+    if rgb == crate::accent::DEFAULT {
+        return (Color::rgba(252, 234, 208, 1.0), Color::rgba(247, 138, 18, 1.0));
+    }
+    let [r, g, b] = crate::accent::unpack(rgb);
+    let light = |v: u8| (v as f32 + (255.0 - v as f32) * 0.55).round() as u8;
+    (Color::rgba(light(r), light(g), light(b), 1.0), Color::rgba(r, g, b, 1.0))
 }
 
 /// A plain button on the start's sheet: an icon and a word, left aligned.
@@ -977,11 +1182,11 @@ fn link(l: &mut Launcher, name: &str, r: Rect, label: &str, icon: &str) -> bool 
     let t = l.ui.tile(id_of(name), r, RADIUS);
     let r = t.r;
     l.ui.tile_shadow(&t);
-    l.ui.p().rounded(r, RADIUS, PANEL.mix(HOVER, t.hover));
+    l.ui.p().rounded(r, RADIUS, glass_look().on.mix(glass_look().on_hover, t.hover));
     l.ui.tile_light(&t, 0.05);
-    l.ui.tile_edge(&t, 1.0, EDGE);
-    l.ui.icon(icon, Vec2::new(r.x + 24.0, r.center().y), 16.0, TEXT_SOFT.mix(TEXT, t.hover));
-    l.ui.text_in(label, Rect::new(r.x + 44.0, r.y, r.w - 54.0, r.h), 14.0, Weight::Bold, TEXT, Align::Left);
+    l.ui.tile_edge(&t, 1.0, glass_look().edge);
+    l.ui.icon(icon, Vec2::new(r.x + 24.0, r.center().y), 16.0, glass_look().ink_soft.mix(glass_look().ink, t.hover));
+    l.ui.text_in(label, Rect::new(r.x + 44.0, r.y, r.w - 54.0, r.h), 14.0, Weight::Bold, glass_look().ink, Align::Left);
     t.clicked
 }
 

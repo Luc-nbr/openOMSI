@@ -373,10 +373,17 @@ impl Painter {
 
     pub fn circle(&mut self, center: Vec2, radius: f32, c: Color) {
         let n = ((radius * 0.9) as usize).clamp(12, 72);
+        // (the points once, the last triangle closing on the first point itself: worked out
+        // again at a full turn it lay a hair off it, and a sample on that seam fell through -
+        // a hairline across a filled circle)
+        let pts: Vec<Vec2> = (0..n)
+            .map(|k| {
+                let a = std::f32::consts::TAU * k as f32 / n as f32;
+                center + Vec2::new(a.cos(), a.sin()) * radius
+            })
+            .collect();
         for k in 0..n {
-            let a0 = std::f32::consts::TAU * k as f32 / n as f32;
-            let a1 = std::f32::consts::TAU * (k + 1) as f32 / n as f32;
-            self.tri(center, center + Vec2::new(a0.cos(), a0.sin()) * radius, center + Vec2::new(a1.cos(), a1.sin()) * radius, c, c, c);
+            self.tri(center, pts[k], pts[(k + 1) % n], c, c, c);
         }
     }
 

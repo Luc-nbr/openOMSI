@@ -7,7 +7,7 @@
 //! What a colour means stays as it is: green is on time and done, red late and danger, amber a
 //! warning, yellow the line's plate.
 
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use omsi_ui::Color;
 
@@ -56,6 +56,20 @@ fn cells<R>(f: impl FnOnce(&AtomicU32, &AtomicU32) -> R) -> R {
         }
         CHOSEN.with(|c| BASE.with(|b| f(c, b)))
     }
+}
+
+/// The setting "dark mode" (Luc): the launcher's ground and glass dark - the night ground,
+/// smoked glass under white words - rather than light. Off unless the player turns it on.
+static DARK: AtomicBool = AtomicBool::new(false);
+
+/// Whether the launcher is dark (the setting "dark mode").
+pub fn dark() -> bool {
+    DARK.load(Ordering::Relaxed)
+}
+
+/// Turn the dark mode on or off, at once for everything drawn from now on.
+pub fn set_dark(on: bool) {
+    DARK.store(on, Ordering::Relaxed);
 }
 
 /// Make `rgb` (`0xRRGGBB`) the accent, at once for everything drawn from now on.

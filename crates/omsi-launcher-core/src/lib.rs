@@ -2451,6 +2451,9 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
     // the bus across the screen between pages (with the animations on): off unless chosen -
     // players found it too much on every change of page
     v["page_bus"] = json!(false);
+    // the launcher dark (the night-blue ground, smoked glass) rather than light: off unless
+    // chosen (the palette in the top bar)
+    v["dark_mode"] = json!(false);
     // the first start's welcome was gone through (or skipped), and which launcher opens: the
     // new one ("new", Omsi-Hub's look) or openOMSI's classic one ("classic")
     v["welcome_done"] = json!(false);
@@ -2508,6 +2511,7 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
             "launcher_scale" => v[&k] = json!(launcher_scale(val.parse::<f64>().ok())),
             "animations" => v[&k] = json!(b(val)),
             "page_bus" => v[&k] = json!(b(val)),
+            "dark_mode" => v[&k] = json!(b(val)),
             "welcome_done" => v[&k] = json!(b(val)),
             "launcher_ui" => v[&k] = json!(launcher_ui(val)),
             "nav_scale" => v[&k] = json!(nav_scale(val.parse::<f64>().ok())),
@@ -2892,7 +2896,7 @@ pub fn settings_to_text(v: &Value, old: Option<&str>) -> String {
     text.push_str(&format!("triple_left_angle_deg={}\ntriple_right_angle_deg={}\ntriple_eye_height_mm={}\n", f("triple_left_angle_deg", 45.0).clamp(0.0, 90.0), f("triple_right_angle_deg", 45.0).clamp(0.0, 90.0), f("triple_eye_height_mm", 0.0).clamp(-500.0, 500.0)));
     text.push_str(&format!("companion={}\ncompanion_hide={}\ncompanion_tunnel={}\n", b("companion", false), b("companion_hide", true), b("companion_tunnel", false)));
     text.push_str(&format!("launcher_scale={}\n", launcher_scale(v.get("launcher_scale").and_then(|x| x.as_f64()))));
-    text.push_str(&format!("animations={}\npage_bus={}\n", b("animations", true), b("page_bus", false)));
+    text.push_str(&format!("animations={}\npage_bus={}\ndark_mode={}\n", b("animations", true), b("page_bus", false), b("dark_mode", false)));
     text.push_str(&format!("welcome_done={}\nlauncher_ui={}\n", b("welcome_done", false), launcher_ui(v.get("launcher_ui").and_then(|x| x.as_str()).unwrap_or("new"))));
     text.push_str(&format!("nav_scale={}\nstop_style={}\n", nav_scale(v.get("nav_scale").and_then(|x| x.as_f64())), stop_style(v.get("stop_style").and_then(|x| x.as_str()).unwrap_or("de"))));
     text.push_str(&format!("accent={}\n", accent_text(v.get("accent").and_then(|x| x.as_str()).unwrap_or(ACCENT_DEFAULT))));

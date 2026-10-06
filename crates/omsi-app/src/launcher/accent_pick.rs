@@ -232,7 +232,7 @@ pub fn bar_button(l: &mut Launcher, hit: Rect) {
     if open {
         l.ui.p().rounded_border(hit, 6.0, 1.0, accent());
     }
-    l.ui.icon("palette", hit.center(), 17.0, if open || h { TEXT } else { TEXT_SOFT });
+    l.ui.icon("palette", hit.center(), 17.0, if open || h { super::flow::glass_look().ink } else { super::flow::glass_look().ink_soft });
     if !open {
         l.ui.tooltip(hit, "Accent colour");
     }
@@ -244,6 +244,9 @@ pub fn bar_button(l: &mut Launcher, hit: Rect) {
         }
     });
 }
+
+/// The dark mode's switch in the palette: its height.
+const DARK_H: f32 = 32.0;
 
 /// While the palette is open, the page under it gets no mouse where the palette lies: the
 /// input as it was, to be given back (`Some`) once the page is drawn.
@@ -271,7 +274,8 @@ pub fn popover(l: &mut Launcher) {
     let size = l.ui.size;
     let inner_w = POP_W - 32.0;
     let body_h = chooser_height("pop-accent", inner_w);
-    let h = 16.0 + 26.0 + body_h + 16.0;
+    // (under the swatches the dark mode's switch)
+    let h = 16.0 + 26.0 + body_h + 12.0 + DARK_H + 16.0;
     let x = (pop.anchor.right() - POP_W + 40.0).clamp(8.0, (size.x - POP_W - 8.0).max(8.0));
     let r = Rect::new(x, pop.anchor.bottom() + 10.0, POP_W, h);
     // a click beside it (not on its button) closes it, as Escape does
@@ -289,6 +293,12 @@ pub fn popover(l: &mut Launcher) {
     let s = &mut l.state.settings;
     let dirty = &mut l.state.settings_dirty;
     chooser(&mut l.ui, "pop-accent", r.x + 16.0, r.y + 40.0, inner_w, s, dirty);
+    let mut dark = l.state.settings.get("dark_mode").and_then(|v| v.as_bool()).unwrap_or(false);
+    if l.ui.toggle("pop-dark", Rect::new(r.x + 16.0, r.y + 40.0 + body_h + 12.0, inner_w, DARK_H), &mut dark, "Dark mode") {
+        l.state.settings["dark_mode"] = json!(dark);
+        l.state.settings_dirty = 0.3;
+        accent::set_dark(dark);
+    }
     pop.rect = Some(r);
     POP.with(|p| *p.borrow_mut() = pop);
 }

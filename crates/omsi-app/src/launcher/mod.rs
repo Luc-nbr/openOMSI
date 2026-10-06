@@ -971,6 +971,7 @@ impl Launcher {
         self.ui.motion = self.state.settings.get("animations").and_then(|v| v.as_bool()).unwrap_or(true);
         // (the accent colour as the settings have it: a choice recolours everything at once)
         crate::accent::set_from_setting(self.state.settings.get("accent").and_then(|v| v.as_str()));
+        crate::accent::set_dark(self.state.settings.get("dark_mode").and_then(|v| v.as_bool()).unwrap_or(false));
         self.draw_ui();
         if mobile::mobile() {
             // what no list took of a finger's drag scrolls the page

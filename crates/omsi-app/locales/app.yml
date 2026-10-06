@@ -38535,3 +38535,10 @@ _version: 2
   ru: "Последние дни: %{n}"
   uk: "Останні дні: %{n}"
   pl: "Ostatnie dni: %{n}"
+"Dark mode":
+  nl: "Donkere modus"
+  de: "Dunkler Modus"
+  fr: "Mode sombre"
+  ru: "Тёмный режим"
+  uk: "Темний режим"
+  pl: "Tryb ciemny"
