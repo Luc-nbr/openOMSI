@@ -149,7 +149,7 @@ pub(crate) fn place_on_duty(args: &mut Args) {
                 let from = schedule::hhmm(now);
                 args.time = format!("{:02}:{:02}:00", (leave / 3600.0) as i64 % 24, (leave / 60.0) as i64 % 60);
                 log::info!("duty start: the tour's first trip leaves at {}: the clock goes from {from} to {}", schedule::hhmm(trip.departure), args.time);
-                args.clock_moved = Some(format!("The tour starts at {}: the clock was moved from {from} to {}", schedule::hhmm(trip.departure), &args.time[..5]));
+                args.clock_moved = Some(omsi_ui::tr("The tour starts at %{time}: the clock was moved from %{from} to %{to}").replace("%{time}", &schedule::hhmm(trip.departure)).replace("%{from}", &from).replace("%{to}", &args.time[..5]));
             }
             return;
         }

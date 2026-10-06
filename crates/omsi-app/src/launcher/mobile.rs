@@ -77,7 +77,7 @@ pub fn storage_roots() -> Vec<(String, PathBuf)> {
                 continue;
             }
             if e.path().is_dir() {
-                v.push((format!("Card {n}"), e.path()));
+                v.push((omsi_ui::tr("Card %{n}").replace("%{n}", &n), e.path()));
             }
         }
     }

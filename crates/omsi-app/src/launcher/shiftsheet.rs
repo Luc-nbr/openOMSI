@@ -123,7 +123,7 @@ pub(super) fn tour_card(t: &TourInfo) -> Card {
     }
     let first = t.trips.first().map(|x| x.departure).unwrap_or(t.first);
     let last = t.trips.last().map(|x| x.arrival).unwrap_or(t.last);
-    Card { key: vec![t.number.clone()], cells: [t.number.clone(), hhmm(first), hhmm(last)], clock: false, note: if t.runs { String::new() } else { t.days.clone() }, trips }
+    Card { key: vec![t.number.clone()], cells: [t.number.clone(), hhmm(first), hhmm(last)], clock: false, note: if t.runs { String::new() } else { super::drive::days_text(&t.days) }, trips }
 }
 
 /// The shift `legs` (its `--duty-leg`s) stands for, read back from the day's timetable: the

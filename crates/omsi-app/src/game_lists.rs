@@ -133,7 +133,7 @@ pub(crate) fn set_route_by_hand(app: &mut App, line: &str) {
             p.vehicle.var("IBIS_LinieKurs"),
             p.vehicle.str_var("Matrix_Nr")
         );
-        app.service_msg = Some((format!("Route {line}"), 3.0));
+        app.service_msg = Some((omsi_ui::tr("Route %{line}").replace("%{line}", line), 3.0));
     }
 }
 
@@ -694,9 +694,9 @@ pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -
                     Ok(h) => {
                         let name = h.name.clone();
                         p.vehicle.host.hof = Some(std::sync::Arc::new(h));
-                        app.service_msg = Some((format!("Depot file: {}", name.trim()), 3.0));
+                        app.service_msg = Some((omsi_ui::tr("Depot file: %{hof}").replace("%{hof}", name.trim()), 3.0));
                     }
-                    Err(e) => app.service_msg = Some((format!("Depot file: {e}"), 4.0)),
+                    Err(e) => app.service_msg = Some((omsi_ui::tr("Depot file: %{hof}").replace("%{hof}", &e.to_string()), 4.0)),
                 }
             }
             None
@@ -758,7 +758,7 @@ pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -
                     let name = t.strings.iter().find(|s| !s.trim().is_empty()).cloned().unwrap_or_default();
                     p.set_destination_by_hand(hof, &line, ti);
                     log::info!("destination display set by hand: {} {} (terminus code now {:?})", t.code, name.trim(), p.vehicle.var("IBIS_TerminusCode"));
-                    app.service_msg = Some((format!("Destination: {}", name.trim()), 3.0));
+                    app.service_msg = Some((omsi_ui::tr("Destination: %{name}").replace("%{name}", name.trim()), 3.0));
                 }
             }
             None
@@ -774,7 +774,7 @@ pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -
                         v.state.str_vars[i as usize] = reg.to_string();
                     }
                 }
-                app.service_msg = Some((format!("Fleet number {n}"), 3.0));
+                app.service_msg = Some((omsi_ui::tr("Fleet number %{n}").replace("%{n}", &n.to_string()), 3.0));
             }
             None
         }
@@ -1801,9 +1801,9 @@ pub(crate) fn dropdown_apply(app: &mut App, action: &str) {
                     store_with(app, |v| omsi_launcher_lib::apply_graphics_profile(p, v));
                     sync_live(app);
                     LIST_DIRTY.store(true, std::sync::atomic::Ordering::Relaxed);
-                    app.service_msg = Some((format!("Graphics profile \"{name}\" loaded: graphics settings apply when the game starts the next time"), 5.0));
+                    app.service_msg = Some((omsi_ui::tr("Graphics profile \"%{name}\" loaded: graphics settings apply when the game starts the next time").replace("%{name}", &name), 5.0));
                 }
-                None => app.service_msg = Some((format!("Graphics profile \"{name}\" not found"), 4.0)),
+                None => app.service_msg = Some((omsi_ui::tr("Graphics profile \"%{name}\" not found").replace("%{name}", &name), 4.0)),
             }
         }
         "reset_all" => store_with(app, |v| {
@@ -2127,7 +2127,7 @@ fn options_pages(app: &App) -> Vec<Page> {
         slider_row(app, "head_idle_pace", "Sway pace", "How fast that sway moves (100% is the pace it is designed at)", &|v| format!("{:.0}%", v * 100.0)),
         switch_row(app, "hands_in_cab", "Driver's hands in the cab view", "Shows the driver's hand on the steering wheel (Cockpit only)"),
         switch_row(app, "driver", "Driver at the wheel (outside views)", "Shows the driver in the outside views and in the mirrors"),
-        switch_row(app, "headtrack", "Head tracking", &format!("Head tracking with opentrack (UDP port {})", s.head_tracking_port)),
+        switch_row(app, "headtrack", "Head tracking", &omsi_ui::tr("Head tracking with opentrack (UDP port %{port})").replace("%{port}", &s.head_tracking_port.to_string())),
         slider_row(app, "look_sens", "Mouse look sensitivity", "How fast the view turns when looking round with the mouse (100% is OMSI's)", &pct),
         slider_row(app, "look_smoothing_ms", "Smooth the mouse look", "How long the view takes to come round to where the mouse or the stick turned it (off: at once, as OMSI)", &|v| if v <= 0.0 { "Off".to_string() } else { format!("{v:.0} ms") }),
         switch_row(app, "alt_view", "Right mouse button turns the view", "Shift+right zooms; off: right zooms as in OMSI, the wheel button turns"),
@@ -2310,7 +2310,7 @@ fn world_pages(app: &App) -> Vec<Page> {
         let src = if app.settings.metar_station.is_empty() { format!("{} ({})", app.metar_station(), omsi_ui::tr("automatic")) } else { app.metar_station() };
         weather.push((row("METAR source", 'o', &src, "The airport used for real weather.", None), "metar_src".to_string()));
         let typed=if app.menu_edit_icao{
-            let mut s=app.menu_edit.clone().unwrap_or_default(); while s.len()<4{s.push('_');} format!("{s}  (typing)")
+            let mut s=app.menu_edit.clone().unwrap_or_default(); while s.len()<4{s.push('_');} format!("{s}  ({})", omsi_ui::tr("typing"))
         }else{app.metar_station()};
         weather.push((row("ICAO",if app.menu_edit_icao{'E'}else{'e'},&typed,"Enter any 4-letter ICAO station.",None),"metar_icao_edit".to_string()));
         if app.metar_locked() {
@@ -2345,7 +2345,7 @@ fn world_pages(app: &App) -> Vec<Page> {
         tools.push(button("Object editor", "Open", "Place and move objects in the world.", "editor"));
     }
     let mut people: Vec<(String, String)> = Vec::new();
-    people.extend(slider_row(app, "traffic", "Traffic", "How many vehicles drive around the map.", &|v| format!("{} vehicles", v as i64)));
+    people.extend(slider_row(app, "traffic", "Traffic", "How many vehicles drive around the map.", &|v| omsi_ui::tr("%{n} vehicles").replace("%{n}", &(v as i64).to_string())));
     if !client && app.traffic.is_some() {
         people.push(button("Clear AI traffic", "Clear", "Remove the current AI cars from the road; random traffic will return automatically.", "traffic_clear"));
     }
@@ -2553,7 +2553,7 @@ fn switch_driver(app: &mut App, name: &str) {
     next.seconds = app.career.seconds;
     app.career = next;
     app.args.driver = Some(rel);
-    app.service_msg = Some((format!("Driver: {name}"), 3.0));
+    app.service_msg = Some((omsi_ui::tr("Driver: %{name}").replace("%{name}", &name), 3.0));
 }
 
 /// The fleet numbers of the bus's `[number]` list with their registrations.
@@ -2613,7 +2613,7 @@ pub(crate) fn start_duty_at(app: &mut App, line: &str, tour: &str, trip: usize, 
     let mut d = match sch.player_duty(&w, line, tour, at, None, false) {
         Ok(d) => d,
         Err(e) => {
-            app.service_msg = Some((format!("No duty: {e}"), 8.0));
+            app.service_msg = Some((omsi_ui::tr("No duty: %{error}").replace("%{error}", &e.to_string()), 8.0));
             return;
         }
     };
@@ -2633,7 +2633,7 @@ pub(crate) fn start_duty_at(app: &mut App, line: &str, tour: &str, trip: usize, 
     app.args.line = Some(line.to_string());
     app.args.tour = Some(tour.to_string());
     app.duty = Some(d);
-    app.service_msg = Some((format!("Line {line}, tour {}", tour.trim()), 4.0));
+    app.service_msg = Some((omsi_ui::tr("Line %{line}, tour %{tour}").replace("%{line}", line).replace("%{tour}", tour.trim()), 4.0));
 }
 
 fn start_duty(app: &mut App, line: &str, tour: &str) {
@@ -2657,9 +2657,9 @@ fn start_duty(app: &mut App, line: &str, tour: &str) {
             app.args.line = Some(line.to_string());
             app.args.tour = Some(tour.to_string());
             app.duty = Some(d);
-            app.service_msg = Some((format!("Line {line}, tour {}", tour.trim()), 4.0));
+            app.service_msg = Some((omsi_ui::tr("Line %{line}, tour %{tour}").replace("%{line}", line).replace("%{tour}", tour.trim()), 4.0));
         }
-        Err(e) => app.service_msg = Some((format!("No duty: {e}"), 8.0)),
+        Err(e) => app.service_msg = Some((omsi_ui::tr("No duty: %{error}").replace("%{error}", &e.to_string()), 8.0)),
     }
 }
 

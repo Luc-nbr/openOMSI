@@ -129,6 +129,7 @@ const _LOCALES_LINES: &str = include_str!("../locales/lijnsoort.yml");
 const _LOCALES_DEPOTS: &str = include_str!("../locales/hof.yml");
 const _LOCALES_FONTS: &str = include_str!("../locales/fonts.yml");
 const _LOCALES_COMPANY: &str = include_str!("../locales/bedrijf2.yml");
+const _LOCALES_MORE: &str = include_str!("../locales/vertalingen.yml");
 
 /// Show the interface in `code` (the settings' ENG / DEU / FRA / RUS).
 pub(crate) fn ui_language(code: &str) {
@@ -656,6 +657,10 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
     std::mem::forget(_lan_status);
     Ok(Some(app))
 }
+
+// every text the interface shows, in its six languages
+#[cfg(test)]
+mod locale_check;
 
 #[cfg(test)]
 mod tests {

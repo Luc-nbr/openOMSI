@@ -84,9 +84,9 @@ fn reset_timetable(map_dir: &Path, map_folder: &str) -> Result<String, String> {
         return Ok(done);
     }
     match core::lines::export_to_map(&content, map_dir, &reg) {
-        Ok((n, _)) if n > 0 => Ok(format!("{done}; your {n} own line(s) written again")),
+        Ok((n, _)) if n > 0 => Ok(format!("{done}; {}", omsi_ui::tr("your %{n} own line(s) written again").replace("%{n}", &n.to_string()))),
         Ok(_) => Ok(done),
-        Err(e) => Ok(format!("{done}; your own lines could not be written again: {e}")),
+        Err(e) => Ok(format!("{done}; {}", omsi_ui::tr("your own lines could not be written again: %{error}").replace("%{error}", &e.to_string()))),
     }
 }
 
@@ -108,7 +108,7 @@ fn save_all(tv: &mut TimetableView) -> (usize, Option<String>) {
                 saved += 1;
             }
             Err(e) => {
-                err.get_or_insert(format!("line {}: {e}", line.name));
+                err.get_or_insert(format!("{}: {e}", omsi_ui::tr("line %{line}").replace("%{line}", &line.name)));
             }
         }
     }
@@ -214,8 +214,8 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         if !tv.dirty.is_empty() {
             let (saved, err) = save_all(tv);
             match err {
-                Some(e) => l.state.set_status(format!("Not saved: {e}"), true),
-                None => l.state.set_status(format!("{saved} line(s) saved"), false),
+                Some(e) => l.state.set_status(omsi_ui::tr("Not saved: %{error}").replace("%{error}", &e), true),
+                None => l.state.set_status(omsi_ui::tr("%{n} line(s) saved").replace("%{n}", &saved.to_string()), false),
             }
         }
         tv.map = m;
@@ -254,7 +254,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         if name.is_empty() || name.contains(['/', '\\', ':', '*', '?', '"', '<', '>', '|']) {
             status = Some(("Type the new line's name (it becomes the file name, so no / \\ : * ? \" < > |)".into(), true));
         } else if data.lines.iter().any(|x| x.name.eq_ignore_ascii_case(&name)) {
-            status = Some((format!("Line {name} is there already"), true));
+            status = Some((omsi_ui::tr("Line %{line} is there already").replace("%{line}", &name), true));
         } else {
             let path = omsi_cfg::resolve_path(&tv.map_dir, "TTData").join(format!("{name}.ttl"));
             data.lines.push(Line { path, name: name.clone(), user_allowed: true, priority: 0, tours: Vec::new() });
@@ -264,7 +264,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
             tv.times_for = None;
             tv.dirty.insert(name.clone());
             tv.new_line.clear();
-            status = Some((format!("Line {name} added: give it tours, then save"), false));
+            status = Some((omsi_ui::tr("Line %{line} added: give it tours, then save").replace("%{line}", &name), false));
         }
     }
     let mut pick_line = None;
@@ -282,7 +282,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
             if core::lines::is_own_file(name) && w < r.w - 150.0 {
                 super::ownlines::badge(ui, glam::Vec2::new(r.x + 18.0 + w, r.center().y - 8.0));
             }
-            ui.text_in(&format!("{tours} tours"), Rect::new(r.right() - 90.0, r.y, 80.0, r.h), 11.5, Weight::Regular, TEXT_DIM, Align::Right);
+            ui.text_in(&if *tours == 1 { omsi_ui::tr("one tour").into_owned() } else { omsi_ui::tr("%{n} tours").replace("%{n}", &tours.to_string()) }, Rect::new(r.right() - 90.0, r.y, 80.0, r.h), 11.5, Weight::Regular, TEXT_DIM, Align::Right);
         }
         lines.len() as f32 * 42.0
     });
@@ -319,7 +319,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
 
     // --- its tours
     ui.card(mid);
-    let inner = ui.heading(Rect::new(mid.x + 18.0, mid.y + 14.0, mid.w - 36.0, mid.h - 28.0), &format!("Line {line_name}"), Some("directions_bus"));
+    let inner = ui.heading(Rect::new(mid.x + 18.0, mid.y + 14.0, mid.w - 36.0, mid.h - 28.0), &omsi_ui::tr("Line %{line}").replace("%{line}", &line_name), Some("directions_bus"));
     let mut pick_tour = None;
     let tours: Vec<(String, String, usize)> = line.tours.iter().map(|t| (t.number.clone(), t.trips.first().map(|x| fmt_time(x.departure)).unwrap_or_default(), t.trips.len())).collect();
     let sel_tour = tv.tour;
@@ -330,7 +330,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
             if ui.row(&format!("tt-tour-{i}"), r, i == sel_tour) {
                 pick_tour = Some(i);
             }
-            ui.text_in(&format!("Tour {num}"), Rect::new(r.x + 12.0, r.y, r.w - 100.0, r.h), 13.0, Weight::Medium, TEXT, Align::Left);
+            ui.text_in(&omsi_ui::tr("Tour %{tour}").replace("%{tour}", num), Rect::new(r.x + 12.0, r.y, r.w - 100.0, r.h), 13.0, Weight::Medium, TEXT, Align::Left);
             ui.text_in(&format!("{first} · {n}"), Rect::new(r.right() - 100.0, r.y, 90.0, r.h), 11.5, Weight::Regular, TEXT_DIM, Align::Right);
         }
         tours.len() as f32 * 42.0
@@ -378,7 +378,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
                     tv.tour = line.tours.len() - 1;
                     tv.dirty.insert(line_name.clone());
                 }
-                status = Some((format!("{made} tour(s) made, every {every} min up to {}", fmt_time(until)), false));
+                status = Some((omsi_ui::tr("%{n} tour(s) made, every %{every} min up to %{time}").replace("%{n}", &made.to_string()).replace("%{every}", &every.to_string()).replace("%{time}", &fmt_time(until)), false));
             }
             (None, _, _) => status = Some(("Type the minutes between the tours (1 or more) in the field above".into(), true)),
             (_, None, _) => status = Some(("Type the last departure as h:mm".into(), true)),
@@ -401,7 +401,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         }
         return;
     };
-    let inner = ui.heading(Rect::new(right.x + 18.0, right.y + 14.0, right.w - 36.0, right.h - 28.0), &format!("Tour {} - {}", tour.number, tour.ai_group), Some("schedule"));
+    let inner = ui.heading(Rect::new(right.x + 18.0, right.y + 14.0, right.w - 36.0, right.h - 28.0), &format!("{} - {}", omsi_ui::tr("Tour %{tour}").replace("%{tour}", &tour.number), tour.ai_group), Some("schedule"));
     if tv.times_for != Some((tv.line, tv.tour)) || tv.times.len() != tour.trips.len() {
         tv.times = tour.trips.iter().map(|t| fmt_time(t.departure)).collect();
         tv.times_for = Some((tv.line, tv.tour));
@@ -507,7 +507,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     let label = match n {
         0 => "Saved".to_string(),
         1 => "Save".to_string(),
-        n => format!("Save all ({n} lines)"),
+        n => omsi_ui::tr("Save all (%{n} lines)").replace("%{n}", &n.to_string()),
     };
     if ui.button("tt-save", save_r, &label, Some("save"), if n > 0 { ButtonKind::Primary } else { ButtonKind::Normal }) && n > 0 {
         if tv.times.iter().any(|t| parse_time(t).is_none()) {
@@ -517,8 +517,8 @@ pub fn draw(l: &mut Launcher, area: Rect) {
             tv.times_for = None;
             reload = saved > 0;
             status = Some(match err {
-                Some(e) => (format!("Not saved: {e}"), true),
-                None => (format!("{saved} line(s) saved"), false),
+                Some(e) => (omsi_ui::tr("Not saved: %{error}").replace("%{error}", &e), true),
+                None => (omsi_ui::tr("%{n} line(s) saved").replace("%{n}", &saved.to_string()), false),
             });
         }
     }

@@ -1114,7 +1114,7 @@ impl Launcher {
             // the same program with the same arguments, in a process of its own; this one ends
             match std::env::current_exe().and_then(|exe| std::process::Command::new(exe).args(std::env::args_os().skip(1)).spawn()) {
                 Ok(_) => event_loop.exit(),
-                Err(e) => self.state.set_status(format!("The launcher could not open again: {e}"), true),
+                Err(e) => self.state.set_status(omsi_ui::tr("The launcher could not open again: %{error}").replace("%{error}", &e.to_string()), true),
             }
         }
     }
@@ -1123,7 +1123,7 @@ impl Launcher {
     /// chosen, which only a new start can switch to. The settings are written first.
     pub fn restart_launcher(&mut self) {
         if let Err(e) = core::save_settings(&self.state.settings) {
-            self.state.set_status(format!("The settings were not saved: {e}"), true);
+            self.state.set_status(omsi_ui::tr("The settings were not saved: %{error}").replace("%{error}", &e.to_string()), true);
             return;
         }
         self.state.settings_dirty = 0.0;

@@ -119,6 +119,9 @@ _version: 2
   fr: "Sens du retour de force"
   zh-tw: "力回饋方向"
 
+  nl: "Richting van force feedback"
+  ru: "Направление отдачи"
+  uk: "Напрямок віддачі"
 "Invert force feedback by default":
   de: "Force Feedback standardmäßig invertieren"
   pt: "Inverter o force feedback por padrão"
@@ -128,6 +131,9 @@ _version: 2
   fr: "Inverser le retour de force par défaut"
   zh-tw: "預設反轉力回饋"
 
+  nl: "Force feedback standaard omkeren"
+  ru: "Инвертировать отдачу по умолчанию"
+  uk: "Інвертувати віддачу типово"
 "Wheels with a saved direction use their own setting under Controls → Game controllers.":
   de: "Lenkräder mit gespeicherter Richtung verwenden ihre eigene Einstellung unter Steuerung → Gamecontroller."
   pt: "Volantes com uma direção salva usam a própria configuração em Controles → Controles de jogo."
@@ -137,6 +143,9 @@ _version: 2
   fr: "Les volants dont le sens est enregistré gardent leur propre réglage sous Commandes → Contrôleurs de jeu."
   zh-tw: "已儲存方向的輪子在「控制」→「遊戲控制器」下使用自己的設定。"
 
+  nl: "Sturen met een opgeslagen richting gebruiken hun eigen instelling onder Besturing → Gamecontrollers."
+  ru: "Рули с сохранённым направлением используют свою настройку в разделе Управление → Игровые контроллеры."
+  uk: "Керма зі збереженим напрямком використовують власне налаштування в розділі Керування → Ігрові контролери."
 "INJURY RISK: TAKE YOUR HANDS OFF THE WHEEL. Keep hands and fingers clear before starting and throughout the test.":
   de: "VERLETZUNGSGEFAHR: HÄNDE WEG VOM LENKRAD. Halte Hände und Finger vor dem Start und während des gesamten Tests fern."
   pt: "RISCO DE LESÃO: TIRE AS MÃOS DO VOLANTE. Mantenha as mãos e os dedos afastados antes de iniciar e durante todo o teste."
@@ -146,6 +155,9 @@ _version: 2
   fr: "RISQUE DE BLESSURE : LÂCHEZ LE VOLANT. Gardez les mains et les doigts à l'écart avant de commencer et pendant tout le test."
   zh-tw: "受傷風險：請將雙手從方向盤上移開。開始前及整個測試期間，請讓雙手和手指保持遠離。"
 
+  nl: "GEVAAR VOOR LETSEL: HAAL JE HANDEN VAN HET STUUR. Houd handen en vingers vrij voor de start en tijdens de hele test."
+  ru: "ОПАСНОСТЬ ТРАВМЫ: УБЕРИТЕ РУКИ С РУЛЯ. Держите руки и пальцы подальше до начала и во время всего теста."
+  uk: "НЕБЕЗПЕКА ТРАВМИ: ПРИБЕРІТЬ РУКИ З КЕРМА. Тримайте руки й пальці подалі до початку й під час усього тесту."
 "The test applies two short forces in opposite directions. Finish and press Save to keep the detected direction for this wheel.":
   de: "Der Test gibt zwei kurze Kraftimpulse in entgegengesetzte Richtungen aus. Schließe den Assistenten ab und drücke Speichern, um die erkannte Richtung für dieses Lenkrad zu übernehmen."
   pt: "O teste aplica duas forças curtas em direções opostas. Conclua e pressione Salvar para manter a direção detectada para este volante."
@@ -155,6 +167,9 @@ _version: 2
   fr: "Le test applique deux brèves forces en sens opposés. Terminez puis appuyez sur Enregistrer pour garder le sens détecté pour ce volant."
   zh-tw: "此測試在相反方向施加兩個短力。完成並按下儲存以保留偵測到的該輪子的方向。"
 
+  nl: "De test geeft twee korte krachten in tegengestelde richting. Rond af en druk op Opslaan om de gevonden richting voor dit stuur te bewaren."
+  ru: "Тест подаёт два коротких усилия в противоположные стороны. Завершите и нажмите «Сохранить», чтобы оставить найденное направление для этого руля."
+  uk: "Тест подає два короткі зусилля в протилежні боки. Завершіть і натисніть «Зберегти», щоб залишити знайдений напрямок для цього керма."
 "Start test":
   de: "Test starten"
   pt: "Iniciar teste"
@@ -164,6 +179,9 @@ _version: 2
   fr: "Lancer le test"
   zh-tw: "開始測試"
 
+  nl: "Test starten"
+  ru: "Начать тест"
+  uk: "Почати тест"
 "Test strength":
   de: "Teststärke"
   pt: "Força do teste"
@@ -173,6 +191,9 @@ _version: 2
   fr: "Force du test"
   zh-tw: "測試強度"
 
+  nl: "Teststerkte"
+  ru: "Сила теста"
+  uk: "Сила тесту"
 "If the wheel barely moves, increase Test strength and retry. Keep your hands clear.":
   de: "Wenn sich das Lenkrad kaum bewegt, erhöhe die Teststärke und versuche es erneut. Halte deine Hände fern."
   pt: "Se o volante quase não se mover, aumente a Força do teste e tente novamente. Mantenha as mãos afastadas."
@@ -182,6 +203,9 @@ _version: 2
   fr: "Si le volant bouge à peine, augmentez la force du test et réessayez. Gardez les mains à l'écart."
   zh-tw: "如果方向盤幾乎不動，請提高測試強度後重試。請讓雙手保持遠離。"
 
+  nl: "Beweegt het stuur nauwelijks, verhoog dan de Teststerkte en probeer opnieuw. Houd je handen vrij."
+  ru: "Если руль почти не двигается, увеличьте «Силу теста» и повторите. Держите руки подальше."
+  uk: "Якщо кермо майже не рухається, збільште «Силу тесту» й повторіть. Тримайте руки подалі."
 "The wheel did not move enough. Retry or choose the direction manually.":
   de: "Das Lenkrad hat sich nicht ausreichend bewegt. Wiederhole den Test oder wähle die Richtung manuell."
   pt: "O volante não se moveu o suficiente. Tente novamente ou escolha a direção manualmente."
@@ -200,6 +224,9 @@ _version: 2
   fr: "Sens détecté : normal"
   zh-tw: "偵測到的方向：正常"
 
+  nl: "Richting herkend: normaal"
+  ru: "Направление определено: обычное"
+  uk: "Напрямок визначено: звичайний"
 "Direction detected: inverted":
   de: "Richtung erkannt: invertiert"
   pt: "Direção detectada: invertida"
@@ -209,6 +236,9 @@ _version: 2
   fr: "Sens détecté : inversé"
   zh-tw: "偵測到的方向：反轉"
 
+  nl: "Richting herkend: omgekeerd"
+  ru: "Направление определено: обратное"
+  uk: "Напрямок визначено: зворотний"
 "Testing: keep your hands off the wheel…":
   de: "Test läuft: Lenkrad nicht anfassen…"
   pt: "Testando: mantenha as mãos longe do volante…"
@@ -218,6 +248,9 @@ _version: 2
   fr: "Test en cours : ne touchez pas le volant…"
   zh-tw: "測試：雙手遠離方向盤…"
 
+  nl: "Test loopt: blijf van het stuur af…"
+  ru: "Идёт тест: не трогайте руль…"
+  uk: "Триває тест: не торкайтеся керма…"
 "If detection is inconclusive, retry or choose the direction manually. You can change it later on this device's page.":
   de: "Wenn die Erkennung nicht eindeutig ist, wiederhole den Test oder wähle die Richtung manuell. Du kannst sie später auf der Seite dieses Geräts ändern."
   pt: "Se a detecção for inconclusiva, tente novamente ou escolha a direção manualmente. Você pode alterá-la depois na página deste dispositivo."
@@ -227,6 +260,9 @@ _version: 2
   fr: "Si la détection n'est pas concluante, réessayez ou choisissez le sens manuellement. Vous pourrez le changer plus tard sur la page de ce périphérique."
   zh-tw: "如果偵測沒有結果，請重試或手動選擇方向。您可以稍後在此裝置的頁面上進行變更。"
 
+  nl: "Is de herkenning niet eenduidig, probeer opnieuw of kies de richting zelf. Je kunt het later wijzigen op de pagina van dit apparaat."
+  ru: "Если определить не удалось, повторите тест или выберите направление вручную. Его можно изменить позже на странице этого устройства."
+  uk: "Якщо визначити не вдалося, повторіть тест або виберіть напрямок вручну. Його можна змінити пізніше на сторінці цього пристрою."
 "The test was interrupted. Please try again.":
   de: "Der Test wurde unterbrochen. Bitte versuche es erneut."
   pt: "O teste foi interrompido. Tente novamente."
@@ -236,6 +272,9 @@ _version: 2
   fr: "Le test a été interrompu. Veuillez réessayer."
   zh-tw: "測試被中斷。請再試一次。"
 
+  nl: "De test is onderbroken. Probeer het opnieuw."
+  ru: "Тест прерван. Попробуйте снова."
+  uk: "Тест перервано. Спробуйте знову."
 "The wheel is unavailable. Reconnect it and try again.":
   de: "Das Lenkrad ist nicht verfügbar. Verbinde es erneut und wiederhole den Test."
   pt: "O volante não está disponível. Reconecte-o e tente novamente."
@@ -245,6 +284,9 @@ _version: 2
   fr: "Le volant est indisponible. Reconnectez-le et réessayez."
   zh-tw: "方向盤無法使用。請重新連線後重試。"
 
+  nl: "Het stuur is niet beschikbaar. Sluit het opnieuw aan en probeer het nog eens."
+  ru: "Руль недоступен. Переподключите его и попробуйте снова."
+  uk: "Кермо недоступне. Перепідключіть його й спробуйте знову."
 "Move the wheel away from its end stops and try again.":
   de: "Drehe das Lenkrad von den Endanschlägen weg und wiederhole den Test."
   pt: "Afaste o volante dos batentes de fim de curso e tente novamente."
@@ -289,6 +331,9 @@ _version: 2
   pl: "Force feedback jest niedostępny. Wybierz kierunek ręcznie."
   fr: "Le retour de force est indisponible. Choisissez le sens manuellement."
   zh-tw: "力回饋不可用。手動選擇方向。"
+  nl: "Force feedback is niet beschikbaar. Kies de richting zelf."
+  ru: "Отдача недоступна. Выберите направление вручную."
+  uk: "Віддача недоступна. Виберіть напрямок вручну."
 
 "Mo":
   ru: "Пн"
@@ -6177,6 +6222,7 @@ _version: 2
   pt-pt: "Mãos do condutor na vista da cabine"
   zh: "驾驶室视角中显示司机的手"
   zh-tw: "駕駛室視角中的駕駛員雙手"
+  nl: "Handen van de bestuurder in het cabinebeeld"
 "Camera glides between viewpoints":
   ru: "Плавный переход между обзорами"
   de: "Weiche Übergänge in Fahrersicht"
@@ -9673,6 +9719,8 @@ _version: 2
   zh: "复制会话码/服务器代码"
   pl: "Kopiuj kod serwera"
   zh-tw: "複製伺服器程式碼"
+  nl: "Servercode kopiëren"
+  uk: "Скопіювати код сервера"
 "Server code copied":
   de: "Servercode kopiert"
   fr: "Code du serveur copié"
@@ -9683,6 +9731,8 @@ _version: 2
   zh: "会话码/服务器代码已复制"
   pl: "Kod serwera skopiowany"
   zh-tw: "伺服器代碼已複製"
+  nl: "Servercode gekopieerd"
+  uk: "Код сервера скопійовано"
 "Server code":
   de: "Servercode"
   fr: "Code du serveur"
@@ -9693,6 +9743,8 @@ _version: 2
   zh: "会话码/服务器代码"
   pl: "Kod serwera"
   zh-tw: "伺服器程式碼"
+  nl: "Servercode"
+  uk: "Код сервера"
 "Object editor":
   ru: "Редактор объектов"
   de: "Objekteditor"
@@ -19381,6 +19433,10 @@ _version: 2
   pl: "Tutaj stałby w innym pojeździe"
   fr: "Il serait dans un autre véhicule ici"
   zh-tw: "物件會與另一輛車重疊"
+  nl: "Hier zou het in een ander voertuig staan"
+  de: "Hier stünde es in einem anderen Fahrzeug"
+  ru: "Здесь он встанет в другой транспорт"
+  uk: "Тут він стане в інший транспорт"
 "Point at the ground to set it down":
   pt: "Aponte para o chão para posicioná-lo"
   pt-pt: "Aponte para o chão para o colocar"
@@ -19388,6 +19444,10 @@ _version: 2
   pl: "Wskaż podłoże, aby go postawić"
   fr: "Visez le sol pour le poser"
   zh-tw: "指向地面將其放下"
+  nl: "Wijs naar de grond om het neer te zetten"
+  de: "Zeige auf den Boden, um es abzusetzen"
+  ru: "Наведите на землю, чтобы поставить"
+  uk: "Наведіть на землю, щоб поставити"
 "Placing given up":
   pt: "Posicionamento cancelado"
   pt-pt: "Colocação cancelada"
@@ -19395,6 +19455,10 @@ _version: 2
   pl: "Zrezygnowano z ustawiania"
   fr: "Placement annulé"
   zh-tw: "已取消放置"
+  nl: "Plaatsen: wijs naar de grond, muiswiel of Q / E draait, R keert om, klik zet neer, Esc haalt weg"
+  de: "Einsetzen: auf den Boden zeigen, Mausrad oder Q / E dreht, R wendet, Klick setzt ab, Esc nimmt weg"
+  ru: "Размещение: наведите на землю, колесо мыши или Q / E поворачивают, R разворачивает, щелчок ставит, Esc убирает"
+  uk: "Розміщення: наведіть на землю, коліщатко миші або Q / E повертають, R розвертає, клік ставить, Esc прибирає"
 "Driving":
   ru: "Вождение"
   de: "Fahren"
@@ -19478,6 +19542,7 @@ _version: 2
   pt-pt: "Teclado e rato"
   zh: "键盘与鼠标"
   zh-tw: "鍵盤和滑鼠"
+  nl: "Toetsenbord & muis"
 "Outside views":
   ru: "Внешние виды"
   de: "Außenansichten"
@@ -19489,6 +19554,7 @@ _version: 2
   pt-pt: "Vistas exteriores"
   zh: "外部视角"
   zh-tw: "外部景觀"
+  nl: "Buitenaanzichten"
 "Change the keys":
   ru: "Изменить клавиши"
   de: "Tasten ändern"
@@ -19500,6 +19566,7 @@ _version: 2
   pt-pt: "Alterar as teclas"
   zh: "更改按键"
   zh-tw: "更改按鍵"
+  nl: "Toetsen wijzigen"
 "Set up a wheel or pedals":
   ru: "Настроить руль или педали"
   de: "Lenkrad oder Pedale einrichten"
@@ -19511,6 +19578,7 @@ _version: 2
   pt-pt: "Configurar volante ou pedais"
   zh: "设置方向盘或踏板"
   zh-tw: "設定車輪或踏板"
+  nl: "Stuur of pedalen instellen"
 "Change the VR keys":
   ru: "Изменить клавиши VR"
   de: "VR-Tasten ändern"
@@ -19522,6 +19590,7 @@ _version: 2
   pt-pt: "Alterar as teclas de VR"
   zh: "更改 VR 按键"
   zh-tw: "更改 VR 鍵"
+  nl: "VR-toetsen wijzigen"
 "Interface size":
   ru: "Размер интерфейса"
   de: "Größe der Oberfläche"
@@ -19544,6 +19613,7 @@ _version: 2
   pt-pt: "Tamanho da interface do jogo"
   zh: "游戏界面大小"
   zh-tw: "遊戲介面尺寸"
+  nl: "Grootte van de spelinterface"
 "Display & sound":
   ru: "Экран и звук"
   de: "Anzeige & Ton"
@@ -19566,6 +19636,7 @@ _version: 2
   pt-pt: "Página"
   zh: "页面"
   zh-tw: "頁"
+  nl: "Pagina"
 "Enter next":
   ru: "Enter — далее"
   de: "Enter weiter"
@@ -19577,6 +19648,7 @@ _version: 2
   pt-pt: "Enter avança"
   zh: "Enter 下一页"
   zh-tw: "進入下一步"
+  nl: "Enter verder"
 "Page Up back":
   ru: "Page Up — назад"
   de: "Page Up zurück"
@@ -19588,6 +19660,7 @@ _version: 2
   pt-pt: "Page Up recua"
   zh: "Page Up 上一页"
   zh-tw: "上一頁 返回"
+  nl: "Page Up terug"
 "Ctrl+T hide":
   ru: "Ctrl+T — скрыть"
   de: "Strg+T ausblenden"
@@ -19599,6 +19672,7 @@ _version: 2
   pt-pt: "Ctrl+T oculta"
   zh: "Ctrl+T 隐藏"
   zh-tw: "Ctrl+T 隱藏"
+  nl: "Ctrl+T verbergen"
 "newer below":
   ru: "новых ниже"
   de: "neuere darunter"
@@ -19610,6 +19684,7 @@ _version: 2
   pt-pt: "mais recentes abaixo"
   zh: "较新的在下方"
   zh-tw: "下面較新的"
+  nl: "nieuwere eronder"
 "Not sent":
   ru: "Не отправлено"
   de: "Nicht gesendet"
@@ -19621,6 +19696,7 @@ _version: 2
   pt-pt: "Não enviada"
   zh: "未发送"
   zh-tw: "未發送"
+  nl: "Niet verzonden"
 "Mouse steering sensitivity":
   ru: "Чувствительность руления мышью"
   de: "Empfindlichkeit der Maussteuerung"
@@ -19632,6 +19708,7 @@ _version: 2
   pt-pt: "Sensibilidade da direção com o rato"
   zh: "鼠标转向灵敏度"
   zh-tw: "滑鼠轉向靈敏度"
+  nl: "Gevoeligheid van sturen met de muis"
 "Mouse steering sensitivity (O)":
   ru: "Чувствительность руления мышью (O)"
   de: "Empfindlichkeit der Maussteuerung (O)"
@@ -19643,6 +19720,7 @@ _version: 2
   pt-pt: "Sensibilidade da direção com o rato (O)"
   zh: "鼠标转向灵敏度(O)"
   zh-tw: "滑鼠轉向靈敏度 (O)"
+  nl: "Gevoeligheid van sturen met de muis (O)"
 "On":
   ru: "Вкл."
   de: "An"
@@ -19680,6 +19758,7 @@ _version: 2
   pt-pt: "Opacidade da interface"
   zh: "界面不透明度"
   zh-tw: "介面不透明度"
+  nl: "Dekking van de interface"
 "Interface grows with the window":
   ru: "Интерфейс растёт вместе с окном"
   de: "Oberfläche wächst mit dem Fenster"
@@ -19691,6 +19770,7 @@ _version: 2
   pt-pt: "A interface cresce com a janela"
   zh: "界面随窗口增大"
   zh-tw: "介面隨視窗增長"
+  nl: "Interface groeit mee met het venster"
 "Notes in the top-left corner":
   ru: "Заметки в левом верхнем углу"
   de: "Hinweise oben links"
@@ -19702,6 +19782,7 @@ _version: 2
   pt-pt: "Avisos no canto superior esquerdo"
   zh: "左上角的提示说明"
   zh-tw: "註釋在左上角"
+  nl: "Meldingen linksboven"
 
 "Choose a bus":
   de: "Bus auswählen"
@@ -20889,6 +20970,9 @@ _version: 2
   pl: "Teleportuj do punktu startowego"
   fr: "Se téléporter à un point de départ"
   zh-tw: "傳送到起點"
+  nl: "Naar een startpunt teleporteren"
+  ru: "Телепорт к точке старта"
+  uk: "Телепорт до точки старту"
 "Teleport to a start point...":
   de: "Zu einem Startpunkt teleportieren..."
   pt: "Teleportar para um ponto inicial..."
@@ -20897,6 +20981,9 @@ _version: 2
   pl: "Teleportuj do punktu startowego..."
   fr: "Se téléporter à un point de départ..."
   zh-tw: "傳送到起點..."
+  nl: "Naar een startpunt teleporteren..."
+  ru: "Телепорт к точке старта..."
+  uk: "Телепорт до точки старту..."
 "Teleport to a starting point on the map":
   de: "Teleportiere dich zu einem Startpunkt der Karte"
   pt: "Teleportar para um ponto inicial do mapa"
@@ -20905,6 +20992,9 @@ _version: 2
   pl: "Teleportuj do punktu startowego na mapie"
   fr: "Se téléporter à un point de départ de la carte"
   zh-tw: "傳送到地圖上的起點"
+  nl: "Teleporteer naar een startpunt op de kaart"
+  ru: "Телепорт к точке старта на карте"
+  uk: "Телепорт до точки старту на мапі"
 "This map has no entry points":
   de: "Diese Karte hat keine Einstiegspunkte"
   pt: "Este mapa não tem pontos de entrada"
@@ -20913,6 +21003,9 @@ _version: 2
   pl: "Ta mapa nie ma punktów wejścia"
   fr: "Cette carte n'a aucun point d'entrée"
   zh-tw: "該地圖沒有入口點"
+  nl: "Deze kaart heeft geen inzetpunten"
+  ru: "На этой карте нет точек появления"
+  uk: "На цій мапі немає точок появи"
 "entry":
   de: "Einstieg"
   pt: "entrada"
@@ -20921,6 +21014,9 @@ _version: 2
   pl: "wejście"
   fr: "entrée"
   zh-tw: "入口"
+  nl: "inzetpunt"
+  ru: "точка"
+  uk: "точка"
 "Earlier":
   ru: "Раньше"
   de: "Früher"
@@ -21033,6 +21129,10 @@ _version: 2
   pl: "Kontynuuj"
   fr: "Continuer"
   zh-tw: "繼續"
+  nl: "Verdergaan"
+  de: "Weiter"
+  ru: "Продолжить"
+  uk: "Продовжити"
 
 "Join and drive":
   pt: "Entrar e dirigir"
@@ -21041,6 +21141,10 @@ _version: 2
   pl: "Dołącz i jedź"
   fr: "Rejoindre et conduire"
   zh-tw: "加入並駕駛"
+  nl: "Deelnemen en rijden"
+  de: "Beitreten und fahren"
+  ru: "Присоединиться и ехать"
+  uk: "Приєднатися й їхати"
 
 "The game is running":
   pt: "O jogo está em execução"
@@ -21049,6 +21153,10 @@ _version: 2
   pl: "Gra jest uruchomiona"
   fr: "Le jeu est en cours"
   zh-tw: "遊戲正在運行"
+  nl: "Het spel draait"
+  de: "Das Spiel läuft"
+  ru: "Игра запущена"
+  uk: "Гра запущена"
 
 "Type the server's address (an IP, a name or a link)":
   pt: "Digite o endereço do servidor (um IP, um nome ou um link)"
@@ -21057,6 +21165,10 @@ _version: 2
   pl: "Wpisz adres serwera (IP, nazwę lub link)"
   fr: "Saisissez l'adresse du serveur (une IP, un nom ou un lien)"
   zh-tw: "輸入伺服器的位址（IP、名稱或連結）"
+  nl: "Typ het adres van de server (een IP, een naam of een link)"
+  de: "Gib die Adresse des Servers ein (eine IP, einen Namen oder einen Link)"
+  ru: "Введите адрес сервера (IP, имя или ссылку)"
+  uk: "Введіть адресу сервера (IP, ім'я або посилання)"
 
 "Saved profile":
   pt: "Perfil salvo"
@@ -21065,6 +21177,10 @@ _version: 2
   pl: "Zapisany profil"
   fr: "Profil enregistré"
   zh-tw: "已儲存的個人資料"
+  nl: "Opgeslagen profiel"
+  de: "Gespeichertes Profil"
+  ru: "Сохранённый профиль"
+  uk: "Збережений профіль"
 
 "Load":
   pt: "Carregar"
@@ -21073,6 +21189,10 @@ _version: 2
   pl: "Wczytaj"
   fr: "Charger"
   zh-tw: "載入"
+  nl: "Laden"
+  de: "Laden"
+  ru: "Загрузить"
+  uk: "Завантажити"
 
 "Profile name":
   pt: "Nome do perfil"
@@ -21081,6 +21201,10 @@ _version: 2
   pl: "Nazwa profilu"
   fr: "Nom du profil"
   zh-tw: "個人資料名稱"
+  nl: "Profielnaam"
+  de: "Profilname"
+  ru: "Имя профиля"
+  uk: "Назва профілю"
 
 "Save current graphics as profile":
   pt: "Salvar os gráficos atuais como perfil"
@@ -21089,6 +21213,10 @@ _version: 2
   pl: "Zapisz bieżące ustawienia grafiki jako profil"
   fr: "Enregistrer les graphismes actuels comme profil"
   zh-tw: "將目前圖形儲存為設定文件"
+  nl: "Huidig beeld als profiel opslaan"
+  de: "Aktuelle Grafik als Profil speichern"
+  ru: "Сохранить текущую графику как профиль"
+  uk: "Зберегти поточну графіку як профіль"
 
 "OMSI's shadow meshes (under vehicles)":
   pt: "Malhas de sombra do OMSI (sob os veículos)"
@@ -21097,6 +21225,10 @@ _version: 2
   pl: "Siatki cieni OMSI (pod pojazdami)"
   fr: "Ombres d'OMSI (sous les véhicules)"
   zh-tw: "OMSI 的陰影網格（在車輛下方）"
+  nl: "Schaduwmodellen van OMSI (onder voertuigen)"
+  de: "Schattenmodelle von OMSI (unter Fahrzeugen)"
+  ru: "Теневые модели OMSI (под транспортом)"
+  uk: "Тіньові моделі OMSI (під транспортом)"
 
 "Dynamic steering (slower keys at speed, OMSI's redSteerSpd)":
   pt: "Direção dinâmica (teclas mais lentas em velocidade, redSteerSpd do OMSI)"
@@ -21105,6 +21237,10 @@ _version: 2
   pl: "Dynamiczne kierowanie (wolniejsze klawisze przy prędkości, redSteerSpd z OMSI)"
   fr: "Direction dynamique (touches plus lentes en vitesse, redSteerSpd d'OMSI)"
   zh-tw: "動態轉向（速度較慢的按鍵，OMSI 的 redSteerSpd）"
+  nl: "Dynamisch sturen (tragere toetsen bij snelheid, redSteerSpd van OMSI)"
+  de: "Dynamische Lenkung (langsamere Tasten bei Tempo, redSteerSpd von OMSI)"
+  ru: "Динамическое руление (клавиши медленнее на скорости, redSteerSpd из OMSI)"
+  uk: "Динамічне кермування (клавіші повільніші на швидкості, redSteerSpd з OMSI)"
 
 "Driver's view turns with the steering":
   pt: "A visão do motorista acompanha a direção"
@@ -21113,6 +21249,10 @@ _version: 2
   pl: "Widok kierowcy obraca się razem ze skrętem kierownicy"
   fr: "La vue du conducteur suit la direction"
   zh-tw: "駕駛者的視野隨著轉向而轉動"
+  nl: "Bestuurdersbeeld draait mee met het sturen"
+  de: "Fahrersicht dreht beim Lenken mit"
+  ru: "Вид водителя поворачивается с рулём"
+  uk: "Вигляд водія повертається з кермом"
 
 "Right mouse button turns the view, Shift+right zooms (off: right zooms as in OMSI, the wheel button turns)":
   pt: "O botão direito do mouse gira a visão; Shift+botão direito aplica zoom (desativado: o botão direito aplica zoom como no OMSI e o botão do meio gira a visão)"
@@ -21121,6 +21261,10 @@ _version: 2
   pl: "Prawy przycisk myszy obraca widok, Shift+prawy przybliża (wyłączone: prawy przybliża jak w OMSI, obraca przycisk kółka)"
   fr: "Le clic droit tourne la vue, Maj+clic droit zoome (désactivé : le clic droit zoome comme dans OMSI, le bouton de la molette tourne)"
   zh-tw: "滑鼠右鍵旋轉視圖，Shift+右縮放（關閉：像 OMSI 中那樣右縮放，滾輪按鈕旋轉）"
+  nl: "Rechtermuisknop draait het beeld, Shift+rechts zoomt (uit: rechts zoomt zoals in OMSI, de wielknop draait)"
+  de: "Rechte Maustaste dreht die Sicht, Umschalt+rechts zoomt (aus: rechts zoomt wie in OMSI, die Radtaste dreht)"
+  ru: "Правая кнопка мыши поворачивает вид, Shift+правая масштабирует (выкл.: правая масштабирует, как в OMSI, колесо поворачивает)"
+  uk: "Права кнопка миші повертає вигляд, Shift+права масштабує (вимк.: права масштабує, як в OMSI, коліщатко повертає)"
 
 "Sync the clock with the real time (locks the time)":
   pt: "Sincronizar o relógio com a hora real (bloqueia o horário)"
@@ -21129,6 +21273,10 @@ _version: 2
   pl: "Synchronizuj zegar z czasem rzeczywistym (blokuje godzinę)"
   fr: "Synchroniser l'horloge avec l'heure réelle (verrouille l'heure)"
   zh-tw: "將時鐘與即時時間同步（鎖定時間）"
+  nl: "Klok gelijkzetten met de echte tijd (zet de tijd vast)"
+  de: "Uhr mit der Echtzeit abgleichen (sperrt die Uhrzeit)"
+  ru: "Синхронизировать часы с реальным временем (блокирует время)"
+  uk: "Синхронізувати годинник із реальним часом (блокує час)"
 
 "Sync the weather with METAR (locks the weather)":
   pt: "Sincronizar o clima com o METAR (bloqueia o clima)"
@@ -21137,6 +21285,10 @@ _version: 2
   pl: "Synchronizuj pogodę z METAR (blokuje pogodę)"
   fr: "Synchroniser la météo avec le METAR (verrouille la météo)"
   zh-tw: "與 METAR 同步天氣（鎖定天氣）"
+  nl: "Weer gelijkzetten met METAR (zet het weer vast)"
+  de: "Wetter mit METAR abgleichen (sperrt das Wetter)"
+  ru: "Синхронизировать погоду с METAR (блокирует погоду)"
+  uk: "Синхронізувати погоду з METAR (блокує погоду)"
 
 "Time speed (not in multiplayer or with the real-time sync)":
   pt: "Velocidade do tempo (indisponível no multiplayer ou com sincronização em tempo real)"
@@ -21145,6 +21297,10 @@ _version: 2
   pl: "Prędkość czasu (niedostępna w multiplayer ani przy synchronizacji z czasem rzeczywistym)"
   fr: "Vitesse du temps (sauf en multijoueur ou avec la synchro en temps réel)"
   zh-tw: "時間速度（不在多人遊戲或即時同步中）"
+  nl: "Tijdsnelheid (niet in multiplayer of bij echte tijd)"
+  de: "Zeitraffer (nicht im Mehrspieler oder mit Echtzeit-Abgleich)"
+  ru: "Скорость времени (не в мультиплеере и не при синхронизации с реальным временем)"
+  uk: "Швидкість часу (не в мультиплеєрі й не при синхронізації з реальним часом)"
 
 "On a server its clock and weather are the server's":
   pt: "Em um servidor, o horário e o clima são definidos pelo servidor"
@@ -21153,6 +21309,10 @@ _version: 2
   pl: "Na serwerze zegar i pogoda są ustawiane przez serwer"
   fr: "Sur un serveur, l'heure et la météo sont celles du serveur"
   zh-tw: "在伺服器上，它的時鐘和天氣是伺服器的"
+  nl: "Op een server zijn de klok en het weer van de server"
+  de: "Auf einem Server gehören Uhr und Wetter dem Server"
+  ru: "На сервере часы и погода задаются сервером"
+  uk: "На сервері годинник і погоду задає сервер"
 
 "Search…":
   pt: "Pesquisar…"
@@ -21173,6 +21333,10 @@ _version: 2
   pl: "Mapa nie ma linii do przejechania."
   fr: "La carte n'a aucune ligne à conduire."
   zh-tw: "地圖上沒有可供行駛的線路。"
+  nl: "De kaart heeft geen lijnen om te rijden."
+  de: "Die Karte hat keine Linien zum Fahren."
+  ru: "На карте нет линий для поездки."
+  uk: "На мапі немає ліній для поїздки."
 
 "Lines of the timetable":
   pt: "Linhas do horário"
@@ -21181,6 +21345,10 @@ _version: 2
   pl: "Linie rozkładu"
   fr: "Lignes de l'horaire"
   zh-tw: "時刻表的線路"
+  nl: "Lijnen van de dienstregeling"
+  de: "Linien des Fahrplans"
+  ru: "Линии расписания"
+  uk: "Лінії розкладу"
 
 "Choose a line first.":
   pt: "Escolha uma linha primeiro."
@@ -21189,6 +21357,10 @@ _version: 2
   pl: "Najpierw wybierz linię."
   fr: "Choisissez d'abord une ligne."
   zh-tw: "首先選擇一條線。"
+  nl: "Kies eerst een lijn."
+  de: "Wähle zuerst eine Linie."
+  ru: "Сначала выберите линию."
+  uk: "Спочатку виберіть лінію."
 
 "Done":
   pt: "Concluir"
@@ -21197,6 +21369,10 @@ _version: 2
   pl: "Gotowe"
   fr: "Terminé"
   zh-tw: "完畢"
+  nl: "Klaar"
+  de: "Fertig"
+  ru: "Готово"
+  uk: "Готово"
 
 "Leave":
   pt: "Sair"
@@ -21205,6 +21381,10 @@ _version: 2
   pl: "Opuść"
   fr: "Quitter"
   zh-tw: "離開"
+  nl: "Verlaten"
+  de: "Verlassen"
+  ru: "Выйти"
+  uk: "Вийти"
 
 "A friend's code or a server address":
   pt: "Código de um amigo ou endereço de servidor"
@@ -21213,6 +21393,10 @@ _version: 2
   pl: "Kod znajomego lub adres serwera"
   fr: "Le code d'un ami ou l'adresse d'un serveur"
   zh-tw: "朋友的代碼或伺服器位址"
+  nl: "De code van een vriend of een serveradres"
+  de: "Der Code eines Freundes oder eine Serveradresse"
+  ru: "Код друга или адрес сервера"
+  uk: "Код друга або адреса сервера"
 
 "Type the code your friend's game shows (or a server's address)":
   pt: "Digite o código exibido no jogo do seu amigo (ou o endereço de um servidor)"
@@ -21221,6 +21405,10 @@ _version: 2
   pl: "Wpisz kod wyświetlany w grze znajomego (lub adres serwera)"
   fr: "Saisissez le code affiché par le jeu de votre ami (ou l'adresse d'un serveur)"
   zh-tw: "輸入您朋友的遊戲顯示的代碼（或伺服器位址）"
+  nl: "Typ de code die het spel van je vriend toont (of het adres van een server)"
+  de: "Gib den Code ein, den das Spiel deines Freundes zeigt (oder die Adresse eines Servers)"
+  ru: "Введите код, который показывает игра друга (или адрес сервера)"
+  uk: "Введіть код, який показує гра друга (або адресу сервера)"
 
 "Choose your bus and press Start to join your friend":
   pt: "Escolha seu ônibus e pressione Iniciar para entrar com seu amigo"
@@ -21229,6 +21417,10 @@ _version: 2
   pl: "Wybierz autobus i naciśnij Start, aby dołączyć do znajomego"
   fr: "Choisissez votre bus et appuyez sur Démarrer pour rejoindre votre ami"
   zh-tw: "選擇您的巴士並按開始加入您的朋友"
+  nl: "Kies je bus en druk op Start om bij je vriend te komen"
+  de: "Wähle deinen Bus und drücke Start, um deinem Freund beizutreten"
+  ru: "Выберите автобус и нажмите «Старт», чтобы присоединиться к другу"
+  uk: "Виберіть автобус і натисніть «Старт», щоб приєднатися до друга"
 
 "Host my next game":
   pt: "Hospedar meu próximo jogo"
@@ -21237,6 +21429,10 @@ _version: 2
   pl: "Hostuj moją następną grę"
   fr: "Héberger ma prochaine partie"
   zh-tw: "主持我的下一場比賽"
+  nl: "Mijn volgende spel hosten"
+  de: "Mein nächstes Spiel hosten"
+  ru: "Стать хостом следующей игры"
+  uk: "Бути хостом наступної гри"
 
 "Your next game is hosted: its code shows in the game for your friends":
   pt: "Seu próximo jogo será hospedado: o código aparecerá no jogo para seus amigos"
@@ -21245,6 +21441,10 @@ _version: 2
   pl: "Twoja następna gra jest hostowana: jej kod pokaże się w grze dla znajomych"
   fr: "Votre prochaine partie sera hébergée : son code s'affichera dans le jeu pour vos amis"
   zh-tw: "您的下一個遊戲已託管：其程式碼會在您的朋友的遊戲中顯示"
+  nl: "Je volgende spel wordt gehost: de code staat in het spel voor je vrienden"
+  de: "Dein nächstes Spiel wird gehostet: der Code erscheint im Spiel für deine Freunde"
+  ru: "Следующая игра будет с вами как хостом: её код появится в игре для друзей"
+  uk: "Наступна гра буде з вами як хостом: її код з'явиться у грі для друзів"
 
 "More servers: add them by their address in the desktop launcher, or type one above.":
   pt: "Mais servidores: adicione-os pelo endereço no launcher de desktop ou digite um acima."
@@ -21273,6 +21473,10 @@ _version: 2
   pl: "Usuń ruch AI (korek)"
   fr: "Dégager la circulation IA (un bouchon)"
   zh-tw: "清除 AI 流量（堵塞）"
+  nl: "AI-verkeer weghalen (een file)"
+  de: "KI-Verkehr räumen (ein Stau)"
+  ru: "Убрать ИИ-трафик (пробка)"
+  uk: "Прибрати ШІ-трафік (затор)"
 
 "The time speed is fixed while the real-time sync is on":
   pt: "A velocidade do tempo fica fixa enquanto a sincronização em tempo real está ativa"
@@ -21281,6 +21485,10 @@ _version: 2
   pl: "Prędkość czasu jest stała, gdy synchronizacja z czasem rzeczywistym jest włączona"
   fr: "La vitesse du temps est fixe tant que la synchro en temps réel est active"
   zh-tw: "即時同步開啟時時間速度固定"
+  nl: "De tijdsnelheid ligt vast zolang de echte tijd wordt gevolgd"
+  de: "Der Zeitraffer ist fest, solange der Echtzeit-Abgleich an ist"
+  ru: "Скорость времени не меняется, пока включена синхронизация с реальным временем"
+  uk: "Швидкість часу не змінюється, поки ввімкнено синхронізацію з реальним часом"
 
 "Nothing to set here":
   pt: "Nada para configurar aqui"
@@ -21289,6 +21497,10 @@ _version: 2
   pl: "Nie ma tu nic do ustawienia"
   fr: "Rien à régler ici"
   zh-tw: "此處無需設置"
+  nl: "Hier valt niets in te stellen"
+  de: "Hier gibt es nichts einzustellen"
+  ru: "Здесь нечего настраивать"
+  uk: "Тут нічого налаштовувати"
 
 "This bus has no depot file (.hof) with destinations":
   pt: "Este ônibus não tem arquivo de garagem (.hof) com destinos"
@@ -21297,6 +21509,10 @@ _version: 2
   pl: "Ten autobus nie ma pliku zajezdni (.hof) z kierunkami"
   fr: "Ce bus n'a aucun fichier de dépôt (.hof) avec des destinations"
   zh-tw: "該巴士沒有包含目的地的車站文件 (.hof)"
+  nl: "Deze bus heeft geen remisebestand (.hof) met bestemmingen"
+  de: "Dieser Bus hat keine Betriebshofdatei (.hof) mit Zielen"
+  ru: "У этого автобуса нет файла депо (.hof) с пунктами назначения"
+  uk: "У цього автобуса немає файлу депо (.hof) з пунктами призначення"
 
 "This bus has no depot files (.hof)":
   pt: "Este ônibus não tem arquivos de garagem (.hof)"
@@ -21305,6 +21521,10 @@ _version: 2
   pl: "Ten autobus nie ma plików zajezdni (.hof)"
   fr: "Ce bus n'a aucun fichier de dépôt (.hof)"
   zh-tw: "該巴士沒有站點文件 (.hof)"
+  nl: "Deze bus heeft geen remisebestanden (.hof)"
+  de: "Dieser Bus hat keine Betriebshofdateien (.hof)"
+  ru: "У этого автобуса нет файлов депо (.hof)"
+  uk: "У цього автобуса немає файлів депо (.hof)"
 
 "Choose the stop to start from":
   pt: "Escolha a parada de onde começar"
@@ -21313,6 +21533,10 @@ _version: 2
   pl: "Wybierz przystanek, od którego chcesz zacząć"
   fr: "Choisissez l'arrêt de départ"
   zh-tw: "選擇出發站"
+  nl: "Kies de halte waar je begint"
+  de: "Wähle die Haltestelle, an der du beginnst"
+  ru: "Выберите остановку, с которой начать"
+  uk: "Виберіть зупинку, з якої почати"
 
 "Start trip":
   pt: "Iniciar viagem"
@@ -21321,6 +21545,10 @@ _version: 2
   pl: "Rozpocznij kurs"
   fr: "Commencer la course"
   zh-tw: "開始旅程"
+  nl: "Rit starten"
+  de: "Fahrt beginnen"
+  ru: "Начать рейс"
+  uk: "Почати рейс"
 
 "Administration":
   pt: "Administração"
@@ -21329,6 +21557,10 @@ _version: 2
   pl: "Administracja"
   fr: "Administration"
   zh-tw: "行政"
+  nl: "Beheer"
+  de: "Verwaltung"
+  ru: "Администрирование"
+  uk: "Адміністрування"
 
 "The time cannot be changed while the real-time sync is on":
   pt: "O horário não pode ser alterado enquanto a sincronização em tempo real estiver ativa"
@@ -21337,6 +21569,10 @@ _version: 2
   pl: "Nie można zmienić godziny, gdy synchronizacja z czasem rzeczywistym jest włączona"
   fr: "L'heure ne peut pas être changée tant que la synchro en temps réel est active"
   zh-tw: "即時同步開啟時無法變更時間"
+  nl: "De tijd kan niet worden gewijzigd zolang de echte tijd wordt gevolgd"
+  de: "Die Uhrzeit lässt sich nicht ändern, solange der Echtzeit-Abgleich an ist"
+  ru: "Время нельзя изменить, пока включена синхронизация с реальным временем"
+  uk: "Час не можна змінити, поки ввімкнено синхронізацію з реальним часом"
 
 "The bus stands at the start point":
   pt: "O ônibus está no ponto inicial"
@@ -21345,6 +21581,10 @@ _version: 2
   pl: "Autobus stoi w punkcie startowym"
   fr: "Le bus est au point de départ"
   zh-tw: "巴士停在起點"
+  nl: "De bus staat bij het startpunt"
+  de: "Der Bus steht am Startpunkt"
+  ru: "Автобус стоит у точки старта"
+  uk: "Автобус стоїть біля точки старту"
 
 "That start point is not in the map":
   pt: "Esse ponto inicial não está no mapa"
@@ -21353,6 +21593,10 @@ _version: 2
   pl: "Tego punktu startowego nie ma na mapie"
   fr: "Ce point de départ n'est pas sur la carte"
   zh-tw: "該起點不在地圖上"
+  nl: "Dat startpunt staat niet op de kaart"
+  de: "Diesen Startpunkt gibt es auf der Karte nicht"
+  ru: "Такой точки старта на карте нет"
+  uk: "Такої точки старту на мапі немає"
 
 "The weather cannot be changed while the METAR sync is on":
   pt: "O clima não pode ser alterado enquanto a sincronização METAR estiver ativa"
@@ -21361,6 +21605,10 @@ _version: 2
   pl: "Nie można zmienić pogody, gdy synchronizacja METAR jest włączona"
   fr: "La météo ne peut pas être changée tant que la synchro METAR est active"
   zh-tw: "METAR 同步開啟時無法變更天氣"
+  nl: "Het weer kan niet worden gewijzigd zolang METAR wordt gevolgd"
+  de: "Das Wetter lässt sich nicht ändern, solange der METAR-Abgleich an ist"
+  ru: "Погоду нельзя изменить, пока включена синхронизация METAR"
+  uk: "Погоду не можна змінити, поки ввімкнено синхронізацію METAR"
 
 "Automatic (nearest the map)":
   pt: "Automático (mais próximo do mapa)"
@@ -21369,6 +21617,10 @@ _version: 2
   pl: "Automatycznie (najbliżej mapy)"
   fr: "Automatique (le plus proche de la carte)"
   zh-tw: "自動（最接近地圖）"
+  nl: "Automatisch (het dichtst bij de kaart)"
+  de: "Automatisch (der Karte am nächsten)"
+  ru: "Автоматически (ближайший к карте)"
+  uk: "Автоматично (найближчий до мапи)"
 
 "Reset all settings":
   pt: "Redefinir todas as configurações"
@@ -21377,6 +21629,10 @@ _version: 2
   pl: "Zresetuj wszystkie ustawienia"
   fr: "Réinitialiser tous les réglages"
   zh-tw: "重置所有設定"
+  nl: "Alle instellingen resetten"
+  de: "Alle Einstellungen zurücksetzen"
+  ru: "Сбросить все настройки"
+  uk: "Скинути всі налаштування"
 
 "Enables/Disables the Minimap":
   pt: "Ativa/desativa o minimapa"
@@ -21385,6 +21641,10 @@ _version: 2
   pl: "Włącza/wyłącza minimapę"
   fr: "Active/désactive la minicarte"
   zh-tw: "啟用/停用小地圖"
+  nl: "Zet de minikaart aan of uit"
+  de: "Schaltet die Minikarte ein oder aus"
+  ru: "Включает или выключает мини-карту"
+  uk: "Вмикає або вимикає мінімапу"
 
 "Shows/hides the other (AI) vehicles on the Minimap and the city map":
   pt: "Mostra/oculta os outros veículos (IA) no minimapa e no mapa da cidade"
@@ -21393,6 +21653,10 @@ _version: 2
   pl: "Pokazuje/ukrywa pozostałe pojazdy (AI) na minimapie i mapie miasta"
   fr: "Affiche/masque les autres véhicules (IA) sur la minicarte et le plan de la ville"
   zh-tw: "在小地圖和城市地圖上顯示/隱藏其他（AI）車輛"
+  nl: "Toont of verbergt de andere (AI-)voertuigen op de minikaart en de stadskaart"
+  de: "Zeigt oder verbirgt die anderen (KI-)Fahrzeuge auf der Minikarte und dem Stadtplan"
+  ru: "Показывает или скрывает другой (ИИ) транспорт на мини-карте и карте города"
+  uk: "Показує або приховує інший (ШІ) транспорт на мінімапі та мапі міста"
 
 "Shows OMSI 2's route arrows over the road":
   pt: "Mostra as setas de rota do OMSI 2 sobre a via"
@@ -21401,6 +21665,10 @@ _version: 2
   pl: "Pokazuje strzałki trasy z OMSI 2 nad drogą"
   fr: "Affiche les flèches d'itinéraire d'OMSI 2 sur la route"
   zh-tw: "在道路上顯示 OMSI 2 的路線箭頭"
+  nl: "Toont de routepijlen van OMSI 2 boven de weg"
+  de: "Zeigt die Routenpfeile von OMSI 2 über der Straße"
+  ru: "Показывает стрелки маршрута OMSI 2 над дорогой"
+  uk: "Показує стрілки маршруту OMSI 2 над дорогою"
 
 "Allows you to get out of the car and explore the world":
   pt: "Permite sair do veículo e explorar o mundo"
@@ -21409,6 +21677,10 @@ _version: 2
   pl: "Pozwala wysiąść z pojazdu i zwiedzać świat"
   fr: "Permet de sortir du véhicule et d'explorer le monde"
   zh-tw: "讓您走出汽車，探索世界"
+  nl: "Laat je uitstappen en de wereld verkennen"
+  de: "Erlaubt dir, auszusteigen und die Welt zu erkunden"
+  ru: "Позволяет выйти из машины и исследовать мир"
+  uk: "Дозволяє вийти з машини й досліджувати світ"
 
 "Enables/disables collisions with objects such as buildings, streetlights, etc.":
   pt: "Ativa/desativa colisões com objetos como prédios, postes etc."
@@ -21417,6 +21689,10 @@ _version: 2
   pl: "Włącza/wyłącza kolizje z obiektami, takimi jak budynki, latarnie itp."
   fr: "Active/désactive les collisions avec les objets (bâtiments, lampadaires, etc.)"
   zh-tw: "啟用/停用與建築物、路燈等物件的碰撞。"
+  nl: "Zet botsingen met objecten zoals gebouwen en lantaarnpalen aan of uit"
+  de: "Schaltet Kollisionen mit Objekten wie Gebäuden, Laternen usw. ein oder aus"
+  ru: "Включает или выключает столкновения с объектами: зданиями, фонарями и т. п."
+  uk: "Вмикає або вимикає зіткнення з об'єктами: будівлями, ліхтарями тощо"
 
 "Enables/Disables Collisions with Other Vehicles":
   pt: "Ativa/desativa colisões com outros veículos"
@@ -21425,6 +21701,10 @@ _version: 2
   pl: "Włącza/wyłącza kolizje z innymi pojazdami"
   fr: "Active/désactive les collisions avec les autres véhicules"
   zh-tw: "啟用/停用與其他車輛的碰撞"
+  nl: "Zet botsingen met andere voertuigen aan of uit"
+  de: "Schaltet Kollisionen mit anderen Fahrzeugen ein oder aus"
+  ru: "Включает или выключает столкновения с другим транспортом"
+  uk: "Вмикає або вимикає зіткнення з іншим транспортом"
 
 "Enables/disables knocking down people":
   pt: "Ativa/desativa colisões com pedestres"
@@ -21433,6 +21713,10 @@ _version: 2
   pl: "Włącza/wyłącza potrącanie ludzi"
   fr: "Active/désactive le renversement des piétons"
   zh-tw: "啟用/停用擊倒人"
+  nl: "Zet het aanrijden van voetgangers aan of uit"
+  de: "Schaltet das Anfahren von Fußgängern ein oder aus"
+  ru: "Включает или выключает возможность сбить пешехода"
+  uk: "Вмикає або вимикає можливість збити пішохода"
 
 "Timetable window":
   pt: "Janela do horário"
@@ -21441,6 +21725,10 @@ _version: 2
   pl: "Okno rozkładu"
   fr: "Fenêtre des horaires"
   zh-tw: "時刻表視窗"
+  nl: "Dienstregelingvenster"
+  de: "Fahrplanfenster"
+  ru: "Окно расписания"
+  uk: "Вікно розкладу"
 
 "Displays a list of all stops (only when a tour is active)":
   pt: "Exibe uma lista de todas as paradas (somente com um serviço ativo)"
@@ -21449,6 +21737,10 @@ _version: 2
   pl: "Wyświetla listę wszystkich przystanków (tylko gdy brygada jest aktywna)"
   fr: "Affiche la liste de tous les arrêts (seulement pendant un service)"
   zh-tw: "顯示所有站點的清單（僅當遊覽處於活動狀態時）"
+  nl: "Toont een lijst van alle haltes (alleen tijdens een omloop)"
+  de: "Zeigt eine Liste aller Haltestellen (nur während eines Umlaufs)"
+  ru: "Показывает список всех остановок (только во время выхода)"
+  uk: "Показує список усіх зупинок (лише під час обороту)"
 
 "Displays information such as the time, speed, and other details at the top of the screen":
   pt: "Exibe informações como horário, velocidade e outros detalhes no topo da tela"
@@ -21457,6 +21749,10 @@ _version: 2
   pl: "Wyświetla u góry ekranu informacje, takie jak godzina, prędkość i inne szczegóły"
   fr: "Affiche des informations comme l'heure, la vitesse et d'autres détails en haut de l'écran"
   zh-tw: "在螢幕頂部顯示時間、速度和其他詳細資訊等信息"
+  nl: "Toont bovenaan het scherm onder meer de tijd en de snelheid"
+  de: "Zeigt oben am Bildschirm Uhrzeit, Geschwindigkeit und weitere Angaben"
+  ru: "Показывает вверху экрана время, скорость и другие сведения"
+  uk: "Показує вгорі екрана час, швидкість та інші відомості"
 
 "No change is given at the cash desk":
   pt: "Não há troco na bilheteria"
@@ -21465,6 +21761,10 @@ _version: 2
   pl: "W kasie nie wydaje się reszty"
   fr: "Pas de rendu de monnaie à la caisse"
   zh-tw: "收銀台不找零錢"
+  nl: "Bij de kassa wordt geen wisselgeld gegeven"
+  de: "An der Kasse gibt es kein Wechselgeld"
+  ru: "Сдача в кассе не выдаётся"
+  uk: "Решта в касі не видається"
 
 "Enables/Disabled shadows":
   pt: "Ativa/desativa as sombras"
@@ -21473,6 +21773,10 @@ _version: 2
   pl: "Włącza/wyłącza cienie"
   fr: "Active/désactive les ombres"
   zh-tw: "啟用/停用陰影"
+  nl: "Zet schaduwen aan of uit"
+  de: "Schaltet Schatten ein oder aus"
+  ru: "Включает или выключает тени"
+  uk: "Вмикає або вимикає тіні"
 
 "The ground and large walls get fine grain when close":
   pt: "O chão e paredes grandes ganham mais detalhes de perto"
@@ -21481,6 +21785,10 @@ _version: 2
   pl: "Podłoże i duże ściany z bliska zyskują drobną ziarnistość"
   fr: "Le sol et les grands murs gagnent un grain fin de près"
   zh-tw: "地面和大牆靠近時會出現細小的紋理"
+  nl: "De grond en grote muren krijgen van dichtbij een fijne korrel"
+  de: "Boden und große Wände bekommen aus der Nähe eine feine Körnung"
+  ru: "Земля и большие стены вблизи получают мелкую фактуру"
+  uk: "Земля й великі стіни зблизька отримують дрібну фактуру"
 
 "How strongly the dots of LED destination displays glow":
   pt: "Intensidade do brilho dos pontos dos letreiros LED"
@@ -21489,6 +21797,10 @@ _version: 2
   pl: "Jak intensywnie świecą punkty wyświetlaczy kierunku LED"
   fr: "Intensité de la lueur des points des girouettes LED"
   zh-tw: "LED 目的地顯示器的點發光有多強"
+  nl: "Hoe fel de puntjes van led-bestemmingsdisplays gloeien"
+  de: "Wie stark die Punkte der LED-Zielanzeigen leuchten"
+  ru: "Насколько ярко светятся точки светодиодных указателей"
+  uk: "Наскільки яскраво світяться точки світлодіодних покажчиків"
 
 "LED mask mipmaps":
   pt: "Mipmaps das máscaras LED"
@@ -21497,6 +21809,10 @@ _version: 2
   pl: "Mipmapy masek LED"
   fr: "Mipmaps des masques LED"
   zh-tw: "LED 掩模 mipmap"
+  nl: "Mipmaps van de ledmaskers"
+  de: "Mipmaps der LED-Masken"
+  ru: "MIP-уровни масок светодиодов"
+  uk: "MIP-рівні масок світлодіодів"
 
 "Keep the mip chain of the LED masks (smoother from a distance).":
   pt: "Mantém a cadeia de mipmaps das máscaras LED (mais suave à distância)."
@@ -21505,6 +21821,10 @@ _version: 2
   pl: "Zachowuje łańcuch mipmap masek LED (gładszy obraz z daleka)."
   fr: "Garde la chaîne de mipmaps des masques LED (plus lisse de loin)."
   zh-tw: "保持 LED 面罩的 mip 鏈（從遠處看更平滑）。"
+  nl: "Houd de mipketen van de ledmaskers (zachter van een afstand)."
+  de: "Die Mip-Kette der LED-Masken behalten (aus der Ferne glatter)."
+  ru: "Сохранять цепочку MIP-уровней масок светодиодов (сглаженнее издали)."
+  uk: "Зберігати ланцюжок MIP-рівнів масок світлодіодів (м'якше здалеку)."
 
 "Switches the window between windowed and fullscreen":
   pt: "Alterna a janela entre modo janela e tela cheia"
@@ -21513,6 +21833,10 @@ _version: 2
   pl: "Przełącza okno między trybem okienkowym a pełnoekranowym"
   fr: "Bascule entre fenêtré et plein écran"
   zh-tw: "在視窗和全螢幕之間切換視窗"
+  nl: "Wisselt tussen venster en volledig scherm"
+  de: "Wechselt zwischen Fenster und Vollbild"
+  ru: "Переключает между оконным и полноэкранным режимом"
+  uk: "Перемикає між віконним і повноекранним режимом"
 
 "Waits for the screen's refresh":
   pt: "Aguarda a atualização da tela"
@@ -21521,6 +21845,10 @@ _version: 2
   pl: "Czeka na odświeżenie ekranu"
   fr: "Attend le rafraîchissement de l'écran"
   zh-tw: "等待螢幕刷新"
+  nl: "Wacht op de verversing van het scherm"
+  de: "Wartet auf die Bildwiederholung des Bildschirms"
+  ru: "Ждёт обновления экрана"
+  uk: "Чекає оновлення екрана"
 
 "Show the frames per second in the top right corner":
   pt: "Mostra os quadros por segundo no canto superior direito"
@@ -21529,6 +21857,10 @@ _version: 2
   pl: "Pokazuje liczbę klatek na sekundę w prawym górnym rogu"
   fr: "Affiche les images par seconde en haut à droite"
   zh-tw: "在右上角顯示每秒的幀數"
+  nl: "Toon de beelden per seconde rechtsboven"
+  de: "Bilder pro Sekunde oben rechts anzeigen"
+  ru: "Показывать кадры в секунду в правом верхнем углу"
+  uk: "Показувати кадри на секунду в правому верхньому куті"
 
 "Set how loud the game should be":
   pt: "Define o volume geral do jogo"
@@ -21537,6 +21869,10 @@ _version: 2
   pl: "Ustawia głośność gry"
   fr: "Règle le volume du jeu"
   zh-tw: "設定遊戲的聲音大小"
+  nl: "Stel in hoe hard het spel klinkt"
+  de: "Stelle ein, wie laut das Spiel ist"
+  ru: "Задайте громкость игры"
+  uk: "Задайте гучність гри"
 
 "How loud the other vehicles are":
   pt: "Volume dos outros veículos"
@@ -21545,6 +21881,10 @@ _version: 2
   pl: "Głośność pozostałych pojazdów"
   fr: "Volume des autres véhicules"
   zh-tw: "其他車輛的聲音有多大"
+  nl: "Hoe hard de andere voertuigen klinken"
+  de: "Wie laut die anderen Fahrzeuge sind"
+  ru: "Громкость другого транспорта"
+  uk: "Гучність іншого транспорту"
 
 "How loud the sounds of the scenery are":
   pt: "Volume dos sons do cenário"
@@ -21553,6 +21893,10 @@ _version: 2
   pl: "Głośność dźwięków scenerii"
   fr: "Volume des sons du décor"
   zh-tw: "背景的聲音有多大"
+  nl: "Hoe hard de geluiden van de omgeving klinken"
+  de: "Wie laut die Umgebungsgeräusche sind"
+  ru: "Громкость звуков окружения"
+  uk: "Гучність звуків довкілля"
 
 "Approaching sounds higher, receding ones lower":
   pt: "Sons que se aproximam ficam mais agudos e os que se afastam mais graves"
@@ -21561,6 +21905,10 @@ _version: 2
   pl: "Zbliżające się dźwięki brzmią wyżej, oddalające się niżej"
   fr: "Les sons qui approchent sont plus aigus, ceux qui s'éloignent plus graves"
   zh-tw: "接近的聲音較高，遠離的聲音較低"
+  nl: "Naderende geluiden hoger, wegrijdende lager"
+  de: "Nahende Geräusche höher, sich entfernende tiefer"
+  ru: "Приближающиеся звуки выше, удаляющиеся ниже"
+  uk: "Звуки, що наближаються, вищі, що віддаляються, нижчі"
 
 "The view moves with the vehicle's acceleration":
   pt: "A visão se move com a aceleração do veículo"
@@ -21569,6 +21917,10 @@ _version: 2
   pl: "Widok porusza się wraz z przyspieszeniem pojazdu"
   fr: "La vue bouge avec les accélérations du véhicule"
   zh-tw: "視圖隨著車輛的加速度而移動"
+  nl: "Het beeld beweegt mee met de versnelling van het voertuig"
+  de: "Die Sicht bewegt sich mit der Beschleunigung des Fahrzeugs"
+  ru: "Вид смещается вместе с ускорением транспорта"
+  uk: "Вигляд зміщується разом із прискоренням транспорту"
 
 "Smooth viewpoint changes":
   pt: "Transições suaves entre pontos de vista"
@@ -21577,6 +21929,10 @@ _version: 2
   pl: "Płynne przejścia między widokami"
   fr: "Changements de vue fluides"
   zh-tw: "平滑的視點變化"
+  nl: "Vloeiende standpuntwissels"
+  de: "Weiche Blickwechsel"
+  ru: "Плавная смена точки обзора"
+  uk: "Плавна зміна точки огляду"
 
 "Enables a smooth transition between camera perspectives":
   pt: "Ativa uma transição suave entre as perspectivas da câmera"
@@ -21585,6 +21941,10 @@ _version: 2
   pl: "Włącza płynne przejście między perspektywami kamery"
   fr: "Active une transition fluide entre les vues de caméra"
   zh-tw: "實現相機視角之間的平滑過渡"
+  nl: "Zorgt voor een vloeiende overgang tussen camerastandpunten"
+  de: "Sorgt für einen weichen Übergang zwischen Kameraperspektiven"
+  ru: "Включает плавный переход между ракурсами камеры"
+  uk: "Вмикає плавний перехід між ракурсами камери"
 
 "The outside camera cannot pass through objects":
   pt: "A câmera externa não atravessa objetos"
@@ -21593,6 +21953,10 @@ _version: 2
   pl: "Kamera zewnętrzna nie przenika przez obiekty"
   fr: "La caméra extérieure ne traverse pas les objets"
   zh-tw: "外部攝影機不能穿過物體"
+  nl: "De buitencamera kan niet door objecten heen"
+  de: "Die Außenkamera kann nicht durch Objekte hindurch"
+  ru: "Внешняя камера не проходит сквозь объекты"
+  uk: "Зовнішня камера не проходить крізь об'єкти"
 
 "View turns with steering":
   pt: "A visão acompanha a direção"
@@ -21601,6 +21965,10 @@ _version: 2
   pl: "Widok obraca się ze skrętem kierownicy"
   fr: "La vue suit la direction"
   zh-tw: "透過轉向查看轉彎"
+  nl: "Beeld draait mee met sturen"
+  de: "Sicht dreht beim Lenken mit"
+  ru: "Вид поворачивается с рулём"
+  uk: "Вигляд повертається з кермом"
 
 "Camera turns with the steering wheel (cockpit only)":
   pt: "A câmera gira com o volante (somente na cabine)"
@@ -21609,6 +21977,10 @@ _version: 2
   pl: "Kamera obraca się razem z kierownicą (tylko w kabinie)"
   fr: "La caméra tourne avec le volant (cabine uniquement)"
   zh-tw: "攝影機隨方向盤轉動（僅限駕駛艙）"
+  nl: "De camera draait mee met het stuur (alleen in de cabine)"
+  de: "Die Kamera dreht mit dem Lenkrad mit (nur im Cockpit)"
+  ru: "Камера поворачивается вместе с рулём (только в кабине)"
+  uk: "Камера повертається разом із кермом (лише в кабіні)"
 
 "How far the view turns at full steering lock":
   pt: "Quanto a visão gira com o volante no fim de curso"
@@ -21617,6 +21989,10 @@ _version: 2
   pl: "Jak bardzo obraca się widok przy pełnym skręcie kierownicy"
   fr: "Angle de rotation de la vue au braquage maximal"
   zh-tw: "完全轉向鎖定時視野轉動多遠"
+  nl: "Hoe ver het beeld draait bij volle stuuruitslag"
+  de: "Wie weit die Sicht bei vollem Lenkeinschlag dreht"
+  ru: "Насколько поворачивается вид при полном повороте руля"
+  uk: "Наскільки повертається вигляд при повному повороті керма"
 
 "How quickly the view follows the steering":
   pt: "Velocidade com que a visão acompanha a direção"
@@ -21625,6 +22001,10 @@ _version: 2
   pl: "Jak szybko widok podąża za skrętem kierownicy"
   fr: "Rapidité avec laquelle la vue suit la direction"
   zh-tw: "視圖跟隨轉向的速度有多快"
+  nl: "Hoe snel het beeld het sturen volgt"
+  de: "Wie schnell die Sicht dem Lenken folgt"
+  ru: "Как быстро вид следует за рулём"
+  uk: "Як швидко вигляд іде за кермом"
 
 "Shows the driver's hand on the steering wheel (Cockpit only)":
   pt: "Mostra a mão do motorista no volante (somente na cabine)"
@@ -21633,6 +22013,10 @@ _version: 2
   pl: "Pokazuje dłoń kierowcy na kierownicy (tylko w kabinie)"
   fr: "Affiche les mains du conducteur sur le volant (cabine uniquement)"
   zh-tw: "顯示駕駛員的手放在方向盤上（僅限駕駛艙）"
+  nl: "Toont de hand van de bestuurder op het stuur (alleen in de cabine)"
+  de: "Zeigt die Hand des Fahrers am Lenkrad (nur im Cockpit)"
+  ru: "Показывает руку водителя на руле (только в кабине)"
+  uk: "Показує руку водія на кермі (лише в кабіні)"
 
 "Shows the driver in the outside views and in the mirrors":
   pt: "Mostra o motorista nas vistas externas e nos retrovisores"
@@ -21641,6 +22025,10 @@ _version: 2
   pl: "Pokazuje kierowcę w widokach zewnętrznych i w lusterkach"
   fr: "Affiche le conducteur dans les vues extérieures et les rétroviseurs"
   zh-tw: "在外部視圖和後視鏡中顯示駕駛員"
+  nl: "Toont de bestuurder in de buitenaanzichten en in de spiegels"
+  de: "Zeigt den Fahrer in den Außenansichten und in den Spiegeln"
+  ru: "Показывает водителя на внешних видах и в зеркалах"
+  uk: "Показує водія на зовнішніх видах і в дзеркалах"
 
 "Right mouse button turns the view":
   pt: "O botão direito do mouse gira a visão"
@@ -21649,6 +22037,10 @@ _version: 2
   pl: "Prawy przycisk myszy obraca widok"
   fr: "Le clic droit tourne la vue"
   zh-tw: "滑鼠右鍵轉動視圖"
+  nl: "Rechtermuisknop draait het beeld"
+  de: "Rechte Maustaste dreht die Sicht"
+  ru: "Правая кнопка мыши поворачивает вид"
+  uk: "Права кнопка миші повертає вигляд"
 
 "Shift+right zooms; off: right zooms as in OMSI, the wheel button turns":
   pt: "Shift+botão direito aplica zoom; desativado: o botão direito aplica zoom como no OMSI e o botão do meio gira a visão"
@@ -21657,6 +22049,10 @@ _version: 2
   pl: "Shift+prawy przybliża; wyłączone: prawy przybliża jak w OMSI, obraca przycisk kółka"
   fr: "Maj+clic droit zoome ; désactivé : le clic droit zoome comme dans OMSI, le bouton de la molette tourne"
   zh-tw: "Shift+右側縮放；關閉：與 OMSI 中一樣向右縮放，滾輪按鈕轉動"
+  nl: "Shift+rechts zoomt; uit: rechts zoomt zoals in OMSI, de wielknop draait"
+  de: "Umschalt+rechts zoomt; aus: rechts zoomt wie in OMSI, die Radtaste dreht"
+  ru: "Shift+правая — масштаб; выкл.: правая масштабирует, как в OMSI, колесо поворачивает"
+  uk: "Shift+права — масштаб; вимк.: права масштабує, як в OMSI, коліщатко повертає"
 
 "The view angle of the views from the vehicle":
   pt: "Ângulo de visão das câmeras do veículo"
@@ -21673,6 +22069,10 @@ _version: 2
   pl: "Siedzenie do przodu i do tyłu"
   fr: "Siège avant / arrière"
   zh-tw: "座椅向前和向後"
+  nl: "Stoel naar voren en achteren"
+  de: "Sitz vor und zurück"
+  ru: "Сиденье вперёд и назад"
+  uk: "Сидіння вперед і назад"
 
 "Adjust the driver's seat position forward or backward":
   pt: "Ajusta a posição do banco do motorista para frente ou para trás"
@@ -21681,6 +22081,10 @@ _version: 2
   pl: "Reguluje położenie siedzenia kierowcy do przodu lub do tyłu"
   fr: "Avance ou recule le siège du conducteur"
   zh-tw: "向前或向後調整駕駛座椅位置"
+  nl: "Zet de bestuurdersstoel naar voren of naar achteren"
+  de: "Stelle den Fahrersitz nach vorn oder hinten"
+  ru: "Сдвинуть сиденье водителя вперёд или назад"
+  uk: "Зсунути сидіння водія вперед або назад"
 
 "Seat height":
   pt: "Altura do banco"
@@ -21689,6 +22093,10 @@ _version: 2
   pl: "Wysokość siedzenia"
   fr: "Hauteur du siège"
   zh-tw: "座椅高度"
+  nl: "Stoelhoogte"
+  de: "Sitzhöhe"
+  ru: "Высота сиденья"
+  uk: "Висота сидіння"
 
 "Adjust the driver's seat height":
   pt: "Ajusta a altura do banco do motorista"
@@ -21697,6 +22105,10 @@ _version: 2
   pl: "Reguluje wysokość siedzenia kierowcy"
   fr: "Règle la hauteur du siège du conducteur"
   zh-tw: "調整駕駛座椅高度"
+  nl: "Stel de hoogte van de bestuurdersstoel in"
+  de: "Stelle die Höhe des Fahrersitzes ein"
+  ru: "Настроить высоту сиденья водителя"
+  uk: "Налаштувати висоту сидіння водія"
 
 "Seat left and right":
   pt: "Banco para a esquerda e direita"
@@ -21705,6 +22117,10 @@ _version: 2
   pl: "Siedzenie w lewo i w prawo"
   fr: "Siège gauche / droite"
   zh-tw: "座位左、右"
+  nl: "Stoel naar links en rechts"
+  de: "Sitz links und rechts"
+  ru: "Сиденье влево и вправо"
+  uk: "Сидіння вліво і вправо"
 
 "Adjust the driver's seat position from side to side":
   pt: "Ajusta a posição lateral do banco do motorista"
@@ -21713,6 +22129,10 @@ _version: 2
   pl: "Reguluje położenie siedzenia kierowcy na boki"
   fr: "Décale le siège du conducteur latéralement"
   zh-tw: "左右調整駕駛座椅位置"
+  nl: "Zet de bestuurdersstoel opzij"
+  de: "Stelle den Fahrersitz seitlich ein"
+  ru: "Сдвинуть сиденье водителя вбок"
+  uk: "Зсунути сидіння водія вбік"
 
 "Put the seat back where the vehicle has it.":
   pt: "Restaura o banco à posição definida pelo veículo."
@@ -21721,6 +22141,10 @@ _version: 2
   pl: "Przywraca siedzenie do położenia zdefiniowanego przez pojazd."
   fr: "Remet le siège à la position du véhicule."
   zh-tw: "將座椅靠背放在車輛有的位置。"
+  nl: "Zet de stoel terug waar het voertuig hem heeft."
+  de: "Den Sitz dorthin zurückstellen, wo das Fahrzeug ihn hat."
+  ru: "Вернуть сиденье туда, где оно у транспорта."
+  uk: "Повернути сидіння туди, де воно в транспорту."
 
 "Steer and control the pedals using the mouse":
   pt: "Esterce e controle os pedais usando o mouse"
@@ -21729,6 +22153,10 @@ _version: 2
   pl: "Kieruj i obsługuj pedały za pomocą myszy"
   fr: "Diriger et actionner les pédales à la souris"
   zh-tw: "使用滑鼠轉向和控制踏板"
+  nl: "Stuur en bedien de pedalen met de muis"
+  de: "Lenken und Pedale mit der Maus bedienen"
+  ru: "Рулить и управлять педалями мышью"
+  uk: "Кермувати й керувати педалями мишею"
 
 "Adjust how much the steering wheel turns based on mouse movement":
   pt: "Ajusta quanto o volante gira com o movimento do mouse"
@@ -21737,6 +22165,10 @@ _version: 2
   pl: "Reguluje, jak bardzo kierownica obraca się pod wpływem ruchu myszy"
   fr: "Règle de combien le volant tourne selon le mouvement de la souris"
   zh-tw: "根據滑鼠移動調整方向盤轉動的程度"
+  nl: "Stel in hoeveel het stuur draait bij muisbewegingen"
+  de: "Stelle ein, wie stark das Lenkrad bei Mausbewegung dreht"
+  ru: "Настроить, насколько поворачивается руль от движения мыши"
+  uk: "Налаштувати, наскільки повертається кермо від руху миші"
 
 "Keyboard steering at OMSI's steady pace":
   pt: "Direção pelo teclado no ritmo constante do OMSI"
@@ -21745,6 +22177,10 @@ _version: 2
   pl: "Kierowanie klawiaturą w stałym tempie OMSI"
   fr: "Direction au clavier à la vitesse constante d'OMSI"
   zh-tw: "鍵盤操控以 OMSI 的穩定速度進行"
+  nl: "Sturen met toetsen in het vaste tempo van OMSI"
+  de: "Tastaturlenkung im gleichmäßigen Tempo von OMSI"
+  ru: "Руление клавишами в ровном темпе OMSI"
+  uk: "Кермування клавішами в рівному темпі OMSI"
 
 "The wheel stays where the keys left it":
   pt: "O volante permanece onde as teclas o deixaram"
@@ -21753,6 +22189,10 @@ _version: 2
   pl: "Kierownica zostaje tam, gdzie zostawiły ją klawisze"
   fr: "Le volant reste là où les touches l'ont laissé"
   zh-tw: "輪子停留在鑰匙離開的位置"
+  nl: "Het stuur blijft staan waar de toetsen het lieten"
+  de: "Das Lenkrad bleibt, wo die Tasten es gelassen haben"
+  ru: "Руль остаётся там, где его оставили клавиши"
+  uk: "Кермо залишається там, де його залишили клавіші"
 
 "The steering keys act slower at speed":
   pt: "As teclas de direção atuam mais lentamente em velocidade"
@@ -21761,6 +22201,10 @@ _version: 2
   pl: "Klawisze kierowania działają wolniej przy prędkości"
   fr: "Les touches de direction agissent plus lentement en vitesse"
   zh-tw: "加速時轉向鍵動作變慢"
+  nl: "De stuurtoetsen werken trager bij snelheid"
+  de: "Die Lenktasten wirken bei Tempo langsamer"
+  ru: "Клавиши руления действуют медленнее на скорости"
+  uk: "Клавіші кермування діють повільніше на швидкості"
 
 "Enable force feedback for the steering wheel and vibration for controllers":
   pt: "Ativa o force feedback do volante e a vibração dos controles"
@@ -21769,6 +22213,10 @@ _version: 2
   pl: "Włącza force feedback kierownicy i wibracje kontrolerów"
   fr: "Active le retour de force du volant et la vibration des manettes"
   zh-tw: "啟用方向盤的力回饋和控制器的振動"
+  nl: "Zet force feedback voor het stuur en trillen voor controllers aan"
+  de: "Force Feedback für das Lenkrad und Vibration für Controller einschalten"
+  ru: "Включить отдачу руля и вибрацию контроллеров"
+  uk: "Увімкнути віддачу керма й вібрацію контролерів"
 
 "For wheels without a saved direction":
   pt: "Para volantes sem uma direção salva"
@@ -21777,6 +22225,10 @@ _version: 2
   pl: "Dla kierownic bez zapisanego kierunku"
   fr: "Pour les volants sans sens enregistré"
   zh-tw: "對於沒有保存方向的車輪"
+  nl: "Voor sturen zonder opgeslagen richting"
+  de: "Für Lenkräder ohne gespeicherte Richtung"
+  ru: "Для рулей без сохранённого направления"
+  uk: "Для кермів без збереженого напрямку"
 
 "The steering wheel's own rotation, lock to lock":
   pt: "Rotação própria do volante, de batente a batente"
@@ -21785,6 +22237,10 @@ _version: 2
   pl: "Własny kąt obrotu kierownicy, od ogranicznika do ogranicznika"
   fr: "La rotation propre du volant, de butée à butée"
   zh-tw: "方向盤自己轉動，鎖就鎖"
+  nl: "De eigen draaihoek van het stuur, van aanslag tot aanslag"
+  de: "Der eigene Drehbereich des Lenkrads, von Anschlag zu Anschlag"
+  ru: "Собственный угол поворота руля, от упора до упора"
+  uk: "Власний кут повороту керма, від упору до упору"
 
 "How far the wheel turns for the vehicle's full lock":
   pt: "Quanto o volante gira até o esterçamento máximo do veículo"
@@ -21793,6 +22249,10 @@ _version: 2
   pl: "Jak bardzo obraca się kierownica przy pełnym skręcie kół pojazdu"
   fr: "De combien le volant tourne pour le braquage maximal du véhicule"
   zh-tw: "車輛完全鎖定時車輪轉動多遠"
+  nl: "Hoe ver het stuur draait voor de volle uitslag van het voertuig"
+  de: "Wie weit das Lenkrad für den vollen Einschlag des Fahrzeugs dreht"
+  ru: "Насколько поворачивается руль до полного поворота колёс"
+  uk: "Наскільки повертається кермо до повного повороту коліс"
 
 "Adjust how strongly pedal input affects the throttle":
   pt: "Ajusta quanto a entrada do pedal afeta o acelerador"
@@ -21801,6 +22261,10 @@ _version: 2
   pl: "Reguluje, jak mocno ruch pedału wpływa na gaz"
   fr: "Règle l'effet de la pédale sur l'accélérateur"
   zh-tw: "調整踏板輸入對油門的影響程度"
+  nl: "Stel in hoe sterk het pedaal op het gas werkt"
+  de: "Stelle ein, wie stark das Pedal aufs Gas wirkt"
+  ru: "Настроить, насколько педаль влияет на газ"
+  uk: "Налаштувати, наскільки педаль впливає на газ"
 
 "Adjust how strongly pedal input affects the brake":
   pt: "Ajusta quanto a entrada do pedal afeta o freio"
@@ -21809,6 +22273,10 @@ _version: 2
   pl: "Reguluje, jak mocno ruch pedału wpływa na hamulec"
   fr: "Règle l'effet de la pédale sur le frein"
   zh-tw: "調整踏板輸入對煞車的影響程度"
+  nl: "Stel in hoe sterk het pedaal op de rem werkt"
+  de: "Stelle ein, wie stark das Pedal auf die Bremse wirkt"
+  ru: "Настроить, насколько педаль влияет на тормоз"
+  uk: "Налаштувати, наскільки педаль впливає на гальмо"
 
 "Keyboard brake stays on":
   pt: "O freio do teclado permanece acionado"
@@ -21817,6 +22285,10 @@ _version: 2
   pl: "Hamulec z klawiatury pozostaje włączony"
   fr: "Le frein au clavier reste serré"
   zh-tw: "鍵盤煞車保持開啟狀態"
+  nl: "Rem met toetsen blijft aan"
+  de: "Tastaturbremse bleibt angezogen"
+  ru: "Тормоз с клавиатуры остаётся нажатым"
+  uk: "Гальмо з клавіатури залишається натиснутим"
 
 "Keep the brake applied until the throttle is pressed":
   pt: "Mantém o freio acionado até o acelerador ser pressionado"
@@ -21825,6 +22297,10 @@ _version: 2
   pl: "Utrzymuje hamulec włączony do wciśnięcia gazu"
   fr: "Garde le frein serré jusqu'à ce qu'on accélère"
   zh-tw: "保持煞車直到踩下油門"
+  nl: "Houd de rem aan tot je gas geeft"
+  de: "Die Bremse bleibt angezogen, bis du Gas gibst"
+  ru: "Держать тормоз, пока не нажат газ"
+  uk: "Тримати гальмо, доки не натиснуто газ"
 
 "Automatically operate the clutch for you":
   pt: "Opera a embreagem automaticamente"
@@ -21833,6 +22309,10 @@ _version: 2
   pl: "Automatycznie obsługuje sprzęgło za ciebie"
   fr: "Actionne l'embrayage automatiquement"
   zh-tw: "自動為您操作離合器"
+  nl: "Bedient de koppeling automatisch voor je"
+  de: "Bedient die Kupplung automatisch für dich"
+  ru: "Автоматически управляет сцеплением за вас"
+  uk: "Автоматично керує зчепленням за вас"
 
 "Translates texts nobody has translated, on this machine":
   pt: "Traduz nesta máquina os textos que ninguém traduziu"
@@ -21841,6 +22321,10 @@ _version: 2
   pl: "Tłumaczy na tym komputerze teksty, których nikt jeszcze nie przetłumaczył"
   fr: "Traduit sur cette machine les textes que personne n'a traduits"
   zh-tw: "在這台機器上翻譯沒人翻譯過的文本"
+  nl: "Vertaalt teksten die nog niemand vertaald heeft, op deze computer"
+  de: "Übersetzt Texte, die noch niemand übersetzt hat, auf diesem Rechner"
+  ru: "Переводит на этом компьютере тексты, которые никто не перевёл"
+  uk: "Перекладає на цьому комп'ютері тексти, які ніхто не переклав"
 
 "The size of the texts, the menu, the timetable and the navigator":
   pt: "Tamanho dos textos, do menu, do horário e do navegador"
@@ -21849,6 +22333,10 @@ _version: 2
   pl: "Rozmiar tekstów, menu, rozkładu i nawigatora"
   fr: "La taille des textes, du menu, des horaires et du navigateur"
   zh-tw: "文字、選單、時間表和導航器的大小"
+  nl: "De grootte van de teksten, het menu, de dienstregeling en de navigator"
+  de: "Die Größe der Texte, des Menüs, des Fahrplans und des Navigators"
+  ru: "Размер текстов, меню, расписания и навигатора"
+  uk: "Розмір текстів, меню, розкладу й навігатора"
 
 "On a window taller than 1080p the interface grows with it":
   pt: "Em uma janela maior que 1080p, a interface cresce junto"
@@ -21857,6 +22345,10 @@ _version: 2
   pl: "W oknie wyższym niż 1080p interfejs rośnie razem z nim"
   fr: "Sur une fenêtre de plus de 1080p, l'interface s'agrandit avec elle"
   zh-tw: "在高於 1080p 的視窗上，介面會隨之成長"
+  nl: "In een venster hoger dan 1080p groeit de interface mee"
+  de: "In einem Fenster höher als 1080p wächst die Oberfläche mit"
+  ru: "В окне выше 1080p интерфейс растёт вместе с ним"
+  uk: "У вікні вищому за 1080p інтерфейс росте разом із ним"
 
 "How much of the interface's backgrounds shows":
   pt: "Quanto dos fundos da interface fica visível"
@@ -21865,6 +22357,10 @@ _version: 2
   pl: "Ile tła interfejsu jest widoczne"
   fr: "Opacité des fonds de l'interface"
   zh-tw: "介面背景顯示了多少"
+  nl: "Hoeveel je van de achtergronden van de interface ziet"
+  de: "Wie viel von den Hintergründen der Oberfläche zu sehen ist"
+  ru: "Насколько видны фоны интерфейса"
+  uk: "Наскільки видно тла інтерфейсу"
 
 "Shows the name of what the cursor points at":
   pt: "Mostra o nome do item apontado pelo cursor"
@@ -21873,6 +22369,10 @@ _version: 2
   pl: "Pokazuje nazwę elementu, na który wskazuje kursor"
   fr: "Affiche le nom de ce que vise le curseur"
   zh-tw: "顯示遊標所指的名稱"
+  nl: "Toont de naam van waar de cursor op wijst"
+  de: "Zeigt den Namen dessen, worauf der Mauszeiger zeigt"
+  ru: "Показывает название того, на что указывает курсор"
+  uk: "Показує назву того, на що вказує курсор"
 
 "Why the vehicle does not move, the change due, what a service did":
   pt: "Mostra por que o veículo não se move, o troco devido e o que um serviço fez"
@@ -21881,6 +22381,10 @@ _version: 2
   pl: "Dlaczego pojazd nie rusza, należna reszta, co zrobiła obsługa serwisowa"
   fr: "Pourquoi le véhicule n'avance pas, la monnaie à rendre, ce qu'a fait un service"
   zh-tw: "為什麼車輛不動、應更換、服務做了什麼"
+  nl: "Waarom het voertuig niet rijdt, het wisselgeld, wat een service deed"
+  de: "Warum das Fahrzeug nicht fährt, das fällige Wechselgeld, was ein Service getan hat"
+  ru: "Почему транспорт не едет, какую сдачу дать, что сделала служба"
+  uk: "Чому транспорт не їде, яку решту дати, що зробила служба"
 
 "Shows the chat of a LAN session":
   pt: "Mostra o chat de uma sessão LAN"
@@ -21889,6 +22393,10 @@ _version: 2
   pl: "Pokazuje czat sesji LAN"
   fr: "Affiche le chat d'une session en réseau"
   zh-tw: "顯示 LAN 會話的聊天內容"
+  nl: "Toont de chat van een LAN-sessie"
+  de: "Zeigt den Chat einer LAN-Sitzung"
+  ru: "Показывает чат сессии LAN"
+  uk: "Показує чат сесії LAN"
 
 "Shows the names of the other players":
   pt: "Mostra os nomes dos outros jogadores"
@@ -21897,6 +22405,10 @@ _version: 2
   pl: "Pokazuje nazwy pozostałych graczy"
   fr: "Affiche le nom des autres joueurs"
   zh-tw: "顯示其他玩家的名字"
+  nl: "Toont de namen van de andere spelers"
+  de: "Zeigt die Namen der anderen Spieler"
+  ru: "Показывает имена других игроков"
+  uk: "Показує імена інших гравців"
 
 "Switch":
   pt: "Trocar"
@@ -21905,6 +22417,10 @@ _version: 2
   pl: "Przełącz"
   fr: "Changer"
   zh-tw: "轉變"
+  nl: "Wisselen"
+  de: "Wechseln"
+  ru: "Пересесть"
+  uk: "Пересісти"
 
 "Take the wheel of another vehicle standing in the world":
   pt: "Assumir o controle de outro veículo no mundo"
@@ -21913,6 +22429,10 @@ _version: 2
   pl: "Przejmij kierownicę innego pojazdu stojącego w świecie"
   fr: "Prendre le volant d'un autre véhicule présent dans le monde"
   zh-tw: "抓住世界上另一輛車的方向盤"
+  nl: "Neem het stuur over van een ander voertuig in de wereld"
+  de: "Übernimm das Steuer eines anderen Fahrzeugs in der Welt"
+  ru: "Сесть за руль другого транспорта в мире"
+  uk: "Сісти за кермо іншого транспорту у світі"
 
 "Couple the vehicle to the one in front of or behind it":
   pt: "Acopla o veículo ao que está à frente ou atrás"
@@ -21921,6 +22441,10 @@ _version: 2
   pl: "Sprzęgnij pojazd z tym przed nim lub za nim"
   fr: "Atteler le véhicule à celui de devant ou de derrière"
   zh-tw: "將車輛與其前方或後方的車輛耦合"
+  nl: "Koppel het voertuig aan het voertuig ervoor of erachter"
+  de: "Das Fahrzeug an das vordere oder hintere ankuppeln"
+  ru: "Сцепить транспорт с тем, что спереди или сзади"
+  uk: "Зчепити транспорт із тим, що попереду чи позаду"
 
 "Separate the coupled vehicles":
   pt: "Separa os veículos acoplados"
@@ -21929,6 +22453,10 @@ _version: 2
   pl: "Rozdziel sprzęgnięte pojazdy"
   fr: "Dételer les véhicules attelés"
   zh-tw: "分離耦合車輛"
+  nl: "Ontkoppel de gekoppelde voertuigen"
+  de: "Die gekuppelten Fahrzeuge trennen"
+  ru: "Расцепить сцепленный транспорт"
+  uk: "Розчепити зчеплений транспорт"
 
 "Get up and out":
   pt: "Levantar e sair"
@@ -21937,6 +22465,10 @@ _version: 2
   pl: "Wstań i wysiądź"
   fr: "Se lever et sortir"
   zh-tw: "起身出去"
+  nl: "Opstaan en uitstappen"
+  de: "Aufstehen und aussteigen"
+  ru: "Встать и выйти"
+  uk: "Встати й вийти"
 
 "Get out":
   pt: "Sair"
@@ -21945,6 +22477,10 @@ _version: 2
   pl: "Wysiądź"
   fr: "Sortir"
   zh-tw: "出去"
+  nl: "Uitstappen"
+  de: "Aussteigen"
+  ru: "Выйти"
+  uk: "Вийти"
 
 "Step out of your car and explore the world":
   pt: "Saia do veículo e explore o mundo"
@@ -21953,6 +22489,10 @@ _version: 2
   pl: "Wysiądź z pojazdu i zwiedzaj świat"
   fr: "Sortez de votre véhicule et explorez le monde"
   zh-tw: "走出汽車，探索世界"
+  nl: "Stap uit en verken de wereld"
+  de: "Steig aus und erkunde die Welt"
+  ru: "Выйдите из машины и исследуйте мир"
+  uk: "Вийдіть із машини й досліджуйте світ"
 
 "Remove this vehicle":
   pt: "Remover este veículo"
@@ -21961,6 +22501,10 @@ _version: 2
   pl: "Usuń ten pojazd"
   fr: "Retirer ce véhicule"
   zh-tw: "刪除此車輛"
+  nl: "Dit voertuig verwijderen"
+  de: "Dieses Fahrzeug entfernen"
+  ru: "Убрать этот транспорт"
+  uk: "Прибрати цей транспорт"
 
 "Remove":
   pt: "Remover"
@@ -21969,6 +22513,10 @@ _version: 2
   pl: "Usuń"
   fr: "Retirer"
   zh-tw: "消除"
+  nl: "Verwijderen"
+  de: "Entfernen"
+  ru: "Убрать"
+  uk: "Прибрати"
 
 "Removes the current vehicle":
   pt: "Remove o veículo atual"
@@ -21977,6 +22525,10 @@ _version: 2
   pl: "Usuwa bieżący pojazd"
   fr: "Retire le véhicule actuel"
   zh-tw: "移除當前車輛"
+  nl: "Verwijdert het huidige voertuig"
+  de: "Entfernt das aktuelle Fahrzeug"
+  ru: "Убирает текущий транспорт"
+  uk: "Прибирає поточний транспорт"
 
 "Removes all vehicles you've placed from the world":
   pt: "Remove do mundo todos os veículos que você colocou"
@@ -21985,6 +22537,10 @@ _version: 2
   pl: "Usuwa ze świata wszystkie ustawione przez ciebie pojazdy"
   fr: "Retire du monde tous les véhicules que vous avez placés"
   zh-tw: "移除您從世界中放置的所有車輛"
+  nl: "Verwijdert alle voertuigen die je geplaatst hebt uit de wereld"
+  de: "Entfernt alle von dir eingesetzten Fahrzeuge aus der Welt"
+  ru: "Убирает из мира весь поставленный вами транспорт"
+  uk: "Прибирає зі світу весь поставлений вами транспорт"
 
 "Fills the tank of the current vehicle":
   pt: "Abastece o tanque do veículo atual"
@@ -21993,6 +22549,10 @@ _version: 2
   pl: "Napełnia zbiornik bieżącego pojazdu"
   fr: "Fait le plein du véhicule actuel"
   zh-tw: "給當前車輛的油箱加滿油"
+  nl: "Tankt het huidige voertuig vol"
+  de: "Tankt das aktuelle Fahrzeug voll"
+  ru: "Заправляет текущий транспорт"
+  uk: "Заправляє поточний транспорт"
 
 "Cleans the current vehicle":
   pt: "Limpa o veículo atual"
@@ -22001,6 +22561,10 @@ _version: 2
   pl: "Myje bieżący pojazd"
   fr: "Nettoie le véhicule actuel"
   zh-tw: "清潔當前車輛"
+  nl: "Maakt het huidige voertuig schoon"
+  de: "Reinigt das aktuelle Fahrzeug"
+  ru: "Моет текущий транспорт"
+  uk: "Миє поточний транспорт"
 
 "Repairs the current vehicle":
   pt: "Repara o veículo atual"
@@ -22009,6 +22573,10 @@ _version: 2
   pl: "Naprawia bieżący pojazd"
   fr: "Répare le véhicule actuel"
   zh-tw: "修復當前車輛"
+  nl: "Repareert het huidige voertuig"
+  de: "Repariert das aktuelle Fahrzeug"
+  ru: "Ремонтирует текущий транспорт"
+  uk: "Ремонтує поточний транспорт"
 
 "Put back on its wheels":
   pt: "Colocar de volta sobre as rodas"
@@ -22017,6 +22585,10 @@ _version: 2
   pl: "Postaw z powrotem na kołach"
   fr: "Remettre sur ses roues"
   zh-tw: "恢復直立位置"
+  nl: "Terug op de wielen zetten"
+  de: "Wieder auf die Räder stellen"
+  ru: "Поставить на колёса"
+  uk: "Поставити на колеса"
 
 "Return the vehicle to an upright position":
   pt: "Coloca o veículo novamente na posição normal"
@@ -22025,6 +22597,10 @@ _version: 2
   pl: "Przywróć pojazd do pozycji pionowej"
   fr: "Remet le véhicule d'aplomb"
   zh-tw: "將車輛恢復直立位置"
+  nl: "Zet het voertuig weer rechtop"
+  de: "Das Fahrzeug wieder aufrichten"
+  ru: "Вернуть транспорт в вертикальное положение"
+  uk: "Повернути транспорт у вертикальне положення"
 
 "Move on the map":
   pt: "Mover no mapa"
@@ -22033,6 +22609,10 @@ _version: 2
   pl: "Przenieś na mapie"
   fr: "Se déplacer sur la carte"
   zh-tw: "在地圖上移動"
+  nl: "Verplaatsen op de kaart"
+  de: "Auf der Karte versetzen"
+  ru: "Переместить по карте"
+  uk: "Перемістити на мапі"
 
 "Pick":
   pt: "Escolher"
@@ -22041,6 +22621,10 @@ _version: 2
   pl: "Wybierz"
   fr: "Choisir"
   zh-tw: "挑選"
+  nl: "Kiezen"
+  de: "Wählen"
+  ru: "Выбрать"
+  uk: "Вибрати"
 
 "Teleports you to any location on the map":
   pt: "Teleporta você para qualquer local do mapa"
@@ -22049,6 +22633,10 @@ _version: 2
   pl: "Teleportuje cię w dowolne miejsce na mapie"
   fr: "Vous téléporte n'importe où sur la carte"
   zh-tw: "將您傳送到地圖上的任何位置"
+  nl: "Teleporteert je naar elke plek op de kaart"
+  de: "Teleportiert dich an jeden Ort der Karte"
+  ru: "Телепортирует в любую точку карты"
+  uk: "Телепортує в будь-яке місце мапи"
 
 "Real-time sync":
   pt: "Sincronização em tempo real"
@@ -22057,6 +22645,10 @@ _version: 2
   pl: "Synchronizacja z czasem rzeczywistym"
   fr: "Synchro en temps réel"
   zh-tw: "即時同步"
+  nl: "Echte tijd volgen"
+  de: "Echtzeit-Abgleich"
+  ru: "Синхронизация с реальным временем"
+  uk: "Синхронізація з реальним часом"
 
 "The game follows your device's date and time":
   pt: "O jogo segue a data e a hora do seu dispositivo"
@@ -22065,6 +22657,10 @@ _version: 2
   pl: "Gra korzysta z daty i godziny twojego urządzenia"
   fr: "Le jeu suit la date et l'heure de votre appareil"
   zh-tw: "遊戲遵循您裝置的日期和時間"
+  nl: "Het spel volgt de datum en tijd van je apparaat"
+  de: "Das Spiel folgt Datum und Uhrzeit deines Geräts"
+  ru: "Игра следует дате и времени вашего устройства"
+  uk: "Гра йде за датою й часом вашого пристрою"
 
 "Date and time":
   pt: "Data e hora"
@@ -22073,6 +22669,10 @@ _version: 2
   pl: "Data i godzina"
   fr: "Date et heure"
   zh-tw: "日期和時間"
+  nl: "Datum en tijd"
+  de: "Datum und Uhrzeit"
+  ru: "Дата и время"
+  uk: "Дата й час"
 
 "Synchronized with the real time":
   pt: "Sincronizado com a hora real"
@@ -22081,6 +22681,10 @@ _version: 2
   pl: "Zsynchronizowano z czasem rzeczywistym"
   fr: "Synchronisé avec l'heure réelle"
   zh-tw: "與即時同步"
+  nl: "Gelijk met de echte tijd"
+  de: "Mit der Echtzeit abgeglichen"
+  ru: "Синхронизировано с реальным временем"
+  uk: "Синхронізовано з реальним часом"
 
 "Exact time":
   pt: "Hora exata"
@@ -22089,6 +22693,10 @@ _version: 2
   pl: "Dokładna godzina"
   fr: "Heure exacte"
   zh-tw: "確切時間"
+  nl: "Precieze tijd"
+  de: "Genaue Uhrzeit"
+  ru: "Точное время"
+  uk: "Точний час"
 
 "Press Enter to change, Esc to cancel":
   pt: "Pressione Enter para alterar e Esc para cancelar"
@@ -22097,6 +22705,10 @@ _version: 2
   pl: "Naciśnij Enter, aby zmienić, lub Esc, aby anulować"
   fr: "Entrée pour changer, Échap pour annuler"
   zh-tw: "按 Enter 更改，按 Esc 取消"
+  nl: "Druk op Enter om te wijzigen, Esc om te annuleren"
+  de: "Enter zum Ändern, Esc zum Abbrechen"
+  ru: "Enter — изменить, Esc — отмена"
+  uk: "Enter — змінити, Esc — скасувати"
 
 "Change the current time (Press Enter to change)":
   pt: "Alterar o horário atual (pressione Enter para alterar)"
@@ -22105,6 +22717,10 @@ _version: 2
   pl: "Zmień bieżącą godzinę (naciśnij Enter, aby zmienić)"
   fr: "Changer l'heure actuelle (Entrée pour valider)"
   zh-tw: "變更目前時間（按 Enter 變更）"
+  nl: "Wijzig de huidige tijd (druk op Enter om te wijzigen)"
+  de: "Die aktuelle Uhrzeit ändern (Enter zum Ändern)"
+  ru: "Изменить текущее время (Enter — изменить)"
+  uk: "Змінити поточний час (Enter — змінити)"
 
 "Hour":
   pt: "Hora"
@@ -22113,6 +22729,10 @@ _version: 2
   pl: "Godzina"
   fr: "Heure"
   zh-tw: "小時"
+  nl: "Uur"
+  de: "Stunde"
+  ru: "Час"
+  uk: "Година"
 
 "Set the hour of the day directly":
   pt: "Define diretamente a hora do dia"
@@ -22121,6 +22741,10 @@ _version: 2
   pl: "Ustaw bezpośrednio godzinę dnia"
   fr: "Régler directement l'heure"
   zh-tw: "直接設定一天中的小時"
+  nl: "Stel het uur van de dag direct in"
+  de: "Die Stunde des Tages direkt einstellen"
+  ru: "Задать час дня напрямую"
+  uk: "Задати годину дня напряму"
 
 "Minute":
   pt: "Minuto"
@@ -22129,6 +22753,10 @@ _version: 2
   pl: "Minuta"
   fr: "Minute"
   zh-tw: "分鐘"
+  nl: "Minuut"
+  de: "Minute"
+  ru: "Минута"
+  uk: "Хвилина"
 
 "Set the minute directly":
   pt: "Define diretamente o minuto"
@@ -22137,6 +22765,10 @@ _version: 2
   pl: "Ustaw bezpośrednio minutę"
   fr: "Régler directement les minutes"
   zh-tw: "直接設定分鐘"
+  nl: "Stel de minuut direct in"
+  de: "Die Minute direkt einstellen"
+  ru: "Задать минуту напрямую"
+  uk: "Задати хвилину напряму"
 
 "Jump to this time of day.":
   pt: "Avança diretamente para este horário."
@@ -22145,6 +22777,10 @@ _version: 2
   pl: "Przeskocz do tej pory dnia."
   fr: "Passer à cette heure de la journée."
   zh-tw: "跳到一天中的這個時間。"
+  nl: "Spring naar dit tijdstip."
+  de: "Zu dieser Tageszeit springen."
+  ru: "Перейти к этому времени суток."
+  uk: "Перейти до цієї пори доби."
 
 "Move the clock so that the vehicle is on time":
   pt: "Ajusta o relógio para que o veículo fique no horário"
@@ -22153,6 +22789,10 @@ _version: 2
   pl: "Przesuń zegar tak, aby pojazd był punktualnie"
   fr: "Avancer l'horloge pour que le véhicule soit à l'heure"
   zh-tw: "移動時鐘以使車輛準時"
+  nl: "Zet de klok zo dat het voertuig op tijd is"
+  de: "Die Uhr so stellen, dass das Fahrzeug pünktlich ist"
+  ru: "Перевести часы так, чтобы транспорт шёл по графику"
+  uk: "Перевести годинник так, щоб транспорт ішов за графіком"
 
 "How fast the world's clock runs":
   pt: "Velocidade do relógio do mundo"
@@ -22161,6 +22801,10 @@ _version: 2
   pl: "Jak szybko płynie zegar świata"
   fr: "Vitesse de l'horloge du monde"
   zh-tw: "世界時鐘走多快"
+  nl: "Hoe snel de klok van de wereld loopt"
+  de: "Wie schnell die Uhr der Welt läuft"
+  ru: "Как быстро идут часы мира"
+  uk: "Як швидко йде годинник світу"
 
 "METAR sync":
   pt: "Sincronização METAR"
@@ -22169,6 +22813,10 @@ _version: 2
   pl: "Synchronizacja METAR"
   fr: "Synchro METAR"
   zh-tw: "METAR 同步"
+  nl: "METAR volgen"
+  de: "METAR-Abgleich"
+  ru: "Синхронизация METAR"
+  uk: "Синхронізація METAR"
 
 "The weather follows the real METAR report":
   pt: "O clima segue o relatório METAR real"
@@ -22177,6 +22825,10 @@ _version: 2
   pl: "Pogoda podąża za rzeczywistym raportem METAR"
   fr: "La météo suit le bulletin METAR réel"
   zh-tw: "天氣遵循真實的 METAR 報告"
+  nl: "Het weer volgt het echte METAR-bericht"
+  de: "Das Wetter folgt dem echten METAR-Bericht"
+  ru: "Погода следует реальной сводке METAR"
+  uk: "Погода йде за реальним зведенням METAR"
 
 "METAR source":
   pt: "Fonte METAR"
@@ -22185,6 +22837,10 @@ _version: 2
   pl: "Źródło METAR"
   fr: "Source METAR"
   zh-tw: "METAR 源"
+  nl: "METAR-bron"
+  de: "METAR-Quelle"
+  ru: "Источник METAR"
+  uk: "Джерело METAR"
 
 "The airport whose METAR report the weather follows.":
   pt: "Aeroporto cujo relatório METAR define o clima."
@@ -22201,6 +22857,10 @@ _version: 2
   pl: "Gotowe ustawienie"
   fr: "Préréglage"
   zh-tw: "預設"
+  nl: "Voorinstelling"
+  de: "Vorgabe"
+  ru: "Предустановка"
+  uk: "Передустановка"
 
 "A ready-made weather":
   pt: "Condição climática predefinida"
@@ -22209,6 +22869,10 @@ _version: 2
   pl: "Gotowa pogoda"
   fr: "Une météo toute prête"
   zh-tw: "現成的天氣方案"
+  nl: "Een kant-en-klaar weer"
+  de: "Ein fertiges Wetter"
+  ru: "Готовая погода"
+  uk: "Готова погода"
 
 "The kind of clouds in the sky.":
   pt: "Tipo de nuvens no céu."
@@ -22217,6 +22881,10 @@ _version: 2
   pl: "Rodzaj chmur na niebie."
   fr: "Le type de nuages dans le ciel."
   zh-tw: "天上的雲朵的類型。"
+  nl: "Het soort wolken aan de hemel."
+  de: "Die Art der Wolken am Himmel."
+  ru: "Тип облаков в небе."
+  uk: "Тип хмар у небі."
 
 "Visibility":
   pt: "Visibilidade"
@@ -22237,6 +22905,10 @@ _version: 2
   pl: "Jak daleko widać; mniej oznacza mgłę."
   fr: "La distance de vue ; moins, c'est du brouillard."
   zh-tw: "能見度；數值越低，霧越大。"
+  nl: "Hoe ver je kunt kijken; minder is mist."
+  de: "Wie weit man sehen kann; weniger ist Nebel."
+  ru: "Как далеко видно; меньше — туман."
+  uk: "Як далеко видно; менше — туман."
 
 "Precipitation":
   pt: "Precipitação"
@@ -22257,6 +22929,10 @@ _version: 2
   pl: "Deszcz lub śnieg."
   fr: "Pluie ou neige."
   zh-tw: "下雨或下雪。"
+  nl: "Regen of sneeuw."
+  de: "Regen oder Schnee."
+  ru: "Дождь или снег."
+  uk: "Дощ або сніг."
 
 "Precipitation strength":
   pt: "Intensidade da precipitação"
@@ -22265,6 +22941,10 @@ _version: 2
   pl: "Intensywność opadów"
   fr: "Intensité des précipitations"
   zh-tw: "降雨強度"
+  nl: "Hevigheid van de neerslag"
+  de: "Stärke des Niederschlags"
+  ru: "Сила осадков"
+  uk: "Сила опадів"
 
 "How hard it rains or snows.":
   pt: "Intensidade da chuva ou neve."
@@ -22273,6 +22953,10 @@ _version: 2
   pl: "Jak mocno pada deszcz lub śnieg."
   fr: "La force de la pluie ou de la neige."
   zh-tw: "雨或雪有多大。"
+  nl: "Hoe hard het regent of sneeuwt."
+  de: "Wie stark es regnet oder schneit."
+  ru: "Насколько сильно идёт дождь или снег."
+  uk: "Наскільки сильно йде дощ чи сніг."
 
 "Wet roads":
   pt: "Ruas molhadas"
@@ -22281,6 +22965,10 @@ _version: 2
   pl: "Mokre drogi"
   fr: "Routes mouillées"
   zh-tw: "濕滑的道路"
+  nl: "Natte wegen"
+  de: "Nasse Straßen"
+  ru: "Мокрые дороги"
+  uk: "Мокрі дороги"
 
 "How wet the roads are now (they dry in the sun, wet in the rain).":
   pt: "Quanto as ruas estão molhadas agora (secam ao sol e molham com a chuva)."
@@ -22289,6 +22977,10 @@ _version: 2
   pl: "Jak mokre są teraz drogi (schną na słońcu, moczy je deszcz)."
   fr: "L'humidité actuelle des routes (elles sèchent au soleil, se mouillent sous la pluie)."
   zh-tw: "現在的道路有多濕（晴天變乾，雨天變濕）。"
+  nl: "Hoe nat de wegen nu zijn (ze drogen in de zon en worden nat in de regen)."
+  de: "Wie nass die Straßen jetzt sind (sie trocknen in der Sonne und werden im Regen nass)."
+  ru: "Насколько мокрые дороги сейчас (сохнут на солнце, мокнут под дождём)."
+  uk: "Наскільки мокрі дороги зараз (сохнуть на сонці, мокнуть під дощем)."
 
 "Temperature":
   pt: "Temperatura"
@@ -22309,6 +23001,10 @@ _version: 2
   pl: "Temperatura powietrza."
   fr: "La température de l'air."
   zh-tw: "空氣溫度。"
+  nl: "De luchttemperatuur."
+  de: "Die Lufttemperatur."
+  ru: "Температура воздуха."
+  uk: "Температура повітря."
 
 "Wind speed":
   pt: "Velocidade do vento"
@@ -22329,6 +23025,10 @@ _version: 2
   pl: "Jak silnie wieje wiatr; przesuwa chmury."
   fr: "La vitesse du vent ; il pousse les nuages."
   zh-tw: "風吹得多快，它影響著雲移動。"
+  nl: "Hoe hard het waait; de wind drijft de wolken voort."
+  de: "Wie stark der Wind weht; er treibt die Wolken."
+  ru: "Как сильно дует ветер; он гонит облака."
+  uk: "Як сильно дме вітер; він жене хмари."
 
 "Wind direction":
   pt: "Direção do vento"
@@ -22349,6 +23049,10 @@ _version: 2
   pl: "Kierunek wiatru w stopniach (0 to północ)."
   fr: "La direction du vent en degrés (0 = nord)."
   zh-tw: "風向，以度為單位（0 為北）。"
+  nl: "De windrichting in graden (0 is noord)."
+  de: "Die Windrichtung in Grad (0 ist Norden)."
+  ru: "Направление ветра в градусах (0 — север)."
+  uk: "Напрямок вітру в градусах (0 — північ)."
 
 "Open":
   pt: "Abrir"
@@ -22357,6 +23061,10 @@ _version: 2
   pl: "Otwórz"
   fr: "Ouvrir"
   zh-tw: "打開"
+  nl: "Openen"
+  de: "Öffnen"
+  ru: "Открыть"
+  uk: "Відкрити"
 
 "Place and move objects in the world.":
   pt: "Posicione e mova objetos no mundo."
@@ -22365,6 +23073,10 @@ _version: 2
   pl: "Ustawiaj i przesuwaj obiekty w świecie."
   fr: "Placer et déplacer des objets dans le monde."
   zh-tw: "在世界中放置和移動物件。"
+  nl: "Plaats en verplaats objecten in de wereld."
+  de: "Objekte in der Welt platzieren und verschieben."
+  ru: "Размещать и перемещать объекты в мире."
+  uk: "Розміщувати й переміщувати об'єкти у світі."
 
 "How many vehicles drive around the map.":
   pt: "Quantidade de veículos circulando pelo mapa."
@@ -22373,6 +23085,10 @@ _version: 2
   pl: "Ile pojazdów jeździ po mapie."
   fr: "Le nombre de véhicules qui circulent sur la carte."
   zh-tw: "有多少車輛在地圖上行駛。"
+  nl: "Hoeveel voertuigen er op de kaart rondrijden."
+  de: "Wie viele Fahrzeuge auf der Karte unterwegs sind."
+  ru: "Сколько транспорта ездит по карте."
+  uk: "Скільки транспорту їздить мапою."
 
 "How many passengers wait at the stops and ride.":
   pt: "Quantidade de passageiros esperando nas paradas e viajando."
@@ -22381,6 +23097,10 @@ _version: 2
   pl: "Ilu pasażerów czeka na przystankach i podróżuje."
   fr: "Le nombre de passagers qui attendent aux arrêts et voyagent."
   zh-tw: "有多少乘客在車站等候和乘車。"
+  nl: "Hoeveel passagiers er bij de haltes wachten en meerijden."
+  de: "Wie viele Fahrgäste an den Haltestellen warten und mitfahren."
+  ru: "Сколько пассажиров ждёт на остановках и едет."
+  uk: "Скільки пасажирів чекає на зупинках і їде."
 
 "Vehicle settings":
   pt: "Configurações do veículo"
@@ -22389,6 +23109,10 @@ _version: 2
   pl: "Ustawienia pojazdu"
   fr: "Réglages du véhicule"
   zh-tw: "車輛設定"
+  nl: "Voertuiginstellingen"
+  de: "Fahrzeugeinstellungen"
+  ru: "Настройки транспорта"
+  uk: "Налаштування транспорту"
 
 "Roadbook and IBIS":
   pt: "Itinerário e IBIS"
@@ -22397,6 +23121,10 @@ _version: 2
   pl: "Książka drogowa i IBIS"
   fr: "Feuille de route et IBIS"
   zh-tw: "路線手冊和 IBIS"
+  nl: "Routeboek en IBIS"
+  de: "Fahrplan und IBIS"
+  ru: "Путевой лист и IBIS"
+  uk: "Маршрутна книга та IBIS"
 
 "Start options":
   pt: "Opções de início"
@@ -22405,6 +23133,10 @@ _version: 2
   pl: "Opcje startu"
   fr: "Options de départ"
   zh-tw: "啟動選項"
+  nl: "Startopties"
+  de: "Startoptionen"
+  ru: "Параметры старта"
+  uk: "Параметри старту"
 
 "Saved servers":
   pt: "Servidores salvos"
@@ -22413,6 +23145,10 @@ _version: 2
   pl: "Zapisane serwery"
   fr: "Serveurs enregistrés"
   zh-tw: "已儲存的伺服器"
+  nl: "Opgeslagen servers"
+  de: "Gespeicherte Server"
+  ru: "Сохранённые серверы"
+  uk: "Збережені сервери"
 
 "Season":
   pt: "Estação"
@@ -22433,6 +23169,10 @@ _version: 2
   pl: "Wybierz linię i brygadę, aby zobaczyć książkę drogową i kody IBIS."
   fr: "Choisissez une ligne et un service pour voir la feuille de route et les codes IBIS."
   zh-tw: "選擇路線和旅遊路線以查看路線手冊和 IBIS 代碼。"
+  nl: "Kies een lijn en een omloop om het routeboek en de IBIS-codes te zien."
+  de: "Wähle eine Linie und einen Umlauf, um den Fahrplan und die IBIS-Codes zu sehen."
+  ru: "Выберите линию и выход, чтобы увидеть путевой лист и коды IBIS."
+  uk: "Виберіть лінію й оборот, щоб побачити маршрутну книгу та коди IBIS."
 
 "No saved servers yet.":
   pt: "Ainda não há servidores salvos."
@@ -22441,6 +23181,10 @@ _version: 2
   pl: "Brak zapisanych serwerów."
   fr: "Aucun serveur enregistré pour l'instant."
   zh-tw: "還沒有保存的伺服器。"
+  nl: "Nog geen opgeslagen servers."
+  de: "Noch keine gespeicherten Server."
+  ru: "Сохранённых серверов пока нет."
+  uk: "Збережених серверів поки немає."
 
 "Manage saved servers":
   pt: "Gerenciar servidores salvos"
@@ -22449,6 +23193,10 @@ _version: 2
   pl: "Zarządzaj zapisanymi serwerami"
   fr: "Gérer les serveurs enregistrés"
   zh-tw: "管理已儲存的伺服器"
+  nl: "Opgeslagen servers beheren"
+  de: "Gespeicherte Server verwalten"
+  ru: "Управление сохранёнными серверами"
+  uk: "Керування збереженими серверами"
 
 "No saved servers yet. Add one with Manage saved servers above.":
   pt: "Ainda não há servidores salvos. Adicione um em Gerenciar servidores salvos acima."
@@ -22457,6 +23205,10 @@ _version: 2
   pl: "Brak zapisanych serwerów. Dodaj serwer przez Zarządzaj zapisanymi serwerami powyżej."
   fr: "Aucun serveur enregistré pour l'instant. Ajoutez-en un avec Gérer les serveurs enregistrés ci-dessus."
   zh-tw: "還沒有保存的伺服器。使用上面的“管理已儲存的伺服器”新增一個。"
+  nl: "Nog geen opgeslagen servers. Voeg er een toe met Opgeslagen servers beheren hierboven."
+  de: "Noch keine gespeicherten Server. Füge oben mit Gespeicherte Server verwalten einen hinzu."
+  ru: "Сохранённых серверов пока нет. Добавьте сервер кнопкой «Управление сохранёнными серверами» выше."
+  uk: "Збережених серверів поки немає. Додайте сервер кнопкою «Керування збереженими серверами» вище."
 
 "Type the server's address first":
   pt: "Digite primeiro o endereço do servidor"
@@ -22465,6 +23217,10 @@ _version: 2
   pl: "Najpierw wpisz adres serwera"
   fr: "Saisissez d'abord l'adresse du serveur"
   zh-tw: "首先輸入伺服器位址"
+  nl: "Typ eerst het adres van de server"
+  de: "Gib zuerst die Adresse des Servers ein"
+  ru: "Сначала введите адрес сервера"
+  uk: "Спочатку введіть адресу сервера"
 
 "Traffic, passengers and the world's clock are set by the server.":
   pt: "O tráfego, os passageiros e o relógio do mundo são definidos pelo servidor."
@@ -22473,6 +23229,10 @@ _version: 2
   pl: "Ruch, liczbę pasażerów i zegar świata ustawia serwer."
   fr: "La circulation, les passagers et l'horloge du monde sont réglés par le serveur."
   zh-tw: "交通、乘客和世界時鐘均由伺服器設定。"
+  nl: "Verkeer, passagiers en de klok van de wereld stelt de server in."
+  de: "Verkehr, Fahrgäste und die Uhr der Welt legt der Server fest."
+  ru: "Транспорт, пассажиров и часы мира задаёт сервер."
+  uk: "Рух, пасажирів і годинник світу задає сервер."
 "Real-time reflections":
   ru: "Отражения в реальном времени"
   de: "Echtzeitreflexionen"
@@ -22583,36 +23343,54 @@ _version: 2
   zh-tw: "道路"
   pl: "drogi"
   fr: "routes"
+  nl: "wegen"
+  ru: "дорог"
+  uk: "доріг"
 "stops":
   de: "Haltestellen"
   zh: "站点"
   zh-tw: "站點"
   pl: "przystanki"
   fr: "arrêts"
+  nl: "haltes"
+  ru: "остановок"
+  uk: "зупинок"
 "entry points":
   de: "Einstiegspunkte"
   zh: "入口点"
   zh-tw: "入口點"
   pl: "punkty wejścia"
   fr: "points d'entrée"
+  nl: "inzetpunten"
+  ru: "точек появления"
+  uk: "точок появи"
 "Reading the map…":
   de: "Karte wird gelesen…"
   zh: "正在读取地图…"
   zh-tw: "正在讀取地圖…"
   pl: "Wczytywanie mapy…"
   fr: "Lecture de la carte…"
+  nl: "Kaart wordt gelezen…"
+  ru: "Чтение карты…"
+  uk: "Читання мапи…"
 "The map cannot be read":
   de: "Die Karte lässt sich nicht lesen"
   zh: "无法读取这张地图"
   zh-tw: "無法讀取這張地圖"
   pl: "Nie można wczytać mapy"
   fr: "La carte ne peut pas être lue"
+  nl: "De kaart is niet te lezen"
+  ru: "Карту не удаётся прочитать"
+  uk: "Мапу не вдається прочитати"
 "This map has no roads":
   de: "Diese Karte hat keine Straßen"
   zh: "这张地图没有道路"
   zh-tw: "這張地圖沒有道路"
   pl: "Ta mapa nie ma dróg"
   fr: "Cette carte n'a aucune route"
+  nl: "Deze kaart heeft geen wegen"
+  ru: "На этой карте нет дорог"
+  uk: "На цій мапі немає доріг"
 "Vehicle & environment":
   de: "Fahrzeug & Umgebung"
   zh: "车辆和环境"
@@ -22625,6 +23403,9 @@ _version: 2
   zh-tw: "地圖設定"
   pl: "Mapa i służba"
   fr: "Carte et service"
+  nl: "Kaart & dienst"
+  ru: "Карта и смена"
+  uk: "Мапа й наряд"
 "Put the roadbook away (choosing a tour brings it back)":
   de: "Fahrplan weglegen (eine Tour holt ihn zurück)"
   zh: "收起路书（选一个班次会再打开）"
@@ -22676,18 +23457,27 @@ _version: 2
   zh-tw: "（伺服器的）"
   pl: "(serwera)"
   fr: "(celle du serveur)"
+  nl: "(van de server)"
+  ru: "(сервера)"
+  uk: "(сервера)"
 "(the server's clock)":
   de: "(die Uhr des Servers)"
   zh: "（服务器的时钟）"
   zh-tw: "（伺服器的時鐘）"
   pl: "(zegar serwera)"
   fr: "(l'horloge du serveur)"
+  nl: "(de klok van de server)"
+  ru: "(часы сервера)"
+  uk: "(годинник сервера)"
 "Back to driving alone: the map, the clock and the weather are your own again":
   de: "Zurück zum Alleinfahren: Karte, Uhr und Wetter sind wieder deine"
   zh: "回到单人驾驶：地图、时钟和天气重新由你决定"
   zh-tw: "回到單人駕駛：地圖、時鐘和天氣重新由你決定"
   pl: "Powrót do samotnej jazdy: mapa, zegar i pogoda znów są twoje"
   fr: "Retour en solo : la carte, l'heure et la météo sont de nouveau les vôtres"
+  nl: "Terug naar alleen rijden: de kaart, de klok en het weer zijn weer van jou"
+  ru: "Назад к одиночной езде: карта, часы и погода снова ваши"
+  uk: "Назад до самостійної їзди: мапа, годинник і погода знову ваші"
 "Day & weather":
   ru: "День и погода"
   de: "Tag & Wetter"
@@ -22756,6 +23546,7 @@ _version: 2
   pl: "Brygady tej linii w wybranym dniu"
   fr: "Services de cette ligne le jour choisi"
   zh-tw: "所選日期此路線的遊覽"
+  nl: "Omlopen van deze lijn op de gekozen dag"
 "Server":
   fr: "Serveur"
   ru: "Сервер"
@@ -22764,6 +23555,7 @@ _version: 2
   pl: "Serwer"
   zh: "服务器"
   zh-tw: "伺服器"
+  nl: "Server"
 "Warning":
   fr: "Avertissement"
   ru: "Предупреждение"
@@ -22772,6 +23564,7 @@ _version: 2
   pl: "Ostrzeżenie"
   zh: "警告"
   zh-tw: "警告"
+  nl: "Waarschuwing"
 "Alert":
   fr: "Alerte"
   ru: "Тревога"
@@ -22780,6 +23573,7 @@ _version: 2
   pl: "Alarm"
   zh: "警报"
   zh-tw: "警報"
+  nl: "Alarm"
 "Voice chat through GreenTeaSpeak (multiplayer)":
   ru: "Голосовой чат через GreenTeaSpeak (мультиплеер)"
   de: "Sprachchat über GreenTeaSpeak (Mehrspieler)"
@@ -22788,6 +23582,7 @@ _version: 2
   pl: "Czat głosowy przez GreenTeaSpeak (gra wieloosobowa)"
   zh: "通过 GreenTeaSpeak 进行语音聊天(多人游戏)"
   zh-tw: "透過 GreenTeaSpeak 進行語音聊天（多人遊戲）"
+  nl: "Spraakchat via GreenTeaSpeak (multiplayer)"
 "Players near you are heard from where they stand, when GreenTeaSpeak runs with the openOMSI plugin and the server names a voice server.":
   ru: "Игроков рядом слышно оттуда, где они стоят, если запущен GreenTeaSpeak с плагином openOMSI и сервер указывает голосовой сервер."
   de: "Spieler in deiner Nähe hörst du von dort, wo sie stehen, wenn GreenTeaSpeak mit dem openOMSI-Plugin läuft und der Server einen Sprachserver nennt."
@@ -22796,6 +23591,7 @@ _version: 2
   pl: "Graczy w pobliżu słychać tam, gdzie stoją, gdy działa GreenTeaSpeak z wtyczką openOMSI, a serwer wskazuje serwer głosowy."
   fr: "Les joueurs proches de vous s'entendent depuis leur position, quand GreenTeaSpeak tourne avec le plugin openOMSI et que le serveur indique un serveur vocal."
   zh-tw: "當 GreenTeaSpeak 使用 openOMSI 外掛程式運行並且伺服器命名語音伺服器時，您附近的玩家可以從他們所在的位置聽到。"
+  nl: "Spelers in de buurt hoor je vanaf waar ze staan, als GreenTeaSpeak draait met de openOMSI-plugin en de server een spraakserver noemt."
 "speaking":
   ru: "говорит"
   de: "spricht"

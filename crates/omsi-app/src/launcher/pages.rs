@@ -1094,7 +1094,7 @@ fn graphics_profiles_block(ui: &mut Ui, s: &mut Value, dirty: &mut f32, c: &mut 
         let g = &mut *g;
         let names: Vec<String> = g.list.get_or_insert_with(|| core::graphics_profiles().into_keys().collect()).clone();
         g.sel = g.sel.min(names.len().saturating_sub(1));
-        let labels: Vec<String> = if names.is_empty() { vec!["No saved profiles".to_string()] } else { names.clone() };
+        let labels: Vec<String> = if names.is_empty() { vec![omsi_ui::tr("No saved profiles").into_owned()] } else { names.clone() };
         let r = c.row();
         ui.label(Rect::new(r.x, r.y, r.w * 0.45, r.h), "Saved profile");
         if ui.select("s-gp-sel", Rect::new(r.x + r.w * 0.45, r.y, r.w * 0.55, r.h), &mut g.sel, &labels) && !names.is_empty() {
@@ -1108,15 +1108,15 @@ fn graphics_profiles_block(ui: &mut Ui, s: &mut Value, dirty: &mut f32, c: &mut 
                 Some(p) => {
                     core::apply_graphics_profile(p, s);
                     *dirty = 0.3;
-                    g.msg = format!("Loaded \"{name}\".");
+                    g.msg = omsi_ui::tr("Loaded \"%{name}\".").replace("%{name}", &name);
                 }
-                None => g.msg = format!("\"{name}\" is gone."),
+                None => g.msg = omsi_ui::tr("\"%{name}\" is gone.").replace("%{name}", &name),
             }
         }
         if ui.button("s-gp-del", Rect::new(r.x + half + GAP, r.y, half, r.h), "Delete", Some("delete"), ButtonKind::Danger) && !names.is_empty() {
             let name = names[g.sel].clone();
             g.msg = match core::delete_graphics_profile(&name) {
-                Ok(()) => format!("Deleted \"{name}\"."),
+                Ok(()) => omsi_ui::tr("Deleted \"%{name}\".").replace("%{name}", &name),
                 Err(e) => format!("{e:#}"),
             };
             g.list = None;
@@ -1132,7 +1132,7 @@ fn graphics_profiles_block(ui: &mut Ui, s: &mut Value, dirty: &mut f32, c: &mut 
                     if let Some(i) = core::graphics_profiles().keys().position(|k| *k == name) {
                         g.sel = i;
                     }
-                    format!("Saved \"{name}\".")
+                    omsi_ui::tr("Saved \"%{name}\".").replace("%{name}", &name)
                 }
                 Err(e) => format!("{e:#}"),
             };
@@ -1242,7 +1242,7 @@ fn graphics_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, cols: [Rect; 2]) ->
         (0, a) => a,
         (m, a) => m.min(a),
     };
-    let auto_label = if auto_mb > 0 { format!("Automatic ({} here)", mb(auto_mb)) } else { "Automatic".to_string() };
+    let auto_label = if auto_mb > 0 { omsi_ui::tr("Automatic (%{size} here)").replace("%{size}", &mb(auto_mb)) } else { "Automatic".to_string() };
     let opts: Vec<(&str, &str)> = vec![("0", auto_label.as_str()), ("500", "500 MB"), ("1000", "1 GB"), ("1500", "1.5 GB"), ("2000", "2 GB"), ("3000", "3 GB"), ("4000", "4 GB"), ("6000", "6 GB")];
     sel_setting(ui, s, dirty, "s-texmem", c.row(), "Texture memory", "texture_memory", &opts);
     toggle_setting(ui, s, dirty, c.row(), "Compress textures on loading", "texture_compression");
@@ -1292,7 +1292,7 @@ fn driving_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, c
     // the pedals' response: softer (below 1) or stronger (above 1) than the pedal reads
     for (key, label, id) in [("pedal_throttle", "Throttle pedal strength", "s-pedt"), ("pedal_brake", "Brake pedal strength", "s-pedb")] {
         let mut v = get(s, key).as_f64().unwrap_or(1.0) as f32;
-        if ui.slider(id, c.row(), &mut v, 0.5, 2.0, 0.05, label, &|v| if (v - 1.0).abs() < 0.01 { "Normal".to_string() } else if v < 1.0 { format!("Softer x{v:.2}") } else { format!("Stronger x{v:.2}") }) {
+        if ui.slider(id, c.row(), &mut v, 0.5, 2.0, 0.05, label, &|v| if (v - 1.0).abs() < 0.01 { "Normal".to_string() } else if v < 1.0 { omsi_ui::tr("Softer x%{k}").replace("%{k}", &format!("{v:.2}")) } else { omsi_ui::tr("Stronger x%{k}").replace("%{k}", &format!("{v:.2}")) }) {
             s[key] = json!((v * 100.0).round() / 100.0);
             *dirty = 0.3;
         }
@@ -1839,10 +1839,10 @@ fn general_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, c
         }
         let text = match &out.update {
             Status::UpToDate if crate::updater::is_test_build(crate::updater::current_version()) => format!("{} is a test build: it is not updated", crate::updater::current_version()),
-            Status::UpToDate => format!("{} is the latest version", crate::updater::current_version()),
-            Status::Available(rel) => format!("{} is available", rel.version),
+            Status::UpToDate => omsi_ui::tr("%{version} is the latest version").replace("%{version}", &crate::updater::current_version()),
+            Status::Available(rel) => omsi_ui::tr("%{version} is available").replace("%{version}", &rel.version),
             Status::Failed(_) => "The last check failed".to_string(),
-            _ => format!("This is openOMSI {}", crate::updater::current_version()),
+            _ => omsi_ui::tr("This is openOMSI %{version}").replace("%{version}", &crate::updater::current_version()),
         };
         ui.text_in(&text, Rect::new(r.x + 162.0, r.y, r.w - 162.0, r.h), 12.5, omsi_ui::Weight::Regular, TEXT_DIM, omsi_ui::paint::Align::Left);
     }
@@ -1884,7 +1884,7 @@ fn control_names(l: &Launcher) -> &'static crate::describe::ControlNames {
 
 fn known_action(a: &str) -> Option<String> {
     if let Some(gear) = a.strip_prefix("kw_s_").and_then(|s| s.strip_suffix("_fest")) {
-        return Some(format!("Gear {gear} (H-pattern)"));
+        return Some(omsi_ui::tr("Gear %{gear} (H-pattern)").replace("%{gear}", gear));
     }
     let known: &[(&str, &str)] = &[
         ("throttle", "Throttle"),
@@ -1976,7 +1976,7 @@ pub fn controls(l: &mut Launcher, area: Rect) {
                     }
                     save_keys(l, vr_binding);
                 }
-                None => l.state.set_status(format!("{code:?} has no DirectInput scan code the game understands."), true),
+                None => l.state.set_status(omsi_ui::tr("%{key} has no DirectInput scan code the game understands.").replace("%{key}", &format!("{code:?}")), true),
             }
             l.pages.capturing = None;
         }
@@ -1987,13 +1987,13 @@ pub fn controls(l: &mut Launcher, area: Rect) {
     // with the switch right here - and changing a key switches by itself (see `save_keys`).
     let preset = l.state.settings.get("drive_keys").and_then(|v| v.as_str()).unwrap_or("simple").to_string();
     let body = if preset != "omsi" {
-        let name = match preset.as_str() {
+        let name = omsi_ui::tr(match preset.as_str() {
             "wasd" => "W A S D only",
             "arrows" => "Arrow keys only",
             _ => "W A S D + arrows",
-        };
+        });
         let bw = if body.w < 700.0 { 150.0 } else { 200.0 };
-        let text = format!("Driving keys: {name} (Settings). Those keys drive the bus and win over the list below. Change any key here and your own layout (Custom controls) is used from then on.");
+        let text = omsi_ui::tr("Driving keys: %{name} (Settings). Those keys drive the bus and win over the list below. Change any key here and your own layout (Custom controls) is used from then on.").replace("%{name}", &name);
         // (a phone: the button under the words, not beside them in a column one word wide)
         let narrow = body.w < 520.0;
         let tw = if narrow { body.w - 56.0 } else { body.w - bw - 70.0 };
@@ -2063,7 +2063,7 @@ pub fn controls(l: &mut Launcher, area: Rect) {
         let new_action = filter.trim();
         let mut list_top = inner.y + 62.0;
         if shown.is_empty() && new_action.len() > 1 && new_action.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-            if l.ui.button(&format!("kb-add-{sec}"), Rect::new(inner.x, list_top, inner.w, 36.0), &format!("Add \"{new_action}\" and give it a key"), Some("add"), ButtonKind::Normal) {
+            if l.ui.button(&format!("kb-add-{sec}"), Rect::new(inner.x, list_top, inner.w, 36.0), &omsi_ui::tr("Add \"%{action}\" and give it a key").replace("%{action}", new_action), Some("add"), ButtonKind::Normal) {
                 if let Some(a) = l.state.keybindings.get_mut(*key).and_then(|a| a.as_array_mut()) {
                     a.push(json!({ "action": new_action, "scan_code": 0, "modifier": 0 }));
                     l.pages.capturing = Some((sec, a.len() - 1));
@@ -2210,7 +2210,7 @@ fn game_controllers(l: &mut Launcher, body: Rect) {
             }
             for c in connected.iter().filter(|c| !devices.iter().any(|d| crate::controllers::names_match(&d.name, &c.name))) {
                 let r = Rect::new(v.x + 6.0, y, v.w - 12.0, 38.0);
-                if ui.button(&format!("pad-add-{}", c.name), r, &format!("Set up {}", c.name), Some("add"), ButtonKind::Primary) {
+                if ui.button(&format!("pad-add-{}", c.name), r, &omsi_ui::tr("Set up %{device}").replace("%{device}", &c.name), Some("add"), ButtonKind::Primary) {
                     add = Some(c.name.clone());
                 }
                 y += 44.0;
@@ -2254,9 +2254,9 @@ fn game_controllers(l: &mut Launcher, body: Rect) {
         match save_gamectrler(devices) {
             Ok(p) => {
                 pv.dirty = false;
-                l.state.set_status(format!("Game controllers saved to {}", p.display()), false);
+                l.state.set_status(omsi_ui::tr("Game controllers saved to %{path}").replace("%{path}", &p.display().to_string()), false);
             }
-            Err(e) => l.state.set_status(format!("Not saved: {e}"), true),
+            Err(e) => l.state.set_status(omsi_ui::tr("Not saved: %{error}").replace("%{error}", &e.to_string()), true),
         }
     }
     // the device shown
@@ -2415,10 +2415,7 @@ fn game_controllers(l: &mut Launcher, body: Rect) {
         for (b, (act, _)) in d.buttons.iter_mut().take(shown_buttons).enumerate() {
             let (col, row) = (b / rows.max(1), b % rows.max(1));
             let r = Rect::new(x0 + col as f32 * (cw + GAP), y + row as f32 * per_row, cw, ROW);
-            let label = match b.checked_sub(crate::controllers::HAT_BUTTONS) {
-                Some(h) => format!("Hat {} {}", h / 4 + 1, ["up", "right", "down", "left"][h % 4]),
-                None => format!("Button {}", b + 1),
-            };
+            let label = button_label(b);
             if lit == Some(b) {
                 ui.p().rounded(Rect::new(r.x - 4.0, r.y - 2.0, r.w + 8.0, r.h + 4.0), 6.0, accent().alpha(0.28));
             }
@@ -2462,14 +2459,12 @@ fn game_controllers(l: &mut Launcher, body: Rect) {
             l.ui.scroll_to("pad-detail", buttons_start_y + row as f32 * (ROW + 4.0), ROW, list.h);
             pv.last_pressed = Some((n, std::time::Instant::now()));
             let now = d.buttons.get(n).map(|b| b.0.clone()).filter(|a| !a.is_empty());
-            let label = match n.checked_sub(crate::controllers::HAT_BUTTONS) {
-                Some(h) => format!("hat {} {}", h / 4 + 1, ["up", "right", "down", "left"][h % 4]),
-                None => format!("button {}", n + 1),
+            let label = button_label(n);
+            let text = match now {
+                Some(a) => omsi_ui::tr("%{device}: %{button} - %{action} (lit in the list: choose another there)").replace("%{action}", &omsi_ui::tr(&action_text(names, &a))),
+                None => omsi_ui::tr("%{device}: %{button} - nothing yet (lit in the list: choose what it does)").into_owned(),
             };
-            l.state.set_status(match now {
-                Some(a) => format!("{name}: {label} - {} (lit in the list: choose another there)", action_text(names, &a)),
-                None => format!("{name}: {label} - nothing yet (lit in the list: choose what it does)"),
-            }, false);
+            l.state.set_status(text.replace("%{device}", &name).replace("%{button}", &label), false);
         }
     }
     let add_r = Rect::new(inner.x, inner.bottom() - 40.0, 260.0, 36.0);
@@ -2505,6 +2500,14 @@ fn remove_device(devices: &mut Vec<crate::controllers::DeviceCfg>, selected: &mu
     name
 }
 
+/// A device's button `b` as its line names it: a hat's direction, or the button's number.
+fn button_label(b: usize) -> String {
+    match b.checked_sub(crate::controllers::HAT_BUTTONS) {
+        Some(h) => omsi_ui::tr(["Hat %{n} up", "Hat %{n} right", "Hat %{n} down", "Hat %{n} left"][h % 4]).replace("%{n}", &(h / 4 + 1).to_string()),
+        None => omsi_ui::tr("Button %{n}").replace("%{n}", &(b + 1).to_string()),
+    }
+}
+
 /// The steps of the set-up assistant (see `Wizard`): what the player is asked each time.
 const WIZARD_STEPS: [(&str, &str); 5] = [
     ("Let go of everything", "Take your hands off the wheel and your feet off the pedals (the wheel in the middle), then press Next."),
@@ -2518,7 +2521,7 @@ const WIZARD_STEPS: [(&str, &str); 5] = [
 /// when the player gave up.
 fn wizard(ui: &mut Ui, r: Rect, w: &mut Wizard, d: &mut crate::controllers::DeviceCfg, live: &[(usize, f32)], connected: bool, feedback: bool) -> Option<bool> {
     let (title, text) = WIZARD_STEPS[w.step];
-    ui.text_in(&format!("Step {} of {}: {title}", w.step + 1, WIZARD_STEPS.len()), Rect::new(r.x, r.y, r.w, 26.0), 17.0, Weight::Bold, TEXT, Align::Left);
+    ui.text_in(&omsi_ui::tr("Step %{n} of %{total}: %{title}").replace("%{n}", &(w.step + 1).to_string()).replace("%{total}", &WIZARD_STEPS.len().to_string()).replace("%{title}", &omsi_ui::tr(title)), Rect::new(r.x, r.y, r.w, 26.0), 17.0, Weight::Bold, TEXT, Align::Left);
     let mut y = r.y + 34.0;
     y += ui.paragraph(text, Vec2::new(r.x, y), r.w, 13.5, Weight::Regular, TEXT_SOFT) + 10.0;
     if !connected {
@@ -2831,15 +2834,24 @@ pub fn sessions(l: &mut Launcher, area: Rect) {
             l.ui.p().circle(c, 6.0 + 3.0 * pulse, OK.alpha(0.25));
         }
         l.ui.p().circle(c, 6.0, if running { OK } else { TEXT_FAINT });
-        let duty = i.line.as_ref().map(|ln| format!(" · line {ln}{}", i.tour.as_ref().map(|t| format!(" / {t}")).unwrap_or_default())).unwrap_or_default();
+        let duty = i.line.as_ref().map(|ln| match &i.tour {
+            Some(t) => format!(" · {}", omsi_ui::tr("line %{line} / %{tour}").replace("%{line}", ln).replace("%{tour}", t)),
+            None => format!(" · {}", omsi_ui::tr("line %{line}").replace("%{line}", ln)),
+        }).unwrap_or_default();
         l.ui.text_in(&format!("{} · {}{duty}", short_map(&i.map), short_bus(&i.bus)), Rect::new(r.x + 42.0, r.y + 16.0, r.w - 260.0, 24.0), 16.0, Weight::Black, TEXT, Align::Left);
         let status = if running {
-            if l.state.stopping.contains(&i.pid) || i.stopping.is_some() { "stopping - saving the run…".to_string() } else { format!("running for {}", ago(i.started)) }
+            if l.state.stopping.contains(&i.pid) || i.stopping.is_some() { omsi_ui::tr("stopping - saving the run…").into_owned() } else { omsi_ui::tr("running for %{time}").replace("%{time}", &ago(i.started)) }
+        } else if i.exit_code == Some(0) {
+            omsi_ui::tr("ended").into_owned()
+        } else if i.killed {
+            omsi_ui::tr("ended (killed - it did not end by itself, the run is not saved)").into_owned()
         } else {
-            let how = if i.exit_code == Some(0) { String::new() } else if i.killed { " (killed - it did not end by itself, the run is not saved)".into() } else { i.exit_code.map(|c| format!(" (exit code {c})")).unwrap_or_default() };
-            format!("ended{how}")
+            match i.exit_code {
+                Some(c) => omsi_ui::tr("ended (exit code %{code})").replace("%{code}", &c.to_string()),
+                None => omsi_ui::tr("ended").into_owned(),
+            }
         };
-        l.ui.text_in(&format!("{status} · driver {}", i.profile), Rect::new(r.x + 42.0, r.y + 42.0, r.w - 60.0, 18.0), 12.0, Weight::Regular, TEXT_DIM, Align::Left);
+        l.ui.text_in(&format!("{status} · {}", omsi_ui::tr("driver %{name}").replace("%{name}", &i.profile)), Rect::new(r.x + 42.0, r.y + 42.0, r.w - 60.0, 18.0), 12.0, Weight::Regular, TEXT_DIM, Align::Left);
         l.ui.text_in(&i.last_line, Rect::new(r.x + 42.0, r.y + 62.0, r.w - 60.0, 18.0), 11.5, Weight::Regular, TEXT_FAINT, Align::Left);
         // buttons
         let bw = 110.0;
@@ -2868,13 +2880,13 @@ pub fn sessions(l: &mut Launcher, area: Rect) {
         } else if role == "client" {
             let connected = lan.get("connected").and_then(|x| x.as_bool()).unwrap_or(false);
             let text = if let Some(rej) = lan.get("rejected").and_then(|x| x.as_str()) {
-                format!("not connected: {rej}")
+                omsi_ui::tr("not connected: %{reason}").replace("%{reason}", rej)
             } else if connected {
-                format!("connected to {}", lan.get("host_name").and_then(|x| x.as_str()).unwrap_or(""))
+                omsi_ui::tr("connected to %{host}").replace("%{host}", lan.get("host_name").and_then(|x| x.as_str()).unwrap_or(""))
             } else {
-                "connecting…".to_string()
+                omsi_ui::tr("connecting…").into_owned()
             };
-            l.ui.text_in(&format!("Multiplayer: {text}"), Rect::new(r.x + 42.0, yy, r.w - 60.0, 20.0), 12.5, Weight::Medium, if connected { OK } else { WARN }, Align::Left);
+            l.ui.text_in(&omsi_ui::tr("Multiplayer: %{state}").replace("%{state}", &text), Rect::new(r.x + 42.0, yy, r.w - 60.0, 20.0), 12.5, Weight::Medium, if connected { OK } else { WARN }, Align::Left);
             yy += 24.0;
         }
         if !players.is_empty() {
@@ -2884,7 +2896,7 @@ pub fn sessions(l: &mut Launcher, area: Rect) {
                 let s = |k: &str| p.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
                 let pax = p.get("passengers").and_then(|x| x.as_i64()).unwrap_or(0);
                 let dest = if s("destination").is_empty() { String::new() } else { format!(" · {} → {}", s("line"), s("destination")) };
-                l.ui.text_in(&format!("{} · {}{dest}{} · {}", s("name"), short_bus(&s("bus")), if pax > 0 { format!(" · {pax} passengers") } else { String::new() }, s("where")), Rect::new(r.x + 42.0, yy, r.w - 60.0, 18.0), 12.5, Weight::Medium, TEXT_SOFT, Align::Left);
+                l.ui.text_in(&format!("{} · {}{dest}{} · {}", s("name"), short_bus(&s("bus")), if pax > 0 { format!(" · {}", omsi_ui::tr("%{n} passengers").replace("%{n}", &pax.to_string())) } else { String::new() }, s("where")), Rect::new(r.x + 42.0, yy, r.w - 60.0, 18.0), 12.5, Weight::Medium, TEXT_SOFT, Align::Left);
                 yy += 20.0;
             }
         }
@@ -3002,9 +3014,10 @@ pub fn mods(l: &mut Launcher, area: Rect) {
         y += l.ui.paragraph(&p, Vec2::new(inner.x, y), inner.w, 11.5, Weight::Regular, TEXT_FAINT);
         match l.state.mod_info.clone() {
             Some(Ok(i)) if i.is_archive => {
-                let fit = if i.fits { format!("fits ({} free)", fmt_bytes(i.free_bytes)) } else { format!("does not fit: needs {}, {} free", fmt_bytes(i.needed_bytes), fmt_bytes(i.free_bytes)) };
-                let place = if i.in_place_ok { "can be used in place".to_string() } else { i.in_place.clone() };
-                y += l.ui.paragraph(&format!("{} archive, {} files, {} unpacked - {fit}; {place}", fmt_bytes(i.archive_bytes), i.files, fmt_bytes(i.unpacked_bytes)), Vec2::new(inner.x, y), inner.w, 12.0, Weight::Regular, if i.fits { TEXT_DIM } else { WARN });
+                let fit = if i.fits { omsi_ui::tr("fits (%{free} free)").replace("%{free}", &fmt_bytes(i.free_bytes)) } else { omsi_ui::tr("does not fit: needs %{needed}, %{free} free").replace("%{needed}", &fmt_bytes(i.needed_bytes)).replace("%{free}", &fmt_bytes(i.free_bytes)) };
+                let place = if i.in_place_ok { omsi_ui::tr("can be used in place").into_owned() } else { i.in_place.clone() };
+                let what = omsi_ui::tr("%{size} archive, %{files} files, %{unpacked} unpacked").replace("%{size}", &fmt_bytes(i.archive_bytes)).replace("%{files}", &i.files.to_string()).replace("%{unpacked}", &fmt_bytes(i.unpacked_bytes));
+                y += l.ui.paragraph(&format!("{what} - {fit}; {place}"), Vec2::new(inner.x, y), inner.w, 12.0, Weight::Regular, if i.fits { TEXT_DIM } else { WARN });
             }
             Some(Err(e)) => {
                 y += l.ui.paragraph(&e, Vec2::new(inner.x, y), inner.w, 12.0, Weight::Regular, DANGER);
@@ -3024,7 +3037,7 @@ pub fn mods(l: &mut Launcher, area: Rect) {
         l.ui.tooltip(at, &m.inbox);
         y += 24.0;
         if !m.inbox_items.is_empty() {
-            l.ui.paragraph(&format!("In it now: {}", m.inbox_items.join(", ")), Vec2::new(inner.x, y + 4.0), inner.w, 12.0, Weight::Regular, TEXT_SOFT);
+            l.ui.paragraph(&omsi_ui::tr("In it now: %{items}").replace("%{items}", &m.inbox_items.join(", ")), Vec2::new(inner.x, y + 4.0), inner.w, 12.0, Weight::Regular, TEXT_SOFT);
         }
     }
     // installs
@@ -3056,12 +3069,12 @@ pub fn mods(l: &mut Launcher, area: Rect) {
                 "cancelled" => TEXT_DIM,
                 _ => accent(),
             };
-            ui.badge(Vec2::new(r.right() - 90.0, r.y + 10.0), &j.state.to_uppercase(), sc);
+            ui.badge(Vec2::new(r.right() - 90.0, r.y + 10.0), &omsi_ui::tr(&j.state).to_uppercase(), sc);
             let mut yy = r.y + 34.0;
             if running {
                 let frac = if j.bytes_total > 0 { j.bytes_done as f32 / j.bytes_total as f32 } else if j.files_total > 0 { j.files_done as f32 / j.files_total as f32 } else { 0.0 };
                 ui.progress(Rect::new(r.x + 12.0, yy, r.w - 24.0, 8.0), frac, true);
-                ui.text_in(&format!("{} / {} files · {} / {}", j.files_done, j.files_total, fmt_bytes(j.bytes_done), fmt_bytes(j.bytes_total)), Rect::new(r.x + 12.0, yy + 10.0, r.w - 24.0, 16.0), 11.0, Weight::Regular, TEXT_DIM, Align::Left);
+                ui.text_in(&format!("{} · {} / {}", omsi_ui::tr("%{done} / %{total} files").replace("%{done}", &j.files_done.to_string()).replace("%{total}", &j.files_total.to_string()), fmt_bytes(j.bytes_done), fmt_bytes(j.bytes_total)), Rect::new(r.x + 12.0, yy + 10.0, r.w - 24.0, 16.0), 11.0, Weight::Regular, TEXT_DIM, Align::Left);
                 yy += 30.0;
             }
             yy += ui.paragraph(&j.message, Vec2::new(r.x + 12.0, yy), r.w - 24.0, 12.0, Weight::Regular, if j.state == "failed" { DANGER } else { TEXT_SOFT });
@@ -3093,12 +3106,12 @@ pub fn mods(l: &mut Launcher, area: Rect) {
     l.ui.text_in(&m.content_dir, at, 12.0, Weight::Medium, TEXT_SOFT, Align::Left);
     l.ui.tooltip(at, &m.content_dir);
     y += 24.0;
-    l.ui.text_in(&format!("{} free on this disk", fmt_bytes(m.free_bytes)), Rect::new(inner.x, y, inner.w, 20.0), 13.0, Weight::Bold, accent(), Align::Left);
+    l.ui.text_in(&omsi_ui::tr("%{size} free on this disk").replace("%{size}", &fmt_bytes(m.free_bytes)), Rect::new(inner.x, y, inner.w, 20.0), 13.0, Weight::Bold, accent(), Align::Left);
     y += 30.0;
     for (f, n) in &m.folders {
         l.ui.icon("folder_open", Vec2::new(inner.x + 9.0, y + 10.0), 16.0, TEXT_DIM);
         l.ui.text_in(f, Rect::new(inner.x + 26.0, y, inner.w * 0.6, 20.0), 12.5, Weight::Medium, TEXT, Align::Left);
-        l.ui.text_in(&format!("{n} {}", if *n == 1 { "entry" } else { "entries" }), Rect::new(inner.x, y, inner.w, 20.0), 12.0, Weight::Regular, TEXT_DIM, Align::Right);
+        l.ui.text_in(&if *n == 1 { omsi_ui::tr("one entry").into_owned() } else { omsi_ui::tr("%{n} entries").replace("%{n}", &n.to_string()) }, Rect::new(inner.x, y, inner.w, 20.0), 12.0, Weight::Regular, TEXT_DIM, Align::Right);
         y += 24.0;
     }
     if !m.archives.is_empty() {

@@ -1521,7 +1521,7 @@ impl Ui {
         self.p().rounded_border(r, RADIUS, 1.0, if open { accent().alpha(0.7) } else { EDGE });
         self.icon("calendar_month", Vec2::new(r.x + 20.0, r.center().y), 17.0, TEXT_DIM);
         let (y, m, d) = parse_date(date);
-        let shown = format!("{} {} {}", d, MONTHS[(m as usize).clamp(1, 12) - 1], y);
+        let shown = format!("{} {} {}", d, omsi_ui::tr(MONTHS[(m as usize).clamp(1, 12) - 1]), y);
         let px = self.wpx(13.0);
         self.text_in(&shown, Rect::new(r.x + 38.0, r.y, r.w - 60.0, r.h), px, Weight::Regular, TEXT, Align::Left);
         self.icon("expand_more", Vec2::new(r.right() - 18.0, r.center().y), 20.0, TEXT_DIM);
@@ -1789,7 +1789,7 @@ impl Ui {
         let click = self.input.released;
         // month header with arrows
         let head = Rect::new(r.x + 8.0, r.y + 8.0, r.w - 16.0, 30.0);
-        self.text_in(&format!("{} {}", MONTHS_LONG[p.month as usize - 1], p.year), head, 14.0, Weight::Bold, TEXT, Align::Center);
+        self.text_in(&format!("{} {}", omsi_ui::tr(MONTHS_LONG[p.month as usize - 1]), p.year), head, 14.0, Weight::Bold, TEXT, Align::Center);
         let prev = Rect::new(head.x, head.y, 30.0, 30.0);
         let next = Rect::new(head.right() - 30.0, head.y, 30.0, 30.0);
         let py = Rect::new(head.x + 30.0, head.y, 30.0, 30.0);

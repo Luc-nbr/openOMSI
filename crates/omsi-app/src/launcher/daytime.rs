@@ -391,7 +391,7 @@ pub(super) fn day_body(ui: &mut Ui, v: Rect, c: &mut Choice, ctx: &DayCtx, out: 
         changed |= ui.slider("custom-temp", row(y), &mut custom.temp_c, -30.0, 45.0, 1.0, "Temperature", &|x| format!("{x:.0} °C"));
         y += 40.0;
         let temp_for_dew = custom.temp_c;
-        changed |= ui.slider("custom-hum", row(y), &mut custom.humidity, 0.0, 100.0, 1.0, "Humidity", &|x| format!("{x:.0} % · dew {:.0} °C", crate::weather_setup::dew_point_c(temp_for_dew, x)));
+        changed |= ui.slider("custom-hum", row(y), &mut custom.humidity, 0.0, 100.0, 1.0, "Humidity", &|x| format!("{x:.0} % · {}", omsi_ui::tr("dew %{t} °C").replace("%{t}", &format!("{:.0}", crate::weather_setup::dew_point_c(temp_for_dew, x)))));
         y += 46.0;
         ui.label(Rect::new(x, y, 130.0, 32.0), "Cloud type");
         let clouds: Vec<String> = crate::weather_setup::CUSTOM_CLOUDS.iter().map(|x| x.to_string()).collect();

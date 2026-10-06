@@ -757,7 +757,7 @@ fn entry_choice(l: &mut Launcher, r: Rect) -> bool {
     }
     let free = l.state.choice.free;
     let mut labels = vec![if free { "Automatic (the map's first)".to_string() } else { "Automatic (nearest to the first stop)".to_string() }];
-    labels.extend(m.entry_points.iter().map(|e| if e.name.is_empty() { format!("entry {}", e.index + 1) } else { e.name.clone() }));
+    labels.extend(m.entry_points.iter().map(|e| if e.name.is_empty() { super::drive::entry_name(e.index) } else { e.name.clone() }));
     // (the choice is the entry's place in the list; 0 = automatic here)
     let mut es = if l.state.choice.entry < 0 { 0 } else { (l.state.choice.entry as usize + 1).min(labels.len() - 1) };
     let lw = l.ui.width("Start at", 13.0, Weight::Medium) + 14.0;

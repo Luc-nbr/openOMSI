@@ -167,23 +167,23 @@ fn card(l: &mut Launcher, name: &str, r: Rect, icon: &str, label: &str, value: &
 fn duty_text(l: &Launcher) -> String {
     match (&l.state.choice.line, &l.state.choice.tour, l.state.choice.free) {
         (_, _, true) | (None, _, _) => "Free drive".into(),
-        (Some(line), Some(t), _) => format!("Line {} · tour {t}", super::ownlines::shown_name(line, &l.state.own_lines)),
-        (Some(line), None, _) => format!("Line {} · choose a tour", super::ownlines::shown_name(line, &l.state.own_lines)),
+        (Some(line), Some(t), _) => omsi_ui::tr("Line %{line} · tour %{tour}").replace("%{line}", &super::ownlines::shown_name(line, &l.state.own_lines)).replace("%{tour}", t),
+        (Some(line), None, _) => omsi_ui::tr("Line %{line} · choose a tour").replace("%{line}", &super::ownlines::shown_name(line, &l.state.own_lines)),
     }
 }
 
 fn time_text(l: &Launcher) -> String {
     let (y, m, d) = super::ui::parse_date(&l.state.choice.date);
     let weather = match l.state.choice.weather.strip_prefix("metar:") {
-        Some(c) => format!("live {c}"),
-        None if l.state.choice.weather == "cycle" => "weather cycle".into(),
+        Some(c) => omsi_ui::tr("live %{station}").replace("%{station}", c),
+        None if l.state.choice.weather == "cycle" => omsi_ui::tr("weather cycle").into_owned(),
         None if crate::weather_setup::custom_weather(Some(&l.state.choice.weather)).is_some() => {
             let c=crate::weather_setup::custom_weather(Some(&l.state.choice.weather)).unwrap();
-            format!("custom · {:.0}°C · {:.0}% RH",c.temp_c,c.humidity)
+            format!("{} · {:.0}°C · {}",omsi_ui::tr("custom"),c.temp_c,omsi_ui::tr("%{p}% RH").replace("%{p}",&format!("{:.0}",c.humidity)))
         },
-        None => l.state.weathers.iter().find(|w| w.file == l.state.choice.weather).map(|w| w.name.clone()).unwrap_or_else(|| "map weather".into()),
+        None => l.state.weathers.iter().find(|w| w.file == l.state.choice.weather).map(|w| w.name.clone()).unwrap_or_else(|| omsi_ui::tr("map weather").into_owned()),
     };
-    format!("{:02}:{:02} · {d} {} {y} · {weather}", l.state.choice.time / 60, l.state.choice.time % 60, &super::ui::MONTHS[(m as usize).clamp(1, 12) - 1][..3])
+    format!("{:02}:{:02} · {d} {} {y} · {weather}", l.state.choice.time / 60, l.state.choice.time % 60, omsi_ui::tr(super::ui::MONTHS[(m as usize).clamp(1, 12) - 1]))
 }
 
 fn start_text(l: &Launcher) -> String {
@@ -193,10 +193,10 @@ fn start_text(l: &Launcher) -> String {
         l.state
             .map()
             .and_then(|m| m.entry_points.get(l.state.choice.entry as usize))
-            .map(|e| if e.name.is_empty() { format!("entry {}", e.index + 1) } else { e.name.clone() })
+            .map(|e| if e.name.is_empty() { super::drive::entry_name(e.index) } else { e.name.clone() })
             .unwrap_or_else(|| "Automatic".into())
     };
-    format!("{where_} · {:.0} cars", l.state.choice.traffic)
+    format!("{} · {}", omsi_ui::tr(&where_), omsi_ui::tr("%{n} cars").replace("%{n}", &format!("{:.0}", l.state.choice.traffic)))
 }
 
 fn play(l: &mut Launcher, body: Rect) {
@@ -427,7 +427,7 @@ fn bus_sheet(l: &mut Launcher, r: Rect) -> bool {
             let mut sub = v.manufacturer.clone();
             sub = format!("{sub}{}{}", if sub.is_empty() { "" } else { " · " }, super::drive::liveries_text(v.paints.len()));
             if !v.missing_packs.is_empty() {
-                sub = format!("{sub} · parts missing");
+                sub = format!("{sub} · {}", omsi_ui::tr("parts missing"));
             }
             (v.file.clone(), v.name.clone(), sub, v.installed, !v.missing_packs.is_empty())
         })
@@ -521,7 +521,7 @@ fn vehicle_sheet(l: &mut Launcher, r: Rect) -> bool {
     let mut y = inner.y;
 
     let auto = l.state.default_hof();
-    let mut hof_options = vec![format!("Automatic ({auto})")];
+    let mut hof_options = vec![omsi_ui::tr("Automatic (%{hof})").replace("%{hof}", &auto)];
     hof_options.extend(vehicle.hofs.iter().cloned());
     let mut hof_sel = if l.state.choice.hof_manual {
         vehicle.hofs.iter().position(|h| h.eq_ignore_ascii_case(&l.state.choice.hof)).map(|i| i + 1).unwrap_or(0)
@@ -583,7 +583,7 @@ fn start_sheet(l: &mut Launcher, r: Rect) -> bool {
     let mut y = inner.y;
     if let Some(m) = l.state.map().cloned() {
         let mut labels = vec![if l.state.choice.free { "Automatic (the map's first)".to_string() } else { "Automatic (nearest to the first stop)".to_string() }];
-        labels.extend(m.entry_points.iter().map(|e| if e.name.is_empty() { format!("entry {}", e.index + 1) } else { e.name.clone() }));
+        labels.extend(m.entry_points.iter().map(|e| if e.name.is_empty() { super::drive::entry_name(e.index) } else { e.name.clone() }));
         let mut es = if l.state.choice.entry < 0 { 0 } else { (l.state.choice.entry as usize + 1).min(labels.len().saturating_sub(1)) };
         l.ui.label(Rect::new(inner.x, y, 112.0, ROW), "Start at");
         if labels.len() > 1 && l.ui.select("ps-start-at", Rect::new(inner.x + 112.0, y, inner.w - 112.0, ROW), &mut es, &labels) {
@@ -754,8 +754,8 @@ fn servers_sheet(l: &mut Launcher, r: Rect) -> bool {
             let info = l.state.server_info.get(&entry.address).map(|x| x.1.clone());
             let name = if !entry.name.is_empty() { entry.name.clone() } else { info.as_ref().and_then(|x| x.as_ref().ok()).map(|x| x.name.clone()).unwrap_or_else(|| entry.address.clone()) };
             let sub = match info {
-                Some(Ok(i)) => format!("{} / {} players · {}", i.players, i.max_players, i.motd),
-                Some(Err(e)) => format!("Can't reach it: {e}"),
+                Some(Ok(i)) => format!("{} · {}", omsi_ui::tr("%{n} / %{max} players").replace("%{n}", &i.players.to_string()).replace("%{max}", &i.max_players.to_string()), i.motd),
+                Some(Err(e)) => omsi_ui::tr("Can't reach it: %{error}").replace("%{error}", &e),
                 None => "Asking…".into(),
             };
             ui.text_in(&name, Rect::new(rr.x + 14.0, rr.y + 7.0, rr.w - 190.0, 21.0), 14.0, Weight::Bold, TEXT, Align::Left);
@@ -831,7 +831,7 @@ fn duty_sheet(l: &mut Launcher, r: Rect) -> bool {
         for (name, termini, tours, o) in &lines {
             let rr = Rect::new(v.x, y, v.w - 8.0, ROW_H);
             let on = !free && chosen.as_deref() == Some(name.as_str());
-            let sub = format!("{termini} · {tours} tours");
+            let sub = format!("{termini} · {}", if *tours == 1 { omsi_ui::tr("one tour").into_owned() } else { omsi_ui::tr("%{n} tours").replace("%{n}", &tours.to_string()) });
             let clicked = match o {
                 // (a line of the player's: its plate in its colour and its name, not its file)
                 Some(o) => {
@@ -840,7 +840,7 @@ fn duty_sheet(l: &mut Launcher, r: Rect) -> bool {
                     ui.text_in(&o.name, Rect::new(rr.x + 24.0 + w, rr.y + 9.0, (rr.w - 84.0 - w).max(0.0), 22.0), 15.5, Weight::Bold, TEXT, Align::Left);
                     c
                 }
-                None => big_row(ui, &format!("pl-{name}"), rr, &format!("Line {name}"), &sub, on, None),
+                None => big_row(ui, &format!("pl-{name}"), rr, &omsi_ui::tr("Line %{line}").replace("%{line}", name), &sub, on, None),
             };
             if clicked {
                 pick = Some(Some(name.clone()));
@@ -887,7 +887,13 @@ fn tour_sheet(l: &mut Launcher, r: Rect) -> bool {
         .iter()
         .map(|t| {
             let when = format!("{} – {}", super::state::hhmm(t.first), super::state::hhmm(t.last));
-            let sub = if t.runs { format!("{when} · {} trips · {}", t.trips.len(), t.days) } else { format!("{when} · {} · runs {}", t.days, t.next_run.clone().unwrap_or_else(|| "never".into())) };
+            let days = super::drive::days_text(&t.days);
+            let sub = if t.runs {
+                format!("{when} · {} · {days}", omsi_ui::tr(if t.trips.len() == 1 { "%{n} trip" } else { "%{n} trips" }).replace("%{n}", &t.trips.len().to_string()))
+            } else {
+                let runs = t.next_run.as_ref().map(|d| omsi_ui::tr("runs %{date}").replace("%{date}", d)).unwrap_or_else(|| omsi_ui::tr("never within a year").into_owned());
+                format!("{when} · {days} · {runs}")
+            };
             (t.number.clone(), sub, t.runs, t.next_run.clone())
         })
         .collect();
@@ -896,7 +902,7 @@ fn tour_sheet(l: &mut Launcher, r: Rect) -> bool {
     l.ui.scroll_area("ps-tours", r, &mut |ui, v| {
         for (k, (num, sub, runs, next)) in items.iter().enumerate() {
             let rr = Rect::new(v.x, v.y + k as f32 * (ROW_H + 6.0), v.w - 8.0, ROW_H);
-            if big_row(ui, &format!("pt-{num}"), rr, &format!("Tour {num}"), sub, chosen.as_deref() == Some(num.as_str()), (!runs).then_some(("OTHER DAY", TEXT_FAINT))) {
+            if big_row(ui, &format!("pt-{num}"), rr, &omsi_ui::tr("Tour %{tour}").replace("%{tour}", num), sub, chosen.as_deref() == Some(num.as_str()), (!runs).then_some(("OTHER DAY", TEXT_FAINT))) {
                 pick = Some((num.clone(), *runs, next.clone()));
             }
         }
@@ -961,7 +967,7 @@ fn time_sheet(l: &mut Launcher, r: Rect) -> bool {
             changed |= ui.slider("ps-custom-temp", Rect::new(v.x, yy, v.w - 8.0, 40.0), &mut custom.temp_c, -30.0, 45.0, 1.0, "Temperature", &|x| format!("{x:.0} °C"));
             yy += 46.0;
             let t = custom.temp_c;
-            changed |= ui.slider("ps-custom-hum", Rect::new(v.x, yy, v.w - 8.0, 40.0), &mut custom.humidity, 0.0, 100.0, 1.0, "Humidity", &|x| format!("{x:.0} % · dew {:.0} °C", crate::weather_setup::dew_point_c(t, x)));
+            changed |= ui.slider("ps-custom-hum", Rect::new(v.x, yy, v.w - 8.0, 40.0), &mut custom.humidity, 0.0, 100.0, 1.0, "Humidity", &|x| format!("{x:.0} % · {}", omsi_ui::tr("dew %{t} °C").replace("%{t}", &format!("{:.0}", crate::weather_setup::dew_point_c(t, x)))));
             yy += 50.0;
 
             ui.label(Rect::new(v.x, yy, 120.0, 38.0), "Cloud type");
@@ -1070,7 +1076,7 @@ fn time_sheet(l: &mut Launcher, r: Rect) -> bool {
     let items: Vec<(String, String, String)> = [
         (String::new(), "Natural weather".to_string(), "Develops by itself through the day and the season".to_string()),
         (custom, "Custom weather".to_string(), "Visibility, wind, temperature, rain, snow and road state".to_string()),
-        (format!("metar:{home}"), "Current weather".to_string(), format!("Real weather from {home} (ICAO can be changed)")),
+        (format!("metar:{home}"), "Current weather".to_string(), omsi_ui::tr("Real weather from %{station} (ICAO can be changed)").replace("%{station}", &home)),
         ("cycle".to_string(), "Weather cycle".to_string(), "Changes every 25-60 minutes, as the month allows".to_string()),
     ]
     .into_iter()
@@ -1125,7 +1131,7 @@ fn online(l: &mut Launcher, body: Rect) {
     let (line1, line2, c) = match info.as_ref() {
         Some(Ok(i)) => {
             let map = std::path::Path::new(&i.map.replace('\\', "/")).parent().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-            (format!("{} / {} players online · {map}", i.players, i.max_players), i.motd.clone(), OK)
+            (format!("{} · {map}", omsi_ui::tr("%{n} / %{max} players online").replace("%{n}", &i.players.to_string()).replace("%{max}", &i.max_players.to_string())), i.motd.clone(), OK)
         }
         Some(Err(e)) => (e.clone(), String::new(), DANGER),
         None => ("Looking for the server…".into(), String::new(), TEXT_DIM),
@@ -1194,8 +1200,8 @@ fn online(l: &mut Launcher, body: Rect) {
             let info = l.state.server_info.get(&e.address).map(|x| x.1.clone());
             let name = if !e.name.is_empty() { e.name.clone() } else { info.as_ref().and_then(|i| i.as_ref().ok()).map(|i| i.name.clone()).unwrap_or_else(|| e.address.clone()) };
             let sub = match info {
-                Some(Ok(i)) => format!("{} / {} players · {}", i.players, i.max_players, i.motd),
-                Some(Err(err)) => format!("Can't reach it: {err}"),
+                Some(Ok(i)) => format!("{} · {}", omsi_ui::tr("%{n} / %{max} players").replace("%{n}", &i.players.to_string()).replace("%{max}", &i.max_players.to_string()), i.motd),
+                Some(Err(err)) => omsi_ui::tr("Can't reach it: %{error}").replace("%{error}", &err),
                 None => "Asking…".into(),
             };
             (e.address.clone(), name, sub)
