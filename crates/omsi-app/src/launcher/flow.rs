@@ -397,7 +397,6 @@ pub(super) const BAR_BRAND_H: f32 = 28.0;
 /// The logo's colours (`assets/logos`): the ring and the line, the bus's and "open"'s ink,
 /// "OMSI"'s orange, and the stops' - each on a white rim: the first red, the Haltestelle
 /// yellow with green, the terminus grey with a teal smile.
-const BRAND_BLUE: Color = Color::hex(0x1E86F7);
 const BRAND_INK: Color = Color::hex(0xEEF1F5);
 const BRAND_ORANGE: Color = Color::hex(0xF58620);
 const BRAND_RIM: Color = Color::WHITE;
@@ -475,7 +474,8 @@ impl Brand {
         // foot, and on as the line under the words
         let mut route = Path::new(c + Vec2::from_angle(BRAND_RING_END) * r);
         route.arc_around(c, -(1.5 * std::f32::consts::PI + BRAND_RING_END)).line_to(c + Vec2::new(self.line_end, r));
-        p.stroke(route.points(), self.ring_w, BRAND_BLUE);
+        // (the line in the accent, as the large mark's: Luc)
+        p.stroke(route.points(), self.ring_w, Color::hex(crate::accent::chosen()));
         // the bus's front as the small icon has it (`openomsi-small.svg`: no band, no
         // mirrors - each part a pixel or two), in the logo's units
         let k = r / 167.0;

@@ -28,7 +28,6 @@ use super::ui::{id_of, Input, Ui};
 
 // The mark's colours, as the drawing has them.
 /// The ring and the line.
-const BLUE: Color = Color::rgba(30, 134, 246, 1.0);
 /// "open" and the bus front; "OMSI".
 const INK: Color = Color::rgba(236, 238, 242, 1.0);
 const ORANGE: Color = Color::rgba(244, 134, 32, 1.0);
@@ -43,13 +42,26 @@ const TEAL: Color = Color::rgba(1, 201, 190, 1.0);
 /// The bus front's headlights when they flash.
 const HEADLIGHT: Color = Color::rgba(255, 244, 200, 1.0);
 /// The light at the pen: a white-blue point in a blue glow.
-const PEN: Color = Color::rgba(222, 236, 255, 1.0);
-const PEN_GLOW: Color = Color::rgba(96, 156, 255, 1.0);
 /// The route as the launcher's map draws it (`mapview`) under the stop sign the player looks
 /// for in the game: a yellow disc, a green ring and a green H (`sign`).
 const LINE_CASING: Color = Color::rgba(18, 58, 107, 1.0);
 const SIGN: Color = Color::rgba(242, 194, 0, 1.0);
 const SIGN_INK: Color = Color::rgba(10, 107, 61, 1.0);
+
+/// The line's colour - the ring round the bus and the line under the name (Luc: in the
+/// accent, orange unless another was chosen; it was the route's blue) - and its light as it
+/// runs along: a pale tint of it, and its glow.
+fn line_colour() -> Color {
+    Color::hex(crate::accent::chosen())
+}
+
+fn pen() -> Color {
+    line_colour().mix(Color::WHITE, 0.82)
+}
+
+fn pen_glow() -> Color {
+    line_colour().mix(Color::WHITE, 0.35)
+}
 
 // The mark is laid out after the drawing it was made from, in that drawing's pixels (it is
 // 2000 wide, its ring 174 round its middle); the mark is `RING_R` round at a 1440 x 900 window
@@ -281,7 +293,7 @@ impl Intro {
         let route = mark.route(&at);
         let pen_at = route.length() * look.drawn;
         if look.drawn > 0.0 {
-            ui.p().stroke(&route.part(0.0, pen_at), mark.stroke * k * look.pen, BLUE.alpha(a));
+            ui.p().stroke(&route.part(0.0, pen_at), mark.stroke * k * look.pen, line_colour().alpha(a));
         }
         // the bus front, springing up once the ring has closed round it
         if look.bus > 0.0 {
@@ -301,8 +313,8 @@ impl Intro {
         if look.head > 0.0 && look.drawn > 0.0 {
             let (p, _) = route.at(pen_at);
             let h = look.head * a;
-            ui.p().radial(p, mark.stroke * 1.75 * k, PEN_GLOW.alpha(0.42 * h), PEN_GLOW.alpha(0.0));
-            ui.p().stroke(&[p], mark.stroke * k * look.pen * 0.55, PEN.alpha(0.9 * h));
+            ui.p().radial(p, mark.stroke * 1.75 * k, pen_glow().alpha(0.42 * h), pen_glow().alpha(0.0));
+            ui.p().stroke(&[p], mark.stroke * k * look.pen * 0.55, pen().alpha(0.9 * h));
         }
         // the name: "open" rising into its place (cut off above the line: the p's tail comes up
         // from behind it), "OMSI" landing down its slant
@@ -448,15 +460,15 @@ impl Logo {
         let route = mark.route(&at);
         let len = route.length();
         let w = mark.stroke * k;
-        ui.p().stroke(&route.part(0.0, len), w, BLUE.mix(PEN, 0.16 * warm));
+        ui.p().stroke(&route.part(0.0, len), w, line_colour().mix(pen(), 0.16 * warm));
         // the light: a bright stretch over the line, its glow at the front
         if let Some(l) = light {
             if l.to > l.from && l.strength > 0.0 {
                 let (a, b) = (l.from * len, l.to * len);
-                ui.p().stroke(&route.part(a, b), w * 0.62, PEN.alpha(0.55 * l.strength));
-                ui.p().stroke(&route.part((b - (b - a) * 0.35).max(a), b), w * 0.5, PEN.alpha(0.85 * l.strength));
+                ui.p().stroke(&route.part(a, b), w * 0.62, pen().alpha(0.55 * l.strength));
+                ui.p().stroke(&route.part((b - (b - a) * 0.35).max(a), b), w * 0.5, pen().alpha(0.85 * l.strength));
                 let (front, _) = route.at(b);
-                ui.p().radial(front, w * 2.0, PEN_GLOW.alpha(0.45 * l.strength), PEN_GLOW.alpha(0.0));
+                ui.p().radial(front, w * 2.0, pen_glow().alpha(0.45 * l.strength), pen_glow().alpha(0.0));
             }
         }
         // the bus front, hopping and flashing its lights once the light has gone round it
@@ -466,7 +478,7 @@ impl Logo {
         for (stop, share) in mark.stops.iter().zip(mark.timing.stops) {
             let lit = t.map_or(0.0, |t| stop_lit(t, share));
             if lit > 0.0 {
-                ui.p().radial(at(stop.at), RIM_R * u * 2.4 * k, PEN_GLOW.alpha(0.4 * lit), PEN_GLOW.alpha(0.0));
+                ui.p().radial(at(stop.at), RIM_R * u * 2.4 * k, pen_glow().alpha(0.4 * lit), pen_glow().alpha(0.0));
             }
             stop_sign(ui, stop.kind, at(stop.at), u * k, 1.0 + STOP_SWELL * lit, 1.0);
         }
@@ -501,7 +513,7 @@ fn letter(ui: &mut Ui, l: &Letter, pen: Vec2, size: f32, grow: f32, away: Vec2, 
 fn pulse(p: &mut Painter, at: Vec2, k: f32, t: f32, a: f32) {
     let r = (RIM_R * 1.08 + 80.0 * ease_out_cubic(t)) * k;
     let w = (6.5 - 3.2 * t) * k;
-    p.arc(at, r - w * 0.5, r + w * 0.5, 0.0, TAU, BLUE.alpha(0.55 * (1.0 - t) * (1.0 - t) * a));
+    p.arc(at, r - w * 0.5, r + w * 0.5, 0.0, TAU, line_colour().alpha(0.55 * (1.0 - t) * (1.0 - t) * a));
 }
 
 // (the tour's drawings draw their stops with it)
