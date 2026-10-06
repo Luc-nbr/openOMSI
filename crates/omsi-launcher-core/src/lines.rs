@@ -15,10 +15,21 @@
 //! * `StnLinks.cfg` - a link for every pair of stops the map has none for (the map's own are
 //!   never changed: other lines drive them), `Busstops.cfg` - the stops the map does not name.
 //!
+//! * `oo_vehicles.json` - the buses each line asks for (`service::LineVehicles`): the game
+//!   takes its timetable buses for the line's trips from them (`read_line_buses`).
+//!
+//! A line's timetable is either made from its day patterns (first and last departure and how
+//! often, or time bands) or - `LineDesign::table_on` - a table of trips with a time at every
+//! stop, each the player's to change (`TableTrip`, after City Bus Manager's): a trip of other
+//! times than its direction's gets a profile of its own in its trip file.
+//!
 //! Every file name starts with `oo_`, so none can take the place of one of the map's. What the
 //! destination displays and the IBIS need of a line goes into the depot files of its buses
-//! (`linehof`).
+//! (`linehof`). A line's kind of service (`service::ServiceKind`) is written as its tours' day
+//! masks: a school line's run on school days only, a weekend line's on Saturdays, Sundays and
+//! public holidays.
 
+use crate::service::{HolidayPeriod, LineVehicles, ServiceKind};
 use omsi_timetable::{BusStopEntry, Line, StnLink, StnLinkEntry, Tour, TourTrip, Track, TrackEntry, Trip, TripProfile};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -31,6 +42,9 @@ pub const FILE_PREFIX: &str = "oo_";
 /// The list of the files the line editor wrote into a `TTData` folder (they are deleted
 /// before it writes again, so a line renamed or deleted leaves nothing behind).
 pub const MANIFEST: &str = "openomsi-lines.txt";
+/// The buses each line asks for, as the game reads them (a timetable line's file stem, lower
+/// case, to its `LineVehicles`; only lines that chose some).
+pub const VEHICLES_FILE: &str = "oo_vehicles.json";
 
 /// The days of a pattern (bits 0 - 6 Monday to Sunday, 7 public holidays): working days,
 /// Saturday, Sunday and public holidays.
@@ -58,11 +72,16 @@ pub struct Registry {
     /// The depot files (by the name the depot groups give them) the line editor wrote its
     /// block into last time: a line deleted, or moved to another depot, takes its block out.
     pub depots: Vec<String>,
+    /// The school holidays of a map whose calendar (`Holidays.txt`) has none (empty: the
+    /// defaults, `service::default_school_holidays`).
+    pub school_holidays: Vec<HolidayPeriod>,
+    /// The player's own destinations on this map (`OwnDestination`).
+    pub destinations: Vec<OwnDestination>,
 }
 
 impl Default for Registry {
     fn default() -> Self {
-        Registry { version: REGISTRY_VERSION, map: String::new(), global: String::new(), next_id: 1, lines: Vec::new(), depots: Vec::new() }
+        Registry { version: REGISTRY_VERSION, map: String::new(), global: String::new(), next_id: 1, lines: Vec::new(), depots: Vec::new(), school_holidays: Vec::new(), destinations: Vec::new() }
     }
 }
 
@@ -95,6 +114,18 @@ pub struct LineDesign {
     /// Dynamic passenger information (live departure displays) at the line's transfer stops
     /// (what a company pays for when it confirms the line).
     pub live_displays: bool,
+    /// What kind of service it is: on which days it runs, and - in a company - what pays for
+    /// it (`service`).
+    pub service: ServiceKind,
+    /// The buses that run it (none chosen: any of its depot group's).
+    pub vehicles: LineVehicles,
+    /// The timetable as a table of trips (`TableTrip`), and whether it is the line's (else the
+    /// day patterns make its trips).
+    pub table: Vec<TableTrip>,
+    pub table_on: bool,
+    /// What the line is called in public - on its card and in its advertising ("Shuttleverkehr
+    /// Altenfeld - Wurzbach"); empty: its name.
+    pub title: String,
 }
 
 impl Default for LineDesign {
@@ -112,8 +143,27 @@ impl Default for LineDesign {
             company: String::new(),
             draft: false,
             live_displays: false,
+            service: ServiceKind::Regular,
+            vehicles: LineVehicles::default(),
+            table: Vec::new(),
+            table_on: false,
+            title: String::new(),
         }
     }
+}
+
+/// A destination of the player's own (Luc: "dat je eerst je eigen bestemmingen opslaat in de
+/// editor"): what a direction's displays show - its name (the trip's terminus, "Shuttleverkehr
+/// Altenfeld - Wurzbach"), the display texts (one per string of the depot file; empty: made
+/// from the name, `linehof::Depot::sign_defaults`) and its terminus code in the depot file (0:
+/// given when a line with it is saved). Kept per map in the registry and offered wherever a
+/// destination is chosen.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct OwnDestination {
+    pub name: String,
+    pub sign: Vec<String>,
+    pub code: i32,
 }
 
 /// A stop of a direction: the map object the timetable names (its tile, as object ids repeat
@@ -298,9 +348,37 @@ pub fn default_days() -> Vec<DayPattern> {
     ]
 }
 
-/// The tour mask a pattern's days are written as.
+/// The tour mask a regular line's pattern's days are written as (`ServiceKind::mask` for the
+/// other kinds).
 pub fn mask_of(days: u16) -> i32 {
     days as i32 & 0xff | SCHOOL_BITS
+}
+
+/// The timetable a line of `kind` starts from when the player chooses the kind: a school
+/// line's trips before school and after it, a weekend line's every hour in the daytime, an
+/// on-demand line's every hour from morning to night; a regular line's as a new line has it.
+pub fn days_for(kind: ServiceKind) -> Vec<DayPattern> {
+    let b = |from: f32, to: f32, headway: f32| TimeBand { from: from * 60.0, to: to * 60.0, headway, size: None };
+    let mut days = default_days();
+    match kind {
+        ServiceKind::Regular => {}
+        ServiceKind::School => {
+            days[0] = DayPattern { days: DAY_GROUPS[0].1, layover: 5.0, bands: vec![b(6.5, 8.25, 15.0), b(12.75, 16.5, 30.0)], ..Default::default() };
+            days[1].on = false;
+            days[2].on = false;
+        }
+        ServiceKind::Leisure => {
+            days[0].on = false;
+            days[1] = DayPattern { days: DAY_GROUPS[1].1, first: 9.0 * 60.0, last: 19.0 * 60.0, headway: 60.0, ..Default::default() };
+            days[2] = DayPattern { days: DAY_GROUPS[2].1, first: 9.0 * 60.0, last: 19.0 * 60.0, headway: 60.0, ..Default::default() };
+        }
+        ServiceKind::OnDemand => {
+            days[0] = DayPattern { days: DAY_GROUPS[0].1, first: 6.0 * 60.0, last: 22.0 * 60.0, headway: 60.0, ..Default::default() };
+            days[1] = DayPattern { days: DAY_GROUPS[1].1, first: 7.0 * 60.0, last: 22.0 * 60.0, headway: 60.0, ..Default::default() };
+            days[2] = DayPattern { days: DAY_GROUPS[2].1, first: 8.0 * 60.0, last: 21.0 * 60.0, headway: 60.0, ..Default::default() };
+        }
+    }
+    days
 }
 
 fn now_secs() -> u64 {
@@ -361,6 +439,35 @@ impl Registry {
 
     pub fn line_mut(&mut self, id: u64) -> Option<&mut LineDesign> {
         self.lines.iter_mut().find(|l| l.id == id)
+    }
+
+    /// The player's own destination of that name (in any case).
+    pub fn destination(&self, name: &str) -> Option<&OwnDestination> {
+        self.destinations.iter().find(|d| d.name.trim().eq_ignore_ascii_case(name.trim()))
+    }
+
+    /// Keep a destination of the player's own (one of the same name taken over); the empty
+    /// name is none.
+    pub fn keep_destination(&mut self, d: OwnDestination) {
+        let name = d.name.trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+        self.destinations.retain(|x| !x.name.trim().eq_ignore_ascii_case(&name));
+        self.destinations.push(OwnDestination { name, ..d });
+        self.destinations.sort_by_key(|x| x.name.to_lowercase());
+    }
+}
+
+impl Direction {
+    /// Give the direction one of the player's own destinations: its name, its display texts
+    /// and - when it has one - its terminus code.
+    pub fn take_destination(&mut self, d: &OwnDestination) {
+        self.terminus = d.name.trim().to_string();
+        self.sign = d.sign.clone();
+        if d.code > 0 {
+            self.terminus_code = d.code;
+        }
     }
 }
 
@@ -480,12 +587,23 @@ pub fn opposite_stops(out: &[StopRef], all: &[StopRef], reach: f64) -> Vec<StopR
 // --- tours from a pattern ------------------------------------------------------------------
 
 /// A trip of a bus's day: the direction, its departure (minutes after midnight) and the time
-/// band it is in (an index into the pattern's `clean_bands`).
+/// band it is in (an index into the pattern's `clean_bands`); a table's trip its own minutes
+/// and the profile of its trip file it runs with (0: the direction's times).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Planned {
     pub dir: usize,
     pub departure: f32,
     pub band: Option<usize>,
+    /// Minutes the trip takes (0: its direction's, `run_minutes`).
+    pub run: f32,
+    pub profile: usize,
+}
+
+impl Planned {
+    /// Minutes it takes: its own, else its direction's (`run`, from `run_minutes`).
+    pub fn minutes(&self, run: &[f32]) -> f32 {
+        if self.run > 0.0 { self.run } else { run.get(self.dir).copied().unwrap_or(1.0) }.max(1.0)
+    }
 }
 
 /// A bus standing longer than this at the end (minutes) goes back to the depot between its
@@ -507,8 +625,15 @@ pub fn blocks(run: &[f32], p: &DayPattern) -> Vec<Vec<Planned>> {
     let banded = !p.bands.is_empty();
     let mut deps: Vec<Planned> = Vec::new();
     for dir in 0..dirs {
-        deps.extend(p.departures().into_iter().take(4000 / dirs).map(|(departure, band)| Planned { dir, departure, band }));
+        deps.extend(p.departures().into_iter().take(4000 / dirs).map(|(departure, band)| Planned { dir, departure, band, run: 0.0, profile: 0 }));
     }
+    chain(deps, run, dirs, p.layover, banded)
+}
+
+/// Each trip (of `dirs` directions) given to a bus ready at the end it leaves from (its minutes
+/// and `layover` after its trip before), else to a new bus: the one that has stood longest,
+/// or - `first_out` - the one that came out first.
+fn chain(mut deps: Vec<Planned>, run: &[f32], dirs: usize, layover: f32, first_out: bool) -> Vec<Vec<Planned>> {
     deps.sort_by(|a, b| a.departure.total_cmp(&b.departure).then(a.dir.cmp(&b.dir)));
     // (where a direction leaves from and where it ends: the two ends of the line, or the one
     // end of a line that goes round)
@@ -522,7 +647,7 @@ pub fn blocks(run: &[f32], p: &DayPattern) -> Vec<Vec<Planned>> {
     let mut buses: Vec<Bus> = Vec::new();
     for d in deps {
         let mut ready_buses = buses.iter().enumerate().filter(|(_, b)| b.at == from(d.dir) && b.free <= d.departure + 1e-3);
-        let ready = if banded { ready_buses.next().map(|(i, _)| i) } else { ready_buses.min_by(|a, b| a.1.free.total_cmp(&b.1.free)).map(|(i, _)| i) };
+        let ready = if first_out { ready_buses.next().map(|(i, _)| i) } else { ready_buses.min_by(|a, b| a.1.free.total_cmp(&b.1.free)).map(|(i, _)| i) };
         let i = ready.unwrap_or_else(|| {
             buses.push(Bus { at: from(d.dir), free: 0.0, trips: Vec::new() });
             buses.len() - 1
@@ -530,7 +655,7 @@ pub fn blocks(run: &[f32], p: &DayPattern) -> Vec<Vec<Planned>> {
         let b = &mut buses[i];
         b.trips.push(d);
         b.at = to(d.dir);
-        b.free = d.departure + run[d.dir].max(1.0) + p.layover.max(0.0);
+        b.free = d.departure + d.minutes(run) + layover.max(0.0);
     }
     buses.into_iter().map(|b| b.trips).collect()
 }
@@ -543,12 +668,18 @@ pub fn tours(run: &[f32], p: &DayPattern) -> Vec<Vec<Planned>> {
     if p.bands.is_empty() {
         return all;
     }
+    cut_parked(all, run)
+}
+
+/// Each bus's day cut where it stands longer than `PARK` at the end, in order of the tours'
+/// first departures.
+fn cut_parked(all: Vec<Vec<Planned>>, run: &[f32]) -> Vec<Vec<Planned>> {
     let mut out = Vec::new();
     for bus in all {
         let mut cur: Vec<Planned> = Vec::new();
         for t in bus {
             if let Some(last) = cur.last() {
-                let back = last.departure + run.get(last.dir).copied().unwrap_or(1.0).max(1.0);
+                let back = last.departure + last.minutes(run);
                 if t.departure - back > PARK {
                     out.push(std::mem::take(&mut cur));
                 }
@@ -577,7 +708,7 @@ impl PlannedTour {
     /// directions.
     pub fn span(&self, run: &[f32]) -> (f32, f32) {
         let a = self.trips.first().map(|t| t.departure).unwrap_or(0.0);
-        let z = self.trips.iter().map(|t| t.departure + run.get(t.dir).copied().unwrap_or(1.0).max(1.0)).fold(a, f32::max);
+        let z = self.trips.iter().map(|t| t.departure + t.minutes(run)).fold(a, f32::max);
         (a, z)
     }
 }
@@ -585,30 +716,201 @@ impl PlannedTour {
 /// Minutes each direction of a line takes from its first stop to its last (one entry per
 /// direction with stops).
 pub fn run_minutes(l: &LineDesign) -> Vec<f32> {
-    l.directions
-        .iter()
-        .filter(|d| d.stops.len() >= 2)
-        .map(|d| {
-            let mut times = d.times.clone();
-            if times.len() != d.stops.len() {
-                times = auto_times(&d.legs);
-                times.resize(d.stops.len(), times.last().copied().unwrap_or(0.0));
-            }
-            times.last().copied().unwrap_or(1.0).max(1.0)
-        })
-        .collect()
+    l.directions.iter().filter(|d| d.stops.len() >= 2).map(|d| fitted_times(d).last().copied().unwrap_or(1.0).max(1.0)).collect()
 }
 
-/// Every tour of a line, numbered on through the day groups as the `.ttl` has them.
+/// Every tour of a line, numbered on through the day groups as the `.ttl` has them (the
+/// groups its kind of service does not run on left out: a school line has no weekend tours) -
+/// of its table when it has one on (`table_tours`).
 pub fn tour_plan(l: &LineDesign) -> Vec<PlannedTour> {
+    if l.table_on {
+        return table_tours(l);
+    }
     let run = run_minutes(l);
     let mut out: Vec<PlannedTour> = Vec::new();
     for (day, p) in l.days.iter().enumerate() {
+        if !l.service.allows(day) {
+            continue;
+        }
         for trips in tours(&run, p) {
             out.push(PlannedTour { number: (out.len() + 1).to_string(), day, trips });
         }
     }
     out
+}
+
+// --- the timetable as a table -------------------------------------------------------------------
+
+/// A trip of a line's timetable table (`LineDesign::table`, after City Bus Manager's: every time
+/// the player's to change): its direction, its group of days (an index into `DAY_GROUPS`; the
+/// line's kind of service decides which run, and a school line's on school days only, as its
+/// masks say) and its time at every stop (minutes after midnight).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct TableTrip {
+    pub dir: usize,
+    pub day: usize,
+    pub times: Vec<f32>,
+}
+
+impl TableTrip {
+    pub fn departure(&self) -> f32 {
+        self.times.first().copied().unwrap_or(0.0)
+    }
+
+    /// Minutes from its first stop to its last.
+    pub fn minutes(&self) -> f32 {
+        self.times.last().copied().unwrap_or(0.0) - self.departure()
+    }
+
+    /// The first stop it would reach before it left the stop before (None: its times run
+    /// forward along the stops, as the game needs them to).
+    pub fn first_fall(&self) -> Option<usize> {
+        (1..self.times.len()).find(|&i| self.times[i] < self.times[i - 1] - 1e-3)
+    }
+
+    /// The whole trip `by` minutes later (earlier when negative; not before midnight).
+    pub fn shift(&mut self, by: f32) {
+        let by = by.max(-self.departure());
+        for t in &mut self.times {
+            *t += by;
+        }
+    }
+
+    /// Its times from its departure on (the shape its trip file's profile keeps).
+    pub fn relative(&self) -> Vec<f32> {
+        let a = self.departure();
+        self.times.iter().map(|t| t - a).collect()
+    }
+}
+
+/// Minutes from the first stop to every stop of a direction: its own (set by hand, or made
+/// from its legs when they were saved), else made from its legs now.
+pub fn fitted_times(d: &Direction) -> Vec<f32> {
+    let mut times = d.times.clone();
+    if times.len() != d.stops.len() {
+        times = auto_times(&d.legs);
+        times.resize(d.stops.len(), times.last().copied().unwrap_or(0.0));
+    }
+    times
+}
+
+/// A table trip's times as its direction's stops are now (a stop added or taken out since the
+/// table was made: from its departure on as the direction has the times).
+pub fn trip_times(l: &LineDesign, t: &TableTrip) -> Vec<f32> {
+    match l.directions.get(t.dir) {
+        Some(d) if t.times.len() != d.stops.len() => fitted_times(d).iter().map(|x| t.departure() + x).collect(),
+        _ => t.times.clone(),
+    }
+}
+
+/// The table the day patterns make: every departure of every group of days the line's kind of
+/// service runs on, in each direction, with the direction's times to the stops - where a table
+/// starts, the player changing it trip by trip after.
+pub fn table_from_patterns(l: &LineDesign) -> Vec<TableTrip> {
+    let dirs: Vec<(usize, Vec<f32>)> = l.directions.iter().enumerate().filter(|(_, d)| d.stops.len() >= 2).map(|(k, d)| (k, fitted_times(d))).take(2).collect();
+    let mut out = Vec::new();
+    for (day, p) in l.days.iter().enumerate().filter(|(k, _)| l.service.allows(*k)) {
+        for (dir, rel) in &dirs {
+            for (dep, _) in p.departures() {
+                out.push(TableTrip { dir: *dir, day, times: rel.iter().map(|x| dep + x).collect() });
+            }
+        }
+    }
+    out.sort_by(|a, b| a.day.cmp(&b.day).then(a.departure().total_cmp(&b.departure())).then(a.dir.cmp(&b.dir)));
+    out
+}
+
+/// The trips of the table the line drives: of the groups of days its kind runs on and of a
+/// direction it has, fitted to the stops (`trip_times`), in order of departure.
+pub fn table_trips(l: &LineDesign) -> Vec<TableTrip> {
+    let dirs = l.directions.iter().filter(|d| d.stops.len() >= 2).count().min(2);
+    let mut out: Vec<TableTrip> = l
+        .table
+        .iter()
+        .filter(|t| t.dir < dirs && t.day < DAY_GROUPS.len() && l.service.allows(t.day) && !t.times.is_empty())
+        .map(|t| TableTrip { times: trip_times(l, t), ..t.clone() })
+        .collect();
+    out.sort_by(|a, b| a.day.cmp(&b.day).then(a.departure().total_cmp(&b.departure())).then(a.dir.cmp(&b.dir)));
+    out
+}
+
+fn same_shape(a: &[f32], b: &[f32]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 0.05)
+}
+
+/// The profiles of a direction's trip file: its own times first, then every other shape the
+/// table's trips of that direction have (a trip of the table runs with the profile of its
+/// times: `Planned::profile`).
+pub fn table_profiles(l: &LineDesign, dir: usize) -> Vec<Vec<f32>> {
+    let Some(d) = l.directions.get(dir) else { return Vec::new() };
+    let mut out = vec![fitted_times(d)];
+    if l.table_on {
+        for t in table_trips(l).iter().filter(|t| t.dir == dir) {
+            let rel = t.relative();
+            if !out.iter().any(|p| same_shape(p, &rel)) {
+                out.push(rel);
+            }
+        }
+    }
+    out
+}
+
+/// The tours of a line's table: per group of days its trips given to buses as the day
+/// patterns' are (`chain`, each bus standing at least the group's layover at the end), and a
+/// bus that stands longer than `PARK` sent back to the depot in between.
+pub fn table_tours(l: &LineDesign) -> Vec<PlannedTour> {
+    let trips = table_trips(l);
+    let dirs = l.directions.iter().filter(|d| d.stops.len() >= 2).count().clamp(1, 2);
+    let profiles: Vec<Vec<Vec<f32>>> = (0..dirs).map(|d| table_profiles(l, d)).collect();
+    let mut out: Vec<PlannedTour> = Vec::new();
+    for day in 0..DAY_GROUPS.len() {
+        let deps: Vec<Planned> = trips
+            .iter()
+            .filter(|t| t.day == day)
+            .map(|t| {
+                let rel = t.relative();
+                let profile = profiles.get(t.dir).and_then(|p| p.iter().position(|x| same_shape(x, &rel))).unwrap_or(0);
+                Planned { dir: t.dir, departure: t.departure(), band: None, run: t.minutes().max(1.0), profile }
+            })
+            .collect();
+        if deps.is_empty() {
+            continue;
+        }
+        let layover = l.days.get(day).map(|p| p.layover).unwrap_or(5.0);
+        let mut buses = cut_parked(chain(deps, &[], dirs, layover, false), &[]);
+        buses.sort_by(|a, b| a[0].departure.total_cmp(&b[0].departure));
+        for trips in buses {
+            out.push(PlannedTour { number: (out.len() + 1).to_string(), day, trips });
+        }
+    }
+    out
+}
+
+/// Departures a group of days has in each hour, all directions together: the table's trips,
+/// or the day pattern's departures in every direction.
+pub fn hourly_departures(l: &LineDesign, day: usize) -> [u32; 24] {
+    let mut out = [0u32; 24];
+    if !l.service.allows(day) {
+        return out;
+    }
+    let hour = |t: f32| (t / 60.0).floor().max(0.0) as usize % 24;
+    if l.table_on {
+        for t in table_trips(l).iter().filter(|t| t.day == day) {
+            out[hour(t.departure())] += 1;
+        }
+    } else if let Some(p) = l.days.get(day) {
+        let dirs = run_minutes(l).len().clamp(1, 2) as u32;
+        for (t, _) in p.departures() {
+            out[hour(t)] += dirs;
+        }
+    }
+    out
+}
+
+/// The line runs on the group of days at all (its kind runs then, and it has a trip).
+pub fn runs_on_group(l: &LineDesign, day: usize) -> bool {
+    hourly_departures(l, day).iter().any(|n| *n > 0)
 }
 
 // --- the files --------------------------------------------------------------------------------
@@ -651,6 +953,9 @@ pub struct OwnLine {
     pub colour: String,
     /// Where its directions go, outbound first, each once.
     pub destinations: Vec<String>,
+    /// Its kind of service and the buses it asks for.
+    pub service: ServiceKind,
+    pub vehicles: LineVehicles,
 }
 
 impl OwnLine {
@@ -681,7 +986,7 @@ pub fn own_lines(reg: &Registry) -> Vec<OwnLine> {
                     destinations.push(to);
                 }
             }
-            OwnLine { id: l.id, file: stems[&l.id].clone(), number: l.number.trim().to_string(), name: l.name.trim().to_string(), colour: l.colour.clone(), destinations }
+            OwnLine { id: l.id, file: stems[&l.id].clone(), number: l.number.trim().to_string(), name: l.name.trim().to_string(), colour: l.colour.clone(), destinations, service: l.service, vehicles: l.vehicles.clone() }
         })
         .collect()
 }
@@ -756,8 +1061,14 @@ pub fn problems(l: &LineDesign) -> Vec<Problem> {
             out.push(p(if k == 0 { "%{n} leg(s) of the outbound direction have no way over the roads" } else { "%{n} leg(s) of the way back have no way over the roads" }, bad));
         }
     }
-    if !l.days.iter().any(DayPattern::runs) {
+    let runs = if l.table_on { !table_trips(l).is_empty() } else { l.days.iter().enumerate().any(|(k, d)| l.service.allows(k) && d.runs()) };
+    if !runs {
         out.push(p("The line runs on no day", 0));
+    }
+    // (the game needs a trip's times to run forward along its stops)
+    let falling = if l.table_on { table_trips(l).iter().filter(|t| t.first_fall().is_some()).count() } else { 0 };
+    if falling > 0 {
+        out.push(p("%{n} trip(s) of the table reach a stop before they left the one before", falling));
     }
     out
 }
@@ -777,25 +1088,29 @@ pub fn export(reg: &Registry, raw_tiles: &[(i32, i32)], map_links: &HashSet<(i64
     let mut out = Export::default();
     let mut links_done: HashSet<(i64, i64)> = map_links.clone();
     let mut stops_done: HashSet<i64> = map_stops.clone();
+    let mut buses: std::collections::BTreeMap<String, LineVehicles> = std::collections::BTreeMap::new();
     for l in reg.lines.iter().filter(|l| written(l)) {
         let stem = &stems[&l.id];
         let number = l.number.trim().to_string();
         for (dir, d) in l.directions.iter().enumerate() {
             let name = trip_name(stem, dir);
-            let mut times = d.times.clone();
-            if times.len() != d.stops.len() {
-                times = auto_times(&d.legs);
-                times.resize(d.stops.len(), times.last().copied().unwrap_or(0.0));
-            }
-            let total = times.last().copied().unwrap_or(1.0).max(1.0);
-            let man_dep_time = (1..d.stops.len().saturating_sub(1)).map(|i| (i as i32, times[i])).collect();
+            // (the direction's times, and every other shape of its table's trips: a profile each)
+            let profiles: Vec<TripProfile> = table_profiles(l, dir)
+                .iter()
+                .enumerate()
+                .map(|(k, times)| {
+                    let total = times.last().copied().unwrap_or(1.0).max(1.0);
+                    let man_dep_time = (1..d.stops.len().saturating_sub(1)).map(|i| (i as i32, times.get(i).copied().unwrap_or(0.0))).collect();
+                    TripProfile { name: if k == 0 { "standard".into() } else { format!("table {k}") }, factor: total, man_dep_time, ..Default::default() }
+                })
+                .collect();
             let trip = Trip {
                 name: name.clone(),
                 display_name: name.clone(),
                 terminus: d.destination(),
                 line: number.clone(),
                 stations: d.stops.iter().map(|s| s.id).collect(),
-                profiles: vec![TripProfile { name: "standard".into(), factor: total, man_dep_time, ..Default::default() }],
+                profiles,
                 ..Default::default()
             };
             out.files.push((format!("{name}.ttp"), trip.to_text()));
@@ -843,15 +1158,28 @@ pub fn export(reg: &Registry, raw_tiles: &[(i32, i32)], map_links: &HashSet<(i64
             .map(|t| Tour {
                 number: t.number,
                 ai_group: l.ai_group.trim().to_string(),
-                extra: mask_of(l.days[t.day].days).to_string(),
-                trips: t.trips.iter().map(|x| TourTrip { trip: trip_name(stem, x.dir), profile: 0, departure: x.departure }).collect(),
+                extra: l.service.mask(l.days[t.day].days).to_string(),
+                trips: t.trips.iter().map(|x| TourTrip { trip: trip_name(stem, x.dir), profile: x.profile as i32, departure: x.departure }).collect(),
             })
             .collect();
         out.tours.insert(l.id, tours.len());
         let line = Line { path: PathBuf::new(), name: stem.clone(), user_allowed: true, priority: 1, tours };
         out.files.push((format!("{stem}.ttl"), line.to_text()));
+        if !l.vehicles.open() {
+            buses.insert(stem.to_lowercase(), l.vehicles.clone());
+        }
+    }
+    if !buses.is_empty() {
+        out.files.push((VEHICLES_FILE.to_string(), serde_json::to_string_pretty(&buses).map_err(|e| e.to_string())?));
     }
     Ok(out)
+}
+
+/// The buses the lines of a `TTData` folder ask for (`VEHICLES_FILE`; none when it has none):
+/// by the timetable line's file stem, lower case.
+pub fn read_line_buses(ttdata: &Path) -> HashMap<String, LineVehicles> {
+    let Ok(b) = omsi_cfg::vfs::read(&ttdata.join(VEHICLES_FILE)) else { return HashMap::new() };
+    serde_json::from_slice::<HashMap<String, LineVehicles>>(&b).map(|m| m.into_iter().map(|(k, v)| (k.to_lowercase(), v)).collect()).unwrap_or_default()
 }
 
 /// The text of a `TTData` file as the map has it, without what the line editor added.
@@ -934,6 +1262,117 @@ mod tests {
             d.refresh_times();
         }
         l.id
+    }
+
+    #[test]
+    fn the_table_starts_from_the_patterns_and_every_time_can_change() {
+        let mut reg = Registry::default();
+        let id = line(&mut reg);
+        let l = reg.line_mut(id).unwrap();
+        l.days = vec![DayPattern { days: DAY_GROUPS[0].1, first: 360.0, last: 480.0, headway: 30.0, ..Default::default() }, DayPattern { on: false, days: DAY_GROUPS[1].1, ..Default::default() }, DayPattern { on: false, days: DAY_GROUPS[2].1, ..Default::default() }];
+        // the generator: every departure in both directions, the direction's times to the stops
+        l.table = table_from_patterns(l);
+        assert_eq!(l.table.len(), 2 * 5);
+        assert_eq!(l.table[0].times, vec![360.0, 361.0, 362.0]);
+        let patterns = tour_plan(l);
+        l.table_on = true;
+        // made into the same buses and tours as the patterns make
+        let table = tour_plan(l);
+        assert_eq!(table.len(), patterns.len());
+        assert_eq!(table.iter().map(|t| t.trips.len()).sum::<usize>(), 10);
+        assert!(table.iter().flat_map(|t| t.trips.iter()).all(|x| x.profile == 0));
+        // a trip later as a whole keeps its direction's profile; one stop's time changed makes
+        // a profile of its own
+        l.table[2].shift(3.0);
+        l.table[4].times[2] += 2.0;
+        assert_eq!(table_profiles(l, 0).len(), 2);
+        let plan = tour_plan(l);
+        assert!(plan.iter().flat_map(|t| t.trips.iter()).any(|x| x.profile == 1 && (x.run - 4.0).abs() < 1e-3));
+        let e = export(&reg, &[(0, 0)], &HashSet::new(), &HashSet::new()).unwrap();
+        let ttp = &e.files.iter().find(|f| f.0 == "oo_42_a.ttp").unwrap().1;
+        assert_eq!(ttp.matches("[profile]").count(), 2);
+        let ttl = &e.files.iter().find(|f| f.0 == "oo_42.ttl").unwrap().1;
+        assert!(ttl.contains("oo_42_a\r\n1\r\n"), "{ttl}");
+        // the departures by the hour
+        let l = reg.line_mut(id).unwrap();
+        assert_eq!(hourly_departures(l, 0)[6], 4);
+        assert!(runs_on_group(l, 0) && !runs_on_group(l, 1));
+        // a stop reached before the one before: said, and not written
+        l.table[1].times[2] = l.table[1].times[1] - 1.0;
+        assert!(table_trips(l).iter().any(|t| t.first_fall() == Some(2)));
+        assert!(problems(l).iter().any(|p| p.text.contains("reach a stop before") && p.n == 1));
+        // a weekend trip of a school line is kept in the table, not driven
+        l.table[1].times[2] = l.table[1].times[1] + 1.0;
+        l.service = ServiceKind::School;
+        l.table.push(TableTrip { dir: 0, day: 1, times: vec![600.0, 601.0, 602.0] });
+        assert!(table_trips(l).iter().all(|t| t.day == 0));
+        // a stop added since: the trip follows its direction's times from its departure
+        l.directions[0].stops.push(stop(7, "Ende", 1200.0));
+        l.directions[0].fit_legs();
+        l.directions[0].legs[2] = leg(300.0, &[15]);
+        l.directions[0].refresh_times();
+        assert_eq!(trip_times(l, &l.table[0].clone()).len(), 4);
+    }
+
+    #[test]
+    fn own_destinations_are_kept_and_given_to_a_direction() {
+        let mut reg = Registry::default();
+        reg.keep_destination(OwnDestination { name: " Shuttleverkehr Altenfeld - Wurzbach ".into(), sign: vec!["Shuttle".into(), "Altenfeld - Wurzbach".into()], code: 950 });
+        reg.keep_destination(OwnDestination { name: "Betriebshof".into(), ..Default::default() });
+        reg.keep_destination(OwnDestination { name: "".into(), ..Default::default() });
+        assert_eq!(reg.destinations.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), ["Betriebshof", "Shuttleverkehr Altenfeld - Wurzbach"]);
+        // the same name again takes the place of the one before
+        reg.keep_destination(OwnDestination { name: "betriebshof".into(), code: 960, ..Default::default() });
+        assert_eq!(reg.destinations.len(), 2);
+        let mut d = Direction::default();
+        d.take_destination(reg.destination("shuttleverkehr altenfeld - wurzbach").unwrap());
+        assert_eq!((d.terminus.as_str(), d.sign.len(), d.terminus_code), ("Shuttleverkehr Altenfeld - Wurzbach", 2, 950));
+    }
+
+    #[test]
+    fn a_lines_kind_is_written_as_its_days_and_its_buses_for_the_game() {
+        use crate::service::VehicleClass;
+        let mut reg = Registry::default();
+        let id = line(&mut reg);
+        let l = reg.line_mut(id).unwrap();
+        l.service = ServiceKind::School;
+        l.days = days_for(ServiceKind::School);
+        l.vehicles.classes.push(VehicleClass::Coach);
+        // a school line: working days only, its tours on school days only
+        let plan = tour_plan(reg.line(id).unwrap());
+        assert!(!plan.is_empty() && plan.iter().all(|t| t.day == 0));
+        let base = std::env::temp_dir().join(format!("omsi_lines_kind_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let dir = base.join("TTData");
+        std::fs::create_dir_all(&dir).unwrap();
+        let masks = |reg: &Registry| -> HashSet<String> {
+            let e = export(reg, &[(0, 0)], &HashSet::new(), &HashSet::new()).unwrap();
+            write_export(&dir, &e, &|_| Ok(())).unwrap();
+            let data = omsi_timetable::TimetableData::load(&base);
+            data.lines.iter().find(|l| l.name == "oo_42").unwrap().tours.iter().map(|t| t.extra.clone()).collect()
+        };
+        assert_eq!(masks(&reg), ["543"].into_iter().map(String::from).collect());
+        // the buses it asks for, for the game
+        let buses = read_line_buses(&dir);
+        assert_eq!(buses["oo_42"].classes, vec![VehicleClass::Coach]);
+        // a weekend line, its working days on or not: Saturdays, Sundays and holidays
+        let l = reg.line_mut(id).unwrap();
+        l.service = ServiceKind::Leisure;
+        l.days = default_days();
+        assert_eq!(masks(&reg), ["800", "960"].into_iter().map(String::from).collect());
+        // any bus again: the file is gone
+        reg.line_mut(id).unwrap().vehicles = LineVehicles::default();
+        masks(&reg);
+        assert!(read_line_buses(&dir).is_empty() && !dir.join(VEHICLES_FILE).exists());
+        let _ = std::fs::remove_dir_all(&base);
+        // a school line whose working days are off runs on no day
+        let l = reg.line_mut(id).unwrap();
+        l.service = ServiceKind::School;
+        l.days[0].on = false;
+        assert!(problems(reg.line(id).unwrap()).iter().any(|p| p.text == "The line runs on no day"));
+        // a registry of before: regular, any bus, the default holidays
+        let old: Registry = serde_json::from_str(r#"{"version":1,"lines":[{"id":7,"number":"1"}]}"#).unwrap();
+        assert!(old.lines[0].service == ServiceKind::Regular && old.lines[0].vehicles.open() && old.school_holidays.is_empty());
     }
 
     #[test]

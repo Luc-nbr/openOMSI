@@ -17,6 +17,7 @@ pub mod install;
 pub mod instances;
 pub mod linehof;
 pub mod lines;
+pub mod service;
 pub mod ttstore;
 
 use anyhow::{anyhow, Context, Result};
@@ -1276,18 +1277,33 @@ fn lines_on(map_dir: &Path, date: &str) -> Result<Vec<LineInfo>> {
     let calendar = omsi_map::Calendar::load(&map_dir.join("Holidays.txt")).unwrap_or_default();
     let day_bit = if calendar.is_holiday(code) { 1 << 7 } else { 1 << weekday(code) };
     let school_bit = if calendar.in_holiday_range(code) { 1 << 8 } else { 1 << 9 };
+    // (the player's own lines: the map's calendar too, and where it has no school holidays or
+    // no public holidays the line registry's periods and the common holidays - a school line
+    // is in the depot in the holidays even where the map does not name them)
+    let own_calendar = data.lines.iter().any(|l| lines::is_own_file(&l.name)).then(|| {
+        let folder = map_dir.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+        let periods = lines::load_registry(&lines::registry_path(&folder)).school_holidays;
+        service::DayCalendar::new(&calendar, &periods)
+    });
     let mut out = Vec::new();
     for l in &data.lines {
         let mut termini: Vec<String> = Vec::new();
         let mut tours = Vec::new();
+        let own = own_calendar.as_ref().filter(|_| lines::is_own_file(&l.name));
         for t in &l.tours {
             let mask = t.extra.trim().parse::<i32>().unwrap_or(1023);
-            let runs_on = |c: i32| {
-                let day = if calendar.is_holiday(c) { 1 << 7 } else { 1 << weekday(c) };
-                let school = if calendar.in_holiday_range(c) { 1 << 8 } else { 1 << 9 };
-                mask & day != 0 && mask & school != 0
+            let runs_on = |c: i32| match own {
+                Some(cal) => service::mask_runs(mask, cal.day(c).bits()),
+                None => {
+                    let day = if calendar.is_holiday(c) { 1 << 7 } else { 1 << weekday(c) };
+                    let school = if calendar.in_holiday_range(c) { 1 << 8 } else { 1 << 9 };
+                    mask & day != 0 && mask & school != 0
+                }
             };
-            let runs = mask & day_bit != 0 && mask & school_bit != 0;
+            let runs = match own {
+                Some(_) => runs_on(code),
+                None => mask & day_bit != 0 && mask & school_bit != 0,
+            };
             let next_run = (0..400).map(|k| add_days(code, k)).find(|c| runs_on(*c)).map(|c| format!("{:04}-{:02}-{:02}", c / 10000, c / 100 % 100, c % 100));
             let mut trips = Vec::new();
             for tt in &t.trips {

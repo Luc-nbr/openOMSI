@@ -4,7 +4,8 @@
 //! switch of `ownlines`). Adding one shows first what it needs against what the company has
 //! (`add_dialog`). "Make a new line" opens the line editor for the company
 //! (`lineeditor::open_for_company`): a line made there is confirmed and paid for, and an own
-//! line of the company's is changed there too.
+//! line of the company's is changed there too. A line chosen shows itself in public above its
+//! tours (`line_card`): its title, the depot file its buses carry, and its advertising.
 
 use super::super::ownlines;
 use super::super::theme::*;
@@ -15,13 +16,20 @@ use super::{act, line_plate, plate, section, Confirm, Dialog};
 use glam::Vec2;
 use omsi_launcher_lib as core;
 use omsi_launcher_lib::company::{self as co, Company};
+use omsi_launcher_lib::service::ServiceKind;
 use omsi_ui::paint::Align;
 use omsi_ui::{Rect, Weight};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 #[derive(Default)]
 pub struct LinesView {
     selected: Option<String>,
     mine: bool,
+    /// The public title being typed: for which line, and the text.
+    title: Option<(String, String)>,
+    /// The termini of the depot files looked at (`hof_termini`), by name (lower case).
+    hofs: HashMap<String, Option<Arc<HashSet<String>>>>,
 }
 
 fn hhmm(minutes: i32) -> String {
@@ -83,7 +91,8 @@ fn ours(l: &mut Launcher, r: Rect, c: &Company) {
             }
             let ink = if on { on_accent() } else { TEXT };
             let w = line_plate(ui, Vec2::new(r.x + 12.0, r.y + 12.0), line, 26.0);
-            let caption = if line.caption.is_empty() { line.name.clone() } else { line.caption.clone() };
+            // (its public title when it has one; where it goes in the tooltip then)
+            let caption = if !line.title.trim().is_empty() { line.title.trim().to_string() } else if line.caption.is_empty() { line.name.clone() } else { line.caption.clone() };
             // the row's tools at its right: own, its fare, edit, stop
             let mut tx = r.right() - 14.0;
             let close_c = Vec2::new(tx - 14.0, r.y + 25.0);
@@ -107,11 +116,18 @@ fn ours(l: &mut Launcher, r: Rect, c: &Company) {
             ui.tooltip(fr, &omsi_ui::tr("The single ticket this line asks: change it, and see what it does to passengers and fares"));
             tx = fr.x - 8.0;
             if line.own {
-                let t = omsi_ui::tr("Own line");
+                // (its kind of service, a regular one "own line"; the buses it asks for in the
+                // tooltip)
+                let kind = co::ownline::kind_of(line);
+                let t = if kind == ServiceKind::Regular { omsi_ui::tr("Own line") } else { omsi_ui::tr(kind.label()) };
                 let tw = ui.width(&t, 12.0, Weight::Bold) + 16.0;
                 let at = Vec2::new(tx - tw, r.y + 14.0);
                 kit::tag(ui, at, &t, if on { on_accent() } else { accent_2() });
-                ui.tooltip(Rect::new(at.x, at.y, tw, 22.0), "Your own line, made in the line editor: no concession, a licence a month");
+                let mut tip = omsi_ui::tr(if kind == ServiceKind::Regular { "Your own line, made in the line editor: no concession, a licence a month" } else { kind.note() }).into_owned();
+                if let Some(v) = line.plan.as_ref().map(|p| &p.vehicles).filter(|v| !v.open()) {
+                    tip.push_str(&format!("\n{}: {}", omsi_ui::tr("Buses on this line"), v.summary(&|s| omsi_ui::tr(s).into_owned())));
+                }
+                ui.tooltip(Rect::new(at.x, at.y, tw, 22.0), &tip);
                 tx = at.x - 8.0;
             }
             ui.text_in(&caption, Rect::new(r.x + w + 24.0, r.y + 10.0, (tx - r.x - w - 30.0).max(30.0), 30.0), kit::ROWS, Weight::Bold, ink, Align::Left);
@@ -161,6 +177,10 @@ fn ours(l: &mut Launcher, r: Rect, c: &Company) {
 /// A line's tours today: the bus, the drivers, and whether it runs - as planned.
 fn tours_of(l: &mut Launcher, r: Rect, c: &Company, name: &str) {
     let Some(line) = c.lines.iter().find(|x| x.name == name).cloned() else { return };
+    // the line in public above, its tours of today under it
+    let card_h = 214.0f32.min(r.h * 0.45);
+    line_card(l, Rect::new(r.x, r.y, r.w, card_h), c, &line);
+    let r = Rect::new(r.x, r.y + card_h + 12.0, r.w, (r.h - card_h - 12.0).max(80.0));
     let title = omsi_ui::tr("Line %{n} today").replace("%{n}", &line.number);
     let inner = section(&mut l.ui, r, &title);
     let pw = Foot::width(&l.ui, "Open the planning", Some("event"));
@@ -230,6 +250,113 @@ fn tours_of(l: &mut Launcher, r: Rect, c: &Company, name: &str) {
         }
         tours.len() as f32 * rh
     });
+}
+
+/// The termini a depot file can show (folded as the bus step compares them: `buspick::fold`);
+/// None: the file was not found beside any bus. Read once a depot file.
+fn hof_termini(v: &mut LinesView, hof: &str, map: &str) -> Option<Arc<HashSet<String>>> {
+    let key = hof.trim().to_lowercase();
+    if key.is_empty() {
+        return None;
+    }
+    v.hofs
+        .entry(key)
+        .or_insert_with(|| {
+            let (bases, _) = core::depot_roots();
+            core::linehof::first_depot(hof.trim(), &bases, &core::lines::map_folder(map)).map(|d| Arc::new(super::super::buspick::depot_of(&d.hof).termini))
+        })
+        .clone()
+}
+
+/// The line in public (Luc: "Shuttleverkehr Altenfeld - Wurzbach" bovenaan, in de reclame): its
+/// title - on its card in the list and in its advertising -, the depot file the company's buses
+/// carry on it (the map's, or another of the installed buses'), whether that file knows where
+/// the line's trips go, and the line as its advertising shows it.
+fn line_card(l: &mut Launcher, r: Rect, c: &Company, line: &co::CompanyLine) {
+    let inner = section(&mut l.ui, r, "The line in public");
+    let half = (inner.w - 20.0) * 0.5;
+    let x2 = inner.x + half + 20.0;
+    // the title, kept when "Save" is pressed
+    if l.company.lines.title.as_ref().is_none_or(|t| t.0 != line.name) {
+        l.company.lines.title = Some((line.name.clone(), line.title.clone()));
+    }
+    let mut text = l.company.lines.title.as_ref().map(|t| t.1.clone()).unwrap_or_default();
+    kit::caps(&mut l.ui, Rect::new(inner.x, inner.y - 4.0, half, 16.0), "Public title");
+    let bw = 70.0;
+    let dirty = text.trim() != line.title.trim();
+    let tw = if dirty { half - bw - 6.0 } else { half };
+    let hint = if line.caption.trim().is_empty() { "Shuttleverkehr Altenfeld - Wurzbach" } else { line.caption.trim() };
+    l.ui.text_input("company-line-title", Rect::new(inner.x, inner.y + 16.0, tw, 34.0), &mut text, hint, None);
+    let mut save = false;
+    if dirty && l.ui.button("company-line-title-save", Rect::new(inner.x + half - bw, inner.y + 16.0, bw, 34.0), "Save", None, ButtonKind::Primary) {
+        save = true;
+    }
+    if let Some(t) = l.company.lines.title.as_mut() {
+        t.1 = text.clone();
+    }
+    // the depot file
+    kit::caps(&mut l.ui, Rect::new(inner.x, inner.y + 60.0, half, 16.0), "Depot file of its buses");
+    let depots: Vec<String> = l.state.maps.iter().find(|m| m.file.eq_ignore_ascii_case(&c.map)).map(|m| super::wizard::depots_for(m, &l.state.vehicles)).unwrap_or_default();
+    let mut options = vec![omsi_ui::tr("The company's: %{hof}").replace("%{hof}", &c.depot)];
+    options.extend(depots.iter().filter(|d| !d.eq_ignore_ascii_case(&c.depot)).cloned());
+    let mut k = if line.hof.trim().is_empty() { 0 } else { options.iter().skip(1).position(|o| o.eq_ignore_ascii_case(line.hof.trim())).map(|i| i + 1).unwrap_or(0) };
+    let mut hof_pick = None;
+    if l.ui.select("company-line-hof", Rect::new(inner.x, inner.y + 80.0, half, 34.0), &mut k, &options) {
+        hof_pick = Some(if k == 0 { String::new() } else { options[k].clone() });
+    }
+    // whether it knows where the line goes
+    let hof = line.hof_or(&c.depot).to_string();
+    let termini: Vec<String> = super::map_lines(&l.company).and_then(|ls| ls.iter().find(|x| x.name.eq_ignore_ascii_case(&line.name))).map(|x| x.termini.clone()).unwrap_or_default();
+    let known = hof_termini(&mut l.company.lines, &hof, &c.map);
+    let (words, colour) = match &known {
+        None => (omsi_ui::tr("The depot file %{hof} was not found beside any bus.").replace("%{hof}", &hof), WARN),
+        Some(set) => {
+            let missing: Vec<&String> = termini.iter().filter(|t| !set.contains(&super::super::buspick::fold(t))).collect();
+            if termini.is_empty() {
+                (String::new(), TEXT_DIM)
+            } else if missing.is_empty() {
+                (omsi_ui::tr("It knows every destination of the line.").into_owned(), OK)
+            } else {
+                let list = missing.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ");
+                (omsi_ui::tr("Not in it: %{list}. Own lines bring theirs when saved in the line editor.").replace("%{list}", &list), WARN)
+            }
+        }
+    };
+    l.ui.paragraph(&words, Vec2::new(inner.x, inner.y + 122.0), half, kit::NOTE, Weight::Regular, colour);
+    // as its advertising shows it
+    kit::caps(&mut l.ui, Rect::new(x2, inner.y - 4.0, half, 16.0), "As advertised");
+    let ad = Rect::new(x2, inner.y + 16.0, half, (inner.bottom() - inner.y - 16.0).max(60.0));
+    l.ui.p().rounded(ad, RADIUS, super::super::ownlines::colour_of(if line.colour.trim().is_empty() { &c.colours[0] } else { &line.colour }).alpha(0.16));
+    let pw = super::line_plate(&mut l.ui, Vec2::new(ad.x + 14.0, ad.y + 14.0), line, 30.0);
+    let shown = if text.trim().is_empty() { line.public_name().to_string() } else { text.trim().to_string() };
+    let title_h = l.ui.paragraph(&shown, Vec2::new(ad.x + 24.0 + pw, ad.y + 10.0), ad.w - pw - 38.0, 17.0, Weight::Bold, TEXT);
+    let mut under: Vec<String> = Vec::new();
+    if !line.title.trim().is_empty() && !line.caption.trim().is_empty() {
+        under.push(line.caption.clone());
+    }
+    let kind = co::ownline::kind_of(line);
+    if kind != ServiceKind::Regular {
+        under.push(omsi_ui::tr(kind.label()).into_owned());
+    }
+    under.push(c.name.clone());
+    l.ui.paragraph(&under.join("  ·  "), Vec2::new(ad.x + 24.0 + pw, ad.y + 14.0 + title_h), ad.w - pw - 38.0, kit::NOTE, Weight::Regular, TEXT_SOFT);
+    let name = line.name.clone();
+    if let Some(h) = hof_pick {
+        act(l, |c| {
+            if let Some(x) = c.lines.iter_mut().find(|x| x.name == name) {
+                x.hof = h;
+            }
+            Ok(())
+        });
+    }
+    if save {
+        act(l, |c| {
+            if let Some(x) = c.lines.iter_mut().find(|x| x.name == name) {
+                x.title = text.trim().to_string();
+            }
+            Ok(())
+        });
+    }
 }
 
 /// The lines that can be added: the map's or the player's own - or a new one, made in the

@@ -6,7 +6,9 @@
 //! into the weekly roster, which repeats every week (`co::plan`); what fell out on the
 //! company's own day is filled for that day only. The tools fill the roster as the
 //! dispatcher would, clear the day, or repeat it on the other working days. "Drive this
-//! duty" opens the Drive page with exactly that duty.
+//! duty" opens the Drive page with exactly that duty (as the Career tab's "My duties" does).
+//! A line that asks for buses of its own (the line editor's Kind tab) is given only those:
+//! the dispatcher takes none other, and a bus that is none of them is refused.
 
 use super::super::flow::Step;
 use super::super::theme::*;
@@ -50,6 +52,15 @@ pub struct PlanningView {
     arm: Option<Arm>,
     /// Pressed on a driver or a bus of the list: dragged while the button is held.
     drag: Option<Arm>,
+    /// A duty or a tour carried to a driver or a bus of the list (Luc: everything in the
+    /// planning can be dragged): taken up from the open duties at once, from the chart once
+    /// the mouse moved off where it was pressed (`press`) - a tap there still chooses it.
+    carry: Option<(usize, Option<usize>)>,
+    press: Option<(Vec2, usize, Option<usize>)>,
+    /// Where the carry was taken up (its label shows once the mouse is off it).
+    carry_from: Vec2,
+    /// The list's drivers and buses where they are drawn this frame (to drop on).
+    targets: Vec<(Rect, Arm)>,
     /// "Clear the day" pressed once: pressed again it clears.
     clear_armed: bool,
     /// The plans made: date, the company's generation they were made for, the plan.
@@ -64,7 +75,7 @@ pub struct PlanningView {
 impl Default for PlanningView {
     fn default() -> Self {
         let (tx, rx) = channel();
-        PlanningView { tx, rx, days: Vec::new(), asked: Vec::new(), day: 0, sel: None, arm: None, drag: None, clear_armed: false, cache: Vec::new(), read_at: 0, focus: None }
+        PlanningView { tx, rx, days: Vec::new(), asked: Vec::new(), day: 0, sel: None, arm: None, drag: None, carry: None, press: None, carry_from: Vec2::ZERO, targets: Vec::new(), clear_armed: false, cache: Vec::new(), read_at: 0, focus: None }
     }
 }
 
@@ -147,7 +158,7 @@ fn line_title(t: &DayTour, duty: Option<usize>) -> String {
 // --- the data --------------------------------------------------------------------------------
 
 /// Take in the timetables read, and ask for those of the week not read yet.
-fn work(l: &mut Launcher, c: &Company) {
+pub(super) fn work(l: &mut Launcher, c: &Company) {
     let revision = l.company.timetable;
     let v = &mut l.company.planning;
     if v.read_at != revision {
@@ -177,7 +188,7 @@ fn work(l: &mut Launcher, c: &Company) {
 }
 
 /// The plan of a day of the strip (None: its timetable is still being read).
-fn plan_of(l: &mut Launcher, c: &Company, date: &str) -> Option<Result<DayPlan, String>> {
+pub(super) fn plan_of(l: &mut Launcher, c: &Company, date: &str) -> Option<Result<DayPlan, String>> {
     let generation = l.company.generation;
     let v = &mut l.company.planning;
     if let Some(p) = v.cache.iter().find(|x| x.0 == date && x.1 == generation) {
@@ -257,6 +268,9 @@ fn bus_fit(c: &Company, p: &DayPlan, ti: usize, id: u32) -> (String, Color, bool
         return (omsi_ui::tr("In the workshop").into_owned(), DANGER.lighten(0.2), false);
     }
     let t = &p.tours[ti];
+    if !co::ownline::line_allows(c, &t.tour.line, v) {
+        return (omsi_ui::tr("Not one of the line's buses").into_owned(), DANGER.lighten(0.2), false);
+    }
     let (a, b) = (t.tour.from(), t.tour.to());
     let other = p.tours.iter().enumerate().find(|(i, x)| *i != ti && x.bus == Some(BusOf::Own(id)) && a < x.tour.to() + co::staff::BUS_MARGIN && x.tour.from() < b + co::staff::BUS_MARGIN);
     if let Some((_, x)) = other {
@@ -302,6 +316,12 @@ fn give_bus(l: &mut Launcher, p: &DayPlan, ti: usize, bus: Option<u32>) {
     let Some(c) = l.company.company.as_ref() else { return };
     let t = &p.tours[ti];
     let (line, tour) = (t.tour.line.clone(), t.tour.tour.clone());
+    // (a line that asks for buses of its own runs with none other)
+    if let Some((v, want)) = bus.and_then(|id| c.vehicle(id)).zip(co::ownline::vehicles_of(c, &line)).filter(|(v, _)| !co::ownline::line_allows(c, &line, v)) {
+        let text = omsi_ui::tr("Line %{n} runs with %{buses}: bus %{bus} is none of them.").replace("%{n}", &t.tour.number).replace("%{buses}", &want.summary(&|s| omsi_ui::tr(s).into_owned())).replace("%{bus}", &v.number);
+        kit::show(l, kit::Popup::new("directions_bus", "Not one of the line's buses", text, omsi_ui::tr("Buy or lease one of them, or choose other buses for the line in the line editor."), None));
+        return;
+    }
     let rostered = pl::roster(c, p.weekday, &line, &tour).and_then(|r| r.bus);
     let today_only = p.today && t.bus_problem.is_some_and(|x| x != Problem::Unassigned) && rostered.is_some();
     let wd = p.weekday;
@@ -339,9 +359,9 @@ fn give(l: &mut Launcher, p: &DayPlan, arm: Arm, hit: &Hit) {
 }
 
 /// "Drive this duty": the Drive page with exactly this duty - its line and tour, its first
-/// trip and as many trips as it has (`--duty-leg`), the company's map, day, depot and the
-/// tour's bus in its paint. The player starts it there himself.
-fn drive(l: &mut Launcher, c: &Company, p: &DayPlan, ti: usize, k: usize) {
+/// trip and as many trips as it has (`--duty-leg`), the company's map, the plan's day, the
+/// depot and the tour's bus in its paint. The player starts it there himself.
+pub(super) fn drive(l: &mut Launcher, c: &Company, p: &DayPlan, ti: usize, k: usize) {
     let t = &p.tours[ti];
     let d = &t.duties[k];
     // the trip's place in its tour as the game counts it (1 the first): the day's timetable
@@ -362,7 +382,7 @@ fn drive(l: &mut Launcher, c: &Company, p: &DayPlan, ti: usize, k: usize) {
     let ch = &mut l.state.choice;
     ch.map = c.map.clone();
     ch.entry = -1;
-    ch.date = c.date.clone();
+    ch.date = p.date.clone();
     ch.free = false;
     ch.own_line = false;
     ch.composed = true;
@@ -376,8 +396,10 @@ fn drive(l: &mut Launcher, c: &Company, p: &DayPlan, ti: usize, k: usize) {
         ch.paint = v.house_livery.clone().filter(|h| !h.trim().is_empty()).unwrap_or_else(|| v.livery.clone());
         ch.plate = v.plate.clone();
     }
-    if !c.depot.trim().is_empty() {
-        ch.hof = c.depot.clone();
+    // (the line's own depot file, else the company's)
+    let hof = c.lines.iter().find(|x| x.name.eq_ignore_ascii_case(&line)).map(|x| x.hof_or(&c.depot).to_string()).unwrap_or_else(|| c.depot.clone());
+    if !hof.trim().is_empty() {
+        ch.hof = hof;
         ch.hof_manual = true;
     }
     l.state.touched();
@@ -414,7 +436,44 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         }
         Some(Ok(p)) => {
             let hits = gantt(l, chart, &c, &p);
+            // (pressed on a duty or a tour's bus in the chart: taken up once the mouse moves)
+            let m = l.ui.input.mouse;
+            if l.ui.input.pressed && l.company.planning.drag.is_none() && l.company.planning.carry.is_none() {
+                if let Some(h) = hits.iter().find(|h| h.r.contains(m)) {
+                    l.company.planning.press = Some((m, h.tour, h.duty));
+                }
+            }
+            if let Some((at, ti, duty)) = l.company.planning.press {
+                if !l.ui.input.down {
+                    l.company.planning.press = None;
+                } else if (m - at).length() > 6.0 {
+                    l.company.planning.press = None;
+                    l.company.planning.carry = Some((ti, duty));
+                    l.company.planning.carry_from = at;
+                    // (the list to drop it on: the day's, not a duty's own)
+                    l.company.planning.sel = None;
+                }
+            }
+            l.company.planning.targets.clear();
             side_panel(l, side, &c, &p);
+            // a duty or a tour carried to a driver or a bus of the list and let go
+            if let Some((ti, duty)) = l.company.planning.carry {
+                if l.ui.input.released {
+                    l.company.planning.carry = None;
+                    let target = l.company.planning.targets.iter().find(|t| t.0.contains(m)).map(|t| t.1);
+                    match (target, duty) {
+                        (Some(Arm::Driver(w)), Some(k)) => give_driver(l, &p, ti, k, Some(w)),
+                        (Some(Arm::Bus(id)), _) => give_bus(l, &p, ti, Some(id)),
+                        _ => {}
+                    }
+                } else if l.ui.input.down {
+                    if (m - l.company.planning.carry_from).length() > 6.0 {
+                        carried(&mut l.ui, &p, ti, duty);
+                    }
+                } else {
+                    l.company.planning.carry = None;
+                }
+            }
             // a driver or a bus dragged here and let go
             if l.ui.input.released {
                 if let Some(arm) = l.company.planning.drag.take() {
@@ -438,6 +497,18 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         l.company.planning.arm = None;
         l.company.planning.sel = None;
     }
+}
+
+/// The duty or tour being carried, at the mouse.
+fn carried(ui: &mut Ui, p: &DayPlan, ti: usize, duty: Option<usize>) {
+    let Some(t) = p.tours.get(ti) else { return };
+    let text = line_title(t, duty);
+    let m = ui.input.mouse;
+    let w = (ui.width(&text, 13.5, Weight::Bold) + 22.0).min(360.0);
+    let r = Rect::new(m.x + 10.0, m.y + 6.0, w, 28.0);
+    ui.p().shadow(r, 6.0, 10.0, Color::rgba(0, 0, 0, 0.4));
+    ui.p().rounded(r, 6.0, accent());
+    ui.text_in(&text, r, 13.5, Weight::Bold, on_accent(), Align::Center);
 }
 
 /// The driver or bus being dragged, at the mouse.
@@ -889,6 +960,11 @@ fn day_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan) {
     let mut tapped: Option<Arm> = None;
     let mut pressed: Option<Arm> = None;
     let mut open_pick: Option<(usize, Option<usize>)> = None;
+    let mut open_press: Option<(usize, Option<usize>)> = None;
+    let mut targets: Vec<(Rect, Arm)> = Vec::new();
+    // (a duty or tour carried: the drivers and buses it could go to light up under the mouse)
+    let carrying = l.company.planning.carry.map(|c| c.1.is_some());
+    let clip = inner;
     let summary = omsi_ui::tr("%{c} of %{t} tours covered").replace("%{c}", &covered.to_string()).replace("%{t}", &tours.to_string());
     let gaps = if open + no_bus == 0 { omsi_ui::tr("Nothing open.").into_owned() } else { omsi_ui::tr("%{d} duties without a driver, %{b} tours without a bus.").replace("%{d}", &open.to_string()).replace("%{b}", &no_bus.to_string()) };
     l.ui.scroll_area("plan-side", inner, &mut |ui, v| {
@@ -913,9 +989,13 @@ fn day_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan) {
             y += 24.0;
             for (k, (ti, duty, title, fill, col)) in open_rows.iter().enumerate() {
                 let rr = Rect::new(v.x, y, v.w - 8.0, 50.0);
+                if ui.hover(rr) && ui.input.pressed {
+                    open_press = Some((*ti, *duty));
+                }
                 if ui.row(&format!("plan-open-{k}"), rr, false) {
                     open_pick = Some((*ti, *duty));
                 }
+                ui.icon("open_with", Vec2::new(rr.right() - 14.0, rr.y + 25.0), 16.0, TEXT_FAINT);
                 ui.text_in(title, Rect::new(rr.x + 8.0, rr.y + 4.0, rr.w - 16.0, 21.0), 13.5, Weight::Bold, TEXT, Align::Left);
                 ui.text_in(&format!("→ {fill}"), Rect::new(rr.x + 8.0, rr.y + 26.0, rr.w - 16.0, 20.0), 13.5, Weight::Regular, *col, Align::Left);
                 y += 52.0;
@@ -924,9 +1004,27 @@ fn day_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan) {
         }
         caps(ui, y, "Drivers");
         y += 22.0;
-        ui.text_in(&omsi_ui::tr("Tap one, then a duty - or drag it there."), Rect::new(v.x, y, v.w, 20.0), kit::NOTE, Weight::Regular, TEXT_DIM, Align::Left);
+        ui.text_in(&omsi_ui::tr("Tap one, then a duty - or drag it there; or drag a duty here."), Rect::new(v.x, y, v.w, 20.0), kit::NOTE, Weight::Regular, TEXT_DIM, Align::Left);
         y += 26.0;
         let me = Rect::new(v.x, y, v.w - 8.0, 34.0);
+        let mut target = |ui: &mut Ui, r: Rect, a: Arm| {
+            let fits = match (carrying, a) {
+                (Some(true), _) => true,
+                (Some(false), Arm::Bus(_)) => true,
+                _ => false,
+            };
+            if fits {
+                let (x0, y0) = (r.x.max(clip.x), r.y.max(clip.y));
+                let shown = Rect::new(x0, y0, r.right().min(clip.right()) - x0, r.bottom().min(clip.bottom()) - y0);
+                if shown.w > 0.0 && shown.h > 0.0 {
+                    targets.push((shown, a));
+                    if ui.hover(r) {
+                        ui.p().rounded_border(r, RADIUS, 2.0, accent());
+                    }
+                }
+            }
+        };
+        target(ui, me, Arm::Driver(Who::Player));
         let (cl, pr) = pick_row(ui, "plan-me", me, arm == Some(Arm::Driver(Who::Player)), Some(accent()), &omsi_ui::tr("You"), &omsi_ui::tr("Your own duties"), TEXT_DIM);
         if cl {
             tapped = Some(Arm::Driver(Who::Player));
@@ -938,6 +1036,7 @@ fn day_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan) {
         for (id, name, col, state, state_c) in &staff {
             let rr = Rect::new(v.x, y, v.w - 8.0, 34.0);
             let a = Arm::Driver(Who::Staff(*id));
+            target(ui, rr, a);
             let (cl, pr) = pick_row(ui, &format!("plan-driver-{id}"), rr, arm == Some(a), Some(*col), name, state, *state_c);
             if cl {
                 tapped = Some(a);
@@ -957,6 +1056,7 @@ fn day_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan) {
         for (id, name, state, state_c) in &buses {
             let rr = Rect::new(v.x, y, v.w - 8.0, 34.0);
             let a = Arm::Bus(*id);
+            target(ui, rr, a);
             let (cl, pr) = pick_row(ui, &format!("plan-bus-pick-{id}"), rr, arm == Some(a), None, name, state, *state_c);
             if cl {
                 tapped = Some(a);
@@ -972,15 +1072,23 @@ fn day_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan) {
         }
         y - v.y + 8.0
     });
+    let mouse = l.ui.input.mouse;
     let view = &mut l.company.planning;
+    view.targets = targets;
     if let Some(a) = pressed {
         view.drag = Some(a);
+    }
+    if let Some(o) = open_press {
+        view.carry = Some(o);
+        view.carry_from = mouse;
     }
     if let Some(a) = tapped {
         view.arm = if view.arm == Some(a) { None } else { Some(a) };
         view.drag = None;
     }
     if let Some((ti, duty)) = open_pick {
+        // (a tap, not a carry)
+        view.carry = None;
         let t = &p.tours[ti];
         view.sel = Some(match duty {
             Some(k) => Sel::Duty(t.tour.line.clone(), t.tour.tour.clone(), k),

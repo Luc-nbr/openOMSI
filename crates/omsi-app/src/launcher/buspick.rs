@@ -12,6 +12,10 @@
 //! and the choice is the player's. A free drive has no trips to fit: there the bus the map's
 //! depot runs most is marked, and nothing is asked.
 //!
+//! A player's line that asks for buses of its own (the line editor's Kind tab: kinds of
+//! bus, makers, models) has them marked "this line" and put first, a maker's or a model's tile
+//! with one of them in it too; the bus offered is one of them (`mark_line`).
+//!
 //! OMSI keeps the maker in `[friendlyname]`'s first line and the model and version together in
 //! its second, " - " between them ("Gelenkbus - 18C - 3 Tuerer"): the first part is the model,
 //! the rest the version.
@@ -182,7 +186,21 @@ pub struct BusPickView {
     /// How high the bus sheet's part under the livery came out last frame (it scrolls when
     /// that is more than it has room for).
     sheet_content: f32,
+    /// The buses of the player's own line the duty is on, when it asks for some.
+    line: LineBuses,
 }
+
+/// The buses a player's line asks for: what they were worked out for, the line's number, and
+/// the bus files (`fav_key`).
+#[derive(Default)]
+struct LineBuses {
+    key: String,
+    number: String,
+    buses: Arc<HashSet<String>>,
+}
+
+/// The word on the tiles of a line's buses.
+const THIS_LINE: &str = "THIS LINE";
 
 // --- the tree -------------------------------------------------------------------------------
 
@@ -337,6 +355,49 @@ pub fn tiles(tree: &Tree, level: &Level, q: &str, favs: Option<&BTreeSet<String>
     }
 }
 
+/// The buses a player's line asks for (`line`, by `fav_key`) marked "this line" on their tiles
+/// and put first - a maker's or a model's tile with one of them in it too, showing one of them
+/// unless it shows the chosen bus -, the order otherwise kept.
+pub fn mark_line(tree: &Tree, list: &mut [Tile], line: &HashSet<String>, chosen: &str) {
+    if line.is_empty() {
+        return;
+    }
+    let has = |b: usize| line.contains(&fav_key(&tree.buses[b].file));
+    for t in list.iter_mut() {
+        let inside: Vec<usize> = match &t.to {
+            To::Bus(b) => vec![*b],
+            To::Group(g) => tree.group(g).map(|g| g.models.iter().flat_map(|m| m.buses.iter().copied()).collect()).unwrap_or_default(),
+            To::Model(g, m) => tree.model(g, m).map(|m| m.buses.clone()).unwrap_or_default(),
+        };
+        let Some(first) = inside.iter().copied().find(|b| has(*b)) else { continue };
+        if !matches!(t.badge, Some(("PARTS MISSING", _))) {
+            t.badge = Some((THIS_LINE, accent_2()));
+        }
+        if !has(t.bus) && tree.buses[t.bus].file != chosen {
+            t.bus = first;
+        }
+    }
+    list.sort_by_key(|t| !inside_line(tree, t, line));
+}
+
+/// A tile is (or holds) one of a line's buses.
+fn inside_line(tree: &Tree, t: &Tile, line: &HashSet<String>) -> bool {
+    let has = |b: &usize| line.contains(&fav_key(&tree.buses[*b].file));
+    match &t.to {
+        To::Bus(b) => has(b),
+        To::Group(g) => tree.group(g).is_some_and(|g| g.models.iter().flat_map(|m| m.buses.iter()).any(has)),
+        To::Model(g, m) => tree.model(g, m).is_some_and(|m| m.buses.iter().any(has)),
+    }
+}
+
+/// The player's own line the duty is on - a tour of it, or a free drive along it - with the
+/// buses it asks for (None: a line of the map's, or one that asks for none).
+fn own_line_buses(s: &super::state::State) -> Option<(String, omsi_launcher_lib::service::LineVehicles)> {
+    let name = if s.choice.free { s.choice.own_line.then(|| s.choice.free_line.clone())? } else { s.choice.line.clone()? };
+    let o = omsi_launcher_lib::lines::own_line_of(&name, &s.own_lines)?;
+    (!o.vehicles.open()).then(|| (o.number.clone(), o.vehicles))
+}
+
 // --- the bus that fits the duty ------------------------------------------------------------
 
 /// A depot file as the offer needs it: its name, the trips its IBIS knows and its termini.
@@ -445,8 +506,11 @@ fn depots_of(root: &Path, file: &str, cache: &Mutex<HashMap<PathBuf, Arc<Vec<Dep
     depots
 }
 
-/// Work out the bus to offer (on a thread: depot files are read, some are megabytes).
-fn recommend(root: PathBuf, map: String, date: String, free: bool, trips: Vec<(String, String)>, buses: Vec<(String, String)>, cache: Arc<Mutex<HashMap<PathBuf, Arc<Vec<Depot>>>>>) -> Option<Pick> {
+/// Work out the bus to offer (on a thread: depot files are read, some are megabytes); of
+/// `only` (a player's line's buses) when it names any.
+#[allow(clippy::too_many_arguments)]
+fn recommend(root: PathBuf, map: String, date: String, free: bool, trips: Vec<(String, String)>, buses: Vec<(String, String)>, only: Arc<HashSet<String>>, cache: Arc<Mutex<HashMap<PathBuf, Arc<Vec<Depot>>>>>) -> Option<Pick> {
+    let buses: Vec<(String, String)> = if only.is_empty() { buses } else { buses.into_iter().filter(|(f, _)| only.contains(&fav_key(f))).collect() };
     let t0 = std::time::Instant::now();
     let map_dir = omsi_cfg::resolve_path(&root, &map).parent()?.to_path_buf();
     let date = omsi_map::ailists::date_code(&date);
@@ -548,9 +612,19 @@ pub(super) fn frame(l: &mut Launcher) {
         l.buspick.tree = Arc::new(build_tree(&l.state.vehicles, allowed.as_ref(), &fresh));
         l.buspick.tree_key = key;
     }
+    // the buses of the player's own line the duty is on, when it asks for some (`busclass`)
+    l.busclasses.want(&l.state.vehicles);
+    let want = own_line_buses(&l.state);
+    let line_key = want.as_ref().map(|(n, w)| format!("{n}|{}|{}|{w:?}", l.state.vehicles.len(), l.busclasses.busy())).unwrap_or_default();
+    if line_key != l.buspick.line.key {
+        l.buspick.line = match want {
+            Some((number, w)) => LineBuses { key: line_key, number, buses: Arc::new(l.busclasses.matching(&l.state.vehicles, &w)) },
+            None => LineBuses { key: line_key, ..Default::default() },
+        };
+    }
     // the bus to offer, worked out again when the duty (or the buses) changed
     let (free, trips) = duty_trips(l);
-    let duty = format!("{}|{}|{}|{}|{}", l.state.choice.map, l.state.choice.date, free, trips.iter().map(|t| t.0.as_str()).collect::<Vec<_>>().join(","), l.buspick.tree.buses.len());
+    let duty = format!("{}|{}|{}|{}|{}|{}", l.state.choice.map, l.state.choice.date, free, trips.iter().map(|t| t.0.as_str()).collect::<Vec<_>>().join(","), l.buspick.tree.buses.len(), l.buspick.line.key);
     let v = &mut l.buspick;
     if v.recommend.key != duty && !l.state.choice.map.is_empty() && !v.tree.buses.is_empty() {
         v.recommend.key = duty.clone();
@@ -558,8 +632,9 @@ pub(super) fn frame(l: &mut Launcher) {
         let (tx, rx) = std::sync::mpsc::channel();
         let (root, map, date, cache) = (PathBuf::from(&l.state.config.root), l.state.choice.map.clone(), l.state.choice.date.clone(), v.recommend.depots.clone());
         let buses: Vec<(String, String)> = v.tree.buses.iter().map(|b| (b.file.clone(), b.name.clone())).collect();
+        let only = v.line.buses.clone();
         std::thread::spawn(move || {
-            let _ = tx.send(recommend(root, map, date, free, trips, buses, cache));
+            let _ = tx.send(recommend(root, map, date, free, trips, buses, only, cache));
         });
         v.recommend.rx = Some(rx);
     }
@@ -702,7 +777,10 @@ pub(super) fn foot(l: &Launcher) -> String {
     if v.depots.open {
         return super::hof::foot(l);
     }
-    let n = omsi_ui::tr("%{n} buses installed").replace("%{n}", &v.tree.buses.len().to_string());
+    let mut n = omsi_ui::tr("%{n} buses installed").replace("%{n}", &v.tree.buses.len().to_string());
+    if !v.line.buses.is_empty() {
+        n = format!("{n} · {}", omsi_ui::tr("%{n} for line %{line}").replace("%{n}", &v.line.buses.len().to_string()).replace("%{line}", &v.line.number));
+    }
     match v.recommend.pick.as_ref().and_then(|p| v.tree.find(&p.file).map(|b| (p, b))) {
         Some((p, b)) => {
             let line = if p.free { "%{bus} drives here most" } else { "%{bus} fits this duty best" };
@@ -946,6 +1024,8 @@ pub(super) fn browse(l: &mut Launcher, r: Rect, foot: Rect) {
     let chosen = l.state.choice.bus.clone();
     let best = l.buspick.recommend.pick.clone();
     let mut list = tiles(&tree, &l.buspick.level, &q, favs, &chosen, best.as_ref());
+    let line = l.buspick.line.buses.clone();
+    mark_line(&tree, &mut list, &line, &chosen);
     // (the stars shown are every starred bus's, also with the list not limited to them)
     for t in list.iter_mut() {
         let has = |b: usize| favs_all.contains(&fav_key(&tree.buses[b].file));
@@ -1089,6 +1169,14 @@ pub(super) fn bus_sheet(l: &mut Launcher, r: Rect) {
         toggle_favourite(&mut l.buspick, &vehicle.file);
     }
     y += 32.0;
+    // (the player's line asks for buses of its own: whether this is one)
+    if !l.buspick.line.buses.is_empty() {
+        let mine = l.buspick.line.buses.contains(&fav_key(&vehicle.file));
+        let text = if mine { "One of line %{line}'s buses" } else { "Not one of the buses line %{line} asks for" };
+        l.ui.icon(if mine { "check_circle" } else { "info" }, Vec2::new(r.x + 9.0, y + 10.0), 16.0, if mine { accent_2() } else { WARN });
+        l.ui.text_in(&omsi_ui::tr(text).replace("%{line}", &l.buspick.line.number), Rect::new(r.x + 26.0, y, r.w - 26.0, 20.0), 12.5, Weight::Medium, if mine { accent_2() } else { WARN }, Align::Left);
+        y += 30.0;
+    }
     if let Some(p) = l.buspick.recommend.pick.as_ref().filter(|p| p.file == vehicle.file) {
         let line = if p.free { "Drives on this map most" } else { "Fits this duty best" };
         l.ui.icon("check_circle", Vec2::new(r.x + 9.0, y + 10.0), 16.0, OK);
@@ -1313,6 +1401,26 @@ mod tests {
         assert_eq!(split_type("Gelenkbus - 18C - 3 Tuerer", "x/y.bus", ""), ("Gelenkbus".into(), "18C · 3 Tuerer".into()));
         assert_eq!(split_type("SD200", "x/SD200_1.bus", "BVG"), ("SD200".into(), "BVG".into()), "no version: the bus's own paint");
         assert_eq!(split_type("SD200", "x/SD200_1.bus", ""), ("SD200".into(), "SD200 1".into()), "nor a paint: the file's name");
+    }
+
+    #[test]
+    fn a_lines_buses_are_marked_and_put_first() {
+        let vehicles = vec![bus("MAN", "NL202 - 2 Tuerer", "Vehicles/MAN_NL202/a.bus", 1), bus("Mercedes-Benz", "Sprinter - City", "Vehicles/Sprinter/s.bus", 1), bus("Solaris", "Urbino 12", "Vehicles/Urbino/u.bus", 1)];
+        let t = build_tree(&vehicles, None, &HashSet::new());
+        let line: HashSet<String> = [fav_key("Vehicles/Sprinter/s.bus")].into_iter().collect();
+        let mut top = tiles(&t, &Level::Groups, "", None, "", None);
+        mark_line(&t, &mut top, &line, "");
+        // the maker with the line's bus first, marked; the others as they were
+        assert_eq!(top.iter().map(|x| x.title.as_str()).collect::<Vec<_>>(), ["Mercedes-Benz", "MAN", "Solaris"]);
+        assert_eq!(top[0].badge.map(|b| b.0), Some(THIS_LINE));
+        assert!(top[1].badge.is_none());
+        let mut versions = tiles(&t, &Level::Versions("Mercedes-Benz".into(), "Sprinter".into()), "", None, "", None);
+        mark_line(&t, &mut versions, &line, "");
+        assert_eq!(versions[0].badge.map(|b| b.0), Some(THIS_LINE));
+        // a line that asks for none marks none
+        let mut plain = tiles(&t, &Level::Groups, "", None, "", None);
+        mark_line(&t, &mut plain, &HashSet::new(), "");
+        assert!(plain.iter().all(|x| x.badge.is_none()) && plain[0].title == "MAN");
     }
 
     #[test]

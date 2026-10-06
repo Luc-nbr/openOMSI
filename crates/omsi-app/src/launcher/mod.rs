@@ -9,6 +9,7 @@
 //! functions `omsi-launcher --cli` offers a terminal.
 
 mod accent_pick;
+mod busclass;
 mod busoptions;
 mod busphoto;
 mod buspick;
@@ -168,6 +169,9 @@ pub struct Launcher {
     pub free: freedrive::FreeView,
     /// The bus step's tiles and the bus offered for the duty (see `buspick`).
     pub buspick: buspick::BusPickView,
+    /// The installed buses' kinds, makers and models, for the buses of a line (see
+    /// `busclass`).
+    pub busclasses: busclass::BusClasses,
     /// The launcher made for a phone (see `phone`).
     pub phone: phone::PhoneView,
     pub pages: pages::PagesView,
@@ -271,6 +275,7 @@ impl Launcher {
         drive: drive::DriveView::default(),
         free: freedrive::FreeView::default(),
         buspick: Default::default(),
+        busclasses: Default::default(),
         phone: phone::PhoneView::default(),
         pages: pages::PagesView::default(),
         mp: multiplayer::MultiplayerView::default(),

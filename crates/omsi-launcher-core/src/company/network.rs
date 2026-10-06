@@ -124,6 +124,8 @@ pub fn add_line(c: &mut Company, line: &LineInfo, own: Option<&OwnLine>) -> Resu
         service_from: None,
         fare: None,
         demand: Default::default(),
+        title: String::new(),
+        hof: String::new(),
     });
     Ok(())
 }

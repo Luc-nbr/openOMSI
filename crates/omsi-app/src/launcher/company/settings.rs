@@ -83,6 +83,11 @@ pub(super) fn dialog(l: &mut Launcher) {
     l.ui.icon("warning", Vec2::new(inner.x + 10.0, y + 11.0), 20.0, WARN);
     l.ui.paragraph(warn, Vec2::new(inner.x + 32.0, y), inner.w - 32.0, kit::BODY, Weight::Regular, TEXT_SOFT);
     let mut foot = Foot::new(&f);
+    // (deleting it: asked again, it cannot be undone)
+    if foot.left(l, "company-settings-delete", "Delete the company", Some("delete"), ButtonKind::Danger) {
+        l.company.dialog = Some(super::Dialog::Confirm { what: super::Confirm::DeleteCompany(c.id.clone()) });
+        return;
+    }
     let moving = co::dates::parse(&d).is_some() && d != c.date;
     let label = omsi_ui::tr("Move to %{date}").replace("%{date}", &day_label(&d));
     let go = moving && foot.right(l, "company-settings-move", &label, Some("calendar_month"), ButtonKind::Primary);

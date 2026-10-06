@@ -361,6 +361,10 @@ pub struct Schedule {
             Option<Arc<omsi_vehicle::Hof>>,
         )>,
     >,
+    /// The player's own lines that ask for buses of a kind, a maker or a model (the line
+    /// editor's `lines::VEHICLES_FILE`): per line (its name, lower case) the vehicles its
+    /// trips are driven with, in the shape of `depots` (see `line_fleet`).
+    line_buses: HashMap<String, Vec<(Arc<VehicleType>, Vec<omsi_map::DepotEntry>, Option<Arc<omsi_vehicle::Hof>>)>>,
     tile_coords: Vec<(i32, i32)>,
     next_number: usize,
     /// Trains per AI group: list of (car type, reversed), first car leads.
@@ -680,6 +684,45 @@ impl Schedule {
                 }
             }
         }
+        // the player's own lines that ask for buses of their own: such buses of the line's
+        // depot group, else of any of the map's depot groups, else the bus files the line
+        // names, loaded here (without a fleet number, with the depot file of the line's group)
+        let mut line_buses = HashMap::new();
+        let wanted = omsi_launcher_lib::lines::read_line_buses(&omsi_cfg::resolve_path(&world.map_dir, "TTData"));
+        let mut groups: Vec<&String> = depots.keys().collect();
+        groups.sort();
+        for (line, want) in &wanted {
+            let group = data.lines.iter().find(|l| l.name.eq_ignore_ascii_case(line)).and_then(|l| l.tours.first()).map(|t| t.ai_group.to_ascii_lowercase()).unwrap_or_default();
+            let fits = |t: &VehicleType| want.allows(&bus_facts(&t.def));
+            let mut chosen: Vec<_> = depots.get(&group).map(|v| v.iter().filter(|x| fits(&x.0)).cloned().collect()).unwrap_or_default();
+            if chosen.is_empty() {
+                let mut seen: HashSet<std::path::PathBuf> = HashSet::new();
+                for g in &groups {
+                    for x in depots[*g].iter().filter(|x| fits(&x.0)) {
+                        if seen.insert(x.0.def.path.clone()) {
+                            chosen.push(x.clone());
+                        }
+                    }
+                }
+            }
+            if chosen.is_empty() {
+                let hof = world.ailists.groups.iter().find(|g| g.name.eq_ignore_ascii_case(&group)).and_then(|g| g.hof.clone());
+                for file in want.buses.iter().flat_map(|p| if p.file.trim().is_empty() { p.files.clone() } else { vec![p.file.clone()] }) {
+                    let Ok(t) = load(&omsi_cfg::resolve_path(root, &file)) else { continue };
+                    if chosen.iter().any(|x: &(Arc<VehicleType>, Vec<omsi_map::DepotEntry>, Option<Arc<omsi_vehicle::Hof>>)| x.0.def.path == t.def.path) {
+                        continue;
+                    }
+                    let h = hof.as_ref().and_then(|h| depot_file(&mut hof_cache, t.def.dir(), h));
+                    chosen.push((t, Vec::new(), h));
+                }
+            }
+            if chosen.is_empty() {
+                log::warn!("timetable: line {line} asks for buses the map's depots do not have: its depot group's drive it");
+            } else {
+                log::info!("timetable: line {line} runs with {}", chosen.iter().map(|x| x.0.def.path.file_stem().unwrap_or_default().to_string_lossy().into_owned()).collect::<Vec<_>>().join(", "));
+                line_buses.insert(line.to_ascii_lowercase(), chosen);
+            }
+        }
         let tile_coords = world.global.raw_tiles.clone();
         if omsi_cfg::env::var_os("OMSI_PROFILE").is_some() {
             let mut seen: HashSet<*const VehicleType> = HashSet::new();
@@ -711,6 +754,7 @@ impl Schedule {
             data,
             departures,
             depots,
+            line_buses,
             tile_coords,
             next_number: 0,
             trains,
@@ -945,7 +989,8 @@ impl Schedule {
         let lt = self.company.tour(&d.line, &d.tour)?.clone();
         let group = d.ai_group.to_ascii_lowercase();
         let ty = self.company.vehicle_type(&world.root, &lt.bus)?;
-        let depot = self.company.depot().map(str::to_string);
+        // (the line's own depot file, else the company's)
+        let depot = Some(lt.hof.trim().to_string()).filter(|h| !h.is_empty()).or_else(|| self.company.depot().map(str::to_string));
         let hof = depot
             .and_then(|name| depot_file(&mut self.company.hofs, ty.def.dir(), &name))
             .or_else(|| self.depots.get(&group).and_then(|v| v.first()).and_then(|x| x.2.clone()));
@@ -1285,7 +1330,7 @@ impl Schedule {
         }
         let t1 = std::time::Instant::now();
         let mut seen = std::collections::HashSet::new();
-        for (ty, _, hof) in self.depots.values().flatten() {
+        for (ty, _, hof) in self.depots.values().flatten().chain(self.line_buses.values().flatten()) {
             if !seen.insert(ty.def.path.clone()) {
                 continue;
             }
@@ -1349,7 +1394,7 @@ impl Schedule {
             Arc<VehicleType>,
             Vec<omsi_map::DepotEntry>,
             Option<Arc<omsi_vehicle::Hof>>,
-        ) = match (&train, self.depots.get(&group).filter(|v| !v.is_empty())) {
+        ) = match (&train, self.line_buses.get(&self.departures[i].line.to_ascii_lowercase()).or_else(|| self.depots.get(&group)).filter(|v| !v.is_empty())) {
             (Some(cars), _) => (cars[0].0.clone(), Vec::new(), None),
             (None, Some(vehicles)) => {
                 // The depot's types come out in proportion to their fleets: a typgroup
@@ -4466,6 +4511,20 @@ fn mix(mut h: u64) -> u64 {
 /// lower case with forward slashes.
 fn norm_vehicle_path(p: &str) -> String {
     p.trim().replace('\\', "/").to_ascii_lowercase()
+}
+
+/// What a line's choice of buses (`service::LineVehicles`) is weighed against of a vehicle
+/// the game loaded: its file from `Vehicles/` on, its maker and model as the launcher's bus
+/// picker groups them, and its kind (its length, height and trailer section).
+fn bus_facts(def: &omsi_vehicle::Vehicle) -> omsi_launcher_lib::service::BusFacts {
+    use omsi_launcher_lib::service;
+    let path = def.path.to_string_lossy().replace('\\', "/");
+    let file = path.to_ascii_lowercase().rfind("vehicles/").map(|k| path[k..].to_string()).unwrap_or_else(|| path.clone());
+    let folder = file.split('/').nth(1).unwrap_or_default().to_string();
+    let (maker, model) = service::maker_model(&def.manufacturer, &def.type_name, &file, &folder);
+    let bb = def.bounding_box;
+    let class = service::classify(&[&def.manufacturer, &def.type_name, &file], def.couple_back.is_some(), bb.map(|b| b[1]), bb.map(|b| b[2]));
+    service::BusFacts { name: format!("{maker} {model}"), file, maker, model, class }
 }
 
 /// The tour mask bits `clock`'s date selects: (the weekday's or public holiday's, the school

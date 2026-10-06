@@ -16,6 +16,12 @@
 //! that the player drives it from the Drive page like any line and the timetable's buses
 //! drive it too.
 //!
+//! The Kind tab says what kind of service the line is - regular, school transport, weekend
+//! and leisure trips, on demand (`core::service`): on which days it runs and, in a company,
+//! who pays for it - and which buses run it, by kind (a minibus, a coach…) and by maker,
+//! model or version from the installed buses (`busclass`). The game drives the line with such
+//! buses where the map's depots have them; the bus step puts them first.
+//!
 //! Opened from the bus company's Lines page it works for the company (`ForCompany`): the
 //! company's map, colours and depot, only its lines; a running estimate over the map of what
 //! the line costs once and a month, its passengers through the day and the buses it needs
@@ -25,13 +31,14 @@
 use super::lineroute::{Anchor, Router};
 use super::mapview::{Dot, Look, Pointer};
 use super::theme::*;
-use super::ui::{ButtonKind, Ui};
+use super::ui::{ButtonKind, Key, Ui};
 use super::Launcher;
 use glam::{DVec2, Vec2};
 use omsi_launcher_lib as core;
 use omsi_launcher_lib::linehof;
 use omsi_launcher_lib::company::{ownline, BusKind, BusSize, Cents, Drive};
 use omsi_launcher_lib::lines::{self as reg, Direction, LineDesign, Registry, StopRef, TimeBand, DAY_GROUPS};
+use omsi_launcher_lib::service::{self, BusPick, ServiceKind, VehicleClass};
 use omsi_ui::paint::Align;
 use omsi_ui::{Color, Rect, Weight};
 use std::collections::HashMap;
@@ -72,8 +79,25 @@ pub struct LineEditorView {
     sel_stop: Option<usize>,
     /// Changed and not saved.
     dirty: bool,
-    /// The right panel: 0 the stops, 1 the timetable.
+    /// The right panel: 0 the stops, 1 the displays, 2 the timetable, 3 the kind of service.
     tab: usize,
+    /// The map's calendar (`Holidays.txt`), for the school holidays a school line keeps.
+    map_calendar: omsi_map::Calendar,
+    /// The installed buses by maker and model (for how many buses), and the maker, model and
+    /// version chosen to add to the line's buses (each 0: none, or all).
+    catalogue: Option<(usize, Arc<Catalogue>)>,
+    pick: (usize, usize, usize),
+    /// The timetable's table over the map: open, its group of days, its first trip shown,
+    /// the cell chosen (a trip of `LineDesign::table`, a stop) and what is typed into it, and
+    /// "Fill from the patterns" pressed once.
+    table_open: bool,
+    table_day: usize,
+    table_col: usize,
+    table_sel: Option<(usize, usize)>,
+    table_text: String,
+    table_fill_armed: bool,
+    /// A destination of the player's own being typed (the Displays tab).
+    dest_new: String,
     /// The stops' names from the map's `Busstops.cfg`.
     names: HashMap<i64, String>,
     /// The depot groups with buses (`ailists.cfg`) and each one's depot file.
@@ -313,6 +337,7 @@ impl LineEditorView {
         self.shapes_for = None;
         self.router = None;
         self.stops.clear();
+        self.map_calendar = omsi_map::Calendar::load(&self.map_dir.join("Holidays.txt")).unwrap_or_default();
         self.names = omsi_timetable::TimetableData::load(&self.map_dir).bus_stops.into_iter().filter(|b| !b.name.trim().is_empty()).map(|b| (b.object_id, b.name.trim().to_string())).collect();
         let chrono = omsi_map::date_code(date).map(|c| omsi_map::active_chrono_dirs(&self.map_dir, c)).unwrap_or_default();
         let ai = omsi_map::ailists::ailists_with_chrono(&self.map_dir, &chrono);
@@ -425,10 +450,14 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     let mut status: Option<(String, bool)> = None;
     left_panel(l, left, &maps, &mut status);
     right_panel(l, right, &mut status);
-    map_layer(l, map_r);
-    map_buttons(l, map_r);
-    estimate_card(l, map_r);
-    map_pointer(l, map_r);
+    if l.pages.lines.table_open {
+        table_layer(l, map_r);
+    } else {
+        map_layer(l, map_r);
+        map_buttons(l, map_r);
+        estimate_card(l, map_r);
+        map_pointer(l, map_r);
+    }
     l.ui.over_ui = true;
     if let Some(act) = l.pages.lines.company_act.take() {
         company_action(l, act, &mut status);
@@ -500,12 +529,12 @@ fn left_panel(l: &mut Launcher, r: Rect, maps: &[(String, String)], status: &mut
     }
     // the lines of the map
     let list_y = body.y + ROW + 10.0;
-    let rows: Vec<(u64, String, String, Color, bool)> = v.reg.lines.iter().filter(|x| v.shows(x)).map(|x| (x.id, x.number.clone(), x.name.clone(), colour_of(&x.colour), x.draft && v.company.is_some())).collect();
+    let rows: Vec<(u64, String, String, Color, bool, ServiceKind)> = v.reg.lines.iter().filter(|x| v.shows(x)).map(|x| (x.id, x.number.clone(), x.name.clone(), colour_of(&x.colour), x.draft && v.company.is_some(), x.service)).collect();
     let list_h = ((rows.len().max(1) as f32) * 40.0).min(r.h * 0.28);
     let sel = v.sel;
     let mut pick = None;
     ui.scroll_area("le-lines", Rect::new(body.x - 6.0, list_y, body.w + 12.0, list_h), &mut |ui, a| {
-        for (i, (id, number, name, c, draft)) in rows.iter().enumerate() {
+        for (i, (id, number, name, c, draft, kind)) in rows.iter().enumerate() {
             let rr = Rect::new(a.x + 6.0, a.y + i as f32 * 40.0, a.w - 12.0, 36.0);
             if ui.row(&format!("le-line-{id}"), rr, Some(*id) == sel) {
                 pick = Some(*id);
@@ -515,7 +544,14 @@ fn left_panel(l: &mut Launcher, r: Rect, maps: &[(String, String)], status: &mut
             ui.text_in(number, plate, 13.0, Weight::Black, ON_LINE, Align::Center);
             ui.p().rounded(Rect::new(plate.right() + 8.0, rr.y + 12.0, 4.0, 12.0), 2.0, *c);
             let badge_w = if *draft { 70.0 } else { 0.0 };
-            ui.text_in(name, Rect::new(plate.right() + 20.0, rr.y, rr.right() - plate.right() - 24.0 - badge_w, rr.h), 13.0, Weight::Medium, TEXT, Align::Left);
+            // (a line of another kind than regular: its kind's mark)
+            let kind_w = if *kind != ServiceKind::Regular { 22.0 } else { 0.0 };
+            ui.text_in(name, Rect::new(plate.right() + 20.0, rr.y, rr.right() - plate.right() - 24.0 - badge_w - kind_w, rr.h), 13.0, Weight::Medium, TEXT, Align::Left);
+            if kind_w > 0.0 {
+                let at = Rect::new(rr.right() - badge_w - kind_w - 4.0, rr.y, kind_w, rr.h);
+                ui.icon(kind.icon(), at.center(), 15.0, if Some(*id) == sel { on_accent() } else { accent_2() });
+                ui.tooltip(at, kind.label());
+            }
             if *draft {
                 ui.badge(Vec2::new(rr.right() - badge_w + 4.0, rr.y + 10.0), &omsi_ui::tr("draft").to_uppercase(), if Some(*id) == sel { on_accent() } else { WARN });
             }
@@ -725,7 +761,14 @@ fn drive_it(v: &mut LineEditorView, state: &mut super::state::State) -> (String,
 // --- the right panel: a direction's stops, and the timetable ----------------------------------
 
 fn right_panel(l: &mut Launcher, r: Rect, status: &mut Option<(String, bool)>) {
-    let Launcher { ui, pages, .. } = l;
+    l.busclasses.want(&l.state.vehicles);
+    let fleet = l.company.company.as_ref().filter(|_| l.pages.lines.company.is_some()).map(|c| c.fleet.iter().map(|x| (x.bus.clone(), x.name.clone(), x.kind.size)).collect::<Vec<_>>());
+    let date = match (l.pages.lines.company.is_some(), l.company.company.as_ref()) {
+        (true, Some(c)) => c.date.clone(),
+        _ => l.state.choice.date.clone(),
+    };
+    let Launcher { ui, pages, state, busclasses, .. } = l;
+    let facts = ServiceFacts { vehicles: &state.vehicles, classes: busclasses, fleet, date };
     let v = &mut pages.lines;
     ui.card(r);
     let inner = Rect::new(r.x + 16.0, r.y + 12.0, r.w - 32.0, r.h - 24.0);
@@ -737,10 +780,14 @@ fn right_panel(l: &mut Launcher, r: Rect, status: &mut Option<(String, bool)>) {
     let group = line.ai_group.clone();
     let two = line.directions.len() > 1;
     let mut tab = v.tab;
-    if ui.segmented("le-tab", Rect::new(inner.x, inner.y, inner.w, ROW), &mut tab, &["Stops", "Displays", "Timetable"]) {
+    if ui.segmented("le-tab", Rect::new(inner.x, inner.y, inner.w, ROW), &mut tab, &["Stops", "Displays", "Timetable", "Kind"]) {
         v.tab = tab;
     }
     let body = Rect::new(inner.x, inner.y + ROW + 12.0, inner.w, inner.h - ROW - 12.0);
+    if v.tab == 3 {
+        service_tab(ui, v, body, &facts);
+        return;
+    }
     if v.tab == 2 {
         timetable_tab(ui, v, body);
         return;
@@ -763,8 +810,10 @@ fn right_panel(l: &mut Launcher, r: Rect, status: &mut Option<(String, bool)>) {
         }
         return;
     }
-    // where it goes: a terminus of the depot's file, or what is typed
+    // where it goes: a terminus of the depot's file, one of the player's own destinations, or
+    // what is typed
     let termini = v.termini_of(&group);
+    let mine = v.reg.destinations.clone();
     let d_idx = v.dir;
     let mut changed = false;
     {
@@ -775,10 +824,22 @@ fn right_panel(l: &mut Launcher, r: Rect, status: &mut Option<(String, bool)>) {
         let last = d.stops.last().map(|s| s.name.clone()).unwrap_or_default();
         let mut options = vec![omsi_ui::tr("Last stop: %{name}").replace("%{name}", &last)];
         options.extend(termini.iter().map(|t| t.1.clone()));
-        let mut ti = termini.iter().position(|t| t.0.eq_ignore_ascii_case(d.terminus.trim())).map(|i| i + 1).unwrap_or(0);
+        options.extend(mine.iter().map(|m| omsi_ui::tr("Mine: %{name}").replace("%{name}", &m.name)));
+        let mut ti = termini
+            .iter()
+            .position(|t| t.0.eq_ignore_ascii_case(d.terminus.trim()))
+            .map(|i| i + 1)
+            .or_else(|| mine.iter().position(|m| m.name.eq_ignore_ascii_case(d.terminus.trim())).map(|i| i + 1 + termini.len()))
+            .unwrap_or(0);
         let half = (body.w - GAP) * 0.5;
         if ui.select("le-terminus", Rect::new(body.x, y, half, ROW), &mut ti, &options) {
-            d.terminus = if ti == 0 { String::new() } else { termini[ti - 1].0.clone() };
+            if ti == 0 {
+                d.terminus.clear();
+            } else if ti <= termini.len() {
+                d.terminus = termini[ti - 1].0.clone();
+            } else if let Some(m) = mine.get(ti - 1 - termini.len()) {
+                d.take_destination(m);
+            }
             changed = true;
         }
         changed |= ui.text_input("le-terminus-text", Rect::new(body.x + half + GAP, y, half, ROW), &mut d.terminus, "or type it", None);
@@ -1061,6 +1122,11 @@ fn displays_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect) {
     let mut route_changed = false;
     let mut texts_changed = false;
     let mut stops_changed = false;
+    // (the player's own destinations: this one kept, one typed, one taken out)
+    let mine = v.reg.destinations.clone();
+    let is_mine = v.reg.destination(&dest).is_some();
+    let mut dest_new = v.dest_new.clone();
+    let (mut keep_this, mut keep_new, mut drop_mine) = (false, false, None);
     ui.scroll_area(&format!("le-displays-{d_idx}"), area, &mut |ui, a| {
         let x = a.x + 6.0;
         let w = a.w - 12.0;
@@ -1100,8 +1166,53 @@ fn displays_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect) {
             stops_changed |= ui.text_input(&format!("le-ibis-{d_idx}-{i}"), Rect::new(x, yy, w, ROW - 4.0), &mut stop_vals[i], def, None);
             yy += ROW + 2.0;
         }
+        // the player's own destinations, offered with the depot file's wherever a destination
+        // is chosen
+        yy += 6.0;
+        head(ui, "My destinations", Rect::new(x, yy, w, 16.0));
+        yy += 22.0;
+        if !is_mine && ui.button("le-dest-keep", Rect::new(x, yy, w, ROW - 6.0), "Keep this destination as mine", Some("save"), ButtonKind::Ghost) {
+            keep_this = true;
+        }
+        if !is_mine {
+            yy += ROW;
+        }
+        for (k, m) in mine.iter().enumerate() {
+            let rr = Rect::new(x, yy, w, 30.0);
+            ui.p().rounded(rr, RADIUS, FIELD);
+            ui.text_in(&m.name, Rect::new(rr.x + 10.0, rr.y, rr.w - 90.0, rr.h), 12.5, Weight::Medium, TEXT, Align::Left);
+            if m.code > 0 {
+                ui.text_in(&m.code.to_string(), Rect::new(rr.right() - 80.0, rr.y, 44.0, rr.h), 11.5, Weight::Regular, TEXT_DIM, Align::Right);
+            }
+            if ui.icon_button(&format!("le-dest-x-{k}"), Vec2::new(rr.right() - 14.0, rr.center().y), 10.0, "close", "Take it out of my destinations") {
+                drop_mine = Some(k);
+            }
+            yy += 34.0;
+        }
+        let bw = 78.0;
+        ui.text_input("le-dest-new", Rect::new(x, yy, w - bw - 6.0, ROW - 4.0), &mut dest_new, "A destination of my own", None);
+        if ui.button("le-dest-add", Rect::new(x + w - bw, yy, bw, ROW - 4.0), "Keep", Some("add"), ButtonKind::Normal) && !dest_new.trim().is_empty() {
+            keep_new = true;
+        }
+        yy += ROW + 2.0;
+        yy += ui.paragraph("Kept with the map's lines; chosen under Stops, Destination. A new one gets its place in the depot file when a line with it is saved.", Vec2::new(x, yy), w, 11.0, Weight::Regular, TEXT_FAINT);
         yy - a.y + 8.0
     });
+    v.dest_new = dest_new;
+    if keep_this {
+        let code = d.terminus_code;
+        v.reg.keep_destination(reg::OwnDestination { name: dest.clone(), sign: sign_vals.clone(), code });
+        changed = true;
+    }
+    if keep_new {
+        let name = std::mem::take(&mut v.dest_new);
+        v.reg.keep_destination(reg::OwnDestination { name, ..Default::default() });
+        changed = true;
+    }
+    if let Some(k) = drop_mine {
+        v.reg.destinations.remove(k);
+        changed = true;
+    }
     if texts_changed || changed {
         // (all empty: the defaults, which follow the destination)
         if sign_vals.iter().all(|s| s.is_empty()) {
@@ -1133,6 +1244,27 @@ fn displays_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect) {
 fn timetable_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect) {
     let run: Vec<f32> = v.line().map(reg::run_minutes).unwrap_or_default();
     let for_company = v.company.is_some();
+    let kind = v.line().map(|x| x.service).unwrap_or_default();
+    // the timetable as a table (every time the player's to change), or as the patterns make it
+    let table_on = v.line().is_some_and(|x| x.table_on);
+    let half = (body.w - GAP) * 0.5;
+    let mut on = table_on;
+    if ui.toggle("le-table-on", Rect::new(body.x, body.y, half, ROW), &mut on, "As a table") {
+        let line = v.line_mut().unwrap();
+        line.table_on = on;
+        if on && line.table.is_empty() {
+            line.table = reg::table_from_patterns(line);
+        }
+        v.touched();
+    }
+    if ui.button("le-table-open", Rect::new(body.x + half + GAP, body.y, half, ROW), "Open the table", Some("grid_view"), ButtonKind::Normal) {
+        v.table_open = true;
+    }
+    let mut top = body.y + ROW + 8.0;
+    if table_on {
+        top += ui.paragraph("The table is the line's timetable: the patterns below only fill it anew (\"Fill from the patterns\" in the table).", Vec2::new(body.x, top), body.w, 11.5, Weight::Regular, accent_2()) + 6.0;
+    }
+    let body = Rect::new(body.x, top, body.w, (body.bottom() - top).max(40.0));
     let mut changed = false;
     let line = v.line_mut().unwrap();
     if line.days.len() < DAY_GROUPS.len() {
@@ -1146,6 +1278,16 @@ fn timetable_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect) {
         let mut y = a.y;
         for (k, (name, _)) in DAY_GROUPS.iter().enumerate() {
             let p = &mut days[k];
+            // (a group its kind of service does not run on: a school line's weekend)
+            if !kind.allows(k) {
+                ui.text_in(name, Rect::new(x, y, w * 0.4, ROW), 13.0, Weight::Regular, TEXT_FAINT, Align::Left);
+                let why = omsi_ui::tr("%{kind} does not run then").replace("%{kind}", &omsi_ui::tr(kind.label()));
+                ui.text_in(&why, Rect::new(x + w * 0.4, y, w * 0.6, ROW), 11.5, Weight::Regular, TEXT_FAINT, Align::Right);
+                y += ROW + 4.0;
+                ui.p().rect(Rect::new(x, y, w, 1.0), HAIRLINE);
+                y += 10.0;
+                continue;
+            }
             changed |= ui.toggle(&format!("le-day-{k}"), Rect::new(x, y, w, ROW), &mut p.on, name);
             y += ROW + 4.0;
             if p.on {
@@ -1238,6 +1380,673 @@ fn timetable_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect) {
         y - a.y + h + 12.0
     });
     if changed {
+        v.touched();
+    }
+}
+
+// --- the kind of service and the buses ----------------------------------------------------------
+
+/// The installed buses by maker and model, as a line's buses are chosen from them: (maker, its
+/// models - (model, its versions - (bus file, version))), in the bus picker's order.
+type Catalogue = Vec<(String, Vec<(String, Vec<(String, String)>)>)>;
+
+fn catalogue(vehicles: &[core::VehicleInfo]) -> Catalogue {
+    use super::buspick::name_cmp;
+    let mut out: Catalogue = Vec::new();
+    for v in vehicles {
+        let (maker, _) = service::maker_model(&v.manufacturer, &v.type_name, &v.file, &v.folder);
+        let (model, version) = super::buspick::split_type(&v.type_name, &v.file, &v.default_paint);
+        let m = match out.iter().position(|x| x.0.eq_ignore_ascii_case(&maker)) {
+            Some(k) => k,
+            None => {
+                out.push((maker.clone(), Vec::new()));
+                out.len() - 1
+            }
+        };
+        let models = &mut out[m].1;
+        let k = match models.iter().position(|x| x.0.eq_ignore_ascii_case(&model)) {
+            Some(k) => k,
+            None => {
+                models.push((model.clone(), Vec::new()));
+                models.len() - 1
+            }
+        };
+        models[k].1.push((v.file.clone(), version));
+    }
+    out.sort_by(|a, b| name_cmp(&a.0, &b.0));
+    for (_, models) in out.iter_mut() {
+        models.sort_by(|a, b| name_cmp(&a.0, &b.0));
+        for (_, versions) in models.iter_mut() {
+            versions.sort_by(|a, b| name_cmp(&a.1, &b.1));
+        }
+    }
+    out
+}
+
+/// The bus a line's choice gets from the catalogue's maker `m`, its model `k` (0: all of
+/// them) and its version `j` (0: all of them): with the bus files it covers now.
+fn pick_of(cat: &Catalogue, m: usize, k: usize, j: usize) -> Option<BusPick> {
+    let (maker, models) = cat.get(m)?;
+    if k == 0 {
+        let files = models.iter().flat_map(|x| x.1.iter().map(|v| v.0.clone())).collect();
+        return Some(BusPick { maker: maker.clone(), label: maker.clone(), files, ..Default::default() });
+    }
+    let (model, versions) = models.get(k - 1)?;
+    if j == 0 {
+        let files = versions.iter().map(|v| v.0.clone()).collect();
+        return Some(BusPick { maker: maker.clone(), model: model.clone(), label: format!("{maker} {model}"), files, ..Default::default() });
+    }
+    let (file, version) = versions.get(j - 1)?;
+    Some(BusPick { maker: maker.clone(), model: model.clone(), file: file.clone(), files: vec![file.clone()], label: format!("{maker} {model} · {version}") })
+}
+
+/// The timetable a line of `kind` starts from: `lines::days_for`, and - for a company's
+/// regular line - the rush hours in it, as a new company line has them.
+fn typical_days(kind: ServiceKind, company: bool) -> Vec<reg::DayPattern> {
+    let mut days = reg::days_for(kind);
+    if company && kind == ServiceKind::Regular {
+        for (k, p) in days.iter_mut().enumerate() {
+            p.bands = reg::default_bands(k);
+        }
+    }
+    days
+}
+
+/// `YYYYMMDD` as the company's pages write a day ("Tue 5 Mar 1989").
+fn day_of_code(code: i32) -> String {
+    super::company::day_label(&format!("{:04}-{:02}-{:02}", code / 10000, code / 100 % 100, code % 100))
+}
+
+/// What the Kind tab knows besides the line: the installed buses and their kinds, the
+/// company's fleet (file, name, size) when it works for one, and the date the launcher has.
+struct ServiceFacts<'a> {
+    vehicles: &'a [core::VehicleInfo],
+    classes: &'a super::busclass::BusClasses,
+    fleet: Option<Vec<(String, String, BusSize)>>,
+    date: String,
+}
+
+/// The line's kind of service (and with a school line the school holidays it keeps), and the
+/// buses that run it: kinds of bus, and buses by maker, model or version.
+fn service_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, f: &ServiceFacts) {
+    if v.catalogue.as_ref().map(|c| c.0) != Some(f.vehicles.len()) {
+        v.catalogue = Some((f.vehicles.len(), Arc::new(catalogue(f.vehicles))));
+    }
+    let cat = v.catalogue.as_ref().map(|c| c.1.clone()).unwrap_or_default();
+    let Some(line) = v.line() else { return };
+    let kind = line.service;
+    let want = line.vehicles.clone();
+    let matching = f.classes.matching(f.vehicles, &want).len();
+    let in_fleet = f.fleet.as_ref().map(|fl| fl.iter().filter(|(file, name, size)| want.allows(&service::BusFacts::of_fleet(file, name, *size))).count());
+    let cal = service::DayCalendar::new(&v.map_calendar, &v.reg.school_holidays);
+    let mut periods = if v.reg.school_holidays.is_empty() { service::default_school_holidays() } else { v.reg.school_holidays.clone() };
+    let (mut new_kind, mut typical, mut take_suits, mut periods_changed) = (None, false, false, false);
+    let (mut toggle, mut remove, mut add): (Option<VehicleClass>, Option<usize>, Option<BusPick>) = (None, None, None);
+    let mut pick = v.pick;
+    let makers: Vec<String> = std::iter::once(omsi_ui::tr("Choose a maker").into_owned()).chain(cat.iter().map(|m| m.0.clone())).collect();
+    let mut title = v.line().map(|x| x.title.clone()).unwrap_or_default();
+    let mut title_changed = false;
+    ui.scroll_area("le-service", Rect::new(body.x - 6.0, body.y, body.w + 12.0, body.h), &mut |ui, a| {
+        let x = a.x + 6.0;
+        let w = a.w - 12.0;
+        let mut y = a.y;
+        let caps = |ui: &mut Ui, y: f32, text: &str| ui.text_in(&omsi_ui::tr(text).to_uppercase(), Rect::new(x, y, w, 16.0), 10.5, Weight::Bold, TEXT_DIM, Align::Left);
+        // what it is called in public: on its card and in its advertising
+        caps(ui, y, "Public title");
+        y += 20.0;
+        title_changed |= ui.text_input("le-title", Rect::new(x, y, w, ROW - 4.0), &mut title, "Shuttleverkehr Altenfeld - Wurzbach", None);
+        y += ROW + 6.0;
+        caps(ui, y, "Kind of service");
+        y += 20.0;
+        for k in ServiceKind::ALL {
+            let r = Rect::new(x, y, w, 34.0);
+            let on = k == kind;
+            if ui.row(&format!("le-kind-{k:?}"), r, on) && !on {
+                new_kind = Some(k);
+            }
+            ui.icon(k.icon(), Vec2::new(r.x + 16.0, r.center().y), 17.0, if on { on_accent() } else { accent_2() });
+            ui.text_in(k.label(), Rect::new(r.x + 34.0, r.y, r.w - 40.0, r.h), 13.0, Weight::Medium, if on { on_accent() } else { TEXT }, Align::Left);
+            y += 36.0;
+        }
+        y += 4.0;
+        y += ui.paragraph(kind.note(), Vec2::new(x, y), w, 11.5, Weight::Regular, TEXT_DIM) + 6.0;
+        if ui.button("le-kind-typical", Rect::new(x, y, w, ROW - 6.0), "Typical timetable for this kind", Some("schedule"), ButtonKind::Ghost) {
+            typical = true;
+        }
+        y += ROW + 2.0;
+        // a school line: the school holidays it keeps
+        if kind == ServiceKind::School {
+            ui.p().rect(Rect::new(x, y, w, 1.0), HAIRLINE);
+            y += 10.0;
+            caps(ui, y, "School holidays");
+            y += 20.0;
+            if cal.map_school() {
+                y += ui.paragraph("From the map's calendar (Holidays.txt), as the game keeps them.", Vec2::new(x, y), w, 11.5, Weight::Regular, TEXT_DIM) + 4.0;
+            } else {
+                y += ui.paragraph("This map's calendar names no school holidays: these hold for your lines here (the game itself runs every working day as a school day).", Vec2::new(x, y), w, 11.5, Weight::Regular, TEXT_DIM) + 6.0;
+                let (nw, dw) = (w - 2.0 * 62.0 - 40.0, 62.0);
+                let mut out = None;
+                for (i, p) in periods.iter_mut().enumerate() {
+                    periods_changed |= ui.text_input(&format!("le-hol-name-{i}"), Rect::new(x, y, nw, ROW - 6.0), &mut p.name, "Name", None);
+                    periods_changed |= ui.text_input(&format!("le-hol-from-{i}"), Rect::new(x + nw + 6.0, y, dw, ROW - 6.0), &mut p.from, "MM-DD", None);
+                    periods_changed |= ui.text_input(&format!("le-hol-to-{i}"), Rect::new(x + nw + 12.0 + dw, y, dw, ROW - 6.0), &mut p.to, "MM-DD", None);
+                    if ui.icon_button(&format!("le-hol-x-{i}"), Vec2::new(x + w - 10.0, y + (ROW - 6.0) * 0.5), 10.0, "close", "Take the period out") {
+                        out = Some(i);
+                    }
+                    if !p.valid() {
+                        ui.p().rect(Rect::new(x + nw + 6.0, y + ROW - 7.0, 2.0 * dw + 6.0, 2.0), WARN);
+                    }
+                    y += ROW - 2.0;
+                }
+                if let Some(i) = out {
+                    periods.remove(i);
+                    periods_changed = true;
+                }
+                let half = (w - GAP) * 0.5;
+                if ui.button("le-hol-add", Rect::new(x, y, half, ROW - 6.0), "Add a period", Some("add"), ButtonKind::Ghost) {
+                    periods.push(service::HolidayPeriod::new("", "", ""));
+                    periods_changed = true;
+                }
+                if ui.button("le-hol-default", Rect::new(x + half + GAP, y, half, ROW - 6.0), "Default holidays", Some("restart_alt"), ButtonKind::Ghost) {
+                    periods = service::default_school_holidays();
+                    periods_changed = true;
+                }
+                y += ROW + 2.0;
+            }
+            let next = omsi_map::date_code(&f.date).and_then(|c| cal.next_school_holidays(c));
+            if let Some((name, from, to)) = next {
+                let name = if name.trim().is_empty() { "–".to_string() } else { omsi_ui::tr(name.trim()).into_owned() };
+                let text = omsi_ui::tr("Next: %{name}, %{from} to %{to}").replace("%{name}", &name).replace("%{from}", &day_of_code(from)).replace("%{to}", &day_of_code(to));
+                y += ui.paragraph(&text, Vec2::new(x, y), w, 11.5, Weight::Regular, TEXT_SOFT) + 6.0;
+            }
+        }
+        // the buses that run it
+        ui.p().rect(Rect::new(x, y, w, 1.0), HAIRLINE);
+        y += 10.0;
+        caps(ui, y, "Buses on this line");
+        y += 22.0;
+        let (mut px, mut py) = (x, y);
+        for c in VehicleClass::ALL {
+            let label = omsi_ui::tr(c.label()).into_owned();
+            let pw = ui.width(&label, 12.5, Weight::Medium) + 26.0;
+            if px > x && px + pw > x + w {
+                px = x;
+                py += 34.0;
+            }
+            let r = Rect::new(px, py, pw, 28.0);
+            let on = want.classes.contains(&c);
+            let (h, _, clicked) = ui.interact(super::ui::id_of(&format!("le-class-{c:?}")), r);
+            ui.p().rounded(r, 14.0, if on { accent() } else if h { HOVER } else { FIELD });
+            if !on {
+                ui.p().rounded_border(r, 14.0, 1.0, EDGE);
+            }
+            ui.text_in(&label, r, 12.5, Weight::Medium, if on { on_accent() } else { TEXT }, Align::Center);
+            if clicked {
+                toggle = Some(c);
+            }
+            px += pw + 6.0;
+        }
+        y = py + 38.0;
+        if !kind.suits().is_empty() && want.classes != kind.suits() {
+            let names: Vec<String> = kind.suits().iter().map(|c| omsi_ui::tr(c.label()).into_owned()).collect();
+            let text = omsi_ui::tr("Suits this kind: %{buses}").replace("%{buses}", &names.join(", "));
+            let bw = 96.0;
+            ui.paragraph(&text, Vec2::new(x, y), w - bw - 8.0, 11.5, Weight::Regular, TEXT_DIM);
+            if ui.button("le-class-suits", Rect::new(x + w - bw, y - 4.0, bw, 28.0), "Take these", None, ButtonKind::Ghost) {
+                take_suits = true;
+            }
+            y += 34.0;
+        }
+        for (i, p) in want.buses.iter().enumerate() {
+            let r = Rect::new(x, y, w, 30.0);
+            ui.p().rounded(r, RADIUS, FIELD);
+            ui.icon("directions_bus", Vec2::new(r.x + 14.0, r.center().y), 15.0, accent_2());
+            ui.text_in(&p.label, Rect::new(r.x + 28.0, r.y, r.w - 56.0, r.h), 12.5, Weight::Medium, TEXT, Align::Left);
+            if ui.icon_button(&format!("le-bus-x-{i}"), Vec2::new(r.right() - 14.0, r.center().y), 10.0, "close", "Take it out") {
+                remove = Some(i);
+            }
+            y += 34.0;
+        }
+        // a maker, a model of it, a version of that
+        let mut m = pick.0;
+        if ui.select("le-pick-maker", Rect::new(x, y, w, ROW - 4.0), &mut m, &makers) && m != pick.0 {
+            pick = (m, 0, 0);
+        }
+        y += ROW;
+        if let Some((_, models)) = pick.0.checked_sub(1).and_then(|k| cat.get(k)) {
+            let names: Vec<String> = std::iter::once(omsi_ui::tr("All its models").into_owned()).chain(models.iter().map(|x| x.0.clone())).collect();
+            let mut k = pick.1;
+            if ui.select("le-pick-model", Rect::new(x, y, w, ROW - 4.0), &mut k, &names) && k != pick.1 {
+                pick = (pick.0, k, 0);
+            }
+            y += ROW;
+            if let Some((_, versions)) = pick.1.checked_sub(1).and_then(|k| models.get(k)) {
+                let names: Vec<String> = std::iter::once(omsi_ui::tr("All its versions").into_owned()).chain(versions.iter().map(|x| x.1.clone())).collect();
+                let mut j = pick.2;
+                if ui.select("le-pick-version", Rect::new(x, y, w, ROW - 4.0), &mut j, &names) {
+                    pick.2 = j;
+                }
+                y += ROW;
+            }
+            if ui.button("le-pick-add", Rect::new(x, y, w, ROW - 6.0), "Add to the line", Some("add"), ButtonKind::Normal) {
+                add = pick_of(&cat, pick.0 - 1, pick.1, pick.2);
+            }
+            y += ROW;
+        }
+        // what that comes to
+        let text = if want.open() {
+            omsi_ui::tr("Any bus of its depot group drives it. Choose kinds of bus or buses by name to have the line driven with them.").into_owned()
+        } else if f.classes.busy() {
+            omsi_ui::tr("Reading the buses…").into_owned()
+        } else {
+            omsi_ui::tr("%{n} of the installed buses fit. The timetable's buses on the line are such buses where the map's depots have them.").replace("%{n}", &matching.to_string())
+        };
+        y += ui.paragraph(&text, Vec2::new(x, y), w, 11.5, Weight::Regular, if !want.open() && matching == 0 && !f.classes.busy() { WARN } else { TEXT_DIM }) + 6.0;
+        if let (Some(n), false) = (in_fleet, want.open()) {
+            let (text, c) = if n == 0 { (omsi_ui::tr("None of the company's buses fits: the planning cannot put one on its tours.").into_owned(), WARN) } else { (omsi_ui::tr("%{n} of the company's buses fit.").replace("%{n}", &n.to_string()), TEXT_SOFT) };
+            y += ui.paragraph(&text, Vec2::new(x, y), w, 11.5, Weight::Regular, c) + 6.0;
+        }
+        y - a.y + 12.0
+    });
+    v.pick = pick;
+    let for_company = v.company.is_some();
+    let mut changed = false;
+    if title_changed {
+        v.line_mut().unwrap().title = title;
+        changed = true;
+    }
+    if periods_changed {
+        v.reg.school_holidays = periods;
+        changed = true;
+    }
+    let line = v.line_mut().unwrap();
+    if let Some(k) = new_kind {
+        // (a timetable the player left as it came follows the kind)
+        if line.days == typical_days(line.service, for_company) {
+            line.days = typical_days(k, for_company);
+        }
+        line.service = k;
+        changed = true;
+    }
+    if typical {
+        line.days = typical_days(line.service, for_company);
+        changed = true;
+    }
+    if let Some(c) = toggle {
+        line.vehicles.toggle_class(c);
+        changed = true;
+    }
+    if take_suits {
+        line.vehicles.classes = line.service.suits().to_vec();
+        changed = true;
+    }
+    if let Some(i) = remove {
+        line.vehicles.buses.remove(i);
+        changed = true;
+    }
+    if let Some(p) = add.filter(|p| !line.vehicles.buses.iter().any(|x| x.maker == p.maker && x.model == p.model && x.file == p.file)) {
+        line.vehicles.buses.push(p);
+        changed = true;
+    }
+    if changed {
+        v.touched();
+    }
+}
+
+// --- the timetable as a table -------------------------------------------------------------------
+
+/// A time of the table as it is shown: "07:05" (a trip past midnight from 00:00 on).
+fn hm(minutes: f32) -> String {
+    let m = minutes.round() as i32;
+    format!("{:02}:{:02}", m.div_euclid(60).rem_euclid(24), m.rem_euclid(60))
+}
+
+/// A time typed into the table: "7:05", "07.05", "0705" or "705" (None: not a time).
+fn parse_hm(s: &str) -> Option<i32> {
+    let s = s.trim();
+    let (h, m) = match s.split_once([':', '.', 'h']) {
+        Some((h, m)) => (h.trim().parse::<i32>().ok()?, m.trim().parse::<i32>().ok()?),
+        None if s.len() >= 3 && s.chars().all(|c| c.is_ascii_digit()) => (s[..s.len() - 2].parse().ok()?, s[s.len() - 2..].parse().ok()?),
+        None => return None,
+    };
+    ((0..24).contains(&h) && (0..60).contains(&m)).then_some(h * 60 + m)
+}
+
+/// What the table's tools asked for (done after it is drawn).
+enum TableAct {
+    Select(usize, usize),
+    /// A time typed for the cell chosen, and on to the next stop.
+    Typed(i32, bool),
+    Nudge(f32),
+    Add,
+    Copy(f32),
+    Shift(f32),
+    Delete,
+    Fill,
+    UseTable(bool),
+    Dir(usize),
+    Day(usize),
+    Page(i32),
+    Close,
+}
+
+/// The timetable as a table over the map (after City Bus Manager's): the stops of a direction
+/// down, its trips of a group of days across, every departure a cell to type a time into
+/// ("0705", the arrow keys a minute later or earlier); a trip added, copied 10 to 30 minutes
+/// later, moved as a whole or taken out; filled again from the day patterns. A stop reached
+/// before the one before it is marked, and the line is not saved so.
+fn table_layer(l: &mut Launcher, map_r: Rect) {
+    let Launcher { ui, pages, .. } = l;
+    let v = &mut pages.lines;
+    let Some(line) = v.line().cloned() else {
+        v.table_open = false;
+        return;
+    };
+    let kind = line.service;
+    if !kind.allows(v.table_day) {
+        v.table_day = (0..DAY_GROUPS.len()).find(|k| kind.allows(*k)).unwrap_or(0);
+    }
+    let (dir, day) = (v.dir.min(line.directions.len().saturating_sub(1)), v.table_day);
+    let r = Rect::new(map_r.x + 8.0, map_r.y + 8.0, map_r.w - 16.0, map_r.h - 16.0);
+    ui.panel(r);
+    let x = r.x + 16.0;
+    let w = r.w - 32.0;
+    let mut y = r.y + 12.0;
+    let mut act: Option<TableAct> = None;
+    // the head: the line, the direction, the days, closing
+    let title = omsi_ui::tr("Timetable of line %{n}").replace("%{n}", line.number.trim());
+    ui.text_in(&title, Rect::new(x, y, 190.0, ROW - 4.0), 15.0, Weight::Bold, TEXT, Align::Left);
+    if ui.icon_button("le-table-close", Vec2::new(r.right() - 24.0, y + (ROW - 4.0) * 0.5), 14.0, "close", "Back to the map") {
+        act = Some(TableAct::Close);
+    }
+    let mut d = dir;
+    let seg_w = ((w - 200.0 - 40.0) * 0.45).max(150.0);
+    if ui.segmented("le-table-dir", Rect::new(x + 200.0, y, seg_w, ROW - 4.0), &mut d, &["Outbound", "Return"]) {
+        act = Some(TableAct::Dir(d));
+    }
+    let labels: Vec<&str> = DAY_GROUPS.iter().map(|g| g.0).collect();
+    let off: Vec<usize> = (0..DAY_GROUPS.len()).filter(|k| !kind.allows(*k)).collect();
+    let mut dd = day;
+    if ui.segmented_some("le-table-day", Rect::new(x + 210.0 + seg_w, y, (w - 250.0 - seg_w).max(150.0), ROW - 4.0), &mut dd, &labels, &off) {
+        act = Some(TableAct::Day(dd));
+    }
+    y += ROW + 4.0;
+    // whether it is the line's timetable, and filling it from the patterns
+    let mut on = line.table_on;
+    if ui.toggle("le-table-use", Rect::new(x, y, 260.0f32.min(w * 0.45), ROW - 4.0), &mut on, "The table is the line's timetable") {
+        act = Some(TableAct::UseTable(on));
+    }
+    let fw = 230.0f32.min(w * 0.45);
+    // (its kind of service between: on which days its trips run)
+    let kw = w - 260.0f32.min(w * 0.45) - fw - 20.0;
+    if kw > 60.0 {
+        let kr = Rect::new(x + 260.0f32.min(w * 0.45) + 10.0, y, kw, ROW - 4.0);
+        let label = omsi_ui::tr(kind.label());
+        let lw = ui.width(&label, 12.0, Weight::Medium).min(kw - 24.0);
+        ui.icon(kind.icon(), Vec2::new(kr.center().x - lw * 0.5 - 10.0, kr.center().y), 15.0, accent_2());
+        ui.text_in(&label, Rect::new(kr.center().x - lw * 0.5 + 2.0, kr.y, lw + 4.0, kr.h), 12.0, Weight::Medium, accent_2(), Align::Left);
+        ui.tooltip(kr, kind.note());
+    }
+    let fill_label = if v.table_fill_armed { "Press again: the table anew" } else { "Fill from the patterns" };
+    if ui.button("le-table-fill", Rect::new(x + w - fw, y, fw, ROW - 4.0), fill_label, Some("restart_alt"), ButtonKind::Ghost) {
+        act = Some(TableAct::Fill);
+    }
+    y += ROW + 2.0;
+    // the trips of the direction and the days, in order of departure
+    let mut cols: Vec<usize> = (0..line.table.len()).filter(|&i| line.table[i].dir == dir && line.table[i].day == day).collect();
+    cols.sort_by(|a, b| line.table[*a].departure().total_cmp(&line.table[*b].departure()));
+    let sel = v.table_sel.filter(|(i, _)| cols.contains(i));
+    // the tools for the trip chosen
+    let bh = ROW - 8.0;
+    let mut bx = x;
+    if ui.button("le-table-add", Rect::new(bx, y, 120.0, bh), "Add a trip", Some("add"), ButtonKind::Normal) {
+        act = Some(TableAct::Add);
+    }
+    bx += 128.0;
+    if sel.is_some() {
+        ui.text_in("Copy", Rect::new(bx, y, 44.0, bh), 12.0, Weight::Medium, TEXT_DIM, Align::Left);
+        bx += 44.0;
+        for m in [10.0, 15.0, 20.0, 30.0] {
+            let br = Rect::new(bx, y, 46.0, bh);
+            if ui.button(&format!("le-table-copy-{m}"), br, &format!("+{m:.0}"), None, ButtonKind::Ghost) {
+                act = Some(TableAct::Copy(m));
+            }
+            ui.tooltip(br, &omsi_ui::tr("A copy of the trip, %{n} minutes later").replace("%{n}", &format!("{m:.0}")));
+            bx += 48.0;
+        }
+        bx += 10.0;
+        ui.text_in("Move", Rect::new(bx, y, 46.0, bh), 12.0, Weight::Medium, TEXT_DIM, Align::Left);
+        bx += 46.0;
+        for (m, label) in [(-5.0, "-5"), (-1.0, "-1"), (1.0, "+1"), (5.0, "+5")] {
+            let br = Rect::new(bx, y, 40.0, bh);
+            if ui.button(&format!("le-table-shift-{label}"), br, label, None, ButtonKind::Ghost) {
+                act = Some(TableAct::Shift(m));
+            }
+            ui.tooltip(br, "The whole trip so many minutes earlier or later");
+            bx += 42.0;
+        }
+        if ui.icon_button("le-table-delete", Vec2::new(bx + 18.0, y + bh * 0.5), 12.0, "delete", "Take the trip out") {
+            act = Some(TableAct::Delete);
+        }
+    } else {
+        ui.text_in("Choose a time in the table: type it (0705), the arrow keys a minute later or earlier.", Rect::new(bx, y, x + w - bx, bh), 12.0, Weight::Regular, TEXT_DIM, Align::Left);
+    }
+    y += ROW;
+    // the grid: the stops down, the trips across
+    let stops: Vec<String> = line.directions.get(dir).map(|d| d.stops.iter().map(|s| s.name.clone()).collect()).unwrap_or_default();
+    let foot_h = 46.0;
+    let grid = Rect::new(x, y, w, r.bottom() - 12.0 - foot_h - y);
+    let name_w = 160.0f32.min(w * 0.3);
+    let col_w = 62.0;
+    let per_page = (((grid.w - name_w - 8.0) / col_w).floor() as usize).max(1);
+    let first = v.table_col.min(cols.len().saturating_sub(per_page));
+    let shown: Vec<usize> = cols.iter().copied().skip(first).take(per_page).collect();
+    let head_h = 28.0;
+    // (the pages of trips: a few at a time)
+    if cols.len() > per_page {
+        if ui.icon_button("le-table-prev", Vec2::new(grid.x + 12.0, grid.y + head_h * 0.5), 12.0, "chevron_left", "Earlier trips") {
+            act = Some(TableAct::Page(-(per_page as i32)));
+        }
+        if ui.icon_button("le-table-next", Vec2::new(grid.x + 40.0, grid.y + head_h * 0.5), 12.0, "chevron_right", "Later trips") {
+            act = Some(TableAct::Page(per_page as i32));
+        }
+        let span = format!("{}–{} / {}", first + 1, first + shown.len(), cols.len());
+        ui.text_in(&span, Rect::new(grid.x + 56.0, grid.y, name_w - 60.0, head_h), 11.5, Weight::Medium, TEXT_DIM, Align::Left);
+    }
+    for (c, &i) in shown.iter().enumerate() {
+        let cx = grid.x + name_w + c as f32 * col_w;
+        let hr = Rect::new(cx + 2.0, grid.y + 2.0, col_w - 4.0, head_h - 4.0);
+        let chosen = sel.is_some_and(|s| s.0 == i);
+        let (h, _, clicked) = ui.interact(super::ui::id_of(&format!("le-table-head-{i}")), hr);
+        ui.p().rounded(hr, 6.0, if chosen { accent() } else if h { HOVER } else { FIELD });
+        let label = omsi_ui::tr("Trip %{n}").replace("%{n}", &(first + c + 1).to_string());
+        ui.text_in(&label, hr, 11.5, Weight::Bold, if chosen { on_accent() } else { TEXT_SOFT }, Align::Center);
+        if clicked {
+            act = Some(TableAct::Select(i, sel.map(|s| s.1).unwrap_or(0)));
+        }
+    }
+    if cols.is_empty() {
+        let text = if line.table.is_empty() { "The table is empty: fill it from the patterns, or add a trip." } else { "No trip of this direction on these days: add one." };
+        ui.text_in(text, Rect::new(grid.x, grid.y + head_h + 8.0, grid.w, 24.0), 13.0, Weight::Regular, TEXT_DIM, Align::Left);
+    }
+    let rows = Rect::new(grid.x - 6.0, grid.y + head_h, grid.w + 12.0, grid.h - head_h);
+    let row_h = 28.0;
+    let mut text = v.table_text.clone();
+    let table = line.table.clone();
+    ui.scroll_area(&format!("le-table-rows-{dir}-{day}"), rows, &mut |ui, a| {
+        let gx = a.x + 6.0;
+        for (s, name) in stops.iter().enumerate() {
+            let ry = a.y + s as f32 * row_h;
+            if s % 2 == 1 {
+                ui.p().rect(Rect::new(gx, ry, a.w - 12.0, row_h), Color::WHITE.alpha(0.025));
+            }
+            ui.text_in(name, Rect::new(gx + 4.0, ry, name_w - 10.0, row_h), 12.0, Weight::Medium, TEXT_SOFT, Align::Left);
+            for (c, &i) in shown.iter().enumerate() {
+                let t = &table[i];
+                let cell = Rect::new(gx + name_w + c as f32 * col_w + 2.0, ry + 2.0, col_w - 4.0, row_h - 4.0);
+                let Some(&time) = t.times.get(s) else { continue };
+                // (a stop reached before the one before it)
+                let falls = s > 0 && t.times.get(s - 1).is_some_and(|p| time < *p - 1e-3);
+                if sel == Some((i, s)) {
+                    let placeholder = hm(time);
+                    ui.text_input("le-table-cell", cell, &mut text, &placeholder, None);
+                    if ui.input.keys.contains(&Key::Enter) {
+                        act = Some(match parse_hm(&text) {
+                            Some(m) => TableAct::Typed(m, true),
+                            None => TableAct::Select(i, (s + 1).min(stops.len().saturating_sub(1))),
+                        });
+                    } else if let Some(m) = parse_hm(&text).filter(|_| text.trim().len() >= 4) {
+                        act = Some(TableAct::Typed(m, false));
+                    } else if ui.input.keys.contains(&Key::Up) {
+                        act = Some(TableAct::Nudge(1.0));
+                    } else if ui.input.keys.contains(&Key::Down) {
+                        act = Some(TableAct::Nudge(-1.0));
+                    }
+                    continue;
+                }
+                let (h, _, clicked) = ui.interact(super::ui::id_of(&format!("le-table-cell-{i}-{s}")), cell);
+                if falls {
+                    ui.p().rounded(cell, 5.0, WARN.alpha(0.28));
+                } else if h || sel.is_some_and(|x| x.0 == i) {
+                    ui.p().rounded(cell, 5.0, HOVER);
+                }
+                ui.text_in(&hm(time), cell, 12.5, if s == 0 { Weight::Bold } else { Weight::Regular }, if falls { WARN } else { TEXT }, Align::Center);
+                if clicked {
+                    act = Some(TableAct::Select(i, s));
+                }
+            }
+        }
+        stops.len() as f32 * row_h + 8.0
+    });
+    v.table_text = text;
+    // the foot: how many trips, buses and tours; what is wrong
+    let falls: Vec<(usize, usize)> = cols.iter().enumerate().filter_map(|(k, &i)| line.table[i].first_fall().map(|s| (k, s))).collect();
+    let fy = r.bottom() - 12.0 - foot_h;
+    let (note, colour) = if let Some(&(k, s)) = falls.first() {
+        let stop = stops.get(s).cloned().unwrap_or_default();
+        (omsi_ui::tr("Trip %{n} reaches %{stop} before it left the stop before: the line is not saved so.").replace("%{n}", &(k + 1).to_string()).replace("%{stop}", &stop), WARN)
+    } else if !line.table_on {
+        (omsi_ui::tr("The day patterns make the line's timetable: switch the table on to make it this one.").into_owned(), TEXT_DIM)
+    } else {
+        let tours = reg::table_tours(&line).into_iter().filter(|t| t.day == day).collect::<Vec<_>>();
+        (omsi_ui::tr("%{t} trips on these days, driven in %{n} tours").replace("%{t}", &line.table.iter().filter(|t| t.day == day).count().to_string()).replace("%{n}", &tours.len().to_string()), TEXT_SOFT)
+    };
+    ui.paragraph(&note, Vec2::new(x, fy + 4.0), w, 12.0, Weight::Regular, colour);
+    let away = line.table.iter().filter(|t| !kind.allows(t.day)).count();
+    if away > 0 {
+        let text = omsi_ui::tr("%{n} trips on days %{kind} does not run: kept, not driven.").replace("%{n}", &away.to_string()).replace("%{kind}", &omsi_ui::tr(kind.label()));
+        ui.text_in(&text, Rect::new(x, fy + 26.0, w, 18.0), 11.5, Weight::Regular, TEXT_DIM, Align::Left);
+    }
+    // what was asked for
+    let Some(act) = act else { return };
+    let headway = line.days.get(day).map(|p| if p.bands.is_empty() { p.headway } else { p.clean_bands().first().map(|b| b.headway).unwrap_or(p.headway) }).unwrap_or(30.0).max(1.0);
+    let mut changed = true;
+    match act {
+        TableAct::Close => {
+            v.table_open = false;
+            changed = false;
+        }
+        TableAct::Dir(d) => {
+            (v.dir, v.table_sel, v.table_col) = (d, None, 0);
+            changed = false;
+        }
+        TableAct::Day(k) => {
+            (v.table_day, v.table_sel, v.table_col) = (k, None, 0);
+            changed = false;
+        }
+        TableAct::Page(by) => {
+            v.table_col = (first as i32 + by).max(0) as usize;
+            changed = false;
+        }
+        TableAct::Select(i, s) => {
+            v.table_sel = Some((i, s));
+            v.table_text.clear();
+            ui.focus = Some(super::ui::id_of("le-table-cell"));
+            changed = false;
+        }
+        TableAct::UseTable(on) => {
+            let line = v.line_mut().unwrap();
+            line.table_on = on;
+            if on && line.table.is_empty() {
+                line.table = reg::table_from_patterns(line);
+            }
+        }
+        TableAct::Fill => {
+            if v.table_fill_armed || line.table.is_empty() {
+                let l2 = v.line_mut().unwrap();
+                l2.table = reg::table_from_patterns(l2);
+                (v.table_sel, v.table_col, v.table_fill_armed) = (None, 0, false);
+            } else {
+                v.table_fill_armed = true;
+                changed = false;
+            }
+        }
+        TableAct::Add => {
+            // (after the last trip, a headway later; the first from the pattern's first departure)
+            let after = cols.last().map(|&i| line.table[i].clone());
+            let rel = line.directions.get(dir).map(reg::fitted_times).unwrap_or_default();
+            let first_dep = line.days.get(day).map(|p| p.departures().first().map(|x| x.0).unwrap_or(p.first)).unwrap_or(360.0);
+            let trip = match after {
+                Some(mut t) => {
+                    t.shift(headway);
+                    t
+                }
+                None => reg::TableTrip { dir, day, times: rel.iter().map(|x| first_dep + x).collect() },
+            };
+            let line = v.line_mut().unwrap();
+            line.table.push(trip);
+            v.table_sel = Some((line.table.len() - 1, 0));
+            v.table_col = cols.len().saturating_sub(per_page - 1);
+        }
+        TableAct::Copy(m) => {
+            if let Some((i, s)) = sel {
+                let line = v.line_mut().unwrap();
+                let mut t = line.table[i].clone();
+                t.shift(m);
+                line.table.push(t);
+                v.table_sel = Some((line.table.len() - 1, s));
+            }
+        }
+        TableAct::Shift(m) => {
+            if let Some((i, _)) = sel {
+                v.line_mut().unwrap().table[i].shift(m);
+            }
+        }
+        TableAct::Delete => {
+            if let Some((i, _)) = sel {
+                v.line_mut().unwrap().table.remove(i);
+                v.table_sel = None;
+            }
+        }
+        TableAct::Nudge(m) => {
+            if let Some((i, s)) = sel {
+                if let Some(t) = v.line_mut().unwrap().table[i].times.get_mut(s) {
+                    *t = (*t + m).max(0.0);
+                }
+                v.table_text.clear();
+            }
+        }
+        TableAct::Typed(m, next) => {
+            if let Some((i, s)) = sel {
+                if let Some(t) = v.line_mut().unwrap().table[i].times.get_mut(s) {
+                    // (a time after midnight in a trip of the evening is the next day's)
+                    let before = *t;
+                    let mut m = m as f32;
+                    if before >= 1440.0 || before - m > 720.0 {
+                        m += 1440.0;
+                    }
+                    *t = m;
+                }
+                v.table_text.clear();
+                if next {
+                    v.table_sel = Some((i, (s + 1).min(stops.len().saturating_sub(1))));
+                    ui.focus = Some(super::ui::id_of("le-table-cell"));
+                }
+            }
+        }
+    }
+    if changed {
+        v.table_fill_armed = false;
         v.touched();
     }
 }
@@ -1456,10 +2265,18 @@ fn estimate_card(l: &mut Launcher, map_r: Rect) {
     let cw = (strip.w - 44.0) / cols;
     let result = e.result();
     let fleet: Vec<String> = e.fleet.iter().map(|(s, n)| format!("{n} × {}", size_label(Some(*s)))).collect();
+    // (a school line's pupils on a school day; a weekend line's passengers on a Sunday)
+    let kind = l.pages.lines.line().map(|x| x.service).unwrap_or_default();
+    let n = |x: f64| format!("{x:.0}");
+    let riders: (&str, String, String) = match kind {
+        ServiceKind::School => ("Pupils a school day", n(e.passengers[0]), omsi_ui::tr("on school days only").into_owned()),
+        ServiceKind::Leisure => ("Passengers a Sunday", n(e.passengers[2]), omsi_ui::tr("Saturday %{s}").replace("%{s}", &n(e.passengers[1]))),
+        _ => ("Passengers a day", n(e.passengers[0]), omsi_ui::tr("Sat %{s} · Sun %{u}").replace("%{s}", &n(e.passengers[1])).replace("%{u}", &n(e.passengers[2]))),
+    };
     let figures: [(&str, String, String, Color); 4] = [
         (if f.confirmed { "Paid to start" } else { "To start" }, eur(if f.confirmed { f.paid } else { e.one_off_total() }), if f.confirmed { omsi_ui::tr("the company runs it").into_owned() } else { omsi_ui::tr("licence, stops, tariff, launch").into_owned() }, TEXT),
         ("A month", eur(result), format!("{} {}  ·  {} {}", omsi_ui::tr("in"), eur(e.revenue()), omsi_ui::tr("out"), eur(e.costs())), if result >= 0 { OK } else { WARN }),
-        ("Passengers a day", format!("{:.0}", e.passengers[0]), omsi_ui::tr("Sat %{s} · Sun %{u}").replace("%{s}", &format!("{:.0}", e.passengers[1])).replace("%{u}", &format!("{:.0}", e.passengers[2])), TEXT),
+        (riders.0, riders.1, riders.2, TEXT),
         ("Buses peak / midday", format!("{} / {}", e.buses_peak, e.buses_offpeak), if fleet.is_empty() { omsi_ui::tr("none yet").into_owned() } else { fleet.join(", ") }, TEXT),
     ];
     for (k, (label, value, under, c)) in figures.iter().enumerate() {
@@ -1802,5 +2619,62 @@ mod tests {
         assert_eq!(c, Color::rgba(42, 117, 247, 1.0));
         let pts = [Vec2::new(0.0, 0.0), Vec2::new(10.0, 0.0)];
         assert!((to_polyline(Vec2::new(5.0, 3.0), &pts) - 3.0).abs() < 1e-4);
+    }
+
+    fn vehicle(maker: &str, type_name: &str, file: &str) -> core::VehicleInfo {
+        core::VehicleInfo { name: format!("{maker} {type_name}"), manufacturer: maker.into(), type_name: type_name.into(), file: file.into(), folder: file.split('/').nth(1).unwrap_or_default().into(), description: String::new(), default_paint: String::new(), paints: Vec::new(), hofs: Vec::new(), installed: false, missing_packs: Vec::new(), numbers: Vec::new() }
+    }
+
+    #[test]
+    fn a_lines_buses_are_chosen_by_maker_model_and_version() {
+        let vs = vec![vehicle("Setra", "S 415 UL - 2 doors", "Vehicles/Setra/a.bus"), vehicle("Setra", "S 415 UL - 3 doors", "Vehicles/Setra/b.bus"), vehicle("MAN", "Lion's City", "Vehicles/MAN/c.bus")];
+        let cat = catalogue(&vs);
+        assert_eq!(cat.iter().map(|m| m.0.as_str()).collect::<Vec<_>>(), ["MAN", "Setra"]);
+        // the maker: all its buses; a model; one version
+        let maker = pick_of(&cat, 1, 0, 0).unwrap();
+        assert_eq!((maker.label.as_str(), maker.files.len(), maker.model.as_str()), ("Setra", 2, ""));
+        let model = pick_of(&cat, 1, 1, 0).unwrap();
+        assert_eq!((model.label.as_str(), model.files.len()), ("Setra S 415 UL", 2));
+        let one = pick_of(&cat, 1, 1, 2).unwrap();
+        assert_eq!((one.file.as_str(), one.label.as_str()), ("Vehicles/Setra/b.bus", "Setra S 415 UL · 3 doors"));
+        assert!(pick_of(&cat, 5, 0, 0).is_none());
+        // a kind's typical timetable: the company's regular line with its rush hours
+        assert!(typical_days(ServiceKind::Regular, true).iter().all(|d| !d.bands.is_empty()));
+        assert!(typical_days(ServiceKind::School, false)[1..].iter().all(|d| !d.on));
+    }
+
+    #[test]
+    fn the_tables_times_are_typed_and_shown() {
+        assert_eq!(parse_hm("7:05"), Some(425));
+        assert_eq!(parse_hm("07.05"), Some(425));
+        assert_eq!(parse_hm("0705"), Some(425));
+        assert_eq!(parse_hm("705"), Some(425));
+        assert_eq!(parse_hm("23:59"), Some(1439));
+        assert_eq!(parse_hm("24:00"), None);
+        assert_eq!(parse_hm("7:65"), None);
+        assert_eq!(parse_hm("x"), None);
+        assert_eq!(parse_hm("07"), None);
+        assert_eq!(hm(425.0), "07:05");
+        // (a trip past midnight from 00:00 on)
+        assert_eq!(hm(1445.0), "00:05");
+    }
+
+    #[test]
+    fn the_kinds_and_my_duties_are_translated() {
+        let mut keys: Vec<&str> = ServiceKind::ALL.iter().flat_map(|k| [k.label(), k.note()]).collect();
+        keys.extend(VehicleClass::ALL.iter().map(|c| c.label()));
+        keys.extend(["School contract", "Fares and booking fees", "Tourism grant per km", "My duties", "Up next", "THIS LINE"]);
+        keys.extend(["Public title", "Fill from the patterns", "Trip %{n}", "My destinations", "As advertised", "%{n} trip(s) of the table reach a stop before they left the one before"]);
+        for p in service::default_school_holidays() {
+            keys.push(Box::leak(p.name.into_boxed_str()));
+        }
+        for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
+            for k in &keys {
+                assert!(crate::_rust_i18n_try_translate(lang, k).is_some(), "{lang}: {k}");
+            }
+        }
+        assert_eq!(crate::_rust_i18n_try_translate("nl", "School transport").as_deref(), Some("Leerlingenvervoer"));
+        // (and each kind's mark is one of the interface's icons)
+        assert!(ServiceKind::ALL.iter().all(|k| omsi_ui::icons::svg(k.icon()).is_some()));
     }
 }

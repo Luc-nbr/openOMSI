@@ -175,6 +175,41 @@ fn today(l: &mut Launcher, r: Rect, c: &Company) {
             y += 34.0;
         }
     }
+    // the player's own next duty, a click from driving it (`career::my_duties`)
+    let (plans, mine, whole) = super::career::my_duties(l, c);
+    let row = Rect::new(inner.x, y, inner.w, 38.0);
+    match mine.first() {
+        Some(d) => {
+            let bw = 104.0;
+            let when = format!("{} {}", super::day_label(&d.date), co::clock::hhmm(d.from as i64));
+            let text = omsi_ui::tr("Your next duty: %{when}, line %{n}, tour %{t}").replace("%{when}", &when).replace("%{n}", &d.number).replace("%{t}", &d.tour_no);
+            // (the words open all of them: the Career tab's "My duties")
+            let words = Rect::new(row.x - 6.0, row.y, row.w - bw - 24.0, row.h);
+            if l.ui.row("company-my-duties", words, false) {
+                l.company.tab = 6;
+                l.company.career.part = super::career::DUTIES;
+            }
+            l.ui.tooltip(words, "All your duties: Career, My duties");
+            l.ui.icon("person", Vec2::new(row.x + 9.0, row.center().y), 18.0, accent());
+            l.ui.text_in(&text, Rect::new(row.x + 28.0, row.y, row.w - bw - 36.0, row.h), kit::ROWS, Weight::Medium, TEXT, Align::Left);
+            if l.ui.button("company-next-duty", Rect::new(row.right() - bw, row.y + 2.0, bw, 34.0), "Drive", Some("play_arrow"), ButtonKind::Primary) {
+                let d = d.clone();
+                super::career::drive_duty(l, c, &plans, &d);
+                return;
+            }
+            y += 46.0;
+        }
+        None if whole => {
+            let bw = kit::Foot::width(&l.ui, "Plan a duty", Some("event"));
+            l.ui.icon("person", Vec2::new(row.x + 9.0, row.center().y), 18.0, TEXT_DIM);
+            l.ui.text_in("No duty of yours is planned.", Rect::new(row.x + 28.0, row.y, row.w - bw - 36.0, row.h), kit::ROWS, Weight::Regular, TEXT_SOFT, Align::Left);
+            if l.ui.button("company-plan-duty", Rect::new(row.right() - bw, row.y + 2.0, bw, 34.0), "Plan a duty", Some("event"), ButtonKind::Normal) {
+                l.company.tab = 5;
+            }
+            y += 46.0;
+        }
+        None => {}
+    }
     let mut alerts = co::alerts(c, plan.as_ref());
     if let Some(a) = super::planning::tomorrow(l, c).as_ref().and_then(co::tomorrow_alert) {
         alerts.push(a);

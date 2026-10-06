@@ -1,5 +1,6 @@
 //! The company's Career tab (the rules are `omsi_launcher_lib::company`'s `career`,
-//! `levels`, `training` and `rankings`): the driver's level, rank and licences with the
+//! `levels`, `training` and `rankings`): the player's own duties of the week, each a click
+//! from driving it ("My duties", `plan::my_duties`); the driver's level, rank and licences with the
 //! driving test, the company's level and what it opens; the training courses of the staff
 //! and of the player; the workshop's jobs the player can do himself (`repair_game`); the
 //! rankings among the map's other companies and drivers; and the statistics of the player's
@@ -13,6 +14,8 @@ use super::{act, day_label, eur, figure, grouped, section};
 use glam::Vec2;
 use omsi_launcher_lib as core;
 use omsi_launcher_lib::company::career::{self as dc, DriverCareer, LicenceClass};
+use omsi_launcher_lib::company::plan::{BusOf, DayPlan, MyDuty};
+use omsi_launcher_lib::company as co;
 use omsi_launcher_lib::company::levels::{self, Feature};
 use omsi_launcher_lib::company::rankings::{self, Entry};
 use omsi_launcher_lib::company::training::{self, CourseKind, JobKind};
@@ -20,7 +23,12 @@ use omsi_launcher_lib::company::{BusSize, Company};
 use omsi_ui::paint::Align;
 use omsi_ui::{Color, Rect, Weight};
 
-pub(super) const PARTS: [&str; 5] = ["Progress", "Training", "Workshop", "Rankings", "Statistics"];
+pub(super) const PARTS: [&str; 6] = ["My duties", "Progress", "Training", "Workshop", "Rankings", "Statistics"];
+/// The parts by their place in `PARTS`.
+pub(super) const DUTIES: usize = 0;
+pub(super) const PROGRESS: usize = 1;
+pub(super) const TRAINING: usize = 2;
+pub(super) const WORKSHOP: usize = 3;
 
 #[derive(Default)]
 pub struct CareerView {
@@ -81,25 +89,154 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     let labels: Vec<String> = PARTS.iter().map(|t| omsi_ui::tr(t).into_owned()).collect();
     let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
     let mut part = l.company.career.part;
-    if l.ui.segmented("company-career-parts", Rect::new(area.x, area.y, 620.0f32.min(area.w), ROW), &mut part, &refs) {
+    let seg_w = 740.0f32.min(area.w);
+    if l.ui.segmented("company-career-parts", Rect::new(area.x, area.y, seg_w, ROW), &mut part, &refs) {
         l.company.career.part = part;
     }
     // the company's level beside
     let lv = levels::level(&c);
     let tag = format!("{}  ·  {}", omsi_ui::tr("Level %{n}").replace("%{n}", &lv.to_string()), omsi_ui::tr(levels::title_of(lv)));
-    l.ui.text_in(&tag, Rect::new(area.x + 640.0, area.y, (area.w - 640.0).max(0.0), ROW), kit::ROWS, Weight::Medium, TEXT_DIM, Align::Right);
+    l.ui.text_in(&tag, Rect::new(area.x + seg_w + 20.0, area.y, (area.w - seg_w - 20.0).max(0.0), ROW), kit::ROWS, Weight::Medium, TEXT_DIM, Align::Right);
     let body = Rect::new(area.x, area.y + ROW + 16.0, area.w, (area.h - ROW - 16.0).max(0.0));
-    if l.company.career.part == 2 && l.company.career.game.is_some() {
+    if l.company.career.part == WORKSHOP && l.company.career.game.is_some() {
         super::repair_game::draw(l, body);
         return;
     }
     match l.company.career.part {
-        1 => training_part(l, body, &c),
-        2 => workshop_part(l, body, &c),
-        3 => rankings_part(l, body, &c),
-        4 => statistics_part(l, body, &c),
-        _ => progress_part(l, body, &c),
+        PROGRESS => progress_part(l, body, &c),
+        TRAINING => training_part(l, body, &c),
+        WORKSHOP => workshop_part(l, body, &c),
+        4 => rankings_part(l, body, &c),
+        5 => statistics_part(l, body, &c),
+        _ => duties_part(l, body, &c),
     }
+}
+
+// --- my duties ----------------------------------------------------------------------------------
+
+/// The player's own duties of the company's next seven days (`plan::my_duties`, from the
+/// planning's plans of those days): the plans read so far, the duties - the next first -, and
+/// whether the whole week is read.
+pub(super) fn my_duties(l: &mut Launcher, c: &Company) -> (Vec<DayPlan>, Vec<MyDuty>, bool) {
+    super::planning::work(l, c);
+    let mut plans = Vec::new();
+    let mut whole = true;
+    for k in 0..7 {
+        let date = co::dates::add(&c.date, k);
+        match super::planning::plan_of(l, c, &date) {
+            Some(Ok(p)) => plans.push(p),
+            Some(Err(_)) => {}
+            None => whole = false,
+        }
+    }
+    // (minutes since the company's day began: a duty over by then is done with)
+    let now = (co::clock::now(c) - co::clock::moment(&c.date, 0)).clamp(0, 48 * 60) as i32;
+    let duties = co::plan::my_duties(&plans, &c.date, now);
+    (plans, duties, whole)
+}
+
+/// Drive one of the player's duties: the Drive page set to exactly it (`planning::drive`).
+pub(super) fn drive_duty(l: &mut Launcher, c: &Company, plans: &[DayPlan], d: &MyDuty) {
+    if let Some(p) = plans.iter().find(|p| p.date == d.date) {
+        super::planning::drive(l, c, p, d.tour, d.duty);
+    }
+}
+
+/// What a duty is driven with: the fleet bus planned (its number and name), a rental bus, or
+/// none yet.
+fn bus_words(c: &Company, d: &MyDuty) -> (String, Color) {
+    match d.bus {
+        Some(BusOf::Own(id)) => match c.vehicle(id) {
+            Some(v) => (format!("{} {}", v.number, v.name), TEXT_SOFT),
+            None => (omsi_ui::tr("No bus planned yet").into_owned(), WARN),
+        },
+        Some(BusOf::Rental) => (omsi_ui::tr("Rental bus").into_owned(), TEXT_SOFT),
+        None => (omsi_ui::tr("No bus planned yet").into_owned(), WARN),
+    }
+}
+
+/// "My duties": the duties the planning has the player drive himself in the coming week, the
+/// next on top, each a click from the Drive page set to it; without any, how to get one.
+fn duties_part(l: &mut Launcher, area: Rect, c: &Company) {
+    let gap = 12.0;
+    let side_w = (area.w * 0.3).clamp(260.0, 380.0);
+    let list_r = Rect::new(area.x, area.y, area.w - side_w - gap, area.h);
+    let side = Rect::new(list_r.right() + gap, area.y, side_w, area.h);
+    let (plans, duties, whole) = my_duties(l, c);
+    let inner = section(&mut l.ui, list_r, "My duties");
+    if duties.is_empty() {
+        if !whole {
+            l.ui.text_in("Reading the timetable of the week…", Rect::new(inner.x, inner.y, inner.w, 24.0), kit::BODY, Weight::Regular, TEXT_SOFT, Align::Left);
+        } else {
+            let mid = inner.center();
+            l.ui.icon("event", Vec2::new(mid.x, mid.y - 70.0), 34.0, TEXT_DIM);
+            l.ui.text_in("No duty of yours in the coming week", Rect::new(inner.x, mid.y - 40.0, inner.w, 26.0), kit::HEAD, Weight::Bold, TEXT_SOFT, Align::Center);
+            let text = "Plan yourself as a driver in the Planning: choose a duty there and \"You\". It is yours on that weekday every week.";
+            let w = inner.w.min(520.0);
+            l.ui.paragraph(text, Vec2::new(mid.x - w * 0.5, mid.y - 6.0), w, kit::NOTE, Weight::Regular, TEXT_DIM);
+            let bw = kit::Foot::width(&l.ui, "To the planning", Some("event"));
+            if l.ui.button("career-to-planning", Rect::new(mid.x - bw * 0.5, mid.y + 50.0, bw, 38.0), "To the planning", Some("event"), ButtonKind::Primary) {
+                l.company.tab = 5;
+            }
+        }
+    } else {
+        let mut go: Option<usize> = None;
+        let lines = c.lines.clone();
+        let rows: Vec<(MyDuty, String, Color)> = duties.iter().map(|d| {
+            let (b, col) = bus_words(c, d);
+            (d.clone(), b, col)
+        }).collect();
+        l.ui.scroll_area("career-duties", inner, &mut |ui, v| {
+            let rh = 84.0;
+            for (k, (d, bus, bus_c)) in rows.iter().enumerate() {
+                let r = Rect::new(v.x, v.y + k as f32 * rh, v.w - 10.0, rh - 8.0);
+                if !ui.rect_visible(r) {
+                    continue;
+                }
+                let next = k == 0;
+                if next {
+                    ui.p().rounded(r, RADIUS, accent().alpha(0.10));
+                }
+                ui.p().rounded_border(r, RADIUS, 1.0, if next { accent().alpha(0.5) } else { HAIRLINE });
+                // the day and the time
+                let tw = 190.0f32.min(r.w * 0.3);
+                ui.text_in(&day_label(&d.date), Rect::new(r.x + 16.0, r.y + 12.0, tw, 22.0), kit::ROWS, Weight::Bold, TEXT, Align::Left);
+                let time = format!("{} – {}", co::clock::hhmm(d.from as i64), co::clock::hhmm(d.to as i64));
+                ui.text_in(&time, Rect::new(r.x + 16.0, r.y + 38.0, tw, 24.0), 19.0, Weight::Bold, if next { accent() } else { TEXT_SOFT }, Align::Left);
+                // the line, the tour, the bus
+                let x = r.x + 16.0 + tw + 12.0;
+                let pw = match lines.iter().find(|x| x.name.eq_ignore_ascii_case(&d.line)) {
+                    Some(cl) => super::line_plate(ui, Vec2::new(x, r.y + 12.0), cl, 24.0),
+                    None => super::plate(ui, Vec2::new(x, r.y + 12.0), &d.number, 24.0),
+                };
+                let bw = 120.0;
+                // (the next one says so, before its button)
+                let up = omsi_ui::tr("Up next").into_owned();
+                let tag_w = if next { ui.width(&up, 12.0, Weight::Bold) + 16.0 + 10.0 } else { 0.0 };
+                let room = r.right() - bw - 24.0 - tag_w;
+                let words = omsi_ui::tr("Tour %{t} · %{n} trips").replace("%{t}", &d.tour_no).replace("%{n}", &d.trips.to_string());
+                ui.text_in(&words, Rect::new(x + pw + 10.0, r.y + 12.0, (room - x - pw - 10.0).max(20.0), 24.0), kit::ROWS, Weight::Medium, TEXT, Align::Left);
+                ui.icon("directions_bus", Vec2::new(x + 9.0, r.y + 52.0), 16.0, *bus_c);
+                ui.text_in(bus, Rect::new(x + 24.0, r.y + 41.0, (r.right() - bw - 24.0 - x - 24.0).max(20.0), 22.0), kit::NOTE, Weight::Regular, *bus_c, Align::Left);
+                if next {
+                    kit::tag(ui, Vec2::new(room, r.y + 12.0), &up, accent());
+                }
+                let b = Rect::new(r.right() - bw - 14.0, r.y + (r.h - 38.0) * 0.5, bw, 38.0);
+                if ui.button(&format!("career-drive-{k}"), b, "Drive", Some("play_arrow"), if next { ButtonKind::Primary } else { ButtonKind::Normal }) {
+                    go = Some(k);
+                }
+                ui.tooltip(b, "Sets the drive to this duty - the map, the line and tour, the company's bus in its livery, the day and the time - and opens its start: you start it there.");
+            }
+            rows.len() as f32 * rh
+        });
+        if let Some(k) = go {
+            drive_duty(l, c, &plans, &duties[k]);
+            return;
+        }
+    }
+    let inner = section(&mut l.ui, side, "How it works");
+    let text = "The duties here are those the Planning gives you yourself (\"You\" as the driver): the same weekday every week. \"Drive\" opens the start of the drive with everything set; what you drive counts for the company as measured when its day is closed, and a duty of yours not driven is open for the central to fill.";
+    l.ui.paragraph(text, Vec2::new(inner.x, inner.y), inner.w, kit::NOTE + 0.5, Weight::Regular, TEXT_SOFT);
 }
 
 // --- progress -----------------------------------------------------------------------------------
@@ -474,7 +611,7 @@ fn workshop_part(l: &mut Launcher, area: Rect, c: &Company) {
     let mut y = inner.y + h + 18.0;
     if !(service && repairs) {
         if l.ui.button("company-to-training", Rect::new(inner.x, y, 200.0f32.min(inner.w), 34.0), "To the courses", Some("badge"), ButtonKind::Normal) {
-            l.company.career.part = 1;
+            l.company.career.part = TRAINING;
         }
         y += 48.0;
     }

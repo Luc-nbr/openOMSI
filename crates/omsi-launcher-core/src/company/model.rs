@@ -415,6 +415,26 @@ pub struct CompanyLine {
     /// How the passengers have taken the fare so far (`fares::Demand`).
     #[serde(default)]
     pub demand: super::fares::Demand,
+    /// What the line is called in public - on its card and in the company's advertising
+    /// ("Shuttleverkehr Altenfeld - Wurzbach"); empty: its number and where it goes.
+    #[serde(default)]
+    pub title: String,
+    /// The depot file the company's buses carry on it - their destinations and the IBIS
+    /// (empty: the company's, `Company::depot`).
+    #[serde(default)]
+    pub hof: String,
+}
+
+impl CompanyLine {
+    /// The depot file its buses carry: its own, else the company's (`depot`).
+    pub fn hof_or<'a>(&'a self, depot: &'a str) -> &'a str {
+        if self.hof.trim().is_empty() { depot } else { self.hof.trim() }
+    }
+
+    /// What it is called in public: its title, else its caption.
+    pub fn public_name(&self) -> &str {
+        if self.title.trim().is_empty() { self.caption.trim() } else { self.title.trim() }
+    }
 }
 
 /// What a line of an older file says of its service until `store::migrate` decides it.

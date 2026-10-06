@@ -318,6 +318,10 @@ pub enum Problem {
     Unassigned,
     /// The player's own duty, not driven.
     Player,
+    /// The bus fixed for it is none of the buses its line asks for (`ownline::line_allows`).
+    NotLineBus,
+    /// The fleet has none of the buses its line asks for.
+    NoLineBus,
 }
 
 impl Problem {
@@ -339,6 +343,8 @@ impl Problem {
             Problem::BusBusy => "On another tour then",
             Problem::Unassigned => "Not planned",
             Problem::Player => "Your duty, not driven",
+            Problem::NotLineBus => "Not one of the line's buses",
+            Problem::NoLineBus => "The fleet has none of the line's buses",
         }
     }
 }
@@ -662,6 +668,7 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
             Some(v) if !v.held_on(date) => Some(Problem::Gone),
             Some(_) if broken.contains(&id) => Some(Problem::Breakdown),
             Some(v) if v.in_workshop(date) || v.condition < 20.0 => Some(Problem::Workshop),
+            Some(v) if !super::ownline::line_allows(c, &t.tour.line, v) => Some(Problem::NotLineBus),
             Some(_) if !buses.free(id, from, to) => Some(Problem::BusBusy),
             Some(_) => None,
         };
@@ -676,17 +683,19 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
     }
     let rostered_bus: Vec<u32> = c.planning.week.iter().filter(|r| r.weekday == wd).filter_map(|r| r.bus).collect();
     for t in out.iter_mut().filter(|t| !t.by_player && t.bus.is_none() && t.bus_problem.is_none()) {
+        // (a line that asks for buses the fleet has none of says so)
+        let none = if super::ownline::fleet_has_bus_for(c, &t.tour.line) { Problem::Unassigned } else { Problem::NoLineBus };
         if !c.planning.auto {
-            t.bus_problem = Some(Problem::Unassigned);
+            t.bus_problem = Some(none);
             continue;
         }
         let (from, to, wants) = (t.tour.from(), t.tour.to(), super::ownline::wanted(c, &t.tour));
-        // (free in time; the size asked for first, a bus no roster tour has, then the one
-        // free the latest: the others stay free for later tours)
+        // (free in time and one of the line's buses; the size asked for first, a bus no roster
+        // tour has, then the one free the latest: the others stay free for later tours)
         let best = c
             .fleet
             .iter()
-            .filter(|v| usable(v.id) && buses.free(v.id, from, to))
+            .filter(|v| usable(v.id) && buses.free(v.id, from, to) && super::ownline::line_allows(c, &t.tour.line, v))
             .max_by_key(|v| (size_fit(wants, v.kind.size), !rostered_bus.contains(&v.id), buses.last_end(v.id, from), std::cmp::Reverse(v.id)));
         match best {
             Some(v) => {
@@ -694,7 +703,7 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
                 t.bus = Some(BusOf::Own(v.id));
                 t.bus_from = Source::Auto;
             }
-            None => t.bus_problem = Some(Problem::Unassigned),
+            None => t.bus_problem = Some(none),
         }
     }
     if today {
@@ -713,7 +722,7 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
                 }
                 Some(Fill::Drop) => t.bus_from = Source::Dispatcher,
                 _ if t.bus_problem.is_some_and(Problem::sudden) => {
-                    let best = c.fleet.iter().filter(|v| usable(v.id) && buses.free(v.id, from, to)).max_by(|a, b| {
+                    let best = c.fleet.iter().filter(|v| usable(v.id) && buses.free(v.id, from, to) && super::ownline::line_allows(c, &t.tour.line, v)).max_by(|a, b| {
                         (size_fit(wants, a.kind.size), a.condition).partial_cmp(&(size_fit(wants, b.kind.size), b.condition)).unwrap_or(std::cmp::Ordering::Equal)
                     });
                     if let Some(v) = best {
@@ -870,6 +879,51 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
     DayPlan { date: date.to_string(), weekday: wd, today, tours: out, disruptions: dis }
 }
 
+// --- the player's own duties ---------------------------------------------------------------------
+
+/// A duty planned for the player himself ("My duties"): its day, its tour and duty in that
+/// day's plan, its line and times, and the bus it is planned with.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MyDuty {
+    pub date: String,
+    /// The tour (an index into the day plan's tours) and its duty.
+    pub tour: usize,
+    pub duty: usize,
+    /// The company line (its timetable name), the number shown, the tour's number.
+    pub line: String,
+    pub number: String,
+    pub tour_no: String,
+    pub from: i32,
+    pub to: i32,
+    pub bus: Option<BusOf>,
+    /// The trips with passengers it drives.
+    pub trips: usize,
+}
+
+/// The player's duties in `plans` (the days of the planning, in any order), the next first:
+/// those of the company's day that are over (`now`, minutes of `today`) or that he drove
+/// already left out.
+pub fn my_duties(plans: &[DayPlan], today: &str, now: i32) -> Vec<MyDuty> {
+    let mut out: Vec<MyDuty> = Vec::new();
+    for p in plans {
+        // (days before the company's are done)
+        if dates::between(today, &p.date) < 0 {
+            continue;
+        }
+        for (ti, k) in p.duties_of(Who::Player) {
+            let t = &p.tours[ti];
+            let d = &t.duties[k];
+            if t.by_player || (p.date == today && d.to <= now) {
+                continue;
+            }
+            let trips = t.tour.trips[d.start..d.end].iter().filter(|x| x.counts()).count();
+            out.push(MyDuty { date: p.date.clone(), tour: ti, duty: k, line: t.tour.line.clone(), number: t.tour.number.clone(), tour_no: t.tour.tour.clone(), from: d.from, to: d.to, bus: t.bus, trips });
+        }
+    }
+    out.sort_by_key(|d| (dates::parse(&d.date).unwrap_or(0), d.from));
+    out
+}
+
 /// A stand-in for an agency driver in the day's model (average skills).
 pub fn agency_driver() -> Employee {
     Employee {
@@ -959,6 +1013,9 @@ pub struct LiveTour {
     pub plate: String,
     #[serde(default)]
     pub dropped: bool,
+    /// The depot file the bus carries on this line (empty: the plan's `depot`).
+    #[serde(default)]
+    pub hof: String,
 }
 
 /// The company's day for the game (`companies/<id>.liveplan.json`).
@@ -1007,7 +1064,8 @@ pub fn live_plan(c: &Company, dp: &DayPlan) -> LivePlan {
         // (a line not in service runs nothing, not even in the game)
         .filter(|t| !t.by_player && !t.tour.unplanned)
         .map(|t| {
-            let mut lt = LiveTour { line: t.tour.line.clone(), number: t.tour.number.clone(), tour: t.tour.tour.clone(), ..Default::default() };
+            let hof = c.lines.iter().find(|l| l.name.eq_ignore_ascii_case(&t.tour.line)).map(|l| l.hof.trim().to_string()).unwrap_or_default();
+            let mut lt = LiveTour { line: t.tour.line.clone(), number: t.tour.number.clone(), tour: t.tour.tour.clone(), hof, ..Default::default() };
             match t.bus {
                 Some(BusOf::Own(id)) => {
                     if let Some(v) = c.vehicle(id) {
@@ -1115,6 +1173,82 @@ mod tests {
             }
         }
         unreachable!()
+    }
+
+    #[test]
+    fn a_line_runs_with_its_own_buses_only() {
+        use crate::service::{LineVehicles, VehicleClass};
+        let mut c = quiet(1, 2);
+        let wd = weekday_of(&c.date);
+        // the line asks for minibuses: the solo bus is none of them, and the planning says so
+        c.lines[0].plan = Some(super::super::ownline::OwnPlan { vehicles: LineVehicles { classes: vec![VehicleClass::Minibus], ..Default::default() }, ..Default::default() });
+        let tours = vec![tour("1", 6 * 60, 3)];
+        let p = day_plan(&c, &c.date, tours.clone(), &[], &[], false);
+        assert_eq!((p.tours[0].bus, p.tours[0].bus_problem), (None, Some(Problem::NoLineBus)));
+        // fixed in the roster all the same: not one of the line's
+        let solo = c.fleet[0].id;
+        set_bus(&mut c, wd, "Linie5", "1", Some(solo));
+        let p = day_plan(&c, &c.date, tours.clone(), &[], &[], false);
+        assert_eq!((p.tours[0].bus, p.tours[0].bus_problem), (None, Some(Problem::NotLineBus)));
+        set_bus(&mut c, wd, "Linie5", "1", None);
+        // a minibus bought: the dispatcher takes it
+        let mini = MarketBus { file: "Vehicles/Sprinter/Sprinter.bus".into(), name: "Mercedes-Benz Sprinter".into(), kind: BusKind { size: BusSize::Midi, drive: Drive::Diesel }, ..Default::default() };
+        market::buy_new(&mut c, &mini, Payment::Cash, "").unwrap();
+        let p = day_plan(&c, &c.date, tours.clone(), &[], &[], false);
+        assert_eq!(p.tours[0].bus, Some(BusOf::Own(c.fleet[1].id)));
+        // and "Fill the roster" fixes it, not the solo bus
+        assert_eq!(fill_day(&mut c.clone(), &c.date.clone(), tours), 2);
+        // a line that asks for nothing takes any bus
+        c.lines[0].plan = None;
+        assert!(super::super::ownline::line_allows(&c, "Linie5", &c.fleet[0]));
+    }
+
+    #[test]
+    fn a_lines_own_depot_file_and_title_go_with_it() {
+        let mut c = quiet(1, 1);
+        let p = day_plan(&c, &c.date, vec![tour("1", 6 * 60, 3)], &[], &[], false);
+        // the company's depot file, unless the line has its own
+        assert_eq!(live_plan(&c, &p).tours[0].hof, "");
+        assert_eq!(c.lines[0].hof_or("Grundorf"), "Grundorf");
+        c.lines[0].hof = "Spandau".into();
+        assert_eq!(live_plan(&c, &p).tours[0].hof, "Spandau");
+        assert_eq!(c.lines[0].hof_or("Grundorf"), "Spandau");
+        // what it is called in public: its title, else where it goes
+        c.lines[0].caption = "Markt – Bahnhof".into();
+        assert_eq!(c.lines[0].public_name(), "Markt – Bahnhof");
+        c.lines[0].title = " Shuttleverkehr Altenfeld - Wurzbach ".into();
+        assert_eq!(c.lines[0].public_name(), "Shuttleverkehr Altenfeld - Wurzbach");
+        // (an older file has neither)
+        let old: CompanyLine = serde_json::from_str(r#"{"name":"5","number":"5","own":false,"added":"2024-03-04"}"#).unwrap();
+        assert!(old.title.is_empty() && old.hof.is_empty());
+    }
+
+    #[test]
+    fn my_duties_come_next_first() {
+        let mut c = quiet(2, 1);
+        let wd = weekday_of(&c.date);
+        set_driver(&mut c, wd, "Linie5", "2", 0, Some(Who::Player));
+        set_driver(&mut c, wd, "Linie5", "1", 0, Some(Who::Player));
+        let tours = vec![tour("1", 6 * 60, 3), tour("2", 14 * 60, 3)];
+        let today = day_plan(&c, &c.date, tours.clone(), &[], &[], false);
+        // (the roster is the weekday's: next week's same day has them too)
+        let next_week = dates::add(&c.date, 7);
+        let later = day_plan(&c, &next_week, tours.clone(), &[], &[], false);
+        let mine = my_duties(&[later.clone(), today.clone()], &c.date, 0);
+        assert_eq!(mine.len(), 4);
+        assert_eq!((mine[0].date.as_str(), mine[0].tour_no.as_str(), mine[0].from, mine[0].trips), (c.date.as_str(), "1", 6 * 60, 3));
+        assert_eq!((mine[1].tour_no.as_str(), mine[2].date.as_str()), ("2", next_week.as_str()));
+        assert!(mine[0].bus.is_some() && mine[0].number == "5");
+        // at noon the morning's duty is over
+        let mine = my_duties(&[today.clone()], &c.date, 12 * 60);
+        assert_eq!(mine.iter().map(|d| d.tour_no.as_str()).collect::<Vec<_>>(), vec!["2"]);
+        // a tour he drove already is no duty to drive
+        let driven = day_plan(&c, &c.date, tours.clone(), &[("5".into(), "2".into())], &[], false);
+        assert!(my_duties(&[driven], &c.date, 12 * 60).is_empty());
+        // days before the company's are done; nobody's duties are his
+        assert!(my_duties(&[today], &dates::add(&c.date, 1), 0).is_empty());
+        let nobody = day_plan(&quiet(2, 1), &c.date, tours, &[], &[], false);
+        assert!(my_duties(&[nobody], &c.date, 0).is_empty());
     }
 
     #[test]

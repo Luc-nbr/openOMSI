@@ -91,6 +91,8 @@ pub(super) enum Confirm {
     Sell(u32),
     Dismiss(u32),
     RemoveLine(String),
+    /// The company (by its id) deleted for good.
+    DeleteCompany(String),
 }
 
 pub struct CompanyView {
@@ -590,14 +592,14 @@ fn go(l: &mut Launcher, g: kit::Go) {
     match g {
         Go::Progress => {
             l.company.tab = 6;
-            l.company.career.part = 0;
+            l.company.career.part = career::PROGRESS;
         }
         Go::Depot => l.company.tab = DEPOT_TAB,
         Go::Loan => bank::open_loan(l),
         Go::Finances => l.company.tab = 4,
         Go::Courses => {
             l.company.tab = 6;
-            l.company.career.part = 1;
+            l.company.career.part = career::TRAINING;
         }
         Go::Planning => l.company.tab = 5,
         Go::Lines => l.company.tab = 3,
@@ -872,6 +874,14 @@ fn confirm_dialog(l: &mut Launcher, what: Confirm) {
                 let number = c.lines.iter().find(|x| &x.name == name).map(|x| x.number.clone()).unwrap_or_default();
                 (omsi_ui::tr("Line %{n}").replace("%{n}", &number), omsi_ui::tr("The company stops running this line from today. Its buses and drivers stay.").into_owned(), "Stop running it")
             }
+            Confirm::DeleteCompany(id) => {
+                let name = l.company.companies.as_ref().and_then(|cs| cs.iter().find(|x| &x.id == id)).map(|x| x.name.clone()).unwrap_or_else(|| c.name.clone());
+                (
+                    omsi_ui::tr("Delete %{name}?").replace("%{name}", &name),
+                    omsi_ui::tr("The company is deleted for good: its buses, staff, lines, money and history. Your service record as a driver stays. This cannot be undone.").into_owned(),
+                    "Delete for good",
+                )
+            }
         }
     };
     let h = 70.0 + l.ui.paragraph_height(&text, 520.0 - 56.0, kit::BODY, Weight::Regular) + 24.0 + kit::BUTTON_H + 24.0;
@@ -902,8 +912,35 @@ fn confirm_dialog(l: &mut Launcher, what: Confirm) {
                     Ok(())
                 });
             }
+            Confirm::DeleteCompany(id) => delete_company(l, &id),
         }
     }
+}
+
+/// Delete a company for good (Luc: companies can be deleted) - its file and its live file:
+/// the driver's next company opens, or the founding when none is left. Not while its day is
+/// being simulated (the simulation would write it back).
+fn delete_company(l: &mut Launcher, id: &str) {
+    if l.company.closing {
+        l.state.set_status(omsi_ui::tr("Wait until the company's day is simulated.").into_owned(), true);
+        return;
+    }
+    let name = l.company.companies.as_ref().and_then(|cs| cs.iter().find(|x| x.id == id)).map(|x| x.name.clone()).unwrap_or_default();
+    if let Err(e) = co::store::delete(&data(), id) {
+        l.state.set_status(format!("{e:#}"), true);
+        return;
+    }
+    let view = &mut l.company;
+    if let Some(list) = view.companies.as_mut() {
+        list.retain(|x| x.id != id);
+    }
+    if view.company.as_ref().is_none_or(|c| c.id == id) {
+        view.company = view.companies.as_ref().and_then(|cs| cs.first().cloned());
+    }
+    view.plan = None;
+    view.reports = None;
+    view.planning = planning::PlanningView::default();
+    l.state.set_status(omsi_ui::tr("%{name} is deleted.").replace("%{name}", &name), false);
 }
 
 /// What a note of the day's report says, its colour, and where it is mended.

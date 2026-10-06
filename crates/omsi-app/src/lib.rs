@@ -125,6 +125,7 @@ rust_i18n::i18n!("locales");
 // (the tables are read when this crate compiles: this makes cargo compile it again when they
 // change - the macro alone left the old texts in the program)
 const _LOCALES: &str = include_str!("../locales/app.yml");
+const _LOCALES_LINES: &str = include_str!("../locales/lijnsoort.yml");
 
 /// Show the interface in `code` (the settings' ENG / DEU / FRA / RUS).
 pub(crate) fn ui_language(code: &str) {

@@ -4,12 +4,14 @@
 //! own, under its file name. Wherever a line is chosen now - the duty step, the free drive,
 //! the phone and the classic Drive page - a switch above the list picks "Map lines" or "My
 //! lines", and the player's are shown by their plate in the line's colour, their name and
-//! where they go. The choice is kept with the duty (`Choice::my_lines`).
+//! where they go - and, a line of another kind than regular, its kind of service (school
+//! transport, weekend trips, on demand). The choice is kept with the duty (`Choice::my_lines`).
 
 use super::theme::*;
 use super::ui::{id_of, Ui};
 use glam::Vec2;
 use omsi_launcher_lib::lines::{own_line_of, OwnLine};
+use omsi_launcher_lib::service::ServiceKind;
 use omsi_launcher_lib::LineInfo;
 use omsi_ui::paint::Align;
 use omsi_ui::{Color, Rect, Weight};
@@ -86,7 +88,7 @@ pub(super) fn option_label(line: &LineInfo, own: &[OwnLine]) -> String {
     match own_line_of(&line.name, own) {
         Some(o) => {
             let caption = o.caption();
-            plate_option(&o, if caption.is_empty() { &termini } else { &caption })
+            plate_option(&o, &with_kind(&o, if caption.is_empty() { termini } else { caption }))
         }
         None if termini.is_empty() => line.name.clone(),
         None => format!("{}  ·  {termini}", line.name),
@@ -103,10 +105,20 @@ pub(super) fn shown_name(name: &str, own: &[OwnLine]) -> String {
 /// timetable's termini.
 pub(super) fn caption_of(o: &OwnLine, line: &LineInfo) -> String {
     let c = o.caption();
-    if c.is_empty() {
-        line.termini.join(" · ")
+    with_kind(o, if c.is_empty() { line.termini.join(" · ") } else { c })
+}
+
+/// A player's line's words with its kind of service after them ("Ring · Markt – Bahnhof ·
+/// School transport"); a regular line's as they are.
+pub(super) fn with_kind(o: &OwnLine, text: String) -> String {
+    if o.service == ServiceKind::Regular {
+        return text;
+    }
+    let kind = omsi_ui::tr(o.service.label());
+    if text.is_empty() {
+        kind.into_owned()
     } else {
-        c
+        format!("{text} · {kind}")
     }
 }
 
@@ -166,7 +178,7 @@ mod tests {
     }
 
     fn own() -> Vec<OwnLine> {
-        vec![OwnLine { id: 3, file: "oo_42".into(), number: "42".into(), name: "Ring".into(), colour: "#e03c31".into(), destinations: vec!["Markt".into(), "Bahnhof".into()] }]
+        vec![OwnLine { id: 3, file: "oo_42".into(), number: "42".into(), name: "Ring".into(), colour: "#e03c31".into(), destinations: vec!["Markt".into(), "Bahnhof".into()], ..Default::default() }]
     }
 
     #[test]
@@ -197,6 +209,9 @@ mod tests {
         assert_eq!(caption_of(&OwnLine { number: "9".into(), ..Default::default() }, &line("oo_9", &["Ende"])), "Ende");
         assert_eq!(destinations_of(&own[0], &line("oo_42", &["X"])), "Markt – Bahnhof");
         assert_eq!(destinations_of(&OwnLine::default(), &line("oo_9", &["A", "B"])), "A – B");
+        // a line of another kind says so
+        let school = OwnLine { service: ServiceKind::School, ..own[0].clone() };
+        assert_eq!(caption_of(&school, &line("oo_42", &[])), "Ring · Markt – Bahnhof · School transport");
         // a summary names the player's line by its number
         assert_eq!(shown_name("oo_42", &own), "42");
         assert_eq!(shown_name("oo_7", &own), "7");
