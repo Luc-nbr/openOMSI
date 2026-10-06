@@ -617,8 +617,9 @@ impl Talk {
 }
 
 /// How much the dealer can give on `q`, of its price: his margin, less on a bus in demand
-/// (electric ones) or from stock, more for a company of good reputation and level, for one
-/// that bought many buses of him (the fleet discount) and for more than one bus at a time.
+/// (electric ones) or from stock; for one bus alone much less than for an order of several
+/// (from five a bulk discount, from ten a fleet order's - see `bulk`); more for a customer of
+/// long standing with him (see `Standing`) and a little for the company's reputation and level.
 pub fn room(c: &Company, q: &Quote) -> f64 {
     let t = terms(c.difficulty);
     let mut room = if q.used { t.margin * 0.6 + t.used_margin } else { t.margin };
@@ -631,11 +632,148 @@ pub fn room(c: &Company, q: &Quote) -> f64 {
     if q.stock {
         room *= 0.4;
     }
+    let (share, bulk_bonus) = bulk(q.count);
+    room = room * share + bulk_bonus;
+    room += Standing::of(relation(c, &q.maker).points).room();
     room += (c.reputation - 50.0) / 50.0 * 0.02;
     room += levels::level(c) as f64 * 0.003;
-    room += c.dealer.bought.min(10) as f64 * 0.004;
-    room += (q.count.saturating_sub(1)).min(5) as f64 * 0.01;
-    room.clamp(0.02, 0.30)
+    room.clamp(0.01, 0.35)
+}
+
+// --- the company's standing with a dealer ------------------------------------------------------
+
+/// The company's standing with one maker's dealer (Luc: a dealer gives more to a customer
+/// who keeps coming back): what it bought of him, what it spent, and the points that make
+/// its standing - `POINTS_NEW` for a new bus, `POINTS_USED` for a used one, `POINTS_BROKE`
+/// off when he broke off a talk.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct Relation {
+    pub maker: String,
+    #[serde(default)]
+    pub bought: u32,
+    #[serde(default)]
+    pub spent: Cents,
+    #[serde(default)]
+    pub points: f64,
+}
+
+const POINTS_NEW: f64 = 10.0;
+const POINTS_USED: f64 = 6.0;
+const POINTS_BROKE: f64 = 12.0;
+
+/// What the company is to a dealer, by its points with him.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Standing {
+    New,
+    Known,
+    Regular,
+    Partner,
+}
+
+impl Standing {
+    pub fn of(points: f64) -> Standing {
+        if points >= 150.0 {
+            Standing::Partner
+        } else if points >= 60.0 {
+            Standing::Regular
+        } else if points >= 20.0 {
+            Standing::Known
+        } else {
+            Standing::New
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Standing::New => "New customer",
+            Standing::Known => "Known customer",
+            Standing::Regular => "Regular customer",
+            Standing::Partner => "Preferred partner",
+        }
+    }
+
+    /// What it adds to the room he has for a discount.
+    pub fn room(self) -> f64 {
+        match self {
+            Standing::New => 0.0,
+            Standing::Known => 0.015,
+            Standing::Regular => 0.03,
+            Standing::Partner => 0.05,
+        }
+    }
+
+    /// The points the next standing begins at (none above a partner).
+    pub fn next_at(self) -> Option<f64> {
+        match self {
+            Standing::New => Some(20.0),
+            Standing::Known => Some(60.0),
+            Standing::Regular => Some(150.0),
+            Standing::Partner => None,
+        }
+    }
+}
+
+/// The company's standing with `maker`'s dealer: a new customer when it never bought of him.
+pub fn relation(c: &Company, maker: &str) -> Relation {
+    c.dealer.relations.iter().find(|r| r.maker.eq_ignore_ascii_case(maker)).cloned().unwrap_or(Relation { maker: maker.to_string(), ..Default::default() })
+}
+
+fn relation_mut<'a>(c: &'a mut Company, maker: &str) -> &'a mut Relation {
+    let k = match c.dealer.relations.iter().position(|r| r.maker.eq_ignore_ascii_case(maker)) {
+        Some(k) => k,
+        None => {
+            c.dealer.relations.push(Relation { maker: maker.to_string(), ..Default::default() });
+            c.dealer.relations.len() - 1
+        }
+    };
+    &mut c.dealer.relations[k]
+}
+
+/// A purchase of `count` buses (new or used) for `spent` in the company's standing with
+/// `maker`'s dealer.
+fn bought_of(c: &mut Company, maker: &str, count: u32, new: bool, spent: Cents) {
+    let r = relation_mut(c, maker);
+    r.bought += count;
+    r.spent += spent;
+    r.points += count as f64 * if new { POINTS_NEW } else { POINTS_USED };
+}
+
+/// What `count` buses at a time do to the dealer's room: a share of his margin and a bonus on
+/// top. One bus alone gets half of it, two a little more, three or four all of it; from five
+/// a bulk discount, from ten a fleet order's.
+pub fn bulk(count: u32) -> (f64, f64) {
+    match count {
+        0 | 1 => (0.5, 0.0),
+        2 => (0.8, 0.0),
+        3 | 4 => (1.0, 0.0),
+        5..=9 => (1.0, 0.025),
+        _ => (1.0, 0.05),
+    }
+}
+
+/// The step of the order `count` buses make, and from how many buses the next begins (for
+/// the dealer's page).
+pub fn bulk_step(count: u32) -> (&'static str, Option<u32>) {
+    match count {
+        0 | 1 => ("One bus: little room for a discount", Some(2)),
+        2..=4 => ("A small order", Some(5)),
+        5..=9 => ("A bulk order: a bulk discount", Some(10)),
+        _ => ("A fleet order: a fleet discount", None),
+    }
+}
+
+/// The dealer's discount on a quick buy, without a talk: a part of what he could give, so
+/// that the order's size and the company's standing with him count there too (a talk gets
+/// more).
+pub fn quick_discount(c: &Company, q: &Quote) -> f64 {
+    room(c, q) * 0.4
+}
+
+/// The price of one of `count` new `l` on a quick buy: the list price less the quick
+/// discount, rounded to a hundred euros.
+pub fn quick_price(c: &Company, l: &Listing, count: u32) -> Cents {
+    let q = Quote::new_bus(c, l, count);
+    round_to(q.list as f64 * (1.0 - quick_discount(c, &q)), 100_00).min(q.list)
 }
 
 /// Talking to `maker`'s dealer is off until this moment (he broke off).
@@ -746,6 +884,9 @@ pub fn respond(c: &mut Company, talk: &mut Talk, mv: Move, now: &str) -> Reply {
             let until = later(now, terms(c.difficulty).sulk_days * 1440);
             c.dealer.breaks.retain(|b| !b.0.eq_ignore_ascii_case(&talk.quote.maker));
             c.dealer.breaks.push((talk.quote.maker.clone(), until.clone()));
+            // (and he remembers it)
+            let r = relation_mut(c, &talk.quote.maker);
+            r.points = (r.points - POINTS_BROKE).max(0.0);
             talk.closed = true;
             talk.asking = talk.quote.list;
             talk.extras.clear();
@@ -1010,6 +1151,7 @@ pub fn sign(c: &mut Company, k: &Contract, listings: &[Listing], now: &str) -> R
         c.dealer.taken.push(Taken { id: id.clone(), day, count: k.count });
     }
     c.dealer.bought += k.count;
+    bought_of(c, &k.listing.maker, k.count, k.new, k.total());
     c.dealer.contracts.push(k.clone());
     if c.dealer.contracts.len() > CONTRACTS_KEPT {
         c.dealer.contracts.remove(0);
@@ -1078,6 +1220,12 @@ pub struct Delivered {
 /// the orders due are delivered, and what is over is forgotten (offers sold days ago, talks
 /// of other days, a sulk that ended, warranties that ran out).
 pub fn tick(c: &mut Company, now: &str) -> Vec<Delivered> {
+    // (a company from before the dealers kept their customers: its contracts tell its standing)
+    if c.dealer.relations.is_empty() && !c.dealer.contracts.is_empty() {
+        for k in c.dealer.contracts.clone() {
+            bought_of(c, &k.listing.maker, k.count, k.new, k.total());
+        }
+    }
     let mut out = Vec::new();
     let due: Vec<Order> = c.dealer.orders.iter().filter(|o| not_after(&o.delivery, now)).cloned().collect();
     c.dealer.orders.retain(|o| !not_after(&o.delivery, now));
@@ -1096,10 +1244,11 @@ pub fn tick(c: &mut Company, now: &str) -> Vec<Delivered> {
     out
 }
 
-/// The quick buy: `count` new buses of a listing at the list price, paid now (cash or loan),
-/// in the fleet at once. Returns their ids.
+/// The quick buy: `count` new buses of a listing at the quick price (the list price less the
+/// dealer's discount without a talk, `quick_price`), paid now (cash or loan), in the fleet at
+/// once. Returns their ids.
 pub fn quick_buy(c: &mut Company, l: &Listing, count: u32, how: Payment, livery: &str) -> Result<Vec<u32>, &'static str> {
-    let mut k = draft_new(c, l, count, list_price(c, l.bus.kind), &[], livery, None);
+    let mut k = draft_new(c, l, count, quick_price(c, l, count), &[], livery, None);
     k.delivery_days = 0;
     k.signed_by = c.name.clone();
     k.pay = if how == Payment::Loan { PayWay::Loan } else { PayWay::Cash };
@@ -1215,9 +1364,12 @@ pub struct DealerState {
     /// Dealers (by maker) that broke off, and until when.
     #[serde(default)]
     pub breaks: Vec<(String, String)>,
-    /// Buses bought of the dealers (the fleet discount).
+    /// Buses bought of the dealers, all together.
     #[serde(default)]
     pub bought: u32,
+    /// The company's standing with each maker's dealer.
+    #[serde(default)]
+    pub relations: Vec<Relation>,
     #[serde(default)]
     pub warranties: Vec<Warranty>,
     #[serde(default)]
@@ -1347,13 +1499,11 @@ mod tests {
         let l = listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel);
         let q = Quote::new_bus(&c, &l, 1);
         assert_eq!(q.list, 280_000_00);
-        // the room: a margin of some per cent, more for a fleet buyer and several buses
+        // the room: a margin of some per cent, more for several buses and a customer of standing
         let r1 = room(&c, &q);
-        assert!((0.05..0.2).contains(&r1), "{r1}");
-        c.dealer.bought = 10;
-        assert!(room(&c, &Quote { count: 4, ..q.clone() }) > r1 + 0.05);
+        assert!((0.03..0.2).contains(&r1), "{r1}");
+        assert!(room(&c, &Quote { count: 4, ..q.clone() }) > r1 + 0.04);
         assert!(room(&c, &Quote { kind: BusKind { size: BusSize::Solo, drive: Drive::Electric }, ..q.clone() }) < room(&c, &q));
-        c.dealer.bought = 0;
         // asking for a discount a few times: lower, never under the floor
         let (t, replies) = haggle(&mut c, &q, &[Move::AskDiscount, Move::AskDiscount, Move::AskDiscount]);
         assert!(t.asking <= q.list && t.asking >= t.floor && t.floor < q.list);
@@ -1404,6 +1554,52 @@ mod tests {
         let now = now_of(&c);
         tick(&mut c, &now);
         assert!(open_talk(&c, &q, &now_of(&c)).is_ok() && c.dealer.breaks.is_empty());
+    }
+
+    #[test]
+    fn one_bus_gets_less_off_than_an_order_and_a_regular_customer_more() {
+        let mut c = company(Difficulty::Realistic, "2024-03-04");
+        let l = listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel);
+        let at = |c: &Company, n: u32| room(c, &Quote::new_bus(c, &l, n));
+        // one bus alone: about half of what three get; five a bulk discount, ten a fleet order's
+        assert!(at(&c, 1) < at(&c, 2) && at(&c, 2) < at(&c, 3));
+        assert!(at(&c, 1) < at(&c, 3) * 0.75);
+        assert!(at(&c, 5) > at(&c, 4) + 0.02 && at(&c, 10) > at(&c, 5) + 0.02);
+        assert_eq!(bulk_step(1).1, Some(2));
+        assert_eq!(bulk_step(7), ("A bulk order: a bulk discount", Some(10)));
+        // the quick buy: a part of it, a bus of ten cheaper than one alone
+        assert!(quick_price(&c, &l, 10) < quick_price(&c, &l, 1));
+        // buying of him makes a known, then a regular customer of the company, with more room
+        assert_eq!(Standing::of(relation(&c, "Mercedes-Benz").points), Standing::New);
+        let before = at(&c, 3);
+        c.cash = 10_000_000_00;
+        assert!(quick_buy(&mut c, &l, 2, Payment::Cash, "").is_ok());
+        assert_eq!(Standing::of(relation(&c, "mercedes-benz").points), Standing::Known);
+        assert!(at(&c, 3) > before);
+        assert!(quick_buy(&mut c, &l, 4, Payment::Cash, "").is_ok());
+        let r = relation(&c, "Mercedes-Benz");
+        assert_eq!((r.bought, Standing::of(r.points)), (6, Standing::Regular));
+        assert!(r.spent > 0);
+        // another maker's dealer does not know the company
+        assert_eq!(relation(&c, "MAN").bought, 0);
+        // a talk he broke off costs standing
+        let q = Quote::new_bus(&c, &l, 1);
+        let (_, replies) = haggle(&mut c, &q, &[Move::Offer(1_00); 12]);
+        assert!(matches!(replies.last(), Some(Reply::BrokeOff(_))), "{replies:?}");
+        assert!(relation(&c, "Mercedes-Benz").points < r.points);
+    }
+
+    #[test]
+    fn a_company_from_before_gets_its_standing_from_its_contracts() {
+        let mut c = company(Difficulty::Easy, "2024-03-04");
+        let l = listing("Lion's City", "MAN", BusSize::Solo, Drive::Diesel);
+        let mut k = draft_new(&c, &l, 3, 250_000_00, &[], "", None);
+        k.signed_by = "Luc".into();
+        let now = now_of(&c);
+        sign(&mut c, &k, &[], &now).unwrap();
+        c.dealer.relations.clear();
+        tick(&mut c, &now);
+        assert_eq!(relation(&c, "MAN").bought, 3);
     }
 
     #[test]
@@ -1519,9 +1715,11 @@ mod tests {
         c.cash = 5_000_000_00;
         let before = c.fleet.len();
         let cash = c.cash;
+        let one = quick_price(&c, &ls[0], 3);
+        assert!(one < 280_000_00);
         let ids = quick_buy(&mut c, &ls[0], 3, Payment::Cash, "Red").unwrap();
         assert_eq!(c.fleet.len(), before + 3);
-        assert_eq!(cash - c.cash, 3 * (280_000_00 + painting_cost(&c)));
+        assert_eq!(cash - c.cash, 3 * (one + painting_cost(&c)));
         assert_eq!(c.vehicle(ids[2]).unwrap().livery, "Red");
     }
 

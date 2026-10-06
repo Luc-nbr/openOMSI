@@ -386,12 +386,19 @@ fn showroom(l: &mut Launcher, area: Rect, c: &Company, all: &[Listing], offers: 
                 let mut models: Vec<&str> = ls.iter().map(|x| x.model.as_str()).collect();
                 models.dedup();
                 let deals = ls.iter().filter(|x| offered.contains(&x.bus.file)).count();
+                // (a dealer the company bought of says what it is to him)
+                let standing = dl::Standing::of(dl::relation(c, &m).points);
+                let badge = if deals > 0 {
+                    Some((omsi_ui::tr("Special offer").into_owned(), accent()))
+                } else {
+                    (standing > dl::Standing::New).then(|| (omsi_ui::tr(standing.label()).into_owned(), OK))
+                };
                 cards.push(Card {
                     key: format!("mk-{m}"),
                     title: m.clone(),
                     sub: count_text(models.len(), "one model", "%{count} models"),
                     price: price_of(c, &ls, false),
-                    badge: (deals > 0).then(|| (omsi_ui::tr("Special offer").into_owned(), accent())),
+                    badge,
                     file: ls[0].bus.file.clone(),
                     to: To::Maker(m.clone()),
                 });
@@ -700,6 +707,46 @@ fn count_and_pay(l: &mut Launcher, r: Rect, y: &mut f32, name: &str, count: f32,
     (count.round().max(1.0), pay)
 }
 
+/// The company's standing with `maker`'s dealer as a line from (`r.x`, `y`) across `r.w`: who
+/// it is to him, what it bought of him and how far the next step is. Returns its height.
+fn standing_line(l: &mut Launcher, c: &Company, r: Rect, y: f32, maker: &str) -> f32 {
+    let rel = dl::relation(c, maker);
+    let st = dl::Standing::of(rel.points);
+    let mut t = omsi_ui::tr("Your standing with the %{maker} dealer: %{standing}").replace("%{maker}", maker).replace("%{standing}", &omsi_ui::tr(st.label()));
+    if rel.bought > 0 {
+        t.push_str("  ·  ");
+        t.push_str(&count_text(rel.bought as usize, "one bus bought of him", "%{count} buses bought of him"));
+    }
+    if st.room() > 0.0 {
+        t.push_str("  ·  ");
+        t.push_str(&omsi_ui::tr("%{n} % more room for a discount").replace("%{n}", &super::num(st.room() * 100.0, 1)));
+    }
+    if let Some(next) = st.next_at() {
+        // (in new buses: ten points each)
+        let buses = ((next - rel.points) / 10.0).ceil().max(1.0) as usize;
+        let after = omsi_ui::tr(dl::Standing::of(next).label()).into_owned();
+        t.push_str("  ·  ");
+        t.push_str(&count_text(buses, "one new bus more to %{next}", "%{count} new buses more to %{next}").replace("%{next}", &after));
+    }
+    let colour = if st > dl::Standing::New { OK } else { TEXT_SOFT };
+    l.ui.icon("star", Vec2::new(r.x + 10.0, y + 11.0), 17.0, colour);
+    l.ui.paragraph(&t, Vec2::new(r.x + 28.0, y), r.w - 28.0, kit::NOTE + 0.5, Weight::Medium, colour) + 8.0
+}
+
+/// The step of an order of `count` buses as a line: one bus gets little off, from five a bulk
+/// discount, from ten a fleet order's. Returns its height.
+fn bulk_line(l: &mut Launcher, r: Rect, y: f32, count: u32) -> f32 {
+    let (step, next) = dl::bulk_step(count);
+    let mut t = omsi_ui::tr(step).into_owned();
+    if let Some(n) = next {
+        t.push_str("  ·  ");
+        t.push_str(&omsi_ui::tr("more off from %{n} buses").replace("%{n}", &n.to_string()));
+    }
+    let colour = if count >= 5 { OK } else { TEXT_SOFT };
+    l.ui.icon("inventory_2", Vec2::new(r.x + 10.0, y + 11.0), 17.0, colour);
+    l.ui.paragraph(&t, Vec2::new(r.x + 28.0, y), r.w - 28.0, kit::NOTE + 0.5, Weight::Medium, colour) + 8.0
+}
+
 /// A paid amount's line under a quick buy: the cash afterwards, or the bank's rate. Returns
 /// whether the money is there (cash, or what the bank lends).
 fn pay_line(l: &mut Launcher, c: &Company, r: Rect, y: &mut f32, amount: i64, pay: usize) -> bool {
@@ -839,9 +886,20 @@ fn model_sheet(l: &mut Launcher, c: &Company, listing: Listing, livery: usize, c
     if quick {
         let (n, p) = count_and_pay(l, right, &mut y, "company-dealer-quick", count, max, pay, true);
         (count, pay) = (n, p);
+        y += standing_line(l, c, right, y, &listing.maker);
+        y += bulk_line(l, right, y, count as u32);
         let n = count as i64;
         let painting = if paint.is_empty() { 0 } else { dl::painting_cost(c) };
-        let total = n * (list + painting - grant);
+        // (without a talk the dealer gives a part of what he could: more for more buses and
+        // for a customer of standing)
+        let price = dl::quick_price(c, &listing, n as u32);
+        if price < list {
+            let off = 1.0 - price as f64 / list as f64;
+            let label = omsi_ui::tr("The dealer's discount (%{n} %)").replace("%{n}", &super::num(off * 100.0, 1));
+            price_row(&mut l.ui, Rect::new(right.x, y, right.w, 33.0), &label, &format!("{} × − {}", n, eur(list - price)), false);
+            y += 33.0;
+        }
+        let total = n * (price + painting - grant);
         if painting > 0 {
             price_row(&mut l.ui, Rect::new(right.x, y, right.w, 33.0), &omsi_ui::tr("Painting in the livery chosen"), &format!("{} × {}", n, eur(painting)), false);
             y += 33.0;
@@ -867,6 +925,8 @@ fn model_sheet(l: &mut Launcher, c: &Company, listing: Listing, livery: usize, c
     } else {
         let (n, _) = count_and_pay(l, right, &mut y, "company-dealer-talk", count, max, pay, false);
         count = n;
+        y += standing_line(l, c, right, y, &listing.maker);
+        y += bulk_line(l, right, y, count as u32);
         let now = dl::now_of(c);
         let h = l.ui.paragraph("The list price is where the talk begins: ask for a discount, make an offer, ask for extras. Nothing is booked until you sign the contract.", Vec2::new(right.x, y), right.w, kit::BODY, Weight::Regular, TEXT_SOFT);
         y += h + 10.0;
@@ -1076,7 +1136,11 @@ fn talk_sheet(l: &mut Launcher, c: &Company, talk: Talk, listing: Listing, offer
     let mood = (talk.patience / start).clamp(0.0, 1.0);
     let mood_word = if mood >= 0.65 { omsi_ui::tr("calm") } else if mood >= 0.35 { omsi_ui::tr("getting short") } else { omsi_ui::tr("nearly out") };
     kit::bar(&mut l.ui, "", Rect::new(inner.x, y, lw, kit::BAR_H), mood, grade(mood * 100.0), &omsi_ui::tr("The dealer's patience"), &mood_word, &omsi_ui::tr("Low offers and many demands try his patience: when it is gone, he breaks the talk off"));
-    y += kit::BAR_H + 18.0;
+    y += kit::BAR_H + 14.0;
+    if offer.is_none() {
+        y += standing_line(l, c, Rect::new(inner.x, y, lw, 0.0), y, &listing.maker);
+        y += bulk_line(l, Rect::new(inner.x, y, lw, 0.0), y, talk.quote.count) + 4.0;
+    }
     if !talk.extras.is_empty() {
         kit::caps(&mut l.ui, Rect::new(inner.x, y, lw, 16.0), "Agreed extras");
         y += 24.0;
