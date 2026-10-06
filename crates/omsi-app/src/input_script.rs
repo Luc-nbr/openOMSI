@@ -9,7 +9,12 @@ pub(crate) fn is_game_action(name: &str) -> bool {
     name.starts_with("view_")
         || matches!(
             name.as_str(),
-            "sim_pause" | "screenshot" | "quicksave" | "toggel_mouse_ctrl" | "toggel_ctrler"
+            "sim_pause"
+                | "screenshot"
+                | "quicksave"
+                | "toggel_mouse_ctrl"
+                | "toggel_ctrler"
+                | "voice_radio"
         )
 }
 
@@ -639,6 +644,7 @@ impl App {
     /// vehicle for each of them.
     pub(crate) fn tick_lan(&mut self, dt: f32) {
         let walker = self.walker_pose();
+        let radio_keyed = self.voice_radio_held();
         let Some(lan) = self.lan.as_mut() else {
             // (the session is over: the plugin is told so)
             self.voice = None;
@@ -658,6 +664,7 @@ impl App {
             tour: self.duty.as_ref().map(|d| format!("{}/{}", d.line, d.tour)),
             walker,
             inside_of: self.inside_remote,
+            radio_keyed,
         };
         let updates = lan::tick(
             lan,
@@ -752,11 +759,40 @@ impl App {
         let my_bus = self.player.as_ref().map(|p| p.vehicle.position);
         let others = crate::voice::speakers(lan, &self.remotes, my_bus);
         let inside = if self.in_cab { Some(lan.my_id) } else { self.inside_remote };
-        let listener = self.camera.as_ref().map(|c| crate::voice::Listener { at: c.position, yaw: c.yaw, inside });
+        // driving a bus (not on foot): on the company radio automatically
+        let on_radio = self.player.is_some() && !self.ego;
+        let radio_keyed = on_radio && self.voice_radio_held();
+        let listener = self.camera.as_ref().map(|c| crate::voice::Listener {
+            at: c.position,
+            yaw: c.yaw,
+            inside,
+            on_radio,
+            radio_keyed,
+        });
         let me = (lan.my_name.clone(), lan.my_id);
         if let Some(v) = self.voice.as_mut() {
             v.tick(dt, (&me.0, me.1), listener, &others);
         }
+    }
+
+    /// Is the bindable bus radio key (`voice_radio` in Controls) held right now?
+    /// Keyboard chord or a controller button bound to the same action (held while down).
+    fn voice_radio_held(&self) -> bool {
+        if self.pad_voice_radio {
+            return true;
+        }
+        let held = |a: KeyCode, b: KeyCode| self.keys.contains(&a) || self.keys.contains(&b);
+        let chord = omsi_content::input::chord(
+            held(KeyCode::ShiftLeft, KeyCode::ShiftRight),
+            held(KeyCode::ControlLeft, KeyCode::ControlRight),
+            held(KeyCode::AltLeft, KeyCode::AltRight),
+        );
+        self.game_keys.iter().any(|b| {
+            b.action.eq_ignore_ascii_case("voice_radio")
+                && b.scan_code != 0
+                && b.matches(chord)
+                && self.keys.iter().any(|k| crate::keys::dik_code(*k) == Some(b.scan_code))
+        })
     }
 
     /// The host's world as LAN play asks for it: its clock (set or caught up with) and its
@@ -1455,6 +1491,10 @@ impl App {
     /// from the last two positions, and fired only on movement it kept the speed of the last
     /// small move through a pause and swung shut when let go; the door scripts set their
     /// push once per trigger.
+    ///
+    /// The redraw path may inline this after `Player::tick` (field borrow of `player`); keep
+    /// the helper for any call site that does not already hold `self.player`.
+    #[allow(dead_code)] // inlined in `app_events` redraw while `player` is borrowed
     pub(crate) fn drag_frame(&mut self) {
         if !self.dragging {
             return;
@@ -1843,6 +1883,7 @@ impl App {
     }
 
     pub(crate) fn close_game_menu(&mut self) {
+        self.key_capture = None;
         if self.menu_edit_icao {
             if let Some(w)=self.window.as_ref(){w.set_ime_allowed(false);}
             self.menu_edit_icao=false; self.menu_edit=None;
@@ -2089,11 +2130,12 @@ impl App {
     /// A settings window (options, vehicle, world) is open.
     fn settings_list(&self) -> bool {
         use crate::game_lists::ListKind;
-        self.chooser.is_some() && matches!(self.list_kind, Some(ListKind::Options(_) | ListKind::Vehicle(_) | ListKind::World(_)))
+        self.chooser.is_some() && matches!(self.list_kind, Some(ListKind::Options(_) | ListKind::Vehicle(_) | ListKind::World(_) | ListKind::Controls | ListKind::Keyboard(_) | ListKind::ControllerDevices(_) | ListKind::Controller(..) | ListKind::ControllerAxis(..) | ListKind::ControllerButtonSettings(..)))
     }
 
     /// The open list is closed: back to the game menu.
     pub(crate) fn close_list(&mut self) {
+        self.key_capture = None;
         self.dropdown = None;
         if self.menu_edit_icao { if let Some(w)=self.window.as_ref(){w.set_ime_allowed(false);} }
         self.menu_edit_icao=false;
@@ -2107,14 +2149,18 @@ impl App {
     /// Show page `i` of the open settings window.
     pub(crate) fn settings_tab(&mut self, i: usize) {
         use crate::game_lists::ListKind;
-        let next = match self.list_kind {
+        let next = match self.list_kind.as_ref() {
             Some(ListKind::Options(_)) => ListKind::Options(i),
             Some(ListKind::Vehicle(_)) => ListKind::Vehicle(i),
             Some(ListKind::World(_)) => ListKind::World(i),
+            Some(ListKind::Keyboard(_)) => ListKind::Keyboard(i.min(1)),
+            Some(ListKind::ControllerDevices(_)) => ListKind::ControllerDevices(i.min(2)),
+            Some(ListKind::Controller(name, _)) => ListKind::Controller(name.clone(), i.min(3)),
             _ => return,
         };
         self.menu_top = None;
         self.menu_edit = None;
+        self.key_capture = None;
         self.open_list(next);
     }
 
@@ -2133,7 +2179,13 @@ impl App {
         if i < n {
             self.settings_tab(i);
         } else {
-            self.close_list();
+            self.key_capture = None;
+            if let Some(parent) = crate::game_lists::run(self, &kind, "back") {
+                self.menu_top = None;
+                self.open_list(parent);
+            } else {
+                self.close_list();
+            }
         }
     }
 
@@ -2141,7 +2193,7 @@ impl App {
     pub(crate) fn list_adjust(&mut self, k: usize, mv: crate::game_lists::Move) {
         use crate::game_lists::ListKind;
         let Some(kind) = self.list_kind.clone() else { return };
-        if !matches!(kind, ListKind::Options(_) | ListKind::World(_)) {
+        if !matches!(kind, ListKind::Options(_) | ListKind::World(_) | ListKind::ControllerDevices(_) | ListKind::Controller(..) | ListKind::ControllerAxis(..) | ListKind::ControllerButtonSettings(..)) {
             return;
         }
         let Some(action) = self.admin_list.as_ref().and_then(|l| l.get(k)).map(|x| x.1.clone()) else { return };
@@ -2198,6 +2250,13 @@ impl App {
         let sel = self.chooser.unwrap_or(0);
         self.menu_top = None;
         match code {
+            KeyCode::Escape if crate::game_controller_menu::is_controller_list(self.list_kind.as_ref()) || matches!(self.list_kind, Some(crate::game_lists::ListKind::Events | crate::game_lists::ListKind::Keyboard(_))) => {
+                if let Some(kind) = self.list_kind.clone() {
+                    if let Some(back) = crate::game_lists::run(self, &kind, "back") {
+                        self.open_list(back);
+                    }
+                }
+            }
             KeyCode::Escape => {
                 if self.tours_list() {
                     self.open_list(crate::game_lists::ListKind::Lines);
@@ -2745,6 +2804,25 @@ impl App {
 
     pub(crate) fn menu_key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode) {
         self.menu_kbd = true;
+        if self.key_capture.is_some() {
+            match code {
+                KeyCode::ShiftLeft | KeyCode::ShiftRight | KeyCode::ControlLeft | KeyCode::ControlRight | KeyCode::AltLeft | KeyCode::AltRight => {}
+                KeyCode::Escape => self.cancel_key_capture(),
+                KeyCode::Delete | KeyCode::Backspace => self.apply_key_capture(None, 0),
+                _ => match crate::keys::dik_code(code) {
+                    Some(scan) => {
+                        let chord = omsi_content::input::chord(
+                            self.keys.contains(&KeyCode::ShiftLeft) || self.keys.contains(&KeyCode::ShiftRight),
+                            self.keys.contains(&KeyCode::ControlLeft) || self.keys.contains(&KeyCode::ControlRight),
+                            self.keys.contains(&KeyCode::AltLeft) || self.keys.contains(&KeyCode::AltRight),
+                        );
+                        self.apply_key_capture(Some(scan), chord);
+                    }
+                    None => self.service_msg = Some(("That key has no DirectInput scan code".into(), 3.0)),
+                },
+            }
+            return;
+        }
         if self.chooser.is_some() {
             self.chooser_key(code);
             return;
@@ -2849,6 +2927,7 @@ impl App {
         match id {
             "resume" => self.close_game_menu(),
             "options" => self.open_list(crate::game_lists::ListKind::Options(0)),
+            "controls" => self.open_list(crate::game_lists::ListKind::Controls),
             "camera" => {
                 let tab = crate::game_lists::options_tab(self, "Camera");
                 self.open_list(crate::game_lists::ListKind::Options(tab));
@@ -4566,9 +4645,10 @@ pub(crate) const SAVES: &str = "Saves";
 
 /// The lines of the game menu: (what, label). What can be set is on the pages behind
 /// "Options", "Vehicle options" and "World options" (see `game_lists`).
-pub(crate) const GAME_MENU: [(&str, &str); 14] = [
+pub(crate) const GAME_MENU: [(&str, &str); 15] = [
     ("resume", "Resume"),
     ("options", "Options..."),
+    ("controls", "Controls..."),
     // (the driver's view - seat, field of view, head movement - straight from the pause
     // menu: it is what is changed most while driving, #908)
     ("camera", "Camera..."),

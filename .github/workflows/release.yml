@@ -14,6 +14,11 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# The builds (and the actions they use) only read the repository; `release` alone writes,
+# with its own permission below.
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -23,7 +28,7 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       # a pull request's test build says which pull request it is: 0.1.1313-pr1192 (the
@@ -49,19 +54,16 @@ jobs:
     env:
       OPENOMSI_VERSION: ${{ needs.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-      - name: Texture lookup regression tests
+      - name: Workspace regression tests
         if: matrix.arch == 'x64'
-        run: cargo test --locked -p omsi-texture --lib
-      - name: Scripted traffic lamp regression test
-        if: matrix.arch == 'x64'
-        run: cargo test --locked -p omsi-app --lib scripted_lamp_channels_override_stock_phases_and_switch_led_materials
+        run: cargo test --locked --workspace --no-fail-fast
       - name: Build
         shell: cmd
         run: scripts\build-windows.cmd ${{ matrix.target }}
@@ -110,7 +112,7 @@ jobs:
           Copy-Item docs/SERVER.md dist/server/README.md
           New-Item -ItemType File -Force dist/server/.openomsi-content | Out-Null
           Compress-Archive -Path dist/server/* -DestinationPath "out/openOMSI-$env:OPENOMSI_VERSION-server-windows-${{ matrix.arch }}.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           # (a release keeps its files; a pull request's test builds are fetched within days)
           retention-days: 14
@@ -134,7 +136,7 @@ jobs:
       OPENOMSI_TARGET: ${{ matrix.target }}
       MACOSX_DEPLOYMENT_TARGET: '11.0'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -148,7 +150,7 @@ jobs:
           mkdir -p out
           cp README.md LICENSE dist/macos/
           cd dist/macos && ditto -c -k --sequesterRsrc . "../../out/openOMSI-$OPENOMSI_VERSION-macos-${{ matrix.arch }}.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           # (a release keeps its files; a pull request's test builds are fetched within days)
           retention-days: 14
@@ -169,7 +171,17 @@ jobs:
     env:
       OPENOMSI_VERSION: ${{ needs.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      # The x64 job builds the whole workspace's tests and then the release on one runner,
+      # more than its free disk holds: full, the runner stopped answering mid-build ("lost
+      # communication with the server"). The preinstalled SDKs nothing here uses make room.
+      - name: Free disk space
+        if: matrix.arch == 'x64'
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          sudo docker image prune --all --force > /dev/null 2>&1 || true
+          df -h /
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: System libraries
@@ -179,6 +191,15 @@ jobs:
               libudev-dev libgtk-3-dev libxkbcommon-dev libwayland-dev libssl-dev zip clang lld && break
             sleep 20
           done
+      - name: Workspace regression tests
+        if: matrix.arch == 'x64'
+        env:
+          RUSTFLAGS: "-C linker=clang -C link-arg=-fuse-ld=lld"
+        run: |
+          cargo test --locked --workspace --no-fail-fast
+          # (the tests' debug build is not needed for the release one: its room is)
+          rm -rf target/debug
+          df -h /
       - name: Build the game
         env:
           RUSTFLAGS: "-C linker=clang -C link-arg=-fuse-ld=lld"
@@ -199,7 +220,7 @@ jobs:
           cp LICENSE dist/server/
           (cd dist/linux && zip -qr "../../out/openOMSI-$OPENOMSI_VERSION-linux-${{ matrix.arch }}.zip" .)
           (cd dist/server && zip -qr "../../out/openOMSI-$OPENOMSI_VERSION-server-linux-${{ matrix.arch }}.zip" .)
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           # (a release keeps its files; a pull request's test builds are fetched within days)
           retention-days: 14
@@ -217,14 +238,14 @@ jobs:
       # a pull request's APK is an app of its own beside the release (scripts/build-android.sh)
       OPENOMSI_PR: ${{ github.event.pull_request.number }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: zulu
           java-version: '17'
@@ -240,7 +261,7 @@ jobs:
         run: |
           mkdir -p out
           cp "dist/android/openOMSI-$OPENOMSI_VERSION.apk" "out/openOMSI-$OPENOMSI_VERSION-android-arm64.apk"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           # (a release keeps its files; a pull request's test builds are fetched within days)
           retention-days: 14
@@ -257,10 +278,10 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: out
           merge-multiple: true

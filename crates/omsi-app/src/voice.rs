@@ -14,9 +14,11 @@
 //!   into that channel, renames them and switches 3D voice on - only on the server whose
 //!   unique id the session names, never on another one the user happens to be on (and not
 //!   at all when the session names none).
-//! - `self`: where the listener (the camera) is and which way it looks, ten times a second.
+//! - `self`: where the listener (the camera) is and which way it looks, ten times a second;
+//!   also whether they are on the bus radio and holding its key (`onRadio`, `keyed`).
 //! - `players`: every other player who can be heard: nickname, where their head is, their
-//!   range, and a volume when the sound is muffled (one of the two sits in a bus).
+//!   range, a volume when the sound is muffled (one of the two sits in a bus), and whether
+//!   they are keying the map-wide bus radio (`radio`).
 //! - `reset`: the session is over: 3D voice off, the user's nickname and channel as before.
 //!
 //! The plugin answers with `state` (connected to the voice server, in the channel), `talk`
@@ -75,19 +77,26 @@ pub(crate) struct VoiceServer {
     pub password: String,
     /// How far a player is heard (m).
     pub range: f32,
+    /// Map-wide bus radio (drivers key a bindable radio key); off when the host says so.
+    pub radio: bool,
 }
 
 impl VoiceServer {
     /// From `key = value` pairs (keys lower case): `voice_server_uid`, `voice_channel`,
-    /// `voice_channel_password`, `voice_range`. None without a channel, without the voice
-    /// server's unique id, or when the answer to `voice?` would not fit a command.
+    /// `voice_channel_password`, `voice_range`, `voice_radio`. None without a channel,
+    /// without the voice server's unique id, or when the answer to `voice?` would not fit a
+    /// command.
     pub(crate) fn from_kv(get: impl Fn(&str) -> Option<String>) -> Option<VoiceServer> {
         let channel = get("voice_channel").map(|c| c.trim().to_string()).filter(|c| !c.is_empty())?;
+        let flag = |k: &str, d: bool| {
+            get(k).map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on")).unwrap_or(d)
+        };
         let s = VoiceServer {
             server_uid: get("voice_server_uid").map(|v| v.trim().to_string()).unwrap_or_default(),
             channel,
             password: get("voice_channel_password").map(|v| v.trim().to_string()).unwrap_or_default(),
             range: get("voice_range").and_then(|v| v.trim().parse::<f32>().ok()).filter(|r| r.is_finite()).map(|r| r.clamp(2.0, 200.0)).unwrap_or(DEFAULT_RANGE),
+            radio: flag("voice_radio", true),
         };
         if s.server_uid.is_empty() {
             log::warn!("voice: voice_channel is set but voice_server_uid is not: no voice chat (the plugin moves players only on the voice server the session names)");
@@ -113,7 +122,14 @@ impl VoiceServer {
     /// The host's answer to `voice?`.
     pub(crate) fn command(server: Option<&VoiceServer>) -> String {
         match server {
-            Some(s) => format!("voice {} {} {} {}", s.range, enc(&s.server_uid), enc(&s.channel), enc(&s.password)),
+            Some(s) => format!(
+                "voice {} {} {} {} {}",
+                s.range,
+                enc(&s.server_uid),
+                enc(&s.channel),
+                enc(&s.password),
+                if s.radio { 1 } else { 0 }
+            ),
             None => "voice -".into(),
         }
     }
@@ -127,10 +143,16 @@ impl VoiceServer {
         let mut f = rest.split(' ');
         let range = f.next()?.parse::<f32>().ok().filter(|r| r.is_finite())?.clamp(2.0, 200.0);
         let (uid, channel, password) = (dec(f.next()?), dec(f.next()?), dec(f.next().unwrap_or("")));
+        // (an older host names no voice_radio: the bus radio is on)
+        let radio = match f.next() {
+            Some("0") => false,
+            Some("1") | None => true,
+            Some(v) => !matches!(v.to_ascii_lowercase().as_str(), "false" | "off" | "no"),
+        };
         if channel.is_empty() || uid.is_empty() {
             return Some(None);
         }
-        Some(Some(VoiceServer { server_uid: uid, channel, password, range }))
+        Some(Some(VoiceServer { server_uid: uid, channel, password, range, radio }))
     }
 }
 
@@ -443,6 +465,10 @@ pub(crate) struct Speaker {
     pub at: DVec3,
     /// Which bus they are in (its player's id), None out in the open.
     pub inside: Option<u32>,
+    /// They drive a bus: on the company radio (can hear and key it).
+    pub on_radio: bool,
+    /// They are holding the radio key (map-wide transmit).
+    pub radio_keyed: bool,
 }
 
 /// Where we hear from: the camera, and which bus it is in.
@@ -452,6 +478,10 @@ pub(crate) struct Listener {
     /// Degrees, 0 = north, clockwise (the camera's yaw).
     pub yaw: f32,
     pub inside: Option<u32>,
+    /// We drive a bus: on the company radio.
+    pub on_radio: bool,
+    /// We are holding the radio key.
+    pub radio_keyed: bool,
 }
 
 /// The game's side of the voice chat during a session.
@@ -478,6 +508,9 @@ pub(crate) struct Voice {
     origin: Option<DVec3>,
     /// Who is speaking now, by nickname.
     pub talking: hashbrown::HashSet<String>,
+    /// Who is keying the bus radio now, by nickname (from the plugin's talk lines, and from
+    /// the poses we already know).
+    pub radioing: hashbrown::HashSet<String>,
     pub status: Status,
 }
 
@@ -498,6 +531,7 @@ impl Voice {
             initiated: None,
             origin: None,
             talking: Default::default(),
+            radioing: Default::default(),
             status: Status::default(),
         }
     }
@@ -559,6 +593,7 @@ impl Voice {
                     relink = false;
                     self.status = Status::default();
                     self.talking.clear();
+                    self.radioing.clear();
                 }
                 Event::Refused(r) => self.refused = Some(r),
                 Event::Line(v) => self.on_line(&v),
@@ -596,24 +631,50 @@ impl Voice {
             return;
         }
         self.send_t = SEND_EVERY;
-        let Some(me) = listener else { return };
-        let origin = *self.origin.get_or_insert_with(|| (me.at / 1000.0).round() * 1000.0);
+        let Some(ear) = listener else { return };
+        let origin = *self.origin.get_or_insert_with(|| (ear.at / 1000.0).round() * 1000.0);
         let rel = |p: DVec3| {
             let r = p - origin;
             // (to the centimetre: the messages stay short)
             [(r.x * 100.0).round() / 100.0, (r.y * 100.0).round() / 100.0, (r.z * 100.0).round() / 100.0]
         };
-        let [x, y, z] = rel(me.at);
-        self.send(json!({ "type": "self", "x": x, "y": y, "z": z, "yaw": saltychat_yaw(me.yaw) }));
+        let [x, y, z] = rel(ear.at);
+        let radio = server.radio;
+        let on_radio = radio && ear.on_radio;
+        let keyed = on_radio && ear.radio_keyed;
+        self.send(json!({
+            "type": "self",
+            "x": x, "y": y, "z": z,
+            "yaw": saltychat_yaw(ear.yaw),
+            "onRadio": on_radio,
+            "keyed": keyed,
+        }));
         let players: Vec<Value> = others
             .iter()
             .map(|o| {
                 let [x, y, z] = rel(o.at);
-                let volume = heard_volume(&me, o, server.range);
-                json!({ "nickname": nickname(&o.name, o.id), "x": x, "y": y, "z": z, "range": server.range, "volume": volume })
+                let volume = heard_volume(&ear, o, server.range);
+                let radio_tx = radio && on_radio && o.on_radio && o.radio_keyed;
+                json!({
+                    "nickname": nickname(&o.name, o.id),
+                    "x": x, "y": y, "z": z,
+                    "range": server.range,
+                    "volume": volume,
+                    "radio": radio_tx,
+                })
             })
             .collect();
-        self.send(json!({ "type": "players", "players": players }));
+        self.send(json!({ "type": "players", "players": players, "onRadio": on_radio }));
+        // name tags: who keys the radio (poses + our own key)
+        self.radioing.clear();
+        if keyed {
+            self.radioing.insert(nickname(me.0, me.1));
+        }
+        for o in others {
+            if radio && o.on_radio && o.radio_keyed {
+                self.radioing.insert(nickname(&o.name, o.id));
+            }
+        }
     }
 
     fn on_line(&mut self, v: &Value) {
@@ -648,6 +709,11 @@ impl Voice {
     /// Is this player speaking now?
     pub(crate) fn speaks(&self, name: &str, id: u32) -> bool {
         !self.talking.is_empty() && self.talking.contains(&nickname(name, id))
+    }
+
+    /// Is this player keying the bus radio now?
+    pub(crate) fn on_radio(&self, name: &str, id: u32) -> bool {
+        !self.radioing.is_empty() && self.radioing.contains(&nickname(name, id))
     }
 
     /// The HUD's line, when there is something to say.
@@ -708,16 +774,17 @@ pub(crate) fn speakers(lan: &omsi_net::LanSession, game: &crate::lan::LanGame, m
     let mut out = Vec::new();
     for p in lan.peers().filter(|p| p.has_pose && p.pose.id != lan.my_id) {
         let pose = &p.pose;
-        let (at, inside) = match pose.walker {
+        let (at, inside, on_radio) = match pose.walker {
             Some(w) => match w.aboard {
-                Some(a) => (bus_of(a.owner).map(|b| b + DVec3::new(0.0, 0.0, 1.9)).unwrap_or(DVec3::new(w.x, w.y, w.z + 1.6)), Some(a.owner)),
-                None => (DVec3::new(w.x, w.y, w.z + 1.6), None),
+                Some(a) => (bus_of(a.owner).map(|b| b + DVec3::new(0.0, 0.0, 1.9)).unwrap_or(DVec3::new(w.x, w.y, w.z + 1.6)), Some(a.owner), false),
+                None => (DVec3::new(w.x, w.y, w.z + 1.6), None, false),
             },
-            None if pose.has_vehicle() => (bus_of(pose.id).unwrap_or(DVec3::new(pose.x, pose.y, pose.z)) + DVec3::new(0.0, 0.0, 1.9), Some(pose.id)),
+            // driving: on the company radio (sitting down in the bus is enough)
+            None if pose.has_vehicle() => (bus_of(pose.id).unwrap_or(DVec3::new(pose.x, pose.y, pose.z)) + DVec3::new(0.0, 0.0, 1.9), Some(pose.id), true),
             // (a dedicated server's own place in the session: nobody there)
             None => continue,
         };
-        out.push(Speaker { id: pose.id, name: pose.name.clone(), at, inside });
+        out.push(Speaker { id: pose.id, name: pose.name.clone(), at, inside, on_radio, radio_keyed: pose.radio_keyed && on_radio });
     }
     out
 }
@@ -730,12 +797,17 @@ mod tests {
 
     #[test]
     fn the_hosts_answer_round_trips() {
-        let s = VoiceServer { server_uid: "abc+/=Def".into(), channel: "OMSI - In game".into(), password: "p|w 100%".into(), range: 25.0 };
+        let s = VoiceServer { server_uid: "abc+/=Def".into(), channel: "OMSI - In game".into(), password: "p|w 100%".into(), range: 25.0, radio: false };
         let c = VoiceServer::command(Some(&s));
         assert!(!c.contains('|') && c.len() < omsi_net::MAX_CHAT);
         assert_eq!(VoiceServer::parse_command(&c), Some(Some(s)));
+        // (an older host naming no voice_radio: the bus radio is on)
+        assert_eq!(
+            VoiceServer::parse_command("voice 20 AbC= 5 -"),
+            Some(Some(VoiceServer { server_uid: "AbC=".into(), channel: "5".into(), password: String::new(), range: 20.0, radio: true }))
+        );
         // (an older host naming no voice server's unique id: no voice chat)
-        let open = VoiceServer { server_uid: String::new(), channel: "12".into(), password: String::new(), range: 20.0 };
+        let open = VoiceServer { server_uid: String::new(), channel: "12".into(), password: String::new(), range: 20.0, radio: true };
         assert_eq!(VoiceServer::parse_command(&VoiceServer::command(Some(&open))), Some(None));
         assert_eq!(VoiceServer::parse_command(&VoiceServer::command(None)), Some(None));
         assert_eq!(VoiceServer::parse_command("trigger x"), None);
@@ -743,9 +815,9 @@ mod tests {
 
     #[test]
     fn server_cfg_keys() {
-        let kv = parse_kv("# x\nvoice_server_uid = AbC=\nvoice_channel = 5\nvoice_range = 1000\n");
+        let kv = parse_kv("# x\nvoice_server_uid = AbC=\nvoice_channel = 5\nvoice_range = 1000\nvoice_radio = 0\n");
         let s = VoiceServer::from_kv(|k| kv.get(k).cloned()).unwrap();
-        assert_eq!((s.server_uid.as_str(), s.channel.as_str(), s.range), ("AbC=", "5", 200.0));
+        assert_eq!((s.server_uid.as_str(), s.channel.as_str(), s.range, s.radio), ("AbC=", "5", 200.0, false));
         assert!(VoiceServer::from_kv(|_| None).is_none());
         // no unique id: the plugin would move players on whatever server they are on
         let kv = parse_kv("voice_channel = 5\n");
@@ -781,7 +853,7 @@ mod tests {
         drop(listener);
         let mut v = Voice::new(port);
         v.key = Some(scratch_key("hint"));
-        v.set_server(Some(VoiceServer { server_uid: "UID".into(), channel: "7".into(), password: String::new(), range: 20.0 }));
+        v.set_server(Some(VoiceServer { server_uid: "UID".into(), channel: "7".into(), password: String::new(), range: 20.0, radio: true }));
         v.tick(1.0, ("Max", 1), None, &[]);
         assert!(v.hud_line().is_some_and(|l| l.contains("start GreenTeaSpeak")));
         for _ in 0..12 {
@@ -796,9 +868,17 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         let mut v = Voice::new(port);
         v.key = Some(scratch_key("refused"));
-        v.set_server(Some(VoiceServer { server_uid: "UID".into(), channel: "7".into(), password: String::new(), range: 20.0 }));
+        v.set_server(Some(VoiceServer { server_uid: "UID".into(), channel: "7".into(), password: String::new(), range: 20.0, radio: true }));
         v.tick(0.1, ("Max", 1), None, &[]);
         let (mut conn, _) = listener.accept().unwrap();
+        // Follow the plugin protocol: read hello before refusing. Closing with the
+        // client's unread hello can reset the TCP connection on Windows and discard
+        // the refusal before the game sees it.
+        conn.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut first = String::new();
+        BufReader::new(conn.try_clone().unwrap()).read_line(&mut first).unwrap();
+        let hello: Value = serde_json::from_str(&first).unwrap();
+        assert_eq!(hello["type"], "hello");
         conn.write_all(b"{\"type\":\"refused\",\"error\":\"another openOMSI game is already linked\"}\n").unwrap();
         drop(conn);
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -830,8 +910,8 @@ mod tests {
 
     #[test]
     fn a_bus_muffles_the_voice() {
-        let me = Listener { at: DVec3::ZERO, yaw: 0.0, inside: Some(1) };
-        let near = Speaker { id: 2, name: "b".into(), at: DVec3::new(10.0, 0.0, 0.0), inside: None };
+        let me = Listener { at: DVec3::ZERO, yaw: 0.0, inside: Some(1), on_radio: true, radio_keyed: false };
+        let near = Speaker { id: 2, name: "b".into(), at: DVec3::new(10.0, 0.0, 0.0), inside: None, on_radio: false, radio_keyed: false };
         assert_eq!(heard_volume(&me, &near, 20.0), Some(0.18));
         let aboard = Speaker { inside: Some(1), ..near.clone() };
         assert_eq!(heard_volume(&me, &aboard, 20.0), None);
@@ -844,9 +924,9 @@ mod tests {
         let mut v = Voice::new(port);
         let key_file = scratch_key("link");
         v.key = Some(key_file.clone());
-        v.set_server(Some(VoiceServer { server_uid: "UID".into(), channel: "7".into(), password: String::new(), range: 20.0 }));
-        let me = Listener { at: DVec3::new(1_234_567.0, -2_000_000.0, 50.0), yaw: 90.0, inside: None };
-        let others = [Speaker { id: 2, name: "Anna".into(), at: DVec3::new(1_234_570.0, -2_000_000.0, 51.6), inside: None }];
+        v.set_server(Some(VoiceServer { server_uid: "UID".into(), channel: "7".into(), password: String::new(), range: 20.0, radio: true }));
+        let me = Listener { at: DVec3::new(1_234_567.0, -2_000_000.0, 50.0), yaw: 90.0, inside: None, on_radio: true, radio_keyed: true };
+        let others = [Speaker { id: 2, name: "Anna".into(), at: DVec3::new(1_234_570.0, -2_000_000.0, 51.6), inside: None, on_radio: true, radio_keyed: true }];
         let deadline = Instant::now() + Duration::from_secs(5);
         let mut conn = None;
         listener.set_nonblocking(true).unwrap();
@@ -880,10 +960,12 @@ mod tests {
         assert_eq!((init["serverUid"].as_str(), init["channel"].as_str(), init["nickname"].as_str()), (Some("UID"), Some("7"), Some("Max #1")));
         let me_line = lines.iter().find(|l| l["type"] == "self").expect("self");
         assert_eq!((me_line["x"].as_f64(), me_line["yaw"].as_f64()), (Some(-433.0), Some(-90.0)));
+        assert_eq!((me_line["onRadio"].as_bool(), me_line["keyed"].as_bool()), (Some(true), Some(true)));
         let players = lines.iter().find(|l| l["type"] == "players").expect("players");
         assert_eq!(players["players"][0]["nickname"], "Anna #2");
         assert_eq!(players["players"][0]["x"].as_f64(), Some(-430.0));
         assert!(players["players"][0]["volume"].is_null());
+        assert_eq!(players["players"][0]["radio"].as_bool(), Some(true));
         // what the plugin said came in
         let until = Instant::now() + Duration::from_secs(2);
         while Instant::now() < until && !(v.status.in_channel && v.speaks("Anna", 2)) {
@@ -892,6 +974,7 @@ mod tests {
         }
         assert!(v.status.in_channel);
         assert!(v.speaks("Anna", 2));
+        assert!(v.on_radio("Anna", 2));
         assert_eq!(v.hud_line(), None);
         let _ = std::fs::remove_dir_all(key_file.parent().unwrap());
     }

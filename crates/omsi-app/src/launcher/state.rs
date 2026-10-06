@@ -281,6 +281,9 @@ pub struct State {
     /// A game started from here ended on an error: what it said, and the end of its log
     /// (see `crash_of`), for the dialog that asks to report it.
     pub crash: Option<(String, String)>,
+    /// A game started from here was sent away by its server (kicked, banned) or turned away
+    /// at the door: the server's message, for the "Disconnected from the server" dialog.
+    pub disconnected: Option<String>,
     pub jobs: Vec<core::install::Progress>,
     pub mods: Option<core::ModsStatus>,
     pub mods_asked: bool,
@@ -325,7 +328,11 @@ impl State {
         crate::ui_language(settings.get("language").and_then(|x| x.as_str()).unwrap_or("ENG"));
         crate::mt::enable(settings.get("machine_translation").and_then(|x| x.as_bool()).unwrap_or(false));
         let keybindings = core::get_keybindings().unwrap_or(serde_json::Value::Null);
-        let choice = Choice::load();
+        let mut choice = Choice::load();
+        // (at the real time, a trip picked in an earlier session has most likely left)
+        if settings.get("use_real_time").and_then(|v| v.as_bool()).unwrap_or(false) {
+            choice.start_trip = None;
+        }
         let mut s = State {
             config,
             maps: Vec::new(),
@@ -356,6 +363,7 @@ impl State {
             launch_hold: None,
             launched_pid: None,
             crash: None,
+            disconnected: None,
             jobs: Vec::new(),
             mods: None,
             mods_asked: false,
@@ -1083,7 +1091,10 @@ impl State {
                         for old in self.instances.iter().filter(|i| i.running) {
                             let still = p.instances.iter().any(|n| n.pid == old.pid && n.running);
                             if !still && !self.stopping.contains(&old.pid) {
-                                if let Some(c) = crash_of(std::path::Path::new(&old.log)) {
+                                if let Some(why) = disconnect_of(std::path::Path::new(&old.log)) {
+                                    core::log_to_file(&format!("game {} was sent away by its server: {why}", old.pid));
+                                    self.disconnected = Some(why);
+                                } else if let Some(c) = crash_of(std::path::Path::new(&old.log)) {
                                     core::log_to_file(&format!("game {} ended on an error: {}", old.pid, c.0));
                                     self.crash = Some(c);
                                 }
@@ -1357,7 +1368,24 @@ impl State {
 
     pub fn picked_trip(&self) -> Option<usize> {
         let (line, tour, index, time) = self.choice.start_trip.as_ref()?;
-        (self.choice.line.as_ref() == Some(line) && self.choice.tour.as_ref() == Some(tour) && *time == self.choice.time).then_some(*index)
+        // (at the real time the clock moves on, and the trip picked stays: the bus waits for it)
+        (self.choice.line.as_ref() == Some(line) && self.choice.tour.as_ref() == Some(tour) && (*time == self.choice.time || self.real_time())).then_some(*index)
+    }
+
+    /// The start time follows the computer's clock (`use_real_time`).
+    pub fn real_time(&self) -> bool {
+        self.settings.get("use_real_time").and_then(|v| v.as_bool()).unwrap_or(false)
+    }
+
+    /// Start the tour at trip `index` (leaving at `departure`): at its departure, or at the
+    /// real time, which then stays and the bus waits for the trip.
+    pub fn pick_trip(&mut self, index: usize, departure: f64) {
+        let (Some(line), Some(tour)) = (self.choice.line.clone(), self.choice.tour.clone()) else { return };
+        if !self.real_time() {
+            self.choice.time = (departure / 60.0).floor() as i32;
+        }
+        self.choice.start_trip = Some((line, tour, index, self.choice.time));
+        self.touched();
     }
 
     /// The duties put together of the day's tours for the chosen length and part of the day
@@ -1461,6 +1489,18 @@ pub fn root_problem(root: &str) -> String {
     }
 }
 
+/// The server's message when a game ended because its server sent it away or turned it away
+/// (`lan::LEFT_SERVER` in the log of this run); None for any other end.
+pub fn disconnect_of(log: &std::path::Path) -> Option<String> {
+    let text = std::fs::read(log).ok()?;
+    let text = String::from_utf8_lossy(&text[text.len().saturating_sub(64 * 1024)..]).to_string();
+    let all: Vec<&str> = text.lines().collect();
+    let run = &all[all.iter().rposition(|l| l.contains("starting the game:")).unwrap_or(0)..];
+    let line = run.iter().rev().find(|l| l.contains(crate::lan::LEFT_SERVER))?;
+    let why = line.split_once(crate::lan::LEFT_SERVER)?.1.trim();
+    Some(if why.is_empty() { "sent away by the host".to_string() } else { why.chars().take(300).collect() })
+}
+
 /// What a game's log says when the game ended on an error: the error (a panic, "no graphics
 /// adapter", a fatal message) and the last lines of the log. None for a game that ended as
 /// it should.
@@ -1516,6 +1556,23 @@ const MACHINE_LINES: [&str; 4] = ["] system: ", "] graphics adapter: ", "] openi
 
 /// The line between the machine and the end of the log in a crash's tail.
 pub const CRASH_TAIL_GAP: &str = "…";
+
+#[cfg(test)]
+mod disconnect_tests {
+    #[test]
+    fn the_servers_word_is_read_back_from_the_log_of_this_run() {
+        let dir = std::env::temp_dir().join(format!("openomsi-disc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("game.log");
+        let left = crate::lan::LEFT_SERVER;
+        std::fs::write(&p, format!("[x INFO a] starting the game: one\n[x WARN openomsi_game::lan] {left}old\n[x INFO a] starting the game: two\n[x WARN openomsi_game::lan] {left}Expulsé : conduite dangereuse\n[x INFO a] game ends\n")).unwrap();
+        assert_eq!(super::disconnect_of(&p).as_deref(), Some("Expulsé : conduite dangereuse"));
+        // a run that ended in any other way: nothing
+        std::fs::write(&p, format!("[x INFO a] starting the game: one\n[x WARN openomsi_game::lan] {left}old\n[x INFO a] starting the game: two\n[x INFO a] game ends\n")).unwrap();
+        assert!(super::disconnect_of(&p).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
 
 #[cfg(test)]
 mod choice_tests {

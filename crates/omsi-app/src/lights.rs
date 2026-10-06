@@ -7,13 +7,14 @@ use omsi_render::{Corona, LightMode, Lighting, PointLight, Scene};
 
 use omsi_sim::{Daylight, VehicleInstance};
 
-/// A headlight's strength for the enhanced renderer along its axis, in units of a
-/// `[maplight]` core (`PointLight::intensity`): some 1 100 cd. The stock spots point 17°
-/// down, so the axis meets the road a few metres ahead of the bumper; a real low beam's
-/// 20 000 cd there would be a floodlight. (At 20 the road ahead at night came out barely
-/// brighter with the lights on than off - 11 → 19 of 255 on Novi Sad's asphalt - where
-/// OMSI's buses throw a clear pool.)
-const HEADLIGHT_INTENSITY: f32 = 45.0;
+/// A headlight's strength for the enhanced renderer, its beam's at full (`headlamp` in
+/// `enhanced.wgsl`): the road from the bumper out to some 12 m lit about as brightly as a
+/// street under a lamp, and less beyond.
+const HEADLIGHT_INTENSITY: f32 = 1800.0;
+
+/// A `[spotlight]` declaring this range or more is a full beam (the stock buses' 500, the
+/// Grand Paris-Moulon Citaro's 450), less a low beam (the stock 100, that Citaro's 200).
+const FULL_BEAM_RANGE: f32 = 300.0;
 
 /// A headlight's strength in the classic picture, as a map lamp's (`PointLight::intensity`).
 /// Measured against OMSI 2 from above, the stock NL202 at night in Spandau: its pool is
@@ -96,6 +97,7 @@ pub fn apply_weather(
     // the enhanced renderer builds its own sky from these
     l.overcast = overcast;
     l.rain = rain;
+    l.snowfall = if precip_kind == 2 { rain } else { 0.0 };
     let gloom = (overcast * 0.5 + rain * 0.5).clamp(0.0, 1.0);
     l.night = l.night.max(0.45 * gloom);
     // (night maps on with the street lamps, or where the weather makes it that dark: a
@@ -197,6 +199,9 @@ pub fn vehicle_lights(
                     };
                     if let Some(face) = face.filter(|f| *f > apex.y) {
                         apex.y = face + 0.05;
+                    } else if let Some(n) = nose.filter(|n| *n + 0.05 < apex.y) {
+                        // (a spot ahead of the lamps, the Grand Paris-Moulon Citaro's 55 cm: back onto them)
+                        apex.y = n + 0.05;
                     }
                 } else if dl.y < -0.3 {
                     let face = match (tail.filter(|t| *t < apex.y), bb) {
@@ -207,6 +212,8 @@ pub fn vehicle_lights(
                     };
                     if let Some(face) = face.filter(|f| *f < apex.y) {
                         apex.y = face - 0.05;
+                    } else if let Some(t) = tail.filter(|t| *t - 0.05 > apex.y) {
+                        apex.y = t - 0.05;
                     }
                 }
                 // One spot on the vehicle's axis threw one narrow beam: it is split into one
@@ -296,28 +303,12 @@ fn push_spot(lights: &mut Vec<PointLight>, at: DVec3, d: Vec3, vals: &[f32; 12],
         direction: d,
         cone,
         core: 1.0,
-        // (a plain spot, as Direct3D lights OMSI's road: the low-beam profile's
-        // bright band under a hard cut-off has nothing like it in the original)
-        beam: full_beam_gain(vals[9]),
+        // (a lamp pointing steeply down - a `[spotlight_2]` over a door - keeps its cone: the
+        // road lamp's profile is for one aimed along the road)
+        beam: if d.normalize_or_zero().z.abs() >= 0.5 { 0.0 } else if vals[9] >= FULL_BEAM_RANGE { -1.0 } else { 1.0 },
+        housed: false,
         mode: LightMode::Enhanced,
     });
-}
-
-/// How much more a `[spotlight]` of this range throws towards the horizon than along its
-/// axis in the enhanced picture (`PointLight::beam`, negative: a full beam): none up to the
-/// stock low beam's 100, beyond it the square of its reach over the low beam's, so it lights
-/// the road as far out as it reaches further - the stock full beam's 500, 25 times. Its
-/// longer reach alone showed nothing: lit inverse-square from a one-metre core, the road
-/// 60 m ahead had next to no light from either beam, and a full beam lit the road as the
-/// low beam did (#1068). (The classic picture's spot is full within an eighth of its reach,
-/// so its full beam's pool there is five times as long as the low beam's.)
-fn full_beam_gain(range: f32) -> f32 {
-    let k = spot_reach(range, 60.0) / 60.0;
-    if k > 1.0 {
-        -(k * k)
-    } else {
-        0.0
-    }
 }
 
 /// How far a `[spotlight]` reaches in the picture, from its declared range (value 9):
@@ -344,15 +335,22 @@ mod spot_tests {
         assert_eq!(super::spot_reach(5000.0, 45.0), 225.0);
     }
 
-    /// The enhanced picture's full beam throws towards the horizon as many times further as
-    /// its range says; a low beam stays a plain spot (#1068).
+    /// The enhanced picture lights a `[spotlight]` as a low beam below the full beam's range
+    /// (the stock 100, the Grand Paris-Moulon Citaro's 200) and as a full beam from it on.
     #[test]
-    fn a_full_beam_throws_its_light_further_down_the_road() {
-        assert_eq!(super::full_beam_gain(100.0), 0.0);
-        assert_eq!(super::full_beam_gain(30.0), 0.0);
-        assert_eq!(super::full_beam_gain(500.0), -25.0);
-        assert_eq!(super::full_beam_gain(200.0), -4.0);
-        assert_eq!(super::full_beam_gain(5000.0), -25.0);
+    fn a_spotlight_is_a_low_or_a_full_beam_by_its_range() {
+        let beam = |range: f32| {
+            let vals = [0.0, 6.5, 0.76, 0.0, 1.0, -0.3, 255.0, 255.0, 233.0, range, 30.0, 80.0];
+            let mut lights = Vec::new();
+            super::push_spot(&mut lights, glam::DVec3::ZERO, glam::Vec3::Y, &vals, 0.5, 1.0);
+            lights.iter().find(|l| l.mode == omsi_render::LightMode::Enhanced).map(|l| l.beam)
+        };
+        assert_eq!([100.0, 200.0, 450.0, 500.0].map(beam), [Some(1.0), Some(1.0), Some(-1.0), Some(-1.0)]);
+        // a lamp over a door, pointing down, keeps its cone
+        let vals = [0.0, 6.5, 2.5, 0.0, 0.0, -1.0, 255.0, 255.0, 233.0, 100.0, 30.0, 80.0];
+        let mut lights = Vec::new();
+        super::push_spot(&mut lights, glam::DVec3::ZERO, glam::Vec3::NEG_Z, &vals, 0.5, 1.0);
+        assert_eq!(lights.iter().find(|l| l.mode == omsi_render::LightMode::Enhanced).map(|l| l.beam), Some(0.0));
     }
 
     /// `[spotlight_2]`: a pair mirrored across the axis sharing the light, or one lamp, as

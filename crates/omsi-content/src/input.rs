@@ -128,6 +128,11 @@ impl KeyboardCfg {
         if !self.game.iter().any(|b| b.action.eq_ignore_ascii_case("view_toggle_interior")) {
             self.game.push(KeyBinding { action: "view_toggle_interior".into(), scan_code: 0, modifier: 0 });
         }
+        // map-wide bus radio in multiplayer (hold): X when free, else unbound (#1230)
+        if !self.game.iter().any(|b| b.action.eq_ignore_ascii_case("voice_radio")) {
+            let x_free = !taken(&self, 45);
+            self.game.push(KeyBinding { action: "voice_radio".into(), scan_code: if x_free { 45 } else { 0 }, modifier: 0 });
+        }
         self
     }
 
@@ -286,6 +291,20 @@ mod tests {
         assert_eq!(key(&cfg, "chat_open"), vec![(53, 0)]);
         let moved = KeyboardCfg { game: vec![KeyBinding { action: "chat_open".into(), scan_code: 20, modifier: KEY_CTRL }], ..Default::default() }.with_game_defaults();
         assert_eq!(key(&moved, "chat_open"), vec![(20, KEY_CTRL)]);
+    }
+
+    #[test]
+    fn the_bus_radio_key_defaults_to_x_when_free() {
+        let key = |c: &KeyboardCfg, a: &str| c.game.iter().filter(|b| b.action == a).map(|b| (b.scan_code, b.modifier)).collect::<Vec<_>>();
+        let cfg = KeyboardCfg::default().with_game_defaults().with_game_defaults();
+        assert_eq!(key(&cfg, "voice_radio"), vec![(45, 0)]);
+        let custom = KeyBinding { action: "voice_radio".into(), scan_code: 49, modifier: 0 };
+        let cfg = KeyboardCfg { game: vec![custom.clone()], ..Default::default() }.with_game_defaults();
+        assert_eq!(key(&cfg, "voice_radio"), vec![(49, 0)]);
+        // X already taken: unbound rather than stealing another key
+        let taken = KeyBinding { action: "horn".into(), scan_code: 45, modifier: 0 };
+        let cfg = KeyboardCfg { vehicles: vec![taken], ..Default::default() }.with_game_defaults();
+        assert_eq!(key(&cfg, "voice_radio"), vec![(0, 0)]);
     }
 
     #[test]

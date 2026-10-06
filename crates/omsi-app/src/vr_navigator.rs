@@ -486,8 +486,7 @@ mod tests {
             "VR: Position navigator",
             "Could not save navigator position",
         ];
-        let languages = ["de", "fr", "ru", "uk", "be", "kk", "pl", "cs", "hu", "es", "pt", "pt-pt", "it", "nl", "tr", "ja", "zh-tw", "ko", "th", "vi", "id", "ms", "tl", "zh", "hi"];
-        for language in languages {
+        for &(_, _, language, _) in omsi_launcher_lib::LANGUAGES.iter().filter(|l| l.2 != "en") {
             for key in keys {
                 let translated = crate::_rust_i18n_try_translate(language, key);
                 assert!(

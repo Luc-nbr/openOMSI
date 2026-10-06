@@ -10,11 +10,11 @@ wgpu.workspace = true
 bytemuck.workspace = true
 glam.workspace = true
 log.workspace = true
-ab_glyph = "0.2"
+ab_glyph.workspace = true
 resvg = { version = "0.45", default-features = false }
 hashbrown.workspace = true
 pollster.workspace = true
 
 [dev-dependencies]
-naga = { version = "29", features = ["wgsl-in"] }
+naga = { workspace = true, features = ["wgsl-in"] }
 image.workspace = true

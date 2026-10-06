@@ -252,6 +252,9 @@ pub struct Launcher {
     discord: Option<crate::discord::Discord>,
     #[cfg(not(target_os = "android"))]
     discord_next_try: Instant,
+    /// Background drop of the graphics device given up while a game runs (see `frame`).
+    /// Joined before a new device is opened so the two do not meet on the card.
+    gpu_rest_drop: Option<std::thread::JoinHandle<()>>,
 }
 
 /// Run the launcher window until it is closed.
@@ -338,6 +341,7 @@ impl Launcher {
         discord: None,
         #[cfg(not(target_os = "android"))]
         discord_next_try: Instant::now(),
+        gpu_rest_drop: None,
     };
     // after an update: the files it set aside go, and the launcher says what happened
     #[cfg(not(target_os = "android"))]
@@ -424,6 +428,9 @@ impl Launcher {
         self.pages.pads.release_io();
         self.surface = None;
         self.drop_gpu();
+        if let Some(h) = self.gpu_rest_drop.take() {
+            let _ = h.join();
+        }
         self.renderer = None;
         self.ime = false;
         self.window.take()
@@ -444,6 +451,10 @@ impl Launcher {
     fn make_surface(&mut self) {
         let Some(window) = self.window.clone() else { return };
         if self.renderer.is_none() {
+            // Finish dropping the device given up for a game before opening another one.
+            if let Some(h) = self.gpu_rest_drop.take() {
+                let _ = h.join();
+            }
             let settings = crate::settings::Settings::load();
             let renderer = match crate::startup::window_renderer(&mut self.instance, &window, showroom_options(&settings)) {
                 Ok(r) => r,
@@ -549,7 +560,16 @@ impl ApplicationHandler for Launcher {
             WindowEvent::Focused(f) => self.set_focus(f),
             WindowEvent::Occluded(o) => {
                 self.occluded = o;
-                if o { self.pages.pads.cancel_feedback_test(); }
+                if o {
+                    self.pages.pads.cancel_feedback_test();
+                } else if self.renderer.is_none() {
+                    // Back in view without a graphics device (a game just ended, or the
+                    // window was covered while resting): draw again so the device is opened
+                    // without waiting for the next slow occluded tick.
+                    if let Some(w) = self.window.as_ref() {
+                        w.request_redraw();
+                    }
+                }
             }
             WindowEvent::Resized(s) => {
                 if let (Some(sf), Some(r)) = (self.surface.as_mut(), self.renderer.as_ref()) {
@@ -705,7 +725,11 @@ impl ApplicationHandler for Launcher {
         // (likewise the frame that opens it again for a window brought forward)
         let resting = !mobile::mobile() && self.renderer.is_some() && self.state.in_game() && !self.awake();
         let waking = !mobile::mobile() && self.renderer.is_none() && self.state.in_game() && self.awake();
-        let occluded = self.occluded && self.shot.is_none() && !resting && !waking && !self.script.iter().any(|(_, c)| c.starts_with("shot"));
+        // Device given up while a game runs: still need a redraw when the game ends so the
+        // device is opened again (Occluded alone used to leave the resting picture forever).
+        let resume_needed = !mobile::mobile() && self.renderer.is_none() && !self.state.in_game();
+        let occluded = self.occluded && self.shot.is_none() && !resting && !waking && !resume_needed
+            && !self.script.iter().any(|(_, c)| c.starts_with("shot"));
         let interval = if occluded {
             0.5
         } else if !self.focused && omsi_cfg::env::var_os("OMSI_BACKGROUND").is_none() {
@@ -732,6 +756,12 @@ impl ApplicationHandler for Launcher {
             self.update_discord();
             self.update_tick(event_loop);
             self.check_exit(event_loop);
+            // A game may have ended on this tick: wake so `frame` opens the device again.
+            if !mobile::mobile() && self.renderer.is_none() && !self.state.in_game() {
+                if let Some(w) = self.window.as_ref() {
+                    w.request_redraw();
+                }
+            }
         } else if let Some(w) = self.window.as_ref() {
             w.request_redraw();
         }
@@ -800,6 +830,9 @@ impl Launcher {
         }
         self.surface = None;
         self.drop_gpu();
+        if let Some(h) = self.gpu_rest_drop.take() {
+            let _ = h.join();
+        }
         self.renderer = None;
         self.make_surface();
         true
@@ -903,7 +936,11 @@ impl Launcher {
                 self.ui.discard_input();
                 #[cfg(not(target_os = "android"))]
                 self.update_discord();
-                return;
+                // `update` may have seen the game end: open the device this frame instead of
+                // returning with the resting picture until another redraw happens to notice.
+                if self.state.in_game() && !self.awake() {
+                    return;
+                }
             }
             if self.state.in_game() {
                 log::info!("launcher: its window is looked at while a game runs, the graphics device is opened again");
@@ -927,7 +964,18 @@ impl Launcher {
             log::info!("launcher: a game starts or runs, the graphics device is given up until it ends");
             self.surface = None;
             self.drop_gpu();
-            self.renderer = None;
+            // Dropping a wgpu device can wait on the GPU for seconds (especially while the
+            // game is opening the same card). Do it off the UI thread so Windows does not
+            // mark the launcher "Not Responding" over the resting picture.
+            if let Some(r) = self.renderer.take() {
+                if let Some(prev) = self.gpu_rest_drop.take() {
+                    let _ = prev.join();
+                }
+                self.gpu_rest_drop = std::thread::Builder::new()
+                    .name("launcher-gpu-rest".into())
+                    .spawn(move || drop(r))
+                    .ok();
+            }
         }
         if let Some(d) = presence_released.then(|| self.state.queued_launch.take()).flatten() {
             // Finish the Discord handoff in the background before starting the child.
@@ -1232,12 +1280,13 @@ impl Launcher {
         // the storage browser (or the update dialog) lies over the page: the page sees no
         // finger meanwhile
         let dialog = self.update_dialog_open();
-        let crash = !dialog && self.state.crash.is_some();
-        let reset = !dialog && !crash && self.pages.confirm_reset;
-        if self.browser.is_some() || dialog || crash || reset {
+        let disconnected = !dialog && self.state.disconnected.is_some();
+        let crash = !dialog && !disconnected && self.state.crash.is_some();
+        let reset = !dialog && !crash && !disconnected && self.pages.confirm_reset;
+        if self.browser.is_some() || dialog || crash || reset || disconnected {
             self.pages.pads.cancel_feedback_test();
         }
-        let saved = (self.browser.is_some() || dialog || crash || reset).then(|| {
+        let saved = (self.browser.is_some() || dialog || crash || reset || disconnected).then(|| {
             let i = self.ui.input.clone();
             self.ui.input.mouse = Vec2::new(-1e4, -1e4);
             self.ui.input.pressed = false;
@@ -1293,6 +1342,8 @@ impl Launcher {
             self.ui.input = i;
             if dialog {
                 self.draw_update_dialog();
+            } else if disconnected {
+                self.draw_disconnect_dialog();
             } else if crash {
                 self.draw_crash_dialog();
             } else if reset {

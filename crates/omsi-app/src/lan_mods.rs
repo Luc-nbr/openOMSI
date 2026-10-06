@@ -284,7 +284,10 @@ fn collect(args: &Args) -> (Manifest, Vec<PathBuf>) {
                 let lower = t.to_ascii_lowercase();
                 let is_ref = [".sco", ".sli", ".bus", ".ovh", ".zug", ".hum", ".owt"].iter().any(|e| lower.ends_with(e));
                 let relative = t.contains("..");
-                if !is_ref && !relative {
+                // a picture named from the root: a map's ground textures (`[groundtex]` of its
+                // global.cfg: `Texture\<map>\gras.jpg`) - without them its ground was white
+                let picture = [".bmp", ".jpg", ".jpeg", ".dds", ".tga", ".png"].iter().any(|e| lower.ends_with(e));
+                if !is_ref && !relative && !picture {
                     continue;
                 }
                 // a path from the root ("Sceneryobjects\\...") or from this file's folder
@@ -302,10 +305,15 @@ fn collect(args: &Args) -> (Manifest, Vec<PathBuf>) {
                         break;
                     }
                     let folder = if is_ref { owner_folder(&c) } else { c.rsplit_once('/').map(|(d, _)| d.to_string()) };
-                    if let Some(f) = folder.filter(|f| f.split('/').count() >= 2) {
-                        let before = files.len();
-                        want_folder(f, &mut files, &mut next);
-                        let _ = before;
+                    match folder.filter(|f| f.split('/').count() >= 2) {
+                        Some(f) => want_folder(f, &mut files, &mut next),
+                        // (one right in a content folder, `Texture\x.bmp`: that file alone)
+                        None if picture => {
+                            if let Some((_, path)) = omsi_cfg::find_in_roots(&c) {
+                                files.entry(c.to_lowercase()).or_insert((c.clone(), path));
+                            }
+                        }
+                        None => {}
                     }
                     break;
                 }

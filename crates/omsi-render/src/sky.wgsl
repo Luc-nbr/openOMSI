@@ -28,10 +28,33 @@ struct Camera {
     flags: vec4<f32>,
     light_view_proj_close: mat4x4<f32>,
     wind: vec4<f32>,
+    // Enhanced: the street lamps' shadow maps (the tiles under the far map), and the
+    // lights they belong to (-1: none)
+    lamp_view_proj: array<mat4x4<f32>, 4>,
+    lamp_shadow: vec4<f32>,
+    tree_wind: vec4<f32>,
 };
 
+// A hash of a lattice point, from its integer bits.
+//
+// It was the old `fract(sin(dot(q, k)) * 43758)` trick, and that is what put flat slabs across
+// the top of the sky. `cloud_fbm` below walks `q` up by 2.1 an octave from a world coordinate
+// that is kilometres wide, and once the argument of the `sin` reaches a few times 1e5 a
+// 32-bit float can no longer say where the fractional part of it lands: the hash comes out
+// constant over a whole lattice cell, so the noise reads as flat squares with hard edges in a
+// grid that turns with the camera - and only where the layer is thin enough to see through,
+// which is why it showed as a "seam" in the sky "only when there are clouds": the high thin
+// layer is the only thing up there in a clear sky, and it is faint. Integer bits do not lose
+// precision with distance.
 fn hash2(q: vec2<f32>) -> f32 {
-    return fract(sin(dot(q, vec2<f32>(127.1, 311.7))) * 43758.5453);
+    let x = bitcast<u32>(i32(floor(q.x)));
+    let y = bitcast<u32>(i32(floor(q.y)));
+    // (integer arithmetic in WGSL wraps, so these multiplications are modular already)
+    var h = (x * 0x8da6b343u) ^ (y * 0xd8163841u);
+    h = h ^ (h >> 13u);
+    h = h * 0x5bd1e995u;
+    h = h ^ (h >> 15u);
+    return f32(h & 0xffffu) / 65535.0;
 }
 
 fn vnoise(p: vec2<f32>) -> f32 {

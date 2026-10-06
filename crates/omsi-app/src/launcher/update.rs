@@ -220,6 +220,33 @@ mod hint_tests {
 }
 
 impl Launcher {
+    /// A game started from here was sent away by its server (kicked, banned) or turned away at
+    /// the door: the game is over, and this says so with the server's own message.
+    pub(super) fn draw_disconnect_dialog(&mut self) {
+        let Some(why) = self.state.disconnected.clone() else { return };
+        let size = self.ui.size;
+        let full = Rect::new(0.0, 0.0, size.x, size.y);
+        self.ui.solid(full);
+        self.ui.p().rect(full, omsi_ui::Color::rgba(0, 0, 0, 0.62));
+        let w = (size.x - 48.0).min(560.0);
+        let lead = omsi_ui::tr("The server ended your game. Its message:");
+        let th = self.ui.paragraph_height(&why, w - 48.0, 14.0, Weight::Regular).min(size.y * 0.4);
+        let h = (176.0 + th).min(size.y - 24.0);
+        let r = Rect::new((size.x - w) * 0.5, (size.y - h) * 0.5, w, h);
+        self.ui.panel(r);
+        let inner = Rect::new(r.x + 24.0, r.y + 20.0, r.w - 48.0, r.h - 40.0);
+        self.ui.icon("error", Vec2::new(inner.x + 14.0, inner.y + 14.0), 26.0, DANGER);
+        self.ui.text_in("Disconnected from the server", Rect::new(inner.x + 38.0, inner.y, inner.w - 38.0, 28.0), 18.0, Weight::Bold, TEXT, Align::Left);
+        self.ui.paragraph(&lead, Vec2::new(inner.x, inner.y + 40.0), inner.w, 13.0, Weight::Regular, TEXT_DIM);
+        self.ui.push_clip(Rect::new(inner.x, inner.y + 66.0, inner.w, th + 4.0), 0.0);
+        self.ui.paragraph(&why, Vec2::new(inner.x, inner.y + 66.0), inner.w, 14.0, Weight::Bold, TEXT);
+        self.ui.pop_clip();
+        let by = inner.bottom() - 38.0;
+        if self.ui.button("disconnect-close", Rect::new(inner.right() - 110.0, by, 110.0, 38.0), "Close", None, ButtonKind::Primary) {
+            self.state.disconnected = None;
+        }
+    }
+
     /// A game started from here ended on an error: what it said, and the ways to report it
     /// (the end of its log copied, or a GitHub issue opened with it).
     pub(super) fn draw_crash_dialog(&mut self) {

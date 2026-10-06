@@ -115,11 +115,13 @@ share_positions = 0
 # openOMSI plugin (as SaltyChat does for FiveM). voice_server_uid is the voice server's unique
 # id (its info panel; needed: without it there is no voice chat), voice_channel the in-game
 # channel's id or name (empty: no voice chat), voice_range how far a player is heard (m).
+# voice_radio (1/0): drivers get a bindable map-wide bus radio on top of proximity voice.
 # The channel and its password are sent to every player who joins
 voice_server_uid =
 voice_channel =
 voice_channel_password =
 voice_range = 20
+voice_radio = 1
 ";
 
 impl ServerCfg {

@@ -1089,6 +1089,7 @@ pub(crate) fn run_offscreen(
                 tour: duty.as_ref().map(|d| format!("{}/{}", d.line, d.tour)),
                 walker: None,
                 inside_of: None,
+                radio_keyed: false,
             };
             let updates = lan::tick(
                 l,
@@ -1168,6 +1169,7 @@ pub(crate) fn run_offscreen(
                             look_of(args),
                             &args.view,
                             settings.seat_pitch_deg,
+                            false,
                         );
                         cam = p.camera_look(&args.view, &camera, look, offscreen_orbit());
                         if args.view == "outside" {
@@ -1235,6 +1237,7 @@ pub(crate) fn run_offscreen(
                 lighting.puddle_parts = player.as_ref().into_iter().flat_map(|p| &p.vehicle.trailers)
                     .filter_map(|t| t.ty.def.bounding_box.map(|bb| (t.position, t.heading, bb))).take(3).collect();
                 lighting.detail = settings.detail_textures;
+                lighting.windy_trees = settings.windy_trees();
                 world.finish_texture_upgrades(&renderer, &mut scene);
                 let pixels = renderer.render_to_image(&mut scene, w, h, &cam, &lighting)?;
                 let path = out.with_file_name(format!(
@@ -1597,6 +1600,7 @@ pub(crate) fn run_offscreen(
                     look_of(&args),
                     &args.view,
                     settings.seat_pitch_deg,
+                    false,
                 );
                 let cam =
                     player.camera_look(&args.view, &camera, look, offscreen_orbit());
@@ -1869,6 +1873,7 @@ pub(crate) fn run_offscreen(
                 look_of(args),
                 &args.view,
                 settings.seat_pitch_deg,
+                false,
             );
             camera = player.camera_look(&args.view, &camera, look, offscreen_orbit());
             if args.view == "outside" {
@@ -2483,7 +2488,22 @@ pub(crate) fn run_offscreen(
     lighting.puddle_parts = player_ref.as_ref().or(player.as_ref()).into_iter().flat_map(|p| &p.vehicle.trailers)
         .filter_map(|t| t.ty.def.bounding_box.map(|bb| (t.position, t.heading, bb))).take(3).collect();
     lighting.detail = settings.detail_textures;
+    lighting.windy_trees = settings.windy_trees();
     lighting.glass_wind = player_ref.as_ref().or(player.as_ref()).map(|p| crate::lights::vehicle_velocity(&p.vehicle)).unwrap_or_default();
+    // OMSI_CONDENSATION=<minutes>,<people>[,engine 0/1]: the cabin air and the condensation
+    // on the player's glass after that long with that many aboard
+    if let (Ok(spec), Some(p)) = (omsi_cfg::env::var("OMSI_CONDENSATION"), player_ref.as_ref().or(player.as_ref())) {
+        let mut it = spec.split(',').map(|x| x.trim().parse::<f32>().unwrap_or(0.0));
+        let (minutes, people, engine) = (it.next().unwrap_or(15.0), it.next().unwrap_or(30.0) as usize, it.next().unwrap_or(1.0) > 0.5);
+        let mut ci = crate::condensation::inputs_for(&p.vehicle, &weather, people, 0);
+        ci.engine = engine;
+        let mut cabin = crate::condensation::CabinAir::new();
+        for _ in 0..(minutes * 60.0) as usize {
+            cabin.step(1.0, &ci);
+        }
+        log::info!("condensation after {minutes} min, {people} aboard: {cabin:?} -> {:?}", cabin.appearance());
+        lighting.condensation = cabin.appearance();
+    }
     // OMSI_GLASS_WIND=<m/s>: the rain on the glass as the bus would meet it at that speed
     if let (Some(v), Some(p)) = (omsi_cfg::env::var("OMSI_GLASS_WIND").ok().and_then(|v| v.parse::<f32>().ok()), player_ref.as_ref().or(player.as_ref())) {
         let h = p.vehicle.heading.to_radians();
@@ -2554,7 +2574,8 @@ pub(crate) fn run_offscreen(
             rn.tick(
                 1.0 / 30.0,
                 camera.position,
-                Vec3::ZERO,
+                // ([wind] direction (deg) and speed (m/s), as the window's frame takes it)
+                Vec3::new(weather.wind.0.to_radians().sin() * weather.wind.1, weather.wind.0.to_radians().cos() * weather.wind.1, 0.0),
                 &mut scene,
                 &player_ref.as_ref().or(player.as_ref()).map(|p| rain::vehicle_boxes(&p.vehicle)).unwrap_or_default(),
             );

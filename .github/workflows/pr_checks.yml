@@ -20,7 +20,7 @@ jobs:
       LOCALES: crates/omsi-app/locales/app.yml
       MAX_BYTES: 1000000
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Fetch the base commit
         run: git fetch --no-tags --depth=1 origin "$BASE"

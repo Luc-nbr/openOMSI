@@ -94,7 +94,10 @@ function omsi._tick(dt)
   for _, k in ipairs(omsi._keys()) do omsi.emit("key", k[1], k[2]) end
   if handlers.next_stop or handlers.view or handlers.duty or rawget(_G, "on_next_stop") or rawget(_G, "on_view") or rawget(_G, "on_duty") then
     local i = omsi.info()
-    if i.next_stop ~= last_info.next_stop and i.next_stop ~= nil then omsi.emit("next_stop", i.next_stop, last_info.next_stop) end
+    -- (also to a stop of the same name: the two sides of a road often share one)
+    if i.next_stop ~= nil and (i.next_stop ~= last_info.next_stop or i.next_stop_number ~= last_info.next_stop_number) then
+      omsi.emit("next_stop", i.next_stop, last_info.next_stop)
+    end
     if i.view ~= last_info.view then omsi.emit("view", i.view, last_info.view) end
     if (i.line or "") .. "/" .. (i.tour or "") ~= (last_info.line or "") .. "/" .. (last_info.tour or "") then omsi.emit("duty", i.line, i.tour) end
     last_info = i

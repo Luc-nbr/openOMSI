@@ -1,6 +1,6 @@
 # Dependency updates, once a week. Minor and patch versions of the crates come together in
-# one pull request so they do not flood the list; a new major version (wgpu, winit...) comes
-# on its own, as it usually needs code changes. Security fixes come whenever an advisory is
+# one pull request so they do not flood the list; a new major version (winit...) comes on
+# its own, as it usually needs code changes. Security fixes come whenever an advisory is
 # published, whatever the schedule.
 version: 2
 updates:
@@ -9,18 +9,43 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    # a release is only proposed once it is a week old: a broken or compromised one is
+    # usually yanked by then (security fixes do not wait)
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
+      # wgpu, wgpu-hal and naga are released together and must stay on one version (the
+      # game hands wgpu-hal's and naga's types to wgpu): their updates come as one pull
+      # request. A dependency goes into the first group that takes it, so this one comes
+      # before `crates`.
+      wgpu:
+        patterns:
+          - "wgpu"
+          - "wgpu-*"
+          - "naga"
       crates:
         update-types:
           - minor
           - patch
+    # a new major wgpu changes the experimental ray query API Enhanced+ is built on (and the
+    # gpu-allocator patch): it is moved to by hand
+    ignore:
+      - dependency-name: "wgpu"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "wgpu-*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "naga"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
       day: monday
+    # (a week old, as for the crates)
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns:

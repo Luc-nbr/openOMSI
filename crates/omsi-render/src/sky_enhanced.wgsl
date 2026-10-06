@@ -258,6 +258,7 @@ fn fs_enhanced(in: VsOut) -> @location(0) vec4<f32> {
     }
     let cube = textureSampleLevel(t_sky_cube, s_lin, vec3<f32>(ld.x, ld.z, ld.y), 0.0);
     var col = cube.rgb * enh.ground.w;
+    var sun_px = vec3<f32>(0.0);
     // the sun: a limb-darkened disc as bright as its irradiance spread over its size,
     // behind whatever cloud there is
     let sd = normalize(camera.sun_dir.xyz);
@@ -271,12 +272,13 @@ fn fs_enhanced(in: VsOut) -> @location(0) vec4<f32> {
         let h0 = camera.cam_pos.z - enh.fog.z;
         let t = air_of(d, 30000.0, h0, h0 + 30000.0 * max(d.z, 0.0), 0.0).a;
         let l = enh.sun_disc.rgb / (PI * r * r) * disc * limb * (1.0 - cover) * enh.lights.w * t;
-        col = col + l;
+        sun_px = l;
     }
     col = col + night_sky(d, cube.a, fwidth(d));
-    // the dome is drawn pre-exposed; the disc is kept within what the target and the glow
-    // filter handle
-    return vec4<f32>(min(col * pre, vec3<f32>(4000.0)), 1.0);
+    // the dome is drawn pre-exposed; the disc only a little over white: the eye's glare round
+    // it is drawn from its light (fog_lamps.wgsl `sun_glare`), and from the disc's pixels
+    // as well the glow would have counted it twice
+    return vec4<f32>(min(col * pre, vec3<f32>(4000.0)) + min(sun_px * pre, vec3<f32>(24.0)), 1.0);
 }
 
 fn star_hash(c: vec3<i32>) -> vec4<f32> {

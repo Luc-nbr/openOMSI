@@ -1132,6 +1132,65 @@ mod tests {
         assert_eq!(g.probe(4.0, 20.03, 2.0).below, None);
     }
 
+    #[test]
+    fn thin_triangle_queries_stay_on_the_finite_face() {
+        // An acute, sloping tip beside a road. Offset edge half-planes used to
+        // accept (13.8, 9.24), 1.8 m past the tip, and invent a height of 1.52 m.
+        let triangle = [Vec3::new(10.0, 10.0, 0.0), Vec3::new(12.0, 9.6, 0.8), Vec3::new(10.0, 9.999, 0.0)];
+        for reversed in [false, true] {
+            let mut face = triangle;
+            if reversed { face.swap(1, 2); }
+            for ridge in [false, true] {
+                let mut grid = DriveGrid::default();
+                assert!(grid.push_kind(face, ridge));
+                grid.build(300.0);
+                // The tip straddles a grid bucket boundary at x = 12: nearby
+                // points must still find it, but their heights stay on the tip.
+                for (x, y, expected) in [
+                    (11.0, 9.8, Some(0.4)),
+                    (12.002, 9.5996, Some(0.8)),
+                    (12.01, 9.598, None),
+                    (12.004, 9.596, None), // inside the expanded AABB, outside the radius
+                    (13.8, 9.24, None),
+                ] {
+                    let near = grid.probe(x, y, 0.5);
+                    let wall = grid.probe_walls(x, y, 1.0);
+                    let surface = grid.surface_below(x, y, 1.0).map(|(z, _)| z);
+                    let mut heights = [0.0; 4];
+                    let mut top = None;
+                    let count = grid.heights(x, y, &mut heights, &mut top);
+                    let actual = if ridge { wall.below } else { near.below.or(near.above) };
+                    match expected {
+                        Some(z) => {
+                            assert!((actual.unwrap() - z).abs() < 1e-4, "({x}, {y}): {actual:?}");
+                            assert!((0.0..=0.8).contains(&actual.unwrap()));
+                            if ridge {
+                                assert_eq!(near, Probe::default());
+                                assert_eq!(count, 0);
+                                assert_eq!(surface, None);
+                                assert_eq!(top, actual);
+                            } else {
+                                assert_eq!(wall, Probe::default());
+                                assert_eq!(count, 1);
+                                assert_eq!(heights[0], actual.unwrap());
+                                assert_eq!(surface, actual);
+                                assert_eq!(top, None);
+                                assert_eq!(near.below.is_some(), z <= 0.5);
+                            }
+                        }
+                        None => {
+                            assert_eq!(near, Probe::default(), "({x}, {y})");
+                            assert_eq!(wall, Probe::default());
+                            assert_eq!(surface, None);
+                            assert_eq!(count, 0);
+                            assert_eq!(top, None);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// A kerb: road at 0, pavement at 0.15 from x = 10 on, a bridge deck at 6 m over it all.
     #[test]
     fn drive_grid_probes_the_face_under_the_axle() {
@@ -1845,45 +1904,47 @@ impl Probe {
 pub const SEAM_TOLERANCE: f32 = 0.005;
 
 /// The barycentric weights of (x, y) in the plan view of triangle `a b c`, when the point
-/// lies inside it or no farther than `tol` metres outside any of its edges.
+/// lies inside it or no farther than `tol` metres from the finite triangle. Outside
+/// points use the nearest point on its boundary, so heights and UVs are not extrapolated.
 fn plan_weights(a: Vec3, b: Vec3, c: Vec3, x: f32, y: f32, tol: f32) -> Option<(f32, f32, f32)> {
-    let d = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
+    let [a, b, c] = [a, b, c].map(|v| v.truncate().as_dvec2());
+    let p = DVec2::new(x as f64, y as f64);
+    let d = (b - a).perp_dot(c - a);
     if d.abs() < 1e-9 {
         return None;
     }
-    let l1 = ((b.y - c.y) * (x - c.x) + (c.x - b.x) * (y - c.y)) / d;
-    let l2 = ((c.y - a.y) * (x - c.x) + (a.x - c.x) * (y - c.y)) / d;
-    let l3 = 1.0 - l1 - l2;
-    // a hair of tolerance so that a point on a shared edge is never missed
-    const EPS: f32 = -1e-4;
-    if l1 >= EPS && l2 >= EPS && l3 >= EPS {
-        return Some((l1, l2, l3));
+    let l2 = (p - a).perp_dot(c - a) / d;
+    let l3 = (b - a).perp_dot(p - a) / d;
+    let l1 = 1.0 - l2 - l3;
+    if l1 >= 0.0 && l2 >= 0.0 && l3 >= 0.0 {
+        return Some((l1 as f32, l2 as f32, l3 as f32));
     }
-    // the distance outside each edge: the weight times the height of the triangle over it
-    let edge = |p: Vec3, q: Vec3| ((p.x - q.x).powi(2) + (p.y - q.y).powi(2)).sqrt().max(1e-6);
-    let area2 = d.abs();
-    let out = |l: f32, len: f32| l * area2 / len >= -tol;
-    (out(l1, edge(b, c)) && out(l2, edge(c, a)) && out(l3, edge(a, b))).then_some((l1, l2, l3))
+
+    // Offsetting infinite edge lines creates a long wedge beyond an acute tip.
+    // Measure against the three finite segments instead, retaining the 5 mm seam.
+    let mut best_distance = f64::MAX;
+    let mut weights = (0.0, 0.0, 0.0);
+    for (u, v, edge) in [(a, b, 0), (b, c, 1), (c, a, 2)] {
+        let e = v - u;
+        let t = ((p - u).dot(e) / e.length_squared()).clamp(0.0, 1.0);
+        let distance = p.distance_squared(u + e * t);
+        if distance < best_distance {
+            best_distance = distance;
+            weights = match edge {
+                0 => (1.0 - t, t, 0.0),
+                1 => (0.0, 1.0 - t, t),
+                _ => (t, 0.0, 1.0 - t),
+            };
+        }
+    }
+    (best_distance <= (tol as f64).powi(2)).then_some((weights.0 as f32, weights.1 as f32, weights.2 as f32))
 }
 
-/// The box outside which [`plan_weights`] accepts no point of `abc` (unbounded for a sliver).
+/// The box outside which [`plan_weights`] accepts no point of `abc`, matching the
+/// seam-expanded bounds used to bucket the triangle in [`DriveGrid::build`].
 fn plan_reach(a: Vec3, b: Vec3, c: Vec3, tol: f32) -> [f32; 4] {
-    const ALL: [f32; 4] = [f32::MIN, f32::MIN, f32::MAX, f32::MAX];
-    let (p, q, r) = (a.truncate(), b.truncate(), c.truncate());
-    let area2 = ((q - p).perp_dot(r - p)).abs();
-    let lens = [(q - r).length(), (r - p).length(), (p - q).length()];
-    if area2 < 1e-6 || lens.iter().any(|l| *l < 1e-4) {
-        return ALL;
-    }
-    let push = lens.iter().map(|l| tol.max(2e-4 * area2 / l)).fold(0.0f32, f32::max);
-    let half_sin = |u: glam::Vec2, v: glam::Vec2| ((1.0 - u.normalize().dot(v.normalize()).clamp(-1.0, 1.0)) * 0.5).sqrt();
-    let s = half_sin(q - p, r - p).min(half_sin(p - q, r - q)).min(half_sin(p - r, q - r));
-    if s < 0.02 {
-        return ALL;
-    }
-    let m = push / s * 1.05 + 0.01;
-    let (lo, hi) = (p.min(q).min(r), p.max(q).max(r));
-    [lo.x - m, lo.y - m, hi.x + m, hi.y + m]
+    let (lo, hi) = (a.min(b).min(c), a.max(b).max(c));
+    [lo.x - tol, lo.y - tol, hi.x + tol, hi.y + tol]
 }
 
 /// A `.surf` map: a picture beside a road texture (`str_kopfgr01.bmp.surf`) whose red

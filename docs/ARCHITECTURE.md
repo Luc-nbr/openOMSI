@@ -1062,3 +1062,29 @@ Reverse engineered from Omsi.exe and put in place of our own guesses:
   Checked: desktop end to end on macOS (update, not now, auto, damaged file, read-only
   folder), Android end to end on the emulator (permission, cancel, update and restart),
   Windows `cargo check`.
+* **Windy trees** (`windy_trees` setting, Graphics tab; `OMSI_WINDY_TREES=0/1`): foliage of
+  plants (by `[groups]` or file name; `[tree]` cards too) bends above the crown's pivot as a
+  cantilever (shader.wgsl `tree_sway`): drag lean ~ v^1.5 (Vogel), gusts a frozen field
+  carried at the mean wind (Taylor, turbulence intensity 0.3), the tree's own swing at
+  1.6/sqrt(height) Hz, in every shadow pass too. `[tree]` cards are 2x6 quads with rows on the
+  pivots. `OMSI_RENDER_CLOCK=<s>` starts the animation clock later for offscreen stills.
+* **Window condensation** (`condensation.rs`, Enhanced): an energy and vapour balance of the
+  player's cabin - heater on the warming coolant with a thermostat, body heat and breath (wet
+  coats in rain), skin losses, air changes from fans, speed and open doors (an entry+exit door
+  counted once) - and each pane's film from the dew point at its inner face (Lewis' relation).
+  The defroster's patch grows as fast as its jet dries the film; a new bus or a jump starts
+  afresh. The shader takes optical depths: half the scattered light is diffracted (post.wgsl
+  `misted` blur), half wide-angle as a veil lit by street and cabin (some 15 % back, Briscoe
+  and Galvin). `OMSI_CONDENSATION=<min>,<people>[,engine]` for offscreen checks. Checked:
+  Grundorf SD202 D86 driver view in Schmuddelwetter, engine on (sides misted, windscreen
+  defrosted) and off (all misted, frame and dashboard sharp); trees in an 18 m/s storm.
+* **Enhanced paint**: a `[matl_envmap]` body is a clear coat (f0 0.04, its factor x mask its
+  smoothness: 1 and up polished, 0.05..0.2 satin trim, unmasked parts rough); bodies painted
+  through a `[matl_transmap]` (most mod buses and cars) reflect too - they were left out
+  and showed matte paint beside reflecting windows. Enhanced+ traces the coat like glass.
+* **Night adaptation (Enhanced)**: the lamp meter (`view_lamp_light`) takes the ground where
+  a grid of rays through the picture meets the street (the player's vehicle's height), not
+  points 1.6 m under the camera (in the air from any higher camera: a moonless night was
+  metered over lamp-lit lots and every lamp's light went white on modded maps), and adds
+  the lamps' glare in view (Stiles-Holladay veil, `glare_veil`). Checked on Derevenka
+  (mod map) against 0.1.1740 and on Grundorf.

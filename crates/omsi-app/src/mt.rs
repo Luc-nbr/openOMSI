@@ -79,6 +79,7 @@ fn nllb(lang: &str) -> Option<&'static str> {
         "pl" => "pol_Latn",
         "cs" => "ces_Latn",
         "es" => "spa_Latn",
+        "ca" => "cat_Latn",
         "it" => "ita_Latn",
         "be" => "bel_Cyrl",
         "kk" => "kaz_Cyrl",

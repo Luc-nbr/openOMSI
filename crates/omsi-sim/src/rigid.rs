@@ -1588,6 +1588,42 @@ mod tests {
         }
     }
 
+    #[test]
+    fn driving_past_a_thin_roadside_triangle_has_no_false_wall() {
+        let mut grid = omsi_geometry::DriveGrid::default();
+        grid.push([Vec3::ZERO, Vec3::new(30.0, 0.0, 0.0), Vec3::new(0.0, 50.0, 0.0)]);
+        grid.push([Vec3::new(30.0, 0.0, 0.0), Vec3::new(30.0, 50.0, 0.0), Vec3::new(0.0, 50.0, 0.0)]);
+        // Entirely beside the bus's wheel track. A tolerance on the infinite
+        // edge lines extended this face into the road and extrapolated its height.
+        grid.push([Vec3::new(10.0, 10.0, 0.0), Vec3::new(12.0, 9.6, 0.8), Vec3::new(10.0, 9.999, 0.0)]);
+        grid.build(300.0);
+        let ground = |x: f64, y: f64, top: f64| {
+            let p = grid.probe(x as f32, y as f32, top as f32);
+            GroundProbe { below: p.below.map(f64::from), above: p.above.map(f64::from) }
+        };
+        for fps in [30, 60] {
+            for kmh in [5.0, 40.0, 45.0, 60.0] {
+                let mut rb = RigidBody::from_definition(&bus(), &[]);
+                rb.place(DVec3::new(14.0, 4.0, 0.0), 0.0);
+                run(&mut rb, 2.0, 0.0, 0.0, &ground);
+                let speed = kmh / 3.6;
+                rb.velocity = Vec3::Y * speed;
+                for w in &mut rb.wheels { w.spin = speed / w.radius; }
+                let radius = rb.wheels.iter().find(|w| w.driven).unwrap().radius;
+                let dt = 1.0 / fps as f32;
+                // Hold speed with drive torque so the slow case crosses too.
+                for _ in 0..(18.0 / speed / dt).ceil() as usize {
+                    let torque = ((speed - rb.forward_speed()) * rb.mass * 2.0 + rb.rolling_resistance) * radius;
+                    rb.step(dt, torque, &[0.0; 4], 0.0, &ground);
+                    assert!(rb.wheel_impacts.is_empty(), "{kmh} km/h at {fps} fps: {:?}", rb.wheel_impacts);
+                    assert!(rb.wheels.iter().all(|w| w.walls.is_empty()), "{kmh} km/h at {fps} fps: false wheel wall");
+                }
+                assert!(rb.position.y > 20.0, "{kmh} km/h at {fps} fps: stopped at {:?}", rb.position);
+                assert!(rb.forward_speed() > speed * 0.9, "{kmh} km/h at {fps} fps: lost speed");
+            }
+        }
+    }
+
     /// `Axle_Steering_*` is the axle's angle, one for both sides, the same to the left as to
     /// the right (#953): the tyres keep their own Ackermann angles for the physics.
     #[test]

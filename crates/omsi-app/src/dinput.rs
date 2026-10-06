@@ -12,6 +12,7 @@
 //! a tenth of a second and stalls the reading of the devices even from another thread, so
 //! the old look every 3 seconds made driving stutter.
 
+use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -33,7 +34,11 @@ struct RawState {
 
 impl Default for RawState {
     fn default() -> Self {
-        RawState { axes: [0; 8], pov: [u32::MAX; 4], buttons: [0; 128] }
+        RawState {
+            axes: [0; 8],
+            pov: [u32::MAX; 4],
+            buttons: [0; 128],
+        }
     }
 }
 
@@ -50,6 +55,8 @@ pub(crate) struct Device {
     /// USB vendor and product from DirectInput's product GUID, when available.
     pub hardware_id: Option<(u16, u16)>,
     dev: IDirectInputDevice8W,
+    path: Option<String>,
+    retry_at: Option<Instant>,
     /// The slots the device has (an axis it lacks is not in the list).
     has_axis: [bool; 8],
     /// Hardware capability, also needed by the launcher which does not create effects.
@@ -59,7 +66,7 @@ pub(crate) struct Device {
     state: RawState,
     /// Whether `state` came from a successful read. Invalid state must never drive a bus.
     valid: bool,
-    /// Consecutive GetDeviceState failures after the usual reacquire attempt.
+    /// Consecutive Poll/GetDeviceState failures after the usual reacquire attempt.
     read_failures: u8,
     ff: Option<IDirectInputEffect>,
     ff_error_logged: bool,
@@ -78,7 +85,15 @@ fn reacquire(dev: &IDirectInputDevice8W, ff: bool) -> bool {
     unsafe {
         let _ = dev.Unacquire();
         if ff {
-            let mut ac = DIPROPDWORD { diph: DIPROPHEADER { dwSize: std::mem::size_of::<DIPROPDWORD>() as u32, dwHeaderSize: std::mem::size_of::<DIPROPHEADER>() as u32, dwObj: 0, dwHow: DIPH_DEVICE }, dwData: DIPROPAUTOCENTER_OFF };
+            let mut ac = DIPROPDWORD {
+                diph: DIPROPHEADER {
+                    dwSize: std::mem::size_of::<DIPROPDWORD>() as u32,
+                    dwHeaderSize: std::mem::size_of::<DIPROPHEADER>() as u32,
+                    dwObj: 0,
+                    dwHow: DIPH_DEVICE,
+                },
+                dwData: DIPROPAUTOCENTER_OFF,
+            };
             let _ = dev.SetProperty(prop(9), &mut ac.diph);
         }
         dev.Acquire().is_ok()
@@ -110,20 +125,60 @@ fn state_release_events(name: &str, state: &RawState) -> Vec<(String, usize, boo
     for (hat, pov) in state.pov.iter().copied().enumerate() {
         for (dir, down) in pov_dirs(pov).into_iter().enumerate() {
             if down {
-                out.push((name.to_string(), crate::controllers::HAT_BUTTONS + hat * 4 + dir, false));
+                out.push((
+                    name.to_string(),
+                    crate::controllers::HAT_BUTTONS + hat * 4 + dir,
+                    false,
+                ));
             }
         }
     }
     out
 }
 
+/// State snapshots have no chronological ordering between buttons. Release old gears
+/// before selecting new ones, even when the new gear has the lower button number.
+fn order_button_events(events: &mut [(String, usize, bool)]) {
+    events.sort_by_key(|(_, _, down)| *down);
+}
+
+fn invalidate_state(
+    name: &str,
+    state: &mut RawState,
+    valid: &mut bool,
+    events: &mut Vec<(String, usize, bool)>,
+) {
+    events.extend(state_release_events(name, state));
+    *state = RawState::default();
+    *valid = false;
+}
+
+fn state_axes(state: &RawState, valid: bool, has_axis: &[bool; 8]) -> Vec<(usize, f32)> {
+    if !valid {
+        return Vec::new();
+    }
+    (0..8)
+        .filter(|k| has_axis[*k])
+        .map(|k| (k, state.axes[k] as f32 / RANGE as f32))
+        .collect()
+}
+
 impl Device {
+    fn invalidate(&mut self, events: &mut Vec<(String, usize, bool)>) {
+        invalidate_state(&self.name, &mut self.state, &mut self.valid, events);
+        self.vib_last = (0, 0);
+        self.vib_at = None;
+        unsafe {
+            for effect in [self.ff.as_ref(), self.vib.as_ref()].into_iter().flatten() {
+                let _ = effect.Stop();
+            }
+            let _ = self.dev.Unacquire();
+        }
+    }
+
     /// The axes the device has: (slot, value -1..1).
     pub fn axes(&self) -> Vec<(usize, f32)> {
-        if !self.valid {
-            return Vec::new();
-        }
-        (0..8).filter(|k| self.has_axis[*k]).map(|k| (k, self.state.axes[k] as f32 / RANGE as f32)).collect()
+        state_axes(&self.state, self.valid, &self.has_axis)
     }
 
     pub fn has_ff(&self) -> bool {
@@ -144,8 +199,10 @@ pub(crate) struct DirectInput {
     /// A foreground FFB device must not be reacquired while the window is away.
     focused: bool,
     pub devices: Vec<Device>,
-    found: Arc<Mutex<Option<Vec<(GUID, String)>>>>,
+    found: Arc<Mutex<Option<ScanResult>>>,
     scan: mpsc::Sender<()>,
+    /// Retry only failed opens; do not enumerate every healthy wheel on a timer.
+    pending_open: Vec<(GUID, String, Instant, u32)>,
     /// Button changes since the last `poll`: (device, button, down).
     pub events: Vec<(String, usize, bool)>,
     last_force: Instant,
@@ -179,14 +236,23 @@ fn is_controller_device(dev_type: u32, usage_page: u16, usage: u16) -> bool {
     false
 }
 
-unsafe extern "system" fn collect(inst: *mut DIDEVICEINSTANCEW, out: *mut core::ffi::c_void) -> windows::core::BOOL {
+unsafe extern "system" fn collect(
+    inst: *mut DIDEVICEINSTANCEW,
+    out: *mut core::ffi::c_void,
+) -> windows::core::BOOL {
     let v = &mut *(out as *mut Vec<(GUID, String)>);
     let inst = &*inst;
     if !is_controller_device(inst.dwDevType, inst.wUsagePage, inst.wUsage) {
         return windows::core::BOOL(DIENUM_CONTINUE as i32);
     }
-    let end = inst.tszProductName.iter().position(|c| *c == 0).unwrap_or(inst.tszProductName.len());
-    let name = String::from_utf16_lossy(&inst.tszProductName[..end]).trim().to_string();
+    let end = inst
+        .tszProductName
+        .iter()
+        .position(|c| *c == 0)
+        .unwrap_or(inst.tszProductName.len());
+    let name = String::from_utf16_lossy(&inst.tszProductName[..end])
+        .trim()
+        .to_string();
     if !v.iter().any(|(g, _)| *g == inst.guidInstance) {
         v.push((inst.guidInstance, name));
     }
@@ -197,7 +263,14 @@ fn create() -> Option<IDirectInput8W> {
     unsafe {
         let hinst: HINSTANCE = GetModuleHandleW(None).ok()?.into();
         let mut p: *mut core::ffi::c_void = std::ptr::null_mut();
-        DirectInput8Create(hinst, DIRECTINPUT_VERSION, &IDirectInput8W::IID, &mut p, None).ok()?;
+        DirectInput8Create(
+            hinst,
+            DIRECTINPUT_VERSION,
+            &IDirectInput8W::IID,
+            &mut p,
+            None,
+        )
+        .ok()?;
         (!p.is_null()).then(|| IDirectInput8W::from_raw(p))
     }
 }
@@ -205,16 +278,78 @@ fn create() -> Option<IDirectInput8W> {
 fn list(di: &IDirectInput8W) -> Vec<(GUID, String)> {
     let mut v: Vec<(GUID, String)> = Vec::new();
     unsafe {
-        let _ = di.EnumDevices(DI8DEVCLASS_ALL, Some(collect), &mut v as *mut _ as *mut core::ffi::c_void, DIEDFL_ATTACHEDONLY);
+        let _ = di.EnumDevices(
+            DI8DEVCLASS_ALL,
+            Some(collect),
+            &mut v as *mut _ as *mut core::ffi::c_void,
+            DIEDFL_ATTACHEDONLY,
+        );
     }
     v
+}
+
+#[derive(Default)]
+struct ScanResult {
+    devices: Vec<(GUID, String)>,
+    removed_paths: Vec<String>,
+}
+
+// Each DirectInput worker owns its notification window. Keep removals on that thread,
+// so the launcher and game cannot consume each other's disconnect notifications.
+thread_local! {
+    static HID_REMOVALS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+fn removed_path(path: Option<&str>, removed: &[String]) -> bool {
+    path.is_some_and(|p| removed.iter().any(|r| r.eq_ignore_ascii_case(p)))
+}
+
+/// The wait before the next attempt at a device that would not open: 1 s, doubling, at most 30 s.
+fn retry_delay(tries: u32) -> Duration {
+    Duration::from_secs((1u64 << tries.min(5)).min(30))
+}
+
+/// Poll must succeed before reading state, including on the single retry after Acquire.
+/// The closures keep the lifecycle decision testable without manufacturing a COM handle.
+fn read_with_recovery<T, E>(
+    mut read: impl FnMut() -> Result<T, E>,
+    mut acquire: impl FnMut() -> bool,
+) -> Result<T, E> {
+    match read() {
+        Ok(state) => Ok(state),
+        Err(error) => {
+            if acquire() {
+                read()
+            } else {
+                Err(error)
+            }
+        }
+    }
 }
 
 /// How often Windows said a HID device came or went (see `notification_window`).
 static HID_CHANGES: AtomicU64 = AtomicU64::new(0);
 
 unsafe extern "system" fn notify_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
-    if msg == WM_DEVICECHANGE && matches!(wp.0 as u32, DBT_DEVICEARRIVAL | DBT_DEVICEREMOVECOMPLETE) {
+    if msg == WM_DEVICECHANGE && matches!(wp.0 as u32, DBT_DEVICEARRIVAL | DBT_DEVICEREMOVECOMPLETE)
+    {
+        if wp.0 as u32 == DBT_DEVICEREMOVECOMPLETE && lp.0 != 0 {
+            let header = &*(lp.0 as *const DEV_BROADCAST_HDR);
+            if header.dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE {
+                let interface = lp.0 as *const DEV_BROADCAST_DEVICEINTERFACE_W;
+                let offset = std::mem::offset_of!(DEV_BROADCAST_DEVICEINTERFACE_W, dbcc_name);
+                let size = header.dbch_size as usize;
+                if size > offset {
+                    let chars = std::slice::from_raw_parts(
+                        std::ptr::addr_of!((*interface).dbcc_name).cast::<u16>(),
+                        (size - offset) / 2,
+                    );
+                    let end = chars.iter().position(|c| *c == 0).unwrap_or(chars.len());
+                    let path = String::from_utf16_lossy(&chars[..end]);
+                    HID_REMOVALS.with(|paths| paths.borrow_mut().push(path));
+                }
+            }
+        }
         HID_CHANGES.fetch_add(1, Ordering::Relaxed);
     }
     unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
@@ -226,17 +361,42 @@ fn notification_window() -> Option<HWND> {
     unsafe {
         let hinst: HINSTANCE = GetModuleHandleW(None).ok()?.into();
         let class = w!("openOMSI game controllers");
-        let wc = WNDCLASSW { lpfnWndProc: Some(notify_proc), hInstance: hinst, lpszClassName: class, ..Default::default() };
+        let wc = WNDCLASSW {
+            lpfnWndProc: Some(notify_proc),
+            hInstance: hinst,
+            lpszClassName: class,
+            ..Default::default()
+        };
         // (0 when the class is there already - a second window of the launcher's)
         let _ = RegisterClassW(&wc);
-        let hwnd = CreateWindowExW(WINDOW_EX_STYLE(0), class, w!(""), WINDOW_STYLE(0), 0, 0, 0, 0, Some(HWND_MESSAGE), None, Some(hinst), None).ok()?;
+        let hwnd = CreateWindowExW(
+            WINDOW_EX_STYLE(0),
+            class,
+            w!(""),
+            WINDOW_STYLE(0),
+            0,
+            0,
+            0,
+            0,
+            Some(HWND_MESSAGE),
+            None,
+            Some(hinst),
+            None,
+        )
+        .ok()?;
         let filter = DEV_BROADCAST_DEVICEINTERFACE_W {
             dbcc_size: std::mem::size_of::<DEV_BROADCAST_DEVICEINTERFACE_W>() as u32,
             dbcc_devicetype: DBT_DEVTYP_DEVICEINTERFACE.0,
             dbcc_classguid: GUID_DEVINTERFACE_HID,
             ..Default::default()
         };
-        if RegisterDeviceNotificationW(HANDLE(hwnd.0), &filter as *const _ as *const core::ffi::c_void, DEVICE_NOTIFY_WINDOW_HANDLE).is_err() {
+        if RegisterDeviceNotificationW(
+            HANDLE(hwnd.0),
+            &filter as *const _ as *const core::ffi::c_void,
+            DEVICE_NOTIFY_WINDOW_HANDLE,
+        )
+        .is_err()
+        {
             let _ = DestroyWindow(hwnd);
             return None;
         }
@@ -251,10 +411,17 @@ struct InputObject {
     flags: u32,
 }
 
-unsafe extern "system" fn collect_object(inst: *mut DIDEVICEOBJECTINSTANCEW, out: *mut core::ffi::c_void) -> windows::core::BOOL {
+unsafe extern "system" fn collect_object(
+    inst: *mut DIDEVICEOBJECTINSTANCEW,
+    out: *mut core::ffi::c_void,
+) -> windows::core::BOOL {
     let objects = &mut *(out as *mut Vec<InputObject>);
     let inst = &*inst;
-    objects.push(InputObject { guid: inst.guidType, ty: inst.dwType, flags: inst.dwFlags });
+    objects.push(InputObject {
+        guid: inst.guidType,
+        ty: inst.dwType,
+        flags: inst.dwFlags,
+    });
     windows::core::BOOL(DIENUM_CONTINUE as i32)
 }
 
@@ -289,7 +456,9 @@ fn format_objects(objects: &[InputObject]) -> (Vec<DIOBJECTDATAFORMAT>, [bool; 8
     let mut buttons = [false; 128];
     for object in objects {
         let (offset, flags) = if object.ty & DIDFT_AXIS != 0 {
-            let Some(slot) = axis_slot(object.guid, &has_axis) else { continue };
+            let Some(slot) = axis_slot(object.guid, &has_axis) else {
+                continue;
+            };
             if has_axis[slot] {
                 continue;
             }
@@ -316,7 +485,12 @@ fn format_objects(objects: &[InputObject]) -> (Vec<DIOBJECTDATAFORMAT>, [bool; 8
         };
         // The exact instance number is already part of dwType, so the GUID is unnecessary
         // here and we do not keep pointers into the temporary enumeration buffer.
-        objs.push(DIOBJECTDATAFORMAT { pguid: std::ptr::null(), dwOfs: offset, dwType: object.ty, dwFlags: flags });
+        objs.push(DIOBJECTDATAFORMAT {
+            pguid: std::ptr::null(),
+            dwOfs: offset,
+            dwType: object.ty,
+            dwFlags: flags,
+        });
     }
     (objs, has_axis, ff_axes)
 }
@@ -341,16 +515,32 @@ fn force_axes(has_axis: &[bool; 8], actuators: &[u32]) -> Vec<u32> {
     out
 }
 
-fn data_format(dev: &IDirectInputDevice8W) -> Option<(Vec<DIOBJECTDATAFORMAT>, DIDATAFORMAT, [bool; 8], Vec<u32>)> {
+fn data_format(
+    dev: &IDirectInputDevice8W,
+) -> Option<(
+    Vec<DIOBJECTDATAFORMAT>,
+    DIDATAFORMAT,
+    [bool; 8],
+    Vec<u32>,
+)> {
     let mut objects = Vec::new();
     unsafe {
-        dev.EnumObjects(Some(collect_object), &mut objects as *mut _ as *mut core::ffi::c_void, DIDFT_ALL).ok()?;
+        dev.EnumObjects(
+            Some(collect_object),
+            &mut objects as *mut _ as *mut core::ffi::c_void,
+            DIDFT_ALL,
+        )
+        .ok()?;
     }
     let (objs, has_axis, ff_axes) = format_objects(&objects);
     if objs.is_empty() {
         return None;
     }
-    let dw_flags = if has_axis.iter().any(|&a| a) { DIDF_ABSAXIS } else { 0 };
+    let dw_flags = if has_axis.iter().any(|&a| a) {
+        DIDF_ABSAXIS
+    } else {
+        0
+    };
     let f = DIDATAFORMAT {
         dwSize: std::mem::size_of::<DIDATAFORMAT>() as u32,
         dwObjSize: std::mem::size_of::<DIOBJECTDATAFORMAT>() as u32,
@@ -374,7 +564,10 @@ impl DirectInput {
     }
 
     pub fn force_axis(&self, name: &str) -> Option<usize> {
-        self.devices.iter().find(|d| d.name == name && d.ff.is_some()).map(|d| d.ff_axis as usize / 4)
+        self.devices
+            .iter()
+            .find(|d| d.name == name && d.ff.is_some())
+            .map(|d| d.ff_axis as usize / 4)
     }
 
     /// `hwnd`: the window the devices belong to; `ff`: take the devices for force feedback
@@ -383,8 +576,22 @@ impl DirectInput {
         let di = create()?;
         let first = list(&di);
         let initially_empty = first.is_empty();
-        log::info!("game controllers (DirectInput): {}", if first.is_empty() { "none".to_string() } else { first.iter().map(|d| d.1.as_str()).collect::<Vec<_>>().join(", ") });
-        let found = Arc::new(Mutex::new(Some(first)));
+        log::info!(
+            "game controllers (DirectInput): {}",
+            if first.is_empty() {
+                "none".to_string()
+            } else {
+                first
+                    .iter()
+                    .map(|d| d.1.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            }
+        );
+        let found = Arc::new(Mutex::new(Some(ScanResult {
+            devices: first,
+            removed_paths: Vec::new(),
+        })));
         let f2 = found.clone();
         let (scan, requests) = mpsc::channel::<()>();
         let _ = std::thread::Builder::new().name("game controllers".into()).spawn(move || {
@@ -439,11 +646,26 @@ impl DirectInput {
                     let v = list(&di);
                     empty = v.is_empty();
                     log::info!("game controllers found: {}", v.iter().map(|d| d.1.as_str()).collect::<Vec<_>>().join(", "));
-                    *f2.lock().unwrap() = Some(v);
+                    let mut found = f2.lock().unwrap();
+                    // A second enumeration must not overwrite a removal before poll consumes it.
+                    let mut removed_paths = found.take().map(|r| r.removed_paths).unwrap_or_default();
+                    HID_REMOVALS.with(|paths| removed_paths.append(&mut paths.borrow_mut()));
+                    *found = Some(ScanResult { devices: v, removed_paths });
                 }
             }
         });
-        Some(DirectInput { di, hwnd: HWND(hwnd as *mut _), ff, focused: true, devices: Vec::new(), found, scan, events: Vec::new(), last_force: Instant::now() })
+        Some(DirectInput {
+            di,
+            hwnd: HWND(hwnd as *mut _),
+            ff,
+            focused: true,
+            devices: Vec::new(),
+            found,
+            scan,
+            pending_open: Vec::new(),
+            events: Vec::new(),
+            last_force: Instant::now(),
+        })
     }
 
     /// Let go of foreground effects when the game loses focus, then take them once on return.
@@ -452,13 +674,18 @@ impl DirectInput {
             return;
         }
         self.focused = focused;
-        log::info!("game controllers: window {} focus; {} DirectInput device(s)", if focused { "regained" } else { "lost" }, self.devices.len());
+        log::info!(
+            "game controllers: window {} focus; {} DirectInput device(s)",
+            if focused { "regained" } else { "lost" },
+            self.devices.len()
+        );
         let mut reopen = Vec::new();
         for d in &mut self.devices {
             unsafe {
                 if focused {
                     d.valid = false;
                     d.read_failures = 0;
+                    d.retry_at = None;
                     if !reacquire(&d.dev, d.ff.is_some()) {
                         log::warn!("{}: DirectInput could not reacquire the device after focus returned; reopening it", d.name);
                         reopen.push((d.guid, d.name.clone()));
@@ -492,16 +719,31 @@ impl DirectInput {
         if reopen.is_empty() {
             return;
         }
-        self.devices.retain(|d| !reopen.iter().any(|(guid, _)| *guid == d.guid));
+        for d in self
+            .devices
+            .iter_mut()
+            .filter(|d| reopen.iter().any(|(guid, _)| *guid == d.guid))
+        {
+            d.invalidate(&mut self.events);
+            log::warn!(
+                "{}: DirectInput stale device; discarding and reopening",
+                d.name
+            );
+        }
+        self.devices
+            .retain(|d| !reopen.iter().any(|(guid, _)| *guid == d.guid));
         let mut rescan = false;
         for (guid, name) in reopen {
-            match self.open(&guid, &name) {
+            match self.open(&guid, &name, false) {
                 Some(d) => {
                     log::info!("{name}: DirectInput device reopened");
                     self.devices.push(d);
                 }
                 None => {
                     log::warn!("{name}: DirectInput device could not be reopened; asking Windows to enumerate controllers again");
+                    if !self.pending_open.iter().any(|(g, ..)| *g == guid) {
+                        self.pending_open.push((guid, name, Instant::now() + retry_delay(0), 1));
+                    }
                     rescan = true;
                 }
             }
@@ -516,31 +758,71 @@ impl DirectInput {
         let _ = self.scan.send(());
     }
 
-    fn open(&self, guid: &GUID, name: &str) -> Option<Device> {
+    /// `retry`: a delayed attempt after a failed one, whose failure was already reported (its
+    /// messages go to the debug log).
+    fn open(&self, guid: &GUID, name: &str, retry: bool) -> Option<Device> {
+        let warn = if retry { log::Level::Debug } else { log::Level::Warn };
         unsafe {
             let mut dev: Option<IDirectInputDevice8W> = None;
             self.di.CreateDevice(guid, &mut dev, None).ok()?;
             let dev = dev?;
-            let mut info = DIDEVICEINSTANCEW { dwSize: std::mem::size_of::<DIDEVICEINSTANCEW>() as u32, ..Default::default() };
+            let mut info = DIDEVICEINSTANCEW {
+                dwSize: std::mem::size_of::<DIDEVICEINSTANCEW>() as u32,
+                ..Default::default()
+            };
             let hardware_id = dev.GetDeviceInfo(&mut info).ok().and_then(|_| {
                 let vid = info.guidProduct.data1 as u16;
                 let pid = (info.guidProduct.data1 >> 16) as u16;
                 (vid != 0 && pid != 0).then_some((vid, pid))
             });
+            let mut identity = DIPROPGUIDANDPATH {
+                diph: DIPROPHEADER {
+                    dwSize: std::mem::size_of::<DIPROPGUIDANDPATH>() as u32,
+                    dwHeaderSize: std::mem::size_of::<DIPROPHEADER>() as u32,
+                    dwObj: 0,
+                    dwHow: DIPH_DEVICE,
+                },
+                ..Default::default()
+            };
+            let path = dev
+                .GetProperty(prop(12), &mut identity.diph)
+                .ok()
+                .and_then(|_| {
+                    let end = identity
+                        .wszPath
+                        .iter()
+                        .position(|c| *c == 0)
+                        .unwrap_or(identity.wszPath.len());
+                    (end != 0).then(|| String::from_utf16_lossy(&identity.wszPath[..end]))
+                });
+            let id = hardware_id
+                .map(|(vid, pid)| format!("{vid:04X}/{pid:04X}"))
+                .unwrap_or_else(|| "unknown".into());
+            log::log!(
+                if retry { log::Level::Debug } else { log::Level::Info },
+                "{name}: DirectInput identity VID/PID {id}, instance {guid:?}, HID path {path:?}"
+            );
             let Some((mut objs, mut fmt, has_axis, ff_axes)) = data_format(&dev) else {
-                log::warn!("{name}: DirectInput could not list the device's controls");
+                log::log!(warn, "{name}: DirectInput could not list the device's controls");
                 return None;
             };
             fmt.rgodf = objs.as_mut_ptr();
             if let Err(e) = dev.SetDataFormat(&mut fmt) {
-                log::warn!("{name}: DirectInput rejected the device's data format ({e})");
+                log::log!(warn, "{name}: DirectInput rejected the device's data format ({e})");
                 return None;
             }
-            let mut caps = DIDEVCAPS { dwSize: std::mem::size_of::<DIDEVCAPS>() as u32, ..Default::default() };
+            let mut caps = DIDEVCAPS {
+                dwSize: std::mem::size_of::<DIDEVCAPS>() as u32,
+                ..Default::default()
+            };
             let _ = dev.GetCapabilities(&mut caps);
             let ff_capable = caps.dwFlags & DIDC_FORCEFEEDBACK != 0;
             let mut wants_ff = self.ff && ff_capable;
-            let level = if wants_ff { DISCL_EXCLUSIVE | DISCL_FOREGROUND } else { DISCL_NONEXCLUSIVE | DISCL_BACKGROUND };
+            let level = if wants_ff {
+                DISCL_EXCLUSIVE | DISCL_FOREGROUND
+            } else {
+                DISCL_NONEXCLUSIVE | DISCL_BACKGROUND
+            };
             if let Err(e) = dev.SetCooperativeLevel(self.hwnd, level) {
                 if wants_ff {
                     // (forces need the device to themselves: another program - the wheel's
@@ -548,17 +830,35 @@ impl DirectInput {
                     log::warn!("{name}: force feedback needs the device to itself, which Windows refused ({e}): no forces");
                     wants_ff = false;
                 }
-                dev.SetCooperativeLevel(self.hwnd, DISCL_NONEXCLUSIVE | DISCL_BACKGROUND).ok()?;
+                dev.SetCooperativeLevel(self.hwnd, DISCL_NONEXCLUSIVE | DISCL_BACKGROUND)
+                    .ok()?;
             }
             // every axis from -RANGE to RANGE
-            let mut range = DIPROPRANGE { diph: DIPROPHEADER { dwSize: std::mem::size_of::<DIPROPRANGE>() as u32, dwHeaderSize: std::mem::size_of::<DIPROPHEADER>() as u32, dwObj: 0, dwHow: DIPH_DEVICE }, lMin: -RANGE, lMax: RANGE };
+            let mut range = DIPROPRANGE {
+                diph: DIPROPHEADER {
+                    dwSize: std::mem::size_of::<DIPROPRANGE>() as u32,
+                    dwHeaderSize: std::mem::size_of::<DIPROPHEADER>() as u32,
+                    dwObj: 0,
+                    dwHow: DIPH_DEVICE,
+                },
+                lMin: -RANGE,
+                lMax: RANGE,
+            };
             let _ = dev.SetProperty(prop(4), &mut range.diph);
             // no dead zone and no saturation of the driver's own (DIPROP_DEADZONE 5,
             // DIPROP_SATURATION 6): some wheels' drivers set one - a PXN V99 lost 30 % of
             // its turn round the middle - and OMSI clears them as well; the settings'
             // dead zone is the only one
             for (p_id, v) in [(5usize, 0u32), (6, 10_000)] {
-                let mut d = DIPROPDWORD { diph: DIPROPHEADER { dwSize: std::mem::size_of::<DIPROPDWORD>() as u32, dwHeaderSize: std::mem::size_of::<DIPROPHEADER>() as u32, dwObj: 0, dwHow: DIPH_DEVICE }, dwData: v };
+                let mut d = DIPROPDWORD {
+                    diph: DIPROPHEADER {
+                        dwSize: std::mem::size_of::<DIPROPDWORD>() as u32,
+                        dwHeaderSize: std::mem::size_of::<DIPROPHEADER>() as u32,
+                        dwObj: 0,
+                        dwHow: DIPH_DEVICE,
+                    },
+                    dwData: v,
+                };
                 let _ = dev.SetProperty(prop(p_id), &mut d.diph);
             }
             let candidates = force_axes(&has_axis, &ff_axes);
@@ -567,7 +867,15 @@ impl DirectInput {
             let mut vib = None;
             if wants_ff {
                 // the wheel's own centring off: the game's forces take its place
-                let mut ac = DIPROPDWORD { diph: DIPROPHEADER { dwSize: std::mem::size_of::<DIPROPDWORD>() as u32, dwHeaderSize: std::mem::size_of::<DIPROPHEADER>() as u32, dwObj: 0, dwHow: DIPH_DEVICE }, dwData: DIPROPAUTOCENTER_OFF };
+                let mut ac = DIPROPDWORD {
+                    diph: DIPROPHEADER {
+                        dwSize: std::mem::size_of::<DIPROPDWORD>() as u32,
+                        dwHeaderSize: std::mem::size_of::<DIPROPHEADER>() as u32,
+                        dwObj: 0,
+                        dwHow: DIPH_DEVICE,
+                    },
+                    dwData: DIPROPAUTOCENTER_OFF,
+                };
                 if let Err(err) = dev.SetProperty(prop(9), &mut ac.diph) {
                     log::warn!("{name}: autocenter could not be disabled ({err})");
                 }
@@ -627,7 +935,12 @@ impl DirectInput {
                     ..Default::default()
                 };
                 if ff.is_some() && hardware_id != Some(VJOY_HARDWARE_ID) {
-                    let mut pf = DIPERIODIC { dwMagnitude: 0, lOffset: 0, dwPhase: 0, dwPeriod: 100_000 };
+                    let mut pf = DIPERIODIC {
+                        dwMagnitude: 0,
+                        lOffset: 0,
+                        dwPhase: 0,
+                        dwPeriod: 100_000,
+                    };
                     eff.cbTypeSpecificParams = std::mem::size_of::<DIPERIODIC>() as u32;
                     eff.lpvTypeSpecificParams = &mut pf as *mut _ as *mut core::ffi::c_void;
                     let mut e: Option<IDirectInputEffect> = None;
@@ -637,8 +950,40 @@ impl DirectInput {
                     }
                 }
             }
-            log::info!("game controller (DirectInput): {name}, {} axes, {} buttons{}", has_axis.iter().filter(|a| **a).count(), caps.dwButtons, if ff.is_some() { format!(", force feedback on axis {} (the driver's actuators: {:?})", ff_axis / 4, ff_axes.iter().map(|a| a / 4).collect::<Vec<_>>()) } else if ff_capable && self.ff { ", force feedback capable (effect unavailable)".into() } else if ff_capable { ", force feedback capable".into() } else { String::new() });
-            Some(Device { name: name.to_string(), guid: *guid, hardware_id, dev, has_axis, ff_capable, ff_axis, state: RawState::default(), valid: false, read_failures: 0, ff, ff_error_logged: false, vib, vib_last: (0, 0), vib_at: None, buttons: caps.dwButtons as usize })
+            log::info!(
+                "game controller (DirectInput): {name}, {} axes, {} buttons{}",
+                has_axis.iter().filter(|a| **a).count(),
+                caps.dwButtons,
+                if ff.is_some() {
+                    format!(", force feedback on axis {}", ff_axis / 4)
+                } else if ff_capable && self.ff {
+                    ", force feedback capable (effect unavailable)".into()
+                } else if ff_capable {
+                    ", force feedback capable".into()
+                } else {
+                    String::new()
+                }
+            );
+            Some(Device {
+                name: name.to_string(),
+                guid: *guid,
+                hardware_id,
+                dev,
+                path,
+                retry_at: None,
+                has_axis,
+                ff_capable,
+                ff_axis,
+                state: RawState::default(),
+                valid: false,
+                read_failures: 0,
+                ff,
+                ff_error_logged: false,
+                vib,
+                vib_last: (0, 0),
+                vib_at: None,
+                buttons: caps.dwButtons as usize,
+            })
         }
     }
 
@@ -648,52 +993,130 @@ impl DirectInput {
             // Releases queued by set_focus(false) still have to reach the vehicle.
             return;
         }
-        if let Some(list) = self.found.lock().unwrap().take() {
-            for d in self.devices.iter().filter(|d| !list.iter().any(|(g, _)| *g == d.guid)) {
-                log::info!("{}: DirectInput device removed", d.name);
-                self.events.extend(state_release_events(&d.name, &d.state));
+        let found = self.found.lock().unwrap().take();
+        if let Some(found) = found {
+            let list = found.devices;
+            self.pending_open
+                .retain(|(g, ..)| list.iter().any(|(current, _)| g == current));
+            for d in &mut self.devices {
+                if !list.iter().any(|(g, _)| *g == d.guid)
+                    || removed_path(d.path.as_deref(), &found.removed_paths)
+                {
+                    log::info!(
+                        "{}: DirectInput device removed/re-enumerated; discarding old instance",
+                        d.name
+                    );
+                    d.invalidate(&mut self.events);
+                }
             }
-            self.devices.retain(|d| list.iter().any(|(g, _)| *g == d.guid));
+            self.devices.retain(|d| {
+                list.iter().any(|(g, _)| *g == d.guid)
+                    && !removed_path(d.path.as_deref(), &found.removed_paths)
+            });
             for (g, name) in list {
                 if !self.devices.iter().any(|d| d.guid == g) {
-                    match self.open(&g, &name) {
-                        Some(d) => self.devices.push(d),
-                        None => log::debug!("DirectInput device {name}: not an active controller or could not be opened"),
+                    match self.open(&g, &name, false) {
+                        Some(d) => {
+                            log::info!("{name}: DirectInput device opened after enumeration");
+                            self.devices.push(d);
+                        }
+                        None => {
+                            log::debug!(
+                                "DirectInput device {name}: could not be opened; delaying retry"
+                            );
+                            if !self
+                                .pending_open
+                                .iter()
+                                .any(|(pending, ..)| *pending == g)
+                            {
+                                self.pending_open.push((g, name, Instant::now() + retry_delay(0), 1));
+                            }
+                        }
                     }
                 }
             }
         }
-        let mut reopen = Vec::new();
-        for d in &mut self.devices {
-            let mut s = RawState { axes: d.state.axes, ..Default::default() };
-            let read = |s: &mut RawState| unsafe {
-                let _ = d.dev.Poll();
-                d.dev.GetDeviceState(std::mem::size_of::<RawState>() as u32, s as *mut _ as *mut core::ffi::c_void)
-            };
-            let ok = match read(&mut s) {
-                Ok(()) => true,
-                Err(_) => reacquire(&d.dev, d.ff.is_some()) && read(&mut s).is_ok(),
-            };
-            if !ok {
-                d.valid = false;
-                d.read_failures = d.read_failures.saturating_add(1);
-                if d.read_failures >= READ_FAILURE_LIMIT {
-                    log::warn!("{}: DirectInput state failed {} times; reopening the device", d.name, d.read_failures);
-                    self.events.extend(state_release_events(&d.name, &d.state));
-                    d.state = RawState::default();
-                    unsafe {
-                        if let Some(e) = d.ff.as_ref() {
-                            let _ = e.Stop();
-                        }
-                        if let Some(e) = d.vib.as_ref() {
-                            let _ = e.Stop();
-                        }
-                        let _ = d.dev.Unacquire();
-                    }
-                    reopen.push((d.guid, d.name.clone()));
-                }
+        let pending = std::mem::take(&mut self.pending_open);
+        for (guid, name, at, tries) in pending {
+            if self.devices.iter().any(|d| d.guid == guid) {
                 continue;
             }
+            if Instant::now() < at {
+                self.pending_open.push((guid, name, at, tries));
+            } else if let Some(d) = self.open(&guid, &name, true) {
+                log::info!(
+                    "{name}: DirectInput device reopened after delayed driver initialization"
+                );
+                self.devices.push(d);
+            } else {
+                // 1 s, 2 s, 4 s ... up to 30 s; a device plugged in or out starts over
+                self.pending_open
+                    .push((guid, name, Instant::now() + retry_delay(tries), tries + 1));
+            }
+        }
+        let mut reopen = Vec::new();
+        for d in &mut self.devices {
+            if d.retry_at.is_some_and(|at| Instant::now() < at) {
+                continue;
+            }
+            let log_failure = d.read_failures == 0;
+            let read = || unsafe {
+                if let Err(error) = d.dev.Poll() {
+                    if log_failure {
+                        log::warn!("{}: DirectInput Poll failed ({error})", d.name);
+                    }
+                    return Err(error);
+                }
+                let mut state = RawState::default();
+                let result = d.dev.GetDeviceState(
+                    std::mem::size_of::<RawState>() as u32,
+                    &mut state as *mut _ as *mut core::ffi::c_void,
+                );
+                if let Err(error) = &result {
+                    if log_failure {
+                        log::warn!("{}: DirectInput GetDeviceState failed ({error})", d.name);
+                    }
+                }
+                result.map(|_| state)
+            };
+            let attempted = Cell::new(false);
+            let result = read_with_recovery(read, || {
+                attempted.set(true);
+                if log_failure {
+                    log::info!("{}: DirectInput attempting reacquire", d.name);
+                }
+                let acquired = reacquire(&d.dev, d.ff.is_some());
+                if log_failure {
+                    log::info!(
+                        "{}: DirectInput reacquire {}",
+                        d.name,
+                        if acquired { "succeeded" } else { "failed" }
+                    );
+                }
+                acquired
+            });
+            if attempted.get() {
+                d.vib_last = (0, 0);
+                d.vib_at = None;
+            }
+            let s = match result {
+                Ok(state) => state,
+                Err(_) => {
+                    // Release immediately, not after the stale-object threshold. No cached
+                    // button, hat, axis or effect may remain active during recovery.
+                    d.invalidate(&mut self.events);
+                    d.read_failures = d.read_failures.saturating_add(1);
+                    d.retry_at = Some(Instant::now() + Duration::from_millis(250));
+                    if d.read_failures >= READ_FAILURE_LIMIT {
+                        reopen.push((d.guid, d.name.clone()));
+                    }
+                    continue;
+                }
+            };
+            if d.read_failures != 0 {
+                log::info!("{}: DirectInput valid state recovered", d.name);
+            }
+            d.retry_at = None;
             d.read_failures = 0;
             d.valid = true;
             for b in 0..128 {
@@ -708,23 +1131,43 @@ impl DirectInput {
                 let (was, now) = (pov_dirs(d.state.pov[k]), pov_dirs(s.pov[k]));
                 for dir in 0..4 {
                     if was[dir] != now[dir] {
-                        self.events.push((d.name.clone(), crate::controllers::HAT_BUTTONS + k * 4 + dir, now[dir]));
+                        self.events.push((
+                            d.name.clone(),
+                            crate::controllers::HAT_BUTTONS + k * 4 + dir,
+                            now[dir],
+                        ));
                     }
                 }
             }
             d.state = s;
         }
         self.reopen_devices(reopen);
+        order_button_events(&mut self.events);
     }
 
     /// A hardware-timed calibration pulse; never leaves an infinite force running.
     pub(crate) fn pulse_force(&mut self, name: &str, force: f32) -> bool {
-        if !self.focused || self.devices.iter().filter(|d| d.name == name && d.ff.is_some()).count() != 1 {
+        if !self.focused
+            || self
+                .devices
+                .iter()
+                .filter(|d| d.name == name && d.valid && d.ff.is_some())
+                .count()
+                != 1
+        {
             return false;
         }
-        let Some(device) = self.devices.iter_mut().find(|d| d.name == name && d.ff.is_some()) else { return false };
+        let Some(device) = self
+            .devices
+            .iter_mut()
+            .find(|d| d.name == name && d.ff.is_some())
+        else {
+            return false;
+        };
         let limit = crate::ffb_calibration::MAX_PULSE_FORCE;
-        let mut constant = DICONSTANTFORCE { lMagnitude: (force.clamp(-limit, limit) * DI_FFNOMINALMAX as f32) as i32 };
+        let mut constant = DICONSTANTFORCE {
+            lMagnitude: (force.clamp(-limit, limit) * DI_FFNOMINALMAX as f32) as i32,
+        };
         let mut axes = [device.ff_axis];
         let mut direction = [0i32];
         let mut effect = DIEFFECT {
@@ -741,7 +1184,12 @@ impl DirectInput {
         unsafe {
             let force_effect = device.ff.as_ref().unwrap();
             // Some drivers only allow a duration change while the effect is stopped.
-            let result = force_effect.Stop().and_then(|_| force_effect.SetParameters(&mut effect, DIEP_DURATION | DIEP_TYPESPECIFICPARAMS | DIEP_START));
+            let result = force_effect.Stop().and_then(|_| {
+                force_effect.SetParameters(
+                    &mut effect,
+                    DIEP_DURATION | DIEP_TYPESPECIFICPARAMS | DIEP_START,
+                )
+            });
             if let Err(error) = result {
                 log::warn!("{name}: force feedback calibration pulse failed ({error})");
                 return false;
@@ -757,7 +1205,10 @@ impl DirectInput {
     /// engine's buzz below it.
     /// Returns whether a force-feedback effect with this exact device name exists.
     pub fn set_force(&mut self, name: &str, f: f32) -> bool {
-        let found = self.devices.iter().any(|d| d.name == name && d.ff.is_some());
+        let found = self
+            .devices
+            .iter()
+            .any(|d| d.name == name && d.ff.is_some());
         if !found {
             return false;
         }
@@ -768,11 +1219,17 @@ impl DirectInput {
             return true;
         }
         self.last_force = Instant::now();
-        for d in self.devices.iter_mut().filter(|d| d.name == name) {
+        for d in self
+            .devices
+            .iter_mut()
+            .filter(|d| d.name == name && d.valid)
+        {
             let Some(e) = d.ff.as_ref() else { continue };
             let mut axes = [d.ff_axis; 1];
             let mut dirs = [0i32; 1];
-            let mut cf = DICONSTANTFORCE { lMagnitude: (f.clamp(-1.0, 1.0) * DI_FFNOMINALMAX as f32) as i32 };
+            let mut cf = DICONSTANTFORCE {
+                lMagnitude: (f.clamp(-1.0, 1.0) * DI_FFNOMINALMAX as f32) as i32,
+            };
             let mut eff = DIEFFECT {
                 dwSize: std::mem::size_of::<DIEFFECT>() as u32,
                 dwFlags: DIEFF_CARTESIAN | DIEFF_OBJECTOFFSETS,
@@ -809,22 +1266,42 @@ impl DirectInput {
     /// `FF_Vib_Period` (OMSI hands DirectInput Round(period × 10000) µs). Returns whether
     /// the device plays it as an effect of its own.
     pub fn set_vibration(&mut self, name: &str, amp: f32, period: f32) -> bool {
-        let found = self.devices.iter().any(|d| d.name == name && d.vib.is_some());
+        let found = self
+            .devices
+            .iter()
+            .any(|d| d.name == name && d.vib.is_some());
         if !found || !self.focused {
             return found;
         }
         let magnitude = (amp.clamp(0.0, 1.0) * DI_FFNOMINALMAX as f32) as u32;
-        let period_us = if period.is_finite() { (period.max(0.0) * 10_000.0).round().min(u32::MAX as f32) as u32 } else { 0 };
+        let period_us = if period.is_finite() {
+            (period.max(0.0) * 10_000.0).round().min(u32::MAX as f32) as u32
+        } else {
+            0
+        };
         let period_us = if magnitude == 0 { 0 } else { period_us.max(1) };
-        for d in self.devices.iter_mut().filter(|d| d.name == name) {
+        for d in self
+            .devices
+            .iter_mut()
+            .filter(|d| d.name == name && d.valid)
+        {
             let Some(e) = d.vib.as_ref() else { continue };
             let switching = (d.vib_last.0 == 0) != (magnitude == 0);
-            if d.vib_last == (magnitude, period_us) || (!switching && d.vib_at.is_some_and(|t| t.elapsed() < Duration::from_millis(10))) {
+            if d.vib_last == (magnitude, period_us)
+                || (!switching
+                    && d.vib_at
+                        .is_some_and(|t| t.elapsed() < Duration::from_millis(10)))
+            {
                 continue;
             }
             let mut axes = [d.ff_axis; 1];
             let mut dirs = [0i32; 1];
-            let mut pf = DIPERIODIC { dwMagnitude: magnitude, lOffset: 0, dwPhase: 0, dwPeriod: period_us.max(1) };
+            let mut pf = DIPERIODIC {
+                dwMagnitude: magnitude,
+                lOffset: 0,
+                dwPhase: 0,
+                dwPeriod: period_us.max(1),
+            };
             let mut eff = DIEFFECT {
                 dwSize: std::mem::size_of::<DIEFFECT>() as u32,
                 dwFlags: DIEFF_CARTESIAN | DIEFF_OBJECTOFFSETS,
@@ -841,7 +1318,11 @@ impl DirectInput {
                 } else {
                     // (DIEP_START restarts a playing sine from its phase 0: only when it
                     // starts, or an amplitude changing every frame cut it to its first 10 ms)
-                    let flags = if switching { DIEP_TYPESPECIFICPARAMS | DIEP_START } else { DIEP_TYPESPECIFICPARAMS };
+                    let flags = if switching {
+                        DIEP_TYPESPECIFICPARAMS | DIEP_START
+                    } else {
+                        DIEP_TYPESPECIFICPARAMS
+                    };
                     let r = e.SetParameters(&mut eff, flags);
                     if r.is_err() {
                         reacquire(&d.dev, true);
@@ -878,22 +1359,126 @@ mod tests {
     use super::*;
 
     #[test]
+    fn failed_opens_back_off_to_half_a_minute() {
+        let secs: Vec<u64> = (0..8).map(|t| retry_delay(t).as_secs()).collect();
+        assert_eq!(secs, [1, 2, 4, 8, 16, 30, 30, 30]);
+    }
+
+    #[test]
     fn disappearing_device_releases_buttons_and_hats() {
         let mut state = RawState::default();
         state.buttons[7] = 0x80;
         state.pov[1] = 9000;
         let events = state_release_events("wheel", &state);
         assert!(events.contains(&("wheel".to_string(), 7, false)));
-        assert!(events.contains(&("wheel".to_string(), crate::controllers::HAT_BUTTONS + 5, false)));
+        assert!(events.contains(&(
+            "wheel".to_string(),
+            crate::controllers::HAT_BUTTONS + 5,
+            false
+        )));
         assert_eq!(events.len(), 2);
     }
 
     #[test]
-    fn invalid_device_state_has_no_axes() {
-        // The COM handle can remain present after a failed read; its cached axes must not
-        // keep driving the bus while a reopen is pending. This is covered structurally by
-        // Device::axes returning no values while valid is false.
-        assert_eq!(READ_FAILURE_LIMIT, 3);
+    fn poll_failure_never_reads_stale_state_and_retries_after_acquire() {
+        let calls = RefCell::new(Vec::new());
+        let mut attempt = 0;
+        let result = read_with_recovery(
+            || {
+                calls.borrow_mut().push("poll");
+                attempt += 1;
+                if attempt == 1 {
+                    return Err("poll lost");
+                }
+                calls.borrow_mut().push("state");
+                Ok(42)
+            },
+            || {
+                calls.borrow_mut().push("acquire");
+                true
+            },
+        );
+        assert_eq!(result, Ok(42));
+        assert_eq!(*calls.borrow(), ["poll", "acquire", "poll", "state"]);
+    }
+
+    #[test]
+    fn state_failure_and_poll_failure_share_bounded_recovery() {
+        for stage in ["poll", "state"] {
+            let mut reads = 0;
+            let mut acquires = 0;
+            let result: Result<(), _> = read_with_recovery(
+                || {
+                    reads += 1;
+                    Err(stage)
+                },
+                || {
+                    acquires += 1;
+                    true
+                },
+            );
+            assert_eq!(result, Err(stage));
+            assert_eq!((reads, acquires), (2, 1));
+        }
+        let mut reads = 0;
+        let result: Result<(), _> = read_with_recovery(
+            || {
+                reads += 1;
+                Err("lost")
+            },
+            || false,
+        );
+        assert_eq!(result, Err("lost"));
+        assert_eq!(reads, 1);
+    }
+
+    #[test]
+    fn hotplug_targets_exact_device_path_even_with_the_same_product() {
+        let removed = vec!["hid#vid_046d&pid_c29b#first".to_string()];
+        assert!(removed_path(Some("HID#VID_046D&PID_C29B#FIRST"), &removed));
+        assert!(!removed_path(
+            Some("hid#vid_046d&pid_c29b#second"),
+            &removed
+        ));
+        assert!(!removed_path(Some("hid#keyboard"), &removed));
+        assert!(!removed_path(None, &removed));
+    }
+
+    #[test]
+    fn invalid_state_releases_shared_wheel_shifter_and_cannot_drive() {
+        let mut state = RawState::default();
+        state.axes[0] = RANGE;
+        state.axes[1] = RANGE;
+        state.buttons[0] = 0x80; // wheel rim
+        state.buttons[8] = 0x80; // G27-style shifter in the same device
+        state.buttons[127] = 0x80;
+        state.pov[3] = 18000;
+        let mut valid = true;
+        let mut events = Vec::new();
+        assert_eq!(state_axes(&state, valid, &[true; 8])[0], (0, 1.0));
+        invalidate_state("G27", &mut state, &mut valid, &mut events);
+        assert!(!valid);
+        assert!(state_axes(&state, valid, &[true; 8]).is_empty());
+        assert_eq!(events.len(), 4);
+        for button in [0, 8, 127] {
+            assert!(events.contains(&("G27".into(), button, false)));
+        }
+        invalidate_state("G27", &mut state, &mut valid, &mut events);
+        assert_eq!(events.len(), 4); // no repeated releases
+                                     // The first valid reconnect sample compares against an empty snapshot.
+        assert_eq!(state.buttons[8], 0);
+    }
+
+    #[test]
+    fn simultaneous_gate_change_releases_before_pressing_in_both_directions() {
+        for (old, new) in [(1, 2), (2, 1)] {
+            let mut events = vec![("wheel".into(), new, true), ("wheel".into(), old, false)];
+            order_button_events(&mut events);
+            assert_eq!(
+                events,
+                [("wheel".into(), old, false), ("wheel".into(), new, true)]
+            );
+        }
     }
 
     #[test]
@@ -910,12 +1495,17 @@ mod tests {
     /// The window that hears of devices plugged in or out opens (it is a thread's own).
     #[test]
     fn notification_window_opens() {
-        let w = std::thread::spawn(|| notification_window().map(|w| unsafe { DestroyWindow(w).is_ok() })).join().unwrap();
+        let w = std::thread::spawn(|| {
+            notification_window().map(|w| unsafe { DestroyWindow(w).is_ok() })
+        })
+        .join()
+        .unwrap();
         assert_eq!(w, Some(true));
     }
 
     #[test]
-    fn controller_device_filter_accepts_controllers_and_rejects_mice_keyboards_and_vendor_devices() {
+    fn controller_device_filter_accepts_controllers_and_rejects_mice_keyboards_and_vendor_devices()
+    {
         assert!(is_controller_device(DI8DEVTYPE_JOYSTICK, 0, 0));
         assert!(is_controller_device(DI8DEVTYPE_GAMEPAD, 0, 0));
         assert!(is_controller_device(DI8DEVTYPE_DRIVING, 0, 0));

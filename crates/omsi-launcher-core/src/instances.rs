@@ -466,7 +466,9 @@ mod tests {
         let pid = other.id();
         let real = process_start(pid);
         #[cfg(any(target_os = "macos", target_os = "linux"))]
-        assert!(real.is_some() && real != process_start(std::process::id()));
+        // Linux start times have clock-tick resolution: different PIDs can share a
+        // start time. The stale entry below must mismatch this PID's own start time.
+        assert!(real.is_some());
         let old = Instance { id: "old".into(), pid, process_started: real.map(|t| t.wrapping_sub(5_000_000)), ..Default::default() };
         assert!(!is_that_game(&old));
         assert!(end_process(&old, std::time::Duration::from_millis(300)).is_err());

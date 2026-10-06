@@ -1705,12 +1705,19 @@ mod tests {
         let content = dir.join("content");
         omsi_cfg::ensure_content_layout(&content).unwrap();
         let zip = dir.join("Big.zip");
-        let files: Vec<(String, usize)> = (0..400).map(|i| (format!("Vehicles/Big/Texture/t{i}.dds"), 200_000)).collect();
+        let files: Vec<(String, usize)> = (0..4).map(|i| (format!("Vehicles/Big/Texture/t{i}.dds"), 100)).collect();
         let refs: Vec<(&str, usize)> = files.iter().map(|(n, s)| (n.as_str(), *s)).collect();
         let mut with_bus = refs.clone();
         with_bus.push(("Vehicles/Big/big.bus", 10));
         write_zip(&zip, &with_bus);
-        let p = run_blocking(content.clone(), None, zip, InstallMode::Extract, Some(std::time::Duration::from_millis(1)), false);
+        // Pause after a file is staged: a fast disk must not finish before the test
+        // requests cancellation, and cancellation must clean up actual partial files.
+        let job = start_inner(content.clone(), None, zip, InstallMode::Extract, false, 1);
+        wait_for(&job, 1);
+        assert_eq!(job.snapshot().files_done, 1);
+        assert!(staging_dir(&content, job.id).exists());
+        job.cancel();
+        let p = wait_done(&job);
         assert_eq!(p.state, "cancelled", "{p:?}");
         assert!(!content.join("Vehicles/Big").exists());
         assert!(!content.join(STAGING).exists());

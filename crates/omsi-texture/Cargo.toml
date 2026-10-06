@@ -7,12 +7,9 @@ description = "Texture loading (bmp/tga/dds/jpg/png) with OMSI's lookup rules an
 
 [dependencies]
 omsi-cfg = { path = "../omsi-cfg" }
-image = { version = "0.25", default-features = false, features = ["bmp", "tga", "dds", "jpeg", "png"] }
+image.workspace = true
 thiserror.workspace = true
 log.workspace = true
 parking_lot.workspace = true
 hashbrown.workspace = true
 rayon.workspace = true
-
-[dev-dependencies]
-image = { version = "0.25", default-features = false, features = ["png", "bmp", "tga", "dds", "jpeg"] }

@@ -20,7 +20,19 @@ struct Axis {
 struct Device {
     device: CFRetained<IOHIDDevice>,
     name: String,
+    /// (vendor, product): gilrs lists a gamepad under its SDL mapping's name ("PS5
+    /// Controller"), not the device's ("DualSense Wireless Controller"), so the two are
+    /// paired by these
+    id: Option<(u16, u16)>,
     axes: Vec<Axis>,
+}
+
+/// A device as last read: its name, (vendor, product) and axes (code, value -1..1) in
+/// declared order.
+pub(crate) struct HidAxes {
+    pub name: String,
+    pub id: Option<(u16, u16)>,
+    pub axes: Vec<(u32, f32)>,
 }
 
 pub(crate) struct MacHid {
@@ -36,6 +48,11 @@ unsafe impl Send for MacHid {}
 fn string_property(device: &IOHIDDevice, key: &str) -> Option<String> {
     let v = device.property(&CFString::from_str(key))?;
     v.downcast::<CFString>().ok().map(|s| s.to_string())
+}
+
+fn number_property(device: &IOHIDDevice, key: &str) -> Option<i64> {
+    let v = device.property(&CFString::from_str(key))?;
+    v.downcast::<CFNumber>().ok().and_then(|n| n.as_i64())
 }
 
 fn is_axis(e: &IOHIDElement) -> bool {
@@ -121,13 +138,14 @@ impl MacHid {
                 continue;
             }
             let name = string_property(&device, "Product").unwrap_or_else(|| "HID device".into());
-            log::info!("HID: {name}: {} axes {:?}", axes.len(), axes.iter().map(|a| format!("{:#x} {}..{}", a.code, a.min, a.max)).collect::<Vec<_>>());
-            self.devices.push(Device { device, name, axes });
+            let id = number_property(&device, "VendorID").zip(number_property(&device, "ProductID")).map(|(v, p)| (v as u16, p as u16));
+            log::info!("HID: {name} {id:04x?}: {} axes {:?}", axes.len(), axes.iter().map(|a| format!("{:#x} {}..{}", a.code, a.min, a.max)).collect::<Vec<_>>());
+            self.devices.push(Device { device, name, id, axes });
         }
     }
 
-    /// Every device with its axes: (code, value -1..1) in declared order.
-    pub(crate) fn read(&mut self) -> Vec<(String, Vec<(u32, f32)>)> {
+    /// Every device with its axes.
+    pub(crate) fn read(&mut self) -> Vec<HidAxes> {
         self.scan();
         let mut out = Vec::new();
         for d in &self.devices {
@@ -141,7 +159,7 @@ impl MacHid {
                 let span = (a.max - a.min).max(1) as f32;
                 axes.push((a.code, (((raw - a.min) as f32 / span) * 2.0 - 1.0).clamp(-1.0, 1.0)));
             }
-            out.push((d.name.clone(), axes));
+            out.push(HidAxes { name: d.name.clone(), id: d.id, axes });
         }
         out
     }

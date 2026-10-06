@@ -454,7 +454,7 @@ impl Targets {
         let blur_x_bg = group(&trace);
         let blur_y_bg = group(&blur);
         let resolve_bg = group(&filtered);
-        let post_group = |base, adapt| {
+        let post_group = |base, adapt, screen_mask| {
             r.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("post with puddle reflections"),
                 layout: &r.post_layout,
@@ -470,13 +470,14 @@ impl Targets {
                     },
                     binding(3, base),
                     binding(4, adapt),
+                    binding(5, screen_mask),
                 ],
             })
         };
-        let down_bg = post_group(&hdr.mask, &r.white_texture.view);
+        let down_bg = post_group(&hdr.mask, &r.white_texture.view, &r.black_texture.view);
         let tonemap_bg = [
-            post_group(&hdr.up[0], &r.adapt_views[0]),
-            post_group(&hdr.up[0], &r.adapt_views[1]),
+            post_group(&hdr.up[0], &r.adapt_views[0], &hdr.mask),
+            post_group(&hdr.up[0], &r.adapt_views[1], &hdr.mask),
         ];
         let classic_bg = r.picture_group(&view);
         Self {

@@ -3480,6 +3480,10 @@ impl Traffic {
         feet: &[Footprint],
     ) {
         let car = &self.cars[i];
+        // Rail vehicles must never use the road-vehicle passing manoeuvre.
+        if car.is_rail() {
+            return;
+        }
         let st = &car.state;
         // a parked car is known from afar: the driver pulls out while still rolling up to
         // it; anything else is waited behind for a moment first
@@ -7402,6 +7406,12 @@ impl Traffic {
             return;
         }
         self.mirror = on;
+        if !on {
+            let day_time = self.day_time;
+            for ctl in &mut self.lights {
+                reset_light_runtime(ctl, day_time);
+            }
+        }
         let ids: Vec<u64> = self.cars.iter().map(|c| c.id).collect();
         for id in ids {
             self.remove_car(world, renderer, scene, id);
@@ -7417,17 +7427,15 @@ impl Traffic {
         );
     }
 
-    /// A client's frame: the clock and the light programs run on (the host corrects them
-    /// every second, `set_light_state`); the cars are moved by `lan_world`.
+    /// A client's frame: interpolate the host's light clocks, without re-evaluating its
+    /// stop and jump points from the client's incomplete traffic requests.
     fn mirror_tick(&mut self, dt: f32) {
         self.time += dt;
         self.day_time += dt as f64 * self.time_scale;
         self.last_dt = dt;
         let day_time = self.day_time;
         for c in self.lights.iter_mut() {
-            c.request.iter_mut().for_each(|r| *r = false);
-            c.start(day_time);
-            c.advance(dt);
+            mirror_light_tick(c, dt, day_time);
         }
         self.log_lights();
     }
@@ -7563,9 +7571,174 @@ impl Traffic {
             .get(&object)
             .and_then(|c| self.lights.get_mut(*c))
         {
-            ctl.time = time;
-            ctl.held = held;
+            set_mirror_light_clock(ctl, time, held);
         }
+    }
+}
+
+fn mirror_light_tick(ctl: &mut TrafficLightController, dt: f32, day_time: f64) {
+    ctl.request.fill(false);
+    ctl.start(day_time);
+    if !ctl.held {
+        ctl.time = (ctl.time + dt.max(0.0) as f64).rem_euclid(ctl.cycle_len());
+    }
+}
+
+fn set_mirror_light_clock(ctl: &mut TrafficLightController, time: f64, held: bool) {
+    // A crossing may receive its first snapshot before its first tick. Mark its clock
+    // started now, so the time-of-day seed cannot replace the host's position later.
+    ctl.start(time - ctl.offset as f64);
+    ctl.time = time.rem_euclid(ctl.cycle_len());
+    ctl.held = held;
+}
+
+fn reset_light_runtime(ctl: &mut TrafficLightController, day_time: f64) {
+    // Stop/jump bookkeeping belongs to the clock's previous owner. Keep the program
+    // and current position, but discard its old requests and visited points.
+    ctl.start(day_time);
+    let mut fresh = TrafficLightController::new(ctl.lights.clone(), ctl.cycle);
+    fresh.offset = ctl.offset;
+    fresh.approach = ctl.approach.clone();
+    fresh.stops = ctl.stops.clone();
+    fresh.start(ctl.time - ctl.offset as f64);
+    *ctl = fresh;
+}
+
+#[cfg(test)]
+mod mirror_light_tests {
+    use super::{mirror_light_tick, reset_light_runtime, set_mirror_light_clock};
+    use omsi_sim::traffic::TrafficLightController;
+
+    fn program() -> TrafficLightController {
+        TrafficLightController::from_program(
+            vec![(vec![(0, 4.0), (6, 4.0)], Some(25.0))],
+            Some(8.0),
+            &[[0.0, 4.0, 1.0]],
+            &[[0.0, 6.0, 1.0, 1.0]],
+        )
+    }
+
+    #[test]
+    fn host_hold_survives_missing_local_requests() {
+        let mut ctl = program();
+        ctl.stops[0].if_request = false;
+        ctl.start(4.0);
+        set_mirror_light_clock(&mut ctl, 4.0, true);
+        for _ in 0..60 {
+            mirror_light_tick(&mut ctl, 0.1, 20_000.0);
+        }
+        assert_eq!(ctl.time, 4.0);
+        assert!(ctl.held);
+        assert_eq!(ctl.state(0), 6);
+    }
+
+    #[test]
+    fn unheld_host_clock_crosses_local_stop_and_jump_points() {
+        let mut ctl = program();
+        ctl.start(3.5);
+        set_mirror_light_clock(&mut ctl, 3.5, false);
+        mirror_light_tick(&mut ctl, 1.0, 20_000.0);
+        assert_eq!(ctl.time, 4.5);
+        assert_eq!(ctl.state(0), 6);
+        mirror_light_tick(&mut ctl, 2.0, 20_000.0);
+        assert_eq!(ctl.time, 6.5);
+        assert!(!ctl.held);
+    }
+
+    #[test]
+    fn first_snapshot_is_not_replaced_by_the_day_time_seed() {
+        let mut ctl = program();
+        ctl.offset = 0.75;
+        set_mirror_light_clock(&mut ctl, 6.5, false);
+        mirror_light_tick(&mut ctl, 0.0, 20_000.0);
+        assert_eq!(ctl.time, 6.5);
+        assert_eq!(ctl.state(0), 6);
+    }
+
+    #[test]
+    fn a_new_crossing_uses_the_day_clock_until_its_first_snapshot() {
+        let mut ctl = program();
+        ctl.offset = 0.75;
+        mirror_light_tick(&mut ctl, 0.0, 10.0);
+        assert_eq!(ctl.time, 2.75);
+        set_mirror_light_clock(&mut ctl, 6.5, true);
+        mirror_light_tick(&mut ctl, 1.0, 10.0);
+        assert_eq!(ctl.time, 6.5);
+        assert!(ctl.held);
+    }
+
+    #[test]
+    fn host_seek_release_and_cycle_wrap_replace_interpolation() {
+        let mut ctl = program();
+        set_mirror_light_clock(&mut ctl, 7.75, false);
+        mirror_light_tick(&mut ctl, 0.5, 0.0);
+        assert_eq!(ctl.time, 0.25);
+        assert_eq!(ctl.state(0), 0);
+        set_mirror_light_clock(&mut ctl, 10.5, true);
+        mirror_light_tick(&mut ctl, 2.0, 0.0);
+        assert_eq!(ctl.time, 2.5);
+        set_mirror_light_clock(&mut ctl, 1.5, false);
+        mirror_light_tick(&mut ctl, 1.0, 0.0);
+        assert_eq!(ctl.time, 2.5);
+        assert!(!ctl.held);
+        mirror_light_tick(&mut ctl, -1.0, 0.0);
+        assert_eq!(ctl.time, 2.5);
+    }
+
+    #[test]
+    fn returning_to_local_simulation_discards_a_previously_passed_stop() {
+        let mut ctl = program();
+        ctl.offset = 0.75;
+        ctl.start(3.25);
+        ctl.request[0] = true;
+        ctl.advance(0.0);
+        assert!(!ctl.held);
+        set_mirror_light_clock(&mut ctl, 4.0, false);
+        reset_light_runtime(&mut ctl, 20_000.0);
+        assert_eq!(ctl.lights, vec![vec![(0, 4.0), (6, 4.0)]]);
+        assert_eq!(ctl.approach, vec![Some(25.0)]);
+        assert_eq!(ctl.offset, 0.75);
+        assert_eq!(ctl.stops.len(), 2);
+        assert_eq!(ctl.request, vec![false]);
+        ctl.advance(0.0);
+        assert!(ctl.held);
+        assert_eq!(ctl.time, 4.0);
+    }
+
+    #[test]
+    fn returning_to_local_simulation_discards_a_previous_backward_jump() {
+        let mut ctl = program();
+        ctl.start(5.5);
+        ctl.advance(0.5);
+        assert_eq!(ctl.time, 1.0);
+        set_mirror_light_clock(&mut ctl, 6.0, false);
+        reset_light_runtime(&mut ctl, 20_000.0);
+        ctl.advance(0.0);
+        assert_eq!(ctl.time, 1.0);
+        assert!(!ctl.held);
+    }
+
+    #[test]
+    fn returning_to_local_simulation_rechecks_a_host_hold() {
+        let mut ctl = program();
+        ctl.stops[0].if_request = false;
+        set_mirror_light_clock(&mut ctl, 4.0, true);
+        reset_light_runtime(&mut ctl, 20_000.0);
+        assert!(!ctl.held);
+        ctl.advance(0.5);
+        assert!(!ctl.held);
+        assert_eq!(ctl.time, 4.5);
+    }
+
+    #[test]
+    fn a_new_crossing_keeps_its_first_seed_when_returning_to_local_simulation() {
+        let mut ctl = program();
+        ctl.offset = 0.75;
+        reset_light_runtime(&mut ctl, 10.0);
+        assert_eq!(ctl.time, 2.75);
+        ctl.start(20_000.0);
+        ctl.advance(0.5);
+        assert_eq!(ctl.time, 3.25);
     }
 }
 

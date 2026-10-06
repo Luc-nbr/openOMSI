@@ -725,16 +725,20 @@ mod tests {
             let stem = format!("sign_{ext}");
             std::fs::write(local.join(format!("{stem}.{ext}")), b"x").unwrap();
             std::fs::write(local.join(format!("{stem}.DDS")), b"x").unwrap();
-            let name = format!("{stem}.{ext}");
+        }
+        std::fs::write(local.join("local_only.png"), b"x").unwrap();
+        std::fs::write(global.join("local_only.dds"), b"x").unwrap();
+        std::fs::write(local.join("local_only.bmp"), b"x").unwrap();
+        // The case-insensitive directory listing is cached on Linux. Populate the
+        // fixture before the first lookup, as content loaded at game start is.
+        for ext in ["png", "jpg", "tga", "bmp"] {
+            let name = format!("sign_{ext}.{ext}");
             let found = find_texture_uncached(&name, &[&local]).unwrap();
             assert_eq!(found.extension().unwrap().to_string_lossy().to_ascii_lowercase(), "dds");
             assert_eq!(find_texture_uncached(local.join(&name).to_str().unwrap(), &[]), Some(found));
         }
-        std::fs::write(local.join("local_only.png"), b"x").unwrap();
-        std::fs::write(global.join("local_only.dds"), b"x").unwrap();
         assert_eq!(find_texture_uncached("local_only.png", &[&local, &global]), Some(local.join("local_only.png")));
         // Without DDS, the requested format wins over the other fallback formats.
-        std::fs::write(local.join("local_only.bmp"), b"x").unwrap();
         assert_eq!(find_texture_uncached("local_only.png", &[&local]), Some(local.join("local_only.png")));
         assert_eq!(find_texture_uncached("missing.png", &[&local]), None);
         std::fs::remove_dir_all(dir).unwrap();

@@ -20,6 +20,8 @@ mod headtrack;
 mod openxr;
 #[cfg(target_os = "macos")]
 mod mac_hid;
+#[cfg(target_os = "macos")]
+mod mac_game_controller;
 #[cfg(target_os = "android")]
 mod android;
 mod platform;
@@ -37,6 +39,7 @@ mod companion;
 mod describe;
 mod editor;
 mod game_lists;
+mod game_controller_menu;
 mod rail_drive;
 mod driver;
 mod export;
@@ -65,6 +68,7 @@ mod radio;
 
 mod puddles;
 mod quit;
+mod condensation;
 mod rain;
 mod scene;
 mod company_live;
@@ -87,6 +91,7 @@ mod app_events;
 mod bus_service;
 mod camera_util;
 mod controllers;
+mod hpattern;
 mod ffb_calibration;
 #[cfg(windows)]
 mod dinput;
@@ -407,6 +412,11 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
     } else {
         None
     };
+    // turned away at the door (banned, full, another version): no game to play there
+    if lan.as_ref().and_then(lan::turned_away).is_some() {
+        log::info!("game ends");
+        return Ok(None);
+    }
     // the host's mods: served by the host, fetched by a joining player before its world is
     // made (see `lan_mods`)
     lan_mods::remove_stale();
@@ -494,6 +504,7 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
         ui: ui::Ui::new(),
         fps: 0.0,
         rain: rain::Rain::new(),
+        cabin_air: crate::condensation::CabinAir::new(),
         spray: puddles::Spray::new(),
         lamps_on: None,
         menu: None,
@@ -547,8 +558,10 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
         pane_scroll_drag: None,
         pane_scroll: None,
         plugin_keys: Vec::new(),
+        plugin_events: Vec::new(),
         clock_hold: 0.0,
         pad_look: [false; 4],
+        pad_voice_radio: false,
         arrow_glance: false,
         teleport_pick: false,
         discord: None,
@@ -568,6 +581,8 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
         last_ctl_steer: None,
         mouse_pedals: (0.0, 0.0),
         mouse_kmh: 0.0,
+        pad_kmh: 0.0,
+        pad_steer_target: 0.0,
         tutorial: None,
         ego: false,
         on_foot: None,
@@ -588,6 +603,7 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
         game_keys: omsi_content::KeyboardCfg::load(&crate::startup::keyboard_cfg(&args_root_for_keys)).unwrap_or_default().with_game_defaults().with_vr_defaults().game,
         own_keys: crate::startup::own_keys(&args_root_for_keys),
         own_shift: crate::startup::own_bindings(&args_root_for_keys, omsi_content::input::KEY_SHIFT),
+        key_capture: None,
         menu_prev_pause: false,
         info_bar,
         pending_time: None,

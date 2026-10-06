@@ -343,9 +343,7 @@ pub fn route(i: &RouteInputs) -> ApiValue {
 /// * `lines[]`: `line` and its `routes[]` (the same objects), in the depot file's order.
 /// * `destinations[i]`: `index`, `code`, `id`, `name`.
 pub fn depot(h: &Hof) -> ApiValue {
-    let first_string = |ti: Option<usize>| {
-        ti.and_then(|t| h.termini.get(t)).and_then(|t| t.strings.first()).map(|s| s.trim().to_string()).unwrap_or_default()
-    };
+    let first_string = |ti: Option<usize>| ti.and_then(|t| h.termini.get(t)).map(|t| t.display_name()).unwrap_or_default();
     let mut routes: Vec<ApiValue> = Vec::new();
     let mut lines: Vec<(String, Vec<ApiValue>)> = Vec::new();
     for (i, t) in h.info_trips.iter().enumerate() {
@@ -385,7 +383,7 @@ pub fn depot(h: &Hof) -> ApiValue {
                 ("index", ApiValue::Num(i as f64)),
                 ("code", ApiValue::Num(t.code as f64)),
                 ("id", ApiValue::Str(t.texture_id.clone())),
-                ("name", ApiValue::Str(t.strings.first().map(|s| s.trim().to_string()).unwrap_or_default())),
+                ("name", ApiValue::Str(t.menu_name())),
             ])
         })
         .collect();

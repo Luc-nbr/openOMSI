@@ -11,7 +11,8 @@ pub struct Weather {
     /// visibility (m), fog density
     pub fog: (f32, f32),
     pub wind: (f32, f32),
-    /// temperature °C, absolute humidity
+    /// temperature °C, absolute humidity (g/m³: `Weather_AbsHum`). A `.owt` file gives the
+    /// dew point in its place, see [`absolute_humidity`].
     pub temp: (f32, f32),
     pub pressure: f32,
     pub clouds: (String, f32),
@@ -35,7 +36,10 @@ impl Weather {
                 "description" => w.description = r.until("[end]").join("\n"),
                 "fog" => w.fog = (r.f32(), r.f32()),
                 "wind" => w.wind = (r.f32(), r.f32()),
-                "temp" => w.temp = (r.f32(), r.f32()),
+                "temp" => {
+                    let t = r.f32();
+                    w.temp = (t, absolute_humidity(t, r.f32()));
+                }
                 "press" => w.pressure = r.f32(),
                 "clouds" => w.clouds = (r.str().to_string(), r.f32()),
                 "precip" => w.precip = (0..5).map(|_| r.f32()).collect(),
@@ -47,6 +51,18 @@ impl Weather {
         }
         w
     }
+}
+
+/// The absolute humidity (g/m³) of air at `temp` °C with the dew point `dew` °C, as OMSI 2
+/// makes `Weather_AbsHum` of a weather's `[temp]`: the second value there is the dew point
+/// (Bodennebel 9/9 and Überfrierende Nässe -6/-6 are saturated, Starker Schneefall -6/-7.96),
+/// not the humidity itself. Taken as it stood, a winter weather gave the scripts a negative
+/// humidity - no breath of exhaust steam in the frost - and every weather a wrong one for the
+/// heating's misting of the panes. The saturation pressure is Magnus's in base 10, over ice
+/// below 0 °C (chosen by the temperature, not the dew point, as in the original).
+pub fn absolute_humidity(temp: f32, dew: f32) -> f32 {
+    let (a, b) = if temp < 0.0 { (7.6, 240.7) } else { (7.5, 237.3) };
+    6.1078 * 216.69 * 10f32.powf(a * dew / (b + dew)) / (273.15 + temp)
 }
 
 /// OMSI 2's current weather (`[currWeather_ICAO]`): a weather made from an airport's METAR
@@ -105,8 +121,7 @@ pub fn from_metar(station: &str, text: &str) -> Weather {
             };
             if let (Some(tc), Some(td)) = (num(a), num(b)) {
                 if a.len() <= 3 && b.len() <= 3 {
-                    let e = 6.112 * (17.67 * td / (td + 243.5)).exp();
-                    w.temp = (tc, 216.7 * e / (tc + 273.15));
+                    w.temp = (tc, absolute_humidity(tc, td));
                 }
             }
             continue;
@@ -161,6 +176,24 @@ pub fn from_metar(station: &str, text: &str) -> Weather {
         w.ground_wet = [if k == 1.0 { 80.0 } else { 20.0 }, 255.0, 115.0];
     }
     w
+}
+
+#[cfg(test)]
+mod humidity_tests {
+    use super::absolute_humidity;
+
+    #[test]
+    fn the_second_temp_value_is_the_dew_point() {
+        // saturated air holds about 8.8 g/m³ at 9 °C, about 3.2 at -6 °C
+        assert!((absolute_humidity(9.0, 9.0) - 8.8).abs() < 0.1);
+        assert!((absolute_humidity(-6.0, -6.0) - 3.2).abs() < 0.1);
+        // a dew point below zero is still some humidity, never less than none
+        let snow = absolute_humidity(-6.0, -7.96);
+        assert!(snow > 2.0 && snow < 3.0, "{snow}");
+        let cfg = omsi_cfg::CfgFile::from_str("x.owt", "[temp]\r\n-6\r\n-7.96\r\n");
+        let w = super::Weather::parse(&cfg);
+        assert_eq!(w.temp, (-6.0, snow));
+    }
 }
 
 #[cfg(test)]

@@ -643,6 +643,8 @@ pub struct Frame<'a> {
     pub walker: Option<omsi_net::Walker>,
     /// We stand or sit in this player's bus: it is drawn from inside.
     pub inside_of: Option<u32>,
+    /// We are holding the bus radio key (map-wide GreenTeaSpeak voice).
+    pub radio_keyed: bool,
 }
 
 pub(crate) fn data_dir() -> Option<PathBuf> {
@@ -1156,6 +1158,22 @@ pub fn start(args: &Args) -> Option<LanSession> {
     Some(session)
 }
 
+/// The line the launcher looks for in the game's log when the game is over: the server sent
+/// the player away (kick, ban) or turned it away at the door, with the server's message.
+pub const LEFT_SERVER: &str = "LAN: disconnected from the server: ";
+
+/// A joining game the server sent or turned away: the reason, once (the game then ends and the
+/// launcher shows "Disconnected from the server" with it). None for a host, or while it may play.
+pub fn turned_away(lan: &LanSession) -> Option<String> {
+    static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let why = lan.turned_away.clone().filter(|_| lan.role == Role::Client)?;
+    if SAID.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return None;
+    }
+    log::warn!("{LEFT_SERVER}{why}");
+    Some(why)
+}
+
 /// The host's mods (see `lan_mods`): the host serves them on its session's port number
 /// (TCP), a joining player fetches what it lacks before its world is made, and says how
 /// far it has got in the status the launcher shows.
@@ -1365,7 +1383,10 @@ fn host_weather(args: &Args, weather: &str) -> Result<Option<String>, String> {
     if w.is_empty() {
         return Ok(None);
     }
-    if crate::weather_setup::custom_weather(Some(w)).is_some(){return Ok(Some(w.to_string()));}
+    // the natural model and the cycle are made on each machine: no file to have
+    if crate::weather_model::is_natural(Some(w)) || w == "cycle" || crate::weather_setup::custom_weather(Some(w)).is_some() {
+        return Ok(Some(w.to_string()));
+    }
     // a METAR report's values: made into a weather here, no file and no sync of our own
     if w.starts_with(crate::weather_setup::REPORT) {
         return if crate::weather_setup::from_report(w).is_some() {
@@ -1669,7 +1690,8 @@ fn nav_player(pose: &Pose, name: &str, bus: (DVec3, f64), my_id: u32, bus_of: im
 /// small line under it (line and destination, how far away), fading out beyond 300 m.
 /// Screen positions in physical pixels of a `width` x `height` picture (on a triple-screen
 /// rig, of the three panels side by side). `speaks` tells who talks in the voice chat now (by
-/// name and id): "speaking" under their name.
+/// name and id): "speaking" under their name. `on_radio` who keys the bus radio: "radio"
+/// instead, and the tag stays visible across the map.
 pub fn name_tags(
     game: &LanGame,
     cam: &omsi_render::Camera,
@@ -1677,6 +1699,7 @@ pub fn name_tags(
     height: f32,
     rig: Option<&omsi_render::TripleScreen>,
     speaks: &dyn Fn(&str, u32) -> bool,
+    on_radio: &dyn Fn(&str, u32) -> bool,
 ) -> Vec<((f32, f32), String, String, f32)> {
     let views: Vec<_> = if let Some(rig) = rig {
         rig.views(cam, width as u32, height as u32)
@@ -1705,7 +1728,9 @@ pub fn name_tags(
             None => v.position + DVec3::new(0.0, 0.0, top + 0.6),
         };
         let d = (p - cam.position).length();
-        if d > 450.0 {
+        let radio = on_radio(&r.name, r.last.id) || r.last.radio_keyed;
+        // (a radio key across the map: the tag still shows who is transmitting)
+        if d > 450.0 && !radio {
             continue;
         }
         let Some((screen_x, y)) = views.iter().find_map(|(vp, offset, panel_width)| {
@@ -1736,10 +1761,12 @@ pub fn name_tags(
             let dist = if d >= 1000.0 { format!("{:.1} km", d / 1000.0) } else { format!("{:.0} m", d) };
             sub = if sub.is_empty() { dist } else { format!("{sub} · {dist}") };
         }
-        if speaks(&r.name, r.last.id) {
+        if radio {
+            sub = if sub.is_empty() { omsi_ui::tr("radio").into_owned() } else { format!("{} · {sub}", omsi_ui::tr("radio")) };
+        } else if speaks(&r.name, r.last.id) {
             sub = if sub.is_empty() { omsi_ui::tr("speaking").into_owned() } else { format!("{} · {sub}", omsi_ui::tr("speaking")) };
         }
-        let alpha = (1.0 - ((d as f32 - 300.0) / 150.0)).clamp(0.0, 1.0);
+        let alpha = if radio { 1.0 } else { (1.0 - ((d as f32 - 300.0) / 150.0)).clamp(0.0, 1.0) };
         tags.push(((screen_x, (1.0 - y) * 0.5 * height), name, sub, alpha));
     }
     tags
@@ -1984,6 +2011,7 @@ pub fn my_pose(
         values: table.values.iter().map(|(_, id)| get(*id)).collect(),
         walker: None,
         sent_ms: 0,
+        radio_keyed: false,
     }
 }
 
@@ -3151,6 +3179,8 @@ pub fn tick(
     let mut mine = my_pose(game, player.as_deref(), args, duty, frame.riders);
     mine.tour = frame.tour.clone().unwrap_or_default();
     mine.walker = frame.walker;
+    // (only while driving: on foot or as a passenger the radio key does nothing)
+    mine.radio_keyed = frame.radio_keyed && frame.walker.is_none() && mine.has_vehicle();
     if lan.role == Role::Host {
         // the tours the others drive are theirs, not the timetable's
         let tours: hashbrown::HashSet<(String, String)> = lan
@@ -3712,6 +3742,18 @@ thread_local! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The natural weather and the cycle need no file: a client takes them from any host.
+    #[test]
+    fn a_hosts_natural_weather_or_cycle_is_taken_without_a_file() {
+        use clap::Parser;
+        let args = crate::cli::Args::parse_from(["openomsi"]);
+        for w in ["natural", "Natural", "cycle"] {
+            assert_eq!(host_weather(&args, w), Ok(Some(w.to_string())), "{w}");
+        }
+        assert_eq!(host_weather(&args, ""), Ok(None));
+        assert!(host_weather(&args, "weather/none_such.owt").is_err());
+    }
 
     /// Every session starts with every bus offered: a server joined before (on a phone the
     /// launcher and the game share one process) no longer limits a drive alone or the next

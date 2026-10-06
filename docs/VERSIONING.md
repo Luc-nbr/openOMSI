@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `MAJOR` | the first number in the [`VERSION`](../VERSION) file, changed by hand | `1` |
 | `MINOR` | the second number in `VERSION`, changed by hand | `1.2` |
-| `COMMIT` | counted automatically: commits on `main` since `VERSION` last changed | `1.2.17` |
+| `COMMIT` | counted automatically: commits on `main` since `VERSION` last changed (not counting those marked `[skip ci]` or `[skip actions]`, which are never released) | `1.2.17` |
 
 `COMMIT` restarts from `0` whenever `VERSION` changes: after `1.1.23`, a commit that sets
 `VERSION` to `1.2` is released as `1.2.0`, and the next one as `1.2.1`.

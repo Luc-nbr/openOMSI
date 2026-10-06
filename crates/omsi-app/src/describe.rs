@@ -15,6 +15,8 @@ pub struct ControlNames {
     /// `ENG`, `DEU` or `FRA`.
     pub lang: String,
     texts: HashMap<String, String>,
+    /// Original spelling of each `KY_<event>` name, by its lower-case lookup key.
+    spellings: HashMap<String, String>,
 }
 
 impl ControlNames {
@@ -27,6 +29,7 @@ impl ControlNames {
             _ => "ENG".to_string(),
         };
         let mut texts = HashMap::new();
+        let mut spellings = HashMap::new();
         let mut dirs = omsi_cfg::content_dirs("Languages");
         dirs.reverse(); // the installation first, the mods' files override it
         let own = root.join("Languages");
@@ -52,7 +55,9 @@ impl ControlNames {
                         if let Some(name) = k.strip_prefix("KY_").or_else(|| k.strip_prefix("ky_")) {
                             let v = v.trim();
                             if !v.is_empty() && !v.starts_with('<') {
-                                texts.insert(name.to_ascii_lowercase(), v.to_string());
+                                let key = name.to_ascii_lowercase();
+                            texts.insert(key.clone(), v.to_string());
+                            spellings.insert(key, name.to_string());
                             }
                         }
                     }
@@ -60,17 +65,39 @@ impl ControlNames {
             }
         }
         log::info!("control names: {} texts in {lang}", texts.len());
-        ControlNames { lang, texts }
+        ControlNames { lang, texts, spellings }
     }
 
     /// The same names from a table (tests).
     #[cfg(test)]
     pub fn from_table(lang: &str, table: &[(&str, &str)]) -> ControlNames {
-        ControlNames { lang: language_code(lang), texts: table.iter().map(|(k, v)| (k.to_ascii_lowercase(), v.to_string())).collect() }
+        ControlNames {
+            lang: language_code(lang),
+            texts: table.iter().map(|(k, v)| (k.to_ascii_lowercase(), v.to_string())).collect(),
+            spellings: table.iter().map(|(k, _)| (k.to_ascii_lowercase(), k.to_string())).collect(),
+        }
     }
 
     fn text(&self, trigger: &str) -> Option<&str> {
         self.texts.get(&trigger.to_ascii_lowercase()).map(|s| s.as_str())
+    }
+
+    /// Every event OMSI exposes in `Languages/<LANG>_key_veh_gen*.olf`, as
+    /// (event name without `KY_`, readable label). Mods may add their own files, so this
+    /// is the same pool the original key-assignment "Add event..." dialog draws from.
+    pub fn events(&self) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = self
+            .texts
+            .iter()
+            .map(|(key, label)| {
+                (
+                    self.spellings.get(key).cloned().unwrap_or_else(|| key.clone()),
+                    label.clone(),
+                )
+            })
+            .collect();
+        out.sort_by(|a, b| a.1.to_ascii_lowercase().cmp(&b.1.to_ascii_lowercase()).then_with(|| a.0.to_ascii_lowercase().cmp(&b.0.to_ascii_lowercase())));
+        out
     }
 
     /// What a `[mouseevent]` does, for the HUD.

@@ -55,9 +55,12 @@ by defining a global function `on_<event>`:
 | `frame` | `dt` (seconds) | every frame of the game, after the bus's own scripts; not while paused |
 | `stop` | - | the game ends, or the file is about to be loaded again |
 | `key` | key name, `true`/`false` | a key went down / came up (`"KeyH"`, `"F5"`, `"Numpad8"`, ...) |
-| `next_stop` | new, old | the duty's next stop changed |
+| `next_stop` | new, old | the duty's next stop changed, also to one of the same name (`omsi.info().next_stop_number` tells them apart) |
 | `view` | new, old | the view changed (`"driver"`, `"pax"`, `"outside"`, `"free"`, `"foot"`) |
 | `duty` | line, tour | a line and tour were taken (or given up: `nil`) |
+| `crash` | energy (kJ), speed (km/h) | the player's bus crashed: every crash, also one the same as the last (the screen's "Crash: 136 kJ"); above 50 kJ it is a heavy one |
+| `pedestrian` | how many | the bus knocked people down |
+| `stops_skipped` | how many, due at, now at | the duty jumped ahead: the bus passed stops of its trip without stopping (or was moved) and is now at a later one; the stops are numbered in the trip from 1, as `next_stop_number` |
 
 ```lua
 function on_frame(dt)
@@ -81,6 +84,7 @@ have, reads give `nil` and writes do nothing.
 | --- | --- |
 | `omsi.has_vehicle()` | `true` while the player drives a vehicle |
 | `omsi.vehicle()` | the vehicle's name (manufacturer and type), or `nil` |
+| `omsi.vehicle_manufacturer()` / `omsi.vehicle_model()` | the two parts of that name apart, as the bus's `[friendlyname]` has them (`"Solaris III Gen"`, `"Urbino 10 / 2D"`), or `nil` |
 | `omsi.var(name)` | a script variable, a number |
 | `omsi.set_var(name, value)` | sets it; `true` when the bus has that variable |
 | `omsi.str(name)` | a string variable |
@@ -97,7 +101,7 @@ have, reads give `nil` and writes do nothing.
 
 | Function | What it does |
 | --- | --- |
-| `omsi.info()` | a table of what the game is doing: `map`, `clock` (seconds since midnight), `day`, `year`, `view`, `paused`, `on_foot`, `multiplayer`, `traffic` (AI vehicles), `speed` (km/h), `delay` (s, late positive); on a duty also `line`, `tour`, `trip`, `trips`, `terminus`, `next_stop`, `next_stop_arrival`, `next_stop_departure` |
+| `omsi.info()` | a table of what the game is doing: `map`, `clock` (seconds since midnight), `day`, `year`, `view`, `paused`, `on_foot`, `multiplayer`, `traffic` (AI vehicles), `speed` (km/h), `delay` (s, late positive), `map_path` (the map's global.cfg), `version` (of openOMSI); with a bus also `tile_x`, `tile_y` (its tile, as global.cfg's `[map]` list numbers them), `tile_pos_x`, `tile_pos_y` (metres in that tile, x east, y north), `heading` (degrees, clockwise from north), `vehicle_manufacturer`, `vehicle_model`, `destination` (the terminus the bus shows), `passengers` (aboard); `crashes`, `heavy_crashes` and `pedestrians_hit` this session (as the personnel file counts them); `situation`, the situation file the game started from (the launcher's "continue" loads `maps/<map>/laststn.osn`), `nil` for a new game; on a duty also `line`, `tour`, `trip` (its number in the duty), `trips`, `trip_name` (the timetable's name of the trip), `terminus`, `stops` (how many the trip has), `next_stop`, `next_stop_number` (from 1), `next_stop_arrival`, `next_stop_departure` |
 | `omsi.clock()` | the game's time of day as `"HH:MM:SS"` |
 | `omsi.speed()` | the bus's speed in km/h (0 on foot) |
 | `omsi.distance(x, y)` | metres from the bus to a map point, or `nil` on foot |
@@ -161,6 +165,28 @@ omsi.every(60, function()
 end)
 ```
 
+#### Talking to other programs
+
+`omsi.send(port, text)` sends `text` as one UDP datagram to `127.0.0.1:port`: to another
+program on this computer (an overlay, a dashboard, a company's tracker), never over the
+network. It does not wait and nothing comes back: a message sent while no program listens
+is lost, so keep what must not be lost in `omsi.data` as well.
+
+| Returns | When |
+| --- | --- |
+| `true` | the message was handed to the system |
+| `false`, reason | the port is below 1024 or one of the game's multiplayer ports (27015-27024), the message is longer than 8 KB, the plugin sent 100 messages in the last second already, or the system refused it |
+
+```lua
+-- plugins/live.lua: the speed and the next stop, twice a second, for a program on port 47800
+omsi.every(0.5, function()
+  local i = omsi.info()
+  omsi.send(47800, string.format('{"speed":%.1f,"next_stop":%q}', i.speed or 0, i.next_stop or ""))
+end)
+```
+
+`nc -lu 47800` in a terminal shows what arrives.
+
 ### A bigger example: a stop announcer
 
 ```lua
@@ -186,7 +212,8 @@ end
 A Lua plugin gets Lua 5.4 with the safe libraries only: `string`, `table`, `math`, `utf8`,
 `coroutine`, `require` for its own folder, and `os.clock/time/date/difftime`. There is no
 `io`, no `os.execute`, no C modules and no `dofile`, so a plugin you download cannot touch
-your files beyond its own saved data.
+your files beyond its own saved data. It cannot reach the network either: `omsi.send` talks
+only to programs on this computer, and only to ports from 1024 up.
 
 * An error in a handler is written to `game.log` and shown on the screen; the other
   plugins and the game carry on. After 10 errors the plugin is switched off until you
@@ -244,6 +271,19 @@ openOMSI does the same (`crates/omsi-plugin`, driven from `crates/omsi-app/src/p
     `OMSI_WINE`). The host is found next to the game (`OMSI_PLUGIN_HOST32` overrides).
 * The system variables are the scripts' (`omsi_script::SysVar`); a plugin's writes to
   them are not applied (the clock, weather and input stay the game's).
+* **`openomsi_<key>`** in a `[varlist]` or `[stringvarlist]` reads the value `<key>` of
+  `omsi.info()` (see above): numbers and booleans as variables, texts as string variables,
+  while the player drives a bus. A plugin that reads the bus's place, its type or the map
+  out of Omsi.exe's memory at fixed addresses - which cannot work here - lists
+  `openomsi_tile_x`, `openomsi_tile_pos_x`, `openomsi_heading`, `openomsi_map_path`... instead.
+  OMSI has no variables of these names and skips them, so one `.opl` serves both games.
+  Names are matched case-insensitively. Vehicle script variables take precedence over
+  this fallback. Game values are read-only: writing them does not change the game.
+  Boolean values are `0` or `1`; a text requested as a number (or the reverse), an
+  unknown key, or a number not representable as a finite `f32` is unavailable.
+  `destination` is the selected HOF terminus's texture identifier (empty for an all-exit
+  terminus); `passengers` is zero when no passenger simulation is active. `version` is
+  the game's displayed version, rather than the Cargo package version.
 * `OMSI_NO_PLUGINS=1` leaves every plugin out. A plugin whose host stops answering is
   left out for the rest of the session.
 * `PluginStart` gets a nil owner: there is no Delphi application object. Plugins that

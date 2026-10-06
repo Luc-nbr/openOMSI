@@ -36,6 +36,11 @@ const NO_TEX: u32 = u32::MAX;
 struct BlasKey {
     vb: wgpu::Buffer,
     ib: wgpu::Buffer,
+    /// The mesh (its `gen`) and where it lies in its page's buffers.
+    gen: u64,
+    first_vertex: u32,
+    first_index: u32,
+    vertex_count: u32,
     /// The mesh's ranges traced as solid, and as alpha-tested (a bit per range).
     solid: u64,
     cut: u64,
@@ -507,6 +512,10 @@ impl Renderer {
                 let key = BlasKey {
                     vb: m.vertex_buf.clone(),
                     ib: m.index_buf.clone(),
+                    gen: m.gen,
+                    first_vertex: m.base_vertex.max(0) as u32,
+                    first_index: m.first_index,
+                    vertex_count: (m.vertex_bytes / std::mem::size_of::<Vertex>() as u64) as u32,
                     solid: if kind == 0 { bits } else { 0 },
                     cut: if kind == 1 { bits } else { 0 },
                     glass: if kind == 2 { bits } else { 0 },
@@ -517,7 +526,7 @@ impl Renderer {
                         if rt.to_build.len() >= BLAS_BUDGET {
                             continue;
                         }
-                        let vertex_count = (m.vertex_buf.size() / std::mem::size_of::<Vertex>() as u64) as u32;
+                        let vertex_count = key.vertex_count;
                         let mut sizes = Vec::new();
                         let mut spans = Vec::new();
                         for (ri, (first, count, _)) in m.ranges.iter().enumerate().take(64) {
@@ -732,10 +741,10 @@ impl Renderer {
                                 .map(|(size, (first, _))| wgpu::BlasTriangleGeometry {
                                     size,
                                     vertex_buffer: &k.vb,
-                                    first_vertex: 0,
+                                    first_vertex: k.first_vertex,
                                     vertex_stride: std::mem::size_of::<Vertex>() as u64,
                                     index_buffer: Some(&k.ib),
-                                    first_index: Some(*first),
+                                    first_index: Some(k.first_index + *first),
                                     transform_buffer: None,
                                     transform_buffer_offset: None,
                                 })

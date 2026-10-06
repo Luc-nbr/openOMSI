@@ -18,7 +18,7 @@ Cloudflare's Workers Builds deploys it from this repository on every push to `ma
 (Worker `openomsi`, root directory `services/presence`, deploy command `npx wrangler deploy`).
 By hand: `npx wrangler login` once, then `npx wrangler deploy` in this folder.
 
-It runs on Cloudflare's free plan (a Worker and one SQLite-backed Durable Object): 100 000
+It runs on Cloudflare's free plan (a Worker and one Durable Object, which keeps the sessions in memory and nothing in its storage): 100 000
 requests a day, each ping one. That holds about 650 players at once around the clock (more
 in practice: nobody plays all day); over it Cloudflare answers everything with error 1027
 until midnight UTC. Workers Paid (5 USD a month, 10 million requests) lifts the limit. The address

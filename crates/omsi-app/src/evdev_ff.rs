@@ -121,13 +121,31 @@ impl Drop for Wheel {
     }
 }
 
-/// A device with a constant force is connected (a wheel: openOMSI drives its forces itself).
-pub(crate) fn wheel_connected() -> bool {
+fn constant_force_device(name: Option<&str>) -> bool {
     let Ok(dir) = std::fs::read_dir("/sys/class/input") else { return false };
     dir.filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().starts_with("event")).any(|e| {
-        let caps = std::fs::read_to_string(e.path().join("device/capabilities/ff")).unwrap_or_default();
+        let device = e.path().join("device");
+        if let Some(name) = name {
+            let Ok(device_name) = std::fs::read_to_string(device.join("name")) else { return false };
+            if !crate::controllers::names_match(device_name.trim(), name) {
+                return false;
+            }
+        }
+        let caps = std::fs::read_to_string(device.join("capabilities/ff")).unwrap_or_default();
         has_bit(&caps, FF_CONSTANT)
     })
+}
+
+/// A device with a constant force is connected (a wheel: openOMSI drives its forces itself).
+pub(crate) fn wheel_connected() -> bool {
+    constant_force_device(None)
+}
+
+/// This gilrs device is also an evdev constant-force wheel.
+/// SDL mappings can describe wheels such as the G29 as gamepads; the kernel capability is
+/// authoritative for openOMSI's steering semantics and native force-feedback path.
+pub(crate) fn wheel_named(name: &str) -> bool {
+    constant_force_device(Some(name))
 }
 
 fn has_bit(bitmap: &str, bit: usize) -> bool {

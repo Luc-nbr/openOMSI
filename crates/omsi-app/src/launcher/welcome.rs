@@ -800,6 +800,11 @@ fn paint_flag(p: &mut Painter, r: Rect, code: &str) -> bool {
         "RUS" => rows(p, &[(1.0, white), (1.0, rgb(0, 57, 166)), (1.0, rgb(213, 43, 30))]),
         "UKR" => rows(p, &[(1.0, rgb(0, 87, 183)), (1.0, rgb(255, 215, 0))]),
         "POL" => rows(p, &[(1.0, white), (1.0, rgb(220, 20, 60))]),
+        // (the senyera: four red stripes on gold)
+        "CAT" => {
+            let (gold, red) = (rgb(252, 221, 9), rgb(218, 18, 26));
+            rows(p, &[(1.0, gold), (1.0, red), (1.0, gold), (1.0, red), (1.0, gold), (1.0, red), (1.0, gold), (1.0, red), (1.0, gold)])
+        }
         "CZE" => {
             rows(p, &[(1.0, white), (1.0, rgb(215, 20, 26))]);
             p.convex(&[Vec2::new(r.x, r.y), Vec2::new(r.x + r.w * 0.5, c.y), Vec2::new(r.x, r.bottom())], rgb(17, 69, 126));

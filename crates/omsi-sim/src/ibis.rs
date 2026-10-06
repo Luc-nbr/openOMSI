@@ -197,7 +197,15 @@ fn gate_values(p: &Program, block: BlockId, var: VarId) -> Vec<f32> {
 
 impl Unit {
     fn learn(p: &Program, operable: &dyn Fn(&str) -> bool) -> Unit {
-        let mut u = Unit { mode: p.var("IBIS_mode"), line: p.var("IBIS_LinieKurs").or_else(|| p.var("IBIS_Linie")), route: p.var("IBIS_RouteIndex"), terminus: p.var("IBIS_TerminusIndex"), busstop: p.var("IBIS_busstop"), ..Default::default() };
+        let mut u = Unit {
+            mode: p.var("IBIS_mode"),
+            line: p.var("IBIS_LinieKurs").or_else(|| p.var("IBIS_Linie")),
+            route: p.var("IBIS_RouteIndex").or_else(|| p.var("ibox_routenindex")),
+            terminus: p.var("IBIS_TerminusIndex"),
+            // Aachen's ibox keeps the stop on `ibox_busstop` (no stock `IBIS_busstop`).
+            busstop: p.var("IBIS_busstop").or_else(|| p.var("ibox_busstop")),
+            ..Default::default()
+        };
         let names: Vec<String> = {
             let mut n: Vec<String> = p.triggers.keys().cloned().collect();
             n.sort();

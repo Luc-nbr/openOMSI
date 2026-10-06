@@ -10,7 +10,8 @@ there.
 
 ## Requirements
 
-* [Rust stable](https://rustup.rs), 1.85 or newer.
+* The latest [Rust stable](https://rustup.rs) (`rustup update stable`): the builds use it,
+  and the dependencies raise the oldest Rust they accept as they are updated.
 * **macOS**: Xcode Command Line Tools (`xcode-select --install`). Metal is used for drawing.
 * **Windows**: Rust *x86_64 MSVC* and Visual Studio Build Tools with *Desktop development
   with C++* and the Windows SDK. CMake is needed to build the OpenXR dependency;

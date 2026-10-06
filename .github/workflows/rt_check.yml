@@ -17,7 +17,7 @@ jobs:
     name: Vulkan (lavapipe)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -35,13 +35,13 @@ jobs:
           RUST_MIN_STACK: "67108864"
           RUST_LOG: wgpu_core=warn,wgpu_hal=warn,omsi_render=info
           RUST_BACKTRACE: "1"
-        run: cargo test --release -p omsi-render --test rt_smoke -- --nocapture
+        run: cargo test --release -p omsi-render --test rt_smoke -- --ignored --nocapture
 
   d3d12:
     name: Direct3D 12 (WARP)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -62,7 +62,7 @@ jobs:
           WGPU_DX12_COMPILER: dynamicdxc
           RUST_MIN_STACK: "67108864"
           RUST_BACKTRACE: "1"
-        run: cargo test --release -p omsi-render --test rt_smoke -- --nocapture
+        run: cargo test --release -p omsi-render --test rt_smoke -- --ignored --nocapture
       - name: Without ray tracing (the same scene, Enhanced)
         continue-on-error: true
         env:
@@ -70,11 +70,11 @@ jobs:
           OMSI_NO_RT: "1"
           RUST_MIN_STACK: "67108864"
           RUST_BACKTRACE: "1"
-        run: cargo test --release -p omsi-render --test rt_smoke -- --nocapture --test-threads=1
+        run: cargo test --release -p omsi-render --test rt_smoke -- --ignored --nocapture --test-threads=1
       - name: Ray tracing smoke test
         env:
           WGPU_BACKEND: dx12
           RUST_MIN_STACK: "67108864"
           RUST_LOG: wgpu_core=warn,wgpu_hal=warn,omsi_render=info
           RUST_BACKTRACE: "1"
-        run: cargo test --release -p omsi-render --test rt_smoke -- --nocapture
+        run: cargo test --release -p omsi-render --test rt_smoke -- --ignored --nocapture

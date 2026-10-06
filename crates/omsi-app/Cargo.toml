@@ -17,7 +17,7 @@ name = "openomsi"
 path = "src/main.rs"
 
 [build-dependencies]
-winresource = "0.1"
+winresource.workspace = true
 
 [dependencies]
 omsi-cfg = { path = "../omsi-cfg" }
@@ -47,26 +47,26 @@ rayon.workspace = true
 omsi-net = { path = "../omsi-net" }
 omsi-ui = { path = "../omsi-ui" }
 omsi-launcher-core = { path = "../omsi-launcher-core" }
-serde = { version = "1", features = ["derive"] }
+serde.workspace = true
 hashbrown.workspace = true
 parking_lot.workspace = true
 image.workspace = true
-serde_json = "1"
-ab_glyph = "0.2"
+serde_json.workspace = true
+ab_glyph.workspace = true
 # the livery studio: shapes, outlines and SVG pictures rasterised (as omsi-ui does its icons)
 resvg = { version = "0.45", default-features = false }
 rustrict = "0.7"
 gilrs = "0.11"
-ureq = { version = "2", default-features = false, features = ["tls"] }
-sha2 = "0.10"
+ureq.workspace = true
+sha2.workspace = true
 rust-i18n = "4"
 # updates: the release archives from GitHub
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip.workspace = true
 
 # the desktop's clipboard and file dialogs (a phone has neither in this form)
 [target.'cfg(not(target_os = "android"))'.dependencies]
 arboard = { version = "3", default-features = false }
-rfd = "0.15"
+rfd.workspace = true
 
 # Steam's rich presence: only where `assets/steam_redist` has the library (the build script
 # sets `cfg(steam)` for the same targets and puts the library beside the binary)
@@ -74,28 +74,34 @@ rfd = "0.15"
 steamworks = "0.13.1"
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2"
+libc.workspace = true
 
 # Windows: the game controllers through DirectInput, as OMSI reads them (see `dinput`)
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_Devices_HumanInterfaceDevice", "Win32_Foundation", "Win32_Graphics_Direct3D12", "Win32_Graphics_Dxgi_Common", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+windows = { workspace = true, features = ["Win32_Devices_HumanInterfaceDevice", "Win32_Foundation", "Win32_Graphics_Direct3D12", "Win32_Graphics_Dxgi_Common", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
 openxr = { version = "0.22", default-features = false, features = ["static"] }
-wgpu-hal = { version = "29", features = ["dx12"] }
+wgpu-hal = { workspace = true, features = ["dx12"] }
 
-# macOS: the axes of wheels and pedals straight from their HID elements (see `mac_hid`)
+# macOS: the axes of wheels and pedals straight from their HID elements (see `mac_hid`), and
+# Xbox-type controllers through the GameController framework (see `mac_game_controller`):
+# Apple's own driver takes them over completely and leaves gilrs nothing to read
 [target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "0.6", default-features = false, features = ["std"] }
+block2 = { version = "0.6", default-features = false, features = ["std"] }
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFArray", "CFSet", "CFString", "CFDictionary", "CFNumber"] }
 objc2-io-kit = { version = "0.3.2", default-features = false, features = ["std", "libc", "hid"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSString"] }
+objc2-game-controller = { version = "0.3.2", default-features = false, features = ["std", "GCController", "GCDevice", "GCExtendedGamepad", "GCPhysicalInputProfile", "GCControllerElement", "GCControllerButtonInput", "GCControllerDirectionPad", "GCControllerAxisInput", "GCProductCategories", "block2"] }
 
 # the interface's machine translation (`mt`): CTranslate2 with Meta's NLLB model, as the
 # `trad` crate does it (Apple's Accelerate for the maths; Apple silicon only)
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
-ct2rs = { version = "0.9.17", default-features = false, features = ["tokenizers", "accelerate", "ruy"] }
+ct2rs = { version = "0.10.1", default-features = false, features = ["tokenizers", "accelerate", "ruy"] }
 
 # Android: winit's NativeActivity backend, the system log, and JNI for the few things only
 # Java offers (storage permission, the screen's cut-outs, vibration)
 [target.'cfg(target_os = "android")'.dependencies]
 winit = { workspace = true, features = ["android-native-activity"] }
-android_logger = "0.14"
+android_logger = "0.15"
 jni = "0.21"
 ndk-context = "0.1"

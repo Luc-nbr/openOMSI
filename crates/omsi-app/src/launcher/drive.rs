@@ -11,7 +11,7 @@ use super::theme::*;
 use super::ui::{id_of, ButtonKind};
 use super::Launcher;
 use glam::Vec2;
-use omsi_launcher_lib::{display_bus_name, vehicle_type_label};
+use omsi_launcher_lib::{display_bus_name, vehicle_type_label, WeatherInfo};
 use omsi_ui::paint::Align;
 use omsi_ui::{Color, Rect, Weight};
 
@@ -47,6 +47,10 @@ pub struct DriveView {
     bus_list_initialized: bool,
     vehicle_settings_open: bool,
     pub line_filter: String,
+    /// The tour list's search (tour number, trip name, line, stop) and whether tours whose
+    /// last trip has left are listed.
+    pub tour_filter: String,
+    pub show_ended: bool,
     /// The line list was put where the chosen line is (once: the first time it has rows).
     line_scrolled: bool,
     /// The roadbook's sidebar: open or shut, and whether the player shut it by hand (which
@@ -187,6 +191,23 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     }
 }
 
+/// The icon a weather file deserves: what it says about itself.
+fn weather_icon_of(w: &WeatherInfo) -> &'static str {
+    if w.snow || w.precip.starts_with("snow") {
+        "weather_snowy"
+    } else if w.precip.starts_with("rain") {
+        "rainy"
+    } else if w.fog_m < 1500.0 {
+        "foggy"
+    } else if w.clouds.to_lowercase().contains("overcast") {
+        "cloud"
+    } else if w.clouds.to_lowercase().contains("cumulus") {
+        "partly_cloudy_day"
+    } else {
+        "wb_sunny"
+    }
+}
+
 /// The three steps: a number and a name each, the current one underlined. Any step can be
 /// gone to at any time - the order is only the one that reads best.
 fn steps(l: &mut Launcher, r: Rect) {
@@ -279,7 +300,7 @@ pub(super) fn duty_panel(l: &mut Launcher, body: Rect, with_map: bool) {
         return;
     }
     // what the two lists share: the lines take about two fifths, the tours the rest
-    let lists = (start_y - 30.0 - y - 26.0 - 40.0 - 8.0 - 26.0 - 8.0).max(200.0);
+    let lists = (start_y - 30.0 - y - 26.0 - 40.0 - 8.0 - 26.0 - 40.0 - 8.0).max(200.0);
     let lines_h = (lists * 0.42).clamp(110.0, 300.0);
     // lines: a list that scrolls, with the search above it
     l.ui.heading(Rect::new(body.x, y, body.w, 24.0), "Line", None);
@@ -366,49 +387,95 @@ pub(super) fn duty_panel(l: &mut Launcher, body: Rect, with_map: bool) {
     }
     y += lines_h + 12.0;
     // tours: the same, and choosing one brings the roadbook up with it
-    l.ui.heading(Rect::new(body.x, y, body.w, 24.0), "Tour", None);
+    let heading = Rect::new(body.x, y, body.w, 24.0);
+    l.ui.heading(heading, "Tour", None);
     y += 28.0;
     let Some(line) = l.state.line().cloned() else {
         l.ui.paragraph("Pick a line first. As in OMSI, the start time and date then say where in the tour the bus is: the trip under way, or the next to leave.", Vec2::new(body.x, y), body.w, 12.5, Weight::Regular, TEXT_DIM);
         return;
     };
-    let mut tours: Vec<&omsi_launcher_lib::TourInfo> = line.tours.iter().collect();
-    tours.sort_by(|a, b| b.runs.cmp(&a.runs).then_with(|| natural(&a.number).cmp(&natural(&b.number))));
+    l.ui.text_input("tour-filter", Rect::new(body.x, y, body.w, 34.0), &mut l.drive.tour_filter, "Filter tours: number, route, stop…", Some("search"));
+    y += 40.0;
     let now = l.state.choice.time as f64 * 60.0;
-    let tours: Vec<(String, usize, String, bool, Option<String>, Option<(f64, f64)>, String, String)> = tours.iter().map(|t| {
-        let trip = trip_index_at(t, now).and_then(|i| t.trips.get(i));
+    let q = l.drive.tour_filter.trim().to_lowercase();
+    let mut ended_count = 0;
+    let mut tours: Vec<(&omsi_launcher_lib::TourInfo, bool, Option<usize>)> = Vec::new();
+    for t in &line.tours {
+        let (ended, trip) = tour_trip(t, now, &q);
+        if trip.is_none() && !t.trips.is_empty() {
+            continue;
+        }
+        if ended {
+            ended_count += 1;
+            if !l.drive.show_ended {
+                continue;
+            }
+        }
+        tours.push((t, ended, trip));
+    }
+    let departure = |t: &(&omsi_launcher_lib::TourInfo, bool, Option<usize>)| t.2.and_then(|k| t.0.trips.get(k)).map_or(f64::MAX, |x| x.departure);
+    tours.sort_by(|a, b| {
+        b.0.runs.cmp(&a.0.runs).then(a.1.cmp(&b.1)).then_with(|| {
+            if q.is_empty() {
+                std::cmp::Ordering::Equal
+            } else {
+                departure(a).total_cmp(&departure(b))
+            }
+        }).then_with(|| natural(&a.0.number).cmp(&natural(&b.0.number)))
+    });
+    let mut show_ended = l.drive.show_ended;
+    let toggle_w = 190.0_f32.min(body.w * 0.6);
+    if l.ui.toggle("tour-ended", Rect::new(heading.right() - toggle_w, heading.y, toggle_w, heading.h), &mut show_ended, &format!("{} ({ended_count})", omsi_ui::tr("Ended tours"))) {
+        l.drive.show_ended = show_ended;
+    }
+    l.ui.tooltip(Rect::new(heading.right() - toggle_w, heading.y, toggle_w, heading.h), "Tours whose last trip has already left at the chosen time");
+    let searching = !q.is_empty();
+    let tours: Vec<(String, usize, String, bool, Option<String>, Option<omsi_launcher_lib::TripInfo>, String, String, bool)> = tours.iter().map(|&(t, ended, k)| {
+        let trip = k.and_then(|i| t.trips.get(i)).cloned();
         let from = t.trips.first().map(|x| x.from.clone()).unwrap_or_default();
         let terminus = t.trips.last().map(|x| x.terminus.clone()).unwrap_or_default();
-        (t.number.clone(), t.trips.len(), t.days.clone(), t.runs, t.next_run.clone(), trip.map(|x| (x.departure, x.arrival)), from, terminus)
+        (t.number.clone(), t.trips.len(), t.days.clone(), t.runs, t.next_run.clone(), trip, from, terminus, ended)
     }).collect();
     let chosen_t = l.state.choice.tour.clone();
     let mut pick = None;
     const TOUR_H: f32 = 70.0;
     let list = Rect::new(body.x - 4.0, y, body.w + 8.0, (start_y - 30.0 - y).max(TOUR_H));
     l.ui.scroll_area("tour-list", list, &mut |ui, v| {
-        for (k, (num, trips, days, runs, next, trip_time, from, terminus)) in tours.iter().enumerate() {
+        if tours.is_empty() {
+            let why = if searching { "No tour has a trip still to come that matches." } else { "No tour left at this time: show the ended tours, or start earlier." };
+            ui.text_in(why, Rect::new(v.x + 10.0, v.y + 6.0, v.w, 34.0), 12.5, Weight::Regular, TEXT_DIM, Align::Left);
+        }
+        for (k, (num, trips, days, runs, next, trip, from, terminus, ended)) in tours.iter().enumerate() {
             let rr = Rect::new(v.x + 4.0, v.y + k as f32 * TOUR_H, v.w - 12.0, TOUR_H - 4.0);
             if !ui.rect_visible(rr) {
                 continue;
             }
             let on = chosen_t.as_deref() == Some(num.as_str());
             if ui.row(&format!("tour-{num}"), rr, on) {
-                pick = Some((num.clone(), *runs, next.clone()));
+                pick = Some((num.clone(), *runs, next.clone(), trip.clone()));
             }
-            let c = if *runs { TEXT } else { TEXT_FAINT };
+            let live = *runs && !*ended;
+            let c = if live { TEXT } else { TEXT_FAINT };
             // (the tour's name as the map writes it and OMSI lists it: "1", "Mo-Fr 1"),
             // the trip a start now would take on the right
             ui.text_in(num, Rect::new(rr.x + 10.0, rr.y + 6.0, rr.w - 120.0, 18.0), 13.5, Weight::Bold, c, Align::Left);
-            if let Some((departure, arrival)) = trip_time {
-                ui.text_in(&format!("{} - {}", hhmm(*departure), hhmm(*arrival)), Rect::new(rr.right() - 112.0, rr.y + 6.0, 102.0, 18.0), 12.0, Weight::Medium, if on { on_accent() } else if *runs { accent_2() } else { TEXT_FAINT }, Align::Right);
+            if let Some(x) = trip {
+                ui.text_in(&format!("{} - {}", hhmm(x.departure), hhmm(x.arrival)), Rect::new(rr.right() - 112.0, rr.y + 6.0, 102.0, 18.0), 12.0, Weight::Medium, if on { on_accent() } else if live { accent_2() } else { TEXT_FAINT }, Align::Right);
             }
-            let route = if from.is_empty() && terminus.is_empty() { String::new() } else { format!("{from} → {terminus}") };
-            ui.text_in(&route, Rect::new(rr.x + 10.0, rr.y + 26.0, rr.w - 20.0, 16.0), 11.5, Weight::Medium, if *runs { TEXT_SOFT } else { TEXT_FAINT }, Align::Left);
+            let route = match trip {
+                Some(x) if searching => format!("{} · {} → {}", x.name, x.from, x.terminus),
+                _ if from.is_empty() && terminus.is_empty() => String::new(),
+                _ => format!("{from} → {terminus}"),
+            };
+            ui.text_in(&route, Rect::new(rr.x + 10.0, rr.y + 26.0, rr.w - 20.0, 16.0), 11.5, Weight::Medium, if live { TEXT_SOFT } else { TEXT_FAINT }, Align::Left);
             let trips_text = omsi_ui::tr(if *trips == 1 { "%{n} trip" } else { "%{n} trips" }).replace("%{n}", &trips.to_string());
             let days = days_text(days);
             let mut sub = format!("{trips_text} · {days}");
-            if let Some((departure, arrival)) = trip_time {
-                sub = format!("{sub} · {} {}", trip_duration(*departure, *arrival), omsi_ui::tr("a trip"));
+            if let Some(x) = trip {
+                sub = format!("{sub} · {} {}", trip_duration(x.departure, x.arrival), omsi_ui::tr("a trip"));
+            }
+            if *ended {
+                sub = format!("{trips_text} · {days} · {}", omsi_ui::tr("ended"));
             }
             if !*runs {
                 sub = match next {
@@ -420,7 +487,7 @@ pub(super) fn duty_panel(l: &mut Launcher, body: Rect, with_map: bool) {
         }
         tours.len() as f32 * TOUR_H + 4.0
     });
-    if let Some((num, runs, next)) = pick {
+    if let Some((num, runs, next, trip)) = pick {
         // a tour of another day moves the date to the next day it runs (OMSI lists only
         // the day's tours)
         if !runs {
@@ -431,6 +498,10 @@ pub(super) fn duty_panel(l: &mut Launcher, body: Rect, with_map: bool) {
         }
         l.state.choice.tour = Some(num);
         l.state.touched();
+        // a search starts the tour at the trip it found
+        if let Some(x) = trip.filter(|_| searching) {
+            l.state.pick_trip(x.index, x.departure);
+        }
         // the roadbook has something to say now
         l.state.load_ibis();
         if !l.drive.book_shut {
@@ -547,6 +618,23 @@ pub(super) fn trips_and_changes(trips: usize, changes: usize) -> String {
         1 => format!("{trips} · {}", omsi_ui::tr("1 change")),
         n => format!("{trips} · {}", omsi_ui::tr("%{n} changes").replace("%{n}", &n.to_string())),
     }
+}
+
+/// Whether all of a tour's trips have left at `now`, and the trip a start then takes: the one
+/// under way or the next, or with a search (`q`, lower case) the first still to come that
+/// matches it by name, line or stop (a tour whose number matches keeps the usual one).
+fn tour_trip(t: &omsi_launcher_lib::TourInfo, now: f64, q: &str) -> (bool, Option<usize>) {
+    let ended = t.runs && t.trips.iter().all(|x| x.departure < now - 120.0);
+    let first = trip_index_at(t, now);
+    let has = |s: &str| s.to_lowercase().contains(q);
+    if q.is_empty() || has(&t.number) {
+        return (ended, first);
+    }
+    let from = if ended { 0 } else { first.unwrap_or(0) };
+    let hit = t.trips.iter().enumerate().skip(from).find(|(_, x)| {
+        has(&x.name) || has(&x.line) || has(&x.from) || has(&x.terminus) || x.stops.iter().any(|s| has(&s.name))
+    });
+    (ended, hit.map(|(k, _)| k))
 }
 
 /// The entry point the bus starts at, at `y` in the panel; the one under the mouse on the map
@@ -706,6 +794,7 @@ pub(super) fn start_line(l: &Launcher) -> String {
     let weather = match l.state.choice.weather.strip_prefix("metar:") {
         Some(code) => omsi_ui::tr("at %{station}").replace("%{station}", code),
         None if l.state.choice.weather == "cycle" => omsi_ui::tr("weather cycle").into_owned(),
+        None if crate::weather_model::is_natural(Some(&l.state.choice.weather)) || l.state.choice.weather.is_empty() => omsi_ui::tr("Natural weather").into_owned(),
         None if crate::weather_setup::custom_weather(Some(&l.state.choice.weather)).is_some() => {
             let c = crate::weather_setup::custom_weather(Some(&l.state.choice.weather)).unwrap();
             format!("{} · {}", omsi_ui::tr("Custom"), custom_weather_summary(&c))
@@ -1255,22 +1344,27 @@ pub(super) fn step_time(l: &mut Launcher, r: Rect) {
         l.state.touched();
     }
     y += 54.0;
-    // (Luc: the moment it is now, at a click - the computer's time, its date)
-    if l.ui.button("time-now", Rect::new(r.x, y, col, 40.0), "Current time", None, ButtonKind::Normal) {
-        if let Some((_, t)) = super::daytime::clock_now() {
-            l.state.choice.time = t;
+    // the computer's clock in one click - not while the launcher follows it already
+    // (Settings: start at the real time / on today's date), where a button would do nothing
+    let follows = |k: &str| l.state.settings.get(k).and_then(|v| v.as_bool()).unwrap_or(false);
+    let (own_time, own_date) = (!follows("use_real_time"), !follows("use_real_date"));
+    if own_time && l.ui.button("current-time", Rect::new(r.x, y, col, 34.0), "Current time", None, ButtonKind::Normal) {
+        if let Some((_, _, _, h, m)) = omsi_launcher_lib::local_now() {
+            l.state.choice.time = h * 60 + m;
             l.state.touched();
         }
     }
-    if l.ui.button("date-now", Rect::new(r.x + col + 12.0, y, col, 40.0), "Current date", None, ButtonKind::Normal) {
-        if let Some((d, _)) = super::daytime::clock_now().filter(|(d, _)| *d != l.state.choice.date) {
-            l.state.choice.date = d;
+    if own_date && l.ui.button("current-date", Rect::new(r.x + col + 12.0, y, col, 34.0), "Current date", None, ButtonKind::Normal) {
+        if let Some((yy, mo, d, _, _)) = omsi_launcher_lib::local_now() {
+            l.state.choice.date = format!("{yy:04}-{mo:02}-{d:02}");
             l.state.choice.season = "auto".into();
             l.state.load_lines();
             l.state.touched();
         }
     }
-    y += 50.0;
+    if own_time || own_date {
+        y += 44.0;
+    }
     let seasons = ["auto", "spring", "summer", "autumn", "winter"];
     let mut s = seasons.iter().position(|x| *x == l.state.choice.season).unwrap_or(0);
     if l.ui.segmented("season", Rect::new(r.x, y, r.w, 34.0), &mut s, &["By date", "Spring", "Summer", "Autumn", "Winter"]) {
@@ -1354,20 +1448,7 @@ pub(super) fn step_time(l: &mut Launcher, r: Rect) {
             continue;
         }
         let vis = if w.fog_m >= 20000.0 { "clear air".to_string() } else { format!("{:.0} m", w.fog_m) };
-        let icon = if w.snow || w.precip.starts_with("snow") {
-            "weather_snowy"
-        } else if w.precip.starts_with("rain") {
-            "rainy"
-        } else if w.fog_m < 1500.0 {
-            "foggy"
-        } else if w.clouds.to_lowercase().contains("overcast") {
-            "cloud"
-        } else if w.clouds.to_lowercase().contains("cumulus") {
-            "partly_cloudy_day"
-        } else {
-            "wb_sunny"
-        };
-        items.push((w.file.clone(), w.name.clone(), format!("{:.0} °C · {} · {vis}", w.temp, w.precip), icon.into(), l.state.fresh.contains_key(&w.file)));
+        items.push((w.file.clone(), w.name.clone(), format!("{:.0} °C · {} · {vis}", w.temp, w.precip), weather_icon_of(&w).into(), l.state.fresh.contains_key(&w.file)));
     }
     if let Some(code) = metar.as_ref() {
         let root = std::path::PathBuf::from(&l.state.config.root);
@@ -1598,10 +1679,7 @@ fn step_roadbook(l: &mut Launcher, r: Rect) {
         y - v.y
     });
     if let Some((index, dep)) = start_at {
-        let time = (dep / 60.0).floor() as i32;
-        l.state.choice.time = time;
-        l.state.choice.start_trip = Some((line.name.clone(), tour.number.clone(), index, time));
-        l.state.touched();
+        l.state.pick_trip(index, dep);
     }
     ibis_box(l, Rect::new(r.x, r.bottom() - ibis_h, r.w, ibis_h));
 }
@@ -1867,6 +1945,40 @@ mod vehicle_picker_tests {
             description: String::new(), paints: vec!["Paint".into()], hofs: vec![],
             installed: false, missing_packs: vec![], numbers: vec![], default_paint: "Beige".into(),
         }
+    }
+
+    #[test]
+    fn a_tour_search_finds_the_next_trip_of_a_route_and_skips_the_ones_gone() {
+        let trip = |index: usize, name: &str, departure: f64| omsi_launcher_lib::TripInfo {
+            name: name.into(),
+            index,
+            line: "9106".into(),
+            from: "Massy".into(),
+            terminus: "Cormeilles".into(),
+            departure,
+            arrival: departure + 1800.0,
+            stops: Vec::new(),
+            km: 10.0,
+        };
+        let tour = |trips: Vec<omsi_launcher_lib::TripInfo>| omsi_launcher_lib::TourInfo {
+            number: "12".into(),
+            ai_group: String::new(),
+            first: 0.0,
+            last: 0.0,
+            days: "Mon-Fri".into(),
+            runs: true,
+            next_run: None,
+            trips,
+        };
+        let h = |x: f64| x * 3600.0;
+        let morning_b = tour(vec![trip(1, "9106B_HC_MASSY", h(7.0)), trip(2, "9106A_HC_CORMEILLES", h(8.0)), trip(3, "9106A_HC_MASSY", h(13.0))]);
+        assert_eq!(tour_trip(&morning_b, h(12.0), "9106b"), (false, None));
+        assert_eq!(tour_trip(&morning_b, h(12.0), ""), (false, Some(2)));
+        let later_b = tour(vec![trip(1, "9106A_HC_MASSY", h(11.5)), trip(2, "9106B_HC_CORMEILLES", h(12.5)), trip(3, "9106B_HC_MASSY", h(14.0))]);
+        assert_eq!(tour_trip(&later_b, h(12.0), "9106b"), (false, Some(1)));
+        assert_eq!(tour_trip(&later_b, h(12.0), "12"), (false, Some(1)));
+        assert_eq!(tour_trip(&later_b, h(15.0), ""), (true, Some(2)));
+        assert_eq!(tour_trip(&later_b, h(15.0), "9106b"), (true, Some(1)));
     }
 
     #[test]

@@ -573,8 +573,10 @@ pub(crate) fn server_command(lan: &mut LanSession, from: u32, text: &str, adm: &
             log::info!("server: admin {from}: {arg}");
             match v {
                 "kick" | "ban" => {
-                    if let Some(id) = id {
-                        lan.kick(id, if v == "ban" { "sent away for this session" } else { "sent away by an admin" }, v == "ban");
+                    // (`kick <id> [reason]`: the reason is what the player reads when the game closes)
+                    let why = a.trim().split_once(' ').map(|x| x.1.trim()).filter(|r| !r.is_empty());
+                    if let Some(id) = a.trim().split(' ').next().and_then(|x| x.parse::<u32>().ok()) {
+                        lan.kick(id, why.unwrap_or(if v == "ban" { "sent away for this session" } else { "sent away by an admin" }), v == "ban");
                     }
                 }
                 "bring" => {

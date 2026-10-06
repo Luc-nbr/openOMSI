@@ -283,7 +283,11 @@ the panel's own light, and the glow draws a halo around them), `led_mips` (0..4,
 `\S:n` mask are sampled at the level their screen footprint asks for, never coarser than
 this. 0 point-samples them, the sharpest dots and the worst shimmer; 1.3 keeps a matrix's
 dots a couple of pixels across where the full chain has run them together; 4 is near the
-calm of the full chain), `mouse_sens` (mouse steering,
+calm of the full chain). Cockpit screens in Enhanced (IBIS/ibox boards with o3d emissive, ticket/html terminals,
+dashboard LCDs and cab indicator night maps) keep full daytime look and only dim as night
+deepens so white UI greys stay readable without bleaching; destination LED matrices still
+follow `led_glow` only. For tuning, `OMSI_SELF_LIT_NIGHT=day,night` sets the day and night
+ends of that scale (defaults `1,0.32`). `mouse_sens` (mouse steering,
 1 = OMSI's), `mouse_smooth` (0: the mouse's wheel follows the cursor without easing),
 `ui_scale` (the size of the game's interface over the picture - its texts,
 the menu, the timetable, the navigator and the city map - from 0.5 to 2, 1 by default, on
@@ -457,6 +461,11 @@ installation - `Vehicles`, `maps`, `Sceneryobjects`, `Splines`, `Texture`, `Font
 folder (`omsi_cfg::content_roots`): whatever a mod puts there is found exactly as if it had
 been copied into OMSI 2, and a file of the same name replaces the stock one. The original
 installation is never written to. `OMSI_CONTENT=/some/dir` moves the content folder.
+
+Depot files can also be placed in a top-level `HOFs/` folder. Every vehicle can use those
+`.hof` files without keeping a separate copy in each `Vehicles/<bus>/` folder. If a
+vehicle folder and `HOFs/` contain the same file name, the vehicle's own copy takes
+priority (the launcher's depot list shows the shared ones after the bus's own).
 
 Installing a mod: the launcher's **Mods** page opens the system's folder / file picker
 (Finder, Explorer, GTK) for a mod folder or a `.zip`, `.7z` or `.rar` archive and sorts it

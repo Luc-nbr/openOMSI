@@ -45,6 +45,9 @@ struct CoronaOut {
     // a smoke puff's: how high this point is over the ground it fades into (m), and how
     // high the fade reaches (0: not faded)
     @location(6) ground: vec2<f32>,
+    // precipitation (Enhanced, see `precip_light`): the particle's place, w 1 for rain, 2
+    // for snow, 0 for anything else
+    @location(7) wpos: vec4<f32>,
 };
 
 @vertex
@@ -181,7 +184,9 @@ fn vs_main(in: CoronaIn) -> CoronaOut {
     let to_cam = camera.cam_pos.xyz - in.pos;
     let dist = length(to_cam);
     let view_dir = to_cam / max(dist, 0.001);
-    let streak = in.dir.w < -1.5;
+    // (a cone of -2 marks a raindrop, of -3 a snowflake: rain.rs)
+    let streak = in.dir.w < -1.5 && in.dir.w > -2.5;
+    let flake = in.dir.w <= -2.5;
     let directed = length(in.dir.xyz) > 0.5 && !streak;
     var brightness = in.color.a;
     if (directed) {
@@ -236,6 +241,7 @@ fn vs_main(in: CoronaIn) -> CoronaOut {
     out.uv = c * 0.5 + 0.5;
     out.color = vec4<f32>(in.color.rgb, brightness);
     out.kind = select(0.0, 1.0, streak);
+    out.wpos = vec4<f32>(in.pos, select(select(0.0, 2.0, flake), 1.0, streak));
     out.star = 0.0;
     out.beam = 0.0;
     out.cone = vec2<f32>(0.0, 0.0);
@@ -288,6 +294,11 @@ fn fs_main(in: CoronaOut) -> @location(0) vec4<f32> {
 // glow filter picks it up; precipitation streaks keep the vanilla level.
 @fragment
 fn fs_enhanced(in: CoronaOut) -> @location(0) vec4<f32> {
+    if (in.wpos.w > 0.5) {
+        let to_eye = normalize(camera.cam_pos.xyz - in.wpos.xyz);
+        let l = precip_light(in.wpos.xyz, to_eye, in.wpos.w > 1.5);
+        return vec4<f32>(in.color.rgb * corona_shape(in) * in.color.a * l * enh.exposure.x, 1.0);
+    }
     // (a fog cone is lit fog, not glare: it keeps the scene's level too)
     let scale = select(enh.exposure.w, enh.exposure.y, in.kind > 0.5);
     var shape = corona_shape(in);

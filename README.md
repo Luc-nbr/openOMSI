@@ -147,7 +147,7 @@ scripts/build-android.sh      # Android → dist/android/openOMSI-<version>.apk
 scripts/build-server.sh       # server  → dist/server
 ```
 
-Needs [Rust stable](https://rustup.rs) (1.85+) and the platform's C toolchain; details in
+Needs the latest [Rust stable](https://rustup.rs) and the platform's C toolchain; details in
 [docs/BUILDING.md](docs/BUILDING.md).
 
 ## Repository layout

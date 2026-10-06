@@ -1483,9 +1483,35 @@ fn reconnect_tries_again_after_the_host_sent_us_away() {
     }
     assert!(!c.connected);
     assert!(c.rejected.as_deref().is_some_and(|r| r.contains("test")));
+    // the host's own word: the game ends on it (a lost connection is no such word)
+    assert_eq!(c.turned_away.as_deref(), Some("test"));
     assert!(c.reconnect());
-    assert!(c.rejected.is_none());
+    assert!(c.rejected.is_none() && c.turned_away.is_none());
     assert!(until_connected(&mut c, &mut host));
     // a host has nothing to reconnect to
     assert!(!host.reconnect());
+}
+
+#[test]
+fn a_banned_player_hears_why_at_the_door() {
+    let mut host = LanSession::host(27989, "host", world("m"), false).unwrap();
+    let mut c = LanSession::join("127.0.0.1:27989", "c", world("m"), Duration::from_millis(10)).unwrap();
+    assert!(until_connected(&mut c, &mut host));
+    host.kick(c.my_id, "Banni : conduite dangereuse", true);
+    for _ in 0..10 {
+        c.tick(1.0, &Pose::default());
+        host.tick(0.05, &pose(0.0));
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(c.turned_away.as_deref(), Some("Banni : conduite dangereuse"));
+    // back again: turned away at the door, with the same reason
+    assert!(c.reconnect());
+    let t0 = Instant::now();
+    while c.turned_away.is_none() && t0.elapsed() < Duration::from_secs(3) {
+        c.tick(1.0, &Pose::default());
+        host.tick(0.05, &pose(0.0));
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(!c.connected);
+    assert!(c.turned_away.as_deref().is_some_and(|r| r.contains("Banni : conduite dangereuse")), "{:?}", c.turned_away);
 }

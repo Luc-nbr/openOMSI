@@ -20,10 +20,10 @@ anyhow.workspace = true
 winit.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_Graphics_Dxgi", "Win32_Foundation"] }
+windows = { workspace = true, features = ["Win32_Graphics_Dxgi", "Win32_Foundation"] }
 
 [dev-dependencies]
-naga = { version = "29", features = ["spv-out", "glsl-out", "hlsl-out"] }
+naga = { workspace = true, features = ["spv-out", "glsl-out", "hlsl-out"] }
 env_logger.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]

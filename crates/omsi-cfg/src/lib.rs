@@ -888,11 +888,12 @@ pub fn missing_original_essentials(root: &Path) -> Vec<String> {
         .collect()
 }
 
-/// The folders an OMSI 2 installation has (as the original spells them). A content
-/// folder of openOMSI is laid out the same way, so a mod is installed by putting its
-/// folders here - and the game finds them exactly as the original would.
+/// The top-level content folders openOMSI recognises. Most use OMSI 2's original spelling;
+/// `HOFs` is an openOMSI extension for depot files shared by every vehicle. A content
+/// folder is laid out with these names, so the mod installer and mounted archives can merge
+/// them into the same virtual installation.
 pub const CONTENT_FOLDERS: &[&str] = &[
-    "Vehicles", "maps", "Sceneryobjects", "Splines", "Texture", "Fonts", "Plugins", "TicketPacks", "Drivers", "Weather", "Announcements", "Humans", "Money", "Scripts", "Trains", "Situations", "Inputs", "Sound",
+    "Vehicles", "HOFs", "maps", "Sceneryobjects", "Splines", "Texture", "Fonts", "Plugins", "TicketPacks", "Drivers", "Weather", "Announcements", "Humans", "Money", "Scripts", "Trains", "Situations", "Inputs", "Sound",
 ];
 
 /// Marker file of an openOMSI content folder (so it is never mistaken for the OMSI 2

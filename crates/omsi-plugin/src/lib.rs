@@ -156,7 +156,14 @@ impl Library {
     /// Load the library and look its procedures up.
     pub fn load(path: &Path) -> Result<Library, String> {
         // SAFETY: loading a library runs its initialisers; that is what a plugin is for
-        let lib = unsafe { libloading::Library::new(path) }.map_err(|e| format!("LoadLibrary failed: {e}"))?;
+        let lib = unsafe { libloading::Library::new(path) }.map_err(|e| {
+            // (libloading 0.9 keeps the system's own reason - dlerror's text - in `source`)
+            use std::error::Error as _;
+            match e.source() {
+                Some(why) => format!("LoadLibrary failed: {e}: {why}"),
+                None => format!("LoadLibrary failed: {e}"),
+            }
+        })?;
         unsafe {
             let start = *lib.get::<StartFn>(b"PluginStart\0").map_err(|_| "procedure \"PluginStart\" not found".to_string())?;
             let finalize = *lib.get::<FinalizeFn>(b"PluginFinalize\0").map_err(|_| "procedure \"PluginFinalize\" not found".to_string())?;
@@ -632,6 +639,11 @@ pub trait PluginIo {
     fn vehicle_name(&self) -> Option<String> {
         None
     }
+    /// The player's vehicle's manufacturer and model apart, as its `[friendlyname]` has them
+    /// (Lua plugins; the name is the two joined).
+    fn vehicle_manufacturer_model(&self) -> Option<(String, String)> {
+        None
+    }
     /// The player's vehicle: x, y, z and heading in degrees (Lua plugins).
     fn position(&self) -> Option<[f64; 4]> {
         None
@@ -670,6 +682,19 @@ pub trait PluginIo {
     fn set_other_var(&mut self, _id: u64, _name: &str, _v: f32) -> bool {
         false
     }
+    /// What happened in the game since the last plugin frame, each sent to Lua plugins as an
+    /// event (`crash`, `pedestrian`, `stops_skipped`): things `omsi.info()` cannot show, as
+    /// they are over before a plugin could look. Every plugin of the frame gets them all.
+    fn events(&self) -> Vec<GameEvent> {
+        Vec::new()
+    }
+}
+
+/// One of [`PluginIo::events`]: a Lua event of that name, called with these values.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GameEvent {
+    pub name: &'static str,
+    pub args: Vec<InfoValue>,
 }
 
 /// One of [`PluginIo::others`].

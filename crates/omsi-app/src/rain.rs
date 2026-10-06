@@ -46,7 +46,9 @@ impl Rain {
     pub fn set(&mut self, kind: i32, rate: f32) {
         self.kind = kind;
         self.rate = rate.clamp(0.0, 1.0);
-        let n = if kind == 0 {
+        // (snow is drawn by the renderer itself, from the weather: render snow.wgsl,
+        // `Lighting::snowfall`)
+        let n = if kind == 0 || kind == 2 {
             0
         } else {
             (400.0 + 2600.0 * self.rate) as usize
