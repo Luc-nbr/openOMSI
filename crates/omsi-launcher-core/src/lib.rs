@@ -2324,6 +2324,25 @@ fn mirror_refresh(x: &str) -> &'static str {
 /// The page's view of a `settings.cfg` text (None: no file yet, the game's defaults).
 /// The launcher's own size (`launcher_scale`): 60 to 200 %, in steps of 5 %; anything else
 /// read as it is meant (a broken value: 100 %).
+/// The minutes a duty's bus stands ready before its first departure: by default five, at
+/// most an hour.
+pub const BUS_LEAD_DEFAULT: i64 = 5;
+
+pub fn bus_lead(v: Option<i64>) -> i64 {
+    v.unwrap_or(BUS_LEAD_DEFAULT).clamp(0, 60)
+}
+
+/// The start of a duty whose first departure is at `minutes` on `date`, `lead` minutes
+/// before it: the time and the date (the day before when that is before midnight).
+pub fn lead_start(date: &str, minutes: i32, lead: i64) -> (String, i32) {
+    let t = minutes - lead.clamp(0, 60) as i32;
+    if t >= 0 {
+        (date.to_string(), t)
+    } else {
+        (company::dates::add(date, -1), t + 24 * 60)
+    }
+}
+
 pub fn launcher_scale(v: Option<f64>) -> f64 {
     let x = v.filter(|x| x.is_finite()).unwrap_or(1.0).clamp(0.6, 2.0);
     (x * 20.0).round() / 20.0
@@ -2470,6 +2489,9 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
     // the launcher dark (the night-blue ground, smoked glass) rather than light: off unless
     // chosen (the palette in the top bar)
     v["dark_mode"] = json!(false);
+    // how many minutes before a duty's first departure the bus stands ready (Luc: at the
+    // departure itself the player was late at once)
+    v["bus_lead"] = json!(BUS_LEAD_DEFAULT);
     // the first start's welcome was gone through (or skipped), and which launcher opens: the
     // new one ("new", Omsi-Hub's look) or openOMSI's classic one ("classic")
     v["welcome_done"] = json!(false);
@@ -2528,6 +2550,7 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
             "animations" => v[&k] = json!(b(val)),
             "page_bus" => v[&k] = json!(b(val)),
             "dark_mode" => v[&k] = json!(b(val)),
+            "bus_lead" => v[&k] = json!(bus_lead(val.parse::<i64>().ok())),
             "welcome_done" => v[&k] = json!(b(val)),
             "launcher_ui" => v[&k] = json!(launcher_ui(val)),
             "nav_scale" => v[&k] = json!(nav_scale(val.parse::<f64>().ok())),
@@ -2912,7 +2935,7 @@ pub fn settings_to_text(v: &Value, old: Option<&str>) -> String {
     text.push_str(&format!("triple_left_angle_deg={}\ntriple_right_angle_deg={}\ntriple_eye_height_mm={}\n", f("triple_left_angle_deg", 45.0).clamp(0.0, 90.0), f("triple_right_angle_deg", 45.0).clamp(0.0, 90.0), f("triple_eye_height_mm", 0.0).clamp(-500.0, 500.0)));
     text.push_str(&format!("companion={}\ncompanion_hide={}\ncompanion_tunnel={}\n", b("companion", false), b("companion_hide", true), b("companion_tunnel", false)));
     text.push_str(&format!("launcher_scale={}\n", launcher_scale(v.get("launcher_scale").and_then(|x| x.as_f64()))));
-    text.push_str(&format!("animations={}\npage_bus={}\ndark_mode={}\n", b("animations", true), b("page_bus", false), b("dark_mode", false)));
+    text.push_str(&format!("animations={}\npage_bus={}\ndark_mode={}\nbus_lead={}\n", b("animations", true), b("page_bus", false), b("dark_mode", false), bus_lead(Some(n("bus_lead", BUS_LEAD_DEFAULT)))));
     text.push_str(&format!("welcome_done={}\nlauncher_ui={}\n", b("welcome_done", false), launcher_ui(v.get("launcher_ui").and_then(|x| x.as_str()).unwrap_or("new"))));
     text.push_str(&format!("nav_scale={}\nstop_style={}\n", nav_scale(v.get("nav_scale").and_then(|x| x.as_f64())), stop_style(v.get("stop_style").and_then(|x| x.as_str()).unwrap_or("de"))));
     text.push_str(&format!("accent={}\n", accent_text(v.get("accent").and_then(|x| x.as_str()).unwrap_or(ACCENT_DEFAULT))));

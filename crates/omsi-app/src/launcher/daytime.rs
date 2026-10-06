@@ -45,12 +45,17 @@ pub struct DayCtx {
     pub as_custom: Option<String>,
     /// The season the date falls in (what "By date" means now).
     pub season_of_date: &'static str,
+    /// A duty of the timetable: the minutes its bus stands ready before the first departure
+    /// (None: a free drive, which starts when it is asked to).
+    pub lead: Option<i64>,
 }
 
 /// What a frame of the sheet changed.
 #[derive(Default, Debug, PartialEq)]
 pub struct DayOut {
     pub touched: bool,
+    /// The bus's lead before the first departure chosen (minutes).
+    pub lead: Option<i64>,
     /// The date moved: the day's timetable is another.
     pub date_changed: bool,
     /// The season moved: a preset of the other season goes.
@@ -95,7 +100,8 @@ impl DayCtx {
         }
         let airports = if metar.is_some() { crate::weather_setup::metar_airports(std::path::Path::new(&l.state.config.root)) } else { Vec::new() };
         let (_, m, _) = parse_date(&c.date);
-        DayCtx { items, airports, as_custom: selected_weather_as_custom(&l.state.config.root, &c.weather), season_of_date: season_of_month(m) }
+        let lead = (!c.free).then(|| omsi_launcher_lib::bus_lead(l.state.settings.get("bus_lead").and_then(|x| x.as_i64())));
+        DayCtx { items, airports, as_custom: selected_weather_as_custom(&l.state.config.root, &c.weather), season_of_date: season_of_month(m), lead }
     }
 }
 
@@ -177,10 +183,17 @@ pub(super) fn day_panel(l: &mut Launcher, s: Rect, body: Rect) {
             l.state.choice.weather.clear();
         }
     }
+    if let Some(m) = out.lead {
+        l.state.settings["bus_lead"] = serde_json::json!(m);
+        l.state.settings_dirty = 0.3;
+    }
     if out.touched {
         l.state.touched();
     }
 }
+
+/// The leads offered for a duty's bus before its first departure (minutes).
+const LEADS: [i64; 7] = [0, 2, 5, 10, 15, 20, 30];
 
 /// The computer's clock: its date (`YYYY-MM-DD`) and the minutes since midnight - the
 /// "Current time" and "Current date" of the day's sheet and the time step.
@@ -280,6 +293,22 @@ pub(super) fn day_body(ui: &mut Ui, v: Rect, c: &mut Choice, ctx: &DayCtx, out: 
         }
     }
     y += 38.0 + 24.0;
+    // the bus ready before the first departure (a duty of the timetable: a free drive starts
+    // when it is asked to)
+    if let Some(lead) = ctx.lead {
+        let t = c.time - lead as i32;
+        let start = format!("{:02}:{:02}", t.rem_euclid(1440) / 60, t.rem_euclid(1440) % 60);
+        let say = if lead == 0 { omsi_ui::tr("at the departure").into_owned() } else { omsi_ui::tr("the game starts at %{time}").replace("%{time}", &start) };
+        section(ui, x, y, w, "Bus ready before departure", &say);
+        y += 24.0;
+        let labels: Vec<String> = LEADS.iter().map(|m| if *m == 0 { omsi_ui::tr("None").into_owned() } else { format!("{m} min") }).collect();
+        let at = LEADS.iter().position(|m| *m == lead).unwrap_or(0);
+        let (pick, h) = chips(ui, "day-lead", x, y, w, &labels, at);
+        if let Some(k) = pick.filter(|k| *k != at) {
+            out.lead = Some(LEADS[k]);
+        }
+        y += h + 24.0;
+    }
     // the season: by the date, or one of the four (the date moves into it, so the
     // timetable is the season's too)
     let s = SEASONS.iter().position(|x| *x == c.season).unwrap_or(0);
@@ -451,7 +480,7 @@ mod tests {
 
     fn ctx() -> DayCtx {
         let item = |value: &str, name: &str| WeatherItem { value: value.into(), name: name.into(), meta: String::new(), icon: "wb_sunny", fresh: false };
-        DayCtx { items: vec![item("", "Map default"), item("custom:x", "Custom weather"), item("metar:EDDB", "Current weather"), item("cycle", "Weather cycle"), item("weather/sun.owt", "Sun")], airports: vec![("EDDB".into(), "Berlin".into())], as_custom: None, season_of_date: "Spring" }
+        DayCtx { items: vec![item("", "Map default"), item("custom:x", "Custom weather"), item("metar:EDDB", "Current weather"), item("cycle", "Weather cycle"), item("weather/sun.owt", "Sun")], airports: vec![("EDDB".into(), "Berlin".into())], as_custom: None, season_of_date: "Spring", lead: Some(5) }
     }
 
     /// One frame of the sheet, tall enough that nothing is cut off.
@@ -492,6 +521,16 @@ mod tests {
             assert!(ui.drawn.contains_key(&id_of(name)), "{name} is not on the sheet");
         }
         assert!(ui.drawn.contains_key(&(id_of("time.0") ^ 1)), "the time's arrows are not on the sheet");
+    }
+
+    #[test]
+    fn the_bus_can_stand_ready_before_the_departure() {
+        let mut c = Choice { time: 14 * 60 + 15, ..Default::default() };
+        let out = click(&mut c, "day-lead-3");
+        assert_eq!(out.lead, Some(10));
+        // (the duty starts the lead before: before midnight, the day before)
+        assert_eq!(omsi_launcher_lib::lead_start("2026-10-06", 14 * 60 + 15, 10), ("2026-10-06".to_string(), 14 * 60 + 5));
+        assert_eq!(omsi_launcher_lib::lead_start("2026-10-06", 3, 10), ("2026-10-05".to_string(), 24 * 60 - 7));
     }
 
     #[test]

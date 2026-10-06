@@ -735,6 +735,10 @@ impl State {
         // a free drive along a line the player chose: its line and route, the bus at the
         // entry point nearest to the route's first stop
         let free_route = super::freedrive::free_route(c);
+        // (a duty of the timetable starts the lead before its first departure: the bus stands
+        // ready, the player is not late at once; a free drive starts when it was asked to)
+        let lead = if free { 0 } else { core::bus_lead(self.settings.get("bus_lead").and_then(|x| x.as_i64())) };
+        let (date, time) = core::lead_start(&c.date, c.time, lead);
         core::Duty {
             map: host_map.unwrap_or_else(|| c.map.clone()),
             bus: c.bus.clone(),
@@ -751,8 +755,8 @@ impl State {
             whole_tour: !free && self.picked_trip().is_some(),
             legs: legs.unwrap_or_default(),
             free_line: free_route.map(|r| r.1),
-            time: format!("{:02}:{:02}", c.time / 60, c.time % 60),
-            date: Some(c.date.clone()),
+            time: format!("{:02}:{:02}", time / 60, time % 60),
+            date: Some(date),
             weather: Some(c.weather.clone()).filter(|w| !w.is_empty()),
             traffic: Some(c.traffic.round() as u32),
             passengers: Some(c.passengers),
