@@ -14,6 +14,7 @@
 //! Everything here is plain functions over plain data, without a window; the launcher's pages
 //! call them, and the rules are tested on their own.
 
+pub mod adverts;
 pub mod auction;
 pub mod career;
 pub mod clock;
@@ -26,7 +27,10 @@ pub mod economy;
 pub mod fares;
 pub mod finance;
 pub mod fleetmap;
+pub mod incidents;
 pub mod levels;
+pub mod licences;
+pub mod livery;
 pub mod market;
 pub mod model;
 pub mod network;
@@ -128,6 +132,9 @@ pub fn found(f: &Founding, profile: &str) -> Company {
         concessions: Default::default(),
         clock: Default::default(),
         dealer: dealer::DealerState { mode: f.buying, ..Default::default() },
+        designs: Vec::new(),
+        adverts: Default::default(),
+        quals: 1,
     };
     c.book(BookingKind::Capital, r.start_capital, c.name.clone(), false);
     c

@@ -126,6 +126,7 @@ pub fn add_line(c: &mut Company, line: &LineInfo, own: Option<&OwnLine>) -> Resu
         demand: Default::default(),
         title: String::new(),
         hof: String::new(),
+        pending: None,
     });
     Ok(())
 }

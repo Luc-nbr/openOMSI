@@ -740,6 +740,8 @@ pub fn page(l: &mut Launcher, page: Page, title: &str) {
         l.go(match page {
             Page::Lines if l.pages.lines.for_company() => Page::Company,
             Page::Lines => Page::Editor,
+            Page::Depots if l.pages.depots.from_lines() => Page::Lines,
+            Page::Depots => Page::Editor,
             _ => Page::Drive,
         });
     }
@@ -766,6 +768,7 @@ pub fn page(l: &mut Launcher, page: Page, title: &str) {
         Page::Setup => super::pages::setup(l, inner),
         Page::Editor => super::editor_hub::draw(l, inner),
         Page::Lines => super::lineeditor::draw(l, inner),
+        Page::Depots => super::depoteditor::draw(l, inner),
         Page::Drive | Page::Livery | Page::Company => {}
     }
     bar(l, Some(step_of(page)), Some(title));

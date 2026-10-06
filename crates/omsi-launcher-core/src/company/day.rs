@@ -177,7 +177,8 @@ pub fn assign(c: &Company, tours: Vec<TourOfDay>, player: &[(String, String)], l
     for (i, k) in order {
         let p = &plans[i];
         let d = &p.duties[k];
-        let size = p.bus.and_then(|b| c.vehicle(b)).map(|v| v.kind.size).unwrap_or_default();
+        let vehicle = p.bus.and_then(|b| c.vehicle(b));
+        let size = vehicle.map(|v| v.kind.size).unwrap_or_default();
         let block = Block {
             key: format!("{}/{}/{}", p.tour.line, p.tour.tour, k),
             from: d.from,
@@ -188,7 +189,8 @@ pub fn assign(c: &Company, tours: Vec<TourOfDay>, player: &[(String, String)], l
         let mut best: Option<(usize, (bool, bool, i32, u32, i64))> = None;
         for (pi, (id, blocks)) in people.iter().enumerate() {
             let Some(e) = c.employee(*id) else { continue };
-            if !staff::may_drive(e, size) {
+            // (qualified for the bus: the licence, the endorsements, the model's type training)
+            if !staff::may_drive(e, size) || vehicle.is_some_and(|v| super::licences::lack(e, v.kind, Some(&v.bus)).is_some()) {
                 continue;
             }
             let k = staff::check(blocks, &block, e.last_end, None);
@@ -267,6 +269,8 @@ pub enum Note {
     /// A concession line not in service yet `days` after it was taken on: the authority
     /// charged for the day.
     NotStarted { number: String, days: i64, charge: Cents },
+    /// A driver of the company had an accident with the bus: the damage (`incidents`).
+    Accident { number: String, cost: Cents },
 }
 
 /// What a closed day came to.
@@ -310,6 +314,9 @@ pub struct DayReport {
     pub short_buses: u32,
     #[serde(default)]
     pub short_drivers: u32,
+    /// Accidents, fines, complaints and passengers taken ill on the modelled trips.
+    #[serde(default)]
+    pub incidents: super::incidents::Tally,
 }
 
 /// Maps named alike (`maps/Grundorf/global.cfg`, with either slash and any case).
@@ -455,7 +462,10 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
     // runs the trips from when it came)
     let cut = super::clock::breakdowns(c, &plan, &date, &live_broken);
 
-    // 4. the modelled trips
+    // 4. the modelled trips (what else befalls them, by the drivers' courses: `incidents`)
+    let trained = super::incidents::trained(c);
+    let mut befalls = Rng::of(&[&c.id, "incidents"], dates::parse(&date).unwrap_or(0));
+    let mut tally = super::incidents::Tally::default();
     let mut bus_km: Vec<(u32, f64)> = Vec::new();
     let mut worked: Vec<(u32, i32, i32)> = Vec::new();
     for tp in &plan.tours {
@@ -546,6 +556,9 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
                 }
                 let pax = pax.round().max(0.0) as u32;
                 let (fares, comp) = super::ownline::trip_income(kind, pax as f64, trip.km, per_passenger[li], comp_km, super::ownline::school_trip_pay(c, trip.km));
+                let skilled = trained.get(&e.id).copied().unwrap_or_default();
+                let fares = (fares as f64 * super::incidents::fare_factor(&skilled)).round() as Cents;
+                super::incidents::trip(&mut befalls, e, &skilled, &v.number, v.kind.size, pax, c.price_index, &mut tally);
                 sums[li].fares += fares;
                 sums[li].compensation += comp;
                 lines[li].passengers += pax;
@@ -583,6 +596,13 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
         l.running += (s.energy + s.maintenance).round() as Cents;
         l.penalty += s.penalty;
     }
+    for (number, cost) in &tally.accidents {
+        c.book(BookingKind::Repair, -cost, format!("Accident damage, bus {number}"), false);
+        report.notes.push(Note::Accident { number: number.clone(), cost: *cost });
+    }
+    if tally.fine_cost > 0 {
+        c.book(BookingKind::Fine, -tally.fine_cost, format!("Traffic fines of the drivers ({})", tally.fines), false);
+    }
     // a concession not in service after its grace: the authority charges for the day
     for (li, cl) in c.lines.clone().iter().enumerate() {
         if let Some((days, charge)) = network::late_start(c, cl, &date) {
@@ -608,6 +628,8 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
     let price_index = c.price_index;
     // (a bus under the dealer's warranty is repaired at the dealer's cost)
     let warranted = super::dealer::warranted(c, &date);
+    // (the company's own mechanics have a broken-down bus back a day sooner)
+    let mechanics = super::training::mechanics(c, &date);
     for v in c.fleet.iter_mut() {
         if let Some((_, km)) = bus_km.iter().find(|b| b.0 == v.id) {
             v.km += km;
@@ -615,6 +637,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
         }
         if cut.iter().any(|x| x.0 == v.id) {
             let days = rng.int(1, 3);
+            let days = if mechanics > 0 { (days - 1).max(1) } else { days };
             let until = dates::add(&date, days);
             let size = match v.kind.size {
                 BusSize::Midi => 0.8,
@@ -676,6 +699,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
         }
         monthly.push((BookingKind::Depot, -economy::depot_per_month(depot_buses, c.price_index), c.depot.clone()));
         super::ownline::month_end(c);
+        super::adverts::month_end(c);
         for (k, a, t) in monthly {
             c.book(k, a, t, false);
         }
@@ -706,6 +730,8 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
         }
         c.punctuality = c.punctuality * 0.85 + p * 0.15;
     }
+    change += tally.reputation();
+    report.incidents = tally;
     c.reputation = (c.reputation + change).clamp(0.0, 100.0);
     report.punctuality = punctuality;
     report.reputation = c.reputation;
@@ -956,6 +982,26 @@ mod tests {
         let mut b = a.clone();
         let t = vec![tour("1", 6 * 60, 10)];
         assert_eq!(close_day(&mut a, t.clone(), &[]), close_day(&mut b, t, &[]));
+    }
+
+    #[test]
+    fn drivers_trained_in_ticket_sales_bring_more_fares() {
+        use super::super::training::{Course, CourseKind};
+        let plain = company(Difficulty::Realistic, 2, 4);
+        let mut trained = plain.clone();
+        for (k, e) in plain.staff.iter().enumerate() {
+            let x = Course { id: k as u32 + 1, kind: CourseKind::Ticketing, employee: Some(e.id), name: e.name.clone(), from: plain.date.clone(), until: plain.date.clone(), cost: 0, done: true, subject: String::new() };
+            trained.progress.courses.push(x);
+        }
+        let month = plain.date[..7].to_string();
+        let tours = vec![tour("1", 6 * 60, 10), tour("2", 6 * 60 + 30, 10)];
+        let (mut a, mut b) = (plain, trained);
+        let (ra, rb) = (close_day(&mut a, tours.clone(), &[]), close_day(&mut b, tours, &[]));
+        assert_eq!(ra.passengers, rb.passengers);
+        let (fa, fb) = (a.month(&month).get(BookingKind::Fares) as f64, b.month(&month).get(BookingKind::Fares) as f64);
+        assert!(fa > 0.0 && fb > fa * 1.03 && fb < fa * 1.05, "{fa} {fb}");
+        // what else befell the trips is told in the report, and the same on both
+        assert_eq!(ra.incidents, rb.incidents);
     }
 
     #[test]

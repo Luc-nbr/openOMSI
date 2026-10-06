@@ -107,8 +107,11 @@ pub(crate) struct Args {
     #[arg(long)]
     pub(crate) number: Option<String>,
     /// Display font of the player vehicle's destination displays, e.g. `--display-font
-    /// "Annax Small"`: a `[newfont]` name from a `Fonts/*.oft` of any content root, drawn in
-    /// place of the bus's own matrix fonts and fitted to their height (the launcher's bus step).
+    /// "Annax Small"`: a `[newfont]` name from a `Fonts/*.oft` of any content root, or a
+    /// TrueType/OpenType font with its settings after it (`"Arial Bold|file=C:/Windows/Fonts/
+    /// arialbd.ttf|rows=16|bold|spacing=1"`, see `omsi_content::dotfont::DisplayFontSpec`),
+    /// drawn in place of the bus's own display fonts in their grid of dots - on its text
+    /// displays and on the matrices its scripts draw (the launcher's bus step).
     #[arg(long)]
     pub(crate) display_font: Option<String>,
     /// Time of day at start, HH:MM (default 09:00).

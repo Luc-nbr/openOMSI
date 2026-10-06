@@ -207,6 +207,10 @@ pub(super) enum Go {
     Dealer,
     /// The staff's applicants.
     Hire,
+    /// The staff's courses on the Staff page.
+    Training,
+    /// The licences and type trainings on the Staff page.
+    Licences,
 }
 
 impl Go {
@@ -221,6 +225,8 @@ impl Go {
             Go::Lines => "To the lines",
             Go::Dealer => "To the dealer",
             Go::Hire => "Hire drivers",
+            Go::Training => "Train the drivers",
+            Go::Licences => "Train drivers",
         }
     }
 
@@ -234,6 +240,8 @@ impl Go {
             Go::Lines => "route",
             Go::Dealer => "directions_bus",
             Go::Hire => "groups",
+            Go::Training => "badge",
+            Go::Licences => "key",
         }
     }
 }
@@ -310,6 +318,9 @@ pub(super) fn refusal(c: &Company, reason: &str) -> Popup {
     match reason {
         "Articulated buses open at a higher company level." => locked(c, Feature::ArticulatedBuses),
         "Double-deckers open at a higher company level." => locked(c, Feature::DoubleDeckers),
+        "Rear adverts open at a higher company level." => locked(c, Feature::RearAdverts),
+        "Side adverts open at a higher company level." => locked(c, Feature::SideAdverts),
+        "Full wraps open at a higher company level." => locked(c, Feature::FullWraps),
         "Electric buses open at a higher company level." => locked(c, Feature::ElectricBuses),
         "Your company cannot build this yet." | "Your company's level does not offer this course yet." => Popup::new("lock", "Not open yet", format!("{said} {}", level_words(c)), omsi_ui::tr("The company earns points with every day closed: tours run, trips on time, passengers carried and a good reputation."), Some(Go::Progress)),
         "Not enough cash." | "Not enough money for the course." => no_cash(c, 0),

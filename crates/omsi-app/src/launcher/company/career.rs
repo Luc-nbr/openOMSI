@@ -90,6 +90,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
     let mut part = l.company.career.part;
     let seg_w = 740.0f32.min(area.w);
+    super::super::tour::anchor("company-career-parts", Rect::new(area.x, area.y, seg_w, ROW));
     if l.ui.segmented("company-career-parts", Rect::new(area.x, area.y, seg_w, ROW), &mut part, &refs) {
         l.company.career.part = part;
     }

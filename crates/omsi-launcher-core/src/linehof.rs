@@ -211,7 +211,7 @@ pub fn notes(text: &str, count: usize) -> Vec<String> {
 }
 
 /// The most characters a note allows ("max. 16 Zeichen").
-fn note_max(note: &str) -> Option<usize> {
+pub fn note_max(note: &str) -> Option<usize> {
     let l = note.to_lowercase();
     let at = l.find("max")?;
     let digits: String = l[at + 3..].chars().skip_while(|c| !c.is_ascii_digit()).take_while(|c| c.is_ascii_digit()).collect();
@@ -377,8 +377,14 @@ impl Depot {
     pub fn from_text(path: &Path, text: &str, map: &str) -> Depot {
         let text = strip_block(text, map);
         let hof = Hof::parse(&omsi_cfg::CfgFile::from_str(path, &text));
+        let notes = notes(&text, hof.string_count_terminus);
+        Self::from_hof(hof, notes)
+    }
+
+    /// A depot file read already (`hof`), with its notes on its terminus strings.
+    pub fn from_hof(hof: Hof, mut notes: Vec<String>) -> Depot {
         let n = hof.string_count_terminus;
-        let notes = notes(&text, n);
+        notes.resize(n, String::new());
         let rows: Vec<Vec<String>> = hof.termini.iter().map(|t| t.strings.clone()).collect();
         let cols = columns(&rows, n, &notes);
         let roles = roles(&notes, &cols);
@@ -581,10 +587,16 @@ pub fn depot_of(l: &LineDesign, groups: &HashMap<String, String>) -> Option<Stri
 /// terminus code (one for every direction to it), every direction its route code - the codes
 /// kept where they are still free, so that they stay what the player knows them by.
 pub fn assign(reg: &mut Registry, groups: &HashMap<String, String>, depot_name: &str, depot: &Depot, taken: &Taken) {
+    let ids: Vec<u64> = lines_of(reg, groups, depot_name).iter().map(|l| l.id).collect();
+    assign_lines(reg, &ids, depot, taken);
+}
+
+/// `assign` for the lines `ids` of the registry, whose depot file is `depot` (one of the
+/// player's own, `owndepot`).
+pub fn assign_lines(reg: &mut Registry, ids: &[u64], depot: &Depot, taken: &Taken) {
     let mut t = taken.clone();
     let mut new_termini: HashMap<String, i32> = HashMap::new();
-    let ids: Vec<u64> = lines_of(reg, groups, depot_name).iter().map(|l| l.id).collect();
-    for id in ids {
+    for &id in ids {
         let Some(l) = reg.line_mut(id) else { continue };
         let number = l.number.clone();
         for (k, d) in l.directions.iter_mut().enumerate() {
@@ -750,7 +762,8 @@ pub fn copies(name: &str, bases: &[PathBuf]) -> Vec<Copy> {
             }
         }
         for (_, paths) in files {
-            if crate::depot::answers_to(&paths[0], name) {
+            // (never the player's own depot files beside buses: `owndepot` writes those)
+            if crate::depot::answers_to(&paths[0], name) && !omsi_vehicle::hof::is_players(&paths[0]) {
                 let file = paths[0].file_name().unwrap_or_default().to_string_lossy().into_owned();
                 out.push(Copy { rel: format!("{rel}/{file}"), source: paths[0].clone(), lower: paths[1..].to_vec() });
             }
@@ -890,7 +903,7 @@ pub fn first_depot(name: &str, bases: &[PathBuf], map: &str) -> Option<Depot> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::lines::{Leg, StopRef};
 

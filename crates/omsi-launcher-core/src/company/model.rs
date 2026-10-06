@@ -118,10 +118,14 @@ pub enum BookingKind {
     Construction,
     /// Tender fees and the licences of the company's own lines.
     Concession,
+    /// The company's own liveries: their design, and buses painted in them.
+    Livery,
+    /// What advertisers pay for the adverts on the buses (and a contract ended early costs).
+    Advertising,
 }
 
 impl BookingKind {
-    pub const ALL: [BookingKind; 24] = [
+    pub const ALL: [BookingKind; 26] = [
         BookingKind::Capital,
         BookingKind::Loan,
         BookingKind::Repayment,
@@ -146,6 +150,8 @@ impl BookingKind {
         BookingKind::Training,
         BookingKind::Construction,
         BookingKind::Concession,
+        BookingKind::Livery,
+        BookingKind::Advertising,
     ];
 
     pub fn label(self) -> &'static str {
@@ -174,6 +180,8 @@ impl BookingKind {
             BookingKind::Training => "Training",
             BookingKind::Construction => "Depot building",
             BookingKind::Concession => "Concessions and licences",
+            BookingKind::Livery => "Liveries and painting",
+            BookingKind::Advertising => "Advertising",
         }
     }
 
@@ -347,6 +355,12 @@ pub struct Employee {
     pub last_end: Option<i32>,
     #[serde(default)]
     pub days_worked: u32,
+    /// Besides the licence: the buses they may drive (`licences::Endorsement`), and the model
+    /// families they had the type training for (`licences::type_key`).
+    #[serde(default)]
+    pub endorsements: Vec<super::licences::Endorsement>,
+    #[serde(default)]
+    pub types: Vec<String>,
 }
 
 impl Employee {
@@ -423,6 +437,9 @@ pub struct CompanyLine {
     /// (empty: the company's, `Company::depot`).
     #[serde(default)]
     pub hof: String,
+    /// An own line in service changed in the line editor for a later day (`ownline::Pending`).
+    #[serde(default)]
+    pub pending: Option<super::ownline::Pending>,
 }
 
 impl CompanyLine {
@@ -559,6 +576,16 @@ pub struct Company {
     /// The dealer: the buying mode, offers bought, orders, talks, warranties (see `dealer`).
     #[serde(default)]
     pub dealer: super::dealer::DealerState,
+    /// The company's own liveries (see `livery`).
+    #[serde(default)]
+    pub designs: Vec<super::livery::Design>,
+    /// The advertising on its buses (see `adverts`).
+    #[serde(default)]
+    pub adverts: super::adverts::Adverts,
+    /// 1: its people's licences and type trainings are kept (`licences`); 0: a file of before,
+    /// whose people get what the fleet asks (`store::migrate`).
+    #[serde(default)]
+    pub quals: u32,
 }
 
 fn one() -> f64 {

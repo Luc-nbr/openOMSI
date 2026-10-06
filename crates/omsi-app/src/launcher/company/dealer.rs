@@ -58,6 +58,8 @@ pub(super) enum Sheet {
     LoanContract { contract: LoanContract, strokes: Vec<Vec<Vec2>>, readonly: bool, collateral: i64, then: Then },
     /// Paying a loan back early: the confirmation with its fee.
     Repay { id: u32, amount: i64 },
+    /// An advertising contract (`adverts`): to sign, or one signed to look at.
+    Advert { contract: co::adverts::AdContract, strokes: Vec<Vec<Vec2>>, readonly: bool },
 }
 
 /// What a loan pays for, once its contract is signed.
@@ -175,7 +177,10 @@ pub(super) fn tick(l: &mut Launcher) {
     l.company.fleet.dealer.ticked = Some(key);
     let Some(done) = act(l, |c| Ok(dl::tick(c, &now))) else { return };
     for d in done {
-        let text = omsi_ui::tr("Contract %{no}: %{bus} delivered - fleet numbers %{numbers}.").replace("%{no}", &d.contract.to_string()).replace("%{bus}", &d.name).replace("%{numbers}", &d.numbers.join(", "));
+        let mut text = omsi_ui::tr("Contract %{no}: %{bus} delivered - fleet numbers %{numbers}.").replace("%{no}", &d.contract.to_string()).replace("%{bus}", &d.name).replace("%{numbers}", &d.numbers.join(", "));
+        if let Some(note) = d.ids.first().and_then(|id| l.company.company.as_ref().and_then(|c| super::people::drivers_note(c, *id))) {
+            text = format!("{text} {note}");
+        }
         l.state.set_status(text, false);
     }
     back_from_test(l);
@@ -662,6 +667,7 @@ pub fn dialog(l: &mut Launcher) {
         Sheet::Loan { amount, term, purpose, collateral, fixed, then } => super::bank::loan_sheet(l, &c, amount, term, purpose, collateral, fixed, then, esc),
         Sheet::LoanContract { contract, strokes, readonly, collateral, then } => super::bank::loan_contract_sheet(l, &c, contract, strokes, readonly, collateral, then, esc),
         Sheet::Repay { id, amount } => super::bank::repay_sheet(l, &c, id, amount, esc),
+        Sheet::Advert { contract, strokes, readonly } => super::adverts::contract_sheet(l, &c, contract, strokes, readonly, esc),
     };
     match next {
         Some(s) => {
@@ -850,7 +856,7 @@ fn model_sheet(l: &mut Launcher, c: &Company, listing: Listing, livery: usize, c
     let liveries = liveries_of(l, &listing.bus.file);
     let side_w = (inner.w * 0.3).clamp(280.0, 340.0);
     let side = Rect::new(inner.x, inner.y, side_w, inner.h);
-    let livery = bus_side(l, side, &listing.bus.file, &listing.bus.name, listing.bus.kind, livery, &liveries);
+    let livery = bus_side(l, side, &listing.bus.file, &listing.bus.name, listing.bus.kind, livery, &liveries, Some(None));
     let paint = liveries.get(livery).cloned().unwrap_or_default();
     let right = Rect::new(inner.x + side_w + 30.0, inner.y, inner.w - side_w - 30.0, inner.h);
     let r = co::economy::rules(c.difficulty);
@@ -981,7 +987,7 @@ fn offer_sheet(l: &mut Launcher, c: &Company, offer: Offer, livery: usize, count
     let liveries = liveries_of(l, &offer.listing.bus.file);
     let side_w = (inner.w * 0.3).clamp(280.0, 340.0);
     let side = Rect::new(inner.x, inner.y, side_w, inner.h);
-    let livery = bus_side(l, side, &offer.listing.bus.file, &offer.listing.bus.name, offer.listing.bus.kind, livery, &liveries);
+    let livery = bus_side(l, side, &offer.listing.bus.file, &offer.listing.bus.name, offer.listing.bus.kind, livery, &liveries, Some(None));
     let paint = liveries.get(livery).cloned().unwrap_or_default();
     let right = Rect::new(inner.x + side_w + 30.0, inner.y, inner.w - side_w - 30.0, inner.h);
     let mut rows = vec![(omsi_ui::tr("Seller").into_owned(), offer.seller.clone()), (omsi_ui::tr("Kind").into_owned(), omsi_ui::tr(offer.listing.bus.kind.label()).into_owned()), (omsi_ui::tr("Places").into_owned(), places(&offer.listing))];
@@ -1198,15 +1204,19 @@ fn talk_sheet(l: &mut Launcher, c: &Company, talk: Talk, listing: Listing, offer
         let ey = ay + 52.0;
         let extras: Vec<Extra> = Extra::ALL.iter().copied().filter(|e| !(*e == Extra::FastDelivery && talk.quote.used)).collect();
         let ew = (rw - (extras.len() as f32 - 1.0) * 10.0) / extras.len() as f32;
+        // (too narrow for their words: the icons, the words in the tooltip)
+        let worded = extras.iter().all(|e| Foot::width(&l.ui, &omsi_ui::tr(e.label()), Some(e.icon())) <= ew);
         for (k, e) in extras.iter().enumerate() {
             let r = Rect::new(rx + k as f32 * (ew + 10.0), ey, ew, 40.0);
             let have = talk.extras.contains(e);
-            let label = omsi_ui::tr(e.label()).into_owned();
+            let label = if worded { omsi_ui::tr(e.label()).into_owned() } else { String::new() };
             if l.ui.button(&format!("company-dealer-extra-{k}"), r, &label, Some(if have { "check" } else { e.icon() }), ButtonKind::Normal) && !have {
                 mv = Some(Move::AskExtra(*e));
             }
             let worth = omsi_ui::tr("Ask for it: worth about %{amount} a bus to the dealer").replace("%{amount}", &eur(dl::extra_value(c, *e, talk.quote.list)));
-            l.ui.tooltip(r, if have { "Agreed: it goes into the contract" } else { &worth });
+            let tip = if have { omsi_ui::tr("Agreed: it goes into the contract").into_owned() } else { worth };
+            let tip = if worded { tip } else { format!("{}\n{tip}", omsi_ui::tr(e.label())) };
+            l.ui.tooltip(r, &tip);
         }
     } else {
         let t = match talk.replies.last() {
@@ -1430,7 +1440,11 @@ pub(super) fn signed_status(l: &mut Launcher, done: Signed) {
     match done {
         Signed::Delivered(ids) => {
             let numbers: Vec<String> = ids.iter().filter_map(|id| l.company.company.as_ref().and_then(|c| c.vehicle(*id)).map(|v| v.number.clone())).collect();
-            l.state.set_status(omsi_ui::tr("Contract %{no} is signed: fleet numbers %{numbers} joined the fleet.").replace("%{no}", &no.to_string()).replace("%{numbers}", &numbers.join(", ")), false);
+            let mut text = omsi_ui::tr("Contract %{no} is signed: fleet numbers %{numbers} joined the fleet.").replace("%{no}", &no.to_string()).replace("%{numbers}", &numbers.join(", "));
+            if let Some(note) = ids.first().and_then(|id| l.company.company.as_ref().and_then(|c| super::people::drivers_note(c, *id))) {
+                text = format!("{text} {note}");
+            }
+            l.state.set_status(text, false);
         }
         Signed::Ordered { no, delivery } => {
             l.state.set_status(omsi_ui::tr("Contract %{no} is signed: the buses arrive on %{date}.").replace("%{no}", &no.to_string()).replace("%{date}", &day_label(&dl::day_of(&delivery))), false);

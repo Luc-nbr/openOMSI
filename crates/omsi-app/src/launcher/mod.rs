@@ -15,6 +15,7 @@ mod busphoto;
 mod buspick;
 mod company;
 mod daytime;
+mod depoteditor;
 mod displayfont;
 pub(crate) mod drive;
 mod editor_hub;
@@ -76,13 +77,15 @@ pub enum Page {
     Editor,
     /// The line editor (lineeditor).
     Lines,
+    /// The depot editor (depoteditor): depot files of the player's own.
+    Depots,
     /// The livery studio (see `livery`): a bus painted in 3D.
     Livery,
     /// The bus company (see `company`).
     Company,
 }
 
-const PAGES: [(Page, &str, &str); 14] = [
+const PAGES: [(Page, &str, &str); 15] = [
     (Page::Drive, "Drive", "directions_bus"),
     (Page::Multiplayer, "Multiplayer", "groups"),
     (Page::Profile, "Profile", "badge"),
@@ -95,6 +98,7 @@ const PAGES: [(Page, &str, &str); 14] = [
     (Page::Setup, "Setup", "folder_open"),
     (Page::Editor, "Editor", "construction"),
     (Page::Lines, "Line editor", "route"),
+    (Page::Depots, "Depot editor", "departure_board"),
     (Page::Livery, "Livery", "livery_fill"),
     (Page::Company, "Bus company", "garage"),
 ];

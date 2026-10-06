@@ -487,10 +487,12 @@ pub enum Extra {
     Painting,
     /// A year more of warranty.
     Warranty,
+    /// The model's type training for two drivers on delivery (`licences::introduction`).
+    Introduction,
 }
 
 impl Extra {
-    pub const ALL: [Extra; 4] = [Extra::FreeService, Extra::FastDelivery, Extra::Painting, Extra::Warranty];
+    pub const ALL: [Extra; 5] = [Extra::FreeService, Extra::FastDelivery, Extra::Painting, Extra::Warranty, Extra::Introduction];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -498,6 +500,7 @@ impl Extra {
             Extra::FastDelivery => "Faster delivery",
             Extra::Painting => "Livery painting included",
             Extra::Warranty => "A year more warranty",
+            Extra::Introduction => "Driver introduction",
         }
     }
 
@@ -507,6 +510,7 @@ impl Extra {
             Extra::FastDelivery => "speed",
             Extra::Painting => "palette",
             Extra::Warranty => "badge",
+            Extra::Introduction => "key",
         }
     }
 }
@@ -518,6 +522,7 @@ pub fn extra_value(c: &Company, e: Extra, list: Cents) -> Cents {
         Extra::FastDelivery => round_to(list as f64 * 0.01, 100_00),
         Extra::Painting => painting_cost(c),
         Extra::Warranty => round_to(list as f64 * 0.02, 100_00),
+        Extra::Introduction => 2 * super::licences::course_cost(c, super::training::CourseKind::TypeTraining),
     }
 }
 
@@ -1205,6 +1210,10 @@ fn deliver(c: &mut Company, k: &Contract) -> Vec<u32> {
         }
         ids.push(id);
     }
+    // (the model's introduction: two drivers learn it from the dealer's man)
+    if k.extras.contains(&Extra::Introduction) {
+        super::licences::introduction(c, &k.listing.bus.file);
+    }
     ids
 }
 
@@ -1214,6 +1223,7 @@ pub struct Delivered {
     pub contract: u32,
     pub name: String,
     pub numbers: Vec<String>,
+    pub ids: Vec<u32>,
 }
 
 /// What the dealer does by `now` (the company clock calls it; the pages too until it does):
@@ -1232,7 +1242,7 @@ pub fn tick(c: &mut Company, now: &str) -> Vec<Delivered> {
     for o in due {
         let ids = deliver(c, &o.contract);
         let numbers = ids.iter().filter_map(|id| c.vehicle(*id).map(|v| v.number.clone())).collect();
-        out.push(Delivered { contract: o.contract.no, name: o.contract.listing.bus.name.clone(), numbers });
+        out.push(Delivered { contract: o.contract.no, name: o.contract.listing.bus.name.clone(), numbers, ids });
     }
     let today = dates::parse(&day_of(now)).unwrap_or(0);
     let date = day_of(now);
@@ -1688,6 +1698,35 @@ mod tests {
         assert_eq!(low, before);
     }
 
+
+    #[test]
+    fn the_introduction_teaches_two_drivers_the_new_model() {
+        use super::super::licences::{qualified_drivers, type_key};
+        let mut c = company(Difficulty::Realistic, "2024-03-04");
+        c.cash += 1_000_000_00;
+        for k in 0..3 {
+            let a = super::super::staff::applicants(&c)[k].clone();
+            super::super::staff::hire(&mut c, &a).unwrap();
+        }
+        let l = listing("Urbino", "Solaris", BusSize::Solo, Drive::Diesel);
+        assert_eq!(extra_value(&c, Extra::Introduction, 260_000_00), 500_00);
+        let now = now_of(&c);
+        // without it: nobody may drive the new model
+        let mut plain = draft_new(&c, &l, 1, 260_000_00, &[], "", None);
+        (plain.signed_by, plain.delivery_days) = ("Luc".into(), 0);
+        let mut first = c.clone();
+        let Ok(Signed::Delivered(ids)) = sign(&mut first, &plain, &[], &now) else { panic!() };
+        let v = first.vehicle(ids[0]).unwrap().clone();
+        assert_eq!(qualified_drivers(&first, v.kind, &v.bus), (0, 3));
+        // with it: the two most experienced drivers
+        let mut k = draft_new(&c, &l, 1, 260_000_00, &[Extra::Introduction], "", None);
+        (k.signed_by, k.delivery_days) = ("Luc".into(), 0);
+        let Ok(Signed::Delivered(ids)) = sign(&mut c, &k, &[], &now) else { panic!() };
+        let v = c.vehicle(ids[0]).unwrap().clone();
+        assert_eq!(qualified_drivers(&c, v.kind, &v.bus), (2, 3));
+        let least = c.staff.iter().min_by(|a, b| a.experience.total_cmp(&b.experience)).unwrap();
+        assert!(!least.types.contains(&type_key(&v.bus)));
+    }
 
     #[test]
     fn an_offer_is_bought_once_and_used_ones_come_at_once() {

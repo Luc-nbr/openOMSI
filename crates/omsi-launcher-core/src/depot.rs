@@ -235,6 +235,19 @@ fn record_path() -> PathBuf {
     super::data_dir().join("depots-added.txt")
 }
 
+/// Note that openOMSI added `added` (a copy of `from`) beside a bus, once.
+pub(crate) fn record(added: &Path, from: &Path) {
+    use std::io::Write;
+    let known = std::fs::read_to_string(record_path()).unwrap_or_default();
+    let line = added.display().to_string();
+    if known.lines().any(|l| l.split('\t').next().is_some_and(|a| a.trim().eq_ignore_ascii_case(&line))) {
+        return;
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(record_path()) {
+        let _ = writeln!(f, "{}\t{}", added.display(), from.display());
+    }
+}
+
 /// The depot files openOMSI added beside buses (that are still there).
 pub fn added() -> Vec<PathBuf> {
     std::fs::read_to_string(record_path()).unwrap_or_default().lines().filter_map(|l| l.split('\t').next()).map(str::trim).filter(|l| !l.is_empty()).map(PathBuf::from).filter(|p| p.is_file()).collect()
@@ -249,7 +262,7 @@ pub fn find_sources(name: &str, map: &str) -> Vec<Source> {
 
 /// The content folder's copy of a vehicle folder (`Vehicles/<pack>/...`, relative), and
 /// every content root's copies of it.
-fn copies_of(rel: &str) -> Vec<PathBuf> {
+pub(crate) fn copies_of(rel: &str) -> Vec<PathBuf> {
     let Ok(root) = super::root() else { return Vec::new() };
     let dir = omsi_cfg::resolve_path(&root, rel);
     let mut v = omsi_cfg::mirrored_dirs(&dir);
@@ -289,10 +302,7 @@ pub fn add_for_bus(bus_file: &str, name: &str, source: &Path) -> Result<PathBuf,
     match &r {
         Ok(p) => {
             super::log_line(&format!("depot: {} added beside {bus_file} (a copy of {})", p.display(), source.display()));
-            use std::io::Write;
-            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(record_path()) {
-                let _ = writeln!(f, "{}\t{}", p.display(), source.display());
-            }
+            record(p, source);
         }
         Err(e) => super::log_line(&format!("depot: {} not added beside {bus_file}: {e}", source.display())),
     }

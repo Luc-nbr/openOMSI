@@ -31,6 +31,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         ("On time", if timed { format!("{:.0} %", c.punctuality) } else { "–".to_string() }, omsi_ui::tr("of the trips, lately").into_owned(), if timed { super::grade(c.punctuality * 1.2 - 20.0) } else { TEXT }, "Trips at most three minutes late, over the last days"),
         ("Reputation", format!("{:.0}", c.reputation), omsi_ui::tr("of 100").into_owned(), super::grade(c.reputation + 15.0), "What passengers and the authority think of the company: trips run on time raise it, trips dropped lower it"),
     ];
+    super::super::tour::anchor("company-figures", Rect::new(area.x, area.y, area.w, fh));
     for (k, (label, value, under, colour, tip)) in figures.iter().enumerate() {
         let r = Rect::new(area.x + k as f32 * (fw + gap), area.y, fw, fh);
         super::figure(&mut l.ui, r, label, value, under, *colour);
@@ -149,6 +150,7 @@ fn chart_of(ui: &mut Ui, r: Rect, history: &[DayRecord], today: &str) {
 
 /// Today: the tours and how many are covered, and what wants attention.
 fn today(l: &mut Launcher, r: Rect, c: &Company) {
+    super::super::tour::anchor("company-today", r);
     let inner = section(&mut l.ui, r, "Today");
     let mut y = inner.y;
     let plan = l.company.plan.clone();

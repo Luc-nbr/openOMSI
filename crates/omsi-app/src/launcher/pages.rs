@@ -39,6 +39,7 @@ pub struct PagesView {
     /// The editor hub's map for the map objects, and the line editor.
     pub hub: super::editor_hub::HubView,
     pub lines: super::lineeditor::LineEditorView,
+    pub depots: super::depoteditor::DepotEditorView,
 }
 
 /// The game controllers tab: the devices `gamectrler.cfg` sets up, the ones connected now,
@@ -121,6 +122,7 @@ pub fn about(page: Page, controls_tab: usize) -> (&'static str, &'static str) {
         Page::Setup => ("folder_open", "Where the original game and this one are."),
         Page::Editor => ("construction", "Make the map your own: lines of your own, liveries, the timetable and the map's objects."),
         Page::Lines => ("route", "Click the stops in order: the way between them is found over the roads. Saved, the line is driven by you and by the timetable's buses."),
+        Page::Depots => ("departure_board", "Your own depot files: the destinations and what every display shows, the IBIS's stops and routes, special and service trips. A line chooses one, and every bus that drives it gets it."),
         Page::Livery => ("livery_fill", "Paint a bus in 3D: colours, stripes, texts, pictures and shapes, saved as a livery the game offers."),
         Page::Company => ("garage", "Your own transport company: buses, people and lines, in a time of its own."),
         Page::Drive => ("directions_bus", ""),

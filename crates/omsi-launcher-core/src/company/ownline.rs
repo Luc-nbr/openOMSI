@@ -72,6 +72,7 @@
 use super::concessions;
 use super::dates;
 use super::economy;
+use super::market;
 use super::model::{BookingKind, BusKind, BusSize, Cents, Company, CompanyLine, Difficulty, Drive, Vehicle};
 use super::network::{PlannedTrip, TourOfDay};
 use super::rng::Rng;
@@ -951,10 +952,25 @@ fn plan_of(c: &Company, l: &LineDesign, shape: &Shape) -> OwnPlan {
 /// Confirm and pay a line the player made for the company (`stem`: the timetable name it is
 /// written as, `lines::stems`): its one-off costs booked, and the company runs it from today.
 /// A line the company cannot pay for in cash is not confirmed.
+/// The sizes of bus a line asks for: its kinds of bus and its time bands' buses.
+pub fn sizes_asked(l: &LineDesign) -> Vec<BusSize> {
+    let mut v: Vec<BusSize> = l.vehicles.classes.iter().map(|k| k.size()).collect();
+    v.extend(l.days.iter().filter(|p| p.on).flat_map(|p| p.bands.iter().filter_map(|b| b.size)));
+    v.dedup();
+    v
+}
+
+/// The company's level allows every size of bus the line asks for (an articulated bus, a
+/// double-decker: `market::kind_allowed`).
+pub fn sizes_allowed(c: &Company, l: &LineDesign) -> Result<(), &'static str> {
+    sizes_asked(l).into_iter().try_for_each(|s| market::size_allowed(c, s))
+}
+
 pub fn confirm(c: &mut Company, l: &LineDesign, stem: &str, shape: &Shape) -> Result<Cents, &'static str> {
     if !lines::problems(l).is_empty() {
         return Err("The line is not finished yet.");
     }
+    sizes_allowed(c, l)?;
     if line_of(c, l.id).is_some() || c.lines.iter().any(|x| x.name.eq_ignore_ascii_case(stem)) {
         return Err("The company runs this line already.");
     }
@@ -988,6 +1004,7 @@ pub fn confirm(c: &mut Company, l: &LineDesign, stem: &str, shape: &Shape) -> Re
         demand: Default::default(),
         title: l.title.trim().to_string(),
         hof: String::new(),
+        pending: None,
     });
     Ok(total)
 }
@@ -996,7 +1013,9 @@ pub fn confirm(c: &mut Company, l: &LineDesign, stem: &str, shape: &Shape) -> Re
 /// with the passenger information of the stops new to it and the live displays newly asked
 /// for (None: nothing to pay).
 pub fn change_fee(c: &Company, l: &LineDesign, shape: &Shape) -> Option<Cents> {
-    let p = line_of(c, l.id)?.plan.as_ref()?;
+    // (against what is approved: a change waiting for its day is)
+    let cl = line_of(c, l.id)?;
+    let p = cl.pending.as_ref().map(|x| &x.plan).or(cl.plan.as_ref())?;
     let k = costs(c.difficulty);
     let mut fee = 0;
     if route_key(l) != p.route {
@@ -1013,9 +1032,41 @@ pub fn change_fee(c: &Company, l: &LineDesign, shape: &Shape) -> Option<Cents> {
 /// what the company keeps of it made anew (its timetable name, number, colour, passengers and
 /// tours). Returns what was paid.
 pub fn apply_change(c: &mut Company, l: &LineDesign, stem: &str, shape: &Shape) -> Result<Cents, &'static str> {
-    if line_of(c, l.id).is_none() {
-        return Err("The company does not run this line.");
-    }
+    let (fee, change) = changed(c, l, stem, shape, "")?;
+    let Some(cl) = c.lines.iter_mut().find(|x| x.own && x.plan.as_ref().is_some_and(|p| p.line_id == l.id)) else { return Err("The company does not run this line.") };
+    cl.pending = None;
+    let old = cl.name.clone();
+    put(cl, change);
+    // (a new number is a new timetable name: the roster follows it)
+    super::plan::rename_line(c, &old, stem);
+    Ok(fee)
+}
+
+/// A change of an own line in service, saved for a later day (Luc: "lijnen moeten ook
+/// aanpasbaar zijn als ze al actief zijn"): what the company's line will be from `from` on,
+/// and the tours whose buses and drivers are given anew then. Until that day the line runs
+/// as it does (the timetable keeps it too: `lines::LineDesign::live`); the change is paid
+/// when it is saved.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct Pending {
+    pub from: String,
+    pub name: String,
+    pub number: String,
+    pub colour: String,
+    pub caption: String,
+    pub title: String,
+    pub plan: OwnPlan,
+    pub tours: u32,
+    pub km: f64,
+    pub replan: Vec<String>,
+}
+
+/// What a change makes of the company's line, paid (`change_fee`).
+fn changed(c: &mut Company, l: &LineDesign, stem: &str, shape: &Shape, from: &str) -> Result<(Cents, Pending), &'static str> {
+    let Some(cl) = line_of(c, l.id) else { return Err("The company does not run this line.") };
+    let old = cl.pending.as_ref().map(|x| x.plan.clone()).or_else(|| cl.plan.clone()).unwrap_or_default();
+    sizes_allowed(c, l)?;
     let fee = change_fee(c, l, shape).unwrap_or(0);
     if c.cash < fee {
         return Err("The company cannot pay for the change: take a loan on the Finances page.");
@@ -1026,23 +1077,59 @@ pub fn apply_change(c: &mut Company, l: &LineDesign, stem: &str, shape: &Shape) 
     }
     let fresh = plan_of(c, l, shape);
     let e = estimate(c, l, shape);
-    let cap = caption(l);
+    let plan = OwnPlan { confirmed: old.confirmed, paid: old.paid + fee, ..fresh };
+    let title = l.title.trim().to_string();
+    Ok((fee, Pending { from: from.to_string(), name: stem.to_string(), number, colour: l.colour.clone(), caption: caption(l), title, plan, tours: e.tours[0] as u32, km: e.km[0], replan: Vec::new() }))
+}
+
+/// A change into the company's line.
+fn put(cl: &mut CompanyLine, x: Pending) {
+    cl.plan = Some(x.plan);
+    cl.name = x.name;
+    if !cl.numbers.contains(&x.number) {
+        cl.numbers.insert(0, x.number.clone());
+    }
+    cl.number = x.number;
+    cl.colour = x.colour;
+    cl.caption = x.caption;
+    if !x.title.is_empty() {
+        cl.title = x.title;
+    }
+    cl.tours = x.tours;
+    cl.km = x.km;
+}
+
+/// Save a change of an own line for the day `from` (tomorrow at the soonest): paid now, the
+/// company's line (and the roster's `replan` tours) as they are until then (`take_effect`).
+/// A change waiting already gives way to it. Returns what was paid.
+pub fn schedule_change(c: &mut Company, l: &LineDesign, stem: &str, shape: &Shape, from: &str, replan: Vec<String>) -> Result<Cents, &'static str> {
+    if dates::between(&c.date, from) < 1 {
+        return Err("A change of a line in service begins tomorrow at the soonest.");
+    }
+    let (fee, mut change) = changed(c, l, stem, shape, from)?;
+    change.replan = replan;
     let Some(cl) = c.lines.iter_mut().find(|x| x.own && x.plan.as_ref().is_some_and(|p| p.line_id == l.id)) else { return Err("The company does not run this line.") };
-    let old = cl.plan.take().unwrap_or_default();
-    cl.plan = Some(OwnPlan { confirmed: old.confirmed, paid: old.paid + fee, ..fresh });
-    cl.name = stem.to_string();
-    if !cl.numbers.contains(&number) {
-        cl.numbers.insert(0, number.clone());
-    }
-    cl.number = number;
-    cl.colour = l.colour.clone();
-    cl.caption = cap;
-    if !l.title.trim().is_empty() {
-        cl.title = l.title.trim().to_string();
-    }
-    cl.tours = e.tours[0] as u32;
-    cl.km = e.km[0];
+    cl.pending = Some(change);
     Ok(fee)
+}
+
+/// The own lines (their line editor ids) whose change waiting is due on the company's day.
+pub fn due(c: &Company) -> Vec<u64> {
+    c.lines.iter().filter(|x| x.pending.as_ref().is_some_and(|p| dates::between(&p.from, &c.date) >= 0)).filter_map(|x| x.plan.as_ref().map(|p| p.line_id)).collect()
+}
+
+/// A change waiting takes effect: the company's line is the changed one, the roster follows
+/// its new name, and the tours it changed or dropped lose their buses and drivers (to be
+/// given anew). Returns the line's name, and those tours.
+pub fn take_effect(c: &mut Company, line_id: u64) -> Option<(String, Vec<String>)> {
+    let cl = c.lines.iter_mut().find(|x| x.own && x.plan.as_ref().is_some_and(|p| p.line_id == line_id))?;
+    let x = cl.pending.take()?;
+    let (old, replan) = (cl.name.clone(), x.replan.clone());
+    put(cl, x);
+    let name = cl.name.clone();
+    super::plan::rename_line(c, &old, &name);
+    super::plan::forget_tours(c, &name, &replan);
+    Some((name, replan))
 }
 
 /// The bus size a tour of the company's asks for: an own line's tour the size its plan gives
@@ -1296,6 +1383,67 @@ mod tests {
     }
 
     #[test]
+    fn a_line_in_service_changes_on_its_day_and_the_roster_follows() {
+        use super::super::plan::{self, Who};
+        let mut c = company(Difficulty::Realistic);
+        let l = line(12);
+        let s = shape_of(&l, &|_| 0);
+        confirm(&mut c, &l, "oo_9", &s).unwrap();
+        // a roster for tours 1 and 2 on Monday
+        plan::set_bus(&mut c, 0, "oo_9", "1", Some(7));
+        plan::set_driver(&mut c, 0, "oo_9", "2", 0, Some(Who::Player));
+        // a new number and a stop more, from the day after tomorrow
+        let mut later = l.clone();
+        later.number = "19".into();
+        later.directions[0].stops.push(stop(99, "Neu"));
+        later.directions[0].fit_legs();
+        let s2 = shape_of(&later, &|_| 0);
+        let fee = change_fee(&c, &later, &s2).unwrap();
+        let today = c.date.clone();
+        assert!(schedule_change(&mut c, &later, "oo_19", &s2, &today, vec!["2".into()]).is_err(), "not today");
+        let from = dates::add(&c.date, 2);
+        let cash = c.cash;
+        assert_eq!(schedule_change(&mut c, &later, "oo_19", &s2, &from, vec!["2".into()]), Ok(fee));
+        assert_eq!(c.cash, cash - fee, "paid when saved");
+        // until then the line is as it was; its fee is not asked twice
+        assert_eq!((line_of(&c, 9).unwrap().name.as_str(), line_of(&c, 9).unwrap().number.as_str()), ("oo_9", "9"));
+        assert_eq!(change_fee(&c, &later, &s2), None);
+        assert!(due(&c).is_empty());
+        c.date = dates::add(&c.date, 1);
+        assert!(due(&c).is_empty());
+        // its day: the line is the new one, the roster follows its name, tour 2 is given anew
+        c.date = from.clone();
+        assert_eq!(due(&c), vec![9]);
+        let (name, replan) = take_effect(&mut c, 9).unwrap();
+        assert_eq!((name.as_str(), replan), ("oo_19", vec!["2".to_string()]));
+        let cl = line_of(&c, 9).unwrap();
+        assert!(cl.pending.is_none() && cl.number == "19" && cl.numbers.contains(&"9".to_string()));
+        assert_eq!(plan::roster(&c, 0, "oo_19", "1").and_then(|r| r.bus), Some(7));
+        assert!(plan::roster(&c, 0, "oo_19", "2").is_none());
+        assert!(due(&c).is_empty() && take_effect(&mut c, 9).is_none());
+    }
+
+    #[test]
+    fn a_line_asks_only_for_the_buses_the_level_opens() {
+        use crate::service::VehicleClass;
+        let mut c = company(Difficulty::Realistic);
+        c.progress.xp = 0;
+        let mut l = line(12);
+        let s = shape_of(&l, &|_| 0);
+        // an articulated bus for the rush hour: not at the first level
+        l.days[0].bands = vec![lines::TimeBand { size: Some(BusSize::Articulated), ..Default::default() }];
+        assert_eq!(sizes_allowed(&c, &l), Err("Articulated buses open at a higher company level."));
+        assert_eq!(confirm(&mut c.clone(), &l, "oo_9", &s), Err("Articulated buses open at a higher company level."));
+        // a double-decker among its kinds of bus neither
+        l.days[0].bands.clear();
+        l.vehicles.classes = vec![VehicleClass::Solo, VehicleClass::Double];
+        assert_eq!(sizes_allowed(&c, &l), Err("Double-deckers open at a higher company level."));
+        // at level 4 both are open
+        c.progress.xp = super::super::levels::LEVEL_XP[3];
+        assert_eq!(sizes_allowed(&c, &l), Ok(()));
+    }
+
+    #[test]
     fn a_line_is_confirmed_paid_and_changed() {
         let mut c = company(Difficulty::Realistic);
         let l = line(12);
@@ -1350,6 +1498,8 @@ mod tests {
     #[test]
     fn the_planning_knows_the_sizes_and_what_the_fleet_lacks() {
         let mut c = company(Difficulty::Realistic);
+        // (articulated buses: from the second level)
+        c.progress.xp = super::super::levels::LEVEL_XP[1];
         let mut l = line(12);
         l.days[0].bands = vec![TimeBand { from: 360.0, to: 540.0, headway: 10.0, size: Some(BusSize::Articulated) }];
         let s = shape_of(&l, &|_| 0);

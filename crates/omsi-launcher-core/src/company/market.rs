@@ -211,6 +211,11 @@ pub fn kind_allowed(c: &Company, kind: BusKind) -> Result<(), &'static str> {
     Ok(())
 }
 
+/// A size of bus the company's level allows (a diesel one: the drive is the bus's own).
+pub fn size_allowed(c: &Company, size: BusSize) -> Result<(), &'static str> {
+    kind_allowed(c, BusKind { size, drive: Drive::Diesel })
+}
+
 /// Buy a new bus. Returns its id.
 pub fn buy_new(c: &mut Company, bus: &MarketBus, how: Payment, livery: &str) -> Result<u32, &'static str> {
     super::depot::room(c)?;

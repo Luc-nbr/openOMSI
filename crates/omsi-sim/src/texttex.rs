@@ -4,9 +4,10 @@
 //! materials refer to it with `[useTextTexture] n`.
 
 use hashbrown::HashMap;
+use omsi_content::dotfont::{DisplayFontSpec, DotFont, DotGrid, VectorFace};
 use omsi_content::font::{Font, FontAtlas};
 use omsi_model::TextTexture;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub struct FontLibrary {
@@ -14,6 +15,13 @@ pub struct FontLibrary {
     root: std::path::PathBuf,
     /// Every `[newfont]` of every content root's `Fonts/*.oft`, in lookup order; read once.
     index: Option<Vec<Font>>,
+    /// Every face of the TrueType/OpenType fonts of the content roots' `Fonts` and of the
+    /// system; read once, when a display font's file is not where it was chosen.
+    faces: Option<Vec<VectorFace>>,
+    /// A display font's dots (by the font and the rows it is made in) and the atlases made of
+    /// them for the displays it is drawn on (by the choice, the display's grid and line).
+    dots: HashMap<(String, u32), Option<Arc<DotFont>>>,
+    drawn: HashMap<(String, DotGrid, u32), Option<Arc<FontAtlas>>>,
 }
 
 /// Style words at the end of a font name ("churafont++ 32x8 Bold").
@@ -40,7 +48,87 @@ fn size_of(name: &str) -> Option<(u32, u32)> {
 
 impl FontLibrary {
     pub fn new(root: &Path) -> FontLibrary {
-        FontLibrary { atlases: HashMap::new(), root: root.to_path_buf(), index: None }
+        FontLibrary { atlases: HashMap::new(), root: root.to_path_buf(), index: None, faces: None, dots: HashMap::new(), drawn: HashMap::new() }
+    }
+
+    /// Every face of the TrueType/OpenType fonts installed: those added to a content root's
+    /// `Fonts` (the launcher's "Add font…") first, then the system's (see
+    /// `omsi_content::dotfont::system_font_dirs`).
+    pub fn vector_faces(&mut self) -> &[VectorFace] {
+        if self.faces.is_none() {
+            let mut dirs: Vec<PathBuf> = omsi_cfg::content_roots().into_iter().map(|r| r.join("Fonts")).collect();
+            if dirs.is_empty() {
+                dirs.push(self.root.join("Fonts"));
+            }
+            dirs.extend(omsi_content::dotfont::system_font_dirs());
+            self.faces = Some(dirs.iter().flat_map(|d| omsi_content::dotfont::vector_font_files(d)).flat_map(|f| omsi_content::dotfont::vector_faces(&f)).collect());
+        }
+        self.faces.as_deref().unwrap_or(&[])
+    }
+
+    /// The display font `spec` as a display whose own font is `own` draws it on a line of
+    /// `line_h` pixels (see [`display_font_atlas`]); None when the font is not installed.
+    pub fn display_font(&mut self, spec: &DisplayFontSpec, own: Option<&FontAtlas>, line_h: i32, decode: &dyn Fn(&Path) -> Option<(u32, u32, Vec<u8>)>) -> Option<Arc<FontAtlas>> {
+        let line_h = line_h.max(1);
+        let grid = own.map(DotGrid::of_atlas).unwrap_or_else(|| DotGrid::plain(line_h as u32));
+        let key = (spec.key(), grid, line_h as u32);
+        if let Some(a) = self.drawn.get(&key) {
+            return a.clone();
+        }
+        let dots = self.dots_of(spec, &grid, line_h, decode);
+        let atlas = dots.map(|d| Arc::new(display_font_atlas(&d, spec, &grid, line_h as u32)));
+        self.drawn.insert(key, atlas.clone());
+        atlas
+    }
+
+    /// `display_font` with the built-in image decoder.
+    pub fn display_font_for(&mut self, spec: &DisplayFontSpec, own: Option<&FontAtlas>, line_h: i32) -> Option<Arc<FontAtlas>> {
+        self.display_font(spec, own, line_h, &|p| omsi_texture::decode_file(p).ok().map(|i| (i.width, i.height, i.rgba)))
+    }
+
+    /// The dots of the font `spec` names for a display of `grid`: a vector font rasterised
+    /// at the rows it is drawn in there, an `.oft` font (the size of its file that fits the
+    /// line) in its own grid.
+    fn dots_of(&mut self, spec: &DisplayFontSpec, grid: &DotGrid, line_h: i32, decode: &dyn Fn(&Path) -> Option<(u32, u32, Vec<u8>)>) -> Option<Arc<DotFont>> {
+        let rows = if spec.is_vector() { vector_rows(spec, grid) } else { 0 };
+        let key = (spec.plain().key(), if spec.is_vector() { rows } else { line_h as u32 });
+        if let Some(d) = self.dots.get(&key) {
+            return d.clone();
+        }
+        let dots = if spec.is_vector() {
+            let data = self.vector_data(spec);
+            match data.map(|(d, face)| DotFont::from_vector(&d, face, rows, &omsi_content::dotfont::charset())) {
+                Some(Ok(mut d)) => {
+                    d.name = spec.name.clone();
+                    Some(Arc::new(d))
+                }
+                Some(Err(e)) => {
+                    log::warn!("display font \"{}\": {e}", spec.name);
+                    None
+                }
+                None => None,
+            }
+        } else {
+            self.display_atlas(&spec.name, line_h, decode).map(|a| Arc::new(oft_dots(&a)))
+        };
+        if dots.is_none() {
+            log::warn!("display font \"{}\" is not installed", spec.name);
+        }
+        self.dots.insert(key, dots.clone());
+        dots
+    }
+
+    /// The bytes and the face of a vector display font: its file, else (moved, or chosen on
+    /// another computer) the installed face of the same name.
+    fn vector_data(&mut self, spec: &DisplayFontSpec) -> Option<(Vec<u8>, u32)> {
+        if let Some(d) = spec.file.as_deref().and_then(|f| std::fs::read(f).ok().or_else(|| omsi_cfg::vfs::read(f).ok())) {
+            return Some((d, spec.face));
+        }
+        let wanted = spec.name.trim().to_lowercase();
+        let face = self.vector_faces().iter().find(|f| f.name.trim().to_lowercase() == wanted)?.clone();
+        log::info!("display font \"{}\": not at {:?}, taken from {}", spec.name, spec.file, face.path.display());
+        let d = std::fs::read(&face.path).ok().or_else(|| omsi_cfg::vfs::read(&face.path).ok())?;
+        Some((d, face.face))
     }
 
     fn index(&mut self) -> &[Font] {
@@ -242,6 +330,107 @@ pub fn pick_size(heights: &[i32], chosen: usize, line_h: i32) -> usize {
     }
 }
 
+/// How many rows a vector display font is rasterised in for a display of `grid`: the rows
+/// chosen, else the display's own - never more than the display has.
+pub fn vector_rows(spec: &DisplayFontSpec, grid: &DotGrid) -> u32 {
+    spec.rows.unwrap_or(grid.rows).clamp(3, grid.rows.max(3))
+}
+
+/// An `.oft` display font's dots: its letters read in its own grid.
+pub fn oft_dots(atlas: &FontAtlas) -> DotFont {
+    DotFont::from_atlas(atlas, &DotGrid::of_atlas(atlas))
+}
+
+/// The display font `dots` (with the settings of `spec`: its rows, bold, spacing) as a display
+/// whose own font draws in `grid` shows it on a line of `line_h` pixels - what the game draws
+/// with (a text texture, a script's matrix) and the launcher's previews show.
+pub fn display_font_atlas(dots: &DotFont, spec: &DisplayFontSpec, grid: &DotGrid, line_h: u32) -> FontAtlas {
+    let mut d = match spec.rows {
+        Some(r) if dots.rows > r => dots.resized(r),
+        _ => dots.clone(),
+    };
+    d = d.styled(spec.bold, spec.spacing);
+    d.to_atlas(grid, line_h, spec.name.trim())
+}
+
+/// Whether `font` writes letters or a line number - not pictograms, a clock, or a script's
+/// helper (the Krüger matrix measures hex digits with the widths of its "Auxiliary" fonts):
+/// a display font takes its place on a matrix that a script draws.
+pub fn is_letter_font(font: &Font) -> bool {
+    let name = format!("{} ", font.name.to_lowercase());
+    if KEPT_FONT_PARTS.iter().any(|p| name.contains(p)) {
+        return false;
+    }
+    let letters = ('A'..='Z').filter(|&c| font.glyph(c).is_some_and(|g| g.x1 > g.x0)).count();
+    let digits = ('0'..='9').filter(|&c| font.glyph(c).is_some_and(|g| g.x1 > g.x0)).count();
+    letters >= 13 || digits == 10
+}
+
+/// Parts of a font's name a matrix script keeps its own of (see `is_letter_font`).
+const KEPT_FONT_PARTS: &[&str] = &["pictogram", "piktogramm", "icon", "symbol", "auxiliary", "aux ", "chrono", "clock", "uhr", "logo", "arrow", "pfeil"];
+
+/// Parts of a script file's name that make it the one drawing the bus's destination signs.
+const SIGN_SCRIPT_PARTS: &[&str] = &["matrix", "matr", "ziel", "annax", "krueger", "krüger", "lawo", "mobitec", "aesys", "gorba", "buse", "brose", "flipdot", "rollband", "destination", "kierunk"];
+
+/// ... and those that make it a device of the cab or the saloon, whatever else it says.
+const DEVICE_SCRIPT_PARTS: &[&str] = &["ibis", "cockpit", "dash", "drucker", "printer", "ticket", "rbl", "afr", "innen", "interior", "almex", "cashdesk", "kasse", "tacho", "radio"];
+
+/// A script of the vehicle that draws a destination sign into its script textures with fonts
+/// it asks the game for by name (`GetFontIndex` then `STTextOut`): the Krüger matrices and
+/// their kin. A display font chosen for the bus takes the place of those fonts there, each
+/// fitted to the height of the one it replaces.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ScriptSign {
+    pub script: PathBuf,
+    /// The fonts it asks for that may write letters or the line number (whether a font does
+    /// is known once it is loaded: `is_letter_font`).
+    pub fonts: Vec<String>,
+    /// The fonts it keeps its own: pictograms, clocks, its helpers.
+    pub kept: Vec<String>,
+    /// It also loads whole pictures of destinations (`STLoadTex`; a depot file's terminus
+    /// with a bitmap): those stay pictures.
+    pub pictures: bool,
+}
+
+/// The scripts among `scripts` (a vehicle's, see `omsi_vehicle::Vehicle::scripts`) that draw
+/// destination signs with fonts (see `ScriptSign`), read from their code: the font names
+/// handed to `GetFontIndex` as they are written in it.
+pub fn script_signs(scripts: &[PathBuf]) -> Vec<ScriptSign> {
+    let mut out = Vec::new();
+    for path in scripts {
+        let name = path.to_string_lossy().replace('\\', "/").to_lowercase();
+        // (the file and the folder it is in: `churaKrueger/VMatrix.osc`)
+        let tail: String = name.rsplit('/').take(2).collect::<Vec<_>>().join("/");
+        if !SIGN_SCRIPT_PARTS.iter().any(|p| tail.contains(p)) || DEVICE_SCRIPT_PARTS.iter().any(|p| tail.contains(p)) {
+            continue;
+        }
+        let program = omsi_script::compile(&omsi_script::CompileInput { scripts: vec![path.clone()], ..Default::default() });
+        let used = program.callbacks_used();
+        let calls = |c: &str| used.iter().any(|u| u.eq_ignore_ascii_case(c));
+        if !calls("STTextOut") || !calls("GetFontIndex") {
+            continue;
+        }
+        let (mut fonts, mut kept) = (Vec::new(), Vec::new());
+        for f in program.literal_arguments("getfontindex") {
+            let f = f.trim().to_string();
+            if f.is_empty() || fonts.iter().chain(kept.iter()).any(|o: &String| o.eq_ignore_ascii_case(&f)) {
+                continue;
+            }
+            let lower = format!("{} ", f.to_lowercase());
+            if KEPT_FONT_PARTS.iter().any(|p| lower.contains(p)) {
+                kept.push(f);
+            } else {
+                fonts.push(f);
+            }
+        }
+        if fonts.is_empty() {
+            continue;
+        }
+        out.push(ScriptSign { script: path.clone(), fonts, kept, pictures: calls("STLoadTex") });
+    }
+    out
+}
+
 /// Parts of a name that make a text texture one of the bus's destination displays: the
 /// display itself (matrix, Ziel, terminus, line - the SD200's `Matrix_Terminus`, the Hamburg
 /// buses' `LW_show_linie`) or a maker of destination signs whose name its font carries
@@ -323,31 +512,85 @@ pub fn seen_from_outside(model: &omsi_model::Model) -> Vec<(bool, bool)> {
     out.into_iter().map(|(outside, only, used)| if used { (outside, only) } else { (false, false) }).collect()
 }
 
+/// For every text texture of `model`: whether every mesh showing it is one of the cab's or
+/// the saloon's devices by its file's name (the Lion's City's `Matrix_Liniennummerstring` is
+/// the line number of `Drucker\Innenanzeige\Innenanzeige_Linie.o3d`, the passengers' display
+/// inside - its outside matrix is a script's). One no mesh shows is none.
+pub fn shown_on_devices_only(model: &omsi_model::Model) -> Vec<bool> {
+    let mut out: Vec<(bool, bool)> = vec![(false, true); model.text_textures.len()];
+    for m in &model.meshes {
+        let file = m.file.to_lowercase();
+        let words = name_words(&file);
+        let device = NOT_DISPLAY.iter().any(|p| file.contains(p)) || words.iter().any(|w| NOT_DISPLAY_WORDS.contains(&w.as_str()));
+        for t in m.materials.iter().filter_map(|t| t.use_text_texture) {
+            if let Some(o) = usize::try_from(t).ok().and_then(|t| out.get_mut(t)) {
+                o.0 = true;
+                o.1 &= device;
+            }
+        }
+    }
+    out.into_iter().map(|(used, device)| used && device).collect()
+}
+
 /// The text textures of `model` that are its destination displays (see
 /// `is_destination_display`), by their place in its `[texttexture]` list.
 pub fn destination_displays(model: &omsi_model::Model) -> Vec<usize> {
     let seen = seen_from_outside(model);
-    model.text_textures.iter().enumerate().filter(|(i, t)| seen.get(*i).is_some_and(|&(o, only)| is_destination_display(t, o, only))).map(|(i, _)| i).collect()
+    let devices = shown_on_devices_only(model);
+    model
+        .text_textures
+        .iter()
+        .enumerate()
+        .filter(|(i, t)| seen.get(*i).is_some_and(|&(o, only)| is_destination_display(t, o, only)) && !devices.get(*i).copied().unwrap_or(false))
+        .map(|(i, _)| i)
+        .collect()
+}
+
+/// What a destination display shows, by the words of its variable's and font's names: the
+/// line number, a side or rear sign, else the destination (at the front).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum DisplayRole {
+    Destination,
+    LineNumber,
+    Side,
+    Rear,
+}
+
+impl DisplayRole {
+    pub fn of(tt: &TextTexture) -> DisplayRole {
+        let names = format!("{} {}", tt.variable, tt.font).to_lowercase();
+        let words = name_words(&names);
+        let has = |ws: &[&str]| words.iter().any(|w| ws.contains(&w.as_str()));
+        if has(&["heck", "rear", "back", "hinten", "tyl"]) || names.contains("heck") {
+            DisplayRole::Rear
+        } else if has(&["seite", "side", "bok"]) || names.contains("seite") {
+            DisplayRole::Side
+        } else if has(&["nr", "nummer", "linie", "line", "route", "number", "liniennummer"]) || names.contains("linie") || names.contains("liniennummer") {
+            DisplayRole::LineNumber
+        } else {
+            DisplayRole::Destination
+        }
+    }
 }
 
 /// Draw the destination displays among `states` (the text textures of `model`, in its
-/// order) in the display font `chosen` the player picked for the bus, each fitted to the
-/// height of the display's own font (`FontAtlas::render_fitted`) - its size, colour and
-/// placement stay the bus's. Returns how many it changed (none when the font is missing).
+/// order) in the display font `chosen` the player picked for the bus (a
+/// `DisplayFontSpec::to_arg`: an `.oft` font's name, or a vector font with its settings), as
+/// each display draws letters (`FontLibrary::display_font`: in the grid of dots of the
+/// display's own font, a line of its height) - its size, colour and placement stay the bus's.
+/// Returns how many it changed (none when the font is missing).
 pub fn apply_display_font(states: &mut [TextTextureState], model: &omsi_model::Model, chosen: &str, lib: &mut FontLibrary, decode: &dyn Fn(&Path) -> Option<(u32, u32, Vec<u8>)>) -> usize {
-    if chosen.trim().is_empty() {
-        return 0;
-    }
+    let Some(spec) = DisplayFontSpec::parse(chosen) else { return 0 };
     let mut changed = 0;
     for i in destination_displays(model) {
         let Some(s) = states.get_mut(i) else { continue };
         // the display's line: its own font's height (a font missing: the texture's)
         let line_h = s.atlas.as_ref().map(|a| a.font.height).filter(|h| *h > 0).unwrap_or(s.def.height).max(1);
-        let Some(atlas) = lib.display_atlas(chosen, line_h, decode) else {
-            log::warn!("display font \"{}\" is in no Fonts folder: the bus's own is kept", chosen.trim());
+        let Some(atlas) = lib.display_font(&spec, s.atlas.as_deref(), line_h, decode) else {
+            log::warn!("display font \"{}\" is not installed: the bus's own is kept", spec.name);
             return changed;
         };
-        log::info!("display font: {} ({}) drawn in \"{}\" for a line of {line_h} px", s.def.variable, s.def.font, atlas.font.name.trim());
+        log::info!("display font: {} ({}) drawn in \"{}\" for a line of {line_h} px", s.def.variable, s.def.font, spec.name);
         s.atlas = Some(atlas);
         s.fit = Some(line_h as u32);
         s.last_text = None;

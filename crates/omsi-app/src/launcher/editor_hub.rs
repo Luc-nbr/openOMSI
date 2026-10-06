@@ -1,8 +1,8 @@
 //! The editor hub: what a player makes of a map rather than drives on it, each a tile - the
-//! line editor (lines of their own, `lineeditor`), the livery editor, the timetable (the
-//! Timetable page) and the map's objects (the game's own object editor, started on the map
-//! chosen here). It opens from the fourth tile of the start, as Omsi-Hub's bus company opens
-//! from the tile beside its ways to drive.
+//! line editor (lines of their own, `lineeditor`), the depot editor (depot files of their own,
+//! `depoteditor`), the livery editor, the timetable (the Timetable page) and the map's objects
+//! (the game's own object editor, started on the map chosen here). It opens from the fourth
+//! tile of the start, as Omsi-Hub's bus company opens from the tile beside its ways to drive.
 
 use super::theme::*;
 use super::ui::{id_of, ButtonKind};
@@ -24,22 +24,24 @@ pub fn open_livery(l: &mut Launcher) {
     super::livery::open(l, None, None);
 }
 
-const TILES: [(&str, &str, &str); 4] = [
+const TILES: [(&str, &str, &str); 5] = [
     ("Line editor", "route", "Compose a line of your own on any map: click its stops, the way between them is found over the roads. You and the timetable's buses drive it."),
+    ("Depot editor", "departure_board", "A depot file of your own: the destinations and what each display shows, the IBIS's stops and routes, special and service trips. A line can choose it, and every bus that drives the line gets it."),
     ("Livery editor", "palette", "Paint a bus in colours of your own and drive it."),
     ("Timetable", "schedule", "The map's lines: their tours and when each trip leaves."),
     ("Map objects", "open_with", "The game's object editor on a map: move, turn, add and delete its objects and shape the ground. The game starts with the editor on."),
 ];
 
 pub fn draw(l: &mut Launcher, area: Rect) {
-    let (cols, rows) = if area.w >= 900.0 { (2, 2) } else { (1, 4) };
+    let cols: usize = if area.w >= 1100.0 { 3 } else if area.w >= 700.0 { 2 } else { 1 };
+    let rows = TILES.len().div_ceil(cols);
     let gap = 16.0;
     let tw = (area.w - gap * (cols as f32 - 1.0)) / cols as f32;
     let th = ((area.h - gap * (rows as f32 - 1.0)) / rows as f32).min(if cols == 1 { 190.0 } else { 260.0 });
     let mut open = None;
     for (k, (title, icon, text)) in TILES.iter().enumerate() {
         let base = Rect::new(area.x + (k % cols) as f32 * (tw + gap), area.y + (k / cols) as f32 * (th + gap), tw, th);
-        let objects = k == 3;
+        let objects = k == TILES.len() - 1;
         // (the map objects' tile holds its own choice and button: it does not lift as a whole)
         let t = if objects { l.ui.tile_from(id_of(&format!("hub-tile-{k}")), base, SHEET_RADIUS, (false, false, false)) } else { l.ui.tile(id_of(&format!("hub-tile-{k}")), base, SHEET_RADIUS) };
         let tile = t.r;
@@ -66,8 +68,12 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     }
     match open {
         Some(0) => l.go(Page::Lines),
-        Some(1) => open_livery(l),
-        Some(2) => l.go(Page::Timetable),
+        Some(1) => {
+            l.pages.depots.show("", false);
+            l.go(Page::Depots);
+        }
+        Some(2) => open_livery(l),
+        Some(3) => l.go(Page::Timetable),
         _ => {}
     }
 }

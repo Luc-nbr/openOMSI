@@ -246,8 +246,12 @@ fn fit_of(c: &Company, p: &DayPlan, ti: usize, k: usize, id: u32) -> (String, Co
     }
     let t = &p.tours[ti];
     let work = blocks_without(p, id, (ti, k));
-    match pl::fits(e, t.size(c), &work, &block_of(t, k), p.today) {
-        Err(Problem::Licence) => (omsi_ui::tr("No licence for this bus").into_owned(), DANGER.lighten(0.2), false),
+    let bus = t.bus_of(c);
+    match pl::fits_bus(e, &bus, &work, &block_of(t, k), p.today) {
+        Err(Problem::Licence | Problem::NoEndorsement | Problem::NoTypeTraining) => {
+            let why = co::licences::lack(e, bus.0, bus.1.as_deref()).map(|x| super::people::lack_text(c, &x)).unwrap_or_else(|| omsi_ui::tr("No licence for this bus").into_owned());
+            (why, DANGER.lighten(0.2), false)
+        }
         Err(_) => (omsi_ui::tr("Clashes with other work").into_owned(), DANGER.lighten(0.2), false),
         Ok(w) => match w.first() {
             Some(Warn::Overtime(m)) => (omsi_ui::tr("Overtime %{t}").replace("%{t}", &length(*m)), WARN, true),
@@ -256,6 +260,22 @@ fn fit_of(c: &Company, p: &DayPlan, ti: usize, k: usize, id: u32) -> (String, Co
             None => (omsi_ui::tr("Fits").into_owned(), OK, true),
         },
     }
+}
+
+/// A duty's problem in words; for a driver not qualified for the bus, what they lack
+/// ("No type training for the Citaro").
+fn problem_text(c: &Company, p: &DayPlan, ti: usize, k: usize, problem: Option<Problem>) -> String {
+    let t = &p.tours[ti];
+    if matches!(problem, Some(Problem::Licence | Problem::NoEndorsement | Problem::NoTypeTraining)) {
+        let rostered = pl::roster(c, p.weekday, &t.tour.line, &t.tour.tour).and_then(|r| r.duties.get(k).copied().flatten());
+        if let Some(e) = rostered.and_then(|w| if let Who::Staff(id) = w { c.employee(id) } else { None }) {
+            let (kind, bus) = t.bus_of(c);
+            if let Some(x) = co::licences::lack(e, kind, bus.as_deref()) {
+                return format!("{}: {}", first_name(c, e.id), super::people::lack_text(c, &x));
+            }
+        }
+    }
+    omsi_ui::tr(problem.map(Problem::label).unwrap_or("No driver")).into_owned()
 }
 
 /// Where a bus is on the plan's day besides this tour: (word, colour, free).
@@ -560,6 +580,39 @@ fn week_strip(l: &mut Launcher, r: Rect, c: &Company) {
     }
 }
 
+/// A weekday's full name (0 Monday).
+fn weekday_name(d: u8) -> String {
+    const NAMES: [&str; 7] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+    omsi_ui::tr(NAMES[d as usize % 7]).into_owned()
+}
+
+/// Weekdays in words: "Tuesday to Friday" (three or more in a row), else "Monday, Thursday".
+fn weekdays_text(days: &[u8]) -> String {
+    let in_row = days.windows(2).all(|w| w[1] == w[0] + 1);
+    match days {
+        [a, .., b] if days.len() >= 3 && in_row => omsi_ui::tr("%{from} to %{to}").replace("%{from}", &weekday_name(*a)).replace("%{to}", &weekday_name(*b)),
+        _ => days.iter().map(|d| weekday_name(*d)).collect::<Vec<_>>().join(", "),
+    }
+}
+
+/// What "Fill the roster" left open, in words ("" when nothing).
+pub(super) fn open_text(f: &pl::Filled) -> String {
+    let mut parts = Vec::new();
+    let open = f.unqualified + f.busy;
+    if open > 0 {
+        let why = match (f.unqualified, f.busy) {
+            (_, 0) => omsi_ui::tr("nobody is qualified for their bus").into_owned(),
+            (0, _) => omsi_ui::tr("nobody qualified is free").into_owned(),
+            (q, b) => omsi_ui::tr("%{q} with nobody qualified for the bus, %{b} with nobody free").replace("%{q}", &q.to_string()).replace("%{b}", &b.to_string()),
+        };
+        parts.push(omsi_ui::tr("%{n} duties still open: %{why}.").replace("%{n}", &open.to_string()).replace("%{why}", &why));
+    }
+    if f.no_bus > 0 {
+        parts.push(omsi_ui::tr("%{n} tours still without a bus: none of the fleet is free for them.").replace("%{n}", &f.no_bus.to_string()));
+    }
+    parts.join(" ")
+}
+
 /// The tools of the day: what the roster is, fill, clear, repeat; and the dispatcher's
 /// switch.
 fn tools(l: &mut Launcher, r: Rect, c: &Company, date: &str) {
@@ -593,34 +646,57 @@ fn tools(l: &mut Launcher, r: Rect, c: &Company, date: &str) {
         None => (omsi_ui::tr("%{day}: the roster of this weekday repeats every week.").replace("%{day}", &day_label(date)), TEXT_DIM),
     };
     l.ui.paragraph(&text, Vec2::new(r.x, r.y + 2.0), (x - r.x - 12.0).max(0.0), kit::NOTE + 0.5, Weight::Regular, colour);
+    // (each tool says what it did - or, when it could do nothing, why, in a popup)
+    let day = weekday_name(wd);
     if fill {
         if let Some(lines) = l.company.planning.days.iter().find(|d| d.0 == c.map && d.1 == date).and_then(|d| d.2.as_ref().ok()).cloned() {
             let d = date.to_string();
-            if let Some(n) = act(l, |c| {
+            if let Some(f) = act(l, |c| {
                 let tours = co::network::tours_of_day(c, &lines, &d);
-                Ok(pl::fill_day(c, &d, tours))
+                Ok(pl::fill_day_told(c, &d, tours))
             }) {
-                let msg = if n == 0 { omsi_ui::tr("Nothing free to fix: the roster stays as it is.").into_owned() } else { omsi_ui::tr("%{n} buses and drivers fixed in the roster.").replace("%{n}", &n.to_string()) };
-                l.state.set_status(msg, false);
+                let open = open_text(&f);
+                if f.duties + f.buses > 0 {
+                    let done = omsi_ui::tr("Filled: %{d} duties given to drivers, %{b} buses given.").replace("%{d}", &f.duties.to_string()).replace("%{b}", &f.buses.to_string());
+                    l.state.set_status(if open.is_empty() { done } else { format!("{done} {open}") }, false);
+                } else if open.is_empty() {
+                    let text = omsi_ui::tr("Every tour of %{day} has its bus and its drivers already.").replace("%{day}", &day);
+                    kit::show(l, kit::Popup::new("event", "Nothing to fill", text, "", None));
+                } else {
+                    let go = if f.unqualified > 0 { kit::Go::Licences } else if f.busy > 0 { kit::Go::Hire } else { kit::Go::Dealer };
+                    let unlock = omsi_ui::tr("Hire drivers, train them for the buses on the Staff page, or get more buses.");
+                    kit::show(l, kit::Popup::new("event", "Nothing could be filled", open, unlock, Some(go)));
+                }
             }
         }
     }
     if clear {
         if l.company.planning.clear_armed {
             l.company.planning.clear_armed = false;
-            act(l, |c| {
-                pl::clear_day(c, wd);
-                Ok(())
-            });
+            if let Some(gone) = act(l, |c| Ok(pl::clear_day(c, wd))) {
+                if gone.is_empty() {
+                    let text = omsi_ui::tr("The roster of %{day} is empty already.").replace("%{day}", &day);
+                    kit::show(l, kit::Popup::new("delete", "Nothing to clear", text, "", None));
+                } else {
+                    let t = omsi_ui::tr("The day is cleared: %{d} duties and %{b} buses taken off the roster of %{day}.").replace("%{d}", &gone.duties.to_string()).replace("%{b}", &gone.buses.to_string()).replace("%{day}", &day);
+                    l.state.set_status(t, false);
+                }
+            }
         } else {
             l.company.planning.clear_armed = true;
         }
     }
     if repeat {
-        act(l, |c| {
-            pl::copy_day(c, wd, &to);
-            Ok(())
-        });
+        if let Some(days) = act(l, |c| Ok(pl::copy_day(c, wd, &to))) {
+            if days.is_empty() {
+                let text = omsi_ui::tr("The roster of %{day} is empty: there is nothing to repeat. Fill it first (\"Fill the roster\" does it for you), then repeat it on the other days.").replace("%{day}", &day);
+                kit::show(l, kit::Popup::new("content_copy", "Nothing to repeat", text, "", None));
+            } else {
+                let key = if days.len() == 1 { "The roster of %{day} is now on %{days} too." } else { "The roster of %{day} is now on %{days} too (%{n} days)." };
+                let t = omsi_ui::tr(key).replace("%{day}", &day).replace("%{days}", &weekdays_text(&days)).replace("%{n}", &days.len().to_string());
+                l.state.set_status(t, false);
+            }
+        }
     }
 }
 
@@ -780,7 +856,7 @@ fn gantt(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan) -> Vec<Hit> {
                             }
                             Some(Who::Player) => (accent(), on_accent(), omsi_ui::tr("You").into_owned()),
                             Some(Who::Agency) => (TEXT_FAINT, TEXT, omsi_ui::tr("Agency").into_owned()),
-                            None => (problem_colour(d.problem).alpha(0.12), problem_colour(d.problem), omsi_ui::tr(d.problem.map(Problem::label).unwrap_or("No driver")).into_owned()),
+                            None => (problem_colour(d.problem).alpha(0.12), problem_colour(d.problem), problem_text(c, p, ti, k, d.problem)),
                         }
                     };
                     ui.p().rounded(br, 5.0, fill.alpha(faint * if h { 0.85 } else { 1.0 }));
@@ -940,7 +1016,11 @@ fn day_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan) {
         .iter()
         .map(|o| {
             let t = &p.tours[o.tour];
-            let what = if o.late { omsi_ui::tr("Late start").into_owned() } else { omsi_ui::tr(o.problem.map(Problem::label).unwrap_or("No driver")).into_owned() };
+            let what = match o.duty {
+                _ if o.late => omsi_ui::tr("Late start").into_owned(),
+                Some(k) => problem_text(c, p, o.tour, k, o.problem),
+                None => omsi_ui::tr(o.problem.map(Problem::label).unwrap_or("No driver")).into_owned(),
+            };
             let fill = if o.filled {
                 match (o.duty, o.late) {
                     (None, _) => match t.bus {
@@ -1418,4 +1498,37 @@ pub(super) fn service_dialog(l: &mut Launcher) {
         }
     }
     l.company.dialog = Some(Dialog::Service { line, when: w, date: d, gaps: g });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_tools_say_what_they_did() {
+        assert_eq!(weekdays_text(&[1, 2, 3, 4]), "Tuesday to Friday");
+        assert_eq!(weekdays_text(&[0, 1, 3, 4]), "Monday, Tuesday, Thursday, Friday");
+        assert_eq!(weekdays_text(&[6]), "Sunday");
+        let f = pl::Filled { duties: 9, buses: 4, unqualified: 2, busy: 0, no_bus: 0 };
+        assert_eq!(open_text(&f), "2 duties still open: nobody is qualified for their bus.");
+        assert_eq!(open_text(&pl::Filled::default()), "");
+        let keys = [
+            "%{from} to %{to}",
+            "Filled: %{d} duties given to drivers, %{b} buses given.",
+            "%{n} duties still open: %{why}.",
+            "%{q} with nobody qualified for the bus, %{b} with nobody free",
+            "The day is cleared: %{d} duties and %{b} buses taken off the roster of %{day}.",
+            "The roster of %{day} is now on %{days} too (%{n} days).",
+            "The roster of %{day} is now on %{days} too.",
+            "Nothing to repeat",
+            "Nothing to clear",
+            "Nothing could be filled",
+            "Train drivers",
+        ];
+        for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
+            for k in keys {
+                assert!(crate::_rust_i18n_try_translate(lang, k).is_some(), "{lang}: {k}");
+            }
+        }
+    }
 }

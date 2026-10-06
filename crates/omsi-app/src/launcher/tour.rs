@@ -20,6 +20,13 @@
 //! drawn after all (the bus in the showroom, a list still empty) is left out as the tour
 //! comes to it. A phone has no setup steps to walk: there the tour is its cards alone.
 //!
+//! The bus company has a tour of its own (`start_company`, Luc: "een welkomstscherm voor de
+//! busbedrijfmodus, met een tutorial"): a welcome card with what the mode is, then its pages
+//! one by one - the clock, the tabs, the overview, the fleet and the dealer, the staff, the
+//! lines, the planning, the money and the career with "My duties" - each with its part lit.
+//! The company remembers per driver where it was left (`company::tutorial`), and its "?" goes
+//! on from there.
+//!
 //! `OMSI_LAUNCHER_TOUR=1` starts the tour with the launcher, `=7` at its seventh stop (for
 //! pictures of it).
 
@@ -92,9 +99,27 @@ enum Stop {
     Done,
     /// The end on a phone, as a card (no bar with a "?" there).
     Goodbye,
+    /// The bus company's tour (`COMPANY_STOPS`): its welcome, the founding wizard (no company
+    /// yet), its clock, its tabs and pages, and its "?".
+    CoWelcome,
+    CoFound,
+    CoClock,
+    CoTabs,
+    CoOverview,
+    CoToday,
+    CoFleet,
+    CoStaff,
+    CoLines,
+    CoPlanning,
+    CoFinances,
+    CoCareer,
+    CoDone,
 }
 
 use Stop::*;
+
+/// The bus company's tour, in its order.
+const COMPANY_STOPS: [Stop; 13] = [CoWelcome, CoFound, CoClock, CoTabs, CoOverview, CoToday, CoFleet, CoStaff, CoLines, CoPlanning, CoFinances, CoCareer, CoDone];
 
 const STOPS: [Stop; 22] = [Welcome, Modes, Record, Languages, Steps, MapViews, MapTile, StartAt, MainAction, Day, ShiftLength, ShiftList, ShiftRoute, FreeStarts, FreeLine, Buses, LookIn3d, Navigator, CityMap, Companion, Done, Goodbye];
 
@@ -139,6 +164,8 @@ enum Place {
     Home,
     /// This step of the setup, in this way of driving (or in the one it is in).
     On(Step, Option<Mode>),
+    /// The bus company, on this tab.
+    Company(usize),
 }
 
 impl Stop {
@@ -167,6 +194,19 @@ impl Stop {
             Companion => ("In the game", "Phone & tablet", "Signing on, the duty menu and the bus's screens can also be on a phone or tablet in your network. Turn it on under Settings › General › Phone & tablet; the game shows the address and the code when you drive."),
             Done => ("Guided tour", "Ready to go", "This question mark shows the tour again. Have a good ride!"),
             Goodbye => ("Guided tour", "Ready to go", "That's the tour. Have a good ride!"),
+            CoWelcome => ("Bus company", "Your own bus company", "Here you run a transport company on one of your maps: buy buses, hire drivers, take on lines or make your own. It runs in a time of its own, and what you drive yourself counts for it."),
+            CoFound => ("Bus company", "Found it first", "Give the company a name, its colours, its home map with a depot and how hard its economy is. Once it runs, this tour shows you round its pages."),
+            CoClock => ("Its time", "The company's own clock", "The company runs in a time of its own: let it run here, or jump on to the morning, to tomorrow or by days. At midnight the day is closed: the tours are run and the money is booked."),
+            CoTabs => ("Its pages", "Everything in tabs", "Each part of the company has a page here: the buses, the staff, the lines, the money, the planning and more."),
+            CoOverview => ("Overview", "The figures", "The cash, this month's result, the fleet, the staff, punctuality and reputation at a glance."),
+            CoToday => ("Overview", "What wants your attention", "Today's tours and how many are covered, your own next duty, and what needs doing. A click takes you to the page that helps."),
+            CoFleet => ("Fleet", "Buses and the dealer", "Your buses with their condition and their livery. At the dealer you buy new or used ones, haggle, lease or rent, and sign the contract."),
+            CoStaff => ("Staff", "Drivers and the others", "Hire drivers on the labour market and keep them content. Their wages, licences, holidays and days ill all count."),
+            CoLines => ("Lines", "What the company runs", "Take on the map's lines or make your own in the line editor: its kind, its buses, its timetable. A line runs once it is planned."),
+            CoPlanning => ("Planning", "Who drives what", "The week as a chart: drag drivers and buses onto the tours and duties, or let the dispatcher fill the roster. Plan yourself as a driver too."),
+            CoFinances => ("Finances", "The money", "Every booking, month by month: fares, the authority's money, wages, fuel and repairs. Loans come from the bank here."),
+            CoCareer => ("Career", "Your duties and your progress", "My duties lists the duties planned for you, each a click from driving it. Here too: the company's level, the training courses and the rankings."),
+            CoDone => ("Bus company", "Off to work", "This question mark shows the tour again. Good luck with your company!"),
         }
     }
 
@@ -195,6 +235,15 @@ impl Stop {
             Companion => Target::Card(Picture::Companion),
             Done => Target::Part("bar-help"),
             Goodbye => Target::Card(Picture::Arrived),
+            CoWelcome => Target::Card(Picture::Welcome),
+            CoFound => Target::Part("company-wizard"),
+            CoClock => Target::Part("company-clock"),
+            CoTabs => Target::Part("company-tabs"),
+            CoOverview => Target::Part("company-figures"),
+            CoToday => Target::Part("company-today"),
+            CoFleet | CoStaff | CoLines | CoPlanning | CoFinances => Target::Part("company-page"),
+            CoCareer => Target::Part("company-career-parts"),
+            CoDone => Target::Part("company-help"),
         }
     }
 
@@ -207,13 +256,25 @@ impl Stop {
             FreeStarts | FreeLine => Place::On(Step::Start, Some(Mode::Free)),
             Buses | LookIn3d => Place::On(Step::Bus, None),
             Navigator | CityMap | Companion | Goodbye => Place::Keep,
-            Done => Place::Home,
+            Done | CoDone => Place::Home,
+            CoWelcome | CoFound | CoClock | CoTabs | CoOverview | CoToday => Place::Company(0),
+            CoFleet => Place::Company(1),
+            CoStaff => Place::Company(2),
+            CoLines => Place::Company(3),
+            CoFinances => Place::Company(4),
+            CoPlanning => Place::Company(5),
+            CoCareer => Place::Company(6),
         }
     }
 
     /// Whether the stop has something to show in the launcher as it is.
     fn shown(self, c: &Ctx) -> bool {
         match self {
+            // (the company's tour: the founding wizard before there is a company, its pages
+            // once there is one)
+            CoWelcome => true,
+            CoFound => !c.company,
+            CoClock | CoTabs | CoOverview | CoToday | CoFleet | CoStaff | CoLines | CoPlanning | CoFinances | CoCareer | CoDone => c.company,
             Welcome | Navigator | CityMap | Companion => true,
             Goodbye => c.phone,
             _ if c.phone => false,
@@ -245,6 +306,8 @@ struct Ctx {
     /// The free drive follows a line of the player's own choosing (its stops are not shown).
     own_line: bool,
     server: bool,
+    /// A bus company is open (not the founding wizard).
+    company: bool,
 }
 
 impl Ctx {
@@ -259,6 +322,7 @@ impl Ctx {
             showroom: super::buspick::showing(l),
             own_line: l.state.choice.own_line,
             server,
+            company: l.company.company.is_some() && l.company.wizard.is_none(),
         }
     }
 }
@@ -266,6 +330,11 @@ impl Ctx {
 /// The stops the tour makes in the launcher as it is.
 fn plan(c: &Ctx) -> Vec<Stop> {
     STOPS.iter().copied().filter(|s| s.shown(c)).collect()
+}
+
+/// The stops of the bus company's tour as the company is (founded or not).
+fn company_plan(c: &Ctx) -> Vec<Stop> {
+    COMPANY_STOPS.iter().copied().filter(|s| s.shown(c)).collect()
 }
 
 // --- going round ---------------------------------------------------------------------------
@@ -317,6 +386,8 @@ struct Home {
     step: Step,
     free: bool,
     composed: bool,
+    /// The bus company's tab.
+    tab: usize,
 }
 
 /// The spotlight's ring when it lands: when it went out, and whether the spotlight was on its
@@ -348,6 +419,8 @@ struct Run {
     words_age: f32,
     closing: Option<f32>,
     glide: Glide,
+    /// The bus company's tour (its end is remembered for the driver: `company::tutorial`).
+    company: bool,
 }
 
 /// The tour: the one running, if any, and the frame drawn without the bus between screens.
@@ -370,16 +443,28 @@ pub fn active(l: &Launcher) -> bool {
 /// Start the tour from its first stop (again, if it was running).
 pub fn start(l: &mut Launcher) {
     let plan = plan(&Ctx::of(l));
+    begin_run(l, plan, 0, false);
+}
+
+/// Start the bus company's tour at its stop `at` (0: its welcome; one remembered from the
+/// last time it was left goes on from there).
+pub fn start_company(l: &mut Launcher, at: usize) {
+    let plan = company_plan(&Ctx::of(l));
+    begin_run(l, plan, at, true);
+}
+
+fn begin_run(l: &mut Launcher, plan: Vec<Stop>, at: usize, company: bool) {
     // (started again while it runs: home is still where the player was)
     let home = match l.tour.run.as_ref() {
         Some(r) => r.home,
-        None => Home { page: l.page, step: l.drive.step, free: l.state.choice.free, composed: l.state.choice.composed },
+        None => Home { page: l.page, step: l.drive.step, free: l.state.choice.free, composed: l.state.choice.composed, tab: l.company.tab },
     };
     let moved_mode = l.tour.run.as_ref().is_some_and(|r| r.moved_mode && r.closing.is_none());
-    log::info!("launcher: the guided tour starts ({} stops)", plan.len());
-    let first = plan[0];
+    log::info!("launcher: the {} starts ({} stops, at {})", if company { "company's tour" } else { "guided tour" }, plan.len(), at + 1);
+    let at = at.min(plan.len().saturating_sub(1));
+    let Some(first) = plan.get(at).copied() else { return };
     l.ui.focus = None;
-    l.tour.run = Some(Run { plan, at: 0, forward: true, shown: None, part: None, waited: 0, home, moved_mode, age: 0.0, words_age: 0.0, closing: None, glide: Glide::default() });
+    l.tour.run = Some(Run { plan, at, forward: true, shown: None, part: None, waited: 0, home, moved_mode, age: 0.0, words_age: 0.0, closing: None, glide: Glide::default(), company });
     go_to(l, first.place());
 }
 
@@ -473,8 +558,10 @@ pub(super) fn draw(l: &mut Launcher, taken: Option<Input>) {
     let (chapter, title, text) = shown.words();
     let title = match (shown, name) {
         (Welcome, Some(n)) => omsi_ui::tr("Welcome aboard, %{name}").replace("%{name}", &n),
+        (CoWelcome, Some(n)) => omsi_ui::tr("Your own bus company, %{name}").replace("%{name}", &n),
         _ => title.to_string(),
     };
+    let company = run.company;
     let open = match run.closing {
         Some(c) => 1.0 - smoothstep(c / CLOSE_S),
         None if motion => ease_out_cubic(run.age / OPEN_S),
@@ -498,6 +585,7 @@ pub(super) fn draw(l: &mut Launcher, taken: Option<Input>) {
         open,
         words,
         closing,
+        company,
     };
     if open < 1.0 || words < 1.0 {
         l.ui.keep_moving();
@@ -547,6 +635,7 @@ fn welcome_name(l: &Launcher) -> Option<String> {
 /// A button or a key: on, back or out.
 fn act(l: &mut Launcher, cmd: Command) {
     let Some(run) = l.tour.run.as_mut() else { return };
+    let completed = cmd == Command::Next;
     match after(cmd, run.at, run.plan.len()) {
         Some(k) if k != run.at => {
             run.forward = k > run.at;
@@ -556,7 +645,7 @@ fn act(l: &mut Launcher, cmd: Command) {
             go_to(l, place);
         }
         Some(_) => {}
-        None => finish(l),
+        None => finish(l, completed),
     }
 }
 
@@ -564,6 +653,7 @@ fn act(l: &mut Launcher, cmd: Command) {
 fn leave_out(l: &mut Launcher) {
     let Some(run) = l.tour.run.as_mut() else { return };
     run.plan.remove(run.at);
+    let forward = run.forward;
     match without(run.at, run.plan.len(), run.forward) {
         Some(k) => {
             run.at = k;
@@ -571,16 +661,23 @@ fn leave_out(l: &mut Launcher) {
             let place = run.plan[k].place();
             go_to(l, place);
         }
-        None => finish(l),
+        // (left out at its end going forward: it is done, not skipped)
+        None => finish(l, forward),
     }
 }
 
-/// The end (or skipped): the player's own place back, and the dark goes.
-fn finish(l: &mut Launcher) {
+/// The end (`completed`: the last stop gone through, else skipped): the player's own place
+/// back, the dark goes, and the company's tour remembers where it was left.
+fn finish(l: &mut Launcher, completed: bool) {
     go_to(l, Place::Home);
     let motion = l.ui.motion;
     let Some(run) = l.tour.run.as_mut() else { return };
     let moved = run.moved_mode;
+    if run.company {
+        let (at, profile) = (run.at, l.state.config.profile.clone());
+        super::company::tutorial::left(&profile, at, completed);
+    }
+    let Some(run) = l.tour.run.as_mut() else { return };
     log::info!("launcher: the guided tour ends at stop {} of {}", run.at + 1, run.plan.len());
     if motion {
         run.closing = Some(0.0);
@@ -600,13 +697,18 @@ fn go_to(l: &mut Launcher, place: Place) {
         return;
     }
     let Some(home) = l.tour.run.as_ref().map(|r| r.home) else { return };
-    let before = (l.page, l.drive.step);
+    let before = (l.page, l.drive.step, l.company.tab);
     match place {
         Place::Keep => {}
         Place::Home => {
             l.go(home.page);
             l.drive.step = home.step;
+            l.company.tab = home.tab;
             set_mode(l, home.free, home.composed);
+        }
+        Place::Company(tab) => {
+            l.go(Page::Company);
+            l.company.tab = tab;
         }
         Place::On(step, mode) => {
             l.go(Page::Drive);
@@ -618,7 +720,7 @@ fn go_to(l: &mut Launcher, place: Place) {
             }
         }
     }
-    if (l.page, l.drive.step) != before {
+    if (l.page, l.drive.step, l.company.tab) != before {
         l.tour.quiet = true;
     }
 }
@@ -862,6 +964,8 @@ struct View {
     /// How far the stop's words have come in (0 to 1).
     words: f32,
     closing: bool,
+    /// The bus company's tour (its last button says so).
+    company: bool,
 }
 
 /// The bubble's insides, measured.
@@ -995,8 +1099,10 @@ fn bubble_inside(ui: &mut Ui, b: Rect, v: &View, lay: &Lay) -> Option<Command> {
         return None;
     }
     let row = b.y + lay.h - pad - BUTTON_H;
-    let next = if v.first {
+    let next = if v.first && !v.last {
         "Show me around"
+    } else if v.last && v.company {
+        "Off to work"
     } else if v.last {
         "Let's drive"
     } else {
@@ -2430,7 +2536,44 @@ mod tests {
     use super::*;
 
     fn everything() -> Ctx {
-        Ctx { phone: false, map: true, entries: true, bus: true, showroom: false, own_line: false, server: false }
+        Ctx { phone: false, map: true, entries: true, bus: true, showroom: false, own_line: false, server: false, company: false }
+    }
+
+    #[test]
+    fn the_companys_tour_is_translated() {
+        for s in COMPANY_STOPS {
+            let (chapter, title, text) = s.words();
+            for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
+                for k in [chapter, title, text, "Off to work", "Your own bus company, %{name}"] {
+                    assert!(crate::_rust_i18n_try_translate(lang, k).is_some(), "{lang}: {k}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_companys_tour_shows_its_pages_or_the_founding() {
+        // before there is a company: its welcome and the founding wizard
+        assert_eq!(company_plan(&everything()), vec![CoWelcome, CoFound]);
+        // with one: its welcome, its clock and tabs, every page, and the "?" at the end
+        let p = company_plan(&Ctx { company: true, ..everything() });
+        assert_eq!(p.len(), COMPANY_STOPS.len() - 1);
+        assert!(!p.contains(&CoFound) && p.first() == Some(&CoWelcome) && p.last() == Some(&CoDone));
+        // the launcher's tour has none of them, and theirs none of its
+        assert!(plan(&Ctx { company: true, ..everything() }).iter().all(|s| !COMPANY_STOPS.contains(s)));
+        for s in COMPANY_STOPS {
+            let (chapter, title, text) = s.words();
+            assert!(!chapter.is_empty() && !title.is_empty() && text.len() > 30, "{s:?}");
+            let sentences = text.matches(". ").count() + 1;
+            assert!((1..=3).contains(&sentences), "{s:?}: {sentences} sentences");
+            match s.place() {
+                Place::Company(tab) => assert!(tab <= 6, "{s:?}"),
+                Place::Home => assert_eq!(s, CoDone),
+                p => panic!("{s:?}: {p:?} is no place of the company's"),
+            }
+        }
+        // (each page's stop is on its tab)
+        assert_eq!((CoFleet.place(), CoPlanning.place(), CoCareer.place()), (Place::Company(1), Place::Company(5), Place::Company(6)));
     }
 
     #[test]
@@ -2837,7 +2980,7 @@ mod tests {
 
     fn view(part: Option<Rect>, at: usize, total: usize) -> View {
         let (chapter, title, text) = if part.is_some() { Modes.words() } else { Navigator.words() };
-        View { chapter, title: title.to_string(), text, picture: part.is_none().then_some(Picture::Navigator), part, at, total, first: at == 0, last: at + 1 == total, phone: false, open: 1.0, words: 1.0, closing: false }
+        View { chapter, title: title.to_string(), text, picture: part.is_none().then_some(Picture::Navigator), part, at, total, first: at == 0, last: at + 1 == total, phone: false, open: 1.0, words: 1.0, closing: false, company: false }
     }
 
     fn frame(ui: &mut Ui, v: &View, g: &mut Glide) -> Option<Command> {

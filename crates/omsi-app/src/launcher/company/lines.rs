@@ -115,6 +115,15 @@ fn ours(l: &mut Launcher, r: Rect, c: &Company) {
             }
             ui.tooltip(fr, &omsi_ui::tr("The single ticket this line asks: change it, and see what it does to passengers and fares"));
             tx = fr.x - 8.0;
+            // (a change waiting for its day)
+            if let Some(p) = line.pending.as_ref() {
+                let t = omsi_ui::tr("New timetable from %{date}").replace("%{date}", &super::day_label(&p.from));
+                let tw = ui.width(&t, 12.0, Weight::Bold) + 16.0;
+                let at = Vec2::new(tx - tw, r.y + 14.0);
+                kit::tag(ui, at, &t, if on { on_accent() } else { WARN });
+                ui.tooltip(Rect::new(at.x, at.y, tw, 22.0), &omsi_ui::tr("Saved in the line editor: today's tours run as they are; from that day the line runs its new timetable and its changed tours are planned anew."));
+                tx = at.x - 8.0;
+            }
             if line.own {
                 // (its kind of service, a regular one "own line"; the buses it asks for in the
                 // tooltip)

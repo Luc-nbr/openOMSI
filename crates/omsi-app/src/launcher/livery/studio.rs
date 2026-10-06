@@ -505,8 +505,18 @@ fn top_bar(l: &mut Launcher, r: Rect) {
         } else {
             "Save to game"
         };
-        if l.ui.button("livery-save", save, label, Some(if s.queued { "schedule" } else { "save" }), if ready && !s.queued { ButtonKind::Primary } else { ButtonKind::Normal }) && ready {
+        // (for the bus company: what saving it costs)
+        let cost = super::company_cost(l);
+        let label = match &cost {
+            Some((_, amount, _)) if !s.queued => omsi_ui::tr("Save · %{amount}").replace("%{amount}", &super::eur(*amount)),
+            _ => omsi_ui::tr(label).into_owned(),
+        };
+        if l.ui.button("livery-save", save, &label, Some(if s.queued { "schedule" } else { "save" }), if ready && !s.queued { ButtonKind::Primary } else { ButtonKind::Normal }) && ready {
             super::save(l);
+        }
+        if let Some((company, amount, cash)) = cost {
+            let tip = omsi_ui::tr("For %{company}: the design and the painting cost %{amount}; it has %{cash}.").replace("%{company}", &company).replace("%{amount}", &super::eur(amount)).replace("%{cash}", &super::eur(cash));
+            l.ui.tooltip(save, &tip);
         }
     }
 }

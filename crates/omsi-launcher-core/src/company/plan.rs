@@ -180,20 +180,64 @@ pub fn set_driver(c: &mut Company, weekday: u8, line: &str, tour: &str, duty: us
 }
 
 /// Clear a weekday of the roster.
-pub fn clear_day(c: &mut Company, weekday: u8) {
+pub fn clear_day(c: &mut Company, weekday: u8) -> Rostered {
+    let gone = rostered(c, weekday);
     c.planning.week.retain(|r| r.weekday != weekday);
+    gone
 }
 
-/// The roster of one weekday on others too (Monday's on the other working days).
-pub fn copy_day(c: &mut Company, from: u8, to: &[u8]) {
+/// A line renamed (an own line's new number: its timetable name follows): its roster too.
+pub fn rename_line(c: &mut Company, old: &str, new: &str) {
+    if old.eq_ignore_ascii_case(new) {
+        return;
+    }
+    for r in c.planning.week.iter_mut().filter(|r| r.line.eq_ignore_ascii_case(old)) {
+        r.line = new.to_string();
+    }
+}
+
+/// The roster's entries of a line's `tours` taken out, every weekday (a changed timetable:
+/// their buses and drivers are given anew). Returns how many went.
+pub fn forget_tours(c: &mut Company, line: &str, tours: &[String]) -> usize {
+    let before = c.planning.week.len();
+    c.planning.week.retain(|r| !(r.line.eq_ignore_ascii_case(line) && tours.iter().any(|t| t.trim() == r.tour.trim())));
+    before - c.planning.week.len()
+}
+
+/// What a weekday's roster holds: the duties given to someone, the buses given.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Rostered {
+    pub duties: usize,
+    pub buses: usize,
+}
+
+impl Rostered {
+    pub fn is_empty(&self) -> bool {
+        self.duties + self.buses == 0
+    }
+}
+
+pub fn rostered(c: &Company, weekday: u8) -> Rostered {
+    let days = c.planning.week.iter().filter(|r| r.weekday == weekday);
+    days.fold(Rostered::default(), |n, r| Rostered { duties: n.duties + r.duties.iter().flatten().count(), buses: n.buses + usize::from(r.bus.is_some()) })
+}
+
+/// The roster of one weekday on others too (Monday's on the other working days): returns
+/// the days it went to (none when the weekday's roster is empty - the others are kept then).
+pub fn copy_day(c: &mut Company, from: u8, to: &[u8]) -> Vec<u8> {
+    if rostered(c, from).is_empty() {
+        return Vec::new();
+    }
     let src: Vec<RosterTour> = c.planning.week.iter().filter(|r| r.weekday == from).cloned().collect();
-    for &d in to.iter().filter(|d| **d != from) {
+    let days: Vec<u8> = to.iter().copied().filter(|d| *d != from).collect();
+    for &d in &days {
         clear_day(c, d);
         c.planning.week.extend(src.iter().cloned().map(|mut r| {
             r.weekday = d;
             r
         }));
     }
+    days
 }
 
 /// The dispatcher's choice for something open on the company's day (None: the central's).
@@ -215,27 +259,79 @@ fn fill_of(c: &Company, date: &str, key: &str) -> Option<Fill> {
 /// Fill the roster of `date`'s weekday with what the dispatcher would take (the free buses
 /// and drivers by the rules, those fixed already kept): returns how many were added.
 pub fn fill_day(c: &mut Company, date: &str, tours: Vec<TourOfDay>) -> usize {
+    let f = fill_day_told(c, date, tours);
+    f.duties + f.buses
+}
+
+/// What "Fill the roster" did, and what it left open and why.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Filled {
+    /// Duties given to drivers, buses given to tours.
+    pub duties: usize,
+    pub buses: usize,
+    /// Duties still without a driver: for which nobody employed is qualified (the licence,
+    /// an endorsement, the type training), and for which the qualified are not free.
+    pub unqualified: usize,
+    pub busy: usize,
+    /// Tours still without a bus.
+    pub no_bus: usize,
+}
+
+/// `fill_day`, told.
+pub fn fill_day_told(c: &mut Company, date: &str, tours: Vec<TourOfDay>) -> Filled {
+    fill(c, date, tours, None)
+}
+
+/// "Fill the roster" for one line's tours only (a changed line planned anew), the day's
+/// other tours weighed as they are.
+pub fn fill_line(c: &mut Company, date: &str, tours: Vec<TourOfDay>, line: &str) -> Filled {
+    fill(c, date, tours, Some(line))
+}
+
+fn fill(c: &mut Company, date: &str, tours: Vec<TourOfDay>, only: Option<&str>) -> Filled {
+    let ours = |t: &DayTour| only.is_none_or(|l| t.tour.line.eq_ignore_ascii_case(l));
     let mut probe = c.clone();
     probe.planning.auto = true;
     let p = day_plan(&probe, date, tours, &[], &[], false);
     let wd = weekday_of(date);
-    let mut n = 0;
+    let mut f = Filled::default();
+    let staff: Vec<&Employee> = c.staff.iter().filter(|e| e.employed_on(date)).collect();
     for t in &p.tours {
-        if t.by_player {
+        if t.by_player || !ours(t) {
+            continue;
+        }
+        // (a tour not in service is not open)
+        let open = !t.tour.unplanned;
+        match (t.bus, t.bus_from) {
+            (Some(BusOf::Own(_)), Source::Auto) => f.buses += 1,
+            (None, _) if open => f.no_bus += 1,
+            _ => {}
+        }
+        let bus = t.bus_of(&probe);
+        for d in &t.duties {
+            match (d.who, d.from_) {
+                (Some(Who::Staff(_)), Source::Auto) => f.duties += 1,
+                (None, _) if !open => {}
+                (None, _) if staff.iter().all(|e| super::licences::lack(e, bus.0, bus.1.as_deref()).is_some()) => f.unqualified += 1,
+                (None, _) => f.busy += 1,
+                _ => {}
+            }
+        }
+    }
+    for t in &p.tours {
+        if t.by_player || !ours(t) {
             continue;
         }
         if let (Some(BusOf::Own(id)), Source::Auto) = (t.bus, t.bus_from) {
             set_bus(c, wd, &t.tour.line, &t.tour.tour, Some(id));
-            n += 1;
         }
         for (k, d) in t.duties.iter().enumerate() {
             if let (Some(w @ Who::Staff(_)), Source::Auto) = (d.who, d.from_) {
                 set_driver(c, wd, &t.tour.line, &t.tour.tour, k, Some(w));
-                n += 1;
             }
         }
     }
-    n
+    f
 }
 
 // --- the morning -----------------------------------------------------------------------------
@@ -322,6 +418,10 @@ pub enum Problem {
     NotLineBus,
     /// The fleet has none of the buses its line asks for.
     NoLineBus,
+    /// No endorsement for the bus (articulated, double-decker, electric: `licences`).
+    NoEndorsement,
+    /// No type training for the bus's model.
+    NoTypeTraining,
 }
 
 impl Problem {
@@ -345,6 +445,8 @@ impl Problem {
             Problem::Player => "Your duty, not driven",
             Problem::NotLineBus => "Not one of the line's buses",
             Problem::NoLineBus => "The fleet has none of the line's buses",
+            Problem::NoEndorsement => "No licence for this kind of bus",
+            Problem::NoTypeTraining => "No type training for this bus",
         }
     }
 }
@@ -417,6 +519,15 @@ impl DayTour {
 
     pub fn key(&self) -> String {
         tour_key(&self.tour.line, &self.tour.tour)
+    }
+
+    /// The bus it runs with as a driver's qualification sees it: its kind and its file (a
+    /// rental or no bus yet: the size it asks for, no model).
+    pub fn bus_of(&self, c: &Company) -> (BusKind, Option<String>) {
+        match self.bus.and_then(|b| if let BusOf::Own(id) = b { c.vehicle(id) } else { None }) {
+            Some(v) => (v.kind, Some(v.bus.clone())),
+            None => (BusKind { size: self.size(c), drive: Drive::Diesel }, None),
+        }
     }
 
     /// The size of bus it runs with (or asks for).
@@ -610,6 +721,17 @@ fn size_fit(wants: Option<BusSize>, size: BusSize) -> u8 {
     }
 }
 
+/// How a duty (or a piece) on a bus (`DayTour::bus_of`) fits a driver: qualified for it - the
+/// licence, the endorsements, the model's type training (`licences`) - and then as `fits`.
+pub fn fits_bus(e: &Employee, bus: &(BusKind, Option<String>), work: &[Block], b: &Block, today: bool) -> Result<Vec<Warn>, Problem> {
+    match super::licences::lack(e, bus.0, bus.1.as_deref()) {
+        Some(super::licences::Lack::Licence) => Err(Problem::Licence),
+        Some(super::licences::Lack::Endorsement(_)) => Err(Problem::NoEndorsement),
+        Some(super::licences::Lack::Type(_)) => Err(Problem::NoTypeTraining),
+        None => fits(e, bus.0.size, work, b, today),
+    }
+}
+
 /// How a duty (or a piece) fits a driver: allowed, and the warnings.
 pub fn fits(e: &Employee, size: BusSize, work: &[Block], b: &Block, today: bool) -> Result<Vec<Warn>, Problem> {
     if !staff::may_drive(e, size) {
@@ -745,7 +867,7 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
     order.sort_by_key(|&(i, k)| out[i].duties[k].from);
     for &(i, k) in &order {
         let Some(who) = roster(c, wd, &out[i].tour.line, &out[i].tour.tour).and_then(|r| r.duties.get(k).copied().flatten()) else { continue };
-        let size = out[i].size(c);
+        let bus = out[i].bus_of(c);
         let t = &out[i];
         let block = block_of(&t.tour, &t.duties[k], duty_key(&t.tour.line, &t.tour.tour, k));
         let d = &mut out[i].duties[k];
@@ -760,7 +882,7 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
                     None => Err(Problem::Away),
                     Some(e) => match unavailable(e, date, today) {
                         Some(p) => Err(p),
-                        None => fits(e, size, work.of(id), &block, today),
+                        None => fits_bus(e, &bus, work.of(id), &block, today),
                     },
                 };
                 match check {
@@ -777,13 +899,13 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
     }
     // the dispatcher's own for what the roster left free (tours with a bus, or reported live)
     let people: Vec<&Employee> = c.staff.iter().filter(|e| unavailable(e, date, today).is_none()).collect();
-    let pick = |work: &Work, size: BusSize, block: &Block| -> Option<(u32, Vec<Warn>)> {
+    let pick = |work: &Work, bus: &(BusKind, Option<String>), block: &Block| -> Option<(u32, Vec<Warn>)> {
         let mut best: Option<((bool, bool, i32, u32, i64), u32, Vec<Warn>)> = None;
         for e in &people {
-            let Ok(w) = fits(e, size, work.of(e.id), block, today) else { continue };
+            let Ok(w) = fits_bus(e, bus, work.of(e.id), block, today) else { continue };
             let worked = staff::work_minutes(work.of(e.id));
             let fills = worked > 0 && !w.iter().any(|x| matches!(x, Warn::Overtime(_)));
-            let score = (staff::qualified(e, size), fills, -worked, WEEK_DAYS.saturating_sub(e.week_days), (e.experience * 10.0) as i64);
+            let score = (staff::qualified(e, bus.0.size), fills, -worked, WEEK_DAYS.saturating_sub(e.week_days), (e.experience * 10.0) as i64);
             if best.as_ref().is_none_or(|b| score > b.0) {
                 best = Some((score, e.id, w));
             }
@@ -799,9 +921,9 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
             out[i].duties[k].problem = Some(Problem::Unassigned);
             continue;
         }
-        let size = t.size(c);
+        let bus = t.bus_of(c);
         let block = block_of(&t.tour, &t.duties[k], duty_key(&t.tour.line, &t.tour.tour, k));
-        match pick(&work, size, &block) {
+        match pick(&work, &bus, &block) {
             Some((id, w)) => {
                 work.push(id, block);
                 let d = &mut out[i].duties[k];
@@ -820,18 +942,18 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
             if t.duties[k].who.is_some() || (t.bus.is_none() && !t.live) {
                 continue;
             }
-            let size = t.size(c);
+            let bus = t.bus_of(c);
             let key = duty_key(&t.tour.line, &t.tour.tour, k);
             let block = block_of(&t.tour, &t.duties[k], key.clone());
             let problem = t.duties[k].problem;
             let (who, from_) = match fill_of(c, date, &key) {
-                Some(Fill::Colleague { id }) => match c.employee(id).filter(|e| unavailable(e, date, today).is_none()).map(|e| fits(e, size, work.of(id), &block, today)) {
+                Some(Fill::Colleague { id }) => match c.employee(id).filter(|e| unavailable(e, date, today).is_none()).map(|e| fits_bus(e, &bus, work.of(id), &block, today)) {
                     Some(Ok(_)) => (Some(Who::Staff(id)), Source::Dispatcher),
                     _ => (None, Source::None),
                 },
                 Some(Fill::Agency) if agency < agency_max(c) => (Some(Who::Agency), Source::Dispatcher),
                 Some(Fill::Drop) => (None, Source::Dispatcher),
-                _ if problem.is_some_and(Problem::sudden) => match pick(&work, size, &block) {
+                _ if problem.is_some_and(Problem::sudden) => match pick(&work, &bus, &block) {
                     Some((id, _)) => (Some(Who::Staff(id)), Source::Central),
                     None if agency < agency_max(c) => (Some(Who::Agency), Source::Central),
                     None => (None, Source::None),
@@ -861,11 +983,11 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
             }
             let key = late_key(&t.tour.line, &t.tour.tour, k);
             let piece = Block { key: key.clone(), from: d.from, to: until.min(d.to), from_stop: t.tour.trips[d.start].from.clone(), to_stop: String::new() };
-            let size = t.size(c);
+            let bus = t.bus_of(c);
             let (cover, from_) = match fill_of(c, date, &key) {
-                Some(Fill::Colleague { id }) if c.employee(id).is_some_and(|e| id != employee && unavailable(e, date, today).is_none() && fits(e, size, work.of(id), &piece, today).is_ok()) => (Some(id), Source::Dispatcher),
+                Some(Fill::Colleague { id }) if c.employee(id).is_some_and(|e| id != employee && unavailable(e, date, today).is_none() && fits_bus(e, &bus, work.of(id), &piece, today).is_ok()) => (Some(id), Source::Dispatcher),
                 Some(_) => (None, Source::Dispatcher),
-                None => match pick(&work, size, &piece) {
+                None => match pick(&work, &bus, &piece) {
                     Some((id, _)) if id != employee => (Some(id), Source::Central),
                     _ => (None, Source::None),
                 },
@@ -946,6 +1068,9 @@ pub fn agency_driver() -> Employee {
         week_days: 0,
         last_end: None,
         days_worked: 0,
+        // (the agency sends drivers for what they are sent to)
+        endorsements: super::licences::Endorsement::ALL.to_vec(),
+        types: Vec::new(),
     }
 }
 
@@ -1196,7 +1321,21 @@ mod tests {
         market::buy_new(&mut c, &mini, Payment::Cash, "").unwrap();
         let p = day_plan(&c, &c.date, tours.clone(), &[], &[], false);
         assert_eq!(p.tours[0].bus, Some(BusOf::Own(c.fleet[1].id)));
-        // and "Fill the roster" fixes it, not the solo bus
+        // "Fill the roster" gives it the bus, but nobody had the type training for the new model
+        let mut f = c.clone();
+        assert_eq!(fill_day(&mut f, &c.date.clone(), tours.clone()), 1);
+        let p = day_plan(&f, &f.date, tours.clone(), &[], &[], false);
+        assert_eq!(p.tours[0].duties[0].problem, Some(Problem::Unassigned));
+        // given by hand all the same: the planning says why not
+        let e1 = c.staff[0].id;
+        set_driver(&mut f, wd, "Linie5", "1", 0, Some(Who::Staff(e1)));
+        let p = day_plan(&f, &f.date, tours.clone(), &[], &[], false);
+        assert_eq!(p.tours[0].duties[0].problem, Some(Problem::NoTypeTraining));
+        // trained: and it fills both, the bus and the driver
+        let key = super::super::licences::type_key("Vehicles/Sprinter/Sprinter.bus");
+        for e in c.staff.iter_mut() {
+            e.types.push(key.clone());
+        }
         assert_eq!(fill_day(&mut c.clone(), &c.date.clone(), tours), 2);
         // a line that asks for nothing takes any bus
         c.lines[0].plan = None;
@@ -1326,6 +1465,34 @@ mod tests {
     }
 
     #[test]
+    fn a_driver_without_the_endorsement_is_not_planned_on_the_bus() {
+        use super::super::licences::{type_key, Endorsement};
+        let mut c = quiet(1, 2);
+        let wd = weekday_of(&c.date);
+        // the company's bus an articulated one: nobody has the endorsement
+        c.fleet[0].kind = BusKind { size: BusSize::Articulated, drive: Drive::Diesel };
+        for e in c.staff.iter_mut() {
+            e.endorsements.clear();
+            e.types = vec![type_key(&c.fleet[0].bus)];
+        }
+        let e1 = c.staff[0].id;
+        let tours = vec![tour("1", 6 * 60, 3)];
+        let b1 = c.fleet[0].id;
+        set_bus(&mut c, wd, "Linie5", "1", Some(b1));
+        set_driver(&mut c, wd, "Linie5", "1", 0, Some(Who::Staff(e1)));
+        let p = day_plan(&c, &c.date, tours.clone(), &[], &[], false);
+        assert_eq!(p.tours[0].duties[0].problem, Some(Problem::NoEndorsement));
+        // the dispatcher gives it to nobody, and says why
+        set_driver(&mut c, wd, "Linie5", "1", 0, None);
+        assert_eq!(fill_day(&mut c.clone(), &c.date.clone(), tours.clone()), 0);
+        let f = fill_day_told(&mut c.clone(), &c.date.clone(), tours.clone());
+        assert_eq!((f.duties, f.unqualified, f.busy), (0, 1, 0));
+        // with the endorsement: planned
+        c.staff[0].endorsements.push(Endorsement::Articulated);
+        assert_eq!(fill_day(&mut c.clone(), &c.date.clone(), tours), 1);
+    }
+
+    #[test]
     fn filling_the_roster_keeps_the_rules_and_clearing_empties_it() {
         let mut c = quiet(2, 2);
         let wd = weekday_of(&c.date);
@@ -1350,12 +1517,24 @@ mod tests {
         later.date = next.clone();
         let q = day_plan(&later, &next, tours.clone(), &[], &[], false);
         assert_eq!(q.tours.iter().map(|t| t.bus).collect::<Vec<_>>(), p.tours.iter().map(|t| t.bus).collect::<Vec<_>>());
-        // copied to Tuesday, cleared on Monday
-        copy_day(&mut c, wd, &[(wd + 1) % 7]);
-        clear_day(&mut c, wd);
+        // filled again: nothing more to give, and what is open said
+        let again = fill_day_told(&mut c.clone(), &today, tours.clone());
+        assert_eq!((again.duties, again.buses), (0, 0));
+        let open = p.tours.iter().flat_map(|t| t.duties.iter()).filter(|d| d.who.is_none()).count();
+        assert_eq!(again.unqualified + again.busy, open);
+        assert_eq!(again.no_bus, p.tours.iter().filter(|t| t.bus.is_none()).count());
+        // copied to Tuesday, cleared on Monday: each says what it did
+        let held = rostered(&c, wd);
+        assert!(held.buses >= 1 && held.duties >= 1);
+        assert_eq!(copy_day(&mut c, wd, &[wd, (wd + 1) % 7]), vec![(wd + 1) % 7]);
+        assert_eq!(clear_day(&mut c, wd), held);
         assert!(c.planning.week.iter().all(|r| r.weekday == (wd + 1) % 7));
         let p = day_plan(&c, &c.date, tours, &[], &[], false);
         assert!(p.tours.iter().all(|t| t.bus_from != Source::Roster));
+        // an empty day is not repeated: the others keep theirs
+        assert!(copy_day(&mut c, wd, &[(wd + 1) % 7]).is_empty());
+        assert_eq!(rostered(&c, (wd + 1) % 7), held);
+        assert!(clear_day(&mut c, wd).is_empty());
     }
 
     #[test]

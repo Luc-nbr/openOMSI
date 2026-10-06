@@ -343,6 +343,11 @@ pub(crate) fn spawn_player(
                 .map(|i| (i.width, i.height, i.rgba))
         });
         log::info!("display font \"{font}\": {n} destination display(s) of the bus");
+        // and the matrices its scripts draw with fonts they ask for by name (the Krüger
+        // matrices): the chosen font takes those fonts' places
+        for (script, fonts) in vehicle.apply_script_display_font(Some(font)) {
+            log::info!("display font \"{font}\": the {fonts} letter font(s) of {} (a matrix the bus's script draws)", script.display());
+        }
     }
     // number / ident were installed before {init}; do not rewrite them here.
     // ground following through the loaded tiles (road surfaces first, then terrain)

@@ -1251,6 +1251,32 @@ impl State {
         on_date.or_else(|| self.map().map(|m| m.hof.clone())).unwrap_or_default()
     }
 
+    /// The timetable line the duty drives (as `duty` gives it the game): a free drive's line
+    /// followed, else the duty's; None for a free drive without a line.
+    pub fn driven_line(&self) -> Option<String> {
+        let c = &self.choice;
+        if let Some((line, _)) = super::freedrive::free_route(c) {
+            return Some(line);
+        }
+        if c.free {
+            None
+        } else {
+            c.line.clone()
+        }
+    }
+
+    /// The player's own depot file (its key, of `keys`) the drive gives its bus
+    /// (`owndepot::for_duty`): the one chosen on the bus step, else the one the driven line of
+    /// his chose (`true`: the line's).
+    pub fn own_depot_in_use(&self, keys: &[String]) -> Option<(String, bool)> {
+        if let Some(k) = keys.iter().find(|k| k.eq_ignore_ascii_case(self.choice.hof.trim())) {
+            return Some((k.clone(), false));
+        }
+        let line = self.driven_line()?;
+        let o = self.own_lines.iter().find(|o| o.file.eq_ignore_ascii_case(line.trim()))?;
+        keys.iter().find(|k| !o.depot_file.trim().is_empty() && k.eq_ignore_ascii_case(o.depot_file.trim())).map(|k| (k.clone(), true))
+    }
+
     pub fn select_bus(&mut self, file: &str) {
         if self.choice.bus == file {
             return;
@@ -1258,8 +1284,10 @@ impl State {
         self.choice.bus = file.to_string();
         self.choice.paint.clear();
         self.choice.number.clear();
-        // (a hand-picked depot file stays when the new bus has one of that name)
-        let keep = self.choice.hof_manual && self.bus().is_some_and(|v| v.hofs.iter().any(|h| h.eq_ignore_ascii_case(&self.choice.hof)));
+        // (a hand-picked depot file stays when the new bus has one of that name - and one of the
+        // player's own, which any bus is given)
+        let own = core::owndepot::path_of(&core::owndepot::dir(), &self.choice.hof).is_some();
+        let keep = self.choice.hof_manual && (own || self.bus().is_some_and(|v| v.hofs.iter().any(|h| h.eq_ignore_ascii_case(&self.choice.hof))));
         if !keep {
             self.choice.hof_manual = false;
             self.choice.hof = self.default_hof();

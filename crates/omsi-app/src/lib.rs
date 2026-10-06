@@ -126,6 +126,9 @@ rust_i18n::i18n!("locales");
 // change - the macro alone left the old texts in the program)
 const _LOCALES: &str = include_str!("../locales/app.yml");
 const _LOCALES_LINES: &str = include_str!("../locales/lijnsoort.yml");
+const _LOCALES_DEPOTS: &str = include_str!("../locales/hof.yml");
+const _LOCALES_FONTS: &str = include_str!("../locales/fonts.yml");
+const _LOCALES_COMPANY: &str = include_str!("../locales/bedrijf2.yml");
 
 /// Show the interface in `code` (the settings' ENG / DEU / FRA / RUS).
 pub(crate) fn ui_language(code: &str) {

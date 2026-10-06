@@ -8,6 +8,7 @@
 //! nothing moves but what is under the mouse. What takes time - reading the buses for the
 //! market, the timetable of the company's day, closing a day - runs on a thread of its own.
 
+mod adverts;
 mod bank;
 mod career;
 mod clock;
@@ -26,6 +27,7 @@ mod planning;
 mod repair_game;
 mod settings;
 mod signing;
+pub(super) mod tutorial;
 mod wizard;
 
 use super::theme::*;
@@ -139,6 +141,11 @@ pub struct CompanyView {
     pub(super) timetable: u64,
     /// The day report's line opened to its money.
     report_line: Option<String>,
+    /// For whom the company's tour was looked at this session (`tutorial::frame`).
+    tutorial_for: Option<String>,
+    /// Lines whose changed timetable took effect: their tours planned anew once the
+    /// timetable is read again (`refill`).
+    refill: Vec<String>,
 }
 
 impl Default for CompanyView {
@@ -178,6 +185,8 @@ impl Default for CompanyView {
             popup: None,
             timetable: 0,
             report_line: None,
+            tutorial_for: None,
+            refill: Vec::new(),
         }
     }
 }
@@ -493,6 +502,9 @@ fn work(l: &mut Launcher) {
             spawn(&view.tx, move || Msg::Own(map.clone(), core::lines::own_lines_of_map(&map)));
         }
     }
+    // a line's change waiting for its day: its day has come; and its tours planned anew
+    changes_due(l);
+    refill(l);
     // today's plan (the roster's, see `planning`): every tour of the day, those of lines not in
     // service marked; and the company's day for the game - only what is in service runs on the
     // map with the company's buses while the player drives
@@ -510,6 +522,55 @@ fn work(l: &mut Launcher) {
             }
         }
     }
+}
+
+/// A change of an own line waiting for its day (`ownline::Pending`): on that day the map's
+/// timetable and the company's line take it, and the tours it changed are planned anew once
+/// the timetable is read again (`refill`).
+fn changes_due(l: &mut Launcher) {
+    let Some(c) = l.company.company.as_ref() else { return };
+    let due = co::ownline::due(c);
+    if due.is_empty() {
+        return;
+    }
+    let map = c.map.clone();
+    for id in due {
+        if let Err(e) = super::lineeditor::take_effect_in_timetable(l, &map, id) {
+            l.state.set_status(format!("{}: {e}", omsi_ui::tr("The timetable files could not be written")), true);
+        }
+        if let Some(Some((name, _))) = act(l, |c| Ok(co::ownline::take_effect(c, id))) {
+            l.company.refill.push(name);
+        }
+    }
+    reload_timetable(l);
+    // (the day's timetable as it is now, before the tours are planned)
+    l.company.today = None;
+}
+
+/// The tours of lines whose change took effect, planned anew on the company's day (as "Fill
+/// the roster" does, for them only), and said.
+fn refill(l: &mut Launcher) {
+    if l.company.refill.is_empty() {
+        return;
+    }
+    let (Some(c), Some(t)) = (l.company.company.as_ref(), l.company.today.as_ref()) else { return };
+    if t.map != c.map || t.date != c.date {
+        return;
+    }
+    let tours = co::network::tours_of_day(c, &t.lines, &c.date);
+    let date = c.date.clone();
+    for name in std::mem::take(&mut l.company.refill) {
+        let number = l.company.company.as_ref().and_then(|c| c.lines.iter().find(|x| x.name == name)).map(|x| x.number.clone()).unwrap_or_default();
+        let ours = tours.clone();
+        let Some(f) = act(l, |c| Ok(co::plan::fill_line(c, &date, ours, &name))) else { continue };
+        let mut text = omsi_ui::tr("Line %{n} runs its new timetable from today: %{d} duties and %{b} buses given anew.").replace("%{n}", &number).replace("%{d}", &f.duties.to_string()).replace("%{b}", &f.buses.to_string());
+        let open = planning::open_text(&f);
+        if !open.is_empty() {
+            text = format!("{text} {open}");
+        }
+        l.state.set_status(text, false);
+    }
+    l.company.plan = None;
 }
 
 /// The market's buses (read once, again when the installed buses changed).
@@ -611,7 +672,43 @@ fn go(l: &mut Launcher, g: kit::Go) {
             l.company.tab = 2;
             people::to_applicants(l);
         }
+        Go::Training => people::to_courses(l),
+        Go::Licences => people::to_training(l),
     }
+}
+
+/// The line editor working for the company: its page under the company's popup when one is
+/// up (a size of bus the level does not open yet, a change refused), the page without input.
+/// The popup keeps only its OK there: a way to another page would leave the line's changes
+/// behind.
+pub fn over_line_editor(l: &mut Launcher, draw: impl FnOnce(&mut Launcher)) {
+    if l.company.popup.is_none() {
+        draw(l);
+        return;
+    }
+    if let Some(p) = l.company.popup.as_mut() {
+        p.go = None;
+    }
+    let i = mask(&mut l.ui);
+    draw(l);
+    l.ui.input = i;
+    kit::draw_popup(l);
+}
+
+/// A size of bus the line editor offers the company: refused with the level's popup while
+/// the company's level does not open it.
+pub fn size_locked(l: &mut Launcher, size: co::BusSize) {
+    let refused = l.company.company.as_ref().and_then(|c| co::market::size_allowed(c, size).err());
+    if let Some(reason) = refused {
+        kit::refuse(l, reason);
+    }
+}
+
+/// The sizes of bus the company's level does not open yet (an articulated bus, a
+/// double-decker).
+pub fn sizes_locked(l: &Launcher) -> Vec<co::BusSize> {
+    let Some(c) = l.company.company.as_ref() else { return Vec::new() };
+    [co::BusSize::Articulated, co::BusSize::Double].into_iter().filter(|s| co::market::size_allowed(c, *s).is_err()).collect()
 }
 
 /// The input taken away (a dialog or a popup lies over what is drawn now); returns it.
@@ -710,6 +807,16 @@ pub fn screen(l: &mut Launcher) {
         l.go(Page::Drive);
     }
     let mut right = back.x - 12.0;
+    // the "?": the company's tour, from where it was left (see `tutorial`)
+    if l.company.companies.is_some() {
+        let help = Rect::new(right - 40.0, 16.0, 40.0, 40.0);
+        super::tour::anchor("company-help", help);
+        if l.ui.button("company-help", help, "", Some("help"), ButtonKind::Normal) {
+            tutorial::ask(l);
+        }
+        l.ui.tooltip(help, "A tour of the bus company");
+        right = help.x - 8.0;
+    }
     let company = l.company.company.clone().filter(|_| !founding);
     if company.is_some() {
         let gear = Rect::new(right - 40.0, 16.0, 40.0, 40.0);
@@ -719,7 +826,10 @@ pub fn screen(l: &mut Launcher) {
         }
         l.ui.tooltip(gear, "The company's settings: its name, its date, how it buys");
         right = gear.x - 16.0;
-        right = clock::head(l, Rect::new(size.x * 0.36, 16.0, (right - size.x * 0.36).max(0.0), 40.0)) - 16.0;
+        let clock_r = Rect::new(size.x * 0.36, 16.0, (right - size.x * 0.36).max(0.0), 40.0);
+        let left = clock::head(l, clock_r);
+        super::tour::anchor("company-clock", Rect::new(left, clock_r.y, (clock_r.right() - left).max(0.0), clock_r.h));
+        right = left - 16.0;
     }
     match &company {
         Some(c) => {
@@ -744,17 +854,25 @@ pub fn screen(l: &mut Launcher) {
         if l.company.wizard.is_none() {
             l.company.wizard = Some(wizard::Wizard::new(l));
         }
+        super::tour::anchor("company-wizard", content);
         wizard::draw(l, content);
     } else {
         // the tabs across, the page under them
         let labels: Vec<String> = TABS.iter().map(|t| omsi_ui::tr(t).into_owned()).collect();
         let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
         let mut tab = l.company.tab;
-        if l.ui.segmented("company-tabs", Rect::new(content.x, content.y, content.w, 42.0), &mut tab, &refs) {
+        let tabs = Rect::new(content.x, content.y, content.w, 42.0);
+        super::tour::anchor("company-tabs", tabs);
+        if l.ui.segmented("company-tabs", tabs, &mut tab, &refs) {
             l.company.tab = tab;
         }
         let body = Rect::new(content.x, content.y + 58.0, content.w, (content.h - 58.0).max(0.0));
+        super::tour::anchor("company-page", body);
         pages(l, body);
+    }
+    // the first time: the company's welcome and tour (`tutorial`)
+    if saved.is_none() {
+        tutorial::frame(l);
     }
     if let Some(i) = saved {
         l.ui.input = i;
@@ -969,6 +1087,11 @@ fn note_text(n: &Note) -> (String, Color, Option<kit::Go>) {
             DANGER.lighten(0.25),
             Some(kit::Go::Planning),
         ),
+        Note::Accident { number, cost } => (
+            omsi_ui::tr("Bus %{n} had an accident on its tour: damage %{amount}.").replace("%{n}", number).replace("%{amount}", &eur(*cost)),
+            DANGER.lighten(0.25),
+            Some(kit::Go::Training),
+        ),
     }
 }
 
@@ -1073,6 +1196,24 @@ fn report_dialog(l: &mut Launcher) {
     if crowded > 0 {
         let left = sum(&|r| r.left_behind as i64);
         facts.push(Fact { text: omsi_ui::tr("%{n} trips of your own lines were full; %{p} passengers were left at the stop. Bigger buses help.").replace("%{n}", &crowded.to_string()).replace("%{p}", &left.to_string()), colour: WARN, fixes: vec![kit::Go::Dealer] });
+    }
+    // (what else befell the trips: `co::incidents`, and the courses that help)
+    let fines = sum(&|r| r.incidents.fines as i64);
+    if fines > 0 {
+        let cost = sum(&|r| r.incidents.fine_cost);
+        let t = omsi_ui::tr("Your drivers were fined %{n} times in traffic: %{amount}. Defensive driving halves it.").replace("%{n}", &fines.to_string()).replace("%{amount}", &eur(cost));
+        facts.push(Fact { text: t, colour: WARN, fixes: vec![kit::Go::Training] });
+    }
+    let complaints = sum(&|r| r.incidents.complaints as i64);
+    if complaints > 0 {
+        let t = omsi_ui::tr("%{n} passengers complained about their trip. The customer service course halves the complaints.").replace("%{n}", &complaints.to_string());
+        facts.push(Fact { text: t, colour: WARN, fixes: vec![kit::Go::Training] });
+    }
+    let ill = sum(&|r| r.incidents.taken_ill as i64);
+    if ill > 0 {
+        let helped = sum(&|r| r.incidents.helped as i64);
+        let t = omsi_ui::tr("%{n} passengers were taken ill or hurt on board; a first-aider was at the wheel for %{m} of them.").replace("%{n}", &ill.to_string()).replace("%{m}", &helped.to_string());
+        facts.push(Fact { text: t, colour: if helped == ill { TEXT_SOFT } else { WARN }, fixes: if helped == ill { Vec::new() } else { vec![kit::Go::Training] } });
     }
     if rep.abs() >= 0.05 {
         let t = if rep > 0.0 { "Your reputation rose to %{n}: trips on time and passengers carried." } else { "Your reputation fell to %{n}: trips dropped and late cost it." };

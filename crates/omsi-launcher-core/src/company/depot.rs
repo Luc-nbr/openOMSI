@@ -168,6 +168,9 @@ pub enum JobKind {
     Repair,
     /// A general overhaul: nearly as new.
     Overhaul,
+    /// Painted in one of the company's liveries (`livery::paint`; not one of `ALL`, the jobs
+    /// ordered as they are).
+    Paint,
 }
 
 impl JobKind {
@@ -178,6 +181,7 @@ impl JobKind {
             JobKind::Service => "Service",
             JobKind::Repair => "Repair",
             JobKind::Overhaul => "Overhaul",
+            JobKind::Paint => "Painting",
         }
     }
 
@@ -186,6 +190,7 @@ impl JobKind {
             JobKind::Service => "service",
             JobKind::Repair => "repair",
             JobKind::Overhaul => "overhaul",
+            JobKind::Paint => "paint",
         }
     }
 
@@ -196,7 +201,7 @@ impl JobKind {
     /// Workshop days it takes.
     pub fn days(self) -> i64 {
         match self {
-            JobKind::Service => 1,
+            JobKind::Service | JobKind::Paint => 1,
             JobKind::Repair => 2,
             JobKind::Overhaul => 5,
         }
@@ -216,6 +221,9 @@ pub struct Job {
     pub until: Option<String>,
     /// What it costs (booked when it starts).
     pub cost: Cents,
+    /// The company's livery a painting puts on the bus.
+    #[serde(default)]
+    pub livery: Option<String>,
 }
 
 /// The depot as it is built.
@@ -422,6 +430,7 @@ pub fn job_cost(c: &Company, vehicle: u32, kind: JobKind) -> Cents {
         JobKind::Service => 0.0,
         JobKind::Repair => (market::serviced_condition(age) - v.condition).max(5.0) * 120.0 * size,
         JobKind::Overhaul => economy::reference_price(v.kind) as f64 / 100.0 * 0.06,
+        JobKind::Paint => return super::livery::paint_cost(c, v),
     };
     ((euros * c.price_index).round() as Cents) * 100
 }
@@ -441,7 +450,28 @@ pub fn order(c: &mut Company, vehicle: u32, kind: JobKind) -> Result<u32, &'stat
     }
     c.site.job_counter += 1;
     let id = c.site.job_counter;
-    c.site.jobs.push(Job { id, vehicle, kind, ordered: c.date.clone(), started: None, until: None, cost });
+    c.site.jobs.push(Job { id, vehicle, kind, ordered: c.date.clone(), started: None, until: None, cost, livery: None });
+    let tomorrow = dates::add(&c.date, 1);
+    start_jobs(c, &tomorrow);
+    Ok(id)
+}
+
+/// Order the painting of a bus in a livery of the company's (`livery::paint` checks it): as
+/// any job, from tomorrow when a bay is free, paid when it starts.
+pub fn order_paint(c: &mut Company, vehicle: u32, livery: &str, cost: Cents) -> Result<u32, &'static str> {
+    let Some(v) = c.vehicle(vehicle) else { return Err("This bus is not in the fleet.") };
+    if !v.held_on(&c.date) {
+        return Err("This bus is not in the fleet.");
+    }
+    if c.site.job_of(vehicle).is_some() {
+        return Err("The workshop has a job for this bus already.");
+    }
+    if c.cash < cost {
+        return Err("Not enough cash.");
+    }
+    c.site.job_counter += 1;
+    let id = c.site.job_counter;
+    c.site.jobs.push(Job { id, vehicle, kind: JobKind::Paint, ordered: c.date.clone(), started: None, until: None, cost, livery: Some(livery.to_string()) });
     let tomorrow = dates::add(&c.date, 1);
     start_jobs(c, &tomorrow);
     Ok(id)
@@ -495,6 +525,12 @@ fn start_jobs(c: &mut Company, day: &str) {
                 v.condition = v.condition.max(96.0);
                 v.next_service_km = ((v.km / market::SERVICE_KM).floor() + 1.0) * market::SERVICE_KM;
             }
+            JobKind::Paint => {
+                if let Some(name) = j.livery.clone().filter(|n| !n.trim().is_empty()) {
+                    v.livery = name.clone();
+                    v.house_livery = Some(name);
+                }
+            }
         }
         let text = format!("{} {} ({})", v.number, v.name, j.kind.label());
         if let Some(x) = c.site.jobs.iter_mut().find(|x| x.id == id) {
@@ -507,7 +543,8 @@ fn start_jobs(c: &mut Company, day: &str) {
             JobKind::Repair => super::dealer::under_warranty(c, j.vehicle, day),
             _ => false,
         };
-        c.book(BookingKind::Repair, if free_of_charge { 0 } else { -j.cost }, text, false);
+        let kind = if j.kind == JobKind::Paint { BookingKind::Livery } else { BookingKind::Repair };
+        c.book(kind, if free_of_charge { 0 } else { -j.cost }, text, false);
         free -= 1;
     }
 }

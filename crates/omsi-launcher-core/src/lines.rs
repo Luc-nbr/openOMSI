@@ -75,7 +75,9 @@ pub struct Registry {
     /// The school holidays of a map whose calendar (`Holidays.txt`) has none (empty: the
     /// defaults, `service::default_school_holidays`).
     pub school_holidays: Vec<HolidayPeriod>,
-    /// The player's own destinations on this map (`OwnDestination`).
+    /// The player's own destinations on this map (`OwnDestination`), as the line editor kept
+    /// them before the depot editor: they are destinations of the map's depot file of the
+    /// player's own now (`owndepot::migrate` moves them there, and this stays empty).
     pub destinations: Vec<OwnDestination>,
 }
 
@@ -126,6 +128,17 @@ pub struct LineDesign {
     /// What the line is called in public - on its card and in its advertising ("Shuttleverkehr
     /// Altenfeld - Wurzbach"); empty: its name.
     pub title: String,
+    /// The player's own depot file (`owndepot`, by its key) the line's destinations, IBIS
+    /// stops and routes go into, and which every bus that drives the line is given; empty:
+    /// the map's (its depot group's) alone. The map's depot files get the line as well, for
+    /// the timetable's buses.
+    pub depot_file: String,
+    /// A change of a company's line in service waiting for its day (Luc: "lijnen moeten ook
+    /// aanpasbaar zijn als ze al actief zijn"): the line as the map's timetable keeps it until
+    /// `pending_from`, the change's first day - today's tours run as they are. None: the line
+    /// is in the timetable as it is here.
+    pub live: Option<Box<LineDesign>>,
+    pub pending_from: String,
 }
 
 impl Default for LineDesign {
@@ -148,8 +161,68 @@ impl Default for LineDesign {
             table: Vec::new(),
             table_on: false,
             title: String::new(),
+            depot_file: String::new(),
+            live: None,
+            pending_from: String::new(),
         }
     }
+}
+
+impl Registry {
+    /// The registry as the map's timetable has it: a line with a change waiting for its day
+    /// as it runs until then (`LineDesign::live`).
+    pub fn as_timetable(&self) -> Registry {
+        let mut r = self.clone();
+        for l in r.lines.iter_mut() {
+            if let Some(live) = l.live.take() {
+                *l = LineDesign { id: l.id, live: None, pending_from: String::new(), ..*live };
+            }
+        }
+        r
+    }
+}
+
+/// How a line's tours change from `old` to `new` (by their numbers): kept as they were,
+/// changed (other trips or times), new, and gone.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TourDiff {
+    pub kept: Vec<String>,
+    pub changed: Vec<String>,
+    pub added: Vec<String>,
+    pub gone: Vec<String>,
+}
+
+impl TourDiff {
+    /// The tours whose buses and drivers are given anew: the changed and the gone.
+    pub fn replan(&self) -> Vec<String> {
+        self.changed.iter().chain(self.gone.iter()).cloned().collect()
+    }
+}
+
+pub fn tour_diff(old: &LineDesign, new: &LineDesign) -> TourDiff {
+    let (a, b) = (tour_plan(old), tour_plan(new));
+    let (ra, rb) = (run_minutes(old), run_minutes(new));
+    let same = |x: &PlannedTour, y: &PlannedTour| {
+        x.day == y.day && x.trips.len() == y.trips.len() && x.trips.iter().zip(&y.trips).all(|(p, q)| p.dir == q.dir && (p.departure - q.departure).abs() < 0.5 && (p.minutes(&ra) - q.minutes(&rb)).abs() < 0.5)
+    };
+    let mut d = TourDiff::default();
+    for t in &b {
+        match a.iter().find(|x| x.number == t.number) {
+            Some(x) if same(x, t) => d.kept.push(t.number.clone()),
+            Some(_) => d.changed.push(t.number.clone()),
+            None => d.added.push(t.number.clone()),
+        }
+    }
+    d.gone = a.iter().filter(|x| !b.iter().any(|t| t.number == x.number)).map(|x| x.number.clone()).collect();
+    d
+}
+
+/// The map's timetable changes from `old` to `new`: its tours, its stops or where they go, or
+/// its number (the files' names).
+pub fn timetable_differs(old: &LineDesign, new: &LineDesign) -> bool {
+    let d = tour_diff(old, new);
+    let stops = |l: &LineDesign| l.directions.iter().map(|d| (d.stops.iter().map(|s| (s.tile, s.id)).collect::<Vec<_>>(), d.destination())).collect::<Vec<_>>();
+    !(d.changed.is_empty() && d.added.is_empty() && d.gone.is_empty()) || stops(old) != stops(new) || old.number.trim() != new.number.trim()
 }
 
 /// A destination of the player's own (Luc: "dat je eerst je eigen bestemmingen opslaat in de
@@ -381,7 +454,7 @@ pub fn days_for(kind: ServiceKind) -> Vec<DayPattern> {
     days
 }
 
-fn now_secs() -> u64 {
+pub(crate) fn now_secs() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
@@ -956,6 +1029,9 @@ pub struct OwnLine {
     /// Its kind of service and the buses it asks for.
     pub service: ServiceKind,
     pub vehicles: LineVehicles,
+    /// The player's own depot file every bus that drives it is given (`LineDesign::
+    /// depot_file`; empty: none).
+    pub depot_file: String,
 }
 
 impl OwnLine {
@@ -986,7 +1062,7 @@ pub fn own_lines(reg: &Registry) -> Vec<OwnLine> {
                     destinations.push(to);
                 }
             }
-            OwnLine { id: l.id, file: stems[&l.id].clone(), number: l.number.trim().to_string(), name: l.name.trim().to_string(), colour: l.colour.clone(), destinations, service: l.service, vehicles: l.vehicles.clone() }
+            OwnLine { id: l.id, file: stems[&l.id].clone(), number: l.number.trim().to_string(), name: l.name.trim().to_string(), colour: l.colour.clone(), destinations, service: l.service, vehicles: l.vehicles.clone(), depot_file: l.depot_file.trim().to_string() }
         })
         .collect()
 }
@@ -1233,7 +1309,8 @@ pub fn export_to_map(content: &Path, map_dir: &Path, reg: &Registry) -> Result<(
     let dir = crate::ttstore::ttdata_dir(content, map_dir, &folder)?;
     let raw_tiles = omsi_map::GlobalCfg::load(&map_dir.join("global.cfg")).map(|g| g.raw_tiles).map_err(|e| format!("global.cfg: {e}"))?;
     let (links, stops) = map_has(&dir);
-    let e = export(reg, &raw_tiles, &links, &stops)?;
+    // (a line with a change waiting for its day: as it runs until then)
+    let e = export(&reg.as_timetable(), &raw_tiles, &links, &stops)?;
     let files = write_export(&dir, &e, &crate::ttstore::keep_original)?;
     Ok((e.tours.len(), files))
 }
@@ -1262,6 +1339,50 @@ mod tests {
             d.refresh_times();
         }
         l.id
+    }
+
+    #[test]
+    fn a_change_waits_for_its_day_and_says_which_tours_it_touches() {
+        let mut reg = Registry::default();
+        let id = line(&mut reg);
+        let l = reg.line_mut(id).unwrap();
+        l.days = vec![DayPattern { days: DAY_GROUPS[0].1, first: 360.0, last: 600.0, headway: 30.0, ..Default::default() }, DayPattern { on: false, days: DAY_GROUPS[1].1, ..Default::default() }, DayPattern { on: false, days: DAY_GROUPS[2].1, ..Default::default() }];
+        let old = l.clone();
+        // the colour only: the timetable stays
+        let mut new = old.clone();
+        new.colour = "#ff0000".into();
+        assert!(!timetable_differs(&old, &new));
+        assert!(tour_diff(&old, &new).replan().is_empty());
+        // the evening later: the buses run longer - their tours change
+        new.days[0].last = 720.0;
+        let d = tour_diff(&old, &new);
+        assert!(timetable_differs(&old, &new));
+        assert!(!d.changed.is_empty() || !d.added.is_empty(), "{d:?}");
+        assert_eq!(tour_diff(&old, &old.clone()).kept.len(), tour_plan(&old).len());
+        // the rush hour's extra buses taken off: their tours go
+        let mut busy = old.clone();
+        busy.days[0].bands = vec![TimeBand { from: 360.0, to: 480.0, headway: 2.0, size: None }, TimeBand { from: 480.0, to: 600.0, headway: 30.0, size: None }];
+        let fewer = old.clone();
+        let d = tour_diff(&busy, &fewer);
+        assert!(tour_plan(&busy).len() > tour_plan(&fewer).len());
+        assert!(!d.gone.is_empty() && d.replan().len() >= d.gone.len(), "{d:?}");
+        // another number: the files' names change
+        let mut renamed = old.clone();
+        renamed.number = "43".into();
+        assert!(timetable_differs(&old, &renamed));
+        // waiting: the timetable is written as it was
+        let l = reg.line_mut(id).unwrap();
+        *l = LineDesign { live: Some(Box::new(old.clone())), pending_from: "2024-03-06".into(), ..fewer.clone() };
+        let t = reg.as_timetable();
+        assert_eq!(t.lines[0].days, old.days);
+        assert!(t.lines[0].live.is_none() && t.lines[0].id == id);
+        let e = export(&t, &[(0, 0)], &HashSet::new(), &HashSet::new()).unwrap();
+        let plain = {
+            let mut r = Registry::default();
+            r.lines.push(old.clone());
+            export(&r, &[(0, 0)], &HashSet::new(), &HashSet::new()).unwrap()
+        };
+        assert_eq!(e.tours.len(), plain.tours.len());
     }
 
     #[test]

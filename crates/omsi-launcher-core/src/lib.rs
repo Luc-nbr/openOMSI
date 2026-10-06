@@ -17,6 +17,7 @@ pub mod install;
 pub mod instances;
 pub mod linehof;
 pub mod lines;
+pub mod owndepot;
 pub mod service;
 pub mod ttstore;
 
@@ -965,7 +966,9 @@ fn read_vehicle_folder(folder: &str, dirs: &[PathBuf], lang: &str) -> (Vec<Vehic
     // else those of the pack's own)
     let hof_dir = |f: &PathBuf| rel_of.get(f).map(|r| r.rsplit_once('/').map(|(d, _)| d.to_ascii_lowercase()).unwrap_or_default()).unwrap_or_default();
     let mut hofs_in: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
-    for f in files.iter().filter(|f| f.extension().map(|e| e.eq_ignore_ascii_case("hof")).unwrap_or(false)) {
+    // (the player's own depot files, given to the bus for the drives that name them, are not
+    // counted as its: `omsi_vehicle::hof::is_players`)
+    for f in files.iter().filter(|f| f.extension().map(|e| e.eq_ignore_ascii_case("hof")).unwrap_or(false) && !omsi_vehicle::hof::is_players(f)) {
         // (the name alone: UK depot files carry megabytes of trips)
         if let Some(name) = omsi_vehicle::Hof::read_name(f) {
             hofs_in.entry(hof_dir(f)).or_default().push(name.trim().to_string());
@@ -3279,7 +3282,16 @@ pub struct Launched {
 }
 
 /// Start a game for the duty. Any number may run at once; each writes its own log.
+///
+/// The player's own depot file the drive is to have - chosen on the bus step, or by the line
+/// driven - is given to its bus first (`owndepot::for_duty`), whichever way the drive was
+/// started (the duty, a free drive, the bus company's).
 pub fn launch(d: &Duty) -> Result<Launched> {
+    let mut own = d.clone();
+    if let Some(done) = owndepot::for_duty(&mut own) {
+        log_line(&format!("depot: {done}"));
+    }
+    let d = &own;
     if IN_PROCESS_GAMES {
         let args = duty_args(d)?;
         let command = args.join(" ");

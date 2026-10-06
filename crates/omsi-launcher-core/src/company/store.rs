@@ -49,6 +49,11 @@ pub fn migrate(mut c: Company) -> Company {
     if c.price_index <= 0.0 {
         c.price_index = 1.0;
     }
+    // (a company from before the licences: its people drive what they drove)
+    if c.quals == 0 {
+        super::licences::grant_fleet(&mut c);
+        c.quals = 1;
+    }
     c.version = VERSION;
     c
 }

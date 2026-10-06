@@ -299,6 +299,8 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         l.company.company = Some(c);
         l.company.tab = 0;
         super::changed(l);
+        // (the company's tour goes on with its pages, if the welcome came before the founding)
+        super::tutorial::founded(l);
         l.state.set_status(omsi_ui::tr("%{name} is founded. Add a line, buy a bus and hire drivers.").replace("%{name}", &f.name), false);
         return;
     }

@@ -1366,8 +1366,10 @@ impl VehicleInstance {
     }
 
     /// Draw the bus's destination displays - and those of its coupled parts - in the display
-    /// font `font` the player chose for it (`texttex::apply_display_font`), after
-    /// `init_text_textures`. Returns how many displays it changed.
+    /// font `font` the player chose for it (a `DisplayFontSpec` argument, see
+    /// `texttex::apply_display_font`), after `init_text_textures`; and the matrices its sign
+    /// scripts draw (`texttex::script_signs`) with it in place of their fonts. Returns how
+    /// many text displays it changed.
     pub fn apply_display_font(
         &mut self,
         font: &str,
@@ -1379,6 +1381,18 @@ impl VehicleInstance {
             n += crate::texttex::apply_display_font(&mut t.text_textures, &t.ty.model, font, lib, decode);
         }
         n
+    }
+
+    /// The matrices the bus's sign scripts draw (`texttex::script_signs`) in the display font
+    /// `font` (a `DisplayFontSpec` argument; None: their own fonts). Returns the scripts and
+    /// how many fonts each asks for that the font takes the place of. (The host's font
+    /// library must not be locked: the fonts are looked up through it.)
+    pub fn apply_script_display_font(&mut self, font: Option<&str>) -> Vec<(PathBuf, usize)> {
+        let spec = font.and_then(omsi_content::dotfont::DisplayFontSpec::parse);
+        let signs = if spec.is_some() { crate::texttex::script_signs(&self.ty.def.scripts.scripts) } else { Vec::new() };
+        let fonts: Vec<String> = signs.iter().flat_map(|s| s.fonts.iter().map(|f| f.trim().to_lowercase())).collect();
+        self.host.set_display_font(spec.map(|spec| crate::host::ScriptDisplayFont { spec, fonts }));
+        signs.iter().map(|s| (s.script.clone(), s.fonts.len())).collect()
     }
 
     /// Current text of a string variable (empty when it does not exist).

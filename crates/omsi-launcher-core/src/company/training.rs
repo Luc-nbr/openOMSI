@@ -1,5 +1,6 @@
-//! Training: courses for the staff (punctuality, eco driving, customer service, the
-//! workshop, the big buses), each costing money and days away, and the two workshop courses
+//! Training: courses for the staff (punctuality, customer service, eco driving, defensive
+//! driving, first aid, ticket sales, the workshop, the big buses - what they change of the
+//! day: `day`, `incidents`), each costing money and days away, and the two workshop courses
 //! of the player himself, who may then service and repair the company's buses with his own
 //! hands; and those hands' work: the workshop task, a short game in the launcher - diagnose
 //! the bus's parts and fix what is wrong before the time runs out - whose quality decides
@@ -22,6 +23,12 @@ pub enum CourseKind {
     Punctuality,
     EcoDriving,
     CustomerService,
+    /// Defensive driving: half the accidents and traffic fines (`incidents`).
+    Safety,
+    /// First aid: a passenger taken ill or hurt on board costs less reputation.
+    FirstAid,
+    /// Ticket sales and fare checks: more fares on their trips.
+    Ticketing,
     /// A mechanic: some of the maintenance and repairs are done in the company's own
     /// workshop (`mechanic_share`).
     Workshop,
@@ -31,6 +38,14 @@ pub enum CourseKind {
     PlayerService,
     /// The player: repairs after a breakdown.
     PlayerRepairs,
+    /// The licences and the type training (`licences`): the D licence for a D1 driver, the
+    /// articulated and the double-decker endorsement, the high-voltage instruction, and the
+    /// type training of a model family (`Course::subject`).
+    LicenceD,
+    ArticulatedLicence,
+    DoubleDeckerLicence,
+    HighVoltage,
+    TypeTraining,
 }
 
 /// What a course is: its cost (at founding prices), its days, what opens it.
@@ -44,7 +59,7 @@ pub struct Spec {
 }
 
 impl CourseKind {
-    pub const STAFF: [CourseKind; 5] = [CourseKind::Punctuality, CourseKind::CustomerService, CourseKind::EcoDriving, CourseKind::Workshop, CourseKind::LargeBuses];
+    pub const STAFF: [CourseKind; 8] = [CourseKind::Punctuality, CourseKind::CustomerService, CourseKind::Ticketing, CourseKind::FirstAid, CourseKind::EcoDriving, CourseKind::Safety, CourseKind::Workshop, CourseKind::LargeBuses];
     pub const PLAYER: [CourseKind; 2] = [CourseKind::PlayerService, CourseKind::PlayerRepairs];
 
     pub fn spec(self) -> Spec {
@@ -52,10 +67,18 @@ impl CourseKind {
             CourseKind::Punctuality => (650_00, 2, Feature::TrainingCentre, false),
             CourseKind::CustomerService => (480_00, 1, Feature::TrainingCentre, false),
             CourseKind::EcoDriving => (900_00, 2, Feature::EcoCourse, false),
+            CourseKind::Safety => (700_00, 2, Feature::SafetyCourse, false),
+            CourseKind::FirstAid => (300_00, 1, Feature::TrainingCentre, false),
+            CourseKind::Ticketing => (350_00, 1, Feature::TrainingCentre, false),
             CourseKind::Workshop => (2_400_00, 5, Feature::Workshop, false),
             CourseKind::LargeBuses => (1_500_00, 3, Feature::AdvancedCourses, false),
             CourseKind::PlayerService => (1_200_00, 2, Feature::Workshop, true),
             CourseKind::PlayerRepairs => (2_000_00, 3, Feature::AdvancedCourses, true),
+            CourseKind::LicenceD => (4_500_00, 10, Feature::TrainingCentre, false),
+            CourseKind::ArticulatedLicence => (900_00, 2, Feature::ArticulatedBuses, false),
+            CourseKind::DoubleDeckerLicence => (900_00, 2, Feature::DoubleDeckers, false),
+            CourseKind::HighVoltage => (600_00, 1, Feature::ElectricBuses, false),
+            CourseKind::TypeTraining => (250_00, 1, Feature::TrainingCentre, false),
         };
         Spec { kind: self, cost, days, feature, for_player }
     }
@@ -65,23 +88,47 @@ impl CourseKind {
             CourseKind::Punctuality => "Punctuality",
             CourseKind::CustomerService => "Customer service",
             CourseKind::EcoDriving => "Eco driving",
+            CourseKind::Safety => "Defensive driving",
+            CourseKind::FirstAid => "First aid",
+            CourseKind::Ticketing => "Ticket sales",
             CourseKind::Workshop => "Workshop skills",
             CourseKind::LargeBuses => "Large buses",
             CourseKind::PlayerService => "Workshop basics",
             CourseKind::PlayerRepairs => "Repairs",
+            CourseKind::LicenceD => "D licence",
+            CourseKind::ArticulatedLicence => "Articulated licence",
+            CourseKind::DoubleDeckerLicence => "Double-decker licence",
+            CourseKind::HighVoltage => "High-voltage instruction",
+            CourseKind::TypeTraining => "Type training",
         }
+    }
+
+    /// The licence courses (`licences::enrol`), booked per driver on the Staff page.
+    pub const LICENCES: [CourseKind; 4] = [CourseKind::LicenceD, CourseKind::ArticulatedLicence, CourseKind::DoubleDeckerLicence, CourseKind::HighVoltage];
+
+    /// A licence, an endorsement or a type training.
+    pub fn is_licence(self) -> bool {
+        matches!(self, CourseKind::LicenceD | CourseKind::ArticulatedLicence | CourseKind::DoubleDeckerLicence | CourseKind::HighVoltage | CourseKind::TypeTraining)
     }
 
     /// What it does, in a line.
     pub fn effect(self) -> &'static str {
         match self {
             CourseKind::Punctuality => "Punctuality +15: fewer late trips",
-            CourseKind::CustomerService => "Service +15: more passengers",
+            CourseKind::CustomerService => "Service +15 and half the complaints: more passengers, a better reputation",
             CourseKind::EcoDriving => "Driving +8, and 8 % less fuel and power on their share of the tours",
-            CourseKind::Workshop => "A mechanic: 6 % of maintenance and repairs done in-house (up to four)",
+            CourseKind::Safety => "Half the accidents and traffic fines on their trips",
+            CourseKind::FirstAid => "A passenger taken ill or hurt on board costs far less reputation",
+            CourseKind::Ticketing => "Fewer fare dodgers: 4 % more fares on their trips",
+            CourseKind::Workshop => "A mechanic: 6 % of maintenance and repairs done in-house (up to four), a broken-down bus back a day sooner",
             CourseKind::LargeBuses => "Articulated buses and double-deckers without a warning",
             CourseKind::PlayerService => "You may service the company's buses yourself",
             CourseKind::PlayerRepairs => "You may repair broken-down buses yourself",
+            CourseKind::LicenceD => "A D1 driver may drive every bus",
+            CourseKind::ArticulatedLicence => "May drive articulated buses",
+            CourseKind::DoubleDeckerLicence => "May drive double-deckers",
+            CourseKind::HighVoltage => "May drive electric buses",
+            CourseKind::TypeTraining => "May drive the buses of one model",
         }
     }
 
@@ -90,10 +137,18 @@ impl CourseKind {
             CourseKind::Punctuality => "schedule",
             CourseKind::CustomerService => "group",
             CourseKind::EcoDriving => "air",
+            CourseKind::Safety => "warning",
+            CourseKind::FirstAid => "emergency_home",
+            CourseKind::Ticketing => "confirmation_number",
             CourseKind::Workshop => "settings",
             CourseKind::LargeBuses => "airport_shuttle",
             CourseKind::PlayerService => "tune",
             CourseKind::PlayerRepairs => "construction",
+            CourseKind::LicenceD => "badge",
+            CourseKind::ArticulatedLicence => "airport_shuttle",
+            CourseKind::DoubleDeckerLicence => "directions_bus",
+            CourseKind::HighVoltage => "bolt",
+            CourseKind::TypeTraining => "key",
         }
     }
 }
@@ -111,6 +166,9 @@ pub struct Course {
     pub until: String,
     pub cost: Cents,
     pub done: bool,
+    /// A type training's model family (`licences::type_key`).
+    #[serde(default)]
+    pub subject: String,
 }
 
 /// What a course costs the company now.
@@ -136,6 +194,13 @@ pub fn player_can(c: &Company, kind: CourseKind) -> bool {
 /// Book a course for `employee` (None: the player): paid and begun today. Returns its last
 /// day.
 pub fn enrol(c: &mut Company, kind: CourseKind, employee: Option<u32>) -> Result<String, &'static str> {
+    // (a licence: per driver, with its own rules)
+    if kind.is_licence() {
+        return match employee {
+            Some(id) => super::licences::enrol(c, id, kind, ""),
+            None => Err("This course is not for them."),
+        };
+    }
     let spec = kind.spec();
     if spec.for_player != employee.is_none() {
         return Err("This course is not for them.");
@@ -176,8 +241,23 @@ pub fn enrol(c: &mut Company, kind: CourseKind, employee: Option<u32>) -> Result
     }
     c.progress.next_course += 1;
     let id = c.progress.next_course;
-    c.progress.courses.push(Course { id, kind, employee, name, from, until: until.clone(), cost, done: false });
+    c.progress.courses.push(Course { id, kind, employee, name, from, until: until.clone(), cost, done: false, subject: String::new() });
     Ok(until)
+}
+
+/// Book a staff course for everyone who has neither done nor booked it and can go today (the
+/// cash allowing). Returns how many were booked, and what it cost.
+pub fn enrol_all(c: &mut Company, kind: CourseKind) -> (usize, Cents) {
+    let ids: Vec<u32> = c.staff.iter().map(|e| e.id).collect();
+    let (mut n, mut spent) = (0, 0);
+    for id in ids {
+        let before = c.cash;
+        if enrol(c, kind, Some(id)).is_ok() {
+            n += 1;
+            spent += before - c.cash;
+        }
+    }
+    (n, spent)
 }
 
 /// The night after `date`: the courses whose last day it was are learnt. Returns them.
@@ -198,6 +278,7 @@ pub fn day_passed(c: &mut Company, date: &str) -> Vec<Course> {
                 CourseKind::LargeBuses => e.experience = e.experience.max(super::staff::EXPERIENCE_LARGE + 5.0).min(100.0),
                 _ => {}
             }
+            super::licences::learnt(e, x.kind, &x.subject);
             // (people like being trained)
             e.satisfaction = (e.satisfaction + 4.0).min(100.0);
             e.training_until = None;

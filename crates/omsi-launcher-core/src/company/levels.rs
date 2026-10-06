@@ -104,16 +104,23 @@ pub enum Feature {
     DoubleDeckers,
     /// Repairs by the player, the course for the big buses.
     AdvancedCourses,
+    /// The defensive driving course (`incidents`).
+    SafetyCourse,
     /// A lower rate on new loans.
     CheaperLoans,
     WashBay,
     ChargingYard,
     ThirdHall,
     BetterLoans,
+    /// Advertising contracts: posters on the buses' rears, their side panels, whole buses
+    /// wrapped (`adverts`).
+    RearAdverts,
+    SideAdverts,
+    FullWraps,
 }
 
 impl Feature {
-    pub const ALL: [Feature; 13] = [
+    pub const ALL: [Feature; 17] = [
         Feature::TrainingCentre,
         Feature::Workshop,
         Feature::ArticulatedBuses,
@@ -122,22 +129,26 @@ impl Feature {
         Feature::SecondHall,
         Feature::DoubleDeckers,
         Feature::AdvancedCourses,
+        Feature::SafetyCourse,
         Feature::CheaperLoans,
         Feature::WashBay,
         Feature::ChargingYard,
         Feature::ThirdHall,
         Feature::BetterLoans,
+        Feature::RearAdverts,
+        Feature::SideAdverts,
+        Feature::FullWraps,
     ];
 
     /// The level that opens it.
     pub fn level(self) -> u32 {
         match self {
             Feature::TrainingCentre => 1,
-            Feature::Workshop | Feature::ArticulatedBuses | Feature::EcoCourse => 2,
-            Feature::ElectricBuses | Feature::SecondHall => 3,
-            Feature::DoubleDeckers | Feature::AdvancedCourses | Feature::CheaperLoans => 4,
+            Feature::Workshop | Feature::ArticulatedBuses | Feature::EcoCourse | Feature::RearAdverts => 2,
+            Feature::ElectricBuses | Feature::SecondHall | Feature::SafetyCourse => 3,
+            Feature::DoubleDeckers | Feature::AdvancedCourses | Feature::CheaperLoans | Feature::SideAdverts => 4,
             Feature::WashBay | Feature::ChargingYard => 5,
-            Feature::ThirdHall => 6,
+            Feature::ThirdHall | Feature::FullWraps => 6,
             Feature::BetterLoans => 7,
         }
     }
@@ -152,11 +163,15 @@ impl Feature {
             Feature::SecondHall => "Second depot hall",
             Feature::DoubleDeckers => "Double-deckers",
             Feature::AdvancedCourses => "Advanced courses",
+            Feature::SafetyCourse => "Defensive driving course",
             Feature::CheaperLoans => "Cheaper loans",
             Feature::WashBay => "Wash bay",
             Feature::ChargingYard => "Charging yard",
             Feature::ThirdHall => "Third depot hall",
             Feature::BetterLoans => "Better loan terms",
+            Feature::RearAdverts => "Rear adverts",
+            Feature::SideAdverts => "Side adverts",
+            Feature::FullWraps => "Full-wrap adverts",
         }
     }
 
@@ -171,9 +186,11 @@ impl Feature {
             Feature::SecondHall | Feature::ThirdHall => "garage",
             Feature::DoubleDeckers => "directions_bus",
             Feature::AdvancedCourses => "military_tech",
+            Feature::SafetyCourse => "warning",
             Feature::CheaperLoans | Feature::BetterLoans => "payments",
             Feature::WashBay => "water_drop",
             Feature::ChargingYard => "power_settings_new",
+            Feature::RearAdverts | Feature::SideAdverts | Feature::FullWraps => "campaign",
         }
     }
 }

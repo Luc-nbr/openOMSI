@@ -7,6 +7,7 @@
 
 use super::dates;
 use super::economy;
+use super::licences::Endorsement;
 use super::model::{BookingKind, BusSize, Cents, Company, Employee, Licence, Skills, Taken};
 use super::rng::Rng;
 use serde::{Deserialize, Serialize};
@@ -146,6 +147,9 @@ pub struct Applicant {
     pub wage: Cents,
     pub reliability: f64,
     pub skills: Skills,
+    /// Endorsements they bring (`licences`).
+    #[serde(default)]
+    pub endorsements: Vec<Endorsement>,
 }
 
 /// The applicants of the company's week: the same all week, new ones on Monday, those
@@ -164,10 +168,17 @@ pub fn applicants(c: &Company) -> Vec<Applicant> {
         let skill = |rng: &mut Rng| (35.0 + experience * 0.45 + rng.range(-15.0, 20.0)).clamp(10.0, 100.0).round();
         let skills = Skills { driving: skill(&mut rng), punctuality: skill(&mut rng), service: skill(&mut rng) };
         let reliability = (rng.range(0.72, 0.99) * 100.0).round() / 100.0;
-        let wage = ((economy::market_wage(experience, c.price_index) as f64 * rng.range(0.94, 1.10) / 10_00 as f64).round() as Cents) * 10_00;
+        // (endorsements of their own, more with experience; each asks 3 % more)
+        let mut endorsements = Vec::new();
+        for (x, p) in [(Endorsement::Articulated, 0.25 + experience / 200.0), (Endorsement::DoubleDecker, 0.1 + experience / 400.0), (Endorsement::Electric, 0.15 + experience / 400.0)] {
+            if licence == Licence::D && rng.chance(p) {
+                endorsements.push(x);
+            }
+        }
+        let wage = ((economy::market_wage(experience, c.price_index) as f64 * rng.range(0.94, 1.10) * (1.0 + 0.03 * endorsements.len() as f64) / 10_00 as f64).round() as Cents) * 10_00;
         let taken = c.taken.week == week && c.taken.applicants.contains(&no);
         if !taken {
-            out.push(Applicant { no, name, age, experience, licence, wage, reliability, skills });
+            out.push(Applicant { no, name, age, experience, licence, wage, reliability, skills, endorsements });
         }
     }
     out
@@ -211,7 +222,11 @@ pub fn hire(c: &mut Company, a: &Applicant) -> Result<u32, &'static str> {
         week_days: 0,
         last_end: None,
         days_worked: 0,
+        endorsements: a.endorsements.clone(),
+        types: Vec::new(),
     });
+    // (the induction: the fleet's models)
+    super::licences::induction(c, id);
     Ok(id)
 }
 

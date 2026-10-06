@@ -376,6 +376,7 @@ fn told_notes(c: &Company, date: &str) -> Vec<(i64, String, Vec<(String, String)
             Note::Won { number, until } => (0, "The concession of line %{n} runs until %{date}", vec![arg("n", number), arg("date", until)], Level::Good),
             Note::Ended { number } => (0, "Line %{n} is no longer the company's: its concession ended", vec![arg("n", number)], Level::Bad),
             Note::NotStarted { number, charge, .. } => (0, "Line %{n} is not in service yet: the authority charged %{amount}", vec![arg("n", number), arg("amount", charge)], Level::Bad),
+            Note::Accident { number, cost } => (0, "Bus %{bus} had an accident yesterday: damage %{amount}", vec![arg("bus", number), arg("amount", cost)], Level::Bad),
             Note::Breakdown { .. } | Note::LoanPaid { .. } | Note::Lost { .. } => continue,
         };
         out.push((x.0, x.1.to_string(), x.2, x.3));

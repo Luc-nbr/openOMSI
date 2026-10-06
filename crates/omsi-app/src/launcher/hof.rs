@@ -109,6 +109,8 @@ pub struct Menu {
     pub fallback: Fallback,
     /// The tile for the chosen map (the first): None when none fits it.
     pub recommended: Option<usize>,
+    /// The player's own depot files for the map (`owndepot`): any bus is given the one chosen.
+    pub own: Vec<core::owndepot::Entry>,
 }
 
 impl Menu {
@@ -290,9 +292,11 @@ fn analyse(j: Job, cache: &Mutex<HashMap<String, Arc<Vec<Source>>>>) -> Menu {
     let bus_path = omsi_cfg::resolve_path(&j.root, &j.bus);
     let dir = bus_path.parent().map(Path::to_path_buf).unwrap_or_else(|| j.root.clone());
     let pack = j.bus.replace('\\', "/").split('/').take(2).collect::<Vec<_>>().join("/");
-    let mut files = omsi_vehicle::hof::depot_files(&dir);
+    // (the player's own given to it are tiles of their own: `Menu::own`)
+    let theirs = |d: &Path| omsi_vehicle::hof::depot_files(d).into_iter().filter(|f| !omsi_vehicle::hof::is_players(f)).collect::<Vec<_>>();
+    let mut files = theirs(&dir);
     if files.is_empty() && !pack.is_empty() {
-        files = omsi_vehicle::hof::depot_files(&omsi_cfg::resolve_path(&j.root, &pack));
+        files = theirs(&omsi_cfg::resolve_path(&j.root, &pack));
     }
     let added = core::depot::added();
     let hofs: Vec<omsi_vehicle::Hof> = files.iter().map(|f| omsi_vehicle::Hof::load(f).unwrap_or_else(|_| omsi_vehicle::Hof { path: f.clone(), ..Default::default() })).collect();
@@ -383,6 +387,7 @@ fn analyse(j: Job, cache: &Mutex<HashMap<String, Arc<Vec<Source>>>>) -> Menu {
         target,
         fallback,
         recommended: first.map(|_| 0),
+        own: core::owndepot::for_map(&core::owndepot::list(&core::owndepot::dir()), &core::lines::map_folder(&j.map)),
         want: j.want,
         map: j.map_label,
         rows,
@@ -501,9 +506,11 @@ pub(super) fn frame(l: &mut Launcher, offering: bool) {
     }
     let Some(m) = current(l) else { return };
     let about = format!("{map}|{bus}|{}", m.want.trim().to_lowercase());
+    // (a depot file of the player's own is given to the bus: nothing to ask)
+    let lacks = m.lacks() && own_in_use(l, &m).is_none();
     let v = &mut l.buspick.depots;
     match &v.dialog {
-        None if should_ask(m.lacks(), v.answered.contains(&about), offering, v.deferred) => {
+        None if should_ask(lacks, v.answered.contains(&about), offering, v.deferred) => {
             log::info!("depot files: {bus} lacks {:?}, the depot file of the map - asked", m.want);
             v.dialog = Some(Dialog { mode: Mode::Missing, at: now, about });
         }
@@ -531,6 +538,21 @@ fn select(l: &mut Launcher, row: &Row) {
     let is_auto = row.key.trim().eq_ignore_ascii_case(auto.trim()) || row.name.trim().eq_ignore_ascii_case(auto.trim());
     l.state.choice.hof_manual = !is_auto;
     l.state.choice.hof = if is_auto { auto } else { row.key.clone() };
+    l.state.touched();
+}
+
+/// The player's own depot file of `m` the drive gives the bus (`State::own_depot_in_use`): its
+/// place among `m.own`, and whether the driven line chose it.
+fn own_in_use(l: &Launcher, m: &Menu) -> Option<(usize, bool)> {
+    let keys: Vec<String> = m.own.iter().map(|e| e.key.clone()).collect();
+    let (key, by_line) = l.state.own_depot_in_use(&keys)?;
+    keys.iter().position(|k| *k == key).map(|i| (i, by_line))
+}
+
+/// Make the player's own depot file `key` the drive's: given to the bus, whichever it is.
+fn select_own(l: &mut Launcher, key: &str) {
+    l.state.choice.hof_manual = true;
+    l.state.choice.hof = key.to_string();
     l.state.touched();
 }
 
@@ -831,7 +853,12 @@ fn count_text(n: usize) -> String {
 pub(super) fn field(l: &mut Launcher, x: f32, y: f32, w: f32) -> (f32, bool) {
     let m = current(l);
     let chosen = l.state.choice.hof.clone();
-    let (name, text, c, icon) = standing(m.as_deref(), &chosen);
+    let own = m.as_deref().and_then(|m| own_in_use(l, m).map(|(i, _)| m.own[i].name.clone()));
+    let (name, text, c, icon) = match own {
+        Some(name) => (name, omsi_ui::tr("Your depot file: given to this bus when you drive").into_owned(), OK, "check_circle"),
+        None => standing(m.as_deref(), &chosen),
+    };
+    crate::mt::protect([name.as_str()]);
     l.ui.label(Rect::new(x, y, 110.0, ROW), "Depot file");
     let f = Rect::new(x + 116.0, y, w - 116.0, ROW);
     let id = id_of("hof-field");
@@ -940,12 +967,40 @@ enum Pick {
     Row(usize),
     /// Adding the map's depot file (said in full first).
     Add,
+    /// One of the player's own depot files (`Menu::own`).
+    Own(usize),
 }
 
-/// The tiles of the menu `m`, with the drive taking `used` (`auto`: openOMSI chose it).
-fn cards_of(m: &Menu, used: &Use, auto: bool) -> Vec<(Card, Option<Pick>)> {
+/// The tiles of the menu `m`, with the drive taking `used` (`auto`: openOMSI chose it) - or
+/// `own`, one of the player's own depot files (and whether the driven line chose it): given to
+/// the bus, it is what the drive takes.
+fn cards_of(m: &Menu, used: &Use, auto: bool, own: Option<(usize, bool)>) -> Vec<(Card, Option<Pick>)> {
     let tr = |s: &str| omsi_ui::tr(s).into_owned();
     let mut out = Vec::new();
+    // the player's own, first: any bus is given the one chosen
+    for (k, e) in m.own.iter().enumerate() {
+        let (chosen, by_line) = match own {
+            Some((i, line)) if i == k => (true, line),
+            _ => (false, false),
+        };
+        let specials: Vec<String> = e.specials.iter().take(4).map(|(c, n)| format!("{c} {n}")).collect();
+        let more = if e.specials.len() > 4 { " …" } else { "" };
+        out.push((
+            Card {
+                key: format!("own-{}", e.key.to_lowercase()),
+                title: tr("Your depot file '%{name}'").replace("%{name}", &e.name),
+                file: format!("{}.hof", e.key),
+                line: format!("{} · {}", if chosen { tr("Given to this bus when you drive") } else { tr("Given to this bus when chosen") }, count_text(e.termini.len())),
+                tag: Some((if by_line { tr("The line chose it") } else { tr("Yours") }, accent_2())),
+                extra: (!specials.is_empty()).then(|| tr("Special trips: %{list}").replace("%{list}", &(specials.join(", ") + more))),
+                chosen,
+                icon: "departure_board",
+                enabled: true,
+                add: false,
+            },
+            Some(Pick::Own(k)),
+        ));
+    }
     // the map's depot file borrowed from another bus: it is what the drive takes
     if let Use::Borrowed(f) = used {
         out.push((
@@ -959,7 +1014,7 @@ fn cards_of(m: &Menu, used: &Use, auto: bool) -> Vec<(Card, Option<Pick>)> {
                 },
                 tag: Some((tr("Borrowed for this drive"), WARN)),
                 extra: None,
-                chosen: true,
+                chosen: own.is_none(),
                 icon: "garage",
                 enabled: m.source.is_some() && m.refusal.is_none(),
                 add: false,
@@ -973,7 +1028,7 @@ fn cards_of(m: &Menu, used: &Use, auto: bool) -> Vec<(Card, Option<Pick>)> {
             Some(map) => format!("{map} · {}", count_text(r.destinations)),
             None => count_text(r.destinations),
         };
-        let chosen = *used == Use::Row(i);
+        let chosen = own.is_none() && *used == Use::Row(i);
         let mut extra = Vec::new();
         if m.recommended == Some(i) && !r.maps {
             extra.push(tr("best for this map"));
@@ -1017,6 +1072,7 @@ pub(super) fn cards(l: &mut Launcher, r: Rect) {
     };
     let used = m.used(&l.state.choice.hof);
     let auto = !l.state.choice.hof_manual;
+    let own = own_in_use(l, &m);
     let mut top = r.y;
     // a word over the tiles: what adding came to (a while), else that the map's file is missing
     let now = l.ui.time;
@@ -1028,6 +1084,16 @@ pub(super) fn cards(l: &mut Launcher, r: Rect) {
         l.ui.p().rounded(strip, RADIUS, c.alpha(0.10));
         l.ui.p().rounded_border(strip, RADIUS, 1.0, c.alpha(0.3));
         l.ui.icon(if err { "warning" } else { "check_circle" }, Vec2::new(strip.x + 22.0, strip.center().y), 17.0, c);
+        l.ui.text_in(&text, Rect::new(strip.x + 42.0, strip.y, strip.w - 54.0, strip.h), 13.0, Weight::Medium, TEXT, Align::Left);
+        top = strip.bottom() + 14.0;
+    } else if let Some((i, by_line)) = own {
+        // the player's own depot file: what the bus is given, said over the tiles
+        l.ui.p().rounded(strip, RADIUS, OK.alpha(0.08));
+        l.ui.p().rounded_border(strip, RADIUS, 1.0, OK.alpha(0.3));
+        l.ui.icon("check_circle", Vec2::new(strip.x + 22.0, strip.center().y), 17.0, OK);
+        let says = if by_line { omsi_ui::tr("Your line chose your depot file %{name}: it is given to this bus when you drive.") } else { omsi_ui::tr("Your depot file %{name} is given to this bus when you drive.") };
+        let text = says.replace("%{name}", &m.own[i].name);
+        crate::mt::protect([text.as_str()]);
         l.ui.text_in(&text, Rect::new(strip.x + 42.0, strip.y, strip.w - 54.0, strip.h), 13.0, Weight::Medium, TEXT, Align::Left);
         top = strip.bottom() + 14.0;
     } else if m.lacks() {
@@ -1044,7 +1110,7 @@ pub(super) fn cards(l: &mut Launcher, r: Rect) {
         }
         top = strip.bottom() + 14.0;
     }
-    let list = cards_of(&m, &used, auto);
+    let list = cards_of(&m, &used, auto, own);
     let area = Rect::new(r.x - 4.0, top, r.w + 8.0, (r.bottom() - top).max(60.0));
     if m.rows.is_empty() {
         l.ui.text_in("This bus has no depot files of its own.", Rect::new(area.x + 4.0, area.y + 4.0, area.w, 20.0), 13.0, Weight::Regular, TEXT_DIM, Align::Left);
@@ -1071,6 +1137,11 @@ pub(super) fn cards(l: &mut Launcher, r: Rect) {
             }
         }
         Some(Pick::Add) => open_add = true,
+        Some(Pick::Own(k)) => {
+            if let Some(e) = m.own.get(k) {
+                select_own(l, &e.key);
+            }
+        }
         None => {}
     }
     if open_add && m.source.is_some() && m.refusal.is_none() {
@@ -1098,6 +1169,10 @@ pub(super) fn map_line(l: &Launcher) -> Option<String> {
 pub(super) fn foot(l: &Launcher) -> String {
     let Some(m) = current(l) else { return omsi_ui::tr("Reading the depot files…").into_owned() };
     let n = if m.rows.len() == 1 { omsi_ui::tr("one depot file beside this bus").into_owned() } else { omsi_ui::tr("%{n} depot files beside this bus").replace("%{n}", &m.rows.len().to_string()) };
+    if let Some((i, by_line)) = own_in_use(l, &m) {
+        let how = if by_line { omsi_ui::tr("your line's choice") } else { omsi_ui::tr("your choice") };
+        return format!("{n} · {} ({how})", omsi_ui::tr("In use: %{hof}").replace("%{hof}", &m.own[i].name));
+    }
     let in_use = match m.used(&l.state.choice.hof) {
         Use::Row(i) => m.rows[i].name.clone(),
         Use::Borrowed(_) => m.want.clone(),
@@ -1223,20 +1298,38 @@ mod tests {
         let mut m = menu(vec![row("A.hof", "Alpha", Some(30), false), row("B.hof", "Bravo", Some(0), false)], "Hamburg", Some(40));
         m.recommended = Some(0);
         m.source = Some(Source { path: PathBuf::from("Vehicles/O530/HH.hof"), file: "HH.hof".into(), folder: "O530".into(), from_map: false, size: 1 });
-        let list = cards_of(&m, &Use::Row(0), true);
+        let list = cards_of(&m, &Use::Row(0), true, None);
         assert_eq!(list.len(), 3);
         assert!(list[0].0.chosen && !list[1].0.chosen);
         assert_eq!(list[2].1, Some(Pick::Add));
         assert!(list[2].0.add && list[2].0.enabled);
         // borrowed: a tile of its own, first and in use; nothing to add when it is refused
         m.refusal = Some(Refusal::Taken("HH.hof".into()));
-        let list = cards_of(&m, &Use::Borrowed("O530".into()), true);
+        let list = cards_of(&m, &Use::Borrowed("O530".into()), true, None);
         assert_eq!(list.len(), 4);
         assert!(list[0].0.chosen && !list[0].0.enabled);
         assert_eq!(list[3].1, None, "the adding tile says why, and does nothing");
         // a map that names no depot file: no adding tile
         let plain = menu(vec![row("A.hof", "Alpha", None, false)], "", None);
-        assert_eq!(cards_of(&plain, &Use::Row(0), false).len(), 1);
+        assert_eq!(cards_of(&plain, &Use::Row(0), false, None).len(), 1);
+    }
+
+    /// The player's own depot files are tiles of their own, first; the one the drive gives the
+    /// bus is the one in use, and says so.
+    #[test]
+    fn the_players_own_depot_files_are_offered_for_any_bus() {
+        let mut m = menu(vec![row("A.hof", "Alpha", Some(30), true)], "Alpha", Some(30));
+        let own = |key: &str, name: &str| core::owndepot::Entry { key: key.into(), name: name.into(), specials: vec![(13, "Betriebsfahrt".into()), (900, "Sonderfahrt".into())], ..Default::default() };
+        m.own = vec![own("oo_Mine", "Mine"), own("oo_Specials", "Specials")];
+        let list = cards_of(&m, &Use::Row(0), true, Some((1, true)));
+        assert_eq!(list.len(), 4, "and the tile that adds the map's");
+        assert_eq!((list[0].1, list[1].1, list[2].1), (Some(Pick::Own(0)), Some(Pick::Own(1)), Some(Pick::Row(0))));
+        assert!(!list[0].0.chosen && list[1].0.chosen && !list[2].0.chosen, "the bus's own is not what the drive takes");
+        assert!(list[1].0.title.contains("Specials") && list[1].0.line.starts_with("Given to this bus when you drive"));
+        assert_eq!(list[1].0.tag.as_ref().map(|t| t.0.as_str()), Some("The line chose it"));
+        assert!(list[1].0.extra.as_deref().is_some_and(|e| e.contains("900 Sonderfahrt")));
+        // none chosen: the bus's file is in use again
+        assert!(cards_of(&m, &Use::Row(0), true, None)[2].0.chosen);
     }
 
     #[test]

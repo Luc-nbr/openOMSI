@@ -36,7 +36,8 @@ use super::Launcher;
 use glam::{DVec2, Vec2};
 use omsi_launcher_lib as core;
 use omsi_launcher_lib::linehof;
-use omsi_launcher_lib::company::{ownline, BusKind, BusSize, Cents, Drive};
+use omsi_launcher_lib::owndepot;
+use omsi_launcher_lib::company::{self as co, ownline, BusKind, BusSize, Cents, Drive};
 use omsi_launcher_lib::lines::{self as reg, Direction, LineDesign, Registry, StopRef, TimeBand, DAY_GROUPS};
 use omsi_launcher_lib::service::{self, BusPick, ServiceKind, VehicleClass};
 use omsi_ui::paint::Align;
@@ -103,8 +104,17 @@ pub struct LineEditorView {
     /// The depot groups with buses (`ailists.cfg`) and each one's depot file.
     groups: Vec<(String, String)>,
     /// The depot files of the depot groups as the line editor sees them, without its own
-    /// block (by name, lowercased; read once).
+    /// block (by name, lowercased; read once) - and the player's own (`own:` and its key).
     depots: HashMap<String, Option<Arc<linehof::Depot>>>,
+    /// The player's own depot files for the map (`owndepot`), read once (again after one
+    /// changed), and the destinations of them offered as "Mine" (for the line's depot file).
+    own: Option<Vec<owndepot::Entry>>,
+    mine: Option<(String, Vec<reg::OwnDestination>)>,
+    kept: Option<Kept>,
+    /// What moving the player's own destinations into his depot file came to (said once).
+    note: Option<(String, bool)>,
+    /// "Open in the depot editor" was pressed: the depot editor next, on that file.
+    go_depots: Option<String>,
     /// The sign's preview lit white rather than amber.
     white: bool,
     /// The router of the map's network (the network's address, to see it is still that one),
@@ -125,6 +135,21 @@ pub struct LineEditorView {
     company: Option<ForCompany>,
     /// What the company's buttons asked for (done after the panels).
     company_act: Option<CompanyAct>,
+    /// A size of bus the company's level keeps locked was asked for: its popup (after the
+    /// panels).
+    level_ask: Option<BusSize>,
+    /// A change of a line in service asked about (`change_dialog`).
+    change_ask: Option<ChangeAsk>,
+}
+
+/// Where the shown line's own destinations are kept (`LineEditorView::kept`): for which line
+/// (its depot group and depot file), the player's depot file (its place and name), its
+/// destinations the map's depot file lacks, and the names of all of them (lowercased).
+struct Kept {
+    for_line: String,
+    target: Option<(PathBuf, String)>,
+    mine: Vec<reg::OwnDestination>,
+    names: std::collections::HashSet<String>,
 }
 
 /// What the line editor keeps while it works for a bus company.
@@ -158,10 +183,25 @@ struct Figures {
     paid: Cents,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// A change of a company's line in service, asked about before it is saved: what it costs,
+/// the tours it touches, and from which day (tomorrow at the soonest: today's tours run as
+/// they are).
+#[derive(Clone)]
+struct ChangeAsk {
+    fee: Cents,
+    diff: reg::TourDiff,
+    today: String,
+    from: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 enum CompanyAct {
     Confirm,
     SaveChange,
+    /// The change asked about saved for its day.
+    Schedule(String),
+    /// A change waiting for its day taken back: the line stays as it runs.
+    Withdraw,
     Discard,
 }
 
@@ -343,7 +383,92 @@ impl LineEditorView {
         let ai = omsi_map::ailists::ailists_with_chrono(&self.map_dir, &chrono);
         self.groups = ai.groups.iter().filter(|g| g.is_depot && !g.typgroups.is_empty() && !g.name.trim().is_empty()).map(|g| (g.name.trim().to_string(), g.hof.clone().unwrap_or_default())).collect();
         self.depots.clear();
+        self.own_changed();
         self.revision += 1;
+        // the player's own destinations of before the depot editor: into his depot file of the
+        // map (made from the map's), one list
+        if !self.reg.destinations.is_empty() {
+            let base = self.map_depot_bytes(file);
+            let name = omsi_ui::tr("%{map} - mine").replace("%{map}", &self.folder);
+            self.note = Some(match owndepot::migrate(&mut self.reg, &owndepot::dir(), &name, base.as_deref()) {
+                Ok(Some((path, n))) => {
+                    let _ = reg::save_registry(&self.reg_path, &self.reg);
+                    let name = owndepot::load(&path).map(|l| l.doc.hof.name).unwrap_or(name);
+                    (omsi_ui::tr("Your %{n} own destination(s) are in your depot file %{name} now: Editor, Depot editor").replace("%{n}", &n.to_string()).replace("%{name}", &name), false)
+                }
+                Ok(None) => (String::new(), false),
+                Err(e) => (format!("{}: {e}", omsi_ui::tr("Your own destinations could not be moved into a depot file")), true),
+            });
+            self.own_changed();
+        }
+    }
+
+    /// The bytes of the map's depot file (the first depot group's that names one), as the
+    /// player's own depot file starts from: the copy most buses carry.
+    fn map_depot_bytes(&self, map_file: &str) -> Option<Vec<u8>> {
+        let hof = self.groups.iter().map(|g| g.1.trim()).find(|h| !h.is_empty())?;
+        let found = core::depot::find_sources(hof, map_file);
+        core::depot::best(&found).and_then(|i| omsi_cfg::vfs::read(&found[i].path).ok())
+    }
+
+    /// A depot file of the player's changed (or might have): read again, and the bus step's
+    /// tiles with them.
+    pub(super) fn own_changed(&mut self) {
+        self.own = None;
+        self.mine = None;
+        self.kept = None;
+        self.depots.retain(|k, _| !k.starts_with("own:"));
+    }
+
+    /// The player's own depot files for the map.
+    fn own_entries(&mut self) -> &[owndepot::Entry] {
+        let folder = self.folder.clone();
+        self.own.get_or_insert_with(|| owndepot::for_map(&owndepot::list(&owndepot::dir()), &folder))
+    }
+
+    /// The depot file of the shown line as the line editor sees it: the player's own when the
+    /// line chose one, else its depot group's.
+    fn line_depot(&mut self) -> Option<Arc<linehof::Depot>> {
+        let (group, key) = self.line().map(|l| (l.ai_group.clone(), l.depot_file.trim().to_string()))?;
+        if let Some(path) = (!key.is_empty()).then(|| owndepot::path_of(&owndepot::dir(), &key)).flatten() {
+            let folder = self.folder.clone();
+            return self.depots.entry(format!("own:{}", key.to_lowercase())).or_insert_with(|| owndepot::depot_at(&path, &folder).map(Arc::new)).clone();
+        }
+        self.depot_of(&group)
+    }
+
+    /// The destinations of the player's own depot files the shown line's depot file lacks:
+    /// what the line editor offers as "Mine" (`owndepot::own_destinations`).
+    fn mine(&mut self) -> Vec<reg::OwnDestination> {
+        let for_line = self.line().map(|l| format!("{}|{}", l.ai_group.to_lowercase(), l.depot_file.trim().to_lowercase())).unwrap_or_default();
+        if let Some((_, m)) = self.mine.as_ref().filter(|(k, _)| *k == for_line) {
+            return m.clone();
+        }
+        let known: std::collections::HashSet<String> = self.line_depot().map(|d| d.hof.termini.iter().map(|t| t.texture_id.trim().to_lowercase()).collect()).unwrap_or_default();
+        let m = owndepot::own_destinations(self.own_entries(), &known);
+        self.mine = Some((for_line, m.clone()));
+        m
+    }
+
+    /// Where the shown line's own destinations are kept (the Displays tab): the player's depot
+    /// file the line chose, else the first for the map (None: there is none yet) - worked out
+    /// once (again after a change).
+    fn kept(&mut self) -> &Kept {
+        let (group, key) = self.line().map(|l| (l.ai_group.clone(), l.depot_file.trim().to_string())).unwrap_or_default();
+        let for_line = format!("{}|{}", group.to_lowercase(), key.to_lowercase());
+        if self.kept.as_ref().is_none_or(|k| k.for_line != for_line) {
+            let map_known: std::collections::HashSet<String> = self.depot_of(&group).map(|d| d.hof.termini.iter().map(|t| t.texture_id.trim().to_lowercase()).collect()).unwrap_or_default();
+            let own = self.own_entries();
+            let target = own.iter().find(|e| !key.is_empty() && e.key.eq_ignore_ascii_case(&key)).or_else(|| own.iter().find(|e| !e.map.trim().is_empty())).or(own.first());
+            let kept = Kept {
+                for_line,
+                target: target.map(|e| (e.path.clone(), e.name.clone())),
+                mine: target.map(|e| e.termini.iter().filter(|t| !t.name.trim().is_empty() && !map_known.contains(&t.name.trim().to_lowercase())).cloned().collect()).unwrap_or_default(),
+                names: target.map(|e| e.termini.iter().map(|t| t.name.trim().to_lowercase()).collect()).unwrap_or_default(),
+            };
+            self.kept = Some(kept);
+        }
+        self.kept.as_ref().unwrap()
     }
 
     /// The depot file a depot group names (`ailists.cfg`).
@@ -368,9 +493,9 @@ impl LineEditorView {
             .clone()
     }
 
-    /// The termini of a depot group's depot file: (what the trip names, what the display says).
-    fn termini_of(&mut self, group: &str) -> Vec<(String, String)> {
-        let Some(d) = self.depot_of(group) else { return Vec::new() };
+    /// The termini of the shown line's depot file: (what the trip names, what the display says).
+    fn termini(&mut self) -> Vec<(String, String)> {
+        let Some(d) = self.line_depot() else { return Vec::new() };
         d.hof
             .termini
             .iter()
@@ -379,27 +504,114 @@ impl LineEditorView {
             .collect()
     }
 
-    /// Before the registry is saved: the codes of the lines in their depot files given, and
-    /// what is to be written there (`core::linehof::prepare`).
+    /// Before the registry is saved: the codes of the lines in their depot files given - the
+    /// map's and the player's own they chose (`owndepot::assign`) - and what is to be written
+    /// there (`core::linehof::prepare`).
     fn prepare_depots(&mut self) -> (HashMap<String, String>, linehof::Plan, Option<PathBuf>) {
         let groups = linehof::group_depots(&self.map_dir);
         let (bases, original) = core::depot_roots();
         let plan = linehof::prepare(&mut self.reg, &groups, &bases);
+        owndepot::assign(&mut self.reg, &owndepot::dir(), &groups, &bases);
         (groups, plan, original)
     }
 
     /// The depot files written (after the registry and the timetable): the destinations,
-    /// routes and stops of the lines for the displays and the IBIS. The first error.
+    /// routes and stops of the lines for the displays and the IBIS - in the map's depot files
+    /// and in the player's own the lines chose (and the copies of those beside buses). The
+    /// first error.
     fn write_depots(&mut self, content: &Path, prepared: &(HashMap<String, String>, linehof::Plan, Option<PathBuf>)) -> Option<String> {
         let (groups, plan, original) = prepared;
         let (n, err) = linehof::write(content, original.as_deref(), &self.reg, groups, plan);
-        log::info!("line editor: {n} depot file(s) written for the displays and the IBIS");
+        let (own, own_err) = owndepot::write_lines(&self.reg, &owndepot::dir(), Some(content));
+        log::info!("line editor: {n} depot file(s) of the map's and {own} of the player's own written for the displays and the IBIS");
         self.depots.clear();
-        err
+        self.own_changed();
+        err.or(own_err)
     }
 }
 
 pub fn draw(l: &mut Launcher, area: Rect) {
+    // (working for the company: its popups over the editor, and the question when a change
+    // of a line in service begins)
+    if l.pages.lines.company.is_some() {
+        super::company::over_line_editor(l, |l| {
+            if l.pages.lines.change_ask.is_some() {
+                let i = super::company::mask(&mut l.ui);
+                draw_page(l, area);
+                l.ui.input = i;
+                change_dialog(l, area);
+            } else {
+                draw_page(l, area);
+            }
+        });
+    } else {
+        draw_page(l, area);
+    }
+}
+
+/// The question before a change of a line in service is saved: from which day, what it
+/// costs, and which tours get their buses and drivers anew then.
+fn change_dialog(l: &mut Launcher, area: Rect) {
+    let Some(mut ask) = l.pages.lines.change_ask.clone() else { return };
+    let number = l.pages.lines.line().map(|x| x.number.trim().to_string()).unwrap_or_default();
+    let ui = &mut l.ui;
+    ui.p().rect(area, Color::rgba(0, 0, 0, 0.45));
+    let w = 560.0f32.min(area.w - 32.0);
+    let h = 400.0;
+    let r = Rect::new(area.center().x - w * 0.5, area.center().y - h * 0.5, w, h);
+    ui.panel(r);
+    let x = r.x + 24.0;
+    let iw = w - 48.0;
+    let mut y = r.y + 20.0;
+    ui.icon("route", Vec2::new(x + 10.0, y + 12.0), 20.0, accent_2());
+    ui.text_in(&omsi_ui::tr("Change line %{n} in service").replace("%{n}", &number), Rect::new(x + 30.0, y, iw - 30.0, 24.0), 17.0, Weight::Bold, TEXT, Align::Left);
+    y += 36.0;
+    y += ui.paragraph("The line runs: today's tours stay as they are. The new timetable begins on the day you choose; the tours it changes get their buses and drivers anew then.", Vec2::new(x, y), iw, 12.5, Weight::Regular, TEXT_SOFT) + 14.0;
+    let row = |ui: &mut Ui, y: f32, label: &str, value: &str, c: Color| {
+        ui.text_in(&omsi_ui::tr(label), Rect::new(x, y, iw * 0.45, 22.0), 13.0, Weight::Medium, TEXT_SOFT, Align::Left);
+        ui.text_in(value, Rect::new(x + iw * 0.45, y, iw * 0.55, 22.0), 13.0, Weight::Bold, c, Align::Right);
+        ui.p().rect(Rect::new(x, y + 26.0, iw, 1.0), HAIRLINE);
+    };
+    let fee = if ask.fee > 0 { super::company::eur(ask.fee) } else { omsi_ui::tr("none").into_owned() };
+    row(ui, y, "Route approved anew", &fee, TEXT);
+    y += 34.0;
+    let d = &ask.diff;
+    let tours = omsi_ui::tr("%{k} kept, %{c} changed, %{a} new, %{g} dropped").replace("%{k}", &d.kept.len().to_string()).replace("%{c}", &d.changed.len().to_string()).replace("%{a}", &d.added.len().to_string()).replace("%{g}", &d.gone.len().to_string());
+    row(ui, y, "Tours", &tours, TEXT);
+    y += 34.0;
+    let replan = d.replan().len() + d.added.len();
+    let words = omsi_ui::tr("%{n} tours to plan anew").replace("%{n}", &replan.to_string());
+    row(ui, y, "On the planning", &words, if replan > 0 { WARN } else { TEXT });
+    y += 42.0;
+    // from which day: tomorrow at the soonest, two months at the most
+    ui.text_in(&omsi_ui::tr("From"), Rect::new(x, y, iw * 0.3, 32.0), 13.0, Weight::Medium, TEXT_SOFT, Align::Left);
+    let days = co::dates::between(&ask.today, &ask.from);
+    let dx = x + iw - 250.0;
+    if ui.icon_button("le-change-earlier", Vec2::new(dx + 14.0, y + 16.0), 14.0, "chevron_left", "A day earlier") && days > 1 {
+        ask.from = co::dates::add(&ask.from, -1);
+    }
+    let when = if days == 1 { format!("{}  ({})", super::company::day_label(&ask.from), omsi_ui::tr("tomorrow")) } else { super::company::day_label(&ask.from) };
+    ui.text_in(&when, Rect::new(dx + 32.0, y, 186.0, 32.0), 14.0, Weight::Bold, TEXT, Align::Center);
+    if ui.icon_button("le-change-later", Vec2::new(dx + 236.0, y + 16.0), 14.0, "chevron_right", "A day later") && days < 60 {
+        ask.from = co::dates::add(&ask.from, 1);
+    }
+    let by = r.bottom() - 20.0 - ROW;
+    let bw = (iw - GAP) * 0.5;
+    let label = if ask.fee > 0 { omsi_ui::tr("Pay %{amount} and save").replace("%{amount}", &super::company::eur(ask.fee)) } else { omsi_ui::tr("Save the change").into_owned() };
+    let go = ui.button("le-change-save", Rect::new(x + bw + GAP, by, bw, ROW), &label, Some("check_circle"), ButtonKind::Primary);
+    let cancel = ui.button("le-change-cancel", Rect::new(x, by, bw, ROW), "Cancel", None, ButtonKind::Normal) || ui.input.keys.contains(&Key::Escape);
+    let v = &mut l.pages.lines;
+    if cancel {
+        v.change_ask = None;
+    } else if go {
+        v.change_ask = None;
+        v.company_act = Some(CompanyAct::Schedule(ask.from.clone()));
+    } else {
+        v.change_ask = Some(ask);
+    }
+}
+
+fn draw_page(l: &mut Launcher, area: Rect) {
     let maps: Vec<(String, String)> = l.state.maps.iter().map(|m| (m.friendly.clone(), m.file.clone())).collect();
     if maps.is_empty() {
         l.ui.paragraph("No maps found.", Vec2::new(area.x, area.y), area.w, 14.0, Weight::Regular, TEXT_DIM);
@@ -462,8 +674,19 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     if let Some(act) = l.pages.lines.company_act.take() {
         company_action(l, act, &mut status);
     }
+    if status.is_none() {
+        status = l.pages.lines.note.take();
+    }
+    if let Some(size) = l.pages.lines.level_ask.take() {
+        super::company::size_locked(l, size);
+    }
     if let Some((s, e)) = status.filter(|s| !s.0.is_empty()) {
         l.state.set_status(s, e);
+    }
+    if let Some(key) = l.pages.lines.go_depots.take() {
+        l.pages.depots.show(&key, true);
+        l.go(super::Page::Depots);
+        return;
     }
     if std::mem::take(&mut l.pages.lines.go_drive) {
         l.go(super::Page::Drive);
@@ -767,8 +990,10 @@ fn right_panel(l: &mut Launcher, r: Rect, status: &mut Option<(String, bool)>) {
         (true, Some(c)) => c.date.clone(),
         _ => l.state.choice.date.clone(),
     };
+    // (working for the company: the sizes of bus its level does not open yet)
+    let locked = if l.pages.lines.company.is_some() { super::company::sizes_locked(l) } else { Vec::new() };
     let Launcher { ui, pages, state, busclasses, .. } = l;
-    let facts = ServiceFacts { vehicles: &state.vehicles, classes: busclasses, fleet, date };
+    let facts = ServiceFacts { vehicles: &state.vehicles, classes: busclasses, fleet, date, locked };
     let v = &mut pages.lines;
     ui.card(r);
     let inner = Rect::new(r.x + 16.0, r.y + 12.0, r.w - 32.0, r.h - 24.0);
@@ -777,7 +1002,6 @@ fn right_panel(l: &mut Launcher, r: Rect, status: &mut Option<(String, bool)>) {
         ui.paragraph("Choose one of your lines, or make a new one.", Vec2::new(inner.x, inner.y + 30.0), inner.w, 13.0, Weight::Regular, TEXT_DIM);
         return;
     };
-    let group = line.ai_group.clone();
     let two = line.directions.len() > 1;
     let mut tab = v.tab;
     if ui.segmented("le-tab", Rect::new(inner.x, inner.y, inner.w, ROW), &mut tab, &["Stops", "Displays", "Timetable", "Kind"]) {
@@ -789,11 +1013,11 @@ fn right_panel(l: &mut Launcher, r: Rect, status: &mut Option<(String, bool)>) {
         return;
     }
     if v.tab == 2 {
-        timetable_tab(ui, v, body);
+        timetable_tab(ui, v, body, &facts.locked);
         return;
     }
     if v.tab == 1 {
-        displays_tab(ui, v, body);
+        displays_tab(ui, v, body, status);
         return;
     }
     let mut dir = v.dir;
@@ -812,8 +1036,8 @@ fn right_panel(l: &mut Launcher, r: Rect, status: &mut Option<(String, bool)>) {
     }
     // where it goes: a terminus of the depot's file, one of the player's own destinations, or
     // what is typed
-    let termini = v.termini_of(&group);
-    let mine = v.reg.destinations.clone();
+    let termini = v.termini();
+    let mine = v.mine();
     let d_idx = v.dir;
     let mut changed = false;
     {
@@ -1008,7 +1232,7 @@ fn reverse(v: &mut LineEditorView, status: &mut Option<(String, bool)>) {
 
 /// A destination matrix as a bus shows it: the line number on the left, the destination in one
 /// or two lines beside it, lit dots on black (amber, or white).
-fn led_sign(ui: &mut Ui, r: Rect, line: &str, l1: &str, l2: &str, white: bool) {
+pub(super) fn led_sign(ui: &mut Ui, r: Rect, line: &str, l1: &str, l2: &str, white: bool) {
     let lit = if white { Color::rgba(236, 242, 255, 1.0) } else { Color::rgba(255, 172, 28, 1.0) };
     let black = Color::rgba(12, 12, 14, 1.0);
     ui.p().rounded(r.inset(-3.0), 9.0, Color::rgba(48, 52, 60, 1.0));
@@ -1049,28 +1273,80 @@ fn led_sign(ui: &mut Ui, r: Rect, line: &str, l1: &str, l2: &str, white: bool) {
     }
 }
 
+/// The depot file the shown line has (`r`'s top, `r.w` wide; a label and a field): the map's,
+/// one of the player's own, or a new one of his own made from the map's - and the way to the
+/// depot editor for one of his.
+fn depot_choice(ui: &mut Ui, v: &mut LineEditorView, r: Rect, group: &str, chosen: &str, status: &mut Option<(String, bool)>) {
+    ui.text_in(&omsi_ui::tr("Depot file").to_uppercase(), Rect::new(r.x, r.y, r.w, 16.0), 10.5, Weight::Bold, TEXT_DIM, Align::Left);
+    let y = r.y + 18.0;
+    let hof = v.hof_of(group);
+    let own: Vec<(String, String)> = v.own_entries().iter().map(|e| (e.key.clone(), e.name.clone())).collect();
+    let mut options = vec![if hof.is_empty() { omsi_ui::tr("The map's (it names none)").into_owned() } else { omsi_ui::tr("The map's: %{hof}").replace("%{hof}", &hof) }];
+    options.extend(own.iter().map(|(_, name)| omsi_ui::tr("Mine: %{name}").replace("%{name}", name)));
+    options.push(omsi_ui::tr("A new one of my own, from the map's").into_owned());
+    crate::mt::protect(options.iter().map(String::as_str));
+    let at = own.iter().position(|(key, _)| key.eq_ignore_ascii_case(chosen));
+    let mut k = at.map(|i| i + 1).unwrap_or(0);
+    let open = at.is_some();
+    let fw = if open { r.w - ROW - 6.0 } else { r.w };
+    if ui.select("le-depot-file", Rect::new(r.x, y, fw, ROW), &mut k, &options) {
+        let key = if k == 0 {
+            Ok(String::new())
+        } else if let Some((key, _)) = own.get(k - 1) {
+            Ok(key.clone())
+        } else {
+            let base = v.map_depot_bytes(&v.reg.global.clone());
+            let name = omsi_ui::tr("%{map} - mine").replace("%{map}", &v.folder);
+            owndepot::create_from(&owndepot::dir(), &name, &v.folder, base.as_deref()).map(|p| {
+                *status = Some((omsi_ui::tr("Your depot file %{name} is made from the map's: the line's destinations go into it when it is saved").replace("%{name}", &name), false));
+                p.file_stem().unwrap_or_default().to_string_lossy().into_owned()
+            })
+        };
+        match key {
+            Ok(key) => {
+                v.line_mut().unwrap().depot_file = key;
+                v.own_changed();
+                v.touched();
+            }
+            Err(e) => *status = Some((e, true)),
+        }
+    }
+    if open && ui.icon_button("le-depot-open", Vec2::new(r.right() - ROW * 0.5, y + ROW * 0.5), 13.0, "open_in_new", "Open it in the depot editor") {
+        v.go_depots = Some(chosen.to_string());
+    }
+}
+
 /// What the buses show of a direction, and what the IBIS knows of it (`core::linehof`): the
 /// sign as it lights up; a destination the depot file lacks with its texts, one per string of
 /// the file (each empty one made from the destination, as the file writes its own); the IBIS
 /// route code; what the IBIS calls each stop. All of it written into the depot files when the
 /// line is saved.
-fn displays_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect) {
-    let (group, two, number) = {
+///
+/// Over it the depot file the line has: the map's (its depot group's), or one of the player's
+/// own (`owndepot`) - the line's destinations, stops and routes go into that one as well, and
+/// every bus that drives the line is given it.
+fn displays_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, status: &mut Option<(String, bool)>) {
+    let (group, two, number, chosen) = {
         let l = v.line().unwrap();
-        (l.ai_group.clone(), l.directions.len() > 1, l.number.trim().to_string())
+        (l.ai_group.clone(), l.directions.len() > 1, l.number.trim().to_string(), l.depot_file.trim().to_string())
     };
+    let mut y = body.y;
+    depot_choice(ui, v, Rect::new(body.x, y, body.w, 0.0), &group, &chosen, status);
+    y += 18.0 + ROW + 6.0;
+    let hint = if chosen.is_empty() { "Choose one of your own: every bus that drives the line is given it." } else { "Every bus that drives the line is given it; the timetable's buses keep the map's (it has the line too)." };
+    y += ui.paragraph(hint, Vec2::new(body.x, y), body.w, 11.0, Weight::Regular, TEXT_FAINT) + 8.0;
     let mut dir = v.dir;
-    if ui.segmented("le-dir-d", Rect::new(body.x, body.y, body.w, ROW), &mut dir, &["Outbound", "Return"]) {
+    if ui.segmented("le-dir-d", Rect::new(body.x, y, body.w, ROW), &mut dir, &["Outbound", "Return"]) {
         (v.dir, v.sel_stop) = (dir, None);
         v.revision += 1;
     }
-    let mut y = body.y + ROW + 12.0;
+    y += ROW + 12.0;
     if v.dir == 1 && !two {
         ui.paragraph("Without a way back the line goes round: the bus starts again at the first stop.", Vec2::new(body.x, y), body.w, 12.5, Weight::Regular, TEXT_DIM);
         return;
     }
     let d_idx = v.dir;
-    let Some(depot) = v.depot_of(&group) else {
+    let Some(depot) = v.line_depot() else {
         let hof = v.hof_of(&group);
         let text = if hof.is_empty() { omsi_ui::tr("The depot group has no depot file: the buses' displays and IBIS cannot know the line.").to_string() } else { omsi_ui::tr("The depot file %{hof} was not found beside any bus: the displays and the IBIS cannot know the line.").replace("%{hof}", &hof) };
         ui.paragraph(&text, Vec2::new(body.x, y), body.w, 12.5, Weight::Regular, WARN);
@@ -1122,9 +1398,17 @@ fn displays_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect) {
     let mut route_changed = false;
     let mut texts_changed = false;
     let mut stops_changed = false;
-    // (the player's own destinations: this one kept, one typed, one taken out)
-    let mine = v.reg.destinations.clone();
-    let is_mine = v.reg.destination(&dest).is_some();
+    // (the player's own destinations, in his depot file of the map: this one kept, one typed,
+    // one taken out - those the map's depot file lacks)
+    let (target, mine, is_mine) = {
+        let k = v.kept();
+        (k.target.clone(), k.mine.clone(), k.names.contains(&dest.trim().to_lowercase()))
+    };
+    let where_kept = match target.as_ref() {
+        Some((_, name)) => omsi_ui::tr("In your depot file %{name} (Editor, Depot editor); chosen under Stops, Destination.").replace("%{name}", name),
+        None => omsi_ui::tr("Kept in a depot file of your own for this map, made from the map's when you keep the first; chosen under Stops, Destination.").into_owned(),
+    };
+    crate::mt::protect(mine.iter().map(|m| m.name.as_str()).chain([where_kept.as_str()]));
     let mut dest_new = v.dest_new.clone();
     let (mut keep_this, mut keep_new, mut drop_mine) = (false, false, None);
     ui.scroll_area(&format!("le-displays-{d_idx}"), area, &mut |ui, a| {
@@ -1195,23 +1479,41 @@ fn displays_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect) {
             keep_new = true;
         }
         yy += ROW + 2.0;
-        yy += ui.paragraph("Kept with the map's lines; chosen under Stops, Destination. A new one gets its place in the depot file when a line with it is saved.", Vec2::new(x, yy), w, 11.0, Weight::Regular, TEXT_FAINT);
+        yy += ui.paragraph(&where_kept, Vec2::new(x, yy), w, 11.0, Weight::Regular, TEXT_FAINT);
         yy - a.y + 8.0
     });
     v.dest_new = dest_new;
-    if keep_this {
-        let code = d.terminus_code;
-        v.reg.keep_destination(reg::OwnDestination { name: dest.clone(), sign: sign_vals.clone(), code });
-        changed = true;
-    }
-    if keep_new {
-        let name = std::mem::take(&mut v.dest_new);
-        v.reg.keep_destination(reg::OwnDestination { name, ..Default::default() });
-        changed = true;
-    }
-    if let Some(k) = drop_mine {
-        v.reg.destinations.remove(k);
-        changed = true;
+    if keep_this || keep_new || drop_mine.is_some() {
+        let path = match target.as_ref() {
+            Some((path, _)) => Ok(path.clone()),
+            None => {
+                let base = v.map_depot_bytes(&v.reg.global.clone());
+                owndepot::ensure_for_map(&owndepot::dir(), &v.folder, &omsi_ui::tr("%{map} - mine").replace("%{map}", &v.folder), base.as_deref())
+            }
+        };
+        let content = core::content_dir();
+        let done = path.and_then(|p| {
+            let file = owndepot::load(&p).map(|l| l.doc.hof.name).unwrap_or_default();
+            if keep_this {
+                // (a new one with the texts given here, else the depot file's own)
+                let (sign, code) = if new { (sign_vals.clone(), d.terminus_code) } else { (strings.clone(), depot.terminus(&dest).map(|t| t.code).unwrap_or(0)) };
+                owndepot::keep_destination(&p, &reg::OwnDestination { name: dest.clone(), sign, code }, content.as_deref()).map(|c| omsi_ui::tr("%{name} kept in your depot file %{file} (code %{code})").replace("%{name}", &dest).replace("%{code}", &c.to_string()).replace("%{file}", &file))
+            } else if keep_new {
+                let name = std::mem::take(&mut v.dest_new).trim().to_string();
+                owndepot::keep_destination(&p, &reg::OwnDestination { name: name.clone(), ..Default::default() }, content.as_deref()).map(|c| omsi_ui::tr("%{name} kept in your depot file %{file} (code %{code})").replace("%{name}", &name).replace("%{code}", &c.to_string()).replace("%{file}", &file))
+            } else {
+                let name = drop_mine.and_then(|k| mine.get(k)).map(|m| m.name.clone()).unwrap_or_default();
+                owndepot::drop_destination(&p, &name, content.as_deref()).map(|_| omsi_ui::tr("%{name} taken out of your depot file %{file}").replace("%{name}", &name).replace("%{file}", &file))
+            }
+        });
+        crate::mt::protect(done.as_ref().ok().map(String::as_str));
+        *status = Some(match done {
+            Ok(text) => (text, false),
+            Err(e) => (e, true),
+        });
+        v.own_changed();
+        // (the bus step's tiles read the player's depot files again)
+        omsi_cfg::content_changed();
     }
     if texts_changed || changed {
         // (all empty: the defaults, which follow the destination)
@@ -1241,7 +1543,7 @@ fn displays_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect) {
 /// bands, each part of the day with a headway of its own (the rush hours denser) and, for a
 /// company, the bus it wants - and how long a bus stands at the end; how many buses that
 /// takes.
-fn timetable_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect) {
+fn timetable_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, locked: &[BusSize]) {
     let run: Vec<f32> = v.line().map(reg::run_minutes).unwrap_or_default();
     let for_company = v.company.is_some();
     let kind = v.line().map(|x| x.service).unwrap_or_default();
@@ -1271,7 +1573,15 @@ fn timetable_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect) {
         line.days = reg::default_days();
     }
     let days = &mut line.days;
-    let sizes: Vec<String> = SIZES.iter().map(|s| size_label(*s)).collect();
+    // (a size the company's level keeps locked says so, and asks for its popup)
+    let sizes: Vec<String> = SIZES
+        .iter()
+        .map(|s| match s {
+            Some(x) if locked.contains(x) => format!("{}  ·  {}", size_label(*s), omsi_ui::tr("locked")),
+            _ => size_label(*s),
+        })
+        .collect();
+    let mut level_ask = None;
     ui.scroll_area("le-timetable", Rect::new(body.x - 6.0, body.y, body.w + 12.0, body.h), &mut |ui, a| {
         let x = a.x + 6.0;
         let w = a.w - 12.0;
@@ -1339,8 +1649,13 @@ fn timetable_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect) {
                         if for_company {
                             let mut si = SIZES.iter().position(|s| *s == b.size).unwrap_or(0);
                             if ui.select(&format!("le-band-size-{k}-{i}"), Rect::new(x + sw + 8.0, y - 2.0, w - sw - 8.0, 32.0), &mut si, &sizes) {
-                                b.size = SIZES[si];
-                                changed = true;
+                                match SIZES[si] {
+                                    Some(s) if locked.contains(&s) => level_ask = Some(s),
+                                    s => {
+                                        b.size = s;
+                                        changed = true;
+                                    }
+                                }
                             }
                         }
                         y += 38.0;
@@ -1381,6 +1696,9 @@ fn timetable_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect) {
     });
     if changed {
         v.touched();
+    }
+    if level_ask.is_some() {
+        v.level_ask = level_ask;
     }
 }
 
@@ -1464,6 +1782,8 @@ struct ServiceFacts<'a> {
     classes: &'a super::busclass::BusClasses,
     fleet: Option<Vec<(String, String, BusSize)>>,
     date: String,
+    /// The sizes of bus the company's level keeps locked (none outside a company).
+    locked: Vec<BusSize>,
 }
 
 /// The line's kind of service (and with a school line the school holidays it keeps), and the
@@ -1486,6 +1806,7 @@ fn service_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, f: &ServiceFacts
     let makers: Vec<String> = std::iter::once(omsi_ui::tr("Choose a maker").into_owned()).chain(cat.iter().map(|m| m.0.clone())).collect();
     let mut title = v.line().map(|x| x.title.clone()).unwrap_or_default();
     let mut title_changed = false;
+    let mut level_ask = None;
     ui.scroll_area("le-service", Rect::new(body.x - 6.0, body.y, body.w + 12.0, body.h), &mut |ui, a| {
         let x = a.x + 6.0;
         let w = a.w - 12.0;
@@ -1568,7 +1889,9 @@ fn service_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, f: &ServiceFacts
         let (mut px, mut py) = (x, y);
         for c in VehicleClass::ALL {
             let label = omsi_ui::tr(c.label()).into_owned();
-            let pw = ui.width(&label, 12.5, Weight::Medium) + 26.0;
+            // (a kind the company's level keeps locked: with its lock, and its popup)
+            let shut = f.locked.contains(&c.size());
+            let pw = ui.width(&label, 12.5, Weight::Medium) + 26.0 + if shut { 18.0 } else { 0.0 };
             if px > x && px + pw > x + w {
                 px = x;
                 py += 34.0;
@@ -1580,9 +1903,20 @@ fn service_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, f: &ServiceFacts
             if !on {
                 ui.p().rounded_border(r, 14.0, 1.0, EDGE);
             }
-            ui.text_in(&label, r, 12.5, Weight::Medium, if on { on_accent() } else { TEXT }, Align::Center);
+            if shut {
+                ui.icon("lock", Vec2::new(r.x + 16.0, r.center().y), 12.0, TEXT_FAINT);
+                ui.text_in(&label, Rect::new(r.x + 18.0, r.y, r.w - 18.0, r.h), 12.5, Weight::Medium, if on { on_accent() } else { TEXT_DIM }, Align::Center);
+                ui.tooltip(r, &omsi_ui::tr("Your company's level does not open these buses yet"));
+            } else {
+                ui.text_in(&label, r, 12.5, Weight::Medium, if on { on_accent() } else { TEXT }, Align::Center);
+            }
             if clicked {
-                toggle = Some(c);
+                // (a locked kind may still be taken off a line that asks for it)
+                if shut && !on {
+                    level_ask = Some(c.size());
+                } else {
+                    toggle = Some(c);
+                }
             }
             px += pw + 6.0;
         }
@@ -1677,7 +2011,8 @@ fn service_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, f: &ServiceFacts
         changed = true;
     }
     if take_suits {
-        line.vehicles.classes = line.service.suits().to_vec();
+        // (what the level keeps locked stays out)
+        line.vehicles.classes = line.service.suits().iter().copied().filter(|k| !f.locked.contains(&k.size())).collect();
         changed = true;
     }
     if let Some(i) = remove {
@@ -1690,6 +2025,9 @@ fn service_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, f: &ServiceFacts
     }
     if changed {
         v.touched();
+    }
+    if level_ask.is_some() {
+        v.level_ask = level_ask;
     }
 }
 
@@ -2186,17 +2524,27 @@ fn company_foot(ui: &mut Ui, v: &mut LineEditorView, state: &mut super::state::S
         _ => omsi_ui::tr("Saved").into_owned(),
     };
     if ui.button("le-save", Rect::new(body.x, foot - ROW - 8.0, body.w, ROW), &label, Some("save"), if v.dirty && why.is_none() { ButtonKind::Primary } else { ButtonKind::Normal }) && v.dirty {
-        match why {
+        match why.clone() {
             Some(w) => *status = Some((w, true)),
             None => v.company_act = Some(CompanyAct::SaveChange),
         }
     }
+    let waiting = v.line().map(|x| x.pending_from.clone()).filter(|d| !d.is_empty());
     if v.dirty {
         if ui.button("le-discard", Rect::new(body.x, foot, body.w, ROW), "Undo the changes", Some("restart_alt"), ButtonKind::Normal) {
             v.company_act = Some(CompanyAct::Discard);
         }
+    } else if let Some(d) = waiting {
+        // (a change waiting for its day: said over the buttons, and to be taken back)
+        if why.is_none() {
+            let t = omsi_ui::tr("The new timetable begins on %{date}.").replace("%{date}", &super::company::day_label(&d));
+            ui.text_in(&t, Rect::new(body.x, foot - ROW - 34.0, body.w, 20.0), 11.5, Weight::Medium, accent_2(), Align::Left);
+        }
+        if ui.button("le-withdraw", Rect::new(body.x, foot, body.w, ROW), "Keep the line as it runs", Some("restart_alt"), ButtonKind::Normal) {
+            v.company_act = Some(CompanyAct::Withdraw);
+        }
     } else {
-        ui.paragraph("The company runs this line. A changed route is approved anew; the line is given up on the company's Lines page.", Vec2::new(body.x, foot), body.w, 11.5, Weight::Regular, TEXT_DIM);
+        ui.paragraph("The company runs this line. A changed route is approved anew; a change of a line in service begins on a day you choose. The line is given up on the company's Lines page.", Vec2::new(body.x, foot), body.w, 11.5, Weight::Regular, TEXT_DIM);
     }
 }
 
@@ -2222,13 +2570,61 @@ fn company_action(l: &mut Launcher, act: CompanyAct, status: &mut Option<(String
     let Some(line) = v.reg.line(id).cloned() else { return };
     let Some(f) = v.company.as_ref().and_then(|f| f.cache.clone()).filter(|f| f.key.0 == id) else { return };
     let stem = reg::stems(&v.reg).get(&id).cloned().unwrap_or_default();
+    // (the line as the map's timetable has it now: saved, or waiting for its change's day)
+    let live = reg::load_registry(&v.reg_path).line(id).map(|x| x.live.as_deref().cloned().unwrap_or_else(|| x.clone()));
+    let Some(c) = l.company.company.as_ref() else { return };
+    let running = ownline::line_of(c, id).filter(|x| x.service_from.is_some()).map(|x| x.name.clone());
+    let diff = live.as_ref().filter(|old| reg::timetable_differs(old, &line)).map(|old| reg::tour_diff(old, &line));
+    match act {
+        CompanyAct::Withdraw => {
+            withdraw(l, id, status);
+            return;
+        }
+        // a line in service whose timetable changes: asked first from when
+        CompanyAct::SaveChange if running.is_some() && diff.is_some() => {
+            let today = c.date.clone();
+            let from = Some(line.pending_from.clone()).filter(|d| co::dates::between(&today, d) >= 1).unwrap_or_else(|| co::dates::add(&today, 1));
+            l.pages.lines.change_ask = Some(ChangeAsk { fee: f.fee.unwrap_or(0), diff: diff.unwrap_or_default(), today, from });
+            return;
+        }
+        CompanyAct::Schedule(from) => {
+            let (Some(old), Some(d)) = (live, diff) else { return };
+            let replan = d.replan();
+            let Some(paid) = super::company::act(l, |c| ownline::schedule_change(c, &line, &stem, &f.shape, &from, replan.clone())) else { return };
+            let Launcher { pages, state, .. } = l;
+            let v = &mut pages.lines;
+            if let Some(x) = v.reg.line_mut(id) {
+                (x.draft, x.live, x.pending_from) = (false, Some(Box::new(old)), from.clone());
+            }
+            v.dirty = true;
+            let (text, err) = save(v, state, &[]);
+            super::company::reload_timetable(l);
+            let n = line.number.trim().to_string();
+            let mut t = omsi_ui::tr("Line %{n}: the new timetable begins on %{date}; today's tours run as they are.").replace("%{n}", &n).replace("%{date}", &super::company::day_label(&from));
+            if paid > 0 {
+                t = format!("{t} {}", omsi_ui::tr("Its route is approved for %{amount}.").replace("%{amount}", &super::company::eur(paid)));
+            }
+            *status = Some(if err { (text, true) } else { (t, false) });
+            return;
+        }
+        _ => {}
+    }
     let paid = if act == CompanyAct::Confirm {
         super::company::act(l, |c| ownline::confirm(c, &line, &stem, &f.shape))
     } else {
-        super::company::act(l, |c| ownline::apply_change(c, &line, &stem, &f.shape))
+        // (a change for now: the tours it changes lose their buses and drivers)
+        let replan = diff.as_ref().map(|d| d.replan()).unwrap_or_default();
+        super::company::act(l, |c| {
+            let paid = ownline::apply_change(c, &line, &stem, &f.shape)?;
+            co::plan::forget_tours(c, &stem, &replan);
+            Ok(paid)
+        })
     };
     // (refused: `act` said why)
     let Some(paid) = paid else { return };
+    if let Some(x) = l.pages.lines.reg.line_mut(id) {
+        (x.live, x.pending_from) = (None, String::new());
+    }
     let Launcher { pages, state, .. } = l;
     let v = &mut pages.lines;
     if let Some(x) = v.reg.line_mut(id) {
@@ -2247,6 +2643,59 @@ fn company_action(l: &mut Launcher, act: CompanyAct, status: &mut Option<(String
     } else {
         (text, false)
     });
+}
+
+/// A change waiting for its day taken back: the line stays as it runs (what was paid for
+/// it stays paid).
+fn withdraw(l: &mut Launcher, id: u64, status: &mut Option<(String, bool)>) {
+    let Some(live) = l.pages.lines.reg.line(id).and_then(|x| x.live.as_deref().cloned()) else { return };
+    let done = super::company::act(l, |c| {
+        if let Some(x) = c.lines.iter_mut().find(|x| x.plan.as_ref().is_some_and(|p| p.line_id == id)) {
+            x.pending = None;
+        }
+        Ok(())
+    });
+    if done.is_none() {
+        return;
+    }
+    let Launcher { pages, state, .. } = l;
+    let v = &mut pages.lines;
+    if let Some(x) = v.reg.line_mut(id) {
+        *x = LineDesign { id, live: None, pending_from: String::new(), ..live };
+    }
+    v.dirty = true;
+    v.shapes_for = None;
+    v.revision += 1;
+    let (text, err) = save(v, state, &[]);
+    *status = Some(if err { (text, true) } else { (omsi_ui::tr("The change is taken back: the line stays as it runs.").into_owned(), false) });
+}
+
+/// A change waiting for its day takes effect in the map's timetable: the line written as it
+/// is now (the company's side: `ownline::take_effect`). The line editor open on the map
+/// takes it too.
+pub fn take_effect_in_timetable(l: &mut Launcher, map: &str, id: u64) -> Result<(), String> {
+    let folder = reg::map_folder(map);
+    let path = reg::registry_path(&folder);
+    let mut r = reg::load_registry(&path);
+    let flip = |x: &mut LineDesign| {
+        x.live = None;
+        x.pending_from.clear();
+    };
+    let Some(x) = r.line_mut(id) else { return Ok(()) };
+    flip(x);
+    if l.pages.lines.reg_path == path {
+        if let Some(x) = l.pages.lines.reg.line_mut(id) {
+            flip(x);
+        }
+    }
+    reg::save_registry(&path, &r)?;
+    let content = core::content_dir().ok_or("no content folder")?;
+    let global = omsi_cfg::find_in_roots(map).map(|(_, p)| p).unwrap_or_else(|| omsi_cfg::resolve_path(Path::new(&l.state.config.root), map));
+    let map_dir = global.parent().map(Path::to_path_buf).unwrap_or_default();
+    reg::export_to_map(&content, &map_dir, &r)?;
+    omsi_cfg::content_changed();
+    l.state.load_lines();
+    Ok(())
 }
 
 /// The estimate over the map's foot: what the line costs once and brings a month, its
@@ -2665,6 +3114,10 @@ mod tests {
         keys.extend(VehicleClass::ALL.iter().map(|c| c.label()));
         keys.extend(["School contract", "Fares and booking fees", "Tourism grant per km", "My duties", "Up next", "THIS LINE"]);
         keys.extend(["Public title", "Fill from the patterns", "Trip %{n}", "My destinations", "As advertised", "%{n} trip(s) of the table reach a stop before they left the one before"]);
+        // (the sizes a company's level keeps locked)
+        keys.extend(["locked", "Your company's level does not open these buses yet"]);
+        // (a change of a line in service)
+        keys.extend(["Change line %{n} in service", "Route approved anew", "%{k} kept, %{c} changed, %{a} new, %{g} dropped", "%{n} tours to plan anew", "Save the change", "Keep the line as it runs", "The new timetable begins on %{date}.", "A change of a line in service begins tomorrow at the soonest.", "New timetable from %{date}", "Line %{n} runs its new timetable from today: %{d} duties and %{b} buses given anew."]);
         for p in service::default_school_holidays() {
             keys.push(Box::leak(p.name.into_boxed_str()));
         }

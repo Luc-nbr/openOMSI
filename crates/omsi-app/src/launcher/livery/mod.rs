@@ -8,6 +8,11 @@
 //! writes the textures at their full size and a `.cti` into the content folder (`export`). The
 //! project (`model`) is kept as JSON under `~/.openomsi/liveries/<id>/`, with the pictures the
 //! player brought in, and saved by itself as it changes.
+//!
+//! Opened from the bus company (`open_for_company`: a bus of its fleet, or the dealer's) the
+//! livery is the company's design: saving it costs the design (and, for a bus of the fleet, its
+//! painting in the workshop), refused when the company's cash is short (`company::livery`);
+//! the studio goes back to the company when it is left.
 
 pub mod bake;
 pub mod colour;
@@ -35,11 +40,37 @@ use std::time::Instant;
 /// Open the livery studio on `bus` (a bus file as the bus step names it) in `paint` (its
 /// livery to begin from; None: the model's own). Without a bus the studio asks for one.
 pub fn open(l: &mut Launcher, bus: Option<String>, paint: Option<String>) {
+    l.livery.company = None;
     l.go(Page::Livery);
     match bus {
         Some(b) if !b.is_empty() => start(l, b, paint.filter(|p| !p.is_empty()), None),
         _ => l.livery.session = None,
     }
+}
+
+/// The bus company the studio paints for: its id, the bus of its fleet to paint once the
+/// design is saved (None: a design for the dealer's bus).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ForCompany {
+    pub id: String,
+    pub vehicle: Option<u32>,
+}
+
+/// Open the studio on `bus` for the bus company: the livery saved is its design, paid for.
+pub fn open_for_company(l: &mut Launcher, bus: &str, paint: &str, company: &str, vehicle: Option<u32>) {
+    open(l, Some(bus.to_string()), Some(paint.to_string()).filter(|p| !p.trim().is_empty()));
+    l.livery.company = Some(ForCompany { id: company.to_string(), vehicle });
+}
+
+/// What saving the livery costs the company now (the design, and the bus's painting), and the
+/// company's name and cash; None when the studio does not paint for one.
+pub fn company_cost(l: &Launcher) -> Option<(String, omsi_launcher_lib::company::Cents, omsi_launcher_lib::company::Cents)> {
+    use omsi_launcher_lib::company::livery;
+    let fc = l.livery.company.as_ref()?;
+    let c = l.company.company.as_ref().filter(|c| c.id == fc.id)?;
+    let name = l.livery.session.as_ref().map(|s| s.ui.name.clone()).unwrap_or_default();
+    let paint = fc.vehicle.and_then(|id| c.vehicle(id)).map(|v| livery::paint_cost(c, v)).unwrap_or(0);
+    Some((c.name.clone(), livery::save_cost(c, &name) + paint, c.cash))
 }
 
 /// The studio's state in the launcher.
@@ -63,11 +94,13 @@ pub struct LiveryView {
     /// The built-in shapes' pictures in the interface pipeline.
     shape_tex: HashMap<&'static str, usize>,
     dropped: Vec<PathBuf>,
+    /// Painting for the bus company (see `open_for_company`).
+    pub company: Option<ForCompany>,
 }
 
 impl Default for LiveryView {
     fn default() -> LiveryView {
-        LiveryView { showroom: Showroom::new(), view_tex: None, view_gen: 0, view_rect: None, other_rect: None, other_tex: None, other_gen: 0, hold_o: false, middle: false, session: None, chooser: Default::default(), shape_tex: HashMap::new(), dropped: Vec::new() }
+        LiveryView { showroom: Showroom::new(), view_tex: None, view_gen: 0, view_rect: None, other_rect: None, other_tex: None, other_gen: 0, hold_o: false, middle: false, session: None, chooser: Default::default(), shape_tex: HashMap::new(), dropped: Vec::new(), company: None }
     }
 }
 
@@ -952,6 +985,14 @@ fn prepare(showroom: &mut Showroom, s: &mut Session, root: &str, family_buses: &
 
 /// Save the livery into the game (on a worker; `saved` follows).
 pub fn save(l: &mut Launcher) {
+    // (for the bus company: not when it cannot pay for it)
+    if let Some((company, cost, cash)) = company_cost(l).filter(|x| x.2 < x.1) {
+        if let Some(s) = l.livery.session.as_mut() {
+            let text = omsi_ui::tr("%{company} has %{cash}: not enough for the livery (%{amount}). A loan on the company's Finances page helps.").replace("%{company}", &company).replace("%{cash}", &eur(cash)).replace("%{amount}", &eur(cost));
+            s.say(text, true);
+        }
+        return;
+    }
     let Some(s) = l.livery.session.as_mut() else { return };
     if s.ready.is_none() || s.export.is_some() {
         return;
@@ -1174,7 +1215,36 @@ pub fn leave(l: &mut Launcher) {
     l.livery.view_rect = None;
     l.livery.hold_o = false;
     l.livery.showroom.forget();
-    l.go(Page::Drive);
+    // (painting for the bus company: back to it)
+    let back = if l.livery.company.take().is_some() { Page::Company } else { Page::Drive };
+    l.go(back);
+}
+
+/// Whole euros as the company's pages write them.
+fn eur(c: omsi_launcher_lib::company::Cents) -> String {
+    super::company::eur(c)
+}
+
+/// A livery saved for the bus company: its design booked, and the bus it was painted for sent
+/// to the workshop to be painted in it.
+fn saved_for_company(l: &mut Launcher, name: &str, bus: &str) {
+    use omsi_launcher_lib::company::livery;
+    let Some(fc) = l.livery.company.clone() else { return };
+    if l.company.company.as_ref().is_none_or(|c| c.id != fc.id) {
+        return;
+    }
+    let (name, bus) = (name.to_string(), bus.to_string());
+    let Some(cost) = super::company::act(l, |c| livery::save_design(c, &name, &bus)) else { return };
+    let mut text = omsi_ui::tr("'%{name}' is the company's livery: %{amount} for its design.").replace("%{name}", &name).replace("%{amount}", &eur(cost));
+    if let Some(id) = fc.vehicle {
+        if super::company::act(l, |c| livery::paint(c, id, &name)).is_some() {
+            let number = l.company.company.as_ref().and_then(|c| c.vehicle(id)).map(|v| v.number.clone()).unwrap_or_default();
+            text = format!("{text} {}", omsi_ui::tr("Bus %{n} is painted in it in the workshop.").replace("%{n}", &number));
+        }
+    }
+    if let Some(s) = l.livery.session.as_mut() {
+        s.say(text, false);
+    }
 }
 
 /// The livery is in the game: kept in the project, the bus's list and photo told.
@@ -1200,10 +1270,11 @@ fn saved(l: &mut Launcher, files: Vec<String>) {
     l.showroom.photos.forget(&root, &bus, &name);
     // (the bus step's bus read again: a save under a name it already shows has new textures)
     l.showroom.reread(&bus);
-    if l.state.choice.bus == bus {
-        l.state.choice.paint = name;
+    if l.state.choice.bus == bus && l.livery.company.is_none() {
+        l.state.choice.paint = name.clone();
         l.state.touched();
     }
+    saved_for_company(l, &name, &bus);
 }
 
 /// The studio's page.

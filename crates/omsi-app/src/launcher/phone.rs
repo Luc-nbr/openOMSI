@@ -1283,6 +1283,7 @@ fn embedded(l: &mut Launcher, page: Page, body: Rect, back: bool) {
         Page::Setup => super::pages::setup(l, content),
         Page::Editor => super::editor_hub::draw(l, content),
         Page::Lines => super::lineeditor::draw(l, content),
+        Page::Depots => super::depoteditor::draw(l, content),
         Page::Livery => super::livery::draw_phone(l, content),
         Page::Company => super::company::draw(l, content),
     }
