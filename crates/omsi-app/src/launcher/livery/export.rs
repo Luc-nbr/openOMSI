@@ -115,30 +115,11 @@ fn write(job: &Job, tx: &std::sync::mpsc::Sender<Msg>) -> Result<Vec<String>, St
     let n = job.targets.len().max(1) as f32;
     for (k, t) in job.targets.iter().enumerate() {
         let _ = tx.send(Msg::Progress(omsi_ui::tr("Painting the textures…").into_owned(), k as f32 / n));
-        let img = omsi_texture::decode_file(&t.base).map_err(|e| format!("{}: {e}", t.base.display()))?;
-        let (w, h) = model::output_size(img.width, img.height);
-        let base = if (w, h) != (img.width, img.height) { omsi_texture::bc::resize(&img.rgba, img.width, img.height, w, h) } else { img.rgba };
-        let alpha = base.chunks_exact(4).any(|p| p[3] < 255);
-        let mut out = vec![0u8; (w * h * 4) as usize];
-        let mut cache = RasterCache::default();
-        let mut ops: Option<Vec<paint::Prepared>> = None;
-        let template = t.template.as_ref().and_then(|tp| super::template_pictures(tp, w, h));
-        let mut y = 0;
-        while y < h {
-            let y1 = (y + BAND).min(h);
-            let bake = super::bake::Bake::build(&job.geom.tris, t.index, w, h, y, y1, &job.outside);
-            let cv = Canvas::with(bake, &base, job.zones.get(k).unwrap_or(&Zones::default())).with_template(template.as_ref().map(|[ma, mu]| paint::Template::rows(ma, mu, w, y, y1)));
-            if ops.is_none() {
-                // (the decals drawn at the full texture's density once, for every band)
-                let density = density_of(&job.geom, t.index, w, h);
-                let cx = Context { pictures: job.pictures.clone(), mirror: job.mirror, density, max_px: 4096 };
-                ops = Some(paint::prepare(&job.layers, &cx, &mut cache));
-            }
-            let (rgba, _) = paint::composite(&cv, ops.as_deref().unwrap_or(&[]), &job.geom.dims, None, None);
-            out[(y * w * 4) as usize..(y1 * w * 4) as usize].copy_from_slice(&rgba);
-            y = y1;
-            let _ = tx.send(Msg::Progress(omsi_ui::tr("Painting the textures…").into_owned(), (k as f32 + y as f32 / h as f32 * 0.8) / n));
-        }
+        let from = Painting { geom: &job.geom, outside: &job.outside, zones: &job.zones, layers: &job.layers, pictures: &job.pictures, mirror: job.mirror };
+        let said = |f: f32| {
+            let _ = tx.send(Msg::Progress(omsi_ui::tr("Painting the textures…").into_owned(), (k as f32 + f * 0.8) / n));
+        };
+        let Some((out, w, h, alpha)) = paint_full(&from, k, t.index, &t.base, t.template.as_ref(), &|| false, &said)? else { continue };
         let _ = tx.send(Msg::Progress(omsi_ui::tr("Compressing…").into_owned(), (k as f32 + 0.85) / n));
         let format = if alpha { omsi_texture::bc::Bc::Bc3 } else { omsi_texture::bc::Bc::Bc1 { punch: false } };
         let dds = omsi_texture::dds::encode(&out, w, h, format);
@@ -204,6 +185,53 @@ fn rel(p: &Path, content: &Path) -> String {
 }
 
 /// Texels a metre of target `index` at `w` x `h`.
+/// What the textures are painted from: the bus's shape, its colour zones per texture, the
+/// layers, their pictures and the mirror plane.
+pub struct Painting<'a> {
+    pub geom: &'a BusGeom,
+    pub outside: &'a Outside,
+    pub zones: &'a [Zones],
+    pub layers: &'a [Layer],
+    pub pictures: &'a Arc<HashMap<String, Arc<Raster>>>,
+    pub mirror: Option<f32>,
+}
+
+/// Texture `k` (its `index` on the bus, its `base` file and maker's template) painted at its full
+/// size, a band of rows at a time - as the save writes it, and as the studio shows it once the
+/// paint rests: its picture, size and whether its base has alpha. `progress` hears how far it
+/// is (0..1); None when `stop` said so between two bands.
+pub fn paint_full(from: &Painting, k: usize, index: u8, base: &Path, template: Option<&[PathBuf; 2]>, stop: &dyn Fn() -> bool, progress: &dyn Fn(f32)) -> Result<Option<(Vec<u8>, u32, u32, bool)>, String> {
+    let img = omsi_texture::decode_file(base).map_err(|e| format!("{}: {e}", base.display()))?;
+    let (w, h) = model::output_size(img.width, img.height);
+    let base = if (w, h) != (img.width, img.height) { omsi_texture::bc::resize(&img.rgba, img.width, img.height, w, h) } else { img.rgba };
+    let alpha = base.chunks_exact(4).any(|p| p[3] < 255);
+    let mut out = vec![0u8; (w * h * 4) as usize];
+    let mut cache = RasterCache::default();
+    let mut ops: Option<Vec<paint::Prepared>> = None;
+    let template = template.and_then(|tp| super::template_pictures(tp, w, h));
+    let none = Zones::default();
+    let mut y = 0;
+    while y < h {
+        if stop() {
+            return Ok(None);
+        }
+        let y1 = (y + BAND).min(h);
+        let bake = super::bake::Bake::build(&from.geom.tris, index, w, h, y, y1, from.outside);
+        let cv = Canvas::with(bake, &base, from.zones.get(k).unwrap_or(&none)).with_template(template.as_ref().map(|[ma, mu]| paint::Template::rows(ma, mu, w, y, y1)));
+        if ops.is_none() {
+            // (the decals drawn at the full texture's density once, for every band)
+            let density = density_of(from.geom, index, w, h);
+            let cx = Context { pictures: from.pictures.clone(), mirror: from.mirror, density, max_px: 4096 };
+            ops = Some(paint::prepare(from.layers, &cx, &mut cache));
+        }
+        let (rgba, _) = paint::composite(&cv, ops.as_deref().unwrap_or(&[]), &from.geom.dims, None, None);
+        out[(y * w * 4) as usize..(y1 * w * 4) as usize].copy_from_slice(&rgba);
+        y = y1;
+        progress(y as f32 / h as f32);
+    }
+    Ok(Some((out, w, h, alpha)))
+}
+
 pub fn density_of(geom: &BusGeom, index: u8, w: u32, h: u32) -> f32 {
     let mut d: Vec<f32> = geom
         .tris

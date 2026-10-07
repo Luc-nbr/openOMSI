@@ -196,6 +196,13 @@ pub struct Ready {
     pub windows: Option<bool>,
     /// The canvases the painter paints (for what their texels are: shared by both sides).
     pub canvases: Arc<Vec<paint::Canvas>>,
+    /// The paint at the full size (`sharpen`): for which painting (`shown`), per texture (None:
+    /// it is painted at its full size already); the painting on its way, the newest painting
+    /// asked for (one for an older stops) and when the last came back.
+    sharp: Option<(u64, Vec<Option<omsi_texture::Image>>)>,
+    sharpening: Option<Receiver<(u64, Result<Vec<Option<omsi_texture::Image>>, String>)>>,
+    wanted: Arc<std::sync::atomic::AtomicU64>,
+    shown_at: Option<Instant>,
 }
 
 struct Prepared {
@@ -637,7 +644,7 @@ pub fn update(l: &mut Launcher, dt: f32) {
                     let aspect = s.ui.view().map(|r| r.w / r.h.max(1.0)).unwrap_or(1.7);
                     s.cam = studio::Cam::fitting(&dims, 6, aspect);
                 }
-                s.ready = Some(Ready { geom: p.geom, outside: p.outside, zones: p.zones, targets, bases: p.bases, current, density, full: p.full, worker, sent: 0, shown: 0, last: None, showing_base: false, windows: p.windows, canvases });
+                s.ready = Some(Ready { geom: p.geom, outside: p.outside, zones: p.zones, targets, bases: p.bases, current, density, full: p.full, worker, sent: 0, shown: 0, last: None, showing_base: false, windows: p.windows, canvases, sharp: None, sharpening: None, wanted: Arc::new(std::sync::atomic::AtomicU64::new(0)), shown_at: None });
                 v.showroom.touch();
             }
             Ok(Err(e)) => {
@@ -650,6 +657,7 @@ pub fn update(l: &mut Launcher, dt: f32) {
     }
     // the paint: sent when the layers changed, taken back when painted
     let moving = l.ui.input.down && s.pending.is_some();
+    let pressed = l.ui.input.down;
     let selected = s.selected.clone();
     let mirror = s.mirror_plane();
     if let Some(r) = s.ready.as_mut() {
@@ -662,6 +670,7 @@ pub fn update(l: &mut Launcher, dt: f32) {
             r.sent += 1;
             let cx = paint::Context { pictures: s.pictures.clone(), mirror, density: r.density, max_px: 2048 };
             r.worker.send(paint::Job { seq: r.sent, layers: now.0.clone(), cx, moving: hint });
+            r.wanted.store(r.sent, std::sync::atomic::Ordering::Relaxed);
             r.last = Some(now);
         }
         let mut done = None;
@@ -672,6 +681,8 @@ pub fn update(l: &mut Launcher, dt: f32) {
         if let Some(d) = done {
             r.shown = d.seq;
             r.current = d.pictures;
+            r.shown_at = Some(Instant::now());
+            r.sharp = None;
             if !base {
                 upload(&mut v.showroom, renderer, &r.targets, &r.bases, Some(&r.current));
             }
@@ -679,6 +690,32 @@ pub fn update(l: &mut Launcher, dt: f32) {
         if base != r.showing_base {
             r.showing_base = base;
             upload(&mut v.showroom, renderer, &r.targets, &r.bases, (!base).then_some(&r.current));
+            if let Some((_, pics)) = r.sharp.as_ref().filter(|x| !base && x.0 == r.shown) {
+                upload_full(&mut v.showroom, renderer, &r.targets, pics);
+            }
+        }
+        sharpen(r, &s.pictures, mirror, !pressed && !moving);
+        if let Some(rx) = r.sharpening.as_ref() {
+            match rx.try_recv() {
+                Ok((seq, res)) => {
+                    r.sharpening = None;
+                    match res {
+                        Ok(pics) if seq == r.shown => {
+                            if !r.showing_base {
+                                upload_full(&mut v.showroom, renderer, &r.targets, &pics);
+                            }
+                            r.sharp = Some((seq, pics));
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            log::warn!("livery studio: the paint at its full size: {e}");
+                            r.sharp = Some((seq, Vec::new()));
+                        }
+                    }
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => r.sharpening = None,
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
         }
     }
     if let Some(f) = s.family_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
@@ -741,6 +778,73 @@ fn upload(showroom: &mut Showroom, renderer: &Renderer, targets: &[Target], base
         let mut again = false;
         for &id in &t.ids {
             again |= renderer.update_texture_mips(parts.scene, id, &img);
+        }
+        if again {
+            renderer.rebind_textures(parts.scene, &t.ids);
+        }
+    }
+    showroom.touch();
+}
+
+/// The paint at rest at its full size: the studio paints the textures smaller while the paint
+/// changes (`model::edit_size`, `EDIT_TEXELS`), and small details came out in blocks; once
+/// the last painting is shown and nothing has changed for a moment, those textures are painted
+/// again at the size the save writes, on a thread of their own, and take the smaller ones'
+/// place. A change stops it between two bands of rows.
+fn sharpen(r: &mut Ready, pictures: &Arc<HashMap<String, Arc<Raster>>>, mirror: Option<f32>, at_rest: bool) {
+    let rests = at_rest && r.shown == r.sent && r.shown > 0 && r.shown_at.is_some_and(|t| t.elapsed().as_secs_f32() > 0.6);
+    if !rests || r.sharpening.is_some() || r.sharp.as_ref().is_some_and(|x| x.0 == r.shown) {
+        return;
+    }
+    let todo: Vec<(usize, u8, PathBuf, Option<[PathBuf; 2]>)> = r
+        .targets
+        .iter()
+        .enumerate()
+        .filter(|(k, _)| matches!((r.full.get(*k), r.bases.get(*k)), (Some(f), Some(b)) if *f != (b.width, b.height)))
+        .map(|(k, t)| (k, t.index, t.base.clone(), t.template.clone()))
+        .collect();
+    if todo.is_empty() {
+        r.sharp = Some((r.shown, Vec::new()));
+        return;
+    }
+    let seq = r.shown;
+    let (geom, outside, zones, wanted, n) = (r.geom.clone(), r.outside.clone(), r.zones.clone(), r.wanted.clone(), r.targets.len());
+    let layers = r.last.as_ref().map(|x| x.0.clone()).unwrap_or_default();
+    let pictures = pictures.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let spawned = std::thread::Builder::new().name("livery full size".into()).spawn(move || {
+        let stop = || wanted.load(std::sync::atomic::Ordering::Relaxed) != seq;
+        let from = export::Painting { geom: &geom, outside: &outside, zones: &zones, layers: &layers, pictures: &pictures, mirror };
+        let t0 = Instant::now();
+        let mut out: Vec<Option<omsi_texture::Image>> = vec![None; n];
+        for (k, index, base, template) in &todo {
+            match export::paint_full(&from, *k, *index, base, template.as_ref(), &stop, &|_| {}) {
+                Ok(Some((rgba, width, height, has_alpha))) => out[*k] = Some(omsi_texture::Image { width, height, rgba, has_alpha }),
+                // (a change came: this paint is not wanted any more)
+                Ok(None) => return,
+                Err(e) => {
+                    let _ = tx.send((seq, Err(e)));
+                    return;
+                }
+            }
+        }
+        log::info!("livery studio: {} texture(s) at their full size in {:.1} s", todo.len(), t0.elapsed().as_secs_f32());
+        let _ = tx.send((seq, Ok(out)));
+    });
+    if spawned.is_ok() {
+        r.sharpening = Some(rx);
+    }
+}
+
+/// The pictures painted at the full size in place of the editing size's (a texture without
+/// one keeps what it shows).
+fn upload_full(showroom: &mut Showroom, renderer: &Renderer, targets: &[Target], pics: &[Option<omsi_texture::Image>]) {
+    let Some(parts) = showroom.parts() else { return };
+    for (t, img) in targets.iter().zip(pics) {
+        let Some(img) = img else { continue };
+        let mut again = false;
+        for &id in &t.ids {
+            again |= renderer.update_texture_mips(parts.scene, id, img);
         }
         if again {
             renderer.rebind_textures(parts.scene, &t.ids);
