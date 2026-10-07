@@ -256,6 +256,10 @@ pub struct Session {
     pub cam: studio::Cam,
     pub status: Option<(String, bool, Instant)>,
     autosave: Option<Instant>,
+    /// A change not in the temporary file yet, and when that was last written
+    /// ([`TEMP_FILE`]).
+    temp_due: bool,
+    temp_at: Option<Instant>,
     pub pictures: Arc<HashMap<String, Arc<Raster>>>,
     pub ready: Option<Ready>,
     preparing: Option<(Receiver<Result<(Prepared, Vec<Target>), String>>, Vec<Target>)>,
@@ -291,7 +295,27 @@ impl Session {
         if self.pending.is_none() {
             self.pending = Some(before);
         }
+        self.touched();
+    }
+
+    /// The project changed: into the temporary file at once, into `project.json` a little
+    /// later.
+    fn touched(&mut self) {
         self.autosave = Some(Instant::now());
+        self.temp_due = true;
+    }
+
+    /// The project as it is now into its temporary file (on a worker: a long stroke does not
+    /// wait for the disk).
+    fn keep_temp(&mut self) {
+        self.temp_due = false;
+        self.temp_at = Some(Instant::now());
+        match serde_json::to_vec(&self.project) {
+            Ok(bytes) => {
+                let _ = temp_writer().send(TempMsg::Write(self.dir.clone(), bytes));
+            }
+            Err(e) => log::warn!("livery studio: the temporary file: {e}"),
+        }
     }
 
     /// Close the change going on (the mouse let go, the text field left).
@@ -307,7 +331,7 @@ impl Session {
         let mut d = self.project.doc();
         if self.history.undo(&mut d) {
             self.project.set_doc(d);
-            self.autosave = Some(Instant::now());
+            self.touched();
         }
     }
 
@@ -316,7 +340,7 @@ impl Session {
         let mut d = self.project.doc();
         if self.history.redo(&mut d) {
             self.project.set_doc(d);
-            self.autosave = Some(Instant::now());
+            self.touched();
         }
     }
 
@@ -346,8 +370,14 @@ impl Session {
 
     fn save_project(&mut self) {
         self.project.saved = now_text();
-        if let Err(e) = std::fs::create_dir_all(&self.dir).and_then(|_| std::fs::write(self.dir.join("project.json"), serde_json::to_vec_pretty(&self.project).unwrap_or_default())) {
-            log::warn!("livery studio: {}: {e}", self.dir.display());
+        match std::fs::create_dir_all(&self.dir).and_then(|_| std::fs::write(self.dir.join("project.json"), serde_json::to_vec_pretty(&self.project).unwrap_or_default())) {
+            // (the temporary file has nothing newer then: it goes, after any write still on
+            // its way)
+            Ok(()) if !self.temp_due => {
+                let _ = temp_writer().send(TempMsg::Remove(self.dir.clone()));
+            }
+            Ok(()) => {}
+            Err(e) => log::warn!("livery studio: {}: {e}", self.dir.display()),
         }
     }
 
@@ -379,14 +409,74 @@ pub fn projects_dir() -> PathBuf {
     omsi_launcher_lib::data_dir().join("liveries")
 }
 
+/// Beside a project's `project.json`: the project as it was at its last change, written at once
+/// with every change (a stroke as it goes, at most five times a second) and gone again once
+/// `project.json` has caught up. Found newer than `project.json` - the studio ended without
+/// saving, a crash, the power - it is the project.
+pub const TEMP_FILE: &str = "project.autosave.json";
+
+enum TempMsg {
+    /// The project's folder and the project.
+    Write(PathBuf, Vec<u8>),
+    Remove(PathBuf),
+}
+
+/// The worker that writes the temporary files, in the order asked (of a run of writes to one
+/// folder only the last).
+fn temp_writer() -> &'static std::sync::mpsc::Sender<TempMsg> {
+    static W: std::sync::OnceLock<std::sync::mpsc::Sender<TempMsg>> = std::sync::OnceLock::new();
+    W.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<TempMsg>();
+        let _ = std::thread::Builder::new().name("livery autosave".into()).spawn(move || {
+            while let Ok(first) = rx.recv() {
+                let mut run = vec![first];
+                run.extend(rx.try_iter());
+                for (k, m) in run.iter().enumerate() {
+                    match m {
+                        TempMsg::Write(dir, bytes) => {
+                            if run[k + 1..].iter().any(|n| matches!(n, TempMsg::Write(d, _) | TempMsg::Remove(d) if d == dir)) {
+                                continue;
+                            }
+                            let part = dir.join(format!("{TEMP_FILE}.part"));
+                            if let Err(e) = std::fs::create_dir_all(dir).and_then(|_| std::fs::write(&part, bytes)).and_then(|_| std::fs::rename(&part, dir.join(TEMP_FILE))) {
+                                log::warn!("livery studio: {}: {e}", dir.join(TEMP_FILE).display());
+                            }
+                        }
+                        TempMsg::Remove(dir) => {
+                            let _ = std::fs::remove_file(dir.join(TEMP_FILE));
+                        }
+                    }
+                }
+            }
+        });
+        tx
+    })
+}
+
+/// The project in `dir`: its temporary file's when that is newer than `project.json` (or
+/// there is no `project.json` yet), and whether it was.
+fn load_project(dir: &Path) -> Option<(Project, bool)> {
+    let saved = dir.join("project.json");
+    let temp = dir.join(TEMP_FILE);
+    let when = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+    let read = |p: &Path| std::fs::read(p).ok().and_then(|b| serde_json::from_slice::<Project>(&b).ok());
+    if let Some(t) = when(&temp) {
+        if when(&saved).is_none_or(|s| t > s) {
+            if let Some(p) = read(&temp) {
+                return Some((p, true));
+            }
+        }
+    }
+    read(&saved).map(|p| (p, false))
+}
+
 /// The projects there are, newest first.
 pub fn projects() -> Vec<Project> {
     let mut v: Vec<Project> = std::fs::read_dir(projects_dir())
         .into_iter()
         .flatten()
         .flatten()
-        .filter_map(|e| std::fs::read(e.path().join("project.json")).ok())
-        .filter_map(|b| serde_json::from_slice(&b).ok())
+        .filter_map(|e| load_project(&e.path()).map(|p| p.0))
         .collect();
     v.sort_by(|a, b| b.saved.cmp(&a.saved));
     v
@@ -413,6 +503,11 @@ pub fn start_new(l: &mut Launcher, bus: String, paint: Option<String>, how: &str
 pub fn start(l: &mut Launcher, bus: String, paint: Option<String>, project: Option<Project>) {
     let project = project.unwrap_or_else(|| Project::new(model::new_id("p"), bus.clone(), paint.clone(), now_text()));
     let dir = projects_dir().join(&project.id);
+    // (changes the studio did not get to save: from the temporary file)
+    let (project, restored) = match load_project(&dir) {
+        Some((p, true)) if p.id == project.id => (p, true),
+        _ => (project, false),
+    };
     // the pictures it has
     let mut pictures = HashMap::new();
     for e in std::fs::read_dir(dir.join("beelden")).into_iter().flatten().flatten() {
@@ -439,6 +534,8 @@ pub fn start(l: &mut Launcher, bus: String, paint: Option<String>, project: Opti
         cam: studio::Cam::default(),
         status: None,
         autosave: None,
+        temp_due: false,
+        temp_at: None,
         pictures: Arc::new(pictures),
         ready: None,
         preparing: None,
@@ -454,6 +551,14 @@ pub fn start(l: &mut Launcher, bus: String, paint: Option<String>, project: Opti
         taken: Vec::new(),
         parts: Vec::new(),
     });
+    if restored {
+        if let Some(s) = l.livery.session.as_mut() {
+            log::info!("livery studio: {} brought back from {TEMP_FILE}", s.project.id);
+            s.say(omsi_ui::tr("Your last changes were brought back from the temporary file"), false);
+            // (`project.json` catches up)
+            s.autosave = Some(Instant::now());
+        }
+    }
 }
 
 /// A file dropped onto the window while the studio is open: a picture to place.
@@ -521,7 +626,7 @@ pub fn update(l: &mut Launcher, dt: f32) {
                         let name = if *g == 0 { "Body colour".to_string() } else { format!("{} {}", omsi_ui::tr("Colour"), g + 1) };
                         s.project.layers.push(model::layer(&name, model::group_colour(*g, &model::hex(*c))));
                     }
-                    s.autosave = Some(Instant::now());
+                    s.touched();
                 }
                 let density = p.canvases.first().map(|c| c.bake.density).unwrap_or(100.0);
                 let dims = p.geom.dims;
@@ -612,8 +717,12 @@ pub fn update(l: &mut Launcher, dt: f32) {
     if l.livery.session.as_ref().is_some_and(|s| s.queued && s.export.is_none()) && !l.state.in_game() {
         save(l);
     }
-    // autosave, two seconds after the last change
+    // every change into the temporary file at once (while the mouse paints, five times a
+    // second), and `project.json` two seconds after the last
     if let Some(s) = l.livery.session.as_mut() {
+        if s.temp_due && s.temp_at.is_none_or(|t| t.elapsed().as_secs_f32() >= 0.2) {
+            s.keep_temp();
+        }
         if s.autosave.is_some_and(|t| t.elapsed().as_secs_f32() > 2.0) && !l.ui.input.down {
             s.autosave = None;
             s.save_project();
@@ -1370,6 +1479,48 @@ mod tests {
         assert_eq!(find("21_t_trans.dds").slots, vec![(1, "farbschema_tex6".to_string())], "the rear windows");
         assert!(t.iter().all(|x| x.key != "matrix.bmp" && !x.key.contains("#low")), "{t:?}");
         assert_eq!(t.len(), 6);
+    }
+
+    use super::{load_project, temp_writer, Project, TempMsg, TEMP_FILE};
+
+    /// The temporary file is the project when it is newer than `project.json`, or alone; the
+    /// worker writes it whole and takes it away again in the order asked.
+    #[test]
+    fn the_temporary_file_brings_back_what_was_not_saved() {
+        let dir = std::env::temp_dir().join(format!("livery-temp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut p = Project::new("p1".into(), "Vehicles/x.bus".into(), None, "1".into());
+        p.name = "saved".into();
+        // alone: it is the project
+        std::fs::write(dir.join(TEMP_FILE), serde_json::to_vec(&p).unwrap()).unwrap();
+        assert_eq!(load_project(&dir).map(|x| (x.0.name, x.1)), Some(("saved".into(), true)));
+        // older than project.json: project.json
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        std::fs::write(dir.join("project.json"), serde_json::to_vec(&p).unwrap()).unwrap();
+        assert_eq!(load_project(&dir).map(|x| x.1), Some(false));
+        // (gone once project.json caught up, as saving takes it away)
+        std::fs::remove_file(dir.join(TEMP_FILE)).unwrap();
+        // newer: the temporary file's
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        p.name = "painted on".into();
+        temp_writer().send(TempMsg::Write(dir.clone(), serde_json::to_vec(&p).unwrap())).unwrap();
+        let wait = |want: bool| {
+            for _ in 0..200 {
+                if dir.join(TEMP_FILE).exists() == want {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            panic!("the temporary file is still {}", if want { "missing" } else { "there" });
+        };
+        wait(true);
+        assert_eq!(load_project(&dir).map(|x| (x.0.name, x.1)), Some(("painted on".into(), true)));
+        assert!(!dir.join(format!("{TEMP_FILE}.part")).exists());
+        temp_writer().send(TempMsg::Remove(dir.clone())).unwrap();
+        wait(false);
+        assert_eq!(load_project(&dir).map(|x| (x.0.name, x.1)), Some(("saved".into(), false)));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

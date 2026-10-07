@@ -225,8 +225,8 @@ pub struct State {
     remove_asked: Option<std::time::Instant>,
     /// How much of the chosen decal lies on texels both sides share, for the place it had.
     shared: Option<(String, f32)>,
-    /// The other side's picture in the bus's (the mouse does nothing there).
-    inset: Option<Rect>,
+    /// The other side's picture in the bus's put away by its cross (its chip brings it back).
+    hide_other: bool,
 }
 
 impl State {
@@ -274,18 +274,39 @@ pub fn draw(l: &mut Launcher) {
         if let (Some(tex), true) = (v.view_tex, v.showroom.has_picture()) {
             l.ui.image(view, tex, RADIUS);
         }
-        // the other side while mirroring, in a corner: what the copies make there
-        let other = (s.project.mirror.on && s.ready.is_some() && view.w > 520.0).then(|| {
+        // the other side while mirroring, in a corner: what the copies make there. The bus
+        // under it is painted as anywhere: with the mouse over it, or painting, it fades away;
+        // its cross puts it away, a chip in the corner brings it back.
+        let room = s.project.mirror.on && s.ready.is_some() && view.w > 520.0;
+        let other = (room && !s.ui.hide_other).then(|| {
             let ow = (view.w * 0.3).min(360.0);
             Rect::new(view.right() - ow - 12.0, view.bottom() - ow * view.h / view.w - 12.0, ow, ow * view.h / view.w)
         });
         v.other_rect = other;
-        s.ui.inset = other;
         if let (Some(o), Some(tex)) = (other, v.other_tex) {
             if v.showroom.second_view().is_some() {
-                l.ui.p().rounded(o.pad(-2.0, -2.0), RADIUS + 2.0, HAIRLINE);
-                l.ui.image(o, tex, RADIUS);
-                l.ui.text_in("Other side", Rect::new(o.x + 10.0, o.y + 6.0, o.w - 20.0, 16.0), 11.5, Weight::Medium, TEXT, Align::Left);
+                let mouse = l.ui.input.mouse;
+                let busy = s.ui.drag.is_some() || (l.ui.input.down && view.contains(mouse));
+                let a = l.ui.anim(crate::launcher::ui::id_of("livery-other-fade"), if o.contains(mouse) || busy { 0.15 } else { 1.0 }, 0.1);
+                l.ui.p().rounded(o.pad(-2.0, -2.0), RADIUS + 2.0, HAIRLINE.alpha(a));
+                l.ui.image_faded(o, tex, RADIUS, a);
+                // (on a dark chip: the sky behind them is light)
+                let label = omsi_ui::tr("Other side");
+                let lw = l.ui.width(&label, 11.5, Weight::Medium).min(o.w - 56.0);
+                l.ui.p().rounded(Rect::new(o.x + 6.0, o.y + 5.0, lw + 16.0, 20.0), 10.0, Color::BLACK.alpha(0.5 * a));
+                l.ui.text_in(&label, Rect::new(o.x + 14.0, o.y + 7.0, lw + 2.0, 16.0), 11.5, Weight::Medium, TEXT.alpha(a), Align::Left);
+                let c = Vec2::new(o.right() - 15.0, o.y + 15.0);
+                l.ui.p().circle(c, 11.0, Color::BLACK.alpha(0.5 * a));
+                l.ui.solid(Rect::new(c.x - 11.0, c.y - 11.0, 22.0, 22.0));
+                if l.ui.icon_button("livery-other-hide", c, 11.0, "close", "Hide the other side") {
+                    s.ui.hide_other = true;
+                }
+            }
+        } else if room {
+            let chip = Rect::new(view.right() - 140.0, view.y + 12.0, 128.0, 30.0);
+            l.ui.solid(chip);
+            if l.ui.button("livery-other-show", chip, "Other side", Some("visibility"), ButtonKind::Normal) {
+                s.ui.hide_other = false;
             }
         }
         let msg = if let Some(e) = &s.failed {
@@ -676,8 +697,13 @@ fn layers_panel(l: &mut Launcher, r: Rect) {
     l.ui.text_in(&format!("{} {base}", omsi_ui::tr("Begun from:")), Rect::new(inner.x, inner.bottom() - 34.0, inner.w, 18.0), 12.0, Weight::Regular, TEXT_DIM, Align::Left);
     let info = s.ready.as_ref().map(|r| format!("{} × {} · {:.0} {}", r.full.first().map(|f| f.0).unwrap_or(0), r.full.first().map(|f| f.1).unwrap_or(0), r.density * r.full.first().map(|f| f.0 as f32).unwrap_or(1.0) / r.bases.first().map(|b| b.width as f32).unwrap_or(1.0), omsi_ui::tr("texels/m")));
     if let Some(info) = info {
-        l.ui.text_in(&info, Rect::new(inner.x, inner.bottom() - 16.0, inner.w, 16.0), 11.5, Weight::Regular, TEXT_FAINT, Align::Left);
+        l.ui.text_in(&info, Rect::new(inner.x, inner.bottom() - 16.0, inner.w - 22.0, 16.0), 11.5, Weight::Regular, TEXT_FAINT, Align::Left);
     }
+    // every change kept at once: the mark lights up as it is written
+    let c = Vec2::new(inner.right() - 8.0, inner.bottom() - 8.0);
+    let lit = s.temp_at.is_some_and(|t| t.elapsed().as_secs_f32() < 0.8);
+    l.ui.icon("save", c, 14.0, if lit { accent() } else { TEXT_FAINT });
+    l.ui.tooltip(Rect::new(c.x - 10.0, c.y - 10.0, 20.0, 20.0), "Every change is kept at once in a temporary file: after a crash the studio opens with it");
 }
 
 // --- the right panel -------------------------------------------------------------------------
@@ -1763,7 +1789,8 @@ fn texel(s: &Session, tri: usize, w: Vec3) -> Option<(usize, usize)> {
 
 fn pointer(l: &mut Launcher, view: Rect) {
     let input = l.ui.input.clone();
-    let over = !l.ui.over_ui && view.contains(input.mouse) && !l.livery.session.as_ref().and_then(|s| s.ui.inset).is_some_and(|r| r.contains(input.mouse));
+    // (the other side's picture as well: it fades away for the bus under it)
+    let over = !l.ui.over_ui && view.contains(input.mouse);
     let s = l.livery.session.as_mut().unwrap();
     let middle = l.livery.middle;
     let Some((_, cam)) = s.ui.view else { return };

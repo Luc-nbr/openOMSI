@@ -469,6 +469,17 @@ impl Ui {
         self.push_layer(c, rad);
     }
 
+    /// [`Ui::image`] seen through: at `alpha` (0 gone, 1 whole).
+    pub fn image_faded(&mut self, r: Rect, tex: usize, radius: f32, alpha: f32) {
+        let clip = intersect(self.clip_now(), r);
+        self.push_layer(clip, radius);
+        self.layers.last_mut().unwrap().2 = tex;
+        let sprite = omsi_ui::Sprite { uv: [0.0, 0.0, 1.0, 1.0], w: r.w, h: r.h, ascent: 0.0 };
+        self.p().sprite(sprite, Vec2::new(r.x, r.y), Vec2::new(r.w, r.h), Color::WHITE.alpha(alpha));
+        let (c, rad) = self.clip_stack.last().copied().unwrap_or((Rect::new(0.0, 0.0, self.size.x, self.size.y), 0.0));
+        self.push_layer(c, rad);
+    }
+
     /// A picture of `tex` (`w` x `h` pixels) covering `r` as a photo covers a tile: scaled
     /// to fill it, what sticks out cut off evenly on both sides, its corners rounded.
     pub fn image_cover(&mut self, r: Rect, tex: usize, radius: f32, w: u32, h: u32) {
