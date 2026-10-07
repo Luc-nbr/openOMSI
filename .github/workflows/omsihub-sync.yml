@@ -52,6 +52,8 @@ jobs:
     if: needs.check.outputs.new == 'true'
     runs-on: windows-latest
     steps:
+      # (the files as they are in git: the shell scripts would get Windows line ends)
+      - run: git config --global core.autocrlf false
       - uses: actions/checkout@v7
         with:
           ref: beta
