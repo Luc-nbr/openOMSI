@@ -73,6 +73,9 @@ struct RunningTrip {
     served: Vec<bool>,
     /// Authored track entry of each type-1 station, retained while tiles stream in.
     station_steps: Vec<Option<usize>>,
+    /// The tile each station names (`trip_station_tiles`): where ids repeat across tiles,
+    /// the stop is the object of that one.
+    station_tiles: Vec<Option<usize>>,
 }
 
 /// When a trip's bus is at each of its stations, as OMSI's timetable has it: the profile
@@ -235,6 +238,22 @@ fn trip_stations(trip: &omsi_timetable::Trip) -> Vec<i64> {
     trip.stations_legacy
         .iter()
         .filter_map(|s| s.first().and_then(|id| id.trim().parse::<i64>().ok()))
+        .collect()
+}
+
+/// The tile each station of `trip` is placed in (its index in global.cfg's `[map]` list), as
+/// the timetable says: a type-1 `[station]` record's fourth line, else the stop's
+/// `Busstops.cfg` entry; None where it says nothing. A map joined from several repeats its
+/// ids (Berlin 186: half its objects share their id with one of another tile), and by the id
+/// alone a stop was found on another tile - the navigator drew it where no road was.
+fn trip_station_tiles(trip: &omsi_timetable::Trip, bus_stops: &[omsi_timetable::BusStopEntry]) -> Vec<Option<usize>> {
+    if !trip.stations.is_empty() {
+        return trip.stations.iter().map(|id| bus_stops.iter().find(|b| b.object_id == *id).and_then(|b| usize::try_from(b.group).ok())).collect();
+    }
+    trip.stations_legacy
+        .iter()
+        .filter(|s| s.first().and_then(|id| id.trim().parse::<i64>().ok()).is_some())
+        .map(|s| s.get(3).and_then(|t| t.trim().parse::<usize>().ok()))
         .collect()
 }
 
@@ -2279,7 +2298,7 @@ impl Schedule {
                     if run.served[si] {
                         continue;
                     }
-                    let Some((pos, _)) = world.object_positions.lock().get(sid).copied() else {
+                    let Some((pos, _)) = world.object_of_tile(run.station_tiles.get(si).copied().flatten(), *sid) else {
                         continue;
                     };
                     if let Some((ri, ss, lat)) = project_stop(
@@ -2380,6 +2399,7 @@ impl Schedule {
         let leave: Vec<f64> = tt.stations.iter().map(|s| departure + s.1).collect();
         let (steps, track) = self.steps_of(&trip_name, &stations);
         let station_steps = trip_station_steps(trip, track, steps.len());
+        let station_tiles = trip_station_tiles(trip, &self.data.bus_stops);
         Self::add_twins(traffic, &steps);
         let slots = self.slots(world, traffic, &steps, None);
         if !slots.iter().any(|s| matches!(s, Slot::Lane(_))) && !slots.contains(&Slot::Waiting) {
@@ -2499,7 +2519,7 @@ impl Schedule {
             if !track && (si < leg || (si == leg && frac > 0.0)) {
                 served[si] = true;
             }
-            let found = world.object_positions.lock().get(sid).copied();
+            let found = world.object_of_tile(station_tiles.get(si).copied().flatten(), *sid);
             // An authored entry behind the spawn position is already passed.
             if station_steps[si].is_some_and(|entry| entry < at) {
                 served[si] = true;
@@ -2653,6 +2673,7 @@ impl Schedule {
                     stations: stations.iter().copied().zip(leave.iter().copied()).collect(),
                     served,
                     station_steps,
+                    station_tiles,
                 });
             }
             log::info!(
@@ -2855,6 +2876,7 @@ impl Schedule {
                     .collect(),
                 served,
                 station_steps,
+                station_tiles,
             });
         }
         if profile {
@@ -4351,12 +4373,13 @@ impl Schedule {
         let times = &self.times[ti][usize::try_from(profile)
             .unwrap_or(0)
             .min(self.times[ti].len() - 1)];
+        let tiles = trip_station_tiles(trip, &self.data.bus_stops);
         let stops = trip_stations(trip)
             .iter()
             .enumerate()
             .map(|(i, id)| {
                 let name = self.station_name(trip, i, *id);
-                let position = world.object_positions.lock().get(id).map(|p| p.0);
+                let position = world.object_of_tile(tiles.get(i).copied().flatten(), *id).map(|p| p.0);
                 let (arr, dep) = times.stations[i];
                 PlannedStop {
                     object_id: *id,
@@ -4961,15 +4984,28 @@ impl PlayerDuty {
     /// gets its place once the tile comes, and one placed roughly (an object hung on
     /// another) its exact one. A stop without a place was never reached: the next stop
     /// stayed on it for the rest of the trip (#975) and the map left it out (#1014).
-    pub fn learn_loaded(&mut self, positions: &HashMap<i64, (glam::DVec3, [f64; 3])>) {
+    /// An id objects of several tiles share (`World::object_dups`, a map joined from others)
+    /// is the one nearest to where the stop's own tile placed it, never the last tile loaded.
+    pub fn learn_loaded(&mut self, positions: &HashMap<i64, (glam::DVec3, [f64; 3])>, dups: &HashMap<((i32, i32), i64), (glam::DVec3, [f64; 3])>) {
         // (the trip under way and the next: the later ones learn theirs when they come)
         let from = self.trip_index;
+        let ids: std::collections::HashSet<i64> = self.trips[from..].iter().take(2).flat_map(|t| t.stops.iter().map(|s| s.object_id)).collect();
+        let mut shared: HashMap<i64, Vec<glam::DVec3>> = HashMap::new();
+        for ((_, id), (p, _)) in dups {
+            if ids.contains(id) {
+                shared.entry(*id).or_default().push(*p);
+            }
+        }
         for trip in self.trips[from..].iter_mut().take(2) {
             let mut changed = false;
             for s in &mut trip.stops {
-                if let Some((p, _)) = positions.get(&s.object_id) {
-                    if s.position != Some(*p) {
-                        s.position = Some(*p);
+                let found = match shared.get(&s.object_id) {
+                    Some(c) => s.position.and_then(|at| c.iter().copied().min_by(|a, b| a.distance(at).total_cmp(&b.distance(at)))),
+                    None => positions.get(&s.object_id).map(|p| p.0),
+                };
+                if let Some(p) = found {
+                    if s.position != Some(p) {
+                        s.position = Some(p);
                         changed = true;
                     }
                 }
@@ -6514,11 +6550,64 @@ pub(crate) mod tests {
         // its tile comes: the map has it now
         let mut positions = HashMap::new();
         positions.insert(1i64, (glam::DVec3::new(500.0, 0.0, 0.0), [0.0; 3]));
-        d.learn_loaded(&positions);
+        d.learn_loaded(&positions, &HashMap::new());
         assert_eq!(d.trips[0].stops[1].position, Some(glam::DVec3::new(500.0, 0.0, 0.0)));
         d.advance(glam::DVec3::new(500.0, 0.0, 0.0), 100.0);
         d.advance(glam::DVec3::new(700.0, 0.0, 0.0), 130.0);
         assert_eq!(d.next_stop, 2);
+    }
+
+    /// Berlin 186, a map joined from others: half its objects share their id with one of
+    /// another tile. A stop's tile is what its station names (a type-1 `[station]`'s fourth
+    /// line, else `Busstops.cfg`), and a tile loaded later with an object of the same id
+    /// elsewhere does not take the stop away from where its own tile placed it.
+    #[test]
+    fn a_stop_is_the_object_of_its_own_tile_where_ids_repeat() {
+        let legacy = omsi_timetable::Trip {
+            stations_legacy: vec![
+                ["44740", "57", "Mercatorweg", "78", "2.992", "841.176", "10.199", "6.500"].map(String::from).to_vec(),
+                ["x", "0", "not a station", "3", "0", "0", "0", "0"].map(String::from).to_vec(),
+                ["44747", "69", "Woltmannweg", "", "0", "0", "0", "0"].map(String::from).to_vec(),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(trip_station_tiles(&legacy, &[]), vec![Some(78), None]);
+        let typ2 = omsi_timetable::Trip { stations: vec![2049, 7], ..Default::default() };
+        let stops = vec![omsi_timetable::BusStopEntry { name: "Siegener Str".into(), group: 18, object_id: 2049, params: [13.0, 0.0, 0.0] }];
+        assert_eq!(trip_station_tiles(&typ2, &stops), vec![Some(18), None]);
+        // the stop placed by its tile at x = 500; the same id on a tile 3 km off loaded last
+        let mut t = planned(0.0, &[(0.0, 0.0, 0.0), (500.0, 100.0, 100.0), (1000.0, 200.0, 200.0)]);
+        t.stops[1].position = Some(glam::DVec3::new(500.0, 0.0, 0.0));
+        let mut d = PlayerDuty {
+            line: "186".into(),
+            tour: "10".into(),
+            trips: vec![t],
+            trip_index: 0,
+            first_trip: 0,
+            next_stop: 0,
+            at_stop: false,
+            arrived_late: None,
+            done: false,
+            served_terminus: None,
+            left_late: None,
+            held_back: false,
+            placed: true,
+            trip_changed: false,
+            skipped: None,
+            picked: true,
+            first_update: None,
+            heading: 90.0,
+            tours: Vec::new(),
+            free: false,
+        };
+        let id = d.trips[0].stops[1].object_id;
+        let mut positions = HashMap::new();
+        positions.insert(id, (glam::DVec3::new(3000.0, 2000.0, 0.0), [0.0; 3]));
+        let mut dups = HashMap::new();
+        dups.insert(((64, 1), id), (glam::DVec3::new(3000.0, 2000.0, 0.0), [0.0; 3]));
+        dups.insert(((78, 1), id), (glam::DVec3::new(502.0, 1.0, 0.0), [0.0; 3]));
+        d.learn_loaded(&positions, &dups);
+        assert_eq!(d.trips[0].stops[1].position, Some(glam::DVec3::new(502.0, 1.0, 0.0)));
     }
 
     #[test]

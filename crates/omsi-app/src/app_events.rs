@@ -1492,7 +1492,7 @@ impl ApplicationHandler for App {
                             p.ibis_to_stop(trip, k);
                         }
                     }
-                    d.learn_loaded(&w.object_positions.lock());
+                    d.learn_loaded(&w.object_positions.lock(), &w.object_dups.lock());
                     let due = (d.trip_index, d.next_stop);
                     let served = d.update(&mut p.vehicle, self.clock.time);
                     if let Some((arrival, departure)) = served {
