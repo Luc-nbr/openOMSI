@@ -1088,3 +1088,11 @@ Reverse engineered from Omsi.exe and put in place of our own guesses:
   metered over lamp-lit lots and every lamp's light went white on modded maps), and adds
   the lamps' glare in view (Stiles-Holladay veil, `glare_veil`). Checked on Derevenka
   (mod map) against 0.1.1740 and on Grundorf.
+* **0.2.3 follow-up**: night adaptation never goes below the lit district's level
+  (`ARTIFICIAL x city_glow`, no 0.3 floor: the eye's dark adaptation takes minutes, so among
+  lamp-lit streets it stays with them; a lampless road keeps the moonlight). Derevenka's lit
+  parts now render as in 0.1.1740. Envmaps match the vanilla picture's strength: OMSI's
+  share (mask, or pane alpha x factor) is taken as the angle-averaged reflectance, f0 =
+  (share - 1/21) x 21/20 (Schlick's mean), for masked/transmap paint and for glass; the
+  photo's structure is laid on in full (clamped 0.12..3.5 of its mean). Checked on the EN92
+  (transmap + mask body, Fenster panes) against vanilla, and the driver's windscreen.

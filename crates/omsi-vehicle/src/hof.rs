@@ -83,6 +83,27 @@ impl Hof {
         Ok(Self::parse(&f))
     }
 
+    /// Whether the IBIS trips carry line `line` (a map's line name, "11-11s"): a trip coded
+    /// line x 100 + route, or one named after the line ("91.06A -> MASSY GARE").
+    pub fn has_line(&self, line: &str) -> bool {
+        let l = line.trim().to_ascii_lowercase();
+        if l.is_empty() {
+            return false;
+        }
+        let digits: String = l.chars().take_while(|c| c.is_ascii_digit()).collect();
+        let number = digits.parse::<i32>().ok().filter(|n| *n > 0);
+        let boundary = |rest: &str| rest.chars().next().is_none_or(|c| !c.is_ascii_alphanumeric());
+        self.info_trips.iter().any(|t| {
+            let code = omsi_cfg::parse_i32(&t.code);
+            let head = t.name.split("->").next().unwrap_or("").trim().to_ascii_lowercase();
+            let named = !head.is_empty()
+                && (l.strip_prefix(head.as_str()).is_some_and(boundary)
+                    || (l.ends_with(|c: char| c.is_ascii_digit())
+                        && head.strip_prefix(l.as_str()).is_some_and(|r| r.chars().next().is_some_and(|c| c.is_ascii_alphabetic()))));
+            named || number.is_some_and(|n| code >= 100 && code / 100 == n)
+        })
+    }
+
     /// Only the `[name]` of a depot file ("" when it has none), kept for the session: the
     /// searches by name below read every depot file of every vehicle folder, and parsing
     /// each whole (termini, stops, the IVU trips) made a big installation's start take
@@ -541,6 +562,16 @@ pub fn depot_anywhere(name: &str) -> Option<Hof> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_depot_file_carries_a_line_by_its_trip_codes_or_names() {
+        let trip = |code: &str, name: &str| InfoTrip { code: code.into(), name: name.into(), ..Default::default() };
+        let global = Hof { info_trips: vec![trip("1101", "11 -> PETIT VILTAIN"), trip("1401", "14 -> MOULON")], ..Default::default() };
+        let inter = Hof { info_trips: vec![trip("001", "91.06A -> MASSY GARE"), trip("005", "91.06C -> MASSY GARE")], ..Default::default() };
+        assert!(global.has_line("11-11s") && global.has_line("14"));
+        assert!(!global.has_line("1") && !global.has_line("91.06C") && !global.has_line(""));
+        assert!(inter.has_line("91.06C") && inter.has_line("91.06") && !inter.has_line("11-11s"));
+    }
+
     use super::*;
 
     /// #896: the bus's own depot of the map's place, not the first of its folder.

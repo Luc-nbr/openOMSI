@@ -211,7 +211,8 @@ end
 
 A Lua plugin gets Lua 5.4 with the safe libraries only: `string`, `table`, `math`, `utf8`,
 `coroutine`, `require` for its own folder, and `os.clock/time/date/difftime`. There is no
-`io`, no `os.execute`, no C modules and no `dofile`, so a plugin you download cannot touch
+`io`, no `os.execute` (not through `require("os")` either), no C modules, no `dofile` and
+no binary chunks for `load`, so a plugin you download cannot touch
 your files beyond its own saved data. It cannot reach the network either: `omsi.send` talks
 only to programs on this computer, and only to ports from 1024 up.
 

@@ -83,6 +83,11 @@ fn events_vars_timers_and_data() {
           omsi.set_var("time", omsi.sys("Time"))
           if omsi.var("Velocity") == 50 then omsi.trigger("bus_horn") end
           assert(io == nil and os.execute == nil and dofile == nil)
+          -- (#1715: the module table must not hand out the whole os library)
+          local shut = require("os").execute == nil and require("os").remove == nil and require("os").clock ~= nil
+            and package.loaded.io == nil and package.loaded.debug == nil
+            and load(string.dump(function() return 1 end)) == nil
+          omsi.set_var("sandbox", shut and 1 or 0)
         end
         "#,
     )
@@ -91,7 +96,7 @@ fn events_vars_timers_and_data() {
     assert_eq!(plugins.lua.len(), 1);
     assert_eq!(plugins.lua[0].name, "Speedo");
     let mut bus = Bus { vehicle: true, ..Default::default() };
-    for k in ["Velocity", "doubled", "ticks", "time"] {
+    for k in ["Velocity", "doubled", "ticks", "time", "sandbox"] {
         bus.vars.insert(k.into(), 0.0);
     }
     bus.strings.insert("bus_name".into(), String::new());
@@ -103,6 +108,7 @@ fn events_vars_timers_and_data() {
     assert_eq!(bus.vars["doubled"], 40.0);
     assert_eq!(bus.vars["time"], 43200.0);
     assert_eq!(bus.vars["ticks"], 2.0);
+    assert_eq!(bus.vars["sandbox"], 1.0, "require(\"os\") or a binary chunk got out of the sandbox");
     bus.vars.insert("Velocity".into(), 50.0);
     plugins.frame(&mut bus);
     assert_eq!(bus.fired, [("bus_horn".to_string(), true), ("bus_horn".to_string(), false)]);

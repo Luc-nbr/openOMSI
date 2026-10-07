@@ -283,11 +283,10 @@ the panel's own light, and the glow draws a halo around them), `led_mips` (0..4,
 `\S:n` mask are sampled at the level their screen footprint asks for, never coarser than
 this. 0 point-samples them, the sharpest dots and the worst shimmer; 1.3 keeps a matrix's
 dots a couple of pixels across where the full chain has run them together; 4 is near the
-calm of the full chain). Cockpit screens in Enhanced (IBIS/ibox boards with o3d emissive, ticket/html terminals,
-dashboard LCDs and cab indicator night maps) keep full daytime look and only dim as night
-deepens so white UI greys stay readable without bleaching; destination LED matrices still
-follow `led_glow` only. For tuning, `OMSI_SELF_LIT_NIGHT=day,night` sets the day and night
-ends of that scale (defaults `1,0.32`). `mouse_sens` (mouse steering,
+calm of the full chain). The bus's own screens in Enhanced (the IBIS, ticket and
+html terminals, the dashboard's LCDs) dim at night as a real dashboard's do, and are never
+lifted over their own colour by the eye's adaptation to the dark cab; the gauges' backlight
+and the destination LED matrices (`led_glow`) are left as they are. `mouse_sens` (mouse steering,
 1 = OMSI's), `mouse_smooth` (0: the mouse's wheel follows the cursor without easing),
 `ui_scale` (the size of the game's interface over the picture - its texts,
 the menu, the timetable, the navigator and the city map - from 0.5 to 2, 1 by default, on
@@ -323,8 +322,10 @@ Who gets on the player's bus: on a duty (a line and tour, or a trip) with a dest
 the display, the people waiting for a stop the trip calls at later - also where the bus's
 depot file (`.hof`) names the terminus otherwise than the map's timetable does - and those
 whose line record lists the terminus shown; everybody gets off at the trip's last stop. In
-free drive, or with no destination set (or a "not in service" one), nobody waiting gets on;
-the riders aboard still get off at their stops.
+free drive the bus takes whom its destination display takes, as a timetable bus: those
+whose line record lists the terminus shown, and those without one. With no destination set
+(or a "not in service" one) nobody waiting gets on; the riders aboard still get off at their
+stops.
 `exact_fare=0` makes them overpay so that change is due. Rain and snow stay outside the
 player's bus (its `[boundingbox]`), and heavy rain darkens the day enough for the saloon
 lights to matter.
@@ -445,7 +446,10 @@ Under **Seat position**, **Head pitch** adjusts the driver's neutral view angle 
 (-45° to +45°). It applies to the driver's view with any display setup, not just triple
 screens, and is included when taking offscreen screenshots. Manual looking and head tracking
 remain relative to this setting; **Reset the seat position** resets it along with the seat
-offsets.
+offsets. The seat set in the game menu is kept for each bus on its own (`seats.cfg` in the
+`.openomsi` folder): fitted to one bus, the others keep the views their `.bus` files give
+(or the seat of the launcher's settings, for a bus never fitted), and resetting it puts
+that bus's views back as its file has them.
 
 In Settings → Camera, **Right stick turns the view** switches automatic gamepad
 camera movement on or off. It is on by default. Switch it off to keep using the

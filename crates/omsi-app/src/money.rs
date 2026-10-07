@@ -14,8 +14,9 @@ pub struct Money {
     pub currency: Option<Currency>,
     dir: PathBuf,
     meshes: HashMap<usize, (MeshId, Vec<MaterialId>)>,
-    /// (instance, place in the bus frame, coin index, is change)
-    placed: Vec<(usize, Mat4, usize, bool)>,
+    /// (instance, place in the bus frame - or in its parent mesh's -, coin index, is
+    /// change, the `[mesh_ident]` of the mesh it lies on)
+    placed: Vec<(usize, Mat4, usize, bool, Option<String>)>,
     hidden: Vec<usize>,
     rng: u64,
 }
@@ -164,12 +165,16 @@ impl Money {
     /// point's height, somewhere in the variation rectangle and turned at random about the
     /// vertical. Nothing is stacked: the coins had been raised 3 mm per coin already lying
     /// there, so a driver clicking change built an endless tower on the tray.
-    pub fn place(&mut self, world: &World, renderer: &Renderer, scene: &mut Scene, coins: &[usize], point: Vec3, var: [f32; 2], change: bool) {
+    /// A point of `[ticket_sale_money_point_2]` / `[ticket_sale_change_point_2]` names the
+    /// mesh (`parent`, its `[mesh_ident]`) the money lies on: it moves with that mesh - the
+    /// change tray in a cash desk swinging with the driver's door (#1468).
+    #[allow(clippy::too_many_arguments)]
+    pub fn place(&mut self, world: &World, renderer: &Renderer, scene: &mut Scene, coins: &[usize], point: Vec3, var: [f32; 2], change: bool, parent: Option<&str>) {
         for coin in coins {
             let Some((id, mats)) = self.mesh(world, renderer, scene, *coin) else { continue };
             let local = Self::coin_place(point, var, [self.rand_f(), self.rand_f(), self.rand_f()]);
             let inst = renderer.add_instance(scene, id, DVec3::ZERO, Mat4::IDENTITY, mats);
-            self.placed.push((inst, local, *coin, change));
+            self.placed.push((inst, local, *coin, change, parent.map(str::to_string)));
         }
     }
 
@@ -197,9 +202,81 @@ impl Money {
             renderer.set_params(scene, inst, &[], false, &[]);
         }
         let rot = bus.body_rotation();
-        for (inst, local, _, _) in &self.placed {
+        let mesh_of = |name: &str| -> Mat4 {
+            let defs = &bus.ty.model.meshes;
+            bus.ty
+                .meshes
+                .iter()
+                .rposition(|m| defs.get(m.def_index).and_then(|d| d.mesh_ident.as_deref()).is_some_and(|n| n.trim().eq_ignore_ascii_case(name.trim())))
+                .and_then(|i| bus.mesh_transforms.get(i).copied())
+                .unwrap_or(Mat4::IDENTITY)
+        };
+        for (inst, local, _, _, parent) in &self.placed {
+            let on = parent.as_deref().map(mesh_of).unwrap_or(Mat4::IDENTITY);
+            renderer.set_transform(scene, *inst, bus.position, rot * on * *local);
+        }
+    }
+}
+
+/// The tear-off ticket blocks of a bus without a ticket printer: the ticket pack's
+/// `Ticket_<n>_block.o3d` hung on the bus's `[new_attachment]` point n (the stock SD's
+/// "ticket block attach points"), moving with the bus. A click on block n tears off a
+/// ticket of type n - `GivenTicket` n, as a printer's script hands one over (#1413).
+pub struct TicketBlocks {
+    /// The bus type and the pack they were made for.
+    pub made_for: (PathBuf, PathBuf),
+    /// (instance, place in the bus frame, ticket type, the mesh for clicks)
+    blocks: Vec<(usize, Mat4, usize, omsi_geometry::MeshData)>,
+}
+
+impl TicketBlocks {
+    pub fn new(world: &World, renderer: &Renderer, scene: &mut Scene, bus: &VehicleInstance, pack: &Path) -> TicketBlocks {
+        let dir = pack.parent().map(Path::to_path_buf).unwrap_or_default();
+        let mut blocks = Vec::new();
+        for (n, a) in bus.ty.def.attachments.iter().enumerate() {
+            let file = dir.join(format!("Ticket_{n}_block.o3d"));
+            if !omsi_cfg::vfs::is_file(&file) {
+                continue;
+            }
+            let Ok(m) = omsi_o3d::load_mesh(&file).map_err(|e| log::warn!("{e}")) else { continue };
+            let dirs = [dir.clone(), omsi_cfg::resolve_path(&world.root, "Texture")];
+            let dirs_ref: Vec<&Path> = dirs.iter().map(|p| p.as_path()).collect();
+            let mats: Vec<MaterialId> = m
+                .materials
+                .iter()
+                .map(|mat| {
+                    let tex = omsi_texture::find_texture(&mat.texture, &dirs_ref).and_then(|p| world.textures.get_gpu_fast(&p)).map(|(img, _)| renderer.add_texture_data(scene, &img));
+                    renderer.add_material(scene, tex, AlphaMode::Test, [1.0; 4], false)
+                })
+                .collect();
+            let data = mesh_from_o3d(&m);
+            let id = renderer.add_mesh(scene, &data);
+            let inst = renderer.add_instance(scene, id, DVec3::ZERO, Mat4::IDENTITY, mats);
+            let local = crate::tiles::attachment_matrix(&omsi_scenery::sco::Attachment { ops: a.ops.clone() });
+            blocks.push((inst, local, n, data));
+        }
+        if !blocks.is_empty() {
+            log::info!("ticket blocks: {} of {} on the bus", blocks.len(), dir.display());
+        }
+        TicketBlocks { made_for: (bus.ty.def.path.clone(), pack.to_path_buf()), blocks }
+    }
+
+    pub fn sync(&self, renderer: &Renderer, scene: &mut Scene, bus: &VehicleInstance) {
+        let rot = bus.body_rotation();
+        for (inst, local, _, _) in &self.blocks {
             renderer.set_transform(scene, *inst, bus.position, rot * *local);
         }
+    }
+
+    /// The ticket type of the block a ray from `origin` along `dir` hits first.
+    pub fn hit(&self, origin: DVec3, dir: Vec3, bus: &VehicleInstance) -> Option<usize> {
+        let o = (origin - bus.position).as_vec3();
+        let rot = bus.body_rotation();
+        self.blocks
+            .iter()
+            .filter_map(|(_, local, n, data)| omsi_geometry::ray_mesh(o, dir, data, &(rot * *local)).map(|t| (t, *n)))
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|x| x.1)
     }
 }
 

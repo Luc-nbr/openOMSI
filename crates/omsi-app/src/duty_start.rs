@@ -114,7 +114,24 @@ pub(crate) fn place_on_duty(args: &mut Args) {
                 let (path, _) = navigator::way_back(&net, from, heading, &targets, 40_000.0)?;
                 Some(path.iter().map(|&l| net.lanes[l].length() as f64).sum())
             };
-            let pick = if args.auto_entry {
+            // A trip that begins well before its first stop (a run out of the depot, whose
+            // first stop is the line's terminus) starts at the entry point where its route
+            // begins: the nearest way to the stop put the bus at the terminus and the depot
+            // run was skipped (#1642).
+            let route_start = net.lanes[route[0]].start();
+            let depot = (args.auto_entry && (p - route_start).truncate().length() > 100.0)
+                .then(|| {
+                    entries
+                        .iter()
+                        .map(|e| (e, (e.2 - route_start).truncate().length()))
+                        .filter(|(_, d)| *d < 40.0)
+                        .min_by(|a, b| a.1.total_cmp(&b.1))
+                        .map(|(e, _)| (e, route[..=li].iter().map(|&l| net.lanes[l].length() as f64).sum::<f64>()))
+                })
+                .flatten();
+            let pick = if let Some(d) = depot {
+                Some(d)
+            } else if args.auto_entry {
                 entries.iter().filter_map(|e| cost(e.2, e.3).map(|c| (e, c))).min_by(|a, b| a.1.total_cmp(&b.1))
             } else {
                 entries.iter().find(|e| e.0 == args.entry.min(entries.len().saturating_sub(1))).and_then(|e| cost(e.2, e.3).map(|c| (e, c)))

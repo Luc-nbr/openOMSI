@@ -294,12 +294,17 @@ fn push_spot(lights: &mut Vec<PointLight>, at: DVec3, d: Vec3, vals: &[f32; 12],
         mode: LightMode::Vanilla,
         ..Default::default()
     });
-    // enhanced: falling off with the square of the distance from a one-metre core
+    // enhanced: falling off with the square of the distance from a one-metre core. A lamp
+    // declared to reach less far than a low beam is a weaker one: the light that still
+    // reaches the low beam's last lit metres at its own range is the square of the ranges
+    // smaller (a work light of range 1 shone as bright as a headlamp, #1541)
+    let reach = spot_reach(vals[9], 60.0);
+    let weaker = (reach / 60.0).min(1.0).powi(2);
     lights.push(PointLight {
         position: at,
-        radius: spot_reach(vals[9], 60.0),
+        radius: reach,
         color,
-        intensity: HEADLIGHT_INTENSITY * share,
+        intensity: HEADLIGHT_INTENSITY * share * weaker,
         direction: d,
         cone,
         core: 1.0,
@@ -317,8 +322,10 @@ fn push_spot(lights: &mut Vec<PointLight>, at: DVec3, d: Vec3, vals: &[f32; 12],
 /// cut at the same 45 m (60 in Enhanced), the full beam lit no further than the low beam
 /// (#941). (The light's core grows with it - a fixed share of the reach - so the full beam
 /// is also brighter ahead, as one is.)
+/// (A short range is taken as declared, down to half a metre: from 10 m on, a lamp of range
+/// 1 lit everything round it like a headlamp, #1541.)
 fn spot_reach(range: f32, low: f32) -> f32 {
-    range.clamp(10.0, low).max(range * low / 100.0).min(low * 5.0)
+    range.clamp(0.5, low).max(range * low / 100.0).min(low * 5.0)
 }
 
 #[cfg(test)]
@@ -331,7 +338,8 @@ mod spot_tests {
         assert_eq!(super::spot_reach(500.0, 60.0), 300.0);
         // short ranges as declared, as before
         assert_eq!(super::spot_reach(30.0, 45.0), 30.0);
-        assert_eq!(super::spot_reach(2.0, 45.0), 10.0);
+        assert_eq!(super::spot_reach(2.0, 45.0), 2.0);
+        assert_eq!(super::spot_reach(0.1, 45.0), 0.5);
         assert_eq!(super::spot_reach(5000.0, 45.0), 225.0);
     }
 

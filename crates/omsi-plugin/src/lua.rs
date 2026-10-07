@@ -178,6 +178,18 @@ impl LuaPlugin {
         package.set("cpath", "")?;
         package.set("loadlib", Value::Nil)?;
         lua.load("package.searchers[4] = nil; package.searchers[3] = nil").exec()?;
+        // `require("os")` hands out `package.loaded.os`, the whole library with `execute`
+        // and `remove` (#1715): the loaded table keeps the safe libraries only, `os` the
+        // clock. `load` reads text only - a binary chunk can break the VM's memory.
+        let loaded: Table = package.get("loaded")?;
+        let names: Vec<String> = loaded.pairs::<String, Value>().filter_map(|kv| kv.ok().map(|(k, _)| k)).collect();
+        for k in names {
+            if !matches!(k.as_str(), "_G" | "table" | "string" | "math" | "utf8" | "coroutine" | "package") {
+                loaded.set(k, Value::Nil)?;
+            }
+        }
+        loaded.set("os", g.get::<Table>("os")?)?;
+        lua.load("local raw = load; load = function(chunk, name, _, env) return raw(chunk, name, 't', env) end").exec()?;
 
         // a call that runs past its deadline is stopped
         let deadline = self.deadline.clone();

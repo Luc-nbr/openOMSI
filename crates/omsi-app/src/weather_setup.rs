@@ -448,6 +448,7 @@ pub(crate) fn weather_lighting(
         rate,
         if w.snow { 1.0 } else { 0.0 },
     );
+    lighting.roads_clear = w.snow && !w.snow_on_road;
     if let Some(custom)=CustomWeather::parse(&w.path.to_string_lossy()){
         let k=custom.brightness;
         lighting.sun_intensity*=k;

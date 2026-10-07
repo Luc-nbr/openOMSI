@@ -68,7 +68,7 @@ const CITY_GLOW: Vec3 = Vec3::new(3.4e-6, 2.85e-6, 2.15e-6);
 const NATURAL_NIGHT: Vec3 = Vec3::new(0.9e-7, 1.0e-7, 1.3e-7);
 /// The light a lit city keeps up around the viewer at night (street lamps, windows) as far
 /// as the exposure is concerned.
-const ARTIFICIAL: f32 = 0.0015;
+pub const ARTIFICIAL: f32 = 0.0015;
 /// How much of the sky at the horizon houses and trees hide (for the ambient light), up to
 /// which elevation (degrees), and how much light they throw back.
 const SURROUND_MAX: f32 = 0.7;

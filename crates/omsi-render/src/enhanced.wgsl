@@ -391,6 +391,13 @@ fn fs_enhanced(in: FsIn) -> EnhancedOut {
 // a display's yellow-green text came out olive - and gives the middle tones the contrast
 // of `enh.debug.w` about mid grey. So the colour is kept under the knee and the contrast
 // undone in advance (with the small black offset the text has always been drawn with).
+// A display's own brightness for the light round it: as a bus's screens dim at night, to
+// 15 % of the day's, and never lifted over their own colour by the dark-adapted metering.
+fn display_dim(lift: f32) -> f32 {
+    let night = clamp(camera.sun_color.w, 0.0, 1.0);
+    return mix(lift, min(lift, 1.0) * 0.15, night);
+}
+
 fn display_level(t: vec3<f32>) -> vec3<f32> {
     let peak = max(t.r, max(t.g, t.b));
     let tk = t * min(1.0, 0.64 / max(peak, 1e-3));
@@ -532,11 +539,13 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     if ((ALPHA_TEST || capture) && mode > 0.5 && mode < 1.5) {
         if (ALPHA_TO_COVERAGE) {
             let aa = max(fwidth(tex.a) * 0.5, 1.0 / 255.0);
-            if (tex.a < 0.5 - aa) {
+            // (not `ALPHA_REF - aa`: a layer whose clear glass is alpha 128 kept a third of
+            // its samples there, a moire of the layer's paint over every window)
+            if (tex.a < ALPHA_REF) {
                 discard;
             }
-            tex.a = smoothstep(0.5 - aa, 0.5 + aa, tex.a);
-        } else if (tex.a < 0.5) {
+            tex.a = smoothstep(ALPHA_REF - aa, ALPHA_REF + aa, tex.a);
+        } else if (tex.a < ALPHA_REF) {
             discard;
         }
     }
@@ -576,7 +585,7 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
         // A mirror (params.y 0.9) is no display: its picture is the street drawn a moment
         // ago, dark at night. Brightened like a display by the metering (up to 1.6 in the
         // dark) it showed a street far brighter than the one through the windscreen.
-        let lift = select(enh.exposure.y, min(enh.exposure.y, 1.0), material.params.y < 0.95);
+        let lift = select(display_dim(enh.exposure.y), min(enh.exposure.y, 1.0), material.params.y < 0.95);
         let c = display_level(t) * lift;
         return vec4<f32>(c * aer.a + aer.rgb * pre, alpha);
     }
@@ -650,7 +659,9 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     // OMSI materials have separate diffuse and ambient colours. Some interiors have
     // black diffuse but white ambient: using diffuse for both made them pitch black.
     // Keep the direct response, and weather both colours with the same surface effects.
-    var ambient_albedo = tex.rgb * material.ambient.rgb;
+    // A slot without a texture (ambient.w -1) takes its diffuse colour for both: Omsi.exe's
+    // white ambient of every o3d slot under a strong sky turned a coloured model white (#1737).
+    var ambient_albedo = select(tex.rgb * material.ambient.rgb, albedo, material.ambient.w < -0.5);
     var detail_factor = 1.0;
     if (camera.flags.x > 0.5 && (terrain || in.params2.w > 0.5)) {
         let k = clamp(1.0 - (dist - 25.0) / 120.0, 0.0, 1.0);
@@ -662,7 +673,10 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     // --- the material in physical terms
     var refl = 0.0;
     if (reflective_env) {
-        refl = clamp(min(material.params2.y, 1.0) * reflection_mask(duv, diffuse_a), 0.0, 1.0);
+        // (with a mask of its own or a [matl_transmap] the share is the mask's alone, as
+        // Omsi.exe's stage takes it - the factor counts only where there is none)
+        let by_mask = material.params.z > 0.5 || (u32(material.params2.w + 0.5) & 1u) != 0u;
+        refl = clamp(select(min(material.params2.y, 1.0), 1.0, by_mask) * reflection_mask(duv, diffuse_a), 0.0, 1.0);
     }
     var metal = 0.0;
     var f0 = vec3<f32>(0.04);
@@ -679,7 +693,16 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
         // transparency, never a mask): from glass's own 4 % up to 12 % for a factor of 1
         // (0.4 on the Scania's panes). Up to 26 % as before, every window of every bus
         // was a mirror - far more than the original's panes reflect (issue #176).
-        f0 = vec3<f32>(clamp(0.04 + 0.08 * min(material.params2.y, 1.0), 0.04, 0.12));
+        // ... measured against the vanilla picture: Omsi.exe lays the sphere map over the
+        // pane by its factor and the pane shows that as faintly as it shows itself - the
+        // share it mirrors is the pane's alpha times the factor (0.25 .. 0.5 on the stock
+        // windows), at every angle, with no Fresnel term. Taken as the reflectance
+        // averaged over the angles (Schlick's mean, f0 + (1 - f0) / 21, as for the paint),
+        // the pane mirrors as much as there and rises towards grazing as glass does; 4 to
+        // 12 % at the normal, and three quarters of that, left the windows showing the
+        // saloon where the vanilla picture shows the street.
+        let share = clamp(alpha * min(material.params2.y, 1.0), 0.0, 1.0);
+        f0 = vec3<f32>(clamp((share - 1.0 / 21.0) * 21.0 / 20.0, 0.04, 0.9));
     } else if (reflective_env) {
         // Paint reflects its few per cent through a smooth clear coat; much more than a few
         // per cent is polished metal - but only where the model says so with a mask of its
@@ -702,7 +725,18 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
         // (where the mask says nothing reflects - a tyre or a seal on the body's texture -
         // it is no coat but the rough rubber or plastic of an unpolished surface)
         let coat_rough = mix(0.8, 0.05, smoothstep(0.0, 0.5, refl));
-        f0 = mix(vec3<f32>(0.04), mix(albedo, vec3<f32>(1.0), 0.4) * refl, metal);
+        // Where the model says how much it mirrors - a [matl_envmap_mask], or the texture's
+        // alpha under a [matl_transmap] (most mod bodies) - Omsi.exe lays the sphere map
+        // over the paint by that share at every angle (shader.wgsl's environment stage):
+        // OMSI has no Fresnel term, so the share is the reflectance averaged over the angles
+        // the surface is seen at. A Fresnel reflectance with that average (Schlick's, whose
+        // hemispherical mean is f0 + (1 - f0) / 21) mirrors as much as the vanilla picture
+        // and rises towards grazing as a real coat does. (A plain 4 % coat left those
+        // bodies far fainter than in the vanilla picture.) A body with neither keeps the
+        // lacquer's 4 %: there Omsi.exe's lerp by the factor alone made every Golf a mirror.
+        let authored = masked || material.params.z > 0.5;
+        let coat = select(0.04, clamp((refl - 1.0 / 21.0) * 21.0 / 20.0, 0.04, 0.95), authored);
+        f0 = mix(vec3<f32>(coat), mix(albedo, vec3<f32>(1.0), 0.4) * refl, metal);
         rough = mix(coat_rough, 0.14, metal);
     } else if (!thin && material.specular.w > 0.0 && dot(material.specular.rgb, vec3<f32>(1.0)) > 0.05) {
         // the o3d material's Blinn-Phong power as GGX roughness
@@ -806,7 +840,10 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     if (snow > 0.0) {
         let up = clamp(n.z, 0.0, 1.0);
         let ground = select(0.0, 1.0, terrain || material.params2.z > 0.0);
-        let cover = snow * clamp(max(ground, smoothstep(0.78, 0.95, up) * 0.8), 0.0, 1.0) * (0.55 + 0.35 * tex.a);
+        // (a road kept clear - "snow on road" off - stays asphalt: whitened, it turned the
+        // roads white exactly when the weather says they are cleared, #1362)
+        let cleared = select(1.0, 0.0, camera.post.z > 0.5 && !terrain && material.params2.z > 0.0);
+        let cover = cleared * snow * clamp(max(ground, smoothstep(0.78, 0.95, up) * 0.8), 0.0, 1.0) * (0.55 + 0.35 * tex.a);
         albedo = mix(albedo, vec3<f32>(0.82, 0.84, 0.88), cover);
         ambient_albedo = mix(ambient_albedo, vec3<f32>(0.82, 0.84, 0.88), cover);
         // fresh snow is all but matte: it scatters the light and shows no highlight
@@ -976,7 +1013,10 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
         let photo_avg = textureSampleLevel(t_env, s_diffuse, vec2<f32>(0.5, 0.5), 12.0).rgb;
         let lum_avg = max(dot(photo_avg, vec3<f32>(0.2126, 0.7152, 0.0722)), 0.02);
         // (a tint, not a picture: an unbounded ratio drew the photo's trees as bands)
-        let ratio = clamp(photo / lum_avg, vec3<f32>(0.35), vec3<f32>(2.0));
+        // (the photo's own contrast, as the vanilla picture shows it, held only off black
+        // and off a blinding white; clamped to 0.35 .. 2 and laid on at two thirds, the
+        // windows mirrored a flat grey where the vanilla ones mirror trees and sky)
+        let ratio = clamp(photo / lum_avg, vec3<f32>(0.12), vec3<f32>(3.5));
         let band = 1.0 - smoothstep(0.25, 0.7, abs(r.z));
         // Only a smooth surface mirrors the photo; a satin one a quarter of its contrast.
         // (A car's bonnet is a handful of triangles: the photo's mip level by its footprint
@@ -990,7 +1030,7 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
         // trees stood as flat grey silhouettes on every pane in fog, in front of the real
         // (fogged) trees behind the glass - outlines of trees that are not there
         let clear_air = exp(-enh.fog.x * 150.0);
-        env = env * mix(vec3<f32>(1.0), ratio, band * 0.65 * mix(0.25, 1.0, sharpness) * outside_env * clear_air * enh.debug.z);
+        env = env * mix(vec3<f32>(1.0), ratio, band * mix(0.25, 1.0, sharpness) * outside_env * clear_air * enh.debug.z);
     }
     // what the SSAO darkens, it also keeps reflections out of
     let spec_occ = clamp(pow(nv + ao, exp2(-16.0 * rough - 1.0)) - 1.0 + ao, 0.0, 1.0);
@@ -1007,7 +1047,7 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     if (glass) {
         // Transparent bus panes need a readable outside reflection from the driver's
         // viewpoint; opaque paint must never receive this boost.
-        refl_f = refl_f * 0.75 * (1.0 - 0.85 * own_pane);
+        refl_f = refl_f * (1.0 - 0.85 * own_pane);
     }
     var reflection = select(vec3<f32>(0.0), env * refl_f, reflects);
     // Enhanced+: traced instead (rough surfaces keep the probe, which is as good as a
@@ -1045,7 +1085,11 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     let cabin_light = interior_lamps(in.world, n, in.params2.z);
     let cabin = sf.albedo * cabin_light * mix(1.0, ao, 0.85);
     var rgb = (direct + ambient + lamps) * pre + cabin;
-    var emit = tex.rgb * material.emissive.rgb * max(enh.exposure.z * 2.0, 0.8);
+    // A material's own emissive colour ([matl_allcolor], an .x's emissive) is the texture at
+    // full brightness in Omsi.exe: shown at the screen's white, not scaled with the eye's
+    // night adaptation - a texture lit that way by [matl_allcolor] glared at several times
+    // white at night (#1228, #1236). (The night maps of lit windows keep their light.)
+    var emit = tex.rgb * material.emissive.rgb * clamp(enh.exposure.z * 2.0, 0.8, 1.0);
     // (the tile light map on the splines and [LightMapMapping] objects is the vanilla
     // path's: here the map's lamps light them, tinted from that map, as they light every
     // other surface - added on top it lit the roads twice, with a hard edge where a road
@@ -1088,7 +1132,7 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
             // it shows at night) went past the tone curve's knee and bleached its colours -
             // the Procity's red and blue gauges pink and lavender (#827). (An LED panel's
             // light map stays as it was: its dots are meant to burn above their colour.)
-            emit = emit + max(display_level(tex.rgb) * enh.exposure.y - rgb, vec3<f32>(0.0)) * w;
+            emit = emit + max(display_level(tex.rgb) * display_dim(enh.exposure.y) - rgb, vec3<f32>(0.0)) * w;
         }
     }
     if (material.emissive.w < -1.5) {
@@ -1101,10 +1145,11 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
         // white light map's, so it goes out with that map's variable (the busbar, the
         // lights) as the Omsi.exe stage does.
         let lm_gate = select(1.0, clamp(in.params2.x, 0.0, 1.0), material.params2.x > 0.5);
-        emit = emit + tex.rgb * enh.led.x * alpha * lm_gate * max(enh.exposure.z * 2.0, 0.8);
+        // (in the cab - a dashboard's LCD lit by a white map reads as a panel - it dims at night)
+        emit = emit + tex.rgb * enh.led.x * alpha * lm_gate * max(enh.exposure.z * 2.0, 0.8) * mix(1.0, display_dim(1.0), 1.0 - outside);
     } else if (material.emissive.w < -0.5) {
         // a display's text (see MaterialExtra::display)
-        emit = emit + tex.rgb * 0.35 * max(enh.exposure.z * 2.0, 0.8);
+        emit = emit + tex.rgb * 0.35 * max(enh.exposure.z * 2.0, 0.8) * display_dim(1.0);
     }
     rgb = rgb + emit;
     if (enh.debug.x > 0.5) {

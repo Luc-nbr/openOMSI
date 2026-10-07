@@ -600,6 +600,7 @@ pub fn apply_display_font(states: &mut [TextTextureState], model: &omsi_model::M
 }
 
 /// Runtime state of one `[texttexture]`.
+#[derive(Clone)]
 pub struct TextTextureState {
     pub def: TextTexture,
     pub atlas: Option<Arc<FontAtlas>>,

@@ -167,6 +167,11 @@ pub(crate) struct App {
     pub(crate) plugin_events: Vec<omsi_plugin::GameEvent>,
     /// Seconds Ctrl+Shift+Page Up/Down has been held (the clock runs faster the longer).
     pub(crate) clock_hold: f32,
+    /// How far the clock was set since the timetable was last put out again (s; see
+    /// `shift_clock`).
+    pub(crate) clock_jump: f64,
+    /// The bus whose seat (`settings::bus_seats`) `settings.seat` holds now.
+    pub(crate) seat_bus: String,
     /// A controller button held for looking left, right, up, down (`view_look_*`).
     pub(crate) pad_look: [bool; 4],
     /// A controller button held for the multiplayer bus radio (`voice_radio`).
@@ -704,6 +709,7 @@ impl App {
                         paint: o.paint.clone(),
                         situation_vars: o.vars.clone(),
                         situation_strvars: o.strvars.clone(),
+                        situation_odometer_km: o.odometer_km,
                         situation_others: Vec::new(),
                         line: None,
                         tour: None,
@@ -779,6 +785,7 @@ impl App {
                     match traffic::Traffic::new(&self.args.root, &w, self.args.traffic) {
                         Ok(mut t) => {
                             t.lights_only = !populated;
+                            t.no_timetable_buses = self.args.no_timetable_buses;
                             if let Some(lan) = self.lan.as_ref() {
                                 t.set_lan_seed(lan::population_seed(lan));
                             }

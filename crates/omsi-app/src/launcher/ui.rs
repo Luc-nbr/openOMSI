@@ -174,7 +174,7 @@ impl Popup {
     /// The options shown (their places in `options`): those with the typed text in them.
     fn shown(&self) -> Vec<usize> {
         let q = self.query.to_lowercase();
-        (0..self.options.len()).filter(|&k| q.is_empty() || option_words(&self.options[k]).to_lowercase().contains(&q)).collect()
+        (0..self.options.len()).filter(|&k| q.is_empty() || matches(option_words(&self.options[k]), &q)).collect()
     }
 }
 
@@ -205,6 +205,11 @@ fn parse_picture(o: &str) -> Option<(Option<(usize, u32, u32)>, &str)> {
 /// What an option says, as typing into an open list finds it (a picture's numbers left out).
 fn option_words(o: &str) -> &str {
     parse_picture(o).map(|p| p.1).unwrap_or(o)
+}
+
+/// Whether `text` (or its translation) holds the search `q` (in lower case).
+pub fn matches(text: &str, q: &str) -> bool {
+    text.to_lowercase().contains(q) || omsi_ui::tr(text).to_lowercase().contains(q)
 }
 
 /// A calendar dropdown for a date field.

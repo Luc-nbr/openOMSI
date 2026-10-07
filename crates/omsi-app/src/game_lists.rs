@@ -257,6 +257,9 @@ fn hof_label(p: &std::path::Path) -> String {
 /// The time speeds, traffic amounts and passenger shares the options step through.
 const SPEEDS: [f64; 5] = [1.0, 2.0, 4.0, 8.0, 15.0];
 pub(crate) const TRAFFIC: [usize; 7] = [0, 10, 20, 30, 50, 80, 120];
+/// The most traffic anything may ask for: the menu's top step, the server's `traffic <n>`
+/// and server.cfg's `traffic` alike (#1327).
+pub(crate) const TRAFFIC_MAX: usize = TRAFFIC[TRAFFIC.len() - 1];
 const PAX: [f32; 6] = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0];
 const VOLUME: [f32; 6] = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0];
 /// The pedal strengths the options step through (see `settings::pedal_curve`).
@@ -783,12 +786,10 @@ pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -
                     LIST_DIRTY.store(true, std::sync::atomic::Ordering::Relaxed);
                 }
                 "seat_reset" if step => {
+                    // (this bus's views as its .bus file has them again)
                     app.settings.seat = [0.0; 3];
                     app.settings.seat_pitch_deg = 0.0;
-                    for k in ["seat_x", "seat_y", "seat_z"] {
-                        remember_setting(k, "0");
-                    }
-                    remember_setting("seat_pitch_deg", "0");
+                    remember_bus_seat(app);
                 }
                 "clock_ontime" if step => {
                     if app.lan.as_ref().is_some_and(|l| l.role == omsi_net::Role::Client) {
@@ -864,18 +865,7 @@ pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -
                 Some(ListKind::Tours(arg.to_string(), None))
             }
             "free" => {
-                app.duty = None;
-                // unscheduled: the GetTT* callbacks answer ""/0/-1 again, as in Omsi.exe
-                if let Some(p) = app.player.as_mut() {
-                    let h = &mut p.vehicle.host;
-                    h.tt_line.clear();
-                    h.tt_stops.clear();
-                    h.tt_stop_ids.clear();
-                    h.tt_busstop_index = -1;
-                    h.tt_terminus_index = -1;
-                    h.tt_delay = 0.0;
-                }
-                app.service_msg = Some(("Free drive: no duty".into(), 4.0));
+                end_duty(app);
                 None
             }
             _ => None,
@@ -1020,6 +1010,31 @@ pub(crate) fn button(name: &str, text: &str, desc: &str, id: &str) -> (String, S
 }
 
 /// A switch row, if the setting `id` is one.
+/// The duty given up (the game menu's "End the duty", Free drive in the list of lines): the
+/// bus is unscheduled, and the `GetTT*` callbacks answer ""/0/-1 again as in Omsi.exe. "End
+/// the duty" dropped the duty alone, and the bus's own displays went on with the old trip -
+/// a paper sign with its line in the window, the IBIS's stop list (#1317).
+pub(crate) fn end_duty(app: &mut App) {
+    app.duty = None;
+    if let Some(p) = app.player.as_mut() {
+        clear_timetable(&mut p.vehicle);
+    }
+    app.service_msg = Some(("Free drive: no duty".into(), 4.0));
+}
+
+/// A vehicle's timetable for its scripts emptied (see `end_duty`).
+pub(crate) fn clear_timetable(v: &mut omsi_sim::VehicleInstance) {
+    let h = &mut v.host;
+    h.tt_line.clear();
+    h.tt_stops.clear();
+    h.tt_stop_ids.clear();
+    h.tt_busstop_index = -1;
+    h.tt_terminus_index = -1;
+    h.tt_delay = 0.0;
+    h.schedule_active = 0.0;
+    v.set_var("schedule_active", 0.0);
+}
+
 pub(crate) fn switch_row(app: &App, id: &str, name: &str, desc: &str) -> Option<(String, String)> {
     let on = toggle_now(app, id)?;
     Some((row(name, 's', if on { "on" } else { "off" }, desc, None), id.to_string()))
@@ -1387,14 +1402,17 @@ fn option_set(app: &mut App, verb: &str, arg: &str, v: f32) -> Option<(&'static 
             app.settings.head_idle_pace = (v * 100.0).round() / 100.0;
             Some(("head_idle_pace", app.settings.head_idle_pace.to_string()))
         }
+        // the seat: kept for this bus (`bus_seats`), not for every bus (#1355)
         "seat" => {
             let k: usize = arg.trim().parse().unwrap_or(0).min(2);
             app.settings.seat[k] = (v * 100.0).round() / 100.0;
-            Some((["seat_x", "seat_y", "seat_z"][k], app.settings.seat[k].to_string()))
+            remember_bus_seat(app);
+            None
         }
         "seat_pitch" => {
             app.settings.seat_pitch_deg = v.clamp(-45.0, 45.0).round();
-            Some(("seat_pitch_deg", app.settings.seat_pitch_deg.to_string()))
+            remember_bus_seat(app);
+            None
         }
         // the clock set directly: the hour or the minute (the seconds stay)
         "hour" | "minute" => {
@@ -1501,6 +1519,8 @@ fn toggle_now(app: &App, id: &str) -> Option<bool> {
         "vr_desktop_mirror" => s.vr_desktop_mirror,
         "doppler" => s.doppler,
         "steering_linear" => s.steering_linear,
+        "pad_steer_linear" => s.pad_steer_linear,
+        "arrows_switch_cams" => s.arrows_switch_cams,
         "old_steering" => s.old_steering,
         "red_steer_spd" => s.red_steer_spd,
         "momentary_gears" => s.momentary_gears,
@@ -1759,6 +1779,14 @@ fn toggle_set(app: &mut App, id: &str, on: bool) -> Option<(&'static str, String
         "steering_linear" => {
             app.settings.steering_linear = on;
             Some(("steering_linear", bit))
+        }
+        "pad_steer_linear" => {
+            app.settings.pad_steer_linear = on;
+            Some(("pad_steer_linear", bit))
+        }
+        "arrows_switch_cams" => {
+            app.settings.arrows_switch_cams = on;
+            Some(("arrows_switch_cams", bit))
         }
         "old_steering" => {
             app.settings.old_steering = on;
@@ -2168,7 +2196,9 @@ fn store_with(app: &mut App, change: impl FnOnce(&mut serde_json::Value)) {
 
 fn reload_settings(app: &mut App) {
     flush_settings(true);
+    // (the seat is the bus's, see `bus_seats`: it is read again for the bus)
     app.settings = crate::settings::Settings::load();
+    app.seat_bus.clear();
     crate::ui_language(&app.settings.language);
     sync_live(app);
 }
@@ -2703,6 +2733,24 @@ static SETTINGS_CACHE: std::sync::Mutex<Option<serde_json::Value>> = std::sync::
 
 /// Write one key of `~/.openomsi/settings.cfg` (the launcher's file; the other lines
 /// stay as they are). The write is delayed a moment and joined with the ones that follow.
+/// The key the seat of the player's bus is kept under (`settings::bus_seats`): its `.bus`
+/// file, relative to the installation where it lies in it.
+pub(crate) fn seat_key(p: &crate::player::Player) -> String {
+    // (from its `Vehicles` folder on, so that a copy of the installation finds it)
+    let path = p.vehicle.ty.def.path.to_string_lossy().replace('\\', "/");
+    match path.to_ascii_lowercase().rfind("/vehicles/") {
+        Some(i) => path[i + 1..].to_string(),
+        None => path,
+    }
+}
+
+/// The seat as the menu has it now, kept for the player's bus.
+fn remember_bus_seat(app: &App) {
+    if let Some(p) = app.player.as_ref() {
+        crate::settings::bus_seats::remember(&seat_key(p), app.settings.seat, app.settings.seat_pitch_deg);
+    }
+}
+
 pub(crate) fn remember_setting(key: &str, value: &str) {
     {
         let mut p = PENDING_SETTINGS.lock().unwrap_or_else(|e| e.into_inner());

@@ -562,13 +562,14 @@ impl Vehicle {
         self.plate_from(number, self.registration_list.is_some())
     }
 
-    /// The plate the vehicle dialog gives the player's bus for fleet number `number`
-    /// (Tform_selectVeh.Edit1Change, which Button1Click writes over the AI's): the list
-    /// file's plate only in the list mode, the last plate keyword's - a repaint's
-    /// `[registration_list]` followed by the template's `[registration_automatic]` gives
-    /// the player prefix and number, its AI copies the list's plate.
+    /// The plate the player's bus gets for fleet number `number`: the `[registration_list]`
+    /// file's plate when it has one for that number, whatever keyword came last, as the AI's
+    /// (#133, #1584, #1591). Taken from the list only in the list mode - a repaint's
+    /// `[registration_list]` followed by the template's `[registration_automatic]` - the
+    /// player's bus showed the German prefix and its fleet number where OMSI 2 shows the
+    /// plate, and a Hong Kong number `ATENU1035@@UC 6645@@S` came out as `ATENU1035`.
     pub fn chosen_plate_of_number(&self, number: &str) -> String {
-        self.plate_from(number, self.registration_mode == 2)
+        self.plate_from(number, self.registration_list.is_some())
     }
 
     fn plate_from(&self, number: &str, list: bool) -> String {
@@ -684,8 +685,9 @@ mod tests {
         assert_eq!(v.registration_mode, 3);
         assert_eq!(v.plate_of_number("E1"), "AB12 CDE");
         assert_eq!(v.plate_of_number("E2"), "B-V E2");
-        // (the player's bus from the dialog: the automatic mode's plate, Edit1Change)
-        assert_eq!(v.chosen_plate_of_number("E1"), "B-V E1");
+        // the player's bus too (#1584): the list's plate, prefix + number where it has none
+        assert_eq!(v.chosen_plate_of_number("E1"), "AB12 CDE");
+        assert_eq!(v.chosen_plate_of_number("E2"), "B-V E2");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

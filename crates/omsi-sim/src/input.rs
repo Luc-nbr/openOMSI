@@ -195,6 +195,22 @@ impl KeyboardAxes {
         // Steering (the paces: `paces`)
         let (rate, back) = self.paces();
         let red = self.red();
+        // The centring key held with the steering key towards the middle brings the wheel
+        // back at both paces together, as in OMSI - the quick way back out of a full lock
+        // (#1652, #851): the steering key used to end the centring, so Num 5 held with
+        // Num 4 did no more than Num 4 alone. It stops in the middle.
+        let one_key = self.left_key != self.right_key;
+        let towards_middle = one_key
+            && ((self.left_key && self.steering > 0.0) || (self.right_key && self.steering < 0.0) || self.steering == 0.0);
+        if self.neutral_key && towards_middle {
+            let omsi = (0.05 / self.lock_curvature.max(0.01)).clamp(0.05, 5.0) * red;
+            let own = if self.old_steering { 0.0 } else { back };
+            let step = (rate + omsi.max(own)) * dt;
+            self.steering -= self.steering.clamp(-step, step);
+            self.steer_vel = 0.0;
+            self.centering = true;
+            return;
+        }
         if self.neutral_key {
             self.centering = true;
         }
@@ -420,6 +436,30 @@ mod tests {
         a.update(0.1);
         let back = (0.8 - a.steering) / 0.1;
         assert!((back - key_pace).abs() < 1e-3, "{back} against the keys' {key_pace}");
+    }
+
+    /// Num 5 held with the steering key towards the middle comes back faster than either
+    /// alone, and stops in the middle (#1652).
+    #[test]
+    fn centring_with_the_key_towards_the_middle_is_faster() {
+        let back = |left: bool, neutral: bool| {
+            let mut a = KeyboardAxes { lock_curvature: 0.13, speed_kmh: 30.0, steering: 0.9, ..Default::default() };
+            a.left_key = left;
+            a.neutral_key = neutral;
+            for _ in 0..6 {
+                a.update(1.0 / 60.0);
+            }
+            0.9 - a.steering
+        };
+        let (both, key, centre) = (back(true, true), back(true, false), back(false, true));
+        assert!(both > key * 1.3 && both > centre * 1.3, "both {both}, key {key}, centring {centre}");
+        let mut a = KeyboardAxes { lock_curvature: 0.13, steering: 0.05, ..Default::default() };
+        a.left_key = true;
+        a.neutral_key = true;
+        for _ in 0..120 {
+            a.update(1.0 / 60.0);
+        }
+        assert_eq!(a.steering, 0.0);
     }
 
     /// Omsi.exe treats the two steering keys symmetrically: either one works alone,

@@ -42,6 +42,7 @@ pub(crate) fn run_offscreen(
     let mut traffic = {
         let mut t = traffic::Traffic::new(&args.root, &world, args.traffic)?;
         t.lights_only = !(args.traffic > 0 || args.schedule || crate::rail_drive::args_rail(args) || args.lan_join.is_some());
+        t.no_timetable_buses = args.no_timetable_buses;
         if let Some(seed) = lan_seed {
             t.set_lan_seed(seed);
         }
@@ -178,6 +179,8 @@ pub(crate) fn run_offscreen(
         h.time_of_day = parse_time(&args.time);
         h.stop_targets = schedule.as_ref().map(|s| s.stop_targets());
         h.stop_names = schedule.as_ref().map(|s| s.stop_names());
+        // (the trips due at the stops soon, as in the window: #1415)
+        h.due_dests = schedule.as_ref().map(|s| s.due_destinations(parse_time(&args.time)));
         h.populate(&world, &renderer, &mut scene, center);
         if let Some(p) = player.as_ref() {
             if args.riders > 0 {
@@ -1891,6 +1894,9 @@ pub(crate) fn run_offscreen(
             .as_ref()
             .map(|p| p.vehicle.position)
             .unwrap_or(camera.position);
+        if let Some(p) = player_ref.as_ref() {
+            h.sync_money(&world, &renderer, &mut scene, &p.vehicle);
+        }
         h.sync(&renderer, &mut scene, center);
         log::info!(
             "passengers: {} people ({}), request {:?}, paid {:?}, change due {:?}",

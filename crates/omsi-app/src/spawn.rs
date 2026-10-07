@@ -468,6 +468,7 @@ pub(crate) fn spawn_player(
         take_change: false,
         toggled_up: Default::default(),
         momentary_gears: crate::settings::Settings::load().momentary_gears,
+        from_keyboard: false,
         auto_shift: crate::settings::Settings::load().auto_shift,
         auto_shift_wait: 0.0,
         auto_shift_idle: 0.0,
@@ -503,6 +504,9 @@ pub(crate) fn spawn_player(
         let (numeric, textual) = p
             .vehicle
             .restore_script_state(&args.situation_vars, &args.situation_strvars);
+        if let Some(km) = args.situation_odometer_km {
+            p.vehicle.set_odometer_km(km);
+        }
         log::info!(
             "situation: {numeric} of {} variables and {textual} of {} strings restored",
             args.situation_vars.len(),
@@ -652,6 +656,14 @@ pub(crate) fn spawn_player(
         scene,
         matches!(args.view.as_str(), "driver" | "pax"),
     );
+    // The sounds the scripts asked for while the bus was being set up ({init}, the state it
+    // is put in - cold, ready, the situation's) are not played: the first frame played them
+    // all, an engine stopping as every session began (#1198). Omsi.exe puts a bus down silent.
+    if !p.vehicle.host.fired_triggers.is_empty() {
+        log::info!("spawn: sound triggers of the set-up left silent: {:?}", p.vehicle.host.fired_triggers);
+    }
+    p.vehicle.host.fired_triggers.clear();
+    p.vehicle.host.fired_trigger_vars.clear();
     Ok(Some(p))
 }
 

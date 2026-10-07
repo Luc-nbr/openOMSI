@@ -3,7 +3,7 @@
 
 use super::state::{fmt_bytes, hhmm, short_map};
 use super::theme::*;
-use super::ui::{id_of, ButtonKind, Key, Ui};
+use super::ui::{id_of, matches, ButtonKind, Key, Ui};
 use super::{Launcher, Page};
 use glam::Vec2;
 use omsi_launcher_lib as core;
@@ -257,6 +257,7 @@ pub fn delete_driver(l: &mut Launcher, name: &str) {
             l.state.set_status(omsi_ui::tr("Personnel file of %{name} deleted.").replace("%{name}", name), false);
             l.state.profiles.retain(|n| n != name);
             if l.state.config.profile == name {
+                l.state.profile = None;
                 l.state.config.profile = l.state.profiles.first().cloned().unwrap_or_default();
                 let _ = core::save_config(&l.state.config);
             }
@@ -1299,6 +1300,8 @@ fn driving_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, c
         s["pad_steer_smooth"] = json!(pad_smooth.round());
         *dirty = 0.3;
     }
+    toggle_setting(ui, s, dirty, c.row(), "Stick steers like a wheel (a wheel seen as a gamepad)", "pad_steer_linear");
+    toggle_setting(ui, s, dirty, c.row(), "Arrow keys switch the cameras with a wheel too (no glance)", "arrows_switch_cams");
     // the pedals' response: softer (below 1) or stronger (above 1) than the pedal reads
     for (key, label, id) in [("pedal_throttle", "Throttle pedal strength", "s-pedt"), ("pedal_brake", "Brake pedal strength", "s-pedb")] {
         let mut v = get(s, key).as_f64().unwrap_or(1.0) as f32;
@@ -2069,7 +2072,7 @@ pub fn controls(l: &mut Launcher, area: Rect) {
         if sec == 0 && l.pages.kb_events[sec] {
             let mut events = names.events();
             if !q.is_empty() {
-                events.retain(|(action, label)| action.to_lowercase().contains(&q) || label.to_lowercase().contains(&q));
+                events.retain(|(action, label)| action.to_lowercase().contains(&q) || matches(label, &q));
             }
             let mut picked: Option<String> = None;
             l.ui.scroll_area(&format!("kb-events-{sec}"), Rect::new(inner.x - 6.0, inner.y + 62.0, inner.w + 12.0, inner.bottom() - (inner.y + 62.0)), &mut |ui, v| {
@@ -2098,7 +2101,7 @@ pub fn controls(l: &mut Launcher, area: Rect) {
         let list: Vec<(usize, String, i64, i64)> = l.state.keybindings.get(*key).and_then(|a| a.as_array()).map(|a| a.iter().enumerate().map(|(i, b)| (i, b.get("action").and_then(|x| x.as_str()).unwrap_or("").to_string(), b.get("scan_code").and_then(|x| x.as_i64()).unwrap_or(0), b.get("modifier").and_then(|x| x.as_i64()).unwrap_or(0))).collect()).unwrap_or_default();
         let mut shown: Vec<(usize, String, String, bool)> = list
             .iter()
-            .filter(|(_, a, s, m)| q.is_empty() || action_text(names, a).to_lowercase().contains(&q) || a.to_lowercase().contains(&q) || crate::keys::key_name(*s, *m).to_lowercase().contains(&q))
+            .filter(|(_, a, s, m)| q.is_empty() || matches(&action_text(names, a), &q) || a.to_lowercase().contains(&q) || crate::keys::key_name(*s, *m).to_lowercase().contains(&q))
             .map(|(i, a, s, m)| {
                 let clash = *s != 0 && list.iter().any(|(j, _, s2, m2)| j != i && s2 == s && m2 == m);
                 (*i, action_text(names, a), crate::keys::key_name(*s, *m), clash)
@@ -3237,20 +3240,40 @@ pub fn setup(l: &mut Launcher, area: Rect) {
     }
     y += 12.0;
     if l.ui.button("cfg-save", Rect::new(inner.x, y, 180.0, 42.0), "Save", Some("save"), ButtonKind::Primary) {
-        l.state.config.root = root.trim().to_string();
-        l.state.config.game = game.trim().to_string();
-        match core::save_config(&l.state.config) {
-            Ok(()) => {
-                // (what was read of the folders before is forgotten: a folder copied or
-                // changed while the launcher ran is read as it is now)
-                omsi_cfg::content_changed();
-                l.state.config = core::load_config();
-                l.pages.setup_root = None;
-                l.pages.setup_game = None;
-                l.state.set_status("Saved. Reading the content again…", false);
-                l.state.load_content();
+        let chosen = root.trim().to_string();
+        // A folder that is no complete installation is said so, with what it lacks, and
+        // nothing is saved: it was saved, then quietly replaced by the installation found
+        // before, while the page said "Saved" (#1656).
+        let missing = if chosen.is_empty() { Vec::new() } else { omsi_cfg::missing_original_essentials(std::path::Path::new(&chosen)) };
+        if !missing.is_empty() {
+            let shown: Vec<&str> = missing.iter().map(String::as_str).take(6).collect();
+            let more = if missing.len() > shown.len() { format!(" and {} more", missing.len() - shown.len()) } else { String::new() };
+            l.state.set_status(format!("Not saved: {chosen} is not a complete OMSI 2 installation - it lacks {}{more}", shown.join(", ")), true);
+        } else {
+            l.state.config.root = chosen.clone();
+            l.state.config.game = game.trim().to_string();
+            match core::save_config(&l.state.config) {
+                Ok(()) => {
+                    // (what was read of the folders before is forgotten: a folder copied or
+                    // changed while the launcher ran is read as it is now)
+                    omsi_cfg::content_changed();
+                    l.state.config = core::load_config();
+                    l.pages.setup_root = None;
+                    l.pages.setup_game = None;
+                    let same = chosen.is_empty() || std::path::Path::new(&chosen) == std::path::Path::new(&l.state.config.root);
+                    if same {
+                        l.state.set_status("Saved. Reading the content again…", false);
+                    } else {
+                        l.state.set_status(format!("Saved, but the OMSI 2 folder used is {}", l.state.config.root), true);
+                    }
+                    // (a phone: the gallery is kept out of the folder chosen at once, before
+                    // its media scanner lists its textures as photos, #1632)
+                    #[cfg(target_os = "android")]
+                    crate::android::hide_content_from_gallery();
+                    l.state.load_content();
+                }
+                Err(e) => l.state.set_status(format!("{e:#}"), true),
             }
-            Err(e) => l.state.set_status(format!("{e:#}"), true),
         }
     }
 }
@@ -3572,7 +3595,7 @@ mod settings_tests {
         }
         let driving = vec![
             "s-keys", "set-steering_linear", "set-old_steering", "set-red_steer_spd", "s-mouse", "set-mouse_smooth", "set-mouse_right_off", "set-blinker_cancel", "set-brake_hold", "set-auto_clutch", "set-momentary_gears", "set-ibis_auto", "s-go-keys",
-            "s-wrange", "s-wlock", "s-pad-steer-smooth", "s-pedt", "s-pedb", "set-ff_enabled", "set-ff_invert", "s-ffroad", "s-ffeng", "s-fffade", "s-wreset", "s-go-pads",
+            "s-wrange", "s-wlock", "s-pad-steer-smooth", "set-pad_steer_linear", "set-arrows_switch_cams", "s-pedt", "s-pedb", "set-ff_enabled", "set-ff_invert", "s-ffroad", "s-ffeng", "s-fffade", "s-wreset", "s-go-pads",
         ];
         let mut camera = vec![
             "s-seaty",
