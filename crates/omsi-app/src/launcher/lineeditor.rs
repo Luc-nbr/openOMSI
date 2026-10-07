@@ -1487,10 +1487,11 @@ fn displays_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, status: &mut Op
         yy += (ROW + 4.0).max(hh + 6.0);
         head(ui, "Stop names on the IBIS", Rect::new(x, yy, w, 16.0));
         yy += 20.0;
+        // (one row a stop: its name, and what the IBIS calls it)
+        let lw = (w * 0.36).min(130.0);
         for (i, (name, def)) in stops.iter().enumerate() {
-            ui.text_in(name, Rect::new(x, yy, w, 16.0), 11.0, Weight::Medium, TEXT_SOFT, Align::Left);
-            yy += 17.0;
-            stops_changed |= ui.text_input(&format!("le-ibis-{d_idx}-{i}"), Rect::new(x, yy, w, ROW - 4.0), &mut stop_vals[i], def, None);
+            ui.text_in(name, Rect::new(x, yy, lw - 8.0, ROW - 4.0), 11.5, Weight::Medium, TEXT_SOFT, Align::Left);
+            stops_changed |= ui.text_input(&format!("le-ibis-{d_idx}-{i}"), Rect::new(x + lw, yy, w - lw, ROW - 4.0), &mut stop_vals[i], def, None);
             yy += ROW + 2.0;
         }
         // the player's own destinations, offered with the depot file's wherever a destination

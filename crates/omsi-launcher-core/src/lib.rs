@@ -3635,7 +3635,7 @@ mod tests {
     #[test]
     fn a_composed_duty_passes_its_parts() {
         let d = Duty { map: "maps/x/global.cfg".into(), bus: "Vehicles/x.bus".into(), time: "07:50".into(), line: Some("14".into()), tour: Some("1".into()), trip: Some("3".into()), legs: vec!["14|1|3|2".into(), "15|Mo-Fr 2|4|1".into()], ..Default::default() };
-        let a = duty_args(&d).unwrap();
+        let a = duty_args_for_root(&d, Path::new("test-omsi")).unwrap();
         let parts: Vec<&str> = a.windows(2).filter(|w| w[0] == "--duty-leg").map(|w| w[1].as_str()).collect();
         assert_eq!(parts, ["14|1|3|2", "15|Mo-Fr 2|4|1"]);
         assert!(a.iter().position(|x| x == "--line") < a.iter().position(|x| x == "--duty-leg"));
@@ -3646,13 +3646,13 @@ mod tests {
     #[test]
     fn a_free_drive_along_a_line_passes_its_route_and_no_tour() {
         let d = Duty { map: "maps/x/global.cfg".into(), bus: "Vehicles/x.bus".into(), time: "07:50".into(), entry: Some(-1), line: Some("14".into()), tour: Some("1".into()), trip: Some("3".into()), legs: vec!["14|1|3|2".into()], free_line: Some("14_Hbf-Zoo".into()), ..Default::default() };
-        let a = duty_args(&d).unwrap();
+        let a = duty_args_for_root(&d, Path::new("test-omsi")).unwrap();
         assert!(a.windows(2).any(|w| w[0] == "--line" && w[1] == "14"), "{a:?}");
         assert!(a.windows(2).any(|w| w[0] == "--free-line" && w[1] == "14_Hbf-Zoo"), "{a:?}");
         assert!(a.iter().any(|x| x == "--schedule") && a.iter().any(|x| x == "--auto-entry"), "{a:?}");
         assert!(!a.iter().any(|x| x == "--tour" || x == "--trip" || x == "--duty-leg"), "{a:?}");
         // (an empty route is no free drive along a line)
-        let a = duty_args(&Duty { free_line: Some(" ".into()), ..d }).unwrap();
+        let a = duty_args_for_root(&Duty { free_line: Some(" ".into()), ..d }, Path::new("test-omsi")).unwrap();
         assert!(!a.iter().any(|x| x == "--free-line") && a.iter().any(|x| x == "--tour"), "{a:?}");
     }
 
@@ -3669,15 +3669,15 @@ mod tests {
     #[test]
     fn a_duty_passes_its_bus_options_after_the_paint() {
         let d = Duty { map: "maps/x/global.cfg".into(), bus: "Vehicles/x.bus".into(), time: "09:00".into(), paint: Some("Berlin".into()), set_vars: vec![("vis_mirrors".into(), 0.0), ("vis_CTI_matrix".into(), 2.0)], ..Default::default() };
-        let a = duty_args(&d).unwrap();
+        let a = duty_args_for_root(&d, Path::new("test-omsi")).unwrap();
         let p = a.iter().position(|x| x == "--paint").unwrap();
         assert_eq!(&a[p..p + 4], ["--paint", "Berlin", "--setvar", "vis_mirrors=0,vis_CTI_matrix=2"]);
-        let none = duty_args(&Duty { set_vars: Vec::new(), ..d }).unwrap();
+        let none = duty_args_for_root(&Duty { set_vars: Vec::new(), ..d }, Path::new("test-omsi")).unwrap();
         assert!(!none.iter().any(|x| x == "--setvar"), "{none:?}");
         let old: Duty = serde_json::from_str(r#"{"map":"maps/x/global.cfg","bus":"Vehicles/x.bus","time":"09:00","paint":"Berlin"}"#).unwrap();
         assert!(old.set_vars.is_empty());
         // (a situation continued: its bus as it was saved, no options)
-        let sit = duty_args(&Duty { situation: Some("maps/x/laststn.osn".into()), set_vars: vec![("vis_mirrors".into(), 0.0)], ..Default::default() }).unwrap();
+        let sit = duty_args_for_root(&Duty { situation: Some("maps/x/laststn.osn".into()), set_vars: vec![("vis_mirrors".into(), 0.0)], ..Default::default() }, Path::new("test-omsi")).unwrap();
         assert!(!sit.iter().any(|x| x == "--setvar"), "{sit:?}");
     }
 
@@ -3686,11 +3686,11 @@ mod tests {
     #[test]
     fn a_duty_passes_its_display_font() {
         let d = Duty { map: "maps/x/global.cfg".into(), bus: "Vehicles/x.bus".into(), time: "09:00".into(), display_font: Some(" Annax Small ".into()), ..Default::default() };
-        let a = duty_args(&d).unwrap();
+        let a = duty_args_for_root(&d, Path::new("test-omsi")).unwrap();
         let p = a.iter().position(|x| x == "--display-font").unwrap();
         assert_eq!(a[p + 1], "Annax Small");
         for none in [None, Some("  ".to_string())] {
-            let a = duty_args(&Duty { display_font: none, ..d.clone() }).unwrap();
+            let a = duty_args_for_root(&Duty { display_font: none, ..d.clone() }, Path::new("test-omsi")).unwrap();
             assert!(!a.iter().any(|x| x == "--display-font"), "{a:?}");
         }
         let old: Duty = serde_json::from_str(r#"{"map":"maps/x/global.cfg","bus":"Vehicles/x.bus","time":"09:00"}"#).unwrap();
