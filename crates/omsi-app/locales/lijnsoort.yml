@@ -234,13 +234,13 @@ _version: 2
   ru: "Убрать"
   uk: "Прибрати"
   pl: "Usuń"
-"Choose a maker":
+"Choose a brand":
   nl: "Kies een merk"
-  de: "Hersteller wählen"
-  fr: "Choisir un constructeur"
-  ru: "Выберите производителя"
-  uk: "Виберіть виробника"
-  pl: "Wybierz producenta"
+  de: "Marke wählen"
+  fr: "Choisir une marque"
+  ru: "Выберите марку"
+  uk: "Виберіть марку"
+  pl: "Wybierz markę"
 "All its models":
   nl: "Al zijn modellen"
   de: "Alle Modelle"

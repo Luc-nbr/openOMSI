@@ -355,7 +355,7 @@ fn showroom(l: &mut Launcher, area: Rect, c: &Company, all: &[Listing], offers: 
     let searching = !l.company.fleet.dealer.search.trim().is_empty();
     let level = if searching { Level::Versions(String::new(), String::new()) } else { l.company.fleet.dealer.level.clone() };
     // the way back up
-    let mut parts = vec![omsi_ui::tr("All makers").into_owned()];
+    let mut parts = vec![omsi_ui::tr("All brands").into_owned()];
     match &level {
         Level::Models(m) => parts.push(m.clone()),
         Level::Versions(m, model) if !searching => {

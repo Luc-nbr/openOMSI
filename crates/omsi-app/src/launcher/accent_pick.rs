@@ -24,7 +24,7 @@ const SWATCH_STEP: f32 = 34.0;
 const CUSTOM_W: f32 = 112.0;
 /// The picker's square, the hue strip under it and the code's row.
 const SQUARE_H: f32 = 120.0;
-const PICKER_H: f32 = SQUARE_H + 8.0 + 14.0 + 10.0 + 32.0;
+pub const PICKER_H: f32 = SQUARE_H + 8.0 + 14.0 + 10.0 + 32.0;
 /// The palette's popover width.
 const POP_W: f32 = 312.0;
 
@@ -151,8 +151,9 @@ fn custom_chip(ui: &mut Ui, name: &str, r: Rect, cur: u32, on: bool, open: bool)
 }
 
 /// The picker in `r`: the square of saturation (across) and value (up), the hue's strip, the
-/// code and the colour itself. Returns a colour chosen in it.
-fn picker(ui: &mut Ui, name: &str, r: Rect, cur: u32) -> Option<u32> {
+/// code and the colour itself. Returns a colour chosen in it. (Also any other colour's: a
+/// line's in the line editor.)
+pub fn picker(ui: &mut Ui, name: &str, r: Rect, cur: u32) -> Option<u32> {
     let mut st = PICKERS.with(|p| p.borrow_mut().remove(name)).unwrap_or_default();
     st.open = true;
     // (it follows a colour chosen elsewhere: a swatch, the other picker)

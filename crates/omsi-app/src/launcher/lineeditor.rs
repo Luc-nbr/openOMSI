@@ -117,6 +117,10 @@ pub struct LineEditorView {
     go_depots: Option<String>,
     /// The sign's preview lit white rather than amber.
     white: bool,
+    /// The picker for any colour of the line open; the display texts the depot file leaves
+    /// empty shown too.
+    colour_open: bool,
+    more_texts: bool,
     /// The router of the map's network (the network's address, to see it is still that one),
     /// and the map's stops as the line editor offers them.
     router: Option<(usize, Router)>,
@@ -818,7 +822,7 @@ fn left_panel(l: &mut Launcher, r: Rect, maps: &[(String, String)], status: &mut
         Some(fc) => fc.colours.iter().cloned().chain(PALETTE.iter().take(6).map(|s| s.to_string())).collect(),
         None => PALETTE.iter().map(|s| s.to_string()).collect(),
     };
-    let sw = ((body.w - 7.0 * 8.0) / 8.0).min(30.0);
+    let sw = ((body.w - 8.0 * 8.0) / 9.0).min(30.0);
     for (k, hex) in palette.iter().enumerate() {
         let c = Rect::new(body.x + k as f32 * (sw + 8.0), y, sw, sw);
         let on = current.eq_ignore_ascii_case(hex);
@@ -833,7 +837,30 @@ fn left_panel(l: &mut Launcher, r: Rect, maps: &[(String, String)], status: &mut
             changed = true;
         }
     }
+    // any other colour: the picker under the swatches (the colour chosen in it fills the last
+    // one)
+    let c = Rect::new(body.x + palette.len() as f32 * (sw + 8.0), y, sw, sw);
+    let own = !palette.iter().any(|h| h.eq_ignore_ascii_case(&current));
+    let hover = ui.hover(c);
+    let cur = crate::accent::parse_hex(&current).unwrap_or(0x2a75f7);
+    ui.p().rounded(c, sw * 0.5, if own { colour_of(&current) } else { FIELD });
+    if own || hover || v.colour_open {
+        ui.p().rounded_border(c.inset(-3.0), sw * 0.5 + 3.0, 2.0, if own || v.colour_open { TEXT } else { TEXT_DIM });
+    }
+    ui.icon("palette", c.center(), 16.0, if own { crate::accent::Shades::of(cur).on } else if hover { TEXT } else { TEXT_SOFT });
+    ui.tooltip(c, "Any colour");
+    if ui.interact(super::ui::id_of("le-colour-any"), c).2 {
+        v.colour_open = !v.colour_open;
+    }
     y += sw + 16.0;
+    if v.colour_open {
+        let r = Rect::new(body.x, y - 4.0, body.w.min(360.0), super::accent_pick::PICKER_H);
+        if let Some(rgb) = super::accent_pick::picker(ui, "le-colour-pick", r, cur) {
+            v.line_mut().unwrap().colour = crate::accent::hex(rgb);
+            changed = true;
+        }
+        y += super::accent_pick::PICKER_H + 12.0;
+    }
     // the depot whose buses drive it
     ui.text_in(&omsi_ui::tr("Driven by the buses of").to_uppercase(), Rect::new(body.x, y, body.w, 16.0), 10.5, Weight::Bold, TEXT_DIM, Align::Left);
     y += 18.0;
@@ -1409,6 +1436,12 @@ fn displays_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, status: &mut Op
         None => omsi_ui::tr("Kept in a depot file of your own for this map, made from the map's when you keep the first; chosen under Stops, Destination.").into_owned(),
     };
     crate::mt::protect(mine.iter().map(|m| m.name.as_str()).chain([where_kept.as_str()]));
+    // (the texts the depot file fills for a destination first; those its destinations leave
+    // empty, and its textures, folded away under them)
+    let in_use: Vec<bool> = (0..defaults.len()).map(|k| matches!(depot.cols.get(k), Some(linehof::Column::Text { .. })) && (!defaults[k].trim().is_empty() || !sign_vals[k].is_empty())).collect();
+    let unused = in_use.iter().filter(|u| !**u).count();
+    let more = v.more_texts;
+    let mut more_toggle = false;
     let mut dest_new = v.dest_new.clone();
     let (mut keep_this, mut keep_new, mut drop_mine) = (false, false, None);
     ui.scroll_area(&format!("le-displays-{d_idx}"), area, &mut |ui, a| {
@@ -1418,12 +1451,22 @@ fn displays_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, status: &mut Op
         if new {
             head(ui, "Display texts", Rect::new(x, yy, w, 16.0));
             yy += 20.0;
+            let lw = (w * 0.36).min(130.0);
             for (k, def) in defaults.iter().enumerate() {
-                ui.text_in(&labels.get(k).cloned().unwrap_or_default(), Rect::new(x, yy, w, 16.0), 11.0, Weight::Medium, TEXT_SOFT, Align::Left);
-                yy += 17.0;
+                if !in_use[k] && !more {
+                    continue;
+                }
+                ui.text_in(&labels.get(k).cloned().unwrap_or_default(), Rect::new(x, yy, lw - 8.0, ROW - 4.0), 11.5, Weight::Medium, if in_use[k] { TEXT_SOFT } else { TEXT_FAINT }, Align::Left);
                 // (empty: the default, shown greyed)
-                texts_changed |= ui.text_input(&format!("le-sign-{d_idx}-{k}"), Rect::new(x, yy, w, ROW - 4.0), &mut sign_vals[k], if def.trim().is_empty() { "-" } else { def.as_str() }, None);
+                texts_changed |= ui.text_input(&format!("le-sign-{d_idx}-{k}"), Rect::new(x + lw, yy, w - lw, ROW - 4.0), &mut sign_vals[k], if def.trim().is_empty() { "-" } else { def.as_str() }, None);
                 yy += ROW + 2.0;
+            }
+            if unused > 0 {
+                let label = if more { omsi_ui::tr("Hide the %{n} empty texts") } else { omsi_ui::tr("%{n} more texts, empty for this depot file") };
+                if ui.button(&format!("le-sign-more-{d_idx}"), Rect::new(x, yy, w, ROW - 8.0), &label.replace("%{n}", &unused.to_string()), Some(if more { "expand_less" } else { "expand_more" }), ButtonKind::Ghost) {
+                    more_toggle = true;
+                }
+                yy += ROW - 2.0;
             }
             yy += 6.0;
         }
@@ -1483,6 +1526,9 @@ fn displays_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, status: &mut Op
         yy - a.y + 8.0
     });
     v.dest_new = dest_new;
+    if more_toggle {
+        v.more_texts = !v.more_texts;
+    }
     if keep_this || keep_new || drop_mine.is_some() {
         let path = match target.as_ref() {
             Some((path, _)) => Ok(path.clone()),
@@ -1564,7 +1610,7 @@ fn timetable_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, locked: &[BusS
     }
     let mut top = body.y + ROW + 8.0;
     if table_on {
-        top += ui.paragraph("The table is the line's timetable: the patterns below only fill it anew (\"Fill from the patterns\" in the table).", Vec2::new(body.x, top), body.w, 11.5, Weight::Regular, accent_2()) + 6.0;
+        top += ui.paragraph("The table is the line's timetable: a change to the patterns below fills that group of days anew at once; the times typed into the other groups stay.", Vec2::new(body.x, top), body.w, 11.5, Weight::Regular, accent_2()) + 6.0;
     }
     let body = Rect::new(body.x, top, body.w, (body.bottom() - top).max(40.0));
     let mut changed = false;
@@ -1572,6 +1618,9 @@ fn timetable_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, locked: &[BusS
     if line.days.len() < DAY_GROUPS.len() {
         line.days = reg::default_days();
     }
+    // (the departures each group had: a group whose patterns change them gets its trips in the
+    // table anew)
+    let before: Vec<Vec<f32>> = line.days.iter().map(|p| p.departures().iter().map(|d| d.0).collect()).collect();
     let days = &mut line.days;
     // (a size the company's level keeps locked says so, and asks for its popup)
     let sizes: Vec<String> = SIZES
@@ -1695,6 +1744,17 @@ fn timetable_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, locked: &[BusS
         y - a.y + h + 12.0
     });
     if changed {
+        let line = v.line_mut().unwrap();
+        if line.table_on {
+            let moved: Vec<usize> = (0..line.days.len()).filter(|&k| before.get(k).is_none_or(|b| *b != line.days[k].departures().iter().map(|d| d.0).collect::<Vec<f32>>())).collect();
+            if !moved.is_empty() {
+                let fresh = reg::table_from_patterns(line);
+                line.table.retain(|t| !moved.contains(&t.day));
+                line.table.extend(fresh.into_iter().filter(|t| moved.contains(&t.day)));
+                line.table.sort_by(|a, b| a.day.cmp(&b.day).then(a.departure().total_cmp(&b.departure())).then(a.dir.cmp(&b.dir)));
+                (v.table_sel, v.table_text) = (None, String::new());
+            }
+        }
         v.touched();
     }
     if level_ask.is_some() {
@@ -1803,7 +1863,7 @@ fn service_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, f: &ServiceFacts
     let (mut new_kind, mut typical, mut take_suits, mut periods_changed) = (None, false, false, false);
     let (mut toggle, mut remove, mut add): (Option<VehicleClass>, Option<usize>, Option<BusPick>) = (None, None, None);
     let mut pick = v.pick;
-    let makers: Vec<String> = std::iter::once(omsi_ui::tr("Choose a maker").into_owned()).chain(cat.iter().map(|m| m.0.clone())).collect();
+    let makers: Vec<String> = std::iter::once(omsi_ui::tr("Choose a brand").into_owned()).chain(cat.iter().map(|m| m.0.clone())).collect();
     let mut title = v.line().map(|x| x.title.clone()).unwrap_or_default();
     let mut title_changed = false;
     let mut level_ask = None;
