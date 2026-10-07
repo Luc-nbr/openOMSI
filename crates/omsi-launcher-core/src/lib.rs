@@ -2510,7 +2510,7 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
     // updates from the GitHub releases: looked for when the launcher starts (and during a
     // session, said over the navigator), installed after asking (or at once); and whether
     // the game is counted on the website's "playing now"
-    for (k, d) in [("update_check", json!(true)), ("update_auto", json!(false)), ("update_notify", json!(true)), ("presence", json!(true))] {
+    for (k, d) in [("update_check", json!(true)), ("update_auto", json!(true)), ("update_notify", json!(true)), ("presence", json!(true))] {
         v[k] = d;
     }
     // the companion on a phone or tablet in the network (`companion`), off unless asked for;
@@ -2912,7 +2912,7 @@ pub fn settings_to_text(v: &Value, old: Option<&str>) -> String {
         b("shadow_blobs", true),
         f("ctrl_deadzone", 0.0).clamp(0.0, 0.3),
         b("update_check", true),
-        b("update_auto", false),
+        b("update_auto", true),
         b("update_notify", true),
         b("presence", true),
         b("reflections", true),
@@ -3757,7 +3757,7 @@ mod tests {
     fn update_settings_round_trip() {
         // no file: look for updates, ask before installing
         let d = settings_from_text(None);
-        assert_eq!((d["update_check"].clone(), d["update_auto"].clone()), (json!(true), json!(false)));
+        assert_eq!((d["update_check"].clone(), d["update_auto"].clone()), (json!(true), json!(true)));
         let v = settings_from_text(Some("update_check=0\nupdate_auto=1\n"));
         assert_eq!((v["update_check"].clone(), v["update_auto"].clone()), (json!(false), json!(true)));
         let text = settings_to_text(&v, None);

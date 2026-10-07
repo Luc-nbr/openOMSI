@@ -89,7 +89,7 @@ const AS_IS: &[(&str, &str)] = &[
     ("MOD", "the same word in every language"),
     ("Esc", "a key's name"),
     ("Discord Rich Presence", "a product's name"),
-    ("github.com/openOmsi-project/openOMSI", "an address"),
+    ("github.com/Luc-nbr/openOMSI", "an address"),
     ("Stadtbus Grundorf", "an example company name"),
     ("Shuttleverkehr Altenfeld - Wurzbach", "an example line name"),
     ("MM-DD", "a date's form"),
