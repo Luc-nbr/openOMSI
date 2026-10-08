@@ -392,7 +392,11 @@ pub(crate) fn notice(o: &Offence) -> Notice {
             icon: "photo_camera",
             ink: NOW,
             title: omsi_ui::tr("Speed camera").into_owned(),
-            detail: tr_with("%{speed} km/h where %{limit} is allowed · fine %{amount}", &[("speed", format!("{:.0}", o.speed)), ("limit", format!("{:.0}", o.limit)), ("amount", euros(o.fine))]),
+            // (in miles an hour where the player chose it: `crate::units`)
+            detail: tr_with(
+                if crate::units::mph() { "%{speed} mph where %{limit} is allowed · fine %{amount}" } else { "%{speed} km/h where %{limit} is allowed · fine %{amount}" },
+                &[("speed", format!("{:.0}", crate::units::speed(o.speed))), ("limit", format!("{:.0}", crate::units::sign(o.limit))), ("amount", euros(o.fine))],
+            ),
             left: NOTICE_FOR,
             shown: 0.0,
         },
@@ -754,7 +758,7 @@ mod tests {
 
     #[test]
     fn the_notices_are_translated() {
-        let keys = ["Red light", "Speed camera", "You crossed the stop line on red · fine %{amount}", "%{speed} km/h where %{limit} is allowed · fine %{amount}"];
+        let keys = ["Red light", "Speed camera", "You crossed the stop line on red · fine %{amount}", "%{speed} km/h where %{limit} is allowed · fine %{amount}", "%{speed} mph where %{limit} is allowed · fine %{amount}"];
         for language in ["nl", "de", "fr", "ru", "uk", "pl"] {
             for key in keys {
                 let t = crate::_rust_i18n_try_translate(language, key);

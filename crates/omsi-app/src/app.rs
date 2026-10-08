@@ -746,6 +746,7 @@ impl App {
                     n.set_rect(&self.settings.nav_rect);
                 }
                 crate::stop_signs::set_style(crate::stop_signs::Style::from_setting(&self.settings.stop_style));
+                crate::units::set(&self.settings.speed_unit);
                 if let Some(d) = self.args.driver.as_deref() {
                     self.career = career::Career::load(&self.args.root, d);
                 }

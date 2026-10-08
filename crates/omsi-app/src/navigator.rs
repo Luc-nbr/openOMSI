@@ -1696,9 +1696,10 @@ impl Navigator {
         let pad = 11.0 * s;
         let base = top.y + top.h * 0.5 + self.fonts.cap_height(17.0 * s, Weight::Bold) * 0.5;
         let mut x = pad;
-        x += ui.text(&mut self.atlas, &self.fonts, &format!("{:.0}", f.speed_kmh.abs()), 17.0 * s, Weight::Bold, Vec2::new(x, base), Align::Left, TEXT);
+        // (in km/h, or in miles an hour where the player chose it: `crate::units`)
+        x += ui.text(&mut self.atlas, &self.fonts, &format!("{:.0}", crate::units::speed(f.speed_kmh.abs())), 17.0 * s, Weight::Bold, Vec2::new(x, base), Align::Left, TEXT);
         x += 4.0 * s;
-        x += ui.text(&mut self.atlas, &self.fonts, wd.kmh, 12.0 * s, Weight::Medium, Vec2::new(x, base), Align::Left, TEXT_DIM);
+        x += ui.text(&mut self.atlas, &self.fonts, crate::units::label(wd.kmh), 12.0 * s, Weight::Medium, Vec2::new(x, base), Align::Left, TEXT_DIM);
         let limit = net.and_then(|n| {
             let lane = if self.route.on_route { self.route.lanes.get(self.route.progress).copied() } else { None };
             let lane = lane.or_else(|| n.nearest_lane_near(f.bus, LaneKind::Street).filter(|l| l.2 < 8.0).map(|l| l.0))?;
@@ -1710,7 +1711,7 @@ impl Navigator {
             let c = Vec2::new(x + 10.0 * s, top.center().y);
             ui.circle(c, 10.5 * s, Color::rgba(200, 40, 40, 1.0));
             ui.circle(c, 8.3 * s, Color::rgba(235, 235, 235, 1.0));
-            let t = format!("{:.0}", (v / 5.0).round() * 5.0);
+            let t = format!("{:.0}", crate::units::sign(v));
             let px = if t.len() > 2 { 7.5 } else { 9.0 } * s;
             ui.text(&mut self.atlas, &self.fonts, &t, px, Weight::Black, Vec2::new(c.x, c.y + self.fonts.cap_height(px, Weight::Black) * 0.5), Align::Center, Color::rgba(15, 15, 15, 1.0));
         }

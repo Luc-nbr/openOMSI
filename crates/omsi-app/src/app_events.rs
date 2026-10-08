@@ -3510,7 +3510,7 @@ fn info_line(clock: &omsi_sim::SimClock, player: Option<&Player>, duty: Option<&
     let t = clock.time;
     let mut parts = vec![format!("{:02}:{:02}:{:02}", ((t / 3600.0) as i64).rem_euclid(24), ((t % 3600.0) / 60.0) as i64, (t % 60.0) as i64)];
     if let Some(p) = player {
-        parts.push(format!("{:.0} km/h", p.vehicle.physics.velocity_kmh().abs()));
+        parts.push(format!("{:.0} {}", crate::units::speed(p.vehicle.physics.velocity_kmh().abs()), crate::units::label("km/h")));
         parts.push(distance_driven(metres));
         // the bus's whole mileage, as OMSI's Shift+Z overlay reads it ("Mileometer", the
         // `kmcounter_*` the cockpit shows, whole kilometres and the metres of the fraction)

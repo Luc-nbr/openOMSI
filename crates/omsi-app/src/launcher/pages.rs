@@ -1797,6 +1797,7 @@ fn general_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, c
         *dirty = 0.3;
     }
     sel_setting(ui, s, dirty, "s-stop-style", c.row(), "Bus stop signs", "stop_style", &[("de", "German (H)"), ("uk", "British"), ("fr", "French")]);
+    sel_setting(ui, s, dirty, "s-speed-unit", c.row(), "Speed in", "speed_unit", &[("kmh", "km/h"), ("mph", "mph (miles per hour)")]);
     // (signing on as at a depot: off, the duty is there at once)
     toggle_setting(ui, s, dirty, c.row(), "Sign on with personnel number and code", "nav_signon");
     c.y += ui.paragraph("Before a duty the navigator asks for your number and code and for the duty order to be accepted. Off, the map and the duty show at once.", Vec2::new(c.inner.x + 12.0, c.y - 5.0), c.inner.w - 24.0, 11.5, omsi_ui::Weight::Regular, TEXT_FAINT) + 3.0;
@@ -3648,7 +3649,7 @@ mod settings_tests {
         ];
         let general = vec![
             "s-lang", "set-machine_translation", "set-launcher_rest", "set-discord_status", "set-voice_chat", "set-companion", "s-launcher-scale", "set-animations", "set-page_bus", "s-accent-sw0", "s-accent-sw1", "s-accent-sw2", "s-accent-sw3", "s-accent-sw4", "s-accent-sw5", "s-accent-sw6", "s-accent-sw7", "s-accent-custom", "s-welcome-again", "s-tour-start", "s-uiscale", "set-ui_scale_window", "s-uiop", "set-tooltips", "set-show_fps", "set-notes", "set-chat", "s-chatsize", "set-name_tags",
-            "set-navigator", "set-nav_arrows", "set-nav_ai", "set-nav_board", "s-nav-scale", "s-stop-style", "set-nav_signon", "corner-top-left", "corner-top-right", "corner-bottom-left", "corner-bottom-right", "s-nav-reset",
+            "set-navigator", "set-nav_arrows", "set-nav_ai", "set-nav_board", "s-nav-scale", "s-stop-style", "s-speed-unit", "set-nav_signon", "corner-top-left", "corner-top-right", "corner-bottom-left", "corner-bottom-right", "s-nav-reset",
             "set-update_check", "set-update_auto", "set-update_notify", "set-presence", "s-upd-check", "s-upd-github", "s-reset",
         ];
         vec![graphics, driving, camera, sound, gameplay, general]

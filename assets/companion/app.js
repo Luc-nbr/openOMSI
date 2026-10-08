@@ -1004,6 +1004,7 @@
     map.setFlat(prefs.flat);
     var top = {
       speed: h('b', null, '0'),
+      unit: h('small', null, 'km/h'),
       limit: h('i', { class: 'limit', hidden: true }),
       mid: h('span', { class: 'mid' }),
       day: h('small', null),
@@ -1024,7 +1025,7 @@
       mv.update();
     } }, prefs.flat ? '2D' : '3D');
     var header = h('header', { class: 'nav-top' },
-      h('div', { class: 'speed' }, top.speed, h('small', null, 'km/h'), top.limit),
+      h('div', { class: 'speed' }, top.speed, top.unit, top.limit),
       top.mid,
       h('div', { class: 'when' }, top.day, top.clock));
     // (the street the bus is on stands just above the next stop, in the middle)
@@ -1064,6 +1065,8 @@
           return;
         }
         top.speed.textContent = String(Math.round(Math.abs(nav.v || 0)));
+        // (in miles an hour where the player chose it in the game's settings)
+        top.unit.textContent = nav.unit === 'mph' ? 'mph' : 'km/h';
         top.limit.hidden = !nav.limit;
         top.limit.textContent = nav.limit ? String(nav.limit) : '';
         top.limit.className = 'limit' + (nav.limit >= 100 ? ' three' : '');

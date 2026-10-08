@@ -2672,6 +2672,7 @@ pub(crate) fn run_offscreen(
             nav.show_ai = settings.nav_ai;
             nav.set_rect(&settings.nav_rect);
             crate::stop_signs::set_style(crate::stop_signs::Style::from_setting(&settings.stop_style));
+            crate::units::set(&settings.speed_unit);
             if omsi_cfg::env::var_os("OMSI_NAV_MAP").is_some() {
                 nav.toggle_map();
             }

@@ -1979,6 +1979,11 @@ mod record_tests {
         assert_eq!(settings_from_text(Some("nav_scale=9\nstop_style=xx\n"))["nav_scale"], json!(2.0));
         let text = settings_to_text(&settings_from_text(Some("stop_style=fr\n")), None);
         assert!(text.contains("stop_style=fr\n") && text.contains("nav_scale=1\n"), "{text}");
+        // speeds in miles an hour kept, anything else km/h
+        assert_eq!(settings_from_text(None)["speed_unit"], json!("kmh"));
+        assert_eq!(settings_from_text(Some("speed_unit=MPH\n"))["speed_unit"], json!("mph"));
+        assert_eq!(settings_from_text(Some("speed_unit=knots\n"))["speed_unit"], json!("kmh"));
+        assert!(settings_to_text(&settings_from_text(Some("speed_unit=mph\n")), None).contains("speed_unit=mph\n"));
     }
 
     /// The duty board under the navigator is on unless switched off; the navigator's dragged
@@ -2564,6 +2569,15 @@ pub fn corner_placed_at(corner: &str) -> Option<[f64; 2]> {
     (x.is_finite() && y.is_finite()).then(|| [x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)])
 }
 
+/// The unit speeds show in (`speed_unit`): "mph" (miles an hour, for players in the United
+/// Kingdom), else "kmh".
+pub fn speed_unit(v: &str) -> &'static str {
+    match v.trim().to_ascii_lowercase().as_str() {
+        "mph" | "mi/h" | "miles" => "mph",
+        _ => "kmh",
+    }
+}
+
 /// The stop signs on the navigator's map (`stop_style`): "de" (the German H), "uk" (the
 /// British bus stop flag) or "fr" (the French arrêt); anything else the German.
 pub fn stop_style(v: &str) -> &'static str {
@@ -2678,6 +2692,8 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
     // (German, British or French)
     v["nav_scale"] = json!(1.0);
     v["stop_style"] = json!("de");
+    // speeds in km/h, or in miles an hour (players in the United Kingdom)
+    v["speed_unit"] = json!("kmh");
     // the interface's accent colour (the launcher's Settings, the palette in its bar)
     v["accent"] = json!(ACCENT_DEFAULT);
     // signing on in the navigator with the personnel number and the code, then the duty
@@ -2733,6 +2749,7 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
             "launcher_ui" => v[&k] = json!(launcher_ui(val)),
             "nav_scale" => v[&k] = json!(nav_scale(val.parse::<f64>().ok())),
             "stop_style" => v[&k] = json!(stop_style(val)),
+            "speed_unit" => v[&k] = json!(speed_unit(val)),
             "accent" => v[&k] = json!(accent_text(val)),
             "nav_signon" | "nav_board" => v[&k] = json!(b(val)),
             "nav_rect" => v[&k] = json!(nav_rect(val)),
@@ -3121,7 +3138,7 @@ pub fn settings_to_text(v: &Value, old: Option<&str>) -> String {
     text.push_str(&format!("launcher_scale={}\n", launcher_scale(v.get("launcher_scale").and_then(|x| x.as_f64()))));
     text.push_str(&format!("animations={}\npage_bus={}\ndark_mode={}\nbus_lead={}\n", b("animations", true), b("page_bus", false), b("dark_mode", false), bus_lead(Some(n("bus_lead", BUS_LEAD_DEFAULT)))));
     text.push_str(&format!("welcome_done={}\nlauncher_ui={}\n", b("welcome_done", false), launcher_ui(v.get("launcher_ui").and_then(|x| x.as_str()).unwrap_or("new"))));
-    text.push_str(&format!("nav_scale={}\nstop_style={}\n", nav_scale(v.get("nav_scale").and_then(|x| x.as_f64())), stop_style(v.get("stop_style").and_then(|x| x.as_str()).unwrap_or("de"))));
+    text.push_str(&format!("nav_scale={}\nstop_style={}\nspeed_unit={}\n", nav_scale(v.get("nav_scale").and_then(|x| x.as_f64())), stop_style(v.get("stop_style").and_then(|x| x.as_str()).unwrap_or("de")), speed_unit(v.get("speed_unit").and_then(|x| x.as_str()).unwrap_or("kmh"))));
     text.push_str(&format!("accent={}\n", accent_text(v.get("accent").and_then(|x| x.as_str()).unwrap_or(ACCENT_DEFAULT))));
     text.push_str(&format!("nav_signon={}\n", b("nav_signon", false)));
     text.push_str(&format!("nav_board={}\nnav_rect={}\n", b("nav_board", true), nav_rect(v.get("nav_rect").and_then(|x| x.as_str()).unwrap_or(""))));
