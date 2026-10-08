@@ -205,6 +205,14 @@ pub struct Ready {
     shown_at: Option<Instant>,
 }
 
+impl Drop for Ready {
+    /// The bus prepared again, the studio left: a painting at the full size still going on is
+    /// wanted by nobody any more, and stops at its next band of rows.
+    fn drop(&mut self) {
+        self.wanted.store(u64::MAX, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 struct Prepared {
     geom: Arc<BusGeom>,
     outside: Arc<Outside>,
@@ -278,6 +286,8 @@ pub struct Session {
     pub ui: studio::State,
     export: Option<Receiver<export::Msg>>,
     pub progress: Option<(String, f32)>,
+    /// Back clicked while the save into the game went on: the studio is left once it is done.
+    leaving: bool,
     /// Save asked while a game runs: done once it is closed (the game reads the liveries as it
     /// loads a bus; a texture half written then would be read half).
     pub queued: bool,
@@ -377,7 +387,7 @@ impl Session {
 
     fn save_project(&mut self) {
         self.project.saved = now_text();
-        match std::fs::create_dir_all(&self.dir).and_then(|_| std::fs::write(self.dir.join("project.json"), serde_json::to_vec_pretty(&self.project).unwrap_or_default())) {
+        match std::fs::create_dir_all(&self.dir).and_then(|_| write_project(&self.dir, &self.project)) {
             // (the temporary file has nothing newer then: it goes, after any write still on
             // its way)
             Ok(()) if !self.temp_due => {
@@ -460,8 +470,15 @@ fn temp_writer() -> &'static std::sync::mpsc::Sender<TempMsg> {
     })
 }
 
+/// `project.json` written whole, as the temporary file is: into a file beside it, which then
+/// takes its place (a crash while it is written leaves the one before, not half of it).
+fn write_project(dir: &Path, project: &Project) -> std::io::Result<()> {
+    let part = dir.join("project.json.part");
+    std::fs::write(&part, serde_json::to_vec_pretty(project).unwrap_or_default()).and_then(|_| std::fs::rename(&part, dir.join("project.json")))
+}
+
 /// The project in `dir`: its temporary file's when that is newer than `project.json` (or
-/// there is no `project.json` yet), and whether it was.
+/// there is no `project.json` yet, or it cannot be read), and whether it was.
 fn load_project(dir: &Path) -> Option<(Project, bool)> {
     let saved = dir.join("project.json");
     let temp = dir.join(TEMP_FILE);
@@ -474,7 +491,9 @@ fn load_project(dir: &Path) -> Option<(Project, bool)> {
             }
         }
     }
-    read(&saved).map(|p| (p, false))
+    // (a `project.json` that cannot be read - cut off as it was written - gives way to the
+    // temporary file, which still has the project)
+    read(&saved).map(|p| (p, false)).or_else(|| read(&temp).map(|p| (p, true)))
 }
 
 /// The projects there are, newest first.
@@ -555,9 +574,12 @@ pub fn start(l: &mut Launcher, bus: String, paint: Option<String>, project: Opti
         ui: studio::State::named(name),
         export: None,
         progress: None,
+        leaving: false,
         taken: Vec::new(),
         parts: Vec::new(),
     });
+    // (pictures dropped before there was a project are not this one's)
+    l.livery.dropped.clear();
     if restored {
         if let Some(s) = l.livery.session.as_mut() {
             log::info!("livery studio: {} brought back from {TEMP_FILE}", s.project.id);
@@ -570,7 +592,10 @@ pub fn start(l: &mut Launcher, bus: String, paint: Option<String>, project: Opti
 
 /// A file dropped onto the window while the studio is open: a picture to place.
 pub fn dropped(l: &mut Launcher, path: PathBuf) {
-    l.livery.dropped.push(path);
+    // (onto the bus chooser there is no livery to take it)
+    if l.livery.session.is_some() {
+        l.livery.dropped.push(path);
+    }
 }
 
 /// A key went down or up (the studio holds O for before and after).
@@ -616,6 +641,12 @@ pub fn update(l: &mut Launcher, dt: f32) {
     }
     if let Some((rx, _)) = s.preparing.as_ref() {
         match rx.try_recv() {
+            // prepared for a bus no longer shown (another of its family looked at meanwhile):
+            // its texture slots are not this scene's. The bus shown is prepared anew.
+            Ok(Ok(_)) if !s.placed_look.as_ref().is_some_and(|p| *p == s.look && v.showroom.shows(p)) => {
+                s.preparing = None;
+                s.placed_look = None;
+            }
             Ok(Ok((p, targets))) => {
                 s.preparing = None;
                 if let Some(parts) = v.showroom.parts() {
@@ -740,8 +771,19 @@ pub fn update(l: &mut Launcher, dt: f32) {
         if let Some(end) = end {
             s.export = None;
             s.progress = None;
+            // (failed, the studio stays: what went wrong is said there)
+            let leaving = std::mem::take(&mut s.leaving);
             match end {
-                Ok(files) => saved(l, files),
+                Ok(files) => {
+                    saved(l, files);
+                    // Back clicked meanwhile: left now, what the save said on the next page
+                    if leaving {
+                        if let Some((text, err, _)) = l.livery.session.as_ref().and_then(|s| s.status.clone()) {
+                            l.state.set_status(text, err);
+                        }
+                        leave(l);
+                    }
+                }
                 Err(e) => {
                     if let Some(s) = l.livery.session.as_mut() {
                         s.say(omsi_ui::tr("The livery was not saved: %{e}").replace("%{e}", &e), true);
@@ -1198,26 +1240,32 @@ fn prepare(showroom: &mut Showroom, s: &mut Session, root: &str, family_buses: &
 
 /// Save the livery into the game (on a worker; `saved` follows).
 pub fn save(l: &mut Launcher) {
-    // (for the bus company: not when it cannot pay for it)
+    // (for the bus company: not when it cannot pay for it. A refusal also ends a save waiting
+    // for the game to close: it is not tried again every frame, nor done unasked once the cash
+    // is there)
     if let Some((company, cost, cash)) = company_cost(l).filter(|x| x.2 < x.1) {
         if let Some(s) = l.livery.session.as_mut() {
             let text = omsi_ui::tr("%{company} has %{cash}: not enough for the livery (%{amount}). A loan on the company's Finances page helps.").replace("%{company}", &company).replace("%{cash}", &eur(cash)).replace("%{amount}", &eur(cost));
             s.say(text, true);
+            s.queued = false;
         }
         return;
     }
     let Some(s) = l.livery.session.as_mut() else { return };
+    // (the bus not ready yet: a waiting save waits on)
     if s.ready.is_none() || s.export.is_some() {
         return;
     }
     s.settle();
     if s.look.bus != s.project.bus {
         s.say(omsi_ui::tr("Go back to your own bus to save the livery."), true);
+        s.queued = false;
         return;
     }
     let name = s.ui.name.clone();
     if let Some(e) = model::name_error(&name, s.taken.iter().map(|n| n.as_str())) {
         s.say(e.message(), true);
+        s.queued = false;
         return;
     }
     if l.state.in_game() {
@@ -1279,7 +1327,7 @@ pub fn save(l: &mut Launcher) {
         } else {
             continue;
         };
-        if parts.iter().flatten().any(|p| p.ctc_dir == ctc_dir) || !export::inside(&ctc_dir, &content) || std::fs::create_dir_all(&ctc_dir).is_err() {
+        if parts.iter().flatten().any(|p| export::same_folder(&p.ctc_dir, &ctc_dir)) || !export::inside(&ctc_dir, &content) || std::fs::create_dir_all(&ctc_dir).is_err() {
             continue;
         }
         parts.push(Some(export::Part { ctc_dir, setvars: s.project.options.iter().map(|(k, v)| (k.clone(), *v)).collect() }));
@@ -1396,12 +1444,16 @@ fn placed_after(project: &Project, files: Vec<String>) -> model::Placed {
 /// Leave the studio (Back), safe at any moment: the project saved first. What still works goes on
 /// by itself with what it holds and touches nothing of the studio's: the bake and the painter
 /// end with nobody to tell (their channels closed), a save into the game finishes and its files
-/// are kept in the project. The bus's GPU objects go with the showroom (the device keeps what a
-/// frame in flight still uses).
+/// are kept in the project (Back waits for a save, though: see `Session::leaving`). The bus's GPU
+/// objects go with the showroom (the device keeps what a frame in flight still uses).
 pub fn leave(l: &mut Launcher) {
     if let Some(mut s) = l.livery.session.take() {
         s.settle();
-        s.save_project();
+        // (a project nothing was done to - the studio only looked into - leaves nothing behind
+        // in the list of liveries begun)
+        if s.dir.exists() || s.history.can_undo() || s.temp_due || s.temp_at.is_some() || s.autosave.is_some() || s.export.is_some() {
+            s.save_project();
+        }
         if let Some(rx) = s.export.take() {
             let (mut project, dir) = (s.project.clone(), s.dir.clone());
             let _ = std::thread::Builder::new().name("livery export (studio left)".into()).spawn(move || {
@@ -1410,7 +1462,7 @@ pub fn leave(l: &mut Launcher) {
                         export::Msg::Done(files) => {
                             project.placed = Some(placed_after(&project, files));
                             project.saved = now_text();
-                            let _ = std::fs::write(dir.join("project.json"), serde_json::to_vec_pretty(&project).unwrap_or_default());
+                            let _ = write_project(&dir, &project);
                             log::info!("livery studio: '{}' saved into the game after the studio was left", project.name);
                             break;
                         }
@@ -1428,6 +1480,8 @@ pub fn leave(l: &mut Launcher) {
     l.livery.view_rect = None;
     l.livery.hold_o = false;
     l.livery.showroom.forget();
+    // (the chooser reads the projects again, this one as it was left)
+    l.livery.chooser.projects = None;
     // (painting for the bus company: back to it)
     let back = if l.livery.company.take().is_some() { Page::Company } else { Page::Drive };
     l.go(back);
@@ -1623,6 +1677,28 @@ mod tests {
         assert!(!dir.join(format!("{TEMP_FILE}.part")).exists());
         temp_writer().send(TempMsg::Remove(dir.clone())).unwrap();
         wait(false);
+        assert_eq!(load_project(&dir).map(|x| (x.0.name, x.1)), Some(("saved".into(), false)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A `project.json` cut off as it was written (a crash, the power) is not the end of the
+    /// project: the temporary file beside it has it.
+    #[test]
+    fn a_project_json_cut_off_gives_way_to_the_temporary_file() {
+        let dir = std::env::temp_dir().join(format!("livery-cut-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut p = Project::new("p2".into(), "Vehicles/x.bus".into(), None, "1".into());
+        p.name = "kept".into();
+        std::fs::write(dir.join(TEMP_FILE), serde_json::to_vec(&p).unwrap()).unwrap();
+        // (newer than the temporary file, and half of it)
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        std::fs::write(dir.join("project.json"), b"{\"versie\":1,\"id\":\"p2\",\"na").unwrap();
+        assert_eq!(load_project(&dir).map(|x| (x.0.name, x.1)), Some(("kept".into(), true)));
+        // written whole, it is the project again
+        p.name = "saved".into();
+        super::write_project(&dir, &p).unwrap();
+        assert!(!dir.join("project.json.part").exists());
         assert_eq!(load_project(&dir).map(|x| (x.0.name, x.1)), Some(("saved".into(), false)));
         let _ = std::fs::remove_dir_all(&dir);
     }

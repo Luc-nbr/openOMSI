@@ -15,8 +15,14 @@ use omsi_ui::{Rect, Weight};
 
 #[derive(Default)]
 pub struct MoneyView {
-    /// The month shown (0: the company's current one, 1 the one before, ...).
-    month: usize,
+    /// The month shown (`YYYY-MM`; None: the company's current one, whichever it is by now).
+    month: Option<String>,
+}
+
+/// Where the month chosen is in the list of months (the newest first): the current one when
+/// none is chosen or the list no longer has it.
+fn month_index(months: &[String], chosen: Option<&str>) -> usize {
+    chosen.and_then(|m| months.iter().position(|x| x == m)).unwrap_or(0)
 }
 
 pub fn draw(l: &mut Launcher, area: Rect) {
@@ -71,9 +77,11 @@ fn month_overview(l: &mut Launcher, r: Rect, c: &Company) {
     months.sort();
     months.reverse();
     let names: Vec<String> = months.iter().map(|m| month_label(m)).collect();
-    let mut k = l.company.money.month.min(names.len().saturating_sub(1));
+    let mut k = month_index(&months, l.company.money.month.as_deref());
     if l.ui.select("company-month", Rect::new(r.right() - 216.0, r.y + 7.0, 200.0, 32.0), &mut k, &names) {
-        l.company.money.month = k;
+        // (the newest is the current month: chosen, it follows the clock into the next)
+        k = k.min(months.len() - 1);
+        l.company.money.month = (k > 0).then(|| months[k].clone());
     }
     let m = c.month(&months[k]);
     let mut rows: Vec<(BookingKind, i64)> = BookingKind::ALL.iter().filter(|x| !x.is_capital()).map(|x| (*x, m.get(*x))).filter(|x| x.1 != 0).collect();
@@ -204,4 +212,19 @@ fn ledger(l: &mut Launcher, r: Rect, c: &Company) {
         }
         list.len() as f32 * rh + 8.0
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_month_chosen_stays_when_a_new_one_begins() {
+        let april = ["1989-04".to_string(), "1989-03".to_string()];
+        let may = ["1989-05".to_string(), "1989-04".to_string(), "1989-03".to_string()];
+        assert_eq!(month_index(&april, Some("1989-03")), 1);
+        assert_eq!(month_index(&may, Some("1989-03")), 2);
+        assert_eq!(month_index(&may, None), 0);
+        assert_eq!(month_index(&may, Some("1988-12")), 0);
+    }
 }

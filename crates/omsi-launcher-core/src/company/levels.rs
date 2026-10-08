@@ -1,9 +1,9 @@
 //! The company's level: experience points from the days it runs and from the player's own
 //! tours, and the levels they climb, each opening something new (the Bus Company
 //! Simulator's level system: new benefits and new areas of the company). The other parts of
-//! the company ask `unlocked` whether a feature is open - the depot its halls and yards, the
-//! market its bus sizes, the bank its rates - and `extra_places`, `max_concessions` and
-//! `loan_discount` for what grows with the level.
+//! the company ask `unlocked` whether a feature is open - the depot its workshop and its
+//! charging points, the market its bus sizes, the bank its rates - and `extra_places` (the
+//! halls), `max_concessions` and `loan_discount` for what grows with the level.
 //!
 //! The day close hands each of the player's trips to `book_trip` (its fines are the
 //! company's costs, a good tour earns a quality bonus on Realistic and Hard) and the day to
@@ -108,8 +108,6 @@ pub enum Feature {
     SafetyCourse,
     /// A lower rate on new loans.
     CheaperLoans,
-    WashBay,
-    ChargingYard,
     ThirdHall,
     BetterLoans,
     /// Advertising contracts: posters on the buses' rears, their side panels, whole buses
@@ -120,7 +118,7 @@ pub enum Feature {
 }
 
 impl Feature {
-    pub const ALL: [Feature; 17] = [
+    pub const ALL: [Feature; 15] = [
         Feature::TrainingCentre,
         Feature::Workshop,
         Feature::ArticulatedBuses,
@@ -131,8 +129,6 @@ impl Feature {
         Feature::AdvancedCourses,
         Feature::SafetyCourse,
         Feature::CheaperLoans,
-        Feature::WashBay,
-        Feature::ChargingYard,
         Feature::ThirdHall,
         Feature::BetterLoans,
         Feature::RearAdverts,
@@ -147,7 +143,6 @@ impl Feature {
             Feature::Workshop | Feature::ArticulatedBuses | Feature::EcoCourse | Feature::RearAdverts => 2,
             Feature::ElectricBuses | Feature::SecondHall | Feature::SafetyCourse => 3,
             Feature::DoubleDeckers | Feature::AdvancedCourses | Feature::CheaperLoans | Feature::SideAdverts => 4,
-            Feature::WashBay | Feature::ChargingYard => 5,
             Feature::ThirdHall | Feature::FullWraps => 6,
             Feature::BetterLoans => 7,
         }
@@ -165,8 +160,6 @@ impl Feature {
             Feature::AdvancedCourses => "Advanced courses",
             Feature::SafetyCourse => "Defensive driving course",
             Feature::CheaperLoans => "Cheaper loans",
-            Feature::WashBay => "Wash bay",
-            Feature::ChargingYard => "Charging yard",
             Feature::ThirdHall => "Third depot hall",
             Feature::BetterLoans => "Better loan terms",
             Feature::RearAdverts => "Rear adverts",
@@ -188,8 +181,6 @@ impl Feature {
             Feature::AdvancedCourses => "military_tech",
             Feature::SafetyCourse => "warning",
             Feature::CheaperLoans | Feature::BetterLoans => "payments",
-            Feature::WashBay => "water_drop",
-            Feature::ChargingYard => "power_settings_new",
             Feature::RearAdverts | Feature::SideAdverts | Feature::FullWraps => "campaign",
         }
     }

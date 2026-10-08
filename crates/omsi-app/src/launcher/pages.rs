@@ -17,7 +17,8 @@ pub struct PagesView {
     /// and on the service record).
     pub new_driver: String,
     pub new_driver_open: bool,
-    pub confirm_delete: Option<std::time::Instant>,
+    /// "Delete this driver" pressed once: for which driver, and when.
+    pub confirm_delete: Option<(String, std::time::Instant)>,
     /// The driver the drivers step asks about deleting (its dialog is open while set).
     pub delete_driver: Option<String>,
     /// The "reset every setting" dialog is open.
@@ -267,9 +268,15 @@ pub fn delete_driver(l: &mut Launcher, name: &str) {
     }
 }
 
+/// The first press of "Delete this driver" still holds: a moment ago, and for the driver
+/// chosen now (another one chosen since is not deleted at a single press).
+fn delete_armed(l: &Launcher) -> bool {
+    l.pages.confirm_delete.as_ref().is_some_and(|(name, t)| *name == l.state.config.profile && t.elapsed().as_secs() < 4)
+}
+
 /// "Delete this driver", and once pressed, what a second press does.
 fn delete_label(l: &Launcher) -> &'static str {
-    if l.pages.confirm_delete.is_some_and(|t| t.elapsed().as_secs() < 4) {
+    if delete_armed(l) {
         "Click again to delete"
     } else {
         "Delete this driver"
@@ -297,14 +304,14 @@ fn new_driver_row(l: &mut Launcher, field: Rect, create: Rect, cancel: Rect) {
 /// Choosing the driver (`pick`), making a new one (`new`, its word or only its icon) and
 /// deleting the chosen one, where they were laid out.
 fn driver_buttons(l: &mut Launcher, pick: Option<Rect>, new: Rect, new_label: Option<&str>, del: Rect) {
-    let armed = l.pages.confirm_delete.is_some_and(|t| t.elapsed().as_secs() < 4);
+    let armed = delete_armed(l);
     if l.ui.button("profile-delete", del, delete_label(l), Some("delete"), ButtonKind::Danger) {
         if armed {
             let name = l.state.config.profile.clone();
             delete_driver(l, &name);
             l.pages.confirm_delete = None;
         } else {
-            l.pages.confirm_delete = Some(std::time::Instant::now());
+            l.pages.confirm_delete = Some((l.state.config.profile.clone(), std::time::Instant::now()));
         }
     }
     if l.ui.button("profile-new", new, new_label.unwrap_or(""), Some("add"), ButtonKind::Normal) {
@@ -316,6 +323,7 @@ fn driver_buttons(l: &mut Launcher, pick: Option<Rect>, new: Rect, new_label: Op
     if let Some(pick) = pick.filter(|_| !names.is_empty()) {
         if l.ui.select("profile", pick, &mut sel, &names) {
             l.state.config.profile = names[sel].clone();
+            l.pages.confirm_delete = None;
             let _ = core::save_config(&l.state.config);
             l.state.load_profile();
             l.state.touched();
@@ -1273,7 +1281,6 @@ fn driving_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, c
     toggle_setting(ui, s, dirty, c.row(), "Indicators cancel themselves (as the bus's script does)", "blinker_cancel");
     toggle_setting(ui, s, dirty, c.row(), "The keyboard brake stays on until the throttle (as in OMSI)", "brake_hold");
     toggle_setting(ui, s, dirty, c.row(), "Automatic clutch (manual gearboxes)", "auto_clutch");
-    toggle_setting(ui, s, dirty, c.row(), "Hold manual gear buttons (release returns to neutral)", "momentary_gears");
     // (on a duty: the line, route and destination typed into the IBIS for the driver)
     toggle_setting(ui, s, dirty, c.row(), "Fill in the IBIS automatically", "ibis_auto");
     if ui.button("s-go-keys", c.row(), "Change the keys", Some("keyboard"), ButtonKind::Normal) {

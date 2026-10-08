@@ -1300,6 +1300,20 @@ pub fn take_free_service(c: &mut Company, vehicle: u32) -> bool {
     had
 }
 
+/// A bus serviced (by the workshop or the night): if its first service was the dealer's, what
+/// that is worth (`extra_value`, what it cost him in the haggling) comes back to the
+/// maintenance, once - the work itself is paid with the maintenance per kilometre. Returns
+/// what was credited.
+pub fn credit_free_service(c: &mut Company, vehicle: u32) -> Cents {
+    if !take_free_service(c, vehicle) {
+        return 0;
+    }
+    let worth = extra_value(c, Extra::FreeService, 0);
+    let text = c.vehicle(vehicle).map(|v| format!("{} {} (free first service)", v.number, v.name)).unwrap_or_default();
+    c.book(BookingKind::Maintenance, worth, text, false);
+    worth
+}
+
 // --- the test drive -----------------------------------------------------------------------------
 
 /// A test drive under way: the game runs a free drive with this bus, which is not the
@@ -1665,6 +1679,11 @@ mod tests {
         let id = c.fleet[0].id;
         assert!(under_warranty(&c, id, &day) && !under_warranty(&c, id, &dates::add(&day, 800)));
         assert!(take_free_service(&mut c, id) && !take_free_service(&mut c, id));
+        // the other's: what it is worth comes back with its first service, once
+        let other = c.fleet[1].id;
+        let before = c.cash;
+        assert_eq!(credit_free_service(&mut c, other), extra_value(&c, Extra::FreeService, 0));
+        assert!(c.cash > before && credit_free_service(&mut c, other) == 0);
         // a lease: no price now, a rate a month
         let mut lk = draft_new(&c, &l, 1, 270_000_00, &[], "", None);
         lk.pay = PayWay::Lease;

@@ -69,6 +69,8 @@ pub struct Photos {
     /// The thread that reads the photos from the disk: the paths to read, and what it read.
     reader: Option<(Sender<(Wanted, PathBuf)>, Receiver<(Wanted, Option<image::RgbaImage>)>)>,
     on_gpu: usize,
+    /// The textures of photos forgotten while on the GPU, freed by the next `work`.
+    freed: Vec<usize>,
 }
 
 /// Where the photos are kept.
@@ -125,7 +127,12 @@ impl Photos {
     pub fn forget(&mut self, root: &str, bus: &str, paint: &str) {
         let _ = std::fs::remove_file(photo_file(root, bus, paint));
         let k: Wanted = (bus.to_string(), paint.to_string());
-        self.known.remove(&k);
+        // (one on the GPU leaves it: its texture stayed there, and counted against `ON_GPU`
+        // for good)
+        if let Some(Entry { photo: Photo::Shown { tex, .. }, .. }) = self.known.remove(&k) {
+            self.freed.push(tex);
+            self.on_gpu = self.on_gpu.saturating_sub(1);
+        }
     }
 
     /// Put every one of `buses` in line ("Update bus pictures"): those without a photo are
@@ -215,6 +222,9 @@ pub fn work(l: &mut Launcher) {
     let Launcher { renderer, gpu, showroom, .. } = l;
     let (Some(renderer), Some(gpu)) = (renderer.as_mut(), gpu.as_mut()) else { return };
     let photos = &mut showroom.photos;
+    for tex in photos.freed.drain(..) {
+        gpu.free(tex);
+    }
     // what the disk gave
     let mut read = Vec::new();
     if let Some((_, rx)) = photos.reader.as_ref() {
@@ -332,5 +342,15 @@ mod tests {
         p.known.get_mut(&("b.bus".to_string(), String::new())).unwrap().photo = Photo::Stored;
         assert_eq!(p.next(""), None);
         assert_eq!(p.progress(), None, "done: nothing left to count");
+    }
+
+    #[test]
+    fn a_photo_forgotten_on_the_gpu_leaves_it() {
+        let mut p = Photos::default();
+        p.known.insert(("a.bus".into(), "BVG".into()), Entry { file: PathBuf::from("a.png"), photo: Photo::Shown { tex: 7, w: 1, h: 1, used: 0.0 } });
+        p.on_gpu = 1;
+        p.forget("", "a.bus", "BVG");
+        assert_eq!((p.on_gpu, p.freed.as_slice()), (0, &[7][..]));
+        assert!(p.known.is_empty());
     }
 }

@@ -197,7 +197,8 @@ pub fn alerts(c: &Company, plan: Option<&day::Plan>) -> Vec<Alert> {
     if c.cash < wages || c.cash < 0 {
         out.push(Alert::LowCash);
     }
-    let due = c.fleet.iter().filter(|v| v.km >= v.next_service_km - 1_000.0 && !v.in_workshop(&c.date)).count();
+    // (a bus with a job waiting for the workshop is seen to already)
+    let due = c.fleet.iter().filter(|v| v.km >= v.next_service_km - 1_000.0 && !v.in_workshop(&c.date) && c.site.job_of(v.id).is_none()).count();
     if due > 0 {
         out.push(Alert::ServiceDue(due));
     }

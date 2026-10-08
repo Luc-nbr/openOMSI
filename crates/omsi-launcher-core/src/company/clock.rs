@@ -31,7 +31,7 @@ use super::dates;
 use super::day::{DayReport, LiveEvent, Note, Plan};
 use super::depot::Area;
 use super::economy;
-use super::model::{BookingKind, Cents, Company};
+use super::model::{Cents, Company};
 use super::network;
 use super::plan::{self, BusOf, DayPlan, Disruption, Who};
 use super::rng::Rng;
@@ -79,6 +79,10 @@ pub fn move_to(c: &mut Company, date: &str) -> Result<(), &'static str> {
     let Some(d) = dates::parse(date) else { return Err("That is no date.") };
     if earliest_date(c).and_then(|e| dates::parse(&e)).is_some_and(|e| d < e) {
         return Err("The company's books go further: it cannot go back before its last booking.");
+    }
+    // (its own day: the clock stays where it is, the day is not run again)
+    if dates::fmt(d) == c.date {
+        return Ok(());
     }
     c.date = dates::fmt(d);
     c.clock.minute = 0;
@@ -231,6 +235,9 @@ pub struct Broken {
     pub at: i32,
     #[serde(default)]
     pub choice: Option<Choice>,
+    /// What the rental bus ordered for it costs (paid with the day, at its close).
+    #[serde(default)]
+    pub cost: Cents,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -405,6 +412,8 @@ pub fn script(c: &Company, dp: &DayPlan) -> DayScript {
     // the morning
     let first = dp.tours.iter().map(|t| t.tour.from() as i64).min().unwrap_or(6 * 60);
     let mut morning: Option<i64> = None;
+    // (what is told of it: someone late without a duty today keeps nobody waiting)
+    let mut count = 0;
     for d in &dp.disruptions {
         match *d {
             Disruption::Late { employee, minutes } => {
@@ -416,16 +425,18 @@ pub fn script(c: &Company, dp: &DayPlan) -> DayScript {
                 };
                 morning = Some(morning.map_or(at, |m| m.min(at)));
                 push(at, What::Late { name, minutes, number, tour });
+                count += 1;
             }
             Disruption::Breakdown { vehicle, cost } => {
                 let at = (first - 30).max(4 * 60);
                 morning = Some(morning.map_or(at, |m| m.min(at)));
                 push(at, What::NoStart { bus: c.vehicle(vehicle).map(|v| v.number.clone()).unwrap_or_default(), cost });
+                count += 1;
             }
         }
     }
     if let Some(at) = morning {
-        push(at, What::Morning { count: dp.disruptions.len() });
+        push(at, What::Morning { count });
     }
     // the tours
     for t in dp.tours.iter().filter(|t| !t.by_player) {
@@ -447,7 +458,7 @@ pub fn script(c: &Company, dp: &DayPlan) -> DayScript {
     for (vehicle, at) in roll_breakdowns(c, &date, &sp) {
         let line = dp.tours.iter().filter(|t| t.bus == Some(BusOf::Own(vehicle))).find(|t| t.tour.from() <= at && at <= t.tour.to()).or_else(|| dp.tours.iter().find(|t| t.bus == Some(BusOf::Own(vehicle)))).map(|t| t.tour.number.clone()).unwrap_or_default();
         let bus = c.vehicle(vehicle).map(|v| v.number.clone()).unwrap_or_default();
-        breaks.push(Broken { vehicle, bus, line, at, choice: None });
+        breaks.push(Broken { vehicle, bus, line, at, choice: None, cost: 0 });
         let index = breaks.len() - 1;
         push(at as i64, What::Breakdown { index });
     }
@@ -534,23 +545,25 @@ pub fn rental_cost(c: &Company, index: usize) -> Cents {
     economy::rent_per_day(kind, &r, c.price_index)
 }
 
-/// Decide a breakdown: the rental bus ordered (and paid), or its trips dropped.
+/// Decide a breakdown: the rental bus ordered (paid with the day, `day::close_day`), or its
+/// trips dropped.
 pub fn decide(c: &mut Company, index: usize, choice: Choice, run: &mut Run) {
     let at = now(c);
     let Some(b) = c.clock.today.as_ref().and_then(|s| s.breaks.get(index)).cloned() else { return };
     if b.choice.is_some() {
         return;
     }
+    let mut cost = 0;
     match choice {
         Choice::Rental => {
-            let cost = rental_cost(c, index);
-            c.book(BookingKind::Rent, -cost, format!("Rental bus for {} (line {})", b.bus, b.line), false);
+            cost = rental_cost(c, index);
             tell(c, run, at, "A rental bus takes over the trips of bus %{bus} on line %{n} from %{time}", vec![arg("bus", &b.bus), arg("n", &b.line), arg("time", hhmm(moment(&c.date, (b.at + RENTAL_MINUTES) as i64))), arg("amount", cost)], Level::Info);
         }
         Choice::Drop => tell(c, run, at, "The trips of bus %{bus} on line %{n} are dropped for the rest of the day", vec![arg("bus", &b.bus), arg("n", &b.line)], Level::Warn),
     }
     if let Some(x) = c.clock.today.as_mut().and_then(|s| s.breaks.get_mut(index)) {
         x.choice = Some(choice);
+        x.cost = cost;
     }
 }
 
@@ -705,13 +718,14 @@ pub fn advance(c: &mut Company, to: i64, w: &mut dyn World, quick: bool) -> Resu
     }
     loop {
         let now = now(c);
-        if now >= to {
+        // (a day whose last event came at its midnight is still to be closed)
+        if now >= to && (c.clock.minute as i64) < DAY {
             break;
         }
         begin_day(c, w)?;
         let day0 = moment(&c.date, 0);
         let midnight = day0 + DAY;
-        let limit = to.min(midnight).min((now.div_euclid(60) + 1) * 60);
+        let limit = to.max(now).min(midnight).min((now.div_euclid(60) + 1) * 60);
         if let Some((at, due)) = next_due(c, limit) {
             if at > now {
                 c.clock.minute = (at - day0) as u32;
@@ -805,7 +819,7 @@ mod tests {
     use super::super::staff::{applicants, hire};
     use super::super::{day, depot, found, Founding};
     use super::*;
-    use crate::company::model::{Difficulty, Licence};
+    use crate::company::model::{BookingKind, Difficulty, Licence};
 
     /// The timetable of every day the same; the night as the store runs it.
     struct Fake(Vec<LineInfo>);
@@ -936,7 +950,7 @@ mod tests {
         let number = s.events.iter().find_map(|e| if let What::Out { bus, .. } = &e.what { Some(bus.clone()) } else { None }).unwrap();
         let bus = c.fleet.iter().find(|v| v.number == number).unwrap().clone();
         let s = c.clock.today.as_mut().unwrap();
-        s.breaks.push(Broken { vehicle: bus.id, bus: bus.number.clone(), line: "5".into(), at: 8 * 60, choice: None });
+        s.breaks.push(Broken { vehicle: bus.id, bus: bus.number.clone(), line: "5".into(), at: 8 * 60, choice: None, cost: 0 });
         s.events.push(Timed { at: 8 * 60, what: What::Breakdown { index: 0 }, done: false });
         s.events.sort_by_key(|e| e.at);
         let mut rental = c.clone();
@@ -951,13 +965,17 @@ mod tests {
         let cash = c.cash;
         let mut r = Run::default();
         assert_eq!(answer(&mut c, Some(Choice::Rental), &mut r), Some(moment("2024-03-04", 12 * 60)));
-        assert_eq!(cash - c.cash, rental_cost(&c, 0));
+        // (ordered now, paid with the day at its close: the day's figures have it)
+        let cost = rental_cost(&c, 0);
+        assert_eq!((c.cash, c.clock.today.as_ref().unwrap().breaks[0].cost), (cash, cost));
         answer(&mut dropped, Some(Choice::Drop), &mut r);
         let end = moment("2024-03-05", 0);
         let a = advance(&mut c, end, &mut w, true).unwrap().reports.remove(0);
         let b = advance(&mut dropped, end, &mut w, true).unwrap().reports.remove(0);
         assert!(a.dropped < b.dropped, "{} {}", a.dropped, b.dropped);
         assert!(a.notes.iter().any(|n| matches!(n, Note::Breakdown { number, .. } if *number == bus.number)));
+        let rentals = |c: &Company| c.ledger.iter().filter(|x| x.date == "2024-03-04" && x.kind == BookingKind::Rent && x.text.starts_with("Rental bus for")).map(|x| x.amount).collect::<Vec<_>>();
+        assert_eq!((rentals(&c), rentals(&dropped)), (vec![-cost], vec![]));
         // quick: the dispatcher decides by himself
         let run = advance(&mut rental, end, &mut w, true).unwrap();
         assert!(!run.stopped && rental.clock.ask.is_none());
@@ -1003,5 +1021,35 @@ mod tests {
         let bids: Vec<&FeedItem> = c.clock.feed.iter().filter(|f| f.text.contains("bids %{amount}") || f.text.starts_with("You bid")).collect();
         assert!(bids.len() >= 2 && bids.iter().all(|f| f.at >= t.opens_at && f.at < t.closes_at));
         assert!(c.clock.feed.iter().any(|f| f.at == t.closes_at && f.text.starts_with("Line %{n}")));
+    }
+
+    #[test]
+    fn an_auction_closing_at_midnight_still_closes_the_day() {
+        let (mut c, mut w) = company(1, 2);
+        advance(&mut c, moment("2024-03-04", 20 * 60), &mut w, true).unwrap();
+        c.concessions.tenders.clear();
+        let id = cn::apply(&mut c, &w.0[1]).unwrap();
+        // (its bids are taken until the day's midnight)
+        let midnight = moment("2024-03-05", 0);
+        let t = c.concessions.tenders.iter_mut().find(|t| t.id == id).unwrap();
+        (t.closes_at, t.closes) = (midnight, date_of(midnight));
+        let to = target(&c, Step::Midnight);
+        let run = advance(&mut c, to, &mut w, true).unwrap();
+        assert_eq!(run.reports.len(), 1);
+        assert_eq!((c.date.as_str(), c.clock.minute), ("2024-03-05", 0));
+        assert!(c.concessions.tenders.iter().find(|t| t.id == id).is_some_and(|t| !t.open()));
+        // and the next step to tomorrow is one day
+        let to = target(&c, Step::Midnight);
+        let run = advance(&mut c, to, &mut w, true).unwrap();
+        assert_eq!((run.reports.len(), c.date.as_str()), (1, "2024-03-06"));
+    }
+
+    #[test]
+    fn moving_the_company_to_its_own_day_leaves_its_clock() {
+        let (mut c, mut w) = company(1, 2);
+        advance(&mut c, moment("2024-03-04", 9 * 60), &mut w, true).unwrap();
+        let before = c.clone();
+        move_to(&mut c, "2024-03-04").unwrap();
+        assert_eq!(c, before);
     }
 }

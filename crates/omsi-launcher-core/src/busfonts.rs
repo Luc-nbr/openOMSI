@@ -98,9 +98,12 @@ impl BusFonts {
         self.write(&Self::path())
     }
 
+    /// Written through a file beside it: a write cut off leaves the choices as they were.
     pub fn write(&self, path: &Path) -> std::io::Result<()> {
         let text = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
-        std::fs::write(path, text)
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, text)?;
+        std::fs::rename(&tmp, path)
     }
 
     /// The font `bus`'s destination displays are drawn in, as the game takes it
@@ -209,9 +212,20 @@ pub fn add_font(file: &Path, fonts_dir: &Path) -> Result<AddedFont> {
             out.missing.push(rel.to_string());
             continue;
         }
-        // (where the font file says, below the Fonts folder: no way out of it)
-        let parts: Vec<&str> = rel.split(['/', '\\']).filter(|p| !p.is_empty() && *p != "." && *p != "..").collect();
+        // (where the font file says, below the Fonts folder: no way out of it - nor a drive or a
+        // root of an absolute path, which `join` would put in the folder's place)
+        let parts: Vec<&str> = rel
+            .split(['/', '\\'])
+            .filter(|p| {
+                let mut c = Path::new(p).components();
+                matches!((c.next(), c.next()), (Some(std::path::Component::Normal(_)), None))
+            })
+            .collect();
         let dst = parts.iter().fold(fonts_dir.to_path_buf(), |p, s| p.join(s));
+        if parts.is_empty() || !dst.starts_with(fonts_dir) {
+            out.missing.push(rel.to_string());
+            continue;
+        }
         if let Some(d) = dst.parent() {
             std::fs::create_dir_all(d).with_context(|| format!("creating {}", d.display()))?;
         }

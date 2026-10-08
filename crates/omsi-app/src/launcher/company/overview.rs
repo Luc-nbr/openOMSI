@@ -308,9 +308,8 @@ fn companies(l: &mut Launcher, r: Rect, c: &Company) {
     if list.len() > 1 {
         let names: Vec<String> = list.iter().map(|x| format!("{}  ·  {}", x.name, x.map_name)).collect();
         let mut k = list.iter().position(|x| x.id == c.id).unwrap_or(0);
-        if l.ui.select("company-pick", Rect::new(inner.x, y, (inner.w - bw - 12.0).max(80.0), 38.0), &mut k, &names) {
-            l.company.company = list.get(k).cloned();
-            l.company.plan = None;
+        if l.ui.select("company-pick", Rect::new(inner.x, y, (inner.w - bw - 12.0).max(80.0), 38.0), &mut k, &names) && list.get(k).is_some_and(|x| x.id != c.id) {
+            super::switch_company(l, list.get(k).cloned());
         }
     } else {
         let text = omsi_ui::tr("Founded on %{date}.").replace("%{date}", &day_label(&c.founded));

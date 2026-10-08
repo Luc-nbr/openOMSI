@@ -94,6 +94,12 @@ fn centred(r: Rect, max: f32) -> Rect {
     Rect::new(r.x + (r.w - w) * 0.5, r.y, w, r.h)
 }
 
+/// The bar along the top. (Drawn after the step, over it: a step with the map under it marks
+/// this as interface before the map takes the mouse.)
+pub(super) fn bar_rect(size: Vec2) -> Rect {
+    Rect::new(EDGE_IN, EDGE_IN, size.x - 2.0 * EDGE_IN, BAR_H)
+}
+
 /// The main action in the bottom right corner.
 fn action_rect(size: Vec2) -> Rect {
     let w = (size.x * 0.153).clamp(150.0, 240.0);
@@ -304,7 +310,7 @@ fn step_of(page: Page) -> Step {
 /// other languages in a list beside them.
 fn bar(l: &mut Launcher, step: Option<Step>, page_title: Option<&str>) {
     let size = l.ui.size;
-    let r = Rect::new(EDGE_IN, EDGE_IN, size.x - 2.0 * EDGE_IN, BAR_H);
+    let r = bar_rect(size);
     // (glass, as the start's card)
     glass(l, r, RADIUS, false);
     let on_page = l.page != Page::Drive;
@@ -558,7 +564,9 @@ fn languages(l: &mut Launcher, r: Rect, right: f32) -> f32 {
     let mut sel = omsi_launcher_lib::LANGUAGES.iter().position(|x| x.0 == current).unwrap_or(0);
     let more = Rect::new(right - 28.0, r.center().y - 13.0, 28.0, 26.0);
     let mut pick: Option<String> = None;
-    if l.ui.menu("bar-languages", more, "language", "Other languages", !FLAGS.contains(&current.as_str()), &mut sel, &names) {
+    // (in the glass's ink, as the bar's other icons)
+    let ink = (glass_look().ink_soft, glass_look().ink);
+    if l.ui.menu("bar-languages", more, "language", "Other languages", !FLAGS.contains(&current.as_str()), ink, &mut sel, &names) {
         pick = omsi_launcher_lib::LANGUAGES.get(sel).map(|x| x.0.to_string());
     }
     let mut x = more.x - 6.0;
@@ -671,6 +679,8 @@ pub(super) fn actions(l: &mut Launcher, from_x: f32, back: bool, main: &str, mai
     let size = l.ui.size;
     let go = action_rect(size);
     let mut clicked_back = false;
+    // (the buttons are interface: a click on one is not also a click on the map under it)
+    l.ui.solid(go);
     let main_clicked = l.ui.button("flow-main", go, main, Some(main_icon), ButtonKind::Primary);
     super::tour::anchor("main-action", go);
     let mut x = go.x - 12.0;
@@ -678,6 +688,7 @@ pub(super) fn actions(l: &mut Launcher, from_x: f32, back: bool, main: &str, mai
     for (k, (label, icon)) in extra.iter().enumerate() {
         let w = l.ui.width(label, 14.5, Weight::Bold) + if icon.is_empty() { 44.0 } else { 70.0 };
         let r = Rect::new(x - w, go.y, w, go.h);
+        l.ui.solid(r);
         if l.ui.button(&format!("flow-extra-{k}"), r, label, (!icon.is_empty()).then_some(*icon), ButtonKind::Normal) {
             extra_clicked = Some(k);
         }
@@ -688,6 +699,7 @@ pub(super) fn actions(l: &mut Launcher, from_x: f32, back: bool, main: &str, mai
     }
     if back {
         let r = Rect::new(from_x, go.y, 100.0, go.h);
+        l.ui.solid(r);
         if l.ui.button("flow-back", r, "Back", Some("chevron_left"), ButtonKind::Normal) {
             clicked_back = true;
         }
@@ -715,7 +727,27 @@ pub fn draw(l: &mut Launcher) {
         Step::Start | Step::Day | Step::Duty => step_on_map(l, window, step),
         Step::Bus => step_bus(l, window),
     }
+    // (the question whether to delete a driver lies over the bar as well: the bar takes
+    // nothing meanwhile, and the question comes last, over it)
+    let asking = step == Step::Profile && l.pages.delete_driver.is_some();
+    let held = asking.then(|| hold_input(l));
     bar(l, Some(step), None);
+    if let Some(i) = held {
+        l.ui.input = i;
+    }
+    if step == Step::Profile {
+        delete_dialog(l, window);
+    }
+}
+
+/// The mouse and the keys taken from what is drawn next (it lies under a question): returns
+/// them, to be put back for the question.
+fn hold_input(l: &mut Launcher) -> super::ui::Input {
+    let i = l.ui.input.clone();
+    l.ui.input.mouse = Vec2::new(-1e4, -1e4);
+    (l.ui.input.pressed, l.ui.input.released, l.ui.input.double_click) = (false, false, false);
+    l.ui.input.keys.clear();
+    i
 }
 
 /// Another page in the wide sheet under the bar, on the start's ground: the sheet's head says
@@ -795,17 +827,19 @@ fn step_profile(l: &mut Launcher, window: Rect) {
     let per_row = (((body.w - 40.0 + gap) / (tw + gap)).floor() as usize).max(1);
     let rows = count.div_ceil(per_row).max(1);
     let grid_h = rows as f32 * (th + gap) - gap;
-    let top = body.y + ((body.h - grid_h) * 0.5).max(10.0);
+    // (more drivers than the sheet holds: the tiles scroll between its head and its foot -
+    // they ran on under the action row and out of the window, out of reach)
+    let scrolls = grid_h + 20.0 > body.h + 0.5;
+    let off = if scrolls { l.ui.scroll.get(&id_of(DRIVER_GRID)).copied().unwrap_or(0.0) } else { 0.0 };
+    let top = body.y + ((body.h - grid_h) * 0.5).max(10.0) - off;
     let mut made = None;
-    // (while the question whether to delete a driver is open, the tiles under it take nothing)
+    // (while the question whether to delete a driver is open, the tiles under it and the
+    // action row take nothing)
     let asking = l.pages.delete_driver.is_some();
-    let held = asking.then(|| {
-        let i = l.ui.input.clone();
-        l.ui.input.mouse = Vec2::new(-1e4, -1e4);
-        (l.ui.input.pressed, l.ui.input.released, l.ui.input.double_click) = (false, false, false);
-        l.ui.input.keys.clear();
-        i
-    });
+    let held = asking.then(|| hold_input(l));
+    if scrolls {
+        l.ui.push_clip(body, 0.0);
+    }
     let mut delete_asked = None;
     for k in 0..count {
         let (row, col) = (k / per_row, k % per_row);
@@ -856,29 +890,43 @@ fn step_profile(l: &mut Launcher, window: Rect) {
             l.state.touched();
         }
     }
+    if scrolls {
+        l.ui.pop_clip();
+        l.ui.scroll_keep(DRIVER_GRID, body, grid_h + 20.0);
+    }
     match made {
         Some(true) => super::pages::create_driver(l),
         Some(false) => l.pages.new_driver_open = false,
         None => {}
     }
+    // (Omsi-Hub's order: New driver, Service record, the way on)
+    let (_, next, extra) = actions(l, EDGE_IN, false, "Next step", "play_arrow", &[("Service record", ""), ("New driver", "")]);
     if let Some(i) = held {
         l.ui.input = i;
     }
     if delete_asked.is_some() {
         l.pages.delete_driver = delete_asked;
     }
-    delete_dialog(l, window);
-    // (Omsi-Hub's order: New driver, Service record, the way on)
-    let (_, next, extra) = actions(l, EDGE_IN, false, "Next step", "play_arrow", &[("Service record", ""), ("New driver", "")]);
+    // (the question itself is drawn over the bar, see `draw`)
     if next {
         l.drive.step = Step::Mode;
     }
     match extra {
         Some(0) => l.go(Page::Profile),
-        Some(_) => super::pages::open_new_driver(l),
+        Some(_) => {
+            super::pages::open_new_driver(l);
+            // (its tile comes after the others: scrolled into view when they fill the sheet)
+            let y = 10.0 + (names.len() / per_row) as f32 * (th + gap);
+            if y + th + 10.0 > body.h {
+                l.ui.scroll_to(DRIVER_GRID, y, th + 10.0, body.h);
+            }
+        }
         None => {}
     }
 }
+
+/// The drivers' tiles as a list that scrolls (more of them than the sheet holds).
+const DRIVER_GRID: &str = "flow-drivers";
 
 /// The question whether to delete a driver, over the drivers step: their personnel file and
 /// service record go, and that cannot be undone.
@@ -1260,12 +1308,10 @@ fn step_on_map(l: &mut Launcher, window: Rect, step: Step) {
             l.drive.step = n;
         }
     }
-    // (an entry point clicked on the map in a free drive is its start from then on)
-    let entry = l.state.choice.entry;
-    l.map_interact(window, clear);
-    if l.state.choice.free && l.state.choice.entry != entry {
-        super::freedrive::entry_clicked(l, entry);
-    }
+    // (an entry point clicked on the map in a free drive is its start from then on, the
+    // duty's own entry too; the bar, drawn after this, is not the map's)
+    l.ui.solid(bar_rect(size));
+    super::freedrive::map_interact(l, window, clear);
 }
 
 /// The duty, as Omsi-Hub's duty step: the shifts (or the line's tours) on the sheet
@@ -1317,6 +1363,8 @@ fn step_duty(l: &mut Launcher, window: Rect) {
     if other == Some(0) {
         shiftsheet::other_shifts(l);
     }
+    // (the bar, drawn after this, is not the map's)
+    l.ui.solid(bar_rect(size));
     l.map_interact(window, clear);
 }
 
@@ -1406,6 +1454,8 @@ fn step_bus(l: &mut Launcher, window: Rect) {
         let lw = l.ui.width(&line, 12.5, Weight::Medium).min(tw);
         l.ui.p().rounded(Rect::new(t.right() - lw - 16.0, t.y - 2.0, lw + 16.0, t.h + 4.0), 6.0, ON_MAP);
         l.ui.text_in(&line, Rect::new(t.x, t.y, t.w - 8.0, t.h), 12.5, Weight::Medium, TEXT_SOFT, Align::Right);
+        // (the bar, drawn after this, is not the bus's: the wheel over it zoomed the bus)
+        l.ui.solid(bar_rect(size));
         l.showroom_pointer(window);
     }
     if let Some(i) = offer {

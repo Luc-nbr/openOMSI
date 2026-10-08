@@ -92,13 +92,43 @@ pub fn list(data: &Path, profile: &str) -> Vec<Company> {
 }
 
 pub fn delete(data: &Path, id: &str) -> Result<()> {
-    let _ = std::fs::remove_file(live_file(data, id));
-    std::fs::remove_file(path_of(data, id)).with_context(|| format!("cannot delete {id}"))
+    std::fs::remove_file(path_of(data, id)).with_context(|| format!("cannot delete {id}"))?;
+    // (and what lies beside it: a company founded later under the same id starts without the
+    // phone's orders, the game's plan and what the game reported of this one)
+    let beside = [live_file(data, id), super::remote::orders_file(data, id), super::plan::live_plan_file(data, id), dir(data).join(format!("{id}.json.tmp"))];
+    for p in beside.into_iter().chain(taken_files(data, id).into_iter().map(|x| x.1)) {
+        let _ = std::fs::remove_file(p);
+    }
+    Ok(())
 }
 
 /// The live hook's file of a company.
 pub fn live_file(data: &Path, id: &str) -> PathBuf {
     dir(data).join(format!("{id}.live.jsonl"))
+}
+
+/// What the close of a day took of the live file (`take_live`), kept until the company is
+/// saved with it.
+fn taken_file(data: &Path, id: &str, date: &str) -> PathBuf {
+    dir(data).join(format!("{id}.live-{date}.taken"))
+}
+
+/// A company's taken files, with their days.
+fn taken_files(data: &Path, id: &str) -> Vec<(String, PathBuf)> {
+    let Ok(rd) = std::fs::read_dir(dir(data)) else { return Vec::new() };
+    let head = format!("{id}.live-");
+    rd.flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            let date = name.strip_prefix(head.as_str())?.strip_suffix(".taken")?.to_string();
+            Some((date, e.path()))
+        })
+        .collect()
+}
+
+/// The company was saved with what the close of `date` took of the live file: it goes.
+fn saved_with_live(data: &Path, id: &str, date: &str) {
+    let _ = std::fs::remove_file(taken_file(data, id, date));
 }
 
 /// The game reports an event of the company (a line to the live file).
@@ -110,14 +140,37 @@ pub fn append_live(data: &Path, id: &str, ev: &LiveEvent) -> Result<()> {
     Ok(())
 }
 
-/// Take what the game reported into the company (and empty the file).
+/// Take what the game reported into the company. The file is moved aside first (what the game
+/// appends meanwhile goes to a new one) and kept, as the day's taken file, until the company is
+/// saved with it: a close that fails before loses none of it - the next close of the same day
+/// takes it again, with what came since. Taken files of other days go (the company was saved
+/// past them, or moved).
 pub fn take_live(data: &Path, c: &mut Company) {
+    let taken = taken_file(data, &c.id, &c.date);
+    for (date, p) in taken_files(data, &c.id) {
+        if date != c.date {
+            let _ = std::fs::remove_file(p);
+        }
+    }
     let path = live_file(data, &c.id);
-    let Ok(text) = std::fs::read_to_string(&path) else { return };
+    if !taken.exists() {
+        let _ = std::fs::rename(&path, &taken);
+    } else {
+        let moving = dir(data).join(format!("{}.live.jsonl.moving", c.id));
+        if std::fs::rename(&path, &moving).is_ok() {
+            let kept = std::fs::read_to_string(&moving).and_then(|text| {
+                use std::io::Write;
+                std::fs::OpenOptions::new().append(true).open(&taken)?.write_all(text.as_bytes())
+            });
+            if kept.is_ok() {
+                let _ = std::fs::remove_file(&moving);
+            }
+        }
+    }
+    let Ok(text) = std::fs::read_to_string(&taken) else { return };
     for ev in text.lines().filter_map(|l| serde_json::from_str::<LiveEvent>(l).ok()) {
         day::record_live(c, ev);
     }
-    let _ = std::fs::remove_file(&path);
 }
 
 /// The company's tours of its current day, from the map's timetable of that date.
@@ -130,6 +183,7 @@ pub fn tours_today(c: &Company) -> Result<(Vec<crate::LineInfo>, Vec<network::To
 /// Close the company's day: the timetable of its date, the player's trip reports, what the
 /// game reported live; saved afterwards.
 pub fn close_day(data: &Path, c: &mut Company) -> Result<DayReport> {
+    let date = c.date.clone();
     take_live(data, c);
     let (lines, tours) = tours_today(c)?;
     network::refresh_lines(c, &lines);
@@ -137,6 +191,7 @@ pub fn close_day(data: &Path, c: &mut Company) -> Result<DayReport> {
     let report = day::close_day(c, tours, &trips);
     let report = super::depot::after_close(c, report, &lines);
     save(data, c)?;
+    saved_with_live(data, &c.id, &date);
     Ok(report)
 }
 
@@ -153,11 +208,14 @@ pub fn peek_live(data: &Path, id: &str, seen: usize) -> Vec<LiveEvent> {
 pub struct Disk<'a> {
     data: &'a Path,
     read: Vec<(String, String, Vec<crate::LineInfo>)>,
+    /// The day whose close took the live file in (once a simulation: the company is saved
+    /// with it at the end, `simulate`).
+    took: Option<String>,
 }
 
 impl<'a> Disk<'a> {
     pub fn new(data: &'a Path) -> Self {
-        Disk { data, read: Vec::new() }
+        Disk { data, read: Vec::new(), took: None }
     }
 
     /// The timetable of a date read already (the pages have the company's day).
@@ -182,7 +240,10 @@ impl super::clock::World for Disk<'_> {
     }
 
     fn close_day(&mut self, c: &mut Company, lines: &[crate::LineInfo]) -> std::result::Result<DayReport, String> {
-        take_live(self.data, c);
+        if self.took.is_none() {
+            self.took = Some(c.date.clone());
+            take_live(self.data, c);
+        }
         network::refresh_lines(c, lines);
         let tours = network::tours_of_day(c, lines, &c.date);
         let trips = crate::trips_of(self.data, &c.profile);
@@ -196,6 +257,9 @@ pub fn simulate(data: &Path, c: &mut Company, to: i64, quick: bool, w: Option<Di
     let mut w = w.unwrap_or_else(|| Disk::new(data));
     let run = super::clock::advance(c, to, &mut w, quick).map_err(|e| anyhow::anyhow!(e))?;
     save(data, c)?;
+    if let Some(date) = &w.took {
+        saved_with_live(data, &c.id, date);
+    }
     Ok(run)
 }
 
@@ -225,14 +289,35 @@ mod tests {
         save(&data, &d).unwrap();
         assert_eq!(list(&data, "luc").iter().map(|x| x.name.as_str()).collect::<Vec<_>>(), vec!["Stadtbus"]);
         assert_eq!(list(&data, "").len(), 2);
-        // the live hook's file is taken in once
+        // the live hook's file is taken in, and kept aside until the company is saved with it:
+        // a close that failed loses nothing, the next one has it again with what came since
         append_live(&data, &c.id, &LiveEvent::Breakdown { vehicle: 3 }).unwrap();
+        let mut failed = c.clone();
+        take_live(&data, &mut failed);
+        assert_eq!(failed.live, vec![LiveEvent::Breakdown { vehicle: 3 }]);
+        assert!(!live_file(&data, &c.id).exists());
+        append_live(&data, &c.id, &LiveEvent::Breakdown { vehicle: 4 }).unwrap();
         take_live(&data, &mut c);
-        assert_eq!(c.live, vec![LiveEvent::Breakdown { vehicle: 3 }]);
+        assert_eq!(c.live, vec![LiveEvent::Breakdown { vehicle: 3 }, LiveEvent::Breakdown { vehicle: 4 }]);
+        // saved with it: taken once
+        save(&data, &c).unwrap();
+        saved_with_live(&data, &c.id, &c.date.clone());
         take_live(&data, &mut c);
-        assert_eq!(c.live.len(), 1);
+        assert_eq!(c.live.len(), 2);
+        // (a day the company is past: its taken file goes)
+        append_live(&data, &c.id, &LiveEvent::Breakdown { vehicle: 5 }).unwrap();
+        take_live(&data, &mut c.clone());
+        c.date = super::super::dates::add(&c.date, 1);
+        take_live(&data, &mut c);
+        assert_eq!(c.live.len(), 2);
+        assert!(taken_files(&data, &c.id).is_empty());
+        // deleted: with what lies beside it
+        append_live(&data, &d.id, &LiveEvent::Breakdown { vehicle: 6 }).unwrap();
+        take_live(&data, &mut d.clone());
+        super::super::remote::queue(&data, &d.id, &super::super::remote::Order::Build { area: super::super::depot::Area::Wash }).unwrap();
         delete(&data, &d.id).unwrap();
         assert_eq!(list(&data, "").len(), 1);
+        assert!(taken_files(&data, &d.id).is_empty() && super::super::remote::pending(&data, &d.id).is_empty());
         // an older file without the newer fields still reads
         let old = r##"{"version":0,"id":"alt","profile":"Luc","name":"Alt","short":"A","colours":["#fff","#000"],"map":"","map_name":"","depot":"","founded":"2024-01-01","date":"2024-01-01","difficulty":"easy","cash":5,"reputation":50,"punctuality":90,"price_index":1,"ledger":[]}"##;
         std::fs::write(path_of(&data, "alt"), old).unwrap();

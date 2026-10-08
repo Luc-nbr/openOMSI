@@ -331,7 +331,7 @@ pub(super) fn refusal(c: &Company, reason: &str) -> Popup {
         }
         "The depot has no room for another bus: build more parking spaces." | "The depot has no room for so many buses: build more parking spaces." => {
             let held = c.fleet.iter().filter(|v| v.held_on(&c.date)).count();
-            let text = omsi_ui::tr("The depot has %{spaces} parking spaces and holds %{buses} buses; a few more may stand in the street.").replace("%{spaces}", &c.site.spaces().to_string()).replace("%{buses}", &held.to_string());
+            let text = omsi_ui::tr("The depot has %{spaces} parking spaces and holds %{buses} buses; a few more may stand in the street.").replace("%{spaces}", &omsi_launcher_lib::company::depot::places(c).to_string()).replace("%{buses}", &held.to_string());
             Popup::new("garage", "No room in the depot", text, omsi_ui::tr("Build more parking spaces at the depot: each level gives twelve."), Some(Go::Depot))
         }
         "You need the repairs course first." => Popup::new("badge", "A course first", said, omsi_ui::tr("Book the repairs course under Training."), Some(Go::Courses)),

@@ -292,8 +292,11 @@ struct Companion {
     personnel: signon::PersonnelFile,
     driver: Option<(String, String, signon::Personnel)>,
     phone: signon::SignOn,
-    /// The duty the game has, as its order says it.
+    /// The duty the game has, as its order says it, and the duty it was made for (its
+    /// [`signon::duty_key`]: a tour picked on a device is followed by `take_on` before
+    /// [`Companion::follow`] sees it, and the order is to be the new duty's all the same).
     duty: Option<DutyOrder>,
+    duty_for: String,
     /// The bus whose screens these are (its type), and its screens.
     bus: usize,
     screens: Vec<screens::Screen>,
@@ -368,7 +371,10 @@ fn picture_sum(rgba: &[u8]) -> u64 {
 /// What the devices' navigator was last made of: the route's lanes and the network version
 /// its line was drawn from, the line, the trip's stops, the version of both as `/api/trip`
 /// sends them, the roads being made on a worker (for which map version), the map version
-/// the server has roads of, and when the live picture was made last.
+/// the server has roads of, and when the live picture was made last. The map versions the
+/// devices are told are the navigator's counted on from `roads_base`: each game's navigator
+/// counts from nought again, and a device is not to take the next map's roads for the last
+/// one's.
 #[derive(Default)]
 struct NavCache {
     lanes: Vec<usize>,
@@ -379,6 +385,7 @@ struct NavCache {
     version: u64,
     roads: Option<(u64, std::sync::mpsc::Receiver<nav::RoadIndex>)>,
     roads_version: u64,
+    roads_base: u64,
     published: Option<Instant>,
 }
 
@@ -407,6 +414,7 @@ impl Companion {
             driver: None,
             phone: signon::SignOn::default(),
             duty: None,
+            duty_for: String::new(),
             bus: 0,
             screens: Vec::new(),
             look_again: None,
@@ -566,8 +574,9 @@ impl Companion {
         self.phone.ask_sign_on(app.settings.nav_signon);
         let before = self.phone.stage();
         let duty = duty_key_of(app);
-        if duty != self.phone.duty() || self.duty.is_some() != app.duty.is_some() {
+        if duty != self.duty_for || self.duty.is_some() != app.duty.is_some() {
             self.duty = app.duty.as_ref().map(DutyOrder::of);
+            self.duty_for = duty.clone();
         }
         if self.phone.follow_duty(&duty) && !duty.is_empty() && self.phone.auto {
             log::info!("companion: duty signed for by itself (signing on is not asked for)");
@@ -843,6 +852,7 @@ impl Companion {
         let look = app.navigator.as_ref().map(|n| n.companion_look(app.traffic.as_ref(), bus));
         // the roads
         if let Some((v, net)) = look.as_ref().and_then(|l| l.map.clone()) {
+            let v = self.nav.roads_base + v;
             if self.nav.roads_version != v && self.nav.roads.as_ref().is_none_or(|r| r.0 != v) {
                 let (tx, rx) = std::sync::mpsc::channel();
                 let spawned = std::thread::Builder::new().name("companion roads".into()).spawn(move || {
@@ -1139,13 +1149,38 @@ pub(crate) fn download_cloudflared() {
 }
 
 /// The game ends: the tunnel's cloudflared goes with it (kept in a static, which Rust never
-/// drops), and the server stops.
+/// drops), and the server stops. What belonged to this game's map and bus goes too: on
+/// Android the next game runs in the same process, with the same static.
 pub(crate) fn shutdown() {
     if let Some(c) = COMPANION.lock().as_mut() {
         if c.tunnel.take().is_some() {
             log::info!("companion: Cloudflare tunnel stopped (the game ends)");
         }
         c.server = None;
+        // (the bus's screens are looked for afresh, the live pictures' textures go with the
+        // next `draw_devices`, the duty menus are the next map's; the roads are made again,
+        // under versions the devices have not had yet, and the trip's versions count on)
+        c.bus = 0;
+        c.screens.clear();
+        c.look_again = None;
+        c.feeds.clear();
+        c.form_sums.clear();
+        c.ibis = None;
+        c.lines.clear();
+        c.tours = (None, Vec::new());
+        c.menu = DutyMenu::default();
+        c.menu_tours.clear();
+        let roads_base = c.nav.roads_base.max(c.nav.roads_version).max(c.nav.roads.as_ref().map_or(0, |r| r.0));
+        c.nav = NavCache { roads_base, version: c.nav.version, ..Default::default() };
+        let mut i = c.shared.lock();
+        i.roads = None;
+        i.trip = Default::default();
+        i.frames.clear();
+        i.watch.clear();
+        i.forms.clear();
+        i.lives.clear();
+        i.files.clear();
+        i.fonts.clear();
     }
 }
 
@@ -1226,8 +1261,15 @@ fn duty_tours(app: &App, line: &str) -> Vec<(String, String, String, String)> {
 /// Take on tour `t` of line `l` as the duty menu does; picking it is signing for it (the game
 /// typed its IBIS already). False when it did not become the duty.
 fn take_on(app: &mut App, l: &str, t: &str) -> bool {
+    let before = duty_key_of(app);
     crate::game_lists::run(app, &crate::game_lists::ListKind::Tours(l.to_string(), None), &format!("tour {l}\u{1}{t}"));
     let key = duty_key_of(app);
+    // (a tour that could not start leaves the duty there was: that one is not signed for by
+    // picking another; the same tour picked again is the one the game has)
+    let became = !key.is_empty() && (key != before || (app.args.line.as_deref() == Some(l) && app.args.tour.as_deref() == Some(t)));
+    if !became {
+        return false;
+    }
     COMPANION.lock().as_mut().is_some_and(|c| {
         c.phone.follow_duty(&key);
         c.published = None;

@@ -81,16 +81,35 @@ fn colour_of_line(c: &Company, line: &str) -> Color {
 }
 
 /// The time of day the map follows (seconds): the game's while it runs on the company's map
-/// (from the time it was started at and how long it has run), else the company's clock.
+/// (from the time it was started at and how long it has run), else the company's clock. A
+/// test drive at the dealer's (the test drive's bus, no line) runs outside the company's time.
 pub(super) fn time_of_day(l: &Launcher, c: &Company) -> (f64, bool) {
     let unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    let same = |m: &str| m.replace('\\', "/").eq_ignore_ascii_case(&c.map.replace('\\', "/"));
-    if let Some(i) = l.state.instances.iter().find(|i| i.running && same(&i.map)) {
-        let start = l.state.choice.time as f64 * 60.0;
+    let norm = |m: &str| m.replace('\\', "/");
+    let same = |m: &str| norm(m).eq_ignore_ascii_case(&norm(&c.map));
+    let test = |i: &core::Instance| i.line.is_none() && c.dealer.test_drive.as_ref().is_some_and(|t| norm(&i.bus).eq_ignore_ascii_case(&norm(&t.bus)));
+    if let Some(i) = l.state.instances.iter().find(|i| i.running && same(&i.map) && !test(i)) {
+        // (the time on its command line: the launcher's choice may have moved since)
+        let start = started_at(&i.args).unwrap_or(l.state.choice.time) as f64 * 60.0;
         return ((start + unix.saturating_sub(i.started) as f64).rem_euclid(86_400.0), true);
     }
     let now = omsi_launcher_lib::company::clock::now(c);
     (omsi_launcher_lib::company::clock::minute_of(now) as f64 * 60.0, false)
+}
+
+/// The time of day a game was started at (its `--time`, "HH:MM"), in minutes.
+fn started_at(args: &[String]) -> Option<i32> {
+    let t = args.iter().position(|a| a == "--time").and_then(|k| args.get(k + 1))?;
+    let (h, m) = t.trim().split_once(':')?;
+    Some(h.trim().parse::<i32>().ok()? * 60 + m.trim().parse::<i32>().ok()?)
+}
+
+/// Where the shape's trip `k` is among the plan's trips of its tour: the plan has them in
+/// the order they leave, an own line's with the depot runs its timetable lacks (so the
+/// timetable's places are one off) - found by the minute it leaves, else the same place.
+fn plan_trip(tp: &co::day::TourPlan, trips: &[TripShape], k: usize) -> usize {
+    let Some(dep) = trips.get(k).map(|s| (s.dep / 60.0).round() as i32) else { return k };
+    tp.tour.trips.iter().position(|x| x.dep == dep && !(x.empty && x.stops == 0 && x.line.is_empty())).unwrap_or(k)
 }
 
 fn hhmmss(s: f64) -> String {
@@ -261,7 +280,12 @@ pub fn draw(l: &mut Launcher, area: Rect) {
             Some(d) => *d,
             None => {
                 let bus = tp.and_then(|p| p.bus).and_then(|b| c.vehicle(b));
-                let driver = tp.and_then(|p| p.duties.iter().find(|d| (d.start..d.end).contains(&first.trip)).and_then(|d| d.driver)).and_then(|id| c.employee(id));
+                let driver = tp
+                    .and_then(|p| {
+                        let at = plan_trip(p, &t.trips, first.trip);
+                        p.duties.iter().find(|d| (d.start..d.end).contains(&at)).and_then(|d| d.driver)
+                    })
+                    .and_then(|id| c.employee(id));
                 fm::delay_of(&c.date, &format!("{}/{}", t.line, t.tour), first.trip, driver.map(|e| e.experience).unwrap_or(60.0), bus.map(|v| v.condition).unwrap_or(90.0))
             }
         };
@@ -466,7 +490,10 @@ fn bus_card(l: &mut Launcher, r: Rect, c: &Company, line: &str, tour: &str, m: O
         l.ui.text_in(value, Rect::new(inner.x + inner.w * 0.4, y, inner.w * 0.6, 22.0), kit::NOTE, Weight::Medium, c, Align::Right);
     };
     let bus = tp.as_ref().and_then(|p| p.bus).and_then(|b| c.vehicle(b));
-    let duty = tp.as_ref().and_then(|p| p.duties.iter().position(|d| (d.start..d.end).contains(&m.place.trip)));
+    let duty = tp.as_ref().and_then(|p| {
+        let at = plan_trip(p, &trips, m.place.trip);
+        p.duties.iter().position(|d| (d.start..d.end).contains(&at))
+    });
     let driver = tp.as_ref().and_then(|p| duty.and_then(|k| p.duties.get(k)).and_then(|d| d.driver)).and_then(|id| c.employee(id));
     let by_player = tp.as_ref().is_some_and(|p| p.by_player);
     row(l, y, &omsi_ui::tr("Bus"), &bus.map(|v| format!("{} {}", v.number, v.name)).unwrap_or_else(|| "—".into()), TEXT);
@@ -495,5 +522,33 @@ fn bus_card(l: &mut Launcher, r: Rect, c: &Company, line: &str, tour: &str, m: O
     if let Some(v) = bus {
         row(l, y, &omsi_ui::tr("Condition"), &format!("{:.0} %", v.condition), grade(v.condition));
         meter(&mut l.ui, Rect::new(inner.x, y + 24.0, inner.w, 4.0), v.condition / 100.0, grade(v.condition));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_game_is_followed_from_the_time_it_was_started_at() {
+        let args: Vec<String> = ["--map", "maps/Grundorf/global.cfg", "--time", "05:30", "--bus", "x.bus"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(started_at(&args), Some(330));
+        assert_eq!(started_at(&args[..2]), None);
+        assert_eq!(started_at(&["--time".to_string(), "late".to_string()]), None);
+    }
+
+    #[test]
+    fn an_own_lines_bus_is_found_in_its_duty() {
+        let planned = |dep: i32, depot: bool| co::network::PlannedTrip { name: if depot { "Betriebsfahrt".into() } else { "7 A-B".into() }, line: if depot { String::new() } else { "7".into() }, dep, arr: dep + 30, stops: if depot { 0 } else { 5 }, empty: depot, ..Default::default() };
+        let tour = |trips: Vec<co::network::PlannedTrip>| co::day::TourPlan { tour: co::network::TourOfDay { trips, ..Default::default() }, ..Default::default() };
+        let shape = |dep: f64| TripShape { dep: dep * 60.0, arr: (dep + 30.0) * 60.0, ..Default::default() };
+        let shapes = [shape(360.0), shape(400.0), shape(440.0)];
+        // an own line's: its depot runs before and after, the timetable's trips one further on
+        let own = tour(vec![planned(352, true), planned(360, false), planned(400, false), planned(440, false), planned(470, true)]);
+        assert_eq!((0..3).map(|k| plan_trip(&own, &shapes, k)).collect::<Vec<_>>(), [1, 2, 3]);
+        // a line of the map's own timetable: the same places
+        let map = tour(vec![planned(360, false), planned(400, false), planned(440, false)]);
+        assert_eq!((0..3).map(|k| plan_trip(&map, &shapes, k)).collect::<Vec<_>>(), [0, 1, 2]);
+        assert_eq!(plan_trip(&map, &shapes, 7), 7);
     }
 }

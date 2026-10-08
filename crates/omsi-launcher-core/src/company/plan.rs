@@ -106,6 +106,10 @@ pub struct Planning {
     /// file's "auto" is read as off.)
     #[serde(skip)]
     pub auto: bool,
+    /// The dispatcher's own only for this line's tours (a changed line planned anew,
+    /// `fill_line`: the other lines' tours run as they are planned). Not kept either.
+    #[serde(skip)]
+    pub auto_only: Option<String>,
     /// The day the dispatcher's choices are for (they hold for that day only).
     #[serde(default)]
     pub date: String,
@@ -115,7 +119,7 @@ pub struct Planning {
 
 impl Default for Planning {
     fn default() -> Self {
-        Planning { week: Vec::new(), auto: false, date: String::new(), fills: Vec::new() }
+        Planning { week: Vec::new(), auto: false, auto_only: None, date: String::new(), fills: Vec::new() }
     }
 }
 
@@ -292,6 +296,7 @@ fn fill(c: &mut Company, date: &str, tours: Vec<TourOfDay>, only: Option<&str>) 
     let ours = |t: &DayTour| only.is_none_or(|l| t.tour.line.eq_ignore_ascii_case(l));
     let mut probe = c.clone();
     probe.planning.auto = true;
+    probe.planning.auto_only = only.map(str::to_string);
     let p = day_plan(&probe, date, tours, &[], &[], false);
     let wd = weekday_of(date);
     let mut f = Filled::default();
@@ -754,6 +759,13 @@ pub fn fits(e: &Employee, size: BusSize, work: &[Block], b: &Block, today: bool)
     Ok(w)
 }
 
+/// The places the depot has left today for another bus (`depot::room`'s rule: the yard's
+/// spaces, the halls the levels open, a few in the street).
+fn places_left(c: &Company) -> usize {
+    let held = c.fleet.iter().filter(|v| v.held_on(&c.date)).count();
+    (c.site.spaces() + super::levels::extra_places(c) as usize + super::depot::OUTSIDE_MAX).saturating_sub(held)
+}
+
 /// The plan of `date`: its tours (`network::tours_of_day` of that date's timetable) given
 /// buses and drivers - the roster's first, then the dispatcher's own when `auto` is on; on
 /// the company's own day the morning and what is open handled. `player` and `live` are the
@@ -765,6 +777,8 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
     let dis = if today { disruptions(c, date) } else { Vec::new() };
     let broken: Vec<u32> = dis.iter().filter_map(|d| if let Disruption::Breakdown { vehicle, .. } = d { Some(*vehicle) } else { None }).collect();
     let usable = |id: u32| c.vehicle(id).is_some_and(|v| v.held_on(date) && !v.in_workshop(date) && v.condition >= 20.0) && !broken.contains(&id);
+    // (the dispatcher's own, for a line's tours)
+    let auto = |line: &str| c.planning.auto && c.planning.auto_only.as_deref().is_none_or(|l| l.eq_ignore_ascii_case(line));
     let mut tours = tours;
     tours.sort_by_key(|t| t.from());
     let mut out: Vec<DayTour> = tours
@@ -807,7 +821,7 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
     for t in out.iter_mut().filter(|t| !t.by_player && t.bus.is_none() && t.bus_problem.is_none()) {
         // (a line that asks for buses the fleet has none of says so)
         let none = if super::ownline::fleet_has_bus_for(c, &t.tour.line) { Problem::Unassigned } else { Problem::NoLineBus };
-        if !c.planning.auto {
+        if !auto(&t.tour.line) {
             t.bus_problem = Some(none);
             continue;
         }
@@ -829,6 +843,9 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
         }
     }
     if today {
+        // (a rental bus is rented at the close as any other, `settle_morning`: it needs a place
+        // in the depot and the cash for its day)
+        let mut places = places_left(c);
         for t in out.iter_mut().filter(|t| !t.by_player && t.bus.is_none()) {
             let (from, to, wants) = (t.tour.from(), t.tour.to(), super::ownline::wanted(c, &t.tour));
             let rent = economy::rent_per_day(BusKind { size: wants.unwrap_or_default(), drive: Drive::Diesel }, &economy::rules(c.difficulty), c.price_index);
@@ -838,7 +855,8 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
                     t.bus = Some(BusOf::Own(id));
                     t.bus_from = Source::Dispatcher;
                 }
-                Some(Fill::Rental) => {
+                Some(Fill::Rental) if places > 0 && c.cash >= rent => {
+                    places -= 1;
                     t.bus = Some(BusOf::Rental);
                     t.bus_from = Source::Dispatcher;
                 }
@@ -851,7 +869,8 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
                         buses.take(v.id, from, to);
                         t.bus = Some(BusOf::Own(v.id));
                         t.bus_from = Source::Central;
-                    } else if c.cash >= rent {
+                    } else if c.cash >= rent && places > 0 {
+                        places -= 1;
                         t.bus = Some(BusOf::Rental);
                         t.bus_from = Source::Central;
                     }
@@ -917,7 +936,7 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
         if t.duties[k].who.is_some() || t.duties[k].problem.is_some() || (t.bus.is_none() && !t.live) {
             continue;
         }
-        if !c.planning.auto {
+        if !auto(&t.tour.line) {
             out[i].duties[k].problem = Some(Problem::Unassigned);
             continue;
         }
@@ -1592,6 +1611,49 @@ mod tests {
         assert_eq!(r.covered, 1);
         assert_eq!(c.fleet.len(), n);
         assert!(c.month(&dates::month_of(&r.date)).get(BookingKind::Rent) < 0);
+    }
+
+    #[test]
+    fn a_rental_bus_needs_a_place_in_the_depot() {
+        let mut c = quiet(1, 2);
+        let wd = weekday_of(&c.date);
+        let b = c.fleet[0].id;
+        set_bus(&mut c, wd, "Linie5", "1", Some(b));
+        c.fleet[0].workshop_until = Some(c.date.clone());
+        set_fill(&mut c, &tour_key("Linie5", "1"), Some(Fill::Rental));
+        let tours = vec![tour("1", 6 * 60, 4)];
+        // the yard and the street full: no rental bus, the tour stays open
+        c.site.parking = 0;
+        let bus = MarketBus { file: "Vehicles/Citaro/Citaro.bus".into(), name: "Citaro".into(), ..Default::default() };
+        while super::super::depot::room(&c).is_ok() {
+            market::buy_new(&mut c, &bus, Payment::Cash, "").unwrap();
+        }
+        let p = day_plan(&c, &c.date, tours.clone(), &[], &[], false);
+        assert_eq!(p.tours[0].bus, None);
+        // a place free: rented at the close, the tour runs
+        c.fleet.pop();
+        let p = day_plan(&c, &c.date, tours.clone(), &[], &[], false);
+        assert_eq!(p.tours[0].bus, Some(BusOf::Rental));
+        assert_eq!(close_day(&mut c, tours, &[]).covered, 1);
+    }
+
+    #[test]
+    fn a_changed_line_planned_anew_takes_no_bus_from_the_others_unplanned_tours() {
+        let mut c = quiet(1, 2);
+        // another line's tour earlier in the morning, given nothing in the roster: it does not
+        // run, so the one bus is free for the changed line
+        let other = TourOfDay { line: "Linie7".into(), number: "7".into(), ..tour("1", 5 * 60, 3) };
+        let tours = vec![other, tour("1", 6 * 60, 3)];
+        let date = c.date.clone();
+        let f = fill_line(&mut c, &date, tours.clone(), "Linie5");
+        assert_eq!((f.buses, f.no_bus), (1, 0));
+        let wd = weekday_of(&date);
+        assert_eq!(roster(&c, wd, "Linie5", "1").and_then(|r| r.bus), Some(c.fleet[0].id));
+        assert!(roster(&c, wd, "Linie7", "1").is_none());
+        // "Fill the roster" for the whole day weighs them all: the earlier tour has the bus
+        let mut all = quiet(1, 2);
+        fill_day(&mut all, &date, tours);
+        assert!(roster(&all, wd, "Linie7", "1").is_some_and(|r| r.bus.is_some()));
     }
 
     #[test]

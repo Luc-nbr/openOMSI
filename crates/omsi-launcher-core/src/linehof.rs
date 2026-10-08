@@ -361,7 +361,7 @@ fn clean(s: &str) -> String {
 
 // --- the depot file as the line editor sees it -----------------------------------------------
 
-/// A depot file without the line editor's block of the map, and what its strings are for.
+/// A depot file without the line editor's blocks, and what its strings are for.
 #[derive(Clone, Debug, Default)]
 pub struct Depot {
     pub hof: Hof,
@@ -370,15 +370,25 @@ pub struct Depot {
     pub roles: Vec<Role>,
     pub cols: Vec<Column>,
     pub stop_cols: Vec<Column>,
+    /// The codes the line editor's blocks of other maps give in it (two maps may use one depot
+    /// file): kept free, never used - that map takes its entries out again.
+    pub others: Taken,
 }
 
 impl Depot {
-    /// The depot file `text` (read from `path`) as the line editor of map `map` sees it.
+    /// The depot file `text` (read from `path`) as the line editor of map `map` sees it: its
+    /// own entries, without the blocks of the line editor - the map's, written anew, and other
+    /// maps' (only their codes, `others`).
     pub fn from_text(path: &Path, text: &str, map: &str) -> Depot {
-        let text = strip_block(text, map);
+        let (text, blocks) = crate::owndepot::split_blocks(text);
         let hof = Hof::parse(&omsi_cfg::CfgFile::from_str(path, &text));
         let notes = notes(&text, hof.string_count_terminus);
-        Self::from_hof(hof, notes)
+        let mut d = Self::from_hof(hof, notes);
+        for (_, body) in blocks.iter().filter(|(m, _)| m.as_str() != map.trim()) {
+            let block = format!("stringcount_terminus\r\n{}\r\nstringcount_busstop\r\n{}\r\n\r\n{body}", d.hof.string_count_terminus, d.hof.string_count_busstop);
+            d.others.add(&Hof::parse(&omsi_cfg::CfgFile::from_str(path, &block)));
+        }
+        d
     }
 
     /// A depot file read already (`hof`), with its notes on its terminus strings.
@@ -390,7 +400,7 @@ impl Depot {
         let roles = roles(&notes, &cols);
         let stop_rows: Vec<Vec<String>> = hof.bus_stops.iter().map(|b| b.strings.clone()).collect();
         let stop_cols = columns(&stop_rows, hof.string_count_busstop, &[]);
-        Depot { hof, notes, roles, cols, stop_cols }
+        Depot { hof, notes, roles, cols, stop_cols, others: Taken::default() }
     }
 
     /// The depot file at `path` (through the content file system).
@@ -538,6 +548,13 @@ impl Taken {
         self.termini.extend(h.termini.iter().map(|t| t.code));
         self.routes.extend(h.info_trips.iter().filter_map(|t| t.code.trim().parse::<u32>().ok()));
     }
+
+    /// The codes of `d`: its own, and those other maps' blocks give in it (`Depot::others`).
+    pub fn add_depot(&mut self, d: &Depot) {
+        self.add(&d.hof);
+        self.termini.extend(&d.others.termini);
+        self.routes.extend(&d.others.routes);
+    }
 }
 
 /// A line's number as the IBIS takes it: the digits after a letter in front ("X10" → 10), else
@@ -573,9 +590,16 @@ pub fn terminus_code(wanted: i32, taken: &HashSet<i32>) -> i32 {
 }
 
 /// The lines whose files are written (see `lines::problems`) and whose depot group uses the
-/// depot file `depot`, in the registry's order.
+/// depot file `depot`, in the registry's order - each as the map's timetable has it
+/// (`LineDesign::in_timetable`: a change waiting for its day as the line runs until then).
 fn lines_of<'a>(reg: &'a Registry, groups: &HashMap<String, String>, depot: &str) -> Vec<&'a LineDesign> {
-    reg.lines.iter().filter(|l| crate::lines::written(l) && depot_of(l, groups).is_some_and(|d| d.eq_ignore_ascii_case(depot))).collect()
+    reg.lines
+        .iter()
+        .filter(|l| {
+            let t = l.in_timetable();
+            crate::lines::written(t) && depot_of(t, groups).is_some_and(|d| d.eq_ignore_ascii_case(depot))
+        })
+        .collect()
 }
 
 /// The depot file (its name) of a line's depot group.
@@ -588,23 +612,27 @@ pub fn depot_of(l: &LineDesign, groups: &HashMap<String, String>) -> Option<Stri
 /// kept where they are still free, so that they stay what the player knows them by.
 pub fn assign(reg: &mut Registry, groups: &HashMap<String, String>, depot_name: &str, depot: &Depot, taken: &Taken) {
     let ids: Vec<u64> = lines_of(reg, groups, depot_name).iter().map(|l| l.id).collect();
-    assign_lines(reg, &ids, depot, taken);
+    assign_lines(reg, &ids, std::slice::from_ref(depot), taken, &HashMap::new());
 }
 
-/// `assign` for the lines `ids` of the registry, whose depot file is `depot` (one of the
-/// player's own, `owndepot`).
-pub fn assign_lines(reg: &mut Registry, ids: &[u64], depot: &Depot, taken: &Taken) {
+/// `assign` for the lines `ids` of the registry (as the map's timetable has them), whose depot
+/// file is written into the copies `depots` (or one of the player's own, `owndepot`): a
+/// destination is new when one of them lacks it. `shared`: the codes other lines give new
+/// destinations of these (by the name lowercased), taken for them as well.
+pub fn assign_lines(reg: &mut Registry, ids: &[u64], depots: &[Depot], taken: &Taken, shared: &HashMap<String, i32>) {
     let mut t = taken.clone();
-    let mut new_termini: HashMap<String, i32> = HashMap::new();
+    let mut new_termini: HashMap<String, i32> = shared.clone();
     for &id in ids {
         let Some(l) = reg.line_mut(id) else { continue };
+        let l = l.in_timetable_mut();
         let number = l.number.clone();
         for (k, d) in l.directions.iter_mut().enumerate() {
             if d.stops.len() < 2 {
                 continue;
             }
             let dest = d.destination();
-            if depot.terminus(&dest).is_none() {
+            // (a copy of another bus pack may lack a destination the first one has)
+            if depots.is_empty() || depots.iter().any(|x| x.terminus(&dest).is_none()) {
                 let key = dest.to_lowercase();
                 d.terminus_code = match new_termini.get(&key) {
                     Some(c) => *c,
@@ -632,7 +660,9 @@ pub fn assign_lines(reg: &mut Registry, ids: &[u64], depot: &Depot, taken: &Take
 /// `[addbusstop]`, and for every direction its `[infosystem_trip]` and stop list.
 pub fn block(lines: &[&LineDesign], depot: &Depot) -> String {
     let mut o = String::new();
-    let mut termini: HashSet<String> = HashSet::new();
+    // (every route to a new destination by the code its one `[addterminus]` has: two lines to
+    // it may have been given two codes, one of them in a depot file of the player's own)
+    let mut termini: HashMap<String, i32> = HashMap::new();
     let mut stops: HashMap<String, String> = HashMap::new();
     for l in lines {
         let number = clean(l.number.trim());
@@ -643,8 +673,10 @@ pub fn block(lines: &[&LineDesign], depot: &Depot) -> String {
             let dest = clean(&d.destination());
             let code = match depot.terminus(&dest) {
                 Some(t) => t.code,
-                None => {
-                    if termini.insert(dest.to_lowercase()) {
+                None => match termini.get(&dest.to_lowercase()) {
+                    Some(c) => *c,
+                    None => {
+                        termini.insert(dest.to_lowercase(), d.terminus_code);
                         let (strings, _) = depot.sign_of(d);
                         o.push_str(&format!("[addterminus]\r\n{}\r\n{dest}\r\n", d.terminus_code));
                         for s in strings {
@@ -652,9 +684,9 @@ pub fn block(lines: &[&LineDesign], depot: &Depot) -> String {
                             o.push_str("\r\n");
                         }
                         o.push_str("\r\n");
+                        d.terminus_code
                     }
-                    d.terminus_code
-                }
+                },
             };
             let mut idents = Vec::new();
             for s in &d.stops {
@@ -839,7 +871,7 @@ pub type Plan = Vec<(String, Vec<Copy>)>;
 /// time (`Registry::depots`, whose blocks may have to go).
 pub fn prepare(reg: &mut Registry, groups: &HashMap<String, String>, bases: &[PathBuf]) -> Plan {
     let mut names: Vec<String> = Vec::new();
-    for l in reg.lines.iter().filter(|l| crate::lines::written(l)) {
+    for l in reg.lines.iter().map(LineDesign::in_timetable).filter(|l| crate::lines::written(l)) {
         if let Some(d) = depot_of(l, groups) {
             if !names.iter().any(|n| n.eq_ignore_ascii_case(&d)) {
                 names.push(d);
@@ -850,12 +882,13 @@ pub fn prepare(reg: &mut Registry, groups: &HashMap<String, String>, bases: &[Pa
     for name in &names {
         let found = copies(name, bases);
         let depots: Vec<Depot> = found.iter().filter_map(|c| Depot::load(&c.source, &reg.map)).collect();
-        if let Some(first) = depots.first() {
+        if !depots.is_empty() {
             let mut taken = Taken::default();
             for d in &depots {
-                taken.add(&d.hof);
+                taken.add_depot(d);
             }
-            assign(reg, groups, name, first, &taken);
+            let ids: Vec<u64> = lines_of(reg, groups, name).iter().map(|l| l.id).collect();
+            assign_lines(reg, &ids, &depots, &taken, &HashMap::new());
         }
         plan.push((name.clone(), found));
     }
@@ -875,7 +908,7 @@ pub fn write(content: &Path, original: Option<&Path>, reg: &Registry, groups: &H
     let mut changed = 0;
     let mut error = None;
     for (name, found) in plan {
-        let lines = lines_of(reg, groups, name);
+        let lines: Vec<&LineDesign> = lines_of(reg, groups, name).into_iter().map(LineDesign::in_timetable).collect();
         for c in found {
             let block = if lines.is_empty() {
                 String::new()
@@ -1079,6 +1112,94 @@ pub(crate) mod tests {
         let before = reg.clone();
         assign(&mut reg, &groups(), "Grundorf", &d, &taken);
         assert_eq!(reg, before);
+    }
+
+    /// A destination the first copy of the depot file has and another lacks (another bus pack's
+    /// version): a code of its own for that one, free in both.
+    #[test]
+    fn a_destination_a_copy_lacks_gets_a_code_there() {
+        let with = format!("{GRUNDORF}\r\n[addterminus]\r\n120\r\nMarktplatz Süd\r\n{}\r\n", "MARKT\r\n".repeat(8));
+        let depots = vec![Depot::from_text(Path::new("A/Grundorf.hof"), &with, "Grundorf"), Depot::from_text(Path::new("B/Grundorf.hof"), GRUNDORF, "Grundorf")];
+        let mut taken = Taken::default();
+        for d in &depots {
+            taken.add_depot(d);
+        }
+        let mut reg = registry();
+        let id = reg.lines[0].id;
+        assign_lines(&mut reg, &[id], &depots, &taken, &HashMap::new());
+        assert_eq!(reg.lines[0].directions[0].terminus_code, 901);
+        let lines: Vec<&LineDesign> = reg.lines.iter().collect();
+        let route = |text: &str| {
+            let h = Hof::parse(&omsi_cfg::CfgFile::from_str("x.hof", &put_block(text, "Grundorf", &block(&lines, &Depot::from_text(Path::new("x.hof"), text, "Grundorf")))));
+            let code = h.info_trips.iter().find(|t| t.code == "4201").unwrap().route.clone();
+            (h.termini.iter().filter(|t| t.texture_id == "Marktplatz Süd").map(|t| t.code).collect::<Vec<_>>(), code)
+        };
+        // the copy that has it: its own; the other: the code given
+        assert_eq!(route(with.as_str()), (vec![120], "120".to_string()));
+        assert_eq!(route(GRUNDORF), (vec![901], "901".to_string()));
+    }
+
+    /// Two lines to one new destination by two codes (one of them given in a depot file of the
+    /// player's own): one `[addterminus]`, and both routes go to its code.
+    #[test]
+    fn two_lines_to_one_new_destination_share_its_entry() {
+        let d = Depot::from_text(Path::new("Grundorf.hof"), GRUNDORF, "Grundorf");
+        let mut reg = registry();
+        let mut other = reg.lines[0].clone();
+        other.id = 2;
+        other.number = "43".into();
+        reg.lines.push(other);
+        for (l, (code, route)) in reg.lines.iter_mut().zip([(902, 4200), (901, 4300)]) {
+            l.directions[0].terminus_code = code;
+            for (k, x) in l.directions.iter_mut().enumerate() {
+                x.ibis_route = route + 1 + k as u32;
+            }
+        }
+        let lines: Vec<&LineDesign> = reg.lines.iter().collect();
+        let h = Hof::parse(&omsi_cfg::CfgFile::from_str("Grundorf.hof", &put_block(GRUNDORF, "Grundorf", &block(&lines, &d))));
+        assert_eq!(h.termini.iter().filter(|t| t.texture_id == "Marktplatz Süd").map(|t| t.code).collect::<Vec<_>>(), vec![902]);
+        for code in ["4201", "4301"] {
+            assert_eq!(h.info_trips.iter().find(|t| t.code == code).unwrap().route, "902", "{code}");
+        }
+    }
+
+    /// A change waiting for its day: the depot files keep the line as the timetable runs it.
+    #[test]
+    fn a_change_waiting_for_its_day_is_not_in_the_depot_file_yet() {
+        let d = Depot::from_text(Path::new("Grundorf.hof"), GRUNDORF, "Grundorf");
+        let mut taken = Taken::default();
+        taken.add_depot(&d);
+        let mut reg = registry();
+        let running = reg.lines[0].clone();
+        let mut pending = running.clone();
+        pending.directions[0].terminus = "Rathaus".into();
+        reg.lines[0] = LineDesign { live: Some(Box::new(running)), pending_from: "2024-03-06".into(), ..pending };
+        assign(&mut reg, &groups(), "Grundorf", &d, &taken);
+        assert_eq!(reg.lines[0].in_timetable().directions[0].terminus_code, 901);
+        let lines: Vec<&LineDesign> = lines_of(&reg, &groups(), "Grundorf").into_iter().map(LineDesign::in_timetable).collect();
+        let text = block(&lines, &d);
+        assert!(text.contains("\r\nMarktplatz Süd\r\n") && !text.contains("Rathaus"), "{text}");
+    }
+
+    /// Another map's block in a shared depot file: not the file's own (that map takes it out
+    /// again), but its codes are not given twice.
+    #[test]
+    fn another_maps_block_is_not_the_files_own() {
+        let theirs = format!("[addterminus]\r\n901\r\nMarktplatz Süd\r\n{}\r\n[addbusstop]\r\nKirche\r\nKIRCHE\r\n\r\n\r\n\r\n\r\n[infosystem_trip]\r\n4201\r\nX\r\n901\r\n42\r\n\r\n", "MARKT\r\n".repeat(8));
+        let text = put_block(GRUNDORF, "Ahlheim", &theirs);
+        let d = Depot::from_text(Path::new("Grundorf.hof"), &text, "Grundorf");
+        assert!(d.terminus("Marktplatz Süd").is_none() && d.own_stop("Kirche").is_none());
+        assert!(d.others.termini.contains(&901) && d.others.routes.contains(&4201));
+        let mut taken = Taken::default();
+        taken.add_depot(&d);
+        let mut reg = registry();
+        assign(&mut reg, &groups(), "Grundorf", &d, &taken);
+        let l = &reg.lines[0];
+        assert_eq!((l.directions[0].terminus_code, l.directions[0].ibis_route), (902, 4202));
+        // its own entries for the map's lines, beside the other map's
+        let lines: Vec<&LineDesign> = reg.lines.iter().collect();
+        let ours = block(&lines, &d);
+        assert!(ours.contains("[addterminus]\r\n902\r\nMarktplatz Süd\r\n") && ours.contains("[addbusstop]\r\nKirche\r\n"), "{ours}");
     }
 
     /// Two content roots: the content folder, an installation. Every bus folder's depot file

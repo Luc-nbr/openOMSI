@@ -177,7 +177,8 @@ impl ApplicationHandler for App {
                 };
                 if let PhysicalKey::Code(code) = physical {
                     // (Enter puts the card of the trip just ended away, when nothing else on
-                    // the screen wants it)
+                    // the screen wants it: not a vehicle being placed, the object editor's
+                    // pick, a tutorial's next page or VR's navigator being placed)
                     if event.state == ElementState::Pressed
                         && !event.repeat
                         && matches!(code, KeyCode::Enter | KeyCode::NumpadEnter)
@@ -186,6 +187,10 @@ impl ApplicationHandler for App {
                         && !lan::chat_open(&self.remotes)
                         && !self.keys.contains(&KeyCode::AltLeft)
                         && !self.keys.contains(&KeyCode::AltRight)
+                        && self.placing.is_none()
+                        && self.editor.is_none()
+                        && self.vr_nav_edit.is_none()
+                        && !self.tutorial.as_ref().is_some_and(|t| !t.hidden && self.lan.is_none())
                         && self.trip_report.dismiss()
                     {
                         return;
@@ -296,8 +301,15 @@ impl ApplicationHandler for App {
                     }
                 } else {
                     let pressed = state == ElementState::Pressed;
-                    // (a click on the card of the trip just ended puts it away)
-                    if pressed && self.game_menu.is_none() && self.trip_report.click(self.cursor.0, self.cursor.1) {
+                    // (a click on the card of the trip just ended puts it away - not while the
+                    // click places a vehicle or works the object editor)
+                    if pressed
+                        && self.game_menu.is_none()
+                        && self.placing.is_none()
+                        && self.editor.is_none()
+                        && self.vr_nav_edit.is_none()
+                        && self.trip_report.click(self.cursor.0, self.cursor.1)
+                    {
                         return;
                     }
                     self.buttons_held.0 = pressed;

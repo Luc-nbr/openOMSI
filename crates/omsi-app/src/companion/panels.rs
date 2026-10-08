@@ -393,6 +393,11 @@ pub(crate) fn shared_name(names: &[&str]) -> Option<String> {
         let other = other.to_ascii_lowercase();
         n = n.min(first.bytes().zip(other.bytes()).take_while(|(a, b)| a == b).count());
     }
+    // (counted in bytes: back to a whole character when two names part inside one, as
+    // Cyrillic letters sharing their first byte do)
+    while n > 0 && !first.is_char_boundary(n) {
+        n -= 1;
+    }
     // (cut back to a whole word when one of the names goes on within the last word)
     let mut prefix = &first[..n];
     let inside_word = |name: &str| name.as_bytes().get(n).is_some_and(|b| b.is_ascii_alphanumeric());
@@ -553,5 +558,8 @@ mod tests {
         assert_eq!(shared_name(&["21_fd_anzeige_r_1", "21_fd_anzeige_r_7"]).as_deref(), Some("FD anzeige R"));
         assert_eq!(shared_name(&["17_display", "17_display_an"]).as_deref(), Some("Display"));
         assert_eq!(shared_name(&["17_display_x", "17_monitor_y"]), None);
+        // names that part inside a letter of more than one byte ('а' and 'е' share the first)
+        assert_eq!(shared_name(&["табло_маршрут", "табло_меню"]), None);
+        assert_eq!(shared_name(&["21_fd_маршрут", "21_fd_меню"]).as_deref(), Some("FD"));
     }
 }

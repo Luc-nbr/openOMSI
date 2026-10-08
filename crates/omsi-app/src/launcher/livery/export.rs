@@ -80,13 +80,26 @@ pub fn run(job: Job, tx: std::sync::mpsc::Sender<Msg>) {
     }
 }
 
+/// Whether two folders are the same one: the models name a folder in whatever case they like
+/// (`Texture`, `texture`), and Windows takes both for one.
+pub fn same_folder(a: &Path, b: &Path) -> bool {
+    let (mut a, mut b) = (a.components(), b.components());
+    loop {
+        match (a.next(), b.next()) {
+            (None, None) => return true,
+            (Some(x), Some(y)) if x.as_os_str().to_string_lossy().to_lowercase() == y.as_os_str().to_string_lossy().to_lowercase() => {}
+            _ => return false,
+        }
+    }
+}
+
 /// The `[CTC]` folders of the bus's parts, each once (an articulated bus's parts often share
 /// theirs): the folder, its variables (the first part's), and per part which of them it is.
 pub fn ctc_folders(parts: &[Option<Part>]) -> (Vec<(PathBuf, Vec<(String, f32)>)>, Vec<Option<usize>>) {
     let mut dirs: Vec<(PathBuf, Vec<(String, f32)>)> = Vec::new();
     let mut of_part = Vec::new();
     for p in parts {
-        of_part.push(p.as_ref().map(|p| match dirs.iter().position(|d| d.0 == p.ctc_dir) {
+        of_part.push(p.as_ref().map(|p| match dirs.iter().position(|d| same_folder(&d.0, &p.ctc_dir)) {
             Some(k) => k,
             None => {
                 dirs.push((p.ctc_dir.clone(), p.setvars.clone()));
@@ -425,7 +438,16 @@ mod tests {
         let a = PathBuf::from("c/Vehicles/Bus/Texture/Werbung");
         let parts = vec![Some(Part { ctc_dir: a.clone(), setvars: vec![("x".into(), 1.0)] }), Some(Part { ctc_dir: a.clone(), setvars: Vec::new() }), None];
         let (dirs, of) = ctc_folders(&parts);
-        assert_eq!(dirs, vec![(a, vec![("x".to_string(), 1.0)])]);
+        assert_eq!(dirs, vec![(a.clone(), vec![("x".to_string(), 1.0)])]);
         assert_eq!(of, vec![Some(0), Some(0), None]);
+        // the same folder in another case is still the one (one .cti, not two over each other)
+        let b = PathBuf::from("c/vehicles/bus/texture/werbung");
+        let parts = vec![Some(Part { ctc_dir: a.clone(), setvars: Vec::new() }), Some(Part { ctc_dir: b.clone(), setvars: Vec::new() })];
+        let (dirs, of) = ctc_folders(&parts);
+        assert_eq!(dirs.len(), 1);
+        assert_eq!(of, vec![Some(0), Some(0)]);
+        assert!(same_folder(&a, &b));
+        assert!(!same_folder(&a, &PathBuf::from("c/Vehicles/Bus/Texture")));
+        assert!(!same_folder(&a, &PathBuf::from("c/Vehicles/Bus/Texture/Werbung2")));
     }
 }

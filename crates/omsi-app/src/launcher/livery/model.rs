@@ -1345,6 +1345,11 @@ pub fn edit_size(w: u32, h: u32) -> (u32, u32) {
 /// `#rrggbb` (or `rrggbb`, `#rgb`) as bytes.
 pub fn parse_hex(s: &str) -> Option<[u8; 3]> {
     let s = s.trim().trim_start_matches('#');
+    // (anything else typed - a '№' for the '#' on a Cyrillic keyboard - is no code, and is not
+    // cut in the middle of a letter)
+    if !s.is_ascii() {
+        return None;
+    }
     let v = |a: &str| u8::from_str_radix(a, 16).ok();
     match s.len() {
         6 => Some([v(&s[0..2])?, v(&s[2..4])?, v(&s[4..6])?]),
@@ -1668,6 +1673,10 @@ mod tests {
         assert_eq!(parse_hex("#1d3f8f"), Some([0x1d, 0x3f, 0x8f]));
         assert_eq!(parse_hex("fff"), Some([255, 255, 255]));
         assert_eq!(parse_hex("#12"), None);
+        // (typed on another keyboard: no code, and no panic)
+        assert_eq!(parse_hex("№"), None);
+        assert_eq!(parse_hex("aä1"), None);
+        assert_eq!(parse_hex("1в3а"), None);
         assert_eq!(hex([0x1d, 0x3f, 0x8f]), "#1d3f8f");
         let g = Gradient { kind: GradientKind::Linear, colour2: "#000".into(), angle: 0.0 };
         assert_eq!(g.t(Vec2::new(0.0, 0.3)), 0.0);

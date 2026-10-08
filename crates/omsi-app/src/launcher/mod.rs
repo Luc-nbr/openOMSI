@@ -196,6 +196,9 @@ pub struct Launcher {
     pictures_rx: Option<std::sync::mpsc::Receiver<(&'static str, image::RgbaImage)>>,
     last: Instant,
     modifiers: ui::Modifiers,
+    /// The Ctrl+wheel turned since the launcher's size last changed: less than a notch (see
+    /// `zoom_notches`).
+    zoom_wheel: f32,
     /// Right or left drag over the showroom.
     dragging: Option<Vec2>,
     clipboard: Option<Clipboard>,
@@ -295,6 +298,7 @@ impl Launcher {
         pictures_rx: Some(decode_pictures()),
         last: Instant::now(),
         modifiers: ui::Modifiers::default(),
+        zoom_wheel: 0.0,
         dragging: None,
         clipboard: Clipboard::new().ok(),
         // OMSI_LAUNCHER_EXIT=secs, OMSI_LAUNCHER_SHOT=secs:file.png, OMSI_LAUNCHER_PAGE=mods:
@@ -554,6 +558,10 @@ impl ApplicationHandler for Launcher {
         match event {
             WindowEvent::CloseRequested => {
                 self.pages.pads.cancel_feedback_test();
+                // (a company clock playing: the minutes it ran are saved)
+                if self.page == Page::Company {
+                    company::leave(self);
+                }
                 event_loop.exit();
             }
             WindowEvent::Touch(t) => self.touch(t, scale),
@@ -626,9 +634,15 @@ impl ApplicationHandler for Launcher {
                     MouseScrollDelta::LineDelta(x, y) => Vec2::new(x, y),
                     MouseScrollDelta::PixelDelta(p) => Vec2::new(p.x as f32, p.y as f32) / 40.0,
                 };
-                // Ctrl with the wheel sizes the launcher, as it zooms a page in a browser
+                // Ctrl with the wheel sizes the launcher, as it zooms a page in a browser: a step
+                // a notch (a touchpad's pinch comes as many small parts of one, and each taken
+                // as a step sent the launcher to its largest or smallest at once)
                 if self.modifiers.state().control_key() && d.y != 0.0 {
-                    self.zoom_by(if d.y > 0.0 { 0.05 } else { -0.05 });
+                    let (notches, left) = zoom_notches(self.zoom_wheel, d.y);
+                    self.zoom_wheel = left;
+                    if notches != 0 {
+                        self.zoom_by(0.05 * notches as f64);
+                    }
                     return;
                 }
                 self.ui.input.wheel += d;
@@ -704,8 +718,9 @@ impl ApplicationHandler for Launcher {
             // a picture dropped on the livery studio is the studio's
             WindowEvent::DroppedFile(path) if self.page == Page::Livery => livery::dropped(self, path),
             WindowEvent::DroppedFile(path) => {
-                // a mod folder or supported archive dropped on the window is installed
-                self.page = Page::Mods;
+                // a mod folder or supported archive dropped on the window is installed (the way
+                // every page is gone to: the line editor's layer leaves the map with it)
+                self.go(Page::Mods);
                 self.state.install(path.to_string_lossy().to_string());
             }
             WindowEvent::HoveredFile(_) => self.pages.drop_hover = true,
@@ -766,6 +781,15 @@ impl ApplicationHandler for Launcher {
             w.request_redraw();
         }
     }
+}
+
+/// The Ctrl+wheel's whole notches, from what was left of one (`acc`) and the wheel turned now
+/// (`dy`, in notches): how many steps the launcher's size takes, and what is left for the next.
+fn zoom_notches(acc: f32, dy: f32) -> (i32, f32) {
+    let total = acc + dy;
+    // (ten tenths are a notch, though their sum comes a hair short of one)
+    let whole = (total + total.signum() * 1e-3).trunc();
+    (whole as i32, total - whole)
 }
 
 impl Launcher {
@@ -1441,7 +1465,8 @@ impl Launcher {
             released: self.ui.input.released,
             down: self.ui.input.down,
             wheel: self.ui.input.wheel.y,
-            blocked: self.ui.over_ui || !r.contains(self.ui.input.mouse),
+            // (an open dropdown is drawn last, over the map: what is over it is the list's)
+            blocked: self.ui.over_ui || self.ui.over_popup() || !r.contains(self.ui.input.mouse),
         };
         self.mapview.think(r, window, self.ui.scale, p);
         if let Some(i) = self.mapview.take_clicked() {
@@ -1481,7 +1506,7 @@ impl Launcher {
 
     /// The wheel and the cursor over the showroom, once the panels have had the mouse.
     pub fn showroom_pointer(&mut self, r: Rect) {
-        if self.ui.over_ui || !r.contains(self.ui.input.mouse) {
+        if self.ui.over_ui || self.ui.over_popup() || !r.contains(self.ui.input.mouse) {
             return;
         }
         if self.ui.input.wheel.y.abs() > 0.0 {
@@ -1492,13 +1517,20 @@ impl Launcher {
 
     pub fn go(&mut self, p: Page) {
         if self.page != p {
+            // (the company's pages left: a playing clock stops and saves what it ran)
+            if self.page == Page::Company {
+                company::leave(self);
+            }
             // (the line editor's layer goes with it, and the company's fleet map's: the map is
             // the duty's again)
             if self.page == Page::Lines || self.page == Page::Company {
                 self.mapview.editor_off();
             }
-            // (the line editor works for the bus company only when the company opened it)
-            if p == Page::Lines && self.page != Page::Company {
+            // (the line editor works for the bus company only when the company opened it - or
+            // when it comes back from the depot editor it opened itself: its company and its
+            // unsaved changes are still the line editor's then)
+            let back_from_depots = self.page == Page::Depots && self.pages.depots.from_lines();
+            if p == Page::Lines && self.page != Page::Company && !back_from_depots {
                 self.pages.lines.leave_company();
             }
             self.page = p;
@@ -1546,4 +1578,29 @@ impl Launcher {
 /// ambient occlusion, a small shadow map, 4x MSAA for the edges whatever the game uses.
 fn showroom_options(settings: &crate::settings::Settings) -> omsi_render::RenderOptions {
     omsi_render::RenderOptions { msaa: 4, ssao: false, shadow_size: 1024, render_scale: 1.0, ..settings.render_options() }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A notch of a mouse's wheel is a step of the launcher's size; a touchpad's pinch in
+    /// tenths of a notch is a step every ten of them, not ten steps.
+    #[test]
+    fn the_ctrl_wheel_sizes_the_launcher_a_notch_at_a_time() {
+        assert_eq!(zoom_notches(0.0, 1.0).0, 1);
+        assert_eq!(zoom_notches(0.0, -1.0).0, -1);
+        assert_eq!(zoom_notches(0.0, 0.2).0, 0);
+        let (mut acc, mut steps) = (0.0, 0);
+        for _ in 0..25 {
+            let (n, left) = zoom_notches(acc, 0.1);
+            steps += n;
+            acc = left;
+        }
+        assert_eq!(steps, 2);
+        // (turned back: what was left of a notch goes first)
+        let (n, left) = zoom_notches(acc, -0.3);
+        assert_eq!(n, 0);
+        assert!((left - 0.2).abs() < 1e-3, "{left}");
+    }
 }

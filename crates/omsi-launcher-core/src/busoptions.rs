@@ -42,9 +42,12 @@ impl BusOptions {
         self.write(&Self::path())
     }
 
+    /// Written through a file beside it: a write cut off leaves the choices as they were.
     pub fn write(&self, path: &Path) -> std::io::Result<()> {
         let text = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
-        std::fs::write(path, text)
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, text)?;
+        std::fs::rename(&tmp, path)
     }
 
     /// The choices for `bus`: variable → value (empty: all as the livery).

@@ -25,20 +25,32 @@ fn in_content(content: &Path, path: &Path) -> bool {
     path.starts_with(content) && omsi_cfg::vfs::archive_of(path).is_none()
 }
 
-/// The content folder's copy of `original_ttdata`, made whole when it is not there yet.
+/// The content folder's copy of `original_ttdata`, made whole when it is not there yet: beside
+/// it first and then put in its place, so that a copy cut off half-way (a full disk, the
+/// launcher closed) is never taken for the map's timetable.
 fn make_copy(content: &Path, map_folder: &str, original_ttdata: &Path) -> Result<PathBuf, String> {
     let dir = copy_dir(content, map_folder);
     if !dir.is_dir() {
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        for (name, is_dir) in omsi_cfg::vfs::list_dir(original_ttdata).ok_or_else(|| format!("{} cannot be read", original_ttdata.display()))? {
-            if !is_dir {
-                let bytes = omsi_cfg::vfs::read(&original_ttdata.join(&name)).map_err(|e| e.to_string())?;
-                std::fs::write(dir.join(&name), bytes).map_err(|e| e.to_string())?;
-            }
+        let part = dir.with_file_name("TTData.openomsi-part");
+        let _ = std::fs::remove_dir_all(&part);
+        if let Err(e) = copy_into(&part, original_ttdata).and_then(|()| std::fs::rename(&part, &dir).map_err(|e| e.to_string())) {
+            let _ = std::fs::remove_dir_all(&part);
+            return Err(e);
         }
-        std::fs::write(dir.join(COPY_MARK), b"TTData copied by the openOMSI launcher's timetable editor; its reset deletes this folder\n").map_err(|e| e.to_string())?;
     }
     Ok(dir)
+}
+
+/// Every file of `original_ttdata` copied into the folder `part`, and the mark of a copy.
+fn copy_into(part: &Path, original_ttdata: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(part).map_err(|e| e.to_string())?;
+    for (name, is_dir) in omsi_cfg::vfs::list_dir(original_ttdata).ok_or_else(|| format!("{} cannot be read", original_ttdata.display()))? {
+        if !is_dir {
+            let bytes = omsi_cfg::vfs::read(&original_ttdata.join(&name)).map_err(|e| e.to_string())?;
+            std::fs::write(part.join(&name), bytes).map_err(|e| e.to_string())?;
+        }
+    }
+    std::fs::write(part.join(COPY_MARK), b"TTData copied by the openOMSI launcher's timetable editor; its reset deletes this folder\n").map_err(|e| e.to_string())
 }
 
 /// `<file>.orig` beside a file of a map in the content folder, the first time it is written
@@ -121,6 +133,10 @@ mod tests {
         let dir = ttdata_dir(&content, &map, "Dorf").unwrap();
         assert_eq!(dir, copy_dir(&content, "Dorf"));
         assert!(dir.join("1.ttl").is_file() && dir.join("1_a.ttp").is_file() && dir.join(COPY_MARK).is_file());
+        assert!(!dir.with_file_name("TTData.openomsi-part").exists(), "made beside it, then put in its place");
+        // an original that cannot be read leaves no copy that would be taken for the map's
+        let other = ttdata_dir(&content, &omsi.join("maps").join("Gone"), "Gone");
+        assert!(other.is_err() && !copy_dir(&content, "Gone").exists() && !copy_dir(&content, "Gone").with_file_name("TTData.openomsi-part").exists());
         // a line goes into that copy
         assert_eq!(save_target(&content, &map.join("TTData").join("1.ttl"), "1.ttl", "Dorf", &map.join("TTData")).unwrap(), dir.join("1.ttl"));
         assert!(reset_timetable(&content, &map, "Dorf").is_ok());

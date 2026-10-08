@@ -13,8 +13,9 @@ use std::sync::Arc;
 
 #[derive(Default)]
 pub struct BusClasses {
-    /// For how many installed buses the kinds were asked, and the answer on its way.
-    asked: Option<usize>,
+    /// For which installed buses the kinds were asked (`fingerprint`), and the answer on its
+    /// way.
+    asked: Option<u64>,
     rx: Option<Receiver<HashMap<String, VehicleClass>>>,
     /// The kinds by bus file (`key`).
     kinds: Arc<HashMap<String, VehicleClass>>,
@@ -25,6 +26,17 @@ pub fn key(file: &str) -> String {
     file.trim().replace('\\', "/").to_lowercase()
 }
 
+/// The installed buses told from another set of them: their files and names (their number
+/// alone stays the same when one bus goes and another comes).
+pub fn fingerprint(vehicles: &[VehicleInfo]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for v in vehicles {
+        (&v.file, &v.name, &v.manufacturer, &v.type_name, &v.folder, &v.default_paint).hash(&mut h);
+    }
+    h.finish()
+}
+
 impl BusClasses {
     /// The kinds of `vehicles` asked for (read on a thread once for each set of installed
     /// buses), and taken in when they came.
@@ -33,10 +45,14 @@ impl BusClasses {
             self.kinds = Arc::new(k);
             self.rx = None;
         }
-        if self.asked == Some(vehicles.len()) || vehicles.is_empty() {
+        if vehicles.is_empty() {
             return;
         }
-        self.asked = Some(vehicles.len());
+        let set = fingerprint(vehicles);
+        if self.asked == Some(set) {
+            return;
+        }
+        self.asked = Some(set);
         let list: Vec<(String, Vec<String>)> = vehicles.iter().map(|v| (v.file.clone(), vec![v.name.clone(), v.manufacturer.clone(), v.type_name.clone()])).collect();
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {

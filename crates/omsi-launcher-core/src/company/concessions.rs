@@ -29,6 +29,7 @@ use super::auction::{self, Bidder, Character, Lot, Placed, Seen, Who};
 use super::clock;
 use super::dates;
 use super::economy;
+use super::levels;
 use super::model::{BookingKind, Cents, Company, Difficulty};
 use super::network;
 use super::rng::Rng;
@@ -477,6 +478,11 @@ pub fn refresh(c: &mut Company, lines: &[LineInfo]) -> bool {
         if open_tender(c, &h.line).is_some() {
             continue;
         }
+        // (its renewal decided already in this term - lost, or nobody bid -: the concession
+        // ends with its term, it is not put out again)
+        if c.concessions.tenders.iter().any(|t| t.renewal && !t.open() && t.line.eq_ignore_ascii_case(&h.line) && dates::between(&t.offered, &h.until) <= RENEW_BEFORE) {
+            continue;
+        }
         let Some(l) = lines.iter().find(|l| l.name.eq_ignore_ascii_case(&h.line)) else { continue };
         // (a fortnight before it ends, a week from now at the soonest)
         let day = dates::add(&h.until, -14);
@@ -537,6 +543,25 @@ fn mend_tenders(c: &mut Company, lines: &[LineInfo]) -> bool {
     changed
 }
 
+/// The refusal when the company's level allows no more concessions.
+pub const LEVEL_LIMIT: &str = "The company holds as many concessions as its level allows.";
+
+/// Whether the company's level lets it take on another concession (`levels::max_concessions`)
+/// in tender `id` (0: a new one): the concessions it won count, and the other tenders it bids
+/// in; a renewal of one it holds is always allowed, and the lines taken on directly (an easy
+/// economy, or run before there were concessions) are not counted.
+fn level_allows(c: &Company, id: u32) -> Result<(), &'static str> {
+    if c.concessions.tenders.iter().any(|t| t.id == id && t.renewal) {
+        return Ok(());
+    }
+    let held = c.concessions.held.iter().filter(|h| !h.direct).count();
+    let bidding = c.concessions.tenders.iter().filter(|t| t.id != id && t.open() && !t.renewal && !t.offers.is_empty()).count();
+    if held + bidding >= levels::max_concessions(c) {
+        return Err(LEVEL_LIMIT);
+    }
+    Ok(())
+}
+
 /// Apply for a map line's concession (the lines page): its open tender, or a new one whose
 /// auction opens now. Returns the tender's id.
 pub fn apply(c: &mut Company, l: &LineInfo) -> Result<u32, &'static str> {
@@ -546,6 +571,7 @@ pub fn apply(c: &mut Company, l: &LineInfo) -> Result<u32, &'static str> {
     if !is_line(c, l) {
         return Err("This timetable carries no passengers of its own: depot runs, empty runs or other traffic.");
     }
+    level_allows(c, open_tender(c, &l.name).map_or(0, |t| t.id))?;
     if let Some(t) = open_tender(c, &l.name) {
         let id = t.id;
         if let Some(t) = c.concessions.tenders.iter_mut().find(|t| t.id == id) {
@@ -656,6 +682,7 @@ pub fn bid(c: &mut Company, id: u32, amount: Cents) -> Result<(), &'static str> 
     if !t.running(now) {
         return Err("This tender is closed.");
     }
+    level_allows(c, id)?;
     if amount < min_bid(c, &t) {
         return Err("Another bid leads with more: bid at least the least shown.");
     }
@@ -681,6 +708,7 @@ pub fn buy_out(c: &mut Company, id: u32) -> Result<Event, &'static str> {
     if !t.running(now) {
         return Err(if now < t.opens_at && t.open() { "This tender has not opened yet." } else { "This tender is closed." });
     }
+    level_allows(c, id)?;
     let price = t.buy_out();
     if c.cash < price + if t.fee_paid { 0 } else { fee(c, &t) } {
         return Err("Not enough cash.");
@@ -952,6 +980,11 @@ pub(crate) mod tests {
         refresh(&mut c, &lines);
         let renewal = open_tender(&c, "Linie7").unwrap().clone();
         assert!(renewal.renewal);
+        // (closed without a bid, it is not put out again)
+        nights_until(&mut c, &renewal.closes, &lines);
+        assert!(open_tender(&c, "Linie7").is_none());
+        refresh(&mut c, &lines);
+        assert!(open_tender(&c, "Linie7").is_none(), "a renewal decided is not put out again");
         let ev = nights_until(&mut c, &h.until.clone(), &lines);
         assert!(ev.iter().any(|e| matches!(e, Event::Ended { number } if number == "7")));
         assert!(!c.lines.iter().any(|l| l.name == "Linie7"));
@@ -993,6 +1026,30 @@ pub(crate) mod tests {
             }
         }
         assert!(won[0] < won[1] && won[0] < 50 && won[1] > 30, "{won:?}");
+    }
+
+    #[test]
+    fn the_company_level_limits_the_concessions() {
+        let lines = vec![line("Linie7", "7", 2, true), line("Linie9", "9", 2, true), line("Linie3", "3", 2, true)];
+        let mut c = company(Difficulty::Realistic);
+        c.cash = 1_000_000_00;
+        c.clock.minute = 9 * 60;
+        assert_eq!(levels::max_concessions(&c), 1);
+        let a = apply(&mut c, &lines[0]).unwrap();
+        let b = apply(&mut c, &lines[1]).unwrap();
+        let ta = c.concessions.tenders.iter().find(|t| t.id == a).unwrap().clone();
+        let m = min_bid(&c, &ta);
+        bid(&mut c, a, m).unwrap();
+        // (a tender it bids in is a concession it may win: not another beside it)
+        let tb = c.concessions.tenders.iter().find(|t| t.id == b).unwrap().clone();
+        let m = min_bid(&c, &tb);
+        assert_eq!(bid(&mut c, b, m), Err(LEVEL_LIMIT));
+        assert_eq!(buy_out(&mut c, b).err(), Some(LEVEL_LIMIT));
+        buy_out(&mut c, a).unwrap();
+        assert_eq!(apply(&mut c, &lines[2]), Err(LEVEL_LIMIT));
+        // a higher level, one more
+        c.progress.xp = levels::LEVEL_XP[2];
+        assert!(buy_out(&mut c, b).is_ok());
     }
 
     #[test]

@@ -580,7 +580,11 @@ pub fn finish_job(c: &mut Company, vehicle: u32, kind: JobKind, quality: f64) ->
             let labour = service_labour(c);
             let vm = c.fleet.iter_mut().find(|x| x.id == vehicle).expect("the bus");
             if q < 0.4 {
+                // (the workshop does the service after all: the condition and the next one as
+                // its service brings them)
                 vm.workshop_until = Some(dates::add(&today, 1));
+                vm.condition = vm.condition.max(market::serviced_condition(dates::years_between(&v.built, &today)));
+                vm.next_service_km = ((vm.km / market::SERVICE_KM).floor() + 1.0) * market::SERVICE_KM;
                 let parts = labour / 4;
                 c.book(BookingKind::Maintenance, -parts, format!("{} {} (own service, redone)", v.number, v.name), true);
                 -parts
@@ -746,6 +750,8 @@ mod tests {
         c.fleet[0].condition = 60.0;
         let job = finish_job(&mut c, id, JobKind::Service, 0.2).unwrap();
         assert!(job.saved < 0 && c.fleet[0].in_workshop("2024-06-02"));
+        // (and serviced there)
+        assert!(c.fleet[0].condition > 90.0 && c.fleet[0].next_service_km > c.fleet[0].km);
         // a breakdown: the repair bill, part of it back, the bus out tomorrow
         c.date = "2024-06-05".into();
         c.fleet[0].breakdowns = 1;

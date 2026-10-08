@@ -100,10 +100,15 @@ impl BusStopEntry {
 }
 
 /// `text` written to `path` in the code page of the file it replaces (Windows-1252 for a new
-/// one, as OMSI's own files are).
+/// one, as OMSI's own files are) - in UTF-8 when that code page lacks one of its characters
+/// (a Polish or Cyrillic name in a Windows-1252 file would become an HTML entity, `&#322;`,
+/// and no longer match the name the depot file and the other files give it).
 pub fn write_text(path: &Path, text: &str) -> std::io::Result<()> {
     let page = std::fs::read(path).map(|b| omsi_cfg::codepage::detect(&b)).unwrap_or(omsi_cfg::codepage::CodePage::Windows1252);
-    let (bytes, _, _) = page.encoding().encode(text);
+    let (bytes, _, lossy) = page.encoding().encode(text);
+    if lossy {
+        return std::fs::write(path, text.as_bytes());
+    }
     std::fs::write(path, bytes)
 }
 
@@ -116,6 +121,13 @@ pub fn replace_block(text: &str, block: &str) -> String {
         let t = line.trim();
         if t == BLOCK_BEGIN {
             inside = true;
+            // (the empty line put before it: else every save adds one more)
+            for nl in ["\r\n", "\n"] {
+                if out.ends_with(&format!("{nl}{nl}")) {
+                    out.truncate(out.len() - nl.len());
+                    break;
+                }
+            }
             continue;
         }
         if t == BLOCK_END {
@@ -200,7 +212,26 @@ mod tests {
         let twice = replace_block(&once, &b.to_text());
         let stops = parse_busstops(&CfgFile::from_str("Busstops.cfg", &twice));
         assert_eq!(stops.iter().map(|s| s.object_id).collect::<Vec<_>>(), vec![129, 8]);
+        // the same block again: the file as it was (no empty line more on every save)
+        assert_eq!(replace_block(&twice, &b.to_text()), twice);
         // an empty block takes ours out and leaves the map's as it was
-        assert_eq!(replace_block(&twice, "").trim_end(), own.trim_end());
+        assert_eq!(replace_block(&twice, ""), own);
+    }
+
+    #[test]
+    fn what_the_code_page_lacks_is_written_in_utf8() {
+        let dir = std::env::temp_dir().join(format!("omsi_tt_write_text_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // a German name: Windows-1252, as OMSI's own files
+        let p = dir.join("a.ttp");
+        write_text(&p, "Marktplatz Süd\r\n").unwrap();
+        assert_eq!(std::fs::read(&p).unwrap(), b"Marktplatz S\xFCd\r\n");
+        // a Polish and a Russian one: no HTML entity, the text as it is
+        let p = dir.join("b.ttp");
+        write_text(&p, "Dworzec Główny\r\nВокзал\r\n").unwrap();
+        let b = std::fs::read(&p).unwrap();
+        assert_eq!(omsi_cfg::codepage::decode(&b), "Dworzec Główny\r\nВокзал\r\n");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

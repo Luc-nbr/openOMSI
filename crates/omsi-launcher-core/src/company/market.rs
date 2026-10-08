@@ -270,7 +270,9 @@ pub fn lease(c: &mut Company, bus: &MarketBus, livery: &str) -> Result<u32, &'st
 
 /// Rent a bus for `days` days from today (paid by the day at each day's close).
 pub fn rent(c: &mut Company, bus: &MarketBus, days: u32, livery: &str) -> Result<u32, &'static str> {
-    super::depot::room(c)?;
+    let until = dates::add(&c.date, days.max(1) as i64 - 1);
+    // (the buses ordered from a dealer that come before it goes back need their places)
+    super::depot::room_until(c, Some(until.as_str()))?;
     kind_allowed(c, bus.kind)?;
     let r = economy::rules(c.difficulty);
     let daily = economy::rent_per_day(bus.kind, &r, c.price_index);
@@ -280,7 +282,6 @@ pub fn rent(c: &mut Company, bus: &MarketBus, days: u32, livery: &str) -> Result
     if c.cash < daily * days as Cents {
         return Err("Not enough cash.");
     }
-    let until = dates::add(&c.date, days as i64 - 1);
     // (a rented bus is a few years old and kept well)
     let built = dates::add(&c.date, -3 * 365);
     Ok(add_vehicle(c, bus, built, 150_000.0, 85.0, Tenure::Rented { daily, until }, livery))
@@ -305,11 +306,40 @@ pub fn sale_offer(c: &Company, v: &Vehicle) -> Cents {
     }
 }
 
-/// Sell a bus (or give a leased or rented one back). Returns what it brought.
+/// What a bus that leaves the fleet before the month's end owes for that month up to `last`:
+/// its lease and its insurance from the month's first day (or the day it came), pro rata as
+/// the month's end books them for the buses still in the fleet (`day::close_day`).
+pub fn part_month(c: &Company, v: &Vehicle, last: &str) -> Vec<(BookingKind, Cents)> {
+    let (Some(first), Some(end)) = (dates::parse(&format!("{}-01", dates::month_of(last))), dates::parse(last)) else { return Vec::new() };
+    let (y, m, _) = dates::civil_from_days(end);
+    let len = dates::days_in_month(y, m) as f64;
+    let from = dates::parse(&v.acquired).unwrap_or(first).max(first);
+    let days = (end - from + 1).max(0) as f64;
+    let share = |monthly: Cents| -(monthly as f64 * days / len).round() as Cents;
+    let insurance = share(economy::insurance_per_month(v.kind, c.price_index));
+    match &v.tenure {
+        Tenure::Leased { monthly, .. } => vec![(BookingKind::Lease, share(*monthly)), (BookingKind::Insurance, insurance)],
+        Tenure::Owned { .. } => vec![(BookingKind::Insurance, insurance)],
+        Tenure::Rented { .. } => Vec::new(),
+    }
+}
+
+/// Book `part_month` for a bus that leaves the fleet (on the company's day).
+pub fn book_part_month(c: &mut Company, v: &Vehicle, last: &str) {
+    let text = format!("{} {}", v.number, v.name);
+    for (kind, amount) in part_month(c, v, last) {
+        c.book(kind, amount, text.clone(), false);
+    }
+}
+
+/// Sell a bus (or give a leased or rented one back). Returns what it brought. The month's
+/// lease and insurance up to today are paid with it (`part_month`).
 pub fn sell(c: &mut Company, id: u32) -> Result<Cents, &'static str> {
     let Some(v) = c.vehicle(id).cloned() else { return Err("This bus is not in the fleet.") };
     let amount = sale_offer(c, &v);
-    if amount < 0 && c.cash < -amount {
+    let today = c.date.clone();
+    let owed = -part_month(c, &v, &today).iter().map(|p| p.1).sum::<Cents>();
+    if amount < 0 && c.cash < owed - amount {
         return Err("Not enough cash.");
     }
     let text = format!("{} {}", v.number, v.name);
@@ -318,22 +348,22 @@ pub fn sell(c: &mut Company, id: u32) -> Result<Cents, &'static str> {
         Tenure::Leased { .. } => c.book(BookingKind::Lease, amount, format!("{text} (returned early)"), false),
         Tenure::Rented { .. } => {}
     }
+    book_part_month(c, &v, &today);
     c.fleet.retain(|x| x.id != id);
     Ok(amount)
 }
 
-/// Send a bus to the workshop for a service tomorrow: back the day after, in the condition
-/// a service brings (the work is paid with the maintenance per kilometre).
+/// Send a bus to the workshop for a service: a job of the workshop's (`depot::order`) that
+/// the night starts, so the bus runs today and is in a bay tomorrow when one is free - back
+/// the day after, in the condition a service brings (the work is paid with the maintenance
+/// per kilometre).
 pub fn service(c: &mut Company, id: u32) -> Result<(), &'static str> {
-    let today = c.date.clone();
-    let Some(v) = c.fleet.iter_mut().find(|v| v.id == id) else { return Err("This bus is not in the fleet.") };
-    if v.in_workshop(&dates::add(&today, 1)) {
+    let tomorrow = dates::add(&c.date, 1);
+    let Some(v) = c.vehicle(id) else { return Err("This bus is not in the fleet.") };
+    if v.in_workshop(&tomorrow) {
         return Err("It is in the workshop already.");
     }
-    v.workshop_until = Some(dates::add(&today, 1));
-    v.condition = v.condition.max(serviced_condition(dates::years_between(&v.built, &today)));
-    v.next_service_km = ((v.km / SERVICE_KM).floor() + 1.0) * SERVICE_KM;
-    Ok(())
+    super::depot::order(c, id, super::depot::JobKind::Service).map(|_| ())
 }
 
 /// Give a bus another of its liveries.
@@ -458,18 +488,32 @@ mod tests {
         let r = rent(&mut c, &solo, 3, "").unwrap();
         assert!(matches!(&c.vehicle(r).unwrap().tenure, Tenure::Rented { daily: 360_00, until } if until == "2024-03-06"));
         assert!(c.vehicle(r).unwrap().held_on("2024-03-06") && !c.vehicle(r).unwrap().held_on("2024-03-07"));
-        // giving the lease back early costs three rates
+        // given back before the month's end: the month's lease and insurance up to the day,
+        // pro rata (the month's end books them only for the buses still in the fleet)
+        let mut v = c.vehicle(l).unwrap().clone();
+        v.acquired = "2024-03-01".into();
+        let Tenure::Leased { monthly, .. } = &v.tenure else { panic!() };
+        let part = part_month(&c, &v, "2024-03-20");
+        assert_eq!(part[0], (BookingKind::Lease, -(*monthly as f64 * 20.0 / 31.0).round() as Cents));
+        assert!(part.len() == 2 && part[1].0 == BookingKind::Insurance && part[1].1 < 0);
+        // giving the lease back early costs three rates, and the day it was held
         let before = c.cash;
+        let today = c.date.clone();
+        let owed: Cents = part_month(&c, c.vehicle(l).unwrap(), &today).iter().map(|p| p.1).sum();
         let got = sell(&mut c, l).unwrap();
-        assert!(got < 0 && c.cash == before + got);
+        assert!(got < 0 && owed < 0 && c.cash == before + got + owed);
         // a bus bought and sold the same day brings 85 % of its price
         let b = buy_new(&mut c, &solo, Payment::Cash, "").unwrap();
         assert_eq!(sell(&mut c, b).unwrap(), 238_000_00);
         assert!(c.vehicle(b).is_none());
-        // a service: in the workshop tomorrow
+        // a service: the bus runs today, the night has it in the workshop tomorrow
         let s = buy_new(&mut c, &solo, Payment::Cash, "").unwrap();
         service(&mut c, s).unwrap();
-        assert!(c.vehicle(s).unwrap().in_workshop("2024-03-05") && !c.vehicle(s).unwrap().in_workshop("2024-03-06"));
+        assert!(!c.vehicle(s).unwrap().in_workshop("2024-03-04"));
         assert!(service(&mut c, s).is_err());
+        let today = c.date.clone();
+        c.date = dates::add(&today, 1);
+        super::super::depot::after_day(&mut c, &today);
+        assert!(c.vehicle(s).unwrap().in_workshop("2024-03-05") && !c.vehicle(s).unwrap().in_workshop("2024-03-06"));
     }
 }

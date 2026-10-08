@@ -363,7 +363,15 @@ fn latest_from_site() -> anyhow::Result<Option<Release>> {
         anyhow::bail!("github.com named no release ({})", r.get_url());
     }
     let version = tag.trim_start_matches(['v', 'V']).to_string();
-    if is_test_build(current_version()) || !is_hub_version(&version) || !newer(&version, current_version()) {
+    if is_test_build(current_version()) {
+        return Ok(None);
+    }
+    // (the project's releases are published there too: a three-number "latest" says nothing
+    // of the fork's, and "up to date" would be a guess)
+    if !is_hub_version(&version) {
+        anyhow::bail!("its latest release ({tag}) is not one of Omsi-Hub's");
+    }
+    if !newer(&version, current_version()) {
         return Ok(None);
     }
     let Some(name) = asset_name(&version) else { return Ok(None) };

@@ -122,7 +122,10 @@ impl MapChoiceView {
         if key == self.asked && !again {
             return;
         }
-        let facts_too = key != self.asked;
+        // (the facts too when a reading of them was stopped before it got through the maps:
+        // the GPU going while it read left the rest of them unread for the session)
+        self.poll();
+        let facts_too = key != self.asked || maps.iter().any(|m| !self.facts.contains_key(&m.file));
         self.asked = key;
         let skip: HashSet<String> = self.textures.keys().chain(self.bare.iter()).cloned().collect();
         let base = PathBuf::from(root);
@@ -406,7 +409,7 @@ pub fn draw(l: &mut Launcher, window: Rect) {
     l.mapchoice.want(&l.state.config.root, &l.state.maps);
     l.mapchoice.poll();
     // (the chosen map is read for its picture meanwhile: the next step stands on it)
-    l.mapview.want(drive::map_look(l));
+    l.mapview.want(if l.state.choice.free { super::freedrive::map_look(l) } else { drive::map_look(l) });
     if l.mapchoice.tiles {
         tiles_view(l, window, entering);
     } else {
@@ -605,10 +608,17 @@ fn list_view(l: &mut Launcher, window: Rect, entering: bool) {
             choose(l, &items[k].file);
         }
     }
-    // the map's names, off the sheet; the map takes the mouse last
-    drive::map_labels(l, clear, &[s]);
+    // the map's names, off the sheet; the map takes the mouse last (an entry point clicked in a
+    // free drive is its start, as on the Start step)
+    if l.state.choice.free {
+        super::freedrive::map_marks(l, clear, &[s]);
+    } else {
+        drive::map_labels(l, clear, &[s]);
+    }
     flow_actions(l, s.right() + 14.0);
-    l.map_interact(window, clear);
+    // (the bar, drawn after this, is not the map's)
+    l.ui.solid(flow::bar_rect(l.ui.size));
+    super::freedrive::map_interact(l, window, clear);
 }
 
 /// A row of the list.
@@ -745,8 +755,8 @@ fn foot_text(l: &Launcher) -> String {
 
 /// Where the bus is put down on the chosen map: one of its entry points, as in OMSI 2, or
 /// the automatic one (nearest to the duty's first stop; a free drive: the map's first). The
-/// same choice as the duty step's and the orange marks on the map. Returns whether it is
-/// there (a map with entry points, not on a server).
+/// same choice as the duty step's (a free drive: the Start step's) and the orange marks on the
+/// map. Returns whether it is there (a map with entry points, not on a server).
 fn entry_choice(l: &mut Launcher, r: Rect) -> bool {
     if drive::joined_server_name(l).is_some() {
         return false;
@@ -758,14 +768,20 @@ fn entry_choice(l: &mut Launcher, r: Rect) -> bool {
     let free = l.state.choice.free;
     let mut labels = vec![if free { "Automatic (the map's first)".to_string() } else { "Automatic (nearest to the first stop)".to_string() }];
     labels.extend(m.entry_points.iter().map(|e| if e.name.is_empty() { super::drive::entry_name(e.index) } else { e.name.clone() }));
-    // (the choice is the entry's place in the list; 0 = automatic here)
-    let mut es = if l.state.choice.entry < 0 { 0 } else { (l.state.choice.entry as usize + 1).min(labels.len() - 1) };
+    // (the choice is the entry's place in the list; 0 = automatic here. A free drive's is its
+    // own, `free_entry`: the game starts it there, not at the duty's entry)
+    let chosen = if free { super::freedrive::start_entry(&l.state.choice) } else { l.state.choice.entry };
+    let mut es = if chosen < 0 { 0 } else { (chosen as usize + 1).min(labels.len() - 1) };
     let lw = l.ui.width("Start at", 13.0, Weight::Medium) + 14.0;
     super::tour::anchor("map-start", r);
     l.ui.label(Rect::new(r.x, r.y, lw, r.h), "Start at");
     if l.ui.select("mapchoice-entry", Rect::new(r.x + lw, r.y, r.w - lw, r.h), &mut es, &labels) {
-        l.state.choice.entry = es as i32 - 1;
-        l.state.touched();
+        if free {
+            super::freedrive::entry_chosen(l, es as i32 - 1);
+        } else {
+            l.state.choice.entry = es as i32 - 1;
+            l.state.touched();
+        }
     }
     l.ui.tooltip(Rect::new(r.x, r.y, lw, r.h), "Where the bus is put down. The orange marks on the map are the same places: click one to take it.");
     true

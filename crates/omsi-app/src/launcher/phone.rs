@@ -157,9 +157,10 @@ fn card(l: &mut Launcher, name: &str, r: Rect, icon: &str, label: &str, value: &
     l.ui.p().rounded(r, 14.0, if down { accent() } else if h { HOVER } else { FIELD });
     let ic = Vec2::new(r.x + 26.0, r.center().y);
     l.ui.p().circle(ic, 17.0, Color::rgba(255, 255, 255, 0.05));
-    l.ui.icon(icon, ic, 19.0, if warn { WARN } else { accent() });
-    l.ui.text_in(label, Rect::new(r.x + 54.0, r.y + 8.0, r.w - 84.0, 15.0), 11.0, Weight::Medium, TEXT_DIM, Align::Left);
-    l.ui.text_in(value, Rect::new(r.x + 54.0, r.y + 24.0, r.w - 84.0, r.h - 30.0), 14.5, Weight::Bold, TEXT, Align::Left);
+    // (pressed, the card is the accent: what is on it in the accent's own ink)
+    l.ui.icon(icon, ic, 19.0, if warn { WARN } else if down { on_accent() } else { accent() });
+    l.ui.text_in(label, Rect::new(r.x + 54.0, r.y + 8.0, r.w - 84.0, 15.0), 11.0, Weight::Medium, if down { on_accent().alpha(0.8) } else { TEXT_DIM }, Align::Left);
+    l.ui.text_in(value, Rect::new(r.x + 54.0, r.y + 24.0, r.w - 84.0, r.h - 30.0), 14.5, Weight::Bold, if down { on_accent() } else { TEXT }, Align::Left);
     l.ui.icon("chevron_right", Vec2::new(r.right() - 18.0, r.center().y), 20.0, TEXT_FAINT);
     clicked
 }
@@ -187,12 +188,14 @@ fn time_text(l: &Launcher) -> String {
 }
 
 fn start_text(l: &Launcher) -> String {
-    let where_ = if l.state.choice.entry < 0 {
+    // (a free drive starts at its own entry point, not the duty's)
+    let entry = if l.state.choice.free { super::freedrive::start_entry(&l.state.choice) } else { l.state.choice.entry };
+    let where_ = if entry < 0 {
         "Automatic".to_string()
     } else {
         l.state
             .map()
-            .and_then(|m| m.entry_points.get(l.state.choice.entry as usize))
+            .and_then(|m| m.entry_points.get(entry as usize))
             .map(|e| if e.name.is_empty() { super::drive::entry_name(e.index) } else { e.name.clone() })
             .unwrap_or_else(|| "Automatic".into())
     };
@@ -238,8 +241,9 @@ fn play(l: &mut Launcher, body: Rect) {
         let chip = Rect::new(shade.right() - cw - 10.0, shade.y + 13.0, cw, 32.0);
         let (_, down, clicked) = l.ui.interact(id_of("p-livery"), chip);
         l.ui.p().rounded(chip, 16.0, if down { accent() } else { Color::rgba(255, 255, 255, 0.1) });
-        l.ui.icon("palette", Vec2::new(chip.x + 16.0, chip.center().y), 15.0, accent());
-        l.ui.text_in(&label, Rect::new(chip.x + 28.0, chip.y, chip.w - 34.0, chip.h), 12.0, Weight::Medium, TEXT, Align::Left);
+        let ink = if down { on_accent() } else { accent() };
+        l.ui.icon("palette", Vec2::new(chip.x + 16.0, chip.center().y), 15.0, ink);
+        l.ui.text_in(&label, Rect::new(chip.x + 28.0, chip.y, chip.w - 34.0, chip.h), 12.0, Weight::Medium, if down { on_accent() } else { TEXT }, Align::Left);
         if clicked {
             open(l, Sheet::Livery);
         }
@@ -584,11 +588,17 @@ fn start_sheet(l: &mut Launcher, r: Rect) -> bool {
     if let Some(m) = l.state.map().cloned() {
         let mut labels = vec![if l.state.choice.free { "Automatic (the map's first)".to_string() } else { "Automatic (nearest to the first stop)".to_string() }];
         labels.extend(m.entry_points.iter().map(|e| if e.name.is_empty() { super::drive::entry_name(e.index) } else { e.name.clone() }));
-        let mut es = if l.state.choice.entry < 0 { 0 } else { (l.state.choice.entry as usize + 1).min(labels.len().saturating_sub(1)) };
+        // (a free drive starts at its own entry point, not the duty's)
+        let entry = if l.state.choice.free { super::freedrive::start_entry(&l.state.choice) } else { l.state.choice.entry };
+        let mut es = if entry < 0 { 0 } else { (entry as usize + 1).min(labels.len().saturating_sub(1)) };
         l.ui.label(Rect::new(inner.x, y, 112.0, ROW), "Start at");
         if labels.len() > 1 && l.ui.select("ps-start-at", Rect::new(inner.x + 112.0, y, inner.w - 112.0, ROW), &mut es, &labels) {
-            l.state.choice.entry = es as i32 - 1;
-            l.state.touched();
+            if l.state.choice.free {
+                super::freedrive::entry_chosen(l, es as i32 - 1);
+            } else {
+                l.state.choice.entry = es as i32 - 1;
+                l.state.touched();
+            }
         }
         y += ROW + 14.0;
     }
@@ -673,12 +683,14 @@ fn roadbook_sheet(l: &mut Launcher, r: Rect) -> bool {
         for (k, trip) in trips.iter().enumerate() {
             let head = Rect::new(v.x, y, v.w - 8.0, 54.0);
             ui.p().rounded(head, 8.0, if k == 0 { accent() } else { FIELD });
+            // (on the accent: its own ink, the sheet's white is lost on a light one)
+            let (ink, ink_dim) = if k == 0 { (on_accent(), on_accent().alpha(0.8)) } else { (TEXT, TEXT_DIM) };
             ui.text_in(
                 &format!("{} · {} → {}", if k == 0 { "Your first trip" } else { "Then" }, if trip.from.is_empty() { "?" } else { &trip.from }, trip.terminus),
                 Rect::new(head.x + 12.0, head.y + 7.0, head.w - 24.0, 20.0),
                 13.0,
                 Weight::Bold,
-                TEXT,
+                ink,
                 Align::Left,
             );
             ui.text_in(
@@ -686,7 +698,7 @@ fn roadbook_sheet(l: &mut Launcher, r: Rect) -> bool {
                 Rect::new(head.x + 12.0, head.y + 30.0, head.w - 24.0, 18.0),
                 11.5,
                 Weight::Regular,
-                TEXT_DIM,
+                ink_dim,
                 Align::Left,
             );
             y += 62.0;
@@ -927,7 +939,8 @@ fn time_sheet(l: &mut Launcher, r: Rect) -> bool {
     let left = Rect::new(r.x + 8.0, r.y + 4.0, (r.w * 0.42).max(260.0).min(r.w - 16.0), r.h - 8.0);
     l.ui.text_in("Start", Rect::new(left.x, left.y, left.w, 18.0), 12.0, Weight::Medium, TEXT_DIM, Align::Left);
     let mut t = l.state.choice.time;
-    if l.ui.time_field("p-time", Rect::new(left.x, left.y + 22.0, left.w, 48.0), &mut t) {
+    // (a start past midnight, 24:xx, shows as 00:xx: only a time typed differently is one)
+    if l.ui.time_field("p-time", Rect::new(left.x, left.y + 22.0, left.w, 48.0), &mut t) && t != l.state.choice.time.rem_euclid(1440) {
         l.state.choice.time = t;
         l.state.touched();
     }
@@ -1113,7 +1126,8 @@ fn online(l: &mut Launcher, body: Rect) {
     match l.icons.get(official) {
         Some(tex) => l.ui.image(ir, *tex, 12.0),
         None => {
-            l.ui.p().rounded(ir, 12.0, accent());
+            // (the accent's mark on a tint of it: on the accent itself it vanished)
+            l.ui.p().rounded(ir, 12.0, accent().alpha(0.16));
             l.ui.icon("public", ir.center(), 32.0, accent());
         }
     }
@@ -1247,9 +1261,10 @@ fn more(l: &mut Launcher, body: Rect) {
         let r = Rect::new(inner.x + (tw + gap) * c as f32, inner.y + (th + gap) * rw as f32, tw, th);
         let (h, down, clicked) = l.ui.interact(id_of(&format!("pmore-{name}")), r);
         l.ui.p().rounded(r, 14.0, if down { accent() } else if h { HOVER } else { FIELD });
-        l.ui.icon(icon, Vec2::new(r.x + 28.0, r.y + 28.0), 24.0, accent());
-        l.ui.text_in(name, Rect::new(r.x + 16.0, r.bottom() - 46.0, r.w - 24.0, 20.0), 15.0, Weight::Bold, TEXT, Align::Left);
-        l.ui.text_in(sub, Rect::new(r.x + 16.0, r.bottom() - 26.0, r.w - 24.0, 18.0), 11.5, Weight::Regular, TEXT_DIM, Align::Left);
+        // (pressed, the tile is the accent: what is on it in the accent's own ink)
+        l.ui.icon(icon, Vec2::new(r.x + 28.0, r.y + 28.0), 24.0, if down { on_accent() } else { accent() });
+        l.ui.text_in(name, Rect::new(r.x + 16.0, r.bottom() - 46.0, r.w - 24.0, 20.0), 15.0, Weight::Bold, if down { on_accent() } else { TEXT }, Align::Left);
+        l.ui.text_in(sub, Rect::new(r.x + 16.0, r.bottom() - 26.0, r.w - 24.0, 18.0), 11.5, Weight::Regular, if down { on_accent().alpha(0.8) } else { TEXT_DIM }, Align::Left);
         if clicked {
             l.phone.page = Some(*page);
             l.go(*page);
@@ -1297,6 +1312,10 @@ fn embedded(l: &mut Launcher, page: Page, body: Rect, back: bool) {
     if back {
         let name = MORE.iter().find(|m| m.0 == page).map(|m| m.1).unwrap_or("");
         if bar(l, Rect::new(body.x, body.y, body.w, BAR_H), name, false) {
+            // (the company's pages left: a playing clock stops and saves what it ran)
+            if page == Page::Company {
+                super::company::leave(l);
+            }
             l.phone.page = None;
             l.page_scroll = 0.0;
         }

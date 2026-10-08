@@ -39,6 +39,10 @@ const OVER_LINE: f32 = 2.0;
 const JUDGE_AT: f32 = 8.0;
 /// Seconds a crossing waits to be judged before it is let go.
 const JUDGE_WITHIN: f64 = 15.0;
+/// Seconds a red light is remembered after the bus last had it ahead (or was under it): long
+/// enough for the other ways' lights while it crosses the line (a slow frame too), short
+/// enough that the next time the bus comes by its red counts from then.
+const RED_KEPT: f64 = 2.0;
 /// Slower than this (km/h) over the line is creeping, not running the light.
 const CREEP: f32 = 4.0;
 
@@ -116,8 +120,9 @@ pub struct DriveWatch {
     /// The approach a crossing was noted for already.
     crossed_from: Option<usize>,
     crossing: Option<Crossing>,
-    /// Per light (controller, light): since when it shows red (career seconds).
-    red_since: std::collections::HashMap<(usize, usize), f64>,
+    /// Per light (controller, light): since when it shows red, and when the bus last had it
+    /// ahead (career seconds).
+    red_since: std::collections::HashMap<(usize, usize), (f64, f64)>,
     /// The cameras that flashed lately: (lane, when).
     flashed: Vec<(usize, f64)>,
     /// The speed (m/s) the frame before, the acceleration along smoothed, and the braking
@@ -224,13 +229,21 @@ impl DriveWatch {
         // the lights ahead (the ways on from this lane, and this lane's own): since when red
         let mut watched: Vec<(usize, usize)> = l.next.iter().filter_map(|&n| net.lanes.get(n).and_then(|x| x.traffic_light)).collect();
         watched.extend(l.traffic_light);
+        // (in the junction - its nose over the line, waiting - the other ways on from the
+        // approach as well: a crossing lost on the way is judged by all of them)
+        if let Some(from) = self.approach.and_then(|a| net.lanes.get(a)).filter(|x| l.traffic_light.is_some() && x.next.contains(&lane)) {
+            watched.extend(from.next.iter().filter_map(|&n| net.lanes.get(n).and_then(|x| x.traffic_light)));
+        }
         for (c, li) in watched {
             if red(c, li) {
-                self.red_since.entry((c, li)).or_insert(t);
+                self.red_since.entry((c, li)).or_insert((t, t)).1 = t;
             } else {
                 self.red_since.remove(&(c, li));
             }
         }
+        // (a light the bus left behind: when it turned red then says nothing of the next time
+        // the bus comes by, which may be on a way in too short to see it turn)
+        self.red_since.retain(|_, x| t - x.1 <= RED_KEPT);
         if l.traffic_light.is_none() {
             if self.approach != Some(lane) {
                 self.approach = Some(lane);
@@ -245,7 +258,7 @@ impl DriveWatch {
                 .filter_map(|&n| {
                     let (c, li) = net.lanes[n].traffic_light?;
                     let is_red = red(c, li);
-                    let red_for = if is_red { self.red_since.get(&(c, li)).map(|x| (t - x) as f32).unwrap_or(0.0) } else { 0.0 };
+                    let red_for = if is_red { self.red_since.get(&(c, li)).map(|x| (t - x.0) as f32).unwrap_or(0.0) } else { 0.0 };
                     Some(Seen { lane: n, red: is_red, red_for })
                 })
                 .collect();
@@ -607,6 +620,30 @@ mod tests {
             t += 0.05;
         }
         assert!(offences(&out).is_empty());
+    }
+
+    /// A light that turned red behind the bus is let go once the bus has left it: the next
+    /// time it comes by, the red does not count from the last time.
+    #[test]
+    fn a_light_left_behind_is_forgotten() {
+        let net = junction();
+        let mut w = DriveWatch::default();
+        let v = 40.0f32 / 3.6;
+        w.speed = v;
+        let (dt, mut t, mut y) = (0.05, 0.0, -60.0);
+        // green over the line, red once the bus is well into the junction, and on beyond it
+        let at_line = 60.0 / v as f64;
+        let mut seen = false;
+        while y < 80.0 {
+            let red = t >= at_line + 1.0;
+            let ev = w.step(t, dt as f32, DVec3::new(0.0, y, 0.0), 0.0, v, Some(&net), &|_, _| Some(if red { 1 } else { 6 }));
+            assert!(offences(&ev).is_empty());
+            seen |= w.red_since.contains_key(&(0, 0));
+            y += v as f64 * dt;
+            t += dt;
+        }
+        assert!(seen, "the light over the junction was red behind the bus");
+        assert!(w.red_since.is_empty(), "{:?}", w.red_since);
     }
 
     fn camera_lane(limit: f32) -> Option<(Lane, f32)> {

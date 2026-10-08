@@ -45,7 +45,8 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 enum Msg {
     Companies(String, Vec<Company>),
     Market(usize, Vec<MarketBus>),
-    Lines { map: String, date: String, result: Result<Vec<core::LineInfo>, String> },
+    /// The timetable of a day, read at a revision of it (`CompanyView::timetable`).
+    Lines { map: String, date: String, revision: u64, result: Result<Vec<core::LineInfo>, String> },
     Own(String, Vec<core::lines::OwnLine>),
     /// A simulation past midnight came back (`clock::simulate`).
     Simulated(Result<(Company, co::clock::Run), String>),
@@ -146,6 +147,10 @@ pub struct CompanyView {
     /// Lines whose changed timetable took effect: their tours planned anew once the
     /// timetable is read again (`refill`).
     refill: Vec<String>,
+    /// Changes of own lines whose timetable could not be written (the company, the line
+    /// editor's id, the company's day): they keep waiting, tried again the next day or when
+    /// the timetable is written (`changes_due`).
+    unwritten: Vec<(String, u64, String)>,
 }
 
 impl Default for CompanyView {
@@ -187,6 +192,7 @@ impl Default for CompanyView {
             report_line: None,
             tutorial_for: None,
             refill: Vec::new(),
+            unwritten: Vec::new(),
         }
     }
 }
@@ -440,7 +446,12 @@ fn work(l: &mut Launcher) {
                 view.market_for = Some(n);
                 view.market_busy = false;
             }
-            Msg::Lines { map, date, result } => {
+            Msg::Lines { map, date, revision, result } => {
+                // (read before the timetable was written again: the old one, or half of the
+                // new - the read asked for since is on its way)
+                if revision != view.timetable {
+                    continue;
+                }
                 let (lines, error) = match result {
                     Ok(l) => (l, None),
                     Err(e) => (Vec::new(), Some(e)),
@@ -490,9 +501,10 @@ fn work(l: &mut Launcher) {
         if view.today_asked.as_ref() != Some(&key) {
             view.today_asked = Some(key.clone());
             let (map, date) = key;
+            let revision = view.timetable;
             spawn(&view.tx, move || {
                 let result = core::list_lines(&map, &date).map_err(|e| format!("{e:#}"));
-                Msg::Lines { map, date, result }
+                Msg::Lines { map, date, revision, result }
             });
         }
         if view.own_for.as_deref() != Some(c.map.as_str()) {
@@ -526,25 +538,39 @@ fn work(l: &mut Launcher) {
 
 /// A change of an own line waiting for its day (`ownline::Pending`): on that day the map's
 /// timetable and the company's line take it, and the tours it changed are planned anew once
-/// the timetable is read again (`refill`).
+/// the timetable is read again (`refill`). A change whose timetable could not be written keeps
+/// waiting (the map's timetable and the company's line stay as one).
 fn changes_due(l: &mut Launcher) {
     let Some(c) = l.company.company.as_ref() else { return };
-    let due = co::ownline::due(c);
+    let (company, date) = (c.id.clone(), c.date.clone());
+    let unwritten = &l.company.unwritten;
+    let due: Vec<u64> = co::ownline::due(c).into_iter().filter(|id| !unwritten.iter().any(|u| u.0 == company && u.1 == *id && u.2 == date)).collect();
     if due.is_empty() {
         return;
     }
     let map = c.map.clone();
+    let mut failed = Vec::new();
+    let mut wrote = false;
     for id in due {
         if let Err(e) = super::lineeditor::take_effect_in_timetable(l, &map, id) {
             l.state.set_status(format!("{}: {e}", omsi_ui::tr("The timetable files could not be written")), true);
+            failed.push((company.clone(), id, date.clone()));
+            continue;
         }
+        wrote = true;
         if let Some(Some((name, _))) = act(l, |c| Ok(co::ownline::take_effect(c, id))) {
             l.company.refill.push(name);
         }
     }
-    reload_timetable(l);
-    // (the day's timetable as it is now, before the tours are planned)
-    l.company.today = None;
+    if wrote {
+        reload_timetable(l);
+        // (the day's timetable as it is now, before the tours are planned)
+        l.company.today = None;
+    }
+    // (kept after `reload_timetable` let the earlier ones go: these wait for tomorrow, or for
+    // the line editor to write the timetable)
+    l.company.unwritten.retain(|u| u.2 == date);
+    l.company.unwritten.extend(failed);
 }
 
 /// The tours of lines whose change took effect, planned anew on the company's day (as "Fill
@@ -554,7 +580,8 @@ fn refill(l: &mut Launcher) {
         return;
     }
     let (Some(c), Some(t)) = (l.company.company.as_ref(), l.company.today.as_ref()) else { return };
-    if t.map != c.map || t.date != c.date {
+    // (a timetable that could not be read plans nothing: the tours wait for one that can)
+    if t.map != c.map || t.date != c.date || t.error.is_some() {
         return;
     }
     let tours = co::network::tours_of_day(c, &t.lines, &c.date);
@@ -616,13 +643,14 @@ pub(super) fn map_lines(view: &CompanyView) -> Option<&[core::LineInfo]> {
 
 /// The timetable of the company's day and its map's own lines read again (the line editor
 /// wrote the map's timetable) - by every page: the Lines page, the planning's week, the
-/// concessions' weeks.
+/// concessions' weeks; and a change whose timetable could not be written tried again.
 pub(super) fn reload_timetable(l: &mut Launcher) {
     let view = &mut l.company;
     view.today_asked = None;
     view.own_for = None;
     view.plan = None;
     view.timetable += 1;
+    view.unwritten.clear();
 }
 
 /// Do something to the company; its refusal is said in a popup that says why and what opens
@@ -804,6 +832,7 @@ pub fn screen(l: &mut Launcher) {
     let m = 24.0;
     let back = Rect::new(size.x - m - 112.0, 16.0, 112.0, 40.0);
     if l.ui.button("company-back", back, "Back", Some("chevron_left"), ButtonKind::Normal) {
+        leave(l);
         l.go(Page::Drive);
     }
     let mut right = back.x - 12.0;
@@ -918,7 +947,11 @@ fn strip(l: &mut Launcher, area: Rect) -> Rect {
     if l.ui.chips("company-tabs", tabs, &mut tab, &refs) {
         l.company.tab = tab;
     }
-    Rect::new(area.x, tabs.y + h + 14.0, area.w, (area.bottom() - tabs.y - h - 14.0).max(0.0))
+    // the company's clock under the tabs: its steps and the time dialog (the desktop has them
+    // in its bar; the phone has no sheet's head to keep them in)
+    let head = Rect::new(area.x, tabs.y + h + 10.0, area.w, 40.0);
+    clock::head(l, head);
+    Rect::new(area.x, head.bottom() + 14.0, area.w, (area.bottom() - head.bottom() - 14.0).max(0.0))
 }
 
 /// What the page keeps in its sheet's head (the desktop's company screen draws its own bar).
@@ -927,6 +960,32 @@ pub fn head_tools(l: &mut Launcher, r: Rect) -> f32 {
         return r.right();
     }
     clock::head(l, r)
+}
+
+/// The company's pages are left (their way back, a duty to drive): a playing clock stops - it
+/// runs only while they are open - and what it left unsaved is saved.
+pub fn leave(l: &mut Launcher) {
+    clock::play(l, 0.0);
+}
+
+/// Another of the driver's companies opened (None: none is left, the founding follows): a
+/// playing clock stops and saves the one open first, and what the pages kept of it - the
+/// planning's choices, a workshop task, the bus, line or tender picked, an advert armed, the
+/// month shown, a line's tours waiting to be planned anew - is let go.
+pub(super) fn switch_company(l: &mut Launcher, to: Option<Company>) {
+    clock::play(l, 0.0);
+    let view = &mut l.company;
+    view.company = to;
+    view.plan = None;
+    view.refill.clear();
+    view.planning = planning::PlanningView::default();
+    view.career.game = None;
+    view.fleet.selected = None;
+    view.fleet.adverts = Default::default();
+    view.depot = Default::default();
+    view.tenders = Default::default();
+    view.lines = Default::default();
+    view.money = Default::default();
 }
 
 fn closing_cover(l: &mut Launcher) {
@@ -1044,17 +1103,23 @@ fn delete_company(l: &mut Launcher, id: &str) {
         return;
     }
     let name = l.company.companies.as_ref().and_then(|cs| cs.iter().find(|x| x.id == id)).map(|x| x.name.clone()).unwrap_or_default();
+    let open = l.company.company.as_ref().is_none_or(|c| c.id == id);
+    if open {
+        // (stopped before the file goes: what a playing clock left unsaved would write it back)
+        clock::play(l, 0.0);
+    }
     if let Err(e) = co::store::delete(&data(), id) {
         l.state.set_status(format!("{e:#}"), true);
         return;
     }
-    let view = &mut l.company;
-    if let Some(list) = view.companies.as_mut() {
+    if let Some(list) = l.company.companies.as_mut() {
         list.retain(|x| x.id != id);
     }
-    if view.company.as_ref().is_none_or(|c| c.id == id) {
-        view.company = view.companies.as_ref().and_then(|cs| cs.first().cloned());
+    if open {
+        let next = l.company.companies.as_ref().and_then(|cs| cs.first().cloned());
+        switch_company(l, next);
     }
+    let view = &mut l.company;
     view.plan = None;
     view.reports = None;
     view.planning = planning::PlanningView::default();

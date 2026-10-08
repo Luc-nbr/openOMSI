@@ -28,6 +28,7 @@ use omsi_sim::texttex::{DisplayRole, ScriptSign};
 use omsi_ui::paint::Align;
 use omsi_ui::{tr, Color, Rect, Weight};
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -158,11 +159,13 @@ pub fn plan_text(plan: &Plan) -> String {
 }
 
 /// A bus's signs: what a font changes, and the sign its previews draw (none: no font draws
-/// any of its displays).
+/// any of its displays) - or that its files could not be read (`failed`: then neither is
+/// known).
 #[derive(Clone)]
 pub struct BusSigns {
     pub plan: Plan,
     pub sign: Option<Sign>,
+    pub failed: bool,
 }
 
 /// Read `bus`'s destination displays and what a font changes on it.
@@ -183,7 +186,7 @@ pub fn read_signs(root: &Path, bus: &str) -> anyhow::Result<BusSigns> {
         let own = lib.load(&t.font);
         let line_h = own.as_ref().map(|a| a.font.height).filter(|h| *h > 0).unwrap_or(t.height).max(1);
         let role = DisplayRole::of(&t);
-        return Ok(BusSigns { plan, sign: Some(Sign { def: t, own, line_h, displays: displays.len(), role }) });
+        return Ok(BusSigns { plan, sign: Some(Sign { def: t, own, line_h, displays: displays.len(), role }), failed: false });
     }
     // a matrix a script draws: its tallest font of small letters too, of the most letters (the
     // one line of a destination, not the line number's)
@@ -193,10 +196,10 @@ pub fn read_signs(root: &Path, bus: &str) -> anyhow::Result<BusSigns> {
             let stem = s.script.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
             let def = TextTexture { variable: stem, font: own.font.name.trim().to_string(), width: 0, height: own.font.height, full_color: false, color: [0.0; 3], orientation: 0, grid: 1 };
             let line_h = own.font.height.max(1);
-            return Ok(BusSigns { plan: plan.clone(), sign: Some(Sign { def, own: Some(own), line_h, displays: 0, role: DisplayRole::Destination }) });
+            return Ok(BusSigns { plan: plan.clone(), sign: Some(Sign { def, own: Some(own), line_h, displays: 0, role: DisplayRole::Destination }), failed: false });
         }
     }
-    Ok(BusSigns { plan, sign: None })
+    Ok(BusSigns { plan, sign: None, failed: false })
 }
 
 /// Read `bus`'s destination displays (None: it has none a font draws).
@@ -406,13 +409,15 @@ pub struct DisplayFonts {
 
 /// A text on a bus's destination display (`DisplayFonts::preview`): its picture on the GPU
 /// (texture, size; None while it is drawn), whether it is wider than the display, the font - or
-/// that the bus draws its displays as pictures of its own (`none`).
+/// that the bus draws its displays as pictures of its own (`none`), or that its files could not
+/// be read (`failed`).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Preview {
     pub picture: Option<(usize, u32, u32)>,
     pub too_wide: bool,
     pub font: String,
     pub none: bool,
+    pub failed: bool,
 }
 
 /// What a click in the row asks for.
@@ -511,7 +516,7 @@ impl DisplayFonts {
         let mut slots = self.signs.lock().ok()?;
         match slots.get(&key) {
             Some(Slot::Ready(s)) => return Some(s.clone()),
-            Some(Slot::Failed) => return Some(BusSigns { plan: Plan::default(), sign: None }),
+            Some(Slot::Failed) => return Some(BusSigns { plan: Plan::default(), sign: None, failed: true }),
             Some(Slot::Reading) => return None,
             None => {}
         }
@@ -550,9 +555,14 @@ impl DisplayFonts {
     /// `text` on `bus`'s destination display as a drive shows it - in the bus's own font, or
     /// the display font chosen for it - for the depot editor: its picture once it is drawn and
     /// on the GPU (asked for now), and whether it is wider than the display (in its own font).
-    /// None while the display is read; `none` for a bus whose displays a font does not draw.
+    /// None while the display is read; `none` for a bus whose displays a font does not draw,
+    /// `failed` for one whose files could not be read.
     pub fn preview(&mut self, root: &str, bus: &str, text: &str) -> Option<Preview> {
-        let Some(sign) = self.sign(root, bus)? else { return Some(Preview { none: true, ..Default::default() }) };
+        let signs = self.signs(root, bus)?;
+        if signs.failed {
+            return Some(Preview { failed: true, ..Default::default() });
+        }
+        let Some(sign) = signs.sign else { return Some(Preview { none: true, ..Default::default() }) };
         // (the font chosen with its settings, as the game gets it; an `.oft` one needs the
         // installed fonts read, a vector one its file)
         let chosen = self.choices.spec_for(bus);
@@ -565,7 +575,7 @@ impl DisplayFonts {
             self.draw(bus, text, &sign, fonts, Vec::new(), chosen.clone());
         }
         let too_wide = chosen.is_none() && sign.own.as_ref().is_some_and(|a| a.text_width(text) > sign.def.width);
-        Some(Preview { picture: self.picture(bus, text, &key), too_wide, font: chosen.map(|c| c.name).unwrap_or_else(|| sign.def.font.trim().to_string()), none: false })
+        Some(Preview { picture: self.picture(bus, text, &key), too_wide, font: chosen.map(|c| c.name).unwrap_or_else(|| sign.def.font.trim().to_string()), none: false, failed: false })
     }
 
     /// The preview of `font` ("" as the bus) on `bus`'s sign with `text`, once it is on the GPU.
@@ -586,7 +596,15 @@ impl DisplayFonts {
     /// let go.
     #[allow(clippy::too_many_arguments)]
     fn draw(&mut self, bus: &str, text: &str, sign: &Sign, fonts: Arc<Vec<Font>>, list: Vec<DisplayFontSpec>, chosen: Option<DisplayFontSpec>) {
-        let what = format!("{}|{}|{}", preview_key(bus, text, ""), chosen.as_ref().map(|c| c.key()).unwrap_or_default(), list.len());
+        // (the list by its fonts, not their number: OMSI's and the TrueType ones may count alike)
+        let listed = {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            for s in &list {
+                s.key().hash(&mut h);
+            }
+            h.finish()
+        };
+        let what = format!("{}|{}|{listed:x}", preview_key(bus, text, ""), chosen.as_ref().map(|c| c.key()).unwrap_or_default());
         if self.drawing.as_deref() == Some(what.as_str()) {
             return;
         }
@@ -815,12 +833,16 @@ pub(super) fn section(ui: &mut Ui, x: f32, y: f32, w: f32, df: &mut DisplayFonts
     let signs = df.signs(root, bus);
     let fonts = df.fonts(root);
     match (signs, fonts) {
-        (Some(BusSigns { plan, sign: None }), _) => {
+        // (not "pictures of its own": what it has is not known)
+        (Some(BusSigns { failed: true, .. }), _) => {
+            note(ui, &mut y, "The bus's displays could not be read.", TEXT_DIM);
+        }
+        (Some(BusSigns { plan, sign: None, .. }), _) => {
             let says = plan_text(&plan);
             crate::mt::protect([says.as_str()]);
             note(ui, &mut y, &says, TEXT_DIM);
         }
-        (Some(BusSigns { plan, sign: Some(sign) }), Some(fonts)) => {
+        (Some(BusSigns { plan, sign: Some(sign), .. }), Some(fonts)) => {
             // what a font changes on this bus
             let says = plan_text(&plan);
             crate::mt::protect([says.as_str()]);
@@ -1215,6 +1237,7 @@ mod tests {
             "Rows of dots",
             "Dots between letters",
             "Bold (every stroke a dot wider)",
+            "The bus's displays could not be read.",
         ];
         for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
             for k in keys {

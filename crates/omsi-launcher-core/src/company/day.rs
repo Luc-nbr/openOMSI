@@ -459,8 +459,20 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
     let (short_buses, short_drivers) = plan.short_of();
     (report.uncovered, report.short_buses, report.short_drivers) = (plan.uncovered() as u32, short_buses as u32, short_drivers as u32);
     // (as the company's clock went through the day: `clock::breakdowns`; a rental bus ordered
-    // runs the trips from when it came)
+    // runs the trips from when it came, and is paid with the day)
     let cut = super::clock::breakdowns(c, &plan, &date, &live_broken);
+    let rentals: Vec<(Cents, String)> = c
+        .clock
+        .today
+        .iter()
+        .filter(|s| s.date == date)
+        .flat_map(|s| s.breaks.iter())
+        .filter(|b| b.choice == Some(super::clock::Choice::Rental))
+        .map(|b| (b.cost, format!("Rental bus for {} (line {})", b.bus, b.line)))
+        .collect();
+    for (cost, text) in rentals {
+        c.book(BookingKind::Rent, -cost, text, false);
+    }
 
     // 4. the modelled trips (what else befalls them, by the drivers' courses: `incidents`)
     let trained = super::incidents::trained(c);
@@ -625,6 +637,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
     // 6. the buses tonight: kilometres, wear, breakdowns, services
     let tomorrow = dates::add(&date, 1);
     let mut repairs: Vec<(Cents, String)> = Vec::new();
+    let mut serviced: Vec<u32> = Vec::new();
     let price_index = c.price_index;
     // (a bus under the dealer's warranty is repaired at the dealer's cost)
     let warranted = super::dealer::warranted(c, &date);
@@ -656,10 +669,15 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
             v.condition = v.condition.max(market::serviced_condition(dates::years_between(&v.built, &date)));
             v.next_service_km = ((v.km / market::SERVICE_KM).floor() + 1.0) * market::SERVICE_KM;
             report.notes.push(Note::Service { number: v.number.clone() });
+            serviced.push(v.id);
         }
     }
     for (cost, text) in repairs {
         c.book(BookingKind::Repair, -cost, text, false);
+    }
+    // (a dealer's free first service pays out when the night does it, as the workshop's does)
+    for id in serviced {
+        super::dealer::credit_free_service(c, id);
     }
 
     // 7. the people tonight
@@ -714,6 +732,26 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
             }
         }
         report.notes.push(Note::Month { month: month.clone(), result: c.month(&month).result() });
+    } else {
+        // a leased bus that goes back before the month's end: its part of the month (the
+        // month's end charges those still here)
+        let first = dates::parse(&format!("{month}-01")).unwrap_or(0);
+        let (y, m, _) = dates::civil_from_days(first);
+        let len = dates::days_in_month(y, m) as f64;
+        let last = dates::parse(&date).unwrap_or(first);
+        let mut back: Vec<(BookingKind, Cents, String)> = Vec::new();
+        for v in c.fleet.iter().filter(|v| !v.held_on(&tomorrow)) {
+            let Tenure::Leased { monthly, until, .. } = &v.tenure else { continue };
+            let a = dates::parse(&v.acquired).unwrap_or(first).max(first);
+            let b = dates::parse(until).unwrap_or(last).min(last);
+            let days = (b - a + 1).max(0) as f64;
+            let text = format!("{} {}", v.number, v.name);
+            back.push((BookingKind::Lease, -(*monthly as f64 * days / len).round() as Cents, text.clone()));
+            back.push((BookingKind::Insurance, -(economy::insurance_per_month(v.kind, c.price_index) as f64 * days / len).round() as Cents, text));
+        }
+        for (k, a, t) in back {
+            c.book(k, a, t, false);
+        }
     }
 
     // 9. reputation and punctuality
@@ -1043,6 +1081,21 @@ mod tests {
         assert_eq!(c.fleet.len(), n - 1);
         assert!(r.notes.iter().any(|x| matches!(x, Note::Returned { .. })));
         assert!(c.month("2024-04").get(BookingKind::Rent) < 0);
+    }
+
+    #[test]
+    fn a_lease_that_ends_in_the_month_pays_its_part_of_it() {
+        let mut c = company(Difficulty::Realistic, 1, 0);
+        // (leased since January, it goes back after the 4th of March)
+        c.fleet[0].acquired = "2024-01-15".into();
+        c.fleet[0].tenure = Tenure::Leased { monthly: 3_100_00, until: c.date.clone(), residual: 0 };
+        let r = close_day(&mut c, vec![], &[]);
+        assert!(c.fleet.is_empty() && r.notes.iter().any(|n| matches!(n, Note::Returned { .. })));
+        let m = c.month("2024-03");
+        assert_eq!(m.get(BookingKind::Lease), -400_00);
+        assert!(m.get(BookingKind::Insurance) < 0);
+        // (the day's figures have it)
+        assert!(r.expenses >= 400_00);
     }
 
     #[test]

@@ -73,10 +73,15 @@ pub fn queue(data: &Path, id: &str, o: &Order) -> Result<()> {
     Ok(())
 }
 
+/// The orders of a queue's file.
+fn orders_in(path: &Path) -> Vec<Order> {
+    let Ok(text) = std::fs::read_to_string(path) else { return Vec::new() };
+    text.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()).filter_map(|v| parse(&v)).collect()
+}
+
 /// The orders waiting for the launcher.
 pub fn pending(data: &Path, id: &str) -> Vec<Order> {
-    let Ok(text) = std::fs::read_to_string(orders_file(data, id)) else { return Vec::new() };
-    text.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()).filter_map(|v| parse(&v)).collect()
+    orders_in(&orders_file(data, id))
 }
 
 /// Take the queue in: every order applied (or refused), the queue emptied.
@@ -85,26 +90,37 @@ pub fn take(data: &Path, c: &mut Company) -> Vec<(Order, Result<(), &'static str
     if !path.is_file() {
         return Vec::new();
     }
-    let orders = pending(data, &c.id);
-    let _ = std::fs::remove_file(&path);
+    // (moved aside first: an order the phone sends meanwhile goes to a new queue, not lost)
+    let taking = path.with_extension("jsonl.taking");
+    if std::fs::rename(&path, &taking).is_err() {
+        return Vec::new();
+    }
+    let orders = orders_in(&taking);
+    let _ = std::fs::remove_file(&taking);
     orders.into_iter().map(|o| (o, apply(c, &o))).collect()
 }
 
 /// The company saved last (the one the launcher has open), if any.
 pub fn latest(data: &Path) -> Option<Company> {
     let rd = std::fs::read_dir(store::dir(data)).ok()?;
-    let newest = rd
+    // (the companies' own files only: an id has no dots, `<id>.liveplan.json` lies beside them)
+    let mut saved: Vec<(std::time::SystemTime, String)> = rd
         .flatten()
-        .filter(|e| e.file_name().to_string_lossy().ends_with(".json"))
-        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.file_name().to_string_lossy().to_string())))
-        .max_by_key(|x| x.0)?;
-    store::load(data, newest.1.strip_suffix(".json")?).ok()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            let id = name.strip_suffix(".json").filter(|id| !id.contains('.'))?.to_string();
+            Some((e.metadata().ok()?.modified().ok()?, id))
+        })
+        .collect();
+    saved.sort_by(|a, b| b.0.cmp(&a.0));
+    saved.into_iter().find_map(|(_, id)| store::load(data, &id).ok())
 }
 
-/// The company's plan of today, from the map's timetable of its date.
+/// The company's plan of today, from the map's timetable of its date: the roster's, as the
+/// launcher's planning has it (`plan::day_plan`).
 pub fn plan_of(c: &Company) -> Option<Plan> {
     let (_, tours) = store::tours_today(c).ok()?;
-    Some(day::assign(c, tours, &[], &[]))
+    Some(super::plan::day_plan(c, &c.date, tours, &[], &[], false).to_plan())
 }
 
 fn hhmm(minutes: i32) -> String {
@@ -124,15 +140,16 @@ pub fn summary(c: &Company, plan: Option<&Plan>, waiting: &[Order]) -> Value {
     let ours: Vec<u32> = c.site.jobs.iter().filter(|j| j.started.is_some()).map(|j| j.vehicle).collect();
     let breakdowns: Vec<Value> = held.iter().filter(|v| v.in_workshop(today) && !ours.contains(&v.id)).map(|v| json!({ "number": v.number, "until": v.workshop_until })).collect();
     let today_v = plan.map(|p| {
-        let open: Vec<Value> = p
-            .tours
+        // (a line not in service runs nothing: its tours are not the day's)
+        let running: Vec<&day::TourPlan> = p.tours.iter().filter(|t| !t.tour.unplanned).collect();
+        let open: Vec<Value> = running
             .iter()
             .filter(|t| !t.covered())
             .take(30)
             .map(|t| json!({ "line": t.tour.number, "tour": t.tour.tour, "from": hhmm(t.tour.from()), "to": hhmm(t.tour.to()), "why": if t.bus.is_none() { "bus" } else { "driver" } }))
             .collect();
         let (buses, duties) = p.short_of();
-        json!({ "tours": p.tours.len(), "covered": p.tours.len() - p.uncovered(), "open": open, "no_bus": buses, "no_driver": duties })
+        json!({ "tours": running.len(), "covered": running.len() - p.uncovered(), "open": open, "no_bus": buses, "no_driver": duties })
     });
     let al: Vec<Value> = alerts(c, plan)
         .into_iter()
@@ -191,7 +208,7 @@ pub fn summary(c: &Company, plan: Option<&Plan>, waiting: &[Order]) -> Value {
         "month": { "month": month, "income": m.income(), "expenses": m.expenses(), "result": m.result() },
         "months": months,
         "days": days,
-        "fleet": { "buses": held.len(), "workshop": in_workshop, "spaces": c.site.spaces(), "outside": depot::outside(c), "bays": c.site.bays() },
+        "fleet": { "buses": held.len(), "workshop": in_workshop, "spaces": depot::places(c), "outside": depot::outside(c), "bays": c.site.bays() },
         "staff": { "people": c.staff.iter().filter(|e| e.employed_on(today)).count(), "absent": c.staff.iter().filter(|e| e.employed_on(today) && e.absent(today)).count() },
         "today": today_v,
         "breakdowns": breakdowns,
@@ -240,6 +257,9 @@ mod tests {
         let bus = MarketBus { file: "Vehicles/Citaro/Citaro.bus".into(), name: "Citaro".into(), ..Default::default() };
         let id = market::buy_new(&mut c, &bus, Payment::Cash, "").unwrap();
         store::save(&data, &c).unwrap();
+        assert_eq!(latest(&data).map(|x| x.id), Some(c.id.clone()));
+        // (the day's plan for the game, written after it beside it, is no company)
+        super::super::plan::save_live_plan(&data, &super::super::plan::LivePlan { company: c.id.clone(), ..Default::default() }).unwrap();
         assert_eq!(latest(&data).map(|x| x.id), Some(c.id.clone()));
         let wash = Order::Build { area: Area::Wash };
         assert!(check(&c, &[], &wash).is_ok());

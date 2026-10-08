@@ -606,7 +606,10 @@ impl TripWatch {
             return made;
         }
         if done && !self.reported {
-            let (at, _) = *self.done_at.get_or_insert((now, clock - trip.end));
+            // (the clock goes round at midnight, a night tour's times past 24:00: within half
+            // a day either way)
+            let late = (clock - trip.end + 43_200.0).rem_euclid(86_400.0) - 43_200.0;
+            let (at, _) = *self.done_at.get_or_insert((now, late));
             if now.duration_since(at) >= REPORT_AFTER {
                 let arrival = self.done_at.map(|d| d.1);
                 made = self.make(counters, arrival, clock);
@@ -734,6 +737,24 @@ mod tests {
         assert!(w.follow("d1", false, Some(info(3)), false, [17, 2, 4], 2700.0, t0 + Duration::from_secs(12)));
         let r = w.report.clone().unwrap();
         assert_eq!((r["seq"].as_u64(), r["index"].as_u64(), r["served"].as_i64(), r["late"].as_i64(), r["arrival"].clone()), (Some(2), Some(2), Some(2), Some(1), Value::Null));
+    }
+
+    #[test]
+    fn a_trip_round_midnight_arrives_minutes_late_not_a_day_early() {
+        let t0 = Instant::now();
+        let night = |end: f64| TripInfo { end, ..info(1) };
+        // planned to end at 24:20, reached at 00:21
+        let mut w = TripWatch::default();
+        w.follow("d1", false, Some(night(87_600.0)), false, [0, 0, 0], 86_000.0, t0);
+        w.follow("d1", false, Some(night(87_600.0)), true, [1, 0, 0], 1_260.0, t0);
+        assert!(w.follow("d1", false, Some(night(87_600.0)), true, [1, 0, 0], 1_263.0, t0 + Duration::from_secs(3)));
+        assert_eq!(w.report.as_ref().unwrap()["arrival"].as_f64(), Some(60.0));
+        // planned to end at 00:05, reached at 23:59
+        let mut w = TripWatch::default();
+        w.follow("d1", false, Some(night(300.0)), false, [0, 0, 0], 85_000.0, t0);
+        w.follow("d1", false, Some(night(300.0)), true, [1, 0, 0], 86_340.0, t0);
+        assert!(w.follow("d1", false, Some(night(300.0)), true, [1, 0, 0], 86_343.0, t0 + Duration::from_secs(3)));
+        assert_eq!(w.report.as_ref().unwrap()["arrival"].as_f64(), Some(-360.0));
     }
 
     #[test]

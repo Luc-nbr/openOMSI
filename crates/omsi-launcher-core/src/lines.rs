@@ -182,18 +182,39 @@ impl Registry {
     }
 }
 
+impl LineDesign {
+    /// The line as the map's timetable has it (`Registry::as_timetable`): itself, or - a change
+    /// waiting for its day - as it runs until then. What its depot files are written from.
+    pub fn in_timetable(&self) -> &LineDesign {
+        self.live.as_deref().unwrap_or(self)
+    }
+
+    /// `in_timetable`, to change (the codes its depot files give it, `linehof::assign`).
+    pub fn in_timetable_mut(&mut self) -> &mut LineDesign {
+        if self.live.is_some() {
+            return self.live.as_deref_mut().unwrap();
+        }
+        self
+    }
+}
+
 /// How a line's tours change from `old` to `new` (by their numbers): kept as they were,
-/// changed (other trips or times), new, and gone.
+/// changed (other trips or times, or another tour has the number now), new, and gone - and
+/// the tours that are the same but numbered otherwise now (`moved`: the same day and trips,
+/// its old number and its new one), as the weekend's are when the working days get a tour
+/// more: their buses and drivers can go with them.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TourDiff {
     pub kept: Vec<String>,
     pub changed: Vec<String>,
     pub added: Vec<String>,
     pub gone: Vec<String>,
+    pub moved: Vec<(String, String)>,
 }
 
 impl TourDiff {
-    /// The tours whose buses and drivers are given anew: the changed and the gone.
+    /// The tours whose buses and drivers are given anew: the changed and the gone (a moved
+    /// tour's old number among them: that number is another tour's now, or none's).
     pub fn replan(&self) -> Vec<String> {
         self.changed.iter().chain(self.gone.iter()).cloned().collect()
     }
@@ -214,6 +235,14 @@ pub fn tour_diff(old: &LineDesign, new: &LineDesign) -> TourDiff {
         }
     }
     d.gone = a.iter().filter(|x| !b.iter().any(|t| t.number == x.number)).map(|x| x.number.clone()).collect();
+    // the tours that only have another number now (each old tour once)
+    let mut used: HashSet<usize> = HashSet::new();
+    for t in b.iter().filter(|t| !d.kept.contains(&t.number)) {
+        if let Some((i, x)) = a.iter().enumerate().find(|(i, x)| !used.contains(i) && x.number != t.number && !d.kept.contains(&x.number) && same(*x, t)) {
+            used.insert(i);
+            d.moved.push((x.number.clone(), t.number.clone()));
+        }
+    }
     d
 }
 
@@ -476,16 +505,43 @@ pub fn registry_path(map_folder: &str) -> PathBuf {
 pub fn load_registry(path: &Path) -> Registry {
     match std::fs::read(path) {
         Ok(b) => serde_json::from_slice::<Registry>(&b).unwrap_or_else(|_| {
-            // (kept aside, so that the next save does not write an empty registry over it)
-            let _ = std::fs::copy(path, path.with_extension(format!("json.broken-{}", now_secs())));
+            // (kept aside, so that what it holds is not lost)
+            broken_copy(path, &b);
             Registry::default()
         }),
         Err(_) => Registry::default(),
     }
 }
 
-/// The registry written to `path` (through a file beside it: a crash halfway leaves the old).
+/// The copy kept aside of the registry `path` that cannot be read (`bytes`): one made of the
+/// same bytes before, else a new one (`<map>.json.broken-<secs>`) - not one more every time
+/// it is read.
+fn broken_copy(path: &Path, bytes: &[u8]) -> PathBuf {
+    let prefix = format!("{}.broken-", path.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default());
+    let same = std::fs::read_dir(path.parent().unwrap_or(Path::new("")))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.file_name().is_some_and(|f| f.to_string_lossy().starts_with(&prefix)) && std::fs::metadata(p).is_ok_and(|m| m.len() == bytes.len() as u64) && std::fs::read(p).is_ok_and(|b| b == bytes));
+    if let Some(p) = same {
+        return p;
+    }
+    let p = path.with_extension(format!("json.broken-{}", now_secs()));
+    let _ = std::fs::write(&p, bytes);
+    p
+}
+
+/// The registry written to `path` (through a file beside it: a crash halfway leaves the old) -
+/// never over one that cannot be read (a newer launcher's, or a broken one): an empty
+/// registry saved over it would take every line of the map out of its timetable.
 pub fn save_registry(path: &Path, reg: &Registry) -> Result<(), String> {
+    if let Ok(b) = std::fs::read(path) {
+        if serde_json::from_slice::<Registry>(&b).is_err() {
+            let kept = broken_copy(path, &b);
+            return Err(format!("{} cannot be read (a copy is kept as {}): remove it to start the map's lines anew", path.display(), kept.display()));
+        }
+    }
     if let Some(d) = path.parent() {
         std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
     }
@@ -988,21 +1044,26 @@ pub fn runs_on_group(l: &LineDesign, day: usize) -> bool {
 
 // --- the files --------------------------------------------------------------------------------
 
-/// The file stem of each line: `oo_<number>`, with its id after it when another line of the
-/// registry has the same number.
+/// The file stem of each line: `oo_<number>`, with its id after it when a line before it has
+/// that stem already - the lines in the timetable before the others (a draft), the oldest
+/// first, so that a line keeps its files' names when another takes its number. No two lines
+/// have one stem (in any case).
 pub fn stems(reg: &Registry) -> HashMap<u64, String> {
-    let mut count: HashMap<String, usize> = HashMap::new();
-    for l in &reg.lines {
-        *count.entry(safe_name(&l.number).to_lowercase()).or_default() += 1;
+    let mut order: Vec<&LineDesign> = reg.lines.iter().collect();
+    order.sort_by_key(|l| (!written(l), l.id));
+    let mut taken: HashSet<String> = HashSet::new();
+    let mut out = HashMap::new();
+    for l in order {
+        let plain = format!("{FILE_PREFIX}{}", safe_name(&l.number));
+        let mut stem = plain.clone();
+        let mut k = 1;
+        while !taken.insert(stem.to_lowercase()) {
+            stem = if k == 1 { format!("{plain}_{}", l.id) } else { format!("{plain}_{}_{k}", l.id) };
+            k += 1;
+        }
+        out.insert(l.id, stem);
     }
-    reg.lines
-        .iter()
-        .map(|l| {
-            let n = safe_name(&l.number);
-            let stem = if count.get(&n.to_lowercase()).copied().unwrap_or(0) > 1 { format!("{FILE_PREFIX}{n}_{}", l.id) } else { format!("{FILE_PREFIX}{n}") };
-            (l.id, stem)
-        })
-        .collect()
+    out
 }
 
 /// The trip file of direction `dir` of a line with file stem `stem`.
@@ -1079,7 +1140,8 @@ pub fn own_line_of(name: &str, own: &[OwnLine]) -> Option<OwnLine> {
 }
 
 /// The player's lines of the map whose `global.cfg` the launcher names `map_file`, from its
-/// registry (none when it has none).
+/// registry (none when it has none) - as its timetable has them (a change waiting for its day:
+/// the line as it runs until then, by the files it runs as).
 pub fn own_lines_of_map(map_file: &str) -> Vec<OwnLine> {
     let folder = map_folder(map_file);
     if folder.is_empty() {
@@ -1089,7 +1151,7 @@ pub fn own_lines_of_map(map_file: &str) -> Vec<OwnLine> {
     if !path.is_file() {
         return Vec::new();
     }
-    own_lines(&load_registry(&path))
+    own_lines(&load_registry(&path).as_timetable())
 }
 
 /// What saving the registry writes into a map's `TTData`: whole files by name, and the
@@ -1255,7 +1317,8 @@ pub fn export(reg: &Registry, raw_tiles: &[(i32, i32)], map_links: &HashSet<(i64
 /// by the timetable line's file stem, lower case.
 pub fn read_line_buses(ttdata: &Path) -> HashMap<String, LineVehicles> {
     let Ok(b) = omsi_cfg::vfs::read(&ttdata.join(VEHICLES_FILE)) else { return HashMap::new() };
-    serde_json::from_slice::<HashMap<String, LineVehicles>>(&b).map(|m| m.into_iter().map(|(k, v)| (k.to_lowercase(), v)).collect()).unwrap_or_default()
+    // (UTF-8 as it is written; a file of before, in Windows-1252, reads all the same)
+    serde_json::from_str::<HashMap<String, LineVehicles>>(&omsi_cfg::codepage::decode(&b)).map(|m| m.into_iter().map(|(k, v)| (k.to_lowercase(), v)).collect()).unwrap_or_default()
 }
 
 /// The text of a `TTData` file as the map has it, without what the line editor added.
@@ -1278,7 +1341,19 @@ pub fn map_has(dir: &Path) -> (HashSet<(i64, i64)>, HashSet<i64>) {
 /// `keep` is called for a file of the map's before it is changed (its `.orig`).
 pub fn write_export(dir: &Path, e: &Export, keep: &dyn Fn(&Path) -> Result<(), String>) -> Result<usize, String> {
     let manifest = dir.join(MANIFEST);
-    for name in std::fs::read_to_string(&manifest).unwrap_or_default().lines().map(str::trim).filter(|n| !n.is_empty()) {
+    let old: Vec<String> = std::fs::read_to_string(&manifest).unwrap_or_default().lines().map(str::trim).filter(|n| !n.is_empty()).map(String::from).collect();
+    // (the files about to be written named with those of last time first: a write that fails
+    // half-way leaves a list that takes them all out the next time)
+    let mut pending = old.clone();
+    for (name, _) in &e.files {
+        if !pending.contains(name) {
+            pending.push(name.clone());
+        }
+    }
+    if pending != old {
+        std::fs::write(&manifest, pending.join("\r\n")).map_err(|x| format!("{MANIFEST}: {x}"))?;
+    }
+    for name in &old {
         // (only what the editor writes: a manifest edited by hand deletes nothing else)
         if name.starts_with(FILE_PREFIX) && !name.contains(['/', '\\']) {
             let _ = std::fs::remove_file(dir.join(name));
@@ -1286,7 +1361,10 @@ pub fn write_export(dir: &Path, e: &Export, keep: &dyn Fn(&Path) -> Result<(), S
     }
     let mut written = Vec::new();
     for (name, text) in &e.files {
-        omsi_timetable::write::write_text(&dir.join(name), text).map_err(|x| format!("{name}: {x}"))?;
+        let path = dir.join(name);
+        // (the buses as JSON, which is UTF-8; the timetable's files in their code page)
+        let done = if name == VEHICLES_FILE { std::fs::write(&path, text.as_bytes()) } else { omsi_timetable::write::write_text(&path, text) };
+        done.map_err(|x| format!("{name}: {x}"))?;
         written.push(name.clone());
     }
     let links: String = e.links.iter().map(|(l, a, b)| l.to_text(a, b)).collect();
@@ -1386,6 +1464,27 @@ mod tests {
     }
 
     #[test]
+    fn the_weekends_tours_numbered_on_are_moved() {
+        let mut reg = Registry::default();
+        let id = line(&mut reg);
+        let l = reg.line_mut(id).unwrap();
+        // two buses on working days, two on Saturdays, two on Sundays: tours 1 - 6
+        l.days[0] = DayPattern { days: DAY_GROUPS[0].1, first: 360.0, last: 600.0, headway: 30.0, layover: 5.0, bands: Vec::new(), on: true };
+        let old = l.clone();
+        assert_eq!(tour_plan(&old).len(), 6);
+        // a longer layover on working days: four buses there, the weekend's numbered on
+        let mut new = old.clone();
+        new.days[0].layover = 30.0;
+        assert_eq!(tour_plan(&new).len(), 8);
+        let d = tour_diff(&old, &new);
+        assert_eq!(d.moved, [("3", "5"), ("4", "6"), ("5", "7"), ("6", "8")].map(|(a, b)| (a.to_string(), b.to_string())).to_vec());
+        // (by number they are changed: their numbers are the working days' now)
+        assert!(d.kept.is_empty() && d.replan().contains(&"3".to_string()));
+        // nothing changed: nothing moved
+        assert!(tour_diff(&old, &old).moved.is_empty());
+    }
+
+    #[test]
     fn the_table_starts_from_the_patterns_and_every_time_can_change() {
         let mut reg = Registry::default();
         let id = line(&mut reg);
@@ -1459,6 +1558,7 @@ mod tests {
         l.service = ServiceKind::School;
         l.days = days_for(ServiceKind::School);
         l.vehicles.classes.push(VehicleClass::Coach);
+        l.vehicles.buses.push(crate::service::BusPick { maker: "Büssing".into(), label: "Büssing · SL 200".into(), ..Default::default() });
         // a school line: working days only, its tours on school days only
         let plan = tour_plan(reg.line(id).unwrap());
         assert!(!plan.is_empty() && plan.iter().all(|t| t.day == 0));
@@ -1476,6 +1576,12 @@ mod tests {
         // the buses it asks for, for the game
         let buses = read_line_buses(&dir);
         assert_eq!(buses["oo_42"].classes, vec![VehicleClass::Coach]);
+        // a name beyond ASCII comes through (and a file of before, in Windows-1252, too)
+        assert_eq!(buses["oo_42"].buses[0].label, "Büssing · SL 200");
+        let other = base.join("Old");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join(VEHICLES_FILE), b"{\"OO_7\": {\"buses\": [{\"label\": \"B\xFCssing \xB7 SL\"}]}}").unwrap();
+        assert_eq!(read_line_buses(&other)["oo_7"].buses[0].label, "Büssing · SL");
         // a weekend line, its working days on or not: Saturdays, Sundays and holidays
         let l = reg.line_mut(id).unwrap();
         l.service = ServiceKind::Leisure;
@@ -1697,11 +1803,27 @@ mod tests {
         save_registry(&path, &reg).unwrap();
         let back = load_registry(&path);
         assert_eq!(back, reg);
-        // the same number twice: the files tell them apart by the id
+        // the same number twice: the files tell them apart by the id - the line in the
+        // timetable keeps its name, the draft that took its number gets one of its own
         let mut two = back.clone();
         two.line_mut(b).unwrap().number = "42".into();
         let s = stems(&two);
-        assert_eq!((s[&a].as_str(), s[&b].as_str()), ("oo_42_1", "oo_42_2"));
+        assert_eq!((s[&a].as_str(), s[&b].as_str()), ("oo_42", "oo_42_2"));
+        // never one stem for two lines, whatever their numbers
+        let mut three = Registry::default();
+        for n in ["5_3", "5", "5", "5/1"] {
+            three.add_line("Busses").number = n.into();
+        }
+        let s = stems(&three);
+        assert_eq!((s[&1].as_str(), s[&2].as_str(), s[&3].as_str(), s[&4].as_str()), ("oo_5_3", "oo_5", "oo_5_3_2", "oo_5_1"));
+        // a registry that cannot be read is kept aside once, and nothing is saved over it
+        std::fs::write(&path, b"{\"version\": 1, \"lines\": [").unwrap();
+        assert_eq!(load_registry(&path), Registry::default());
+        assert_eq!(load_registry(&path), Registry::default());
+        let broken = std::fs::read_dir(path.parent().unwrap()).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().starts_with("Dorf.json.broken-")).count();
+        assert_eq!(broken, 1);
+        assert!(save_registry(&path, &Registry::default()).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"{\"version\": 1, \"lines\": [");
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
         // (a file of another version still reads)
         let old: Registry = serde_json::from_str(r#"{"version":1,"map":"X","lines":[{"id":7,"number":"1"}]}"#).unwrap();

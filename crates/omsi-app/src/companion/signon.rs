@@ -75,12 +75,26 @@ impl PersonnelFile {
         if let Some(p) = self.drivers.get(key).filter(|p| p.valid()) {
             return p.clone();
         }
+        // (the file as it is now: the launcher may have made this driver's number since it was
+        // read - on Android in the same process, which outlives every game - and what it
+        // holds is not to be written over with what was read before)
+        let on_disk = self.path.as_deref().and_then(|p| std::fs::read_to_string(p).ok()).map(|t| personnel_in(&t));
+        if let Some(Some(drivers)) = &on_disk {
+            self.drivers.extend(drivers.iter().map(|(k, p)| (k.clone(), p.clone())));
+            if let Some(p) = self.drivers.get(key).filter(|p| p.valid()) {
+                return p.clone();
+            }
+        }
         let p = Personnel::generate(rnd);
         self.drivers.insert(key.to_string(), p.clone());
         if let Some(path) = self.path.as_deref() {
-            // (when it cannot be written the sign-on still works this time, and the driver
-            // gets another number next time - better than none)
-            if let Err(e) = write_private(path, &personnel_json(&self.drivers)) {
+            if matches!(on_disk, Some(None)) {
+                // (a file that is there but not one of these - edited by hand? - is left as it
+                // is: written over, every other driver's number would be gone)
+                log::warn!("companion: {} cannot be read; the number made for driver '{key}' is not kept", path.display());
+            } else if let Err(e) = write_private(path, &personnel_json(&self.drivers)) {
+                // (when it cannot be written the sign-on still works this time, and the driver
+                // gets another number next time - better than none)
                 log::warn!("companion: cannot write {}: {e}", path.display());
             }
         }
@@ -90,15 +104,26 @@ impl PersonnelFile {
 }
 
 fn parse_personnel(text: &str) -> BTreeMap<String, Personnel> {
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(text) else { return BTreeMap::new() };
-    let Some(map) = v.get("drivers").and_then(|d| d.as_object()) else { return BTreeMap::new() };
-    map.iter()
-        .filter_map(|(k, e)| {
-            let number = e.get("number")?.as_str()?.to_string();
-            let code = e.get("code")?.as_str()?.to_string();
-            Some((k.clone(), Personnel { number, code }))
-        })
-        .collect()
+    personnel_in(text).unwrap_or_default()
+}
+
+/// The drivers in the text of `personnel.json`; None when it is not such a file (an empty
+/// one is a file without drivers).
+fn personnel_in(text: &str) -> Option<BTreeMap<String, Personnel>> {
+    if text.trim().is_empty() {
+        return Some(BTreeMap::new());
+    }
+    let v = serde_json::from_str::<serde_json::Value>(text).ok()?;
+    let map = v.get("drivers")?.as_object()?;
+    Some(
+        map.iter()
+            .filter_map(|(k, e)| {
+                let number = e.get("number")?.as_str()?.to_string();
+                let code = e.get("code")?.as_str()?.to_string();
+                Some((k.clone(), Personnel { number, code }))
+            })
+            .collect(),
+    )
 }
 
 fn personnel_json(drivers: &BTreeMap<String, Personnel>) -> String {
@@ -107,16 +132,37 @@ fn personnel_json(drivers: &BTreeMap<String, Personnel>) -> String {
 }
 
 /// Write `text` to `path`, readable by this user only where the system has such a thing.
+/// Written beside it first and put in its place whole: a reader at the same moment (the
+/// launcher, the game) or a crash halfway never finds the file half written.
 pub(crate) fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
     use std::io::Write;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let mut o = std::fs::OpenOptions::new();
-    o.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
-    o.open(path)?.write_all(text.as_bytes())
+    let open = |p: &Path| {
+        let mut o = std::fs::OpenOptions::new();
+        o.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
+        o.open(p)
+    };
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let name = path.file_name().map_or_else(|| String::from("file"), |n| n.to_string_lossy().into_owned());
+    let tmp = path.with_file_name(format!(".{name}.{}-{}.tmp", std::process::id(), SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+    let written = open(tmp.as_path()).and_then(|mut f| {
+        f.write_all(text.as_bytes())?;
+        f.sync_all()
+    });
+    match written.and_then(|()| std::fs::rename(&tmp, path)) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            // (a file held open elsewhere cannot always be replaced on Windows: written in
+            // place then, as it always was)
+            log::debug!("companion: {} not replaced whole ({e}): written in place", path.display());
+            open(path)?.write_all(text.as_bytes())
+        }
+    }
 }
 
 /// The key a driver's personnel data is kept under: the name of the personnel file (what the
@@ -505,5 +551,27 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(driver_key(Some(" Hans Müller ")), "hans müller");
         assert_eq!(driver_key(None), "driver");
+    }
+
+    /// The game's copy read long ago (on Android the companion outlives every game) and the
+    /// launcher's made since: the number the launcher showed is the one, and nobody's is lost.
+    #[test]
+    fn a_number_made_elsewhere_since_the_file_was_read_is_kept() {
+        let dir = std::env::temp_dir().join(format!("oo-companion-personnel-merge-{}", std::process::id()));
+        let path = dir.join("personnel.json");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut rnd = counter();
+        let mut game = PersonnelFile::load(Some(path.clone()));
+        let hans = game.of("hans", &mut rnd);
+        let greta = PersonnelFile::load(Some(path.clone())).of("greta", &mut rnd);
+        assert_eq!(game.of("greta", &mut rnd), greta, "the launcher's number, not a new one");
+        let karl = game.of("karl", &mut rnd);
+        let file = PersonnelFile::load(Some(path.clone()));
+        assert_eq!((file.drivers.get("hans"), file.drivers.get("greta"), file.drivers.get("karl")), (Some(&hans), Some(&greta), Some(&karl)));
+        // a file that is not one of these is not written over
+        std::fs::write(&path, "{\"drivers\": {\"hans\": ").unwrap();
+        let _ = PersonnelFile::load(Some(path.clone())).of("otto", &mut rnd);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{\"drivers\": {\"hans\": ");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

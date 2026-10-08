@@ -407,9 +407,14 @@ impl Ui {
     pub fn wheel_taken(&self) -> bool {
         // (an open dropdown takes it where it lies, at the end of the frame: a finger
         // sliding its list moved the phone's page behind it as well, #774)
+        self.wheel_taken || self.over_popup()
+    }
+
+    /// The mouse is over an open dropdown's list or calendar: drawn at the end of the frame
+    /// over everything, it has the mouse there before what lies under it (the map).
+    pub fn over_popup(&self) -> bool {
         let m = self.input.mouse;
-        self.wheel_taken
-            || self.popup.as_ref().is_some_and(|p| popup_rect(p, self.size).contains(m))
+        self.popup.as_ref().is_some_and(|p| popup_rect(p, self.size).contains(m))
             || self.date_popup.as_ref().is_some_and(|p| date_rect(p, self.size).contains(m))
     }
 
@@ -1176,8 +1181,10 @@ impl Ui {
     }
 
     /// A small button with an icon that opens a dropdown's list (the bar's other languages):
-    /// framed when `marked`.
-    pub fn menu(&mut self, name: &str, r: Rect, icon: &str, tip: &str, marked: bool, selected: &mut usize, options: &[String]) -> bool {
+    /// framed when `marked`. Its icon in `ink`'s first colour at rest, the second under the
+    /// mouse, open or marked (the bar's glass is light: the sheet's white ink vanished on it).
+    #[allow(clippy::too_many_arguments)]
+    pub fn menu(&mut self, name: &str, r: Rect, icon: &str, tip: &str, marked: bool, ink: (Color, Color), selected: &mut usize, options: &[String]) -> bool {
         let id = id_of(name);
         let changed = self.picked(id, selected, options);
         let (h, _, clicked) = self.interact(id, r);
@@ -1185,7 +1192,7 @@ impl Ui {
         if marked || open {
             self.p().rounded_border(r, 6.0, 1.0, accent());
         }
-        self.icon(icon, r.center(), 17.0, if h || open || marked { TEXT } else { TEXT_DIM });
+        self.icon(icon, r.center(), 17.0, if h || open || marked { ink.1 } else { ink.0 });
         if !open {
             self.tooltip(r, tip);
         }
@@ -1294,12 +1301,20 @@ impl Ui {
             let n = value.chars().count();
             caret = caret.min(n);
             let byte = |s: &str, c: usize| s.char_indices().nth(c).map(|(b, _)| b).unwrap_or(s.len());
+            // (the part selected, if any: what a cut or a copy takes and a paste replaces)
+            let chosen = |sel: Option<&(usize, usize)>| sel.map(|&(a, b)| (a.min(b), a.max(b))).filter(|(a, b)| a != b);
             for k in self.input.keys.clone() {
                 match k {
-                    Key::Left => caret = caret.saturating_sub(1),
-                    Key::Right => caret = (caret + 1).min(value.chars().count()),
-                    Key::Home => caret = 0,
-                    Key::End => caret = value.chars().count(),
+                    // (moving the caret ends a selection: the next key is not for the old one)
+                    Key::Left | Key::Right | Key::Home | Key::End => {
+                        caret = match k {
+                            Key::Left => caret.saturating_sub(1),
+                            Key::Right => (caret + 1).min(value.chars().count()),
+                            Key::Home => 0,
+                            _ => value.chars().count(),
+                        };
+                        self.selection.insert(id, (caret, caret));
+                    }
                     Key::Backspace => {
                         if let Some(&(a, b)) = self.selection.get(&id) {
                             let (start, end) = (a.min(b), a.max(b));
@@ -1346,18 +1361,40 @@ impl Ui {
                         self.selection.insert(id, (0, value.chars().count()));
                         caret = value.chars().count();
                     }
-                    Key::Copy => self.clipboard_out = Some(value.clone()),
-                    Key::Cut => {
-                        self.clipboard_out = Some(value.clone());
-                        value.clear();
-                        caret = 0;
+                    Key::Copy => {
+                        self.clipboard_out = Some(match chosen(self.selection.get(&id)) {
+                            Some((start, end)) => value.chars().skip(start).take(end - start).collect(),
+                            None => value.clone(),
+                        });
                     }
+                    Key::Cut => match chosen(self.selection.get(&id)) {
+                        Some((start, end)) => {
+                            self.clipboard_out = Some(value.chars().skip(start).take(end - start).collect());
+                            let (b0, b1) = (byte(value, start), byte(value, end));
+                            value.replace_range(b0..b1, "");
+                            caret = start;
+                            self.selection.insert(id, (caret, caret));
+                        }
+                        None => {
+                            self.clipboard_out = Some(value.clone());
+                            value.clear();
+                            caret = 0;
+                            self.selection.insert(id, (0, 0));
+                        }
+                    },
                     Key::Paste => {
                         if let Some(t) = self.clipboard_in.clone() {
                             let t: String = t.chars().filter(|c| !c.is_control()).collect();
+                            // (what is selected gives way to it, as to a typed key)
+                            if let Some((start, end)) = chosen(self.selection.get(&id)) {
+                                let (b0, b1) = (byte(value, start), byte(value, end));
+                                value.replace_range(b0..b1, "");
+                                caret = start;
+                            }
                             let b = byte(value, caret);
                             value.insert_str(b, &t);
                             caret += t.chars().count();
+                            self.selection.insert(id, (caret, caret));
                         }
                     }
                     Key::Enter | Key::Escape => self.focus = None,
@@ -2455,6 +2492,38 @@ mod tests {
         assert!(!input.shift && input.ctrl && !input.alt);
     }
 
+    /// A paste replaces what is selected, a cut and a copy take only that, and moving the
+    /// caret ends the selection: the next key goes where the caret is.
+    #[test]
+    fn a_text_field_pastes_cuts_and_copies_the_selection() {
+        let mut ui = Ui::new();
+        let r = Rect::new(20.0, 20.0, 240.0, 34.0);
+        let mut value = "Berlin".to_string();
+        let frame = |ui: &mut Ui, value: &mut String, keys: &[Key], text: &str, pressed: bool| {
+            ui.input = Input { mouse: r.center(), pressed, keys: keys.to_vec(), text: text.to_string(), ..Default::default() };
+            ui.begin(Vec2::new(400.0, 300.0), 1.0, 1.0 / 60.0);
+            ui.text_input("name", r, value, "", None);
+        };
+        // (clicked into: the field has the keys)
+        frame(&mut ui, &mut value, &[], "", true);
+        ui.clipboard_in = Some("Hamburg".to_string());
+        frame(&mut ui, &mut value, &[Key::SelectAll, Key::Paste], "", false);
+        assert_eq!(value, "Hamburg");
+        frame(&mut ui, &mut value, &[], "!", false);
+        assert_eq!(value, "Hamburg!", "typed at the caret, nothing selected any more");
+        // part of it selected (as a drag of the mouse leaves it)
+        ui.selection.insert(id_of("name"), (0, 4));
+        frame(&mut ui, &mut value, &[Key::Copy], "", false);
+        assert_eq!(ui.clipboard_out.take().as_deref(), Some("Hamb"));
+        assert_eq!(value, "Hamburg!");
+        frame(&mut ui, &mut value, &[Key::Cut], "", false);
+        assert_eq!(ui.clipboard_out.take().as_deref(), Some("Hamb"));
+        assert_eq!(value, "urg!");
+        // all of it selected, then End: the next key is added, not put in its place
+        frame(&mut ui, &mut value, &[Key::SelectAll, Key::End], "x", false);
+        assert_eq!(value, "urg!x");
+    }
+
     // --- motion -------------------------------------------------------------------------
 
     /// Runs a spring from 1 to 0 at `fps`: its lowest point (the overshoot, negative) and
@@ -2959,7 +3028,7 @@ mod tests {
         for press in [true, false] {
             ui.begin(Vec2::new(800.0, 600.0), 1.0, 1.0 / 60.0);
             (ui.input.pressed, ui.input.released) = (press, !press);
-            ui.menu("langs", at, "language", "", false, &mut sel, &options);
+            ui.menu("langs", at, "language", "", false, (TEXT_DIM, TEXT), &mut sel, &options);
             ui.finish();
         }
         let r = popup_rect(ui.popup.as_ref().expect("the list is open"), ui.size);

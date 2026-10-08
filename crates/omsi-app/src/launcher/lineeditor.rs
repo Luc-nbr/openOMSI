@@ -84,9 +84,9 @@ pub struct LineEditorView {
     tab: usize,
     /// The map's calendar (`Holidays.txt`), for the school holidays a school line keeps.
     map_calendar: omsi_map::Calendar,
-    /// The installed buses by maker and model (for how many buses), and the maker, model and
-    /// version chosen to add to the line's buses (each 0: none, or all).
-    catalogue: Option<(usize, Arc<Catalogue>)>,
+    /// The installed buses by maker and model (for which buses: `busclass::fingerprint`), and
+    /// the maker, model and version chosen to add to the line's buses (each 0: none, or all).
+    catalogue: Option<(u64, Arc<Catalogue>)>,
     pick: (usize, usize, usize),
     /// The timetable's table over the map: open, its group of days, its first trip shown,
     /// the cell chosen (a trip of `LineDesign::table`, a stop) and what is typed into it, and
@@ -99,8 +99,8 @@ pub struct LineEditorView {
     table_fill_armed: bool,
     /// A destination of the player's own being typed (the Displays tab).
     dest_new: String,
-    /// The stops' names from the map's `Busstops.cfg`.
-    names: HashMap<i64, String>,
+    /// The stops' names from the map's `Busstops.cfg`, by tile and id (`stop_names`).
+    names: StopNames,
     /// The depot groups with buses (`ailists.cfg`) and each one's depot file.
     groups: Vec<(String, String)>,
     /// The depot files of the depot groups as the line editor sees them, without its own
@@ -128,6 +128,9 @@ pub struct LineEditorView {
     /// Each direction's legs as drawn (world points), and for which line they were made.
     shapes: [Vec<Vec<DVec2>>; 2],
     shapes_for: Option<u64>,
+    /// The directions changed before the map's roads were read (line, direction): routed
+    /// once they are.
+    unrouted: Vec<(u64, usize)>,
     /// Bumped whenever what the map draws of the line changes.
     revision: u64,
     drag: Option<Drag>,
@@ -225,6 +228,35 @@ fn same_map(a: &str, b: &str) -> bool {
     n(a) == n(b)
 }
 
+/// The stops' names of a map's `Busstops.cfg`, by tile and object id (`stop_name`).
+type StopNames = HashMap<(Option<(i32, i32)>, i64), String>;
+
+/// The names of `Busstops.cfg`'s entries by tile and object id: an entry names its tile by its
+/// place in global.cfg's `[map]` list (`tiles`, every entry counted). A map joined from others
+/// repeats its ids (Berlin 186: half its objects share their id with one of another tile), so
+/// an entry whose tile is not known (None) names a stop by its id alone only where the file
+/// has that id once.
+fn stop_names(entries: &[omsi_timetable::BusStopEntry], tiles: &[(i32, i32)]) -> StopNames {
+    let mut count: HashMap<i64, usize> = HashMap::new();
+    for b in entries {
+        *count.entry(b.object_id).or_default() += 1;
+    }
+    let mut out = StopNames::new();
+    for b in entries.iter().filter(|b| !b.name.trim().is_empty()) {
+        let tile = usize::try_from(b.group).ok().and_then(|i| tiles.get(i)).copied();
+        if tile.is_none() && count.get(&b.object_id) != Some(&1) {
+            continue;
+        }
+        out.entry((tile, b.object_id)).or_insert_with(|| b.name.trim().to_string());
+    }
+    out
+}
+
+/// The name `Busstops.cfg` gives the stop `id` of the tile `tile` (`stop_names`).
+fn stop_name(names: &StopNames, tile: (i32, i32), id: i64) -> Option<&String> {
+    names.get(&(Some(tile), id)).or_else(|| names.get(&(None, id)))
+}
+
 /// The line editor opened for the bus company: its map, a new line of its own (`line`
 /// None) or one of its lines.
 pub fn open_for_company(l: &mut Launcher, line: Option<u64>) {
@@ -283,6 +315,24 @@ fn route_direction(router: &Router, d: &mut Direction) -> Vec<Vec<DVec2>> {
                 start = None;
             }
         }
+    }
+    d.refresh_times();
+    shapes
+}
+
+/// A direction's legs before the map's roads are read: each straight from stop to stop
+/// through its points, not routed (`route_direction` once the roads are there); returns them
+/// as drawn.
+fn unrouted_direction(d: &mut Direction) -> Vec<Vec<DVec2>> {
+    d.fit_legs();
+    let mut shapes = Vec::new();
+    for k in 0..d.legs.len() {
+        let (a, b) = (dv(d.stops[k].at), dv(d.stops[k + 1].at));
+        let leg = &mut d.legs[k];
+        leg.steps.clear();
+        leg.ok = false;
+        leg.length = (b - a).length() as f32;
+        shapes.push(straight(d, k));
     }
     d.refresh_times();
     shapes
@@ -355,13 +405,28 @@ impl LineEditorView {
         self.revision += 1;
     }
 
+    /// The table's cell chosen, what is typed into it, its page and "Fill" pressed once let go
+    /// (another line is shown: they were the other's).
+    fn table_reset(&mut self) {
+        (self.table_sel, self.table_text, self.table_col, self.table_fill_armed) = (None, String::new(), 0, false);
+    }
+
     /// The direction `dir` of the shown line routed again.
     fn reroute(&mut self, dir: usize) {
-        let Some((_, router)) = self.router.as_ref() else { return };
         let Some(id) = self.sel else { return };
         let Some(l) = self.reg.lines.iter_mut().find(|l| l.id == id) else { return };
         if let Some(d) = l.directions.get_mut(dir) {
-            self.shapes[dir] = route_direction(router, d);
+            self.shapes[dir] = match self.router.as_ref() {
+                Some((_, router)) => route_direction(router, d),
+                // (the map's roads not read yet: its legs straight for now, routed once they
+                // are - the change kept all the same)
+                None => {
+                    if !self.unrouted.contains(&(id, dir)) {
+                        self.unrouted.push((id, dir));
+                    }
+                    unrouted_direction(d)
+                }
+            };
         }
         self.touched();
     }
@@ -378,11 +443,14 @@ impl LineEditorView {
         self.reg.global = file.to_string();
         self.sel = self.first_shown();
         (self.dir, self.sel_stop, self.dirty, self.delete_armed, self.drag) = (0, None, false, false, None);
+        self.table_reset();
         self.shapes_for = None;
         self.router = None;
+        self.unrouted.clear();
         self.stops.clear();
         self.map_calendar = omsi_map::Calendar::load(&self.map_dir.join("Holidays.txt")).unwrap_or_default();
-        self.names = omsi_timetable::TimetableData::load(&self.map_dir).bus_stops.into_iter().filter(|b| !b.name.trim().is_empty()).map(|b| (b.object_id, b.name.trim().to_string())).collect();
+        let tiles = omsi_map::GlobalCfg::load(&self.global).map(|g| g.raw_tiles).unwrap_or_default();
+        self.names = stop_names(&omsi_timetable::TimetableData::load(&self.map_dir).bus_stops, &tiles);
         let chrono = omsi_map::date_code(date).map(|c| omsi_map::active_chrono_dirs(&self.map_dir, c)).unwrap_or_default();
         let ai = omsi_map::ailists::ailists_with_chrono(&self.map_dir, &chrono);
         self.groups = ai.groups.iter().filter(|g| g.is_depot && !g.typgroups.is_empty() && !g.name.trim().is_empty()).map(|g| (g.name.trim().to_string(), g.hof.clone().unwrap_or_default())).collect();
@@ -710,12 +778,26 @@ fn take_network(l: &mut Launcher) {
         v.stops = stops
             .iter()
             .map(|s| {
-                let name = v.names.get(&s.id).cloned().filter(|n| !n.is_empty()).or_else(|| Some(s.name.clone()).filter(|n| !n.is_empty())).unwrap_or_else(|| format!("Stop {}", s.id));
+                let name = stop_name(&v.names, s.tile, s.id).cloned().filter(|n| !n.is_empty()).or_else(|| Some(s.name.clone()).filter(|n| !n.is_empty())).unwrap_or_else(|| format!("Stop {}", s.id));
                 StopRef { tile: [s.tile.0, s.tile.1], id: s.id, name, at: [s.at.x, s.at.y], ..Default::default() }
             })
             .collect();
         v.router = Some((key, router));
         v.shapes_for = None;
+        // (what was changed before the roads were read: routed now, still to be saved)
+        let pending = std::mem::take(&mut v.unrouted);
+        if let Some((_, router)) = v.router.as_ref() {
+            let mut routed = false;
+            for (id, dir) in pending {
+                if let Some(d) = v.reg.lines.iter_mut().find(|l| l.id == id).and_then(|l| l.directions.get_mut(dir)) {
+                    route_direction(router, d);
+                    routed = true;
+                }
+            }
+            if routed {
+                v.dirty = true;
+            }
+        }
     }
     if v.shapes_for != v.sel {
         v.shapes_for = v.sel;
@@ -792,6 +874,7 @@ fn left_panel(l: &mut Launcher, r: Rect, maps: &[(String, String)], status: &mut
     if let Some(id) = pick {
         if v.sel != Some(id) {
             (v.sel, v.dir, v.sel_stop, v.delete_armed) = (Some(id), 0, None, false);
+            v.table_reset();
         }
     }
     let mut y = list_y + list_h + 8.0;
@@ -964,22 +1047,23 @@ fn delete(v: &mut LineEditorView, state: &mut super::state::State) -> (String, b
     v.reg.lines.retain(|x| x.id != id);
     v.sel = v.first_shown();
     (v.dir, v.sel_stop, v.delete_armed, v.dirty) = (0, None, false, false);
+    v.table_reset();
     v.shapes_for = None;
     v.revision += 1;
     let prepared = v.prepare_depots();
     if let Err(e) = reg::save_registry(&v.reg_path, &v.reg) {
         return (format!("Not deleted: {e}"), true);
     }
-    if let Some(content) = core::content_dir() {
-        if let Err(e) = reg::export_to_map(&content, &v.map_dir, &v.reg) {
-            return (format!("{}: {e}", omsi_ui::tr("The timetable files could not be written")), true);
-        }
-        if let Some(e) = v.write_depots(&content, &prepared) {
-            return (format!("{}: {e}", omsi_ui::tr("A depot file could not be written (displays and IBIS)")), true);
-        }
-        omsi_cfg::content_changed();
-        state.load_lines();
+    // (as save says: without a content folder its files stay in the map's timetable)
+    let Some(content) = core::content_dir() else { return ("Deleted from your lines, but there is no content folder to take it out of the timetable".into(), true) };
+    if let Err(e) = reg::export_to_map(&content, &v.map_dir, &v.reg) {
+        return (format!("{}: {e}", omsi_ui::tr("The timetable files could not be written")), true);
     }
+    if let Some(e) = v.write_depots(&content, &prepared) {
+        return (format!("{}: {e}", omsi_ui::tr("A depot file could not be written (displays and IBIS)")), true);
+    }
+    omsi_cfg::content_changed();
+    state.load_lines();
     (omsi_ui::tr("Line %{n} deleted").replace("%{n}", &number), false)
 }
 
@@ -1850,8 +1934,9 @@ struct ServiceFacts<'a> {
 /// The line's kind of service (and with a school line the school holidays it keeps), and the
 /// buses that run it: kinds of bus, and buses by maker, model or version.
 fn service_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, f: &ServiceFacts) {
-    if v.catalogue.as_ref().map(|c| c.0) != Some(f.vehicles.len()) {
-        v.catalogue = Some((f.vehicles.len(), Arc::new(catalogue(f.vehicles))));
+    let set = super::busclass::fingerprint(f.vehicles);
+    if v.catalogue.as_ref().map(|c| c.0) != Some(set) {
+        v.catalogue = Some((set, Arc::new(catalogue(f.vehicles))));
     }
     let cat = v.catalogue.as_ref().map(|c| c.1.clone()).unwrap_or_default();
     let Some(line) = v.line() else { return };
@@ -2111,6 +2196,28 @@ fn parse_hm(s: &str) -> Option<i32> {
     ((0..24).contains(&h) && (0..60).contains(&m)).then_some(h * 60 + m)
 }
 
+/// A time being typed is whole, taken without Enter: four digits ("0705"), or two of minutes
+/// after ':', '.' or 'h' ("7:05") - not "07:0", which is on its way to "07:05".
+fn whole_time(s: &str) -> bool {
+    let s = s.trim();
+    match s.split_once([':', '.', 'h']) {
+        Some((_, m)) => m.trim().len() == 2,
+        None => s.len() == 4 && s.chars().all(|c| c.is_ascii_digit()),
+    }
+}
+
+/// A time typed (`m`, minutes of the day) for a cell that held `before`: the day's or the next
+/// day's, whichever is nearer to it - so 00:05 in a trip of the evening is after midnight, and
+/// 23:59 typed over a stop reached at 00:02 the day's again.
+fn typed_minutes(m: i32, before: f32) -> f32 {
+    let m = m as f32;
+    if (m + 1440.0 - before).abs() < (m - before).abs() {
+        m + 1440.0
+    } else {
+        m
+    }
+}
+
 /// What the table's tools asked for (done after it is drawn).
 enum TableAct {
     Select(usize, usize),
@@ -2294,7 +2401,7 @@ fn table_layer(l: &mut Launcher, map_r: Rect) {
                             Some(m) => TableAct::Typed(m, true),
                             None => TableAct::Select(i, (s + 1).min(stops.len().saturating_sub(1))),
                         });
-                    } else if let Some(m) = parse_hm(&text).filter(|_| text.trim().len() >= 4) {
+                    } else if let Some(m) = parse_hm(&text).filter(|_| whole_time(&text)) {
                         act = Some(TableAct::Typed(m, false));
                     } else if ui.input.keys.contains(&Key::Up) {
                         act = Some(TableAct::Nudge(1.0));
@@ -2346,7 +2453,9 @@ fn table_layer(l: &mut Launcher, map_r: Rect) {
             changed = false;
         }
         TableAct::Dir(d) => {
-            (v.dir, v.table_sel, v.table_col) = (d, None, 0);
+            // (the stop chosen in the list was the other direction's)
+            (v.dir, v.sel_stop, v.table_sel, v.table_col) = (d, None, None, 0);
+            v.revision += 1;
             changed = false;
         }
         TableAct::Day(k) => {
@@ -2429,12 +2538,7 @@ fn table_layer(l: &mut Launcher, map_r: Rect) {
             if let Some((i, s)) = sel {
                 if let Some(t) = v.line_mut().unwrap().table[i].times.get_mut(s) {
                     // (a time after midnight in a trip of the evening is the next day's)
-                    let before = *t;
-                    let mut m = m as f32;
-                    if before >= 1440.0 || before - m > 720.0 {
-                        m += 1440.0;
-                    }
-                    *t = m;
+                    *t = typed_minutes(m, *t);
                 }
                 v.table_text.clear();
                 if next {
@@ -2474,6 +2578,7 @@ fn new_line(v: &mut LineEditorView) {
     }
     let id = line.id;
     (v.sel, v.dir, v.sel_stop) = (Some(id), 0, None);
+    v.table_reset();
     v.touched();
 }
 
@@ -2494,7 +2599,10 @@ fn company_start(l: &mut Launcher) {
     }
     let Some(start) = v.company.as_mut().and_then(|f| f.start.take()) else { return };
     match start {
-        Some(id) if v.reg.line(id).is_some() => (v.sel, v.dir, v.sel_stop) = (Some(id), 0, None),
+        Some(id) if v.reg.line(id).is_some() => {
+            (v.sel, v.dir, v.sel_stop) = (Some(id), 0, None);
+            v.table_reset();
+        }
         Some(_) => {}
         None => {
             new_line(v);
@@ -2744,16 +2852,29 @@ pub fn take_effect_in_timetable(l: &mut Launcher, map: &str, id: u64) -> Result<
     };
     let Some(x) = r.line_mut(id) else { return Ok(()) };
     flip(x);
-    if l.pages.lines.reg_path == path {
-        if let Some(x) = l.pages.lines.reg.line_mut(id) {
-            flip(x);
-        }
-    }
-    reg::save_registry(&path, &r)?;
     let content = core::content_dir().ok_or("no content folder")?;
     let global = omsi_cfg::find_in_roots(map).map(|(_, p)| p).unwrap_or_else(|| omsi_cfg::resolve_path(Path::new(&l.state.config.root), map));
     let map_dir = global.parent().map(Path::to_path_buf).unwrap_or_default();
+    // the depot files follow the version that runs now, as a save writes them: the codes
+    // given before the registry is saved, the blocks after the timetable
+    let groups = linehof::group_depots(&map_dir);
+    let (bases, original) = core::depot_roots();
+    let plan = linehof::prepare(&mut r, &groups, &bases);
+    owndepot::assign(&mut r, &owndepot::dir(), &groups, &bases);
+    reg::save_registry(&path, &r)?;
     reg::export_to_map(&content, &map_dir, &r)?;
+    let (_, err) = linehof::write(&content, original.as_deref(), &r, &groups, &plan);
+    let (_, own_err) = owndepot::write_lines(&r, &owndepot::dir(), Some(&content));
+    if let Some(e) = err.or(own_err) {
+        log::warn!("line editor: the depot files of line {id} as it runs now: {e}");
+    }
+    // (the editor open on the map takes the line as it runs now, its codes too)
+    if l.pages.lines.reg_path == path {
+        if let (Some(x), Some(now)) = (l.pages.lines.reg.line_mut(id), r.line_mut(id)) {
+            *x = now.clone();
+        }
+        l.pages.lines.depots.clear();
+    }
     omsi_cfg::content_changed();
     l.state.load_lines();
     Ok(())
@@ -3109,7 +3230,7 @@ fn narrow(l: &mut Launcher, area: Rect) {
     let mut y = area.y;
     let h = l.ui.paragraph("The line editor needs a wider window: open it on a computer. Your lines of this map:", Vec2::new(area.x, y), area.w, 13.0, Weight::Regular, TEXT_DIM);
     y += h + 12.0;
-    let lines: Vec<(String, String, usize)> = v.reg.lines.iter().map(|x| (x.number.clone(), x.name.clone(), x.directions.iter().map(|d| d.stops.len()).max().unwrap_or(0))).collect();
+    let lines: Vec<(String, String, usize)> = v.reg.lines.iter().filter(|x| v.shows(x)).map(|x| (x.number.clone(), x.name.clone(), x.directions.iter().map(|d| d.stops.len()).max().unwrap_or(0))).collect();
     for (number, name, stops) in lines {
         let plate = Rect::new(area.x, y, (l.ui.width(&number, 13.0, Weight::Black) + 16.0).max(40.0), 24.0);
         l.ui.p().rounded(plate, 5.0, LINE);
@@ -3167,6 +3288,27 @@ mod tests {
         assert_eq!(hm(425.0), "07:05");
         // (a trip past midnight from 00:00 on)
         assert_eq!(hm(1445.0), "00:05");
+        // taken without Enter only once whole: "07:0" is on its way to "07:05"
+        assert!(whole_time("0705") && whole_time("7:05") && whole_time("07:05") && whole_time("17.45"));
+        assert!(!whole_time("07:0") && !whole_time("12:3") && !whole_time("17.4") && !whole_time("705") && !whole_time("070"));
+        // the day's or the next day's, whichever is nearer to what the cell held
+        assert_eq!(typed_minutes(425, 420.0), 425.0);
+        assert_eq!(typed_minutes(5, 1430.0), 1445.0);
+        assert_eq!(typed_minutes(10, 1442.0), 1450.0);
+        assert_eq!(typed_minutes(1439, 1442.0), 1439.0);
+        assert_eq!(typed_minutes(1380, 600.0), 1380.0);
+    }
+
+    #[test]
+    fn a_stop_is_named_by_its_own_tile_where_ids_repeat() {
+        let entry = |name: &str, group: i32, id: i64| omsi_timetable::BusStopEntry { name: name.into(), group, object_id: id, params: [0.0; 3] };
+        let tiles = [(0, 0), (0, 1), (5, 5)];
+        // (id 7 on two tiles; id 9 once, its tile not in global.cfg's list)
+        let names = stop_names(&[entry("Rathaus", 0, 7), entry("Bahnhof", 2, 7), entry("Markt", 9, 9), entry("Nowhere", 9, 7)], &tiles);
+        assert_eq!(stop_name(&names, (0, 0), 7).map(String::as_str), Some("Rathaus"));
+        assert_eq!(stop_name(&names, (5, 5), 7).map(String::as_str), Some("Bahnhof"));
+        assert_eq!(stop_name(&names, (0, 1), 7), None);
+        assert_eq!(stop_name(&names, (0, 1), 9).map(String::as_str), Some("Markt"));
     }
 
     #[test]
@@ -3177,6 +3319,7 @@ mod tests {
         keys.extend(["Public title", "Fill from the patterns", "Trip %{n}", "My destinations", "As advertised", "%{n} trip(s) of the table reach a stop before they left the one before"]);
         // (the sizes a company's level keeps locked)
         keys.extend(["locked", "Your company's level does not open these buses yet"]);
+        keys.push("Deleted from your lines, but there is no content folder to take it out of the timetable");
         // (a change of a line in service)
         keys.extend(["Change line %{n} in service", "Route approved anew", "%{k} kept, %{c} changed, %{a} new, %{g} dropped", "%{n} tours to plan anew", "Save the change", "Keep the line as it runs", "The new timetable begins on %{date}.", "A change of a line in service begins tomorrow at the soonest.", "New timetable from %{date}", "Line %{n} runs its new timetable from today: %{d} duties and %{b} buses given anew."]);
         for p in service::default_school_holidays() {

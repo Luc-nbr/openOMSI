@@ -915,6 +915,11 @@ pub fn depot_names_with_line(root: &Path, bus: &str, line: &str) -> Vec<String> 
     found
 }
 
+/// What the cache key of a vehicle folder's buses begins with: `bus`, and the version of what
+/// the entry holds (the entries of an earlier one, `bus5|` and before, go with the folders
+/// that are gone: see `list_vehicles_progress`).
+const BUS_KEY: &str = "bus6|";
+
 /// The buses, as `list_vehicles`, with `progress` told after every few folders what they
 /// held, how many folders are done and how many there are: a big installation's first
 /// reading (thousands of vehicle folders, nothing in the cache yet) takes minutes, and the
@@ -925,7 +930,7 @@ pub fn list_vehicles_progress(progress: impl Fn(&[VehicleInfo], usize, usize)) -
     let lang = content_language();
     let folders = merged_folders("Vehicles");
     let shared_hofs = shared_depot_names();
-    let keys: Vec<String> = folders.iter().map(|(_, dirs)| format!("bus6|{lang}|{}", dirs.iter().map(|d| d.to_string_lossy()).collect::<Vec<_>>().join("|"))).collect();
+    let keys: Vec<String> = folders.iter().map(|(_, dirs)| format!("{BUS_KEY}{lang}|{}", dirs.iter().map(|d| d.to_string_lossy()).collect::<Vec<_>>().join("|"))).collect();
     let read = |(folder, dirs): &(String, Vec<PathBuf>), key: &String| -> Vec<VehicleInfo> {
         // the stamp covers every copy of the folder and their direct entries (Model/,
         // Texture/ ...); the paint folders the entry read are its dependencies
@@ -966,13 +971,15 @@ pub fn list_vehicles_progress(progress: impl Fn(&[VehicleInfo], usize, usize)) -
         // what was read is kept every few seconds: a first reading left half-way (the
         // launcher closed) starts from there the next time
         if saved.elapsed().as_secs() >= 10 {
-            index::save("bus5|", None);
+            index::save(BUS_KEY, None);
             saved = std::time::Instant::now();
         }
         progress(&batch, done, total);
         out.extend(batch);
     }
-    index::save("bus5|", Some(&keys));
+    // (every entry of a folder that is gone, of another content language or of an earlier
+    // version of the key: no other key begins with "bus")
+    index::save("bus", Some(&keys));
     if out.is_empty() {
         log_empty("Vehicles", ".bus file");
     }
@@ -2251,6 +2258,12 @@ pub fn delete_profile(name: &str) -> Result<()> {
     // original one of the same name would still list it)
     if !file.exists() && (root.join("Drivers").join(format!("{}.odr", name.trim())).exists() || sessions().iter().any(|s| s.driver.eq_ignore_ascii_case(name.trim()))) {
         set_hidden(name.trim(), true)?;
+    }
+    // (and the trips it drove: a new driver of the same name starts without them)
+    if let Err(e) = std::fs::remove_file(trips_file(&data_dir(), name)) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            return Err(e.into());
+        }
     }
     delete_profile_sessions(&data_dir().join("sessions"), name)
 }

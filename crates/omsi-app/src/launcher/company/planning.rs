@@ -46,6 +46,9 @@ pub struct PlanningView {
     rx: Receiver<Read>,
     days: Vec<Read>,
     asked: Vec<(String, String)>,
+    /// Days read besides the week: the service dialog's seven, from the day the line starts
+    /// (kept while the dialog is open).
+    extra: Vec<String>,
     /// The day shown: 0 the company's day, up to 6.
     pub(super) day: usize,
     sel: Option<Sel>,
@@ -75,7 +78,7 @@ pub struct PlanningView {
 impl Default for PlanningView {
     fn default() -> Self {
         let (tx, rx) = channel();
-        PlanningView { tx, rx, days: Vec::new(), asked: Vec::new(), day: 0, sel: None, arm: None, drag: None, carry: None, press: None, carry_from: Vec2::ZERO, targets: Vec::new(), clear_armed: false, cache: Vec::new(), read_at: 0, focus: None }
+        PlanningView { tx, rx, days: Vec::new(), asked: Vec::new(), extra: Vec::new(), day: 0, sel: None, arm: None, drag: None, carry: None, press: None, carry_from: Vec2::ZERO, targets: Vec::new(), clear_armed: false, cache: Vec::new(), read_at: 0, focus: None }
     }
 }
 
@@ -157,18 +160,29 @@ fn line_title(t: &DayTour, duty: Option<usize>) -> String {
 
 // --- the data --------------------------------------------------------------------------------
 
-/// Take in the timetables read, and ask for those of the week not read yet.
+/// Take in the timetables read, and ask for those of the week not read yet (and, while the
+/// service dialog is open, of the line's week it shows).
 pub(super) fn work(l: &mut Launcher, c: &Company) {
     let revision = l.company.timetable;
+    let service = matches!(l.company.dialog, Some(Dialog::Service { .. }));
     let v = &mut l.company.planning;
     if v.read_at != revision {
         v.forget(revision);
+    }
+    if !service {
+        v.extra.clear();
     }
     while let Ok(r) = v.rx.try_recv() {
         v.days.retain(|d| !(d.0 == r.0 && d.1 == r.1));
         v.days.push(r);
     }
-    let week: Vec<(String, String)> = (0..7).map(|k| (c.map.clone(), co::dates::add(&c.date, k))).collect();
+    let mut week: Vec<(String, String)> = (0..7).map(|k| (c.map.clone(), co::dates::add(&c.date, k))).collect();
+    for date in &v.extra {
+        let day = (c.map.clone(), date.clone());
+        if !week.contains(&day) {
+            week.push(day);
+        }
+    }
     v.days.retain(|d| week.iter().any(|w| w.0 == d.0 && w.1 == d.1));
     v.asked.retain(|a| week.contains(a));
     let missing: Vec<(String, String)> = week.into_iter().filter(|w| !v.asked.contains(w)).collect();
@@ -378,27 +392,34 @@ fn give(l: &mut Launcher, p: &DayPlan, arm: Arm, hit: &Hit) {
     }
 }
 
+/// A duty's trips (`planned`, as the plan has them) in its tour of the day's timetable
+/// (`trips`): the first one's place as the game counts it (1 the first) and the minute it
+/// leaves, and how many there are. The plan has the trips in the order they leave, an own
+/// line's with the depot runs its timetable lacks: each is found by its name and the minute
+/// it leaves, and the depot runs are not (None: none of them is).
+fn timetable_legs(planned: &[co::network::PlannedTrip], trips: &[core::TripInfo]) -> Option<(usize, i32, usize)> {
+    let found: Vec<(usize, i32)> = planned.iter().filter_map(|x| trips.iter().find(|y| y.name == x.name && (y.departure / 60.0).round() as i32 == x.dep).map(|y| (y.index, x.dep))).collect();
+    let (first, time) = *found.first()?;
+    Some((first, time, found.len()))
+}
+
 /// "Drive this duty": the Drive page with exactly this duty - its line and tour, its first
 /// trip and as many trips as it has (`--duty-leg`), the company's map, the plan's day, the
 /// depot and the tour's bus in its paint. The player starts it there himself.
 pub(super) fn drive(l: &mut Launcher, c: &Company, p: &DayPlan, ti: usize, k: usize) {
     let t = &p.tours[ti];
     let d = &t.duties[k];
-    // the trip's place in its tour as the game counts it (1 the first): the day's timetable
-    // has the tour's trips; the plan has them in the order they leave
-    let index = l.company.planning.days.iter().find(|x| x.0 == c.map && x.1 == p.date).and_then(|x| x.2.as_ref().ok()).and_then(|lines| {
+    // the duty's trips as the game counts them, in the day's timetable
+    let legs = l.company.planning.days.iter().find(|x| x.0 == c.map && x.1 == p.date).and_then(|x| x.2.as_ref().ok()).and_then(|lines| {
         let line = lines.iter().find(|x| x.name.eq_ignore_ascii_case(&t.tour.line))?;
         let tour = line.tours.iter().find(|x| x.number.trim() == t.tour.tour.trim())?;
-        let mut trips: Vec<&core::TripInfo> = tour.trips.iter().collect();
-        trips.sort_by(|a, b| a.departure.partial_cmp(&b.departure).unwrap_or(std::cmp::Ordering::Equal));
-        trips.get(d.start).map(|x| x.index)
+        timetable_legs(t.tour.trips.get(d.start..d.end)?, &tour.trips)
     });
-    let Some(first) = index else {
+    let Some((first, time, count)) = legs else {
         kit::show(l, kit::Popup::new("timer", "Not yet", omsi_ui::tr("The timetable of the day is still being read."), omsi_ui::tr("Try again in a moment."), None));
         return;
     };
     let (line, tour) = (t.tour.line.clone(), t.tour.tour.clone());
-    let time = t.tour.trips[d.start].dep;
     let ch = &mut l.state.choice;
     ch.map = c.map.clone();
     ch.entry = -1;
@@ -410,7 +431,7 @@ pub(super) fn drive(l: &mut Launcher, c: &Company, p: &DayPlan, ti: usize, k: us
     ch.tour = Some(tour.clone());
     ch.time = time;
     ch.start_trip = Some((line.clone(), tour.clone(), first, time));
-    ch.legs = vec![format!("{line}|{tour}|{first}|{}", d.end - d.start)];
+    ch.legs = vec![format!("{line}|{tour}|{first}|{count}")];
     if let Some(v) = t.bus.and_then(|b| if let BusOf::Own(id) = b { c.vehicle(id) } else { None }).filter(|v| !v.bus.trim().is_empty()) {
         ch.bus = v.bus.clone();
         ch.paint = v.house_livery.clone().filter(|h| !h.trim().is_empty()).unwrap_or_else(|| v.livery.clone());
@@ -425,6 +446,7 @@ pub(super) fn drive(l: &mut Launcher, c: &Company, p: &DayPlan, ti: usize, k: us
     l.state.touched();
     l.state.load_lines();
     l.state.load_ibis();
+    super::leave(l);
     l.go(Page::Drive);
     l.drive.step = Step::Duty;
     l.state.set_status(omsi_ui::tr("Your duty is set: check the bus and start the duty when you are ready.").into_owned(), false);
@@ -1419,7 +1441,6 @@ pub(super) fn service_dialog(l: &mut Launcher) {
         l.company.dialog = None;
         return;
     };
-    work(l, &c);
     let title = omsi_ui::tr("Start the service of line %{n}").replace("%{n}", &cl.number);
     let f = kit::frame(l, 760.0, 640.0, "play_arrow", &title);
     let inner = f.body;
@@ -1441,12 +1462,16 @@ pub(super) fn service_dialog(l: &mut Launcher) {
         1 => co::clock::moment(&co::dates::add(&c.date, 1), 0),
         _ => co::clock::moment(&d, 0).max(co::clock::now(&c)),
     };
+    // (the line's week from the day it starts, read besides the planning's own: from
+    // tomorrow or a later date it reaches past it)
+    let start_day = co::clock::date_of(from);
+    l.company.planning.extra = (0..7).map(|k| co::dates::add(&start_day, k)).collect();
+    work(l, &c);
     // the next seven days of the line as planned
     kit::caps(&mut l.ui, Rect::new(inner.x, y, inner.w, 16.0), "The line's week as it is planned");
     y += 26.0;
     let mut short = 0usize;
     let mut reading = false;
-    let start_day = co::clock::date_of(from);
     for k in 0..7 {
         let day = co::dates::add(&start_day, k);
         let row = Rect::new(inner.x, y, inner.w, 30.0);
@@ -1530,5 +1555,20 @@ mod tests {
                 assert!(crate::_rust_i18n_try_translate(lang, k).is_some(), "{lang}: {k}");
             }
         }
+    }
+
+    #[test]
+    fn a_duty_is_driven_from_its_own_first_trip() {
+        let trip = |name: &str, index: usize, dep: f64| omsi_launcher_lib::TripInfo { name: name.into(), index, line: "7".into(), from: "A".into(), terminus: "B".into(), departure: dep * 60.0, arrival: (dep + 30.0) * 60.0, stops: Vec::new(), km: 9.0 };
+        let timetable = [trip("7 A-B", 1, 360.0), trip("7 B-A", 2, 400.0), trip("7 A-B", 3, 440.0)];
+        let planned = |name: &str, dep: i32, depot: bool| co::network::PlannedTrip { name: name.into(), line: if depot { String::new() } else { "7".into() }, dep, arr: dep + 30, stops: if depot { 0 } else { 5 }, empty: depot, ..Default::default() };
+        // an own line's tour as the plan has it: the depot runs added before and after
+        let tour = [planned("Betriebsfahrt", 352, true), planned("7 A-B", 360, false), planned("7 B-A", 400, false), planned("7 A-B", 440, false), planned("Betriebsfahrt", 470, true)];
+        // its first duty: the depot run and two trips; its second: the last trip and the run back
+        assert_eq!(timetable_legs(&tour[0..3], &timetable), Some((1, 360, 2)));
+        assert_eq!(timetable_legs(&tour[3..5], &timetable), Some((3, 440, 1)));
+        // a line of the map's own timetable: the plan's trips are the timetable's
+        assert_eq!(timetable_legs(&tour[1..4], &timetable), Some((1, 360, 3)));
+        assert_eq!(timetable_legs(&tour[4..5], &timetable), None);
     }
 }

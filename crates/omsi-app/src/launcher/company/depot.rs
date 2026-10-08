@@ -75,7 +75,8 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     let right = Rect::new(area.x + left_w + gap, area.y, (area.w - left_w - gap).max(0.0), area.h);
     // the figures
     let held = c.fleet.iter().filter(|v| v.held_on(&c.date)).count();
-    let spaces = c.site.spaces();
+    // (the yard's spaces and the halls the levels open)
+    let spaces = dp::places(&c);
     let fh = kit::FIGURE_H;
     let fw = (left.w - 3.0 * 12.0) / 4.0;
     let fr = |k: usize| Rect::new(left.x + k as f32 * (fw + 12.0), left.y, fw, fh);
@@ -493,7 +494,8 @@ fn workshop(l: &mut Launcher, r: Rect, c: &Company) {
     }
     if let Some((id, kind)) = order {
         if act(l, |c| dp::order(c, id, kind)).is_some() {
-            let started = l.company.company.as_ref().and_then(|c| c.site.job_of(id)).is_some_and(|j| j.started.is_some());
+            // (an order starts at the night: tomorrow when a bay is free for it then)
+            let started = l.company.company.as_ref().is_some_and(|c| c.site.job_of(id).is_some_and(|j| j.started.is_some() || dp::starts_tomorrow(c, j.id)));
             l.state.set_status(if started { omsi_ui::tr("The bus is in the workshop tomorrow.") } else { omsi_ui::tr("The job waits for a free bay.") }.into_owned(), false);
         }
     }

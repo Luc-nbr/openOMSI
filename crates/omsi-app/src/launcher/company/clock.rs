@@ -20,6 +20,7 @@ use omsi_launcher_lib::company::store::Disk;
 use omsi_launcher_lib::company::{self as co, Company};
 use omsi_ui::paint::Align;
 use omsi_ui::{Color, Rect, Weight};
+use std::collections::HashMap;
 use std::time::Instant;
 
 pub struct ClockView {
@@ -29,37 +30,43 @@ pub struct ClockView {
     last: Option<Instant>,
     /// Changes of the clock not saved yet (a playing clock is saved now and then).
     dirty: Option<Instant>,
-    /// The game: when the clock last followed it, and the live events told (of which
-    /// company and day).
+    /// The game: when the clock last followed it, and how many of its live events were told,
+    /// by company and day (a company opened again tells none twice).
     follow_at: Option<Instant>,
-    live_seen: usize,
-    live_for: (String, String),
+    live_seen: HashMap<(String, String), usize>,
     /// The time dialog's "until": a minute of the day.
     pub(super) until: f32,
 }
 
 impl Default for ClockView {
     fn default() -> Self {
-        ClockView { speed: 0.0, acc: 0.0, last: None, dirty: None, follow_at: None, live_seen: 0, live_for: Default::default(), until: 16.0 * 60.0 }
+        ClockView { speed: 0.0, acc: 0.0, last: None, dirty: None, follow_at: None, live_seen: HashMap::new(), until: 16.0 * 60.0 }
     }
 }
 
-/// The game runs on the company's map: its clock leads (the minute of its day).
+/// The game runs on the company's map: its clock leads (the minute of its day). A game on
+/// another map, or a test drive at the dealer's, runs outside the company's time
+/// (`map::time_of_day`).
 fn game_minute(l: &Launcher, c: &Company) -> Option<i64> {
     let (secs, in_game) = super::map::time_of_day(l, c);
     in_game.then_some((secs / 60.0).floor() as i64)
 }
 
+/// The game leads the open company's clock now.
+fn game_leads(l: &Launcher) -> bool {
+    l.company.company.as_ref().is_some_and(|c| game_minute(l, c).is_some())
+}
+
 /// A step may be taken now (no other running, no game leading).
-fn may_step(l: &Launcher) -> bool {
-    !l.company.closing && !l.state.in_game() && l.company.company.as_ref().is_some_and(|c| c.clock.ask.is_none())
+pub(super) fn may_step(l: &Launcher) -> bool {
+    !l.company.closing && !game_leads(l) && l.company.company.as_ref().is_some_and(|c| c.clock.ask.is_none())
 }
 
 /// Simulate to `to` (the clock's minutes): within the company's day at once, past its midnight
 /// on a thread. `quick`: nothing waits, the dispatcher decides.
 pub(super) fn simulate(l: &mut Launcher, to: i64, quick: bool) {
     let Some(c) = l.company.company.clone() else { return };
-    if l.company.closing || l.state.in_game() {
+    if l.company.closing || game_minute(l, &c).is_some() {
         return;
     }
     let midnight = (ck::now(&c).div_euclid(DAY) + 1) * DAY;
@@ -129,7 +136,7 @@ pub fn tick(l: &mut Launcher, modal: bool) {
     l.company.clock.last = Some(now);
     let Some(c) = l.company.company.clone() else { return };
     // the game leads
-    if l.state.in_game() {
+    if game_minute(l, &c).is_some() {
         l.company.clock.speed = 0.0;
         if l.company.clock.follow_at.is_none_or(|t| t.elapsed().as_secs_f32() >= 2.0) {
             l.company.clock.follow_at = Some(now);
@@ -163,15 +170,15 @@ fn follow(l: &mut Launcher, c: &Company) {
     let Some(minute) = game_minute(l, c) else { return };
     let mut c = c.clone();
     let key = (c.id.clone(), c.date.clone());
-    if l.company.clock.live_for != key {
-        l.company.clock.live_for = key;
-        l.company.clock.live_seen = 0;
-    }
+    // (the company's days before are closed: their events are booked)
+    let seen = &mut l.company.clock.live_seen;
+    seen.retain(|k, _| k.0 != key.0 || k.1 == key.1);
+    let already = seen.get(&key).copied().unwrap_or(0);
     let d = data();
-    let live = co::store::peek_live(&d, &c.id, l.company.clock.live_seen);
+    let live = co::store::peek_live(&d, &c.id, already);
     let mut told = 0;
     if !live.is_empty() {
-        l.company.clock.live_seen += live.len();
+        l.company.clock.live_seen.insert(key, already + live.len());
         told += ck::tell_live(&mut c, &live);
     }
     let lines = l.company.today.as_ref().filter(|t| t.map == c.map && t.date == c.date && t.error.is_none()).map(|t| t.lines.clone());
@@ -197,7 +204,7 @@ pub(super) fn now_label(c: &Company) -> String {
 /// and the time dialog. Returns where it begins.
 pub fn head(l: &mut Launcher, r: Rect) -> f32 {
     let Some(c) = l.company.company.clone() else { return r.right() };
-    let in_game = l.state.in_game();
+    let in_game = game_leads(l);
     let ok = may_step(l);
     let gap = 8.0;
     let menu = Rect::new(r.right() - 42.0, r.y, 42.0, r.h);
@@ -262,7 +269,7 @@ pub fn head(l: &mut Launcher, r: Rect) -> f32 {
 
 /// Why the clock cannot be stepped now, in a popup.
 pub(super) fn busy(l: &mut Launcher) {
-    let p = if l.state.in_game() {
+    let p = if game_leads(l) {
         kit::Popup::new("sports_esports", "The game leads the clock", omsi_ui::tr("The game runs on the company's map: the company's day goes along with the game's time."), omsi_ui::tr("Simulating is offered again when the game is closed."), None)
     } else if l.company.company.as_ref().is_some_and(|c| c.clock.ask.is_some()) {
         kit::Popup::new("help", "A decision waits", omsi_ui::tr("The company's clock waits for your answer first."), "", None)
@@ -289,7 +296,7 @@ pub fn time_dialog(l: &mut Launcher) {
         return;
     };
     let title = omsi_ui::tr("Company time: %{now}").replace("%{now}", &now_label(&c));
-    let in_game = l.state.in_game();
+    let in_game = game_leads(l);
     let f = kit::frame(l, 780.0, if in_game { 680.0 } else { 620.0 }, "schedule", &title);
     let inner = f.body;
     let ok = may_step(l);

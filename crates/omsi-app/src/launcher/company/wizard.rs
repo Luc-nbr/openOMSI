@@ -296,7 +296,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         };
         let mut c = co::found(&f, &l.state.config.profile);
         c.id = co::store::unused_id(&data(), &c.name);
-        l.company.company = Some(c);
+        super::switch_company(l, Some(c));
         l.company.tab = 0;
         super::changed(l);
         // (the company's tour goes on with its pages, if the welcome came before the founding)

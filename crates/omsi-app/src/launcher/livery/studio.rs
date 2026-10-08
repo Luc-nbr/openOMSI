@@ -50,6 +50,9 @@ pub struct Chooser {
     paint: usize,
     /// How it begins (`model::STARTS`).
     start: usize,
+    /// The liveries begun before, and when they were read (not every frame: a project with
+    /// brush strokes is megabytes of JSON); None: read them again.
+    pub(super) projects: Option<(std::time::Instant, Vec<model::Project>)>,
 }
 
 /// What the colour picker colours.
@@ -227,6 +230,8 @@ pub struct State {
     shared: Option<(String, f32)>,
     /// The other side's picture in the bus's put away by its cross (its chip brings it back).
     hide_other: bool,
+    /// Whether the bar had room for the livery's name this frame (else the right panel has it).
+    name_in_bar: bool,
 }
 
 impl State {
@@ -372,7 +377,10 @@ fn chooser(l: &mut Launcher, full: Rect) {
     let (left, right) = body.cut_left(body.w * 0.42);
     // liveries begun before
     let lh = l.ui.heading(left, "Continue a livery", None);
-    let list = super::projects();
+    if l.livery.chooser.projects.as_ref().is_none_or(|(at, _)| at.elapsed().as_secs_f32() > 3.0) {
+        l.livery.chooser.projects = Some((std::time::Instant::now(), super::projects()));
+    }
+    let list: &[model::Project] = l.livery.chooser.projects.as_ref().map(|p| p.1.as_slice()).unwrap_or(&[]);
     let mut open: Option<model::Project> = None;
     if list.is_empty() {
         l.ui.text_in("None yet.", Rect::new(lh.x, lh.y + 4.0, lh.w, 20.0), 13.0, Weight::Regular, TEXT_FAINT, Align::Left);
@@ -457,8 +465,15 @@ fn chooser(l: &mut Launcher, full: Rect) {
 fn top_bar(l: &mut Launcher, r: Rect) {
     l.ui.panel(r);
     if l.ui.button("livery-back", Rect::new(r.x + 10.0, r.y + 10.0, 92.0, 38.0), "Back", Some("chevron_left"), ButtonKind::Ghost) {
-        super::leave(l);
-        return;
+        // (a save into the game going on: left once it is done, with what follows it - the
+        // livery kept in the project and on the bus step, the company's design paid for)
+        match l.livery.session.as_mut().filter(|s| s.export.is_some()) {
+            Some(s) => s.leaving = true,
+            None => {
+                super::leave(l);
+                return;
+            }
+        }
     }
     let bus = l.livery.session.as_ref().map(|s| s.project.bus.clone()).unwrap_or_default();
     let bus_name = l.state.vehicles.iter().find(|v| v.file == bus).map(|v| v.name.clone()).unwrap_or_else(|| bus.rsplit('/').next().unwrap_or("").to_string());
@@ -501,11 +516,14 @@ fn top_bar(l: &mut Launcher, r: Rect) {
     if l.ui.icon_button("livery-redo", Vec2::new(x + 56.0, r.center().y), 17.0, "livery_redo", "Redo (Ctrl+Y)") && can_redo {
         l.livery.session.as_mut().unwrap().redo();
     }
-    // the name and Save
+    // the name and Save (the name narrower when the bar is short of room, and at the top of the
+    // right panel when it has none: it is the only place the livery is named)
     let save = Rect::new(r.right() - 10.0 - 170.0, r.y + 9.0, 170.0, 40.0);
-    let field = Rect::new(save.x - 10.0 - 230.0, r.y + 11.0, 230.0, 36.0);
-    if field.x > x + 90.0 {
-        let s = l.livery.session.as_mut().unwrap();
+    let fx = (save.x - 10.0 - 230.0).max(x + 90.0);
+    let field = Rect::new(fx, r.y + 11.0, save.x - 10.0 - fx, 36.0);
+    let s = l.livery.session.as_mut().unwrap();
+    s.ui.name_in_bar = field.w >= 140.0;
+    if s.ui.name_in_bar {
         let mut name = std::mem::take(&mut s.ui.name);
         l.ui.text_input("livery-name", field, &mut name, "Name of the livery", None);
         s.ui.name = name;
@@ -710,10 +728,18 @@ fn layers_panel(l: &mut Launcher, r: Rect) {
 
 fn right_panel(l: &mut Launcher, r: Rect) {
     l.ui.panel(r);
-    let inner = r.pad(16.0, 12.0);
+    let mut inner = r.pad(16.0, 12.0);
     let s = l.livery.session.as_mut().unwrap();
+    // (the livery's name, when the bar had no room for it)
+    if !s.ui.name_in_bar {
+        let mut name = std::mem::take(&mut s.ui.name);
+        l.ui.text_input("livery-name", Rect::new(inner.x, inner.y, inner.w, 36.0), &mut name, "Name of the livery", None);
+        s.ui.name = name;
+        inner = Rect::new(inner.x, inner.y + 46.0, inner.w, inner.h - 46.0);
+    }
     let before = s.project.doc();
     let quick_before = s.project.quick.clone();
+    let family_before = s.project.family.clone();
     let shape_tex = l.livery.shape_tex.clone();
     let fonts = shapes::font_names();
     let mut actions: Vec<Action> = Vec::new();
@@ -764,6 +790,11 @@ fn right_panel(l: &mut Launcher, r: Rect) {
     }
     if s.project.doc() != before {
         s.changed_from(before);
+    }
+    // (the buses of its family it is saved for are no part of the document, nor undone: kept
+    // all the same)
+    if s.project.family != family_before {
+        s.touched();
     }
 }
 
@@ -885,8 +916,12 @@ fn tool_props(ui: &mut Ui, s: &mut Session, r: Rect, shape_tex: &std::collection
                             s.look.bus = kin.bus.clone();
                             s.look.paint = String::new();
                         }
+                        // (what failed was the bus looked at before: this one is shown and
+                        // prepared afresh)
+                        s.failed = None;
+                        s.placed_look = None;
                     }
-                    if kin.ctc.is_some() && kin.ctc != own {
+                    if kin.ctc.as_deref().is_some_and(|k| own.as_deref().is_none_or(|o| !super::export::same_folder(k, o))) {
                         let mut on = s.project.family.contains(&kin.bus);
                         if ui.toggle(&format!("livery-kin-save-{}", kin.bus), Rect::new(r.right() - 36.0, r.y + 2.0, 36.0, 30.0), &mut on, "") {
                             if on {
@@ -1266,66 +1301,84 @@ fn layer_props(ui: &mut Ui, s: &mut Session, i: usize, r: Rect, shape_tex: &std:
     if layer.kind.colour().is_some() {
         y = section(ui, x, y, w, "Colour");
         let has_outline = layer.kind.outline_mut().is_some();
+        // (the brush's strokes have no gradient)
+        let has_gradient = layer.kind.gradient_mut().is_some();
         let mut opts: Vec<&str> = vec!["Colour"];
         if has_outline {
             opts.push("Outline");
         }
-        opts.push("Gradient");
-        let mut k = match s.picker.target {
-            PickFor::Outline if has_outline => 1,
-            PickFor::GradientEnd => opts.len() - 1,
-            _ => 0,
-        };
-        if ui.segmented("livery-colour-for", Rect::new(x, y, w, 30.0), &mut k, &opts) {
-            s.picker.target = if k == 0 { PickFor::Main } else if has_outline && k == 1 { PickFor::Outline } else { PickFor::GradientEnd };
+        if has_gradient {
+            opts.push("Gradient");
         }
-        y += 40.0;
-        let target = match s.picker.target {
-            PickFor::Quick(_) => PickFor::Main,
-            t => t,
+        // what the picker coloured for the layer chosen before may be what this one has not:
+        // then its own colour
+        let mut target = match s.picker.target {
+            PickFor::Outline if has_outline => PickFor::Outline,
+            PickFor::GradientEnd if has_gradient => PickFor::GradientEnd,
+            _ => PickFor::Main,
         };
+        if opts.len() > 1 {
+            let mut k = match target {
+                PickFor::Outline => 1,
+                PickFor::GradientEnd => opts.len() - 1,
+                _ => 0,
+            };
+            if ui.segmented("livery-colour-for", Rect::new(x, y, w, 30.0), &mut k, &opts) {
+                target = if k == 0 { PickFor::Main } else if has_outline && k == 1 { PickFor::Outline } else { PickFor::GradientEnd };
+                s.picker.target = target;
+            }
+            y += 40.0;
+        }
         match target {
             PickFor::Outline => {
-                let o = layer.kind.outline_mut().unwrap();
-                let mut on = o.is_some();
-                if ui.toggle("livery-outline-on", Rect::new(x, y, w, 30.0), &mut on, "Outline") && !locked {
-                    *o = on.then(|| model::Outline { colour: "#ffffff".into(), width_cm: 2.0 });
-                }
-                y += 36.0;
-                if let Some(ol) = o.as_mut() {
-                    ui.slider("livery-outline-width", Rect::new(x, y, w, 30.0), &mut ol.width_cm, 0.2, 10.0, 0.1, "Width", &|v| format!("{v:.1} cm"));
-                    y += 38.0;
-                    let mut c = model::parse_hex(&ol.colour).unwrap_or([255, 255, 255]);
-                    let (changed, h) = picker(ui, "livery-outline-picker", Rect::new(x, y, w, 0.0), &mut s.picker, &mut c, &recent);
-                    if changed && !locked {
-                        ol.colour = model::hex(c);
+                if let Some(o) = layer.kind.outline_mut() {
+                    let mut on = o.is_some();
+                    if ui.toggle("livery-outline-on", Rect::new(x, y, w, 30.0), &mut on, "Outline") && !locked {
+                        *o = on.then(|| model::Outline { colour: "#ffffff".into(), width_cm: 2.0 });
                     }
-                    y += h;
+                    y += 36.0;
+                    if let Some(ol) = o.as_mut() {
+                        let mut width = ol.width_cm;
+                        if ui.slider("livery-outline-width", Rect::new(x, y, w, 30.0), &mut width, 0.2, 10.0, 0.1, "Width", &|v| format!("{v:.1} cm")) && !locked {
+                            ol.width_cm = width;
+                        }
+                        y += 38.0;
+                        let mut c = model::parse_hex(&ol.colour).unwrap_or([255, 255, 255]);
+                        let (changed, h) = picker(ui, "livery-outline-picker", Rect::new(x, y, w, 0.0), &mut s.picker, &mut c, &recent);
+                        if changed && !locked {
+                            ol.colour = model::hex(c);
+                        }
+                        y += h;
+                    }
                 }
             }
             PickFor::GradientEnd => {
-                let g = layer.kind.gradient_mut().unwrap();
-                let mut on = g.is_some();
-                if ui.toggle("livery-gradient-on", Rect::new(x, y, w, 30.0), &mut on, "Gradient") && !locked {
-                    *g = on.then(|| model::Gradient { kind: model::GradientKind::Linear, colour2: "#ffffff".into(), angle: 0.0 });
-                }
-                y += 36.0;
-                if let Some(gr) = g.as_mut() {
-                    let mut k = if gr.kind == model::GradientKind::Radial { 1 } else { 0 };
-                    if ui.segmented("livery-gradient-kind", Rect::new(x, y, w, 30.0), &mut k, &["Linear", "Radial"]) {
-                        gr.kind = if k == 1 { model::GradientKind::Radial } else { model::GradientKind::Linear };
+                if let Some(g) = layer.kind.gradient_mut() {
+                    let mut on = g.is_some();
+                    if ui.toggle("livery-gradient-on", Rect::new(x, y, w, 30.0), &mut on, "Gradient") && !locked {
+                        *g = on.then(|| model::Gradient { kind: model::GradientKind::Linear, colour2: "#ffffff".into(), angle: 0.0 });
                     }
-                    y += 38.0;
-                    if gr.kind == model::GradientKind::Linear {
-                        ui.slider("livery-gradient-angle", Rect::new(x, y, w, 30.0), &mut gr.angle, -180.0, 180.0, 5.0, "Direction", &|v| format!("{v:.0}°"));
+                    y += 36.0;
+                    if let Some(gr) = g.as_mut() {
+                        let mut k = if gr.kind == model::GradientKind::Radial { 1 } else { 0 };
+                        if ui.segmented("livery-gradient-kind", Rect::new(x, y, w, 30.0), &mut k, &["Linear", "Radial"]) && !locked {
+                            gr.kind = if k == 1 { model::GradientKind::Radial } else { model::GradientKind::Linear };
+                        }
                         y += 38.0;
+                        if gr.kind == model::GradientKind::Linear {
+                            let mut angle = gr.angle;
+                            if ui.slider("livery-gradient-angle", Rect::new(x, y, w, 30.0), &mut angle, -180.0, 180.0, 5.0, "Direction", &|v| format!("{v:.0}°")) && !locked {
+                                gr.angle = angle;
+                            }
+                            y += 38.0;
+                        }
+                        let mut c = model::parse_hex(&gr.colour2).unwrap_or([255, 255, 255]);
+                        let (changed, h) = picker(ui, "livery-gradient-picker", Rect::new(x, y, w, 0.0), &mut s.picker, &mut c, &recent);
+                        if changed && !locked {
+                            gr.colour2 = model::hex(c);
+                        }
+                        y += h;
                     }
-                    let mut c = model::parse_hex(&gr.colour2).unwrap_or([255, 255, 255]);
-                    let (changed, h) = picker(ui, "livery-gradient-picker", Rect::new(x, y, w, 0.0), &mut s.picker, &mut c, &recent);
-                    if changed && !locked {
-                        gr.colour2 = model::hex(c);
-                    }
-                    y += h;
                 }
             }
             _ => {
@@ -2191,13 +2244,15 @@ fn set_picked(s: &mut Session, c: [u8; 3]) {
         if l.locked {
             return;
         }
+        // (as the panel: a layer without an outline or a gradient takes it as its colour)
+        let (has_outline, has_gradient) = (l.kind.outline_mut().is_some(), l.kind.gradient_mut().is_some());
         match s.picker.target {
-            PickFor::Outline => {
+            PickFor::Outline if has_outline => {
                 if let Some(Some(o)) = l.kind.outline_mut() {
                     o.colour = model::hex(c);
                 }
             }
-            PickFor::GradientEnd => {
+            PickFor::GradientEnd if has_gradient => {
                 if let Some(Some(g)) = l.kind.gradient_mut() {
                     g.colour2 = model::hex(c);
                 }

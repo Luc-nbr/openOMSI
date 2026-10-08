@@ -344,12 +344,19 @@ impl Server {
             }
         })?;
         if find_addresses && addr.ip().is_unspecified() {
-            let sh = shared.clone();
+            let (sh, st) = (shared.clone(), stop.clone());
             let port = addr.port();
             let _ = std::thread::Builder::new().name("companion addresses".into()).spawn(move || {
                 let list = lan_urls(port);
+                // (a server stopped meanwhile - another port asked for - leaves the addresses to
+                // the one after it, which looks up its own)
+                let mut i = sh.lock();
+                if st.load(Ordering::Relaxed) {
+                    return;
+                }
                 log::info!("companion: a phone or tablet on this network opens {}", list.first().map(String::as_str).unwrap_or("(no network address found)"));
-                sh.lock().addresses = list;
+                i.addresses = list;
+                drop(i);
                 sh.news.notify_all();
             });
         }

@@ -630,6 +630,17 @@ impl Navigator {
         // trip's lanes are what it goes back onto; a free drive's destination ends when a duty
         // begins, a diversion with its trip)
         if self.pins.diverts(key) {
+            // (the navigation map came meanwhile and took the route with it: the trip's again,
+            // until a way through the pins is found on the new network - kept when none is)
+            if self.route.lanes.is_empty() && !lanes.is_empty() {
+                self.route.provisional = false;
+                self.route.lanes = lanes.clone();
+                self.route.end = None;
+                self.route.progress = 0;
+                self.route.on_route = false;
+                self.route.off_for = 0.0;
+                self.route.version += 1;
+            }
             if self.pins.rest.is_empty() && !lanes.is_empty() {
                 self.pins.rest = lanes;
                 self.pins.dirty = true;
@@ -2060,8 +2071,12 @@ impl Navigator {
         if fill {
             fit.height = room.round();
         }
-        // (a page that is taller than the window scrolls: the wheel over it)
-        self.city.phone.scroll = self.city.phone.scroll.clamp(0.0, signon::panel_scroll_max(&fit)).round();
+        // (a page that is taller than the window scrolls: the wheel over it - held to this
+        // page's range only while it is the one on the screen; the city map's page scrolls by
+        // the same, further, and is kept in its own range where it is drawn)
+        if !self.city.open {
+            self.city.phone.scroll = self.city.phone.scroll.clamp(0.0, signon::panel_scroll_max(&fit)).round();
+        }
         let hits = signon::panel_hits(&fit, self.city.phone.scroll);
         PanelPage { fit, hits, stage: st.stage }
     }
@@ -4431,6 +4446,25 @@ mod tests {
         assert!(!n.keypad_shown());
     }
 
+    /// The small navigator's page is laid out every frame, the city map open or not: while the
+    /// map is open its page is the one scrolled, further than the small one's goes, and the
+    /// small one leaves that alone; shut, the small one keeps it in its own range again.
+    #[test]
+    fn the_small_page_leaves_the_city_maps_scroll_alone() {
+        let mut n = Navigator::new(true, 0.85, "bottom-left");
+        let st = crate::companion::CompanionState { personnel_number: "482913".into(), personnel_code: "5821".into(), ..Default::default() };
+        n.qr = (qr_key(&st), 0.0, None);
+        n.toggle_map();
+        n.city.phone.scroll = 300.0;
+        // (a tall window: the small page has nothing to scroll)
+        let page = n.panel_page(&st, None, 0.0, 360.0, 1.0, 2000.0, false);
+        assert_eq!(crate::nav_signon::panel_scroll_max(&page.fit), 0.0);
+        assert_eq!(n.city.phone.scroll, 300.0, "the city map's page keeps its scroll");
+        n.toggle_map();
+        n.panel_page(&st, None, 0.0, 360.0, 1.0, 2000.0, false);
+        assert_eq!(n.city.phone.scroll, 0.0);
+    }
+
     /// Ctrl + the wheel over the small navigator or the city map sizes the navigator by the
     /// setting's steps (a touchpad's parts of a notch add up), within its range, as do the
     /// city map's - and +; the size is handed over once to be kept. Without Ctrl the wheel
@@ -4953,6 +4987,36 @@ mod tests {
         assert!(n.pins.diverts("1/next"));
         n.clear_route();
         assert!(n.pins.list.is_empty() && n.route.lanes.is_empty());
+    }
+
+    /// The navigation map coming during a diversion takes the route with it: the timetable's
+    /// route given again is the trip's route meanwhile (kept when no way leads through the
+    /// pins on the new network), and the way through them follows.
+    #[test]
+    fn a_diversion_has_the_trips_route_when_the_map_comes() {
+        let mut n = Navigator::new(true, 0.85, "bottom-left");
+        let net = on_grid(&mut n, 3);
+        let route: Vec<usize> = (0..3).map(|j| find(&net, (1.5, j as f64 * 200.0), (1.5, (j + 1) as f64 * 200.0))).collect();
+        let g = n.global_version + (1 << 40);
+        n.set_route("0/trip", route.clone(), true, g);
+        let f = at((1.5, 50.0), 0.0);
+        n.follow(&f);
+        n.pins.ops.push(Op::Add(DVec2::new(201.5, 300.0)));
+        n.follow(&f);
+        assert!(n.pins.diverts("0/trip"));
+        // (as `frame` does when the map's network is there)
+        n.route = Route { version: n.route.version + 1, ..Route::default() };
+        n.pins.rest.clear();
+        n.pins.marks.clear();
+        n.pins.join = None;
+        n.pins.dirty = true;
+        assert!(n.wants_route("0/trip", 0));
+        n.set_route("0/trip", route.clone(), true, g);
+        assert_eq!(n.route.lanes, route, "the trip's route meanwhile");
+        assert_eq!(n.pins.rest, route);
+        assert!(n.pins.diverts("0/trip"));
+        n.follow(&f);
+        assert!(n.pins.join.is_some() && n.route.lanes != route, "through the via again");
     }
 
     /// The city map's pin tool: a click sets a pin (a drag of the map, a click on the header

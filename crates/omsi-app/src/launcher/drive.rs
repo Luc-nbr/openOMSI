@@ -153,7 +153,8 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     // the stage: the bus on its turntable, or the map (drawn first: what lies on it - the
     // panels, the roadbook button - takes the mouse before it)
     if tab == 2 {
-        l.mapview.want(map_look(l));
+        // (a free drive's map rings its own entry, as the setup world's does)
+        l.mapview.want(if l.state.choice.free { super::freedrive::map_look(l) } else { map_look(l) });
         l.map_background(lay.view);
     } else {
         l.preview_full(lay.view, lay.view);
@@ -181,11 +182,16 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         // (the names and times the map's pixels cannot say, kept off the legend and the
         // roadbook's button, and inside the map)
         let avoid: Vec<Rect> = [legend_r, handle].into_iter().flatten().collect();
-        map_labels(l, lay.clear, &avoid);
+        if l.state.choice.free {
+            super::freedrive::map_marks(l, lay.clear, &avoid);
+        } else {
+            map_labels(l, lay.clear, &avoid);
+        }
     }
     foot(l, lay.foot, tab);
     if tab == 2 {
-        l.map_interact(lay.view, lay.clear);
+        // (an entry point clicked on the map in a free drive is its start from then on)
+        super::freedrive::map_interact(l, lay.view, lay.clear);
     } else {
         l.showroom_pointer(lay.view);
     }
@@ -643,13 +649,19 @@ pub(super) fn entry_select(l: &mut Launcher, body: Rect, y: f32, free: bool) {
     let Some(m) = l.state.map().cloned() else { return };
     let mut labels = vec![if free { "Automatic (the map's first)".to_string() } else { "Automatic (nearest to the first stop)".to_string() }];
     labels.extend(m.entry_points.iter().map(|e| if e.name.is_empty() { entry_name(e.index) } else { e.name.clone() }));
-    // (the choice is the entry's place in the list; 0 = automatic here)
-    let mut es = if l.state.choice.entry < 0 { 0 } else { (l.state.choice.entry as usize + 1).min(labels.len() - 1) };
+    // (the choice is the entry's place in the list; 0 = automatic here. A free drive's is its
+    // own, `free_entry`: the game starts it there, not at the duty's entry)
+    let chosen = if free { super::freedrive::start_entry(&l.state.choice) } else { l.state.choice.entry };
+    let mut es = if chosen < 0 { 0 } else { (chosen as usize + 1).min(labels.len() - 1) };
     l.ui.p().rect(Rect::new(body.x, y - 14.0, body.w, 1.0), EDGE);
     l.ui.label(Rect::new(body.x, y, 70.0, ROW), "Start at");
     if l.ui.select("entry", Rect::new(body.x + 70.0, y, body.w - 70.0, ROW), &mut es, &labels) {
-        l.state.choice.entry = es as i32 - 1;
-        l.state.touched();
+        if free {
+            super::freedrive::entry_chosen(l, es as i32 - 1);
+        } else {
+            l.state.choice.entry = es as i32 - 1;
+            l.state.touched();
+        }
     }
     l.ui.tooltip(Rect::new(body.x, y, 70.0, ROW), "Where the bus is put down. The light dots on the map are the same places: click one to take it.");
 }
@@ -841,7 +853,9 @@ pub(super) fn duty_of(l: &Launcher) -> (String, String) {
 
 /// Where the bus is put down.
 pub(super) fn duty_place(l: &Launcher) -> String {
-    match l.state.choice.entry {
+    // (a free drive starts at its own entry, as `State::duty` sends it)
+    let entry = if l.state.choice.free { super::freedrive::start_entry(&l.state.choice) } else { l.state.choice.entry };
+    match entry {
         e if e < 0 => omsi_ui::tr("starting point: automatic").into_owned(),
         e => l
             .state
@@ -1331,8 +1345,10 @@ pub(super) fn step_time(l: &mut Launcher, r: Rect) {
     l.ui.label(Rect::new(r.x, y, col, 20.0), "Time");
     l.ui.label(Rect::new(r.x + col + 12.0, y, col, 20.0), "Date");
     y += 22.0;
+    // (only a time the player changed: a night trip's start past midnight, 24:15, is shown as
+    // 00:15, and taken at once that dropped the trip or shift chosen)
     let mut t = l.state.choice.time;
-    if l.ui.time_field("time", Rect::new(r.x, y, col, 44.0), &mut t) {
+    if l.ui.time_field("time", Rect::new(r.x, y, col, 44.0), &mut t) && t != l.state.choice.time.rem_euclid(1440) {
         l.state.choice.time = t;
         l.state.touched();
     }

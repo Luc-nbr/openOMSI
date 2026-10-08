@@ -27,6 +27,7 @@ use omsi_launcher_lib::owndepot::{self, Doc, Entry, Issue, Place};
 use omsi_ui::paint::Align;
 use omsi_ui::{tr, Color, Rect, Weight};
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 const TABS: [&str; 5] = ["Destinations", "IBIS stops", "Routes", "Special trips", "File"];
 /// The height of a row of the tables.
@@ -42,6 +43,9 @@ struct Open {
     dirty: bool,
     /// Bumped on every change (the problems are worked out again).
     rev: u64,
+    /// When the file was written as it is open (the line editor writes it too: it keeps a
+    /// line's destinations in it).
+    stamp: Option<SystemTime>,
 }
 
 /// What a new file starts from.
@@ -130,14 +134,40 @@ impl DepotEditorView {
             }
             return Err(tr("%{name} has changes that are not saved: save it first").replace("%{name}", &o.doc.hof.name));
         }
+        let stamp = written_at(path);
         let l = owndepot::load(path)?;
         let key = path.file_stem().unwrap_or_default().to_string_lossy().into_owned();
-        self.open = Some(Open { key, path: path.to_path_buf(), doc: l.doc, coding: l.coding, blocks: l.blocks, dirty: false, rev: 0 });
+        self.open = Some(Open { key, path: path.to_path_buf(), doc: l.doc, coding: l.coding, blocks: l.blocks, dirty: false, rev: 0, stamp });
         (self.sel, self.sel_stop, self.sel_trip, self.delete_armed) = (0, 0, 0, false);
         self.code_text = (usize::MAX, String::new());
         self.layout = Layout::default();
         Ok(())
     }
+
+    /// The file open read again when something else wrote it since (the line editor keeps a
+    /// line's destinations in it), so that its Save does not write the old one over that - the
+    /// place in the tabs kept. Not over changes not saved yet: returns true when those would
+    /// be written over it.
+    fn reread(&mut self) -> bool {
+        let Some(o) = self.open.as_mut() else { return false };
+        let now = written_at(&o.path);
+        if now.is_none() || now == o.stamp {
+            return false;
+        }
+        if o.dirty {
+            return true;
+        }
+        let Ok(l) = owndepot::load(&o.path) else { return false };
+        (o.doc, o.coding, o.blocks, o.stamp) = (l.doc, l.coding, l.blocks, now);
+        o.rev += 1;
+        self.code_text = (usize::MAX, String::new());
+        false
+    }
+}
+
+/// When the file at `path` was last written (None: it cannot be told).
+fn written_at(path: &Path) -> Option<SystemTime> {
+    std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
 fn map_folder(file: &str) -> String {
@@ -157,6 +187,13 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         let v = &mut l.pages.depots;
         v.entries = owndepot::list(&owndepot::dir());
         v.read = true;
+        // the file open as it is now (the line editor may have written it meanwhile)
+        if v.reread() {
+            let name = v.open.as_ref().map(|o| o.doc.hof.name.clone()).unwrap_or_default();
+            crate::mt::protect([name.as_str()]);
+            l.state.set_status(tr("%{name} was changed elsewhere since you opened it: saving writes your changes over that").replace("%{name}", &name), true);
+        }
+        let v = &mut l.pages.depots;
         // the file asked for, else (nothing open yet) the first
         let want = v.want.take().and_then(|key| owndepot::path_of(&owndepot::dir(), &key)).or_else(|| v.open.is_none().then(|| v.entries.first().map(|e| e.path.clone())).flatten());
         if let Some(p) = want {
@@ -263,7 +300,10 @@ fn new_form(l: &mut Launcher, r: Rect) {
     if l.pages.depots.form.as_ref().is_some_and(|f| f.sources_for != m) {
         let s = sources(l, m);
         if let Some(f) = l.pages.depots.form.as_mut() {
-            f.from = f.from.min(s.len().saturating_sub(1));
+            // (the source chosen kept by what it is, not by its place: another map may lack
+            // the map's own; else the map's, else an empty one)
+            let had = f.sources.get(f.from).map(|x| x.1.clone());
+            f.from = had.and_then(|h| s.iter().position(|x| x.1 == h)).or_else(|| s.iter().position(|x| x.1 == Source::Map)).unwrap_or(0);
             f.sources = s;
             f.sources_for = m;
         }
@@ -371,6 +411,7 @@ fn save(l: &mut Launcher) {
     match owndepot::save(&o.path, &o.doc, o.coding) {
         Ok(bytes) => {
             o.dirty = false;
+            o.stamp = written_at(&o.path);
             let file = o.path.file_name().unwrap_or_default().to_string_lossy().into_owned();
             let n = core::content_dir().map(|c| owndepot::refresh(&c, &file, &bytes)).unwrap_or(0);
             // (the bus step's tiles read the files again)
@@ -703,6 +744,10 @@ fn destination_detail(l: &mut Launcher, r: Rect) {
             let big = Rect::new(x, y, w, 46.0);
             ui.p().rounded(big, 6.0, Color::rgba(10, 9, 8, 1.0));
             match on_bus.as_ref() {
+                Some(p) if p.failed => {
+                    ui.text_in("The bus's displays could not be read.", big, 11.5, Weight::Regular, TEXT_FAINT, Align::Center);
+                    y += 50.0;
+                }
                 Some(p) if p.none => {
                     ui.text_in("It draws its displays as pictures of its own: no preview in a font", big, 11.5, Weight::Regular, TEXT_FAINT, Align::Center);
                     y += 50.0;
@@ -747,12 +792,17 @@ fn destination_detail(l: &mut Launcher, r: Rect) {
             changed = true;
         }
         y += 32.0;
-        let code = t.code;
-        let mut special = doc.specials.contains(&code) || doc.hof.termini[i].all_exit;
-        if ui.toggle(&format!("de-special-{i}"), Rect::new(x, y, w, 28.0), &mut special, "Offered for any bus: a special trip") {
-            act = Some(if special { "special-on" } else { "special-off" });
+        // (a trip where nobody boards is a service trip, offered for any bus as it is: no
+        // switch that could not be switched off)
+        if !doc.hof.termini[i].all_exit {
+            let code = doc.hof.termini[i].code;
+            let mut special = doc.specials.contains(&code);
+            if ui.toggle(&format!("de-special-{i}"), Rect::new(x, y, w, 28.0), &mut special, "Offered for any bus: a special trip") {
+                act = Some(if special { "special-on" } else { "special-off" });
+            }
+            y += 32.0;
         }
-        y += 38.0;
+        y += 6.0;
         // its texts, one for each string of the file
         head(ui, "Texts", Rect::new(x, y, w, 16.0));
         y += 20.0;
@@ -809,7 +859,13 @@ fn destination_detail(l: &mut Launcher, r: Rect) {
     }
     if changed {
         if let Some(o) = v.open.as_mut() {
+            // (the name as it is being typed: a space at its end is before the next word -
+            // trimmed when the file is saved)
+            let typed = act.is_none().then(|| o.doc.hof.termini.get(i).map(|t| t.texture_id.clone())).flatten();
             o.doc.tidy();
+            if let (Some(name), Some(t)) = (typed, o.doc.hof.termini.get_mut(i)) {
+                t.texture_id = name;
+            }
         }
         v.code_text.0 = usize::MAX;
         if act.is_none() {
@@ -1249,6 +1305,8 @@ mod tests {
             "Add the usual ones",
             "From your lines",
             "%{map} · %{n} destinations",
+            "%{name} was changed elsewhere since you opened it: saving writes your changes over that",
+            "The bus's displays could not be read.",
         ]);
         let issues = {
             let mut d = Doc::blank("", "");

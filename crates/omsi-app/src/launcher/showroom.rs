@@ -137,9 +137,20 @@ const PHOTO_PITCH: f32 = 11.0;
 const PHOTO_ZOOM: f32 = 0.8;
 const PHOTO_AIM: f32 = 0.16;
 
-/// Names the bus whose preview is being read and placed, until it is in the picture.
-fn placing_mark() -> PathBuf {
-    omsi_launcher_lib::data_dir().join("showroom-placing.txt")
+/// Names the bus whose preview is being read and placed, until it is in the picture. The studio
+/// keeps a mark of its own (sharing one, a bus it was still photographing when it was chosen was
+/// taken for one that had hung, and the studio took away the mark of the bus being shown).
+fn placing_mark(studio: bool) -> PathBuf {
+    omsi_launcher_lib::data_dir().join(if studio { "studio-placing.txt" } else { "showroom-placing.txt" })
+}
+
+/// Whether a placing mark (the file's text) says that placing `bus` hung a launcher: it names
+/// the bus, and not this launcher, whose process is `pid` (its other showroom - the livery
+/// studio's - may be placing the same bus now; a launcher that hung is not here to read it).
+/// A mark of before the process was written in it names the bus alone.
+fn hung(mark: &str, bus: &str, pid: u32) -> bool {
+    let mut lines = mark.lines();
+    lines.next().is_some_and(|b| b.trim() == bus.trim()) && lines.next().is_none_or(|p| p.trim() != pid.to_string())
 }
 
 fn args_for(look: &Look) -> Args {
@@ -167,7 +178,7 @@ fn args_for(look: &Look) -> Args {
 // (a launcher closed while a preview loads did not hang: the mark goes with it)
 impl Drop for Showroom {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(placing_mark());
+        let _ = std::fs::remove_file(placing_mark(self.studio));
     }
 }
 
@@ -409,7 +420,7 @@ impl Showroom {
                     swapped = true;
                 }
                 Ok(Err(e)) => {
-                    let _ = std::fs::remove_file(placing_mark());
+                    let _ = std::fs::remove_file(placing_mark(self.studio));
                     log::warn!("showroom {}: {e}", look.bus);
                     self.error = Some(e);
                     // (the bus before stayed in the picture as if it were the one chosen, and
@@ -420,7 +431,7 @@ impl Showroom {
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
                 Err(_) => {
-                    let _ = std::fs::remove_file(placing_mark());
+                    let _ = std::fs::remove_file(placing_mark(self.studio));
                     self.failed = Some(look.clone());
                     self.loading = None;
                 }
@@ -520,9 +531,9 @@ impl Showroom {
         // at every start, whatever version (#1478, #1635).
         // (`showroom-skip.txt` keeps such buses, a line each; delete it to try them again)
         let skip = omsi_launcher_lib::data_dir().join("showroom-skip.txt");
-        if std::fs::read_to_string(placing_mark()).is_ok_and(|b| b.trim() == look.bus.trim()) {
+        if std::fs::read_to_string(placing_mark(self.studio)).is_ok_and(|m| hung(&m, &look.bus, std::process::id())) {
             log::warn!("showroom: the preview of {} hung the launcher when it was last tried; it is left out from now on ({})", look.bus, skip.display());
-            let _ = std::fs::remove_file(placing_mark());
+            let _ = std::fs::remove_file(placing_mark(self.studio));
             let mut list = std::fs::read_to_string(&skip).unwrap_or_default();
             list.push_str(look.bus.trim());
             list.push('\n');
@@ -533,7 +544,7 @@ impl Showroom {
             self.failed = Some(look);
             return;
         }
-        let _ = std::fs::write(placing_mark(), &look.bus);
+        let _ = std::fs::write(placing_mark(self.studio), format!("{}\n{}\n", look.bus.trim(), std::process::id()));
         let args = args_for(&look);
         let root = look.root.clone();
         let map_cfg = omsi_cfg::resolve_path(&root, &look.map);
@@ -545,7 +556,7 @@ impl Showroom {
                 Arc::new(w)
             }
             Err(e) => {
-                let _ = std::fs::remove_file(placing_mark());
+                let _ = std::fs::remove_file(placing_mark(self.studio));
                 self.error = Some(format!("{e:#}"));
                 self.wanted = None;
                 return;
@@ -610,7 +621,7 @@ impl Showroom {
         }
         let lighting = lighting_for(&args, &weather);
         log::info!("showroom: {} ({} meshes, {:.1} m long) placed in {:.2} s", r.look.bus, render.instances.len(), length, t0.elapsed().as_secs_f64());
-        let _ = std::fs::remove_file(placing_mark());
+        let _ = std::fs::remove_file(placing_mark(self.studio));
         Shown { look: r.look, scene, world: Some(world), vehicle: Some(vehicle), scheme: r.scheme, options: r.options, letters: self.letters.clone(), render: Some(render), trailers, vt: Some(r.vt.clone()), centre, length, bus, weather, lighting }
     }
 
@@ -1204,5 +1215,15 @@ mod tests {
         let target = DVec3::new(0.0, (-1.0 + PHOTO_AIM * length) as f64, 1.5 * 0.75);
         let pos = target - DVec3::new((sy * cp) as f64, (cy * cp) as f64, -sp as f64) * dist as f64;
         assert!((cam.position - pos).length() < 1e-4 && cam.yaw == PHOTO_YAW && cam.pitch == -PHOTO_PITCH && cam.fov_deg == 30.0);
+    }
+
+    #[test]
+    fn a_bus_hung_a_launcher_only_when_another_one_was_placing_it() {
+        let bus = "Vehicles\\MAN_SD200\\SD200.bus";
+        assert!(hung(&format!("{bus}\n41\n"), bus, 42), "a launcher before this one");
+        assert!(hung(bus, bus, 42), "a mark of before the process was in it");
+        assert!(!hung(&format!("{bus}\n42\n"), bus, 42), "this launcher's other showroom, placing it now");
+        assert!(!hung("Vehicles\\MAN_NL202\\NL202.bus\n41\n", bus, 42), "another bus");
+        assert!(!hung("", bus, 42));
     }
 }

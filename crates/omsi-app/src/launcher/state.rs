@@ -737,9 +737,10 @@ impl State {
             .then(|| self.joined_server.clone().unwrap_or_else(|| c.lan_addr.clone()))
             .and_then(|k| self.server_info.get(&k).and_then(|x| x.1.as_ref().ok()).map(|i| i.map.trim().replace('\\', "/")))
             .filter(|m| m.to_ascii_lowercase().contains("maps/"));
-        // a composed duty: its parts; none chosen (or one that no longer holds) is a free drive
+        // a composed duty: its parts; none chosen (or one that no longer holds) is a free drive,
+        // as is a tour of no line (the launch button says "Drive" for both)
         let legs = self.composed_legs().map(|l| l.to_vec());
-        let free = c.free || (c.composed && legs.is_none());
+        let free = c.free || (c.composed && legs.is_none()) || (!c.composed && c.line.is_none());
         // a free drive along a line the player chose: its line and route, the bus at the
         // entry point nearest to the route's first stop
         let free_route = super::freedrive::free_route(c);
@@ -1033,6 +1034,9 @@ impl State {
                 }
                 self.loading_lines = false;
                 self.own_lines = own;
+                // (the shifts are made again of the lines read now: those made meanwhile of the
+                // date before were kept under the new date, the lines being as many)
+                self.composed_for = None;
                 match lines {
                     Ok(l) => {
                         self.lines = l;

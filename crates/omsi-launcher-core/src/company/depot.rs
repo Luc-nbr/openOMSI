@@ -395,26 +395,43 @@ fn held(c: &Company) -> usize {
     c.fleet.iter().filter(|v| v.held_on(&c.date)).count()
 }
 
-/// Whether there is room for another bus: the yard's spaces and a few rented ones in the
-/// street (the market asks before a bus is bought, leased or rented).
+/// The places the depot has for buses: the yard's spaces and those of the halls the
+/// company's levels open (`levels::extra_places`).
+pub fn places(c: &Company) -> usize {
+    c.site.spaces() + super::levels::extra_places(c) as usize
+}
+
+/// The buses ordered from the dealers that come by `until` (None: all of them).
+fn ordered(c: &Company, until: Option<&str>) -> usize {
+    c.dealer.orders.iter().filter(|o| until.is_none_or(|u| dates::between(&super::dealer::day_of(&o.delivery), u) >= 0)).map(|o| o.contract.count as usize).sum()
+}
+
+/// Whether there is room for another bus: the depot's places and a few rented ones in the
+/// street (the market asks before a bus is bought, leased or rented), the buses ordered from
+/// the dealers counted as `dealer::room_for` counts them.
 pub fn room(c: &Company) -> Result<(), &'static str> {
-    // (the halls the company's levels open add places: `levels::extra_places`)
-    if held(c) >= c.site.spaces() + super::levels::extra_places(c) as usize + OUTSIDE_MAX {
+    room_until(c, None)
+}
+
+/// `room` for a bus the company has until `until` (a rental; None: one it keeps): only the
+/// buses ordered that come before it goes back take its place.
+pub fn room_until(c: &Company, until: Option<&str>) -> Result<(), &'static str> {
+    if held(c) + ordered(c, until) >= places(c) + OUTSIDE_MAX {
         return Err("The depot has no room for another bus: build more parking spaces.");
     }
     Ok(())
 }
 
-/// Buses that stand outside the yard tonight (over its spaces).
+/// Buses that stand outside the yard tonight (over its places).
 pub fn outside(c: &Company) -> usize {
     outside_on(c, &c.date)
 }
 
 /// Buses that stand outside the yard on `day`: those held and not in the workshop (a bus in
-/// a bay needs no space) over the yard's spaces.
+/// a bay needs no space) over the depot's places, the halls' too.
 pub fn outside_on(c: &Company, day: &str) -> usize {
     let parked = c.fleet.iter().filter(|v| v.held_on(day) && !v.in_workshop(day)).count();
-    parked.saturating_sub(c.site.spaces())
+    parked.saturating_sub(places(c))
 }
 
 /// What a job on a bus costs now.
@@ -435,7 +452,8 @@ pub fn job_cost(c: &Company, vehicle: u32, kind: JobKind) -> Cents {
     ((euros * c.price_index).round() as Cents) * 100
 }
 
-/// Order a job for a bus: it starts tomorrow when a bay is free, else when one is.
+/// Order a job for a bus: it starts tomorrow when a bay is free, else when one is. The night
+/// starts it (`after_day`): until then the bus runs its tours and the job can be taken back.
 pub fn order(c: &mut Company, vehicle: u32, kind: JobKind) -> Result<u32, &'static str> {
     let Some(v) = c.vehicle(vehicle) else { return Err("This bus is not in the fleet.") };
     if !v.held_on(&c.date) {
@@ -451,8 +469,6 @@ pub fn order(c: &mut Company, vehicle: u32, kind: JobKind) -> Result<u32, &'stat
     c.site.job_counter += 1;
     let id = c.site.job_counter;
     c.site.jobs.push(Job { id, vehicle, kind, ordered: c.date.clone(), started: None, until: None, cost, livery: None });
-    let tomorrow = dates::add(&c.date, 1);
-    start_jobs(c, &tomorrow);
     Ok(id)
 }
 
@@ -472,8 +488,6 @@ pub fn order_paint(c: &mut Company, vehicle: u32, livery: &str, cost: Cents) -> 
     c.site.job_counter += 1;
     let id = c.site.job_counter;
     c.site.jobs.push(Job { id, vehicle, kind: JobKind::Paint, ordered: c.date.clone(), started: None, until: None, cost, livery: Some(livery.to_string()) });
-    let tomorrow = dates::add(&c.date, 1);
-    start_jobs(c, &tomorrow);
     Ok(id)
 }
 
@@ -495,25 +509,46 @@ pub fn bays_used(c: &Company, day: &str) -> usize {
     c.fleet.iter().filter(|v| v.held_on(day) && v.in_workshop(day)).count()
 }
 
+/// Whether a waiting job starts tomorrow as things stand (the night starts it): a bay is free
+/// for it then, after the jobs ordered before it.
+pub fn starts_tomorrow(c: &Company, id: u32) -> bool {
+    let tomorrow = dates::add(&c.date, 1);
+    let mut free = c.site.bays().saturating_sub(bays_used(c, &tomorrow));
+    for j in c.site.jobs.iter().filter(|j| j.started.is_none()) {
+        let Some(v) = c.vehicle(j.vehicle) else { continue };
+        let there = v.in_workshop(&tomorrow);
+        let starts = if there { j.kind == JobKind::Service } else { free > 0 };
+        if j.id == id {
+            return starts;
+        }
+        if starts && !there {
+            free -= 1;
+        }
+    }
+    false
+}
+
 /// Start the waiting jobs that find a free bay on `day`, in the order they were ordered.
 fn start_jobs(c: &mut Company, day: &str) {
     let mut free = c.site.bays().saturating_sub(bays_used(c, day));
     let waiting: Vec<u32> = c.site.jobs.iter().filter(|j| j.started.is_none()).map(|j| j.id).collect();
     for id in waiting {
-        if free == 0 {
-            break;
-        }
         let Some(j) = c.site.jobs.iter().find(|j| j.id == id).cloned() else { continue };
         let Some(v) = c.fleet.iter_mut().find(|v| v.id == j.vehicle) else {
             c.site.jobs.retain(|x| x.id != id);
             continue;
         };
-        if v.in_workshop(day) {
-            // (in the workshop already, for a breakdown: the job waits for it to be out)
+        // (in the workshop already - a breakdown, the night's own service -: a service is done
+        // while it is there, in the bay it has; any other job waits for it to be out)
+        let there = v.in_workshop(day);
+        if (there && j.kind != JobKind::Service) || (!there && free == 0) {
             continue;
         }
-        let until = dates::add(day, j.kind.days() - 1);
-        v.workshop_until = Some(until.clone());
+        let until = if there { day.to_string() } else { dates::add(day, j.kind.days() - 1) };
+        if !there {
+            v.workshop_until = Some(until.clone());
+            free -= 1;
+        }
         let age = dates::years_between(&v.built, day);
         match j.kind {
             JobKind::Service => {
@@ -537,15 +572,14 @@ fn start_jobs(c: &mut Company, day: &str) {
             x.started = Some(day.to_string());
             x.until = Some(until);
         }
-        // (the dealer's free first service, and repairs under his warranty, cost nothing)
-        let free_of_charge = match j.kind {
-            JobKind::Service => super::dealer::take_free_service(c, j.vehicle),
-            JobKind::Repair => super::dealer::under_warranty(c, j.vehicle, day),
-            _ => false,
-        };
+        // (the dealer's free first service is his: what it is worth comes back; repairs under
+        // his warranty cost nothing)
+        if j.kind == JobKind::Service {
+            super::dealer::credit_free_service(c, j.vehicle);
+        }
+        let free_of_charge = j.kind == JobKind::Repair && super::dealer::under_warranty(c, j.vehicle, day);
         let kind = if j.kind == JobKind::Paint { BookingKind::Livery } else { BookingKind::Repair };
         c.book(kind, if free_of_charge { 0 } else { -j.cost }, text, false);
-        free -= 1;
     }
 }
 
@@ -639,7 +673,9 @@ pub fn after_day(c: &mut Company, date: &str) -> Night {
     let used = bays_used(c, &tomorrow);
     if used > c.site.bays() {
         let mut over = used - c.site.bays();
-        let bays = c.site.bays();
+        // (the bays our own jobs hold are not free for the others)
+        let ours_in = c.fleet.iter().filter(|v| v.held_on(&tomorrow) && v.in_workshop(&tomorrow) && ours.contains(&v.id)).count();
+        let bays = c.site.bays().saturating_sub(ours_in);
         for v in c.fleet.iter_mut().filter(|v| v.held_on(&tomorrow) && v.in_workshop(&tomorrow) && !ours.contains(&v.id)).skip(bays) {
             if over == 0 {
                 break;
@@ -790,6 +826,25 @@ mod tests {
         // more spaces, more room
         c.site.parking = 2;
         assert!(room(&c).is_ok());
+        // the second hall the levels open: six places under a roof, not in the street
+        let mut hall = company(Difficulty::Realistic, 0);
+        hall.progress.xp = super::super::levels::LEVEL_XP[2];
+        for _ in 0..18 {
+            market::buy_new(&mut hall, &bus, Payment::Cash, "").unwrap();
+        }
+        assert_eq!((places(&hall), outside(&hall)), (18, 0));
+        let cash = hall.cash;
+        nights(&mut hall, 1);
+        assert_eq!(cash, hall.cash, "no street parking");
+        // buses ordered from a dealer have their places kept: a bus kept is refused, a rental
+        // that goes back before they come is not
+        let delivery = super::super::dealer::at(&dates::add(&hall.date, 14), 9 * 60);
+        let contract = super::super::dealer::Contract { count: OUTSIDE_MAX as u32, ..Default::default() };
+        hall.dealer.orders.push(super::super::dealer::Order { contract, delivery });
+        assert!(room(&hall).is_err());
+        assert!(market::buy_new(&mut hall, &bus, Payment::Cash, "").is_err());
+        assert!(market::rent(&mut hall, &bus, 2, "").is_ok());
+        assert!(market::rent(&mut hall, &bus, 20, "").is_err());
     }
 
     #[test]
@@ -803,6 +858,11 @@ mod tests {
         let a = order(&mut c, ids[0], JobKind::Repair).unwrap();
         let b = order(&mut c, ids[1], JobKind::Service).unwrap();
         assert_eq!(order(&mut c, ids[1], JobKind::Repair), Err("The workshop has a job for this bus already."));
+        // ordered today: nothing starts before the night, the buses run today's tours
+        assert!(c.site.jobs.iter().all(|j| j.started.is_none()));
+        assert!(!c.vehicle(ids[0]).unwrap().in_workshop(&c.date) && c.vehicle(ids[0]).unwrap().condition == 50.0);
+        assert!(starts_tomorrow(&c, a) && !starts_tomorrow(&c, b));
+        nights(&mut c, 1);
         // one bay: the first starts tomorrow, the second waits and its bus still runs
         let ja = c.site.jobs.iter().find(|j| j.id == a).unwrap().clone();
         assert_eq!(ja.started.as_deref(), Some(tomorrow.as_str()));
@@ -812,7 +872,7 @@ mod tests {
         assert!(c.vehicle(ids[0]).unwrap().condition > 80.0);
         assert!(c.ledger.last().is_some_and(|x| x.kind == BookingKind::Repair && x.amount < 0));
         // the repair takes two days (tomorrow and the day after); then the service gets the bay
-        nights(&mut c, 2);
+        nights(&mut c, 1);
         assert!(c.site.jobs.iter().find(|j| j.id == b).unwrap().started.is_none());
         assert!(c.vehicle(ids[0]).unwrap().in_workshop(&c.date));
         nights(&mut c, 1);
@@ -820,14 +880,68 @@ mod tests {
         assert!(!c.vehicle(ids[0]).unwrap().in_workshop(&c.date));
         let jb = c.site.jobs.iter().find(|j| j.id == b).unwrap();
         assert_eq!(jb.started.as_deref(), Some(c.date.as_str()));
-        // with two bays both start at once
-        let mut two = company(Difficulty::Realistic, 2);
+        // with two bays both start at once; until the night a job can be taken back
+        let mut two = company(Difficulty::Realistic, 3);
         two.site.workshop = 2;
         let v: Vec<u32> = two.fleet.iter().map(|v| v.id).collect();
-        order(&mut two, v[0], JobKind::Service).unwrap();
+        let s = order(&mut two, v[0], JobKind::Service).unwrap();
         order(&mut two, v[1], JobKind::Overhaul).unwrap();
-        assert!(two.site.jobs.iter().all(|j| j.started.is_some()));
-        assert!(cancel(&mut two, 1).is_err());
+        let r = order(&mut two, v[2], JobKind::Repair).unwrap();
+        cancel(&mut two, r).unwrap();
+        nights(&mut two, 1);
+        assert!(two.site.jobs.len() == 2 && two.site.jobs.iter().all(|j| j.started.is_some()));
+        assert_eq!(cancel(&mut two, s), Err("The work has started."));
+    }
+
+    #[test]
+    fn a_service_ordered_for_a_bus_in_the_workshop_anyway_is_done_there() {
+        let mut c = company(Difficulty::Realistic, 1);
+        let id = c.fleet[0].id;
+        c.fleet[0].condition = 60.0;
+        let job = order(&mut c, id, JobKind::Service).unwrap();
+        // (the night's own service, or a breakdown, has it in the workshop tomorrow)
+        let tomorrow = dates::add(&c.date, 1);
+        c.fleet[0].workshop_until = Some(tomorrow.clone());
+        assert!(starts_tomorrow(&c, job));
+        nights(&mut c, 1);
+        assert!(c.fleet[0].condition > 90.0);
+        assert!(c.site.job_of(id).is_some_and(|j| j.started.as_deref() == Some(tomorrow.as_str())));
+        // not a second day in the workshop for it
+        nights(&mut c, 1);
+        assert!(c.site.jobs.is_empty() && !c.fleet[0].in_workshop(&c.date));
+    }
+
+    #[test]
+    fn buses_over_the_bays_wait_when_our_own_jobs_hold_them() {
+        let mut c = company(Difficulty::Realistic, 2);
+        let (a, b) = (c.fleet[0].id, c.fleet[1].id);
+        order(&mut c, a, JobKind::Overhaul).unwrap();
+        nights(&mut c, 1);
+        assert!(c.vehicle(a).unwrap().in_workshop(&c.date));
+        // a breakdown keeps the other bus in tomorrow: the one bay is the overhaul's
+        let tomorrow = dates::add(&c.date, 1);
+        c.fleet.iter_mut().find(|v| v.id == b).unwrap().workshop_until = Some(tomorrow.clone());
+        let date = c.date.clone();
+        c.date = tomorrow.clone();
+        let n = after_day(&mut c, &date);
+        assert_eq!(n.waiting, vec![c.vehicle(b).unwrap().number.clone()]);
+        assert_eq!(c.vehicle(b).unwrap().workshop_until, Some(dates::add(&tomorrow, 1)));
+    }
+
+    #[test]
+    fn the_dealers_free_first_service_is_credited_once() {
+        let mut c = company(Difficulty::Realistic, 2);
+        let (a, b) = (c.fleet[0].id, c.fleet[1].id);
+        c.dealer.free_services.push(a);
+        c.site.workshop = 2;
+        order(&mut c, a, JobKind::Service).unwrap();
+        order(&mut c, b, JobKind::Service).unwrap();
+        let cash = c.cash;
+        nights(&mut c, 1);
+        let worth = super::super::dealer::extra_value(&c, super::super::dealer::Extra::FreeService, 0);
+        assert!(worth > 0);
+        assert_eq!(c.cash - cash, worth, "only the bus that had it");
+        assert!(c.dealer.free_services.is_empty());
     }
 
     #[test]

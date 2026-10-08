@@ -162,11 +162,15 @@ pub fn line_rows(lines: &[LineInfo]) -> Vec<(String, Vec<String>, String)> {
         .collect()
 }
 
-/// The routes of a line, the most driven first (and the service trips last): each trip file
-/// once, with how many buses take it on the day. A route of fewer than two stops goes nowhere and is left out.
-pub fn routes_of(line: &LineInfo) -> Vec<Route> {
+/// The routes of a line, one of the day's `lines`, the most driven first (and the service
+/// trips last): each trip file once, with how many buses take it on the day. A route of fewer
+/// than two stops goes nowhere and is left out.
+pub fn routes_of(line: &LineInfo, lines: &[LineInfo]) -> Vec<Route> {
     let mut out: Vec<Route> = Vec::new();
-    for (_, trip) in trips_of_day(&[line]) {
+    // (every trip is a guess only when no line runs on the day, as for the stops: a line of
+    // its own that does not run that day counted all its trips as the day's)
+    let any_runs = drivable(lines).iter().any(|l| l.tours.iter().any(|t| t.runs));
+    for trip in line.tours.iter().filter(|t| t.runs || !any_runs).flat_map(|t| t.trips.iter()) {
         if trip.stops.len() < 2 {
             continue;
         }
@@ -229,6 +233,45 @@ pub(super) fn entry_clicked(l: &mut Launcher, before: i32) {
     l.free.tab = 2;
     l.free.filter.clear();
     l.free.reveal = true;
+    l.state.touched();
+}
+
+/// The map's pointer, where a free drive can be on it: an entry point clicked is where its bus
+/// starts (`entry_clicked`) - the duty's own entry too, which `map_interact` alone takes for no
+/// change, so that the click was lost.
+pub(super) fn map_interact(l: &mut Launcher, r: Rect, window: Rect) {
+    if !l.state.choice.free {
+        l.map_interact(r, window);
+        return;
+    }
+    let before = l.state.choice.entry;
+    // (for the moment an entry no map has: any entry point clicked differs from it)
+    l.state.choice.entry = i32::MIN;
+    l.map_interact(r, window);
+    if l.state.choice.entry == i32::MIN {
+        l.state.choice.entry = before;
+    } else {
+        entry_clicked(l, before);
+    }
+}
+
+/// The entry point a free drive's bus starts at, as the lists outside the Start step show it
+/// (-1: automatic - the map's first, or along a line the one nearest the route's first stop).
+pub(super) fn start_entry(c: &Choice) -> i32 {
+    if free_route(c).is_some() {
+        -1
+    } else {
+        c.free_entry
+    }
+}
+
+/// An entry point chosen in a free drive outside the Start step (-1: the map's first): where
+/// its bus starts now - not at a stop, and not along a line. The duty's own start stays.
+pub(super) fn entry_chosen(l: &mut Launcher, e: i32) {
+    let c = &mut l.state.choice;
+    c.free_entry = e;
+    c.free_stop.clear();
+    c.own_line = false;
     l.state.touched();
 }
 
@@ -520,7 +563,7 @@ fn place_body(l: &mut Launcher, r: Rect) {
 /// Along a line: the lines to choose from, or the routes of the one chosen.
 fn line_body(l: &mut Launcher, r: Rect) {
     let chosen = l.state.choice.free_line.clone();
-    let line = l.state.lines.iter().find(|x| x.name == chosen).map(|x| (routes_of(x), line_rows(std::slice::from_ref(x)).into_iter().next().map(|r| r.1).unwrap_or_else(|| vec![x.name.clone()]), own_line_of(&x.name, &l.state.own_lines)));
+    let line = l.state.lines.iter().find(|x| x.name == chosen).map(|x| (routes_of(x, &l.state.lines), line_rows(std::slice::from_ref(x)).into_iter().next().map(|r| r.1).unwrap_or_else(|| vec![x.name.clone()]), own_line_of(&x.name, &l.state.own_lines)));
     match line {
         Some((routes, plates, own)) if !l.free.pick_line => route_list(l, r, &routes, &plates, own.as_ref()),
         _ => line_list(l, r),
@@ -538,7 +581,7 @@ fn line_list(l: &mut Launcher, r: Rect) {
     let all: Vec<LineRow> = line_rows(&l.state.lines)
         .into_iter()
         .map(|(name, plates, termini)| {
-            let n = l.state.lines.iter().find(|x| x.name == name).map(|x| routes_of(x).len()).unwrap_or(0);
+            let n = l.state.lines.iter().find(|x| x.name == name).map(|x| routes_of(x, &l.state.lines).len()).unwrap_or(0);
             let own = own_line_of(&name, &l.state.own_lines);
             (name, plates, termini, n, own)
         })
@@ -603,7 +646,7 @@ fn line_list(l: &mut Launcher, r: Rect) {
     });
     if let Some(name) = picked {
         // the line, with its most driven route to begin with
-        let first = l.state.lines.iter().find(|x| x.name == name).and_then(|x| routes_of(x).into_iter().next()).map(|x| x.trip).unwrap_or_default();
+        let first = l.state.lines.iter().find(|x| x.name == name).and_then(|x| routes_of(x, &l.state.lines).into_iter().next()).map(|x| x.trip).unwrap_or_default();
         let c = &mut l.state.choice;
         c.free_line = name;
         c.free_route = first;
@@ -798,7 +841,7 @@ mod tests {
     #[test]
     fn a_line_has_its_routes_the_most_driven_first() {
         let lines = day();
-        let routes = routes_of(&lines[0]);
+        let routes = routes_of(&lines[0], &lines);
         let r: Vec<(&str, usize)> = routes.iter().map(|r| (r.trip.as_str(), r.runs)).collect();
         // the Park's only on its day, and the depot run last (a way the line's buses go, but
         // without a number on its displays)
@@ -806,6 +849,21 @@ mod tests {
         assert_eq!((routes[0].from.as_str(), routes[0].terminus.as_str(), routes[0].stops), ("Hbf", "Zoo", 3));
         let rows = line_rows(&lines);
         assert_eq!(rows.iter().map(|r| (r.0.as_str(), r.1.clone())).collect::<Vec<_>>(), [("5", vec!["5".to_string()]), ("7", vec!["7".to_string()])]);
+    }
+
+    #[test]
+    fn a_line_that_does_not_run_on_the_day_has_no_buses_on_its_routes() {
+        let mut lines = day();
+        for t in &mut lines[0].tours {
+            t.runs = false;
+        }
+        let runs = |lines: &[LineInfo]| routes_of(&lines[0], lines).iter().map(|r| r.runs).collect::<Vec<_>>();
+        // (line 7 runs: the day is one the timetable knows)
+        assert!(runs(&lines).iter().all(|n| *n == 0), "{:?}", runs(&lines));
+        // no line runs: every trip is a guess, as for the stops
+        lines[1].tours[0].runs = false;
+        lines[2].tours[0].runs = false;
+        assert_eq!(runs(&lines).iter().sum::<usize>(), 6);
     }
 
     #[test]

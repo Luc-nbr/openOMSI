@@ -27,9 +27,10 @@ use std::sync::mpsc::{channel, Receiver};
 
 #[derive(Default)]
 pub struct TendersView {
-    /// The lines' weeks, for the map and the first day they were read for.
+    /// The lines' weeks, for the map, the first day and the timetable's revision
+    /// (`CompanyView::timetable`) they were read for.
     weeks: HashMap<String, Week>,
-    weeks_for: Option<(String, String)>,
+    weeks_for: Option<(String, String, u64)>,
     reading: Option<Receiver<HashMap<String, Week>>>,
     /// The tender in the auction panel.
     pub(super) selected: Option<u32>,
@@ -38,8 +39,10 @@ pub struct TendersView {
     amount_for: Option<u32>,
 }
 
-/// The weeks of every map line, read in the background once per map and week.
+/// The weeks of every map line, read in the background once per map and week - and again
+/// when the line editor wrote the map's timetable.
 fn weeks(l: &mut Launcher, c: &Company) {
+    let revision = l.company.timetable;
     let view = &mut l.company.tenders;
     if let Some(rx) = view.reading.as_ref() {
         if let Ok(w) = rx.try_recv() {
@@ -48,7 +51,7 @@ fn weeks(l: &mut Launcher, c: &Company) {
         }
     }
     let monday = co_monday(&c.date);
-    let key = (c.map.clone(), monday.clone());
+    let key = (c.map.clone(), monday.clone(), revision);
     if view.weeks_for.as_ref() == Some(&key) {
         return;
     }
@@ -342,7 +345,7 @@ fn auction(l: &mut Launcher, r: Rect, c: &Company) {
         }
     }
     let ay = inner.bottom() - actions_h;
-    let ok = !l.company.closing && !l.state.in_game() && c.clock.ask.is_none();
+    let ok = super::clock::may_step(l);
     if t.running(now) {
         let id = t.id;
         let hi = (t.buy_out() - omsi_launcher_lib::company::auction::ROUND) as f32 / 100.0;

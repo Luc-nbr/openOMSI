@@ -262,8 +262,10 @@ pub(super) fn day_body(ui: &mut Ui, v: Rect, c: &mut Choice, ctx: &DayCtx, out: 
     section(ui, x, y, w, "When", &omsi_ui::tr(WEEKDAYS[weekday(yy, mm, dd).clamp(0, 6) as usize]));
     y += 24.0;
     let half = (w - 10.0) * 0.5;
+    // (only a time the player changed: the field writes a start past midnight - a night trip's
+    // 24:15 - as 00:15, and taken at once that dropped the trip or shift chosen)
     let mut t = c.time;
-    if ui.time_field("time", Rect::new(x, y, half, 44.0), &mut t) {
+    if ui.time_field("time", Rect::new(x, y, half, 44.0), &mut t) && t != c.time.rem_euclid(1440) {
         c.time = t;
         out.touched = true;
     }
@@ -319,9 +321,10 @@ pub(super) fn day_body(ui: &mut Ui, v: Rect, c: &mut Choice, ctx: &DayCtx, out: 
     if let Some(k) = pick.filter(|k| *k != s) {
         c.season = SEASONS[k].to_string();
         if k > 0 {
-            let month = ["", "04", "07", "10", "01"][k];
-            let (year, day) = (c.date.get(0..4).unwrap_or("1989").to_string(), c.date.get(8..10).unwrap_or("15").to_string());
-            c.date = format!("{year}-{month}-{day}");
+            let month = [0, 4, 7, 10, 1][k];
+            // (the day kept as far as the month has it: a 31st made 31 April, no date at all)
+            let (year, _, day) = parse_date(&c.date);
+            c.date = format!("{year:04}-{month:02}-{:02}", day.min(super::ui::days_in_month(year, month)));
             out.date_changed = true;
         }
         out.season_changed = true;
@@ -556,6 +559,19 @@ mod tests {
         let out = click(&mut c, "day-season-0");
         assert_eq!((c.season.as_str(), c.date.as_str()), ("auto", "1989-01-30"));
         assert!(out.season_changed && !out.date_changed);
+        // (a day the month has not: its last)
+        let mut c = Choice { date: "1989-05-31".into(), ..Default::default() };
+        click(&mut c, "day-season-1");
+        assert_eq!(c.date, "1989-04-30");
+    }
+
+    /// A start past midnight (a night trip's 24:15) stays as it was picked: the time field shows
+    /// it as 00:15, and took that over at once.
+    #[test]
+    fn a_start_past_midnight_stays() {
+        let mut c = Choice { time: 24 * 60 + 15, ..Default::default() };
+        frame(&mut Ui::new(), &mut c, &mut DayOut::default());
+        assert_eq!(c.time, 24 * 60 + 15);
     }
 
     #[test]
