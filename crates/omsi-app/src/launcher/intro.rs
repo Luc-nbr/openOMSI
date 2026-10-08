@@ -412,9 +412,14 @@ impl Loading {
         }
         // the stops: reached ones up, the ones ahead waiting faintly
         for (stop, when) in mark.stops.iter().zip(self.stops) {
-            match when {
-                Some(t) => stop_sign(ui, stop.kind, at(stop.at), u * s, spring(since(t, POP)), 1.0),
-                None => stop_sign(ui, stop.kind, at(stop.at), u * s, 1.0, 0.3),
+            let pop = when.map_or(0.0, |t| since(t, POP));
+            // (the faint one stays while the reached one springs up over it: with a frame of
+            // loading a second long it would be gone for that second)
+            if pop < 1.0 {
+                stop_sign(ui, stop.kind, at(stop.at), u * s, 1.0, 0.3);
+            }
+            if when.is_some() {
+                stop_sign(ui, stop.kind, at(stop.at), u * s, spring(pop), 1.0);
             }
         }
         if let (Some(t), Some(end)) = (self.end, mark.stops.last()) {

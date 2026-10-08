@@ -2485,6 +2485,18 @@ mod tests {
             let px = r.render_to_image(&mut scene, w, h, &camera, &lighting).expect("the picture");
             image::save_buffer(out.join(format!("laden-{k}.png")), &px, w, h, image::ColorType::Rgba8).expect("written");
         }
+        // loading as a heavy map does it: frames far apart, the H just passed - it stands full
+        // size by the next ones (Luc saw it small)
+        ui.loaded(&r, &mut scene);
+        for (p, wait) in [(0.6f32, 10), (0.75, 600), (0.78, 600), (0.8, 600)] {
+            for _ in 0..if wait > 100 { 1 } else { 30 } {
+                scene.overlays.clear();
+                ui.loading(&r, &mut scene, w as f32, h as f32, 1.0, "Berlin 186", "", p);
+                std::thread::sleep(std::time::Duration::from_millis(wait));
+            }
+        }
+        let px = r.render_to_image(&mut scene, w, h, &camera, &lighting).expect("the picture");
+        image::save_buffer(out.join("laden-traag.png"), &px, w, h, image::ColorType::Rgba8).expect("written");
     }
 
     /// The information bar is broken between its parts into rows that fit the room it has,

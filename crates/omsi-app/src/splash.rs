@@ -30,11 +30,15 @@ pub struct Splash {
     /// The bar as shown (it eases towards what is loaded and never goes back), and the clock.
     shown: f32,
     last: Instant,
+    /// The screen's own clock: the stops spring up and the light breathes in real time. (The
+    /// painter's clock takes a tenth of a second a frame at most, and a frame of loading
+    /// often takes longer: a stop the bar had passed stayed small, Luc.)
+    started: Instant,
 }
 
 impl Splash {
     pub fn new() -> Splash {
-        Splash { ui: Ui::new(), gpu: None, screen: None, mark_tex: None, loading: Loading::default(), shown: 0.0, last: Instant::now() }
+        Splash { ui: Ui::new(), gpu: None, screen: None, mark_tex: None, loading: Loading::default(), shown: 0.0, last: Instant::now(), started: Instant::now() }
     }
 
     /// The loading screen over the whole window (`width` x `height` pixels, `scale` the
@@ -47,7 +51,9 @@ impl Splash {
         let s = scale.max(0.5);
         let size = Vec2::new(pw as f32, ph as f32) / s;
         let now = Instant::now();
-        let dt = now.duration_since(self.last).as_secs_f32().min(0.1);
+        // (in real time: a frame of loading may take a second, and the bar glides on as far
+        // in it - the painter's own clock takes a tenth at most)
+        let dt = now.duration_since(self.last).as_secs_f32().min(1.0);
         self.last = now;
         // (the bar eases to what is loaded: a big step glides, and it never goes back)
         let want = progress.clamp(0.0, 1.0).max(self.shown);
@@ -56,7 +62,8 @@ impl Splash {
             self.shown = want;
         }
         self.ui.begin(size, s, dt);
-        paint_loading(&mut self.ui, &mut self.loading, self.shown, title, caption);
+        let time = self.started.elapsed().as_secs_f32();
+        paint_loading(&mut self.ui, &mut self.loading, self.shown, title, caption, time);
         if let Some(tex) = self.render(r, scene, Which::Screen, (pw, ph)) {
             scene.overlays.push((tex, [0.0, 0.0, width, height]));
         }
@@ -93,6 +100,7 @@ impl Splash {
         }
         self.loading = Loading::default();
         self.shown = 0.0;
+        self.started = Instant::now();
     }
 
     /// What was painted this frame into the texture `which` (made, or made anew at `size`).
@@ -137,15 +145,14 @@ impl Splash {
 }
 
 /// The loading screen painted over the window `ui` has: the ground, the mark with its pen at
-/// `shown`, the title and the caption with how much is loaded. (The launcher paints it too
-/// for pictures: `OMSI_LAUNCHER_SPLASH=<0..1>`.)
-pub(crate) fn paint_loading(ui: &mut Ui, loading: &mut Loading, shown: f32, title: &str, caption: &str) {
+/// `shown` (on the clock `time`, s), the title and the caption with how much is loaded. (The
+/// launcher paints it too for pictures: `OMSI_LAUNCHER_SPLASH=<0..1>`.)
+pub(crate) fn paint_loading(ui: &mut Ui, loading: &mut Loading, shown: f32, title: &str, caption: &str, time: f32) {
     let size = ui.size;
     let window = Rect::new(0.0, 0.0, size.x, size.y);
     // (a plain grey ground, Luc: calmer than the launcher's route behind the mark)
     ui.p().rect(window, GROUND);
     let centre = Vec2::new(size.x * 0.5, size.y * 0.46);
-    let time = ui.time;
     let mark = loading.draw(ui, centre, shown, time);
     let mut y = mark.bottom() + 30.0;
     if !title.trim().is_empty() {
@@ -169,7 +176,8 @@ pub(crate) fn preview(ui: &mut Ui) {
     PREVIEW.with(|l| {
         let mut l = l.borrow_mut();
         l.settled = true;
-        paint_loading(ui, &mut l, p.clamp(0.0, 1.0), "Berlin 186", "");
+        let time = ui.time;
+        paint_loading(ui, &mut l, p.clamp(0.0, 1.0), "Berlin 186", "", time);
     });
     // (frame after frame, as the game draws it: the stops and the bus front spring up)
     ui.keep_moving();
