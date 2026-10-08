@@ -915,6 +915,10 @@ impl App {
                 w.loaded_tiles().len()
             );
             self.start_world(w, cam, &renderer, &mut scene);
+            // (the loading screen's picture is let go)
+            if let Some(ui) = self.ui.as_mut() {
+                ui.loaded(&renderer, &mut scene);
+            }
             self.renderer = Some(renderer);
             self.scene = Some(scene);
             return true;

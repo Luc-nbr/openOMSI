@@ -1158,7 +1158,11 @@ pub(super) fn ground_picture(l: &mut Launcher, window: Rect) {
 /// rather than pictures so that they stay sharp and follow any colour) - a ring round a bus
 /// seen from the front, the line out of it with two stops, rising to the upper right.
 fn paint_ground(p: &mut Painter, window: Rect) {
-    let (ground, ink) = ground_colours(crate::accent::chosen());
+    paint_ground_in(p, window, ground_colours(crate::accent::chosen()));
+}
+
+/// The ground in its colours: the ground and the route on it.
+fn paint_ground_in(p: &mut Painter, window: Rect, (ground, ink): (Color, Color)) {
     p.rect(window, ground);
     // (the drawing is 1672 x 941; it covers the window, held to the left - the ring with its
     // bus stays in view in a narrow window - and in the middle the other way)

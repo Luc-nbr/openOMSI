@@ -335,6 +335,112 @@ impl Intro {
     }
 }
 
+// --- the mark while the game loads -------------------------------------------------------
+
+/// openOMSI's mark as the game's loading screen has it (`crate::splash`): the opening's
+/// drawing with the pen where the loading is - the ring and the line are the bar of what is
+/// loaded, faint ahead of the pen. The bus front springs up once the ring has closed round
+/// it, each stop as the pen reaches it (the ones ahead wait faintly), the terminus rings
+/// when all is there; the name stands in its place and the pen's light breathes.
+#[derive(Default)]
+pub(crate) struct Loading {
+    mark: Option<Mark>,
+    /// When (on the screen's clock) the ring closed, each stop was reached, the end came.
+    ring: Option<f32>,
+    stops: [Option<f32>; 3],
+    end: Option<f32>,
+    /// What the pen reaches counts as reached long ago (the launcher's pictures of the screen:
+    /// the stops and the bus front up at once).
+    pub(crate) settled: bool,
+}
+
+impl Loading {
+    /// The mark as it stands once everything has loaded (the pause menu's): every part up,
+    /// long since.
+    pub(crate) fn at_rest() -> Loading {
+        Loading { mark: None, ring: Some(-100.0), stops: [Some(-100.0); 3], end: Some(-100.0), settled: true }
+    }
+
+    /// The mark round `centre` with its pen at `drawn` (0..1 of what is loaded), `time` the
+    /// screen's clock (s), as large as the opening has it in this window. Returns where the
+    /// mark stands.
+    pub(crate) fn draw(&mut self, ui: &mut Ui, centre: Vec2, drawn: f32, time: f32) -> Rect {
+        let mark = self.mark.get_or_insert_with(|| Mark::new(&ui.fonts)).clone();
+        let k = fit(ui.size, mark.bounds);
+        self.draw_at(ui, centre, k, drawn, time)
+    }
+
+    /// The mark filling `area` (as large as it fits in it), as `draw` draws it.
+    pub(crate) fn draw_in(&mut self, ui: &mut Ui, area: Rect, drawn: f32, time: f32) -> Rect {
+        let mark = self.mark.get_or_insert_with(|| Mark::new(&ui.fonts)).clone();
+        let k = (area.w / mark.bounds.w).min(area.h / mark.bounds.h).max(0.01);
+        self.draw_at(ui, area.center(), k, drawn, time)
+    }
+
+    /// The mark round `centre`, `k` window points to the mark's pixels.
+    fn draw_at(&mut self, ui: &mut Ui, centre: Vec2, k: f32, drawn: f32, time: f32) -> Rect {
+        let mark = self.mark.get_or_insert_with(|| Mark::new(&ui.fonts)).clone();
+        let drawn = drawn.clamp(0.0, 1.0);
+        let s = k;
+        let mid = mark.bounds.center();
+        let at = |q: Vec2| centre + (q - mid) * k;
+        let u = mark.u;
+        // (what the pen has reached, and since when: its pop springs from then)
+        let now = if self.settled { time - 100.0 } else { time };
+        if drawn >= mark.timing.ring {
+            self.ring.get_or_insert(now);
+        }
+        for (when, f) in self.stops.iter_mut().zip(mark.timing.stops) {
+            if drawn >= f - 1e-4 {
+                when.get_or_insert(now);
+            }
+        }
+        if drawn >= 1.0 - 1e-4 {
+            self.end.get_or_insert(now);
+        }
+        let since = |from: f32, len: f32| ((time - from) / len).clamp(0.0, 1.0);
+        // the ring and the line: faint all the way, solid up to the pen
+        let route = mark.route(&at);
+        let len = route.length();
+        ui.p().stroke(&route.part(0.0, len), mark.stroke * k, Color::WHITE.alpha(0.1));
+        if drawn > 0.0 {
+            ui.p().stroke(&route.part(0.0, len * drawn), mark.stroke * k, line_colour());
+        }
+        // the bus front, once the ring has closed round it
+        if let Some(t) = self.ring {
+            bus_front(ui.p(), at(mark.bus), u * k * spring(since(t, BUS_POP)), 1.0, 0.0, INK);
+        }
+        // the stops: reached ones up, the ones ahead waiting faintly
+        for (stop, when) in mark.stops.iter().zip(self.stops) {
+            match when {
+                Some(t) => stop_sign(ui, stop.kind, at(stop.at), u * s, spring(since(t, POP)), 1.0),
+                None => stop_sign(ui, stop.kind, at(stop.at), u * s, 1.0, 0.3),
+            }
+        }
+        if let (Some(t), Some(end)) = (self.end, mark.stops.last()) {
+            if time - t < PULSE {
+                pulse(ui.p(), at(end.at), u * k, since(t, PULSE), 1.0);
+            }
+        }
+        // the pen's light at the front, breathing while it waits
+        if drawn > 0.0 && drawn < 1.0 {
+            let (p, _) = route.at(len * drawn);
+            let h = 0.8 + 0.2 * (time * 4.0).sin();
+            ui.p().radial(p, mark.stroke * 1.75 * k, pen_glow().alpha(0.42 * h), pen_glow().alpha(0.0));
+            ui.p().stroke(&[p], mark.stroke * k * 0.55, pen().alpha(0.9 * h));
+        }
+        // the name in its place (cut off above the line: the p's tail comes up from behind it)
+        let cut = at(Vec2::new(0.0, mark.foot)).y - mark.stroke * 0.5 * k;
+        ui.push_clip(Rect::new(0.0, 0.0, ui.size.x, cut.max(0.0)), 0.0);
+        for l in &mark.letters {
+            letter(ui, l, at(Vec2::new(l.x, l.base)), s, 1.0, Vec2::ZERO, l.color);
+        }
+        ui.pop_clip();
+        let (a, b) = (at(Vec2::new(mark.bounds.x, mark.bounds.y)), at(Vec2::new(mark.bounds.right(), mark.bounds.bottom())));
+        Rect::new(a.x, a.y, b.x - a.x, b.y - a.y)
+    }
+}
+
 // --- the mark at rest ------------------------------------------------------------------
 
 /// openOMSI's mark where a page shows it (the start, the welcome): the opening's last frame,

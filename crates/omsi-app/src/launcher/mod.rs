@@ -22,7 +22,7 @@ mod editor_hub;
 pub(crate) mod flow;
 mod freedrive;
 mod hof;
-mod intro;
+pub(crate) mod intro;
 mod lineeditor;
 mod lineroute;
 pub(crate) mod livery;
@@ -39,10 +39,10 @@ mod showroom;
 mod state;
 #[cfg_attr(not(target_os = "android"), allow(unused_imports))]
 pub(crate) use state::crash_of;
-mod theme;
+pub(crate) mod theme;
 mod timetable;
 mod transition;
-mod ui;
+pub(crate) mod ui;
 mod update;
 mod welcome;
 
@@ -1072,6 +1072,8 @@ impl Launcher {
                 let _ = c.set_text(t);
             }
         }
+        // (the game's loading screen over it all, for pictures: OMSI_LAUNCHER_SPLASH)
+        crate::splash::preview(&mut self.ui);
         let (layers, verts, ranges) = self.ui.finish();
         self.touch_frame();
 

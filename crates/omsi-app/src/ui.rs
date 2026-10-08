@@ -511,6 +511,8 @@ pub struct Ui {
     pub menu_overlay_range: std::ops::Range<usize>,
     /// The pointer texture, positioned separately for each headset eye.
     pub vr_cursor_overlay: Option<usize>,
+    /// The launcher's painter for the loading screen and the pause menu's mark (`splash`).
+    splash: Option<crate::splash::Splash>,
     pub vr_tooltip_overlay: Option<usize>,
     /// The first line of the menu shown (a long menu scrolls: `menu_rects[k]` is line
     /// `menu_start + k`).
@@ -610,7 +612,7 @@ impl Ui {
         self.chat.rect[2] += x;
     }
     pub fn new() -> Option<Ui> {
-        Some(Ui { origin_x: 0.0, text: TextCache::new()?, chat: ChatWidget::default(), menu_rects: Vec::new(), menu_arrows: Vec::new(), menu_scroll_thumb: None, menu_scroll_track: None, menu_ctl: Vec::new(), dd_rects: Vec::new(), dd_top: 0, dd_rows: 8, dd_scroll: None, menu_side: Vec::new(), menu_pane: Vec::new(), menu_pane_start: 0, menu_pane_go: None, menu_pane_box: None, menu_pane_scroll: None, menu_time: Vec::new(), anim: Default::default(), anim_dt: 0.0, menu_overlay_range: 0..0, vr_cursor_overlay: None, vr_tooltip_overlay: None, menu_start: 0, menu_rows: 0, menu_row_h: 1.0, images: Default::default(), info_rect: None })
+        Some(Ui { origin_x: 0.0, text: TextCache::new()?, chat: ChatWidget::default(), menu_rects: Vec::new(), menu_arrows: Vec::new(), menu_scroll_thumb: None, menu_scroll_track: None, menu_ctl: Vec::new(), dd_rects: Vec::new(), dd_top: 0, dd_rows: 8, dd_scroll: None, menu_side: Vec::new(), menu_pane: Vec::new(), menu_pane_start: 0, menu_pane_go: None, menu_pane_box: None, menu_pane_scroll: None, menu_time: Vec::new(), anim: Default::default(), anim_dt: 0.0, menu_overlay_range: 0..0, splash: None, vr_cursor_overlay: None, vr_tooltip_overlay: None, menu_start: 0, menu_rows: 0, menu_row_h: 1.0, images: Default::default(), info_rect: None })
     }
 
     /// Draw the frame's interface: its overlays go after the HUD's in `scene.overlays`.
@@ -1184,47 +1186,36 @@ impl TextCache {
 }
 
 impl Ui {
-    /// The loading screen over a plain dark picture: the map's name in the middle, a thin
-    /// bar of how far the start area got under it, and one quiet line (what is being done).
+    /// The loading screen as the launcher draws (`crate::splash`): its ground in the dark,
+    /// openOMSI's mark in the middle - its ring and line are the bar of how far the start
+    /// area got - the map's name under it and one quiet line (what is being done).
+    #[allow(clippy::too_many_arguments)]
     pub fn loading(&mut self, r: &Renderer, scene: &mut Scene, width: f32, height: f32, scale: f32, title: &str, caption: &str, progress: f32) {
-        let s = scale.max(0.5);
-        let t = self.text.label(r, scene, title, (30.0 * s) as u32, [255, 255, 255, 0]);
-        let cy = height * 0.5;
-        let tx = (width - t.w as f32) * 0.5;
-        let ty = cy - t.h as f32 - 14.0 * s;
-        scene.overlays.push((t.tex, [tx, ty, tx + t.w as f32, ty + t.h as f32]));
-        let bw = (320.0 * s).min(width * 0.6);
-        let bh = (3.0 * s).max(2.0);
-        let bx = (width - bw) * 0.5;
-        let by = cy + 4.0 * s;
-        let track = self.text.plate(r, scene, 1);
-        scene.overlays.push((track, [bx, by, bx + bw, by + bh]));
-        let fill = self.text.plate(r, scene, 2);
-        let p = progress.clamp(0.0, 1.0);
-        if p > 0.0 {
-            scene.overlays.push((fill, [bx, by, bx + bw * p, by + bh]));
-        }
-        if !caption.is_empty() {
-            let c = self.text.label(r, scene, caption, (13.0 * s) as u32, [200, 204, 210, 0]);
-            let cx = (width - c.w as f32) * 0.5;
-            let cy2 = by + bh + 14.0 * s;
-            scene.overlays.push((c.tex, [cx, cy2, cx + c.w as f32, cy2 + c.h as f32]));
-        }
+        let splash = self.splash.get_or_insert_with(crate::splash::Splash::new);
+        splash.loading(r, scene, width, height, scale, title, caption, progress);
         self.text.end_frame(r, scene);
+    }
+
+    /// The loading screen is over: its picture is let go.
+    pub fn loaded(&mut self, r: &Renderer, scene: &mut Scene) {
+        if let Some(s) = self.splash.as_mut() {
+            s.release(r, scene);
+        }
     }
 }
 
 // ---------------------------------------------------------------------------------------
-// the game menu and its lists: flat near-black greys and one amber accent, as the launcher
+// the game menu and its lists in the launcher's new look, its dark mode: night blue greys
+// and the player's accent
 
 /// How long a fade of the menu takes (a line lit, a switch turned over): a short moment.
 const FADE_SECS: f32 = 0.15;
 const BAR_SECS: f32 = 0.19;
 
-// (the launcher's values, see `launcher/theme.rs`: neutral greys, no tint)
-const PANEL: [u8; 4] = [22, 22, 22, 255];
-const PANEL_ALT: [u8; 4] = [31, 31, 31, 255];
-const BORDER: [u8; 4] = [255, 255, 255, 15];
+// (the launcher's values, see `launcher/theme.rs`: its panel, field and hover)
+const PANEL: [u8; 4] = [20, 26, 38, 255];
+const PANEL_ALT: [u8; 4] = [27, 34, 49, 255];
+const BORDER: [u8; 4] = [255, 255, 255, 18];
 /// The accent (the player's colour, `crate::accent`; openOMSI's was amber), and as a faint
 /// tint behind a mark.
 fn accent() -> [u8; 4] {
@@ -1237,22 +1228,22 @@ const DANGER: [u8; 4] = [222, 78, 68, 255];
 /// A line under the mouse, and the line chosen: the launcher's `HOVER` and `SELECTED`, as
 /// solid greys. (They were white at 6 % and 9 %, which the overlays blend in linear light:
 /// on the 22-grey card that came out 73 and 92, twice as light as the launcher's 38 and 44.)
-const LIT: [u8; 4] = [38, 38, 38, 255];
-const SELECTED: [u8; 4] = [44, 44, 44, 255];
+const LIT: [u8; 4] = [33, 40, 54, 255];
+const SELECTED: [u8; 4] = [40, 48, 66, 255];
 /// "End the session" under the mouse: the danger colour at 14 % on the card, solid.
-const LIT_DANGER: [u8; 4] = [50, 30, 28, 255];
+const LIT_DANGER: [u8; 4] = [60, 32, 38, 255];
 /// A stepper's or a button's field: the launcher's `FIELD`.
-const CHIP: [u8; 4] = [31, 31, 31, 255];
+const CHIP: [u8; 4] = [27, 34, 49, 255];
 /// A switch's track when off, a slider's empty track, their knob (the launcher's).
-const TRACK_OFF: [u8; 4] = [62, 62, 62, 255];
-const SLIDER_TRACK: [u8; 4] = [58, 58, 58, 255];
+const TRACK_OFF: [u8; 4] = [58, 66, 86, 255];
+const SLIDER_TRACK: [u8; 4] = [52, 60, 80, 255];
 const KNOB: [u8; 4] = [240, 240, 240, 255];
 /// A scroll bar's thumb, idle and with the mouse over its list (the launcher's white at
 /// 10 % and 35 %; no track, no accent).
 const THUMB: [u8; 4] = [255, 255, 255, 26];
 const THUMB_HOT: [u8; 4] = [255, 255, 255, 90];
 /// The small capitals over a title (the launcher's section headings: 11 px, bold, dim).
-const DIM: [u8; 4] = [142, 142, 142, 0];
+const DIM: [u8; 4] = [149, 157, 176, 0];
 /// The accent's fill under the mouse, and the ink on it (the launcher's primary button).
 fn accent_hot() -> [u8; 4] {
     crate::accent::bytes(crate::accent::shades().hover, 255)
@@ -1261,22 +1252,22 @@ fn on_accent() -> [u8; 4] {
     crate::accent::bytes(crate::accent::shades().on, 0)
 }
 /// Text colours (alpha 0: no outline on the flat panel).
-const WHITE: [u8; 4] = [236, 236, 236, 0];
-const SOFT: [u8; 4] = [200, 200, 200, 0];
-const MUTED: [u8; 4] = [142, 142, 142, 0];
+const WHITE: [u8; 4] = [232, 235, 242, 0];
+const SOFT: [u8; 4] = [196, 202, 214, 0];
+const MUTED: [u8; 4] = [149, 157, 176, 0];
 /// The accent as letters (lighter; openOMSI's amber ones).
 fn amber() -> [u8; 4] {
     crate::accent::bytes(crate::accent::shades().soft, 0)
 }
 
 /// The ink of a greyed-out line and its small hint.
-const OFF_INK: [u8; 4] = [96, 96, 96, 0];
-const OFF_HINT: [u8; 4] = [96, 96, 96, 0];
+const OFF_INK: [u8; 4] = [96, 104, 122, 0];
+const OFF_HINT: [u8; 4] = [96, 104, 122, 0];
 
 /// The card's radius, a line's, and the inset of lines from the card's edge and of their
 /// text from the line's edge (all times the scale).
-const CARD_R: f32 = 8.0;
-const ROW_R: f32 = 6.0;
+const CARD_R: f32 = 14.0;
+const ROW_R: f32 = 8.0;
 const PAD: f32 = 12.0;
 const TEXT_IN: f32 = 16.0;
 
@@ -1895,7 +1886,9 @@ impl Ui {
 }
 
 /// The launcher's rail and its separator line (`launcher/theme.rs` `RAIL`, `EDGE`).
-const RAIL: [u8; 4] = [18, 18, 18, 255];
+/// (solid: under a card seen through, its accent edge tinted it brown - the overlays blend in
+/// linear light)
+const RAIL: [u8; 4] = [16, 22, 36, 255];
 const EDGE: [u8; 4] = [255, 255, 255, 15];
 
 /// The Material icon of a line of the game menu (the launcher's icon set).
@@ -1923,11 +1916,12 @@ fn game_menu_icon(id: &str) -> &'static str {
 }
 
 impl Ui {
-    /// The pause menu as the launcher's rail: a full-height panel on the left over the
-    /// dimmed picture - the game's name and version on top, "Resume" as the launcher's
-    /// amber primary button, the other lines as its pages (an icon, the name, the chosen one
-    /// on a lighter grey with the accent bar), "End the session" in the danger colour at the
-    /// end. A menu longer than the screen scrolls, as the card did.
+    /// The pause menu in the launcher's new look: a floating card on the left over the
+    /// dimmed picture - night blue, rounded, an edge of the accent - with openOMSI's mark on
+    /// top (`crate::splash`) and the version and the state under it, "Resume" as the
+    /// launcher's primary button in the accent, the other lines as its pages (an icon, the
+    /// name, the chosen one lighter with the accent bar), "End the session" in the danger
+    /// colour at the end. A menu longer than the screen scrolls.
     fn draw_game_menu(&mut self, r: &Renderer, scene: &mut Scene, f: &Frame, sel: usize, items: &[(&str, &str)]) {
         let s = menu_scale(f);
         let dim = self.text.plate(r, scene, 6);
@@ -1937,27 +1931,44 @@ impl Ui {
         // side in one of the two landscape turns - its contents keep clear of it)
         let cut = if crate::platform::MOBILE || omsi_cfg::env::var_os("OMSI_MOBILE").is_some() { 18.0 * s } else { 0.0 };
         let rail_w = (264.0 * s + cut).min(f.width * 0.86).round();
-        // the rail: flat, a hairline at its edge, a soft shadow over the picture
-        self.text.shadow(r, scene, [-40.0 * s, -40.0 * s, rail_w, f.height + 40.0 * s], 0.0, 30.0 * s, 0.0, 120);
-        self.text.rounded(r, scene, [0.0, 0.0, rail_w, f.height], 0.0, RAIL);
-        self.text.rounded(r, scene, [rail_w - 1.0, 0.0, rail_w, f.height], 0.0, EDGE);
-        // the game's name and version, as at the top of the launcher's rail
-        let bx = 24.0 * s + cut;
-        let name_w = self.put(r, scene, "openOMSI", (20.0 * s) as u32 | BOLD, WHITE, bx, 34.0 * s);
-        self.put(r, scene, crate::startup::VERSION, (12.0 * s) as u32, MUTED, bx, 54.0 * s);
-        // what state the game is in, a small amber tag beside the name
+        // the card: floating clear of the screen's edges, rounded, night blue with an edge of
+        // the accent, a soft shadow over the picture
+        let m = (14.0 * s).round();
+        let card = [m, m, m + rail_w, f.height - m];
+        let radius = 18.0 * s;
+        self.text.shadow(r, scene, card, radius, 30.0 * s, 6.0 * s, 140);
+        self.text.rounded(r, scene, [card[0] - 1.0, card[1] - 1.0, card[2] + 1.0, card[3] + 1.0], radius + 1.0, fade(accent(), 0.4));
+        self.text.rounded(r, scene, card, radius, RAIL);
+        // openOMSI's mark on top, as the launcher draws it; the version and the state under it
+        let bx = m + 22.0 * s + cut;
+        let mark_w = (rail_w - 44.0 * s - cut).min(230.0 * s);
+        let mut head = m + 34.0 * s;
+        let mark = self.splash.get_or_insert_with(crate::splash::Splash::new).mark(r, scene, mark_w, s);
+        match mark {
+            Some((tex, mw, mh)) => {
+                let my = (m + 18.0 * s).round();
+                scene.overlays.push((tex, [bx, my, bx + mw, my + mh]));
+                head = my + mh + 12.0 * s;
+            }
+            None => {
+                self.put(r, scene, "openOMSI", (20.0 * s) as u32 | BOLD, WHITE, bx, head);
+                head += 20.0 * s;
+            }
+        }
+        let version_w = self.put(r, scene, crate::startup::VERSION, (12.0 * s) as u32, MUTED, bx, head);
+        // what state the game is in, a small tag in the accent beside the version
         let tag = if f.paused { "PAUSED" } else { "MENU" };
         let tl = self.text.label(r, scene, tag, (10.0 * s) as u32 | BOLD, txt(accent()));
         let (tw, th) = (tl.w as f32 + 12.0 * s, tl.h as f32 + 4.0 * s);
-        let tx = (bx + name_w + 10.0 * s).min(rail_w - tw - 12.0 * s);
-        let ty = 34.0 * s - th * 0.5;
-        self.text.rounded(r, scene, [tx, ty, tx + tw, ty + th], 4.0 * s, accent_soft());
+        let tx = (bx + version_w + 10.0 * s).min(card[2] - tw - 12.0 * s);
+        let ty = head - th * 0.5;
+        self.text.rounded(r, scene, [tx, ty, tx + tw, ty + th], th * 0.5, accent_soft());
         scene.overlays.push((tl.tex, [tx + 6.0 * s, ty + 2.0 * s, tx + 6.0 * s + tl.w as f32, ty + 2.0 * s + tl.h as f32]));
         // the lines: as many as fit at the launcher's 42 px pitch (down to 32), the rest
         // scrolled to
         let n = items.len();
-        let top = 80.0 * s;
-        let foot = if keys { 40.0 * s } else { 12.0 * s };
+        let top = head + 26.0 * s;
+        let foot = m + if keys { 40.0 * s } else { 12.0 * s };
         let room = (f.height - top - foot).max(32.0 * s);
         let pitch = (42.0 * s).min(room / n.max(1) as f32).max(32.0 * s);
         let rows = ((room / pitch).floor() as usize).clamp(1, n.max(1));
@@ -1970,16 +1981,16 @@ impl Ui {
         self.menu_rows = rows;
         self.menu_row_h = pitch;
         let scrolls = n > rows;
-        let x0 = 12.0 * s + cut;
-        let x1 = rail_w - if scrolls { 20.0 * s } else { 12.0 * s };
+        let x0 = m + 12.0 * s + cut;
+        let x1 = card[2] - if scrolls { 20.0 * s } else { 12.0 * s };
         if scrolls {
-            let track = [rail_w - 10.0 * s, top, rail_w - 6.0 * s, top + pitch * rows as f32 - 4.0 * s];
+            let track = [card[2] - 10.0 * s, top, card[2] - 6.0 * s, top + pitch * rows as f32 - 4.0 * s];
             self.menu_scroll_track = Some(track);
-            let hot = over_rect(f.cursor, [0.0, 0.0, rail_w, f.height]);
+            let hot = over_rect(f.cursor, card);
             let thumb = self.thumb(r, scene, track, start, rows, n, hot, s);
             self.menu_scroll_thumb = Some([thumb[0] - 6.0 * s, thumb[1], thumb[2] + 6.0 * s, thumb[3]]);
         }
-        let any_hovered = over_rect(f.cursor, [0.0, top, rail_w, top + pitch * rows as f32]);
+        let any_hovered = over_rect(f.cursor, [card[0], top, card[2], top + pitch * rows as f32]);
         let px = (13.5 * s).round() as u32;
         let icon_px = (18.0 * s).round() as u32;
         for (k, &(id, label)) in items.iter().enumerate().skip(start).take(rows) {
@@ -1999,13 +2010,13 @@ impl Ui {
             let glow = self.easeq((7, id, k), if lit { 1.0 } else { 0.0 }, 1.0 / FADE_SECS);
             let cy = (rect[1] + rect[3]) * 0.5;
             let (ink, icon_ink) = if primary {
-                // the launcher's primary button: amber, dark bold text, lighter under the mouse
-                self.text.rounded(r, scene, rect, 6.0 * s, mix(accent(), accent_hot(), glow));
-                ([18, 14, 8, 0], [18, 14, 8, 255])
+                // the launcher's primary button: the accent, its ink, lighter under the mouse
+                self.text.rounded(r, scene, rect, ROW_R * s, mix(accent(), accent_hot(), glow));
+                (on_accent(), [on_accent()[0], on_accent()[1], on_accent()[2], 255])
             } else {
                 if glow > 0.0 {
                     let fill = if danger { LIT_DANGER } else if chosen { SELECTED } else { LIT };
-                    self.text.rounded(r, scene, rect, 6.0 * s, fade(fill, glow));
+                    self.text.rounded(r, scene, rect, ROW_R * s, fade(fill, glow));
                     self.accent_bar(r, scene, rect, glow, danger, s);
                 }
                 let c = if off {
@@ -2046,8 +2057,8 @@ impl Ui {
         // the keys, quietly at the bottom, where there is a keyboard
         if keys {
             let hint = omsi_ui::tr("Esc resumes  ·  P pauses").into_owned();
-            let hint = clip_to(&self.text, &hint, 11.0 * s, rail_w - bx * 2.0);
-            self.put(r, scene, &hint, (11.0 * s) as u32, OFF_INK, bx, f.height - 20.0 * s);
+            let hint = clip_to(&self.text, &hint, 11.0 * s, card[2] - bx - 16.0 * s);
+            self.put(r, scene, &hint, (11.0 * s) as u32, OFF_INK, bx, f.height - m - 20.0 * s);
         }
     }
 }
@@ -2438,6 +2449,43 @@ fn vr_settings_sidebar_step(available: f32, pages: usize, scale: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The pause menu and the loading screen as pictures, drawn without a window and without
+    /// the game (a renderer of its own, nothing of a map loaded). Run by hand:
+    /// `OMSI_MENU_LOOK=<folder> cargo test -p omsi-app --lib ui::tests::pictures_of_the_menus -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn pictures_of_the_menus() {
+        let Some(out) = omsi_cfg::env::var("OMSI_MENU_LOOK").ok() else { return };
+        let out = std::path::PathBuf::from(out);
+        let instance = wgpu::Instance::default();
+        let mut r = pollster::block_on(Renderer::new(&instance, None, Some(wgpu::TextureFormat::Rgba8UnormSrgb))).expect("a renderer");
+        let mut scene = r.new_scene();
+        let mut ui = Ui::new().expect("the interface");
+        let (w, h) = (1440u32, 900u32);
+        let items = crate::input_script::GAME_MENU;
+        let camera = omsi_render::Camera { position: glam::DVec3::new(0.0, 0.0, -1.0e6), yaw: 0.0, pitch: -89.0, roll: 0.0, fov_deg: 60.0, near: 0.5, far: 10.0 };
+        let lighting = omsi_render::Lighting { sky_color: glam::Vec3::new(0.32, 0.38, 0.46), ..Default::default() };
+        for (name, cursor) in [("pauze.png", (-1.0, -1.0)), ("pauze-muis.png", (120.0, 300.0))] {
+            let frame = Frame { scale: 1.0, ui_scale: 1.0, opacity: 0.9, width: w as f32, height: h as f32, cursor, vr: false, tooltip: None, chat: None, chat_size: 1.0, notes: &[], fps: None, paused: true, menu: Some((0, &items[..])), menu_top: None, menu_disabled: &[], timetable: None, info: None, info_room: None, tutorial: None, tags: Vec::new(), notices: &[], notice_anchor: None, menu_kind: MenuKind::Game, menu_head: None, menu_preview: None, pane_first: None, menu_tabs: None, menu_kbd: false, dropdown: None };
+            // (frames enough for the eases to settle)
+            for _ in 0..40 {
+                scene.overlays.clear();
+                ui.draw(&r, &mut scene, &frame, 1.0 / 30.0);
+            }
+            let px = r.render_to_image(&mut scene, w, h, &camera, &lighting).expect("the picture");
+            image::save_buffer(out.join(name), &px, w, h, image::ColorType::Rgba8).expect("written");
+        }
+        for (k, p) in [0.4f32, 0.8].iter().enumerate() {
+            for _ in 0..40 {
+                scene.overlays.clear();
+                ui.loading(&r, &mut scene, w as f32, h as f32, 1.0, "Berlin 186", "", *p);
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            let px = r.render_to_image(&mut scene, w, h, &camera, &lighting).expect("the picture");
+            image::save_buffer(out.join(format!("laden-{k}.png")), &px, w, h, image::ColorType::Rgba8).expect("written");
+        }
+    }
 
     /// The information bar is broken between its parts into rows that fit the room it has,
     /// as many parts to a row as go in; a part wider than the room alone is a row of its own
