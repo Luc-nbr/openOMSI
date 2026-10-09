@@ -598,11 +598,10 @@ pub(super) fn frame(l: &mut Launcher) {
     l.buspick.seen = l.ui.time;
     // the tree, when the buses (or those a server allows) changed
     let allowed: Option<HashSet<String>> = l.state.host_vehicles().map(|v| v.iter().map(|f| fav_key(f)).collect());
+    // (a bus the server does not allow is let go: the player picks one of those it does)
     if let Some(a) = allowed.as_ref() {
-        if !a.contains(&fav_key(&l.state.choice.bus)) {
-            if let Some(first) = l.state.vehicles.iter().find(|v| a.contains(&fav_key(&v.file))).map(|v| v.file.clone()) {
-                l.state.select_bus(&first);
-            }
+        if !l.state.choice.bus.is_empty() && !a.contains(&fav_key(&l.state.choice.bus)) {
+            l.state.clear_bus();
         }
     }
     let allowed_key = allowed.as_ref().map(|a| a.iter().fold(0u64, |h, f| h ^ id_of(f))).unwrap_or(u64::MAX);

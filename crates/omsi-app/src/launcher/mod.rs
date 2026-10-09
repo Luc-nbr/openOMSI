@@ -169,6 +169,8 @@ pub struct Launcher {
     showroom: showroom::Showroom,
     page: Page,
     pub drive: drive::DriveView,
+    /// A short word to the player that goes by itself (`show_hint`).
+    hint: Option<Hint>,
     /// The free drive's start point step (`freedrive`).
     pub free: freedrive::FreeView,
     /// The bus step's tiles and the bus offered for the duty (see `buspick`).
@@ -283,6 +285,7 @@ impl Launcher {
         showroom: showroom::Showroom::new(),
         page: Page::Drive,
         drive: drive::DriveView::default(),
+        hint: None,
         free: freedrive::FreeView::default(),
         buspick: Default::default(),
         busclasses: Default::default(),
@@ -1355,6 +1358,8 @@ impl Launcher {
             }
         }
         self.status_bar();
+        self.host_changed_duty();
+        self.hint_toast();
         }
         if let Some(i) = palette {
             self.ui.input = i;
@@ -1554,6 +1559,58 @@ impl Launcher {
         }
     }
 
+    /// A short word to the player, top right under the bar for a few seconds, out of the
+    /// way of what is chosen (Luc: after a session code, that a mode is to be chosen now -
+    /// "niet meteen ergens midden in het scherm"). A click puts it away.
+    pub(crate) fn show_hint(&mut self, icon: &'static str, title: &str, text: &str) {
+        self.hint = Some(Hint { icon, title: title.to_string(), text: text.to_string(), since: std::time::Instant::now() });
+    }
+
+    /// The host's map or day came after a duty was chosen on another: back to choosing it,
+    /// with a word why.
+    fn host_changed_duty(&mut self) {
+        if !std::mem::take(&mut self.state.host_changed_duty) {
+            return;
+        }
+        // (only where a duty was being chosen: on the way there - the code just typed - the
+        // map and day are simply the host's when the player comes to them)
+        if self.page == Page::Drive && matches!(self.drive.step, flow::Step::Day | flow::Step::Duty | flow::Step::Start | flow::Step::Bus) {
+            self.drive.step = if self.state.choice.free { flow::Step::Start } else { flow::Step::Duty };
+            self.show_hint("schedule", "Choose your duty again", "The host drives on another map or day than the one your duty was on. Its map and day are set now: pick your duty on them.");
+        }
+    }
+
+    fn hint_toast(&mut self) {
+        const SHOWN: f32 = 7.0;
+        let Some(h) = self.hint.as_ref() else { return };
+        let t = h.since.elapsed().as_secs_f32();
+        if t > SHOWN + 0.6 || mobile::mobile() {
+            self.hint = None;
+            return;
+        }
+        let (icon, title, text) = (h.icon, omsi_ui::tr(&h.title).into_owned(), h.text.clone());
+        // (it comes in over a quarter of a second, a little from above, and goes in the last
+        // half second)
+        let come = (t / 0.25).min(1.0);
+        let a = come * (1.0 - (t - SHOWN) / 0.6).clamp(0.0, 1.0);
+        let size = self.ui.size;
+        let w = 380.0f32.min(size.x - 2.0 * flow::EDGE_IN);
+        let body = self.ui.paragraph_height(&text, w - 62.0, 12.5, Weight::Regular);
+        let r = Rect::new(size.x - flow::EDGE_IN - w, flow::SHEET_TOP + 12.0 - (1.0 - come) * 8.0, w, 40.0 + body);
+        let (hover, _, clicked) = self.ui.interact(ui::id_of("hint-toast"), r);
+        // (a solid dark card: on the start's light ground the map buttons' see-through dark
+        // came out a dull grey)
+        self.ui.p().rounded(r, 12.0, omsi_ui::Color::rgba(20, 28, 42, a * if hover { 1.0 } else { 0.96 }));
+        self.ui.p().rounded(Rect::new(r.x, r.y + 10.0, 3.0, r.h - 20.0), 1.5, accent().alpha(a));
+        self.ui.icon(icon, Vec2::new(r.x + 28.0, r.y + 24.0), 18.0, accent().alpha(a));
+        self.ui.text_in(&title, Rect::new(r.x + 48.0, r.y + 12.0, r.w - 62.0, 18.0), 13.5, Weight::Bold, omsi_ui::Color::rgba(240, 242, 246, a), Align::Left);
+        self.ui.paragraph(&text, Vec2::new(r.x + 48.0, r.y + 31.0), r.w - 62.0, 12.5, Weight::Regular, TEXT_SOFT.alpha(a));
+        if clicked {
+            self.hint = None;
+        }
+        self.ui.keep_moving();
+    }
+
     fn status_bar(&mut self) {
         let (text, err, at) = self.state.status.clone();
         if text.is_empty() {
@@ -1577,6 +1634,15 @@ impl Launcher {
     }
 }
 
+
+/// A short word to the player (`Launcher::show_hint`): its icon, title and line, and since
+/// when it shows.
+struct Hint {
+    icon: &'static str,
+    title: String,
+    text: String,
+    since: std::time::Instant,
+}
 
 /// The showroom's renderer: a bus on a floor needs none of the game's costly passes - no
 /// ambient occlusion, a small shadow map, 4x MSAA for the edges whatever the game uses.

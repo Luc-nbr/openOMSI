@@ -432,7 +432,9 @@ pub(super) fn drive(l: &mut Launcher, c: &Company, p: &DayPlan, ti: usize, k: us
     ch.time = time;
     ch.start_trip = Some((line.clone(), tour.clone(), first, time));
     ch.legs = vec![format!("{line}|{tour}|{first}|{count}")];
+    let mut planned_bus = false;
     if let Some(v) = t.bus.and_then(|b| if let BusOf::Own(id) = b { c.vehicle(id) } else { None }).filter(|v| !v.bus.trim().is_empty()) {
+        planned_bus = true;
         ch.bus = v.bus.clone();
         ch.paint = v.house_livery.clone().filter(|h| !h.trim().is_empty()).unwrap_or_else(|| v.livery.clone());
         ch.plate = v.plate.clone();
@@ -442,6 +444,10 @@ pub(super) fn drive(l: &mut Launcher, c: &Company, p: &DayPlan, ti: usize, k: us
     if !hof.trim().is_empty() {
         ch.hof = hof;
         ch.hof_manual = true;
+    }
+    // (the company's bus for the planned duty is this duty's: not asked for again)
+    if planned_bus {
+        l.state.bus_for = Some(l.state.duty_key());
     }
     l.state.touched();
     l.state.load_lines();

@@ -124,11 +124,20 @@ fn by_code(l: &mut Launcher, r: Rect) {
     let can = l.state.choice.lan_mode == "join" && l.state.joined_server.is_none() && l.state.join.0 && !l.state.choice.lan_addr.is_empty();
     if l.ui.button("mp-join", Rect::new(join.x + 18.0, join.bottom() - 18.0 - ROW, 200.0, ROW), "Choose a bus and join", Some("exit_to_app"), if can { ButtonKind::Primary } else { ButtonKind::Normal }) {
         if can {
-            l.go(super::Page::Drive);
+            to_the_modes(l);
         } else {
             l.state.set_status("Paste a session code first", true);
         }
     }
+}
+
+/// A session joined (by its code or a server): the Drive page's first choice, how to drive,
+/// and a word that it is to be made now - the page changed under the player without one, and
+/// it was not clear something was asked (Luc).
+pub(super) fn to_the_modes(l: &mut Launcher) {
+    l.drive.step = super::flow::Step::Mode;
+    l.go(super::Page::Drive);
+    l.show_hint("link", "Ready to join", "Now choose how you want to drive: a duty, a tour or a free drive. You join the others when the game starts.");
 }
 
 fn servers(l: &mut Launcher, r: Rect) {
@@ -236,7 +245,7 @@ fn servers(l: &mut Launcher, r: Rect) {
         let proto = [JoinProto::Auto, JoinProto::Udp, JoinProto::WebSocket][l.mp.proto.min(2)];
         l.state.join_server(&a, proto);
         if l.state.joined_server.as_deref() == Some(a.as_str()) {
-            l.go(super::Page::Drive);
+            to_the_modes(l);
         }
     }
     if l.ui.button("mp-refresh", Rect::new(r.x, r.bottom() - ROW, 150.0, ROW), "Refresh", Some("refresh"), ButtonKind::Normal) {

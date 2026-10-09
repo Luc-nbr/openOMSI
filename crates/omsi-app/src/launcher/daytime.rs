@@ -235,7 +235,7 @@ fn day_foot(l: &Launcher) -> String {
 
 /// On a server: its clock and its weather, nothing to choose.
 fn server_body(l: &mut Launcher, r: Rect, name: &str) {
-    let info = l.state.joined_server.as_ref().and_then(|a| l.state.server_info.get(a)).and_then(|x| x.1.as_ref().ok()).cloned();
+    let info = l.state.host_info().cloned();
     let mut y = r.y + 4.0;
     l.ui.icon("lock", Vec2::new(r.x + 7.0, y + 8.0), 14.0, TEXT_DIM);
     section(&mut l.ui, r.x + 20.0, y, r.w - 20.0, &omsi_ui::tr("Set by %{name}").replace("%{name}", name), "");
@@ -248,7 +248,12 @@ fn server_body(l: &mut Launcher, r: Rect, name: &str) {
         l.ui.p().rect(Rect::new(r.x, y + 30.5, r.w, 1.0), HAIRLINE);
         y += 34.0;
     }
-    l.ui.paragraph("On a server the map, the time, the date and the weather are the same for everybody: the server keeps the world's clock. You choose your bus and your duty.", Vec2::new(r.x, y + 12.0), r.w, 12.5, Weight::Regular, TEXT_DIM);
+    let text = if l.state.joined_server.is_some() {
+        "On a server the map, the time, the date and the weather are the same for everybody: the server keeps the world's clock. You choose your bus and your duty."
+    } else {
+        "In a friend's game the map, the time, the date and the weather are the host's: you choose your bus and your duty on them."
+    };
+    l.ui.paragraph(text, Vec2::new(r.x, y + 12.0), r.w, 12.5, Weight::Regular, TEXT_DIM);
 }
 
 /// The sheet's choices from `v`'s top (its width less the scrollbar's): when, the season,

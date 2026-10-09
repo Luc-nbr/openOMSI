@@ -472,7 +472,7 @@ fn server(l: &mut Launcher, r: Rect) -> f32 {
     l.ui.icon("lock", Vec2::new(r.x + 8.0, r.center().y), 15.0, TEXT_DIM);
     l.ui.text_in(&format!("{m} · {name}"), Rect::new(r.x + 22.0, r.y, r.w - leave_w - 28.0, r.h), 12.5, Weight::Regular, TEXT_SOFT, Align::Left);
     let leave = Rect::new(r.right() - leave_w, r.y + 2.0, leave_w, r.h - 4.0);
-    if l.ui.button("shift-leave-server", leave, "Leave the server", Some("logout"), ButtonKind::Ghost) {
+    if l.ui.button("shift-leave-server", leave, drive::leave_label(l), Some("logout"), ButtonKind::Ghost) {
         l.state.leave_server();
     }
     l.ui.tooltip(leave, "Back to driving alone: the map, the clock and the weather are your own again");

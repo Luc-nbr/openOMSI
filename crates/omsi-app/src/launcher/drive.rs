@@ -255,7 +255,7 @@ pub(super) fn duty_panel(l: &mut Launcher, body: Rect, with_map: bool) {
         y += ROW + 8.0;
         // (on a server: which one, and the way back to driving alone)
         let leave = Rect::new(body.x, y, body.w, ROW);
-        if l.ui.button("leave-server", leave, "Leave the server", Some("logout"), ButtonKind::Normal) {
+        if l.ui.button("leave-server", leave, leave_label(l), Some("logout"), ButtonKind::Normal) {
             l.state.leave_server();
         }
         l.ui.tooltip(leave, "Back to driving alone: the map, the clock and the weather are your own again");
@@ -1063,10 +1063,8 @@ pub(super) fn step_bus(l: &mut Launcher, r: Rect) {
     let norm = |f: &str| f.replace('\\', "/").to_lowercase();
     let allowed: Option<std::collections::HashSet<String>> = l.state.host_vehicles().map(|v| v.iter().map(|f| norm(f)).collect());
     if let Some(a) = allowed.as_ref() {
-        if !a.contains(&norm(&l.state.choice.bus)) {
-            if let Some(first) = l.state.vehicles.iter().find(|v| a.contains(&norm(&v.file))).map(|v| v.file.clone()) {
-                l.state.select_bus(&first);
-            }
+        if !l.state.choice.bus.is_empty() && !a.contains(&norm(&l.state.choice.bus)) {
+            l.state.clear_bus();
         }
     }
     let allowed_key = allowed.as_ref().map(|a| a.iter().fold(0u64, |hash, file| hash ^ id_of(file))).unwrap_or(u64::MAX);
@@ -1317,9 +1315,26 @@ fn trip_duration(first: f64, last: f64) -> String {
     }
 }
 
-/// The name of the server the Drive page is joined to (see the Multiplayer page).
+/// The way back to driving alone from a session joined: a server's, or a friend's game's.
+pub(super) fn leave_label(l: &Launcher) -> &'static str {
+    if l.state.joined_server.is_some() {
+        "Leave the server"
+    } else {
+        "Leave the session"
+    }
+}
+
+/// The name of the server or game the Drive page is joined to (see the Multiplayer page): a
+/// server of the list, or a friend's game by its code once it has said what it drives and
+/// that map is installed here - its map, day and weather are then not chosen here (they were
+/// for a code: a tour of another map was sent with the host's map, and the game drove free).
 pub(super) fn joined_server_name(l: &Launcher) -> Option<String> {
-    let a = l.state.joined_server.as_ref()?;
+    let Some(a) = l.state.joined_server.as_ref() else {
+        let i = l.state.host_info()?;
+        let theirs = i.map.trim().replace('\\', "/");
+        l.state.maps.iter().any(|m| m.file.eq_ignore_ascii_case(&theirs)).then(|| i.name.clone()).filter(|n| !n.trim().is_empty())?;
+        return Some(i.name.clone());
+    };
     let entry = l.state.servers.iter().find(|s| &s.address == a);
     let info = l.state.server_info.get(a).and_then(|x| x.1.as_ref().ok());
     Some(entry.map(|e| e.name.clone()).filter(|n| !n.is_empty()).or_else(|| info.map(|i| i.name.clone())).unwrap_or_else(|| a.clone()))
@@ -1329,7 +1344,7 @@ pub(super) fn step_time(l: &mut Launcher, r: Rect) {
     let mut y = r.y;
     if let Some(name) = joined_server_name(l) {
         // the server's world: nothing to choose here
-        let info = l.state.joined_server.as_ref().and_then(|a| l.state.server_info.get(a)).and_then(|x| x.1.as_ref().ok()).cloned();
+        let info = l.state.host_info().cloned();
         l.ui.heading(Rect::new(r.x, y, r.w, 28.0), &omsi_ui::tr("Set by %{name}").replace("%{name}", &name), Some("lock"));
         y += 36.0;
         let rows = [("Time", info.as_ref().map(|i| i.time.clone()).unwrap_or_default()), ("Weather", info.as_ref().map(|i| if i.weather.is_empty() { "the map's".to_string() } else { i.weather.clone() }).unwrap_or_default())];
@@ -1865,6 +1880,23 @@ pub(super) fn start(l: &mut Launcher) {
         let t = l.state.join.1.clone();
         l.state.set_status(format!("LAN: {t}"), true);
         return;
+    }
+    // a duty in a friend's game by its code: on the host's map and day, which its game says -
+    // not known yet, a tour of another map went to the game and it drove free (Luc)
+    let duty = !l.state.choice.free && l.state.choice.line.is_some();
+    if duty && l.state.choice.lan_mode == "join" && l.state.joined_server.is_none() {
+        let code = l.state.choice.lan_addr.clone();
+        match l.state.server_info.get(&code).map(|x| x.1.as_ref().map(|i| i.map.trim().replace('\\', "/"))) {
+            None if omsi_net::looks_like_code(&code) => {
+                l.state.set_status("Waiting for the host to say its map and day - a moment…", false);
+                return;
+            }
+            Some(Err(_)) => l.state.set_status("The host has not said which map it drives: your duty only runs if it is on the host's map.", true),
+            Some(Ok(theirs)) if !l.state.choice.map.eq_ignore_ascii_case(&theirs) => {
+                l.state.set_status(omsi_ui::tr("The host drives on %{map}, which is not installed here: you join on a free drive.").replace("%{map}", &theirs), true);
+            }
+            _ => {}
+        }
     }
     let running = l.state.instances.iter().filter(|i| i.running).count();
     // a second game on one computer is for testing LAN play, not something to do by

@@ -185,6 +185,7 @@ pub(crate) fn info_of(cfg: &ServerCfg) -> omsi_net::ws::ServerInfo {
         version: format!("{} ({})", env!("CARGO_PKG_VERSION"), BUILD),
         icon: cfg.icon.clone(),
         time: cfg.time.clone(),
+        date: cfg.date.clone().unwrap_or_default(),
         weather: cfg.weather.clone().unwrap_or_default(),
         password: false,
         vehicles: cfg.vehicles.clone(),

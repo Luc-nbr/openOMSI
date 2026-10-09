@@ -692,16 +692,17 @@ fn switch_and_search(l: &mut Launcher, r: Rect) {
     }
     let rest = Rect::new(r.x + 168.0, r.y, (r.w - 168.0).max(0.0), r.h);
     if let Some(server) = drive::joined_server_name(l) {
-        let bw = (l.ui.width("Leave the server", 13.0, Weight::Bold) + 44.0).min(rest.w * 0.5);
+        let leave = drive::leave_label(l);
+        let bw = (l.ui.width(&omsi_ui::tr(leave), 13.0, Weight::Bold) + 44.0).min(rest.w * 0.5);
         let b = Rect::new(rest.right() - bw, r.y, bw, r.h);
-        if l.ui.button("mapchoice-leave", b, "Leave the server", Some("logout"), ButtonKind::Normal) {
+        if l.ui.button("mapchoice-leave", b, leave, Some("logout"), ButtonKind::Normal) {
             l.state.leave_server();
         }
         let t = Rect::new(rest.x, r.y, (b.x - rest.x - 10.0).max(0.0), r.h);
         l.ui.icon("lock", Vec2::new(t.x + 9.0, t.center().y), 14.0, TEXT_DIM);
         let line = omsi_ui::tr("%{server} chooses the map").replace("%{server}", &server);
         l.ui.text_in(&line, Rect::new(t.x + 24.0, t.y, (t.w - 24.0).max(0.0), t.h), 12.5, Weight::Medium, TEXT_SOFT, Align::Left);
-        l.ui.tooltip(t, "On a server the map is the server's: it comes with the server when the game joins.");
+        l.ui.tooltip(t, if l.state.joined_server.is_some() { "On a server the map is the server's: it comes with the server when the game joins." } else { "In a friend's game the map is the host's: your duty is chosen on it." });
         return;
     }
     let sw = rest.w.min(260.0);

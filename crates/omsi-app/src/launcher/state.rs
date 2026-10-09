@@ -310,6 +310,13 @@ pub struct State {
     pub server_info: std::collections::HashMap<String, (Instant, Result<omsi_net::ws::ServerInfo, String>)>,
     pub server_asked: std::collections::HashMap<String, Instant>,
     pub joined_server: Option<String>,
+    /// The duty the chosen bus was picked for (`duty_key`). A bus left from another duty, from
+    /// the last game or from the last time the launcher ran is not driven again unasked: the
+    /// bus step asks anew (Luc). None: no bus picked since the launcher started or a game did.
+    pub bus_for: Option<String>,
+    /// The host's map or day came after a duty was chosen on another one: that duty went, the
+    /// Drive page goes back to choosing it (`Launcher`).
+    pub host_changed_duty: bool,
     /// The composed duties offered (see `composed_duties`) and what they were made for: the
     /// lines' map and date, the length, the part of the day, the seed, the number of lines.
     composed: Vec<core::compose::ComposedDuty>,
@@ -387,6 +394,8 @@ impl State {
             server_info: Default::default(),
             server_asked: Default::default(),
             joined_server: None,
+            bus_for: None,
+            host_changed_duty: false,
             composed: Vec::new(),
             composed_for: None,
             // (another set of duties at each start of the launcher)
@@ -555,16 +564,72 @@ impl State {
     }
 
     pub fn check_join(&mut self) {
-        if self.join_checked == self.choice.lan_addr {
+        let code = self.choice.lan_addr.clone();
+        if self.join_checked == code {
+            // (the host of a code not reached yet - its game still starting, its tunnel not up:
+            // asked again now and then; its map and day are what the duty is chosen on)
+            let failed = self.server_info.get(&code).is_some_and(|x| x.1.is_err());
+            if failed && self.joined_server.is_none() && omsi_net::looks_like_code(&code) && self.server_asked.get(&code).is_none_or(|t| t.elapsed().as_secs_f32() > 10.0) {
+                self.server_asked.insert(code.clone(), Instant::now());
+                self.spawn(move || Msg::Server { info: host_status(&code), address: code });
+            }
             return;
         }
-        self.join_checked = self.choice.lan_addr.clone();
-        let t = self.choice.lan_addr.clone();
+        self.join_checked = code.clone();
+        let t = code.clone();
         self.spawn(move || Msg::Join(core::check_join(&t)));
-        // the host's status (its buses): at the code's addresses, else through its tunnel
-        if omsi_net::looks_like_code(&self.choice.lan_addr) {
-            let code = self.choice.lan_addr.clone();
+        // the host's status (its map, day and buses): at the code's addresses, else through
+        // its tunnel
+        if omsi_net::looks_like_code(&code) {
+            self.server_asked.insert(code.clone(), Instant::now());
             self.spawn(move || Msg::Server { info: host_status(&code), address: code });
+        }
+    }
+
+    /// What the host of the session joined says about itself - a server of the list, or the
+    /// game behind a code - once it has answered.
+    pub fn host_info(&self) -> Option<&omsi_net::ws::ServerInfo> {
+        if self.choice.lan_mode != "join" {
+            return None;
+        }
+        let key = self.joined_server.as_ref().unwrap_or(&self.choice.lan_addr);
+        self.server_info.get(key)?.1.as_ref().ok()
+    }
+
+    /// The host's world as the duty's, in a session joined: its map with that map's timetable
+    /// (only the map was put in, its lines stayed the last map's - a tour of them is no tour of
+    /// the host's map, and the game drove free, Luc) and its day (the session drives on it:
+    /// the lines are those that run then). A duty chosen already on another map or day goes,
+    /// and `host_changed_duty` says so.
+    fn adopt_host(&mut self) {
+        if self.maps.is_empty() {
+            return;
+        }
+        let Some(i) = self.host_info().cloned() else { return };
+        let had = self.choice.line.is_some() || !self.choice.legs.is_empty();
+        let mut changed = false;
+        let theirs = i.map.trim().replace('\\', "/");
+        let installed = self.maps.iter().find(|m| m.file.eq_ignore_ascii_case(&theirs)).map(|m| (m.file.clone(), if m.friendly.is_empty() { m.name.clone() } else { m.friendly.clone() }));
+        if let Some((file, name)) = installed {
+            if !self.choice.map.eq_ignore_ascii_case(&file) {
+                self.select_map(&file);
+                self.choice.legs.clear();
+                self.choice.start_trip = None;
+                changed = true;
+                self.set_status(omsi_ui::tr("The host drives on %{map}: that map is chosen").replace("%{map}", &name), false);
+            }
+        }
+        let date = i.date.trim();
+        if date.len() == 10 && self.choice.date != date {
+            self.choice.date = date.to_string();
+            self.choice.legs.clear();
+            self.choice.start_trip = None;
+            self.load_lines();
+            self.touched();
+            changed = true;
+        }
+        if changed && had {
+            self.host_changed_duty = true;
         }
     }
 
@@ -629,13 +694,14 @@ impl State {
             // as it is then: `duty()` starts the game on the server's map anyway.
             if !self.maps.is_empty() && !self.maps.iter().any(|m| m.file.eq_ignore_ascii_case(&info.map)) {
                 self.set_status(omsi_ui::tr("The server plays %{map}, which is not installed here: it is fetched from the server on joining.").replace("%{map}", &info.map), false);
-            } else {
-                self.choice.map = info.map.clone();
             }
         }
         self.choice.lan_mode = "join".into();
         self.choice.lan_addr = lan_addr;
         self.joined_server = Some(address.to_string());
+        // (its map with that map's timetable, and its day: only the map was put in, and the
+        // lines and tour of the last map stayed)
+        self.adopt_host();
         let name = info.as_ref().map(|i| i.name.clone()).unwrap_or_else(|| address.to_string());
         self.join = (true, omsi_ui::tr("the server %{name}").replace("%{name}", &name));
         self.join_checked = address.to_string();
@@ -687,6 +753,8 @@ impl State {
         let d = self.duty();
         self.set_status("Starting the game…", false);
         self.queued_launch = Some(d);
+        // (the next duty is driven with a bus chosen for it)
+        self.bus_for = None;
     }
 
     /// The game's object editor on `map`: a free drive there with the chosen bus, nothing of
@@ -894,6 +962,10 @@ impl State {
         while let Ok(m) = self.rx.try_recv() {
             self.handle(m);
         }
+        // (a bus chosen for another duty, the last game or the last run is let go)
+        if !self.choice.bus.is_empty() && self.bus_for.as_deref() != Some(self.duty_key().as_str()) {
+            self.clear_bus();
+        }
         self.follow_clock();
         self.poll_t -= dt;
         if self.poll_t <= 0.0 {
@@ -937,24 +1009,17 @@ impl State {
                 self.set_status(omsi_ui::tr("Reading the content stopped on an error: %{error}").replace("%{error}", &why), true);
             }
             Msg::Server { address, info } => {
-                // the host of the code typed in: its map is the one the duty is chosen on
-                // (installed here: the line, tour and entry point of another map go)
-                if self.choice.lan_mode == "join" && self.joined_server.is_none() && address == self.choice.lan_addr {
-                    if let Ok(i) = &info {
-                        let theirs = i.map.trim().replace('\\', "/");
-                        if let Some((file, name)) = self.maps.iter().find(|m| m.file.eq_ignore_ascii_case(&theirs)).map(|m| (m.file.clone(), m.name.clone())) {
-                            if !self.choice.map.eq_ignore_ascii_case(&file) {
-                                self.choice.map = file;
-                                self.choice.line = None;
-                                self.choice.tour = None;
-                                self.choice.entry = 0;
-                                self.touched();
-                                self.set_status(omsi_ui::tr("The host drives on %{map}: that map is chosen").replace("%{map}", &name), false);
-                            }
-                        }
-                    }
+                // (an answer that failed does not put over one that came: a code's host asked
+                // again while its game ran on)
+                if info.is_err() && self.server_info.get(&address).is_some_and(|x| x.1.is_ok()) {
+                    return;
                 }
+                let host = self.choice.lan_mode == "join" && (self.joined_server.as_deref() == Some(address.as_str()) || (self.joined_server.is_none() && address == self.choice.lan_addr));
                 self.server_info.insert(address, (Instant::now(), info));
+                // the host of the session: its map and day are the ones the duty is chosen on
+                if host {
+                    self.adopt_host();
+                }
             }
             Msg::ContentEarly { maps, weathers } => {
                 if !self.content_first {
@@ -996,15 +1061,13 @@ impl State {
                 self.loading_content = false;
                 // (a bus may have had liveries added or taken away)
                 self.bus_options.forget();
-                // what was chosen last time, where it still exists
-                if !self.vehicles.iter().any(|v| v.file == self.choice.bus) {
-                    if let Some(v) = self.vehicles.first() {
-                        self.choice.bus = v.file.clone();
-                        self.choice.paint.clear();
-                        self.choice.hof = self.default_hof();
-                    }
+                // (a bus that is gone is no longer chosen: the bus step asks for one)
+                if !self.choice.bus.is_empty() && !self.vehicles.iter().any(|v| v.file == self.choice.bus) {
+                    self.clear_bus();
                 }
                 self.pick_map();
+                // (a session's host answered before the maps were read: its map now)
+                self.adopt_host();
                 // (the first reading asked for the lines with the maps already)
                 if !std::mem::take(&mut self.content_first) || self.lines_for != (self.choice.map.clone(), self.choice.date.clone()) {
                     self.load_lines();
@@ -1308,7 +1371,27 @@ impl State {
         keys.iter().find(|k| !o.depot_file.trim().is_empty() && k.eq_ignore_ascii_case(o.depot_file.trim())).map(|k| (k.clone(), true))
     }
 
+    /// What makes a duty another one (`bus_for`): the map, the mode, and what is driven - the
+    /// line, the tour and its trip, a composed duty's parts, a free drive's line or start.
+    pub fn duty_key(&self) -> String {
+        let c = &self.choice;
+        format!(
+            "{}|{}|{}|{}|{:?}|{:?}|{:?}|{}|{}|{}|{}|{}",
+            c.map, c.free, c.composed, c.own_line, c.line, c.tour, c.start_trip, c.legs.join(";"), c.free_line, c.free_route, c.free_stop, c.free_entry
+        )
+    }
+
+    /// No bus chosen: the bus step (and the phone's bus sheet) asks for one.
+    pub fn clear_bus(&mut self) {
+        self.choice.bus.clear();
+        self.choice.paint.clear();
+        self.choice.number.clear();
+        self.bus_for = None;
+    }
+
     pub fn select_bus(&mut self, file: &str) {
+        // (picked for the duty as it is now - also when it is the bus already chosen)
+        self.bus_for = Some(self.duty_key());
         if self.choice.bus == file {
             return;
         }

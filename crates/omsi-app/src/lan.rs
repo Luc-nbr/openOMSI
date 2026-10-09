@@ -1150,7 +1150,9 @@ pub fn start(args: &Args) -> Option<LanSession> {
     }
     if session.role == Role::Host && args.server.is_none() {
         // the way in over the internet that always works (see `open_public_gateway`)
-        let info = omsi_net::ws::ServerInfo { name: format!("{}'s game", player_name(args)), map: args.map.clone(), max_players: 16, version: env!("CARGO_PKG_VERSION").into(), ..Default::default() };
+        // (its day and time as it starts: a friend joining by the code chooses a duty of that
+        // day's timetable)
+        let info = omsi_net::ws::ServerInfo { name: format!("{}'s game", player_name(args)), map: args.map.clone(), max_players: 16, version: env!("CARGO_PKG_VERSION").into(), time: args.time.clone(), date: args.date.clone().unwrap_or_default(), ..Default::default() };
         open_public_gateway(&session, info, 0, true);
         publish_vehicles(args.root.clone(), Vec::new());
     }
@@ -1324,15 +1326,14 @@ pub fn take_host_map(args: &mut Args, lan: &mut LanSession) {
     }
     match omsi_cfg::find_in_roots(&theirs) {
         Some(_) => {
-            log::info!("LAN: the session is on the host's map {theirs} (not {})", args.map);
+            log::info!("LAN: the session is on the host's map {theirs} (not {}); the duty chosen is tried there", args.map);
             args.map = theirs;
-            // (the entry point, depot file and tour chosen were those of the other map)
+            // (the entry point and depot file chosen were those of the other map; the line and
+            // tour are tried on the host's - taken away here, the player drove free without a
+            // word, Luc; not there, the game says so: "No duty")
             args.entry = 0;
             args.spawn = None;
             args.hof = None;
-            args.line = None;
-            args.tour = None;
-            args.trip = None;
             let mine = world_info(args);
             lan.set_world(mine);
         }
