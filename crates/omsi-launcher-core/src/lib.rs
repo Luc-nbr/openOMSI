@@ -1988,6 +1988,12 @@ mod record_tests {
         let t = settings_to_text(&settings_from_text(Some("head_tracking_source=Tobii\ntobii_edges=1\nhead_tracking_yaw=1.83\nhead_tracking_pitch=9\nhead_tracking_move=0\n")), None);
         assert!(t.contains("head_tracking_source=tobii\n") && t.contains("tobii_edges=true\n"), "{t}");
         assert!(t.contains("head_tracking_yaw=1.85\n") && t.contains("head_tracking_pitch=1\n") && t.contains("head_tracking_move=0\n"), "{t}");
+        // (the smoothing in twentieths; the dead zone and the tilt their defaults when out of
+        // reach or not there)
+        let t = settings_to_text(&settings_from_text(Some("head_tracking_smoothing=0.53\nhead_tracking_dead_zone=-1\n")), None);
+        assert!(t.contains("head_tracking_smoothing=0.55\n") && t.contains("head_tracking_dead_zone=0.1\n") && t.contains("head_tracking_roll=0\n"), "{t}");
+        let t = settings_to_text(&settings_from_text(Some("head_tracking_smoothing=7\nhead_tracking_roll=1.5\n")), None);
+        assert!(t.contains("head_tracking_smoothing=0.5\n") && t.contains("head_tracking_roll=1.5\n"), "{t}");
         assert_eq!(settings_from_text(None)["head_tracking_source"], json!("auto"));
     }
 
@@ -2593,11 +2599,23 @@ pub fn head_tracking_source(v: &str) -> &'static str {
     }
 }
 
-/// A sensitivity of head tracking (`head_tracking_yaw`, `_pitch`, `_move`): 0 to 4 times the
-/// pose as the tracker gives it, in twentieths; 1 when none or out of reach.
-pub fn head_tracking_gain(v: Option<f64>) -> f64 {
-    v.filter(|x| x.is_finite() && (0.0..=4.0).contains(x)).map(|x| (x * 20.0).round() / 20.0).unwrap_or(1.0)
+/// Head tracking's numbers, in twentieths and held to their reach (none, or one out of it: the
+/// default): the sensitivities `head_tracking_yaw`, `_pitch`, `_move` (0 to 4 times the pose as
+/// the tracker gives it, 1) and `_roll` (0 to 2, 0: the horizon level, as ETS2 has it), the
+/// smoothing `head_tracking_smoothing` (0 to 1, 0.5) and the dead zone
+/// `head_tracking_dead_zone` (degrees of the head, 0 to 1, 0.1).
+pub fn head_tracking_value(key: &str, v: Option<f64>) -> f64 {
+    let (most, default) = match key {
+        "head_tracking_roll" => (2.0, 0.0),
+        "head_tracking_smoothing" => (1.0, 0.5),
+        "head_tracking_dead_zone" => (1.0, 0.1),
+        _ => (4.0, 1.0),
+    };
+    v.filter(|x| x.is_finite() && (0.0..=most).contains(x)).map(|x| (x * 20.0).round() / 20.0).unwrap_or(default)
 }
+
+/// Head tracking's numbers as `settings.cfg` has them (`head_tracking_value`).
+pub const HEAD_TRACKING_VALUES: [&str; 6] = ["head_tracking_yaw", "head_tracking_pitch", "head_tracking_roll", "head_tracking_move", "head_tracking_smoothing", "head_tracking_dead_zone"];
 
 /// The stop signs on the navigator's map (`stop_style`): "de" (the German H), "uk" (the
 /// British bus stop flag) or "fr" (the French arrêt); anything else the German.
@@ -2719,9 +2737,9 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
     // edges turning further, and how strongly the turns and the head's way are taken
     v["head_tracking_source"] = json!("auto");
     v["tobii_edges"] = json!(false);
-    v["head_tracking_yaw"] = json!(1.0);
-    v["head_tracking_pitch"] = json!(1.0);
-    v["head_tracking_move"] = json!(1.0);
+    for k in HEAD_TRACKING_VALUES {
+        v[k] = json!(head_tracking_value(k, None));
+    }
     // the interface's accent colour (the launcher's Settings, the palette in its bar)
     v["accent"] = json!(ACCENT_DEFAULT);
     // signing on in the navigator with the personnel number and the code, then the duty
@@ -2779,7 +2797,7 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
             "stop_style" => v[&k] = json!(stop_style(val)),
             "speed_unit" => v[&k] = json!(speed_unit(val)),
             "head_tracking_source" => v[&k] = json!(head_tracking_source(val)),
-            "head_tracking_yaw" | "head_tracking_pitch" | "head_tracking_move" => v[&k] = json!(head_tracking_gain(val.parse::<f64>().ok())),
+            x if HEAD_TRACKING_VALUES.contains(&x) => v[&k] = json!(head_tracking_value(x, val.parse::<f64>().ok())),
             "tobii_edges" => v[&k] = json!(b(val)),
             "accent" => v[&k] = json!(accent_text(val)),
             "nav_signon" | "nav_board" => v[&k] = json!(b(val)),
@@ -3171,13 +3189,13 @@ pub fn settings_to_text(v: &Value, old: Option<&str>) -> String {
     text.push_str(&format!("welcome_done={}\nlauncher_ui={}\n", b("welcome_done", false), launcher_ui(v.get("launcher_ui").and_then(|x| x.as_str()).unwrap_or("new"))));
     text.push_str(&format!("nav_scale={}\nstop_style={}\nspeed_unit={}\n", nav_scale(v.get("nav_scale").and_then(|x| x.as_f64())), stop_style(v.get("stop_style").and_then(|x| x.as_str()).unwrap_or("de")), speed_unit(v.get("speed_unit").and_then(|x| x.as_str()).unwrap_or("kmh"))));
     text.push_str(&format!(
-        "head_tracking_source={}\ntobii_edges={}\nhead_tracking_yaw={}\nhead_tracking_pitch={}\nhead_tracking_move={}\n",
+        "head_tracking_source={}\ntobii_edges={}\n",
         head_tracking_source(v.get("head_tracking_source").and_then(|x| x.as_str()).unwrap_or("auto")),
         v.get("tobii_edges").and_then(|x| x.as_bool()).unwrap_or(false),
-        head_tracking_gain(v.get("head_tracking_yaw").and_then(|x| x.as_f64())),
-        head_tracking_gain(v.get("head_tracking_pitch").and_then(|x| x.as_f64())),
-        head_tracking_gain(v.get("head_tracking_move").and_then(|x| x.as_f64())),
     ));
+    for k in HEAD_TRACKING_VALUES {
+        text.push_str(&format!("{k}={}\n", head_tracking_value(k, v.get(k).and_then(|x| x.as_f64()))));
+    }
     text.push_str(&format!("accent={}\n", accent_text(v.get("accent").and_then(|x| x.as_str()).unwrap_or(ACCENT_DEFAULT))));
     text.push_str(&format!("nav_signon={}\n", b("nav_signon", false)));
     text.push_str(&format!("nav_board={}\nnav_rect={}\n", b("nav_board", true), nav_rect(v.get("nav_rect").and_then(|x| x.as_str()).unwrap_or(""))));

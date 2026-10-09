@@ -1040,14 +1040,14 @@ pub fn reset_dialog(l: &mut Launcher) {
 thread_local! {
     /// A Tobii eye tracker read while the settings show it (`tobii_rows`), and when they last
     /// did: let go a moment after (`tobii_idle`).
-    static TOBII: std::cell::RefCell<Option<(crate::tobii::Tobii, std::time::Instant)>> = const { std::cell::RefCell::new(None) };
+    static TOBII: std::cell::RefCell<Option<(crate::tobii::Tobii, std::time::Instant, crate::head_filter::HeadFilter)>> = const { std::cell::RefCell::new(None) };
 }
 
 /// The settings left: the tracker read for them is let go.
 pub(crate) fn tobii_idle() {
     TOBII.with(|t| {
         let mut t = t.borrow_mut();
-        if t.as_ref().is_some_and(|(_, at)| at.elapsed().as_secs_f32() > 1.5) {
+        if t.as_ref().is_some_and(|(_, at, _)| at.elapsed().as_secs_f32() > 1.5) {
             *t = None;
         }
     });
@@ -1059,36 +1059,51 @@ pub(crate) fn tobii_idle() {
 /// screen's edges; for every source the sensitivities and the game's keys for it.
 fn tobii_rows(ui: &mut Ui, c: &mut Col, s: &mut Value, dirty: &mut f32) {
     sel_setting(ui, s, dirty, "s-head-source", c.row(), "Head tracking with", "head_tracking_source", &[("auto", "Automatic"), ("tobii", "Tobii eye tracker"), ("opentrack", "opentrack (UDP 4242)")]);
-    let gain = |s: &Value, k: &str| get(s, k).as_f64().unwrap_or(1.0) as f32;
-    if get(s, "head_tracking_source").as_str() != Some("opentrack") {
-        let scale = (gain(s, "head_tracking_yaw"), gain(s, "head_tracking_pitch"));
-        tobii_status(ui, c, s, dirty, scale);
+    let value = |s: &Value, k: &str| core::head_tracking_value(k, get(s, k).as_f64()) as f32;
+    let tobii = get(s, "head_tracking_source").as_str() != Some("opentrack");
+    if tobii {
+        let gain = ["head_tracking_yaw", "head_tracking_pitch", "head_tracking_roll"].map(|k| value(s, k));
+        let calm = crate::head_filter::Params::tobii(value(s, "head_tracking_smoothing"), value(s, "head_tracking_dead_zone"));
+        tobii_status(ui, c, s, dirty, gain, calm);
     }
-    for (id, label, key, most) in [
-        ("s-ht-yaw", "Sensitivity left and right", "head_tracking_yaw", 4.0),
-        ("s-ht-pitch", "Sensitivity up and down", "head_tracking_pitch", 4.0),
-        ("s-ht-move", "Sensitivity for leaning", "head_tracking_move", 3.0),
-    ] {
-        let mut v = gain(s, key);
-        if ui.slider(id, c.row(), &mut v, 0.0, most, 0.05, label, &|v| format!("{:.0} %", v * 100.0)) {
-            s[key] = json!((v as f64 * 20.0).round() / 20.0);
+    let pct = |v: f32| format!("{:.0} %", v * 100.0);
+    let deg = |v: f32| format!("{v:.2}°");
+    let mut rows: Vec<(&str, &str, &str, f32, &dyn Fn(f32) -> String)> = vec![
+        ("s-ht-yaw", "Sensitivity left and right", "head_tracking_yaw", 4.0, &pct),
+        ("s-ht-pitch", "Sensitivity up and down", "head_tracking_pitch", 4.0, &pct),
+        ("s-ht-roll", "Sensitivity for tilting", "head_tracking_roll", 2.0, &pct),
+        ("s-ht-move", "Sensitivity for leaning", "head_tracking_move", 3.0, &pct),
+    ];
+    // (opentrack filters its poses itself: its Accela filter)
+    if tobii {
+        rows.push(("s-ht-smooth", "Smoothing", "head_tracking_smoothing", 1.0, &pct));
+        rows.push(("s-ht-dead", "Dead zone", "head_tracking_dead_zone", 1.0, &deg));
+    }
+    for (id, label, key, most, fmt) in rows {
+        let mut v = value(s, key);
+        if ui.slider(id, c.row(), &mut v, 0.0, most, 0.05, label, fmt) {
+            s[key] = json!(core::head_tracking_value(key, Some(v as f64)));
             *dirty = 0.3;
         }
     }
+    c.y += ui.paragraph("Smoothing steadies the view against the tracker's trembling (big turns still follow at once); the dead zone leaves head movements smaller than it out. With opentrack, choose its Accela filter there.", Vec2::new(c.inner.x, c.y), c.inner.w, 11.5, Weight::Regular, TEXT_FAINT) + 4.0;
     c.y += ui.paragraph("In the game, Shift+F1 takes where your head is as the middle and Shift+F2 turns head tracking on or off (keys you can change under Controls).", Vec2::new(c.inner.x, c.y), c.inner.w, 11.5, Weight::Regular, TEXT_FAINT) + 6.0;
 }
 
-/// A Tobii eye tracker's state, and the turn the camera would make for the head as it is (with
-/// the sensitivities `scale`, left-right and up-down), and its look at the screen's edges.
-fn tobii_status(ui: &mut Ui, c: &mut Col, s: &mut Value, dirty: &mut f32, scale: (f32, f32)) {
+/// A Tobii eye tracker's state, and the turn the camera would make for the head as it is
+/// (filtered as the camera filters it, `calm`, with the sensitivities `gain`: left-right,
+/// up-down, tilt), and its look at the screen's edges.
+fn tobii_status(ui: &mut Ui, c: &mut Col, s: &mut Value, dirty: &mut f32, gain: [f32; 3], calm: crate::head_filter::Params) {
     let edges = get(s, "tobii_edges").as_bool().unwrap_or(false);
     let opts = crate::tobii::Options { edges, ..Default::default() };
     let (status, pose) = TOBII.with(|t| {
         let mut t = t.borrow_mut();
-        let (reader, at) = t.get_or_insert_with(|| (crate::tobii::Tobii::start(opts), std::time::Instant::now()));
-        *at = std::time::Instant::now();
+        let now = std::time::Instant::now();
+        let (reader, at, filter) = t.get_or_insert_with(|| (crate::tobii::Tobii::start(opts), now, Default::default()));
+        *at = now;
         reader.set_options(opts);
-        (reader.status(), reader.pose().map(|p| p.scaled(scale.0, scale.1, 1.0)))
+        let pose = filter.step(reader.sample().as_ref(), now, calm).map(|p| p.scaled(gain[0], gain[1], gain[2], 1.0));
+        (reader.status(), pose)
     });
     use crate::tobii::Status;
     let (text, colour) = match status {

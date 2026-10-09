@@ -7,10 +7,12 @@
 //! y up, z towards the player) and how it is turned (radians about those axes). The pose is
 //! taken relative to where the head was when tracking began or F1 centred it, in opentrack's
 //! terms (`HeadPose`: cm left, up, back; degrees yaw right, pitch up, roll): one source for the
-//! camera whichever device gave it. A head looks at the screen, so it turns little: the turn
-//! is made larger (`turn`, 2.5 times by default), a small dead zone keeps the view still at the
-//! middle, and the pose is smoothed a little. With `edges` on, a look at the screen's left or
-//! right edge turns the view further that way (as Tobii's "extended view" in games).
+//! camera whichever device gave it. The poses are kept as they come, with the tracker's own
+//! time; the camera glides between them and filters them frame by frame (`crate::head_filter`,
+//! the dead zone and the smoothing there). A head looks at the screen, so it turns little: the
+//! turn is made larger after the filter (`turn`, 2.5 times by default). With `edges` on, a look
+//! at the screen's left or right edge turns the view further that way (as Tobii's "extended
+//! view" in games).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -37,7 +39,7 @@ pub enum Status {
 /// How the head's pose is made into the camera's.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Options {
-    /// The head's turn times this (yaw; pitch at four fifths of it).
+    /// The head's turn times this after the filter (yaw; pitch at four fifths of it).
     pub turn: f32,
     /// A look at the screen's edges turns the view further.
     pub edges: bool,
@@ -49,25 +51,35 @@ impl Default for Options {
     }
 }
 
-/// A pose as the tracker gives it: position (mm) and rotation (radians), each when valid.
+/// A pose as the tracker gives it: position (mm) and rotation (radians), each when valid, and
+/// the tracker's time (us).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct Raw {
     pos: Option<[f32; 3]>,
     rot: [Option<f32>; 3],
+    ts_us: i64,
 }
 
 #[derive(Default)]
 struct Shared {
-    /// The last pose and when it came, smoothed.
+    /// The last pose and when it came; the last one with all of it valid (as it came), its
+    /// number, when it came, the tracker's time between it and the one before (s) and the
+    /// tracker's time of it (us).
     last: Option<(Raw, Instant)>,
-    smooth: Option<([f32; 3], [f32; 3])>,
+    latest: Option<([f32; 3], [f32; 3])>,
+    seq: u64,
+    at: Option<Instant>,
+    interval: f32,
+    ts_us: Option<i64>,
     /// Where the head was at the middle (the first poses after the start or F1), and the
     /// poses gathered for it.
     centre: Option<([f32; 3], [f32; 3])>,
     gathering: Vec<([f32; 3], [f32; 3])>,
-    /// The gaze on the screen (0..1 across and down) and when, and the extra turn it gives.
+    /// The gaze on the screen (0..1 across and down) and when, the extra turn it gives, and
+    /// when the tracker last said anything of the gaze (valid or not).
     gaze: Option<([f32; 2], Instant)>,
     edge_turn: f32,
+    gaze_heard: Option<Instant>,
     status: Status,
     /// The last pose taken (a jump from it is a glitch) and how many in a row were left out.
     prev: Option<[f32; 3]>,
@@ -83,10 +95,6 @@ pub struct Tobii {
 
 /// How many poses make the middle (Tobii gives some 30 a second).
 const CENTRE_POSES: usize = 12;
-/// The dead zone round the middle (degrees of the head's own turn).
-const DEAD: f32 = 1.2;
-/// How quickly the pose follows (s) - a little smoother than the tracker's own.
-const SMOOTH: f32 = 0.07;
 /// A turn this large between two poses (a thirtieth of a second apart: 750 degrees a second,
 /// more than a head turns) is the tracker losing the face, not the head (radians).
 const JUMP: f32 = 0.44;
@@ -124,18 +132,27 @@ impl Tobii {
         }
     }
 
-    /// The head's pose for the camera, while poses keep coming (none for half a second: the
-    /// head is centred), relative to the middle.
-    pub fn pose(&self) -> Option<HeadPose> {
+    /// The head's latest pose, relative to the middle, for the camera's filter
+    /// (`crate::head_filter`), while poses keep coming (none for half a second: the head is
+    /// centred; none while the middle is taken).
+    pub fn sample(&self) -> Option<crate::head_filter::Sample> {
         let s = self.shared.lock().ok()?;
-        let (_, at) = s.last?;
-        if at.elapsed() > Duration::from_millis(500) {
+        let (_, last) = s.last?;
+        if last.elapsed() > Duration::from_millis(500) {
             return None;
         }
-        let (pos, rot) = s.smooth?;
+        let (pos, rot) = s.latest?;
         let (cp, cr) = s.centre?;
         let o = *self.options.lock().ok()?;
-        Some(head_pose(pos, rot, cp, cr, o.turn, if o.edges { s.edge_turn } else { 0.0 }))
+        Some(crate::head_filter::Sample {
+            pose: head_pose(pos, rot, cp, cr),
+            gain: [o.turn, o.turn * 0.8, 1.0],
+            edge: if o.edges { s.edge_turn } else { 0.0 },
+            seq: s.seq,
+            at: s.at?,
+            interval: s.interval,
+            tobii: true,
+        })
     }
 
     /// Take where the head is now as the middle (F1, as the view is put straight).
@@ -153,26 +170,17 @@ impl Drop for Tobii {
     }
 }
 
-/// The dead zone: nothing within `dead` of the middle, then on from there without a jump.
-fn dead_zone(v: f32, dead: f32) -> f32 {
-    if v.abs() <= dead {
-        0.0
-    } else {
-        v - dead * v.signum()
-    }
-}
-
-/// The camera's pose from the tracker's (`pos` mm, `rot` radians, both as the tracker has
-/// them) relative to the middle (`cp`, `cr`): in opentrack's terms, the turn made `turn` times
-/// larger, `edge` degrees more yaw from a look at the screen's edge.
-fn head_pose(pos: [f32; 3], rot: [f32; 3], cp: [f32; 3], cr: [f32; 3], turn: f32, edge: f32) -> HeadPose {
+/// The head's pose from the tracker's (`pos` mm, `rot` radians, both as the tracker has them)
+/// relative to the middle (`cp`, `cr`), in opentrack's terms: the head's own turn (degrees,
+/// held to what looks at the screen) and way (cm), not yet made larger.
+fn head_pose(pos: [f32; 3], rot: [f32; 3], cp: [f32; 3], cr: [f32; 3]) -> HeadPose {
     let d = [pos[0] - cp[0], pos[1] - cp[1], pos[2] - cp[2]];
     let r = [(rot[0] - cr[0]).to_degrees(), (rot[1] - cr[1]).to_degrees(), (rot[2] - cr[2]).to_degrees()];
     // (x: the tracker's is to the player's right, opentrack's to the left; z: both away from
     // the screen. A turn about y to the left is positive for the tracker, opentrack's yaw is
     // to the right; about x up is positive for both.)
-    let yaw = -dead_zone(r[1].clamp(-MAX_YAW, MAX_YAW), DEAD) * turn + edge;
-    let pitch = dead_zone(r[0].clamp(-MAX_PITCH, MAX_PITCH), DEAD) * turn * 0.8;
+    let yaw = -r[1].clamp(-MAX_YAW, MAX_YAW);
+    let pitch = r[0].clamp(-MAX_PITCH, MAX_PITCH);
     HeadPose { pos: [-d[0] / 10.0, d[1] / 10.0, d[2] / 10.0], rot: [yaw, pitch, r[2]] }
 }
 
@@ -185,10 +193,10 @@ fn edge_yaw(gaze_x: f32, max: f32) -> f32 {
 }
 
 impl Shared {
-    /// A pose from the tracker: kept, smoothed, and while the middle is being taken gathered
-    /// for it.
+    /// A pose from the tracker: kept as it came (the time between it and the last one from the
+    /// tracker's own clock: two poses handed over at once are a thirtieth of a second apart
+    /// all the same), and while the middle is being taken gathered for it.
     fn take(&mut self, raw: Raw, now: Instant) {
-        let dt = self.last.map(|(_, t)| now.duration_since(t).as_secs_f32()).unwrap_or(0.0).min(0.5);
         self.last = Some((raw, now));
         let (Some(pos), [Some(rx), Some(ry), Some(rz)]) = (raw.pos, raw.rot) else { return };
         let rot = [rx, ry, rz];
@@ -202,12 +210,14 @@ impl Shared {
         }
         self.prev = Some(rot);
         self.glitches = 0;
-        let k = if dt > 0.0 { 1.0 - (-dt / SMOOTH).exp() } else { 1.0 };
-        let (p, r) = match self.smooth {
-            Some((p, r)) => ([0, 1, 2].map(|i| p[i] + (pos[i] - p[i]) * k), [0, 1, 2].map(|i| r[i] + (rot[i] - r[i]) * k)),
-            None => (pos, rot),
+        self.interval = match self.ts_us {
+            Some(t) if raw.ts_us > t => ((raw.ts_us - t) as f32 / 1e6).clamp(0.004, 0.1),
+            _ => 1.0 / 30.0,
         };
-        self.smooth = Some((p, r));
+        self.ts_us = Some(raw.ts_us);
+        self.latest = Some((pos, rot));
+        self.seq += 1;
+        self.at = Some(now);
         if self.centre.is_none() {
             self.gathering.push((pos, rot));
             if self.gathering.len() >= CENTRE_POSES {
@@ -227,15 +237,22 @@ impl Shared {
         }
     }
 
-    /// A gaze point: the edge turn follows it slowly (a glance does not swing the view).
+    /// A gaze point: the edge turn follows it slowly (a glance does not swing the view). A
+    /// blink - no gaze for a moment - keeps the turn as it was; gone for longer, it eases off.
+    /// (Each step counts from the last word of the tracker: counted from the last valid gaze,
+    /// a blink took the turn away faster and faster and it swung back after it.)
     fn gazed(&mut self, at: Option<[f32; 2]>, now: Instant) {
-        let dt = self.gaze.map(|(_, t)| now.duration_since(t).as_secs_f32()).unwrap_or(0.0).min(0.5);
-        let want = at.map_or(0.0, |g| edge_yaw(g[0], 40.0));
-        let k = 1.0 - (-dt / 0.35).exp();
-        self.edge_turn += (want - self.edge_turn) * k;
+        let dt = self.gaze_heard.map_or(0.0, |t| now.saturating_duration_since(t).as_secs_f32()).min(0.5);
+        self.gaze_heard = Some(now);
         if let Some(g) = at {
             self.gaze = Some((g, now));
         }
+        let want = match self.gaze {
+            Some((g, t)) if now.saturating_duration_since(t) < Duration::from_millis(300) => edge_yaw(g[0], 40.0),
+            _ => 0.0,
+        };
+        let k = 1.0 - (-dt / 0.35).exp();
+        self.edge_turn += (want - self.edge_turn) * k;
     }
 }
 
@@ -386,6 +403,7 @@ mod engine {
         let raw = Raw {
             pos: (p.position_validity == VALID).then_some(p.position_xyz),
             rot: [0, 1, 2].map(|i| (p.rotation_validity_xyz[i] == VALID).then_some(p.rotation_xyz[i])),
+            ts_us: p.timestamp_us,
         };
         if let Ok(mut s) = shared.lock() {
             s.take(raw, Instant::now());
@@ -538,7 +556,7 @@ mod tests {
                 }
             }
             if n % 25 == 0 {
-                println!("pose for the camera: {:?}", t.pose());
+                println!("pose for the camera's filter: {:?}", t.sample().map(|s| s.pose));
             }
             n += 1;
             std::thread::sleep(Duration::from_millis(20));
@@ -546,20 +564,53 @@ mod tests {
     }
 
     /// The head turned 10 degrees to the left (the tracker's +y), 4 up and 3 cm to its right:
-    /// the camera turns left, made larger, the eye moves to the right (opentrack's -x).
+    /// the camera turns left, the eye moves to the right (opentrack's -x) - in the head's own
+    /// degrees (made larger after the filter).
     #[test]
     fn the_trackers_pose_in_the_cameras_terms() {
         let c = ([0.0, 0.0, 600.0], [0.0, 0.0, 0.0]);
-        let p = head_pose([30.0, 0.0, 600.0], [4f32.to_radians(), 10f32.to_radians(), 0.0], c.0, c.1, 2.5, 0.0);
-        assert!((p.rot[0] - -(10.0 - DEAD) * 2.5).abs() < 1e-3, "{p:?}");
-        assert!((p.rot[1] - (4.0 - DEAD) * 2.5 * 0.8).abs() < 1e-3, "{p:?}");
+        let p = head_pose([30.0, 0.0, 600.0], [4f32.to_radians(), 10f32.to_radians(), 0.0], c.0, c.1);
+        assert!((p.rot[0] + 10.0).abs() < 1e-3 && (p.rot[1] - 4.0).abs() < 1e-3, "{p:?}");
         assert!((p.pos[0] + 3.0).abs() < 1e-4 && p.pos[1].abs() < 1e-4, "{p:?}");
         // (a head turned past what looks at the screen: held there)
-        let far = head_pose([0.0, 0.0, 600.0], [0.0, 80f32.to_radians(), 0.0], c.0, c.1, 2.0, 0.0);
-        assert!((far.rot[0] + (MAX_YAW - DEAD) * 2.0).abs() < 1e-3, "{far:?}");
-        // still at the middle: nothing
-        let still = head_pose([0.0, 0.0, 600.0], [0.5f32.to_radians(), -0.8f32.to_radians(), 0.0], c.0, c.1, 2.5, 0.0);
-        assert_eq!((still.rot[0], still.rot[1]), (0.0, 0.0));
+        let far = head_pose([0.0, 0.0, 600.0], [0.0, 80f32.to_radians(), 0.0], c.0, c.1);
+        assert!((far.rot[0] + MAX_YAW).abs() < 1e-3, "{far:?}");
+    }
+
+    /// The time between poses is the tracker's own: two handed over at once (the same moment
+    /// here) are still a thirtieth of a second apart, and each is one more.
+    #[test]
+    fn the_interval_comes_from_the_trackers_clock() {
+        let mut s = Shared::default();
+        let now = Instant::now();
+        let pose = |ts_us| Raw { pos: Some([0.0, 0.0, 600.0]), rot: [Some(0.0); 3], ts_us };
+        s.take(pose(1_000_000), now);
+        let seq = s.seq;
+        s.take(pose(1_033_000), now + Duration::from_millis(5));
+        s.take(pose(1_066_000), now + Duration::from_millis(5));
+        assert!((s.interval - 0.033).abs() < 1e-4, "{}", s.interval);
+        assert_eq!(s.seq, seq + 2);
+    }
+
+    /// A look at the right edge turns the view; a blink in it does not take the turn away.
+    #[test]
+    fn a_blink_keeps_the_edge_turn() {
+        let mut s = Shared::default();
+        let now = Instant::now();
+        let ms = |m: u64| now + Duration::from_millis(m);
+        for k in 0..60 {
+            s.gazed(Some([1.0, 0.5]), ms(16 * k));
+        }
+        let turned = s.edge_turn;
+        assert!(turned > 30.0, "{turned}");
+        for k in 60..70 {
+            s.gazed(None, ms(16 * k));
+        }
+        assert!((s.edge_turn - turned).abs() < 1.0, "{} after a blink", s.edge_turn);
+        for k in 70..200 {
+            s.gazed(None, ms(16 * k));
+        }
+        assert!(s.edge_turn < 2.0, "{} with the gaze gone", s.edge_turn);
     }
 
     #[test]
@@ -576,16 +627,16 @@ mod tests {
         let mut s = Shared::default();
         let now = Instant::now();
         for k in 0..CENTRE_POSES {
-            s.take(Raw { pos: Some([k as f32, 0.0, 600.0]), rot: [Some(0.0); 3] }, now + Duration::from_millis(33 * k as u64));
+            s.take(Raw { pos: Some([k as f32, 0.0, 600.0]), rot: [Some(0.0); 3], ts_us: 33_000 * k as i64 }, now + Duration::from_millis(33 * k as u64));
         }
         let (cp, _) = s.centre.expect("a middle");
         assert!((cp[0] - (CENTRE_POSES - 1) as f32 / 2.0).abs() < 1e-4);
         // (a turn of 40 degrees in a thirtieth of a second: a glitch, left out)
-        let before = s.smooth;
-        s.take(Raw { pos: Some([0.0, 0.0, 600.0]), rot: [Some(0.0), Some(40f32.to_radians()), Some(0.0)] }, now + Duration::from_millis(500));
-        assert_eq!(s.smooth, before);
+        let before = (s.latest, s.seq);
+        s.take(Raw { pos: Some([0.0, 0.0, 600.0]), rot: [Some(0.0), Some(40f32.to_radians()), Some(0.0)], ts_us: 500_000 }, now + Duration::from_millis(500));
+        assert_eq!((s.latest, s.seq), before);
         // (a pose with nothing valid is kept as the last, not used)
         s.take(Raw::default(), now + Duration::from_secs(1));
-        assert!(s.smooth.is_some());
+        assert_eq!((s.latest, s.seq), before);
     }
 }

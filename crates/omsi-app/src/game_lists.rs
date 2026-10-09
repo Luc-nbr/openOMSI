@@ -1089,6 +1089,8 @@ fn steps_of(verb: &str) -> Option<Vec<f32>> {
         "look_sens" => (2..=40).map(|v| v as f32 * 0.05).collect(),
         "ht_yaw" | "ht_pitch" => (0..=80).map(|v| v as f32 * 0.05).collect(),
         "ht_move" => (0..=60).map(|v| v as f32 * 0.05).collect(),
+        "ht_roll" => (0..=40).map(|v| v as f32 * 0.05).collect(),
+        "ht_smooth" | "ht_dead" => (0..=20).map(|v| v as f32 * 0.05).collect(),
         "look_smoothing_ms" => (0..=20).map(|v| v as f32 * 10.0).collect(),
         "pad_steer_smooth" => (0..=30).map(|v| v as f32 * 10.0).collect(),
         "seat" => (-50..=50).map(|v| v as f32 / 100.0).collect(),
@@ -1220,6 +1222,9 @@ fn option_now(app: &App, verb: &str, arg: &str) -> Option<f32> {
         "ht_yaw" => s.head_tracking_yaw,
         "ht_pitch" => s.head_tracking_pitch,
         "ht_move" => s.head_tracking_move,
+        "ht_roll" => s.head_tracking_roll,
+        "ht_smooth" => s.head_tracking_smoothing,
+        "ht_dead" => s.head_tracking_dead_zone,
         "look_smoothing_ms" => s.look_smoothing_ms,
         "pad_steer_smooth" => s.pad_steer_smooth,
         "ui_scale" => s.ui_scale,
@@ -1315,15 +1320,18 @@ fn option_set(app: &mut App, verb: &str, arg: &str, v: f32) -> Option<(&'static 
             app.settings.look_sens = (v * 100.0).round() / 100.0;
             Some(("look_sens", app.settings.look_sens.to_string()))
         }
-        "ht_yaw" | "ht_pitch" | "ht_move" => {
-            let v = (v.clamp(0.0, 4.0) * 20.0).round() / 20.0;
+        "ht_yaw" | "ht_pitch" | "ht_move" | "ht_roll" | "ht_smooth" | "ht_dead" => {
+            let s = &mut app.settings;
             let (key, to) = match verb {
-                "ht_yaw" => ("head_tracking_yaw", &mut app.settings.head_tracking_yaw),
-                "ht_pitch" => ("head_tracking_pitch", &mut app.settings.head_tracking_pitch),
-                _ => ("head_tracking_move", &mut app.settings.head_tracking_move),
+                "ht_yaw" => ("head_tracking_yaw", &mut s.head_tracking_yaw),
+                "ht_pitch" => ("head_tracking_pitch", &mut s.head_tracking_pitch),
+                "ht_roll" => ("head_tracking_roll", &mut s.head_tracking_roll),
+                "ht_smooth" => ("head_tracking_smoothing", &mut s.head_tracking_smoothing),
+                "ht_dead" => ("head_tracking_dead_zone", &mut s.head_tracking_dead_zone),
+                _ => ("head_tracking_move", &mut s.head_tracking_move),
             };
-            *to = v;
-            Some((key, v.to_string()))
+            *to = omsi_launcher_lib::head_tracking_value(key, Some(v as f64)) as f32;
+            Some((key, to.to_string()))
         }
         "pad_steer_smooth" => {
             app.settings.pad_steer_smooth = v.clamp(0.0, 300.0).round();
@@ -2400,7 +2408,10 @@ fn options_pages(app: &App) -> Vec<Page> {
         switch_row(app, "headtrack", "Head tracking", &omsi_ui::tr("Head tracking with a Tobii eye tracker or opentrack (UDP port %{port}); Shift+F2 turns it on or off").replace("%{port}", &s.head_tracking_port.to_string())),
         slider_row(app, "ht_yaw", "Sensitivity left and right", "How far the view turns left and right for a turn of the head (100 % as the tracker gives it)", &pct).filter(|_| s.head_tracking),
         slider_row(app, "ht_pitch", "Sensitivity up and down", "How far the view turns up and down for a nod of the head (100 % as the tracker gives it)", &pct).filter(|_| s.head_tracking),
+        slider_row(app, "ht_roll", "Sensitivity for tilting", "How far the view tilts when you tilt your head (0 % keeps the horizon level)", &pct).filter(|_| s.head_tracking),
         slider_row(app, "ht_move", "Sensitivity for leaning", "How far the eye moves with the head (0 % keeps it where the seat has it)", &pct).filter(|_| s.head_tracking),
+        slider_row(app, "ht_smooth", "Smoothing", "Steadies the view against the tracker's trembling; big turns still follow at once (0 %: it only glides between the tracker's poses). For opentrack, choose its Accela filter there", &pct).filter(|_| s.head_tracking && s.head_tracking_source != "opentrack"),
+        slider_row(app, "ht_dead", "Dead zone", "Head movements smaller than this leave the view where it is, wherever you look", &|v| format!("{v:.2}°")).filter(|_| s.head_tracking && s.head_tracking_source != "opentrack"),
         Some(button("Reset the head position", "Reset", "Takes where your head is now as the middle (Shift+F1)", "head_recenter")).filter(|_| s.head_tracking),
         slider_row(app, "look_sens", "Mouse look sensitivity", "How fast the view turns when looking round with the mouse (100% is OMSI's)", &pct),
         slider_row(app, "look_smoothing_ms", "Smooth the mouse look", "How long the view takes to come round to where the mouse or the stick turned it (off: at once, as OMSI)", &|v| if v <= 0.0 { "Off".to_string() } else { format!("{v:.0} ms") }),

@@ -1098,10 +1098,16 @@ impl ApplicationHandler for App {
                             if let Some(h) = self.headtrack.as_ref() {
                                 h.set_tobii(crate::tobii::Options { edges: self.settings.tobii_edges, ..Default::default() });
                             }
-                            // (with the player's sensitivities: the turns and the head's way)
-                            let gain = (self.settings.head_tracking_yaw, self.settings.head_tracking_pitch, self.settings.head_tracking_move);
-                            let tracked = self.headtrack.as_ref().and_then(|h| h.pose()).filter(|_| self.settings.head_tracking && matches!(self.view.as_str(), "driver" | "pax"))
-                                .map(|t| t.scaled(gain.0, gain.1, gain.2));
+                            // (the tracker's latest pose made calm frame by frame - glided
+                            // between the tracker's poses, its trembling filtered out, see
+                            // `crate::head_filter` - then the player's sensitivities; with head
+                            // tracking switched off or the tracker lost the view glides home)
+                            let sample = self.headtrack.as_ref().and_then(|h| h.sample()).filter(|_| self.settings.head_tracking);
+                            let calm = crate::head_filter::Params::tobii(self.settings.head_tracking_smoothing, self.settings.head_tracking_dead_zone);
+                            let gain = (self.settings.head_tracking_yaw, self.settings.head_tracking_pitch, self.settings.head_tracking_roll, self.settings.head_tracking_move);
+                            let tracked = self.head_filter.step(sample.as_ref(), std::time::Instant::now(), calm)
+                                .filter(|_| matches!(self.view.as_str(), "driver" | "pax"))
+                                .map(|t| t.scaled(gain.0, gain.1, gain.2, gain.3));
                             #[cfg(windows)]
                             let vr_on = self.vr.is_some();
                             #[cfg(not(windows))]

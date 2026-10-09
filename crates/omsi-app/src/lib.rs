@@ -15,6 +15,7 @@ mod discord;
 mod steam;
 mod voice;
 mod head_idle;
+mod head_filter;
 mod headtrack;
 #[cfg(windows)]
 mod openxr;
@@ -575,6 +576,7 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
         steam: None,
         voice: None,
         headtrack: None,
+        head_filter: Default::default(),
         headtrack_failed: None,
         controllers: None,
         mouse_drive: false,
