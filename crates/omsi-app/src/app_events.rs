@@ -1091,14 +1091,17 @@ impl ApplicationHandler for App {
                             // setting stays on: turning it off here undid the switch in the
                             // menu at once)
                             if self.settings.head_tracking && self.headtrack.is_none() && self.headtrack_failed.is_none_or(|t| t.elapsed().as_secs_f32() > 5.0) {
-                                let tobii = crate::tobii::Options { turn: self.settings.tobii_turn, edges: self.settings.tobii_edges };
+                                let tobii = crate::tobii::Options { edges: self.settings.tobii_edges, ..Default::default() };
                                 self.headtrack = crate::headtrack::HeadTracker::start_with(self.settings.head_tracking_port, &self.settings.head_tracking_source, tobii);
                                 self.headtrack_failed = self.headtrack.is_none().then(std::time::Instant::now);
                             }
                             if let Some(h) = self.headtrack.as_ref() {
-                                h.set_tobii(crate::tobii::Options { turn: self.settings.tobii_turn, edges: self.settings.tobii_edges });
+                                h.set_tobii(crate::tobii::Options { edges: self.settings.tobii_edges, ..Default::default() });
                             }
-                            let tracked = self.headtrack.as_ref().and_then(|h| h.pose()).filter(|_| self.settings.head_tracking && matches!(self.view.as_str(), "driver" | "pax"));
+                            // (with the player's sensitivities: the turns and the head's way)
+                            let gain = (self.settings.head_tracking_yaw, self.settings.head_tracking_pitch, self.settings.head_tracking_move);
+                            let tracked = self.headtrack.as_ref().and_then(|h| h.pose()).filter(|_| self.settings.head_tracking && matches!(self.view.as_str(), "driver" | "pax"))
+                                .map(|t| t.scaled(gain.0, gain.1, gain.2));
                             #[cfg(windows)]
                             let vr_on = self.vr.is_some();
                             #[cfg(not(windows))]

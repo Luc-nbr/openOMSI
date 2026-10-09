@@ -15,6 +15,8 @@ pub(crate) fn is_game_action(name: &str) -> bool {
                 | "toggel_mouse_ctrl"
                 | "toggel_ctrler"
                 | "voice_radio"
+                | "head_tracking_recenter"
+                | "head_tracking_toggle"
         )
 }
 
@@ -3807,6 +3809,27 @@ impl App {
                     let msg = if !c.any() { "No game controller found" } else if c.enabled { "Game controller on" } else { "Game controller off" };
                     self.service_msg = Some((msg.into(), 3.0));
                 }
+            }
+            // head tracking on or off (Shift+F2), as the switch in the options does it
+            "head_tracking_toggle" => {
+                let on = !self.settings.head_tracking;
+                self.settings.head_tracking = on;
+                crate::game_lists::remember_setting("head_tracking", if on { "1" } else { "0" });
+                // (the options open: the switch and the rows under it as they are now)
+                crate::game_lists::LIST_DIRTY.store(true, std::sync::atomic::Ordering::Relaxed);
+                self.service_msg = Some((if on { "Head tracking on" } else { "Head tracking off" }.into(), 2.5));
+            }
+            // the head's middle where it is now (Shift+F1), the view left as it is
+            "head_tracking_recenter" => {
+                let msg = match self.headtrack.as_ref() {
+                    _ if !self.settings.head_tracking => "Head tracking is off",
+                    Some(h) => {
+                        h.recenter();
+                        "Head position reset"
+                    }
+                    None => "No head tracker found",
+                };
+                self.service_msg = Some((msg.into(), 2.5));
             }
             _ => return false,
         }

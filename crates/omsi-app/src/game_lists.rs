@@ -785,6 +785,9 @@ pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -
                     }
                     LIST_DIRTY.store(true, std::sync::atomic::Ordering::Relaxed);
                 }
+                "head_recenter" if step => {
+                    app.game_action("head_tracking_recenter");
+                }
                 "seat_reset" if step => {
                     // (this bus's views as its .bus file has them again)
                     app.settings.seat = [0.0; 3];
@@ -1084,6 +1087,8 @@ fn steps_of(verb: &str) -> Option<Vec<f32>> {
         "ctrl_deadzone" => (0..=30).map(|v| v as f32 * 0.01).collect(),
         "mouse_sens" => (10..=300).map(|v| v as f32 / 100.0).collect(),
         "look_sens" => (2..=40).map(|v| v as f32 * 0.05).collect(),
+        "ht_yaw" | "ht_pitch" => (0..=80).map(|v| v as f32 * 0.05).collect(),
+        "ht_move" => (0..=60).map(|v| v as f32 * 0.05).collect(),
         "look_smoothing_ms" => (0..=20).map(|v| v as f32 * 10.0).collect(),
         "pad_steer_smooth" => (0..=30).map(|v| v as f32 * 10.0).collect(),
         "seat" => (-50..=50).map(|v| v as f32 / 100.0).collect(),
@@ -1212,6 +1217,9 @@ fn option_now(app: &App, verb: &str, arg: &str) -> Option<f32> {
         "pedal_b" => s.pedal_brake,
         "mouse_sens" => s.mouse_sens,
         "look_sens" => s.look_sens,
+        "ht_yaw" => s.head_tracking_yaw,
+        "ht_pitch" => s.head_tracking_pitch,
+        "ht_move" => s.head_tracking_move,
         "look_smoothing_ms" => s.look_smoothing_ms,
         "pad_steer_smooth" => s.pad_steer_smooth,
         "ui_scale" => s.ui_scale,
@@ -1306,6 +1314,16 @@ fn option_set(app: &mut App, verb: &str, arg: &str, v: f32) -> Option<(&'static 
         "look_sens" => {
             app.settings.look_sens = (v * 100.0).round() / 100.0;
             Some(("look_sens", app.settings.look_sens.to_string()))
+        }
+        "ht_yaw" | "ht_pitch" | "ht_move" => {
+            let v = (v.clamp(0.0, 4.0) * 20.0).round() / 20.0;
+            let (key, to) = match verb {
+                "ht_yaw" => ("head_tracking_yaw", &mut app.settings.head_tracking_yaw),
+                "ht_pitch" => ("head_tracking_pitch", &mut app.settings.head_tracking_pitch),
+                _ => ("head_tracking_move", &mut app.settings.head_tracking_move),
+            };
+            *to = v;
+            Some((key, v.to_string()))
         }
         "pad_steer_smooth" => {
             app.settings.pad_steer_smooth = v.clamp(0.0, 300.0).round();
@@ -2379,7 +2397,11 @@ fn options_pages(app: &App) -> Vec<Page> {
         slider_row(app, "head_idle_pace", "Sway pace", "How fast that sway moves (100% is the pace it is designed at)", &|v| format!("{:.0}%", v * 100.0)),
         switch_row(app, "hands_in_cab", "Driver's hands in the cab view", "Shows the driver's hand on the steering wheel (Cockpit only)"),
         switch_row(app, "driver", "Driver at the wheel (outside views)", "Shows the driver in the outside views and in the mirrors"),
-        switch_row(app, "headtrack", "Head tracking", &omsi_ui::tr("Head tracking with opentrack (UDP port %{port})").replace("%{port}", &s.head_tracking_port.to_string())),
+        switch_row(app, "headtrack", "Head tracking", &omsi_ui::tr("Head tracking with a Tobii eye tracker or opentrack (UDP port %{port}); Shift+F2 turns it on or off").replace("%{port}", &s.head_tracking_port.to_string())),
+        slider_row(app, "ht_yaw", "Sensitivity left and right", "How far the view turns left and right for a turn of the head (100 % as the tracker gives it)", &pct).filter(|_| s.head_tracking),
+        slider_row(app, "ht_pitch", "Sensitivity up and down", "How far the view turns up and down for a nod of the head (100 % as the tracker gives it)", &pct).filter(|_| s.head_tracking),
+        slider_row(app, "ht_move", "Sensitivity for leaning", "How far the eye moves with the head (0 % keeps it where the seat has it)", &pct).filter(|_| s.head_tracking),
+        Some(button("Reset the head position", "Reset", "Takes where your head is now as the middle (Shift+F1)", "head_recenter")).filter(|_| s.head_tracking),
         slider_row(app, "look_sens", "Mouse look sensitivity", "How fast the view turns when looking round with the mouse (100% is OMSI's)", &pct),
         slider_row(app, "look_smoothing_ms", "Smooth the mouse look", "How long the view takes to come round to where the mouse or the stick turned it (off: at once, as OMSI)", &|v| if v <= 0.0 { "Off".to_string() } else { format!("{v:.0} ms") }),
         switch_row(app, "alt_view", "Right mouse button turns the view", "Shift+right zooms; off: right zooms as in OMSI, the wheel button turns"),

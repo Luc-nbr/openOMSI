@@ -1984,9 +1984,10 @@ mod record_tests {
         assert_eq!(settings_from_text(Some("speed_unit=MPH\n"))["speed_unit"], json!("mph"));
         assert_eq!(settings_from_text(Some("speed_unit=knots\n"))["speed_unit"], json!("kmh"));
         assert!(settings_to_text(&settings_from_text(Some("speed_unit=mph\n")), None).contains("speed_unit=mph\n"));
-        // head tracking from a Tobii eye tracker kept, its turn held to its range
-        let t = settings_to_text(&settings_from_text(Some("head_tracking_source=Tobii\ntobii_turn=9\ntobii_edges=1\n")), None);
-        assert!(t.contains("head_tracking_source=tobii\n") && t.contains("tobii_turn=2.5\n") && t.contains("tobii_edges=true\n"), "{t}");
+        // head tracking from a Tobii eye tracker kept, its sensitivities held to their range
+        let t = settings_to_text(&settings_from_text(Some("head_tracking_source=Tobii\ntobii_edges=1\nhead_tracking_yaw=1.83\nhead_tracking_pitch=9\nhead_tracking_move=0\n")), None);
+        assert!(t.contains("head_tracking_source=tobii\n") && t.contains("tobii_edges=true\n"), "{t}");
+        assert!(t.contains("head_tracking_yaw=1.85\n") && t.contains("head_tracking_pitch=1\n") && t.contains("head_tracking_move=0\n"), "{t}");
         assert_eq!(settings_from_text(None)["head_tracking_source"], json!("auto"));
     }
 
@@ -2592,10 +2593,10 @@ pub fn head_tracking_source(v: &str) -> &'static str {
     }
 }
 
-/// How much larger a Tobii eye tracker's head turn is made (`tobii_turn`, 1 to 4; 2.5 when
-/// none or out of reach).
-pub fn tobii_turn(v: Option<f64>) -> f64 {
-    v.filter(|x| x.is_finite() && (1.0..=4.0).contains(x)).map(|x| (x * 10.0).round() / 10.0).unwrap_or(2.5)
+/// A sensitivity of head tracking (`head_tracking_yaw`, `_pitch`, `_move`): 0 to 4 times the
+/// pose as the tracker gives it, in twentieths; 1 when none or out of reach.
+pub fn head_tracking_gain(v: Option<f64>) -> f64 {
+    v.filter(|x| x.is_finite() && (0.0..=4.0).contains(x)).map(|x| (x * 20.0).round() / 20.0).unwrap_or(1.0)
 }
 
 /// The stop signs on the navigator's map (`stop_style`): "de" (the German H), "uk" (the
@@ -2714,11 +2715,13 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
     v["stop_style"] = json!("de");
     // speeds in km/h, or in miles an hour (players in the United Kingdom)
     v["speed_unit"] = json!("kmh");
-    // head tracking: opentrack's or a Tobii eye tracker's (natively), the tracker's turn made
-    // larger, a look at the screen's edges turning further
+    // head tracking: opentrack's or a Tobii eye tracker's (natively), a look at the screen's
+    // edges turning further, and how strongly the turns and the head's way are taken
     v["head_tracking_source"] = json!("auto");
-    v["tobii_turn"] = json!(2.5);
     v["tobii_edges"] = json!(false);
+    v["head_tracking_yaw"] = json!(1.0);
+    v["head_tracking_pitch"] = json!(1.0);
+    v["head_tracking_move"] = json!(1.0);
     // the interface's accent colour (the launcher's Settings, the palette in its bar)
     v["accent"] = json!(ACCENT_DEFAULT);
     // signing on in the navigator with the personnel number and the code, then the duty
@@ -2776,7 +2779,7 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
             "stop_style" => v[&k] = json!(stop_style(val)),
             "speed_unit" => v[&k] = json!(speed_unit(val)),
             "head_tracking_source" => v[&k] = json!(head_tracking_source(val)),
-            "tobii_turn" => v[&k] = json!(tobii_turn(val.parse::<f64>().ok())),
+            "head_tracking_yaw" | "head_tracking_pitch" | "head_tracking_move" => v[&k] = json!(head_tracking_gain(val.parse::<f64>().ok())),
             "tobii_edges" => v[&k] = json!(b(val)),
             "accent" => v[&k] = json!(accent_text(val)),
             "nav_signon" | "nav_board" => v[&k] = json!(b(val)),
@@ -3168,10 +3171,12 @@ pub fn settings_to_text(v: &Value, old: Option<&str>) -> String {
     text.push_str(&format!("welcome_done={}\nlauncher_ui={}\n", b("welcome_done", false), launcher_ui(v.get("launcher_ui").and_then(|x| x.as_str()).unwrap_or("new"))));
     text.push_str(&format!("nav_scale={}\nstop_style={}\nspeed_unit={}\n", nav_scale(v.get("nav_scale").and_then(|x| x.as_f64())), stop_style(v.get("stop_style").and_then(|x| x.as_str()).unwrap_or("de")), speed_unit(v.get("speed_unit").and_then(|x| x.as_str()).unwrap_or("kmh"))));
     text.push_str(&format!(
-        "head_tracking_source={}\ntobii_turn={}\ntobii_edges={}\n",
+        "head_tracking_source={}\ntobii_edges={}\nhead_tracking_yaw={}\nhead_tracking_pitch={}\nhead_tracking_move={}\n",
         head_tracking_source(v.get("head_tracking_source").and_then(|x| x.as_str()).unwrap_or("auto")),
-        tobii_turn(v.get("tobii_turn").and_then(|x| x.as_f64())),
-        v.get("tobii_edges").and_then(|x| x.as_bool()).unwrap_or(false)
+        v.get("tobii_edges").and_then(|x| x.as_bool()).unwrap_or(false),
+        head_tracking_gain(v.get("head_tracking_yaw").and_then(|x| x.as_f64())),
+        head_tracking_gain(v.get("head_tracking_pitch").and_then(|x| x.as_f64())),
+        head_tracking_gain(v.get("head_tracking_move").and_then(|x| x.as_f64())),
     ));
     text.push_str(&format!("accent={}\n", accent_text(v.get("accent").and_then(|x| x.as_str()).unwrap_or(ACCENT_DEFAULT))));
     text.push_str(&format!("nav_signon={}\n", b("nav_signon", false)));

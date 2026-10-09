@@ -1055,22 +1055,40 @@ pub(crate) fn tobii_idle() {
 
 /// Under the head tracking switch: where the pose comes from, and for a Tobii eye tracker
 /// (`crate::tobii`, read natively) what it says now - found, connected, and the turn the
-/// camera would make for the head as it is (to see left is left) - how much larger its turn
-/// is made, and the look at the screen's edges.
+/// camera would make for the head as it is (to see left is left) - and the look at the
+/// screen's edges; for every source the sensitivities and the game's keys for it.
 fn tobii_rows(ui: &mut Ui, c: &mut Col, s: &mut Value, dirty: &mut f32) {
     sel_setting(ui, s, dirty, "s-head-source", c.row(), "Head tracking with", "head_tracking_source", &[("auto", "Automatic"), ("tobii", "Tobii eye tracker"), ("opentrack", "opentrack (UDP 4242)")]);
-    if get(s, "head_tracking_source").as_str() == Some("opentrack") {
-        return;
+    let gain = |s: &Value, k: &str| get(s, k).as_f64().unwrap_or(1.0) as f32;
+    if get(s, "head_tracking_source").as_str() != Some("opentrack") {
+        let scale = (gain(s, "head_tracking_yaw"), gain(s, "head_tracking_pitch"));
+        tobii_status(ui, c, s, dirty, scale);
     }
-    let turn = get(s, "tobii_turn").as_f64().unwrap_or(2.5) as f32;
+    for (id, label, key, most) in [
+        ("s-ht-yaw", "Sensitivity left and right", "head_tracking_yaw", 4.0),
+        ("s-ht-pitch", "Sensitivity up and down", "head_tracking_pitch", 4.0),
+        ("s-ht-move", "Sensitivity for leaning", "head_tracking_move", 3.0),
+    ] {
+        let mut v = gain(s, key);
+        if ui.slider(id, c.row(), &mut v, 0.0, most, 0.05, label, &|v| format!("{:.0} %", v * 100.0)) {
+            s[key] = json!((v as f64 * 20.0).round() / 20.0);
+            *dirty = 0.3;
+        }
+    }
+    c.y += ui.paragraph("In the game, Shift+F1 takes where your head is as the middle and Shift+F2 turns head tracking on or off (keys you can change under Controls).", Vec2::new(c.inner.x, c.y), c.inner.w, 11.5, Weight::Regular, TEXT_FAINT) + 6.0;
+}
+
+/// A Tobii eye tracker's state, and the turn the camera would make for the head as it is (with
+/// the sensitivities `scale`, left-right and up-down), and its look at the screen's edges.
+fn tobii_status(ui: &mut Ui, c: &mut Col, s: &mut Value, dirty: &mut f32, scale: (f32, f32)) {
     let edges = get(s, "tobii_edges").as_bool().unwrap_or(false);
-    let opts = crate::tobii::Options { turn, edges };
+    let opts = crate::tobii::Options { edges, ..Default::default() };
     let (status, pose) = TOBII.with(|t| {
         let mut t = t.borrow_mut();
         let (reader, at) = t.get_or_insert_with(|| (crate::tobii::Tobii::start(opts), std::time::Instant::now()));
         *at = std::time::Instant::now();
         reader.set_options(opts);
-        (reader.status(), reader.pose())
+        (reader.status(), reader.pose().map(|p| p.scaled(scale.0, scale.1, 1.0)))
     });
     use crate::tobii::Status;
     let (text, colour) = match status {
@@ -1094,13 +1112,7 @@ fn tobii_rows(ui: &mut Ui, c: &mut Col, s: &mut Value, dirty: &mut f32) {
     };
     c.y += ui.paragraph(&text, Vec2::new(c.inner.x, c.y), c.inner.w, 12.0, Weight::Medium, colour) + 6.0;
     ui.keep_moving();
-    let mut t = turn;
-    if ui.slider("s-tobii-turn", c.row(), &mut t, 1.0, 4.0, 0.1, "Head turn strength (Tobii)", &|v| format!("×{v:.1}")) {
-        s["tobii_turn"] = json!((t * 10.0).round() / 10.0);
-        *dirty = 0.3;
-    }
     toggle_setting(ui, s, dirty, c.row(), "Look further at the screen's edges (Tobii)", "tobii_edges");
-    c.y += ui.paragraph("In the game, F1 takes where your head is as the middle.", Vec2::new(c.inner.x, c.y), c.inner.w, 11.5, Weight::Regular, TEXT_FAINT) + 6.0;
 }
 
 /// A column of a settings tab: its panel, and the rows and sections laid down it.
@@ -1961,8 +1973,9 @@ fn mb(v: i64) -> String {
 /// The game's own actions a controller's button can be given, besides the bus's: the doors
 /// and gears of any bus, looking round while held, the bus radio while held, the cameras
 /// and the views - both of OMSI's view resets, the one view's (C) and every view's (Space),
-/// which a controller could not bring back to the first camera (#1167).
-const PAD_GAME_ACTIONS: [&str; 26] = ["doors_all", "door_4", "door_3", "door_2", "door_1", "gear_up", "gear_down", "view_look_left", "view_look_right", "view_look_up", "view_look_down", "view_reset_direction", "view_reset_all_directions", "view_interiorcam_plus", "view_interiorcam_minus", "view_toggle_viewpoint", "view_toggle_interior", "view_set_driver", "view_set_passenger", "view_set_outside", "sim_pause", "screenshot", "quicksave", "toggel_mouse_ctrl", "toggel_ctrler", "voice_radio"];
+/// which a controller could not bring back to the first camera (#1167) - and head tracking's
+/// switch and the reset of the head's middle.
+const PAD_GAME_ACTIONS: [&str; 28] = ["head_tracking_recenter", "head_tracking_toggle", "doors_all", "door_4", "door_3", "door_2", "door_1", "gear_up", "gear_down", "view_look_left", "view_look_right", "view_look_up", "view_look_down", "view_reset_direction", "view_reset_all_directions", "view_interiorcam_plus", "view_interiorcam_minus", "view_toggle_viewpoint", "view_toggle_interior", "view_set_driver", "view_set_passenger", "view_set_outside", "sim_pause", "screenshot", "quicksave", "toggel_mouse_ctrl", "toggel_ctrler", "voice_radio"];
 
 fn action_text(names: &crate::describe::ControlNames, a: &str) -> String {
     known_action(a).unwrap_or_else(|| names.control(a))
@@ -2017,6 +2030,8 @@ fn known_action(a: &str) -> Option<String> {
         ("view_set_outside", "Outside view"),
         ("view_toggle_viewpoint", "Next view"),
         ("view_toggle_interior", "Cabin and outside, one key"),
+        ("head_tracking_recenter", "Head tracking: reset the head position"),
+        ("head_tracking_toggle", "Head tracking on / off"),
         ("vr_recenter", "VR: Reset view"),
         ("vr_toggle_desktop_mirror", "VR: Monitor preview"),
         ("vr_toggle_mode", "VR: Switch VR / desktop"),
