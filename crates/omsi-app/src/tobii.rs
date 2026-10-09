@@ -133,12 +133,12 @@ impl Tobii {
     }
 
     /// The head's latest pose, relative to the middle, for the camera's filter
-    /// (`crate::head_filter`), while poses keep coming (none for half a second: the head is
-    /// centred; none while the middle is taken).
+    /// (`crate::head_filter`), while valid poses keep coming (none for half a second - the
+    /// face lost: the tracker goes on with poses that have nothing valid - and the view goes
+    /// home; none while the middle is taken).
     pub fn sample(&self) -> Option<crate::head_filter::Sample> {
         let s = self.shared.lock().ok()?;
-        let (_, last) = s.last?;
-        if last.elapsed() > Duration::from_millis(500) {
+        if s.at?.elapsed() > Duration::from_millis(500) {
             return None;
         }
         let (pos, rot) = s.latest?;
@@ -590,6 +590,23 @@ mod tests {
         s.take(pose(1_066_000), now + Duration::from_millis(5));
         assert!((s.interval - 0.033).abs() < 1e-4, "{}", s.interval);
         assert_eq!(s.seq, seq + 2);
+    }
+
+    /// The face lost: the tracker goes on with poses that have nothing valid, and after half a
+    /// second there is no pose for the camera (its view goes home); a valid pose, and there is.
+    #[test]
+    fn a_lost_face_gives_no_pose() {
+        let now = Instant::now();
+        let Some(then) = now.checked_sub(Duration::from_millis(700)) else { return };
+        let mut s = Shared::default();
+        for k in 0..CENTRE_POSES as i64 {
+            s.take(Raw { pos: Some([0.0, 0.0, 600.0]), rot: [Some(0.0); 3], ts_us: 33_000 * k }, then);
+        }
+        s.take(Raw::default(), now);
+        let t = Tobii { shared: Arc::new(Mutex::new(s)), stop: Arc::default(), options: Arc::default() };
+        assert!(t.sample().is_none());
+        t.shared.lock().unwrap().take(Raw { pos: Some([0.0, 0.0, 600.0]), rot: [Some(0.0); 3], ts_us: 1_000_000 }, Instant::now());
+        assert!(t.sample().is_some());
     }
 
     /// A look at the right edge turns the view; a blink in it does not take the turn away.
