@@ -1091,8 +1091,12 @@ impl ApplicationHandler for App {
                             // setting stays on: turning it off here undid the switch in the
                             // menu at once)
                             if self.settings.head_tracking && self.headtrack.is_none() && self.headtrack_failed.is_none_or(|t| t.elapsed().as_secs_f32() > 5.0) {
-                                self.headtrack = crate::headtrack::HeadTracker::start(self.settings.head_tracking_port);
+                                let tobii = crate::tobii::Options { turn: self.settings.tobii_turn, edges: self.settings.tobii_edges };
+                                self.headtrack = crate::headtrack::HeadTracker::start_with(self.settings.head_tracking_port, &self.settings.head_tracking_source, tobii);
                                 self.headtrack_failed = self.headtrack.is_none().then(std::time::Instant::now);
+                            }
+                            if let Some(h) = self.headtrack.as_ref() {
+                                h.set_tobii(crate::tobii::Options { turn: self.settings.tobii_turn, edges: self.settings.tobii_edges });
                             }
                             let tracked = self.headtrack.as_ref().and_then(|h| h.pose()).filter(|_| self.settings.head_tracking && matches!(self.view.as_str(), "driver" | "pax"));
                             #[cfg(windows)]

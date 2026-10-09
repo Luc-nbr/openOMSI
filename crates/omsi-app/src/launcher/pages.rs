@@ -1037,6 +1037,72 @@ pub fn reset_dialog(l: &mut Launcher) {
     }
 }
 
+thread_local! {
+    /// A Tobii eye tracker read while the settings show it (`tobii_rows`), and when they last
+    /// did: let go a moment after (`tobii_idle`).
+    static TOBII: std::cell::RefCell<Option<(crate::tobii::Tobii, std::time::Instant)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The settings left: the tracker read for them is let go.
+pub(crate) fn tobii_idle() {
+    TOBII.with(|t| {
+        let mut t = t.borrow_mut();
+        if t.as_ref().is_some_and(|(_, at)| at.elapsed().as_secs_f32() > 1.5) {
+            *t = None;
+        }
+    });
+}
+
+/// Under the head tracking switch: where the pose comes from, and for a Tobii eye tracker
+/// (`crate::tobii`, read natively) what it says now - found, connected, and the turn the
+/// camera would make for the head as it is (to see left is left) - how much larger its turn
+/// is made, and the look at the screen's edges.
+fn tobii_rows(ui: &mut Ui, c: &mut Col, s: &mut Value, dirty: &mut f32) {
+    sel_setting(ui, s, dirty, "s-head-source", c.row(), "Head tracking with", "head_tracking_source", &[("auto", "Automatic"), ("tobii", "Tobii eye tracker"), ("opentrack", "opentrack (UDP 4242)")]);
+    if get(s, "head_tracking_source").as_str() == Some("opentrack") {
+        return;
+    }
+    let turn = get(s, "tobii_turn").as_f64().unwrap_or(2.5) as f32;
+    let edges = get(s, "tobii_edges").as_bool().unwrap_or(false);
+    let opts = crate::tobii::Options { turn, edges };
+    let (status, pose) = TOBII.with(|t| {
+        let mut t = t.borrow_mut();
+        let (reader, at) = t.get_or_insert_with(|| (crate::tobii::Tobii::start(opts), std::time::Instant::now()));
+        *at = std::time::Instant::now();
+        reader.set_options(opts);
+        (reader.status(), reader.pose())
+    });
+    use crate::tobii::Status;
+    let (text, colour) = match status {
+        Status::Starting => (omsi_ui::tr("Looking for a Tobii eye tracker…").into_owned(), TEXT_DIM),
+        Status::NoRuntime => (omsi_ui::tr("No Tobii software found: install the Tobii Experience.").into_owned(), WARN),
+        Status::NoDevice => (omsi_ui::tr("No Tobii eye tracker connected.").into_owned(), WARN),
+        Status::Failed(e) => (omsi_ui::tr("The Tobii eye tracker could not be used: %{e}").replace("%{e}", &e), WARN),
+        Status::Connected(_) => {
+            let way = match pose {
+                Some(p) if p.rot[0].abs() >= 0.5 || p.rot[1].abs() >= 0.5 => {
+                    // (in words: the interface's font has no arrow to the left)
+                    let side = omsi_ui::tr(if p.rot[0] < 0.0 { "left %{n}°" } else { "right %{n}°" }).replace("%{n}", &format!("{:.0}", p.rot[0].abs()));
+                    let up = omsi_ui::tr(if p.rot[1] < 0.0 { "down %{n}°" } else { "up %{n}°" }).replace("%{n}", &format!("{:.0}", p.rot[1].abs()));
+                    format!("{side} · {up}")
+                }
+                Some(_) => omsi_ui::tr("straight ahead").into_owned(),
+                None => "…".to_string(),
+            };
+            (omsi_ui::tr("Tobii eye tracker connected - turn your head to try it: %{turn}").replace("%{turn}", &way), OK)
+        }
+    };
+    c.y += ui.paragraph(&text, Vec2::new(c.inner.x, c.y), c.inner.w, 12.0, Weight::Medium, colour) + 6.0;
+    ui.keep_moving();
+    let mut t = turn;
+    if ui.slider("s-tobii-turn", c.row(), &mut t, 1.0, 4.0, 0.1, "Head turn strength (Tobii)", &|v| format!("×{v:.1}")) {
+        s["tobii_turn"] = json!((t * 10.0).round() / 10.0);
+        *dirty = 0.3;
+    }
+    toggle_setting(ui, s, dirty, c.row(), "Look further at the screen's edges (Tobii)", "tobii_edges");
+    c.y += ui.paragraph("In the game, F1 takes where your head is as the middle.", Vec2::new(c.inner.x, c.y), c.inner.w, 11.5, Weight::Regular, TEXT_FAINT) + 6.0;
+}
+
 /// A column of a settings tab: its panel, and the rows and sections laid down it.
 struct Col {
     top: f32,
@@ -1430,7 +1496,10 @@ fn camera_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, co
     toggle_setting(ui, s, dirty, c.row(), "Camera collisions (outside view)", "camera_collision");
     toggle_setting(ui, s, dirty, c.row(), "Driver at the wheel (outside views)", "driver");
     c.section(ui, "Head tracking");
-    toggle_setting(ui, s, dirty, c.row(), "Head tracking (TrackIR and others through opentrack, UDP 4242)", "head_tracking");
+    toggle_setting(ui, s, dirty, c.row(), "Head tracking (Tobii eye trackers, TrackIR and others through opentrack)", "head_tracking");
+    if get(s, "head_tracking").as_bool().unwrap_or(false) {
+        tobii_rows(ui, &mut c, s, dirty);
+    }
     c.section(ui, "Triple screen");
     toggle_setting(
         ui,

@@ -63,6 +63,7 @@ mod nav_signon;
 mod nav_pins;
 mod stop_signs;
 mod splash;
+mod tobii;
 mod units;
 mod vr_navigator;
 mod money;

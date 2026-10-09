@@ -29,6 +29,8 @@ impl HeadPose {
 
 pub struct HeadTracker {
     last: Arc<Mutex<Option<(HeadPose, Instant)>>>,
+    /// A Tobii eye tracker read natively (`crate::tobii`), when the source asks for one.
+    tobii: Option<crate::tobii::Tobii>,
 }
 
 impl HeadTracker {
@@ -109,13 +111,45 @@ impl HeadTracker {
         if listening {
             log::info!("head tracking: listening for opentrack on UDP port {port}");
         }
-        Some(HeadTracker { last })
+        Some(HeadTracker { last, tobii: None })
     }
 
-    /// The pose, while poses keep coming (none for half a second: the head is centred).
+    /// The source the setting `head_tracking_source` names: "opentrack" (its UDP output and
+    /// freetrack, as `start`), "tobii" (a Tobii eye tracker natively, `crate::tobii`) or
+    /// "auto" (both: opentrack's pose while it comes - its own curves - else the tracker's).
+    pub fn start_with(port: u16, source: &str, tobii: crate::tobii::Options) -> Option<HeadTracker> {
+        let reader = (source != "opentrack").then(|| crate::tobii::Tobii::start(tobii));
+        let udp = if source == "tobii" { None } else { HeadTracker::start(port) };
+        match (udp, reader) {
+            (Some(mut t), r) => {
+                t.tobii = r;
+                Some(t)
+            }
+            (None, Some(r)) => Some(HeadTracker { last: Arc::default(), tobii: Some(r) }),
+            (None, None) => None,
+        }
+    }
+
+    /// The Tobii tracker's middle taken anew where the head is now (F1, as the view is put
+    /// straight).
+    pub fn recenter(&self) {
+        if let Some(t) = &self.tobii {
+            t.recenter();
+        }
+    }
+
+    /// The Tobii tracker's settings as they are now (they may change in the game's options).
+    pub fn set_tobii(&self, o: crate::tobii::Options) {
+        if let Some(t) = &self.tobii {
+            t.set_options(o);
+        }
+    }
+
+    /// The pose, while poses keep coming (none for half a second: the head is centred):
+    /// opentrack's, else the Tobii tracker's.
     pub fn pose(&self) -> Option<HeadPose> {
-        let l = self.last.lock().ok()?;
-        l.filter(|(_, t)| t.elapsed() < Duration::from_millis(500)).map(|(p, _)| p)
+        let udp = self.last.lock().ok().and_then(|l| l.filter(|(_, t)| t.elapsed() < Duration::from_millis(500)).map(|(p, _)| p));
+        udp.or_else(|| self.tobii.as_ref().and_then(|t| t.pose()))
     }
 }
 

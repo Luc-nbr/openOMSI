@@ -1984,6 +1984,10 @@ mod record_tests {
         assert_eq!(settings_from_text(Some("speed_unit=MPH\n"))["speed_unit"], json!("mph"));
         assert_eq!(settings_from_text(Some("speed_unit=knots\n"))["speed_unit"], json!("kmh"));
         assert!(settings_to_text(&settings_from_text(Some("speed_unit=mph\n")), None).contains("speed_unit=mph\n"));
+        // head tracking from a Tobii eye tracker kept, its turn held to its range
+        let t = settings_to_text(&settings_from_text(Some("head_tracking_source=Tobii\ntobii_turn=9\ntobii_edges=1\n")), None);
+        assert!(t.contains("head_tracking_source=tobii\n") && t.contains("tobii_turn=2.5\n") && t.contains("tobii_edges=true\n"), "{t}");
+        assert_eq!(settings_from_text(None)["head_tracking_source"], json!("auto"));
     }
 
     /// The duty board under the navigator is on unless switched off; the navigator's dragged
@@ -2578,6 +2582,22 @@ pub fn speed_unit(v: &str) -> &'static str {
     }
 }
 
+/// Where the head's pose comes from (`head_tracking_source`): "opentrack", "tobii" (a Tobii
+/// eye tracker read natively) or "auto" (both, opentrack's first).
+pub fn head_tracking_source(v: &str) -> &'static str {
+    match v.trim().to_ascii_lowercase().as_str() {
+        "opentrack" | "udp" => "opentrack",
+        "tobii" => "tobii",
+        _ => "auto",
+    }
+}
+
+/// How much larger a Tobii eye tracker's head turn is made (`tobii_turn`, 1 to 4; 2.5 when
+/// none or out of reach).
+pub fn tobii_turn(v: Option<f64>) -> f64 {
+    v.filter(|x| x.is_finite() && (1.0..=4.0).contains(x)).map(|x| (x * 10.0).round() / 10.0).unwrap_or(2.5)
+}
+
 /// The stop signs on the navigator's map (`stop_style`): "de" (the German H), "uk" (the
 /// British bus stop flag) or "fr" (the French arrêt); anything else the German.
 pub fn stop_style(v: &str) -> &'static str {
@@ -2694,6 +2714,11 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
     v["stop_style"] = json!("de");
     // speeds in km/h, or in miles an hour (players in the United Kingdom)
     v["speed_unit"] = json!("kmh");
+    // head tracking: opentrack's or a Tobii eye tracker's (natively), the tracker's turn made
+    // larger, a look at the screen's edges turning further
+    v["head_tracking_source"] = json!("auto");
+    v["tobii_turn"] = json!(2.5);
+    v["tobii_edges"] = json!(false);
     // the interface's accent colour (the launcher's Settings, the palette in its bar)
     v["accent"] = json!(ACCENT_DEFAULT);
     // signing on in the navigator with the personnel number and the code, then the duty
@@ -2750,6 +2775,9 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
             "nav_scale" => v[&k] = json!(nav_scale(val.parse::<f64>().ok())),
             "stop_style" => v[&k] = json!(stop_style(val)),
             "speed_unit" => v[&k] = json!(speed_unit(val)),
+            "head_tracking_source" => v[&k] = json!(head_tracking_source(val)),
+            "tobii_turn" => v[&k] = json!(tobii_turn(val.parse::<f64>().ok())),
+            "tobii_edges" => v[&k] = json!(b(val)),
             "accent" => v[&k] = json!(accent_text(val)),
             "nav_signon" | "nav_board" => v[&k] = json!(b(val)),
             "nav_rect" => v[&k] = json!(nav_rect(val)),
@@ -3139,6 +3167,12 @@ pub fn settings_to_text(v: &Value, old: Option<&str>) -> String {
     text.push_str(&format!("animations={}\npage_bus={}\ndark_mode={}\nbus_lead={}\n", b("animations", true), b("page_bus", false), b("dark_mode", false), bus_lead(Some(n("bus_lead", BUS_LEAD_DEFAULT)))));
     text.push_str(&format!("welcome_done={}\nlauncher_ui={}\n", b("welcome_done", false), launcher_ui(v.get("launcher_ui").and_then(|x| x.as_str()).unwrap_or("new"))));
     text.push_str(&format!("nav_scale={}\nstop_style={}\nspeed_unit={}\n", nav_scale(v.get("nav_scale").and_then(|x| x.as_f64())), stop_style(v.get("stop_style").and_then(|x| x.as_str()).unwrap_or("de")), speed_unit(v.get("speed_unit").and_then(|x| x.as_str()).unwrap_or("kmh"))));
+    text.push_str(&format!(
+        "head_tracking_source={}\ntobii_turn={}\ntobii_edges={}\n",
+        head_tracking_source(v.get("head_tracking_source").and_then(|x| x.as_str()).unwrap_or("auto")),
+        tobii_turn(v.get("tobii_turn").and_then(|x| x.as_f64())),
+        v.get("tobii_edges").and_then(|x| x.as_bool()).unwrap_or(false)
+    ));
     text.push_str(&format!("accent={}\n", accent_text(v.get("accent").and_then(|x| x.as_str()).unwrap_or(ACCENT_DEFAULT))));
     text.push_str(&format!("nav_signon={}\n", b("nav_signon", false)));
     text.push_str(&format!("nav_board={}\nnav_rect={}\n", b("nav_board", true), nav_rect(v.get("nav_rect").and_then(|x| x.as_str()).unwrap_or(""))));

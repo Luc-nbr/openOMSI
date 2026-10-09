@@ -1074,6 +1074,8 @@ impl Launcher {
         }
         // (the game's loading screen over it all, for pictures: OMSI_LAUNCHER_SPLASH)
         crate::splash::preview(&mut self.ui);
+        // (a Tobii tracker read for the settings: let go once they are left)
+        pages::tobii_idle();
         let (layers, verts, ranges) = self.ui.finish();
         self.touch_frame();
 
