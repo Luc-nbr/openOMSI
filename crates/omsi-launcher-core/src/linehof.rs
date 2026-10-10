@@ -132,35 +132,50 @@ pub enum Role {
     ClearName,
     ExtraSign,
     Bitmap,
+    /// Any text in it makes the trip a special one (the matrix script hides the line number).
+    Special,
+    /// The small sign at the back.
+    Rear,
+    /// Read by some buses' signs only, which show string `n` when it is empty.
+    Fallback(u8),
     Other,
 }
 
 /// The layout of OMSI's own depot files (Grundorf, Spandau), taken for a file that has no
-/// notes of its own but looks like one (a texture name fifth).
+/// notes of its own but looks like one.
 const USUAL: [Role; 8] = [Role::IbisDisplay, Role::FrontTop, Role::FrontBottom, Role::Side, Role::RollerBlind, Role::ClearName, Role::ExtraSign, Role::Bitmap];
 
-impl Role {
-    /// Its label in the line editor (an interface text).
-    pub fn label(self) -> &'static str {
-        match self {
-            Role::IbisDisplay => "IBIS display",
-            Role::FrontTop => "Front, line 1",
-            Role::FrontBottom => "Front, line 2",
-            Role::Side => "Side",
-            Role::RollerBlind => "Roller blind texture",
-            Role::ClearName => "IBIS 2 (name as written)",
-            Role::ExtraSign => "Extra sign",
-            Role::Bitmap => "Picture",
-            Role::Other => "Text %{n}",
-        }
-    }
+/// OMSI's layout for a file of `n` strings: those after the eighth for nothing it names.
+fn usual_roles(n: usize) -> Vec<Role> {
+    (0..n).map(|k| USUAL.get(k).copied().unwrap_or(Role::Other)).collect()
+}
 
+/// The string a note says is shown when this one is empty ("Wenn diese Zeile leer ist, wird
+/// String 1 ausgelesen"), if it says so.
+fn fallback_of(l: &str) -> Option<u8> {
+    // (a note on centring with spaces is no fallback)
+    let l = l.replace("leerzeichen", "");
+    if !["leer", "empty", "ausgelesen", "falls back"].iter().any(|w| l.contains(w)) {
+        return None;
+    }
+    l.match_indices("string").find_map(|(at, w)| {
+        let digits: String = l[at + w.len()..].trim_start().chars().take_while(char::is_ascii_digit).collect();
+        digits.parse::<u8>().ok()
+    })
+}
+
+impl Role {
     /// The role a depot file's note on a string describes (the stock files' German ones, and
     /// English).
     pub fn from_note(note: &str) -> Role {
         let l = note.to_lowercase();
         let has = |w: &[&str]| w.iter().any(|x| l.contains(x));
-        if has(&["sonderziel", "special"]) {
+        if has(&["sonderziel"]) || (l.contains("special") && !l.contains("special char")) {
+            Role::Special
+        } else if let Some(n) = fallback_of(&l) {
+            Role::Fallback(n)
+        } else if has(&["code", "kürzel", "kuerzel"]) {
+            // (before the IBIS: "IBIS-Code für Gegenroute" is no display)
             Role::Other
         } else if has(&["ibis2", "ibis 2", "klarname", "clear name"]) {
             Role::ClearName
@@ -168,6 +183,8 @@ impl Role {
             Role::Bitmap
         } else if has(&["steckschild", "zusätzliches schild", "zusaetzliches schild", "additional sign", "extra sign"]) {
             Role::ExtraSign
+        } else if has(&["heckanzeige", "heckschild", "rear"]) || l.trim_start().starts_with("heck") {
+            Role::Rear
         } else if has(&["ibis"]) {
             Role::IbisDisplay
         } else if has(&["rollband", "roller", "fallblatt", "textur", "texture", ".tga"]) {
@@ -219,15 +236,27 @@ pub fn note_max(note: &str) -> Option<usize> {
 }
 
 /// The roles of a depot file's strings: from its notes, else OMSI's usual layout when the file
-/// looks like it, else unknown.
+/// looks like it, else its first text the front.
 pub fn roles(notes: &[String], cols: &[Column]) -> Vec<Role> {
     if notes.iter().any(|x| !x.is_empty()) {
         return notes.iter().map(|x| if x.is_empty() { Role::Other } else { Role::from_note(x) }).collect();
     }
-    if notes.len() >= 6 && matches!(cols.get(4), Some(Column::File(_))) {
-        return (0..notes.len()).map(|k| USUAL.get(k).copied().unwrap_or(Role::Other)).collect();
+    let text = |k: usize| matches!(cols.get(k), Some(Column::Text { .. }));
+    // OMSI's layout is what nearly every depot file has, notes or not: a texture fifth
+    // (Grundorf, Spandau), or that string left empty (the HOF Suite's files: Bad Hügelsdorf
+    // 2020, Hohenkirchen) - or a small file without one, its second and third the front's
+    // rows (the buses read the strings by their place)
+    let usual = match cols.get(4) {
+        Some(Column::File(_)) => true,
+        Some(Column::Empty) | None => text(1) || text(2),
+        Some(Column::Text { .. }) => false,
+    };
+    if usual {
+        return usual_roles(notes.len());
     }
-    vec![Role::Other; notes.len()]
+    // a layout of its own: its first text is the front, as `front` shows it
+    let first = cols.iter().position(|c| matches!(c, Column::Text { .. }));
+    (0..notes.len()).map(|k| if Some(k) == first { Role::FrontTop } else { Role::Other }).collect()
 }
 
 /// What a column of a depot file's strings holds, as its rows show it.
@@ -279,17 +308,17 @@ pub fn columns(rows: &[Vec<String>], count: usize, notes: &[String]) -> Vec<Colu
 
 // --- texts made from a name ------------------------------------------------------------------
 
-/// `name` in at most `max` characters: the endings signs shorten (Straße → Str., Bahnhof →
-/// Bhf., Platz → Pl.) shortened, then cut.
-pub fn shorten(name: &str, max: usize) -> String {
-    let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
-    if name.chars().count() <= max {
-        return name;
-    }
+/// `name` with the endings signs shorten shortened (Straße → Str., Bahnhof → Bhf., Platz →
+/// Pl.), its words as they are otherwise.
+fn abbreviated(name: &str) -> String {
     const ENDS: [(&str, &str); 6] = [("hauptbahnhof", "hbf."), ("bahnhof", "bhf."), ("straße", "str."), ("strasse", "str."), ("platz", "pl."), ("allee", "al.")];
-    let words: Vec<String> = name
-        .split(' ')
+    name.split(' ')
         .map(|w| {
+            // (a comma after the word stays after its short form)
+            let (w, comma) = match w.strip_suffix(',') {
+                Some(x) => (x, ","),
+                None => (w, ""),
+            };
             let low = w.to_lowercase();
             let caps = w.chars().any(char::is_alphabetic) && w.to_uppercase() == w;
             for (end, short) in ENDS {
@@ -304,13 +333,48 @@ pub fn shorten(name: &str, max: usize) -> String {
                     } else {
                         short.to_string()
                     };
-                    return keep + &short;
+                    return keep + &short + comma;
                 }
             }
-            w.to_string()
+            format!("{w}{comma}")
         })
-        .collect();
-    words.join(" ").chars().take(max).collect::<String>().trim_end().to_string()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// `name` in at most `max` characters. A name too long keeps what a sign shows of it: a place
+/// and its stop ("Hohenkirchen, Flugplatz") without the comma, with the endings shortened
+/// (Straße → Str., Bahnhof → Bhf.) where that is not enough, else the stop alone as the stock
+/// files write it ("Therme"); only then is it cut.
+pub fn shorten(name: &str, max: usize) -> String {
+    let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
+    let fits = |s: &str| s.chars().count() <= max;
+    if fits(&name) {
+        return name;
+    }
+    let short = abbreviated(&name);
+    let Some(at) = name.rfind(", ") else {
+        return if fits(&short) { short } else { short.chars().take(max).collect::<String>().trim_end().to_string() };
+    };
+    let joined = name.replace(", ", " ");
+    if fits(&joined) {
+        return joined;
+    }
+    let joined = short.replace(", ", " ");
+    if fits(&joined) {
+        return joined;
+    }
+    let stop = name[at + 2..].trim();
+    if stop.chars().count() >= 3 {
+        if fits(stop) {
+            return stop.to_string();
+        }
+        let s = abbreviated(stop);
+        if fits(&s) {
+            return s;
+        }
+    }
+    joined.chars().take(max).collect::<String>().trim_end().to_string()
 }
 
 /// `name` the way a column writes it: in capitals or not, shortened to its length.
@@ -344,7 +408,9 @@ fn two_lines(name: &str, upper: bool, top: usize, bottom: usize) -> (String, Str
     }
     let k = k.max(1);
     if k < words.len() {
-        return (shorten(&words[..k].join(" "), top), shorten(&words[k..].join(" "), bottom));
+        // (a place's comma goes where its name is split: "Hohenkirchen" over "Therme")
+        let first = shorten(&words[..k].join(" "), top);
+        return (first.trim_end_matches(',').trim_end().to_string(), shorten(&words[k..].join(" "), bottom));
     }
     (shorten(&s, top), String::new())
 }
@@ -373,6 +439,9 @@ pub struct Depot {
     /// The codes the line editor's blocks of other maps give in it (two maps may use one depot
     /// file): kept free, never used - that map takes its entries out again.
     pub others: Taken,
+    /// The file writes a name of one row on the front's second row (Spandau, Grundorf), not
+    /// on the first (the HOF Suite's files): most of its termini do.
+    pub one_row_bottom: bool,
 }
 
 impl Depot {
@@ -396,11 +465,27 @@ impl Depot {
         let n = hof.string_count_terminus;
         notes.resize(n, String::new());
         let rows: Vec<Vec<String>> = hof.termini.iter().map(|t| t.strings.clone()).collect();
-        let cols = columns(&rows, n, &notes);
-        let roles = roles(&notes, &cols);
+        let mut cols = columns(&rows, n, &notes);
+        // (a file with neither notes nor destinations - the player's own, all of them taken
+        // out - shows nothing of its layout: OMSI's, as the buses read the strings by their
+        // place; its columns, all text, would make its first the front alone)
+        let roles = if rows.is_empty() && notes.iter().all(|x| x.is_empty()) { usual_roles(n) } else { roles(&notes, &cols) };
+        let at = |role: Role| roles.iter().position(|r| *r == role);
+        let mut one_row_bottom = false;
+        if let (Some(top), Some(bottom)) = (at(Role::FrontTop), at(Role::FrontBottom)) {
+            let filled = |r: &Vec<String>, k: usize| r.get(k).is_some_and(|s| !s.trim().is_empty());
+            let top_only = rows.iter().filter(|r| filled(r, top) && !filled(r, bottom)).count();
+            let bottom_only = rows.iter().filter(|r| !filled(r, top) && filled(r, bottom)).count();
+            one_row_bottom = bottom_only > top_only;
+            // (a young file - the player's own, of a destination or two - has no name of two
+            // rows yet: a long one still splits over its second row)
+            if matches!(cols.get(top), Some(Column::Text { .. })) && cols.get(bottom) == Some(&Column::Empty) {
+                cols[bottom] = cols[top].clone();
+            }
+        }
         let stop_rows: Vec<Vec<String>> = hof.bus_stops.iter().map(|b| b.strings.clone()).collect();
         let stop_cols = columns(&stop_rows, hof.string_count_busstop, &[]);
-        Depot { hof, notes, roles, cols, stop_cols, others: Taken::default() }
+        Depot { hof, notes, roles, cols, stop_cols, others: Taken::default(), one_row_bottom }
     }
 
     /// The depot file at `path` (through the content file system).
@@ -433,21 +518,27 @@ impl Depot {
         self.roles.iter().position(|r| *r == role).filter(|k| matches!(self.cols.get(*k), Some(Column::Text { .. })))
     }
 
-    /// The texts a new destination `name` gets: the front's lines split as they fit, the other
-    /// texts in each column's way (capitals, length, centred), a texture column the blank
-    /// sign most of the file's termini share.
+    /// The texts a new destination `name` gets: the front's rows split as they fit (a name of
+    /// one row on the row the file writes it on), the IBIS's and the first side sign's texts
+    /// in each column's way (capitals, length, centred), a texture column the blank sign most
+    /// of the file's termini share - and every other text empty.
     pub fn sign_defaults(&self, name: &str) -> Vec<String> {
         let name = clean(name.trim());
-        let (top, bottom) = (self.first(Role::FrontTop), self.first(Role::FrontBottom));
+        let (top, bottom, side) = (self.first(Role::FrontTop), self.first(Role::FrontBottom), self.first(Role::Side));
         let width = |k: Option<usize>| match k.and_then(|k| self.cols.get(k)) {
             Some(Column::Text { upper, max, .. }) => (*upper, *max),
             _ => (true, 16),
         };
-        let (l1, l2) = match (top, bottom) {
+        let (mut l1, mut l2) = match (top, bottom) {
             (Some(_), Some(_)) => two_lines(&name, width(top).0, width(top).1, width(bottom).1),
             (Some(_), None) => (styled(&name, width(top).0, width(top).1), String::new()),
-            _ => (String::new(), String::new()),
+            (None, Some(_)) => (String::new(), styled(&name, width(bottom).0, width(bottom).1)),
+            (None, None) => (String::new(), String::new()),
         };
+        // (the buses move a lone bottom row up: the file's habit decides where it is written)
+        if l2.is_empty() && bottom.is_some() && self.one_row_bottom {
+            (l1, l2) = (String::new(), styled(&name, width(bottom).0, width(bottom).1));
+        }
         self.cols
             .iter()
             .enumerate()
@@ -458,8 +549,13 @@ impl Depot {
                     let s = match self.roles.get(k).copied().unwrap_or(Role::Other) {
                         Role::FrontTop if Some(k) == top => l1.clone(),
                         Role::FrontBottom if Some(k) == bottom => l2.clone(),
-                        Role::RollerBlind | Role::Bitmap | Role::ExtraSign => return String::new(),
-                        _ => styled(&name, *upper, *max),
+                        // (each a display of one row of its own)
+                        Role::IbisDisplay | Role::ClearName => styled(&name, *upper, *max),
+                        Role::Side if Some(k) == side => styled(&name, *upper, *max),
+                        // another sign's rows (they fall back to these when empty), pictures,
+                        // marks and what the file does not explain stay empty: a text copied
+                        // into each of them showed on two rows at once
+                        _ => return String::new(),
                     };
                     if *centred && !s.is_empty() {
                         centre(&s, *max)
@@ -492,11 +588,37 @@ impl Depot {
     pub fn front(&self, strings: &[String]) -> (String, String) {
         let get = |k: Option<usize>| k.and_then(|k| strings.get(k)).map(|s| s.trim().to_string()).unwrap_or_default();
         let (top, bottom) = (self.first(Role::FrontTop), self.first(Role::FrontBottom));
-        if top.is_some() {
-            return (get(top), get(bottom));
+        if top.is_some() || bottom.is_some() {
+            let (l1, l2) = (get(top), get(bottom));
+            // (the buses move a lone bottom row up)
+            return if l1.is_empty() { (l2, String::new()) } else { (l1, l2) };
         }
         let any = self.first(Role::IbisDisplay).or_else(|| self.cols.iter().position(|c| matches!(c, Column::Text { .. })));
         (get(any), String::new())
+    }
+
+    /// What the side sign (the first) and the IBIS show of `strings` - the IBIS's display, else
+    /// its name as written; "" where the file has none.
+    pub fn shown(&self, strings: &[String]) -> (String, String) {
+        let get = |role: Role| self.first(role).and_then(|k| strings.get(k)).map(|s| s.trim().to_string()).unwrap_or_default();
+        let ibis = get(Role::IbisDisplay);
+        (get(Role::Side), if ibis.is_empty() { get(Role::ClearName) } else { ibis })
+    }
+
+    /// The file's own terminus `name` means when it is none of them by its ident: the same
+    /// words in another order, case, commas and dots aside ("Hohenkirchen, Therme" for
+    /// "Therme Hohenkirchen").
+    pub fn similar(&self, name: &str) -> Option<&Terminus> {
+        let words = |s: &str| {
+            let mut w: Vec<String> = s.to_lowercase().replace([',', '.'], " ").split_whitespace().map(str::to_string).collect();
+            w.sort();
+            w
+        };
+        let key = words(name);
+        if key.is_empty() || self.terminus(name).is_some() {
+            return None;
+        }
+        self.hof.termini.iter().find(|t| !t.all_exit && words(&t.texture_id) == key)
     }
 
     /// What the IBIS shows for the stop `name` by default: the file's own name for it (its
@@ -996,7 +1118,7 @@ pub(crate) mod tests {
         assert_eq!(Role::from_note("Anzeige Seiten-ANNAX-Matrix, wenn diese einzeilig ist"), Role::Side);
         assert_eq!(Role::from_note("Texturname für Steckschild (wenn Ziel in Matrix nicht darstellbar ist)"), Role::ExtraSign);
         assert_eq!(Role::from_note("Zielschildtext"), Role::FrontTop);
-        assert_eq!(Role::from_note("ist Sonderziel (löscht das Matrix-Skript die Liniennr.)"), Role::Other);
+        assert_eq!(Role::from_note("ist Sonderziel (löscht das Matrix-Skript die Liniennr.)"), Role::Special);
         assert_eq!(Role::from_note("Zielname fuer andere Busse mit Standard-IBIS (SD etc)"), Role::IbisDisplay);
         // a file without notes that looks like the stock ones
         let cols = vec![Column::Empty, Column::Empty, Column::Empty, Column::Empty, Column::File(String::new()), Column::Empty];
@@ -1027,6 +1149,174 @@ pub(crate) mod tests {
         // a stop's IBIS name: the file's own, else made like its own
         assert_eq!(d.stop_display("Bauernhof"), "NORDS. BAUERNHOF");
         assert_eq!(d.stop_display("Kirche am Markt"), "KIRCHE AM MARKT");
+    }
+
+    /// A depot file as the HOF Suite writes it: no notes on its strings, its termini in a list
+    /// (padded to 16), the roller blind's string (the fifth) empty in every row.
+    pub(crate) const HOF_SUITE: &str = "This file was written for a test.\r\n\r\n[name]\r\nTalstadt\r\n\r\n[servicetrip]\r\nBetriebsfahrt\r\n\r\n\
+        stringcount_terminus\r\n26\r\n\r\nstringcount_busstop\r\n9\r\n\r\n[addterminus_list]\r\n\
+        {ALLEX}\t0\tBetriebsfahrt\tBETRIEBSFAHRT   \tBetriebsfahrt   \t\tBetriebsfahrt   \t\tBetriebsfahrt\r\n\
+        \t5\tAltdorf\tALTDORF         \tAltdorf         \t\tAltdorf         \t\tAltdorf\r\n\
+        \t7\tNeustadt, Marktplatz\tNEUSTADT MARKT  \tNeustadt        \tMarktplatz      \tNeustadt Markt  \t\tNeustadt, Marktplatz\r\n\
+        \t9\tSchule Bergheim\tSCHULE          \tSchule          \tBergheim        \tSchule          \t\tSchule Bergheim\r\n\
+        \t12\tLindenau\tLINDENAU        \tLindenau        \t\tLindenau        \t\tLindenau\r\n\
+        \t14\tTalstadt, Hauptbahnhof\tHAUPTBAHNHOF    \tTalstadt        \tHauptbahnhof    \tHauptbahnhof    \t\tHauptbahnhof\r\n\
+        [end]\r\n";
+
+    #[test]
+    fn a_file_without_notes_has_omsis_layout() {
+        let d = Depot::from_text(Path::new("Talstadt.hof"), HOF_SUITE, "Talstadt");
+        assert_eq!(d.roles.len(), 26);
+        assert_eq!(d.roles[..8], USUAL);
+        assert!(d.roles[8..].iter().all(|r| *r == Role::Other));
+        assert_eq!(d.cols[4], Column::Empty, "no roller blind");
+        assert!(!d.one_row_bottom, "a name of one row is on the first");
+        // the file's own: its two rows
+        let (a, b) = d.front(&d.terminus("Neustadt, Marktplatz").unwrap().strings);
+        assert_eq!((a.as_str(), b.as_str()), ("Neustadt", "Marktplatz"));
+        assert_eq!(d.shown(&d.terminus("Neustadt, Marktplatz").unwrap().strings), ("Neustadt Markt".to_string(), "NEUSTADT MARKT".to_string()));
+        // a small file: its second and third text the front's rows, as the buses read them
+        let text = |upper: bool| Column::Text { upper, max: 16, centred: false };
+        assert_eq!(roles(&vec![String::new(); 3], &[text(true), text(true), text(false)]), USUAL[..3]);
+        // a file of its own layout: its first text is the front
+        assert_eq!(roles(&vec![String::new(); 4], &[Column::Empty, Column::File(String::new()), Column::Empty, text(false)]), vec![Role::Other, Role::Other, Role::Other, Role::FrontTop]);
+        assert_eq!(roles(&vec![String::new(); 6], &[text(true), text(true), text(true), text(true), text(false), text(true)])[..2], [Role::FrontTop, Role::Other], "a text fifth: not OMSI's");
+    }
+
+    #[test]
+    fn a_new_destination_shows_once_on_a_two_row_sign() {
+        let d = Depot::from_text(Path::new("Talstadt.hof"), HOF_SUITE, "Talstadt");
+        let s = d.sign_defaults("Hohenkirchen, Therme");
+        assert_eq!(s.len(), 26);
+        assert_eq!((s[1].as_str(), s[2].as_str()), ("Hohenkirchen", "Therme"), "split, without the comma");
+        assert_eq!(s[0], "THERME", "the stop alone, as the file writes its own");
+        assert_eq!(s[3], "Therme");
+        assert_eq!(s[5], "Hohenkirchen, Therme", "the name as written fits its 20");
+        assert!(s[4].is_empty() && s[6..].iter().all(String::is_empty), "{s:?}");
+        assert_eq!(d.front(&s), ("Hohenkirchen".to_string(), "Therme".to_string()));
+        // a name of one row: the second row stays empty
+        let s = d.sign_defaults("Altheim");
+        assert_eq!((s[1].as_str(), s[2].as_str()), ("Altheim", ""));
+        for name in ["Hohenkirchen, Therme", "Altheim", "Talstadt Hauptbahnhof", "Neustadt, Marktplatz Süd", "Am Waldrand Ost", "Bergheim, Schule"] {
+            let s = d.sign_defaults(name);
+            assert!(s[2].trim().is_empty() || s[1].trim() != s[2].trim(), "{name}: {s:?}");
+            let (a, b) = d.front(&s);
+            assert_eq!((a.as_str(), b.as_str()), (s[1].trim(), s[2].trim()), "{name}");
+        }
+        // a name the file knows in other words
+        assert_eq!(d.similar("Bergheim, Schule").map(|t| t.code), Some(9));
+        assert_eq!(d.similar("schule bergheim."), Some(&d.hof.termini[3]));
+        assert!(d.similar("Schule Bergheim").is_none(), "its own ident: no other");
+        assert!(d.similar("Betriebsfahrt").is_none() && d.similar("Bergheim").is_none());
+    }
+
+    /// A file without notes whose destinations are all taken out still has its front's rows
+    /// where the buses read them, for its next destination and the one after.
+    #[test]
+    fn a_file_without_notes_or_destinations_has_omsis_layout() {
+        let mut hof = Depot::from_text(Path::new("Talstadt.hof"), HOF_SUITE, "Talstadt").hof;
+        hof.termini.clear();
+        let d = Depot::from_hof(hof.clone(), Vec::new());
+        assert_eq!(d.roles[..8], USUAL);
+        let s = d.sign_defaults("Krankenhaus Nordstadt");
+        assert_eq!((s[1].as_str(), s[2].as_str()), ("KRANKENHAUS", "NORDSTADT"), "{s:?}");
+        assert_eq!(d.front(&s), ("KRANKENHAUS".to_string(), "NORDSTADT".to_string()));
+        // the next one, with that one in the file
+        hof.termini.push(Terminus { code: 1, texture_id: "Krankenhaus Nordstadt".into(), terminus_stop: None, all_exit: false, strings: s });
+        let d = Depot::from_hof(hof, Vec::new());
+        assert_eq!(d.roles[..8], USUAL);
+        assert_eq!(d.front(&d.sign_defaults("Altdorf")), ("ALTDORF".to_string(), String::new()));
+    }
+
+    #[test]
+    fn one_row_names_go_on_the_row_the_file_uses() {
+        // (as Spandau's: a name of one row on the second, centred)
+        const WESTHAFEN: &str = "[name]\r\nWesthafen\r\n\r\nstringcount_terminus\r\n6\r\n\r\n\
+            \tstring0:\tIBIS-Anzeige, max. 16 Zeichen\r\n\tstring1:\tMatrix vorne, 1. Zeile\r\n\tstring2:\tMatrix vorne, 2. Zeile\r\n\
+            \tstring3:\tMatrix Seite\r\n\tstring4:\tRollbandtextur\r\n\tstring5:\tIBIS2 (Klarname), max 20 Zeichen\r\n\r\nstringcount_busstop\r\n4\r\n\r\n\
+            [addterminus]\r\n3\r\nSchulbus\r\nSCHULBUS\r\n                \r\n    SCHULBUS\r\n    SCHULBUS\r\nSchulbus.tga\r\nSchulbus\r\n\r\n\
+            [addterminus]\r\n11\r\nHafen\r\nHAFEN\r\n\r\n      HAFEN\r\n      HAFEN\r\nWH_Hafen.tga\r\nHafen\r\n\r\n\
+            [addterminus]\r\n12\r\nRathaus\r\nRATHAUS\r\n   WESTHAFEN\r\n    RATHAUS\r\n    RATHAUS\r\nWH_Rathaus.tga\r\nRathaus Westhafen\r\n\r\n\
+            [addterminus]\r\n14\r\nKlinik\r\nKLINIK\r\n\r\n     KLINIK\r\n     KLINIK\r\nWH_Klinik.tga\r\nKlinik\r\n\r\n";
+        let d = Depot::from_text(Path::new("Westhafen.hof"), WESTHAFEN, "Westhafen");
+        assert_eq!(d.roles, USUAL[..6]);
+        assert!(d.one_row_bottom);
+        let s = d.sign_defaults("Flugplatz");
+        assert_eq!((s[1].as_str(), s[2].trim()), ("", "FLUGPLATZ"));
+        assert_eq!(d.front(&s), ("FLUGPLATZ".to_string(), String::new()), "the buses move it up");
+        assert_eq!(d.front(&d.terminus("Hafen").unwrap().strings), ("HAFEN".to_string(), String::new()));
+        // two rows as ever
+        let s = d.sign_defaults("Westhafen Hauptbahnhof");
+        assert_eq!((s[1].trim(), s[2].trim()), ("WESTHAFEN", "HAUPTBAHNHOF"));
+    }
+
+    #[test]
+    fn texts_for_other_signs_stay_empty() {
+        // (eighteen texts, as Vienna's: other makes' matrices, falling back to the stock ones)
+        const NOTES: [&str; 18] = [
+            "IBIS-Anzeige (Großbuchstaben, max. 16 Zeichen)",
+            "Matrix Front, 1. Zeile",
+            "Matrix Front, 2. Zeile",
+            "Seitenmatrix, einzeilig",
+            "Rollbandtextur (tga)",
+            "IBIS 2 (Klarname, max. 20 Zeichen)",
+            "Steckschild (Textur)",
+            "Bild für die Krüger-Matrix (bmp)",
+            "Frontmatrix in Groß- und Kleinbuchstaben",
+            "Heckanzeige (max. 4 Zeichen)",
+            "Liniencode für die Gegenrichtung",
+            "Vollmatrix oben (wenn leer, wird String 1 gezeigt)",
+            "Vollmatrix unten (wenn leer, wird String 2 gezeigt)",
+            "Lawo-Matrix vorne oben (bleibt dieser String leer, wird String 1 ausgelesen)",
+            "Lawo-Matrix vorne unten (leer: String 13)",
+            "Lawo-Matrix Seite oben (leer: String 16)",
+            "Lawo-Matrix Seite unten (leer: String 15)",
+            "Anzeige für ein anderes IBIS-Gerät (max. 16 Zeichen, Sonderzeichen möglich)",
+        ];
+        let notes: String = NOTES.iter().enumerate().map(|(k, n)| format!("\tstring{k}:\t{n}\r\n")).collect();
+        let rows = [
+            ["OSTPARK", "Ostpark", "", "Ostpark", "Ostpark.tga", "Ostpark", "", "", "Ostpark", "OP", "2101", "Ostpark", "", "Ostpark", "", "Ostpark", "", "Ostpark"],
+            ["AM WEIHER", "Am Weiher", "", "Am Weiher", "Weiher.tga", "Am Weiher", "", "", "Am Weiher", "AW", "2102", "Am", "Weiher", "Am", "Weiher", "Am", "Weiher", "Am Weiher"],
+        ];
+        let termini: String = rows.iter().enumerate().map(|(i, r)| format!("[addterminus]\r\n{}\r\nZiel {i}\r\n{}\r\n\r\n", 21 + i, r.join("\r\n"))).collect();
+        let text = format!("[name]\r\nAuring\r\n\r\nstringcount_terminus\r\n18\r\n\r\n{notes}\r\nstringcount_busstop\r\n4\r\n\r\n{termini}");
+        let d = Depot::from_text(Path::new("Auring.hof"), &text, "Auring");
+        assert_eq!(d.roles[9], Role::Rear);
+        assert_eq!(d.roles[10], Role::Other);
+        assert_eq!(d.roles[11..17], [Role::Fallback(1), Role::Fallback(2), Role::Fallback(1), Role::Fallback(13), Role::Fallback(16), Role::Fallback(15)]);
+        assert_eq!(d.roles[17], Role::IbisDisplay);
+        assert!((8..=17).all(|k| matches!(d.cols[k], Column::Text { .. })), "{:?}", d.cols);
+        let s = d.sign_defaults("Neues Ziel");
+        assert_eq!((s[0].as_str(), s[1].as_str(), s[2].as_str(), s[3].as_str(), s[5].as_str()), ("NEUES ZIEL", "Neues Ziel", "", "Neues Ziel", "Neues Ziel"));
+        assert!(s[8..=16].iter().all(String::is_empty), "{s:?}");
+        assert_eq!(s[17], "Neues Ziel", "another IBIS: a display of its own");
+    }
+
+    #[test]
+    fn notes_say_which_texts_fall_back() {
+        assert_eq!(Role::from_note("Wenn diese Zeile leer ist, wird String 1 ausgelesen"), Role::Fallback(1));
+        assert_eq!(Role::from_note("Top row of the full matrix (if empty, string 2 is shown)"), Role::Fallback(2));
+        assert_eq!(Role::from_note("Side, falls back to string12"), Role::Fallback(12));
+        assert_eq!(Role::from_note("Leerzeichen vorne zentrieren den Text"), Role::Other);
+        assert_eq!(Role::from_note("Zielschild (mit Leerzeichen zentriert, wie String 1)"), Role::FrontTop, "spaces are no fallback");
+        assert_eq!(Role::from_note("Zielanzeige (leer lassen, wenn nicht gebraucht)"), Role::FrontTop, "empty, but no string it falls back to");
+        assert_eq!(Role::from_note("Heckschild"), Role::Rear);
+        assert_eq!(Role::from_note("Rear sign (4 characters)"), Role::Rear);
+        assert_eq!(Role::from_note("IBIS-Code für die Gegenrichtung"), Role::Other);
+        assert_eq!(Role::from_note("Special trip (no line number)"), Role::Special);
+        assert_eq!(Role::from_note("IBIS display, special characters allowed"), Role::IbisDisplay);
+    }
+
+    #[test]
+    fn shorten_keeps_the_stop() {
+        assert_eq!(shorten("Hohenkirchen, Therme", 16), "Therme");
+        assert_eq!(shorten("Hohenkirchen, Flugplatz", 20), "Hohenkirchen Flugpl.");
+        assert_eq!(shorten("Erfurt, Hauptbahnhof", 19), "Erfurt Hauptbahnhof", "the comma goes before a word is shortened");
+        assert_eq!(styled("Herrenhof, Hauptbahnhof", true, 16), "HERRENHOF HBF.");
+        assert_eq!(styled("Herrenhof, Einkaufszentrum", true, 16), "EINKAUFSZENTRUM");
+        assert_eq!(shorten("Kreuzungspunkt, B2", 12), "Kreuzungspun", "a stop of under 3 characters is not taken alone");
+        let cut = shorten("Langenberg, Am Sportplatz Nordost", 12);
+        assert!(cut.chars().count() <= 12 && cut.starts_with("Langenberg"), "{cut}");
     }
 
     #[test]

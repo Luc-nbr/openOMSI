@@ -198,7 +198,7 @@ impl Doc {
             for (k, r) in d.roles.clone().iter().enumerate() {
                 let note = self.notes.get(k).map(String::as_str).unwrap_or("");
                 d.cols[k] = match r {
-                    Role::RollerBlind | Role::Bitmap | Role::ExtraSign => Column::Empty,
+                    Role::RollerBlind | Role::Bitmap | Role::ExtraSign | Role::Special | Role::Rear | Role::Fallback(_) => Column::Empty,
                     Role::ClearName => Column::Text { upper: false, max: limit(*r, note).unwrap_or(20), centred: false },
                     _ => Column::Text { upper: true, max: limit(*r, note).unwrap_or(16), centred: false },
                 };
@@ -1011,6 +1011,29 @@ mod tests {
         d.set_string_count(9);
         assert!(d.hof.termini.iter().all(|t| t.strings.len() == 9) && d.notes.len() == 9);
         assert_eq!(d.free_route(0), 101);
+    }
+
+    #[test]
+    fn a_new_destination_is_on_the_front_once() {
+        // a file of the HOF Suite's, without notes
+        let mut d = Doc::from_text(crate::linehof::tests::HOF_SUITE);
+        let i = d.add_destination("Hohenkirchen, Therme", false, false);
+        let s = &d.hof.termini[i].strings;
+        assert_eq!((s[1].as_str(), s[2].as_str()), ("Hohenkirchen", "Therme"));
+        // all its destinations taken out: the next ones on the front's rows all the same
+        d.hof.termini.clear();
+        let i = d.add_destination("Krankenhaus Nordstadt", false, false);
+        let s = &d.hof.termini[i].strings;
+        assert_eq!((s[1].as_str(), s[2].as_str()), ("KRANKENHAUS", "NORDSTADT"), "{s:?}");
+        let i = d.add_destination("Altdorf", false, false);
+        assert_eq!(d.hof.termini[i].strings[1], "ALTDORF");
+        // a young file of the player's: its first destination of one row, the next one split
+        let mut d = Doc::blank("Talstadt - mine", "Talstadt");
+        let a = d.add_destination("Markt", false, false);
+        assert_eq!((d.hof.termini[a].strings[1].as_str(), d.hof.termini[a].strings[2].as_str()), ("MARKT", ""));
+        let b = d.add_destination("Krankenhaus Nordstadt", false, false);
+        let s = &d.hof.termini[b].strings;
+        assert_eq!((s[1].as_str(), s[2].as_str()), ("KRANKENHAUS", "NORDSTADT"));
     }
 
     #[test]
