@@ -39,6 +39,11 @@ use std::path::{Path, PathBuf};
 /// 2: the school bits of the tours' masks as Omsi.exe reads them (`service::SCHOOL_DAY_BIT`) -
 /// a map's lines of version 1 are written again once (`upgrade_school_bits`).
 pub const REGISTRY_VERSION: u32 = 2;
+/// How the line editor makes a new destination's display texts (`Registry::texts`).
+/// 1: the destination on one sign once - before it a depot file without notes (the HOF
+/// Suite's) got it in every text, and the front matrix showed it on both rows; the blocks of a
+/// registry of before are written again once, when the line editor opens its map.
+pub const TEXTS_VERSION: u32 = 1;
 /// What every file a player's line writes begins with.
 pub const FILE_PREFIX: &str = "oo_";
 /// The list of the files the line editor wrote into a `TTData` folder (they are deleted
@@ -81,11 +86,16 @@ pub struct Registry {
     /// them before the depot editor: they are destinations of the map's depot file of the
     /// player's own now (`owndepot::migrate` moves them there, and this stays empty).
     pub destinations: Vec<OwnDestination>,
+    /// The way of making display texts its lines' blocks in the depot files were written with
+    /// (`TEXTS_VERSION`). A file of before has none: 0 (the field's own default - the
+    /// container's would be the current one).
+    #[serde(default)]
+    pub texts: u32,
 }
 
 impl Default for Registry {
     fn default() -> Self {
-        Registry { version: REGISTRY_VERSION, map: String::new(), global: String::new(), next_id: 1, lines: Vec::new(), depots: Vec::new(), school_holidays: Vec::new(), destinations: Vec::new() }
+        Registry { version: REGISTRY_VERSION, map: String::new(), global: String::new(), next_id: 1, lines: Vec::new(), depots: Vec::new(), school_holidays: Vec::new(), destinations: Vec::new(), texts: TEXTS_VERSION }
     }
 }
 
@@ -591,6 +601,16 @@ impl Registry {
 }
 
 impl Direction {
+    /// Make `name` the destination, as typed (empty: the last stop). The texts typed for
+    /// another destination were that one's: they go when the destination changes.
+    pub fn set_destination(&mut self, name: &str) {
+        let before = self.destination().to_lowercase();
+        self.terminus = name.to_string();
+        if self.destination().to_lowercase() != before {
+            self.sign.clear();
+        }
+    }
+
     /// Give the direction one of the player's own destinations: its name, its display texts
     /// and - when it has one - its terminus code.
     pub fn take_destination(&mut self, d: &OwnDestination) {
@@ -1858,5 +1878,33 @@ mod tests {
         // (a file of another version still reads)
         let old: Registry = serde_json::from_str(r#"{"version":1,"map":"X","lines":[{"id":7,"number":"1"}]}"#).unwrap();
         assert_eq!(old.lines[0].days.len(), 3);
+    }
+
+    #[test]
+    fn the_texts_typed_go_with_their_destination() {
+        let mut reg = Registry::default();
+        let id = line(&mut reg);
+        let d = &mut reg.line_mut(id).unwrap().directions[1];
+        d.sign = vec!["BAHNHOF".into(), "Bahnhof".into()];
+        // the last stop typed, in another case: the same destination
+        d.set_destination(" bahnhof");
+        assert_eq!((d.destination().as_str(), d.sign.len()), ("bahnhof", 2));
+        d.set_destination("Rathaus");
+        assert!(d.sign.is_empty(), "another destination's texts are not this one's");
+        d.sign = vec!["RATHAUS".into()];
+        // typed as it is, spaces and all: the field shows what is typed
+        d.set_destination("Rathaus ");
+        assert_eq!((d.terminus.as_str(), d.sign.len()), ("Rathaus ", 1));
+        d.set_destination("");
+        assert_eq!((d.destination().as_str(), d.sign.len()), ("Bahnhof", 0), "the last stop again");
+    }
+
+    #[test]
+    fn a_registry_of_before_has_its_texts_made_again() {
+        assert_eq!(Registry::default().texts, TEXTS_VERSION);
+        let old: Registry = serde_json::from_str(r#"{"version":2,"map":"X","lines":[]}"#).unwrap();
+        assert_eq!(old.texts, 0, "its blocks were written the old way");
+        let now: Registry = serde_json::from_str(&serde_json::to_string(&Registry::default()).unwrap()).unwrap();
+        assert_eq!(now.texts, TEXTS_VERSION);
     }
 }
