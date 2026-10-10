@@ -1527,17 +1527,19 @@ fn no_depot_text(v: &LineEditorView, group: &str) -> String {
 /// file the line has. All of it written into the depot files when the line is saved.
 fn displays_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, status: &mut Option<(String, bool)>) {
     let two = v.line().is_some_and(|l| l.directions.len() > 1);
-    let dw = ((body.w - GAP) * 0.6).floor();
+    // (each switch on a row of its own: the panel is too narrow for both side by side in the
+    // longer languages)
+    let mut mode = usize::from(v.sign_advanced);
+    if ui.segmented("le-sign-mode", Rect::new(body.x, body.y, body.w, ROW), &mut mode, &["Simple", "Advanced"]) {
+        v.sign_advanced = mode == 1;
+    }
     let mut dir = v.dir;
-    if ui.segmented("le-dir-d", Rect::new(body.x, body.y, dw, ROW), &mut dir, &["Outbound", "Return"]) {
+    if ui.segmented("le-dir-d", Rect::new(body.x, body.y + ROW + 8.0, body.w, ROW), &mut dir, &["Outbound", "Return"]) {
         (v.dir, v.sel_stop) = (dir, None);
         v.revision += 1;
     }
-    let mut mode = usize::from(v.sign_advanced);
-    if ui.segmented("le-sign-mode", Rect::new(body.x + dw + GAP, body.y, body.w - dw - GAP, ROW), &mut mode, &["Simple", "Advanced"]) {
-        v.sign_advanced = mode == 1;
-    }
-    let rest = Rect::new(body.x, body.y + ROW + 12.0, body.w, body.h - ROW - 12.0);
+    let top = 2.0 * ROW + 8.0 + 14.0;
+    let rest = Rect::new(body.x, body.y + top, body.w, body.h - top);
     if v.dir == 1 && !two {
         ui.paragraph("Without a way back the line goes round: the bus starts again at the first stop.", Vec2::new(rest.x, rest.y), rest.w, 12.5, Weight::Regular, TEXT_DIM);
         return;
@@ -1611,11 +1613,13 @@ fn displays_simple(ui: &mut Ui, v: &mut LineEditorView, r: Rect) {
         !same_words(&format!("{a} {b}"), &dest)
     };
     crate::mt::protect([caption.as_str(), hint.as_str(), known.as_str()]);
-    ui.text_in(&caption, Rect::new(r.x, y, r.w, 18.0), 11.5, Weight::Regular, TEXT_DIM, Align::Left);
-    y += 26.0;
+    // (over two lines rather than cut: the panel is narrow)
+    y += ui.paragraph(&caption, Vec2::new(r.x, y), r.w, 11.5, Weight::Regular, TEXT_DIM) + 10.0;
     y += ui.paragraph(&hint, Vec2::new(r.x, y), r.w, 12.0, Weight::Regular, TEXT_SOFT) + 10.0;
     if let Some(ident) = similar {
-        let bw = 100.0;
+        // (as wide as its word, with the icon, in the language shown)
+        let px = ui.wpx(13.0);
+        let bw = (ui.width("Use it", px, Weight::Medium) + px * 1.3 + 30.0).clamp(90.0, r.w * 0.5);
         let h = ui.paragraph(&known, Vec2::new(r.x, y + 6.0), r.w - bw - 10.0, 12.0, Weight::Medium, accent_2());
         if ui.button("le-dest-similar", Rect::new(r.right() - bw, y, bw, ROW - 6.0), "Use it", Some("check"), ButtonKind::Ghost) {
             v.line_mut().unwrap().directions[d_idx].set_destination(&ident);
@@ -1653,10 +1657,13 @@ fn sign_text(ui: &mut Ui, id: &str, x: f32, y: f32, w: f32, t: &SignText, field:
         Some(f) if !f.is_empty() => f.trim_end().chars().count(),
         _ => t.shown.trim_end().chars().count(),
     };
-    if let Some(max) = t.max {
-        ui.text_in(&format!("{n}/{max}"), Rect::new(x + w - 64.0, y, 64.0, 16.0), 11.0, Weight::Medium, if n > max { WARN } else { TEXT_FAINT }, Align::Right);
+    // (the counter takes only its own width: the titles are long in some languages)
+    let count = t.max.map(|max| (format!("{n}/{max}"), n > max));
+    let cw = count.as_ref().map(|(c, _)| ui.width(c, 11.0, Weight::Medium) + 8.0).unwrap_or(0.0);
+    if let Some((c, over)) = &count {
+        ui.text_in(c, Rect::new(x + w - cw, y, cw, 16.0), 11.0, Weight::Medium, if *over { WARN } else { TEXT_FAINT }, Align::Right);
     }
-    ui.text_in(&t.title, Rect::new(x, y, w - 70.0, 16.0), 12.0, Weight::Medium, TEXT_SOFT, Align::Left);
+    ui.text_in(&t.title, Rect::new(x, y, w - cw, 16.0), 12.0, Weight::Medium, TEXT_SOFT, Align::Left);
     let mut yy = y + 20.0;
     let fr = Rect::new(x, yy, w, ROW - 4.0);
     let shown = if t.shown.trim().is_empty() { "-" } else { t.shown.as_str() };
@@ -1845,7 +1852,8 @@ fn displays_advanced(ui: &mut Ui, v: &mut LineEditorView, r: Rect, status: &mut 
         // is chosen
         yy += 10.0;
         head(ui, "My destinations", Rect::new(x, yy, w, 16.0));
-        yy += 22.0;
+        yy += 20.0;
+        yy += ui.paragraph("Names for the buses to know besides the depot file's: each one kept is in the destination list of every line of this map.", Vec2::new(x, yy), w, 11.0, Weight::Regular, TEXT_DIM) + 8.0;
         if !is_mine && ui.button("le-dest-keep", Rect::new(x, yy, w, ROW - 6.0), "Keep this destination as mine", Some("save"), ButtonKind::Ghost) {
             keep_this = true;
         }
@@ -3625,5 +3633,89 @@ mod tests {
         // a destination alike in other punctuation, not one shortened
         assert!(same_words("Hohenkirchen, Therme", "hohenkirchen  therme"));
         assert!(!same_words("Hohenkirchen, Th", "Hohenkirchen, Therme"));
+    }
+
+    /// A depot file of the HOF Suite's kind (no notes on its texts, no roller blind), written
+    /// for the test.
+    const SUITE: &str = "[name]\r\nTalstadt\r\n\r\nstringcount_terminus\r\n8\r\n\r\nstringcount_busstop\r\n2\r\n\r\n[addterminus_list]\r\n\
+        \t5\tAltdorf\tALTDORF         \tAltdorf         \t\tAltdorf         \t\tAltdorf\r\n\
+        \t7\tNeustadt, Marktplatz\tNEUSTADT MARKT  \tNeustadt        \tMarktplatz      \tNeustadt Markt  \t\tNeustadt, Marktplatz\r\n\
+        \t14\tTalstadt, Hauptbahnhof\tHAUPTBAHNHOF    \tTalstadt        \tHauptbahnhof    \tHauptbahnhof    \t\tHauptbahnhof\r\n\
+        [end]\r\n";
+
+    /// A line of two stops to `last` on the depot file `SUITE`, its Displays tab drawn 248
+    /// points wide (inside the right panel at its narrowest).
+    fn displays_of(last: &str) -> LineEditorView {
+        let mut v = LineEditorView { groups: vec![("Solo".into(), "Talstadt.hof".into())], own: Some(Vec::new()), sel: Some(1), ..Default::default() };
+        v.depots.insert("talstadt.hof".into(), Some(Arc::new(linehof::Depot::from_text(Path::new("Talstadt.hof"), SUITE, "Talstadt"))));
+        let stop = |name: &str| StopRef { name: name.into(), ..Default::default() };
+        let directions = vec![Direction { stops: vec![stop("Altdorf"), stop(last)], ..Default::default() }];
+        v.reg.lines.push(LineDesign { id: 1, number: "1".into(), ai_group: "Solo".into(), directions, ..Default::default() });
+        v
+    }
+
+    fn draw_displays(ui: &mut Ui, v: &mut LineEditorView) -> Rect {
+        let body = Rect::new(10.0, 10.0, 248.0, 1600.0);
+        ui.begin(Vec2::new(300.0, 1620.0), 1.0, 1.0 / 60.0);
+        displays_tab(ui, v, body, &mut None);
+        body
+    }
+
+    /// The Displays tab asks for the destination in one field (Simple); each text of the depot
+    /// file, the IBIS route and the stops' names on the IBIS are under Advanced. The view's
+    /// switch and the direction's each have a row of their own.
+    #[test]
+    fn the_simple_view_asks_for_the_destination_alone() {
+        use super::super::ui::id_of;
+        let mut v = displays_of("Hohenkirchen, Therme");
+        let mut ui = Ui::new();
+        let body = draw_displays(&mut ui, &mut v);
+        let drawn = |ui: &Ui, name: &str| ui.drawn.get(&id_of(name)).copied();
+        let segment = |ui: &Ui, name: &str, k: u64| ui.drawn.get(&(id_of(name) ^ (k + 11))).copied().unwrap_or_else(|| panic!("{name} {k}"));
+        let (simple, advanced) = (segment(&ui, "le-sign-mode", 0), segment(&ui, "le-sign-mode", 1));
+        let (out, back) = (segment(&ui, "le-dir-d", 0), segment(&ui, "le-dir-d", 1));
+        assert!(simple.x == body.x && advanced.right() == body.right() && out.x == body.x && back.right() == body.right(), "each the panel's width");
+        assert!(out.y >= simple.bottom(), "the direction under the view: {simple:?} {out:?}");
+        // Simple: the destination and its list, nothing else to type into
+        assert!(drawn(&ui, "le-dest").is_some_and(|r| r.y > out.bottom()) && drawn(&ui, "le-dest-pick").is_some());
+        let fields = ["le-sign-0-0", "le-sign-0-1", "le-sign-0-2", "le-sign-0-3", "le-sign-0-5", "le-route-0", "le-ibis-open-0", "le-dest-new"];
+        for name in fields {
+            assert!(drawn(&ui, name).is_none(), "{name} is not in the Simple view");
+        }
+        // Advanced: the texts the buses read for a new destination, each its own field; the
+        // others folded away
+        v.sign_advanced = true;
+        draw_displays(&mut ui, &mut v);
+        assert!(drawn(&ui, "le-dest").is_none());
+        for name in fields.iter().chain(&["le-sign-more-0", "le-depot-file"]) {
+            assert!(drawn(&ui, name).is_some(), "{name} is in the Advanced view");
+        }
+        assert!(drawn(&ui, "le-sign-0-4").is_none() && drawn(&ui, "le-ibis-0-0").is_none(), "folded away");
+        // the depot file's own destination: its texts shown, not typed into
+        let mut v = displays_of("Neustadt, Marktplatz");
+        v.sign_advanced = true;
+        draw_displays(&mut ui, &mut v);
+        assert!(drawn(&ui, "le-sign-0-1").is_none() && drawn(&ui, "le-route-0").is_some());
+    }
+
+    /// A destination the depot file knows in other words is offered as the file has it, and
+    /// taken with one click.
+    #[test]
+    fn the_depot_files_own_name_is_offered() {
+        use super::super::ui::id_of;
+        let mut v = displays_of("Marktplatz Neustadt");
+        let mut ui = Ui::new();
+        draw_displays(&mut ui, &mut v);
+        let r = *ui.drawn.get(&id_of("le-dest-similar")).expect("offered");
+        ui.input.mouse = r.center();
+        (ui.input.pressed, ui.input.down) = (true, true);
+        draw_displays(&mut ui, &mut v);
+        (ui.input.pressed, ui.input.down, ui.input.released) = (false, false, true);
+        draw_displays(&mut ui, &mut v);
+        assert_eq!(v.line().unwrap().directions[0].terminus, "Neustadt, Marktplatz");
+        assert!(v.dirty, "the line is changed");
+        ui.input.released = false;
+        draw_displays(&mut ui, &mut v);
+        assert!(!ui.drawn.contains_key(&id_of("le-dest-similar")), "the file's own now");
     }
 }

@@ -282,3 +282,10 @@ _version: 2
   ru: "Как IBIS и табло для пассажиров называют каждую остановку. Пусто: название из файла депо (серым)."
   uk: "Як IBIS і табло для пасажирів називають кожну зупинку. Порожньо: назва з файлу депо (сірим)."
   pl: "Jak IBIS i wyświetlacze dla pasażerów nazywają każdy przystanek. Puste: nazwa z pliku zajezdni (szara)."
+"Names for the buses to know besides the depot file's: each one kept is in the destination list of every line of this map.":
+  nl: "Namen die de bussen naast die uit het hof-bestand moeten kennen: elke bewaarde staat in de bestemmingslijst van elke lijn op deze kaart."
+  de: "Namen, die die Busse neben denen der Hofdatei kennen sollen: jeder aufbewahrte steht in der Zielliste jeder Linie dieser Karte."
+  fr: "Des noms que les bus doivent connaître en plus de ceux du fichier de dépôt : chacun gardé figure dans la liste des destinations de chaque ligne de cette carte."
+  ru: "Названия, которые автобусы должны знать помимо названий из файла депо: каждое сохранённое есть в списке пунктов назначения каждой линии этой карты."
+  uk: "Назви, які автобуси мають знати, окрім назв із файлу депо: кожна збережена є в списку пунктів призначення кожної лінії цієї мапи."
+  pl: "Nazwy, które autobusy mają znać oprócz tych z pliku zajezdni: każda zachowana jest na liście celów każdej linii tej mapy."
