@@ -561,10 +561,10 @@ impl Companion {
 
     /// The driver, the duty and the bus as they are now.
     fn follow(&mut self, app: &App, now: Instant) {
-        let stem = app.career.path.as_ref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().to_string());
+        let stem = app.session.career.path.as_ref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().to_string());
         let key = signon::driver_key(stem.as_deref());
         if self.driver.as_ref().is_none_or(|d| d.0 != key) {
-            let name = app.career.driver.as_ref().map(|d| d.name.trim().to_string()).filter(|n| !n.is_empty()).or(stem).unwrap_or_else(|| "Driver".into());
+            let name = app.session.career.driver.as_ref().map(|d| d.name.trim().to_string()).filter(|n| !n.is_empty()).or(stem).unwrap_or_else(|| "Driver".into());
             let p = self.personnel.of(&key, &mut random_u64);
             self.driver = Some((key.clone(), name, p));
             self.published = None;
@@ -574,8 +574,8 @@ impl Companion {
         self.phone.ask_sign_on(app.settings.nav_signon);
         let before = self.phone.stage();
         let duty = duty_key_of(app);
-        if duty != self.duty_for || self.duty.is_some() != app.duty.is_some() {
-            self.duty = app.duty.as_ref().map(DutyOrder::of);
+        if duty != self.duty_for || self.duty.is_some() != app.session.duty.is_some() {
+            self.duty = app.session.duty.as_ref().map(DutyOrder::of);
             self.duty_for = duty.clone();
         }
         if self.phone.follow_duty(&duty) && !duty.is_empty() && self.phone.auto {
@@ -720,7 +720,7 @@ impl Companion {
             let short = omsi_launcher_lib::vehicle_type_label(&d.type_name, &d.path);
             omsi_launcher_lib::display_bus_name(&format!("{} {short}", d.manufacturer))
         });
-        let duty = app.duty.as_ref().map(|d| {
+        let duty = app.session.duty.as_ref().map(|d| {
             let order = self.duty.clone().unwrap_or_else(|| DutyOrder::of(d));
             let trips: Vec<Value> = d
                 .trips
@@ -788,7 +788,7 @@ impl Companion {
             "screens": screens,
             "stop_style": omsi_launcher_lib::stop_style(&app.settings.stop_style),
             "accent": crate::accent::css(),
-            "navigator": app.navigator.is_some(),
+            "navigator": app.menus.navigator.is_some(),
             "report": self.watch.report,
             // (the page covers its QR code and pairing code as well)
             "hide": self.config.hide,
@@ -798,13 +798,13 @@ impl Companion {
     /// The trip followed for its report (see [`nav::TripWatch`]); true when a report was
     /// made just now.
     fn follow_trip(&mut self, app: &App, now: Instant) -> bool {
-        let d = app.duty.as_ref();
+        let d = app.session.duty.as_ref();
         let info = d.and_then(|d| {
             let t = d.trips.get(d.trip_index)?;
             let line = if t.line.trim().is_empty() { d.line.clone() } else { t.line.clone() };
             Some(nav::TripInfo { index: d.trip_index + 1, count: d.trips.len(), line, terminus: t.terminus.clone(), departure: t.departure, end: t.end })
         });
-        let made = self.watch.follow(self.phone.duty(), d.is_some_and(|d| d.free), info, d.is_some_and(|d| d.trip_done()), app.career.stops, app.clock.time, now);
+        let made = self.watch.follow(self.phone.duty(), d.is_some_and(|d| d.free), info, d.is_some_and(|d| d.trip_done()), app.session.career.stops, app.clock.time, now);
         if made {
             log::info!("companion: trip report for the devices: {}", self.watch.report.as_ref().map(|r| r.to_string()).unwrap_or_default());
         }
@@ -814,7 +814,7 @@ impl Companion {
     /// The IBIS codes of the duty's trip as the game types them, worked out again when the
     /// trip, the stop, the bus or how far the typing is changed.
     fn update_ibis(&mut self, app: &App) {
-        let (Some(d), Some(p)) = (app.duty.as_ref(), app.player.as_ref()) else {
+        let (Some(d), Some(p)) = (app.session.duty.as_ref(), app.player.as_ref()) else {
             self.ibis = None;
             return;
         };
@@ -845,11 +845,11 @@ impl Companion {
         self.nav.published = Some(now);
         let Some(p) = app.player.as_ref() else { return };
         // (on foot the map follows the walker, as the navigator does)
-        let (bus, heading) = match app.on_foot.as_ref() {
+        let (bus, heading) = match app.session.on_foot.as_ref() {
             Some(f) => (f.pos, f.heading),
             None => (p.vehicle.position, p.vehicle.heading),
         };
-        let look = app.navigator.as_ref().map(|n| n.companion_look(app.traffic.as_ref(), bus));
+        let look = app.menus.navigator.as_ref().map(|n| n.companion_look(app.session.traffic.as_ref(), bus));
         // the roads
         if let Some((v, net)) = look.as_ref().and_then(|l| l.map.clone()) {
             let v = self.nav.roads_base + v;
@@ -878,7 +878,7 @@ impl Companion {
             }
         }
         // the trip under way (the one the navigator follows): its stops and the route
-        let duty = app.duty.as_ref();
+        let duty = app.session.duty.as_ref();
         let trip = duty.and_then(|d| d.trips.get(d.trip_index));
         let empty = hashbrown::HashMap::new();
         let stops = trip.map(|t| nav::trip_stops(t, look.as_ref().map_or(&empty, |l| l.places))).unwrap_or_default();
@@ -904,7 +904,7 @@ impl Companion {
             let last = !t.stops.iter().skip(k + 1).any(|s| s.stops);
             Some((k, s.name.as_str(), s.arr, last))
         });
-        let mut traffic = app.navigator.as_ref().map(|n| n.companion_traffic(app.traffic.as_ref(), bus, TRAFFIC_REACH)).unwrap_or_default();
+        let mut traffic = app.menus.navigator.as_ref().map(|n| n.companion_traffic(app.session.traffic.as_ref(), bus, TRAFFIC_REACH)).unwrap_or_default();
         if traffic.len() > TRAFFIC_MAX {
             traffic.sort_by(|a, b| (a.0 - bus).length_squared().total_cmp(&(b.0 - bus).length_squared()));
             traffic.truncate(TRAFFIC_MAX);
@@ -926,7 +926,7 @@ impl Companion {
             terminus: self.nav.trip.as_ref().map(|t| t.1.as_str()),
             stop_requested: crate::navigator::stop_requested(&p.vehicle),
             temps: crate::app_events::vehicle_temperatures(p),
-            passengers: app.humans.as_ref().map(|h| h.riding()),
+            passengers: app.session.humans.as_ref().map(|h| h.riding()),
             traffic: &traffic,
         };
         self.shared.set_nav(nav::live_json(&live).to_string());
@@ -1197,7 +1197,7 @@ fn steady() -> f64 {
 
 /// The duty the game has now, as [`signon::duty_key`] knows it (empty: none).
 fn duty_key_of(app: &App) -> String {
-    let Some(d) = app.duty.as_ref() else { return String::new() };
+    let Some(d) = app.session.duty.as_ref() else { return String::new() };
     let map = app.world.as_ref().map(|w| w.global.name.clone()).unwrap_or_default();
     let trips: Vec<(&str, f64)> = d.trips.iter().map(|t| (t.name.as_str(), t.departure)).collect();
     signon::duty_key(&map, &d.line, &d.tour, &trips)
@@ -1205,7 +1205,7 @@ fn duty_key_of(app: &App) -> String {
 
 /// The duty's IBIS typed as the driver would, unless the game did that already.
 fn type_ibis(app: &mut App) {
-    let (Some(d), Some(p)) = (app.duty.as_ref(), app.player.as_mut()) else { return };
+    let (Some(d), Some(p)) = (app.session.duty.as_ref(), app.player.as_mut()) else { return };
     if p.duty_typed {
         return;
     }
@@ -1246,7 +1246,7 @@ fn duty_tours(app: &App, line: &str) -> Vec<(String, String, String, String)> {
     use crate::game_lists::{items, menu_extras, ListKind};
     let list = items(app, &ListKind::Lines);
     let sel = list.iter().position(|(_, a)| a.strip_prefix("line ") == Some(line));
-    let rows = sel.and_then(|s| menu_extras(Some(&ListKind::Lines), Some(&list), Some(s), app.schedule.as_ref(), app.clock.time).2).map(|p| p.rows).unwrap_or_default();
+    let rows = sel.and_then(|s| menu_extras(Some(&ListKind::Lines), Some(&list), Some(s), app.session.schedule.as_ref(), app.clock.time).2).map(|p| p.rows).unwrap_or_default();
     let tours: Vec<(String, String, String)> = items(app, &ListKind::Tours(line.to_string(), None))
         .into_iter()
         .filter_map(|(label, action)| {
@@ -1627,7 +1627,7 @@ pub(crate) fn frame(app: &mut App, _dt: f32) {
         c.run_tunnel(now);
         c.follow(app, now);
         // (a duty signed for by itself: its codes to the IBIS once the bus is there)
-        let ibis = c.ibis_due && app.player.is_some() && app.duty.is_some();
+        let ibis = c.ibis_due && app.player.is_some() && app.session.duty.is_some();
         if ibis {
             c.ibis_due = false;
         }

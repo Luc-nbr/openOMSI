@@ -125,7 +125,7 @@ fn rescue_update() {
     let Some(mark) = start_mark() else { return };
     let stuck = mark.exists();
     let _ = std::fs::write(&mark, VERSION);
-    if !stuck || omsi_cfg::env::var_os("OMSI_NO_UPDATE").is_some() {
+    if !stuck || omsi_cfg::flags::OMSI_NO_UPDATE.is_set() {
         return;
     }
     log::warn!("the last start did not reach the launcher: looking for an update now");
@@ -378,7 +378,7 @@ impl Shell {
                     }
                 }
             }
-            if vulkan && std::env::var_os("OMSI_BACKEND").is_none() {
+            if vulkan && omsi_cfg::flags::OMSI_BACKEND.live_os().is_none() {
                 std::env::set_var("OMSI_BACKEND", "gl");
             }
             log::warn!("the last run closed in the middle of a drive: this one starts with safer graphics{}", if vulkan { " on OpenGL" } else { "" });
@@ -672,6 +672,26 @@ pub(crate) fn open_url(url: &str) {
     let _ = with_activity(|env, activity| {
         let s = env.new_string(&u)?;
         env.call_method(activity, "openUrl", "(Ljava/lang/String;)V", &[(&s).into()])?;
+        Ok(())
+    });
+}
+
+/// The media scanner told of a picture at once (`MediaScannerConnection.scanFile`): the
+/// gallery shows it without waiting for the next scan.
+pub(crate) fn scan_media(path: &std::path::Path) {
+    let p = path.to_string_lossy().into_owned();
+    let _ = with_activity(|env, activity| {
+        let s = env.new_string(&p)?;
+        let paths = env.new_object_array(1, "java/lang/String", &s)?;
+        let mime = env.new_string("image/png")?;
+        let mimes = env.new_object_array(1, "java/lang/String", &mime)?;
+        let none = jni::objects::JObject::null();
+        env.call_static_method(
+            "android/media/MediaScannerConnection",
+            "scanFile",
+            "(Landroid/content/Context;[Ljava/lang/String;[Ljava/lang/String;Landroid/media/MediaScannerConnection$OnScanCompletedListener;)V",
+            &[activity.into(), (&paths).into(), (&mimes).into(), (&none).into()],
+        )?;
         Ok(())
     });
 }

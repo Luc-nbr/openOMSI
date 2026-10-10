@@ -36,7 +36,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// The registry's format; a newer one is read as far as it is understood.
-pub const REGISTRY_VERSION: u32 = 1;
+/// 2: the school bits of the tours' masks as Omsi.exe reads them (`service::SCHOOL_DAY_BIT`) -
+/// a map's lines of version 1 are written again once (`upgrade_school_bits`).
+pub const REGISTRY_VERSION: u32 = 2;
 /// What every file a player's line writes begins with.
 pub const FILE_PREFIX: &str = "oo_";
 /// The list of the files the line editor wrote into a `TTData` folder (they are deleted
@@ -1382,6 +1384,33 @@ pub fn write_export(dir: &Path, e: &Export, keep: &dyn Fn(&Path) -> Result<(), S
 
 /// Every line of the registry that can be saved, written into the map's `TTData` (the
 /// content folder's copy, see `ttstore`). Returns how many lines and files.
+/// A map's own lines written before openOMSI 0.2.27 had the school bits of their tours the
+/// other way round (bit 9 school days): the game then ran school lines only in the holidays.
+/// Written again once with the bits as they are now, and the registry marked so (version 2).
+/// What was done, if anything.
+pub fn upgrade_school_bits(content: &Path, map_dir: &Path) -> Option<String> {
+    let folder = map_dir.file_name()?.to_string_lossy().into_owned();
+    let path = registry_path(&folder);
+    if !path.is_file() {
+        return None;
+    }
+    let mut reg = load_registry(&path);
+    if reg.version >= REGISTRY_VERSION {
+        return None;
+    }
+    let done = if reg.lines.is_empty() {
+        None
+    } else {
+        match export_to_map(content, map_dir, &reg) {
+            Ok((tours, _)) => Some(format!("own lines of {folder} written again with the school days as the game reads them ({tours} tours)")),
+            Err(e) => return Some(format!("own lines of {folder} not written again: {e}")),
+        }
+    };
+    reg.version = REGISTRY_VERSION;
+    save_registry(&path, &reg).ok()?;
+    done
+}
+
 pub fn export_to_map(content: &Path, map_dir: &Path, reg: &Registry) -> Result<(usize, usize), String> {
     let folder = map_dir.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
     let dir = crate::ttstore::ttdata_dir(content, map_dir, &folder)?;
@@ -1572,7 +1601,8 @@ mod tests {
             let data = omsi_timetable::TimetableData::load(&base);
             data.lines.iter().find(|l| l.name == "oo_42").unwrap().tours.iter().map(|t| t.extra.clone()).collect()
         };
-        assert_eq!(masks(&reg), ["543"].into_iter().map(String::from).collect());
+        // (Monday to Friday on school days: bit 8)
+        assert_eq!(masks(&reg), ["287"].into_iter().map(String::from).collect());
         // the buses it asks for, for the game
         let buses = read_line_buses(&dir);
         assert_eq!(buses["oo_42"].classes, vec![VehicleClass::Coach]);

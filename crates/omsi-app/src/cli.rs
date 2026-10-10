@@ -8,6 +8,10 @@ pub(crate) const DEFAULT_SIZE: &str = "1600x900";
 #[derive(Parser, Debug, Clone)]
 #[command(name = "openomsi", version = crate::startup::VERSION, about = "openOMSI")]
 pub(crate) struct Args {
+    /// Write a support package (a ZIP for a GitHub issue: the system, the graphics device and
+    /// settings, no paths, names or log text) to this file and end, without starting the game.
+    #[arg(long)]
+    pub(crate) export_diagnostics: Option<PathBuf>,
     /// OMSI 2 installation root (the folder that contains `maps`, `Vehicles`, …).
     /// Found by itself when left out: $OMSI_ROOT, the folder remembered from last time,
     /// a folder next to this program, or the usual Steam locations.
@@ -78,7 +82,11 @@ pub(crate) struct Args {
     /// Your name as the other players see it.
     #[arg(long, default_value = "Driver")]
     pub(crate) lan_name: String,
-    /// Season override: spring, summer, autumn or winter (else the date decides, as in OMSI).
+    /// Season: spring, summer, autumn or winter, with its phase `-early`, `-mid` (the
+    /// default) or `-late` (`autumn-late`), else the date decides, as in OMSI. The date
+    /// moves into the phase's month (its typical day; a --date already in that month stays,
+    /// the year and the time of day stay), half a year later south of the equator; the
+    /// plants are mixed between the two texture seasons the phase lies between.
     #[arg(long)]
     pub(crate) season: Option<String>,
     /// Fire script triggers after spawning: name[@seconds],… (times apply during --drive).
@@ -230,6 +238,10 @@ pub(crate) struct Args {
     /// launcher's "Automatic") instead of `--entry`.
     #[arg(long)]
     pub(crate) auto_entry: bool,
+    /// With a duty: the clock stays at `--time` however late its first trip leaves (the
+    /// launcher's start at the real time).
+    #[arg(long)]
+    pub(crate) keep_time: bool,
     /// OMSI's tutorial 1..4 (its situation, and its pages beside the picture).
     #[arg(long)]
     pub(crate) tutorial: Option<usize>,

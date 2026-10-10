@@ -1224,13 +1224,7 @@ fn step_time(l: &mut Launcher, r: Rect) {
             changed |= ui.slider("custom-hum", Rect::new(v.x + 4.0, yy, v.w - 12.0, 34.0), &mut custom.humidity, 0.0, 100.0, 1.0, "Humidity", &|x| format!("{x:.0} % · dew {:.0} °C", crate::weather_setup::dew_point_c(temp_for_dew, x)));
             yy += 44.0;
 
-            ui.label(Rect::new(v.x + 4.0, yy, 130.0, 32.0), "Cloud type");
-            let cloud_labels: Vec<String> = crate::weather_setup::CUSTOM_CLOUDS.iter().map(|x| (*x).to_string()).collect();
-            let mut cloud = custom.cloud;
-            if ui.select("custom-cloud", Rect::new(v.x + 134.0, yy, v.w - 142.0, 32.0), &mut cloud, &cloud_labels) {
-                custom.cloud = cloud;
-                changed = true;
-            }
+            changed |= ui.slider("custom-cloud", Rect::new(v.x + 4.0, yy, v.w - 12.0, 34.0), &mut custom.cloud_cover, 0.0, 1.0, 0.01, "Cloud cover", &|c| if c <= 0.0 { omsi_ui::tr("Clear sky").into_owned() } else { format!("{:.0} %", c * 100.0) });
             yy += 44.0;
 
             ui.label(Rect::new(v.x + 4.0, yy, 130.0, 32.0), "Precipitation");

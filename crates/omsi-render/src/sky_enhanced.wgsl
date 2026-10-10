@@ -23,7 +23,6 @@
 const CLOUD_BOTTOM: f32 = 1400.0;
 const CLOUD_TOP: f32 = 2800.0;
 const EARTH_R: f32 = 6371000.0;
-const CLOUD_STEPS: i32 = 56;
 // Extinction per metre of the densest cloud.
 const CLOUD_SIGMA: f32 = 0.035;
 const CLOUD_SHAPE_PERIOD: f32 = 13000.0;
@@ -137,7 +136,9 @@ fn cloud_layer(d: vec3<f32>, below: vec3<f32>, pix: f32) -> vec4<f32> {
         return vec4<f32>(below, 0.0);
     }
     let t1 = min(cloud_shell(d, CLOUD_TOP), min(t0 + 12000.0, CLOUD_MAX_DIST + 6000.0));
-    let ds = (t1 - t0) / f32(CLOUD_STEPS);
+    // (the march's steps: `CLOUD_STEPS` in lib.rs, fewer with the low cloud quality)
+    let steps = max(i32(enh.eye.w), 1);
+    let ds = (t1 - t0) / f32(steps);
     // how many texels of the shape map a pixel spans where the ray meets the clouds
     let lod = log2(max(t0 * pix * f32(textureDimensions(t_cloud_shape).x) / CLOUD_SHAPE_PERIOD, 1.0));
     // (the sun before the clouds - at their own height, through the air from up there:
@@ -151,7 +152,7 @@ fn cloud_layer(d: vec3<f32>, below: vec3<f32>, pix: f32) -> vec4<f32> {
     var hit = 0.0;
     var hit_w = 0.0;
     var t = t0 + ds * cloud_jitter;
-    for (var i = 0; i < CLOUD_STEPS; i = i + 1) {
+    for (var i = 0; i < steps; i = i + 1) {
         let p = vec3<f32>(cloud_ground(d, t), cloud_height(d, t));
         let h = (p.z - CLOUD_BOTTOM) / (CLOUD_TOP - CLOUD_BOTTOM);
         let sigma = cloud_sigma(p, h, coverage, lod, true);

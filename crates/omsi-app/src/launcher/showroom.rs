@@ -117,6 +117,8 @@ pub struct Showroom {
     pub second_generation: u64,
     /// The second picture's size, to be made at the next `preview`.
     pending_second: Option<(u32, u32)>,
+    /// Bumped at every drawing of the picture (the launcher shows an unchanged one only once).
+    pub drawn: u64,
 }
 
 /// The bus shown, opened up for the livery studio: its scene (whose texture slots it paints),
@@ -151,6 +153,16 @@ fn placing_mark(studio: bool) -> PathBuf {
 fn hung(mark: &str, bus: &str, pid: u32) -> bool {
     let mut lines = mark.lines();
     lines.next().is_some_and(|b| b.trim() == bus.trim()) && lines.next().is_none_or(|p| p.trim() != pid.to_string())
+}
+
+/// The launcher ends in order (closed, or a test's time is up) while a preview is being
+/// placed: that is no hang, and the bus must not be left out of the previews from then on
+/// (a test ended mid-placing put the bus it showed into `showroom-skip.txt`). Both marks go:
+/// the bus picker's and the livery studio's.
+pub(super) fn clear_placing_mark() {
+    for studio in [false, true] {
+        let _ = std::fs::remove_file(placing_mark(studio));
+    }
 }
 
 fn args_for(look: &Look) -> Args {
@@ -217,6 +229,7 @@ impl Showroom {
             second_camera: None,
             second_generation: 0,
             pending_second: None,
+            drawn: 0,
         }
     }
 
@@ -682,6 +695,7 @@ impl Showroom {
         }
         if self.dirty {
             self.dirty = false;
+            self.drawn += 1;
             let view = self.target.as_ref().unwrap().1.clone();
             self.render(renderer, &view, w, h, None);
             if let (Some((_, v2, sw, sh)), Some(cam)) = (self.second.as_ref().map(|t| (0, t.1.clone(), t.2, t.3)), self.second_camera) {

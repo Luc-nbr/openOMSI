@@ -48,22 +48,22 @@ impl Presence {
             (if short.is_empty() { full } else { short }, full)
         });
         let details = match duty {
-            Some((line, _)) => format!("{} · Line {}", compact(map, 24), line.trim()),
+            Some((line, _)) => format!("{} | Line {}", compact(map, 24), line.trim()),
             None => compact(map, 24),
         };
         let mut state = match (bus, duty) {
             (Some((short, _)), Some((_, tour))) => {
-                format!("{} · Tour {}", compact(short, 16), tour.trim())
+                format!("{} | Tour {}", compact(short, 16), tour.trim())
             }
-            (Some((short, _)), None) => format!("{} · Free drive", compact(short, 16)),
+            (Some((short, _)), None) => format!("{} | Free drive", compact(short, 16)),
             (None, _) => "On foot".to_string(),
         };
         if multiplayer {
-            state.push_str(" · Multiplayer");
+            state.push_str(" | Multiplayer");
         }
         let large_text = match bus {
-            Some((_, full)) => format!("openOMSI · {map} · {full}"),
-            None => format!("openOMSI · {map}"),
+            Some((_, full)) => format!("openOMSI | {map} | {full}"),
+            None => format!("openOMSI | {map}"),
         };
         Some(Self {
             details,
@@ -87,11 +87,13 @@ fn compact(text: &str, limit: usize) -> String {
     if text.chars().count() <= limit {
         return text.to_string();
     }
-    let prefix: String = text.chars().take(limit - 1).collect();
-    let short = prefix
-        .rsplit_once(' ')
-        .map_or(prefix.as_str(), |(words, _)| words);
-    format!("{}…", short.trim_end())
+    // (cut at a word where one ends in the limit, else the letters that leave room for the dots)
+    let prefix: String = text.chars().take(limit).collect();
+    let short = match prefix.rsplit_once(' ') {
+        Some((words, _)) => words.trim_end().to_string(),
+        None => text.chars().take(limit.saturating_sub(3)).collect(),
+    };
+    format!("{short}...")
 }
 
 pub(crate) struct Discord {
@@ -652,9 +654,9 @@ mod tests {
                 true
             ),
             Some(Presence {
-                details: "Map · Line 5".into(),
-                state: "Bus · Tour 2 · Multiplayer".into(),
-                large_text: "openOMSI · Map · Full bus name".into(),
+                details: "Map | Line 5".into(),
+                state: "Bus | Tour 2 | Multiplayer".into(),
+                large_text: "openOMSI | Map | Full bus name".into(),
             })
         );
         assert_eq!(
@@ -727,7 +729,7 @@ mod tests {
         let connections = Arc::new(Mutex::new(VecDeque::from([client_one, client_two])));
         let connector_queue = connections.clone();
         let wanted = Arc::new(Mutex::new(Some(Presence {
-            details: "Bus · Map".into(),
+            details: "Bus | Map".into(),
             state: "Free drive".into(),
             large_text: "Full bus name".into(),
         })));
@@ -752,7 +754,7 @@ mod tests {
 
         let first = receive(&mut peer_one, deadline);
         let first_json: serde_json::Value = serde_json::from_slice(&first.body).unwrap();
-        assert_eq!(first_json["args"]["activity"]["details"], "Bus · Map");
+        assert_eq!(first_json["args"]["activity"]["details"], "Bus | Map");
         assert_eq!(
             first_json["args"]["activity"]["assets"]["large_image"],
             "logo"
@@ -762,7 +764,7 @@ mod tests {
 
         let fallback = receive(&mut peer_one, deadline);
         let fallback: serde_json::Value = serde_json::from_slice(&fallback.body).unwrap();
-        assert_eq!(fallback["args"]["activity"]["details"], "Bus · Map");
+        assert_eq!(fallback["args"]["activity"]["details"], "Bus | Map");
         assert!(fallback["args"]["activity"].get("assets").is_none());
         acknowledge(
             &mut peer_one,
@@ -790,7 +792,7 @@ mod tests {
         ready_fragmented(&mut peer_two);
         let resent = receive(&mut peer_two, deadline);
         let resent: serde_json::Value = serde_json::from_slice(&resent.body).unwrap();
-        assert_eq!(resent["args"]["activity"]["details"], "Bus · Map");
+        assert_eq!(resent["args"]["activity"]["details"], "Bus | Map");
         assert_eq!(resent["args"]["activity"]["timestamps"]["start"], 1234);
         stop.store(true, Ordering::Release);
         worker.join().unwrap();
@@ -914,8 +916,8 @@ mod tests {
             false,
         )
         .unwrap();
-        assert_eq!(presence.details, "Grundorf · Line 76");
-        assert_eq!(presence.state, "MB O550 Euro3… · Tour 1");
+        assert_eq!(presence.details, "Grundorf | Line 76");
+        assert_eq!(presence.state, "MB O550 Euro3... | Tour 1");
         assert!(presence
             .large_text
             .contains("Thueringer Wald MB O550 Euro3 Automatik"));
@@ -928,7 +930,7 @@ mod tests {
             let free =
                 Presence::for_game(Some("Grundorf"), Some((short, "MAN NL202")), None, false)
                     .unwrap();
-            assert_eq!(free.state, "MAN NL202 · Free drive");
+            assert_eq!(free.state, "MAN NL202 | Free drive");
             let duty = Presence::for_game(
                 Some("Grundorf"),
                 Some((short, "MAN NL202")),
@@ -936,7 +938,7 @@ mod tests {
                 false,
             )
             .unwrap();
-            assert_eq!(duty.state, "MAN NL202 · Tour 1");
+            assert_eq!(duty.state, "MAN NL202 | Tour 1");
             assert!(duty.large_text.ends_with("MAN NL202"));
         }
     }

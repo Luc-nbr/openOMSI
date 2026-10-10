@@ -27,6 +27,13 @@ use omsi_model::Model;
 use std::f32::consts::{PI, TAU};
 use std::path::{Path, PathBuf};
 
+#[path = "human/support.rs"]
+mod support;
+
+#[cfg(test)]
+#[path = "human/contact_tests.rs"]
+mod contact_tests;
+
 /// Engine bone ids of `[setbone]`.
 pub const BONE_OS_L: i32 = -2;
 pub const BONE_OS_R: i32 = -3;
@@ -1145,7 +1152,7 @@ impl Pose {
             let (p, yaw) = self.rest_target(rig, side, input.origin, input.heading, false);
             let f = &mut self.feet[side];
             *f = Foot::new();
-            f.pos = DVec3::new(p.x, p.y, input.origin.z);
+            f.pos = DVec3::new(p.x, p.y, Self::sample_floor(input, p.truncate(), input.origin.z));
             f.yaw = yaw;
         }
         self.body_floor = 0.0;
@@ -1195,6 +1202,7 @@ impl Pose {
         }
         let input = &clean;
         let dt = dt.clamp(0.0, 0.25);
+        let floor_changed = self.init && ((input.origin.z - self.origin.z).abs() > 1e-6 || input.frame != self.frame);
         self.landed = false;
         // a new floor frame (boarding, getting off): keep the feet where they are
         if self.init && input.frame != self.frame {
@@ -1257,6 +1265,9 @@ impl Pose {
         self.vel = input.velocity;
         self.origin = input.origin;
         self.heading = input.heading;
+        if floor_changed {
+            self.refresh_support(input);
+        }
         let v_in = input.velocity.length() as f32;
 
         // sitting down and getting up
@@ -1651,7 +1662,7 @@ impl Pose {
     }
 
     fn land(&mut self, input: &PoseInput, side: usize) {
-        let fallback = self.origin.z + self.body_floor as f64;
+        let fallback = self.origin.z;
         let f = &mut self.feet[side];
         let floor = if (f.to.truncate() - f.to_sampled).length() < 0.05 {
             f.to_floor
@@ -1669,7 +1680,7 @@ impl Pose {
 
     /// Update the landing floor height of the swinging feet.
     fn swing_floor(&mut self, input: &PoseInput, dt: f32) {
-        let fallback = self.origin.z + self.body_floor as f64;
+        let fallback = self.origin.z;
         for f in self.feet.iter_mut() {
             if !f.planted && (f.to.truncate() - f.to_sampled).length() > 0.05 {
                 f.to_floor = Self::sample_floor(input, f.to.truncate(), fallback);
@@ -1935,8 +1946,13 @@ impl Pose {
                 let land_w = smoothstep(0.65, 1.0, t);
                 let mut pitch = (rel + (from - rel) * from_w) * (1.0 - land_w) + land * land_w;
                 // the toes clear the floor, the heel too
-                let above = ankle_at.z - swing_floor[side] - 0.012;
                 let ah = rig.ankle_h;
+                // At lift-off/landing the sole is still touching the floor. Requiring
+                // 12 mm of clearance there gives mutually impossible heel/toe limits:
+                // the last clamp tips the shoe through the floor. Spend only the
+                // clearance the ankle has actually gained above its resting height.
+                let height = ankle_at.z - swing_floor[side];
+                let above = height - (height - ah).clamp(0.0, 0.012);
                 let (rt, pt) = ((rig.toe * rig.toe + ah * ah).sqrt(), ah.atan2(rig.toe));
                 if -above / rt > -1.0 {
                     pitch = pitch.max((pt + (-above / rt).min(1.0).asin()).to_degrees());

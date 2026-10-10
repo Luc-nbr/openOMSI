@@ -391,7 +391,8 @@ impl Fonts {
         self.width_as_is(&crate::i18n::tr(text), px, weight)
     }
 
-    /// Width of `text` as it is, not translated (a name: the launcher's own, letter by letter).
+    /// [`Fonts::width`] of a text that is not the interface's own (a Lua plugin's, or a name:
+    /// the launcher's own, letter by letter): as it is, not looked up in the translations.
     pub fn width_as_is(&self, text: &str, px: f32, weight: Weight) -> f32 {
         let comp = composed(text);
         let text = &*comp;

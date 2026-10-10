@@ -417,6 +417,9 @@ pub struct Frame<'a> {
     pub width: f32,
     pub height: f32,
     pub cursor: (f32, f32),
+    /// The mouse steering's cross, while the system cursor is hidden and held (where the
+    /// crosshair cursor stood before): drawn here instead.
+    pub steer_cross: Option<(f32, f32)>,
     /// An OpenXR headset is drawing this frame.
     pub vr: bool,
     /// The name of what the cursor points at (a switch, a part), shown next to it.
@@ -536,7 +539,7 @@ pub struct Ui {
 }
 
 /// Between the information bar's parts.
-pub(crate) const INFO_SEP: &str = "   ·   ";
+pub(crate) const INFO_SEP: &str = "   |   ";
 
 /// The information bar's parts in rows no wider than `room` (as `width` measures a text),
 /// each as many parts as fit: in one line it ran off both sides of a narrow window, and on a
@@ -916,7 +919,7 @@ impl Ui {
                 y += 5.0 * s;
             }
             let tr = |t: &str| omsi_ui::tr(t).into_owned();
-            let foot = format!("{} {}/{}   ·   {}   ·   {}   ·   {}", tr("Page"), at + 1, count, tr("Enter next"), tr("Page Up back"), tr("Ctrl+T hide"));
+            let foot = format!("{} {}/{}   |   {}   |   {}   |   {}", tr("Page"), at + 1, count, tr("Enter next"), tr("Page Up back"), tr("Ctrl+T hide"));
             let l = self.text.label(r, scene, &foot, (12.0 * s) as u32, [150, 150, 150, 0]);
             y += 4.0 * s;
             items.push((l.tex, [x + pad, y, x + pad + l.w as f32, y + l.h as f32]));
@@ -951,6 +954,12 @@ impl Ui {
             }
             scene.overlays.push((l.tex, [x, y, x + l.w as f32, y + l.h as f32]));
         }
+        if let (Some((x, y)), false) = (f.steer_cross, f.vr) {
+            // (the size of the system's crosshair cursor: 17 logical pixels)
+            let tex = self.text.steer_cross(r, scene);
+            let half = 8.5 * f.scale;
+            scene.overlays.push((tex, [x - half, y - half, x + half, y + half]));
+        }
         if f.vr {
             let pointer = self.text.vr_pointer(r, scene);
             self.vr_cursor_overlay = Some(scene.overlays.len());
@@ -962,7 +971,49 @@ impl Ui {
     }
 }
 
+/// The pixels (RGBA, `n`×`n`) of the steering cross: arms two pixels wide across the whole
+/// picture, white, with a one-pixel dark edge so it shows on a bright sky and a dark road
+/// alike, and a small gap in the middle that leaves the point itself visible.
+fn steer_cross_pixels(n: usize) -> Vec<u8> {
+    let mut rgba = vec![0u8; n * n * 4];
+    let c = n as f32 * 0.5;
+    for y in 0..n {
+        for x in 0..n {
+            let (dx, dy) = ((x as f32 + 0.5 - c).abs(), (y as f32 + 0.5 - c).abs());
+            let (along, across) = if dx <= dy { (dy, dx) } else { (dx, dy) };
+            let gap = along < 3.0;
+            let px = if gap || along > c - 1.0 {
+                [0, 0, 0, 0]
+            } else if across <= 1.0 {
+                [255, 255, 255, 255]
+            } else if across <= 2.0 {
+                [0, 0, 0, 200]
+            } else {
+                [0, 0, 0, 0]
+            };
+            rgba[(y * n + x) * 4..(y * n + x + 1) * 4].copy_from_slice(&px);
+        }
+    }
+    rgba
+}
+
 impl TextCache {
+    /// The mouse steering's cross: thin white arms with a dark edge, as a crosshair cursor,
+    /// centred on the point that steers and receives a click.
+    fn steer_cross(&mut self, r: &Renderer, scene: &mut Scene) -> TextureId {
+        let key = ("\u{0}steer_cross".to_string(), 0, [0, 0, 0, 0]);
+        if let Some(label) = self.labels.get_mut(&key) {
+            label.used = self.frame;
+            return label.tex;
+        }
+        const N: usize = 34;
+        let rgba = steer_cross_pixels(N);
+        let image = omsi_texture::Image { width: N as u32, height: N as u32, rgba, has_alpha: true };
+        let tex = r.add_texture(scene, &image, false);
+        self.labels.insert(key, Label { tex, w: N as u32, h: N as u32, used: self.frame });
+        tex
+    }
+
     /// A small white circle, centred on the point that receives the click.
     fn vr_pointer(&mut self, r: &Renderer, scene: &mut Scene) -> TextureId {
         let key = ("\u{0}vr_pointer_dot".to_string(), 0, [0, 0, 0, 0]);
@@ -1329,10 +1380,10 @@ fn clip_bold(tc: &TextCache, text: &str, px: f32, width: f32) -> String {
         return text.to_string();
     }
     let mut out: String = text.chars().collect();
-    while !out.is_empty() && tc.width_bold(&format!("{out}…"), px) > width {
+    while !out.is_empty() && tc.width_bold(&format!("{out}..."), px) > width {
         out.pop();
     }
-    format!("{}…", out.trim_end())
+    format!("{}...", out.trim_end())
 }
 
 /// The distance of the point (`px`, `py`) from the rounded rectangle at (`x0`, `y0`) of
@@ -1929,7 +1980,7 @@ impl Ui {
         let keys = !crate::platform::touch_controls();
         // (a phone draws to its edges, round the camera's hole in the screen: on the rail's
         // side in one of the two landscape turns - its contents keep clear of it)
-        let cut = if crate::platform::MOBILE || omsi_cfg::env::var_os("OMSI_MOBILE").is_some() { 18.0 * s } else { 0.0 };
+        let cut = if crate::platform::MOBILE || omsi_cfg::flags::OMSI_MOBILE.is_set() { 18.0 * s } else { 0.0 };
         let rail_w = (264.0 * s + cut).min(f.width * 0.86).round();
         // the card: floating clear of the screen's edges, rounded, night blue with an edge of
         // the accent, a soft shadow over the picture
@@ -2056,7 +2107,7 @@ impl Ui {
         }
         // the keys, quietly at the bottom, where there is a keyboard
         if keys {
-            let hint = omsi_ui::tr("Esc resumes  ·  P pauses").into_owned();
+            let hint = omsi_ui::tr("Esc resumes  |  P pauses").into_owned();
             let hint = clip_to(&self.text, &hint, 11.0 * s, card[2] - bx - 16.0 * s);
             self.put(r, scene, &hint, (11.0 * s) as u32, OFF_INK, bx, f.height - m - 20.0 * s);
         }
@@ -2448,6 +2499,22 @@ fn vr_settings_sidebar_step(available: f32, pages: usize, scale: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    /// The steering cross: white arms with a dark edge, open in the middle, nothing in the
+    /// corners - the same in all four directions.
+    #[test]
+    fn the_steering_cross_is_a_white_cross_with_a_dark_edge() {
+        let n = 34;
+        let px = super::steer_cross_pixels(n);
+        let at = |x: usize, y: usize| &px[(y * n + x) * 4..(y * n + x) * 4 + 4];
+        let c = n / 2;
+        assert_eq!(at(c, c)[3], 0, "the middle is open");
+        assert_eq!(at(0, 0)[3], 0, "the corners are empty");
+        for (x, y) in [(c, 6), (c, n - 7), (6, c), (n - 7, c)] {
+            assert_eq!(at(x, y), [255, 255, 255, 255], "arm at {x},{y}");
+        }
+        assert_eq!(at(c + 2, 6)[..3], [0, 0, 0], "the arm's edge is dark");
+    }
+
     use super::*;
 
     /// The pause menu and the loading screen as pictures, drawn without a window and without
@@ -2463,11 +2530,11 @@ mod tests {
         let mut scene = r.new_scene();
         let mut ui = Ui::new().expect("the interface");
         let (w, h) = (1440u32, 900u32);
-        let items = crate::input_script::GAME_MENU;
+        let items = crate::app_impl::menus::GAME_MENU;
         let camera = omsi_render::Camera { position: glam::DVec3::new(0.0, 0.0, -1.0e6), yaw: 0.0, pitch: -89.0, roll: 0.0, fov_deg: 60.0, near: 0.5, far: 10.0 };
         let lighting = omsi_render::Lighting { sky_color: glam::Vec3::new(0.32, 0.38, 0.46), ..Default::default() };
         for (name, cursor) in [("pauze.png", (-1.0, -1.0)), ("pauze-muis.png", (120.0, 300.0))] {
-            let frame = Frame { scale: 1.0, ui_scale: 1.0, opacity: 0.9, width: w as f32, height: h as f32, cursor, vr: false, tooltip: None, chat: None, chat_size: 1.0, notes: &[], fps: None, paused: true, menu: Some((0, &items[..])), menu_top: None, menu_disabled: &[], timetable: None, info: None, info_room: None, tutorial: None, tags: Vec::new(), notices: &[], notice_anchor: None, menu_kind: MenuKind::Game, menu_head: None, menu_preview: None, pane_first: None, menu_tabs: None, menu_kbd: false, dropdown: None };
+            let frame = Frame { scale: 1.0, ui_scale: 1.0, opacity: 0.9, width: w as f32, height: h as f32, cursor, vr: false, tooltip: None, chat: None, chat_size: 1.0, notes: &[], fps: None, paused: true, menu: Some((0, &items[..])), menu_top: None, menu_disabled: &[], timetable: None, info: None, info_room: None, tutorial: None, tags: Vec::new(), notices: &[], notice_anchor: None, menu_kind: MenuKind::Game, menu_head: None, menu_preview: None, pane_first: None, menu_tabs: None, menu_kbd: false, dropdown: None, steer_cross: None };
             // (frames enough for the eases to settle)
             for _ in 0..40 {
                 scene.overlays.clear();

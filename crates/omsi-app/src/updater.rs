@@ -1,5 +1,6 @@
 //! Updates from this fork's GitHub releases (github.com/Luc-nbr/openOMSI: openOMSI with the
-//! Omsi-Hub interface - the project's own releases would replace that interface).
+//! Omsi-Hub interface - the project's own releases, github.com/openOMSI-org/openOMSI, would
+//! replace that interface).
 //!
 //! Every hour the fork takes the project's new commits (github.com/openOMSI-Project/openOMSI,
 //! main) into its `beta` when they merge cleanly and the tests pass
@@ -272,7 +273,7 @@ pub fn asset_name(version: &str) -> Option<String> {
 
 // --- the release ----------------------------------------------------------------------------
 
-fn agent() -> ureq::Agent {
+pub(crate) fn agent() -> ureq::Agent {
     // (a read waits 30 s at most - a stalled download goes on with a range request, so a
     // short wait costs nothing; the connection gets 20 s, enough for a slow line or a
     // resolver that tries IPv6 first)
@@ -339,7 +340,7 @@ fn short_error(e: &ureq::Error) -> String {
 
 /// The latest release when it is newer than this build and has a file for this platform.
 pub fn latest() -> anyhow::Result<Option<Release>> {
-    let url = omsi_cfg::env::var("OMSI_UPDATE_URL").unwrap_or_else(|_| LATEST_API.to_string());
+    let url = omsi_cfg::flags::OMSI_UPDATE_URL.var().map(str::to_string).unwrap_or_else(|| LATEST_API.to_string());
     match fetch_text(&url).and_then(|t| Ok(serde_json::from_str::<serde_json::Value>(&t)?)) {
         Ok(v) => newest_hub_release(&v, current_version()),
         // (the API: an address over its limit gets 403 for an hour, and some networks reach
@@ -669,7 +670,7 @@ fn short_path(p: &Path) -> String {
     if n <= 48 {
         s
     } else {
-        format!("…{}", s.chars().skip(n - 46).collect::<String>())
+        format!("...{}", s.chars().skip(n - 46).collect::<String>())
     }
 }
 
@@ -722,7 +723,7 @@ fn aside_of(target: &Path) -> PathBuf {
 }
 
 /// Unpack `zip` into `to` (a fresh folder), with the files' Unix modes and links.
-fn unpack(zip: &Path, to: &Path) -> anyhow::Result<()> {
+pub(crate) fn unpack(zip: &Path, to: &Path) -> anyhow::Result<()> {
     let _ = std::fs::remove_dir_all(to);
     std::fs::create_dir_all(to)?;
     let mut a = zip::ZipArchive::new(std::fs::File::open(zip)?)?;
@@ -946,7 +947,7 @@ mod tests {
     fn the_platform_file_of_a_github_release() {
         let name = asset_name("0.1.9").unwrap();
         let v = serde_json::json!({
-            "tag_name": "v0.1.9", "html_url": "https://github.com/openOMSI-Project/openOMSI/releases/tag/v0.1.9", "body": "notes",
+            "tag_name": "v0.1.9", "html_url": "https://github.com/openOMSI-org/openOMSI/releases/tag/v0.1.9", "body": "notes",
             "assets": [
                 {"name": "openOMSI-0.1.9-server-linux-x64.zip", "browser_download_url": "https://x/server", "size": 5},
                 {"name": name, "browser_download_url": "https://x/mine", "size": 42, "digest": "sha256:ABCDEF"}

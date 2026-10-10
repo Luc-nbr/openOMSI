@@ -41,6 +41,11 @@ use crate::traffic::Traffic;
 
 // Omsi-Hub's night blue, half transparent, calm (its overlay's glass)
 const NAV_REDRAW_S: f32 = 1.0 / 30.0;
+/// Frames between two drawings of the navigator at least. Below 30 fps it was drawn every
+/// frame, and a drawing is a pass of its own (4x MSAA, its own submit): on OpenGL, where
+/// wgpu makes the GL calls in the submit, 4.2 ms of a 43 ms frame (a Radeon R7 200, 23
+/// fps), against 0.6 ms on Vulkan. Every other frame halves that where frames are slow.
+const NAV_REDRAW_FRAMES: u32 = 2;
 const PANEL: Color = Color::rgba(20, 26, 38, 0.70);
 // (the bars under the texts darken whatever the opacity setting leaves of the panel: at a
 // third the cab showed through behind the next stop)
@@ -285,6 +290,8 @@ pub struct Navigator {
     pub panel_overlay: Option<usize>,
     pub cockpit_display: bool,
     drawn_at: f32,
+    /// Frames since the last drawing (see `NAV_REDRAW_FRAMES`).
+    frames_since_drawn: u32,
     pub enabled: bool,
     /// The duty board under the map (`nav_duty`; Shift+N cycles map, map and board, off).
     pub schedule: bool,
@@ -486,6 +493,7 @@ impl Navigator {
             panel_overlay: None,
             cockpit_display: false,
             drawn_at: f32::MIN,
+            frames_since_drawn: u32::MAX,
             enabled,
             schedule: false,
             board: true,
@@ -602,13 +610,13 @@ impl Navigator {
             Some(n) => {
                 // (only `draw` borrows it, for the length of a frame)
                 if let Some(n) = std::sync::Arc::get_mut(n) {
-                    n.extend(lanes, 1.5);
+                    n.extend(lanes, omsi_sim::traffic::LINK_TOLERANCE);
                     n.build_grid();
                 }
             }
             None => {
                 let mut n = Network { lanes, ..Default::default() };
-                n.link(1.5);
+                n.link(omsi_sim::traffic::LINK_TOLERANCE);
                 n.build_grid();
                 self.own_net = Some(std::sync::Arc::new(n));
             }
@@ -806,7 +814,7 @@ impl Navigator {
         };
         // (from the depot to the first stop may be a long way; back onto the route is not)
         let way = way_back(net, f.bus, f.heading, &r.lanes[lo..hi], if r.joined { 6000.0 } else { 30_000.0 });
-        if way.is_none() && omsi_cfg::env::var_os("OMSI_DEBUG_NAV").is_some() {
+        if way.is_none() && omsi_cfg::flags::OMSI_DEBUG_NAV.is_set() {
             let info: Vec<_> = r.lanes[lo..hi].iter().map(|&l| (l, net.lanes[l].kind, net.lanes[l].name.clone(), net.lanes.iter().filter(|x| x.next.contains(&l)).count(), net.lanes[l].start())).collect();
             log::info!("navigator: off the route for {:.1} s and no way back found; targets {info:?}", r.off_for);
         }
@@ -1274,7 +1282,7 @@ impl Navigator {
             }
         }
         // stops whose tiles are not loaded: their place from the map
-        if omsi_cfg::env::var_os("OMSI_DEBUG_NAV").is_some() && self.time < 0.15 {
+        if omsi_cfg::flags::OMSI_DEBUG_NAV.is_set() && self.time < 0.15 {
             log::info!("navigator: stops {:?}", f.stops.iter().map(|s| (s.name.clone(), s.object_id, s.position != DVec3::ZERO, self.stop_pos.contains_key(&s.object_id))).collect::<Vec<_>>());
         }
         let f2;
@@ -1287,7 +1295,7 @@ impl Navigator {
         self.follow(f);
         self.bus_at = f.bus;
         self.stop_spots = f.stops.iter().take(3).map(|st| (st.position, st.name.clone(), f.heading, st.object_id)).collect();
-        if omsi_cfg::env::var_os("OMSI_DEBUG_NAV").is_some() && (self.time % 1.0) < f.dt {
+        if omsi_cfg::flags::OMSI_DEBUG_NAV.is_set() && (self.time % 1.0) < f.dt {
             log::info!("navigator: route {} lanes (complete {}, provisional {}, at {}, on it {}, off for {:.1} s), {} stops ahead, next {:?}, key {:?}", self.route.lanes.len(), self.route.complete, self.route.provisional, self.route.progress, self.route.on_route, self.route.off_for, f.stops.len(), f.stops.first().map(|s| (s.name.clone(), s.position.x.round(), s.position.y.round())), self.route.key);
         }
         self.update_congestion(f);
@@ -1424,8 +1432,11 @@ impl Navigator {
         }
         let (tex, _, _) = self.target.unwrap();
         let Some(view) = renderer.texture_view(scene, tex) else { return };
-        if !self.city.open && (resized || self.time - self.drawn_at >= NAV_REDRAW_S) {
+        self.frames_since_drawn = self.frames_since_drawn.saturating_add(1);
+        let due = self.time - self.drawn_at >= NAV_REDRAW_S && self.frames_since_drawn >= NAV_REDRAW_FRAMES;
+        if !self.city.open && (resized || due) {
             self.drawn_at = self.time;
+            self.frames_since_drawn = 0;
             match self.layout {
                 Some(lay) if self.signing.is_none() => self.draw(renderer, &view, (w, h), &lay, f, &board),
                 _ => self.draw_signon(renderer, &view, (w, h)),
@@ -1525,7 +1536,7 @@ impl Navigator {
                 let mut p = Painter::new();
                 let t0 = std::time::Instant::now();
                 build_roads(&mut p, net, anchor);
-                if omsi_cfg::env::var_os("OMSI_DEBUG_NAV").is_some() {
+                if omsi_cfg::flags::OMSI_DEBUG_NAV.is_set() {
                     log::info!("navigator: roads around ({:.0}, {:.0}) in {:.1} ms: {} vertices", anchor.x, anchor.y, t0.elapsed().as_secs_f64() * 1000.0, p.verts.len());
                 }
                 road_verts = Some(p.verts);
@@ -1726,9 +1737,9 @@ impl Navigator {
 
         // Temperatures stay in the navigator header on every bus. The simulator always keeps
         // Cabinair_Temp, while scripts that model heating/air conditioning can overwrite it.
-        let temp = format!("EXT {:.0}°C · INT {:.0}°C", f.outside_temp, f.inside_temp);
+        let temp = format!("EXT {:.0}°C | INT {:.0}°C", f.outside_temp, f.inside_temp);
         let center = match f.line.as_deref().map(str::trim).filter(|l| !l.is_empty()) {
-            Some(line) => format!("{temp} · {line}"),
+            Some(line) => format!("{temp} | {line}"),
             None => temp,
         };
         let left_edge = (if limit.is_some() { x + 24.0 * s } else { x }) + 6.0 * s;
@@ -1958,7 +1969,7 @@ impl Navigator {
         });
         match (f.stops.first(), dest) {
             (Some(st), _) => {
-                let name = if f.stops.len() == 1 { format!("{} · {}", st.name.trim(), wd.last_stop) } else { st.name.trim().to_string() };
+                let name = if f.stops.len() == 1 { format!("{} | {}", st.name.trim(), wd.last_stop) } else { st.name.trim().to_string() };
                 ui.text_in(&mut self.atlas, &self.fonts, &name, 13.5 * s, Weight::Bold, stop_row, Align::Left, TEXT);
                 let mut parts = Vec::new();
                 // (a diversion of the player's own: where it goes first; the timetable's next
@@ -1972,13 +1983,13 @@ impl Navigator {
                     parts.push(pins::eta_text(pins::eta(d, self.speed_avg)));
                 }
                 parts.push(format!("{:02}:{:02}", (st.arrival / 3600.0) as i32 % 24, ((st.arrival % 3600.0) / 60.0) as i32));
-                let line2 = parts.join("  ·  ");
+                let line2 = parts.join("  |  ");
                 match (&note, &jam_note) {
                     (Some((t, c)), _) => {
                         ui.text_in(&mut self.atlas, &self.fonts, t, 12.5 * s, Weight::Medium, y2, Align::Left, *c);
                     }
                     (None, Some((t, c))) => {
-                        ui.text_in(&mut self.atlas, &self.fonts, &format!("{line2}  ·  {t}"), 12.5 * s, Weight::Medium, y2, Align::Left, *c);
+                        ui.text_in(&mut self.atlas, &self.fonts, &format!("{line2}  |  {t}"), 12.5 * s, Weight::Medium, y2, Align::Left, *c);
                     }
                     (None, None) => {
                         ui.text_in(&mut self.atlas, &self.fonts, &line2, 12.5 * s, Weight::Medium, y2, Align::Left, if diverted { crate::nav_duty::NOW } else { TEXT_DIM });
@@ -2524,7 +2535,7 @@ pub(crate) fn lanes_near(net: &Network, c: DVec2, radius: f64) -> Vec<usize> {
 /// `OMSI_NAV_PROBE=x,y[,r]`: the lanes of the map's network that start or end within r
 /// metres (25) of a point - how they link, to see why a route cannot reach a place.
 fn probe_lanes(net: &Network) {
-    let Ok(v) = omsi_cfg::env::var("OMSI_NAV_PROBE") else { return };
+    let Some(v) = omsi_cfg::flags::OMSI_NAV_PROBE.var() else { return };
     let f: Vec<f64> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
     if f.len() < 2 {
         return;
@@ -2757,7 +2768,7 @@ fn build_streets(net: &Network, signs: &[(DVec3, f64, String)]) -> Streets {
         }
     }
     let straight = |l: &omsi_sim::traffic::Lane| l.kind == LaneKind::Street && omsi_sim::traffic::wrap_deg(l.end_heading() - l.start_heading()).abs() < 30.0;
-    let debug = omsi_cfg::env::var_os("OMSI_DEBUG_NAV").is_some();
+    let debug = omsi_cfg::flags::OMSI_DEBUG_NAV.is_set();
     let mut hist = [0u32; 12];
     let mut seeds: Vec<(usize, u32)> = Vec::new();
     for (pos, rot, name) in signs {
@@ -2899,7 +2910,7 @@ pub(crate) fn way_back(net: &Network, bus: DVec3, heading: f64, ahead: &[usize],
     use std::cmp::Ordering;
     use std::collections::BinaryHeap;
     let start = start_lane(net, bus, heading);
-    if omsi_cfg::env::var_os("OMSI_DEBUG_NAV").is_some() {
+    if omsi_cfg::flags::OMSI_DEBUG_NAV.is_set() {
         log::info!("navigator: way search from {:?} to {} route lanes", start, ahead.len());
     }
     let start = start?;
@@ -3162,7 +3173,7 @@ impl Navigator {
             self.city.follow = true;
             if self.city.mpp <= 0.0 {
                 // For repeatable offscreen GPS comparisons at a chosen zoom.
-                self.city.mpp = omsi_cfg::env::var("OMSI_NAV_MAP_MPP").ok().and_then(|v| v.parse::<f64>().ok()).filter(|v| v.is_finite() && (0.25..=20.0).contains(v)).unwrap_or(2.5);
+                self.city.mpp = omsi_cfg::flags::OMSI_NAV_MAP_MPP.parse::<f64>().filter(|v| v.is_finite() && (0.25..=20.0).contains(v)).unwrap_or(2.5);
             }
         }
         self.city.drag = None;
@@ -4115,7 +4126,7 @@ impl Navigator {
         } else {
             f.stops.first().map(|st| {
                 let d = self.next_dist.map(|d| if d >= 1000.0 { format!("{:.1} km", d / 1000.0) } else { format!("{:.0} m", d) }).unwrap_or_default();
-                (format!("{}  ·  {}  ·  {:02}:{:02}", st.name.trim(), d, (st.arrival / 3600.0) as i32 % 24, ((st.arrival % 3600.0) / 60.0) as i32), TEXT_DIM)
+                (format!("{}  |  {}  |  {:02}:{:02}", st.name.trim(), d, (st.arrival / 3600.0) as i32 % 24, ((st.arrival % 3600.0) / 60.0) as i32), TEXT_DIM)
             })
         };
         if let Some((t, c)) = text {

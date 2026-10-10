@@ -197,6 +197,11 @@ pub(crate) struct Player {
     pub(crate) auto_shift: bool,
     /// Seconds until the automated manual may shift again; the engine's idle speed as seen.
     pub(crate) auto_shift_wait: f32,
+    /// The engine speed the governor holds it at under full throttle (rpm; 0 until seen),
+    /// which the automated manual shifts up below (#1832), and the climb towards it: the
+    /// highest speed of this pull and how long it has not risen.
+    pub(crate) auto_shift_max: f32,
+    pub(crate) auto_shift_climb: (f32, f32),
     pub(crate) auto_shift_idle: f32,
     /// L switched the side lights on with the headlights (see
     /// [`Player::headlights_with_side_lights`]).
@@ -1536,9 +1541,24 @@ impl Player {
         if n < 300.0 || self.auto_shift_wait > 0.0 || (self.axes.clutch > 0.5 && cur != 0 && kmh >= 5.0) {
             return;
         }
+        // (the governor's speed: full throttle, and the engine no longer rising for most of
+        // a second)
+        if throttle > 0.8 {
+            let (peak, flat) = &mut self.auto_shift_climb;
+            if n > *peak * 1.01 {
+                (*peak, *flat) = (n, 0.0);
+            } else {
+                *flat += dt;
+                if *flat > 0.8 {
+                    self.auto_shift_max = self.auto_shift_max.max(*peak);
+                }
+            }
+        } else {
+            self.auto_shift_climb = (0.0, 0.0);
+        }
         let idle = if self.auto_shift_idle > 300.0 { self.auto_shift_idle } else { 700.0 };
         let top = (1..=12).take_while(|g| self.vehicle.ty.program.trigger(&format!("kw_s_{g}")).is_some()).last().unwrap_or(0);
-        let to = auto_shift_gear(cur, top, n / idle, throttle, brake, kmh);
+        let to = auto_shift_gear(cur, top, n / idle, self.auto_shift_max / idle, throttle, brake, kmh);
         if to != cur && self.shift_gate_to(to) {
             self.auto_shift_wait = 1.5;
         }
@@ -1582,7 +1602,7 @@ impl Player {
         }
         // OMSI_SUSP_TRACE_WINDOW=<csv>: each wheel's travel every frame of a window run
         // (the offscreen run has OMSI_SUSP_TRACE)
-        if let Some(path) = omsi_cfg::env::var_os("OMSI_SUSP_TRACE_WINDOW") {
+        if let Some(path) = omsi_cfg::flags::OMSI_SUSP_TRACE_WINDOW.os() {
             use std::io::Write;
             static TRACE: std::sync::Mutex<Option<(std::fs::File, f64)>> = std::sync::Mutex::new(None);
             let mut g = TRACE.lock().unwrap_or_else(|e| e.into_inner());
@@ -1599,6 +1619,12 @@ impl Player {
                 }
             }
         }
+        self.sound_step(audio, inside, listener_follows_bus);
+    }
+
+    /// The bus's sounds after its step: the triggers it fired, its volume curves, the
+    /// announcements (the window's frame and a recording run's step alike).
+    pub(crate) fn sound_step(&mut self, audio: Option<&omsi_audio::AudioEngine>, inside: bool, listener_follows_bus: bool) {
         let fired: Vec<String> = std::mem::take(&mut self.vehicle.host.fired_triggers);
         let fired_vars: Vec<(String, Vec<f32>)> = std::mem::take(&mut self.vehicle.host.fired_trigger_vars);
         let fired_files: Vec<(String, String)> =
@@ -1757,6 +1783,46 @@ impl Player {
     /// How far along a ray the bus (any visible mesh, trailers too) is.
     pub(crate) fn body_hit(&self, origin: DVec3, dir: Vec3) -> Option<f32> {
         Some(self.nearest_hits(origin, dir).0).filter(|t| t.is_finite())
+    }
+
+    /// Whether a mesh of the vehicle is glass / transparent (windows, windshield).
+    pub(crate) fn is_mesh_glass(&self, trailer: Option<usize>, i: usize) -> bool {
+        let (ty, def_idx) = match trailer {
+            None => (&self.vehicle.ty, self.vehicle.ty.meshes[i].def_index),
+            Some(ti) => (&self.vehicle.trailers[ti].ty, self.vehicle.trailers[ti].ty.meshes[i].def_index),
+        };
+        let def = &ty.model.meshes[def_idx];
+        let file_low = def.file.to_ascii_lowercase();
+        if file_low.contains("glas") || file_low.contains("scheibe") || file_low.contains("window") || file_low.contains("fenster") {
+            return true;
+        }
+        def.materials.iter().any(|m| m.alpha == 2)
+    }
+
+    /// How far along a ray the nearest opaque (non-glass) body part of the vehicle is.
+    pub(crate) fn opaque_body_hit(&self, origin: DVec3, dir: Vec3) -> Option<f32> {
+        let mut nearest = f32::INFINITY;
+        let o = (origin - self.vehicle.position).as_vec3();
+        for (i, mesh) in self.vehicle.ty.meshes.iter().enumerate() {
+            if !self.vehicle.mesh_props[i].visible || self.is_mesh_glass(None, i) { continue; }
+            let transform = self.vehicle.mesh_local_transform(i);
+            if !ray_may_hit(&self.vehicle.ty, i, &transform, o, dir, 0.0) { continue; }
+            if let Some(t) = omsi_geometry::ray_mesh(o, dir, &mesh.data, &transform) {
+                if t > 0.02 && t < nearest { nearest = t; }
+            }
+        }
+        for (ti, trailer) in self.vehicle.trailers.iter().enumerate() {
+            let o = (origin - trailer.position).as_vec3();
+            for (i, mesh) in trailer.ty.meshes.iter().enumerate() {
+                if !trailer.mesh_props[i].visible || self.is_mesh_glass(Some(ti), i) { continue; }
+                let transform = trailer.mesh_local_transform(i);
+                if !ray_may_hit(&trailer.ty, i, &transform, o, dir, 0.0) { continue; }
+                if let Some(t) = omsi_geometry::ray_mesh(o, dir, &mesh.data, &transform) {
+                    if t > 0.02 && t < nearest { nearest = t; }
+                }
+            }
+        }
+        (nearest.is_finite()).then_some(nearest)
     }
 
     /// Seen from outside: the body of the bus (a wall, a window) is hit before the control
@@ -2124,6 +2190,7 @@ fn repair_roller_blind(vehicle: &mut omsi_sim::VehicleInstance, event: &str) {
 
 #[cfg(test)]
 mod roller_blind_tests {
+    include!("../../../tools/test-support/original_root.rs");
     use super::{auto_drag_click, repair_roller_blind};
     use crate::schedule::tests::script_test_vehicle;
 
@@ -2243,11 +2310,9 @@ mod roller_blind_tests {
     }
 
     #[test]
+    #[ignore = "needs the original OMSI 2 install (OMSI_ROOT)"]
     fn original_blinds_keep_small_upward_adjustments_after_release() {
-        let Some(root) = omsi_cfg::env::var_os("OMSI_ROOT").map(std::path::PathBuf::from) else {
-            eprintln!("skipped: OMSI_ROOT is not set");
-            return;
-        };
+        let root = original_root();
         let buses: [(&str, &[(&str, &str, &str)]); 3] = [
             (
                 "Vehicles/Urbino_II/SU_18_V.bus",
@@ -2380,6 +2445,11 @@ impl Player {
     /// 1 = visible from outside, 2 = visible from inside, 4 = visible on AI vehicles; 0 = always.
     pub(crate) fn sync_transforms(&mut self, renderer: &Renderer, scene: &mut Scene, inside: bool) {
         sync_vehicle_transforms(renderer, scene, &mut self.vehicle, &mut self.render, &mut self.trailer_renders, inside);
+        if self.render.window_wipers.is_none() {
+            self.render.window_wipers = Some(crate::window_wipers::WindowWipers::new(renderer, scene, &self.vehicle, &self.render));
+        }
+        let wipers = self.render.window_wipers.as_mut().unwrap();
+        wipers.update(renderer, scene, &self.vehicle, &self.render.instances);
     }
 
     /// Pose and place the driver at the wheel; `show` false hides the figure (the `driver`
@@ -2744,7 +2814,7 @@ pub(crate) fn pick_in(vehicle: &omsi_sim::VehicleInstance, origin: DVec3, dir: V
     for dirs in &rings {
         // Collect every hit in this ring, then among surfaces within a depth band of the
         // nearest prefer the mesh whose centre the ray aims at. Aachen ibox D10/D11/D12 are
-        // tilted, overlap by ~6 mm, and sit ~16 mm apart along Z — a 2 mm depth-only pick
+        // tilted, overlap by ~6 mm, and sit ~16 mm apart along Z - a 2 mm depth-only pick
         // let backspace (D10) steal digit 0 (D11) whenever both boxes were hit.
         let mut hits: Vec<(f32, f32, usize)> = Vec::new();
         for (i, xf, tris) in &candidates {
@@ -2958,8 +3028,10 @@ pub(crate) fn keep_wheel(p: Option<&mut Player>) {
 /// window is the steering from full left to full right lock, divided by the speed in tens of
 /// km/h once the bus is faster than 10 km/h (going backwards counts as standing). At 50 km/h
 /// the same movement of the hand turns the wheels a fifth as far: the wheel "gets heavier".
+/// The mouse's point may lie past the window's edges (app_impl/mouse_grab.rs): the caller
+/// holds the result at the full lock.
 pub(crate) fn mouse_steering(cursor_x: f32, width: f32, kmh: f32) -> f32 {
-    let x = (2.0 * cursor_x / width.max(1.0) - 1.0).clamp(-1.0, 1.0);
+    let x = 2.0 * cursor_x / width.max(1.0) - 1.0;
     x / (kmh / 10.0).max(1.0)
 }
 
@@ -2976,6 +3048,10 @@ pub(crate) fn mouse_follow(fade: f32, dt: f32, smooth: bool) -> f32 {
     } else {
         0.0
     }
+}
+
+pub(crate) fn mouse_pedal_target(input: f32, strength: f32) -> f32 {
+    (input.clamp(0.0, 1.0) * strength.clamp(0.25, 4.0)).min(1.0)
 }
 
 /// A mouse pedal following the cursor, `k` of the way left behind each frame. The last bit
@@ -3025,7 +3101,7 @@ mod orbit_pivot_tests {
 
 #[cfg(test)]
 mod mouse_tests {
-    use super::{mouse_follow, mouse_pedal, mouse_steering};
+    use super::{mouse_follow, mouse_pedal, mouse_pedal_target, mouse_steering};
 
     /// The mouse's wheel eases after the cursor by default; with the smoothing off it is where
     /// the cursor says the same frame, as in OMSI (#1092) - only the first second after
@@ -3062,6 +3138,15 @@ mod mouse_tests {
         let k = (-(1.0 / 60.0f32) / 0.06).exp();
         let t = mouse_pedal(0.0, 1.0, k);
         assert!(t > 0.2 && t < 0.3, "{t}");
+    }
+
+    #[test]
+    fn mouse_pedal_strength_moves_the_full_pedal_threshold() {
+        assert_eq!(mouse_pedal_target(0.5, 1.0), 0.5);
+        assert_eq!(mouse_pedal_target(0.5, 2.0), 1.0);
+        assert_eq!(mouse_pedal_target(1.0, 0.5), 0.5);
+        assert_eq!(mouse_pedal_target(1.0, 2.0), 1.0);
+        assert_eq!(mouse_pedal_target(0.5, 0.5), 0.25);
     }
 
     #[test]
@@ -3207,8 +3292,9 @@ mod steering_view_tests {
 }
 
 /// The automated manual's choice (#713) from gear `cur` (of `top`), the engine speed as a
-/// multiple of its idle, the pedals and the road speed.
-pub(crate) fn auto_shift_gear(cur: i32, top: i32, n_over_idle: f32, throttle: f32, brake: f32, kmh: f32) -> i32 {
+/// multiple of its idle, the highest seen so far (0 when none yet), the pedals and the road
+/// speed.
+pub(crate) fn auto_shift_gear(cur: i32, top: i32, n_over_idle: f32, max_over_idle: f32, throttle: f32, brake: f32, kmh: f32) -> i32 {
     if cur == 0 {
         return if throttle > 0.1 && brake < 0.05 && kmh < 3.0 && top >= 1 { 1 } else { 0 };
     }
@@ -3219,7 +3305,13 @@ pub(crate) fn auto_shift_gear(cur: i32, top: i32, n_over_idle: f32, throttle: f3
     if cur > 1 && kmh < 5.0 {
         return 1;
     }
-    let up = 2.2 + 1.2 * throttle.clamp(0.0, 1.0);
+    // (and below what the governor lets the engine turn to: a diesel turning at most three
+    // and a half times its idle - an O305's, a Citybus i280's - never reached 3.4 under full
+    // throttle, and stayed in first, #1832)
+    let mut up = 2.2 + 1.2 * throttle.clamp(0.0, 1.0);
+    if max_over_idle > 2.0 {
+        up = up.min(0.88 * max_over_idle);
+    }
     if cur < top && throttle > 0.05 && n_over_idle > up {
         cur + 1
     } else if cur > 1 && n_over_idle < 1.35 {
@@ -3236,18 +3328,21 @@ mod auto_shift_tests {
     #[test]
     fn the_automated_manual_shifts_by_the_engine_speed() {
         // pulling away: first gear in from neutral, never reverse
-        assert_eq!(g(0, 5, 1.0, 0.5, 0.0, 0.0), 1);
-        assert_eq!(g(0, 5, 1.0, 0.0, 0.0, 0.0), 0);
-        assert_eq!(g(-1, 5, 3.0, 1.0, 0.0, 5.0), -1);
+        assert_eq!(g(0, 5, 1.0, 0.0, 0.5, 0.0, 0.0), 1);
+        assert_eq!(g(0, 5, 1.0, 0.0, 0.0, 0.0, 0.0), 0);
+        assert_eq!(g(-1, 5, 3.0, 0.0, 1.0, 0.0, 5.0), -1);
         // up early with a light foot, late with a heavy one
-        assert_eq!(g(2, 5, 2.8, 0.3, 0.0, 30.0), 3);
-        assert_eq!(g(2, 5, 2.8, 1.0, 0.0, 30.0), 2);
-        assert_eq!(g(2, 5, 3.7, 1.0, 0.0, 30.0), 3);
+        assert_eq!(g(2, 5, 2.8, 0.0, 0.3, 0.0, 30.0), 3);
+        assert_eq!(g(2, 5, 2.8, 0.0, 1.0, 0.0, 30.0), 2);
+        assert_eq!(g(2, 5, 3.7, 0.0, 1.0, 0.0, 30.0), 3);
         // never past the top gear, down near the idle, not below first
-        assert_eq!(g(5, 5, 4.0, 1.0, 0.0, 90.0), 5);
-        assert_eq!(g(3, 5, 1.2, 0.0, 0.5, 20.0), 2);
-        assert_eq!(g(1, 5, 1.0, 0.0, 1.0, 2.0), 1);
-        assert_eq!(g(4, 5, 1.0, 0.0, 1.0, 3.0), 1);
+        assert_eq!(g(5, 5, 4.0, 0.0, 1.0, 0.0, 90.0), 5);
+        assert_eq!(g(3, 5, 1.2, 0.0, 0.0, 0.5, 20.0), 2);
+        assert_eq!(g(1, 5, 1.0, 0.0, 0.0, 1.0, 2.0), 1);
+        assert_eq!(g(4, 5, 1.0, 0.0, 0.0, 1.0, 3.0), 1);
+        // an engine the governor holds at 3.6 x its idle: up under full throttle all the same
+        assert_eq!(g(1, 5, 3.4, 3.6, 1.0, 0.0, 15.0), 2);
+        assert_eq!(g(1, 5, 3.4, 0.0, 1.0, 0.0, 15.0), 1);
     }
 }
 

@@ -49,6 +49,19 @@ pub(crate) fn next_coupled(def: &omsi_vehicle::vehicle::Vehicle, rev: bool, towa
     Some((path, flag ^ rev))
 }
 
+/// How many coupled parts one vehicle may have behind it. A consist that closes on itself
+/// stops on its own (see [`chain_has_part`]); this only guards against a coupling chain that
+/// keeps growing through different files.
+pub(crate) const MAX_COUPLED_PARTS: usize = 32;
+
+/// Whether the vehicle file `path` is already one of the parts of the consist `seen` - the
+/// same file, not the same spelling, so a chain that comes round again ends there instead of
+/// growing. The NF6D tram closes on itself: its rear cab car `[couple_back]`s the
+/// articulation its front car starts with, and the whole unit is eleven parts long.
+pub(crate) fn chain_has_part(seen: &[PathBuf], path: &Path) -> bool {
+    seen.iter().any(|s| omsi_vehicle::vehicle::same_file(s, path))
+}
+
 /// Load the `[couple_back]` chain behind `vehicle` (articulated rear sections, trailers),
 /// each file resolved from the folder of the part before it in whichever content root
 /// holds it.
@@ -56,13 +69,35 @@ pub(crate) fn load_coupled_parts(
     root: &Path,
     vehicle: &mut omsi_sim::VehicleInstance,
 ) -> Vec<Arc<omsi_sim::VehicleType>> {
+    let loaded = load_coupled_types(root, vehicle.ty.clone());
+    attach_coupled_types(vehicle, loaded)
+}
+
+/// The `[couple_back]` chain behind `lead` read from its files, each part with whether it
+/// is turned round: no vehicle, VM or scene is touched, so a worker thread can read it.
+fn load_coupled_types(
+    root: &Path,
+    mut lead: Arc<omsi_sim::VehicleType>,
+) -> Vec<(Arc<omsi_sim::VehicleType>, bool)> {
     let mut parts = Vec::new();
-    let mut lead = vehicle.ty.clone();
     let mut lead_rev = false;
-    for _ in 0..8 {
+    let mut seen = vec![lead.def.path.clone()];
+    for _ in 0..MAX_COUPLED_PARTS {
         let Some((path, reversed)) = next_coupled(&lead.def, lead_rev, true) else {
             break;
         };
+        if chain_has_part(&seen, &path) {
+            log::info!(
+                "coupled behind {}: {} - already in the train, the consist closes here",
+                lead.def
+                    .path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy(),
+                path.display()
+            );
+            break;
+        }
         match omsi_sim::VehicleType::load(root, &path) {
             Ok(t) => {
                 let t = Arc::new(t);
@@ -77,8 +112,8 @@ pub(crate) fn load_coupled_parts(
                     t.meshes.len(),
                     if reversed { ", reversed" } else { "" }
                 );
-                vehicle.attach_trailer_ex(t.clone(), reversed);
-                parts.push(t.clone());
+                parts.push((t.clone(), reversed));
+                seen.push(path);
                 lead = t;
                 lead_rev = reversed;
             }
@@ -93,6 +128,65 @@ pub(crate) fn load_coupled_parts(
         }
     }
     parts
+}
+
+/// Couple the parts `load_coupled_types` read behind `vehicle`.
+fn attach_coupled_types(
+    vehicle: &mut omsi_sim::VehicleInstance,
+    loaded: Vec<(Arc<omsi_sim::VehicleType>, bool)>,
+) -> Vec<Arc<omsi_sim::VehicleType>> {
+    loaded
+        .into_iter()
+        .map(|(ty, reversed)| {
+            vehicle.attach_trailer_ex(ty.clone(), reversed);
+            ty
+        })
+        .collect()
+}
+
+/// A vehicle read for placing, before it is put into the world: its type, the parts
+/// coupled behind it, and its meshes and textures made on the GPU ahead (`prefetch`).
+pub(crate) struct PreparedPlayer {
+    pub(crate) ty: Arc<omsi_sim::VehicleType>,
+    parts: Vec<(Arc<omsi_sim::VehicleType>, bool)>,
+    staged: Option<scene::VehiclePrefetch>,
+}
+
+impl PreparedPlayer {
+    /// Read `--bus` and its coupled parts (on any thread).
+    pub(crate) fn load(args: &Args) -> Result<Self> {
+        let bus = args.bus.as_deref().context("no vehicle selected")?;
+        let path = player_bus_path(&args.root, bus)?;
+        let ty = Arc::new(omsi_sim::VehicleType::load(&args.root, &path)?);
+        let parts = load_coupled_types(&args.root, ty.clone());
+        Ok(Self { ty, parts, staged: None })
+    }
+
+    /// Make its meshes and textures in paint `paint` with `prefetch` (a placement's own,
+    /// `World::placement_prefetch`: given to the world only when the vehicle is put down).
+    pub(crate) fn prefetch(&mut self, prefetch: scene::VehiclePrefetch, paint: Option<&str>) {
+        let scheme = paint_scheme(&self.ty, paint);
+        prefetch.prefetch(&self.ty, scheme);
+        for (ty, _) in &self.parts {
+            prefetch.prefetch(ty, scheme.filter(|i| *i < ty.paint_schemes.len()));
+        }
+        self.staged = Some(prefetch);
+    }
+}
+
+/// A vehicle chosen in the game menu being read on a worker thread (one at a time): the
+/// game goes on meanwhile, and the bus driven stays until its replacement is ready.
+pub(crate) struct PendingPlacement {
+    pub(crate) receiver: std::sync::mpsc::Receiver<Result<PreparedPlayer>>,
+    /// The world it is for: a map loaded meanwhile drops it.
+    pub(crate) world: Arc<World>,
+    pub(crate) args: Args,
+    pub(crate) name: String,
+    /// The driven vehicle it takes the place of (its uid).
+    pub(crate) replace: Option<u64>,
+    /// The driven vehicle read again from its files (the menu's reload).
+    pub(crate) reload: bool,
+    pub(crate) heading: f64,
 }
 
 /// Choose the player's fleet number and registration before the script VM runs `{init}`.
@@ -162,11 +256,24 @@ pub(crate) fn spawn_player(
     renderer: &Renderer,
     scene: &mut Scene,
 ) -> Result<Option<Player>> {
-    let Some(bus) = &args.bus else {
+    if args.bus.is_none() {
         return Ok(None);
-    };
-    let path = player_bus_path(&args.root, bus)?;
-    let vt = Arc::new(omsi_sim::VehicleType::load(&args.root, &path)?);
+    }
+    spawn_player_prepared(args, world, renderer, scene, PreparedPlayer::load(args)?)
+}
+
+/// `spawn_player` with the vehicle read already (`PreparedPlayer`).
+pub(crate) fn spawn_player_prepared(
+    args: &Args,
+    world: &World,
+    renderer: &Renderer,
+    scene: &mut Scene,
+    mut prepared: PreparedPlayer,
+) -> Result<Option<Player>> {
+    if let Some(staged) = prepared.staged.take() {
+        world.accept_placement_prefetch(staged);
+    }
+    let vt = prepared.ty;
     log::info!(
         "vehicle {} {}: {} meshes, {} script blocks, {} variables",
         vt.def.manufacturer,
@@ -309,7 +416,7 @@ pub(crate) fn spawn_player(
     }
     let render = world.add_vehicle(renderer, scene, &vt, scheme);
     // coupled rear sections / trailers
-    let trailer_renders: Vec<scene::VehicleRender> = load_coupled_parts(&args.root, &mut vehicle)
+    let trailer_renders: Vec<scene::VehicleRender> = attach_coupled_types(&mut vehicle, prepared.parts)
         .iter()
         .map(|t| {
             world.add_vehicle_part(
@@ -472,6 +579,8 @@ pub(crate) fn spawn_player(
         auto_shift: crate::settings::Settings::load().auto_shift,
         auto_shift_wait: 0.0,
         auto_shift_idle: 0.0,
+        auto_shift_max: 0.0,
+        auto_shift_climb: (0.0, 0.0),
         side_lights_by_l: false,
         driver: None,
         ibis_duty: None,
@@ -507,8 +616,9 @@ pub(crate) fn spawn_player(
         if let Some(km) = args.situation_odometer_km {
             p.vehicle.set_odometer_km(km);
         }
+        let pictures = crate::situation::situation_file(args).map(|f| crate::situation::restore_script_textures(&f, &mut p.vehicle)).unwrap_or(0);
         log::info!(
-            "situation: {numeric} of {} variables and {textual} of {} strings restored",
+            "situation: {numeric} of {} variables, {textual} of {} strings and {pictures} script textures restored",
             args.situation_vars.len(),
             args.situation_strvars.len()
         );
@@ -529,7 +639,7 @@ pub(crate) fn spawn_player(
             log::warn!("trigger {name} not found");
         }
     }
-    if omsi_cfg::env::var_os("OMSI_DEBUG_MESHES").is_some() {
+    if omsi_cfg::flags::OMSI_DEBUG_MESHES.is_set() {
         for (i, vm) in p.vehicle.ty.meshes.iter().enumerate() {
             let def = &p.vehicle.ty.model.meshes[vm.def_index];
             let (lo, hi) = vm.data.positions.iter().fold(
@@ -548,7 +658,7 @@ pub(crate) fn spawn_player(
                 .fold(f32::MAX, f32::min);
             log::info!("mesh {i:3} {:40} vp={} tris={:6} bounds {:?}..{:?} uv {:?}..{:?} min|n|={nrm:.2} mats={} anims={} visible={:?}", def.file, def.viewpoint, vm.data.indices.len() / 3, lo, hi, uv0, uv1, vm.materials.len(), def.animations.len(), def.visible);
             // per material slot: which part of its texture the mesh shows (display texts)
-            if omsi_cfg::env::var("OMSI_DEBUG_MESHES")
+            if omsi_cfg::flags::OMSI_DEBUG_MESHES.var()
                 .map(|f| {
                     !f.is_empty()
                         && def
@@ -599,7 +709,7 @@ pub(crate) fn spawn_player(
             }
         }
     }
-    if omsi_cfg::env::var_os("OMSI_DEBUG_PROPS").is_some() {
+    if omsi_cfg::flags::OMSI_DEBUG_PROPS.is_set() {
         for (i, vm) in p.vehicle.ty.meshes.iter().enumerate() {
             let pr = &p.vehicle.mesh_props[i];
             let def = &p.vehicle.ty.model.meshes[vm.def_index];
@@ -716,4 +826,65 @@ pub(crate) fn recorded_entry_pos(ep: &omsi_map::global::EntryPoint, object: DVec
     let s = omsi_map::tile_size();
     let (tx, ty) = ((object.x / s).floor(), (object.y / s).floor());
     ep.pos.iter().all(|v| v.is_finite()).then(|| DVec3::new(tx * s + ep.pos[0], ty * s + ep.pos[1], ep.pos[2]))
+}
+
+#[cfg(test)]
+mod preparation_tests {
+    use super::*;
+
+    /// A consist read on a worker follows its couplings (turned round at a reversed front
+    /// coupling) without running any script; the parts are coupled to the live vehicle later.
+    #[test]
+    fn prepared_consist_follows_reversed_front_couplings_without_running_init() {
+        let dir = std::env::temp_dir().join(format!("omsi-placement-consist-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(dir.clone());
+        for (file, body) in [
+            ("lead.bus", "[friendlyname]\nSynthetic\nLead\nTest\n[couple_back]\nfirst.bus\ntrue\n"),
+            ("first.bus", "[friendlyname]\nSynthetic\nFirst\nTest\n[couple_front]\nlast.bus\nfalse\n"),
+            ("last.bus", "[friendlyname]\nSynthetic\nLast\nTest\n"),
+        ] {
+            std::fs::write(dir.join(file), format!("{body}[model]\nempty.cfg\n")).unwrap();
+        }
+        std::fs::write(dir.join("empty.cfg"), "").unwrap();
+        let args = Args::parse_from(["omsi", "--root", dir.to_str().unwrap(), "--bus", "lead.bus"]);
+        let prepared = PreparedPlayer::load(&args).unwrap();
+        assert_eq!(prepared.parts.len(), 2);
+        assert!(prepared.parts.iter().all(|(_, reversed)| *reversed));
+        assert_eq!(prepared.parts[0].0.def.path.file_name().unwrap(), "first.bus");
+        assert_eq!(prepared.parts[1].0.def.path.file_name().unwrap(), "last.bus");
+        let mut vehicle = omsi_sim::VehicleInstance::new(prepared.ty, omsi_sim::VehicleHost::new(start_clock(&args)));
+        let types = attach_coupled_types(&mut vehicle, prepared.parts);
+        assert_eq!(vehicle.trailers.len(), types.len());
+        assert!(vehicle.trailers.iter().all(|part| part.reversed));
+    }
+
+    /// The NF6D tram is eleven parts long and its rear cab car `[couple_back]`s the
+    /// articulation its front car starts with: the chain has to be walked whole and must
+    /// stop where it comes round, or the last carriage is left off the tram.
+    #[test]
+    fn a_consist_that_closes_on_itself_ends_at_the_part_it_returns_to() {
+        let dir = std::env::temp_dir().join(format!("openomsi-chain-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let front = dir.join("NF6D_A.bus");
+        let rear = dir.join("NF6D_B_User.bus");
+        std::fs::write(&front, "[couple_back]\nNF6D_B_User.bus\nfalse\n").unwrap();
+        std::fs::write(&rear, "[couple_back]\nNF6D_A.bus\nfalse\n").unwrap();
+
+        assert!(!chain_has_part(&[front.clone()], &rear));
+        assert!(chain_has_part(&[front.clone(), rear.clone()], &front));
+        assert!(
+            MAX_COUPLED_PARTS >= 11,
+            "a part bound below eleven cuts an NF6D tram's last carriage off"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

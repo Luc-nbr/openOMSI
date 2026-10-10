@@ -9,12 +9,18 @@
 //
 //   POST /ping  {"id": "<32 hex>", "v": "0.1.1512", "os": "windows"}   -> 204
 //   POST /bye   {"id": "<32 hex>"}                                       -> 204
-//   GET  /players -> {"players": 12, "systems": {"windows": 9, ...}, "updated": "..."}
+//   GET  /players -> {"players": 12, "systems": {"windows": 9, ...}, "updated": "...", "next": "..."}
+//                    (the count of the ten minutes since `updated`; the next at `next`)
 //   GET  /badge   -> the same count for a shields.io endpoint badge
 
 import { DurableObject } from "cloudflare:workers";
 
 const ALIVE_MS = 25 * 60 * 1000;
+// The count is taken once every ten minutes, on the clock (:00, :10, :20, ...), and the
+// website and the badge both show that one: each read it at its own moment, through caches
+// of its own (Cloudflare's per place, shields.io's, GitHub's), and showed other numbers.
+const WINDOW_MS = 10 * 60 * 1000;
+const windowStart = (now) => Math.floor(now / WINDOW_MS) * WINDOW_MS;
 const SYSTEMS = ["windows", "macos", "linux", "android"];
 
 export class Presence extends DurableObject {
@@ -23,6 +29,7 @@ export class Presence extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
     this.sessions = new Map();
+    this.snapshot = null;
   }
 
   forget(now) {
@@ -39,13 +46,21 @@ export class Presence extends DurableObject {
     this.sessions.delete(id);
   }
 
+  // the count of this ten minutes (taken at its first read; `updated` is the window's start
+  // and `next` the next one's)
   async count() {
-    this.forget(Date.now());
-    const systems = {};
-    for (const s of this.sessions.values()) {
-      systems[s.os] = (systems[s.os] || 0) + 1;
+    const now = Date.now();
+    const start = windowStart(now);
+    if (!this.snapshot || this.snapshot.at !== start) {
+      this.forget(now);
+      const systems = {};
+      for (const s of this.sessions.values()) {
+        systems[s.os] = (systems[s.os] || 0) + 1;
+      }
+      this.snapshot = { at: start, players: this.sessions.size, systems };
     }
-    return { players: this.sessions.size, systems, updated: new Date().toISOString() };
+    const { players, systems } = this.snapshot;
+    return { players, systems, updated: new Date(start).toISOString(), next: new Date(start + WINDOW_MS).toISOString() };
   }
 }
 
@@ -101,16 +116,19 @@ async function handle(request, env, ctx) {
     return new Response(null, { status: 204, headers: CORS });
   }
   if (request.method === "GET" && (url.pathname === "/players" || url.pathname === "/badge")) {
-    // (read at most every two minutes from the counter, and cached by browsers and
-    // shields.io as long: the website and the badge can be asked as often as anybody likes)
+    // (the ten minutes' count, cached until the next ten minutes begin - by Cloudflare here,
+    // by browsers and by shields.io, which keeps a badge 5 minutes at least: the website and
+    // the badge can be asked as often as anybody likes, and say the same)
     const cache = caches.default;
     const key = new Request(url.origin + url.pathname);
     const hit = await cache.match(key);
     if (hit) return hit;
     const c = await counter.count();
+    const left = Math.max(15, Math.ceil((Date.parse(c.next) - Date.now()) / 1000));
+    const headers = { "Cache-Control": `public, max-age=${left}` };
     const out = url.pathname === "/badge"
-      ? json({ schemaVersion: 1, label: "playing now", message: String(c.players), color: c.players > 0 ? "brightgreen" : "lightgrey", cacheSeconds: 300 }, 200, { "Cache-Control": "public, max-age=120" })
-      : json(c, 200, { "Cache-Control": "public, max-age=120" });
+      ? json({ schemaVersion: 1, label: "playing now", message: String(c.players), color: c.players > 0 ? "brightgreen" : "lightgrey", cacheSeconds: Math.max(300, left) }, 200, headers)
+      : json(c, 200, headers);
     ctx.waitUntil(cache.put(key, out.clone()));
     return out;
   }

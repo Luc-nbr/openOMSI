@@ -162,7 +162,7 @@ pub(crate) fn place_on_duty(args: &mut Args) {
             // stop - at town speed, with ten minutes to start the bus and set the IBIS.
             // (Not for a joining player: the clock is the host's.)
             let leave = stop.arr.max(trip.departure) - way / 7.0 - 600.0;
-            if args.lan_join.is_none() && !crate::real_time::started_synced() && leave - now > 15.0 * 60.0 {
+            if args.lan_join.is_none() && !crate::real_time::started_synced() && !args.keep_time && leave - now > 15.0 * 60.0 {
                 let from = schedule::hhmm(now);
                 args.time = format!("{:02}:{:02}:00", (leave / 3600.0) as i64 % 24, (leave / 60.0) as i64 % 60);
                 log::info!("duty start: the tour's first trip leaves at {}: the clock goes from {from} to {}", schedule::hhmm(trip.departure), args.time);

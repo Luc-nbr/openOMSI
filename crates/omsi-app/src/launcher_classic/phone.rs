@@ -883,13 +883,7 @@ fn time_sheet(l: &mut Launcher, r: Rect) -> bool {
             changed |= ui.slider("ps-custom-hum", Rect::new(v.x, yy, v.w - 8.0, 40.0), &mut custom.humidity, 0.0, 100.0, 1.0, "Humidity", &|x| format!("{x:.0} % · dew {:.0} °C", crate::weather_setup::dew_point_c(t, x)));
             yy += 50.0;
 
-            ui.label(Rect::new(v.x, yy, 120.0, 38.0), "Cloud type");
-            let cloud_labels: Vec<String> = crate::weather_setup::CUSTOM_CLOUDS.iter().map(|x| (*x).to_string()).collect();
-            let mut cloud = custom.cloud;
-            if ui.select("ps-custom-cloud", Rect::new(v.x + 122.0, yy, v.w - 130.0, 38.0), &mut cloud, &cloud_labels) {
-                custom.cloud = cloud;
-                changed = true;
-            }
+            changed |= ui.slider("ps-custom-cloud", Rect::new(v.x, yy, v.w - 8.0, 38.0), &mut custom.cloud_cover, 0.0, 1.0, 0.01, "Cloud cover", &|c| if c <= 0.0 { omsi_ui::tr("Clear sky").into_owned() } else { format!("{:.0} %", c * 100.0) });
             yy += 48.0;
 
             ui.label(Rect::new(v.x, yy, 120.0, 38.0), "Precipitation");

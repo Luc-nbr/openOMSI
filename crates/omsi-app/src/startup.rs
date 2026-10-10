@@ -2,7 +2,22 @@
 
 use super::*;
 
+/// CPU seconds this process has used so far (all threads): on Windows from the system,
+/// which has no `ps`; elsewhere from `ps`.
+#[cfg(windows)]
+pub(crate) fn process_cpu_seconds() -> Option<f64> {
+    use windows::Win32::Foundation::FILETIME;
+    use windows::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
+    let (mut created, mut exited, mut kernel, mut user) = Default::default();
+    // SAFETY: the pseudo handle of this process needs no closing; the four times are ours
+    unsafe { GetProcessTimes(GetCurrentProcess(), &mut created, &mut exited, &mut kernel, &mut user) }.ok()?;
+    // (in units of 100 ns)
+    let ticks = |t: FILETIME| ((t.dwHighDateTime as u64) << 32 | t.dwLowDateTime as u64) as f64;
+    Some((ticks(kernel) + ticks(user)) / 1e7)
+}
+
 /// CPU seconds this process has used so far (all threads), from `ps`.
+#[cfg(not(windows))]
 pub(crate) fn process_cpu_seconds() -> Option<f64> {
     let out = std::process::Command::new("ps")
         .args(["-o", "cputime=", "-p", &std::process::id().to_string()])
@@ -18,6 +33,42 @@ pub(crate) fn process_cpu_seconds() -> Option<f64> {
         part.parse::<f64>().ok().map(|v| acc * 60.0 + v)
     })?;
     Some(days * 86400.0 + secs)
+}
+
+/// The CPU time the calling thread has used (s): what the frame's own work costs, whatever
+/// else the machine runs meanwhile - wall-clock stage times grow with every other busy
+/// program, a thread's CPU time hardly.
+pub(crate) fn thread_cpu_seconds() -> Option<f64> {
+    #[cfg(unix)]
+    {
+        let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+        // SAFETY: `ts` is a valid timespec for the call to fill.
+        if unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) } == 0 {
+            return Some(ts.tv_sec as f64 + ts.tv_nsec as f64 * 1e-9);
+        }
+        None
+    }
+    #[cfg(not(unix))]
+    {
+        None
+    }
+}
+
+/// The instructions the process has retired (macOS): the work done, counted the same however
+/// busy the machine is and whichever cores ran it - CPU times grow when other programs push
+/// the game's threads onto the efficiency cores.
+pub(crate) fn process_instructions() -> Option<u64> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut info: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
+        // SAFETY: `info` is a rusage_info_v4 for the call to fill, as RUSAGE_INFO_V4 says.
+        let r = unsafe { libc::proc_pid_rusage(std::process::id() as i32, libc::RUSAGE_INFO_V4, &mut info as *mut _ as *mut libc::rusage_info_t) };
+        (r == 0).then_some(info.ri_instructions)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
 }
 
 pub(crate) fn shift_held_now(keys: &hashbrown::HashSet<KeyCode>) -> bool {
@@ -36,7 +87,7 @@ pub(crate) fn is_omsi_root(p: &Path) -> bool {
 pub(crate) fn fatal_dialog(title: &str, text: &str) {
     log::error!("{title}: {text}");
     // started from a terminal (the message is right there) or by a test harness
-    if std::io::IsTerminal::is_terminal(&std::io::stderr()) || omsi_cfg::env::var_os("OMSI_BACKGROUND").is_some() {
+    if std::io::IsTerminal::is_terminal(&std::io::stderr()) || omsi_cfg::flags::OMSI_BACKGROUND.is_set() {
         return;
     }
     #[cfg(target_os = "macos")]
@@ -100,7 +151,7 @@ pub(crate) fn own_bindings(root: &Path, modifier: i32) -> std::collections::Hash
 }
 
 pub(crate) fn content_dir() -> Option<PathBuf> {
-    if let Some(d) = omsi_cfg::env::var_os("OMSI_CONTENT") {
+    if let Some(d) = omsi_cfg::flags::OMSI_CONTENT.os() {
         return Some(PathBuf::from(d));
     }
     let exe = std::env::current_exe().ok()?;
@@ -140,7 +191,7 @@ pub(crate) fn root_memo() -> Option<PathBuf> {
 /// Find the OMSI 2 installation without being told where it is.
 pub(crate) fn find_root() -> Option<PathBuf> {
     let mut first: Vec<PathBuf> = Vec::new();
-    if let Some(p) = omsi_cfg::env::var_os("OMSI_ROOT").map(PathBuf::from) {
+    if let Some(p) = omsi_cfg::flags::OMSI_ROOT.os().map(PathBuf::from) {
         first.push(p);
     }
     if let Some(memo) = root_memo() {
@@ -168,12 +219,13 @@ pub(crate) fn graphics_instance() -> wgpu::Instance {
         descriptor.backend_options.noop = wgpu::NoopBackendOptions { enable: true };
         return wgpu::Instance::new(descriptor);
     }
+    descriptor.backend_options.gl.context_lock_timeout = Some(GL_CONTEXT_LOCK_TIMEOUT);
     // (an interface whose only adapter is a software renderer - DirectX 12's "Microsoft
     // Basic Render Driver" on a chip without a DirectX 12 driver - comes after the others)
     let (mut software, mut last) = (None, None);
     for b in backend_order() {
         let instance = backend_instance(b);
-        let adapters = pollster::block_on(instance.enumerate_adapters(b));
+        let adapters = pollster::block_on(instance.enumerate_adapters(b.backends()));
         if adapters.iter().any(|a| !is_software(&a.get_info())) {
             log::info!("graphics: {:?} ({})", b, adapters.iter().map(|a| a.get_info().name).collect::<Vec<_>>().join(", "));
             return instance;
@@ -189,31 +241,90 @@ pub(crate) fn graphics_instance() -> wgpu::Instance {
     software.or(last).unwrap_or_else(|| wgpu::Instance::new(descriptor))
 }
 
+/// How long a thread waits for the shared OpenGL context before wgpu gives up on it (its own
+/// default is a second with WGL, six with EGL): one waiting for the GPU no longer holds the
+/// context, but a long upload or shader compile on another thread still can.
+const GL_CONTEXT_LOCK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// A graphics interface to try: one of wgpu's backends, or its OpenGL ES backend on ANGLE.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GraphicsApi {
+    Native(wgpu::Backends),
+    /// OpenGL ES on ANGLE's Direct3D 11 renderer (Windows only), for a chip whose OpenGL,
+    /// Vulkan and DirectX 12 drivers are missing or broken (Intel HD Graphics 2000-4000, AMD
+    /// Radeon HD 5000/6000): its DirectX 11 driver draws
+    Angle,
+}
+
+impl GraphicsApi {
+    /// wgpu's backend it draws on (ANGLE: the OpenGL one)
+    fn backends(self) -> wgpu::Backends {
+        match self {
+            GraphicsApi::Native(b) => b,
+            GraphicsApi::Angle => wgpu::Backends::GL,
+        }
+    }
+}
+
+// (the logs name a backend as before: `Backends(DX12)`)
+impl std::fmt::Debug for GraphicsApi {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GraphicsApi::Native(b) => b.fmt(f),
+            GraphicsApi::Angle => f.write_str("ANGLE (DirectX 11)"),
+        }
+    }
+}
+
+/// Is ANGLE there to be tried: on Windows, with Google's `libEGL.dll` and `libGLESv2.dll`
+/// next to the game (the package brings them; without them it is left out, with a line in
+/// the log once).
+fn angle_available() -> bool {
+    static AVAILABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *AVAILABLE.get_or_init(|| {
+        if !cfg!(windows) {
+            return false;
+        }
+        let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)) else { return false };
+        let missing: Vec<&str> = ["libEGL.dll", "libGLESv2.dll"].into_iter().filter(|f| !dir.join(f).is_file()).collect();
+        if !missing.is_empty() {
+            log::info!("graphics: ANGLE (DirectX 11) is not tried: no {} next to the game", missing.join(" or "));
+        }
+        missing.is_empty()
+    })
+}
+
 /// The graphics interfaces in the order they are tried: Metal on a Mac; on Windows DirectX
 /// 12 first (the Windows drivers' best-kept path: on Vulkan they reset the device -
 /// "the graphics device was lost" - far more often), then Vulkan, then OpenGL for a card
-/// without either (a GeForce GT 530); elsewhere Vulkan, then OpenGL. Settings → Graphics API
-/// (`graphics_api`) or OMSI_BACKEND=vulkan|dx12|gl puts one first: a driver whose Vulkan
-/// misbehaves is got round.
-pub(crate) fn backend_order() -> Vec<wgpu::Backends> {
+/// without either (a GeForce GT 530), then OpenGL ES on ANGLE over DirectX 11 when its DLLs
+/// are there; elsewhere Vulkan, then OpenGL. Settings → Graphics API (`graphics_api`) or
+/// OMSI_BACKEND=vulkan|dx12|gl|angle puts one first: a driver whose Vulkan misbehaves is
+/// got round.
+pub(crate) fn backend_order() -> Vec<GraphicsApi> {
     if cfg!(target_os = "macos") {
-        return vec![wgpu::Backends::METAL];
+        return vec![GraphicsApi::Native(wgpu::Backends::METAL)];
     }
     let settings = crate::settings::Settings::load();
     let wanted = if settings.vr_requested() {
         "dx12".to_owned()
     } else {
-        omsi_cfg::env::var("OMSI_BACKEND").ok().unwrap_or(settings.graphics_api)
+        omsi_cfg::flags::OMSI_BACKEND.var().map(str::to_string).unwrap_or(settings.graphics_api)
     };
-    let all: Vec<wgpu::Backends> = if cfg!(windows) {
+    let native = if cfg!(windows) {
         vec![wgpu::Backends::DX12, wgpu::Backends::VULKAN, wgpu::Backends::GL]
     } else {
         vec![wgpu::Backends::VULKAN, wgpu::Backends::GL]
     };
+    let mut all: Vec<GraphicsApi> = native.into_iter().map(GraphicsApi::Native).collect();
+    if cfg!(windows) && angle_available() {
+        all.push(GraphicsApi::Angle);
+    }
     let first = match wanted.trim().to_ascii_lowercase().as_str() {
-        "vulkan" => Some(wgpu::Backends::VULKAN),
-        "dx12" | "directx" | "d3d12" if cfg!(windows) => Some(wgpu::Backends::DX12),
-        "gl" | "opengl" | "gles" => Some(wgpu::Backends::GL),
+        "vulkan" => Some(GraphicsApi::Native(wgpu::Backends::VULKAN)),
+        "dx12" | "directx" | "d3d12" if cfg!(windows) => Some(GraphicsApi::Native(wgpu::Backends::DX12)),
+        "gl" | "opengl" | "gles" => Some(GraphicsApi::Native(wgpu::Backends::GL)),
+        "angle" | "dx11" | "d3d11" if all.contains(&GraphicsApi::Angle) => Some(GraphicsApi::Angle),
         _ => None,
     };
     // (the one asked for first, the others after it: a machine without it still starts)
@@ -230,9 +341,13 @@ fn software_adapter(name: &str, device_type: wgpu::DeviceType) -> bool {
     device_type == wgpu::DeviceType::Cpu || name.contains("Microsoft Basic Render Driver") || name.contains("llvmpipe")
 }
 
-fn backend_instance(b: wgpu::Backends) -> wgpu::Instance {
+fn backend_instance(api: GraphicsApi) -> wgpu::Instance {
     let mut d = wgpu::InstanceDescriptor::new_without_display_handle();
-    d.backends = b;
+    d.backend_options.gl.context_lock_timeout = Some(GL_CONTEXT_LOCK_TIMEOUT);
+    d.backends = api.backends();
+    if api == GraphicsApi::Angle {
+        return omsi_render::angle::instance(d);
+    }
     wgpu::Instance::new(d)
 }
 
@@ -259,7 +374,7 @@ pub(crate) fn window_renderer(
     // when no graphics chip opens on any interface: an Intel HD 2500 has no DirectX 12
     // driver, DirectX 12 listed that renderer alone, and the game "started" on it at a
     // frame every few seconds instead of on the chip's OpenGL (#770).
-    let mut made: Vec<(Option<wgpu::Backends>, wgpu::Instance)> = vec![(None, instance.clone())];
+    let mut made: Vec<(Option<GraphicsApi>, wgpu::Instance)> = vec![(None, instance.clone())];
     let mut order = backend_order().into_iter();
     let mut no_surface: Vec<usize> = Vec::new();
     for software_round in [false, true] {
@@ -353,8 +468,25 @@ pub(crate) fn under_gamescope() -> bool {
     std::env::var_os("GAMESCOPE_WAYLAND_DISPLAY").is_some() || std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|d| d.to_ascii_lowercase().contains("gamescope"))
 }
 
+/// The screen the game opens on: the one the launcher stands on (`OMSI_SCREEN_AT`, the
+/// launcher's middle), else the main one (#1959: it always opened on the main screen).
+pub(crate) fn home_monitor(event_loop: &winit::event_loop::ActiveEventLoop) -> Option<winit::monitor::MonitorHandle> {
+    let at = omsi_cfg::flags::OMSI_SCREEN_AT.var().and_then(|v| {
+        let (x, y) = v.split_once(',')?;
+        Some((x.trim().parse::<i32>().ok()?, y.trim().parse::<i32>().ok()?))
+    });
+    at.and_then(|(x, y)| {
+        event_loop.available_monitors().find(|m| {
+            let (p, s) = (m.position(), m.size());
+            x >= p.x && y >= p.y && x < p.x + s.width as i32 && y < p.y + s.height as i32
+        })
+    })
+    .or_else(|| event_loop.primary_monitor())
+    .or_else(|| event_loop.available_monitors().next())
+}
+
 pub(crate) fn fit_window(event_loop: &winit::event_loop::ActiveEventLoop, w: f64, h: f64) -> (winit::dpi::LogicalSize<f64>, Option<winit::dpi::PhysicalPosition<i32>>) {
-    let Some(m) = event_loop.primary_monitor().or_else(|| event_loop.available_monitors().next()) else {
+    let Some(m) = home_monitor(event_loop) else {
         return (winit::dpi::LogicalSize::new(w, h), None);
     };
     let (screen, scale) = (m.size(), m.scale_factor().max(0.5));
@@ -416,7 +548,7 @@ pub(crate) static CLOUDS: std::sync::atomic::AtomicBool = std::sync::atomic::Ato
 pub(crate) fn restart_with_allocator_settings() {
     use std::os::unix::process::CommandExt;
     if std::env::var_os("MallocLargeCache").is_some()
-        || omsi_cfg::env::var_os("OMSI_KEEP_ALLOCATOR").is_some()
+        || omsi_cfg::flags::OMSI_KEEP_ALLOCATOR.is_set()
     {
         return;
     }
@@ -432,16 +564,28 @@ pub(crate) fn restart_with_allocator_settings() {
 }
 
 /// A Windows GUI program has no console; when it was started from one (cmd, PowerShell)
-/// the log and --help still belong there.
+/// the log and --help still belong there, unless its output was sent to a file or a pipe
+/// (`openomsi.exe ... > game.log 2>&1`): attached, the log went to the console instead and
+/// the file stayed empty.
 #[cfg(windows)]
 pub(crate) fn attach_parent_console() {
     extern "system" {
         fn AttachConsole(process: u32) -> i32;
+        fn GetStdHandle(which: u32) -> isize;
+        fn GetFileType(file: isize) -> u32;
     }
     const ATTACH_PARENT_PROCESS: u32 = u32::MAX;
-    // fails harmlessly when there is no parent console (a double click, the launcher, whose
-    // redirected log file stays the output)
+    const STD_ERROR_HANDLE: u32 = -12i32 as u32;
+    const FILE_TYPE_DISK: u32 = 1;
+    const FILE_TYPE_PIPE: u32 = 3;
+    // AttachConsole fails harmlessly when there is no parent console (a double click, the
+    // launcher, whose redirected log file stays the output)
+    // SAFETY: plain Win32 calls on this process's own standard handle
     unsafe {
+        let err = GetStdHandle(STD_ERROR_HANDLE);
+        if err != 0 && err != -1 && matches!(GetFileType(err), FILE_TYPE_DISK | FILE_TYPE_PIPE) {
+            return;
+        }
         AttachConsole(ATTACH_PARENT_PROCESS);
     }
 }
@@ -486,5 +630,22 @@ mod window_tests {
         // a big screen keeps the size asked for
         let ((w, h), _) = super::fit_rect((1600.0, 900.0), (3840.0, 2160.0), 1.5);
         assert_eq!((w, h), (1600.0, 900.0));
+    }
+}
+
+#[cfg(all(test, windows))]
+mod cpu_time_tests {
+    /// OMSI_PROFILE's CPU time is read on Windows, which has no `ps` (whose whole seconds
+    /// elsewhere would not show 200 ms).
+    #[test]
+    fn the_process_cpu_time_is_read_and_grows() {
+        let before = super::process_cpu_seconds().expect("CPU time");
+        let t = std::time::Instant::now();
+        let mut x = 0u64;
+        while t.elapsed().as_millis() < 200 {
+            x = std::hint::black_box(x.wrapping_mul(6364136223846793005).wrapping_add(1));
+        }
+        let after = super::process_cpu_seconds().expect("CPU time");
+        assert!(after > before, "{before} -> {after}");
     }
 }

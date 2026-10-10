@@ -331,7 +331,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
                 pick_tour = Some(i);
             }
             ui.text_in(&omsi_ui::tr("Tour %{tour}").replace("%{tour}", num), Rect::new(r.x + 12.0, r.y, r.w - 100.0, r.h), 13.0, Weight::Medium, TEXT, Align::Left);
-            ui.text_in(&format!("{first} · {n}"), Rect::new(r.right() - 100.0, r.y, 90.0, r.h), 11.5, Weight::Regular, TEXT_DIM, Align::Right);
+            ui.text_in(&format!("{first} | {n}"), Rect::new(r.right() - 100.0, r.y, 90.0, r.h), 11.5, Weight::Regular, TEXT_DIM, Align::Right);
         }
         tours.len() as f32 * 42.0
     });

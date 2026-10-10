@@ -499,6 +499,11 @@ fn safe_rel(name: &str) -> Option<String> {
 
 /// An error unless `rel` is a `safe_rel` path: checked again right before anything is
 /// written, so that nothing lands outside its folder whatever the plan says.
+/// For `mods`: whether `rel` is a plain path inside the content folder.
+pub(crate) fn check_rel_pub(rel: &str) -> Result<()> {
+    check_rel(rel)
+}
+
 fn check_rel(rel: &str) -> Result<()> {
     if safe_rel(rel).as_deref() != Some(rel) {
         return Err(anyhow!("refused to write {rel:?}: it is not a plain path inside the mod"));
@@ -1153,6 +1158,21 @@ fn run(job: &Job, content: &Path, root: Option<&Path>) -> Result<()> {
                 created.push(rel.to_string_lossy().replace('\\', "/"));
             }
         }
+        // (into a folder all mods share - Fonts, Texture, Sounds: what of it is this mod's,
+        // each new file and folder at its top. Noted as the folder alone they were nobody's:
+        // the list showed no fonts or textures of a mod, and they stayed when it went)
+        if !m.aside && !m.dest.contains('/') {
+            let mut tops: Vec<String> = m.files.iter().filter_map(|(_, rel)| rel.split(['/', '\\']).next().map(str::to_string)).filter(|t| !t.is_empty()).collect();
+            tops.sort_by_key(|t| t.to_ascii_lowercase());
+            tops.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+            for t in tops {
+                if !case_path(&dest, &t).exists() {
+                    if let Ok(rel) = case_path(&dest, &t).strip_prefix(content) {
+                        created.push(rel.to_string_lossy().replace('\\', "/"));
+                    }
+                }
+            }
+        }
         let replaced = move_into(&from, &dest).with_context(|| format!("moving into {}", dest.display()))?;
         if replaced > 0 {
             let line = format!("{}: {replaced} existing file(s) replaced", m.dest);
@@ -1183,6 +1203,8 @@ fn run(job: &Job, content: &Path, root: Option<&Path>) -> Result<()> {
             note_installed(content, &src.file_name().unwrap_or_default().to_string_lossy(), &created);
         }
     }
+    // (noted as one mod: its own folders, see `mods`)
+    crate::mods::record(content, &source_name, &created);
     let summary = match (installed_items.is_empty(), aside_items.is_empty()) {
         (false, true) => format!("installed {} - it is in the lists now", installed_items.join(", ")),
         (false, false) => format!("installed {}; kept aside: {}", installed_items.join(", "), aside_items.join(", ")),
@@ -1389,6 +1411,7 @@ fn place_archive(job: &Job, content: &Path, src: &Path, plan: &Plan) -> Result<(
     if !cfg!(test) {
         crate::mount_archive(&dest);
     }
+    crate::mods::record(content, &name, &[format!("{ARCHIVES}/{name}")]);
     let items: Vec<String> = plan.maps.iter().filter(|m| !m.aside).map(|m| m.dest.clone()).collect();
     let summary = format!("{} used in place ({how}) as {}/{} - {} in the lists now; the game reads it without unpacking", name, ARCHIVES, name, if items.is_empty() { "its content is".to_string() } else { format!("{} are", items.join(", ")) });
     job.set(|p| {
@@ -1626,6 +1649,25 @@ mod tests {
         let p = run_blocking(content.clone(), None, zip.clone(), InstallMode::Extract, None, false);
         assert_eq!(p.state, "done", "{p:?}");
         assert!(p.report.iter().any(|l| l.contains("3 existing file(s) replaced")), "{:?}", p.report);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A pack's fonts go into the shared Fonts folder: each of them is the mod's, beside its
+    /// bus, and a font that was there before is not.
+    #[test]
+    fn a_packs_fonts_are_noted_as_its_own() {
+        let dir = tmp("fonts");
+        let content = dir.join("content");
+        omsi_cfg::ensure_content_layout(&content).unwrap();
+        std::fs::write(content.join("Fonts/old.oft"), b"x").unwrap();
+        let zip = dir.join("Bus Pack.zip");
+        write_zip(&zip, &[("Pack/Vehicles/Foo/foo.bus", 100), ("Pack/Fonts/new.oft", 50), ("Pack/Fonts/new.bmp", 50), ("Pack/Fonts/old.oft", 50)]);
+        let p = run_blocking(content.clone(), None, zip, InstallMode::Extract, None, false);
+        assert_eq!(p.state, "done", "{p:?}");
+        let m = crate::mods::list(&content).into_iter().find(|m| m.noted).expect("noted");
+        let mut paths = m.paths.clone();
+        paths.sort();
+        assert_eq!(paths, ["Fonts/new.bmp", "Fonts/new.oft", "Vehicles/Foo"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -63,6 +63,15 @@ pub fn lerp(a: &Weather, b: &Weather, k: f32) -> Weather {
         temp: (m(a.temp.0, b.temp.0), m(a.temp.1, b.temp.1)),
         pressure: m(a.pressure, b.pressure),
         clouds: (if late { b.clouds.0.clone() } else { a.clouds.0.clone() }, m(a.clouds.1, b.clouds.1)),
+        // The *kind* of cloud changes at a stroke - its name is the picture the sky is drawn
+        // with - but the cover must not: a weather coming in closes the sky over the minutes
+        // the blend takes, rather than putting a deck up at its halfway point. `None` only
+        // while both ends agree that the type decides.
+        cloud_cover: if a.cloud_cover.is_none() && b.cloud_cover.is_none() && a.clouds.0.trim().eq_ignore_ascii_case(b.clouds.0.trim()) {
+            None
+        } else {
+            Some(m(crate::weather_setup::cover_of(a), crate::weather_setup::cover_of(b)))
+        },
         precip: (0..n).map(|i| m(p(&a.precip, i), p(&b.precip, i))).collect(),
         ground_wet: [m(a.ground_wet[0], b.ground_wet[0]), m(a.ground_wet[1], b.ground_wet[1]), m(a.ground_wet[2], b.ground_wet[2])],
         snow: if late { b.snow } else { a.snow },
@@ -91,14 +100,7 @@ pub fn installed() -> Vec<(String, Weather)> {
 /// How much of the sky its clouds cover (0 none .. 1 overcast), from the cloud type of its
 /// `[clouds]` (-1 none, Cumulus 1..3, Overcast): the number beside it is their height.
 fn cover(w: &Weather) -> f32 {
-    let t = w.clouds.0.trim().to_ascii_lowercase();
-    if t.starts_with("overcast") {
-        1.0
-    } else if let Some(n) = t.strip_prefix("cumulus") {
-        0.15 + 0.2 * n.trim().parse::<f32>().unwrap_or(1.0).clamp(1.0, 3.0)
-    } else {
-        0.0
-    }
+    crate::weather_setup::cover_of(w)
 }
 
 /// How much rain or snow a weather brings (0 none .. 1 a downpour).
@@ -184,6 +186,25 @@ mod tests {
 
     fn w(name: &str, cover: f32, rain: f32, fog: f32, temp: f32, snow: bool) -> Weather {
         Weather { name: name.into(), fog: (fog, 0.0), temp: (temp, 0.0), clouds: (if cover > 0.5 { "Overcast 1".into() } else if cover > 0.2 { "Cumulus 2".into() } else { "-1".into() }, 300.0), precip: vec![rain, 0.0, 0.0, 0.0, 0.0], snow, ..Default::default() }
+    }
+
+    #[test]
+    fn a_blend_carries_the_cover_across_instead_of_switching_in_the_middle() {
+        // a clear sky and an overcast one: the sky between them is the cover in between
+        let a = w("clear", 0.0, 0.0, 50000.0, 20.0, false);
+        let mut b = w("rain", 1.0, 1.0, 2000.0, 12.0, false);
+        b.clouds.0 = "Overcast 1".into();
+        let mut bl = Blend::new(a.clone(), b.clone(), 100.0);
+        let mut last = 0.0f32;
+        for _ in 0..20 {
+            let (x, _, _) = bl.step(5.0);
+            let c = x.cloud_cover.expect("a blend counts its cover");
+            assert!(c >= last - 1e-4, "the cover went backwards: {last} -> {c}");
+            last = c;
+        }
+        assert!((last - 1.0).abs() < 1e-4, "the blend ends on the closed sky, not {last}");
+        // a steady weather still lets its type decide
+        assert!(lerp(&a, &a, 0.5).cloud_cover.is_none());
     }
 
     #[test]

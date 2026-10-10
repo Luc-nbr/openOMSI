@@ -28,6 +28,8 @@ pub enum Msg {
     Stopped { pid: u32, result: Result<bool, String> },
     LogTail { pid: u32, lines: Vec<String> },
     Mods(Result<core::ModsStatus, String>),
+    /// A mod switched on or off, or removed (its name), or why not.
+    ModChanged { result: Result<String, String>, done: &'static str },
     ModInfo(Result<core::install::SourceInfo, String>),
     Installed(Result<core::install::Progress, String>),
     Join(serde_json::Value),
@@ -35,6 +37,8 @@ pub enum Msg {
     /// A background job stopped on an error of its own (a panic): whatever it was loading
     /// is not coming.
     Crashed(String),
+    /// The support package was saved there (Setup → Export diagnostics), or why not.
+    Diagnostics(Result<std::path::PathBuf, String>),
 }
 
 /// A server in the Multiplayer page's list (`~/.openomsi/servers.json`), as the player
@@ -142,6 +146,10 @@ pub struct Choice {
     pub date: String,
     /// "auto", spring, summer, autumn, winter.
     pub season: String,
+    /// The season's phase: early, mid, late (with a season chosen).
+    pub phase: String,
+    /// The player's own date from before a season moved it ("By date" gives it back).
+    pub own_date: Option<String>,
     pub weather: String,
     pub traffic: f32,
     pub passengers: bool,
@@ -210,6 +218,8 @@ impl Default for Choice {
             start_trip: None,
             date: "1989-05-30".into(),
             season: "auto".into(),
+            phase: "mid".into(),
+            own_date: None,
             weather: String::new(),
             traffic: 30.0,
             passengers: true,
@@ -259,6 +269,11 @@ impl Choice {
         // (older launchers took a vehicle line of a broken ailists.cfg for the map's depot)
         if c.hof.to_ascii_lowercase().contains(".bus") || c.hof.to_ascii_lowercase().contains(".ovh") {
             c.hof.clear();
+        }
+        // a season chosen: the date in its phase, as the game will have it (older launchers
+        // kept the day of the month; the date may have followed the computer's since)
+        if let Some(d) = crate::season_phase::launcher_date(&c.season, &c.phase, &c.date, &c.map, true) {
+            c.date = d;
         }
         c
     }
@@ -320,6 +335,10 @@ pub struct State {
     pub jobs: Vec<core::install::Progress>,
     pub mods: Option<core::ModsStatus>,
     pub mods_asked: bool,
+    /// The mod being switched or removed (its id).
+    pub mod_busy: Option<String>,
+    /// Installs finished when the Mods page last asked for the mods.
+    pub mods_jobs_seen: usize,
     pub mod_info: Option<Result<core::install::SourceInfo, String>>,
     pub mod_path: String,
     pub mod_mode: usize,
@@ -418,6 +437,8 @@ impl State {
             jobs: Vec::new(),
             mods: None,
             mods_asked: false,
+            mod_busy: None,
+            mods_jobs_seen: 0,
             mod_info: None,
             mod_path: String::new(),
             mod_mode: 0,
@@ -484,7 +505,7 @@ impl State {
         self.spawn(move || Msg::Launched(core::launch(&d).map_err(|e| format!("{e:#}"))));
     }
 
-    fn spawn(&self, f: impl FnOnce() -> Msg + Send + 'static) {
+    pub(crate) fn spawn(&self, f: impl FnOnce() -> Msg + Send + 'static) {
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             // (a job that panics - an odd file of some mod - sent nothing, and the page
@@ -506,7 +527,7 @@ impl State {
         // the first reading shows what it has read as it goes: a big installation's buses
         // (thousands of folders) took minutes, with nothing on the page all that time
         self.content_first = self.maps.is_empty() && self.vehicles.is_empty();
-        self.set_status("Reading the OMSI folder…", false);
+        self.set_status("Reading the OMSI folder...", false);
         let tx = self.tx.clone();
         self.spawn(move || {
             let r = (|| -> anyhow::Result<_> {
@@ -607,6 +628,18 @@ impl State {
     pub fn load_mods(&mut self) {
         self.mods_asked = true;
         self.spawn(|| Msg::Mods(core::mods_status().map_err(|e| format!("{e:#}"))));
+    }
+
+    /// Switch the mod `id` on or off, in the background (its folders move).
+    pub fn mod_toggle(&mut self, id: String, on: bool) {
+        self.mod_busy = Some(id.clone());
+        self.spawn(move || Msg::ModChanged { result: core::mod_set_enabled(&id, on).map_err(|e| format!("{e:#}")), done: if on { "switched on" } else { "switched off" } });
+    }
+
+    /// Delete the mod `id`, in the background.
+    pub fn mod_remove(&mut self, id: String) {
+        self.mod_busy = Some(id.clone());
+        self.spawn(move || Msg::ModChanged { result: core::mod_remove(&id).map_err(|e| format!("{e:#}")), done: "deleted" });
     }
 
     pub fn check_join(&mut self) {
@@ -809,7 +842,7 @@ impl State {
             return;
         }
         let d = self.duty();
-        self.set_status("Starting the game…", false);
+        self.set_status("Starting the game...", false);
         self.queued_launch = Some(d);
         // (the next duty is driven with a bus chosen for it, once this one has started)
         self.bus_spent = true;
@@ -909,7 +942,7 @@ impl State {
             profile: Some(self.config.profile.clone()).filter(|p| !p.is_empty()),
             lan: Some(lan),
             lan_name: None,
-            season: Some(c.season.clone()).filter(|s| s != "auto"),
+            season: Some(c.season.clone()).filter(|s| s != "auto").map(|s| crate::season_phase::launcher_choice(&s, &c.phase).map(|x| x.word()).unwrap_or(s)),
             tutorial: None,
             situation: None,
             editor: false,
@@ -951,7 +984,7 @@ impl State {
         let mut d = self.duty();
         d.situation = Some(file.to_string_lossy().to_string());
         d.lan = Some("off".into());
-        self.set_status("Continuing where you left off…", false);
+        self.set_status("Continuing where you left off...", false);
         self.queued_launch = Some(d);
     }
 
@@ -963,7 +996,7 @@ impl State {
         let mut d = self.duty();
         d.tutorial = Some(n);
         d.lan = Some("off".into());
-        self.set_status("Starting the tutorial…", false);
+        self.set_status("Starting the tutorial...", false);
         self.queued_launch = Some(d);
     }
 
@@ -1008,6 +1041,8 @@ impl State {
     fn follow_clock(&mut self) {
         let on = |k: &str| self.settings.get(k).and_then(|v| v.as_bool()).unwrap_or(false);
         let (time, date, year) = (on("use_real_time"), on("use_real_date"), on("use_real_year"));
+        // (a season chosen sets the date: its phase's, see `season_chosen`)
+        let date = date && self.choice.season == "auto";
         if !time && !date {
             return;
         }
@@ -1070,6 +1105,8 @@ impl State {
 
     fn handle(&mut self, m: Msg) {
         match m {
+            Msg::Diagnostics(Ok(path)) => self.diagnostics_saved(path),
+            Msg::Diagnostics(Err(why)) => self.set_status(omsi_ui::tr("Could not export diagnostics: {why}").replacen("{why}", &why, 1), true),
             Msg::Crashed(why) => {
                 log::error!("launcher: a background job stopped: {why}");
                 self.loading_content = false;
@@ -1333,6 +1370,16 @@ impl State {
                 self.mods = Some(m);
             }
             Msg::Mods(Err(e)) => self.set_status(e, true),
+            Msg::ModChanged { result, done } => {
+                self.mod_busy = None;
+                match result {
+                    Ok(name) => self.set_status(format!("{name} {done}"), false),
+                    Err(e) => self.set_status(format!("Not done: {e}"), true),
+                }
+                // (the lists without it, or with it again)
+                self.load_mods();
+                self.load_content();
+            }
             Msg::ModInfo(r) => {
                 if let Ok(i) = &r {
                     // a big archive that does not fit is used in place
@@ -1353,6 +1400,16 @@ impl State {
                 let ok = v.get("ok").and_then(|x| x.as_bool()).unwrap_or(false);
                 let text = v.get("text").and_then(|x| x.as_str()).unwrap_or("").to_string();
                 self.join = (ok, text);
+            }
+        }
+    }
+
+    fn diagnostics_saved(&mut self, path: std::path::PathBuf) {
+        self.set_status(omsi_ui::tr("Support package saved: {}").replacen("{}", &path.display().to_string(), 1), false);
+        // (its folder opened, for the player to look inside before attaching it)
+        if !core::IN_PROCESS_GAMES {
+            if let Some(dir) = path.parent() {
+                crate::updater::open_url(&dir.to_string_lossy());
             }
         }
     }
@@ -1802,7 +1859,7 @@ pub fn crash_of(log: &std::path::Path) -> Option<(String, String)> {
 const MACHINE_LINES: [&str; 4] = ["] system: ", "] graphics adapter: ", "] opening graphics device: ", "] command line: "];
 
 /// The line between the machine and the end of the log in a crash's tail.
-pub const CRASH_TAIL_GAP: &str = "…";
+pub const CRASH_TAIL_GAP: &str = "...";
 
 #[cfg(test)]
 mod disconnect_tests {
@@ -1868,48 +1925,7 @@ mod launch_tests {
 }
 
 #[cfg(test)]
-mod crash_tests {
-    #[test]
-    fn a_panic_is_found_and_a_clean_end_is_not() {
-        let dir = std::env::temp_dir().join("openomsi-crash-test");
-        let _ = std::fs::create_dir_all(&dir);
-        let p = dir.join("game.log");
-        std::fs::write(&p, "[t INFO x] loading\n[t ERROR openomsi_game] the game stopped on an error (build x): panicked at a.rs:1:1:\n    index out of bounds\n\n   0: std::backtrace\n").unwrap();
-        let (what, tail) = super::crash_of(&p).unwrap();
-        assert!(what.contains("index out of bounds"), "{what}");
-        assert!(tail.contains("loading"));
-        std::fs::write(&p, "[t INFO x] loading\n[t INFO openomsi_game::app_events] game ends\n").unwrap();
-        assert!(super::crash_of(&p).is_none());
-        std::fs::write(&p, "[t ERROR omsi_render] the graphics device was lost (Unknown): Unexpected error variant\n[t INFO openomsi_game::app_events] game ends\n").unwrap();
-        assert!(super::crash_of(&p).unwrap().0.contains("device was lost"));
-        // an error before the game started, or one it got over, is not the crash
-        std::fs::write(&p, "[t ERROR omsi_render] a part of the picture could not be recorded (left out)\n[t INFO x] starting the game: omsi\n[t INFO omsi_render] renderer: compiling the sky and clouds shaders\n").unwrap();
-        assert!(super::crash_of(&p).is_none());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// The report says what the game ran on (the start of the log), and its title is the
-    /// error alone, not the records after it (#1187).
-    #[test]
-    fn the_report_has_the_computer_and_a_clean_title() {
-        let dir = std::env::temp_dir().join(format!("openomsi-crash-machine-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&dir);
-        let p = dir.join("game.log");
-        let mut log = String::from("[t INFO openomsi_game::applog] system: windows x86_64 (10.0), 8 threads, 8192 MB memory\n[t INFO openomsi_game::applog] command line: openomsi --map maps/X/global.cfg\n[t INFO omsi_render] graphics adapter: GTX 750 (DiscreteGpu, Dx12, 2048 MB of its own), texture memory taken for it: 716 MB\n");
-        // (more than the end that goes with the report)
-        for k in 0..400 {
-            log.push_str(&format!("[t INFO openomsi_game::scene] tile loading: placed tile {k},0\n"));
-        }
-        log.push_str("[t ERROR openomsi_game::app_events] ending the session: the graphics device was lost (Unknown: Out of memory)\n[t INFO openomsi_game::app_events] game ends\n[t WARN openomsi_game::scene] tile loading: first-area batch prepared in 352.71 s\n");
-        std::fs::write(&p, log).unwrap();
-        let (what, tail) = super::crash_of(&p).unwrap();
-        assert_eq!(what, "ending the session: the graphics device was lost (Unknown: Out of memory)");
-        let (machine, end) = tail.split_once(&format!("\n{}\n", super::CRASH_TAIL_GAP)).unwrap();
-        assert!(machine.contains("8192 MB memory") && machine.contains("GTX 750") && machine.contains("maps/X/global.cfg"), "{machine}");
-        assert!(end.contains("352.71 s") && !end.contains("placed tile 0,0"));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}
+mod crash_tests;
 
 fn read_settings_file() -> Option<String> {
     std::fs::read_to_string(core::data_dir().join("settings.cfg")).ok()

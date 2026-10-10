@@ -11,6 +11,12 @@ use omsi_ui::paint::Align;
 use omsi_ui::{Color, Rect, Weight};
 use serde_json::{json, Value};
 
+// the "Add binding" picker of the keyboard page: OMSI's events and the installed buses' own
+// triggers, searchable
+mod keybind_picker;
+pub use keybind_picker::keybind_picker;
+use keybind_picker::{controller_action_choices, KeyActionOption};
+
 #[derive(Default)]
 pub struct PagesView {
     /// The name of a driver being made, and whether its field is open (on the drivers step
@@ -24,17 +30,44 @@ pub struct PagesView {
     /// The "reset every setting" dialog is open.
     pub confirm_reset: bool,
     pub kb_filter: [String; 2],
-    /// The OMSI-style "Add event..." browser is open for a keyboard section.
-    pub kb_events: [bool; 2],
+    /// The keyboard action picker: which section it adds to, and its search query.
+    pub kb_picker: Option<usize>,
+    pub kb_picker_filter: String,
+    pub kb_picker_source_filter: String,
+    /// The complete bus-file provenance list shown from an action row.
+    pub kb_source_action: Option<(String, Vec<String>)>,
     /// (section, index) of the binding waiting for a key.
     pub capturing: Option<(usize, usize)>,
     pub drop_hover: bool,
+    /// The Mods page's list: its search, its filter (see `MOD_FILTERS`), and the mod whose
+    /// deletion is asked about.
+    pub mod_search: String,
+    pub mod_filter: usize,
+    pub mod_confirm: Option<String>,
+    /// The mods opened to show what they hold, folder by folder.
+    pub mod_open: std::collections::HashSet<String>,
     pub setup_root: Option<String>,
     pub setup_game: Option<String>,
     /// The Controls page's tab: 0 the keyboard, 1 the game controllers.
     pub controls_tab: usize,
     /// On a phone, which list of keys the Controls page shows (0 the bus's, 1 the game's).
     pub kb_section: usize,
+    /// Sources indexed by action name, filled as installed vehicle scripts are scanned.
+    pub kb_script_actions: Option<std::collections::HashMap<String, Vec<String>>>,
+    pub kb_script_actions_rx: Option<std::sync::mpsc::Receiver<crate::describe::ScriptActionScanUpdate>>,
+    kb_script_actions_root: Option<std::path::PathBuf>,
+    kb_script_cache_loaded: bool,
+    kb_script_scan_actions: Option<std::collections::HashMap<String, Vec<String>>>,
+    kb_script_scan_paths: Vec<String>,
+    kb_source_paths: Vec<String>,
+    kb_source_path_set: std::collections::HashSet<String>,
+    kb_source_suggestions: Option<(String, Vec<String>)>,
+    pub kb_script_scan: (usize, usize, String),
+    kb_script_total_buses: usize,
+    pub kb_script_scan_complete: bool,
+    kb_action_options: Option<Vec<KeyActionOption>>,
+    kb_filtered_options: Option<(String, String, Vec<KeyActionOption>)>,
+    controller_action_choices: Option<std::sync::Arc<(Vec<String>, Vec<String>)>>,
     /// The Settings page's tab (see `SETTINGS_TABS`).
     pub settings_tab: usize,
     pub pads: PadsView,
@@ -1250,15 +1283,12 @@ fn graphics_profiles_block(ui: &mut Ui, s: &mut Value, dirty: &mut f32, c: &mut 
 /// How the game looks and how fast it runs.
 fn graphics_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, cols: [Rect; 2]) -> [f32; 2] {
     let mut c = Col::new(ui, cols[0], "Graphics");
-    // Quality presets, first: they set most of what follows. (OMSI's own
-    // option_presets/*.oop are named after the PCs of their day - "PC 2006", "X10 high",
-    // "Chicago Recommended" - which read as random words here.)
-    let presets: [(&str, serde_json::Value); 4] = [
-        ("Low", json!({"msaa": 1, "anisotropy": 2, "shadow_size": 1024, "ssao": false, "shadows": false, "detail_textures": false, "clouds": false, "view_distance": "600", "min_obj_size": 0.03, "max_obj_dist": "500", "mirror_size": 128, "mirror_refresh": "eco", "render_scale": "0.75", "texture_memory": 800})),
-        ("Medium", json!({"msaa": 2, "anisotropy": 4, "shadow_size": 2048, "ssao": false, "shadows": true, "detail_textures": true, "clouds": true, "view_distance": "900", "min_obj_size": 0.02, "max_obj_dist": "750", "mirror_size": 256, "mirror_refresh": "eco", "render_scale": "auto", "texture_memory": 1200})),
-        ("High", json!({"msaa": 4, "anisotropy": 8, "shadow_size": 2048, "ssao": true, "shadows": true, "detail_textures": true, "clouds": true, "view_distance": "auto", "min_obj_size": 0.013, "max_obj_dist": "auto", "mirror_size": 256, "mirror_refresh": "full", "render_scale": "auto", "texture_memory": 0})),
-        ("Ultra", json!({"msaa": 4, "anisotropy": 8, "shadow_size": 4096, "ssao": true, "shadows": true, "detail_textures": true, "clouds": true, "view_distance": "2000", "min_obj_size": 0.005, "max_obj_dist": "1500", "mirror_size": 512, "mirror_refresh": "full", "render_scale": "auto", "texture_memory": 0})),
-    ];
+    // The graphics mode first, then the quality presets for it: they set most of what
+    // follows and keep the mode (`graphics_presets_for`). (OMSI's own option_presets/*.oop
+    // are named after the PCs of their day - "PC 2006", "X10 high", "Chicago Recommended" -
+    // which read as random words here.)
+    sel_setting(ui, s, dirty, "s-graphics", c.row(), "Graphics", "graphics", &[("vanilla", "Vanilla (as OMSI 2)"), ("vanilla_plus", "Vanilla+"), ("enhanced", "Enhanced"), ("enhanced_plus", "Enhanced+")]);
+    let presets = core::graphics_presets_for(get(s, "graphics").as_str().unwrap_or("vanilla_plus"));
     {
         // the preset the settings match now, else "Custom"
         let matches = |p: &serde_json::Value| p.as_object().map(|o| o.iter().all(|(k, v)| {
@@ -1279,7 +1309,6 @@ fn graphics_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, cols: [Rect; 2]) ->
             }
         }
     }
-    sel_setting(ui, s, dirty, "s-graphics", c.row(), "Graphics", "graphics", &[("vanilla", "Vanilla (as OMSI 2)"), ("vanilla_plus", "Vanilla+"), ("enhanced", "Enhanced"), ("enhanced_plus", "Enhanced+")]);
     // Vanilla draws what OMSI 2 draws: no sun shadows, ambient occlusion or detail grain
     let classic = get(s, "graphics").as_str() == Some("vanilla");
     let traced = get(s, "graphics").as_str() == Some("enhanced_plus");
@@ -1295,6 +1324,11 @@ fn graphics_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, cols: [Rect; 2]) ->
         }
         sel_setting(ui, s, dirty, "s-casters", c.row(), "Shadows cast by", "shadow_casters", &[("all", "Every solid mesh"), ("omsi", "[shadow] meshes, as OMSI")]);
         toggle_setting(ui, s, dirty, c.row(), "Detail texturing up close", "detail_textures");
+        let mut night = get(s, "night_brightness").as_f64().unwrap_or(0.0) as f32;
+        if ui.slider("s-night", c.row(), &mut night, 0.0, 3.0, 0.25, "Night brightness", &|v| if v < 0.01 { "Off".to_string() } else { format!("+{v:.2}") }) {
+            s["night_brightness"] = json!((night / 0.25).round() * 0.25);
+            *dirty = 0.3;
+        }
         // (an LED panel's dots are its own light: how bright they burn, and how much of the
         // mip chain the panel's picture and its mask are held at - 0 point-samples them,
         // the sharpest dots and the worst shimmer; higher holds them at the level the
@@ -1317,6 +1351,12 @@ fn graphics_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, cols: [Rect; 2]) ->
         toggle_setting(ui, s, dirty, c.row(), "Reflection maps (paint, chrome, glass)", "reflections");
     }
     toggle_setting(ui, s, dirty, c.row(), "Clouds", "clouds");
+    // (the enhanced graphics' volumetric clouds marched in fewer steps: see
+    // `Lighting::low_clouds`; the vanilla ones are a texture whatever this says)
+    if matches!(get(s, "graphics").as_str(), Some("enhanced" | "enhanced_plus")) && get(s, "clouds").as_bool() != Some(false) {
+        sel_setting(ui, s, dirty, "s-cloud-quality", c.row(), "Cloud quality", "cloud_quality", &[("high", "High"), ("low", "Low")]);
+    }
+    sel_setting(ui, s, dirty, "s-rain-quality", c.row(), "Rain quality", "rain_quality", &[("high", "High"), ("medium", "Medium"), ("low", "Low")]);
     toggle_setting(ui, s, dirty, c.row(), "Windy trees", "windy_trees");
     let left = c.used();
     let mut c = Col::new(ui, cols[1], "Display");
@@ -1327,9 +1367,10 @@ fn graphics_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, cols: [Rect; 2]) ->
     toggle_setting(ui, s, dirty, c.row(), "V-sync", "vsync");
     sel_setting(ui, s, dirty, "s-fps", c.row(), "Frame limit", "max_fps", &[("0", "Screen refresh rate"), ("30", "30 fps"), ("45", "45 fps"), ("60", "60 fps"), ("120", "120 fps"), ("144", "144 fps"), ("1000", "Unlimited")]);
     // (a Mac has Metal only; elsewhere a driver's Vulkan that misbehaves, or a card without
-    // it, is got round here)
+    // it, is got round here; on Windows also OpenGL ES on ANGLE over DirectX 11, for a chip
+    // with none of the others - it is tried only when the package has ANGLE's DLLs)
     if cfg!(windows) {
-        sel_setting(ui, s, dirty, "s-api", c.row(), "Graphics API", "graphics_api", &[("auto", "Automatic"), ("vulkan", "Vulkan"), ("dx12", "DirectX 12"), ("gl", "OpenGL")]);
+        sel_setting(ui, s, dirty, "s-api", c.row(), "Graphics API", "graphics_api", &[("auto", "Automatic"), ("vulkan", "Vulkan"), ("dx12", "DirectX 12"), ("gl", "OpenGL"), ("angle", "ANGLE (DirectX 11)")]);
     } else if !cfg!(target_os = "macos") {
         sel_setting(ui, s, dirty, "s-api", c.row(), "Graphics API", "graphics_api", &[("auto", "Automatic"), ("vulkan", "Vulkan"), ("gl", "OpenGL")]);
     }
@@ -1351,6 +1392,9 @@ fn graphics_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, cols: [Rect; 2]) ->
     let opts: Vec<(&str, &str)> = vec![("0", auto_label.as_str()), ("500", "500 MB"), ("1000", "1 GB"), ("1500", "1.5 GB"), ("2000", "2 GB"), ("3000", "3 GB"), ("4000", "4 GB"), ("6000", "6 GB")];
     sel_setting(ui, s, dirty, "s-texmem", c.row(), "Texture memory", "texture_memory", &opts);
     toggle_setting(ui, s, dirty, c.row(), "Compress textures on loading", "texture_compression");
+    // (off: DXT/BC textures decoded to RGBA on loading, for a driver that mishandles block
+    // formats - see `Settings::gpu_texture_compression`)
+    toggle_setting(ui, s, dirty, c.row(), "DXT/BC textures stay compressed on the GPU", "gpu_texture_compression");
     c.section(ui, "Profiles");
     graphics_profiles_block(ui, s, dirty, &mut c);
     [left, c.used()]
@@ -1369,11 +1413,36 @@ fn driving_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, c
         s["mouse_sens"] = json!((ms * 100.0).round() / 100.0);
         *dirty = 0.3;
     }
+    let mut mouse_pedal = get(s, "mouse_pedal_strength")
+        .as_f64()
+        .unwrap_or(1.0) as f32;
+    if ui.slider(
+        "s-mouse-pedal",
+        c.row(),
+        &mut mouse_pedal,
+        0.5,
+        2.0,
+        0.05,
+        "Mouse pedal strength",
+        &|v| {
+            if (v - 1.0).abs() < 0.01 {
+                "OMSI".to_string()
+            } else {
+                format!("{:.0}%", v * 100.0)
+            }
+        },
+    ) {
+        s["mouse_pedal_strength"] = json!((mouse_pedal * 100.0).round() / 100.0);
+        *dirty = 0.3;
+    }
     toggle_setting(ui, s, dirty, c.row(), "Smooth mouse steering (off: the wheel follows the cursor at once, as in OMSI)", "mouse_smooth");
+    toggle_setting(ui, s, dirty, c.row(), "Hold the cursor while the mouse steers (off: the crosshair stays free, the window's edges are the lock)", "mouse_hold");
     toggle_setting(ui, s, dirty, c.row(), "A right click ends the mouse steering (as in OMSI)", "mouse_right_off");
     toggle_setting(ui, s, dirty, c.row(), "Indicators cancel themselves (as the bus's script does)", "blinker_cancel");
     toggle_setting(ui, s, dirty, c.row(), "The keyboard brake stays on until the throttle (as in OMSI)", "brake_hold");
     toggle_setting(ui, s, dirty, c.row(), "Automatic clutch (manual gearboxes)", "auto_clutch");
+    // (it was in the game's menu only, #1780)
+    toggle_setting(ui, s, dirty, c.row(), "Automated manual gearbox (shifts a manual gearbox for you by the engine speed)", "auto_shift");
     // (on a duty: the line, route and destination typed into the IBIS for the driver)
     toggle_setting(ui, s, dirty, c.row(), "Fill in the IBIS automatically", "ibis_auto");
     if ui.button("s-go-keys", c.row(), "Change the keys", Some("keyboard"), ButtonKind::Normal) {
@@ -1400,7 +1469,22 @@ fn driving_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, c
         s["pad_steer_smooth"] = json!(pad_smooth.round());
         *dirty = 0.3;
     }
+    // how fast the stick turns the wheel (middle to full lock), and its dead zone
+    let mut pad_speed = get(s, "pad_steer_speed").as_f64().unwrap_or(2.0) as f32;
+    if ui.slider("s-pad-steer-speed", c.row(), &mut pad_speed, 0.8, 5.0, 0.1, "Stick steering speed", &|v| format!("{v:.1} s")) {
+        s["pad_steer_speed"] = json!((pad_speed * 10.0).round() / 10.0);
+        *dirty = 0.3;
+    }
+    let mut pad_dead = get(s, "pad_deadzone").as_f64().unwrap_or(0.08) as f32;
+    if ui.slider("s-pad-deadzone", c.row(), &mut pad_dead, 0.0, 0.4, 0.01, "Stick dead zone", &|v| format!("{:.0} %", v * 100.0)) {
+        s["pad_deadzone"] = json!((pad_dead * 100.0).round() / 100.0);
+        *dirty = 0.3;
+    }
     toggle_setting(ui, s, dirty, c.row(), "Stick steers like a wheel (a wheel seen as a gamepad)", "pad_steer_linear");
+    // Xbox, PlayStation 4 or 5: how the buttons are named, and the default buttons of a
+    // gamepad nobody set up
+    sel_setting(ui, s, dirty, "s-pad-type", c.row(), "Gamepad type", "pad_type", &[("auto", "Automatic"), ("xbox", "Xbox"), ("ps4", "PlayStation 4"), ("ps5", "PlayStation 5")]);
+    toggle_setting(ui, s, dirty, c.row(), "Default gamepad buttons (indicators, doors, views, gears, menu, pause)", "pad_buttons");
     toggle_setting(ui, s, dirty, c.row(), "Arrow keys switch the cameras with a wheel too (no glance)", "arrows_switch_cams");
     // the pedals' response: softer (below 1) or stronger (above 1) than the pedal reads
     for (key, label, id) in [("pedal_throttle", "Throttle pedal strength", "s-pedt"), ("pedal_brake", "Brake pedal strength", "s-pedb")] {
@@ -1523,9 +1607,63 @@ fn camera_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, co
     toggle_setting(ui, s, dirty, c.row(), "Camera collisions (outside view)", "camera_collision");
     toggle_setting(ui, s, dirty, c.row(), "Driver at the wheel (outside views)", "driver");
     c.section(ui, "Head tracking");
-    toggle_setting(ui, s, dirty, c.row(), "Head tracking (Tobii eye trackers, TrackIR and others through opentrack)", "head_tracking");
+    toggle_setting(ui, s, dirty, c.row(), "Head tracking (Tobii eye trackers, native TrackIR / OpenTrack)", "head_tracking");
     if get(s, "head_tracking").as_bool().unwrap_or(false) {
         tobii_rows(ui, &mut c, s, dirty);
+    }
+
+    // TrackIR axis controls. Values are stored as user-facing percentages:
+    // 0% disables an axis; 100% (the default) is 1:1.
+    c.section(ui, "Rotation");
+    for (key, id, label) in [
+        ("head_tracking_yaw_sens", "s-trackir-yaw", "Yaw sensitivity (left / right)"),
+        ("head_tracking_pitch_sens", "s-trackir-pitch", "Pitch sensitivity (up / down)"),
+        ("head_tracking_roll_sens", "s-trackir-roll", "Roll sensitivity"),
+    ] {
+        let mut v = get(s, key).as_f64().unwrap_or(100.0) as f32;
+        if ui.slider(id, c.row(), &mut v, 0.0, 100.0, 1.0, label, &|v| {
+            if v <= 0.0 { "Off".to_string() } else { format!("{v:.0}%") }
+        }) {
+            s[key] = json!(v.round().clamp(0.0, 100.0));
+            *dirty = 0.3;
+        }
+    }
+    toggle_setting(ui, s, dirty, c.row(), "Invert yaw", "head_tracking_invert_yaw");
+    toggle_setting(ui, s, dirty, c.row(), "Invert pitch", "head_tracking_invert_pitch");
+    toggle_setting(ui, s, dirty, c.row(), "Invert roll", "head_tracking_invert_roll");
+
+    c.section(ui, "Position");
+    for (key, id, label) in [
+        ("head_tracking_x_sens", "s-trackir-x", "X sensitivity (left / right)"),
+        ("head_tracking_y_sens", "s-trackir-y", "Y sensitivity (up / down)"),
+        ("head_tracking_z_sens", "s-trackir-z", "Z sensitivity (forward / back)"),
+    ] {
+        let mut v = get(s, key).as_f64().unwrap_or(100.0) as f32;
+        if ui.slider(id, c.row(), &mut v, 0.0, 100.0, 1.0, label, &|v| {
+            if v <= 0.0 { "Off".to_string() } else { format!("{v:.0}%") }
+        }) {
+            s[key] = json!(v.round().clamp(0.0, 100.0));
+            *dirty = 0.3;
+        }
+    }
+    toggle_setting(ui, s, dirty, c.row(), "Invert X", "head_tracking_invert_x");
+    toggle_setting(ui, s, dirty, c.row(), "Invert Y", "head_tracking_invert_y");
+    toggle_setting(ui, s, dirty, c.row(), "Invert Z", "head_tracking_invert_z");
+
+    if ui.button("s-trackir-reset", c.row(), "Reset head-tracking axes", Some("restart_alt"), ButtonKind::Normal) {
+        for key in [
+            "head_tracking_yaw_sens", "head_tracking_pitch_sens", "head_tracking_roll_sens",
+            "head_tracking_x_sens", "head_tracking_y_sens", "head_tracking_z_sens",
+        ] {
+            s[key] = json!(15.0);
+        }
+        for key in [
+            "head_tracking_invert_yaw", "head_tracking_invert_pitch", "head_tracking_invert_roll",
+            "head_tracking_invert_x", "head_tracking_invert_y", "head_tracking_invert_z",
+        ] {
+            s[key] = json!(false);
+        }
+        *dirty = 0.3;
     }
     c.section(ui, "Triple screen");
     toggle_setting(
@@ -1677,6 +1815,12 @@ fn sound_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, cols: [Rect; 2]) -> [f
         }
     }
     toggle_setting(ui, s, dirty, c.row(), "Doppler effect", "doppler");
+    toggle_setting(ui, s, dirty, c.row(), "Ambience (places, weather, nature, town)", "ambient");
+    let mut amb = get(s, "vol_ambient").as_f64().unwrap_or(0.8) as f32;
+    if ui.slider("s-volamb", c.row(), &mut amb, 0.0, 1.0, 0.05, "Ambience volume", &|v| format!("{:.0}%", v * 100.0)) {
+        s["vol_ambient"] = json!((amb * 100.0).round() / 100.0);
+        *dirty = 0.3;
+    }
     sel_setting(ui, s, dirty, "s-voices", c.row(), "Passenger voices", "pax_voices", &[("all", "Greetings and tickets"), ("tickets", "Only the ticket asked for"), ("off", "Silent")]);
     [c.used(), radio_stations(ui, cols[1])]
 }
@@ -1700,7 +1844,7 @@ fn radio_stations(ui: &mut Ui, r: Rect) -> f32 {
             let row = c.row();
             let nw = (row.w * 0.3).round();
             changed |= ui.text_input(&format!("radio-name-{k}"), Rect::new(row.x, row.y, nw, row.h), name, "Name", None);
-            changed |= ui.text_input(&format!("radio-url-{k}"), Rect::new(row.x + nw + 8.0, row.y, row.w - nw - 8.0 - 36.0, row.h), address, "https://…", None);
+            changed |= ui.text_input(&format!("radio-url-{k}"), Rect::new(row.x + nw + 8.0, row.y, row.w - nw - 8.0 - 36.0, row.h), address, "https://...", None);
             if ui.icon_button(&format!("radio-del-{k}"), Vec2::new(row.right() - 16.0, row.center().y), 14.0, "delete", "Remove this station") {
                 remove = Some(k);
             }
@@ -1725,6 +1869,8 @@ fn radio_stations(ui: &mut Ui, r: Rect) -> f32 {
 fn gameplay_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, cols: [Rect; 2]) -> [f32; 2] {
     let mut c = Col::new(ui, cols[0], "Passengers");
     sel_setting(ui, s, dirty, "s-board", c.row(), "Boarding", "boarding", &[("auto", "Pay and take the ticket"), ("pay", "The driver sells the ticket"), ("walk", "Just walk in")]);
+    sel_setting(ui, s, dirty, "s-stand", c.row(), "Standing passengers", "standing_chance", &[("0", "Never"), ("5", "5%"), ("10", "10%"), ("25", "25%"), ("50", "50%"), ("100", "Always")]);
+    sel_setting(ui, s, dirty, "s-pax-animation", c.row(), "Passenger animations", "passenger_animation", &[("original", "Original OMSI"), ("enhanced", "Procedural (experimental)")]);
     toggle_setting(ui, s, dirty, c.row(), "Passengers pay the exact fare", "exact_fare");
     let mut pd = get(s, "pax_density").as_f64().unwrap_or(1.0) as f32;
     if ui.slider("s-pax", c.row(), &mut pd, 0.0, 2.0, 0.1, "How many passengers", &|v| format!("{:.0}%", v * 100.0)) {
@@ -1736,6 +1882,8 @@ fn gameplay_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, cols: [Rect; 2]) ->
     sel_setting(ui, s, dirty, "s-unsched", c.row(), "Random traffic", "ai_unsched_factor", &[("25", "25%"), ("50", "50%"), ("75", "75%"), ("100", "100%"), ("150", "150%"), ("200", "200%")]);
     sel_setting(ui, s, dirty, "s-maxsched", c.row(), "Timetable vehicles", "ai_max_scheduled", &[("0", "All"), ("10", "At most 10"), ("25", "At most 25"), ("50", "At most 50")]);
     sel_setting(ui, s, dirty, "s-maxpark", c.row(), "Parked cars", "ai_max_parked", &[("-1", "None"), ("0", "Every space"), ("35", "At most 35"), ("100", "At most 100"), ("250", "At most 250")]);
+    // (off: an early bus waits at every stop, as in OMSI)
+    toggle_setting(ui, s, dirty, c.row(), "Timetable buses ahead of time wait only at timed stops", "ai_wait_timed_stops_only");
     let left = c.used();
     // OMSI's own options (options.cfg)
     let mut c = Col::new(ui, cols[1], "Simulation");
@@ -1951,7 +2099,7 @@ fn general_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, c
         use crate::updater::Status;
         let r = c.row();
         let busy = matches!(out.update, Status::Checking | Status::Downloading { .. } | Status::Installing(_) | Status::WaitingForInstaller(_) | Status::Restarting(_));
-        if ui.button("s-upd-check", Rect::new(r.x, r.y, 150.0, r.h), if busy { "Checking…" } else { "Check now" }, Some("refresh"), ButtonKind::Normal) && !busy {
+        if ui.button("s-upd-check", Rect::new(r.x, r.y, 150.0, r.h), if busy { "Checking..." } else { "Check now" }, Some("refresh"), ButtonKind::Normal) && !busy {
             out.check_updates = true;
         }
         let text = match &out.update {
@@ -1988,9 +2136,10 @@ fn mb(v: i64) -> String {
 /// The game's own actions a controller's button can be given, besides the bus's: the doors
 /// and gears of any bus, looking round while held, the bus radio while held, the cameras
 /// and the views - both of OMSI's view resets, the one view's (C) and every view's (Space),
-/// which a controller could not bring back to the first camera (#1167) - and head tracking's
-/// switch and the reset of the head's middle.
-const PAD_GAME_ACTIONS: [&str; 28] = ["head_tracking_recenter", "head_tracking_toggle", "doors_all", "door_4", "door_3", "door_2", "door_1", "gear_up", "gear_down", "view_look_left", "view_look_right", "view_look_up", "view_look_down", "view_reset_direction", "view_reset_all_directions", "view_interiorcam_plus", "view_interiorcam_minus", "view_toggle_viewpoint", "view_toggle_interior", "view_set_driver", "view_set_passenger", "view_set_outside", "sim_pause", "screenshot", "quicksave", "toggel_mouse_ctrl", "toggel_ctrler", "voice_radio"];
+/// which a controller could not bring back to the first camera (#1167) - the main menu,
+/// which Esc opens and a controller has no Esc for - and head tracking's switch and the
+/// reset of the head's middle.
+const PAD_GAME_ACTIONS: [&str; 29] = ["head_tracking_recenter", "head_tracking_toggle", "doors_all", "door_4", "door_3", "door_2", "door_1", "gear_up", "gear_down", "view_look_left", "view_look_right", "view_look_up", "view_look_down", "view_reset_direction", "view_reset_all_directions", "view_interiorcam_plus", "view_interiorcam_minus", "view_toggle_viewpoint", "view_toggle_interior", "view_set_driver", "view_set_passenger", "view_set_outside", "sim_pause", "open_menu", "screenshot", "quicksave", "toggel_mouse_ctrl", "toggel_ctrler", "voice_radio"];
 
 fn action_text(names: &crate::describe::ControlNames, a: &str) -> String {
     known_action(a).unwrap_or_else(|| names.control(a))
@@ -2057,7 +2206,9 @@ fn known_action(a: &str) -> Option<String> {
         ("chat_toggle", "Multiplayer: show / hide the chat"),
         ("voice_radio", "Multiplayer: bus radio (hold)"),
         ("sim_pause", "Pause"),
+        ("open_menu", "Open / close the main menu"),
         ("screenshot", "Screenshot"),
+        ("photo_mode", "Photo mode"),
         ("quicksave", "Quicksave"),
         ("toggel_mouse_ctrl", "Toggle mouse steering"),
         ("toggel_ctrler", "Toggle game controllers"),
@@ -2084,7 +2235,7 @@ pub fn controls(l: &mut Launcher, area: Rect) {
         } else if !matches!(code, K::ShiftLeft | K::ShiftRight | K::ControlLeft | K::ControlRight | K::AltLeft | K::AltRight | K::SuperLeft | K::SuperRight) {
             match crate::keys::dik_code(code) {
                 Some(scan) => {
-                    let m = omsi_content::input::chord(l.ui.input.shift, l.ui.input.ctrl, l.ui.input.alt) as i64;
+                    let m = l.ui.input.binding_modifiers() as i64;
                     let section = ["vehicles", "game"][sec];
                     let vr_binding = l.state.keybindings.get(section).and_then(|a| a.as_array())
                         .and_then(|a| a.get(idx)).and_then(|b| b.get("action"))
@@ -2102,6 +2253,7 @@ pub fn controls(l: &mut Launcher, area: Rect) {
             l.pages.capturing = None;
         }
         l.ui.input.raw_key = None;
+        l.ui.input.raw_chord = 0;
     }
     // The keys below are the ones the game uses only with "Custom controls" (Settings →
     // Driving keys); the ready-made layouts keep W A S D / the arrows for driving. Say so,
@@ -2157,53 +2309,22 @@ pub fn controls(l: &mut Launcher, area: Rect) {
         let inner = l.ui.heading(Rect::new(r.x + 18.0, r.y + 14.0, r.w - 36.0, r.h - 28.0), title, Some(if sec == 0 { "directions_bus" } else { "sports_esports" }));
         l.ui.text_in(sub, Rect::new(inner.x, inner.y - 6.0, inner.w, 18.0), 12.0, Weight::Regular, TEXT_DIM, Align::Left);
         let mut filter = std::mem::take(&mut l.pages.kb_filter[sec]);
-        let event_w = if sec == 0 { 138.0 } else { 0.0 };
-        let filter_w = if sec == 0 { (inner.w - event_w - GAP).max(120.0) } else { inner.w };
-        l.ui.text_input(&format!("kb-filter-{sec}"), Rect::new(inner.x, inner.y + 18.0, filter_w, 34.0), &mut filter, if l.pages.kb_events[sec] { "Filter events…" } else { "Filter…" }, Some("search"));
-        if sec == 0 && l.ui.button(
-            "kb-events",
-            Rect::new(inner.x + filter_w + GAP, inner.y + 18.0, event_w, 34.0),
-            if l.pages.kb_events[sec] { "Back to keys" } else { "Add event…" },
-            Some(if l.pages.kb_events[sec] { "arrow_back" } else { "add" }),
-            ButtonKind::Normal,
-        ) {
-            l.pages.kb_events[sec] = !l.pages.kb_events[sec];
-            filter.clear();
+        // "Add binding": the picker of every action (keybind_picker.rs) - OMSI's events and
+        // the installed buses' own triggers, which the game's section has no use for (there
+        // a name typed in the filter is added, below)
+        let add_w = if sec != 0 { 0.0 } else if inner.w < 500.0 { 104.0 } else { 124.0 };
+        let filter_w = if sec != 0 { inner.w } else { (inner.w - add_w - GAP).max(120.0) };
+        l.ui.text_input(&format!("kb-filter-{sec}"), Rect::new(inner.x, inner.y + 18.0, filter_w, 34.0), &mut filter, "Filter...", Some("search"));
+        if sec == 0 && l.ui.button(&format!("kb-add-{sec}"), Rect::new(inner.right() - add_w, inner.y + 18.0, add_w, 34.0), "Add binding", Some("add"), ButtonKind::Normal) {
+            l.pages.kb_picker = Some(sec);
+            l.pages.kb_picker_filter.clear();
+            l.pages.kb_picker_source_filter.clear();
+            l.pages.kb_action_options = None;
+            l.pages.kb_filtered_options = None;
+            l.pages.capturing = None;
         }
         l.pages.kb_filter[sec] = filter.clone();
         let q = filter.to_lowercase();
-
-        // OMSI's Add event dialog: all KY_ events from the language files, including
-        // event tables supplied by installed mods. Picking one adds an unbound vehicle
-        // entry and immediately waits for its key.
-        if sec == 0 && l.pages.kb_events[sec] {
-            let mut events = names.events();
-            if !q.is_empty() {
-                events.retain(|(action, label)| action.to_lowercase().contains(&q) || matches(label, &q));
-            }
-            let mut picked: Option<String> = None;
-            l.ui.scroll_area(&format!("kb-events-{sec}"), Rect::new(inner.x - 6.0, inner.y + 62.0, inner.w + 12.0, inner.bottom() - (inner.y + 62.0)), &mut |ui, v| {
-                let rh = 40.0;
-                for (row, (action, label)) in events.iter().enumerate() {
-                    let rr = Rect::new(v.x + 6.0, v.y + row as f32 * rh, v.w - 16.0, rh - 4.0);
-                    let shown = format!("{label}  ·  KY_{action}");
-                    if ui.button(&format!("kb-event-{row}"), rr, &shown, Some("add"), ButtonKind::Ghost) {
-                        picked = Some(action.clone());
-                    }
-                }
-                events.len() as f32 * rh
-            });
-            if let Some(action) = picked {
-                if let Some(a) = l.state.keybindings.get_mut("vehicles").and_then(|a| a.as_array_mut()) {
-                    a.push(json!({ "action": action.clone(), "scan_code": 0, "modifier": 0 }));
-                    l.pages.capturing = Some((0, a.len() - 1));
-                    l.pages.kb_events[0] = false;
-                    l.pages.kb_filter[0] = action;
-                    l.state.set_status("Event added. Press the key you want to use (Escape cancels).", false);
-                }
-            }
-            continue;
-        }
 
         let list: Vec<(usize, String, i64, i64)> = l.state.keybindings.get(*key).and_then(|a| a.as_array()).map(|a| a.iter().enumerate().map(|(i, b)| (i, b.get("action").and_then(|x| x.as_str()).unwrap_or("").to_string(), b.get("scan_code").and_then(|x| x.as_i64()).unwrap_or(0), b.get("modifier").and_then(|x| x.as_i64()).unwrap_or(0))).collect()).unwrap_or_default();
         let mut shown: Vec<(usize, String, String, bool)> = list
@@ -2218,9 +2339,11 @@ pub fn controls(l: &mut Launcher, area: Rect) {
             shown.sort_by_key(|(_, label, _, _)| !label.starts_with("VR:"));
         }
         let capturing = l.pages.capturing;
-        // what the row's buttons asked: (entry, cleared) a key cleared or to be pressed,
+        // what the row's buttons asked: a key to be pressed, cleared, or the entry removed;
         // `more` another key for an entry's action (#854)
-        let mut clicked: Option<(usize, bool)> = None;
+        #[derive(Clone, Copy)]
+        enum RowAsked { Capture, Clear, Remove }
+        let mut clicked: Option<(usize, RowAsked)> = None;
         let mut more: Option<usize> = None;
         let time = l.ui.time;
         // a name the list does not have (a bus's own trigger a mod's readme gives a key, the
@@ -2229,7 +2352,7 @@ pub fn controls(l: &mut Launcher, area: Rect) {
         let new_action = filter.trim();
         let mut list_top = inner.y + 62.0;
         if shown.is_empty() && new_action.len() > 1 && new_action.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-            if l.ui.button(&format!("kb-add-{sec}"), Rect::new(inner.x, list_top, inner.w, 36.0), &omsi_ui::tr("Add \"%{action}\" and give it a key").replace("%{action}", new_action), Some("add"), ButtonKind::Normal) {
+            if l.ui.button(&format!("kb-add-custom-{sec}"), Rect::new(inner.x, list_top, inner.w, 36.0), &omsi_ui::tr("Add \"%{action}\" and give it a key").replace("%{action}", new_action), Some("add"), ButtonKind::Normal) {
                 if let Some(a) = l.state.keybindings.get_mut(*key).and_then(|a| a.as_array_mut()) {
                     a.push(json!({ "action": new_action, "scan_code": 0, "modifier": 0 }));
                     l.pages.capturing = Some((sec, a.len() - 1));
@@ -2248,50 +2371,78 @@ pub fn controls(l: &mut Launcher, area: Rect) {
                 ui.p().rounded(rr, 8.0, Color::WHITE.alpha(0.03));
                 // (the key's row: on a phone the line under the name)
                 let keys = if narrow { Rect::new(rr.x, rr.y + 34.0, rr.w, 36.0) } else { Rect::new(rr.x, rr.y, rr.w, rr.h) };
-                let label_r = if narrow { Rect::new(rr.x + 12.0, rr.y + 2.0, rr.w - 24.0, 32.0) } else { Rect::new(rr.x + 12.0, rr.y, rr.w - 240.0, rr.h) };
+                let label_r = if narrow { Rect::new(rr.x + 12.0, rr.y + 2.0, rr.w - 24.0, 32.0) } else { Rect::new(rr.x + 12.0, rr.y, rr.w - 270.0, rr.h) };
                 ui.text_in(label, label_r, 13.0, Weight::Medium, TEXT_SOFT, Align::Left);
-                let kw = if narrow { (keys.w - 104.0).max(60.0) } else { 150.0 };
+                let kw = if narrow { (keys.w - 134.0).max(60.0) } else { 150.0 };
                 // another key for the same action (OMSI's file may give one action
                 // several [entry]s; several actions on one key need nothing more than the
                 // same key pressed for each)
-                let pr = Rect::new(keys.right() - 72.0 - kw, keys.y + 5.0, 26.0, keys.h - 10.0);
+                let pr = Rect::new(keys.right() - 102.0 - kw, keys.y + 5.0, 26.0, keys.h - 10.0);
                 let (hp, _, cp) = ui.interact(id_of(&format!("kb-{sec}-{i}-more")), pr);
                 ui.icon("add", pr.center(), 16.0, if hp { accent() } else { TEXT_FAINT });
+                if ui.hover(pr) {
+                    ui.tooltip(pr, "Add another key for this action");
+                }
                 if cp {
                     more = Some(*i);
                 }
-                let kr = Rect::new(keys.right() - 40.0 - kw, keys.y + 5.0, kw, keys.h - 10.0);
+                let kr = Rect::new(keys.right() - 70.0 - kw, keys.y + 5.0, kw, keys.h - 10.0);
                 let waiting = capturing == Some((sec, *i));
                 let id = id_of(&format!("kb-{sec}-{i}"));
                 let (h, _, c) = ui.interact(id, kr);
                 if c {
-                    clicked = Some((*i, false));
+                    clicked = Some((*i, RowAsked::Capture));
                 }
                 let base = if waiting { accent().alpha(0.25 + 0.15 * (time * 6.0).sin().abs()) } else if *clash { DANGER.alpha(0.22) } else { Color::WHITE.alpha(if h { 0.12 } else { 0.07 }) };
                 ui.p().rounded(kr, 6.0, base);
                 ui.p().rounded_border(kr, 6.0, 1.0, if waiting { accent() } else if *clash { DANGER } else { Color::WHITE.alpha(0.1) });
-                ui.text_in(if waiting { "press a key…" } else { keyn }, kr, 12.0, Weight::Bold, if *clash { DANGER.lighten(0.3) } else { TEXT }, Align::Center);
+                ui.text_in(if waiting { "press a key..." } else { keyn }, kr, 12.0, Weight::Bold, if *clash { DANGER.lighten(0.3) } else { TEXT }, Align::Center);
+                let dr = Rect::new(keys.right() - 64.0, keys.y + 5.0, 26.0, keys.h - 10.0);
+                let (hd, _, cd) = ui.interact(id_of(&format!("kb-{sec}-{i}-clear")), dr);
+                ui.icon("delete", dr.center(), 16.0, if hd { TEXT } else { TEXT_FAINT });
+                if ui.hover(dr) {
+                    ui.tooltip(dr, "Clear the key (the entry stays)");
+                }
+                if cd {
+                    clicked = Some((*i, RowAsked::Clear));
+                }
                 let xr = Rect::new(keys.right() - 32.0, keys.y + 5.0, 26.0, keys.h - 10.0);
-                let (hx, _, cx) = ui.interact(id ^ 1, xr);
+                let (hx, _, cx) = ui.interact(id_of(&format!("kb-{sec}-{i}-remove")), xr);
                 ui.icon("close", xr.center(), 16.0, if hx { DANGER } else { TEXT_FAINT });
+                if ui.hover(xr) {
+                    ui.tooltip(xr, "Remove the entry");
+                }
                 if cx {
-                    clicked = Some((*i, true));
+                    clicked = Some((*i, RowAsked::Remove));
                 }
             }
             shown.len() as f32 * rh
         });
         match clicked {
-            Some((i, true)) => {
+            Some((i, asked @ (RowAsked::Clear | RowAsked::Remove))) => {
                 let vr_binding = l.state.keybindings.get(*key).and_then(|a| a.as_array())
                     .and_then(|a| a.get(i)).and_then(|b| b.get("action"))
                     .and_then(|a| a.as_str()).is_some_and(|a| a.starts_with("vr_"));
-                if let Some(b) = l.state.keybindings.get_mut(*key).and_then(|a| a.as_array_mut()).and_then(|a| a.get_mut(i)) {
-                    b["scan_code"] = json!(0);
-                    b["modifier"] = json!(0);
+                let entries = l.state.keybindings.get_mut(*key).and_then(|a| a.as_array_mut());
+                match (asked, entries) {
+                    (RowAsked::Clear, Some(a)) => if let Some(b) = a.get_mut(i) {
+                        b["scan_code"] = json!(0);
+                        b["modifier"] = json!(0);
+                    },
+                    // (the entry out of the file; one waiting for its key below it moves up)
+                    (_, Some(a)) if i < a.len() => {
+                        a.remove(i);
+                        l.pages.capturing = match l.pages.capturing {
+                            Some((s, k)) if s == sec && k == i => None,
+                            Some((s, k)) if s == sec && k > i => Some((s, k - 1)),
+                            other => other,
+                        };
+                    }
+                    _ => {}
                 }
                 save_keys(l, vr_binding);
             }
-            Some((i, false)) => l.pages.capturing = Some((sec, i)),
+            Some((i, RowAsked::Capture)) => l.pages.capturing = Some((sec, i)),
             None => {}
         }
         if let Some(i) = more {
@@ -2321,8 +2472,13 @@ fn shown_button_count(buttons: &[(String, String)], physical: usize, revealed: O
 /// The game controllers tab (see `PadsView`).
 fn game_controllers(l: &mut Launcher, body: Rect) {
     use crate::controllers::{DeviceCfg, Func};
-    let hwnd = l.window.as_deref().and_then(crate::controllers::window_handle);
     let names = control_names(l);
+    if l.pages.controller_action_choices.is_none() {
+        l.pages.controller_action_choices = Some(std::sync::Arc::new(controller_action_choices(names, &l.state.keybindings)));
+    }
+    let choices = std::sync::Arc::clone(l.pages.controller_action_choices.as_ref().unwrap());
+    let (actions, labels) = choices.as_ref();
+    let hwnd = l.window.as_deref().and_then(crate::controllers::window_handle);
     let pv = &mut l.pages.pads;
     if pv.io.is_none() {
         pv.io = Some(crate::controllers::Devices::new(hwnd, false));
@@ -2483,23 +2639,6 @@ fn game_controllers(l: &mut Launcher, body: Rect) {
     }
     const AXES: [&str; 8] = ["X axis", "Y axis", "Z axis", "X rotation", "Y rotation", "Z rotation", "Slider 1", "Slider 2"];
     let funcs: Vec<String> = Func::LABELS.iter().map(|s| s.to_string()).collect();
-    let mut actions: Vec<String> = vec!["<none>".into()];
-    actions.extend(l.state.keybindings.get("vehicles").and_then(|a| a.as_array()).map(|a| a.iter().filter_map(|b| b.get("action").and_then(|x| x.as_str()).map(String::from)).collect::<Vec<_>>()).unwrap_or_default());
-    // H-pattern shifters use OMSI's "_fest" actions: pressing the gate selects the gear,
-    // releasing it fires "_fest_off", which lets the bus script return to neutral.
-    for a in ["kw_s_R_fest", "kw_s_1_fest", "kw_s_2_fest", "kw_s_3_fest", "kw_s_4_fest", "kw_s_5_fest", "kw_s_6_fest", "kw_s_7_fest", "kw_s_8_fest", "kw_s_9_fest", "kw_s_10_fest"] {
-        if !actions.iter().any(|x| x.eq_ignore_ascii_case(a)) {
-            actions.push(a.to_string());
-        }
-    }
-    // the game's own view actions (looking around while held, the cameras, the views)
-    for a in PAD_GAME_ACTIONS {
-        if !actions.iter().any(|x| x == a) {
-            actions.insert(1, a.to_string());
-        }
-    }
-    actions.dedup();
-    let labels: Vec<String> = actions.iter().enumerate().map(|(i, a)| if i == 0 { a.clone() } else { action_text(names, a) }).collect();
     let mut dirty = false;
     let lit = pv.last_pressed.filter(|(_, t)| t.elapsed().as_secs_f32() < 4.0).map(|(b, _)| b);
     // Some OMSI configs contain hundreds of empty trailing slots (the G920 report had
@@ -2640,7 +2779,7 @@ fn game_controllers(l: &mut Launcher, body: Rect) {
         }
     }
     let add_r = Rect::new(inner.x, inner.bottom() - 40.0, 260.0, 36.0);
-    if l.ui.button("pad-add-button", add_r, if pv.capturing { "Press a button on the device…" } else { "Add a button" }, Some("add"), ButtonKind::Normal) {
+    if l.ui.button("pad-add-button", add_r, if pv.capturing { "Press a button on the device..." } else { "Add a button" }, Some("add"), ButtonKind::Normal) {
         pv.capturing = !pv.capturing;
     }
     // a device no longer used (a wheel sold, one that came along in OMSI's own file) leaves
@@ -2800,7 +2939,7 @@ fn feedback_setup(
                 Some(Ok(false)) => ("Direction detected: normal", OK),
                 Some(Ok(true)) => ("Direction detected: inverted", OK),
                 Some(Err(message)) => (message, DANGER),
-                None => ("Testing: keep your hands off the wheel…", TEXT_SOFT),
+                None => ("Testing: keep your hands off the wheel...", TEXT_SOFT),
             };
             y += ui.paragraph(message, Vec2::new(r.x, y), r.w, 13.0, Weight::Medium, color) + 12.0;
         }
@@ -2929,6 +3068,9 @@ fn save_keys(l: &mut Launcher, vr_binding: bool) {
             if let Ok(k) = core::get_keybindings() {
                 l.state.keybindings = k;
             }
+            l.pages.kb_action_options = None;
+            l.pages.kb_filtered_options = None;
+            l.pages.controller_action_choices = None;
             // a key changed is a key the player wants to use: with a ready-made layout it
             // would be ignored wherever that layout has a key of its own
             if !vr_binding && use_custom_keys(l) {
@@ -3007,12 +3149,12 @@ pub fn sessions(l: &mut Launcher, area: Rect) {
         }
         l.ui.p().circle(c, 6.0, if running { OK } else { TEXT_FAINT });
         let duty = i.line.as_ref().map(|ln| match &i.tour {
-            Some(t) => format!(" · {}", omsi_ui::tr("line %{line} / %{tour}").replace("%{line}", ln).replace("%{tour}", t)),
-            None => format!(" · {}", omsi_ui::tr("line %{line}").replace("%{line}", ln)),
+            Some(t) => format!(" | {}", omsi_ui::tr("line %{line} / %{tour}").replace("%{line}", ln).replace("%{tour}", t)),
+            None => format!(" | {}", omsi_ui::tr("line %{line}").replace("%{line}", ln)),
         }).unwrap_or_default();
-        l.ui.text_in(&format!("{} · {}{duty}", short_map(&i.map), short_bus(&i.bus)), Rect::new(r.x + 42.0, r.y + 16.0, r.w - 260.0, 24.0), 16.0, Weight::Black, TEXT, Align::Left);
+        l.ui.text_in(&format!("{} | {}{duty}", short_map(&i.map), short_bus(&i.bus)), Rect::new(r.x + 42.0, r.y + 16.0, r.w - 260.0, 24.0), 16.0, Weight::Black, TEXT, Align::Left);
         let status = if running {
-            if l.state.stopping.contains(&i.pid) || i.stopping.is_some() { omsi_ui::tr("stopping - saving the run…").into_owned() } else { omsi_ui::tr("running for %{time}").replace("%{time}", &ago(i.started)) }
+            if l.state.stopping.contains(&i.pid) || i.stopping.is_some() { omsi_ui::tr("stopping - saving the run...").into_owned() } else { omsi_ui::tr("running for %{time}").replace("%{time}", &ago(i.started)) }
         } else if i.exit_code == Some(0) {
             omsi_ui::tr("ended").into_owned()
         } else if i.killed {
@@ -3023,13 +3165,13 @@ pub fn sessions(l: &mut Launcher, area: Rect) {
                 None => omsi_ui::tr("ended").into_owned(),
             }
         };
-        l.ui.text_in(&format!("{status} · {}", omsi_ui::tr("driver %{name}").replace("%{name}", &i.profile)), Rect::new(r.x + 42.0, r.y + 42.0, r.w - 60.0, 18.0), 12.0, Weight::Regular, TEXT_DIM, Align::Left);
+        l.ui.text_in(&format!("{status} | {}", omsi_ui::tr("driver %{name}").replace("%{name}", &i.profile)), Rect::new(r.x + 42.0, r.y + 42.0, r.w - 60.0, 18.0), 12.0, Weight::Regular, TEXT_DIM, Align::Left);
         l.ui.text_in(&i.last_line, Rect::new(r.x + 42.0, r.y + 62.0, r.w - 60.0, 18.0), 11.5, Weight::Regular, TEXT_FAINT, Align::Left);
         // buttons
         let bw = 110.0;
         if running {
             let stopping = l.state.stopping.contains(&i.pid);
-            if l.ui.button(&format!("stop-{}", i.pid), Rect::new(r.right() - 18.0 - bw, r.y + 14.0, bw, 34.0), if stopping { "Stopping…" } else { "Stop" }, Some("close"), ButtonKind::Danger) && !stopping {
+            if l.ui.button(&format!("stop-{}", i.pid), Rect::new(r.right() - 18.0 - bw, r.y + 14.0, bw, 34.0), if stopping { "Stopping..." } else { "Stop" }, Some("close"), ButtonKind::Danger) && !stopping {
                 actions.push((i.pid, "stop"));
             }
         }
@@ -3056,7 +3198,7 @@ pub fn sessions(l: &mut Launcher, area: Rect) {
             } else if connected {
                 omsi_ui::tr("connected to %{host}").replace("%{host}", lan.get("host_name").and_then(|x| x.as_str()).unwrap_or(""))
             } else {
-                omsi_ui::tr("connecting…").into_owned()
+                omsi_ui::tr("connecting...").into_owned()
             };
             l.ui.text_in(&omsi_ui::tr("Multiplayer: %{state}").replace("%{state}", &text), Rect::new(r.x + 42.0, yy, r.w - 60.0, 20.0), 12.5, Weight::Medium, if connected { OK } else { WARN }, Align::Left);
             yy += 24.0;
@@ -3067,8 +3209,8 @@ pub fn sessions(l: &mut Launcher, area: Rect) {
             for p in &players {
                 let s = |k: &str| p.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
                 let pax = p.get("passengers").and_then(|x| x.as_i64()).unwrap_or(0);
-                let dest = if s("destination").is_empty() { String::new() } else { format!(" · {} → {}", s("line"), s("destination")) };
-                l.ui.text_in(&format!("{} · {}{dest}{} · {}", s("name"), short_bus(&s("bus")), if pax > 0 { format!(" · {}", omsi_ui::tr("%{n} passengers").replace("%{n}", &pax.to_string())) } else { String::new() }, s("where")), Rect::new(r.x + 42.0, yy, r.w - 60.0, 18.0), 12.5, Weight::Medium, TEXT_SOFT, Align::Left);
+                let dest = if s("destination").is_empty() { String::new() } else { format!(" | {} → {}", s("line"), s("destination")) };
+                l.ui.text_in(&format!("{} | {}{dest}{} | {}", s("name"), short_bus(&s("bus")), if pax > 0 { format!(" | {}", omsi_ui::tr("%{n} passengers").replace("%{n}", &pax.to_string())) } else { String::new() }, s("where")), Rect::new(r.x + 42.0, yy, r.w - 60.0, 18.0), 12.5, Weight::Medium, TEXT_SOFT, Align::Left);
                 yy += 20.0;
             }
         }
@@ -3127,9 +3269,20 @@ pub fn mods(l: &mut Launcher, area: Rect) {
         l.state.load_mods();
     }
     let body = area;
-    let cols = 3;
-    let cw = (body.w - GAP * 2.0 * (cols as f32 - 1.0)) / cols as f32;
-    let colr = |k: usize| Rect::new(body.x + k as f32 * (cw + GAP * 2.0), body.y, cw, body.h);
+    // (installing and the installs on the left, the list of every mod taking the rest)
+    let side = (body.w * 0.27).clamp(280.0, 380.0);
+    let list_w = body.w - 2.0 * (side + GAP * 2.0);
+    let colr = |k: usize| match k {
+        0 => Rect::new(body.x, body.y, side, body.h),
+        1 => Rect::new(body.x + side + GAP * 2.0, body.y, side, body.h),
+        _ => Rect::new(body.x + 2.0 * (side + GAP * 2.0), body.y, list_w, body.h),
+    };
+    // (asked again once an install has finished: the list shows what it put there)
+    let done = l.state.jobs.iter().filter(|j| j.finished.is_some()).count();
+    if done != l.state.mods_jobs_seen {
+        l.state.mods_jobs_seen = done;
+        l.state.load_mods();
+    }
     // install
     let c0 = colr(0);
     l.ui.card(c0);
@@ -3179,7 +3332,7 @@ pub fn mods(l: &mut Launcher, area: Rect) {
         l.ui.p().circle(p, 1.3, accent().alpha(0.35 + 0.5 * t));
     }
     l.ui.icon("upload", Vec2::new(drop.center().x, drop.y + 38.0), 30.0, accent().alpha(0.6 + 0.4 * t));
-    l.ui.text_in("…or drop a mod folder or .zip, .7z or .rar onto this window", Rect::new(drop.x, drop.y + 62.0, drop.w, 30.0), 12.5, Weight::Medium, TEXT_SOFT, Align::Center);
+    l.ui.text_in("...or drop a mod folder or .zip, .7z or .rar onto this window", Rect::new(drop.x, drop.y + 62.0, drop.w, 30.0), 12.5, Weight::Medium, TEXT_SOFT, Align::Center);
     y += 122.0;
     if !l.state.mod_path.is_empty() {
         let p = l.state.mod_path.clone();
@@ -3246,7 +3399,7 @@ pub fn mods(l: &mut Launcher, area: Rect) {
             if running {
                 let frac = if j.bytes_total > 0 { j.bytes_done as f32 / j.bytes_total as f32 } else if j.files_total > 0 { j.files_done as f32 / j.files_total as f32 } else { 0.0 };
                 ui.progress(Rect::new(r.x + 12.0, yy, r.w - 24.0, 8.0), frac, true);
-                ui.text_in(&format!("{} · {} / {}", omsi_ui::tr("%{done} / %{total} files").replace("%{done}", &j.files_done.to_string()).replace("%{total}", &j.files_total.to_string()), fmt_bytes(j.bytes_done), fmt_bytes(j.bytes_total)), Rect::new(r.x + 12.0, yy + 10.0, r.w - 24.0, 16.0), 11.0, Weight::Regular, TEXT_DIM, Align::Left);
+                ui.text_in(&format!("{} | {} / {}", omsi_ui::tr("%{done} / %{total} files").replace("%{done}", &j.files_done.to_string()).replace("%{total}", &j.files_total.to_string()), fmt_bytes(j.bytes_done), fmt_bytes(j.bytes_total)), Rect::new(r.x + 12.0, yy + 10.0, r.w - 24.0, 16.0), 11.0, Weight::Regular, TEXT_DIM, Align::Left);
                 yy += 30.0;
             }
             yy += ui.paragraph(&j.message, Vec2::new(r.x + 12.0, yy), r.w - 24.0, 12.0, Weight::Regular, if j.state == "failed" { DANGER } else { TEXT_SOFT });
@@ -3265,44 +3418,186 @@ pub fn mods(l: &mut Launcher, area: Rect) {
         core::install::cancel(id);
         l.state.poll_now();
     }
-    // content folder
-    let c2 = colr(2);
-    l.ui.card(c2);
-    let inner = l.ui.heading(Rect::new(c2.x + 18.0, c2.y + 14.0, c2.w - 36.0, c2.h - 28.0), "Content folder", Some("folder_open"));
-    let Some(m) = l.state.mods.clone() else {
-        l.ui.text_in("Reading…", Rect::new(inner.x, inner.y, inner.w, 20.0), 12.5, Weight::Regular, TEXT_DIM, Align::Left);
+    // waiting packs, under the install column's text
+    if let Some(m) = l.state.mods.clone().filter(|m| !m.waiting.is_empty()) {
+        let c0 = colr(0);
+        let y0 = c0.bottom() - 24.0 - 22.0 * m.waiting.len().min(4) as f32;
+        l.ui.text_in("Waiting for their bus", Rect::new(c0.x + 18.0, y0 - 26.0, c0.w - 36.0, 22.0), 12.5, Weight::Bold, TEXT, Align::Left);
+        for (k, w) in m.waiting.iter().take(4).enumerate() {
+            l.ui.text_in(w, Rect::new(c0.x + 18.0, y0 + k as f32 * 22.0, c0.w - 36.0, 20.0), 12.0, Weight::Regular, TEXT_DIM, Align::Left);
+        }
+    }
+    mod_list(l, colr(2));
+}
+
+/// The Mods page's filters over the list.
+const MOD_FILTERS: [&str; 6] = ["All", "Buses", "Maps", "Archives", "Other", "Off"];
+
+fn mod_passes(m: &core::mods::Mod, filter: usize) -> bool {
+    use core::mods::Kind;
+    match filter {
+        1 => m.kind == Kind::Bus,
+        2 => m.kind == Kind::Map,
+        3 => m.kind == Kind::Archive,
+        4 => m.kind == Kind::Other,
+        5 => !m.enabled,
+        _ => true,
+    }
+}
+
+/// Every mod of the content folder (see `omsi_launcher_lib::mods`): found by a search and a
+/// filter, each switched off and on - its folders out of the game's sight, nothing deleted -
+/// or deleted after a question asked in its row.
+fn mod_list(l: &mut Launcher, c: Rect) {
+    use core::mods::Kind;
+    l.ui.card(c);
+    let inner = l.ui.heading(Rect::new(c.x + 18.0, c.y + 14.0, c.w - 36.0, c.h - 28.0), "Installed mods", Some("extension"));
+    let Some(status) = l.state.mods.clone() else {
+        l.ui.text_in("Reading the content folder...", Rect::new(inner.x, inner.y, inner.w, 20.0), 12.5, Weight::Regular, TEXT_DIM, Align::Left);
         return;
     };
+    let mods = status.installed.clone();
+    let on = mods.iter().filter(|m| m.enabled).count();
+    // the content folder: where, how much room
+    l.ui.text_in(&format!("{} mods, {on} on | {} free", mods.len(), fmt_bytes(status.free_bytes)), Rect::new(c.x + 220.0, c.y + 14.0, c.w - 238.0, 28.0), 12.0, Weight::Regular, TEXT_DIM, Align::Right);
     let mut y = inner.y;
-    let at = Rect::new(inner.x, y, inner.w, 18.0);
-    l.ui.text_in(&m.content_dir, at, 12.0, Weight::Medium, TEXT_SOFT, Align::Left);
-    l.ui.tooltip(at, &m.content_dir);
-    y += 24.0;
-    l.ui.text_in(&omsi_ui::tr("%{size} free on this disk").replace("%{size}", &fmt_bytes(m.free_bytes)), Rect::new(inner.x, y, inner.w, 20.0), 13.0, Weight::Bold, accent(), Align::Left);
-    y += 30.0;
-    for (f, n) in &m.folders {
-        l.ui.icon("folder_open", Vec2::new(inner.x + 9.0, y + 10.0), 16.0, TEXT_DIM);
-        l.ui.text_in(f, Rect::new(inner.x + 26.0, y, inner.w * 0.6, 20.0), 12.5, Weight::Medium, TEXT, Align::Left);
-        l.ui.text_in(&if *n == 1 { omsi_ui::tr("one entry").into_owned() } else { omsi_ui::tr("%{n} entries").replace("%{n}", &n.to_string()) }, Rect::new(inner.x, y, inner.w, 20.0), 12.0, Weight::Regular, TEXT_DIM, Align::Right);
-        y += 24.0;
+    // (the folder cut to the column, the whole of it on hovering: a path has no spaces to
+    // break at)
+    let at = Rect::new(inner.x, y, inner.w - 90.0, 18.0);
+    l.ui.text_in(&status.content_dir, at, 11.5, Weight::Regular, TEXT_FAINT, Align::Left);
+    l.ui.tooltip(at, &status.content_dir);
+    if l.ui.button("mods-open-folder", Rect::new(inner.right() - 80.0, y - 4.0, 80.0, 26.0), "Open", Some("open_in_new"), ButtonKind::Ghost) {
+        crate::updater::open_url(&status.content_dir);
     }
-    if !m.archives.is_empty() {
-        y += 8.0;
-        l.ui.heading(Rect::new(inner.x, y, inner.w, 28.0), "Archives used in place", None);
-        y += 30.0;
-        for (n, b) in &m.archives {
-            l.ui.text_in(&format!("{n}  ({})", fmt_bytes(*b)), Rect::new(inner.x, y, inner.w, 20.0), 12.0, Weight::Regular, TEXT_SOFT, Align::Left);
-            y += 22.0;
+    y += 26.0;
+    // the search, and the filters with how many each holds
+    let mut q = std::mem::take(&mut l.pages.mod_search);
+    l.ui.text_input("mods-search", Rect::new(inner.x, y, inner.w, 34.0), &mut q, "Search mods...", Some("search"));
+    l.pages.mod_search = q.clone();
+    y += 42.0;
+    let labels: Vec<String> = MOD_FILTERS.iter().enumerate().map(|(k, f)| format!("{f} {}", mods.iter().filter(|m| mod_passes(m, k)).count())).collect();
+    let refs: Vec<&str> = labels.iter().map(|s| s.as_str()).collect();
+    let mut f = l.pages.mod_filter;
+    if l.ui.segmented("mods-filter", Rect::new(inner.x, y, inner.w, 32.0), &mut f, &refs) {
+        l.pages.mod_filter = f;
+    }
+    y += 42.0;
+    let q = q.to_lowercase();
+    let mut shown: Vec<core::mods::Mod> = mods.into_iter().filter(|m| mod_passes(m, l.pages.mod_filter)).filter(|m| q.is_empty() || m.name.to_lowercase().contains(&q) || m.paths.iter().any(|p| p.to_lowercase().contains(&q))).collect();
+    // (switched-on first, then by name)
+    shown.sort_by(|a, b| b.enabled.cmp(&a.enabled).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+    let busy = l.state.mod_busy.clone();
+    let confirm = l.pages.mod_confirm.clone();
+    let empty = status.installed.is_empty();
+    // what the rows asked: (id, Some(on)) switch, (id, None) delete asked, delete confirmed
+    let mut toggle: Option<(String, bool)> = None;
+    let mut ask: Option<Option<String>> = None;
+    let mut delete: Option<String> = None;
+    let mut open_toggle: Option<String> = None;
+    let opened = l.pages.mod_open.clone();
+    // (the install dates in the machine's time zone, as the service record writes its dates)
+    let offset = core::utc_offset();
+    let list = Rect::new(inner.x - 6.0, y, inner.w + 12.0, inner.bottom() - y);
+    l.ui.scroll_area("mods-list", list, &mut |ui, v| {
+        if shown.is_empty() {
+            let t = if empty { "No mods yet. Choose a folder or an archive on the left, or drop one onto the window." } else { "No mod matches." };
+            ui.paragraph(t, Vec2::new(v.x + 8.0, v.y + 6.0), v.w - 16.0, 12.5, Weight::Regular, TEXT_DIM);
+            return 40.0;
+        }
+        let rh = 54.0;
+        // (an opened mod shows what it holds under its row, a line per folder of the game it
+        // put things into: Vehicles, Fonts, Texture, ...)
+        let line_h = 18.0;
+        let mut top = v.y;
+        for m in shown.iter() {
+            let groups = if opened.contains(&m.id) { mod_tree(&m.paths) } else { Vec::new() };
+            let lines: usize = groups.iter().map(|(_, items)| items.len().div_ceil(3).max(1)).sum();
+            let extra = if groups.is_empty() { 0.0 } else { lines as f32 * line_h + 8.0 };
+            let full = Rect::new(v.x + 6.0, top, v.w - 16.0, rh - 6.0 + extra);
+            top += rh + extra;
+            if full.bottom() < list.y - rh || full.y > list.bottom() + rh {
+                continue;
+            }
+            let r = full;
+            let asking = confirm.as_deref() == Some(m.id.as_str());
+            ui.p().rounded(full, 8.0, if asking { DANGER.alpha(0.12) } else { Color::WHITE.alpha(if m.enabled { 0.04 } else { 0.015 }) });
+            if !groups.is_empty() {
+                let mut ly = r.y + rh - 8.0;
+                for (folder, items) in &groups {
+                    for (row, chunk) in items.chunks(3).enumerate() {
+                        if row == 0 {
+                            ui.text_in(folder, Rect::new(r.x + 44.0, ly, 110.0, line_h), 11.5, Weight::Medium, TEXT_DIM, Align::Left);
+                        }
+                        ui.text_in(&chunk.join("   "), Rect::new(r.x + 156.0, ly, r.w - 170.0, line_h), 11.5, Weight::Regular, TEXT_FAINT, Align::Left);
+                        ly += line_h;
+                    }
+                }
+            }
+            let r = Rect::new(r.x, r.y, r.w, rh - 6.0);
+            let icon = match m.kind {
+                Kind::Bus => "directions_bus",
+                Kind::Map => "map",
+                Kind::Archive => "inventory_2",
+                Kind::Other => "extension",
+            };
+            ui.icon(icon, Vec2::new(r.x + 22.0, r.center().y), 20.0, if m.enabled { accent() } else { TEXT_FAINT });
+            let tw = r.w - 230.0;
+            ui.text_in(&m.name, Rect::new(r.x + 44.0, r.y + 6.0, tw, 20.0), 13.5, Weight::Medium, if m.enabled { TEXT } else { TEXT_DIM }, Align::Left);
+            let open = opened.contains(&m.id);
+            if ui.icon_button(&format!("mod-open-{}", m.id), Vec2::new(r.right() - 130.0, r.y + 24.0), 17.0, if open { "expand_less" } else { "expand_more" }, "What this mod holds, folder by folder") {
+                open_toggle = Some(m.id.clone());
+            }
+            // (the folders it holds: under the row once opened by its arrow)
+            let folders = mod_tree(&m.paths).iter().map(|(f, items)| format!("{f} {}", items.len())).collect::<Vec<_>>().join(", ");
+            let mut sub = vec![folders, fmt_bytes(m.bytes)];
+            if !m.enabled {
+                sub.insert(0, "OFF".into());
+            }
+            if m.installed > 0 {
+                sub.push(format!("installed {}", date_text(m.installed, offset, false)));
+            } else if !m.noted {
+                sub.push("found in the content folder".into());
+            }
+            ui.text_in(&sub.join(" | "), Rect::new(r.x + 44.0, r.y + 26.0, tw, 16.0), 11.0, Weight::Regular, TEXT_FAINT, Align::Left);
+            if busy.as_deref() == Some(m.id.as_str()) {
+                ui.text_in("...", Rect::new(r.right() - 60.0, r.y, 40.0, r.h), 16.0, Weight::Bold, TEXT_DIM, Align::Center);
+                continue;
+            }
+            if asking {
+                // the question, in the row: deleting cannot be undone
+                if ui.button(&format!("mod-del-yes-{}", m.id), Rect::new(r.right() - 96.0, r.y + 9.0, 88.0, 30.0), "Delete", Some("delete"), ButtonKind::Danger) {
+                    delete = Some(m.id.clone());
+                }
+                if ui.button(&format!("mod-del-no-{}", m.id), Rect::new(r.right() - 190.0, r.y + 9.0, 86.0, 30.0), "Keep", None, ButtonKind::Normal) {
+                    ask = Some(None);
+                }
+                continue;
+            }
+            let mut on = m.enabled;
+            if ui.toggle(&format!("mod-on-{}", m.id), Rect::new(r.right() - 96.0, r.y + 10.0, 50.0, 28.0), &mut on, "") {
+                toggle = Some((m.id.clone(), on));
+            }
+            let dr = Rect::new(r.right() - 38.0, r.y + 10.0, 28.0, 28.0);
+            if ui.icon_button(&format!("mod-del-{}", m.id), dr.center(), 17.0, "delete", "Delete this mod (asks first; switch it off instead to keep it)") {
+                ask = Some(Some(m.id.clone()));
+            }
+        }
+        top - v.y
+    });
+    if let Some(id) = open_toggle {
+        if !l.pages.mod_open.remove(&id) {
+            l.pages.mod_open.insert(id);
         }
     }
-    if !m.waiting.is_empty() {
-        y += 8.0;
-        l.ui.heading(Rect::new(inner.x, y, inner.w, 28.0), "Waiting for their bus", None);
-        y += 30.0;
-        for w in &m.waiting {
-            l.ui.text_in(w, Rect::new(inner.x, y, inner.w, 20.0), 12.0, Weight::Regular, TEXT_DIM, Align::Left);
-            y += 22.0;
-        }
+    if let Some((id, on)) = toggle {
+        l.state.mod_toggle(id, on);
+    }
+    if let Some(a) = ask {
+        l.pages.mod_confirm = a;
+    }
+    if let Some(id) = delete {
+        l.pages.mod_confirm = None;
+        l.state.mod_remove(id);
     }
 }
 
@@ -3369,7 +3664,7 @@ pub fn setup(l: &mut Launcher, area: Rect) {
                     l.pages.setup_game = None;
                     let same = chosen.is_empty() || std::path::Path::new(&chosen) == std::path::Path::new(&l.state.config.root);
                     if same {
-                        l.state.set_status("Saved. Reading the content again…", false);
+                        l.state.set_status("Saved. Reading the content again...", false);
                     } else {
                         l.state.set_status(format!("Saved, but the OMSI 2 folder used is {}", l.state.config.root), true);
                     }
@@ -3382,6 +3677,26 @@ pub fn setup(l: &mut Launcher, area: Rect) {
                 Err(e) => l.state.set_status(format!("{e:#}"), true),
             }
         }
+    }
+    support_panel(l, Rect::new(body.x, r.bottom() + 16.0, body.w.min(820.0), 0.0));
+}
+
+/// Setup's support package (see `support_bundle`): what it holds, said before it is made,
+/// and the button that saves it on this computer (nothing is sent).
+fn support_panel(l: &mut Launcher, r: Rect) {
+    const ABOUT: &str = "A ZIP for a bug report: the program and system versions, the graphics card, its driver and the graphics settings, the controllers, and the map and bus of the last game. No folders, names, chat, LAN codes or addresses; of the logs only which events happened. It is saved on this computer and its folder opened, so you can look inside before you attach it to an issue.";
+    // (as high as its text needs: it wraps to more lines on a phone)
+    let r = Rect::new(r.x, r.y, r.w, 120.0 + l.ui.paragraph_height(ABOUT, r.w - 40.0, 12.5, Weight::Regular));
+    l.ui.card(r);
+    let inner = l.ui.heading(Rect::new(r.x + 20.0, r.y + 16.0, r.w - 40.0, r.h - 32.0), "Support package", Some("help"));
+    let h = l.ui.paragraph(ABOUT, Vec2::new(inner.x, inner.y), inner.w, 12.5, Weight::Regular, TEXT_DIM);
+    if l.ui.button("export-diagnostics", Rect::new(inner.x, inner.y + h + 12.0, 220.0, 42.0), "Export diagnostics", Some("download"), ButtonKind::Normal) {
+        let c = &l.state.choice;
+        let snapshot = crate::support_bundle::snapshot(l.renderer.as_ref(), &crate::settings::Settings::load(),
+            l.pages.pads.io.as_ref().map(|d| d.connected()), Some((&c.map, Some(&c.bus), c.line.as_deref(), c.tour.as_deref())), "launcher_selection");
+        let out = crate::support_bundle::default_output();
+        l.state.spawn(move || super::state::Msg::Diagnostics(
+            crate::support_bundle::export(&out, &snapshot).map(|_| out).map_err(|e| format!("{e:#}"))));
     }
 }
 
@@ -3685,190 +4000,7 @@ mod record_tests {
 }
 
 #[cfg(test)]
-mod settings_tests {
-    use super::*;
-    use crate::updater::Status;
-
-    /// Every clickable thing of the settings page by the tab it is on (switches are named
-    /// `set-<key>`). Taken from the page as it was before the tabs: nothing may go missing.
-    fn by_tab() -> Vec<Vec<&'static str>> {
-        let mut graphics = vec![
-            "s-gp-sel", "s-gp-load", "s-gp-del", "s-gp-name", "s-gp-save",
-            "s-preset", "s-graphics", "s-msaa", "s-scale", "s-af", "s-shadow", "set-ssao", "set-shadows", "s-casters", "set-detail_textures", "s-led", "s-led-mip", "set-shadow_blobs", "set-reflections", "set-clouds", "set-windy_trees",
-            "set-fullscreen", "s-res", "set-vsync", "s-fps", "s-view", "s-maxobj", "s-minobj", "s-mirror", "s-mirror-refresh", "s-texmem", "set-texture_compression",
-        ];
-        if !cfg!(target_os = "macos") {
-            graphics.push("s-api");
-        }
-        let driving = vec![
-            "s-keys", "set-steering_linear", "set-old_steering", "set-red_steer_spd", "s-mouse", "set-mouse_smooth", "set-mouse_right_off", "set-blinker_cancel", "set-brake_hold", "set-auto_clutch", "set-momentary_gears", "set-ibis_auto", "s-go-keys",
-            "s-wrange", "s-wlock", "s-pad-steer-smooth", "set-pad_steer_linear", "set-arrows_switch_cams", "s-pedt", "s-pedb", "set-ff_enabled", "set-ff_invert", "s-ffroad", "s-ffeng", "s-fffade", "s-wreset", "s-go-pads",
-        ];
-        let mut camera = vec![
-            "s-seaty",
-            "s-seatz",
-            "s-seatx",
-            "s-seat-pitch",
-            "s-seatreset",
-            "s-fov",
-            "s-look-sens",
-            "set-right_stick_look",
-            "s-look-smoothing",
-            "s-head-idle",
-            "s-head-idle-pace",
-            "set-steer_look",
-            "s-steer-look-angle",
-            "s-steer-look-response",
-            "set-head_movement",
-            "set-driverview_smooth",
-            "set-hands_in_cab",
-            "set-alt_view",
-            "set-precision_zoom",
-            "set-camera_collision",
-            "set-driver",
-            "set-head_tracking",
-            "set-triple_screen",
-            "set-triple_span",
-            "set-triple_hud_center",
-            "s-triple-width_mm",
-            "s-triple-distance_mm",
-            "s-triple-bezel_mm",
-            "s-triple-left_angle_deg",
-            "s-triple-right_angle_deg",
-            "s-triple-eye_height_mm",
-        ];
-        if cfg!(windows) {
-            camera.extend(["set-vr", "s-vr-scale", "s-vr-head-smoothing", "s-vr-mirror-rate", "set-vr_desktop_mirror", "s-go-vr-keys"]);
-        }
-        // (the radio stations: one, see `frame`)
-        let sound = vec!["s-vol", "s-volai", "s-volsc", "set-doppler", "s-voices", "radio-name-0", "radio-url-0", "radio-del-0", "radio-add"];
-        let gameplay = vec![
-            "s-board", "set-exact_fare", "s-pax", "set-get_up", "s-unsched", "s-maxsched", "s-maxpark",
-            "s-maint", "set-collision_vehicles", "set-collision_objects", "set-collision_pedestrians", "set-use_real_time", "set-use_real_date", "set-time_sync", "set-metar_sync", "s-timespeed",
-        ];
-        let general = vec![
-            "s-lang", "set-machine_translation", "set-launcher_rest", "set-discord_status", "set-voice_chat", "set-companion", "s-launcher-scale", "set-animations", "set-page_bus", "s-accent-sw0", "s-accent-sw1", "s-accent-sw2", "s-accent-sw3", "s-accent-sw4", "s-accent-sw5", "s-accent-sw6", "s-accent-sw7", "s-accent-custom", "s-welcome-again", "s-tour-start", "s-uiscale", "set-ui_scale_window", "s-uiop", "set-tooltips", "set-show_fps", "set-notes", "set-chat", "s-chatsize", "set-name_tags",
-            "set-navigator", "set-nav_arrows", "set-nav_ai", "set-nav_board", "s-nav-scale", "s-stop-style", "s-speed-unit", "set-nav_signon", "corner-top-left", "corner-top-right", "corner-bottom-left", "corner-bottom-right", "s-nav-reset",
-            "set-update_check", "set-update_auto", "set-update_notify", "set-presence", "s-upd-check", "s-upd-github", "s-reset",
-        ];
-        vec![graphics, driving, camera, sound, gameplay, general]
-    }
-
-    /// Settings that show every row: Enhanced (Vanilla hides the shadows and effects), VR on.
-    fn all_rows() -> Value {
-        let mut s = core::settings_from_text(None);
-        s["triple_screen"] = json!(true);
-        s["graphics"] = json!("enhanced");
-        s["vr"] = json!(true);
-        s
-    }
-
-    fn outside() -> Outside {
-        Outside { update: Status::Idle, check_updates: false, reset: false, controls: None, again: None }
-    }
-
-    /// One frame of tab `tab`, its two columns tall enough that nothing is cut off. The Sound
-    /// tab lists one radio station (not the radio.cfg of whoever runs the tests).
-    fn frame(ui: &mut Ui, tab: usize, s: &mut Value, out: &mut Outside) {
-        RADIO.with(|r| {
-            r.borrow_mut().get_or_insert_with(|| vec![("One".into(), "https://example.org/one.mp3".into())]);
-        });
-        ui.begin(Vec2::new(1200.0, 2000.0), 1.0, 1.0 / 60.0);
-        let mut dirty = 0.0;
-        settings_tab(ui, tab, s, &mut dirty, out, [Rect::new(0.0, 0.0, 580.0, 2000.0), Rect::new(620.0, 0.0, 580.0, 2000.0)]);
-    }
-
-    /// Click the widget `name` on tab `tab`: the mouse goes down over it and comes up again.
-    fn click(tab: usize, name: &str, s: &mut Value) -> Outside {
-        let mut ui = Ui::new();
-        let mut out = outside();
-        frame(&mut ui, tab, s, &mut out);
-        let r = *ui.drawn.get(&id_of(name)).unwrap_or_else(|| panic!("{name} is not on the {} tab", SETTINGS_TABS[tab]));
-        ui.input.mouse = r.center();
-        ui.input.pressed = true;
-        ui.input.down = true;
-        frame(&mut ui, tab, s, &mut out);
-        ui.input.pressed = false;
-        ui.input.down = false;
-        ui.input.released = true;
-        frame(&mut ui, tab, s, &mut out);
-        out
-    }
-
-    #[test]
-    fn every_setting_is_on_exactly_one_tab() {
-        let tabs = by_tab();
-        assert_eq!(tabs.len(), SETTINGS_TABS.len());
-        let mut seen = std::collections::HashSet::new();
-        for name in tabs.iter().flatten() {
-            assert!(seen.insert(*name), "{name} is listed on two tabs");
-        }
-        for (tab, names) in tabs.iter().enumerate() {
-            let mut ui = Ui::new();
-            frame(&mut ui, tab, &mut all_rows(), &mut outside());
-            for name in names {
-                assert!(ui.drawn.contains_key(&id_of(name)), "{name} is not on the {} tab", SETTINGS_TABS[tab]);
-            }
-            assert_eq!(ui.drawn.len(), names.len(), "the {} tab has a clickable thing more than the list names", SETTINGS_TABS[tab]);
-        }
-    }
-
-    #[test]
-    fn right_stick_look_switch_toggles_and_saves_from_the_camera_tab() {
-        let mut s = all_rows();
-        assert_eq!(s["right_stick_look"], json!(true));
-
-        click(2, "set-right_stick_look", &mut s);
-        assert_eq!(s["right_stick_look"], json!(false));
-        let saved = core::settings_to_text(&s, None);
-        assert_eq!(
-            core::settings_from_text(Some(&saved))["right_stick_look"],
-            json!(false)
-        );
-
-        click(2, "set-right_stick_look", &mut s);
-        assert_eq!(s["right_stick_look"], json!(true));
-    }
-
-    #[test]
-    fn the_driving_tab_leads_to_the_keys_and_the_controllers() {
-        let mut s = all_rows();
-        assert_eq!(click(1, "s-go-keys", &mut s).controls, Some(0));
-        assert_eq!(click(1, "s-go-pads", &mut s).controls, Some(1));
-    }
-
-    /// The mouse steering's smoothing is on unless switched off, and the switch is kept (#1092).
-    #[test]
-    fn smooth_mouse_steering_switches_off_and_is_saved() {
-        let mut s = all_rows();
-        assert_eq!(s["mouse_smooth"], json!(true));
-        click(1, "set-mouse_smooth", &mut s);
-        assert_eq!(s["mouse_smooth"], json!(false));
-        let saved = core::settings_to_text(&s, None);
-        assert!(saved.contains("mouse_smooth=0\n"), "{saved}");
-        assert_eq!(core::settings_from_text(Some(&saved))["mouse_smooth"], json!(false));
-        assert!(!crate::settings::Settings::from_text(&saved).mouse_smooth);
-        assert!(crate::settings::Settings::from_text("").mouse_smooth);
-    }
-
-    #[test]
-    fn the_general_tab_shows_the_welcome_and_the_tour_again() {
-        let mut s = all_rows();
-        let before = s.clone();
-        assert_eq!(click(5, "s-welcome-again", &mut s).again, Some(Again::Welcome));
-        assert_eq!(click(5, "s-tour-start", &mut s).again, Some(Again::Tour));
-        assert_eq!(s, before, "the page writes welcome_done itself, once it shows the welcome");
-    }
-
-    #[test]
-    fn reset_asks_first_and_changes_nothing() {
-        let mut s = all_rows();
-        let before = s.clone();
-        let out = click(5, "s-reset", &mut s);
-        assert!(out.reset);
-        assert_eq!(s, before);
-    }
-}
+mod settings_tests;
 
 #[cfg(test)]
 mod pad_action_tests {
@@ -3881,6 +4013,9 @@ mod pad_action_tests {
         assert!(super::PAD_GAME_ACTIONS.contains(&"view_reset_all_directions"));
         assert!(super::PAD_GAME_ACTIONS.contains(&"voice_radio"));
         assert_eq!(super::known_action("voice_radio").as_deref(), Some("Multiplayer: bus radio (hold)"));
+        // the main menu, which a controller has no Esc for
+        assert!(super::PAD_GAME_ACTIONS.contains(&"open_menu"));
+        assert_eq!(super::known_action("open_menu").as_deref(), Some("Open / close the main menu"));
         for a in super::PAD_GAME_ACTIONS {
             let held = a.starts_with("view_look_") || a == "voice_radio";
             let handled = held
@@ -3914,5 +4049,29 @@ mod pad_remove_tests {
         assert_eq!(super::remove_device(&mut devices, &mut sel), "SideWinder Joystick");
         assert_eq!(sel, 0);
         assert!(names(&cfg_text(&devices)).is_empty());
+    }
+}
+
+/// A mod's paths grouped by the game's folder they lie in (`Vehicles`, `Fonts`, `Texture`,
+/// ...), each with what of it is the mod's: `[("Fonts", ["a.oft", "b.oft"]), ...]`.
+fn mod_tree(paths: &[String]) -> Vec<(String, Vec<String>)> {
+    let mut out: Vec<(String, Vec<String>)> = Vec::new();
+    for p in paths {
+        let (folder, rest) = p.split_once('/').unwrap_or(("", p.as_str()));
+        let folder = if folder.is_empty() { "(top)" } else { folder };
+        match out.iter_mut().find(|(f, _)| f.eq_ignore_ascii_case(folder)) {
+            Some((_, items)) => items.push(rest.to_string()),
+            None => out.push((folder.to_string(), vec![rest.to_string()])),
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod mod_tree_tests {
+    #[test]
+    fn a_mods_paths_are_grouped_by_folder() {
+        let t = super::mod_tree(&["Vehicles/MAN_SD202".into(), "Fonts/a.oft".into(), "Fonts/b.oft".into(), "Texture/Signs".into()]);
+        assert_eq!(t, vec![("Vehicles".to_string(), vec!["MAN_SD202".to_string()]), ("Fonts".to_string(), vec!["a.oft".to_string(), "b.oft".to_string()]), ("Texture".to_string(), vec!["Signs".to_string()])]);
     }
 }

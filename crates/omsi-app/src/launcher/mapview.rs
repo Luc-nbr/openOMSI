@@ -340,7 +340,7 @@ impl MapView {
     /// What to say while there is no map yet.
     pub fn status(&self) -> &'static str {
         if self.loading.is_some() || (self.want.is_some() && self.shown.is_none()) {
-            "Reading the map…"
+            "Reading the map..."
         } else if self.error.is_some() {
             "The map cannot be read"
         } else if self.roads.as_deref().map(|r| r.roads.is_empty()).unwrap_or(false) {

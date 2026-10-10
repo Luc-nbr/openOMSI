@@ -401,13 +401,8 @@ pub(super) fn day_body(ui: &mut Ui, v: Rect, c: &mut Choice, ctx: &DayCtx, out: 
         let temp_for_dew = custom.temp_c;
         changed |= ui.slider("custom-hum", row(y), &mut custom.humidity, 0.0, 100.0, 1.0, "Humidity", &|x| format!("{x:.0} % · {}", omsi_ui::tr("dew %{t} °C").replace("%{t}", &format!("{:.0}", crate::weather_setup::dew_point_c(temp_for_dew, x)))));
         y += 46.0;
-        ui.label(Rect::new(x, y, 130.0, 32.0), "Cloud type");
-        let clouds: Vec<String> = crate::weather_setup::CUSTOM_CLOUDS.iter().map(|x| x.to_string()).collect();
-        let mut cloud = custom.cloud;
-        if ui.select("custom-cloud", Rect::new(x + 130.0, y, w - 130.0, 32.0), &mut cloud, &clouds) {
-            custom.cloud = cloud;
-            changed = true;
-        }
+        // (openOMSI 0.2.27: the clouds as a cover, from a clear sky to overcast)
+        changed |= ui.slider("custom-cloud", Rect::new(x, y, w, 34.0), &mut custom.cloud_cover, 0.0, 1.0, 0.01, "Cloud cover", &|c| if c <= 0.0 { omsi_ui::tr("Clear sky").into_owned() } else { format!("{:.0} %", c * 100.0) });
         y += 42.0;
         ui.label(Rect::new(x, y, 130.0, 32.0), "Precipitation");
         let precips: Vec<String> = crate::weather_setup::CUSTOM_PRECIP.iter().map(|x| x.to_string()).collect();

@@ -7,10 +7,15 @@ setting `presence`, on by default; after a 429 it waits half an hour); a session
 What it gets is a random id made for that session, the game's version and the kind of system -
 no name, and no address is stored.
 
-- `GET /players` - `{"players": 12, "systems": {"windows": 9, "linux": 2, "android": 1}, "updated": "..."}`
+- `GET /players` - `{"players": 12, "systems": {"windows": 9, "linux": 2, "android": 1}, "updated": "...", "next": "..."}`
   (the website reads it)
 - `GET /badge` - the count for a [shields.io endpoint badge](https://shields.io/badges/endpoint-badge)
   (the README shows it)
+
+Both give the same count: it is taken once every ten minutes, on the clock (:00, :10, :20, ...),
+and cached until the next one (`updated`, `next`). The website asks again right after `next`;
+the badge passes through shields.io's and GitHub's caches, which keep it up to five minutes
+more.
 
 ## Deploy
 

@@ -87,7 +87,7 @@ fn by_code(l: &mut Launcher, r: Rect) {
             y += ROW + 8.0;
             let line = match tunnel {
                 Some(_) => "Friends can join from anywhere".to_string(),
-                None => "Getting ready for friends on the internet…".to_string(),
+                None => "Getting ready for friends on the internet...".to_string(),
             };
             l.ui.text_in(&line, Rect::new(host.x + 18.0, y, host.w - 36.0, 18.0), 11.5, Weight::Regular, TEXT_FAINT, Align::Left);
         }
@@ -108,7 +108,7 @@ fn by_code(l: &mut Launcher, r: Rect) {
     let h = l.ui.paragraph("Paste the code your friend's game shows. The map, time and weather are the host's; you choose your bus.", Vec2::new(join.x + 18.0, y), join.w - 36.0, 12.5, Weight::Regular, TEXT_DIM);
     y += h + 12.0;
     let mut a = if l.state.choice.lan_mode == "join" && l.state.joined_server.is_none() { l.state.choice.lan_addr.clone() } else { String::new() };
-    if l.ui.text_input("mp-code", Rect::new(join.x + 18.0, y, join.w - 36.0, ROW), &mut a, "OMSI-XXXX-XXXX-…", Some("link")) {
+    if l.ui.text_input("mp-code", Rect::new(join.x + 18.0, y, join.w - 36.0, ROW), &mut a, "OMSI-XXXX-XXXX-...", Some("link")) {
         l.state.choice.lan_addr = a.trim().to_string();
         l.state.choice.lan_mode = if a.trim().is_empty() { "off".into() } else { "join".into() };
         l.state.joined_server = None;
@@ -215,7 +215,7 @@ fn servers(l: &mut Launcher, r: Rect) {
             Some(Ok(i)) => {
                 l.ui.text_in(&i.motd, Rect::new(x, rr.y + 32.0, rr.w - 320.0, 18.0), 12.5, Weight::Regular, TEXT_SOFT, Align::Left);
                 let map = std::path::Path::new(&i.map.replace('\\', "/")).parent().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| i.map.clone());
-                l.ui.text_in(&format!("{map} · {} · {}", i.time, if i.weather.is_empty() { omsi_ui::tr("the map's weather") } else { std::borrow::Cow::Borrowed(i.weather.as_str()) }), Rect::new(x, rr.y + 52.0, rr.w - 320.0, 18.0), 11.5, Weight::Regular, TEXT_FAINT, Align::Left);
+                l.ui.text_in(&format!("{map} | {} | {}", i.time, if i.weather.is_empty() { omsi_ui::tr("the map's weather") } else { std::borrow::Cow::Borrowed(i.weather.as_str()) }), Rect::new(x, rr.y + 52.0, rr.w - 320.0, 18.0), 11.5, Weight::Regular, TEXT_FAINT, Align::Left);
                 l.ui.text_in(&format!("{}/{}", i.players, i.max_players), Rect::new(rr.right() - 300.0, rr.y + 10.0, 80.0, 22.0), 14.0, Weight::Medium, OK, Align::Right);
                 l.ui.icon("signal_cellular_alt", Vec2::new(rr.right() - 206.0, rr.y + 21.0), 16.0, OK);
             }
@@ -224,7 +224,7 @@ fn servers(l: &mut Launcher, r: Rect) {
                 l.ui.text_in(&e.address, Rect::new(x, rr.y + 52.0, rr.w - 320.0, 18.0), 11.5, Weight::Regular, TEXT_FAINT, Align::Left);
             }
             None => {
-                l.ui.text_in("Asking the server…", Rect::new(x, rr.y + 32.0, rr.w - 320.0, 18.0), 12.0, Weight::Regular, TEXT_DIM, Align::Left);
+                l.ui.text_in("Asking the server...", Rect::new(x, rr.y + 32.0, rr.w - 320.0, 18.0), 12.0, Weight::Regular, TEXT_DIM, Align::Left);
             }
         }
         if l.ui.button(&format!("srv-join-{k}"), Rect::new(rr.right() - 180.0, rr.y + 24.0, 120.0, 36.0), "Join", Some("exit_to_app"), ButtonKind::Primary) {

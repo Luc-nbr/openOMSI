@@ -42,7 +42,7 @@ impl Journey {
         let mut rows = Vec::new();
         for (t, trip) in trips_planned.iter().enumerate() {
             let line = if trip.line.trim().is_empty() { key.0.trim() } else { trip.line.trim() };
-            trips.push(format!("Trip {}  ·  {} to {}  ·  {}", key.2 + t + 1, line, trip.terminus.trim(), hms(trip.departure)));
+            trips.push(format!("Trip {}  |  {} to {}  |  {}", key.2 + t + 1, line, trip.terminus.trim(), hms(trip.departure)));
             let n = trip.stops.len();
             // (the stations a depot run passes are not stops)
             for (k, s) in trip.stops.iter().enumerate().filter(|(_, s)| s.stops) {
@@ -168,7 +168,7 @@ pub(crate) fn head(career: &crate::career::Career, map: &str, bus: &omsi_sim::Ve
     let bus = format!("{} {}", bus.ty.def.manufacturer.trim(), bus.ty.def.type_name.trim());
     let mut parts: Vec<String> = driver.map(|d| format!("Driver {}", d.trim())).into_iter().collect();
     parts.extend([map.trim().to_string(), bus.trim().to_string(), format!("{:04}-{month:02}-{day:02}", clock.year)]);
-    parts.join("  ·  ")
+    parts.join("  |  ")
 }
 
 /// A time of day as HH:MM:SS (a duty's times may run past midnight or before it).
@@ -214,7 +214,7 @@ mod tests {
         let trips = [trip(&[("Metro Mlociny", t0), ("Zajezdnia", t0 + 300.0), ("Prozy", t0 + 600.0), ("Muzealna", t0 + 900.0)]), trip(&[("Muzealna", t0 + 1200.0), ("Metro Mlociny", t0 + 2100.0)])];
         let dir = std::env::temp_dir().join(format!("omsi-journey-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let mut j = Journey::new(("5".into(), "1".into(), 0), &trips, "Driver Test · Grundorf · MAN SD77 · 1989-05-30", dir.clone());
+        let mut j = Journey::new(("5".into(), "1".into(), 0), &trips, "Driver Test | Grundorf | MAN SD77 | 1989-05-30", dir.clone());
         assert!(j.arrived((0, 0), 20.0));
         assert!(!j.arrived((0, 0), 30.0), "the first arrival counts");
         assert!(j.left((0, 0), (20.0, 57.0)));
@@ -228,7 +228,7 @@ mod tests {
         j.write();
         let text = std::fs::read_to_string(&path).unwrap();
         let line = |name: &str| text.lines().find(|l| l.starts_with(name)).unwrap_or_else(|| panic!("no {name} in\n{text}")).to_string();
-        assert!(text.contains("Line 5, tour 1") && text.contains("Driver Test") && text.contains("Trip 1  ·  5 to Muzealna  ·  08:00:00"), "{text}");
+        assert!(text.contains("Line 5, tour 1") && text.contains("Driver Test") && text.contains("Trip 1  |  5 to Muzealna  |  08:00:00"), "{text}");
         assert!(line("Metro Mlociny").contains("08:00:00  08:00:57  +00:00:57"), "{text}");
         assert!(line("Metro Mlociny").ends_with("OK"), "{text}");
         assert!(line("Zajezdnia").contains("08:05:00  08:09:00  +00:04:00"), "{text}");
@@ -243,6 +243,6 @@ mod tests {
         let mut j = Journey::new(("5".into(), "1".into(), 0), &trips, "Grundorf", dir.clone());
         assert!(j.arrived((1, 0), -60.0));
         let text = j.text();
-        assert!(text.contains("Trip 2  ·  5 to Muzealna  ·  08:20:00") && !text.contains("Trip 1"), "{text}");
+        assert!(text.contains("Trip 2  |  5 to Muzealna  |  08:20:00") && !text.contains("Trip 1"), "{text}");
     }
 }

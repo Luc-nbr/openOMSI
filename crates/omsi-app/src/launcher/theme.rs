@@ -50,6 +50,8 @@ pub const RAIL: Color = GROUND;
 pub const PANEL: Color = Color::rgba(20, 26, 38, 1.0);
 pub const FIELD: Color = Color::rgba(27, 34, 49, 1.0);
 pub const HOVER: Color = Color::rgba(33, 40, 54, 1.0);
+/// A row chosen in a list (the pause menu's rail, `shell::pause`).
+pub const SELECTED: Color = Color::rgba(38, 46, 62, 1.0);
 /// A sheet's edge and the hairlines inside it.
 pub const EDGE: Color = Color::rgba(255, 255, 255, 0.08);
 pub const HAIRLINE: Color = Color::rgba(255, 255, 255, 0.09);

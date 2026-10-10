@@ -31,7 +31,7 @@ pub(crate) fn take_leave() -> bool {
 /// The on-screen controls: always on a phone; `OMSI_TOUCH=1` shows them on a computer
 /// (driven by `touch` commands of `OMSI_INPUT`, or the mouse as a finger).
 pub(crate) fn touch_controls() -> bool {
-    MOBILE || omsi_cfg::env::var_os("OMSI_TOUCH").is_some()
+    MOBILE || omsi_cfg::flags::OMSI_TOUCH.is_set()
 }
 
 /// The phone's tilt as a steering wheel's turn (-1 left .. 1 right), when the tilt sensor
@@ -61,4 +61,26 @@ pub(crate) fn buzz(ms: u32) {
     crate::android::vibrate(ms);
     #[cfg(not(target_os = "android"))]
     let _ = ms;
+}
+
+/// Show a saved file in the system's file browser, selected (Finder, Explorer; the folder
+/// on Linux). Nothing on a phone: its photos are in the gallery (`to_gallery`).
+pub(crate) fn reveal(path: &std::path::Path) {
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg("-R").arg(path).spawn();
+    #[cfg(target_os = "windows")]
+    let _ = std::process::Command::new("explorer").arg(format!("/select,{}", path.display())).spawn();
+    #[cfg(all(unix, not(target_os = "macos"), not(target_os = "android")))]
+    let _ = std::process::Command::new("xdg-open").arg(path.parent().unwrap_or(path)).spawn();
+    #[cfg(target_os = "android")]
+    let _ = path;
+}
+
+/// A picture just saved shown in the phone's gallery at once (the media scanner would find
+/// it only some time later). Nothing on a computer.
+pub(crate) fn to_gallery(path: &std::path::Path) {
+    #[cfg(target_os = "android")]
+    crate::android::scan_media(path);
+    #[cfg(not(target_os = "android"))]
+    let _ = path;
 }

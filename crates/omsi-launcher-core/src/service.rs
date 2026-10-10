@@ -42,10 +42,12 @@ pub enum ServiceKind {
     OnDemand,
 }
 
-/// The game's school bits of a tour mask: bit 8 runs in the school holidays, bit 9 on school
-/// days (`lines::SCHOOL_BITS` is both).
-pub const SCHOOL_HOLIDAY_BIT: i32 = 1 << 8;
-pub const SCHOOL_DAY_BIT: i32 = 1 << 9;
+/// The game's school bits of a tour mask, as Omsi.exe reads them (openOMSI #1883): bit 8 runs on
+/// school days, bit 9 in the school holidays (`lines::SCHOOL_BITS` is both). (The other way
+/// round before openOMSI 0.2.27: the line editor's lines are written again once,
+/// `lines::upgrade_school_bits`.)
+pub const SCHOOL_DAY_BIT: i32 = 1 << 8;
+pub const SCHOOL_HOLIDAY_BIT: i32 = 1 << 9;
 /// Monday to Friday, and Saturday, Sunday and the public holidays (bits 0 - 4, 5 - 7).
 pub const WORKDAY_BITS: u16 = 0b0001_1111;
 pub const WEEKEND_BITS: u16 = 0b1110_0000;
@@ -600,7 +602,8 @@ mod tests {
     fn a_kind_runs_on_its_days() {
         // the masks as the game reads them
         assert_eq!(ServiceKind::Regular.mask(0b0001_1111), 0b11_0001_1111);
-        assert_eq!(ServiceKind::School.mask(0b0001_1111), 0b10_0001_1111);
+        // (school days: bit 8, as Omsi.exe reads it)
+        assert_eq!(ServiceKind::School.mask(0b0001_1111), 0b01_0001_1111);
         // (a school line's Saturday is no school day)
         assert_eq!(ServiceKind::School.mask(0b0010_0000), SCHOOL_DAY_BIT);
         assert_eq!(ServiceKind::Leisure.mask(0b1100_0000), 0b11_1100_0000);
