@@ -789,8 +789,9 @@ impl DotFont {
     /// line, each dot drawn where the display has one; on or off, unless the display's font is
     /// a smooth one. White letters on nothing: the display's colour is laid over them as over
     /// its own font. A dot is on from half its letter's most ink (at most `LIT`), so that a
-    /// letter shrunk until no dot of it is half covered still shows; and from a quarter for
-    /// every letter when that still leaves the font far darker than its ink.
+    /// letter shrunk until no dot of it is half covered still shows; from a quarter for every
+    /// letter when that still leaves the font far darker than its ink; and a stroke no dot of
+    /// which reaches that lights the dot it covers most (`lit_dots`).
     pub fn to_atlas(&self, grid: &DotGrid, line_h: u32, name: &str) -> FontAtlas {
         let line_h = line_h.max(1);
         let p = grid.pitch.max(1);
@@ -809,13 +810,13 @@ impl DotFont {
         }
         let dark = cells > 0 && (on as f32) < ink * 0.25;
         let threshold = |g: &DotGlyph| if dark { own_threshold(g).min(64) } else { own_threshold(g) };
-        let lit = |c: u8, t: u8| -> u8 {
+        // (each letter's dots as the display shows them: its coverage on a smooth display, else
+        // on or off - no stroke dropped)
+        let shown = |g: &DotGlyph| -> Vec<u8> {
             if grid.smooth {
-                c
-            } else if c >= t {
-                255
+                g.cov.clone()
             } else {
-                0
+                lit_dots(&g.cov, g.w, font.rows, threshold(g)).into_iter().map(|on| if on { 255 } else { 0 }).collect()
             }
         };
         // letters side by side in rows of the atlas, a pitch apart (a dot past a letter's last
@@ -840,10 +841,10 @@ impl DotFont {
         let mut chars: Vec<FontChar> = Vec::with_capacity(glyphs.len() + 1);
         for (&(ch, w_px, g), &(gx, gy)) in glyphs.iter().zip(&places) {
             chars.push(FontChar { ch, x0: gx as i32, x1: (gx + w_px) as i32, y: gy as i32 });
-            let t = threshold(g);
+            let dots = shown(g);
             for j in 0..font.rows {
                 for i in 0..g.w {
-                    let a = lit(g.cov[(j * g.w + i) as usize], t);
+                    let a = dots[(j * g.w + i) as usize];
                     if a == 0 {
                         continue;
                     }
@@ -913,6 +914,56 @@ fn add_capitals_for_small(glyphs: &mut Vec<DotGlyph>, chars: &[char]) {
 /// A dot is lit from this much coverage on (as a matrix shows it: on or off).
 pub const LIT: u8 = 112;
 
+/// The dots a matrix lights of a letter `w` dots wide and `rows` high (`cov` its coverage, row
+/// by row): those covered from `t` on; and where a stroke has none such - one or two dots along
+/// a row or down a column covered from a quarter of `t` on, none lit: a light face made small,
+/// a stroke one dot wide that falls across two, each less than half covered - the one it
+/// covers most, so that no stroke drops out of the letter. Not at a stroke's end (lit on one
+/// side across it and empty on the other): an arm or a serif grows no dot longer.
+fn lit_dots(cov: &[u8], w: u32, rows: u32, t: u8) -> Vec<bool> {
+    let at = |x: i32, y: i32| if x < 0 || y < 0 || x >= w as i32 || y >= rows as i32 { 0 } else { cov[(y as u32 * w + x as u32) as usize] };
+    let on = |x: i32, y: i32| at(x, y) >= t;
+    let floor = (t / 4).max(1);
+    let mut out: Vec<bool> = cov.iter().map(|&c| c >= t).collect();
+    // along every row (an upright stroke dropped), then down every column (a bar)
+    for along_rows in [true, false] {
+        let (len, lines) = if along_rows { (w, rows) } else { (rows, w) };
+        let cell = |l: u32, k: u32| if along_rows { (k as i32, l as i32) } else { (l as i32, k as i32) };
+        // (across the run: the dots either side of it)
+        let (ax, ay) = if along_rows { (0, 1) } else { (1, 0) };
+        for l in 0..lines {
+            let mut k = 0;
+            while k < len {
+                let start = k;
+                while k < len && at(cell(l, k).0, cell(l, k).1) >= floor {
+                    k += 1;
+                }
+                if k == start {
+                    k += 1;
+                    continue;
+                }
+                // (a longer run is a faint area, or a bar seen along; one lit - also by the
+                // rows' pass - is a stroke that shows)
+                let lit = |k: u32| {
+                    let (x, y) = cell(l, k);
+                    out[(y as u32 * w + x as u32) as usize]
+                };
+                if k - start > 2 || (start..k).any(lit) {
+                    continue;
+                }
+                let Some(best) = (start..k).max_by_key(|&k| (at(cell(l, k).0, cell(l, k).1), std::cmp::Reverse(k))) else { continue };
+                let (x, y) = cell(l, best);
+                let ((bx, by), (cx, cy)) = ((x - ax, y - ay), (x + ax, y + ay));
+                let end = (on(bx, by) && at(cx, cy) < floor) || (on(cx, cy) && at(bx, by) < floor);
+                if !end {
+                    out[(y as u32 * w + x as u32) as usize] = true;
+                }
+            }
+        }
+    }
+    out
+}
+
 /// The rows of `rows` a glyph's dots are lit in, first and last.
 fn lit_rows_of(g: &DotGlyph, rows: u32) -> Option<(u32, u32)> {
     let lit = |y: u32| (0..g.w).any(|x| g.cov.get((y * g.w + x) as usize).is_some_and(|c| *c >= LIT));
@@ -944,16 +995,21 @@ fn magnified(src: &[u8], w: u32, h: u32, kx: u32, ky: u32) -> Vec<u8> {
 
 /// A plane of `w` x `h` dots moved `off` rows down into a plane of `rows` rows; its ink
 /// squeezed upright into them where it would reach past them (from where it starts, or the
-/// first row, to where it ends, or the last), not cut off.
+/// first row, to where it ends, or the last), not cut off. Ink too faint to light a dot (less
+/// than half the letter's most, as `DotFont::to_atlas` lights them) - the soft edge or glow of
+/// a smooth font - is cut off instead (squeezing a letter in for it shrank it off the
+/// display's line).
 fn placed(src: &[u8], w: u32, h: u32, off: i32, rows: u32) -> Vec<u8> {
     let mut out = vec![0u8; (w * rows) as usize];
-    let inked = |y: u32| (0..w).any(|x| src[(y * w + x) as usize] > 0);
+    let faint = (src.iter().copied().max().unwrap_or(0) / 2).clamp(1, LIT);
+    let inked = |y: u32| (0..w).any(|x| src[(y * w + x) as usize] >= faint);
     let Some(first) = (0..h).find(|&y| inked(y)) else { return out };
     let last = (0..h).rev().find(|&y| inked(y)).unwrap_or(first);
     let (top, bottom) = (first as i32 + off, last as i32 + off);
     let row = |y: u32| (y * w) as usize..((y + 1) * w) as usize;
     if top >= 0 && bottom < rows as i32 {
-        for y in first..=last {
+        // (its faint edge too, where it lands in the rows)
+        for y in (0..h).filter(|&y| (0..rows as i32).contains(&(y as i32 + off))) {
             out[row((y as i32 + off) as u32)].copy_from_slice(&src[row(y)]);
         }
         return out;
@@ -1655,6 +1711,41 @@ mod tests {
                 assert!(!lit(&small, ch).is_empty(), "{ch} on {rows} rows");
             }
         }
+    }
+
+    /// A stroke a dot wide that falls across two columns or two rows, each less than half
+    /// covered, is lit in one of them (it dropped out of the letter); the half covered end of an
+    /// arm is not (the arm would grow a dot), nor is a faint area.
+    #[test]
+    fn no_stroke_drops_out() {
+        let plane = |w: u32, h: u32, f: &dyn Fn(u32, u32) -> u8| -> Vec<u8> { (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| f(x, y)).collect() };
+        let on = |v: Vec<bool>, w: u32| -> Vec<(u32, u32)> { v.iter().enumerate().filter(|(_, on)| **on).map(|(i, _)| (i as u32 % w, i as u32 / w)).collect() };
+        // an upright stroke over columns 1 and 2: one of them, all the way down
+        let upright = plane(4, 5, &|x, _| if x == 1 || x == 2 { 90 } else { 0 });
+        assert_eq!(on(lit_dots(&upright, 4, 5, LIT), 4), (0..5).map(|y| (1, y)).collect::<Vec<_>>());
+        // a bar over rows 2 and 3: one of them, all the way along
+        let bar = plane(5, 6, &|_, y| if y == 2 || y == 3 { 90 } else { 0 });
+        assert_eq!(on(lit_dots(&bar, 5, 6, LIT), 5), (0..5).map(|x| (x, 2)).collect::<Vec<_>>());
+        // an arm lit in columns 0 to 2 of row 1, its end in column 3 half covered: as it is
+        let arm = plane(5, 3, &|x, y| if y == 1 && x <= 2 { 255 } else if (x, y) == (3, 1) { 90 } else { 0 });
+        assert_eq!(on(lit_dots(&arm, 5, 3, LIT), 5), [(0, 1), (1, 1), (2, 1)]);
+        // a faint area (a glow) lights nothing
+        assert!(on(lit_dots(&plane(5, 5, &|_, _| 60), 5, 5, LIT), 5).is_empty());
+    }
+
+    /// A letter moved onto a display's line whose faint edge (a smooth font's) falls past the
+    /// last row keeps its size: the edge is cut off; ink that lights a dot is squeezed in.
+    #[test]
+    fn a_faint_edge_is_cut_not_squeezed_in() {
+        // one column: ink in rows 0..=2, a faint edge in row 3; three rows to land in
+        let src = [255u8, 255, 255, 40];
+        assert_eq!(placed(&src, 1, 4, 0, 3), vec![255, 255, 255]);
+        // moved a row down, the ink itself reaches past the last row: squeezed into rows 1..=2
+        let out = placed(&[255u8, 255, 255, 0], 1, 4, 1, 3);
+        assert_eq!(out[0], 0);
+        assert!(out[1] > 0 && out[2] > 0, "{out:?}");
+        // the faint edge is kept where it lands within the rows
+        assert_eq!(placed(&[0u8, 255, 255, 40], 1, 4, -1, 3), vec![255, 255, 40]);
     }
 
     /// A font of dots of `rows` rows: capitals lit from `cap.0` to `cap.1` (5 wide, two empty

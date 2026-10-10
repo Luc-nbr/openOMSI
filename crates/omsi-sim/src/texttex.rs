@@ -967,6 +967,118 @@ mod tests {
         }
     }
 
+    /// The installed OMSI 2's buses and fonts (`OMSI_ROOT`; skipped without it): every font a
+    /// bus writes its destination in - a destination display's, a sign script's letters' -
+    /// stood in for by the bundled Hanken Grotesk and by every installed `.oft` font of letters.
+    /// No letter both fonts draw comes out empty; the capitals stand on the line of the bus's
+    /// own (a vector font's as tall as those, an `.oft` font's no taller: it is magnified by
+    /// whole times only); on a matrix whose dots stand apart every lit pixel is a dot's.
+    #[test]
+    fn installed_display_fonts_take_any_chosen_font() {
+        let Some(root) = omsi_cfg::env::var_os("OMSI_ROOT").map(PathBuf::from) else {
+            eprintln!("skipped: no OMSI_ROOT");
+            return;
+        };
+        let decode = |p: &Path| omsi_texture::decode_file(p).ok().map(|i| (i.width, i.height, i.rgba));
+        let mut lib = FontLibrary::new(&root);
+        // the fonts the buses write their destinations in
+        let mut names: Vec<String> = Vec::new();
+        let mut scripts_seen: Vec<Vec<PathBuf>> = Vec::new();
+        for bus in std::fs::read_dir(root.join("Vehicles")).into_iter().flatten().flatten() {
+            for file in std::fs::read_dir(bus.path()).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("bus"))) {
+                let Ok(def) = omsi_vehicle::Vehicle::load(&file) else { continue };
+                if let Some(m) = def.model.as_deref().and_then(|m| omsi_model::Model::load(&omsi_cfg::resolve_path(def.dir(), m)).ok()) {
+                    names.extend(destination_displays(&m).into_iter().map(|i| m.text_textures[i].font.trim().to_string()));
+                }
+                if !scripts_seen.contains(&def.scripts.scripts) {
+                    scripts_seen.push(def.scripts.scripts.clone());
+                    names.extend(script_signs(&def.scripts.scripts).into_iter().flat_map(|s| s.fonts));
+                }
+            }
+        }
+        let mut own: Vec<Arc<FontAtlas>> = Vec::new();
+        for n in names {
+            if own.iter().any(|a| a.font.name.trim().eq_ignore_ascii_case(n.trim())) {
+                continue;
+            }
+            if let Some(a) = lib.get(&n, &decode).filter(|a| is_letter_font(&a.font)) {
+                own.push(a);
+            }
+        }
+        // the fonts chosen: the bundled vector font, every installed `.oft` font of letters
+        let hanken: &[u8] = include_bytes!("../../../assets/fonts/HankenGrotesk/HankenGrotesk-latin-700.ttf");
+        let mut chosen = vec![DisplayFontSpec::vector("Hanken Grotesk Bold", Path::new("Hanken.ttf"), 0)];
+        chosen.extend(lib.installed().iter().filter(|f| is_letter_font(f)).map(|f| DisplayFontSpec::named(f.name.trim())));
+        eprintln!("{} fonts of destinations, {} fonts chosen for them", own.len(), chosen.len());
+        let mut failures: Vec<(String, String)> = Vec::new();
+        let mut drawn = 0usize;
+        for a in &own {
+            let target = Target::of(Some(a), a.font.height.max(1) as u32, &DisplayFontSpec::default());
+            let (grid, band) = (target.grid, &target.band);
+            if band.fill {
+                eprintln!("{}: no letters to read where they sit", a.font.name.trim());
+                continue;
+            }
+            eprintln!("{}: grid {}/{} px, {} rows, capitals rows {}..{}, {:.1} dots wide", a.font.name.trim(), grid.pitch, grid.dot, grid.rows, band.cap_top, band.base - 1, target.width);
+            let letters: Vec<char> = "ABEFHLNOPTUZ0123456789".chars().filter(|&c| ink_rows(a, c).is_some()).collect();
+            let p = grid.pitch.max(1);
+            for spec in &chosen {
+                let oft = if spec.is_vector() { None } else { lib.oft_size(&spec.name, band, &decode) };
+                // (a font of pictures - X10_Hst's stop names, each "letter" 200 px wide - stands
+                // in as what it is)
+                if oft.as_ref().is_some_and(|d| d.1.fill || d.1.cap_w > d.1.cap_rows() as f32 * 3.0) {
+                    continue;
+                }
+                let (src, has): (SubstituteSource, Box<dyn Fn(char) -> bool>) = match &oft {
+                    None if spec.is_vector() => (SubstituteSource::Vector(hanken, 0), Box::new(|_| true)),
+                    None => continue,
+                    Some(d) => (SubstituteSource::Oft(&d.0), Box::new(|c| d.0.glyph(c).is_some_and(|g| g.cov.iter().any(|&v| v >= omsi_content::dotfont::LIT)))),
+                };
+                let at = format!("{} in {}", a.font.name.trim(), spec.name);
+                let Some(sub) = substitute(src, spec, &target, None) else {
+                    failures.push((spec.name.clone(), format!("{at}: nothing made")));
+                    continue;
+                };
+                drawn += 1;
+                for &c in letters.iter().filter(|&&c| has(c)) {
+                    if ink_rows(&sub.atlas, c).is_none() {
+                        failures.push((spec.name.clone(), format!("{at}: {c} empty")));
+                        continue;
+                    }
+                    if p > 1 && !grid.smooth {
+                        let g = sub.atlas.font.chars.iter().find(|g| g.ch == c).unwrap();
+                        let off = (g.x0..g.x1).flat_map(|x| (0..sub.atlas.font.height).map(move |y| (x, y))).find(|&(x, y)| {
+                            let lit = sub.atlas.alpha[(((g.y + y) as u32 * sub.atlas.width + x as u32) * 4) as usize] > 0;
+                            let (dx, dy) = ((x - g.x0) as u32, y as u32);
+                            lit && (dx < grid.phase_x || (dx - grid.phase_x) % p >= grid.dot || dy < grid.phase_y || (dy - grid.phase_y) % p >= grid.dot)
+                        });
+                        if let Some((x, y)) = off {
+                            failures.push((spec.name.clone(), format!("{at}: {c} lit at ({}, {y}), off the dots", x - g.x0)));
+                        }
+                    }
+                }
+                // where its letters stand, read as the bus's own are (the middle of a flat H, E,
+                // I, T, N, L and F: a font whose boxes take in ink of the line above or below -
+                // some smooth fonts' are cut that tall - keeps it, as Omsi.exe draws it)
+                let mine = LetterBand::of(&DotFont::from_atlas(&sub.atlas, &grid));
+                let tall_enough = !spec.is_vector() || mine.cap_top.abs_diff(band.cap_top) <= 1;
+                if !mine.fill && (mine.base.abs_diff(band.base) > 1 || mine.cap_top + 1 < band.cap_top || !tall_enough) {
+                    failures.push((spec.name.clone(), format!("{at}: capitals in rows {}..{}, its own {}..{}", mine.cap_top, mine.base - 1, band.cap_top, band.base - 1)));
+                }
+            }
+        }
+        let mut by_font: Vec<(String, usize)> = Vec::new();
+        for (f, _) in &failures {
+            match by_font.iter_mut().find(|b| &b.0 == f) {
+                Some(b) => b.1 += 1,
+                None => by_font.push((f.clone(), 1)),
+            }
+        }
+        by_font.sort_by_key(|b| std::cmp::Reverse(b.1));
+        eprintln!("{drawn} substitutes drawn, {} failures; by the font chosen: {by_font:?}", failures.len());
+        assert!(failures.is_empty(), "{}", failures.iter().take(60).map(|f| f.1.clone()).collect::<Vec<_>>().join("\n"));
+    }
+
     /// A text texture fitted to a display font (a display whose own font is missing) draws it
     /// in the bus's own size and place; a line too wide runs off the edge at that size.
     #[test]
