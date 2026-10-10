@@ -1023,7 +1023,12 @@ impl Ui {
     pub fn slider(&mut self, name: &str, r: Rect, value: &mut f32, min: f32, max: f32, step: f32, label: &str, fmt: &dyn Fn(f32) -> String) -> bool {
         let id = id_of(name);
         let label_w = if label.is_empty() { 0.0 } else { (r.w * 0.38).min(170.0) };
-        let val_w = 58.0;
+        // (the value's box as wide as its widest text - at either end, or now - needs: a word
+        // such as "As the bus" or a translation was cut to "As th…"; the track keeps half the
+        // room at least)
+        let px = self.wpx(12.5);
+        let widest = [min, max, *value].iter().map(|&v| self.width(&fmt(v), px, Weight::Medium)).fold(0.0f32, f32::max);
+        let val_w = (widest.ceil() + 10.0).clamp(58.0, ((r.w - label_w) * 0.5).max(58.0));
         let track_r = Rect::new(r.x + label_w, r.y, r.w - label_w - val_w, r.h);
         let (h, held, _) = self.interact(id, track_r.pad(-8.0, 0.0));
         let before = *value;
@@ -1062,7 +1067,6 @@ impl Ui {
         }
         self.p().circle(kc, 8.0 + swell * 0.9, accent());
         let txt = fmt(*value);
-        let px = self.wpx(12.5);
         self.text_in(&txt, Rect::new(r.right() - val_w + 8.0, r.y, val_w - 8.0, r.h), px, Weight::Medium, TEXT, Align::Right);
         *value != before
     }
