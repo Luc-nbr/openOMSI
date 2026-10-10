@@ -11,6 +11,7 @@
 //! the dispatcher takes none other, and a bus that is none of them is refused.
 
 use super::super::flow::Step;
+use super::super::state::{CompanyDuty, PlannedBus};
 use super::super::theme::*;
 use super::super::ui::{id_of, ButtonKind, Key, Ui};
 use super::super::{Launcher, Page};
@@ -432,30 +433,35 @@ pub(super) fn drive(l: &mut Launcher, c: &Company, p: &DayPlan, ti: usize, k: us
     ch.time = time;
     ch.start_trip = Some((line.clone(), tour.clone(), first, time));
     ch.legs = vec![format!("{line}|{tour}|{first}|{count}")];
-    let mut planned_bus = false;
-    if let Some(v) = t.bus.and_then(|b| if let BusOf::Own(id) = b { c.vehicle(id) } else { None }).filter(|v| !v.bus.trim().is_empty()) {
-        planned_bus = true;
-        ch.bus = v.bus.clone();
-        ch.paint = v.house_livery.clone().filter(|h| !h.trim().is_empty()).unwrap_or_else(|| v.livery.clone());
-        ch.plate = v.plate.clone();
-    }
+    // (the bus the planning gives the tour: the duty is driven with it, in its livery - not
+    // chosen on the bus step, Luc; a rental bus is any bus)
+    let planned = t.bus.and_then(|b| if let BusOf::Own(id) = b { c.vehicle(id) } else { None }).filter(|v| !v.bus.trim().is_empty()).map(|v| PlannedBus {
+        file: v.bus.clone(),
+        name: v.name.clone(),
+        paint: v.house_livery.clone().filter(|h| !h.trim().is_empty()).unwrap_or_else(|| v.livery.clone()),
+        number: v.number.clone(),
+        plate: v.plate.clone(),
+    });
     // (the line's own depot file, else the company's)
     let hof = c.lines.iter().find(|x| x.name.eq_ignore_ascii_case(&line)).map(|x| x.hof_or(&c.depot).to_string()).unwrap_or_else(|| c.depot.clone());
     if !hof.trim().is_empty() {
         ch.hof = hof;
         ch.hof_manual = true;
     }
-    // (the company's bus for the planned duty is this duty's: not asked for again)
-    if planned_bus {
-        l.state.bus_for = Some(l.state.duty_key());
+    l.state.start_company_duty(CompanyDuty { company: c.id.clone(), name: c.name.clone(), bus: planned, ..Default::default() });
+    // (a later day's duty: that day's plan for the game too - the company's buses on the road
+    // with it; only the company's own day is booked)
+    if !p.today {
+        if let Err(e) = co::plan::save_drive_plan(&super::data(), &co::plan::live_plan(c, p)) {
+            log::warn!("company: the plan of {} for the game: {e:#}", p.date);
+        }
     }
-    l.state.touched();
     l.state.load_lines();
     l.state.load_ibis();
     super::leave(l);
     l.go(Page::Drive);
     l.drive.step = Step::Duty;
-    l.state.set_status(omsi_ui::tr("Your duty is set: check the bus and start the duty when you are ready.").into_owned(), false);
+    l.state.set_status(omsi_ui::tr("Your company's duty is set, with the bus its planning gives it: on the map only your company's buses run. Start the duty when you are ready.").into_owned(), false);
 }
 
 // --- the page ------------------------------------------------------------------------------

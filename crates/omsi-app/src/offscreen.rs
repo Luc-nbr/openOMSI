@@ -52,11 +52,12 @@ pub(crate) fn run_offscreen(
         Some(t)
     };
     let mut schedule = if args.schedule {
-        Some(schedule::Schedule::new(
-            &args.root,
-            &world,
-            &start_clock(args),
-        ))
+        let mut s = schedule::Schedule::new(&args.root, &world, &start_clock(args));
+        // (a duty of the player's bus company: only its buses on the map)
+        if let Some(id) = args.company.as_deref().filter(|_| args.lan_join.is_none()) {
+            s.set_company(&world, id);
+        }
+        Some(s)
     } else {
         None
     };

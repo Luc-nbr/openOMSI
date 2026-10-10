@@ -231,6 +231,13 @@ fn station_targets(trips: impl Iterator<Item = (Vec<i64>, String)>, name_of: imp
     named
 }
 
+/// Whether a departure is one of the map's own buses - what a drive for the player's bus
+/// company leaves in the depot: not a train (a `.zug` group), nothing on a track or without
+/// stops (trains, planes), nor a depot of rail vehicles only (trams).
+fn is_map_bus(train: bool, track: bool, stops: bool, all_rail: bool) -> bool {
+    !train && !track && stops && !all_rail
+}
+
 fn trip_stations(trip: &omsi_timetable::Trip) -> Vec<i64> {
     if !trip.stations.is_empty() {
         return trip.stations.clone();
@@ -563,6 +570,9 @@ pub struct Schedule {
     /// The player's bus company on this map and day: its tours run with its own buses, and
     /// what they drive is reported to it (`company_live`).
     company: crate::company_live::CompanyLive,
+    /// Per departure: kept off the road for the player's bus company (`CompanyLive::keeps_off`),
+    /// worked out with the day's plan.
+    company_off: Vec<bool>,
 }
 
 /// A tour's bus waits at the end of a trip for the next one of its tour when that leaves
@@ -893,7 +903,9 @@ impl Schedule {
             car_use,
             tour_vehicle: HashMap::new(),
             used_numbers: HashSet::new(),
-            company: crate::company_live::CompanyLive::new(&world.map_dir, date, crate::company_live::data_dir()),
+            // (a drive of the player's own reads nothing of a company: `set_company`)
+            company: Default::default(),
+            company_off: Vec::new(),
         };
         s.assign_car_use();
         s
@@ -1020,10 +1032,57 @@ impl Schedule {
         day_bits(&self.calendar, &c)
     }
 
-    /// Whether departure `i`'s tour runs on the current day.
+    /// Whether departure `i`'s tour runs on the current day (and, in a drive for the player's
+    /// bus company, is not kept in its depot).
     fn runs(&self, i: usize) -> bool {
         let m = self.departures[i].mask;
-        m & self.day_bits.0 != 0 && m & self.day_bits.1 != 0
+        m & self.day_bits.0 != 0 && m & self.day_bits.1 != 0 && !self.kept_off(i)
+    }
+
+    /// A drive for the player's bus company (`--company`): its plan of the day, and the map's
+    /// own buses kept in their depots. Called before `precache`.
+    pub fn set_company(&mut self, world: &World, id: &str) {
+        self.company = crate::company_live::CompanyLive::for_company(&world.map_dir, self.day, crate::company_live::data_dir(), id);
+        self.mark_company();
+    }
+
+    /// Which departures the company keeps off the road today (`CompanyLive::keeps_off`).
+    fn mark_company(&mut self) {
+        if !self.company.own_only() && !self.company.active() {
+            self.company_off.clear();
+            return;
+        }
+        let mut track: HashMap<usize, bool> = HashMap::new();
+        let mut off = Vec::with_capacity(self.departures.len());
+        for d in &self.departures {
+            let on_track = *track.entry(d.trip).or_insert_with(|| self.is_track(&self.data.trips[d.trip].name));
+            let train = self.trains.contains_key(&d.ai_group);
+            let stops = !trip_stations(&self.data.trips[d.trip]).is_empty();
+            let all_rail = self
+                .line_buses
+                .get(&d.line.to_lowercase())
+                .or_else(|| self.depots.get(&d.ai_group))
+                .is_some_and(|v| !v.is_empty() && v.iter().all(|x| x.0.def.is_rail()));
+            off.push(self.company.keeps_off(&d.line, &d.tour, is_map_bus(train, on_track, stops, all_rail)));
+        }
+        self.company_off = off;
+        let kept = (0..self.departures.len()).filter(|&i| self.company_off[i] && {
+            let m = self.departures[i].mask;
+            m & self.day_bits.0 != 0 && m & self.day_bits.1 != 0
+        }).count();
+        log::info!("timetable: {kept} of today's departures stay in their depots for the company");
+    }
+
+    /// Departure `i` is kept off the road for the player's bus company - never the player's
+    /// own trips, nor another LAN player's.
+    fn kept_off(&self, i: usize) -> bool {
+        self.company_off.get(i).copied().unwrap_or(false) && !self.is_player_tour(i)
+    }
+
+    /// Whether trip `name` runs a track (`.ttr`: trains, planes), as `steps_of` finds it.
+    fn is_track(&self, name: &str) -> bool {
+        let track_name = self.data.trip(name).map(|t| t.display_name.trim()).filter(|n| !n.is_empty()).unwrap_or(name);
+        self.data.tracks.iter().any(|t| t.path.file_stem().is_some_and(|s| s.to_string_lossy().eq_ignore_ascii_case(track_name)))
     }
 
     /// Move the timetable on to the clock's date when it has changed (midnight): the day's
@@ -1039,6 +1098,7 @@ impl Schedule {
         self.day = date;
         self.company.set_day(date);
         self.day_bits = day_bits(&self.calendar, clock);
+        self.mark_company();
         self.next_day_bit = 1 << ((clock.weekday() + 1) % 7);
         let busy: HashSet<usize> = self
             .pending
@@ -2092,7 +2152,7 @@ impl Schedule {
             .departures
             .iter()
             .enumerate()
-            .filter(|(i, d)| !d.spawned && d.time <= tod && d.time > tod - window && self.runs(*i) && !self.company.dropped(&d.line, &d.tour))
+            .filter(|(i, d)| !d.spawned && d.time <= tod && d.time > tod - window && self.runs(*i))
             .map(|(i, _)| i)
             .collect();
         for i in due {
@@ -2119,7 +2179,7 @@ impl Schedule {
             if d.time > tod + LAYOVER {
                 break;
             }
-            if d.spawned || self.later_layover.contains(&i) || !self.runs(i) || self.company.dropped(&d.line, &d.tour) {
+            if d.spawned || self.later_layover.contains(&i) || !self.runs(i) {
                 continue;
             }
             // only a trip with stops has a first stop to wait at: a flight (TXL.ttl, every
@@ -2381,8 +2441,9 @@ impl Schedule {
         day_time: f64,
         onto: Option<usize>,
     ) -> Placed {
-        // a tour the company dropped today does not run, nor does a tour bus take it on
-        if self.company.dropped(&self.departures[i].line, &self.departures[i].tour) {
+        // a tour the company dropped today does not run, nor one of the map's buses in a drive
+        // for the company - nor does a tour bus take it on
+        if self.kept_off(i) {
             return Placed::Drop;
         }
         let profile = omsi_cfg::env::var_os("OMSI_PROFILE").is_some();

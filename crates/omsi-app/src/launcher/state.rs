@@ -85,6 +85,32 @@ fn servers_path() -> std::path::PathBuf {
     core::data_dir().join("servers.json")
 }
 
+/// A duty of the player's bus company as its planning gives it ("Drive this duty", My
+/// duties): the company, the duty as it was set (`State::duty_key`) on its day, and the bus
+/// the plan gives its tour. That bus is not chosen on the bus step: it is the company's, in
+/// its livery (Luc). The duty is the company's only while the Drive page still has it.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct CompanyDuty {
+    pub company: String,
+    pub name: String,
+    pub key: String,
+    pub date: String,
+    /// None: a rental bus drives the tour today - any bus may stand in.
+    pub bus: Option<PlannedBus>,
+}
+
+/// The bus the company's planning gives a duty: its file, name, livery, fleet number, plate.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct PlannedBus {
+    pub file: String,
+    pub name: String,
+    pub paint: String,
+    pub number: String,
+    pub plate: String,
+}
+
 /// The duty as it is remembered between launches (`~/.openomsi/launcher-duty.json`).
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
@@ -94,6 +120,8 @@ pub struct Choice {
     /// The bus driven last (or picked last): not the duty's - the bus step asks for that every
     /// time - but the one the object editor and the depot editor take when none is chosen.
     pub last_bus: String,
+    /// A duty of the player's bus company (`CompanyDuty`), while it is set.
+    pub company: Option<CompanyDuty>,
     /// The number plate the player typed for the bus (empty: as the content says).
     pub plate: String,
     /// The fleet number picked from the bus's `[number]` list (empty: its first).
@@ -167,6 +195,7 @@ impl Default for Choice {
         Choice {
             bus: String::new(),
             last_bus: String::new(),
+            company: None,
             paint: String::new(),
             plate: String::new(),
             number: String::new(),
@@ -344,8 +373,9 @@ impl State {
         crate::mt::enable(settings.get("machine_translation").and_then(|x| x.as_bool()).unwrap_or(false));
         let keybindings = core::get_keybindings().unwrap_or(serde_json::Value::Null);
         let mut choice = Choice::load();
-        // (the bus of the last time is not driven again unasked: the bus step asks, Luc)
-        if !choice.bus.is_empty() {
+        // (the bus of the last time is not driven again unasked: the bus step asks, Luc - but
+        // a company's duty keeps the bus its planning gives it)
+        if !choice.bus.is_empty() && choice.company.as_ref().and_then(|d| d.bus.as_ref()).is_none() {
             choice.last_bus = std::mem::take(&mut choice.bus);
             choice.paint.clear();
             choice.number.clear();
@@ -883,6 +913,7 @@ impl State {
             tutorial: None,
             situation: None,
             editor: false,
+            company: if free { None } else { self.company_duty().map(|d| d.company.clone()) },
         }
     }
 
@@ -980,8 +1011,9 @@ impl State {
         if !time && !date {
             return;
         }
-        // (in a joined session the host's clock rules: its day is the duty's)
-        if self.host_info().is_some_and(|i| i.date.trim().len() == 10) {
+        // (in a joined session the host's clock rules: its day is the duty's; a company's duty
+        // is on the company's day)
+        if self.host_info().is_some_and(|i| i.date.trim().len() == 10) || self.company_duty().is_some() {
             return;
         }
         let Some((y, mo, d, h, m)) = core::local_now() else { return };
@@ -1429,8 +1461,65 @@ impl State {
         )
     }
 
-    /// No bus chosen: the bus step (and the phone's bus sheet) asks for one.
+    /// The company's duty (`CompanyDuty`) while the Drive page still has it: another map, day,
+    /// duty or mode, or a session joined, makes it a drive of the player's own.
+    pub fn company_duty(&self) -> Option<&CompanyDuty> {
+        let d = self.choice.company.as_ref()?;
+        (d.key == self.duty_key() && d.date == self.choice.date && self.choice.lan_mode != "join").then_some(d)
+    }
+
+    /// The bus the company's planning gives the duty: not to be chosen nor changed.
+    pub fn planned_bus(&self) -> Option<&PlannedBus> {
+        self.company_duty()?.bus.as_ref()
+    }
+
+    /// The planned bus put on: its file, livery, fleet number and plate.
+    fn wear(&mut self, b: &PlannedBus) {
+        let c = &mut self.choice;
+        (c.bus, c.paint, c.number, c.plate) = (b.file.clone(), b.paint.clone(), b.number.clone(), b.plate.clone());
+        c.last_bus = b.file.clone();
+    }
+
+    /// The company's duty set (the choice already holds the duty): its bus put on, or for a
+    /// rental bus none - the bus step asks for the one the rental firm sends.
+    pub fn start_company_duty(&mut self, mut d: CompanyDuty) {
+        d.key = self.duty_key();
+        d.date = self.choice.date.clone();
+        match d.bus.clone() {
+            Some(b) => self.wear(&b),
+            None => {
+                self.choice.company = None;
+                self.clear_bus();
+            }
+        }
+        self.choice.company = Some(d);
+        self.bus_for = Some(self.duty_key());
+        self.touched();
+    }
+
+    /// The company's duty left (another mode, map, day or duty): its bus and plate were the
+    /// company's and go with it. Whether there was one.
+    pub fn end_company_duty(&mut self) -> bool {
+        let Some(d) = self.choice.company.take() else { return false };
+        if d.bus.is_some() {
+            self.clear_bus();
+            self.choice.plate.clear();
+        }
+        if self.choice.hof_manual {
+            self.choice.hof_manual = false;
+            self.choice.hof = self.default_hof();
+        }
+        self.touched();
+        true
+    }
+
+    /// No bus chosen: the bus step (and the phone's bus sheet) asks for one. (A company's
+    /// duty keeps the bus its planning gives it.)
     pub fn clear_bus(&mut self) {
+        if let Some(b) = self.planned_bus().cloned() {
+            self.wear(&b);
+            return;
+        }
         if !self.choice.bus.is_empty() {
             self.choice.last_bus = std::mem::take(&mut self.choice.bus);
         }
@@ -1440,6 +1529,10 @@ impl State {
     }
 
     pub fn select_bus(&mut self, file: &str) {
+        // (the company's duty: its planned bus, not another)
+        if self.planned_bus().is_some() {
+            return;
+        }
         // (picked for the duty as it is now - also when it is the bus already chosen)
         self.bus_for = Some(self.duty_key());
         self.choice.last_bus = file.to_string();

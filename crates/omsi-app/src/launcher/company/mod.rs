@@ -974,6 +974,10 @@ pub fn leave(l: &mut Launcher) {
 /// month shown, a line's tours waiting to be planned anew - is let go.
 pub(super) fn switch_company(l: &mut Launcher, to: Option<Company>) {
     clock::play(l, 0.0);
+    // (a duty of the company left is no duty of the one opened)
+    if l.state.choice.company.as_ref().is_some_and(|d| to.as_ref().is_none_or(|c| c.id != d.company)) {
+        l.state.end_company_duty();
+    }
     let view = &mut l.company;
     view.company = to;
     view.plan = None;

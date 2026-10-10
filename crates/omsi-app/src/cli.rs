@@ -124,6 +124,13 @@ pub(crate) struct Args {
     /// buses (the launcher's "Disable timetable buses" with a line chosen).
     #[arg(long)]
     pub(crate) no_timetable_buses: bool,
+    /// With --schedule and a duty: the duty is one of the player's bus company (its id, the
+    /// launcher's company planning). Only the company's tours run on the map, with its own
+    /// buses, and what they drive on the company's day is reported to it; the map's other
+    /// timetable buses stay in their depots. Without it the map's timetable runs as ever,
+    /// whatever company plays on that map and day.
+    #[arg(long)]
+    pub(crate) company: Option<String>,
     /// Date at start, YYYY-MM-DD (default 1989-05-30).
     #[arg(long)]
     pub(crate) date: Option<String>,

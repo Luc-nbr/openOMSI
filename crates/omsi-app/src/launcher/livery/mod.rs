@@ -1537,7 +1537,7 @@ fn saved(l: &mut Launcher, files: Vec<String>) {
     l.showroom.photos.forget(&root, &bus, &name);
     // (the bus step's bus read again: a save under a name it already shows has new textures)
     l.showroom.reread(&bus);
-    if l.state.choice.bus == bus && l.livery.company.is_none() {
+    if l.state.choice.bus == bus && l.livery.company.is_none() && l.state.planned_bus().is_none() {
         l.state.choice.paint = name.clone();
         l.state.touched();
     }

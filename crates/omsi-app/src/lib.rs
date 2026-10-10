@@ -139,6 +139,9 @@ const _LOCALES_DEPOTS: &str = include_str!("../locales/hof.yml");
 const _LOCALES_FONTS: &str = include_str!("../locales/fonts.yml");
 const _LOCALES_COMPANY: &str = include_str!("../locales/bedrijf2.yml");
 const _LOCALES_MORE: &str = include_str!("../locales/vertalingen.yml");
+const _LOCALES_TOBII: &str = include_str!("../locales/tobii.yml");
+const _LOCALES_SESSION: &str = include_str!("../locales/sessie.yml");
+const _LOCALES_COMPANY_DUTY: &str = include_str!("../locales/bedrijfsdienst.yml");
 
 /// Show the interface in `code` (the settings' ENG / DEU / FRA / RUS).
 pub(crate) fn ui_language(code: &str) {

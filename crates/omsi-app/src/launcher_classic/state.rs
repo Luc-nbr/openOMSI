@@ -656,6 +656,7 @@ impl State {
             legs: Vec::new(),
             free_line: None,
             editor: false,
+            company: None,
         }
     }
 

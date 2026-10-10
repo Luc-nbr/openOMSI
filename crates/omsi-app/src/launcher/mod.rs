@@ -1364,6 +1364,7 @@ impl Launcher {
             }
         }
         self.status_bar();
+        self.keep_company_duty();
         self.host_changed_duty();
         self.hint_toast();
         }
@@ -1575,6 +1576,17 @@ impl Launcher {
     /// "niet meteen ergens midden in het scherm"). A click puts it away.
     pub(crate) fn show_hint(&mut self, icon: &'static str, title: &str, text: &str) {
         self.hint = Some(Hint { icon, title: title.to_string(), text: text.to_string(), since: std::time::Instant::now() });
+    }
+
+    /// The company's duty no longer held (another map, day or duty chosen, a session joined):
+    /// its bus is let go, with a word. (Not while the guided tour moves the mode about.)
+    fn keep_company_duty(&mut self) {
+        if self.state.choice.company.is_none() || self.state.company_duty().is_some() || tour::active(self) {
+            return;
+        }
+        if self.state.end_company_duty() {
+            self.state.set_status("That is no longer your company's duty: choose a bus for it.", false);
+        }
     }
 
     /// The host's map or day came after a duty was chosen on another: back to choosing it,

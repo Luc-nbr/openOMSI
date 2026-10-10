@@ -707,6 +707,69 @@ pub(super) fn actions(l: &mut Launcher, from_x: f32, back: bool, main: &str, mai
     (clicked_back, main_clicked, extra_clicked)
 }
 
+/// The bus step of a company's duty: the bus its planning gives it, in its livery, in the
+/// showroom (it turns under the mouse) - nothing to choose (Luc); the way out of the company's
+/// duty, and the start.
+fn company_bus(l: &mut Launcher, window: Rect, d: &super::state::CompanyDuty) {
+    let size = l.ui.size;
+    let Some(b) = d.bus.clone() else { return };
+    let s = sheet_rect(size);
+    let installed = l.state.bus().cloned();
+    if installed.is_some() {
+        l.preview_full(window, super::buspick::stage(size, s));
+    } else {
+        ground_picture(l, window);
+    }
+    sheet(l, s);
+    let title = if b.number.trim().is_empty() { b.name.clone() } else { format!("{} · {}", b.number.trim(), b.name) };
+    let sub = omsi_ui::tr("Planned by %{company}").replace("%{company}", &d.name);
+    let body = sheet_head(l, s, "directions_bus", &title, &sub);
+    let (x, w) = (body.x + 18.0, body.w - 36.0);
+    let mut y = body.y + 4.0;
+    l.ui.icon("lock", Vec2::new(x + 7.0, y + 9.0), 14.0, TEXT_DIM);
+    y += l.ui.paragraph("Your company's planning gives this duty its bus, in the company's livery: it is not chosen here. To drive another bus, give the tour another one in the planning.", Vec2::new(x + 22.0, y), w - 22.0, 12.5, Weight::Regular, TEXT_DIM) + 14.0;
+    let livery = if b.paint.trim().is_empty() { installed.as_ref().map(super::drive::default_livery_label).unwrap_or("Default paint").to_string() } else { b.paint.clone() };
+    let hof = if l.state.choice.hof.trim().is_empty() { omsi_ui::tr("As the map has it").into_owned() } else { l.state.choice.hof.clone() };
+    for (k, v) in [("Bus", b.name.clone()), ("Fleet number", b.number.clone()), ("Livery", livery), ("Number plate", b.plate.clone()), ("Depot file", hof)] {
+        l.ui.text_in(k, Rect::new(x, y, 116.0, 30.0), 13.0, Weight::Regular, TEXT_DIM, Align::Left);
+        let v = if v.trim().is_empty() { "-".to_string() } else { v };
+        l.ui.text_in(&v, Rect::new(x + 116.0, y, w - 116.0, 30.0), 13.0, Weight::Bold, TEXT, Align::Left);
+        l.ui.p().rect(Rect::new(x, y + 30.5, w, 1.0), HAIRLINE);
+        y += 34.0;
+    }
+    if installed.is_none() {
+        y += 8.0;
+        y += l.ui.paragraph(&omsi_ui::tr("The planned bus is not installed: %{bus}").replace("%{bus}", &b.file), Vec2::new(x, y), w, 12.5, Weight::Medium, WARN) + 4.0;
+        y += l.ui.paragraph("Install it again, or give the tour another bus in the planning.", Vec2::new(x, y), w, 12.0, Weight::Regular, TEXT_DIM);
+    }
+    let leave = Rect::new(x, (s.bottom() - 18.0 - 40.0).max(y + 16.0), w, 40.0);
+    if l.ui.button("company-duty-leave", leave, "Leave the company duty", Some("logout"), ButtonKind::Ghost) {
+        l.state.end_company_duty();
+        l.drive.step = Step::Mode;
+        l.state.set_status("You left the company duty: choose how you want to drive.", false);
+        return;
+    }
+    l.ui.tooltip(leave, "Back to choosing a mode: the bus, the map and the duty are your own again");
+    let (back, go, _) = actions(l, s.right() + 14.0, true, "Start the duty", "play_arrow", &[]);
+    if back {
+        if let Some(p) = previous_of(l, Step::Bus) {
+            l.drive.step = p;
+        }
+    }
+    if go {
+        if installed.is_none() {
+            l.state.set_status(omsi_ui::tr("The planned bus %{bus} is not installed: give the tour another bus in the planning.").replace("%{bus}", &b.name), true);
+        } else {
+            drive::start(l);
+        }
+    }
+    if installed.is_some() {
+        // (the bar, drawn after this, is not the bus's: the wheel over it zoomed the bus)
+        l.ui.solid(bar_rect(size));
+        l.showroom_pointer(window);
+    }
+}
+
 /// The Drive page: the ground, the bar, the step's sheet and the actions.
 pub fn draw(l: &mut Launcher) {
     let size = l.ui.size;
@@ -1011,7 +1074,7 @@ fn step_mode(l: &mut Launcher, window: Rect) {
         (4, "Bus company", "garage", "mode-company", "Your own transport company: buy, lease or rent buses, hire drivers and run lines day by day."),
     ];
     let c = &l.state.choice;
-    let current = if c.free { 2 } else if c.composed { 1 } else { 0 };
+    let current = if l.state.company_duty().is_some() { 4 } else if c.free { 2 } else if c.composed { 1 } else { 0 };
     let ty = inner.y + head;
     let gap = 16.0;
     let tw = (inner.w - gap * (modes.len() as f32 - 1.0)) / modes.len() as f32;
@@ -1060,6 +1123,10 @@ fn step_mode(l: &mut Launcher, window: Rect) {
     if chosen == Some(4) {
         l.go(Page::Company);
     } else if let Some(kind) = chosen {
+        // (another mode: the company's duty is left, its bus with it)
+        if l.state.end_company_duty() {
+            l.state.set_status("You left the company duty: choose how you want to drive.", false);
+        }
         l.state.choice.free = kind == 2;
         l.state.choice.composed = kind == 1;
         l.state.touched();
@@ -1384,6 +1451,11 @@ pub(super) fn radio(ui: &mut super::ui::Ui, c: Vec2, on: bool) {
 /// mouse, its livery and the rest on the sheet beside it. The bus that fits the duty best is
 /// offered in a dialog over the step on the way in.
 fn step_bus(l: &mut Launcher, window: Rect) {
+    // (the company's duty: the bus its planning gives it, not to be chosen)
+    if let Some(d) = l.state.company_duty().filter(|d| d.bus.is_some()).cloned() {
+        company_bus(l, window, &d);
+        return;
+    }
     let size = l.ui.size;
     super::buspick::frame(l);
     // (the offer lies over the step: the step sees no mouse and no keys meanwhile; not while

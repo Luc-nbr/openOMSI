@@ -1227,7 +1227,7 @@ pub fn live_plan(c: &Company, dp: &DayPlan) -> LivePlan {
             lt
         })
         .collect();
-    LivePlan { company: c.id.clone(), map: c.map.clone(), date: c.date.clone(), depot: c.depot.clone(), difficulty: c.difficulty, tours }
+    LivePlan { company: c.id.clone(), map: c.map.clone(), date: dp.date.clone(), depot: c.depot.clone(), difficulty: c.difficulty, tours }
 }
 
 pub fn live_plan_file(data: &Path, id: &str) -> PathBuf {
@@ -1236,16 +1236,42 @@ pub fn live_plan_file(data: &Path, id: &str) -> PathBuf {
 
 /// Written whole (the game reads it when its timetable is loaded and at midnight).
 pub fn save_live_plan(data: &Path, p: &LivePlan) -> anyhow::Result<()> {
-    let d = super::store::dir(data);
+    write_plan(&live_plan_file(data, &p.company), p)
+}
+
+/// The plan of the day of a duty driven ahead from the company's pages (My duties, a later
+/// day): the game puts the company's buses on the road with it, but reports nothing - only the
+/// company's own day (`live_plan_file`) is booked.
+pub fn drive_plan_file(data: &Path, id: &str) -> PathBuf {
+    super::store::dir(data).join(format!("{id}.drive.liveplan.json"))
+}
+
+pub fn save_drive_plan(data: &Path, p: &LivePlan) -> anyhow::Result<()> {
+    write_plan(&drive_plan_file(data, &p.company), p)
+}
+
+/// The plan of a duty driven ahead (`drive_plan_file`), when the company is still there.
+/// (None for an id that is no plain name: it comes from the command line.)
+pub fn drive_plan(data: &Path, id: &str) -> Option<LivePlan> {
+    if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return None;
+    }
+    super::store::path_of(data, id).exists().then_some(())?;
+    serde_json::from_str(&std::fs::read_to_string(drive_plan_file(data, id)).ok()?).ok()
+}
+
+/// A plan written whole, through a file beside it.
+fn write_plan(path: &Path, p: &LivePlan) -> anyhow::Result<()> {
+    let d = path.parent().map(Path::to_path_buf).unwrap_or_default();
     std::fs::create_dir_all(&d)?;
-    let path = live_plan_file(data, &p.company);
-    let tmp = d.join(format!("{}.liveplan.json.tmp", p.company));
+    let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, serde_json::to_string_pretty(p)?)?;
-    std::fs::rename(&tmp, &path)?;
+    std::fs::rename(&tmp, path)?;
     Ok(())
 }
 
-/// Every company's plan for the game (those a company file still stands beside).
+/// Every company's plan for the game (those a company file still stands beside; a duty
+/// driven ahead, `<id>.drive.liveplan.json`, is none of them: no company `<id>.drive`).
 pub fn live_plans(data: &Path) -> Vec<LivePlan> {
     let Ok(rd) = std::fs::read_dir(super::store::dir(data)) else { return Vec::new() };
     rd.flatten()

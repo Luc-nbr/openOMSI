@@ -803,6 +803,11 @@ impl App {
                     if self.args.schedule {
                         let mut sch =
                             schedule::Schedule::new(&self.args.root, &w, &start_clock(&self.args));
+                        // (a duty of the player's bus company: only its buses on the map - a
+                        // player joining draws the host's)
+                        if let Some(id) = self.args.company.as_deref().filter(|_| self.args.lan_join.is_none()) {
+                            sch.set_company(&w, id);
+                        }
                         sch.precache(
                             &w,
                             &renderer,

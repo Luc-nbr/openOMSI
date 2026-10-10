@@ -3311,6 +3311,11 @@ pub struct Duty {
     /// Start with the game's object editor on (--editor): the editor hub's map objects.
     #[serde(default)]
     pub editor: bool,
+    /// A duty of the player's bus company (its id), set from the company's planning: only that
+    /// company's buses run on the map (`--company`), and its day and start are the company's,
+    /// not the computer's clock. None: a drive of the player's own.
+    #[serde(default)]
+    pub company: Option<String>,
 }
 
 /// The situation the game left on `map` last (`laststn.osn` in the map's folder: the
@@ -3463,7 +3468,8 @@ fn duty_args_for_root(d: &Duty, root: &Path) -> Result<Vec<String>> {
     // its years)
     let st = get_settings().unwrap_or_default();
     let on = |k: &str| st.get(k).and_then(|v| v.as_bool()).unwrap_or(false);
-    let now = local_now();
+    // (a company's duty is on the company's day: the computer's clock does not move it)
+    let now = local_now().filter(|_| d.company.is_none());
     if let (true, Some((_, _, _, h, m))) = (on("use_real_time"), now) {
         if let Some(i) = a.iter().position(|x| x == "--time") {
             a[i + 1] = format!("{h:02}:{m:02}");
@@ -3489,7 +3495,9 @@ fn duty_args_for_root(d: &Duty, root: &Path) -> Result<Vec<String>> {
     let schedule = d.schedule.unwrap_or(true) || d.line.is_some();
     if schedule {
         a.push("--schedule".into());
-        if d.schedule == Some(false) {
+        // (a company's duty runs the company's buses whatever the switch says: they are its
+        // service)
+        if d.schedule == Some(false) && d.company.is_none() {
             a.push("--no-timetable-buses".into());
         }
     }
@@ -3510,6 +3518,10 @@ fn duty_args_for_root(d: &Duty, root: &Path) -> Result<Vec<String>> {
         }
         for leg in d.legs.iter().filter(|x| !x.trim().is_empty() && free_route.is_none()) {
             a.extend(["--duty-leg".into(), leg.clone()]);
+        }
+        // (the company's duty: only its buses on the map)
+        if let Some(id) = d.company.as_deref().map(str::trim).filter(|x| !x.is_empty() && free_route.is_none()) {
+            a.extend(["--company".into(), id.to_string()]);
         }
     }
     if d.autostart.unwrap_or(false) {

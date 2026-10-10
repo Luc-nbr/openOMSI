@@ -283,6 +283,8 @@ fn play(l: &mut Launcher, body: Rect) {
         if card(l, id, Rect::new(col.x, y, col.w, card_h), icon, label, &value, warn) {
             if s == Sheet::Time && l.state.joined_server.is_some() {
                 l.state.set_status("On a server its clock and weather are the server's", false);
+            } else if matches!(s, Sheet::Bus) && l.state.planned_bus().is_some() {
+                l.state.set_status("Your company's planning gives this duty its bus, in the company's livery: it is not chosen here.", false);
             } else {
                 open(l, s);
             }
