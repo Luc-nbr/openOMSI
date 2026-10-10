@@ -2,17 +2,21 @@
 //!
 //! A display font the player chose for a bus ([`DisplayFontSpec`]) is an OMSI `.oft` font (by
 //! its `[newfont]` name) or a TrueType/OpenType font (`.ttf`, `.otf`, `.ttc`; one face of the
-//! file). Either becomes a font of dots first ([`DotFont`]): an `.oft` font is read in its own
-//! grid - a font drawn as a picture of a matrix (the Annax fonts' 3x3 dots in 4 px cells, a
-//! pixel font magnified four times) comes back as the matrix it shows - and a vector font is
-//! rasterised at a number of dot rows. Bold and the letter spacing are dots too. The dots are
-//! then laid into the grid of the display the font is drawn on ([`DotGrid`], read from the
-//! display's own font): one dot of the font is one dot of the display, or a square of them
-//! when the font has fewer rows than the display, thresholded as a matrix shows it (on or
-//! off) unless the display's own font is a smooth one. The result is a [`FontAtlas`] of the
-//! height of a line of the display's own font ([`DotFont::to_atlas`]): the game's text and
-//! script textures (`omsi_sim::texttex`, `omsi_sim::host`) and the launcher's previews draw
-//! with that same atlas.
+//! file). It stands in for the display's own font where that font's letters are: the display's
+//! grid of dots ([`DotGrid`], read from its own font - a font drawn as a picture of a matrix,
+//! the Annax fonts' 3x3 dots in 4 px cells or the Hamburg LEDs' round dots, comes back as the
+//! matrix it shows) and where its letters sit and how wide they are ([`LetterBand`]). A vector
+//! font is rasterised into those rows, its capitals as tall as the display's and on the same
+//! line ([`DotFont::from_vector_in`]); an `.oft` font is read in its own grid and magnified by
+//! whole times or shrunk to them ([`DotFont::fit_to`]); either narrowed to about the width of
+//! the letters it replaces ([`condense_for`]), with their gap and space - a matrix script that
+//! measures its text to pick a size then picks the size it picks in its own fonts. Bold and the
+//! letter spacing are dots too. The dots are laid into the display's grid, thresholded as a
+//! matrix shows them (on or off) unless the display's own font is a smooth one, into a
+//! [`FontAtlas`] of the height of a line of the display's own font ([`DotFont::to_atlas`]);
+//! what is no text - a script's pictograms behind braces, `#`, boxes - keeps the display's own
+//! drawing ([`merge_kept`]). The game's text and script textures (`omsi_sim::texttex`,
+//! `omsi_sim::host`) and the launcher's previews draw with that same atlas.
 
 use crate::font::{Font, FontAtlas, FontChar};
 use std::path::{Path, PathBuf};
@@ -29,12 +33,14 @@ pub struct DisplayFontSpec {
     pub file: Option<PathBuf>,
     /// The face in a font collection (`.ttc`).
     pub face: u32,
-    /// How many rows of dots the font's letters are drawn in (none: as many as the display's
-    /// own font has - a vector font rasterised at that, an `.oft` font in its own).
+    /// How tall its letters are drawn, capitals and descenders, in rows of dots (none: as
+    /// tall as the display's own font's letters; see `LetterBand::scaled_to`). A choice of
+    /// before the letters were fitted to the display's own meant the rows of the whole line,
+    /// which it still does on a display of no font of its own.
     pub rows: Option<u32>,
     /// Every stroke a dot wider.
     pub bold: bool,
-    /// Dots between two letters (none: the font's own).
+    /// Dots between two letters (none: as the display's own font has them).
     pub spacing: Option<u32>,
 }
 
@@ -144,101 +150,247 @@ impl DotGrid {
         DotGrid { pitch: 1, dot: 1, phase_x: 0, phase_y: 0, rows: rows.max(1), smooth: false }
     }
 
-    /// The grid `atlas`'s font draws in, read from its letters: the largest pitch at which
-    /// every stretch of lit pixels starts and ends at the same place of a cell (in both
-    /// directions). A font of no such grid (smooth letters, a pixel font as it is) has a
-    /// pitch of one.
+    /// The grid `atlas`'s font draws in, read from its letters. A picture of a matrix whose
+    /// dots stand apart (a dark seam between them) is read by its dots, a matrix whose dots
+    /// touch (a pixel font magnified a whole number of times) by its stretches of ink; each
+    /// letter may sit in the grid at a phase of its own - the stock LED fonts' letters were
+    /// cut out of their bitmaps a pixel off here and there - but the pitch and the dot must
+    /// agree. A font of no such grid (smooth letters, a pixel font as it is) has a pitch of
+    /// one, and is `smooth` when much of its ink is only partly covered.
     pub fn of_atlas(atlas: &FontAtlas) -> DotGrid {
         let h = atlas.font.height.max(1) as u32;
-        let (aw, ah) = (atlas.width as i32, atlas.height as i32);
-        let alpha = |x: i32, y: i32| -> u8 {
-            if x < 0 || y < 0 || x >= aw || y >= ah {
-                return 0;
-            }
-            atlas.alpha.get(((y * aw + x) * 4) as usize).copied().unwrap_or(0)
-        };
-        // stretches of ink (alpha of half and more) along the rows and the columns of every
-        // letter, from the letter's corner; and how much of the ink is partly covered
-        let (mut h_runs, mut v_runs): (Vec<(u32, u32)>, Vec<(u32, u32)>) = (Vec::new(), Vec::new());
-        let (mut inked, mut partial) = (0usize, 0usize);
-        let mut seen: Vec<char> = Vec::new();
-        for g in atlas.font.chars.iter().filter(|g| !g.ch.is_whitespace() && g.x1 > g.x0).take(256) {
-            if seen.contains(&g.ch) {
-                continue;
-            }
-            seen.push(g.ch);
-            let gw = (g.x1 - g.x0) as u32;
-            for y in 0..h {
-                let mut start: Option<u32> = None;
-                for x in 0..=gw {
-                    let a = if x < gw { alpha(g.x0 + x as i32, g.y + y as i32) } else { 0 };
-                    if x < gw && a > 0 {
-                        inked += 1;
-                        if (16..240).contains(&a) {
-                            partial += 1;
-                        }
-                    }
-                    match (a >= 128, start) {
-                        (true, None) => start = Some(x),
-                        (false, Some(s)) => {
-                            h_runs.push((s, x));
-                            start = None;
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            for x in 0..gw {
-                let mut start: Option<u32> = None;
-                for y in 0..=h {
-                    let a = if y < h { alpha(g.x0 + x as i32, g.y + y as i32) } else { 0 };
-                    match (a >= 128, start) {
-                        (true, None) => start = Some(y),
-                        (false, Some(s)) => {
-                            v_runs.push((s, y));
-                            start = None;
-                        }
-                        _ => {}
-                    }
-                }
-            }
+        let glyphs = sample_glyphs(atlas);
+        let ink = Ink::of(atlas, &glyphs, h);
+        // (LEDs drawn with a wide glow - SG_LED's - are blobs of one size only nearer their
+        // full ink: there the dots are read again)
+        let brighter = ((ink.full as u32 * 3 / 4) as u8).max(ink.core);
+        let found = grid_of_dots(atlas, &glyphs, h, ink.core).or_else(|| (brighter > ink.core).then(|| grid_of_dots(atlas, &glyphs, h, brighter)).flatten()).or_else(|| grid_of_cells(atlas, &glyphs, h, ink.core));
+        if let Some(g) = found {
+            return g;
         }
-        let smooth = inked > 0 && partial * 4 > inked;
-        let plain = DotGrid { smooth, ..DotGrid::plain(h) };
-        if smooth || h_runs.len() < 12 || v_runs.len() < 12 {
-            return plain;
-        }
-        // (the residue most stretches start - or end - at, and how many do)
-        let mode = |v: &mut dyn Iterator<Item = u32>, p: u32| -> (u32, f32) {
-            let mut counts = vec![0usize; p as usize];
-            let mut n = 0usize;
-            for x in v {
-                counts[(x % p) as usize] += 1;
-                n += 1;
-            }
-            let (r, c) = counts.iter().enumerate().max_by_key(|(i, c)| (**c, std::cmp::Reverse(*i))).map(|(i, c)| (i as u32, *c)).unwrap_or((0, 0));
-            (r, if n == 0 { 0.0 } else { c as f32 / n as f32 })
-        };
-        for p in (2..=12u32).rev() {
-            if p * 2 > h {
-                continue;
-            }
-            let (hs, fhs) = mode(&mut h_runs.iter().map(|r| r.0), p);
-            let (he, fhe) = mode(&mut h_runs.iter().map(|r| r.1), p);
-            let (vs, fvs) = mode(&mut v_runs.iter().map(|r| r.0), p);
-            let (ve, fve) = mode(&mut v_runs.iter().map(|r| r.1), p);
-            if [fhs, fhe, fvs, fve].iter().all(|f| *f >= 0.97) {
-                let dot_of = |s: u32, e: u32| match (e + p - s) % p {
-                    0 => p,
-                    d => d,
-                };
-                let dot = dot_of(hs, he).min(dot_of(vs, ve));
-                let rows = if h >= vs + dot { (h - vs - dot) / p + 1 } else { (h / p).max(1) };
-                return DotGrid { pitch: p, dot, phase_x: hs, phase_y: vs, rows, smooth: false };
-            }
-        }
-        plain
+        DotGrid { smooth: ink.partial > 0.05, ..DotGrid::plain(h) }
     }
+}
+
+/// How a font's letters are inked, read from their pixels: the alpha a pixel needs to be
+/// part of a dot's core (half of what the ink mostly is: an anti-aliased LED's halo is left
+/// out), what the ink mostly is (a dot read at that is fully lit), and the share of the inked
+/// pixels that are only partly covered.
+#[derive(Debug, Clone, Copy)]
+struct Ink {
+    core: u8,
+    full: u8,
+    partial: f32,
+}
+
+impl Ink {
+    fn of(atlas: &FontAtlas, glyphs: &[&FontChar], h: u32) -> Ink {
+        let mut hist = [0usize; 256];
+        for g in glyphs {
+            for y in 0..h as i32 {
+                for x in g.x0..g.x1 {
+                    hist[alpha_at(atlas, x, g.y + y) as usize] += 1;
+                }
+            }
+        }
+        let inked: usize = hist[1..].iter().sum();
+        if inked == 0 {
+            return Ink { core: 128, full: 255, partial: 0.0 };
+        }
+        // (the alpha nine tenths of the ink stay under)
+        let mut seen = 0usize;
+        let mut p90 = 255u8;
+        for (a, n) in hist.iter().enumerate().skip(1) {
+            seen += n;
+            if seen * 10 >= inked * 9 {
+                p90 = a as u8;
+                break;
+            }
+        }
+        let partial: usize = hist[16..240].iter().sum();
+        Ink { core: (p90 / 2).max(48), full: p90.max(1), partial: partial as f32 / inked as f32 }
+    }
+}
+
+/// The letters of `atlas` its grid is read from: each character once, no whitespace and
+/// nothing empty, the first 256.
+fn sample_glyphs(atlas: &FontAtlas) -> Vec<&FontChar> {
+    let mut out: Vec<&FontChar> = Vec::new();
+    for g in atlas.font.chars.iter().filter(|g| !g.ch.is_whitespace() && g.x1 > g.x0) {
+        if out.iter().any(|o| o.ch == g.ch) {
+            continue;
+        }
+        out.push(g);
+        if out.len() == 256 {
+            break;
+        }
+    }
+    out
+}
+
+/// The coverage of `atlas`'s pixel (`x`, `y`) (none outside it).
+fn alpha_at(atlas: &FontAtlas, x: i32, y: i32) -> u8 {
+    if x < 0 || y < 0 || x >= atlas.width as i32 || y >= atlas.height as i32 {
+        return 0;
+    }
+    atlas.alpha.get(((y as u32 * atlas.width + x as u32) * 4) as usize).copied().unwrap_or(0)
+}
+
+/// The value most of `values` have (the smallest of those as common), and how many have it.
+fn mode_of(values: impl Iterator<Item = u32>) -> Option<(u32, usize)> {
+    let mut counts: Vec<(u32, usize)> = Vec::new();
+    for v in values {
+        match counts.iter_mut().find(|c| c.0 == v) {
+            Some(c) => c.1 += 1,
+            None => counts.push((v, 1)),
+        }
+    }
+    counts.into_iter().max_by_key(|&(v, n)| (n, std::cmp::Reverse(v)))
+}
+
+/// Each letter's own phase along one direction - the residue most of its dots (or stretches)
+/// start at - and the share of them over all letters that keep to their letter's; with the
+/// phase most letters have. `starts` are (letter, start) pairs.
+fn phases(starts: &[(usize, u32)], p: u32) -> (f32, u32) {
+    let mut letters: Vec<usize> = starts.iter().map(|s| s.0).collect();
+    letters.dedup();
+    let (mut agree, mut of_letters) = (0usize, Vec::new());
+    for l in letters {
+        if let Some((r, n)) = mode_of(starts.iter().filter(|s| s.0 == l).map(|s| s.1 % p)) {
+            agree += n;
+            of_letters.push((r, n));
+        }
+    }
+    let common = mode_of(of_letters.iter().flat_map(|&(r, n)| std::iter::repeat_n(r, n))).map(|m| m.0).unwrap_or(0);
+    (if starts.is_empty() { 0.0 } else { agree as f32 / starts.len() as f32 }, common)
+}
+
+/// The most dots a matrix font's dot may span (pixels), and so the largest pitch read.
+const MAX_PITCH: u32 = 12;
+
+/// `DotGrid::of_atlas` of a picture of a matrix whose dots stand apart: every dot a blob of
+/// ink of its own - square, round, or the L of three pixels the Hamburg LED fonts draw - and
+/// the blobs a pitch apart (the step between two neighbouring dots of a stroke). None when
+/// the ink is no such blobs (smooth letters, a pixel font: its letters are whole blobs).
+fn grid_of_dots(atlas: &FontAtlas, glyphs: &[&FontChar], h: u32, core: u8) -> Option<DotGrid> {
+    // (letter, x, y, width, height) of every blob, from the letter's corner
+    let mut blobs: Vec<(usize, u32, u32, u32, u32)> = Vec::new();
+    let mut large = 0usize;
+    for (li, g) in glyphs.iter().enumerate() {
+        let gw = (g.x1 - g.x0) as u32;
+        let inked: Vec<bool> = (0..h).flat_map(|y| (0..gw).map(move |x| (x, y))).map(|(x, y)| alpha_at(atlas, g.x0 + x as i32, g.y + y as i32) >= core).collect();
+        let mut seen = vec![false; inked.len()];
+        for start in 0..inked.len() {
+            if !inked[start] || seen[start] {
+                continue;
+            }
+            // (the pixels that touch, corners too)
+            let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0u32, 0u32);
+            let mut stack = vec![start];
+            seen[start] = true;
+            while let Some(i) = stack.pop() {
+                let (x, y) = (i as u32 % gw, i as u32 / gw);
+                (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
+                for (dx, dy) in [(-1i32, -1i32), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)] {
+                    let (nx, ny) = (x as i32 + dx, y as i32 + dy);
+                    if nx < 0 || ny < 0 || nx >= gw as i32 || ny >= h as i32 {
+                        continue;
+                    }
+                    let n = (ny as u32 * gw + nx as u32) as usize;
+                    if inked[n] && !seen[n] {
+                        seen[n] = true;
+                        stack.push(n);
+                    }
+                }
+            }
+            let (bw, bh) = (x1 - x0 + 1, y1 - y0 + 1);
+            if bw >= MAX_PITCH || bh >= MAX_PITCH {
+                large += 1;
+            } else {
+                blobs.push((li, x0, y0, bw, bh));
+            }
+        }
+    }
+    if blobs.len() < 12 || large * 10 > (blobs.len() + large) {
+        return None;
+    }
+    // the step from a dot to the next one along a row and down a column
+    let mut steps: Vec<u32> = Vec::new();
+    for li in 0..glyphs.len() {
+        let mut mine: Vec<(u32, u32)> = blobs.iter().filter(|b| b.0 == li).map(|b| (b.1, b.2)).collect();
+        mine.sort_by_key(|&(x, y)| (y, x));
+        steps.extend(mine.windows(2).filter(|w| w[0].1 == w[1].1).map(|w| w[1].0 - w[0].0));
+        mine.sort();
+        steps.extend(mine.windows(2).filter(|w| w[0].0 == w[1].0).map(|w| w[1].1 - w[0].1));
+    }
+    let (p, _) = mode_of(steps.iter().copied().filter(|s| (2..=MAX_PITCH).contains(s)))?;
+    let (dot, _) = mode_of(blobs.iter().map(|b| b.3.max(b.4)))?;
+    if steps.len() < 12 || dot >= p || p * 2 > h || steps.iter().filter(|s| *s % p == 0).count() * 10 < steps.len() * 9 {
+        return None;
+    }
+    let (fx, phase_x) = phases(&blobs.iter().map(|b| (b.0, b.1)).collect::<Vec<_>>(), p);
+    let (fy, phase_y) = phases(&blobs.iter().map(|b| (b.0, b.2)).collect::<Vec<_>>(), p);
+    if fx < 0.9 || fy < 0.9 {
+        return None;
+    }
+    let rows = if h >= phase_y + dot { (h - phase_y - dot) / p + 1 } else { (h / p).max(1) };
+    Some(DotGrid { pitch: p, dot, phase_x, phase_y, rows, smooth: false })
+}
+
+/// `DotGrid::of_atlas` of a matrix whose dots touch (a pixel font magnified a whole number of
+/// times, no seams): the largest pitch at which every stretch of ink along the rows and the
+/// columns of a letter starts at the same place of a cell and is a whole number of cells long.
+fn grid_of_cells(atlas: &FontAtlas, glyphs: &[&FontChar], h: u32, core: u8) -> Option<DotGrid> {
+    // (letter, start, length) of every stretch, from the letter's corner
+    let (mut along, mut down): (Vec<(usize, u32, u32)>, Vec<(usize, u32, u32)>) = (Vec::new(), Vec::new());
+    for (li, g) in glyphs.iter().enumerate() {
+        let gw = (g.x1 - g.x0) as u32;
+        let on = |x: u32, y: u32| x < gw && y < h && alpha_at(atlas, g.x0 + x as i32, g.y + y as i32) >= core;
+        for y in 0..h {
+            let mut start: Option<u32> = None;
+            for x in 0..=gw {
+                match (on(x, y), start) {
+                    (true, None) => start = Some(x),
+                    (false, Some(s)) => {
+                        along.push((li, s, x - s));
+                        start = None;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        for x in 0..gw {
+            let mut start: Option<u32> = None;
+            for y in 0..=h {
+                match (on(x, y), start) {
+                    (true, None) => start = Some(y),
+                    (false, Some(s)) => {
+                        down.push((li, s, y - s));
+                        start = None;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    if along.len() < 12 || down.len() < 12 {
+        return None;
+    }
+    for p in (2..=MAX_PITCH).rev() {
+        if p * 2 > h {
+            continue;
+        }
+        let whole = along.iter().chain(&down).filter(|r| r.2 % p == 0).count();
+        if whole * 100 < (along.len() + down.len()) * 92 {
+            continue;
+        }
+        let (fx, phase_x) = phases(&along.iter().map(|r| (r.0, r.1)).collect::<Vec<_>>(), p);
+        let (fy, phase_y) = phases(&down.iter().map(|r| (r.0, r.1)).collect::<Vec<_>>(), p);
+        if fx >= 0.92 && fy >= 0.92 {
+            return Some(DotGrid { pitch: p, dot: p, phase_x, phase_y, rows: ((h - phase_y.min(h)) / p).max(1), smooth: false });
+        }
+    }
+    None
 }
 
 // --- a font of dots ---------------------------------------------------------------------------
@@ -289,34 +441,57 @@ pub fn charset() -> Vec<char> {
 }
 
 impl DotFont {
-    /// The letters of `atlas` as dots, each read at the middle of its dots in `grid` (the
-    /// font's own, [`DotGrid::of_atlas`]).
+    /// The letters of `atlas` as dots of `grid` (the font's own, [`DotGrid::of_atlas`]): each
+    /// letter read at its own phase in the grid (where its dots hold the most ink, the grid's
+    /// phase on a tie), each dot as the most ink of its pixels - a round or L-shaped LED is
+    /// lit as a square one - made full where it reaches what the font's ink mostly is.
     pub fn from_atlas(atlas: &FontAtlas, grid: &DotGrid) -> DotFont {
         let p = grid.pitch.max(1);
-        let half = (grid.dot / 2) as i32;
-        let (aw, ah) = (atlas.width as i32, atlas.height as i32);
+        let d = grid.dot.clamp(1, p);
+        let rows = grid.rows.max(1);
+        let h = atlas.font.height.max(1) as u32;
+        let full = Ink::of(atlas, &sample_glyphs(atlas), h).full as u32;
         let mut glyphs: Vec<DotGlyph> = Vec::new();
         for g in atlas.font.chars.iter().filter(|g| !g.ch.is_whitespace()) {
-            if glyphs.iter().any(|d| d.ch == g.ch) {
+            if glyphs.iter().any(|o| o.ch == g.ch) {
                 continue;
             }
             let gw = (g.x1 - g.x0).max(0) as u32;
-            let cols = if gw > grid.phase_x { (gw - grid.phase_x).div_ceil(p) } else { 0 };
-            let mut cov = vec![0u8; (cols * grid.rows) as usize];
-            for j in 0..grid.rows {
-                for i in 0..cols {
-                    let x = g.x0 + (grid.phase_x + i * p) as i32 + half;
-                    let y = g.y + (grid.phase_y + j * p) as i32 + half;
-                    if x >= g.x1 || x < 0 || y < 0 || x >= aw || y >= ah {
-                        continue;
+            let cols_at = |fx: u32| if gw > fx { (gw - fx).div_ceil(p) } else { 0 };
+            // (the pixels of the dot in column i and row j at phase (fx, fy), in the letter
+            // and its line)
+            let pixels = |fx: u32, fy: u32, i: u32, j: u32| {
+                let (x, y) = (fx + i * p, fy + j * p);
+                (y..(y + d).min(h)).flat_map(move |yy| (x..(x + d).min(gw)).map(move |xx| alpha_at(atlas, g.x0 + xx as i32, g.y + yy as i32)))
+            };
+            let (fx, fy) = if p == 1 {
+                (0, 0)
+            } else {
+                let held = |fx: u32, fy: u32| -> u64 { (0..rows).flat_map(|j| (0..cols_at(fx)).map(move |i| (i, j))).map(|(i, j)| pixels(fx, fy, i, j).map(u64::from).sum::<u64>()).sum() };
+                let mut best = ((grid.phase_x % p, grid.phase_y % p), 0u64);
+                best.1 = held(best.0 .0, best.0 .1);
+                for fy in 0..p {
+                    for fx in 0..p {
+                        let s = held(fx, fy);
+                        if s > best.1 {
+                            best = ((fx, fy), s);
+                        }
                     }
-                    cov[(j * cols + i) as usize] = atlas.alpha.get(((y * aw + x) * 4) as usize).copied().unwrap_or(0);
+                }
+                best.0
+            };
+            let cols = cols_at(fx);
+            let mut cov = vec![0u8; (cols * rows) as usize];
+            for j in 0..rows {
+                for i in 0..cols {
+                    let most = pixels(fx, fy, i, j).max().unwrap_or(0) as u32;
+                    cov[(j * cols + i) as usize] = (most * 255 / full).min(255) as u8;
                 }
             }
             glyphs.push(DotGlyph { ch: g.ch, w: cols, cov });
         }
         let dots = |px: i32| ((px.max(0) as f32) / p as f32).round() as u32;
-        DotFont { name: atlas.font.name.trim().to_string(), rows: grid.rows.max(1), gap: dots(atlas.font.gap), space: dots(atlas.font.space_width()).max(1), glyphs }
+        DotFont { name: atlas.font.name.trim().to_string(), rows, gap: dots(atlas.font.gap), space: dots(atlas.font.space_width()).max(1), glyphs }
     }
 
     /// Face `face` of the TrueType/OpenType font `data` rasterised at `rows` rows of dots, for
@@ -325,8 +500,78 @@ impl DotFont {
     /// a capital with an accent - squeezed into them, as signs do, not cut off), each letter's
     /// outline as much as it covers of every dot, its empty columns at either side left out:
     /// the letters stand `gap` dots apart. In fewer than `CAPITALS_BELOW` rows the capitals
-    /// fill them and small letters are written as capitals.
+    /// fill them and small letters are written as capitals. (`from_vector_in` a band that
+    /// fills the rows: for a display whose own font says nothing of where its letters sit.)
     pub fn from_vector(data: &[u8], face: u32, rows: u32, chars: &[char]) -> Result<DotFont, String> {
+        DotFont::from_vector_in(data, face, &LetterBand::filling(rows), chars, 1.0)
+    }
+
+    /// Face `face` of the TrueType/OpenType font `data` made into dots for the letters `chars`
+    /// as the font of `band` has them: in its rows, the capitals as tall as its capitals
+    /// (an H's height) and standing on its line, every letter `condense` times as wide as the
+    /// face draws it (see `condense_for`). A letter reaching above the first row or below the
+    /// last - an accent over a capital, a descender on a sign of capitals - is squeezed
+    /// upright into them, not cut off. The letters stand the band's gap apart, a space is as
+    /// wide as its font's (so that a destination padded with spaces lies as it does in it);
+    /// in capitals (`band.capitals_only`, or too few rows for small letters) small letters
+    /// are written as capitals.
+    pub fn from_vector_in(data: &[u8], face: u32, band: &LetterBand, chars: &[char], condense: f32) -> Result<DotFont, String> {
+        if band.fill {
+            return DotFont::filling_from_vector(data, face, band.rows, chars);
+        }
+        use ab_glyph::{Font as _, FontRef, PxScale};
+        let font = FontRef::try_from_slice_and_index(data, face).map_err(|e| e.to_string())?;
+        let rows = band.rows.clamp(1, 512);
+        let capitals = band.capitals_only || band.cap_rows() + band.below < CAPITALS_BELOW;
+        let has = |c: char| font.glyph_id(c).0 != 0;
+        // (an outline's bounds run from its top, `min`, to its bottom, `max`, in units
+        // counted upwards from the line)
+        let bounds = |c: char| -> Option<(f32, f32)> {
+            let id = font.glyph_id(c);
+            (id.0 != 0).then(|| font.outline(id)).flatten().map(|o| (o.bounds.min.y, o.bounds.max.y))
+        };
+        // the capitals' height in the font's units: a flat-topped capital's
+        let cap_units = ['H', 'E', 'I', 'T', 'N', 'L', 'F'].iter().find_map(|&c| bounds(c).map(|b| b.0).filter(|t| *t > 0.0)).unwrap_or(font.ascent_unscaled() * 0.7).max(1.0);
+        let units = font.height_unscaled().max(1.0);
+        // (pixels per unit; a `PxScale` is the pixels of the font's whole height)
+        let f = band.cap_rows() as f32 / cap_units;
+        let condense = condense.clamp(0.1, 1.0);
+        let base = band.base as f32;
+        let mut glyphs: Vec<DotGlyph> = Vec::new();
+        for &c in chars {
+            if c.is_whitespace() || glyphs.iter().any(|g| g.ch == c) || (capitals && capital_of(c).is_some_and(has)) {
+                continue;
+            }
+            let id = font.glyph_id(c);
+            let Some((gt, gb)) = bounds(c).filter(|b| b.0 > b.1) else { continue };
+            // where it reaches on the line, and squeezed upright into the rows when that is
+            // past them (from where it starts, or the first row, to where it ends, or the last)
+            let (top, bottom) = (base - gt * f, base - gb * f);
+            let (fy, line) = if top < 0.0 || bottom > rows as f32 {
+                let (t, b) = (top.max(0.0), bottom.min(rows as f32));
+                let fy = (b - t).max(1.0) / (gt - gb);
+                (fy, t + gt * fy)
+            } else {
+                (f, base)
+            };
+            let scale = PxScale { x: f * units * condense, y: fy * units };
+            let Some(outlined) = font.outline_glyph(id.with_scale_and_position(scale, ab_glyph::point(0.0, line))) else { continue };
+            if let Some(g) = dots_of_outline(c, &outlined, rows) {
+                glyphs.push(g);
+            }
+        }
+        if glyphs.is_empty() {
+            return Err("the font has none of the letters".into());
+        }
+        if capitals {
+            add_capitals_for_small(&mut glyphs, chars);
+        }
+        Ok(DotFont { name: String::new(), rows, gap: band.gap, space: band.space.max(1), glyphs })
+    }
+
+    /// `from_vector` itself: the letters fill the rows, from the top of the capitals and tall
+    /// letters to the bottom of the descenders.
+    fn filling_from_vector(data: &[u8], face: u32, rows: u32, chars: &[char]) -> Result<DotFont, String> {
         use ab_glyph::{Font as _, FontRef, PxScale, ScaleFont as _};
         let font = FontRef::try_from_slice_and_index(data, face).map_err(|e| e.to_string())?;
         let rows = rows.clamp(3, 512);
@@ -371,26 +616,9 @@ impl DotFont {
             let fy = rows as f32 / (gt - gb).max(1.0);
             let glyph_scale = PxScale { x: f * units, y: fy * units };
             let Some(outlined) = font.outline_glyph(id.with_scale_and_position(glyph_scale, ab_glyph::point(0.0, gt * fy))) else { continue };
-            let b = outlined.px_bounds();
-            let (w, top) = (b.width().max(0.0) as u32, b.min.y as i32);
-            if w == 0 {
-                continue;
+            if let Some(g) = dots_of_outline(c, &outlined, rows) {
+                glyphs.push(g);
             }
-            let mut cov = vec![0u8; (w * rows) as usize];
-            outlined.draw(|x, y, c| {
-                let yy = top + y as i32;
-                if x < w && yy >= 0 && (yy as u32) < rows {
-                    let i = (yy as u32 * w + x) as usize;
-                    cov[i] = cov[i].max((c.clamp(0.0, 1.0) * 255.0).round() as u8);
-                }
-            });
-            // (the columns the letter does not reach: its side bearings, which the gap takes over)
-            let used = |x: u32| (0..rows).any(|y| cov[(y * w + x) as usize] >= 100);
-            let Some(first) = (0..w).find(|&x| used(x)) else { continue };
-            let last = (0..w).rev().find(|&x| used(x)).unwrap_or(first);
-            let nw = last - first + 1;
-            let cut: Vec<u8> = (0..rows).flat_map(|y| (first..=last).map(move |x| (y, x))).map(|(y, x)| cov[(y * w + x) as usize]).collect();
-            glyphs.push(DotGlyph { ch: c, w: nw, cov: cut });
         }
         if glyphs.is_empty() {
             return Err("the font has none of the letters".into());
@@ -431,11 +659,9 @@ impl DotFont {
         DotFont { name: self.name.clone(), rows, gap: (self.gap as f32 * f).round() as u32, space: ((self.space as f32 * f).round() as u32).max(1), glyphs }
     }
 
-    /// The rows a glyph's dots are lit in (half and more), first and last.
+    /// The rows a glyph's dots are lit in (`LIT` and more), first and last.
     fn lit_rows(&self, g: &DotGlyph) -> Option<(u32, u32)> {
-        let lit = |y: u32| (0..g.w).any(|x| g.cov[(y * g.w + x) as usize] >= 112);
-        let first = (0..self.rows).find(|&y| lit(y))?;
-        Some((first, (0..self.rows).rev().find(|&y| lit(y)).unwrap_or(first)))
+        lit_rows_of(g, self.rows)
     }
 
     /// `resized` to a sign of capitals: the rows of the capitals (an H's) made `rows` rows.
@@ -500,12 +726,71 @@ impl DotFont {
         })
     }
 
+    /// The font with only the letters among `chars`.
+    pub fn only(&self, chars: &[char]) -> DotFont {
+        DotFont { glyphs: self.glyphs.iter().filter(|g| chars.contains(&g.ch)).cloned().collect(), ..self.clone() }
+    }
+
+    /// The mean width (dots, its ink alone) of the letters among `chars` the font has.
+    pub fn mean_width(&self, chars: &[char]) -> Option<f32> {
+        let widths: Vec<u32> = chars.iter().filter_map(|&c| self.glyphs.iter().find(|g| g.ch == c)).filter_map(|g| inked_cols(g, self.rows)).map(|(a, b)| b - a + 1).collect();
+        (!widths.is_empty()).then(|| widths.iter().sum::<u32>() as f32 / widths.len() as f32)
+    }
+
+    /// An `.oft` font's dots (`from_atlas`) as the letters of the font of `band` stand: its
+    /// capitals as tall as those, by whole times where they fit twice or more (each dot a
+    /// square of dots, crisp), as they are up to that, shrunk where they are taller; standing
+    /// on its line (a letter that would reach past its rows squeezed into them, not cut off);
+    /// each letter its ink alone, `condense` times as wide (see `condense_for`), the band's
+    /// gap between two. On a sign of capitals small letters are written as capitals.
+    pub fn fit_to(&self, band: &LetterBand, condense: f32) -> DotFont {
+        if band.fill {
+            return if self.rows > band.rows { self.resized(band.rows) } else { self.clone() };
+        }
+        let src = LetterBand::of(self);
+        let rows = band.rows.max(1);
+        let condense = condense.clamp(0.1, 1.0);
+        let r = band.cap_rows().max(1) as f32 / src.cap_rows().max(1) as f32;
+        let k = if r >= 2.0 { r.floor() as u32 } else { 1 };
+        let shrink = r < 1.0;
+        let (scale, scaled_rows) = if shrink { (r, ((self.rows as f32 * r).round() as u32).max(1)) } else { (k as f32, self.rows * k) };
+        let off = band.base as i32 - (src.base as f32 * scale).round() as i32;
+        let capitals = band.capitals_only || band.cap_rows() + band.below < CAPITALS_BELOW;
+        let mut glyphs: Vec<DotGlyph> = Vec::new();
+        for g in &self.glyphs {
+            if capitals && capital_of(g.ch).is_some_and(|u| self.glyphs.iter().any(|o| o.ch == u)) {
+                continue;
+            }
+            let g = trimmed(g, self.rows);
+            let (w, plane) = if k >= 2 {
+                // (narrower by whole dots too: a dot k high stays a block of whole dots)
+                let kx = ((k as f32 * condense).round() as u32).max(1);
+                (g.w * kx, magnified(&g.cov, g.w, self.rows, kx, k))
+            } else {
+                let nw = ((g.w as f32 * if shrink { r } else { 1.0 } * condense).round() as u32).max(1);
+                if nw == g.w && !shrink {
+                    (g.w, g.cov.clone())
+                } else {
+                    (nw, resample_plane(&g.cov, g.w, self.rows, nw, scaled_rows))
+                }
+            };
+            glyphs.push(DotGlyph { ch: g.ch, w, cov: placed(&plane, w, scaled_rows, off, rows) });
+        }
+        if capitals {
+            let small: Vec<char> = self.glyphs.iter().map(|g| g.ch).collect();
+            add_capitals_for_small(&mut glyphs, &small);
+        }
+        DotFont { name: self.name.clone(), rows, gap: band.gap, space: band.space.max(1), glyphs }
+    }
+
     /// The font as `grid`'s display draws it, `line_h` pixels high (a line of the display's
     /// own font): as many of the display's rows as it has - shrunk to them when it has more,
     /// every dot a square of whole dots when it fits that many times - in the middle of the
     /// line, each dot drawn where the display has one; on or off, unless the display's font is
     /// a smooth one. White letters on nothing: the display's colour is laid over them as over
-    /// its own font.
+    /// its own font. A dot is on from half its letter's most ink (at most `LIT`), so that a
+    /// letter shrunk until no dot of it is half covered still shows; and from a quarter for
+    /// every letter when that still leaves the font far darker than its ink.
     pub fn to_atlas(&self, grid: &DotGrid, line_h: u32, name: &str) -> FontAtlas {
         let line_h = line_h.max(1);
         let p = grid.pitch.max(1);
@@ -514,10 +799,20 @@ impl DotFont {
         let font = if self.rows > n { self.resized(n) } else { self.clone() };
         let k = (n / font.rows.max(1)).max(1);
         let top = n.saturating_sub(font.rows * k) / 2;
-        let lit = |c: u8| -> u8 {
+        let own_threshold = |g: &DotGlyph| (g.cov.iter().copied().max().unwrap_or(0) / 2).clamp(1, LIT);
+        let (mut ink, mut on, mut cells) = (0.0f32, 0usize, 0usize);
+        for g in &font.glyphs {
+            let t = own_threshold(g);
+            ink += g.cov.iter().map(|&c| c as f32 / 255.0).sum::<f32>();
+            on += g.cov.iter().filter(|&&c| c >= t).count();
+            cells += g.cov.len();
+        }
+        let dark = cells > 0 && (on as f32) < ink * 0.25;
+        let threshold = |g: &DotGlyph| if dark { own_threshold(g).min(64) } else { own_threshold(g) };
+        let lit = |c: u8, t: u8| -> u8 {
             if grid.smooth {
                 c
-            } else if c >= 112 {
+            } else if c >= t {
                 255
             } else {
                 0
@@ -545,9 +840,10 @@ impl DotFont {
         let mut chars: Vec<FontChar> = Vec::with_capacity(glyphs.len() + 1);
         for (&(ch, w_px, g), &(gx, gy)) in glyphs.iter().zip(&places) {
             chars.push(FontChar { ch, x0: gx as i32, x1: (gx + w_px) as i32, y: gy as i32 });
+            let t = threshold(g);
             for j in 0..font.rows {
                 for i in 0..g.w {
-                    let a = lit(g.cov[(j * g.w + i) as usize]);
+                    let a = lit(g.cov[(j * g.w + i) as usize], t);
                     if a == 0 {
                         continue;
                     }
@@ -577,6 +873,30 @@ impl DotFont {
     }
 }
 
+/// The letter `c` of an outline placed in `rows` rows (its line where the outline was
+/// positioned): each dot as much as the outline covers of it, the empty columns at either side
+/// (its side bearings, which the gap takes over) left out. None for a letter of no ink.
+fn dots_of_outline(c: char, outlined: &ab_glyph::OutlinedGlyph, rows: u32) -> Option<DotGlyph> {
+    let b = outlined.px_bounds();
+    let (w, top) = (b.width().max(0.0) as u32, b.min.y as i32);
+    if w == 0 {
+        return None;
+    }
+    let mut cov = vec![0u8; (w * rows) as usize];
+    outlined.draw(|x, y, c| {
+        let yy = top + y as i32;
+        if x < w && yy >= 0 && (yy as u32) < rows {
+            let i = (yy as u32 * w + x) as usize;
+            cov[i] = cov[i].max((c.clamp(0.0, 1.0) * 255.0).round() as u8);
+        }
+    });
+    let used = |x: u32| (0..rows).any(|y| cov[(y * w + x) as usize] >= 100);
+    let first = (0..w).find(|&x| used(x))?;
+    let last = (0..w).rev().find(|&x| used(x)).unwrap_or(first);
+    let cut: Vec<u8> = (0..rows).flat_map(|y| (first..=last).map(move |x| (y, x))).map(|(y, x)| cov[(y * w + x) as usize]).collect();
+    Some(DotGlyph { ch: c, w: last - first + 1, cov: cut })
+}
+
 /// The small letters among `chars` written as their capitals among `glyphs` (a sign of
 /// capitals): each a copy of its capital.
 fn add_capitals_for_small(glyphs: &mut Vec<DotGlyph>, chars: &[char]) {
@@ -588,6 +908,294 @@ fn add_capitals_for_small(glyphs: &mut Vec<DotGlyph>, chars: &[char]) {
             glyphs.push(DotGlyph { ch: c, ..cap });
         }
     }
+}
+
+/// A dot is lit from this much coverage on (as a matrix shows it: on or off).
+pub const LIT: u8 = 112;
+
+/// The rows of `rows` a glyph's dots are lit in, first and last.
+fn lit_rows_of(g: &DotGlyph, rows: u32) -> Option<(u32, u32)> {
+    let lit = |y: u32| (0..g.w).any(|x| g.cov.get((y * g.w + x) as usize).is_some_and(|c| *c >= LIT));
+    let first = (0..rows).find(|&y| lit(y))?;
+    Some((first, (0..rows).rev().find(|&y| lit(y)).unwrap_or(first)))
+}
+
+/// The columns a glyph (of `rows` rows) has lit dots in, first and last.
+fn inked_cols(g: &DotGlyph, rows: u32) -> Option<(u32, u32)> {
+    let lit = |x: u32| (0..rows).any(|y| g.cov.get((y * g.w + x) as usize).is_some_and(|c| *c >= LIT));
+    let first = (0..g.w).find(|&x| lit(x))?;
+    Some((first, (0..g.w).rev().find(|&x| lit(x)).unwrap_or(first)))
+}
+
+/// A glyph without the empty columns either side of its ink (one of no ink as it is).
+fn trimmed(g: &DotGlyph, rows: u32) -> DotGlyph {
+    let Some((a, b)) = inked_cols(g, rows) else { return g.clone() };
+    if a == 0 && b + 1 == g.w {
+        return g.clone();
+    }
+    DotGlyph { ch: g.ch, w: b - a + 1, cov: (0..rows).flat_map(|y| (a..=b).map(move |x| (y, x))).map(|(y, x)| g.cov[(y * g.w + x) as usize]).collect() }
+}
+
+/// A plane of `w` x `h` dots with every dot a block of `kx` x `ky`.
+fn magnified(src: &[u8], w: u32, h: u32, kx: u32, ky: u32) -> Vec<u8> {
+    let nw = w * kx;
+    (0..h * ky).flat_map(|y| (0..nw).map(move |x| src[((y / ky) * w + x / kx) as usize])).collect()
+}
+
+/// A plane of `w` x `h` dots moved `off` rows down into a plane of `rows` rows; its ink
+/// squeezed upright into them where it would reach past them (from where it starts, or the
+/// first row, to where it ends, or the last), not cut off.
+fn placed(src: &[u8], w: u32, h: u32, off: i32, rows: u32) -> Vec<u8> {
+    let mut out = vec![0u8; (w * rows) as usize];
+    let inked = |y: u32| (0..w).any(|x| src[(y * w + x) as usize] > 0);
+    let Some(first) = (0..h).find(|&y| inked(y)) else { return out };
+    let last = (0..h).rev().find(|&y| inked(y)).unwrap_or(first);
+    let (top, bottom) = (first as i32 + off, last as i32 + off);
+    let row = |y: u32| (y * w) as usize..((y + 1) * w) as usize;
+    if top >= 0 && bottom < rows as i32 {
+        for y in first..=last {
+            out[row((y as i32 + off) as u32)].copy_from_slice(&src[row(y)]);
+        }
+        return out;
+    }
+    let t = top.clamp(0, rows as i32 - 1) as u32;
+    let b = (bottom.clamp(0, rows as i32 - 1) as u32).max(t);
+    let squeezed = resample_plane(&src[(first * w) as usize..((last + 1) * w) as usize], w, last - first + 1, w, b - t + 1);
+    out[(t * w) as usize..((b + 1) * w) as usize].copy_from_slice(&squeezed);
+    out
+}
+
+// --- where a font's letters sit -----------------------------------------------------------------
+
+/// Where the letters of a font of dots sit in its rows and how wide they are: what a display
+/// font standing in for it is fitted to (`DotFont::from_vector_in`, `DotFont::fit_to`), so
+/// that it is as tall, stands on the same line and is about as wide - a matrix script that
+/// measures its text (`TextLength`) to pick a size then picks the size it picks in its own
+/// fonts. In dots of the font's grid: its capitals stand from row `cap_top` on the line
+/// `base` (the row under them), its descenders reach `below` rows deeper.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LetterBand {
+    pub rows: u32,
+    pub cap_top: u32,
+    pub base: u32,
+    pub below: u32,
+    /// It writes capitals: it has fewer than half the small letters.
+    pub capitals_only: bool,
+    /// The mean width of its capitals (its digits', or any letters', when it has none), its
+    /// small letters and its digits: in dots, their ink alone.
+    pub cap_w: f32,
+    pub small_w: Option<f32>,
+    pub digit_w: Option<f32>,
+    /// Dots between two letters (its gap, and the empty columns its letters carry beside their
+    /// ink), and a space's width.
+    pub gap: u32,
+    pub space: u32,
+    /// No font says where the letters sit (a display whose own font is missing, or one of too
+    /// few letters to tell): a font standing in fills the rows, from the top of its tallest
+    /// letters to the bottom of its deepest (`DotFont::from_vector`).
+    pub fill: bool,
+}
+
+impl LetterBand {
+    /// Where the letters of `dots` sit: its capitals from the median top to the median bottom
+    /// of a flat H, E, I, T, N, L and F (of its digits for a line number's font, else of all
+    /// it has), its descenders as deep as its g, j, p, q and y reach. A font of fewer than three
+    /// such letters fills its rows.
+    pub fn of(dots: &DotFont) -> LetterBand {
+        let rows = dots.rows.max(1);
+        let find = |c: char| dots.glyphs.iter().find(|g| g.ch == c);
+        let spans = |set: &[char]| -> Vec<(u32, u32)> { set.iter().filter_map(|&c| find(c)).filter_map(|g| lit_rows_of(g, rows)).collect() };
+        let capitals: Vec<char> = ('A'..='Z').collect();
+        let digits: Vec<char> = ('0'..='9').collect();
+        let all: Vec<char> = dots.glyphs.iter().map(|g| g.ch).collect();
+        let mut letters = spans(&['H', 'E', 'I', 'T', 'N', 'L', 'F']);
+        if letters.len() < 3 {
+            letters = spans(&digits);
+        }
+        if letters.len() < 3 {
+            letters = spans(&all);
+        }
+        let cap_w = dots.mean_width(&capitals).or_else(|| dots.mean_width(&digits)).or_else(|| dots.mean_width(&all)).unwrap_or(rows as f32 * 0.6);
+        let small: Vec<char> = ('a'..='z').collect();
+        // (the empty columns a letter carries beside its ink: part of the space between two)
+        let mut sides: Vec<u32> = capitals.iter().filter_map(|&c| find(c)).filter_map(|g| inked_cols(g, rows).map(|(a, b)| g.w - (b - a + 1))).collect();
+        if sides.is_empty() {
+            sides = dots.glyphs.iter().filter_map(|g| inked_cols(g, rows).map(|(a, b)| g.w - (b - a + 1))).collect();
+        }
+        sides.sort_unstable();
+        let gap = dots.gap + sides.get(sides.len() / 2).copied().unwrap_or(0);
+        if letters.len() < 3 {
+            return LetterBand { cap_w, gap, space: dots.space.max(1), ..LetterBand::filling(rows) };
+        }
+        let median = |mut v: Vec<u32>| -> u32 {
+            v.sort_unstable();
+            v[v.len() / 2]
+        };
+        let cap_top = median(letters.iter().map(|s| s.0).collect());
+        let base = (median(letters.iter().map(|s| s.1).collect()) + 1).clamp(cap_top + 1, rows);
+        let capitals_only = small.iter().filter(|&&c| find(c).is_some()).count() < 13;
+        let below = if capitals_only { 0 } else { spans(&['g', 'j', 'p', 'q', 'y']).iter().map(|s| (s.1 + 1).saturating_sub(base)).max().unwrap_or(0) };
+        LetterBand { rows, cap_top, base, below, capitals_only, cap_w, small_w: dots.mean_width(&small), digit_w: dots.mean_width(&digits), gap, space: dots.space.max(1), fill: false }
+    }
+
+    /// The letters of a display whose own font is missing: they fill its `rows`.
+    pub fn filling(rows: u32) -> LetterBand {
+        let rows = rows.max(1);
+        LetterBand { rows, cap_top: 0, base: rows, below: 0, capitals_only: rows < CAPITALS_BELOW, cap_w: rows as f32 * 0.6, small_w: None, digit_w: None, gap: ((rows as f32 / 12.0).round() as u32).max(1), space: (rows / 4).max(1), fill: true }
+    }
+
+    /// How many rows its capitals take.
+    pub fn cap_rows(&self) -> u32 {
+        self.base.saturating_sub(self.cap_top).max(1)
+    }
+
+    /// The letters `rows` rows high, capitals and descenders (the player's letter height): as
+    /// much larger or smaller each, their widths too, in the middle of where they were (in
+    /// the display's rows). Letters that fill the rows fill that many of them.
+    pub fn scaled_to(&self, rows: u32) -> LetterBand {
+        if self.fill {
+            let r = rows.clamp(3, self.rows.max(3));
+            return LetterBand { rows: r, base: r, capitals_only: r < CAPITALS_BELOW, ..self.clone() };
+        }
+        let total = self.cap_rows() + self.below;
+        let want = rows.clamp(1, self.rows);
+        if want == total {
+            return self.clone();
+        }
+        let f = want as f32 / total as f32;
+        let cap = if self.below == 0 { want } else { ((self.cap_rows() as f32 * f).round() as u32).clamp(1, want) };
+        let top = (self.cap_top as i32 + (total as i32 - want as i32) / 2).clamp(0, (self.rows - want) as i32) as u32;
+        LetterBand { cap_top: top, base: top + cap, below: want - cap, cap_w: self.cap_w * f, small_w: self.small_w.map(|w| w * f), digit_w: self.digit_w.map(|w| w * f), ..self.clone() }
+    }
+}
+
+/// The share of `text`'s letters (not its spaces) face `face` of the TrueType/OpenType font
+/// `data` has, a small letter as its capital where it has none (none of a file that is no
+/// font).
+pub fn vector_coverage(data: &[u8], face: u32, text: &str) -> f32 {
+    use ab_glyph::Font as _;
+    let Ok(font) = ab_glyph::FontRef::try_from_slice_and_index(data, face) else { return 0.0 };
+    let letters: Vec<char> = text.chars().filter(|c| !c.is_whitespace()).collect();
+    if letters.is_empty() {
+        return 1.0;
+    }
+    let has = |c: char| font.glyph_id(c).0 != 0;
+    letters.iter().filter(|&&c| has(c) || capital_of(c).is_some_and(has)).count() as f32 / letters.len() as f32
+}
+
+/// How much narrower a display font is drawn to be about as wide as the letters it stands in
+/// for: `natural` the mean width of its letters, `target` of theirs. As it is when it is no more
+/// than a tenth wider (a font keeps its own shape where it can), else narrowed to that width -
+/// but to no less than half its own.
+pub fn condense_for(natural: f32, target: f32) -> f32 {
+    if !(natural > 0.0 && target > 0.0) || natural <= target * 1.1 {
+        return 1.0;
+    }
+    (target / natural).clamp(0.5, 1.0)
+}
+
+/// Whether a display font standing in for a display's own writes `c`: letters, digits and the
+/// punctuation of destinations. Everything else - the braces and bars a matrix script makes its
+/// pictograms of, `#`, signs, boxes, private characters - stays as the display's own font draws
+/// it (or does not: a character a script leaves out on purpose).
+pub fn is_text_char(c: char) -> bool {
+    c.is_alphanumeric() || ".,-/()&'’\":+!?".contains(c)
+}
+
+/// The characters a display font standing in for `font` is made for: every letter, digit and
+/// mark of text (`is_text_char`) `font` draws - its own, a small letter as its capital, the same
+/// byte of another code page - and the small letters of its capitals.
+pub fn text_chars_of(font: &Font) -> Vec<char> {
+    let mut all = charset();
+    all.extend(font.chars.iter().map(|g| g.ch));
+    all.sort_unstable();
+    all.dedup();
+    all.into_iter().filter(|&c| is_text_char(c) && (font.glyph(c).is_some() || capital_of(c).is_some_and(|u| font.has_glyph(u)))).collect()
+}
+
+/// A display font's atlas `sub` (made for the display of the font `own`: `DotFont::to_atlas`
+/// of its line) with what is no text drawn as `own` draws it. Its characters are `own`'s: a
+/// letter, digit or mark of text (`is_text_char`) in `sub`'s drawing where `sub` has it with
+/// ink, anything else with `own`'s pixels and colours; and the characters `own` draws through
+/// others (a small letter as its capital, a letter of another code page) in `sub`'s too, a
+/// small letter `sub` has none of as its capital. Nothing `own` lacks is added, so that what a
+/// script leaves out on purpose (the `#` a line number is padded with) stays out. A space is
+/// as wide as `own`'s; the letters stand `sub`'s gap apart.
+pub fn merge_kept(sub: &FontAtlas, own: &FontAtlas) -> FontAtlas {
+    let h = own.font.height.max(1) as u32;
+    let inked = |a: &FontAtlas, g: &FontChar| (0..h as i32).any(|y| (g.x0..g.x1).any(|x| alpha_at(a, x, g.y + y) > 0));
+    let in_sub = |c: char| sub.font.chars.iter().find(|g| g.ch == c && g.x1 > g.x0 && inked(sub, g));
+    // (the character, whether it is `sub`'s, its glyph there)
+    let mut picks: Vec<(char, bool, FontChar)> = Vec::new();
+    for g in own.font.chars.iter().filter(|g| !g.ch.is_whitespace()) {
+        if picks.iter().any(|p| p.0 == g.ch) {
+            continue;
+        }
+        match in_sub(g.ch).filter(|_| is_text_char(g.ch)) {
+            Some(s) => picks.push((g.ch, true, s.clone())),
+            None => picks.push((g.ch, false, g.clone())),
+        }
+    }
+    let drawn_by_own = |c: char| own.font.glyph(c).is_some() || capital_of(c).is_some_and(|u| own.font.has_glyph(u));
+    for s in sub.font.chars.iter().filter(|s| !s.ch.is_whitespace() && is_text_char(s.ch) && drawn_by_own(s.ch)) {
+        if !picks.iter().any(|p| p.0 == s.ch) {
+            if let Some(s) = in_sub(s.ch) {
+                picks.push((s.ch, true, s.clone()));
+            }
+        }
+    }
+    for c in charset().into_iter().filter(|c| c.is_lowercase()) {
+        let Some(u) = capital_of(c) else { continue };
+        if picks.iter().any(|p| p.0 == c) || own.font.has_glyph(c) || !own.font.has_glyph(u) {
+            continue;
+        }
+        if let Some(cap) = in_sub(u) {
+            picks.push((c, true, cap.clone()));
+        }
+    }
+    picks.sort_by_key(|p| p.0);
+    // laid side by side in rows of the atlas, a pixel apart
+    let width = |g: &FontChar| (g.x1 - g.x0).max(0) as u32;
+    let widest = picks.iter().map(|p| width(&p.2)).max().unwrap_or(1) + 1;
+    let atlas_w = widest.max(1024).min(4096).max(widest);
+    let mut places: Vec<(u32, u32)> = Vec::with_capacity(picks.len());
+    let (mut x, mut y) = (0u32, 0u32);
+    for p in &picks {
+        if x + width(&p.2) + 1 > atlas_w && x > 0 {
+            x = 0;
+            y += h;
+        }
+        places.push((x, y));
+        x += width(&p.2) + 1;
+    }
+    let atlas_h = y + h;
+    let mut alpha = vec![0u8; (atlas_w * atlas_h * 4) as usize];
+    let mut color = vec![0u8; (atlas_w * atlas_h * 4) as usize];
+    let mut chars: Vec<FontChar> = Vec::with_capacity(picks.len() + 1);
+    for ((ch, from_sub, g), &(gx, gy)) in picks.iter().zip(&places) {
+        let src = if *from_sub { sub } else { own };
+        let w = width(g);
+        chars.push(FontChar { ch: *ch, x0: gx as i32, x1: (gx + w) as i32, y: gy as i32 });
+        for yy in 0..h {
+            for xx in 0..w {
+                let (sx, sy) = (g.x0 + xx as i32, g.y + yy as i32);
+                if sx < 0 || sy < 0 || sx >= src.width as i32 || sy >= src.height as i32 {
+                    continue;
+                }
+                let si = ((sy as u32 * src.width + sx as u32) * 4) as usize;
+                let di = (((gy + yy) * atlas_w + gx + xx) * 4) as usize;
+                if let Some(a) = src.alpha.get(si..si + 4) {
+                    alpha[di..di + 4].copy_from_slice(a);
+                }
+                if let Some(c) = src.color.get(si..si + 4) {
+                    color[di..di + 4].copy_from_slice(c);
+                }
+            }
+        }
+    }
+    chars.push(FontChar { ch: ' ', x0: 0, x1: own.font.space_width(), y: atlas_h as i32 });
+    let font = Font { path: PathBuf::new(), name: sub.font.name.clone(), bitmap: String::new(), alpha: String::new(), height: h as i32, gap: sub.font.gap, chars };
+    FontAtlas::new(font, atlas_w, atlas_h, color, alpha)
 }
 
 /// A plane of coverage `sw` x `sh` scaled to `dw` x `dh`, every new cell the average of the
@@ -943,6 +1551,241 @@ mod tests {
         assert_eq!(bold.glyph('I').unwrap().w, f.glyph('I').unwrap().w + 1);
         assert_eq!(bold.gap, 3);
         assert_eq!(bold.to_atlas(&grid, 30, "x").font.gap, 12);
+    }
+
+    /// Five letters of 5 x 7 dots ('#' lit).
+    const LETTERS: [(char, [&str; 7]); 5] = [
+        ('H', ["#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"]),
+        ('E', ["#####", "#....", "#....", "####.", "#....", "#....", "#####"]),
+        ('L', ["#....", "#....", "#....", "#....", "#....", "#....", "#####"]),
+        ('T', ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."]),
+        ('O', [".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."]),
+    ];
+
+    /// A font drawn as a picture of a matrix: the dots of `LETTERS` on one grid of `pitch` px
+    /// over the whole bitmap, each dot `draw` (its pixels, from its cell's corner, and their
+    /// alpha); letter `i` in cells from column `i * 6` of row 1, its box cut out of the bitmap
+    /// from `x0(i)` and `y(i)` (its dots at another place of their cells than the next one's,
+    /// as the stock LED fonts' boxes are cut), `bw` wide and `h` high.
+    fn led_picture(pitch: u32, bw: u32, h: u32, draw: &[(u32, u32, u8)], x0: impl Fn(u32) -> u32, y: impl Fn(u32) -> u32) -> FontAtlas {
+        let n = LETTERS.len() as u32;
+        let (aw, ah) = (pitch * 6 * n + 2 * pitch, pitch + h + 2 * pitch);
+        let mut alpha = vec![0u8; (aw * ah * 4) as usize];
+        let mut chars = Vec::new();
+        for (i, (ch, rows)) in LETTERS.iter().enumerate() {
+            let i = i as u32;
+            for (r, row) in rows.iter().enumerate() {
+                for (c, b) in row.bytes().enumerate() {
+                    if b != b'#' {
+                        continue;
+                    }
+                    let (cx, cy) = ((i * 6 + c as u32) * pitch, (1 + r as u32) * pitch);
+                    for &(dx, dy, a) in draw {
+                        let at = (((cy + dy) * aw + cx + dx) * 4) as usize;
+                        let v = alpha[at].max(a);
+                        alpha[at..at + 4].copy_from_slice(&[v; 4]);
+                    }
+                }
+            }
+            chars.push(FontChar { ch: *ch, x0: x0(i) as i32, x1: (x0(i) + bw) as i32, y: y(i) as i32 });
+        }
+        let font = Font { name: "LED".into(), height: h as i32, gap: 0, chars, ..Default::default() };
+        FontAtlas::new(font, aw, ah, alpha.clone(), alpha)
+    }
+
+    /// Whether the letter `ch` of `dots` is lit as `LETTERS` draws it, from row `top`.
+    fn reads_as_drawn(dots: &DotFont, ch: char, top: u32) -> bool {
+        let g = dots.glyph(ch).unwrap();
+        let rows = LETTERS.iter().find(|l| l.0 == ch).unwrap().1;
+        (0..dots.rows).all(|y| {
+            (0..g.w).all(|x| {
+                let want = y >= top && y < top + 7 && rows[(y - top) as usize].as_bytes().get(x as usize) == Some(&b'#');
+                (g.cov[(y * g.w + x) as usize] >= LIT) == want
+            })
+        })
+    }
+
+    /// The Hamburg LED fonts (`4_LW_Benefit_*`): round LEDs - a 2x2 core in a halo - in cells
+    /// of 4 px, the letters' boxes cut from the bitmap a pixel into a cell and at two places
+    /// of the cell's rows. Read in their grid all the same, each letter at its own phase.
+    #[test]
+    fn round_leds_are_read_in_their_grid() {
+        let mut led: Vec<(u32, u32, u8)> = (0..4).flat_map(|y| (0..4).map(move |x| (x, y, 60u8))).collect();
+        led.extend([(1, 1, 255), (2, 1, 255), (1, 2, 255), (2, 2, 255)]);
+        // (boxes from x ≡ 1 of the cells, their tops at y ≡ 0 and ≡ 2 of them)
+        let a = led_picture(4, 20, 30, &led, |i| i * 24 + 1, |i| if i % 2 == 0 { 4 } else { 2 });
+        let g = DotGrid::of_atlas(&a);
+        assert_eq!((g.pitch, g.dot, g.rows, g.smooth), (4, 2, 7, false), "{g:?}");
+        let dots = DotFont::from_atlas(&a, &g);
+        for (ch, _) in LETTERS {
+            assert!(reads_as_drawn(&dots, ch, 0), "{ch}");
+        }
+        // the L of three pixels of `17_LED_Gross`, its corner left dark: the same
+        let l: Vec<(u32, u32, u8)> = vec![(1, 1, 255), (1, 2, 255), (2, 2, 255)];
+        let a = led_picture(4, 20, 30, &l, |i| i * 24 + 1, |i| if i % 3 == 0 { 2 } else { 4 });
+        let g = DotGrid::of_atlas(&a);
+        assert_eq!((g.pitch, g.dot), (4, 2), "{g:?}");
+        let dots = DotFont::from_atlas(&a, &g);
+        assert!(LETTERS.iter().all(|(ch, _)| reads_as_drawn(&dots, *ch, 0)));
+    }
+
+    /// `krueger-font_linie`: 2 px dots on one 3 px grid over the bitmap, the letters' boxes cut
+    /// out of it from any pixel of a cell.
+    #[test]
+    fn glyphs_cut_off_the_grid() {
+        let square: Vec<(u32, u32, u8)> = vec![(0, 0, 255), (1, 0, 255), (0, 1, 255), (1, 1, 255)];
+        let a = led_picture(3, 17, 24, &square, |i| i * 18 - i % 3, |_| 3);
+        let g = DotGrid::of_atlas(&a);
+        assert_eq!((g.pitch, g.dot), (3, 2), "{g:?}");
+        let dots = DotFont::from_atlas(&a, &g);
+        assert!(LETTERS.iter().all(|(ch, _)| reads_as_drawn(&dots, *ch, 0)));
+    }
+
+    /// A picture of LEDs read as a plain grid (every pixel a dot: rows of dots and dark seams)
+    /// and shrunk onto a matrix of few rows still lights every letter - on no dot half covered.
+    #[test]
+    fn a_shrunk_picture_never_goes_dark() {
+        let led: Vec<(u32, u32, u8)> = vec![(1, 1, 255), (2, 1, 255), (1, 2, 255), (2, 2, 255)];
+        let a = led_picture(4, 20, 30, &led, |i| i * 24 + 1, |_| 4);
+        let dots = DotFont::from_atlas(&a, &DotGrid::plain(30));
+        assert_eq!(dots.rows, 30);
+        for rows in [7, 16] {
+            let small = dots.to_atlas(&DotGrid::plain(rows), rows, "x");
+            for (ch, _) in LETTERS {
+                assert!(!lit(&small, ch).is_empty(), "{ch} on {rows} rows");
+            }
+        }
+    }
+
+    /// A font of dots of `rows` rows: capitals lit from `cap.0` to `cap.1` (5 wide, two empty
+    /// columns beside), small letters from `x_top` down to `cap.1`, their g, j, p, q and y to
+    /// `desc` (no small letters: `x_top` None).
+    fn band_font(rows: u32, cap: (u32, u32), x_top: Option<u32>, desc: u32) -> DotFont {
+        let glyph = |ch: char, top: u32, bottom: u32, w: u32| {
+            let cov = (0..rows).flat_map(|y| (0..w + 2).map(move |x| if (top..=bottom).contains(&y) && x >= 1 && x <= w { 255 } else { 0 })).collect();
+            DotGlyph { ch, w: w + 2, cov }
+        };
+        let mut glyphs: Vec<DotGlyph> = ('A'..='Z').map(|c| glyph(c, cap.0, cap.1, 5)).collect();
+        if let Some(x) = x_top {
+            glyphs.extend(('a'..='z').map(|c| glyph(c, x, if "gjpqy".contains(c) { desc } else { cap.1 }, 4)));
+        }
+        glyphs.extend(('0'..='9').map(|c| glyph(c, cap.0, cap.1, 4)));
+        DotFont { name: "Band".into(), rows, gap: 1, space: 3, glyphs }
+    }
+
+    #[test]
+    fn the_band_of_a_matrix_font() {
+        // churafont CE 16x5: capitals rows 3 to 12, descenders to 15
+        let b = LetterBand::of(&band_font(16, (3, 12), Some(6), 15));
+        assert_eq!((b.cap_top, b.base, b.below, b.capitals_only, b.fill), (3, 13, 3, false, false));
+        assert_eq!((b.cap_w, b.small_w, b.digit_w), (5.0, Some(4.0), Some(4.0)));
+        // (the empty columns beside the letters: part of the space between them)
+        assert_eq!((b.gap, b.space), (3, 3));
+        // Krueger 11x5: capitals only, rows 2 to 12 of 13
+        let k = LetterBand::of(&band_font(13, (2, 12), None, 0));
+        assert_eq!((k.cap_top, k.base, k.below, k.capitals_only), (2, 13, 0, true));
+        // a font of too few letters to tell: they fill its rows
+        let none = LetterBand::of(&DotFont { name: "x".into(), rows: 9, gap: 1, space: 2, glyphs: Vec::new() });
+        assert!(none.fill && none.base == 9);
+        // the player's letter height: as much smaller, in the middle of where the letters were
+        let s = b.scaled_to(10);
+        assert_eq!((s.cap_top, s.cap_rows(), s.below), (4, 8, 2));
+        assert!((s.cap_w - 5.0 * 10.0 / 13.0).abs() < 1e-4);
+        assert_eq!(b.scaled_to(13), b);
+        assert_eq!(k.scaled_to(20).cap_rows(), 13, "no taller than the rows");
+        assert_eq!(LetterBand::filling(16).scaled_to(9).rows, 9);
+    }
+
+    #[test]
+    fn a_vector_font_takes_the_band_it_replaces() {
+        let own = band_font(16, (3, 12), Some(6), 15);
+        let band = LetterBand::of(&own);
+        let capitals: Vec<char> = ('A'..='Z').collect();
+        let natural = DotFont::from_vector_in(HANKEN, 0, &band, &capitals, 1.0).unwrap().mean_width(&capitals).unwrap();
+        let c = condense_for(natural, band.cap_w);
+        assert!(c < 1.0, "Hanken's capitals are wider than 5 dots: {natural}");
+        let f = DotFont::from_vector_in(HANKEN, 0, &band, &charset(), c).unwrap();
+        assert_eq!(f.rows, 16);
+        // its capitals in the capitals' rows, its descenders no deeper than the rows
+        assert_eq!(f.lit_rows(f.glyph('H').unwrap()), Some((3, 12)));
+        assert!(f.lit_rows(f.glyph('g').unwrap()).is_some_and(|(_, b)| b > 12 && b <= 15));
+        assert!(f.lit_rows(f.glyph('x').unwrap()).is_some_and(|(t, b)| t > 3 && b == 12), "a small letter stands on the line");
+        // a capital with an accent squeezed in, not cut off
+        assert!(f.lit_rows(f.glyph('Ä').unwrap()).is_some_and(|(t, b)| t <= 2 && b == 12));
+        // about as wide; the gap and the space of the font it replaces
+        assert!(f.mean_width(&capitals).unwrap() <= band.cap_w * 1.1 + 0.25, "{:?}", f.mean_width(&capitals));
+        assert_eq!((f.gap, f.space), (band.gap, band.space));
+        assert_eq!(condense_for(5.4, 5.0), 1.0, "a tenth wider: as it is");
+        assert_eq!(condense_for(20.0, 5.0), 0.5, "no narrower than half");
+        // and drawn in the display's grid: k = 1, its dots where the band says
+        let a = f.to_atlas(&DotGrid::plain(16), 16, "Hanken");
+        let rows: Vec<u32> = lit(&a, 'H').iter().map(|p| p.1).collect();
+        assert_eq!((rows.iter().min(), rows.iter().max()), (Some(&3), Some(&12)));
+    }
+
+    #[test]
+    fn capitals_only_band() {
+        let band = LetterBand::of(&band_font(13, (2, 12), None, 0));
+        let f = DotFont::from_vector_in(HANKEN, 0, &band, &['A', 'a', 'Q', 'ü', 'Ü', 'H'], 1.0).unwrap();
+        assert_eq!(f.glyph('a').unwrap().cov, f.glyph('A').unwrap().cov);
+        assert_eq!(f.glyph('ü').unwrap().cov, f.glyph('Ü').unwrap().cov);
+        assert_eq!(f.lit_rows(f.glyph('H').unwrap()), Some((2, 12)));
+        // (a Q's tail in the rows, the capitals on their line)
+        assert!(f.lit_rows(f.glyph('Q').unwrap()).is_some_and(|(t, b)| t == 2 && b == 12));
+    }
+
+    /// A pixel font of `h` rows: each of `chars` a 4 x `h` letter (its own pattern of `lit`).
+    fn pixel_atlas(h: u32, chars: &str, lit: impl Fn(char, u32, u32) -> bool) -> FontAtlas {
+        let n = chars.chars().count() as u32;
+        let aw = n * 5;
+        let mut alpha = vec![0u8; (aw * h * 4) as usize];
+        let mut glyphs = Vec::new();
+        for (i, ch) in chars.chars().enumerate() {
+            let x0 = i as u32 * 5;
+            for y in 0..h {
+                for x in 0..4 {
+                    if lit(ch, x, y) {
+                        let at = ((y * aw + x0 + x) * 4) as usize;
+                        alpha[at..at + 4].copy_from_slice(&[255; 4]);
+                    }
+                }
+            }
+            glyphs.push(FontChar { ch, x0: x0 as i32, x1: (x0 + 4) as i32, y: 0 });
+        }
+        let font = Font { name: "Own".into(), height: h as i32, gap: 1, chars: glyphs, ..Default::default() };
+        FontAtlas::new(font, aw, h, alpha.clone(), alpha)
+    }
+
+    #[test]
+    fn kept_glyphs_stay_the_buses() {
+        // a bus's font of capitals in rows 2 to 11 of 13, and a '{' that is a pictogram there
+        let own = pixel_atlas(13, "AEHNTU{", |c, x, y| match c {
+            '{' => (x + y) % 2 == 0,
+            _ => (2..12).contains(&y) && (x == 0 || x == 3 || y == 2),
+        });
+        let grid = DotGrid::of_atlas(&own);
+        assert_eq!(grid, DotGrid::plain(13));
+        let band = LetterBand::of(&DotFont::from_atlas(&own, &grid));
+        assert_eq!((band.cap_top, band.base), (2, 12));
+        let chars = text_chars_of(&own.font);
+        assert!(chars.contains(&'a') && chars.contains(&'H') && !chars.contains(&'{') && !chars.contains(&'#') && !chars.contains(&'B'), "{chars:?}");
+        let sub = DotFont::from_vector_in(HANKEN, 0, &band, &chars, 1.0).unwrap().to_atlas(&grid, 13, "Hanken");
+        let merged = merge_kept(&sub, &own);
+        assert_eq!(merged.font.height, 13);
+        let pixels = |a: &FontAtlas, ch: char| -> Vec<u8> {
+            let g = a.font.chars.iter().find(|g| g.ch == ch).unwrap();
+            (0..13).flat_map(|y| (g.x0..g.x1).map(move |x| (x, y))).map(|(x, y)| a.alpha[(((g.y + y) as u32 * a.width + x as u32) * 4) as usize]).collect()
+        };
+        // the pictogram stays the bus's, pixel for pixel; a letter is the chosen font's
+        assert_eq!(pixels(&merged, '{'), pixels(&own, '{'));
+        assert_ne!(pixels(&merged, 'A'), pixels(&own, 'A'));
+        assert_eq!(pixels(&merged, 'A'), pixels(&sub, 'A'));
+        // what the bus's font lacks stays out ('#' padding a line number draws nothing)
+        assert!(merged.font.glyph('#').is_none() && merged.font.glyph('B').is_none());
+        // a small letter the bus writes as its capital: the chosen font's capital
+        assert_eq!(merged.font.glyph('a').map(|g| g.ch), Some('a'));
+        // a space as wide as the bus's, the gap the chosen font's
+        assert_eq!((merged.font.space_width(), merged.font.gap), (own.font.space_width(), sub.font.gap));
     }
 
     #[test]

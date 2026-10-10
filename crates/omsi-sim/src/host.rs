@@ -90,6 +90,10 @@ pub struct VehicleHost {
     /// The display font the player chose for the vehicle's destination signs and the fonts its
     /// sign scripts ask for that it takes the place of (see `set_display_font`).
     pub display_font: Option<ScriptDisplayFont>,
+    /// How often a script drew a text with less than no space between its letters (`STTextOut`
+    /// spacing below 0): what a matrix that finds no size its text fits in does - a sign of a
+    /// display font that came out wider than the fonts it replaces (`omsi-check --display-font`).
+    pub negative_spacing: u32,
     /// `[scripttexture]` images drawn by the `ST*` callbacks.
     pub script_textures: Vec<ScriptTexture>,
     /// Folder for `STLoadTex` paths (the vehicle directory).
@@ -521,6 +525,9 @@ impl Host for VehicleHost {
                 let x = arg_i32(stacks.pop());
                 let i = arg_idx(stacks.pop());
                 let atlas = self.font_atlas(font);
+                if spacing < 0 {
+                    self.negative_spacing += 1;
+                }
                 if debug_text() {
                     log::info!("STTextOut(tex {i}, x {x}, y {y}, font {font}, spacing {spacing}, {text:?}) atlas {:?} from {:?} bitmap {:?} {}x{} E {:?}", atlas.as_ref().map(|a| a.font.name.clone()), atlas.as_ref().map(|a| a.font.path.clone()), atlas.as_ref().map(|a| a.font.alpha.clone()), atlas.as_ref().map(|a| a.width).unwrap_or(0), atlas.as_ref().map(|a| a.height).unwrap_or(0), atlas.as_ref().and_then(|a| a.font.glyph('E').map(|g| (g.x0, g.x1, g.y))));
                 }
@@ -857,24 +864,27 @@ mod tests {
 
     /// A matrix a script draws with fonts it asks for by name (the Krüger matrices) is drawn
     /// in the display font chosen for the bus: its letter fonts become the chosen one, fitted
-    /// to their rows - also those it asked for before the font was chosen - and its
-    /// pictograms keep theirs.
+    /// to their letters - as tall, on the same line, about as wide - also those it asked for
+    /// before the font was chosen; its pictograms keep theirs, and so do the pictograms in a
+    /// letter font (a `{` the script writes for a box of its own).
     #[test]
     fn a_matrix_script_draws_its_letters_in_the_chosen_display_font() {
         let dir = std::env::temp_dir().join(format!("omsi_host_display_font_{}", std::process::id()));
         let fonts = dir.join("Fonts");
         std::fs::create_dir_all(&fonts).unwrap();
-        // a pixel font of 16 rows (each letter a block of 3 x 12), and a pictogram font
+        // a pixel font of 16 rows (each letter a block of 7 x 12 from row 2, a '{' a
+        // chequer), and a pictogram font
         let letters: String = ('A'..='Z').collect();
         let mut oft = String::new();
         for name in ["Pix 16", "Pix Pictogram 16"] {
             oft.push_str(&format!("[newfont]\n{name}\npix.bmp\npix.bmp\n16\n1\n\n"));
             for (i, c) in letters.chars().enumerate() {
-                oft.push_str(&format!("[char]\n{c}\n{}\n{}\n0\n\n", i * 4, i * 4 + 3));
+                oft.push_str(&format!("[char]\n{c}\n{}\n{}\n0\n\n", i * 8, i * 8 + 7));
             }
+            oft.push_str("[char]\n{\n208\n214\n0\n\n");
         }
         std::fs::write(fonts.join("Pix.oft"), oft).unwrap();
-        std::fs::write(fonts.join("pix.bmp"), bmp(104, 16, |x, y| x % 4 != 3 && (2..14).contains(&y))).unwrap();
+        std::fs::write(fonts.join("pix.bmp"), bmp(216, 16, |x, y| if x < 208 { x % 8 != 7 && (2..14).contains(&y) } else { (x + y) % 2 == 0 })).unwrap();
         let ttf = dir.join("Hanken.ttf");
         std::fs::write(&ttf, include_bytes!("../../../assets/fonts/HankenGrotesk/HankenGrotesk-latin-700.ttf")).unwrap();
         let p = compile(&CompileInput::default());
@@ -889,7 +899,8 @@ mod tests {
         };
         // asked for before a font is chosen: its own
         assert_eq!(index(&mut host, "Pix 16"), 0.0);
-        assert_eq!(host.font_atlas(0).map(|a| a.font.name.clone()).as_deref(), Some("Pix 16"));
+        let own = host.font_atlas(0).unwrap();
+        assert_eq!(own.font.name.as_str(), "Pix 16");
         let spec = omsi_content::dotfont::DisplayFontSpec::vector("Hanken Grotesk Bold", &ttf, 0);
         host.set_display_font(Some(ScriptDisplayFont { spec, fonts: vec!["pix 16".into(), "pix pictogram 16".into()] }));
         // the font the script holds is now the chosen one, as high as its own; the pictograms stay
@@ -900,11 +911,15 @@ mod tests {
         assert_eq!(host.font_atlas(1).map(|a| a.font.name.clone()).as_deref(), Some("Pix Pictogram 16"));
         // a missing font stays missing
         assert_eq!(index(&mut host, "++"), -1.0);
-        // the script measures in it and draws it, every pixel on or off (a lit LED or none)
+        // the script measures in it - about as wide as in its own, so it picks its sizes as
+        // there - and draws it, every pixel on or off (a lit LED or none)
         stacks.push_str("HUB".to_string());
         stacks.push(0.0);
         host.callback("TextLength", 0, &mut stacks, &mut state);
-        assert_eq!(stacks.pop(), chosen.font.text_width("HUB") as f32);
+        let w = stacks.pop();
+        assert_eq!(w, chosen.font.text_width("HUB") as f32);
+        let mine = own.font.text_width("HUB") as f32;
+        assert!((w - mine).abs() <= mine * 0.15, "HUB is {w} px in the chosen font, {mine} in its own");
         host.script_textures.push(ScriptTexture::new(128, 32));
         for v in [0.0, 2.0, 8.0, 0.0, 1.0, 0.0] {
             stacks.push(v);
@@ -913,6 +928,24 @@ mod tests {
         host.callback("STTextOut", 0, &mut stacks, &mut state);
         let alphas: Vec<u8> = host.script_textures[0].rgba.chunks(4).map(|c| c[3]).collect();
         assert!(alphas.iter().any(|a| *a == 255) && alphas.iter().all(|a| *a == 0 || *a == 255));
+        // (the letters in the rows of its own: 2 to 13 of the line drawn from row 8)
+        let rows: Vec<usize> = (0..32).filter(|y| (0..128).any(|x| alphas[y * 128 + x] > 0)).collect();
+        assert_eq!((rows.first(), rows.last()), (Some(&10), Some(&21)), "{rows:?}");
+        assert_eq!(host.negative_spacing, 0);
+        // the '{' of the letter font is drawn with its own pixels
+        let pixels = |a: &omsi_content::font::FontAtlas, ch: char| -> Vec<u8> {
+            let g = a.font.glyph(ch).unwrap();
+            (0..16).flat_map(|y| (g.x0..g.x1).map(move |x| (x, y))).map(|(x, y)| a.alpha[(((g.y + y) as u32 * a.width + x as u32) * 4) as usize]).collect()
+        };
+        assert_eq!(pixels(&chosen, '{'), pixels(&own, '{'));
+        assert_ne!(pixels(&chosen, 'H'), pixels(&own, 'H'));
+        // a text spaced closer than nothing is counted (what `omsi-check --display-font` reports)
+        for v in [0.0, 2.0, 8.0, 0.0, 1.0, -1.0] {
+            stacks.push(v);
+        }
+        stacks.push_str("HUB".to_string());
+        host.callback("STTextOut", 0, &mut stacks, &mut state);
+        assert_eq!(host.negative_spacing, 1);
         // back to its own
         host.set_display_font(None);
         assert_eq!(host.font_atlas(0).map(|a| a.font.name.clone()).as_deref(), Some("Pix 16"));

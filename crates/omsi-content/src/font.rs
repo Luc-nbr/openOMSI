@@ -237,12 +237,12 @@ impl FontAtlas {
     }
 
     /// `render_aligned` in a font that is not the display's own (a display font the player
-    /// chose): every line keeps the place a line of the display's own font has - `line_h`
-    /// pixels high, the block of lines centred as `render_aligned` centres it - and this
-    /// font's letters are scaled to fill it ([`fit_scale`]: whole times for a font that is
-    /// smaller, so that a pixel font stays crisp; shrunk only when it is taller than the line).
-    /// A line that would then run off the texture's edge is drawn smaller, as a real sign
-    /// writes a long destination in a narrower size.
+    /// chose for a display whose own font is missing): every line keeps the place a line of
+    /// `line_h` pixels has - the block of lines centred as `render_aligned` centres it - and
+    /// this font's letters are scaled to fill it ([`fit_scale`]: whole times for a font that
+    /// is smaller, so that a pixel font stays crisp; shrunk only when it is taller than the
+    /// line). A line too wide for the texture runs off its edge at that size, as the display's
+    /// own font's does (shrunk by a fraction to fit, every dot of it came out smeared).
     #[allow(clippy::too_many_arguments)]
     pub fn render_fitted(&self, text: &str, w: u32, h: u32, full_color: bool, rgb: [u8; 3], align: TextAlign, line_h: u32) -> Vec<u8> {
         let mut out = vec![0u8; (w * h * 4) as usize];
@@ -273,11 +273,7 @@ impl FontAtlas {
         if visible <= 0 {
             return;
         }
-        // too wide for the texture at this size: as large as fits
-        let mut s = scale;
-        if visible as f32 * s > w as f32 {
-            s = fit_scale(w as f32, visible as f32).min(s);
-        }
+        let s = scale;
         // the line in the font's own size, from its left edge
         let (tw, th) = (advance.max(1) as u32, self.font.height.max(1) as u32);
         let src = self.render_unscaled(line, tw, th, full_color, rgb, TextAlign { orientation: 1, grid: 1 });
@@ -367,7 +363,7 @@ impl FontAtlas {
 /// it becomes a square of pixels - where 1.5 times would smear every other row), and only a
 /// font taller than the line shrunk to exactly its height (the one case where no whole
 /// number fits; a smaller size of the same font is the better choice then, see
-/// `omsi_sim::texttex::FontLibrary::display_atlas`).
+/// `omsi_sim::texttex::FontLibrary::oft_size`).
 pub fn fit_scale(line_h: f32, font_h: f32) -> f32 {
     if !(line_h > 0.0 && font_h > 0.0) {
         return 1.0;
@@ -573,14 +569,18 @@ mod tests {
     }
 
     #[test]
-    fn a_line_too_wide_at_that_size_is_drawn_smaller_to_fit() {
+    fn a_line_too_wide_runs_off_the_edge_at_its_size() {
         let a = block_font(5, 7, 1, false);
-        // "AAAAA" is 29 px wide in the font: twice that does not fit 40 px, once does
+        // "AAAAA" is 29 px wide in the font: twice that does not fit 40 px - drawn twice as
+        // large all the same, from the edge, the rest cut off (not shrunk by a fraction)
         let img = a.render_fitted("AAAAA", 40, 16, false, [255, 255, 255], TextAlign { orientation: 1, grid: 1 }, 16);
-        let (rows, cols, _) = ink(&img, 40, 16);
-        assert_eq!(rows.len(), 7);
-        assert_eq!(cols.first().copied(), Some(0));
-        assert!(cols.last().is_some_and(|x| *x < 40));
+        let (rows, cols, alphas) = ink(&img, 40, 16);
+        assert_eq!(rows.len(), 14);
+        assert_eq!((cols.first().copied(), cols.last().copied()), (Some(0), Some(39)));
+        assert_eq!(alphas, [255]);
+        // centred, it starts at the edge too
+        let img = a.render_fitted("AAAAA", 40, 16, false, [255, 255, 255], TextAlign::default(), 16);
+        assert_eq!(ink(&img, 40, 16).1.first().copied(), Some(0));
         // the bus's own placement: right aligned
         let right = a.render_fitted("A", 40, 16, false, [255, 255, 255], TextAlign { orientation: 2, grid: 1 }, 16);
         let (_, cols, _) = ink(&right, 40, 16);
