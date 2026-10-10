@@ -101,7 +101,8 @@ fn a_players_line_is_known_to_the_depot_file() {
             assert!(!b.strings[0].trim().is_empty(), "{ident} has an IBIS name");
         }
     }
-    // the new destination's texts are made as the file writes its own
+    // the new destination's texts are made as the file writes its own: the IBIS's, and the
+    // front's (its second row empty for a name of one)
     let t = &hof.termini[find_terminus(&hof, "Marktplatz").unwrap()];
-    assert_eq!(t.strings, vec!["MARKTPLATZ", "   MARKTPLATZ", "Marktplatz"], "centred in 16 as the file centres its front");
+    assert_eq!(t.strings, vec!["MARKTPLATZ", "   MARKTPLATZ", ""], "centred in 16 as the file centres its front, and once");
 }

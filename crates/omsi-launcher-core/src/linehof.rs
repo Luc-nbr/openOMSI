@@ -239,13 +239,14 @@ pub fn roles(notes: &[String], cols: &[Column]) -> Vec<Role> {
     let text = |k: usize| matches!(cols.get(k), Some(Column::Text { .. }));
     // OMSI's layout is what nearly every depot file has, notes or not: a texture fifth
     // (Grundorf, Spandau), or that string left empty (the HOF Suite's files: Bad Hügelsdorf
-    // 2020, Hohenkirchen)
+    // 2020, Hohenkirchen) - or a small file without one, its second and third the front's
+    // rows (the buses read the strings by their place)
     let usual = match cols.get(4) {
         Some(Column::File(_)) => true,
-        Some(Column::Empty) => text(1) || text(2),
-        _ => false,
+        Some(Column::Empty) | None => text(1) || text(2),
+        Some(Column::Text { .. }) => false,
     };
-    if notes.len() >= 6 && usual {
+    if usual {
         return (0..notes.len()).map(|k| USUAL.get(k).copied().unwrap_or(Role::Other)).collect();
     }
     // a layout of its own: its first text is the front, as `front` shows it
@@ -1166,9 +1167,12 @@ pub(crate) mod tests {
         let (a, b) = d.front(&d.terminus("Neustadt, Marktplatz").unwrap().strings);
         assert_eq!((a.as_str(), b.as_str()), ("Neustadt", "Marktplatz"));
         assert_eq!(d.shown(&d.terminus("Neustadt, Marktplatz").unwrap().strings), ("Neustadt Markt".to_string(), "NEUSTADT MARKT".to_string()));
+        // a small file: its second and third text the front's rows, as the buses read them
+        let text = |upper: bool| Column::Text { upper, max: 16, centred: false };
+        assert_eq!(roles(&vec![String::new(); 3], &[text(true), text(true), text(false)]), USUAL[..3]);
         // a file of its own layout: its first text is the front
-        let cols = vec![Column::Empty, Column::Text { upper: true, max: 16, centred: false }, Column::Text { upper: false, max: 20, centred: false }];
-        assert_eq!(roles(&vec![String::new(); 3], &cols), vec![Role::Other, Role::FrontTop, Role::Other]);
+        assert_eq!(roles(&vec![String::new(); 4], &[Column::Empty, Column::File(String::new()), Column::Empty, text(false)]), vec![Role::Other, Role::Other, Role::Other, Role::FrontTop]);
+        assert_eq!(roles(&vec![String::new(); 6], &[text(true), text(true), text(true), text(true), text(false), text(true)])[..2], [Role::FrontTop, Role::Other], "a text fifth: not OMSI's");
     }
 
     #[test]
