@@ -2000,7 +2000,8 @@
 
   /* `FontAtlas::render_fitted`: a display font the player chose for the bus, every line in the
    * place a line of the bus's own font has (`t.lh` rows), its letters scaled to fill it; a line
-   * too wide at that size drawn smaller. */
+   * too wide at that size runs off the texture's edge, as the bus's own font's does (shrunk by a
+   * fraction to fit, every dot of it came out smeared). */
   function writeFitted(f, t, text) {
     var w = t.w, h = t.h, lh = Math.max(1, t.lh);
     var out = new Uint8Array(w * h * 4);
@@ -2016,7 +2017,6 @@
       var visible = Math.max(0, adv - Math.max(0, f.gap));
       if (visible <= 0) continue;
       var s = scale;
-      if (visible * s > w) s = Math.min(s, fitScale(w, visible));
       var tw = Math.max(1, adv), th = f.h;
       var src = new Uint8Array(tw * th * 4);
       writeLine(f, { o: 1, g: 1, full: t.full, rgb: t.rgb }, chars, src, tw, th, 0, th);

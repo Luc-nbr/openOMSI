@@ -1247,4 +1247,48 @@ mod tests {
             assert!(hit * 10 >= touches * 8, "only {hit} of {touches} touch areas lie on their switches");
         }
     }
+
+    /// The page writes a text in a display font the player chose (a display whose own font is
+    /// missing: `lh`) as the game does - `app.js`'s own drawing run in Node (skipped where there
+    /// is none): a line too wide for the texture at its size runs off the edge with every dot
+    /// whole. (The page shrank it by a fraction to fit, which the game no longer does: its
+    /// dots came out smeared, and the page and the bus showed two signs.)
+    #[test]
+    fn the_page_writes_a_display_fonts_text_as_the_game_does() {
+        use omsi_content::font::{Font, FontAtlas, FontChar};
+        if !std::process::Command::new("node").arg("--version").output().is_ok_and(|o| o.status.success()) {
+            eprintln!("skipped: no node");
+            return;
+        }
+        // a 5 x 7 pixel font, one letter solid, on a texture 40 x 16 fitted to a line of 16
+        let font = Font { name: "Pix 7".into(), height: 7, gap: 1, chars: vec![FontChar { ch: 'A', x0: 0, x1: 5, y: 0 }], ..Default::default() };
+        let alpha: Vec<u8> = (0..5 * 7).flat_map(|_| [255u8; 4]).collect();
+        let atlas = std::sync::Arc::new(FontAtlas::new(font, 5, 7, alpha.clone(), alpha));
+        let def = omsi_model::TextTexture { variable: "Matrix_Terminus".into(), font: "Pix 7".into(), width: 40, height: 16, color: [255.0, 160.0, 0.0], grid: 1, ..Default::default() };
+        let mut s = omsi_sim::texttex::TextTextureState::new(def, Some(atlas.clone()));
+        s.fit = Some(16);
+        // (the page's drawing of text textures, from `roundAway` to `writeText`, as it is)
+        let app = include_str!("../../../../assets/companion/app.js");
+        let from = app.find("  function roundAway(").expect("roundAway in app.js");
+        let to = app.find("  var VS = ").expect("the shaders after writeText in app.js");
+        for text in ["A", "AAAAAAA"] {
+            let script = format!(
+                "{}\nvar f = makeFont({}, new Uint8Array({}));\nprocess.stdout.write(JSON.stringify(Array.from(writeText(f, {}, {}))));\n",
+                &app[from..to],
+                font_json(&atlas),
+                serde_json::to_string(&font_rgba(&atlas)).unwrap(),
+                text_json(&s, 0, Some(0)),
+                serde_json::to_string(text).unwrap()
+            );
+            let mut node = std::process::Command::new("node").arg("-").stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().expect("node");
+            std::io::Write::write_all(&mut node.stdin.take().unwrap(), script.as_bytes()).unwrap();
+            let out = node.wait_with_output().unwrap();
+            assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+            let page: Vec<u8> = serde_json::from_slice(&out.stdout).unwrap();
+            let game = s.image(text);
+            let alpha = |img: &[u8]| -> Vec<u8> { img.chunks(4).map(|p| p[3]).collect() };
+            assert_eq!(alpha(&page), alpha(&game), "\"{text}\": the page's pixels are the game's");
+            assert!(alpha(&page).iter().all(|a| *a == 0 || *a == 255), "\"{text}\": every dot whole");
+        }
+    }
 }
