@@ -160,6 +160,7 @@ const _LOCALES_COMPANY_DUTY: &str = include_str!("../locales/bedrijfsdienst.yml"
 const _LOCALES_UPSTREAM_0227: &str = include_str!("../locales/openomsi-0227.yml");
 const _LOCALES_TRIP_CARD: &str = include_str!("../locales/ritkaart.yml");
 const _LOCALES_DESTINATION: &str = include_str!("../locales/bestemming.yml");
+const _LOCALES_FONT_FIT: &str = include_str!("../locales/fontfit.yml");
 
 /// Show the interface in `code` (the settings' ENG / DEU / FRA / RUS).
 pub(crate) fn ui_language(code: &str) {

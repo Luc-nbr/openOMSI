@@ -4,7 +4,7 @@
 //! materials refer to it with `[useTextTexture] n`.
 
 use hashbrown::HashMap;
-use omsi_content::dotfont::{DisplayFontSpec, DotFont, DotGrid, VectorFace};
+use omsi_content::dotfont::{DisplayFontSpec, DotFont, DotGrid, LetterBand, VectorFace};
 use omsi_content::font::{Font, FontAtlas};
 use omsi_model::TextTexture;
 use std::path::{Path, PathBuf};
@@ -18,10 +18,13 @@ pub struct FontLibrary {
     /// Every face of the TrueType/OpenType fonts of the content roots' `Fonts` and of the
     /// system; read once, when a display font's file is not where it was chosen.
     faces: Option<Vec<VectorFace>>,
-    /// A display font's dots (by the font and the rows it is made in) and the atlases made of
-    /// them for the displays it is drawn on (by the choice, the display's grid and line).
-    dots: HashMap<(String, u32), Option<Arc<DotFont>>>,
-    drawn: HashMap<(String, DotGrid, u32), Option<Arc<FontAtlas>>>,
+    /// The display fonts chosen: a vector font's file and face (by the font), an `.oft` font
+    /// size's dots and where its letters sit (by its name, lower case); and the atlases made
+    /// of them for the displays they are drawn on (by the choice, the display's own font -
+    /// its name and file - and its line).
+    vector_files: HashMap<String, Option<Arc<(Vec<u8>, u32)>>>,
+    oft_dots: HashMap<String, Option<Arc<(DotFont, LetterBand)>>>,
+    drawn: HashMap<(String, String, u32), Option<Arc<FontAtlas>>>,
 }
 
 /// Style words at the end of a font name ("churafont++ 32x8 Bold").
@@ -48,7 +51,14 @@ fn size_of(name: &str) -> Option<(u32, u32)> {
 
 impl FontLibrary {
     pub fn new(root: &Path) -> FontLibrary {
-        FontLibrary { atlases: HashMap::new(), root: root.to_path_buf(), index: None, faces: None, dots: HashMap::new(), drawn: HashMap::new() }
+        FontLibrary { atlases: HashMap::new(), root: root.to_path_buf(), index: None, faces: None, vector_files: HashMap::new(), oft_dots: HashMap::new(), drawn: HashMap::new() }
+    }
+
+    /// A library of the fonts `fonts` (each `[newfont]`, in lookup order: what `installed`
+    /// gave) instead of those of the content roots - the launcher's previews, which have the
+    /// list already.
+    pub fn with_fonts(root: &Path, fonts: Vec<Font>) -> FontLibrary {
+        FontLibrary { index: Some(fonts), ..FontLibrary::new(root) }
     }
 
     /// Every face of the TrueType/OpenType fonts installed: those added to a content root's
@@ -67,16 +77,37 @@ impl FontLibrary {
     }
 
     /// The display font `spec` as a display whose own font is `own` draws it on a line of
-    /// `line_h` pixels (see [`display_font_atlas`]); None when the font is not installed.
+    /// `line_h` pixels (see [`substitute`]); None when the font is not installed.
     pub fn display_font(&mut self, spec: &DisplayFontSpec, own: Option<&FontAtlas>, line_h: i32, decode: &dyn Fn(&Path) -> Option<(u32, u32, Vec<u8>)>) -> Option<Arc<FontAtlas>> {
-        let line_h = line_h.max(1);
-        let grid = own.map(DotGrid::of_atlas).unwrap_or_else(|| DotGrid::plain(line_h as u32));
-        let key = (spec.key(), grid, line_h as u32);
+        let line_h = line_h.max(1) as u32;
+        // (the display's own font by its name and file: two fonts of one height and grid are
+        // two substitutes, each as tall and as wide as the letters it stands in for)
+        let own_key = own.map(|a| format!("{}|{}", a.font.name.trim(), a.font.path.to_string_lossy().replace('\\', "/")).to_lowercase()).unwrap_or_default();
+        let key = (spec.key(), own_key, line_h);
         if let Some(a) = self.drawn.get(&key) {
             return a.clone();
         }
-        let dots = self.dots_of(spec, &grid, line_h, decode);
-        let atlas = dots.map(|d| Arc::new(display_font_atlas(&d, spec, &grid, line_h as u32)));
+        let target = Target::of(own, line_h, spec);
+        let made = if spec.is_vector() {
+            self.vector_file(spec).and_then(|f| substitute(SubstituteSource::Vector(&f.0, f.1), spec, &target, own))
+        } else {
+            self.oft_size(&spec.name, &target.band, decode).and_then(|d| substitute(SubstituteSource::Oft(&d.0), spec, &target, own))
+        };
+        match (&made, own) {
+            (None, _) => log::warn!("display font \"{}\" is not installed", spec.name),
+            (Some(s), Some(o)) if !s.band.fill => log::info!(
+                "display font: \"{}\" (capitals {} rows from row {}, {:.1} dots wide) drawn in \"{}\" at {:.0}% width",
+                o.font.name.trim(),
+                s.band.cap_rows(),
+                s.band.cap_top,
+                target.width,
+                spec.name,
+                s.condense * 100.0
+            ),
+            (Some(_), Some(o)) => log::info!("display font: \"{}\" (letters of no band to read) drawn in \"{}\" over its {} rows", o.font.name.trim(), spec.name, target.grid.rows),
+            (Some(_), None) => log::info!("display font: a display of no font of its own drawn in \"{}\" over {line_h} px", spec.name),
+        }
+        let atlas = made.map(|s| Arc::new(s.atlas));
         self.drawn.insert(key, atlas.clone());
         atlas
     }
@@ -86,36 +117,50 @@ impl FontLibrary {
         self.display_font(spec, own, line_h, &|p| omsi_texture::decode_file(p).ok().map(|i| (i.width, i.height, i.rgba)))
     }
 
-    /// The dots of the font `spec` names for a display of `grid`: a vector font rasterised
-    /// at the rows it is drawn in there, an `.oft` font (the size of its file that fits the
-    /// line) in its own grid.
-    fn dots_of(&mut self, spec: &DisplayFontSpec, grid: &DotGrid, line_h: i32, decode: &dyn Fn(&Path) -> Option<(u32, u32, Vec<u8>)>) -> Option<Arc<DotFont>> {
-        let rows = if spec.is_vector() { vector_rows(spec, grid) } else { 0 };
-        let key = (spec.plain().key(), if spec.is_vector() { rows } else { line_h as u32 });
-        if let Some(d) = self.dots.get(&key) {
+    /// A vector display font's file and face (`vector_data`), read once.
+    fn vector_file(&mut self, spec: &DisplayFontSpec) -> Option<Arc<(Vec<u8>, u32)>> {
+        let key = spec.plain().key();
+        if let Some(f) = self.vector_files.get(&key) {
+            return f.clone();
+        }
+        let f = self.vector_data(spec).map(Arc::new);
+        self.vector_files.insert(key, f.clone());
+        f
+    }
+
+    /// The size of the `.oft` display font `chosen`'s file that stands in for letters of
+    /// `band` (`pick_by_band`: the chosen one where its capitals are no taller, else the
+    /// tallest that fits, of those as tall the one as wide), with its dots and where its letters
+    /// sit. None when no font of that name is installed.
+    pub fn oft_size(&mut self, chosen: &str, band: &LetterBand, decode: &dyn Fn(&Path) -> Option<(u32, u32, Vec<u8>)>) -> Option<Arc<(DotFont, LetterBand)>> {
+        let wanted = chosen.trim();
+        if wanted.is_empty() {
+            return None;
+        }
+        let index = self.index();
+        let first = index.iter().position(|f| f.name.trim().eq_ignore_ascii_case(wanted))?;
+        let file = index[first].path.clone();
+        let family: Vec<String> = index.iter().filter(|f| f.path == file).map(|f| f.name.clone()).collect();
+        let me = family.iter().position(|n| n.trim().eq_ignore_ascii_case(wanted)).unwrap_or(0);
+        let sizes: Vec<Option<Arc<(DotFont, LetterBand)>>> = family.iter().map(|n| self.oft_dots_of(n, decode)).collect();
+        let bands: Vec<Option<&LetterBand>> = sizes.iter().map(|s| s.as_deref().map(|s| &s.1)).collect();
+        let k = pick_by_band(&bands, me, band);
+        sizes[k].clone().or_else(|| sizes[me].clone()).or_else(|| sizes.iter().flatten().next().cloned())
+    }
+
+    /// An `.oft` font's dots and where its letters sit, read once.
+    fn oft_dots_of(&mut self, name: &str, decode: &dyn Fn(&Path) -> Option<(u32, u32, Vec<u8>)>) -> Option<Arc<(DotFont, LetterBand)>> {
+        let key = name.trim().to_lowercase();
+        if let Some(d) = self.oft_dots.get(&key) {
             return d.clone();
         }
-        let dots = if spec.is_vector() {
-            let data = self.vector_data(spec);
-            match data.map(|(d, face)| DotFont::from_vector(&d, face, rows, &omsi_content::dotfont::charset())) {
-                Some(Ok(mut d)) => {
-                    d.name = spec.name.clone();
-                    Some(Arc::new(d))
-                }
-                Some(Err(e)) => {
-                    log::warn!("display font \"{}\": {e}", spec.name);
-                    None
-                }
-                None => None,
-            }
-        } else {
-            self.display_atlas(&spec.name, line_h, decode).map(|a| Arc::new(oft_dots(&a)))
-        };
-        if dots.is_none() {
-            log::warn!("display font \"{}\" is not installed", spec.name);
-        }
-        self.dots.insert(key, dots.clone());
-        dots
+        let d = self.get(name, decode).map(|a| {
+            let dots = oft_dots(&a);
+            let band = LetterBand::of(&dots);
+            Arc::new((dots, band))
+        });
+        self.oft_dots.insert(key, d.clone());
+        d
     }
 
     /// The bytes and the face of a vector display font: its file, else (moved, or chosen on
@@ -231,27 +276,6 @@ impl FontLibrary {
         self.index().to_vec()
     }
 
-    /// The display font `chosen` (a `[newfont]` name) for a display whose own font is
-    /// `line_h` pixels high: the font itself, or - when it is taller than the line - the
-    /// tallest size of the same `.oft` file that fits (the Krüger pack's "Krueger 16x9" chosen
-    /// for a 7-pixel line number becomes its "Krueger 7x4", not 16x9 squeezed into a smear);
-    /// none fitting, its smallest, which `FontAtlas::render_fitted` shrinks. None when no font
-    /// of that name is installed.
-    pub fn display_atlas(&mut self, chosen: &str, line_h: i32, decode: &dyn Fn(&Path) -> Option<(u32, u32, Vec<u8>)>) -> Option<Arc<FontAtlas>> {
-        let wanted = chosen.trim();
-        if wanted.is_empty() {
-            return None;
-        }
-        let index = self.index();
-        let first = index.iter().position(|f| f.name.trim().eq_ignore_ascii_case(wanted))?;
-        let file = index[first].path.clone();
-        let family: Vec<(String, i32)> = index.iter().filter(|f| f.path == file).map(|f| (f.name.clone(), f.height)).collect();
-        let me = family.iter().position(|(n, _)| n.trim().eq_ignore_ascii_case(wanted)).unwrap_or(0);
-        let heights: Vec<i32> = family.iter().map(|f| f.1).collect();
-        let k = pick_size(&heights, me, line_h);
-        self.get(&family[k].0, decode)
-    }
-
     /// `get` with the built-in image decoder.
     pub fn load(&mut self, name: &str) -> Option<Arc<FontAtlas>> {
         self.get(name, &|p| omsi_texture::decode_file(p).ok().map(|i| (i.width, i.height, i.rgba)))
@@ -314,13 +338,13 @@ pub fn atlas_of(font: Font, fonts_dir: &Path, decode: &dyn Fn(&Path) -> Option<(
     Some(FontAtlas::new(font, aw, ah, color, alpha))
 }
 
-/// Which size of a display font fits a line `line_h` high (see `FontLibrary::display_atlas`):
-/// `heights` are the sizes of one font file, `chosen` the one the player picked. The chosen
-/// one when it is no taller than the line (it is magnified by a whole number to fill it);
-/// else the tallest that is; none fitting, the smallest.
+/// Which size of a display font fits a line `line_h` high: `heights` are the sizes of one font
+/// file, `chosen` the one the player picked. The chosen one when it is no taller than the line
+/// (it is magnified by a whole number to fill it); else the tallest that is; none fitting, the
+/// smallest.
 pub fn pick_size(heights: &[i32], chosen: usize, line_h: i32) -> usize {
     let Some(&own) = heights.get(chosen) else { return 0 };
-    if own <= line_h.max(1) {
+    if own > 0 && own <= line_h.max(1) {
         return chosen;
     }
     let fitting = heights.iter().enumerate().filter(|(_, &h)| h > 0 && h <= line_h).max_by_key(|(i, &h)| (h, std::cmp::Reverse(*i)));
@@ -330,10 +354,28 @@ pub fn pick_size(heights: &[i32], chosen: usize, line_h: i32) -> usize {
     }
 }
 
-/// How many rows a vector display font is rasterised in for a display of `grid`: the rows
-/// chosen, else the display's own - never more than the display has.
-pub fn vector_rows(spec: &DisplayFontSpec, grid: &DotGrid) -> u32 {
-    spec.rows.unwrap_or(grid.rows).clamp(3, grid.rows.max(3))
+/// Which size of an `.oft` display font's file stands in for letters of `band` (see
+/// `FontLibrary::oft_size`): `sizes` are where the letters of each size of the file sit (None:
+/// one that does not load), `chosen` the one the player picked. By the capitals' height
+/// (`pick_size`), not the cell's: the chosen one when its capitals are no taller than those
+/// (the Krüger pack's "Krueger 16x9" chosen for a 7-row line number becomes one of its 7-row
+/// sizes, not 16x9 squeezed into a smear); else the tallest that fits - and of the sizes as
+/// tall, the one whose letters are nearest the width of those it stands in for.
+pub fn pick_by_band(sizes: &[Option<&LetterBand>], chosen: usize, band: &LetterBand) -> usize {
+    let caps: Vec<i32> = sizes.iter().map(|s| s.map(|b| b.cap_rows() as i32).unwrap_or(0)).collect();
+    let k = pick_size(&caps, chosen, band.cap_rows() as i32);
+    if k == chosen && caps.get(k).is_some_and(|c| *c > 0) {
+        return k;
+    }
+    // (the width a size's letters come out at: magnified as many whole times as fit, or shrunk)
+    let width = |b: &LetterBand| {
+        let r = band.cap_rows() as f32 / b.cap_rows() as f32;
+        b.cap_w * if r >= 2.0 { r.floor() } else if r >= 1.0 { 1.0 } else { r }
+    };
+    (0..sizes.len()).filter(|&i| caps[i] > 0 && caps[i] == caps.get(k).copied().unwrap_or(0)).min_by(|&a, &b| {
+        let (wa, wb) = (sizes[a].map(width).unwrap_or(0.0), sizes[b].map(width).unwrap_or(0.0));
+        (wa - band.cap_w).abs().total_cmp(&(wb - band.cap_w).abs()).then(a.cmp(&b))
+    }).unwrap_or(k)
 }
 
 /// An `.oft` display font's dots: its letters read in its own grid.
@@ -341,16 +383,116 @@ pub fn oft_dots(atlas: &FontAtlas) -> DotFont {
     DotFont::from_atlas(atlas, &DotGrid::of_atlas(atlas))
 }
 
-/// The display font `dots` (with the settings of `spec`: its rows, bold, spacing) as a display
-/// whose own font draws in `grid` shows it on a line of `line_h` pixels - what the game draws
-/// with (a text texture, a script's matrix) and the launcher's previews show.
-pub fn display_font_atlas(dots: &DotFont, spec: &DisplayFontSpec, grid: &DotGrid, line_h: u32) -> FontAtlas {
-    let mut d = match spec.rows {
-        Some(r) if dots.rows > r => dots.resized(r),
-        _ => dots.clone(),
+/// What a display font is fitted to on one display (see `substitute`): the grid of dots of
+/// the display's own font, where that font's letters sit and how wide they are (made the
+/// letter height the player chose), the line, the characters the substitute is made for, and
+/// the letters its width is measured on.
+#[derive(Debug, Clone)]
+pub struct Target {
+    pub grid: DotGrid,
+    pub band: LetterBand,
+    pub line_h: u32,
+    /// The letters, digits and marks of text the display's own font draws
+    /// (`dotfont::text_chars_of`); every one of `charset` on a display of no font of its own.
+    pub chars: Vec<char>,
+    /// The capitals the display's own font has (its digits, for a line number's font), and
+    /// their mean width there (dots): what a substitute is made about as wide as.
+    pub refs: Vec<char>,
+    pub width: f32,
+}
+
+impl Target {
+    /// The display whose own font is `own` (None: a display of no font), a line of `line_h`
+    /// pixels, with the settings of `spec` (its letter height).
+    pub fn of(own: Option<&FontAtlas>, line_h: u32, spec: &DisplayFontSpec) -> Target {
+        let line_h = line_h.max(1);
+        let grid = own.map(DotGrid::of_atlas).unwrap_or_else(|| DotGrid::plain(line_h));
+        let own_dots = own.map(|a| DotFont::from_atlas(a, &grid));
+        let band = own_dots.as_ref().map(LetterBand::of).unwrap_or_else(|| LetterBand::filling(grid.rows));
+        let band = match spec.rows {
+            Some(r) => band.scaled_to(r),
+            None => band,
+        };
+        let chars = own.map(|a| omsi_content::dotfont::text_chars_of(&a.font)).unwrap_or_else(omsi_content::dotfont::charset);
+        let has = |c: &char| own_dots.as_ref().is_some_and(|d| d.glyphs.iter().any(|g| g.ch == *c));
+        let capitals: Vec<char> = ('A'..='Z').filter(has).collect();
+        let digits: Vec<char> = ('0'..='9').filter(has).collect();
+        // (a line number's font is measured on its digits)
+        let (refs, width) = if band.fill {
+            (Vec::new(), 0.0)
+        } else if capitals.len() < 13 && !digits.is_empty() {
+            (digits, band.digit_w.unwrap_or(band.cap_w))
+        } else {
+            (capitals, band.cap_w)
+        };
+        Target { grid, band, line_h, chars, refs, width }
+    }
+}
+
+/// The letters a display font stands in with (see `substitute`): a vector font's file and face,
+/// or an `.oft` font's dots (the size `FontLibrary::oft_size` picks).
+#[derive(Clone, Copy)]
+pub enum SubstituteSource<'a> {
+    Vector(&'a [u8], u32),
+    Oft(&'a DotFont),
+}
+
+/// A display font made for a display (`substitute`): the atlas, where its letters sit, and how
+/// much narrower than its own they are drawn.
+pub struct Substitute {
+    pub atlas: FontAtlas,
+    pub band: LetterBand,
+    pub condense: f32,
+}
+
+/// The display font `src` (with the settings of `spec`: its letter height, bold, spacing) as
+/// the display of `target`, whose own font is `own`, shows it - what the game draws with (a
+/// text texture, a script's matrix) and the launcher's previews show. In the display's grid of
+/// dots and line, its capitals as tall as those of the display's own font and standing on its
+/// line, its letters about as wide (narrowed by `condense_for`, measured on a first drawing of
+/// the letters it is compared on) and the gap and space of that font: a script that measures
+/// its text to pick a size picks the one it picks with its own fonts, and a destination padded
+/// with spaces lies where it lies in them. What is no text keeps the display's own drawing
+/// (`dotfont::merge_kept`). None when a vector font has none of the letters.
+pub fn substitute(src: SubstituteSource, spec: &DisplayFontSpec, target: &Target, own: Option<&FontAtlas>) -> Option<Substitute> {
+    let band = &target.band;
+    let make = |condense: f32, chars: &[char]| -> Result<DotFont, String> {
+        match src {
+            SubstituteSource::Vector(data, face) => DotFont::from_vector_in(data, face, band, chars, condense),
+            SubstituteSource::Oft(dots) => Ok(dots.only(chars).fit_to(band, condense)),
+        }
     };
-    d = d.styled(spec.bold, spec.spacing);
-    d.to_atlas(grid, line_h, spec.name.trim())
+    let mut condense = 1.0;
+    if target.width > 0.0 && !target.refs.is_empty() {
+        let measure = |c: f32| make(c, &target.refs).ok().and_then(|d| d.mean_width(&target.refs));
+        if let Some(natural) = measure(1.0) {
+            condense = omsi_content::dotfont::condense_for(natural, target.width);
+            // (each letter comes out a whole number of dots wide, which a small size rounds
+            // up by much of a dot: narrowed once more by what is left over)
+            if let Some(w) = (condense < 1.0).then(|| measure(condense)).flatten().filter(|w| *w > target.width * 1.03) {
+                condense = (condense * target.width / w).clamp(0.5, 1.0);
+            }
+        }
+    }
+    let dots = match make(condense, &target.chars) {
+        Ok(d) => d,
+        Err(e) => {
+            log::warn!("display font \"{}\": {e}", spec.name);
+            return None;
+        }
+    };
+    let atlas = dots.styled(spec.bold, spec.spacing).to_atlas(&target.grid, target.line_h, spec.name.trim());
+    let atlas = match own {
+        Some(o) => omsi_content::dotfont::merge_kept(&atlas, o),
+        None => atlas,
+    };
+    Some(Substitute { atlas, band: band.clone(), condense })
+}
+
+/// `substitute`'s atlas for a display whose own font is `own` (None: one of no font) on a
+/// line of `line_h` pixels.
+pub fn substitute_atlas(src: SubstituteSource, spec: &DisplayFontSpec, own: Option<&FontAtlas>, line_h: u32) -> Option<FontAtlas> {
+    substitute(src, spec, &Target::of(own, line_h, spec), own).map(|s| s.atlas)
 }
 
 /// Whether `font` writes letters or a line number - not pictograms, a clock, or a script's
@@ -378,7 +520,7 @@ const DEVICE_SCRIPT_PARTS: &[&str] = &["ibis", "cockpit", "dash", "drucker", "pr
 /// A script of the vehicle that draws a destination sign into its script textures with fonts
 /// it asks the game for by name (`GetFontIndex` then `STTextOut`): the Krüger matrices and
 /// their kin. A display font chosen for the bus takes the place of those fonts there, each
-/// fitted to the height of the one it replaces.
+/// fitted to the height, the line and the width of the letters of the one it replaces.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ScriptSign {
     pub script: PathBuf,
@@ -577,8 +719,8 @@ impl DisplayRole {
 /// order) in the display font `chosen` the player picked for the bus (a
 /// `DisplayFontSpec::to_arg`: an `.oft` font's name, or a vector font with its settings), as
 /// each display draws letters (`FontLibrary::display_font`: in the grid of dots of the
-/// display's own font, a line of its height) - its size, colour and placement stay the bus's.
-/// Returns how many it changed (none when the font is missing).
+/// display's own font, its line, its letters' height and width) - its size, colour and
+/// placement stay the bus's. Returns how many it changed (none when the font is missing).
 pub fn apply_display_font(states: &mut [TextTextureState], model: &omsi_model::Model, chosen: &str, lib: &mut FontLibrary, decode: &dyn Fn(&Path) -> Option<(u32, u32, Vec<u8>)>) -> usize {
     let Some(spec) = DisplayFontSpec::parse(chosen) else { return 0 };
     let mut changed = 0;
@@ -591,8 +733,11 @@ pub fn apply_display_font(states: &mut [TextTextureState], model: &omsi_model::M
             return changed;
         };
         log::info!("display font: {} ({}) drawn in \"{}\" for a line of {line_h} px", s.def.variable, s.def.font, spec.name);
+        // (made in the line, band and spacing of the display's own font, it is placed as
+        // Omsi.exe places that font - '@' lines and clipping too; only on a display of no font
+        // of its own is it fitted to the texture's line)
+        s.fit = if s.atlas.is_some() { None } else { Some(line_h as u32) };
         s.atlas = Some(atlas);
-        s.fit = Some(line_h as u32);
         s.last_text = None;
         changed += 1;
     }
@@ -607,8 +752,8 @@ pub struct TextTextureState {
     pub last_text: Option<String>,
     /// Latest rendered RGBA image, present when it changed since the last upload.
     pub pending: Option<Vec<u8>>,
-    /// Drawn in a display font the player chose instead of the bus's own: the height of a
-    /// line of the bus's own font, which the chosen one is fitted to (`render_fitted`).
+    /// Drawn in a display font the player chose on a display whose own font is missing: the
+    /// height of the texture's line, which the chosen one is fitted to (`render_fitted`).
     pub fit: Option<u32>,
 }
 
@@ -789,7 +934,153 @@ mod tests {
         assert!(!found.iter().any(|(_, v)| v.eq_ignore_ascii_case("ibis") || v.eq_ignore_ascii_case("ident")), "{found:?}");
     }
 
-    /// A text texture fitted to a display font draws it in the bus's own size and place.
+    /// The installed OMSI 2's fonts (`OMSI_ROOT`; skipped without it): the stock Hamburg LED
+    /// fonts are read as the matrices they show - their dots a pixel off from letter to letter,
+    /// round or L-shaped - and every font read as a grid is printed with it.
+    #[test]
+    fn installed_led_fonts_are_read_as_dots() {
+        let Some(root) = omsi_cfg::env::var_os("OMSI_ROOT").map(std::path::PathBuf::from) else {
+            eprintln!("skipped: no OMSI_ROOT");
+            return;
+        };
+        let mut lib = FontLibrary::new(&root);
+        let decode = |p: &Path| omsi_texture::decode_file(p).ok().map(|i| (i.width, i.height, i.rgba));
+        let fonts = FontLibrary::new(&root).installed();
+        for f in &fonts {
+            let Some(a) = lib.get(&f.name, &decode) else { continue };
+            let g = DotGrid::of_atlas(&a);
+            if g.pitch > 1 || g.smooth {
+                eprintln!("{}: pitch {} dot {} phase {}/{} rows {} smooth {}", f.name.trim(), g.pitch, g.dot, g.phase_x, g.phase_y, g.rows, g.smooth);
+            }
+        }
+        for name in ["4_LW_Benefit_Gross", "4_LW_Benefit_Klein", "17_LED_Gross", "HC_LED_Klein", "krueger-font_linie"] {
+            let Some(a) = lib.get(name, &decode) else {
+                eprintln!("skipped: no {name}");
+                continue;
+            };
+            let g = DotGrid::of_atlas(&a);
+            assert!(g.pitch >= 3, "{name}: {g:?}");
+            // (its letters as dots: an H of two strokes and a bar, not solid nor striped)
+            let dots = oft_dots(&a);
+            let band = LetterBand::of(&dots);
+            assert!(!band.fill && band.cap_rows() >= 5, "{name}: {band:?}");
+        }
+    }
+
+    /// The installed OMSI 2's buses and fonts (`OMSI_ROOT`; skipped without it): every font a
+    /// bus writes its destination in - a destination display's, a sign script's letters' -
+    /// stood in for by the bundled Hanken Grotesk and by every installed `.oft` font of letters.
+    /// No letter both fonts draw comes out empty; the capitals stand on the line of the bus's
+    /// own (a vector font's as tall as those, an `.oft` font's no taller: it is magnified by
+    /// whole times only); on a matrix whose dots stand apart every lit pixel is a dot's.
+    #[test]
+    fn installed_display_fonts_take_any_chosen_font() {
+        let Some(root) = omsi_cfg::env::var_os("OMSI_ROOT").map(PathBuf::from) else {
+            eprintln!("skipped: no OMSI_ROOT");
+            return;
+        };
+        let decode = |p: &Path| omsi_texture::decode_file(p).ok().map(|i| (i.width, i.height, i.rgba));
+        let mut lib = FontLibrary::new(&root);
+        // the fonts the buses write their destinations in
+        let mut names: Vec<String> = Vec::new();
+        let mut scripts_seen: Vec<Vec<PathBuf>> = Vec::new();
+        for bus in std::fs::read_dir(root.join("Vehicles")).into_iter().flatten().flatten() {
+            for file in std::fs::read_dir(bus.path()).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("bus"))) {
+                let Ok(def) = omsi_vehicle::Vehicle::load(&file) else { continue };
+                if let Some(m) = def.model.as_deref().and_then(|m| omsi_model::Model::load(&omsi_cfg::resolve_path(def.dir(), m)).ok()) {
+                    names.extend(destination_displays(&m).into_iter().map(|i| m.text_textures[i].font.trim().to_string()));
+                }
+                if !scripts_seen.contains(&def.scripts.scripts) {
+                    scripts_seen.push(def.scripts.scripts.clone());
+                    names.extend(script_signs(&def.scripts.scripts).into_iter().flat_map(|s| s.fonts));
+                }
+            }
+        }
+        let mut own: Vec<Arc<FontAtlas>> = Vec::new();
+        for n in names {
+            if own.iter().any(|a| a.font.name.trim().eq_ignore_ascii_case(n.trim())) {
+                continue;
+            }
+            if let Some(a) = lib.get(&n, &decode).filter(|a| is_letter_font(&a.font)) {
+                own.push(a);
+            }
+        }
+        // the fonts chosen: the bundled vector font, every installed `.oft` font of letters
+        let hanken: &[u8] = include_bytes!("../../../assets/fonts/HankenGrotesk/HankenGrotesk-latin-700.ttf");
+        let mut chosen = vec![DisplayFontSpec::vector("Hanken Grotesk Bold", Path::new("Hanken.ttf"), 0)];
+        chosen.extend(lib.installed().iter().filter(|f| is_letter_font(f)).map(|f| DisplayFontSpec::named(f.name.trim())));
+        eprintln!("{} fonts of destinations, {} fonts chosen for them", own.len(), chosen.len());
+        let mut failures: Vec<(String, String)> = Vec::new();
+        let mut drawn = 0usize;
+        for a in &own {
+            let target = Target::of(Some(a), a.font.height.max(1) as u32, &DisplayFontSpec::default());
+            let (grid, band) = (target.grid, &target.band);
+            if band.fill {
+                eprintln!("{}: no letters to read where they sit", a.font.name.trim());
+                continue;
+            }
+            eprintln!("{}: grid {}/{} px, {} rows, capitals rows {}..{}, {:.1} dots wide", a.font.name.trim(), grid.pitch, grid.dot, grid.rows, band.cap_top, band.base - 1, target.width);
+            let letters: Vec<char> = "ABEFHLNOPTUZ0123456789".chars().filter(|&c| ink_rows(a, c).is_some()).collect();
+            let p = grid.pitch.max(1);
+            for spec in &chosen {
+                let oft = if spec.is_vector() { None } else { lib.oft_size(&spec.name, band, &decode) };
+                // (a font of pictures - X10_Hst's stop names, each "letter" 200 px wide - stands
+                // in as what it is)
+                if oft.as_ref().is_some_and(|d| d.1.fill || d.1.cap_w > d.1.cap_rows() as f32 * 3.0) {
+                    continue;
+                }
+                let (src, has): (SubstituteSource, Box<dyn Fn(char) -> bool>) = match &oft {
+                    None if spec.is_vector() => (SubstituteSource::Vector(hanken, 0), Box::new(|_| true)),
+                    None => continue,
+                    Some(d) => (SubstituteSource::Oft(&d.0), Box::new(|c| d.0.glyph(c).is_some_and(|g| g.cov.iter().any(|&v| v >= omsi_content::dotfont::LIT)))),
+                };
+                let at = format!("{} in {}", a.font.name.trim(), spec.name);
+                let Some(sub) = substitute(src, spec, &target, None) else {
+                    failures.push((spec.name.clone(), format!("{at}: nothing made")));
+                    continue;
+                };
+                drawn += 1;
+                for &c in letters.iter().filter(|&&c| has(c)) {
+                    if ink_rows(&sub.atlas, c).is_none() {
+                        failures.push((spec.name.clone(), format!("{at}: {c} empty")));
+                        continue;
+                    }
+                    if p > 1 && !grid.smooth {
+                        let g = sub.atlas.font.chars.iter().find(|g| g.ch == c).unwrap();
+                        let off = (g.x0..g.x1).flat_map(|x| (0..sub.atlas.font.height).map(move |y| (x, y))).find(|&(x, y)| {
+                            let lit = sub.atlas.alpha[(((g.y + y) as u32 * sub.atlas.width + x as u32) * 4) as usize] > 0;
+                            let (dx, dy) = ((x - g.x0) as u32, y as u32);
+                            lit && (dx < grid.phase_x || (dx - grid.phase_x) % p >= grid.dot || dy < grid.phase_y || (dy - grid.phase_y) % p >= grid.dot)
+                        });
+                        if let Some((x, y)) = off {
+                            failures.push((spec.name.clone(), format!("{at}: {c} lit at ({}, {y}), off the dots", x - g.x0)));
+                        }
+                    }
+                }
+                // where its letters stand, read as the bus's own are (the middle of a flat H, E,
+                // I, T, N, L and F: a font whose boxes take in ink of the line above or below -
+                // some smooth fonts' are cut that tall - keeps it, as Omsi.exe draws it)
+                let mine = LetterBand::of(&DotFont::from_atlas(&sub.atlas, &grid));
+                let tall_enough = !spec.is_vector() || mine.cap_top.abs_diff(band.cap_top) <= 1;
+                if !mine.fill && (mine.base.abs_diff(band.base) > 1 || mine.cap_top + 1 < band.cap_top || !tall_enough) {
+                    failures.push((spec.name.clone(), format!("{at}: capitals in rows {}..{}, its own {}..{}", mine.cap_top, mine.base - 1, band.cap_top, band.base - 1)));
+                }
+            }
+        }
+        let mut by_font: Vec<(String, usize)> = Vec::new();
+        for (f, _) in &failures {
+            match by_font.iter_mut().find(|b| &b.0 == f) {
+                Some(b) => b.1 += 1,
+                None => by_font.push((f.clone(), 1)),
+            }
+        }
+        by_font.sort_by_key(|b| std::cmp::Reverse(b.1));
+        eprintln!("{drawn} substitutes drawn, {} failures; by the font chosen: {by_font:?}", failures.len());
+        assert!(failures.is_empty(), "{}", failures.iter().take(60).map(|f| f.1.clone()).collect::<Vec<_>>().join("\n"));
+    }
+
+    /// A text texture fitted to a display font (a display whose own font is missing) draws it
+    /// in the bus's own size and place; a line too wide runs off the edge at that size.
     #[test]
     fn a_display_font_keeps_the_display_size_colour_and_place() {
         use omsi_content::font::{Font, FontChar};
@@ -801,12 +1092,267 @@ mod tests {
         (def.width, def.height) = (40, 16);
         let mut s = TextTextureState::new(def, Some(atlas));
         s.fit = Some(16);
+        let ink_of = |img: &[u8]| -> Vec<(usize, usize)> { (0..16).flat_map(|y| (0..40).map(move |x| (x, y))).filter(|(x, y)| img[(y * 40 + x) * 4 + 3] > 0).collect() };
         let img = s.image("A");
-        let ink: Vec<(usize, usize)> = (0..16).flat_map(|y| (0..40).map(move |x| (x, y))).filter(|(x, y)| img[(y * 40 + x) * 4 + 3] > 0).collect();
+        let ink = ink_of(&img);
         // twice the size (10 x 14), centred, the bus's colour, every pixel whole
         assert_eq!(ink.len(), 10 * 14);
         assert_eq!(ink.iter().map(|p| p.0).min(), Some(15));
         assert_eq!(ink.iter().map(|p| p.1).min(), Some(1));
         assert!(ink.iter().all(|(x, y)| img[(y * 40 + x) * 4..(y * 40 + x) * 4 + 4] == [255, 160, 0, 255]));
+        // (not squeezed by a fraction to fit: every pixel still whole, the letters as tall)
+        let img = s.image("AAAAAAA");
+        let ink = ink_of(&img);
+        assert_eq!((ink.iter().map(|p| p.0).min(), ink.iter().map(|p| p.0).max()), (Some(0), Some(39)));
+        assert!(ink.iter().all(|(x, y)| img[(y * 40 + x) * 4 + 3] == 255));
+        assert_eq!(ink.iter().map(|p| p.1).max(), Some(14));
+    }
+
+    /// 5 x 7 letters ('#' lit; '.' one column wide).
+    const PATTERNS: &[(char, [&str; 7])] = &[
+        ('H', ["#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"]),
+        ('A', [".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"]),
+        ('U', ["#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."]),
+        ('P', ["####.", "#...#", "#...#", "####.", "#....", "#....", "#...."]),
+        ('T', ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."]),
+        ('B', ["####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."]),
+        ('N', ["#...#", "##..#", "#.#.#", "#..##", "#...#", "#...#", "#...#"]),
+        ('O', [".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."]),
+        ('F', ["#####", "#....", "#....", "####.", "#....", "#....", "#...."]),
+        ('E', ["#####", "#....", "#....", "####.", "#....", "#....", "#####"]),
+        ('I', [".###.", "..#..", "..#..", "..#..", "..#..", "..#..", ".###."]),
+        ('L', ["#....", "#....", "#....", "#....", "#....", "#....", "#####"]),
+        ('W', ["#...#", "#...#", "#...#", "#.#.#", "#.#.#", "##.##", "#...#"]),
+        ('C', [".###.", "#...#", "#....", "#....", "#....", "#...#", ".###."]),
+        ('D', ["####.", "#...#", "#...#", "#...#", "#...#", "#...#", "####."]),
+        ('1', ["..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###."]),
+        ('2', [".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####"]),
+        ('.', [".", ".", ".", ".", ".", ".", "#"]),
+    ];
+
+    /// A font of `PATTERNS` drawn as a picture of a matrix: each dot of a letter `mag` x `mag`
+    /// cells of `pitch` px, a `dot` x `dot` square lit at the start of each (no seams when it
+    /// is the pitch), the letters `top` cells into lines `h` px high; each letter's box its
+    /// cells and `pad` more, `gap` px between letters. `solid`: every cell of a letter's box in
+    /// its seven rows lit (block letters).
+    #[allow(clippy::too_many_arguments)]
+    fn dot_atlas(name: &str, pitch: u32, dot: u32, mag: u32, top: u32, h: u32, pad: u32, gap: i32, solid: bool) -> FontAtlas {
+        use omsi_content::font::FontChar;
+        let widths: Vec<u32> = PATTERNS.iter().map(|p| (p.1[0].len() as u32 * mag + pad) * pitch).collect();
+        let aw: u32 = widths.iter().sum::<u32>().max(1);
+        let mut alpha = vec![0u8; (aw * h * 4) as usize];
+        let mut chars = Vec::new();
+        let mut x0 = 0u32;
+        for ((ch, rows), w) in PATTERNS.iter().zip(&widths) {
+            for (r, row) in rows.iter().enumerate() {
+                for (c, b) in row.bytes().enumerate() {
+                    if b != b'#' && !solid {
+                        continue;
+                    }
+                    for (my, mx) in (0..mag).flat_map(|my| (0..mag).map(move |mx| (my, mx))) {
+                        let (cx, cy) = (x0 + (c as u32 * mag + mx) * pitch, (top + r as u32 * mag + my) * pitch);
+                        for (dy, dx) in (0..dot).flat_map(|dy| (0..dot).map(move |dx| (dy, dx))) {
+                            if cy + dy < h {
+                                let at = (((cy + dy) * aw + cx + dx) * 4) as usize;
+                                alpha[at..at + 4].copy_from_slice(&[255; 4]);
+                            }
+                        }
+                    }
+                }
+            }
+            chars.push(FontChar { ch: *ch, x0: x0 as i32, x1: (x0 + w) as i32, y: 0 });
+            x0 += w;
+        }
+        let font = Font { name: name.into(), height: h as i32, gap, chars, ..Default::default() };
+        FontAtlas::new(font, aw, h, alpha.clone(), alpha)
+    }
+
+    /// The rows the glyph `ch` of `a` has ink in, first and last.
+    fn ink_rows(a: &FontAtlas, ch: char) -> Option<(u32, u32)> {
+        let g = a.font.chars.iter().find(|g| g.ch == ch)?;
+        let lit = |y: u32| (g.x0..g.x1).any(|x| a.alpha[(((g.y as u32 + y) * a.width + x as u32) * 4) as usize] > 0);
+        let first = (0..a.font.height as u32).find(|&y| lit(y))?;
+        Some((first, (0..a.font.height as u32).rev().find(|&y| lit(y)).unwrap_or(first)))
+    }
+
+    /// The pixels of the glyph `ch` of `a`, row by row.
+    fn glyph_pixels(a: &FontAtlas, ch: char) -> Vec<u8> {
+        let Some(g) = a.font.chars.iter().find(|g| g.ch == ch) else { return Vec::new() };
+        (0..a.font.height).flat_map(|y| (g.x0..g.x1).map(move |x| (x, y))).map(|(x, y)| a.alpha[(((g.y + y) as u32 * a.width + x as u32) * 4) as usize]).collect()
+    }
+
+    fn hanken(dir: &Path) -> DisplayFontSpec {
+        std::fs::create_dir_all(dir).unwrap();
+        let ttf = dir.join("Hanken.ttf");
+        std::fs::write(&ttf, include_bytes!("../../../assets/fonts/HankenGrotesk/HankenGrotesk-latin-700.ttf")).unwrap();
+        DisplayFontSpec::vector("Hanken Grotesk Bold", &ttf, 0)
+    }
+
+    /// Two fonts of one display's height and grid, their capitals 10 and 13 rows high: a
+    /// display font stands in for each as tall as its letters (one atlas for both made them
+    /// one size, and a matrix script measuring its sizes found none smaller).
+    #[test]
+    fn each_size_has_its_own_substitute() {
+        let dir = std::env::temp_dir().join(format!("omsi_texttex_sizes_{}", std::process::id()));
+        let spec = hanken(&dir);
+        let mut lib = FontLibrary::new(&dir);
+        let none = |_: &Path| None;
+        // (7 rows of letters magnified: 10 x 14 and 13 x 13 cells high is no pattern; solid
+        // blocks of 10 and 13 rows are)
+        let ten = dot_atlas("Krueger 16x5", 1, 1, 1, 0, 16, 1, 1, true);
+        let ten = shifted(&ten, 3, 10);
+        let thirteen = shifted(&dot_atlas("Krueger 16x7", 1, 1, 1, 0, 16, 1, 1, true), 1, 13);
+        let a = lib.display_font(&spec, Some(&ten), 16, &none).unwrap();
+        let b = lib.display_font(&spec, Some(&thirteen), 16, &none).unwrap();
+        assert_eq!(ink_rows(&a, 'H'), Some((3, 12)));
+        assert_eq!(ink_rows(&b, 'H'), Some((1, 13)));
+        assert_eq!((a.font.height, b.font.height), (16, 16));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `a` (a font of block letters 7 rows high from its top) with every letter's seven rows
+    /// stretched to `rows` rows from row `top`.
+    fn shifted(a: &FontAtlas, top: u32, rows: u32) -> FontAtlas {
+        let mut alpha = vec![0u8; a.alpha.len()];
+        for y in 0..a.height {
+            for x in 0..a.width {
+                let src = if y >= top && y < top + rows { (y - top) * 7 / rows } else { u32::MAX };
+                if src < a.height {
+                    let (s, d) = (((src * a.width + x) * 4) as usize, ((y * a.width + x) * 4) as usize);
+                    let v = a.alpha[s];
+                    alpha[d..d + 4].copy_from_slice(&[v; 4]);
+                }
+            }
+        }
+        FontAtlas::new(a.font.clone(), a.width, a.height, alpha.clone(), alpha)
+    }
+
+    /// The stock Hamburg LED fonts chosen for a display of another font: a picture of LEDs
+    /// (each a 2x2 square in a cell of 4 px, the letters two LEDs to a dot and 104 px high),
+    /// shrunk onto pixel fonts of 7, 13 and 16 rows. No letter of the destination comes out
+    /// empty (they did: every dot fell under the threshold, and the sign stayed dark).
+    #[test]
+    fn a_chosen_led_font_is_never_empty() {
+        let dir = PathBuf::from("/fonts");
+        let led = dot_atlas("LED Gross", 4, 2, 2, 4, 104, 1, 0, false);
+        let (lw, lh, lrgba) = (led.width, led.height, led.alpha.clone());
+        let font = Font { path: dir.join("led.oft"), bitmap: "led.bmp".into(), alpha: "led.bmp".into(), ..led.font.clone() };
+        let decode = move |p: &Path| -> Option<(u32, u32, Vec<u8>)> { (p.file_name()?.to_str()? == "led.bmp").then(|| (lw, lh, lrgba.clone())) };
+        let mut lib = FontLibrary::new(&dir);
+        lib.index = Some(vec![font]);
+        let spec = DisplayFontSpec::named("LED Gross");
+        let read = lib.get("LED Gross", &decode).unwrap();
+        let g = DotGrid::of_atlas(&read);
+        assert_eq!((g.pitch, g.dot), (4, 2), "{g:?}");
+        for (rows, top, caps) in [(7u32, 0u32, 7u32), (13, 2, 11), (16, 3, 10)] {
+            let own = shifted(&dot_atlas(&format!("Pix {rows}"), 1, 1, 1, 0, rows, 1, 1, true), top, caps);
+            let sub = lib.display_font(&spec, Some(&own), rows as i32, &decode).unwrap();
+            assert_eq!(sub.font.height, rows as i32);
+            for ch in "HAUPTBAHNHOF 12".chars().filter(|c| !c.is_whitespace()) {
+                let px = glyph_pixels(&sub, ch);
+                assert!(px.iter().any(|a| *a > 0), "{ch} on {rows} rows is empty");
+                assert_ne!(px, glyph_pixels(&own, ch), "{ch} on {rows} rows is the bus's own");
+                // (in the bus's capitals' rows)
+                let (t, b) = ink_rows(&sub, ch).unwrap();
+                assert!(t >= top && b < top + caps, "{ch} on {rows} rows: rows {t}..{b}");
+            }
+        }
+    }
+
+    /// Block capitals `w` wide, `caps` rows high from row `top` of a line of `h` (a Krüger
+    /// matrix size), each with a bar in its middle; a gap of 1.
+    fn krueger(name: &str, h: u32, top: u32, caps: u32, w: u32) -> FontAtlas {
+        use omsi_content::font::FontChar;
+        let letters: Vec<char> = ('A'..='Z').chain('0'..='9').collect();
+        let aw = letters.len() as u32 * w;
+        let mut alpha = vec![0u8; (aw * h * 4) as usize];
+        let mut chars = Vec::new();
+        for (i, ch) in letters.iter().enumerate() {
+            let x0 = i as u32 * w;
+            for y in top..top + caps {
+                for x in 0..w {
+                    if x == 0 || x == w - 1 || y == top || y == top + caps / 2 {
+                        let at = ((y * aw + x0 + x) * 4) as usize;
+                        alpha[at..at + 4].copy_from_slice(&[255; 4]);
+                    }
+                }
+            }
+            chars.push(FontChar { ch: *ch, x0: x0 as i32, x1: (x0 + w) as i32, y: 0 });
+        }
+        let font = Font { name: name.into(), height: h as i32, gap: 1, chars, ..Default::default() };
+        FontAtlas::new(font, aw, h, alpha.clone(), alpha)
+    }
+
+    /// The stock MAN NL's Krüger matrix (`VMatrix.osc`): a destination tried in 16x9, 16x7,
+    /// 11x5 and 9x4 until it fits the 85 px beside the line number, then spaced out with
+    /// `l3 l1 - l6 / trunc l7 min` (the room left over the gaps, at most the size's own). In a
+    /// display font standing in for each size it picks the size it picks in its own fonts - a
+    /// substitute wider than the font it replaced fell to the smallest size with a negative
+    /// spacing, its letters run together.
+    #[test]
+    fn the_matrix_cascade_picks_the_same_size() {
+        let dir = std::env::temp_dir().join(format!("omsi_texttex_cascade_{}", std::process::id()));
+        let spec = hanken(&dir);
+        let own = [krueger("Krueger 16x9", 16, 0, 16, 9), krueger("Krueger 16x7", 16, 0, 16, 7), krueger("Krueger 11x5", 13, 2, 11, 5), krueger("Krueger 9x4", 9, 0, 9, 4)];
+        let most = [9, 7, 5, 4];
+        let mut lib = FontLibrary::new(&dir);
+        let none = |_: &Path| None;
+        let subs: Vec<Arc<FontAtlas>> = own.iter().map(|o| lib.display_font(&spec, Some(o), o.font.height, &none).unwrap()).collect();
+        let cascade = |fonts: &[&FontAtlas], text: &str| -> (usize, i32) {
+            let room = 85;
+            let (mut pick, mut w) = (fonts.len() - 1, 0);
+            for (i, f) in fonts.iter().enumerate() {
+                (pick, w) = (i, f.font.text_width(text));
+                if w <= room {
+                    break;
+                }
+            }
+            let gaps = (text.chars().count() as i32 - 1).max(0);
+            (pick, if gaps > 0 { ((room - w) / gaps).min(most[pick]) } else { most[pick] })
+        };
+        let own_refs: Vec<&FontAtlas> = own.iter().collect();
+        let sub_refs: Vec<&FontAtlas> = subs.iter().map(|a| a.as_ref()).collect();
+        for text in ["ZOO", "BAHNHOF", "HAUPTBAHNHOF"] {
+            eprintln!("{text}: {:?} in its own sizes, {:?} in the chosen font", own_refs.iter().map(|f| f.font.text_width(text)).collect::<Vec<_>>(), sub_refs.iter().map(|f| f.font.text_width(text)).collect::<Vec<_>>());
+            let (o, os) = cascade(&own_refs, text);
+            let (s, ss) = cascade(&sub_refs, text);
+            assert_eq!(s, o, "{text}: {} in its own fonts, {} in the chosen one", own[o].font.name, own[s].font.name);
+            assert!(os >= 0 && ss >= 0, "{text}: spacing {os} / {ss}");
+        }
+        // each size in its own rows: the 11x5's capitals from its row 2
+        assert_eq!(ink_rows(&subs[2], 'H'), Some((2, 12)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The Hamburg city bus's destination (`krueger-font_klein`: 2 px dots in 3 px cells, 7
+    /// rows, a line of 20 px) padded with spaces to 45 characters, as its script writes it, on
+    /// a texture of 512 px: in a display font it is drawn as the bus draws its own - from the
+    /// texture's edge, the rest cut off - not squeezed by a fraction, which smeared every dot.
+    #[test]
+    fn a_padded_destination_is_not_squeezed() {
+        use omsi_model::{MaterialDef, MeshDef, Model};
+        let dir = std::env::temp_dir().join(format!("omsi_texttex_padded_{}", std::process::id()));
+        let spec = hanken(&dir);
+        let own = Arc::new(dot_atlas("krueger-font_klein", 3, 2, 1, 0, 20, 1, 3, false));
+        assert_eq!(DotGrid::of_atlas(&own).pitch, 3);
+        let mut def = tt("stringoutput_zielM_A", "krueger-font_klein");
+        (def.width, def.height) = (512, 512);
+        let model = Model { text_textures: vec![def.clone()], meshes: vec![MeshDef { viewpoint: 0, materials: vec![MaterialDef { use_text_texture: Some(0), ..Default::default() }], ..Default::default() }], ..Default::default() };
+        let text = format!("{:<45}", "WWW.HOCHBAHN.DE");
+        let mine = TextTextureState::new(def.clone(), Some(own.clone()));
+        assert!(own.text_width(&text) - own.font.gap > 512, "padded wider than the texture, as on the bus");
+        let mut states = vec![TextTextureState::new(def, Some(own.clone()))];
+        let mut lib = FontLibrary::new(&dir);
+        assert_eq!(apply_display_font(&mut states, &model, &spec.to_arg(), &mut lib, &|_| None), 1);
+        assert_eq!(states[0].fit, None, "placed as the bus's own font");
+        let (a, b) = (mine.image(&text), states[0].image(&text));
+        let first = |img: &[u8]| (0..512u32).find(|&x| (0..512u32).any(|y| img[((y * 512 + x) * 4 + 3) as usize] > 0));
+        assert_eq!(first(&b), first(&a));
+        assert!(b.chunks(4).all(|p| p[3] == 0 || p[3] == 255), "every dot whole");
+        // in the bus's line and its dots' rows
+        let rows = |img: &[u8]| -> Vec<u32> { (0..512u32).filter(|&y| (0..512u32).any(|x| img[((y * 512 + x) * 4 + 3) as usize] > 0)).collect() };
+        let (ra, rb) = (rows(&a), rows(&b));
+        assert!(rb.iter().all(|y| ra.first().is_some_and(|f| y >= f) && ra.last().is_some_and(|l| y <= l)), "{ra:?} / {rb:?}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
