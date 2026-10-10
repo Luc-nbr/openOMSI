@@ -145,6 +145,11 @@ pub enum Role {
 /// notes of its own but looks like one.
 const USUAL: [Role; 8] = [Role::IbisDisplay, Role::FrontTop, Role::FrontBottom, Role::Side, Role::RollerBlind, Role::ClearName, Role::ExtraSign, Role::Bitmap];
 
+/// OMSI's layout for a file of `n` strings: those after the eighth for nothing it names.
+fn usual_roles(n: usize) -> Vec<Role> {
+    (0..n).map(|k| USUAL.get(k).copied().unwrap_or(Role::Other)).collect()
+}
+
 /// The string a note says is shown when this one is empty ("Wenn diese Zeile leer ist, wird
 /// String 1 ausgelesen"), if it says so.
 fn fallback_of(l: &str) -> Option<u8> {
@@ -247,7 +252,7 @@ pub fn roles(notes: &[String], cols: &[Column]) -> Vec<Role> {
         Some(Column::Text { .. }) => false,
     };
     if usual {
-        return (0..notes.len()).map(|k| USUAL.get(k).copied().unwrap_or(Role::Other)).collect();
+        return usual_roles(notes.len());
     }
     // a layout of its own: its first text is the front, as `front` shows it
     let first = cols.iter().position(|c| matches!(c, Column::Text { .. }));
@@ -461,7 +466,10 @@ impl Depot {
         notes.resize(n, String::new());
         let rows: Vec<Vec<String>> = hof.termini.iter().map(|t| t.strings.clone()).collect();
         let mut cols = columns(&rows, n, &notes);
-        let roles = roles(&notes, &cols);
+        // (a file with neither notes nor destinations - the player's own, all of them taken
+        // out - shows nothing of its layout: OMSI's, as the buses read the strings by their
+        // place; its columns, all text, would make its first the front alone)
+        let roles = if rows.is_empty() && notes.iter().all(|x| x.is_empty()) { usual_roles(n) } else { roles(&notes, &cols) };
         let at = |role: Role| roles.iter().position(|r| *r == role);
         let mut one_row_bottom = false;
         if let (Some(top), Some(bottom)) = (at(Role::FrontTop), at(Role::FrontBottom)) {
@@ -1200,6 +1208,24 @@ pub(crate) mod tests {
         assert_eq!(d.similar("schule bergheim."), Some(&d.hof.termini[3]));
         assert!(d.similar("Schule Bergheim").is_none(), "its own ident: no other");
         assert!(d.similar("Betriebsfahrt").is_none() && d.similar("Bergheim").is_none());
+    }
+
+    /// A file without notes whose destinations are all taken out still has its front's rows
+    /// where the buses read them, for its next destination and the one after.
+    #[test]
+    fn a_file_without_notes_or_destinations_has_omsis_layout() {
+        let mut hof = Depot::from_text(Path::new("Talstadt.hof"), HOF_SUITE, "Talstadt").hof;
+        hof.termini.clear();
+        let d = Depot::from_hof(hof.clone(), Vec::new());
+        assert_eq!(d.roles[..8], USUAL);
+        let s = d.sign_defaults("Krankenhaus Nordstadt");
+        assert_eq!((s[1].as_str(), s[2].as_str()), ("KRANKENHAUS", "NORDSTADT"), "{s:?}");
+        assert_eq!(d.front(&s), ("KRANKENHAUS".to_string(), "NORDSTADT".to_string()));
+        // the next one, with that one in the file
+        hof.termini.push(Terminus { code: 1, texture_id: "Krankenhaus Nordstadt".into(), terminus_stop: None, all_exit: false, strings: s });
+        let d = Depot::from_hof(hof, Vec::new());
+        assert_eq!(d.roles[..8], USUAL);
+        assert_eq!(d.front(&d.sign_defaults("Altdorf")), ("ALTDORF".to_string(), String::new()));
     }
 
     #[test]

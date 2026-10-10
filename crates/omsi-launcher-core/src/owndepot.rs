@@ -1020,6 +1020,13 @@ mod tests {
         let i = d.add_destination("Hohenkirchen, Therme", false, false);
         let s = &d.hof.termini[i].strings;
         assert_eq!((s[1].as_str(), s[2].as_str()), ("Hohenkirchen", "Therme"));
+        // all its destinations taken out: the next ones on the front's rows all the same
+        d.hof.termini.clear();
+        let i = d.add_destination("Krankenhaus Nordstadt", false, false);
+        let s = &d.hof.termini[i].strings;
+        assert_eq!((s[1].as_str(), s[2].as_str()), ("KRANKENHAUS", "NORDSTADT"), "{s:?}");
+        let i = d.add_destination("Altdorf", false, false);
+        assert_eq!(d.hof.termini[i].strings[1], "ALTDORF");
         // a young file of the player's: its first destination of one row, the next one split
         let mut d = Doc::blank("Talstadt - mine", "Talstadt");
         let a = d.add_destination("Markt", false, false);
