@@ -1158,6 +1158,43 @@ pub fn is_text_char(c: char) -> bool {
     c.is_alphanumeric() || ".,-/()&'’\":+!?".contains(c)
 }
 
+/// The characters of a display's own font - `dots` (`DotFont::from_atlas`), its letters sitting
+/// as `band` says - that it draws as something else than the letter or mark they are coded as
+/// (its pictograms): a display font standing in for it leaves them as it draws them
+/// (`merge_kept`). A small letter a to z of a font of capitals: Omsi.exe writes those as their
+/// capitals, so a font of capitals that has some draws pictures there (the SD200's Annax Large:
+/// a wheelchair over `g` and `h`, a checked flag over `x`; the line number fonts' symbols). A
+/// character lit from the line's first row to its last where the letters leave rows free above
+/// and below, as no letter is (the Hamburg LED fonts' `í`: a column of every LED, the display's
+/// test). A `/` lit right across its width in a row, as no slash is (the Annax depot's roof,
+/// drawn over `/^\`, standing on a bar; the Krüger font's framed sign).
+pub fn pictograms_of(dots: &DotFont, band: &LetterBand) -> Vec<char> {
+    if band.fill {
+        return Vec::new();
+    }
+    let rows = dots.rows;
+    // (the first row under the descenders, or under the capitals of a font of no descenders)
+    let deepest = band.base + band.below;
+    let whole_line = |g: &DotGlyph| band.cap_top > 0 && deepest < rows && lit_rows_of(g, rows) == Some((0, rows - 1));
+    let mut out: Vec<char> = dots
+        .glyphs
+        .iter()
+        .filter(|g| is_text_char(g.ch))
+        .filter(|g| (band.capitals_only && g.ch.is_ascii_lowercase()) || whole_line(g) || (g.ch == '/' && lit_across(g, rows)))
+        .map(|g| g.ch)
+        .collect();
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+/// Whether a row of `g` (`rows` rows) is lit right across its ink, three dots or more wide: a
+/// bar, not a stroke that slants.
+fn lit_across(g: &DotGlyph, rows: u32) -> bool {
+    let Some((a, b)) = inked_cols(g, rows) else { return false };
+    b - a >= 2 && (0..rows).any(|y| (a..=b).all(|x| g.cov[(y * g.w + x) as usize] >= LIT))
+}
+
 /// The characters a display font standing in for `font` is made for: every letter, digit and
 /// mark of text (`is_text_char`) `font` draws - its own, a small letter as its capital, the same
 /// byte of another code page - and the small letters of its capitals.
@@ -1172,22 +1209,26 @@ pub fn text_chars_of(font: &Font) -> Vec<char> {
 /// A display font's atlas `sub` (made for the display of the font `own`: `DotFont::to_atlas`
 /// of its line) with what is no text drawn as `own` draws it. Its characters are `own`'s: a
 /// letter, digit or mark of text (`is_text_char`) in `sub`'s drawing where `sub` has it with
-/// ink, anything else with `own`'s pixels and colours; and the characters `own` draws through
-/// others (a small letter as its capital, a letter of another code page) in `sub`'s too, a
-/// small letter `sub` has none of as its capital. Nothing `own` lacks is added, so that what a
-/// script leaves out on purpose (the `#` a line number is padded with) stays out. A space is
-/// as wide as `own`'s; the letters stand `sub`'s gap apart.
-pub fn merge_kept(sub: &FontAtlas, own: &FontAtlas) -> FontAtlas {
+/// ink - a small letter `sub` has none of as `sub`'s capital, as Omsi.exe writes a font of
+/// capitals, so that a line does not come out in two fonts - anything else, and `own`'s
+/// pictograms among them (`kept`, see `pictograms_of`), with `own`'s pixels and colours; and the
+/// characters `own` draws through others (a small letter as its capital, a letter of another
+/// code page) in `sub`'s too. Nothing `own` lacks is added, so that what a script leaves out on
+/// purpose (the `#` a line number is padded with) stays out. A space is as wide as `own`'s; the
+/// letters stand `sub`'s gap apart.
+pub fn merge_kept(sub: &FontAtlas, own: &FontAtlas, kept: &[char]) -> FontAtlas {
     let h = own.font.height.max(1) as u32;
     let inked = |a: &FontAtlas, g: &FontChar| (0..h as i32).any(|y| (g.x0..g.x1).any(|x| alpha_at(a, x, g.y + y) > 0));
     let in_sub = |c: char| sub.font.chars.iter().find(|g| g.ch == c && g.x1 > g.x0 && inked(sub, g));
+    // (`sub`'s drawing of a letter: its own, else a small letter's capital)
+    let drawn_in_sub = |c: char| in_sub(c).or_else(|| capital_of(c).and_then(in_sub));
     // (the character, whether it is `sub`'s, its glyph there)
     let mut picks: Vec<(char, bool, FontChar)> = Vec::new();
     for g in own.font.chars.iter().filter(|g| !g.ch.is_whitespace()) {
         if picks.iter().any(|p| p.0 == g.ch) {
             continue;
         }
-        match in_sub(g.ch).filter(|_| is_text_char(g.ch)) {
+        match drawn_in_sub(g.ch).filter(|_| is_text_char(g.ch) && !kept.contains(&g.ch)) {
             Some(s) => picks.push((g.ch, true, s.clone())),
             None => picks.push((g.ch, false, g.clone())),
         }
@@ -1861,7 +1902,7 @@ mod tests {
         let chars = text_chars_of(&own.font);
         assert!(chars.contains(&'a') && chars.contains(&'H') && !chars.contains(&'{') && !chars.contains(&'#') && !chars.contains(&'B'), "{chars:?}");
         let sub = DotFont::from_vector_in(HANKEN, 0, &band, &chars, 1.0).unwrap().to_atlas(&grid, 13, "Hanken");
-        let merged = merge_kept(&sub, &own);
+        let merged = merge_kept(&sub, &own, &[]);
         assert_eq!(merged.font.height, 13);
         let pixels = |a: &FontAtlas, ch: char| -> Vec<u8> {
             let g = a.font.chars.iter().find(|g| g.ch == ch).unwrap();
@@ -1877,6 +1918,92 @@ mod tests {
         assert_eq!(merged.font.glyph('a').map(|g| g.ch), Some('a'));
         // a space as wide as the bus's, the gap the chosen font's
         assert_eq!((merged.font.space_width(), merged.font.gap), (own.font.space_width(), sub.font.gap));
+    }
+
+    /// The pixels of the glyph `ch` of `a`, row by row (empty: none).
+    fn glyph_pixels(a: &FontAtlas, ch: char) -> Vec<u8> {
+        let Some(g) = a.font.chars.iter().find(|g| g.ch == ch) else { return Vec::new() };
+        (0..a.font.height).flat_map(|y| (g.x0..g.x1).map(move |x| (x, y))).map(|(x, y)| a.alpha[(((g.y + y) as u32 * a.width + x as u32) * 4) as usize]).collect()
+    }
+
+    /// A chosen font of capitals alone (the stock "Krueger 16x9", "Annax Small") on a display
+    /// whose font has small letters: a small letter is written as the chosen font's capital, as
+    /// Omsi.exe writes a font of capitals - not left in the bus's own font, the line in two.
+    #[test]
+    fn a_chosen_font_of_capitals_writes_small_letters_as_capitals() {
+        // capitals in rows 2 to 11 of 13, small letters from row 5, all of them
+        let chars: String = ('A'..='Z').chain('a'..='z').chain(['Ü', 'ü']).collect();
+        let own = pixel_atlas(13, &chars, |c, x, y| if c.is_uppercase() { (2..12).contains(&y) && (x == 0 || x == 3 || y == 2) } else { (5..12).contains(&y) && (x == 1 || y == 11) });
+        let grid = DotGrid::of_atlas(&own);
+        assert_eq!(grid, DotGrid::plain(13));
+        let band = LetterBand::of(&DotFont::from_atlas(&own, &grid));
+        assert!(!band.capitals_only);
+        let capitals: Vec<char> = ('A'..='Z').chain(['Ü']).collect();
+        let sub = DotFont::from_vector_in(HANKEN, 0, &band, &capitals, 1.0).unwrap().to_atlas(&grid, 13, "Capitals");
+        assert!(sub.font.chars.iter().all(|g| !g.ch.is_lowercase()));
+        let merged = merge_kept(&sub, &own, &[]);
+        for (small, cap) in "hauptbahnhofü".chars().map(|c| (c, c.to_uppercase().next().unwrap())) {
+            assert_eq!(glyph_pixels(&merged, small), glyph_pixels(&sub, cap), "{small}: the chosen font's {cap}");
+            assert_ne!(glyph_pixels(&merged, small), glyph_pixels(&own, small), "{small}: not the bus's own");
+        }
+    }
+
+    /// The pictograms a bus's font draws over letters and marks of text stay its own: the
+    /// SD200's Annax Large - a font of capitals - draws a wheelchair over `g` and `h` and a
+    /// checked flag over `x`, its depot's roof over `/^\`; the Hamburg LED fonts a column of
+    /// every LED (the display's test) over `í`. A slash that is one, a small letter of a font of
+    /// small letters and a capital stay the chosen font's.
+    #[test]
+    fn pictograms_stay_the_buses() {
+        // Annax Large: capitals in rows 0 to 14 of 16, no small letters but its pictures
+        let annax = pixel_atlas(16, "AEFGHILNTXgx/^", |c, x, y| match c {
+            'g' => y == 3 || x == 1 || (x + y) % 5 == 0,
+            'x' => y < 15 && (x + y) % 2 == 0,
+            // (a roof's slope on a bar)
+            '/' => (13..15).contains(&y) || ((9..13).contains(&y) && x == 12 - y),
+            '^' => y < 4 && (1..=2).contains(&x),
+            _ => y < 15 && (x == 0 || x == 3 || y == 0),
+        });
+        let grid = DotGrid::of_atlas(&annax);
+        assert_eq!(grid, DotGrid::plain(16));
+        let dots = DotFont::from_atlas(&annax, &grid);
+        let band = LetterBand::of(&dots);
+        assert!(band.capitals_only && !band.fill, "{band:?}");
+        let kept = pictograms_of(&dots, &band);
+        assert_eq!(kept, vec!['/', 'g', 'x']);
+        // a vector font has a g, an x and a slash: they are not drawn in it
+        let chars: Vec<char> = text_chars_of(&annax.font).into_iter().filter(|c| !kept.contains(c)).collect();
+        let sub = DotFont::from_vector_in(HANKEN, 0, &band, &chars, 1.0).unwrap().to_atlas(&grid, 16, "Hanken");
+        let merged = merge_kept(&sub, &annax, &kept);
+        for c in ['g', 'x', '/', '^'] {
+            assert_eq!(glyph_pixels(&merged, c), glyph_pixels(&annax, c), "{c}: the bus's own");
+        }
+        assert_eq!(glyph_pixels(&merged, 'H'), glyph_pixels(&sub, 'H'));
+        // ... nor taken from one made with them (they were: every letter and mark of text)
+        let all = DotFont::from_vector_in(HANKEN, 0, &band, &text_chars_of(&annax.font), 1.0).unwrap().to_atlas(&grid, 16, "Hanken");
+        assert!(!glyph_pixels(&all, 'g').is_empty());
+        assert_eq!(glyph_pixels(&merge_kept(&all, &annax, &kept), 'g'), glyph_pixels(&annax, 'g'));
+        // a slash that is one: the chosen font's
+        let slash = pixel_atlas(16, "AEFHILNT/", |c, x, y| match c {
+            '/' => (2..15).contains(&y) && x == 3 - (y - 2) * 4 / 13,
+            _ => y < 15 && (x == 0 || x == 3 || y == 0),
+        });
+        let dots = DotFont::from_atlas(&slash, &DotGrid::of_atlas(&slash));
+        assert!(pictograms_of(&dots, &LetterBand::of(&dots)).is_empty());
+        // 4_LW_Benefit_Gross: small letters, capitals in rows 3 to 12 of 18, descenders to 15;
+        // its `í` lit from the first row to the last
+        let led_chars: String = ('A'..='Z').chain('a'..='z').chain(['í', 'é']).collect();
+        let led = pixel_atlas(18, &led_chars, |c, x, y| match c {
+            'í' => x == 1,
+            'é' => ((5..13).contains(&y) && x != 2) || (y == 3 && x == 2),
+            'g' | 'j' | 'p' | 'q' | 'y' => (6..16).contains(&y) && x == 1,
+            c if c.is_lowercase() => (6..13).contains(&y) && x == 1,
+            _ => (3..13).contains(&y) && (x == 0 || x == 3 || y == 3),
+        });
+        let dots = DotFont::from_atlas(&led, &DotGrid::of_atlas(&led));
+        let band = LetterBand::of(&dots);
+        assert_eq!((band.cap_top, band.base, band.below, band.capitals_only), (3, 13, 3, false));
+        assert_eq!(pictograms_of(&dots, &band), vec!['í']);
     }
 
     #[test]
