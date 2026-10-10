@@ -1225,10 +1225,11 @@ impl Ui {
         changed
     }
 
-    /// Open the list of a dropdown under (or over) `anchor`, the chosen option in view.
+    /// Open the list of a dropdown under (or over) `anchor`, the chosen option in view (one
+    /// past the options: none is chosen - a name typed beside the list, say).
     fn open_popup(&mut self, id: Id, anchor: Rect, selected: usize, options: &[String]) {
         let sel = selected.min(options.len().saturating_sub(1));
-        let mut p = Popup { id, anchor, options: options.to_vec(), selected: sel, scroll: 0.0, opened: 0.0, picked: None, drag: None, query: String::new(), px: self.wpx(13.0) };
+        let mut p = Popup { id, anchor, options: options.to_vec(), selected, scroll: 0.0, opened: 0.0, picked: None, drag: None, query: String::new(), px: self.wpx(13.0) };
         let row = 34.0;
         let visible = popup_rect(&p, self.size).h;
         p.scroll = ((sel as f32 + 0.5) * row - visible * 0.5).clamp(0.0, (options.len() as f32 * row - visible).max(0.0));
@@ -3098,6 +3099,35 @@ mod tests {
         }
         let r = popup_rect(ui.popup.as_ref().expect("the list is open"), ui.size);
         assert!(r.right() <= 800.0 && r.x >= 0.0, "{r:?}");
+    }
+
+    /// A list opened on none of its options (the line editor's destination: a name typed beside
+    /// it) marks none, and the first can be picked as well as any other.
+    #[test]
+    fn a_list_of_none_chosen_marks_none() {
+        let options: Vec<String> = ["Last stop", "Bauernhof", "Kirche"].iter().map(|s| s.to_string()).collect();
+        let mut ui = Ui::new();
+        let mut sel = options.len();
+        let at = Rect::new(300.0, 10.0, 36.0, 36.0);
+        let frame = |ui: &mut Ui, sel: &mut usize| {
+            ui.begin(Vec2::new(800.0, 600.0), 1.0, 1.0 / 60.0);
+            let changed = ui.menu("dest", at, "expand_more", "", false, (TEXT_DIM, TEXT), sel, &options);
+            ui.finish();
+            changed
+        };
+        ui.input.mouse = at.center();
+        for press in [true, false] {
+            (ui.input.pressed, ui.input.released) = (press, !press);
+            frame(&mut ui, &mut sel);
+        }
+        assert_eq!(ui.popup.as_ref().expect("the list is open").selected, options.len(), "none marked");
+        (ui.input.pressed, ui.input.released) = (false, false);
+        ui.input.mouse = Vec2::new(700.0, 500.0);
+        ui.input.text.push_str("last");
+        frame(&mut ui, &mut sel);
+        ui.input.keys.push(Key::Enter);
+        assert!(frame(&mut ui, &mut sel), "the first, picked");
+        assert_eq!(sel, 0);
     }
 
     /// Typing into an open dropdown leaves the options with the text in their name; Enter

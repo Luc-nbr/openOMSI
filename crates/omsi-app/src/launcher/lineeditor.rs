@@ -117,10 +117,14 @@ pub struct LineEditorView {
     go_depots: Option<String>,
     /// The sign's preview lit white rather than amber.
     white: bool,
-    /// The picker for any colour of the line open; the display texts the depot file leaves
-    /// empty shown too.
+    /// The picker for any colour of the line open; the display texts for other kinds of sign
+    /// shown too.
     colour_open: bool,
     more_texts: bool,
+    /// The Displays tab in its Advanced view (every text on its own), and its list of the
+    /// stops' names on the IBIS open.
+    sign_advanced: bool,
+    ibis_stops_open: bool,
     /// The router of the map's network (the network's address, to see it is still that one),
     /// and the map's stops as the line editor offers them.
     router: Option<(usize, Router)>,
@@ -225,6 +229,13 @@ fn size_label(s: Option<BusSize>) -> String {
 /// Maps named alike (`maps/Grundorf/global.cfg`, either slash, any case).
 fn same_map(a: &str, b: &str) -> bool {
     let n = |s: &str| s.trim().replace('\\', "/").to_lowercase();
+    n(a) == n(b)
+}
+
+/// A destination's words alike, case, commas and dots aside ("Hohenkirchen, Therme" is
+/// "Hohenkirchen" over "Therme" on a sign; "Hohenkirchen, Th" is not).
+fn same_words(a: &str, b: &str) -> bool {
+    let n = |s: &str| s.to_lowercase().replace([',', '.'], " ").split_whitespace().collect::<Vec<_>>().join(" ");
     n(a) == n(b)
 }
 
@@ -473,6 +484,24 @@ impl LineEditorView {
             });
             self.own_changed();
         }
+        // the lines' blocks in the depot files written the old way (a new destination in every
+        // text: on both rows of a matrix) are written again once, as a save writes them - the
+        // texts the player typed stay his
+        if self.reg.texts < reg::TEXTS_VERSION && self.reg.destinations.is_empty() && self.reg.lines.iter().any(|l| reg::written(l.in_timetable())) {
+            if let Some(content) = core::content_dir() {
+                let prepared = self.prepare_depots();
+                match self.write_depots(&content, &prepared) {
+                    None => {
+                        self.reg.texts = reg::TEXTS_VERSION;
+                        if let Err(e) = reg::save_registry(&self.reg_path, &self.reg) {
+                            log::warn!("line editor: the registry of {} not saved after its depot files: {e}", self.folder);
+                        }
+                        omsi_cfg::content_changed();
+                    }
+                    Some(e) => log::warn!("line editor: the depot files of {}'s lines not written again (tried again next time): {e}", self.folder),
+                }
+            }
+        }
     }
 
     /// The bytes of the map's depot file (the first depot group's that names one), as the
@@ -565,14 +594,21 @@ impl LineEditorView {
             .clone()
     }
 
-    /// The termini of the shown line's depot file: (what the trip names, what the display says).
+    /// The termini of the shown line's depot file: (what the trip names, how the list shows it -
+    /// that name, and the front's rows where they say it otherwise).
     fn termini(&mut self) -> Vec<(String, String)> {
         let Some(d) = self.line_depot() else { return Vec::new() };
         d.hof
             .termini
             .iter()
             .filter(|t| !t.all_exit && !t.texture_id.trim().is_empty())
-            .map(|t| (t.texture_id.trim().to_string(), t.strings.first().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| t.texture_id.trim().to_string())))
+            .map(|t| {
+                let name = t.texture_id.split_whitespace().collect::<Vec<_>>().join(" ");
+                let (l1, l2) = d.front(&t.strings);
+                let rows = [l1, l2].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>();
+                let label = if rows.is_empty() || same_words(&rows.join(" "), &name) { name.clone() } else { format!("{name} · {}", rows.join(" / ")) };
+                (t.texture_id.trim().to_string(), label)
+            })
             .collect()
     }
 
@@ -1017,6 +1053,8 @@ fn save(v: &mut LineEditorView, state: &mut super::state::State, problems: &[reg
         line.modified = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     }
     let prepared = v.prepare_depots();
+    // (every line's block is written again, the texts made as they are made now)
+    v.reg.texts = reg::TEXTS_VERSION;
     if let Err(e) = reg::save_registry(&v.reg_path, &v.reg) {
         return (format!("Not saved: {e}"), true);
     }
@@ -1051,6 +1089,7 @@ fn delete(v: &mut LineEditorView, state: &mut super::state::State) -> (String, b
     v.shapes_for = None;
     v.revision += 1;
     let prepared = v.prepare_depots();
+    v.reg.texts = reg::TEXTS_VERSION;
     if let Err(e) = reg::save_registry(&v.reg_path, &v.reg) {
         return (format!("Not deleted: {e}"), true);
     }
@@ -1145,40 +1184,11 @@ fn right_panel(l: &mut Launcher, r: Rect, status: &mut Option<(String, bool)>) {
         }
         return;
     }
-    // where it goes: a terminus of the depot's file, one of the player's own destinations, or
-    // what is typed
-    let termini = v.termini();
-    let mine = v.mine();
+    // where it goes: typed, or one the buses know
     let d_idx = v.dir;
-    let mut changed = false;
-    {
-        let line = v.line_mut().unwrap();
-        let d = &mut line.directions[d_idx];
-        ui.text_in(&omsi_ui::tr("Destination").to_uppercase(), Rect::new(body.x, y, body.w, 16.0), 10.5, Weight::Bold, TEXT_DIM, Align::Left);
-        y += 18.0;
-        let last = d.stops.last().map(|s| s.name.clone()).unwrap_or_default();
-        let mut options = vec![omsi_ui::tr("Last stop: %{name}").replace("%{name}", &last)];
-        options.extend(termini.iter().map(|t| t.1.clone()));
-        options.extend(mine.iter().map(|m| omsi_ui::tr("Mine: %{name}").replace("%{name}", &m.name)));
-        let mut ti = termini
-            .iter()
-            .position(|t| t.0.eq_ignore_ascii_case(d.terminus.trim()))
-            .map(|i| i + 1)
-            .or_else(|| mine.iter().position(|m| m.name.eq_ignore_ascii_case(d.terminus.trim())).map(|i| i + 1 + termini.len()))
-            .unwrap_or(0);
-        let half = (body.w - GAP) * 0.5;
-        if ui.select("le-terminus", Rect::new(body.x, y, half, ROW), &mut ti, &options) {
-            if ti == 0 {
-                d.terminus.clear();
-            } else if ti <= termini.len() {
-                d.terminus = termini[ti - 1].0.clone();
-            } else if let Some(m) = mine.get(ti - 1 - termini.len()) {
-                d.take_destination(m);
-            }
-            changed = true;
-        }
-        changed |= ui.text_input("le-terminus-text", Rect::new(body.x + half + GAP, y, half, ROW), &mut d.terminus, "or type it", None);
-    }
+    ui.text_in(&omsi_ui::tr("Destination").to_uppercase(), Rect::new(body.x, y, body.w, 16.0), 10.5, Weight::Bold, TEXT_DIM, Align::Left);
+    y += 18.0;
+    let mut changed = destination_field(ui, v, d_idx, Rect::new(body.x, y, body.w, ROW), "le-terminus");
     y += ROW + 12.0;
     // the stops, the way to each between them
     let foot_h = 2.0 * ROW + 16.0;
@@ -1317,6 +1327,53 @@ fn right_panel(l: &mut Launcher, r: Rect, status: &mut Option<(String, bool)>) {
     }
 }
 
+/// The destination of direction `d_idx` in one field (`r`, a row): typed, or chosen from the
+/// list at its end of what the buses know - the last stop, the depot file's destinations, the
+/// player's own. Returns whether it changed.
+fn destination_field(ui: &mut Ui, v: &mut LineEditorView, d_idx: usize, r: Rect, id: &str) -> bool {
+    let termini = v.termini();
+    let mine = v.mine();
+    let Some(d) = v.line_mut().and_then(|l| l.directions.get_mut(d_idx)) else { return false };
+    let last = omsi_ui::tr("Last stop: %{name}").replace("%{name}", d.stops.last().map(|s| s.name.trim()).unwrap_or(""));
+    let mut options = vec![last.clone()];
+    options.extend(termini.iter().map(|t| t.1.clone()));
+    options.extend(mine.iter().map(|m| omsi_ui::tr("Mine: %{name}").replace("%{name}", &m.name)));
+    let tip = omsi_ui::tr("Choose one the buses know").into_owned();
+    crate::mt::protect(options.iter().map(String::as_str).chain([tip.as_str()]));
+    let mut changed = false;
+    let mut typed = d.terminus.clone();
+    if ui.text_input(id, Rect::new(r.x, r.y, r.w - ROW - 6.0, r.h), &mut typed, &last, Some("flag")) {
+        d.set_destination(&typed);
+        changed = true;
+    }
+    // (a name typed that is none of them: none is marked in the list, and each can be picked)
+    let now = d.terminus.trim();
+    let mut k = if now.is_empty() {
+        0
+    } else {
+        termini
+            .iter()
+            .position(|t| t.0.eq_ignore_ascii_case(now))
+            .map(|i| i + 1)
+            .or_else(|| mine.iter().position(|m| m.name.trim().eq_ignore_ascii_case(now)).map(|i| i + 1 + termini.len()))
+            .unwrap_or(options.len())
+    };
+    let b = Rect::new(r.right() - ROW, r.y, ROW, r.h);
+    ui.p().rounded(b, RADIUS, FIELD);
+    ui.p().rounded_border(b, RADIUS, 1.0, EDGE);
+    if ui.menu(&format!("{id}-pick"), b, "expand_more", &tip, false, (TEXT_DIM, TEXT), &mut k, &options) {
+        if k == 0 {
+            d.set_destination("");
+        } else if let Some(t) = termini.get(k - 1) {
+            d.set_destination(&t.0);
+        } else if let Some(m) = mine.get(k - 1 - termini.len()) {
+            d.take_destination(m);
+        }
+        changed = true;
+    }
+    changed
+}
+
 /// The way back made anew: the outbound stops from the last to the first, each the stop of
 /// the same name across the road, routed.
 fn reverse(v: &mut LineEditorView, status: &mut Option<(String, bool)>) {
@@ -1427,88 +1484,267 @@ fn depot_choice(ui: &mut Ui, v: &mut LineEditorView, r: Rect, group: &str, chose
     }
 }
 
-/// What the buses show of a direction, and what the IBIS knows of it (`core::linehof`): the
-/// sign as it lights up; a destination the depot file lacks with its texts, one per string of
-/// the file (each empty one made from the destination, as the file writes its own); the IBIS
-/// route code; what the IBIS calls each stop. All of it written into the depot files when the
-/// line is saved.
-///
-/// Over it the depot file the line has: the map's (its depot group's), or one of the player's
-/// own (`owndepot`) - the line's destinations, stops and routes go into that one as well, and
-/// every bus that drives the line is given it.
+/// What a text of a depot file (`k`, for `role`) is called in the line editor's Advanced view
+/// and the depot editor, and what it does - said plainly; `has_note`: the file says itself
+/// what it is for.
+pub(super) fn text_words(role: linehof::Role, k: usize, has_note: bool) -> (String, String) {
+    use linehof::Role;
+    let tr = |s: &str| omsi_ui::tr(s).into_owned();
+    match role {
+        Role::IbisDisplay => (tr("IBIS"), tr("What the driver's IBIS shows as the destination, in capitals.")),
+        Role::FrontTop => (tr("Front sign, top row"), tr("The top row of the destination sign over the windscreen. A name that fits stays on this row alone.")),
+        Role::FrontBottom => (tr("Front sign, bottom row"), tr("The second row of the front sign, for a name too long for one. Empty: the top row is shown alone.")),
+        Role::Side => (tr("Side sign"), tr("The one-row sign by the doors (on some buses at the back too).")),
+        Role::ClearName => (tr("Passenger display"), tr("The destination as it is written, for the IBIS 2, the ticket printer and the screens inside the bus.")),
+        Role::RollerBlind => (tr("Roller blind picture"), tr("The picture of a roller-blind sign (a .tga file): only buses with a roller blind read it.")),
+        Role::ExtraSign => (tr("Plug-in sign"), tr("A sign behind the windscreen, by its number. Empty: none.")),
+        Role::Bitmap => (tr("Picture on LED signs"), tr("A picture a Krüger LED sign shows instead of the text (a .bmp file). Empty: the text is shown.")),
+        Role::Special => (tr("Special trip mark"), tr("Anything written here makes it a special trip: the sign shows no line number. Leave it empty for a line.")),
+        Role::Rear => (tr("Rear sign"), tr("The small sign at the back, on some buses only.")),
+        Role::Fallback(n) => (tr("For some buses only"), tr("Read only by some buses' signs; empty, they show text %{n}.").replace("%{n}", &(usize::from(n) + 1).to_string())),
+        Role::Other => (
+            tr("Text %{n}").replace("%{n}", &(k + 1).to_string()),
+            if has_note { tr("Only the depot file says what this is for (below); most buses do not read it.") } else { tr("The depot file does not say what this text is for, and most buses do not read it: empty is safe.") },
+        ),
+    }
+}
+
+/// Why the buses' displays and IBIS cannot know the line: its depot group names no depot file,
+/// or that file is beside no bus.
+fn no_depot_text(v: &LineEditorView, group: &str) -> String {
+    let hof = v.hof_of(group);
+    if hof.is_empty() {
+        omsi_ui::tr("The depot group has no depot file: the buses' displays and IBIS cannot know the line.").into_owned()
+    } else {
+        omsi_ui::tr("The depot file %{hof} was not found beside any bus: the displays and the IBIS cannot know the line.").replace("%{hof}", &hof)
+    }
+}
+
+/// What the buses show of a direction, and what the IBIS knows of it (`core::linehof`), in two
+/// views: Simple - the one destination, the sign as it lights up, what the side sign and the
+/// IBIS show; Advanced - each text of the depot file on its own and what it is for, the IBIS
+/// route code, what the IBIS calls each stop, the player's own destinations and the depot
+/// file the line has. All of it written into the depot files when the line is saved.
 fn displays_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, status: &mut Option<(String, bool)>) {
-    let (group, two, number, chosen) = {
-        let l = v.line().unwrap();
-        (l.ai_group.clone(), l.directions.len() > 1, l.number.trim().to_string(), l.depot_file.trim().to_string())
-    };
-    let mut y = body.y;
-    depot_choice(ui, v, Rect::new(body.x, y, body.w, 0.0), &group, &chosen, status);
-    y += 18.0 + ROW + 6.0;
-    let hint = if chosen.is_empty() { "Choose one of your own: every bus that drives the line is given it." } else { "Every bus that drives the line is given it; the timetable's buses keep the map's (it has the line too)." };
-    y += ui.paragraph(hint, Vec2::new(body.x, y), body.w, 11.0, Weight::Regular, TEXT_FAINT) + 8.0;
+    let two = v.line().is_some_and(|l| l.directions.len() > 1);
+    let dw = ((body.w - GAP) * 0.6).floor();
     let mut dir = v.dir;
-    if ui.segmented("le-dir-d", Rect::new(body.x, y, body.w, ROW), &mut dir, &["Outbound", "Return"]) {
+    if ui.segmented("le-dir-d", Rect::new(body.x, body.y, dw, ROW), &mut dir, &["Outbound", "Return"]) {
         (v.dir, v.sel_stop) = (dir, None);
         v.revision += 1;
     }
-    y += ROW + 12.0;
+    let mut mode = usize::from(v.sign_advanced);
+    if ui.segmented("le-sign-mode", Rect::new(body.x + dw + GAP, body.y, body.w - dw - GAP, ROW), &mut mode, &["Simple", "Advanced"]) {
+        v.sign_advanced = mode == 1;
+    }
+    let rest = Rect::new(body.x, body.y + ROW + 12.0, body.w, body.h - ROW - 12.0);
     if v.dir == 1 && !two {
-        ui.paragraph("Without a way back the line goes round: the bus starts again at the first stop.", Vec2::new(body.x, y), body.w, 12.5, Weight::Regular, TEXT_DIM);
+        ui.paragraph("Without a way back the line goes round: the bus starts again at the first stop.", Vec2::new(rest.x, rest.y), rest.w, 12.5, Weight::Regular, TEXT_DIM);
         return;
     }
+    if v.sign_advanced {
+        displays_advanced(ui, v, rest, status);
+    } else {
+        displays_simple(ui, v, rest);
+    }
+}
+
+/// The Displays tab's Simple view: one field for the destination, and what the buses make of
+/// it.
+fn displays_simple(ui: &mut Ui, v: &mut LineEditorView, r: Rect) {
     let d_idx = v.dir;
-    let Some(depot) = v.line_depot() else {
-        let hof = v.hof_of(&group);
-        let text = if hof.is_empty() { omsi_ui::tr("The depot group has no depot file: the buses' displays and IBIS cannot know the line.").to_string() } else { omsi_ui::tr("The depot file %{hof} was not found beside any bus: the displays and the IBIS cannot know the line.").replace("%{hof}", &hof) };
-        ui.paragraph(&text, Vec2::new(body.x, y), body.w, 12.5, Weight::Regular, WARN);
-        return;
+    let (group, number) = {
+        let l = v.line().unwrap();
+        (l.ai_group.clone(), l.number.trim().to_string())
     };
+    let mut y = r.y;
+    ui.text_in(&omsi_ui::tr("Destination").to_uppercase(), Rect::new(r.x, y, r.w, 16.0), 10.5, Weight::Bold, TEXT_DIM, Align::Left);
+    y += 18.0;
+    // (first: the sign under it follows what is typed in the same frame)
+    let mut changed = destination_field(ui, v, d_idx, Rect::new(r.x, y, r.w, ROW), "le-dest");
+    y += ROW + 14.0;
     let d = v.line().unwrap().directions[d_idx].clone();
     let dest = d.destination();
+    let Some(depot) = v.line_depot() else {
+        let text = no_depot_text(v, &group);
+        ui.paragraph(&text, Vec2::new(r.x, y), r.w, 12.5, Weight::Regular, WARN);
+        if changed {
+            v.touched();
+        }
+        return;
+    };
     if d.stops.len() < 2 || dest.is_empty() {
-        ui.paragraph("Give the direction its stops first: the destination is its last one, or the one chosen with the stops.", Vec2::new(body.x, y), body.w, 12.5, Weight::Regular, TEXT_DIM);
+        ui.paragraph("Give the direction its stops first: the destination is its last one, or the one chosen with the stops.", Vec2::new(r.x, y), r.w, 12.5, Weight::Regular, TEXT_DIM);
+        if changed {
+            v.touched();
+        }
         return;
     }
+    // the sign (a click lights it the other colour), and what the other displays show
     let (strings, new) = depot.sign_of(&d);
     let (l1, l2) = depot.front(&strings);
-    // the sign (a click lights it the other colour)
-    let sign = Rect::new(body.x + 3.0, y + 3.0, body.w - 6.0, 58.0);
+    let sign = Rect::new(r.x + 3.0, y + 3.0, r.w - 6.0, 58.0);
     led_sign(ui, sign, &number, &l1, &l2, v.white);
     if ui.interact(super::ui::id_of("le-sign"), sign).2 {
         v.white = !v.white;
     }
     y += 70.0;
-    let what = if new { omsi_ui::tr("New destination: %{name}") } else { omsi_ui::tr("%{name}, from the depot file") };
-    ui.text_in(&what.replace("%{name}", &dest), Rect::new(body.x, y, body.w - 28.0, 20.0), 12.0, Weight::Medium, if new { accent_2() } else { TEXT_SOFT }, Align::Left);
-    let mut changed = false;
-    let mut sign_vals = d.sign.clone();
-    if new && !d.sign.iter().all(|s| s.is_empty()) && ui.icon_button("le-sign-reset", Vec2::new(body.right() - 10.0, y + 10.0), 10.0, "restart_alt", "The texts made from the destination again") {
-        sign_vals.clear();
-        changed = true;
-    }
+    let (side, ibis) = depot.shown(&strings);
+    let or_dash = |s: String| if s.is_empty() { "-".to_string() } else { s };
+    let caption = omsi_ui::tr("Side: %{side} · IBIS: %{ibis}").replace("%{side}", &or_dash(side)).replace("%{ibis}", &or_dash(ibis));
+    // where the texts come from
+    let hint = if !new {
+        omsi_ui::tr("%{name} is in the depot file: the buses show its own texts.").replace("%{name}", &dest)
+    } else if d.sign.iter().any(|s| !s.trim().is_empty()) {
+        omsi_ui::tr("Some texts are your own (Advanced); the others are made from this destination.").into_owned()
+    } else {
+        omsi_ui::tr("Every display of the bus is filled from this destination. Advanced: each text on its own, the IBIS route and the stops' names.").into_owned()
+    };
+    // (a name the file knows in other words: its own texts are better than made ones)
+    let similar = if new { depot.similar(&dest).map(|t| t.texture_id.trim().to_string()) } else { None };
+    let known = similar.as_ref().map(|s| omsi_ui::tr("The depot file knows it as %{name}").replace("%{name}", s)).unwrap_or_default();
+    // (the rows made from the name lost some of it, and the player wrote none of his own)
+    let mut typed = d.sign.clone();
+    typed.resize(strings.len(), String::new());
+    let shortened = new && depot.front(&typed) == (String::new(), String::new()) && {
+        let (a, b) = depot.front(&depot.sign_defaults(&dest));
+        !same_words(&format!("{a} {b}"), &dest)
+    };
+    crate::mt::protect([caption.as_str(), hint.as_str(), known.as_str()]);
+    ui.text_in(&caption, Rect::new(r.x, y, r.w, 18.0), 11.5, Weight::Regular, TEXT_DIM, Align::Left);
     y += 26.0;
-    // the rest scrolls: the texts, the IBIS route, the stops' names
-    let defaults = if new { depot.sign_defaults(&dest) } else { Vec::new() };
+    y += ui.paragraph(&hint, Vec2::new(r.x, y), r.w, 12.0, Weight::Regular, TEXT_SOFT) + 10.0;
+    if let Some(ident) = similar {
+        let bw = 100.0;
+        let h = ui.paragraph(&known, Vec2::new(r.x, y + 6.0), r.w - bw - 10.0, 12.0, Weight::Medium, accent_2());
+        if ui.button("le-dest-similar", Rect::new(r.right() - bw, y, bw, ROW - 6.0), "Use it", Some("check"), ButtonKind::Ghost) {
+            v.line_mut().unwrap().directions[d_idx].set_destination(&ident);
+            changed = true;
+        }
+        y += (h + 14.0).max(ROW);
+    }
+    if shortened {
+        ui.paragraph("Too long for the sign, so it is shortened. Advanced: write each row yourself.", Vec2::new(r.x, y), r.w, 12.0, Weight::Regular, WARN);
+    }
+    if changed {
+        v.touched();
+    }
+}
+
+/// A text of the depot file as the Advanced view shows it.
+struct SignText {
+    k: usize,
+    /// What it is called and what it does (`text_words`), the file's own note on it.
+    title: String,
+    help: String,
+    note: String,
+    /// The most characters its display takes, if known.
+    max: Option<usize>,
+    /// A new destination's default (made from the name), or the file's own text.
+    shown: String,
+}
+
+/// One text in the Advanced view (`x`, `y`, `w` wide): what it is called and how long it may be,
+/// its field - typed into for a new destination (`field`, `shown` the default in grey), the
+/// file's own text otherwise - what it does and the file's note on it. Returns its height and
+/// whether the field changed.
+fn sign_text(ui: &mut Ui, id: &str, x: f32, y: f32, w: f32, t: &SignText, field: Option<&mut String>) -> (f32, bool) {
+    let n = match &field {
+        Some(f) if !f.is_empty() => f.trim_end().chars().count(),
+        _ => t.shown.trim_end().chars().count(),
+    };
+    if let Some(max) = t.max {
+        ui.text_in(&format!("{n}/{max}"), Rect::new(x + w - 64.0, y, 64.0, 16.0), 11.0, Weight::Medium, if n > max { WARN } else { TEXT_FAINT }, Align::Right);
+    }
+    ui.text_in(&t.title, Rect::new(x, y, w - 70.0, 16.0), 12.0, Weight::Medium, TEXT_SOFT, Align::Left);
+    let mut yy = y + 20.0;
+    let fr = Rect::new(x, yy, w, ROW - 4.0);
+    let shown = if t.shown.trim().is_empty() { "-" } else { t.shown.as_str() };
+    let mut changed = false;
+    match field {
+        // (empty: the default, shown greyed)
+        Some(f) => changed = ui.text_input(id, fr, f, shown, None),
+        None => {
+            ui.p().rounded(fr, RADIUS, FIELD);
+            ui.p().rounded_border(fr, RADIUS, 1.0, EDGE);
+            ui.text_in(shown.trim_end(), Rect::new(fr.x + 12.0, fr.y, fr.w - 24.0, fr.h), 13.0, Weight::Regular, TEXT_DIM, Align::Left);
+        }
+    }
+    yy += ROW;
+    yy += ui.paragraph(&t.help, Vec2::new(x, yy), w, 11.0, Weight::Regular, TEXT_DIM);
+    if !t.note.is_empty() {
+        yy += 2.0 + ui.paragraph(&t.note, Vec2::new(x, yy + 2.0), w, 10.5, Weight::Regular, TEXT_FAINT);
+    }
+    (yy - y + 14.0, changed)
+}
+
+/// The Displays tab's Advanced view: the depot file the line has; each of its texts for the
+/// destination (a new one's typed, else made from its name; the file's own destination's as
+/// the file has them), the IBIS route code, what the IBIS calls each stop, and the player's
+/// own destinations.
+///
+/// The depot file is the map's (its depot group's), or one of the player's own (`owndepot`) -
+/// the line's destinations, stops and routes go into that one as well, and every bus that
+/// drives the line is given it.
+fn displays_advanced(ui: &mut Ui, v: &mut LineEditorView, r: Rect, status: &mut Option<(String, bool)>) {
+    let d_idx = v.dir;
+    let (group, number, chosen) = {
+        let l = v.line().unwrap();
+        (l.ai_group.clone(), l.number.trim().to_string(), l.depot_file.trim().to_string())
+    };
+    let depot = v.line_depot();
+    let no_depot = if depot.is_none() { no_depot_text(v, &group) } else { String::new() };
+    let d = v.line().unwrap().directions[d_idx].clone();
+    let dest = d.destination();
+    let ready = depot.is_some() && d.stops.len() >= 2 && !dest.is_empty();
+    let (strings, new) = depot.as_ref().filter(|_| ready).map(|x| x.sign_of(&d)).unwrap_or_default();
+    let defaults = match &depot {
+        Some(x) if ready && new => x.sign_defaults(&dest),
+        _ => Vec::new(),
+    };
+    let mut sign_vals = d.sign.clone();
     sign_vals.resize(defaults.len(), String::new());
-    let labels: Vec<String> = depot
-        .labels()
-        .iter()
-        .enumerate()
-        .map(|(k, (role, note))| if note.is_empty() { omsi_ui::tr(role.label()).replace("%{n}", &(k + 1).to_string()) } else { note.chars().take(48).collect() })
-        .collect();
+    // the texts: those a bus reads for the destination first, those for other kinds of sign
+    // (and the file's pictures) folded away under them
+    let (mut main, mut other): (Vec<SignText>, Vec<SignText>) = (Vec::new(), Vec::new());
+    if let Some(x) = depot.as_ref().filter(|_| ready) {
+        let firsts: Vec<usize> = [linehof::Role::IbisDisplay, linehof::Role::FrontTop, linehof::Role::FrontBottom, linehof::Role::Side, linehof::Role::ClearName].iter().filter_map(|role| x.roles.iter().position(|r| r == role)).collect();
+        let count = if new { defaults.len() } else { strings.len() };
+        for k in 0..count {
+            let role = x.roles.get(k).copied().unwrap_or(linehof::Role::Other);
+            let note = x.notes.get(k).map(|n| n.trim()).unwrap_or("");
+            let (title, help) = text_words(role, k, !note.is_empty());
+            let shown = if new { defaults[k].clone() } else { strings.get(k).cloned().unwrap_or_default() };
+            let text = matches!(x.cols.get(k), Some(linehof::Column::Text { .. }));
+            let max = match x.cols.get(k) {
+                Some(linehof::Column::Text { max, .. }) => Some(*max),
+                Some(linehof::Column::File(_)) => None,
+                _ => owndepot::limit(role, note),
+            };
+            let note = if note.is_empty() { String::new() } else { omsi_ui::tr("Depot file: “%{note}”").replace("%{note}", &note.chars().take(80).collect::<String>()) };
+            let filled = !shown.trim().is_empty() || sign_vals.get(k).is_some_and(|s| !s.is_empty());
+            let t = SignText { k, title, help, note, max, shown };
+            if text && (firsts.contains(&k) || filled) {
+                main.push(t);
+            } else if new || filled {
+                other.push(t);
+            }
+        }
+        crate::mt::protect(main.iter().chain(&other).flat_map(|t| [t.title.as_str(), t.help.as_str(), t.note.as_str(), t.shown.as_str()]));
+    }
+    let intro = if new {
+        omsi_ui::tr("Each field is one text of the depot file; the bus reads each one for one display. Empty: the grey text made from the destination. Another destination makes them again.").into_owned()
+    } else {
+        omsi_ui::tr("These are the depot file's own texts for %{name}: change them in a depot file of your own (depot editor).").replace("%{name}", &dest)
+    };
     let line_no = linehof::line_number(&number);
     let mut route = if d.ibis_route > 0 { d.ibis_route.to_string() } else { String::new() };
     let route_hint = (line_no * 100 + d_idx as u32 + 1).to_string();
-    let taken: std::collections::HashSet<u32> = depot.hof.info_trips.iter().filter_map(|t| t.code.trim().parse().ok()).collect();
-    let stops: Vec<(String, String)> = d.stops.iter().map(|s| (s.name.clone(), depot.stop_display(&s.name))).collect();
+    let taken: std::collections::HashSet<u32> = depot.as_ref().map(|x| x.hof.info_trips.iter().filter_map(|t| t.code.trim().parse().ok()).collect()).unwrap_or_default();
+    let stops: Vec<(String, String)> = d.stops.iter().map(|s| (s.name.clone(), depot.as_ref().map(|x| x.stop_display(&s.name)).unwrap_or_default())).collect();
     let mut stop_vals: Vec<String> = d.stops.iter().map(|s| s.ibis.clone()).collect();
-    let area = Rect::new(body.x - 6.0, y, body.w + 12.0, body.bottom() - y);
-    let head = |ui: &mut Ui, text: &str, r: Rect| {
-        ui.text_in(&omsi_ui::tr(text).to_uppercase(), r, 10.5, Weight::Bold, TEXT_DIM, Align::Left);
-    };
-    let mut route_changed = false;
-    let mut texts_changed = false;
-    let mut stops_changed = false;
+    let stops_label = if v.ibis_stops_open { omsi_ui::tr("Hide the stops").into_owned() } else { omsi_ui::tr("Show the %{n} stops").replace("%{n}", &stops.len().to_string()) };
+    let more_label = if v.more_texts { omsi_ui::tr("Hide the texts for other kinds of sign").into_owned() } else { omsi_ui::tr("%{n} more texts, for other kinds of sign").replace("%{n}", &other.len().to_string()) };
     // (the player's own destinations, in his depot file of the map: this one kept, one typed,
     // one taken out - those the map's depot file lacks)
     let (target, mine, is_mine) = {
@@ -1519,43 +1755,63 @@ fn displays_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, status: &mut Op
         Some((_, name)) => omsi_ui::tr("In your depot file %{name} (Editor, Depot editor); chosen under Stops, Destination.").replace("%{name}", name),
         None => omsi_ui::tr("Kept in a depot file of your own for this map, made from the map's when you keep the first; chosen under Stops, Destination.").into_owned(),
     };
-    crate::mt::protect(mine.iter().map(|m| m.name.as_str()).chain([where_kept.as_str()]));
-    // (the texts the depot file fills for a destination first; those its destinations leave
-    // empty, and its textures, folded away under them)
-    let in_use: Vec<bool> = (0..defaults.len()).map(|k| matches!(depot.cols.get(k), Some(linehof::Column::Text { .. })) && (!defaults[k].trim().is_empty() || !sign_vals[k].is_empty())).collect();
-    let unused = in_use.iter().filter(|u| !**u).count();
-    let more = v.more_texts;
-    let mut more_toggle = false;
+    crate::mt::protect(mine.iter().map(|m| m.name.as_str()).chain([where_kept.as_str(), intro.as_str(), no_depot.as_str(), stops_label.as_str(), more_label.as_str()]));
+    let head = |ui: &mut Ui, text: &str, r: Rect| {
+        ui.text_in(&omsi_ui::tr(text).to_uppercase(), r, 10.5, Weight::Bold, TEXT_DIM, Align::Left);
+    };
+    let depot_hint = if chosen.is_empty() { "Choose one of your own: every bus that drives the line is given it." } else { "Every bus that drives the line is given it; the timetable's buses keep the map's (it has the line too)." };
+    let (more, stops_open) = (v.more_texts, v.ibis_stops_open);
+    let (mut more_toggle, mut stops_toggle, mut reset) = (false, false, false);
+    let (mut route_changed, mut texts_changed, mut stops_changed) = (false, false, false);
     let mut dest_new = v.dest_new.clone();
     let (mut keep_this, mut keep_new, mut drop_mine) = (false, false, None);
-    ui.scroll_area(&format!("le-displays-{d_idx}"), area, &mut |ui, a| {
+    ui.scroll_area(&format!("le-displays-{d_idx}"), Rect::new(r.x - 6.0, r.y, r.w + 12.0, r.h), &mut |ui, a| {
         let x = a.x + 6.0;
         let w = a.w - 12.0;
         let mut yy = a.y + 2.0;
-        if new {
-            head(ui, "Display texts", Rect::new(x, yy, w, 16.0));
-            yy += 20.0;
-            let lw = (w * 0.36).min(130.0);
-            for (k, def) in defaults.iter().enumerate() {
-                if !in_use[k] && !more {
-                    continue;
-                }
-                ui.text_in(&labels.get(k).cloned().unwrap_or_default(), Rect::new(x, yy, lw - 8.0, ROW - 4.0), 11.5, Weight::Medium, if in_use[k] { TEXT_SOFT } else { TEXT_FAINT }, Align::Left);
-                // (empty: the default, shown greyed)
-                texts_changed |= ui.text_input(&format!("le-sign-{d_idx}-{k}"), Rect::new(x + lw, yy, w - lw, ROW - 4.0), &mut sign_vals[k], if def.trim().is_empty() { "-" } else { def.as_str() }, None);
-                yy += ROW + 2.0;
-            }
-            if unused > 0 {
-                let label = if more { omsi_ui::tr("Hide the %{n} empty texts") } else { omsi_ui::tr("%{n} more texts, empty for this depot file") };
-                if ui.button(&format!("le-sign-more-{d_idx}"), Rect::new(x, yy, w, ROW - 8.0), &label.replace("%{n}", &unused.to_string()), Some(if more { "expand_less" } else { "expand_more" }), ButtonKind::Ghost) {
-                    more_toggle = true;
-                }
-                yy += ROW - 2.0;
-            }
-            yy += 6.0;
+        depot_choice(ui, v, Rect::new(x, yy, w, 0.0), &group, &chosen, status);
+        yy += 18.0 + ROW + 6.0;
+        yy += ui.paragraph(depot_hint, Vec2::new(x, yy), w, 11.0, Weight::Regular, TEXT_FAINT) + 16.0;
+        if !no_depot.is_empty() {
+            yy += ui.paragraph(&no_depot, Vec2::new(x, yy), w, 12.5, Weight::Regular, WARN);
+            return yy - a.y + 8.0;
         }
+        if !ready {
+            yy += ui.paragraph("Give the direction its stops first: the destination is its last one, or the one chosen with the stops.", Vec2::new(x, yy), w, 12.5, Weight::Regular, TEXT_DIM);
+            return yy - a.y + 8.0;
+        }
+        // the texts
+        head(ui, "Display texts", Rect::new(x, yy, w - 28.0, 16.0));
+        if new && !d.sign.iter().all(|s| s.is_empty()) && ui.icon_button("le-sign-reset", Vec2::new(x + w - 10.0, yy + 8.0), 10.0, "restart_alt", "The texts made from the destination again") {
+            reset = true;
+        }
+        yy += 20.0;
+        yy += ui.paragraph(&intro, Vec2::new(x, yy), w, 11.5, Weight::Regular, TEXT_DIM) + 12.0;
+        for t in &main {
+            let field = if new { sign_vals.get_mut(t.k) } else { None };
+            let (h, ch) = sign_text(ui, &format!("le-sign-{d_idx}-{}", t.k), x, yy, w, t, field);
+            texts_changed |= ch;
+            yy += h;
+        }
+        if !other.is_empty() {
+            if ui.button(&format!("le-sign-more-{d_idx}"), Rect::new(x, yy, w, ROW - 8.0), &more_label, Some(if more { "expand_less" } else { "expand_more" }), ButtonKind::Ghost) {
+                more_toggle = true;
+            }
+            yy += ROW + 2.0;
+            if more {
+                for t in &other {
+                    let field = if new { sign_vals.get_mut(t.k) } else { None };
+                    let (h, ch) = sign_text(ui, &format!("le-sign-{d_idx}-{}", t.k), x, yy, w, t, field);
+                    texts_changed |= ch;
+                    yy += h;
+                }
+            }
+        }
+        yy += 10.0;
+        // the route the IBIS types
         head(ui, "IBIS route", Rect::new(x, yy, w, 16.0));
         yy += 20.0;
+        yy += ui.paragraph("The number the driver types into the IBIS for this direction: the line's number and two digits. Empty: one is given when the line is saved.", Vec2::new(x, yy), w, 11.0, Weight::Regular, TEXT_DIM) + 8.0;
         route_changed |= ui.text_input(&format!("le-route-{d_idx}"), Rect::new(x, yy, 110.0, ROW - 4.0), &mut route, &route_hint, None);
         let code: u32 = route.trim().parse().unwrap_or(0);
         let (hint, colour) = if route.trim().is_empty() {
@@ -1568,19 +1824,26 @@ fn displays_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, status: &mut Op
             (omsi_ui::tr("Line %{l}, route %{r} on the IBIS").replace("%{l}", &line_no.to_string()).replace("%{r}", &format!("{:02}", code % 100)), TEXT_DIM)
         };
         let hh = ui.paragraph(&hint, Vec2::new(x + 120.0, yy + 1.0), w - 120.0, 11.0, Weight::Regular, colour);
-        yy += (ROW + 4.0).max(hh + 6.0);
+        yy += (ROW + 4.0).max(hh + 6.0) + 10.0;
+        // what the IBIS calls each stop (one row a stop: its name, and that)
         head(ui, "Stop names on the IBIS", Rect::new(x, yy, w, 16.0));
         yy += 20.0;
-        // (one row a stop: its name, and what the IBIS calls it)
-        let lw = (w * 0.36).min(130.0);
-        for (i, (name, def)) in stops.iter().enumerate() {
-            ui.text_in(name, Rect::new(x, yy, lw - 8.0, ROW - 4.0), 11.5, Weight::Medium, TEXT_SOFT, Align::Left);
-            stops_changed |= ui.text_input(&format!("le-ibis-{d_idx}-{i}"), Rect::new(x + lw, yy, w - lw, ROW - 4.0), &mut stop_vals[i], def, None);
-            yy += ROW + 2.0;
+        yy += ui.paragraph("What the IBIS and the passenger displays call each stop. Empty: the depot file's name for it (grey).", Vec2::new(x, yy), w, 11.0, Weight::Regular, TEXT_DIM) + 8.0;
+        if ui.button(&format!("le-ibis-open-{d_idx}"), Rect::new(x, yy, w, ROW - 8.0), &stops_label, Some(if stops_open { "expand_less" } else { "expand_more" }), ButtonKind::Ghost) {
+            stops_toggle = true;
+        }
+        yy += ROW + 2.0;
+        if stops_open {
+            let lw = (w * 0.36).min(130.0);
+            for (i, (name, def)) in stops.iter().enumerate() {
+                ui.text_in(name, Rect::new(x, yy, lw - 8.0, ROW - 4.0), 11.5, Weight::Medium, TEXT_SOFT, Align::Left);
+                stops_changed |= ui.text_input(&format!("le-ibis-{d_idx}-{i}"), Rect::new(x + lw, yy, w - lw, ROW - 4.0), &mut stop_vals[i], def, None);
+                yy += ROW + 2.0;
+            }
         }
         // the player's own destinations, offered with the depot file's wherever a destination
         // is chosen
-        yy += 6.0;
+        yy += 10.0;
         head(ui, "My destinations", Rect::new(x, yy, w, 16.0));
         yy += 22.0;
         if !is_mine && ui.button("le-dest-keep", Rect::new(x, yy, w, ROW - 6.0), "Keep this destination as mine", Some("save"), ButtonKind::Ghost) {
@@ -1614,6 +1877,14 @@ fn displays_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, status: &mut Op
     if more_toggle {
         v.more_texts = !v.more_texts;
     }
+    if stops_toggle {
+        v.ibis_stops_open = !v.ibis_stops_open;
+    }
+    let mut changed = false;
+    if reset {
+        sign_vals.clear();
+        changed = true;
+    }
     if keep_this || keep_new || drop_mine.is_some() {
         let path = match target.as_ref() {
             Some((path, _)) => Ok(path.clone()),
@@ -1627,7 +1898,7 @@ fn displays_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, status: &mut Op
             let file = owndepot::load(&p).map(|l| l.doc.hof.name).unwrap_or_default();
             if keep_this {
                 // (a new one with the texts given here, else the depot file's own)
-                let (sign, code) = if new { (sign_vals.clone(), d.terminus_code) } else { (strings.clone(), depot.terminus(&dest).map(|t| t.code).unwrap_or(0)) };
+                let (sign, code) = if new { (sign_vals.clone(), d.terminus_code) } else { (strings.clone(), depot.as_ref().and_then(|x| x.terminus(&dest)).map(|t| t.code).unwrap_or(0)) };
                 owndepot::keep_destination(&p, &reg::OwnDestination { name: dest.clone(), sign, code }, content.as_deref()).map(|c| omsi_ui::tr("%{name} kept in your depot file %{file} (code %{code})").replace("%{name}", &dest).replace("%{code}", &c.to_string()).replace("%{file}", &file))
             } else if keep_new {
                 let name = std::mem::take(&mut v.dest_new).trim().to_string();
@@ -2861,6 +3132,7 @@ pub fn take_effect_in_timetable(l: &mut Launcher, map: &str, id: u64) -> Result<
     let (bases, original) = core::depot_roots();
     let plan = linehof::prepare(&mut r, &groups, &bases);
     owndepot::assign(&mut r, &owndepot::dir(), &groups, &bases);
+    r.texts = reg::TEXTS_VERSION;
     reg::save_registry(&path, &r)?;
     reg::export_to_map(&content, &map_dir, &r)?;
     let (_, err) = linehof::write(&content, original.as_deref(), &r, &groups, &plan);
@@ -3333,5 +3605,25 @@ mod tests {
         assert_eq!(crate::_rust_i18n_try_translate("nl", "School transport").as_deref(), Some("Leerlingenvervoer"));
         // (and each kind's mark is one of the interface's icons)
         assert!(ServiceKind::ALL.iter().all(|k| omsi_ui::icons::svg(k.icon()).is_some()));
+    }
+
+    /// Every text of a depot file is called something and says what it does, its number
+    /// counted from 1 as the player reads them.
+    #[test]
+    fn every_text_of_a_depot_file_says_what_it_is_for() {
+        use linehof::Role;
+        let all = [Role::IbisDisplay, Role::FrontTop, Role::FrontBottom, Role::Side, Role::RollerBlind, Role::ClearName, Role::ExtraSign, Role::Bitmap, Role::Special, Role::Rear, Role::Fallback(0), Role::Other];
+        for role in all {
+            for note in [false, true] {
+                let (title, help) = text_words(role, 6, note);
+                assert!(!title.trim().is_empty() && !help.trim().is_empty() && !title.contains("%{") && !help.contains("%{"), "{role:?}: {title} / {help}");
+            }
+        }
+        assert_eq!(text_words(Role::Other, 6, false).0, "Text 7");
+        assert!(text_words(Role::Fallback(12), 14, true).1.ends_with("text 13."));
+        assert_ne!(text_words(Role::Other, 6, false).1, text_words(Role::Other, 6, true).1, "a note of the file's: said so");
+        // a destination alike in other punctuation, not one shortened
+        assert!(same_words("Hohenkirchen, Therme", "hohenkirchen  therme"));
+        assert!(!same_words("Hohenkirchen, Th", "Hohenkirchen, Therme"));
     }
 }

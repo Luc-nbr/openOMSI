@@ -460,7 +460,11 @@ fn refresh_layout(l: &mut Launcher) {
         key: o.key.clone(),
         limits: labels.iter().enumerate().map(|(k, (r, _))| owndepot::limit(*r, o.doc.notes.get(k).map(String::as_str).unwrap_or(""))).collect(),
         roles: labels.iter().map(|(r, _)| *r).collect(),
-        labels: labels.iter().enumerate().map(|(k, (role, note))| if note.is_empty() { tr(role.label()).replace("%{n}", &(k + 1).to_string()) } else { note.chars().take(48).collect() }).collect(),
+        labels: labels
+            .iter()
+            .enumerate()
+            .map(|(k, (role, note))| if note.is_empty() { super::lineeditor::text_words(*role, k, o.doc.notes.get(k).is_some_and(|n| !n.trim().is_empty())).0 } else { note.chars().take(48).collect() })
+            .collect(),
         issues: o.doc.issues(&maps_hof, o.coding),
     };
 }
@@ -688,6 +692,8 @@ fn destination_detail(l: &mut Launcher, r: Rect) {
         (None, Some(_)) => (get(Role::IbisDisplay), String::new()),
         _ => (strings.first().map(|s| s.trim().to_string()).unwrap_or_default(), String::new()),
     };
+    // (the buses move a lone bottom row up)
+    let (l1, l2) = if l1.is_empty() { (l2, String::new()) } else { (l1, l2) };
     let ibis_text = { let s = get(Role::IbisDisplay); if s.is_empty() { get(Role::ClearName) } else { s } };
     let side = get(Role::Side);
     // the bus chosen on the Drive page: its own display, its own font
