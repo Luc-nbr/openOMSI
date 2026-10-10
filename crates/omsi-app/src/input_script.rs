@@ -342,6 +342,10 @@ impl App {
         if pressed && self.menus.editor.is_some() && self.editor_key(code) {
             return true;
         }
+        // (Escape puts away a trip's card kept open, before the game menu)
+        if pressed && !repeat && code == KeyCode::Escape && self.menus.game_menu.is_none() && self.session.trip_report.escape() {
+            return true;
+        }
         if pressed && !repeat && code == KeyCode::Escape {
             self.open_game_menu();
             return true;

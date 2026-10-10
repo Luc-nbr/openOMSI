@@ -143,22 +143,66 @@ pub struct Evaluation {
     pub xp: i64,
 }
 
-/// What each comfort or safety event takes off its part (of 100).
-const HARD_BRAKE: f64 = 10.0;
-const HARD_START: f64 = 6.0;
-const ROUGH_STOP: f64 = 8.0;
-const JOLT: f64 = 5.0;
+/// What each comfort event weighs (`comfort_of`): a hard brake the most, a rough stop and a jolt
+/// half of it.
+const HARD_BRAKE: f64 = 1.0;
+const HARD_START: f64 = 0.6;
+const ROUGH_STOP: f64 = 0.5;
+const JOLT: f64 = 0.5;
+/// A trip is judged as one of at least this many stops: a short one is not let off lightly.
+const COMFORT_STOPS: f64 = 10.0;
+/// What each safety event takes off its part (of 100).
 const RED_LIGHT: f64 = 25.0;
 const SPEEDING: f64 = 15.0;
 const CRASH: f64 = 30.0;
+
+/// A stop is on time from two minutes early (as the bus leaves) to three late (as it comes),
+/// OMSI 2's window; beyond it the stop's share fades out, to nothing five minutes past the
+/// window when late and three when early.
+pub const LATE_AFTER: f64 = 180.0;
+pub const EARLY_BEFORE: f64 = 120.0;
+pub const LATE_FADE: f64 = 300.0;
+pub const EARLY_FADE: f64 = 180.0;
+
+/// How much of a stop counts as punctual (0 - 1): the bus came `arrival` s late and left
+/// `departure` s late (the last stop: no departure), to the second. (Luc: a trip a little
+/// more than three minutes late at every stop scored 0.)
+pub fn stop_credit(arrival: f64, departure: Option<f64>) -> f64 {
+    let late = 1.0 - ((arrival.round() - LATE_AFTER) / LATE_FADE).clamp(0.0, 1.0);
+    let early = departure.map_or(1.0, |d| 1.0 - ((-EARLY_BEFORE - d.round()) / EARLY_FADE).clamp(0.0, 1.0));
+    late.min(early)
+}
+
+/// A timed trip's punctuality (0 - 100): each stop's share by `stop_credit`, when the trip
+/// says when it was at each (else, a trip of an older game: the share of stops on time).
+fn punctuality_of(t: &TripRun) -> Option<f64> {
+    if !t.timed() {
+        return None;
+    }
+    let served: Vec<(f64, Option<f64>)> = t.visits.iter().filter_map(|v| v.arrived.map(|a| (a - v.arr, v.left.map(|l| l - v.dep)))).collect();
+    Some(if !served.is_empty() && served.len() as i32 == t.stops {
+        100.0 * served.iter().map(|(a, d)| stop_credit(*a, *d)).sum::<f64>() / served.len() as f64
+    } else {
+        100.0 * t.on_time() as f64 / t.stops.max(1) as f64
+    })
+}
+
+/// The passengers' comfort (0 - 100) as the trip's length weighs its events: one hard brake on
+/// a long trip is a little, one at every stop a lot. Never below the old points off per event
+/// (e^-x >= 1 - x, and each weight is a tenth of its old points or less): a trip only scores
+/// higher than it did. (Luc: every firm stop cost 8 points, and a normal trip came to 0.)
+fn comfort_of(t: &TripRun) -> f64 {
+    let toll = HARD_BRAKE * t.hard_brakes.max(0) as f64 + HARD_START * t.hard_starts.max(0) as f64 + ROUGH_STOP * t.rough_stops.max(0) as f64 + JOLT * t.jolts.max(0) as f64;
+    100.0 * (-toll / (t.stops.max(0) as f64).max(COMFORT_STOPS)).exp()
+}
 
 /// Judge a trip. The punctuality weighs 40 %, comfort and safety 30 % each (a free drive:
 /// half and half); a trip not driven to its last stop loses ten points.
 pub fn evaluate(t: &TripRun) -> Evaluation {
     let part = |minus: f64| (100.0 - minus).clamp(0.0, 100.0);
-    let comfort = part(HARD_BRAKE * t.hard_brakes.max(0) as f64 + HARD_START * t.hard_starts.max(0) as f64 + ROUGH_STOP * t.rough_stops.max(0) as f64 + JOLT * t.jolts.max(0) as f64);
+    let comfort = comfort_of(t);
     let safety = part(RED_LIGHT * t.red_lights.max(0) as f64 + SPEEDING * t.speeding.max(0) as f64 + CRASH * t.crashes.max(0) as f64);
-    let punctuality = t.timed().then(|| 100.0 * t.on_time() as f64 / t.stops.max(1) as f64);
+    let punctuality = punctuality_of(t);
     let mut score = match punctuality {
         Some(p) => 0.4 * p + 0.3 * comfort + 0.3 * safety,
         None => 0.5 * comfort + 0.5 * safety,
@@ -527,10 +571,11 @@ pub(crate) mod tests {
         assert_eq!((good.punctuality, good.comfort, good.safety, good.score, good.grade), (Some(100), 100, 100, 100, Grade::Excellent));
         // 10 km, 20 stops, 30 passengers, to the end: (80 + 80 + 30 + 20), all of it, +40
         assert_eq!(good.xp, 250);
-        // a red light, a camera, two hard brakes and a rough stop
+        // a red light, a camera, two hard brakes and a rough stop (on 20 stops: comfort
+        // 100 e^-(2.5 / 20))
         let bad = evaluate(&TripRun { red_lights: 1, speeding: 1, hard_brakes: 2, rough_stops: 1, late: 5, ..trip(20, 5) });
-        assert_eq!((bad.punctuality, bad.comfort, bad.safety), (Some(75), 72, 60));
-        assert_eq!(bad.score, (0.4f64 * 75.0 + 0.3 * 72.0 + 0.3 * 60.0).round() as u32);
+        assert_eq!((bad.punctuality, bad.comfort, bad.safety), (Some(75), 88, 60));
+        assert_eq!(bad.score, 74);
         assert_eq!(bad.grade, Grade::Fair);
         assert!(bad.xp < good.xp && bad.xp > 0);
         // a free drive has no punctuality; one given up loses ten points
@@ -543,6 +588,68 @@ pub(crate) mod tests {
         assert_eq!((old.comfort, old.safety), (90, 70));
         // a broken odometer earns nothing for its kilometres
         assert_eq!(believable_km(&TripRun { metres: 9e9, ..trip(1, 0) }), 0.0);
+    }
+
+    /// A stop is punctual in OMSI's window and fades out beyond it, to the second.
+    #[test]
+    fn a_stop_counts_as_punctual_by_how_far_off_it_was() {
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-9;
+        for (late, credit) in [(180.0, 1.0), (210.0, 0.9), (252.0, 0.76), (300.0, 0.6), (360.0, 0.4), (480.0, 0.0)] {
+            assert!(near(stop_credit(late, Some(0.0)), credit), "{late}: {}", stop_credit(late, Some(0.0)));
+        }
+        for (early, credit) in [(-150.0, 2.0 / 3.0 + 1.0 / 6.0), (-180.0, 2.0 / 3.0), (-240.0, 1.0 / 3.0), (-300.0, 0.0)] {
+            assert!(near(stop_credit(0.0, Some(early)), credit), "{early}");
+        }
+        // (to the second, as the counting does it; and the last stop's early arrival is fine)
+        assert_eq!(stop_credit(180.4, Some(0.0)), 1.0);
+        assert!(stop_credit(180.6, Some(0.0)) < 1.0);
+        assert_eq!(stop_credit(0.0, Some(-120.4)), 1.0);
+        assert!(stop_credit(0.0, Some(-120.6)) < 1.0);
+        assert_eq!(stop_credit(-600.0, None), 1.0);
+    }
+
+    /// A trip a little more than three minutes late at every stop is not punctual by OMSI's
+    /// count, but it is no 0 either (Luc); a trip of an older game, without its stops, is judged
+    /// by the count as before, and so is one whose stops do not add up.
+    #[test]
+    fn punctuality_is_graded_by_the_stops() {
+        let visits = |n: usize, late: f64| -> Vec<crate::StopVisit> {
+            (0..n).map(|k| crate::StopVisit { index: k, name: format!("S{k}"), arr: 600.0 * k as f64, dep: 600.0 * k as f64 + 30.0, arrived: Some(600.0 * k as f64 + late), left: (k + 1 < n).then(|| 600.0 * k as f64 + 30.0 + late) }).collect()
+        };
+        let steady = evaluate(&TripRun { late: 12, visits: visits(12, 210.0), ..trip(12, 12) });
+        assert_eq!(steady.punctuality, Some(90));
+        let old = evaluate(&TripRun { early: 1, late: 2, ..trip(12, 2) });
+        assert_eq!(old.punctuality, Some(75));
+        let odd = evaluate(&TripRun { early: 1, late: 2, visits: visits(5, 0.0), ..trip(12, 2) });
+        assert_eq!(odd.punctuality, Some(75));
+    }
+
+    /// Comfort weighs its events by the trip's length, and no trip scores lower than it did
+    /// with the old points off per event.
+    #[test]
+    fn comfort_is_weighed_by_the_trip_and_never_lower_than_before() {
+        let c = |stops: i32, hb: i32, hs: i32, rs: i32, j: i32| evaluate(&TripRun { hard_brakes: hb, hard_starts: hs, rough_stops: rs, jolts: j, ..trip(stops, 0) }).comfort;
+        // (Luc's: a normal trip with firm stops scored 0)
+        assert_eq!(c(20, 2, 0, 10, 4), 64);
+        assert_eq!(c(25, 3, 1, 8, 6), 65);
+        assert_eq!(c(20, 0, 0, 20, 0), 61);
+        assert_eq!(c(12, 1, 0, 0, 2), 85);
+        // (a reckless one is still judged so)
+        assert!(c(20, 10, 10, 20, 15) <= 20);
+        for hb in 0..16 {
+            for hs in (0..16).step_by(3) {
+                for rs in (0..26).step_by(5) {
+                    for j in (0..26).step_by(5) {
+                        for stops in [1, 5, 10, 20, 40] {
+                            let t = TripRun { hard_brakes: hb, hard_starts: hs, rough_stops: rs, jolts: j, ..trip(stops, 0) };
+                            let old_comfort = (100.0 - (10.0 * hb as f64 + 6.0 * hs as f64 + 8.0 * rs as f64 + 5.0 * j as f64)).clamp(0.0, 100.0);
+                            let e = evaluate(&t);
+                            assert!(e.comfort as f64 >= old_comfort.round(), "{hb} {hs} {rs} {j} {stops}: {} < {old_comfort}", e.comfort);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]

@@ -1762,6 +1762,26 @@ pub struct TripRun {
     pub hard_starts: i32,
     pub rough_stops: i32,
     pub offences: Vec<company::career::Offence>,
+    /// The stops of a timed trip in order, as the trip's report lists them: when it was due
+    /// and when the bus came and left (a trip of an older game has none).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub visits: Vec<StopVisit>,
+}
+
+/// One stop of a trip as the bus served it (`TripRun::visits`).
+#[derive(Serialize, Deserialize, Clone, Default, Debug, PartialEq)]
+#[serde(default)]
+pub struct StopVisit {
+    /// Its place among the trip's stations (0 = the first) and its name.
+    pub index: usize,
+    pub name: String,
+    /// The timetable's arrival and departure there (s of the day).
+    pub arr: f64,
+    pub dep: f64,
+    /// When the bus came and left (s of the day); None: it did not (a stop not reached; the
+    /// last stop has no departure).
+    pub arrived: Option<f64>,
+    pub left: Option<f64>,
 }
 
 impl TripRun {
@@ -1773,6 +1793,23 @@ impl TripRun {
     /// It was driven to a timetable and served a stop.
     pub fn timed(&self) -> bool {
         !self.free && self.stops > 0
+    }
+}
+
+#[cfg(test)]
+mod trip_visit_tests {
+    use super::*;
+
+    /// A trip's stops go into its record and come back; a line of an older game, without
+    /// them, still reads.
+    #[test]
+    fn a_trip_keeps_its_stops() {
+        let run = TripRun { line: "5".into(), stops: 2, visits: vec![StopVisit { index: 0, name: "Rathaus".into(), arr: 100.0, dep: 130.0, arrived: Some(150.0), left: Some(160.0) }, StopVisit { index: 3, name: "Bahnhof".into(), arr: 400.0, dep: 400.0, arrived: Some(420.0), left: None }], ..Default::default() };
+        let back: TripRun = serde_json::from_str(&serde_json::to_string(&run).unwrap()).unwrap();
+        assert_eq!(back, run);
+        let old: TripRun = serde_json::from_str(r#"{"line":"5","stops":3}"#).unwrap();
+        assert!(old.visits.is_empty());
+        assert!(!serde_json::to_string(&TripRun::default()).unwrap().contains("visits"));
     }
 }
 

@@ -5,8 +5,9 @@
 //! furthest off the timetable and the average, and the distance, the jolts, the collisions and
 //! the passengers on the way, and how the trip is judged (`career::evaluate`: punctuality,
 //! comfort and safety from the drive watch, a grade, the experience it earned and the fines
-//! it cost). It stays some seconds of the game running (Enter or a click puts
-//! it away sooner), and the trip is written into the driver's record as it ends
+//! it cost), and on a tab of its own each stop with when it was due and when the bus came and
+//! left. It stays some seconds of the game running; a click keeps it open until its × (or
+//! Enter, or Escape) puts it away. The trip is written into the driver's record as it ends
 //! (`~/.openomsi/trips/<driver>.jsonl`, `Career::write_trip`), where the launcher's service
 //! record shows it.
 //!
@@ -15,7 +16,7 @@
 //! both are tested without a window or a game.
 
 use glam::Vec2;
-use omsi_launcher_lib::TripRun;
+use omsi_launcher_lib::{StopVisit, TripRun};
 use omsi_render::{Renderer, Scene, TextureId};
 use omsi_ui::paint::Align;
 use omsi_ui::{Atlas, Color, Draw, Fonts, Gpu, Layer, Painter, Rect, Weight};
@@ -27,7 +28,7 @@ use crate::schedule::PlayerDuty;
 
 /// How long the card stays (seconds of the game running: not while it is paused), and how
 /// long it takes to come and to go.
-const SHOW_FOR: f32 = 10.0;
+const SHOW_FOR: f32 = 15.0;
 const FADE: f32 = 0.25;
 
 // --- what a trip came to ----------------------------------------------------------------------
@@ -176,11 +177,13 @@ struct TripLog {
     /// Its report was given - or it was over, or had nothing to report, when it was first seen
     /// (a situation resumed at a trip's last stop).
     reported: bool,
+    /// Its stops, with when the bus came and left (a free drive: none).
+    visits: Vec<StopVisit>,
 }
 
 impl TripLog {
-    fn new(view: TripView, now: Counters) -> TripLog {
-        TripLog { started: view.next_stop > 0, reported: view.done || !view.reportable(), served: Vec::new(), reached: view.at_stop as usize, start: now, view }
+    fn new(view: TripView, now: Counters, visits: Vec<StopVisit>) -> TripLog {
+        TripLog { started: view.next_stop > 0, reported: view.done || !view.reportable(), served: Vec::new(), reached: view.at_stop as usize, start: now, view, visits }
     }
 
     fn report(&self, now: Counters, completed: bool) -> TripRun {
@@ -207,6 +210,7 @@ impl TripLog {
             jolts: (now.jolts - self.start.jolts).max(0),
             crashes: (now.crashes - self.start.crashes).max(0),
             passengers: (now.boarded - self.start.boarded).max(0),
+            visits: if v.free { Vec::new() } else { self.visits.clone() },
             ..Default::default()
         }
     }
@@ -214,9 +218,11 @@ impl TripLog {
 
 impl TripRecorder {
     /// One frame of the duty: the trip under way (`view`), the stop the bus has just left with
-    /// how late it arrived and left there (`PlayerDuty::update`'s answer), and the career's
-    /// counters. Returns the report of a trip that ended this frame.
-    pub fn observe(&mut self, view: TripView, served: Option<(f64, f64)>, now: Counters) -> Option<TripRun> {
+    /// how late it arrived and left there (`PlayerDuty::update`'s answer) and which it was
+    /// (`due`: the trip and the stop before the update), the trip's stops (`plan`, asked when a
+    /// trip begins), and the career's counters. Returns the report of a trip that ended this
+    /// frame.
+    pub fn observe(&mut self, view: TripView, due: (usize, usize), served: Option<(f64, f64)>, plan: &dyn Fn() -> Vec<StopVisit>, now: Counters) -> Option<TripRun> {
         let mut out = None;
         // another trip (the duty went on, or a new duty began), or the same one again from an
         // earlier stop (a new duty of the same trip, a page that took it back): counted anew
@@ -234,10 +240,16 @@ impl TripRecorder {
                 out = Some(old.report(now, false));
             }
         }
-        let log = self.log.get_or_insert_with(|| TripLog::new(view.clone(), now));
+        let log = self.log.get_or_insert_with(|| TripLog::new(view.clone(), now, if view.free { Vec::new() } else { plan() }));
         if !log.reported {
             if let Some((arrival, departure)) = served {
                 log.served.push(Served { arrival, departure: Some(departure) });
+                // (when the bus was there, by the stop's time)
+                if due.0 == view.index {
+                    if let Some(v) = log.visits.iter_mut().find(|v| v.index == due.1) {
+                        (v.arrived, v.left) = (Some(v.arr + arrival), Some(v.dep + departure));
+                    }
+                }
             }
             if view.at_stop && !log.view.at_stop {
                 log.reached += 1;
@@ -253,6 +265,9 @@ impl TripRecorder {
             if view.done {
                 if let (false, Some(arrival)) = (view.free, view.terminus_arrival) {
                     log.served.push(Served { arrival, departure: None });
+                    if let Some(v) = log.visits.iter_mut().find(|v| v.index == view.last) {
+                        v.arrived = Some(v.arr + arrival);
+                    }
                 }
                 log.reported = true;
                 log.view = view;
@@ -292,6 +307,61 @@ pub(crate) struct Card {
     pub facts: Vec<(&'static str, String, &'static str)>,
     /// How the trip is judged.
     pub judged: Judged,
+    /// Its stops, for the card's second tab (a free drive, or a trip of an older game: none).
+    pub stops: Vec<StopRow>,
+}
+
+/// A stop of the trip as the card's list shows it.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct StopRow {
+    pub name: String,
+    /// When it was due (to leave; the last stop: to arrive), when the bus came and left
+    /// ("–": it did not), and how far off it was ("+3:30").
+    pub due: String,
+    pub arrived: String,
+    pub left: String,
+    pub delta: String,
+    /// How OMSI counts it (None: not served).
+    pub judged: Option<Punctuality>,
+    /// The stop furthest off the timetable.
+    pub worst: bool,
+}
+
+/// The stops of a timed trip as the card lists them.
+fn stop_rows(run: &TripRun) -> Vec<StopRow> {
+    if !run.timed() {
+        return Vec::new();
+    }
+    let last = run.visits.len().saturating_sub(1);
+    let mut rows: Vec<(StopRow, f64)> = run
+        .visits
+        .iter()
+        .enumerate()
+        .map(|(k, v)| {
+            let at = |t: Option<f64>| t.map_or("–".to_string(), hhmm);
+            let served = v.arrived.map(|a| Served { arrival: a - v.arr, departure: v.left.map(|l| l - v.dep) });
+            // (the delay that decides: leaving early, else arriving late, else as the stop was left)
+            let decides = served.map(|s| match s.judged() {
+                Punctuality::Early => s.departure.unwrap_or(s.arrival),
+                Punctuality::Late => s.arrival,
+                Punctuality::OnTime => s.delay(),
+            });
+            let row = StopRow {
+                name: v.name.clone(),
+                due: hhmm(if k == last { v.arr } else { v.dep }),
+                arrived: at(v.arrived),
+                left: if k == last { String::new() } else { at(v.left) },
+                delta: decides.map_or("–".to_string(), offset),
+                judged: served.map(Served::judged),
+                worst: false,
+            };
+            (row, decides.map_or(0.0, f64::abs))
+        })
+        .collect();
+    if let Some(k) = rows.iter().enumerate().filter(|(_, r)| r.0.judged.is_some()).max_by(|a, b| a.1 .1.total_cmp(&b.1 .1)).map(|x| x.0) {
+        rows[k].0.worst = rows[k].1 > 0.0;
+    }
+    rows.into_iter().map(|r| r.0).collect()
 }
 
 /// The trip's evaluation as the card shows it.
@@ -389,6 +459,7 @@ pub(crate) fn card(run: &TripRun) -> Card {
         tiles,
         facts,
         judged: judged(run),
+        stops: stop_rows(run),
     }
 }
 
@@ -404,10 +475,50 @@ const JUDGED: f32 = 76.0;
 /// The line under it saying what a fined trip's fines were for.
 const FINED: f32 = 20.0;
 const FOOT: f32 = 44.0;
+/// The tabs (overview, stops) under the head, the stops' column titles and a stop's row.
+const TABS: f32 = 36.0;
+const LIST_HEAD: f32 = 20.0;
+const STOP_ROW: f32 = 22.0;
 
 /// How tall the card is (at scale 1).
 pub(crate) fn card_height(c: &Card) -> f32 {
-    HEAD + if c.verdict.is_some() { VERDICT } else { NOTE } + TILES + FACTS + JUDGED + if c.judged.fines > 0 { FINED } else { 0.0 } + FOOT
+    HEAD + if c.stops.is_empty() { 0.0 } else { TABS } + body_height(c) + FOOT
+}
+
+/// The card's part between the head (and its tabs) and the foot: the overview's, and the stops'
+/// list takes the same (the card does not jump between the tabs).
+fn body_height(c: &Card) -> f32 {
+    (if c.verdict.is_some() { VERDICT } else { NOTE }) + TILES + FACTS + JUDGED + if c.judged.fines > 0 { FINED } else { 0.0 }
+}
+
+/// How many stops the list shows at once on a card `c`.
+fn stops_shown(c: &Card) -> usize {
+    ((body_height(c) - LIST_HEAD - 6.0) / STOP_ROW).floor().max(1.0) as usize
+}
+
+/// The card's tabs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum Tab {
+    #[default]
+    Overview,
+    Stops,
+}
+
+/// What a click on the card can hit.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum CardHit {
+    Close,
+    Tab(Tab),
+}
+
+/// How the card is shown: its tab, the first stop the list shows, whether a click kept it open,
+/// and the time it has left (0 - 1).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub(crate) struct Face {
+    pub tab: Tab,
+    pub scroll: usize,
+    pub pinned: bool,
+    pub left: f32,
 }
 
 /// The card's scale: the navigator's (a third of the window's height, see `Navigator::frame`)
@@ -419,9 +530,11 @@ pub(crate) fn card_scale(screen: (f32, f32), ui_scale: f32, follow_window: bool,
     s.min((screen.0 - 32.0).max(120.0) / CARD_W).min((screen.1 - 32.0).max(120.0) / height).max(0.4)
 }
 
-/// Draw the card into `r` (`CARD_W` by `card_height` at scale `s`), with the time it has left
-/// to stay (0 - 1) along its bottom; `saved`: the trip is in the driver's record.
-pub(crate) fn draw_card(pen: &mut Pen, c: &Card, r: Rect, s: f32, left: f32, saved: bool) {
+/// Draw the card into `r` (`CARD_W` by `card_height` at scale `s`) as `face` has it, with the
+/// time it has left to stay along its bottom (not when kept open); `saved`: the trip is in the
+/// driver's record. Returns its buttons: where they are and what they do.
+pub(crate) fn draw_card(pen: &mut Pen, c: &Card, r: Rect, s: f32, face: &Face, saved: bool) -> Vec<(Rect, CardHit)> {
+    let mut hits = Vec::new();
     let radius = 12.0 * s;
     pen.p.rounded(r, radius, SHEET.alpha(0.97));
     pen.p.rounded_border(r, radius, 1.0, EDGE);
@@ -434,9 +547,15 @@ pub(crate) fn draw_card(pen: &mut Pen, c: &Card, r: Rect, s: f32, left: f32, sav
     let cy = r.y + 22.0 * s;
     pen.p.icon(pen.atlas, "sports_score", Vec2::new(x0 + 7.0 * s, cy), 15.0 * s, ink);
     let eyebrow = omsi_ui::tr(if c.completed { "Trip completed" } else { "Trip ended" }).to_uppercase();
-    let pw = pen.width(&c.place, 11.5 * s, Weight::Medium).min(w * 0.45);
-    pen.text_in(&c.place, 11.5 * s, Weight::Medium, Rect::new(x1 - pw - 2.0 * s, cy - 8.0 * s, pw + 2.0 * s, 16.0 * s), Align::Right, TEXT_FAINT);
-    pen.text_in(&eyebrow, 10.5 * s, Weight::Bold, Rect::new(x0 + 20.0 * s, cy - 8.0 * s, (w - 28.0 * s - pw).max(0.0), 16.0 * s), Align::Left, TEXT_DIM);
+    // (the way to put it away, top right)
+    let close = Rect::new(x1 - 22.0 * s, cy - 12.0 * s, 24.0 * s, 24.0 * s);
+    pen.p.circle(close.center(), 12.0 * s, FIELD.alpha(0.7));
+    pen.p.icon(pen.atlas, "close", close.center(), 15.0 * s, TEXT_SOFT);
+    hits.push((close, CardHit::Close));
+    let x1h = close.x - 8.0 * s;
+    let pw = pen.width(&c.place, 11.5 * s, Weight::Medium).min(w * 0.4);
+    pen.text_in(&c.place, 11.5 * s, Weight::Medium, Rect::new(x1h - pw - 2.0 * s, cy - 8.0 * s, pw + 2.0 * s, 16.0 * s), Align::Right, TEXT_FAINT);
+    pen.text_in(&eyebrow, 10.5 * s, Weight::Bold, Rect::new(x0 + 20.0 * s, cy - 8.0 * s, (x1h - x0 - 28.0 * s - pw).max(0.0), 16.0 * s), Align::Left, TEXT_DIM);
     let cy = r.y + 52.0 * s;
     // (a trip without a line has no plate: "empty run" is the duty board's word for a run
     // that serves no stops, and this one did)
@@ -448,6 +567,28 @@ pub(crate) fn draw_card(pen: &mut Pen, c: &Card, r: Rect, s: f32, left: f32, sav
     pen.text_in(&c.span, 12.0 * s, Weight::Medium, Rect::new(x0, r.y + 66.0 * s, w, 18.0 * s), Align::Left, TEXT_DIM);
     pen.p.rect(Rect::new(x0, r.y + (HEAD - 1.0) * s, w, 1.0), HAIRLINE);
     let mut y = r.y + HEAD * s;
+    // the tabs: the overview, and the stops with how many
+    if !c.stops.is_empty() {
+        let pill = Rect::new(x0, y + 5.0 * s, w, 26.0 * s);
+        pen.p.rounded(pill, 13.0 * s, FIELD.alpha(0.35));
+        let half = (pill.w - 4.0 * s) * 0.5;
+        for (k, (tab, label)) in [(Tab::Overview, omsi_ui::tr("Overview").into_owned()), (Tab::Stops, format!("{} {}", omsi_ui::tr("Stops"), c.stops.len()))].into_iter().enumerate() {
+            let seg = Rect::new(pill.x + 2.0 * s + k as f32 * half, pill.y + 2.0 * s, half, pill.h - 4.0 * s);
+            let on = face.tab == tab;
+            if on {
+                pen.p.rounded(seg, 11.0 * s, FIELD);
+            }
+            pen.text_in(&label, 11.5 * s, Weight::Bold, seg, Align::Center, if on { TEXT } else { TEXT_DIM });
+            hits.push((seg, CardHit::Tab(tab)));
+        }
+        y += TABS * s;
+    }
+    if face.tab == Tab::Stops && !c.stops.is_empty() {
+        draw_stops(pen, &c.stops, Rect::new(x0, y, w, body_height(c) * s), s, face.scroll);
+        y += body_height(c) * s;
+        foot(pen, c, r, s, face, saved, y, ink);
+        return hits;
+    }
     match &c.verdict {
         // how punctual: the share on time, large, in its colour; the bar of early, on time and
         // late under it, and how many each
@@ -530,19 +671,94 @@ pub(crate) fn draw_card(pen: &mut Pen, c: &Card, r: Rect, s: f32, left: f32, sav
     y += FACTS * s;
     draw_judged(pen, &c.judged, Rect::new(x0, y, w, JUDGED * s), s);
     y += (JUDGED + if c.judged.fines > 0 { FINED } else { 0.0 }) * s;
-    // the foot: that the trip is in the record, how to put the card away, and the time it has
-    // left as a line along its bottom
+    foot(pen, c, r, s, face, saved, y, ink);
+    hits
+}
+
+/// The card's foot from `y`: that the trip is in the record, how to keep the card or put it
+/// away, and the time it has left as a line along its bottom (not when kept open).
+#[allow(clippy::too_many_arguments)]
+fn foot(pen: &mut Pen, _c: &Card, r: Rect, s: f32, face: &Face, saved: bool, y: f32, ink: Color) {
+    let radius = 12.0 * s;
+    let pad = 18.0 * s;
+    let (x0, x1) = (r.x + pad, r.right() - pad);
+    let w = x1 - x0;
     pen.p.rect(Rect::new(x0, y, w, 1.0), HAIRLINE);
     let cy = y + 19.0 * s;
     let (icon, colour, said) = if saved { ("check_circle", ON_TIME_INK, "Saved to your service record") } else { ("error", LATE_INK, "The trip could not be saved") };
     pen.p.icon(pen.atlas, icon, Vec2::new(x0 + 6.0 * s, cy), 13.0 * s, colour);
-    let hint = "Enter or click to close";
-    let hw = pen.width(hint, 11.0 * s, Weight::Regular).min(w * 0.45);
-    pen.text_in(hint, 11.0 * s, Weight::Regular, Rect::new(x1 - hw - 2.0 * s, cy - 8.0 * s, hw + 2.0 * s, 16.0 * s), Align::Right, TEXT_FAINT);
+    let hint = omsi_ui::tr(if face.pinned { "Enter or × to close" } else { "Click to keep it open" });
+    let hw = pen.width(&hint, 11.0 * s, Weight::Regular).min(w * 0.45);
+    pen.text_in(&hint, 11.0 * s, Weight::Regular, Rect::new(x1 - hw - 2.0 * s, cy - 8.0 * s, hw + 2.0 * s, 16.0 * s), Align::Right, TEXT_FAINT);
     pen.text_in(said, 11.5 * s, Weight::Medium, Rect::new(x0 + 17.0 * s, cy - 8.0 * s, (w - 17.0 * s - hw - 10.0 * s).max(0.0), 16.0 * s), Align::Left, TEXT_DIM);
-    let line = Rect::new(r.x + radius, r.bottom() - 3.0 * s, (r.w - 2.0 * radius) * left.clamp(0.0, 1.0), 2.0 * s);
-    if line.w > 0.5 {
-        pen.p.rounded(line, 1.0 * s, ink.alpha(0.85));
+    if !face.pinned {
+        let line = Rect::new(r.x + radius, r.bottom() - 3.0 * s, (r.w - 2.0 * radius) * face.left.clamp(0.0, 1.0), 2.0 * s);
+        if line.w > 0.5 {
+            pen.p.rounded(line, 1.0 * s, ink.alpha(0.85));
+        }
+    }
+}
+
+/// The stops' list in `r`: the column titles, then a row a stop from `scroll` on - a dot in
+/// how OMSI counts it, the name, when it was due, when the bus came and left, how far off;
+/// the worst stop on a ground of its own, a stop not served dim. A thumb on the right when
+/// there are more than fit.
+fn draw_stops(pen: &mut Pen, rows: &[StopRow], r: Rect, s: f32, scroll: usize) {
+    let (dw, tw, gap) = (44.0 * s, 40.0 * s, 6.0 * s);
+    // (the columns end short of the list's thumb)
+    let xd = r.right() - 10.0 * s - dw;
+    let xdep = xd - gap - tw;
+    let xarr = xdep - gap - tw;
+    let xdue = xarr - gap - tw;
+    let xname = r.x + 14.0 * s;
+    let head = r.y + 6.0 * s;
+    for (label, x, ww, align) in [("Bus stop", xname, xdue - gap - xname, Align::Left), ("Due", xdue, tw, Align::Right), ("Arr.", xarr, tw, Align::Right), ("Dep.", xdep, tw, Align::Right), ("±", xd, dw, Align::Right)] {
+        pen.text_in(&omsi_ui::tr(label).to_uppercase(), 9.5 * s, Weight::Bold, Rect::new(x, head, ww.max(0.0), LIST_HEAD * s), align, TEXT_DIM);
+    }
+    let top = head + LIST_HEAD * s;
+    let visible = ((r.bottom() - top) / (STOP_ROW * s)).floor().max(1.0) as usize;
+    let scroll = scroll.min(rows.len().saturating_sub(visible));
+    for (k, row) in rows.iter().enumerate().skip(scroll).take(visible) {
+        let ry = top + (k - scroll) as f32 * STOP_ROW * s;
+        let rr = Rect::new(r.x, ry, r.w - 6.0 * s, STOP_ROW * s);
+        if row.worst {
+            pen.p.rounded(rr, 5.0 * s, FIELD.alpha(0.5));
+        }
+        let (dot, ink) = match row.judged {
+            Some(Punctuality::Early) => (EARLY, crate::nav_duty::EARLY_INK),
+            Some(Punctuality::OnTime) => (ON_TIME, ON_TIME_INK),
+            Some(Punctuality::Late) => (LATE, LATE_INK),
+            None => (TEXT_FAINT, TEXT_FAINT),
+        };
+        let c = Vec2::new(r.x + 5.0 * s, rr.center().y);
+        if row.judged.is_some() {
+            pen.p.circle(c, 4.0 * s, dot);
+        } else {
+            pen.p.circle(c, 4.0 * s, TEXT_FAINT);
+            pen.p.circle(c, 2.5 * s, crate::nav_duty::SHEET);
+        }
+        // (the stop's name as the map has it: not looked up as a text of the interface)
+        let px = 12.0 * s;
+        let name = pen.fonts.fit(&row.name, px, Weight::Medium, (xdue - gap - xname).max(0.0));
+        let base = rr.center().y + pen.fonts.cap_height(px, Weight::Medium) * 0.5;
+        pen.p.text_as_is(pen.atlas, pen.fonts, &name, px, Weight::Medium, Vec2::new(xname, base), Align::Left, if row.judged.is_some() { TEXT } else { TEXT_DIM });
+        pen.text_in(&row.due, 11.5 * s, Weight::Regular, Rect::new(xdue, rr.y, tw, rr.h), Align::Right, TEXT_DIM);
+        if row.judged.is_some() {
+            pen.text_in(&row.arrived, 11.5 * s, Weight::Regular, Rect::new(xarr, rr.y, tw, rr.h), Align::Right, TEXT_SOFT);
+            pen.text_in(&row.left, 11.5 * s, Weight::Regular, Rect::new(xdep, rr.y, tw, rr.h), Align::Right, TEXT_SOFT);
+        } else {
+            pen.text_in("Not served", 11.0 * s, Weight::Regular, Rect::new(xarr, rr.y, xdep + tw - xarr, rr.h), Align::Right, TEXT_FAINT);
+        }
+        pen.text_in(&row.delta, 11.5 * s, Weight::Bold, Rect::new(xd, rr.y, dw, rr.h), Align::Right, ink);
+        if k + 1 < rows.len() {
+            pen.p.rect(Rect::new(r.x + 14.0 * s, rr.bottom() - 0.5, r.w - 20.0 * s, 1.0), HAIRLINE);
+        }
+    }
+    if rows.len() > visible {
+        let track = Rect::new(r.right() - 3.0 * s, top, 3.0 * s, visible as f32 * STOP_ROW * s);
+        let th = (track.h * visible as f32 / rows.len() as f32).max(12.0 * s);
+        let ty = track.y + (track.h - th) * scroll as f32 / (rows.len() - visible).max(1) as f32;
+        pen.p.rounded(Rect::new(track.x, ty, track.w, th), 1.5 * s, TEXT_FAINT.alpha(0.7));
     }
 }
 
@@ -610,6 +826,47 @@ struct Shown {
     closing: bool,
     /// Where it is on the window (x0, y0, x1, y1).
     rect: [f32; 4],
+    /// A click kept it open (until its × or Enter); the tab it shows and the list's first stop.
+    pinned: bool,
+    tab: Tab,
+    scroll: usize,
+    /// Its buttons on the window, as drawn last.
+    hits: Vec<([f32; 4], CardHit)>,
+}
+
+impl Shown {
+    fn new(card: Card, saved: bool) -> Shown {
+        Shown { card, saved, left: SHOW_FOR, shown: 0.0, closing: false, rect: [0.0; 4], pinned: false, tab: Tab::Overview, scroll: 0, hits: Vec::new() }
+    }
+
+    /// The card's time goes on by `dt` (while the game runs and it was not kept open), and it
+    /// comes in or goes; false once it has gone.
+    fn advance(&mut self, dt: f32, running: bool) -> bool {
+        if running && !self.pinned {
+            self.left -= dt;
+        }
+        if self.left <= 0.0 {
+            self.closing = true;
+        }
+        let target = if self.closing { 0.0 } else { 1.0 };
+        let step = dt / FADE;
+        self.shown = if self.shown < target { (self.shown + step).min(target) } else { (self.shown - step).max(target) };
+        !(self.closing && self.shown <= 0.0)
+    }
+
+    fn over(&self, x: f32, y: f32) -> bool {
+        !self.closing && x >= self.rect[0] && x <= self.rect[2] && y >= self.rect[1] && y <= self.rect[3]
+    }
+
+    fn hit(&self, x: f32, y: f32) -> Option<CardHit> {
+        self.hits.iter().find(|(r, _)| x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3]).map(|h| h.1)
+    }
+}
+
+/// The card's buttons from the card's texture (drawn at `m` from its corner) onto the window,
+/// the card's corner being at (`x0`, `y0`).
+fn place_hits(hits: &[(Rect, CardHit)], x0: f32, y0: f32, m: f32) -> Vec<([f32; 4], CardHit)> {
+    hits.iter().map(|(r, h)| ([x0 - m + r.x, y0 - m + r.y, x0 - m + r.right(), y0 - m + r.bottom()], *h)).collect()
 }
 
 /// What draws the card: into a texture of its own, as the navigator draws.
@@ -638,11 +895,16 @@ fn publish(run: &TripRun) {
 }
 
 impl TripReport {
-    /// One frame of the duty, after `PlayerDuty::update` (whose answer `served` is): a trip
-    /// that ended is written into the driver's record and its card shown.
-    pub fn observe(&mut self, d: &PlayerDuty, served: Option<(f64, f64)>, career: &Career, watch: &crate::drive_watch::DriveWatch, map: &str, bus: &str) {
+    /// One frame of the duty, after `PlayerDuty::update` (whose answer `served` is, for the stop
+    /// `due`: the trip and the stop before the update): a trip that ended is written into the
+    /// driver's record and its card shown.
+    #[allow(clippy::too_many_arguments)]
+    pub fn observe(&mut self, d: &PlayerDuty, due: (usize, usize), served: Option<(f64, f64)>, career: &Career, watch: &crate::drive_watch::DriveWatch, map: &str, bus: &str) {
         let Some(view) = TripView::of(d) else { return };
-        let Some(mut run) = self.recorder.observe(view, served, Counters::of(career)) else { return };
+        let plan = || -> Vec<StopVisit> {
+            d.trips.get(d.trip_index).map(|t| t.stops.iter().enumerate().filter(|(_, s)| s.stops).map(|(k, s)| StopVisit { index: k, name: s.name.trim().to_string(), arr: s.arr, dep: s.dep, ..Default::default() }).collect()).unwrap_or_default()
+        };
+        let Some(mut run) = self.recorder.observe(view, due, served, &plan, Counters::of(career)) else { return };
         // (what the drive watch saw on the trip's stretch of the career's clock)
         watch.fill(&mut run, career.seconds);
         let saved = match career.write_trip(&run, map, bus) {
@@ -663,7 +925,7 @@ impl TripReport {
 
     /// Show the card of `run`.
     pub fn show(&mut self, run: TripRun, saved: bool) {
-        self.shown = Some(Shown { card: card(&run), saved, left: SHOW_FOR, shown: 0.0, closing: false, rect: [0.0; 4] });
+        self.shown = Some(Shown::new(card(&run), saved));
     }
 
     /// Where the card's bottom is on the window while it is shown (the drive watch's notice
@@ -683,11 +945,56 @@ impl TripReport {
         }
     }
 
-    /// A click at (`x`, `y`) on the window: on the card it puts the card away (and is the
-    /// card's).
+    /// A click at (`x`, `y`) on the window: on the card's × it puts the card away, on a tab it
+    /// shows that tab, anywhere else on it it keeps the card open (Luc: it went in a few
+    /// seconds). Whether it was the card's.
     pub fn click(&mut self, x: f32, y: f32) -> bool {
-        let over = self.shown.as_ref().is_some_and(|s| !s.closing && x >= s.rect[0] && x <= s.rect[2] && y >= s.rect[1] && y <= s.rect[3]);
-        over && self.dismiss()
+        let Some(s) = self.shown.as_mut().filter(|s| s.over(x, y)) else { return false };
+        match s.hit(x, y) {
+            Some(CardHit::Close) => s.closing = true,
+            Some(CardHit::Tab(t)) => {
+                (s.tab, s.scroll, s.pinned) = (t, 0, true);
+            }
+            None => s.pinned = true,
+        }
+        true
+    }
+
+    /// Escape: puts away a card kept open (whether there was one).
+    pub fn escape(&mut self) -> bool {
+        match self.shown.as_mut().filter(|s| s.pinned && !s.closing) {
+            Some(s) => {
+                s.closing = true;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The wheel over the card (`amount` notches up): the stops' list scrolls, three stops a
+    /// notch, and the card stays open. Whether it was the card's.
+    pub fn wheel(&mut self, amount: f32, x: f32, y: f32) -> bool {
+        let Some(s) = self.shown.as_mut().filter(|s| s.over(x, y)) else { return false };
+        if s.tab == Tab::Stops {
+            let most = s.card.stops.len().saturating_sub(stops_shown(&s.card));
+            let by = (amount.abs().ceil() as usize).max(1) * 3;
+            s.scroll = if amount > 0.0 { s.scroll.saturating_sub(by) } else { (s.scroll + by).min(most) };
+        }
+        s.pinned = true;
+        true
+    }
+
+    /// The pointer over (`x`, `y`): 1 the hand (a button, or a card a click keeps open), 0
+    /// the arrow (a card kept open), None off the card.
+    pub fn hover(&self, x: f32, y: f32) -> Option<u8> {
+        let s = self.shown.as_ref().filter(|s| s.over(x, y))?;
+        Some(if s.hit(x, y).is_some() || !s.pinned { 1 } else { 0 })
+    }
+
+    /// Whether (`x`, `y`) is on the card.
+    #[allow(dead_code)]
+    pub fn over(&self, x: f32, y: f32) -> bool {
+        self.shown.as_ref().is_some_and(|s| s.over(x, y))
     }
 
     /// Draw the card for this frame, centred at the top of the interface's part of the window
@@ -695,16 +1002,7 @@ impl TripReport {
     /// game runs (its time counts down the card's).
     pub fn frame(&mut self, renderer: &Renderer, scene: &mut Scene, hud: [f32; 4], settings: &crate::settings::Settings, dt: f32, running: bool) {
         let Some(sh) = self.shown.as_mut() else { return };
-        if running {
-            sh.left -= dt;
-        }
-        if sh.left <= 0.0 {
-            sh.closing = true;
-        }
-        let target = if sh.closing { 0.0 } else { 1.0 };
-        let step = dt / FADE;
-        sh.shown = if sh.shown < target { (sh.shown + step).min(target) } else { (sh.shown - step).max(target) };
-        if sh.closing && sh.shown <= 0.0 {
+        if !sh.advance(dt, running) {
             self.shown = None;
             return;
         }
@@ -738,7 +1036,9 @@ impl TripReport {
         let mut p = Painter::new();
         let r = Rect::new(m, m, cw, chp);
         p.shadow(r, 12.0 * s, 18.0 * s, Color::rgba(0, 0, 0, 0.45));
-        draw_card(&mut Pen { p: &mut p, atlas: &mut look.atlas, fonts: &look.fonts }, &sh.card, r, s, sh.left / SHOW_FOR, sh.saved);
+        let face = Face { tab: sh.tab, scroll: sh.scroll, pinned: sh.pinned, left: sh.left / SHOW_FOR };
+        let hits = draw_card(&mut Pen { p: &mut p, atlas: &mut look.atlas, fonts: &look.fonts }, &sh.card, r, s, &face, sh.saved);
+        sh.hits = place_hits(&hits, x0, y0, m);
         let (device, queue) = (&renderer.device, &renderer.queue);
         look.gpu.upload(device, queue, 0, &p.verts);
         look.gpu.upload_atlas(queue, &mut look.atlas);
@@ -764,6 +1064,17 @@ pub(crate) fn samples(format: wgpu::TextureFormat) -> u32 {
 mod tests {
     use super::*;
 
+    /// Four stops of a trip, every ten minutes from eight, each half a minute's stand.
+    fn plan4() -> Vec<StopVisit> {
+        (0..4).map(|k| StopVisit { index: k, name: format!("Stop {k}"), arr: 8.0 * 3600.0 + 600.0 * k as f64, dep: 8.0 * 3600.0 + 600.0 * k as f64 + 30.0, ..Default::default() }).collect()
+    }
+
+    /// The recorder's frame: the stop the bus left is the one before the next.
+    fn obs(r: &mut TripRecorder, v: TripView, served: Option<(f64, f64)>, c: Counters) -> Option<TripRun> {
+        let due = (v.index, v.next_stop.saturating_sub(1));
+        r.observe(v, due, served, &plan4, c)
+    }
+
     /// A trip of `n` stops as the recorder sees it, at stop `next` (`at`: standing there).
     fn view(n: usize, next: usize, at: bool, done: bool) -> TripView {
         TripView { key: (0, "5-1".into(), 8 * 3600), line: "5".into(), tour: "2".into(), terminus: "Rathaus".into(), index: 0, count: 3, departure: 8.0 * 3600.0, end: 8.5 * 3600.0, planned: n, last: n - 1, next_stop: next, at_stop: at, done, free: false, terminus_arrival: None }
@@ -780,20 +1091,20 @@ mod tests {
         let v = |next, at, done| TripView { free, terminus_arrival: if done { Some(last) } else { None }, ..view(4, next, at, done) };
         let mut out = vec![
             // at the first stop, the break before the trip: the counters wait
-            r.observe(v(0, true, false), None, counters(100.0, 5000.0, 3)),
-            r.observe(v(0, true, false), None, counters(160.0, 5000.0, 4)),
+            obs(&mut r, v(0, true, false), None, counters(100.0, 5000.0, 3)),
+            obs(&mut r, v(0, true, false), None, counters(160.0, 5000.0, 4)),
         ];
         let mut t = 160.0;
         for (k, (arrived, left)) in times.iter().enumerate() {
             t += 120.0;
             // (a free drive's stops are not judged: the duty gives none)
-            out.push(r.observe(v(k + 1, false, false), (!free).then_some((*arrived, *left)), counters(t, 5000.0 + 400.0 * (k + 1) as f64, 5 + k as i32)));
+            out.push(obs(&mut r, v(k + 1, false, false), (!free).then_some((*arrived, *left)), counters(t, 5000.0 + 400.0 * (k + 1) as f64, 5 + k as i32)));
             t += 60.0;
-            out.push(r.observe(v(k + 1, true, false), None, counters(t, 5400.0 + 400.0 * (k + 1) as f64, 5 + k as i32)));
+            out.push(obs(&mut r, v(k + 1, true, false), None, counters(t, 5400.0 + 400.0 * (k + 1) as f64, 5 + k as i32)));
         }
-        out.push(r.observe(v(3, true, true), None, counters(t + 30.0, 6800.0, 9)));
+        out.push(obs(&mut r, v(3, true, true), None, counters(t + 30.0, 6800.0, 9)));
         // the bus leaves the terminus: no second report
-        out.push(r.observe(v(3, false, true), (!free).then_some((last, 600.0)), counters(t + 90.0, 6900.0, 9)));
+        out.push(obs(&mut r, v(3, false, true), (!free).then_some((last, 600.0)), counters(t + 90.0, 6900.0, 9)));
         out
     }
 
@@ -848,18 +1159,18 @@ mod tests {
     fn a_trip_left_on_its_last_leg_is_reported_and_one_given_up_is_not() {
         let mut r = TripRecorder::default();
         let c = counters(0.0, 0.0, 0);
-        assert!(r.observe(view(3, 0, true, false), None, c).is_none());
-        assert!(r.observe(view(3, 1, false, false), Some((10.0, 20.0)), c).is_none());
-        assert!(r.observe(view(3, 1, true, false), None, c).is_none());
-        assert!(r.observe(view(3, 2, false, false), Some((30.0, 40.0)), c).is_none());
+        assert!(obs(&mut r, view(3, 0, true, false), None, c).is_none());
+        assert!(obs(&mut r, view(3, 1, false, false), Some((10.0, 20.0)), c).is_none());
+        assert!(obs(&mut r, view(3, 1, true, false), None, c).is_none());
+        assert!(obs(&mut r, view(3, 2, false, false), Some((30.0, 40.0)), c).is_none());
         let next = TripView { key: (1, "5-2".into(), 9 * 3600), index: 1, ..view(3, 0, true, false) };
-        let rep = r.observe(next.clone(), None, c).expect("the trip before is over");
+        let rep = obs(&mut r, next.clone(), None, c).expect("the trip before is over");
         assert!(!rep.completed);
         assert_eq!((rep.stops, rep.planned), (2, 3));
         // the next trip given up after its first stop: the one after it reports nothing
-        assert!(r.observe(TripView { next_stop: 1, at_stop: false, ..next }, Some((0.0, 0.0)), c).is_none());
+        assert!(obs(&mut r, TripView { next_stop: 1, at_stop: false, ..next }, Some((0.0, 0.0)), c).is_none());
         let third = TripView { key: (2, "5-3".into(), 10 * 3600), index: 2, ..view(3, 0, false, false) };
-        assert!(r.observe(third, None, c).is_none());
+        assert!(obs(&mut r, third, None, c).is_none());
     }
 
     /// A situation resumed at a trip's last stop has no trip to report; an empty run neither.
@@ -868,29 +1179,29 @@ mod tests {
     fn a_trip_over_before_it_was_seen_says_nothing() {
         let mut r = TripRecorder::default();
         let c = counters(0.0, 0.0, 0);
-        assert!(r.observe(TripView { terminus_arrival: Some(0.0), ..view(3, 2, true, true) }, None, c).is_none());
-        assert!(r.observe(view(3, 2, false, true), Some((0.0, 0.0)), c).is_none());
+        assert!(obs(&mut r, TripView { terminus_arrival: Some(0.0), ..view(3, 2, true, true) }, None, c).is_none());
+        assert!(obs(&mut r, view(3, 2, false, true), Some((0.0, 0.0)), c).is_none());
         // the same trip anew, from its first stop
-        assert!(r.observe(view(3, 0, true, false), None, c).is_none());
-        assert!(r.observe(view(3, 1, false, false), Some((0.0, 0.0)), c).is_none());
-        assert!(r.observe(view(3, 1, true, false), None, c).is_none());
-        assert!(r.observe(view(3, 2, false, false), Some((0.0, 0.0)), c).is_none());
-        assert!(r.observe(TripView { terminus_arrival: Some(0.0), ..view(3, 2, true, true) }, None, c).is_some());
+        assert!(obs(&mut r, view(3, 0, true, false), None, c).is_none());
+        assert!(obs(&mut r, view(3, 1, false, false), Some((0.0, 0.0)), c).is_none());
+        assert!(obs(&mut r, view(3, 1, true, false), None, c).is_none());
+        assert!(obs(&mut r, view(3, 2, false, false), Some((0.0, 0.0)), c).is_none());
+        assert!(obs(&mut r, TripView { terminus_arrival: Some(0.0), ..view(3, 2, true, true) }, None, c).is_some());
         // given up half way and begun again from the first stop: the stops of the first go
         // are not counted twice
         let mut r = TripRecorder::default();
-        assert!(r.observe(view(3, 0, true, false), None, c).is_none());
-        assert!(r.observe(view(3, 1, false, false), Some((500.0, 500.0)), c).is_none());
-        assert!(r.observe(view(3, 0, true, false), None, c).is_none());
-        assert!(r.observe(view(3, 1, false, false), Some((0.0, 0.0)), c).is_none());
-        assert!(r.observe(view(3, 1, true, false), None, c).is_none());
-        assert!(r.observe(view(3, 2, false, false), Some((0.0, 0.0)), c).is_none());
-        let rep = r.observe(TripView { terminus_arrival: Some(0.0), ..view(3, 2, true, true) }, None, c).expect("the second go");
+        assert!(obs(&mut r, view(3, 0, true, false), None, c).is_none());
+        assert!(obs(&mut r, view(3, 1, false, false), Some((500.0, 500.0)), c).is_none());
+        assert!(obs(&mut r, view(3, 0, true, false), None, c).is_none());
+        assert!(obs(&mut r, view(3, 1, false, false), Some((0.0, 0.0)), c).is_none());
+        assert!(obs(&mut r, view(3, 1, true, false), None, c).is_none());
+        assert!(obs(&mut r, view(3, 2, false, false), Some((0.0, 0.0)), c).is_none());
+        let rep = obs(&mut r, TripView { terminus_arrival: Some(0.0), ..view(3, 2, true, true) }, None, c).expect("the second go");
         assert_eq!((rep.stops, rep.late), (3, 0));
         let mut r = TripRecorder::default();
         let empty = TripView { line: String::new(), planned: 0, ..view(3, 0, true, false) };
-        assert!(r.observe(empty.clone(), None, c).is_none());
-        assert!(r.observe(TripView { next_stop: 2, done: true, ..empty }, None, c).is_none());
+        assert!(obs(&mut r, empty.clone(), None, c).is_none());
+        assert!(obs(&mut r, TripView { next_stop: 2, done: true, ..empty }, None, c).is_none());
     }
 
     fn run() -> TripRun {
@@ -909,9 +1220,9 @@ mod tests {
         // (more than three minutes is late, in its colour)
         assert_eq!(c.tiles[0].1, LATE_INK);
         assert_eq!(c.facts.iter().map(|f| f.1.as_str()).collect::<Vec<_>>(), ["11.2 km", "2", "0", "37"]);
-        // judged: 75 % punctual, two jolts and a hard brake, safe
-        assert_eq!(c.judged.parts, [Some(75), Some(80), Some(100)]);
-        assert_eq!((c.judged.score, c.judged.grade, c.judged.fines), (84, "Good", 0));
+        // judged: 75 % punctual, two jolts and a hard brake on twelve stops, safe
+        assert_eq!(c.judged.parts, [Some(75), Some(85), Some(100)]);
+        assert_eq!((c.judged.score, c.judged.grade, c.judged.fines), (85, "Good", 0));
         let fined = card(&TripRun { red_lights: 1, speeding: 2, fines: 290_00, ..run() });
         assert_eq!(fined.judged.fines, 290_00);
         // ("1 red light, 2 speed cameras" in the language of the moment: other tests change it)
@@ -938,7 +1249,7 @@ mod tests {
             for s in [0.7, 1.0, 1.8] {
                 let mut p = Painter::new();
                 let r = Rect::new(40.0, 30.0, CARD_W * s, card_height(&c) * s);
-                draw_card(&mut Pen { p: &mut p, atlas: &mut atlas, fonts: &fonts }, &c, r, s, 0.6, true);
+                draw_card(&mut Pen { p: &mut p, atlas: &mut atlas, fonts: &fonts }, &c, r, s, &Face { left: 0.6, ..Default::default() }, true);
                 assert!(!p.verts.is_empty());
                 for v in &p.verts {
                     let (x, y) = (v.pos[0] + v.ext[0] * v.width[0], v.pos[1] + v.ext[1] * v.width[0]);
@@ -963,7 +1274,7 @@ mod tests {
     /// languages that matter most.
     #[test]
     fn the_reports_are_translated() {
-        let keys = ["Trip completed", "Trip ended", "Worst delay", "Average delay", "Driving time", "Distance", "Jolts", "%{m} min", "Saved to your service record", "The trip could not be saved", "Enter or click to close", "No timetable: nothing to be early or late for", "No stop of this trip was served", "Trip reports", "Average", "Worst", "Free drive", "Punctuality", "%{good} of %{all} stops on time", "Stops served", "trip %{k} of %{n}", "Comfort", "Safety", "+%{n} XP", "Fines %{amount}", "No fines", "%{n} red light", "%{n} red lights", "%{n} speed camera", "%{n} speed cameras", "Excellent", "Good", "Fair", "Poor", "Bad"];
+        let keys = ["Trip completed", "Trip ended", "Worst delay", "Average delay", "Driving time", "Distance", "Jolts", "%{m} min", "Saved to your service record", "The trip could not be saved", "Enter or × to close", "Click to keep it open", "Due", "Arr.", "Dep.", "Not served", "Overview", "Stops", "Bus stop", "No timetable: nothing to be early or late for", "No stop of this trip was served", "Trip reports", "Average", "Worst", "Free drive", "Punctuality", "%{good} of %{all} stops on time", "Stops served", "trip %{k} of %{n}", "Comfort", "Safety", "+%{n} XP", "Fines %{amount}", "No fines", "%{n} red light", "%{n} red lights", "%{n} speed camera", "%{n} speed cameras", "Excellent", "Good", "Fair", "Poor", "Bad"];
         for language in ["nl", "de", "fr", "ru", "uk", "pl"] {
             for key in keys {
                 let t = crate::_rust_i18n_try_translate(language, key);
@@ -983,7 +1294,15 @@ mod tests {
         let fonts = Fonts::hanken();
         let mut atlas = Atlas::new(2048);
         let s = 2.0;
-        let runs = [TripRun { red_lights: 1, speeding: 1, fines: 250_00, ..run() }, TripRun { early: 0, late: 0, worst: Some(-40.0), average: Some(12.0), hard_brakes: 0, jolts: 0, ..run() }, TripRun { free: true, stops: 9, completed: true, ..run() }];
+        // (a trip's stops: on time, late, early, one not served)
+        let names = ["Rathaus", "Marktplatz", "Kirchstraße", "Am Bahnhof", "Schule", "Lindenallee", "Friedhof", "Waldweg", "Sportplatz", "Gewerbegebiet Nord", "Hohenkirchen, Theater", "Endhaltestelle"];
+        let visits: Vec<StopVisit> = names.iter().enumerate().map(|(k, n)| {
+            let (arr, dep) = (8.0 * 3600.0 + 180.0 * k as f64, 8.0 * 3600.0 + 180.0 * k as f64 + 20.0);
+            let off = [10.0, 40.0, 95.0, 210.0, 252.0, 130.0, -150.0, 60.0, 30.0, 0.0, 15.0, 50.0][k];
+            let served = k != 7;
+            StopVisit { index: k, name: n.to_string(), arr, dep, arrived: served.then_some(arr + off), left: (served && k + 1 < names.len()).then_some(dep + off) }
+        }).collect();
+        let runs = [TripRun { red_lights: 1, speeding: 1, fines: 250_00, visits: visits.clone(), stops: 11, ..run() }, TripRun { early: 1, late: 2, worst: Some(252.0), average: Some(60.0), hard_brakes: 0, jolts: 0, visits, stops: 11, ..run() }, TripRun { free: true, stops: 9, completed: true, ..run() }];
         let cards: Vec<Card> = runs.iter().map(card).collect();
         let tall = cards.iter().map(|c| card_height(c) * s).fold(0.0, f32::max);
         let mut img = image::RgbaImage::from_pixel(((CARD_W * s + 60.0) * 3.0) as u32, (tall + 60.0) as u32, image::Rgba([70, 84, 96, 255]));
@@ -991,9 +1310,125 @@ mod tests {
             let mut p = Painter::new();
             let r = Rect::new(30.0 + k as f32 * (CARD_W * s + 60.0), 30.0, CARD_W * s, card_height(c) * s);
             p.shadow(r, 12.0 * s, 18.0 * s, Color::rgba(0, 0, 0, 0.45));
-            draw_card(&mut Pen { p: &mut p, atlas: &mut atlas, fonts: &fonts }, c, r, s, 0.62, k != 2);
+            let face = if k == 1 { Face { tab: Tab::Stops, pinned: true, ..Default::default() } } else { Face { left: 0.62, ..Default::default() } };
+            draw_card(&mut Pen { p: &mut p, atlas: &mut atlas, fonts: &fonts }, c, r, s, &face, k != 2);
             crate::nav_duty::tests::raster(&p.verts, &atlas, &mut img, Rect::new(0.0, 0.0, 1e5, 1e5));
         }
         img.save(format!("{dir}/trip_report.png")).unwrap();
+    }
+
+    /// The stops of the trip with when the bus came and left: each as the duty said when the
+    /// bus left it, the last as it came.
+    #[test]
+    fn the_recorder_keeps_the_stops_times() {
+        let out = drive([(-30.0, 0.0), (200.0, 210.0), (-60.0, -150.0)], 100.0, false);
+        let run = out.into_iter().flatten().next().expect("a report");
+        let v = &run.visits;
+        assert_eq!(v.len(), 4);
+        assert_eq!((v[0].arrived, v[0].left), (Some(v[0].arr - 30.0), Some(v[0].dep)));
+        assert_eq!((v[1].arrived, v[1].left), (Some(v[1].arr + 200.0), Some(v[1].dep + 210.0)));
+        assert_eq!(v[3].arrived, Some(v[3].arr + 100.0));
+        // a free drive keeps none
+        let free = drive([(0.0, 0.0); 3], 0.0, true).into_iter().flatten().next().expect("a report");
+        assert!(free.visits.is_empty());
+    }
+
+    /// The card's list of stops: each with its times and how far off, the worst marked, one not
+    /// served dim; a free drive has no list (and no tabs).
+    #[test]
+    fn the_card_lists_the_stops() {
+        let visits = vec![
+            StopVisit { index: 0, name: "Rathaus".into(), arr: 28800.0, dep: 28830.0, arrived: Some(28810.0), left: Some(28835.0) },
+            StopVisit { index: 1, name: "Markt".into(), arr: 29400.0, dep: 29430.0, arrived: Some(29652.0), left: Some(29670.0) },
+            StopVisit { index: 2, name: "Kirche".into(), arr: 30000.0, dep: 30030.0, arrived: None, left: None },
+            StopVisit { index: 3, name: "Bahnhof".into(), arr: 30600.0, dep: 30600.0, arrived: Some(30700.0), left: None },
+        ];
+        let c = card(&TripRun { visits, stops: 3, late: 1, ..run() });
+        assert_eq!(c.stops.len(), 4);
+        assert_eq!((c.stops[0].due.as_str(), c.stops[0].arrived.as_str(), c.stops[0].left.as_str()), ("08:00", "08:00", "08:00"));
+        assert_eq!((c.stops[1].delta.as_str(), c.stops[1].judged, c.stops[1].worst), ("+4:12", Some(Punctuality::Late), true));
+        assert_eq!((c.stops[2].judged, c.stops[2].delta.as_str(), c.stops[2].arrived.as_str()), (None, "–", "–"));
+        // (the last stop: when it was due to arrive, no departure)
+        assert_eq!((c.stops[3].due.as_str(), c.stops[3].left.as_str()), ("08:30", ""));
+        assert!(card(&TripRun { free: true, stops: 8, ..run() }).stops.is_empty());
+        assert!(card_height(&c) > card_height(&card(&run())));
+    }
+
+    /// The card goes by itself unless it was clicked: then it stays until its × (or Enter,
+    /// or Escape); a tab shows the stops, the wheel scrolls them.
+    #[test]
+    fn a_clicked_card_stays_until_it_is_closed() {
+        let visits: Vec<StopVisit> = (0..30).map(|k| StopVisit { index: k, name: format!("S{k}"), arr: 600.0 * k as f64, dep: 600.0 * k as f64, arrived: Some(600.0 * k as f64), left: Some(600.0 * k as f64) }).collect();
+        let shown = |r: &mut TripReport| {
+            let sh = r.shown.as_mut().unwrap();
+            sh.rect = [100.0, 50.0, 480.0, 600.0];
+            sh.hits = vec![([440.0, 60.0, 470.0, 90.0], CardHit::Close), ([120.0, 150.0, 290.0, 170.0], CardHit::Tab(Tab::Overview)), ([290.0, 150.0, 460.0, 170.0], CardHit::Tab(Tab::Stops))];
+        };
+        // left alone: gone after its time and the fade
+        let mut r = TripReport::default();
+        r.show(TripRun { visits: visits.clone(), stops: 30, ..run() }, true);
+        shown(&mut r);
+        let mut t = 0.0;
+        while r.shown.as_mut().is_some_and(|s| s.advance(0.1, true)) && t < 30.0 {
+            t += 0.1;
+        }
+        assert!((SHOW_FOR..SHOW_FOR + FADE + 0.3).contains(&t), "{t}");
+        // clicked: there two minutes on, until its ×
+        let mut r = TripReport::default();
+        r.show(TripRun { visits: visits.clone(), stops: 30, ..run() }, true);
+        shown(&mut r);
+        assert_eq!(r.hover(300.0, 400.0), Some(1));
+        assert!(r.click(300.0, 400.0));
+        assert_eq!(r.hover(300.0, 400.0), Some(0));
+        for _ in 0..1200 {
+            assert!(r.shown.as_mut().unwrap().advance(0.1, true));
+        }
+        // the stops' tab, and the wheel down the list (no further than its end)
+        assert!(r.click(300.0, 160.0));
+        assert_eq!(r.shown.as_ref().unwrap().tab, Tab::Stops);
+        assert!(r.wheel(-1.0, 300.0, 400.0));
+        assert_eq!(r.shown.as_ref().unwrap().scroll, 3);
+        for _ in 0..40 {
+            r.wheel(-1.0, 300.0, 400.0);
+        }
+        let sh = r.shown.as_ref().unwrap();
+        assert_eq!(sh.scroll, 30 - stops_shown(&sh.card));
+        assert!(!r.wheel(-1.0, 10.0, 10.0) && r.hover(10.0, 10.0).is_none());
+        assert!(r.click(450.0, 70.0));
+        assert!(r.shown.as_ref().unwrap().closing);
+        // Escape puts away only a card kept open; Enter either
+        let mut r = TripReport::default();
+        r.show(run(), true);
+        shown(&mut r);
+        assert!(!r.escape());
+        r.click(300.0, 400.0);
+        assert!(r.escape());
+        let mut r = TripReport::default();
+        r.show(run(), true);
+        assert!(r.dismiss());
+    }
+
+    /// The card with its stops draws within its rect on both tabs, its buttons on it.
+    #[test]
+    fn the_card_with_stops_draws_within_its_rect() {
+        let visits: Vec<StopVisit> = (0..40).map(|k| StopVisit { index: k, name: format!("Haltestelle mit einem sehr langen Namen {k}"), arr: 600.0 * k as f64, dep: 600.0 * k as f64, arrived: (k % 7 != 3).then_some(600.0 * k as f64 + 200.0), left: (k % 7 != 3).then_some(600.0 * k as f64 + 210.0) }).collect();
+        let c = card(&TripRun { visits, stops: 34, late: 34, ..run() });
+        let fonts = Fonts::hanken();
+        for s in [0.7f32, 1.0, 1.8] {
+            for (tab, scroll, pinned) in [(Tab::Overview, 0, false), (Tab::Stops, 0, true), (Tab::Stops, 40, true)] {
+                let mut p = Painter::new();
+                let mut atlas = Atlas::new(1024);
+                let r = Rect::new(10.0, 10.0, CARD_W * s, card_height(&c) * s);
+                let hits = draw_card(&mut Pen { p: &mut p, atlas: &mut atlas, fonts: &fonts }, &c, r, s, &Face { tab, scroll, pinned, left: 0.5 }, true);
+                assert!(hits.iter().any(|h| h.1 == CardHit::Close));
+                assert!(hits.iter().any(|h| h.1 == CardHit::Tab(Tab::Stops)));
+                for (h, _) in &hits {
+                    assert!(h.x >= r.x && h.right() <= r.right() + 0.5 && h.y >= r.y && h.bottom() <= r.bottom() + 0.5, "{h:?} not in {r:?}");
+                }
+                for v in &p.verts {
+                    assert!(v.pos[0] >= r.x - 1.0 && v.pos[0] <= r.right() + 1.0 && v.pos[1] >= r.y - 1.0 && v.pos[1] <= r.bottom() + 1.0, "{:?} at {s} {tab:?}", v.pos);
+                }
+            }
+        }
     }
 }

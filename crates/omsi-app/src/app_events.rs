@@ -214,6 +214,8 @@ impl ApplicationHandler for App {
                         && !lan::chat_open(&self.net.remotes)
                         && !self.input.keys.contains(&KeyCode::AltLeft)
                         && !self.input.keys.contains(&KeyCode::AltRight)
+                        // (a plain Enter: Ctrl+NumpadEnter is the IBIS's)
+                        && !self.input.keys.iter().any(|k| matches!(k, KeyCode::ControlLeft | KeyCode::ControlRight | KeyCode::ShiftLeft | KeyCode::ShiftRight))
                         && self.menus.placing.is_none()
                         && self.menus.editor.is_none()
                         && self.xr.vr_nav_edit.is_none()
@@ -491,6 +493,10 @@ impl App {
             return;
         }
         if self.xr.vr_nav_edit.is_some() { self.vr_nav_scroll(amount); return; }
+        // over a trip's card the wheel scrolls its stops (and keeps it open)
+        if self.menus.game_menu.is_none() && self.session.trip_report.wheel(amount, self.input.cursor.0, self.input.cursor.1) {
+            return;
+        }
         // over a mirror panel the wheel resizes it (Shift: wider or narrower)
         if let Some(size) = self.mirror_hud_size() {
             let shift =

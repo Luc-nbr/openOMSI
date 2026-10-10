@@ -158,6 +158,7 @@ const _LOCALES_TOBII: &str = include_str!("../locales/tobii.yml");
 const _LOCALES_SESSION: &str = include_str!("../locales/sessie.yml");
 const _LOCALES_COMPANY_DUTY: &str = include_str!("../locales/bedrijfsdienst.yml");
 const _LOCALES_UPSTREAM_0227: &str = include_str!("../locales/openomsi-0227.yml");
+const _LOCALES_TRIP_CARD: &str = include_str!("../locales/ritkaart.yml");
 
 /// Show the interface in `code` (the settings' ENG / DEU / FRA / RUS).
 pub(crate) fn ui_language(code: &str) {

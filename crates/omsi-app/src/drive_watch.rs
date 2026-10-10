@@ -50,7 +50,10 @@ const CREEP: f32 = 4.0;
 /// second), and a stop's last half second braking harder than `ROUGH_STOP` on average.
 pub const HARD_BRAKE: f32 = 2.8;
 pub const HARD_START: f32 = 2.0;
-pub const ROUGH_STOP: f32 = 1.6;
+/// (A firm stop is no jerk: standing passengers notice from about 2 m/s².)
+pub const ROUGH_STOP: f32 = 2.0;
+/// A rough stop this soon (s) after a hard brake is the stop that brake ended: counted once.
+const ROUGH_AFTER_BRAKE: f64 = 4.0;
 /// The same hard braking counts once: the next only after the deceleration eased below this.
 const REARM: f32 = 1.2;
 
@@ -322,10 +325,16 @@ impl DriveWatch {
     /// and the offences (their times from `from`).
     pub fn between(&self, from: f64, to: f64) -> Tally {
         let mut t = Tally::default();
+        let mut braked: Option<f64> = None;
         for (at, e) in self.events.iter().filter(|(at, _)| *at >= from && *at <= to + 1e-6) {
             match e {
-                Event::HardBrake => t.hard_brakes += 1,
+                Event::HardBrake => {
+                    t.hard_brakes += 1;
+                    braked = Some(*at);
+                }
                 Event::HardStart => t.hard_starts += 1,
+                // (the hard brake it ended counted already)
+                Event::RoughStop if braked.is_some_and(|b| at - b <= ROUGH_AFTER_BRAKE) => {}
                 Event::RoughStop => t.rough_stops += 1,
                 Event::Offence(o) => {
                     match o.kind {
@@ -741,6 +750,16 @@ mod tests {
         rough.extend(ramp(8.0, 0.0, 2.4, 2.0));
         let ev = ride(&rough);
         assert_eq!(count(&ev, Event::RoughStop), 1);
+    }
+
+    /// A hard brake that ends in a stop is one event, not two; a rough stop well after it is
+    /// one of its own.
+    #[test]
+    fn a_rough_stop_after_a_hard_brake_counts_once() {
+        let mut w = DriveWatch::default();
+        w.events = vec![(10.0, Event::HardBrake), (12.0, Event::RoughStop), (40.0, Event::HardBrake), (46.0, Event::RoughStop)];
+        let t = w.between(0.0, 100.0);
+        assert_eq!((t.hard_brakes, t.rough_stops), (2, 1));
     }
 
     #[test]

@@ -130,6 +130,8 @@ impl App {
             self.world.as_ref(),
             self.paused,
         ) {
+            // (the stop the bus is at before the update: the one `served` is of)
+            let due = (d.trip_index, d.next_stop);
             let served = steps::duty_step(
                 d,
                 p,
@@ -143,7 +145,7 @@ impl App {
                 Some(&mut self.integrations.plugin_events),
             );
             // (a trip that ended: its card, and it into the driver's record)
-            self.session.trip_report.observe(d, served, &self.session.career, &self.session.drive_watch, &self.args.map, self.args.bus.as_deref().unwrap_or_default());
+            self.session.trip_report.observe(d, due, served, &self.session.career, &self.session.drive_watch, &self.args.map, self.args.bus.as_deref().unwrap_or_default());
         }
         if self.session.duty.is_none() {
             self.session.trip_report.forget();

@@ -14,6 +14,15 @@ use omsi_content::Driver;
 use omsi_sim::VehicleInstance;
 use std::path::{Path, PathBuf};
 
+/// The accelerations along and across smoothed as OMSI smooths them for its passengers'
+/// comfort: along over a tenth of a second (α = min(10 dt, 0.5)), across over a second
+/// (α = min(dt, 0.5)) - a bend's push counts, a twitch of the heading does not (smoothed as
+/// fast as along, every twitch of the heading in a junction was a jolt, Luc's 0 for comfort).
+pub(crate) fn smooth_accel(prev: (f32, f32), along: f32, across: f32, dt: f32) -> (f32, f32) {
+    let (ka, kc) = ((10.0 * dt).min(0.5), dt.min(0.5));
+    (prev.0 + (along - prev.0) * ka, prev.1 + (across - prev.1) * kc)
+}
+
 /// OMSI's jolts: the smoothed acceleration across over 3 m/s² or along
 /// over 5 m/s², weighing 0.1, at most one a second.
 const HARSH_ACROSS: f32 = 3.0;
@@ -227,11 +236,9 @@ impl Career {
         }
         let raw_across = v * (dh.to_radians() / dt.max(1e-3) as f64) as f32;
         // OMSI weighs the accelerations by the speed up to 1 m/s (standing, the body's
-        // rocking is nothing) and smooths them (α = min(10 dt, 0.5))
+        // rocking is nothing) and smooths them (`smooth_accel`)
         let weight = v.abs().min(1.0);
-        let k = (10.0 * dt).min(0.5);
-        self.smooth.0 += (raw_along * weight - self.smooth.0) * k;
-        self.smooth.1 += (raw_across * weight - self.smooth.1) * k;
+        self.smooth = smooth_accel(self.smooth, raw_along * weight, raw_across * weight, dt);
         let (along, across) = self.smooth;
         if v.abs() > 1.0 {
             self.worst_accel = self.worst_accel.max(along.abs()).max(across.abs());
@@ -552,6 +559,22 @@ fn data_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A tenth of a second's twitch of the heading (6 m/s² across) is no jolt; a bend held
+    /// for two seconds at 3.5 m/s² is.
+    #[test]
+    fn a_twitch_is_no_jolt_but_a_bend_is() {
+        let run = |across: &dyn Fn(f32) -> f32, secs: f32| -> f32 {
+            let (dt, mut s, mut most) = (1.0 / 60.0, (0.0, 0.0), 0.0f32);
+            for k in 0..(secs / dt) as usize {
+                s = smooth_accel(s, 0.0, across(k as f32 * dt), dt);
+                most = most.max(s.1.abs());
+            }
+            most
+        };
+        assert!(run(&|t| if (1.0..1.1).contains(&t) { 6.0 } else { 0.0 }, 3.0) < HARSH_ACROSS);
+        assert!(run(&|t| if (1.0..3.0).contains(&t) { 3.5 } else { 0.0 }, 4.0) > HARSH_ACROSS);
+    }
 
     /// A trip is written under the driver's name with the map, the bus and the time, into the
     /// folder given (never the real one in a test).
