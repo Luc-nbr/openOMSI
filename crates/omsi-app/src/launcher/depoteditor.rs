@@ -463,7 +463,7 @@ fn refresh_layout(l: &mut Launcher) {
         labels: labels
             .iter()
             .enumerate()
-            .map(|(k, (role, note))| if note.is_empty() { super::lineeditor::text_words(*role, k, o.doc.notes.get(k).is_some_and(|n| !n.trim().is_empty())).0 } else { note.chars().take(48).collect() })
+            .map(|(k, (role, note))| if note.is_empty() { super::lineeditor::text_title(*role, k) } else { note.chars().take(48).collect() })
             .collect(),
         issues: o.doc.issues(&maps_hof, o.coding),
     };

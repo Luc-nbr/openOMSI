@@ -233,10 +233,22 @@ fn same_map(a: &str, b: &str) -> bool {
 }
 
 /// A destination's words alike, case, commas and dots aside ("Hohenkirchen, Therme" is
-/// "Hohenkirchen" over "Therme" on a sign; "Hohenkirchen, Th" is not).
+/// "Hohenkirchen" over "Therme" on a sign; "Hohenkirchen, Th" is not). Case as the signs
+/// write capitals: "Heerstraße" is "HEERSTRASSE".
 fn same_words(a: &str, b: &str) -> bool {
-    let n = |s: &str| s.to_lowercase().replace([',', '.'], " ").split_whitespace().collect::<Vec<_>>().join(" ");
+    let n = |s: &str| s.to_uppercase().to_lowercase().replace([',', '.'], " ").split_whitespace().collect::<Vec<_>>().join(" ");
     n(a) == n(b)
+}
+
+/// A new destination's front rows, made from its name, lost some of it (the player wrote
+/// none of his own): the Simple view says so.
+fn shortened_on_front(depot: &linehof::Depot, d: &Direction) -> bool {
+    let dest = d.destination();
+    if depot.terminus(&dest).is_some() || depot.front(&d.sign) != (String::new(), String::new()) {
+        return false;
+    }
+    let (a, b) = depot.front(&depot.sign_defaults(&dest));
+    !same_words(&format!("{a} {b}"), &dest)
 }
 
 /// The stops' names of a map's `Busstops.cfg`, by tile and object id (`stop_name`).
@@ -492,10 +504,7 @@ impl LineEditorView {
                 let prepared = self.prepare_depots();
                 match self.write_depots(&content, &prepared) {
                     None => {
-                        self.reg.texts = reg::TEXTS_VERSION;
-                        if let Err(e) = reg::save_registry(&self.reg_path, &self.reg) {
-                            log::warn!("line editor: the registry of {} not saved after its depot files: {e}", self.folder);
-                        }
+                        texts_written(&self.reg_path, &mut self.reg, true);
                         omsi_cfg::content_changed();
                     }
                     Some(e) => log::warn!("line editor: the depot files of {}'s lines not written again (tried again next time): {e}", self.folder),
@@ -1047,14 +1056,26 @@ fn left_panel(l: &mut Launcher, r: Rect, maps: &[(String, String)], status: &mut
     }
 }
 
+/// The registry `r` (kept at `path`) marked as having every line's block in the depot files
+/// made the way they are made now (`reg::TEXTS_VERSION`), once a write of them all went
+/// without an error (`written`): a write that failed, or never came for want of a content
+/// folder, leaves the mark off, and `load_map` writes them again the next time.
+fn texts_written(path: &Path, r: &mut Registry, written: bool) {
+    if !written || r.texts >= reg::TEXTS_VERSION {
+        return;
+    }
+    r.texts = reg::TEXTS_VERSION;
+    if let Err(e) = reg::save_registry(path, r) {
+        log::warn!("line editor: the registry {} not saved after its depot files: {e}", path.display());
+    }
+}
+
 /// The registry written, and every line of it that can be into the map's timetable.
 fn save(v: &mut LineEditorView, state: &mut super::state::State, problems: &[reg::Problem]) -> (String, bool) {
     if let Some(line) = v.line_mut() {
         line.modified = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     }
     let prepared = v.prepare_depots();
-    // (every line's block is written again, the texts made as they are made now)
-    v.reg.texts = reg::TEXTS_VERSION;
     if let Err(e) = reg::save_registry(&v.reg_path, &v.reg) {
         return (format!("Not saved: {e}"), true);
     }
@@ -1063,6 +1084,8 @@ fn save(v: &mut LineEditorView, state: &mut super::state::State, problems: &[reg
     match reg::export_to_map(&content, &v.map_dir, &v.reg) {
         Ok(_) => {
             let depot_error = v.write_depots(&content, &prepared);
+            // (every line's block is written again, the texts made as they are made now)
+            texts_written(&v.reg_path, &mut v.reg, depot_error.is_none());
             omsi_cfg::content_changed();
             state.load_lines();
             let number = v.line().map(|x| x.number.clone()).unwrap_or_default();
@@ -1089,7 +1112,6 @@ fn delete(v: &mut LineEditorView, state: &mut super::state::State) -> (String, b
     v.shapes_for = None;
     v.revision += 1;
     let prepared = v.prepare_depots();
-    v.reg.texts = reg::TEXTS_VERSION;
     if let Err(e) = reg::save_registry(&v.reg_path, &v.reg) {
         return (format!("Not deleted: {e}"), true);
     }
@@ -1101,6 +1123,7 @@ fn delete(v: &mut LineEditorView, state: &mut super::state::State) -> (String, b
     if let Some(e) = v.write_depots(&content, &prepared) {
         return (format!("{}: {e}", omsi_ui::tr("A depot file could not be written (displays and IBIS)")), true);
     }
+    texts_written(&v.reg_path, &mut v.reg, true);
     omsi_cfg::content_changed();
     state.load_lines();
     (omsi_ui::tr("Line %{n} deleted").replace("%{n}", &number), false)
@@ -1485,27 +1508,65 @@ fn depot_choice(ui: &mut Ui, v: &mut LineEditorView, r: Rect, group: &str, chose
 }
 
 /// What a text of a depot file (`k`, for `role`) is called in the line editor's Advanced view
-/// and the depot editor, and what it does - said plainly; `has_note`: the file says itself
-/// what it is for.
-pub(super) fn text_words(role: linehof::Role, k: usize, has_note: bool) -> (String, String) {
+/// and the depot editor.
+pub(super) fn text_title(role: linehof::Role, k: usize) -> String {
     use linehof::Role;
     let tr = |s: &str| omsi_ui::tr(s).into_owned();
     match role {
-        Role::IbisDisplay => (tr("IBIS"), tr("What the driver's IBIS shows as the destination, in capitals.")),
-        Role::FrontTop => (tr("Front sign, top row"), tr("The top row of the destination sign over the windscreen. A name that fits stays on this row alone.")),
-        Role::FrontBottom => (tr("Front sign, bottom row"), tr("The second row of the front sign, for a name too long for one. Empty: the top row is shown alone.")),
-        Role::Side => (tr("Side sign"), tr("The one-row sign by the doors (on some buses at the back too).")),
-        Role::ClearName => (tr("Passenger display"), tr("The destination as it is written, for the IBIS 2, the ticket printer and the screens inside the bus.")),
-        Role::RollerBlind => (tr("Roller blind picture"), tr("The picture of a roller-blind sign (a .tga file): only buses with a roller blind read it.")),
-        Role::ExtraSign => (tr("Plug-in sign"), tr("A sign behind the windscreen, by its number. Empty: none.")),
-        Role::Bitmap => (tr("Picture on LED signs"), tr("A picture a Krüger LED sign shows instead of the text (a .bmp file). Empty: the text is shown.")),
-        Role::Special => (tr("Special trip mark"), tr("Anything written here makes it a special trip: the sign shows no line number. Leave it empty for a line.")),
-        Role::Rear => (tr("Rear sign"), tr("The small sign at the back, on some buses only.")),
-        Role::Fallback(n) => (tr("For some buses only"), tr("Read only by some buses' signs; empty, they show text %{n}.").replace("%{n}", &(usize::from(n) + 1).to_string())),
-        Role::Other => (
-            tr("Text %{n}").replace("%{n}", &(k + 1).to_string()),
-            if has_note { tr("Only the depot file says what this is for (below); most buses do not read it.") } else { tr("The depot file does not say what this text is for, and most buses do not read it: empty is safe.") },
-        ),
+        Role::IbisDisplay => tr("IBIS"),
+        Role::FrontTop => tr("Front sign, top row"),
+        Role::FrontBottom => tr("Front sign, bottom row"),
+        Role::Side => tr("Side sign"),
+        Role::ClearName => tr("Passenger display"),
+        Role::RollerBlind => tr("Roller blind picture"),
+        Role::ExtraSign => tr("Plug-in sign"),
+        Role::Bitmap => tr("Picture on LED signs"),
+        Role::Special => tr("Special trip mark"),
+        Role::Rear => tr("Rear sign"),
+        Role::Fallback(_) => tr("For some buses only"),
+        Role::Other => tr("Text %{n}").replace("%{n}", &(k + 1).to_string()),
+    }
+}
+
+/// What text `k` of `depot` is called (`text_title`) and what it does, said plainly: the
+/// front's rows as the file writes a name of one row (its first row or its second), the
+/// text a sign shows instead of an empty one by that one's title, a text the file alone
+/// explains (its note) so.
+pub(super) fn text_words(depot: &linehof::Depot, k: usize) -> (String, String) {
+    use linehof::Role;
+    let tr = |s: &str| omsi_ui::tr(s).into_owned();
+    let role = depot.roles.get(k).copied().unwrap_or(Role::Other);
+    let help = match role {
+        Role::IbisDisplay => tr("What the driver's IBIS shows as the destination, in capitals."),
+        Role::FrontTop if depot.one_row_bottom => tr("The top row of the destination sign over the windscreen, for a name of two rows. This depot file writes a shorter name on the bottom row alone; the buses move it up."),
+        Role::FrontTop => tr("The top row of the destination sign over the windscreen. A name that fits stays on this row alone."),
+        Role::FrontBottom if depot.one_row_bottom => tr("The second row of the front sign. This depot file writes a name that fits on this row alone, and the buses move it up; a longer one is split over both rows."),
+        Role::FrontBottom => tr("The second row of the front sign, for a name too long for one. Empty: the top row is shown alone."),
+        Role::Side => tr("The one-row sign by the doors (on some buses at the back too)."),
+        Role::ClearName => tr("The destination as it is written, for the IBIS 2, the ticket printer and the screens inside the bus."),
+        Role::RollerBlind => tr("The picture of a roller-blind sign (a .tga file): only buses with a roller blind read it."),
+        Role::ExtraSign => tr("A sign behind the windscreen, by its number. Empty: none."),
+        Role::Bitmap => tr("A picture a Krüger LED sign shows instead of the text (a .bmp file). Empty: the text is shown."),
+        Role::Special => tr("Anything written here makes it a special trip: the sign shows no line number. Leave it empty for a line."),
+        Role::Rear => tr("The small sign at the back, on some buses only."),
+        // (by the title its field has here: the file's note counts its strings from 0)
+        Role::Fallback(n) => {
+            let n = usize::from(n);
+            let other = text_title(depot.roles.get(n).copied().unwrap_or(Role::Other), n);
+            tr("Read only by some buses' signs; when it is empty, they show “%{text}” instead.").replace("%{text}", &other)
+        }
+        Role::Other if depot.notes.get(k).is_some_and(|n| !n.trim().is_empty()) => tr("Only the depot file says what this is for (below); most buses do not read it."),
+        Role::Other => tr("The depot file does not say what this text is for, and most buses do not read it: empty is safe."),
+    };
+    (text_title(role, k), help)
+}
+
+/// What the depot file the line has (`chosen`, "" for the map's) does, under its choice.
+fn depot_hint(chosen: &str) -> &'static str {
+    if chosen.is_empty() {
+        "Choose one of your own: every bus that drives the line is given it."
+    } else {
+        "Every bus that drives the line is given it; the timetable's buses keep the map's (it has the line too)."
     }
 }
 
@@ -1547,17 +1608,17 @@ fn displays_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, status: &mut Op
     if v.sign_advanced {
         displays_advanced(ui, v, rest, status);
     } else {
-        displays_simple(ui, v, rest);
+        displays_simple(ui, v, rest, status);
     }
 }
 
 /// The Displays tab's Simple view: one field for the destination, and what the buses make of
-/// it.
-fn displays_simple(ui: &mut Ui, v: &mut LineEditorView, r: Rect) {
+/// it - or, when the line has no depot file the buses can read, the choice of one.
+fn displays_simple(ui: &mut Ui, v: &mut LineEditorView, r: Rect, status: &mut Option<(String, bool)>) {
     let d_idx = v.dir;
-    let (group, number) = {
+    let (group, number, chosen) = {
         let l = v.line().unwrap();
-        (l.ai_group.clone(), l.number.trim().to_string())
+        (l.ai_group.clone(), l.number.trim().to_string(), l.depot_file.trim().to_string())
     };
     let mut y = r.y;
     ui.text_in(&omsi_ui::tr("Destination").to_uppercase(), Rect::new(r.x, y, r.w, 16.0), 10.5, Weight::Bold, TEXT_DIM, Align::Left);
@@ -1568,8 +1629,13 @@ fn displays_simple(ui: &mut Ui, v: &mut LineEditorView, r: Rect) {
     let d = v.line().unwrap().directions[d_idx].clone();
     let dest = d.destination();
     let Some(depot) = v.line_depot() else {
+        // (the depot file is the one thing to change then: chosen here, not only under
+        // Advanced)
         let text = no_depot_text(v, &group);
-        ui.paragraph(&text, Vec2::new(r.x, y), r.w, 12.5, Weight::Regular, WARN);
+        y += ui.paragraph(&text, Vec2::new(r.x, y), r.w, 12.5, Weight::Regular, WARN) + 14.0;
+        depot_choice(ui, v, Rect::new(r.x, y, r.w, 0.0), &group, &chosen, status);
+        y += 18.0 + ROW + 6.0;
+        ui.paragraph(depot_hint(&chosen), Vec2::new(r.x, y), r.w, 11.0, Weight::Regular, TEXT_FAINT);
         if changed {
             v.touched();
         }
@@ -1605,13 +1671,7 @@ fn displays_simple(ui: &mut Ui, v: &mut LineEditorView, r: Rect) {
     // (a name the file knows in other words: its own texts are better than made ones)
     let similar = if new { depot.similar(&dest).map(|t| t.texture_id.trim().to_string()) } else { None };
     let known = similar.as_ref().map(|s| omsi_ui::tr("The depot file knows it as %{name}").replace("%{name}", s)).unwrap_or_default();
-    // (the rows made from the name lost some of it, and the player wrote none of his own)
-    let mut typed = d.sign.clone();
-    typed.resize(strings.len(), String::new());
-    let shortened = new && depot.front(&typed) == (String::new(), String::new()) && {
-        let (a, b) = depot.front(&depot.sign_defaults(&dest));
-        !same_words(&format!("{a} {b}"), &dest)
-    };
+    let shortened = shortened_on_front(&depot, &d);
     crate::mt::protect([caption.as_str(), hint.as_str(), known.as_str()]);
     // (over two lines rather than cut: the panel is narrow)
     y += ui.paragraph(&caption, Vec2::new(r.x, y), r.w, 11.5, Weight::Regular, TEXT_DIM) + 10.0;
@@ -1720,7 +1780,7 @@ fn displays_advanced(ui: &mut Ui, v: &mut LineEditorView, r: Rect, status: &mut 
         for k in 0..count {
             let role = x.roles.get(k).copied().unwrap_or(linehof::Role::Other);
             let note = x.notes.get(k).map(|n| n.trim()).unwrap_or("");
-            let (title, help) = text_words(role, k, !note.is_empty());
+            let (title, help) = text_words(x, k);
             let shown = if new { defaults[k].clone() } else { strings.get(k).cloned().unwrap_or_default() };
             let text = matches!(x.cols.get(k), Some(linehof::Column::Text { .. }));
             let max = match x.cols.get(k) {
@@ -1766,7 +1826,7 @@ fn displays_advanced(ui: &mut Ui, v: &mut LineEditorView, r: Rect, status: &mut 
     let head = |ui: &mut Ui, text: &str, r: Rect| {
         ui.text_in(&omsi_ui::tr(text).to_uppercase(), r, 10.5, Weight::Bold, TEXT_DIM, Align::Left);
     };
-    let depot_hint = if chosen.is_empty() { "Choose one of your own: every bus that drives the line is given it." } else { "Every bus that drives the line is given it; the timetable's buses keep the map's (it has the line too)." };
+    let depot_hint = depot_hint(&chosen);
     let (more, stops_open) = (v.more_texts, v.ibis_stops_open);
     let (mut more_toggle, mut stops_toggle, mut reset) = (false, false, false);
     let (mut route_changed, mut texts_changed, mut stops_changed) = (false, false, false);
@@ -3140,19 +3200,22 @@ pub fn take_effect_in_timetable(l: &mut Launcher, map: &str, id: u64) -> Result<
     let (bases, original) = core::depot_roots();
     let plan = linehof::prepare(&mut r, &groups, &bases);
     owndepot::assign(&mut r, &owndepot::dir(), &groups, &bases);
-    r.texts = reg::TEXTS_VERSION;
     reg::save_registry(&path, &r)?;
     reg::export_to_map(&content, &map_dir, &r)?;
     let (_, err) = linehof::write(&content, original.as_deref(), &r, &groups, &plan);
     let (_, own_err) = owndepot::write_lines(&r, &owndepot::dir(), Some(&content));
-    if let Some(e) = err.or(own_err) {
+    let err = err.or(own_err);
+    if let Some(e) = &err {
         log::warn!("line editor: the depot files of line {id} as it runs now: {e}");
     }
-    // (the editor open on the map takes the line as it runs now, its codes too)
+    texts_written(&path, &mut r, err.is_none());
+    // (the editor open on the map takes the line as it runs now, its codes too - and the
+    // blocks as they are written now)
     if l.pages.lines.reg_path == path {
         if let (Some(x), Some(now)) = (l.pages.lines.reg.line_mut(id), r.line_mut(id)) {
             *x = now.clone();
         }
+        l.pages.lines.reg.texts = l.pages.lines.reg.texts.max(r.texts);
         l.pages.lines.depots.clear();
     }
     omsi_cfg::content_changed();
@@ -3619,20 +3682,99 @@ mod tests {
     /// counted from 1 as the player reads them.
     #[test]
     fn every_text_of_a_depot_file_says_what_it_is_for() {
-        use linehof::Role;
+        use linehof::{Depot, Role};
+        let depot = |roles: &[Role], notes: &[&str], one_row_bottom: bool| Depot { roles: roles.to_vec(), notes: notes.iter().map(|n| n.to_string()).collect(), one_row_bottom, ..Default::default() };
         let all = [Role::IbisDisplay, Role::FrontTop, Role::FrontBottom, Role::Side, Role::RollerBlind, Role::ClearName, Role::ExtraSign, Role::Bitmap, Role::Special, Role::Rear, Role::Fallback(0), Role::Other];
-        for role in all {
-            for note in [false, true] {
-                let (title, help) = text_words(role, 6, note);
-                assert!(!title.trim().is_empty() && !help.trim().is_empty() && !title.contains("%{") && !help.contains("%{"), "{role:?}: {title} / {help}");
+        for one_row_bottom in [false, true] {
+            for note in ["", "a note"] {
+                let d = depot(&all, &[note; 12], one_row_bottom);
+                for (k, role) in all.iter().enumerate() {
+                    let (title, help) = text_words(&d, k);
+                    assert!(!title.trim().is_empty() && !help.trim().is_empty() && !title.contains("%{") && !help.contains("%{"), "{role:?}: {title} / {help}");
+                    assert_eq!(title, text_title(*role, k));
+                }
             }
         }
-        assert_eq!(text_words(Role::Other, 6, false).0, "Text 7");
-        assert!(text_words(Role::Fallback(12), 14, true).1.ends_with("text 13."));
-        assert_ne!(text_words(Role::Other, 6, false).1, text_words(Role::Other, 6, true).1, "a note of the file's: said so");
+        assert_eq!(text_title(Role::Other, 6), "Text 7");
+        let (plain, noted) = (depot(&[Role::Other], &[""], false), depot(&[Role::Other], &["Liniencode"], false));
+        assert_ne!(text_words(&plain, 0).1, text_words(&noted, 0).1, "a note of the file's: said so");
+        // a text shown in another's place names that one by its field's title, not by the
+        // number of the file's note (which counts from 0)
+        let wien = depot(&[Role::IbisDisplay, Role::FrontTop, Role::FrontBottom, Role::Fallback(1), Role::Fallback(9)], &["", "", "", "bleibt dieser String leer, wird String 1 ausgelesen", "leer: String 9"], false);
+        assert!(text_words(&wien, 3).1.contains("“Front sign, top row”"), "{}", text_words(&wien, 3).1);
+        assert!(text_words(&wien, 4).1.contains("“Text 10”"), "{}", text_words(&wien, 4).1);
+        // the front's rows as the file writes a name of one row: on the first (the HOF
+        // Suite's), or on the second (Spandau's)
+        let usual = [Role::IbisDisplay, Role::FrontTop, Role::FrontBottom];
+        let (first, second) = (depot(&usual, &[], false), depot(&usual, &[], true));
+        assert!(text_words(&first, 1).1.contains("A name that fits stays on this row alone") && text_words(&first, 2).1.contains("too long for one"));
+        assert!(text_words(&second, 1).1.contains("a name of two rows") && text_words(&second, 2).1.contains("a name that fits on this row alone"));
         // a destination alike in other punctuation, not one shortened
         assert!(same_words("Hohenkirchen, Therme", "hohenkirchen  therme"));
         assert!(!same_words("Hohenkirchen, Th", "Hohenkirchen, Therme"));
+        // ... nor in the capitals a sign writes it in
+        assert!(same_words("HEERSTRASSE ", "Heerstraße"));
+    }
+
+    /// A depot file of Spandau's kind: its texts in capitals, a name of one row on the front's
+    /// second row, centred - written for the test.
+    const WESTHAFEN: &str = "[name]\r\nWesthafen\r\n\r\nstringcount_terminus\r\n6\r\n\r\n\
+        \tstring0:\tIBIS-Anzeige, max. 16 Zeichen\r\n\tstring1:\tMatrix vorne, 1. Zeile\r\n\tstring2:\tMatrix vorne, 2. Zeile\r\n\
+        \tstring3:\tMatrix Seite\r\n\tstring4:\tRollbandtextur\r\n\tstring5:\tIBIS2 (Klarname), max 20 Zeichen\r\n\r\nstringcount_busstop\r\n4\r\n\r\n\
+        [addterminus]\r\n11\r\nHafen\r\nHAFEN\r\n\r\n      HAFEN\r\n      HAFEN\r\nWH_Hafen.tga\r\nHafen\r\n\r\n\
+        [addterminus]\r\n12\r\nRathaus\r\nRATHAUS\r\n   WESTHAFEN\r\n    RATHAUS\r\n    RATHAUS\r\nWH_Rathaus.tga\r\nRathaus Westhafen\r\n\r\n\
+        [addterminus]\r\n14\r\nKlinik\r\nKLINIK\r\n\r\n     KLINIK\r\n     KLINIK\r\nWH_Klinik.tga\r\nKlinik\r\n\r\n";
+
+    /// The Simple view says a name is shortened only when the front lost some of it: a name
+    /// with "ß" that fits, written in capitals ("HEERSTRASSE"), is whole.
+    #[test]
+    fn a_name_that_fits_is_not_said_to_be_shortened() {
+        let depot = linehof::Depot::from_text(Path::new("Westhafen.hof"), WESTHAFEN, "Westhafen");
+        assert!(depot.one_row_bottom);
+        let to = |name: &str| Direction { terminus: name.into(), ..Default::default() };
+        assert_eq!(depot.front(&depot.sign_defaults("Heerstraße")), ("HEERSTRASSE".to_string(), String::new()));
+        assert!(!shortened_on_front(&depot, &to("Heerstraße")));
+        assert!(!shortened_on_front(&depot, &to("Flugplatz")) && !shortened_on_front(&depot, &to("Rathaus")));
+        let long = "Krankenhaus Nordstadt Westflügel";
+        assert!(shortened_on_front(&depot, &to(long)));
+        // (rows of the player's own: his to judge)
+        let mut d = to(long);
+        d.sign = vec![String::new(), "KRANKENHAUS".into(), "NORDSTADT".into()];
+        assert!(!shortened_on_front(&depot, &d));
+    }
+
+    /// A registry whose blocks were written the old way is marked as written anew only once
+    /// a write of them went well: else the editor tries again when it opens the map.
+    #[test]
+    fn the_blocks_are_marked_new_only_once_written() {
+        let dir = std::env::temp_dir().join(format!("openomsi-texts-mark-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("Talstadt.json");
+        let mut r = Registry { texts: 0, ..Default::default() };
+        reg::save_registry(&path, &r).unwrap();
+        // a write that failed (or none, without a content folder): no mark
+        texts_written(&path, &mut r, false);
+        assert_eq!((r.texts, reg::load_registry(&path).texts), (0, 0));
+        texts_written(&path, &mut r, true);
+        assert_eq!((r.texts, reg::load_registry(&path).texts), (reg::TEXTS_VERSION, reg::TEXTS_VERSION));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A line whose depot group names no depot file is offered the choice of one in the
+    /// Simple view too: it is the one thing to change then.
+    #[test]
+    fn without_a_depot_file_the_simple_view_offers_one() {
+        use super::super::ui::id_of;
+        let mut v = displays_of("Hohenkirchen, Therme");
+        v.groups = vec![("Solo".into(), String::new())];
+        let mut ui = Ui::new();
+        draw_displays(&mut ui, &mut v);
+        assert!(!v.sign_advanced && ui.drawn.contains_key(&id_of("le-dest")));
+        assert!(ui.drawn.contains_key(&id_of("le-depot-file")), "the depot file to choose");
+        // with one, the Simple view has none
+        let mut v = displays_of("Hohenkirchen, Therme");
+        draw_displays(&mut ui, &mut v);
+        assert!(!ui.drawn.contains_key(&id_of("le-depot-file")));
     }
 
     /// A depot file of the HOF Suite's kind (no notes on its texts, no roller blind), written

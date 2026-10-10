@@ -23,6 +23,13 @@ _version: 2
   ru: "Верхняя строка маршрутного табло над лобовым стеклом. Название, которое помещается, стоит только в этой строке."
   uk: "Верхній рядок маршрутного табло над лобовим склом. Назва, що вміщається, стоїть лише в цьому рядку."
   pl: "Górny wiersz tablicy kierunkowej nad przednią szybą. Nazwa, która się mieści, zostaje sama w tym wierszu."
+"The top row of the destination sign over the windscreen, for a name of two rows. This depot file writes a shorter name on the bottom row alone; the buses move it up.":
+  nl: "De bovenste regel van het bestemmingsbord boven de voorruit, voor een naam van twee regels. Dit hof-bestand zet een kortere naam alleen op de onderste regel; de bussen schuiven die omhoog."
+  de: "Die obere Zeile der Zielanzeige über der Frontscheibe, für einen Namen in zwei Zeilen. Diese Hofdatei schreibt einen kürzeren Namen allein in die untere Zeile; die Busse rücken ihn nach oben."
+  fr: "La ligne du haut de la girouette au-dessus du pare-brise, pour un nom sur deux lignes. Ce fichier de dépôt écrit un nom plus court seul sur la ligne du bas ; les bus le remontent."
+  ru: "Верхняя строка маршрутного табло над лобовым стеклом — для названия в две строки. Этот файл депо пишет более короткое название только в нижней строке; автобусы поднимают его наверх."
+  uk: "Верхній рядок маршрутного табло над лобовим склом — для назви у два рядки. Цей файл депо пише коротшу назву лише в нижньому рядку; автобуси піднімають її вгору."
+  pl: "Górny wiersz tablicy kierunkowej nad przednią szybą, dla nazwy w dwóch wierszach. Ten plik zajezdni wpisuje krótszą nazwę sam w dolny wiersz; autobusy przesuwają ją w górę."
 "Front sign, bottom row":
   nl: "Frontbord, onderste regel"
   de: "Frontanzeige, untere Zeile"
@@ -37,6 +44,13 @@ _version: 2
   ru: "Вторая строка переднего табло — для названия, слишком длинного для одной. Пусто: показывается только верхняя строка."
   uk: "Другий рядок переднього табло — для назви, задовгої для одного. Порожньо: показується лише верхній рядок."
   pl: "Drugi wiersz tablicy przedniej, dla nazwy za długiej na jeden. Puste: górny wiersz jest pokazany sam."
+"The second row of the front sign. This depot file writes a name that fits on this row alone, and the buses move it up; a longer one is split over both rows.":
+  nl: "De tweede regel van het frontbord. Dit hof-bestand zet een naam die past alleen op deze regel, en de bussen schuiven die omhoog; een langere wordt over beide regels verdeeld."
+  de: "Die zweite Zeile der Frontanzeige. Diese Hofdatei schreibt einen Namen, der passt, allein in diese Zeile, und die Busse rücken ihn nach oben; ein längerer wird auf beide Zeilen verteilt."
+  fr: "La deuxième ligne de la girouette avant. Ce fichier de dépôt écrit un nom qui tient seul sur cette ligne, et les bus le remontent ; un nom plus long est réparti sur les deux lignes."
+  ru: "Вторая строка переднего табло. Этот файл депо пишет название, которое помещается, только в этой строке, и автобусы поднимают его наверх; более длинное делится на обе строки."
+  uk: "Другий рядок переднього табло. Цей файл депо пише назву, що вміщається, лише в цьому рядку, і автобуси піднімають її вгору; довша ділиться на обидва рядки."
+  pl: "Drugi wiersz tablicy przedniej. Ten plik zajezdni wpisuje nazwę, która się mieści, sam w ten wiersz, a autobusy przesuwają ją w górę; dłuższa jest dzielona na oba wiersze."
 "Side sign":
   nl: "Zijbord"
   de: "Seitenanzeige"
@@ -142,13 +156,13 @@ _version: 2
   ru: "Только для некоторых автобусов"
   uk: "Лише для деяких автобусів"
   pl: "Tylko dla niektórych autobusów"
-"Read only by some buses' signs; empty, they show text %{n}.":
-  nl: "Alleen de borden van sommige bussen lezen dit; leeg tonen ze tekst %{n}."
-  de: "Nur die Anzeigen mancher Busse lesen das; leer zeigen sie Text %{n}."
-  fr: "Lu seulement par les girouettes de certains bus ; vide, elles affichent le texte %{n}."
-  ru: "Читается только табло некоторых автобусов; если пусто, они показывают текст %{n}."
-  uk: "Читається лише табло деяких автобусів; якщо порожньо, вони показують текст %{n}."
-  pl: "Czytane tylko przez tablice niektórych autobusów; gdy puste, pokazują tekst %{n}."
+"Read only by some buses' signs; when it is empty, they show “%{text}” instead.":
+  nl: "Alleen de borden van sommige bussen lezen dit; is het leeg, dan tonen ze “%{text}”."
+  de: "Nur die Anzeigen mancher Busse lesen das; ist es leer, zeigen sie stattdessen „%{text}“."
+  fr: "Lu seulement par les girouettes de certains bus ; s’il est vide, elles affichent « %{text} » à la place."
+  ru: "Читается только табло некоторых автобусов; если пусто, они показывают вместо этого «%{text}»."
+  uk: "Читається лише табло деяких автобусів; якщо порожньо, вони показують замість цього «%{text}»."
+  pl: "Czytane tylko przez tablice niektórych autobusów; gdy puste, pokazują zamiast tego „%{text}”."
 "Only the depot file says what this is for (below); most buses do not read it.":
   nl: "Alleen het hof-bestand zegt waarvoor dit is (hieronder); de meeste bussen lezen het niet."
   de: "Nur die Hofdatei sagt, wofür das ist (unten); die meisten Busse lesen es nicht."
