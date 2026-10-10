@@ -595,6 +595,14 @@ fn toggle_favourite(v: &mut BusPickView, file: &str) {
 /// Once a frame on the bus step, before it is drawn: the tree kept up with the buses, the bus
 /// offered worked out, the dialog opened on the way in, the photos taken.
 pub(super) fn frame(l: &mut Launcher) {
+    // the step entered anew (not drawn the frame before): a bus picked for another duty is let
+    // go - the buses are shown to choose from, not the last one in the showroom (Luc). (Not in
+    // the guided tour, which changes the mode on the way.)
+    let entered = l.ui.time - l.buspick.seen > 0.5;
+    if entered && !super::tour::active(l) && !l.state.choice.bus.is_empty() && l.state.bus_for.as_deref() != Some(l.state.duty_key().as_str()) {
+        l.state.clear_bus();
+        l.buspick.showroom = false;
+    }
     l.buspick.seen = l.ui.time;
     // the tree, when the buses (or those a server allows) changed
     let allowed: Option<HashSet<String>> = l.state.host_vehicles().map(|v| v.iter().map(|f| fav_key(f)).collect());

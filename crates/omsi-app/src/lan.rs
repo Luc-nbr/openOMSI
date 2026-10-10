@@ -973,12 +973,15 @@ fn port_of_gateway() -> Option<u16> {
 }
 
 /// A server run: what its status page says now.
-pub fn update_server_info(players: usize, time: &str, weather: &str) {
+pub fn update_server_info(players: usize, time: &str, weather: &str, date: &str) {
     if let Ok(w) = WS_PATH.lock() {
         if let Some(g) = w.as_ref().and_then(|w| w.gateway.as_ref()) {
             if let Ok(mut i) = g.info.lock() {
                 i.players = players;
                 i.time = time.to_string();
+                if !date.is_empty() {
+                    i.date = date.to_string();
+                }
                 if !weather.is_empty() {
                     i.weather = weather.to_string();
                 }
@@ -3310,6 +3313,14 @@ pub fn tick(
     if game.status_t <= 0.0 {
         write_status(lan, game, player.as_deref());
         game.status_t = 2.0;
+        // (a friend's game: its status page says its clock and day as they are now - a friend
+        // joining by the code chooses a duty for them)
+        if lan.role == Role::Host && args.server.is_none() {
+            if let Some(c) = frame.clock {
+                let players = lan.peers().filter(|p| p.has_info).count();
+                update_server_info(players, &crate::schedule::hhmm(c.time.rem_euclid(86400.0)), "", &date_of(c));
+            }
+        }
     }
     let (Some(w), Some(r), Some(scene)) = (world, renderer, scene) else {
         return updates;

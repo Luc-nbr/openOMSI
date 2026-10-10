@@ -278,7 +278,7 @@ fn sources(l: &Launcher, m: usize) -> Vec<(String, Source)> {
     if let Some(map) = l.state.maps.get(m).filter(|m| !m.hof.trim().is_empty()) {
         out.push((tr("A copy of the map's: %{hof}").replace("%{hof}", map.hof.trim()), Source::Map));
     }
-    if let Some(bus) = l.state.bus() {
+    if let Some(bus) = l.state.bus_or_last() {
         let path = omsi_cfg::resolve_path(Path::new(&l.state.config.root), &bus.file);
         if let Some(dir) = path.parent() {
             let name = core::display_bus_name(&bus.name);
@@ -691,7 +691,7 @@ fn destination_detail(l: &mut Launcher, r: Rect) {
     let ibis_text = { let s = get(Role::IbisDisplay); if s.is_empty() { get(Role::ClearName) } else { s } };
     let side = get(Role::Side);
     // the bus chosen on the Drive page: its own display, its own font
-    let bus = l.state.bus().map(|b| (b.file.clone(), core::display_bus_name(&b.name)));
+    let bus = l.state.bus_or_last().map(|b| (b.file.clone(), core::display_bus_name(&b.name)));
     let root = l.state.config.root.clone();
     let on_bus = bus.as_ref().and_then(|(file, _)| {
         let text = [l1.as_str(), l2.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" ");

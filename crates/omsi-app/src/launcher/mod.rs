@@ -1345,6 +1345,12 @@ impl Launcher {
         // (the desktop's pages fit the window: nothing of the page as a whole scrolls)
         self.page_max = 0.0;
         self.page_scroll = 0.0;
+        // (the hint's card lies over the map: a click on it is not the map's)
+        if self.hint.is_some() {
+            let size = self.ui.size;
+            let w = 380.0f32.min(size.x - 2.0 * flow::EDGE_IN);
+            self.ui.solid(Rect::new(size.x - flow::EDGE_IN - w, HINT_TOP, w, 90.0));
+        }
         // the setup world: the Drive page's steps on the map, the other pages in a sheet
         // under the same bar (no rail: the bar and the start's buttons are the way round)
         if !in_welcome {
@@ -1421,6 +1427,11 @@ impl Launcher {
         self.showroom.set_stage(showroom::WHOLE);
         self.ui.solid(r);
         self.ui.p().rounded(r, RADIUS, FIELD);
+        if self.state.choice.bus.is_empty() {
+            self.ui.icon("directions_bus", Vec2::new(r.center().x, r.center().y - 12.0), 26.0, TEXT_FAINT);
+            self.ui.text_in("Choose a bus", Rect::new(r.x, r.center().y + 8.0, r.w, 20.0), 13.0, Weight::Regular, TEXT_FAINT, Align::Center);
+            return;
+        }
         match (self.preview_tex, self.showroom.has_picture()) {
             (Some(tex), true) => self.ui.image(r, tex, RADIUS),
             _ => {
@@ -1569,9 +1580,11 @@ impl Launcher {
     /// The host's map or day came after a duty was chosen on another: back to choosing it,
     /// with a word why.
     fn host_changed_duty(&mut self) {
-        if !std::mem::take(&mut self.state.host_changed_duty) {
+        // (kept until the Drive page shows: the host may answer while another page is open)
+        if !self.state.host_changed_duty || self.page != Page::Drive {
             return;
         }
+        self.state.host_changed_duty = false;
         // (only where a duty was being chosen: on the way there - the code just typed - the
         // map and day are simply the host's when the player comes to them)
         if self.page == Page::Drive && matches!(self.drive.step, flow::Step::Day | flow::Step::Duty | flow::Step::Start | flow::Step::Bus) {
@@ -1596,7 +1609,7 @@ impl Launcher {
         let size = self.ui.size;
         let w = 380.0f32.min(size.x - 2.0 * flow::EDGE_IN);
         let body = self.ui.paragraph_height(&text, w - 62.0, 12.5, Weight::Regular);
-        let r = Rect::new(size.x - flow::EDGE_IN - w, flow::SHEET_TOP + 12.0 - (1.0 - come) * 8.0, w, 40.0 + body);
+        let r = Rect::new(size.x - flow::EDGE_IN - w, HINT_TOP - (1.0 - come) * 8.0, w, 40.0 + body);
         let (hover, _, clicked) = self.ui.interact(ui::id_of("hint-toast"), r);
         // (a solid dark card: on the start's light ground the map buttons' see-through dark
         // came out a dull grey)
@@ -1634,6 +1647,10 @@ impl Launcher {
     }
 }
 
+
+/// Where the hint's card begins: under the bar, below the map's tools and the roadbook's
+/// handle on the duty step (and clear of the start's mode cards).
+const HINT_TOP: f32 = flow::SHEET_TOP + 112.0;
 
 /// A short word to the player (`Launcher::show_hint`): its icon, title and line, and since
 /// when it shows.

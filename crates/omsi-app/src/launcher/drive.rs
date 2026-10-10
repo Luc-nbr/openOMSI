@@ -1330,10 +1330,11 @@ pub(super) fn leave_label(l: &Launcher) -> &'static str {
 /// for a code: a tour of another map was sent with the host's map, and the game drove free).
 pub(super) fn joined_server_name(l: &Launcher) -> Option<String> {
     let Some(a) = l.state.joined_server.as_ref() else {
+        // (locked once its map is the chosen one: before that the choice is still free)
         let i = l.state.host_info()?;
         let theirs = i.map.trim().replace('\\', "/");
-        l.state.maps.iter().any(|m| m.file.eq_ignore_ascii_case(&theirs)).then(|| i.name.clone()).filter(|n| !n.trim().is_empty())?;
-        return Some(i.name.clone());
+        let taken = l.state.choice.map.eq_ignore_ascii_case(&theirs) && l.state.maps.iter().any(|m| m.file.eq_ignore_ascii_case(&theirs));
+        return (taken && !i.name.trim().is_empty()).then(|| i.name.clone());
     };
     let entry = l.state.servers.iter().find(|s| &s.address == a);
     let info = l.state.server_info.get(a).and_then(|x| x.1.as_ref().ok());
@@ -1886,17 +1887,30 @@ pub(super) fn start(l: &mut Launcher) {
     let duty = !l.state.choice.free && l.state.choice.line.is_some();
     if duty && l.state.choice.lan_mode == "join" && l.state.joined_server.is_none() {
         let code = l.state.choice.lan_addr.clone();
-        match l.state.server_info.get(&code).map(|x| x.1.as_ref().map(|i| i.map.trim().replace('\\', "/"))) {
+        let warn = match l.state.server_info.get(&code).map(|x| x.1.as_ref().map(|i| i.map.trim().replace('\\', "/"))) {
             None if omsi_net::looks_like_code(&code) => {
                 l.state.set_status("Waiting for the host to say its map and day - a moment…", false);
                 return;
             }
-            Some(Err(_)) => l.state.set_status("The host has not said which map it drives: your duty only runs if it is on the host's map.", true),
+            Some(Err(_)) => Some(omsi_ui::tr("The host has not said which map it drives: your duty only runs if it is on the host's map. Click again to start anyway.").into_owned()),
             Some(Ok(theirs)) if !l.state.choice.map.eq_ignore_ascii_case(&theirs) => {
-                l.state.set_status(omsi_ui::tr("The host drives on %{map}, which is not installed here: you join on a free drive.").replace("%{map}", &theirs), true);
+                if l.state.maps.iter().any(|m| m.file.eq_ignore_ascii_case(&theirs)) {
+                    // (installed but not chosen: taken now, the duty chosen again on it)
+                    l.state.adopt_host();
+                    return;
+                }
+                Some(omsi_ui::tr("The host drives on %{map}, which is not installed here: your duty cannot run there and you join on a free drive. Click again to start anyway.").replace("%{map}", &theirs))
             }
-            _ => {}
+            _ => None,
+        };
+        if let Some(w) = warn {
+            if l.state.join_armed.is_none_or(|t| t.elapsed().as_secs() >= 8) {
+                l.state.join_armed = Some(std::time::Instant::now());
+                l.state.set_status(w, true);
+                return;
+            }
         }
+        l.state.join_armed = None;
     }
     let running = l.state.instances.iter().filter(|i| i.running).count();
     // a second game on one computer is for testing LAN play, not something to do by
