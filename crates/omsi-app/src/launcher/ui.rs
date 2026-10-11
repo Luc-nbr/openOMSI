@@ -1318,131 +1318,44 @@ impl Ui {
         let before = value.clone();
         let click_x = self.text_click.remove(&id);
         if focused {
-            let (mut caret, mut moved) = self.caret.get(&id).copied().unwrap_or((value.chars().count(), self.time));
-            let n = value.chars().count();
-            caret = caret.min(n);
-            let byte = |s: &str, c: usize| s.char_indices().nth(c).map(|(b, _)| b).unwrap_or(s.len());
-            // (the part selected, if any: what a cut or a copy takes and a paste replaces)
-            let chosen = |sel: Option<&(usize, usize)>| sel.map(|&(a, b)| (a.min(b), a.max(b))).filter(|(a, b)| a != b);
+            let (caret, mut moved) = self.caret.get(&id).copied().unwrap_or((value.chars().count(), self.time));
+            // (the keys' work is `omsi_ui::edit`: Shift selects, Ctrl - Option on a Mac -
+            // goes and deletes by words, the clipboard takes the selection)
+            let anchor = self.selection.get(&id).map(|&(a, b)| if b == caret { a } else { caret }).unwrap_or(caret);
+            let mut edit = omsi_ui::edit::LineEdit { caret, anchor };
+            let (shift, word) = (self.input.shift, self.input.ctrl || self.input.alt);
             for k in self.input.keys.clone() {
-                match k {
-                    // (moving the caret ends a selection: the next key is not for the old one)
-                    Key::Left | Key::Right | Key::Home | Key::End => {
-                        caret = match k {
-                            Key::Left => caret.saturating_sub(1),
-                            Key::Right => (caret + 1).min(value.chars().count()),
-                            Key::Home => 0,
-                            _ => value.chars().count(),
-                        };
-                        self.selection.insert(id, (caret, caret));
+                use omsi_ui::edit::EditKey as E;
+                let key = match k {
+                    Key::Left => E::Left,
+                    Key::Right => E::Right,
+                    Key::Home => E::Home,
+                    Key::End => E::End,
+                    Key::Backspace => E::Backspace,
+                    Key::Delete => E::Delete,
+                    Key::SelectAll => E::SelectAll,
+                    Key::Copy => E::Copy,
+                    Key::Cut => E::Cut,
+                    Key::Paste => E::Paste,
+                    Key::Enter | Key::Escape => {
+                        self.focus = None;
+                        continue;
                     }
-                    Key::Backspace => {
-                        if let Some(&(a, b)) = self.selection.get(&id) {
-                            let (start, end) = (a.min(b), a.max(b));
-                            if start != end {
-                                let b0 = byte(value, start);
-                                let b1 = byte(value, end);
-                                value.replace_range(b0..b1, "");
-                                caret = start;
-                                self.selection.insert(id, (caret, caret));
-                            } else if caret > 0 {
-                                let b0 = byte(value, caret - 1);
-                                let b1 = byte(value, caret);
-                                value.replace_range(b0..b1, "");
-                                caret -= 1;
-                            }
-                        } else if caret > 0 {
-                            let b0 = byte(value, caret - 1);
-                            let b1 = byte(value, caret);
-                            value.replace_range(b0..b1, "");
-                            caret -= 1;
-                        }
-                    }
-                    Key::Delete => {
-                        if let Some(&(a, b)) = self.selection.get(&id) {
-                            let (start, end) = (a.min(b), a.max(b));
-                            if start != end {
-                                let b0 = byte(value, start);
-                                let b1 = byte(value, end);
-                                value.replace_range(b0..b1, "");
-                                caret = start;
-                                self.selection.insert(id, (caret, caret));
-                            } else if caret < value.chars().count() {
-                                let b0 = byte(value, caret);
-                                let b1 = byte(value, caret + 1);
-                                value.replace_range(b0..b1, "");
-                            }
-                        } else if caret < value.chars().count() {
-                            let b0 = byte(value, caret);
-                            let b1 = byte(value, caret + 1);
-                            value.replace_range(b0..b1, "");
-                        }
-                    }
-                    Key::SelectAll => {
-                        self.selection.insert(id, (0, value.chars().count()));
-                        caret = value.chars().count();
-                    }
-                    Key::Copy => {
-                        self.clipboard_out = Some(match chosen(self.selection.get(&id)) {
-                            Some((start, end)) => value.chars().skip(start).take(end - start).collect(),
-                            None => value.clone(),
-                        });
-                    }
-                    Key::Cut => match chosen(self.selection.get(&id)) {
-                        Some((start, end)) => {
-                            self.clipboard_out = Some(value.chars().skip(start).take(end - start).collect());
-                            let (b0, b1) = (byte(value, start), byte(value, end));
-                            value.replace_range(b0..b1, "");
-                            caret = start;
-                            self.selection.insert(id, (caret, caret));
-                        }
-                        None => {
-                            self.clipboard_out = Some(value.clone());
-                            value.clear();
-                            caret = 0;
-                            self.selection.insert(id, (0, 0));
-                        }
-                    },
-                    Key::Paste => {
-                        if let Some(t) = self.clipboard_in.clone() {
-                            let t: String = t.chars().filter(|c| !c.is_control()).collect();
-                            // (what is selected gives way to it, as to a typed key)
-                            if let Some((start, end)) = chosen(self.selection.get(&id)) {
-                                let (b0, b1) = (byte(value, start), byte(value, end));
-                                value.replace_range(b0..b1, "");
-                                caret = start;
-                            }
-                            let b = byte(value, caret);
-                            value.insert_str(b, &t);
-                            caret += t.chars().count();
-                            self.selection.insert(id, (caret, caret));
-                        }
-                    }
-                    Key::Enter | Key::Escape => self.focus = None,
-                    _ => {}
+                    _ => continue,
+                };
+                let paste = self.clipboard_in.clone();
+                if let Some(c) = edit.key(value, key, shift, word, paste.as_deref()).clipboard {
+                    self.clipboard_out = Some(c);
                 }
                 moved = self.time;
             }
             if !self.input.text.is_empty() {
-                let t: String = self.input.text.chars().filter(|c| !c.is_control()).collect();
-
-                if let Some(&(a, b)) = self.selection.get(&id) {
-                    let (start, end) = (a.min(b), a.max(b));
-
-                    if start != end {
-                        let b0 = byte(value, start);
-                        let b1 = byte(value, end);
-                        value.replace_range(b0..b1, "");
-                        caret = start;
-                    }
-                }
-
-                let b = byte(value, caret);
-                value.insert_str(b, &t);
-                caret += t.chars().count();
-                self.selection.insert(id, (caret, caret));
+                let typed = self.input.text.clone();
+                edit.insert(value, &typed);
                 moved = self.time;
             }
+            let caret = edit.caret;
+            self.selection.insert(id, (edit.anchor, edit.caret));
             self.caret.insert(id, (caret, moved));
         }
         let t = self.anim(id, if focused { 1.0 } else if h { 0.5 } else { 0.0 }, 0.08);

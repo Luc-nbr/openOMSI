@@ -27,6 +27,13 @@ fn kept_indicator(cancel: bool, before: Option<f32>, after: Option<f32>) -> Opti
     (!cancel && (before == 1.0 || before == 2.0) && after == 0.0).then_some(before)
 }
 
+/// Whether the view follows the steering (the setting on): only from the driver's seat as the
+/// bus places it, its standard camera - a look at the ticket printer or out of the side
+/// window from another of the cab's cameras turned with the wheel as well.
+pub(crate) fn steering_follows(view: &str, cam_choice: (usize, usize)) -> bool {
+    view == "driver" && cam_choice.0 == 0
+}
+
 pub(crate) fn steering_view_yaw(current: f32, steering: f32, dt: f32, enabled: bool, angle: f32, response: f32) -> f32 {
     let target = if enabled { steering.clamp(-1.0, 1.0) * angle.clamp(0.0, 60.0) } else { 0.0 };
     current + (target - current) * (1.0 - (-dt.max(0.0) / response.clamp(0.05, 1.0)).exp())
@@ -48,6 +55,15 @@ pub(crate) fn driver_head_look(
 #[cfg(test)]
 mod driver_head_look_tests {
     use super::driver_head_look;
+
+    #[test]
+    fn only_the_standard_driver_camera_follows_the_steering() {
+        assert!(super::steering_follows("driver", (0, 0)));
+        assert!(super::steering_follows("driver", (0, 2)));
+        assert!(!super::steering_follows("driver", (1, 0)));
+        assert!(!super::steering_follows("pax", (0, 0)));
+        assert!(!super::steering_follows("outside", (0, 0)));
+    }
 
     #[test]
     fn head_pitch_adjusts_only_non_vr_driver_view() {
@@ -1637,7 +1653,11 @@ impl Player {
             let v = &self.vehicle;
             // the camera decides which `[viewpoint]` entries are heard (the exterior engine
             // samples outside, the rain on the roof in the cab)
-            ss.set_inside(inside);
+            // (a walker on the way in or out through a door: by degrees, see `on_foot`)
+            match omsi_audio::soundset::walker_cab_amount() {
+                Some(w) => ss.set_inside_amount(w),
+                None => ss.set_inside(inside),
+            }
             ss.set_muffled(inside);
             ss.set_listener_vehicle(listener_follows_bus);
             // how open the bus is to the outside (doors, driver's window) for every outside

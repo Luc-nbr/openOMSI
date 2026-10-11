@@ -142,7 +142,11 @@ impl ApplicationHandler for App {
                 // releases go on, so that nothing held stays held)
                 if event.state == ElementState::Pressed {
                     if let PhysicalKey::Code(code) = event.physical_key {
-                        if self.plugin_typing_key(code, event.text.as_deref()) {
+                        if self.plugin_typing_key(code, event.text.as_deref()) || self.devtools_typing(code, event.text.as_deref()) {
+                            return;
+                        }
+                        // the game's panels: the field typed into, Esc closing the one on top
+                        if self.game_panel_key(code, event.text.as_deref()) {
                             return;
                         }
                     }
@@ -328,6 +332,11 @@ impl ApplicationHandler for App {
                     self.plugin_click(state == ElementState::Pressed);
                     return;
                 }
+                self.alt_tap_spoilt();
+                // ... and the game's own panels' (the quick menu, the forms, the editor)
+                if self.game_panel_click(state == ElementState::Pressed) {
+                    return;
+                }
                 if self.input.touch.enabled {
                     let p = glam::Vec2::new(self.input.cursor.0, self.input.cursor.1);
                     if state == ElementState::Pressed {
@@ -367,7 +376,12 @@ impl ApplicationHandler for App {
             }
             // a finger (a phone; see touch.rs)
             WindowEvent::Touch(t) => self.on_touch(event_loop, t),
-            WindowEvent::RedrawRequested => self.frame(event_loop),
+            // (while the renderer is still being built, the window's start goes on instead)
+            WindowEvent::RedrawRequested => {
+                if !self.drive_window_start(event_loop) {
+                    self.frame(event_loop);
+                }
+            }
             _ => {}
         }
     }
@@ -431,6 +445,12 @@ impl ApplicationHandler for App {
             return;
         }
         crate::game_lists::flush_settings(false);
+        // The window hidden until its first picture goes on from here: Windows sends no paint
+        // message to a hidden window, so a redraw asked for never came and it was never shown.
+        if self.starts_hidden() {
+            self.drive_window_start(event_loop);
+            return;
+        }
         if let Some(w) = &self.window {
             w.request_redraw();
         }
@@ -493,6 +513,9 @@ impl App {
             return;
         }
         if self.xr.vr_nav_edit.is_some() { self.vr_nav_scroll(amount); return; }
+        if self.devtools_wheel(amount) {
+            return;
+        }
         // over a trip's card the wheel scrolls its stops (and keeps it open)
         if self.menus.game_menu.is_none() && self.session.trip_report.wheel(amount, self.input.cursor.0, self.input.cursor.1) {
             return;
@@ -608,6 +631,10 @@ impl App {
                 ph.looking = pressed && !over;
             }
             self.sync_look_hold();
+            return;
+        }
+        // the developer tools' panel takes the clicks on it
+        if self.devtools_click(pressed) {
             return;
         }
         // a mirror panel is dragged with the left button (a release always ends a drag)
