@@ -174,6 +174,7 @@ pub(crate) fn add_vehicle(c: &mut Company, bus: &MarketBus, built: String, km: f
         acquired: c.date.clone(),
         workshop_until: None,
         breakdowns: 0,
+        clean: 95.0,
     });
     id
 }

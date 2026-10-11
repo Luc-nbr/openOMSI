@@ -217,6 +217,10 @@ pub fn enrol(c: &mut Company, kind: CourseKind, employee: Option<u32>) -> Result
     let name = match employee {
         Some(id) => {
             let Some(e) = c.employee(id) else { return Err("This person does not work here.") };
+            // (the courses of their work: `staff::courses_for`)
+            if !super::staff::courses_for(e.role).contains(&kind) {
+                return Err("This course is not for them.");
+            }
             if !e.employed_on(&until) || e.notice_until.is_some() {
                 return Err("They are leaving the company.");
             }
@@ -273,9 +277,15 @@ pub fn day_passed(c: &mut Company, date: &str) -> Vec<Course> {
         if let Some(e) = x.employee.and_then(|id| c.staff.iter_mut().find(|e| e.id == id)) {
             match x.kind {
                 CourseKind::Punctuality => e.skills.punctuality = (e.skills.punctuality + 15.0).min(100.0),
-                CourseKind::CustomerService => e.skills.service = (e.skills.service + 15.0).min(100.0),
+                CourseKind::CustomerService => {
+                    e.skills.service = (e.skills.service + 15.0).min(100.0);
+                    // (and kinder at once: the friendliness settles higher too, `staff::friendliness_of`)
+                    e.friendliness = (e.friendliness + 8.0).min(100.0);
+                }
                 CourseKind::EcoDriving => e.skills.driving = (e.skills.driving + 8.0).min(100.0),
                 CourseKind::LargeBuses => e.experience = e.experience.max(super::staff::EXPERIENCE_LARGE + 5.0).min(100.0),
+                // (a mechanic of the company learns the trade better)
+                CourseKind::Workshop if e.role == super::model::Role::Mechanic => e.experience = (e.experience + 10.0).min(100.0),
                 _ => {}
             }
             super::licences::learnt(e, x.kind, &x.subject);
@@ -289,22 +299,27 @@ pub fn day_passed(c: &mut Company, date: &str) -> Vec<Course> {
     finished
 }
 
-/// The employees trained as mechanics working on `date` (at most four count).
-pub fn mechanics(c: &Company, date: &str) -> usize {
-    c.staff.iter().filter(|e| e.employed_on(date) && trained(c, Some(e.id), CourseKind::Workshop)).count().min(4)
+/// The drivers trained as mechanics working on `date` (at most four count).
+fn trained_drivers(c: &Company, date: &str) -> usize {
+    c.staff.iter().filter(|e| super::staff::drives(e) && e.employed_on(date) && trained(c, Some(e.id), CourseKind::Workshop)).count().min(4)
 }
 
-/// The share of the maintenance and repairs the company's own mechanics do (6 % each).
+/// The company's mechanics working on `date`: those hired as mechanics who are at work, and the
+/// drivers trained as mechanics (at most four of those count).
+pub fn mechanics(c: &Company, date: &str) -> usize {
+    trained_drivers(c, date) + super::staff::mechanics_at_work(c, date)
+}
+
+/// The share of the maintenance and repairs done in the company's own workshop: 6 % for each
+/// driver trained as a mechanic, and what its mechanics do (`staff::workshop_share`, up to 30 %).
 pub fn mechanic_share(c: &Company, date: &str) -> f64 {
-    if !levels::unlocked(c, Feature::Workshop) {
-        return 0.0;
-    }
-    0.06 * mechanics(c, date) as f64
+    let drivers = if levels::unlocked(c, Feature::Workshop) { 0.06 * trained_drivers(c, date) as f64 } else { 0.0 };
+    (drivers + super::staff::workshop_share(c, date)).min(0.45)
 }
 
 /// What eco driving saves of the fuel and power: 8 % on the share of the drivers trained.
 pub fn eco_share(c: &Company, date: &str) -> f64 {
-    let drivers: Vec<_> = c.staff.iter().filter(|e| e.employed_on(date)).collect();
+    let drivers: Vec<_> = c.staff.iter().filter(|e| super::staff::drives(e) && e.employed_on(date)).collect();
     if drivers.is_empty() {
         return 0.0;
     }

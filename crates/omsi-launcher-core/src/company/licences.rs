@@ -129,7 +129,8 @@ pub enum Lack {
 /// What `e` lacks to drive a bus of `kind` (`bus`: its file, for the type training; None: a
 /// bus not known yet, a rental) - None: qualified.
 pub fn lack(e: &Employee, kind: BusKind, bus: Option<&str>) -> Option<Lack> {
-    if e.licence == Licence::D1 && kind.size != BusSize::Midi {
+    // (only drivers drive: a mechanic or a cleaner has no licence for a bus)
+    if !super::staff::drives(e) || (e.licence == Licence::D1 && kind.size != BusSize::Midi) {
         return Some(Lack::Licence);
     }
     if let Some(x) = needed(kind).into_iter().find(|x| !e.endorsements.contains(x)) {
@@ -142,7 +143,7 @@ pub fn lack(e: &Employee, kind: BusKind, bus: Option<&str>) -> Option<Lack> {
 /// The drivers (employed, not leaving) who may drive the bus file `bus` of `kind`, and of how
 /// many.
 pub fn qualified_drivers(c: &Company, kind: BusKind, bus: &str) -> (usize, usize) {
-    let staff: Vec<&Employee> = c.staff.iter().filter(|e| e.employed_on(&c.date) && e.notice_until.is_none()).collect();
+    let staff: Vec<&Employee> = c.staff.iter().filter(|e| super::staff::drives(e) && e.employed_on(&c.date) && e.notice_until.is_none()).collect();
     (staff.iter().filter(|e| lack(e, kind, Some(bus)).is_none()).count(), staff.len())
 }
 
@@ -186,6 +187,10 @@ pub fn enrol(c: &mut Company, employee: u32, kind: CourseKind, subject: &str) ->
         return Err("Your company's level does not offer this course yet.");
     }
     let Some(e) = c.employee(employee).cloned() else { return Err("This person does not work here.") };
+    // (licences and bus types are for the drivers alone)
+    if !super::staff::drives(&e) {
+        return Err("This course is not for them.");
+    }
     if kind == CourseKind::TypeTraining && subject.trim().is_empty() {
         return Err("Which bus is the training for?");
     }
@@ -228,7 +233,7 @@ pub fn enrol(c: &mut Company, employee: u32, kind: CourseKind, subject: &str) ->
 /// Book a course for every driver who has neither it nor a booking for it and can go today
 /// (the cash allowing). Returns how many were booked, and what it cost.
 pub fn enrol_all(c: &mut Company, kind: CourseKind, subject: &str) -> (usize, Cents) {
-    let ids: Vec<u32> = c.staff.iter().map(|e| e.id).collect();
+    let ids: Vec<u32> = c.staff.iter().filter(|e| super::staff::drives(e)).map(|e| e.id).collect();
     let (mut n, mut spent) = (0, 0);
     for id in ids {
         let before = c.cash;
@@ -265,7 +270,7 @@ pub fn learnt(e: &mut Employee, kind: CourseKind, subject: &str) {
 /// A new driver's induction: the model families of the fleet.
 pub fn induction(c: &mut Company, employee: u32) {
     let types = fleet_types(c);
-    if let Some(e) = c.staff.iter_mut().find(|e| e.id == employee) {
+    if let Some(e) = c.staff.iter_mut().find(|e| e.id == employee && super::staff::drives(e)) {
         for t in types {
             if !e.types.contains(&t) {
                 e.types.push(t);
@@ -278,7 +283,7 @@ pub fn induction(c: &mut Company, employee: u32) {
 /// experienced drivers without it, free. Returns their names.
 pub fn introduction(c: &mut Company, bus: &str) -> Vec<String> {
     let key = type_key(bus);
-    let mut who: Vec<(f64, u32)> = c.staff.iter().filter(|e| e.employed_on(&c.date) && !e.types.contains(&key)).map(|e| (e.experience, e.id)).collect();
+    let mut who: Vec<(f64, u32)> = c.staff.iter().filter(|e| super::staff::drives(e) && e.employed_on(&c.date) && !e.types.contains(&key)).map(|e| (e.experience, e.id)).collect();
     who.sort_by(|a, b| b.0.total_cmp(&a.0));
     let mut names = Vec::new();
     for (_, id) in who.into_iter().take(2) {
@@ -297,7 +302,7 @@ pub fn grant_fleet(c: &mut Company) {
     let mut ends: Vec<Endorsement> = c.fleet.iter().flat_map(|v| needed(v.kind)).collect();
     ends.sort();
     ends.dedup();
-    for e in c.staff.iter_mut() {
+    for e in c.staff.iter_mut().filter(|e| super::staff::drives(e)) {
         for x in &ends {
             if !e.endorsements.contains(x) {
                 e.endorsements.push(*x);

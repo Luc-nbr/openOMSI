@@ -309,7 +309,7 @@ pub fn needs(c: &Company, line: &LineInfo, all: &[LineInfo], date: &str) -> Need
         duties,
         drivers: drivers_for(duties),
         have_buses: c.fleet.iter().filter(|v| v.held_on(date)).count(),
-        have_drivers: c.staff.iter().filter(|e| e.employed_on(date) && e.notice_until.is_none()).count(),
+        have_drivers: c.staff.iter().filter(|e| super::staff::drives(e) && e.employed_on(date) && e.notice_until.is_none()).count(),
         busy_buses: peak(&other_refs),
         busy_drivers: drivers_for(others.iter().map(|t| duties_of(t).len()).sum()),
     }

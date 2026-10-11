@@ -293,6 +293,14 @@ pub struct Vehicle {
     pub workshop_until: Option<String>,
     #[serde(default)]
     pub breakdowns: u32,
+    /// How clean it is inside, 0 to 100: the cleaners keep it so (`staff::roles_day`), and the
+    /// passengers notice (`staff::clean_factor`; 75, an older file's, is as it ever was).
+    #[serde(default = "seventy_five")]
+    pub clean: f64,
+}
+
+fn seventy_five() -> f64 {
+    75.0
 }
 
 impl Vehicle {
@@ -385,7 +393,8 @@ pub struct Employee {
     pub stress: f64,
     #[serde(default = "sixty")]
     pub friendliness: f64,
-    /// Their picture, 1 to `PORTRAITS` (0: one chosen by their id, `Employee::portrait`).
+    /// Their picture, 1 to `PORTRAITS`: one nobody else of the company has (`staff::hire`,
+    /// `staff::migrate`; 0: none was free, `Employee::portrait`).
     #[serde(default)]
     pub portrait: u32,
 }
@@ -431,7 +440,11 @@ fn sixty() -> f64 {
 }
 
 impl Employee {
-    /// Their picture, 1 to `PORTRAITS`.
+    /// Their picture, 1 to `PORTRAITS`: their own, which nobody else of the company - its staff
+    /// and its applicants - has (a hire keeps the face they applied with, an older file's people
+    /// get faces of their own when it is opened: `staff::free_portraits`, `staff::migrate`). Only
+    /// in a company of more than `PORTRAITS` people is someone left without one: they are shown
+    /// one by their id, the one case a face is seen twice.
     pub fn portrait(&self) -> u32 {
         if (1..=PORTRAITS).contains(&self.portrait) {
             self.portrait
