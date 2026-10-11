@@ -1164,6 +1164,15 @@ mod tests {
         let dp: Vec<DayTour> = tours.iter().cloned().map(|t| DayTour { tour: t, ..Default::default() }).collect();
         let of = |no: &str| origins(&dp, dp.iter().find(|t| t.tour.tour == no).unwrap());
         assert_eq!((of("1"), of("2"), of("3")), (vec!["1".to_string()], vec!["2".to_string()], Vec::<String>::new()));
+        // the day plan and the game's plan of the day take the edited blocks: three buses, the
+        // game's tour 2 with block 2's bus (block 3 holds no tour mostly)
+        let date = c.date.clone();
+        let plan = super::super::plan::day_plan(&c, &date, tours.clone(), &[], &[], false);
+        assert_eq!(plan.tours.len(), 3);
+        let live = super::super::plan::live_plan(&c, &plan);
+        let mut names: Vec<&str> = live.tours.iter().map(|t| t.tour.as_str()).collect();
+        names.sort_unstable();
+        assert_eq!(names, vec!["1", "2"]);
         // a trip the game reports of timetable tour 2 is the block's that runs it
         assert!(tours.iter().find(|t| t.tour == "3").unwrap().runs_tour("2"));
         assert!(!tours.iter().find(|t| t.tour == "1").unwrap().runs_tour("2"));
