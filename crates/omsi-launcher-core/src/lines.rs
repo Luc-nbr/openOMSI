@@ -1637,7 +1637,11 @@ fn patterns_of(l: &LineDesign) -> Vec<DayPattern> {
         let mut gaps: Vec<f32> = deps.windows(2).map(|w| w[1] - w[0]).filter(|g| *g > 0.5).collect();
         gaps.sort_by(f32::total_cmp);
         let headway = gaps.get(gaps.len() / 2).map(|g| ((g / 5.0).round() * 5.0).clamp(5.0, 120.0)).unwrap_or(60.0);
-        (p.on, p.first, p.last, p.headway, p.bands) = (true, first, last.max(first), headway, Vec::new());
+        // (whole minutes of the day: a night trip past midnight - 24:32 - would come back from
+        // the time fields as 0:32, a change, and the table made anew from the patterns)
+        let first = first.round().clamp(0.0, DAY_END - 1.0);
+        let last = last.round().clamp(first, DAY_END - 1.0);
+        (p.on, p.first, p.last, p.headway, p.bands) = (true, first, last, headway, Vec::new());
     }
     days
 }
@@ -2547,6 +2551,11 @@ mod tests {
         assert_eq!(plan.iter().map(|t| (t.number.as_str(), t.trips.len(), t.kept)).collect::<Vec<_>>(), [("1", 3, Some(0)), ("2", 2, Some(1)), ("3", 1, Some(2))]);
         // the patterns come near its first direction: on working days 6:00 to 6:20 every 20
         assert_eq!((l.days[0].on, l.days[0].first, l.days[0].last, l.days[0].headway), (true, 360.0, 380.0, 20.0));
+        // (within the day: a night trip's departure past midnight is not a time of the day)
+        let mut night = l.clone();
+        night.table.push(TableTrip { dir: 0, day: 0, times: vec![1472.0, 1474.0, 1478.0], tour: "1".into() });
+        let p = &patterns_of(&night)[0];
+        assert!(p.last <= DAY_END - 1.0 && p.first == 360.0, "{p:?}");
         // a trip added by the player gets a bus of its own, numbered past the map's tours
         let mut more = l.clone();
         more.table.push(TableTrip { dir: 0, day: 0, times: vec![600.0, 602.0, 606.0], tour: String::new() });
