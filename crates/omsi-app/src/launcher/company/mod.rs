@@ -908,6 +908,8 @@ pub fn screen(l: &mut Launcher) {
         l.ui.tooltip(help, "A tour of the bus company");
         right = help.x - 8.0;
     }
+    // the sun and moon: the light or the dark look (`theme_switch`)
+    right = super::theme_switch::company_button(l, right);
     let company = l.company.company.clone().filter(|_| !founding && !choosing);
     if company.is_some() {
         let gear = Rect::new(right - 40.0, 16.0, 40.0, 40.0);

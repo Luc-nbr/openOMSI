@@ -125,6 +125,13 @@ pub(super) fn glass_sheet(l: &mut Launcher, r: Rect) {
 /// A pane of that glass with corners of `radius` (the start's card, the top bar); `glow`:
 /// with the accent's glow round it (not the bar).
 fn glass(l: &mut Launcher, r: Rect, radius: f32, glow: bool) {
+    // (drawn for both looks: `glass_look`)
+    l.ui.as_drawn();
+    glass_pane(l, r, radius, glow);
+    l.ui.end_as_drawn();
+}
+
+fn glass_pane(l: &mut Launcher, r: Rect, radius: f32, glow: bool) {
     let g = glass_look();
     l.ui.solid(r);
     let p = l.ui.p();
@@ -309,6 +316,13 @@ fn step_of(page: Page) -> Step {
 /// the running games, the version, and the languages as flags, the one spoken framed - the
 /// other languages in a list beside them.
 fn bar(l: &mut Launcher, step: Option<Step>, page_title: Option<&str>) {
+    // (glass, in the glass's ink: drawn for both looks)
+    l.ui.as_drawn();
+    bar_on_glass(l, step, page_title);
+    l.ui.end_as_drawn();
+}
+
+fn bar_on_glass(l: &mut Launcher, step: Option<Step>, page_title: Option<&str>) {
     let size = l.ui.size;
     let r = bar_rect(size);
     // (glass, as the start's card)
@@ -363,10 +377,14 @@ fn bar(l: &mut Launcher, step: Option<Step>, page_title: Option<&str>) {
             l.ui.text_in(&running.to_string(), Rect::new(hit.right() - 8.0, r.y + 4.0, 14.0, 12.0), 10.0, Weight::Bold, OK, Align::Left);
         }
         rx = hit.x - 6.0;
-        // (beside the settings: the palette, the accent colour chosen in a popover)
+        // (beside the settings: the palette, the accent colour chosen in a popover, and the sun
+        // and moon, the light or the dark look)
         if icon == "settings" {
             let hit = Rect::new(rx - 28.0, r.center().y - 13.0, 28.0, 26.0);
             super::accent_pick::bar_button(l, hit);
+            rx = hit.x - 6.0;
+            let hit = Rect::new(rx - 28.0, r.center().y - 13.0, 28.0, 26.0);
+            super::theme_switch::bar_button(l, hit, (glass_look().ink_soft, glass_look().ink));
             rx = hit.x - 6.0;
         }
     }
@@ -785,7 +803,12 @@ pub fn draw(l: &mut Launcher) {
     let step = l.drive.step;
     match step {
         Step::Profile => step_profile(l, window),
-        Step::Mode => step_mode(l, window),
+        // (the start is drawn for both looks: its glass, its photos)
+        Step::Mode => {
+            l.ui.as_drawn();
+            step_mode(l, window);
+            l.ui.end_as_drawn();
+        }
         // (the maps on a sheet of their own: their pictures as tiles, or the list beside the map)
         Step::Map => super::mapchoice::draw(l, window),
         Step::Start | Step::Day | Step::Duty => step_on_map(l, window, step),
@@ -1219,33 +1242,17 @@ fn record_box(l: &mut Launcher, rec: Rect) {
 
 /// The ground of the steps without a map: Omsi-Hub's night city, darkened under the sheets.
 pub(super) fn ground_picture(l: &mut Launcher, window: Rect) {
+    // (in the look's own colour: `theme::ground_of`)
+    l.ui.as_drawn();
     paint_ground(l.ui.p(), window);
+    l.ui.end_as_drawn();
 }
 
 /// The launcher's ground: one even colour, the light one of the accent (the night blue in the
 /// dark mode). (Luc: no logo behind the start screen - it was openOMSI's route with a bus in a
 /// ring, drawn over the whole window.)
 fn paint_ground(p: &mut Painter, window: Rect) {
-    p.rect(window, ground_colours(crate::accent::chosen()).0);
-}
-
-/// The dark mode's ground: a deep night blue.
-const NIGHT: Color = Color::rgba(10, 20, 46, 1.0);
-
-/// The ground's colours for the accent `rgb`: the ground and the route drawn on it - a light
-/// ground under the route in the colour itself (the default orange on Luc's cream).
-fn ground_colours(rgb: u32) -> (Color, Color) {
-    if crate::accent::dark() {
-        // (dark: a deep night blue (Luc), the route in the colour a little sunk into it)
-        let [r, g, b] = crate::accent::unpack(rgb);
-        return (NIGHT, Color::rgba(r, g, b, 1.0).mix(NIGHT, 0.25));
-    }
-    if rgb == crate::accent::DEFAULT {
-        return (Color::rgba(252, 234, 208, 1.0), Color::rgba(247, 138, 18, 1.0));
-    }
-    let [r, g, b] = crate::accent::unpack(rgb);
-    let light = |v: u8| (v as f32 + (255.0 - v as f32) * 0.55).round() as u8;
-    (Color::rgba(light(r), light(g), light(b), 1.0), Color::rgba(r, g, b, 1.0))
+    p.rect(window, ground_of(crate::accent::chosen(), crate::accent::dark()).0);
 }
 
 /// A plain button on the start's sheet: an icon and a word, left aligned.

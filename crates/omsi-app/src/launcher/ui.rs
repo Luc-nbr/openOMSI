@@ -293,6 +293,16 @@ pub struct Ui {
     /// for their own; a page that wants larger text sets it while it draws (the bus company's
     /// pages). Back to 0 at every frame's start.
     pub widget_px: f32,
+    /// The light look (the launcher's, the setting "dark mode" off; never the game's menus):
+    /// at the frame's end every colour drawn for the dark look is carried over to the light
+    /// one (`theme::Lighten`), but for what is drawn as it is (`as_drawn`).
+    pub light: bool,
+    pub lighten: Lighten,
+    /// What keeps its colours in the light look this frame: from where to where in the layers
+    /// (layer, vertex), in the order drawn; and where the one open now began, how deep.
+    as_drawn: Vec<((usize, usize), (usize, usize))>,
+    as_drawn_from: Option<(usize, usize)>,
+    as_drawn_depth: u32,
     /// (tests) Where each clickable widget was this frame, by id.
     #[cfg(test)]
     pub drawn: HashMap<Id, Rect>,
@@ -334,6 +344,11 @@ impl Ui {
             over_ui: false,
             tooltip: None,
             widget_px: 0.0,
+            light: false,
+            lighten: Lighten::new(),
+            as_drawn: Vec::new(),
+            as_drawn_from: None,
+            as_drawn_depth: 0,
             #[cfg(test)]
             drawn: HashMap::new(),
         }
@@ -357,6 +372,9 @@ impl Ui {
         self.over_ui = false;
         self.tooltip = None;
         self.widget_px = 0.0;
+        self.as_drawn.clear();
+        self.as_drawn_from = None;
+        self.as_drawn_depth = 0;
         #[cfg(test)]
         self.drawn.clear();
         self.push_layer(Rect::new(0.0, 0.0, size.x, size.y), 0.0);
@@ -437,6 +455,78 @@ impl Ui {
     /// The painter of the current layer.
     pub fn p(&mut self) -> &mut Painter {
         &mut self.layers.last_mut().unwrap().1
+    }
+
+    /// Where the next vertex goes: (layer, vertex). Everything is drawn onto the last layer,
+    /// so the frame's vertices lie in this order.
+    fn drawn_to(&self) -> (usize, usize) {
+        (self.layers.len().saturating_sub(1), self.layers.last().map(|l| l.1.verts.len()).unwrap_or(0))
+    }
+
+    /// What is drawn from here until `end_as_drawn` keeps its colours in the light look: it is
+    /// drawn for both looks already (the start's glass, the ground) or is a picture of its own
+    /// (a colour picker's square). Nests.
+    pub fn as_drawn(&mut self) {
+        if self.as_drawn_depth == 0 {
+            self.as_drawn_from = Some(self.drawn_to());
+        }
+        self.as_drawn_depth += 1;
+    }
+
+    pub fn end_as_drawn(&mut self) {
+        if self.as_drawn_depth == 0 {
+            return;
+        }
+        self.as_drawn_depth -= 1;
+        if self.as_drawn_depth == 0 {
+            if let Some(from) = self.as_drawn_from.take() {
+                let to = self.drawn_to();
+                self.as_drawn.push((from, to));
+            }
+        }
+    }
+
+    /// The light look of everything drawn this frame (`light`): each triangle's colours as
+    /// `theme::Lighten` has them, but for what is drawn as it is (`as_drawn`), the pictures
+    /// (render targets, photos) and what lies in a world of its own (a map's layers).
+    fn to_light(&mut self) {
+        if self.as_drawn_depth > 0 {
+            self.as_drawn_depth = 1;
+            self.end_as_drawn();
+        }
+        let kept = std::mem::take(&mut self.as_drawn);
+        let mut next = 0;
+        let lighten = &mut self.lighten;
+        for (k, (layer, painter, tex)) in self.layers.iter_mut().enumerate() {
+            if *tex != 0 || layer.px_scale != 0.0 || layer.view_proj != glam::Mat4::IDENTITY {
+                continue;
+            }
+            let n = painter.verts.len();
+            let mut i = 0;
+            while i < n {
+                // (the spans are in the order drawn: the next one that has not ended yet)
+                while next < kept.len() && kept[next].1 <= (k, i) {
+                    next += 1;
+                }
+                if let Some(&(from, to)) = kept.get(next) {
+                    if from <= (k, i) && (k, i) < to {
+                        // (on past the span, a triangle at a time)
+                        i = if to.0 == k { to.1.max(i + 1) } else { n };
+                        i = i.div_ceil(3) * 3;
+                        continue;
+                    }
+                }
+                let tri = &mut painter.verts[i..(i + 3).min(n)];
+                let strongest = tri.iter().fold(0.0f32, |a, v| a.max(v.color[3]));
+                for v in tri.iter_mut() {
+                    if v.mode[0] < 0.5 {
+                        v.color = lighten.colour(v.color, v.mode[1] > 0.5, strongest);
+                    }
+                }
+                i += 3;
+            }
+        }
+        self.as_drawn = kept;
     }
 
     /// Draw what follows clipped to `r` (rounded by `radius`), until `pop_clip`.
@@ -953,9 +1043,12 @@ impl Ui {
             let mid = top + (bottom - top) * f;
             light.alpha((1.0 - (q.x - mid).abs() / half).clamp(0.0, 1.0))
         };
+        // (a light on the accent: white in either look)
+        self.as_drawn();
         let p = self.p();
         shade(p, &left, &shape, &tint);
         shade(p, &right, &shape, &tint);
+        self.end_as_drawn();
     }
 
     /// A round button with only an icon.
@@ -1531,7 +1624,10 @@ impl Ui {
         if busy {
             let x = r.x + ((self.time * 0.6) % 1.0) * (w + 60.0) - 60.0;
             self.push_clip(Rect::new(r.x, r.y, w, r.h), r.h * 0.5);
+            // (a light on the accent: white in either look)
+            self.as_drawn();
             self.p().gradient_h(Rect::new(x, r.y, 60.0, r.h), Color::WHITE.alpha(0.0), Color::WHITE.alpha(0.15));
+            self.end_as_drawn();
             self.pop_clip();
         }
     }
@@ -1650,6 +1746,9 @@ impl Ui {
             self.push_clip(Rect::new(r.x + 10.0, r.y + 4.0, text_w, (h - 8.0).max(0.0)), 2.0);
             self.paragraph(&t, Vec2::new(r.x + 10.0, r.y + 4.0), text_w, px, Weight::Medium, TEXT_SOFT);
             self.pop_clip();
+        }
+        if self.light {
+            self.to_light();
         }
         let mut layers = Vec::new();
         let mut verts = Vec::new();
@@ -2360,6 +2459,53 @@ mod tests {
         assert!(ui.rect_visible(Rect::new(10.0, 90.0, 200.0, 54.0)));
         ui.pop_clip();
         assert!(ui.rect_visible(Rect::new(10.0, 50.0, 200.0, 20.0)));
+    }
+
+    /// A frame in the light look: drawn in the dark look's colours as every page is, it comes
+    /// out with no dark ground, sheet or field and no light ink left - but for what is drawn as
+    /// it is - and the pictures keep theirs.
+    #[test]
+    fn a_light_frame_has_none_of_the_dark_looks_colours() {
+        let page = |ui: &mut Ui| {
+            ui.p().rect(Rect::new(0.0, 0.0, 800.0, 600.0), GROUND);
+            ui.panel(Rect::new(20.0, 20.0, 400.0, 300.0));
+            ui.heading(Rect::new(40.0, 40.0, 300.0, 40.0), "Fleet", None);
+            ui.label(Rect::new(40.0, 80.0, 300.0, 20.0), "Bus");
+            ui.button("n", Rect::new(40.0, 120.0, 120.0, 36.0), "Next", None, ButtonKind::Normal);
+            ui.button("p", Rect::new(180.0, 120.0, 120.0, 36.0), "Start", None, ButtonKind::Primary);
+            ui.p().rounded(Rect::new(40.0, 180.0, 300.0, 36.0), RADIUS, FIELD.mix(HOVER, 0.5));
+            ui.text("Faint", Vec2::new(40.0, 240.0), 12.0, Weight::Regular, TEXT_FAINT, Align::Left);
+            ui.image(Rect::new(500.0, 20.0, 200.0, 100.0), 3, 0.0);
+        };
+        let dark = [GROUND, PANEL, FIELD, HOVER, SELECTED, TEXT, TEXT_SOFT, TEXT_DIM, TEXT_FAINT, EDGE, HAIRLINE];
+        let mut ui = Ui::new();
+        ui.light = true;
+        ui.begin(Vec2::new(800.0, 600.0), 1.0, 1.0 / 60.0);
+        page(&mut ui);
+        // (the glass, drawn for both looks)
+        ui.as_drawn();
+        ui.p().rect(Rect::new(900.0, 0.0, 50.0, 40.0), PANEL);
+        ui.end_as_drawn();
+        let (_, verts, ranges) = ui.finish();
+        let pictures: Vec<_> = ranges.iter().filter(|r| r.1 != 0).flat_map(|r| r.0.clone()).collect();
+        let kept: Vec<&Vertex> = verts.iter().filter(|v| v.pos[0] >= 900.0).collect();
+        assert!(!kept.is_empty() && kept.iter().all(|v| v.color == PANEL.0));
+        for (k, v) in verts.iter().enumerate() {
+            if v.pos[0] >= 900.0 || pictures.contains(&(k as u32)) {
+                continue;
+            }
+            assert!(!dark.iter().any(|d| d.0 == v.color), "vertex {k} keeps {:?}", v.color);
+        }
+        // the ground is the light one, and the picture is drawn as it is
+        let g = light_ground(crate::accent::DEFAULT).0;
+        assert!((0..3).all(|i| (verts[0].color[i] - g[i]).abs() < 1e-3), "{:?}", verts[0].color);
+        assert!(!pictures.is_empty() && pictures.iter().all(|&k| verts[k as usize].color == Color::WHITE.0));
+        // the dark look: every colour as drawn
+        let mut ui = Ui::new();
+        ui.begin(Vec2::new(800.0, 600.0), 1.0, 1.0 / 60.0);
+        page(&mut ui);
+        let (_, verts, _) = ui.finish();
+        assert!(verts.iter().any(|v| v.color == GROUND.0) && verts.iter().any(|v| v.color == PANEL.0));
     }
 
     #[test]

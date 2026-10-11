@@ -42,6 +42,7 @@ mod state;
 #[cfg_attr(not(target_os = "android"), allow(unused_imports))]
 pub(crate) use state::crash_of;
 pub(crate) mod theme;
+mod theme_switch;
 mod timetable;
 mod transition;
 pub(crate) mod ui;
@@ -270,6 +271,8 @@ pub struct Launcher {
     tour: tour::Tour,
     /// openOMSI's mark over the start's greeting (see `intro::Logo`).
     start_logo: intro::Logo,
+    /// The light or the dark look, and the switch between them (see `theme_switch`).
+    theme_switch: theme_switch::ThemeSwitch,
     #[cfg(not(target_os = "android"))]
     discord: Option<crate::discord::Discord>,
     #[cfg(not(target_os = "android"))]
@@ -372,6 +375,7 @@ impl Launcher {
         welcome: welcome::Welcome::closed(),
         tour: tour::Tour::default(),
         start_logo: Default::default(),
+        theme_switch: Default::default(),
         #[cfg(not(target_os = "android"))]
         discord: None,
         #[cfg(not(target_os = "android"))]
@@ -445,6 +449,7 @@ impl Launcher {
     /// up while one runs) or a lost device.
     fn drop_gpu(&mut self) {
         self.gpu = None;
+        self.theme_switch.drop_gpu();
         self.preview_tex = None;
         self.showroom = showroom::Showroom::new();
         self.preview_gen = 0;
@@ -1052,7 +1057,9 @@ impl Launcher {
         self.ui.motion = self.state.settings.get("animations").and_then(|v| v.as_bool()).unwrap_or(true);
         // (the accent colour as the settings have it: a choice recolours everything at once)
         crate::accent::set_from_setting(self.state.settings.get("accent").and_then(|v| v.as_str()));
-        crate::accent::set_dark(self.state.settings.get("dark_mode").and_then(|v| v.as_bool()).unwrap_or(false));
+        // (the light or the dark look, as the setting has it from this frame on: the frame
+        // it changed in was still the old look's, see `theme_switch`)
+        theme_switch::begin_frame(self);
         self.draw_ui();
         if mobile::mobile() {
             // what no list took of a finger's drag scrolls the page
@@ -1073,10 +1080,14 @@ impl Launcher {
             }
         }
         // (the game's loading screen over it all, for pictures: OMSI_LAUNCHER_SPLASH)
+        self.ui.as_drawn();
         crate::splash::preview(&mut self.ui);
+        self.ui.end_as_drawn();
         // (a Tobii tracker read for the settings: let go once they are left)
         pages::tobii_idle();
-        let (layers, verts, ranges) = self.ui.finish();
+        let (mut layers, mut verts, mut ranges) = self.ui.finish();
+        // (the old look over the new one outside the circle it spreads in)
+        theme_switch::overlay(self, pw, ph, &mut layers, &mut verts, &mut ranges);
         self.touch_frame();
 
         // --- to the GPU: the preview when it changed, then the interface onto the window
@@ -1165,6 +1176,11 @@ impl Launcher {
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.upload(&device, &queue, 0, &verts);
             gpu.upload_atlas(&queue, &mut self.ui.atlas);
+        }
+        // the look was switched in this frame: its picture, the old look's last, to spread the
+        // new one over from the next frame on
+        if theme_switch::wants_picture(self) {
+            theme_switch::take_picture(self, pw, ph, &layers, &draws, bg);
         }
         // OMSI_LAUNCHER_SHOT: the window's picture into a file (drawn into a texture of its
         // own, so a hidden window gives one too)
@@ -1391,8 +1407,11 @@ impl Launcher {
         accent_pick::popover(self);
         // (the welcome just over: the page comes up out of the dark)
         welcome::cover(self);
-        // (a change of screen this frame: the bus, over the page and under the dialogs)
+        // (a change of screen this frame: the bus, over the page and under the dialogs - a
+        // screen of its own, and the fade from the ground as the look has it)
+        self.ui.as_drawn();
         transition::after_page(self);
+        self.ui.end_as_drawn();
         tour::draw(self, touring);
         self.draw_updated_notice();
         if let Some(i) = saved {

@@ -314,7 +314,7 @@ pub fn after_page(l: &mut Launcher) {
             l.transition.fade = None;
         } else {
             l.ui.keep_moving();
-            l.ui.p().rect(Rect::new(0.0, 0.0, size.x, size.y), GROUND.alpha(cover));
+            l.ui.p().rect(Rect::new(0.0, 0.0, size.x, size.y), ground().alpha(cover));
             l.transition.fade = Some(age + l.ui.dt / l.transition.slow);
         }
     }
