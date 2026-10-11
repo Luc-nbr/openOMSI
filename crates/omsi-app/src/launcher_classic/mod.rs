@@ -361,7 +361,7 @@ impl Launcher {
         let Some(window) = self.window.clone() else { return };
         if self.renderer.is_none() {
             let settings = crate::settings::Settings::load();
-            let renderer = match crate::startup::window_renderer(&mut self.instance, &window, showroom_options(&settings)) {
+            let renderer = match crate::startup::RendererStart::begin(&mut self.instance, &window, showroom_options(&settings)).and_then(|start| start.wait(&mut self.instance)) {
                 Ok(r) => r,
                 Err(e) => {
                     crate::startup::fatal_message(&format!("openOMSI cannot draw on this computer: {e:#}"));
@@ -426,7 +426,7 @@ impl ApplicationHandler for Launcher {
             }
         };
         let settings = crate::settings::Settings::load();
-        let renderer = match crate::startup::window_renderer(&mut self.instance, &window, showroom_options(&settings)) {
+        let renderer = match crate::startup::RendererStart::begin(&mut self.instance, &window, showroom_options(&settings)).and_then(|start| start.wait(&mut self.instance)) {
             Ok(r) => r,
             Err(e) => {
                 crate::startup::fatal_message(&format!("openOMSI cannot draw on this computer: {e:#}"));

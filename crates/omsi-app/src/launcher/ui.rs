@@ -2455,8 +2455,10 @@ mod tests {
         assert_eq!(value, "Hamburg");
         frame(&mut ui, &mut value, &[], "!", false);
         assert_eq!(value, "Hamburg!", "typed at the caret, nothing selected any more");
-        // part of it selected (as a drag of the mouse leaves it)
+        // part of it selected (as a drag of the mouse leaves it: from its anchor to the caret)
         ui.selection.insert(id_of("name"), (0, 4));
+        let at = ui.time;
+        ui.caret.insert(id_of("name"), (4, at));
         frame(&mut ui, &mut value, &[Key::Copy], "", false);
         assert_eq!(ui.clipboard_out.take().as_deref(), Some("Hamb"));
         assert_eq!(value, "Hamburg!");
