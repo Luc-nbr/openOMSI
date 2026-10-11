@@ -837,6 +837,42 @@ mod tests {
         assert_eq!(c.stores.count(Part::Wiper), keep_of(&c, Part::Wiper));
     }
 
+    /// The world of the clock without a timetable: the night as the store runs it.
+    struct Quiet;
+
+    impl clock::World for Quiet {
+        fn lines(&mut self, _: &Company, _: &str) -> Result<Vec<crate::LineInfo>, String> {
+            Ok(Vec::new())
+        }
+
+        fn close_day(&mut self, c: &mut Company, lines: &[crate::LineInfo]) -> Result<DayReport, String> {
+            let r = super::super::day::close_day(c, Vec::new(), &[]);
+            Ok(super::super::depot::after_close(c, r, lines))
+        }
+    }
+
+    #[test]
+    fn the_clock_brings_an_order_at_16_00() {
+        let mut c = company();
+        c.stores.auto = false;
+        // ordered at nine: in store when the clock passes four, told in the feed and the inbox
+        clock::advance(&mut c, clock::moment("2024-03-04", 9 * 60), &mut Quiet, true).unwrap();
+        let before = c.stores.count(Part::Router);
+        order(&mut c, &[(Part::Router, 2)], false).unwrap();
+        clock::advance(&mut c, clock::moment("2024-03-04", 15 * 60 + 30), &mut Quiet, true).unwrap();
+        assert_eq!(c.stores.count(Part::Router), before);
+        let run = clock::advance(&mut c, clock::moment("2024-03-04", 17 * 60), &mut Quiet, true).unwrap();
+        assert_eq!(c.stores.count(Part::Router), before + 2);
+        assert!(run.told > 0 && c.clock.feed.iter().any(|f| f.text == "Spare parts delivered: %{n}" && f.at == clock::moment("2024-03-04", DELIVERY)));
+        assert!(c.inbox.messages.iter().any(|m| m.title == "Spare parts delivered"));
+        // ordered after four: tomorrow, through the night's close
+        order(&mut c, &[(Part::Router, 1)], false).unwrap();
+        clock::advance(&mut c, clock::moment("2024-03-05", 12 * 60), &mut Quiet, true).unwrap();
+        assert_eq!(c.stores.count(Part::Router), before + 2);
+        clock::advance(&mut c, clock::moment("2024-03-05", 16 * 60), &mut Quiet, true).unwrap();
+        assert_eq!(c.stores.count(Part::Router), before + 3);
+    }
+
     #[test]
     fn a_job_of_the_depot_takes_parts_and_an_older_company_gets_a_stock() {
         let mut c = company();
