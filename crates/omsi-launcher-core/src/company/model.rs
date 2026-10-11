@@ -449,7 +449,7 @@ impl Employee {
         if (1..=PORTRAITS).contains(&self.portrait) {
             self.portrait
         } else {
-            self.id.wrapping_mul(37) % PORTRAITS + 1
+            super::staff::fallback_portrait(&self.name, self.id.wrapping_mul(37))
         }
     }
 

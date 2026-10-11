@@ -974,6 +974,54 @@ fn valid(p: u32) -> bool {
     (1..=PORTRAITS).contains(&p)
 }
 
+/// The portraits of women, in order (the rest are men's), told by eye from the pictures (Luc:
+/// the male faces with the male names, the female with the female).
+const FEMALE_PORTRAITS: [u32; 145] = [
+    2, 3, 5, 7, 10, 11, 13, 17, 20, 21, 23, 24, 26, 27, 28, 33, 35, 38, 39, 43, 45, 47, 49, 50,
+    51, 53, 54, 56, 57, 58, 64, 66, 68, 72, 75, 79, 80, 83, 85, 86, 87, 90, 92, 93, 96, 99, 100, 102,
+    104, 106, 108, 110, 112, 114, 116, 118, 120, 122, 124, 126, 128, 130, 132, 134, 136, 138, 140, 141, 143, 145, 147, 149,
+    152, 154, 156, 158, 160, 161, 163, 165, 167, 170, 172, 174, 176, 178, 180, 181, 183, 185, 187, 189, 192, 194, 196, 198,
+    200, 201, 204, 206, 208, 210, 212, 214, 216, 218, 220, 221, 223, 226, 228, 232, 234, 236, 238, 242, 244, 246, 248, 250,
+    252, 254, 256, 258, 260, 261, 263, 265, 267, 269, 272, 274, 276, 278, 280, 282, 284, 286, 288, 290, 291, 293, 295, 297,
+    299,
+];
+
+/// Whether portrait `p` is a woman's.
+pub fn female_portrait(p: u32) -> bool {
+    FEMALE_PORTRAITS.binary_search(&p).is_ok()
+}
+
+/// Whether the person called `name` is a woman (by their first name: Some(true)), a man
+/// (Some(false)), or the name says nothing (None: any face).
+pub fn female_name(name: &str) -> Option<bool> {
+    let first = name.split_whitespace().next()?;
+    FIRST.iter().find(|(n, _)| n.eq_ignore_ascii_case(first)).map(|(_, f)| *f)
+}
+
+/// Whether face `p` suits the person called `name`.
+fn suits(name: &str, p: u32) -> bool {
+    female_name(name).is_none_or(|f| f == female_portrait(p))
+}
+
+/// The first face of `free` that suits `name` (taken out of it), else none.
+fn take_suiting(free: &mut Vec<u32>, name: &str) -> u32 {
+    match free.iter().position(|p| suits(name, *p)) {
+        Some(k) => free.remove(k),
+        None => 0,
+    }
+}
+
+/// A face for someone called `name` when none was free (a company of more than `PORTRAITS`
+/// people): one of their gender's, by `n`.
+pub fn fallback_portrait(name: &str, n: u32) -> u32 {
+    let pool: Vec<u32> = (1..=PORTRAITS).filter(|p| suits(name, *p)).collect();
+    if pool.is_empty() {
+        n % PORTRAITS + 1
+    } else {
+        pool[n as usize % pool.len()]
+    }
+}
+
 /// The order a company gives its faces in (its own shuffle of all of them).
 fn portrait_order(c: &Company) -> Vec<u32> {
     let mut v: Vec<u32> = (1..=PORTRAITS).collect();
@@ -1029,7 +1077,8 @@ pub fn migrate(c: &mut Company) {
     let mut held: Vec<u32> = Vec::new();
     let mut without: Vec<usize> = Vec::new();
     for (k, e) in c.staff.iter().enumerate() {
-        if valid(e.portrait) && !held.contains(&e.portrait) {
+        // (a face of the other gender than the name's is given anew)
+        if valid(e.portrait) && !held.contains(&e.portrait) && suits(&e.name, e.portrait) {
             held.push(e.portrait);
         } else {
             without.push(k);
@@ -1041,7 +1090,8 @@ pub fn migrate(c: &mut Company) {
         }
     }
     for k in without {
-        let p = free_portraits(c, &held).first().copied().unwrap_or(0);
+        let mut free = free_portraits(c, &held);
+        let p = take_suiting(&mut free, &c.staff[k].name);
         c.staff[k].portrait = p;
         if valid(p) {
             held.push(p);
@@ -1052,9 +1102,12 @@ pub fn migrate(c: &mut Company) {
 
 // --- the labour market ---------------------------------------------------------------------
 
-const FIRST: [&str; 40] = [
-    "Anna", "Ben", "Carla", "Dennis", "Elif", "Frank", "Greta", "Hakan", "Ines", "Jan", "Klaus", "Lena", "Mehmet", "Nina", "Olaf", "Petra", "Rainer", "Sanne", "Tobias", "Ute", "Volker", "Wiebke", "Yusuf",
-    "Zoë", "Bram", "Daan", "Emma", "Fleur", "Joost", "Marieke", "Pieter", "Sophie", "Agnieszka", "Piotr", "Olena", "Dmytro", "Marco", "Aylin", "Jonas", "Heike",
+/// The applicants' first names, each with whether it is a woman's (their face follows it).
+const FIRST: [(&str, bool); 40] = [
+    ("Anna", true), ("Ben", false), ("Carla", true), ("Dennis", false), ("Elif", true), ("Frank", false), ("Greta", true), ("Hakan", false), ("Ines", true), ("Jan", false),
+    ("Klaus", false), ("Lena", true), ("Mehmet", false), ("Nina", true), ("Olaf", false), ("Petra", true), ("Rainer", false), ("Sanne", true), ("Tobias", false), ("Ute", true),
+    ("Volker", false), ("Wiebke", true), ("Yusuf", false), ("Zoë", true), ("Bram", false), ("Daan", false), ("Emma", true), ("Fleur", true), ("Joost", false), ("Marieke", true),
+    ("Pieter", false), ("Sophie", true), ("Agnieszka", true), ("Piotr", false), ("Olena", true), ("Dmytro", false), ("Marco", false), ("Aylin", true), ("Jonas", false), ("Heike", true),
 ];
 const LAST: [&str; 32] = [
     "Becker", "de Vries", "Fischer", "Hoffmann", "Jansen", "Kaya", "Krüger", "Meijer", "Müller", "Peters", "Richter", "Schmidt", "Schulz", "van Dijk", "Vogel", "Wagner", "Weber", "Wolf", "Yilmaz", "Zimmermann",
@@ -1085,12 +1138,12 @@ pub struct Applicant {
 }
 
 impl Applicant {
-    /// Their face, 1 to `PORTRAITS` (one by their number when none was free).
+    /// Their face, 1 to `PORTRAITS` (one of their gender's by their number when none was free).
     pub fn portrait(&self) -> u32 {
         if valid(self.portrait) {
             self.portrait
         } else {
-            self.no.wrapping_mul(53) % PORTRAITS + 1
+            fallback_portrait(&self.name, self.no.wrapping_mul(53))
         }
     }
 
@@ -1118,9 +1171,10 @@ pub fn market(c: &Company) -> Vec<Applicant> {
     for role in OTHERS {
         out.extend(role_market(c, role));
     }
-    let mut free = free_portraits(c, &held_portraits(c)).into_iter();
+    // (a face of their gender's: the men's faces for men's names, the women's for women's)
+    let mut free = free_portraits(c, &held_portraits(c));
     for a in out.iter_mut() {
-        a.portrait = free.next().unwrap_or(0);
+        a.portrait = take_suiting(&mut free, &a.name);
     }
     out
 }
@@ -1135,7 +1189,7 @@ fn drivers_market(c: &Company) -> Vec<Applicant> {
     let mut rng = Rng::of(&[&c.id, "applicants"], week);
     let mut out = Vec::new();
     for no in 0..r.applicants as u32 {
-        let name = format!("{} {}", rng.pick(&FIRST).unwrap_or(&"Alex"), rng.pick(&LAST).unwrap_or(&"Weber"));
+        let name = format!("{} {}", rng.pick(&FIRST).map(|f| f.0).unwrap_or("Alex"), rng.pick(&LAST).unwrap_or(&"Weber"));
         let experience = (rng.f64().powf(1.5) * 90.0 + 3.0).round();
         let age = (21.0 + experience * 0.35 + rng.range(0.0, 18.0)).round().min(63.0) as u32;
         let licence = if rng.chance(0.1) { Licence::D1 } else { Licence::D };
@@ -1166,7 +1220,7 @@ fn role_market(c: &Company, role: Role) -> Vec<Applicant> {
     let mut out = Vec::new();
     for k in 0..(r.applicants / 2).max(2) as u32 {
         let no = 100 * role_index(role) + k;
-        let name = format!("{} {}", rng.pick(&FIRST).unwrap_or(&"Alex"), rng.pick(&LAST).unwrap_or(&"Weber"));
+        let name = format!("{} {}", rng.pick(&FIRST).map(|f| f.0).unwrap_or("Alex"), rng.pick(&LAST).unwrap_or(&"Weber"));
         let experience = (rng.f64().powf(1.3) * 90.0 + 3.0).round();
         let age = (19.0 + experience * 0.35 + rng.range(0.0, 20.0)).round().min(64.0) as u32;
         let skill = |rng: &mut Rng, base: f64| (base + experience * 0.3 + rng.range(-15.0, 22.0)).clamp(10.0, 100.0).round();
@@ -1428,6 +1482,36 @@ mod tests {
 
     fn block(key: &str, from: i32, to: i32) -> Block {
         Block { key: key.into(), from, to, from_stop: "A".into(), to_stop: "B".into() }
+    }
+
+    /// Faces follow the names (Luc): every applicant of a week has a face of their name's
+    /// gender, none twice; a company opened gives someone with a face of the other gender a
+    /// fitting one; a name that says nothing takes any face.
+    #[test]
+    fn faces_follow_the_names_gender() {
+        assert!(FEMALE_PORTRAITS.windows(2).all(|w| w[0] < w[1]) && FEMALE_PORTRAITS.iter().all(|p| valid(*p)));
+        assert_eq!(FIRST.iter().filter(|f| f.1).count(), 20);
+        let mut c = found(&Founding { name: "Faces".into(), difficulty: Difficulty::Realistic, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+        c.cash = 10_000_000_00;
+        let week = market(&c);
+        let mut seen = Vec::new();
+        for a in &week {
+            let f = female_name(&a.name).expect("a name of the list");
+            assert_eq!(female_portrait(a.portrait), f, "{} has portrait {}", a.name, a.portrait);
+            assert!(!seen.contains(&a.portrait), "portrait {} twice", a.portrait);
+            seen.push(a.portrait);
+        }
+        // hired, then given a face of the other gender: mended on opening
+        let id = hire(&mut c, &week[0]).expect("hired");
+        let e = c.staff.iter_mut().find(|e| e.id == id).unwrap();
+        e.name = "Anna Becker".into();
+        e.portrait = 1;
+        assert!(!female_portrait(1));
+        migrate(&mut c);
+        let e = c.staff.iter().find(|e| e.id == id).unwrap();
+        assert!(female_portrait(e.portrait), "{}", e.portrait);
+        assert_eq!(female_name("Agency driver"), None);
+        assert!(suits("Agency driver", 1) && suits("Agency driver", 2));
     }
 
     #[test]
