@@ -297,7 +297,8 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         let mut c = co::found(&f, &l.state.config.profile);
         c.id = co::store::unused_id(&data(), &c.name);
         super::switch_company(l, Some(c));
-        l.company.tab = 0;
+        // (a new company opens on its start screen, with every page a tile)
+        l.company.tab = super::HOME_TAB;
         super::changed(l);
         // (the company's tour goes on with its pages, if the welcome came before the founding)
         super::tutorial::founded(l);

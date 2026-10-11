@@ -5,6 +5,10 @@
 //! driver in `~/.openomsi/company-tour.json`, and the "?" in the company's bar goes on from
 //! there (or from the start, once it was seen to the end). A tour that only showed the welcome
 //! and the founding goes on through the pages by itself once the company is founded.
+//!
+//! When the company's pages were tabs, the tour had its stops in another order. A driver who
+//! saw that tour is shown the new start screen once, from its tiles on (`LAYOUT`), and a stop
+//! where it was left then is found again in the new order (`resume_at`).
 
 use super::super::Launcher;
 use serde::{Deserialize, Serialize};
@@ -23,6 +27,24 @@ pub struct Seen {
     pub done: bool,
     /// The welcome was shown before there was a company: its pages are still to come.
     pub pages_to_come: bool,
+    /// The company's layout it was seen in (`LAYOUT`; 0: its pages as tabs, before the start
+    /// screen).
+    pub layout: u32,
+}
+
+/// The company's layout now: 1, the start screen with a tile for every page.
+pub const LAYOUT: u32 = 1;
+
+/// The stop of the tour of the tabs' days (with a company: the welcome, the clock, the tabs,
+/// then the pages) in the start screen's tour (the welcome, the tiles, what the company has,
+/// the clock, the way round, then the pages).
+fn from_tabs(at: usize) -> usize {
+    match at {
+        0 => 0,
+        1 => 3,
+        2 => 1,
+        k => k + 2,
+    }
 }
 
 fn file() -> PathBuf {
@@ -58,6 +80,7 @@ fn keep(profile: &str, s: Seen) {
 pub(in crate::launcher) fn left(profile: &str, at: usize, completed: bool) {
     let mut s = of(profile);
     s.seen = true;
+    s.layout = LAYOUT;
     if completed {
         // (a tour of the welcome and the founding alone is not the pages')
         if !s.pages_to_come {
@@ -80,6 +103,10 @@ pub fn on_open(s: &Seen, company: bool) -> Option<(usize, bool)> {
         // (the welcome was seen: on with the pages)
         return Some((1, false));
     }
+    if s.layout < LAYOUT && company {
+        // (seen when the pages were tabs: the start screen shown once, from its tiles)
+        return Some((1, false));
+    }
     None
 }
 
@@ -87,6 +114,8 @@ pub fn on_open(s: &Seen, company: bool) -> Option<(usize, bool)> {
 pub fn resume_at(s: &Seen) -> usize {
     if s.done {
         0
+    } else if s.layout < LAYOUT {
+        from_tabs(s.at)
     } else {
         s.at
     }
@@ -108,6 +137,9 @@ pub(super) fn frame(l: &mut Launcher) {
     let Some((at, to_come)) = on_open(&s, company) else { return };
     s.seen = true;
     s.pages_to_come = to_come;
+    if company {
+        s.layout = LAYOUT;
+    }
     keep(&profile, s);
     super::super::tour::start_company(l, at);
 }
@@ -139,11 +171,29 @@ mod tests {
         assert_eq!(on_open(&welcomed, false), None);
         assert_eq!(on_open(&welcomed, true), Some((1, false)));
         // seen and skipped: not by itself again; the "?" goes on where it was left
-        let skipped = Seen { seen: true, at: 5, ..Default::default() };
+        let skipped = Seen { seen: true, at: 5, layout: LAYOUT, ..Default::default() };
         assert_eq!(on_open(&skipped, true), None);
         assert_eq!(resume_at(&skipped), 5);
         // seen to the end: the "?" from the start
-        assert_eq!(resume_at(&Seen { seen: true, at: 5, done: true, ..Default::default() }), 0);
+        assert_eq!(resume_at(&Seen { seen: true, at: 5, done: true, layout: LAYOUT, ..Default::default() }), 0);
+    }
+
+    #[test]
+    fn a_tour_seen_in_the_tabs_days_shows_the_start_screen_once() {
+        // (a file of before: no layout in it)
+        let old: Seen = serde_json::from_str(r#"{ "seen": true, "at": 3, "done": false, "pages_to_come": false }"#).unwrap();
+        assert_eq!(old.layout, 0);
+        // the company open: the tour by itself, from the start screen's tiles (after the welcome)
+        assert_eq!(on_open(&old, true), Some((1, false)));
+        // the founding still to come: nothing yet
+        assert_eq!(on_open(&old, false), None);
+        // where it was left is found again in the new order: the overview stays the overview
+        assert_eq!(resume_at(&old), 5);
+        assert_eq!((from_tabs(0), from_tabs(1), from_tabs(2), from_tabs(10)), (0, 3, 1, 12));
+        // seen to the end then: the "?" from the start all the same
+        assert_eq!(resume_at(&Seen { done: true, ..old.clone() }), 0);
+        // once seen in the new layout, not again
+        assert_eq!(on_open(&Seen { layout: LAYOUT, ..old }, true), None);
     }
 
     #[test]

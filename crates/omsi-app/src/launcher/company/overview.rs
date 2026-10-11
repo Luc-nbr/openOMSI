@@ -60,7 +60,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
 }
 
 /// "12 Oct": a date short, for an axis.
-fn short_date(date: &str) -> String {
+pub(super) fn short_date(date: &str) -> String {
     let Some(d) = co::dates::parse(date) else { return date.to_string() };
     let (_, m, day) = co::dates::civil_from_days(d);
     format!("{} {}", day, omsi_ui::tr(super::MONTHS[(m as usize).clamp(1, 12) - 1]))
@@ -239,7 +239,7 @@ fn today(l: &mut Launcher, r: Rect, c: &Company) {
 }
 
 /// An alert's icon, words, colour and the tab that helps.
-fn alert_text(a: &Alert) -> (&'static str, String, Color, usize) {
+pub(super) fn alert_text(a: &Alert) -> (&'static str, String, Color, usize) {
     match a {
         Alert::NoLines => ("route", omsi_ui::tr("The company runs no line yet: add one on the Lines page.").into_owned(), WARN, 3),
         Alert::NoBuses => ("directions_bus", omsi_ui::tr("There is no bus in the fleet: buy, lease or rent one.").into_owned(), WARN, 1),
