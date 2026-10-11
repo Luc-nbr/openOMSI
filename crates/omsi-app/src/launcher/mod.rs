@@ -792,10 +792,11 @@ impl ApplicationHandler for Launcher {
                     w.request_redraw();
                 }
             }
-        } else if self.show {
+        } else if self.show || omsi_cfg::flags::OMSI_BACKGROUND.is_set() {
             // The window made hidden until its first picture is drawn from here: Windows sends
             // no paint message to a hidden window, so a redraw asked for never came and the
-            // launcher never appeared.
+            // launcher never appeared. (So too a test window, OMSI_BACKGROUND's, which stays
+            // hidden: it drew nothing, and OMSI_LAUNCHER_SHOT took no pictures.)
             self.frame(event_loop);
         } else if let Some(w) = self.window.as_ref() {
             w.request_redraw();
