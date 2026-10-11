@@ -293,6 +293,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
             date: first_day(w.when, Some(m), &l.state.choice.map, &l.state.choice.date, &w.date),
             difficulty: Difficulty::ALL[w.difficulty.min(2)],
             buying: co::dealer::BuyingMode::ALL[w.buying.min(1)],
+            mode: co::Mode::Advanced,
         };
         let mut c = co::found(&f, &l.state.config.profile);
         c.id = co::store::unused_id(&data(), &c.name);

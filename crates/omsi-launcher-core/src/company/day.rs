@@ -808,6 +808,11 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
     super::parts::day(c, &date, &mut report);
     super::contracts::day(c, &date, &mut report);
     super::inbox::day(c, &date, &mut report);
+    // (the easy mode's night: what the company sees to by itself, `autopilot`)
+    if super::autopilot::on(c) {
+        let duties: usize = plan.tours.iter().filter(|t| !t.by_player).map(|t| t.duties.len()).sum();
+        super::autopilot::night(c, &date, duties);
+    }
 
     // 10. the day's figures, and on to the next
     let after = c.month(&month);

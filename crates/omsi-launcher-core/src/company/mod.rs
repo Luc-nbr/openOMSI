@@ -16,6 +16,7 @@
 
 pub mod adverts;
 pub mod auction;
+pub mod autopilot;
 pub mod career;
 pub mod clock;
 pub mod concessions;
@@ -63,8 +64,11 @@ pub struct Founding {
     /// The first company day (empty: the launcher's default date).
     pub date: String,
     pub difficulty: Difficulty,
-    /// How the dealer sells buses first: the quick buy or haggling and a contract.
+    /// How the dealer sells buses first: the quick buy or haggling and a contract (the easy
+    /// mode buys quickly: this is kept for when the company goes advanced).
     pub buying: dealer::BuyingMode,
+    /// How much of the company the player runs himself.
+    pub mode: Mode,
 }
 
 /// A name as a file name: lower case, letters and digits, dashes between.
@@ -146,7 +150,11 @@ pub fn found(f: &Founding, profile: &str) -> Company {
         contracts: Default::default(),
         inbox: Default::default(),
         staff_rules: Default::default(),
+        mode: Mode::Advanced,
+        autopilot: Default::default(),
     };
+    // (the easy mode buys quickly; the buying chosen is kept for the advanced mode)
+    autopilot::set_mode(&mut c, f.mode);
     c.book(BookingKind::Capital, r.start_capital, c.name.clone(), false);
     c
 }

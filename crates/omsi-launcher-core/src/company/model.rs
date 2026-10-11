@@ -37,6 +37,38 @@ impl Difficulty {
     }
 }
 
+/// How much of the company the player runs himself (Luc: "make an easy mode and an advanced
+/// mode for the bus company mode too ... so that players get a choice"): the easy mode leaves
+/// the routine to the company (`autopilot`) and shows fewer pages; the advanced mode is every
+/// page and every function. A company of an older file is advanced.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum Mode {
+    Easy,
+    #[default]
+    Advanced,
+}
+
+impl Mode {
+    pub const ALL: [Mode; 2] = [Mode::Easy, Mode::Advanced];
+
+    /// Its name (English, translated when shown).
+    pub fn label(self) -> &'static str {
+        match self {
+            Mode::Easy => "Easy mode",
+            Mode::Advanced => "Advanced mode",
+        }
+    }
+
+    /// What it means, in a line or two.
+    pub fn info(self) -> &'static str {
+        match self {
+            Mode::Easy => "The company runs its routine by itself: rosters, spare parts, repairs, staff and research. You drive, buy buses, add lines and watch the money.",
+            Mode::Advanced => "Every page and every function: you plan the rosters, run the workshop, bid for concessions and manage everything yourself.",
+        }
+    }
+}
+
 /// A bus's length class: what it costs, what it carries and who may drive it.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default, Hash, PartialOrd, Ord)]
 #[serde(rename_all = "lowercase")]
@@ -688,6 +720,12 @@ pub struct Company {
     pub inbox: super::inbox::Inbox,
     #[serde(default)]
     pub staff_rules: super::staff::StaffRules,
+    /// How much of it the player runs himself (an older file's: the advanced mode).
+    #[serde(default)]
+    pub mode: Mode,
+    /// What the company does by itself in the easy mode, and what it did (`autopilot`).
+    #[serde(default)]
+    pub autopilot: super::autopilot::Autopilot,
 }
 
 fn one() -> f64 {

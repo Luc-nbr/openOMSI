@@ -603,7 +603,8 @@ pub fn day(c: &mut Company, date: &str, report: &mut DayReport) {
         service(c, date, &number);
     }
     hold(c, date);
-    if c.stores.auto {
+    // (the easy mode's stores always order by themselves, whatever the advanced mode's switch)
+    if c.stores.auto || super::autopilot::on(c) {
         reorder(c, date);
     }
 }
