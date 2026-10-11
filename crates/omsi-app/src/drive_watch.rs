@@ -703,7 +703,7 @@ mod tests {
         assert!(pass(52.0).is_empty(), "within the tolerance");
         let ev = pass(66.0);
         assert_eq!(ev.len(), 1);
-        assert_eq!((ev[0].kind, ev[0].limit, ev[0].fine), (OffenceKind::Speeding, 50.0, 50_00));
+        assert_eq!((ev[0].kind, ev[0].limit, ev[0].fine), (OffenceKind::Speeding, 50.0, 190_00));
     }
 
     /// Speeds over time (one value a twentieth of a second) through the comfort watch.
@@ -799,7 +799,7 @@ mod tests {
         let fonts = Fonts::hanken();
         let mut atlas = Atlas::new(2048);
         let s = 2.0;
-        let ns = [notice(&Offence { kind: OffenceKind::RedLight, red_for: 2.0, speed: 38.0, fine: 200_00, ..Default::default() }), notice(&Offence { kind: OffenceKind::Speeding, speed: 66.0, limit: 50.0, fine: 50_00, ..Default::default() })];
+        let ns = [notice(&Offence { kind: OffenceKind::RedLight, red_for: 2.0, speed: 38.0, fine: 200_00, ..Default::default() }), notice(&Offence { kind: OffenceKind::Speeding, speed: 66.0, limit: 50.0, fine: 190_00, ..Default::default() })];
         let mut img = image::RgbaImage::from_pixel((NOTICE_W * s + 60.0) as u32, ((NOTICE_H * s + 30.0) * 2.0 + 30.0) as u32, image::Rgba([70, 84, 96, 255]));
         for (k, n) in ns.iter().enumerate() {
             let mut p = Painter::new();

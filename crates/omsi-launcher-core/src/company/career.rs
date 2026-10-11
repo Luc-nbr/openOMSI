@@ -63,16 +63,17 @@ pub fn over_limit(speed: f32, limit: f32) -> Option<f32> {
     (counted > limit).then(|| counted - limit)
 }
 
-/// The fine for `over` km/h too fast (the German catalogue of 2021): in town (a limit up to
-/// 50) or outside it.
+/// The fine for `over` km/h too fast, in town (a limit up to 50) or outside it: near the Dutch
+/// amounts, three to four times the German catalogue of 2021 (Luc: speed camera fines much
+/// dearer - the German ones hardly hurt a company).
 pub fn speeding_fine(over: f32, town: bool) -> Cents {
-    const TOWN: [(f32, Cents); 10] = [(10.0, 30), (15.0, 50), (20.0, 70), (25.0, 115), (30.0, 180), (40.0, 260), (50.0, 400), (60.0, 560), (70.0, 700), (f32::MAX, 800)];
-    const OUT: [(f32, Cents); 10] = [(10.0, 20), (15.0, 40), (20.0, 60), (25.0, 100), (30.0, 150), (40.0, 200), (50.0, 320), (60.0, 480), (70.0, 600), (f32::MAX, 700)];
+    const TOWN: [(f32, Cents); 10] = [(10.0, 120), (15.0, 190), (20.0, 270), (25.0, 360), (30.0, 450), (40.0, 700), (50.0, 1000), (60.0, 1400), (70.0, 1800), (f32::MAX, 2500)];
+    const OUT: [(f32, Cents); 10] = [(10.0, 100), (15.0, 160), (20.0, 230), (25.0, 310), (30.0, 400), (40.0, 600), (50.0, 900), (60.0, 1200), (70.0, 1600), (f32::MAX, 2200)];
     if over <= 0.0 {
         return 0;
     }
     let table = if town { &TOWN } else { &OUT };
-    table.iter().find(|(upto, _)| over <= *upto).map(|x| x.1).unwrap_or(800) * 100
+    table.iter().find(|(upto, _)| over <= *upto).map(|x| x.1).unwrap_or(2500) * 100
 }
 
 /// A red light run: â‚¬90, â‚¬200 when it had been red for more than a second.
@@ -555,11 +556,11 @@ pub(crate) mod tests {
         // over 100 km/h the tolerance is 3 %
         assert_eq!(tolerance(120.0), 4.0);
         assert_eq!(over_limit(110.0, 100.0), Some(6.0));
-        assert_eq!(speeding_fine(1.0, true), 30_00);
-        assert_eq!(speeding_fine(13.0, true), 50_00);
-        assert_eq!(speeding_fine(13.0, false), 40_00);
-        assert_eq!(speeding_fine(26.0, true), 180_00);
-        assert_eq!(speeding_fine(90.0, true), 800_00);
+        assert_eq!(speeding_fine(1.0, true), 120_00);
+        assert_eq!(speeding_fine(13.0, true), 190_00);
+        assert_eq!(speeding_fine(13.0, false), 160_00);
+        assert_eq!(speeding_fine(26.0, true), 450_00);
+        assert_eq!(speeding_fine(90.0, true), 2500_00);
         assert_eq!(speeding_fine(0.0, true), 0);
         assert_eq!(red_light_fine(0.6), 90_00);
         assert_eq!(red_light_fine(2.5), 200_00);

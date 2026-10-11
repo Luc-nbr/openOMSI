@@ -104,7 +104,8 @@ pub fn trip(rng: &mut Rng, e: &Employee, t: &Trained, number: &str, size: BusSiz
     }
     if rng.chance(fine) {
         tally.fines += 1;
-        tally.fine_cost += ((rng.range(30.0, 120.0) * price_index).round() as Cents) * 100;
+        // (as dear as a speed camera's fine for a few to twenty km/h too fast, `career::speeding_fine`)
+        tally.fine_cost += ((rng.range(120.0, 450.0) * price_index).round() as Cents) * 100;
     }
     if rng.chance(complaint) {
         tally.complaints += 1;
