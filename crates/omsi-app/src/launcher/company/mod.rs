@@ -146,6 +146,8 @@ pub struct CompanyView {
     companies_for: Option<String>,
     pub(super) company: Option<Company>,
     pub(super) tab: usize,
+    /// The start screen's category (its section) shown (`home::draw`).
+    pub(super) home_cat: usize,
     pub(super) wizard: Option<wizard::Wizard>,
     /// The market's buses with their kinds, for how many installed buses, and how far the
     /// reading is.
@@ -203,6 +205,7 @@ impl Default for CompanyView {
             companies_for: None,
             company: None,
             tab: HOME_TAB,
+            home_cat: 0,
             wizard: None,
             market: None,
             market_for: None,

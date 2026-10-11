@@ -8,9 +8,11 @@
 //! licences, my duties, the rankings, the statistics, the last day's report, another company.
 //!
 //! The company opens on it (`HOME_TAB`); every page has its way back to it in the strip under
-//! the bar (`super::nav`) and with Escape. On a large window the tiles keep a readable size
-//! in the middle; on a low one they shrink to what fits, and scroll when even that is too
-//! much. A phone has them two by two, scrolled.
+//! the bar (`super::nav`) and with Escape. On a computer the sections are tabs (Luc: "make
+//! sub-tabs of these so the overview is split into a few categories"): the chosen one's tiles
+//! alone, larger, in two columns of up to two rows, kept to a readable size in the middle; on a
+//! low window they shrink to what fits, and scroll when even that is too much. A phone has all
+//! the sections under each other, their tiles two by two, scrolled.
 
 use super::super::theme::*;
 use super::super::ui::{id_of, Ui};
@@ -418,66 +420,74 @@ pub(super) fn open(l: &mut Launcher, to: To) {
 
 // --- the layout -----------------------------------------------------------------------------------
 
-/// The rows of tiles a column has.
-const SLOTS: usize = 4;
-/// A section's title over its column, the gap between tiles and between columns.
+/// A section's title over its tiles on a phone.
 const TITLE_H: f32 = 26.0;
-const GAP: f32 = 14.0;
-const COL_GAP: f32 = 20.0;
-/// The widest the screen grows (in the middle beyond), and a tile's least and most height.
-const MAX_W: f32 = 1720.0;
-const MIN_TILE_H: f32 = 84.0;
-const MAX_TILE_H: f32 = 178.0;
+/// The slots of a section (two columns of two rows: a big tile takes a column).
+#[cfg(test)]
+const SLOTS: usize = 4;
+/// The category tabs' height and the room under them; the gap between tiles.
+const TABS_H: f32 = 40.0;
+const TABS_GAP: f32 = 22.0;
+const GAP: f32 = 16.0;
+/// The widest the tiles grow (in the middle beyond), the tabs' widest, and a tile's least and
+/// most height.
+const MAX_W: f32 = 1240.0;
+const TABS_MAX_W: f32 = 960.0;
+const MIN_TILE_H: f32 = 96.0;
+const MAX_TILE_H: f32 = 250.0;
 /// The ways under the tiles: a row's height, the gap between rows and above them.
 const MORE_H: f32 = 34.0;
 const MORE_GAP: f32 = 8.0;
-const MORE_TOP: f32 = 20.0;
-/// How much wider the first column (at a glance) is than the others.
-const FIRST_WEIGHT: f32 = 1.35;
+const MORE_TOP: f32 = 24.0;
 
-/// The start screen laid out in its area on a desktop.
+/// A category of the start screen laid out in its area on a computer.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct Grid {
-    /// Each section's column (its title at its top).
-    pub columns: Vec<Rect>,
+    /// The tabs over the tiles.
+    pub tabs: Rect,
+    /// Each tile's place, in the section's order.
+    pub tiles: Vec<Rect>,
+    /// A slot's height.
     pub tile_h: f32,
     /// Where the ways under the tiles begin, and how wide they may run.
     pub more: Rect,
-    /// All of it, from the titles to the last row of ways.
+    /// All of it, from the tabs to the last row of ways.
     pub height: f32,
 }
 
-impl Grid {
-    /// The place of a tile `slot` rows down its column, `slots` high.
-    pub fn tile(&self, col: usize, slot: usize, slots: usize) -> Rect {
-        let c = self.columns[col];
-        let y = c.y + TITLE_H + slot as f32 * (self.tile_h + GAP);
-        Rect::new(c.x, y, c.w, self.tile_h * slots as f32 + GAP * (slots as f32 - 1.0))
-    }
-}
-
-/// The grid for `n` columns in `area`, with `more_rows` rows of ways under it: the columns
-/// share the width (the first wider), the tiles the height - between their least and most -
-/// and what is left stays round it, a little more under it than over it.
-pub(super) fn grid(area: Rect, n: usize, more_rows: usize) -> Grid {
+/// Where the tiles `tiles` of a category lie in `area`, with `more_rows` rows of ways under
+/// them: two columns, each filled from the top (a big tile takes its column's two rows), the
+/// rows sharing the height - between a tile's least and most - and what is left round it, a
+/// little more under it than over it.
+pub(super) fn grid(area: Rect, tiles: &[Tile], more_rows: usize) -> Grid {
     let w = area.w.min(MAX_W);
     let x0 = area.x + (area.w - w) * 0.5;
-    let n = n.max(1);
-    let unit = (w - COL_GAP * (n as f32 - 1.0)) / (FIRST_WEIGHT + (n as f32 - 1.0));
     let more_h = if more_rows == 0 { 0.0 } else { MORE_TOP + more_rows as f32 * MORE_H + (more_rows as f32 - 1.0) * MORE_GAP };
-    let fixed = TITLE_H + (SLOTS as f32 - 1.0) * GAP + more_h;
-    let tile_h = ((area.h - fixed) / SLOTS as f32).clamp(MIN_TILE_H, MAX_TILE_H).floor();
-    let height = fixed + SLOTS as f32 * tile_h;
+    // (two rows, or one when every tile has a column of its own and none is big)
+    let slots: usize = tiles.iter().map(Tile::slots).sum();
+    let rows = if slots <= 2 && tiles.iter().all(|t| !t.big) { 1 } else { 2 };
+    let fixed = TABS_H + TABS_GAP + (rows as f32 - 1.0) * GAP + more_h;
+    let tile_h = ((area.h - fixed) / rows as f32).clamp(MIN_TILE_H, MAX_TILE_H).floor();
+    let height = fixed + rows as f32 * tile_h;
     let top = area.y + ((area.h - height) * 0.42).max(0.0).floor();
-    let mut x = x0;
-    let mut columns = Vec::with_capacity(n);
-    for k in 0..n {
-        let cw = if k == 0 { unit * FIRST_WEIGHT } else { unit };
-        columns.push(Rect::new(x.floor(), top, cw.floor(), height - more_h));
-        x += cw + COL_GAP;
+    let tw = w.min(TABS_MAX_W);
+    let tabs = Rect::new((area.x + (area.w - tw) * 0.5).floor(), top, tw.floor(), TABS_H);
+    let col_w = ((w - GAP) / 2.0).floor();
+    let y0 = top + TABS_H + TABS_GAP;
+    let mut placed = Vec::with_capacity(tiles.len());
+    let (mut col, mut row) = (0usize, 0usize);
+    for t in tiles {
+        let n = t.slots().min(rows);
+        if row + n > rows {
+            col += 1;
+            row = 0;
+        }
+        let x = x0 + col as f32 * (col_w + GAP);
+        placed.push(Rect::new(x.floor(), y0 + row as f32 * (tile_h + GAP), col_w, tile_h * n as f32 + GAP * (n as f32 - 1.0)));
+        row += n;
     }
     let more = Rect::new(x0, top + height - more_h + if more_rows == 0 { 0.0 } else { MORE_TOP }, w, (more_h - MORE_TOP).max(0.0));
-    Grid { columns, tile_h, more, height }
+    Grid { tabs, tiles: placed, tile_h, more, height }
 }
 
 /// A way under the tiles: its width for its words and icon.
@@ -515,41 +525,52 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     if phone {
         l.ui.scroll_area("company-home", area, &mut |ui, v| phone_grid(ui, v, &list, &ways, &mut go));
     } else {
+        let mut cat = l.company.home_cat.min(list.len().saturating_sub(1));
         let (_, rows) = ways_laid(&l.ui, area.w.min(MAX_W), &ways);
-        let g = grid(area, list.len(), rows);
+        let tiles = &list[cat].tiles;
+        let g = grid(area, tiles, rows);
         if g.height <= area.h + 1.0 {
-            desk_grid(&mut l.ui, &g, &list, &ways, &mut go);
+            desk_grid(&mut l.ui, &g, &list, &mut cat, &ways, &mut go);
         } else {
             // (a window lower than the least tiles need: the whole of it scrolls)
             l.ui.scroll_area("company-home", area, &mut |ui, v| {
-                let g = grid(Rect::new(v.x, v.y, v.w, 0.0), list.len(), rows);
-                desk_grid(ui, &g, &list, &ways, &mut go);
+                let g = grid(Rect::new(v.x, v.y, v.w, 0.0), tiles, rows);
+                desk_grid(ui, &g, &list, &mut cat, &ways, &mut go);
                 g.height + 8.0
             });
         }
+        l.company.home_cat = cat;
     }
     if let Some(to) = go {
         open(l, to);
     }
 }
 
-/// The desktop's columns, one per section, and the ways under them.
-fn desk_grid(ui: &mut Ui, g: &Grid, list: &[Section], ways: &[(To, &'static str, &'static str)], go: &mut Option<To>) {
-    let all = Rect::new(g.columns[0].x, g.columns[0].y, g.more.w, g.height);
+/// A computer's start: the categories as tabs, the chosen one's tiles, the ways under them.
+fn desk_grid(ui: &mut Ui, g: &Grid, list: &[Section], cat: &mut usize, ways: &[(To, &'static str, &'static str)], go: &mut Option<To>) {
+    let all = Rect::new(g.more.x, g.tabs.y, g.more.w, g.height);
     super::super::tour::anchor("company-tiles", all);
-    for (k, s) in list.iter().enumerate() {
-        let Some(col) = g.columns.get(k).copied() else { break };
-        kit::caps(ui, Rect::new(col.x + 2.0, col.y + 2.0, col.w, 16.0), s.title);
-        let mut slot = 0;
-        for t in &s.tiles {
-            if slot + t.slots() > SLOTS {
-                break;
+    // the tabs: each section's title, with a dot where one of its tiles has a badge
+    let labels: Vec<String> = list
+        .iter()
+        .map(|s| {
+            let title = omsi_ui::tr(s.title).into_owned();
+            if s.tiles.iter().any(|t| t.badge.is_some()) {
+                format!("{title}  •")
+            } else {
+                title
             }
-            let r = g.tile(k, slot, t.slots());
-            if tile(ui, r, t) {
-                *go = Some(t.to);
-            }
-            slot += t.slots();
+        })
+        .collect();
+    let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+    let mut chosen = *cat;
+    if ui.segmented("company-home-cats", g.tabs, &mut chosen, &refs) {
+        *cat = chosen;
+    }
+    let Some(section) = list.get(*cat) else { return };
+    for (t, r) in section.tiles.iter().zip(&g.tiles) {
+        if tile(ui, *r, t) {
+            *go = Some(t.to);
         }
     }
     let (at, _) = ways_laid(ui, g.more.w, ways);
@@ -882,65 +903,64 @@ mod tests {
     }
 
     #[test]
-    fn the_grid_fits_from_a_small_window_to_a_large_one() {
+    fn every_category_fits_from_a_small_window_to_a_large_one() {
+        let c = company();
+        let list = sections(&c, None, &Marks::of(&c, None));
         // (the company's page area at 1280 x 720 and 2560 x 1440: under its bar and the strip)
         for (w, h, rows) in [(1280.0, 720.0, 2), (1366.0, 768.0, 2), (1920.0, 1080.0, 1), (2560.0, 1440.0, 1)] {
             let area = Rect::new(24.0, 146.0, w - 48.0, h - 186.0);
-            let g = grid(area, 5, rows);
-            assert!(g.height <= area.h + 0.5, "{w}x{h}: {} > {}", g.height, area.h);
-            assert!(g.tile_h >= MIN_TILE_H && g.tile_h <= MAX_TILE_H, "{w}x{h}: {}", g.tile_h);
-            assert!(g.columns.iter().all(|c| c.x >= area.x - 0.5 && c.right() <= area.right() + 0.5), "{w}x{h}");
-            // the columns do not meet, the first is the widest
-            for p in g.columns.windows(2) {
-                assert!(p[0].right() + COL_GAP - 1.0 <= p[1].x, "{w}x{h}");
+            for s in &list {
+                let g = grid(area, &s.tiles, rows);
+                assert!(g.height <= area.h + 0.5, "{w}x{h} {}: {} > {}", s.title, g.height, area.h);
+                assert!(g.tile_h >= MIN_TILE_H && g.tile_h <= MAX_TILE_H, "{w}x{h}: {}", g.tile_h);
+                assert_eq!(g.tiles.len(), s.tiles.len());
+                for (i, a) in g.tiles.iter().enumerate() {
+                    // in the area, under the tabs, above the ways
+                    assert!(a.x >= area.x - 0.5 && a.right() <= area.right() + 0.5, "{w}x{h} {}: {a:?}", s.title);
+                    assert!(a.y >= g.tabs.bottom() && a.bottom() <= g.more.y - MORE_TOP + 0.5, "{w}x{h} {}: {a:?}", s.title);
+                    for b in &g.tiles[i + 1..] {
+                        let apart = a.right() <= b.x + 0.5 || b.right() <= a.x + 0.5 || a.bottom() <= b.y + 0.5 || b.bottom() <= a.y + 0.5;
+                        assert!(apart, "{w}x{h} {}: {a:?} and {b:?} meet", s.title);
+                    }
+                    // a tile shows two lines of what matters at least
+                    assert!(Metrics::of(*a).lines(a.h) >= 2, "{w}x{h}: {:?}", Metrics::of(*a));
+                }
+                assert!(g.more.bottom() <= area.bottom() + 0.5, "{w}x{h}");
             }
-            assert!(g.columns[0].w > g.columns[1].w);
-            // the last row of tiles ends above the ways
-            let last = g.tile(0, SLOTS - 1, 1);
-            assert!(last.bottom() <= g.more.y - MORE_TOP + 0.5, "{w}x{h}");
-            assert!(g.more.bottom() <= area.bottom() + 0.5, "{w}x{h}");
-            // a tile shows two lines of what matters at least
-            let t = g.tile(1, 0, 1);
-            assert!(Metrics::of(t).lines(t.h) >= 2, "{w}x{h}: {:?}", Metrics::of(t));
         }
         // a large window keeps it in the middle, at most so wide
-        let g = grid(Rect::new(0.0, 0.0, 2512.0, 1254.0), 5, 1);
+        let g = grid(Rect::new(0.0, 0.0, 2512.0, 1254.0), &list[1].tiles, 1);
         assert!(g.more.w <= MAX_W && (g.more.x - (2512.0 - MAX_W) / 2.0).abs() < 1.0);
         // too low a window: the least tiles, taller than the area (it scrolls)
-        let g = grid(Rect::new(0.0, 0.0, 1200.0, 300.0), 5, 2);
+        let g = grid(Rect::new(0.0, 0.0, 1200.0, 200.0), &list[1].tiles, 2);
         assert_eq!(g.tile_h, MIN_TILE_H);
-        assert!(g.height > 300.0);
+        assert!(g.height > 200.0);
     }
 
     #[test]
-    fn the_tiles_and_ways_drawn_lie_in_the_area_and_never_meet() {
+    fn a_category_draws_its_own_tiles_and_the_ways_in_the_area() {
         let mut c = company();
         c.last_report = Some(Default::default());
         let marks = Marks::of(&c, None);
         let list = sections(&c, None, &marks);
         let ways = shortcuts(&c);
-        let tiles: usize = list.iter().map(|s| s.tiles.len()).sum();
         for (w, h) in [(1280.0, 720.0), (1600.0, 900.0), (2560.0, 1440.0)] {
-            let mut ui = Ui::new();
-            ui.begin(Vec2::new(w, h), 1.0, 1.0 / 60.0);
-            let area = Rect::new(24.0, 146.0, w - 48.0, h - 186.0);
-            let (_, rows) = ways_laid(&ui, area.w.min(MAX_W), &ways);
-            let g = grid(area, list.len(), rows);
-            assert!(g.height <= area.h + 0.5, "{w}x{h}: {rows} rows of ways");
-            let mut go = None;
-            desk_grid(&mut ui, &g, &list, &ways, &mut go);
-            let rects: Vec<Rect> = ui.drawn.values().copied().collect();
-            assert_eq!(rects.len(), tiles + ways.len(), "{w}x{h}: every tile and way drawn once");
-            for r in &rects {
-                assert!(r.x >= area.x - 0.5 && r.right() <= area.right() + 0.5 && r.y >= area.y - 0.5 && r.bottom() <= area.bottom() + 0.5, "{w}x{h}: {r:?} outside {area:?}");
-            }
-            for (i, a) in rects.iter().enumerate() {
-                for b in &rects[i + 1..] {
-                    let apart = a.right() <= b.x + 0.5 || b.right() <= a.x + 0.5 || a.bottom() <= b.y + 0.5 || b.bottom() <= a.y + 0.5;
-                    assert!(apart, "{w}x{h}: {a:?} and {b:?} meet");
+            for k in 0..list.len() {
+                let mut ui = Ui::new();
+                ui.begin(Vec2::new(w, h), 1.0, 1.0 / 60.0);
+                let area = Rect::new(24.0, 146.0, w - 48.0, h - 186.0);
+                let (_, rows) = ways_laid(&ui, area.w.min(MAX_W), &ways);
+                let g = grid(area, &list[k].tiles, rows);
+                let mut go = None;
+                let mut cat = k;
+                desk_grid(&mut ui, &g, &list, &mut cat, &ways, &mut go);
+                let rects: Vec<Rect> = ui.drawn.values().copied().filter(|r| r.y >= g.tabs.bottom()).collect();
+                assert_eq!(rects.len(), list[k].tiles.len() + ways.len(), "{w}x{h} {}: its tiles and the ways, once each", list[k].title);
+                for r in &rects {
+                    assert!(r.x >= area.x - 0.5 && r.right() <= area.right() + 0.5 && r.bottom() <= area.bottom() + 0.5, "{w}x{h}: {r:?} outside {area:?}");
                 }
+                assert_eq!((go, cat), (None, k));
             }
-            assert_eq!(go, None);
         }
     }
 
@@ -950,12 +970,15 @@ mod tests {
         let list = sections(&c, None, &Marks::of(&c, None));
         let ways = shortcuts(&c);
         let area = Rect::new(24.0, 146.0, 1232.0, 534.0);
+        // (the map is one of the operations')
+        let k = list.iter().position(|s| s.tiles.iter().any(|t| t.to == To::Tab(MAP_TAB))).expect("the map's section");
         let mut ui = Ui::new();
         let mut go = None;
         let frame = |ui: &mut Ui, go: &mut Option<To>| {
             ui.begin(Vec2::new(1280.0, 720.0), 1.0, 1.0 / 60.0);
             let (_, rows) = ways_laid(ui, area.w, &ways);
-            desk_grid(ui, &grid(area, list.len(), rows), &list, &ways, go);
+            let mut cat = k;
+            desk_grid(ui, &grid(area, &list[k].tiles, rows), &list, &mut cat, &ways, go);
         };
         frame(&mut ui, &mut go);
         let r = ui.drawn[&id_of(&format!("company-home-{:?}", To::Tab(MAP_TAB)))];
