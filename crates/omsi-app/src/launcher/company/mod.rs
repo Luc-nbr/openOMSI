@@ -11,6 +11,7 @@
 mod adverts;
 mod bank;
 mod career;
+mod chooser;
 mod clock;
 mod concessions;
 mod contracts;
@@ -86,6 +87,11 @@ const RAIL: [&[usize]; 5] = [&[0, INBOX_TAB], &[5, 3, MAP_TAB, 1], &[2], &[4, CO
 
 /// The page an `OMSI_LAUNCHER_PAGE` of "bus company:<part>" opens: the start screen for
 /// "home" or "start", else the page of that number (the last one past them).
+/// The bus company entered from elsewhere: its start opens, the play mode first (`chooser`).
+pub(super) fn begin(l: &mut Launcher) {
+    chooser::choose(l);
+}
+
 pub(super) fn tab_of(part: &str) -> Option<usize> {
     let p = part.trim();
     if p.eq_ignore_ascii_case("home") || p.eq_ignore_ascii_case("start") {
@@ -148,6 +154,9 @@ pub struct CompanyView {
     pub(super) tab: usize,
     /// The start screen's category (its section) shown (`home::draw`).
     pub(super) home_cat: usize,
+    /// The bus company's start while it is open: the play mode, then the company to open
+    /// (`chooser`).
+    pub(super) chooser: Option<chooser::Chooser>,
     pub(super) wizard: Option<wizard::Wizard>,
     /// The market's buses with their kinds, for how many installed buses, and how far the
     /// reading is.
@@ -206,6 +215,7 @@ impl Default for CompanyView {
             company: None,
             tab: HOME_TAB,
             home_cat: 0,
+            chooser: None,
             wizard: None,
             market: None,
             market_for: None,
@@ -831,6 +841,10 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         l.ui.text_in("Reading your companies…", Rect::new(area.x, area.y, area.w, 30.0), kit::BODY, Weight::Medium, TEXT_DIM, Align::Left);
         return;
     }
+    if l.company.chooser.is_some() && l.company.wizard.is_none() {
+        chooser::draw(l, area);
+        return;
+    }
     if l.company.wizard.is_some() || l.company.company.is_none() {
         if l.company.wizard.is_none() {
             l.company.wizard = Some(wizard::Wizard::new(l));
@@ -864,9 +878,12 @@ pub fn screen(l: &mut Launcher) {
     let full = Rect::new(0.0, 0.0, size.x, size.y);
     l.ui.solid(full);
     l.ui.p().rect(full, GROUND);
-    let founding = l.company.companies.is_some() && (l.company.wizard.is_some() || l.company.company.is_none());
-    let modal = !founding && l.company.companies.is_some() && modal(l);
-    if l.company.companies.is_some() && !founding {
+    // (the start - the play mode, the company - before the company's pages; the founding
+    // started from it comes back to it when cancelled)
+    let choosing = l.company.companies.is_some() && l.company.chooser.is_some() && l.company.wizard.is_none();
+    let founding = l.company.companies.is_some() && !choosing && (l.company.wizard.is_some() || l.company.company.is_none());
+    let modal = !founding && !choosing && l.company.companies.is_some() && modal(l);
+    if l.company.companies.is_some() && !founding && !choosing {
         clock::tick(l, modal);
     }
     let saved = (modal || (founding && l.company.popup.is_some())).then(|| mask(&mut l.ui));
@@ -882,7 +899,7 @@ pub fn screen(l: &mut Launcher) {
     }
     let mut right = back.x - 12.0;
     // the "?": the company's tour, from where it was left (see `tutorial`)
-    if l.company.companies.is_some() {
+    if l.company.companies.is_some() && !choosing {
         let help = Rect::new(right - 40.0, 16.0, 40.0, 40.0);
         super::tour::anchor("company-help", help);
         if l.ui.button("company-help", help, "", Some("help"), ButtonKind::Normal) {
@@ -891,7 +908,7 @@ pub fn screen(l: &mut Launcher) {
         l.ui.tooltip(help, "A tour of the bus company");
         right = help.x - 8.0;
     }
-    let company = l.company.company.clone().filter(|_| !founding);
+    let company = l.company.company.clone().filter(|_| !founding && !choosing);
     if company.is_some() {
         let gear = Rect::new(right - 40.0, 16.0, 40.0, 40.0);
         if l.ui.button("company-settings", gear, "", Some("settings"), ButtonKind::Normal) {
@@ -926,6 +943,8 @@ pub fn screen(l: &mut Launcher) {
     let content = Rect::new(m, bar.bottom() + 16.0, size.x - 2.0 * m, (size.y - bar.bottom() - 16.0 - 40.0).max(100.0));
     if l.company.companies.is_none() {
         l.ui.text_in("Reading your companies…", Rect::new(content.x, content.y, content.w, 30.0), kit::BODY, Weight::Medium, TEXT_DIM, Align::Left);
+    } else if choosing {
+        chooser::draw(l, content);
     } else if founding {
         if l.company.wizard.is_none() {
             l.company.wizard = Some(wizard::Wizard::new(l));
@@ -942,8 +961,8 @@ pub fn screen(l: &mut Launcher) {
         pages(l, body);
         back_home(l, esc);
     }
-    // the first time: the company's welcome and tour (`tutorial`)
-    if saved.is_none() {
+    // the first time: the company's welcome and tour (`tutorial`) - once a company is open
+    if saved.is_none() && !choosing {
         tutorial::frame(l);
     }
     if let Some(i) = saved {
@@ -1155,6 +1174,7 @@ pub(super) fn switch_company(l: &mut Launcher, to: Option<Company>) {
     }
     let view = &mut l.company;
     view.company = to;
+    view.chooser = None;
     view.plan = None;
     view.refill.clear();
     view.planning = planning::PlanningView::default();
@@ -1295,8 +1315,9 @@ fn delete_company(l: &mut Launcher, id: &str) {
         list.retain(|x| x.id != id);
     }
     if open {
-        let next = l.company.companies.as_ref().and_then(|cs| cs.first().cloned());
-        switch_company(l, next);
+        // (the next company is chosen on the start, as every company is)
+        switch_company(l, None);
+        chooser::to_companies(l);
     }
     let view = &mut l.company;
     view.plan = None;

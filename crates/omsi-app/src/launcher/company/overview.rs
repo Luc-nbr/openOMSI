@@ -299,24 +299,16 @@ fn last_day(l: &mut Launcher, r: Rect, c: &Company) {
     }
 }
 
-/// The driver's companies: which one is open, and founding another.
+/// The company open: when it was founded, and the way to another (the bus company's start:
+/// the companies are chosen and founded there only, Luc).
 fn companies(l: &mut Launcher, r: Rect, c: &Company) {
     let inner = section(&mut l.ui, r, "Your companies");
-    let list = l.company.companies.clone().unwrap_or_default();
-    let bw = kit::Foot::width(&l.ui, "Found another company", Some("add")).min(inner.w * 0.5);
+    let bw = kit::Foot::width(&l.ui, "Other company", Some("swap_horiz")).min(inner.w * 0.5);
     let y = inner.y - 4.0;
-    if list.len() > 1 {
-        let names: Vec<String> = list.iter().map(|x| format!("{}  ·  {}", x.name, x.map_name)).collect();
-        let mut k = list.iter().position(|x| x.id == c.id).unwrap_or(0);
-        if l.ui.select("company-pick", Rect::new(inner.x, y, (inner.w - bw - 12.0).max(80.0), 38.0), &mut k, &names) && list.get(k).is_some_and(|x| x.id != c.id) {
-            super::switch_company(l, list.get(k).cloned());
-        }
-    } else {
-        let text = omsi_ui::tr("Founded on %{date}.").replace("%{date}", &day_label(&c.founded));
-        l.ui.text_in(&text, Rect::new(inner.x, y, (inner.w - bw - 12.0).max(80.0), 38.0), kit::BODY, Weight::Regular, TEXT_SOFT, Align::Left);
-    }
-    if l.ui.button("company-found-another", Rect::new(inner.right() - bw, y, bw, 38.0), "Found another company", Some("add"), ButtonKind::Normal) {
-        l.company.wizard = Some(super::wizard::Wizard::new(l));
+    let text = omsi_ui::tr("Founded on %{date}.").replace("%{date}", &day_label(&c.founded));
+    l.ui.text_in(&text, Rect::new(inner.x, y, (inner.w - bw - 12.0).max(80.0), 38.0), kit::BODY, Weight::Regular, TEXT_SOFT, Align::Left);
+    if l.ui.button("company-other", Rect::new(inner.right() - bw, y, bw, 38.0), "Other company", Some("swap_horiz"), ButtonKind::Normal) {
+        super::chooser::to_companies(l);
     }
 }
 

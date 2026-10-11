@@ -1570,6 +1570,11 @@ impl Launcher {
             // when it comes back from the depot editor it opened itself: its company and its
             // unsaved changes are still the line editor's then)
             let back_from_depots = self.page == Page::Depots && self.pages.depots.from_lines();
+            // (the bus company entered from elsewhere - not given back by its own editors -
+            // opens on its start: the play mode, then the company, Luc: every time)
+            if p == Page::Company && !matches!(self.page, Page::Lines | Page::Depots | Page::Livery) {
+                company::begin(self);
+            }
             if p == Page::Lines && self.page != Page::Company && !back_from_depots {
                 self.pages.lines.leave_company();
             }

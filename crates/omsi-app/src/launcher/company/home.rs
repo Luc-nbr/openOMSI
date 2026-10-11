@@ -51,8 +51,8 @@ pub(super) enum To {
     Report,
     /// The company's settings (its name, mark, date and how it buys).
     Settings,
-    /// The founding of another company.
-    Found,
+    /// The bus company's start, its companies: another opened or founded there.
+    Chooser,
 }
 
 /// What a big tile shows under its words.
@@ -366,7 +366,7 @@ pub(super) fn shortcuts(c: &Company) -> Vec<(To, &'static str, &'static str)> {
     if c.last_report.is_some() {
         out.push((To::Report, "Show the report", "description"));
     }
-    out.push((To::Found, "Found another company", "add"));
+    out.push((To::Chooser, "Other company", "swap_horiz"));
     out
 }
 
@@ -414,7 +414,7 @@ pub(super) fn open(l: &mut Launcher, to: To) {
             let date = l.company.company.as_ref().map(|c| c.date.clone()).unwrap_or_default();
             l.company.dialog = Some(super::Dialog::Settings { date });
         }
-        To::Found => l.company.wizard = Some(super::wizard::Wizard::new(l)),
+        To::Chooser => super::chooser::to_companies(l),
     }
 }
 
