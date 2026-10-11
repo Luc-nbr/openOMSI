@@ -15,8 +15,14 @@
 //! is open - and back, every line at once too, kept with the company (`plan::set_collapsed`).
 //! A line's heading, or one of its tours tapped twice, opens its trips and timetable over the
 //! planning (`plan_edit`).
+//!
+//! Beside the roster, the same day in the scheduling studio (`studio`; Luc: "like Optibus
+//! Scheduling"): the Vehicles view - a row per bus's block, its trips moved between buses - and
+//! the Drivers view - a row per duty, cut and joined - switched with the roster on the tool
+//! row.
 
 mod plan_edit;
+mod studio;
 
 use super::super::flow::Step;
 use super::super::state::{CompanyDuty, PlannedBus};
@@ -86,21 +92,25 @@ pub struct PlanningView {
     edit: Option<plan_edit::PlanEdit>,
     /// The bus or duty tapped last, and when (a second tap soon after opens its timetable).
     tapped: Option<(String, f32)>,
+    /// What the page shows: 0 the roster, 1 the studio's Vehicles view, 2 its Drivers view.
+    pub(super) view: usize,
+    studio: studio::StudioView,
 }
 
 impl Default for PlanningView {
     fn default() -> Self {
         let (tx, rx) = channel();
-        PlanningView { tx, rx, days: Vec::new(), asked: Vec::new(), extra: Vec::new(), day: 0, sel: None, arm: None, drag: None, carry: None, press: None, carry_from: Vec2::ZERO, targets: Vec::new(), clear_armed: false, cache: Vec::new(), read_at: 0, focus: None, edit: None, tapped: None }
+        PlanningView { tx, rx, days: Vec::new(), asked: Vec::new(), extra: Vec::new(), day: 0, sel: None, arm: None, drag: None, carry: None, press: None, carry_from: Vec2::ZERO, targets: Vec::new(), clear_armed: false, cache: Vec::new(), read_at: 0, focus: None, edit: None, tapped: None, view: 0, studio: Default::default() }
     }
 }
 
 impl PlanningView {
     /// Something is in hand - a driver or a bus armed, a duty or a tour chosen or carried, a
-    /// line's timetable open over the planning - that Escape lets go of first (before it goes
-    /// back to the company's start screen).
+    /// line's timetable open over the planning, a trip taken up or a proposal shown in the
+    /// studio - that Escape lets go of first (before it goes back to the company's start
+    /// screen).
     pub(super) fn holds_choice(&self) -> bool {
-        self.sel.is_some() || self.arm.is_some() || self.drag.is_some() || self.carry.is_some() || self.edit.is_some()
+        self.sel.is_some() || self.arm.is_some() || self.drag.is_some() || self.carry.is_some() || self.edit.is_some() || (self.view > 0 && self.studio.holds())
     }
 
     /// Forget the week read: it is read again (the timetable was written).
@@ -359,8 +369,14 @@ fn give_driver(l: &mut Launcher, p: &DayPlan, ti: usize, k: usize, who: Option<W
             Ok(())
         });
     } else {
+        // (a piece of a duty joined in the studio: its other pieces go to the same driver)
+        let blocks: Vec<co::network::TourOfDay> = p.tours.iter().map(|t| t.tour.clone()).collect();
+        let others: Vec<(String, String, usize)> = co::studio::partners(c, wd, &blocks, ti, k).into_iter().map(|(i, k)| (p.tours[i].tour.line.clone(), p.tours[i].tour.tour.clone(), k)).collect();
         act(l, |c| {
             pl::set_driver(c, wd, &line, &tour, k, who);
+            for (line, tour, k) in &others {
+                pl::set_driver(c, wd, line, tour, *k, who);
+            }
             Ok(())
         });
     }
@@ -430,16 +446,19 @@ pub(super) fn drive(l: &mut Launcher, c: &Company, p: &DayPlan, ti: usize, k: us
     let t = &p.tours[ti];
     let d = &t.duties[k];
     // the duty's trips as the game counts them, in the day's timetable
+    // (the timetable's tour the game drives: the one its first trip with passengers comes from
+    // - a block laid out in the studio may hold trips of several)
+    let origin = t.tour.trips.get(d.start..d.end).and_then(|x| x.iter().find(|x| x.counts() && !x.origin.trim().is_empty())).map(|x| x.origin.trim().to_string()).unwrap_or_else(|| t.tour.tour.clone());
     let legs = l.company.planning.days.iter().find(|x| x.0 == c.map && x.1 == p.date).and_then(|x| x.2.as_ref().ok()).and_then(|lines| {
         let line = lines.iter().find(|x| x.name.eq_ignore_ascii_case(&t.tour.line))?;
-        let tour = line.tours.iter().find(|x| x.number.trim() == t.tour.tour.trim())?;
+        let tour = line.tours.iter().find(|x| x.number.trim() == origin)?;
         timetable_legs(t.tour.trips.get(d.start..d.end)?, &tour.trips)
     });
     let Some((first, time, count)) = legs else {
         kit::show(l, kit::Popup::new("timer", "Not yet", omsi_ui::tr("The timetable of the day is still being read."), omsi_ui::tr("Try again in a moment."), None));
         return;
     };
-    let (line, tour) = (t.tour.line.clone(), t.tour.tour.clone());
+    let (line, tour) = (t.tour.line.clone(), origin);
     let ch = &mut l.state.choice;
     ch.map = c.map.clone();
     ch.entry = -1;
@@ -493,10 +512,33 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     let day = l.company.planning.day.min(6);
     let date = co::dates::add(&c.date, day as i64);
     week_strip(l, Rect::new(area.x, area.y, area.w, 60.0), &c);
-    let plan = plan_of(l, &c, &date);
     let ty = area.y + 74.0;
-    tools(l, Rect::new(area.x, ty, area.w, 40.0), &c, &date);
+    // the roster, or the studio's Vehicles or Drivers view of the same day
+    let sw = 330.0f32.min(area.w * 0.4);
+    let mut view = l.company.planning.view.min(2);
+    if l.ui.segmented("plan-view", Rect::new(area.x, ty + 2.0, sw, 36.0), &mut view, &["Roster", "Vehicles", "Drivers"]) {
+        l.company.planning.view = view;
+        l.company.planning.sel = None;
+        l.company.planning.arm = None;
+        l.company.planning.studio.let_go();
+    }
+    l.ui.tooltip(Rect::new(area.x, ty + 2.0, sw, 36.0), "Roster: who drives what. Vehicles and Drivers: the scheduling studio - the buses' blocks and the duties cut from them");
+    let tools_r = Rect::new(area.x + sw + 18.0, ty, (area.w - sw - 18.0).max(0.0), 40.0);
     let body = Rect::new(area.x, ty + 40.0 + 14.0, area.w, (area.bottom() - ty - 40.0 - 14.0).max(0.0));
+    if view > 0 {
+        studio::tools(l, tools_r, &c, &date);
+        studio::draw(l, body, &c, &date, view == 2);
+        if l.ui.input.keys.contains(&Key::Escape) {
+            l.company.planning.studio.let_go();
+        }
+        if let Some(i) = under {
+            l.ui.input = i;
+            plan_edit::draw(l, area, &c);
+        }
+        return;
+    }
+    let plan = plan_of(l, &c, &date);
+    tools(l, tools_r, &c, &date);
     let side_w = (body.w * 0.28).clamp(320.0, 440.0);
     let chart = Rect::new(body.x, body.y, (body.w - side_w - 16.0).max(200.0), body.h);
     let side = Rect::new(chart.right() + 16.0, body.y, side_w, body.h);

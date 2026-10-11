@@ -47,6 +47,7 @@ pub mod rng;
 pub mod specials;
 pub mod staff;
 pub mod store;
+pub mod studio;
 pub mod training;
 
 pub use model::*;

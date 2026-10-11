@@ -28,6 +28,15 @@ pub struct PlannedTrip {
     /// run with its tour, booked as empty kilometres.
     #[serde(default)]
     pub empty: bool,
+    /// The timetable's tour it comes from (the scheduling studio may run it in another bus's
+    /// block, `studio`; the game still knows it by this tour). Empty for a depot run the
+    /// company adds itself.
+    #[serde(default)]
+    pub origin: String,
+    /// The last stop it reaches, where the bus stands after it (`to` is what its displays
+    /// show, often another name). Empty: `to`.
+    #[serde(default)]
+    pub last: String,
 }
 
 impl PlannedTrip {
@@ -35,6 +44,15 @@ impl PlannedTrip {
     /// not cut before one).
     pub fn counts(&self) -> bool {
         !self.empty && self.stops >= 3
+    }
+
+    /// Where the bus stands once it has run it: its last stop.
+    pub fn end(&self) -> &str {
+        if self.last.trim().is_empty() {
+            &self.to
+        } else {
+            &self.last
+        }
     }
 }
 
@@ -51,6 +69,10 @@ pub struct TourOfDay {
     /// on the planning to be planned, but neither run nor penalised (`in_service`).
     #[serde(default)]
     pub unplanned: bool,
+    /// Where the player cut it into duties in the scheduling studio: the trips (indices) a
+    /// new duty begins with. None: cut automatically (`split_tour`).
+    #[serde(default)]
+    pub cuts: Option<Vec<usize>>,
 }
 
 impl TourOfDay {
@@ -64,6 +86,18 @@ impl TourOfDay {
 
     pub fn km(&self) -> f64 {
         self.trips.iter().map(|t| t.km).sum()
+    }
+
+    /// Whether it runs (some of) the timetable's tour `n`: a trip of that tour in it - a block
+    /// the studio laid out may hold trips of several - or, its trips not knowing their tour,
+    /// it is that tour.
+    pub fn runs_tour(&self, n: &str) -> bool {
+        let n = n.trim();
+        if self.trips.iter().any(|x| !x.origin.is_empty()) {
+            self.trips.iter().any(|x| x.origin.trim() == n)
+        } else {
+            self.tour.trim() == n
+        }
     }
 
     /// The bus size its depot group asks for, if it names one (`vormVanDepot`).
@@ -201,9 +235,38 @@ pub fn line_of_number<'a>(c: &'a Company, number: &str) -> Option<&'a CompanyLin
 
 /// The tours of the company's lines on `date` (`lines` the timetable read for it): those that
 /// run that day, their trips in order of departure, each marked `unplanned` when its line is
-/// not in service as it begins. The one source of a day's tours - the Lines page, the
-/// planning, the clock and the day's close all take them from here.
+/// not in service as it begins - as the player laid them out in the scheduling studio, where
+/// he did (`studio::arrange`; the easy mode keeps the timetable's). The one source of a day's
+/// tours - the Lines page, the planning, the clock and the day's close all take them from
+/// here.
 pub fn tours_of_day(c: &Company, lines: &[LineInfo], date: &str) -> Vec<TourOfDay> {
+    let mut out = timetable_tours(c, lines);
+    let cuts = if super::autopilot::on(c) { Vec::new() } else { super::studio::arrange(c, super::plan::weekday_of(date), &mut out) };
+    finish_tours(c, out, date, cuts)
+}
+
+/// The tours as the timetable has them, before the studio (`tours_of_day`): what "Optimise"
+/// proposes, and what an edit that no longer fits falls back to.
+pub fn automatic_tours_of_day(c: &Company, lines: &[LineInfo], date: &str) -> Vec<TourOfDay> {
+    finish_tours(c, timetable_tours(c, lines), date, Vec::new())
+}
+
+/// The own lines' depot runs added, the studio's cuts found (`cuts`: a tour's index and the
+/// trips its duties begin with), each tour marked `unplanned` or not, in order.
+fn finish_tours(c: &Company, mut out: Vec<TourOfDay>, date: &str, cuts: Vec<(usize, Vec<super::studio::TripRef>)>) -> Vec<TourOfDay> {
+    // (the own lines' tours with their depot runs: their timetable has none)
+    super::ownline::add_depot_runs(c, &mut out);
+    super::studio::resolve_cuts(&mut out, &cuts);
+    for t in out.iter_mut() {
+        let begins = super::clock::moment(date, t.from() as i64);
+        t.unplanned = !c.lines.iter().find(|l| l.name.eq_ignore_ascii_case(&t.line)).is_some_and(|l| in_service(l, begins));
+    }
+    out.sort_by_key(|t| t.from());
+    out
+}
+
+/// The company lines' tours as the timetable has them (no depot runs added, not sorted).
+pub(crate) fn timetable_tours(c: &Company, lines: &[LineInfo]) -> Vec<TourOfDay> {
     let mut out = Vec::new();
     for cl in &c.lines {
         let Some(line) = lines.iter().find(|l| l.name.eq_ignore_ascii_case(&cl.name)) else { continue };
@@ -221,21 +284,16 @@ pub fn tours_of_day(c: &Company, lines: &[LineInfo], date: &str) -> Vec<TourOfDa
                     km: x.km,
                     stops: x.stops.len() as u32,
                     empty: super::specials::trip_kind(&x.line, &x.name, &x.terminus, x.stops.len(), &[&c.depot]).empty(),
+                    origin: t.number.clone(),
+                    last: x.stops.last().map(|s| s.name.clone()).unwrap_or_default(),
                 })
                 .collect();
             trips.sort_by_key(|x| x.dep);
             if trips.iter().any(PlannedTrip::counts) {
-                out.push(TourOfDay { line: cl.name.clone(), number: cl.number.clone(), tour: t.number.clone(), ai_group: t.ai_group.clone(), trips, unplanned: false });
+                out.push(TourOfDay { line: cl.name.clone(), number: cl.number.clone(), tour: t.number.clone(), ai_group: t.ai_group.clone(), trips, unplanned: false, cuts: None });
             }
         }
     }
-    // (the own lines' tours with their depot runs: their timetable has none)
-    super::ownline::add_depot_runs(c, &mut out);
-    for t in out.iter_mut() {
-        let begins = super::clock::moment(date, t.from() as i64);
-        t.unplanned = !c.lines.iter().find(|l| l.name.eq_ignore_ascii_case(&t.line)).is_some_and(|l| in_service(l, begins));
-    }
-    out.sort_by_key(|t| t.from());
     out
 }
 
@@ -378,9 +436,24 @@ pub fn split_tour(trips: &[PlannedTrip], max: i32) -> Vec<std::ops::Range<usize>
     out
 }
 
-/// The duties of a tour (`DUTY_MAX`).
+/// The duties of a tour: where the player cut it in the scheduling studio, else cut
+/// automatically (`DUTY_MAX`).
 pub fn duties_of(t: &TourOfDay) -> Vec<std::ops::Range<usize>> {
-    split_tour(&t.trips, DUTY_MAX)
+    match &t.cuts {
+        Some(cuts) if !t.trips.is_empty() => {
+            let mut at: Vec<usize> = cuts.iter().copied().filter(|&k| k > 0 && k < t.trips.len()).collect();
+            at.sort_unstable();
+            at.dedup();
+            let mut out = Vec::new();
+            let mut from = 0;
+            for k in at.into_iter().chain(std::iter::once(t.trips.len())) {
+                out.push(from..k);
+                from = k;
+            }
+            out
+        }
+        _ => split_tour(&t.trips, DUTY_MAX),
+    }
 }
 
 /// The first day of the company's next week (for a page that says when the markets change).
@@ -393,7 +466,7 @@ pub(crate) mod tests {
     use super::*;
 
     pub fn trip(dep: i32, arr: i32, stops: u32) -> PlannedTrip {
-        PlannedTrip { name: format!("t{dep}"), line: "5".into(), from: "A".into(), to: "B".into(), dep, arr, km: (arr - dep) as f64 * 0.3, stops, empty: false }
+        PlannedTrip { name: format!("t{dep}"), line: "5".into(), from: "A".into(), to: "B".into(), dep, arr, km: (arr - dep) as f64 * 0.3, stops, empty: false, origin: String::new(), last: String::new() }
     }
 
     #[test]

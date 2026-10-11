@@ -119,11 +119,19 @@ pub struct Planning {
     /// (Luc: "you must also be able to collapse and expand lines"); kept with the company.
     #[serde(default)]
     pub collapsed: Vec<String>,
+    /// The scheduling studio's blocks, a line and a weekday at a time, as the player laid
+    /// them out (`studio`): none, the timetable's tours cut automatically.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub layouts: Vec<super::studio::LineLayout>,
+    /// The duties the player joined from pieces of work (a split duty, or one that changes
+    /// buses), a weekday at a time.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub joined: Vec<super::studio::JoinedDuty>,
 }
 
 impl Default for Planning {
     fn default() -> Self {
-        Planning { week: Vec::new(), auto: false, auto_only: None, date: String::new(), fills: Vec::new(), collapsed: Vec::new() }
+        Planning { week: Vec::new(), auto: false, auto_only: None, date: String::new(), fills: Vec::new(), collapsed: Vec::new(), layouts: Vec::new(), joined: Vec::new() }
     }
 }
 
@@ -227,6 +235,8 @@ pub fn rename_line(c: &mut Company, old: &str, new: &str) {
     for x in c.planning.collapsed.iter_mut().filter(|x| x.eq_ignore_ascii_case(old)) {
         *x = new.to_string();
     }
+    // (the studio's blocks and joined duties of the line follow it too)
+    super::studio::rename_line(c, old, new);
 }
 
 /// The roster's entries of a line's `tours` taken out, every weekday (a changed timetable:
@@ -679,7 +689,7 @@ impl DayPlan {
 
 /// Whether a tour is one of `keys` (a line's number or name, and the tour).
 fn is_one_of(t: &TourOfDay, keys: &[(String, String)]) -> bool {
-    keys.iter().any(|(l, n)| (same(&t.number, l) || same(&t.line, l) || t.trips.iter().any(|x| same(&x.line, l))) && t.tour.trim() == n.trim())
+    keys.iter().any(|(l, n)| (same(&t.number, l) || same(&t.line, l) || t.trips.iter().any(|x| same(&x.line, l))) && t.runs_tour(n))
 }
 
 /// When each bus is out: (id, (from, to) of its tours).
@@ -978,7 +988,12 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
         }
         let bus = t.bus_of(c);
         let block = block_of(&t.tour, &t.duties[k], duty_key(&t.tour.line, &t.tour.tour, k));
-        match pick(&work, &bus, &block) {
+        // (a piece of a duty the player joined in the studio: its other pieces' driver first)
+        let partner = super::studio::partner_driver(c, wd, &out, i, k).and_then(|id| {
+            let e = c.employee(id).filter(|e| unavailable(e, date, today).is_none())?;
+            fits_bus(e, &bus, work.of(id), &block, today).ok().map(|w| (id, w))
+        });
+        match partner.or_else(|| pick(&work, &bus, &block)) {
             Some((id, w)) => {
                 work.push(id, block);
                 let d = &mut out[i].duties[k];
@@ -1263,16 +1278,19 @@ impl LivePlan {
     }
 }
 
-/// The plan of the company's day for the game: each tour with its bus, and those dropped.
+/// The plan of the company's day for the game: each tour with its bus, and those dropped. The
+/// game knows the timetable's tours: a block the scheduling studio laid out runs each of them
+/// it holds most of with its bus (`studio::origins`).
 pub fn live_plan(c: &Company, dp: &DayPlan) -> LivePlan {
     let tours = dp
         .tours
         .iter()
         // (a line not in service runs nothing, not even in the game)
         .filter(|t| !t.by_player && !t.tour.unplanned)
-        .map(|t| {
+        .flat_map(|t| super::studio::origins(&dp.tours, t).into_iter().map(move |o| (t, o)))
+        .map(|(t, origin)| {
             let hof = c.lines.iter().find(|l| l.name.eq_ignore_ascii_case(&t.tour.line)).map(|l| l.hof.trim().to_string()).unwrap_or_default();
-            let mut lt = LiveTour { line: t.tour.line.clone(), number: t.tour.number.clone(), tour: t.tour.tour.clone(), hof, ..Default::default() };
+            let mut lt = LiveTour { line: t.tour.line.clone(), number: t.tour.number.clone(), tour: origin, hof, ..Default::default() };
             match t.bus {
                 Some(BusOf::Own(id)) => {
                     if let Some(v) = c.vehicle(id) {
@@ -1359,7 +1377,7 @@ mod tests {
     use crate::company::model::CompanyLine;
 
     fn tour(no: &str, from: i32, n: i32) -> TourOfDay {
-        TourOfDay { line: "Linie5".into(), number: "5".into(), tour: no.into(), ai_group: String::new(), trips: (0..n).map(|k| trip(from + k * 60, from + 50 + k * 60, 12)).collect(), unplanned: false }
+        TourOfDay { line: "Linie5".into(), number: "5".into(), tour: no.into(), ai_group: String::new(), trips: (0..n).map(|k| trip(from + k * 60, from + 50 + k * 60, 12)).collect(), unplanned: false, cuts: None }
     }
 
     fn company(buses: usize, people: usize) -> Company {

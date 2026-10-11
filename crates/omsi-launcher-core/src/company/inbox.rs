@@ -836,7 +836,7 @@ mod tests {
             (e.sick_until, e.holiday_until) = (None, None);
         }
         c.inbox.welcomed = true;
-        let tours = || (0..2).map(|k| TourOfDay { line: "Linie5".into(), number: "5".into(), tour: (k + 1).to_string(), ai_group: String::new(), trips: (0..10).map(|n| trip(6 * 60 + k * 30 + n * 60, 6 * 60 + k * 30 + n * 60 + 50, 12)).collect(), unplanned: false }).collect::<Vec<_>>();
+        let tours = || (0..2).map(|k| TourOfDay { line: "Linie5".into(), number: "5".into(), tour: (k + 1).to_string(), ai_group: String::new(), trips: (0..10).map(|n| trip(6 * 60 + k * 30 + n * 60, 6 * 60 + k * 30 + n * 60 + 50, 12)).collect(), unplanned: false, cuts: None }).collect::<Vec<_>>();
         let mut plain = c.clone();
         let base = close_day(&mut plain, tours(), &[]);
         let date = c.date.clone();

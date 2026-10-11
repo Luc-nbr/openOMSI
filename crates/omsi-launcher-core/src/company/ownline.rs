@@ -700,9 +700,9 @@ pub fn add_depot_runs(c: &Company, tours: &mut [TourOfDay]) {
         if !own || !first.counts() {
             continue;
         }
-        let run = |from: &str, to: &str, dep: i32| PlannedTrip { name: "Betriebsfahrt".into(), line: String::new(), from: from.into(), to: to.into(), dep, arr: dep + DEPOT_RUN_MIN, km: DEPOT_RUN_KM, stops: 0, empty: true };
+        let run = |from: &str, to: &str, dep: i32| PlannedTrip { name: "Betriebsfahrt".into(), line: String::new(), from: from.into(), to: to.into(), dep, arr: dep + DEPOT_RUN_MIN, km: DEPOT_RUN_KM, stops: 0, empty: true, origin: String::new(), last: String::new() };
         t.trips.insert(0, run("Depot", &first.from, first.dep - DEPOT_RUN_MIN));
-        t.trips.push(run(&last.to, "Depot", last.arr));
+        t.trips.push(run(last.end(), "Depot", last.arr));
     }
 }
 
@@ -1287,11 +1287,13 @@ pub fn design_tours(c: &Company, cl: &CompanyLine, l: &LineDesign, stem: &str, d
                     km: d.legs.iter().map(|g| g.length as f64).sum::<f64>() / 1000.0,
                     stops: d.stops.len() as u32,
                     empty: false,
+                    origin: t.number.clone(),
+                    last: d.stops.last().map(|s| s.name.clone()).unwrap_or_default(),
                 })
             })
             .collect();
         if trips.iter().any(PlannedTrip::counts) {
-            out.push(TourOfDay { line: cl.name.clone(), number: cl.number.clone(), tour: t.number.clone(), ai_group: l.ai_group.clone(), trips, unplanned: false });
+            out.push(TourOfDay { line: cl.name.clone(), number: cl.number.clone(), tour: t.number.clone(), ai_group: l.ai_group.clone(), trips, unplanned: false, cuts: None });
         }
     }
     add_depot_runs(c, &mut out);
@@ -1610,7 +1612,7 @@ mod tests {
         l.days[0].bands = vec![TimeBand { from: 360.0, to: 540.0, headway: 10.0, size: Some(BusSize::Articulated) }];
         let s = shape_of(&l, &|_| 0);
         confirm(&mut c, &l, "oo_9", &s).unwrap();
-        let t = TourOfDay { line: "oo_9".into(), number: "9".into(), tour: "1".into(), ai_group: String::new(), trips: vec![super::super::network::PlannedTrip { dep: 360, arr: 400, stops: 12, ..Default::default() }], unplanned: false };
+        let t = TourOfDay { line: "oo_9".into(), number: "9".into(), tour: "1".into(), ai_group: String::new(), trips: vec![super::super::network::PlannedTrip { dep: 360, arr: 400, stops: 12, ..Default::default() }], unplanned: false, cuts: None };
         assert_eq!(wanted(&c, &t), Some(BusSize::Articulated));
         let lack = shortfall(&c, &[t.clone(), TourOfDay { tour: "2".into(), ..t.clone() }]);
         assert_eq!(lack, vec![Shortfall { size: BusSize::Articulated, needed: 2, have: 0 }]);

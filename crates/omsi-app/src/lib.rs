@@ -180,6 +180,7 @@ const _LOCALES_COMPANY_REALTIME: &str = include_str!("../locales/company-realtim
 const _LOCALES_EASY_POLISH: &str = include_str!("../locales/easy-polish.yml");
 const _LOCALES_LINE_EXISTING: &str = include_str!("../locales/line-existing.yml");
 const _LOCALES_COMPANY_PLANNING: &str = include_str!("../locales/company-planning.yml");
+const _LOCALES_PLANNING_STUDIO: &str = include_str!("../locales/planning-studio.yml");
 
 /// Show the interface in `code` (the settings' ENG / DEU / FRA / RUS).
 pub(crate) fn ui_language(code: &str) {
