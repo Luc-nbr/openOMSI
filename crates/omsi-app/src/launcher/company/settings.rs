@@ -71,6 +71,8 @@ pub(super) fn dialog(l: &mut Launcher) {
     let now = omsi_ui::tr("Today it is %{date}, %{time}.").replace("%{date}", &day_label(&c.date)).replace("%{time}", &ck::hhmm(ck::now(&c)));
     l.ui.text_in(&now, Rect::new(inner.x, y, inner.w, 24.0), kit::BODY, Weight::Medium, TEXT, Align::Left);
     y += 34.0;
+    // (whether its time runs with the real clock, also while openOMSI is closed)
+    y += super::clock::realtime_switch(l, Rect::new(inner.x, y, inner.w, 0.0));
     let mut d = date;
     l.ui.date_field("company-settings-date", Rect::new(inner.x, y, 240.0, 40.0), &mut d);
     let earliest = ck::earliest_date(&c);
