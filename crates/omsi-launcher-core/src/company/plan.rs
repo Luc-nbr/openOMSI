@@ -115,11 +115,36 @@ pub struct Planning {
     pub date: String,
     #[serde(default)]
     pub fills: Vec<FillChoice>,
+    /// The lines (their timetable names) the planning's chart shows folded to their heading
+    /// (Luc: "you must also be able to collapse and expand lines"); kept with the company.
+    #[serde(default)]
+    pub collapsed: Vec<String>,
 }
 
 impl Default for Planning {
     fn default() -> Self {
-        Planning { week: Vec::new(), auto: false, auto_only: None, date: String::new(), fills: Vec::new() }
+        Planning { week: Vec::new(), auto: false, auto_only: None, date: String::new(), fills: Vec::new(), collapsed: Vec::new() }
+    }
+}
+
+/// The line is shown folded to its heading on the planning's chart.
+pub fn is_collapsed(c: &Company, line: &str) -> bool {
+    c.planning.collapsed.iter().any(|x| same(x, line))
+}
+
+/// Fold a line of the planning's chart to its heading, or unfold it.
+pub fn set_collapsed(c: &mut Company, line: &str, folded: bool) {
+    c.planning.collapsed.retain(|x| !same(x, line));
+    if folded {
+        c.planning.collapsed.push(line.trim().to_string());
+    }
+}
+
+/// Fold every one of `lines`, or unfold them all (the lines the company gave up stay out).
+pub fn set_all_collapsed(c: &mut Company, lines: &[String], folded: bool) {
+    c.planning.collapsed.clear();
+    if folded {
+        c.planning.collapsed.extend(lines.iter().map(|l| l.trim().to_string()));
     }
 }
 
@@ -197,6 +222,10 @@ pub fn rename_line(c: &mut Company, old: &str, new: &str) {
     }
     for r in c.planning.week.iter_mut().filter(|r| r.line.eq_ignore_ascii_case(old)) {
         r.line = new.to_string();
+    }
+    // (folded on the chart under its old name: folded under its new one)
+    for x in c.planning.collapsed.iter_mut().filter(|x| x.eq_ignore_ascii_case(old)) {
+        *x = new.to_string();
     }
 }
 
@@ -1354,6 +1383,29 @@ mod tests {
             }
         }
         unreachable!()
+    }
+
+    #[test]
+    fn a_line_folded_on_the_chart_stays_folded_and_follows_its_name() {
+        let mut c = company(0, 0);
+        assert!(!is_collapsed(&c, "Linie5"));
+        set_collapsed(&mut c, "Linie5", true);
+        assert!(is_collapsed(&c, "linie5"));
+        // (folded once only)
+        set_collapsed(&mut c, "LINIE5", true);
+        assert_eq!(c.planning.collapsed.len(), 1);
+        // a new number is a new timetable name: still folded
+        rename_line(&mut c, "Linie5", "oo_6");
+        assert!(is_collapsed(&c, "oo_6") && !is_collapsed(&c, "Linie5"));
+        set_collapsed(&mut c, "oo_6", false);
+        assert!(c.planning.collapsed.is_empty());
+        set_all_collapsed(&mut c, &["A".into(), "B".into()], true);
+        assert!(is_collapsed(&c, "a") && is_collapsed(&c, "B"));
+        set_all_collapsed(&mut c, &["A".into(), "B".into()], false);
+        assert!(c.planning.collapsed.is_empty());
+        // a company saved before there was folding reads as none folded
+        let p: Planning = serde_json::from_str(r#"{"week":[],"date":"2024-03-04","fills":[]}"#).unwrap();
+        assert!(p.collapsed.is_empty());
     }
 
     #[test]
