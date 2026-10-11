@@ -374,7 +374,7 @@ fn travel(trips: &[&PlannedTrip], a: &str, b: &str) -> i32 {
     if same(a, b) {
         return 0;
     }
-    trips.iter().filter(|x| same(&x.from, a) && same(&x.to, b)).map(|x| x.arr - x.dep).min().unwrap_or(DEADHEAD_MIN)
+    trips.iter().filter(|x| same(&x.from, a) && same(x.end(), b)).map(|x| x.arr - x.dep).min().unwrap_or(DEADHEAD_MIN)
 }
 
 /// The kilometres a bus runs empty from `a` to `b`: the line's shortest trip between them,
@@ -383,7 +383,7 @@ fn deadhead_km(trips: &[&PlannedTrip], a: &str, b: &str) -> f64 {
     if same(a, b) {
         return 0.0;
     }
-    trips.iter().filter(|x| same(&x.from, a) && same(&x.to, b)).map(|x| x.km).fold(None, |m: Option<f64>, k| Some(m.map_or(k, |m| m.min(k)))).unwrap_or(DEPOT_RUN_KM)
+    trips.iter().filter(|x| same(&x.from, a) && same(x.end(), b)).map(|x| x.km).fold(None, |m: Option<f64>, k| Some(m.map_or(k, |m| m.min(k)))).unwrap_or(DEPOT_RUN_KM)
 }
 
 /// Whether trip `x` fits into a bus's day (`block`, its trips in order; `line` every trip of
@@ -401,7 +401,7 @@ pub fn fits_into(block: &[PlannedTrip], x: &PlannedTrip, line: &[&PlannedTrip]) 
         if p.empty && !others[at..].iter().any(|t| t.counts()) && others[..at].iter().any(|t| t.counts()) {
             return Err(BACK_IN_DEPOT);
         }
-        if x.dep - p.arr < travel(line, &p.to, &x.from) {
+        if x.dep - p.arr < travel(line, p.end(), &x.from) {
             return Err(NO_TIME);
         }
     }
@@ -412,7 +412,7 @@ pub fn fits_into(block: &[PlannedTrip], x: &PlannedTrip, line: &[&PlannedTrip]) 
         if n.empty && !others[..at].iter().any(|t| t.counts()) && others[at..].iter().any(|t| t.counts()) {
             return Err(IN_DEPOT);
         }
-        if n.dep - x.arr < travel(line, &x.to, &n.from) {
+        if n.dep - x.arr < travel(line, x.end(), &n.from) {
             return Err(NO_TIME);
         }
     }
@@ -497,8 +497,8 @@ pub fn is_relief(c: &Company, tours: &[TourOfDay], line: &str, place: &str) -> b
         return false;
     }
     let mine = || tours.iter().filter(|t| same(&t.line, line));
-    let terminus = mine().flat_map(|t| t.trips.iter()).filter(|x| x.counts()).any(|x| same(&x.from, place) || same(&x.to, place));
-    let depot = same(place, "Depot") || (!c.depot.trim().is_empty() && same(place, c.depot.trim_end_matches(".hof"))) || mine().any(|t| t.trips.first().is_some_and(|x| x.empty && same(&x.from, place)) || t.trips.last().is_some_and(|x| x.empty && same(&x.to, place)));
+    let terminus = mine().flat_map(|t| t.trips.iter()).filter(|x| x.counts()).any(|x| same(&x.from, place) || same(x.end(), place));
+    let depot = same(place, "Depot") || (!c.depot.trim().is_empty() && same(place, c.depot.trim_end_matches(".hof"))) || mine().any(|t| t.trips.first().is_some_and(|x| x.empty && same(&x.from, place)) || t.trips.last().is_some_and(|x| x.empty && same(x.end(), place)));
     terminus || depot
 }
 
@@ -529,10 +529,10 @@ pub fn can_cut(c: &Company, tours: &[TourOfDay], i: usize, at: usize) -> Result<
         return Err(CUT_ALREADY);
     }
     let (a, b) = (&t.trips[at - 1], &t.trips[at]);
-    if !same(&a.to, &b.from) {
+    if !same(a.end(), &b.from) {
         return Err(ON_THE_MOVE);
     }
-    if !is_relief(c, tours, &t.line, &a.to) {
+    if !is_relief(c, tours, &t.line, a.end()) {
         return Err(NOT_RELIEF);
     }
     let p = pieces.iter().find(|r| r.contains(&at)).ok_or(NOT_FOUND)?;
@@ -611,6 +611,12 @@ pub fn join(c: &mut Company, weekday: u8, tours: &[TourOfDay], a: (usize, usize)
     });
     c.planning.joined.push(JoinedDuty { weekday, pieces });
     Ok(())
+}
+
+/// Whether piece `b` may be joined into the duty of piece `a` (`join`, nothing kept).
+pub fn can_join(c: &Company, weekday: u8, tours: &[TourOfDay], a: (usize, usize), b: (usize, usize)) -> Result<(), &'static str> {
+    let mut probe = c.clone();
+    join(&mut probe, weekday, tours, a, b)
 }
 
 /// Take apart the duty piece (block, duty) was joined into: each piece a duty of its own.
@@ -758,7 +764,7 @@ fn piece_block(tours: &[TourOfDay], i: usize, k: usize) -> Block {
     let t = &tours[i];
     let r = network::duties_of(t).get(k).cloned().unwrap_or(0..0);
     let (from, to) = span(t, &r);
-    Block { key: format!("{i}/{k}"), from, to, from_stop: t.trips.get(r.start).map(|x| x.from.clone()).unwrap_or_default(), to_stop: r.end.checked_sub(1).and_then(|e| t.trips.get(e)).map(|x| x.to.clone()).unwrap_or_default() }
+    Block { key: format!("{i}/{k}"), from, to, from_stop: t.trips.get(r.start).map(|x| x.from.clone()).unwrap_or_default(), to_stop: r.end.checked_sub(1).and_then(|e| t.trips.get(e)).map(|x| x.end().to_string()).unwrap_or_default() }
 }
 
 fn span(t: &TourOfDay, r: &Range<usize>) -> (i32, i32) {
@@ -826,7 +832,7 @@ pub struct Kpis {
 /// The empty runs between a block's trips: (from, to, km) where one trip ends elsewhere than
 /// the next begins (the line's trips `line` give the kilometres).
 pub fn deadheads(t: &TourOfDay, line: &[&PlannedTrip]) -> Vec<(i32, i32, f64)> {
-    t.trips.windows(2).filter(|w| !same(&w[0].to, &w[1].from)).map(|w| (w[0].arr, w[1].dep, deadhead_km(line, &w[0].to, &w[1].from))).collect()
+    t.trips.windows(2).filter(|w| !same(w[0].end(), &w[1].from)).map(|w| (w[0].arr, w[1].dep, deadhead_km(line, w[0].end(), &w[1].from))).collect()
 }
 
 /// The most blocks out at once.
@@ -881,10 +887,12 @@ mod tests {
             index: 0,
             line: "5".into(),
             from: a.into(),
-            terminus: b.into(),
+            // (its displays show another name than its last stop has, as they often do)
+            terminus: format!("{b} Bf"),
             departure: dep as f64 * 60.0,
             arrival: arr as f64 * 60.0,
-            stops: (0..6).map(|s| StopInfo { name: format!("S{s}"), id: s, arr: 0.0, dep: 0.0 }).collect(),
+            // (its first and last stop the termini it runs between)
+            stops: (0..6).map(|s| StopInfo { name: match s { 0 => a.to_string(), 5 => b.to_string(), _ => format!("S{s}") }, id: s, arr: 0.0, dep: 0.0 }).collect(),
             km: (arr - dep) as f64 * 0.4,
         }
     }
@@ -995,8 +1003,8 @@ mod tests {
         let mut c = company();
         let mut l = line5();
         // tour 1 runs empty to the workshop and back in the middle of its day
-        l.tours[0].trips.insert(4, TripInfo { line: String::new(), stops: Vec::new(), km: 2.0, ..tt("X1", "A", "Werkstatt", 591, 593) });
-        l.tours[0].trips.insert(5, TripInfo { line: String::new(), stops: Vec::new(), km: 2.0, ..tt("X2", "Werkstatt", "A", 594, 596) });
+        l.tours[0].trips.insert(4, TripInfo { line: String::new(), stops: Vec::new(), km: 2.0, terminus: "Werkstatt".into(), ..tt("X1", "A", "Werkstatt", 591, 593) });
+        l.tours[0].trips.insert(5, TripInfo { line: String::new(), stops: Vec::new(), km: 2.0, terminus: "A".into(), ..tt("X2", "Werkstatt", "A", 594, 596) });
         let wd = super::super::plan::weekday_of(&c.date);
         let tours = day(&c, &l);
         let (one, t1) = block(&tours, "1");

@@ -33,6 +33,10 @@ pub struct PlannedTrip {
     /// company adds itself.
     #[serde(default)]
     pub origin: String,
+    /// The last stop it reaches, where the bus stands after it (`to` is what its displays
+    /// show, often another name). Empty: `to`.
+    #[serde(default)]
+    pub last: String,
 }
 
 impl PlannedTrip {
@@ -40,6 +44,15 @@ impl PlannedTrip {
     /// not cut before one).
     pub fn counts(&self) -> bool {
         !self.empty && self.stops >= 3
+    }
+
+    /// Where the bus stands once it has run it: its last stop.
+    pub fn end(&self) -> &str {
+        if self.last.trim().is_empty() {
+            &self.to
+        } else {
+            &self.last
+        }
     }
 }
 
@@ -272,6 +285,7 @@ pub(crate) fn timetable_tours(c: &Company, lines: &[LineInfo]) -> Vec<TourOfDay>
                     stops: x.stops.len() as u32,
                     empty: super::specials::trip_kind(&x.line, &x.name, &x.terminus, x.stops.len(), &[&c.depot]).empty(),
                     origin: t.number.clone(),
+                    last: x.stops.last().map(|s| s.name.clone()).unwrap_or_default(),
                 })
                 .collect();
             trips.sort_by_key(|x| x.dep);
@@ -452,7 +466,7 @@ pub(crate) mod tests {
     use super::*;
 
     pub fn trip(dep: i32, arr: i32, stops: u32) -> PlannedTrip {
-        PlannedTrip { name: format!("t{dep}"), line: "5".into(), from: "A".into(), to: "B".into(), dep, arr, km: (arr - dep) as f64 * 0.3, stops, empty: false, origin: String::new() }
+        PlannedTrip { name: format!("t{dep}"), line: "5".into(), from: "A".into(), to: "B".into(), dep, arr, km: (arr - dep) as f64 * 0.3, stops, empty: false, origin: String::new(), last: String::new() }
     }
 
     #[test]

@@ -700,9 +700,9 @@ pub fn add_depot_runs(c: &Company, tours: &mut [TourOfDay]) {
         if !own || !first.counts() {
             continue;
         }
-        let run = |from: &str, to: &str, dep: i32| PlannedTrip { name: "Betriebsfahrt".into(), line: String::new(), from: from.into(), to: to.into(), dep, arr: dep + DEPOT_RUN_MIN, km: DEPOT_RUN_KM, stops: 0, empty: true, origin: String::new() };
+        let run = |from: &str, to: &str, dep: i32| PlannedTrip { name: "Betriebsfahrt".into(), line: String::new(), from: from.into(), to: to.into(), dep, arr: dep + DEPOT_RUN_MIN, km: DEPOT_RUN_KM, stops: 0, empty: true, origin: String::new(), last: String::new() };
         t.trips.insert(0, run("Depot", &first.from, first.dep - DEPOT_RUN_MIN));
-        t.trips.push(run(&last.to, "Depot", last.arr));
+        t.trips.push(run(last.end(), "Depot", last.arr));
     }
 }
 
@@ -1288,6 +1288,7 @@ pub fn design_tours(c: &Company, cl: &CompanyLine, l: &LineDesign, stem: &str, d
                     stops: d.stops.len() as u32,
                     empty: false,
                     origin: t.number.clone(),
+                    last: d.stops.last().map(|s| s.name.clone()).unwrap_or_default(),
                 })
             })
             .collect();
