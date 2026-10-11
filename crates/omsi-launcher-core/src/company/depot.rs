@@ -535,6 +535,8 @@ fn start_jobs(c: &mut Company, day: &str) {
     let waiting: Vec<u32> = c.site.jobs.iter().filter(|j| j.started.is_none()).map(|j| j.id).collect();
     for id in waiting {
         let Some(j) = c.site.jobs.iter().find(|j| j.id == id).cloned() else { continue };
+        // (fewer days with the research into repairs: `parts::job_days`)
+        let days = super::parts::job_days(c, j.kind);
         let Some(v) = c.fleet.iter_mut().find(|v| v.id == j.vehicle) else {
             c.site.jobs.retain(|x| x.id != id);
             continue;
@@ -545,7 +547,7 @@ fn start_jobs(c: &mut Company, day: &str) {
         if (there && j.kind != JobKind::Service) || (!there && free == 0) {
             continue;
         }
-        let until = if there { day.to_string() } else { dates::add(day, j.kind.days() - 1) };
+        let until = if there { day.to_string() } else { dates::add(day, days - 1) };
         if !there {
             v.workshop_until = Some(until.clone());
             free -= 1;
@@ -580,6 +582,8 @@ fn start_jobs(c: &mut Company, day: &str) {
         }
         let free_of_charge = j.kind == JobKind::Repair && super::dealer::under_warranty(c, j.vehicle, day);
         let kind = if j.kind == JobKind::Paint { BookingKind::Livery } else { BookingKind::Repair };
+        // (the parts it takes from the workshop's stores, their worth off its cost: `parts`)
+        super::parts::job_started(c, j.vehicle, j.kind, if free_of_charge { 0 } else { j.cost });
         c.book(kind, if free_of_charge { 0 } else { -j.cost }, text, false);
     }
 }
@@ -939,6 +943,8 @@ mod tests {
         let (a, b) = (c.fleet[0].id, c.fleet[1].id);
         c.dealer.free_services.push(a);
         c.site.workshop = 2;
+        // (no parts in the stores: what a service takes from them is credited too, `parts`)
+        c.stores.stock.clear();
         order(&mut c, a, JobKind::Service).unwrap();
         order(&mut c, b, JobKind::Service).unwrap();
         let cash = c.cash;
