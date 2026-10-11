@@ -156,29 +156,6 @@ fn bus_words(c: &Company, d: &MyDuty) -> (String, Color) {
     }
 }
 
-/// The company's duties of the coming days the player can take in the easy mode: those of
-/// lines in service that are not his already and not begun, the next first (the days of
-/// `plans`, a week: every weekday's once).
-pub(super) fn takeable(plans: &[DayPlan], today: &str, now: i32) -> Vec<MyDuty> {
-    let mut out: Vec<MyDuty> = Vec::new();
-    for p in plans.iter().filter(|p| co::dates::between(today, &p.date) >= 0) {
-        for (ti, t) in p.tours.iter().enumerate() {
-            if t.by_player || t.tour.unplanned {
-                continue;
-            }
-            for (k, d) in t.duties.iter().enumerate() {
-                if d.who == Some(Who::Player) || (p.date == today && d.from <= now) {
-                    continue;
-                }
-                let trips = t.tour.trips[d.start..d.end].iter().filter(|x| x.counts()).count();
-                out.push(MyDuty { date: p.date.clone(), tour: ti, duty: k, line: t.tour.line.clone(), number: t.tour.number.clone(), tour_no: t.tour.tour.clone(), from: d.from, to: d.to, bus: t.bus, trips });
-            }
-        }
-    }
-    out.sort_by_key(|d| (co::dates::parse(&d.date).unwrap_or(0), d.from));
-    out
-}
-
 /// A duty taken (`Some(Who::Player)`) or given back (None): the player's on its weekday every
 /// week, or the company's drivers' again.
 fn set_mine(l: &mut Launcher, d: &MyDuty, who: Option<Who>) {
@@ -301,7 +278,7 @@ fn duties_part(l: &mut Launcher, area: Rect, c: &Company) {
 fn take_part(l: &mut Launcher, r: Rect, c: &Company, plans: &[DayPlan], whole: bool) {
     let inner = section(&mut l.ui, r, "Duties you can take");
     let now = (co::clock::now(c) - co::clock::moment(&c.date, 0)).clamp(0, 48 * 60) as i32;
-    let open = takeable(plans, &c.date, now);
+    let open = co::plan::takeable(plans, &c.date, now);
     if open.is_empty() {
         // (no line, no tour in the week, or every duty the player's)
         let tours = plans.iter().any(|p| p.tours.iter().any(|t| !t.tour.unplanned && !t.duties.is_empty()));

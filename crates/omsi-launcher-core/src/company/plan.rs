@@ -1072,6 +1072,29 @@ pub fn my_duties(plans: &[DayPlan], today: &str, now: i32) -> Vec<MyDuty> {
     out
 }
 
+/// The company's duties in `plans` the player can take (the easy mode's "Duties you can take",
+/// whose planning is the company's own): those of tours in service that are not his already,
+/// not of a tour he drove and not begun (`now`, minutes of `today`), the next first.
+pub fn takeable(plans: &[DayPlan], today: &str, now: i32) -> Vec<MyDuty> {
+    let mut out: Vec<MyDuty> = Vec::new();
+    for p in plans.iter().filter(|p| dates::between(today, &p.date) >= 0) {
+        for (ti, t) in p.tours.iter().enumerate() {
+            if t.by_player || t.tour.unplanned {
+                continue;
+            }
+            for (k, d) in t.duties.iter().enumerate() {
+                if d.who == Some(Who::Player) || (p.date == today && d.from <= now) {
+                    continue;
+                }
+                let trips = t.tour.trips[d.start..d.end].iter().filter(|x| x.counts()).count();
+                out.push(MyDuty { date: p.date.clone(), tour: ti, duty: k, line: t.tour.line.clone(), number: t.tour.number.clone(), tour_no: t.tour.tour.clone(), from: d.from, to: d.to, bus: t.bus, trips });
+            }
+        }
+    }
+    out.sort_by_key(|d| (dates::parse(&d.date).unwrap_or(0), d.from));
+    out
+}
+
 /// A stand-in for an agency driver in the day's model (average skills).
 pub fn agency_driver() -> Employee {
     Employee {
@@ -1444,6 +1467,31 @@ mod tests {
         assert!(my_duties(&[today], &dates::add(&c.date, 1), 0).is_empty());
         let nobody = day_plan(&quiet(2, 1), &c.date, tours, &[], &[], false);
         assert!(my_duties(&[nobody], &c.date, 0).is_empty());
+    }
+
+    #[test]
+    fn the_duties_to_take_are_the_companys_not_begun() {
+        let mut c = quiet(2, 1);
+        let wd = weekday_of(&c.date);
+        set_driver(&mut c, wd, "Linie5", "1", 0, Some(Who::Player));
+        let tours = vec![tour("1", 6 * 60, 3), tour("2", 14 * 60, 3)];
+        let today = day_plan(&c, &c.date, tours.clone(), &[], &[], false);
+        // his own duty is none to take, the company's other one is
+        let open = takeable(std::slice::from_ref(&today), &c.date, 0);
+        assert_eq!(open.iter().map(|d| (d.tour_no.as_str(), d.from, d.trips)).collect::<Vec<_>>(), vec![("2", 14 * 60, 3)]);
+        // begun, it is not; nor is a tour he drove, a tour not in service or a day gone
+        assert!(takeable(std::slice::from_ref(&today), &c.date, 14 * 60).is_empty());
+        let driven = day_plan(&c, &c.date, tours.clone(), &[("5".into(), "2".into())], &[], false);
+        assert!(takeable(&[driven], &c.date, 0).is_empty());
+        let mut unplanned = tours.clone();
+        unplanned[1].unplanned = true;
+        assert!(takeable(&[day_plan(&c, &c.date, unplanned, &[], &[], false)], &c.date, 0).is_empty());
+        assert!(takeable(&[today], &dates::add(&c.date, 1), 0).is_empty());
+        // taken, it is his on that weekday: next week's is among his duties, none to take
+        set_driver(&mut c, wd, "Linie5", "2", 0, Some(Who::Player));
+        let later = day_plan(&c, &dates::add(&c.date, 7), tours, &[], &[], false);
+        assert!(takeable(std::slice::from_ref(&later), &c.date, 0).is_empty());
+        assert_eq!(my_duties(&[later], &c.date, 0).len(), 2);
     }
 
     #[test]
