@@ -32,9 +32,13 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     // (the photos read and taken while the page is open, as on the bus step)
     super::super::busphoto::work(l);
     let labels = [omsi_ui::tr("Our buses (%{n})").replace("%{n}", &c.fleet.len().to_string()), omsi_ui::tr("Dealer").into_owned(), omsi_ui::tr("Advertising").into_owned()];
-    let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+    // (the easy mode: the buses and the dealer; the advertising runs on as it was signed, its
+    // tab kept for the advanced mode)
+    let shown = if co::autopilot::on(&c) && l.company.fleet.tab < 2 { 2 } else { 3 };
+    let refs: Vec<&str> = labels.iter().take(shown).map(String::as_str).collect();
     let mut tab = l.company.fleet.tab.min(2);
-    if l.ui.segmented("company-fleet-tabs", Rect::new(area.x, area.y, 560.0f32.min(area.w), 40.0), &mut tab, &refs) {
+    let w = if shown == 2 { 380.0f32 } else { 560.0 };
+    if l.ui.segmented("company-fleet-tabs", Rect::new(area.x, area.y, w.min(area.w), 40.0), &mut tab, &refs) {
         l.company.fleet.tab = tab;
     }
     let body = Rect::new(area.x, area.y + 40.0 + 16.0, area.w, (area.h - 40.0 - 16.0).max(0.0));

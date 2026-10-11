@@ -285,20 +285,23 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     if l.ui.segmented("company-dealer-tabs", Rect::new(area.x, area.y, tw, 40.0), &mut tab, &refs) {
         l.company.fleet.dealer.tab = tab;
     }
-    let mw = 250.0;
-    let mode_r = Rect::new(area.right() - mw, area.y, mw, 40.0);
-    l.ui.text_in(&omsi_ui::tr("Buying").to_uppercase(), Rect::new(mode_r.x - 100.0, area.y, 90.0, 40.0), kit::CAPS, Weight::Bold, TEXT_DIM, Align::Right);
-    let modes: Vec<String> = BuyingMode::ALL.iter().map(|m| omsi_ui::tr(m.label()).into_owned()).collect();
-    let mrefs: Vec<&str> = modes.iter().map(String::as_str).collect();
-    let mut mode = BuyingMode::ALL.iter().position(|m| *m == c.dealer.mode).unwrap_or(1);
-    if l.ui.segmented("company-dealer-mode", mode_r, &mut mode, &mrefs) {
-        let m = BuyingMode::ALL[mode];
-        act(l, |c| {
-            c.dealer.mode = m;
-            Ok(())
-        });
+    // (the easy mode buys quickly: no buying to choose)
+    if !co::autopilot::on(&c) {
+        let mw = 250.0;
+        let mode_r = Rect::new(area.right() - mw, area.y, mw, 40.0);
+        l.ui.text_in(&omsi_ui::tr("Buying").to_uppercase(), Rect::new(mode_r.x - 100.0, area.y, 90.0, 40.0), kit::CAPS, Weight::Bold, TEXT_DIM, Align::Right);
+        let modes: Vec<String> = BuyingMode::ALL.iter().map(|m| omsi_ui::tr(m.label()).into_owned()).collect();
+        let mrefs: Vec<&str> = modes.iter().map(String::as_str).collect();
+        let mut mode = BuyingMode::ALL.iter().position(|m| *m == c.dealer.mode).unwrap_or(1);
+        if l.ui.segmented("company-dealer-mode", mode_r, &mut mode, &mrefs) {
+            let m = BuyingMode::ALL[mode];
+            act(l, |c| {
+                c.dealer.mode = m;
+                Ok(())
+            });
+        }
+        l.ui.tooltip(mode_r, "Simple: buy at the list price in one click. Advanced: haggle with the dealer and sign a contract. Both stay at hand on every bus.");
     }
-    l.ui.tooltip(mode_r, "Simple: buy at the list price in one click. Advanced: haggle with the dealer and sign a contract. Both stay at hand on every bus.");
     let body = Rect::new(area.x, area.y + 40.0 + 16.0, area.w, (area.h - 40.0 - 16.0).max(0.0));
     if l.company.fleet.dealer.listings.is_none() {
         let t = if market_busy(l) || l.company.fleet.dealer.rx.is_some() { "Reading the installed buses…" } else { "No buses found in the OMSI folder." };

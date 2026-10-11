@@ -54,8 +54,12 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     }
 }
 
-/// Planning, with a line in view.
+/// Planning, with a line in view (the easy mode plans by itself: the line's tours beside).
 fn to_planning(l: &mut Launcher, line: &str) {
+    if super::easy(l) {
+        l.company.lines.selected = Some(line.to_string());
+        return;
+    }
     l.company.tab = 5;
     l.company.planning.day = 0;
     l.company.planning.focus = Some(line.to_string());
@@ -78,6 +82,8 @@ fn ours(l: &mut Launcher, r: Rect, c: &Company) {
     let mut edit = None;
     let mut planning = None;
     let mut fare = None;
+    // (the easy mode's lines run and are covered by themselves: no planning to click to)
+    let easy = co::autopilot::on(c);
     l.ui.scroll_area("company-lines", inner, &mut |ui, v| {
         let rh = 104.0;
         for (k, line) in list.iter().enumerate() {
@@ -156,7 +162,13 @@ fn ours(l: &mut Launcher, r: Rect, c: &Company) {
                 (
                     omsi_ui::tr("Covered today: %{c} of %{t} tours").replace("%{c}", &covered.to_string()).replace("%{t}", &all.to_string()),
                     if all > 0 { format!("{:.0} %", frac * 100.0) } else { String::new() },
-                    if open == 0 { omsi_ui::tr("Every tour of today has its bus and drivers. Click for the planning.").into_owned() } else { omsi_ui::tr("%{n} tours of today lack a bus or a driver: they are dropped, with the contract's penalty. Click for the planning.").replace("%{n}", &open.to_string()) },
+                    if easy {
+                        if open == 0 { omsi_ui::tr("Every tour in service has a bus and its drivers.").into_owned() } else { omsi_ui::tr("%{n} tours of today lack a bus or a driver: the company hires drivers by itself, buses you get at the dealer.").replace("%{n}", &open.to_string()) }
+                    } else if open == 0 {
+                        omsi_ui::tr("Every tour of today has its bus and drivers. Click for the planning.").into_owned()
+                    } else {
+                        omsi_ui::tr("%{n} tours of today lack a bus or a driver: they are dropped, with the contract's penalty. Click for the planning.").replace("%{n}", &open.to_string())
+                    },
                 )
             };
             let colour = kit::share_colour(frac, !in_service);
@@ -482,13 +494,22 @@ pub(super) fn add_dialog(l: &mut Launcher) {
     };
     let own = core::lines::own_line_of(&line.name, &l.company.own);
     let direct = co::concessions::may_add_directly(&c) || own.is_some();
+    // (the easy mode takes a concession at its asking price, without its auction, and runs a
+    // line as soon as it is the company's)
+    let easy = co::autopilot::on(&c);
+    let asking = (easy && !direct).then(|| co::concessions::asking_price_of(&c, &line));
     let number = own.as_ref().map(|o| o.number.clone()).unwrap_or_else(|| co::specials::number_of(&line, &[&c.depot]));
-    let title = if direct { omsi_ui::tr("Add line %{n}") } else { omsi_ui::tr("Apply for line %{n}") }.replace("%{n}", &number);
+    let title = if direct || easy { omsi_ui::tr("Add line %{n}") } else { omsi_ui::tr("Apply for line %{n}") }.replace("%{n}", &number);
     let n = co::network::needs(&c, &line, &all, &c.date);
     let f = kit::frame(l, 760.0, 600.0, "route", &title);
     let inner = f.body;
     let mut y = inner.y;
-    let intro = if direct { "What the line asks of the company on a day like today, against what it has. It comes in not planned: it runs once its tours are planned and its service is started on the Planning page." } else { "What the line asks of the company on a day like today, against what it has. Its concession is auctioned: if your bid wins, the line comes in not planned - it runs once its tours are planned and its service is started." };
+    let intro = match (easy, direct) {
+        (true, true) => "What the line asks of the company on a day like today, against what it has. In the easy mode it runs at once: the company fills its roster every morning.",
+        (true, false) => "What the line asks of the company on a day like today, against what it has. Its concession is taken at the asking price, without an auction: the line is the company's from tomorrow and runs by itself.",
+        (false, true) => "What the line asks of the company on a day like today, against what it has. It comes in not planned: it runs once its tours are planned and its service is started on the Planning page.",
+        (false, false) => "What the line asks of the company on a day like today, against what it has. Its concession is auctioned: if your bid wins, the line comes in not planned - it runs once its tours are planned and its service is started.",
+    };
     y += l.ui.paragraph(intro, Vec2::new(inner.x, y), inner.w, kit::BODY, Weight::Regular, TEXT_SOFT) + 18.0;
     let (short_b, short_d) = n.short();
     let row = |l: &mut Launcher, y: &mut f32, what: &str, need: String, have: String, ok: bool| {
@@ -514,16 +535,26 @@ pub(super) fn add_dialog(l: &mut Launcher) {
     row(l, &mut y, &omsi_ui::tr("Drivers (%{n} duties, about one and a half a duty)").replace("%{n}", &n.duties.to_string()), n.drivers.to_string(), omsi_ui::tr("%{n} of %{all}").replace("%{n}", &free_d.to_string()).replace("%{all}", &n.have_drivers.to_string()), short_d == 0);
     y += 10.0;
     if short_b > 0 || short_d > 0 {
-        let t = omsi_ui::tr("Short for this line: %{b} buses and %{d} drivers. Buy or rent buses and hire drivers before you start its service.").replace("%{b}", &short_b.to_string()).replace("%{d}", &short_d.to_string());
+        let short = if easy { "Short for this line: %{b} buses and %{d} drivers. Get the buses at the dealer; the company hires the drivers by itself, at night." } else { "Short for this line: %{b} buses and %{d} drivers. Buy or rent buses and hire drivers before you start its service." };
+        let t = omsi_ui::tr(short).replace("%{b}", &short_b.to_string()).replace("%{d}", &short_d.to_string());
         l.ui.icon("warning", Vec2::new(inner.x + 10.0, y + 11.0), 20.0, WARN);
-        l.ui.paragraph(&t, Vec2::new(inner.x + 30.0, y), inner.w - 30.0, kit::BODY, Weight::Medium, WARN);
+        y += l.ui.paragraph(&t, Vec2::new(inner.x + 30.0, y), inner.w - 30.0, kit::BODY, Weight::Medium, WARN) + 12.0;
     } else if n.buses > 0 {
         l.ui.icon("check_circle", Vec2::new(inner.x + 10.0, y + 11.0), 20.0, OK);
-        l.ui.paragraph("The company has the buses and drivers for it.", Vec2::new(inner.x + 30.0, y), inner.w - 30.0, kit::BODY, Weight::Medium, OK);
+        y += l.ui.paragraph("The company has the buses and drivers for it.", Vec2::new(inner.x + 30.0, y), inner.w - 30.0, kit::BODY, Weight::Medium, OK) + 12.0;
+    }
+    if let Some(price) = asking {
+        let t = omsi_ui::tr("Its concession at the asking price: %{amount} (the company has %{cash}).").replace("%{amount}", &super::eur(price)).replace("%{cash}", &super::eur(c.cash));
+        l.ui.icon("receipt_long", Vec2::new(inner.x + 10.0, y + 11.0), 20.0, if c.cash >= price { accent_2() } else { DANGER });
+        l.ui.paragraph(&t, Vec2::new(inner.x + 30.0, y), inner.w - 30.0, kit::BODY, Weight::Medium, TEXT);
     }
     let mut foot = Foot::new(&f);
-    let label = if direct { "Add the line" } else { "Apply for its concession" };
-    let go = foot.right(l, "company-addline-go", label, Some(if direct { "add" } else { "receipt_long" }), ButtonKind::Primary);
+    let label = match asking {
+        Some(price) => omsi_ui::tr("Take it on for %{amount}").replace("%{amount}", &super::eur(price)),
+        None if direct => omsi_ui::tr("Add the line").into_owned(),
+        None => omsi_ui::tr("Apply for its concession").into_owned(),
+    };
+    let go = foot.right(l, "company-addline-go", &label, Some(if direct { "add" } else { "receipt_long" }), ButtonKind::Primary);
     if foot.right(l, "company-addline-cancel", "Cancel", None, ButtonKind::Normal) || f.close {
         l.company.dialog = None;
         return;
@@ -537,6 +568,29 @@ pub(super) fn add_dialog(l: &mut Launcher) {
         return;
     }
     if go {
+        if easy && !direct {
+            // (bought at the asking price: the company's from tomorrow, its morning starts it)
+            if act(l, |c| co::autopilot::take_line(c, &line)).is_some() {
+                l.company.dialog = None;
+                l.state.set_status(omsi_ui::tr("The concession for line %{n} is the company's: the line runs from tomorrow.").replace("%{n}", &number), false);
+            }
+            return;
+        }
+        if easy {
+            let date = c.date.clone();
+            if act(l, |c| {
+                co::network::add_line(c, &line, own.as_ref())?;
+                co::autopilot::start_lines(c, &date);
+                Ok(())
+            })
+            .is_some()
+            {
+                l.company.dialog = None;
+                l.company.lines.selected = Some(line.name.clone());
+                l.state.set_status(omsi_ui::tr("Line %{n} is the company's and runs from now on: its roster fills itself.").replace("%{n}", &number), false);
+            }
+            return;
+        }
         if !direct {
             // (its auction opens now: to the concessions, where it is bid on)
             if let Some(id) = act(l, |c| co::concessions::apply(c, &line)) {

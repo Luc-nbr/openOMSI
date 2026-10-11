@@ -154,6 +154,7 @@ fn today(l: &mut Launcher, r: Rect, c: &Company) {
     let inner = section(&mut l.ui, r, "Today");
     let mut y = inner.y;
     let plan = l.company.plan.clone();
+    let easy = co::autopilot::on(c);
     match &plan {
         Some(p) if p.tours.iter().any(|t| !t.tour.unplanned) => {
             let n = p.tours.iter().filter(|t| !t.tour.unplanned).count();
@@ -162,7 +163,8 @@ fn today(l: &mut Launcher, r: Rect, c: &Company) {
             let label = omsi_ui::tr("Covered today: %{c} of %{t} tours").replace("%{c}", &covered.to_string()).replace("%{t}", &n.to_string());
             let (buses, duties) = p.short_of();
             let tip = if covered == n { omsi_ui::tr("Every tour in service has a bus and its drivers.").into_owned() } else { omsi_ui::tr("Open: %{b} tours without a bus, %{d} duties without a driver. Click for the planning.").replace("%{b}", &buses.to_string()).replace("%{d}", &duties.to_string()) };
-            if kit::bar(&mut l.ui, "company-today-bar", Rect::new(inner.x, y, inner.w, kit::BAR_H), frac, kit::share_colour(frac, false), &label, &format!("{:.0} %", frac * 100.0), &tip) {
+            // (the easy mode's roster is the company's own: no planning to open)
+            if kit::bar(&mut l.ui, "company-today-bar", Rect::new(inner.x, y, inner.w, kit::BAR_H), frac, kit::share_colour(frac, false), &label, &format!("{:.0} %", frac * 100.0), &tip) && !easy {
                 l.company.tab = 5;
             }
             y += kit::BAR_H + 18.0;
@@ -202,30 +204,40 @@ fn today(l: &mut Launcher, r: Rect, c: &Company) {
             y += 46.0;
         }
         None if whole => {
-            let bw = kit::Foot::width(&l.ui, "Plan a duty", Some("event"));
+            // (the easy mode's duties are chosen on the career's "My duties", not planned)
+            let (label, icon) = if easy { ("Choose a duty", "play_arrow") } else { ("Plan a duty", "event") };
+            let bw = kit::Foot::width(&l.ui, label, Some(icon));
             l.ui.icon("person", Vec2::new(row.x + 9.0, row.center().y), 18.0, TEXT_DIM);
             l.ui.text_in("No duty of yours is planned.", Rect::new(row.x + 28.0, row.y, row.w - bw - 36.0, row.h), kit::ROWS, Weight::Regular, TEXT_SOFT, Align::Left);
-            if l.ui.button("company-plan-duty", Rect::new(row.right() - bw, row.y + 2.0, bw, 34.0), "Plan a duty", Some("event"), ButtonKind::Normal) {
-                l.company.tab = 5;
+            if l.ui.button("company-plan-duty", Rect::new(row.right() - bw, row.y + 2.0, bw, 34.0), label, Some(icon), ButtonKind::Normal) {
+                if easy {
+                    l.company.tab = 6;
+                    l.company.career.part = super::career::DUTIES;
+                } else {
+                    l.company.tab = 5;
+                }
             }
             y += 46.0;
         }
         None => {}
     }
     let mut alerts = co::alerts(c, plan.as_ref());
-    if let Some(a) = super::planning::tomorrow(l, c).as_ref().and_then(co::tomorrow_alert) {
-        alerts.push(a);
+    // (the easy mode fills tomorrow's roster in its morning)
+    if !easy {
+        if let Some(a) = super::planning::tomorrow(l, c).as_ref().and_then(co::tomorrow_alert) {
+            alerts.push(a);
+        }
     }
+    let alerts: Vec<_> = alerts.iter().filter_map(|a| alert_for(a, easy)).collect();
     if alerts.is_empty() {
         l.ui.text_in("Nothing wants your attention.", Rect::new(inner.x, y, inner.w, 24.0), kit::BODY, Weight::Regular, TEXT_SOFT, Align::Left);
         return;
     }
     let row_h = 38.0;
-    for (k, a) in alerts.iter().enumerate() {
+    for (k, (icon, text, colour, tab)) in alerts.iter().cloned().enumerate() {
         if y + row_h > inner.bottom() + 8.0 {
             break;
         }
-        let (icon, text, colour, tab) = alert_text(a);
         let row = Rect::new(inner.x - 8.0, y, inner.w + 16.0, row_h);
         if l.ui.row(&format!("company-alert-{k}"), row, false) {
             l.company.tab = tab;
@@ -235,6 +247,24 @@ fn today(l: &mut Launcher, r: Rect, c: &Company) {
         l.ui.icon("chevron_right", Vec2::new(inner.right() - 4.0, y + row_h * 0.5), 18.0, TEXT_DIM);
         l.ui.tooltip(row, &text);
         y += row_h + 2.0;
+    }
+}
+
+/// An alert as a mode says it: the advanced mode's every alert (`alert_text`); the easy mode
+/// leaves out what the company sees to itself - the services, starting a line's service,
+/// tomorrow's roster (filled in its morning) - and sends tours not covered to the fleet or the
+/// staff instead of the planning.
+pub(super) fn alert_for(a: &Alert, easy: bool) -> Option<(&'static str, String, Color, usize)> {
+    if !easy {
+        return Some(alert_text(a));
+    }
+    match a {
+        Alert::ServiceDue(_) | Alert::NotPlanned(_) | Alert::Tomorrow { .. } => None,
+        Alert::Uncovered { buses, .. } => {
+            let (icon, text, colour, _) = alert_text(a);
+            Some((icon, text, colour, if *buses > 0 { 1 } else { 2 }))
+        }
+        _ => Some(alert_text(a)),
     }
 }
 

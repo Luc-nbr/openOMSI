@@ -17,6 +17,7 @@ mod concessions;
 mod contracts;
 mod dealer;
 mod depot;
+mod easy_home;
 mod fares;
 mod fleet;
 mod home;
@@ -84,6 +85,31 @@ pub(super) const ICONS: [&str; 14] = ["signal_cellular_alt", "directions_bus", "
 /// The pages in the strip under the bar (`nav`), grouped as the start screen groups them: at a
 /// glance, operations, people, business, the company.
 const RAIL: [&[usize]; 5] = [&[0, INBOX_TAB], &[5, 3, MAP_TAB, 1], &[2], &[4, CONCESSIONS_TAB, CONTRACTS_TAB, 6], &[DEPOT_TAB, WORKSHOP_TAB, RESEARCH_TAB]];
+/// The easy mode's pages (Luc: "a somewhat different layout per mode; advanced has all the
+/// functions"): what a player who runs buses without every detail looks at - the overview and
+/// the inbox, the lines, the map and the fleet, the staff, the money and the career with the
+/// player's own duties. The planning, the depot, the concessions, the research, the workshop
+/// and the contracts run by themselves (`co::autopilot`) and keep their pages for the advanced
+/// mode, where nothing of them is lost.
+const EASY_RAIL: [&[usize]; 4] = [&[0, INBOX_TAB], &[3, MAP_TAB, 1], &[2], &[4, 6]];
+
+/// The strip's pages of a mode, grouped.
+fn rail(mode: co::Mode) -> &'static [&'static [usize]] {
+    match mode {
+        co::Mode::Easy => &EASY_RAIL,
+        co::Mode::Advanced => &RAIL,
+    }
+}
+
+/// The pages a mode shows, in the strip's order.
+pub(super) fn pages_of(mode: co::Mode) -> Vec<usize> {
+    rail(mode).iter().flat_map(|g| g.iter().copied()).collect()
+}
+
+/// Whether the open company is run in the easy mode.
+pub(super) fn easy(l: &Launcher) -> bool {
+    l.company.company.as_ref().is_some_and(co::autopilot::on)
+}
 
 /// The page an `OMSI_LAUNCHER_PAGE` of "bus company:<part>" opens: the start screen for
 /// "home" or "start", else the page of that number (the last one past them).
@@ -477,6 +503,42 @@ pub(super) fn line(ui: &mut Ui, r: Rect, text: &str, px: f32, c: Color) {
     ui.text_in(text, r, px, Weight::Regular, c, Align::Left);
 }
 
+/// A mode's icon: the easy mode's company that runs by itself, the advanced mode's controls.
+pub(super) fn mode_icon(mode: co::Mode) -> &'static str {
+    match mode {
+        co::Mode::Easy => "autorenew",
+        co::Mode::Advanced => "tune",
+    }
+}
+
+/// How wide a mode's pill is.
+pub(super) fn mode_pill_w(ui: &Ui, mode: co::Mode) -> f32 {
+    ui.width(&omsi_ui::tr(mode.label()), 12.0, Weight::Bold) + 40.0
+}
+
+/// A company's mode as a small pill (its icon and name; the easy mode in the accent), which a
+/// `click` one answers under the mouse. Returns whether it was clicked.
+pub(super) fn mode_pill(ui: &mut Ui, id: &str, r: Rect, mode: co::Mode, click: bool) -> bool {
+    let (hover, clicked) = if click {
+        let (h, _, c) = ui.interact(super::ui::id_of(id), r);
+        (h, c)
+    } else {
+        (false, false)
+    };
+    let easy = mode == co::Mode::Easy;
+    let (fill, ink) = if easy { (accent().alpha(if hover { 0.28 } else { 0.18 }), accent_2()) } else { (if hover { HOVER } else { FIELD }, TEXT_SOFT) };
+    ui.p().rounded(r, r.h * 0.5, fill);
+    if !easy {
+        ui.p().rounded_border(r, r.h * 0.5, 1.0, HAIRLINE);
+    }
+    ui.icon(mode_icon(mode), Vec2::new(r.x + 14.0, r.center().y), 13.0, ink);
+    ui.text_in(mode.label(), Rect::new(r.x + 25.0, r.y, r.w - 30.0, r.h), 12.0, Weight::Bold, ink, Align::Left);
+    if click {
+        ui.tooltip(r, "How much of the company you run yourself: change it in the company's settings");
+    }
+    clicked
+}
+
 // --- the page --------------------------------------------------------------------------------
 
 /// What the page asks for in the background, and what came.
@@ -570,6 +632,12 @@ fn work(l: &mut Launcher) {
     // a line's change waiting for its day: its day has come; and its tours planned anew
     changes_due(l);
     refill(l);
+    // the easy mode's morning before today's plan is made (a line taken on runs at once, the
+    // roster takes a bus bought or a driver hired): saved when it changed anything - not while
+    // a simulation has the company on its thread
+    if l.company.plan.is_none() && !l.company.closing && easy_morning(&mut l.company) {
+        changed(l);
+    }
     // today's plan (the roster's, see `planning`): every tour of the day, those of lines not in
     // service marked; and the company's day for the game - only what is in service runs on the
     // map with the company's buses while the player drives
@@ -587,6 +655,17 @@ fn work(l: &mut Launcher) {
             }
         }
     }
+}
+
+/// The easy mode's morning on the company's day as the page has it (`co::autopilot::morning`,
+/// with the timetable read for its day). Returns whether it changed the company.
+fn easy_morning(view: &mut CompanyView) -> bool {
+    let (Some(c), Some(t)) = (view.company.as_mut(), view.today.as_ref()) else { return false };
+    if !co::autopilot::on(c) || t.map != c.map || t.date != c.date || t.error.is_some() {
+        return false;
+    }
+    let date = c.date.clone();
+    co::autopilot::morning(c, &date, &t.lines)
 }
 
 /// A change of an own line waiting for its day (`ownline::Pending`): on that day the map's
@@ -726,11 +805,32 @@ pub(super) fn act<T>(l: &mut Launcher, f: impl FnOnce(&mut Company) -> Result<T,
     }
 }
 
-/// Where a popup's second button goes.
+/// What mends something in the easy mode: the planning is the company's own there (None), the
+/// staff's courses are the career's.
+fn easy_go(g: kit::Go) -> Option<kit::Go> {
+    use kit::Go;
+    match g {
+        Go::Planning | Go::Licences => None,
+        Go::Training => Some(Go::Courses),
+        g => Some(g),
+    }
+}
+
+/// Where a popup's second button goes (in the easy mode, a way to the planning goes to the
+/// player's own duties).
 fn go(l: &mut Launcher, g: kit::Go) {
     use kit::Go;
     l.company.dialog = None;
     l.company.reports = None;
+    let g = if easy(l) && g == Go::Planning {
+        l.company.tab = 6;
+        l.company.career.part = career::DUTIES;
+        return;
+    } else if easy(l) {
+        easy_go(g).unwrap_or(g)
+    } else {
+        g
+    };
     match g {
         Go::Progress => {
             l.company.tab = 6;
@@ -930,8 +1030,16 @@ pub fn screen(l: &mut Launcher) {
             let mark = Rect::new(m, 14.0, 44.0, 44.0);
             company_mark(l, mark, c);
             let tw = (right - mark.right() - 16.0).max(60.0);
-            l.ui.text_in(&c.name, Rect::new(mark.right() + 14.0, 10.0, tw, 26.0), 19.0, Weight::Bold, TEXT, Align::Left);
-            l.ui.tooltip(Rect::new(mark.x, mark.y, (tw + 58.0).min(right - mark.x), mark.h * 0.6), &home_of(c));
+            // (its mode after its name: a click opens the settings, where it is changed)
+            let pw = mode_pill_w(&l.ui, c.mode);
+            let nw = l.ui.width(&c.name, 19.0, Weight::Bold).min((tw - pw - 12.0).max(40.0));
+            l.ui.text_in(&c.name, Rect::new(mark.right() + 14.0, 10.0, nw + 2.0, 26.0), 19.0, Weight::Bold, TEXT, Align::Left);
+            l.ui.tooltip(Rect::new(mark.x, mark.y, (nw + 72.0).min(right - mark.x), mark.h * 0.6), &home_of(c));
+            let pill = Rect::new(mark.right() + 14.0 + nw + 12.0, 12.0, pw, 22.0);
+            if pill.right() <= right && mode_pill(&mut l.ui, "company-mode-pill", pill, c.mode, true) {
+                let date = c.date.clone();
+                l.company.dialog = Some(Dialog::Settings { date });
+            }
             status(l, Rect::new(mark.right() + 14.0, 38.0, tw, 22.0), c);
         }
         None => {
@@ -1056,13 +1164,15 @@ fn nav(l: &mut Launcher, r: Rect, c: &Company) {
     let side = 38.0;
     let gap = 4.0;
     let group_gap = 17.0;
-    let count: usize = RAIL.iter().map(|g| g.len()).sum();
-    let rail_w = count as f32 * side + (count - RAIL.len()) as f32 * gap + (RAIL.len() - 1) as f32 * group_gap;
+    // (the mode's pages: the easy mode has fewer)
+    let groups = self::rail(c.mode);
+    let count: usize = groups.iter().map(|g| g.len()).sum();
+    let rail_w = count as f32 * side + (count - groups.len()) as f32 * gap + (groups.len() - 1) as f32 * group_gap;
     let x0 = r.right() - rail_w;
     let rail = Rect::new(x0, r.y + (r.h - side) * 0.5, rail_w, side);
     super::tour::anchor("company-tabs", rail);
     let mut x = x0;
-    for (g, group) in RAIL.iter().enumerate() {
+    for (g, group) in groups.iter().enumerate() {
         if g > 0 {
             l.ui.p().rect(Rect::new(x - group_gap * 0.5 - 0.5, rail.y + 9.0, 1.0, side - 18.0), HAIRLINE);
         }
@@ -1134,10 +1244,15 @@ fn strip(l: &mut Launcher, area: Rect) -> Rect {
         if l.ui.button("company-home", back, "Start screen", Some("chevron_left"), ButtonKind::Normal) {
             l.company.tab = HOME_TAB;
         }
-        let names: Vec<String> = TABS.iter().map(|t| omsi_ui::tr(t).into_owned()).collect();
-        let mut k = l.company.tab.min(TABS.len() - 1);
+        // (the mode's pages, and the one open when it is none of them)
+        let mut tabs = pages_of(c.mode);
+        if !tabs.contains(&l.company.tab) && l.company.tab < TABS.len() {
+            tabs.push(l.company.tab);
+        }
+        let names: Vec<String> = tabs.iter().map(|t| omsi_ui::tr(TABS[*t]).into_owned()).collect();
+        let mut k = tabs.iter().position(|t| *t == l.company.tab).unwrap_or(0);
         if l.ui.select("company-pages", Rect::new(back.right() + 10.0, y, (area.w - bw - 10.0).max(80.0), ROW + 4.0), &mut k, &names) {
-            l.company.tab = k;
+            l.company.tab = tabs[k.min(tabs.len() - 1)];
         }
         y = back.bottom() + 10.0;
     }
@@ -1493,6 +1608,12 @@ fn report_dialog(l: &mut Launcher) {
         let unplanned = reports.iter().flat_map(|r| r.lines.iter()).any(|x| x.unplanned);
         let text = if unplanned { omsi_ui::tr("No tours ran: the company's lines are not in service yet. Plan their tours and start their service on the Planning page.") } else { omsi_ui::tr("No tours ran: add lines on the Lines page, and buy buses and hire drivers for them.") };
         facts.insert(0, Fact { text: text.into_owned(), colour: TEXT_SOFT, fixes: vec![if unplanned { kit::Go::Planning } else { kit::Go::Lines }] });
+    }
+    // (the easy mode mends what the company does not see to itself)
+    if co::autopilot::on(&c) {
+        for f in facts.iter_mut() {
+            f.fixes = f.fixes.iter().filter_map(|g| easy_go(*g)).collect();
+        }
     }
     // the lines, each with its money
     #[derive(Clone, Default)]

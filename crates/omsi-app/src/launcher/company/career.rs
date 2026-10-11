@@ -14,7 +14,7 @@ use super::{act, day_label, eur, figure, grouped, section};
 use glam::Vec2;
 use omsi_launcher_lib as core;
 use omsi_launcher_lib::company::career::{self as dc, DriverCareer, LicenceClass};
-use omsi_launcher_lib::company::plan::{BusOf, DayPlan, MyDuty};
+use omsi_launcher_lib::company::plan::{BusOf, DayPlan, MyDuty, Who};
 use omsi_launcher_lib::company as co;
 use omsi_launcher_lib::company::levels::{self, Feature};
 use omsi_launcher_lib::company::rankings::{self, Entry};
@@ -156,11 +156,48 @@ fn bus_words(c: &Company, d: &MyDuty) -> (String, Color) {
     }
 }
 
+/// The company's duties of the coming days the player can take in the easy mode: those of
+/// lines in service that are not his already and not begun, the next first (the days of
+/// `plans`, a week: every weekday's once).
+pub(super) fn takeable(plans: &[DayPlan], today: &str, now: i32) -> Vec<MyDuty> {
+    let mut out: Vec<MyDuty> = Vec::new();
+    for p in plans.iter().filter(|p| co::dates::between(today, &p.date) >= 0) {
+        for (ti, t) in p.tours.iter().enumerate() {
+            if t.by_player || t.tour.unplanned {
+                continue;
+            }
+            for (k, d) in t.duties.iter().enumerate() {
+                if d.who == Some(Who::Player) || (p.date == today && d.from <= now) {
+                    continue;
+                }
+                let trips = t.tour.trips[d.start..d.end].iter().filter(|x| x.counts()).count();
+                out.push(MyDuty { date: p.date.clone(), tour: ti, duty: k, line: t.tour.line.clone(), number: t.tour.number.clone(), tour_no: t.tour.tour.clone(), from: d.from, to: d.to, bus: t.bus, trips });
+            }
+        }
+    }
+    out.sort_by_key(|d| (co::dates::parse(&d.date).unwrap_or(0), d.from));
+    out
+}
+
+/// A duty taken (`Some(Who::Player)`) or given back (None): the player's on its weekday every
+/// week, or the company's drivers' again.
+fn set_mine(l: &mut Launcher, d: &MyDuty, who: Option<Who>) {
+    let wd = co::plan::weekday_of(&d.date);
+    let (line, tour, duty) = (d.line.clone(), d.tour_no.clone(), d.duty);
+    act(l, |c| {
+        co::plan::set_driver(c, wd, &line, &tour, duty, who);
+        Ok(())
+    });
+}
+
 /// "My duties": the duties the planning has the player drive himself in the coming week, the
-/// next on top, each a click from the Drive page set to it; without any, how to get one.
+/// next on top, each a click from the Drive page set to it; without any, how to get one. In the
+/// easy mode, whose planning is the company's own, the duties he can take stand beside, and his
+/// own can be given back.
 fn duties_part(l: &mut Launcher, area: Rect, c: &Company) {
     let gap = 12.0;
-    let side_w = (area.w * 0.3).clamp(260.0, 380.0);
+    let easy = co::autopilot::on(c);
+    let side_w = if easy { (area.w * 0.42).clamp(340.0, 560.0) } else { (area.w * 0.3).clamp(260.0, 380.0) };
     let list_r = Rect::new(area.x, area.y, area.w - side_w - gap, area.h);
     let side = Rect::new(list_r.right() + gap, area.y, side_w, area.h);
     let (plans, duties, whole) = my_duties(l, c);
@@ -168,6 +205,12 @@ fn duties_part(l: &mut Launcher, area: Rect, c: &Company) {
     if duties.is_empty() {
         if !whole {
             l.ui.text_in("Reading the timetable of the week…", Rect::new(inner.x, inner.y, inner.w, 24.0), kit::BODY, Weight::Regular, TEXT_SOFT, Align::Left);
+        } else if easy {
+            let mid = inner.center();
+            l.ui.icon("play_arrow", Vec2::new(mid.x, mid.y - 50.0), 34.0, TEXT_DIM);
+            l.ui.text_in("No duty of yours in the coming week", Rect::new(inner.x, mid.y - 20.0, inner.w, 26.0), kit::HEAD, Weight::Bold, TEXT_SOFT, Align::Center);
+            let w = inner.w.min(520.0);
+            l.ui.paragraph("Take one of the company's duties in the list beside: it is yours on that weekday every week, and the company's drivers take the others.", Vec2::new(mid.x - w * 0.5, mid.y + 14.0), w, kit::NOTE, Weight::Regular, TEXT_DIM);
         } else {
             let mid = inner.center();
             l.ui.icon("event", Vec2::new(mid.x, mid.y - 70.0), 34.0, TEXT_DIM);
@@ -182,6 +225,7 @@ fn duties_part(l: &mut Launcher, area: Rect, c: &Company) {
         }
     } else {
         let mut go: Option<usize> = None;
+        let mut back: Option<usize> = None;
         let lines = c.lines.clone();
         let rows: Vec<(MyDuty, String, Color)> = duties.iter().map(|d| {
             let (b, col) = bus_words(c, d);
@@ -227,6 +271,10 @@ fn duties_part(l: &mut Launcher, area: Rect, c: &Company) {
                     go = Some(k);
                 }
                 ui.tooltip(b, "Sets the drive to this duty - the map, the line and tour, the company's bus in its livery, the day and the time - and opens its start: you start it there.");
+                // (the easy mode: given back to the company's drivers)
+                if easy && ui.icon_button(&format!("career-give-back-{k}"), Vec2::new(b.x - 22.0, b.center().y), 15.0, "close", "Give the duty back: the company's drivers drive it again") {
+                    back = Some(k);
+                }
             }
             rows.len() as f32 * rh
         });
@@ -234,10 +282,64 @@ fn duties_part(l: &mut Launcher, area: Rect, c: &Company) {
             drive_duty(l, c, &plans, &duties[k]);
             return;
         }
+        if let Some(k) = back {
+            set_mine(l, &duties[k], None);
+        }
+    }
+    if easy {
+        take_part(l, side, c, &plans, whole);
+        return;
     }
     let inner = section(&mut l.ui, side, "How it works");
     let text = "The duties here are those the Planning gives you yourself (\"You\" as the driver): the same weekday every week. \"Drive\" opens the start of the drive with everything set; what you drive counts for the company as measured when its day is closed, and a duty of yours not driven is open for the central to fill.";
     l.ui.paragraph(text, Vec2::new(inner.x, inner.y), inner.w, kit::NOTE + 0.5, Weight::Regular, TEXT_SOFT);
+}
+
+/// The easy mode's "Duties you can take": the company's duties of the coming week that are not
+/// the player's, the next first, each with its button - taken, it is his on that weekday every
+/// week (and drives from his list).
+fn take_part(l: &mut Launcher, r: Rect, c: &Company, plans: &[DayPlan], whole: bool) {
+    let inner = section(&mut l.ui, r, "Duties you can take");
+    let now = (co::clock::now(c) - co::clock::moment(&c.date, 0)).clamp(0, 48 * 60) as i32;
+    let open = takeable(plans, &c.date, now);
+    if open.is_empty() {
+        let t = if !whole { "Reading the timetable of the week…" } else if c.lines.is_empty() { "The company runs no line yet: take one on, and its duties are here." } else { "Every duty of the coming week is yours already." };
+        l.ui.paragraph(t, Vec2::new(inner.x, inner.y), inner.w, kit::NOTE + 0.5, Weight::Regular, TEXT_SOFT);
+        return;
+    }
+    let lines = c.lines.clone();
+    let mut take: Option<usize> = None;
+    l.ui.scroll_area("career-take", inner, &mut |ui, v| {
+        let rh = 54.0;
+        for (k, d) in open.iter().enumerate() {
+            let row = Rect::new(v.x, v.y + k as f32 * rh, v.w - 10.0, rh - 6.0);
+            if !ui.rect_visible(row) {
+                continue;
+            }
+            ui.p().rect(Rect::new(row.x, row.bottom() + 2.0, row.w, 1.0), HAIRLINE);
+            let pw = match lines.iter().find(|x| x.name.eq_ignore_ascii_case(&d.line)) {
+                Some(cl) => super::line_plate(ui, Vec2::new(row.x, row.y + 4.0), cl, 22.0),
+                None => super::plate(ui, Vec2::new(row.x, row.y + 4.0), &d.number, 22.0),
+            };
+            let bw = kit::Foot::width(ui, "Take it", Some("add")).min(row.w * 0.4);
+            let tx = row.x + pw + 10.0;
+            let tw = (row.right() - bw - 10.0 - tx).max(20.0);
+            let when = format!("{}  ·  {} – {}", super::overview::short_date(&d.date), co::clock::hhmm(d.from as i64), co::clock::hhmm(d.to as i64));
+            ui.text_in(&when, Rect::new(tx, row.y + 2.0, tw, 22.0), kit::ROWS, Weight::Bold, TEXT, Align::Left);
+            let words = omsi_ui::tr("Tour %{t} · %{n} trips").replace("%{t}", &d.tour_no).replace("%{n}", &d.trips.to_string());
+            ui.text_in(&words, Rect::new(row.x, row.y + 26.0, (row.right() - bw - 10.0 - row.x).max(20.0), 20.0), kit::NOTE, Weight::Regular, TEXT_SOFT, Align::Left);
+            let b = Rect::new(row.right() - bw, row.y + (row.h - 34.0) * 0.5, bw, 34.0);
+            if ui.button(&format!("career-take-{k}"), b, "Take it", Some("add"), ButtonKind::Normal) {
+                take = Some(k);
+            }
+            ui.tooltip(b, "Yours on this weekday every week: drive it from your duties");
+        }
+        open.len() as f32 * rh
+    });
+    if let Some(k) = take {
+        set_mine(l, &open[k], Some(Who::Player));
+        l.state.set_status(omsi_ui::tr("The duty is yours on that weekday every week: drive it from My duties.").into_owned(), false);
+    }
 }
 
 // --- progress -----------------------------------------------------------------------------------

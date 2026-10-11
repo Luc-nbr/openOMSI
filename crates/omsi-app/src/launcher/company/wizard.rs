@@ -1,7 +1,9 @@
 //! Founding a company: its name and short name, its colours (and a logo picture if there is
 //! one), its home map and depot, its first day (its year decides which buses are still
-//! built new), how hard the economy is - with the starting capital each difficulty gives -
-//! and how it buys its buses (the dealer's quick buy, or haggling and contracts).
+//! built new), how hard the economy is - with the starting capital each difficulty gives -,
+//! how much of it the player runs himself (the easy mode or the advanced one, each said in a
+//! line: Luc wanted players to get the choice) and, in the advanced mode, how it buys its buses
+//! (the dealer's quick buy, or haggling and contracts).
 
 use super::super::theme::*;
 use super::super::ui::ButtonKind;
@@ -31,12 +33,39 @@ pub struct Wizard {
     difficulty: usize,
     /// 0 simple, 1 advanced (`dealer::BuyingMode::ALL`).
     buying: usize,
+    /// How much of the company the player runs himself (`co::Mode`).
+    mode: co::Mode,
 }
 
 impl Wizard {
     pub fn new(l: &Launcher) -> Wizard {
         let map = l.state.maps.iter().position(|m| m.file == l.state.choice.map).unwrap_or(0);
-        Wizard { name: String::new(), short: String::new(), colours: [0, 4], logo: None, map, depot: 0, when: 0, date: today(), difficulty: 1, buying: 1 }
+        Wizard { name: String::new(), short: String::new(), colours: [0, 4], logo: None, map, depot: 0, when: 0, date: today(), difficulty: 1, buying: 1, mode: first_mode(l.company.company.as_ref()) }
+    }
+}
+
+/// The mode the founding offers first: the open company's (a second company is run as the
+/// player runs the first), the easy one for a player's first company.
+pub(super) fn first_mode(open: Option<&co::Company>) -> co::Mode {
+    open.map_or(co::Mode::Easy, |c| c.mode)
+}
+
+/// What the founding makes of the wizard's choices on `m` (its depot files `depots`, the first
+/// day `date`).
+fn founding(w: &Wizard, m: &core::MapInfo, depots: &[String], date: String) -> co::Founding {
+    co::Founding {
+        name: w.name.trim().to_string(),
+        short: w.short.clone(),
+        colours: [PALETTE[w.colours[0]].to_string(), PALETTE[w.colours[1]].to_string()],
+        logo: w.logo.clone(),
+        map: m.file.clone(),
+        map_name: map_label(m),
+        depot: depots.get(w.depot).cloned().unwrap_or_default(),
+        date,
+        difficulty: Difficulty::ALL[w.difficulty.min(2)],
+        // (the easy mode buys quickly; this is kept for when the company goes advanced)
+        buying: co::dealer::BuyingMode::ALL[w.buying.min(1)],
+        mode: w.mode,
     }
 }
 
@@ -105,6 +134,21 @@ pub(super) fn depots_for(map: &core::MapInfo, vehicles: &[core::VehicleInfo]) ->
         }
     }
     out
+}
+
+/// A mode as a card to choose (the founding's, the settings'): its icon, its name and what it
+/// means; the one chosen edged in the accent. Returns whether it was clicked.
+pub(super) fn mode_card(l: &mut Launcher, id: &str, r: Rect, mode: co::Mode, on: bool) -> bool {
+    let clicked = l.ui.row(id, r, false);
+    l.ui.p().rounded_border(r, RADIUS, if on { 2.0 } else { 1.0 }, if on { accent() } else { HAIRLINE });
+    let ink = if on { accent_2() } else { TEXT_DIM };
+    l.ui.icon(super::mode_icon(mode), Vec2::new(r.x + 25.0, r.y + 25.0), 20.0, ink);
+    l.ui.text_in(mode.label(), Rect::new(r.x + 44.0, r.y + 13.0, r.w - 58.0, 24.0), kit::HEAD, Weight::Bold, if on { TEXT } else { TEXT_SOFT }, Align::Left);
+    // (its words kept in the card on a low window)
+    l.ui.push_clip(Rect::new(r.x, r.y, r.w, (r.h - 6.0).max(0.0)), 0.0);
+    l.ui.paragraph(mode.info(), Vec2::new(r.x + 14.0, r.y + 46.0), r.w - 28.0, kit::NOTE, Weight::Regular, TEXT_SOFT);
+    l.ui.pop_clip();
+    clicked
 }
 
 fn map_label(m: &core::MapInfo) -> String {
@@ -178,6 +222,18 @@ pub fn draw(l: &mut Launcher, area: Rect) {
             w.logo = None;
         }
     }
+    // how much of it the player runs himself: the two modes side by side, each with its line
+    let y = y + 68.0 + 22.0;
+    l.ui.label(Rect::new(left.x, y, left.w, 20.0), "How you run the company");
+    let y = y + 26.0;
+    let mw = (left.w - GAP) / 2.0;
+    let mh = (left.bottom() - y).clamp(88.0, 150.0);
+    for (k, m) in co::Mode::ALL.iter().enumerate() {
+        let r = Rect::new(left.x + k as f32 * (mw + GAP), y, mw, mh);
+        if mode_card(l, &format!("company-mode-{k}"), r, *m, w.mode == *m) {
+            w.mode = *m;
+        }
+    }
     // where and how
     let rx = area.x + col_w + gap;
     let right = section(&mut l.ui, Rect::new(rx, top, col_w, h), "Home and difficulty");
@@ -248,15 +304,20 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         l.ui.text_in(&eur(capital), Rect::new(r.x + 14.0, r.y + 38.0, r.w - 28.0, 22.0), kit::ROWS, Weight::Bold, LINE, Align::Left);
         l.ui.paragraph(texts[k], Vec2::new(r.x + 14.0, r.y + 66.0), r.w - 28.0, kit::NOTE, Weight::Regular, TEXT_SOFT);
     }
-    // how it buys its buses
+    // how it buys its buses (the easy mode: quickly)
     let y = y + ch + 18.0;
     l.ui.label(Rect::new(right.x, y, right.w, 20.0), "Buying buses");
-    let modes: Vec<String> = co::dealer::BuyingMode::ALL.iter().map(|m| omsi_ui::tr(m.label()).into_owned()).collect();
-    let refs: Vec<&str> = modes.iter().map(String::as_str).collect();
-    let sw = (right.w * 0.4).clamp(200.0, 280.0);
-    l.ui.segmented("company-buying", Rect::new(right.x, y + 26.0, sw, 38.0), &mut w.buying, &refs);
-    let say = if w.buying == 0 { "A model, a number, the list price: the buses are yours at once." } else { "Haggle with the dealer, agree on extras and sign a contract; new buses are delivered." };
-    l.ui.paragraph(say, Vec2::new(right.x + sw + GAP, y + 26.0), right.w - sw - GAP, kit::NOTE, Weight::Regular, TEXT_SOFT);
+    if w.mode == co::Mode::Easy {
+        l.ui.icon("airport_shuttle", Vec2::new(right.x + 10.0, y + 45.0), 18.0, accent_2());
+        l.ui.paragraph("The easy mode buys at the list price, in one click: the buses are yours at once.", Vec2::new(right.x + 30.0, y + 34.0), right.w - 30.0, kit::NOTE, Weight::Regular, TEXT_SOFT);
+    } else {
+        let modes: Vec<String> = co::dealer::BuyingMode::ALL.iter().map(|m| omsi_ui::tr(m.label()).into_owned()).collect();
+        let refs: Vec<&str> = modes.iter().map(String::as_str).collect();
+        let sw = (right.w * 0.4).clamp(200.0, 280.0);
+        l.ui.segmented("company-buying", Rect::new(right.x, y + 26.0, sw, 38.0), &mut w.buying, &refs);
+        let say = if w.buying == 0 { "A model, a number, the list price: the buses are yours at once." } else { "Haggle with the dealer, agree on extras and sign a contract; new buses are delivered." };
+        l.ui.paragraph(say, Vec2::new(right.x + sw + GAP, y + 26.0), right.w - sw - GAP, kit::NOTE, Weight::Regular, TEXT_SOFT);
+    }
     // found it
     let by = area.bottom() - 44.0;
     let ok = !w.name.trim().is_empty() && !maps.is_empty();
@@ -282,19 +343,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         }
         let m = &maps[w.map];
         let depots = depots_for(m, &l.state.vehicles);
-        let f = co::Founding {
-            name: w.name.trim().to_string(),
-            short: w.short.clone(),
-            colours: [PALETTE[w.colours[0]].to_string(), PALETTE[w.colours[1]].to_string()],
-            logo: w.logo.clone(),
-            map: m.file.clone(),
-            map_name: map_label(m),
-            depot: depots.get(w.depot).cloned().unwrap_or_default(),
-            date: first_day(w.when, Some(m), &l.state.choice.map, &l.state.choice.date, &w.date),
-            difficulty: Difficulty::ALL[w.difficulty.min(2)],
-            buying: co::dealer::BuyingMode::ALL[w.buying.min(1)],
-            mode: co::Mode::Advanced,
-        };
+        let f = founding(&w, m, &depots, first_day(w.when, Some(m), &l.state.choice.map, &l.state.choice.date, &w.date));
         let mut c = co::found(&f, &l.state.config.profile);
         c.id = co::store::unused_id(&data(), &c.name);
         super::switch_company(l, Some(c));
@@ -355,6 +404,28 @@ mod tests {
         // one of the player's own, when it is a date
         assert_eq!(first_day(2, None, "", "", "1999-01-02"), "1999-01-02");
         assert_eq!(first_day(2, None, "", "", "nonsense"), t);
+    }
+
+    fn wizard(mode: co::Mode, buying: usize) -> Wizard {
+        Wizard { name: " Stadtbus Grundorf ".into(), short: String::new(), colours: [0, 4], logo: None, map: 0, depot: 0, when: 0, date: today(), difficulty: 1, buying, mode }
+    }
+
+    #[test]
+    fn the_founding_takes_the_mode_chosen() {
+        let m = map("maps/Grundorf/global.cfg", "Grundorf");
+        let depots = vec!["Grundorf".to_string()];
+        // the easy mode: founded easy, buying quickly, the advanced buying kept for later
+        let f = founding(&wizard(co::Mode::Easy, 1), &m, &depots, "2024-03-04".into());
+        assert_eq!((f.mode, f.buying, f.name.as_str(), f.depot.as_str()), (co::Mode::Easy, co::dealer::BuyingMode::Advanced, "Stadtbus Grundorf", "Grundorf"));
+        let c = co::found(&f, "Luc");
+        assert_eq!((c.mode, c.dealer.mode), (co::Mode::Easy, co::dealer::BuyingMode::Simple));
+        // the advanced mode, as before
+        let f = founding(&wizard(co::Mode::Advanced, 0), &m, &depots, "2024-03-04".into());
+        let c = co::found(&f, "Luc");
+        assert_eq!((c.mode, c.dealer.mode), (co::Mode::Advanced, co::dealer::BuyingMode::Simple));
+        // a first company is offered the easy mode, a second one the mode of the one open
+        assert_eq!(first_mode(None), co::Mode::Easy);
+        assert_eq!(first_mode(Some(&c)), co::Mode::Advanced);
     }
 
     #[test]

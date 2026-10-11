@@ -40,6 +40,20 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         ("This month", kit::signed(this.result()).0, month_label(&this.month), if this.result() >= 0 { OK } else { DANGER.lighten(0.2) }),
         ("Last month", kit::signed(prev.result()).0, month_label(&prev.month), if prev.result() >= 0 { OK } else { DANGER.lighten(0.2) }),
     ];
+    // (the easy mode's finances: the money as it stands and the months, the loans beside -
+    // the fleet's worth, the fares and the ledger are the advanced mode's)
+    if co::autopilot::on(&c) {
+        let fw = (area.w - 3.0 * gap) / 4.0;
+        for (k, (label, value, under, colour)) in figures.iter().enumerate().filter(|(k, _)| *k != 2).map(|(_, f)| f).enumerate() {
+            figure(&mut l.ui, Rect::new(area.x + k as f32 * (fw + gap), area.y, fw, kit::FIGURE_H), label, value, under, *colour);
+        }
+        let y = area.y + kit::FIGURE_H + gap;
+        let h = (area.bottom() - y).max(260.0);
+        let cw = (area.w - gap) / 2.0;
+        month_overview(l, Rect::new(area.x, y, cw, h), &c);
+        loans(l, Rect::new(area.x + cw + gap, y, cw, h), &c);
+        return;
+    }
     for (k, (label, value, under, colour)) in figures.iter().enumerate() {
         figure(&mut l.ui, Rect::new(area.x + k as f32 * (fw + gap), area.y, fw, kit::FIGURE_H), label, value, under, *colour);
     }
