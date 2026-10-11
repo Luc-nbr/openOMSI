@@ -220,15 +220,6 @@ pub(super) fn open(v: &mut LineEditorView, ttl: &str) -> Option<(String, bool)> 
     Some((text, dropped > 0))
 }
 
-/// What a line of the map's is, under the list (`r`'s top, its width): what saving it does.
-/// Its height, when it is one.
-pub(super) fn note(ui: &mut Ui, v: &LineEditorView, r: Rect) -> Option<f32> {
-    let m = v.line()?.map.as_ref()?;
-    let text = omsi_ui::tr("A line of the map (%{name}): saved, the game drives it instead of the map's original, which comes back with “Restore the map's original”.").replace("%{name}", &m.ttl);
-    crate::mt::protect([text.as_str()]);
-    Some(ui.paragraph(&text, Vec2::new(r.x, r.y), r.w, 11.5, Weight::Regular, accent_2()))
-}
-
 /// The direction to show of `line` (`current`): Outbound and Return as two halves of `r` - a
 /// line of the map's with more trips than two in a list, each by its trip's ends. The one chosen.
 pub(super) fn direction_choice(ui: &mut Ui, line: &LineDesign, id: &str, r: Rect, current: usize) -> Option<usize> {
@@ -271,13 +262,15 @@ pub(super) fn foot(ui: &mut Ui, v: &mut LineEditorView, state: &mut super::super
         let h = ui.paragraph_height(w, body.w, 11.5, Weight::Regular);
         ui.paragraph(w, Vec2::new(body.x, foot - ROW - 14.0 - h), body.w, 11.5, Weight::Regular, WARN);
     }
+    // (opened and not changed: nothing of it to save)
+    let dirty = v.dirty && v.fresh != v.sel;
     let label = match fee {
-        Some((f, _)) if f > 0 && v.dirty => omsi_ui::tr("Pay %{amount} and save").replace("%{amount}", &super::super::company::eur(f)),
-        _ if v.dirty => omsi_ui::tr("Save line").into_owned(),
+        Some((f, _)) if f > 0 && dirty => omsi_ui::tr("Pay %{amount} and save").replace("%{amount}", &super::super::company::eur(f)),
+        _ if dirty => omsi_ui::tr("Save line").into_owned(),
         _ => omsi_ui::tr("Saved").into_owned(),
     };
     let sw = if company { body.w } else { body.w - ROW - GAP };
-    if ui.button("le-save", Rect::new(body.x, foot - ROW - 8.0, sw, ROW), &label, Some("save"), if v.dirty && why.is_none() { ButtonKind::Primary } else { ButtonKind::Normal }) && v.dirty {
+    if ui.button("le-save", Rect::new(body.x, foot - ROW - 8.0, sw, ROW), &label, Some("save"), if dirty && why.is_none() { ButtonKind::Primary } else { ButtonKind::Normal }) && dirty {
         match (why.clone(), company) {
             (Some(w), _) => *status = Some((w, true)),
             (None, true) => v.company_act = Some(CompanyAct::SaveMap),
@@ -288,7 +281,10 @@ pub(super) fn foot(ui: &mut Ui, v: &mut LineEditorView, state: &mut super::super
         *status = Some(drive_it(v, state));
     }
     let restore_label = if v.restore_armed { "Press again: the map's original back" } else { "Restore the map's original" };
-    if ui.button("le-restore", Rect::new(body.x, foot, body.w, ROW), restore_label, Some("restart_alt"), ButtonKind::Normal) {
+    let rr = Rect::new(body.x, foot, body.w, ROW);
+    let pressed = ui.button("le-restore", rr, restore_label, Some("restart_alt"), ButtonKind::Normal);
+    ui.tooltip(rr, "Your edit goes: the game runs the map's own line again, exactly as the map has it");
+    if pressed {
         if !v.restore_armed {
             v.restore_armed = true;
             *status = Some(("Press again: the edit goes and the game runs the map's own line as before".into(), false));
@@ -346,9 +342,11 @@ fn restore(v: &mut LineEditorView, state: &mut super::super::state::State) -> (S
 /// After the timetable was written: each line of the map's as the game runs it now, and the
 /// map's lines read again.
 pub(super) fn saved(v: &mut LineEditorView) {
-    v.running = v.reg.lines.iter().filter(|l| l.is_map_line()).map(|l| (l.id, l.clone())).collect();
-    if v.fresh.is_some_and(|id| v.reg.line(id).is_none()) {
-        v.fresh = None;
+    // (the one opened and not changed stays out of the timetable as it was: `save`)
+    let fresh = v.fresh;
+    v.running.retain(|id, _| Some(*id) == fresh);
+    for l in v.reg.lines.iter().filter(|l| l.is_map_line()) {
+        v.running.insert(l.id, l.clone());
     }
     omsi_cfg::content_changed();
     let tt = TimetableData::load(&v.map_dir);
@@ -480,6 +478,32 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
     }
 
+    /// A line of the map's opened and not changed is no edit: a save of the registry leaves it
+    /// out, and driving it drives the map's own line and trip as they run. Changed, it waits
+    /// for its save; saved, the Drive page follows the files it is written as.
+    #[test]
+    fn a_line_of_the_map_opened_and_not_changed_is_neither_saved_nor_driven_as_an_edit() {
+        let base = std::env::temp_dir().join(format!("openomsi-maplines-fresh-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let mut v = view(&base);
+        pick(&mut v, "7");
+        assert_eq!(drive_target(&v), Some(("7".to_string(), "7_out".to_string())), "the map's own");
+        // saved meanwhile (another line's save): not in the registry written
+        let path = base.join("lines").join("map.json");
+        without_fresh(&mut v, |v| reg::save_registry(&path, &v.reg)).unwrap();
+        assert!(reg::load_registry(&path).map_line("7").is_none());
+        assert!(v.reg.map_line("7").is_some() && v.fresh == v.sel, "still open");
+        // changed: the player's edit, to be saved before it is driven
+        v.line_mut().unwrap().name = "Ring".into();
+        v.touched();
+        assert_eq!(drive_target(&v), None);
+        without_fresh(&mut v, |v| reg::save_registry(&path, &v.reg)).unwrap();
+        assert_eq!(reg::load_registry(&path).map_line("7").map(|l| l.name.as_str()), Some("Ring"));
+        v.dirty = false;
+        assert_eq!(drive_target(&v), Some(("7".to_string(), "oo_map_7_a".to_string())), "the edit's files, under the map's line");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
     #[test]
     fn working_for_the_company_the_list_has_the_map_lines_it_runs() {
         let base = std::env::temp_dir().join(format!("openomsi-maplines-company-{}", std::process::id()));
@@ -523,7 +547,7 @@ mod tests {
             "Line %{n} of the map is open: change it as one of your own. Saved, the game drives it instead of the map's original.",
             "%{n} leg(s) the map has no way for are routed over the roads.",
             "%{n} of its trips could not be taken: they have fewer than two stops the timetable knows.",
-            "A line of the map (%{name}): saved, the game drives it instead of the map's original, which comes back with “Restore the map's original”.",
+            "Your edit goes: the game runs the map's own line again, exactly as the map has it",
             "Variant %{n}",
             "Restore the map's original",
             "Press again: the map's original back",

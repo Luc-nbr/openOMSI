@@ -64,13 +64,13 @@ _version: 2
   pl: "Nie udało się przejąć %{n} jej kursów: mają mniej niż dwa przystanki znane rozkładowi."
   ru: "Не удалось взять рейсов: %{n} — у них меньше двух остановок, известных расписанию."
   uk: "Не вдалося взяти рейсів: %{n} — у них менше двох зупинок, відомих розкладу."
-"A line of the map (%{name}): saved, the game drives it instead of the map's original, which comes back with “Restore the map's original”.":
-  de: "Eine Linie der Karte (%{name}): gespeichert fährt das Spiel sie statt des Originals der Karte, das mit „Original der Karte wiederherstellen“ zurückkommt."
-  fr: "Une ligne de la carte (%{name}) : enregistrée, le jeu la fait rouler à la place de l'originale, qui revient avec « Rétablir l'originale de la carte »."
-  nl: "Een lijn van de kaart (%{name}): opgeslagen rijdt het spel hem in plaats van het origineel van de kaart, dat terugkomt met „Origineel van de kaart terugzetten”."
-  pl: "Linia mapy (%{name}): po zapisaniu gra jeździ nią zamiast oryginału mapy, który wraca przyciskiem „Przywróć oryginał mapy”."
-  ru: "Линия карты (%{name}): после сохранения игра ездит по ней вместо оригинала карты, который возвращает кнопка «Вернуть оригинал карты»."
-  uk: "Лінія мапи (%{name}): після збереження гра їздить нею замість оригіналу мапи, який повертає кнопка «Повернути оригінал мапи»."
+"Your edit goes: the game runs the map's own line again, exactly as the map has it":
+  de: "Deine Bearbeitung verschwindet: das Spiel fährt wieder die Linie der Karte, genau so, wie die Karte sie hat"
+  fr: "Ta modification disparaît : le jeu refait rouler la ligne de la carte, exactement comme la carte l'a"
+  nl: "Je bewerking verdwijnt: het spel rijdt weer de eigen lijn van de kaart, precies zoals de kaart hem heeft"
+  pl: "Twoja zmiana znika: gra znów jeździ linią mapy, dokładnie taką, jaką ma mapa"
+  ru: "Ваши изменения исчезнут: игра снова ездит по линии карты точно так, как она есть на карте"
+  uk: "Ваші зміни зникнуть: гра знову їздить лінією мапи точно так, як вона є на мапі"
 "Variant %{n}":
   de: "Variante %{n}"
   fr: "Variante %{n}"

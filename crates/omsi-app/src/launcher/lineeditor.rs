@@ -973,7 +973,9 @@ fn left_panel(l: &mut Launcher, r: Rect, maps: &[(String, String)], status: &mut
             *status = Some(("The changes to the line on the map before were not saved".into(), true));
         }
         v.map = m;
-        v.loaded = None;
+        // (read again for the map chosen here: None would take the Drive page's map again,
+        // as the editor's first look does)
+        v.loaded = Some(String::new());
         return;
     }
     // the lines of the map
@@ -985,7 +987,7 @@ fn left_panel(l: &mut Launcher, r: Rect, maps: &[(String, String)], status: &mut
     let none = if v.company.is_some() { "The company has no line of its own yet" } else { "No lines of your own on this map yet" };
     let own_h = rows.len().max(1) as f32 * 40.0;
     let content_h = own_h + if map_rows.is_empty() { 0.0 } else { maplines::HEAD_H + map_rows.len() as f32 * 40.0 };
-    let list_h = content_h.min(r.h * if map_rows.is_empty() { 0.28 } else { 0.36 });
+    let list_h = content_h.min(r.h * if map_rows.is_empty() { 0.28 } else { 0.31 });
     let sel = v.sel;
     let mut pick = None;
     let mut pick_map = None;
@@ -1043,10 +1045,6 @@ fn left_panel(l: &mut Launcher, r: Rect, maps: &[(String, String)], status: &mut
     y += ROW + 14.0;
     if v.line().is_none() {
         return;
-    }
-    // (a line of the map's: what saving it does, said once over its settings)
-    if let Some(h) = maplines::note(ui, v, Rect::new(body.x, y - 6.0, body.w, 0.0)) {
-        y += h + 4.0;
     }
     // the line's own settings
     ui.p().rect(Rect::new(body.x, y - 7.0, body.w, 1.0), HAIRLINE);
@@ -1192,8 +1190,24 @@ fn texts_written(path: &Path, r: &mut Registry, written: bool) {
     }
 }
 
-/// The registry written, and every line of it that can be into the map's timetable.
+/// The registry written, and every line of it that can be into the map's timetable - but a line
+/// of the map's opened and not changed (`fresh`): that is no edit of the player's, and stays out.
 fn save(v: &mut LineEditorView, state: &mut super::state::State, problems: &[reg::Problem]) -> (String, bool) {
+    without_fresh(v, |v| save_registry_and_timetable(v, state, problems))
+}
+
+/// `f` done with the line of the map's opened and not changed (`fresh`) out of the registry,
+/// and back in it after.
+fn without_fresh<T>(v: &mut LineEditorView, f: impl FnOnce(&mut LineEditorView) -> T) -> T {
+    let fresh = v.fresh.and_then(|id| v.reg.lines.iter().position(|l| l.id == id)).map(|k| v.reg.lines.remove(k));
+    let done = f(v);
+    if let Some(l) = fresh {
+        v.reg.lines.push(l);
+    }
+    done
+}
+
+fn save_registry_and_timetable(v: &mut LineEditorView, state: &mut super::state::State, problems: &[reg::Problem]) -> (String, bool) {
     if let Some(line) = v.line_mut() {
         line.modified = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     }
@@ -1254,13 +1268,13 @@ fn delete(v: &mut LineEditorView, state: &mut super::state::State) -> (String, b
 }
 
 /// The Drive page set to drive the shown line: a free drive along its first direction on its
-/// map (it must be saved: the game reads the files).
+/// map (it must be saved: the game reads the files) - a line of the map's opened and not
+/// changed along the map's own trip, as it runs.
 fn drive_it(v: &mut LineEditorView, state: &mut super::state::State) -> (String, bool) {
     let Some(line) = v.line() else { return (String::new(), false) };
-    if v.dirty || !reg::problems(line).is_empty() {
+    let Some((free_line, free_route)) = drive_target(v) else {
         return ("Save the line first: the game drives what is saved".into(), true);
-    }
-    let stem = reg::stems(&v.reg).get(&line.id).cloned().unwrap_or_default();
+    };
     let file = v.reg.global.clone();
     let c = &mut state.choice;
     if c.map != file {
@@ -1270,12 +1284,27 @@ fn drive_it(v: &mut LineEditorView, state: &mut super::state::State) -> (String,
     (c.free, c.composed, c.own_line) = (true, false, true);
     // (the line lists open on the player's own lines - on the map's, a line of the map's)
     c.my_lines = !line.is_map_line();
-    c.free_line = line.timetable_name(&stem);
-    c.free_route = reg::trip_name(&stem, 0);
+    (c.free_line, c.free_route) = (free_line, free_route);
     state.touched();
     state.load_lines();
     v.go_drive = true;
     (String::new(), false)
+}
+
+/// The timetable line and the trip of its first direction a free drive of the shown line
+/// follows: the files it was saved as - a line of the map's opened and not changed, the map's
+/// own line and trip, which run as they are. None: it is not saved as it is shown.
+fn drive_target(v: &LineEditorView) -> Option<(String, String)> {
+    let line = v.line()?;
+    if v.fresh == Some(line.id) {
+        let m = line.map.as_ref()?;
+        return Some((m.ttl.clone(), line.directions.first()?.map_trip.clone()));
+    }
+    if v.dirty || !reg::problems(line).is_empty() {
+        return None;
+    }
+    let stem = reg::stems(&v.reg).get(&line.id).cloned().unwrap_or_default();
+    Some((line.timetable_name(&stem), reg::trip_name(&stem, 0)))
 }
 
 // --- the right panel: a direction's stops, and the timetable ----------------------------------
