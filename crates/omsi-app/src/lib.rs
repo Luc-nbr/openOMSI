@@ -164,6 +164,7 @@ const _LOCALES_COMPANY_DUTY: &str = include_str!("../locales/bedrijfsdienst.yml"
 const _LOCALES_UPSTREAM_0227: &str = include_str!("../locales/openomsi-0227.yml");
 const _LOCALES_UPSTREAM_0230: &str = include_str!("../locales/openomsi-0230.yml");
 const _LOCALES_COMPANY_PAGES: &str = include_str!("../locales/company-pages.yml");
+const _LOCALES_COMPANY_STAFF: &str = include_str!("../locales/company-staff.yml");
 const _LOCALES_TRIP_CARD: &str = include_str!("../locales/ritkaart.yml");
 const _LOCALES_DESTINATION: &str = include_str!("../locales/bestemming.yml");
 const _LOCALES_FONT_FIT: &str = include_str!("../locales/fontfit.yml");

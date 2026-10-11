@@ -249,10 +249,11 @@ pub fn enrol(c: &mut Company, kind: CourseKind, employee: Option<u32>) -> Result
     Ok(until)
 }
 
-/// Book a staff course for everyone who has neither done nor booked it and can go today (the
-/// cash allowing). Returns how many were booked, and what it cost.
+/// Book a staff course for every driver who has neither done nor booked it and can go today
+/// (the cash allowing; the others book their courses one by one). Returns how many were
+/// booked, and what it cost.
 pub fn enrol_all(c: &mut Company, kind: CourseKind) -> (usize, Cents) {
-    let ids: Vec<u32> = c.staff.iter().map(|e| e.id).collect();
+    let ids: Vec<u32> = c.staff.iter().filter(|e| super::staff::drives(e)).map(|e| e.id).collect();
     let (mut n, mut spent) = (0, 0);
     for id in ids {
         let before = c.cash;

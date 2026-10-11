@@ -494,8 +494,9 @@ fn training_part(l: &mut Launcher, area: Rect, c: &Company) {
     }
     l.ui.p().rect(Rect::new(inner.x, inner.y + 40.0, inner.w, 1.0), HAIRLINE);
     let rows = Rect::new(inner.x, inner.y + 46.0, inner.w, (inner.h - 46.0).max(0.0));
-    // (who stays: id, name, away today)
-    let people: Vec<(u32, String, bool)> = c.staff.iter().filter(|e| e.notice_until.is_none()).map(|e| (e.id, e.name.clone(), e.absent(&c.date))).collect();
+    // (the drivers who stay: id, name, away today - the others book the courses of their work
+    // on their card on the Staff page)
+    let people: Vec<(u32, String, bool)> = c.staff.iter().filter(|e| e.notice_until.is_none() && co::staff::drives(e)).map(|e| (e.id, e.name.clone(), e.absent(&c.date))).collect();
     if people.is_empty() {
         l.ui.text_in("Nobody works here yet.", Rect::new(rows.x, rows.y, rows.w, 22.0), kit::ROWS, Weight::Regular, TEXT_DIM, Align::Left);
     }
