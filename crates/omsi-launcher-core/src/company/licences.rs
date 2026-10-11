@@ -323,6 +323,8 @@ mod tests {
         let mut c = found(&Founding { name: "Schule".into(), date: "2024-03-04".into(), ..Default::default() }, "Luc");
         c.cash += 5_000_000_00;
         c.progress.xp = super::super::levels::LEVEL_XP[4];
+        // (and the big buses researched: `research`)
+        c.research.done = vec![super::super::research::keys::ARTICULATED.into(), super::super::research::keys::DOUBLE_DECKERS.into()];
         c
     }
 
