@@ -366,7 +366,7 @@ pub(super) fn shortcuts(c: &Company) -> Vec<(To, &'static str, &'static str)> {
     if c.last_report.is_some() {
         out.push((To::Report, "Show the report", "description"));
     }
-    out.push((To::Chooser, "Other company", "swap_horiz"));
+    out.push((To::Chooser, "Other company", "sync_alt"));
     out
 }
 

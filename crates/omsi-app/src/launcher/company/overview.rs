@@ -303,11 +303,11 @@ fn last_day(l: &mut Launcher, r: Rect, c: &Company) {
 /// the companies are chosen and founded there only, Luc).
 fn companies(l: &mut Launcher, r: Rect, c: &Company) {
     let inner = section(&mut l.ui, r, "Your companies");
-    let bw = kit::Foot::width(&l.ui, "Other company", Some("swap_horiz")).min(inner.w * 0.5);
+    let bw = kit::Foot::width(&l.ui, "Other company", Some("sync_alt")).min(inner.w * 0.5);
     let y = inner.y - 4.0;
     let text = omsi_ui::tr("Founded on %{date}.").replace("%{date}", &day_label(&c.founded));
     l.ui.text_in(&text, Rect::new(inner.x, y, (inner.w - bw - 12.0).max(80.0), 38.0), kit::BODY, Weight::Regular, TEXT_SOFT, Align::Left);
-    if l.ui.button("company-other", Rect::new(inner.right() - bw, y, bw, 38.0), "Other company", Some("swap_horiz"), ButtonKind::Normal) {
+    if l.ui.button("company-other", Rect::new(inner.right() - bw, y, bw, 38.0), "Other company", Some("sync_alt"), ButtonKind::Normal) {
         super::chooser::to_companies(l);
     }
 }
