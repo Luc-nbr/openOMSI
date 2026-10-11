@@ -179,6 +179,7 @@ const _LOCALES_LIVERY_LAYERS: &str = include_str!("../locales/livery-layers.yml"
 const _LOCALES_COMPANY_REALTIME: &str = include_str!("../locales/company-realtime.yml");
 const _LOCALES_EASY_POLISH: &str = include_str!("../locales/easy-polish.yml");
 const _LOCALES_LINE_EXISTING: &str = include_str!("../locales/line-existing.yml");
+const _LOCALES_COMPANY_PLANNING: &str = include_str!("../locales/company-planning.yml");
 
 /// Show the interface in `code` (the settings' ENG / DEU / FRA / RUS).
 pub(crate) fn ui_language(code: &str) {

@@ -1259,6 +1259,51 @@ pub fn shortfall(c: &Company, tours: &[TourOfDay]) -> Vec<Shortfall> {
     out
 }
 
+// --- a timetable to come -------------------------------------------------------------------------
+
+/// The tours a group of days of an own line's design gives the planning (`day` an index into
+/// `lines::DAY_GROUPS`; `cl` the company's line it is), as `network::tours_of_day` makes them
+/// of the map's timetable once it is written: a trip file's name, its stops and kilometres,
+/// the depot runs added, in order of their first trips. What a timetable changed on the
+/// planning comes to before it is saved.
+pub fn design_tours(c: &Company, cl: &CompanyLine, l: &LineDesign, stem: &str, day: usize) -> Vec<TourOfDay> {
+    let run = lines::run_minutes(l);
+    let dirs: Vec<(usize, &lines::Direction)> = l.directions.iter().filter(|d| d.stops.len() >= 2).take(2).enumerate().collect();
+    let mut out: Vec<TourOfDay> = Vec::new();
+    for t in lines::tour_plan(l).into_iter().filter(|t| t.day == day) {
+        let trips: Vec<PlannedTrip> = t
+            .trips
+            .iter()
+            .filter_map(|p| {
+                let (k, d) = dirs.get(p.dir)?;
+                let dep = p.departure.round() as i32;
+                Some(PlannedTrip {
+                    name: lines::trip_name(stem, *k),
+                    line: l.number.trim().to_string(),
+                    from: d.stops.first().map(|s| s.name.clone()).unwrap_or_default(),
+                    to: d.destination(),
+                    dep,
+                    arr: (p.departure + p.minutes(&run)).round() as i32,
+                    km: d.legs.iter().map(|g| g.length as f64).sum::<f64>() / 1000.0,
+                    stops: d.stops.len() as u32,
+                    empty: false,
+                })
+            })
+            .collect();
+        if trips.iter().any(PlannedTrip::counts) {
+            out.push(TourOfDay { line: cl.name.clone(), number: cl.number.clone(), tour: t.number.clone(), ai_group: l.ai_group.clone(), trips, unplanned: false });
+        }
+    }
+    add_depot_runs(c, &mut out);
+    out.sort_by_key(|t| t.from());
+    out
+}
+
+/// The most tours out at once (the buses they need at the busiest).
+pub fn busiest(tours: &[TourOfDay]) -> usize {
+    tours.iter().map(|t| tours.iter().filter(|x| x.from() <= t.from() && t.from() < x.to()).count()).max().unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{found, Founding};
@@ -1624,5 +1669,36 @@ mod tests {
         assert_eq!((c.cash, c.lines[0].colour.as_str()), (cash - fee, ""));
         // a line it does not run
         assert!(apply_map_change(&mut c, "8", &old, &later, false).is_err());
+    }
+
+    #[test]
+    fn a_timetable_to_come_gives_the_planning_its_tours() {
+        let mut c = company(Difficulty::Realistic);
+        let l = line(12);
+        let s = shape_of(&l, &|_| 0);
+        confirm(&mut c, &l, "oo_9", &s).unwrap();
+        let cl = line_of(&c, 9).unwrap().clone();
+        // the working days' tours as the line editor writes them, each with its depot runs
+        let tours = design_tours(&c, &cl, &l, "oo_9", 0);
+        let planned: Vec<_> = lines::tour_plan(&l).into_iter().filter(|t| t.day == 0).collect();
+        assert_eq!(tours.len(), planned.len());
+        let first = &tours[0];
+        assert_eq!(first.line, "oo_9");
+        assert!(first.trips[0].empty && first.trips.last().unwrap().empty);
+        let trip = &first.trips[1];
+        assert!(trip.counts() && trip.name == "oo_9_a" && trip.stops == 12 && trip.line == "9");
+        assert_eq!(trip.dep, planned.iter().find(|t| t.number == first.tour).unwrap().trips[0].departure.round() as i32);
+        assert!((trip.km - 11.0 * 0.4).abs() < 1e-6);
+        // every 15 minutes, out and back: buses at the busiest, and fewer every 30 minutes
+        let peak = busiest(&tours);
+        assert!(peak >= 2 && peak <= tours.len());
+        let mut sparse = l.clone();
+        sparse.days[0].headway = 30.0;
+        assert!(busiest(&design_tours(&c, &cl, &sparse, "oo_9", 0)) < peak);
+        // a group of days the line does not run on: none
+        let mut off = l.clone();
+        off.days[1].on = false;
+        assert!(design_tours(&c, &cl, &off, "oo_9", 1).is_empty());
+        assert_eq!(busiest(&[]), 0);
     }
 }

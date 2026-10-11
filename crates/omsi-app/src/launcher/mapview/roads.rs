@@ -334,7 +334,7 @@ pub(super) mod tests {
         let mut m = MapView::new();
         m.roads = Some(roads.clone());
         m.mpp = mpp;
-        let (verts, _) = m.build(&roads, m.tolerance());
+        let (verts, _) = m.build(&roads, m.tolerance(), palette(true));
         let px = rasterise(&verts, at, mpp as f32, w, h, &MSAA1, [0.0; 3]);
         let mpp = mpp as f32;
         (px, move |i: usize| at + Vec2::new(((i % w) as f32 + 0.5 - w as f32 * 0.5) * mpp, (h as f32 * 0.5 - ((i / w) as f32 + 0.5)) * mpp))
@@ -510,7 +510,7 @@ pub(super) mod tests {
             for mpp in [0.15f64, 0.3, 0.6, 1.5, 4.0] {
                 m.mpp = mpp;
                 let t0 = Instant::now();
-                let (verts, _) = m.build(&roads, m.tolerance());
+                let (verts, _) = m.build(&roads, m.tolerance(), palette(true));
                 let built = t0.elapsed().as_secs_f64();
                 let c = Vec2::new((at.x - roads.origin.x) as f32, (at.y - roads.origin.y) as f32);
                 let (w, h) = (520, 380);
@@ -557,7 +557,7 @@ pub(super) mod tests {
         m.roads = Some(roads.clone());
         let mpp = MPP_MIN;
         m.mpp = mpp;
-        let (verts, _) = m.build(&roads, m.tolerance());
+        let (verts, _) = m.build(&roads, m.tolerance(), palette(true));
         let (casing, surfaces) = (linear(ROAD_CASING), [linear(ROAD), linear(ROAD_MAIN)]);
         let (w, h) = (360usize, 360usize);
         let mut worst: Vec<(usize, usize)> = Vec::new();
