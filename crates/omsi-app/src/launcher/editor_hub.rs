@@ -51,7 +51,9 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         l.ui.tile_edge(&t, 1.0, EDGE);
         let badge = Rect::new(tile.x + 22.0, tile.y + 22.0, 46.0, 46.0);
         l.ui.p().rounded(badge, RADIUS, Color::WHITE.alpha(0.1).mix(accent(), 0.2 + 0.7 * t.hover));
-        l.ui.icon(icon, badge.center(), 23.0, Color::WHITE.mix(on_accent(), t.hover));
+        // (in the sheet's ink at rest: dark on the light look's pale badge; on the accent's
+        // ink as the badge fills with it)
+        l.ui.icon(icon, badge.center(), 23.0, TEXT.mix(on_accent(), t.hover));
         l.ui.text_in(title, Rect::new(badge.right() + 16.0, badge.y, tile.w - 110.0, badge.h), 20.0, Weight::Bold, TEXT, Align::Left);
         l.ui.paragraph(text, Vec2::new(tile.x + 22.0, badge.bottom() + 12.0), tile.w - 44.0, 13.5, Weight::Regular, TEXT_SOFT);
         if objects {
