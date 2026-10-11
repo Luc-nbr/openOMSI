@@ -118,12 +118,34 @@ enum Stop {
     CoFinances,
     CoCareer,
     CoDone,
+    /// The easy mode's own stops, in place of the advanced mode's start screen and of the pages
+    /// it words otherwise: "What to do next", the tiles, what the company does by itself, the
+    /// mode's pill, what it has (the trophies spent by itself), and the fleet, the staff, the
+    /// lines and the career as the easy mode runs them. It has no planning stop.
+    CoEasyNext,
+    CoEasyTiles,
+    CoEasyDeeds,
+    CoEasyMode,
+    CoEasyStatus,
+    CoEasyFleet,
+    CoEasyStaff,
+    CoEasyLines,
+    CoEasyCareer,
 }
 
 use Stop::*;
 
-/// The bus company's tour, in its order.
-const COMPANY_STOPS: [Stop; 15] = [CoWelcome, CoFound, CoTabs, CoStatus, CoClock, CoNav, CoOverview, CoToday, CoFleet, CoStaff, CoLines, CoPlanning, CoFinances, CoCareer, CoDone];
+/// The bus company's tour, in its order: the advanced mode's stops and the easy mode's mixed,
+/// each mode showing its own (`Stop::shown`).
+const COMPANY_STOPS: [Stop; 24] = [
+    CoWelcome, CoFound, CoTabs, CoEasyNext, CoEasyTiles, CoEasyDeeds, CoEasyMode, CoStatus, CoEasyStatus, CoClock, CoNav, CoOverview, CoToday, CoFleet, CoEasyFleet, CoStaff, CoEasyStaff, CoLines, CoEasyLines, CoPlanning,
+    CoFinances, CoCareer, CoEasyCareer, CoDone,
+];
+
+/// The stops only the easy mode makes.
+const EASY_ONLY: [Stop; 9] = [CoEasyNext, CoEasyTiles, CoEasyDeeds, CoEasyMode, CoEasyStatus, CoEasyFleet, CoEasyStaff, CoEasyLines, CoEasyCareer];
+/// The stops only the advanced mode makes (the easy mode has its own of them, or no planning).
+const ADVANCED_ONLY: [Stop; 7] = [CoTabs, CoStatus, CoFleet, CoStaff, CoLines, CoPlanning, CoCareer];
 
 const STOPS: [Stop; 22] = [Welcome, Modes, Record, Languages, Steps, MapViews, MapTile, StartAt, MainAction, Day, ShiftLength, ShiftList, ShiftRoute, FreeStarts, FreeLine, Buses, LookIn3d, Navigator, CityMap, Companion, Done, Goodbye];
 
@@ -213,6 +235,15 @@ impl Stop {
             CoFinances => ("Finances", "The money", "Every booking, month by month: fares, the authority's money, wages, fuel and repairs. Loans come from the bank here."),
             CoCareer => ("Career", "Your duties and your progress", "My duties lists the duties planned for you, each a click from driving it. Here too: the company's level, the training courses and the rankings."),
             CoDone => ("Bus company", "Off to work", "This question mark shows the tour again. Good luck with your company!"),
+            CoEasyNext => ("Its start screen", "What to do next", "Your company in the easy mode, step by step: a line, buses, drivers, letting the time run and a duty of your own. The step to do now has its button; a step done gets its tick."),
+            CoEasyTiles => ("Its start screen", "Its pages as tiles", "Every page of the easy mode is a tile, with what matters there now. A badge says where something waits; under the tiles are the dealer, a new line, a loan and the settings."),
+            CoEasyDeeds => ("Its start screen", "Done by the company itself", "Every morning the company fills its roster, every night it hires, trains, repairs, researches and builds parking where it is needed. What it did is told here, the newest first."),
+            CoEasyMode => ("Its start screen", "The easy mode", "The company sees to its routine by itself: no planning, no auctions, no workshop to run. A click here opens the settings, where the advanced mode shows every page with nothing lost."),
+            CoEasyStatus => ("Its start screen", "Cash, trophies, reputation", "Under the company's name, always in view: its cash, the trophies earned with goals, and its reputation. The company spends the trophies on research by itself."),
+            CoEasyFleet => ("Fleet", "Buses and the dealer", "Your buses with their condition and their livery. At the dealer you buy new or used ones at the list price, lease or rent them; worn buses go to the workshop by themselves."),
+            CoEasyStaff => ("Staff", "Drivers and the others", "Your employees and the labour market. The company hires the drivers its duties need by itself at night, grants their raises and trains them - or hire them yourself now."),
+            CoEasyLines => ("Lines", "What the company runs", "Take on the map's lines or make your own in the line editor. A line runs at once: the company fills its roster every morning with the buses and drivers it has."),
+            CoEasyCareer => ("Career", "Your duties and your progress", "Take one of the company's duties beside your list: it is yours on that weekday every week, a click from driving it. Here too: the company's level, the training courses and the rankings."),
         }
     }
 
@@ -252,6 +283,13 @@ impl Stop {
             CoFleet | CoStaff | CoLines | CoPlanning | CoFinances => Target::Part("company-page"),
             CoCareer => Target::Part("company-career-parts"),
             CoDone => Target::Part("company-help"),
+            CoEasyNext => Target::Part("company-easy-steps"),
+            CoEasyTiles => Target::Part("company-easy-tiles"),
+            CoEasyDeeds => Target::Part("company-easy-deeds"),
+            CoEasyMode => Target::Part("company-mode"),
+            CoEasyStatus => Target::Part("company-status"),
+            CoEasyFleet | CoEasyStaff | CoEasyLines => Target::Part("company-page"),
+            CoEasyCareer => Target::Part("company-career-parts"),
         }
     }
 
@@ -267,14 +305,14 @@ impl Stop {
             Done | CoDone => Place::Home,
             // (the welcome, the founding and the start screen's stops on the start screen; the
             // way round shown from the overview, the page its stops come to next)
-            CoWelcome | CoFound | CoTabs | CoStatus | CoClock => Place::Company(super::company::HOME_TAB),
+            CoWelcome | CoFound | CoTabs | CoStatus | CoClock | CoEasyNext | CoEasyTiles | CoEasyDeeds | CoEasyMode | CoEasyStatus => Place::Company(super::company::HOME_TAB),
             CoNav | CoOverview | CoToday => Place::Company(0),
-            CoFleet => Place::Company(1),
-            CoStaff => Place::Company(2),
-            CoLines => Place::Company(3),
+            CoFleet | CoEasyFleet => Place::Company(1),
+            CoStaff | CoEasyStaff => Place::Company(2),
+            CoLines | CoEasyLines => Place::Company(3),
             CoFinances => Place::Company(4),
             CoPlanning => Place::Company(5),
-            CoCareer => Place::Company(6),
+            CoCareer | CoEasyCareer => Place::Company(6),
         }
     }
 
@@ -285,7 +323,10 @@ impl Stop {
             // once there is one)
             CoWelcome => true,
             CoFound => !c.company,
-            CoClock | CoTabs | CoStatus | CoNav | CoOverview | CoToday | CoFleet | CoStaff | CoLines | CoPlanning | CoFinances | CoCareer | CoDone => c.company,
+            // (each mode its own stops: the easy mode's start screen and pages as it runs them)
+            s if EASY_ONLY.contains(&s) => c.company && c.easy,
+            s if ADVANCED_ONLY.contains(&s) => c.company && !c.easy,
+            CoClock | CoNav | CoOverview | CoToday | CoFinances | CoDone => c.company,
             Welcome | Navigator | CityMap | Companion => true,
             Goodbye => c.phone,
             _ if c.phone => false,
@@ -319,6 +360,8 @@ struct Ctx {
     server: bool,
     /// A bus company is open (not the founding wizard).
     company: bool,
+    /// It runs in the easy mode (`co::autopilot`): the tour makes that mode's stops.
+    easy: bool,
 }
 
 impl Ctx {
@@ -334,6 +377,7 @@ impl Ctx {
             own_line: l.state.choice.own_line,
             server,
             company: l.company.company.is_some() && l.company.wizard.is_none(),
+            easy: l.company.company.as_ref().is_some_and(omsi_launcher_lib::company::autopilot::on),
         }
     }
 }
@@ -2547,7 +2591,31 @@ mod tests {
     use super::*;
 
     fn everything() -> Ctx {
-        Ctx { phone: false, map: true, entries: true, bus: true, showroom: false, own_line: false, server: false, company: false }
+        Ctx { phone: false, map: true, entries: true, bus: true, showroom: false, own_line: false, server: false, company: false, easy: false }
+    }
+
+    #[test]
+    fn the_easy_companys_tour_shows_only_what_the_easy_mode_has() {
+        let advanced = company_plan(&Ctx { company: true, ..everything() });
+        let easy = company_plan(&Ctx { company: true, easy: true, ..everything() });
+        // the advanced tour as it always was
+        assert_eq!(advanced, vec![CoWelcome, CoTabs, CoStatus, CoClock, CoNav, CoOverview, CoToday, CoFleet, CoStaff, CoLines, CoPlanning, CoFinances, CoCareer, CoDone]);
+        // the easy one: its start screen's list, tiles, deeds and mode, no planning
+        assert_eq!(
+            easy,
+            vec![CoWelcome, CoEasyNext, CoEasyTiles, CoEasyDeeds, CoEasyMode, CoEasyStatus, CoClock, CoNav, CoOverview, CoToday, CoEasyFleet, CoEasyStaff, CoEasyLines, CoFinances, CoEasyCareer, CoDone]
+        );
+        // every page it stops on is one the easy mode shows
+        for s in &easy {
+            if let Place::Company(tab) = s.place() {
+                assert!(tab == super::super::company::HOME_TAB || super::super::company::pages_of(omsi_launcher_lib::company::Mode::Easy).contains(&tab), "{s:?}");
+            }
+        }
+        // and no words of the advanced planning
+        for s in &easy {
+            let (_, title, text) = s.words();
+            assert!(!text.contains("Planning") && !title.contains("Planning") && !text.contains("auction") || text.contains("no auctions"), "{s:?}");
+        }
     }
 
     #[test]
@@ -2568,7 +2636,7 @@ mod tests {
         assert_eq!(company_plan(&everything()), vec![CoWelcome, CoFound]);
         // with one: its welcome, its clock and tabs, every page, and the "?" at the end
         let p = company_plan(&Ctx { company: true, ..everything() });
-        assert_eq!(p.len(), COMPANY_STOPS.len() - 1);
+        assert_eq!(p.len(), COMPANY_STOPS.len() - 1 - EASY_ONLY.len());
         assert!(!p.contains(&CoFound) && p.first() == Some(&CoWelcome) && p.last() == Some(&CoDone));
         // the launcher's tour has none of them, and theirs none of its
         assert!(plan(&Ctx { company: true, ..everything() }).iter().all(|s| !COMPANY_STOPS.contains(s)));
