@@ -189,7 +189,9 @@ pub struct Terms {
     /// How long he listens: rounds, and his patience (1: average).
     pub rounds: u32,
     pub patience: f64,
-    /// Days from signing to a new bus's delivery (one not in stock).
+    /// The working days a new bus's regular delivery takes (one not in stock): a working week
+    /// (Luc: the weeks it took were far too long, a working week may be; a quick delivery
+    /// brings it at once, `set_quick`).
     pub delivery_days: i64,
     /// Warranty in months: a new bus's, a used one's, and what an extended warranty adds.
     pub warranty_new: u32,
@@ -201,28 +203,61 @@ pub struct Terms {
 pub fn terms(d: Difficulty) -> Terms {
     match d {
         Difficulty::Easy => Terms { margin: 0.16, used_margin: 0.06, rounds: 7, patience: 1.4, delivery_days: 5, warranty_new: 24, warranty_used: 12, sulk_days: 1 },
-        Difficulty::Realistic => Terms { margin: 0.11, used_margin: 0.05, rounds: 5, patience: 1.0, delivery_days: 14, warranty_new: 24, warranty_used: 6, sulk_days: 2 },
-        Difficulty::Hard => Terms { margin: 0.07, used_margin: 0.04, rounds: 4, patience: 0.75, delivery_days: 28, warranty_new: 12, warranty_used: 3, sulk_days: 4 },
+        Difficulty::Realistic => Terms { margin: 0.11, used_margin: 0.05, rounds: 5, patience: 1.0, delivery_days: 5, warranty_new: 24, warranty_used: 6, sulk_days: 2 },
+        Difficulty::Hard => Terms { margin: 0.07, used_margin: 0.04, rounds: 4, patience: 0.75, delivery_days: 5, warranty_new: 12, warranty_used: 3, sulk_days: 4 },
     }
 }
 
 /// Months of warranty an extended warranty adds.
 pub const EXTRA_WARRANTY_MONTHS: u32 = 12;
 
-/// The days from signing to the delivery of a new bus of `maker`'s (the same model takes the
-/// same time that day): from stock two, else the difficulty's with a spread; a faster
-/// delivery halves it.
+/// The days from signing to the delivery of a new bus (the calendar's, from the company's day):
+/// a quick delivery none - the bus is there at once; a regular one a working week
+/// (`Terms::delivery_days` working days, the weekend not counted), from stock one working day.
 pub fn delivery_days(c: &Company, key: &str, stock: bool, fast: bool) -> i64 {
-    let base = if stock {
-        2
-    } else {
-        let mut rng = Rng::of(&[&c.id, "delivery", key], dates::parse(&c.date).unwrap_or(0));
-        (terms(c.difficulty).delivery_days as f64 * rng.range(0.8, 1.4)).round() as i64
-    };
+    let _ = key;
     if fast {
-        (base / 2).max(1)
+        return 0;
+    }
+    let working = if stock { 1 } else { terms(c.difficulty).delivery_days.max(1) };
+    calendar_days(&c.date, working)
+}
+
+/// The calendar days from `date` to its `working`-th working day after it (Saturday and
+/// Sunday not counted).
+fn calendar_days(date: &str, working: i64) -> i64 {
+    let Some(start) = dates::parse(date) else { return working };
+    let (mut day, mut left) = (start, working);
+    while left > 0 {
+        day += 1;
+        // (dates::weekday: 0 Monday ... 6 Sunday)
+        if !matches!(dates::weekday(day), 5 | 6) {
+            left -= 1;
+        }
+    }
+    day - start
+}
+
+/// The quick delivery's fee a bus: 3 % of the list price (the dealer brings it at once).
+pub fn quick_fee(c: &Company, list: Cents) -> Cents {
+    let _ = c;
+    round_to(list as f64 * 0.03, 100_00)
+}
+
+/// A contract of new buses delivered quickly (at once, for `quick_fee` a bus - nothing when the
+/// talk got the quick delivery thrown in) or regularly (in a day or two).
+pub fn set_quick(c: &Company, k: &mut Contract, quick: bool) {
+    if !k.new {
+        return;
+    }
+    let key = format!("new:{}", k.listing.bus.file);
+    if quick {
+        k.delivery_days = 0;
+        k.quick = if k.extras.contains(&Extra::FastDelivery) { 0 } else { quick_fee(c, k.list) };
     } else {
-        base
+        k.extras.retain(|e| *e != Extra::FastDelivery);
+        k.delivery_days = delivery_days(c, &key, k.offer.is_some(), false);
+        k.quick = 0;
     }
 }
 
@@ -497,7 +532,7 @@ impl Extra {
     pub fn label(self) -> &'static str {
         match self {
             Extra::FreeService => "Free first service",
-            Extra::FastDelivery => "Faster delivery",
+            Extra::FastDelivery => "Quick delivery",
             Extra::Painting => "Livery painting included",
             Extra::Warranty => "A year more warranty",
             Extra::Introduction => "Driver introduction",
@@ -519,7 +554,7 @@ impl Extra {
 pub fn extra_value(c: &Company, e: Extra, list: Cents) -> Cents {
     match e {
         Extra::FreeService => round_to(1_200_00 as f64 * c.price_index, 100_00),
-        Extra::FastDelivery => round_to(list as f64 * 0.01, 100_00),
+        Extra::FastDelivery => quick_fee(c, list),
         Extra::Painting => painting_cost(c),
         Extra::Warranty => round_to(list as f64 * 0.02, 100_00),
         Extra::Introduction => 2 * super::licences::course_cost(c, super::training::CourseKind::TypeTraining),
@@ -959,6 +994,9 @@ pub struct Contract {
     pub price: Cents,
     pub grant: Cents,
     pub painting: Cents,
+    /// The quick delivery's fee a bus (0: a regular delivery, or one thrown in, `set_quick`).
+    #[serde(default)]
+    pub quick: Cents,
     pub pay: PayWay,
     /// Days from signing to delivery (0: at once).
     pub delivery_days: i64,
@@ -972,9 +1010,9 @@ pub struct Contract {
 }
 
 impl Contract {
-    /// The price of all the buses with their painting.
+    /// The price of all the buses with their painting and a quick delivery's fee.
     pub fn total(&self) -> Cents {
-        (self.price + self.painting) * self.count as Cents
+        (self.price + self.painting + self.quick) * self.count as Cents
     }
 
     pub fn grants(&self) -> Cents {
@@ -989,7 +1027,7 @@ impl Contract {
     /// A leased bus's monthly rate, the term and its residual value (of the agreed price).
     pub fn lease(&self, c: &Company) -> (Cents, u32, Cents) {
         let r = economy::rules(c.difficulty);
-        let base = self.price + self.painting;
+        let base = self.price + self.painting + self.quick;
         (economy::lease_monthly(base, &r), r.lease_months, (base as f64 * r.lease_residual).round() as Cents)
     }
 
@@ -1409,6 +1447,43 @@ pub struct DealerState {
     /// The loan contracts the company signed with the bank (the last sixty; see `finance`).
     #[serde(default)]
     pub loan_contracts: Vec<super::finance::LoanContract>,
+}
+
+#[cfg(test)]
+mod delivery_tests {
+    use super::*;
+    use crate::company::{found, Difficulty, Founding};
+
+    /// A regular delivery takes a working week (from a Monday the next Monday, from a
+    /// Thursday the Thursday after; from stock the next working day); a quick one none, for
+    /// 3 % of the list price a bus - none when the talk threw it in; back to regular, the fee
+    /// goes.
+    #[test]
+    fn a_bus_comes_in_a_working_week_or_at_once() {
+        for d in Difficulty::ALL {
+            // (2024-03-04 is a Monday, 2024-03-07 a Thursday, 2024-03-08 a Friday)
+            let c = found(&Founding { name: "Quick".into(), difficulty: d, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+            assert_eq!(delivery_days(&c, "new:x", false, false), 7, "{d:?}");
+            assert_eq!(delivery_days(&c, "new:x", true, false), 1);
+            assert_eq!(delivery_days(&c, "new:x", false, true), 0);
+            let friday = Company { date: "2024-03-08".into(), ..c.clone() };
+            assert_eq!(delivery_days(&friday, "new:x", true, false), 3, "Friday from stock: Monday");
+            assert_eq!(delivery_days(&friday, "new:x", false, false), 7);
+            let thursday = Company { date: "2024-03-07".into(), ..c.clone() };
+            assert_eq!(delivery_days(&thursday, "new:x", false, false), 7);
+        }
+        let c = found(&Founding { name: "Quick".into(), difficulty: Difficulty::Realistic, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+        let mut k = Contract { new: true, list: 300_000_00, price: 280_000_00, count: 2, delivery_days: 2, ..Default::default() };
+        set_quick(&c, &mut k, true);
+        assert_eq!((k.delivery_days, k.quick), (0, 9_000_00));
+        assert_eq!(k.total(), 2 * (280_000_00 + 9_000_00));
+        set_quick(&c, &mut k, false);
+        assert!(k.delivery_days >= 1 && k.quick == 0);
+        // thrown in by the dealer: at once, no fee
+        k.extras.push(Extra::FastDelivery);
+        set_quick(&c, &mut k, true);
+        assert_eq!((k.delivery_days, k.quick), (0, 0));
+    }
 }
 
 #[cfg(test)]

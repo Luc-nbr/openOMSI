@@ -874,7 +874,7 @@ fn model_sheet(l: &mut Launcher, c: &Company, listing: Listing, livery: usize, c
     if grant > 0 {
         rows.push((omsi_ui::tr("Grant").into_owned(), format!("- {}", eur(grant))));
     }
-    rows.push((omsi_ui::tr("Delivery").into_owned(), omsi_ui::tr("about %{n} days after signing").replace("%{n}", &days.to_string())));
+    rows.push((omsi_ui::tr("Delivery").into_owned(), omsi_ui::tr("in %{n} days, or at once with a quick delivery").replace("%{n}", &days.to_string())));
     let mut y = right.y;
     spec_rows(l, right, &mut y, &rows);
     y += 16.0;
@@ -1309,6 +1309,17 @@ fn contract_sheet(l: &mut Launcher, c: &Company, contract: Contract, strokes: Ve
     row(l, left, &mut ly, "Livery", livery_label(&k.livery), false);
     let delivery = if k.delivery_days <= 0 { omsi_ui::tr("At once, on signing").into_owned() } else { day_label(&dl::day_of(&k.delivery(&now))) };
     row(l, left, &mut ly, "Delivery", delivery, false);
+    // (new buses: delivered regularly in a working week, or quickly at once for a fee)
+    if k.new && !readonly && signing.is_none() {
+        let fee = if k.extras.contains(&Extra::FastDelivery) { omsi_ui::tr("thrown in").into_owned() } else { eur(dl::quick_fee(c, k.list)) };
+        let labels = [omsi_ui::tr("Regular: a working week").into_owned(), omsi_ui::tr("Quick: at once (+%{amount} a bus)").replace("%{amount}", &fee)];
+        let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+        let mut pick = usize::from(k.delivery_days <= 0);
+        if l.ui.segmented("company-dealer-delivery", Rect::new(left.x, ly + 4.0, left.w, 36.0), &mut pick, &refs) {
+            dl::set_quick(c, &mut k, pick == 1);
+        }
+        ly += 46.0;
+    }
     row(l, left, &mut ly, "Warranty", omsi_ui::tr("%{n} months").replace("%{n}", &k.warranty_months.to_string()), false);
     let extras = if k.extras.is_empty() { omsi_ui::tr("None").into_owned() } else { k.extras.iter().map(|e| omsi_ui::tr(e.label()).into_owned()).collect::<Vec<_>>().join(", ") };
     kit::caps(&mut l.ui, Rect::new(left.x, ly + 10.0, left.w, 16.0), "Extras");
@@ -1320,6 +1331,9 @@ fn contract_sheet(l: &mut Launcher, c: &Company, contract: Contract, strokes: Ve
         row(l, right, &mut ry, "List price a bus", eur(k.list), false);
     }
     row(l, right, &mut ry, "Agreed price a bus", eur(k.price), false);
+    if k.quick > 0 {
+        row(l, right, &mut ry, "Quick delivery a bus", eur(k.quick), false);
+    }
     if k.painting > 0 {
         row(l, right, &mut ry, "Painting a bus", eur(k.painting), false);
     } else if !k.livery.is_empty() {
