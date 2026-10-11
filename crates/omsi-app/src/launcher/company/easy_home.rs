@@ -400,6 +400,48 @@ mod tests {
     }
 
     #[test]
+    fn every_text_of_the_easy_mode_is_translated() {
+        // (what `locale_check` cannot see: the core's texts, those handed on in a step, a tile
+        // or a way, and those chosen in an `if` or a `match` of the pages)
+        let c = company();
+        let mut texts: Vec<&str> = co::autopilot::texts();
+        for m in Mode::ALL {
+            texts.extend([m.label(), m.info()]);
+        }
+        for s in steps(&c, None) {
+            texts.push(s.title);
+            texts.extend(s.go.map(|g| g.1));
+        }
+        texts.extend(tiles(&c, None, &Marks::of(&c, None)).iter().map(|t| t.name));
+        texts.extend(ways(&c).iter().map(|w| w.1));
+        texts.extend([
+            "%{n} tours of today have no bus: get more buses.",
+            "%{n} duties of today have no driver: the company hires more tonight, or hire them now.",
+            "%{n} drivers: every duty has its driver.",
+            "The company runs in the easy mode now: it sees to its routine by itself.",
+            "The company runs in the advanced mode now: every page and every function is open.",
+            "The company runs no line yet: take one on, and its duties are here.",
+            "The company's lines run no tours in the coming week.",
+            "Every duty of the coming week is yours already.",
+            "Every tour in service has a bus and its drivers.",
+            "Short for this line: %{b} buses and %{d} drivers. Get the buses at the dealer; the company hires the drivers by itself, at night.",
+            "What the line asks of the company on a day like today, against what it has. In the easy mode it runs at once: the company fills its roster every morning.",
+            "What the line asks of the company on a day like today, against what it has. Its concession is taken at the asking price, without an auction: the line is the company's from tomorrow and runs by itself.",
+        ]);
+        let places = |s: &str| {
+            let mut v: Vec<String> = s.match_indices("%{").filter_map(|(i, _)| s[i..].find('}').map(|j| s[i..i + j + 1].to_string())).collect();
+            v.sort();
+            v
+        };
+        for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
+            for t in &texts {
+                let Some(x) = crate::_rust_i18n_try_translate(lang, t) else { panic!("{lang}: no translation of {t:?}") };
+                assert_eq!(places(&x), places(t), "{lang}: {t:?} -> {x:?}");
+            }
+        }
+    }
+
+    #[test]
     fn a_new_company_is_told_its_first_step_and_a_running_one_is_done() {
         let mut c = company();
         let s = steps(&c, None);
