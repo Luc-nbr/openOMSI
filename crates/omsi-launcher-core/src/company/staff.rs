@@ -696,7 +696,8 @@ pub fn inspected(c: &Company, date: &str) -> Vec<(String, f64, Vec<u32>)> {
 
 /// What the ticket inspectors add to the fares of a line (its name) on `date`: 0.06 = 6 %.
 pub fn fare_gain(c: &Company, date: &str, line: &str) -> f64 {
-    inspected(c, date).iter().find(|x| x.0.eq_ignore_ascii_case(line)).map_or(0.0, |x| INSPECT_GAIN * x.1)
+    // (the inspectors' working method, researched, finds more: `research::inspection_factor`)
+    inspected(c, date).iter().find(|x| x.0.eq_ignore_ascii_case(line)).map_or(0.0, |x| INSPECT_GAIN * x.1 * super::research::inspection_factor(c))
 }
 
 // --- the day of the roles besides the drivers ---------------------------------------------------

@@ -340,7 +340,8 @@ pub fn stop(c: &mut Company) -> Result<String, &'static str> {
 
 /// The researchers at work on `date`: employed, not ill, on holiday or on a course.
 pub fn researchers<'a>(c: &'a Company, date: &'a str) -> impl Iterator<Item = &'a Employee> + 'a {
-    c.staff.iter().filter(move |e| e.role == Role::Researcher && e.employed_on(date) && !e.absent(date))
+    // (at work by their role's rota: a researcher's day off is no research - `staff::at_work`)
+    c.staff.iter().filter(move |e| e.role == Role::Researcher && super::staff::at_work(e, date))
 }
 
 /// The work a researcher does in a day (researcher-days): from a quarter for a stressed
@@ -613,7 +614,9 @@ mod tests {
             close(&mut c);
             days += 1;
         }
-        assert_eq!(days, 4);
+        // (four working days: the researchers keep their role's rota, five days in seven, so a
+        // weekend between makes it six - `staff::at_work`)
+        assert!((4..=6).contains(&days), "{days}");
         assert!(c.research.has("passenger_info") && state(&c, t) == State::Done);
         assert!(c.inbox.messages.last().is_some_and(|m| m.kind == Kind::Research && m.title == t.title));
         assert!((demand_factor(&c) - 1.02).abs() < 1e-9);

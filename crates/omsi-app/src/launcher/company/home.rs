@@ -292,9 +292,20 @@ pub(super) fn sections(c: &Company, plan: Option<&Plan>, marks: &Marks) -> Vec<S
             concessions.tip = count_text(live, "1 auction running now", "%{n} auctions running now");
         }
     }
+    // (the goals taken on and running, else what the page offers)
+    let running_goals = c.contracts.goals.iter().filter(|g| g.state == co::contracts::State::Running).count();
     let contracts = Tile::new(To::Tab(CONTRACTS_TAB), "Contracts", super::ICONS[CONTRACTS_TAB])
         .line(count_text(c.trophies.max(0) as usize, "1 trophy", "%{n} trophies"), TEXT_SOFT)
-        .line(if c.research.has(co::research::keys::WLAN) { omsi_ui::tr("Goals, and internet for the buses") } else { omsi_ui::tr("Goals with a reward, service contracts") }, TEXT_DIM);
+        .line(
+            if running_goals > 0 {
+                count_text(running_goals, "1 goal running", "%{n} goals running")
+            } else if c.research.has(co::research::keys::WLAN) {
+                omsi_ui::tr("Goals, and internet for the buses").into_owned()
+            } else {
+                omsi_ui::tr("Goals with a reward, service contracts").into_owned()
+            },
+            TEXT_DIM,
+        );
     let lv = co::levels::level(c);
     let (xp, _, next) = co::levels::progress(c);
     let mut career = Tile::new(To::Tab(6), "Career", super::ICONS[6]).line(format!("{}  ·  {}", omsi_ui::tr("Level %{n}").replace("%{n}", &lv.to_string()), omsi_ui::tr(co::levels::title_of(lv))), TEXT_SOFT);
@@ -310,12 +321,23 @@ pub(super) fn sections(c: &Company, plan: Option<&Plan>, marks: &Marks) -> Vec<S
     }
     let waiting = c.site.jobs.iter().filter(|j| j.started.is_none()).count();
     let mut workshop = Tile::new(To::Tab(WORKSHOP_TAB), "Workshop", super::ICONS[WORKSHOP_TAB]).line(count_text(in_shop, "1 bus in the workshop", "%{n} buses in the workshop"), TEXT_SOFT);
-    if waiting > 0 {
+    // (a bus that waits for a spare part first: the stores can order it)
+    let for_parts = c.stores.waiting.len();
+    if for_parts > 0 {
+        workshop = workshop.line(count_text(for_parts, "1 bus waits for a part", "%{n} buses wait for parts"), WARN);
+    } else if waiting > 0 {
         workshop = workshop.line(count_text(waiting, "1 job waiting", "%{n} jobs waiting"), WARN);
     } else {
         workshop = workshop.line(omsi_ui::tr("Spare parts and repairs"), TEXT_DIM);
     }
-    let research = Tile::new(To::Tab(RESEARCH_TAB), "Research", super::ICONS[RESEARCH_TAB]).line(n_of("%{n} researched", c.research.done.len()), TEXT_SOFT).line(count_text(c.trophies.max(0) as usize, "1 trophy to spend", "%{n} trophies to spend"), TEXT_DIM);
+    // (the research under way and how far it is, else how much is done)
+    let under_way = c.research.running.as_ref().and_then(|r| co::research::topic(&r.topic).map(|t| (t, r)));
+    let research = match under_way {
+        Some((t, r)) => Tile::new(To::Tab(RESEARCH_TAB), "Research", super::ICONS[RESEARCH_TAB])
+            .line(format!("{}  ·  {}%", omsi_ui::tr(t.title), (r.done / r.work.max(1e-9) * 100.0).clamp(0.0, 100.0).floor()), TEXT_SOFT)
+            .line(n_of("%{n} researched", c.research.done.len()), TEXT_DIM),
+        None => Tile::new(To::Tab(RESEARCH_TAB), "Research", super::ICONS[RESEARCH_TAB]).line(n_of("%{n} researched", c.research.done.len()), TEXT_SOFT).line(count_text(c.trophies.max(0) as usize, "1 trophy to spend", "%{n} trophies to spend"), TEXT_DIM),
+    };
     let settings = Tile::new(To::Settings, "Settings", "settings").line(omsi_ui::tr("Name, mark, date and buying"), TEXT_DIM);
     vec![
         Section { title: "At a glance", tiles: vec![mark(overview), mark(inbox)] },
