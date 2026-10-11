@@ -201,8 +201,8 @@ fn companies(l: &mut Launcher, area: Rect, list: &[Company]) -> Option<Pick> {
     out
 }
 
-/// A company's tile: its mark, how it is run (its mode, in the corner), its name, where it is
-/// at home, its day and its cash.
+/// A company's tile: its mark with how it is run beside it (its mode, the corner kept free),
+/// its name, where it is at home, its day and its cash.
 fn company_tile(l: &mut Launcher, base: Rect, c: &Company) -> bool {
     let t = l.ui.tile(id_of(&format!("company-chooser-{}", c.id)), base, SHEET_RADIUS);
     let r = t.r;
@@ -212,8 +212,8 @@ fn company_tile(l: &mut Launcher, base: Rect, c: &Company) -> bool {
     l.ui.tile_edge(&t, 1.0, EDGE.mix(accent(), t.hover * 0.6));
     let mark = Rect::new(r.x + 20.0, r.y + 22.0, 56.0, 56.0);
     company_mark(l, mark, c);
-    let pw = super::mode_pill_w(&l.ui, c.mode);
-    super::mode_pill(&mut l.ui, "", Rect::new(r.right() - 18.0 - pw, r.y + 22.0, pw, 22.0), c.mode, false);
+    let pw = super::mode_pill_w(&l.ui, c.mode).min((r.right() - 56.0 - mark.right() - 14.0).max(0.0));
+    super::mode_pill(&mut l.ui, "", Rect::new(mark.right() + 14.0, mark.center().y - 11.0, pw, 22.0), c.mode, false);
     let w = r.w - 40.0;
     l.ui.text_in(&c.name, Rect::new(r.x + 20.0, mark.bottom() + 14.0, w, 22.0), 16.0, Weight::Bold, TEXT, Align::Left);
     let map = if c.map_name.is_empty() { super::super::state::short_map(&c.map) } else { c.map_name.clone() };
