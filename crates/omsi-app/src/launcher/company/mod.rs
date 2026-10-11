@@ -13,10 +13,12 @@ mod bank;
 mod career;
 mod clock;
 mod concessions;
+mod contracts;
 mod dealer;
 mod depot;
 mod fares;
 mod fleet;
+mod inbox;
 mod kit;
 mod lines;
 mod map;
@@ -25,10 +27,12 @@ mod overview;
 mod people;
 mod planning;
 mod repair_game;
+mod research;
 mod settings;
 mod signing;
 pub(super) mod tutorial;
 mod wizard;
+mod workshop;
 
 use super::theme::*;
 use super::ui::{ButtonKind, Input, Key, Ui};
@@ -60,11 +64,16 @@ pub(super) struct Today {
     error: Option<String>,
 }
 
-pub(super) const TABS: [&str; 10] = ["Overview", "Fleet", "Staff", "Lines", "Finances", "Planning", "Career", "Depot", "Concessions", "Map"];
+pub(super) const TABS: [&str; 14] = ["Overview", "Fleet", "Staff", "Lines", "Finances", "Planning", "Career", "Depot", "Concessions", "Map", "Research", "Workshop", "Contracts", "Inbox"];
 /// The tabs of the depot, the concession market and the fleet map (see `TABS`).
 pub(super) const DEPOT_TAB: usize = 7;
 pub(super) const CONCESSIONS_TAB: usize = 8;
 pub(super) const MAP_TAB: usize = 9;
+/// The research, the workshop's stores, the contracts and the inbox.
+pub(super) const RESEARCH_TAB: usize = 10;
+pub(super) const WORKSHOP_TAB: usize = 11;
+pub(super) const CONTRACTS_TAB: usize = 12;
+pub(super) const INBOX_TAB: usize = 13;
 
 /// A dialog over the company's pages.
 pub(super) enum Dialog {
@@ -925,6 +934,10 @@ fn pages(l: &mut Launcher, body: Rect) {
         DEPOT_TAB => depot::draw(l, body),
         CONCESSIONS_TAB => concessions::draw(l, body),
         MAP_TAB => map::draw(l, body),
+        RESEARCH_TAB => research::draw(l, body),
+        WORKSHOP_TAB => workshop::draw(l, body),
+        CONTRACTS_TAB => contracts::draw(l, body),
+        INBOX_TAB => inbox::draw(l, body),
         _ => overview::draw(l, body),
     }
 }

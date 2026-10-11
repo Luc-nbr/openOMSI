@@ -19,6 +19,7 @@ pub mod auction;
 pub mod career;
 pub mod clock;
 pub mod concessions;
+pub mod contracts;
 pub mod dates;
 pub mod day;
 pub mod dealer;
@@ -26,6 +27,7 @@ pub mod depot;
 pub mod economy;
 pub mod fares;
 pub mod finance;
+pub mod inbox;
 pub mod fleetmap;
 pub mod incidents;
 pub mod levels;
@@ -35,9 +37,11 @@ pub mod market;
 pub mod model;
 pub mod network;
 pub mod ownline;
+pub mod parts;
 pub mod plan;
 pub mod rankings;
 pub mod remote;
+pub mod research;
 pub mod rng;
 pub mod specials;
 pub mod staff;
@@ -135,6 +139,12 @@ pub fn found(f: &Founding, profile: &str) -> Company {
         designs: Vec::new(),
         adverts: Default::default(),
         quals: 1,
+        trophies: 0,
+        research: Default::default(),
+        stores: Default::default(),
+        contracts: Default::default(),
+        inbox: Default::default(),
+        staff_rules: Default::default(),
     };
     c.book(BookingKind::Capital, r.start_capital, c.name.clone(), false);
     c

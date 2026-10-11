@@ -361,9 +361,69 @@ pub struct Employee {
     pub endorsements: Vec<super::licences::Endorsement>,
     #[serde(default)]
     pub types: Vec<String>,
+    /// What they do: drive, repair, research, clean, serve, inspect tickets.
+    #[serde(default)]
+    pub role: Role,
+    /// 0 to 100: how stressed they are, and how friendly to the passengers and the others.
+    #[serde(default = "twenty")]
+    pub stress: f64,
+    #[serde(default = "sixty")]
+    pub friendliness: f64,
+    /// Their picture, 1 to `PORTRAITS` (0: one chosen by their id, `Employee::portrait`).
+    #[serde(default)]
+    pub portrait: u32,
+}
+
+/// What an employee does.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum Role {
+    #[default]
+    Driver,
+    Mechanic,
+    Researcher,
+    Cleaner,
+    Service,
+    Inspector,
+}
+
+impl Role {
+    pub const ALL: [Role; 6] = [Role::Driver, Role::Mechanic, Role::Researcher, Role::Cleaner, Role::Service, Role::Inspector];
+
+    /// Its name (English, translated when shown).
+    pub fn label(self) -> &'static str {
+        match self {
+            Role::Driver => "Bus driver",
+            Role::Mechanic => "Mechanic",
+            Role::Researcher => "Researcher",
+            Role::Cleaner => "Cleaner",
+            Role::Service => "Service employee",
+            Role::Inspector => "Ticket inspector",
+        }
+    }
+}
+
+/// How many staff portraits there are (`assets/company/portraits`).
+pub const PORTRAITS: u32 = 300;
+
+fn twenty() -> f64 {
+    20.0
+}
+
+fn sixty() -> f64 {
+    60.0
 }
 
 impl Employee {
+    /// Their picture, 1 to `PORTRAITS`.
+    pub fn portrait(&self) -> u32 {
+        if (1..=PORTRAITS).contains(&self.portrait) {
+            self.portrait
+        } else {
+            self.id.wrapping_mul(37) % PORTRAITS + 1
+        }
+    }
+
     pub fn absent(&self, today: &str) -> bool {
         let until = |u: &Option<String>| u.as_deref().is_some_and(|u| dates::between(today, u) >= 0);
         until(&self.sick_until) || until(&self.holiday_until) || until(&self.training_until)
@@ -586,6 +646,19 @@ pub struct Company {
     /// whose people get what the fleet asks (`store::migrate`).
     #[serde(default)]
     pub quals: u32,
+    /// Trophies: earned with goals and contracts, spent on research.
+    #[serde(default)]
+    pub trophies: i64,
+    #[serde(default)]
+    pub research: super::research::Research,
+    #[serde(default)]
+    pub stores: super::parts::Stores,
+    #[serde(default)]
+    pub contracts: super::contracts::Contracts,
+    #[serde(default)]
+    pub inbox: super::inbox::Inbox,
+    #[serde(default)]
+    pub staff_rules: super::staff::StaffRules,
 }
 
 fn one() -> f64 {

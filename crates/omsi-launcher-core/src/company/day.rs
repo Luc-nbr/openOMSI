@@ -780,6 +780,14 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
     let day_passengers: u32 = lines.iter().map(|l| l.passengers).sum();
     super::levels::day_closed(c, &date, report.covered, report.dropped, punctuality, day_passengers);
 
+    // the staff besides the drivers, the research, the stores, the contracts and the inbox
+    // (before the day's figures: what they book is the day's)
+    super::staff::roles_day(c, &date, &mut report);
+    super::research::day(c, &date, &mut report);
+    super::parts::day(c, &date, &mut report);
+    super::contracts::day(c, &date, &mut report);
+    super::inbox::day(c, &date, &mut report);
+
     // 10. the day's figures, and on to the next
     let after = c.month(&month);
     for k in super::model::BookingKind::ALL.iter().filter(|k| !k.is_capital()) {

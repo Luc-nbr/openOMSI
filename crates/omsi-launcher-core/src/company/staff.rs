@@ -8,7 +8,7 @@
 use super::dates;
 use super::economy;
 use super::licences::Endorsement;
-use super::model::{BookingKind, BusSize, Cents, Company, Employee, Licence, Skills, Taken};
+use super::model::{BookingKind, BusSize, Cents, Company, Employee, Licence, Role, Skills, Taken};
 use super::rng::Rng;
 use serde::{Deserialize, Serialize};
 
@@ -124,6 +124,16 @@ pub fn qualified(e: &Employee, size: BusSize) -> bool {
     may_drive(e, size) && (!matches!(size, BusSize::Articulated | BusSize::Double) || e.experience >= EXPERIENCE_LARGE)
 }
 
+// --- the staff besides the drivers --------------------------------------------------------
+
+/// How the staff besides the drivers work (their core hours, who stays outside them).
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct StaffRules {}
+
+/// The day of the staff besides the drivers (`day::close_day`): what they did, their stress
+/// and satisfaction.
+pub fn roles_day(_c: &mut Company, _date: &str, _report: &mut super::day::DayReport) {}
+
 // --- the labour market ---------------------------------------------------------------------
 
 const FIRST: [&str; 40] = [
@@ -224,6 +234,10 @@ pub fn hire(c: &mut Company, a: &Applicant) -> Result<u32, &'static str> {
         days_worked: 0,
         endorsements: a.endorsements.clone(),
         types: Vec::new(),
+        role: Role::Driver,
+        stress: 20.0,
+        friendliness: 60.0,
+        portrait: 0,
     });
     // (the induction: the fleet's models)
     super::licences::induction(c, id);

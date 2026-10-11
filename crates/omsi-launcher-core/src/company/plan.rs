@@ -1090,6 +1090,10 @@ pub fn agency_driver() -> Employee {
         // (the agency sends drivers for what they are sent to)
         endorsements: super::licences::Endorsement::ALL.to_vec(),
         types: Vec::new(),
+        role: super::model::Role::Driver,
+        stress: 20.0,
+        friendliness: 60.0,
+        portrait: 0,
     }
 }
 
