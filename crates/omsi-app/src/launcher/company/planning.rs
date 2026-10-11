@@ -9,6 +9,14 @@
 //! duty" opens the Drive page with exactly that duty (as the Career tab's "My duties" does).
 //! A line that asks for buses of its own (the line editor's Kind tab) is given only those:
 //! the dispatcher takes none other, and a bus that is none of them is refused.
+//!
+//! The chart fits its room: a tour's row is as tall as the rows shown share, the blocks' words
+//! as their size allows (`row_pitch`); a line folds to its heading - what it has planned, what
+//! is open - and back, every line at once too, kept with the company (`plan::set_collapsed`).
+//! A line's heading, or one of its tours tapped twice, opens its trips and timetable over the
+//! planning (`plan_edit`).
+
+mod plan_edit;
 
 use super::super::flow::Step;
 use super::super::state::{CompanyDuty, PlannedBus};
@@ -74,20 +82,25 @@ pub struct PlanningView {
     read_at: u64,
     /// A line to show (from the Lines page): its group scrolled into view once.
     pub(super) focus: Option<String>,
+    /// A line's trips and timetable open over the planning (`plan_edit`).
+    edit: Option<plan_edit::PlanEdit>,
+    /// The bus or duty tapped last, and when (a second tap soon after opens its timetable).
+    tapped: Option<(String, f32)>,
 }
 
 impl Default for PlanningView {
     fn default() -> Self {
         let (tx, rx) = channel();
-        PlanningView { tx, rx, days: Vec::new(), asked: Vec::new(), extra: Vec::new(), day: 0, sel: None, arm: None, drag: None, carry: None, press: None, carry_from: Vec2::ZERO, targets: Vec::new(), clear_armed: false, cache: Vec::new(), read_at: 0, focus: None }
+        PlanningView { tx, rx, days: Vec::new(), asked: Vec::new(), extra: Vec::new(), day: 0, sel: None, arm: None, drag: None, carry: None, press: None, carry_from: Vec2::ZERO, targets: Vec::new(), clear_armed: false, cache: Vec::new(), read_at: 0, focus: None, edit: None, tapped: None }
     }
 }
 
 impl PlanningView {
-    /// Something is in hand - a driver or a bus armed, a duty or a tour chosen or carried -
-    /// that Escape lets go of first (before it goes back to the company's start screen).
+    /// Something is in hand - a driver or a bus armed, a duty or a tour chosen or carried, a
+    /// line's timetable open over the planning - that Escape lets go of first (before it goes
+    /// back to the company's start screen).
     pub(super) fn holds_choice(&self) -> bool {
-        self.sel.is_some() || self.arm.is_some() || self.drag.is_some() || self.carry.is_some()
+        self.sel.is_some() || self.arm.is_some() || self.drag.is_some() || self.carry.is_some() || self.edit.is_some()
     }
 
     /// Forget the week read: it is read again (the timetable was written).
@@ -475,6 +488,8 @@ pub(super) fn drive(l: &mut Launcher, c: &Company, p: &DayPlan, ti: usize, k: us
 pub fn draw(l: &mut Launcher, area: Rect) {
     let Some(c) = l.company.company.clone() else { return };
     work(l, &c);
+    // (a line's timetable over the page: the page under it without the mouse and the keys)
+    let under = l.company.planning.edit.is_some().then(|| super::mask(&mut l.ui));
     let day = l.company.planning.day.min(6);
     let date = co::dates::add(&c.date, day as i64);
     week_strip(l, Rect::new(area.x, area.y, area.w, 60.0), &c);
@@ -556,6 +571,10 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     if l.ui.input.keys.contains(&Key::Escape) {
         l.company.planning.arm = None;
         l.company.planning.sel = None;
+    }
+    if let Some(i) = under {
+        l.ui.input = i;
+        plan_edit::draw(l, area, &c);
     }
 }
 
@@ -740,12 +759,56 @@ fn tools(l: &mut Launcher, r: Rect, c: &Company, date: &str) {
     }
 }
 
-/// The day's tours as a Gantt chart: grouped by line, the bus left of each tour, its duties
-/// as blocks on the hours. Returns where the duties and buses are.
+/// A tour's row on the chart is as tall as the room the rows shown share (Luc: "this screen may
+/// well be adaptive: with few tours larger, with more tours smaller"), between a readable least
+/// and a comfortable most; more rows than fit at the least scroll.
+pub(super) const ROW_MIN: f32 = 24.0;
+pub(super) const ROW_MAX: f32 = 64.0;
+/// A line's heading on the chart.
+const HEAD_H: f32 = 38.0;
+/// What the chart keeps under each line's group.
+const GROUP_GAP: f32 = 8.0;
+
+/// The pitch of a tour's row (its gap of two points under it included): the room shared by
+/// `rows`, between `ROW_MIN` and `ROW_MAX`.
+pub(super) fn row_pitch(room: f32, rows: usize) -> f32 {
+    if rows == 0 {
+        return ROW_MAX;
+    }
+    (room / rows as f32).floor().clamp(ROW_MIN, ROW_MAX)
+}
+
+/// A name's initials ("Jan Meijer": "JM"): a block too narrow for the name.
+fn initials(name: &str) -> String {
+    name.split_whitespace().filter_map(|w| w.chars().next()).take(2).collect::<String>().to_uppercase()
+}
+
+/// The words a block shows at its width: its name where it fits, else its short form, else
+/// none (its tooltip says it all).
+fn fit_words<'a>(ui: &Ui, w: f32, px: f32, full: &'a str, short: &'a str) -> Option<&'a str> {
+    if !full.is_empty() && ui.width(full, px, Weight::Bold) + 12.0 <= w {
+        Some(full)
+    } else if !short.is_empty() && ui.width(short, px, Weight::Bold) + 8.0 <= w {
+        Some(short)
+    } else {
+        None
+    }
+}
+
+/// The same row tapped twice in a short while (the event loop has no double click of its own).
+fn second_tap(v: &mut PlanningView, key: String, now: f32) -> bool {
+    let twice = v.tapped.as_ref().is_some_and(|(k, t)| *k == key && now - *t < 0.45);
+    v.tapped = if twice { None } else { Some((key, now)) };
+    twice
+}
+
+/// The day's tours as a Gantt chart: grouped by line - each line's heading folds it away and
+/// back, and opens its timetable - the bus left of each tour, its duties as blocks on the
+/// hours, the rows as tall as the room shared allows. Returns where the duties and buses are.
 fn gantt(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan) -> Vec<Hit> {
     l.ui.card(r);
     let inner = Rect::new(r.x + 16.0, r.y + 12.0, r.w - 28.0, r.h - 18.0);
-    if p.tours.is_empty() {
+    if p.tours.is_empty() && c.lines.is_empty() {
         l.ui.paragraph("No tours on this day: the company runs no line yet, or its lines do not run on this day.", Vec2::new(inner.x, inner.y + 4.0), inner.w, kit::BODY, Weight::Regular, TEXT_SOFT);
         return Vec::new();
     }
@@ -765,7 +828,28 @@ fn gantt(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan) -> Vec<Hit> {
         let x = x_of(h * 60);
         l.ui.text_in(&format!("{:02}", h % 24), Rect::new(x - 16.0, inner.y, 32.0, 18.0), 12.5, Weight::Bold, TEXT_DIM, Align::Center);
     }
+    // the lines in the company's order, each with its tours (folded: its heading alone; a line
+    // without tours this day its heading too, to open its timetable - a Sunday given trips)
+    let mut groups: Vec<(Option<co::CompanyLine>, Vec<usize>)> = c.lines.iter().map(|x| (Some(x.clone()), Vec::new())).collect();
+    for (i, t) in p.tours.iter().enumerate() {
+        match groups.iter_mut().find(|g| g.0.as_ref().is_some_and(|x| x.name.eq_ignore_ascii_case(&t.tour.line))) {
+            Some(g) => g.1.push(i),
+            None => groups.push((None, vec![i])),
+        }
+    }
+    let names: Vec<String> = groups.iter().map(|g| g.0.as_ref().map(|cl| cl.name.clone()).unwrap_or_else(|| p.tours[g.1[0]].tour.line.clone())).collect();
+    let mut folded: Vec<bool> = names.iter().map(|n| pl::is_collapsed(c, n)).collect();
+    // (a line to show, from the Lines page: unfolded)
+    let focus = l.company.planning.focus.take();
+    let mut unfold: Option<String> = None;
+    if let Some(k) = focus.as_ref().and_then(|f| names.iter().position(|n| n.eq_ignore_ascii_case(f))) {
+        if folded[k] {
+            folded[k] = false;
+            unfold = Some(names[k].clone());
+        }
+    }
     let armed = l.company.planning.arm;
+    let mut fold_all: Option<bool> = None;
     if let Some(a) = armed {
         let who = match a {
             Arm::Driver(w) => who_name(c, Some(w)),
@@ -777,43 +861,104 @@ fn gantt(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan) -> Vec<Hit> {
         }
         .replace("%{who}", &who);
         l.ui.text_in(&hint, Rect::new(inner.x, inner.y - 2.0, left - 8.0, 20.0), kit::NOTE, Weight::Bold, accent_2(), Align::Left);
+    } else if groups.iter().any(|g| !g.1.is_empty()) {
+        // every line folded, or every one open
+        let all = groups.iter().zip(&folded).filter(|(g, _)| !g.1.is_empty()).all(|(_, f)| *f);
+        let (label, icon) = if all { ("Expand all", "unfold_more") } else { ("Collapse all", "unfold_less") };
+        let bw = l.ui.width(&omsi_ui::tr(label), 13.0, Weight::Medium) + 13.0 * 1.3 + 6.0 + 26.0;
+        let b = Rect::new(inner.x - 6.0, inner.y - 6.0, bw, 28.0);
+        if l.ui.button("plan-fold-all", b, label, Some(icon), ButtonKind::Ghost) {
+            fold_all = Some(!all);
+        }
+        l.ui.tooltip(b, if all { "Show every line's tours" } else { "Fold every line to its heading: what it has planned, and what is open" });
     }
     let rows = Rect::new(inner.x, inner.y + head - 4.0, inner.w, inner.h - head + 4.0);
-    // the lines in the company's order, each with its tours
-    let mut groups: Vec<(Option<co::CompanyLine>, Vec<usize>)> = c.lines.iter().map(|x| (Some(x.clone()), Vec::new())).collect();
-    for (i, t) in p.tours.iter().enumerate() {
-        match groups.iter_mut().find(|g| g.0.as_ref().is_some_and(|x| x.name.eq_ignore_ascii_case(&t.tour.line))) {
-            Some(g) => g.1.push(i),
-            None => groups.push((None, vec![i])),
-        }
-    }
-    groups.retain(|g| !g.1.is_empty());
+    // the rows' height: the room left by the headings, shared by the tours shown
+    let shown: usize = groups.iter().zip(&folded).filter(|(_, f)| !**f).map(|(g, _)| g.1.len()).sum();
+    let room = rows.h - 8.0 - groups.len() as f32 * (HEAD_H + 4.0 + GROUP_GAP);
+    let pitch = row_pitch(room, shown);
+    let rh = pitch - 2.0;
     let sel = l.company.planning.sel.clone();
     let mut hits: Vec<Hit> = Vec::new();
     let mut clicked: Option<(usize, Option<usize>)> = None;
     let mut start: Option<String> = None;
     let mut stop: Option<String> = None;
-    let focus = l.company.planning.focus.take();
+    let mut toggle: Option<String> = None;
+    let mut timetable: Option<(String, Option<String>)> = None;
     let mut focus_y: Option<f32> = None;
+    let now = l.ui.time;
+    let mut taps: Vec<(String, usize)> = Vec::new();
     l.ui.scroll_area("plan-gantt", rows, &mut |ui, v| {
         let mut y = v.y + 4.0;
-        for (line, idx) in &groups {
-            let hr = Rect::new(v.x, y, v.w - 10.0, 38.0);
-            if line.as_ref().is_some_and(|cl| focus.as_deref() == Some(cl.name.as_str())) {
+        for (gi, (line, idx)) in groups.iter().enumerate() {
+            let name = &names[gi];
+            let hr = Rect::new(v.x, y, v.w - 10.0, HEAD_H);
+            if focus.as_deref().is_some_and(|f| f.eq_ignore_ascii_case(name)) {
                 focus_y = Some(y - v.y);
             }
-            let idle = idx.iter().all(|&i| p.tours[i].tour.unplanned);
+            let none = idx.is_empty();
+            let idle = !none && idx.iter().all(|&i| p.tours[i].tour.unplanned);
             if ui.rect_visible(hr) {
-                let mut x = hr.x;
+                let is_folded = folded[gi] || none;
+                if is_folded {
+                    ui.p().rounded(hr, 8.0, Color::WHITE.alpha(0.03));
+                }
+                // the fold, then the line's plate and name (a tap on them folds it too)
+                let tip = if is_folded { "Expand the line: its tours" } else { "Collapse the line to its heading" };
+                if !none && ui.icon_button(&format!("plan-fold-{name}"), Vec2::new(hr.x + 13.0, hr.center().y), 12.0, if is_folded { "chevron_right" } else { "expand_more" }, tip) {
+                    toggle = Some(name.clone());
+                }
+                let mut x = hr.x + 30.0;
                 let covered = idx.iter().filter(|&&i| p.tours[i].covered()).count();
-                let state_w = 330.0f32.min(hr.w * 0.45);
+                let state_w = 380.0f32.min(hr.w * 0.4);
+                // the line's timetable, changed here (`plan_edit`)
+                let tt_label = omsi_ui::tr("Timetable");
+                let tt_w = ui.width(&tt_label, 13.0, Weight::Medium) + 13.0 * 1.3 + 6.0 + 26.0;
+                let tt = Rect::new(hr.right() - state_w - 12.0 - tt_w, hr.y + 4.0, tt_w, 30.0);
+                if ui.button(&format!("plan-tt-{name}"), tt, "Timetable", Some("departure_board"), ButtonKind::Ghost) {
+                    timetable = Some((name.clone(), None));
+                }
+                ui.tooltip(tt, "The line's trips and timetable: see them and change them here");
+                // what is open on the line's tours: duties without a driver, tours without a bus
+                let open: usize = idx.iter().map(|&i| &p.tours[i]).filter(|t| !t.by_player && t.bus.is_some()).map(|t| t.duties.iter().filter(|d| d.open()).count()).sum();
+                let no_bus = idx.iter().map(|&i| &p.tours[i]).filter(|t| !t.by_player && t.bus.is_none()).count();
+                let mut tags: Vec<(String, Color)> = Vec::new();
+                if no_bus > 0 {
+                    tags.push((omsi_ui::tr("%{n} without a bus").replace("%{n}", &no_bus.to_string()), if idle { TEXT_DIM } else { WARN }));
+                }
+                if open > 0 {
+                    tags.push((omsi_ui::tr("%{n} without a driver").replace("%{n}", &open.to_string()), if idle { TEXT_DIM } else { WARN }));
+                }
+                let tags_w: f32 = tags.iter().map(|t| ui.width(&t.0, 12.0, Weight::Bold) + 16.0 + 6.0).sum();
+                let name_right = tt.x - 10.0;
+                let mut tx = name_right;
+                // (the tags only where the name keeps room to be read)
+                let with_tags = name_right - tags_w - (x + 60.0) >= 140.0;
+                if with_tags {
+                    for (t, col) in tags.iter().rev() {
+                        let w = ui.width(t, 12.0, Weight::Bold) + 16.0;
+                        tx -= w;
+                        kit::tag(ui, Vec2::new(tx, hr.y + 8.0), t, *col);
+                        tx -= 6.0;
+                    }
+                }
                 if let Some(cl) = line {
-                    x += line_plate(ui, Vec2::new(hr.x, hr.y + 6.0), cl, 24.0) + 12.0;
+                    x += line_plate(ui, Vec2::new(x, hr.y + 6.0), cl, 24.0) + 12.0;
                     let caption = if cl.caption.is_empty() { cl.name.clone() } else { cl.caption.clone() };
-                    ui.text_in(&caption, Rect::new(x, hr.y, (hr.w - state_w - (x - hr.x) - 12.0).max(40.0), hr.h), kit::ROWS, Weight::Bold, TEXT, Align::Left);
+                    let cap = Rect::new(x, hr.y, (tx - x - 8.0).max(40.0), hr.h);
+                    ui.text_in(&caption, cap, kit::ROWS, Weight::Bold, TEXT, Align::Left);
+                    let (_, _, tap) = ui.interact(id_of(&format!("plan-fold-name-{name}")), Rect::new(hr.x + 26.0, hr.y, cap.right() - hr.x - 26.0, hr.h));
+                    if tap && !none {
+                        toggle = Some(name.clone());
+                    }
+                    if !with_tags && !tags.is_empty() {
+                        ui.tooltip(cap, &tags.iter().map(|t| t.0.clone()).collect::<Vec<_>>().join("  ·  "));
+                    }
                     // its service: not yet (the button that starts it), or since when
                     let sr = Rect::new(hr.right() - state_w, hr.y + 3.0, state_w, 32.0);
-                    if cl.service_from.is_none() || idle {
+                    if none {
+                        ui.text_in(&omsi_ui::tr("No tours this day"), Rect::new(sr.x, sr.y, sr.w - 4.0, sr.h), kit::NOTE, Weight::Medium, TEXT_DIM, Align::Right);
+                    } else if cl.service_from.is_none() || idle {
                         let label = omsi_ui::tr("Start service…");
                         let bw = Foot::width(ui, &label, Some("play_arrow"));
                         let b = Rect::new(sr.right() - bw, sr.y, bw, sr.h);
@@ -822,23 +967,29 @@ fn gantt(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan) -> Vec<Hit> {
                         }
                         ui.tooltip(b, "Its tours run from the moment you choose, as they are planned; what is not covered then is dropped with the contract's penalty");
                         let note = omsi_ui::tr("Not in service · %{c} of %{t} tours planned").replace("%{c}", &covered.to_string()).replace("%{t}", &idx.len().to_string());
-                        ui.text_in(&note, Rect::new(sr.x - 40.0, sr.y, sr.w - bw - 14.0 + 40.0, sr.h), kit::NOTE, Weight::Medium, TEXT_DIM, Align::Right);
+                        ui.text_in(&note, Rect::new(sr.x, sr.y, sr.w - bw - 12.0, sr.h), kit::NOTE, Weight::Medium, TEXT_DIM, Align::Right);
                     } else {
                         let since = cl.service_from.map(|s| if s <= 0 { String::new() } else { format!("{} {}", day_label(&co::clock::date_of(s)), co::clock::hhmm(s)) }).unwrap_or_default();
                         let text = if since.is_empty() { omsi_ui::tr("In service").into_owned() } else { omsi_ui::tr("In service since %{when}").replace("%{when}", &since) };
                         let cov = omsi_ui::tr("%{c} of %{t} tours covered").replace("%{c}", &covered.to_string()).replace("%{t}", &idx.len().to_string());
-                        ui.text_in(&format!("{text}  ·  {cov}"), Rect::new(sr.x - 60.0, sr.y, sr.w + 24.0, sr.h), kit::NOTE, Weight::Medium, if covered == idx.len() { OK } else { WARN }, Align::Right);
+                        ui.text_in(&format!("{text}  ·  {cov}"), Rect::new(sr.x, sr.y, sr.w - 34.0, sr.h), kit::NOTE, Weight::Medium, if covered == idx.len() { OK } else { WARN }, Align::Right);
                         if ui.icon_button(&format!("plan-stop-{}", cl.name), Vec2::new(sr.right() - 12.0, sr.center().y), 14.0, "pause", "Take the line out of service") {
                             stop = Some(cl.name.clone());
                         }
                     }
+                } else {
+                    ui.text_in(name, Rect::new(x, hr.y, (tx - x - 8.0).max(40.0), hr.h), kit::ROWS, Weight::Bold, TEXT, Align::Left);
                 }
             }
-            y += 42.0;
+            y += HEAD_H + 4.0;
+            if folded[gi] {
+                y += GROUP_GAP;
+                continue;
+            }
             for &ti in idx {
                 let t = &p.tours[ti];
-                let row = Rect::new(v.x, y, v.w - 10.0, 38.0);
-                y += 40.0;
+                let row = Rect::new(v.x, y, v.w - 10.0, rh);
+                y += pitch;
                 if !ui.rect_visible(row) {
                     continue;
                 }
@@ -851,16 +1002,20 @@ fn gantt(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan) -> Vec<Hit> {
                     ui.p().rect(Rect::new(x_of(h * 60), row.y, 1.0, row.h), HAIRLINE.alpha(0.5));
                 }
                 let tour_on = sel == Some(Sel::Tour(t.tour.line.clone(), t.tour.tour.clone()));
-                ui.text_in(&format!("{} {}", omsi_ui::tr("Tour"), t.tour.tour), Rect::new(row.x + 2.0, row.y, 96.0, row.h), 14.0, Weight::Bold, if t.tour.unplanned { TEXT_SOFT } else { TEXT }, Align::Left);
+                let label_px = (rh * 0.38).clamp(11.5, 14.5);
+                ui.text_in(&format!("{} {}", omsi_ui::tr("Tour"), t.tour.tour), Rect::new(row.x + 2.0, row.y, 96.0, row.h), label_px, Weight::Bold, if t.tour.unplanned { TEXT_SOFT } else { TEXT }, Align::Left);
                 // the bus
-                let chip = Rect::new(row.x + 98.0, row.y + 6.0, left - 110.0, 26.0);
+                let chip_h = (rh - 8.0).clamp(16.0, 30.0);
+                let chip = Rect::new(row.x + 98.0, row.center().y - chip_h * 0.5, left - 110.0, chip_h);
                 let (h, _, click) = ui.interact(id_of(&format!("plan-bus-{ti}")), chip);
                 if click {
                     clicked = Some((ti, None));
+                    taps.push((format!("bus-{ti}"), ti));
                 }
                 hits.push(Hit { r: chip, tour: ti, duty: None });
+                let chip_px = (chip_h * 0.5).clamp(11.0, 13.5);
                 if t.by_player {
-                    ui.text_in(&omsi_ui::tr("You drove it."), chip, 13.0, Weight::Bold, accent_2(), Align::Left);
+                    ui.text_in(&omsi_ui::tr("You drove it."), chip, chip_px, Weight::Bold, accent_2(), Align::Left);
                 } else {
                     let (text, fill, ink) = match t.bus {
                         Some(BusOf::Own(id)) => (c.vehicle(id).map(|x| format!("{}  {}", x.number, x.name)).unwrap_or_default(), if t.bus_from == Source::Auto { FIELD } else { HOVER }, if t.bus_from == Source::Auto { TEXT_SOFT } else { TEXT }),
@@ -874,29 +1029,33 @@ fn gantt(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan) -> Vec<Hit> {
                     if tour_on {
                         ui.p().rounded_border(chip, 6.0, 2.0, accent());
                     }
-                    ui.text_in(&text, Rect::new(chip.x + 8.0, chip.y, chip.w - 12.0, chip.h), 13.0, Weight::Bold, ink, Align::Left);
-                    ui.tooltip(chip, &omsi_ui::tr("The tour's bus: tap a bus in the list, then here - or drag it here"));
+                    ui.text_in(&text, Rect::new(chip.x + 8.0, chip.y, chip.w - 12.0, chip.h), chip_px, Weight::Bold, ink, Align::Left);
+                    ui.tooltip(chip, &omsi_ui::tr("The tour's bus: tap a bus in the list, then here - or drag it here. Tap it twice: the line's timetable"));
                 }
-                // the duties
+                // the duties: as tall as the row, their words as their room allows
+                let bar_h = (rh * 0.74).round().clamp(14.0, (rh - 4.0).max(14.0));
+                let words_px = (bar_h * 0.46).clamp(10.5, 14.0);
                 for (k, d) in t.duties.iter().enumerate() {
-                    let br = Rect::new(x_of(d.from), row.y + 5.0, ((d.to - d.from) as f32 * ppm).max(6.0), 28.0);
+                    let br = Rect::new(x_of(d.from), row.center().y - bar_h * 0.5, ((d.to - d.from) as f32 * ppm).max(6.0), bar_h);
                     let (h, _, click) = ui.interact(id_of(&format!("plan-duty-{ti}-{k}")), br);
                     if click {
                         clicked = Some((ti, Some(k)));
+                        taps.push((format!("duty-{ti}-{k}"), ti));
                     }
                     hits.push(Hit { r: br, tour: ti, duty: Some(k) });
                     let faint = if t.bus.is_none() && !t.by_player { 0.35 } else { 1.0 };
-                    let (fill, ink, label) = if t.by_player {
-                        (accent().alpha(0.5), on_accent(), omsi_ui::tr("You").into_owned())
+                    let (fill, ink, label, short) = if t.by_player {
+                        (accent().alpha(0.5), on_accent(), omsi_ui::tr("You").into_owned(), String::new())
                     } else {
                         match d.who {
                             Some(Who::Staff(id)) => {
                                 let col = driver_colour(c, id);
-                                (if d.from_ == Source::Auto { col.alpha(0.55) } else { col }, INK, first_name(c, id))
+                                let full = c.employee(id).map(|e| e.name.clone()).unwrap_or_default();
+                                (if d.from_ == Source::Auto { col.alpha(0.55) } else { col }, INK, first_name(c, id), initials(&full))
                             }
-                            Some(Who::Player) => (accent(), on_accent(), omsi_ui::tr("You").into_owned()),
-                            Some(Who::Agency) => (TEXT_FAINT, TEXT, omsi_ui::tr("Agency").into_owned()),
-                            None => (problem_colour(d.problem).alpha(0.12), problem_colour(d.problem), problem_text(c, p, ti, k, d.problem)),
+                            Some(Who::Player) => (accent(), on_accent(), omsi_ui::tr("You").into_owned(), String::new()),
+                            Some(Who::Agency) => (TEXT_FAINT, TEXT, omsi_ui::tr("Agency").into_owned(), String::new()),
+                            None => (problem_colour(d.problem).alpha(0.12), problem_colour(d.problem), problem_text(c, p, ti, k, d.problem), String::new()),
                         }
                     };
                     ui.p().rounded(br, 5.0, fill.alpha(faint * if h { 0.85 } else { 1.0 }));
@@ -918,20 +1077,30 @@ fn gantt(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan) -> Vec<Hit> {
                         ui.p().rounded_border(br.inset(-2.0), 6.0, 2.0, TEXT);
                     }
                     // its depot and empty runs, shaded: run with it, without passengers
+                    let shade = (bar_h * 0.22).clamp(3.0, 7.0);
                     for x in t.tour.trips[d.start..d.end].iter().filter(|x| x.empty) {
                         let a = x_of(x.dep.max(d.from));
                         let b = x_of(x.arr.min(d.to)).max(a + 2.0);
-                        ui.p().rect(Rect::new(a, br.y + br.h - 6.0, b - a, 6.0), Color::rgba(0, 0, 0, 0.45));
-                        ui.p().rect(Rect::new(a, br.y + br.h - 6.0, b - a, 1.0), TEXT_FAINT.alpha(0.6));
+                        ui.p().rect(Rect::new(a, br.y + br.h - shade, b - a, shade), Color::rgba(0, 0, 0, 0.45));
+                        ui.p().rect(Rect::new(a, br.y + br.h - shade, b - a, 1.0), TEXT_FAINT.alpha(0.6));
                     }
-                    if br.w > 34.0 {
-                        ui.text_in(&label, Rect::new(br.x + 6.0, br.y, br.w - 10.0, br.h), 12.5, Weight::Bold, ink, Align::Left);
+                    // (a tall block its times under its name; a narrow one the short form, or none)
+                    let times = format!("{} – {}", hhmm(d.from), hhmm(d.to));
+                    let two = bar_h >= 40.0;
+                    if bar_h >= 15.0 {
+                        if let Some(words) = fit_words(ui, br.w, words_px, &label, &short) {
+                            let top = if two { Rect::new(br.x + 6.0, br.y + bar_h * 0.5 - words_px * 1.25, br.w - 10.0, words_px * 1.3) } else { Rect::new(br.x + 6.0, br.y, br.w - 10.0, br.h) };
+                            ui.text_in(words, top, words_px, Weight::Bold, ink, Align::Left);
+                            if two && ui.width(&times, 12.0, Weight::Medium) + 12.0 <= br.w {
+                                ui.text_in(&times, Rect::new(br.x + 6.0, br.y + bar_h * 0.5 + 1.0, br.w - 10.0, 16.0), 12.0, Weight::Medium, ink.alpha(0.8), Align::Left);
+                            }
+                        }
                     }
-                    let tip = format!("{} – {}  ·  {}", hhmm(d.from), hhmm(d.to), who_name(c, if t.by_player { Some(Who::Player) } else { d.who }));
+                    let tip = format!("{times}  ·  {}", who_name(c, if t.by_player { Some(Who::Player) } else { d.who }));
                     ui.tooltip(br, &tip);
                 }
             }
-            y += 8.0;
+            y += GROUP_GAP;
         }
         y - v.y
     });
@@ -943,6 +1112,36 @@ fn gantt(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan) -> Vec<Hit> {
     }
     if let Some(name) = stop {
         act(l, |c| co::network::stop_service(c, &name));
+    }
+    // folded, unfolded: kept with the company
+    if let Some(name) = unfold {
+        act(l, |c| {
+            pl::set_collapsed(c, &name, false);
+            Ok(())
+        });
+    }
+    if let Some(name) = toggle {
+        let to = !pl::is_collapsed(c, &name);
+        act(l, |c| {
+            pl::set_collapsed(c, &name, to);
+            Ok(())
+        });
+    }
+    if let Some(all) = fold_all {
+        act(l, |c| {
+            pl::set_all_collapsed(c, &names, all);
+            Ok(())
+        });
+    }
+    // a bus or a duty tapped twice: the line's timetable, that tour marked
+    let twice = taps.into_iter().find(|(key, _)| second_tap(&mut l.company.planning, key.clone(), now)).map(|(_, ti)| ti);
+    if let Some(ti) = twice {
+        let t = &p.tours[ti];
+        timetable = Some((t.tour.line.clone(), Some(t.tour.tour.clone())));
+    }
+    if let Some((line, tour)) = timetable {
+        plan_edit::open(l, &line, &p.date, tour);
+        return hits;
     }
     if let Some((ti, duty)) = clicked {
         let t = &p.tours[ti];
@@ -1219,6 +1418,13 @@ fn day_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan) {
     }
 }
 
+/// The way from a duty or a tour to its line's trips and timetable (`plan_edit`).
+fn timetable_button(l: &mut Launcher, r: Rect, name: &str) -> bool {
+    let pressed = l.ui.button(name, r, "The line's trips and timetable", Some("departure_board"), ButtonKind::Ghost);
+    l.ui.tooltip(r, "See the line's departures and the tours they make, and change them");
+    pressed
+}
+
 /// A duty chosen: its times, who drives it and why, who else could; on the company's day
 /// what to do when it is open, and "Drive this duty".
 fn duty_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, ti: usize, k: usize) {
@@ -1265,6 +1471,11 @@ fn duty_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, ti: usize, k:
     let mut y = inner.y;
     l.ui.text_in(&line_title(&t, Some(k)), Rect::new(inner.x, y, inner.w - 20.0, 24.0), 16.0, Weight::Bold, TEXT, Align::Left);
     y += 32.0;
+    if timetable_button(l, Rect::new(inner.x, y, inner.w, 32.0), "plan-duty-tt") {
+        plan_edit::open(l, &t.tour.line, &p.date, Some(t.tour.tour.clone()));
+        return;
+    }
+    y += 40.0;
     for (s, col) in &facts {
         let h = l.ui.paragraph(s, Vec2::new(inner.x, y), inner.w, kit::NOTE + 0.5, Weight::Regular, *col);
         y += h.max(19.0) + 5.0;
@@ -1365,6 +1576,11 @@ fn tour_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, ti: usize) {
     let mut y = inner.y;
     l.ui.text_in(&line_title(&t, None), Rect::new(inner.x, y, inner.w - 20.0, 24.0), 16.0, Weight::Bold, TEXT, Align::Left);
     y += 32.0;
+    if timetable_button(l, Rect::new(inner.x, y, inner.w, 32.0), "plan-tour-tt") {
+        plan_edit::open(l, &t.tour.line, &p.date, Some(t.tour.tour.clone()));
+        return;
+    }
+    y += 40.0;
     let mut facts: Vec<(String, Color)> = vec![(format!("{} – {}  ·  {} km  ·  {} {}", hhmm(t.tour.from()), hhmm(t.tour.to()), t.tour.km().round(), t.duties.len(), omsi_ui::tr("duties")), TEXT_SOFT)];
     let bus = match t.bus {
         Some(BusOf::Own(id)) => c.vehicle(id).map(|v| format!("{} {}", v.number, v.name)).unwrap_or_default(),
@@ -1573,6 +1789,24 @@ mod tests {
         ];
         for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
             for k in keys {
+                assert!(crate::_rust_i18n_try_translate(lang, k).is_some(), "{lang}: {k}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_rows_share_the_room_between_a_least_and_a_most() {
+        // few tours: tall, up to the most
+        assert_eq!(row_pitch(600.0, 3), ROW_MAX);
+        // more: they share the room
+        assert_eq!(row_pitch(600.0, 15), 40.0);
+        // many: the least, and the chart scrolls
+        assert_eq!(row_pitch(600.0, 60), ROW_MIN);
+        assert_eq!(row_pitch(600.0, 0), ROW_MAX);
+        assert_eq!(initials("Jan  Meijer"), "JM");
+        assert_eq!(initials("anna"), "A");
+        for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
+            for k in ["%{n} without a bus", "%{n} without a driver", "Collapse all", "Expand all", "The line's trips and timetable"] {
                 assert!(crate::_rust_i18n_try_translate(lang, k).is_some(), "{lang}: {k}");
             }
         }

@@ -3223,6 +3223,22 @@ pub fn take_effect_in_timetable(l: &mut Launcher, map: &str, id: u64) -> Result<
     Ok(())
 }
 
+/// A line of a map's registry written from elsewhere (the bus company's planning changed its
+/// timetable, `written` the registry as it was saved): the editor open on that registry takes
+/// the line as written, its codes and the depot files read again.
+pub fn took_line(l: &mut Launcher, path: &Path, written: &Registry, id: u64) {
+    let v = &mut l.pages.lines;
+    if v.reg_path != path {
+        return;
+    }
+    if let (Some(x), Some(now)) = (v.reg.line_mut(id), written.line(id)) {
+        *x = now.clone();
+    }
+    v.reg.texts = v.reg.texts.max(written.texts);
+    v.depots.clear();
+    v.revision += 1;
+}
+
 /// The estimate over the map's foot: what the line costs once and brings a month, its
 /// passengers and its buses; opened, every item and the parts of a working day.
 fn estimate_card(l: &mut Launcher, map_r: Rect) {
