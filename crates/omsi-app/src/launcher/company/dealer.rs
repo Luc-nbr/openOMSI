@@ -340,9 +340,10 @@ fn price_of(c: &Company, ls: &[&Listing], one: bool) -> String {
     }
 }
 
-/// A bus kind the company's level does not open yet: the tag on its card.
+/// A bus kind the company's level (or its research, `research::allows`) does not open yet: the
+/// tag on its card.
 fn locked_tag(c: &Company, l: &Listing) -> Option<(String, Color)> {
-    co::market::kind_allowed(c, l.bus.kind).err().map(|_| (omsi_ui::tr("Higher level").into_owned(), TEXT_SOFT))
+    co::market::kind_allowed(c, l.bus.kind).err().map(|e| (omsi_ui::tr(if e.contains("research") { "Research needed" } else { "Higher level" }).into_owned(), TEXT_SOFT))
 }
 
 fn showroom(l: &mut Launcher, area: Rect, c: &Company, all: &[Listing], offers: &[Offer]) {

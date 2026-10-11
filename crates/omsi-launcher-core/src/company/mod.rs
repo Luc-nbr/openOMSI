@@ -140,8 +140,9 @@ pub fn found(f: &Founding, profile: &str) -> Company {
         adverts: Default::default(),
         quals: 1,
         trophies: 0,
-        research: Default::default(),
-        stores: Default::default(),
+        // (a new company researches what an older one could buy already: `research::migrate`)
+        research: research::Research { checked: true, ..Default::default() },
+        stores: parts::Stores::first(),
         contracts: Default::default(),
         inbox: Default::default(),
         staff_rules: Default::default(),

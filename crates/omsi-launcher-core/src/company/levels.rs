@@ -203,10 +203,11 @@ pub fn extra_places(c: &Company) -> u32 {
 }
 
 /// How many concessions (line contracts) the company may hold: one, and one more at levels
-/// 3, 6, 8 and 10.
+/// 3, 6, 8 and 10, and for every stage of its research into the area
+/// (`research::extra_concessions`).
 pub fn max_concessions(c: &Company) -> usize {
     let l = level(c);
-    1 + [3, 6, 8, 10].iter().filter(|x| l >= **x).count()
+    1 + [3, 6, 8, 10].iter().filter(|x| l >= **x).count() + super::research::extra_concessions(c)
 }
 
 /// What comes off a new loan's yearly rate (0.005 = half a point).

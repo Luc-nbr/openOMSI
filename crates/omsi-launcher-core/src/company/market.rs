@@ -196,7 +196,8 @@ pub fn new_offer(c: &Company, bus: &MarketBus) -> (Cents, Cents) {
 }
 
 /// Whether the company's level allows a bus of this kind: articulated, electric and
-/// double-decker buses open with its levels (`levels::Feature`).
+/// double-decker buses open with its levels (`levels::Feature`), the big ones with research
+/// as well (`research`).
 pub fn kind_allowed(c: &Company, kind: BusKind) -> Result<(), &'static str> {
     use super::levels::{unlocked, Feature};
     if kind.size == BusSize::Articulated && !unlocked(c, Feature::ArticulatedBuses) {
@@ -207,6 +208,13 @@ pub fn kind_allowed(c: &Company, kind: BusKind) -> Result<(), &'static str> {
     }
     if kind.drive == Drive::Electric && !unlocked(c, Feature::ElectricBuses) {
         return Err("Electric buses open at a higher company level.");
+    }
+    // (and the research that opens the big buses: `research::allows`)
+    if kind.size == BusSize::Articulated && !super::research::allows(c, kind.size) {
+        return Err("Articulated buses need research first: start it on the Research page.");
+    }
+    if kind.size == BusSize::Double && !super::research::allows(c, kind.size) {
+        return Err("Double-deckers need research first: start it on the Research page.");
     }
     Ok(())
 }
@@ -414,6 +422,7 @@ mod tests {
         let mut c = found(&Founding { name: "Stadtbus".into(), short: "SB".into(), difficulty: d, date: "2024-03-04".into(), ..Default::default() }, "Luc");
         // (every kind of bus open: the levels' gates have a test of their own)
         c.progress.xp = super::super::levels::LEVEL_XP[9];
+        c.research.done = vec![super::super::research::keys::ARTICULATED.into(), super::super::research::keys::DOUBLE_DECKERS.into()];
         c
     }
 
@@ -426,7 +435,11 @@ mod tests {
         assert_eq!(buy_new(&mut c, &bus("Citaro G", BusSize::Articulated, Drive::Diesel), Payment::Cash, ""), Err("Articulated buses open at a higher company level."));
         assert_eq!(lease(&mut c, &bus("eCitaro", BusSize::Solo, Drive::Electric), ""), Err("Electric buses open at a higher company level."));
         c.progress.xp = super::super::levels::LEVEL_XP[1];
+        // (and its research: `research`)
+        assert_eq!(buy_new(&mut c, &bus("Citaro G", BusSize::Articulated, Drive::Diesel), Payment::Cash, ""), Err("Articulated buses need research first: start it on the Research page."));
+        c.research.done.push(super::super::research::keys::ARTICULATED.into());
         assert!(buy_new(&mut c, &bus("Citaro G", BusSize::Articulated, Drive::Diesel), Payment::Cash, "").is_ok());
+        assert_eq!(size_allowed(&c, BusSize::Double), Err("Double-deckers open at a higher company level."));
     }
 
     #[test]

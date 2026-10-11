@@ -395,10 +395,11 @@ fn held(c: &Company) -> usize {
     c.fleet.iter().filter(|v| v.held_on(&c.date)).count()
 }
 
-/// The places the depot has for buses: the yard's spaces and those of the halls the
-/// company's levels open (`levels::extra_places`).
+/// The places the depot has for buses: the yard's spaces, those of the halls the
+/// company's levels open (`levels::extra_places`) and those its research added
+/// (`research::extra_places`: the premises, the external depots).
 pub fn places(c: &Company) -> usize {
-    c.site.spaces() + super::levels::extra_places(c) as usize
+    c.site.spaces() + super::levels::extra_places(c) as usize + super::research::extra_places(c) as usize
 }
 
 /// The buses ordered from the dealers that come by `until` (None: all of them).
@@ -534,6 +535,8 @@ fn start_jobs(c: &mut Company, day: &str) {
     let waiting: Vec<u32> = c.site.jobs.iter().filter(|j| j.started.is_none()).map(|j| j.id).collect();
     for id in waiting {
         let Some(j) = c.site.jobs.iter().find(|j| j.id == id).cloned() else { continue };
+        // (fewer days with the research into repairs: `parts::job_days`)
+        let days = super::parts::job_days(c, j.kind);
         let Some(v) = c.fleet.iter_mut().find(|v| v.id == j.vehicle) else {
             c.site.jobs.retain(|x| x.id != id);
             continue;
@@ -544,7 +547,7 @@ fn start_jobs(c: &mut Company, day: &str) {
         if (there && j.kind != JobKind::Service) || (!there && free == 0) {
             continue;
         }
-        let until = if there { day.to_string() } else { dates::add(day, j.kind.days() - 1) };
+        let until = if there { day.to_string() } else { dates::add(day, days - 1) };
         if !there {
             v.workshop_until = Some(until.clone());
             free -= 1;
@@ -579,6 +582,8 @@ fn start_jobs(c: &mut Company, day: &str) {
         }
         let free_of_charge = j.kind == JobKind::Repair && super::dealer::under_warranty(c, j.vehicle, day);
         let kind = if j.kind == JobKind::Paint { BookingKind::Livery } else { BookingKind::Repair };
+        // (the parts it takes from the workshop's stores, their worth off its cost: `parts`)
+        super::parts::job_started(c, j.vehicle, j.kind, if free_of_charge { 0 } else { j.cost });
         c.book(kind, if free_of_charge { 0 } else { -j.cost }, text, false);
     }
 }
@@ -621,7 +626,10 @@ pub fn after_day(c: &mut Company, date: &str) -> Night {
         let n = |d: Drive| fleet.iter().filter(|v| v.kind.drive == d).count();
         let (nd, ne) = (n(Drive::Diesel), n(Drive::Electric));
         let short = |n: usize, served: usize| if n == 0 { 0.0 } else { n.saturating_sub(served) as f64 / n as f64 };
-        let extra = energy_today as f64 * (wd / all * short(nd, c.site.diesel_served()) * DIESEL_OUTSIDE + we / all * short(ne, c.site.electric_served()) * POWER_OUTSIDE);
+        // (the automatic refuelling researched serves more a night)
+        let refuel = super::research::refuel_factor(c);
+        let served = |n: usize| (n as f64 * refuel).floor() as usize;
+        let extra = energy_today as f64 * (wd / all * short(nd, served(c.site.diesel_served())) * DIESEL_OUTSIDE + we / all * short(ne, served(c.site.electric_served())) * POWER_OUTSIDE);
         let extra = extra.round() as Cents;
         if extra > 0 {
             c.book(BookingKind::Energy, -extra, "Fuel and power bought outside the depot", false);
@@ -639,10 +647,11 @@ pub fn after_day(c: &mut Company, date: &str) -> Night {
 
     // the fleet's cleanliness: every day takes some, the washing bay gives back
     if !fleet.is_empty() {
-        let w = (c.site.washes() as f64 / fleet.len() as f64).min(1.0);
-        let dirt = if out > 0 { 5.0 + 3.0 * out as f64 / fleet.len() as f64 } else { 5.0 };
+        // (what research does: the automatic washing, less dirt, the cleaners' rounds)
+        let w = (c.site.washes() as f64 * super::research::wash_factor(c) / fleet.len() as f64).min(1.0);
+        let dirt = if out > 0 { 5.0 + 3.0 * out as f64 / fleet.len() as f64 } else { 5.0 } * super::research::dirt_factor(c);
         // (without a washing bay the cleaners' buckets keep it from going below this)
-        let floor = 35.0;
+        let floor = super::research::clean_floor(c);
         c.site.clean = ((c.site.clean - dirt).max(floor) * (1.0 - w) + 100.0 * w).clamp(0.0, 100.0);
         c.reputation = (c.reputation + (c.site.clean - 60.0) / 40.0 * 0.08).clamp(0.0, 100.0);
     }
@@ -934,6 +943,8 @@ mod tests {
         let (a, b) = (c.fleet[0].id, c.fleet[1].id);
         c.dealer.free_services.push(a);
         c.site.workshop = 2;
+        // (no parts in the stores: what a service takes from them is credited too, `parts`)
+        c.stores.stock.clear();
         order(&mut c, a, JobKind::Service).unwrap();
         order(&mut c, b, JobKind::Service).unwrap();
         let cash = c.cash;

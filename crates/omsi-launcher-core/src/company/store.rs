@@ -49,6 +49,10 @@ pub fn migrate(mut c: Company) -> Company {
     if c.price_index <= 0.0 {
         c.price_index = 1.0;
     }
+    // (a company from before the research: the big buses it could buy stay open)
+    super::research::migrate(&mut c);
+    // (and the workshop's stores their first stock)
+    super::parts::open(&mut c);
     // (a company from before the licences: its people drive what they drove)
     if c.quals == 0 {
         super::licences::grant_fleet(&mut c);

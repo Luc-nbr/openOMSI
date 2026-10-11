@@ -1438,8 +1438,10 @@ mod tests {
         l.days[0].bands.clear();
         l.vehicles.classes = vec![VehicleClass::Solo, VehicleClass::Double];
         assert_eq!(sizes_allowed(&c, &l), Err("Double-deckers open at a higher company level."));
-        // at level 4 both are open
+        // at level 4 both are open, once researched (`research`)
         c.progress.xp = super::super::levels::LEVEL_XP[3];
+        assert_eq!(sizes_allowed(&c, &l), Err("Double-deckers need research first: start it on the Research page."));
+        c.research.done.push(super::super::research::keys::DOUBLE_DECKERS.into());
         assert_eq!(sizes_allowed(&c, &l), Ok(()));
     }
 
@@ -1498,8 +1500,9 @@ mod tests {
     #[test]
     fn the_planning_knows_the_sizes_and_what_the_fleet_lacks() {
         let mut c = company(Difficulty::Realistic);
-        // (articulated buses: from the second level)
+        // (articulated buses: from the second level, researched)
         c.progress.xp = super::super::levels::LEVEL_XP[1];
+        c.research.done.push(super::super::research::keys::ARTICULATED.into());
         let mut l = line(12);
         l.days[0].bands = vec![TimeBand { from: 360.0, to: 540.0, headway: 10.0, size: Some(BusSize::Articulated) }];
         let s = shape_of(&l, &|_| 0);

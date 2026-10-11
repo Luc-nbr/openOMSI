@@ -684,6 +684,8 @@ pub fn on_minute(c: &mut Company, now: i64) -> Vec<FeedItem> {
     for d in super::dealer::tick(c, &super::dealer::moment(now)) {
         out.push(FeedItem { at: now, text: "Delivered: %{name} (%{numbers})".into(), args: vec![("name".into(), d.name.clone()), ("numbers".into(), d.numbers.join(", "))], level: Level::Good });
     }
+    // the spare parts ordered for 16:00 (`parts`)
+    out.extend(super::parts::on_minute(c, now));
     out
 }
 
