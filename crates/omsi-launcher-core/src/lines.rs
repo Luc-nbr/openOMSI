@@ -30,8 +30,8 @@
 //! public holidays.
 //!
 //! **A line of the map's own** is edited the same way (Luc: "bestaande lijnen van de
-//! kaarten"): `import_map_line` makes its `.ttl` into a line of the registry (`LineDesign::map`)
-//! - a direction for every trip it runs, the map's own way between the stops kept as it is
+//! kaarten"): `import_map_line` makes its `.ttl` into a line of the registry (`LineDesign::map`):
+//! a direction for every trip it runs, the map's own way between the stops kept as it is
 //! (`Leg::map_way`), every departure in the map's tour it belongs to (`TableTrip::tour`). Saved,
 //! it is written as the map's own line file, by its name (`Export::shadows`), with trips of its
 //! own (`oo_map_…`): the Drive page, the duties, a company's line and the timetable's buses find

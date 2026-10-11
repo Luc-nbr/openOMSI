@@ -151,7 +151,24 @@ pub struct LineEditorView {
     level_ask: Option<BusSize>,
     /// A change of a line in service asked about (`change_dialog`).
     change_ask: Option<ChangeAsk>,
+    /// The map's own lines (`maplines`): the timetable the game reads (`TTData`), its lines as
+    /// the list shows them, and `global.cfg`'s list of tiles (a lane's tile is its place there).
+    tt: Option<Arc<omsi_timetable::TimetableData>>,
+    map_rows: Vec<maplines::MapRow>,
+    raw_tiles: Vec<(i32, i32)>,
+    /// A line of the map's asked for before the map's stops were read: opened once they are.
+    opening: Option<String>,
+    /// A line of the map's opened and not changed yet: it goes again when another line is
+    /// chosen (only a change makes it the player's edit).
+    fresh: Option<u64>,
+    /// Each line of the map's as the game runs it now (the map's own, or as edited and saved):
+    /// what a company's change is approved against.
+    running: HashMap<u64, LineDesign>,
+    /// "Restore the map's original" was pressed once.
+    restore_armed: bool,
 }
+
+mod maplines;
 
 /// Where the shown line's own destinations are kept (`LineEditorView::kept`): for which line
 /// (its depot group and depot file), the player's depot file (its place and name), its
@@ -178,6 +195,10 @@ pub struct ForCompany {
     /// The figures of the line shown, for its revision, and the estimate's details open.
     cache: Option<Figures>,
     details: bool,
+    /// The lines of the map's the company runs (their timetable names): the list offers those,
+    /// and a line of them to open once the map is read.
+    runs: Vec<String>,
+    start_map: Option<String>,
 }
 
 /// The company's figures of the line shown.
@@ -214,6 +235,10 @@ enum CompanyAct {
     /// A change waiting for its day taken back: the line stays as it runs.
     Withdraw,
     Discard,
+    /// A line of the map's the company runs saved (its changed route paid for), or put back as
+    /// the map has it (`maplines::company_act`).
+    SaveMap,
+    RestoreMap,
 }
 
 /// The sizes a time band can ask for ("auto" first: the demand model's choice).
@@ -285,10 +310,21 @@ fn stop_name(names: &StopNames, tile: (i32, i32), id: i64) -> Option<&String> {
 pub fn open_for_company(l: &mut Launcher, line: Option<u64>) {
     let Some(c) = l.company.company.as_ref() else { return };
     let v = &mut l.pages.lines;
-    v.company = Some(ForCompany { id: c.id.clone(), name: c.name.clone(), map: c.map.clone(), colours: c.colours.clone(), depot: c.depot.clone(), start: Some(line), stop_lines: None, cache: None, details: false });
+    let runs = c.lines.iter().filter(|x| !x.own).map(|x| x.name.clone()).collect();
+    v.company = Some(ForCompany { id: c.id.clone(), name: c.name.clone(), map: c.map.clone(), colours: c.colours.clone(), depot: c.depot.clone(), start: Some(line), stop_lines: None, cache: None, details: false, runs, start_map: None });
     v.company_act = None;
     v.loaded = None;
     l.go(super::Page::Lines);
+}
+
+/// The line editor opened for the bus company on a line of the map's it runs (its timetable
+/// name `name`): changed there, its changed route is approved anew.
+pub fn open_map_line_for_company(l: &mut Launcher, name: &str) {
+    open_for_company(l, None);
+    if let Some(fc) = l.pages.lines.company.as_mut() {
+        // (no new line: that one, once the map is read)
+        (fc.start, fc.start_map) = (None, Some(name.to_string()));
+    }
 }
 
 fn colour_of(hex: &str) -> Color {
@@ -310,13 +346,23 @@ fn straight(d: &Direction, k: usize) -> Vec<DVec2> {
 }
 
 /// Route every leg of a direction again (each from where the one before ended), its times
-/// with them; returns the legs as drawn.
+/// with them; returns the legs as drawn. A leg of a line of the map's that is still the map's
+/// own way between its two stops (`Leg::kept_between`) stays as the map drives it - one kept as
+/// part of its trip's whole track only while the whole direction runs as the map has it.
 fn route_direction(router: &Router, d: &mut Direction) -> Vec<Vec<DVec2>> {
     d.fit_legs();
+    let whole = d.is_map_way();
     let mut shapes = Vec::new();
     let mut start: Option<Anchor> = None;
     for k in 0..d.legs.len() {
         let (a, b) = (dv(d.stops[k].at), dv(d.stops[k + 1].at));
+        let kept = d.legs[k].kept_between(d.stops[k].id, d.stops[k + 1].id) && (whole || !d.legs[k].steps.is_empty());
+        if kept {
+            shapes.push(kept_shape(router, d, k));
+            start = None;
+            continue;
+        }
+        d.legs[k].map_way = None;
         let vias: Vec<DVec2> = d.legs[k].vias.iter().map(|p| dv(*p)).collect();
         // (from where the leg before ended; failing that, from any lane of the stop)
         let r = router.leg(a, b, &vias, start).or_else(|| start.and_then(|_| router.leg(a, b, &vias, None)));
@@ -351,6 +397,11 @@ fn unrouted_direction(d: &mut Direction) -> Vec<Vec<DVec2>> {
     let mut shapes = Vec::new();
     for k in 0..d.legs.len() {
         let (a, b) = (dv(d.stops[k].at), dv(d.stops[k + 1].at));
+        // (the map's own way stays the map's)
+        if d.legs[k].kept_between(d.stops[k].id, d.stops[k + 1].id) {
+            shapes.push(straight(d, k));
+            continue;
+        }
         let leg = &mut d.legs[k];
         leg.steps.clear();
         leg.ok = false;
@@ -359,6 +410,17 @@ fn unrouted_direction(d: &mut Direction) -> Vec<Vec<DVec2>> {
     }
     d.refresh_times();
     shapes
+}
+
+/// A leg as drawn from the lanes it keeps (straight through its points without them).
+fn kept_shape(router: &Router, d: &Direction, k: usize) -> Vec<DVec2> {
+    let g = &d.legs[k];
+    let lanes = router.lanes_of(&g.steps);
+    if g.ok && !lanes.is_empty() {
+        router.points(&lanes, g.from_s, g.to_s)
+    } else {
+        straight(d, k)
+    }
 }
 
 /// A saved direction's legs as drawn, from the lanes it keeps.
@@ -401,12 +463,14 @@ impl LineEditorView {
         }
     }
 
-    /// A line the list shows: the company's when working for one, else the player's own.
+    /// A line the list shows among the own ones: the company's when working for one, else the
+    /// player's own - a line of the map's is listed with the map's (`maplines`).
     fn shows(&self, l: &LineDesign) -> bool {
-        match &self.company {
-            Some(fc) => l.company == fc.id,
-            None => l.company.is_empty(),
-        }
+        !l.is_map_line()
+            && match &self.company {
+                Some(fc) => l.company == fc.id,
+                None => l.company.is_empty(),
+            }
     }
 
     fn first_shown(&self) -> Option<u64> {
@@ -422,10 +486,26 @@ impl LineEditorView {
         self.reg.line_mut(id)
     }
 
-    /// Something of the line changed: unsaved, and drawn again.
+    /// Something of the line changed: unsaved, and drawn again (a line of the map's opened is
+    /// the player's edit now).
     fn touched(&mut self) {
         self.dirty = true;
         self.revision += 1;
+        if self.fresh.is_some() && self.fresh == self.sel {
+            self.fresh = None;
+        }
+    }
+
+    /// Another line is shown: a line of the map's opened and left as it came goes again.
+    fn leave_fresh(&mut self) {
+        if let Some(id) = self.fresh.take() {
+            self.reg.lines.retain(|l| l.id != id);
+            self.running.remove(&id);
+            if self.sel == Some(id) {
+                self.sel = None;
+            }
+        }
+        self.restore_armed = false;
     }
 
     /// The table's cell chosen, what is typed into it, its page and "Fill" pressed once let go
@@ -473,7 +553,14 @@ impl LineEditorView {
         self.stops.clear();
         self.map_calendar = omsi_map::Calendar::load(&self.map_dir.join("Holidays.txt")).unwrap_or_default();
         let tiles = omsi_map::GlobalCfg::load(&self.global).map(|g| g.raw_tiles).unwrap_or_default();
-        self.names = stop_names(&omsi_timetable::TimetableData::load(&self.map_dir).bus_stops, &tiles);
+        let tt = omsi_timetable::TimetableData::load(&self.map_dir);
+        self.names = stop_names(&tt.bus_stops, &tiles);
+        // (the map's own lines, and each one edited as the game runs it now)
+        self.map_rows = maplines::map_rows(&tt);
+        self.tt = Some(Arc::new(tt));
+        self.raw_tiles = tiles;
+        (self.opening, self.fresh, self.restore_armed) = (None, None, false);
+        self.running = self.reg.lines.iter().filter(|l| l.is_map_line()).map(|l| (l.id, l.clone())).collect();
         let chrono = omsi_map::date_code(date).map(|c| omsi_map::active_chrono_dirs(&self.map_dir, c)).unwrap_or_default();
         let ai = omsi_map::ailists::ailists_with_chrono(&self.map_dir, &chrono);
         self.groups = ai.groups.iter().filter(|g| g.is_depot && !g.typgroups.is_empty() && !g.name.trim().is_empty()).map(|g| (g.name.trim().to_string(), g.hof.clone().unwrap_or_default())).collect();
@@ -844,6 +931,12 @@ fn take_network(l: &mut Launcher) {
             }
         }
     }
+    // (a line of the map's asked for before its stops were read: opened now)
+    if !v.stops.is_empty() {
+        if let Some(ttl) = v.opening.take() {
+            v.note = maplines::open(v, &ttl);
+        }
+    }
     if v.shapes_for != v.sel {
         v.shapes_for = v.sel;
         v.shapes = Default::default();
@@ -860,6 +953,8 @@ fn take_network(l: &mut Launcher) {
 
 fn left_panel(l: &mut Launcher, r: Rect, maps: &[(String, String)], status: &mut Option<(String, bool)>) {
     let figures = l.pages.lines.company.as_ref().and_then(|f| f.cache.clone()).filter(|f| Some(f.key.0) == l.pages.lines.sel);
+    // (a line of the map's the company runs: what saving its change costs, and its cash)
+    let map_fee = maplines::company_fee(l);
     let Launcher { ui, pages, state, .. } = l;
     let v = &mut pages.lines;
     ui.card(r);
@@ -884,10 +979,25 @@ fn left_panel(l: &mut Launcher, r: Rect, maps: &[(String, String)], status: &mut
     // the lines of the map
     let list_y = body.y + ROW + 10.0;
     let rows: Vec<(u64, String, String, Color, bool, ServiceKind)> = v.reg.lines.iter().filter(|x| v.shows(x)).map(|x| (x.id, x.number.clone(), x.name.clone(), colour_of(&x.colour), x.draft && v.company.is_some(), x.service)).collect();
-    let list_h = ((rows.len().max(1) as f32) * 40.0).min(r.h * 0.28);
+    // (and under them the map's own lines, apart: those the company runs, working for one)
+    let map_rows = maplines::shown(v);
+    let sel_ttl = v.line().and_then(|x| x.map.as_ref()).map(|m| m.ttl.clone());
+    let none = if v.company.is_some() { "The company has no line of its own yet" } else { "No lines of your own on this map yet" };
+    let own_h = rows.len().max(1) as f32 * 40.0;
+    let content_h = own_h + if map_rows.is_empty() { 0.0 } else { maplines::HEAD_H + map_rows.len() as f32 * 40.0 };
+    let list_h = content_h.min(r.h * if map_rows.is_empty() { 0.28 } else { 0.36 });
     let sel = v.sel;
     let mut pick = None;
+    let mut pick_map = None;
     ui.scroll_area("le-lines", Rect::new(body.x - 6.0, list_y, body.w + 12.0, list_h), &mut |ui, a| {
+        if rows.is_empty() {
+            ui.text_in(none, Rect::new(a.x + 6.0, a.y, a.w - 12.0, 36.0), 12.5, Weight::Regular, TEXT_DIM, Align::Left);
+        }
+        if !map_rows.is_empty() {
+            if let Some(ttl) = maplines::draw_rows(ui, Rect::new(a.x, a.y + own_h, a.w, a.h), &map_rows, sel_ttl.as_deref()) {
+                pick_map = Some(ttl);
+            }
+        }
         for (i, (id, number, name, c, draft, kind)) in rows.iter().enumerate() {
             let rr = Rect::new(a.x + 6.0, a.y + i as f32 * 40.0, a.w - 12.0, 36.0);
             if ui.row(&format!("le-line-{id}"), rr, Some(*id) == sel) {
@@ -910,26 +1020,33 @@ fn left_panel(l: &mut Launcher, r: Rect, maps: &[(String, String)], status: &mut
                 ui.badge(Vec2::new(rr.right() - badge_w + 4.0, rr.y + 10.0), &omsi_ui::tr("draft").to_uppercase(), if Some(*id) == sel { on_accent() } else { WARN });
             }
         }
-        rows.len() as f32 * 40.0
+        content_h
     });
-    if rows.is_empty() {
-        let none = if v.company.is_some() { "The company has no line of its own yet" } else { "No lines of your own on this map yet" };
-        ui.text_in(none, Rect::new(body.x, list_y, body.w, 36.0), 12.5, Weight::Regular, TEXT_DIM, Align::Left);
-    }
     if let Some(id) = pick {
         if v.sel != Some(id) {
+            v.leave_fresh();
             (v.sel, v.dir, v.sel_stop, v.delete_armed) = (Some(id), 0, None, false);
             v.table_reset();
         }
     }
+    if let Some(ttl) = pick_map {
+        if let Some(s) = maplines::pick(v, &ttl) {
+            *status = Some(s);
+        }
+    }
     let mut y = list_y + list_h + 8.0;
     if ui.button("le-new", Rect::new(body.x, y, body.w, ROW), "New line", Some("add"), ButtonKind::Normal) {
+        v.leave_fresh();
         new_line(v);
         *status = Some(("Now click the line's stops on the map, in the order the bus calls at them".into(), false));
     }
     y += ROW + 14.0;
     if v.line().is_none() {
         return;
+    }
+    // (a line of the map's: what saving it does, said once over its settings)
+    if let Some(h) = maplines::note(ui, v, Rect::new(body.x, y - 6.0, body.w, 0.0)) {
+        y += h + 4.0;
     }
     // the line's own settings
     ui.p().rect(Rect::new(body.x, y - 7.0, body.w, 1.0), HAIRLINE);
@@ -1025,6 +1142,11 @@ fn left_panel(l: &mut Launcher, r: Rect, maps: &[(String, String)], status: &mut
     if changed {
         v.touched();
     }
+    if v.line().is_some_and(LineDesign::is_map_line) {
+        let problems = v.line().map(reg::problems).unwrap_or_default();
+        maplines::foot(ui, v, state, body, r.bottom() - 12.0 - ROW, &problems, map_fee, status);
+        return;
+    }
     if v.company.is_some() {
         let problems = v.line().map(reg::problems).unwrap_or_default();
         company_foot(ui, v, state, body, r.bottom() - 12.0 - ROW, &problems, figures.as_ref(), status);
@@ -1083,6 +1205,8 @@ fn save(v: &mut LineEditorView, state: &mut super::state::State, problems: &[reg
     let Some(content) = core::content_dir() else { return ("Saved in your lines, but there is no content folder to write the timetable into".into(), true) };
     match reg::export_to_map(&content, &v.map_dir, &v.reg) {
         Ok(_) => {
+            // (the lines of the map's as the game runs them now)
+            maplines::saved(v);
             let depot_error = v.write_depots(&content, &prepared);
             // (every line's block is written again, the texts made as they are made now)
             texts_written(&v.reg_path, &mut v.reg, depot_error.is_none());
@@ -1144,9 +1268,9 @@ fn drive_it(v: &mut LineEditorView, state: &mut super::state::State) -> (String,
         c.entry = -1;
     }
     (c.free, c.composed, c.own_line) = (true, false, true);
-    // (the line lists open on the player's own lines)
-    c.my_lines = true;
-    c.free_line = stem.clone();
+    // (the line lists open on the player's own lines - on the map's, a line of the map's)
+    c.my_lines = !line.is_map_line();
+    c.free_line = line.timetable_name(&stem);
     c.free_route = reg::trip_name(&stem, 0);
     state.touched();
     state.load_lines();
@@ -1193,8 +1317,8 @@ fn right_panel(l: &mut Launcher, r: Rect, status: &mut Option<(String, bool)>) {
         displays_tab(ui, v, body, status);
         return;
     }
-    let mut dir = v.dir;
-    if ui.segmented("le-dir", Rect::new(body.x, body.y, body.w, ROW), &mut dir, &["Outbound", "Return"]) {
+    let current = v.dir;
+    if let Some(dir) = v.line().and_then(|line| maplines::direction_choice(ui, line, "le-dir", Rect::new(body.x, body.y, body.w, ROW), current)) {
         (v.dir, v.sel_stop) = (dir, None);
         v.revision += 1;
     }
@@ -1218,7 +1342,7 @@ fn right_panel(l: &mut Launcher, r: Rect, status: &mut Option<(String, bool)>) {
     let list = Rect::new(body.x - 6.0, y, body.w + 12.0, body.bottom() - y - foot_h);
     let (rows, legs, times, total) = {
         let d = &v.line().unwrap().directions[d_idx];
-        (d.stops.iter().map(|s| s.name.clone()).collect::<Vec<_>>(), d.legs.iter().map(|g| (g.ok, g.length, g.vias.len())).collect::<Vec<_>>(), d.times.clone(), d.minutes())
+        (d.stops.iter().map(|s| s.name.clone()).collect::<Vec<_>>(), d.legs.iter().map(|g| (g.ok, g.length, g.vias.len(), g.map_way.is_some())).collect::<Vec<_>>(), d.times.clone(), d.minutes())
     };
     let sel_stop = v.sel_stop;
     let colour = colour_of(&v.line().unwrap().colour);
@@ -1270,10 +1394,15 @@ fn right_panel(l: &mut Launcher, r: Rect, status: &mut Option<(String, bool)>) {
                 act = Some(Act::Remove(i));
             }
             yy += rh;
-            if let Some((ok, len, vias)) = legs.get(i).copied() {
+            if let Some((ok, len, vias, map_way)) = legs.get(i).copied() {
                 let lr = Rect::new(a.x + 34.0, yy, a.w - 40.0, lh);
                 ui.p().rect(Rect::new(a.x + 19.5, yy - 4.0, 1.5, lh + 8.0), colour.alpha(0.5));
-                let text = if ok { format!("{:.0} m", len) } else { omsi_ui::tr("no way over the roads").to_string() };
+                // (a leg of the map's own way, kept as the map's trip drives it)
+                let text = match (ok, map_way) {
+                    (true, true) => omsi_ui::tr("%{n} m · as the map drives it").replace("%{n}", &format!("{len:.0}")),
+                    (true, false) => format!("{:.0} m", len),
+                    _ => omsi_ui::tr("no way over the roads").to_string(),
+                };
                 ui.text_in(&text, lr, 11.0, Weight::Regular, if ok { TEXT_DIM } else { DANGER }, Align::Left);
                 if vias > 0 && ui.icon_button(&format!("le-novia-{d_idx}-{i}"), Vec2::new(lr.right() - 10.0, lr.center().y), 9.0, "restart_alt", "Straighten the leg (its dragged points go)") {
                     act = Some(Act::ClearVias(i));
@@ -1594,8 +1723,8 @@ fn displays_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, status: &mut Op
     if ui.segmented("le-sign-mode", Rect::new(body.x, body.y, body.w, ROW), &mut mode, &["Simple", "Advanced"]) {
         v.sign_advanced = mode == 1;
     }
-    let mut dir = v.dir;
-    if ui.segmented("le-dir-d", Rect::new(body.x, body.y + ROW + 8.0, body.w, ROW), &mut dir, &["Outbound", "Return"]) {
+    let current = v.dir;
+    if let Some(dir) = v.line().and_then(|line| maplines::direction_choice(ui, line, "le-dir-d", Rect::new(body.x, body.y + ROW + 8.0, body.w, ROW), current)) {
         (v.dir, v.sel_stop) = (dir, None);
         v.revision += 1;
     }
@@ -2033,7 +2162,10 @@ fn timetable_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, locked: &[BusS
         v.table_open = true;
     }
     let mut top = body.y + ROW + 8.0;
-    if table_on {
+    let of_map = v.line().is_some_and(|x| x.is_map_line() && x.table.iter().any(|t| !t.tour.is_empty()));
+    if table_on && of_map {
+        top += ui.paragraph("The table holds the map's departures, each in the tour the map runs it in: change them there. A change to the patterns below makes that group of days anew from them.", Vec2::new(body.x, top), body.w, 11.5, Weight::Regular, accent_2()) + 6.0;
+    } else if table_on {
         top += ui.paragraph("The table is the line's timetable: a change to the patterns below fills that group of days anew at once; the times typed into the other groups stay.", Vec2::new(body.x, top), body.w, 11.5, Weight::Regular, accent_2()) + 6.0;
     }
     let body = Rect::new(body.x, top, body.w, (body.bottom() - top).max(40.0));
@@ -2604,9 +2736,8 @@ fn table_layer(l: &mut Launcher, map_r: Rect) {
     if ui.icon_button("le-table-close", Vec2::new(r.right() - 24.0, y + (ROW - 4.0) * 0.5), 14.0, "close", "Back to the map") {
         act = Some(TableAct::Close);
     }
-    let mut d = dir;
     let seg_w = ((w - 200.0 - 40.0) * 0.45).max(150.0);
-    if ui.segmented("le-table-dir", Rect::new(x + 200.0, y, seg_w, ROW - 4.0), &mut d, &["Outbound", "Return"]) {
+    if let Some(d) = maplines::direction_choice(ui, &line, "le-table-dir", Rect::new(x + 200.0, y, seg_w, ROW - 4.0), dir) {
         act = Some(TableAct::Dir(d));
     }
     let labels: Vec<&str> = DAY_GROUPS.iter().map(|g| g.0).collect();
@@ -2638,7 +2769,8 @@ fn table_layer(l: &mut Launcher, map_r: Rect) {
     }
     y += ROW + 2.0;
     // the trips of the direction and the days, in order of departure
-    let mut cols: Vec<usize> = (0..line.table.len()).filter(|&i| line.table[i].dir == dir && line.table[i].day == day).collect();
+    // (a trip of a map's tour on every group of days its tour runs on)
+    let mut cols: Vec<usize> = (0..line.table.len()).filter(|&i| line.table[i].dir == dir && reg::trip_in_group(&line, &line.table[i], day)).collect();
     cols.sort_by(|a, b| line.table[*a].departure().total_cmp(&line.table[*b].departure()));
     let sel = v.table_sel.filter(|(i, _)| cols.contains(i));
     // the tools for the trip chosen
@@ -2774,7 +2906,7 @@ fn table_layer(l: &mut Launcher, map_r: Rect) {
         (omsi_ui::tr("The day patterns make the line's timetable: switch the table on to make it this one.").into_owned(), TEXT_DIM)
     } else {
         let tours = reg::table_tours(&line).into_iter().filter(|t| t.day == day).collect::<Vec<_>>();
-        (omsi_ui::tr("%{t} trips on these days, driven in %{n} tours").replace("%{t}", &line.table.iter().filter(|t| t.day == day).count().to_string()).replace("%{n}", &tours.len().to_string()), TEXT_SOFT)
+        (omsi_ui::tr("%{t} trips on these days, driven in %{n} tours").replace("%{t}", &line.table.iter().filter(|t| reg::trip_in_group(&line, t, day)).count().to_string()).replace("%{n}", &tours.len().to_string()), TEXT_SOFT)
     };
     ui.paragraph(&note, Vec2::new(x, fy + 4.0), w, 12.0, Weight::Regular, colour);
     let away = line.table.iter().filter(|t| !kind.allows(t.day)).count();
@@ -2836,9 +2968,11 @@ fn table_layer(l: &mut Launcher, map_r: Rect) {
             let trip = match after {
                 Some(mut t) => {
                     t.shift(headway);
+                    // (a bus of its own: not the map's tour of the trip it follows)
+                    (t.day, t.tour) = (day, String::new());
                     t
                 }
-                None => reg::TableTrip { dir, day, times: rel.iter().map(|x| first_dep + x).collect() },
+                None => reg::TableTrip { dir, day, times: rel.iter().map(|x| first_dep + x).collect(), tour: String::new() },
             };
             let line = v.line_mut().unwrap();
             line.table.push(trip);
@@ -2850,6 +2984,8 @@ fn table_layer(l: &mut Launcher, map_r: Rect) {
                 let line = v.line_mut().unwrap();
                 let mut t = line.table[i].clone();
                 t.shift(m);
+                // (the copy a bus of its own: the map's tour has the trip it copies)
+                (t.day, t.tour) = (day, String::new());
                 line.table.push(t);
                 v.table_sel = Some((line.table.len() - 1, s));
             }
@@ -2936,6 +3072,11 @@ fn company_start(l: &mut Launcher) {
     if v.loaded.is_none() {
         return;
     }
+    // (a line of the map's the company runs: opened once the map's stops are read)
+    if let Some(name) = v.company.as_mut().and_then(|f| f.start_map.take()) {
+        v.opening = Some(name);
+        return;
+    }
     let Some(start) = v.company.as_mut().and_then(|f| f.start.take()) else { return };
     match start {
         Some(id) if v.reg.line(id).is_some() => {
@@ -2957,7 +3098,8 @@ fn company_figures(l: &mut Launcher) {
     let company = &*company;
     let v = &mut pages.lines;
     let (Some(fc), Some(c)) = (v.company.as_mut(), company.company.as_ref()) else { return };
-    let Some(line) = v.sel.and_then(|id| v.reg.lines.iter().find(|x| x.id == id)) else {
+    // (a line of the map's has no estimate: the company runs it under its concession)
+    let Some(line) = v.sel.and_then(|id| v.reg.lines.iter().find(|x| x.id == id)).filter(|x| !x.is_map_line()) else {
         fc.cache = None;
         return;
     };
@@ -3060,6 +3202,10 @@ fn company_foot(ui: &mut Ui, v: &mut LineEditorView, state: &mut super::state::S
 /// saved, or the changes undone.
 fn company_action(l: &mut Launcher, act: CompanyAct, status: &mut Option<(String, bool)>) {
     let Some(id) = l.pages.lines.sel else { return };
+    if matches!(act, CompanyAct::SaveMap | CompanyAct::RestoreMap) {
+        maplines::company_act(l, act == CompanyAct::RestoreMap, status);
+        return;
+    }
     if act == CompanyAct::Discard {
         let v = &mut l.pages.lines;
         let (map, global) = (v.reg.map.clone(), v.reg.global.clone());
