@@ -424,7 +424,7 @@ fn side(l: &mut Launcher, r: Rect, c: &Company, markers: &[Marker], in_game: boo
                 if !ui.rect_visible(r) {
                     continue;
                 }
-                ui.p().rounded(Rect::new(r.x, r.y + 8.0, 4.0, 14.0), 2.0, *colour);
+                ui.swatch(Rect::new(r.x, r.y + 8.0, 4.0, 14.0), 2.0, *colour);
                 let w = line_plate(ui, Vec2::new(r.x + 12.0, r.y + 5.0), line, 20.0);
                 let caption = if line.caption.is_empty() { line.name.clone() } else { line.caption.clone() };
                 ui.text_in(&caption, Rect::new(r.x + w + 20.0, r.y, r.w - w - 60.0, r.h), kit::NOTE, Weight::Medium, TEXT_SOFT, Align::Left);
@@ -459,7 +459,7 @@ fn bus_card(l: &mut Launcher, r: Rect, c: &Company, line: &str, tour: &str, m: O
         Some(x) => line_plate(&mut l.ui, Vec2::new(inner.x, inner.y), x, 22.0),
         None => plate(&mut l.ui, Vec2::new(inner.x, inner.y), &number, 22.0),
     };
-    l.ui.p().rounded(Rect::new(inner.x + w + 8.0, inner.y + 4.0, 4.0, 14.0), 2.0, colour);
+    l.ui.swatch(Rect::new(inner.x + w + 8.0, inner.y + 4.0, 4.0, 14.0), 2.0, colour);
     l.ui.text_in(&format!("{} {}", omsi_ui::tr("Tour"), tour), Rect::new(inner.x + w + 18.0, inner.y, inner.w - w - 40.0, 22.0), 15.5, Weight::Bold, TEXT, Align::Left);
     let mut y = inner.y + 32.0;
     let tp = l.company.plan.as_ref().and_then(|p| p.tours.iter().find(|x| x.tour.line.eq_ignore_ascii_case(line) && x.tour.tour == tour)).cloned();

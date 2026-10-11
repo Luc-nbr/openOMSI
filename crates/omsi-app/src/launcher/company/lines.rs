@@ -354,7 +354,7 @@ fn line_card(l: &mut Launcher, r: Rect, c: &Company, line: &co::CompanyLine) {
     // as its advertising shows it
     kit::caps(&mut l.ui, Rect::new(x2, inner.y - 4.0, half, 16.0), "As advertised");
     let ad = Rect::new(x2, inner.y + 16.0, half, (inner.bottom() - inner.y - 16.0).max(60.0));
-    l.ui.p().rounded(ad, RADIUS, super::super::ownlines::colour_of(if line.colour.trim().is_empty() { &c.colours[0] } else { &line.colour }).alpha(0.16));
+    l.ui.swatch(ad, RADIUS, super::super::ownlines::colour_of(if line.colour.trim().is_empty() { &c.colours[0] } else { &line.colour }).alpha(0.16));
     let pw = super::line_plate(&mut l.ui, Vec2::new(ad.x + 14.0, ad.y + 14.0), line, 30.0);
     let shown = if text.trim().is_empty() { line.public_name().to_string() } else { text.trim().to_string() };
     let title_h = l.ui.paragraph(&shown, Vec2::new(ad.x + 24.0 + pw, ad.y + 10.0), ad.w - pw - 38.0, 17.0, Weight::Bold, TEXT);

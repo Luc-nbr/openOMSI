@@ -447,10 +447,13 @@ pub(super) fn grade(v: f64) -> Color {
 pub(super) fn monogram(ui: &mut Ui, r: Rect, c: &Company) {
     let main = super::ownlines::colour_of(&c.colours[0]);
     let second = super::ownlines::colour_of(&c.colours[1]);
+    // (the company's own colours and their ink, as they are in either look)
+    ui.as_drawn();
     ui.p().rounded(r, RADIUS, main);
     ui.p().rounded(Rect::new(r.x, r.bottom() - r.h * 0.22, r.w, r.h * 0.22), RADIUS * 0.5, second);
     ui.p().rect(Rect::new(r.x, r.bottom() - r.h * 0.22, r.w, r.h * 0.11), second);
     ui.text_in(&c.short, Rect::new(r.x, r.y, r.w, r.h * 0.8), (r.h * 0.34).min(18.0), Weight::Black, super::ownlines::ink_on(main), Align::Center);
+    ui.end_as_drawn();
 }
 
 /// The company's mark: its logo picture when it has one (fitted into the square, on white),
@@ -459,7 +462,8 @@ pub(super) fn monogram(ui: &mut Ui, r: Rect, c: &Company) {
 pub(super) fn company_mark(l: &mut Launcher, r: Rect, c: &Company) {
     match c.logo.as_deref().and_then(|p| logo_texture(l, p)) {
         Some(tex) => {
-            l.ui.p().rounded(r, RADIUS, Color::WHITE);
+            // (on white in either look: the light one would make the white its dark ink)
+            l.ui.swatch(r, RADIUS, Color::WHITE);
             l.ui.image(r.inset(3.0), tex, (RADIUS - 2.0).max(0.0));
         }
         None => monogram(&mut l.ui, r, c),

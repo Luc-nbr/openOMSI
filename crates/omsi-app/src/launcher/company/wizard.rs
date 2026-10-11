@@ -233,7 +233,9 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         for (i, hex) in PALETTE.iter().enumerate() {
             let r = Rect::new(left.x + i as f32 * (sw + 6.0), y, sw, sw);
             let (hov, _, clicked) = l.ui.interact(super::super::ui::id_of(&format!("company-colour-{k}-{i}")), r);
-            l.ui.p().rounded(r, 6.0, super::super::ownlines::colour_of(hex));
+            l.ui.swatch(r, 6.0, super::super::ownlines::colour_of(hex));
+            // (an edge, so that the white one shows on the light look's white sheet)
+            l.ui.p().rounded_border(r, 6.0, 1.0, EDGE);
             if w.colours[k] == i {
                 l.ui.p().rounded_border(r.inset(-3.0), 8.0, 2.0, TEXT);
             } else if hov {

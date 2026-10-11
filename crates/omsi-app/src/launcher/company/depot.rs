@@ -147,6 +147,8 @@ fn bus_top(ui: &mut Ui, r: Rect, number: &str, colour: Color, lifted: bool) {
     if lifted {
         ui.p().rounded(r.inset(-2.0), 4.0, TEXT);
     }
+    // (the company's colour, its hatches and its ink, as they are in either look)
+    ui.as_drawn();
     ui.p().rounded(r, 3.0, colour);
     // (the roof's hatches: the front is up)
     ui.p().rect(Rect::new(r.x + 2.0, r.y + 3.0, r.w - 4.0, (r.h * 0.12).max(2.0)), Color::rgba(0, 0, 0, 0.22));
@@ -154,6 +156,7 @@ fn bus_top(ui: &mut Ui, r: Rect, number: &str, colour: Color, lifted: bool) {
         let ink = ownlines::ink_on(colour);
         ui.text_in(number, Rect::new(r.x - 6.0, r.y + r.h * 0.35, r.w + 12.0, r.h * 0.5), (r.w * 0.42).clamp(7.0, 11.0), Weight::Bold, ink, Align::Center);
     }
+    ui.end_as_drawn();
 }
 
 fn plan(l: &mut Launcher, r: Rect, c: &Company) {
@@ -303,7 +306,7 @@ fn plan(l: &mut Launcher, r: Rect, c: &Company) {
         let bw = 34.0;
         let rect = Rect::new(street.x + 10.0 + k as f32 * (bw + 6.0), street.y + 7.0, bw, street.h - 14.0);
         l.ui.p().rounded(rect.inset(-1.5), 3.0, WARN);
-        l.ui.p().rounded(rect, 3.0, colour);
+        l.ui.swatch(rect, 3.0, colour);
         spots.push((rect, v.id));
     }
     // a bus under the mouse: its card in the tooltip; a click picks it for the workshop
