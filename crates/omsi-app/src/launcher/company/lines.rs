@@ -80,6 +80,7 @@ fn ours(l: &mut Launcher, r: Rect, c: &Company) {
     let mut pick = None;
     let mut remove = None;
     let mut edit = None;
+    let mut edit_map = None;
     let mut planning = None;
     let mut fare = None;
     // (the easy mode's lines run and are covered by themselves: no planning to click to)
@@ -109,6 +110,12 @@ fn ours(l: &mut Launcher, r: Rect, c: &Company) {
             if let Some(p) = line.plan.as_ref() {
                 if ui.icon_button(&format!("company-line-edit-{}", line.name), Vec2::new(tx - 14.0, r.y + 25.0), 16.0, "route", "Edit route: change the line in the line editor") {
                     edit = Some(p.line_id);
+                }
+                tx -= 38.0;
+            } else if !line.own {
+                // (a line of the map's: changed in the line editor too, its new route approved)
+                if ui.icon_button(&format!("company-line-edit-{}", line.name), Vec2::new(tx - 14.0, r.y + 25.0), 16.0, "route", "Edit the line in the line editor: its route, timetable and displays") {
+                    edit_map = Some(line.name.clone());
                 }
                 tx -= 38.0;
             }
@@ -188,6 +195,8 @@ fn ours(l: &mut Launcher, r: Rect, c: &Company) {
     });
     if let Some(id) = edit {
         super::super::lineeditor::open_for_company(l, Some(id));
+    } else if let Some(name) = edit_map {
+        super::super::lineeditor::open_map_line_for_company(l, &name);
     } else if let Some(name) = remove {
         l.company.dialog = Some(Dialog::Confirm { what: Confirm::RemoveLine(name) });
     } else if let Some(name) = planning {

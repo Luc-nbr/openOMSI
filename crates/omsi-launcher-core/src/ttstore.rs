@@ -109,6 +109,9 @@ pub fn reset_timetable(content: &Path, map_dir: &Path, map_folder: &str) -> Resu
                 restored += 1;
             }
         }
+        // (the lines of the map's the line editor wrote over are the map's own again: its list
+        // of them goes, so that it keeps each one anew when it writes it again)
+        let _ = std::fs::remove_file(own.join(crate::lines::MAP_MANIFEST));
     }
     if restored > 0 {
         Ok(format!("{restored} line(s) of {map_folder} put back as they were"))
