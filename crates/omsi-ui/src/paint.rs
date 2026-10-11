@@ -310,22 +310,21 @@ impl Painter {
         self.tri(a, c, d, left, right, left);
     }
 
+    /// A rounded box: a fan from its outline's first point. (A fan from its middle closed on
+    /// its first triangle, and samples on that seam - between the first triangle drawn and
+    /// the last - fell through: a dotted hairline from the middle to a corner of every dialog,
+    /// showing the dark under it, which the light look made plain.)
     pub fn rounded(&mut self, r: Rect, radius: f32, c: Color) {
-        let o = rounded_outline(r, radius);
-        let m = r.center();
-        for k in 0..o.len() {
-            self.tri(m, o[k], o[(k + 1) % o.len()], c, c, c);
-        }
+        self.convex(&rounded_outline(r, radius), c);
     }
 
-    /// A rounded box shaded from `top` to `bottom`.
+    /// A rounded box shaded from `top` to `bottom` (a fan from its first point, as `rounded`).
     pub fn rounded_gradient(&mut self, r: Rect, radius: f32, top: Color, bottom: Color) {
         let o = rounded_outline(r, radius);
-        let m = r.center();
         let col = |p: Vec2| top.mix(bottom, ((p.y - r.y) / r.h.max(1.0)).clamp(0.0, 1.0));
-        for k in 0..o.len() {
-            let (a, b) = (o[k], o[(k + 1) % o.len()]);
-            self.tri(m, a, b, col(m), col(a), col(b));
+        for k in 1..o.len().saturating_sub(1) {
+            let (a, b) = (o[k], o[k + 1]);
+            self.tri(o[0], a, b, col(o[0]), col(a), col(b));
         }
     }
 
@@ -373,18 +372,16 @@ impl Painter {
 
     pub fn circle(&mut self, center: Vec2, radius: f32, c: Color) {
         let n = ((radius * 0.9) as usize).clamp(12, 72);
-        // (the points once, the last triangle closing on the first point itself: worked out
-        // again at a full turn it lay a hair off it, and a sample on that seam fell through -
-        // a hairline across a filled circle)
+        // (the points once, and a fan from the first of them as `rounded`'s: one from the
+        // middle closed on its first triangle, and a sample on that seam fell through - a
+        // hairline across a filled circle)
         let pts: Vec<Vec2> = (0..n)
             .map(|k| {
                 let a = std::f32::consts::TAU * k as f32 / n as f32;
                 center + Vec2::new(a.cos(), a.sin()) * radius
             })
             .collect();
-        for k in 0..n {
-            self.tri(center, pts[k], pts[(k + 1) % n], c, c, c);
-        }
+        self.convex(&pts, c);
     }
 
     /// A ring between `r0` and `r1`, from angle `a0` to `a1` (radians, 0 = right,
@@ -785,6 +782,52 @@ mod tests {
         // a ribbon's corners are extruded both ways from the centre line
         let r: Vec<&Vertex> = p.verts.iter().filter(|v| v.mode[0] == 1.0 && v.ext != [0.0, 0.0]).collect();
         assert!(r.iter().any(|v| v.ext[1] > 0.5) && r.iter().any(|v| v.ext[1] < -0.5));
+    }
+
+    /// A filled rounded box, circle or shaded box covers itself once, and two of its triangles
+    /// share an edge only when drawn one after the other: on the graphics card samples on the
+    /// seam between a fan's first triangle and its last fell through, a dotted hairline across
+    /// every dialog.
+    #[test]
+    fn filled_shapes_share_edges_only_between_triangles_drawn_in_turn() {
+        let r = Rect::new(10.0, 20.0, 300.0, 200.0);
+        let shapes: [(&str, Box<dyn Fn(&mut Painter)>, f32); 4] = [
+            ("rounded", Box::new(move |p: &mut Painter| p.rounded(r, 14.0, Color::WHITE)), 0.0),
+            ("square", Box::new(move |p: &mut Painter| p.rounded(r, 0.0, Color::WHITE)), 0.0),
+            ("shaded", Box::new(move |p: &mut Painter| p.rounded_gradient(r, 14.0, Color::WHITE, Color::BLACK)), 0.0),
+            ("circle", Box::new(|p: &mut Painter| p.circle(Vec2::new(50.0, 50.0), 40.0, Color::WHITE)), 1.0),
+        ];
+        for (name, draw, round) in shapes {
+            let mut p = Painter::new();
+            draw(&mut p);
+            assert_eq!(p.verts.len() % 3, 0, "{name}");
+            let at = |v: &Vertex| (v.pos[0].to_bits(), v.pos[1].to_bits());
+            let edges = |t: &[Vertex]| {
+                let mut e: Vec<_> = (0..3).map(|k| {
+                    let (a, b) = (at(&t[k]), at(&t[(k + 1) % 3]));
+                    if a < b { (a, b) } else { (b, a) }
+                }).collect();
+                e.sort();
+                e
+            };
+            let n = p.verts.len();
+            let tris: Vec<_> = p.verts.chunks(3).map(edges).collect();
+            for i in 0..tris.len() {
+                for j in i + 2..tris.len() {
+                    assert!(tris[i].iter().all(|e| !tris[j].contains(e)), "{name}: triangles {i} and {j} share an edge");
+                }
+            }
+            // (once: the triangles' area is the shape's)
+            let want = if round > 0.0 {
+                // (the circle's polygon, of as many sides as it has points)
+                let k = n / 3 + 2;
+                0.5 * k as f32 * 40.0 * 40.0 * (std::f32::consts::TAU / k as f32).sin()
+            } else {
+                let o = rounded_outline(r, if name == "square" { 0.0 } else { 14.0 });
+                (0..o.len()).map(|k| o[k].perp_dot(o[(k + 1) % o.len()])).sum::<f32>().abs() * 0.5
+            };
+            assert!((area(&p.verts) / want - 1.0).abs() < 1e-3, "{name}: {} of {want}", area(&p.verts));
+        }
     }
 
     /// The area the triangles cover, counting what lies twice twice.
