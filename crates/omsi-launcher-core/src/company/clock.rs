@@ -25,6 +25,13 @@
 //!
 //! The other parts of the company with things happening in its time hook in at `on_minute`
 //! (called at every full hour and wherever a simulation stops).
+//!
+//! The company's time runs with the real clock (`RealTime`; Luc: "a real-time clock that runs
+//! and is always in step with the real clock, so that progress - besides fast-forwarding - also
+//! happens when openOMSI is not running"): from the moment it was last in step its course goes
+//! on as the real time does. Opened again, the company catches up with its course
+//! (`catch_up`: the days between closed, the dispatcher deciding); fast-forwarding moves it
+//! ahead of the course, and the course goes on from there (`keep_lead`).
 
 use super::concessions as cn;
 use super::dates;
@@ -89,6 +96,9 @@ pub fn move_to(c: &mut Company, date: &str) -> Result<(), &'static str> {
     c.clock.today = None;
     c.clock.ask = None;
     c.clock.target = None;
+    // (in step with the real clock again from the new day, without a lead)
+    c.clock.real.synced = None;
+    c.clock.real.lead = 0;
     Ok(())
 }
 
@@ -163,6 +173,9 @@ pub struct Clock {
     /// The dispatcher decides breakdowns by himself (the simulation does not wait for them).
     #[serde(default)]
     pub dispatcher: bool,
+    /// The company's time against the real clock.
+    #[serde(default)]
+    pub real: RealTime,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -820,6 +833,223 @@ pub fn feed_of_day(c: &Company) -> impl Iterator<Item = &FeedItem> {
     c.clock.feed.iter().rev().take_while(move |f| f.at >= day0)
 }
 
+// --- the real clock -----------------------------------------------------------------------------
+
+/// The longest absence caught up at once: a month. What lies beyond it is skipped, and said.
+pub const CATCH_UP_MAX: i64 = 31 * DAY;
+/// An absence of at least this many minutes is caught up as one, with a summary of what
+/// happened (a shorter one the running clock takes in its stride).
+pub const AWAY_TOLD: i64 = 60;
+/// How many lines of note a catch-up keeps for its summary (the newest).
+pub const NOTABLE_KEPT: usize = 80;
+/// How far the game's clock and the company's course may be apart before the course is set
+/// again from the game's (the two count their minutes apart).
+const GAME_SLACK: i64 = 2;
+
+/// The company's time against the real clock: its course goes on as the real time does from
+/// the moment the two were last in step; fast-forwarding moves the company ahead of it, and the
+/// course goes on from there (the lead is kept).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct RealTime {
+    /// The company's time runs with the real clock (the company's settings): on for a new
+    /// company and an older file; off, it stands still while the company is closed.
+    #[serde(default = "yes")]
+    pub on: bool,
+    /// When the company was last in step with the real clock. None: not yet (an older file,
+    /// the setting just turned on, the date moved) - it goes in step when it is next opened,
+    /// without catching up the past.
+    #[serde(default)]
+    pub synced: Option<Synced>,
+    /// Minutes the company runs ahead of the real clock: what was fast-forwarded since it went in
+    /// step.
+    #[serde(default)]
+    pub lead: i64,
+    /// The last absence caught up (the start's tile says it).
+    #[serde(default)]
+    pub caught: Option<CatchUp>,
+}
+
+impl Default for RealTime {
+    fn default() -> Self {
+        RealTime { on: true, synced: None, lead: 0, caught: None }
+    }
+}
+
+fn yes() -> bool {
+    true
+}
+
+/// A moment the two clocks agree on.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Synced {
+    /// The real time, in Unix seconds.
+    pub real: i64,
+    /// The company's time then (`now`).
+    pub minute: i64,
+}
+
+/// An absence caught up.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct CatchUp {
+    /// When it was caught up (Unix seconds).
+    pub real: i64,
+    /// The company's time it ran from and to (`now`).
+    pub from: i64,
+    pub to: i64,
+    /// The days closed on the way, and their result.
+    pub days: u32,
+    pub result: Cents,
+    /// Minutes of the absence beyond `CATCH_UP_MAX`, skipped.
+    #[serde(default)]
+    pub skipped: i64,
+}
+
+/// What a catch-up came to, for its summary: the absence, the days' reports, the lines of note
+/// on the way (oldest first, the last `NOTABLE_KEPT`) and the cash before.
+#[derive(Clone, Debug, Default)]
+pub struct Away {
+    pub caught: CatchUp,
+    pub reports: Vec<DayReport>,
+    pub notable: Vec<FeedItem>,
+    pub cash_before: Cents,
+}
+
+/// Where the company's time is by the real clock (`real`, Unix seconds): its course. None: it
+/// does not run with the real clock, or was never in step yet.
+pub fn course(c: &Company, real: i64) -> Option<i64> {
+    let s = c.clock.real.synced.filter(|_| c.clock.real.on)?;
+    Some(s.minute + (real - s.real).max(0).div_euclid(60))
+}
+
+/// How many minutes the company's time is behind its course (0: in step, ahead, or not running
+/// with the real clock).
+pub fn behind(c: &Company, real: i64) -> i64 {
+    course(c, real).map_or(0, |m| (m - now(c)).max(0))
+}
+
+/// The company goes in step with the real clock from now on, from where its time is.
+pub fn sync(c: &mut Company, real: i64) {
+    c.clock.real.synced = Some(Synced { real, minute: now(c) });
+}
+
+/// After a step the player simulated: ahead of its course, the minutes ahead are added to the
+/// lead and the course goes on from here - the lead is kept. Whether anything changed.
+pub fn keep_lead(c: &mut Company, real: i64) -> bool {
+    let Some(m) = course(c, real) else { return false };
+    let ahead = now(c) - m;
+    if ahead <= 0 {
+        return false;
+    }
+    c.clock.real.lead += ahead;
+    sync(c, real);
+    true
+}
+
+/// The game's clock leads (the company's day goes along with the game's time): the course goes
+/// on from where the game has the company - ahead of it, the minutes ahead are added to the
+/// lead; behind it (the game started earlier in the day), nothing is caught up after the duty.
+/// Within `GAME_SLACK` of the course nothing changes. Whether anything changed.
+pub fn with_game(c: &mut Company, real: i64) -> bool {
+    let Some(m) = course(c, real) else { return false };
+    let off = now(c) - m;
+    if off.abs() < GAME_SLACK {
+        return false;
+    }
+    c.clock.real.lead += off.max(0);
+    sync(c, real);
+    true
+}
+
+/// The real-time running turned on or off (the company's settings): on, the company goes in
+/// step when it is next opened; off, its time stands still while it is closed.
+pub fn set_realtime(c: &mut Company, on: bool) {
+    c.clock.real.on = on;
+    c.clock.real.synced = None;
+    c.clock.real.lead = 0;
+}
+
+/// A feed line worth the summary of an absence (the ordinary run of the day and the days'
+/// closes - the summary adds those up - left out).
+fn notable(f: &FeedItem) -> bool {
+    matches!(f.level, Level::Good | Level::Warn | Level::Bad) && !f.text.starts_with("The day %{date} was closed")
+}
+
+const AWAY: (&str, &str) = ("While you were away", "The company's time ran on with the real clock while you were away, from %{from} to %{until}. Days closed: %{n}, with a result of %{amount}.");
+const AWAY_SHORT: &str = "The company's time ran on with the real clock while you were away, from %{start} to %{end} today.";
+const SKIPPED: (&str, &str) = ("Not all caught up", "You were away for longer than %{n} days: the company caught up %{n} days, and the rest was skipped.");
+
+/// Every English text the real clock writes into the inbox, for the translations' check.
+pub fn texts() -> Vec<&'static str> {
+    vec![AWAY.0, AWAY.1, AWAY_SHORT, SKIPPED.0, SKIPPED.1]
+}
+
+/// The company is opened again: the real time since it was last in step is added to its time
+/// and simulated - the days between closed as "Simulate to tomorrow" closes them, with all that
+/// happens on the way, the dispatcher deciding (nobody was there to ask). At most
+/// `CATCH_UP_MAX` at once: the rest is skipped and the course goes on from where the company
+/// got to. Never in step yet, it goes in step now without catching up the past; ahead of its
+/// course (fast-forwarded), it keeps its lead. An absence of `AWAY_TOLD` or more is told in the
+/// inbox and kept as the last caught up. None: nothing was simulated.
+pub fn catch_up(c: &mut Company, real: i64, w: &mut dyn World) -> Result<Option<Away>, String> {
+    if !c.clock.real.on {
+        return Ok(None);
+    }
+    let Some(m) = course(c, real) else {
+        sync(c, real);
+        return Ok(None);
+    };
+    let from = now(c);
+    let gap = m - from;
+    if gap <= 0 {
+        keep_lead(c, real);
+        return Ok(None);
+    }
+    let skipped = (gap - CATCH_UP_MAX).max(0);
+    let to = from + gap - skipped;
+    let mut away = Away { cash_before: c.cash, ..Default::default() };
+    // (hour by hour: the feed keeps its last lines only, what matters is gathered on the way)
+    while now(c) < to {
+        let was = now(c);
+        let step = ((was.div_euclid(60) + 1) * 60).min(to);
+        let run = advance(c, step, w, true)?;
+        let n = run.told.min(c.clock.feed.len());
+        let at = c.clock.feed.len() - n;
+        away.notable.extend(c.clock.feed[at..].iter().filter(|f| notable(f)).cloned());
+        away.reports.extend(run.reports);
+        if now(c) <= was {
+            break;
+        }
+    }
+    if away.notable.len() > NOTABLE_KEPT {
+        let extra = away.notable.len() - NOTABLE_KEPT;
+        away.notable.drain(..extra);
+    }
+    // (the course goes on from here: what was skipped stays behind)
+    c.clock.real.synced = Some(Synced { real, minute: now(c) });
+    let result = away.reports.iter().map(|r| r.result).sum();
+    away.caught = CatchUp { real, from, to: now(c), days: away.reports.len() as u32, result, skipped };
+    if gap >= AWAY_TOLD {
+        use super::inbox::{post, Kind, Message};
+        c.clock.real.caught = Some(away.caught.clone());
+        let m = if away.reports.is_empty() {
+            Message::new(Kind::Notice, AWAY.0, AWAY_SHORT).arg("start", hhmm(from)).arg("end", hhmm(now(c)))
+        } else {
+            Message::new(Kind::Notice, AWAY.0, AWAY.1).arg("from", date_of(from)).arg("until", date_of(now(c) - 1)).arg("n", away.reports.len().to_string()).arg("amount", result.to_string()).level(if result >= 0 { Level::Good } else { Level::Warn })
+        };
+        post(c, m);
+        if skipped > 0 {
+            post(c, Message::new(Kind::Notice, SKIPPED.0, SKIPPED.1).arg("n", (CATCH_UP_MAX / DAY).to_string()).level(Level::Warn));
+        }
+    }
+    Ok(Some(away))
+}
+
+/// A span of minutes in days, hours and minutes (the pages write it "2 d 4 h", "4 h 10 min").
+pub fn span(minutes: i64) -> (i64, i64, i64) {
+    let m = minutes.max(0);
+    (m / DAY, m % DAY / 60, m % 60)
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::concessions::tests::line;
@@ -1059,5 +1289,156 @@ mod tests {
         let before = c.clone();
         move_to(&mut c, "2024-03-04").unwrap();
         assert_eq!(c, before);
+    }
+
+    /// A real moment for the tests (Unix seconds): no clock of the computer is asked.
+    const REAL: i64 = 1_790_000_000;
+    const HOUR: i64 = 3600;
+
+    #[test]
+    fn opened_again_the_company_catches_up_the_real_time_passed_closing_the_days_between() {
+        let (mut c, mut w) = company(2, 5);
+        sync(&mut c, REAL);
+        let start = now(&c);
+        let mut by_hand = c.clone();
+        // three days and five hours later
+        let real = REAL + 3 * 24 * HOUR + 5 * HOUR + 59;
+        assert_eq!(behind(&c, real), 3 * DAY + 5 * 60);
+        let away = catch_up(&mut c, real, &mut w).unwrap().unwrap();
+        assert_eq!(now(&c), start + 3 * DAY + 5 * 60);
+        assert_eq!((c.date.as_str(), hhmm(now(&c)).as_str()), ("2024-03-07", "05:00"));
+        assert_eq!(behind(&c, real), 0);
+        // the days between closed on the way, as simulating to that time does
+        assert_eq!((away.reports.len(), away.caught.days, c.history.len()), (3, 3, 3));
+        advance(&mut by_hand, start + 3 * DAY + 5 * 60, &mut w, true).unwrap();
+        assert_eq!((c.cash, &c.history, &c.date), (by_hand.cash, &by_hand.history, &by_hand.date));
+        assert_eq!(away.caught.result, away.reports.iter().map(|r| r.result).sum::<Cents>());
+        assert_eq!((away.caught.from, away.caught.to, away.caught.skipped), (start, now(&c), 0));
+        assert!(away.notable.iter().all(|f| f.level != Level::Minor && !f.text.starts_with("The day")));
+        // told in the inbox, and kept for the start's tile
+        assert_eq!(c.clock.real.caught.as_ref(), Some(&away.caught));
+        let m = c.inbox.messages.iter().find(|m| m.title == "While you were away").unwrap();
+        assert_eq!((m.value("from"), m.value("until"), m.value("n")), (Some("2024-03-04"), Some("2024-03-07"), Some("3")));
+        // the course goes on with the real clock: an hour later it is an hour behind
+        assert_eq!(behind(&c, real + HOUR), 60);
+        // (nothing passed: nothing to catch up)
+        let before = c.clone();
+        assert!(catch_up(&mut c, real + 30, &mut w).unwrap().is_none());
+        assert_eq!(c, before);
+    }
+
+    #[test]
+    fn a_fast_forward_moves_the_company_ahead_of_the_real_clock_and_keeps_its_lead() {
+        let (mut c, mut w) = company(1, 2);
+        sync(&mut c, REAL);
+        let start = now(&c);
+        // ten minutes later the player simulates to tomorrow
+        let real = REAL + 600;
+        let to = target(&c, Step::Midnight);
+        advance(&mut c, to, &mut w, true).unwrap();
+        assert!(keep_lead(&mut c, real));
+        assert_eq!(c.clock.real.lead, DAY - 10);
+        assert_eq!(course(&c, real), Some(start + DAY));
+        // (in step: nothing more)
+        assert!(!keep_lead(&mut c, real));
+        // two hours later: the lead is kept, the real time added to it
+        let away = catch_up(&mut c, real + 2 * HOUR, &mut w).unwrap().unwrap();
+        assert_eq!(now(&c), start + DAY + 120);
+        assert_eq!((c.clock.real.lead, away.caught.days), (DAY - 10, 0));
+        // (a short absence on its day is told as the hours it ran)
+        let m = c.inbox.messages.iter().rev().find(|m| m.title == "While you were away").unwrap();
+        assert_eq!((m.text.as_str(), m.value("start"), m.value("end")), (AWAY_SHORT, Some("00:00"), Some("02:00")));
+        // a company that fell behind (a decision waited) and is then stepped on gets only the
+        // minutes past its course as lead
+        let real = real + 2 * HOUR + 30 * 60;
+        let to = now(&c) + 60;
+        advance(&mut c, to, &mut w, true).unwrap();
+        assert!(keep_lead(&mut c, real));
+        assert_eq!(c.clock.real.lead, DAY - 10 + 30);
+    }
+
+    #[test]
+    fn a_long_absence_is_caught_up_a_month_at_most_and_the_rest_is_skipped() {
+        let (mut c, mut w) = company(1, 1);
+        sync(&mut c, REAL);
+        let start = now(&c);
+        let real = REAL + 45 * 24 * HOUR;
+        let away = catch_up(&mut c, real, &mut w).unwrap().unwrap();
+        assert_eq!(now(&c), start + CATCH_UP_MAX);
+        assert_eq!((away.caught.days, away.caught.skipped), (31, 14 * DAY));
+        assert_eq!(c.history.len(), 31);
+        // in step from here: the skipped days are not caught up later
+        assert_eq!(behind(&c, real), 0);
+        assert_eq!(c.clock.real.synced, Some(Synced { real, minute: start + CATCH_UP_MAX }));
+        assert!(c.inbox.messages.iter().any(|m| m.title == "Not all caught up" && m.value("n") == Some("31")));
+        assert!(away.notable.len() <= NOTABLE_KEPT);
+    }
+
+    #[test]
+    fn an_older_company_goes_in_step_when_opened_without_catching_up_its_past() {
+        // (a file of before: its clock has no real time)
+        let old: Clock = serde_json::from_str(r#"{"minute":540,"dispatcher":true}"#).unwrap();
+        assert_eq!((old.real.on, old.real.synced, old.real.lead), (true, None, 0));
+        let (mut c, mut w) = company(1, 2);
+        c.clock = old;
+        let before = now(&c);
+        assert_eq!((course(&c, REAL), behind(&c, REAL)), (None, 0));
+        assert!(catch_up(&mut c, REAL + 99 * 24 * HOUR, &mut w).unwrap().is_none());
+        assert_eq!(now(&c), before);
+        assert_eq!(c.clock.real.synced, Some(Synced { real: REAL + 99 * 24 * HOUR, minute: before }));
+        assert!(c.history.is_empty() && c.clock.real.caught.is_none());
+        // and from then on with the real clock
+        assert_eq!(behind(&c, REAL + 99 * 24 * HOUR + 2 * HOUR), 120);
+    }
+
+    #[test]
+    fn with_the_real_time_running_off_the_company_stands_still_while_it_is_closed() {
+        let (mut c, mut w) = company(1, 2);
+        sync(&mut c, REAL);
+        let to = now(&c) + 120;
+        advance(&mut c, to, &mut w, true).unwrap();
+        keep_lead(&mut c, REAL);
+        set_realtime(&mut c, false);
+        assert_eq!((c.clock.real.on, c.clock.real.synced, c.clock.real.lead), (false, None, 0));
+        let before = c.clone();
+        assert!(catch_up(&mut c, REAL + 10 * 24 * HOUR, &mut w).unwrap().is_none());
+        assert_eq!(c, before);
+        assert_eq!((course(&c, REAL + HOUR), behind(&c, REAL + HOUR)), (None, 0));
+        // on again: in step from when it is opened, nothing of the days off caught up
+        set_realtime(&mut c, true);
+        assert!(catch_up(&mut c, REAL + 11 * 24 * HOUR, &mut w).unwrap().is_none());
+        assert_eq!((now(&c), behind(&c, REAL + 11 * 24 * HOUR + 60)), (now(&before), 1));
+    }
+
+    #[test]
+    fn the_games_clock_leads_without_a_catch_up_after_it() {
+        let (mut c, mut w) = company(1, 2);
+        sync(&mut c, REAL);
+        let start = now(&c);
+        // the game was started at 08:00 on the company's map: the company follows it
+        follow(&mut c, 8 * 60, &mut w).unwrap();
+        assert!(with_game(&mut c, REAL + 60));
+        assert_eq!((c.clock.real.lead, course(&c, REAL + 60)), (8 * 60 - 1, Some(start + 8 * 60)));
+        // a minute apart is the clocks counting apart: nothing changes
+        follow(&mut c, 8 * 60 + 1, &mut w).unwrap();
+        assert!(!with_game(&mut c, REAL + 60));
+        // the game behind the course (an hour of it lost): not caught up after the duty
+        follow(&mut c, 8 * 60 + 2, &mut w).unwrap();
+        assert!(with_game(&mut c, REAL + 60 + HOUR));
+        assert_eq!((behind(&c, REAL + 60 + HOUR), c.clock.real.lead), (0, 8 * 60 - 1));
+    }
+
+    #[test]
+    fn moving_the_date_puts_the_company_in_step_again_without_its_lead() {
+        let (mut c, mut w) = company(1, 2);
+        sync(&mut c, REAL);
+        let to = now(&c) + 300;
+        advance(&mut c, to, &mut w, true).unwrap();
+        keep_lead(&mut c, REAL);
+        assert_eq!(c.clock.real.lead, 300);
+        move_to(&mut c, "2024-04-01").unwrap();
+        assert_eq!((c.clock.real.synced, c.clock.real.lead), (None, 0));
+        assert_eq!(span(2 * DAY + 4 * 60 + 7), (2, 4, 7));
+        assert_eq!(span(-5), (0, 0, 0));
     }
 }

@@ -242,6 +242,11 @@ fn company_tile(l: &mut Launcher, base: Rect, c: &Company) -> Option<bool> {
     l.ui.text_in(&home, Rect::new(r.x + 20.0, mark.bottom() + 40.0, w, 18.0), kit::NOTE, Weight::Regular, TEXT_SOFT, Align::Left);
     let day = format!("{}  ·  {}", super::day_label(&c.date), eur(c.cash));
     l.ui.text_in(&day, Rect::new(r.x + 20.0, mark.bottom() + 60.0, w, 18.0), kit::NOTE, Weight::Medium, if c.cash < 0 { DANGER } else { TEXT_DIM }, Align::Left);
+    // (beside the mark, its clock against the real one: what waits to be caught up, or was)
+    if let Some((t, colour)) = super::clock::tile_line(c) {
+        l.ui.p().circle(Vec2::new(mark.right() + 16.0, mark.center().y), 3.5, colour);
+        l.ui.text_in(&t, Rect::new(mark.right() + 26.0, mark.center().y - 10.0, (r.right() - 20.0 - mark.right() - 26.0).max(0.0), 20.0), kit::NOTE, Weight::Medium, colour, Align::Left);
+    }
     // (under the mouse: the bin in the corner - as the main menu's drivers have it)
     let bin = Vec2::new(r.right() - 24.0, r.y + 24.0);
     let on_bin = l.ui.input.mouse.distance(bin) <= 15.0;

@@ -596,6 +596,7 @@ fn work(l: &mut Launcher) {
                     }
                     Err(e) => {
                         view.clock.speed = 0.0;
+                        view.clock.hold();
                         l.state.set_status(e, true);
                     }
                 }
@@ -907,7 +908,7 @@ pub(super) fn mask(ui: &mut Ui) -> Input {
 /// Something lies over the pages: a dialog, a report, the clock's question, a popup.
 fn modal(l: &Launcher) -> bool {
     let asking = l.company.company.as_ref().is_some_and(|c| c.clock.ask.is_some());
-    l.company.dialog.is_some() || l.company.reports.is_some() || l.company.closing || asking || l.company.popup.is_some()
+    l.company.dialog.is_some() || l.company.reports.is_some() || l.company.closing || asking || l.company.popup.is_some() || l.company.clock.away.is_some()
 }
 
 /// What lies over the pages, drawn last: the dialog (with no input while a popup is over it),
@@ -917,6 +918,8 @@ fn overlays(l: &mut Launcher) {
     let under = if l.company.popup.is_some() { Some(mask(&mut l.ui)) } else { None };
     if l.company.closing {
         closing_cover(l);
+    } else if l.company.clock.away.is_some() {
+        clock::away_dialog(l);
     } else if l.company.reports.is_some() {
         report_dialog(l);
     } else if asking {
@@ -1333,9 +1336,11 @@ fn closing_cover(l: &mut Launcher) {
     let full = Rect::new(0.0, 0.0, size.x, size.y);
     l.ui.solid(full);
     l.ui.p().rect(full, Color::rgba(0, 0, 0, 0.45));
-    let r = Rect::new((size.x - 380.0) * 0.5, (size.y - 110.0) * 0.5, 380.0, 110.0);
+    // (wide enough for a catch-up's span: `clock::cover_text`)
+    let w = (l.ui.width(&clock::cover_text(l), kit::HEAD, Weight::Bold) + 60.0).clamp(380.0, (size.x - 32.0).max(380.0));
+    let r = Rect::new((size.x - w) * 0.5, (size.y - 110.0) * 0.5, w, 110.0);
     l.ui.panel(r);
-    l.ui.text_in(&omsi_ui::tr("Simulating the company's time…"), Rect::new(r.x, r.y + 24.0, r.w, 28.0), kit::HEAD, Weight::Bold, TEXT, Align::Center);
+    l.ui.text_in(&clock::cover_text(l), Rect::new(r.x, r.y + 24.0, r.w, 28.0), kit::HEAD, Weight::Bold, TEXT, Align::Center);
     l.ui.progress(Rect::new(r.x + 40.0, r.y + 72.0, r.w - 80.0, 6.0), 1.0, true);
 }
 
