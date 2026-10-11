@@ -5,8 +5,9 @@
 //! middle, a hole of the window's shape with a soft edge that grows past the corners in under
 //! a quarter of a second. After Omsi-Hub's "busrit", as Luc asked for it: the next page is
 //! shown when the bus has crossed the screen. The cover is a screen of its own in the
-//! launcher's look - the ground's night blue, a soft light in the middle and the corners a
-//! little deeper - with the thin road the bus drives on: the way ahead quiet, the way driven
+//! launcher's look - the ground's night blue (the light look's own ground), a soft light in
+//! the middle and the corners a little deeper (`CoverLook`) - with the thin road the bus
+//! drives on: the way ahead quiet, the way driven
 //! in the route's blue. While it hides the page, the page gets no clicks, keys, wheel or
 //! typing and does not see the mouse (it cannot be seen); all of it is the page's again as
 //! the cover opens.
@@ -72,6 +73,34 @@ const COVER_DEEP: Color = Color::rgba(3, 5, 11, 1.0);
 const LIGHT_REACH: f32 = 0.8;
 const SINK_FROM: f32 = 0.35;
 const SINK: f32 = 0.7;
+
+/// The cover in a look: its ground, the light in its middle and its deeper corners, and the
+/// ink of what lies on it (the road ahead, the air behind the bus). The dark look's is the
+/// night; the light look's is its own ground, lit to white in the middle and a little deeper
+/// in the corners - not a night between two light pages.
+#[derive(Clone, Copy, Debug)]
+struct CoverLook {
+    ground: Color,
+    light: Color,
+    deep: Color,
+    ink: Color,
+}
+
+impl CoverLook {
+    fn of(dark: bool) -> CoverLook {
+        if dark {
+            return CoverLook { ground: GROUND, light: COVER_LIGHT, deep: COVER_DEEP, ink: TEXT };
+        }
+        let g = light_ground(crate::accent::chosen());
+        CoverLook { ground: g, light: g.mix(Color::WHITE, 0.7), deep: g.mix(light::INK, 0.1), ink: light::INK }
+    }
+
+    /// The look the launcher has now.
+    fn now() -> CoverLook {
+        CoverLook::of(crate::accent::dark())
+    }
+}
+
 /// How the cover is drawn: rays from its middle (and one through each corner of the window),
 /// on each the soft edge's rings and then these shares of the rest of the way to the edge.
 const RAYS: usize = 128;
@@ -314,7 +343,7 @@ pub fn after_page(l: &mut Launcher) {
             l.transition.fade = None;
         } else {
             l.ui.keep_moving();
-            l.ui.p().rect(Rect::new(0.0, 0.0, size.x, size.y), GROUND.alpha(cover));
+            l.ui.p().rect(Rect::new(0.0, 0.0, size.x, size.y), ground().alpha(cover));
             l.transition.fade = Some(age + l.ui.dt / l.transition.slow);
         }
     }
@@ -574,23 +603,24 @@ fn mesh(hole: &Hole) -> Vec<Vec<Vec2>> {
         .collect()
 }
 
-/// The cover's colour at `q`, before it is see-through: the ground's night blue, lit softly in
-/// the middle and sinking a little towards the corners, along ellipses that fit the window.
-fn shade(hole: &Hole, q: Vec2) -> Color {
+/// The cover's colour at `q` in the look `look`, before it is see-through: the ground (the
+/// night blue), lit softly in the middle and sinking a little towards the corners, along
+/// ellipses that fit the window.
+fn shade(hole: &Hole, q: Vec2, look: &CoverLook) -> Color {
     let d = ((q - hole.mid) / hole.half).length() * FRAC_1_SQRT_2;
     let lit = 1.0 - smoothstep(d / LIGHT_REACH);
     let sunk = smoothstep((d - SINK_FROM) / (1.0 - SINK_FROM));
-    GROUND.mix(COVER_LIGHT, lit).mix(COVER_DEEP, SINK * sunk)
+    look.ground.mix(look.light, lit).mix(look.deep, SINK * sunk)
 }
 
 /// The cover over the window, with the hole it opens with: each piece shaded from its colour
 /// and its alpha at its corners.
-fn cover(p: &mut Painter, hole: &Hole) {
+fn cover(p: &mut Painter, hole: &Hole, look: &CoverLook) {
     if hole.up < 0.002 || hole.mid.x <= 0.0 || hole.mid.y <= 0.0 {
         return;
     }
     let rays = mesh(hole);
-    let cols: Vec<Vec<Color>> = rays.iter().map(|ray| ray.iter().map(|q| shade(hole, *q).alpha(hole.cover_at(*q))).collect()).collect();
+    let cols: Vec<Vec<Color>> = rays.iter().map(|ray| ray.iter().map(|q| shade(hole, *q, look).alpha(hole.cover_at(*q))).collect()).collect();
     for j in 0..rays.len() {
         let k = (j + 1) % rays.len();
         for i in 0..rays[j].len() - 1 {
@@ -610,7 +640,7 @@ fn cover(p: &mut Painter, hole: &Hole) {
 /// place as the cover is there: ahead of the bus quiet, as the bar's steps to come; under and
 /// behind it in the route's blue, as the steps done, with a little of its light round it. It
 /// comes out of the dark at the window's edges.
-fn road(p: &mut Painter, pass: &Pass, hole: &Hole, y: f32, run: &Run) {
+fn road(p: &mut Painter, pass: &Pass, hole: &Hole, y: f32, run: &Run, look: &CoverLook) {
     let w = pass.w;
     if hole.up < 0.002 || w <= 0.0 {
         return;
@@ -619,7 +649,7 @@ fn road(p: &mut Painter, pass: &Pass, hole: &Hole, y: f32, run: &Run) {
     let (behind, ahead) = if run.back { ((front, w), (0.0, front)) } else { ((0.0, front), (front, w)) };
     let (th, glow) = ((ROAD_W * pass.k).max(1.5), ROAD_GLOW * pass.k);
     let lit = accent().alpha(0.16);
-    let quiet = TEXT.alpha(0.14);
+    let quiet = look.ink.alpha(0.14);
     let seen = |x: f32| smoothstep(x / (ROAD_FADE * w)) * smoothstep((w - x) / (ROAD_FADE * w)) * hole.cover_at(Vec2::new(x, y));
     strip(p, &seen, ahead, (y, y + th), (quiet, quiet));
     strip(p, &seen, behind, (y - glow, y), (lit.alpha(0.0), lit));
@@ -673,27 +703,29 @@ fn motion(pass: &Pass, t: f32) -> (f32, f32) {
 /// The cover, its road and the buses of `runs` over the page (the last one holds the cover;
 /// a bus out of the window is not drawn).
 fn paint(ui: &mut Ui, pass: &Pass, size: Vec2, road_y: f32, runs: &[Run]) {
+    let look = CoverLook::now();
     let p = ui.p();
     if let Some(lead) = runs.last().filter(|r| r.ghost.is_none()) {
         let hole = Hole::new(size, pass.cover(lead.age, lead.from));
-        cover(p, &hole);
-        road(p, pass, &hole, road_y, lead);
+        cover(p, &hole, &look);
+        road(p, pass, &hole, road_y, lead, &look);
     }
     for r in runs.iter().filter(|r| r.age < pass.dur) {
         let haze = r.ghost.map(|g| ((r.age - g) / GHOST_FADE).clamp(0.0, 1.0)).unwrap_or(0.0);
-        bus(p, pass, road_y, r, smoothstep(haze));
+        bus(p, pass, road_y, r, smoothstep(haze), &look);
     }
 }
 
 /// The bus as drawn this frame: where its rear stands on the road (on the window), which way
 /// it faces, its scale, the body's pitch, and how far it has faded out (a bus whose pass
-/// another change took over).
+/// another change took over), and the cover's ground it fades into.
 struct Body {
     at: Vec2,
     dir: f32,
     k: f32,
     pitch: f32,
     haze: f32,
+    ground: Color,
 }
 
 impl Body {
@@ -714,7 +746,7 @@ impl Body {
     /// `c` as far faded as the bus has: into the cover - towards the ground's colour and
     /// see-through together, so that its parts, by then alike, hardly show through each other.
     fn ink(&self, c: Color) -> Color {
-        c.mix(GROUND.alpha(c.0[3]), self.haze).alpha(1.0 - self.haze)
+        c.mix(self.ground.alpha(c.0[3]), self.haze).alpha(1.0 - self.haze)
     }
 
     /// A convex shape of the body, shaded from `low` at its foot to `high` at its head.
@@ -781,12 +813,12 @@ const DARK: Color = Color::rgba(24, 30, 43, 1.0);
 /// One bus of a pass: its shadow and the air it leaves behind, the light ahead of it, the body
 /// - white, a band of glass, two doors, the route's blue along its foot, the line's yellow on
 /// its display - and its two wheels.
-fn bus(p: &mut Painter, pass: &Pass, road_y: f32, run: &Run, haze: f32) {
+fn bus(p: &mut Painter, pass: &Pass, road_y: f32, run: &Run, haze: f32, look: &CoverLook) {
     let t = run.age;
     let front = pass.front(t);
     let (pitch, turn) = motion(pass, t);
     let dir = if run.back { -1.0 } else { 1.0 };
-    let b = Body { at: Vec2::new(pass.x_of(run.back, front - pass.len), road_y), dir, k: pass.k, pitch, haze };
+    let b = Body { at: Vec2::new(pass.x_of(run.back, front - pass.len), road_y), dir, k: pass.k, pitch, haze, ground: look.ground };
     let fade = 1.0 - haze;
     let k = pass.k;
     // the shadow it stands in
@@ -801,7 +833,7 @@ fn bus(p: &mut Painter, pass: &Pass, road_y: f32, run: &Run, haze: f32) {
             let (tail, head) = (b.road(-gap - reach * share, y), b.road(-gap, y));
             let th = 1.6 * k;
             let r = Rect::new(tail.x.min(head.x), head.y - 0.5 * th, (head.x - tail.x).abs(), th);
-            let c = TEXT.alpha(0.3 * rush);
+            let c = look.ink.alpha(0.3 * rush);
             if run.back {
                 p.gradient_h(r, c, c.alpha(0.0));
             } else {
@@ -1088,7 +1120,7 @@ mod tests {
                 let rays = mesh(&hole);
                 let mut ui = Ui::new();
                 ui.begin(size, 1.0, 1.0 / 60.0);
-                cover(ui.p(), &hole);
+                cover(ui.p(), &hole, &CoverLook::of(true));
                 let pieces = tris(ui.p());
                 // the pieces and the clear middle they go round add up to the window: every
                 // point of it under one piece, or clear
@@ -1116,14 +1148,19 @@ mod tests {
     #[test]
     fn the_cover_is_the_ground_lit_softly_in_the_middle_and_deeper_in_the_corners() {
         let lum = |c: Color| 0.2126 * c.0[0] + 0.7152 * c.0[1] + 0.0722 * c.0[2];
+        let (night, day) = (CoverLook::of(true), CoverLook::of(false));
         for (size, _) in SIZES {
             let hole = Hole::new(size, Cover { up: 1.0, open: 0.0 });
-            let (mid, corner) = (shade(&hole, 0.5 * size), shade(&hole, Vec2::ZERO));
+            // the light look's: its own ground, lighter in the middle and deeper in the corners,
+            // a light screen - no night between two light pages
+            let (mid, corner) = (shade(&hole, 0.5 * size, &day), shade(&hole, Vec2::ZERO, &day));
+            assert!(lum(mid) > lum(day.ground) && lum(corner) < lum(day.ground) && lum(corner) > 0.6, "{size}");
+            let (mid, corner) = (shade(&hole, 0.5 * size, &night), shade(&hole, Vec2::ZERO, &night));
             assert!(lum(mid) > lum(GROUND) && lum(corner) < lum(GROUND), "{size}");
             // darker outwards, without a step
             let mut last = lum(mid);
             for i in 0..=60 {
-                let l = lum(shade(&hole, 0.5 * size * (1.0 - i as f32 / 60.0)));
+                let l = lum(shade(&hole, 0.5 * size * (1.0 - i as f32 / 60.0), &night));
                 assert!(l <= last + 1e-6 && last - l < 0.006, "{size} at {i}");
                 last = l;
             }
@@ -1150,7 +1187,7 @@ mod tests {
             let front = pass.x_of(back, pass.front(run.age));
             let hole = Hole::new(DESKTOP, pass.cover(run.age, run.from));
             let mut p = Painter::new();
-            road(&mut p, &pass, &hole, y, &run);
+            road(&mut p, &pass, &hole, y, &run, &CoverLook::of(true));
             let pieces: Vec<([Vec2; 3], [f32; 4])> = p.verts.chunks(3).map(|t| ([0, 1, 2].map(|i| Vec2::new(t[i].pos[0], t[i].pos[1])), t[0].color)).collect();
             // on the line itself (not its glow): the accent on the side the bus came from, quiet
             // ahead
@@ -1168,7 +1205,7 @@ mod tests {
         let run = Run { age: pass.dur + 0.1, back: false, from: Cover::NONE, ghost: None };
         let hole = Hole::new(DESKTOP, pass.cover(run.age, run.from));
         let mut p = Painter::new();
-        road(&mut p, &pass, &hole, 0.5 * DESKTOP.y, &run);
+        road(&mut p, &pass, &hole, 0.5 * DESKTOP.y, &run, &CoverLook::of(true));
         assert!(p.verts.iter().filter(|v| (v.pos[0] - 0.5 * DESKTOP.x).abs() < 100.0).all(|v| v.color[3] < 1e-3));
     }
 
@@ -1378,7 +1415,7 @@ mod tests {
 
     #[test]
     fn an_interrupted_bus_fades_out_whole() {
-        let at = |haze: f32| Body { at: Vec2::ZERO, dir: 1.0, k: 1.0, pitch: 0.0, haze };
+        let at = |haze: f32| Body { at: Vec2::ZERO, dir: 1.0, k: 1.0, pitch: 0.0, haze, ground: GROUND };
         assert_eq!(at(0.0).ink(LINE), LINE);
         assert!(at(1.0).ink(LINE).0[3] < 1e-6);
         let half = at(0.5).ink(LINE);
@@ -1422,7 +1459,7 @@ mod tests {
         // the body pitches about its middle: a nose-up pitch lifts the front, drops the rear,
         // whichever way the bus faces
         for dir in [1.0, -1.0] {
-            let body = Body { at: Vec2::new(500.0, 400.0), dir, k: 1.0, pitch: 0.02, haze: 0.0 };
+            let body = Body { at: Vec2::new(500.0, 400.0), dir, k: 1.0, pitch: 0.02, haze: 0.0, ground: GROUND };
             let (rear, nose) = (body.body(0.0, WHEEL_R), body.body(LEN, WHEEL_R));
             assert!(nose.y < 400.0 - WHEEL_R && rear.y > 400.0 - WHEEL_R);
             assert!((nose.x - rear.x).signum() == dir);

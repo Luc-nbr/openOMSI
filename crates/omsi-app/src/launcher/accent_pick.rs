@@ -166,6 +166,8 @@ pub fn picker(ui: &mut Ui, name: &str, r: Rect, cur: u32) -> Option<u32> {
     let mut changed = None;
     let sq = Rect::new(r.x, r.y, r.w, SQUARE_H);
     let hue = colour::bytes(colour::rgb_of_hsv([st.hsv[0], 1.0, 1.0]));
+    // (the colours themselves, in either look)
+    ui.as_drawn();
     ui.p().rounded(sq, 8.0, Color::rgba(hue[0], hue[1], hue[2], 1.0));
     ui.p().gradient_h(sq, Color::WHITE, Color::WHITE.alpha(0.0));
     ui.p().gradient(sq, Color::BLACK.alpha(0.0), Color::BLACK);
@@ -199,6 +201,7 @@ pub fn picker(ui: &mut Ui, name: &str, r: Rect, cur: u32) -> Option<u32> {
     }
     let hx = bar.x + st.hsv[0] / 360.0 * bar.w;
     ui.p().rounded_border(Rect::new(hx - 4.0, bar.y - 3.0, 8.0, bar.h + 6.0), 3.0, 2.0, Color::WHITE);
+    ui.end_as_drawn();
     // the code and the colour itself
     let row = bar.bottom() + 10.0;
     let mut hex = st.hex.clone();
@@ -296,9 +299,9 @@ pub fn popover(l: &mut Launcher) {
     chooser(&mut l.ui, "pop-accent", r.x + 16.0, r.y + 40.0, inner_w, s, dirty);
     let mut dark = l.state.settings.get("dark_mode").and_then(|v| v.as_bool()).unwrap_or(false);
     if l.ui.toggle("pop-dark", Rect::new(r.x + 16.0, r.y + 40.0 + body_h + 12.0, inner_w, DARK_H), &mut dark, "Dark mode") {
+        // (the new look from the next frame on, spreading from the switch: `theme_switch`)
         l.state.settings["dark_mode"] = json!(dark);
         l.state.settings_dirty = 0.3;
-        accent::set_dark(dark);
     }
     pop.rect = Some(r);
     POP.with(|p| *p.borrow_mut() = pop);

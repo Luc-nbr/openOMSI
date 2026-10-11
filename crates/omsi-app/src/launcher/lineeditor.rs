@@ -955,7 +955,7 @@ fn left_panel(l: &mut Launcher, r: Rect, maps: &[(String, String)], status: &mut
         let c = Rect::new(body.x + k as f32 * (sw + 8.0), y, sw, sw);
         let on = current.eq_ignore_ascii_case(hex);
         let hover = ui.hover(c);
-        ui.p().rounded(c, sw * 0.5, colour_of(hex));
+        ui.swatch(c, sw * 0.5, colour_of(hex));
         if on || hover {
             ui.p().rounded_border(c.inset(-3.0), sw * 0.5 + 3.0, 2.0, if on { TEXT } else { TEXT_DIM });
         }
@@ -971,7 +971,11 @@ fn left_panel(l: &mut Launcher, r: Rect, maps: &[(String, String)], status: &mut
     let own = !palette.iter().any(|h| h.eq_ignore_ascii_case(&current));
     let hover = ui.hover(c);
     let cur = crate::accent::parse_hex(&current).unwrap_or(0x2a75f7);
-    ui.p().rounded(c, sw * 0.5, if own { colour_of(&current) } else { FIELD });
+    if own {
+        ui.swatch(c, sw * 0.5, colour_of(&current));
+    } else {
+        ui.p().rounded(c, sw * 0.5, FIELD);
+    }
     if own || hover || v.colour_open {
         ui.p().rounded_border(c.inset(-3.0), sw * 0.5 + 3.0, 2.0, if own || v.colour_open { TEXT } else { TEXT_DIM });
     }

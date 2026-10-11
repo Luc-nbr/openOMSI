@@ -262,11 +262,20 @@ impl Intro {
         Some(real)
     }
 
-    /// Over everything the launcher drew this frame.
+    /// Over everything the launcher drew this frame, in the look the launcher has: on the
+    /// night ground in light words, or on the light one in the light glass's ink (drawn as
+    /// it is, `Ui::as_drawn`: "OMSI" and the line keep their colours).
     pub fn draw(&mut self, ui: &mut Ui) {
         if self.state != State::Playing {
             return;
         }
+        ui.as_drawn();
+        self.draw_mark(ui);
+        ui.end_as_drawn();
+    }
+
+    fn draw_mark(&mut self, ui: &mut Ui) {
+        let (ground, ink) = if crate::accent::dark() { (GROUND, INK) } else { (ground_of(crate::accent::chosen(), false).0, light::TEXT) };
         let mark = self.mark.get_or_insert_with(|| Mark::new(&ui.fonts)).clone();
         let look = look(self.time(), self.leave, &mark.timing);
         let size = ui.size;
@@ -280,7 +289,7 @@ impl Intro {
         // opacities are turned into alphas that fade as evenly as they look - a dark ground at
         // four fifths showed the page half, a light mark at a third looked at half)
         let cover = 1.0 - (1.0 - look.ground).powf(2.2);
-        ui.p().rect(window, GROUND.alpha(cover));
+        ui.p().rect(window, ground.alpha(cover));
         // (faint: a tenth of blue lit the whole window)
         let light = accent().alpha(0.035 * look.glow * cover);
         ui.p().radial(centre, size.x.max(size.y) * 0.62, light, light.alpha(0.0));
@@ -297,7 +306,7 @@ impl Intro {
         }
         // the bus front, springing up once the ring has closed round it
         if look.bus > 0.0 {
-            bus_front(ui.p(), at(mark.bus), u * k * look.bus, a, 0.0, INK);
+            bus_front(ui.p(), at(mark.bus), u * k * look.bus, a, 0.0, ink);
         }
         // the stops, as the pen reaches them (each drawn at its size at rest, then only scaled);
         // the ring going out from the terminus
@@ -329,7 +338,8 @@ impl Intro {
             } else {
                 Vec2::new(0.0, rest * l.cap * 0.5 * k)
             };
-            letter(ui, l, at(Vec2::new(l.x, l.base)), s, look.scale, away, l.color.alpha(alpha.powf(2.2) * a));
+            let color = if l.color == INK { ink } else { l.color };
+            letter(ui, l, at(Vec2::new(l.x, l.base)), s, look.scale, away, color.alpha(alpha.powf(2.2) * a));
         }
         ui.pop_clip();
     }
@@ -461,8 +471,8 @@ pub struct Logo {
     /// mark last frame (the light sets off when it comes onto it, not for as long as it stays).
     light_from: Option<f32>,
     over: bool,
-    /// The colour of "open" and of the bus front: white (on a dark ground) when none; the
-    /// start's light glass gives its dark ink.
+    /// The colour of "open" and of the bus front: when none, the look's (white on the dark
+    /// look, dark ink on the light one); the start's glass gives its own ink.
     pub ink: Option<Color>,
 }
 
@@ -544,8 +554,18 @@ fn bus_hop(since: f32) -> (f32, f32) {
 }
 
 impl Logo {
-    /// The mark fitted into `area` (centred, as large as it fits). Returns where it stands.
+    /// The mark fitted into `area` (centred, as large as it fits), drawn as it is in either
+    /// look (`Ui::as_drawn`: "OMSI" in its orange, not darkened as coloured words are on the
+    /// light look). Returns where it stands.
     pub fn draw(&mut self, ui: &mut Ui, name: &str, area: Rect) -> Rect {
+        ui.as_drawn();
+        let r = self.draw_mark(ui, name, area);
+        ui.end_as_drawn();
+        r
+    }
+
+    fn draw_mark(&mut self, ui: &mut Ui, name: &str, area: Rect) -> Rect {
+        let ink = self.ink.unwrap_or(if crate::accent::dark() { INK } else { light::TEXT });
         let mark = self.mark.get_or_insert_with(|| Mark::new(&ui.fonts)).clone();
         let k = (area.w / mark.bounds.w).min(area.h / mark.bounds.h).max(0.01);
         let centre = area.center();
@@ -584,7 +604,7 @@ impl Logo {
         }
         // the bus front, hopping and flashing its lights once the light has gone round it
         let (hop, flash) = t.and_then(|t| passed(t, mark.timing.ring)).map_or((0.0, 0.0), bus_hop);
-        bus_front(ui.p(), at(mark.bus) - Vec2::new(0.0, hop * HOP_H * u * k), u * k, 1.0, flash, self.ink.unwrap_or(INK));
+        bus_front(ui.p(), at(mark.bus) - Vec2::new(0.0, hop * HOP_H * u * k), u * k, 1.0, flash, ink);
         // the stops, lit and swelling as the light passes them; the terminus ringing after it
         for (stop, share) in mark.stops.iter().zip(mark.timing.stops) {
             let lit = t.map_or(0.0, |t| stop_lit(t, share));
@@ -598,7 +618,7 @@ impl Logo {
         }
         // the name on its baselines, on whole pixels (text between them goes soft)
         for l in &mark.letters {
-            let color = if l.color == INK { self.ink.unwrap_or(INK) } else { l.color };
+            let color = if l.color == INK { ink } else { l.color };
             letter(ui, l, at(Vec2::new(l.x, l.base)), k, 1.0, Vec2::ZERO, color);
         }
         r

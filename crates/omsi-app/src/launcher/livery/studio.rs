@@ -1080,7 +1080,7 @@ fn start_props(ui: &mut Ui, s: &mut Session, r: Rect, opts: &BusOpts, actions: &
                 ui.p().rounded(b, RADIUS, if on { HOVER } else if h { HOVER.alpha(0.6) } else { FIELD });
                 let sw = Rect::new(b.x + 8.0, b.y + 8.0, b.w - 16.0, 20.0);
                 match q.colours[k].as_deref().and_then(model::parse_hex) {
-                    Some(c) => ui.p().rounded(sw, 5.0, Color::rgba(c[0], c[1], c[2], 1.0)),
+                    Some(c) => ui.swatch(sw, 5.0, Color::rgba(c[0], c[1], c[2], 1.0)),
                     None => ui.p().rounded_border(sw, 5.0, 1.0, TEXT_FAINT),
                 }
                 if on {
@@ -1689,7 +1689,9 @@ fn stripe_grid(ui: &mut Ui, name: &str, r: Rect, chosen: Option<StripeTemplate>,
         if on {
             ui.p().rounded_border(b, 8.0, 1.5, accent());
         }
-        // the bus from the side: its body, windows, wheels, and the stripe on it
+        // the bus from the side: its body, windows, wheels, and the stripe on it (a picture,
+        // the same in either look)
+        ui.as_drawn();
         let body = Rect::new(b.x + 6.0, b.y + 6.0, b.w - 12.0, 26.0);
         ui.p().rounded(body, 4.0, Color::rgba(70, 80, 100, 1.0));
         let (x0, x1, y0, y1) = (body.x, body.right(), body.y, body.bottom());
@@ -1712,6 +1714,7 @@ fn stripe_grid(ui: &mut Ui, name: &str, r: Rect, chosen: Option<StripeTemplate>,
         }
         ui.p().circle(Vec2::new(x0 + 9.0, y1), 3.5, Color::rgba(20, 20, 24, 1.0));
         ui.p().circle(Vec2::new(x1 - 10.0, y1), 3.5, Color::rgba(20, 20, 24, 1.0));
+        ui.end_as_drawn();
         ui.text_in(t.label(), Rect::new(b.x + 2.0, b.y + 38.0, b.w - 4.0, 16.0), 10.5, Weight::Medium, if on || h { TEXT } else { TEXT_SOFT }, Align::Center);
         if clicked {
             out = Some(*t);
@@ -1766,6 +1769,8 @@ fn picker(ui: &mut Ui, name: &str, r: Rect, p: &mut Picker, c: &mut [u8; 3], rec
     }
     let sq = Rect::new(x, y0, w, 120.0);
     let hue = colour::bytes(colour::rgb_of_hsv([p.hsv[0], 1.0, 1.0]));
+    // (the colours themselves, in either look)
+    ui.as_drawn();
     ui.p().rounded(sq, 6.0, Color::rgba(hue[0], hue[1], hue[2], 1.0));
     ui.p().gradient_h(sq, Color::WHITE, Color::WHITE.alpha(0.0));
     ui.p().gradient(sq, Color::BLACK.alpha(0.0), Color::BLACK);
@@ -1795,6 +1800,7 @@ fn picker(ui: &mut Ui, name: &str, r: Rect, p: &mut Picker, c: &mut [u8; 3], rec
     }
     let hx = bar.x + p.hsv[0] / 360.0 * bar.w;
     ui.p().rounded_border(Rect::new(hx - 4.0, bar.y - 3.0, 8.0, bar.h + 6.0), 3.0, 2.0, Color::WHITE);
+    ui.end_as_drawn();
     if changed {
         *c = colour::bytes(colour::rgb_of_hsv(p.hsv));
         p.hex = model::hex(*c);
@@ -1810,7 +1816,7 @@ fn picker(ui: &mut Ui, name: &str, r: Rect, p: &mut Picker, c: &mut [u8; 3], rec
             changed = true;
         }
     }
-    ui.p().rounded(Rect::new(x + 118.0, row, 44.0, 32.0), 8.0, Color::rgba(c[0], c[1], c[2], 1.0));
+    ui.swatch(Rect::new(x + 118.0, row, 44.0, 32.0), 8.0, Color::rgba(c[0], c[1], c[2], 1.0));
     ui.p().rounded_border(Rect::new(x + 118.0, row, 44.0, 32.0), 8.0, 1.0, EDGE);
     let eye = Rect::new(x + w - 122.0, row, 122.0, 32.0);
     if ui.button(&format!("{name}-eye"), eye, "From the bus", Some("livery_eyedrop"), if p.eyedropper { ButtonKind::Primary } else { ButtonKind::Normal }) {
@@ -1850,7 +1856,7 @@ fn picker(ui: &mut Ui, name: &str, r: Rect, p: &mut Picker, c: &mut [u8; 3], rec
 fn swatch(ui: &mut Ui, name: &str, r: Rect, c: [u8; 3], on: bool) -> bool {
     let id = crate::launcher::ui::id_of(name);
     let (h, _, clicked) = ui.interact(id, r);
-    ui.p().rounded(r, 5.0, Color::rgba(c[0], c[1], c[2], 1.0));
+    ui.swatch(r, 5.0, Color::rgba(c[0], c[1], c[2], 1.0));
     ui.p().rounded_border(r, 5.0, if on { 2.0 } else { 1.0 }, if on { accent() } else if h { Color::WHITE.alpha(0.5) } else { EDGE });
     clicked
 }

@@ -37,7 +37,8 @@ use std::time::Instant;
 // shade lighter than a side street - and over it the duty in the accent (the player's colour,
 // `crate::accent`; Omsi-Hub's was the blue of every navigation there is), on a darker casing
 // so it reads where it runs over itself. The roads are the
-// game's own (`navigator::city_roads`); only the colours are the launcher's.
+// game's own (`navigator::city_roads`); only the colours are the launcher's - in the light
+// look a paper map on its light ground (`palette`).
 const ROAD_CASING: Color = Color::rgba(33, 40, 51, 1.0);
 const ROAD: Color = Color::rgba(60, 69, 82, 1.0);
 const ROAD_MAIN: Color = Color::rgba(73, 82, 97, 1.0);
@@ -73,6 +74,50 @@ const STOP_REACH: f32 = 9.0;
 /// The map's own background: the ground the window is cleared to (`theme::GROUND`, here in
 /// linear light), so the sheets and the map meet without a seam.
 const BACKDROP: wgpu::Color = wgpu::Color { r: 0.0027, g: 0.0037, b: 0.0091, a: 1.0 };
+/// The light look's map: a paper one on the light look's ground, light roads in a warm casing
+/// (a main road white) - the map is the ground in either look; an entry point's rim a warm
+/// grey rather than the night's black.
+const LIGHT_CASING: Color = Color::rgba(172, 156, 134, 1.0);
+const LIGHT_ROAD: Color = Color::rgba(252, 249, 244, 1.0);
+const LIGHT_MAIN: Color = Color::rgba(255, 255, 255, 1.0);
+const LIGHT_EDGE: Color = Color::rgba(96, 86, 76, 1.0);
+
+/// The map's own colours in a look (`crate::accent::dark`): Omsi-Hub's night map, or the
+/// light look's paper one.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Palette {
+    /// The ground it is cleared to, in linear light.
+    backdrop: wgpu::Color,
+    casing: Color,
+    road: Color,
+    main: Color,
+    /// An entry point's (and the line editor's stops') rim; the ring round the chosen one.
+    edge: Color,
+    here: Color,
+}
+
+fn palette(dark: bool) -> Palette {
+    if dark {
+        return Palette { backdrop: BACKDROP, casing: ROAD_CASING, road: ROAD, main: ROAD_MAIN, edge: ENTRY_EDGE, here: ENTRY_HERE };
+    }
+    let g = super::theme::light_ground(crate::accent::chosen()).0;
+    let lin = |v: f32| (if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }) as f64;
+    Palette { backdrop: wgpu::Color { r: lin(g[0]), g: lin(g[1]), b: lin(g[2]), a: 1.0 }, casing: LIGHT_CASING, road: LIGHT_ROAD, main: LIGHT_MAIN, edge: LIGHT_EDGE, here: super::theme::light::TEXT }
+}
+
+/// The roads of a plan built in the look `from` in the look `to`: their colours swapped where
+/// they lie (the route and the editor's lines stay) - a look changed needs no new plan.
+fn recolour(verts: &mut [Vertex], from: Palette, to: Palette) {
+    for v in verts {
+        if v.color == from.casing.0 {
+            v.color = to.casing.0;
+        } else if v.color == from.road.0 {
+            v.color = to.road.0;
+        } else if v.color == from.main.0 {
+            v.color = to.main.0;
+        }
+    }
+}
 /// The closest the map goes in, in metres a pixel.
 const MPP_MIN: f64 = 0.15;
 /// The least a duty's route is framed with, in metres across.
@@ -224,6 +269,8 @@ struct Key {
     editor: Option<u64>,
     /// The accent the route is drawn in.
     accent: u32,
+    /// The look the roads are drawn in (`palette`): dark or not.
+    dark: bool,
 }
 
 /// The map: what it shows, where it is looking, and the texture it is drawn into.
@@ -825,17 +872,28 @@ impl MapView {
         }
         let roads = self.roads.clone()?;
         let tolerance = self.tolerance();
-        let key = Key { global: self.shown.as_ref().map(|s| s.global.clone()).unwrap_or_default(), trips: self.trip_names(), tolerance: tolerance.to_bits(), editor: self.editor.as_ref().map(|e| e.revision), accent: crate::accent::chosen() };
+        let dark = crate::accent::dark();
+        let key = Key { global: self.shown.as_ref().map(|s| s.global.clone()).unwrap_or_default(), trips: self.trip_names(), tolerance: tolerance.to_bits(), editor: self.editor.as_ref().map(|e| e.revision), accent: crate::accent::chosen(), dark };
+        // the look changed and nothing else: the roads' colours swapped in the plan as it is
+        // (a big map's plan is a good part of a second to build - a stutter as the new look
+        // spreads)
+        if let Some(p) = self.plan.as_mut() {
+            if p.key.dark != dark && (Key { dark, ..p.key.clone() }) == key {
+                recolour(&mut p.verts, palette(p.key.dark), palette(dark));
+                p.key.dark = dark;
+                p.uploaded = false;
+            }
+        }
         // (not while the wheel still turns: the zoom in progress keeps the plan it has)
         if self.plan_is_stale(&key) {
-            let (verts, points) = self.build(&roads, tolerance);
+            let (verts, points) = self.build(&roads, tolerance, palette(dark));
             let count = verts.len() as u32;
             log::info!("map: the plan rebuilt - {points} points of {} roads in its {count} vertices, {:.1} m per pixel", roads.roads.len(), self.mpp);
             self.plan = Some(Plan { key, verts, count, uploaded: false });
         }
         // everything the drawing needs is read before the GPU is borrowed (the markers are
         // built every frame: the mouse moves what they look like)
-        let marks = self.mark_vertices(&roads);
+        let marks = self.mark_vertices(&roads, palette(dark));
         let (count, marks_len) = (self.plan.as_ref().map(|p| p.count).unwrap_or(0), marks.len() as u32);
         let (proj, px_scale) = (self.projection(), self.mpp as f32);
         let target = self.target.as_ref()?.1.clone();
@@ -855,7 +913,7 @@ impl MapView {
             Draw { buffer: 1, range: 0..marks_len, layer: 0, texture: 0 },
         ];
         let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("launcher map") });
-        gpu.render(device, queue, &mut enc, &target, (w, h), Some(BACKDROP), &[layer], &draws);
+        gpu.render(device, queue, &mut enc, &target, (w, h), Some(palette(dark).backdrop), &[layer], &draws);
         queue.submit([enc.finish()]);
         Some(target)
     }
@@ -904,7 +962,7 @@ impl MapView {
 
     /// The roads of the whole map and the chosen duty's route over them, as one vertex list
     /// (the camera only moves a matrix over it).
-    fn build(&self, roads: &Roads, tolerance: f32) -> (Vec<Vertex>, usize) {
+    fn build(&self, roads: &Roads, tolerance: f32, pal: Palette) -> (Vec<Vertex>, usize) {
         let k = self.scale;
         let rel = |q: DVec3| Vec3::new((q.x - roads.origin.x) as f32, (q.y - roads.origin.y) as f32, 0.0);
         let mut p = Painter::new();
@@ -924,9 +982,9 @@ impl MapView {
         for pass in 0..2 {
             for r in &roads.roads {
                 if pass == 0 {
-                    band(&mut p, &r.points, r.width + 2.0, CASING_PX * k, ROAD_CASING);
+                    band(&mut p, &r.points, r.width + 2.0, CASING_PX * k, pal.casing);
                 } else {
-                    band(&mut p, &r.points, r.width, ROAD_PX * k, if r.main { ROAD_MAIN } else { ROAD });
+                    band(&mut p, &r.points, r.width, ROAD_PX * k, if r.main { pal.main } else { pal.road });
                 }
             }
         }
@@ -964,7 +1022,7 @@ impl MapView {
     }
 
     /// The markers (buffer 1, built every frame: the mouse moves what they look like).
-    fn mark_vertices(&self, roads: &Roads) -> Vec<Vertex> {
+    fn mark_vertices(&self, roads: &Roads, pal: Palette) -> Vec<Vertex> {
         let k = self.scale;
         let mpp = self.mpp as f32;
         let at = |q: DVec2| Vec3::new((q.x - roads.origin.x) as f32, (q.y - roads.origin.y) as f32, 0.0);
@@ -972,7 +1030,7 @@ impl MapView {
         // the line editor: its stops, and nothing of the duty's
         if let Some(e) = self.editor.as_ref() {
             for d in &e.dots {
-                p.world_disc(at(d.at), 0.0, (d.r + 1.5) * k, ENTRY_EDGE);
+                p.world_disc(at(d.at), 0.0, (d.r + 1.5) * k, pal.edge);
                 p.world_disc(at(d.at), 0.0, d.r * k, d.fill);
                 if let Some(c) = d.ring {
                     ring(&mut p, at(d.at), (d.r + 3.0) * k, 2.0 * k, c, mpp);
@@ -982,14 +1040,14 @@ impl MapView {
         }
         let chosen = self.chosen();
         for (i, e) in roads.entries.iter().enumerate() {
-            p.world_disc(at(e.at), 0.0, (ENTRY_PX + 1.5) * k, ENTRY_EDGE);
+            p.world_disc(at(e.at), 0.0, (ENTRY_PX + 1.5) * k, pal.edge);
             p.world_disc(at(e.at), 0.0, ENTRY_PX * k, ENTRY);
             if self.hover == Some(i) {
                 ring(&mut p, at(e.at), (ENTRY_PX + 3.0) * k, 2.0 * k, ENTRY_HOVER, mpp);
             }
             // (the choice counts `global.cfg`'s list, which the marker's own place names)
             if chosen == e.index as i32 {
-                ring(&mut p, at(e.at), (ENTRY_PX + 6.5) * k, 2.0 * k, ENTRY_HERE, mpp);
+                ring(&mut p, at(e.at), (ENTRY_PX + 6.5) * k, 2.0 * k, pal.here, mpp);
             }
         }
         // the stops over the entry points: they are what the duty is about; the first one -
@@ -1337,7 +1395,7 @@ mod tests {
     #[test]
     fn a_zoom_in_progress_keeps_the_plan_it_has() {
         let mut m = map();
-        let built = Key { global: PathBuf::from("maps/Grundorf/global.cfg"), trips: Vec::new(), tolerance: 2.0f32.to_bits(), editor: None, accent: 0 };
+        let built = Key { global: PathBuf::from("maps/Grundorf/global.cfg"), trips: Vec::new(), tolerance: 2.0f32.to_bits(), editor: None, accent: 0, dark: true };
         let finer = Key { tolerance: 1.0f32.to_bits(), ..built.clone() };
         let plan = || Some(Plan { key: built.clone(), verts: Vec::new(), count: 0, uploaded: true });
         m.plan = plan();
@@ -1353,5 +1411,25 @@ mod tests {
         m.wheeled = Some(Instant::now() - std::time::Duration::from_secs(1));
         assert!(m.plan_is_stale(&finer));
         assert!(!m.plan_is_stale(&built));
+    }
+
+    /// The light look's map is a paper one on the light ground: its roads stand off the ground
+    /// by their casing, and a look changed swaps the roads' colours in the plan as it is - the
+    /// route over them keeps its own.
+    #[test]
+    fn the_light_look_has_a_paper_map() {
+        let (night, paper) = (palette(true), palette(false));
+        assert_eq!(night.backdrop, BACKDROP);
+        let lum = |c: Color| 0.2126 * c.0[0] + 0.7152 * c.0[1] + 0.0722 * c.0[2];
+        let ground = super::super::theme::light_ground(crate::accent::chosen());
+        assert!(lum(paper.casing) < lum(ground) - 0.2 && lum(paper.road) > lum(paper.casing) && lum(paper.main) >= lum(paper.road));
+        assert!(paper.backdrop.r > 0.5 && night.backdrop.r < 0.01);
+        let route = crate::accent::shades().hover;
+        let v = |c: Color| Vertex { color: c.0, ..Default::default() };
+        let mut verts = vec![v(night.casing), v(night.road), v(night.main), v(route)];
+        recolour(&mut verts, night, paper);
+        assert_eq!(verts.iter().map(|x| x.color).collect::<Vec<_>>(), vec![paper.casing.0, paper.road.0, paper.main.0, route.0]);
+        recolour(&mut verts, paper, night);
+        assert_eq!(verts[0].color, night.casing.0);
     }
 }

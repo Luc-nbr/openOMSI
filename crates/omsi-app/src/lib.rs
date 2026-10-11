@@ -173,6 +173,7 @@ const _LOCALES_DEALER_DELIVERY: &str = include_str!("../locales/dealer-delivery.
 const _LOCALES_COMPANY_EASY: &str = include_str!("../locales/company-easy.yml");
 const _LOCALES_TRIP_CARD: &str = include_str!("../locales/ritkaart.yml");
 const _LOCALES_DESTINATION: &str = include_str!("../locales/bestemming.yml");
+const _LOCALES_APP_THEME: &str = include_str!("../locales/app-theme.yml");
 const _LOCALES_FONT_FIT: &str = include_str!("../locales/fontfit.yml");
 const _LOCALES_LIVERY_LAYERS: &str = include_str!("../locales/livery-layers.yml");
 
