@@ -21,8 +21,9 @@
 //! comes to it. A phone has no setup steps to walk: there the tour is its cards alone.
 //!
 //! The bus company has a tour of its own (`start_company`, Luc: "een welkomstscherm voor de
-//! busbedrijfmodus, met een tutorial"): a welcome card with what the mode is, then its pages
-//! one by one - the clock, the tabs, the overview, the fleet and the dealer, the staff, the
+//! busbedrijfmodus, met een tutorial"): a welcome card with what the mode is, then its start
+//! screen - its tiles, what the company has under its name, its clock - the way round its
+//! pages, and the pages one by one - the overview, the fleet and the dealer, the staff, the
 //! lines, the planning, the money and the career with "My duties" - each with its part lit.
 //! The company remembers per driver where it was left (`company::tutorial`), and its "?" goes
 //! on from there.
@@ -100,11 +101,14 @@ enum Stop {
     /// The end on a phone, as a card (no bar with a "?" there).
     Goodbye,
     /// The bus company's tour (`COMPANY_STOPS`): its welcome, the founding wizard (no company
-    /// yet), its clock, its tabs and pages, and its "?".
+    /// yet), its start screen's tiles (`CoTabs`), what it has, its clock, the way round its
+    /// pages, the pages, and its "?".
     CoWelcome,
     CoFound,
     CoClock,
     CoTabs,
+    CoStatus,
+    CoNav,
     CoOverview,
     CoToday,
     CoFleet,
@@ -119,7 +123,7 @@ enum Stop {
 use Stop::*;
 
 /// The bus company's tour, in its order.
-const COMPANY_STOPS: [Stop; 13] = [CoWelcome, CoFound, CoClock, CoTabs, CoOverview, CoToday, CoFleet, CoStaff, CoLines, CoPlanning, CoFinances, CoCareer, CoDone];
+const COMPANY_STOPS: [Stop; 15] = [CoWelcome, CoFound, CoTabs, CoStatus, CoClock, CoNav, CoOverview, CoToday, CoFleet, CoStaff, CoLines, CoPlanning, CoFinances, CoCareer, CoDone];
 
 const STOPS: [Stop; 22] = [Welcome, Modes, Record, Languages, Steps, MapViews, MapTile, StartAt, MainAction, Day, ShiftLength, ShiftList, ShiftRoute, FreeStarts, FreeLine, Buses, LookIn3d, Navigator, CityMap, Companion, Done, Goodbye];
 
@@ -197,7 +201,9 @@ impl Stop {
             CoWelcome => ("Bus company", "Your own bus company", "Here you run a transport company on one of your maps: buy buses, hire drivers, take on lines or make your own. It runs in a time of its own, and what you drive yourself counts for it."),
             CoFound => ("Bus company", "Found it first", "Give the company a name, its colours, its home map with a depot and how hard its economy is. Once it runs, this tour shows you round its pages."),
             CoClock => ("Its time", "The company's own clock", "The company runs in a time of its own: let it run here, or jump on to the morning, to tomorrow or by days. At midnight the day is closed: the tours are run and the money is booked."),
-            CoTabs => ("Its pages", "Everything in tabs", "Each part of the company has a page here: the buses, the staff, the lines, the money, the planning and more."),
+            CoTabs => ("Its start screen", "Every part a tile", "Each part of the company has a tile here, grouped by theme, with what matters there now. A badge says where something waits: unread messages, tours without a driver."),
+            CoStatus => ("Its start screen", "Cash, trophies, reputation", "Under the company's name, always in view: its cash, the trophies earned with goals and contracts, and its reputation. A click opens the page about it."),
+            CoNav => ("Its pages", "Back and across", "This button takes you back to the start screen from every page, as Escape does. The icons on the right open any other page at once."),
             CoOverview => ("Overview", "The figures", "The cash, this month's result, the fleet, the staff, punctuality and reputation at a glance."),
             CoToday => ("Overview", "What wants your attention", "Today's tours and how many are covered, your own next duty, and what needs doing. A click takes you to the page that helps."),
             CoFleet => ("Fleet", "Buses and the dealer", "Your buses with their condition and their livery. At the dealer you buy new or used ones, haggle, lease or rent, and sign the contract."),
@@ -238,7 +244,9 @@ impl Stop {
             CoWelcome => Target::Card(Picture::Welcome),
             CoFound => Target::Part("company-wizard"),
             CoClock => Target::Part("company-clock"),
-            CoTabs => Target::Part("company-tabs"),
+            CoTabs => Target::Part("company-tiles"),
+            CoStatus => Target::Part("company-status"),
+            CoNav => Target::Part("company-nav"),
             CoOverview => Target::Part("company-figures"),
             CoToday => Target::Part("company-today"),
             CoFleet | CoStaff | CoLines | CoPlanning | CoFinances => Target::Part("company-page"),
@@ -257,7 +265,10 @@ impl Stop {
             Buses | LookIn3d => Place::On(Step::Bus, None),
             Navigator | CityMap | Companion | Goodbye => Place::Keep,
             Done | CoDone => Place::Home,
-            CoWelcome | CoFound | CoClock | CoTabs | CoOverview | CoToday => Place::Company(0),
+            // (the welcome, the founding and the start screen's stops on the start screen; the
+            // way round shown from the overview, the page its stops come to next)
+            CoWelcome | CoFound | CoTabs | CoStatus | CoClock => Place::Company(super::company::HOME_TAB),
+            CoNav | CoOverview | CoToday => Place::Company(0),
             CoFleet => Place::Company(1),
             CoStaff => Place::Company(2),
             CoLines => Place::Company(3),
@@ -274,7 +285,7 @@ impl Stop {
             // once there is one)
             CoWelcome => true,
             CoFound => !c.company,
-            CoClock | CoTabs | CoOverview | CoToday | CoFleet | CoStaff | CoLines | CoPlanning | CoFinances | CoCareer | CoDone => c.company,
+            CoClock | CoTabs | CoStatus | CoNav | CoOverview | CoToday | CoFleet | CoStaff | CoLines | CoPlanning | CoFinances | CoCareer | CoDone => c.company,
             Welcome | Navigator | CityMap | Companion => true,
             Goodbye => c.phone,
             _ if c.phone => false,
@@ -2567,13 +2578,16 @@ mod tests {
             let sentences = text.matches(". ").count() + 1;
             assert!((1..=3).contains(&sentences), "{s:?}: {sentences} sentences");
             match s.place() {
-                Place::Company(tab) => assert!(tab <= 6, "{s:?}"),
+                Place::Company(tab) => assert!(tab <= 6 || tab == super::super::company::HOME_TAB, "{s:?}"),
                 Place::Home => assert_eq!(s, CoDone),
                 p => panic!("{s:?}: {p:?} is no place of the company's"),
             }
         }
-        // (each page's stop is on its tab)
+        // (each page's stop is on its tab; the start screen's on the start screen)
         assert_eq!((CoFleet.place(), CoPlanning.place(), CoCareer.place()), (Place::Company(1), Place::Company(5), Place::Company(6)));
+        let home = Place::Company(super::super::company::HOME_TAB);
+        assert_eq!((CoTabs.place(), CoStatus.place(), CoClock.place()), (home, home, home));
+        assert_eq!((CoTabs.target(), CoNav.target()), (Target::Part("company-tiles"), Target::Part("company-nav")));
     }
 
     #[test]

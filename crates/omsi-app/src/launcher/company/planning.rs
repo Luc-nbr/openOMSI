@@ -84,6 +84,12 @@ impl Default for PlanningView {
 }
 
 impl PlanningView {
+    /// Something is in hand - a driver or a bus armed, a duty or a tour chosen or carried -
+    /// that Escape lets go of first (before it goes back to the company's start screen).
+    pub(super) fn holds_choice(&self) -> bool {
+        self.sel.is_some() || self.arm.is_some() || self.drag.is_some() || self.carry.is_some()
+    }
+
     /// Forget the week read: it is read again (the timetable was written).
     fn forget(&mut self, revision: u64) {
         self.days.clear();

@@ -18,6 +18,7 @@ mod dealer;
 mod depot;
 mod fares;
 mod fleet;
+mod home;
 mod inbox;
 mod kit;
 mod lines;
@@ -74,6 +75,36 @@ pub(super) const RESEARCH_TAB: usize = 10;
 pub(super) const WORKSHOP_TAB: usize = 11;
 pub(super) const CONTRACTS_TAB: usize = 12;
 pub(super) const INBOX_TAB: usize = 13;
+/// The company's start screen (`home`): no page of `TABS` but where the company opens, with a
+/// tile for every page; the strip under the bar and Escape lead back to it.
+pub(super) const HOME_TAB: usize = 100;
+/// The pages' icons, in the order of `TABS`.
+pub(super) const ICONS: [&str; 14] = ["signal_cellular_alt", "directions_bus", "groups", "route", "payments", "calendar_month", "military_tech", "garage", "public", "map", "search", "construction", "description", "chat"];
+/// The pages in the strip under the bar (`nav`), grouped as the start screen groups them: at a
+/// glance, operations, people, business, the company.
+const RAIL: [&[usize]; 5] = [&[0, INBOX_TAB], &[5, 3, MAP_TAB, 1], &[2], &[4, CONCESSIONS_TAB, CONTRACTS_TAB, 6], &[DEPOT_TAB, WORKSHOP_TAB, RESEARCH_TAB]];
+
+/// The page an `OMSI_LAUNCHER_PAGE` of "bus company:<part>" opens: the start screen for
+/// "home" or "start", else the page of that number (the last one past them).
+pub(super) fn tab_of(part: &str) -> Option<usize> {
+    let p = part.trim();
+    if p.eq_ignore_ascii_case("home") || p.eq_ignore_ascii_case("start") {
+        return Some(HOME_TAB);
+    }
+    p.parse::<usize>().ok().map(|n| n.min(TABS.len() - 1))
+}
+
+/// A page's name as the strip under the bar says it (the start screen's own).
+fn page_name(tab: usize) -> &'static str {
+    TABS.get(tab).copied().unwrap_or("Start screen")
+}
+
+/// Whether Escape goes back to the start screen this frame: on a page (not the start screen
+/// itself), with nothing lying over it, no text field typed in, and nothing the page lets go
+/// of first (a driver or a duty in hand on the planning).
+fn escape_home(tab: usize, escape: bool, modal: bool, typing: bool, holding: bool) -> bool {
+    escape && tab != HOME_TAB && !modal && !typing && !holding
+}
 
 /// A dialog over the company's pages.
 pub(super) enum Dialog {
@@ -171,7 +202,7 @@ impl Default for CompanyView {
             companies: None,
             companies_for: None,
             company: None,
-            tab: 0,
+            tab: HOME_TAB,
             wizard: None,
             market: None,
             market_for: None,
@@ -808,8 +839,10 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     let modal = modal(l);
     clock::tick(l, modal);
     let saved = modal.then(|| mask(&mut l.ui));
+    let esc = escape_home(l.company.tab, l.ui.input.keys.contains(&Key::Escape), modal, l.ui.focus.is_some(), l.company.planning.holds_choice());
     let body = strip(l, area);
     pages(l, body);
+    back_home(l, esc);
     if let Some(i) = saved {
         l.ui.input = i;
         overlays(l);
@@ -871,13 +904,15 @@ pub fn screen(l: &mut Launcher) {
     }
     match &company {
         Some(c) => {
+            // the company's mark and name, and under the name what it has: its cash, its
+            // trophies and its reputation (City Bus Manager's top bar; where it is at home is
+            // said in the strip under the bar on the start screen, and on the mark)
             let mark = Rect::new(m, 14.0, 44.0, 44.0);
             company_mark(l, mark, c);
             let tw = (right - mark.right() - 16.0).max(60.0);
-            l.ui.text_in(&c.name, Rect::new(mark.right() + 14.0, 12.0, tw, 26.0), 19.0, Weight::Bold, TEXT, Align::Left);
-            let map = if c.map_name.is_empty() { super::state::short_map(&c.map) } else { c.map_name.clone() };
-            let sub = format!("{}  ·  {}  ·  {}", map, c.depot, omsi_ui::tr(c.difficulty.label()));
-            l.ui.text_in(&sub, Rect::new(mark.right() + 14.0, 38.0, tw, 20.0), kit::NOTE, Weight::Regular, TEXT_DIM, Align::Left);
+            l.ui.text_in(&c.name, Rect::new(mark.right() + 14.0, 10.0, tw, 26.0), 19.0, Weight::Bold, TEXT, Align::Left);
+            l.ui.tooltip(Rect::new(mark.x, mark.y, (tw + 58.0).min(right - mark.x), mark.h * 0.6), &home_of(c));
+            status(l, Rect::new(mark.right() + 14.0, 38.0, tw, 22.0), c);
         }
         None => {
             l.ui.icon("garage", Vec2::new(m + 14.0, 36.0), 26.0, accent_2());
@@ -894,19 +929,15 @@ pub fn screen(l: &mut Launcher) {
         }
         super::tour::anchor("company-wizard", content);
         wizard::draw(l, content);
-    } else {
-        // the tabs across, the page under them
-        let labels: Vec<String> = TABS.iter().map(|t| omsi_ui::tr(t).into_owned()).collect();
-        let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
-        let mut tab = l.company.tab;
-        let tabs = Rect::new(content.x, content.y, content.w, 42.0);
-        super::tour::anchor("company-tabs", tabs);
-        if l.ui.segmented("company-tabs", tabs, &mut tab, &refs) {
-            l.company.tab = tab;
-        }
+    } else if let Some(c) = company.as_ref() {
+        // the way round across (the start screen and the page one is on, every page a click
+        // away), the page under it; Escape goes back to the start screen
+        let esc = escape_home(l.company.tab, l.ui.input.keys.contains(&Key::Escape), modal, l.ui.focus.is_some(), l.company.planning.holds_choice());
+        nav(l, Rect::new(content.x, content.y, content.w, 42.0), c);
         let body = Rect::new(content.x, content.y + 58.0, content.w, (content.h - 58.0).max(0.0));
         super::tour::anchor("company-page", body);
         pages(l, body);
+        back_home(l, esc);
     }
     // the first time: the company's welcome and tour (`tutorial`)
     if saved.is_none() {
@@ -922,9 +953,11 @@ pub fn screen(l: &mut Launcher) {
     }
 }
 
-/// The tab's page.
+/// The tab's page (the start screen's tiles for `HOME_TAB`).
 fn pages(l: &mut Launcher, body: Rect) {
     match l.company.tab {
+        HOME_TAB => home::draw(l, body),
+        0 => overview::draw(l, body),
         1 => fleet::draw(l, body),
         2 => people::draw(l, body),
         3 => lines::draw(l, body),
@@ -938,31 +971,157 @@ fn pages(l: &mut Launcher, body: Rect) {
         WORKSHOP_TAB => workshop::draw(l, body),
         CONTRACTS_TAB => contracts::draw(l, body),
         INBOX_TAB => inbox::draw(l, body),
-        _ => overview::draw(l, body),
+        // (a page that is no more: the start screen)
+        _ => home::draw(l, body),
     }
 }
 
-/// The company's strip over its tabs on a phone: its mark, its name and where it is at home,
-/// and the tabs. Returns the room under it.
+/// Escape was pressed on a page (`escape_home`, decided before the page was drawn): back to
+/// the start screen - unless the page put something over itself meanwhile.
+fn back_home(l: &mut Launcher, esc: bool) {
+    if esc && !modal(l) {
+        l.company.tab = HOME_TAB;
+    }
+}
+
+/// Where the company is at home: its map, its depot and how hard its economy is.
+fn home_of(c: &Company) -> String {
+    let map = if c.map_name.is_empty() { super::state::short_map(&c.map) } else { c.map_name.clone() };
+    format!("{}  ·  {}  ·  {}", map, c.depot, omsi_ui::tr(c.difficulty.label()))
+}
+
+/// What the company has, under its name: its cash, its trophies and its reputation, each a
+/// click from the page about it (the finances, the research the trophies pay for, the
+/// overview). Returns where it ends.
+fn status(l: &mut Launcher, r: Rect, c: &Company) -> f32 {
+    let items: [(&str, String, Color, Color, &str, usize); 3] = [
+        ("payments", eur(c.cash), TEXT_DIM, if c.cash >= 0 { TEXT } else { DANGER.lighten(0.2) }, "Cash: the money the company has now", 4),
+        ("emoji_events", grouped(c.trophies as f64), WARN, TEXT, "Trophies: earned with goals and contracts, spent on research", RESEARCH_TAB),
+        ("star", format!("{} %", num(c.reputation.clamp(0.0, 100.0), 0)), grade(c.reputation + 15.0), TEXT, "Reputation: what passengers and the authority think of the company", 0),
+    ];
+    super::tour::anchor("company-status", r);
+    let mut x = r.x - 6.0;
+    for (icon, value, icon_c, text_c, tip, tab) in items {
+        let w = l.ui.width(&value, 14.0, Weight::Bold) + 34.0;
+        if x + w > r.right() + 6.0 {
+            break;
+        }
+        let hit = Rect::new(x, r.y, w, r.h);
+        let (h, _, clicked) = l.ui.interact(super::ui::id_of(&format!("company-status-{icon}")), hit);
+        if h {
+            l.ui.p().rounded(hit, r.h * 0.5, HOVER);
+        }
+        l.ui.icon(icon, Vec2::new(hit.x + 15.0, hit.center().y), 15.0, icon_c);
+        l.ui.text_in(&value, Rect::new(hit.x + 27.0, hit.y, w - 30.0, hit.h), 14.0, Weight::Bold, text_c, Align::Left);
+        l.ui.tooltip(hit, tip);
+        if clicked {
+            l.company.tab = tab;
+        }
+        x = hit.right() + 4.0;
+    }
+    x
+}
+
+/// The way round the company's pages, under its bar: the start screen's button with the page
+/// one is on after it (or, on the start screen, where the company is at home), and on the
+/// right every page as an icon - grouped as the start screen groups them, a badge where
+/// something waits - a click from wherever one is.
+fn nav(l: &mut Launcher, r: Rect, c: &Company) {
+    super::tour::anchor("company-nav", r);
+    let marks = home::Marks::of(c, l.company.plan.as_ref());
+    let home = l.company.tab == HOME_TAB;
+    // the pages, from the right
+    let side = 38.0;
+    let gap = 4.0;
+    let group_gap = 17.0;
+    let count: usize = RAIL.iter().map(|g| g.len()).sum();
+    let rail_w = count as f32 * side + (count - RAIL.len()) as f32 * gap + (RAIL.len() - 1) as f32 * group_gap;
+    let x0 = r.right() - rail_w;
+    let rail = Rect::new(x0, r.y + (r.h - side) * 0.5, rail_w, side);
+    super::tour::anchor("company-tabs", rail);
+    let mut x = x0;
+    for (g, group) in RAIL.iter().enumerate() {
+        if g > 0 {
+            l.ui.p().rect(Rect::new(x - group_gap * 0.5 - 0.5, rail.y + 9.0, 1.0, side - 18.0), HAIRLINE);
+        }
+        for &tab in group.iter() {
+            let b = Rect::new(x, rail.y, side, side);
+            let (h, _, clicked) = l.ui.interact(super::ui::id_of(&format!("company-rail-{tab}")), b);
+            let on = l.company.tab == tab;
+            let t = l.ui.anim(super::ui::id_of(&format!("company-rail-{tab}")) ^ 0x5a, if h { 1.0 } else { 0.0 }, 0.08);
+            if on {
+                l.ui.p().rounded(b, RADIUS, accent());
+            } else if t > 0.01 {
+                l.ui.p().rounded(b, RADIUS, HOVER.alpha(t));
+            }
+            l.ui.icon(ICONS[tab], b.center(), 19.0, if on { on_accent() } else { TEXT_DIM.mix(TEXT, t) });
+            let mut tip = omsi_ui::tr(TABS[tab]).into_owned();
+            if let Some((n, colour, why)) = marks.badge(tab) {
+                let d = Rect::new(b.right() - 15.0, b.y - 3.0, (l.ui.width(&n, 10.5, Weight::Bold) + 8.0).max(16.0), 16.0);
+                l.ui.p().rounded(d.inset(-1.5), 9.5, GROUND);
+                l.ui.p().rounded(d, 8.0, colour);
+                let ink = if colour == accent() { on_accent() } else if colour == WARN { ON_LINE } else { Color::WHITE };
+                l.ui.text_in(&n, d, 10.5, Weight::Bold, ink, Align::Center);
+                tip = format!("{tip}\n{why}");
+            }
+            l.ui.tooltip(b, &tip);
+            if clicked {
+                l.company.tab = tab;
+            }
+            x = b.right() + gap;
+        }
+        x += group_gap - gap;
+    }
+    // the start screen's button, and where one is
+    let label = omsi_ui::tr("Start screen");
+    let bw = (l.ui.width(&label, kit::CONTROL, Weight::Bold) + 58.0).max(120.0);
+    let b = Rect::new(r.x, r.y + 1.0, bw, r.h - 2.0);
+    if l.ui.button("company-home", b, "Start screen", Some("apps"), if home { ButtonKind::Primary } else { ButtonKind::Normal }) && !home {
+        l.company.tab = HOME_TAB;
+    }
+    l.ui.tooltip(b, "Every part of the company as a tile (Escape)");
+    let room = (x0 - 20.0 - b.right() - 14.0).max(0.0);
+    if home {
+        l.ui.text_in(&home_of(c), Rect::new(b.right() + 18.0, r.y, room, r.h), kit::BODY, Weight::Regular, TEXT_DIM, Align::Left);
+        return;
+    }
+    let tab = l.company.tab;
+    l.ui.icon("chevron_right", Vec2::new(b.right() + 16.0, r.center().y), 18.0, TEXT_DIM);
+    if room > 60.0 {
+        l.ui.icon(ICONS.get(tab).copied().unwrap_or("apps"), Vec2::new(b.right() + 42.0, r.center().y), 20.0, accent_2());
+        l.ui.text_in(page_name(tab), Rect::new(b.right() + 58.0, r.y, (room - 48.0).max(0.0), r.h), 18.0, Weight::Bold, TEXT, Align::Left);
+    }
+}
+
+/// The company's strip on a phone: its mark, its name and what it has (cash, trophies,
+/// reputation); on a page the way back to the start screen with the page's name, which opens
+/// the list of every page; and the company's clock. Returns the room under it.
 fn strip(l: &mut Launcher, area: Rect) -> Rect {
     let Some(c) = l.company.company.clone() else { return area };
     let mark = Rect::new(area.x, area.y, 44.0, 44.0);
     company_mark(l, mark, &c);
-    l.ui.text_in(&c.name, Rect::new(mark.right() + 14.0, area.y, area.w - 60.0, 24.0), 18.0, Weight::Bold, TEXT, Align::Left);
-    let map = if c.map_name.is_empty() { super::state::short_map(&c.map) } else { c.map_name.clone() };
-    let sub = format!("{}  ·  {}  ·  {}", map, c.depot, omsi_ui::tr(c.difficulty.label()));
-    l.ui.text_in(&sub, Rect::new(mark.right() + 14.0, area.y + 25.0, area.w - 60.0, 18.0), kit::NOTE, Weight::Regular, TEXT_DIM, Align::Left);
-    let labels: Vec<String> = TABS.iter().map(|t| omsi_ui::tr(t).into_owned()).collect();
-    let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
-    let mut tab = l.company.tab;
-    let tabs = Rect::new(area.x, area.y + 56.0, area.w, ROW);
-    let h = l.ui.chips_height(tabs.w, ROW, &refs);
-    if l.ui.chips("company-tabs", tabs, &mut tab, &refs) {
-        l.company.tab = tab;
+    l.ui.text_in(&c.name, Rect::new(mark.right() + 14.0, area.y - 2.0, area.w - 60.0, 24.0), 18.0, Weight::Bold, TEXT, Align::Left);
+    status(l, Rect::new(mark.right() + 14.0, area.y + 24.0, area.w - 60.0, 22.0), &c);
+    let mut y = area.y + 56.0;
+    if l.company.tab != HOME_TAB {
+        // the way back, and every page in a list beside it
+        let label = omsi_ui::tr("Start screen");
+        let bw = (l.ui.width(&label, kit::CONTROL, Weight::Bold) + 52.0).min(area.w * 0.45);
+        let back = Rect::new(area.x, y, bw, ROW + 4.0);
+        super::tour::anchor("company-nav", Rect::new(area.x, y, area.w, ROW + 4.0));
+        if l.ui.button("company-home", back, "Start screen", Some("chevron_left"), ButtonKind::Normal) {
+            l.company.tab = HOME_TAB;
+        }
+        let names: Vec<String> = TABS.iter().map(|t| omsi_ui::tr(t).into_owned()).collect();
+        let mut k = l.company.tab.min(TABS.len() - 1);
+        if l.ui.select("company-pages", Rect::new(back.right() + 10.0, y, (area.w - bw - 10.0).max(80.0), ROW + 4.0), &mut k, &names) {
+            l.company.tab = k;
+        }
+        y = back.bottom() + 10.0;
     }
-    // the company's clock under the tabs: its steps and the time dialog (the desktop has them
-    // in its bar; the phone has no sheet's head to keep them in)
-    let head = Rect::new(area.x, tabs.y + h + 10.0, area.w, 40.0);
+    // the company's clock: its steps and the time dialog (the desktop has them in its bar;
+    // the phone has no sheet's head to keep them in)
+    let head = Rect::new(area.x, y, area.w, 40.0);
     clock::head(l, head);
     Rect::new(area.x, head.bottom() + 14.0, area.w, (area.bottom() - head.bottom() - 14.0).max(0.0))
 }
@@ -1525,5 +1684,35 @@ mod tests {
         assert_eq!(num_in(-0.04, 1, "nl"), "0,0");
         assert_eq!(num_in(999.96, 1, "en"), "1,000.0");
         assert_eq!(num_in(f64::NAN, 0, "en"), "0");
+    }
+
+    #[test]
+    fn the_company_opens_on_its_start_screen_and_a_shortcut_lands_anywhere() {
+        assert_eq!(CompanyView::default().tab, HOME_TAB);
+        assert_eq!(tab_of("home"), Some(HOME_TAB));
+        assert_eq!(tab_of(" Start "), Some(HOME_TAB));
+        assert_eq!(tab_of("7"), Some(DEPOT_TAB));
+        assert_eq!(tab_of("99"), Some(TABS.len() - 1));
+        assert_eq!(tab_of("fleet"), None);
+        // (the start screen is no page of the tabs, and every page has its icon)
+        assert!(HOME_TAB >= TABS.len());
+        assert_eq!(ICONS.len(), TABS.len());
+        assert_eq!(page_name(HOME_TAB), "Start screen");
+        assert_eq!(page_name(INBOX_TAB), "Inbox");
+        // the strip under the bar has every page once
+        let mut all: Vec<usize> = RAIL.iter().flat_map(|g| g.iter().copied()).collect();
+        all.sort_unstable();
+        assert_eq!(all, (0..TABS.len()).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn escape_goes_back_to_the_start_screen_only_when_nothing_else_wants_it() {
+        assert!(escape_home(3, true, false, false, false));
+        // not pressed, already there, a dialog over the page, a text field, the planning's hand
+        assert!(!escape_home(3, false, false, false, false));
+        assert!(!escape_home(HOME_TAB, true, false, false, false));
+        assert!(!escape_home(3, true, true, false, false));
+        assert!(!escape_home(3, true, false, true, false));
+        assert!(!escape_home(5, true, false, false, true));
     }
 }

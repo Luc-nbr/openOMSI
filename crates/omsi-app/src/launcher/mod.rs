@@ -425,8 +425,11 @@ impl Launcher {
             // controllers, settings:3 Sound)
             app.pages.controls_tab = step;
             app.pages.settings_tab = step.min(pages::SETTINGS_TABS.len() - 1);
-            // (and the bus company's: "bus company:7" its fleet map)
-            app.company.tab = step.min(company::TABS.len() - 1);
+        }
+        // (and the bus company's: "bus company:7" its depot, "bus company:home" its start
+        // screen - where it opens anyway)
+        if let Some(tab) = p.split(':').nth(1).and_then(company::tab_of) {
+            app.company.tab = tab;
         }
     }
     // (`OMSI_LAUNCHER_LIVERY=<bus file>`: the livery studio at once)
