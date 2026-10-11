@@ -177,6 +177,7 @@ const _LOCALES_APP_THEME: &str = include_str!("../locales/app-theme.yml");
 const _LOCALES_FONT_FIT: &str = include_str!("../locales/fontfit.yml");
 const _LOCALES_LIVERY_LAYERS: &str = include_str!("../locales/livery-layers.yml");
 const _LOCALES_COMPANY_REALTIME: &str = include_str!("../locales/company-realtime.yml");
+const _LOCALES_EASY_POLISH: &str = include_str!("../locales/easy-polish.yml");
 
 /// Show the interface in `code` (the settings' ENG / DEU / FRA / RUS).
 pub(crate) fn ui_language(code: &str) {
