@@ -245,14 +245,16 @@ pub fn paint_full(from: &Painting, k: usize, index: u8, base: &Path, template: O
 }
 
 /// The size texture `index` of the bus (`w` x `h` as read) is painted and written at: its own
-/// (`model::output_size`) - but a window's see-through map that is coarser than 1024 texels on
-/// its long side twice as large until it is not (the MAN NL's `trans.tga` is 256 x 256: a print
-/// on its glass was sharp in colour and see-through in blocks of 5 cm). The game takes a
-/// texture of any size in its place.
+/// (`model::output_size`) - but a texture only windows show (their colour, or how see-through
+/// they are) that is coarser than 1024 texels on its long side twice as large until it is not
+/// (the MAN NL's see-through map `trans.tga` is 256 x 256: a print on its glass was sharp in
+/// colour and see-through in blocks of 5 cm; the HH E-bus's front windows are 128 x 128). The
+/// game takes a texture of any size in its place.
 pub fn paint_size(geom: &BusGeom, index: u8, w: u32, h: u32) -> (u32, u32) {
     let (mut w, mut h) = model::output_size(w, h);
-    let map = geom.tris.iter().any(|t| t.trans == Some(index)) && !geom.tris.iter().any(|t| t.target == Some(index));
-    while map && w.max(h) < 1024 {
+    let mut on = geom.tris.iter().filter(|t| t.target == Some(index) || t.trans == Some(index)).peekable();
+    let windows = on.peek().is_some() && on.all(|t| t.glass);
+    while windows && w.max(h) < 1024 {
         w *= 2;
         h *= 2;
     }
@@ -449,16 +451,19 @@ mod tests {
     }
 
     #[test]
-    fn a_coarse_see_through_map_is_painted_finer() {
+    fn a_coarse_texture_of_the_windows_is_painted_finer() {
         let mut g = box_bus();
-        // the right side a window whose see-through map is texture 2
+        // the right side a window of texture 1, its see-through map texture 2
         for k in [2, 3] {
             g.tris[k].glass = true;
+            g.tris[k].target = Some(1);
             g.tris[k].trans = Some(2);
         }
         assert_eq!(paint_size(&g, 2, 256, 256), (1024, 1024));
+        assert_eq!(paint_size(&g, 1, 128, 64), (1024, 512));
         assert_eq!(paint_size(&g, 2, 2048, 1024), (2048, 1024));
-        assert_eq!(paint_size(&g, 0, 256, 256), (256, 256), "a texture of its own stays as it is");
+        assert_eq!(paint_size(&g, 0, 256, 256), (256, 256), "the body's stays as it is");
+        assert_eq!(paint_size(&g, 5, 256, 256), (256, 256), "nothing on it");
     }
 
     #[test]
