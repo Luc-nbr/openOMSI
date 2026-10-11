@@ -106,6 +106,11 @@ pub(super) fn wide_bar(ui: &mut Ui, r: Rect, frac: f64, c: Color, label: &str) {
     ui.text_in(label, r.pad(8.0, 0.0), kit::NOTE, Weight::Bold, TEXT, Align::Center);
 }
 
+/// A button's width for its words in the interface's language (and its icon).
+pub(super) fn button_w(ui: &Ui, label: &str, icon: Option<&str>) -> f32 {
+    kit::Foot::width(ui, &omsi_ui::tr(label), icon)
+}
+
 /// "Fri 8 Mar".
 fn short_day(date: &str) -> String {
     let Some(d) = co::dates::parse(date) else { return date.to_string() };
@@ -256,7 +261,9 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     }
     let refs: Vec<&str> = filters.iter().map(|f| f.1.as_str()).collect();
     let mut chosen = filters.iter().position(|f| f.0 == filter).unwrap_or(0);
-    let tools_w = 380.0;
+    let w_mark = button_w(&l.ui, "Mark all read", Some("check_circle"));
+    let w_delete = button_w(&l.ui, "Delete read", Some("delete"));
+    let tools_w = w_mark + 8.0 + w_delete;
     let chips = Rect::new(area.x, area.y, (area.w - tools_w - gap).max(200.0), 34.0);
     if l.ui.chips("company-inbox-filter", chips, &mut chosen, &refs) {
         filter = filters[chosen].0;
@@ -265,13 +272,14 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     let mut mark_all = false;
     let mut delete_read = false;
     let tools = Rect::new(area.right() - tools_w, area.y, tools_w, 34.0);
-    if l.ui.button("company-inbox-mark-all", Rect::new(tools.x, tools.y, 186.0, 34.0), "Mark all read", Some("check_circle"), ButtonKind::Normal) {
+    if l.ui.button("company-inbox-mark-all", Rect::new(tools.x, tools.y, w_mark, 34.0), "Mark all read", Some("check_circle"), ButtonKind::Normal) {
         mark_all = true;
     }
-    if l.ui.button("company-inbox-delete-read", Rect::new(tools.x + 194.0, tools.y, 186.0, 34.0), "Delete read", Some("delete"), ButtonKind::Ghost) {
+    let dr = Rect::new(tools.x + w_mark + 8.0, tools.y, w_delete, 34.0);
+    if l.ui.button("company-inbox-delete-read", dr, "Delete read", Some("delete"), ButtonKind::Ghost) {
         delete_read = true;
     }
-    l.ui.tooltip(Rect::new(tools.x + 194.0, tools.y, 186.0, 34.0), "Delete the messages already read (of the kind shown)");
+    l.ui.tooltip(dr, "Delete the messages already read (of the kind shown)");
     // the list, and the trophies' bar under it
     let top = area.y + chips_h + gap;
     let lw = ((area.w - gap) * 0.56).max(360.0).min(area.w);
@@ -473,19 +481,19 @@ fn details(l: &mut Launcher, r: Rect, c: &Company, m: Option<&Message>) -> (Opti
     let mut x = inner.x;
     let mut go = None;
     if let Some((tab, label, icon)) = page_of(m) {
-        let w = kit::Foot::width(&l.ui, label, Some(icon));
+        let w = button_w(&l.ui, label, Some(icon));
         if l.ui.button("company-inbox-go", Rect::new(x, by, w, 36.0), label, Some(icon), ButtonKind::Primary) {
             go = Some(tab);
         }
         x += w + 10.0;
     }
     let mut unread = None;
-    let w = kit::Foot::width(&l.ui, "Mark as unread", None);
+    let w = button_w(&l.ui, "Mark as unread", None);
     if m.read && l.ui.button("company-inbox-unread", Rect::new(x, by, w, 36.0), "Mark as unread", None, ButtonKind::Normal) {
         unread = Some(m.id);
     }
     let mut delete = None;
-    let w = kit::Foot::width(&l.ui, "Delete", Some("delete"));
+    let w = button_w(&l.ui, "Delete", Some("delete"));
     if l.ui.button("company-inbox-delete", Rect::new(inner.right() - w, by, w, 36.0), "Delete", Some("delete"), ButtonKind::Danger) {
         delete = Some(m.id);
     }

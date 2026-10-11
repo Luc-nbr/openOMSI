@@ -8,7 +8,7 @@
 use super::super::theme::*;
 use super::super::ui::{ButtonKind, Ui};
 use super::super::Launcher;
-use super::inbox::{wide_bar, words};
+use super::inbox::{button_w, wide_bar, words};
 use super::{act, day_label, eur, eur_cents, grouped, kit, num, section};
 use glam::Vec2;
 use omsi_launcher_lib::company::contracts::{self as ct, Goal, State, Unit, PROVIDERS};
@@ -99,7 +99,7 @@ pub(super) fn stars(ui: &mut Ui, at: Vec2, size: f32, rating: f64) {
     for k in 0..5 {
         let c = Vec2::new(at.x + size * 0.5 + k as f32 * (size + 2.0), at.y + size * 0.5);
         let fill = (rating - k as f64).clamp(0.0, 1.0);
-        ui.icon("star", c, size, if fill >= 0.75 { WARN } else if fill >= 0.25 { WARN.alpha(0.5) } else { TEXT_FAINT });
+        ui.icon("star", c, size, if fill >= 0.75 { WARN } else if fill >= 0.25 { WARN.alpha(0.35) } else { TEXT_FAINT });
     }
 }
 
@@ -183,7 +183,8 @@ fn goals(l: &mut Launcher, r: Rect, c: &Company) {
                 let days = omsi_ui::tr("%{n} days to reach it").replace("%{n}", &g.days.to_string());
                 ui.text_in(&days, Rect::new(card.x + 14.0, yy, card.w - 28.0, 22.0), kit::NOTE, Weight::Medium, TEXT_SOFT, Align::Right);
                 yy += 22.0 + 14.0;
-                let b = Rect::new(card.right() - 14.0 - 150.0, yy, 150.0, 34.0);
+                let bw = button_w(ui, "Take it on", Some("flag"));
+                let b = Rect::new(card.right() - 14.0 - bw, yy, bw, 34.0);
                 if ui.button(&format!("company-goal-take-{}", g.id), b, "Take it on", Some("flag"), if full { ButtonKind::Normal } else { ButtonKind::Primary }) {
                     take = Some(g.id);
                 }
@@ -224,9 +225,10 @@ fn goals(l: &mut Launcher, r: Rect, c: &Company) {
                 };
                 ui.text_in(&when, Rect::new(card.x + 14.0, yy, card.w - 28.0, 22.0), kit::NOTE, Weight::Medium, if left <= 2 { WARN } else { TEXT_SOFT }, Align::Left);
                 yy += 22.0 + 12.0;
-                ui.text_in(g.aim.rule(), Rect::new(card.x + 14.0, yy, card.w - 28.0 - 130.0, 32.0), kit::NOTE, Weight::Regular, TEXT_DIM, Align::Left);
-                ui.tooltip(Rect::new(card.x + 14.0, yy, card.w - 28.0 - 130.0, 32.0), g.aim.rule());
-                if ui.button(&format!("company-goal-give-up-{}", g.id), Rect::new(card.right() - 14.0 - 120.0, yy, 120.0, 32.0), "Give up", None, ButtonKind::Ghost) {
+                let bw = button_w(ui, "Give up", None);
+                ui.text_in(g.aim.rule(), Rect::new(card.x + 14.0, yy, card.w - 38.0 - bw, 32.0), kit::NOTE, Weight::Regular, TEXT_DIM, Align::Left);
+                ui.tooltip(Rect::new(card.x + 14.0, yy, card.w - 38.0 - bw, 32.0), g.aim.rule());
+                if ui.button(&format!("company-goal-give-up-{}", g.id), Rect::new(card.right() - 14.0 - bw, yy, bw, 32.0), "Give up", None, ButtonKind::Ghost) {
                     give_up = Some(g.id);
                 }
             }
@@ -296,7 +298,8 @@ fn internet(l: &mut Launcher, r: Rect, c: &Company, gb: &mut [f32; 4]) {
         let w = inner.w.min(560.0);
         let h = l.ui.paragraph_height(t, w, kit::BODY, Weight::Regular);
         l.ui.paragraph(t, Vec2::new(mid.x - w * 0.5, mid.y - 30.0), w, kit::BODY, Weight::Regular, TEXT_SOFT);
-        if l.ui.button("company-net-research", Rect::new(mid.x - 110.0, mid.y - 20.0 + h, 220.0, 38.0), "To the research", Some("hub"), ButtonKind::Primary) {
+        let bw = button_w(&l.ui, "To the research", Some("hub"));
+        if l.ui.button("company-net-research", Rect::new(mid.x - bw * 0.5, mid.y - 20.0 + h, bw, 38.0), "To the research", Some("hub"), ButtonKind::Primary) {
             l.company.tab = super::RESEARCH_TAB;
         }
         return;
@@ -452,8 +455,9 @@ fn fuel(l: &mut Launcher, r: Rect, c: &Company) {
                     break;
                 }
                 let t = omsi_ui::tr("%{n} days: %{price} a litre, until %{date}").replace("%{n}", &days.to_string()).replace("%{price}", &eur_cents(price)).replace("%{date}", &day_label(&until));
-                l.ui.text_in(&t, Rect::new(row.x, row.y, row.w - 130.0, row.h), kit::ROWS, Weight::Regular, TEXT, Align::Left);
-                if l.ui.button(&format!("company-fuel-sign-{k}"), Rect::new(row.right() - 120.0, row.y + 1.0, 120.0, 34.0), "Fix it", None, ButtonKind::Normal) {
+                let bw = button_w(&l.ui, "Fix it", None);
+                l.ui.text_in(&t, Rect::new(row.x, row.y, row.w - bw - 10.0, row.h), kit::ROWS, Weight::Regular, TEXT, Align::Left);
+                if l.ui.button(&format!("company-fuel-sign-{k}"), Rect::new(row.right() - bw, row.y + 1.0, bw, 34.0), "Fix it", None, ButtonKind::Normal) {
                     sign = Some(k);
                 }
                 y += 42.0;
@@ -489,13 +493,13 @@ fn cleaning(l: &mut Launcher, r: Rect, c: &Company) {
     let by = (inner.bottom() - 36.0).max(y);
     let open = k.as_ref().is_some_and(|k| k.until.is_none());
     if open {
-        if l.ui.button("company-cleaning-end", Rect::new(inner.x, by, 200.0, 34.0), "End the contract", None, ButtonKind::Danger) {
+        if l.ui.button("company-cleaning-end", Rect::new(inner.x, by, button_w(&l.ui, "End the contract", None), 34.0), "End the contract", None, ButtonKind::Danger) {
             act(l, |c| {
                 ct::cancel_cleaning(c);
                 Ok(())
             });
         }
-    } else if l.ui.button("company-cleaning-sign", Rect::new(inner.x, by, 200.0, 34.0), "Sign the contract", Some("check_circle"), ButtonKind::Primary) {
+    } else if l.ui.button("company-cleaning-sign", Rect::new(inner.x, by, button_w(&l.ui, "Sign the contract", Some("check_circle")), 34.0), "Sign the contract", Some("check_circle"), ButtonKind::Primary) {
         act(l, ct::sign_cleaning);
     }
 }

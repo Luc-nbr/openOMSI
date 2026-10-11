@@ -720,7 +720,7 @@ fn services_day(c: &mut Company, date: &str, report: &mut DayReport) {
         // (a good network that lasts the day pleases the passengers; one that runs out annoys
         // them)
         if report.passengers > 0 {
-            let change = 0.12 * (p.satisfaction as f64 / 100.0 - 0.35) * (1.0 - missed) - 0.6 * missed;
+            let change = 0.25 * (p.satisfaction as f64 / 100.0 - 0.35) * (1.0 - missed) - 0.6 * missed;
             move_reputation(c, report, change);
         }
         c.contracts.data = Data { date: date.to_string(), topped, used, short };
@@ -735,7 +735,7 @@ fn services_day(c: &mut Company, date: &str, report: &mut DayReport) {
         let buses = c.fleet.iter().filter(|v| v.held_on(date)).count();
         c.book(BookingKind::Services, -price, format!("Cleaning company ({buses} buses)"), false);
         if report.tours > 0 {
-            move_reputation(c, report, 0.04);
+            move_reputation(c, report, 0.06);
         }
         if c.contracts.cleaning.as_ref().and_then(|k| k.until.as_deref()) == Some(date) {
             c.contracts.cleaning = None;
