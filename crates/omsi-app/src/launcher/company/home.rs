@@ -139,7 +139,7 @@ impl Marks {
     /// the colour of the worst; and the alerts' words.
     pub fn badge(&self, tab: usize) -> Option<(String, Color, String)> {
         if tab == INBOX_TAB {
-            return (self.unread > 0).then(|| (count_text(self.unread), accent(), omsi_ui::tr("%{n} unread").replace("%{n}", &self.unread.to_string())));
+            return (self.unread > 0).then(|| (badge_text(self.unread), accent(), omsi_ui::tr("%{n} unread").replace("%{n}", &self.unread.to_string())));
         }
         let mine: Vec<&(usize, String, Color)> = self.alerts.iter().filter(|a| a.0 == tab).collect();
         if mine.is_empty() {
@@ -152,11 +152,20 @@ impl Marks {
 }
 
 /// A count as a badge says it ("9+" past nine).
-fn count_text(n: usize) -> String {
+fn badge_text(n: usize) -> String {
     if n > 9 {
         "9+".to_string()
     } else {
         n.to_string()
+    }
+}
+
+/// A count in words: the text for one, else the text for `n` with its `%{n}` filled.
+fn count_text(n: usize, one: &str, many: &str) -> String {
+    if n == 1 {
+        omsi_ui::tr(one).into_owned()
+    } else {
+        n_of(many, n)
     }
 }
 
@@ -230,7 +239,7 @@ pub(super) fn sections(c: &Company, plan: Option<&Plan>, marks: &Marks) -> Vec<S
     lines = if c.lines.is_empty() {
         lines.line(omsi_ui::tr("No line yet: take one on"), WARN)
     } else {
-        let t = lines.line(n_of("%{n} lines", c.lines.len()), TEXT_SOFT);
+        let t = lines.line(count_text(c.lines.len(), "1 line", "%{n} lines"), TEXT_SOFT);
         if running < c.lines.len() {
             t.line(n_of("%{n} not in service yet", c.lines.len() - running), WARN)
         } else {
@@ -239,14 +248,14 @@ pub(super) fn sections(c: &Company, plan: Option<&Plan>, marks: &Marks) -> Vec<S
     };
     let minute = c.clock.minute as i32;
     let on_road = plan.map_or(0, |p| p.tours.iter().filter(|t| !t.tour.unplanned && t.covered() && t.tour.from() <= minute && minute < t.tour.to()).count());
-    let map = Tile::new(To::Tab(MAP_TAB), "Map", super::ICONS[MAP_TAB]).line(n_of("%{n} buses on the road now", on_road), if on_road > 0 { TEXT_SOFT } else { TEXT_DIM }).line(omsi_ui::tr("Every line and bus where it is"), TEXT_DIM);
+    let map = Tile::new(To::Tab(MAP_TAB), "Map", super::ICONS[MAP_TAB]).line(count_text(on_road, "1 bus on the road now", "%{n} buses on the road now"), if on_road > 0 { TEXT_SOFT } else { TEXT_DIM }).line(omsi_ui::tr("Every line and bus where it is"), TEXT_DIM);
     let held: Vec<&co::Vehicle> = c.fleet.iter().filter(|v| v.held_on(today)).collect();
     let in_shop = held.iter().filter(|v| v.in_workshop(today)).count();
     let mut fleet = Tile::new(To::Tab(1), "Fleet", super::ICONS[1]);
     fleet = if held.is_empty() {
         fleet.line(omsi_ui::tr("No bus yet: buy, lease or rent one"), WARN)
     } else {
-        let t = fleet.line(n_of("%{n} buses", held.len()), TEXT_SOFT).line(n_of("%{n} ready today", held.len() - in_shop), TEXT_DIM);
+        let t = fleet.line(count_text(held.len(), "1 bus", "%{n} buses"), TEXT_SOFT).line(n_of("%{n} ready today", held.len() - in_shop), TEXT_DIM);
         if in_shop > 0 {
             t.line(n_of("%{n} in the workshop", in_shop), WARN)
         } else {
@@ -260,13 +269,13 @@ pub(super) fn sections(c: &Company, plan: Option<&Plan>, marks: &Marks) -> Vec<S
     people = if staff.is_empty() {
         people.line(omsi_ui::tr("Nobody works here yet"), WARN)
     } else {
-        people.line(n_of("%{n} people", staff.len()), TEXT_SOFT).line(n_of("%{n} at work today", here), TEXT_DIM)
+        people.line(count_text(staff.len(), "1 person", "%{n} people"), TEXT_SOFT).line(n_of("%{n} at work today", here), TEXT_DIM)
     };
     people.big = true;
     let roles: Vec<(&'static str, usize)> = Role::ALL.iter().map(|r| (r.label(), staff.iter().filter(|e| e.role == *r).count())).filter(|(l, n)| *n > 0 || *l == Role::Driver.label()).collect();
     people.extra = Extra::Roles(roles);
     let applicants = co::staff::applicants(c).len();
-    let hire = Tile::new(To::Hire, "Hire staff", "person").line(n_of("%{n} applicants this week", applicants), if applicants > 0 { TEXT_SOFT } else { TEXT_DIM });
+    let hire = Tile::new(To::Hire, "Hire staff", "person").line(count_text(applicants, "1 applicant this week", "%{n} applicants this week"), if applicants > 0 { TEXT_SOFT } else { TEXT_DIM });
     let learning = staff.iter().filter(|e| e.training_until.as_deref().is_some_and(|u| co::dates::between(today, u) >= 0)).count();
     let training = Tile::new(To::Courses, "Training", "badge").line(if learning > 0 { n_of("%{n} on a course today", learning) } else { omsi_ui::tr("Courses for drivers and staff").into_owned() }, if learning > 0 { TEXT_SOFT } else { TEXT_DIM });
     // business: the finances, the concessions, the contracts, the career
@@ -275,16 +284,16 @@ pub(super) fn sections(c: &Company, plan: Option<&Plan>, marks: &Marks) -> Vec<S
     let held_c = c.concessions.held.len();
     let open = c.concessions.tenders.iter().filter(|t| t.open()).count();
     let live = c.concessions.tenders.iter().filter(|t| t.running(now)).count();
-    let mut concessions = Tile::new(To::Tab(CONCESSIONS_TAB), "Concessions", super::ICONS[CONCESSIONS_TAB]).line(n_of("%{n} concessions held", held_c), TEXT_SOFT).line(n_of("%{n} tenders open", open), TEXT_DIM);
+    let mut concessions = Tile::new(To::Tab(CONCESSIONS_TAB), "Concessions", super::ICONS[CONCESSIONS_TAB]).line(count_text(held_c, "1 concession held", "%{n} concessions held"), TEXT_SOFT).line(count_text(open, "1 tender open", "%{n} tenders open"), TEXT_DIM);
     if live > 0 {
-        concessions = concessions.line(n_of("%{n} auctions running now", live), accent_2());
+        concessions = concessions.line(count_text(live, "1 auction running now", "%{n} auctions running now"), accent_2());
         if concessions.badge.is_none() {
             concessions.badge = Some((live.to_string(), accent()));
-            concessions.tip = n_of("%{n} auctions running now", live);
+            concessions.tip = count_text(live, "1 auction running now", "%{n} auctions running now");
         }
     }
     let contracts = Tile::new(To::Tab(CONTRACTS_TAB), "Contracts", super::ICONS[CONTRACTS_TAB])
-        .line(n_of("%{n} trophies", c.trophies.max(0) as usize), TEXT_SOFT)
+        .line(count_text(c.trophies.max(0) as usize, "1 trophy", "%{n} trophies"), TEXT_SOFT)
         .line(if c.research.has(co::research::keys::WLAN) { omsi_ui::tr("Goals, and internet for the buses") } else { omsi_ui::tr("Goals with a reward, service contracts") }, TEXT_DIM);
     let lv = co::levels::level(c);
     let (xp, _, next) = co::levels::progress(c);
@@ -297,16 +306,16 @@ pub(super) fn sections(c: &Company, plan: Option<&Plan>, marks: &Marks) -> Vec<S
     let places = co::depot::places(c);
     let mut depot = Tile::new(To::Tab(DEPOT_TAB), "Depot", super::ICONS[DEPOT_TAB]).line(omsi_ui::tr("%{n} of %{m} places taken").replace("%{n}", &taken.to_string()).replace("%{m}", &places.to_string()), if taken > places { WARN } else { TEXT_SOFT });
     if !c.site.works.is_empty() {
-        depot = depot.line(n_of("%{n} building works under way", c.site.works.len()), accent_2());
+        depot = depot.line(count_text(c.site.works.len(), "1 building work under way", "%{n} building works under way"), accent_2());
     }
     let waiting = c.site.jobs.iter().filter(|j| j.started.is_none()).count();
-    let mut workshop = Tile::new(To::Tab(WORKSHOP_TAB), "Workshop", super::ICONS[WORKSHOP_TAB]).line(n_of("%{n} buses in the workshop", in_shop), TEXT_SOFT);
+    let mut workshop = Tile::new(To::Tab(WORKSHOP_TAB), "Workshop", super::ICONS[WORKSHOP_TAB]).line(count_text(in_shop, "1 bus in the workshop", "%{n} buses in the workshop"), TEXT_SOFT);
     if waiting > 0 {
-        workshop = workshop.line(n_of("%{n} jobs waiting", waiting), WARN);
+        workshop = workshop.line(count_text(waiting, "1 job waiting", "%{n} jobs waiting"), WARN);
     } else {
         workshop = workshop.line(omsi_ui::tr("Spare parts and repairs"), TEXT_DIM);
     }
-    let research = Tile::new(To::Tab(RESEARCH_TAB), "Research", super::ICONS[RESEARCH_TAB]).line(n_of("%{n} researched", c.research.done.len()), TEXT_SOFT).line(n_of("%{n} trophies to spend", c.trophies.max(0) as usize), TEXT_DIM);
+    let research = Tile::new(To::Tab(RESEARCH_TAB), "Research", super::ICONS[RESEARCH_TAB]).line(n_of("%{n} researched", c.research.done.len()), TEXT_SOFT).line(count_text(c.trophies.max(0) as usize, "1 trophy to spend", "%{n} trophies to spend"), TEXT_DIM);
     let settings = Tile::new(To::Settings, "Settings", "settings").line(omsi_ui::tr("Name, mark, date and buying"), TEXT_DIM);
     vec![
         Section { title: "At a glance", tiles: vec![mark(overview), mark(inbox)] },
@@ -665,7 +674,9 @@ impl Metrics {
         }
     }
 
-    /// How many lines of what matters a tile `h` high shows under its mark.
+    /// How many lines of what matters a tile `h` high shows under its mark (as `tile` lays
+    /// them out).
+    #[cfg(test)]
     fn lines(&self, h: f32) -> usize {
         let room = h - self.pad * 0.7 - (self.pad + self.mark + self.gap) + 2.0;
         (room / self.line).floor().max(0.0) as usize
@@ -677,7 +688,7 @@ fn bars(ui: &mut Ui, r: Rect, days: &[Option<i64>]) {
     if r.h < 26.0 || days.is_empty() {
         return;
     }
-    let r = Rect::new(r.x, r.y, r.w, r.h.min(90.0));
+    let r = Rect::new(r.x, r.y, r.w, r.h.min(140.0));
     if days.iter().all(Option::is_none) {
         ui.text_in("No day closed yet", Rect::new(r.x, r.y, r.w, 20.0), kit::NOTE, Weight::Regular, TEXT_DIM, Align::Left);
         return;
@@ -939,7 +950,10 @@ mod tests {
 
     #[test]
     fn a_count_past_nine_is_nine_plus() {
-        assert_eq!(count_text(3), "3");
-        assert_eq!(count_text(10), "9+");
+        assert_eq!(badge_text(3), "3");
+        assert_eq!(badge_text(10), "9+");
+        // (one is said as one, not "1 lines")
+        assert_eq!(count_text(1, "1 line", "%{n} lines"), omsi_ui::tr("1 line"));
+        assert_eq!(count_text(0, "1 line", "%{n} lines"), omsi_ui::tr("%{n} lines").replace("%{n}", "0"));
     }
 }
