@@ -897,13 +897,17 @@ pub fn give(bus_file: &str, key: &str) -> Result<PathBuf, Refusal> {
 
 /// The player's depot file a drive is to have (its key): the one the duty names (`hof`, chosen
 /// on the bus step) when it is one of `keys` (the player's), else the one its line chose - a
-/// line of the player's own (`line`, the timetable line's name) of the registry `reg`.
+/// line of the player's own (`line`, the timetable line's name) of the registry `reg`, or a
+/// line of the map's he edited (by its own `.ttl`'s name, while his edit is what runs).
 pub fn wanted(keys: &[String], reg: Option<&Registry>, line: Option<&str>, hof: Option<&str>) -> Option<String> {
     let mine = |k: &str| keys.iter().find(|x| x.eq_ignore_ascii_case(k.trim())).cloned();
     if let Some(k) = hof.and_then(mine) {
         return Some(k);
     }
     let (reg, line) = (reg?, line?.trim());
+    if let Some(l) = reg.map_line(line).map(LineDesign::in_timetable).filter(|l| lines::written(l)) {
+        return mine(&l.depot_file);
+    }
     if !lines::is_own_file(line) {
         return None;
     }
@@ -1241,6 +1245,12 @@ mod tests {
         assert_eq!(wanted(&keys, Some(&reg), Some(&stem), Some("oo_specials")).as_deref(), Some("oo_Specials"), "the one chosen on the bus step");
         assert_eq!(wanted(&keys, None, None, Some("oo_Specials")).as_deref(), Some("oo_Specials"), "any bus, no line: a special trip");
         assert_eq!(wanted(&keys, Some(&reg), Some("Linie 7"), None), None, "a line of the map's");
+        // a line of the map's the player edited: by its own file's name
+        let mut edited = reg.lines[0].clone();
+        (edited.map, edited.depot_file) = (Some(lines::MapSource { ttl: "Linie 7".into(), ..Default::default() }), "oo_specials".into());
+        reg.add_map_line(edited);
+        assert_eq!(wanted(&keys, Some(&reg), Some("linie 7"), None).as_deref(), Some("oo_Specials"), "a line of the map's the player edited");
+        reg.lines.pop();
         reg.lines[0].depot_file = "oo_gone".into();
         assert_eq!(wanted(&keys, Some(&reg), Some(&stem), None), None, "a file no longer there");
     }
