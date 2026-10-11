@@ -58,6 +58,8 @@ pub fn migrate(mut c: Company) -> Company {
         super::licences::grant_fleet(&mut c);
         c.quals = 1;
     }
+    // (everyone a face of their own, the wages' price index)
+    super::staff::migrate(&mut c);
     c.version = VERSION;
     c
 }

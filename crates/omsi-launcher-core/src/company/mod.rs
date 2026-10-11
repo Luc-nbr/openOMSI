@@ -189,7 +189,7 @@ pub fn alerts(c: &Company, plan: Option<&day::Plan>) -> Vec<Alert> {
     if c.fleet.is_empty() {
         out.push(Alert::NoBuses);
     }
-    if c.staff.is_empty() {
+    if !c.staff.iter().any(staff::drives) {
         out.push(Alert::NoDrivers);
     }
     let now = clock::now(c);

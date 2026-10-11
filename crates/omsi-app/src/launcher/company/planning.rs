@@ -1010,9 +1010,11 @@ fn day_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan) {
             )),
         }
     }
+    // (the drivers: only they drive)
     let staff: Vec<(u32, String, Color, String, Color)> = c
         .staff
         .iter()
+        .filter(|e| co::staff::drives(e))
         .map(|e| {
             let mins: i32 = p.duties_of(Who::Staff(e.id)).iter().map(|&(i, k)| p.tours[i].duties[k].to - p.tours[i].duties[k].from).sum();
             let (state, col) = if !e.employed_on(&p.date) {
@@ -1293,6 +1295,7 @@ fn duty_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, ti: usize, k:
         let mut people: Vec<(bool, u32, String, String, Color)> = c
             .staff
             .iter()
+            .filter(|e| co::staff::drives(e))
             .map(|e| {
                 let (s, col, ok) = fit_of(c, p, ti, k, e.id);
                 (ok, e.id, e.name.clone(), s, col)

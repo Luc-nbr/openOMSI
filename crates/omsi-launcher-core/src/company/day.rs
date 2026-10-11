@@ -142,7 +142,7 @@ fn is_one_of(t: &TourOfDay, keys: &[(String, String)]) -> bool {
 pub fn assign(c: &Company, tours: Vec<TourOfDay>, player: &[(String, String)], live: &[(String, String)]) -> Plan {
     let date = c.date.clone();
     let mut buses: Vec<(u32, BusSize, i32)> = c.fleet.iter().filter(|v| v.held_on(&date) && !v.in_workshop(&date) && v.condition >= 20.0).map(|v| (v.id, v.kind.size, i32::MIN)).collect();
-    let mut people: Vec<(u32, Vec<Block>)> = c.staff.iter().filter(|e| e.employed_on(&date) && !e.absent(&date) && e.week_days < WEEK_DAYS).map(|e| (e.id, Vec::new())).collect();
+    let mut people: Vec<(u32, Vec<Block>)> = c.staff.iter().filter(|e| staff::drives(e) && e.employed_on(&date) && !e.absent(&date) && e.week_days < WEEK_DAYS).map(|e| (e.id, Vec::new())).collect();
     let mut plans: Vec<TourPlan> = Vec::new();
     let mut tours = tours;
     tours.sort_by_key(|t| t.from());
@@ -486,7 +486,9 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
     let mut befalls = Rng::of(&[&c.id, "incidents"], dates::parse(&date).unwrap_or(0));
     let mut tally = super::incidents::Tally::default();
     let mut bus_km: Vec<(u32, f64)> = Vec::new();
-    let mut worked: Vec<(u32, i32, i32)> = Vec::new();
+    let mut worked: Vec<(u32, i32, i32, i32)> = Vec::new();
+    // (the ticket inspectors' lines bring in what dodgers would not pay: `staff::fare_gain`)
+    let checked: Vec<f64> = c.lines.iter().map(|l| 1.0 + staff::fare_gain(c, &date, &l.name)).collect();
     for tp in &plan.tours {
         let Some(li) = lines.iter().position(|l| l.line.eq_ignore_ascii_case(&tp.tour.line)) else { continue };
         lines[li].tours += 1;
@@ -511,8 +513,9 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
                     Some(w) => {
                         w.1 += d.to - d.from;
                         w.2 = w.2.max(d.to);
+                        w.3 = w.3.min(d.from);
                     }
-                    None => worked.push((e.id, d.to - d.from, d.to)),
+                    None => worked.push((e.id, d.to - d.from, d.to, d.from)),
                 }
             }
             for trip in &tp.tour.trips[d.start..d.end] {
@@ -562,6 +565,8 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
                 let own = c.lines.get(li).filter(|cl| cl.plan.is_some());
                 let base = booked.or_else(|| own.and_then(|cl| super::ownline::trip_boardings(cl, &date, trip.dep))).unwrap_or_else(|| economy::passengers_for(trip.km, trip.dep, &r));
                 let mut pax = base * rng.range(0.8, 1.2) * (0.85 + 0.3 * c.reputation / 100.0) * (0.95 + 0.1 * e.skills.service / 100.0) * c.lines.get(li).map(|l| l.demand.share()).unwrap_or(1.0) * demand_factor;
+                // (a friendly driver and a clean bus: the passengers notice, `staff`)
+                pax *= staff::friendly_factor(e.friendliness) * staff::clean_factor(v.clean);
                 match kind {
                     ServiceKind::Leisure => pax *= weather,
                     ServiceKind::OnDemand => pax = pax.max(1.0),
@@ -576,7 +581,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
                 let pax = pax.round().max(0.0) as u32;
                 let (fares, comp) = super::ownline::trip_income(kind, pax as f64, trip.km, per_passenger[li], comp_km, super::ownline::school_trip_pay(c, trip.km));
                 let skilled = trained.get(&e.id).copied().unwrap_or_default();
-                let fares = (fares as f64 * super::incidents::fare_factor(&skilled)).round() as Cents;
+                let fares = (fares as f64 * super::incidents::fare_factor(&skilled) * checked.get(li).copied().unwrap_or(1.0)).round() as Cents;
                 super::incidents::trip(&mut befalls, e, &skilled, &v.number, v.kind.size, pax, c.price_index, &mut tally);
                 sums[li].fares += fares;
                 sums[li].compensation += comp;
@@ -692,7 +697,9 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
 
     // 8. the month's end
     if dates::last_of_month(&date) {
-        for e in c.staff.clone() {
+        // (the drivers' wages by the month; the others are paid their hours day by day,
+        // `staff::roles_day`)
+        for e in c.staff.clone().into_iter().filter(staff::paid_monthly) {
             c.book(BookingKind::Wages, -staff::wage_for_month(&e, &month), e.name.clone(), false);
         }
         let first = dates::parse(&format!("{month}-01")).unwrap_or(0);
@@ -1111,6 +1118,70 @@ mod tests {
         assert!(m.get(BookingKind::Insurance) < 0);
         // (the day's figures have it)
         assert!(r.expenses >= 400_00);
+    }
+
+    #[test]
+    fn only_drivers_drive_and_the_others_do_their_work() {
+        use crate::company::model::Role;
+        // a mechanic, a cleaner and a service employee, and no driver: nobody drives
+        let mut c = company(Difficulty::Realistic, 2, 0);
+        for role in [Role::Mechanic, Role::Cleaner, Role::Service] {
+            let a = staff::applicants_of(&c, role)[0].clone();
+            hire(&mut c, &a).unwrap();
+        }
+        let tours = vec![tour("1", 6 * 60, 6), tour("2", 7 * 60, 6)];
+        assert!(assign(&c, tours.clone(), &[], &[]).tours.iter().all(|t| t.duties.iter().all(|d| d.driver.is_none())));
+        let date = c.date.clone();
+        let dp = super::super::plan::day_plan(&c, &date, tours.clone(), &[], &[], true);
+        assert!(dp.tours.iter().flat_map(|t| t.duties.iter()).all(|d| !matches!(d.who, Some(super::super::plan::Who::Staff(_)))));
+        assert!(super::super::alerts(&c, None).contains(&super::super::Alert::NoDrivers));
+        let mechanic = c.staff[0].id;
+        assert!(super::super::licences::enrol(&mut c, mechanic, super::super::training::CourseKind::LicenceD, "").is_err());
+        let r = close_day(&mut c.clone(), tours.clone(), &[]);
+        assert_eq!(r.covered, 0);
+        // with drivers: they drive, the others are paid their hours and never planned
+        let mut c = company(Difficulty::Realistic, 2, 4);
+        let drivers: Vec<u32> = c.staff.iter().map(|e| e.id).collect();
+        for role in [Role::Mechanic, Role::Cleaner] {
+            let a = staff::applicants_of(&c, role)[0].clone();
+            hire(&mut c, &a).unwrap();
+        }
+        let others: Vec<u32> = c.staff.iter().filter(|e| !drivers.contains(&e.id)).map(|e| e.id).collect();
+        let plan = assign(&c, tours.clone(), &[], &[]);
+        assert!(plan.tours.iter().flat_map(|t| t.duties.iter()).filter_map(|d| d.driver).all(|id| drivers.contains(&id)));
+        assert_eq!(super::super::plan::agency_max(&c), 1);
+        c.date = "2024-03-31".into();
+        for e in c.staff.iter_mut() {
+            e.hired = "2024-03-01".into();
+        }
+        let r = close_day(&mut c, tours, &[]);
+        assert!(r.covered > 0);
+        assert!(c.staff.iter().filter(|e| others.contains(&e.id)).all(|e| e.days_worked <= 1 && e.endorsements.is_empty()));
+        // the month's end booked the drivers' monthly wages by name; the others' hours by the day
+        let wages: Vec<&super::super::model::Booking> = c.ledger.iter().filter(|b| b.kind == BookingKind::Wages).collect();
+        assert!(c.staff.iter().filter(|e| drivers.contains(&e.id)).all(|e| wages.iter().any(|b| b.text == e.name)));
+        assert!(c.staff.iter().filter(|e| others.contains(&e.id)).all(|e| !wages.iter().any(|b| b.text == e.name)));
+    }
+
+    #[test]
+    fn ticket_inspectors_bring_in_more_fares() {
+        use crate::company::model::Role;
+        let mut c = company(Difficulty::Realistic, 2, 4);
+        c.research.done.push(super::super::research::keys::TICKET_INSPECTORS.to_string());
+        let plain = c.clone();
+        let a = staff::applicants_of(&c, Role::Inspector)[0].clone();
+        let id = hire(&mut c, &a).unwrap();
+        // (a day of their rota)
+        let day = (0..7).map(|k| dates::add(&c.date, k)).find(|d| staff::at_work(c.employee(id).unwrap(), d)).unwrap();
+        let (mut with, mut without) = (c, plain);
+        with.date = day.clone();
+        without.date = day.clone();
+        let tours = vec![tour("1", 6 * 60, 10), tour("2", 6 * 60 + 30, 10)];
+        let (rw, ro) = (close_day(&mut with, tours.clone(), &[]), close_day(&mut without, tours, &[]));
+        assert_eq!(rw.passengers, ro.passengers);
+        let fares = |c: &Company| c.ledger.iter().filter(|b| b.date == day && b.kind == BookingKind::Fares).map(|b| b.amount).sum::<Cents>();
+        let (fw, fo) = (fares(&with) as f64, fares(&without) as f64);
+        assert!(fo > 0.0 && fw > fo * 1.01 && fw <= fo * (1.0 + staff::INSPECT_GAIN) + 20.0, "{fo} {fw}");
     }
 
     #[test]

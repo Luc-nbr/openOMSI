@@ -39,9 +39,9 @@ pub const PLAYER: u32 = u32::MAX - 1;
 /// An agency driver's hour, the agency's margin included (founding day's prices).
 pub const AGENCY_HOUR: Cents = 42_00;
 
-/// Agency drivers a day at most: one, and one more for every five on the payroll.
+/// Agency drivers a day at most: one, and one more for every five drivers on the payroll.
 pub fn agency_max(c: &Company) -> usize {
-    1 + c.staff.len() / 5
+    1 + c.staff.iter().filter(|e| staff::drives(e)).count() / 5
 }
 
 // --- the roster ------------------------------------------------------------------------------
@@ -300,7 +300,7 @@ fn fill(c: &mut Company, date: &str, tours: Vec<TourOfDay>, only: Option<&str>) 
     let p = day_plan(&probe, date, tours, &[], &[], false);
     let wd = weekday_of(date);
     let mut f = Filled::default();
-    let staff: Vec<&Employee> = c.staff.iter().filter(|e| e.employed_on(date)).collect();
+    let staff: Vec<&Employee> = c.staff.iter().filter(|e| staff::drives(e) && e.employed_on(date)).collect();
     for t in &p.tours {
         if t.by_player || !ours(t) {
             continue;
@@ -361,7 +361,7 @@ pub fn disruptions(c: &Company, date: &str) -> Vec<Disruption> {
         Difficulty::Hard => 1.4,
     };
     let mut out = Vec::new();
-    for e in c.staff.iter().filter(|e| e.employed_on(date) && !e.absent(date)) {
+    for e in c.staff.iter().filter(|e| staff::drives(e) && e.employed_on(date) && !e.absent(date)) {
         let mut rng = Rng::of(&[&c.id, "late", &e.id.to_string()], day);
         let p = (0.03 + if e.satisfaction < 50.0 { 0.02 } else { 0.0 }) * late_factor * (1.5 - 0.5 * e.reliability);
         if rng.chance(p) {
@@ -700,9 +700,10 @@ fn covers(u: &Option<String>, date: &str) -> bool {
     u.as_deref().is_some_and(|u| dates::between(date, u) >= 0)
 }
 
-/// Why someone cannot drive on `date` at all (None: they can).
+/// Why someone cannot drive on `date` at all (None: they can). Only drivers drive: anyone else
+/// is away from the duties.
 fn unavailable(e: &Employee, date: &str, today: bool) -> Option<Problem> {
-    if !e.employed_on(date) {
+    if !staff::drives(e) || !e.employed_on(date) {
         Some(Problem::Away)
     } else if covers(&e.sick_until, date) {
         Some(Problem::Sick)
@@ -729,6 +730,9 @@ fn size_fit(wants: Option<BusSize>, size: BusSize) -> u8 {
 /// How a duty (or a piece) on a bus (`DayTour::bus_of`) fits a driver: qualified for it - the
 /// licence, the endorsements, the model's type training (`licences`) - and then as `fits`.
 pub fn fits_bus(e: &Employee, bus: &(BusKind, Option<String>), work: &[Block], b: &Block, today: bool) -> Result<Vec<Warn>, Problem> {
+    if !staff::drives(e) {
+        return Err(Problem::Away);
+    }
     match super::licences::lack(e, bus.0, bus.1.as_deref()) {
         Some(super::licences::Lack::Licence) => Err(Problem::Licence),
         Some(super::licences::Lack::Endorsement(_)) => Err(Problem::NoEndorsement),
@@ -739,6 +743,9 @@ pub fn fits_bus(e: &Employee, bus: &(BusKind, Option<String>), work: &[Block], b
 
 /// How a duty (or a piece) fits a driver: allowed, and the warnings.
 pub fn fits(e: &Employee, size: BusSize, work: &[Block], b: &Block, today: bool) -> Result<Vec<Warn>, Problem> {
+    if !staff::drives(e) {
+        return Err(Problem::Away);
+    }
     if !staff::may_drive(e, size) {
         return Err(Problem::Licence);
     }
