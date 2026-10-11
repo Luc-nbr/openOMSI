@@ -257,6 +257,8 @@ pub fn graph(title: &str, info: &[String], printed: &str, page_word: &str, rows:
             pdf.text(48.0, y + 34.0, 6.0, false, &r.sub2, INK, 1);
             let bar_y = y + 22.0;
             let bar_h = 6.5;
+            // (the last trip's end: where, and at which stop)
+            let mut last_end: Option<(f32, String)> = None;
             for it in &r.items {
                 let (a, b) = (x_of(it.from), x_of(it.to).max(x_of(it.from) + 1.0));
                 match it.kind {
@@ -285,12 +287,19 @@ pub fn graph(title: &str, info: &[String], printed: &str, page_word: &str, rows:
                     }
                 }
                 // the stops' letters and the minutes over the trip's ends
+                // (as Optibus prints them: "Re 55 | 00" - the stop once where one trip ends and
+                // the next begins, the minutes either side of the line)
                 if matches!(it.kind, ItemKind::Trip { .. }) {
                     pdf.line((a, bar_y - 7.0), (a, bar_y), 0.3, INK);
-                    pdf.text(a, bar_y - 13.0, 4.8, false, &it.start_stop, INK, 1);
-                    pdf.text(a, bar_y - 8.0, 4.8, false, &format!("{:02}", it.from.rem_euclid(60)), INK, 1);
-                    pdf.text(b, bar_y - 13.0, 4.8, false, &it.end_stop, INK, 1);
-                    pdf.text(b, bar_y - 8.0, 4.8, false, &format!("{:02}", it.to.rem_euclid(60)), INK, 1);
+                    let joined = last_end.as_ref().is_some_and(|(x, s)| *s == it.start_stop && a - x < 14.0);
+                    if !joined {
+                        pdf.text(a + 0.8, bar_y - 13.0, 4.8, false, &it.start_stop, INK, 0);
+                    }
+                    pdf.text(a + 0.8, bar_y - 8.0, 4.8, false, &format!("{:02}", it.from.rem_euclid(60)), INK, 0);
+                    pdf.line((b, bar_y - 7.0), (b, bar_y), 0.3, INK);
+                    pdf.text(b - 0.8, bar_y - 13.0, 4.8, false, &it.end_stop, INK, 2);
+                    pdf.text(b - 0.8, bar_y - 8.0, 4.8, false, &format!("{:02}", it.to.rem_euclid(60)), INK, 2);
+                    last_end = Some((b, it.end_stop.clone()));
                 }
             }
             // the band under it

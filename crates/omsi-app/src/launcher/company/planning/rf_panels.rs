@@ -1502,7 +1502,7 @@ fn filter(l: &mut Launcher, page: Rect, k: &Cached, p: &Pal) -> Rect {
         f.from = v;
     }
     ui.text_in("to", Rect::new(r.x + 270.0, y, 30.0, 30.0), 13.0, Weight::Medium, p.dim, Align::Center);
-    if let Some(v) = stepper(ui, p, "rf-filter-to", Rect::new(r.x + 304.0, y, 110.0, 30.0), f.to.min(1800), 30, 0, 1800, &rf::clock) {
+    if let Some(v) = stepper(ui, p, "rf-filter-to", Rect::new(r.x + 304.0, y, 110.0, 30.0), f.to.min(1800), 30, 0, 1800, &|v| if v >= 1800 { "—".to_string() } else { rf::clock(v) }) {
         f.to = if v >= 1800 { 2880 } else { v };
     }
     let clear = rf_button(ui, p, "rf-filter-clear", Rect::new(r.x + 18.0, r.bottom() - 46.0, 120.0, 32.0), "Clear all", false, true);

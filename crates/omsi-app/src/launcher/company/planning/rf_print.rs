@@ -97,6 +97,15 @@ pub(super) fn print(l: &mut Launcher, k: &Cached, board: &Board, date: &str, bus
     let printed = format!("{}: {}  ·  {}", omsi_ui::tr("Printed"), c.date, c.name);
     let bytes = pdf::graph(&title, &info, &printed, &omsi_ui::tr("Page"), &rows);
     let name = format!("{}-{}.pdf", if bus { "bus-graph" } else { "duty-graph" }, date);
+    // (a folder given in OMSI_ROSTERFLOW_PDF takes the file without asking: the screenshot
+    // runs check the print so)
+    if let Ok(dir) = std::env::var("OMSI_ROSTERFLOW_PDF") {
+        let path = std::path::Path::new(&dir).join(&name);
+        if std::fs::write(&path, &bytes).is_ok() {
+            l.state.set_status(omsi_ui::tr("Saved: %{file}").replace("%{file}", &path.display().to_string()), false);
+        }
+        return;
+    }
     #[cfg(not(target_os = "android"))]
     {
         let Some(path) = rfd::FileDialog::new().set_title(omsi_ui::tr("Save the graph as a PDF file").as_ref()).set_file_name(&name).add_filter("PDF", &["pdf"]).save_file() else { return };
