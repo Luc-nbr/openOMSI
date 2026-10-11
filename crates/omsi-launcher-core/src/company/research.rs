@@ -31,5 +31,15 @@ impl Research {
     }
 }
 
+/// What the research done does to the fuel a bus uses (1: nothing).
+pub fn fuel_factor(_c: &Company) -> f64 {
+    1.0
+}
+
+/// What the research done does to how many ride (1: nothing).
+pub fn demand_factor(_c: &Company) -> f64 {
+    1.0
+}
+
 /// The research's day (`day::close_day`): the researchers' work on what runs.
 pub fn day(_c: &mut Company, _date: &str, _report: &mut DayReport) {}

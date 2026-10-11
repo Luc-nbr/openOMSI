@@ -73,5 +73,15 @@ pub fn post(c: &mut Company, mut m: Message) {
     c.inbox.messages.push(m);
 }
 
+/// The fuel price on `date` against the usual (1: as ever), from the events running then.
+pub fn fuel_price_factor(_c: &Company, _date: &str) -> f64 {
+    1.0
+}
+
+/// How many ride on `date` against the usual (1: as ever), from the events running then.
+pub fn demand_factor(_c: &Company, _date: &str) -> f64 {
+    1.0
+}
+
 /// The inbox's day (`day::close_day`): the world's events of the coming days.
 pub fn day(_c: &mut Company, _date: &str, _report: &mut DayReport) {}

@@ -122,10 +122,18 @@ pub enum BookingKind {
     Livery,
     /// What advertisers pay for the adverts on the buses (and a contract ended early costs).
     Advertising,
+    /// Research (`research`).
+    Research,
+    /// Spare parts for the workshop's stores (`parts`).
+    Parts,
+    /// Service contracts: the buses' internet and the like (`contracts`).
+    Services,
+    /// The money of goals reached (`contracts`).
+    Rewards,
 }
 
 impl BookingKind {
-    pub const ALL: [BookingKind; 26] = [
+    pub const ALL: [BookingKind; 30] = [
         BookingKind::Capital,
         BookingKind::Loan,
         BookingKind::Repayment,
@@ -152,6 +160,10 @@ impl BookingKind {
         BookingKind::Concession,
         BookingKind::Livery,
         BookingKind::Advertising,
+        BookingKind::Research,
+        BookingKind::Parts,
+        BookingKind::Services,
+        BookingKind::Rewards,
     ];
 
     pub fn label(self) -> &'static str {
@@ -182,6 +194,10 @@ impl BookingKind {
             BookingKind::Concession => "Concessions and licences",
             BookingKind::Livery => "Liveries and painting",
             BookingKind::Advertising => "Advertising",
+            BookingKind::Research => "Research",
+            BookingKind::Parts => "Spare parts",
+            BookingKind::Services => "Service contracts",
+            BookingKind::Rewards => "Goal rewards",
         }
     }
 

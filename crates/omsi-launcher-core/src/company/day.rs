@@ -352,6 +352,9 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
     let date = c.date.clone();
     let month = dates::month_of(&date);
     let before = c.month(&month);
+    // (what research and the day's events do to the fuel bought and to how many ride)
+    let fuel_factor = super::research::fuel_factor(c) * super::inbox::fuel_price_factor(c, &date);
+    let demand_factor = super::research::demand_factor(c) * super::inbox::demand_factor(c, &date);
     let mut rng = Rng::of(&[&c.id, "day"], dates::parse(&date).unwrap_or(0));
     let mut report = DayReport { date: date.clone(), ..Default::default() };
     let day_end = super::clock::moment(&date, 24 * 60 - 1);
@@ -389,7 +392,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
             None => (BusKind { size: BusSize::Solo, drive: Drive::Diesel }, 5.0),
         };
         let s = &mut sums[li];
-        s.energy += km * economy::energy_per_km(kind, c.price_index);
+        s.energy += km * economy::energy_per_km(kind, c.price_index) * fuel_factor;
         s.maintenance += km * economy::maintenance_per_km(kind, age, c.price_index);
         let late = t.average.is_some_and(|a| a > 180.0) || (t.stops > 0 && t.late * 4 > t.stops);
         if t.timed() {
@@ -554,7 +557,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
                 // (an own line: its passengers by the hour, and what its bus can take)
                 let own = c.lines.get(li).filter(|cl| cl.plan.is_some());
                 let base = booked.or_else(|| own.and_then(|cl| super::ownline::trip_boardings(cl, &date, trip.dep))).unwrap_or_else(|| economy::passengers_for(trip.km, trip.dep, &r));
-                let mut pax = base * rng.range(0.8, 1.2) * (0.85 + 0.3 * c.reputation / 100.0) * (0.95 + 0.1 * e.skills.service / 100.0) * c.lines.get(li).map(|l| l.demand.share()).unwrap_or(1.0);
+                let mut pax = base * rng.range(0.8, 1.2) * (0.85 + 0.3 * c.reputation / 100.0) * (0.95 + 0.1 * e.skills.service / 100.0) * c.lines.get(li).map(|l| l.demand.share()).unwrap_or(1.0) * demand_factor;
                 match kind {
                     ServiceKind::Leisure => pax *= weather,
                     ServiceKind::OnDemand => pax = pax.max(1.0),
