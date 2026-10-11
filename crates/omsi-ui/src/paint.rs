@@ -737,6 +737,24 @@ impl Painter {
         }
         let k = self.scale;
         let s = atlas.text(fonts, text, px * k, weight);
+        self.sprite_rotated(s, at, angle, c)
+    }
+
+    /// `text_rotated` in a `Style` (an oblique for italics), the text as it is (a name, never
+    /// translated).
+    #[allow(clippy::too_many_arguments)]
+    pub fn text_rotated_styled(&mut self, atlas: &mut Atlas, fonts: &Fonts, text: &str, px: f32, weight: Weight, at: Vec2, angle: f32, c: Color, style: crate::text::Style) -> Vec2 {
+        if text.is_empty() {
+            return Vec2::ZERO;
+        }
+        let k = self.scale;
+        let s = atlas.text_styled(fonts, text, px * k, weight, style);
+        self.sprite_rotated(s, at, angle, c)
+    }
+
+    /// A line's picture turned by `angle` about its centre `at`.
+    fn sprite_rotated(&mut self, s: Sprite, at: Vec2, angle: f32, c: Color) -> Vec2 {
+        let k = self.scale;
         let (w, h) = (s.w / k, s.h / k);
         let (sn, cs) = angle.sin_cos();
         let rot = |v: Vec2| at + Vec2::new(v.x * cs - v.y * sn, v.x * sn + v.y * cs);

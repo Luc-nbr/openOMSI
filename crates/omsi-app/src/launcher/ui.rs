@@ -964,6 +964,15 @@ impl Ui {
         layers.last_mut().unwrap().1.text_rotated(atlas, fonts, text, px, weight, at, angle, c);
     }
 
+    /// `text_rotated` in italics (a slanted face), the text as it is: a name, never translated.
+    /// Returns its size.
+    #[allow(clippy::too_many_arguments)]
+    pub fn text_rotated_italic(&mut self, text: &str, px: f32, weight: Weight, at: Vec2, angle: f32, c: Color) -> Vec2 {
+        let Ui { atlas, fonts, layers, .. } = self;
+        let style = omsi_ui::text::Style { slant: 0.2, ..Default::default() };
+        layers.last_mut().unwrap().1.text_rotated_styled(atlas, fonts, text, px, weight, at, angle, c, style)
+    }
+
     pub fn icon(&mut self, name: &str, center: Vec2, size: f32, c: Color) {
         let Ui { atlas, layers, .. } = self;
         layers.last_mut().unwrap().1.icon(atlas, name, center, size, c)

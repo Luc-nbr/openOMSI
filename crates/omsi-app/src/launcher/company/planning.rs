@@ -23,6 +23,7 @@
 
 mod plan_edit;
 mod studio;
+mod timeplan;
 
 use super::super::flow::Step;
 use super::super::state::{CompanyDuty, PlannedBus};
@@ -95,12 +96,14 @@ pub struct PlanningView {
     /// What the page shows: 0 the roster, 1 the studio's Vehicles view, 2 its Drivers view.
     pub(super) view: usize,
     studio: studio::StudioView,
+    /// RosterFlow's timeplan (`timeplan`), opened from the header's "Timeplan".
+    timeplan: timeplan::TimeplanView,
 }
 
 impl Default for PlanningView {
     fn default() -> Self {
         let (tx, rx) = channel();
-        PlanningView { tx, rx, days: Vec::new(), asked: Vec::new(), extra: Vec::new(), day: 0, sel: None, arm: None, drag: None, carry: None, press: None, carry_from: Vec2::ZERO, targets: Vec::new(), clear_armed: false, cache: Vec::new(), read_at: 0, focus: None, edit: None, tapped: None, view: 0, studio: Default::default() }
+        PlanningView { tx, rx, days: Vec::new(), asked: Vec::new(), extra: Vec::new(), day: 0, sel: None, arm: None, drag: None, carry: None, press: None, carry_from: Vec2::ZERO, targets: Vec::new(), clear_armed: false, cache: Vec::new(), read_at: 0, focus: None, edit: None, tapped: None, view: 0, studio: Default::default(), timeplan: Default::default() }
     }
 }
 
@@ -110,7 +113,7 @@ impl PlanningView {
     /// studio - that Escape lets go of first (before it goes back to the company's start
     /// screen).
     pub(super) fn holds_choice(&self) -> bool {
-        self.sel.is_some() || self.arm.is_some() || self.drag.is_some() || self.carry.is_some() || self.edit.is_some() || (self.view > 0 && self.studio.holds())
+        self.sel.is_some() || self.arm.is_some() || self.drag.is_some() || self.carry.is_some() || self.edit.is_some() || (self.view > 0 && self.studio.holds()) || self.timeplan.open
     }
 
     /// Forget the week read: it is read again (the timetable was written).
@@ -523,6 +526,22 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         l.company.planning.studio.let_go();
     }
     l.ui.tooltip(Rect::new(area.x, ty + 2.0, sw, 36.0), "Roster: who drives what. Vehicles and Drivers: the scheduling studio - the buses' blocks and the duties cut from them");
+    // RosterFlow's timeplan (until RosterFlow's shell gives it its tab: from here)
+    let tpw = 132.0;
+    let tp_r = Rect::new(area.x + sw + 12.0, ty + 2.0, tpw, 36.0);
+    let tp_open = l.company.planning.timeplan.open;
+    if l.ui.button("plan-timeplan", tp_r, "Timeplan", Some("schedule"), if tp_open { ButtonKind::Primary } else { ButtonKind::Normal }) {
+        l.company.planning.timeplan.open = !tp_open;
+    }
+    l.ui.tooltip(tp_r, "The line's running times and timetable, as a scheduler plans them");
+    if l.company.planning.timeplan.open {
+        if let Some(i) = under {
+            l.ui.input = i;
+        }
+        timeplan::draw(l, Rect::new(area.x, ty + 50.0, area.w, (area.bottom() - ty - 50.0).max(0.0)));
+        return;
+    }
+    let sw = sw + tpw + 12.0;
     let tools_r = Rect::new(area.x + sw + 18.0, ty, (area.w - sw - 18.0).max(0.0), 40.0);
     let body = Rect::new(area.x, ty + 40.0 + 14.0, area.w, (area.bottom() - ty - 40.0 - 14.0).max(0.0));
     if view > 0 {
