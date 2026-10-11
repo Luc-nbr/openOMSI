@@ -27,7 +27,8 @@
 //!   day: €1,000 and €2 per passenger expected on a working day.
 //!
 //! A route changed later is approved anew (§ 13 PBefG for a changed licence): €600 and the
-//! passenger information of every stop that is new to the line (`change_fee`).
+//! passenger information of every stop that is new to the line (`change_fee`) - for a line of
+//! the map's that the company runs and changes in the line editor too (`map_change_fee`).
 //!
 //! **Every month**: the stop usage fee to the road authority (cities and the owners of bus
 //! stations charge for their stops, here a flat €25 a stop, `month_end`); the fare
@@ -1042,6 +1043,63 @@ pub fn apply_change(c: &mut Company, l: &LineDesign, stem: &str, shape: &Shape) 
     Ok(fee)
 }
 
+/// What saving a line of the map's the company runs costs, edited in the line editor
+/// (`lines::LineDesign::map`): its route approved anew when its stops changed from `old` (the
+/// line as it runs now - the map's own, or as edited before), with the passenger information
+/// of the stops new to it (None: nothing to pay).
+pub fn map_change_fee(c: &Company, old: &LineDesign, new: &LineDesign) -> Option<Cents> {
+    if route_key(old) == route_key(new) {
+        return None;
+    }
+    let had: HashSet<i64> = old.directions.iter().flat_map(|d| d.stops.iter().map(|s| s.id)).collect();
+    let added: HashSet<i64> = new.directions.iter().flat_map(|d| d.stops.iter().map(|s| s.id)).filter(|id| !had.contains(id)).collect();
+    let k = costs(c.difficulty);
+    let fee = k.change_base + k.info_per_stop * added.len() as Cents;
+    Some((fee as f64 * c.price_index).round() as Cents)
+}
+
+/// A line of the map's that the company runs (its timetable name `name`), changed in the line
+/// editor from `old` to `new` and saved - or put back as the map has it (`new` the map's own,
+/// `restored`, nothing to pay): the route's approval paid (`map_change_fee`), the company's line
+/// numbered, coloured and captioned as the line is now, and the tours the change touches taken
+/// off the roster (their buses and drivers are given anew). Returns what was paid.
+pub fn apply_map_change(c: &mut Company, name: &str, old: &LineDesign, new: &LineDesign, restored: bool) -> Result<Cents, &'static str> {
+    if !c.lines.iter().any(|x| !x.own && x.name.eq_ignore_ascii_case(name)) {
+        return Err("The company does not run this line.");
+    }
+    if !restored {
+        sizes_allowed(c, new)?;
+    }
+    let fee = if restored { 0 } else { map_change_fee(c, old, new).unwrap_or(0) };
+    if c.cash < fee {
+        return Err("The company cannot pay for the change: take a loan on the Finances page.");
+    }
+    let number = new.number.trim().to_string();
+    if fee > 0 {
+        c.book(BookingKind::Concession, -fee, format!("Line {number}: route approved anew"), false);
+    }
+    let replan = lines::tour_diff(old, new).replan();
+    if let Some(cl) = c.lines.iter_mut().find(|x| !x.own && x.name.eq_ignore_ascii_case(name)) {
+        if !number.is_empty() && !cl.numbers.contains(&number) {
+            cl.numbers.insert(0, number.clone());
+        }
+        if !number.is_empty() {
+            cl.number = number;
+        }
+        // (the map's own lines have the timetable's plate; one the player coloured his colour)
+        cl.colour = if restored || new.colour.trim().eq_ignore_ascii_case(lines::MAP_COLOUR) { String::new() } else { new.colour.clone() };
+        let caption = caption(new);
+        if !caption.is_empty() {
+            cl.caption = caption;
+        }
+        if !new.title.trim().is_empty() {
+            cl.title = new.title.trim().to_string();
+        }
+    }
+    super::plan::forget_tours(c, name, &replan);
+    Ok(fee)
+}
+
 /// A change of an own line in service, saved for a later day (Luc: "lijnen moeten ook
 /// aanpasbaar zijn als ze al actief zijn"): what the company's line will be from `from` on,
 /// and the tours whose buses and drivers are given anew then. Until that day the line runs
@@ -1539,5 +1597,32 @@ mod tests {
         assert_eq!(s.count(&stop(1, "Markt")), 2);
         assert_eq!(s.count(&stop(2, "Bahnhof")), 1);
         assert_eq!(s.count(&stop(5, "Kirche")), 0);
+    }
+
+    /// A line of the map's the company runs, changed in the line editor: a changed route is
+    /// approved anew (with its new stops' information), a timetable change alone costs nothing,
+    /// and the map's own line back costs nothing either; the company's line follows it.
+    #[test]
+    fn a_line_of_the_maps_route_is_approved_anew_when_it_changes() {
+        let mut c = company(Difficulty::Realistic);
+        c.lines.push(CompanyLine { name: "7".into(), number: "7".into(), numbers: vec!["7".into()], ..Default::default() });
+        let old = LineDesign { map: Some(Default::default()), colour: lines::MAP_COLOUR.into(), ..line(5) };
+        let mut later = old.clone();
+        later.days[0].headway = 30.0;
+        assert_eq!(map_change_fee(&c, &old, &later), None, "the timetable alone");
+        later.directions[0].stops.push(stop(77, "Neubau"));
+        let k = costs(Difficulty::Realistic);
+        let fee = map_change_fee(&c, &old, &later).unwrap();
+        assert_eq!(fee, ((k.change_base + k.info_per_stop) as f64 * c.price_index).round() as Cents);
+        let cash = c.cash;
+        later.colour = "#e5484d".into();
+        assert_eq!(apply_map_change(&mut c, "7", &old, &later, false), Ok(fee));
+        assert_eq!(c.cash, cash - fee);
+        assert_eq!(c.lines[0].colour, "#e5484d");
+        // back to the map's own: free, the timetable's plate again
+        assert_eq!(apply_map_change(&mut c, "7", &later, &old, true), Ok(0));
+        assert_eq!((c.cash, c.lines[0].colour.as_str()), (cash - fee, ""));
+        // a line it does not run
+        assert!(apply_map_change(&mut c, "8", &old, &later, false).is_err());
     }
 }

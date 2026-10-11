@@ -28,6 +28,17 @@
 //! (`linehof`). A line's kind of service (`service::ServiceKind`) is written as its tours' day
 //! masks: a school line's run on school days only, a weekend line's on Saturdays, Sundays and
 //! public holidays.
+//!
+//! **A line of the map's own** is edited the same way (Luc: "bestaande lijnen van de
+//! kaarten"): `import_map_line` makes its `.ttl` into a line of the registry (`LineDesign::map`)
+//! - a direction for every trip it runs, the map's own way between the stops kept as it is
+//! (`Leg::map_way`), every departure in the map's tour it belongs to (`TableTrip::tour`). Saved,
+//! it is written as the map's own line file, by its name (`Export::shadows`), with trips of its
+//! own (`oo_map_…`): the Drive page, the duties, a company's line and the timetable's buses find
+//! the edited line where the original was, and the original's trips run nowhere. The map's own
+//! file is kept beside it (`<name>.ttl.orig`, `MAP_MANIFEST`) and put back byte for byte once
+//! the edit is dropped (`Registry::restore_map_line`) - in the content folder's copy of the
+//! `TTData`, never in the OMSI 2 folder.
 
 use crate::service::{HolidayPeriod, LineVehicles, ServiceKind};
 use omsi_timetable::{BusStopEntry, Line, StnLink, StnLinkEntry, Tour, TourTrip, Track, TrackEntry, Trip, TripProfile};
@@ -49,6 +60,10 @@ pub const FILE_PREFIX: &str = "oo_";
 /// The list of the files the line editor wrote into a `TTData` folder (they are deleted
 /// before it writes again, so a line renamed or deleted leaves nothing behind).
 pub const MANIFEST: &str = "openomsi-lines.txt";
+/// The list of the map's own line files (`<name>.ttl`) the line editor wrote over with a line
+/// of the map's the player edited (`LineDesign::map`): each one's own file is kept beside it
+/// as `<name>.ttl.orig` and put back, byte for byte, once the line is no longer edited.
+pub const MAP_MANIFEST: &str = "openomsi-maplines.txt";
 /// The buses each line asks for, as the game reads them (a timetable line's file stem, lower
 /// case, to its `LineVehicles`; only lines that chose some).
 pub const VEHICLES_FILE: &str = "oo_vehicles.json";
@@ -151,6 +166,37 @@ pub struct LineDesign {
     /// is in the timetable as it is here.
     pub live: Option<Box<LineDesign>>,
     pub pending_from: String,
+    /// A line of the map's own the player edits (Luc: "bestaande lijnen van de kaarten"):
+    /// what it keeps of the map - the `.ttl` it takes the place of, the map's tours. None: a
+    /// line of the player's own.
+    pub map: Option<MapSource>,
+}
+
+/// What a line of the map's that the line editor edits keeps of the map (`LineDesign::map`):
+/// the line file it is written as instead of the map's own (`ttl`, the timetable line's name,
+/// so that the Drive page, the duties, a company's line and the timetable's buses all find it
+/// as before), the map's tours as they are (each trip of the table names its tour,
+/// `TableTrip::tour`), the depot group most of them had, and the line file's own settings.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct MapSource {
+    pub ttl: String,
+    pub tours: Vec<MapTour>,
+    /// The line's depot group (`LineDesign::ai_group`) as long as the player keeps it: every
+    /// tour of the map's keeps its own then.
+    pub group: String,
+    pub user_allowed: bool,
+    pub priority: i32,
+}
+
+/// A tour of a line of the map's as its `.ttl` has it: its number, depot group and day mask
+/// (`[newtour]`).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct MapTour {
+    pub number: String,
+    pub ai_group: String,
+    pub mask: i32,
 }
 
 impl Default for LineDesign {
@@ -176,6 +222,7 @@ impl Default for LineDesign {
             depot_file: String::new(),
             live: None,
             pending_from: String::new(),
+            map: None,
         }
     }
 }
@@ -207,6 +254,49 @@ impl LineDesign {
             return self.live.as_deref_mut().unwrap();
         }
         self
+    }
+
+    /// It is a line of the map's own, edited (`map`).
+    pub fn is_map_line(&self) -> bool {
+        self.map.is_some()
+    }
+
+    /// The name of the timetable line it is written as: a line of the map's its own `.ttl`'s,
+    /// a line of the player's its file stem (`stems`).
+    pub fn timetable_name(&self, stem: &str) -> String {
+        match &self.map {
+            Some(m) => m.ttl.clone(),
+            None => stem.to_string(),
+        }
+    }
+}
+
+/// The colour a line of the map's has in the line editor until the player gives it one: the
+/// yellow of the launcher's plates of the timetable's lines.
+pub const MAP_COLOUR: &str = "#ffd23f";
+
+/// The first group of days (`DAY_GROUPS`) a tour mask runs on (the working days when none).
+pub fn group_of_mask(mask: i32) -> usize {
+    DAY_GROUPS.iter().position(|(_, bits)| mask & *bits as i32 != 0).unwrap_or(0)
+}
+
+/// The tour mask a tour of the map's (`mask`) is written with on a line of `kind`: the map's
+/// own for a regular line (or one on demand), else its days that the kind runs on - with the
+/// kind's school bits (`ServiceKind::mask`).
+pub fn kept_mask(kind: ServiceKind, mask: i32) -> i32 {
+    match kind {
+        ServiceKind::Regular | ServiceKind::OnDemand => mask,
+        _ => kind.mask((mask & 0xff) as u16),
+    }
+}
+
+/// The trip `t` of a line's table runs on the group of days `group` (`DAY_GROUPS`): a trip of
+/// a map's tour on every group that tour's mask has (and the line's kind runs on), any other on
+/// its own group.
+pub fn trip_in_group(l: &LineDesign, t: &TableTrip, group: usize) -> bool {
+    match l.map.as_ref().and_then(|m| m.tours.iter().find(|x| !t.tour.trim().is_empty() && x.number.trim() == t.tour.trim())) {
+        Some(mt) => l.service.allows(group) && kept_mask(l.service, mt.mask) & DAY_GROUPS.get(group).map(|g| g.1 as i32).unwrap_or(0) != 0,
+        None => t.day == group,
     }
 }
 
@@ -322,6 +412,18 @@ pub struct Leg {
     pub to_s: f32,
     pub from_lat: f32,
     pub to_lat: f32,
+    /// A leg of a line of the map's: the way the map's trip drives from the one stop to the
+    /// other (their object ids) - its station link, or its part of the trip's track - kept as
+    /// it is while the leg joins those two stops and is not dragged (`kept_between`): the
+    /// router never takes its place.
+    pub map_way: Option<[i64; 2]>,
+}
+
+impl Leg {
+    /// It is the map's own way from stop `a` to stop `b` (`map_way`).
+    pub fn kept_between(&self, a: i64, b: i64) -> bool {
+        self.map_way == Some([a, b]) && self.vias.is_empty()
+    }
 }
 
 /// One direction of a line.
@@ -347,6 +449,17 @@ pub struct Direction {
     /// The IBIS route code, the line's number × 100 and two digits (0: given when the line is
     /// saved; one the depot file has already is given anew).
     pub ibis_route: u32,
+    /// The number its trips show when it is not the line's (a line of the map's with a night
+    /// variant: `34N` on line 34); empty: the line's.
+    pub number: String,
+    /// A direction of a line of the map's: the trip it was made from, its stops as the map has
+    /// them (object ids), the way the trip drives as the map's track has it (every
+    /// `[track_entry]`'s values, written again as they are while the direction runs as the map
+    /// has it: `is_map_way`), and the depot file's own IBIS route of it (0: none found).
+    pub map_trip: String,
+    pub map_stops: Vec<i64>,
+    pub map_track: Vec<Vec<f64>>,
+    pub map_route: u32,
 }
 
 /// When a line runs on the days of one `DAY_GROUPS` entry: buses from the first to the last
@@ -715,6 +828,22 @@ impl Direction {
             self.terminus.trim().to_string()
         }
     }
+
+    /// The number its trips show: its own, else the line's (`line`).
+    pub fn number_or(&self, line: &str) -> String {
+        if self.number.trim().is_empty() { line.trim().to_string() } else { self.number.trim().to_string() }
+    }
+
+    /// Its stops are the map's own (a direction of a line of the map's, `map_stops`).
+    pub fn has_map_stops(&self) -> bool {
+        !self.map_stops.is_empty() && self.stops.iter().map(|s| s.id).eq(self.map_stops.iter().copied())
+    }
+
+    /// It runs as the map's trip does: the map's stops, and between every two of them the
+    /// map's own way (`Leg::kept_between`).
+    pub fn is_map_way(&self) -> bool {
+        self.has_map_stops() && self.legs.len() + 1 >= self.stops.len() && self.stops.windows(2).zip(&self.legs).all(|(w, g)| g.kept_between(w[0].id, w[1].id))
+    }
 }
 
 /// The way back of `out`: its stops from the last to the first, each the stop of the same
@@ -852,6 +981,9 @@ pub struct PlannedTour {
     pub number: String,
     pub day: usize,
     pub trips: Vec<Planned>,
+    /// A tour of a line of the map's as the map has it: its place in `MapSource::tours` (its
+    /// depot group and its days are that one's).
+    pub kept: Option<usize>,
 }
 
 impl PlannedTour {
@@ -884,7 +1016,7 @@ pub fn tour_plan(l: &LineDesign) -> Vec<PlannedTour> {
             continue;
         }
         for trips in tours(&run, p) {
-            out.push(PlannedTour { number: (out.len() + 1).to_string(), day, trips });
+            out.push(PlannedTour { number: (out.len() + 1).to_string(), day, trips, kept: None });
         }
     }
     out
@@ -902,6 +1034,10 @@ pub struct TableTrip {
     pub dir: usize,
     pub day: usize,
     pub times: Vec<f32>,
+    /// A trip of a line of the map's: the map's tour it is in (`MapSource::tours`, by its
+    /// number) - it runs on that tour's days, with that tour's bus. Empty: one of the player's,
+    /// given to a bus as the patterns' trips are.
+    pub tour: String,
 }
 
 impl TableTrip {
@@ -964,7 +1100,7 @@ pub fn table_from_patterns(l: &LineDesign) -> Vec<TableTrip> {
     for (day, p) in l.days.iter().enumerate().filter(|(k, _)| l.service.allows(*k)) {
         for (dir, rel) in &dirs {
             for (dep, _) in p.departures() {
-                out.push(TableTrip { dir: *dir, day, times: rel.iter().map(|x| dep + x).collect() });
+                out.push(TableTrip { dir: *dir, day, times: rel.iter().map(|x| dep + x).collect(), tour: String::new() });
             }
         }
     }
@@ -976,12 +1112,13 @@ pub fn table_from_patterns(l: &LineDesign) -> Vec<TableTrip> {
 /// direction it has, fitted to the stops (`trip_times`), in order of departure.
 pub fn table_trips(l: &LineDesign) -> Vec<TableTrip> {
     let dirs = l.directions.iter().filter(|d| d.stops.len() >= 2).count().min(2);
-    let mut out: Vec<TableTrip> = l
-        .table
-        .iter()
-        .filter(|t| t.dir < dirs && t.day < DAY_GROUPS.len() && l.service.allows(t.day) && !t.times.is_empty())
-        .map(|t| TableTrip { times: trip_times(l, t), ..t.clone() })
-        .collect();
+    // (a line of the map's has a direction for every trip of the map's it runs, and its trips
+    // run on their tours' days)
+    let known = |t: &TableTrip| match &l.map {
+        Some(_) => l.directions.get(t.dir).is_some_and(|d| d.stops.len() >= 2) && (0..DAY_GROUPS.len()).any(|g| trip_in_group(l, t, g)),
+        None => t.dir < dirs && t.day < DAY_GROUPS.len() && l.service.allows(t.day),
+    };
+    let mut out: Vec<TableTrip> = l.table.iter().filter(|t| known(t) && !t.times.is_empty()).map(|t| TableTrip { times: trip_times(l, t), ..t.clone() }).collect();
     out.sort_by(|a, b| a.day.cmp(&b.day).then(a.departure().total_cmp(&b.departure())).then(a.dir.cmp(&b.dir)));
     out
 }
@@ -1013,29 +1150,83 @@ pub fn table_profiles(l: &LineDesign, dir: usize) -> Vec<Vec<f32>> {
 pub fn table_tours(l: &LineDesign) -> Vec<PlannedTour> {
     let trips = table_trips(l);
     let dirs = l.directions.iter().filter(|d| d.stops.len() >= 2).count().clamp(1, 2);
-    let profiles: Vec<Vec<Vec<f32>>> = (0..dirs).map(|d| table_profiles(l, d)).collect();
+    // (a line of the map's: a direction for every trip of the map's it runs)
+    let all = if l.map.is_some() { l.directions.len().max(dirs) } else { dirs };
+    let profiles: Vec<Vec<Vec<f32>>> = (0..all).map(|d| table_profiles(l, d)).collect();
+    let planned = |t: &TableTrip| {
+        let rel = t.relative();
+        let profile = profiles.get(t.dir).and_then(|p| p.iter().position(|x| same_shape(x, &rel))).unwrap_or(0);
+        Planned { dir: t.dir, departure: t.departure(), band: None, run: t.minutes().max(1.0), profile }
+    };
+    let kept_tour = |t: &TableTrip| l.map.as_ref().and_then(|m| m.tours.iter().position(|x| !t.tour.trim().is_empty() && x.number.trim() == t.tour.trim()));
     let mut out: Vec<PlannedTour> = Vec::new();
+    // a line of the map's: its tours as the map has them, each with the trips still in it
+    if let Some(m) = &l.map {
+        for (k, mt) in m.tours.iter().enumerate() {
+            let mut ts: Vec<Planned> = trips.iter().filter(|t| kept_tour(t) == Some(k)).map(planned).collect();
+            if ts.is_empty() {
+                continue;
+            }
+            ts.sort_by(|a, b| a.departure.total_cmp(&b.departure));
+            out.push(PlannedTour { number: mt.number.trim().to_string(), day: group_of_mask(kept_mask(l.service, mt.mask)), trips: ts, kept: Some(k) });
+        }
+    }
+    // (the numbers of the map's tours are theirs: a bus of the player's gets another)
+    let taken: HashSet<String> = l.map.iter().flat_map(|m| m.tours.iter().map(|t| t.number.trim().to_string())).collect();
+    let mut next = 1;
     for day in 0..DAY_GROUPS.len() {
-        let deps: Vec<Planned> = trips
-            .iter()
-            .filter(|t| t.day == day)
-            .map(|t| {
-                let rel = t.relative();
-                let profile = profiles.get(t.dir).and_then(|p| p.iter().position(|x| same_shape(x, &rel))).unwrap_or(0);
-                Planned { dir: t.dir, departure: t.departure(), band: None, run: t.minutes().max(1.0), profile }
-            })
-            .collect();
+        let deps: Vec<Planned> = trips.iter().filter(|t| kept_tour(t).is_none() && t.day == day).map(planned).collect();
         if deps.is_empty() {
             continue;
         }
         let layover = l.days.get(day).map(|p| p.layover).unwrap_or(5.0);
-        let mut buses = cut_parked(chain(deps, &[], dirs, layover, false), &[]);
+        let chained = if l.map.is_some() { chain_at_stops(deps, l, layover) } else { chain(deps, &[], dirs, layover, false) };
+        let mut buses = cut_parked(chained, &[]);
         buses.sort_by(|a, b| a[0].departure.total_cmp(&b[0].departure));
         for trips in buses {
-            out.push(PlannedTour { number: (out.len() + 1).to_string(), day, trips });
+            let number = if l.map.is_some() {
+                loop {
+                    let n = next.to_string();
+                    next += 1;
+                    if !taken.contains(&n) {
+                        break n;
+                    }
+                }
+            } else {
+                (out.len() + 1).to_string()
+            };
+            out.push(PlannedTour { number, day, trips, kept: None });
         }
     }
     out
+}
+
+/// `chain` for a line of the map's, whose directions are the map's trips (a short run and a
+/// night variant among them): a trip is given to a bus that stands at the stop it leaves from
+/// (by the stop's name, so the stop across the road counts) after its layover, else to a new
+/// bus - the one that has stood longest first.
+fn chain_at_stops(mut deps: Vec<Planned>, l: &LineDesign, layover: f32) -> Vec<Vec<Planned>> {
+    deps.sort_by(|a, b| a.departure.total_cmp(&b.departure).then(a.dir.cmp(&b.dir)));
+    let end = |d: usize, last: bool| l.directions.get(d).and_then(|x| if last { x.stops.last() } else { x.stops.first() }).map(|s| s.name.trim().to_lowercase()).unwrap_or_default();
+    struct Bus {
+        at: String,
+        free: f32,
+        trips: Vec<Planned>,
+    }
+    let mut buses: Vec<Bus> = Vec::new();
+    for d in deps {
+        let from = end(d.dir, false);
+        let ready = buses.iter().enumerate().filter(|(_, b)| b.at == from && b.free <= d.departure + 1e-3).min_by(|a, b| a.1.free.total_cmp(&b.1.free)).map(|(i, _)| i);
+        let i = ready.unwrap_or_else(|| {
+            buses.push(Bus { at: from.clone(), free: 0.0, trips: Vec::new() });
+            buses.len() - 1
+        });
+        let b = &mut buses[i];
+        b.trips.push(d);
+        b.at = end(d.dir, true);
+        b.free = d.departure + d.minutes(&[]) + layover.max(0.0);
+    }
+    buses.into_iter().map(|b| b.trips).collect()
 }
 
 /// Departures a group of days has in each hour, all directions together: the table's trips,
@@ -1047,7 +1238,7 @@ pub fn hourly_departures(l: &LineDesign, day: usize) -> [u32; 24] {
     }
     let hour = |t: f32| (t / 60.0).floor().max(0.0) as usize % 24;
     if l.table_on {
-        for t in table_trips(l).iter().filter(|t| t.day == day) {
+        for t in table_trips(l).iter().filter(|t| trip_in_group(l, t, day)) {
             out[hour(t.departure())] += 1;
         }
     } else if let Some(p) = l.days.get(day) {
@@ -1070,13 +1261,19 @@ pub fn runs_on_group(l: &LineDesign, day: usize) -> bool {
 /// that stem already - the lines in the timetable before the others (a draft), the oldest
 /// first, so that a line keeps its files' names when another takes its number. No two lines
 /// have one stem (in any case).
+///
+/// A line of the map's (`LineDesign::map`) is written as its own `.ttl` and gets a stem for its
+/// trips alone (`oo_map_<its .ttl's name>`), after the player's lines: they keep theirs.
 pub fn stems(reg: &Registry) -> HashMap<u64, String> {
     let mut order: Vec<&LineDesign> = reg.lines.iter().collect();
-    order.sort_by_key(|l| (!written(l), l.id));
+    order.sort_by_key(|l| (l.is_map_line(), !written(l), l.id));
     let mut taken: HashSet<String> = HashSet::new();
     let mut out = HashMap::new();
     for l in order {
-        let plain = format!("{FILE_PREFIX}{}", safe_name(&l.number));
+        let plain = match &l.map {
+            Some(m) => format!("{FILE_PREFIX}map_{}", safe_name(&m.ttl)),
+            None => format!("{FILE_PREFIX}{}", safe_name(&l.number)),
+        };
         let mut stem = plain.clone();
         let mut k = 1;
         while !taken.insert(stem.to_lowercase()) {
@@ -1088,9 +1285,13 @@ pub fn stems(reg: &Registry) -> HashMap<u64, String> {
     out
 }
 
-/// The trip file of direction `dir` of a line with file stem `stem`.
+/// The trip file of direction `dir` of a line with file stem `stem`: `_a` outbound, `_b` back,
+/// and on with `_c` for the further directions of a line of the map's (its other trips).
 pub fn trip_name(stem: &str, dir: usize) -> String {
-    format!("{stem}_{}", if dir == 0 { "a" } else { "b" })
+    match dir {
+        0..=25 => format!("{stem}_{}", (b'a' + dir as u8) as char),
+        _ => format!("{stem}_{dir}"),
+    }
 }
 
 // --- the player's lines in the launcher's lists ----------------------------------------------
@@ -1131,12 +1332,13 @@ pub fn is_own_file(name: &str) -> bool {
 }
 
 /// The lines of the registry that are in the map's timetable (the drafts `problems` keeps
-/// out have no files to drive), by the file stem each was written as.
+/// out have no files to drive), by the file stem each was written as - the player's own: a
+/// line of the map's he edited is still the map's line, listed with the map's.
 pub fn own_lines(reg: &Registry) -> Vec<OwnLine> {
     let stems = stems(reg);
     reg.lines
         .iter()
-        .filter(|l| written(l))
+        .filter(|l| written(l) && !l.is_map_line())
         .map(|l| {
             let mut destinations: Vec<String> = Vec::new();
             for d in l.directions.iter().filter(|d| d.stops.len() >= 2) {
@@ -1176,6 +1378,270 @@ pub fn own_lines_of_map(map_file: &str) -> Vec<OwnLine> {
     own_lines(&load_registry(&path).as_timetable())
 }
 
+// --- a line of the map's ------------------------------------------------------------------------
+
+impl Registry {
+    /// The edited line of the map's whose `.ttl` is `ttl` (in any case).
+    pub fn map_line(&self, ttl: &str) -> Option<&LineDesign> {
+        self.lines.iter().find(|l| l.map.as_ref().is_some_and(|m| m.ttl.trim().eq_ignore_ascii_case(ttl.trim())))
+    }
+
+    /// The edit of the map's line `ttl` dropped: written again (`export_to_map`), the map's own
+    /// file of it is back as it was. Whether there was one.
+    pub fn restore_map_line(&mut self, ttl: &str) -> bool {
+        let before = self.lines.len();
+        self.lines.retain(|l| !l.map.as_ref().is_some_and(|m| m.ttl.trim().eq_ignore_ascii_case(ttl.trim())));
+        self.lines.len() != before
+    }
+
+    /// A line of the map's opened in the line editor (`import_map_line`) given the registry's
+    /// next id; returns it.
+    pub fn add_map_line(&mut self, mut l: LineDesign) -> &mut LineDesign {
+        let id = self.next_id.max(1);
+        self.next_id = id + 1;
+        l.id = id;
+        self.lines.push(l);
+        self.lines.last_mut().unwrap()
+    }
+}
+
+/// A stop of a map's trip: its object id, the name the timetable gives it, and - a trip of the
+/// older kind (`[station]`) - its place in the trip's track.
+fn trip_stops(data: &omsi_timetable::TimetableData, trip: &Trip) -> Vec<(i64, String, Option<usize>)> {
+    let named = |id: i64| data.bus_stops.iter().find(|b| b.object_id == id).map(|b| b.name.trim().to_string()).unwrap_or_default();
+    if !trip.stations.is_empty() {
+        return trip.stations.iter().map(|id| (*id, named(*id), None)).collect();
+    }
+    trip.stations_legacy
+        .iter()
+        .filter_map(|r| {
+            let id = r.first()?.trim().parse::<i64>().ok()?;
+            let at = r.get(1).and_then(|x| x.trim().parse::<usize>().ok());
+            let name = r.get(2).map(|n| n.trim().to_string()).filter(|n| !n.is_empty()).unwrap_or_else(|| named(id));
+            Some((id, name, at))
+        })
+        .collect()
+}
+
+/// The track a map's trip drives, as the game takes it: the one its `[trip]` names, else the
+/// one named like the trip.
+fn trip_track<'a>(data: &'a omsi_timetable::TimetableData, trip: &Trip) -> Option<&'a Track> {
+    let name = if trip.display_name.trim().is_empty() { trip.name.trim() } else { trip.display_name.trim() };
+    data.tracks.iter().find(|t| t.path.file_stem().is_some_and(|s| s.to_string_lossy().eq_ignore_ascii_case(name)))
+}
+
+/// Minutes from a trip's first stop to every stop by one of its profiles: the times the
+/// profile sets (a departure before an arrival), the others between them by the legs' lengths,
+/// the last its whole time.
+fn profile_times(p: Option<&TripProfile>, lengths: &[f32]) -> Vec<f32> {
+    let n = lengths.len() + 1;
+    let total = p.map(|p| p.factor).filter(|f| *f > 0.0).unwrap_or_else(|| auto_times(&lengths.iter().map(|l| Leg { length: *l, ..Default::default() }).collect::<Vec<_>>()).last().copied().unwrap_or(1.0));
+    let mut fixed: Vec<Option<f32>> = vec![None; n];
+    fixed[0] = Some(0.0);
+    fixed[n - 1] = Some(total);
+    if let Some(p) = p {
+        for &(i, v) in p.man_arr_time.iter().chain(&p.man_dep_time) {
+            if i > 0 && (i as usize) < n - 1 {
+                fixed[i as usize] = Some(v);
+            }
+        }
+    }
+    let mut at = vec![0.0f32; n];
+    for i in 1..n {
+        at[i] = at[i - 1] + lengths[i - 1].max(1.0);
+    }
+    let mut out = vec![0.0f32; n];
+    let mut j = 0;
+    for k in 1..n {
+        let Some(tk) = fixed[k] else { continue };
+        let tj = fixed[j].unwrap_or(0.0);
+        for i in j + 1..=k {
+            out[i] = if i == k { tk } else { tj + (tk - tj) * (at[i] - at[j]) / (at[k] - at[j]).max(1e-3) };
+        }
+        j = k;
+    }
+    // (never before the stop ahead)
+    for i in 1..n {
+        out[i] = out[i].max(out[i - 1]);
+    }
+    out
+}
+
+/// A line of the map's own as the line editor opens it (Luc: "bestaande lijnen van de
+/// kaarten"), from what the map's timetable `data` has of the line file `line`: a direction for
+/// every trip its tours run (the one run most first, its way back after it), each with the
+/// trip's stops, terminus, number and times (its first profile) and the map's own way between
+/// every two stops - the station link, else the trip's track (`Leg::map_way`, kept as it is;
+/// a leg the map has neither for is left to the router) - and the table of every trip of every
+/// tour at its departure, in that tour (`TableTrip::tour`), so that saved unchanged the line
+/// runs as the map's did. Its number is the one its trips show most, its day patterns made
+/// from its first direction's departures (for "Fill from the patterns"). `raw_tiles` is
+/// `global.cfg`'s `[map]` list (a lane's tile is its place there); `stop_of` the map's stop of
+/// an object id (its tile, place and name - the timetable's name for it given). None when no
+/// tour runs a trip of two stops or more that the timetable has.
+pub fn import_map_line(data: &omsi_timetable::TimetableData, line: &Line, raw_tiles: &[(i32, i32)], stop_of: &dyn Fn(i64, &str) -> StopRef) -> Option<LineDesign> {
+    // the trips its tours run, by how often
+    let mut used: Vec<(String, usize)> = Vec::new();
+    for tt in line.tours.iter().flat_map(|t| t.trips.iter()) {
+        let key = tt.trip.trim().to_lowercase();
+        if data.trip(&key).is_none_or(|t| trip_stops(data, t).len() < 2) {
+            continue;
+        }
+        match used.iter_mut().find(|u| u.0 == key) {
+            Some(u) => u.1 += 1,
+            None => used.push((key, 1)),
+        }
+    }
+    if used.is_empty() {
+        return None;
+    }
+    used.sort_by(|a, b| b.1.cmp(&a.1));
+    let stop_names = |key: &str| data.trip(key).map(|t| trip_stops(data, t).into_iter().map(|s| s.1.to_lowercase()).collect::<Vec<_>>()).unwrap_or_default();
+    // (the way back second: the trip run most that leaves where the first ends, or ends where it
+    // leaves)
+    let first = stop_names(&used[0].0);
+    if let Some(k) = (1..used.len()).find(|&k| {
+        let s = stop_names(&used[k].0);
+        s.first() == first.last() || s.last() == first.first()
+    }) {
+        let back = used.remove(k);
+        used.insert(1, back);
+    }
+    // its number: the one its trips show most
+    let mut numbers: Vec<(String, usize)> = Vec::new();
+    for (key, n) in &used {
+        let shown = data.trip(key).map(|t| t.line.trim().to_string()).unwrap_or_default();
+        if shown.is_empty() {
+            continue;
+        }
+        match numbers.iter_mut().find(|x| x.0 == shown) {
+            Some(x) => x.1 += n,
+            None => numbers.push((shown, *n)),
+        }
+    }
+    numbers.sort_by(|a, b| b.1.cmp(&a.1));
+    let number = numbers.first().map(|x| x.0.clone()).unwrap_or_else(|| line.name.trim().to_string());
+    let tile_of = |v: f64| raw_tiles.get(v.max(0.0) as usize).map(|t| [t.0, t.1]);
+    let mut directions: Vec<Direction> = Vec::new();
+    let mut lengths_of: Vec<Vec<f32>> = Vec::new();
+    for (key, _) in &used {
+        let trip = data.trip(key)?;
+        let stops = trip_stops(data, trip);
+        let track = trip_track(data, trip);
+        let refs: Vec<StopRef> = stops.iter().map(|(id, name, _)| StopRef { id: *id, ..stop_of(*id, name) }).collect();
+        let mut legs = Vec::new();
+        for k in 0..stops.len() - 1 {
+            let (a, b) = (stops[k].0, stops[k + 1].0);
+            let straight = (((refs[k].at[0] - refs[k + 1].at[0]).powi(2) + (refs[k].at[1] - refs[k + 1].at[1]).powi(2)).sqrt()) as f32;
+            let link = data.stn_links.iter().rev().find(|x| x.from_id == a && x.to_id == b);
+            let leg = if let Some(link) = link.filter(|x| !x.entries.is_empty()) {
+                let steps: Option<Vec<LaneStep>> = link.entries.iter().map(|e| Some(LaneStep { tile: tile_of(e.values[2])?, id: e.values[0] as i64, path: e.values[1] as u16, reversed: false, length: e.values[3] as f32 })).collect();
+                match steps {
+                    Some(steps) => {
+                        let p = link.params;
+                        Leg { steps, length: link.length as f32, ok: true, from_lat: p[0] as f32, to_lat: p[1] as f32, from_s: p[2] as f32, to_s: p[3] as f32, map_way: Some([a, b]), vias: Vec::new() }
+                    }
+                    None => Leg::default(),
+                }
+            } else if let (Some(t), Some(i), Some(j)) = (track, stops[k].2, stops[k + 1].2) {
+                // (a trip of the older kind: each stop at its place in the track)
+                let part: Option<Vec<LaneStep>> = t.entries.get(i..=j.min(t.entries.len().saturating_sub(1))).filter(|_| i <= j).map(|es| es.iter().filter(|e| e.values.len() >= 5).map(|e| Some(LaneStep { tile: tile_of(e.values[2])?, id: e.values[0] as i64, path: e.values[1] as u16, reversed: false, length: e.values[4] as f32 })).collect::<Option<Vec<_>>>()).flatten();
+                match part.filter(|p| !p.is_empty()) {
+                    Some(steps) => {
+                        let length = steps.iter().map(|s| s.length).sum::<f32>().max(straight);
+                        let to_s = steps.last().map(|s| s.length).unwrap_or(0.0);
+                        Leg { steps, length, ok: true, to_s, map_way: Some([a, b]), ..Default::default() }
+                    }
+                    None => Leg { length: straight, ok: true, map_way: Some([a, b]), ..Default::default() },
+                }
+            } else if track.is_some() {
+                // (the trip's whole track, kept as it is while the stops stay the map's)
+                Leg { length: straight, ok: true, map_way: Some([a, b]), ..Default::default() }
+            } else {
+                // (the map has no way for it: the router's to find)
+                Leg { length: straight, ..Default::default() }
+            };
+            legs.push(leg);
+        }
+        let lengths: Vec<f32> = legs.iter().map(|g| g.length).collect();
+        let shown = trip.line.trim();
+        directions.push(Direction {
+            terminus: trip.terminus.trim().to_string(),
+            stops: refs,
+            times: profile_times(trip.profiles.first(), &lengths),
+            manual_times: true,
+            legs,
+            number: if shown.is_empty() || shown == number { String::new() } else { shown.to_string() },
+            map_trip: trip.name.clone(),
+            map_stops: stops.iter().map(|s| s.0).collect(),
+            map_track: track.map(|t| t.entries.iter().map(|e| e.values.clone()).collect()).unwrap_or_default(),
+            ..Default::default()
+        });
+        lengths_of.push(lengths);
+    }
+    // the tours as the map has them, every trip of them at its departure
+    let mask_of = |t: &Tour| t.extra.trim().parse::<i32>().unwrap_or(1023);
+    let mut table = Vec::new();
+    for t in &line.tours {
+        for tt in &t.trips {
+            let key = tt.trip.trim().to_lowercase();
+            let Some(dir) = used.iter().position(|u| u.0 == key) else { continue };
+            let trip = data.trip(&key)?;
+            let profile = trip.profiles.get(tt.profile.max(0) as usize).or(trip.profiles.first());
+            let rel = profile_times(profile, &lengths_of[dir]);
+            table.push(TableTrip { dir, day: group_of_mask(mask_of(t)), times: rel.iter().map(|x| tt.departure + x).collect(), tour: t.number.trim().to_string() });
+        }
+    }
+    table.sort_by(|a, b| a.day.cmp(&b.day).then(a.departure().total_cmp(&b.departure())).then(a.dir.cmp(&b.dir)));
+    // the depot group most of its tours have
+    let mut groups: Vec<(String, usize)> = Vec::new();
+    for t in &line.tours {
+        let g = t.ai_group.trim().to_string();
+        match groups.iter_mut().find(|x| x.0.eq_ignore_ascii_case(&g)) {
+            Some(x) => x.1 += 1,
+            None => groups.push((g, 1)),
+        }
+    }
+    groups.sort_by(|a, b| b.1.cmp(&a.1));
+    let group = groups.first().map(|g| g.0.clone()).unwrap_or_default();
+    let tours = line.tours.iter().map(|t| MapTour { number: t.number.trim().to_string(), ai_group: t.ai_group.trim().to_string(), mask: mask_of(t) }).collect();
+    let mut l = LineDesign {
+        number,
+        name: line.name.trim().to_string(),
+        colour: MAP_COLOUR.to_string(),
+        ai_group: group.clone(),
+        directions,
+        table,
+        table_on: true,
+        map: Some(MapSource { ttl: line.name.trim().to_string(), tours, group, user_allowed: line.user_allowed, priority: line.priority }),
+        ..Default::default()
+    };
+    l.days = patterns_of(&l);
+    let t = now_secs();
+    (l.created, l.modified) = (t, t);
+    Some(l)
+}
+
+/// Day patterns that come near a table's first direction (a line of the map's, for "Fill from
+/// the patterns"): per group of days its first and last departure and the usual time between
+/// two (in fives); a group without a trip is off.
+fn patterns_of(l: &LineDesign) -> Vec<DayPattern> {
+    let mut days = default_days();
+    for (k, p) in days.iter_mut().enumerate() {
+        let mut deps: Vec<f32> = l.table.iter().filter(|t| t.dir == 0 && trip_in_group(l, t, k)).map(|t| t.departure()).collect();
+        deps.sort_by(f32::total_cmp);
+        let (Some(&first), Some(&last)) = (deps.first(), deps.last()) else {
+            p.on = false;
+            continue;
+        };
+        let mut gaps: Vec<f32> = deps.windows(2).map(|w| w[1] - w[0]).filter(|g| *g > 0.5).collect();
+        gaps.sort_by(f32::total_cmp);
+        let headway = gaps.get(gaps.len() / 2).map(|g| ((g / 5.0).round() * 5.0).clamp(5.0, 120.0)).unwrap_or(60.0);
+        (p.on, p.first, p.last, p.headway, p.bands) = (true, first, last.max(first), headway, Vec::new());
+    }
+    days
+}
+
 /// What saving the registry writes into a map's `TTData`: whole files by name, and the
 /// links and stops to add to the map's `StnLinks.cfg` and `Busstops.cfg`.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -1185,6 +1651,9 @@ pub struct Export {
     pub stops: Vec<BusStopEntry>,
     /// Tours per line id (how many buses its patterns need).
     pub tours: HashMap<u64, usize>,
+    /// The lines of the map's that are edited: each one's `.ttl` (by the map's own file name)
+    /// written over the map's, which is kept (`MAP_MANIFEST`).
+    pub shadows: Vec<(String, String)>,
 }
 
 /// Why a line cannot be saved yet: the text (an interface text, `%{n}` for the number) and
@@ -1216,7 +1685,10 @@ pub fn problems(l: &LineDesign) -> Vec<Problem> {
             out.push(p(if k == 0 { "The outbound direction needs at least two stops" } else { "The way back needs at least two stops" }, 0));
             continue;
         }
-        let bad = d.legs.iter().filter(|g| !g.ok).count() + (d.stops.len() - 1).saturating_sub(d.legs.len());
+        // (a leg of the map's kept as its trip's whole track has no lanes of its own: once the
+        // direction runs otherwise than the map's, the router's way is needed for it)
+        let map_way = d.is_map_way();
+        let bad = d.legs.iter().filter(|g| !g.ok || (g.steps.is_empty() && g.map_way.is_some() && !map_way)).count() + (d.stops.len() - 1).saturating_sub(d.legs.len());
         if bad > 0 {
             out.push(p(if k == 0 { "%{n} leg(s) of the outbound direction have no way over the roads" } else { "%{n} leg(s) of the way back have no way over the roads" }, bad));
         }
@@ -1251,9 +1723,11 @@ pub fn export(reg: &Registry, raw_tiles: &[(i32, i32)], map_links: &HashSet<(i64
     let mut buses: std::collections::BTreeMap<String, LineVehicles> = std::collections::BTreeMap::new();
     for l in reg.lines.iter().filter(|l| written(l)) {
         let stem = &stems[&l.id];
-        let number = l.number.trim().to_string();
+        let line_number = l.number.trim().to_string();
         for (dir, d) in l.directions.iter().enumerate() {
             let name = trip_name(stem, dir);
+            // (a direction of a line of the map's may show a number of its own: 34N on line 34)
+            let number = d.number_or(&line_number);
             // (the direction's times, and every other shape of its table's trips: a profile each)
             let profiles: Vec<TripProfile> = table_profiles(l, dir)
                 .iter()
@@ -1275,10 +1749,15 @@ pub fn export(reg: &Registry, raw_tiles: &[(i32, i32)], map_links: &HashSet<(i64
             };
             out.files.push((format!("{name}.ttp"), trip.to_text()));
             let legs = &d.legs[..d.legs.len().min(d.stops.len().saturating_sub(1))];
-            // the track: every leg's lanes, the one two legs share once
+            // the track: every leg's lanes, the one two legs share once - a direction of the
+            // map's that runs as the map has it: the map's own track, as it is
             let mut entries: Vec<TrackEntry> = Vec::new();
             let mut last: Option<([i32; 2], i64, u16, bool)> = None;
-            for g in legs {
+            let map_track = d.is_map_way() && !d.map_track.is_empty();
+            if map_track {
+                entries = d.map_track.iter().map(|v| TrackEntry { values: v.clone() }).collect();
+            }
+            for g in legs.iter().filter(|_| !map_track) {
                 for s in &g.steps {
                     let key = (s.tile, s.id, s.path, s.reversed);
                     if last == Some(key) {
@@ -1293,7 +1772,8 @@ pub fn export(reg: &Registry, raw_tiles: &[(i32, i32)], map_links: &HashSet<(i64
             // the links the map lacks, and the stops it does not name
             for (k, g) in legs.iter().enumerate() {
                 let (a, b) = (&d.stops[k], &d.stops[k + 1]);
-                if !links_done.insert((a.id, b.id)) {
+                // (the map's own way: its link, or its trip's track - the map's file stays)
+                if g.kept_between(a.id, b.id) || !links_done.insert((a.id, b.id)) {
                     continue;
                 }
                 let mut entries = Vec::new();
@@ -1312,21 +1792,35 @@ pub fn export(reg: &Registry, raw_tiles: &[(i32, i32)], map_links: &HashSet<(i64
                 }
             }
         }
-        // the tours: the buses of every day pattern, numbered on through the day groups
+        // the tours: the buses of every day pattern, numbered on through the day groups - a
+        // tour of the map's with its own depot group (unless the player chose another for the
+        // line) and its own days
         let tours: Vec<Tour> = tour_plan(l)
             .into_iter()
-            .map(|t| Tour {
-                number: t.number,
-                ai_group: l.ai_group.trim().to_string(),
-                extra: l.service.mask(l.days[t.day].days).to_string(),
-                trips: t.trips.iter().map(|x| TourTrip { trip: trip_name(stem, x.dir), profile: x.profile as i32, departure: x.departure }).collect(),
+            .map(|t| {
+                let kept = t.kept.and_then(|k| l.map.as_ref().map(|m| (m, m.tours.get(k))));
+                let (ai_group, extra) = match kept {
+                    Some((m, Some(mt))) => (if l.ai_group.trim().eq_ignore_ascii_case(m.group.trim()) { mt.ai_group.trim() } else { l.ai_group.trim() }, kept_mask(l.service, mt.mask)),
+                    _ => (l.ai_group.trim(), l.service.mask(l.days.get(t.day).map(|p| p.days).unwrap_or(DAY_GROUPS[0].1))),
+                };
+                Tour { number: t.number, ai_group: ai_group.to_string(), extra: extra.to_string(), trips: t.trips.iter().map(|x| TourTrip { trip: trip_name(stem, x.dir), profile: x.profile as i32, departure: x.departure }).collect() }
             })
             .collect();
         out.tours.insert(l.id, tours.len());
-        let line = Line { path: PathBuf::new(), name: stem.clone(), user_allowed: true, priority: 1, tours };
-        out.files.push((format!("{stem}.ttl"), line.to_text()));
+        let timetable_name = l.timetable_name(stem);
+        match &l.map {
+            // (a line of the map's: in the place of the map's own file, by its name)
+            Some(m) => {
+                let line = Line { path: PathBuf::new(), name: m.ttl.clone(), user_allowed: m.user_allowed, priority: m.priority, tours };
+                out.shadows.push((format!("{}.ttl", m.ttl), line.to_text()));
+            }
+            None => {
+                let line = Line { path: PathBuf::new(), name: stem.clone(), user_allowed: true, priority: 1, tours };
+                out.files.push((format!("{stem}.ttl"), line.to_text()));
+            }
+        }
         if !l.vehicles.open() {
-            buses.insert(stem.to_lowercase(), l.vehicles.clone());
+            buses.insert(timetable_name.to_lowercase(), l.vehicles.clone());
         }
     }
     if !buses.is_empty() {
@@ -1399,7 +1893,60 @@ pub fn write_export(dir: &Path, e: &Export, keep: &dyn Fn(&Path) -> Result<(), S
         omsi_timetable::write::update_block(&p, &block).map_err(|x| format!("{file}: {x}"))?;
     }
     std::fs::write(&manifest, written.join("\r\n")).map_err(|x| format!("{MANIFEST}: {x}"))?;
+    write_map_lines(dir, &e.shadows)?;
     Ok(written.len())
+}
+
+/// The map's own file of a line the editor wrote over, kept beside it (`<file>.orig`).
+fn orig_of(path: &Path) -> PathBuf {
+    PathBuf::from(format!("{}.orig", path.display()))
+}
+
+/// The lines of the map's that are edited (`shadows`) written into the `TTData` folder `dir`,
+/// each over the map's own file of its name - that one kept as `<file>.orig` the first time,
+/// byte for byte - and every one edited before and no longer (`MAP_MANIFEST`) the map's own
+/// again: its file put back as it was.
+fn write_map_lines(dir: &Path, shadows: &[(String, String)]) -> Result<(), String> {
+    let manifest = dir.join(MAP_MANIFEST);
+    let old: Vec<String> = std::fs::read_to_string(&manifest).unwrap_or_default().lines().map(str::trim).filter(|n| !n.is_empty() && !n.contains(['/', '\\'])).map(String::from).collect();
+    let mine = |n: &str| shadows.iter().any(|(s, _)| s.eq_ignore_ascii_case(n));
+    // (named with those of last time first: a write that stops half-way puts them all back
+    // the next time)
+    let mut pending = old.clone();
+    for (name, _) in shadows {
+        if !pending.iter().any(|n| n.eq_ignore_ascii_case(name)) {
+            pending.push(name.clone());
+        }
+    }
+    if pending != old {
+        std::fs::write(&manifest, pending.join("\r\n")).map_err(|x| format!("{MAP_MANIFEST}: {x}"))?;
+    }
+    for name in old.iter().filter(|n| !mine(n)) {
+        let path = dir.join(name);
+        let orig = orig_of(&path);
+        if orig.is_file() {
+            std::fs::rename(&orig, &path).map_err(|x| format!("{name}: {x}"))?;
+        }
+    }
+    for (name, text) in shadows {
+        let path = dir.join(name);
+        // (the map's own, before the editor's first write over it: one written last time is
+        // the editor's own)
+        let orig = orig_of(&path);
+        if !old.iter().any(|n| n.eq_ignore_ascii_case(name)) && path.is_file() && !orig.exists() {
+            std::fs::copy(&path, &orig).map_err(|x| format!("{name}: {x}"))?;
+        }
+        omsi_timetable::write::write_text(&path, text).map_err(|x| format!("{name}: {x}"))?;
+    }
+    if shadows.is_empty() {
+        if manifest.exists() {
+            std::fs::remove_file(&manifest).map_err(|x| format!("{MAP_MANIFEST}: {x}"))?;
+        }
+    } else {
+        let names: Vec<&str> = shadows.iter().map(|(n, _)| n.as_str()).collect();
+        std::fs::write(&manifest, names.join("\r\n")).map_err(|x| format!("{MAP_MANIFEST}: {x}"))?;
+    }
+    Ok(())
 }
 
 /// Every line of the registry that can be saved, written into the map's `TTData` (the
@@ -1451,7 +1998,7 @@ mod tests {
     }
 
     fn leg(len: f32, ids: &[i64]) -> Leg {
-        Leg { steps: ids.iter().map(|i| LaneStep { tile: [0, 0], id: *i, path: 0, reversed: false, length: len / ids.len() as f32 }).collect(), length: len, ok: true, from_s: 2.0, to_s: 5.0, from_lat: 2.5, to_lat: 2.5, vias: Vec::new() }
+        Leg { steps: ids.iter().map(|i| LaneStep { tile: [0, 0], id: *i, path: 0, reversed: false, length: len / ids.len() as f32 }).collect(), length: len, ok: true, from_s: 2.0, to_s: 5.0, from_lat: 2.5, to_lat: 2.5, vias: Vec::new(), map_way: None }
     }
 
     /// A line of three stops out and three back over five lanes, every day.
@@ -1573,7 +2120,7 @@ mod tests {
         // a weekend trip of a school line is kept in the table, not driven
         l.table[1].times[2] = l.table[1].times[1] + 1.0;
         l.service = ServiceKind::School;
-        l.table.push(TableTrip { dir: 0, day: 1, times: vec![600.0, 601.0, 602.0] });
+        l.table.push(TableTrip { dir: 0, day: 1, times: vec![600.0, 601.0, 602.0], ..Default::default() });
         assert!(table_trips(l).iter().all(|t| t.day == 0));
         // a stop added since: the trip follows its direction's times from its departure
         l.directions[0].stops.push(stop(7, "Ende", 1200.0));
@@ -1906,5 +2453,219 @@ mod tests {
         assert_eq!(old.texts, 0, "its blocks were written the old way");
         let now: Registry = serde_json::from_str(&serde_json::to_string(&Registry::default()).unwrap()).unwrap();
         assert_eq!(now.texts, TEXTS_VERSION);
+    }
+
+    // --- a line of the map's -------------------------------------------------------------------
+
+    /// A map's `TTData` written into `dir` for the tests: six stops, the links between them,
+    /// line 7 out (its own track too) and back and a short run 7E, and its `.ttl` with three
+    /// tours - two of the working days (one of another depot group) and one of the weekend.
+    fn map_timetable(dir: &Path) {
+        std::fs::create_dir_all(dir).unwrap();
+        let names = [(1, "Bahnhof"), (2, "Kirche"), (3, "Markt"), (4, "Markt"), (5, "Kirche"), (6, "Bahnhof")];
+        let stops: String = names.iter().map(|(id, n)| BusStopEntry { name: n.to_string(), group: 0, object_id: *id, params: [0.0; 3] }.to_text()).collect();
+        std::fs::write(dir.join("Busstops.cfg"), stops).unwrap();
+        let link = |a: i64, b: i64, lanes: &[i64], len: f64| {
+            let entries = lanes.iter().map(|l| StnLinkEntry { values: [*l as f64, 0.0, 0.0, len / lanes.len() as f64, -1.0, 0.0, 0.0] }).collect();
+            StnLink { length: len, from_id: a, to_id: b, params: [2.5, 2.5, 3.0, 4.0, 0.0, lanes.len() as f64 - 1.0], entries }.to_text("a", "b")
+        };
+        let links = [link(1, 2, &[10, 11], 500.0), link(2, 3, &[11, 12], 1000.0), link(4, 5, &[13], 1000.0), link(5, 6, &[14], 500.0)].concat();
+        std::fs::write(dir.join("StnLinks.cfg"), links).unwrap();
+        let profile = |total: f32, dep: &[(i32, f32)]| TripProfile { name: "standard".into(), factor: total, man_dep_time: dep.to_vec(), ..Default::default() };
+        let trip = |name: &str, to: &str, line: &str, stations: &[i64], p: Vec<TripProfile>| {
+            std::fs::write(dir.join(format!("{name}.ttp")), Trip { terminus: to.into(), line: line.into(), stations: stations.to_vec(), profiles: p, ..Default::default() }.to_text()).unwrap();
+        };
+        trip("7_out", "Markt", "7", &[1, 2, 3], vec![profile(6.0, &[(1, 2.0)]), profile(9.0, &[])]);
+        trip("7_back", "Bahnhof", "7", &[4, 5, 6], vec![profile(6.0, &[])]);
+        trip("7_short", "Kirche", "7E", &[1, 2], vec![profile(3.0, &[])]);
+        let track = Track { path: PathBuf::new(), entries: [10, 11, 12].iter().map(|l| TrackEntry { values: vec![*l as f64, 0.0, 0.0, 0.0, 300.0, 0.0] }).collect() };
+        std::fs::write(dir.join("7_out.ttr"), track.to_text()).unwrap();
+        let tt = |trip: &str, profile: i32, departure: f32| TourTrip { trip: trip.into(), profile, departure };
+        let tours = vec![
+            Tour { number: "1".into(), ai_group: "Busses".into(), extra: "799".into(), trips: vec![tt("7_out", 0, 360.0), tt("7_back", 0, 370.0), tt("7_out", 1, 380.0)] },
+            Tour { number: "2".into(), ai_group: "Busses".into(), extra: "992".into(), trips: vec![tt("7_out", 0, 480.0), tt("7_back", 0, 490.0)] },
+            Tour { number: "3".into(), ai_group: "Extra".into(), extra: "799".into(), trips: vec![tt("7_short", 0, 400.0)] },
+        ];
+        // (as OMSI's editor writes it: not as openOMSI would, so that a copy is told apart)
+        let text = Line { path: PathBuf::new(), name: "7".into(), user_allowed: true, priority: 2, tours }.to_text().replace("Created with openOMSI", "Created with Omsi Version 2.3.004");
+        std::fs::write(dir.join("7.ttl"), text).unwrap();
+    }
+
+    /// The map's stops for `import_map_line`, along a road (x: 100 m a stop).
+    fn map_stop(id: i64, name: &str) -> StopRef {
+        StopRef { tile: [0, 0], id, name: name.to_string(), at: [id as f64 * 100.0, 0.0], ..Default::default() }
+    }
+
+    fn import_7(data: &omsi_timetable::TimetableData) -> LineDesign {
+        let line = data.lines.iter().find(|l| l.name == "7").unwrap();
+        import_map_line(data, line, &[(0, 0)], &map_stop).expect("line 7")
+    }
+
+    /// Every trip a timetable's line runs, tour by tour: (the tour, its depot group and mask, and
+    /// each trip's stops and departure).
+    fn runs(data: &omsi_timetable::TimetableData, name: &str) -> Vec<(String, String, String, Vec<(Vec<i64>, i64)>)> {
+        let l = data.lines.iter().find(|l| l.name.eq_ignore_ascii_case(name)).unwrap();
+        l.tours.iter().map(|t| (t.number.clone(), t.ai_group.clone(), t.extra.clone(), t.trips.iter().map(|x| (data.trip(&x.trip).unwrap().stations.clone(), x.departure.round() as i64)).collect())).collect()
+    }
+
+    #[test]
+    fn a_line_of_the_map_is_opened_as_a_line_to_edit() {
+        let base = std::env::temp_dir().join(format!("omsi_lines_map_import_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        map_timetable(&base.join("TTData"));
+        let data = omsi_timetable::TimetableData::load(&base);
+        let l = import_7(&data);
+        // a direction a trip: the one run most, its way back, the short run
+        assert_eq!(l.directions.iter().map(|d| d.map_trip.as_str()).collect::<Vec<_>>(), ["7_out", "7_back", "7_short"]);
+        assert_eq!(l.directions[0].stops.iter().map(|s| (s.id, s.name.as_str())).collect::<Vec<_>>(), [(1, "Bahnhof"), (2, "Kirche"), (3, "Markt")]);
+        assert_eq!((l.directions[0].destination().as_str(), l.directions[1].destination().as_str()), ("Markt", "Bahnhof"));
+        // its number the one its trips show most; the short run shows its own
+        assert_eq!((l.number.as_str(), l.name.as_str(), l.directions[2].number.as_str(), l.directions[0].number.as_str()), ("7", "7", "7E", ""));
+        // the times of the trip's first profile, between its fixed ones by the links' lengths
+        assert_eq!(l.directions[0].times, vec![0.0, 2.0, 6.0]);
+        assert_eq!(l.directions[1].times, vec![0.0, 4.0, 6.0]);
+        // the way between the stops is the map's own: its links, kept
+        let d = &l.directions[0];
+        assert!(d.is_map_way() && d.legs.iter().all(|g| g.ok && g.map_way.is_some()));
+        assert_eq!(d.legs[0].steps.iter().map(|s| s.id).collect::<Vec<_>>(), vec![10, 11]);
+        assert_eq!((d.legs[1].length, d.legs[0].from_s, d.legs[0].to_s), (1000.0, 3.0, 4.0));
+        assert_eq!(d.map_track.len(), 3, "the map's own track of the trip");
+        // its timetable: every departure of the map's, in its tour
+        assert!(l.table_on && problems(&l).is_empty());
+        let deps: Vec<(usize, i64, &str)> = l.table.iter().map(|t| (t.dir, t.departure().round() as i64, t.tour.as_str())).collect();
+        assert_eq!(deps, vec![(0, 360, "1"), (1, 370, "1"), (0, 380, "1"), (2, 400, "3"), (0, 480, "2"), (1, 490, "2")]);
+        // (the departure at 6:20 runs the trip's second profile: 9 minutes)
+        assert_eq!(l.table[2].times, vec![380.0, 383.0, 389.0]);
+        // the weekend tour's trips run on Saturdays and Sundays, not on the working days
+        let weekend = &l.table[4];
+        assert!(!trip_in_group(&l, weekend, 0) && trip_in_group(&l, weekend, 1) && trip_in_group(&l, weekend, 2));
+        let m = l.map.as_ref().unwrap();
+        assert_eq!((m.ttl.as_str(), m.group.as_str(), m.tours.len(), m.priority, m.user_allowed), ("7", "Busses", 3, 2, true));
+        assert_eq!(l.ai_group, "Busses");
+        // planned as the map has it: its tours, their numbers and days
+        let plan = tour_plan(&l);
+        assert_eq!(plan.iter().map(|t| (t.number.as_str(), t.trips.len(), t.kept)).collect::<Vec<_>>(), [("1", 3, Some(0)), ("2", 2, Some(1)), ("3", 1, Some(2))]);
+        // the patterns come near its first direction: on working days 6:00 to 6:20 every 20
+        assert_eq!((l.days[0].on, l.days[0].first, l.days[0].last, l.days[0].headway), (true, 360.0, 380.0, 20.0));
+        // a trip added by the player gets a bus of its own, numbered past the map's tours
+        let mut more = l.clone();
+        more.table.push(TableTrip { dir: 0, day: 0, times: vec![600.0, 602.0, 606.0], tour: String::new() });
+        assert_eq!(tour_plan(&more).last().map(|t| (t.number.as_str(), t.kept)), Some(("4", None)));
+        // it is no line of the player's own
+        let mut reg = Registry::default();
+        reg.add_map_line(l);
+        assert!(own_lines(&reg).is_empty() && reg.map_line("7").is_some());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn an_edited_line_of_the_map_takes_the_place_of_the_original_and_is_restored_byte_for_byte() {
+        let base = std::env::temp_dir().join(format!("omsi_lines_map_save_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (content, map) = (base.join("content"), base.join("omsi").join("maps").join("Dorf"));
+        map_timetable(&map.join("TTData"));
+        let original = std::fs::read(map.join("TTData").join("7.ttl")).unwrap();
+        let before = runs(&omsi_timetable::TimetableData::load(&map), "7");
+        // the player's own line 42 on the map, written first
+        let mut reg = Registry { map: "Dorf".into(), ..Default::default() };
+        line(&mut reg);
+        let dir = crate::ttstore::ttdata_dir(&content, &map, "Dorf").unwrap();
+        let copy = content.join("maps").join("Dorf");
+        let write = |reg: &Registry| {
+            let (links, stops) = map_has(&dir);
+            let e = export(reg, &[(0, 0)], &links, &stops).unwrap();
+            write_export(&dir, &e, &crate::ttstore::keep_original).unwrap();
+        };
+        write(&reg);
+        let own: Vec<(String, Vec<u8>)> = ["oo_42.ttl", "oo_42_a.ttp", "oo_42_b.ttp", "oo_42_a.ttr"].iter().map(|f| (f.to_string(), std::fs::read(dir.join(f)).unwrap())).collect();
+        // line 7 opened and saved as it came: it runs as the map's did, by its own trips
+        let data = omsi_timetable::TimetableData::load(&copy);
+        reg.add_map_line(import_7(&data));
+        write(&reg);
+        let data = omsi_timetable::TimetableData::load(&copy);
+        let after = runs(&data, "7");
+        assert_eq!(after, before, "saved as it came, it runs as the map's own did");
+        let l7 = data.lines.iter().find(|l| l.name == "7").unwrap();
+        assert!(l7.tours.iter().flat_map(|t| &t.trips).all(|x| x.trip.starts_with("oo_map_7_")), "the original's trips run nowhere");
+        assert!(data.lines.iter().flat_map(|l| &l.tours).flat_map(|t| &t.trips).all(|x| !x.trip.starts_with("7_")));
+        assert_eq!((l7.priority, l7.user_allowed), (2, true));
+        // (the outbound trip drives the map's own track)
+        let track = data.tracks.iter().find(|t| t.path.file_stem().unwrap() == "oo_map_7_a").unwrap();
+        assert_eq!(track.entries.iter().map(|e| e.values[0] as i64).collect::<Vec<_>>(), vec![10, 11, 12]);
+        // (the map's own links are not written again)
+        assert!(!std::fs::read_to_string(dir.join("StnLinks.cfg")).unwrap().contains("oo_map"));
+        // the map's own file kept, the installation's not touched
+        assert_eq!(std::fs::read(dir.join("7.ttl.orig")).unwrap(), original);
+        assert_eq!(std::fs::read(map.join("TTData").join("7.ttl")).unwrap(), original);
+        // edited: the way back a stop shorter, the 6:00 later, a colour - the game's line 7 is the edited one
+        let id = reg.map_line("7").unwrap().id;
+        let l = reg.line_mut(id).unwrap();
+        l.colour = "#e5484d".into();
+        l.table[0].shift(5.0);
+        l.directions[1].stops.pop();
+        l.directions[1].legs.pop();
+        assert!(!l.directions[1].is_map_way() && l.directions[0].is_map_way());
+        write(&reg);
+        let data = omsi_timetable::TimetableData::load(&copy);
+        let edited = runs(&data, "7");
+        assert_eq!(edited[0].3[0], (vec![1, 2, 3], 365));
+        assert_eq!(edited[0].3[1], (vec![4, 5], 370));
+        assert_eq!(edited.len(), 3);
+        // restored: the map's own file back byte for byte, the edit's files gone, line 42 as it was
+        assert!(reg.restore_map_line("7") && reg.map_line("7").is_none());
+        write(&reg);
+        assert_eq!(std::fs::read(dir.join("7.ttl")).unwrap(), original);
+        assert!(!dir.join("7.ttl.orig").exists() && !dir.join(MAP_MANIFEST).exists());
+        let left: Vec<String> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.starts_with("oo_map")).collect();
+        assert!(left.is_empty(), "{left:?}");
+        assert_eq!(runs(&omsi_timetable::TimetableData::load(&copy), "7"), before);
+        for (f, bytes) in &own {
+            assert_eq!(&std::fs::read(dir.join(f)).unwrap(), bytes, "{f}: the player's own line untouched");
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_map_in_the_content_folder_gets_its_line_back_and_a_reset_keeps_it_anew() {
+        let base = std::env::temp_dir().join(format!("omsi_lines_map_inplace_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let content = base.join("content");
+        let map = content.join("maps").join("Dorf");
+        map_timetable(&map.join("TTData"));
+        let original = std::fs::read(map.join("TTData").join("7.ttl")).unwrap();
+        let dir = crate::ttstore::ttdata_dir(&content, &map, "Dorf").unwrap();
+        assert_eq!(dir, map.join("TTData"), "written in place");
+        let mut reg = Registry { map: "Dorf".into(), ..Default::default() };
+        reg.add_map_line(import_7(&omsi_timetable::TimetableData::load(&map)));
+        reg.lines[0].table.retain(|t| t.tour != "3");
+        let write = |reg: &Registry| {
+            let (links, stops) = map_has(&dir);
+            write_export(&dir, &export(reg, &[(0, 0)], &links, &stops).unwrap(), &crate::ttstore::keep_original).unwrap();
+        };
+        write(&reg);
+        assert_eq!(runs(&omsi_timetable::TimetableData::load(&map), "7").len(), 2, "tour 3 dropped");
+        // the Timetable page's reset: the map's own back, and the editor keeps it anew next time
+        crate::ttstore::reset_timetable(&content, &map, "Dorf").unwrap();
+        assert_eq!(std::fs::read(dir.join("7.ttl")).unwrap(), original);
+        write(&reg);
+        assert_eq!(std::fs::read(dir.join("7.ttl.orig")).unwrap(), original);
+        reg.restore_map_line("7");
+        write(&reg);
+        assert_eq!(std::fs::read(dir.join("7.ttl")).unwrap(), original);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_registry_of_before_reads_with_no_line_of_the_map() {
+        let old: Registry = serde_json::from_str(r#"{"version":2,"map":"X","lines":[{"id":3,"number":"5","directions":[{"stops":[{"id":1}],"legs":[{"length":4.0}]}],"table":[{"dir":0,"day":1,"times":[600.0]}]}]}"#).unwrap();
+        let l = &old.lines[0];
+        assert!(l.map.is_none() && !l.is_map_line());
+        assert_eq!((l.table[0].tour.as_str(), l.directions[0].number.as_str(), l.directions[0].map_route, l.directions[0].legs[0].map_way), ("", "", 0, None));
+        assert!(!l.directions[0].is_map_way());
+        // (and a line of the map's reads back as it was saved)
+        let mut reg = Registry::default();
+        reg.add_map_line(LineDesign { map: Some(MapSource { ttl: "7".into(), tours: vec![MapTour { number: "1".into(), ai_group: "B".into(), mask: 799 }], ..Default::default() }), ..Default::default() });
+        let back: Registry = serde_json::from_str(&serde_json::to_string(&reg).unwrap()).unwrap();
+        assert_eq!(back, reg);
     }
 }

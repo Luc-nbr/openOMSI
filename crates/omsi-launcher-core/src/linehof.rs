@@ -503,6 +503,22 @@ impl Depot {
         self.hof.termini.iter().find(|t| t.texture_id.trim() == n).or_else(|| self.hof.termini.iter().find(|t| t.texture_id.trim().eq_ignore_ascii_case(n)))
     }
 
+    /// The file has an IBIS route of the code `code` of its own (`[infosystem_trip]`).
+    pub fn has_route(&self, code: u32) -> bool {
+        code > 0 && self.hof.info_trips.iter().any(|t| t.code.trim().parse::<u32>().ok() == Some(code))
+    }
+
+    /// The file's own IBIS route through the stops `stops` (by name, in order: a route's stop
+    /// is the ident of an `[addbusstop]`, matched by its part before `#`) - one of line `line`
+    /// first (its code `line` × 100 and two digits). A direction of a line of the map's keeps
+    /// it while its stops are the map's (`lines::Direction::map_route`).
+    pub fn route_of(&self, line: &str, stops: &[&str]) -> Option<u32> {
+        let same = |list: &Vec<String>| list.len() == stops.len() && list.iter().zip(stops).all(|(i, s)| i.split('#').next().unwrap_or("").trim().eq_ignore_ascii_case(s.trim()));
+        let found: Vec<u32> = self.hof.info_trips.iter().enumerate().filter(|(k, _)| self.hof.info_busstop_lists.get(*k).is_some_and(same)).filter_map(|(_, t)| t.code.trim().parse().ok()).collect();
+        let want = line_number(line);
+        found.iter().copied().find(|c| want > 0 && c / 100 == want).or(found.first().copied())
+    }
+
     /// The file's own stop called `ident`.
     pub fn own_stop(&self, ident: &str) -> Option<&BusStop> {
         let n = ident.trim();
@@ -766,7 +782,13 @@ pub fn assign_lines(reg: &mut Registry, ids: &[u64], depots: &[Depot], taken: &T
                     }
                 };
             }
-            d.ibis_route = match route_code(&number, k, d.ibis_route, &t.routes) {
+            // (a direction of a line of the map's that calls at the map's stops: the depot
+            // file's own route of it, as the driver knows it)
+            if keeps_map_route(d, depots) {
+                d.ibis_route = d.map_route;
+                continue;
+            }
+            d.ibis_route = match route_code(&d.number_or(&number), k, d.ibis_route, &t.routes) {
                 Some(c) => {
                     t.routes.insert(c);
                     c
@@ -777,9 +799,16 @@ pub fn assign_lines(reg: &mut Registry, ids: &[u64], depots: &[Depot], taken: &T
     }
 }
 
+/// A direction of a line of the map's keeps the depot files' own IBIS route of it
+/// (`Direction::map_route`): it calls at the map's stops, and every copy of the file has it.
+fn keeps_map_route(d: &Direction, depots: &[Depot]) -> bool {
+    d.map_route > 0 && d.has_map_stops() && !depots.is_empty() && depots.iter().all(|x| x.has_route(d.map_route))
+}
+
 /// The block of the lines `lines` (their codes given, `assign`) for one copy of their depot
 /// file: a new destination's `[addterminus]` (once), the stops the file has no name for as
-/// `[addbusstop]`, and for every direction its `[infosystem_trip]` and stop list.
+/// `[addbusstop]`, and for every direction its `[infosystem_trip]` and stop list - none for a
+/// direction of a line of the map's that keeps the file's own route (`keeps_map_route`).
 pub fn block(lines: &[&LineDesign], depot: &Depot) -> String {
     let mut o = String::new();
     // (every route to a new destination by the code its one `[addterminus]` has: two lines to
@@ -787,11 +816,11 @@ pub fn block(lines: &[&LineDesign], depot: &Depot) -> String {
     let mut termini: HashMap<String, i32> = HashMap::new();
     let mut stops: HashMap<String, String> = HashMap::new();
     for l in lines {
-        let number = clean(l.number.trim());
         for d in &l.directions {
             if d.stops.len() < 2 || d.ibis_route == 0 {
                 continue;
             }
+            let number = clean(&d.number_or(&l.number));
             let dest = clean(&d.destination());
             let code = match depot.terminus(&dest) {
                 Some(t) => t.code,
@@ -810,6 +839,9 @@ pub fn block(lines: &[&LineDesign], depot: &Depot) -> String {
                     }
                 },
             };
+            if d.ibis_route == d.map_route && keeps_map_route(d, std::slice::from_ref(depot)) {
+                continue;
+            }
             let mut idents = Vec::new();
             for s in &d.stops {
                 let name = clean(s.name.trim());
@@ -1104,6 +1136,34 @@ pub(crate) mod tests {
 
     pub(crate) fn groups() -> HashMap<String, String> {
         [("busses".to_string(), "Grundorf".to_string())].into_iter().collect()
+    }
+
+    /// A direction of a line of the map's that calls at the map's stops keeps the depot file's
+    /// own IBIS route (the driver types what he knows); one with other stops gets one of its own.
+    #[test]
+    fn a_line_of_the_maps_keeps_its_own_ibis_route() {
+        let d = Depot::from_text(Path::new("Grundorf.hof"), GRUNDORF, "Grundorf");
+        assert_eq!(d.route_of("76", &["Bauernhof", "Krankenhaus"]), Some(7601));
+        assert_eq!(d.route_of("76", &["Krankenhaus", "Bauernhof"]), None);
+        assert!(d.has_route(7601) && !d.has_route(7602));
+        let mut reg = Registry { map: "Grundorf".into(), ..Default::default() };
+        let out = Direction { terminus: "Krankenhaus".into(), stops: vec![stop(11, "Bauernhof"), stop(12, "Krankenhaus")], legs: vec![Leg { map_way: Some([11, 12]), ..ok_leg() }], map_stops: vec![11, 12], map_route: 7601, ..Default::default() };
+        let id = reg.add_map_line(LineDesign { number: "76".into(), ai_group: "Busses".into(), directions: vec![out], map: Some(Default::default()), ..Default::default() }).id;
+        let mut taken = Taken::default();
+        taken.add_depot(&d);
+        assign_lines(&mut reg, &[id], std::slice::from_ref(&d), &taken, &HashMap::new());
+        assert_eq!(reg.line(id).unwrap().directions[0].ibis_route, 7601);
+        let lines: Vec<&LineDesign> = reg.lines.iter().collect();
+        let b = block(&lines, &d);
+        assert!(!b.contains("[infosystem_trip]") && !b.contains("[addterminus]"), "the file's own route and destination: {b}");
+        // a stop added: a route of its own
+        let l = reg.line_mut(id).unwrap();
+        l.directions[0].stops.insert(1, stop(13, "Kirche"));
+        l.directions[0].legs.push(ok_leg());
+        assign_lines(&mut reg, &[id], std::slice::from_ref(&d), &taken, &HashMap::new());
+        assert_eq!(reg.line(id).unwrap().directions[0].ibis_route, 7602);
+        let lines: Vec<&LineDesign> = reg.lines.iter().collect();
+        assert!(block(&lines, &d).contains("[infosystem_trip]\r\n7602\r\n"));
     }
 
     #[test]
