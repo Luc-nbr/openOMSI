@@ -234,10 +234,20 @@ fn version_parts(v: &str) -> Vec<u64> {
 }
 
 /// A pull request's test build: `release.yml` gives it the version `<release>-pr<number>`;
-/// and a build of the Omsi-Hub interface for testing (`<release>-hub<number>`, Luc's fork):
-/// the project's releases, which do not have that interface, would replace it.
+/// and a build of the Omsi-Hub interface for testing (`<release>-beta<number>`, Luc's fork;
+/// `-hub<number>` before): the project's releases, which do not have that interface, would
+/// replace it.
 pub fn is_test_build(version: &str) -> bool {
-    version.contains("-pr") || version.contains("-hub")
+    version.contains("-pr") || version.contains("-hub") || version.contains("-beta")
+}
+
+/// The version as the launcher's bar shows it: a test build `<release>-beta<N>` as "Beta N"
+/// (Luc's name for them), any other as it is.
+pub fn shown_version(version: &str) -> String {
+    match version.split_once("-beta") {
+        Some((_, n)) if !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) => format!("Beta {n}"),
+        _ => version.to_string(),
+    }
 }
 
 /// Whether `candidate` is a newer version than `current`.
@@ -966,8 +976,11 @@ mod tests {
         // a pull request's test build keeps itself, however new the release
         assert!(parse_release(&v, "0.1.7-pr12").unwrap().is_none());
         assert!(is_test_build("0.1.1313-pr1192") && !is_test_build("0.1.1313"));
-        // (and an Omsi-Hub test build)
+        // (and an Omsi-Hub test build, a Beta as it is called now)
         assert!(is_test_build("0.1.1554-hub16") && parse_release(&v, "0.1.7-hub16").unwrap().is_none());
+        assert!(is_test_build("0.2.30-beta33") && parse_release(&v, "0.1.7-beta33").unwrap().is_none());
+        assert_eq!(shown_version("0.2.30-beta33"), "Beta 33");
+        assert_eq!(shown_version("0.2.30.62"), "0.2.30.62");
     }
 
     /// The fork's builds take the newest of its own releases (four numbers) from the list,
