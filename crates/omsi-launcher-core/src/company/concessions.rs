@@ -296,10 +296,15 @@ pub fn weight(c: &Company, t: &Tender) -> f64 {
 
 /// The fee for taking part in a tender (a tenth of the line's worth at most).
 pub fn fee(c: &Company, t: &Tender) -> Cents {
+    fee_of(c, t.day_tours, t.value)
+}
+
+/// The fee of a tender of a line with `day_tours` tours a day worth `value`.
+fn fee_of(c: &Company, day_tours: u32, value: Cents) -> Cents {
     let r = rules(c.difficulty);
-    let f = ((r.fee_base + r.fee_per_tour * t.day_tours as Cents) as f64 * c.price_index).round() as Cents;
-    if t.value > 0 && f > 0 {
-        f.min(round(t.value as f64 * 0.1))
+    let f = ((r.fee_base + r.fee_per_tour * day_tours as Cents) as f64 * c.price_index).round() as Cents;
+    if value > 0 && f > 0 {
+        f.min(round(value as f64 * 0.1))
     } else {
         f
     }
@@ -725,6 +730,66 @@ pub fn buy_out(c: &mut Company, id: u32) -> Result<Event, &'static str> {
         x.closes = today;
     }
     Ok(ev)
+}
+
+/// What the easy mode pays for a concession without its auction (Luc: concessions "bought at
+/// the asking price instead of auctions"): what the line is worth to the auction (`value`),
+/// and the tender's fee when it is not paid yet.
+pub fn asking_price(c: &Company, t: &Tender) -> Cents {
+    t.value + if t.fee_paid { 0 } else { fee(c, t) }
+}
+
+/// The asking price of a map line's concession: its open tender's, else what a tender of it
+/// would ask now.
+pub fn asking_price_of(c: &Company, l: &LineInfo) -> Cents {
+    if let Some(t) = open_tender(c, &l.name) {
+        return asking_price(c, t);
+    }
+    let (tours, km) = day_figures(l);
+    let value = value_of(c, km, rules(c.difficulty).term_weeks);
+    value + fee_of(c, tours, value)
+}
+
+/// Take a tender's line at the asking price, without its auction (the easy mode, whether the
+/// tender has opened yet or not): paid now, won and closed - a new line is run from tomorrow,
+/// a renewal adds its term. Returns what came of it and what it cost.
+pub fn take_at_asking(c: &mut Company, id: u32) -> Result<(Event, Cents), &'static str> {
+    let Some(t) = c.concessions.tenders.iter().find(|t| t.id == id).cloned() else { return Err("There is no such tender.") };
+    if !t.open() {
+        return Err("This tender is closed.");
+    }
+    level_allows(c, id)?;
+    let price = asking_price(c, &t);
+    if c.cash < price {
+        return Err("Not enough cash.");
+    }
+    pay_fee(c, id)?;
+    c.book(BookingKind::Concession, -t.value, format!("Concession line {} (asking price)", t.number), false);
+    let ev = take(c, &t);
+    let now = clock::now(c);
+    let score = t.value as f64 * weight(c, &t);
+    let today = c.date.clone();
+    if let Some(x) = c.concessions.tenders.iter_mut().find(|x| x.id == id) {
+        x.outcome = Some(Outcome::Won { score, rivals: Vec::new(), amount: t.value, bought: true });
+        x.opens_at = x.opens_at.min(now);
+        x.closes_at = now;
+        x.offered = today.clone();
+        x.closes = today;
+        x.opened = true;
+    }
+    Ok((ev, price))
+}
+
+/// Take a map line's concession at the asking price (the easy mode's "Take it on"): its tender
+/// opened and won at once. Nothing changes when it cannot be paid or the level allows no more.
+pub fn take_line(c: &mut Company, l: &LineInfo) -> Result<(Event, Cents), &'static str> {
+    let before = c.concessions.clone();
+    let id = apply(c, l)?;
+    let out = take_at_asking(c, id);
+    if out.is_err() {
+        c.concessions = before;
+    }
+    out
 }
 
 /// The bidders' last bids, best first.

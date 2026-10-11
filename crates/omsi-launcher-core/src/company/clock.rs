@@ -476,8 +476,9 @@ pub fn script(c: &Company, dp: &DayPlan) -> DayScript {
     DayScript { date, events: ev, breaks }
 }
 
-/// The company enters its day: the timetable read, the tender market refreshed, the day's
-/// events written.
+/// The company enters its day: the timetable read, the tender market refreshed, in the easy
+/// mode the company's own morning (`autopilot::morning`: its lines in service, the roster
+/// filled), the day's events written.
 fn begin_day(c: &mut Company, w: &mut dyn World) -> Result<(), String> {
     if c.clock.today.as_ref().is_some_and(|s| s.date == c.date) {
         return Ok(());
@@ -485,6 +486,9 @@ fn begin_day(c: &mut Company, w: &mut dyn World) -> Result<(), String> {
     let date = c.date.clone();
     let lines = w.lines(c, &date)?;
     cn::refresh(c, &lines);
+    if super::autopilot::on(c) {
+        super::autopilot::morning(c, &date, &lines);
+    }
     let tours = network::in_service_only(network::tours_of_day(c, &lines, &date));
     let dp = plan::day_plan(c, &date, tours, &[], &[], false);
     c.clock.today = Some(script(c, &dp));
@@ -569,7 +573,9 @@ pub fn decide(c: &mut Company, index: usize, choice: Choice, run: &mut Run) {
 
 fn apply(c: &mut Company, due: Due, quick: bool, run: &mut Run) {
     let at = now(c);
-    let asks = !quick;
+    // (the easy mode asks nothing: the dispatcher decides, and its tenders are no auctions of
+    // the player's)
+    let asks = !quick && !super::autopilot::on(c);
     match due {
         Due::Script(i) => {
             let Some(e) = c.clock.today.as_mut().and_then(|s| s.events.get_mut(i)) else { return };

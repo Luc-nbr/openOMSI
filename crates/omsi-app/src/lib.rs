@@ -170,6 +170,7 @@ const _LOCALES_COMPANY_CONTRACTS: &str = include_str!("../locales/company-contra
 const _LOCALES_COMPANY_HOME: &str = include_str!("../locales/company-home.yml");
 const _LOCALES_COMPANY_CHOOSER: &str = include_str!("../locales/company-chooser.yml");
 const _LOCALES_DEALER_DELIVERY: &str = include_str!("../locales/dealer-delivery.yml");
+const _LOCALES_COMPANY_EASY: &str = include_str!("../locales/company-easy.yml");
 const _LOCALES_TRIP_CARD: &str = include_str!("../locales/ritkaart.yml");
 const _LOCALES_DESTINATION: &str = include_str!("../locales/bestemming.yml");
 const _LOCALES_FONT_FIT: &str = include_str!("../locales/fontfit.yml");

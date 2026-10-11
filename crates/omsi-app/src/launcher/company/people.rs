@@ -112,8 +112,12 @@ fn licence_text(l: Licence) -> &'static str {
 pub fn draw(l: &mut Launcher, area: Rect) {
     let Some(c) = l.company.company.clone() else { return };
     let labels: Vec<String> = TABS.iter().enumerate().map(|(k, t)| if k == 0 { format!("{} ({})", omsi_ui::tr(t), c.staff.len()) } else { omsi_ui::tr(t).into_owned() }).collect();
-    let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
-    let tabs_w = 900.0f32.min(area.w);
+    // (the easy mode: the employees and the applicants - the courses, the hours and the
+    // automatic hiring are the company's own there; their tabs are kept for a way that leads
+    // to them and for the advanced mode)
+    let shown = shown_tabs(co::autopilot::on(&c), l.company.people.tab);
+    let refs: Vec<&str> = labels.iter().take(shown).map(String::as_str).collect();
+    let tabs_w = if shown == TABS.len() { 900.0f32 } else { 420.0 }.min(area.w);
     let mut tab = l.company.people.tab.min(TABS.len() - 1);
     if l.ui.segmented("company-staff-tabs", Rect::new(area.x, area.y, tabs_w, 40.0), &mut tab, &refs) {
         l.company.people.tab = tab;
@@ -137,6 +141,16 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         3 => hours::schedule(l, body, &c),
         4 => hours::settings(l, body, &c),
         _ => list::draw(l, body, &c),
+    }
+}
+
+/// How many of the Staff page's tabs show: all of them, or in the easy mode the first two -
+/// unless the tab open is one of the others (a way led there).
+fn shown_tabs(easy: bool, tab: usize) -> usize {
+    if easy && tab < 2 {
+        2
+    } else {
+        TABS.len()
     }
 }
 

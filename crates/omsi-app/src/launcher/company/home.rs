@@ -86,11 +86,11 @@ pub(super) struct Tile {
 }
 
 impl Tile {
-    fn new(to: To, name: &'static str, icon: &'static str) -> Tile {
+    pub(super) fn new(to: To, name: &'static str, icon: &'static str) -> Tile {
         Tile { to, name, icon, lines: Vec::new(), badge: None, tip: String::new(), big: false, extra: Extra::None }
     }
 
-    fn line(mut self, text: impl Into<String>, c: Color) -> Tile {
+    pub(super) fn line(mut self, text: impl Into<String>, c: Color) -> Tile {
         let t = text.into();
         if !t.is_empty() {
             self.lines.push((t, c));
@@ -127,9 +127,11 @@ pub(super) struct Marks {
 impl Marks {
     pub fn of(c: &Company, plan: Option<&Plan>) -> Marks {
         let unread = c.inbox.messages.iter().filter(|m| !m.read).count();
+        // (the easy mode's own: what the company sees to itself is no alert there)
+        let easy = co::autopilot::on(c);
         let alerts = co::alerts(c, plan)
             .iter()
-            .map(super::overview::alert_text)
+            .filter_map(|a| super::overview::alert_for(a, easy))
             // (a bus going back is said on the overview, but is nothing to mend)
             .filter(|(_, _, colour, _)| *colour != TEXT_SOFT)
             .map(|(_, text, colour, tab)| (tab, text, colour))
@@ -163,7 +165,7 @@ fn badge_text(n: usize) -> String {
 }
 
 /// A count in words: the text for one, else the text for `n` with its `%{n}` filled.
-fn count_text(n: usize, one: &str, many: &str) -> String {
+pub(super) fn count_text(n: usize, one: &str, many: &str) -> String {
     if n == 1 {
         omsi_ui::tr(one).into_owned()
     } else {
@@ -172,7 +174,7 @@ fn count_text(n: usize, one: &str, many: &str) -> String {
 }
 
 /// A text with its `%{n}` filled.
-fn n_of(key: &str, n: usize) -> String {
+pub(super) fn n_of(key: &str, n: usize) -> String {
     omsi_ui::tr(key).replace("%{n}", &n.to_string())
 }
 
@@ -428,17 +430,17 @@ const SLOTS: usize = 4;
 /// The category tabs' height and the room under them; the gap between tiles.
 const TABS_H: f32 = 40.0;
 const TABS_GAP: f32 = 22.0;
-const GAP: f32 = 16.0;
+pub(super) const GAP: f32 = 16.0;
 /// The widest the tiles grow (in the middle beyond), the tabs' widest, and a tile's least and
 /// most height.
-const MAX_W: f32 = 1240.0;
+pub(super) const MAX_W: f32 = 1240.0;
 const TABS_MAX_W: f32 = 960.0;
-const MIN_TILE_H: f32 = 96.0;
-const MAX_TILE_H: f32 = 250.0;
+pub(super) const MIN_TILE_H: f32 = 96.0;
+pub(super) const MAX_TILE_H: f32 = 250.0;
 /// The ways under the tiles: a row's height, the gap between rows and above them.
-const MORE_H: f32 = 34.0;
-const MORE_GAP: f32 = 8.0;
-const MORE_TOP: f32 = 24.0;
+pub(super) const MORE_H: f32 = 34.0;
+pub(super) const MORE_GAP: f32 = 8.0;
+pub(super) const MORE_TOP: f32 = 24.0;
 
 /// A category of the start screen laid out in its area on a computer.
 #[derive(Clone, Debug, PartialEq)]
@@ -491,12 +493,12 @@ pub(super) fn grid(area: Rect, tiles: &[Tile], more_rows: usize) -> Grid {
 }
 
 /// A way under the tiles: its width for its words and icon.
-fn way_w(ui: &Ui, label: &str) -> f32 {
+pub(super) fn way_w(ui: &Ui, label: &str) -> f32 {
     ui.width(&omsi_ui::tr(label), 13.0, Weight::Bold) + 52.0
 }
 
 /// How the ways lie in `w`: each one's (row, x), and how many rows.
-fn ways_laid(ui: &Ui, w: f32, ways: &[(To, &'static str, &'static str)]) -> (Vec<(usize, f32)>, usize) {
+pub(super) fn ways_laid(ui: &Ui, w: f32, ways: &[(To, &'static str, &'static str)]) -> (Vec<(usize, f32)>, usize) {
     let (mut row, mut x) = (0, 0.0);
     let mut out = Vec::with_capacity(ways.len());
     for (_, label, _) in ways {
@@ -513,9 +515,14 @@ fn ways_laid(ui: &Ui, w: f32, ways: &[(To, &'static str, &'static str)]) -> (Vec
 
 // --- drawing --------------------------------------------------------------------------------------
 
-/// The start screen in the company's page area.
+/// The start screen in the company's page area (the easy mode has one of its own:
+/// `easy_home`).
 pub fn draw(l: &mut Launcher, area: Rect) {
     let Some(c) = l.company.company.clone() else { return };
+    if co::autopilot::on(&c) {
+        super::easy_home::draw(l, area);
+        return;
+    }
     let plan = l.company.plan.clone();
     let marks = Marks::of(&c, plan.as_ref());
     let list = sections(&c, plan.as_ref(), &marks);
@@ -635,7 +642,7 @@ fn phone_grid(ui: &mut Ui, v: Rect, list: &[Section], ways: &[(To, &'static str,
 /// A tile: its ground lit at the edge under the mouse (as the launcher's start tiles), its
 /// icon on a mark, its name, a badge in its corner, what matters there now, and a big tile's
 /// more. Returns whether it was clicked.
-fn tile(ui: &mut Ui, base: Rect, t: &Tile) -> bool {
+pub(super) fn tile(ui: &mut Ui, base: Rect, t: &Tile) -> bool {
     let id = id_of(&format!("company-home-{:?}", t.to));
     let m = ui.tile(id, base, SHEET_RADIUS);
     let r = m.r;
@@ -798,7 +805,7 @@ fn role_rows(ui: &mut Ui, r: Rect, roles: &[(&'static str, usize)]) {
 }
 
 /// A way under the tiles: a pill with its icon and words.
-fn way(ui: &mut Ui, r: Rect, label: &str, icon: &str) -> bool {
+pub(super) fn way(ui: &mut Ui, r: Rect, label: &str, icon: &str) -> bool {
     let (h, _, clicked) = ui.interact(id_of(&format!("company-way-{label}")), r);
     let t = ui.anim(id_of(&format!("company-way-{label}")) ^ 0x3a, if h { 1.0 } else { 0.0 }, 0.08);
     ui.p().rounded(r, r.h * 0.5, PANEL.mix(HOVER, t));

@@ -909,21 +909,11 @@ pub fn roles_day(c: &mut Company, date: &str, report: &mut super::day::DayReport
     if c.staff_rules.auto_hire {
         for role in Role::ALL {
             let min = c.staff_rules.minimum_of(role) as usize;
-            let have = c.staff.iter().filter(|e| e.role == role && e.employed_on(&tomorrow) && e.notice_until.is_none()).count();
-            if have >= min || hireable(c, role).is_err() {
+            if staying(c, role, &tomorrow) >= min {
                 continue;
             }
-            let pi = c.price_index;
-            let best = applicants_of(c, role).into_iter().filter(|a| a.licence == Licence::D).max_by(|a, b| {
-                let score = |x: &Applicant| x.experience - 100.0 * (x.wage as f64 / market_wage(role, x.experience, pi) as f64 - 1.0);
-                score(a).total_cmp(&score(b))
-            });
-            let Some(a) = best else { continue };
-            if c.cash < 2 * economy::employer_cost(a.wage) {
-                continue;
-            }
-            if hire(c, &a).is_ok() {
-                inbox::post(c, Message::new(Kind::Staff, "%{name} was hired", "%{name} starts tomorrow: the automatic hiring keeps the minimum you set for their role (the Staff page's settings).").arg("name", a.name.clone()));
+            if let Some(name) = hire_best(c, role) {
+                inbox::post(c, Message::new(Kind::Staff, "%{name} was hired", "%{name} starts tomorrow: the automatic hiring keeps the minimum you set for their role (the Staff page's settings).").arg("name", name));
             }
         }
     }
@@ -950,6 +940,32 @@ pub fn roles_day(c: &mut Company, date: &str, report: &mut super::day::DayReport
         }
     }
     c.staff_rules.last = Some(out);
+}
+
+/// The people of a role who work on `day` and are not leaving.
+pub fn staying(c: &Company, role: Role, day: &str) -> usize {
+    c.staff.iter().filter(|e| e.role == role && e.employed_on(day) && e.notice_until.is_none()).count()
+}
+
+/// The week's best applicant of a role with the D licence: the most experience for what they
+/// ask against the market (None: nobody, or a role the company may not hire yet).
+pub fn best_applicant(c: &Company, role: Role) -> Option<Applicant> {
+    hireable(c, role).ok()?;
+    let pi = c.price_index;
+    applicants_of(c, role).into_iter().filter(|a| a.licence == Licence::D).max_by(|a, b| {
+        let score = |x: &Applicant| x.experience - 100.0 * (x.wage as f64 / market_wage(role, x.experience, pi) as f64 - 1.0);
+        score(a).total_cmp(&score(b))
+    })
+}
+
+/// Hire the week's best applicant of a role while the cash holds two months of what they cost
+/// (the automatic hiring, and the easy mode's `autopilot`). Returns their name.
+pub fn hire_best(c: &mut Company, role: Role) -> Option<String> {
+    let a = best_applicant(c, role)?;
+    if c.cash < 2 * economy::employer_cost(a.wage) {
+        return None;
+    }
+    hire(c, &a).ok().map(|_| a.name)
 }
 
 /// Answer someone's request for a raise: granted, they get it (and like it); refused, they are
