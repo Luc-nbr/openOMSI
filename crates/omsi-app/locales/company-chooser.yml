@@ -112,3 +112,10 @@ _version: 2
   pl: "Inna firma"
   ru: "Другая компания"
   uk: "Інша компанія"
+"Delete this company":
+  de: "Dieses Unternehmen löschen"
+  fr: "Supprimer cette entreprise"
+  nl: "Dit bedrijf verwijderen"
+  pl: "Usuń tę firmę"
+  ru: "Удалить эту компанию"
+  uk: "Видалити цю компанію"

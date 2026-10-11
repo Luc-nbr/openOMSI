@@ -6,10 +6,11 @@
 //! menu shows its drivers, and a tile to found a new one.
 //!
 //! It opens every time the bus company is entered from elsewhere (`choose`), not when its own
-//! editors (lines, depots, liveries) give the company back.
+//! editors (lines, depots, liveries) give the company back. A company is deleted here too:
+//! the bin in its tile's corner, asked once more (Luc: easy to delete on the start).
 
 use super::super::theme::*;
-use super::super::ui::id_of;
+use super::super::ui::{id_of, ButtonKind};
 use super::super::Launcher;
 use super::{company_mark, eur, kit, HOME_TAB};
 use glam::Vec2;
@@ -31,6 +32,8 @@ pub(crate) enum Step {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Chooser {
     pub step: Step,
+    /// The company (its id) whose deleting is being asked.
+    pub delete: Option<String>,
 }
 
 /// Open the start: the bus company was entered (a playing clock stops while it is open).
@@ -43,7 +46,7 @@ pub fn choose(l: &mut Launcher) {
 /// companies are chosen and founded there only (Luc).
 pub(super) fn to_companies(l: &mut Launcher) {
     super::clock::play(l, 0.0);
-    l.company.chooser = Some(Chooser { step: Step::Companies });
+    l.company.chooser = Some(Chooser { step: Step::Companies, delete: None });
 }
 
 /// What a click on the start did.
@@ -53,16 +56,28 @@ enum Pick {
     Back,
     Open(String),
     New,
+    /// Its bin was clicked: the deleting asked.
+    Delete(String),
 }
 
 /// The start in the company's content area.
 pub(super) fn draw(l: &mut Launcher, area: Rect) {
     let step = l.company.chooser.as_ref().map(|c| c.step).unwrap_or_default();
     let list: Vec<Company> = l.company.companies.clone().unwrap_or_default();
+    // (while the deleting is asked, the start under the question takes nothing)
+    let asking = l.company.chooser.as_ref().and_then(|c| c.delete.clone());
+    let held = asking.is_some().then(|| super::mask(&mut l.ui));
     let pick = match step {
         Step::Mode => modes(l, area, list.len()),
         Step::Companies => companies(l, area, &list),
     };
+    if let Some(i) = held {
+        l.ui.input = i;
+    }
+    if let Some(id) = asking {
+        ask_delete(l, &id, &list);
+        return;
+    }
     match pick {
         Some(Pick::Single) => {
             if let Some(c) = l.company.chooser.as_mut() {
@@ -84,6 +99,11 @@ pub(super) fn draw(l: &mut Launcher, area: Rect) {
         }
         // (the founding; its Cancel comes back here, its company opens on its start screen)
         Some(Pick::New) => l.company.wizard = Some(super::wizard::Wizard::new(l)),
+        Some(Pick::Delete(id)) => {
+            if let Some(c) = l.company.chooser.as_mut() {
+                c.delete = Some(id);
+            }
+        }
         None => {}
     }
 }
@@ -154,7 +174,7 @@ fn card(l: &mut Launcher, id: &str, base: Rect, icon: &str, title: &str, text: &
 fn companies(l: &mut Launcher, area: Rect, list: &[Company]) -> Option<Pick> {
     let mut out = None;
     let back = Rect::new(area.x, area.y, 180.0, 38.0);
-    if l.ui.button("company-chooser-back", back, "Play mode", Some("chevron_left"), super::super::ui::ButtonKind::Normal) {
+    if l.ui.button("company-chooser-back", back, "Play mode", Some("chevron_left"), ButtonKind::Normal) {
         out = Some(Pick::Back);
     }
     let (tw, th, gap) = (300.0, 176.0, 16.0);
@@ -176,11 +196,11 @@ fn companies(l: &mut Launcher, area: Rect, list: &[Company]) -> Option<Pick> {
             let row_w = in_row as f32 * (tw + gap) - gap;
             let base = Rect::new(room.x + (room.w - row_w) * 0.5 + col as f32 * (tw + gap), y + row as f32 * (th + gap), tw, th);
             match list.get(k) {
-                Some(c) => {
-                    if company_tile(l, base, c) {
-                        out = Some(Pick::Open(c.id.clone()));
-                    }
-                }
+                Some(c) => match company_tile(l, base, c) {
+                    Some(true) => out = Some(Pick::Open(c.id.clone())),
+                    Some(false) => out = Some(Pick::Delete(c.id.clone())),
+                    None => {}
+                },
                 None => {
                     if new_tile(l, base) {
                         out = Some(Pick::New);
@@ -201,8 +221,9 @@ fn companies(l: &mut Launcher, area: Rect, list: &[Company]) -> Option<Pick> {
     out
 }
 
-/// A company's tile: its mark, its name, where it is at home, its day and its cash.
-fn company_tile(l: &mut Launcher, base: Rect, c: &Company) -> bool {
+/// A company's tile: its mark, its name, where it is at home, its day and its cash; under the
+/// mouse a bin in its corner. Some(true): opened, Some(false): its bin clicked.
+fn company_tile(l: &mut Launcher, base: Rect, c: &Company) -> Option<bool> {
     let t = l.ui.tile(id_of(&format!("company-chooser-{}", c.id)), base, SHEET_RADIUS);
     let r = t.r;
     l.ui.tile_shadow(&t);
@@ -218,7 +239,35 @@ fn company_tile(l: &mut Launcher, base: Rect, c: &Company) -> bool {
     l.ui.text_in(&home, Rect::new(r.x + 20.0, mark.bottom() + 40.0, w, 18.0), kit::NOTE, Weight::Regular, TEXT_SOFT, Align::Left);
     let day = format!("{}  ·  {}", super::day_label(&c.date), eur(c.cash));
     l.ui.text_in(&day, Rect::new(r.x + 20.0, mark.bottom() + 60.0, w, 18.0), kit::NOTE, Weight::Medium, if c.cash < 0 { DANGER } else { TEXT_DIM }, Align::Left);
-    t.clicked
+    // (under the mouse: the bin in the corner - as the main menu's drivers have it)
+    let bin = Vec2::new(r.right() - 24.0, r.y + 24.0);
+    let on_bin = l.ui.input.mouse.distance(bin) <= 15.0;
+    if t.hover > 0.3 && l.ui.icon_button(&format!("company-chooser-delete-{}", c.id), bin, 14.0, "delete", "Delete this company") {
+        return Some(false);
+    }
+    (t.clicked && !on_bin).then_some(true)
+}
+
+/// The question whether to delete the company `id` for good (its buses, staff, lines, money
+/// and history; the driver's own record stays).
+fn ask_delete(l: &mut Launcher, id: &str, list: &[Company]) {
+    let name = list.iter().find(|c| c.id == id).map(|c| c.name.clone()).unwrap_or_default();
+    let title = omsi_ui::tr("Delete %{name}?").replace("%{name}", &name);
+    let text = omsi_ui::tr("The company is deleted for good: its buses, staff, lines, money and history. Your service record as a driver stays. This cannot be undone.");
+    let h = 70.0 + l.ui.paragraph_height(&text, 520.0 - 56.0, kit::BODY, Weight::Regular) + 24.0 + kit::BUTTON_H + 24.0;
+    let f = kit::frame(l, 560.0, h.max(220.0), "warning", &title);
+    l.ui.paragraph(&text, Vec2::new(f.body.x, f.body.y), f.body.w, kit::BODY, Weight::Regular, TEXT_SOFT);
+    let mut foot = kit::Foot::new(&f);
+    let yes = foot.right(l, "company-chooser-delete-yes", "Delete for good", None, ButtonKind::Danger);
+    let no = foot.right(l, "company-chooser-delete-no", "Cancel", None, ButtonKind::Normal) || f.close || l.ui.input.keys.contains(&super::super::ui::Key::Escape);
+    if yes || no {
+        if let Some(c) = l.company.chooser.as_mut() {
+            c.delete = None;
+        }
+    }
+    if yes {
+        super::delete_company(l, id);
+    }
 }
 
 /// The tile to found a new company.

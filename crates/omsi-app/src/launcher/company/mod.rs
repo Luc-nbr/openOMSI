@@ -930,9 +930,14 @@ pub fn screen(l: &mut Launcher) {
             let mark = Rect::new(m, 14.0, 44.0, 44.0);
             company_mark(l, mark, c);
             let tw = (right - mark.right() - 16.0).max(60.0);
-            l.ui.text_in(&c.name, Rect::new(mark.right() + 14.0, 10.0, tw, 26.0), 19.0, Weight::Bold, TEXT, Align::Left);
-            l.ui.tooltip(Rect::new(mark.x, mark.y, (tw + 58.0).min(right - mark.x), mark.h * 0.6), &home_of(c));
-            status(l, Rect::new(mark.right() + 14.0, 38.0, tw, 22.0), c);
+            // (the name on one line, the pill of cash, trophies and reputation beside it - Luc's
+            // style for the top bar)
+            let name_w = (l.ui.width(&c.name, 19.0, Weight::Bold) + 4.0).min(tw * 0.42);
+            let name_r = Rect::new(mark.right() + 14.0, 23.0, name_w, 26.0);
+            l.ui.text_in(&c.name, name_r, 19.0, Weight::Bold, TEXT, Align::Left);
+            l.ui.tooltip(Rect::new(mark.x, mark.y, name_r.right() - mark.x, mark.h), &home_of(c));
+            let px = name_r.right() + 20.0;
+            status(l, Rect::new(px, 16.0, (right - px).max(0.0), 40.0), c);
         }
         None => {
             l.ui.icon("garage", Vec2::new(m + 14.0, 36.0), 26.0, accent_2());
@@ -1016,32 +1021,49 @@ fn home_of(c: &Company) -> String {
 /// click from the page about it (the finances, the research the trophies pay for, the
 /// overview). Returns where it ends.
 fn status(l: &mut Launcher, r: Rect, c: &Company) -> f32 {
+    // (each value after its icon on a round mark of its colour: the cash green, the trophies
+    // gold, the reputation blue - in one pill with a light edge, Luc's style)
     let items: [(&str, String, Color, Color, &str, usize); 3] = [
-        ("payments", eur(c.cash), TEXT_DIM, if c.cash >= 0 { TEXT } else { DANGER.lighten(0.2) }, "Cash: the money the company has now", 4),
+        ("payments", eur(c.cash), OK, if c.cash >= 0 { TEXT } else { DANGER.lighten(0.2) }, "Cash: the money the company has now", 4),
         ("emoji_events", grouped(c.trophies as f64), WARN, TEXT, "Trophies: earned with goals and contracts, spent on research", RESEARCH_TAB),
-        ("star", format!("{} %", num(c.reputation.clamp(0.0, 100.0), 0)), grade(c.reputation + 15.0), TEXT, "Reputation: what passengers and the authority think of the company", 0),
+        ("star", format!("{} %", num(c.reputation.clamp(0.0, 100.0), 1)), EARLY_SOFT, TEXT, "Reputation: what passengers and the authority think of the company", 0),
     ];
-    super::tour::anchor("company-status", r);
-    let mut x = r.x - 6.0;
-    for (icon, value, icon_c, text_c, tip, tab) in items {
-        let w = l.ui.width(&value, 14.0, Weight::Bold) + 34.0;
-        if x + w > r.right() + 6.0 {
-            break;
+    let h = r.h;
+    let big = h >= 34.0;
+    let (px, d) = (if big { 14.5 } else { 12.5 }, (h - if big { 12.0 } else { 6.0 }).max(14.0));
+    let (pad, gap) = (if big { 12.0 } else { 6.0 }, if big { 22.0 } else { 12.0 });
+    let widths: Vec<f32> = items.iter().map(|it| d + 8.0 + l.ui.width(&it.1, px, Weight::Bold)).collect();
+    let total = |n: usize| 2.0 * pad + widths[..n].iter().sum::<f32>() + gap * (n.max(1) - 1) as f32;
+    // (as many as the room holds)
+    let mut n = items.len();
+    while n > 0 && total(n) > r.w + 0.5 {
+        n -= 1;
+    }
+    if n == 0 {
+        return r.x;
+    }
+    let pill = Rect::new(r.x, r.y, total(n), h);
+    super::tour::anchor("company-status", pill);
+    l.ui.p().rounded(pill, h * 0.5, PANEL.mix(HOVER, 0.6));
+    l.ui.p().rounded_border(pill, h * 0.5, 1.5, Color::WHITE.alpha(0.3));
+    let mut x = pill.x + pad;
+    for ((icon, value, icon_c, text_c, tip, tab), w) in items.into_iter().zip(widths).take(n) {
+        let hit = Rect::new(x - gap * 0.5 + 2.0, pill.y + 3.0, w + gap - 4.0, h - 6.0);
+        let (hover, _, clicked) = l.ui.interact(super::ui::id_of(&format!("company-status-{icon}")), hit);
+        if hover {
+            l.ui.p().rounded(hit, hit.h * 0.5, Color::WHITE.alpha(0.06));
         }
-        let hit = Rect::new(x, r.y, w, r.h);
-        let (h, _, clicked) = l.ui.interact(super::ui::id_of(&format!("company-status-{icon}")), hit);
-        if h {
-            l.ui.p().rounded(hit, r.h * 0.5, HOVER);
-        }
-        l.ui.icon(icon, Vec2::new(hit.x + 15.0, hit.center().y), 15.0, icon_c);
-        l.ui.text_in(&value, Rect::new(hit.x + 27.0, hit.y, w - 30.0, hit.h), 14.0, Weight::Bold, text_c, Align::Left);
+        let at = Vec2::new(x + d * 0.5, pill.center().y);
+        l.ui.p().circle(at, d * 0.5, icon_c.alpha(0.32));
+        l.ui.icon(icon, at, d * 0.56, icon_c.lighten(0.25));
+        l.ui.text_in(&value, Rect::new(x + d + 8.0, pill.y, w - d - 8.0 + 2.0, h), px, Weight::Bold, text_c, Align::Left);
         l.ui.tooltip(hit, tip);
         if clicked {
             l.company.tab = tab;
         }
-        x = hit.right() + 4.0;
+        x += w + gap;
     }
-    x
+    pill.right()
 }
 
 /// The way round the company's pages, under its bar: the start screen's button with the page
@@ -1294,7 +1316,7 @@ fn confirm_dialog(l: &mut Launcher, what: Confirm) {
 }
 
 /// Delete a company for good (Luc: companies can be deleted) - its file and its live file:
-/// the driver's next company opens, or the founding when none is left. Not while its day is
+/// the start's companies follow (the founding there when none is left). Not while its day is
 /// being simulated (the simulation would write it back).
 fn delete_company(l: &mut Launcher, id: &str) {
     if l.company.closing {
