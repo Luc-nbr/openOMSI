@@ -1011,7 +1011,7 @@ pub fn female_portrait(p: u32) -> bool {
 /// (Some(false)), or the name says nothing (None: any face).
 pub fn female_name(name: &str) -> Option<bool> {
     let first = name.split_whitespace().next()?;
-    FIRST.iter().find(|(n, _)| n.eq_ignore_ascii_case(first)).map(|(_, f)| *f)
+    FIRST.iter().chain(OLDER_FIRST.iter()).find(|(n, _)| n.eq_ignore_ascii_case(first)).map(|(_, f)| *f)
 }
 
 /// Whether face `p` suits the person called `name`.
@@ -1124,6 +1124,12 @@ const FIRST: [(&str, bool); 40] = [
     ("Klaus", false), ("Lena", true), ("Mehmet", false), ("Nina", true), ("Olaf", false), ("Petra", true), ("Rainer", false), ("Sanne", true), ("Tobias", false), ("Ute", true),
     ("Volker", false), ("Wiebke", true), ("Yusuf", false), ("Zoë", true), ("Bram", false), ("Daan", false), ("Emma", true), ("Fleur", true), ("Joost", false), ("Marieke", true),
     ("Pieter", false), ("Sophie", true), ("Agnieszka", true), ("Piotr", false), ("Olena", true), ("Dmytro", false), ("Marco", false), ("Aylin", true), ("Jonas", false), ("Heike", true),
+];
+/// First names no applicant gets any more, which people of older companies still carry (and
+/// the rivals' managers): their face follows them too (`female_name`).
+const OLDER_FIRST: [(&str, bool); 12] = [
+    ("Mia", true), ("Lea", true), ("Clara", true), ("Nora", true), ("Lisa", true), ("Julia", true),
+    ("Paul", false), ("Felix", false), ("Lukas", false), ("Tim", false), ("Max", false), ("Erik", false),
 ];
 const LAST: [&str; 32] = [
     "Becker", "de Vries", "Fischer", "Hoffmann", "Jansen", "Kaya", "Krüger", "Meijer", "Müller", "Peters", "Richter", "Schmidt", "Schulz", "van Dijk", "Vogel", "Wagner", "Weber", "Wolf", "Yilmaz", "Zimmermann",
@@ -1527,6 +1533,8 @@ mod tests {
         let e = c.staff.iter().find(|e| e.id == id).unwrap();
         assert!(female_portrait(e.portrait), "{}", e.portrait);
         assert_eq!(female_name("Agency driver"), None);
+        // (older companies' names follow too: Mia with a woman's face, Paul with a man's)
+        assert_eq!((female_name("Mia Schulz"), female_name("Paul Richter")), (Some(true), Some(false)));
         assert!(suits("Agency driver", 1) && suits("Agency driver", 2));
     }
 
