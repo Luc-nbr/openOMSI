@@ -334,7 +334,7 @@ fn a_locked_duty_is_not_cut_or_joined_and_optimise_leaves_it() {
     let other = if i == 0 { 1 } else { 0 };
     assert_eq!(st::join(&mut c, w, &tours, (other, 0), (i, k)), Err(st::DUTY_LOCKED));
     // Optimise keeps its bus and its duty as they are
-    let (lays, _) = optimise(&c, std::slice::from_ref(&l), &c.date.clone());
+    let (lays, _) = optimise_with(&c, std::slice::from_ref(&l), &c.date.clone(), true, true);
     let kept = lays.iter().flat_map(|x| x.blocks.iter()).find(|b| b.tour == tours[i].tour).unwrap();
     assert_eq!(kept.trips.len(), tours[i].trips.iter().filter(|x| !x.origin.is_empty()).count());
     set_duty_lock(&mut c, w, &key, false);
@@ -465,16 +465,27 @@ fn optimise_covers_every_trip_with_few_buses_and_cuts_the_long_blocks() {
     let mut c2 = company();
     c2.planning.flow.prefs.optimise_vehicles = false;
     let l5 = line5();
-    let (lays, _) = optimise(&c2, std::slice::from_ref(&l5), &c2.date.clone());
+    let (lays, _) = optimise_with(&c2, std::slice::from_ref(&l5), &c2.date.clone(), false, true);
     assert_eq!(lays[0].blocks.len(), 2);
     // linked trips stay on one bus
     let mut c3 = company();
     let tours = day(&c3, &l);
     let w = wd(&c3);
     link(&mut c3, w, &tours, 0, &[0, 1]).unwrap();
-    let (lays, _) = optimise(&c3, std::slice::from_ref(&l), &c3.date.clone());
+    let (lays, _) = optimise_with(&c3, std::slice::from_ref(&l), &c3.date.clone(), true, true);
     let refs = linked(&c3, w, "Linie5", &TripRef::of(&tours[0].trips[1]));
     assert!(lays[0].blocks.iter().any(|b| refs.iter().all(|r| b.trips.contains(r))));
+    // Optimise is never dearer than the day as it is
+    for l in [line5(), line_of(&[("1", 360, 8), ("2", 400, 6), ("3", 700, 5)])] {
+        let c4 = company();
+        let date = c4.date.clone();
+        let before = weighed(&board(&c4, std::slice::from_ref(&l), &date));
+        let (lays, joined) = optimise(&c4, std::slice::from_ref(&l), &date);
+        let mut c5 = c4.clone();
+        let w5 = wd(&c5);
+        apply(&mut c5, w5, lays, joined);
+        assert!(weighed(&board(&c5, std::slice::from_ref(&l), &date)) <= before);
+    }
 }
 
 #[test]

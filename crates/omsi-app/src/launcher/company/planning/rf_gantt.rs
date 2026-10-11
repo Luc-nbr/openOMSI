@@ -826,7 +826,7 @@ fn block_row_draw(ui: &mut Ui, p: &Pal, c: &Company, board: &Board, i: usize, ro
             _ => false,
         };
         let linked = !rf::linked(c, wd, &t.line, &st::TripRef::of(x)).is_empty();
-        let moved = !x.origin.trim().is_empty() && x.origin.trim() != t.tour.trim();
+        let moved = layers.moved && !x.origin.trim().is_empty() && x.origin.trim() != t.tour.trim();
         let problem = issue_deps.contains(&x.dep);
         let (h, _, _) = ui.interact(id_of(&format!("rf-trip-{i}-{j}")), cr);
         let outline = if chosen || (h && hand.is_none()) { Some(Color::WHITE) } else if problem { Some(p.err) } else { None };
@@ -1140,6 +1140,7 @@ fn apply(l: &mut Launcher, k: &Cached, board: &Board, drivers: bool, todo: Vec<D
             Do::Duty(id) => {
                 let s = &mut l.company.planning.rf;
                 s.panel = shell::Panel::Duty(id.clone());
+                s.duty_scroll = 0.0;
                 s.sel_row = Some(id);
                 s.card = None;
             }

@@ -1440,12 +1440,43 @@ fn cut_block(c: &Company, tours: &[TourOfDay], i: usize, p: &Prefs) -> Vec<Range
     out
 }
 
+/// What a planning costs Optimise: the day's cost, the soft rules' penalties, and every hard
+/// rule broken as dear as a bus a day more (so a planning that breaks none is chosen first).
+pub fn weighed(b: &Board) -> Cents {
+    b.figures.total() + b.figures.penalties + 500_00 * b.issues.iter().filter(|i| i.hard).count() as Cents
+}
+
 /// What Optimise makes of `date` (`lines` the timetable read for it), from the company as the
-/// studio sees it: the weekday's blocks and joined duties, the locked ones kept. Nothing is
-/// kept; `apply` keeps it.
+/// studio sees it: the weekday's blocks and joined duties, the locked ones kept - the cheapest
+/// (`weighed`) of what the preferences ask for, the duties alone made anew on the blocks as
+/// they are, and the day as it is. Nothing is kept; `apply` keeps it.
 pub fn optimise(c: &Company, lines: &[LineInfo], date: &str) -> (Vec<LineLayout>, Vec<JoinedDuty>) {
     let wd = super::plan::weekday_of(date);
-    let p = c.planning.flow.prefs.clone();
+    let p = &c.planning.flow.prefs;
+    let now = (c.planning.layouts.iter().filter(|l| l.weekday == wd).cloned().collect::<Vec<_>>(), c.planning.joined.iter().filter(|j| j.weekday == wd).cloned().collect::<Vec<_>>());
+    let mut cands = vec![optimise_with(c, lines, date, p.optimise_vehicles, p.optimise_duties)];
+    if p.optimise_vehicles && p.optimise_duties {
+        cands.push(optimise_with(c, lines, date, false, true));
+    }
+    cands.push(now.clone());
+    let mut best: Option<(Cents, (Vec<LineLayout>, Vec<JoinedDuty>))> = None;
+    for made in cands {
+        let mut probe = c.clone();
+        apply(&mut probe, wd, made.0.clone(), made.1.clone());
+        let cost = weighed(&board(&probe, lines, date));
+        if best.as_ref().is_none_or(|b| cost < b.0) {
+            best = Some((cost, made));
+        }
+    }
+    best.map(|b| b.1).unwrap_or(now)
+}
+
+/// Optimise with the vehicles (`vehicles`) and the duties (`duties`) made anew or kept.
+pub fn optimise_with(c: &Company, lines: &[LineInfo], date: &str, vehicles: bool, duties: bool) -> (Vec<LineLayout>, Vec<JoinedDuty>) {
+    let wd = super::plan::weekday_of(date);
+    let mut p = c.planning.flow.prefs.clone();
+    p.optimise_vehicles = vehicles;
+    p.optimise_duties = duties;
     let current = network::tours_of_day(c, lines, date);
     let raw = network::timetable_tours(c, lines);
     let duties = st::duties(&c.planning.joined, wd, &current);

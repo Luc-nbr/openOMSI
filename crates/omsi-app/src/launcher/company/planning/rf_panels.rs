@@ -1090,7 +1090,10 @@ fn duty_panel(l: &mut Launcher, g: Rect, k: &Cached, board: &Board, p: &Pal, id:
     let (lh, _, lock) = ui.interact(id_of("rf-duty-lock"), lr);
     ui.icon(if s.locked { "lock" } else { "livery_unlock" }, lr.center(), 19.0, if lh || s.locked { Color::WHITE } else { Color::WHITE.alpha(0.7) });
     ui.tooltip(lr, if s.locked { "Locked: Optimise leaves it. Click to unlock" } else { "Lock the duty: Optimise leaves it" });
-    let mut y = head.bottom() + 14.0;
+    let scroll = l.company.planning.rf.duty_scroll;
+    let ui = &mut l.ui;
+    ui.push_clip(Rect::new(r.x, head.bottom(), r.w, r.h - head.h), 0.0);
+    let mut y = head.bottom() + 14.0 - scroll;
     let x0 = r.x + 18.0;
     let iw = r.w - 36.0;
     // the type: automatic, or set by hand
@@ -1229,7 +1232,7 @@ fn duty_panel(l: &mut Launcher, g: Rect, k: &Cached, board: &Board, p: &Pal, id:
     y += 40.0;
     // its issues
     let ui = &mut l.ui;
-    if !s.issues.is_empty() && y < r.bottom() - 40.0 {
+    if !s.issues.is_empty() {
         caps(ui, Rect::new(x0, y, iw, 16.0), "Issues", p.dim, Align::Left);
         y += 20.0;
         for &i in &s.issues {
@@ -1238,17 +1241,24 @@ fn duty_panel(l: &mut Launcher, g: Rect, k: &Cached, board: &Board, p: &Pal, id:
             ui.icon("error", Vec2::new(x0 + 7.0, y + 9.0), 13.0, if is.hard { p.err } else { p.warn });
             let h = ui.paragraph(&words, Vec2::new(x0 + 20.0, y), iw - 20.0, 11.5, Weight::Medium, p.text);
             y += h + 4.0;
-            if y > r.bottom() - 60.0 {
-                break;
-            }
         }
+        y += 6.0;
     }
     // a spare duty can go altogether
     let mut remove_spare = false;
-    if let Some(id) = s.spare {
-        remove_spare = rf_button(ui, p, "rf-duty-remove", Rect::new(x0, r.bottom() - 44.0, 160.0, 30.0), "Delete duty", false, true);
-        let _ = id;
+    if s.spare.is_some() {
+        remove_spare = rf_button(ui, p, "rf-duty-remove", Rect::new(x0, y, 160.0, 30.0), "Delete duty", false, true);
+        y += 40.0;
     }
+    ui.pop_clip();
+    // (the wheel scrolls what does not fit)
+    let room = r.bottom() - (r.y + 48.0);
+    let content = y + l.company.planning.rf.duty_scroll - (r.y + 48.0);
+    if r.contains(l.ui.input.mouse) && l.ui.input.wheel.y.abs() > 0.0 {
+        l.company.planning.rf.duty_scroll -= l.ui.input.wheel.y * 40.0;
+        l.ui.input.wheel = Vec2::ZERO;
+    }
+    l.company.planning.rf.duty_scroll = l.company.planning.rf.duty_scroll.clamp(0.0, (content - room + 10.0).max(0.0));
     // what was done
     let label = s.label(row);
     let key = s.key.clone();
@@ -1416,7 +1426,7 @@ fn stats(l: &mut Launcher, page: Rect, g: Rect, p: &Pal, drivers: bool) -> Rect 
 
 /// Layers: what the trips' chips say, and the layovers' minutes.
 fn layers(l: &mut Launcher, g: Rect, p: &Pal) -> Rect {
-    let r = Rect::new(g.x + 330.0, g.y - 2.0, 300.0, 196.0);
+    let r = Rect::new(g.x + 330.0, g.y - 2.0, 330.0, 230.0);
     sheet(l, r, p.menu);
     let mp = Pal { text: p.menu_text, dim: p.menu_text.alpha(0.6), ..*p };
     let ly = l.company.planning.rf.layers;
@@ -1434,7 +1444,11 @@ fn layers(l: &mut Launcher, g: Rect, p: &Pal) -> Rect {
     if check_row(ui, &mp, "rf-layer-breaks", Rect::new(r.x + 16.0, r.y + 150.0, r.w - 32.0, 28.0), ly.breaks, "Break duration") {
         breaks = !breaks;
     }
-    l.company.planning.rf.layers = shell::Layers { label, breaks };
+    let mut moved = ly.moved;
+    if check_row(&mut l.ui, &mp, "rf-layer-moved", Rect::new(r.x + 16.0, r.y + 184.0, r.w - 32.0, 28.0), ly.moved, "Mark trips off their timetable tour") {
+        moved = !moved;
+    }
+    l.company.planning.rf.layers = shell::Layers { label, breaks, moved };
     r
 }
 

@@ -350,6 +350,8 @@ pub(super) struct Layers {
     pub label: u8,
     /// The minutes of each layover printed in its gap.
     pub breaks: bool,
+    /// A dot on the trips run off their timetable tour (Optibus's custom-trip dot).
+    pub moved: bool,
 }
 
 /// RosterFlow's state on the planning page.
@@ -412,6 +414,8 @@ pub(in super::super) struct Rf {
     pub(super) opened_at: f32,
     /// The custom work to add in the duty panel: its kind, from, to.
     pub(super) custom_draft: (usize, i32, i32),
+    /// How far the duty panel is scrolled.
+    pub(super) duty_scroll: f32,
 }
 
 /// The day as shown, made once for a date and the company's generation.

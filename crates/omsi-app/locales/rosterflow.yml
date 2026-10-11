@@ -2312,3 +2312,17 @@ _version: 2
   pl: "rozpiętość"
   ru: "длительность"
   uk: "тривалість"
+"Any colour: the picker":
+  de: "Jede Farbe: die Farbauswahl"
+  fr: "N'importe quelle couleur : le sélecteur"
+  nl: "Elke kleur: de kleurkiezer"
+  pl: "Dowolny kolor: próbnik"
+  ru: "Любой цвет: палитра"
+  uk: "Будь-який колір: палітра"
+"Mark trips off their timetable tour":
+  de: "Fahrten außerhalb ihres Umlaufs markieren"
+  fr: "Marquer les courses hors de leur service"
+  nl: "Markeer ritten buiten hun omloop"
+  pl: "Oznacz kursy poza ich obiegiem"
+  ru: "Отметить рейсы вне своего выпуска"
+  uk: "Позначити рейси поза своїм випуском"
