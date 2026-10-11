@@ -53,11 +53,11 @@ const SKY: Color = Color::rgba(66, 165, 245, 1.0);
 const ORANGE: Color = Color::rgba(243, 156, 18, 1.0);
 const RED: Color = Color::rgba(229, 57, 53, 1.0);
 /// The stops' names over the strip.
-const NAME: Color = Color::rgba(168, 176, 191, 1.0);
+const NAME: Color = Color::rgba(196, 202, 214, 1.0);
 
 /// The context bar, the figures' band, the status bar.
 const BAR_H: f32 = 48.0;
-const KPI_H: f32 = 86.0;
+const KPI_H: f32 = 74.0;
 const STATUS_H: f32 = 32.0;
 /// The strip: room for the names at 45° above the rail.
 const STRIP_H: f32 = 150.0;
@@ -345,13 +345,14 @@ fn screen(l: &mut Launcher, v: &mut TimeplanView, area: Rect, c: &Company) {
     let inner = area.inset(14.0);
     // (the chart opened from a figure lies over the screen: the screen under it without the mouse)
     let under = v.chart.is_some().then(|| super::super::mask(&mut l.ui));
+    // (the context bar stays where it is on both screens; the figures under it on the timetable)
     let mut y = inner.y;
-    if v.tab == TIMETABLE && v.work.is_some() {
-        kpis(l, v, Rect::new(inner.x, y, inner.w, KPI_H));
-        y += KPI_H + 10.0;
-    }
     context_bar(l, v, c, Rect::new(inner.x, y, inner.w, BAR_H));
     y += BAR_H + 6.0;
+    if v.tab == TIMETABLE && v.work.is_some() {
+        kpis(l, v, Rect::new(inner.x, y, inner.w, KPI_H));
+        y += KPI_H + 6.0;
+    }
     let body = Rect::new(inner.x, y, inner.w, (inner.bottom() - STATUS_H - 6.0 - y).max(0.0));
     let status = Rect::new(inner.x, inner.bottom() - STATUS_H, inner.w, STATUS_H);
     match (&v.work, v.why) {
@@ -433,13 +434,14 @@ fn context_bar(l: &mut Launcher, v: &mut TimeplanView, c: &Company, r: Rect) {
     }
     rx = sr.x - 10.0;
     // (a line in service: the day the change begins, tomorrow at the soonest)
+    let runs = v.work.as_ref().is_some_and(|w| !w.map) && c.lines.iter().find(|x| x.name.eq_ignore_ascii_case(&v.line)).is_some_and(|cl| cl.service_from.is_some());
+    let dw = 200.0;
+    let dx = rx - dw;
     if dirty && in_service(v, c) {
         let days = co::dates::between(&c.date, &v.from);
         if days < 1 {
             v.from = co::dates::add(&c.date, 1);
         }
-        let dw = 200.0;
-        let dx = rx - dw;
         if l.ui.icon_button("tp-from-earlier", Vec2::new(dx + 12.0, cy), 12.0, "chevron_left", "A day earlier") && days > 1 {
             v.from = co::dates::add(&v.from, -1);
         }
@@ -448,6 +450,8 @@ fn context_bar(l: &mut Launcher, v: &mut TimeplanView, c: &Company, r: Rect) {
         if l.ui.icon_button("tp-from-later", Vec2::new(dx + dw - 12.0, cy), 12.0, "chevron_right", "A day later") && days < 60 {
             v.from = co::dates::add(&v.from, 1);
         }
+    }
+    if runs {
         rx = dx - 8.0;
     }
     l.ui.p().rect(Rect::new(rx - 2.0, r.y + 10.0, 1.0, r.h - 20.0), BORDER);
@@ -524,7 +528,7 @@ fn strip(ui: &mut Ui, id: &str, dots: &[Dot], cols: Cols, clip: Rect, rail_y: f3
     if dots.is_empty() {
         return None;
     }
-    ui.push_clip(Rect::new(clip.x - 30.0, clip.y, clip.w + 30.0, clip.h), 0.0);
+    ui.push_clip(Rect::new(clip.x - 30.0, clip.y, clip.w + 200.0, clip.h), 0.0);
     let angle = -std::f32::consts::FRAC_PI_4;
     let (sn, cs) = (angle.sin(), angle.cos());
     for (j, d) in dots.iter().enumerate() {
@@ -534,14 +538,14 @@ fn strip(ui: &mut Ui, id: &str, dots: &[Dot], cols: Cols, clip: Rect, rail_y: f3
         }
         // the name, rising to the right from just over the code
         let mut name = d.name.clone();
-        while ui.width(&name, 12.5, Weight::Medium) > 150.0 && name.chars().count() > 4 {
+        while ui.width(&name, 14.0, Weight::Medium) > 160.0 && name.chars().count() > 4 {
             name = name.chars().take(name.chars().count() - 2).collect::<String>() + "…";
             name = name.replace("……", "…");
         }
-        let w = ui.width(&name, 12.5, Weight::Medium);
+        let w = ui.width(&name, 14.0, Weight::Medium);
         let foot = Vec2::new(cx - 8.0, rail_y - 34.0);
         let at = foot + Vec2::new(cs, sn) * (w * 0.5);
-        ui.text_rotated_italic(&name, 12.5, Weight::Medium, at, angle, NAME);
+        ui.text_rotated_italic(&name, 14.0, Weight::Medium, at, angle, NAME);
         ui.text_in(&d.code, Rect::new(cx - cols.w * 0.5, rail_y - 27.0, cols.w, 16.0), 12.0, Weight::Bold, TEXT, Align::Center);
     }
     // the rail, in the line's colour as it is in either look

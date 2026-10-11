@@ -514,8 +514,13 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     let under = l.company.planning.edit.is_some().then(|| super::mask(&mut l.ui));
     let day = l.company.planning.day.min(6);
     let date = co::dates::add(&c.date, day as i64);
-    week_strip(l, Rect::new(area.x, area.y, area.w, 60.0), &c);
-    let ty = area.y + 74.0;
+    // (the timeplan is of no day of the week: it has the room of the week's strip too)
+    let ty = if l.company.planning.timeplan.open {
+        area.y
+    } else {
+        week_strip(l, Rect::new(area.x, area.y, area.w, 60.0), &c);
+        area.y + 74.0
+    };
     // the roster, or the studio's Vehicles or Drivers view of the same day
     let sw = 330.0f32.min(area.w * 0.4);
     let mut view = l.company.planning.view.min(2);
