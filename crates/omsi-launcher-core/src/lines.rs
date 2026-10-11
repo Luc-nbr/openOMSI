@@ -170,6 +170,10 @@ pub struct LineDesign {
     /// what it keeps of the map - the `.ttl` it takes the place of, the map's tours. None: a
     /// line of the player's own.
     pub map: Option<MapSource>,
+    /// RosterFlow's timeplan of the line (`company::timeplan`): running times per time band,
+    /// day group and direction, and the timepoints - what its trips are worked out from. None:
+    /// the directions' own times.
+    pub timeplan: Option<crate::company::timeplan::RunPlan>,
 }
 
 /// What a line of the map's that the line editor edits keeps of the map (`LineDesign::map`):
@@ -223,6 +227,7 @@ impl Default for LineDesign {
             live: None,
             pending_from: String::new(),
             map: None,
+            timeplan: None,
         }
     }
 }
