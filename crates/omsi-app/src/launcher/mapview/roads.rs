@@ -437,18 +437,36 @@ pub(super) mod tests {
 
     #[test]
     fn the_casing_is_a_hair_near_and_half_a_pixel_far() {
-        // near: a pixel and a half; far: half a pixel, the narrowest road's 2.4 pixels in all
+        // near: a pixel and a half round a surface grown by a pixel; far: half a pixel round
+        // the surface as it is, the narrowest road's 2.4 pixels in all
         let near = MapView { mpp: 0.15, ..MapView::new() };
         let far = MapView { mpp: 40.0, ..MapView::new() };
-        assert_eq!(casing_edge(near.tolerance()), CASING_EDGE_NEAR);
-        assert_eq!(casing_edge(far.tolerance()), CASING_EDGE_FAR);
+        assert_eq!(casing_edge(near.tolerance()), (CASING_EDGE_NEAR, SURFACE_GROW_NEAR));
+        assert_eq!(casing_edge(far.tolerance()), (CASING_EDGE_FAR, 0.0));
         assert!((ROAD_PX + 2.0 * CASING_EDGE_FAR - 2.4).abs() < 1e-6);
         // in between, the nearer the thicker
-        let mut last = 0.0;
+        let mut last = (0.0, 0.0);
         for mpp in [8.0f64, 4.0, 2.0, 1.0, 0.5, 0.25] {
             let e = casing_edge(MapView { mpp, ..MapView::new() }.tolerance());
-            assert!(e >= last, "{mpp}: {e}");
+            assert!(e.0 >= last.0 && e.1 >= last.1, "{mpp}: {e:?}");
             last = e;
+        }
+    }
+
+    #[test]
+    fn a_sliver_between_two_surfaces_is_road() {
+        // a lane merging into a street, its edge running a few centimetres off the street's
+        // (as a crossing's paths and slip lanes do): no hair of casing between them, near
+        let w = half(7.0);
+        let gap = 0.08;
+        let y = f64::from(2.0 * w + gap);
+        let pieces = vec![road(&[(-30.0, 0.0), (30.0, 0.0)], 7.0, false), road(&[(-30.0, y), (30.0, y)], 7.0, false)];
+        let (px, world) = picture(pieces, 0.1, Vec2::new(0.0, w), (200, 200));
+        for (i, c) in px.iter().enumerate() {
+            let q = world(i);
+            if q.x.abs() < 20.0 && q.y > 1.0 && q.y < 2.0 * w + gap - 1.0 {
+                assert!(same(*c, linear(ROAD)), "at {q}: {c:?}");
+            }
         }
     }
 
@@ -502,5 +520,69 @@ pub(super) mod tests {
                 println!("place {k} at {mpp} m a pixel: {} vertices, built in {built:.3} s", verts.len());
             }
         }
+    }
+
+    /// `OMSI_MAP_PICTURE=<global.cfg>;<out folder> cargo test -p omsi-app --lib
+    /// holes_in_a_maps_junctions -- --ignored --nocapture`: a real map's junctions (three or
+    /// more road ends at one place) drawn close up, counting the pixels of casing that lie
+    /// inside the roads' surface - pinholes where the surfaces of a crossing's paths leave a
+    /// gap between them - and drawing the ones that have any.
+    #[test]
+    #[ignore]
+    fn holes_in_a_maps_junctions() {
+        let Ok(v) = std::env::var("OMSI_MAP_PICTURE") else { return };
+        let mut parts = v.split(';');
+        let global = PathBuf::from(parts.next().unwrap_or_default());
+        let out = PathBuf::from(parts.next().unwrap_or("."));
+        std::fs::create_dir_all(&out).ok();
+        let roads = Arc::new(read_map(&Look { map: "holes".into(), global, date: String::new(), trips: Vec::new(), entry: -1 }));
+        // the junctions: places where three or more ends of the roads meet
+        let mut ends: HashMap<(i64, i64), (usize, DVec2)> = HashMap::new();
+        for r in &roads.roads {
+            for q in [r.points[0], r.points[r.points.len() - 1]] {
+                let e = ends.entry(((q.x / 4.0).round() as i64, (q.y / 4.0).round() as i64)).or_insert((0, q.truncate()));
+                e.0 += 1;
+            }
+        }
+        let mut places: Vec<DVec2> = Vec::new();
+        let mut all: Vec<DVec2> = ends.values().filter(|(n, _)| *n >= 3).map(|(_, at)| *at).collect();
+        all.sort_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)));
+        for at in all {
+            if places.iter().all(|p| (*p - at).length() > 25.0) {
+                places.push(at);
+            }
+        }
+        places.truncate(300);
+        let mut m = MapView::new();
+        m.roads = Some(roads.clone());
+        let mpp = MPP_MIN;
+        m.mpp = mpp;
+        let (verts, _) = m.build(&roads, m.tolerance());
+        let (casing, surfaces) = (linear(ROAD_CASING), [linear(ROAD), linear(ROAD_MAIN)]);
+        let (w, h) = (360usize, 360usize);
+        let mut worst: Vec<(usize, usize)> = Vec::new();
+        let mut total = 0;
+        for (k, at) in places.iter().enumerate() {
+            let c = Vec2::new((at.x - roads.origin.x) as f32, (at.y - roads.origin.y) as f32);
+            let px = rasterise(&verts, c, mpp as f32, w, h, &MSAA1, [0.0; 3]);
+            let road = |x: i64, y: i64| x >= 0 && y >= 0 && (x as usize) < w && (y as usize) < h && surfaces.iter().any(|s| same(px[y as usize * w + x as usize], *s));
+            // (casing with road in all four directions within a metre)
+            let reach = (1.0 / mpp) as i64;
+            let mut holes = 0;
+            for y in 0..h as i64 {
+                for x in 0..w as i64 {
+                    if same(px[y as usize * w + x as usize], casing) && [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().all(|(dx, dy)| (1..=reach).any(|s| road(x + dx * s, y + dy * s))) {
+                        holes += 1;
+                    }
+                }
+            }
+            total += holes;
+            if holes > 0 {
+                worst.push((holes, k));
+                save(&px, w, h, &out.join(format!("hole-{k}.png")));
+            }
+        }
+        worst.sort_by(|a, b| b.cmp(a));
+        println!("{} junctions, {} with holes, {total} hole pixels; worst: {:?}", places.len(), worst.len(), worst.iter().take(12).map(|(n, k)| (*n, *k, places[*k])).collect::<Vec<_>>());
     }
 }

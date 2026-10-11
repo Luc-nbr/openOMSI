@@ -67,6 +67,12 @@ const ROAD_PX: f32 = 1.4;
 /// round every road, so near it grew into a band seven pixels wide round every lane.
 const CASING_EDGE_FAR: f32 = 0.5;
 const CASING_EDGE_NEAR: f32 = 1.5;
+/// Near, every road's surface reaches this many pixels past its metres, and its casing as
+/// much further (none far out, evenly between as the casing): where the paths of a crossing
+/// or a lane merging into a road leave a sliver between their surfaces narrower than two
+/// casings, the casing showed through as a hair or a pinhole inside the road. A gap of up to
+/// two of these pixels is road now; the casing round the outside stays as wide.
+const SURFACE_GROW_NEAR: f32 = 1.0;
 /// A road is drawn at least a lane wide (metres): a path is only as wide as the vehicle on it
 /// (2.5 m), and a crossing's paths - a roundabout's ring, the lanes into and out of it - were
 /// strips narrower than the street they continue, side by side with a dark seam of casing
@@ -74,7 +80,11 @@ const CASING_EDGE_NEAR: f32 = 1.5;
 const LANE_MIN: f32 = 3.6;
 /// How far a road's surface reaches past that on either side (metres): lanes a lane's width
 /// apart overlap a little instead of meeting edge to edge, where a sliver of casing showed.
-const ROAD_MARGIN: f32 = 0.15;
+/// The two directions of a street drawn as two pieces often lie a little more than a lane
+/// apart: 15 cm left a hair of casing down the middle of the street at half of
+/// Berlin-Spandau's junctions close up; 30 cm halves that, and what is left is mostly a real
+/// gap (a median, a slip road leaving).
+const ROAD_MARGIN: f32 = 0.3;
 const ROUTE_CASING_PX: f32 = 9.0;
 const ROUTE_PX: f32 = 5.0;
 /// A stop is the stop sign the player looks for in the game, in the style chosen in the
@@ -937,7 +947,8 @@ impl MapView {
         // pixel.
         let lines: Vec<(Vec<Vec3>, &roads::Line)> = roads.lines.iter().map(|l| (simplify(&l.points, tolerance), l)).filter(|(v, _)| v.len() >= 2).collect();
         let mut points: usize = lines.iter().map(|(v, _)| v.len()).sum();
-        let edge = casing_edge(tolerance) * k;
+        let (edge, grow) = casing_edge(tolerance);
+        let (edge, grow) = ((edge + grow) * k, grow * k);
         let wide = |l: &roads::Line| l.width.max(LANE_MIN) + 2.0 * ROAD_MARGIN;
         for (v, l) in &lines {
             p.ribbon_edged(v, wide(l), ROAD_PX * k, edge, ROAD_CASING, true);
@@ -947,14 +958,14 @@ impl MapView {
         // round blobs of the lighter colour; a main road's own dead end is round still)
         for (v, l) in lines.iter().filter(|(_, l)| l.main) {
             for q in [v[0], v[v.len() - 1]] {
-                p.world_disc(q, wide(l) * 0.5, ROAD_PX * k * 0.5, ROAD_MAIN);
+                p.world_disc_edged(q, wide(l) * 0.5, ROAD_PX * k * 0.5, grow, ROAD_MAIN);
             }
         }
         for (v, l) in lines.iter().filter(|(_, l)| !l.main) {
-            p.ribbon(v, wide(l), ROAD_PX * k, ROAD, true);
+            p.ribbon_edged(v, wide(l), ROAD_PX * k, grow, ROAD, true);
         }
         for (v, l) in lines.iter().filter(|(_, l)| l.main) {
-            p.ribbon(v, wide(l), ROAD_PX * k, ROAD_MAIN, false);
+            p.ribbon_edged(v, wide(l), ROAD_PX * k, grow, ROAD_MAIN, false);
         }
         // the route: the very lanes the game would drive, so it runs on its own side of the
         // road and not down the middle of it - every trip of the duty, each lane once, the
@@ -1099,13 +1110,15 @@ fn simplify(pts: &[Vec3], tol: f32) -> Vec<Vec3> {
     crate::navigator::simplify(pts, tol)
 }
 
-/// The roads' casing in pixels for a plan thinned to `tolerance` metres, which is half a pixel
-/// of its zoom band (`MapView::tolerance`): `CASING_EDGE_FAR` from four metres a pixel out,
-/// `CASING_EDGE_NEAR` from half a metre in, evenly in the zoom's steps between.
-fn casing_edge(tolerance: f32) -> f32 {
+/// The roads' casing round their surface and how far their surface grows past its metres, in
+/// pixels, for a plan thinned to `tolerance` metres, which is half a pixel of its zoom band
+/// (`MapView::tolerance`): `CASING_EDGE_FAR` and none from four metres a pixel out,
+/// `CASING_EDGE_NEAR` and `SURFACE_GROW_NEAR` from half a metre in, evenly in the zoom's
+/// steps between.
+fn casing_edge(tolerance: f32) -> (f32, f32) {
     let mpp = tolerance * 2.0;
     let t = ((4.0 / mpp).log2() / 3.0).clamp(0.0, 1.0);
-    CASING_EDGE_FAR + (CASING_EDGE_NEAR - CASING_EDGE_FAR) * t
+    (CASING_EDGE_FAR + (CASING_EDGE_NEAR - CASING_EDGE_FAR) * t, SURFACE_GROW_NEAR * t)
 }
 
 /// Read a map the way the map needs it: the roads the game's city map draws, the entry

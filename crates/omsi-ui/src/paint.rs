@@ -773,6 +773,18 @@ impl Painter {
         }
     }
 
+    /// A [`Painter::world_disc`] `edge_px` pixels larger at every zoom, as a
+    /// [`Painter::ribbon_edged`] is wider: the round end of a road drawn on its own.
+    pub fn world_disc_edged(&mut self, p: Vec3, r_m: f32, r_px: f32, edge_px: f32, c: Color) {
+        let n = 24;
+        let v = |ext: Vec2| Self::wv_edged(p, ext, r_m, r_px, edge_px, c);
+        for k in 0..n {
+            let a0 = std::f32::consts::TAU * k as f32 / n as f32;
+            let a1 = std::f32::consts::TAU * (k + 1) as f32 / n as f32;
+            self.verts.extend([v(Vec2::ZERO), v(Vec2::new(a0.cos(), a0.sin())), v(Vec2::new(a1.cos(), a1.sin()))]);
+        }
+    }
+
     /// A flat shape standing on `p`: `shape` is its outline (convex, any unit), scaled by
     /// `s_m` metres but at least `s_px` pixels.
     pub fn world_shape(&mut self, p: Vec3, shape: &[Vec2], s_m: f32, s_px: f32, c: Color) {
