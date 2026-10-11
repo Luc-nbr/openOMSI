@@ -502,7 +502,6 @@ pub fn welcome(c: &mut Company) {
     }
     c.inbox.welcomed = true;
     let date = c.date.clone();
-    post(c, Message::new(Kind::Notice, WELCOME.0, WELCOME.1));
     if let Some(today) = dates::parse(&date) {
         for x in (today - 6)..=(today + LEAD.1) {
             if let Some((_, mut e)) = drawn(c, x) {
@@ -514,6 +513,8 @@ pub fn welcome(c: &mut Company) {
         }
     }
     super::contracts::refresh(c, &date);
+    // (the welcome last: the newest, on top of the list)
+    post(c, Message::new(Kind::Notice, WELCOME.0, WELCOME.1));
 }
 
 const WELCOME: (&str, &str) = (
@@ -865,8 +866,9 @@ mod tests {
         assert!(has(Kind::Lines, "Tours not covered") && has(Kind::Finance, "Contract penalties"));
         let b = c.inbox.messages.iter().find(|m| m.title == "Breakdown").unwrap();
         assert_eq!((b.value("n"), b.value("amount"), b.level), (Some("101"), Some("120000"), Level::Bad));
-        // the welcome came first, once
-        assert_eq!(c.inbox.messages[0].title, WELCOME.0);
+        // the welcome came before the day's notes, once
+        let at = |title: &str| c.inbox.messages.iter().position(|m| m.title == title).unwrap();
+        assert!(at(WELCOME.0) < at("Breakdown"));
         // the next day's penalties replace the unread message of the day before
         let mut r2 = DayReport { date: dates::add(&date, 1), penalties: 80_00, ..Default::default() };
         day(&mut c, &dates::add(&date, 1), &mut r2);
