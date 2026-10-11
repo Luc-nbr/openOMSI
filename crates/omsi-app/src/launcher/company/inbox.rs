@@ -381,6 +381,21 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     }
 }
 
+/// Where a message is mended in the company's mode: the tab and the button's words. The easy
+/// mode goes only to the pages it shows - the workshop's news to the fleet, while what the
+/// company sees to by itself there (the research, the contracts and goals, the planning) has
+/// no button.
+fn page_for(m: &Message, mode: co::Mode) -> Option<(usize, &'static str, &'static str)> {
+    let page = page_of(m);
+    if mode == co::Mode::Advanced {
+        return page;
+    }
+    match m.kind {
+        Kind::Workshop => Some((1, "To the fleet", "directions_bus")),
+        _ => page.filter(|p| super::pages_of(mode).contains(&p.0)),
+    }
+}
+
 /// Where a message of `kind` is mended: the tab and the button's words.
 fn page_of(m: &Message) -> Option<(usize, &'static str, &'static str)> {
     match m.kind {
@@ -480,7 +495,7 @@ fn details(l: &mut Launcher, r: Rect, c: &Company, m: Option<&Message>) -> (Opti
     let by = inner.bottom() - 36.0;
     let mut x = inner.x;
     let mut go = None;
-    if let Some((tab, label, icon)) = page_of(m) {
+    if let Some((tab, label, icon)) = page_for(m, c.mode) {
         let w = button_w(&l.ui, label, Some(icon));
         if l.ui.button("company-inbox-go", Rect::new(x, by, w, 36.0), label, Some(icon), ButtonKind::Primary) {
             go = Some(tab);
@@ -558,6 +573,25 @@ mod tests {
                 let Some(x) = crate::_rust_i18n_try_translate(lang, t) else { panic!("{lang}: no translation of {t:?}") };
                 assert_eq!(places(&x), places(t), "{lang}: {t:?} -> {x:?}");
             }
+        }
+    }
+
+    #[test]
+    fn the_easy_mode_goes_only_to_its_own_pages() {
+        let kinds = [Kind::Staff, Kind::Fleet, Kind::Workshop, Kind::Research, Kind::Contract, Kind::Goal, Kind::Finance, Kind::Lines, Kind::Event, Kind::Notice];
+        for kind in kinds {
+            let m = Message::new(kind, "t", "x");
+            // the advanced mode: every page as before
+            assert_eq!(page_for(&m, co::Mode::Advanced), page_of(&m), "{kind:?}");
+            // the easy mode: a page it shows, or no button
+            if let Some((tab, _, _)) = page_for(&m, co::Mode::Easy) {
+                assert!(super::super::pages_of(co::Mode::Easy).contains(&tab), "{kind:?} -> {tab}");
+            }
+        }
+        assert_eq!(page_for(&Message::new(Kind::Workshop, "t", "x"), co::Mode::Easy).map(|p| p.0), Some(1));
+        assert_eq!(page_for(&Message::new(Kind::Staff, "t", "x"), co::Mode::Easy).map(|p| p.0), Some(2));
+        for kind in [Kind::Research, Kind::Contract, Kind::Goal, Kind::Event] {
+            assert_eq!(page_for(&Message::new(kind, "t", "x"), co::Mode::Easy), None, "{kind:?}");
         }
     }
 
