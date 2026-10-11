@@ -486,6 +486,14 @@ impl Ui {
         }
     }
 
+    /// A colour shown as itself - a line's, a livery's, a swatch to choose from: the same in
+    /// either look (`as_drawn`).
+    pub fn swatch(&mut self, r: Rect, radius: f32, c: Color) {
+        self.as_drawn();
+        self.p().rounded(r, radius, c);
+        self.end_as_drawn();
+    }
+
     /// The light look of everything drawn this frame (`light`): each triangle's colours as
     /// `theme::Lighten` has them, but for what is drawn as it is (`as_drawn`), the pictures
     /// (render targets, photos) and what lies in a world of its own (a map's layers).
@@ -2506,6 +2514,22 @@ mod tests {
         page(&mut ui);
         let (_, verts, _) = ui.finish();
         assert!(verts.iter().any(|v| v.color == GROUND.0) && verts.iter().any(|v| v.color == PANEL.0));
+    }
+
+    /// A line's slate blue shown as a swatch keeps its colour in the light look; drawn as a
+    /// page's colour it would be taken for one of the dark look's greys.
+    #[test]
+    fn a_swatch_keeps_its_colour_in_the_light_look() {
+        let slate = Color::rgba(0x2c, 0x3e, 0x50, 1.0);
+        let mut ui = Ui::new();
+        ui.light = true;
+        ui.begin(Vec2::new(400.0, 300.0), 1.0, 1.0 / 60.0);
+        ui.swatch(Rect::new(10.0, 10.0, 30.0, 30.0), 15.0, slate);
+        ui.p().rect(Rect::new(100.0, 10.0, 30.0, 30.0), slate);
+        let (_, verts, _) = ui.finish();
+        let (swatch, page): (Vec<&Vertex>, Vec<&Vertex>) = verts.iter().filter(|v| v.pos[1] <= 40.0).partition(|v| v.pos[0] < 50.0);
+        assert!(!swatch.is_empty() && swatch.iter().all(|v| v.color == slate.0));
+        assert!(!page.is_empty() && page.iter().all(|v| v.color != slate.0));
     }
 
     #[test]

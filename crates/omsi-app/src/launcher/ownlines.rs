@@ -48,8 +48,11 @@ pub(super) fn plate(ui: &mut Ui, at: Vec2, number: &str, colour: &str, h: f32) -
     let c = colour_of(colour);
     let w = (ui.width(number, px, Weight::Black) + h * 0.7).max(h * 1.8);
     let r = Rect::new(at.x, at.y, w, h);
+    // (the line's colour and its ink on it, as they are in either look)
+    ui.as_drawn();
     ui.p().rounded(r, (h * 0.25).min(5.0), c);
     ui.text_in(number, r, px, Weight::Black, ink_on(c), Align::Center);
+    ui.end_as_drawn();
     w
 }
 

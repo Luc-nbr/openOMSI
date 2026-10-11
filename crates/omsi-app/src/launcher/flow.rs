@@ -567,7 +567,7 @@ pub(crate) fn brand(atlas: &mut Atlas, fonts: &Fonts, scale: f32, left: f32, mid
 
 /// `brand` with "open" and the bus front in `ink` (dark on the light glass of the bar).
 #[allow(clippy::too_many_arguments)]
-fn brand_inked(atlas: &mut Atlas, fonts: &Fonts, scale: f32, left: f32, mid_y: f32, h: f32, ground: Color, ink: Color) -> (Vec<Vertex>, Rect) {
+pub(super) fn brand_inked(atlas: &mut Atlas, fonts: &Fonts, scale: f32, left: f32, mid_y: f32, h: f32, ground: Color, ink: Color) -> (Vec<Vertex>, Rect) {
     let b = Brand::new(fonts, h);
     let c = Vec2::new(left - b.bounds.x, mid_y - b.bounds.center().y);
     let mut p = Painter::with_scale(scale);

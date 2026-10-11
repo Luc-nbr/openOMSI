@@ -450,9 +450,17 @@ fn bar(l: &mut Launcher) {
     }
     let mut x = r.x + 18.0;
     if !mobile::mobile() {
-        // (the brand as the launcher's bar has it: the new logo, small)
-        let (verts, at) = super::flow::brand(&mut l.ui.atlas, &l.ui.fonts, l.ui.scale, x - 4.0, r.center().y, super::flow::BAR_BRAND_H, PANEL);
+        // (the brand as the launcher's bar has it: the new logo, small - on the bar as the
+        // look has it, and drawn as it is: "OMSI" keeps its orange in the light look)
+        let (atlas, fonts, scale, y) = (&mut l.ui.atlas, &l.ui.fonts, l.ui.scale, r.center().y);
+        let (verts, at) = if crate::accent::dark() {
+            super::flow::brand(atlas, fonts, scale, x - 4.0, y, super::flow::BAR_BRAND_H, PANEL)
+        } else {
+            super::flow::brand_inked(atlas, fonts, scale, x - 4.0, y, super::flow::BAR_BRAND_H, light::PANEL, light::TEXT)
+        };
+        l.ui.as_drawn();
         l.ui.p().verts.extend(verts);
+        l.ui.end_as_drawn();
         x = at.right() + 34.0;
     }
     route(l, Rect::new(x, r.y, (skip.x - 14.0 - x).max(0.0), r.h));
