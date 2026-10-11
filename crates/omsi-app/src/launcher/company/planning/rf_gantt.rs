@@ -617,7 +617,7 @@ pub(super) fn gantt(l: &mut Launcher, r: Rect, k: &Cached, board: &Board, p: &Pa
         if ui.rect_visible(rr) {
             let label = if drivers { "New duty" } else { "New vehicle" };
             ui.icon("add", Vec2::new(r.x + 22.0, rr.center().y), 15.0, p.dim);
-            ui.text_in(label, Rect::new(r.x + 36.0, rr.y, ID_W - 36.0, rr.h), 12.0, Weight::Medium, p.dim, Align::Left);
+            ui.text_in(label, Rect::new(r.x + 36.0, rr.y, (gx - r.x - 40.0).max(60.0), rr.h), 12.0, Weight::Medium, p.dim, Align::Left);
             let want = if drivers { Drop::NewDuty } else { Drop::New };
             let zone = zones.as_ref().and_then(|zs| zs.iter().position(|z| z.drop == want));
             match (zone, hand_span(board, hand.as_ref())) {

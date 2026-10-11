@@ -82,11 +82,9 @@ pub(super) fn mark(ui: &mut Ui, r: Rect, t: f32, alpha: f32) {
 /// The name in two colours ("Roster" in the ink, "Flow" in the blue) at `at` (its left and
 /// middle), `px` its size. Returns its width.
 pub(super) fn wordmark(ui: &mut Ui, at: Vec2, px: f32, ink: Color, blue: Color) -> f32 {
-    let w1 = ui.width("Roster", px, Weight::Black);
-    let w2 = ui.width("Flow", px, Weight::Black);
     ui.as_drawn();
-    ui.text_as_is("Roster", Vec2::new(at.x, at.y + px * 0.36), px, Weight::Black, ink, Align::Left);
-    ui.text_as_is("Flow", Vec2::new(at.x + w1, at.y + px * 0.36), px, Weight::Black, blue, Align::Left);
+    let w1 = ui.text_as_is("Roster", Vec2::new(at.x, at.y + px * 0.36), px, Weight::Black, ink, Align::Left);
+    let w2 = ui.text_as_is("Flow", Vec2::new(at.x + w1, at.y + px * 0.36), px, Weight::Black, blue, Align::Left);
     ui.end_as_drawn();
     w1 + w2
 }
@@ -123,9 +121,9 @@ pub(super) fn opening(ui: &mut Ui, r: Rect, t: f32, bg: Color, ink: Color, dim: 
     let words = ((t - 0.55) / 0.5).clamp(0.0, 1.0);
     let rise = (1.0 - ease_out_cubic(words)) * 14.0;
     let nx = mx + s * 1.28;
-    let w = ui.width("Roster", name_px, Weight::Black);
+
     let a = words * fade;
-    ui.text_as_is("Roster", Vec2::new(nx, r.center().y + name_px * 0.12 + rise), name_px, Weight::Black, ink.alpha(a), Align::Left);
+    let w = ui.text_as_is("Roster", Vec2::new(nx, r.center().y + name_px * 0.12 + rise), name_px, Weight::Black, ink.alpha(a), Align::Left);
     ui.text_as_is("Flow", Vec2::new(nx + w, r.center().y + name_px * 0.12 + rise), name_px, Weight::Black, blue.alpha(a), Align::Left);
     let sub = omsi_ui::tr(SUBTITLE);
     ui.text(&sub, Vec2::new(nx + 2.0, r.center().y + name_px * 0.98 + rise * 1.4), (name_px * 0.36).max(12.0), Weight::Medium, dim.alpha(a), Align::Left);
