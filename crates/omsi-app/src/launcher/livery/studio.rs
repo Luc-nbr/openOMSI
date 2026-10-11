@@ -1,9 +1,18 @@
-//! The studio's screen, after Omsi-Hub's: the tools along the top with the name and Save, the
-//! layers on the left, the bus in the middle (the mouse paints on it; right-drag turns it,
-//! the middle button or Shift-drag moves it, the wheel zooms, views 1-6, F fits, O held shows
-//! the livery before, E the eraser, [ and ] the brush's size; while mirroring the other side in
-//! a corner), and on the right what the tool or the chosen layer offers - the quick livery, the
-//! bus options, the colour picker, the stripes, texts, pictures, shapes and the brush.
+//! The studio's screen, after Omsi-Hub's: the bar along the top with the name and Save, the
+//! layers on the left under "Create layer", the bus in the middle (a click chooses what lies
+//! there and a drag moves it; right-drag turns it, the middle button or Shift-drag moves it,
+//! the wheel zooms, views 1-6, F fits, O held shows the livery before, E the eraser, [ and ]
+//! the brush's size; while mirroring the other side in a corner), and on the right what the
+//! chosen layer offers, or what is being made - the quick livery, the bus options, the colour
+//! picker, the stripes, texts, pictures, shapes and the brush.
+//!
+//! There are no tools to switch between (Luc: "Now you have to click a mode, but you sometimes
+//! get stuck in that mode so that you cannot use another one"): "Create layer" offers the kinds
+//! of layer, and the one chosen is made at once on the side being looked at, chosen and ready
+//! to change. Only a layer drawn with the mouse - a colour area, an own shape, the brush -
+//! waits for the mouse on the bus, with a line over the bus that says so and ends it; Escape,
+//! a click on the layers or on the bus beside it ends it too, and the editor is back to
+//! choosing and moving.
 
 use super::bake::BusGeom;
 use super::model::{self, Coupling, Grip, Kind, Layer, Place, Side, StripeTemplate};
@@ -17,29 +26,44 @@ use omsi_ui::paint::Align;
 use omsi_ui::{Color, Rect, Weight};
 use winit::keyboard::KeyCode;
 
+/// What the editor waits for on the bus while a layer is being drawn; otherwise (`None`) a click
+/// chooses what lies there and a drag moves it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum Tool {
+pub enum Making {
     #[default]
-    Select,
-    Fill,
+    None,
+    /// A colour area: the click on the colour of the bus that is to change.
+    Area,
+    /// An own shape: its corners clicked on the bus (`State::pen`).
+    Pen,
+    /// The brush (with E the eraser) on a brush layer (`State::brush_layer`; the first stroke
+    /// makes one when there is none).
+    Brush,
+}
+
+/// A kind of layer "Create layer" makes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum New {
+    Base,
+    Area,
     Stripe,
     Text,
     Image,
     Shape,
-    Pen,
-    /// The brush, and with E the eraser.
+    Own,
     Brush,
 }
 
-const TOOLS: [(Tool, &str, &str); 8] = [
-    (Tool::Select, "Select", "livery_select"),
-    (Tool::Fill, "Fill", "livery_fill"),
-    (Tool::Stripe, "Stripe", "livery_stripe"),
-    (Tool::Text, "Text", "livery_text"),
-    (Tool::Image, "Image", "livery_image"),
-    (Tool::Shape, "Shapes", "livery_shape"),
-    (Tool::Pen, "Pen", "livery_pen"),
-    (Tool::Brush, "Brush", "livery_brush"),
+/// The kinds of layer "Create layer" offers: the kind, its name, what it is, its icon.
+const KINDS: [(New, &str, &str, &str); 8] = [
+    (New::Base, "Base colour", "One colour over all the paint of the bus.", "livery_fill"),
+    (New::Area, "Colour area", "One colour of the bus changed: click it on the bus.", "livery_eyedrop"),
+    (New::Stripe, "Stripe", "A band round the bus; its kind and edges change afterwards.", "livery_stripe"),
+    (New::Text, "Text", "Letters on the side you look at.", "livery_text"),
+    (New::Image, "Image", "A logo or a photo from your computer.", "livery_image"),
+    (New::Shape, "Shape", "A rectangle, an arrow, a star and more.", "livery_shape"),
+    (New::Own, "Own shape", "Its corners clicked on the bus.", "livery_pen"),
+    (New::Brush, "Brush", "Painted freely on the bus with the mouse.", "livery_brush"),
 ];
 
 /// Choosing a bus (and a livery to begin from), or a livery begun before.
@@ -185,13 +209,6 @@ enum Drag {
     Brush { id: String },
 }
 
-/// What a click on the bus places.
-#[derive(Clone, Debug)]
-enum Armed {
-    Picture { hash: String, aspect: f32, white: bool },
-    Shape(&'static str),
-}
-
 /// The pen's corners: their place in the side's plane (metres, y up) and the curve's handle.
 #[derive(Clone, Debug, Default)]
 struct Pen {
@@ -205,17 +222,14 @@ pub struct State {
     pub name: String,
     pub before_after: bool,
     drag: Option<Drag>,
-    armed: Option<Armed>,
     pen: Pen,
     last_mouse: Vec2,
-    /// The text tool's text, font and size.
-    text: String,
-    font: usize,
-    size_cm: f32,
+    /// The kinds of layer are offered ("Create layer" pressed).
+    pub chooser: bool,
     /// Where the bus's picture lies and its camera (for the mouse).
     view: Option<(Rect, Camera)>,
-    /// The brush: its radius (cm), hardness, cover, whether it erases, and the layer it last
-    /// painted into.
+    /// The brush: its radius (cm), hardness, cover, whether it erases, and the layer it paints
+    /// into.
     pub brush_cm: f32,
     pub hardness: f32,
     pub brush_opacity: f32,
@@ -263,6 +277,10 @@ pub fn draw(l: &mut Launcher) {
         return;
     }
     let dt = l.ui.dt;
+    // the kinds of layer offered over the layers (and a little of the bus): drawn last, over
+    // everything, and where they lie they have the mouse - what lies under them sees none
+    let kinds = kinds_place(l);
+    let mouse = kinds.as_ref().filter(|(r, _)| r.contains(l.ui.input.mouse)).map(|_| take_mouse(&mut l.ui));
     // the bus's picture between the panels
     let view = Rect::new(M + LEFT_W + 10.0, TOP + BAR_H + 10.0, size.x - 2.0 * M - LEFT_W - RIGHT_W - 20.0, size.y - TOP - BAR_H - 10.0 - M);
     {
@@ -338,29 +356,63 @@ pub fn draw(l: &mut Launcher) {
     // (Back: the studio is left, nothing of it is drawn any more - the panels below took the
     // session that was no longer there, and the launcher went down with it)
     if l.livery.session.is_none() {
+        if let Some(m) = mouse {
+            give_mouse(&mut l.ui, m);
+        }
         return;
     }
     layers_panel(l, Rect::new(M, TOP + BAR_H + 10.0, LEFT_W, size.y - TOP - BAR_H - 10.0 - M));
     right_panel(l, Rect::new(size.x - M - RIGHT_W, TOP + BAR_H + 10.0, RIGHT_W, size.y - TOP - BAR_H - 10.0 - M));
     view_bar(l, view);
     overlay(l, view);
+    // (the line of what is being made before the mouse on the bus: its buttons are over it)
+    let below = making_bar(l, view);
     pointer(l, view);
+    if let Some(m) = mouse {
+        give_mouse(&mut l.ui, m);
+    }
+    if let Some((r, heights)) = kinds {
+        kinds_menu(l, r, &heights);
+    }
     keys(l);
     // the change going on ends with the mouse let go and no field typed in
-    let s = l.livery.session.as_mut().unwrap();
+    let Some(s) = l.livery.session.as_mut() else { return };
     if !l.ui.input.down && l.ui.focus.is_none() {
         s.settle();
     }
     if let Some((t, err, at)) = s.status.clone() {
         let fade = if err { 1.0 } else { (1.0 - (at.elapsed().as_secs_f32() - 5.0) / 1.0).clamp(0.0, 1.0) };
         if fade > 0.0 {
-            let w = (l.ui.width(&t, 12.5, Weight::Medium) + 32.0).min(view.w - 40.0);
-            let r = Rect::new(view.center().x - w * 0.5, view.y + 14.0, w, 28.0);
+            // (a long one on two lines and more: no language is cut off)
+            let w = (l.ui.width(&omsi_ui::tr(&t), 12.5, Weight::Medium) + 32.0).min(view.w - 40.0);
+            let th = l.ui.paragraph_height(&t, w - 28.0, 12.5, Weight::Medium);
+            let r = Rect::new(view.center().x - w * 0.5, below.max(view.y + 14.0), w, (th + 10.0).max(28.0));
             l.ui.p().rounded(r, 14.0, ON_MAP.alpha(fade));
-            l.ui.text_in(&t, r.pad(14.0, 0.0), 12.5, Weight::Medium, if err { DANGER.lighten(0.25) } else { TEXT }.alpha(fade), Align::Center);
+            l.ui.paragraph(&t, Vec2::new(r.x + 14.0, r.y + (r.h - th) * 0.5 - 2.0), w - 28.0, 12.5, Weight::Medium, if err { DANGER.lighten(0.25) } else { TEXT }.alpha(fade));
         }
     }
 }
+
+/// What the mouse did this frame, taken from what lies under the kinds of layer.
+type Mouse = (Vec2, bool, bool, bool, bool, Vec2);
+
+/// The mouse taken away (moved off the window, no button, no wheel) for what lies under the
+/// kinds of layer; what it was, to be given back for them.
+fn take_mouse(ui: &mut Ui) -> Mouse {
+    let i = &mut ui.input;
+    let was = (i.mouse, i.down, i.pressed, i.released, i.right_pressed, i.wheel);
+    (i.mouse, i.down, i.pressed, i.released, i.right_pressed, i.wheel) = (Vec2::splat(OFF), false, false, false, false, Vec2::ZERO);
+    ui.over_ui = true;
+    was
+}
+
+fn give_mouse(ui: &mut Ui, m: Mouse) {
+    let i = &mut ui.input;
+    (i.mouse, i.down, i.pressed, i.released, i.right_pressed, i.wheel) = m;
+}
+
+/// Where the mouse is while it is taken away.
+const OFF: f32 = -1.0e6;
 
 // --- choosing a bus ----------------------------------------------------------------------------
 
@@ -464,6 +516,12 @@ fn chooser(l: &mut Launcher, full: Rect) {
 
 fn top_bar(l: &mut Launcher, r: Rect) {
     l.ui.panel(r);
+    // (a click on the bar ends what was being drawn on the bus)
+    if l.ui.input.pressed && r.contains(l.ui.input.mouse) {
+        if let Some(s) = l.livery.session.as_mut() {
+            end_making(s, true);
+        }
+    }
     if l.ui.button("livery-back", Rect::new(r.x + 10.0, r.y + 10.0, 92.0, 38.0), "Back", Some("chevron_left"), ButtonKind::Ghost) {
         // (a save into the game going on: left once it is done, with what follows it - the
         // livery kept in the project and on the bus step, the company's design paid for)
@@ -479,24 +537,7 @@ fn top_bar(l: &mut Launcher, r: Rect) {
     let bus_name = l.state.vehicles.iter().find(|v| v.file == bus).map(|v| v.name.clone()).unwrap_or_else(|| bus.rsplit('/').next().unwrap_or("").to_string());
     l.ui.text_in("Livery studio", Rect::new(r.x + 112.0, r.y + 9.0, 180.0, 22.0), 15.5, Weight::Bold, TEXT, Align::Left);
     l.ui.text_in(&bus_name, Rect::new(r.x + 112.0, r.y + 30.0, 180.0, 18.0), 12.0, Weight::Regular, TEXT_DIM, Align::Left);
-    // the tools
     let mut x = r.x + 300.0;
-    let tw = 56.0;
-    for (tool, label, icon) in TOOLS {
-        let b = Rect::new(x, r.y + 6.0, tw, r.h - 12.0);
-        let on = l.livery.session.as_ref().is_some_and(|s| s.tool == tool);
-        if tool_button(&mut l.ui, &format!("livery-tool-{label}"), b, label, icon, on) {
-            let s = l.livery.session.as_mut().unwrap();
-            s.tool = tool;
-            s.ui.armed = None;
-            s.ui.pen = Pen::default();
-            if tool != Tool::Select {
-                s.selected = None;
-            }
-        }
-        x += tw + 4.0;
-    }
-    x += 10.0;
     l.ui.p().rect(Rect::new(x, r.y + 12.0, 1.0, r.h - 24.0), HAIRLINE);
     x += 12.0;
     let mirror = l.livery.session.as_ref().is_some_and(|s| s.project.mirror.on);
@@ -519,7 +560,7 @@ fn top_bar(l: &mut Launcher, r: Rect) {
     // the name and Save (the name narrower when the bar is short of room, and at the top of the
     // right panel when it has none: it is the only place the livery is named)
     let save = Rect::new(r.right() - 10.0 - 170.0, r.y + 9.0, 170.0, 40.0);
-    let fx = (save.x - 10.0 - 230.0).max(x + 90.0);
+    let fx = (save.x - 10.0 - 320.0).max(x + 90.0);
     let field = Rect::new(fx, r.y + 11.0, save.x - 10.0 - fx, 36.0);
     let s = l.livery.session.as_mut().unwrap();
     s.ui.name_in_bar = field.w >= 140.0;
@@ -577,10 +618,207 @@ fn tool_button(ui: &mut Ui, name: &str, r: Rect, label: &str, icon: &str, on: bo
 
 // --- the layers ------------------------------------------------------------------------------
 
+/// The panel of the layers (`layers_panel`) and its "Create layer" in a window of `size`.
+fn layers_rects(size: Vec2) -> (Rect, Rect) {
+    let r = Rect::new(M, TOP + BAR_H + 10.0, LEFT_W, size.y - TOP - BAR_H - 10.0 - M);
+    let inner = r.pad(14.0, 12.0);
+    (r, Rect::new(inner.x, inner.y + 26.0, inner.w, 40.0))
+}
+
+/// Width of the kinds of layer offered under "Create layer" (over the bus beside the layers).
+const KINDS_W: f32 = 340.0;
+
+/// Where the kinds of layer are offered (under "Create layer") and each one's height; None
+/// while they are not.
+fn kinds_place(l: &Launcher) -> Option<(Rect, Vec<f32>)> {
+    if !l.livery.session.as_ref()?.ui.chooser {
+        return None;
+    }
+    let (_, button) = layers_rects(l.ui.size);
+    let w = KINDS_W.min(l.ui.size.x - button.x - M).max(button.w);
+    // (each as high as its words, wrapped: a long language gets more lines)
+    let heights: Vec<f32> = KINDS.iter().map(|(_, _, line, _)| 34.0 + l.ui.paragraph_height(line, w - 16.0 - 72.0, 12.0, Weight::Regular) + 10.0).collect();
+    let y = button.bottom() + 6.0;
+    let h = (heights.iter().sum::<f32>() + 16.0).min(l.ui.size.y - y - M);
+    Some((Rect::new(button.x, y, w, h), heights))
+}
+
+/// The kinds of layer, each with its icon, name and what it is; the one clicked is made.
+fn kinds_menu(l: &mut Launcher, r: Rect, heights: &[f32]) {
+    l.ui.solid(r);
+    l.ui.p().shadow(r, SHEET_RADIUS, 18.0, Color::rgba(0, 0, 0, 0.45));
+    l.ui.p().rounded(r, SHEET_RADIUS, PANEL);
+    l.ui.p().rounded_border(r, SHEET_RADIUS, 1.0, EDGE);
+    let mut chosen = None;
+    l.ui.scroll_area("livery-kinds", r.pad(8.0, 8.0), &mut |ui, a| {
+        let mut y = a.y;
+        for (k, (kind, name, line, icon)) in KINDS.iter().enumerate() {
+            let row = Rect::new(a.x, y, a.w - 8.0, heights[k]);
+            let id = crate::launcher::ui::id_of(&format!("livery-kind-{k}"));
+            let (h, _, clicked) = ui.interact(id, row);
+            let t = ui.anim(id, if h { 1.0 } else { 0.0 }, 0.06);
+            if t > 0.01 {
+                ui.p().rounded(row, RADIUS, HOVER.alpha(t));
+            }
+            let tile = Rect::new(row.x + 8.0, row.y + 10.0, 40.0, 40.0);
+            ui.p().rounded(tile, 9.0, if h { accent() } else { FIELD });
+            ui.icon(icon, tile.center(), 20.0, if h { on_accent() } else { TEXT });
+            ui.text_in(name, Rect::new(row.x + 60.0, row.y + 9.0, row.w - 68.0, 20.0), 13.5, Weight::Bold, TEXT, Align::Left);
+            ui.paragraph(line, Vec2::new(row.x + 60.0, row.y + 30.0), row.w - 72.0, 12.0, Weight::Regular, TEXT_DIM);
+            if clicked {
+                chosen = Some(*kind);
+            }
+            y += heights[k];
+        }
+        y - a.y
+    });
+    // (a click beside them puts them away; the click goes on to what it was on)
+    if l.ui.input.pressed && !r.contains(l.ui.input.mouse) && !layers_rects(l.ui.size).1.contains(l.ui.input.mouse) {
+        if let Some(s) = l.livery.session.as_mut() {
+            s.ui.chooser = false;
+        }
+    }
+    if let Some(k) = chosen {
+        create(l, k);
+    }
+}
+
+/// Make a layer of kind `kind`: at once, on the side of the bus being looked at, chosen; or
+/// (a colour area, an own shape, the brush) wait for the mouse on the bus.
+fn create(l: &mut Launcher, kind: New) {
+    if kind == New::Image {
+        if let Some(s) = l.livery.session.as_mut() {
+            s.ui.chooser = false;
+            end_making(s, true);
+        }
+        choose_picture(l, true);
+        return;
+    }
+    if let Some(s) = l.livery.session.as_mut() {
+        create_in(s, kind);
+    }
+}
+
+/// `create` for every kind but a picture (which is chosen from the computer first).
+fn create_in(s: &mut Session, kind: New) {
+    s.ui.chooser = false;
+    end_making(s, true);
+    let Some(d) = s.dims() else {
+        s.say(omsi_ui::tr("Preparing the paint…"), false);
+        return;
+    };
+    let colour = model::hex(s.picker.colour);
+    let before = s.project.doc();
+    s.picker.target = PickFor::Main;
+    match kind {
+        New::Base => add_layer(s, model::layer("Base colour", model::base_colour(&colour)), before),
+        New::Stripe => {
+            let t = StripeTemplate::Skirt;
+            add_layer(s, model::layer(t.label(), model::stripe(t, &colour, &d)), before);
+        }
+        New::Text => {
+            let Some((side, p)) = spot(s) else { return };
+            let text = omsi_ui::tr("Text").into_owned();
+            let font = shapes::DEFAULT_FONT.to_string();
+            let height_cm = 25.0;
+            let width = shapes::text_width(&text, &font) * height_cm / 100.0;
+            add_layer(s, model::layer("Text", Kind::Text { text, font, height_cm, colour, outline: None, spacing: 0.0, gradient: None, place: Place::new(side, p, width) }), before);
+        }
+        New::Shape => {
+            let Some((side, p)) = spot(s) else { return };
+            let (key, label) = shapes::SHAPES[0];
+            add_layer(s, model::layer(label, Kind::Shape { shape: key.to_string(), colour, outline: None, gradient: None, place: Place::new(side, p, 0.6) }), before);
+        }
+        New::Image => {}
+        New::Area => {
+            s.selected = None;
+            s.making = Making::Area;
+        }
+        New::Own => {
+            s.selected = None;
+            s.making = Making::Pen;
+        }
+        New::Brush => {
+            s.selected = None;
+            s.ui.brush_layer = None;
+            s.making = Making::Brush;
+        }
+    }
+}
+
+/// What the line over the bus says while a colour area, an own shape, the eraser and the brush
+/// are drawn.
+const LINES: [&str; 4] = [
+    "Click the colour on the bus that is to change.",
+    "Click the corners of the shape on the bus; drag to bend a line. The first corner again or Enter finishes it.",
+    "Erase on the bus with the left button. E: back to the brush.",
+    "Paint on the bus with the left button. E: the eraser, [ and ]: its size.",
+];
+
+/// While a layer is drawn on the bus: a line over the bus that says what the mouse does there,
+/// with the way out (Cancel, Done; the pen's Finish). Returns where it ends below (the bus's
+/// top when there is none).
+fn making_bar(l: &mut Launcher, view: Rect) -> f32 {
+    let Some(s) = l.livery.session.as_ref() else { return view.y };
+    let finish = s.ui.pen.nodes.len() >= 3;
+    // (what the mouse does; the buttons: their word, icon, whether it keeps what was drawn)
+    let (icon, text, buttons): (&str, &str, Vec<(&str, &str, bool)>) = match s.making {
+        Making::None => return view.y,
+        Making::Area => ("livery_eyedrop", LINES[0], vec![("Cancel", "close", false)]),
+        Making::Pen if finish => ("livery_pen", LINES[1], vec![("Finish", "check", true), ("Cancel", "close", false)]),
+        Making::Pen => ("livery_pen", LINES[1], vec![("Cancel", "close", false)]),
+        Making::Brush if s.ui.eraser => ("livery_eraser", LINES[2], vec![("Done", "check", true)]),
+        Making::Brush => ("livery_brush", LINES[3], vec![("Done", "check", true)]),
+    };
+    // the buttons as wide as their words; the line wraps in what is left
+    let widths: Vec<f32> = buttons.iter().map(|(label, ..)| l.ui.width(&omsi_ui::tr(label), 13.0, Weight::Bold) + 52.0).collect();
+    let all = widths.iter().sum::<f32>() + 8.0 * (widths.len() as f32 - 1.0);
+    let w = (view.w - 40.0).min(760.0);
+    let tw = (w - 48.0 - all - 20.0).max(80.0);
+    let th = l.ui.paragraph_height(text, tw, 13.0, Weight::Medium);
+    let bar = Rect::new(view.center().x - w * 0.5, view.y + 12.0, w, (th + 20.0).max(50.0));
+    l.ui.solid(bar);
+    l.ui.p().rounded(bar, 14.0, ON_MAP);
+    l.ui.p().rounded_border(bar, 14.0, 1.5, accent().alpha(0.7));
+    l.ui.icon(icon, Vec2::new(bar.x + 24.0, bar.center().y), 18.0, accent_2());
+    l.ui.paragraph(text, Vec2::new(bar.x + 44.0, bar.center().y - th * 0.5 - 2.0), tw, 13.0, Weight::Medium, TEXT);
+    let mut x = bar.right() - 8.0 - all;
+    let mut end = None;
+    for ((label, ic, keep), bw) in buttons.iter().zip(&widths) {
+        let kind = if *keep { ButtonKind::Primary } else { ButtonKind::Normal };
+        if l.ui.button(&format!("livery-making-{ic}"), Rect::new(x, bar.center().y - 17.0, *bw, 34.0), label, Some(ic), kind) {
+            end = Some(*keep);
+        }
+        x += bw + 8.0;
+    }
+    if let (Some(keep), Some(s)) = (end, l.livery.session.as_mut()) {
+        end_making(s, keep);
+    }
+    bar.bottom() + 8.0
+}
+
 fn layers_panel(l: &mut Launcher, r: Rect) {
     l.ui.panel(r);
     let inner = r.pad(14.0, 12.0);
     let head = l.ui.heading(inner, "Layers", None);
+    // (a click on the layers ends what was being drawn on the bus: a layer clicked is chosen,
+    // whatever was going on)
+    if l.ui.input.pressed && r.contains(l.ui.input.mouse) {
+        if let Some(s) = l.livery.session.as_mut() {
+            end_making(s, true);
+        }
+    }
+    // a new layer: its kinds offered under the button
+    let (_, create) = layers_rects(l.ui.size);
+    let open = l.livery.session.as_ref().is_some_and(|s| s.ui.chooser);
+    if l.ui.button("livery-create", create, "Create layer", Some(if open { "close" } else { "add" }), if open { ButtonKind::Normal } else { ButtonKind::Primary }) {
+        let s = l.livery.session.as_mut().unwrap();
+        s.ui.chooser = !open;
+    }
+    if !open {
+        l.ui.tooltip(create, "A new layer: choose what kind");
+    }
+    let head = Rect::new(head.x, create.bottom() + 12.0, head.w, head.bottom() - create.bottom() - 12.0);
     let s = l.livery.session.as_mut().unwrap();
     let n = s.project.layers.len();
     let list = Rect::new(head.x - 4.0, head.y, head.w + 8.0, head.h - 92.0);
@@ -594,7 +832,7 @@ fn layers_panel(l: &mut Launcher, r: Rect) {
     let mut pressed_on: Option<String> = None;
     let mut gap: Option<usize> = None;
     if layers.is_empty() {
-        l.ui.paragraph("Nothing painted yet. Choose a tool above, or begin with the quick livery on the right.", Vec2::new(list.x + 6.0, list.y + 4.0), list.w - 12.0, 12.5, Weight::Regular, TEXT_FAINT);
+        l.ui.paragraph("Nothing painted yet. Create a layer, or begin with the quick livery on the right.", Vec2::new(list.x + 6.0, list.y + 4.0), list.w - 12.0, 12.5, Weight::Regular, TEXT_FAINT);
     }
     l.ui.scroll_area("livery-layers", list, &mut |ui, a| {
         let m = ui.input.mouse;
@@ -669,7 +907,7 @@ fn layers_panel(l: &mut Launcher, r: Rect) {
     let mut changed = false;
     if let Some(id) = select {
         s.selected = Some(id);
-        s.tool = Tool::Select;
+        s.ui.chooser = false;
     }
     if let Some(k) = toggle {
         s.project.layers[k].visible = !s.project.layers[k].visible;
@@ -749,15 +987,17 @@ fn right_panel(l: &mut Launcher, r: Rect) {
         let mut y = a.y;
         let w = a.w - 10.0;
         let sel = s.selected.clone().and_then(|id| s.project.index_of(&id));
-        match sel {
-            Some(i) => y = layer_props(ui, s, i, Rect::new(a.x, y, w, 0.0), &shape_tex, fonts, &mut actions),
-            None => y = tool_props(ui, s, Rect::new(a.x, y, w, 0.0), &shape_tex, fonts, &opts, &mut actions),
-        }
+        // (what is being drawn on the bus first: its settings)
+        y = match (s.making, sel) {
+            (Making::None, Some(i)) => layer_props(ui, s, i, Rect::new(a.x, y, w, 0.0), &shape_tex, fonts, &mut actions),
+            (Making::None, None) => start_props(ui, s, Rect::new(a.x, y, w, 0.0), &opts, &mut actions),
+            _ => making_props(ui, s, Rect::new(a.x, y, w, 0.0)),
+        };
         y - a.y + 20.0
     });
     for act in actions {
         match act {
-            Action::ChoosePicture => choose_picture(l),
+            Action::ChoosePicture => choose_picture(l, false),
             Action::ChooseLogo => choose_logo(l),
             Action::RemoveFromGame => super::remove_from_game(l),
             Action::BusOption(e) => {
@@ -820,12 +1060,13 @@ fn hint(ui: &mut Ui, x: f32, y: f32, w: f32, text: &str) -> f32 {
     y + ui.paragraph(text, Vec2::new(x, y), w, 12.5, Weight::Regular, TEXT_DIM) + 8.0
 }
 
-/// What a tool offers before anything is chosen.
-fn tool_props(ui: &mut Ui, s: &mut Session, r: Rect, shape_tex: &std::collections::HashMap<&'static str, usize>, fonts: &[String], opts: &BusOpts, actions: &mut Vec<Action>) -> f32 {
+/// What the studio offers while no layer is chosen: the quick livery, the bus options, the
+/// buses of its family, the mirror plane, taking the livery out of the game.
+fn start_props(ui: &mut Ui, s: &mut Session, r: Rect, opts: &BusOpts, actions: &mut Vec<Action>) -> f32 {
     let (x, w) = (r.x, r.w);
     let mut y = r.y;
-    match s.tool {
-        Tool::Select => {
+    {
+        {
             y = section(ui, x, y, w, "Quick livery");
             y = hint(ui, x, y, w, "Three colours, a stripe, a name and a logo: every choice becomes a layer you can change afterwards.");
             let mut q = s.project.quick.clone().unwrap_or_default();
@@ -965,92 +1206,26 @@ fn tool_props(ui: &mut Ui, s: &mut Session, r: Rect, shape_tex: &std::collection
                 y += 46.0;
             }
         }
-        Tool::Fill => {
-            y = section(ui, x, y, w, "Fill");
+    }
+    y
+}
+
+/// What is being drawn on the bus offers: the colour a colour area takes, the brush's size,
+/// hardness and cover (and the eraser), the pen's corners and the colour of its shape.
+fn making_props(ui: &mut Ui, s: &mut Session, r: Rect) -> f32 {
+    let (x, w) = (r.x, r.w);
+    let mut y = r.y;
+    s.picker.target = PickFor::Main;
+    match s.making {
+        Making::Area => {
+            y = section(ui, x, y, w, "Colour area");
             y = hint(ui, x, y, w, "Click a colour on the bus: all of that colour takes the new one. Rubbers, lamps and windows keep theirs.");
             let mut c = s.picker.colour;
-            s.picker.target = PickFor::Main;
             let (_, h) = picker(ui, "livery-fill-picker", Rect::new(x, y, w, 0.0), &mut s.picker, &mut c, &s.recent);
             s.picker.colour = c;
-            y += h + 10.0;
-            if ui.button("livery-fill-all", Rect::new(x, y, w, 38.0), "Paint the whole bus", Some("livery_fill"), ButtonKind::Normal) {
-                let mut ly = model::layer("Base colour", model::base_colour(&model::hex(c)));
-                ly.from_recipe = false;
-                s.selected = Some(ly.id.clone());
-                s.project.layers.insert(0, ly);
-                remember(&mut s.recent, c);
-            }
-            y += 48.0;
-        }
-        Tool::Stripe => {
-            y = section(ui, x, y, w, "Stripe");
-            y = hint(ui, x, y, w, "Choose a stripe: it is laid round the bus at the height of its windows. Drag its edges on the bus afterwards.");
-            let col = model::hex(s.picker.colour);
-            if let Some(t) = stripe_grid(ui, "livery-stripes", Rect::new(x, y, w, 0.0), None, &col, &mut y) {
-                if let Some(d) = s.dims() {
-                    let ly = model::layer(t.label(), model::stripe(t, &col, &d));
-                    s.selected = Some(ly.id.clone());
-                    s.project.layers.push(ly);
-                    s.tool = Tool::Select;
-                }
-            }
-            y += 6.0;
-            let mut c = s.picker.colour;
-            let (_, h) = picker(ui, "livery-stripe-picker", Rect::new(x, y, w, 0.0), &mut s.picker, &mut c, &s.recent);
-            s.picker.colour = c;
             y += h;
         }
-        Tool::Text => {
-            y = section(ui, x, y, w, "Text");
-            y = hint(ui, x, y, w, "Type the text, then click on the bus where it goes.");
-            if s.ui.text.is_empty() && s.ui.size_cm == 0.0 {
-                s.ui.text = omsi_ui::tr("Text").into_owned();
-                s.ui.size_cm = 25.0;
-            }
-            let mut t = std::mem::take(&mut s.ui.text);
-            ui.text_input("livery-text-new", Rect::new(x, y, w, 36.0), &mut t, "Text", None);
-            s.ui.text = t;
-            y += 44.0;
-            let names: Vec<String> = fonts.to_vec();
-            ui.select("livery-text-font", Rect::new(x, y, w, 34.0), &mut s.ui.font, &names);
-            y += 42.0;
-            ui.slider("livery-text-size", Rect::new(x, y, w, 30.0), &mut s.ui.size_cm, 2.0, 150.0, 1.0, "Letter height", &|v| format!("{v:.0} cm"));
-            y += 40.0;
-            let mut c = s.picker.colour;
-            let (_, h) = picker(ui, "livery-text-picker", Rect::new(x, y, w, 0.0), &mut s.picker, &mut c, &s.recent);
-            s.picker.colour = c;
-            y += h;
-        }
-        Tool::Image => {
-            y = section(ui, x, y, w, "Picture");
-            y = hint(ui, x, y, w, "A logo, a coat of arms, a photo: PNG, JPG, BMP, TGA or SVG. Choose one or drop it onto the window, then click on the bus where it goes.");
-            if ui.button("livery-pick-picture", Rect::new(x, y, w, 40.0), "Choose a picture…", Some("upload"), ButtonKind::Primary) {
-                actions.push(Action::ChoosePicture);
-            }
-            y += 50.0;
-            if let Some(Armed::Picture { hash, .. }) = &s.ui.armed {
-                if let Some(p) = s.pictures.get(hash) {
-                    y = hint(ui, x, y, w, &omsi_ui::tr("Ready to place: %{w} × %{h} pixels. Click on the bus.").replace("%{w}", &p.w.to_string()).replace("%{h}", &p.h.to_string()));
-                }
-            }
-        }
-        Tool::Shape => {
-            y = section(ui, x, y, w, "Shapes");
-            y = hint(ui, x, y, w, "Choose a shape, then click on the bus where it goes. With the pen you draw shapes of your own.");
-            let armed = match &s.ui.armed {
-                Some(Armed::Shape(k)) => Some(*k),
-                _ => None,
-            };
-            if let Some(k) = shape_grid(ui, "livery-shapes", Rect::new(x, y, w, 0.0), armed, shape_tex, &mut y) {
-                s.ui.armed = Some(Armed::Shape(k));
-            }
-            y += 8.0;
-            let mut c = s.picker.colour;
-            let (_, h) = picker(ui, "livery-shape-picker", Rect::new(x, y, w, 0.0), &mut s.picker, &mut c, &s.recent);
-            s.picker.colour = c;
-            y += h;
-        }
-        Tool::Brush => {
+        Making::Brush => {
             y = section(ui, x, y, w, if s.ui.eraser { "Eraser" } else { "Brush" });
             y = hint(ui, x, y, w, "Paint on the bus with the left button. E switches between the brush and the eraser, [ and ] make it smaller and larger. The strokes are kept as lines on the bus: they stay sharp at any size.");
             let mut k = s.ui.eraser as usize;
@@ -1071,31 +1246,32 @@ fn tool_props(ui: &mut Ui, s: &mut Session, r: Rect, shape_tex: &std::collection
             }
             y += 40.0;
             if !s.ui.eraser {
-                let mut c = s.picker.colour;
-                let (_, h) = picker(ui, "livery-brush-picker", Rect::new(x, y, w, 0.0), &mut s.picker, &mut c, &s.recent);
+                // (the colour of the brush layer painted into: all its strokes)
+                let layer = s.ui.brush_layer.clone().and_then(|id| s.project.index_of(&id));
+                let mut c = layer.and_then(|i| s.project.layers[i].kind.colour().and_then(model::parse_hex)).unwrap_or(s.picker.colour);
+                let (changed, h) = picker(ui, "livery-brush-picker", Rect::new(x, y, w, 0.0), &mut s.picker, &mut c, &s.recent);
                 s.picker.colour = c;
+                if let (true, Some(i)) = (changed, layer) {
+                    if !s.project.layers[i].locked {
+                        s.project.layers[i].kind.set_colour(model::hex(c));
+                    }
+                }
                 y += h;
             }
         }
-        Tool::Pen => {
-            y = section(ui, x, y, w, "Pen");
+        Making::Pen => {
+            y = section(ui, x, y, w, "Own shape");
             y = hint(ui, x, y, w, "Click the corners of your shape on the bus. Hold the button and drag to bend the line into a curve. Click the first corner again or press Enter to finish; Escape lets go.");
             let n = s.ui.pen.nodes.len();
             if n > 0 {
                 y = hint(ui, x, y, w, &omsi_ui::tr("%{n} corners").replace("%{n}", &n.to_string()));
-                if n >= 3 && ui.button("livery-pen-done", Rect::new(x, y, w * 0.5 - 4.0, 36.0), "Finish", Some("check"), ButtonKind::Primary) {
-                    finish_pen(s);
-                }
-                if ui.button("livery-pen-cancel", Rect::new(x + w * 0.5 + 4.0, y, w * 0.5 - 4.0, 36.0), "Cancel", Some("close"), ButtonKind::Normal) {
-                    s.ui.pen = Pen::default();
-                }
-                y += 46.0;
             }
             let mut c = s.picker.colour;
             let (_, h) = picker(ui, "livery-pen-picker", Rect::new(x, y, w, 0.0), &mut s.picker, &mut c, &s.recent);
             s.picker.colour = c;
             y += h;
         }
+        Making::None => {}
     }
     y
 }
@@ -1287,7 +1463,14 @@ fn layer_props(ui: &mut Ui, s: &mut Session, i: usize, r: Rect, shape_tex: &std:
         }
         Kind::Brush { strokes, .. } => {
             let (n, e) = (strokes.iter().filter(|s| !s.erase).count(), strokes.iter().filter(|s| s.erase).count());
-            y = hint(ui, x, y, w, &omsi_ui::tr("%{n} strokes of the brush, %{e} of the eraser. Choose the brush tool to paint on in this layer.").replace("%{n}", &n.to_string()).replace("%{e}", &e.to_string()));
+            y = hint(ui, x, y, w, &omsi_ui::tr("%{n} strokes of the brush, %{e} of the eraser.").replace("%{n}", &n.to_string()).replace("%{e}", &e.to_string()));
+            // (painting on in it: the brush on the bus until Done)
+            if !locked && ui.button("livery-brush-more", Rect::new(x, y, w, 36.0), "Paint on this layer", Some("livery_brush"), ButtonKind::Primary) {
+                s.making = Making::Brush;
+                s.ui.brush_layer = Some(layer.id.clone());
+                s.ui.eraser = false;
+            }
+            y += 44.0;
             if !strokes.is_empty() && ui.button("livery-brush-undo-stroke", Rect::new(x, y, w, 34.0), "Take back the last stroke", Some("livery_undo"), ButtonKind::Normal) {
                 strokes.pop();
             }
@@ -1411,15 +1594,30 @@ fn layer_props(ui: &mut Ui, s: &mut Session, i: usize, r: Rect, shape_tex: &std:
         layer.over_trim = t;
     }
     y += 36.0;
-    // the windows: a print on the glass (window advertising, a wrap over the windows)
-    if windows.is_some() {
+    // the windows: a print on the glass (window advertising, a wrap over the windows); where
+    // they take nothing or only a tint, said under the toggle at once (it was silently on)
+    if let Some(win) = windows {
         let mut g = layer.over_glass;
+        let mut refused = false;
         if ui.toggle("livery-over-glass", Rect::new(x, y, w, 30.0), &mut g, "Also over the windows") && !layer.locked {
-            layer.over_glass = g;
+            // (where the windows take nothing it only goes off)
+            refused = g && win == super::Windows::No;
+            if !refused {
+                layer.over_glass = g;
+            }
         }
         y += 36.0;
-        if windows == Some(false) && layer.over_glass {
-            y = hint(ui, x, y, w, "This bus's windows cannot carry a livery: their texture is not one a livery can change.");
+        let why = match win {
+            super::Windows::Print => None,
+            super::Windows::Faint => Some("On this bus a print on the windows shows only as a tint: how see-through its glass is, a livery cannot change."),
+            super::Windows::No => Some("This bus's windows cannot carry a livery: their texture is not one a livery can change."),
+        };
+        if let Some(why) = why {
+            ui.icon("info", Vec2::new(x + 8.0, y + 9.0), 14.0, WARN);
+            y = hint(ui, x + 22.0, y, w - 22.0, why);
+        }
+        if refused {
+            s.say(omsi_ui::tr("This bus's windows cannot carry a livery: their texture is not one a livery can change."), true);
         }
     }
     y + 4.0
@@ -1670,23 +1868,27 @@ fn pick_picture_file() -> Option<std::path::PathBuf> {
     }
 }
 
-fn choose_picture(l: &mut Launcher) {
+/// A picture chosen from the computer: a new picture layer (`new`), or the chosen picture
+/// layer's new picture.
+fn choose_picture(l: &mut Launcher, new: bool) {
     let Some(path) = pick_picture_file() else { return };
     if let Some(s) = l.livery.session.as_mut() {
-        picture_chosen(s, &path);
+        picture_chosen(s, &path, new);
     }
 }
 
-/// A picture chosen or dropped: the chosen picture layer takes it, or it waits to be placed.
-pub fn picture_chosen(s: &mut Session, path: &std::path::Path) {
+/// A picture chosen or dropped: the chosen picture layer takes it (unless `new`), or it becomes
+/// a new picture layer on the side of the bus being looked at, chosen.
+pub fn picture_chosen(s: &mut Session, path: &std::path::Path, new: bool) {
     match s.import_picture(path) {
         Ok((hash, pic)) => {
             let aspect = pic.h as f32 / pic.w.max(1) as f32;
             let white = shapes::wants_white_clear(&pic);
+            let before = s.project.doc();
             // the chosen picture layer gets the new picture
-            if let Some(i) = s.selected.as_ref().and_then(|id| s.project.index_of(id)) {
-                let before = s.project.doc();
-                if let Kind::Image { image, aspect: a, white_clear, .. } = &mut s.project.layers[i].kind {
+            if let Some(i) = s.selected.as_ref().and_then(|id| s.project.index_of(id)).filter(|_| !new) {
+                let ly = &mut s.project.layers[i];
+                if let (Kind::Image { image, aspect: a, white_clear, .. }, false) = (&mut ly.kind, ly.locked) {
                     *image = hash;
                     *a = Some(aspect);
                     *white_clear = white;
@@ -1695,10 +1897,9 @@ pub fn picture_chosen(s: &mut Session, path: &std::path::Path) {
                     return;
                 }
             }
-            s.tool = Tool::Image;
-            s.selected = None;
-            s.ui.armed = Some(Armed::Picture { hash, aspect, white });
-            s.say(omsi_ui::tr("Click on the bus where the picture goes."), false);
+            let Some((side, p)) = spot(s) else { return };
+            let place = Place::new(side, p, if aspect > 1.5 { 0.4 } else { 0.8 });
+            add_layer(s, model::layer("Image", Kind::Image { image: hash, white_clear: white, aspect: Some(aspect), place }), before);
         }
         Err(e) => s.say(e, true),
     }
@@ -1842,6 +2043,10 @@ fn texel(s: &Session, tri: usize, w: Vec3) -> Option<(usize, usize)> {
 
 fn pointer(l: &mut Launcher, view: Rect) {
     let input = l.ui.input.clone();
+    // (the mouse is the kinds of layer's: nothing on the bus moves under it)
+    if input.mouse.x <= OFF * 0.5 {
+        return;
+    }
     // (the other side's picture as well: it fades away for the bus under it)
     let over = !l.ui.over_ui && view.contains(input.mouse);
     let s = l.livery.session.as_mut().unwrap();
@@ -1895,6 +2100,17 @@ fn pointer(l: &mut Launcher, view: Rect) {
     if let Some(drag) = s.ui.drag.clone() {
         if !input.down {
             s.ui.drag = None;
+            // a text, picture or shape moved onto a window that takes a print goes over the
+            // windows (else it would vanish from the glass it was put on)
+            if let (Drag::Move { id, .. }, Some((tri, ..)), true) = (drag, hit, s.pending.is_some()) {
+                let on_glass = s.ready.as_ref().is_some_and(|r| r.geom.tris.get(tri).is_some_and(|t| t.glass) && matches!(r.windows, Some(super::Windows::Print | super::Windows::Faint)));
+                let before = s.project.doc();
+                if let Some(ly) = s.project.layer_mut(&id).filter(|l| on_glass && !l.over_glass && !l.locked) {
+                    ly.over_glass = true;
+                    s.changed_from(before);
+                    s.say(omsi_ui::tr("On a window: the layer goes over the windows too (Painting, on the right)."), false);
+                }
+            }
             return;
         }
         drag_on(s, drag, o, dir, hit, input.shift);
@@ -1903,11 +2119,11 @@ fn pointer(l: &mut Launcher, view: Rect) {
     if !over {
         return;
     }
-    if s.ui.armed.is_some() || matches!(s.tool, Tool::Text | Tool::Fill | Tool::Pen | Tool::Brush) || s.picker.eyedropper {
+    if s.making != Making::None || s.picker.eyedropper {
         l.ui.cursor = winit::window::CursorIcon::Crosshair;
     }
     // the brush's size on the bus under the mouse
-    if s.tool == Tool::Brush {
+    if s.making == Making::Brush {
         if let Some((_, p, n, _)) = hit {
             let side = n.cross(Vec3::Z).normalize_or(Vec3::X);
             if let (Some(a), Some(b)) = (screen(view, &cam, p), screen(view, &cam, p + side * s.ui.brush_cm / 100.0)) {
@@ -1922,7 +2138,7 @@ fn pointer(l: &mut Launcher, view: Rect) {
         return;
     }
     // Shift with the left: move the view
-    if input.shift && !matches!(s.tool, Tool::Pen) {
+    if input.shift && s.making != Making::Pen {
         s.ui.drag = Some(Drag::Pan);
         return;
     }
@@ -1939,92 +2155,82 @@ fn pointer(l: &mut Launcher, view: Rect) {
         }
         return;
     }
+    let before = s.project.doc();
+    // what is being drawn takes the click it waits for; a click beside the bus ends it
+    match (s.making, hit) {
+        (Making::Pen, Some(_)) => {
+            pen_click(s, o, dir, hit.map(|h| (h.1, h.2)), view, &cam, input.mouse);
+            return;
+        }
+        // (the pen's corners after the first go into its side's plane, on the bus or beside it)
+        (Making::Pen, None) if s.ui.pen.side.is_some() => {
+            pen_click(s, o, dir, None, view, &cam, input.mouse);
+            return;
+        }
+        (Making::Brush, Some((_, p, n, _))) => {
+            brush_down(s, p, n);
+            if s.project.doc() != before {
+                s.changed_from(before);
+            }
+            return;
+        }
+        (Making::Area, Some((tri, _, _, w))) => {
+            area_at(s, tri, w);
+            s.making = Making::None;
+            if s.project.doc() != before {
+                s.changed_from(before);
+                s.settle();
+            }
+            return;
+        }
+        (Making::Pen | Making::Brush | Making::Area, None) => {
+            end_making(s, true);
+            return;
+        }
+        (Making::None, _) => {}
+    }
     // the handles of what is chosen
     if let Some(drag) = handle_at(s, view, &cam, input.mouse) {
         s.ui.drag = Some(drag);
         return;
     }
-    let before = s.project.doc();
-    let colour = model::hex(s.picker.colour);
-    match (s.tool, hit) {
-        (Tool::Pen, _) => pen_click(s, o, dir, hit.map(|h| (h.1, h.2)), view, &cam, input.mouse),
-        (Tool::Brush, Some((_, p, n, _))) => brush_down(s, p, n),
-        (_, None) => {
-            if s.tool == Tool::Select {
-                s.selected = None;
-            }
-        }
-        (_, Some((tri, p, n, w))) => {
-            // (a decal put onto a window is a print on the glass)
-            let on_glass = s.ready.as_ref().is_some_and(|r| r.geom.tris.get(tri).is_some_and(|t| t.glass));
-            if let Some(armed) = s.ui.armed.take() {
-                let side = Side::of_normal(n);
-                let place = Place::new(side, p, 0.6);
-                let ly = match armed {
-                    Armed::Picture { hash, aspect, white } => model::placed_layer("Image", Kind::Image { image: hash, white_clear: white, aspect: Some(aspect), place: Place { width_m: if aspect > 1.5 { 0.4 } else { 0.8 }, ..place } }, on_glass),
-                    Armed::Shape(k) => {
-                        let label = shapes::SHAPES.iter().find(|x| x.0 == k).map(|x| x.1).unwrap_or("Shape");
-                        model::placed_layer(label, Kind::Shape { shape: k.to_string(), colour: colour.clone(), outline: None, gradient: None, place }, on_glass)
-                    }
-                };
-                s.selected = Some(ly.id.clone());
-                s.project.layers.push(ly);
-                s.tool = Tool::Select;
-            } else {
-                match s.tool {
-                    Tool::Text => {
-                        let text = if s.ui.text.trim().is_empty() { omsi_ui::tr("Text").into_owned() } else { s.ui.text.clone() };
-                        let font = shapes::font_names().get(s.ui.font).cloned().unwrap_or_else(|| shapes::DEFAULT_FONT.into());
-                        let height_cm = if s.ui.size_cm > 0.0 { s.ui.size_cm } else { 25.0 };
-                        let width = shapes::text_width(&text, &font) * height_cm / 100.0;
-                        let ly = model::placed_layer("Text", Kind::Text { text, font, height_cm, colour: colour.clone(), outline: None, spacing: 0.0, gradient: None, place: Place::new(Side::of_normal(n), p, width) }, on_glass);
-                        s.selected = Some(ly.id.clone());
-                        s.project.layers.push(ly);
-                        s.tool = Tool::Select;
-                        remember(&mut s.recent, s.picker.colour);
-                    }
-                    Tool::Fill => {
-                        if let Some((k, i)) = texel(s, tri, w) {
-                            let r = s.ready.as_ref().unwrap();
-                            let b = &r.bases[k].rgba[i * 4..i * 4 + 3];
-                            let lab = colour::lab([b[0], b[1], b[2]]);
-                            let radius = r.zones.get(k).map(|z| z.fill_radius(lab)).unwrap_or(1000.0);
-                            let ly = model::layer("Fill", Kind::Fill { centre: lab, radius, group: None, colour: colour.clone(), gradient: None });
-                            s.selected = Some(ly.id.clone());
-                            s.project.layers.push(ly);
-                            remember(&mut s.recent, s.picker.colour);
-                        }
-                    }
-                    _ => {
-                        // choose what lies there: a decal, else a stripe at that height
-                        if let Some((id, copy)) = decal_at(s, p, n) {
-                            let place = s.project.layer(&id).and_then(|l| l.kind.place().cloned()).unwrap();
-                            let grab = if copy { Vec3::new(2.0 * s.mirror_plane().unwrap_or(0.0) - p.x, p.y, p.z) } else { p };
-                            s.ui.drag = Some(Drag::Move { id: id.clone(), offset: grab - place.centre, copy });
-                            s.selected = Some(id);
-                            s.tool = Tool::Select;
-                        } else {
-                            let d = s.dims().unwrap();
-                            let found = s.project.layers.iter().rev().find(|l| {
-                                l.visible && match &l.kind {
-                                    Kind::Stripe { h1, h2, angle, wave, sides, .. } => {
-                                        let (a, b) = model::stripe_edges(*h1, *h2, *angle, *wave, p.y, &d);
-                                        let z = p.z - d.min.z;
-                                        z >= a && z <= b && model::stripe_side_weight(*sides, n) > 0.5
-                                    }
-                                    _ => false,
-                                }
-                            });
-                            s.selected = found.map(|l| l.id.clone());
-                        }
-                    }
+    // choose what lies there: a decal (and move it), else a stripe at that height
+    let Some((_, p, n, _)) = hit else {
+        s.selected = None;
+        return;
+    };
+    if let Some((id, copy)) = decal_at(s, p, n) {
+        let Some(place) = s.project.layer(&id).and_then(|l| l.kind.place().cloned()) else { return };
+        let grab = if copy { Vec3::new(2.0 * s.mirror_plane().unwrap_or(0.0) - p.x, p.y, p.z) } else { p };
+        s.ui.drag = Some(Drag::Move { id: id.clone(), offset: grab - place.centre, copy });
+        s.selected = Some(id);
+    } else if let Some(d) = s.dims() {
+        let found = s.project.layers.iter().rev().find(|l| {
+            l.visible && match &l.kind {
+                Kind::Stripe { h1, h2, angle, wave, sides, .. } => {
+                    let (a, b) = model::stripe_edges(*h1, *h2, *angle, *wave, p.y, &d);
+                    let z = p.z - d.min.z;
+                    z >= a && z <= b && model::stripe_side_weight(*sides, n) > 0.5
                 }
+                _ => false,
             }
-        }
+        });
+        s.selected = found.map(|l| l.id.clone());
     }
-    if s.project.doc() != before {
-        s.changed_from(before);
-    }
+}
+
+/// A colour area from the colour of the bus at texel `w` of triangle `tri`: all of that colour
+/// takes the colour chosen; the new layer is chosen.
+fn area_at(s: &mut Session, tri: usize, w: Vec3) {
+    let Some((k, i)) = texel(s, tri, w) else { return };
+    let Some(r) = s.ready.as_ref() else { return };
+    let b = &r.bases[k].rgba[i * 4..i * 4 + 3];
+    let lab = colour::lab([b[0], b[1], b[2]]);
+    let radius = r.zones.get(k).map(|z| z.fill_radius(lab)).unwrap_or(1000.0);
+    let ly = model::layer("Colour area", Kind::Fill { centre: lab, radius, group: None, colour: model::hex(s.picker.colour), gradient: None });
+    s.selected = Some(ly.id.clone());
+    s.project.layers.push(ly);
+    remember(&mut s.recent, s.picker.colour);
 }
 
 /// A handle of the chosen layer under the mouse: a decal's corners (size), its turn, a stripe's
@@ -2201,25 +2407,22 @@ fn drag_on(s: &mut Session, drag: Drag, o: Vec3, dir: Vec3, hit: Option<(usize, 
     }
 }
 
-/// The brush (or the eraser) put down at `p` on the bus: a new stroke into the chosen brush
-/// layer, the one painted last, or (the brush, in another colour or with none yet) a new one.
+/// Whether layer `id` is a brush layer that can be painted on.
+fn is_brush(s: &Session, id: &str) -> bool {
+    s.project.layer(id).is_some_and(|l| matches!(l.kind, Kind::Brush { .. }) && !l.locked)
+}
+
+/// The brush (or the eraser) put down at `p` on the bus: a new stroke into the brush layer being
+/// painted, or (the brush, none yet) into a new one.
 fn brush_down(s: &mut Session, p: Vec3, n: Vec3) {
-    let colour = model::hex(s.picker.colour);
-    let is_brush = |s: &Session, id: &str| s.project.layer(id).is_some_and(|l| matches!(l.kind, Kind::Brush { .. }) && !l.locked);
-    let mut target = s.selected.clone().filter(|id| is_brush(s, id)).or_else(|| s.ui.brush_layer.clone().filter(|id| is_brush(s, id)));
-    if s.ui.eraser {
-        target = target.or_else(|| s.project.layers.iter().rev().find(|l| matches!(l.kind, Kind::Brush { .. }) && !l.locked).map(|l| l.id.clone()));
-        if target.is_none() {
+    let id = match s.ui.brush_layer.clone().filter(|id| is_brush(s, id)) {
+        Some(id) => id,
+        None if s.ui.eraser => {
             s.say(omsi_ui::tr("Nothing painted with the brush yet to erase."), false);
             return;
         }
-    } else if s.selected.as_ref() != target.as_ref() && target.as_ref().is_some_and(|id| s.project.layer(id).and_then(|l| l.kind.colour()).is_some_and(|c| !c.eq_ignore_ascii_case(&colour))) {
-        target = None;
-    }
-    let id = match target {
-        Some(id) => id,
         None => {
-            let ly = model::layer("Brush", Kind::Brush { colour: colour.clone(), strokes: Vec::new() });
+            let ly = model::layer("Brush", Kind::Brush { colour: model::hex(s.picker.colour), strokes: Vec::new() });
             let id = ly.id.clone();
             s.project.layers.push(ly);
             remember(&mut s.recent, s.picker.colour);
@@ -2305,9 +2508,68 @@ fn finish_pen(s: &mut Session) {
     let ly = model::layer("Own shape", Kind::Path { nodes, colour: model::hex(s.picker.colour), outline: None, gradient: None, place });
     s.selected = Some(ly.id.clone());
     s.project.layers.push(ly);
-    s.tool = Tool::Select;
+    s.making = Making::None;
     s.changed_from(before);
     s.settle();
+}
+
+/// Stop drawing on the bus: the editor chooses and moves again. The pen's corners make their
+/// shape when `keep` and there are three or more, else they are let go; the brush's strokes
+/// stay.
+pub fn end_making(s: &mut Session, keep: bool) {
+    if s.making == Making::Pen && keep && s.ui.pen.nodes.len() >= 3 {
+        finish_pen(s);
+    }
+    s.ui.pen = Pen::default();
+    s.ui.eraser = false;
+    s.making = Making::None;
+}
+
+/// A layer made: on top of the others (a base colour under them), chosen, one step to undo
+/// (`before`: the document before it); the editor back to choosing and moving.
+fn add_layer(s: &mut Session, ly: Layer, before: model::Doc) {
+    end_making(s, true);
+    s.ui.chooser = false;
+    s.selected = Some(ly.id.clone());
+    let decal = ly.kind.place().is_some();
+    if matches!(&ly.kind, Kind::Fill { radius, group: None, .. } if *radius >= 999.0) {
+        s.project.layers.insert(0, ly);
+    } else {
+        s.project.layers.push(ly);
+    }
+    s.changed_from(before);
+    s.settle();
+    if decal {
+        s.say(omsi_ui::tr("Made on the side you look at: drag it on the bus to where it goes."), false);
+    }
+}
+
+/// Where a new text, picture or shape goes: on the side of the bus the view shows most of (its
+/// face as large as it looks from the camera: from the angled view the long side, not the
+/// front the camera happens to face more), along it where the view's middle is, below the
+/// windows - on the body itself there.
+fn spot(s: &Session) -> Option<(Side, Vec3)> {
+    let r = s.ready.as_ref()?;
+    let d = r.geom.dims;
+    let towards = -s.cam.camera().forward();
+    let (len, wide, high) = (d.length(), (d.max.x - d.min.x).max(0.5), d.height());
+    let faces = [(Side::L, len * high), (Side::R, len * high), (Side::V, wide * high), (Side::A, wide * high), (Side::D, len * wide)];
+    let side = faces.iter().map(|(sd, a)| (*sd, sd.axes().2.dot(towards).max(0.0) * a)).max_by(|a, b| a.1.total_cmp(&b.1)).map(|x| x.0).unwrap_or(Side::R);
+    let mid = s.cam.target;
+    // (`v` between `lo` and `hi`, `m` off their ends)
+    let within = |v: f32, lo: f32, hi: f32, m: f32| if hi - lo > 2.0 * m { v.clamp(lo + m, hi - m) } else { (lo + hi) * 0.5 };
+    let up = d.min.z + (d.window_height() * 0.6).max(0.3);
+    let p = match side {
+        Side::R => Vec3::new(d.max.x, within(mid.y, d.min.y, d.max.y, 1.0), up),
+        Side::L => Vec3::new(d.min.x, within(mid.y, d.min.y, d.max.y, 1.0), up),
+        Side::V => Vec3::new(within(mid.x, d.min.x, d.max.x, 0.4), d.max.y, up),
+        Side::A => Vec3::new(within(mid.x, d.min.x, d.max.x, 0.4), d.min.y, up),
+        Side::D => Vec3::new(d.middle_x(), within(mid.y, d.min.y, d.max.y, 1.0), d.max.z),
+    };
+    // onto the body: the ray in from outside along the side's normal
+    let (_, _, out) = side.axes();
+    let on = r.geom.hit(p + out * 1.5, -out).map(|h| h.1).filter(|q| (*q - p).dot(out).abs() < 0.8);
+    Some((side, on.unwrap_or(p)))
 }
 
 /// What is drawn over the bus: the chosen layer's outline and handles, the pen's corners, the
@@ -2443,12 +2705,22 @@ fn keys(l: &mut Launcher) {
         KeyCode::KeyF if !ctrl => fit_view(l),
         KeyCode::KeyE if !ctrl => {
             let s = l.livery.session.as_mut().unwrap();
-            if s.tool == Tool::Brush {
+            if s.making == Making::Brush {
                 s.ui.eraser = !s.ui.eraser;
             } else {
-                s.tool = Tool::Brush;
-                s.ui.eraser = true;
-                s.ui.armed = None;
+                // the eraser on the chosen brush layer, else on the topmost one
+                let layer = s.selected.clone().filter(|id| is_brush(s, id)).or_else(|| s.project.layers.iter().rev().find(|l| matches!(l.kind, Kind::Brush { .. }) && !l.locked).map(|l| l.id.clone()));
+                match layer {
+                    Some(id) => {
+                        end_making(s, true);
+                        s.ui.chooser = false;
+                        s.making = Making::Brush;
+                        s.ui.brush_layer = Some(id.clone());
+                        s.selected = Some(id);
+                        s.ui.eraser = true;
+                    }
+                    None => s.say(omsi_ui::tr("Nothing painted with the brush yet to erase."), false),
+                }
             }
         }
         KeyCode::BracketLeft | KeyCode::BracketRight if !ctrl => {
@@ -2467,11 +2739,14 @@ fn keys(l: &mut Launcher) {
 fn key_named(l: &mut Launcher, k: Key) {
     let s = l.livery.session.as_mut().unwrap();
     match k {
+        // (one step back at a time: the kinds offered, what is being drawn, the eyedropper, the
+        // layer chosen)
         Key::Escape => {
-            if s.ui.pen.side.is_some() {
-                s.ui.pen = Pen::default();
-            } else if s.ui.armed.is_some() || s.picker.eyedropper {
-                s.ui.armed = None;
+            if s.ui.chooser {
+                s.ui.chooser = false;
+            } else if s.making != Making::None {
+                end_making(s, false);
+            } else if s.picker.eyedropper {
                 s.picker.eyedropper = false;
             } else {
                 s.selected = None;
@@ -2496,6 +2771,95 @@ fn key_named(l: &mut Launcher, k: Key) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn create_layer_makes_each_kind_at_once_on_the_side_looked_at() {
+        let mut s = super::super::test_session();
+        let d = s.dims().unwrap();
+        // (the camera looks at the bus's left side)
+        s.ui.chooser = true;
+        create_in(&mut s, New::Text);
+        assert!(!s.ui.chooser, "the kinds put away");
+        let ly = s.project.layers.last().unwrap().clone();
+        assert!(matches!(ly.kind, Kind::Text { .. }));
+        assert_eq!(s.selected.as_deref(), Some(ly.id.as_str()), "chosen, ready to change");
+        assert_eq!(s.making, Making::None, "back to choosing and moving");
+        let p = ly.kind.place().unwrap();
+        assert_eq!(p.side, Side::L);
+        assert!((p.centre.x - d.min.x).abs() < 0.05, "on the body: {p:?}");
+        assert!(p.centre.z > d.min.z && p.centre.z < d.min.z + d.window_height(), "below the windows: {p:?}");
+        // one step to undo
+        s.undo();
+        assert!(s.project.layers.is_empty());
+        // a base colour goes under the others, the rest on top
+        create_in(&mut s, New::Shape);
+        create_in(&mut s, New::Stripe);
+        create_in(&mut s, New::Base);
+        let kinds: Vec<&str> = s.project.layers.iter().map(|l| l.kind.label()).collect();
+        assert_eq!(kinds, ["Base colour", "Shape", "Stripe"]);
+        assert_eq!(s.selected.as_ref(), Some(&s.project.layers[0].id));
+        // from the right: on the right side; from the angled view (the front and the right
+        // side seen) on the long side, which it shows most of
+        for view in [2, 6] {
+            s.cam = Cam::fitting(&d, view, 1.7);
+            create_in(&mut s, New::Shape);
+            assert_eq!(s.project.layers.last().unwrap().kind.place().unwrap().side, Side::R, "view {view}");
+        }
+        s.cam = Cam::fitting(&d, 5, 1.7);
+        create_in(&mut s, New::Shape);
+        assert_eq!(s.project.layers.last().unwrap().kind.place().unwrap().side, Side::D, "from above: the roof");
+    }
+
+    #[test]
+    fn a_layer_drawn_on_the_bus_waits_for_the_mouse_and_never_holds_the_editor() {
+        let mut s = super::super::test_session();
+        // the brush: nothing made until its first stroke, then every stroke into that layer
+        create_in(&mut s, New::Brush);
+        assert_eq!(s.making, Making::Brush);
+        assert!(s.project.layers.is_empty());
+        brush_down(&mut s, Vec3::new(-1.25, 0.0, 1.0), Vec3::NEG_X);
+        brush_down(&mut s, Vec3::new(-1.25, 1.0, 1.0), Vec3::NEG_X);
+        assert_eq!(s.project.layers.len(), 1);
+        assert!(matches!(&s.project.layers[0].kind, Kind::Brush { strokes, .. } if strokes.len() == 2));
+        // Escape (or Done, a click on the layers or beside the bus) ends it; the strokes stay
+        end_making(&mut s, false);
+        assert_eq!(s.making, Making::None);
+        assert_eq!(s.project.layers.len(), 1);
+        // the next kind chosen ends whatever was being drawn
+        create_in(&mut s, New::Own);
+        assert_eq!(s.making, Making::Pen);
+        create_in(&mut s, New::Text);
+        assert_eq!(s.making, Making::None);
+        // an own shape: kept when it ends with three corners or more, let go by Escape
+        let corners = Pen { side: Some(Side::L), origin: Vec3::new(-1.25, 0.0, 1.0), nodes: vec![(Vec2::ZERO, None), (Vec2::new(1.0, 0.0), None), (Vec2::new(1.0, 0.8), None)] };
+        let n = s.project.layers.len();
+        create_in(&mut s, New::Own);
+        s.ui.pen = corners.clone();
+        end_making(&mut s, true);
+        assert_eq!(s.project.layers.len(), n + 1);
+        assert!(matches!(s.project.layers.last().unwrap().kind, Kind::Path { .. }));
+        create_in(&mut s, New::Own);
+        s.ui.pen = corners;
+        end_making(&mut s, false);
+        assert_eq!(s.project.layers.len(), n + 1, "Escape lets the corners go");
+        assert!(s.ui.pen.nodes.is_empty());
+        // a colour area waits for its click on the bus
+        create_in(&mut s, New::Area);
+        assert_eq!(s.making, Making::Area);
+        assert_eq!(s.selected, None);
+    }
+
+    /// The kinds of layer and the lines over the bus are handed to the interface as they are
+    /// (not as literals the locale check sees): each in every language.
+    #[test]
+    fn the_kinds_of_layer_and_the_lines_over_the_bus_speak_every_language() {
+        let texts = KINDS.iter().flat_map(|(_, name, line, _)| [*name, *line]).chain(LINES);
+        for t in texts {
+            for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
+                assert!(crate::_rust_i18n_try_translate(lang, t).is_some(), "{lang}: {t}");
+            }
+        }
+    }
 
     #[test]
     fn the_views_frame_the_bus_and_the_mouse_finds_it_again() {

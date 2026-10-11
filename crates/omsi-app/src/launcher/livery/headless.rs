@@ -151,7 +151,7 @@ fn a_real_bus_painted_from_both_sides() {
     println!("box {:?} - {:?}, window line {:?}", geom.dims.min, geom.dims.max, geom.dims.window);
     let mut area = vec![0.0f32; textures.len()];
     for t in &geom.tris {
-        if let Some(k) = t.target {
+        for k in t.target.into_iter().chain(t.trans) {
             area[k as usize] += (t.p[1] - t.p[0]).cross(t.p[2] - t.p[0]).length() * 0.5;
         }
     }
@@ -229,7 +229,7 @@ fn look(root: &Path, file: &str, paint: Option<&str>) -> Look {
     let geom = BusGeom::build(&meshes);
     let mut area = vec![0.0f32; textures.len()];
     for t in &geom.tris {
-        if let Some(k) = t.target {
+        for k in t.target.into_iter().chain(t.trans) {
             area[k as usize] += (t.p[1] - t.p[0]).cross(t.p[2] - t.p[0]).length() * 0.5;
         }
     }
@@ -252,7 +252,7 @@ fn look(root: &Path, file: &str, paint: Option<&str>) -> Look {
             continue;
         };
         let img = omsi_texture::decode_file(&base).unwrap();
-        let (ow, oh) = model::output_size(img.width, img.height);
+        let (ow, oh) = super::export::paint_size(&geom, k as u8, img.width, img.height);
         let (w, h) = model::edit_size(ow, oh);
         let rgba = if (w, h) != (img.width, img.height) { omsi_texture::bc::resize(&img.rgba, img.width, img.height, w, h) } else { img.rgba };
         let b = bake::Bake::build(&geom.tris, k as u8, w, h, 0, h, &outside);
@@ -309,9 +309,14 @@ fn draw(geom: &BusGeom, painted: &[Painted], view: View, k: f32) -> image::RgbaI
     let sun = (toward + Vec3::Z * 0.8 + toward.cross(Vec3::Z) * 0.3).normalize();
     let mut img = image::RgbaImage::from_pixel(w, h, image::Rgba([170, 190, 215, 255]));
     let mut depth = vec![f32::NEG_INFINITY; (w * h) as usize];
-    // the opaque first, then the glass over them
+    // the opaque first, then the glass over them, the farthest first (a window's inner pane
+    // under its outer one); glass of no painted texture (rain, dirt) not at all
+    let deepest = |t: &bake::Tri| t.p.map(|p| project(p).1).into_iter().fold(f32::NEG_INFINITY, f32::max);
+    let mut glass: Vec<&bake::Tri> = geom.tris.iter().filter(|t| t.glass && t.target.is_some()).collect();
+    glass.sort_by(|a, b| deepest(a).total_cmp(&deepest(b)));
     for glass_pass in [false, true] {
-        for t in geom.tris.iter().filter(|t| t.glass == glass_pass) {
+        let tris: Vec<&bake::Tri> = if glass_pass { glass.clone() } else { geom.tris.iter().filter(|t| !t.glass).collect() };
+        for t in tris {
             let q = t.p.map(|p| project(p).0);
             let z = t.p.map(|p| project(p).1);
             let area = (q[1] - q[0]).perp_dot(q[2] - q[0]);
@@ -336,13 +341,19 @@ fn draw(geom: &BusGeom, painted: &[Painted], view: View, k: f32) -> image::RgbaI
                     if dep <= depth[i] {
                         continue;
                     }
+                    let uv = t.uv[0] * b.x + t.uv[1] * b.y + t.uv[2] * b.z;
+                    let at = |p: &Painted| {
+                        let tx = ((uv.x.rem_euclid(1.0) * p.w as f32) as u32).min(p.w - 1);
+                        let ty = ((uv.y.rem_euclid(1.0) * p.h as f32) as u32).min(p.h - 1);
+                        let o = ((ty * p.w + tx) * 4) as usize;
+                        [p.rgba[o], p.rgba[o + 1], p.rgba[o + 2], p.rgba[o + 3]]
+                    };
                     let (rgb, a) = match tex {
                         Some(p) => {
-                            let uv = t.uv[0] * b.x + t.uv[1] * b.y + t.uv[2] * b.z;
-                            let tx = ((uv.x.rem_euclid(1.0) * p.w as f32) as u32).min(p.w - 1);
-                            let ty = ((uv.y.rem_euclid(1.0) * p.h as f32) as u32).min(p.h - 1);
-                            let o = ((ty * p.w + tx) * 4) as usize;
-                            ([p.rgba[o], p.rgba[o + 1], p.rgba[o + 2]], p.rgba[o + 3])
+                            let c = at(p);
+                            // (a window's see-through from its map, as the game draws it)
+                            let a = t.trans.and_then(|k| painted.iter().find(|p| p.index == k)).map(|m| at(m)[3]).unwrap_or(c[3]);
+                            ([c[0], c[1], c[2]], a)
                         }
                         None => ([120, 120, 120], if t.glass { 60 } else { 255 }),
                     };
@@ -445,4 +456,44 @@ fn buses_before_and_after() {
             m.save(out.join(format!("{stem}_mask{index}.png"))).unwrap();
         }
     }
+}
+
+/// A print on the windows (Luc's O405 G: a picture over a side window with "Also over the
+/// windows" on showed nothing): each bus from the right without the print, with it but not over
+/// the windows, and with it over the windows from both sides. Run by hand:
+///
+/// `OMSI_LIVERY_WINDOWS=<OMSI folder>|<out folder>|<bus>[;<bus>...] cargo test -p omsi-app --lib livery::headless::windows -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn windows_with_a_print() {
+    let Ok(spec) = std::env::var("OMSI_LIVERY_WINDOWS") else { return };
+    let mut it = spec.split('|');
+    let (root, out) = (PathBuf::from(it.next().unwrap()), PathBuf::from(it.next().unwrap()));
+    std::fs::create_dir_all(&out).unwrap();
+    for file in it.next().unwrap().split(';').filter(|s| !s.trim().is_empty()) {
+        println!("{file}");
+        let lk = look(&root, file, None);
+        let d = lk.geom.dims;
+        let up = d.window_height() + 0.45;
+        let print = |over: bool| {
+            let mut v = quick(&d);
+            let width = super::shapes::text_width("Bus 42", super::shapes::DEFAULT_FONT) * 0.5;
+            let mut text = model::layer("Name", Kind::Text { text: "Bus 42".into(), font: super::shapes::DEFAULT_FONT.into(), height_cm: 50.0, colour: "#d93a30".into(), outline: None, spacing: 0.0, gradient: None, place: model::place_on(Side::R, 0.45, up, width, &d) });
+            let arrow = Place { height_m: Some(0.7), ..model::place_on(Side::R, 0.75, up, 1.8, &d) };
+            let mut shape = model::layer("Arrow", Kind::Shape { shape: "pijl".into(), colour: "#ffd23f".into(), outline: None, gradient: None, place: arrow });
+            text.over_glass = over;
+            shape.over_glass = over;
+            v.push(text);
+            v.push(shape);
+            v
+        };
+        let before: Vec<Painted> = lk.bakes.iter().map(|(index, w, h, rgba, _)| Painted { index: *index, w: *w, h: *h, rgba: rgba.clone() }).collect();
+        let without = paint_look(&lk, &print(false));
+        let with = paint_look(&lk, &print(true));
+        let k = 70.0;
+        let rows = [[draw(&lk.geom, &before, View::Right, k), draw(&lk.geom, &without, View::Right, k)], [draw(&lk.geom, &with, View::Right, k), draw(&lk.geom, &with, View::Left, k)]];
+        let stem = Path::new(file).file_stem().unwrap().to_string_lossy().replace(' ', "_");
+        side_by_side(&rows).save(out.join(format!("{stem}_windows.png"))).unwrap();
+    }
+    println!("written into {}", out.display());
 }

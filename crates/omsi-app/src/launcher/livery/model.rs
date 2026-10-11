@@ -364,7 +364,7 @@ impl Kind {
             Kind::Fill { group: Some(0), .. } => "Body colour",
             Kind::Fill { group: Some(_), .. } => "Second colour",
             Kind::Fill { radius, .. } if *radius >= 999.0 => "Base colour",
-            Kind::Fill { .. } => "Fill",
+            Kind::Fill { .. } => "Colour area",
             Kind::Stripe { .. } => "Stripe",
             Kind::Text { .. } => "Text",
             Kind::Image { .. } => "Image",
@@ -839,12 +839,6 @@ fn base36(mut v: u64) -> String {
 
 pub fn layer(name: &str, kind: Kind) -> Layer {
     Layer { id: new_id("l"), name: name.to_string(), visible: true, opacity: 1.0, locked: false, detail: 1.0, over_trim: false, over_glass: false, from_recipe: false, kind }
-}
-
-/// A new decal placed by a click on the bus: over the windows when the click was on a window
-/// (a print on the glass), else not.
-pub fn placed_layer(name: &str, kind: Kind, on_glass: bool) -> Layer {
-    Layer { over_glass: on_glass, ..layer(name, kind) }
 }
 
 /// A base colour: a fill over all the paint (the protection keeps the rest).
@@ -1483,11 +1477,7 @@ mod tests {
     }
 
     #[test]
-    fn a_decal_clicked_onto_a_window_goes_over_the_windows() {
-        let place = Place::new(Side::R, Vec3::new(1.25, 2.0, 1.4), 0.6);
-        let k = Kind::Shape { shape: "ster".into(), colour: "#fff".into(), outline: None, gradient: None, place };
-        assert!(placed_layer("Star", k.clone(), true).over_glass);
-        assert!(!placed_layer("Star", k, false).over_glass);
+    fn a_layer_goes_over_the_windows_only_when_asked() {
         assert!(!layer("Base", base_colour("#fff")).over_glass, "a base colour leaves the windows");
         // kept in the project (and absent when off)
         let mut l = layer("Band", base_colour("#fff"));
