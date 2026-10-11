@@ -1408,7 +1408,7 @@ impl Launcher {
         // (the welcome just over: the page comes up out of the dark)
         welcome::cover(self);
         // (a change of screen this frame: the bus, over the page and under the dialogs - a
-        // screen of its own, and the fade from the ground as the look has it)
+        // screen of its own, drawn in the look's colours, as is the fade from the ground)
         self.ui.as_drawn();
         transition::after_page(self);
         self.ui.end_as_drawn();
