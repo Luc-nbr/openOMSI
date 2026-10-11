@@ -591,9 +591,8 @@ fn tile(ui: &mut Ui, base: Rect, t: &Tile) -> bool {
     ui.p().rounded(r, SHEET_RADIUS, PANEL.mix(HOVER, m.hover));
     ui.tile_light(&m, 0.04);
     ui.tile_edge(&m, 1.0, EDGE);
-    let roomy = base.h >= 130.0 && base.w >= 240.0;
-    let pad = if roomy { 18.0 } else { 14.0 };
-    let side = if roomy { 40.0 } else { 34.0 };
+    let k = Metrics::of(base);
+    let (pad, side, roomy) = (k.pad, k.mark, k.roomy);
     let mark = Rect::new(base.x + pad, base.y + pad, side, side);
     ui.p().rounded(mark, RADIUS, accent().alpha(0.14).mix(accent(), m.hover));
     ui.icon(t.icon, mark.center(), side * 0.55, accent_2().mix(on_accent(), m.hover));
@@ -607,13 +606,12 @@ fn tile(ui: &mut Ui, base: Rect, t: &Tile) -> bool {
         ui.text_in(n, b, 12.0, Weight::Bold, ink, Align::Center);
         right = b.x - 8.0;
     }
-    let name_px = if roomy { 18.0 } else if base.w < 200.0 { 15.0 } else { 16.5 };
-    ui.text_in(t.name, Rect::new(mark.right() + 12.0, mark.y, (right - mark.right() - 12.0).max(0.0), side), name_px, Weight::Bold, TEXT, Align::Left);
+    ui.text_in(t.name, Rect::new(mark.right() + 12.0, mark.y, (right - mark.right() - 12.0).max(0.0), side), k.name_px, Weight::Bold, TEXT, Align::Left);
     // what matters now
     let inner_w = base.w - 2.0 * pad;
     let bottom = base.bottom() - pad * 0.7;
-    let mut y = mark.bottom() + if roomy { 14.0 } else { 9.0 };
-    let line_h = if roomy { 22.0 } else { 19.0 };
+    let mut y = mark.bottom() + k.gap;
+    let line_h = k.line;
     if let Extra::Money { cash, colour, .. } = &t.extra {
         let px = if roomy { 30.0 } else { 24.0 };
         if y + px + 6.0 <= bottom {
@@ -636,14 +634,42 @@ fn tile(ui: &mut Ui, base: Rect, t: &Tile) -> bool {
         Extra::Roles(roles) => role_rows(ui, rest, roles),
         Extra::None => {}
     }
-    // (the way in, said under the mouse)
-    if m.hover > 0.02 {
-        ui.icon("chevron_right", Vec2::new(base.right() - pad + 4.0, base.bottom() - pad), 18.0, TEXT_DIM.alpha(m.hover));
-    }
     if !t.tip.is_empty() {
         ui.tooltip(base, &t.tip);
     }
     m.clicked
+}
+
+/// How a tile of a size is laid out: its margin, its icon's mark, the name's size, the room
+/// under the mark and a line's height. A low tile (a 720 pixel window) keeps two lines of
+/// what matters under a small mark; a tall one has room for a big mark and more lines.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Metrics {
+    pad: f32,
+    mark: f32,
+    name_px: f32,
+    gap: f32,
+    line: f32,
+    roomy: bool,
+}
+
+impl Metrics {
+    fn of(r: Rect) -> Metrics {
+        let narrow = r.w < 190.0;
+        if r.h >= 130.0 {
+            Metrics { pad: 18.0, mark: 40.0, name_px: if narrow { 15.5 } else { 18.0 }, gap: 14.0, line: 22.0, roomy: true }
+        } else if r.h >= 100.0 {
+            Metrics { pad: 14.0, mark: 32.0, name_px: if narrow { 15.0 } else { 16.5 }, gap: 8.0, line: 19.5, roomy: false }
+        } else {
+            Metrics { pad: 12.0, mark: 28.0, name_px: if narrow { 14.5 } else { 16.0 }, gap: 6.0, line: 19.0, roomy: false }
+        }
+    }
+
+    /// How many lines of what matters a tile `h` high shows under its mark.
+    fn lines(&self, h: f32) -> usize {
+        let room = h - self.pad * 0.7 - (self.pad + self.mark + self.gap) + 2.0;
+        (room / self.line).floor().max(0.0) as usize
+    }
 }
 
 /// The last days' results as small bars round a zero line (green a profit, red a loss).
@@ -840,6 +866,9 @@ mod tests {
             let last = g.tile(0, SLOTS - 1, 1);
             assert!(last.bottom() <= g.more.y - MORE_TOP + 0.5, "{w}x{h}");
             assert!(g.more.bottom() <= area.bottom() + 0.5, "{w}x{h}");
+            // a tile shows two lines of what matters at least
+            let t = g.tile(1, 0, 1);
+            assert!(Metrics::of(t).lines(t.h) >= 2, "{w}x{h}: {:?}", Metrics::of(t));
         }
         // a large window keeps it in the middle, at most so wide
         let g = grid(Rect::new(0.0, 0.0, 2512.0, 1254.0), 5, 1);
