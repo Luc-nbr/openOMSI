@@ -333,6 +333,7 @@ flags! {
     OMSI_LAUNCHER_WELCOME: Text, Test, Use, "-", "Launcher: off skips the welcome (pictures, tests).";
     OMSI_LIST_ALIGNED: Bool, Debug, Use, "off", "Log the splines aligned to the terrain.";
     OMSI_LIVERY_LOOK: Text, Test, Test, "-", "Tests: a folder for pictures of the livery studio.";
+    OMSI_LIVERY_WINDOWS: Text, Test, Test, "-", "Tests: pictures of a print on the windows (<OMSI folder>|<out folder>|<bus>[;<bus>...]).";
     OMSI_LIVERY_ZONES: Bool, Debug, Use, "off", "The livery studio shows the zones it found on the bus's texture.";
     OMSI_MAP: Text, Test, Test, "-", "Tests: the map the timetable tests read.";
     OMSI_MAX_FPS: Num, Tuning, Use, "settings", "Frame rate limit for this run.";

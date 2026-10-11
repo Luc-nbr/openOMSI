@@ -204,6 +204,7 @@ effect. On Android, `openOMSI/env.txt` holds `NAME=value` lines that are set bef
 | `OMSI_LAUNCHER_UI` | text | - | use | app | Launcher: new or classic, whatever the settings say. |
 | `OMSI_LAUNCHER_WELCOME` | text | - | use | app | Launcher: off skips the welcome (pictures, tests). |
 | `OMSI_LIVERY_LOOK` | text | - | test | app | Tests: a folder for pictures of the livery studio. |
+| `OMSI_LIVERY_WINDOWS` | text | - | test | app | Tests: pictures of a print on the windows (<OMSI folder>\|<out folder>\|<bus>[;<bus>...]). |
 | `OMSI_MAP` | text | - | test | launcher-core | Tests: the map the timetable tests read. |
 | `OMSI_MENU_LOOK` | text | - | test | app | Tests: a folder for pictures of the pause menu. |
 | `OMSI_MOBILE` | bool | off | use | app | The phone layout on a computer (launcher, screen cut-outs). |
