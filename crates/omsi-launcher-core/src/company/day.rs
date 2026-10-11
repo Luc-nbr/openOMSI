@@ -355,6 +355,11 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
     // (what research and the day's events do to the fuel bought and to how many ride)
     let fuel_factor = super::research::fuel_factor(c) * super::inbox::fuel_price_factor(c, &date);
     let demand_factor = super::research::demand_factor(c) * super::inbox::demand_factor(c, &date);
+    // (the diesel's price moves the diesel buses' energy only; an event on a line - roadworks,
+    // a diversion - or the weather holds trips up and keeps riders away: `inbox::line_effect`)
+    let power_factor = super::research::fuel_factor(c);
+    let energy_factor = move |kind: BusKind| if kind.drive == Drive::Diesel { fuel_factor } else { power_factor };
+    let line_effects: Vec<(f64, f64)> = c.lines.iter().map(|l| super::inbox::line_effect(c, &date, &l.number)).collect();
     let mut rng = Rng::of(&[&c.id, "day"], dates::parse(&date).unwrap_or(0));
     let mut report = DayReport { date: date.clone(), ..Default::default() };
     let day_end = super::clock::moment(&date, 24 * 60 - 1);
@@ -396,7 +401,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
             None => (BusKind { size: BusSize::Solo, drive: Drive::Diesel }, 5.0),
         };
         let s = &mut sums[li];
-        s.energy += km * economy::energy_per_km(kind, c.price_index) * fuel_factor;
+        s.energy += km * economy::energy_per_km(kind, c.price_index) * energy_factor(kind);
         s.maintenance += km * economy::maintenance_per_km(kind, age, c.price_index) * upkeep;
         let late = t.average.is_some_and(|a| a > 180.0) || (t.stops > 0 && t.late * 4 > t.stops);
         if t.timed() {
@@ -436,7 +441,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
                     v.km += km.max(0.0);
                     v.condition = (v.condition - km.max(0.0) * wear_km).max(0.0);
                     let age = dates::years_between(&v.built, &date);
-                    sums[li].energy += km.max(0.0) * economy::energy_per_km(v.kind, c.price_index) * fuel_factor;
+                    sums[li].energy += km.max(0.0) * economy::energy_per_km(v.kind, c.price_index) * energy_factor(v.kind);
                     sums[li].maintenance += km.max(0.0) * economy::maintenance_per_km(v.kind, age, c.price_index) * upkeep;
                 }
                 timed += 1;
@@ -556,7 +561,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
                     Some(b) => b.1 += trip.km,
                     None => bus_km.push((v.id, trip.km)),
                 }
-                sums[li].energy += trip.km * economy::energy_per_km(v.kind, c.price_index) * fuel_factor;
+                sums[li].energy += trip.km * economy::energy_per_km(v.kind, c.price_index) * energy_factor(v.kind);
                 sums[li].maintenance += trip.km * economy::maintenance_per_km(v.kind, age, c.price_index) * upkeep;
                 if !counts {
                     continue;
@@ -564,7 +569,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
                 // (an own line: its passengers by the hour, and what its bus can take)
                 let own = c.lines.get(li).filter(|cl| cl.plan.is_some());
                 let base = booked.or_else(|| own.and_then(|cl| super::ownline::trip_boardings(cl, &date, trip.dep))).unwrap_or_else(|| economy::passengers_for(trip.km, trip.dep, &r));
-                let mut pax = base * rng.range(0.8, 1.2) * (0.85 + 0.3 * c.reputation / 100.0) * (0.95 + 0.1 * e.skills.service / 100.0) * c.lines.get(li).map(|l| l.demand.share()).unwrap_or(1.0) * demand_factor;
+                let mut pax = base * rng.range(0.8, 1.2) * (0.85 + 0.3 * c.reputation / 100.0) * (0.95 + 0.1 * e.skills.service / 100.0) * c.lines.get(li).map(|l| l.demand.share()).unwrap_or(1.0) * demand_factor * line_effects.get(li).map_or(1.0, |x| x.1);
                 // (a friendly driver and a clean bus: the passengers notice, `staff`)
                 pax *= staff::friendly_factor(e.friendliness) * staff::clean_factor(v.clean);
                 match kind {
@@ -587,7 +592,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
                 sums[li].compensation += comp;
                 lines[li].passengers += pax;
                 lines[li].revenue += fares + comp;
-                let p_late = (0.04 + 0.12 * (1.0 - e.skills.punctuality / 100.0) + 0.10 * (1.0 - v.condition / 100.0)) * late_factor;
+                let p_late = (0.04 + 0.12 * (1.0 - e.skills.punctuality / 100.0) + 0.10 * (1.0 - v.condition / 100.0)) * late_factor + line_effects.get(li).map_or(0.0, |x| x.0);
                 timed += 1;
                 if rng.chance(p_late) {
                     lines[li].late += 1;
@@ -792,6 +797,8 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
     // the company's progress: the day's experience, the courses that end, what its own
     // mechanics and eco drivers saved (`levels::day_closed`)
     let day_passengers: u32 = lines.iter().map(|l| l.passengers).sum();
+    // (the day's figures for the parts below: the contracts' goals count them)
+    (report.passengers, report.km, report.lines) = (day_passengers, lines.iter().map(|l| l.km).sum(), lines.clone());
     super::levels::day_closed(c, &date, report.covered, report.dropped, punctuality, day_passengers);
 
     // the staff besides the drivers, the research, the stores, the contracts and the inbox
