@@ -336,6 +336,7 @@ flags! {
     OMSI_LIVERY_WINDOWS: Text, Test, Test, "-", "Tests: pictures of a print on the windows (<OMSI folder>|<out folder>|<bus>[;<bus>...]).";
     OMSI_LIVERY_ZONES: Bool, Debug, Use, "off", "The livery studio shows the zones it found on the bus's texture.";
     OMSI_MAP: Text, Test, Test, "-", "Tests: the map the timetable tests read.";
+    OMSI_MAP_PICTURE: Text, Test, Test, "-", "Tests: pictures of the launcher map's roads (<global.cfg>;<out folder>[;x,y...]).";
     OMSI_MAX_FPS: Num, Tuning, Use, "settings", "Frame rate limit for this run.";
     OMSI_MENU_LOOK: Text, Test, Test, "-", "Tests: a folder for pictures of the pause menu.";
     OMSI_METER: Text, Tuning, Use, "-", "gain,target,dark,bright,bias,night: the exposure metering.";
