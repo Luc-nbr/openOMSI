@@ -1120,6 +1120,10 @@ pub fn screen(l: &mut Launcher) {
 
 /// The tab's page (the start screen's tiles for `HOME_TAB`).
 fn pages(l: &mut Launcher, body: Rect) {
+    // (RosterFlow plays its opening when the planning is opened again)
+    if l.company.tab != 5 {
+        l.company.planning.away();
+    }
     match l.company.tab {
         HOME_TAB => home::draw(l, body),
         0 => overview::draw(l, body),

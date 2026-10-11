@@ -22,7 +22,12 @@
 //! row.
 
 mod plan_edit;
-mod studio;
+mod rf_brand;
+mod rf_gantt;
+mod rf_panels;
+mod rf_prefs;
+mod rf_print;
+mod rosterflow;
 
 use super::super::flow::Step;
 use super::super::state::{CompanyDuty, PlannedBus};
@@ -92,15 +97,15 @@ pub struct PlanningView {
     edit: Option<plan_edit::PlanEdit>,
     /// The bus or duty tapped last, and when (a second tap soon after opens its timetable).
     tapped: Option<(String, f32)>,
-    /// What the page shows: 0 the roster, 1 the studio's Vehicles view, 2 its Drivers view.
+    /// What the page shows (RosterFlow's tabs): 0 the roster, 1 Vehicles, 2 Drivers, 3 Timeplan.
     pub(super) view: usize,
-    studio: studio::StudioView,
+    rf: rosterflow::Rf,
 }
 
 impl Default for PlanningView {
     fn default() -> Self {
         let (tx, rx) = channel();
-        PlanningView { tx, rx, days: Vec::new(), asked: Vec::new(), extra: Vec::new(), day: 0, sel: None, arm: None, drag: None, carry: None, press: None, carry_from: Vec2::ZERO, targets: Vec::new(), clear_armed: false, cache: Vec::new(), read_at: 0, focus: None, edit: None, tapped: None, view: 0, studio: Default::default() }
+        PlanningView { tx, rx, days: Vec::new(), asked: Vec::new(), extra: Vec::new(), day: 0, sel: None, arm: None, drag: None, carry: None, press: None, carry_from: Vec2::ZERO, targets: Vec::new(), clear_armed: false, cache: Vec::new(), read_at: 0, focus: None, edit: None, tapped: None, view: rosterflow::VEHICLES, rf: Default::default() }
     }
 }
 
@@ -110,7 +115,12 @@ impl PlanningView {
     /// studio - that Escape lets go of first (before it goes back to the company's start
     /// screen).
     pub(super) fn holds_choice(&self) -> bool {
-        self.sel.is_some() || self.arm.is_some() || self.drag.is_some() || self.carry.is_some() || self.edit.is_some() || (self.view > 0 && self.studio.holds())
+        self.sel.is_some() || self.arm.is_some() || self.drag.is_some() || self.carry.is_some() || self.edit.is_some() || (self.view > 0 && self.rf.holds())
+    }
+
+    /// Another page of the company is shown: RosterFlow opens with its opening again.
+    pub(super) fn away(&mut self) {
+        self.rf.shown = false;
     }
 
     /// Forget the week read: it is read again (the timetable was written).
@@ -511,32 +521,23 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     let under = l.company.planning.edit.is_some().then(|| super::mask(&mut l.ui));
     let day = l.company.planning.day.min(6);
     let date = co::dates::add(&c.date, day as i64);
-    week_strip(l, Rect::new(area.x, area.y, area.w, 60.0), &c);
-    let ty = area.y + 74.0;
-    // the roster, or the studio's Vehicles or Drivers view of the same day
-    let sw = 330.0f32.min(area.w * 0.4);
-    let mut view = l.company.planning.view.min(2);
-    if l.ui.segmented("plan-view", Rect::new(area.x, ty + 2.0, sw, 36.0), &mut view, &["Roster", "Vehicles", "Drivers"]) {
-        l.company.planning.view = view;
-        l.company.planning.sel = None;
-        l.company.planning.arm = None;
-        l.company.planning.studio.let_go();
-    }
-    l.ui.tooltip(Rect::new(area.x, ty + 2.0, sw, 36.0), "Roster: who drives what. Vehicles and Drivers: the scheduling studio - the buses' blocks and the duties cut from them");
-    let tools_r = Rect::new(area.x + sw + 18.0, ty, (area.w - sw - 18.0).max(0.0), 40.0);
-    let body = Rect::new(area.x, ty + 40.0 + 14.0, area.w, (area.bottom() - ty - 40.0 - 14.0).max(0.0));
-    if view > 0 {
-        studio::tools(l, tools_r, &c, &date);
-        studio::draw(l, body, &c, &date, view == 2);
+    // RosterFlow: its title bar, and the Vehicles, Drivers or Timeplan tab; the Roster tab is
+    // this page's own, under the title bar
+    let Some(rest) = rosterflow::frame(l, area, &c, &date) else {
         if l.ui.input.keys.contains(&Key::Escape) {
-            l.company.planning.studio.let_go();
+            l.company.planning.rf.let_go();
         }
         if let Some(i) = under {
             l.ui.input = i;
             plan_edit::draw(l, area, &c);
         }
         return;
-    }
+    };
+    let area = rest;
+    week_strip(l, Rect::new(area.x, area.y, area.w, 60.0), &c);
+    let ty = area.y + 74.0;
+    let tools_r = Rect::new(area.x, ty, area.w, 40.0);
+    let body = Rect::new(area.x, ty + 40.0 + 14.0, area.w, (area.bottom() - ty - 40.0 - 14.0).max(0.0));
     let plan = plan_of(l, &c, &date);
     tools(l, tools_r, &c, &date);
     let side_w = (body.w * 0.28).clamp(320.0, 440.0);
