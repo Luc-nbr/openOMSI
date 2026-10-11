@@ -153,9 +153,14 @@ fn ours(l: &mut Launcher, r: Rect, c: &Company) {
             let (label, right, tip) = if !in_service {
                 let waits = line.service_from.is_some_and(|s| s > now);
                 (
-                    if waits { omsi_ui::tr("In service from %{when}").replace("%{when}", &line.service_from.map(|s| format!("{} {}", super::day_label(&co::clock::date_of(s)), co::clock::hhmm(s))).unwrap_or_default()) } else { omsi_ui::tr("Not planned yet: %{c} of %{t} tours planned").replace("%{c}", &covered.to_string()).replace("%{t}", &all.to_string()) },
-                    omsi_ui::tr("Plan it").into_owned(),
-                    omsi_ui::tr("The line runs only once it is planned and its service is started. Click for the planning.").into_owned(),
+                    if waits { omsi_ui::tr("In service from %{when}").replace("%{when}", &line.service_from.map(|s| format!("{} {}", super::day_label(&co::clock::date_of(s)), co::clock::hhmm(s))).unwrap_or_default()) } else if easy { omsi_ui::tr("Not in service yet").into_owned() } else { omsi_ui::tr("Not planned yet: %{c} of %{t} tours planned").replace("%{c}", &covered.to_string()).replace("%{t}", &all.to_string()) },
+                    // (the easy mode puts a line into service by itself: nothing to plan)
+                    if easy { String::new() } else { omsi_ui::tr("Plan it").into_owned() },
+                    if easy {
+                        omsi_ui::tr("The company puts the line into service by itself, at the latest the next morning.").into_owned()
+                    } else {
+                        omsi_ui::tr("The line runs only once it is planned and its service is started. Click for the planning.").into_owned()
+                    },
                 )
             } else {
                 let open = all - covered;
@@ -204,8 +209,10 @@ fn tours_of(l: &mut Launcher, r: Rect, c: &Company, name: &str) {
     let r = Rect::new(r.x, r.y + card_h + 12.0, r.w, (r.h - card_h - 12.0).max(80.0));
     let title = omsi_ui::tr("Line %{n} today").replace("%{n}", &line.number);
     let inner = section(&mut l.ui, r, &title);
-    let pw = Foot::width(&l.ui, "Open the planning", Some("event"));
-    if l.ui.button("company-line-plan", Rect::new(r.right() - pw - 12.0, r.y + 8.0, pw, 32.0), "Open the planning", Some("event"), ButtonKind::Ghost) {
+    // (the easy mode plans by itself: no planning to open)
+    let easy = co::autopilot::on(c);
+    let pw = if easy { -8.0 } else { Foot::width(&l.ui, "Open the planning", Some("event")) };
+    if !easy && l.ui.button("company-line-plan", Rect::new(r.right() - pw - 12.0, r.y + 8.0, pw, 32.0), "Open the planning", Some("event"), ButtonKind::Ghost) {
         to_planning(l, name);
     }
     let aw = Foot::width(&l.ui, "Add lines", Some("add"));

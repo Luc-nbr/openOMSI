@@ -162,7 +162,11 @@ fn today(l: &mut Launcher, r: Rect, c: &Company) {
             let frac = covered as f64 / n as f64;
             let label = omsi_ui::tr("Covered today: %{c} of %{t} tours").replace("%{c}", &covered.to_string()).replace("%{t}", &n.to_string());
             let (buses, duties) = p.short_of();
-            let tip = if covered == n { omsi_ui::tr("Every tour in service has a bus and its drivers.").into_owned() } else { omsi_ui::tr("Open: %{b} tours without a bus, %{d} duties without a driver. Click for the planning.").replace("%{b}", &buses.to_string()).replace("%{d}", &duties.to_string()) };
+            let tip = if covered == n {
+                omsi_ui::tr("Every tour in service has a bus and its drivers.").into_owned()
+            } else if easy {
+                omsi_ui::tr("Open: %{b} tours without a bus, %{d} duties without a driver. Get buses at the dealer; the company hires the drivers by itself, at night.").replace("%{b}", &buses.to_string()).replace("%{d}", &duties.to_string())
+            } else { omsi_ui::tr("Open: %{b} tours without a bus, %{d} duties without a driver. Click for the planning.").replace("%{b}", &buses.to_string()).replace("%{d}", &duties.to_string()) };
             // (the easy mode's roster is the company's own: no planning to open)
             if kit::bar(&mut l.ui, "company-today-bar", Rect::new(inner.x, y, inner.w, kit::BAR_H), frac, kit::share_colour(frac, false), &label, &format!("{:.0} %", frac * 100.0), &tip) && !easy {
                 l.company.tab = 5;
