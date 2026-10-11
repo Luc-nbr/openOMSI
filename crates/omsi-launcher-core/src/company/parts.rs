@@ -51,7 +51,7 @@ impl Part {
     pub fn label(self) -> &'static str {
         match self {
             Part::Engine => "Engine",
-            Part::Light => "Light",
+            Part::Light => "Headlight",
             Part::Indicator => "Indicator",
             Part::Wiper => "Wiper",
             Part::AirConditioner => "Air conditioner",
@@ -67,13 +67,13 @@ impl Part {
     pub fn icon(self) -> &'static str {
         match self {
             Part::Engine => "settings",
-            Part::Light => "light",
+            Part::Light => "flashlight_on",
             Part::Indicator => "highlight",
             Part::Wiper => "rainy",
             Part::AirConditioner => "ac_unit",
             Part::Router => "wifi",
             Part::BrakePads => "stop_circle",
-            Part::TyreSet => "roundabout_right",
+            Part::TyreSet => "autorenew",
             Part::OilCanister => "water_drop",
             Part::VBelt => "sync_alt",
         }
@@ -120,7 +120,7 @@ impl Part {
     pub fn missing_text(self) -> &'static str {
         match self {
             Part::Engine => "Bus %{bus} waits in the workshop for an engine: there is none in the stores.",
-            Part::Light => "Bus %{bus} waits in the workshop for a light: there is none in the stores.",
+            Part::Light => "Bus %{bus} waits in the workshop for a headlight: there is none in the stores.",
             Part::Indicator => "Bus %{bus} waits in the workshop for an indicator: there is none in the stores.",
             Part::Wiper => "Bus %{bus} waits in the workshop for a wiper: there is none in the stores.",
             Part::AirConditioner => "Bus %{bus} waits in the workshop for an air conditioner: there is none in the stores.",

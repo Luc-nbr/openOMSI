@@ -158,7 +158,7 @@ use Section as S;
 /// The research tree, section by section.
 pub const TOPICS: [Topic; 28] = [
     // the buses
-    t(keys::ARTICULATED, S::Buses, "Articulated buses", "Your dealers sell you articulated buses: 18 metres, half as many places again as a solo bus.", "airport_shuttle", 1, 40_000_00, 0, 0, 6.0, &[Need::Level(2)]),
+    t(keys::ARTICULATED, S::Buses, "Articulated buses", "Your dealers sell you articulated buses: 18 metres, half as many places again as a solo bus.", "directions_bus", 1, 40_000_00, 0, 0, 6.0, &[Need::Level(2)]),
     t(keys::DOUBLE_DECKERS, S::Buses, "Double-deckers", "Your dealers sell you double-deckers: many seats on the footprint of a solo bus.", "directions_bus", 1, 60_000_00, 25, 0, 10.0, &[Need::Level(4)]),
     t("fuel", S::Buses, "Reduce fuel consumption", "Each stage: the buses use 2 % less diesel and power.", "speed", 5, 15_000_00, 0, 10, 4.0, &[]),
     t("dirt", S::Buses, "Reduce dirt on the buses", "Each stage: the buses get 10 % less dirty a day.", "water_drop", 3, 10_000_00, 5, 10, 4.0, &[]),
