@@ -76,6 +76,10 @@ pub struct LineLayout {
     /// The company line (its timetable name).
     pub line: String,
     pub blocks: Vec<BlockLayout>,
+    /// Trips with passengers the player took off every bus (RosterFlow's stack): they wait
+    /// there to be assigned again, and no bus of the company runs them meanwhile.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stack: Vec<TripRef>,
 }
 
 /// A piece of work: a duty of a block, by its block and the trip it begins with.
@@ -117,6 +121,11 @@ fn build(l: &LineLayout, tours: &[&TourOfDay]) -> Option<Vec<(TourOfDay, Option<
     let template = tours.first()?;
     let mut pool: Vec<(&PlannedTrip, bool)> = tours.iter().flat_map(|t| t.trips.iter()).map(|x| (x, false)).collect();
     let mut out = Vec::new();
+    // (the stack's trips run with no bus: placed, in no block)
+    for r in &l.stack {
+        let slot = pool.iter_mut().find(|(x, used)| !*used && r.is(x))?;
+        slot.1 = true;
+    }
     for b in &l.blocks {
         let mut trips: Vec<PlannedTrip> = Vec::new();
         for r in &b.trips {
@@ -228,6 +237,7 @@ pub fn texts() -> Vec<&'static str> {
 
 /// A line renamed: its layouts and joined duties follow it.
 pub fn rename_line(c: &mut Company, old: &str, new: &str) {
+    super::rosterflow::rename_line(c, old, new);
     for l in c.planning.layouts.iter_mut().filter(|l| same(&l.line, old)) {
         l.line = new.to_string();
     }
@@ -331,8 +341,11 @@ pub const TOO_LONG: &str = "That duty would be longer than a working day may be 
 pub const SAME_DUTY: &str = "That is the same duty.";
 pub const NOT_JOINED: &str = "This duty is not joined with another.";
 pub const NOT_FOUND: &str = "The planning changed meanwhile: try again.";
+pub const LOCKED: &str = "This vehicle is locked: unlock it first.";
+pub const SWAP_FAILS: &str = "Trips could not be swapped: they do not fit on the other bus.";
+pub const DUTY_LOCKED: &str = "This duty is locked: unlock it first.";
 
-const REFUSALS: [&str; 18] = [OVERLAP, NO_TIME, IN_DEPOT, BACK_IN_DEPOT, OTHER_LINE, NOT_MOVABLE, SAME_BUS, ALONE, BETWEEN, CUT_ALREADY, ON_THE_MOVE, NOT_RELIEF, NO_PASSENGERS, NO_CUT, TOO_LONG, SAME_DUTY, NOT_JOINED, NOT_FOUND];
+const REFUSALS: [&str; 21] = [OVERLAP, NO_TIME, IN_DEPOT, BACK_IN_DEPOT, OTHER_LINE, NOT_MOVABLE, SAME_BUS, ALONE, BETWEEN, CUT_ALREADY, ON_THE_MOVE, NOT_RELIEF, NO_PASSENGERS, NO_CUT, TOO_LONG, SAME_DUTY, NOT_JOINED, NOT_FOUND, LOCKED, SWAP_FAILS, DUTY_LOCKED];
 
 /// Where a trip is moved to: a bus of the day (a block's index), or a new one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -344,7 +357,8 @@ pub enum Target {
 /// The line's blocks as the day has them now (`tours` as `network::tours_of_day` gives them):
 /// the start of a layout to change. The depot runs the company adds itself are left out
 /// (added again), and so are cuts the player did not make.
-fn layout_now(tours: &[TourOfDay], line: &str, weekday: u8) -> LineLayout {
+fn layout_now(c: &Company, tours: &[TourOfDay], line: &str, weekday: u8) -> LineLayout {
+    let stack = c.planning.layouts.iter().find(|l| l.weekday == weekday && same(&l.line, line)).map(|l| l.stack.clone()).unwrap_or_default();
     let blocks = tours
         .iter()
         .filter(|t| same(&t.line, line))
@@ -354,7 +368,7 @@ fn layout_now(tours: &[TourOfDay], line: &str, weekday: u8) -> LineLayout {
             cuts: t.cuts.as_ref().map(|cs| cs.iter().filter_map(|&k| t.trips.get(k)).map(TripRef::of).collect()),
         })
         .collect();
-    LineLayout { weekday, line: line.to_string(), blocks }
+    LineLayout { weekday, line: line.to_string(), blocks, stack }
 }
 
 fn save(c: &mut Company, l: LineLayout) {
@@ -368,9 +382,9 @@ fn unjoin_blocks(c: &mut Company, weekday: u8, line: &str, blocks: &[&str]) {
     c.planning.joined.retain(|j| !(j.weekday == weekday && j.pieces.iter().any(|p| same(&p.line, line) && blocks.iter().any(|b| same(&p.tour, b)))));
 }
 
-/// How long a bus takes from `a` to `b` empty: the line's quickest trip between them, else
+//// How long a bus takes from `a` to `b` empty: the line's quickest trip between them, else
 /// `DEADHEAD_MIN` (none between one place and itself).
-fn travel(trips: &[&PlannedTrip], a: &str, b: &str) -> i32 {
+pub fn travel(trips: &[&PlannedTrip], a: &str, b: &str) -> i32 {
     if same(a, b) {
         return 0;
     }
@@ -379,7 +393,7 @@ fn travel(trips: &[&PlannedTrip], a: &str, b: &str) -> i32 {
 
 /// The kilometres a bus runs empty from `a` to `b`: the line's shortest trip between them,
 /// else a depot run's.
-fn deadhead_km(trips: &[&PlannedTrip], a: &str, b: &str) -> f64 {
+pub fn deadhead_km(trips: &[&PlannedTrip], a: &str, b: &str) -> f64 {
     if same(a, b) {
         return 0.0;
     }
@@ -419,9 +433,22 @@ pub fn fits_into(block: &[PlannedTrip], x: &PlannedTrip, line: &[&PlannedTrip]) 
     Ok(())
 }
 
+/// Whether all of `trips` fit into a bus's day together (`fits_into`, one after the other).
+pub fn all_fit(block: &[PlannedTrip], trips: &[&PlannedTrip], line: &[&PlannedTrip]) -> Result<(), &'static str> {
+    let mut cur: Vec<PlannedTrip> = block.to_vec();
+    let mut sorted: Vec<&PlannedTrip> = trips.to_vec();
+    sorted.sort_by_key(|x| x.dep);
+    for x in sorted {
+        fits_into(&cur, x, line)?;
+        cur.push(x.clone());
+        cur.sort_by_key(|t| t.dep);
+    }
+    Ok(())
+}
+
 /// A free name for a new block of the line: the next number after its blocks' and the
 /// roster's (a new bus takes no bus or driver given to an old one).
-fn new_name(c: &Company, weekday: u8, tours: &[TourOfDay], line: &str) -> String {
+pub fn new_name(c: &Company, weekday: u8, tours: &[TourOfDay], line: &str) -> String {
     let taken: Vec<String> = tours.iter().filter(|t| same(&t.line, line)).map(|t| t.tour.trim().to_string()).chain(c.planning.week.iter().filter(|r| r.weekday == weekday && same(&r.line, line)).map(|r| r.tour.trim().to_string())).collect();
     let mut n = taken.iter().filter_map(|t| t.parse::<u32>().ok()).max().unwrap_or(0) + 1;
     while taken.iter().any(|t| *t == n.to_string()) {
@@ -430,17 +457,67 @@ fn new_name(c: &Company, weekday: u8, tours: &[TourOfDay], line: &str) -> String
     n.to_string()
 }
 
+/// The trips that move with trip `k` of block `t`: the trips linked with it (RosterFlow's
+/// links, `rosterflow::linked`), itself among them.
+fn with_links(c: &Company, weekday: u8, t: &TourOfDay, picked: &[usize]) -> Vec<usize> {
+    let mut out: Vec<usize> = picked.to_vec();
+    for &k in picked {
+        let Some(x) = t.trips.get(k) else { continue };
+        for r in super::rosterflow::linked(c, weekday, &t.line, &TripRef::of(x)) {
+            if let Some(j) = t.trips.iter().position(|y| r.is(y)) {
+                out.push(j);
+            }
+        }
+    }
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+/// The line's layout without the trips `refs` in block `tour` (and their cuts), the buses left
+/// without a trip with passengers gone, every block in order.
+fn take_out(lay: &mut LineLayout, tour: &str, refs: &[TripRef], line_trips: &[&PlannedTrip]) -> Result<(), &'static str> {
+    let b = lay.blocks.iter_mut().find(|b| same(&b.tour, tour)).ok_or(NOT_FOUND)?;
+    b.trips.retain(|t| !refs.contains(t));
+    if let Some(cuts) = b.cuts.as_mut() {
+        cuts.retain(|t| !refs.contains(t));
+    }
+    tidy(lay, line_trips);
+    Ok(())
+}
+
+fn tidy(lay: &mut LineLayout, line_trips: &[&PlannedTrip]) {
+    // (a bus left without a trip with passengers runs no more)
+    let counted = |b: &BlockLayout| b.trips.iter().any(|r| line_trips.iter().any(|x| r.is(x) && x.counts()));
+    lay.blocks.retain(counted);
+    for b in lay.blocks.iter_mut() {
+        b.trips.sort_by_key(|t| t.dep);
+    }
+    lay.stack.sort_by_key(|t| t.dep);
+}
+
 /// What moving trip `trip` of block `from` to `to` would make of its line (None: refused,
-/// and why).
+/// and why). The trips linked with it move along.
 pub fn plan_move(c: &Company, weekday: u8, tours: &[TourOfDay], from: usize, trip: usize, to: Target) -> Result<LineLayout, &'static str> {
+    plan_move_many(c, weekday, tours, from, &[trip], to)
+}
+
+/// What moving trips `picked` of block `from` together to `to` would make of its line: every
+/// one a trip with passengers, the trips linked with them along, none of a locked bus.
+pub fn plan_move_many(c: &Company, weekday: u8, tours: &[TourOfDay], from: usize, picked: &[usize], to: Target) -> Result<LineLayout, &'static str> {
     let src = tours.get(from).ok_or(NOT_FOUND)?;
-    let x = src.trips.get(trip).ok_or(NOT_FOUND)?;
-    if !x.counts() || x.origin.trim().is_empty() {
+    if picked.is_empty() {
+        return Err(NOT_FOUND);
+    }
+    let idx = with_links(c, weekday, src, picked);
+    let moving: Vec<&PlannedTrip> = idx.iter().map(|&k| src.trips.get(k).ok_or(NOT_FOUND)).collect::<Result<_, _>>()?;
+    if moving.iter().any(|x| !x.counts() || x.origin.trim().is_empty()) {
         return Err(NOT_MOVABLE);
     }
+    guard_block(c, weekday, tours, from)?;
     let line_trips: Vec<&PlannedTrip> = tours.iter().filter(|t| same(&t.line, &src.line)).flat_map(|t| t.trips.iter()).collect();
-    let mut lay = layout_now(tours, &src.line, weekday);
-    let r = TripRef::of(x);
+    let mut lay = layout_now(c, tours, &src.line, weekday);
+    let refs: Vec<TripRef> = moving.iter().map(|x| TripRef::of(x)).collect();
     match to {
         Target::Block(i) => {
             let dst = tours.get(i).ok_or(NOT_FOUND)?;
@@ -450,35 +527,32 @@ pub fn plan_move(c: &Company, weekday: u8, tours: &[TourOfDay], from: usize, tri
             if !same(&dst.line, &src.line) {
                 return Err(OTHER_LINE);
             }
-            fits_into(&dst.trips, x, &line_trips)?;
+            guard_block(c, weekday, tours, i)?;
+            all_fit(&dst.trips, &moving, &line_trips)?;
             let b = lay.blocks.iter_mut().find(|b| same(&b.tour, &dst.tour)).ok_or(NOT_FOUND)?;
-            b.trips.push(r.clone());
+            b.trips.extend(refs.iter().cloned());
         }
         Target::New => {
-            if src.trips.iter().filter(|t| t.counts()).count() == 1 {
+            if src.trips.iter().filter(|t| t.counts()).count() == moving.len() {
                 return Err(ALONE);
             }
-            lay.blocks.push(BlockLayout { tour: new_name(c, weekday, tours, &src.line), trips: vec![r.clone()], cuts: None });
+            all_fit(&[], &moving, &line_trips)?;
+            lay.blocks.push(BlockLayout { tour: new_name(c, weekday, tours, &src.line), trips: refs.clone(), cuts: None });
         }
     }
-    let b = lay.blocks.iter_mut().find(|b| same(&b.tour, &src.tour)).ok_or(NOT_FOUND)?;
-    b.trips.retain(|t| *t != r);
-    if let Some(cuts) = b.cuts.as_mut() {
-        cuts.retain(|t| *t != r);
-    }
-    // (a bus left without a trip with passengers runs no more)
-    let counted = |b: &BlockLayout| b.trips.iter().any(|r| line_trips.iter().any(|x| r.is(x) && x.counts()));
-    lay.blocks.retain(counted);
-    for b in lay.blocks.iter_mut() {
-        b.trips.sort_by_key(|t| t.dep);
-    }
+    take_out(&mut lay, &src.tour, &refs, &line_trips)?;
     Ok(lay)
 }
 
 /// Move trip `trip` of block `from` to `to` (`plan_move`): kept for the weekday. The duties
 /// joined with a piece of either bus are taken apart.
 pub fn move_trip(c: &mut Company, weekday: u8, tours: &[TourOfDay], from: usize, trip: usize, to: Target) -> Result<(), &'static str> {
-    let lay = plan_move(c, weekday, tours, from, trip, to)?;
+    move_trips(c, weekday, tours, from, &[trip], to)
+}
+
+/// Move trips `picked` of block `from` together to `to` (`plan_move_many`).
+pub fn move_trips(c: &mut Company, weekday: u8, tours: &[TourOfDay], from: usize, picked: &[usize], to: Target) -> Result<(), &'static str> {
+    let lay = plan_move_many(c, weekday, tours, from, picked, to)?;
     let src = &tours[from];
     let mut touched = vec![src.tour.as_str()];
     if let Target::Block(i) = to {
@@ -489,6 +563,121 @@ pub fn move_trip(c: &mut Company, weekday: u8, tours: &[TourOfDay], from: usize,
     Ok(())
 }
 
+/// Take trips `picked` of block `from` off the bus onto the stack (RosterFlow's "Unassign"):
+/// no bus runs them until they are assigned again. Its linked trips go along.
+pub fn unassign(c: &mut Company, weekday: u8, tours: &[TourOfDay], from: usize, picked: &[usize]) -> Result<(), &'static str> {
+    let src = tours.get(from).ok_or(NOT_FOUND)?;
+    let idx = with_links(c, weekday, src, picked);
+    let moving: Vec<&PlannedTrip> = idx.iter().filter_map(|&k| src.trips.get(k)).collect();
+    if moving.is_empty() || moving.iter().any(|x| !x.counts() || x.origin.trim().is_empty()) {
+        return Err(NOT_MOVABLE);
+    }
+    guard_block(c, weekday, tours, from)?;
+    let line_trips: Vec<&PlannedTrip> = tours.iter().filter(|t| same(&t.line, &src.line)).flat_map(|t| t.trips.iter()).collect();
+    let mut lay = layout_now(c, tours, &src.line, weekday);
+    let refs: Vec<TripRef> = moving.iter().map(|x| TripRef::of(x)).collect();
+    lay.stack.extend(refs.iter().cloned());
+    take_out(&mut lay, &src.tour, &refs, &line_trips)?;
+    unjoin_blocks(c, weekday, &src.line, &[src.tour.as_str()]);
+    save(c, lay);
+    Ok(())
+}
+
+/// Whether trip `x` of the stack (of its line `line`) may go to `to` (`assign`).
+pub fn plan_assign(c: &Company, weekday: u8, tours: &[TourOfDay], line: &str, x: &PlannedTrip, to: Target) -> Result<LineLayout, &'static str> {
+    let r = TripRef::of(x);
+    let mut lay = layout_now(c, tours, line, weekday);
+    if !lay.stack.contains(&r) {
+        return Err(NOT_FOUND);
+    }
+    let mut line_trips: Vec<&PlannedTrip> = tours.iter().filter(|t| same(&t.line, line)).flat_map(|t| t.trips.iter()).collect();
+    line_trips.push(x);
+    match to {
+        Target::Block(i) => {
+            let dst = tours.get(i).ok_or(NOT_FOUND)?;
+            if !same(&dst.line, line) {
+                return Err(OTHER_LINE);
+            }
+            guard_block(c, weekday, tours, i)?;
+            fits_into(&dst.trips, x, &line_trips)?;
+            let b = lay.blocks.iter_mut().find(|b| same(&b.tour, &dst.tour)).ok_or(NOT_FOUND)?;
+            b.trips.push(r.clone());
+        }
+        Target::New => lay.blocks.push(BlockLayout { tour: new_name(c, weekday, tours, line), trips: vec![r.clone()], cuts: None }),
+    }
+    lay.stack.retain(|t| *t != r);
+    tidy(&mut lay, &line_trips);
+    Ok(lay)
+}
+
+/// Put trip `x` of the stack on a bus again: a bus of its line, or a new one.
+pub fn assign(c: &mut Company, weekday: u8, tours: &[TourOfDay], line: &str, x: &PlannedTrip, to: Target) -> Result<(), &'static str> {
+    let lay = plan_assign(c, weekday, tours, line, x, to)?;
+    if let Target::Block(i) = to {
+        unjoin_blocks(c, weekday, line, &[tours[i].tour.as_str()]);
+    }
+    save(c, lay);
+    Ok(())
+}
+
+/// How a swap takes the trips: those picked over their time, or everything from a trip on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Swap {
+    /// The trips picked of block `from` against what block `to` runs over their time.
+    Span,
+    /// Every trip of `from` from the first picked on, against every trip of `to` from then on.
+    FromHere,
+}
+
+/// What swapping trips of block `from` with block `to` would make of the line (RosterFlow's
+/// "Swap" and "Swap from here"): both buses keep what fits, or it is refused.
+pub fn plan_swap(c: &Company, weekday: u8, tours: &[TourOfDay], from: usize, picked: &[usize], to: usize, how: Swap) -> Result<LineLayout, &'static str> {
+    let src = tours.get(from).ok_or(NOT_FOUND)?;
+    let dst = tours.get(to).ok_or(NOT_FOUND)?;
+    if from == to {
+        return Err(SAME_BUS);
+    }
+    if !same(&dst.line, &src.line) {
+        return Err(OTHER_LINE);
+    }
+    guard_block(c, weekday, tours, from)?;
+    guard_block(c, weekday, tours, to)?;
+    let idx = with_links(c, weekday, src, picked);
+    let picked_trips: Vec<&PlannedTrip> = idx.iter().filter_map(|&k| src.trips.get(k)).filter(|x| x.counts() && !x.origin.trim().is_empty()).collect();
+    let Some(first) = picked_trips.iter().map(|x| x.dep).min() else { return Err(NOT_MOVABLE) };
+    let last = picked_trips.iter().map(|x| x.arr).max().unwrap_or(first);
+    let movable = |x: &&PlannedTrip| x.counts() && !x.origin.trim().is_empty();
+    let (a, b): (Vec<&PlannedTrip>, Vec<&PlannedTrip>) = match how {
+        Swap::Span => (picked_trips.clone(), dst.trips.iter().filter(movable).filter(|x| x.dep < last && x.arr > first).collect()),
+        Swap::FromHere => (src.trips.iter().filter(movable).filter(|x| x.dep >= first).collect(), dst.trips.iter().filter(movable).filter(|x| x.dep >= first).collect()),
+    };
+    let ra: Vec<TripRef> = a.iter().map(|x| TripRef::of(x)).collect();
+    let rb: Vec<TripRef> = b.iter().map(|x| TripRef::of(x)).collect();
+    let line_trips: Vec<&PlannedTrip> = tours.iter().filter(|t| same(&t.line, &src.line)).flat_map(|t| t.trips.iter()).collect();
+    // (each bus's day as it would be: what it keeps, and what it takes over)
+    let keep = |t: &TourOfDay, gone: &[TripRef]| -> Vec<PlannedTrip> { t.trips.iter().filter(|x| !gone.contains(&TripRef::of(x))).cloned().collect() };
+    all_fit(&keep(src, &ra), &b, &line_trips).map_err(|_| SWAP_FAILS)?;
+    all_fit(&keep(dst, &rb), &a, &line_trips).map_err(|_| SWAP_FAILS)?;
+    let mut lay = layout_now(c, tours, &src.line, weekday);
+    for (tour, gone, comes) in [(&src.tour, &ra, &rb), (&dst.tour, &rb, &ra)] {
+        let blk = lay.blocks.iter_mut().find(|x| same(&x.tour, tour)).ok_or(NOT_FOUND)?;
+        blk.trips.retain(|t| !gone.contains(t));
+        if let Some(cuts) = blk.cuts.as_mut() {
+            cuts.retain(|t| !gone.contains(t));
+        }
+        blk.trips.extend(comes.iter().cloned());
+    }
+    tidy(&mut lay, &line_trips);
+    Ok(lay)
+}
+
+/// Swap trips of block `from` with block `to` (`plan_swap`): kept for the weekday.
+pub fn swap(c: &mut Company, weekday: u8, tours: &[TourOfDay], from: usize, picked: &[usize], to: usize, how: Swap) -> Result<(), &'static str> {
+    let lay = plan_swap(c, weekday, tours, from, picked, to, how)?;
+    unjoin_blocks(c, weekday, &tours[from].line, &[tours[from].tour.as_str(), tours[to].tour.as_str()]);
+    save(c, lay);
+    Ok(())
+}
 /// Whether `place` is one of the line's termini (where its trips with passengers begin or
 /// end) or the depot (where its blocks' depot runs begin or end, or the company's depot).
 pub fn is_relief(c: &Company, tours: &[TourOfDay], line: &str, place: &str) -> bool {
@@ -510,7 +699,7 @@ fn starts(t: &TourOfDay) -> Vec<usize> {
 /// The block's cuts kept as these starts.
 fn set_cuts(c: &mut Company, weekday: u8, tours: &[TourOfDay], i: usize, at: &[usize]) {
     let t = &tours[i];
-    let mut lay = layout_now(tours, &t.line, weekday);
+    let mut lay = layout_now(c, tours, &t.line, weekday);
     if let Some(b) = lay.blocks.iter_mut().find(|b| same(&b.tour, &t.tour)) {
         b.cuts = Some(at.iter().filter_map(|&k| t.trips.get(k)).map(TripRef::of).collect());
     }
@@ -545,6 +734,7 @@ pub fn can_cut(c: &Company, tours: &[TourOfDay], i: usize, at: usize) -> Result<
 /// Cut block `i` before its trip `at`: a new duty begins there (`can_cut`).
 pub fn cut(c: &mut Company, weekday: u8, tours: &[TourOfDay], i: usize, at: usize) -> Result<(), &'static str> {
     can_cut(c, tours, i, at)?;
+    guard_block(c, weekday, tours, i)?;
     let mut s = starts(&tours[i]);
     s.push(at);
     s.sort_unstable();
@@ -556,6 +746,7 @@ pub fn cut(c: &mut Company, weekday: u8, tours: &[TourOfDay], i: usize, at: usiz
 /// out, unless the duty would be longer than `DAY_MAX`.
 pub fn uncut(c: &mut Company, weekday: u8, tours: &[TourOfDay], i: usize, at: usize) -> Result<(), &'static str> {
     let t = tours.get(i).ok_or(NOT_FOUND)?;
+    guard_block(c, weekday, tours, i)?;
     let pieces = network::duties_of(t);
     let k = pieces.iter().position(|r| r.start == at && at > 0).ok_or(NO_CUT)?;
     let (a, b) = (&pieces[k - 1], &pieces[k]);
@@ -574,6 +765,11 @@ pub fn uncut(c: &mut Company, weekday: u8, tours: &[TourOfDay], i: usize, at: us
 pub fn join(c: &mut Company, weekday: u8, tours: &[TourOfDay], a: (usize, usize), b: (usize, usize)) -> Result<(), &'static str> {
     if a == b {
         return Err(SAME_DUTY);
+    }
+    for p in [a, b] {
+        if super::rosterflow::piece_locked(c, weekday, tours, p.0, p.1) {
+            return Err(DUTY_LOCKED);
+        }
     }
     if a.0 == b.0 && a.1.abs_diff(b.1) == 1 {
         let t = tours.get(a.0).ok_or(NOT_FOUND)?;
@@ -623,10 +819,59 @@ pub fn can_join(c: &Company, weekday: u8, tours: &[TourOfDay], a: (usize, usize)
 pub fn unjoin(c: &mut Company, weekday: u8, tours: &[TourOfDay], p: (usize, usize)) -> Result<(), &'static str> {
     let t = tours.get(p.0).ok_or(NOT_FOUND)?;
     let me = PieceRef::of(t, network::duties_of(t).get(p.1).ok_or(NOT_FOUND)?);
+    if super::rosterflow::piece_locked(c, weekday, tours, p.0, p.1) {
+        return Err(DUTY_LOCKED);
+    }
     let before = c.planning.joined.len();
     c.planning.joined.retain(|j| !(j.weekday == weekday && j.pieces.iter().any(|x| x.same(&me))));
     if c.planning.joined.len() == before {
         return Err(NOT_JOINED);
+    }
+    Ok(())
+}
+
+/// Take piece (block, duty) out of the duty it was joined into: a duty of its own, the other
+/// pieces staying together (RosterFlow's "Remove piece", and a duty begun anew from it).
+pub fn detach(c: &mut Company, weekday: u8, tours: &[TourOfDay], p: (usize, usize)) -> Result<(), &'static str> {
+    let t = tours.get(p.0).ok_or(NOT_FOUND)?;
+    let me = PieceRef::of(t, network::duties_of(t).get(p.1).ok_or(NOT_FOUND)?);
+    if super::rosterflow::piece_locked(c, weekday, tours, p.0, p.1) {
+        return Err(DUTY_LOCKED);
+    }
+    let g = c.planning.joined.iter().position(|j| j.weekday == weekday && j.pieces.iter().any(|x| x.same(&me))).ok_or(NOT_JOINED)?;
+    c.planning.joined[g].pieces.retain(|x| !x.same(&me));
+    if c.planning.joined[g].pieces.len() < 2 {
+        c.planning.joined.remove(g);
+    }
+    Ok(())
+}
+
+/// The key a piece is known by (`rosterflow`'s duty notes).
+pub fn piece_ref(tours: &[TourOfDay], i: usize, k: usize) -> Option<PieceRef> {
+    let t = tours.get(i)?;
+    Some(PieceRef::of(t, network::duties_of(t).get(k)?))
+}
+
+/// The piece known by `p` in the day: (block, duty).
+pub fn piece_at(tours: &[TourOfDay], p: &PieceRef) -> Option<(usize, usize)> {
+    find_piece(tours, p)
+}
+
+impl PieceRef {
+    /// Whether it is the same piece as `o` (line and block named alike, the same first trip).
+    pub fn is(&self, o: &PieceRef) -> bool {
+        self.same(o)
+    }
+}
+
+/// Block `i` may be changed: it is not locked, and no duty with a piece of it is.
+fn guard_block(c: &Company, weekday: u8, tours: &[TourOfDay], i: usize) -> Result<(), &'static str> {
+    let t = tours.get(i).ok_or(NOT_FOUND)?;
+    if super::rosterflow::block_locked(c, weekday, &t.line, &t.tour) {
+        return Err(LOCKED);
+    }
+    if (0..network::duties_of(t).len()).any(|k| super::rosterflow::piece_locked(c, weekday, tours, i, k)) {
+        return Err(DUTY_LOCKED);
     }
     Ok(())
 }
