@@ -303,7 +303,8 @@ pub struct Session {
     /// The document before the change going on (committed when it ends).
     pending: Option<Doc>,
     pub selected: Option<String>,
-    pub tool: studio::Tool,
+    /// What is being drawn on the bus (a colour area, an own shape, the brush), if anything.
+    pub making: studio::Making,
     pub picker: studio::Picker,
     pub recent: Vec<[u8; 3]>,
     pub cam: studio::Cam,
@@ -592,7 +593,7 @@ pub fn start(l: &mut Launcher, bus: String, paint: Option<String>, project: Opti
         history: History::default(),
         pending: None,
         selected: None,
-        tool: studio::Tool::Select,
+        making: studio::Making::None,
         picker: studio::Picker::default(),
         recent: Vec::new(),
         cam: studio::Cam::default(),
@@ -794,7 +795,7 @@ pub fn update(l: &mut Launcher, dt: f32) {
     }
     // a picture dropped onto the window
     for p in std::mem::take(&mut v.dropped) {
-        studio::picture_chosen(s, &p);
+        studio::picture_chosen(s, &p, false);
     }
     // the export's progress
     if let Some(rx) = s.export.as_ref() {
@@ -1661,6 +1662,69 @@ pub fn from_env(l: &mut Launcher) {
             None => (v.clone(), None),
         };
         open(l, Some(bus).filter(|b| !b.is_empty()), paint);
+    }
+}
+
+/// A livery being made on the box bus (`bake::tests::box_bus`), ready to paint, its camera on
+/// the bus's left side, for the studio's tests (no window, no GPU, nothing written).
+#[cfg(test)]
+pub(super) fn test_session() -> Session {
+    let geom = Arc::new(bake::tests::box_bus());
+    let outside = Arc::new(Outside::build(&geom.tris));
+    let dims = geom.dims;
+    let ready = Ready {
+        geom,
+        outside,
+        zones: Arc::new(Vec::new()),
+        targets: Vec::new(),
+        bases: Vec::new(),
+        current: Vec::new(),
+        density: 10.0,
+        full: Vec::new(),
+        worker: paint::Worker::start(Arc::new(Vec::new()), dims),
+        sent: 0,
+        shown: 0,
+        last: None,
+        showing_base: false,
+        windows: Some(Windows::Print),
+        canvases: Arc::new(Vec::new()),
+        sharp: None,
+        sharpening: None,
+        wanted: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        shown_at: None,
+    };
+    let project = Project::new("ptest".into(), "Vehicles/Box/box.bus".into(), None, "1".into());
+    let look = Look { root: PathBuf::new(), map: String::new(), bus: project.bus.clone(), paint: String::new(), weather: String::new(), time: 13 * 60, date: String::new() };
+    Session {
+        project,
+        dir: std::env::temp_dir().join("livery-test-session-never-written"),
+        look,
+        history: History::default(),
+        pending: None,
+        selected: None,
+        making: studio::Making::None,
+        picker: studio::Picker::default(),
+        recent: Vec::new(),
+        cam: studio::Cam::fitting(&dims, 1, 1.7),
+        status: None,
+        autosave: None,
+        temp_due: false,
+        temp_at: None,
+        pictures: Arc::new(HashMap::new()),
+        ready: Some(ready),
+        preparing: None,
+        placed_look: None,
+        placed_options: Vec::new(),
+        failed: None,
+        ui: studio::State::named(String::new()),
+        export: None,
+        progress: None,
+        leaving: false,
+        queued: false,
+        family: Vec::new(),
+        family_rx: None,
+        taken: Vec::new(),
+        parts: Vec::new(),
     }
 }
 
