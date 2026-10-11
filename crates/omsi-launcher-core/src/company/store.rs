@@ -269,6 +269,18 @@ pub fn simulate(data: &Path, c: &mut Company, to: i64, quick: bool, w: Option<Di
     Ok(run)
 }
 
+/// Catch the company up with the real clock (`clock::catch_up`, `real` in Unix seconds) and
+/// save it.
+pub fn catch_up(data: &Path, c: &mut Company, real: i64, w: Option<Disk>) -> Result<Option<super::clock::Away>> {
+    let mut w = w.unwrap_or_else(|| Disk::new(data));
+    let away = super::clock::catch_up(c, real, &mut w).map_err(|e| anyhow::anyhow!(e))?;
+    save(data, c)?;
+    if let Some(date) = &w.took {
+        saved_with_live(data, &c.id, date);
+    }
+    Ok(away)
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{found, Founding};
@@ -329,6 +341,8 @@ mod tests {
         std::fs::write(path_of(&data, "alt"), old).unwrap();
         let a = load(&data, "alt").unwrap();
         assert_eq!((a.version, a.contract_index, a.cash), (VERSION, 1.0, 5));
+        // (it runs with the real clock, in step from when it is next opened)
+        assert!(a.clock.real.on && a.clock.real.synced.is_none() && a.clock.real.lead == 0);
         let _ = std::fs::remove_dir_all(&data);
     }
 }
