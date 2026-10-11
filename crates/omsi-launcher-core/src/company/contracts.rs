@@ -190,6 +190,11 @@ pub fn milestone_at(k: usize) -> i64 {
     }
 }
 
+/// The bonus the milestone `at` pays (whole euros).
+pub fn milestone_bonus(c: &Company, at: i64) -> Cents {
+    euros(at as f64 * MILESTONE_EUROS * 100.0 * c.price_index)
+}
+
 /// The milestones of the trophies the goals earned in all: (the last reached, the next).
 pub fn milestone(c: &Company) -> (i64, i64) {
     let mut k = 0;
@@ -677,7 +682,7 @@ fn goals_day(c: &mut Company, date: &str, report: &DayReport) {
     while c.contracts.earned >= milestone_at(c.contracts.milestones as usize) {
         let at = milestone_at(c.contracts.milestones as usize);
         c.contracts.milestones += 1;
-        let bonus = euros(at as f64 * MILESTONE_EUROS * 100.0 * c.price_index);
+        let bonus = milestone_bonus(c, at);
         c.book(BookingKind::Rewards, bonus, format!("Trophy milestone {at}"), false);
         let m = Message::new(Kind::Goal, MILESTONE.0, MILESTONE.1).level(Level::Good).dated(date).arg("count", at.to_string()).arg("reward", bonus.to_string());
         inbox::post(c, m);
