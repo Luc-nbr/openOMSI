@@ -564,7 +564,9 @@ pub fn refresh(c: &mut Company, date: &str) {
         g.id = c.contracts.next_id;
         c.contracts.goals.push(g);
     }
-    let m = Message::new(Kind::Contract, NEW_GOALS.0, NEW_GOALS.1).dated(date).arg("count", n.to_string()).arg("until", dates::fmt(week + 6));
+    // (the easy mode takes them on by itself, at night: `autopilot`)
+    let (title, text) = if super::autopilot::on(c) { NEW_GOALS_EASY } else { NEW_GOALS };
+    let m = Message::new(Kind::Contract, title, text).dated(date).arg("count", n.to_string()).arg("until", dates::fmt(week + 6));
     inbox::post(c, m);
 }
 
@@ -786,6 +788,7 @@ pub fn day(c: &mut Company, date: &str, report: &mut DayReport) {
 }
 
 const NEW_GOALS: (&str, &str) = ("New goals on offer", "%{count} new goals are on offer until %{until}, each with trophies and money as its reward. Take on up to three at once on the Contracts page.");
+const NEW_GOALS_EASY: (&str, &str) = ("New goals on offer", "%{count} new goals are on offer until %{until}, each with trophies and money as its reward: the company takes them on by itself, up to three at once.");
 const TAKEN: &str = "Goal taken on: reach it by %{date} for %{trophies} trophies and %{reward}.";
 const GIVEN_UP: &str = "You gave this goal up.";
 const REACHED: &str = "Goal reached: you earned %{trophies} trophies and %{reward}.";
@@ -814,7 +817,7 @@ pub fn texts() -> Vec<&'static str> {
     ];
     let mut out: Vec<&'static str> = aims.iter().flat_map(|a| [a.title().0, a.rule()]).collect();
     out.extend([TAKEN, GIVEN_UP, REACHED, MISSED, SOON, "Fixed diesel price", "From tomorrow until %{until} the company pays %{price} a litre of diesel, whatever the market does."]);
-    for (a, b) in [NEW_GOALS, MILESTONE, NET_SHORT, NET_TAKEN, NET_ENDED, CLEANING_ENDED, FUEL_ENDING, FUEL_ENDED] {
+    for (a, b) in [NEW_GOALS, NEW_GOALS_EASY, MILESTONE, NET_SHORT, NET_TAKEN, NET_ENDED, CLEANING_ENDED, FUEL_ENDING, FUEL_ENDED] {
         out.extend([a, b]);
     }
     out.extend([
@@ -887,6 +890,13 @@ mod tests {
         refresh(&mut a, "2024-03-11");
         assert!(offered(&a).iter().all(|g| g.offered_until == "2024-03-17"));
         assert_eq!(offered(&a).len(), OFFERED);
+        // the easy mode is told the company takes them on by itself
+        let text = |c: &Company| c.inbox.messages.iter().rev().find(|m| m.title == NEW_GOALS.0).map(|m| m.text.clone());
+        assert_eq!(text(&a).as_deref(), Some(NEW_GOALS.1));
+        let mut e = company();
+        e.mode = super::super::Mode::Easy;
+        refresh(&mut e, "2024-03-04");
+        assert_eq!(text(&e).as_deref(), Some(NEW_GOALS_EASY.1));
     }
 
     #[test]

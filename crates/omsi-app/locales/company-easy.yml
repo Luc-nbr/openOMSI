@@ -361,6 +361,13 @@ _version: 2
   pl: "Koncesja na linię %{n} jest twoja do %{date}: linia kursuje sama od pierwszego dnia."
   ru: "Концессия на линию %{n} ваша до %{date}: линия работает сама с первого дня."
   uk: "Концесія на лінію %{n} ваша до %{date}: лінія працює сама з першого дня."
+"%{count} new goals are on offer until %{until}, each with trophies and money as its reward: the company takes them on by itself, up to three at once.":
+  de: "%{count} neue Ziele sind bis %{until} im Angebot, jedes mit Trophäen und Geld als Belohnung: Der Betrieb nimmt sie selbst an, bis zu drei gleichzeitig."
+  fr: "%{count} nouveaux objectifs sont proposés jusqu'au %{until}, chacun récompensé par des trophées et de l'argent : l'entreprise les accepte d'elle-même, jusqu'à trois à la fois."
+  nl: "%{count} nieuwe doelen worden aangeboden tot %{until}, elk met trofeeën en geld als beloning: het bedrijf neemt ze zelf aan, tot drie tegelijk."
+  pl: "Nowe cele w ofercie do %{until}: %{count}, każdy z trofeami i pieniędzmi jako nagrodą. Firma sama je przyjmuje, do trzech naraz."
+  ru: "Новых целей в предложении до %{until}: %{count}, каждая с трофеями и деньгами в награду. Компания сама берёт их, до трёх сразу."
+  uk: "Нових цілей у пропозиції до %{until}: %{count}, кожна з трофеями й грошима в нагороду. Компанія сама бере їх, до трьох одночасно."
 # what the company did by itself (`company::autopilot`)
 "Line %{n} is in service: its tours run from now on.":
   de: "Linie %{n} ist in Betrieb: Ihre Umläufe fahren ab jetzt."
