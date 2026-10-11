@@ -1441,6 +1441,15 @@ fn delete_company(l: &mut Launcher, id: &str) {
     l.state.set_status(omsi_ui::tr("%{name} is deleted.").replace("%{name}", &name), false);
 }
 
+/// A note of the day's report as the company's mode says it: in the easy mode a line won runs
+/// by itself, with no planning to do first.
+fn note_for(n: &Note, easy: bool) -> (String, Color, Option<kit::Go>) {
+    match n {
+        Note::Won { number, until } if easy => (omsi_ui::tr("The concession for line %{n} is yours until %{date}: the line runs by itself from its first day.").replace("%{n}", number).replace("%{date}", &day_label(until)), OK, None),
+        _ => note_text(n),
+    }
+}
+
 /// What a note of the day's report says, its colour, and where it is mended.
 fn note_text(n: &Note) -> (String, Color, Option<kit::Go>) {
     match n {
@@ -1599,8 +1608,9 @@ fn report_dialog(l: &mut Launcher) {
         let t = if rep > 0.0 { "Your reputation rose to %{n}: trips on time and passengers carried." } else { "Your reputation fell to %{n}: trips dropped and late cost it." };
         facts.push(Fact { text: omsi_ui::tr(t).replace("%{n}", &num(last.reputation, 1)), colour: if rep > 0.0 { OK } else { WARN }, fixes: Vec::new() });
     }
+    let easy = co::autopilot::on(&c);
     for r in &reports {
-        for (text, colour, go) in r.notes.iter().map(note_text).chain(r.staff.iter().map(staff_text)) {
+        for (text, colour, go) in r.notes.iter().map(|n| note_for(n, easy)).chain(r.staff.iter().map(staff_text)) {
             facts.push(Fact { text, colour, fixes: go.into_iter().collect() });
         }
     }
@@ -1610,7 +1620,7 @@ fn report_dialog(l: &mut Launcher) {
         facts.insert(0, Fact { text: text.into_owned(), colour: TEXT_SOFT, fixes: vec![if unplanned { kit::Go::Planning } else { kit::Go::Lines }] });
     }
     // (the easy mode mends what the company does not see to itself)
-    if co::autopilot::on(&c) {
+    if easy {
         for f in facts.iter_mut() {
             f.fixes = f.fixes.iter().filter_map(|g| easy_go(*g)).collect();
         }

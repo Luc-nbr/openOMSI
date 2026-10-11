@@ -354,6 +354,13 @@ _version: 2
   pl: "Linia %{n} należy do firmy i kursuje od teraz: jej grafik wypełnia się sam."
   ru: "Линия %{n} принадлежит компании и работает с этого момента: её график заполняется сам."
   uk: "Лінія %{n} належить компанії й працює відтепер: її графік заповнюється сам."
+"The concession for line %{n} is yours until %{date}: the line runs by itself from its first day.":
+  de: "Die Konzession für Linie %{n} gehört dir bis %{date}: Die Linie fährt ab ihrem ersten Tag von selbst."
+  fr: "La concession de la ligne %{n} est à toi jusqu'au %{date} : la ligne circule d'elle-même dès son premier jour."
+  nl: "De concessie voor lijn %{n} is van jou tot %{date}: de lijn rijdt vanaf haar eerste dag vanzelf."
+  pl: "Koncesja na linię %{n} jest twoja do %{date}: linia kursuje sama od pierwszego dnia."
+  ru: "Концессия на линию %{n} ваша до %{date}: линия работает сама с первого дня."
+  uk: "Концесія на лінію %{n} ваша до %{date}: лінія працює сама з першого дня."
 # what the company did by itself (`company::autopilot`)
 "Line %{n} is in service: its tours run from now on.":
   de: "Linie %{n} ist in Betrieb: Ihre Umläufe fahren ab jetzt."
