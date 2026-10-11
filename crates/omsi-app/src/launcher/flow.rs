@@ -318,7 +318,8 @@ fn bar(l: &mut Launcher, step: Option<Step>, page_title: Option<&str>) {
     // (a page reached from the start's buttons - Settings, Mods, Controls... - is no step of
     // the setup: its bar holds only the brand and the ways round, not the steps)
     let plain = start || on_page;
-    let version = crate::startup::VERSION;
+    let version = crate::updater::shown_version(crate::startup::VERSION);
+    let version = version.as_str();
     // right: the languages, the version, the running games, the settings, home
     let mut rx = languages(l, r, r.right() - 10.0) - 12.0;
     if !plain {
@@ -1221,68 +1222,15 @@ pub(super) fn ground_picture(l: &mut Launcher, window: Rect) {
     paint_ground(l.ui.p(), window);
 }
 
-/// The launcher's ground: openOMSI's route in the accent colour (Luc's backgrounds, drawn
-/// rather than pictures so that they stay sharp and follow any colour) - a ring round a bus
-/// seen from the front, the line out of it with two stops, rising to the upper right.
+/// The launcher's ground: one even colour, the light one of the accent (the night blue in the
+/// dark mode). (Luc: no logo behind the start screen - it was openOMSI's route with a bus in a
+/// ring, drawn over the whole window.)
 fn paint_ground(p: &mut Painter, window: Rect) {
-    paint_ground_in(p, window, ground_colours(crate::accent::chosen()));
-}
-
-/// The ground in its colours: the ground and the route on it.
-fn paint_ground_in(p: &mut Painter, window: Rect, (ground, ink): (Color, Color)) {
-    p.rect(window, ground);
-    // (the drawing is 1672 x 941; it covers the window, held to the left - the ring with its
-    // bus stays in view in a narrow window - and in the middle the other way)
-    let k = (window.w / GROUND_W).max(window.h / GROUND_H);
-    let o = Vec2::new(window.x, window.y + (window.h - GROUND_H * k) * 0.5);
-    let k2 = k;
-    let at = |x: f32, y: f32| o + Vec2::new(x, y) * k;
-    let (c, r) = (Vec2::new(167.0, 528.0), 282.5);
-    let on_ring = |deg: f32| c + Vec2::new(deg.to_radians().cos(), deg.to_radians().sin()) * r;
-    // the route: from the ring's open end round over its top and down its left into the line,
-    // along the line, up the bend and away to the upper right
-    let e = on_ring(27.0);
-    let mut path = Path::new(at(e.x, e.y));
-    path.arc_around(at(c.x, c.y), (-242.0f32).to_radians());
-    path.cubic_to(at(-24.2, 747.3), at(100.0, 757.0), at(175.0, 757.0));
-    path.line_to(at(1060.0, 757.0));
-    path.cubic_to(at(1118.0, 757.0), at(1180.3, 728.5), at(1210.3, 702.1));
-    path.line_to(at(1752.0, 224.5));
-    p.stroke(path.points(), 70.0 * k2, ink);
-    // its two stops
-    for (x, y) in [(340.0, 757.0), (1343.0, 585.0)] {
-        p.circle(at(x, y), 52.0 * k2, ink);
-        // (the hole twice, the second a polygon fanned from its edge: a sample on a seam of
-        // the one let the route through as a hairline (Luc), the other has its seams elsewhere)
-        let (c, r) = (at(x, y), 33.0 * k2);
-        p.circle(c, r, ground);
-        let ring: Vec<Vec2> = (0..64).map(|i| c + Vec2::from_angle((i as f32 + 0.5) * std::f32::consts::TAU / 64.0) * r).collect();
-        p.convex(&ring, ground);
-    }
-    // the bus in the ring, from the front
-    let rr = |x0: f32, y0: f32, x1: f32, y1: f32| {
-        let a = at(x0, y0);
-        let b = at(x1, y1);
-        Rect::new(a.x, a.y, b.x - a.x, b.y - a.y)
-    };
-    p.rounded(rr(28.0, 392.0, 54.0, 463.0), 13.0 * k2, ink);
-    p.rounded(rr(296.0, 392.0, 322.0, 463.0), 13.0 * k2, ink);
-    p.rounded(rr(83.0, 560.0, 122.0, 617.0), 10.0 * k2, ink);
-    p.rounded(rr(228.0, 560.0, 267.0, 617.0), 10.0 * k2, ink);
-    p.rounded(rr(65.0, 338.0, 286.0, 590.0), 24.0 * k2, ink);
-    p.rounded(rr(120.0, 357.0, 231.0, 376.0), 6.0 * k2, ground);
-    p.rounded(rr(85.0, 393.0, 266.0, 511.0), 13.0 * k2, ground);
-    for x in [103.0, 246.0] {
-        p.circle(at(x, 551.0), 18.0 * k2, ground);
-    }
+    p.rect(window, ground_colours(crate::accent::chosen()).0);
 }
 
 /// The dark mode's ground: a deep night blue.
 const NIGHT: Color = Color::rgba(10, 20, 46, 1.0);
-
-/// The size of the launcher's ground drawing (Luc's backgrounds were made at this size).
-const GROUND_W: f32 = 1672.0;
-const GROUND_H: f32 = 941.0;
 
 /// The ground's colours for the accent `rgb`: the ground and the route drawn on it - a light
 /// ground under the route in the colour itself (the default orange on Luc's cream).
