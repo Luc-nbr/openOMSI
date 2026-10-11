@@ -118,7 +118,7 @@ pub(super) fn ways(c: &Company) -> Vec<(To, &'static str, &'static str)> {
         out.push((To::Report, "Show the report", "description"));
     }
     out.push((To::Settings, "Settings", "settings"));
-    out.push((To::Chooser, "Other company", "swap_horiz"));
+    out.push((To::Chooser, "Other company", "sync_alt"));
     out
 }
 

@@ -303,7 +303,17 @@ fn take_part(l: &mut Launcher, r: Rect, c: &Company, plans: &[DayPlan], whole: b
     let now = (co::clock::now(c) - co::clock::moment(&c.date, 0)).clamp(0, 48 * 60) as i32;
     let open = takeable(plans, &c.date, now);
     if open.is_empty() {
-        let t = if !whole { "Reading the timetable of the week…" } else if c.lines.is_empty() { "The company runs no line yet: take one on, and its duties are here." } else { "Every duty of the coming week is yours already." };
+        // (no line, no tour in the week, or every duty the player's)
+        let tours = plans.iter().any(|p| p.tours.iter().any(|t| !t.tour.unplanned && !t.duties.is_empty()));
+        let t = if !whole {
+            "Reading the timetable of the week…"
+        } else if c.lines.is_empty() {
+            "The company runs no line yet: take one on, and its duties are here."
+        } else if !tours {
+            "The company's lines run no tours in the coming week."
+        } else {
+            "Every duty of the coming week is yours already."
+        };
         l.ui.paragraph(t, Vec2::new(inner.x, inner.y), inner.w, kit::NOTE + 0.5, Weight::Regular, TEXT_SOFT);
         return;
     }
