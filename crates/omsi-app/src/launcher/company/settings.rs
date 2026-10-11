@@ -61,8 +61,8 @@ pub(super) fn dialog(l: &mut Launcher) {
     if l.ui.segmented("company-settings-mode", Rect::new(inner.x, y, 320.0f32.min(inner.w), 40.0), &mut k, &refs) {
         set_mode(l, co::Mode::ALL[k]);
     }
-    l.ui.paragraph(co::Mode::ALL[k].info(), Vec2::new(inner.x + 340.0, y + 2.0), (inner.w - 340.0).max(120.0), kit::NOTE, Weight::Regular, TEXT_SOFT);
-    y += 96.0;
+    let ph = l.ui.paragraph(co::Mode::ALL[k].info(), Vec2::new(inner.x + 340.0, y + 2.0), (inner.w - 340.0).max(120.0), kit::NOTE, Weight::Regular, TEXT_SOFT);
+    y += (ph + 2.0).max(40.0) + 28.0;
     // how it buys (the easy mode buys quickly)
     if !easy {
         kit::caps(&mut l.ui, Rect::new(inner.x, y, inner.w, 16.0), "Buying buses");

@@ -136,9 +136,48 @@ pub(super) fn depots_for(map: &core::MapInfo, vehicles: &[core::VehicleInfo]) ->
     out
 }
 
-/// A mode as a card to choose (the founding's, the settings'): its icon, its name and what it
-/// means; the one chosen edged in the accent. Returns whether it was clicked.
-pub(super) fn mode_card(l: &mut Launcher, id: &str, r: Rect, mode: co::Mode, on: bool) -> bool {
+/// The founding's left column, its rows and gaps: a label's room over its field, the gap after
+/// a field, a colour's label's room, the mark's size and where its words and button lie beside
+/// it, the gap under it and the modes' label's room. A low window has them closer, so that the
+/// modes' cards under them keep their words.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Rows {
+    label: f32,
+    gap: f32,
+    colour_label: f32,
+    mark: f32,
+    logo_text: f32,
+    logo_button: f32,
+    after_mark: f32,
+    modes_label: f32,
+}
+
+/// The least height of a mode's card: its title and four lines of its words.
+const MODE_H: f32 = 120.0;
+
+impl Rows {
+    const ROOMY: Rows = Rows { label: 24.0, gap: 16.0, colour_label: 26.0, mark: 68.0, logo_text: 2.0, logo_button: 30.0, after_mark: 22.0, modes_label: 26.0 };
+    const TIGHT: Rows = Rows { label: 22.0, gap: 8.0, colour_label: 22.0, mark: 56.0, logo_text: 0.0, logo_button: 20.0, after_mark: 10.0, modes_label: 22.0 };
+
+    /// The height from the column's top down to the modes' cards, with colour swatches `sw`
+    /// high.
+    fn above_modes(&self, sw: f32) -> f32 {
+        2.0 * (self.label + 40.0 + self.gap) + 2.0 * (self.colour_label + sw + self.gap) + self.mark + self.after_mark + self.modes_label
+    }
+
+    /// The rows of a column `h` high: roomy where the modes' cards keep their height under them.
+    fn of(h: f32, sw: f32) -> Rows {
+        if h >= Rows::ROOMY.above_modes(sw) + MODE_H {
+            Rows::ROOMY
+        } else {
+            Rows::TIGHT
+        }
+    }
+}
+
+/// A mode as a card to choose in the founding: its icon, its name and what it means; the one
+/// chosen edged in the accent. Returns whether it was clicked.
+fn mode_card(l: &mut Launcher, id: &str, r: Rect, mode: co::Mode, on: bool) -> bool {
     let clicked = l.ui.row(id, r, false);
     l.ui.p().rounded_border(r, RADIUS, if on { 2.0 } else { 1.0 }, if on { accent() } else { HAIRLINE });
     let ink = if on { accent_2() } else { TEXT_DIM };
@@ -171,25 +210,26 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     let h = (area.bottom() - top - 64.0).max(200.0);
     // who the company is
     let left = section(&mut l.ui, Rect::new(area.x, top, col_w, h), "The company");
+    let sw = ((left.w - 11.0 * 6.0) / 12.0).min(34.0);
+    let rows = Rows::of(left.h, sw);
     let mut y = left.y;
     l.ui.label(Rect::new(left.x, y, left.w, 20.0), "Name");
-    y += 24.0;
+    y += rows.label;
     l.ui.text_input("company-name", Rect::new(left.x, y, left.w, 40.0), &mut w.name, "Stadtbus Grundorf", None);
-    y += 40.0 + 16.0;
+    y += 40.0 + rows.gap;
     let half = (left.w - GAP) / 2.0;
     l.ui.label(Rect::new(left.x, y, left.w, 20.0), "Short name (plates and logo)");
-    y += 24.0;
+    y += rows.label;
     let suggested = co::short_of(&w.name);
     let placeholder = if suggested.is_empty() { "SG".to_string() } else { suggested };
     l.ui.text_input("company-short", Rect::new(left.x, y, half, 40.0), &mut w.short, &placeholder, None);
     if w.short.chars().count() > 4 {
         w.short = w.short.chars().take(4).collect();
     }
-    y += 40.0 + 16.0;
+    y += 40.0 + rows.gap;
     for (k, title) in ["Main colour", "Second colour"].iter().enumerate() {
         l.ui.label(Rect::new(left.x, y, left.w, 20.0), title);
-        y += 26.0;
-        let sw = ((left.w - 11.0 * 6.0) / 12.0).min(34.0);
+        y += rows.colour_label;
         for (i, hex) in PALETTE.iter().enumerate() {
             let r = Rect::new(left.x + i as f32 * (sw + 6.0), y, sw, sw);
             let (hov, _, clicked) = l.ui.interact(super::super::ui::id_of(&format!("company-colour-{k}-{i}")), r);
@@ -203,29 +243,30 @@ pub fn draw(l: &mut Launcher, area: Rect) {
                 w.colours[k] = i;
             }
         }
-        y += sw + 16.0;
+        y += sw + rows.gap;
     }
     // the mark as it will look, and a logo picture
     let preview = co::Company { short: if w.short.trim().is_empty() { placeholder.clone() } else { w.short.trim().to_uppercase() }, colours: [PALETTE[w.colours[0]].into(), PALETTE[w.colours[1]].into()], logo: w.logo.clone(), ..co::found(&co::Founding::default(), "") };
-    super::company_mark(l, Rect::new(left.x, y, 68.0, 68.0), &preview);
+    super::company_mark(l, Rect::new(left.x, y, rows.mark, rows.mark), &preview);
+    let tx = left.x + rows.mark + 16.0;
     let logo_text = w.logo.as_deref().map(|p| p.rsplit(['/', '\\']).next().unwrap_or(p).to_string()).unwrap_or_else(|| omsi_ui::tr("No logo picture: the short name is the mark.").into_owned());
-    l.ui.text_in(&logo_text, Rect::new(left.x + 84.0, y + 2.0, left.w - 84.0, 22.0), kit::NOTE, Weight::Regular, TEXT_SOFT, Align::Left);
-    let lw = Foot::width(&l.ui, "Choose a logo picture", Some("photo_camera")).min(left.w - 84.0);
-    if l.ui.button("company-logo", Rect::new(left.x + 84.0, y + 30.0, lw, 36.0), "Choose a logo picture", Some("photo_camera"), ButtonKind::Normal) {
+    l.ui.text_in(&logo_text, Rect::new(tx, y + rows.logo_text, left.right() - tx, 22.0), kit::NOTE, Weight::Regular, TEXT_SOFT, Align::Left);
+    let lw = Foot::width(&l.ui, "Choose a logo picture", Some("photo_camera")).min(left.right() - tx);
+    if l.ui.button("company-logo", Rect::new(tx, y + rows.logo_button, lw, 36.0), "Choose a logo picture", Some("photo_camera"), ButtonKind::Normal) {
         if let Some(p) = core::pick_file("Choose a logo picture") {
             w.logo = Some(p.to_string_lossy().to_string());
         }
     }
     if w.logo.is_some() {
-        let rw = Foot::width(&l.ui, "Remove the picture", Some("close")).min((left.w - 84.0 - lw - 10.0).max(0.0));
-        if rw > 60.0 && l.ui.button("company-logo-remove", Rect::new(left.x + 84.0 + lw + 10.0, y + 30.0, rw, 36.0), "Remove the picture", Some("close"), ButtonKind::Normal) {
+        let rw = Foot::width(&l.ui, "Remove the picture", Some("close")).min((left.right() - tx - lw - 10.0).max(0.0));
+        if rw > 60.0 && l.ui.button("company-logo-remove", Rect::new(tx + lw + 10.0, y + rows.logo_button, rw, 36.0), "Remove the picture", Some("close"), ButtonKind::Normal) {
             w.logo = None;
         }
     }
     // how much of it the player runs himself: the two modes side by side, each with its line
-    let y = y + 68.0 + 22.0;
+    let y = y + rows.mark + rows.after_mark;
     l.ui.label(Rect::new(left.x, y, left.w, 20.0), "How you run the company");
-    let y = y + 26.0;
+    let y = y + rows.modes_label;
     let mw = (left.w - GAP) / 2.0;
     let mh = (left.bottom() - y).clamp(88.0, 150.0);
     for (k, m) in co::Mode::ALL.iter().enumerate() {
@@ -408,6 +449,23 @@ mod tests {
 
     fn wizard(mode: co::Mode, buying: usize) -> Wizard {
         Wizard { name: " Stadtbus Grundorf ".into(), short: String::new(), colours: [0, 4], logo: None, map: 0, depot: 0, when: 0, date: today(), difficulty: 1, buying, mode }
+    }
+
+    #[test]
+    fn the_modes_keep_their_words_in_a_low_window() {
+        let sw = 34.0;
+        // a window of 1440 x 900 (the column 553 high): the rows as they always were
+        assert_eq!(Rows::of(553.0, sw), Rows::ROOMY);
+        assert!(553.0 - Rows::ROOMY.above_modes(sw) >= MODE_H);
+        // the lowest the launcher lays out (820 high, the column 473): closer rows, and the
+        // modes' cards still nearly their height
+        let r = Rows::of(473.0, sw);
+        assert_eq!(r, Rows::TIGHT);
+        assert!(473.0 - r.above_modes(sw) >= MODE_H - 8.0, "{}", 473.0 - r.above_modes(sw));
+        // the mark's words and its button beside it, one over the other
+        for r in [Rows::ROOMY, Rows::TIGHT] {
+            assert!(r.logo_button + 36.0 <= r.mark + 0.5 && r.logo_text + 20.0 <= r.logo_button + 0.5, "{r:?}");
+        }
     }
 
     #[test]
