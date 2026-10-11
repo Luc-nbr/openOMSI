@@ -233,8 +233,11 @@ fn company_tile(l: &mut Launcher, base: Rect, c: &Company) -> Option<bool> {
     l.ui.tile_edge(&t, 1.0, EDGE.mix(accent(), t.hover * 0.6));
     let mark = Rect::new(r.x + 20.0, r.y + 22.0, 56.0, 56.0);
     company_mark(l, mark, c);
+    // (the mode at the mark's top, its clock's line under it: the two side by side overlapped)
+    let line = super::clock::tile_line(c);
+    let pill_y = if line.is_some() { mark.y + 2.0 } else { mark.center().y - 11.0 };
     let pw = super::mode_pill_w(&l.ui, c.mode).min((r.right() - 56.0 - mark.right() - 14.0).max(0.0));
-    super::mode_pill(&mut l.ui, "", Rect::new(mark.right() + 14.0, mark.center().y - 11.0, pw, 22.0), c.mode, false);
+    super::mode_pill(&mut l.ui, "", Rect::new(mark.right() + 14.0, pill_y, pw, 22.0), c.mode, false);
     let w = r.w - 40.0;
     l.ui.text_in(&c.name, Rect::new(r.x + 20.0, mark.bottom() + 14.0, w, 22.0), 16.0, Weight::Bold, TEXT, Align::Left);
     let map = if c.map_name.is_empty() { super::super::state::short_map(&c.map) } else { c.map_name.clone() };
@@ -243,9 +246,10 @@ fn company_tile(l: &mut Launcher, base: Rect, c: &Company) -> Option<bool> {
     let day = format!("{}  ·  {}", super::day_label(&c.date), eur(c.cash));
     l.ui.text_in(&day, Rect::new(r.x + 20.0, mark.bottom() + 60.0, w, 18.0), kit::NOTE, Weight::Medium, if c.cash < 0 { DANGER } else { TEXT_DIM }, Align::Left);
     // (beside the mark, its clock against the real one: what waits to be caught up, or was)
-    if let Some((t, colour)) = super::clock::tile_line(c) {
-        l.ui.p().circle(Vec2::new(mark.right() + 16.0, mark.center().y), 3.5, colour);
-        l.ui.text_in(&t, Rect::new(mark.right() + 26.0, mark.center().y - 10.0, (r.right() - 20.0 - mark.right() - 26.0).max(0.0), 20.0), kit::NOTE, Weight::Medium, colour, Align::Left);
+    if let Some((t, colour)) = line {
+        let cy = mark.y + 42.0;
+        l.ui.p().circle(Vec2::new(mark.right() + 20.0, cy), 3.5, colour);
+        l.ui.text_in(&t, Rect::new(mark.right() + 30.0, cy - 10.0, (r.right() - 20.0 - mark.right() - 30.0).max(0.0), 20.0), kit::NOTE, Weight::Medium, colour, Align::Left);
     }
     // (under the mouse: the bin in the corner - as the main menu's drivers have it)
     let bin = Vec2::new(r.right() - 24.0, r.y + 24.0);
