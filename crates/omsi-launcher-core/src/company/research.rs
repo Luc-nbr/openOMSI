@@ -711,7 +711,7 @@ mod tests {
     }
 
     fn tours() -> Vec<super::super::network::TourOfDay> {
-        let tour = |no: &str, from: i32| super::super::network::TourOfDay { line: "Linie5".into(), number: "5".into(), tour: no.into(), ai_group: String::new(), trips: (0..8).map(|k| super::super::network::tests::trip(from + k * 60, from + 50 + k * 60, 12)).collect(), unplanned: false };
+        let tour = |no: &str, from: i32| super::super::network::TourOfDay { line: "Linie5".into(), number: "5".into(), tour: no.into(), ai_group: String::new(), trips: (0..8).map(|k| super::super::network::tests::trip(from + k * 60, from + 50 + k * 60, 12)).collect(), unplanned: false, cuts: None };
         vec![tour("1", 6 * 60), tour("2", 6 * 60 + 30)]
     }
 

@@ -129,7 +129,7 @@ impl Plan {
 
 /// Whether a tour is one of `keys` (a line's number or name, and the tour).
 fn is_one_of(t: &TourOfDay, keys: &[(String, String)]) -> bool {
-    keys.iter().any(|(l, n)| (t.number.eq_ignore_ascii_case(l) || t.line.eq_ignore_ascii_case(l) || t.trips.iter().any(|x| x.line.eq_ignore_ascii_case(l))) && t.tour.trim() == n.trim())
+    keys.iter().any(|(l, n)| (t.number.eq_ignore_ascii_case(l) || t.line.eq_ignore_ascii_case(l) || t.trips.iter().any(|x| x.line.eq_ignore_ascii_case(l))) && t.runs_tour(n))
 }
 
 /// Give the day's tours buses and drivers: the buses that are there (held, not in the
@@ -872,7 +872,7 @@ mod tests {
     use crate::company::model::{CompanyLine, Difficulty};
 
     fn tour(no: &str, from: i32, n: i32) -> TourOfDay {
-        TourOfDay { line: "Linie5".into(), number: "5".into(), tour: no.into(), ai_group: String::new(), trips: (0..n).map(|k| trip(from + k * 60, from + 50 + k * 60, 12)).collect(), unplanned: false }
+        TourOfDay { line: "Linie5".into(), number: "5".into(), tour: no.into(), ai_group: String::new(), trips: (0..n).map(|k| trip(from + k * 60, from + 50 + k * 60, 12)).collect(), unplanned: false, cuts: None }
     }
 
     fn company(d: Difficulty, buses: usize, people: usize) -> Company {
