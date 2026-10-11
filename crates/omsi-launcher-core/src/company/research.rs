@@ -686,6 +686,52 @@ mod tests {
         assert_eq!((clean_floor(&plain), wash_factor(&plain), refuel_factor(&plain), inspection_factor(&plain)), (35.0, 1.0, 1.0, 1.0));
     }
 
+    /// A company running a line with buses and drivers (as the day's tests have it).
+    fn running() -> Company {
+        use super::super::market::{self, MarketBus, Payment};
+        let mut c = company();
+        c.map = "maps/Grundorf/global.cfg".into();
+        c.lines.push(super::super::model::CompanyLine { name: "Linie5".into(), number: "5".into(), numbers: vec!["5".into()], added: c.date.clone(), service_from: Some(0), ..Default::default() });
+        c.planning.auto = true;
+        c.cash += 5_000_000_00;
+        let bus = MarketBus { file: "Vehicles/Citaro/Citaro.bus".into(), name: "Citaro".into(), ..Default::default() };
+        for _ in 0..2 {
+            market::buy_new(&mut c, &bus, Payment::Cash, "").unwrap();
+        }
+        for a in super::super::staff::applicants(&c).into_iter().filter(|a| a.licence == super::super::model::Licence::D).take(4) {
+            super::super::staff::hire(&mut c, &a).unwrap();
+        }
+        for e in c.staff.iter_mut() {
+            (e.sick_until, e.holiday_until) = (None, None);
+        }
+        c
+    }
+
+    fn tours() -> Vec<super::super::network::TourOfDay> {
+        let tour = |no: &str, from: i32| super::super::network::TourOfDay { line: "Linie5".into(), number: "5".into(), tour: no.into(), ai_group: String::new(), trips: (0..8).map(|k| super::super::network::tests::trip(from + k * 60, from + 50 + k * 60, 12)).collect(), unplanned: false };
+        vec![tour("1", 6 * 60), tour("2", 6 * 60 + 30)]
+    }
+
+    #[test]
+    fn the_day_feels_what_was_researched() {
+        let mut plain = running();
+        let mut done = plain.clone();
+        done.research.done = ["fuel_1", "fuel_2", "fuel_3", "fuel_4", "fuel_5", "wear_1", "wear_2", "air_conditioning", "passenger_info", "premium_seats", "usb", "priority_1", "priority_2", "priority_3"].iter().map(|s| s.to_string()).collect();
+        let month = dates::month_of(&plain.date);
+        let (a, b) = (super::super::day::close_day(&mut plain, tours(), &[]), super::super::day::close_day(&mut done, tours(), &[]));
+        let (ea, eb) = (plain.month(&month).get(BookingKind::Energy), done.month(&month).get(BookingKind::Energy));
+        // 10 % less fuel, 10 % less maintenance, the buses worn less, more passengers, fewer late
+        assert!(ea < 0 && ((eb as f64 / ea as f64) - 0.9).abs() < 0.01, "{ea} {eb}");
+        let (ma, mb) = (plain.month(&month).get(BookingKind::Maintenance), done.month(&month).get(BookingKind::Maintenance));
+        assert!(((mb as f64 / ma as f64) - 0.9).abs() < 0.01, "{ma} {mb}");
+        assert!(done.fleet.iter().zip(plain.fleet.iter()).all(|(x, y)| x.condition > y.condition));
+        assert!(b.passengers > a.passengers && b.late <= a.late, "{} {} {} {}", a.passengers, b.passengers, a.late, b.late);
+        // the depot's places and the concessions grow with the premises and the area
+        let (places, conc) = (super::super::depot::places(&plain), levels::max_concessions(&plain));
+        done.research.done.extend(["premises_1", "external_depots", "area_1"].iter().map(|s| s.to_string()));
+        assert_eq!((super::super::depot::places(&done), levels::max_concessions(&done)), (places + 16, conc + 1));
+    }
+
     #[test]
     fn better_food_lifts_the_staff() {
         let mut c = company();

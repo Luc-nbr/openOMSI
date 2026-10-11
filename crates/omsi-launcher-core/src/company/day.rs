@@ -369,6 +369,10 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
     let mut sums: Vec<Sums> = lines.iter().map(|_| Sums::default()).collect();
     let line_index = |c: &Company, number: &str| line_of_number(c, number).and_then(|l| c.lines.iter().position(|x| x.name == l.name));
     let comp_km = economy::compensation_per_km(&r, c.reputation, c.contract_index);
+    // (what research does to a kilometre's wear and maintenance, and to the late trips)
+    let upkeep = super::research::wear_factor(c);
+    let wear_km = wear_per_km(&r) * upkeep;
+    let late_factor = super::research::late_factor(c);
     let mut on_time = 0u32;
     let mut timed = 0u32;
 
@@ -386,14 +390,14 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
         let (kind, age) = match vehicle {
             Some(v) => {
                 v.km += km;
-                v.condition = (v.condition - km * wear_per_km(&r)).max(0.0);
+                v.condition = (v.condition - km * wear_km).max(0.0);
                 (v.kind, dates::years_between(&v.built, &date))
             }
             None => (BusKind { size: BusSize::Solo, drive: Drive::Diesel }, 5.0),
         };
         let s = &mut sums[li];
         s.energy += km * economy::energy_per_km(kind, c.price_index) * fuel_factor;
-        s.maintenance += km * economy::maintenance_per_km(kind, age, c.price_index);
+        s.maintenance += km * economy::maintenance_per_km(kind, age, c.price_index) * upkeep;
         let late = t.average.is_some_and(|a| a > 180.0) || (t.stops > 0 && t.late * 4 > t.stops);
         if t.timed() {
             timed += 1;
@@ -430,10 +434,10 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
                 let (fares, comp) = super::ownline::trip_income(kinds[li], passengers as f64, km, per_passenger[li], comp_km, super::ownline::school_trip_pay(c, km));
                 if let Some(v) = vehicle.and_then(|id| c.fleet.iter_mut().find(|v| v.id == id)) {
                     v.km += km.max(0.0);
-                    v.condition = (v.condition - km.max(0.0) * wear_per_km(&r)).max(0.0);
+                    v.condition = (v.condition - km.max(0.0) * wear_km).max(0.0);
                     let age = dates::years_between(&v.built, &date);
-                    sums[li].energy += km.max(0.0) * economy::energy_per_km(v.kind, c.price_index);
-                    sums[li].maintenance += km.max(0.0) * economy::maintenance_per_km(v.kind, age, c.price_index);
+                    sums[li].energy += km.max(0.0) * economy::energy_per_km(v.kind, c.price_index) * fuel_factor;
+                    sums[li].maintenance += km.max(0.0) * economy::maintenance_per_km(v.kind, age, c.price_index) * upkeep;
                 }
                 timed += 1;
                 if delay <= 180.0 {
@@ -549,8 +553,8 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
                     Some(b) => b.1 += trip.km,
                     None => bus_km.push((v.id, trip.km)),
                 }
-                sums[li].energy += trip.km * economy::energy_per_km(v.kind, c.price_index);
-                sums[li].maintenance += trip.km * economy::maintenance_per_km(v.kind, age, c.price_index);
+                sums[li].energy += trip.km * economy::energy_per_km(v.kind, c.price_index) * fuel_factor;
+                sums[li].maintenance += trip.km * economy::maintenance_per_km(v.kind, age, c.price_index) * upkeep;
                 if !counts {
                     continue;
                 }
@@ -578,7 +582,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
                 sums[li].compensation += comp;
                 lines[li].passengers += pax;
                 lines[li].revenue += fares + comp;
-                let p_late = 0.04 + 0.12 * (1.0 - e.skills.punctuality / 100.0) + 0.10 * (1.0 - v.condition / 100.0);
+                let p_late = (0.04 + 0.12 * (1.0 - e.skills.punctuality / 100.0) + 0.10 * (1.0 - v.condition / 100.0)) * late_factor;
                 timed += 1;
                 if rng.chance(p_late) {
                     lines[li].late += 1;
@@ -649,7 +653,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
     for v in c.fleet.iter_mut() {
         if let Some((_, km)) = bus_km.iter().find(|b| b.0 == v.id) {
             v.km += km;
-            v.condition = (v.condition - km * wear_per_km(&r)).max(0.0);
+            v.condition = (v.condition - km * wear_km).max(0.0);
         }
         if cut.iter().any(|x| x.0 == v.id) {
             let days = rng.int(1, 3);
