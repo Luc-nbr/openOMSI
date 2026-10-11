@@ -1851,6 +1851,24 @@ mod tests {
     }
 
     #[test]
+    fn each_mode_shows_its_own_pages() {
+        // the advanced mode: every page, as the strip has always had them
+        assert_eq!(pages_of(co::Mode::Advanced), RAIL.iter().flat_map(|g| g.iter().copied()).collect::<Vec<_>>());
+        // the easy mode: what a player who runs buses looks at; what runs by itself is left out
+        let easy = pages_of(co::Mode::Easy);
+        assert_eq!(easy, vec![0, INBOX_TAB, 3, MAP_TAB, 1, 2, 4, 6]);
+        for hidden in [5, DEPOT_TAB, CONCESSIONS_TAB, RESEARCH_TAB, WORKSHOP_TAB, CONTRACTS_TAB] {
+            assert!(!easy.contains(&hidden), "{}", TABS[hidden]);
+        }
+        // a way that mends something in the easy mode never goes to the planning
+        use kit::Go;
+        for g in [Go::Progress, Go::Depot, Go::Loan, Go::Finances, Go::Courses, Go::Planning, Go::Lines, Go::Dealer, Go::Hire, Go::Training, Go::Licences] {
+            assert_ne!(easy_go(g), Some(Go::Planning), "{g:?}");
+        }
+        assert_eq!((easy_go(Go::Planning), easy_go(Go::Training), easy_go(Go::Dealer)), (None, Some(Go::Courses), Some(Go::Dealer)));
+    }
+
+    #[test]
     fn escape_goes_back_to_the_start_screen_only_when_nothing_else_wants_it() {
         assert!(escape_home(3, true, false, false, false));
         // not pressed, already there, a dialog over the page, a text field, the planning's hand
