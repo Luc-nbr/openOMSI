@@ -452,8 +452,13 @@ impl StaffRules {
         self.hours.iter().find(|h| h.0 == role).map(|h| h.1).unwrap_or_else(|| default_hours(role))
     }
 
+    /// Set a role's hours: core hours of an hour at least and `ROLE_DAY_MAX` at most (a longer
+    /// core ends then).
     pub fn set_hours(&mut self, role: Role, h: Hours) {
-        let h = Hours { from: h.from.rem_euclid(1440), to: h.to.rem_euclid(1440), outside: h.outside };
+        let from = h.from.rem_euclid(1440);
+        let len = (h.to - h.from).rem_euclid(1440);
+        let len = if len == 0 { ROLE_DAY_MAX } else { len.clamp(60, ROLE_DAY_MAX) };
+        let h = Hours { from, to: (from + len).rem_euclid(1440), outside: h.outside };
         match self.hours.iter_mut().find(|x| x.0 == role) {
             Some(x) => x.1 = h,
             None => self.hours.push((role, h)),
@@ -1677,6 +1682,11 @@ mod tests {
         // sixteen hours outside the core, four for each: what is left of them nobody covers
         assert_eq!(uncovered, 960 - 240 * sh.len() as i32);
         assert!(stayed.iter().any(|s| s.night() > 0));
+        // a core of twelve hours at most, of an hour at least
+        set_hours(&mut c, Role::Cleaner, Hours { from: 18 * 60, to: 10 * 60, outside: 0 }).unwrap();
+        assert_eq!(c.staff_rules.hours_of(Role::Cleaner), Hours { from: 18 * 60, to: 6 * 60, outside: 0 });
+        set_hours(&mut c, Role::Cleaner, Hours { from: 18 * 60, to: 18 * 60 + 20, outside: 0 }).unwrap();
+        assert_eq!(c.staff_rules.hours_of(Role::Cleaner).length(), 60);
         // without the research the hours stay as they are
         let mut d = company();
         assert!(set_hours(&mut d, Role::Mechanic, Hours { from: 0, to: 600, outside: 0 }).is_err());
