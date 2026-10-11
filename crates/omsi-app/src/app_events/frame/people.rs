@@ -144,12 +144,16 @@ impl App {
                 true,
                 Some(&mut self.integrations.plugin_events),
             );
-            // (a trip that ended: its card, and it into the driver's record)
-            self.session.trip_report.observe(d, due, served, &self.session.career, &self.session.drive_watch, &self.args.map, self.args.bus.as_deref().unwrap_or_default());
+            // (a trip that ended: it into the driver's record, and its card once the bus stands)
+            let standing = p.vehicle.physics.velocity_kmh().abs() < crate::trip_report::STANDING_KMH;
+            self.session.trip_report.observe(d, due, served, &self.session.career, &self.session.drive_watch, &self.args.map, self.args.bus.as_deref().unwrap_or_default(), standing);
         }
         if self.session.duty.is_none() {
             self.session.trip_report.forget();
         }
+        // (a trip's card waiting for the bus to stand: the duty may have ended meanwhile)
+        let standing = self.player.as_ref().is_some_and(|p| p.vehicle.physics.velocity_kmh().abs() < crate::trip_report::STANDING_KMH);
+        self.session.trip_report.standing(standing);
         if let Some(p) = self.player.as_mut() {
             let riders = self.session.humans.as_ref().map(|h| h.riding()).unwrap_or(0);
             // (a frame after the session was written must not start another one)

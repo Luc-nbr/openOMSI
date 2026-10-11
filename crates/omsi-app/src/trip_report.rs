@@ -808,12 +808,18 @@ fn draw_judged(pen: &mut Pen, j: &Judged, r: Rect, s: f32) {
 
 // --- on the screen ------------------------------------------------------------------------------
 
+/// Below this speed (km/h) the bus stands: a trip's card waits for it (`TripReport::observe`).
+pub const STANDING_KMH: f32 = 1.0;
+
 /// The report on the screen: what follows the trips, the card shown and what draws it.
 #[derive(Default)]
 pub struct TripReport {
     recorder: TripRecorder,
     shown: Option<Shown>,
     look: Option<Look>,
+    /// A trip ended while the bus still rolled: its card (and whether it was saved), shown once
+    /// the bus stands (Luc: the report only when the bus has stopped at the terminus).
+    waiting: Option<(TripRun, bool)>,
 }
 
 /// The card on the screen.
@@ -899,7 +905,8 @@ impl TripReport {
     /// `due`: the trip and the stop before the update): a trip that ended is written into the
     /// driver's record and its card shown.
     #[allow(clippy::too_many_arguments)]
-    pub fn observe(&mut self, d: &PlayerDuty, due: (usize, usize), served: Option<(f64, f64)>, career: &Career, watch: &crate::drive_watch::DriveWatch, map: &str, bus: &str) {
+    #[allow(clippy::too_many_arguments)]
+    pub fn observe(&mut self, d: &PlayerDuty, due: (usize, usize), served: Option<(f64, f64)>, career: &Career, watch: &crate::drive_watch::DriveWatch, map: &str, bus: &str, standing: bool) {
         let Some(view) = TripView::of(d) else { return };
         let plan = || -> Vec<StopVisit> {
             d.trips.get(d.trip_index).map(|t| t.stops.iter().enumerate().filter(|(_, s)| s.stops).map(|(k, s)| StopVisit { index: k, name: s.name.trim().to_string(), arr: s.arr, dep: s.dep, ..Default::default() }).collect()).unwrap_or_default()
@@ -915,7 +922,32 @@ impl TripReport {
             }
         };
         publish(&run);
-        self.show(run, saved);
+        self.hold(run, saved, standing);
+    }
+
+    /// A trip's card: shown now when the bus stands, else when it next does (`standing`). The
+    /// trip is in the driver's record already; a card still waiting when another trip ends is
+    /// shown then.
+    fn hold(&mut self, run: TripRun, saved: bool, standing: bool) {
+        if standing {
+            if let Some((old, s)) = self.waiting.take() {
+                // (the older first; the newer then takes its place on the screen)
+                self.show(old, s);
+            }
+            self.show(run, saved);
+        } else if let Some((old, s)) = self.waiting.replace((run, saved)) {
+            self.show(old, s);
+        }
+    }
+
+    /// Every frame: whether the player's bus stands (below `STANDING_KMH`) - a card waiting
+    /// for it comes now.
+    pub fn standing(&mut self, standing: bool) {
+        if standing {
+            if let Some((run, saved)) = self.waiting.take() {
+                self.show(run, saved);
+            }
+        }
     }
 
     /// No duty: the trip under way is forgotten (the card shown stays).
@@ -1352,6 +1384,29 @@ mod tests {
         assert_eq!((c.stops[3].due.as_str(), c.stops[3].left.as_str()), ("08:30", ""));
         assert!(card(&TripRun { free: true, stops: 8, ..run() }).stops.is_empty());
         assert!(card_height(&c) > card_height(&card(&run())));
+    }
+
+    /// A trip that ends while the bus still rolls into its last stop shows its card once the bus
+    /// stands (Luc), not before; one ended standing shows at once.
+    #[test]
+    fn the_card_waits_until_the_bus_stands() {
+        let mut r = TripReport::default();
+        r.hold(TripRun { stops: 7, ..run() }, true, false);
+        assert!(r.shown.is_none() && r.waiting.is_some());
+        r.standing(false);
+        assert!(r.shown.is_none());
+        r.standing(true);
+        assert!(r.shown.is_some() && r.waiting.is_none());
+        // standing already: at once
+        let mut r = TripReport::default();
+        r.hold(run(), true, true);
+        assert!(r.shown.is_some() && r.waiting.is_none());
+        // a second trip ending while one waits: the first is shown then, the second waits
+        let mut r = TripReport::default();
+        r.hold(TripRun { stops: 3, ..run() }, true, false);
+        r.hold(TripRun { stops: 5, ..run() }, true, false);
+        assert!(r.shown.is_some());
+        assert_eq!(r.waiting.as_ref().map(|w| w.0.stops), Some(5));
     }
 
     /// The card goes by itself unless it was clicked: then it stays until its × (or Enter,
