@@ -280,6 +280,10 @@ pub(super) fn foot(ui: &mut Ui, v: &mut LineEditorView, state: &mut super::super
     if !company && ui.icon_button("le-drive", Vec2::new(body.right() - ROW * 0.5, foot - 8.0 - ROW * 0.5), 15.0, "play_arrow", "Drive it") {
         *status = Some(drive_it(v, state));
     }
+    // (opened and not changed: the map's original is what runs, nothing to restore)
+    if v.fresh.is_some() && v.fresh == v.sel {
+        return;
+    }
     let restore_label = if v.restore_armed { "Press again: the map's original back" } else { "Restore the map's original" };
     let rr = Rect::new(body.x, foot, body.w, ROW);
     let pressed = ui.button("le-restore", rr, restore_label, Some("restart_alt"), ButtonKind::Normal);
