@@ -447,10 +447,13 @@ pub(super) fn grade(v: f64) -> Color {
 pub(super) fn monogram(ui: &mut Ui, r: Rect, c: &Company) {
     let main = super::ownlines::colour_of(&c.colours[0]);
     let second = super::ownlines::colour_of(&c.colours[1]);
+    // (the company's own colours and their ink, as they are in either look)
+    ui.as_drawn();
     ui.p().rounded(r, RADIUS, main);
     ui.p().rounded(Rect::new(r.x, r.bottom() - r.h * 0.22, r.w, r.h * 0.22), RADIUS * 0.5, second);
     ui.p().rect(Rect::new(r.x, r.bottom() - r.h * 0.22, r.w, r.h * 0.11), second);
     ui.text_in(&c.short, Rect::new(r.x, r.y, r.w, r.h * 0.8), (r.h * 0.34).min(18.0), Weight::Black, super::ownlines::ink_on(main), Align::Center);
+    ui.end_as_drawn();
 }
 
 /// The company's mark: its logo picture when it has one (fitted into the square, on white),
@@ -459,7 +462,8 @@ pub(super) fn monogram(ui: &mut Ui, r: Rect, c: &Company) {
 pub(super) fn company_mark(l: &mut Launcher, r: Rect, c: &Company) {
     match c.logo.as_deref().and_then(|p| logo_texture(l, p)) {
         Some(tex) => {
-            l.ui.p().rounded(r, RADIUS, Color::WHITE);
+            // (on white in either look: the light one would make the white its dark ink)
+            l.ui.swatch(r, RADIUS, Color::WHITE);
             l.ui.image(r.inset(3.0), tex, (RADIUS - 2.0).max(0.0));
         }
         None => monogram(&mut l.ui, r, c),
@@ -806,15 +810,24 @@ pub(super) fn act<T>(l: &mut Launcher, f: impl FnOnce(&mut Company) -> Result<T,
     }
 }
 
-/// What mends something in the easy mode: the planning is the company's own there (None), the
-/// staff's courses are the career's.
+/// What mends something in the easy mode: the planning, the depot and the research are the
+/// company's own there (None: no button - a popup that needs one of them offers the advanced
+/// mode itself, `Go::Advanced`), the staff's courses are the career's.
 fn easy_go(g: kit::Go) -> Option<kit::Go> {
     use kit::Go;
     match g {
-        Go::Planning | Go::Licences => None,
+        Go::Planning | Go::Licences | Go::Depot | Go::Research => None,
         Go::Training => Some(Go::Courses),
         g => Some(g),
     }
+}
+
+/// Said under a lock the easy mode does not open by itself (a research it does not start).
+pub(super) const NOT_RESEARCHED_BY_ITSELF: &str = "The easy mode does not research this by itself: switch to the advanced mode and start it on its Research page.";
+
+/// Whether the open company's mode shows the page `tab` (the start screen always).
+pub(super) fn shown(l: &Launcher, tab: usize) -> bool {
+    tab == HOME_TAB || l.company.company.as_ref().is_none_or(|c| pages_of(c.mode).contains(&tab))
 }
 
 /// Where a popup's second button goes (in the easy mode, a way to the planning goes to the
@@ -828,7 +841,11 @@ fn go(l: &mut Launcher, g: kit::Go) {
         l.company.career.part = career::DUTIES;
         return;
     } else if easy(l) {
-        easy_go(g).unwrap_or(g)
+        // (a page the easy mode hides is not opened: the company sees to that by itself)
+        match easy_go(g) {
+            Some(g) => g,
+            None => return,
+        }
     } else {
         g
     };
@@ -856,6 +873,11 @@ fn go(l: &mut Launcher, g: kit::Go) {
         }
         Go::Training => people::to_courses(l),
         Go::Licences => people::to_training(l),
+        Go::Research => l.company.tab = RESEARCH_TAB,
+        Go::Advanced(tab) => {
+            settings::set_mode(l, co::Mode::Advanced);
+            l.company.tab = tab;
+        }
     }
 }
 
@@ -1046,6 +1068,7 @@ pub fn screen(l: &mut Launcher) {
             let pill = Rect::new(name_r.right() + 10.0, 25.0, pw, 22.0);
             let mut px = name_r.right() + 20.0;
             if pill.right() <= right {
+                super::tour::anchor("company-mode", pill);
                 if mode_pill(&mut l.ui, "company-mode-pill", pill, c.mode, true) {
                     let date = c.date.clone();
                     l.company.dialog = Some(Dialog::Settings { date });
@@ -1140,7 +1163,9 @@ fn status(l: &mut Launcher, r: Rect, c: &Company) -> f32 {
     // gold, the reputation blue - in one pill with a light edge, Luc's style)
     let items: [(&str, String, Color, Color, &str, usize); 3] = [
         ("payments", eur(c.cash), OK, if c.cash >= 0 { TEXT } else { DANGER.lighten(0.2) }, "Cash: the money the company has now", 4),
-        ("emoji_events", grouped(c.trophies as f64), WARN, TEXT, "Trophies: earned with goals and contracts, spent on research", RESEARCH_TAB),
+        // (the easy mode spends them by itself, and its research is the advanced mode's page:
+        // no click there)
+        ("emoji_events", grouped(c.trophies as f64), WARN, TEXT, if co::autopilot::on(c) { "Trophies: earned with goals, spent by the company on research by itself" } else { "Trophies: earned with goals and contracts, spent on research" }, RESEARCH_TAB),
         ("star", format!("{} %", num(c.reputation.clamp(0.0, 100.0), 1)), EARLY_SOFT, TEXT, "Reputation: what passengers and the authority think of the company", 0),
     ];
     let h = r.h;
@@ -1165,6 +1190,7 @@ fn status(l: &mut Launcher, r: Rect, c: &Company) -> f32 {
     for ((icon, value, icon_c, text_c, tip, tab), w) in items.into_iter().zip(widths).take(n) {
         let hit = Rect::new(x - gap * 0.5 + 2.0, pill.y + 3.0, w + gap - 4.0, h - 6.0);
         let (hover, _, clicked) = l.ui.interact(super::ui::id_of(&format!("company-status-{icon}")), hit);
+        let (hover, clicked) = if pages_of(c.mode).contains(&tab) { (hover, clicked) } else { (false, false) };
         if hover {
             l.ui.p().rounded(hit, hit.h * 0.5, Color::WHITE.alpha(0.06));
         }
@@ -1647,7 +1673,11 @@ fn report_dialog(l: &mut Launcher) {
     }
     if tours == 0 {
         let unplanned = reports.iter().flat_map(|r| r.lines.iter()).any(|x| x.unplanned);
-        let text = if unplanned { omsi_ui::tr("No tours ran: the company's lines are not in service yet. Plan their tours and start their service on the Planning page.") } else { omsi_ui::tr("No tours ran: add lines on the Lines page, and buy buses and hire drivers for them.") };
+        let text = if unplanned && easy {
+            omsi_ui::tr("No tours ran: the company's lines were not in service yet. They go into service by themselves the next morning.")
+        } else if unplanned {
+            omsi_ui::tr("No tours ran: the company's lines are not in service yet. Plan their tours and start their service on the Planning page.")
+        } else { omsi_ui::tr("No tours ran: add lines on the Lines page, and buy buses and hire drivers for them.") };
         facts.insert(0, Fact { text: text.into_owned(), colour: TEXT_SOFT, fixes: vec![if unplanned { kit::Go::Planning } else { kit::Go::Lines }] });
     }
     // (the easy mode mends what the company does not see to itself)
@@ -1907,6 +1937,10 @@ mod tests {
             assert_ne!(easy_go(g), Some(Go::Planning), "{g:?}");
         }
         assert_eq!((easy_go(Go::Planning), easy_go(Go::Training), easy_go(Go::Dealer)), (None, Some(Go::Courses), Some(Go::Dealer)));
+        // nor to the depot or the research, which it builds and starts by itself; a popup that
+        // needs them offers the advanced mode instead
+        assert_eq!((easy_go(Go::Depot), easy_go(Go::Research), easy_go(Go::Licences)), (None, None, None));
+        assert_eq!(easy_go(Go::Advanced(DEPOT_TAB)), Some(Go::Advanced(DEPOT_TAB)));
     }
 
     #[test]

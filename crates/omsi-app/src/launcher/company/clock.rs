@@ -737,7 +737,8 @@ pub fn ask_dialog(l: &mut Launcher) {
             let f = kit::frame(l, 640.0, 70.0 + th + 24.0 + kit::BUTTON_H + 26.0, "payments", &title);
             l.ui.paragraph(&s, Vec2::new(f.body.x, f.body.y), f.body.w, kit::BODY, Weight::Regular, TEXT_SOFT);
             let mut foot = Foot::new(&f);
-            if foot.right(l, "company-ask-auction", "To the auction", Some("payments"), ButtonKind::Primary) {
+            // (a question left from the advanced mode: the easy mode has no auctions to go to)
+            if super::shown(l, super::CONCESSIONS_TAB) && foot.right(l, "company-ask-auction", "To the auction", Some("payments"), ButtonKind::Primary) {
                 l.company.tab = super::CONCESSIONS_TAB;
                 l.company.tenders.selected = Some(*id);
                 answer = Some((None, false));
@@ -756,7 +757,7 @@ pub fn ask_dialog(l: &mut Launcher) {
             let f = kit::frame(l, 640.0, 70.0 + th + 24.0 + kit::BUTTON_H + 26.0, "wb_twilight", &title);
             l.ui.paragraph(&t, Vec2::new(f.body.x, f.body.y), f.body.w, kit::BODY, Weight::Regular, TEXT_SOFT);
             let mut foot = Foot::new(&f);
-            if foot.right(l, "company-ask-plan", "Open the planning", Some("event"), ButtonKind::Primary) {
+            if super::shown(l, 5) && foot.right(l, "company-ask-plan", "Open the planning", Some("event"), ButtonKind::Primary) {
                 l.company.tab = 5;
                 answer = Some((None, false));
             }

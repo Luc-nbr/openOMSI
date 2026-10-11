@@ -92,10 +92,17 @@ pub(super) fn schedule(l: &mut Launcher, area: Rect, c: &Company) {
     if !open {
         y += 8.0;
         l.ui.icon("lock", Vec2::new(left.x + 30.0, y + 12.0), 18.0, WARN);
-        let ph = l.ui.paragraph("The working hours can be set once the company has researched the shift schedule.", Vec2::new(left.x + 48.0, y), left.w - 68.0, kit::ROWS, Weight::Medium, WARN);
-        let bw = kit::Foot::width(&l.ui, "To the research", Some("science"));
-        if l.ui.button("company-hours-research", Rect::new(left.x + 48.0, y + ph + 10.0, bw, 36.0), "To the research", Some("science"), ButtonKind::Normal) {
-            l.company.tab = super::super::RESEARCH_TAB;
+        let mut ph = l.ui.paragraph("The working hours can be set once the company has researched the shift schedule.", Vec2::new(left.x + 48.0, y), left.w - 68.0, kit::ROWS, Weight::Medium, WARN);
+        // (the easy mode does not research it by itself: the way there is the advanced mode)
+        let go = if omsi_launcher_lib::company::autopilot::on(c) {
+            ph += 6.0 + l.ui.paragraph(super::super::NOT_RESEARCHED_BY_ITSELF, Vec2::new(left.x + 48.0, y + ph + 6.0), left.w - 68.0, kit::NOTE, Weight::Regular, TEXT_DIM);
+            kit::Go::Advanced(super::super::RESEARCH_TAB)
+        } else {
+            kit::Go::Research
+        };
+        let bw = kit::Foot::width(&l.ui, go.label(), Some(go.icon()));
+        if l.ui.button("company-hours-research", Rect::new(left.x + 48.0, y + ph + 10.0, bw, 36.0), go.label(), Some(go.icon()), ButtonKind::Normal) {
+            super::super::go(l, go);
         }
     }
 

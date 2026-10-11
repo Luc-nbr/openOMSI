@@ -205,9 +205,14 @@ fn card_height(ui: &Ui, w: f32, text: &str, bar: bool, goal: bool) -> f32 {
 
 /// A message's card: its icon, title, day, text, reward and bar; returns (clicked, deleted).
 fn card(ui: &mut Ui, r: Rect, c: &Company, m: &Message, text: &str, open: bool) -> (bool, bool) {
+    // (a sheet of its own under the mouse's light: in the light look white, where a see-through
+    // white lift became a muddy patch darker than the ground)
+    ui.p().rounded(r, RADIUS, PANEL);
     let clicked = ui.row(&format!("company-inbox-{}", m.id), r, false);
     let colour = colour_of(m.level);
-    ui.p().rounded(r, RADIUS, if open { accent_2().alpha(0.12) } else { Color::WHITE.alpha(0.03) });
+    if open {
+        ui.p().rounded(r, RADIUS, accent_2().alpha(0.12));
+    }
     ui.p().rounded_border(r, RADIUS, 1.0, if open { accent_2().alpha(0.7) } else { HAIRLINE });
     if !m.read {
         ui.p().rounded(Rect::new(r.x, r.y + 8.0, 4.0, r.h - 16.0), 2.0, accent());

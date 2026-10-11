@@ -38,10 +38,18 @@ pub(super) fn draw(l: &mut Launcher, area: Rect, c: &Company) {
     // (ticket inspectors: after their research)
     if let Err(why) = staff::hireable(c, role) {
         l.ui.icon("lock", Vec2::new(body.x + 14.0, body.y + 14.0), 20.0, TEXT_DIM);
-        let h = l.ui.paragraph(why, Vec2::new(body.x + 34.0, body.y), body.w.min(760.0), kit::BODY, Weight::Regular, TEXT_SOFT);
-        let bw = kit::Foot::width(&l.ui, "To the research", Some("science"));
-        if l.ui.button("company-hire-research", Rect::new(body.x + 34.0, body.y + h + 16.0, bw, 38.0), "To the research", Some("science"), ButtonKind::Primary) {
-            l.company.tab = super::super::RESEARCH_TAB;
+        let mut h = l.ui.paragraph(why, Vec2::new(body.x + 34.0, body.y), body.w.min(760.0), kit::BODY, Weight::Regular, TEXT_SOFT);
+        // (the easy mode does not research it by itself, and its research is the advanced
+        // mode's page: the way there is the advanced mode)
+        let go = if co::autopilot::on(c) {
+            h += 6.0 + l.ui.paragraph(super::super::NOT_RESEARCHED_BY_ITSELF, Vec2::new(body.x + 34.0, body.y + h + 6.0), body.w.min(760.0), kit::NOTE, Weight::Regular, TEXT_DIM);
+            kit::Go::Advanced(super::super::RESEARCH_TAB)
+        } else {
+            kit::Go::Research
+        };
+        let bw = kit::Foot::width(&l.ui, go.label(), Some(go.icon()));
+        if l.ui.button("company-hire-research", Rect::new(body.x + 34.0, body.y + h + 16.0, bw, 38.0), go.label(), Some(go.icon()), ButtonKind::Primary) {
+            super::super::go(l, go);
         }
         return;
     }

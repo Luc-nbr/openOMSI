@@ -66,6 +66,8 @@ impl Game {
 fn draw_bus(ui: &mut Ui, r: Rect, g: &Game) -> Option<Part> {
     let body = Rect::new(r.x, r.y, r.w, r.h * 0.84);
     let main = g.colours[0];
+    // (the bus in the company's colours: a picture, the same in either look)
+    ui.as_drawn();
     ui.p().rounded(body, r.h * 0.07, main);
     // the stripe of the second colour, the windows, the windscreen, the doors
     ui.p().rect(Rect::new(body.x + 6.0, body.y + body.h * 0.66, body.w - 12.0, body.h * 0.08), g.colours[1]);
@@ -97,6 +99,7 @@ fn draw_bus(ui: &mut Ui, r: Rect, g: &Game) -> Option<Part> {
         ui.p().circle(c, r.h * 0.14, Color::rgba(14, 16, 22, 1.0));
         ui.p().circle(c, r.h * 0.07, Color::rgba(110, 116, 128, 1.0));
     }
+    ui.end_as_drawn();
     // the marks
     let mut clicked = None;
     for ch in &g.job.checks {

@@ -216,6 +216,8 @@ fn desk_screen(ui: &mut Ui, g: &Layout, todo: &[Step], deeds: &[(String, String)
     if rest >= 110.0 {
         deeds_card(ui, Rect::new(g.side.x, g.side.y + steps_h + GAP, g.side.w, rest), deeds);
     }
+    // (the tiles and the ways under them: the tour's stop about them)
+    super::super::tour::anchor("company-easy-tiles", Rect::new(g.more.x, g.side.y, g.more.w, g.height));
     for (t, r) in list.iter().zip(&g.tiles) {
         if home::tile(ui, *r, t) {
             *go = Some(t.to);
@@ -241,6 +243,7 @@ fn phone_screen(ui: &mut Ui, v: Rect, todo: &[Step], deeds: &[(String, String)],
     y += h + gap;
     let tw = ((v.w - gap) / 2.0).floor();
     let th = 104.0;
+    super::super::tour::anchor("company-easy-tiles", Rect::new(v.x, y, v.w, list.len().div_ceil(2) as f32 * (th + gap) - gap));
     for (k, t) in list.iter().enumerate() {
         let r = Rect::new(v.x + (k % 2) as f32 * (tw + gap), y + (k / 2) as f32 * (th + gap), tw, th);
         if home::tile(ui, r, t) {
@@ -291,6 +294,7 @@ fn steps_height(ui: &Ui, w: f32, todo: &[Step]) -> f32 {
 /// "What to do next": every step with its mark - done, the one to do now with its words and
 /// its button, those after it faint.
 fn steps_card(ui: &mut Ui, r: Rect, todo: &[Step], go: &mut Option<To>) {
+    super::super::tour::anchor("company-easy-steps", r);
     ui.card(r);
     kit::caps(ui, Rect::new(r.x + PAD, r.y + 14.0, r.w - 2.0 * PAD, 16.0), "What to do next");
     let now = current(todo);
@@ -347,6 +351,7 @@ fn steps_card(ui: &mut Ui, r: Rect, todo: &[Step], go: &mut Option<To>) {
 /// What the company saw to by itself, the newest first, as many as the card holds; without any
 /// yet, what it will see to.
 fn deeds_card(ui: &mut Ui, r: Rect, deeds: &[(String, String)]) {
+    super::super::tour::anchor("company-easy-deeds", r);
     ui.card(r);
     kit::caps(ui, Rect::new(r.x + PAD, r.y + 14.0, r.w - 2.0 * PAD, 16.0), "Done by the company itself");
     let x = r.x + PAD;
