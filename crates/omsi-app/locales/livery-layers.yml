@@ -1,0 +1,9 @@
+_version: 2
+# The livery studio: prints on the windows, and making a layer ("Create layer" and its kinds).
+"On this bus a print on the windows shows only as a tint: how see-through its glass is, a livery cannot change.":
+  de: "Bei diesem Bus zeigt sich ein Aufdruck auf den Fenstern nur als Tönung: Wie durchsichtig das Glas ist, kann eine Lackierung nicht ändern."
+  fr: "Sur ce bus, une impression sur les vitres n'apparaît que comme une teinte : la transparence du verre, une livrée ne peut pas la changer."
+  nl: "Op deze bus is een opdruk op de ramen alleen als tint te zien: hoe doorzichtig het glas is, kan een lak niet veranderen."
+  pl: "W tym autobusie nadruk na szybach widać tylko jako przyciemnienie: przezroczystości szyb malowanie nie może zmienić."
+  ru: "На этом автобусе надпечатка на окнах видна лишь как тонировка: прозрачность стекла окраска изменить не может."
+  uk: "На цьому автобусі друк на вікнах видно лише як тонування: прозорість скла фарбування змінити не може."

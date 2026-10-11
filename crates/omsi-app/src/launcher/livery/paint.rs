@@ -8,7 +8,7 @@
 //! While editing this runs on a worker at the editing size; the export runs the same at the full
 //! size, a band of rows at a time.
 
-use super::bake::{Bake, Sample, Zones, BLACK, COVERED, GLASS, KEEP, OUTSIDE};
+use super::bake::{Bake, Sample, Zones, BLACK, COVERED, GLASS, KEEP, OUTSIDE, SEE_THROUGH};
 use super::colour::{self, to_linear, to_srgb};
 use super::model::{self, BusDims, Gradient, Kind, Layer, Place};
 use super::shapes::{self, Raster};
@@ -670,7 +670,8 @@ fn cover(p: &mut Paint, n: [f32; 3], a: f32) {
 /// a decal (a text, a shape, a picture: where the player put it), paints the whole texel, with
 /// the base's shading. The windows (`GLASS`) take only the layers
 /// that go over them, as a print on the glass: in full, without the base's shading, and less
-/// see-through where the print covers them (the glass's alpha is its transparency).
+/// see-through where the print covers them (the glass's alpha is its transparency). On a
+/// window's see-through map (`SEE_THROUGH`, its `[matl_transmap]`) only that alpha changes.
 pub fn composite(cv: &Canvas, ops: &[Prepared], dims: &BusDims, from: Option<(&[Paint], usize)>, keep: Option<usize>) -> (Vec<u8>, Option<Vec<Paint>>) {
     let n = cv.base.len();
     let aa = 0.6 / cv.bake.density.max(1.0);
@@ -695,7 +696,8 @@ pub fn composite(cv: &Canvas, ops: &[Prepared], dims: &BusDims, from: Option<(&[
             *k = pt;
         }
         if s1.flags & COVERED != 0 && s1.flags & KEEP == 0 {
-            let glass = s1.flags & GLASS != 0 && !(cv.alpha && b[3] >= 240);
+            // (on a window's see-through map every texel is the window's)
+            let glass = s1.flags & SEE_THROUGH != 0 || (s1.flags & GLASS != 0 && !(cv.alpha && b[3] >= 240));
             let outside = |s: &Sample| if s.flags & OUTSIDE != 0 { 1.0 } else { 0.0 };
             let ratio = cv.detail[i] as f32 / 100.0;
             for (j, p) in ops.iter().enumerate().skip(first_op) {
@@ -769,14 +771,24 @@ pub fn composite(cv: &Canvas, ops: &[Prepared], dims: &BusDims, from: Option<(&[
     let mut out = vec![0u8; n * 4];
     out.par_chunks_mut(4).enumerate().for_each(|(i, px)| {
         let c = lin[i];
-        px[0] = to_srgb(c[0]);
-        px[1] = to_srgb(c[1]);
-        px[2] = to_srgb(c[2]);
+        // (a window's see-through map keeps its colours: only how see-through it is changes)
+        if cv.bake.first[i].flags & SEE_THROUGH != 0 {
+            px[..3].copy_from_slice(&cv.base[i][..3]);
+        } else {
+            px[0] = to_srgb(c[0]);
+            px[1] = to_srgb(c[1]);
+            px[2] = to_srgb(c[2]);
+        }
         px[3] = over_alpha(cv.base[i][3], c[3]);
     });
     // (a bled texel takes the alpha its source got: the print's edge on the glass)
     for (dst, src) in alpha_from {
         out[dst as usize * 4 + 3] = over_alpha(cv.base[src as usize][3], lin[src as usize][3]);
+    }
+    for &(dst, src) in &cv.bake.bleed {
+        if cv.bake.first[src as usize].flags & SEE_THROUGH != 0 {
+            out[dst as usize * 4..dst as usize * 4 + 3].copy_from_slice(&cv.base[dst as usize][..3]);
+        }
     }
     (out, kept)
 }
@@ -1043,6 +1055,78 @@ mod tests {
         let (rgba, _) = composite(&cv, &prepare(&[half], &cx(dims), &mut RasterCache::default()), &dims, None, None);
         let a = px(&rgba, 64, 60, 28)[3];
         assert!((175..=180).contains(&a), "{a}");
+    }
+
+    /// The box bus with its right side a window of a texture of its own (target 1), its
+    /// normals turned into the bus as the O405's are, its see-through from a map of its own
+    /// (target 2) when `map`.
+    fn own_glass(map: bool) -> super::super::bake::BusGeom {
+        let mut g = box_bus();
+        for k in [2, 3] {
+            g.tris[k].glass = true;
+            g.tris[k].target = Some(1);
+            g.tris[k].vn = [Vec3::NEG_X; 3];
+            g.tris[k].trans = map.then_some(2);
+        }
+        g
+    }
+
+    /// A red rectangle 4 x 2 m over the right side's middle, over the windows or not.
+    fn foil(over: bool) -> Layer {
+        let mut place = Place::new(Side::R, Vec3::new(1.25, 0.0, 1.8), 4.0);
+        place.height_m = Some(2.0);
+        let mut l = layer("Foil", Kind::Shape { shape: "rechthoek".into(), colour: "#ff0000".into(), outline: None, gradient: None, place });
+        l.detail = 0.0;
+        l.over_glass = over;
+        l
+    }
+
+    #[test]
+    fn a_print_goes_onto_a_window_whose_model_turns_it_inward() {
+        // (Luc's O405 G: a picture over a side window with "Also over the windows" on showed
+        // nothing - the panes' normals point into the bus, and every decal looked away from them)
+        let g = own_glass(false);
+        let out = Outside::build(&g.tris);
+        let (w, h) = (64, 32);
+        // tinted glass, a quarter opaque
+        let base: Vec<u8> = (0..w * h).flat_map(|_| [40u8, 50, 60, 64]).collect();
+        let cv = Canvas::build(&g.tris, 1, w, h, 0, h, &base, &out, &Zones::of(&[[40, 50, 60]]));
+        // the texel at the side's middle (u 0.76: 0.2 m along, v 0.52: 1.75 m up)
+        let i = 16 * 64 + 48;
+        let s = cv.bake.first[i];
+        assert!(s.flags & GLASS != 0 && s.flags & OUTSIDE != 0, "{s:?}");
+        assert!(s.normal().x > 0.9, "the pane faces out: {s:?}");
+        let cx = Context { mirror: None, ..cx(g.dims) };
+        let paint = |over: bool| composite(&cv, &prepare(&[foil(over)], &cx, &mut RasterCache::default()), &g.dims, None, None).0;
+        assert_eq!(px(&paint(false), 64, 48, 16), [40, 50, 60, 64], "without the option the window keeps its own");
+        assert_eq!(px(&paint(true), 64, 48, 16), [255, 0, 0, 255], "a print on the glass, seen from outside");
+        // at half its opacity the glass stays a little see-through
+        let mut half = foil(true);
+        half.opacity = 0.5;
+        let a = px(&composite(&cv, &prepare(&[half], &cx, &mut RasterCache::default()), &g.dims, None, None).0, 64, 48, 16)[3];
+        assert!((155..=165).contains(&a), "{a}");
+    }
+
+    #[test]
+    fn a_window_with_a_see_through_map_is_less_see_through_under_a_print() {
+        // (the O405's windows: their colour in o405g_glass.png, how see-through they are in
+        // o405g_glasstrans.png - the print's colour went onto the first, while the game took
+        // the window's see-through from the second, untouched)
+        let g = own_glass(true);
+        let out = Outside::build(&g.tris);
+        let map: Vec<u8> = (0..32 * 16).flat_map(|_| [128u8, 128, 128, 70]).collect();
+        let cv = Canvas::build(&g.tris, 2, 32, 16, 0, 16, &map, &out, &Zones::default());
+        let s = cv.bake.first[8 * 32 + 24];
+        assert!(s.flags & SEE_THROUGH != 0 && s.flags & GLASS != 0 && s.flags & OUTSIDE != 0, "{s:?}");
+        assert!(cv.bake.first[8 * 32 + 8].flags & COVERED == 0, "the body is not on the map");
+        let cx = Context { mirror: None, ..cx(g.dims) };
+        let paint = |over: bool| composite(&cv, &prepare(&[foil(over)], &cx, &mut RasterCache::default()), &g.dims, None, None).0;
+        assert_eq!(px(&paint(false), 32, 24, 8), [128, 128, 128, 70], "without the option the map stays");
+        assert_eq!(px(&paint(true), 32, 24, 8), [128, 128, 128, 255], "under the print the window is opaque; the map keeps its colour");
+        // the window's colour still goes onto its own texture
+        let base: Vec<u8> = (0..64 * 32).flat_map(|_| [40u8, 50, 60, 255]).collect();
+        let glass = Canvas::build(&g.tris, 1, 64, 32, 0, 32, &base, &out, &Zones::of(&[[40, 50, 60]]));
+        assert_eq!(px(&composite(&glass, &prepare(&[foil(true)], &cx, &mut RasterCache::default()), &g.dims, None, None).0, 64, 48, 16), [255, 0, 0, 255]);
     }
 
     /// A yellow body, shaded at one end (from 0.6 of its light to all of it), with a black trim (the

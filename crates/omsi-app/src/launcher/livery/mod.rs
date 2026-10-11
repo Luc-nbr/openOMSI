@@ -26,7 +26,7 @@ mod studio;
 
 use super::showroom::{Look, Showroom};
 use super::{Launcher, Page};
-use bake::{BusGeom, MeshIn, Outside, Role, SlotUse, Zones};
+use bake::{BusGeom, MeshIn, Outside, Role, SeeThrough, Slot, SlotUse, Zones};
 use glam::{Mat4, Vec2};
 use model::{Doc, History, Project};
 use omsi_render::{Renderer, TextureId};
@@ -191,9 +191,8 @@ pub struct Ready {
     /// The layers last sent (a change sends them again).
     last: Option<(Vec<model::Layer>, model::Mirror)>,
     showing_base: bool,
-    /// Whether the windows can carry the livery (their texture is one the livery changes); None:
-    /// a bus without windows.
-    pub windows: Option<bool>,
+    /// What the windows can take of the livery; None: a bus without windows.
+    pub windows: Option<Windows>,
     /// The canvases the painter paints (for what their texels are: shared by both sides).
     pub canvases: Arc<Vec<paint::Canvas>>,
     /// The paint at the full size (`sharpen`): for which painting (`shown`), per texture (None:
@@ -213,6 +212,45 @@ impl Drop for Ready {
     }
 }
 
+/// What a bus's windows can take of the livery: a print on the glass (window advertising, a
+/// wrap over the windows) needs the glass's texture and how see-through it is both to be ones
+/// the livery changes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Windows {
+    /// A print goes onto the glass, seen from outside; where it covers less, the glass stays a
+    /// little see-through.
+    Print,
+    /// The glass's texture is the livery's, but how see-through it is comes from a map the
+    /// livery cannot change: a print shows only as a tint.
+    Faint,
+    /// The glass's texture is not one a livery changes: nothing goes onto the windows.
+    No,
+}
+
+/// What the windows of a bus can take: `glass` its windows' slots (the painted texture each
+/// shows, where its see-through comes from), `painted` the textures the livery paints.
+pub fn windows_of(glass: &[(Option<u8>, SeeThrough)], painted: &[u8]) -> Option<Windows> {
+    if glass.is_empty() {
+        return None;
+    }
+    let ours = |k: Option<u8>| k.is_some_and(|k| painted.contains(&k));
+    let print = glass.iter().any(|(t, s)| {
+        ours(*t)
+            && match s {
+                SeeThrough::Own => true,
+                SeeThrough::Map(k) => painted.contains(k),
+                SeeThrough::Fixed => false,
+            }
+    });
+    Some(if print {
+        Windows::Print
+    } else if glass.iter().any(|(t, _)| ours(*t)) {
+        Windows::Faint
+    } else {
+        Windows::No
+    })
+}
+
 struct Prepared {
     geom: Arc<BusGeom>,
     outside: Arc<Outside>,
@@ -220,7 +258,7 @@ struct Prepared {
     canvases: Vec<paint::Canvas>,
     bases: Vec<omsi_texture::Image>,
     full: Vec<(u32, u32)>,
-    windows: Option<bool>,
+    windows: Option<Windows>,
     /// A plain start's colours: per paint group the livery's (its median there).
     start_colours: Vec<(u8, [u8; 3])>,
 }
@@ -984,19 +1022,22 @@ pub fn bus_meshes<'a>(parts: &[PartIn<'a>]) -> (Vec<PaintTexture>, Vec<(usize, u
             }
             let def = &p.ty.model.meshes[vm.def_index];
             let role = Role::of_mesh(&def.file, turns_as_wheel(def), def.viewpoint == 0 || def.viewpoint & 1 != 0);
-            let slots: Vec<(Option<u8>, bool, bool)> = vm
+            let slots: Vec<Slot> = vm
                 .materials
                 .iter()
                 .enumerate()
                 .map(|(slot, m)| {
                     let target = keys.iter().position(|k| *k == file_key(&m.texture)).map(|k| k as u8);
-                    let blended = def.materials.iter().any(|d| omsi_sim::vehicle::override_slot(&vm.materials, d) == Some(slot) && d.alpha == 2) || m.diffuse[3] < 0.99;
-                    match role.slot(blended) {
+                    let defs = || def.materials.iter().filter(|d| omsi_sim::vehicle::override_slot(&vm.materials, d) == Some(slot));
+                    let blended = defs().any(|d| d.alpha == 2) || m.diffuse[3] < 0.99;
+                    let see_through = SeeThrough::of(&m.texture, defs().find_map(|d| d.transmap.as_deref()), &keys);
+                    let (target, glass, keep) = match role.slot(blended) {
                         SlotUse::Paint => (target, false, false),
                         SlotUse::Glass => (target, true, false),
                         SlotUse::Keep => (target, blended, true),
                         SlotUse::Skip => (None, blended, false),
-                    }
+                    };
+                    Slot { target, glass, keep, see_through }
                 })
                 .collect();
             if !matches!(role, Role::Body | Role::Decal | Role::Glass) && vm.materials.iter().any(|m| keys.contains(&file_key(&m.texture).as_str())) {
@@ -1040,15 +1081,27 @@ fn prepare(showroom: &mut Showroom, s: &mut Session, root: &str, family_buses: &
     let mut ids: Vec<Vec<TextureId>> = vec![Vec::new(); textures.len()];
     let mut area = vec![0.0f32; textures.len()];
     let mut meshes: Vec<MeshIn> = Vec::with_capacity(found.len());
+    // the windows' slots (their texture, their see-through), for what they can take
+    let mut glass: Vec<(Option<u8>, SeeThrough)> = Vec::new();
     for (p, i, m) in found {
-        for (slot, (target, ..)) in m.slots.iter().enumerate() {
-            let Some(t) = target else { continue };
-            if let Some(inst) = renders[p].instances.get(i).and_then(|k| parts.scene.instances.get(*k)) {
-                if let Some(tex) = inst.materials.get(slot).and_then(|m| parts.scene.materials.get(*m)).and_then(|m| m.texture) {
-                    if !ids[*t as usize].contains(&tex) {
-                        ids[*t as usize].push(tex);
-                    }
+        for (slot, s) in m.slots.iter().enumerate() {
+            if s.glass && !s.keep && m.ranges.iter().any(|r| r.2 as usize == slot && r.1 > 0) && !glass.contains(&(s.target, s.see_through)) {
+                glass.push((s.target, s.see_through));
+            }
+            let Some(mat) = renders[p].instances.get(i).and_then(|k| parts.scene.instances.get(*k)).and_then(|inst| inst.materials.get(slot)).and_then(|m| parts.scene.materials.get(*m)) else { continue };
+            let mut add = |t: u8, tex: TextureId| {
+                if !ids[t as usize].contains(&tex) {
+                    ids[t as usize].push(tex);
                 }
+            };
+            if let (Some(t), Some(tex)) = (s.target, mat.texture) {
+                add(t, tex);
+            }
+            // a window's see-through map: painted too, or its own texture again (the same picture)
+            match (s.see_through, s.target, mat.transmap) {
+                (SeeThrough::Map(t), _, Some((tex, _))) if s.glass => add(t, tex),
+                (SeeThrough::Own, Some(t), Some((tex, _))) => add(t, tex),
+                _ => {}
             }
         }
         meshes.push(m);
@@ -1060,7 +1113,7 @@ fn prepare(showroom: &mut Showroom, s: &mut Session, root: &str, family_buses: &
         s.cam = studio::Cam::fitting(&geom.dims, 6, aspect);
     }
     for t in &geom.tris {
-        if let Some(k) = t.target {
+        for k in t.target.into_iter().chain(t.trans) {
             area[k as usize] += (t.p[1] - t.p[0]).cross(t.p[2] - t.p[0]).length() * 0.5;
         }
     }
@@ -1101,8 +1154,6 @@ fn prepare(showroom: &mut Showroom, s: &mut Session, root: &str, family_buses: &
     if targets.is_empty() {
         return Err(omsi_ui::tr("The paint textures of this bus were not found.").into_owned());
     }
-    // can the windows carry the livery: their texture is one of these
-    let windows = geom.tris.iter().any(|t| t.glass).then(|| geom.tris.iter().any(|t| t.glass && t.target.is_some_and(|k| targets.iter().any(|x| x.index == k))));
     // the names the game knows for this bus, and where each part's .cti files lie
     let own = s.project.placed.as_ref().map(|p| p.name.clone());
     let mut taken: Vec<String> = Vec::new();
@@ -1127,7 +1178,7 @@ fn prepare(showroom: &mut Showroom, s: &mut Session, root: &str, family_buses: &
     }
     s.parts = list.iter().map(|PartIn { ty, scheme: sch, .. }| (ty.model.ctc.first().map(|c| omsi_cfg::resolve_path(ty.def.dir(), &c.path)), sch.map(|i| ty.paint_schemes[i].set_vars.clone()).unwrap_or_default())).collect();
     log::info!(
-        "livery studio: {} part(s), {} meshes, {} triangles, painting {}; the box {:.2?} - {:.2?}, the window line {:?}, windows {}",
+        "livery studio: {} part(s), {} meshes, {} triangles, painting {}; the box {:.2?} - {:.2?}, the window line {:?}, windows {:?}",
         list.len(),
         meshes.len(),
         geom.tris.len(),
@@ -1135,11 +1186,7 @@ fn prepare(showroom: &mut Showroom, s: &mut Session, root: &str, family_buses: &
         geom.dims.min,
         geom.dims.max,
         geom.dims.window,
-        match windows {
-            Some(true) => "paintable",
-            Some(false) => "not paintable",
-            None => "none",
-        }
+        glass
     );
     log::info!("livery studio: kept from the paint: {}", if kept.is_empty() { "nothing".into() } else { kept.join(", ") });
     let geom = Arc::new(geom);
@@ -1158,7 +1205,7 @@ fn prepare(showroom: &mut Showroom, s: &mut Session, root: &str, family_buses: &
                 let mut texels = 0u64;
                 for t in work {
                     let img = omsi_texture::decode_file(&t.base).map_err(|e| format!("{}: {e}", t.base.display()))?;
-                    let (ow, oh) = model::output_size(img.width, img.height);
+                    let (ow, oh) = export::paint_size(&geom, t.index, img.width, img.height);
                     let (mut w, mut h) = model::edit_size(ow, oh);
                     while texels + (w as u64 * h as u64) > EDIT_TEXELS && w.min(h) >= 512 {
                         w /= 2;
@@ -1181,6 +1228,8 @@ fn prepare(showroom: &mut Showroom, s: &mut Session, root: &str, family_buses: &
                 if kept.is_empty() {
                     return Err(omsi_ui::tr("The paint textures of this bus were not found.").into_owned());
                 }
+                let windows = windows_of(&glass, &kept.iter().map(|t| t.index).collect::<Vec<_>>());
+                log::info!("livery studio: the windows {windows:?}");
                 let colours: Vec<Vec<[u8; 3]>> = bakes.iter().zip(&bases).map(|(b, base)| paint::outside_colours(b, &base.rgba)).collect();
                 let zones = Arc::new(Zones::of_targets(&colours));
                 let canvases: Vec<paint::Canvas> = bakes
@@ -1701,6 +1750,22 @@ mod tests {
         assert!(!dir.join("project.json.part").exists());
         assert_eq!(load_project(&dir).map(|x| (x.0.name, x.1)), Some(("saved".into(), false)));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_windows_take_a_print_when_their_texture_and_their_see_through_are_the_livery_s() {
+        use super::{windows_of, SeeThrough, Windows};
+        assert_eq!(windows_of(&[], &[0, 1]), None, "a bus without windows");
+        // the glass's own texture painted, its see-through its own alpha or a painted map
+        assert_eq!(windows_of(&[(Some(1), SeeThrough::Own)], &[0, 1]), Some(Windows::Print));
+        assert_eq!(windows_of(&[(Some(1), SeeThrough::Map(2))], &[0, 1, 2]), Some(Windows::Print));
+        // its see-through a map the livery cannot change (or does not paint): only a tint
+        assert_eq!(windows_of(&[(Some(1), SeeThrough::Fixed)], &[0, 1]), Some(Windows::Faint));
+        assert_eq!(windows_of(&[(Some(1), SeeThrough::Map(2))], &[0, 1]), Some(Windows::Faint));
+        // the glass's texture not one the livery changes
+        assert_eq!(windows_of(&[(None, SeeThrough::Own), (Some(5), SeeThrough::Own)], &[0, 1]), Some(Windows::No));
+        // one kind of window that takes it is enough
+        assert_eq!(windows_of(&[(None, SeeThrough::Own), (Some(1), SeeThrough::Fixed), (Some(0), SeeThrough::Own)], &[0, 1]), Some(Windows::Print));
     }
 
     #[test]

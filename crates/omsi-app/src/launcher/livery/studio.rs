@@ -1411,15 +1411,30 @@ fn layer_props(ui: &mut Ui, s: &mut Session, i: usize, r: Rect, shape_tex: &std:
         layer.over_trim = t;
     }
     y += 36.0;
-    // the windows: a print on the glass (window advertising, a wrap over the windows)
-    if windows.is_some() {
+    // the windows: a print on the glass (window advertising, a wrap over the windows); where
+    // they take nothing or only a tint, said under the toggle at once (it was silently on)
+    if let Some(win) = windows {
         let mut g = layer.over_glass;
+        let mut refused = false;
         if ui.toggle("livery-over-glass", Rect::new(x, y, w, 30.0), &mut g, "Also over the windows") && !layer.locked {
-            layer.over_glass = g;
+            // (where the windows take nothing it only goes off)
+            refused = g && win == super::Windows::No;
+            if !refused {
+                layer.over_glass = g;
+            }
         }
         y += 36.0;
-        if windows == Some(false) && layer.over_glass {
-            y = hint(ui, x, y, w, "This bus's windows cannot carry a livery: their texture is not one a livery can change.");
+        let why = match win {
+            super::Windows::Print => None,
+            super::Windows::Faint => Some("On this bus a print on the windows shows only as a tint: how see-through its glass is, a livery cannot change."),
+            super::Windows::No => Some("This bus's windows cannot carry a livery: their texture is not one a livery can change."),
+        };
+        if let Some(why) = why {
+            ui.icon("info", Vec2::new(x + 8.0, y + 9.0), 14.0, WARN);
+            y = hint(ui, x + 22.0, y, w - 22.0, why);
+        }
+        if refused {
+            s.say(omsi_ui::tr("This bus's windows cannot carry a livery: their texture is not one a livery can change."), true);
         }
     }
     y + 4.0

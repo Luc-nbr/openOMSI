@@ -23,6 +23,10 @@ pub struct Tri {
     pub glass: bool,
     /// Never painted, nor what shares its texels: a wheel, a lamp, a rubber, a mirror's glass.
     pub keep: bool,
+    /// A window's see-through map (`[matl_transmap]`) when that is a painted texture of its own
+    /// (`SeeThrough::Map`): the triangle lies on it too, and a print on the glass makes the
+    /// window less see-through there.
+    pub trans: Option<u8>,
 }
 
 /// A mesh as it comes from the model, for `BusGeom::build`.
@@ -33,9 +37,52 @@ pub struct MeshIn<'a> {
     pub indices: &'a [u32],
     /// (first index, count, slot) as `MeshData::ranges`.
     pub ranges: &'a [(u32, u32, u32)],
-    /// Per slot: the painted texture it shows, whether it is glass and whether it is kept.
-    pub slots: Vec<(Option<u8>, bool, bool)>,
+    pub slots: Vec<Slot>,
     pub transform: Mat4,
+}
+
+/// What a material slot of a mesh is to the paint.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Slot {
+    /// The painted texture it shows, if any.
+    pub target: Option<u8>,
+    pub glass: bool,
+    pub keep: bool,
+    pub see_through: SeeThrough,
+}
+
+/// Where a slot's see-through comes from. A window is as see-through as its texture's alpha
+/// says - unless the model gives it a `[matl_transmap]`, whose alpha says it instead (the
+/// O405's windows: `o405g_glass.png` their colour, `o405g_glasstrans.png` how see-through
+/// they are). A print on the glass shows only where it makes the window less see-through.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SeeThrough {
+    /// Its own texture's alpha (no transmap, or its own texture as one).
+    #[default]
+    Own,
+    /// A transmap the livery paints too: painted texture `n`.
+    Map(u8),
+    /// A transmap the livery cannot change (not one of the bus's `[CTCTexture]`s): how
+    /// see-through the window is stays as it is.
+    Fixed,
+}
+
+impl SeeThrough {
+    /// The see-through of a slot showing `texture` with the transmap `transmap`, among the
+    /// painted textures `keys` (file keys, lower case).
+    pub fn of(texture: &str, transmap: Option<&str>, keys: &[&str]) -> SeeThrough {
+        let key = |f: &str| f.trim().rsplit(['\\', '/']).next().unwrap_or("").to_ascii_lowercase();
+        // (a script texture as the transmap is a display's, not a window's)
+        let Some(t) = transmap.map(str::trim).filter(|t| !t.is_empty() && !t.starts_with("\\S:")) else { return SeeThrough::Own };
+        let k = key(t);
+        if k == key(texture) {
+            return SeeThrough::Own;
+        }
+        match keys.iter().position(|x| *x == k) {
+            Some(n) => SeeThrough::Map(n as u8),
+            None => SeeThrough::Fixed,
+        }
+    }
 }
 
 // --- what a mesh is to the paint ---------------------------------------------------------------
@@ -145,7 +192,11 @@ impl BusGeom {
             let nm = m.transform.inverse().transpose();
             let (mut lo, mut hi) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
             for &(first, count, slot) in m.ranges {
-                let (target, glass, keep) = m.slots.get(slot as usize).copied().unwrap_or((None, false, false));
+                let Slot { target, glass, keep, see_through } = m.slots.get(slot as usize).copied().unwrap_or_default();
+                let trans = match see_through {
+                    SeeThrough::Map(k) if glass && !keep && Some(k) != target => Some(k),
+                    _ => None,
+                };
                 for t in m.indices[first as usize..(first + count) as usize].chunks_exact(3) {
                     let i = [t[0] as usize, t[1] as usize, t[2] as usize];
                     if i.iter().any(|&k| k >= m.positions.len()) {
@@ -163,7 +214,7 @@ impl BusGeom {
                         lo = lo.min(q);
                         hi = hi.max(q);
                     }
-                    tris.push(Tri { p, vn, uv, n, target, glass, keep });
+                    tris.push(Tri { p, vn, uv, n, target, glass, keep, trans });
                 }
             }
             if tris.len() > start {
@@ -288,6 +339,9 @@ pub fn window_line(tris: &[Tri], lo: Vec3, hi: Vec3) -> Option<f32> {
 /// the inside of the body, and what lies behind the windows, is not.
 pub struct Outside {
     maps: Vec<DepthMap>,
+    /// The middle of the box round the triangles, and half its size each way.
+    middle: Vec3,
+    half: Vec3,
 }
 
 struct DepthMap {
@@ -324,7 +378,21 @@ impl Outside {
             }
         }
         let maps = dirs.par_iter().map(|&d| Self::map(tris, d)).collect();
-        Outside { maps }
+        let (mut lo, mut hi) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
+        for p in tris.iter().flat_map(|t| t.p) {
+            lo = lo.min(p);
+            hi = hi.max(p);
+        }
+        let (middle, half) = if lo.is_finite() { ((lo + hi) * 0.5, ((hi - lo) * 0.5).max(Vec3::splat(0.01))) } else { (Vec3::ZERO, Vec3::ONE) };
+        Outside { maps, middle, half }
+    }
+
+    /// Which way a window's pane at `p` faces out: `n` or `-n`, the one away from the bus's
+    /// middle. A pane is thin and seen from both sides, and its model may turn its normals
+    /// either way (the O405's side windows point theirs into the bus, and a print on them
+    /// faced away from every decal: nothing was painted there).
+    pub fn out_of(&self, p: Vec3, n: Vec3) -> Vec3 {
+        if n.dot((p - self.middle) / self.half) < 0.0 { -n } else { n }
     }
 
     fn map(tris: &[Tri], d: Vec3) -> DepthMap {
@@ -409,6 +477,9 @@ pub const OUTSIDE: u8 = 2;
 pub const KEEP: u8 = 4;
 /// A window lies on the texel: painted only by the layers that go over the windows.
 pub const GLASS: u8 = 8;
+/// The texel is a window's see-through map (`Tri::trans`): a print on the glass changes only
+/// its alpha, how see-through the window is there; its colour stays.
+pub const SEE_THROUGH: u8 = 16;
 
 impl Sample {
     pub fn normal(&self) -> Vec3 {
@@ -456,7 +527,8 @@ impl Bake {
         let mut first = vec![Sample::default(); n];
         let mut second = vec![u32::MAX; n];
         let mut extra: Vec<Sample> = Vec::new();
-        let mine: Vec<&Tri> = tris.iter().filter(|t| t.target == Some(target)).collect();
+        // (a window lies on its see-through map as on its own texture)
+        let mine: Vec<&Tri> = tris.iter().filter(|t| t.target == Some(target) || t.trans == Some(target)).collect();
         // per triangle: its texel corners, moved into the texture's 0..1 by its middle's tile
         let corners: Vec<[Vec2; 3]> = mine
             .iter()
@@ -481,7 +553,8 @@ impl Bake {
                         density.push((area.abs() / world).sqrt());
                     }
                 }
-                let class = if t.keep { KEEP } else { 0 } | if t.glass { GLASS } else { 0 };
+                let see = t.target != Some(target);
+                let class = if t.keep { KEEP } else { 0 } | if t.glass { GLASS } else { 0 } | if see { SEE_THROUGH } else { 0 };
                 let edge = |a: Vec2, b: Vec2| (b - a).length().max(1e-6);
                 let lens = [edge(q[1], q[2]), edge(q[2], q[0]), edge(q[0], q[1])];
                 let bl = (q[0].min(q[1]).min(q[2]) - Vec2::splat(margin)).floor();
@@ -504,6 +577,8 @@ impl Bake {
                         bw /= (bw.x + bw.y + bw.z).max(1e-9);
                         let p = t.p[0] * bw.x + t.p[1] * bw.y + t.p[2] * bw.z;
                         let nn = (t.vn[0] * bw.x + t.vn[1] * bw.y + t.vn[2] * bw.z).normalize_or(t.n);
+                        // (a window: the face seen from outside, whichever way the model turns it)
+                        let nn = if t.glass { outside.out_of(p, nn) } else { nn };
                         let i = (wy - ry0) as usize * wu + x.rem_euclid(w as i64) as usize;
                         if first[i].flags & COVERED == 0 {
                             first[i] = Sample::of(p, nn);
@@ -907,7 +982,7 @@ pub mod tests {
         let (x0, x1, y0, y1, z0, z1) = (-1.25f32, 1.25, -6.0, 6.0, 0.3, 3.3);
         let quad = |a: Vec3, b: Vec3, c: Vec3, d: Vec3, uv: [Vec2; 4], target: Option<u8>, glass: bool| -> [Tri; 2] {
             let n = (b - a).cross(c - a).normalize();
-            [Tri { p: [a, b, c], vn: [n; 3], uv: [uv[0], uv[1], uv[2]], n, target, glass, keep: false }, Tri { p: [a, c, d], vn: [n; 3], uv: [uv[0], uv[2], uv[3]], n, target, glass, keep: false }]
+            [Tri { p: [a, b, c], vn: [n; 3], uv: [uv[0], uv[1], uv[2]], n, target, glass, keep: false, trans: None }, Tri { p: [a, c, d], vn: [n; 3], uv: [uv[0], uv[2], uv[3]], n, target, glass, keep: false, trans: None }]
         };
         let v = Vec3::new;
         let uvq = |u0: f32, u1: f32| [Vec2::new(u0, 1.0), Vec2::new(u1, 1.0), Vec2::new(u1, 0.0), Vec2::new(u0, 0.0)];
@@ -1062,6 +1137,24 @@ pub mod tests {
         let base = vec![128u8; 64 * 32 * 4];
         let colours = super::super::paint::outside_colours(&b, &base);
         assert!(colours.len() < 64 * 32 / 2 + 8, "{}", colours.len());
+    }
+
+    #[test]
+    fn a_window_s_see_through_comes_from_its_own_texture_or_its_transmap() {
+        let keys = ["body.tga", "glass.png", "glass_trans.png"];
+        assert_eq!(SeeThrough::of("glass.png", None, &keys), SeeThrough::Own);
+        assert_eq!(SeeThrough::of("glass.png", Some("Texture\\GLASS.png"), &keys), SeeThrough::Own, "itself as its transmap");
+        assert_eq!(SeeThrough::of("glass.png", Some(" glass_trans.png "), &keys), SeeThrough::Map(2));
+        assert_eq!(SeeThrough::of("body.tga", Some("folie_trans.tga"), &keys), SeeThrough::Fixed, "not one of the bus's [CTCTexture]s");
+        assert_eq!(SeeThrough::of("display.dds", Some("\\S:1"), &keys), SeeThrough::Own, "a display's script texture");
+        // a window's triangles lie on its see-through map too; a body's do not
+        let positions = [Vec3::new(1.0, 0.0, 0.0), Vec3::new(1.0, 1.0, 0.0), Vec3::new(1.0, 1.0, 1.0)];
+        let uvs = [Vec2::ZERO, Vec2::X, Vec2::ONE];
+        let mesh = |slot: Slot| BusGeom::build(&[MeshIn { positions: &positions, normals: &[], uvs: &uvs, indices: &[0, 1, 2], ranges: &[(0, 3, 0)], slots: vec![slot], transform: Mat4::IDENTITY }]);
+        let window = mesh(Slot { target: Some(1), glass: true, keep: false, see_through: SeeThrough::Map(2) });
+        assert_eq!((window.tris[0].target, window.tris[0].trans), (Some(1), Some(2)));
+        let body = mesh(Slot { target: Some(0), glass: false, keep: false, see_through: SeeThrough::Map(2) });
+        assert_eq!(body.tris[0].trans, None);
     }
 
     #[test]

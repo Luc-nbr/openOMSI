@@ -197,7 +197,6 @@ fn rel(p: &Path, content: &Path) -> String {
     p.strip_prefix(content).unwrap_or(p).to_string_lossy().replace('\\', "/")
 }
 
-/// Texels a metre of target `index` at `w` x `h`.
 /// What the textures are painted from: the bus's shape, its colour zones per texture, the
 /// layers, their pictures and the mirror plane.
 pub struct Painting<'a> {
@@ -215,7 +214,7 @@ pub struct Painting<'a> {
 /// is (0..1); None when `stop` said so between two bands.
 pub fn paint_full(from: &Painting, k: usize, index: u8, base: &Path, template: Option<&[PathBuf; 2]>, stop: &dyn Fn() -> bool, progress: &dyn Fn(f32)) -> Result<Option<(Vec<u8>, u32, u32, bool)>, String> {
     let img = omsi_texture::decode_file(base).map_err(|e| format!("{}: {e}", base.display()))?;
-    let (w, h) = model::output_size(img.width, img.height);
+    let (w, h) = paint_size(from.geom, index, img.width, img.height);
     let base = if (w, h) != (img.width, img.height) { omsi_texture::bc::resize(&img.rgba, img.width, img.height, w, h) } else { img.rgba };
     let alpha = base.chunks_exact(4).any(|p| p[3] < 255);
     let mut out = vec![0u8; (w * h * 4) as usize];
@@ -245,11 +244,27 @@ pub fn paint_full(from: &Painting, k: usize, index: u8, base: &Path, template: O
     Ok(Some((out, w, h, alpha)))
 }
 
+/// The size texture `index` of the bus (`w` x `h` as read) is painted and written at: its own
+/// (`model::output_size`) - but a window's see-through map that is coarser than 1024 texels on
+/// its long side twice as large until it is not (the MAN NL's `trans.tga` is 256 x 256: a print
+/// on its glass was sharp in colour and see-through in blocks of 5 cm). The game takes a
+/// texture of any size in its place.
+pub fn paint_size(geom: &BusGeom, index: u8, w: u32, h: u32) -> (u32, u32) {
+    let (mut w, mut h) = model::output_size(w, h);
+    let map = geom.tris.iter().any(|t| t.trans == Some(index)) && !geom.tris.iter().any(|t| t.target == Some(index));
+    while map && w.max(h) < 1024 {
+        w *= 2;
+        h *= 2;
+    }
+    (w, h)
+}
+
+/// Texels a metre of target `index` at `w` x `h`.
 pub fn density_of(geom: &BusGeom, index: u8, w: u32, h: u32) -> f32 {
     let mut d: Vec<f32> = geom
         .tris
         .iter()
-        .filter(|t| t.target == Some(index))
+        .filter(|t| t.target == Some(index) || t.trans == Some(index))
         .take(4096)
         .filter_map(|t| {
             let uv = (t.uv[1] - t.uv[0]).perp_dot(t.uv[2] - t.uv[0]).abs() * (w * h) as f32;
@@ -431,6 +446,19 @@ mod tests {
         omsi_cfg::remove_content_root(&content);
         omsi_cfg::remove_content_root(&install);
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn a_coarse_see_through_map_is_painted_finer() {
+        let mut g = box_bus();
+        // the right side a window whose see-through map is texture 2
+        for k in [2, 3] {
+            g.tris[k].glass = true;
+            g.tris[k].trans = Some(2);
+        }
+        assert_eq!(paint_size(&g, 2, 256, 256), (1024, 1024));
+        assert_eq!(paint_size(&g, 2, 2048, 1024), (2048, 1024));
+        assert_eq!(paint_size(&g, 0, 256, 256), (256, 256), "a texture of its own stays as it is");
     }
 
     #[test]
