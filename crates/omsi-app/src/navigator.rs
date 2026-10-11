@@ -2365,6 +2365,13 @@ fn confirm_road_surfaces(net: &mut Network, surfaces: &[(Vec<DVec3>, f32)]) {
     for i in keep { net.lanes[i].invisible = false; }
 }
 
+/// Two paths of one spline whose middles lie at most this far apart are neighbouring lanes
+/// of one carriageway, however narrow the map makes them: a path is as wide as the vehicle
+/// on it (2.5 m paths on a 4 m pitch are common), so the strip between their edges is road
+/// too - drawn apart, a two-lane street was two strips with a dark line between them. A
+/// median or a tram track in the middle puts the paths further apart than any lane is wide.
+const LANE_PITCH_MAX: f32 = 4.6;
+
 /// Traffic paths are lane centres, not separate streets. Adjacent paths on one spline
 /// describe one carriageway; combine their footprints without filling a median. Align
 /// opposing directions before averaging so bends, mirrors and ramps retain their shape.
@@ -2383,12 +2390,14 @@ fn road_geometry(net: &Network) -> Vec<MapRoad> {
         let mut start = 0;
         while start < lanes.len() {
             let a = lanes[start];
-            let lo = a.offset - a.width.max(2.6) * 0.5;
+            let mut lo = a.offset - a.width.max(2.6) * 0.5;
             let mut hi = a.offset + a.width.max(2.6) * 0.5;
             let mut end = start + 1;
             while end < lanes.len() {
                 let b = lanes[end];
-                if b.points.len() != a.points.len() || b.offset - b.width.max(2.6) * 0.5 > hi + 0.65 { break; }
+                let touching = b.offset - b.width.max(2.6) * 0.5 <= hi + 0.65;
+                let neighbour = b.offset - lanes[end - 1].offset <= LANE_PITCH_MAX;
+                if b.points.len() != a.points.len() || !(touching || neighbour) { break; }
                 let mid = a.points.len() / 2;
                 let za = a.points[if a.reversed { a.points.len() - 1 - mid } else { mid }].z;
                 let zb = b.points[if b.reversed { b.points.len() - 1 - mid } else { mid }].z;
@@ -2397,6 +2406,18 @@ fn road_geometry(net: &Network) -> Vec<MapRoad> {
                 end += 1;
             }
             let b = lanes[end - 1];
+            // (lanes side by side are each a pitch wide, the outer ones too: their road reaches
+            // half a pitch past their middles, not only their narrower paths' edges)
+            if end - start >= 2 {
+                let first = lanes[start + 1].offset - a.offset;
+                let last = b.offset - lanes[end - 2].offset;
+                if first <= LANE_PITCH_MAX {
+                    lo = lo.min(a.offset - first * 0.5);
+                }
+                if last <= LANE_PITCH_MAX {
+                    hi = hi.max(b.offset + last * 0.5);
+                }
+            }
             let span = b.offset - a.offset;
             let t = if span.abs() > 0.01 { (((lo + hi) * 0.5 - a.offset) / span) as f64 } else { 0.0 };
             let point = |l: &omsi_sim::traffic::Lane, i: usize| l.points[if l.reversed { l.points.len() - 1 - i } else { i }];
@@ -4786,6 +4807,27 @@ mod tests {
         // Display geometry must not replace or move the graph used by routing.
         assert_eq!(net.lanes.len(), 4);
         assert_eq!(net.lanes[0].points[0].y, 100.0);
+    }
+
+    /// A two-lane street of paths narrower than its lanes (2.5 m paths, 4 m apart - Rheinhausen
+    /// and Bad Hügelsdorf have hundreds) is one carriageway as wide as its two lanes, not two
+    /// strips with the gap between their edges left out.
+    #[test]
+    fn narrow_paths_on_a_lanes_pitch_are_one_carriageway() {
+        for (pitch, width) in [(4.0f32, 8.0f32), (3.5, 7.0)] {
+            let mut lanes = Vec::new();
+            for (path, offset) in [-pitch * 0.5, pitch * 0.5].into_iter().enumerate() {
+                let mut lane = omsi_sim::traffic::LaneBuilder::polyline(vec![DVec3::new(offset as f64, 0.0, 0.0), DVec3::new(offset as f64, 100.0, 0.0)], LaneKind::Street, 2.5);
+                lane.source = 1;
+                lane.key = Some(LaneKey { tile: (0, 0), id: 7, path: path as u16 });
+                lane.offset = offset;
+                lanes.push(lane);
+            }
+            let roads = road_geometry(&Network { lanes, ..Default::default() });
+            assert_eq!(roads.len(), 1, "a pitch of {pitch} m");
+            assert!((roads[0].width - width).abs() < 1e-4, "{} for a pitch of {pitch} m", roads[0].width);
+            assert!(roads[0].points[0].x.abs() < 1e-6);
+        }
     }
 
     #[test]

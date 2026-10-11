@@ -5,6 +5,8 @@
 //! larger of the two at the point's depth is used, so a road keeps its true width near
 //! the camera and never thins below a few pixels far away, a marker can be sized in
 //! pixels and still stand on its spot - without rebuilding anything when the view zooms.
+//! An untextured world vertex's `uv.x` is an edge in pixels added to that width (a road's
+//! casing round its surface, [`Painter::ribbon_edged`]).
 
 use glam::{Vec2, Vec3};
 
@@ -633,13 +635,26 @@ impl Painter {
     // --- world space -----------------------------------------------------------------
 
     fn wv(p: Vec3, ext: Vec2, w_m: f32, w_px: f32, c: Color) -> Vertex {
-        Vertex { pos: p.to_array(), ext: ext.to_array(), width: [w_m, w_px], color: c.0, mode: [1.0, 0.0], ..Default::default() }
+        Self::wv_edged(p, ext, w_m, w_px, 0.0, c)
+    }
+
+    fn wv_edged(p: Vec3, ext: Vec2, w_m: f32, w_px: f32, edge_px: f32, c: Color) -> Vertex {
+        Vertex { pos: p.to_array(), ext: ext.to_array(), width: [w_m, w_px], uv: [edge_px, 0.0], color: c.0, mode: [1.0, 0.0] }
     }
 
     /// A band along `pts` (world), `w_m` metres wide but at least `w_px` pixels, with
     /// round ends when `caps`. Gentle bends are mitred; sharper ones get a round joint (a
     /// clamped mitre left notches in hairpins and turning loops).
     pub fn ribbon(&mut self, pts: &[Vec3], w_m: f32, w_px: f32, c: Color, caps: bool) {
+        self.ribbon_edged(pts, w_m, w_px, 0.0, c, caps);
+    }
+
+    /// A [`Painter::ribbon`] `edge_px` pixels wider on both sides at every zoom: a road's
+    /// casing, the same hair round its surface whether the surface is drawn in metres (near)
+    /// or in pixels (far). Drawn under the surfaces of every road, it shows only where no
+    /// road lies - along the outside of the roads, never across a junction.
+    #[allow(clippy::too_many_arguments)]
+    pub fn ribbon_edged(&mut self, pts: &[Vec3], w_m: f32, w_px: f32, edge_px: f32, c: Color, caps: bool) {
         // (points closer than a centimetre make no direction)
         let mut clean: Vec<Vec3> = Vec::with_capacity(pts.len());
         for &q in pts {
@@ -676,14 +691,17 @@ impl Painter {
                 joints.push((i, n0, n1));
             }
         }
+        let v = |p: Vec3, ext: Vec2| Self::wv_edged(p, ext, hm, hp, edge_px, c);
         for i in 0..n - 1 {
             let (a, b) = (pts[i], pts[i + 1]);
             let (na, nb) = (start_n[i], end_n[i + 1]);
-            let (a0, a1) = (Self::wv(a, na, hm, hp, c), Self::wv(a, -na, hm, hp, c));
-            let (b0, b1) = (Self::wv(b, nb, hm, hp, c), Self::wv(b, -nb, hm, hp, c));
+            let (a0, a1) = (v(a, na), v(a, -na));
+            let (b0, b1) = (v(b, nb), v(b, -nb));
             self.verts.extend([a0, b0, b1, a0, b1, a1]);
         }
-        // round joints: a fan on both sides from one segment's edge to the next one's
+        // round joints: a fan on both sides from one segment's edge to the next one's (in
+        // steps of at most a quarter radian: a road near is a band dozens of pixels wide, and
+        // its corners are round to well under a pixel)
         for (i, n0, n1) in joints {
             let p = pts[i];
             for (from, to) in [(n0, n1), (-n0, -n1)] {
@@ -694,19 +712,19 @@ impl Painter {
                 } else if da < -std::f32::consts::PI {
                     da += std::f32::consts::TAU;
                 }
-                let steps = ((da.abs() / 0.35).ceil() as usize).clamp(1, 12);
+                let steps = ((da.abs() / 0.25).ceil() as usize).clamp(1, 16);
                 for k in 0..steps {
                     let t0 = a0 + da * k as f32 / steps as f32;
                     let t1 = a0 + da * (k + 1) as f32 / steps as f32;
-                    self.verts.extend([Self::wv(p, Vec2::ZERO, hm, hp, c), Self::wv(p, Vec2::new(t0.cos(), t0.sin()), hm, hp, c), Self::wv(p, Vec2::new(t1.cos(), t1.sin()), hm, hp, c)]);
+                    self.verts.extend([v(p, Vec2::ZERO), v(p, Vec2::new(t0.cos(), t0.sin())), v(p, Vec2::new(t1.cos(), t1.sin()))]);
                 }
             }
         }
         if caps {
             let first = dir(pts[0], pts[1]);
             let last = dir(pts[n - 2], pts[n - 1]);
-            self.cap(pts[0], -first, hm, hp, c);
-            self.cap(pts[n - 1], last, hm, hp, c);
+            self.cap(pts[0], -first, hm, hp, edge_px, c);
+            self.cap(pts[n - 1], last, hm, hp, edge_px, c);
         }
     }
 
@@ -729,14 +747,16 @@ impl Painter {
         Vec2::new(w, h)
     }
 
-    /// A half disc at `p` bulging towards `d`.
-    fn cap(&mut self, p: Vec3, d: Vec2, hm: f32, hp: f32, c: Color) {
-        let n = 5;
+    /// A half disc at `p` bulging towards `d` (in steps fine enough that a road's end, many
+    /// pixels wide when the map is near, is round and not a polygon).
+    fn cap(&mut self, p: Vec3, d: Vec2, hm: f32, hp: f32, edge_px: f32, c: Color) {
+        let n = 12;
         let base = d.y.atan2(d.x) - std::f32::consts::FRAC_PI_2;
+        let v = |ext: Vec2| Self::wv_edged(p, ext, hm, hp, edge_px, c);
         for k in 0..n {
             let a0 = base + std::f32::consts::PI * k as f32 / n as f32;
             let a1 = base + std::f32::consts::PI * (k + 1) as f32 / n as f32;
-            self.verts.extend([Self::wv(p, Vec2::ZERO, hm, hp, c), Self::wv(p, Vec2::new(a0.cos(), a0.sin()), hm, hp, c), Self::wv(p, Vec2::new(a1.cos(), a1.sin()), hm, hp, c)]);
+            self.verts.extend([v(Vec2::ZERO), v(Vec2::new(a0.cos(), a0.sin())), v(Vec2::new(a1.cos(), a1.sin()))]);
         }
     }
 
@@ -747,6 +767,18 @@ impl Painter {
             let a0 = std::f32::consts::TAU * k as f32 / n as f32;
             let a1 = std::f32::consts::TAU * (k + 1) as f32 / n as f32;
             self.verts.extend([Self::wv(p, Vec2::ZERO, r_m, r_px, c), Self::wv(p, Vec2::new(a0.cos(), a0.sin()), r_m, r_px, c), Self::wv(p, Vec2::new(a1.cos(), a1.sin()), r_m, r_px, c)]);
+        }
+    }
+
+    /// A [`Painter::world_disc`] `edge_px` pixels larger at every zoom, as a
+    /// [`Painter::ribbon_edged`] is wider: the round end of a road drawn on its own.
+    pub fn world_disc_edged(&mut self, p: Vec3, r_m: f32, r_px: f32, edge_px: f32, c: Color) {
+        let n = 24;
+        let v = |ext: Vec2| Self::wv_edged(p, ext, r_m, r_px, edge_px, c);
+        for k in 0..n {
+            let a0 = std::f32::consts::TAU * k as f32 / n as f32;
+            let a1 = std::f32::consts::TAU * (k + 1) as f32 / n as f32;
+            self.verts.extend([v(Vec2::ZERO), v(Vec2::new(a0.cos(), a0.sin())), v(Vec2::new(a1.cos(), a1.sin()))]);
         }
     }
 
@@ -903,6 +935,72 @@ mod tests {
         let mut g = Painter::new();
         g.radial(Vec2::ZERO, 100.0, Color::WHITE, Color::CLEAR);
         assert!((area(&g.verts) / (std::f32::consts::PI * 1e4) - 1.0).abs() < 0.01);
+    }
+
+    /// Where `ui.wgsl` puts a world vertex at `mpp` metres a pixel (seen from above).
+    fn placed(v: &Vertex, mpp: f32) -> Vec2 {
+        let edge = if v.mode[1] < 0.5 { v.uv[0] } else { 0.0 };
+        Vec2::new(v.pos[0], v.pos[1]) + Vec2::from(v.ext) * (v.width[0].max(v.width[1] * mpp) + edge * mpp)
+    }
+
+    /// Whether a point lies in one of the triangles of world vertices at `mpp`.
+    fn covered(v: &[Vertex], q: Vec2, mpp: f32) -> bool {
+        v.chunks(3).any(|t| {
+            let (a, b, c) = (placed(&t[0], mpp), placed(&t[1], mpp), placed(&t[2], mpp));
+            let (e0, e1, e2) = ((b - a).perp_dot(q - a), (c - b).perp_dot(q - b), (a - c).perp_dot(q - c));
+            (e0 >= 0.0 && e1 >= 0.0 && e2 >= 0.0) || (e0 <= 0.0 && e1 <= 0.0 && e2 <= 0.0)
+        })
+    }
+
+    #[test]
+    fn a_ribbons_edge_is_pixels_round_its_width() {
+        let pts = [Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0)];
+        let mut p = Painter::new();
+        p.ribbon_edged(&pts, 4.0, 2.0, 1.5, Color::WHITE, true);
+        assert!(p.verts.iter().all(|v| v.uv == [1.5, 0.0] && v.mode == [1.0, 0.0]));
+        // half of four metres and a pixel and a half: near (0.1 m a pixel) and far (10 m),
+        // where the band is its two pixels and the edge round it
+        for (mpp, half) in [(0.1f32, 2.0 + 0.15), (10.0, 10.0 + 15.0)] {
+            let y = p.verts.iter().map(|v| placed(v, mpp).y.abs()).fold(0.0, f32::max);
+            assert!((y - half).abs() < 1e-4, "{mpp}: {y}");
+        }
+        // a plain ribbon has none
+        let mut q = Painter::new();
+        q.ribbon(&pts, 4.0, 2.0, Color::WHITE, true);
+        assert!(q.verts.iter().all(|v| v.uv == [0.0, 0.0]));
+    }
+
+    #[test]
+    fn a_ribbon_covers_its_bends_its_joins_and_its_ends() {
+        // gentle bends, a right angle, a hairpin and a sharp zigzag: every point within half
+        // its width of the line lies on it, with or without an edge round it
+        let line = [(0.0f32, 0.0f32), (20.0, 0.0), (30.0, 2.0), (38.0, 6.0), (38.0, 20.0), (30.0, 20.5), (30.0, 8.0), (15.0, 14.0), (28.0, 16.0)];
+        let pts: Vec<Vec3> = line.iter().map(|(x, y)| Vec3::new(*x, *y, 0.0)).collect();
+        let off = |q: Vec2| {
+            line.windows(2)
+                .map(|s| {
+                    let (a, b) = (Vec2::from(s[0]), Vec2::from(s[1]));
+                    let t = ((q - a).dot(b - a) / (b - a).length_squared()).clamp(0.0, 1.0);
+                    q.distance(a + (b - a) * t)
+                })
+                .fold(f32::MAX, f32::min)
+        };
+        for edge in [0.0f32, 4.0] {
+            let mut p = Painter::new();
+            p.ribbon_edged(&pts, 3.0, 1.0, edge, Color::WHITE, true);
+            assert_eq!(p.verts.len() % 3, 0);
+            let mpp = 0.1;
+            let half = 1.5 + edge * mpp;
+            for i in 0..240 {
+                for j in 0..160 {
+                    let q = Vec2::new(-4.0 + i as f32 * 0.2, -4.0 + j as f32 * 0.2);
+                    // (a round join or end is a polygon: within 1 % of its radius)
+                    if off(q) < half * 0.99 {
+                        assert!(covered(&p.verts, q, mpp), "a hole at {q} (edge {edge})");
+                    }
+                }
+            }
+        }
     }
 
     #[test]

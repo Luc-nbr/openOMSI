@@ -31,12 +31,15 @@ use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 use std::time::Instant;
 
+mod roads;
+
 // The map is drawn as Omsi-Hub's setup map draws it (its `roadLayer` and `routemap.css`): on
 // the launcher's night-blue ground, every road's casing first and then every road's surface
-// over every casing (a crossing's surface is not cut by a neighbour's casing), a main road a
-// shade lighter than a side street - and over it the duty in the accent (the player's colour,
-// `crate::accent`; Omsi-Hub's was the blue of every navigation there is), on a darker casing
-// so it reads where it runs over itself. The roads are the
+// over every casing (a crossing's surface is not cut by a neighbour's casing, the lanes of a
+// road are one surface), a main road a shade lighter than a side street and over it, each road
+// one line through its pieces (`roads`), the whole multisampled - and over it the duty in the
+// accent (the player's colour, `crate::accent`; Omsi-Hub's was the blue of every navigation
+// there is), on a darker casing so it reads where it runs over itself. The roads are the
 // game's own (`navigator::city_roads`); only the colours are the launcher's - in the light
 // look a paper map on its light ground (`palette`).
 const ROAD_CASING: Color = Color::rgba(33, 40, 51, 1.0);
@@ -58,8 +61,31 @@ const ENTRY_HERE: Color = Color::rgba(255, 255, 255, 1.0);
 /// A road is at least this wide on the screen when the map is far out, its own metres when
 /// it is near (the toolkit takes both: `Painter::ribbon`); the route, the signs and the rings
 /// have no metres of their own. The route's two are Omsi-Hub's 9 and 5 pixels.
-const CASING_PX: f32 = 2.4;
 const ROAD_PX: f32 = 1.4;
+/// A road's casing is a hair of pixels round its surface at any zoom (`Painter::
+/// ribbon_edged`): half a pixel far out - round the narrowest road the 2.4 pixels it always
+/// was - and a pixel and a half near, where a road is dozens of pixels wide. It was a metre
+/// round every road, so near it grew into a band seven pixels wide round every lane.
+const CASING_EDGE_FAR: f32 = 0.5;
+const CASING_EDGE_NEAR: f32 = 1.5;
+/// Near, every road's surface reaches this many pixels past its metres, and its casing as
+/// much further (none far out, evenly between as the casing): where the paths of a crossing
+/// or a lane merging into a road leave a sliver between their surfaces narrower than two
+/// casings, the casing showed through as a hair or a pinhole inside the road. A gap of up to
+/// two of these pixels is road now; the casing round the outside stays as wide.
+const SURFACE_GROW_NEAR: f32 = 1.0;
+/// A road is drawn at least a lane wide (metres): a path is only as wide as the vehicle on it
+/// (2.5 m), and a crossing's paths - a roundabout's ring, the lanes into and out of it - were
+/// strips narrower than the street they continue, side by side with a dark seam of casing
+/// between them. The game's carriageways of several lanes are wider anyway.
+const LANE_MIN: f32 = 3.6;
+/// How far a road's surface reaches past that on either side (metres): lanes a lane's width
+/// apart overlap a little instead of meeting edge to edge, where a sliver of casing showed.
+/// The two directions of a street drawn as two pieces often lie a little more than a lane
+/// apart: 15 cm left a hair of casing down the middle of the street at half of
+/// Berlin-Spandau's junctions close up; 30 cm halves that, and what is left is mostly a real
+/// gap (a median, a slip road leaving).
+const ROAD_MARGIN: f32 = 0.3;
 const ROUTE_CASING_PX: f32 = 9.0;
 const ROUTE_PX: f32 = 5.0;
 /// A stop is the stop sign the player looks for in the game, in the style chosen in the
@@ -190,6 +216,9 @@ struct Entry {
 struct Roads {
     /// Every carriageway the map has, as the game groups them: points in world metres.
     roads: Vec<crate::navigator::MapRoad>,
+    /// The same roads as they are drawn: pieces that run on into each other joined into one
+    /// line, in metres from `origin` (`roads::lines`).
+    lines: Vec<roads::Line>,
     /// The linked network behind them (a trip's road pieces are lanes of it).
     net: Arc<Network>,
     /// (tile x, tile y, spline id, path) → the lane the timetable names.
@@ -899,7 +928,9 @@ impl MapView {
         let target = self.target.as_ref()?.1.clone();
         let device = &renderer.device;
         let queue = &renderer.queue;
-        let gpu = self.gpu.get_or_insert_with(|| Gpu::new(device, renderer.format(), 1, 64));
+        // (multisampled, resolved into the picture: with one sample a pixel every road's edge
+        // was a staircase, a roundabout a ring of steps)
+        let gpu = self.gpu.get_or_insert_with(|| Gpu::new(device, renderer.format(), crate::trip_report::samples(renderer.format()), 64));
         if let Some(p) = self.plan.as_mut() {
             if !p.uploaded {
                 gpu.upload(device, queue, 0, &p.verts);
@@ -966,27 +997,33 @@ impl MapView {
         let k = self.scale;
         let rel = |q: DVec3| Vec3::new((q.x - roads.origin.x) as f32, (q.y - roads.origin.y) as f32, 0.0);
         let mut p = Painter::new();
-        let mut points = 0usize;
-        // what a road is drawn from: its own metres, at least a hair of a pixel
-        let mut band = |p: &mut Painter, pts: &[DVec3], w_m: f32, w_px: f32, c: Color| {
-            let v: Vec<Vec3> = pts.iter().map(|q| rel(*q)).collect();
-            let v = simplify(&v, tolerance);
-            points += v.len();
-            if v.len() >= 2 {
-                p.ribbon(&v, w_m, w_px, c, true);
+        // the roads as the game's own city map draws them, twice: a dark casing, then the
+        // surface of every road over every casing - a junction's or a crossing's surface is
+        // never cut by a neighbour's casing, and the lanes of a road side by side are one
+        // surface - the side streets' first and the main roads' over them. Each road is one
+        // line through its pieces (`roads::lines`), its own metres wide, at least a hair of a
+        // pixel.
+        let lines: Vec<(Vec<Vec3>, &roads::Line)> = roads.lines.iter().map(|l| (simplify(&l.points, tolerance), l)).filter(|(v, _)| v.len() >= 2).collect();
+        let mut points: usize = lines.iter().map(|(v, _)| v.len()).sum();
+        let (edge, grow) = casing_edge(tolerance);
+        let (edge, grow) = ((edge + grow) * k, grow * k);
+        let wide = |l: &roads::Line| l.width.max(LANE_MIN) + 2.0 * ROAD_MARGIN;
+        for (v, l) in &lines {
+            p.ribbon_edged(v, wide(l), ROAD_PX * k, edge, pal.casing, true);
+        }
+        // (a main road's round ends go under the side streets: where a road changes from
+        // one to the other the main road ends square on the side street, which ran on in
+        // round blobs of the lighter colour; a main road's own dead end is round still)
+        for (v, l) in lines.iter().filter(|(_, l)| l.main) {
+            for q in [v[0], v[v.len() - 1]] {
+                p.world_disc_edged(q, wide(l) * 0.5, ROAD_PX * k * 0.5, grow, pal.main);
             }
-        };
-        // the game's own city map draws every road twice: a dark casing, then the surface of
-        // every road over every casing (a crossing's surface is not cut by a neighbour's
-        // casing)
-        for pass in 0..2 {
-            for r in &roads.roads {
-                if pass == 0 {
-                    band(&mut p, &r.points, r.width + 2.0, CASING_PX * k, pal.casing);
-                } else {
-                    band(&mut p, &r.points, r.width, ROAD_PX * k, if r.main { pal.main } else { pal.road });
-                }
-            }
+        }
+        for (v, l) in lines.iter().filter(|(_, l)| !l.main) {
+            p.ribbon_edged(v, wide(l), ROAD_PX * k, grow, pal.road, true);
+        }
+        for (v, l) in lines.iter().filter(|(_, l)| l.main) {
+            p.ribbon_edged(v, wide(l), ROAD_PX * k, grow, pal.main, false);
         }
         // the route: the very lanes the game would drive, so it runs on its own side of the
         // road and not down the middle of it - every trip of the duty, each lane once, the
@@ -1131,6 +1168,17 @@ fn simplify(pts: &[Vec3], tol: f32) -> Vec<Vec3> {
     crate::navigator::simplify(pts, tol)
 }
 
+/// The roads' casing round their surface and how far their surface grows past its metres, in
+/// pixels, for a plan thinned to `tolerance` metres, which is half a pixel of its zoom band
+/// (`MapView::tolerance`): `CASING_EDGE_FAR` and none from four metres a pixel out,
+/// `CASING_EDGE_NEAR` and `SURFACE_GROW_NEAR` from half a metre in, evenly in the zoom's
+/// steps between.
+fn casing_edge(tolerance: f32) -> (f32, f32) {
+    let mpp = tolerance * 2.0;
+    let t = ((4.0 / mpp).log2() / 3.0).clamp(0.0, 1.0);
+    (CASING_EDGE_FAR + (CASING_EDGE_NEAR - CASING_EDGE_FAR) * t, SURFACE_GROW_NEAR * t)
+}
+
 /// Read a map the way the map needs it: the roads the game's city map draws, the entry
 /// points, the objects - and the chosen duty's routes with them (`known`: the ones read
 /// before on this map and date).
@@ -1258,7 +1306,8 @@ fn read_map(look: &Look) -> Roads {
         min.x, min.y, max.x, max.y,
         lo.x, lo.y, hi.x, hi.y
     );
-    Roads { roads, net: Arc::new(net), lanes: by_path, splines: by_spline, origin, lo, hi, entries, objects, stops, left_hand: global.left_hand_traffic }
+    let lines = roads::lines(&roads, origin);
+    Roads { roads, lines, net: Arc::new(net), lanes: by_path, splines: by_spline, origin, lo, hi, entries, objects, stops, left_hand: global.left_hand_traffic }
 }
 
 #[cfg(test)]
