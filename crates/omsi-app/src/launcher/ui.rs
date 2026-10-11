@@ -497,6 +497,11 @@ impl Ui {
     /// The light look of everything drawn this frame (`light`): each triangle's colours as
     /// `theme::Lighten` has them, but for what is drawn as it is (`as_drawn`), the pictures
     /// (render targets, photos) and what lies in a world of its own (a map's layers).
+    ///
+    /// A small dark scrim stays dark in the light look (a bus's fleet number on its photo, a
+    /// caption): the words drawn over it afterwards were written for it and keep their
+    /// colours - carried over to dark ink they were dark on dark. Something solid drawn over
+    /// the scrim later (a dialog's sheet) ends that.
     fn to_light(&mut self) {
         if self.as_drawn_depth > 0 {
             self.as_drawn_depth = 1;
@@ -505,6 +510,11 @@ impl Ui {
         let kept = std::mem::take(&mut self.as_drawn);
         let mut next = 0;
         let lighten = &mut self.lighten;
+        // (the scrims as boxes: x0, y0, x1, y1 in points, and whether one is large - a dim over
+        // the whole window is no badge, and the words over it are not its)
+        let small = self.size.x * self.size.y / 16.0;
+        let mut scrims: Vec<([f32; 4], bool)> = Vec::new();
+        let overlap = |a: &[f32; 4], b: &[f32; 4]| a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
         for (k, (layer, painter, tex)) in self.layers.iter_mut().enumerate() {
             if *tex != 0 || layer.px_scale != 0.0 || layer.view_proj != glam::Mat4::IDENTITY {
                 continue;
@@ -526,6 +536,30 @@ impl Ui {
                 }
                 let tri = &mut painter.verts[i..(i + 3).min(n)];
                 let strongest = tri.iter().fold(0.0f32, |a, v| a.max(v.color[3]));
+                let words = tri[0].mode[1] > 0.5;
+                let bbox = tri.iter().fold([f32::MAX, f32::MAX, f32::MIN, f32::MIN], |b, v| [b[0].min(v.pos[0]), b[1].min(v.pos[1]), b[2].max(v.pos[0]), b[3].max(v.pos[1])]);
+                if words {
+                    // (written over a scrim: as drawn)
+                    let c = [(bbox[0] + bbox[2]) * 0.5, (bbox[1] + bbox[3]) * 0.5];
+                    if scrims.iter().any(|(s, large)| !large && s[0] <= c[0] && c[0] <= s[2] && s[1] <= c[1] && c[1] <= s[3]) {
+                        i += 3;
+                        continue;
+                    }
+                } else if tri.iter().all(|v| v.mode[0] < 0.5) {
+                    let deepest = tri.iter().fold(tri[0].color, |a, v| if v.color[3] > a[3] { v.color } else { a });
+                    if super::theme::is_scrim(deepest, strongest) {
+                        // (a shape's triangles one box, the one drawn just before it)
+                        match scrims.last_mut() {
+                            Some((s, large)) if overlap(s, &bbox) => {
+                                *s = [s[0].min(bbox[0]), s[1].min(bbox[1]), s[2].max(bbox[2]), s[3].max(bbox[3])];
+                                *large |= (s[2] - s[0]) * (s[3] - s[1]) > small;
+                            }
+                            _ => scrims.push((bbox, (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) > small)),
+                        }
+                    } else if strongest >= 0.98 && !scrims.is_empty() {
+                        scrims.retain(|(s, _)| !overlap(s, &bbox));
+                    }
+                }
                 for v in tri.iter_mut() {
                     if v.mode[0] < 0.5 {
                         v.color = lighten.colour(v.color, v.mode[1] > 0.5, strongest);
@@ -2530,6 +2564,41 @@ mod tests {
         let (swatch, page): (Vec<&Vertex>, Vec<&Vertex>) = verts.iter().filter(|v| v.pos[1] <= 40.0).partition(|v| v.pos[0] < 50.0);
         assert!(!swatch.is_empty() && swatch.iter().all(|v| v.color == slate.0));
         assert!(!page.is_empty() && page.iter().all(|v| v.color != slate.0));
+    }
+
+    /// A bus's fleet number on its photo: the small dark scrim stays dark in the light look and
+    /// the words on it keep their light ink; words beside it are carried over to dark ink, and
+    /// so are words on a sheet drawn over the scrim afterwards. A dim over the whole window is
+    /// no such scrim.
+    #[test]
+    fn words_on_a_small_scrim_keep_their_ink_in_the_light_look() {
+        let scrim = Color::rgba(9, 12, 24, 0.85);
+        let words_at = |verts: &[Vertex], x0: f32, x1: f32| verts.iter().filter(|v| v.mode[1] > 0.5 && v.pos[0] >= x0 && v.pos[0] < x1).map(|v| v.color).collect::<Vec<_>>();
+        let mut ui = Ui::new();
+        ui.light = true;
+        ui.begin(Vec2::new(800.0, 600.0), 1.0, 1.0 / 60.0);
+        // the badge and its number, and words beside it
+        ui.p().rounded(Rect::new(10.0, 10.0, 60.0, 28.0), 6.0, scrim);
+        ui.text_in("101", Rect::new(10.0, 10.0, 60.0, 28.0), 15.0, Weight::Black, TEXT, Align::Center);
+        ui.text_in("MAN", Rect::new(100.0, 10.0, 100.0, 28.0), 15.0, Weight::Black, TEXT, Align::Left);
+        // a second badge, then a sheet over it, and words on the sheet
+        ui.p().rounded(Rect::new(300.0, 10.0, 60.0, 28.0), 6.0, scrim);
+        ui.p().rect(Rect::new(290.0, 0.0, 120.0, 60.0), PANEL);
+        ui.text_in("102", Rect::new(300.0, 10.0, 60.0, 28.0), 15.0, Weight::Black, TEXT, Align::Center);
+        // a dim over the whole window, and words on it
+        ui.p().rect(Rect::new(0.0, 100.0, 800.0, 500.0), GROUND.alpha(0.8));
+        ui.text_in("dim", Rect::new(500.0, 300.0, 100.0, 28.0), 15.0, Weight::Black, TEXT, Align::Left);
+        let (_, verts, _) = ui.finish();
+        let on_badge = words_at(&verts, 10.0, 70.0);
+        assert!(!on_badge.is_empty() && on_badge.iter().all(|c| *c == TEXT.0));
+        let beside = words_at(&verts, 100.0, 200.0);
+        assert!(!beside.is_empty() && beside.iter().all(|c| *c != TEXT.0));
+        let on_sheet = words_at(&verts, 300.0, 360.0);
+        assert!(!on_sheet.is_empty() && on_sheet.iter().all(|c| *c != TEXT.0));
+        let on_dim = words_at(&verts, 500.0, 600.0);
+        assert!(!on_dim.is_empty() && on_dim.iter().all(|c| *c != TEXT.0));
+        // the badge itself stays as dark as drawn
+        assert!(verts.iter().any(|v| v.color == scrim.0));
     }
 
     #[test]

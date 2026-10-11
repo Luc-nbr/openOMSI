@@ -218,6 +218,18 @@ fn overlay_alpha(a: f32) -> f32 {
     (0.85 * a.max(0.0).sqrt()).min(0.6)
 }
 
+/// Whether `c` (its triangle's most opaque corner `strongest`) is a scrim the light look keeps
+/// dark (`to_light`) and strong enough to write light words on: the ground see-through, or
+/// black seen as black. (The words drawn on a small one keep their colours: `Ui::to_light`.)
+pub fn is_scrim(c: [f32; 4], strongest: f32) -> bool {
+    let rgb = [c[0] * 255.0, c[1] * 255.0, c[2] * 255.0];
+    let hi = rgb[0].max(rgb[1]).max(rgb[2]);
+    if hi <= 6.0 {
+        return strongest >= 0.6;
+    }
+    mean(rgb) <= 20.0 && (0.5..0.98).contains(&strongest)
+}
+
 /// The colour `c` (sRGB, straight alpha) of something drawn for the dark look, as the light
 /// look draws it. `words`: it is a word's or an icon's (the atlas's sprites); `strongest`: the
 /// most opaque corner of its triangle (a fade from white to nothing is one white thing).
