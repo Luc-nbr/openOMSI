@@ -24,6 +24,7 @@ pub mod contracts;
 pub mod dates;
 pub mod day;
 pub mod dealer;
+pub mod duty_launch;
 pub mod depot;
 pub mod economy;
 pub mod fares;
