@@ -74,10 +74,11 @@ fn sheet_now(l: &mut Launcher, c: &Company) -> Option<Sheet> {
         let trips = l.company.launch.as_ref().map(|x| x.trips.clone()).unwrap_or_default();
         dl::sheet(c, &p, &r, now, &trips)
     };
-    // the planned bus installed here (the list read: while it is being read nothing is said)
+    // the planned bus installed here (the list read whole: while it is being read nothing is
+    // said)
     if let Some(b) = s.bus.as_ref().filter(|b| !b.file.trim().is_empty()) {
         let same = |f: &str| f.replace('\\', "/").eq_ignore_ascii_case(&b.file.replace('\\', "/"));
-        if !l.state.vehicles.is_empty() && !l.state.vehicles.iter().any(|v| same(&v.file)) {
+        if !l.state.loading_content && !l.state.vehicles.is_empty() && !l.state.vehicles.iter().any(|v| same(&v.file)) {
             s.hitches.push(Hitch::NotInstalled(b.file.clone()));
         }
     }
