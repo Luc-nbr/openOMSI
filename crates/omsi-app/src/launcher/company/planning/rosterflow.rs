@@ -599,7 +599,11 @@ pub(super) fn frame(l: &mut Launcher, area: Rect, c: &Company, date: &str) -> Op
             if let Some(line) = l.company.planning.rf.timeplan_line.take() {
                 l.company.planning.timeplan.show(&c.id, &line);
             }
-            super::timeplan::draw(l, body)
+            // (the timeplan is drawn in the dark palette and takes the light look the usual way,
+            // not RosterFlow's own colours)
+            l.ui.end_as_drawn();
+            super::timeplan::draw(l, body);
+            l.ui.as_drawn();
         }
         _ => studio_page(l, body, c, date, &p, view == DRIVERS),
     }
