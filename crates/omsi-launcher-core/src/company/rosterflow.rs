@@ -204,7 +204,7 @@ impl DutyType {
 /// The name a duty no type fits goes by.
 pub const OTHER: &str = "Other";
 /// The default duty types' names (translated when shown).
-pub const TYPE_NAMES: [&str; 5] = ["Early", "Middle", "Late", "Split", "Night"];
+pub const TYPE_NAMES: [&str; 5] = ["Early shift", "Middle shift", "Late shift", "Split shift", "Night shift"];
 
 fn default_types() -> Vec<DutyType> {
     vec![

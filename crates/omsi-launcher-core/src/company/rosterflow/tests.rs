@@ -184,7 +184,7 @@ fn a_duty_signs_on_and_off_and_its_paid_time_leaves_the_split_out() {
     assert_eq!(s.work, s.spread() - (750 - 5 - 475));
     assert_eq!(s.paid, s.work.max(MIN_PAID));
     // its type: a split duty
-    assert_eq!(s.kind_name(&p), "Split");
+    assert_eq!(s.kind_name(&p), "Split shift");
     // the driving: four trips of 50 minutes
     assert_eq!(s.driving, 200);
     // paid time set by hand
@@ -298,7 +298,7 @@ fn duty_types_classify_the_duties_and_an_unmatched_one_is_other() {
     let c = company();
     let l = line5();
     let b = board(&c, std::slice::from_ref(&l), &c.date.clone());
-    assert_eq!(b.shaped[0].kind_name(&c.planning.flow.prefs), "Early");
+    assert_eq!(b.shaped[0].kind_name(&c.planning.flow.prefs), "Early shift");
     // no type allows it: "Other", an issue
     let mut c2 = company();
     for t in c2.planning.flow.prefs.duty_types.iter_mut() {
@@ -315,9 +315,9 @@ fn duty_types_classify_the_duties_and_an_unmatched_one_is_other() {
     let tours = day(&c3, &l);
     let key = duty_key(&tours, &st::duties(&c3.planning.joined, wd(&c3), &tours)[0]).unwrap();
     let w3 = wd(&c3);
-    note_mut(&mut c3, w3, &key).kind = Some("Late".into());
+    note_mut(&mut c3, w3, &key).kind = Some("Late shift".into());
     let b = board(&c3, std::slice::from_ref(&l), &c3.date.clone());
-    assert!(b.shaped.iter().any(|s| s.kind_set && s.kind_name(&c3.planning.flow.prefs) == "Late"));
+    assert!(b.shaped.iter().any(|s| s.kind_set && s.kind_name(&c3.planning.flow.prefs) == "Late shift"));
 }
 
 #[test]

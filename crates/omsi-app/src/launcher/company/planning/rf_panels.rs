@@ -1409,7 +1409,7 @@ fn stats(l: &mut Launcher, page: Rect, g: Rect, p: &Pal, drivers: bool) -> Rect 
         y += 30.0;
     }
     let reset = rf_button(&mut l.ui, p, "rf-stats-reset", Rect::new(r.x + 16.0, r.bottom() - 44.0, 100.0, 30.0), "Reset", false, true);
-    let done = rf_button(&mut l.ui, p, "rf-stats-apply", Rect::new(r.right() - 116.0, r.bottom() - 44.0, 100.0, 30.0), "Apply", true, true);
+    let done = rf_button(&mut l.ui, p, "rf-stats-apply", Rect::new(r.right() - 116.0, r.bottom() - 44.0, 100.0, 30.0), "Done", true, true);
     let s = &mut l.company.planning.rf;
     if changed {
         s.stats = on;
@@ -1506,8 +1506,8 @@ fn filter(l: &mut Launcher, page: Rect, k: &Cached, p: &Pal) -> Rect {
         f.to = if v >= 1800 { 2880 } else { v };
     }
     let clear = rf_button(ui, p, "rf-filter-clear", Rect::new(r.x + 18.0, r.bottom() - 46.0, 120.0, 32.0), "Clear all", false, true);
-    let cancel = rf_button(ui, p, "rf-filter-cancel", Rect::new(r.right() - 254.0, r.bottom() - 46.0, 116.0, 32.0), "Cancel", false, true);
-    let apply = rf_button(ui, p, "rf-filter-apply", Rect::new(r.right() - 130.0, r.bottom() - 46.0, 112.0, 32.0), "Apply", true, true);
+    let cancel = rf_button(ui, p, "rf-filter-cancel", Rect::new(r.right() - 284.0, r.bottom() - 46.0, 116.0, 32.0), "Cancel", false, true);
+    let apply = rf_button(ui, p, "rf-filter-apply", Rect::new(r.right() - 160.0, r.bottom() - 46.0, 142.0, 32.0), "Apply filter", true, true);
     let s = &mut l.company.planning.rf;
     if clear {
         f = Filter::default();
