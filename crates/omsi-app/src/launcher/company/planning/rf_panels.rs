@@ -952,8 +952,7 @@ fn issues(l: &mut Launcher, status: Rect, k: &Cached, board: &Board, p: &Pal, sc
             let badge = Rect::new(gr.x + 24.0, gr.center().y - 9.0, 22.0, 18.0);
             ui.p().rounded(badge, 9.0, p.dim);
             ui.text_as_is(&members.len().to_string(), Vec2::new(badge.center().x, gr.center().y + 4.0), 11.0, Weight::Bold, p.sheet, Align::Center);
-            let words = omsi_ui::tr(text).split(':').next().unwrap_or("").replace("%{", "").to_string();
-            let words = words.split('}').next_back().unwrap_or(&words).trim().to_string();
+            let words = omsi_ui::tr(rf::issue_title(text)).into_owned();
             ui.text_in(&words, Rect::new(gr.x + 54.0, gr.y, gr.w - 90.0, gr.h), 13.0, Weight::Bold, p.text, Align::Left);
             let (ch, _, cclick) = ui.interact(id_of(&format!("rf-group-open-{text}")), Rect::new(gr.right() - 30.0, gr.y, 30.0, gr.h));
             ui.icon(if open { "expand_less" } else { "expand_more" }, Vec2::new(gr.right() - 14.0, gr.center().y), 18.0, if ch { p.text } else { p.dim });

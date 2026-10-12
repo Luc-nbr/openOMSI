@@ -828,6 +828,14 @@ pub const I_DRIVERS: &str = "%{n} duties, %{m} drivers on the staff";
 
 pub const ISSUE_TEXTS: [&str; 15] = [I_TYPE, I_MEAL, I_CONTINUOUS, I_SPREAD, I_SHORT_PIECE, I_CHANGEOVERS, I_TRAVEL, I_RULE, I_RULE_TIME, I_LAYOVER, I_DEADHEAD, I_UNASSIGNED, I_BUSES, I_DEPOT, I_DRIVERS];
 
+/// The issues' short titles (the Validation panel's groups), in `ISSUE_TEXTS`' order.
+pub const ISSUE_TITLES: [&str; 15] = ["Duty type unsatisfied", "No meal break", "Driving without a break", "Spread over the limit", "Pieces too short", "Too many changes of bus", "No time to get to the relief point", "Working time", "Working time", "Layovers too short", "Deadheads estimated", "Trips not assigned", "More buses than the company has", "More buses than the depot holds", "More duties than drivers"];
+
+/// An issue's short title (its group in the Validation panel).
+pub fn issue_title(text: &str) -> &'static str {
+    ISSUE_TEXTS.iter().position(|t| *t == text).map(|k| ISSUE_TITLES[k]).unwrap_or("Issues")
+}
+
 /// An issue's words filled in (`tr`: how a text is translated).
 pub fn issue_text(i: &Issue, tr: &dyn Fn(&str) -> String) -> String {
     let mut s = tr(i.text);
@@ -1648,6 +1656,7 @@ pub fn apply(c: &mut Company, weekday: u8, layouts: Vec<LineLayout>, joined: Vec
 pub fn texts() -> Vec<&'static str> {
     let mut out: Vec<&'static str> = Vec::new();
     out.extend(ISSUE_TEXTS);
+    out.extend(ISSUE_TITLES);
     out.extend(ReliefTiming::LABELS);
     out.extend(Travel::LABELS);
     out.extend(Tri::LABELS);
