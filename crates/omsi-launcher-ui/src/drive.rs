@@ -816,7 +816,7 @@ pub(super) fn start_line(l: &Launcher) -> String {
     let weather = match l.state.choice.weather.strip_prefix("metar:") {
         Some(code) => omsi_ui::tr("at %{station}").replace("%{station}", code),
         None if l.state.choice.weather == "cycle" => omsi_ui::tr("weather cycle").into_owned(),
-        None if crate::weather_model::is_natural(Some(&l.state.choice.weather)) || l.state.choice.weather.is_empty() => omsi_ui::tr("Natural weather").into_owned(),
+        None if omsi_content::weather_choice::is_natural(Some(&l.state.choice.weather)) || l.state.choice.weather.is_empty() => omsi_ui::tr("Natural weather").into_owned(),
         None if crate::weather_setup::custom_weather(Some(&l.state.choice.weather)).is_some() => {
             let c = crate::weather_setup::custom_weather(Some(&l.state.choice.weather)).unwrap();
             format!("{} | {}", omsi_ui::tr("Custom"), custom_weather_summary(&c))

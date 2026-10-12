@@ -141,6 +141,7 @@ fn release_feedback(io: &mut Option<omsi_input::controllers::Devices>, active: &
 }
 
 // the pages, one file each (what they reach of the launcher besides `Launcher`)
+#[allow(unused_imports)]
 use super::{mobile, state};
 mod profile;
 mod settings;

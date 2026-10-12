@@ -1331,7 +1331,7 @@ mod tests {
         assert!(texts.len() >= 10, "{texts:?}");
         keys.extend(texts.iter().copied());
         // and every text of the table itself, in all six
-        let table = include_str!("../../locales/hof.yml");
+        let table = include_str!("../../omsi-app/locales/hof.yml");
         let own: Vec<&str> = table.lines().filter_map(|l| l.strip_prefix('"').and_then(|l| l.strip_suffix("\":"))).collect();
         assert!(own.len() > 100);
         keys.extend(own);

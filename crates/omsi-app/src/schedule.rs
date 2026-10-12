@@ -18,7 +18,7 @@ use crate::traffic::Traffic;
 use crate::view_sync::traffic::TrafficView;
 use hashbrown::{HashMap, HashSet};
 use omsi_sim::VehicleType;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use omsi_sim::timetable_run::*;

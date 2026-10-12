@@ -31,15 +31,15 @@ pub fn mods(l: &mut Launcher, area: Rect) {
     let mut y = inner.y;
     let half = (inner.w - GAP) * 0.5;
     if l.ui.button("mod-folder", Rect::new(inner.x, y, half, 40.0), "Choose a folder", Some("folder_open"), ButtonKind::Primary) {
-        if super::mobile::mobile() {
-            l.browse(super::mobile::Purpose::ModFolder, "");
+        if crate::mobile::mobile() {
+            l.browse(crate::mobile::Purpose::ModFolder, "");
         } else if let Some(p) = core::pick_mod(false) {
             l.state.install(p.to_string_lossy().to_string());
         }
     }
     if l.ui.button("mod-zip", Rect::new(inner.x + half + GAP, y, half, 40.0), "Choose archive", Some("inventory_2"), ButtonKind::Normal) {
-        if super::mobile::mobile() {
-            l.browse(super::mobile::Purpose::ModZip, "");
+        if crate::mobile::mobile() {
+            l.browse(crate::mobile::Purpose::ModZip, "");
         } else if let Some(p) = core::pick_mod(true) {
             l.state.install(p.to_string_lossy().to_string());
         }

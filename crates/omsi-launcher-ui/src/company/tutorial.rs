@@ -65,7 +65,7 @@ fn write_all<T: Serialize>(path: &Path, all: &BTreeMap<String, T>) {
 }
 
 /// What a driver has seen (nothing yet: the default).
-pub(in crate::launcher) fn of(profile: &str) -> Seen {
+pub(crate) fn of(profile: &str) -> Seen {
     read_all(&file()).get(profile.trim()).cloned().unwrap_or_default()
 }
 
@@ -77,7 +77,7 @@ fn keep(profile: &str, s: Seen) {
 }
 
 /// The tour was left at its stop `at`: gone through (`completed`) or skipped.
-pub(in crate::launcher) fn left(profile: &str, at: usize, completed: bool) {
+pub(crate) fn left(profile: &str, at: usize, completed: bool) {
     let mut s = of(profile);
     s.seen = true;
     s.layout = LAYOUT;
@@ -184,11 +184,11 @@ fn flow_file() -> PathBuf {
 }
 
 /// What a driver has seen of RosterFlow's tutorial (nothing yet: the default).
-pub(in crate::launcher) fn flow_of(profile: &str) -> FlowSeen {
+pub(crate) fn flow_of(profile: &str) -> FlowSeen {
     read_all(&flow_file()).get(profile.trim()).cloned().unwrap_or_default()
 }
 
-pub(in crate::launcher) fn flow_keep(profile: &str, s: FlowSeen) {
+pub(crate) fn flow_keep(profile: &str, s: FlowSeen) {
     let path = flow_file();
     let mut all = read_all(&path);
     all.insert(profile.trim().to_string(), s);
@@ -196,7 +196,7 @@ pub(in crate::launcher) fn flow_keep(profile: &str, s: FlowSeen) {
 }
 
 /// RosterFlow's tour was left at its stop `at`: gone through (`completed`) or skipped.
-pub(in crate::launcher) fn rf_left(profile: &str, at: usize, completed: bool) {
+pub(crate) fn rf_left(profile: &str, at: usize, completed: bool) {
     let mut s = flow_of(profile);
     s.seen = true;
     if completed {
@@ -209,7 +209,7 @@ pub(in crate::launcher) fn rf_left(profile: &str, at: usize, completed: bool) {
 }
 
 /// Where RosterFlow's tour goes on: where it was left, from the start once seen to its end.
-pub(in crate::launcher) fn flow_resume_at(s: &FlowSeen, stops: usize) -> usize {
+pub(crate) fn flow_resume_at(s: &FlowSeen, stops: usize) -> usize {
     if s.done || s.at + 1 >= stops {
         0
     } else {
@@ -218,7 +218,7 @@ pub(in crate::launcher) fn flow_resume_at(s: &FlowSeen, stops: usize) -> usize {
 }
 
 /// A lesson done to its end, kept (its tick in the "?" menu).
-pub(in crate::launcher) fn flow_lesson_done(profile: &str, id: &str) {
+pub(crate) fn flow_lesson_done(profile: &str, id: &str) {
     let mut s = flow_of(profile);
     if !s.lessons.iter().any(|x| x == id) {
         s.lessons.push(id.to_string());
@@ -227,25 +227,25 @@ pub(in crate::launcher) fn flow_lesson_done(profile: &str, id: &str) {
 }
 
 /// The company's page RosterFlow is on, and RosterFlow's tabs (the planning's views).
-pub(in crate::launcher) const RF_TAB: usize = 5;
-pub(in crate::launcher) const RF_ROSTER: usize = super::planning::RF_ROSTER;
-pub(in crate::launcher) const RF_VEHICLES: usize = super::planning::RF_VEHICLES;
-pub(in crate::launcher) const RF_DRIVERS: usize = super::planning::RF_DRIVERS;
-pub(in crate::launcher) const RF_TIMEPLAN: usize = super::planning::RF_TIMEPLAN;
+pub(crate) const RF_TAB: usize = 5;
+pub(crate) const RF_ROSTER: usize = super::planning::RF_ROSTER;
+pub(crate) const RF_VEHICLES: usize = super::planning::RF_VEHICLES;
+pub(crate) const RF_DRIVERS: usize = super::planning::RF_DRIVERS;
+pub(crate) const RF_TIMEPLAN: usize = super::planning::RF_TIMEPLAN;
 
 /// RosterFlow's tab and the timeplan's screen now.
-pub(in crate::launcher) fn rf_view(l: &Launcher) -> (usize, usize) {
+pub(crate) fn rf_view(l: &Launcher) -> (usize, usize) {
     super::planning::rf_view(l)
 }
 
 /// RosterFlow on tab `view` (and the timeplan on screen `screen`), as the tour shows it.
-pub(in crate::launcher) fn rf_set_view(l: &mut Launcher, view: usize, screen: Option<usize>) {
+pub(crate) fn rf_set_view(l: &mut Launcher, view: usize, screen: Option<usize>) {
     super::planning::rf_set_view(l, view, screen);
 }
 
 /// One of RosterFlow's drawings for the tour's cards (0: the chain, 1: the symbols) in `r`, `a`
 /// of it seen, `t` seconds since it came (None: standing still).
-pub(in crate::launcher) fn rf_picture(ui: &mut super::super::ui::Ui, which: u8, r: omsi_ui::Rect, a: f32, t: Option<f32>) {
+pub(crate) fn rf_picture(ui: &mut super::super::ui::Ui, which: u8, r: omsi_ui::Rect, a: f32, t: Option<f32>) {
     super::planning::rf_picture(ui, which, r, a, t);
 }
 

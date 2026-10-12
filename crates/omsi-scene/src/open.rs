@@ -658,7 +658,7 @@ pub fn navigation_map_of(root: &Path, tiles: &[(i32, i32, PathBuf)], chrono_dirs
                 if a.file.trim().is_empty() || !sco_of(&a.file).is_some_and(|s| s.is_bus_stop) {
                     continue;
                 }
-                let Some((_, first)) = crate::tiles::tile_row_objects(a, &tile.splines, origin2, None).into_iter().next() else { continue };
+                let Some((_, first)) = omsi_world::map_index::tile_row_objects(a, &tile.splines, origin2, None).into_iter().next() else { continue };
                 if !positions.iter().any(|q| q.0 == a.id) {
                     positions.push((a.id, first.pose.pos));
                 }

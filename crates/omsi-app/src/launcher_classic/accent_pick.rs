@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 use super::theme::*;
 use super::ui::{id_of, Ui};
 use crate::accent;
-use crate::launcher::livery::colour;
+use omsi_launcher_ui::livery::colour;
 
 /// A swatch's size and the room it takes along the row.
 const SWATCH: f32 = 26.0;

@@ -215,7 +215,7 @@ struct Entry {
 #[derive(Default)]
 struct Roads {
     /// Every carriageway the map has, as the game groups them: points in world metres.
-    roads: Vec<crate::navigator::MapRoad>,
+    roads: Vec<crate::host::MapRoad>,
     /// The same roads as they are drawn: pieces that run on into each other joined into one
     /// line, in metres from `origin` (`roads::lines`).
     lines: Vec<roads::Line>,
@@ -238,7 +238,7 @@ struct Roads {
     /// Every placed object's world place: the trip's stops are found here.
     objects: HashMap<i64, DVec2>,
     /// Every bus stop of the map (the line editor's), and whether the map drives on the left.
-    stops: Vec<crate::scene::MapStop>,
+    stops: Vec<omsi_scene::MapStop>,
     left_hand: bool,
 }
 
@@ -520,7 +520,7 @@ impl MapView {
 
     /// The wanted map's lane network, its bus stops and whether it drives on the left (the
     /// line editor's), once it is read.
-    pub fn network(&self) -> Option<(Arc<Network>, &[crate::scene::MapStop], bool)> {
+    pub fn network(&self) -> Option<(Arc<Network>, &[omsi_scene::MapStop], bool)> {
         let r = self.roads_of_wanted()?;
         Some((r.net.clone(), &r.stops, r.left_hand))
     }
@@ -930,7 +930,7 @@ impl MapView {
         let queue = &renderer.queue;
         // (multisampled, resolved into the picture: with one sample a pixel every road's edge
         // was a staircase, a roundabout a ring of steps)
-        let gpu = self.gpu.get_or_insert_with(|| Gpu::new(device, renderer.format(), crate::trip_report::samples(renderer.format()), 64));
+        let gpu = self.gpu.get_or_insert_with(|| Gpu::new(device, renderer.format(), crate::mapview::samples(renderer.format()), 64));
         if let Some(p) = self.plan.as_mut() {
             if !p.uploaded {
                 gpu.upload(device, queue, 0, &p.verts);
@@ -1176,7 +1176,8 @@ fn simplify(pts: &[Vec3], tol: f32) -> Vec<Vec3> {
 /// road, route) as CSS.
 pub fn export(map: &str, global: &Path, date: &str, trip: &str, tolerance: f32) -> serde_json::Value {
     use serde_json::json;
-    let look = Look { map: map.to_string(), global: global.to_path_buf(), date: date.to_string(), trip: trip.to_string(), entry: -1 };
+    let trips = if trip.trim().is_empty() { Vec::new() } else { vec![trip.to_string()] };
+    let look = Look { map: map.to_string(), global: global.to_path_buf(), date: date.to_string(), trips, entry: -1 };
     let roads = read_map(&look);
     let path = trip_of(&look);
     let o = roads.origin;
@@ -1234,6 +1235,15 @@ fn read(look: Look, have: Option<Arc<Roads>>, known: Paths) -> Reply {
     reply.paths = paths_of(&reply.look, known);
     reply.roads = Some(Arc::new(roads));
     reply
+}
+
+/// The route of the look's first trip (the map for another front end, which shows one).
+fn trip_of(look: &Look) -> omsi_launcher_lib::TripPath {
+    let Some(trip) = look.trips.first().filter(|t| !t.trim().is_empty()) else { return Default::default() };
+    omsi_launcher_lib::trip_path(&look.map, &look.date, trip).unwrap_or_else(|e| {
+        log::debug!("trip path for {trip}: {e}");
+        Default::default()
+    })
 }
 
 /// The routes of the duty's trips, added to `known` (a trip the timetable does not know has
@@ -1294,7 +1304,7 @@ pub fn overview(look: Look) -> serde_json::Value {
     let entries: Vec<serde_json::Value> = roads.entries.iter().map(|e| json!({ "x": r1(e.at.x - o.x), "y": r1(e.at.y - o.y), "name": e.name, "index": e.index })).collect();
     json!({
         "map": look.map,
-        "trip": look.trip,
+        "trip": look.trips.first().cloned().unwrap_or_default(),
         "origin": [o.x, o.y],
         "lo": [r1(roads.lo.x - o.x), r1(roads.lo.y - o.y)],
         "hi": [r1(roads.hi.x - o.x), r1(roads.hi.y - o.y)],
@@ -1571,5 +1581,15 @@ mod tests {
         assert_eq!(verts.iter().map(|x| x.color).collect::<Vec<_>>(), vec![paper.casing.0, paper.road.0, paper.main.0, route.0]);
         recolour(&mut verts, paper, night);
         assert_eq!(verts[0].color, night.casing.0);
+    }
+}
+
+/// Samples per pixel of the map's picture: 4 where the format can, else 1 (as the game's
+/// trip report draws its map).
+pub(crate) fn samples(format: wgpu::TextureFormat) -> u32 {
+    if format.guaranteed_format_features(wgpu::Features::empty()).flags.sample_count_supported(4) {
+        4
+    } else {
+        1
     }
 }

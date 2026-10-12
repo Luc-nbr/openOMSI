@@ -1164,7 +1164,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("omsi_preview_vector_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("Hanken.ttf");
-        std::fs::write(&file, include_bytes!("../../../../assets/fonts/HankenGrotesk/HankenGrotesk-latin-700.ttf")).unwrap();
+        std::fs::write(&file, include_bytes!("../../../assets/fonts/HankenGrotesk/HankenGrotesk-latin-700.ttf")).unwrap();
         // a matrix whose pixels are its LEDs, 16 rows (a script's churafont)
         let s = sign(16);
         let mut spec = DisplayFontSpec::vector("Hanken Grotesk Bold", &file, 0);
@@ -1198,7 +1198,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("omsi_preview_target_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("Hanken.ttf");
-        std::fs::write(&file, include_bytes!("../../../../assets/fonts/HankenGrotesk/HankenGrotesk-latin-700.ttf")).unwrap();
+        std::fs::write(&file, include_bytes!("../../../assets/fonts/HankenGrotesk/HankenGrotesk-latin-700.ttf")).unwrap();
         let (_, own) = pixel_font("Own", 16, "EFHILNT ");
         let own = Arc::new(own);
         let s = Sign::new(sign(16).def, Some(own.clone()), 16, 1, DisplayRole::Destination);

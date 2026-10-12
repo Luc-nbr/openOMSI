@@ -327,12 +327,12 @@ pub(super) fn probe_lanes(net: &Network) {
 /// every so many metres for so far, how much of it, only near a point, and where on its last
 /// lane it ends (the player's own destination) when not at that lane's end.
 pub(super) struct RouteStyle {
-    extra_m: f32,
-    min_px: f32,
-    arrows: Option<(f32, f32)>,
-    max_len: f32,
-    near: Option<(DVec2, f64)>,
-    end: Option<f32>,
+    pub(super) extra_m: f32,
+    pub(super) min_px: f32,
+    pub(super) arrows: Option<(f32, f32)>,
+    pub(super) max_len: f32,
+    pub(super) near: Option<(DVec2, f64)>,
+    pub(super) end: Option<f32>,
 }
 
 /// Which lane of `lane`'s road (the lanes beside it going the same way) the bus at `bus`
@@ -508,12 +508,12 @@ pub(super) fn build_route(p: &mut Painter, net: &Network, lanes: &[usize], ancho
 /// but their street name signs carry them: a sign names the road its plate runs along,
 /// and the name is carried on along that road until it turns or meets another name.
 pub struct Streets {
-    names: Vec<String>,
+    pub(super) names: Vec<String>,
     /// Per lane: index into `names`, or `u32::MAX`.
-    of_lane: Vec<u32>,
+    pub(super) of_lane: Vec<u32>,
     /// A place to write a name: the point, the road's direction (radians, world, from +x
     /// anticlockwise) and the name.
-    labels: Vec<(DVec2, f32, u32)>,
+    pub(super) labels: Vec<(DVec2, f32, u32)>,
 }
 
 /// The heading of a sign whose plate runs along its road, relative to the road (degrees;

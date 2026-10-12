@@ -24,7 +24,8 @@ pub mod paint;
 pub mod shapes;
 mod studio;
 
-use super::showroom::{Look, Showroom};
+use super::host::{host, Showroom};
+use super::showroom::Look;
 use super::{Launcher, Page};
 use bake::{BusGeom, MeshIn, Outside, Role, SeeThrough, Slot, SlotUse, Zones};
 use glam::{Mat4, Vec2};
@@ -76,7 +77,7 @@ pub fn company_cost(l: &Launcher) -> Option<(String, omsi_launcher_lib::company:
 /// The studio's state in the launcher.
 pub struct LiveryView {
     /// The bus being painted, in a showroom of its own.
-    pub showroom: Showroom,
+    pub showroom: Box<dyn Showroom>,
     view_tex: Option<usize>,
     view_gen: u64,
     /// Where the bus's picture lies this frame (physical size asked of the showroom).
@@ -100,14 +101,14 @@ pub struct LiveryView {
 
 impl Default for LiveryView {
     fn default() -> LiveryView {
-        LiveryView { showroom: Showroom::new(), view_tex: None, view_gen: 0, view_rect: None, other_rect: None, other_tex: None, other_gen: 0, hold_o: false, middle: false, session: None, chooser: Default::default(), shape_tex: HashMap::new(), dropped: Vec::new(), company: None }
+        LiveryView { showroom: host().new_showroom(), view_tex: None, view_gen: 0, view_rect: None, other_rect: None, other_tex: None, other_gen: 0, hold_o: false, middle: false, session: None, chooser: Default::default(), shape_tex: HashMap::new(), dropped: Vec::new(), company: None }
     }
 }
 
 impl LiveryView {
     /// The graphics device went: everything made on it goes too (the bus is placed again).
     pub fn drop_gpu(&mut self) {
-        self.showroom = Showroom::new();
+        self.showroom = host().new_showroom();
         self.view_tex = None;
         self.view_gen = 0;
         self.other_tex = None;
@@ -663,11 +664,11 @@ pub fn update(l: &mut Launcher, dt: f32) {
         v.showroom.want(s.look.clone());
     }
     v.showroom.update(renderer, dt);
-    if s.failed.is_none() && v.showroom.gave_up(&s.look) && !s.look.map.is_empty() && v.showroom.error.is_some() {
-        s.failed = v.showroom.error.clone();
+    if s.failed.is_none() && v.showroom.gave_up(&s.look) && !s.look.map.is_empty() && v.showroom.error().is_some() {
+        s.failed = v.showroom.error();
     }
     // the bus is there: its shape, its textures, onto the worker
-    let dressed = v.showroom.dressed().is_some_and(|d| d == options.as_slice());
+    let dressed = v.showroom.dressed().is_some_and(|d| d == options);
     if v.showroom.shows(&s.look) && dressed && (s.placed_look.as_ref() != Some(&s.look) || s.placed_options != options) && s.preparing.is_none() {
         s.placed_look = Some(s.look.clone());
         s.placed_options = options;
@@ -848,7 +849,7 @@ pub fn update(l: &mut Launcher, dt: f32) {
     }
 }
 
-fn upload(showroom: &mut Showroom, renderer: &Renderer, targets: &[Target], bases: &[omsi_texture::Image], pictures: Option<&Vec<Vec<u8>>>) {
+fn upload(showroom: &mut Box<dyn Showroom>, renderer: &Renderer, targets: &[Target], bases: &[omsi_texture::Image], pictures: Option<&Vec<Vec<u8>>>) {
     let Some(parts) = showroom.parts() else { return };
     for (k, t) in targets.iter().enumerate() {
         let Some(base) = bases.get(k) else { continue };
@@ -919,7 +920,7 @@ fn sharpen(r: &mut Ready, pictures: &Arc<HashMap<String, Arc<Raster>>>, mirror: 
 
 /// The pictures painted at the full size in place of the editing size's (a texture without
 /// one keeps what it shows).
-fn upload_full(showroom: &mut Showroom, renderer: &Renderer, targets: &[Target], pics: &[Option<omsi_texture::Image>]) {
+fn upload_full(showroom: &mut Box<dyn Showroom>, renderer: &Renderer, targets: &[Target], pics: &[Option<omsi_texture::Image>]) {
     let Some(parts) = showroom.parts() else { return };
     for (t, img) in targets.iter().zip(pics) {
         let Some(img) = img else { continue };
@@ -1060,7 +1061,7 @@ fn turns_as_wheel(def: &omsi_model::MeshDef) -> bool {
 const EDIT_TEXELS: u64 = 10 << 20;
 
 /// Read the bus's shape and paint slots from the showroom and start the preparation.
-fn prepare(showroom: &mut Showroom, s: &mut Session, root: &str, family_buses: &[(String, String)]) -> Result<(), String> {
+fn prepare(showroom: &mut Box<dyn Showroom>, s: &mut Session, root: &str, family_buses: &[(String, String)]) -> Result<(), String> {
     let root = PathBuf::from(root);
     let Some(parts) = showroom.parts() else { return Err("no bus".into()) };
     let vt = parts.vt.clone();
@@ -1477,7 +1478,7 @@ pub fn remove_from_game(l: &mut Launcher) {
     if let Some(v) = l.state.vehicles.iter_mut().find(|v| v.file == bus) {
         v.paints.retain(|p| !p.eq_ignore_ascii_case(&placed.name));
     }
-    l.showroom.photos.forget(&root, &bus, &placed.name);
+    l.showroom.photos().forget(&root, &bus, &placed.name);
     if l.state.choice.bus == bus && l.state.choice.paint.eq_ignore_ascii_case(&placed.name) {
         l.state.choice.paint = String::new();
         l.state.touched();
@@ -1584,7 +1585,7 @@ fn saved(l: &mut Launcher, files: Vec<String>) {
             v.paints.push(name.clone());
         }
     }
-    l.showroom.photos.forget(&root, &bus, &name);
+    l.showroom.photos().forget(&root, &bus, &name);
     // (the bus step's bus read again: a save under a name it already shows has new textures)
     l.showroom.reread(&bus);
     if l.state.choice.bus == bus && l.livery.company.is_none() && l.state.planned_bus().is_none() {
@@ -1613,8 +1614,8 @@ pub fn gpu(v: &mut LiveryView, renderer: &mut Renderer, gpu: &mut omsi_ui::Gpu, 
         let other = v.other_rect.and_then(|o| v.session.as_ref().and_then(|s| s.other_camera()).map(|c| (c, (o.w * scale) as u32, (o.h * scale) as u32)));
         v.showroom.set_second(other);
         if let Some(view) = v.showroom.preview(renderer, w.max(16), h.max(16)) {
-            if v.view_gen != v.showroom.generation || v.view_tex.is_none() {
-                v.view_gen = v.showroom.generation;
+            if v.view_gen != v.showroom.generation() || v.view_tex.is_none() {
+                v.view_gen = v.showroom.generation();
                 match v.view_tex {
                     Some(id) => gpu.set_view(&renderer.device, id, &view, (w.max(16), h.max(16))),
                     None => v.view_tex = Some(gpu.add_view(&renderer.device, &view, (w.max(16), h.max(16)))),
@@ -1622,8 +1623,8 @@ pub fn gpu(v: &mut LiveryView, renderer: &mut Renderer, gpu: &mut omsi_ui::Gpu, 
             }
         }
         if let Some((view, sw, sh)) = v.showroom.second_view() {
-            if v.other_gen != v.showroom.second_generation || v.other_tex.is_none() {
-                v.other_gen = v.showroom.second_generation;
+            if v.other_gen != v.showroom.second_generation() || v.other_tex.is_none() {
+                v.other_gen = v.showroom.second_generation();
                 match v.other_tex {
                     Some(id) => gpu.set_view(&renderer.device, id, &view, (sw, sh)),
                     None => v.other_tex = Some(gpu.add_view(&renderer.device, &view, (sw, sh))),

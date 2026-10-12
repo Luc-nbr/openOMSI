@@ -33,7 +33,7 @@ pub fn about(page: Page, controls_tab: usize) -> (&'static str, &'static str) {
 pub fn head_tools(l: &mut Launcher, page: Page, r: Rect) -> f32 {
     match page {
         Page::Profile => driver_tools(l, r),
-        Page::Company => super::company::head_tools(l, r),
+        Page::Company => crate::company::head_tools(l, r),
         _ => r.right(),
     }
 }
@@ -379,13 +379,13 @@ fn local_time(t: u64, offset: i64) -> (i64, u32, u32, u32, u32) {
 }
 
 /// "3 October 2026" (`long`) or "3 Oct 2026, 21:40".
-fn date_text(t: u64, offset: i64, long: bool) -> String {
+pub(super) fn date_text(t: u64, offset: i64, long: bool) -> String {
     let (y, m, d, h, min) = local_time(t, offset);
     let k = (m as usize).clamp(1, 12) - 1;
     if long {
-        format!("{d} {} {y}", omsi_ui::tr(super::ui::MONTHS_LONG[k]))
+        format!("{d} {} {y}", omsi_ui::tr(crate::ui::MONTHS_LONG[k]))
     } else {
-        format!("{d} {} {y}, {h:02}:{min:02}", omsi_ui::tr(super::ui::MONTHS[k]))
+        format!("{d} {} {y}, {h:02}:{min:02}", omsi_ui::tr(crate::ui::MONTHS[k]))
     }
 }
 
@@ -458,7 +458,7 @@ fn figures(p: &core::Profile, map_name: &dyn Fn(&str) -> String, bus_name: &dyn 
 /// left out, not made up.
 pub fn profile(l: &mut Launcher, area: Rect) {
     let mut area = area;
-    if super::mobile::mobile() {
+    if crate::mobile::mobile() {
         // (a phone has no sheet head: the drivers are the page's first rows)
         let used = driver_tools_narrow(l, area) + 16.0;
         area = Rect::new(area.x, area.y + used, area.w, (area.h - used).max(0.0));

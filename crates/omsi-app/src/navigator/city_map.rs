@@ -15,65 +15,65 @@ pub struct CityMap {
     /// Where the window is on the screen (physical pixels).
     pub rect: [f32; 4],
     /// Centre of the view (world) and metres per pixel.
-    center: DVec2,
-    mpp: f64,
+    pub(super) center: DVec2,
+    pub(super) mpp: f64,
     /// The view stays on the bus until the map is dragged.
-    follow: bool,
-    drag: Option<(f32, f32)>,
-    target: Option<(TextureId, u32, u32)>,
+    pub(super) follow: bool,
+    pub(super) drag: Option<(f32, f32)>,
+    pub(super) target: Option<(TextureId, u32, u32)>,
     /// The roads mesh (buffer 3): the map version it was built for, its size and anchor.
-    roads: Option<(u64, u32, DVec2)>,
+    pub(super) roads: Option<(u64, u32, DVec2)>,
     /// The route mesh (buffer 4): the route, traffic, arrow spacing and roads versions it
     /// was built for, and its size.
-    route: ((u64, u64, u32, u64), u32),
+    pub(super) route: ((u64, u64, u32, u64), u32),
     /// The map's extent (world), for the zoom limits.
-    extent: (DVec2, DVec2),
+    pub(super) extent: (DVec2, DVec2),
     /// "Centre on the bus" and zoom buttons (window pixels).
-    buttons: Vec<(Rect, u8)>,
+    pub(super) buttons: Vec<(Rect, u8)>,
     /// The left column: the duty sheet (`nav_duty`) or the sign-on page (`nav_signon`), each
     /// with its button in the header (a second press puts the column away). The player's
     /// choice holds while the companion's stage is the one it was made at; otherwise the
     /// sign-on page shows until the duty is signed - the map's whole view then, not a
     /// column - and the sheet after (Omsi-Hub's duty panel said "sign on first" until then).
     /// What it showed last, at which stage.
-    left: Option<(Left, Stage)>,
-    shown: Left,
-    stage: Stage,
+    pub(super) left: Option<(Left, Stage)>,
+    pub(super) shown: Left,
+    pub(super) stage: Stage,
     /// The column: where it is (window pixels, empty when not shown), how far the sheet's
     /// list is scrolled (points), the trip and stop it last scrolled to, and the interface
     /// scale it was drawn at.
-    sheet: Rect,
-    sheet_scroll: f32,
-    sheet_at: Option<(usize, usize, bool)>,
-    sheet_scale: f32,
+    pub(super) sheet: Rect,
+    pub(super) sheet_scroll: f32,
+    pub(super) sheet_at: Option<(usize, usize, bool)>,
+    pub(super) sheet_scale: f32,
     /// The sign-on page: its own state, where a press does what (window pixels), and the
     /// part of it that scrolls.
-    phone: crate::nav_signon::Phone,
-    phone_hits: Vec<(Rect, crate::nav_signon::Action)>,
-    phone_view: Rect,
+    pub(super) phone: crate::nav_signon::Phone,
+    pub(super) phone_hits: Vec<(Rect, crate::nav_signon::Action)>,
+    pub(super) phone_view: Rect,
     /// The column dragged up or down (a finger has no wheel): the cursor's height before.
-    column_drag: Option<f32>,
+    pub(super) column_drag: Option<f32>,
     /// The pin tool (the header's pin button): a click or a tap on the map sets a pin there.
-    pin_tool: bool,
+    pub(super) pin_tool: bool,
     /// A press on the map with the pin tool on: where (window pixels), and whether it has
     /// moved since (a drag of the map then, no pin).
-    tap: Option<(f32, f32, bool)>,
+    pub(super) tap: Option<(f32, f32, bool)>,
     /// A pin being dragged to another place.
-    pin_drag: Option<PinDrag>,
+    pub(super) pin_drag: Option<PinDrag>,
     /// The pins' card (the window's own pixels; empty when not shown) and where a press on it
     /// does what.
-    card: Rect,
-    card_hits: Vec<(Rect, crate::nav_pins::CardHit)>,
+    pub(super) card: Rect,
+    pub(super) card_hits: Vec<(Rect, crate::nav_pins::CardHit)>,
 }
 
 /// A pin dragged on the city map: which, where the press began and where the cursor is now
 /// (the window's own pixels), and whether it has moved far enough to be a drag.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct PinDrag {
-    k: usize,
-    from: Vec2,
-    at: Vec2,
-    moved: bool,
+    pub(super) k: usize,
+    pub(super) from: Vec2,
+    pub(super) at: Vec2,
+    pub(super) moved: bool,
 }
 
 /// The city map as painted, before it goes to the GPU: the ground, the traffic's dots, what
@@ -81,16 +81,16 @@ pub(super) struct PinDrag {
 /// route's meshes when they were built again (the map's world, relative to `anchor`), and the
 /// view they are seen through.
 pub(super) struct CityPaint {
-    bg: Painter,
-    dots: Painter,
-    ui: Painter,
-    list: Painter,
-    list_clip: [f32; 4],
-    roads: Option<Vec<omsi_ui::Vertex>>,
-    route: Option<Vec<omsi_ui::Vertex>>,
-    world: Layer,
+    pub(super) bg: Painter,
+    pub(super) dots: Painter,
+    pub(super) ui: Painter,
+    pub(super) list: Painter,
+    pub(super) list_clip: [f32; 4],
+    pub(super) roads: Option<Vec<omsi_ui::Vertex>>,
+    pub(super) route: Option<Vec<omsi_ui::Vertex>>,
+    pub(super) world: Layer,
     #[cfg_attr(not(test), allow(dead_code))]
-    anchor: DVec2,
+    pub(super) anchor: DVec2,
 }
 
 /// What the city map's left column shows.

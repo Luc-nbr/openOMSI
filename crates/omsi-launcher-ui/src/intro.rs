@@ -353,7 +353,7 @@ impl Intro {
 /// it, each stop as the pen reaches it (the ones ahead wait faintly), the terminus rings
 /// when all is there; the name stands in its place and the pen's light breathes.
 #[derive(Default)]
-pub(crate) struct Loading {
+pub struct Loading {
     mark: Option<Mark>,
     /// When (on the screen's clock) the ring closed, each stop was reached, the end came.
     ring: Option<f32>,

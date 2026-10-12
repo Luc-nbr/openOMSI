@@ -1097,14 +1097,9 @@ fn revealed() -> bool {
     REVEALED_UNTIL.lock().is_some_and(|t| Instant::now() < t)
 }
 
-/// cloudflared for the launcher's settings: there or not, being fetched, or the fetch failed.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Cloudflared {
-    Installed(std::path::PathBuf),
-    Missing,
-    Downloading,
-    Failed,
-}
+/// cloudflared for the launcher's settings: there or not, being fetched, or the fetch failed
+/// (the launcher's own type: it asks through `Host::cloudflared`).
+pub(crate) use omsi_launcher_ui::host::Cloudflared;
 
 /// The last look for cloudflared (at most every two seconds: the settings are drawn every
 /// frame), and a download under way or failed.

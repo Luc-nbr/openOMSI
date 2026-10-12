@@ -683,7 +683,7 @@ mod tests {
         std::fs::write(fonts.join("Pix.oft"), oft).unwrap();
         std::fs::write(fonts.join("pix.bmp"), bmp(216, 16, |x, y| if x < 208 { x % 8 != 7 && (2..14).contains(&y) } else { (x + y) % 2 == 0 })).unwrap();
         let ttf = dir.join("Hanken.ttf");
-        std::fs::write(&ttf, include_bytes!("../../../assets/fonts/HankenGrotesk/HankenGrotesk-latin-700.ttf")).unwrap();
+        std::fs::write(&ttf, include_bytes!("../../../../assets/fonts/HankenGrotesk/HankenGrotesk-latin-700.ttf")).unwrap();
         let p = compile(&CompileInput::default());
         let mut state = State::new(&p);
         let mut host = VehicleHost::new(SimClock::default());

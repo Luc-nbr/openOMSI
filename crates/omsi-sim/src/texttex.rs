@@ -112,9 +112,9 @@ impl FontLibrary {
         atlas
     }
 
-    /// `display_font` with the built-in image decoder.
+    /// `display_font` with the registered picture decoder (`crate::image_decode`).
     pub fn display_font_for(&mut self, spec: &DisplayFontSpec, own: Option<&FontAtlas>, line_h: i32) -> Option<Arc<FontAtlas>> {
-        self.display_font(spec, own, line_h, &|p| omsi_texture::decode_file(p).ok().map(|i| (i.width, i.height, i.rgba)))
+        self.display_font(spec, own, line_h, &|p| crate::image_decode::decode(p).ok().map(|i| (i.width, i.height, i.rgba)))
     }
 
     /// A vector display font's file and face (`vector_data`), read once.

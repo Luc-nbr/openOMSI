@@ -1298,7 +1298,7 @@ impl Launcher {
         self.ui.p().rect(rail, RAIL);
         self.ui.p().rect(Rect::new(RAIL_W - 1.0, 0.0, 1.0, size.y), EDGE);
         // the logo, small (the new launcher's bar's), and the version under it
-        let (verts, logo) = crate::launcher::flow::brand(&mut self.ui.atlas, &self.ui.fonts, self.ui.scale, 22.0, 44.0, 30.0, RAIL);
+        let (verts, logo) = omsi_launcher_ui::flow::brand(&mut self.ui.atlas, &self.ui.fonts, self.ui.scale, 22.0, 44.0, 30.0, RAIL);
         self.ui.p().verts.extend(verts);
         self.ui.text(crate::startup::VERSION, Vec2::new(24.0, logo.bottom() + 16.0), 12.0, Weight::Regular, TEXT_DIM, Align::Left);
         let mut y = 96.0;

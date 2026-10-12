@@ -11,10 +11,12 @@
 //! the renderer's start, the bus preview, the city map, machine translation ...) the
 //! launcher asks through `host::Host`, which the program installs before opening it.
 
+pub mod accent;
 mod accent_pick;
+mod bridge;
 mod busclass;
 mod busoptions;
-mod busphoto;
+pub mod busphoto;
 mod buspick;
 mod company;
 mod daytime;
@@ -23,23 +25,27 @@ mod displayfont;
 pub mod drive;
 mod device;
 mod editor_hub;
-pub(crate) mod flow;
+pub mod flow;
 mod freedrive;
 mod hof;
-pub(crate) mod intro;
+pub mod intro;
 mod lineeditor;
 mod lineroute;
-pub(crate) mod livery;
+pub mod livery;
 mod mapchoice;
 pub mod host;
 pub mod mapview;
 pub mod mobile;
 pub mod phone;
 mod multiplayer;
+pub mod nav_duty;
 mod ownlines;
 pub mod pages;
 pub(crate) mod tour;
 mod shiftsheet;
+pub mod showroom;
+pub mod splash;
+pub mod stop_signs;
 mod season;
 pub mod state;
 pub use state::crash_of;
@@ -50,6 +56,19 @@ mod transition;
 pub mod ui;
 mod update;
 mod welcome;
+
+// What Omsi-Hub's launcher modules name of the game program (they were its modules): the
+// input's and the platform's crates, and the program's answers (`bridge`, `host`).
+use bridge::{companion, mt, platform, startup, ui_language, weather_setup};
+pub use bridge::spawn;
+#[allow(unused_imports)]
+use omsi_input::{controllers, describe, ffb_calibration, head_filter, hpattern, keys, tobii};
+use omsi_platform::{discord, updater};
+
+// The tests read the game's translation tables as the game does (the launcher itself asks
+// `omsi_ui::tr`, whose lookup the program installs): that every text is translated.
+#[cfg(test)]
+rust_i18n::i18n!("../omsi-app/locales");
 
 use host::host;
 use glam::Vec2;
@@ -134,14 +153,14 @@ impl Clipboard {
 /// The setup world's pictures: the photos of the ways to drive and the start's ground (Omsi-Hub's),
 /// and the welcome's pictures of the new launcher and the classic one.
 const PICTURES: [(&str, &[u8]); 8] = [
-    ("mode-company", include_bytes!("../../../../assets/launcher/bedrijf.jpg")),
-    ("mode-shift", include_bytes!("../../../../assets/launcher/dienst.jpg")),
-    ("mode-tour", include_bytes!("../../../../assets/launcher/omloop.jpg")),
-    ("mode-free", include_bytes!("../../../../assets/launcher/vrij.jpg")),
-    ("mode-editor", include_bytes!("../../../../assets/launcher/editor.jpg")),
-    ("ground-start", include_bytes!("../../../../assets/launcher/start-nacht.jpg")),
-    ("ui-new", include_bytes!("../../../../assets/launcher/ui-nieuw.jpg")),
-    ("ui-classic", include_bytes!("../../../../assets/launcher/ui-klassiek.jpg")),
+    ("mode-company", include_bytes!("../../../assets/launcher/bedrijf.jpg")),
+    ("mode-shift", include_bytes!("../../../assets/launcher/dienst.jpg")),
+    ("mode-tour", include_bytes!("../../../assets/launcher/omloop.jpg")),
+    ("mode-free", include_bytes!("../../../assets/launcher/vrij.jpg")),
+    ("mode-editor", include_bytes!("../../../assets/launcher/editor.jpg")),
+    ("ground-start", include_bytes!("../../../assets/launcher/start-nacht.jpg")),
+    ("ui-new", include_bytes!("../../../assets/launcher/ui-nieuw.jpg")),
+    ("ui-classic", include_bytes!("../../../assets/launcher/ui-klassiek.jpg")),
 ];
 
 /// The pictures decoded on a thread of their own (the window opens meanwhile; a tile shows
@@ -1577,7 +1596,7 @@ impl Launcher {
             }
         }
         // (another bus or livery on its way: the one before stays in view meanwhile)
-        if self.showroom.busy && self.showroom.has_picture() {
+        if self.showroom.busy() && self.showroom.has_picture() {
             let c = Vec2::new(stage.right() - 14.0, stage.y + 14.0);
             let a = self.ui.time * 5.0;
             self.ui.p().arc(c, 6.0, 8.0, a, a + 4.2, TEXT_SOFT);

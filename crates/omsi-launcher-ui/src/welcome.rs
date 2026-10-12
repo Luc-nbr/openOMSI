@@ -1339,7 +1339,7 @@ fn personnel_in(text: &str, driver: &str) -> Option<(String, String)> {
 /// `name`'s personnel data, read once for each driver shown.
 fn personnel_of(l: &mut Launcher, name: &str) -> Option<(String, String)> {
     if l.welcome.personnel.as_ref().map(|p| p.0.as_str()) != Some(name) {
-        let found = crate::lan::data_dir().and_then(|d| std::fs::read_to_string(d.join("personnel.json")).ok()).and_then(|t| personnel_in(&t, name));
+        let found = omsi_lan::data_dir().and_then(|d| std::fs::read_to_string(d.join("personnel.json")).ok()).and_then(|t| personnel_in(&t, name));
         l.welcome.personnel = Some((name.to_string(), found));
     }
     l.welcome.personnel.as_ref().and_then(|p| p.1.clone())

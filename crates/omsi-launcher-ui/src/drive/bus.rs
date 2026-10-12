@@ -306,8 +306,8 @@ pub(super) fn step_bus(l: &mut Launcher, r: Rect) {
                 let mut y = view.y;
                 let field_w = view.w - 8.0;
                 if let Some(cat) = options.as_deref() {
-                    let section = super::busoptions::Section { cat, livery: &paint, picks: &picks, technical_open: technical };
-                    let (h, e) = super::busoptions::section(ui, view.x, y, field_w, &section);
+                    let section = crate::busoptions::Section { cat, livery: &paint, picks: &picks, technical_open: technical };
+                    let (h, e) = crate::busoptions::section(ui, view.x, y, field_w, &section);
                     option_edit = e;
                     y += h + 10.0;
                     ui.p().rect(Rect::new(view.x, y, field_w, 1.0), HAIRLINE);

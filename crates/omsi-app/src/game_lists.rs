@@ -831,7 +831,7 @@ pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -
                     for (k, v) in [("navigator_corner", "bottom-left"), ("nav_rect", ""), ("nav_scale", "1"), ("nav_board", "1")] {
                         remember_setting(k, v);
                     }
-                    LIST_DIRTY.store(true, std::sync::atomic::Ordering::Relaxed);
+                    app.menus.list_dirty = true;
                 }
                 "head_recenter" if step => {
                     app.game_action("head_tracking_recenter");

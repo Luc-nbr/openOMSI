@@ -142,13 +142,13 @@ pub fn font(name: &str) -> Arc<FontSet> {
         return f.clone();
     }
     let hanken = || -> Vec<FontVec> {
-        [include_bytes!("../../../../../assets/fonts/HankenGrotesk/HankenGrotesk-latin-700.ttf").as_slice(), include_bytes!("../../../../../assets/fonts/HankenGrotesk/HankenGrotesk-latin-ext-700.ttf").as_slice()]
+        [include_bytes!("../../../../assets/fonts/HankenGrotesk/HankenGrotesk-latin-700.ttf").as_slice(), include_bytes!("../../../../assets/fonts/HankenGrotesk/HankenGrotesk-latin-ext-700.ttf").as_slice()]
             .iter()
             .filter_map(|b| FontVec::try_from_vec(b.to_vec()).ok())
             .collect()
     };
     let mut set: Vec<FontVec> = match name {
-        "Roboto" => FontVec::try_from_vec(include_bytes!("../../../../../assets/fonts/Roboto-VariableFont_wdth,wght.ttf").to_vec())
+        "Roboto" => FontVec::try_from_vec(include_bytes!("../../../../assets/fonts/Roboto-VariableFont_wdth,wght.ttf").to_vec())
             .ok()
             .map(|mut f| {
                 f.set_variation(b"wght", 700.0);

@@ -17,9 +17,9 @@
 use super::bake::BusGeom;
 use super::model::{self, Coupling, Grip, Kind, Layer, Place, Side, StripeTemplate};
 use super::{colour, paint, shapes, Launcher, Session};
-use crate::launcher::busoptions;
-use crate::launcher::theme::*;
-use crate::launcher::ui::{ButtonKind, Key, Ui};
+use crate::busoptions;
+use crate::theme::*;
+use crate::ui::{ButtonKind, Key, Ui};
 use glam::{DVec3, Vec2, Vec3};
 use omsi_render::Camera;
 use omsi_ui::paint::Align;
@@ -310,7 +310,7 @@ pub fn draw(l: &mut Launcher) {
             if v.showroom.second_view().is_some() {
                 let mouse = l.ui.input.mouse;
                 let busy = s.ui.drag.is_some() || (l.ui.input.down && view.contains(mouse));
-                let a = l.ui.anim(crate::launcher::ui::id_of("livery-other-fade"), if o.contains(mouse) || busy { 0.15 } else { 1.0 }, 0.1);
+                let a = l.ui.anim(crate::ui::id_of("livery-other-fade"), if o.contains(mouse) || busy { 0.15 } else { 1.0 }, 0.1);
                 l.ui.p().rounded(o.pad(-2.0, -2.0), RADIUS + 2.0, HAIRLINE.alpha(a));
                 l.ui.image_faded(o, tex, RADIUS, a);
                 // (on a dark chip: the sky behind them is light)
@@ -420,7 +420,7 @@ fn chooser(l: &mut Launcher, full: Rect) {
     let r = Rect::new((full.w - 980.0).max(32.0) * 0.5, 40.0, full.w.min(980.0 + 64.0) - 64.0, full.h - 80.0);
     l.ui.panel(r);
     if l.ui.button("livery-close", Rect::new(r.right() - 124.0, r.y + 20.0, 104.0, 38.0), "Back", Some("chevron_left"), ButtonKind::Normal) {
-        l.go(crate::launcher::Page::Drive);
+        l.go(crate::Page::Drive);
     }
     l.ui.icon("livery_fill", Vec2::new(r.x + 34.0, r.y + 40.0), 24.0, TEXT);
     l.ui.text_in("Livery studio", Rect::new(r.x + 56.0, r.y + 22.0, 400.0, 30.0), 24.0, Weight::Bold, TEXT, Align::Left);
@@ -602,7 +602,7 @@ fn top_bar(l: &mut Launcher, r: Rect) {
 }
 
 fn tool_button(ui: &mut Ui, name: &str, r: Rect, label: &str, icon: &str, on: bool) -> bool {
-    let id = crate::launcher::ui::id_of(name);
+    let id = crate::ui::id_of(name);
     let (h, _, clicked) = ui.interact(id, r);
     let t = ui.anim(id, if h { 1.0 } else { 0.0 }, 0.08);
     if on {
@@ -654,7 +654,7 @@ fn kinds_menu(l: &mut Launcher, r: Rect, heights: &[f32]) {
         let mut y = a.y;
         for (k, (kind, name, line, icon)) in KINDS.iter().enumerate() {
             let row = Rect::new(a.x, y, a.w - 8.0, heights[k]);
-            let id = crate::launcher::ui::id_of(&format!("livery-kind-{k}"));
+            let id = crate::ui::id_of(&format!("livery-kind-{k}"));
             let (h, _, clicked) = ui.interact(id, row);
             let t = ui.anim(id, if h { 1.0 } else { 0.0 }, 0.06);
             if t > 0.01 {
@@ -1074,7 +1074,7 @@ fn start_props(ui: &mut Ui, s: &mut Session, r: Rect, opts: &BusOpts, actions: &
             let labels = ["Body", "Stripe", "Name"];
             for k in 0..3 {
                 let b = Rect::new(x + k as f32 * (w / 3.0), y, w / 3.0 - 8.0, 52.0);
-                let id = crate::launcher::ui::id_of(&format!("livery-quick-{k}"));
+                let id = crate::ui::id_of(&format!("livery-quick-{k}"));
                 let (h, _, clicked) = ui.interact(id, b);
                 let on = s.picker.target == PickFor::Quick(k);
                 ui.p().rounded(b, RADIUS, if on { HOVER } else if h { HOVER.alpha(0.6) } else { FIELD });
@@ -1682,7 +1682,7 @@ fn stripe_grid(ui: &mut Ui, name: &str, r: Rect, chosen: Option<StripeTemplate>,
     let mut out = None;
     for (k, t) in StripeTemplate::ALL.iter().enumerate() {
         let b = Rect::new(r.x + (k % cols) as f32 * (tw + 8.0), *y + (k / cols) as f32 * (th + 8.0), tw, th);
-        let id = crate::launcher::ui::id_of(&format!("{name}-{k}"));
+        let id = crate::ui::id_of(&format!("{name}-{k}"));
         let (h, _, clicked) = ui.interact(id, b);
         let on = chosen == Some(*t);
         ui.p().rounded(b, 8.0, if on { HOVER } else if h { HOVER.alpha(0.7) } else { FIELD });
@@ -1731,7 +1731,7 @@ fn shape_grid(ui: &mut Ui, name: &str, r: Rect, chosen: Option<&str>, tex: &std:
     let mut out = None;
     for (k, (key, label)) in shapes::SHAPES.iter().enumerate() {
         let b = Rect::new(r.x + (k % cols) as f32 * (tw + 6.0), *y + (k / cols) as f32 * (tw + 6.0), tw, tw);
-        let id = crate::launcher::ui::id_of(&format!("{name}-{key}"));
+        let id = crate::ui::id_of(&format!("{name}-{key}"));
         let (h, _, clicked) = ui.interact(id, b);
         let on = chosen == Some(*key);
         ui.p().rounded(b, 8.0, if on { accent() } else if h { HOVER } else { FIELD });
@@ -1774,7 +1774,7 @@ fn picker(ui: &mut Ui, name: &str, r: Rect, p: &mut Picker, c: &mut [u8; 3], rec
     ui.p().rounded(sq, 6.0, Color::rgba(hue[0], hue[1], hue[2], 1.0));
     ui.p().gradient_h(sq, Color::WHITE, Color::WHITE.alpha(0.0));
     ui.p().gradient(sq, Color::BLACK.alpha(0.0), Color::BLACK);
-    let id = crate::launcher::ui::id_of(&format!("{name}-sv"));
+    let id = crate::ui::id_of(&format!("{name}-sv"));
     let (_, held, _) = ui.interact(id, sq);
     if held {
         let m = ui.input.mouse;
@@ -1792,7 +1792,7 @@ fn picker(ui: &mut Ui, name: &str, r: Rect, p: &mut Picker, c: &mut [u8; 3], rec
         let b = colour::bytes(colour::rgb_of_hsv([(s + 1) as f32 * 60.0, 1.0, 1.0]));
         ui.p().gradient_h(Rect::new(bar.x + bar.w * s as f32 / 6.0, bar.y, bar.w / 6.0 + 0.5, bar.h), Color::rgba(a[0], a[1], a[2], 1.0), Color::rgba(b[0], b[1], b[2], 1.0));
     }
-    let id = crate::launcher::ui::id_of(&format!("{name}-hue"));
+    let id = crate::ui::id_of(&format!("{name}-hue"));
     let (_, held, _) = ui.interact(id, bar.pad(0.0, -4.0));
     if held {
         p.hsv[0] = ((ui.input.mouse.x - bar.x) / bar.w).clamp(0.0, 0.9999) * 360.0;
@@ -1854,7 +1854,7 @@ fn picker(ui: &mut Ui, name: &str, r: Rect, p: &mut Picker, c: &mut [u8; 3], rec
 }
 
 fn swatch(ui: &mut Ui, name: &str, r: Rect, c: [u8; 3], on: bool) -> bool {
-    let id = crate::launcher::ui::id_of(name);
+    let id = crate::ui::id_of(name);
     let (h, _, clicked) = ui.interact(id, r);
     ui.swatch(r, 5.0, Color::rgba(c[0], c[1], c[2], 1.0));
     ui.p().rounded_border(r, 5.0, if on { 2.0 } else { 1.0 }, if on { accent() } else if h { Color::WHITE.alpha(0.5) } else { EDGE });
@@ -1948,7 +1948,7 @@ fn view_bar(l: &mut Launcher, view: Rect) {
         l.ui.tooltip(b, &format!("{}", k + 1));
     }
     let ba = Rect::new(bar.right() - 140.0, bar.y + 5.0, 132.0, 30.0);
-    let id = crate::launcher::ui::id_of("livery-before");
+    let id = crate::ui::id_of("livery-before");
     let (h, held, _) = l.ui.interact(id, ba);
     if held || h {
         l.ui.p().rounded(ba, 15.0, if held { accent() } else { HOVER });

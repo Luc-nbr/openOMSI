@@ -11,7 +11,8 @@
 //! stops a frame or two, which nobody notices while nobody moves the mouse. A tile shows the
 //! bus's initials until its photo is there.
 
-use super::showroom::{Look, Showroom};
+use super::host::{host, Showroom};
+use super::showroom::Look;
 use super::Launcher;
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -62,7 +63,7 @@ pub struct Photos {
     /// "Update bus pictures": every bus, photographed after what is on screen.
     backlog: VecDeque<Wanted>,
     backlog_total: usize,
-    studio: Option<Box<Showroom>>,
+    studio: Option<Box<dyn Showroom>>,
     /// The bus being photographed: what was asked, the look it is drawn with, and the seconds
     /// spent on it (on the bus step: the studio waits while the step is not drawn).
     shooting: Option<(Wanted, Look, f32)>,
@@ -216,12 +217,12 @@ pub fn work(l: &mut Launcher) {
     let now = l.ui.time;
     let dt = l.ui.dt;
     // (idle: no mouse or key for a moment, nothing dragged, the chosen bus not being read)
-    let idle = l.last_input.elapsed().as_secs_f32() > 0.6 && l.dragging.is_none() && !l.showroom.busy;
+    let idle = l.last_input.elapsed().as_secs_f32() > 0.6 && l.dragging.is_none() && !l.showroom.busy();
     let root = l.state.config.root.clone();
     let map = l.state.choice.map.clone();
     let Launcher { renderer, gpu, showroom, .. } = l;
     let (Some(renderer), Some(gpu)) = (renderer.as_mut(), gpu.as_mut()) else { return };
-    let photos = &mut showroom.photos;
+    let photos = showroom.photos();
     for tex in photos.freed.drain(..) {
         gpu.free(tex);
     }
@@ -251,7 +252,7 @@ pub fn work(l: &mut Launcher) {
         if let Some(s) = photos.shooting.as_mut() {
             s.2 = spent;
         }
-        let studio = photos.studio.get_or_insert_with(|| Box::new(Showroom::studio()));
+        let studio = photos.studio.get_or_insert_with(|| host().new_studio());
         studio.update(renderer, dt);
         if studio.shows(&look) {
             let picture = studio.photograph(renderer, PHOTO_W, PHOTO_H);
@@ -278,7 +279,7 @@ pub fn work(l: &mut Launcher) {
                 }
             }
         } else if studio.gave_up(&look) || spent > GIVE_UP_S {
-            log::warn!("bus picker: no photo of {}: {}", k.0, studio.error.clone().unwrap_or_else(|| "it took too long".into()));
+            log::warn!("bus picker: no photo of {}: {}", k.0, studio.error().unwrap_or_else(|| "it took too long".into()));
             if let Some(e) = photos.known.get_mut(&k) {
                 e.photo = Photo::Failed;
             }
@@ -289,7 +290,7 @@ pub fn work(l: &mut Launcher) {
     } else if idle && !map.is_empty() {
         if let Some(k) = photos.next(&root) {
             let look = Look { root: PathBuf::from(&root), map, bus: k.0.clone(), paint: k.1.clone(), weather: String::new(), time: PHOTO_TIME, date: PHOTO_DATE.to_string() };
-            photos.studio.get_or_insert_with(|| Box::new(Showroom::studio())).want(look.clone());
+            photos.studio.get_or_insert_with(|| host().new_studio()).want(look.clone());
             photos.shooting = Some((k, look, 0.0));
         }
     }

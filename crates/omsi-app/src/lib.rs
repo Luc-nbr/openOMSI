@@ -17,8 +17,7 @@ use omsi_platform::discord;
 mod steam;
 use omsi_lan::voice;
 mod head_idle;
-mod head_filter;
-use omsi_input::headtrack;
+use omsi_input::{head_filter, headtrack};
 #[cfg(windows)]
 use omsi_xr::openxr;
 #[cfg(target_os = "android")]
@@ -38,7 +37,8 @@ mod mt;
 use omsi_platform::updater;
 mod update_watch;
 use omsi_platform::presence;
-mod accent;
+// (the player's accent is the launcher's: omsi-launcher-ui)
+pub(crate) use omsi_launcher_ui::accent;
 use omsi_soundscape::ambience;
 mod soundscape;
 use omsi_scene::wheel_surface;
@@ -69,13 +69,15 @@ mod launcher_classic;
 mod menu;
 mod mirror_hud;
 mod navigator;
-mod nav_duty;
+// (the duty board, the stop signs and the launcher's picture of the loading screen are drawn with the
+// launcher's toolkit: omsi-launcher-ui)
+pub(crate) use omsi_launcher_ui::nav_duty;
 mod nav_panel;
 mod nav_signon;
 mod nav_pins;
-mod stop_signs;
-mod splash;
-mod tobii;
+pub(crate) use omsi_launcher_ui::stop_signs;
+pub(crate) use omsi_launcher_ui::splash;
+use omsi_input::tobii;
 mod units;
 mod vr_navigator;
 use omsi_scene::money;
@@ -112,7 +114,7 @@ mod app_events;
 mod bus_service;
 mod camera_util;
 // the game controllers, their mappings and force feedback (`omsi-input`), at their old paths
-use omsi_input::{controllers, gamepad_profile, hpattern};
+use omsi_input::{controllers, ffb_calibration, gamepad_profile, hpattern};
 mod cli;
 mod diagnostics;
 mod perf_report;

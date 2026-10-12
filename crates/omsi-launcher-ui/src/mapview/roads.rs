@@ -8,7 +8,7 @@
 //! The lines are made once per map read, off the interface thread (`read_map`); the plan
 //! thins them for its zoom band (`MapView::build`).
 
-use crate::navigator::MapRoad;
+use crate::host::MapRoad;
 use glam::{DVec2, DVec3, Vec3};
 use hashbrown::HashMap;
 

@@ -146,7 +146,7 @@ fn our_buses(l: &mut Launcher, area: Rect, c: &Company) {
             if !ui.rect_visible(r) {
                 continue;
             }
-            let pic = showroom.photos.get(&root, &bus.bus, &bus.livery, now);
+            let pic = showroom.photos().get(&root, &bus.bus, &bus.livery, now);
             let (clicked, info) = tile(ui, r, &format!("company-bus-{}", bus.id), &bus.name, pic);
             // the fleet number on the photo, as on the bus
             let nw = ui.width(&bus.number, 15.0, Weight::Black) + 20.0;
@@ -219,7 +219,7 @@ pub(super) fn bus_side(l: &mut Launcher, r: Rect, bus: &str, name: &str, kind: B
     let root = l.state.config.root.clone();
     let now = l.ui.time;
     let paint = liveries.get(livery).cloned().unwrap_or_default();
-    let pic = l.showroom.photos.get(&root, bus, &paint, now);
+    let pic = l.showroom.photos().get(&root, bus, &paint, now);
     let ph = r.w * 0.62;
     let photo = Rect::new(r.x, r.y, r.w, ph);
     match pic {

@@ -1061,9 +1061,9 @@ pub(super) fn browse(l: &mut Launcher, r: Rect, foot: Rect) {
     let root = l.state.config.root.clone();
     let paint = l.state.choice.paint.clone();
     let now = l.ui.time;
-    let busy = l.showroom.photos.busy_with().and_then(|f| tree.find(f));
+    let busy = l.showroom.photos().busy_with().and_then(|f| tree.find(f));
     let Launcher { ui, showroom, .. } = l;
-    let photos = &mut showroom.photos;
+    let photos = showroom.photos();
     let click = grid(ui, grid_r, &list, &keys, busy, &mut |t: &Tile| {
         let bus = &tree.buses[t.bus];
         // (the chosen bus in the livery chosen for it, the others in their own)
@@ -1091,7 +1091,7 @@ pub(super) fn browse(l: &mut Launcher, r: Rect, foot: Rect) {
     }
     // in the foot, on the right: a photo of every bus, made now
     let files: Vec<String> = tree.buses.iter().map(|b| b.file.clone()).collect();
-    let progress = l.showroom.photos.progress();
+    let progress = l.showroom.photos().progress();
     let label = match progress {
         Some(_) => omsi_ui::tr("Stop").into_owned(),
         None => omsi_ui::tr("Update bus pictures").into_owned(),
@@ -1105,9 +1105,9 @@ pub(super) fn browse(l: &mut Launcher, r: Rect, foot: Rect) {
     }
     if l.ui.button("bus-photos", b, &label, Some(if progress.is_some() { "stop_circle" } else { "photo_camera" }), ButtonKind::Ghost) {
         if progress.is_some() {
-            l.showroom.photos.stop_all();
+            l.showroom.photos().stop_all();
         } else {
-            l.showroom.photos.queue_all(&root, &files);
+            l.showroom.photos().queue_all(&root, &files);
         }
     }
     l.ui.tooltip(b, "openOMSI draws a picture of every bus from its own 3D model, so that you see which bus you are choosing. It does them one by one while the launcher is idle.");

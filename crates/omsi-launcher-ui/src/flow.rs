@@ -561,7 +561,7 @@ impl Brand {
 /// with its stops - the ring `h` tall, its left edge at `left`, the whole of it centred on
 /// `mid_y`, on `ground`. Drawn into vertices of its own (both launchers' `Ui` keep their
 /// painter behind the atlas it needs); returns them and where it stands.
-pub(crate) fn brand(atlas: &mut Atlas, fonts: &Fonts, scale: f32, left: f32, mid_y: f32, h: f32, ground: Color) -> (Vec<Vertex>, Rect) {
+pub fn brand(atlas: &mut Atlas, fonts: &Fonts, scale: f32, left: f32, mid_y: f32, h: f32, ground: Color) -> (Vec<Vertex>, Rect) {
     brand_inked(atlas, fonts, scale, left, mid_y, h, ground, BRAND_INK)
 }
 

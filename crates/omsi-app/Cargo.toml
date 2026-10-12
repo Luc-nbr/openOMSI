@@ -124,6 +124,8 @@ ndk-context = "0.1"
 [dev-dependencies]
 # the control names from a table (`ControlNames::from_table`) for the key picker's tests
 omsi-input = { path = "../omsi-input", features = ["test-support"] }
+# the duty board's fixtures (`nav_duty::tests`) for the navigator's and the trip report's tests
+omsi-launcher-ui = { path = "../omsi-launcher-ui", features = ["test-support"] }
 
 # iPhone and iPad: the window the game draws in is put on the app's scene (UIKit's scene life
 # cycle, which the Swift app keeps) through the Objective-C runtime

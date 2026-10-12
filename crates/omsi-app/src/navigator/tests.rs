@@ -283,6 +283,7 @@ fn painting_frame() -> NavFrame<'static> {
         follow_window: true,
         dt: 1.0 / 60.0,
         info_rect: None,
+        touch_gap: None,
     }
 }
 
@@ -1221,5 +1222,3 @@ fn crowded_stop_markers_and_labels_do_not_overlap() {
     assert!(edge.right() < 600.0);
     assert!(stop_label_rect(p, 150.0, 1.0, win, &[win]).is_none());
 }
-
-use super::*;

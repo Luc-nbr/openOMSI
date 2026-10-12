@@ -1299,7 +1299,7 @@ mod tests {
 
     #[test]
     fn every_lessons_part_is_drawn_under_its_name() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/launcher/company/planning");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/company/planning");
         let src: String = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).filter(|e| e.path().extension().is_some_and(|x| x == "rs")).map(|e| std::fs::read_to_string(e.path()).unwrap()).collect();
         for l in LESSONS {
             for s in l.steps().iter().filter(|s| !s.target.is_empty()) {

@@ -32,7 +32,7 @@ pub(super) fn line_sign(schedule: Option<&crate::schedule::Schedule>, line: &oms
 
 /// "Line 12" for a line of the map's (its file's name, as OMSI lists it); a line the player
 /// made in the line editor (`oo_…`) by the number its trips carry, and marked as theirs.
-fn line_title(schedule: Option<&crate::schedule::Schedule>, line: &omsi_timetable::Line) -> String {
+pub(super) fn line_title(schedule: Option<&crate::schedule::Schedule>, line: &omsi_timetable::Line) -> String {
     let tr = |t: &str| omsi_ui::tr(t).into_owned();
     if is_own_file(&line.name) {
         let sign = line_sign(schedule, line);

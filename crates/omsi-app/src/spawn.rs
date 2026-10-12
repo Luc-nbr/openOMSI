@@ -833,26 +833,9 @@ pub(crate) fn paint_scheme(vt: &omsi_sim::VehicleType, paint: Option<&str>) -> O
     found
 }
 
-/// The paint scheme of a coupled part (an articulated bus's rear section) for the lead's
-/// `scheme`: the part's scheme of the same name, as OMSI pairs the repaints of both parts by
-/// their name; a part without one keeps the same place in its list (as before, when the parts'
-/// folders list the same repaints in the same order).
-pub(crate) fn part_scheme(lead: &omsi_sim::VehicleType, scheme: Option<usize>, part: &omsi_sim::VehicleType) -> Option<usize> {
-    let i = scheme?;
-    let named = lead.paint_schemes.get(i).and_then(|s| part.paint_schemes.iter().position(|p| p.name.eq_ignore_ascii_case(&s.name)));
-    named.or_else(|| (i < part.paint_schemes.len()).then_some(i))
-}
-
-/// The variables of `--setvar` (`name=value,…`, the launcher's bus options): names trimmed,
-/// pieces without a name or an `=` left out.
-pub(crate) fn setvars(arg: Option<&str>) -> Vec<(String, f32)> {
-    arg.into_iter()
-        .flat_map(|sv| sv.split(','))
-        .filter_map(|kv| kv.split_once('='))
-        .filter(|(k, _)| !k.trim().is_empty())
-        .map(|(k, v)| (k.trim().to_string(), omsi_cfg::parse_f32(v)))
-        .collect()
-}
+// The paint scheme of a coupled part for the lead's, and the bus options of `--setvar`: the
+// launcher's own (it reads them the same way for its preview and its livery studio).
+pub(crate) use omsi_launcher_ui::spawn::{part_scheme, setvars};
 
 /// Where the map's `global.cfg` recorded an entry point (x, height, y within its tile), in
 /// world coordinates, taken in the tile of its object at `object` (Grundorf's records agree

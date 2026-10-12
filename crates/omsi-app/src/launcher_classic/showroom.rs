@@ -184,7 +184,7 @@ impl Showroom {
                         s.look = w.clone();
                         let args = args_for(&w);
                         s.weather = load_weather(&args);
-                        setup_sky(&args, renderer, &mut s.scene, omsi_content::Envir::load(&args.root.join("envir.cfg")).ok().as_ref(), Some(&s.weather));
+                        setup_sky(&args, renderer, &mut s.scene, omsi_content::Envir::load(&args.root.join("envir.cfg")).ok().as_ref(), Some(&s.weather), &mut Default::default());
                         s.lighting = lighting_for(&args, &s.weather);
                     }
                     self.dirty = true;
@@ -273,7 +273,7 @@ impl Showroom {
         let args = args_for(&r.look);
         let weather = load_weather(&args);
         let envir = omsi_content::Envir::load(&args.root.join("envir.cfg")).ok();
-        setup_sky(&args, renderer, &mut scene, envir.as_ref(), Some(&weather));
+        setup_sky(&args, renderer, &mut scene, envir.as_ref(), Some(&weather), &mut Default::default());
         add_floor(renderer, &mut scene);
         let world = r.world;
         let mut vehicle = r.vehicle;
@@ -373,7 +373,7 @@ fn lighting_for(args: &Args, weather: &omsi_content::weather::Weather) -> Lighti
     let clock = start_clock(args);
     let envir = omsi_content::Envir::load(&args.root.join("envir.cfg")).ok();
     let daylight = omsi_sim::Daylight::compute(&clock, envir.as_ref());
-    let mut l = weather_lighting(&daylight, weather, crate::weather_setup::cloud_drift_at(weather, clock.time), 0.0, true);
+    let mut l = weather_lighting(&daylight, weather, crate::weather_setup::cloud_drift_at(weather, clock.time), 0.0, true, &Default::default());
     l.shadows = daylight.altitude_deg > 2.0;
     l.enhanced = false;
     l.classic = false;

@@ -524,7 +524,7 @@ mod tests {
             "Leaving",
         ]);
         // what the inbox is told of the staff, and the refusals of the staff's rules
-        let src = include_str!("../../../../../omsi-launcher-core/src/company/staff.rs");
+        let src = include_str!("../../../../omsi-launcher-core/src/company/staff.rs");
         let src = &src[..src.find("#[cfg(test)]").unwrap_or(src.len())];
         let told = literals_after(src, "Message::new(Kind::Staff, ", 2);
         assert!(told.len() >= 16, "{told:?}");

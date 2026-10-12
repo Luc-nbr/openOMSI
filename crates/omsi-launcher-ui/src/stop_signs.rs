@@ -29,7 +29,7 @@ use hashbrown::HashMap;
 use omsi_ui::paint::Align;
 use omsi_ui::{Atlas, Color, Fonts, Painter, Rect, Weight};
 
-use crate::schedule::{PlannedTrip, PlayerDuty};
+use omsi_sim::timetable_run::{PlannedTrip, PlayerDuty};
 
 // --- colours (sRGB) -------------------------------------------------------------------
 

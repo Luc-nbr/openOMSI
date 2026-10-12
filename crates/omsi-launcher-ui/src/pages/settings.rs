@@ -125,12 +125,12 @@ pub fn settings(l: &mut Launcher, area: Rect) {
         l.go(Page::Controls);
     }
     match out.again {
-        Some(Again::Welcome) => super::welcome::show_again(l),
+        Some(Again::Welcome) => crate::welcome::show_again(l),
         // (the tour begins at the start)
         Some(Again::Tour) => {
-            l.drive.step = super::flow::Step::Mode;
+            l.drive.step = crate::flow::Step::Mode;
             l.go(Page::Drive);
-            super::tour::start(l);
+            crate::tour::start(l);
         }
         None => {}
     }
@@ -503,7 +503,7 @@ fn graphics_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, cols: [Rect; 2]) ->
 /// Controls page).
 fn driving_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, cols: [Rect; 2]) -> [f32; 2] {
     let mut c = Col::new(ui, cols[0], "Keyboard & mouse");
-    if super::mobile::mobile() {
+    if crate::mobile::mobile() {
         c.section(ui, "Touch controls");
         sel_setting(ui, s, dirty, "s-touch-doors", c.row(), "Door buttons", "touch_door_mode", &[("standard", "Standard (physical doors)"), ("direct", "Direct OMSI triggers")]);
         c.section(ui, "Keyboard & mouse");
@@ -1097,7 +1097,7 @@ fn general_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, c
     toggle_setting(ui, s, dirty, c.row(), "Bus across the screen between pages", "page_bus");
     // (the interface's accent colour: the presets and a picker for any other, at once)
     ui.label(c.row(), "Accent colour");
-    c.y += super::accent_pick::chooser(ui, "s-accent", c.inner.x, c.y - 6.0, c.inner.w, s, dirty) + 4.0;
+    c.y += crate::accent_pick::chooser(ui, "s-accent", c.inner.x, c.y - 6.0, c.inner.w, s, dirty) + 4.0;
     // (the first start's welcome and the tour through the launcher, once more; side by side,
     // one under the other where the column is narrow)
     let r = c.row();

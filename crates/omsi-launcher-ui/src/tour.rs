@@ -538,7 +538,7 @@ fn flow_plan() -> Vec<Stop> {
 }
 
 /// The chapters of RosterFlow's tour, each with the stop it starts at (for its "?" menu).
-pub(in crate::launcher) fn flow_chapters() -> Vec<(&'static str, usize)> {
+pub(crate) fn flow_chapters() -> Vec<(&'static str, usize)> {
     let mut out: Vec<(&'static str, usize)> = Vec::new();
     for (k, s) in FLOW_STOPS.iter().enumerate() {
         let chapter = s.words().0;
@@ -552,7 +552,7 @@ pub(in crate::launcher) fn flow_chapters() -> Vec<(&'static str, usize)> {
 }
 
 /// The stops of RosterFlow's tour (to keep where it was left within them).
-pub(in crate::launcher) fn flow_len() -> usize {
+pub(crate) fn flow_len() -> usize {
     FLOW_STOPS.len()
 }
 
@@ -684,7 +684,7 @@ pub fn start_company(l: &mut Launcher, at: usize) {
 
 /// Start RosterFlow's tour at its stop `at` (0: its welcome; a chapter's first stop from its
 /// "?" menu, or where it was left).
-pub(in crate::launcher) fn start_flow(l: &mut Launcher, at: usize) {
+pub(crate) fn start_flow(l: &mut Launcher, at: usize) {
     begin_run(l, flow_plan(), at, Kind::Flow);
 }
 
@@ -1393,7 +1393,7 @@ fn bubble_inside(ui: &mut Ui, b: Rect, v: &View, lay: &Lay) -> Option<Command> {
 
 /// What the guide's bubble is showing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(in crate::launcher) enum GuideMode {
+pub(crate) enum GuideMode {
     /// A step to do: it ticks itself off once done (`info`: a step to read, "Got it" goes on).
     Step { info: bool },
     /// "End lesson" was pressed: keep the changes, undo the lesson, or go on with it.
@@ -1405,7 +1405,7 @@ pub(in crate::launcher) enum GuideMode {
 }
 
 /// What the guide shows this frame.
-pub(in crate::launcher) struct Guide<'a> {
+pub(crate) struct Guide<'a> {
     /// The lesson's name (over the title, as a tour's chapter).
     pub lesson: &'a str,
     pub title: &'a str,
@@ -1425,7 +1425,7 @@ pub(in crate::launcher) struct Guide<'a> {
 
 /// What a button of the guide asked for.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(in crate::launcher) enum GuideCmd {
+pub(crate) enum GuideCmd {
     /// "Got it": a step to read is done.
     Next,
     /// "End lesson".
@@ -1440,7 +1440,7 @@ pub(in crate::launcher) enum GuideCmd {
 
 /// The guide's own between frames: which corner its bubble is in, and its ring's landing.
 #[derive(Default)]
-pub(in crate::launcher) struct GuideState {
+pub(crate) struct GuideState {
     corner: usize,
     press_in: bool,
     glide: Glide,
@@ -1451,7 +1451,7 @@ const GUIDE_W: f32 = 340.0;
 const GUIDE_ROW: f32 = 22.0;
 
 /// Where a part is drawn this frame (`anchor`), for RosterFlow's lessons.
-pub(in crate::launcher) fn anchored_rect(key: &str) -> Option<Rect> {
+pub(crate) fn anchored_rect(key: &str) -> Option<Rect> {
     anchored(key)
 }
 
@@ -1484,7 +1484,7 @@ fn guide_docks(room: Rect, size: Vec2) -> [Rect; 4] {
 
 /// The guide: the ring round the step's part and the bubble. Returns what was pressed, and
 /// where the bubble lies (the page gets no mouse there next frame).
-pub(in crate::launcher) fn guide(ui: &mut Ui, g: &Guide, st: &mut GuideState) -> (Option<GuideCmd>, Rect) {
+pub(crate) fn guide(ui: &mut Ui, g: &Guide, st: &mut GuideState) -> (Option<GuideCmd>, Rect) {
     let w = GUIDE_W.min(g.room.w - 2.0 * MARGIN).max(200.0);
     // the corner: away from the part and what lies open beside it (the first free one, the
     // one it is in while that stays free), and from a hand carried over it; where no corner
@@ -3084,7 +3084,7 @@ mod tests {
     fn every_stop_of_rosterflows_tour_finds_its_part() {
         // (each part a stop points at is drawn under its name by RosterFlow: `anchor("…"`; the
         // tabs' names are chosen in a match)
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/launcher/company");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/company");
         let mut src = String::new();
         for d in [dir.join("planning.rs"), dir.join("planning")] {
             if d.is_file() {

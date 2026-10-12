@@ -10,8 +10,8 @@ use omsi_render::{Renderer, Scene, TextureId};
 use omsi_ui::paint::Align;
 use omsi_ui::{Color, Draw, Gpu, Rect, Weight};
 
-use crate::launcher::intro::Loading;
-use crate::launcher::ui::Ui;
+use crate::intro::Loading;
+use crate::ui::Ui;
 
 /// The loading screen's ground: a plain dark grey.
 const GROUND: Color = Color::rgba(46, 48, 53, 1.0);
@@ -147,7 +147,7 @@ impl Splash {
 /// The loading screen painted over the window `ui` has: the ground, the mark with its pen at
 /// `shown` (on the clock `time`, s), the title and the caption with how much is loaded. (The
 /// launcher paints it too for pictures: `OMSI_LAUNCHER_SPLASH=<0..1>`.)
-pub(crate) fn paint_loading(ui: &mut Ui, loading: &mut Loading, shown: f32, title: &str, caption: &str, time: f32) {
+pub fn paint_loading(ui: &mut Ui, loading: &mut Loading, shown: f32, title: &str, caption: &str, time: f32) {
     let size = ui.size;
     let window = Rect::new(0.0, 0.0, size.x, size.y);
     // (a plain grey ground, Luc: calmer than the launcher's route behind the mark)
@@ -171,7 +171,7 @@ thread_local! {
 
 /// `OMSI_LAUNCHER_SPLASH=<0..1>`: the launcher paints the game's loading screen at that point
 /// over its page, for pictures of it (the game itself is not started for them).
-pub(crate) fn preview(ui: &mut Ui) {
+pub fn preview(ui: &mut Ui) {
     let Some(p) = omsi_cfg::env::var("OMSI_LAUNCHER_SPLASH").ok().and_then(|v| v.trim().parse::<f32>().ok()) else { return };
     PREVIEW.with(|l| {
         let mut l = l.borrow_mut();

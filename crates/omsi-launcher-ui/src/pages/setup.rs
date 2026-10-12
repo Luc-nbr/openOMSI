@@ -19,9 +19,9 @@ pub fn setup(l: &mut Launcher, area: Rect) {
         l.pages.setup_root = Some(root.clone());
     }
     if l.ui.button("browse-root", Rect::new(inner.right() - 100.0, y, 100.0, ROW), "Browse", None, ButtonKind::Normal) {
-        if super::mobile::mobile() {
+        if crate::mobile::mobile() {
             let start = root.clone();
-            l.browse(super::mobile::Purpose::Root, &start);
+            l.browse(crate::mobile::Purpose::Root, &start);
         } else if let Some(p) = core::pick_folder("The OMSI 2 folder (with maps and Vehicles in it)") {
             l.pages.setup_root = Some(p.to_string_lossy().to_string());
         }
@@ -96,7 +96,7 @@ fn support_panel(l: &mut Launcher, r: Rect) {
     if l.ui.button("export-diagnostics", Rect::new(inner.x, inner.y + h + 12.0, 220.0, 42.0), "Export diagnostics", Some("download"), ButtonKind::Normal) {
         let c = &l.state.choice;
         let job = host().support_bundle(l.renderer.as_ref(), l.pages.pads.io.as_ref().map(|d| d.connected()), (&c.map, &c.bus, c.line.as_deref(), c.tour.as_deref()));
-        l.state.spawn(move || super::state::Msg::Diagnostics(job()));
+        l.state.spawn(move || crate::state::Msg::Diagnostics(job()));
     }
 }
 

@@ -24,65 +24,65 @@ use glam::Vec2;
 use omsi_ui::paint::Align;
 use omsi_ui::{Atlas, Color, Fonts, Painter, Rect, Weight};
 
-use crate::schedule::{PlannedTrip, PlayerDuty};
+use omsi_sim::timetable_run::{PlannedTrip, PlayerDuty};
 
 // --- Omsi-Hub's palette (the launcher's `theme.rs`) ------------------------------------
 
 /// The accent (the player's colour, `crate::accent`; Omsi-Hub's route blue was it).
-pub(crate) fn accent() -> Color {
+pub fn accent() -> Color {
     crate::accent::base()
 }
 /// The accent as letters, icons and marks on the dark sheet (lighter): a link, a code, a note.
-pub(crate) fn accent_ink() -> Color {
+pub fn accent_ink() -> Color {
     crate::accent::shades().soft
 }
 /// The line number's plate, and its ink.
-pub(crate) const LINE: Color = Color::rgba(255, 210, 63, 1.0);
+pub const LINE: Color = Color::rgba(255, 210, 63, 1.0);
 const ON_LINE: Color = Color::rgba(26, 20, 0, 1.0);
 /// Punctuality as fills (a chip): late, on time, early.
-pub(crate) const LATE: Color = Color::rgba(217, 58, 48, 1.0);
-pub(crate) const ON_TIME: Color = Color::rgba(26, 138, 79, 1.0);
+pub const LATE: Color = Color::rgba(217, 58, 48, 1.0);
+pub const ON_TIME: Color = Color::rgba(26, 138, 79, 1.0);
 // (blue whatever the accent: it is a meaning)
-pub(crate) const EARLY: Color = Color::rgba(42, 117, 247, 1.0);
+pub const EARLY: Color = Color::rgba(42, 117, 247, 1.0);
 /// The same as letters on the dark panel (the fills are too dark to read as text there;
 /// Omsi-Hub's overlay wrote its delay in these).
-pub(crate) const LATE_INK: Color = Color::hex(0xFF5F57);
-pub(crate) const ON_TIME_INK: Color = Color::hex(0x37D67A);
-pub(crate) const EARLY_INK: Color = Color::hex(0x4DA3FF);
+pub const LATE_INK: Color = Color::hex(0xFF5F57);
+pub const ON_TIME_INK: Color = Color::hex(0x37D67A);
+pub const EARLY_INK: Color = Color::hex(0x4DA3FF);
 /// The stop the bus heads for, and the advice about what comes next.
-pub(crate) const NOW: Color = Color::hex(0xF0B429);
+pub const NOW: Color = Color::hex(0xF0B429);
 /// The stops' rail ahead of the bus (the route: the accent) and behind it.
 fn rail_ahead() -> Color {
     crate::accent::shades().hover
 }
 const RAIL_DONE: Color = Color::hex(0x4A5462);
 /// The sheet (Omsi-Hub's `--vel-overlay`), a field in it, its edge and the hairlines.
-pub(crate) const SHEET: Color = Color::rgba(20, 26, 38, 1.0);
-pub(crate) const FIELD: Color = Color::rgba(36, 44, 62, 1.0);
-pub(crate) const EDGE: Color = Color::rgba(255, 255, 255, 0.10);
-pub(crate) const HAIRLINE: Color = Color::rgba(255, 255, 255, 0.07);
-pub(crate) const TEXT: Color = Color::rgba(232, 235, 242, 1.0);
-pub(crate) const TEXT_SOFT: Color = Color::rgba(196, 202, 214, 1.0);
-pub(crate) const TEXT_DIM: Color = Color::rgba(149, 157, 176, 1.0);
-pub(crate) const TEXT_FAINT: Color = Color::rgba(96, 104, 122, 1.0);
+pub const SHEET: Color = Color::rgba(20, 26, 38, 1.0);
+pub const FIELD: Color = Color::rgba(36, 44, 62, 1.0);
+pub const EDGE: Color = Color::rgba(255, 255, 255, 0.10);
+pub const HAIRLINE: Color = Color::rgba(255, 255, 255, 0.07);
+pub const TEXT: Color = Color::rgba(232, 235, 242, 1.0);
+pub const TEXT_SOFT: Color = Color::rgba(196, 202, 214, 1.0);
+pub const TEXT_DIM: Color = Color::rgba(149, 157, 176, 1.0);
+pub const TEXT_FAINT: Color = Color::rgba(96, 104, 122, 1.0);
 /// The advice's text (Omsi-Hub's "next trip" note: warm on the amber tint).
 const ADVICE: Color = Color::rgba(245, 230, 200, 1.0);
 
 // --- punctuality --------------------------------------------------------------------------
 
 /// Later than this after the timetable is late, and more than this before it early (s).
-pub(crate) const LATE_AFTER: f64 = 180.0;
-pub(crate) const EARLY_BEFORE: f64 = 120.0;
+pub const LATE_AFTER: f64 = 180.0;
+pub const EARLY_BEFORE: f64 = 120.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Punctuality {
+pub enum Punctuality {
     Early,
     OnTime,
     Late,
 }
 
 /// How a bus `delay` seconds off the timetable (negative early) stands.
-pub(crate) fn punctuality(delay: f64) -> Punctuality {
+pub fn punctuality(delay: f64) -> Punctuality {
     if delay > LATE_AFTER {
         Punctuality::Late
     } else if delay < -EARLY_BEFORE {
@@ -94,7 +94,7 @@ pub(crate) fn punctuality(delay: f64) -> Punctuality {
 
 impl Punctuality {
     /// Its colour as letters on the dark panel.
-    pub(crate) fn ink(self) -> Color {
+    pub fn ink(self) -> Color {
         match self {
             Punctuality::Early => EARLY_INK,
             Punctuality::OnTime => ON_TIME_INK,
@@ -112,13 +112,13 @@ impl Punctuality {
 }
 
 /// A time of day (s) as `hh:mm` (past midnight it goes on from 00:00).
-pub(crate) fn hhmm(t: f64) -> String {
+pub fn hhmm(t: f64) -> String {
     let m = (t / 60.0).floor() as i64;
     format!("{:02}:{:02}", m.div_euclid(60).rem_euclid(24), m.rem_euclid(60))
 }
 
 /// How far off the timetable, as Omsi-Hub writes it: `+3:12`, `−2:30`.
-pub(crate) fn offset(delay: f64) -> String {
+pub fn offset(delay: f64) -> String {
     let s = delay.abs().round() as i64;
     format!("{}{}:{:02}", if delay < 0.0 { '\u{2212}' } else { '+' }, s / 60, s % 60)
 }
@@ -129,7 +129,7 @@ fn minutes_up(s: f64) -> i64 {
 }
 
 /// `key` in the interface's language with its `%{name}` placeholders filled in.
-pub(crate) fn tr_with(key: &str, vars: &[(&str, String)]) -> String {
+pub fn tr_with(key: &str, vars: &[(&str, String)]) -> String {
     let mut t = omsi_ui::tr(key).into_owned();
     for (k, v) in vars {
         t = t.replace(&format!("%{{{k}}}"), v);
@@ -281,7 +281,7 @@ pub enum StopState {
 /// The served stops of `trip` (a depot run passes stations it does not stop at) with their
 /// index among all its stops, and which of them is the one the bus heads for when it is due
 /// at stop `at` (the number of them when it is past them all).
-fn served(trip: &PlannedTrip, at: usize) -> (Vec<(usize, &crate::schedule::PlannedStop)>, usize) {
+fn served(trip: &PlannedTrip, at: usize) -> (Vec<(usize, &omsi_sim::timetable_run::PlannedStop)>, usize) {
     let v: Vec<_> = trip.stops.iter().enumerate().filter(|(_, s)| s.stops).collect();
     let now = v.iter().position(|(i, _)| *i >= at).unwrap_or(v.len());
     (v, now)
@@ -423,7 +423,7 @@ pub fn board_within(state: Option<&DutyState>, s: f32, room: f32) -> (Vec<Row>, 
 }
 
 /// How tall a row of the board is (at scale 1).
-pub(crate) fn row_height(row: &Row) -> f32 {
+pub fn row_height(row: &Row) -> f32 {
     match row {
         Row::Head { .. } => 48.0,
         Row::Stop { .. } => 22.0,
@@ -444,24 +444,24 @@ pub fn board_height(rows: &[Row]) -> f32 {
 }
 
 /// Where the panel draws: the navigator's painter, atlas and fonts.
-pub(crate) struct Pen<'a> {
+pub struct Pen<'a> {
     pub p: &'a mut Painter,
     pub atlas: &'a mut Atlas,
     pub fonts: &'a Fonts,
 }
 
 impl Pen<'_> {
-    pub(crate) fn text_in(&mut self, text: &str, px: f32, weight: Weight, r: Rect, align: Align, c: Color) -> f32 {
+    pub fn text_in(&mut self, text: &str, px: f32, weight: Weight, r: Rect, align: Align, c: Color) -> f32 {
         self.p.text_in(self.atlas, self.fonts, text, px, weight, r, align, c)
     }
 
-    pub(crate) fn width(&self, text: &str, px: f32, weight: Weight) -> f32 {
+    pub fn width(&self, text: &str, px: f32, weight: Weight) -> f32 {
         self.fonts.width(text, px, weight)
     }
 
     /// The line number's plate, as printed on Omsi-Hub's duty cards (an empty run gets an
     /// outlined tag saying so), from `x` and centred on `cy`; returns its width.
-    pub(crate) fn plate(&mut self, line: Option<&str>, x: f32, cy: f32, s: f32) -> f32 {
+    pub fn plate(&mut self, line: Option<&str>, x: f32, cy: f32, s: f32) -> f32 {
         let h = 19.0 * s;
         match line {
             Some(l) => {
@@ -555,7 +555,7 @@ impl Pen<'_> {
     }
 
     /// An advice box (amber tint, a bar on the left) over `r`.
-    pub(crate) fn advice(&mut self, r: Rect, tint: Color, s: f32) {
+    pub fn advice(&mut self, r: Rect, tint: Color, s: f32) {
         self.p.rounded(r, 6.0 * s, tint.alpha(0.13));
         self.p.rounded(Rect::new(r.x, r.y, 3.0 * s, r.h), 1.5 * s, tint);
     }
@@ -571,7 +571,7 @@ fn time_style(state: StopState) -> (Weight, Color) {
 }
 
 /// Draw the board's `rows` into `area` (the panel's width, `board_height` tall at scale `s`).
-pub(crate) fn draw_board(pen: &mut Pen, rows: &[Row], area: Rect, s: f32) {
+pub fn draw_board(pen: &mut Pen, rows: &[Row], area: Rect, s: f32) {
     let pad = 11.0 * s;
     let (x0, x1) = (area.x + pad, area.right() - pad);
     let w = x1 - x0;
@@ -736,7 +736,7 @@ pub const SHEET_HEAD: f32 = 128.0;
 /// Draw the sheet's frame and head into `r`: the title with the duty's span, the status
 /// chip, and tiles for the time in the game, the delay and the trip. Returns the rect the
 /// list goes in.
-pub(crate) fn draw_sheet_head(pen: &mut Pen, d: &DutyState, r: Rect, time: f64, s: f32) -> Rect {
+pub fn draw_sheet_head(pen: &mut Pen, d: &DutyState, r: Rect, time: f64, s: f32) -> Rect {
     pen.p.shadow(r, 12.0 * s, 18.0 * s, Color::rgba(0, 0, 0, 0.45));
     pen.p.rounded(r, 12.0 * s, SHEET.alpha(0.96));
     pen.p.rounded_border(r, 12.0 * s, 1.0, EDGE);
@@ -775,7 +775,7 @@ pub(crate) fn draw_sheet_head(pen: &mut Pen, d: &DutyState, r: Rect, time: f64, 
 
 /// Draw the sheet's list into `view` (in the list's own layer, clipped to it), scrolled
 /// `scroll` points (at scale `s`) down; rows out of view are left out.
-pub(crate) fn draw_sheet_list(pen: &mut Pen, rows: &[SheetRow], view: Rect, scroll: f32, s: f32) {
+pub fn draw_sheet_list(pen: &mut Pen, rows: &[SheetRow], view: Rect, scroll: f32, s: f32) {
     let pad = 16.0 * s;
     let (x0, x1) = (view.x + pad, view.right() - pad);
     let w = x1 - x0;
@@ -839,14 +839,16 @@ pub(crate) fn draw_sheet_list(pen: &mut Pen, rows: &[SheetRow], view: Rect, scro
     }
 }
 
-#[cfg(test)]
-pub(crate) mod tests {
+// (its fixtures - a duty, its state, a painted board read back - are the navigator's tests'
+// too: omsi-app's, through the feature)
+#[cfg(any(test, feature = "test-support"))]
+pub mod tests {
     use super::*;
-    use crate::schedule::{PlannedStop, StopDir};
+    use omsi_sim::timetable_run::{PlannedStop, StopDir};
 
     /// A trip leaving at `dep` (minutes of the day) through `stops` (name, minutes after the
     /// departure, whether the bus stops there).
-    pub(crate) fn trip(line: &str, terminus: &str, dep: f64, stops: &[(&str, f64, bool)]) -> PlannedTrip {
+    pub fn trip(line: &str, terminus: &str, dep: f64, stops: &[(&str, f64, bool)]) -> PlannedTrip {
         let stops: Vec<PlannedStop> = stops.iter().enumerate().map(|(k, (name, at, serves))| PlannedStop { object_id: k as i64, name: name.to_string(), arr: (dep + at) * 60.0, dep: (dep + at) * 60.0, position: None, dir: StopDir::default(), stops: *serves }).collect();
         let end = stops.last().map(|s| s.arr).unwrap_or(dep * 60.0);
         PlannedTrip { name: format!("{line}-{dep}"), line: line.into(), terminus: terminus.into(), departure: dep * 60.0, end, stops }
@@ -854,7 +856,7 @@ pub(crate) mod tests {
 
     /// A composed duty: line 35 tour 1 out and back, then line 25 tour 3 (the second part),
     /// the first trip leaving the depot past a station it does not stop at.
-    pub(crate) fn duty() -> (Vec<PlannedTrip>, Vec<(String, String, usize)>) {
+    pub fn duty() -> (Vec<PlannedTrip>, Vec<(String, String, usize)>) {
         let a = trip("35", "Diakonissenkrankenhaus", 11.0 * 60.0 + 26.0, &[("Hauptbahnhof", 0.0, true), ("Depot gate", 1.0, false), ("Markt", 3.0, true), ("Kirchweg", 6.0, true), ("Rathaus", 9.0, true), ("Schule", 12.0, true), ("Park", 15.0, true), ("Diakonissenkrankenhaus", 20.0, true)]);
         let b = trip("35", "Hauptbahnhof", 12.0 * 60.0 + 1.0, &[("Diakonissenkrankenhaus", 0.0, true), ("Park", 5.0, true), ("Hauptbahnhof", 18.0, true)]);
         let c = trip("25", "Eichstedt", 12.0 * 60.0 + 33.0, &[("Hauptbahnhof", 0.0, true), ("Eichstedt", 28.0, true)]);
@@ -862,10 +864,11 @@ pub(crate) mod tests {
         (vec![a, b, c], tours)
     }
 
-    pub(crate) fn state<'a>(trips: &'a [PlannedTrip], tours: &'a [(String, String, usize)], trip: usize, next_stop: usize, done: bool, delay: f64) -> DutyState<'a> {
+    pub fn state<'a>(trips: &'a [PlannedTrip], tours: &'a [(String, String, usize)], trip: usize, next_stop: usize, done: bool, delay: f64) -> DutyState<'a> {
         DutyState { trips, tours, line: "35", tour: "1", trip, next_stop, at_stop: false, done, delay }
     }
 
+    #[allow(dead_code)]
     fn names(rows: &[Row]) -> Vec<(String, StopState)> {
         rows.iter().filter_map(|r| match r { Row::Stop { name, state, .. } => Some((name.clone(), *state)), _ => None }).collect()
     }
@@ -1092,7 +1095,7 @@ pub(crate) mod tests {
 
     /// The painter's triangles (shapes and atlas sprites) drawn on the CPU over `img`, those
     /// outside `clip` left out - a picture of the panel without a GPU or a game.
-    pub(crate) fn raster(verts: &[omsi_ui::Vertex], atlas: &Atlas, img: &mut image::RgbaImage, clip: Rect) {
+    pub fn raster(verts: &[omsi_ui::Vertex], atlas: &Atlas, img: &mut image::RgbaImage, clip: Rect) {
         let edge = |a: Vec2, b: Vec2, c: Vec2| (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
         for t in verts.chunks_exact(3) {
             let p: Vec<Vec2> = t.iter().map(|v| Vec2::new(v.pos[0] + v.ext[0] * v.width[0], v.pos[1] + v.ext[1] * v.width[0])).collect();

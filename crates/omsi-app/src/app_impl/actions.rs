@@ -314,7 +314,7 @@ impl App {
                 self.settings.head_tracking = on;
                 crate::game_lists::remember_setting("head_tracking", if on { "1" } else { "0" });
                 // (the options open: the switch and the rows under it as they are now)
-                crate::game_lists::LIST_DIRTY.store(true, std::sync::atomic::Ordering::Relaxed);
+                self.menus.list_dirty = true;
                 self.service_msg = Some((if on { "Head tracking on" } else { "Head tracking off" }.into(), 2.5));
             }
             // the head's middle where it is now (Shift+F1), the view left as it is

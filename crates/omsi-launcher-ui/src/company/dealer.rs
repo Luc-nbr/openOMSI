@@ -469,7 +469,7 @@ fn showroom(l: &mut Launcher, area: Rect, c: &Company, all: &[Listing], offers: 
             if !ui.rect_visible(r) {
                 continue;
             }
-            let pic = showroom.photos.get(&root, &card.file, "", now);
+            let pic = showroom.photos().get(&root, &card.file, "", now);
             let (clicked, info) = tile(ui, r, &format!("company-dealer-{}", card.key), &card.title, pic);
             if let Some((b, colour)) = &card.badge {
                 let bw = ui.width(b, 12.5, Weight::Bold) + 20.0;
@@ -558,7 +558,7 @@ fn offer_grid(l: &mut Launcher, area: Rect, c: &Company, offers: Vec<Offer>, nam
             if !ui.rect_visible(r) {
                 continue;
             }
-            let pic = showroom.photos.get(&root, &o.listing.bus.file, "", now);
+            let pic = showroom.photos().get(&root, &o.listing.bus.file, "", now);
             let (clicked, info) = tile(ui, r, &format!("{name}-{}", o.id), &o.listing.bus.name, pic);
             let (line, who, kind) = &lines[k];
             if o.kind != OfferKind::Used {
@@ -1121,7 +1121,7 @@ fn talk_sheet(l: &mut Launcher, c: &Company, talk: Talk, listing: Listing, offer
     let root = l.state.config.root.clone();
     let now_t = l.ui.time;
     let photo = Rect::new(inner.x, inner.y, lw, lw * 0.52);
-    match l.showroom.photos.get(&root, &listing.bus.file, &livery, now_t) {
+    match l.showroom.photos().get(&root, &listing.bus.file, &livery, now_t) {
         Some((tex, w, h)) => l.ui.image_cover(photo, tex, RADIUS, w, h),
         None => l.ui.p().rounded_gradient(photo, RADIUS, Color::rgba(38, 48, 70, 1.0), Color::rgba(24, 31, 46, 1.0)),
     }

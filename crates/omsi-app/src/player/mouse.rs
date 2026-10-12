@@ -228,7 +228,6 @@ impl Player {
         }
         log::info!("mouse event {ev} (from a device)");
         let plain = self.vehicle.trigger(&ev);
-        self.repair_roller_blind(&ev);
         self.pressed_mesh = Some(i);
         self.press_info = (plain, 0.0);
         self.auto_drag = None;
