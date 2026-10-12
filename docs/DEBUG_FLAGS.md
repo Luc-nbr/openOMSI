@@ -112,10 +112,8 @@ effect. On Android, `openOMSI/env.txt` holds `NAME=value` lines that are set bef
 | `OMSI_GROUND_GAP_RADIUS` | num | 150 | use | app | With OMSI_GROUND_GAP: the radius in metres. |
 | `OMSI_GROUND_LANES` | bool | off | use | app | Along every street lane, every metre, how far the ground lies over or under the lane. |
 | `OMSI_LAN_TRACE` | text | - | use | app | LAN CSV file: where the host's people are drawn. |
-| `OMSI_LIST_ALIGNED` | bool | off | use | app | Log the splines aligned to the terrain. |
-| `OMSI_LIVERY_ZONES` | bool | off | use | app | The livery studio shows the zones it found on the bus's texture. |
-| `OMSI_PROFILE` | bool | off | use | app, render, sim | Time per stage of the frame, logged. |
 | `OMSI_LIST_ALIGNED` | bool | off | use | scene | Log the splines aligned to the terrain. |
+| `OMSI_LIVERY_ZONES` | bool | off | use | launcher-ui | The livery studio shows the zones it found on the bus's texture. |
 | `OMSI_PROFILE` | bool | off | use | app, render, scene, sim, xr | Time per stage of the frame, logged. |
 | `OMSI_PROFILE_GPU` | bool | off | use | app | Profile: wait for the GPU so its time shows as a stage of its own. |
 | `OMSI_PROFILE_JSON` | text | - | use | app | With OMSI_PROFILE and --exit-after: the exit summary (after the 15 s warm-up) as JSON into this file, see scripts/compare-performance.py. |
@@ -169,8 +167,6 @@ effect. On Android, `openOMSI/env.txt` holds `NAME=value` lines that are set bef
 | `OMSI_DAY_AIR` | text | - | once | render | haze,angstrom[,height,strat]: fix the day's air (twilight colours) instead of the varying one. |
 | `OMSI_DEVICE_BUS` | text | - | test | app | Tests: the bus file the device pictures are made with. |
 | `OMSI_DEVICE_SHOTS` | text | - | test | app | Tests: a folder for pictures of the cab devices. |
-| `OMSI_DRIVER_HANDS` | text | - | use | app | left,right: both driver hands held at these angles (grip close-ups). |
-| `OMSI_DRIVER_SHIFTER` | text | - | use | app | Part of a variable or file name: force the shifter the driver's hand uses; off: both hands on the wheel. |
 | `OMSI_DRIVER_HANDS` | text | - | use | scene | left,right: both driver hands held at these angles (grip close-ups). |
 | `OMSI_DRIVER_SHIFTER` | text | - | use | scene | Part of a variable or file name: force the shifter the driver's hand uses; off: both hands on the wheel. |
 | `OMSI_DRIVE_PROFILE` | text | - | use | app | Offscreen: "t throttle brake [steer]/..." piecewise constant pedals (crash/kerb tests). |
@@ -179,7 +175,7 @@ effect. On Android, `openOMSI/env.txt` holds `NAME=value` lines that are set bef
 | `OMSI_FLEET_AHEAD` | num | FLEET_AHEAD | use | app | Minutes ahead the timetable fleet is planned (for tests). |
 | `OMSI_FLEET_IDLE` | num | FLEET_IDLE | use | app | Seconds a fleet vehicle idles (shortened for tests). |
 | `OMSI_FOLLOW_CAM` | text | - | use | app | right,ahead,up,yaw,pitch: a camera in the followed car's frame. |
-| `OMSI_FONT_SHOTS` | text | - | test | app | Tests: a folder for pictures of the display fonts. |
+| `OMSI_FONT_SHOTS` | text | - | test | launcher-ui | Tests: a folder for pictures of the display fonts. |
 | `OMSI_FORM_BUSES` | text | - | test | app | Tests: the buses the form pictures are made with. |
 | `OMSI_FORM_SET` | text | - | test | app | Tests: the form set pictured. |
 | `OMSI_FORM_SHOTS` | text | - | test | app | Tests: a folder for pictures of the forms. |
@@ -199,34 +195,28 @@ effect. On Android, `openOMSI/env.txt` holds `NAME=value` lines that are set bef
 | `OMSI_LANES_NEAR` | text | - | use | app | x,y,r: log the driving lanes passing there. |
 | `OMSI_LAN_AUDIO` | bool | off | use | app | Offscreen LAN: with the other buses' sounds. |
 | `OMSI_LAN_SAY` | text | - | use | app | "30=Hallo;45=Bye": LAN chat lines said at these seconds of the session. |
-| `OMSI_LAUNCHER_EXIT` | num | - | use | app | Launcher: close after this many seconds. |
-| `OMSI_LAUNCHER_INPUT` | text | - | use | app | Scripted launcher input ("t=2 click 400,300; ..."). Removed from the game's environment by the updater. |
-| `OMSI_LAUNCHER_INTRO` | text | - | use | app | Launcher: off skips the opening animation (pictures, tests). |
-| `OMSI_LAUNCHER_LIVERY` | text | - | use | app | Launcher: open the livery studio on this bus. |
-| `OMSI_LAUNCHER_PAGE` | text | - | use | app | Launcher: open this page (e.g. mods, drive:N). |
-| `OMSI_LAUNCHER_SHOT` | text | - | use | app | Launcher: secs:file.png - the window's picture into a file. |
-| `OMSI_LAUNCHER_SIZE` | text | - | use | app | Launcher: WxH window size. |
-| `OMSI_LAUNCHER_SLOW` | num | - | use | app | Launcher: the animations this many times slower (to look at them). |
-| `OMSI_LAUNCHER_SPLASH` | num | - | use | app | Launcher: paint the game's loading screen at this point (0..1) over the page, for pictures. |
-| `OMSI_LAUNCHER_TOUR` | text | - | use | app | Launcher: start the guided tour (at this stop). |
-| `OMSI_LAUNCHER_TRANSITION_AT` | num | - | use | app | Launcher: hold the page transition at this point (0..1), for pictures. |
-| `OMSI_LAUNCHER_TRANSITION_SLOW` | num | - | use | app | Launcher: the page transition this many times slower. |
+| `OMSI_LAUNCHER_EXIT` | num | - | use | app, launcher-ui | Launcher: close after this many seconds. |
+| `OMSI_LAUNCHER_INPUT` | text | - | use | app, guard, launcher-ui, platform | Scripted launcher input ("t=2 click 400,300; ..."). Removed from the game's environment by the updater. |
+| `OMSI_LAUNCHER_INTRO` | text | - | use | launcher-ui | Launcher: off skips the opening animation (pictures, tests). |
+| `OMSI_LAUNCHER_LIVERY` | text | - | use | launcher-ui | Launcher: open the livery studio on this bus. |
+| `OMSI_LAUNCHER_PAGE` | text | - | use | app, launcher-ui | Launcher: open this page (e.g. mods, drive:N). |
+| `OMSI_LAUNCHER_SHOT` | text | - | use | app, launcher-ui | Launcher: secs:file.png - the window's picture into a file. |
+| `OMSI_LAUNCHER_SIZE` | text | - | use | app, launcher-ui | Launcher: WxH window size. |
+| `OMSI_LAUNCHER_SLOW` | num | - | use | launcher-ui | Launcher: the animations this many times slower (to look at them). |
+| `OMSI_LAUNCHER_SPLASH` | num | - | use | launcher-ui | Launcher: paint the game's loading screen at this point (0..1) over the page, for pictures. |
+| `OMSI_LAUNCHER_TOUR` | text | - | use | launcher-ui | Launcher: start the guided tour (at this stop). |
+| `OMSI_LAUNCHER_TRANSITION_AT` | num | - | use | launcher-ui | Launcher: hold the page transition at this point (0..1), for pictures. |
+| `OMSI_LAUNCHER_TRANSITION_SLOW` | num | - | use | launcher-ui | Launcher: the page transition this many times slower. |
 | `OMSI_LAUNCHER_UI` | text | - | use | app | Launcher: new or classic, whatever the settings say. |
-| `OMSI_LAUNCHER_WELCOME` | text | - | use | app | Launcher: off skips the welcome (pictures, tests). |
-| `OMSI_LIVERY_LOOK` | text | - | test | app | Tests: a folder for pictures of the livery studio. |
-| `OMSI_LIVERY_WINDOWS` | text | - | test | app | Tests: pictures of a print on the windows (<OMSI folder>\|<out folder>\|<bus>[;<bus>...]). |
+| `OMSI_LAUNCHER_WELCOME` | text | - | use | launcher-ui | Launcher: off skips the welcome (pictures, tests). |
+| `OMSI_LIVERY_LOOK` | text | - | test | launcher-ui | Tests: a folder for pictures of the livery studio. |
+| `OMSI_LIVERY_WINDOWS` | text | - | test | launcher-ui | Tests: pictures of a print on the windows (<OMSI folder>\|<out folder>\|<bus>[;<bus>...]). |
 | `OMSI_MAP` | text | - | test | launcher-core | Tests: the map the timetable tests read. |
-| `OMSI_MAP_PICTURE` | text | - | test | app | Tests: pictures of the launcher map's roads (<global.cfg>;<out folder>[;x,y...]). |
+| `OMSI_MAP_PICTURE` | text | - | test | launcher-ui | Tests: pictures of the launcher map's roads (<global.cfg>;<out folder>[;x,y...]). |
 | `OMSI_MENU_LOOK` | text | - | test | app | Tests: a folder for pictures of the pause menu. |
-| `OMSI_MOBILE` | bool | off | use | app | The phone layout on a computer (launcher, screen cut-outs). |
-| `OMSI_LAUNCHER_EXIT` | num | - | use | launcher-ui | Launcher: close after this many seconds. |
-| `OMSI_LAUNCHER_INPUT` | text | - | use | guard, launcher-ui, platform | Scripted launcher input ("t=2 click 400,300; ..."). Removed from the game's environment by the updater. |
-| `OMSI_LAUNCHER_PAGE` | text | - | use | launcher-ui | Launcher: open this page (e.g. mods, drive:N). |
-| `OMSI_LAUNCHER_SHOT` | text | - | use | launcher-ui | Launcher: secs:file.png - the window's picture into a file. |
-| `OMSI_LAUNCHER_SIZE` | text | - | use | launcher-ui | Launcher: WxH window size. |
 | `OMSI_MOBILE` | bool | off | use | app, launcher-ui | The phone layout on a computer (launcher, screen cut-outs). |
 | `OMSI_MUTE` | bool | off | use | audio | Mix everything as usual but play nothing. |
-| `OMSI_NAV_DUTY_PREVIEW` | text | - | test | app | Tests: a picture of the navigator's duty sheet. |
+| `OMSI_NAV_DUTY_PREVIEW` | text | - | test | launcher-ui | Tests: a picture of the navigator's duty sheet. |
 | `OMSI_NAV_MAP` | bool | off | use | app | Open the navigation map. |
 | `OMSI_NAV_MAP_MPP` | num | 2.5 | use | app | Navigation map zoom in metres per pixel. |
 | `OMSI_NAV_PANEL_PREVIEW` | text | - | test | app | Tests: a picture of the navigator's panel. |
@@ -234,8 +224,6 @@ effect. On Android, `openOMSI/env.txt` holds `NAME=value` lines that are set bef
 | `OMSI_NAV_PROBE` | text | - | use | app | x,y[,r]: the network lanes that start or end within r of that point. |
 | `OMSI_NAV_SCHEDULE` | bool | off | use | app | Navigation map shows the schedule. |
 | `OMSI_NAV_SIGNON_PREVIEW` | text | - | test | app | Tests: a picture of the navigator's sign-on page. |
-| `OMSI_ONLY_MESH` | text | - | use | app | a\|b: draw only the meshes whose file names contain one of the parts. |
-| `OMSI_ONLY_OBJECT` | text | - | use | app | Load only the objects whose file name contains this text. |
 | `OMSI_ONLY_MESH` | text | - | use | scene | a\|b: draw only the meshes whose file names contain one of the parts. |
 | `OMSI_ONLY_OBJECT` | text | - | use | scene | Load only the objects whose file name contains this text. |
 | `OMSI_ONLY_SURFACES` | bool | off | frame | render | Draw only the surfaces. |
@@ -259,22 +247,19 @@ effect. On Android, `openOMSI/env.txt` holds `NAME=value` lines that are set bef
 | `OMSI_ROAD_PHOTO_N` | num | 400 | use | app | With OMSI_ROAD_PHOTO: number of sample points. |
 | `OMSI_ROAD_PHOTO_SIDE` | num | 0 | use | app | With OMSI_ROAD_PHOTO: metres to either side of the carriageway. |
 | `OMSI_ROAD_PHOTO_SLANT` | num | - | use | app | With OMSI_ROAD_PHOTO: from a driver's eye this far back instead of from above. |
-| `OMSI_ROSTERFLOW_PDF` | text | - | test | app | Tests: a folder RosterFlow's bus and duty graphs are printed into without the save dialog. |
+| `OMSI_ROSTERFLOW_PDF` | text | - | test | launcher-ui | Tests: a folder RosterFlow's bus and duty graphs are printed into without the save dialog. |
 | `OMSI_SEED` | num | random | use | app | Seed of the scripts' random numbers (repeat a session). |
 | `OMSI_SKIP_OBJECT` | text | - | use | scene | Leave out the objects whose file name contains this text. |
 | `OMSI_SKIP_PIPE` | text | - | frame | render | Pipeline kinds to leave out of the main pass (comma-separated numbers). |
-| `OMSI_SPOT_SELECT` | num | - | use | app | Turn on spotlight n (headlight pictures). |
-| `OMSI_STOP_SIGNS_PREVIEW` | text | - | test | app | Tests: a picture of the navigator's stop signs. |
-| `OMSI_TEST_CONTENT` | text | - | test | app, o3d | Content root for tests that need real OMSI content. |
 | `OMSI_SPOT_SELECT` | num | - | use | scene | Turn on spotlight n (headlight pictures). |
+| `OMSI_STOP_SIGNS_PREVIEW` | text | - | test | launcher-ui | Tests: a picture of the navigator's stop signs. |
 | `OMSI_TEST_CONTENT` | text | - | test | o3d, scene | Content root for tests that need real OMSI content. |
 | `OMSI_TEST_WINE_DIR` | text | - | test | plugin | Plugin demo test: folder holding omsi-plugin-host.exe for Wine. |
-| `OMSI_TOBII_RAW` | text | - | test | app | Tests: a file for the Tobii tracker's raw poses (record_the_tracker_here). |
-| `OMSI_TOBII_SECS` | num | 8 | test | app | Tests: how long the Tobii tracker is recorded. |
+| `OMSI_TOBII_RAW` | text | - | test | input | Tests: a file for the Tobii tracker's raw poses (record_the_tracker_here). |
+| `OMSI_TOBII_SECS` | num | 8 | test | input | Tests: how long the Tobii tracker is recorded. |
 | `OMSI_TOUCH` | bool | off | use | app | The on-screen touch controls on a computer. |
 | `OMSI_TRIGGER_ALL` | bool | off | use | app | Check: fire every [mouseevent] of the model and compare the variables before and after. |
 | `OMSI_TRIP_REPORT_PREVIEW` | text | - | test | app | Tests: a picture of the trip's report. |
-| `OMSI_UI_PREVIEW` | text | target/ui-preview.png | use | app | Plugin UI preview test: the picture's path. |
 | `OMSI_UI_PREVIEW` | text | target/ui-preview.png | use | app, plugin-ui | Plugin UI preview test: the picture's path. |
 | `OMSI_WARM_FRAMES` | num | 0 | use | app | Offscreen: frames drawn before the picture. |
 | `OMSI_WETNESS` | num | weather | use | app, scene | Ground wetness the picture is drawn with. |
@@ -399,7 +384,6 @@ effect. On Android, `openOMSI/env.txt` holds `NAME=value` lines that are set bef
 | `OMSI_BACKEND` | text | settings | use | app, launcher-ui | vulkan, dx12, metal, gl or angle (dx11, d3d11; Windows): the graphics API tried first (overrides the settings). Set at runtime by the launcher and on Android. |
 | `OMSI_CLOUDFLARED` | text | - | use | net | Path of the cloudflared binary for the LAN tunnel (searched after the game's folder, before the PATH). |
 | `OMSI_COMPANION_HOST` | text | - | use | app | The companion app server: the address it listens on instead of every interface. |
-| `OMSI_CONTENT` | text | beside the game | use | app, launcher-core, sim | The content folder (mods, archives, screenshots). Set at runtime on Android. |
 | `OMSI_CONTENT` | text | beside the game | use | app, cfg, launcher-core, sim | The content folder (mods, archives, screenshots). Set at runtime on Android and iOS. |
 | `OMSI_CONTENT_ZIP` | text | - | use | cfg | Extra content archives, separated like PATH (as --content-zip). |
 | `OMSI_GUARD_STATE` | text | - | use | guard | Set by the start guard for the process it notes: <pid>:<its state file> (what the watcher reads). |
@@ -410,12 +394,11 @@ effect. On Android, `openOMSI/env.txt` holds `NAME=value` lines that are set bef
 | `OMSI_OFFICIAL_KEY` | text | - | use | lan | File of the official server's signing key. |
 | `OMSI_PLUGIN_HOST32` | text | beside the game | use | plugin | Path of omsi-plugin-host32.exe. |
 | `OMSI_PRESENCE_URL` | text | built-in | use | platform | Base URL of the presence ("playing now") service. |
-| `OMSI_ROOT` | text | found | use | app, launcher-core, o3d, sim | The OMSI 2 installation folder (also the content root for tests that need real content). |
+| `OMSI_ROOT` | text | found | use | app, launcher-core, launcher-ui, o3d, sim | The OMSI 2 installation folder (also the content root for tests that need real content). |
 | `OMSI_SAFE_GPU` | num | 0 | use | app | Restarts after a lost graphics device: lighter on the card each time. Set at runtime on Android and by the restart. |
 | `OMSI_SAFE_MODE` | bool | off | use | guard | Safe mode, set by the start guard after failed starts: the basic render pipelines and no plugins. |
 | `OMSI_SCREEN_AT` | text | - | once | app, launcher-core | x,y: the screen (a point on the desktop, pixels) the game window opens on; the launcher sets it to where it stands. |
-| `OMSI_TOBII_DLL` | text | - | use | app | The Tobii Stream Engine DLL to load instead of the Tobii Experience's. |
-| `OMSI_UPDATE_URL` | text | built-in | use | app | Another release description (URL or file:///...json) for the update check. |
+| `OMSI_TOBII_DLL` | text | - | use | input | The Tobii Stream Engine DLL to load instead of the Tobii Experience's. |
 | `OMSI_UPDATE_URL` | text | built-in | use | app, platform | Another release description (URL or file:///...json) for the update check. |
 | `OMSI_WINE` | text | PATH | use | plugin | The Wine binary for Windows plugins. |
 

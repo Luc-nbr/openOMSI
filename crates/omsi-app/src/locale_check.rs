@@ -59,9 +59,10 @@ const SHOWN: &[(&str, &str, &[usize])] = &[
     ("", "text_in", &[0, 2]),
     ("", "text", &[0, 2]),
     // the launcher's settings rows and sections
-    ("launcher/pages.rs", "toggle_setting", &[4]),
-    ("launcher/pages.rs", "sel_setting", &[5]),
-    ("launcher/pages.rs", "section", &[1, 2]),
+    // (pages.rs and the pages/ files it was cut into)
+    ("launcher/pages", "toggle_setting", &[4]),
+    ("launcher/pages", "sel_setting", &[5]),
+    ("launcher/pages", "section", &[1, 2]),
     // the game menu's rows (`game_lists`)
     ("game_lists.rs", "row", &[0, 3]),
     ("game_lists.rs", "opens", &[0, 1]),
@@ -167,7 +168,7 @@ fn literals(src: &str) -> Vec<Literal> {
             }
             continue;
         }
-        if starts(i, "#[cfg(test)]") || starts(i, "#[cfg(all(test") {
+        if starts(i, "#[cfg(test)]") || starts(i, "#[cfg(all(test") || starts(i, "#[cfg(any(test") {
             test_next = true;
             while i < n && b[i] != ']' {
                 i += 1;
@@ -334,20 +335,25 @@ fn push(out: &mut Vec<Literal>, text: String, line: usize, stack: &[Frame], in_t
     out.push(Literal { text, line, call });
 }
 
-/// The `.rs` files of the interface, as (path under `src` with `/`, file).
+/// The `.rs` files of the interface, as (path under `src` with `/`, file). The launcher is the
+/// crate omsi-launcher-ui (beside this one): all of its files are read, named `launcher/...`
+/// as when they were this crate's.
 fn sources() -> Vec<(String, PathBuf)> {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let launcher = Path::new(env!("CARGO_MANIFEST_DIR")).join("../omsi-launcher-ui/src");
     let mut out = Vec::new();
-    let mut todo: Vec<PathBuf> = SCOPE.iter().map(|s| src.join(s)).collect();
-    while let Some(p) = todo.pop() {
+    let mut todo: Vec<(PathBuf, &Path, &str)> = SCOPE.iter().map(|s| src.join(s)).filter(|p| p.exists()).map(|p| (p, src.as_path(), "")).collect();
+    todo.push((launcher.clone(), launcher.as_path(), "launcher/"));
+    while let Some((p, root, prefix)) = todo.pop() {
         if p.is_dir() {
-            todo.extend(std::fs::read_dir(&p).unwrap().flatten().map(|e| e.path()));
+            todo.extend(std::fs::read_dir(&p).unwrap().flatten().map(|e| (e.path(), root, prefix)));
         } else if p.extension().is_some_and(|e| e == "rs") {
-            let rel = p.strip_prefix(&src).unwrap().to_string_lossy().replace('\\', "/");
+            let rel = format!("{prefix}{}", p.strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/"));
             out.push((rel, p));
         }
     }
     out.sort();
+    out.dedup_by(|a, b| a.0 == b.0);
     out
 }
 
