@@ -649,6 +649,49 @@ pub fn rename_line(c: &mut Company, old: &str, new: &str) {
     }
 }
 
+// --- a lesson's snapshot ---------------------------------------------------------------------------
+
+/// What one of RosterFlow's lessons ("Try it") may change in the company, kept before the
+/// lesson begins so that "Undo the lesson" puts it all back: the saved blocks and joined
+/// duties, RosterFlow's own (its preferences, its sheet and the draft), and the lines' colours.
+/// The roster of drivers and buses, the money and the clock are not a lesson's and stay as
+/// they are.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Snapshot {
+    pub layouts: Vec<LineLayout>,
+    pub joined: Vec<JoinedDuty>,
+    pub flow: Flow,
+    /// Each line's own colour (its name, `#rrggbb` or empty for the palette's).
+    pub colours: Vec<(String, String)>,
+}
+
+impl Snapshot {
+    /// The company as a lesson finds it.
+    pub fn take(c: &Company) -> Snapshot {
+        Snapshot { layouts: c.planning.layouts.clone(), joined: c.planning.joined.clone(), flow: c.planning.flow.clone(), colours: c.lines.iter().map(|l| (l.name.clone(), l.colour.clone())).collect() }
+    }
+
+    /// Put the company back as the lesson found it (a line added since keeps its colour).
+    /// Returns whether anything changed.
+    pub fn restore(&self, c: &mut Company) -> bool {
+        let before = Snapshot::take(c);
+        c.planning.layouts = self.layouts.clone();
+        c.planning.joined = self.joined.clone();
+        c.planning.flow = self.flow.clone();
+        for l in c.lines.iter_mut() {
+            if let Some((_, colour)) = self.colours.iter().find(|(n, _)| same(n, &l.name)) {
+                l.colour = colour.clone();
+            }
+        }
+        Snapshot::take(c) != before
+    }
+
+    /// The saved planning (not the draft) is as it was: nothing new was saved meanwhile.
+    pub fn same_saved(&self, c: &Company) -> bool {
+        self.layouts == c.planning.layouts && self.joined == c.planning.joined && self.flow.sheet == c.planning.flow.sheet
+    }
+}
+
 // --- the stack -------------------------------------------------------------------------------
 
 /// The trips on the stack of `weekday` (taken off every bus): their line, and the trip as the
