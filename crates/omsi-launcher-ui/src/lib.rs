@@ -1315,6 +1315,10 @@ impl Launcher {
                     self.release_next = true;
                 }
                 "wheel" => self.ui.input.wheel.y += arg.trim().parse::<f32>().unwrap_or(0.0),
+                // `ctrl 1` / `ctrl 0`, `shift 1` / `shift 0`: held for what follows (Ctrl and
+                // the wheel zoom RosterFlow's Gantt)
+                "ctrl" => self.ui.input.ctrl = arg.trim() != "0",
+                "shift" => self.ui.input.shift = arg.trim() != "0",
                 // a right click (a menu)
                 "rclick" => {
                     self.ui.input.mouse = xy();

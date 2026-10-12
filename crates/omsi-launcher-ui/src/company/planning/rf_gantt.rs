@@ -365,7 +365,9 @@ pub(super) fn gantt(l: &mut Launcher, r: Rect, k: &Cached, board: &Board, p: &Pa
     let over = r.contains(ui.input.mouse) && !ui.over_popup();
     let stack_rows = if !drivers && (!board.stack.is_empty() || matches!(hand, Some(Hand::Trips { .. }))) { stack_lanes(board).max(1) } else { 0 };
     let stack_h = if stack_rows > 0 { stack_rows as f32 * ROW + 26.0 } else { 0.0 };
-    let body = Rect::new(r.x, r.y + AXIS + stack_h, r.w, (r.h - AXIS - stack_h).max(0.0));
+    // (zoomed in: the bar along the day under the rows)
+    let hbar_h = if st_.zoom > 1.001 { super::rf_scroll::BAR } else { 0.0 };
+    let body = Rect::new(r.x, r.y + AXIS + stack_h, r.w, (r.h - AXIS - stack_h - hbar_h).max(0.0));
     let content_h = (rows_now.len() as f32 + 2.0) * ROW;
     // the zoom (Ctrl and the wheel), along the day (Shift and the wheel), up and down (the wheel)
     if over && ui.input.ctrl && ui.input.wheel.y.abs() > 0.0 {
@@ -680,16 +682,28 @@ pub(super) fn gantt(l: &mut Launcher, r: Rect, k: &Cached, board: &Board, p: &Pa
             chip(ui, cr, colour, right, "", Some(Color::WHITE), false, false, 0.92);
         }
     }
-    // a scroll bar
-    if content_h > body.h {
-        let frac = body.h / content_h;
-        let bh = (body.h * frac).max(30.0);
-        let by = body.y + (scroll / (content_h - body.h).max(1.0)) * (body.h - bh);
-        ui.p().rounded(Rect::new(r.right() - 7.0, by, 4.0, bh), 2.0, p.text.alpha(0.22));
+    // the scrollbars: down the rows, and along the day once zoomed in (dragged, or a click on
+    // the track beside the thumb moves a page)
+    let look = super::rf_scroll::look(p);
+    let vbar = Rect::new(r.right() - super::rf_scroll::BAR, body.y, super::rf_scroll::BAR, body.h);
+    let to_scroll = super::rf_scroll::bar(ui, &look, "rf-gantt-v", vbar, true, scroll, body.h, content_h);
+    let mut to_pan = None;
+    if hbar_h > 0.0 {
+        let strip = Rect::new(r.x, body.bottom(), r.w, hbar_h);
+        ui.p().rect(strip, p.grid);
+        ui.p().rect(Rect::new(r.x, strip.y, lw, strip.h), p.labels);
+        ui.p().rect(Rect::new(r.x, strip.y, r.w, 1.0), p.line);
+        to_pan = super::rf_scroll::bar(ui, &look, "rf-gantt-h", Rect::new(gx, strip.y, gw, strip.h), false, pan as f32, visible, total);
     }
     // the hand: pressed, carried once it moved, let go
     let input = ui.input.clone();
     let s = &mut l.company.planning.rf;
+    if let Some(v) = to_scroll {
+        s.scroll = v;
+    }
+    if let Some(v) = to_pan {
+        s.pan = v.round() as i32;
+    }
     s.zone_hover = hovered_zone;
     if let Some(st) = sort_click {
         s.sort = match s.sort {

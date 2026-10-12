@@ -27,6 +27,7 @@ mod rf_gantt;
 mod rf_panels;
 mod rf_prefs;
 mod rf_print;
+mod rf_scroll;
 mod rf_tutorial;
 mod rosterflow;
 mod timeplan;

@@ -55,6 +55,9 @@ const RED: Color = Color::rgba(229, 57, 53, 1.0);
 /// The stops' names over the strip.
 const NAME: Color = Color::rgba(196, 202, 214, 1.0);
 
+/// The timeplan's scrollbars (`rf_scroll`): its faint track, the thumb, the thumb held.
+const BARS: super::rf_scroll::Look = super::rf_scroll::Look { track: Color::rgba(58, 66, 80, 0.55), thumb: Color::rgba(96, 106, 124, 1.0), hot: Color::rgba(140, 150, 168, 1.0) };
+
 /// The context bar, the figures' band, the status bar.
 const BAR_H: f32 = 48.0;
 const KPI_H: f32 = 74.0;
@@ -841,11 +844,15 @@ fn running_times(l: &mut Launcher, v: &mut TimeplanView, r: Rect) {
         add_at = Some(if last_from < 7.0 * 60.0 { 7.0 * 60.0 } else { (last_from + 120.0).min(tp::DAY_SPAN - 60.0) });
     }
     l.ui.tooltip(Rect::new(rail_x - 12.0, ey - 12.0, 24.0, 24.0), "Add a time band");
-    // the wheel scrolls the stops sideways
+    // the wheel scrolls the stops sideways, and the bar under them
     if l.ui.hover(room) && (l.ui.input.wheel.x.abs() > 0.0 || (l.ui.input.shift && l.ui.input.wheel.y.abs() > 0.0)) {
         let d = if l.ui.input.wheel.x.abs() > 0.0 { l.ui.input.wheel.x } else { l.ui.input.wheel.y };
         v.hscroll -= d * 60.0;
         l.ui.input.wheel = Vec2::ZERO;
+    }
+    let hbar = Rect::new(room.x, r.bottom() - super::rf_scroll::BAR - 4.0, room.w, super::rf_scroll::BAR);
+    if let Some(x) = super::rf_scroll::bar(&mut l.ui, &BARS, "tp-rt-h", hbar, false, cols.scroll, room.w, cols.w * n as f32) {
+        v.hscroll = x;
     }
     if let Some(k) = remove {
         v.change_run(dir, |s| {
@@ -960,7 +967,9 @@ fn timetable(l: &mut Launcher, v: &mut TimeplanView, r: Rect) {
         y0 += FORM_H;
     }
     // the trips
-    let grid = Rect::new(r.x, y0, r.w, (r.bottom() - y0 - 4.0).max(0.0));
+    let wide = cols.w * cols_shown.len() as f32 > room.w + 0.5;
+    let hbar_h = if wide { super::rf_scroll::BAR + 2.0 } else { 0.0 };
+    let grid = Rect::new(r.x, y0, r.w, (r.bottom() - y0 - 4.0 - hbar_h).max(0.0));
     let visible = (grid.h / TT_ROW).floor().max(1.0) as usize;
     let max_scroll = rows.len().saturating_sub(visible) as f32;
     if l.ui.hover(grid) && l.ui.input.wheel.y.abs() > 0.0 && !l.ui.input.shift {
@@ -1088,13 +1097,16 @@ fn timetable(l: &mut Launcher, v: &mut TimeplanView, r: Rect) {
         l.ui.pop_clip();
     }
     l.ui.pop_clip();
-    // the scrollbar
-    if max_scroll > 0.0 {
-        let track = Rect::new(r.right() - 6.0, grid.y, 4.0, grid.h);
-        let frac = visible as f32 / rows.len() as f32;
-        let th = (track.h * frac).max(24.0);
-        let ty = track.y + (track.h - th) * (v.scroll / max_scroll);
-        l.ui.p().rounded(Rect::new(track.x, ty, 4.0, th), 2.0, TEXT_FAINT);
+    // the scrollbars: down the trips (a row at a time), along the stops
+    let track = Rect::new(r.right() - super::rf_scroll::BAR, grid.y, super::rf_scroll::BAR, grid.h);
+    if let Some(k) = super::rf_scroll::bar(&mut l.ui, &BARS, "tp-tt-v", track, true, v.scroll, visible as f32, rows.len() as f32) {
+        v.scroll = k.round().clamp(0.0, max_scroll);
+    }
+    if wide {
+        let hbar = Rect::new(room.x, grid.bottom() + 2.0, room.w, super::rf_scroll::BAR);
+        if let Some(x) = super::rf_scroll::bar(&mut l.ui, &BARS, "tp-tt-h", hbar, false, cols.scroll, room.w, cols.w * cols_shown.len() as f32) {
+            v.hscroll = x;
+        }
     }
     // the tools' work
     let chosen_k = v.sel.and_then(|i| rows.iter().position(|x| *x == i));
