@@ -2197,6 +2197,9 @@ mod record_tests {
         assert_eq!(v["welcome_done"], json!(true));
         assert_eq!(v["launcher_ui"], json!("classic"));
         assert_eq!(settings_from_text(Some("launcher_ui=fancy\n"))["launcher_ui"], json!("new"));
+        // (openOMSI's desktop launcher only when chosen: a plain start opens this one)
+        assert_eq!(settings_from_text(Some("launcher_ui=desktop\n"))["launcher_ui"], json!("desktop"));
+        assert_eq!(launcher_ui(" Desktop "), "desktop");
         v["launcher_ui"] = json!("new");
         let text = settings_to_text(&v, None);
         assert!(text.contains("welcome_done=1\n") && text.contains("launcher_ui=new\n"), "{text}");
