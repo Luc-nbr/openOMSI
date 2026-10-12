@@ -18,8 +18,7 @@ use crate::traffic::Traffic;
 use crate::view_sync::traffic::TrafficView;
 use hashbrown::{HashMap, HashSet};
 use omsi_sim::VehicleType;
-use parking_lot::MutexGuard;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use omsi_sim::timetable_run::*;
@@ -45,6 +44,8 @@ pub struct Schedule {
     fleet_ready: Arc<parking_lot::Mutex<Vec<crate::scene::VehicleKey>>>,
     /// Time of day of the last look at the next departures' vehicles.
     fleet_check: f64,
+    /// Seconds until the next look for due departures (see `frame_traffic`).
+    pub(crate) tick_t: f32,
 }
 
 impl std::ops::Deref for Schedule {
@@ -60,39 +61,6 @@ impl std::ops::DerefMut for Schedule {
     }
 }
 
-/// What the timetable needs of the loaded world (see `omsi_sim::timetable_run::TimetableWorld`).
-impl TimetableWorld for World {
-    fn root(&self) -> &Path {
-        &self.root
-    }
-    fn map_dir(&self) -> &Path {
-        &self.map_dir
-    }
-    fn chrono_dirs(&self) -> Vec<PathBuf> {
-        self.chrono_dirs.read().clone()
-    }
-    fn ailists(&self) -> &omsi_map::AiLists {
-        &self.ailists
-    }
-    fn raw_tiles(&self) -> Vec<(i32, i32)> {
-        self.global.raw_tiles.clone()
-    }
-    fn has_tile(&self, key: (i32, i32)) -> bool {
-        World::has_tile(self, key)
-    }
-    fn date(&self) -> i32 {
-        self.date
-    }
-    fn object_positions(&self) -> MutexGuard<'_, HashMap<i64, (glam::DVec3, [f64; 3])>> {
-        self.object_positions.lock()
-    }
-    fn stop_side(&self, id: i64) -> f32 {
-        World::stop_side(self, id)
-    }
-    fn object_of_tile(&self, tile: Option<usize>, id: i64) -> Option<(glam::DVec3, [f64; 3])> {
-        World::object_of_tile(self, tile, id)
-    }
-}
 
 /// The player's bus company as the timetable asks it (`omsi_sim::timetable_run::
 /// TimetableCompany`; see `company_live`).
@@ -143,6 +111,8 @@ impl Schedule {
             fleet_reading: HashMap::new(),
             fleet_ready: Default::default(),
             fleet_check: f64::NEG_INFINITY,
+            // (a second after the population's, never in the same frame)
+            tick_t: 1.0,
         }
     }
 

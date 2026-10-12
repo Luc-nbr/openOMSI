@@ -12,6 +12,7 @@ mod dispatch;
 mod load;
 mod place;
 mod route;
+mod take_on;
 mod tours;
 
 use super::*;
@@ -243,6 +244,11 @@ pub struct ScheduleSim {
     /// Per departure: kept off the road for the player's bus company
     /// (`TimetableCompany::keeps_off`), worked out with the day's plan.
     company_off: Vec<bool>,
+    /// Mixed into the draw of a tour's vehicle, so that a tour gets another of its depot's
+    /// buses from session to session, as in OMSI (the session's seed; a LAN game's shared
+    /// one, `set_lan_seed`). Hashing the tour alone sent the same bus out on it every time
+    /// (#2250). 0 (tests, tools): always the same.
+    pub vehicle_seed: u64,
 }
 
 /// A tour's bus waits at the end of a trip for the next one of its tour when that leaves

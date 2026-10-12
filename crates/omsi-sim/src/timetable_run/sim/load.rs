@@ -270,6 +270,7 @@ impl ScheduleSim {
             // (a drive of the player's own reads nothing of a company: `set_company`)
             company: None,
             company_off: Vec::new(),
+            vehicle_seed: omsi_script::session_seed().map(|s| omsi_script::mix_seed(s ^ 0x746f_7572_5f62_7573)).unwrap_or(0),
         };
         s.assign_car_use();
         s
