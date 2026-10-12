@@ -1418,6 +1418,8 @@ pub(in crate::launcher) struct Guide<'a> {
     pub target: Option<Rect>,
     /// Where the bubble may lie.
     pub room: Rect,
+    /// What the bubble should not cover (a panel open beside the page).
+    pub avoid: &'a [Rect],
     pub mode: GuideMode,
 }
 
@@ -1439,7 +1441,7 @@ pub(in crate::launcher) enum GuideCmd {
 /// The guide's own between frames: which corner its bubble is in, and its ring's landing.
 #[derive(Default)]
 pub(in crate::launcher) struct GuideState {
-    left: bool,
+    corner: usize,
     press_in: bool,
     glide: Glide,
 }
@@ -1454,11 +1456,11 @@ pub(in crate::launcher) fn anchored_rect(key: &str) -> Option<Rect> {
 }
 
 /// The bubble's height for `g` at width `w`.
-fn guide_height(ui: &Ui, g: &Guide, w: f32) -> f32 {
+fn guide_height(ui: &Ui, g: &Guide, w: f32, compact: bool) -> f32 {
     let inner = w - 2.0 * PAD;
     let title_h = ui.paragraph_height(g.title, inner, 17.0, Weight::Bold);
     let text_h = if g.text.is_empty() { 0.0 } else { ui.paragraph_height(g.text, inner, TEXT_PX, Weight::Regular) + 4.0 };
-    let list = if matches!(g.mode, GuideMode::Step { .. } | GuideMode::Done) { 10.0 + g.steps.iter().map(|s| guide_row_h(ui, s.0, inner)).sum::<f32>() } else { 0.0 };
+    let list = if !compact && matches!(g.mode, GuideMode::Step { .. } | GuideMode::Done) { 10.0 + g.steps.iter().map(|s| guide_row_h(ui, s.0, inner)).sum::<f32>() } else { 0.0 };
     let buttons = match g.mode {
         GuideMode::Ending => 3.0 * (BUTTON_H + 8.0),
         GuideMode::Done => 2.0 * (BUTTON_H + 8.0),
@@ -1472,33 +1474,40 @@ fn guide_row_h(ui: &Ui, goal: &str, inner: f32) -> f32 {
     ui.paragraph_height(goal, inner - 26.0, 12.5, Weight::Medium).max(GUIDE_ROW - 4.0) + 4.0
 }
 
-/// The corner the bubble lies in: bottom right, else bottom left (`left`).
-fn guide_dock(room: Rect, size: Vec2, left: bool) -> Rect {
-    let x = if left { room.x + MARGIN } else { room.right() - MARGIN - size.x };
-    let y = (room.bottom() - MARGIN - size.y).max(room.y + MARGIN);
-    Rect::new(x.max(room.x), y, size.x, size.y)
+/// The corners the bubble may lie in, in the order it prefers them: bottom right, bottom left,
+/// top right, top left (of the room it is given).
+fn guide_docks(room: Rect, size: Vec2) -> [Rect; 4] {
+    let (l, r) = ((room.x + MARGIN).max(room.x), (room.right() - MARGIN - size.x).max(room.x));
+    let (t, b) = (room.y + MARGIN, (room.bottom() - MARGIN - size.y).max(room.y + MARGIN));
+    [Rect::new(r, b, size.x, size.y), Rect::new(l, b, size.x, size.y), Rect::new(r, t, size.x, size.y), Rect::new(l, t, size.x, size.y)]
 }
 
 /// The guide: the ring round the step's part and the bubble. Returns what was pressed, and
 /// where the bubble lies (the page gets no mouse there next frame).
 pub(in crate::launcher) fn guide(ui: &mut Ui, g: &Guide, st: &mut GuideState) -> (Option<GuideCmd>, Rect) {
     let w = GUIDE_W.min(g.room.w - 2.0 * MARGIN).max(200.0);
-    let h = guide_height(ui, g, w);
-    let size = Vec2::new(w, h);
-    // the corner: away from the part, and from a hand carried over it
-    let (right_r, left_r) = (guide_dock(g.room, size, false), guide_dock(g.room, size, true));
-    let (here, there) = if st.left { (left_r, right_r) } else { (right_r, left_r) };
-    if g.target.is_some_and(|t| overlap(t, here) && !overlap(t, there)) {
-        st.left = !st.left;
+    // the corner: away from the part and what lies open beside it (the first free one, the
+    // one it is in while that stays free), and from a hand carried over it; where no corner
+    // is free, the bubble without its list of steps (smaller) tries again
+    let covered = |r: Rect| g.target.is_some_and(|t| overlap(t, r)) || g.avoid.iter().any(|a| overlap(*a, r));
+    let full = guide_docks(g.room, Vec2::new(w, guide_height(ui, g, w, false)));
+    let compact = (0..4).all(|k| covered(full[k]));
+    let docks = if compact { guide_docks(g.room, Vec2::new(w, guide_height(ui, g, w, true))) } else { full };
+    st.corner = st.corner.min(3);
+    if covered(docks[st.corner]) || (g.target.is_none() && !covered(docks[0])) {
+        if let Some(k) = (0..4).find(|&k| !covered(docks[k])) {
+            st.corner = k;
+        }
     }
+    let here = docks[st.corner];
     // (a press that began on the bubble is the bubble's; one carried in from the page moves it)
     if ui.input.pressed {
         st.press_in = here.contains(ui.input.mouse);
     }
     if ui.input.down && !st.press_in && here.contains(ui.input.mouse) {
-        st.left = !st.left;
+        st.corner ^= 1;
     }
-    let to = if st.left { left_r } else { right_r };
+    let to = docks[st.corner];
     let b = glide_rect(ui, "guide-bubble", to);
     // the ring round the part, as the tour's spotlight has it
     let now = ui.time;
@@ -1531,14 +1540,14 @@ pub(in crate::launcher) fn guide(ui: &mut Ui, g: &Guide, st: &mut GuideState) ->
     p.rounded(b, SHEET_RADIUS, PANEL);
     p.rounded_border(b, SHEET_RADIUS, 1.0, accent().alpha(0.45));
     ui.push_clip(b, SHEET_RADIUS);
-    let cmd = guide_inside(ui, b, g);
+    let cmd = guide_inside(ui, b, g, compact);
     ui.pop_clip();
     (cmd, b)
 }
 
 /// The bubble's insides: the lesson, where in it, the step's goal and its words, the steps
 /// ticked off, the buttons.
-fn guide_inside(ui: &mut Ui, b: Rect, g: &Guide) -> Option<GuideCmd> {
+fn guide_inside(ui: &mut Ui, b: Rect, g: &Guide, compact: bool) -> Option<GuideCmd> {
     let x = b.x + PAD;
     let inner = b.w - 2.0 * PAD;
     let mut y = b.y + PAD - 4.0;
@@ -1556,7 +1565,7 @@ fn guide_inside(ui: &mut Ui, b: Rect, g: &Guide) -> Option<GuideCmd> {
     if !g.text.is_empty() {
         y += ui.paragraph(g.text, Vec2::new(x, y), inner, TEXT_PX, Weight::Regular, TEXT_SOFT) + 4.0;
     }
-    if matches!(g.mode, GuideMode::Step { .. } | GuideMode::Done) {
+    if !compact && matches!(g.mode, GuideMode::Step { .. } | GuideMode::Done) {
         y += 10.0;
         for (i, (goal, ok)) in g.steps.iter().enumerate() {
             let rh = guide_row_h(ui, goal, inner);

@@ -1159,6 +1159,7 @@ fn scroll_to(v: &mut TimeplanView, _before: &LineDesign, side: &Side, i: Option<
 /// TIME, HEADWAY, and ✓ to make them.
 fn add_form(l: &mut Launcher, v: &mut TimeplanView, line: &LineDesign, side: &Side, r: Rect) {
     let Some(mut a) = v.adding.clone() else { return };
+    super::super::super::tour::anchor("rf-tp-form", r);
     l.ui.p().rect(r, SKY.alpha(0.07));
     l.ui.p().rect(Rect::new(r.x, r.bottom() - 1.0, r.w, 1.0), BORDER);
     let fy = r.y + 24.0;
@@ -1219,6 +1220,7 @@ fn add_form(l: &mut Launcher, v: &mut TimeplanView, line: &LineDesign, side: &Si
     let no_r = Rect::new(ok_r.x - 46.0, fy - 2.0, 40.0, fh + 4.0);
     l.ui.text_in(&note, Rect::new(x, fy, (no_r.x - x - 8.0).max(0.0), fh), 13.0, Weight::Medium, if made.is_some() { TEXT_SOFT } else { ORANGE }, Align::Left);
     let cancel = l.ui.button("tp-add-no", no_r, "", Some("close"), ButtonKind::Normal);
+    super::super::super::tour::anchor("rf-tp-add-ok", ok_r);
     let ok = l.ui.button("tp-add-ok", ok_r, "", Some("check"), ButtonKind::Primary);
     l.ui.tooltip(ok_r, "Make the trips");
     v.adding = Some(a);

@@ -119,7 +119,7 @@ pub(super) enum Check {
 }
 
 /// A lesson's step: its goal in one line, a sentence or two on how, the part it is about (the
-/// name it is drawn under: `tour::anchor`), and what ticks it off.
+/// name it is drawn under: `tour::anchor`; "a|b": the first of them drawn), and what ticks it off.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Step {
     pub goal: &'static str,
@@ -153,18 +153,18 @@ const CUT_JOIN: [Step; 5] = [
 
 const BUILD_DUTY: [Step; 6] = [
     step("Open the Drivers tab", "Each row there is one driver's working day.", "rf-tab-drivers", Check::View(DRIVERS)),
-    step("Pick up a piece of work", "Drag a chip of a duty, or double-click it: the whole part on that bus comes along.", "rf-chip", Check::HoldPiece),
-    step("Drop it on New duty or on another duty", "Click a slot: in the New duty row at the bottom the piece becomes a duty of its own; on another duty the two are put together.", "rf-gantt", Check::Edited),
+    step("Pick up a piece of work", "Drag a chip of a short duty, or double-click it: the whole part on that bus comes along.", "rf-chip", Check::HoldPiece),
+    step("Drop it on another duty", "Click a slot: the two become one duty, with a break between them. No slot? The duty would get too long: take a shorter piece.", "rf-gantt", Check::Edited),
     step("Open a duty", "Click a duty's ID on the left. Its panel shows what the duty is made of.", "rf-row-id", Check::PanelDuty),
-    step("Read sign-on, sign-off and breaks", "Sign-on and sign-off are when the driver starts and stops. The breaks are between the pieces of work; a long unpaid one is a split.", "", Check::Info),
-    step("Lock the duty", "Click the lock at the top of the panel. OPTIMIZE will leave this duty as it is.", "", Check::LockedUp),
+    step("Read sign-on, sign-off and breaks", "Sign-on and sign-off are when the driver starts and stops. The breaks are between the pieces of work; a long unpaid one is a split.", "rf-duty-panel", Check::Info),
+    step("Lock the duty", "Click the lock at the top of the panel. OPTIMIZE will leave this duty as it is.", "rf-duty-lock", Check::LockedUp),
 ];
 
 const FIX_ISSUE: [Step; 4] = [
     step("Open Vehicles or Drivers", "The issues are counted in the status bar at the bottom of both.", "rf-tab-vehicles", Check::Studio),
     step("Open the issues", "Click Duty Issues or Vehicle Issues in the status bar.", "rf-status-issues", Check::PanelIssues),
-    step("Jump to an issue", "Click an issue in the list: RosterFlow shows its row.", "", Check::Jumped),
-    step("Fix it", "Move a trip, cut or join a duty, or change the rules under Preferences. If it is fine as it is, tick it and dismiss it.", "rf-gantt", Check::IssuesDown),
+    step("Jump to an issue", "Click an issue in the list: RosterFlow shows its row.", "rf-issues-panel", Check::Jumped),
+    step("Fix the issue", "Move a trip, cut or join a duty, or change the rules under Preferences. If it is fine as it is, tick it and dismiss it.", "rf-gantt", Check::IssuesDown),
 ];
 
 const OPTIMISE: [Step; 4] = [
@@ -179,8 +179,8 @@ const TIMEPLAN_STEPS: [Step; 7] = [
     step("Show the running times", "Click the clock icon on the right of the bar.", "rf-tp-bar", Check::TpScreen(0)),
     step("Change a running time", "Click a box with minutes in a time band, type a new number and press Enter. Every trip in that band moves with it.", "rf-tp-body", Check::TpChanged),
     step("Show the timetable", "Click the grid icon on the right of the bar. Each row is a trip, with its time at every stop.", "rf-tp-bar", Check::TpScreen(1)),
-    step("Add trips by headway", "Click the clock tool above the table, give the first and the last departure and the minutes between buses, then the tick.", "rf-tp-add", Check::TpTripsUp),
-    step("Save the timetable", "Save writes the line's new timetable.", "rf-tp-save", Check::TpSaved),
+    step("Add trips by headway", "Click the clock tool above the table. Give the first and the last departure - in a quiet part of the day, such as the late evening - and the minutes between buses, then the tick.", "rf-tp-add-ok|rf-tp-add", Check::TpTripsUp),
+    step("Save the timetable", "Save writes the line's new timetable. If it asks you to mend something first, two trips leave at the same minute: undo them (the arrow in the bar) and add them at other times.", "rf-tp-save", Check::TpSaved),
     step("Refresh the blocks", "Click UNSYNCED - Refresh in the status bar: the buses' blocks and the duties are made again for the new trips.", "rf-tp-refresh", Check::TpRefreshed),
 ];
 
@@ -551,12 +551,14 @@ fn lesson_frame(l: &mut Launcher, area: Rect) {
         Stage::Blocked(why) => ("First this", why, GuideMode::Blocked),
     };
     let target = match lesson.stage {
-        Stage::Working => now.map(|s| s.target).filter(|t| !t.is_empty()).and_then(tour::anchored_rect),
+        Stage::Working => now.map(|s| s.target).filter(|t| !t.is_empty()).and_then(|t| t.split('|').find_map(tour::anchored_rect)),
         _ => None,
     };
     // (the guide lies over RosterFlow's Gantt, clear of its title bar and status bar)
     let room = Rect::new(area.x, area.y + 48.0, area.w, (area.h - 48.0 - 34.0).max(120.0));
-    let g = Guide { lesson: lesson.id.title(), title, text, steps: &list, at: lesson.at, target, room, mode };
+    let mut avoid = l.company.planning.rf.over.clone();
+    avoid.extend(tour::anchored_rect("rf-tp-form"));
+    let g = Guide { lesson: lesson.id.title(), title, text, steps: &list, at: lesson.at, target, room, avoid: &avoid, mode };
     let mut st = std::mem::take(&mut l.company.planning.rf.tut.guide);
     let (cmd, rect) = tour::guide(&mut l.ui, &g, &mut st);
     let t = &mut l.company.planning.rf.tut;
@@ -731,7 +733,7 @@ pub(super) enum Sym {
 
 /// The words, in plain words, each with its drawing.
 pub(super) const GLOSSARY: [(Sym, &str, &str); 22] = [
-    (Sym::Trip, "Trip", "One run of a bus from one end of the line to the other, with passengers. Shown as a chip in the line's colour."),
+    (Sym::Trip, "Trip (a chip)", "One run of a bus from one end of the line to the other, with passengers. Shown as a chip in the line's colour."),
     (Sym::Direction, "Direction", "The pointed end of a chip shows the way the trip runs: to the right is outbound, to the left inbound."),
     (Sym::Block, "Block", "One bus's whole day: every trip it drives, from leaving the depot until it is back. Also called a vehicle schedule."),
     (Sym::Duty, "Duty", "One driver's working day, from sign-on to sign-off."),
@@ -745,7 +747,7 @@ pub(super) const GLOSSARY: [(Sym, &str, &str); 22] = [
     (Sym::Travel, "Travel", "How a driver gets to the next bus: W walking, P by public transport, R by road in a company car."),
     (Sym::Slot, "Drop slot", "Where something picked up may go, with stars for how good it is: blue breaks no rule, red breaks one."),
     (Sym::Stack, "Stack", "Trips no bus drives yet. They wait above the rows until you give them a bus."),
-    (Sym::Lock, "Lock", "A locked bus or duty stays as it is: OPTIMIZE and your other edits leave it alone."),
+    (Sym::Lock, "Locked rows", "A locked bus or duty stays as it is: OPTIMIZE and your other edits leave it alone."),
     (Sym::Draft, "Draft", "Your changes before SAVE (orange dot). The game keeps running the saved planning (green dot) until you save."),
     (Sym::Pvr, "PVR", "Peak vehicle requirement: the most buses out at the same time. That is how many buses the day needs."),
     (Sym::Band, "Time band", "A part of the day with its own running times: the rush hour is often slower than the evening."),
@@ -1301,7 +1303,7 @@ mod tests {
         let src: String = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).filter(|e| e.path().extension().is_some_and(|x| x == "rs")).map(|e| std::fs::read_to_string(e.path()).unwrap()).collect();
         for l in LESSONS {
             for s in l.steps().iter().filter(|s| !s.target.is_empty()) {
-                let named = src.contains(&format!("anchor(\"{}\"", s.target)) || (s.target.starts_with("rf-tab-") && src.contains(&format!("\"{}\"", s.target)));
+                let named = s.target.split('|').all(|t| src.contains(&format!("anchor(\"{t}\"")) || (t.starts_with("rf-tab-") && src.contains(&format!("\"{t}\""))));
                 assert!(named, "{l:?}: {} is drawn nowhere", s.target);
             }
         }

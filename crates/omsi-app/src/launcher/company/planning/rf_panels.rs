@@ -878,6 +878,7 @@ fn issues(l: &mut Launcher, status: Rect, k: &Cached, board: &Board, p: &Pal, sc
     let w = 470.0;
     let h = 470.0f32.min(status.y - 120.0);
     let r = Rect::new(status.right() - w - 150.0, status.y - h - 8.0, w, h);
+    super::super::super::tour::anchor("rf-issues-panel", r);
     sheet(l, r, p.sheet);
     let ui = &mut l.ui;
     let head = Rect::new(r.x, r.y, r.w, 44.0);
@@ -1072,6 +1073,7 @@ fn duty_panel(l: &mut Launcher, g: Rect, k: &Cached, board: &Board, p: &Pal, id:
         return r;
     };
     let s = board.shaped[row].clone();
+    super::super::super::tour::anchor("rf-duty-panel", r);
     sheet(l, r, p.sheet);
     let prefs = c.planning.flow.prefs.clone();
     let ui = &mut l.ui;
@@ -1086,6 +1088,7 @@ fn duty_panel(l: &mut Launcher, g: Rect, k: &Cached, board: &Board, p: &Pal, id:
     let (xh, _, close) = ui.interact(id_of("rf-duty-close"), xr);
     ui.icon("close", xr.center(), 20.0, if xh { p.text } else { Color::WHITE });
     let lr = Rect::new(r.right() - 72.0, head.y + 9.0, 30.0, 30.0);
+    super::super::super::tour::anchor("rf-duty-lock", lr);
     let (lh, _, lock) = ui.interact(id_of("rf-duty-lock"), lr);
     ui.icon(if s.locked { "lock" } else { "livery_unlock" }, lr.center(), 19.0, if lh || s.locked { Color::WHITE } else { Color::WHITE.alpha(0.7) });
     ui.tooltip(lr, if s.locked { "Locked: Optimise leaves it. Click to unlock" } else { "Lock the duty: Optimise leaves it" });
