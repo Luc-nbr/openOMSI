@@ -150,6 +150,23 @@ pub(in super::super) struct TimeplanView {
     from: String,
     /// Something asked to leave with changes not saved: pressed again it leaves.
     leaving: bool,
+    /// Changes made so far (undone ones too), for RosterFlow's lessons.
+    changes: u64,
+}
+
+/// What RosterFlow's lessons see of the timeplan (`TimeplanView::probe`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(super) struct TpProbe {
+    /// A line is open to plan; else why not (None: not read yet).
+    pub ready: bool,
+    pub why: Option<&'static str>,
+    pub screen: usize,
+    pub dirty: bool,
+    pub changes: u64,
+    /// The line's trips (all its day groups).
+    pub trips: usize,
+    /// The line was saved since the studio made its blocks.
+    pub unsynced: bool,
 }
 
 impl TimeplanView {
@@ -162,6 +179,41 @@ impl TimeplanView {
 
     pub(in super::super) fn holds(&self) -> bool {
         self.cell.is_some() || self.adding.is_some() || self.chart.is_some() || self.issues_open || self.sel.is_some()
+    }
+
+    /// The screen shown: 0 the running times, 1 the timetable.
+    pub(in super::super) fn screen(&self) -> usize {
+        self.tab
+    }
+
+    /// Show the running times (0) or the timetable (1) - RosterFlow's tour does.
+    pub(in super::super) fn set_screen(&mut self, tab: usize) {
+        let tab = tab.min(TIMETABLE);
+        if self.tab != tab {
+            self.tab = tab;
+            self.cell = None;
+            self.text.clear();
+        }
+    }
+
+    /// What RosterFlow's lessons look at (`rf_tutorial`).
+    pub(super) fn probe(&self) -> TpProbe {
+        TpProbe {
+            ready: self.work.is_some(),
+            why: self.why,
+            screen: self.tab,
+            dirty: self.dirty(),
+            changes: self.changes,
+            trips: self.draft().map(|d| d.table.len()).unwrap_or(0),
+            unsynced: self.unsynced.iter().any(|u| u.0.eq_ignore_ascii_case(&self.line)),
+        }
+    }
+
+    /// The line shown as a lesson finds it (`rf_tutorial`): its name, the line as it is saved
+    /// (as a table of trips), and what was UNSYNCED then.
+    pub(super) fn keep_for_lesson(&self) -> Option<(String, LineDesign, Vec<(String, usize)>)> {
+        let w = self.work.as_ref()?;
+        Some((self.line.clone(), w.own.base.clone(), self.unsynced.clone()))
     }
 
     fn let_go(&mut self) {
@@ -187,6 +239,7 @@ impl TimeplanView {
         let before = w.own.draft.clone();
         f(&mut w.own.draft);
         if w.own.draft != before {
+            self.changes += 1;
             self.undo.push(before);
             if self.undo.len() > 80 {
                 self.undo.remove(0);
@@ -322,8 +375,28 @@ pub(super) fn draw(l: &mut Launcher, area: Rect) {
     l.company.planning.timeplan = v;
 }
 
-fn screen(l: &mut Launcher, v: &mut TimeplanView, area: Rect, c: &Company) {
-    // the line chosen (the first own line, else the first), read when another is chosen
+/// "Undo the lesson" of RosterFlow's timeplan lesson (`rf_tutorial`): line `line` as the lesson
+/// found it (`design`, `unsynced`). Changes not saved are dropped; a timetable saved meanwhile
+/// is saved back the way it was saved (`save`). Returns false when it could not be saved back
+/// (the status line says why).
+pub(super) fn restore(l: &mut Launcher, line: &str, design: &LineDesign, unsynced: Vec<(String, usize)>) -> bool {
+    let Some(c) = l.company.company.clone() else { return false };
+    let mut v = std::mem::take(&mut l.company.planning.timeplan);
+    (v.company, v.line, v.loaded) = (c.id.clone(), line.to_string(), None);
+    load_shown(&mut v, &c);
+    let mut ok = true;
+    if let Some(w) = v.work.as_mut().filter(|w| w.own.base != *design) {
+        w.own.draft = design.clone();
+        ok = save(l, &mut v);
+    }
+    v.unsynced = unsynced;
+    v.loaded = None;
+    l.company.planning.timeplan = v;
+    ok
+}
+
+/// The line chosen (the first own line, else the first), read when another is chosen.
+fn load_shown(v: &mut TimeplanView, c: &Company) {
     if v.company != c.id || !c.lines.iter().any(|x| x.name.eq_ignore_ascii_case(&v.line)) {
         v.company = c.id.clone();
         v.line = c.lines.iter().find(|x| x.own).or(c.lines.first()).map(|x| x.name.clone()).unwrap_or_default();
@@ -346,6 +419,10 @@ fn screen(l: &mut Launcher, v: &mut TimeplanView, area: Rect, c: &Company) {
             None => (v.work, v.why) = (None, Some(NO_LINE)),
         }
     }
+}
+
+fn screen(l: &mut Launcher, v: &mut TimeplanView, area: Rect, c: &Company) {
+    load_shown(v, c);
     l.ui.solid(area);
     l.ui.p().rounded(area, 12.0, BG);
     let inner = area.inset(14.0);
@@ -353,6 +430,7 @@ fn screen(l: &mut Launcher, v: &mut TimeplanView, area: Rect, c: &Company) {
     let under = v.chart.is_some().then(|| super::super::mask(&mut l.ui));
     // (the context bar stays where it is on both screens; the figures under it on the timetable)
     let mut y = inner.y;
+    super::super::super::tour::anchor("rf-tp-bar", Rect::new(inner.x, y, inner.w, BAR_H));
     context_bar(l, v, c, Rect::new(inner.x, y, inner.w, BAR_H));
     y += BAR_H + 6.0;
     if v.tab == TIMETABLE && v.work.is_some() {
@@ -360,6 +438,9 @@ fn screen(l: &mut Launcher, v: &mut TimeplanView, area: Rect, c: &Company) {
         y += KPI_H + 6.0;
     }
     let body = Rect::new(inner.x, y, inner.w, (inner.bottom() - STATUS_H - 6.0 - y).max(0.0));
+    if v.work.is_some() {
+        super::super::super::tour::anchor("rf-tp-body", body);
+    }
     let status = Rect::new(inner.x, inner.bottom() - STATUS_H, inner.w, STATUS_H);
     match (&v.work, v.why) {
         (None, why) => {
@@ -435,6 +516,7 @@ fn context_bar(l: &mut Launcher, v: &mut TimeplanView, c: &Company, r: Rect) {
     let save_label = save_label(v);
     let sw = (l.ui.width(&omsi_ui::tr(&save_label), 13.0, Weight::Bold) + 52.0).max(110.0);
     let sr = Rect::new(rx - sw, cy - fh * 0.5, sw, fh);
+    super::super::super::tour::anchor("rf-tp-save", sr);
     if l.ui.button("tp-save", sr, &save_label, Some("save"), if dirty { ButtonKind::Primary } else { ButtonKind::Normal }) && dirty {
         save(l, v);
     }
@@ -847,6 +929,7 @@ fn timetable(l: &mut Launcher, v: &mut TimeplanView, r: Rect) {
         ui.tooltip(b, tip);
         clicked
     };
+    super::super::super::tour::anchor("rf-tp-add", Rect::new(tx, ty, 74.0, 32.0));
     let add_one = tool(&mut l.ui, "tp-add-one", tx, "add", "Add a single trip (after the one chosen, at its headway)", false);
     tx += 40.0;
     let add_many = tool(&mut l.ui, "tp-add-many", tx, "schedule", "Add trips by headway from a control point", v.adding.is_some());
@@ -1076,6 +1159,7 @@ fn scroll_to(v: &mut TimeplanView, _before: &LineDesign, side: &Side, i: Option<
 /// TIME, HEADWAY, and ✓ to make them.
 fn add_form(l: &mut Launcher, v: &mut TimeplanView, line: &LineDesign, side: &Side, r: Rect) {
     let Some(mut a) = v.adding.clone() else { return };
+    super::super::super::tour::anchor("rf-tp-form", r);
     l.ui.p().rect(r, SKY.alpha(0.07));
     l.ui.p().rect(Rect::new(r.x, r.bottom() - 1.0, r.w, 1.0), BORDER);
     let fy = r.y + 24.0;
@@ -1136,6 +1220,7 @@ fn add_form(l: &mut Launcher, v: &mut TimeplanView, line: &LineDesign, side: &Si
     let no_r = Rect::new(ok_r.x - 46.0, fy - 2.0, 40.0, fh + 4.0);
     l.ui.text_in(&note, Rect::new(x, fy, (no_r.x - x - 8.0).max(0.0), fh), 13.0, Weight::Medium, if made.is_some() { TEXT_SOFT } else { ORANGE }, Align::Left);
     let cancel = l.ui.button("tp-add-no", no_r, "", Some("close"), ButtonKind::Normal);
+    super::super::super::tour::anchor("rf-tp-add-ok", ok_r);
     let ok = l.ui.button("tp-add-ok", ok_r, "", Some("check"), ButtonKind::Primary);
     l.ui.tooltip(ok_r, "Make the trips");
     v.adding = Some(a);
@@ -1299,6 +1384,7 @@ fn status_bar(l: &mut Launcher, v: &mut TimeplanView, c: &Company, r: Rect) {
         let text = format!("{} – {}", omsi_ui::tr("UNSYNCED"), omsi_ui::tr("Refresh"));
         let uw = l.ui.width(&text, 12.5, Weight::Bold) + 40.0;
         let ur = Rect::new(x - uw, r.y + 2.0, uw, r.h - 4.0);
+        super::super::super::tour::anchor("rf-tp-refresh", ur);
         let (h, _, clicked) = l.ui.interact(id_of("tp-refresh"), ur);
         l.ui.p().rounded(ur, 6.0, if h { ORANGE } else { ORANGE.alpha(0.85) });
         l.ui.icon("refresh", Vec2::new(ur.x + 16.0, ur.center().y), 16.0, Color::rgba(30, 24, 10, 1.0));
@@ -1604,15 +1690,15 @@ fn day_trips(l: &LineDesign, day: usize) -> Vec<(usize, Vec<i32>)> {
 /// The timeplan saved as the company's lines' timetables are (`plan_edit::commit`; a line of the
 /// map's at once, its changed route approved as the line editor has it), then the line read
 /// again and marked UNSYNCED for the scheduling studio on the day groups it changed.
-fn save(l: &mut Launcher, v: &mut TimeplanView) {
-    let Some(w) = v.work.clone() else { return };
+fn save(l: &mut Launcher, v: &mut TimeplanView) -> bool {
+    let Some(w) = v.work.clone() else { return false };
     for d in 0..DAY_GROUPS.len() {
         if let Some(e) = tp::issues(&w.own.draft, d).into_iter().find(|i| i.level == Level::Error) {
             let text = omsi_ui::tr("%{day}: %{issue} - mend it first.").replace("%{day}", &day_name(d)).replace("%{issue}", &omsi_ui::tr(e.text).replace("%{n}", &e.n.to_string()));
             l.state.set_status(text, true);
             v.day = d;
             v.issues_open = true;
-            return;
+            return false;
         }
     }
     let changed: Vec<usize> = (0..DAY_GROUPS.len()).filter(|&d| day_trips(&w.own.base, d) != day_trips(&w.own.draft, d)).collect();
@@ -1641,6 +1727,7 @@ fn save(l: &mut Launcher, v: &mut TimeplanView) {
         }
         v.loaded = None;
     }
+    saved
 }
 
 /// A line of the map's the company runs, saved: its changed route paid for

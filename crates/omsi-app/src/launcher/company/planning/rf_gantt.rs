@@ -258,7 +258,7 @@ pub(super) fn chip(ui: &mut Ui, r: Rect, colour: Color, right: bool, label: &str
 }
 
 /// A deadhead: a small dark rounded box (an orange dot where its time is estimated).
-fn deadhead(ui: &mut Ui, p: &Pal, a: f32, b: f32, cy: f32, estimated: bool) {
+pub(super) fn deadhead(ui: &mut Ui, p: &Pal, a: f32, b: f32, cy: f32, estimated: bool) {
     let w = (b - a).max(9.0);
     let r = Rect::new(a + ((b - a) - w).min(0.0) * 0.5, cy - CHIP * 0.42, w, CHIP * 0.84);
     ui.p().rounded(r, 3.0, p.dead);
@@ -269,7 +269,7 @@ fn deadhead(ui: &mut Ui, p: &Pal, a: f32, b: f32, cy: f32, estimated: bool) {
 }
 
 /// A pull-out or pull-in: a grey-blue box (an orange dot where the company adds it itself).
-fn pull(ui: &mut Ui, p: &Pal, a: f32, b: f32, cy: f32, generated: bool) {
+pub(super) fn pull(ui: &mut Ui, p: &Pal, a: f32, b: f32, cy: f32, generated: bool) {
     let w = (b - a).max(12.0);
     let r = Rect::new(if b - a < 12.0 { b - 12.0 } else { a }, cy - CHIP * 0.5, w, CHIP);
     ui.p().rounded(r, 3.0, p.pull);
@@ -279,7 +279,7 @@ fn pull(ui: &mut Ui, p: &Pal, a: f32, b: f32, cy: f32, generated: bool) {
 }
 
 /// A T-bar: the pre- or post-trip check, a sign-on or a sign-off (`left`: its bar on the left).
-fn t_bar(ui: &mut Ui, p: &Pal, a: f32, b: f32, cy: f32, left: bool) {
+pub(super) fn t_bar(ui: &mut Ui, p: &Pal, a: f32, b: f32, cy: f32, left: bool) {
     let col = if p.light { p.dim } else { Color::rgba(200, 206, 214, 1.0) };
     let a = a.min(b - 6.0);
     ui.p().rect(Rect::new(a, cy - 0.75, b - a, 1.5), col);
@@ -288,7 +288,7 @@ fn t_bar(ui: &mut Ui, p: &Pal, a: f32, b: f32, cy: f32, left: bool) {
 }
 
 /// A relief arrow: down (the driver gets off), up (gets on), or both (handed over).
-fn relief_arrow(ui: &mut Ui, p: &Pal, x: f32, cy: f32, up: bool, down: bool) {
+pub(super) fn relief_arrow(ui: &mut Ui, p: &Pal, x: f32, cy: f32, up: bool, down: bool) {
     let col = if p.light { p.text } else { Color::WHITE };
     let h = CHIP * 0.62;
     ui.p().rect(Rect::new(x - 0.6, cy - h, 1.2, h * 2.0), col);
@@ -445,6 +445,9 @@ pub(super) fn gantt(l: &mut Launcher, r: Rect, k: &Cached, board: &Board, p: &Pa
     // the stack (Optibus's edit mode: the trips no bus runs, above the schedule)
     if stack_rows > 0 {
         let sr = Rect::new(r.x, r.y + AXIS, r.w, stack_h);
+        if !board.stack.is_empty() {
+            super::super::super::tour::anchor("rf-stack", sr);
+        }
         ui.p().rect(sr, p.labels.mix(p.grid, 0.5));
         ui.p().rect(Rect::new(sr.x, sr.bottom() - 3.0, sr.w, 3.0), p.line);
         ui.icon("inventory_2", Vec2::new(r.x + 16.0, sr.y + 13.0), 15.0, p.dim);
@@ -496,6 +499,11 @@ pub(super) fn gantt(l: &mut Launcher, r: Rect, k: &Cached, board: &Board, p: &Pa
             continue;
         }
         let cy = rr.center().y;
+        // (the tour's row: the first one wholly in view)
+        if rr.y >= body.y && rr.bottom() <= body.bottom() {
+            super::super::super::tour::anchor("rf-row", Rect::new(rr.x, rr.y, rr.w - 12.0, rr.h));
+            super::super::super::tour::anchor("rf-row-id", Rect::new(rr.x + 4.0, rr.y, ID_W - 8.0, rr.h));
+        }
         let row_on = sel_row.as_ref() == Some(&row.id);
         let rh = rr.contains(mouse) && body.contains(mouse);
         if row_on || rh {
@@ -615,6 +623,9 @@ pub(super) fn gantt(l: &mut Launcher, r: Rect, k: &Cached, board: &Board, p: &Pa
     if !read_only {
         let rr = Rect::new(r.x, y + 4.0, r.w, ROW);
         if ui.rect_visible(rr) {
+            if rr.bottom() <= body.bottom() {
+                super::super::super::tour::anchor("rf-new-row", Rect::new(rr.x, rr.y, (gx - r.x + gw.min(560.0)).min(rr.w - 12.0), rr.h));
+            }
             let label = if drivers { "New duty" } else { "New vehicle" };
             ui.icon("add", Vec2::new(r.x + 22.0, rr.center().y), 15.0, p.dim);
             ui.text_in(label, Rect::new(r.x + 36.0, rr.y, (gx - r.x - 40.0).max(60.0), rr.h), 12.0, Weight::Medium, p.dim, Align::Left);
@@ -743,7 +754,7 @@ fn hand_colour(c: &Company, board: &Board, h: &Hand) -> Color {
 
 /// A drop zone: an outlined slot, blue where nothing breaks and red where a rule does, its
 /// stars inside.
-fn draw_zone(ui: &mut Ui, p: &Pal, r: Rect, z: &Zone, right: bool, on: bool) {
+pub(super) fn draw_zone(ui: &mut Ui, p: &Pal, r: Rect, z: &Zone, right: bool, on: bool) {
     let col = if z.clean { p.accent } else { p.err };
     let pts = arrow_points(r, right);
     ui.p().convex(&pts[..5], if on { col.alpha(0.30) } else { p.grid.alpha(0.9) });
@@ -834,6 +845,9 @@ fn block_row_draw(ui: &mut Ui, p: &Pal, c: &Company, board: &Board, i: usize, ro
             *lit = Some((x.dep, x.arr));
         }
         chip(ui, cr, colour, right, &chip_label(t, x, layers.label), outline, linked, moved, if taken { 0.35 } else { 1.0 });
+        if ui.rect_visible(cr) && cr.w > 24.0 {
+            super::super::super::tour::anchor("rf-chip", cr);
+        }
         if read_only || hand.is_some() {
             continue;
         }
@@ -870,6 +884,9 @@ fn block_row_draw(ui: &mut Ui, p: &Pal, c: &Company, board: &Board, i: usize, ro
         }
         if !read_only && hand.is_none() {
             let gr = Rect::new(xa - 3.0, cy - CHIP * 0.6, (xb - xa).max(4.0) + 6.0, CHIP * 1.2);
+            if ui.rect_visible(gr) {
+                super::super::super::tour::anchor("rf-relief", gr);
+            }
             let (h, _, click) = ui.interact(id_of(&format!("rf-relief-{i}-{}", r.start)), gr);
             if h {
                 ui.p().rounded_border(gr, 3.0, 1.0, p.accent);
@@ -1016,6 +1033,9 @@ fn duty_row_draw(ui: &mut Ui, p: &Pal, c: &Company, board: &Board, d: usize, row
             }
             let outline = if chosen || (h && hand.is_none()) { Some(Color::WHITE) } else { None };
             chip(ui, cr, colour, outbound(&board.tours, &t.line, x), &chip_label(t, x, layer), outline, false, false, if taken { 0.35 } else { 1.0 });
+            if ui.rect_visible(cr) && cr.w > 24.0 {
+                super::super::super::tour::anchor("rf-chip", cr);
+            }
             if read_only || hand.is_some() {
                 continue;
             }

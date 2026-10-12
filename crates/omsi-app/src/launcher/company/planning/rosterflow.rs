@@ -416,6 +416,10 @@ pub(in super::super) struct Rf {
     pub(super) custom_draft: (usize, i32, i32),
     /// How far the duty panel is scrolled.
     pub(super) duty_scroll: f32,
+    /// Edits made so far (undone ones too), for the lessons (`rf_tutorial`).
+    pub(super) edits: u64,
+    /// The tutorial: its "?" menu, its help sheet, a lesson on its way (`rf_tutorial`).
+    pub(super) tut: super::rf_tutorial::Tut,
 }
 
 /// The day as shown, made once for a date and the company's generation.
@@ -484,6 +488,7 @@ pub(super) fn edit(l: &mut Launcher, label: String, f: impl FnOnce(&mut Company)
                 Ok(())
             });
             let s = &mut l.company.planning.rf;
+            s.edits += 1;
             s.undo.push((snapshot, label));
             if s.undo.len() > 60 {
                 s.undo.remove(0);
@@ -641,21 +646,37 @@ fn title_bar(l: &mut Launcher, r: Rect, c: &Company, date: &str, p: &Pal) {
     // the menu's icons: preferences, optimisation settings, print, go to
     let icons: [(&str, &str, &str); 4] = [("rf-prefs", "tune", "Preferences: the rules the duties are checked against and Optimise works to"), ("rf-print", "description", "Print the bus graph or the duty graph as a PDF file"), ("rf-goto", "search", "Go to a vehicle or a duty by its ID (G)"), ("rf-optset", "settings", "Optimisation settings")];
     let mut clicked: Option<&str> = None;
+    let icons_x = x;
     for (name, icon, tip) in icons {
         if rf_icon(&mut l.ui, p, name, Vec2::new(x + 15.0, cy), icon, tip, false, true) {
             clicked = Some(name);
         }
         x += 36.0;
     }
+    // the "?": the tutorial's menu (its tour, its lessons, its help sheet: `rf_tutorial`)
+    let help = Rect::new(x, cy - 15.0, 30.0, 30.0);
+    super::super::super::tour::anchor("rf-help", help);
+    l.company.planning.rf.tut.help_at = help;
+    if rf_icon(&mut l.ui, p, "rf-help", Vec2::new(x + 15.0, cy), "help", "Tutorial: a guided tour, lessons to try yourself and a help sheet", l.company.planning.rf.tut.menu_open(), true) {
+        clicked = Some("rf-help");
+    }
+    x += 36.0;
     let ui = &mut l.ui;
     // the schedule's name, orange and slanted as Optibus's, the dot green when saved
     let unsaved = rf::has_draft(c);
     let name = format!("{}  ·  {}", c.name, day_label(date));
-    let nw2 = ui.width(&name, 15.0, Weight::Bold).min(r.w * 0.26);
-    let right_block = 560.0;
-    let mid = ((x + r.right() - right_block) * 0.5).max(x + nw2 * 0.5 + 10.0);
+    // (between the menu's icons and undo: the tabs, the day and undo, redo and the history are
+    // on the right; a name too long for the room is cut)
+    let tabs_w: f32 = ["Vehicles", "Drivers", "Roster", "Timeplan"].iter().map(|t| 48.0 + ui.width(&omsi_ui::tr(t), 13.0, Weight::Bold)).sum();
+    let room_end = r.right() - tabs_w - 10.0 - 176.0 - 22.0 - 100.0;
+    let room = (room_end - x - 34.0).max(40.0);
+    let nw2 = ui.width(&name, 15.0, Weight::Bold).min(room);
+    let mid = ((x + room_end) * 0.5).clamp(x + nw2 * 0.5 + 10.0, (room_end - nw2 * 0.5 - 24.0).max(x + nw2 * 0.5 + 10.0));
+    ui.push_clip(Rect::new(mid - nw2 * 0.5, r.y, nw2, r.h), 0.0);
     ui.text_as_is(&name, Vec2::new(mid - nw2 * 0.5, cy + 5.0), 15.0, Weight::Bold, p.warn, Align::Left);
+    ui.pop_clip();
     let dot = Vec2::new(mid + nw2 * 0.5 + 12.0, cy);
+    super::super::super::tour::anchor("rf-menu", Rect::new(icons_x, r.y + 6.0, dot.x + 10.0 - icons_x, r.h - 12.0));
     ui.p().circle(dot, 5.0, if unsaved { p.warn } else { p.ok });
     ui.tooltip(Rect::new(dot.x - 8.0, dot.y - 8.0, 16.0, 16.0), if unsaved { "Changes not saved yet: SAVE makes them the company's planning, DISCARD forgets them" } else { "Saved: the company runs this planning" });
     // the tabs, right: Vehicles, Drivers, Roster, Timeplan
@@ -666,6 +687,13 @@ fn title_bar(l: &mut Launcher, r: Rect, c: &Company, date: &str, p: &Pal) {
         let w = 34.0 + ui.width(&omsi_ui::tr(label), 13.0, Weight::Bold) + 14.0;
         tx -= w;
         let tr = Rect::new(tx, r.y, w, r.h);
+        let anchor = match *v {
+            VEHICLES => "rf-tab-vehicles",
+            DRIVERS => "rf-tab-drivers",
+            ROSTER => "rf-tab-roster",
+            _ => "rf-tab-timeplan",
+        };
+        super::super::super::tour::anchor(anchor, tr);
         let on = l.company.planning.view == *v;
         let (h, _, click) = ui.interact(id_of(&format!("rf-tab-{v}")), tr);
         if on {
@@ -684,6 +712,7 @@ fn title_bar(l: &mut Launcher, r: Rect, c: &Company, date: &str, p: &Pal) {
     // the day: the next seven days (Optibus's service-day switcher)
     let dw = 176.0;
     let dr = Rect::new(tx - dw - 10.0, r.y + 8.0, dw, r.h - 16.0);
+    super::super::super::tour::anchor("rf-day", dr);
     let (dh, _, dclick) = ui.interact(id_of("rf-day"), dr);
     ui.p().rect(Rect::new(dr.x - 1.0, r.y + 8.0, 1.0, r.h - 16.0), p.line);
     ui.icon("calendar_month", Vec2::new(dr.x + 18.0, cy), 18.0, if dh { p.text } else { p.dim });
@@ -694,6 +723,7 @@ fn title_bar(l: &mut Launcher, r: Rect, c: &Company, date: &str, p: &Pal) {
     ui.tooltip(dr, "The day shown: the planning of a weekday holds for that weekday every week");
     // undo, redo, the history
     let hx = dr.x - 22.0;
+    super::super::super::tour::anchor("rf-undo", Rect::new(hx - 92.0, cy - 16.0, 104.0, 32.0));
     let can_redo = !l.company.planning.rf.redo.is_empty();
     let can_undo = !l.company.planning.rf.undo.is_empty();
     let hist = rf_icon(&mut l.ui, p, "rf-history", Vec2::new(hx - 4.0, cy), "history", "Schedule history: every change, to go back to", l.company.planning.rf.panel == Panel::History, can_undo);
@@ -718,6 +748,7 @@ fn title_bar(l: &mut Launcher, r: Rect, c: &Company, date: &str, p: &Pal) {
         Some("rf-print") => toggle(&mut l.company.planning.rf.panel, Panel::Print),
         Some("rf-goto") => toggle(&mut l.company.planning.rf.panel, Panel::GoTo(String::new())),
         Some("rf-optset") => toggle(&mut l.company.planning.rf.panel, Panel::Optimise),
+        Some("rf-help") => l.company.planning.rf.tut.toggle_menu(),
         _ => {}
     }
     if undo_b {
@@ -809,6 +840,7 @@ fn studio_page(l: &mut Launcher, r: Rect, c: &Company, date: &str, p: &Pal, driv
     y = tool.bottom();
     let status = Rect::new(r.x, r.bottom() - STATUS_H, r.w, STATUS_H);
     let gantt = Rect::new(r.x, y, r.w, (status.y - y).max(0.0));
+    super::super::super::tour::anchor("rf-gantt", gantt);
     if proposal.is_some() {
         let banner = Rect::new(gantt.x, gantt.y, gantt.w, 40.0);
         proposal_banner(l, banner, p, date);
@@ -835,6 +867,7 @@ fn studio_page(l: &mut Launcher, r: Rect, c: &Company, date: &str, p: &Pal, driv
 /// "Optimise"'s proposal over the Gantt: accept it, or keep the day as it is.
 fn proposal_banner(l: &mut Launcher, r: Rect, p: &Pal, date: &str) {
     let ui = &mut l.ui;
+    super::super::super::tour::anchor("rf-proposal", r);
     ui.p().rect(r, p.accent.alpha(0.16));
     ui.p().rect(Rect::new(r.x, r.bottom() - 1.0, r.w, 1.0), p.accent.alpha(0.5));
     ui.icon("bolt", Vec2::new(r.x + 22.0, r.center().y), 18.0, p.accent);
@@ -930,6 +963,8 @@ fn kpis(l: &mut Launcher, r: Rect, f: &Figures, was: Option<&Figures>, p: &Pal) 
             ui.p().rect(Rect::new(cell.x, cell.y + 18.0, 1.0, row_h - 36.0), p.line);
         }
     }
+    super::super::super::tour::anchor("rf-kpi-counts", Rect::new(r.x, r.y + 4.0, 2.0 * w, row_h));
+    super::super::super::tour::anchor("rf-kpi-rest", Rect::new(r.x + 2.0 * w, r.y + 4.0, 3.0 * w, row_h));
     let open = l.company.planning.rf.kpis_open;
     if open {
         let avg = |m: i32| if f.duties == 0 { 0.0 } else { m as f64 / f.duties as f64 };
@@ -1011,6 +1046,9 @@ fn toolbar(l: &mut Launcher, r: Rect, k: &Cached, p: &Pal, drivers: bool, propos
     let save = rf_button(ui, p, "rf-save", Rect::new(r.x + 4.0, r.y + 4.0, 116.0, r.h - 8.0), "Save", true, dirty && !proposal);
     ui.tooltip(Rect::new(r.x + 4.0, r.y + 4.0, 116.0, r.h - 8.0), "Make the changes the company's planning: the roster, the day and the game run it");
     let discard = rf_button(ui, p, "rf-discard", Rect::new(r.x + 126.0, r.y + 4.0, 116.0, r.h - 8.0), "Discard", false, dirty && !proposal);
+    super::super::super::tour::anchor("rf-save", Rect::new(r.x + 4.0, r.y + 4.0, 116.0, r.h - 8.0));
+    super::super::super::tour::anchor("rf-discard", Rect::new(r.x + 126.0, r.y + 4.0, 116.0, r.h - 8.0));
+    super::super::super::tour::anchor("rf-save-discard", Rect::new(r.x + 4.0, r.y + 4.0, 238.0, r.h - 8.0));
     let mut x = r.x + 256.0;
     let s = &l.company.planning.rf;
     let (stats_on, layers_on, filter_on) = (s.panel == Panel::Stats || !s.stats.is_empty(), s.panel == Panel::Layers, s.panel == Panel::Filter || s.filter.active());
@@ -1021,6 +1059,7 @@ fn toolbar(l: &mut Launcher, r: Rect, k: &Cached, p: &Pal, drivers: bool, propos
     x = lr.right() + 6.0;
     l.ui.p().rect(Rect::new(x, cy - 8.0, 1.0, 16.0), p.text.alpha(0.3));
     let (filter, fr) = tool_link(&mut l.ui, p, "rf-filter", x + 8.0, cy, "filter_list", "Filter", filter_on);
+    super::super::super::tour::anchor("rf-tools", Rect::new(r.x + 252.0, r.y + 4.0, fr.right() - r.x - 248.0, r.h - 8.0));
     x = fr.right() + 12.0;
     // the filters on, as chips to take off
     let mut clear_issues = false;
@@ -1046,6 +1085,7 @@ fn toolbar(l: &mut Launcher, r: Rect, k: &Cached, p: &Pal, drivers: bool, propos
     ui.icon("settings", gear.center(), 18.0, Color::WHITE);
     ui.tooltip(gear, "Optimisation settings");
     let opt_r = Rect::new(gear.x - 140.0, r.y + 4.0, 140.0, r.h - 8.0);
+    super::super::super::tour::anchor("rf-optimise", Rect::new(opt_r.x, opt_r.y, gear.right() - opt_r.x, opt_r.h));
     let opt = rf_button(ui, p, "rf-optimise", opt_r, "Optimize", true, !proposal);
     ui.tooltip(opt_r, "Optimise the day by the preferences: the vehicles' blocks and the duties, the locked ones kept. Shown as a proposal to accept or not");
     let stack_n = k.board.stack.len();
@@ -1138,6 +1178,7 @@ fn status_bar(l: &mut Launcher, r: Rect, k: &Cached, board: &Board, p: &Pal, dri
         ui.tooltip(Rect::new(x, r.y, tw + 22.0, r.h), tip);
         x += tw + 38.0;
     }
+    super::super::super::tour::anchor("rf-status-counts", Rect::new(r.x + 8.0, r.y + 2.0, x - r.x - 24.0, r.h - 4.0));
     // the issues: Global, Duty, Vehicle, and re-validate
     let c = &k.view;
     let mut rx = r.right() - 14.0;
@@ -1180,6 +1221,7 @@ fn status_bar(l: &mut Launcher, r: Rect, k: &Cached, board: &Board, p: &Pal, dri
         rx = ir.x - 10.0;
         ui.p().rect(Rect::new(rx + 4.0, r.y + 8.0, 1.0, r.h - 16.0), p.line);
     }
+    super::super::super::tour::anchor("rf-status-issues", Rect::new(rx + 6.0, r.y + 2.0, r.right() - rx - 10.0, r.h - 4.0));
     let s = &mut l.company.planning.rf;
     if let Some(scope) = open_scope {
         if s.panel == Panel::Issues(scope) {

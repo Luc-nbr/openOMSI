@@ -500,3 +500,39 @@ fn a_line_has_its_own_colour_or_the_palettes() {
     assert_eq!(parse_hex("#zz0000"), None);
     assert_eq!((hm(65), clock(1445)), ("1:05".to_string(), "00:05".to_string()));
 }
+
+#[test]
+fn a_lessons_snapshot_puts_the_draft_the_saved_planning_and_the_colours_back() {
+    let mut c = company();
+    let l = line5();
+    let w = wd(&c);
+    let snap = Snapshot::take(&c);
+    assert!(!snap.restore(&mut c.clone()), "nothing changed: nothing to put back");
+    // a lesson cuts a duty in the draft, saves it, cuts again, colours the line and locks a bus
+    let tours = day(&c, &l);
+    let (i, t) = block(&tours, "1");
+    let at = (1..t.trips.len()).find(|&k| st::can_cut(&c, &tours, i, k).is_ok()).expect("a place to cut");
+    let mut v = view(&c);
+    st::cut(&mut v, w, &tours, i, at).unwrap();
+    keep_draft(&mut c, &v);
+    assert!(has_draft(&c));
+    assert!(save_draft(&mut c));
+    assert!(!snap.same_saved(&c), "the saved planning changed");
+    let tours = day(&c, &l);
+    let mut v = view(&c);
+    set_block_lock(&mut v, w, &tours[0].line, &tours[0].tour, true);
+    keep_draft(&mut c, &v);
+    set_line_colour(&mut c, "Linie5", Some([9, 9, 9]));
+    assert!(has_draft(&c));
+    // "Undo the lesson": everything as it was, the draft gone
+    assert!(snap.restore(&mut c));
+    assert_eq!(Snapshot::take(&c), snap);
+    assert!(snap.same_saved(&c));
+    assert!(!has_draft(&c));
+    assert_eq!(line_colour(&c, "Linie5"), PALETTE[0]);
+    assert_eq!(board(&c, std::slice::from_ref(&l), &c.date.clone()).figures, board(&company(), std::slice::from_ref(&l), &company().date).figures);
+    // a line added during the lesson keeps its colour
+    c.lines.push(CompanyLine { name: "Neu".into(), colour: "#123456".into(), ..Default::default() });
+    snap.restore(&mut c);
+    assert_eq!(c.lines[1].colour, "#123456");
+}
