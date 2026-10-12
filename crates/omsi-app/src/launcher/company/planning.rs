@@ -28,6 +28,7 @@ mod rf_panels;
 mod rf_prefs;
 mod rf_print;
 mod rosterflow;
+mod timeplan;
 
 use super::super::flow::Step;
 use super::super::state::{CompanyDuty, PlannedBus};
@@ -100,12 +101,14 @@ pub struct PlanningView {
     /// What the page shows (RosterFlow's tabs): 0 the roster, 1 Vehicles, 2 Drivers, 3 Timeplan.
     pub(super) view: usize,
     rf: rosterflow::Rf,
+    /// RosterFlow's timeplan (`timeplan`), its Timeplan tab.
+    timeplan: timeplan::TimeplanView,
 }
 
 impl Default for PlanningView {
     fn default() -> Self {
         let (tx, rx) = channel();
-        PlanningView { tx, rx, days: Vec::new(), asked: Vec::new(), extra: Vec::new(), day: 0, sel: None, arm: None, drag: None, carry: None, press: None, carry_from: Vec2::ZERO, targets: Vec::new(), clear_armed: false, cache: Vec::new(), read_at: 0, focus: None, edit: None, tapped: None, view: rosterflow::VEHICLES, rf: Default::default() }
+        PlanningView { tx, rx, days: Vec::new(), asked: Vec::new(), extra: Vec::new(), day: 0, sel: None, arm: None, drag: None, carry: None, press: None, carry_from: Vec2::ZERO, targets: Vec::new(), clear_armed: false, cache: Vec::new(), read_at: 0, focus: None, edit: None, tapped: None, view: rosterflow::VEHICLES, rf: Default::default(), timeplan: Default::default() }
     }
 }
 
@@ -115,7 +118,7 @@ impl PlanningView {
     /// studio - that Escape lets go of first (before it goes back to the company's start
     /// screen).
     pub(super) fn holds_choice(&self) -> bool {
-        self.sel.is_some() || self.arm.is_some() || self.drag.is_some() || self.carry.is_some() || self.edit.is_some() || (self.view > 0 && self.rf.holds())
+        self.sel.is_some() || self.arm.is_some() || self.drag.is_some() || self.carry.is_some() || self.edit.is_some() || (self.view > 0 && self.rf.holds()) || (self.view == rosterflow::TIMEPLAN && self.timeplan.holds())
     }
 
     /// Another page of the company is shown: RosterFlow opens with its opening again.

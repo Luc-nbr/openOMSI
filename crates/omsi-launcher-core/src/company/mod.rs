@@ -50,6 +50,7 @@ pub mod store;
 pub mod rosterflow;
 pub mod rosterpdf;
 pub mod studio;
+pub mod timeplan;
 pub mod training;
 
 pub use model::*;

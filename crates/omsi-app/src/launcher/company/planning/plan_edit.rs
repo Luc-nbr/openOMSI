@@ -35,7 +35,7 @@ use std::path::{Path, PathBuf};
 /// Why a line's trips are only shown: a line of the map's timetable, or an own line the line
 /// editor's registry does not have.
 const MAP_LINE: &str = "A line of the map's timetable: its trips are the map's own and are not changed here.";
-const NOT_FOUND: &str = "The line was not found among the line editor's lines of the company's map: its trips are shown as they run.";
+pub(super) const NOT_FOUND: &str = "The line was not found among the line editor's lines of the company's map: its trips are shown as they run.";
 
 /// A direction's lane on the axis, and the label column beside the lanes and the tours.
 const LANE_H: f32 = 50.0;
@@ -398,17 +398,17 @@ fn lane_colour(k: Option<usize>) -> Color {
 /// day's mark (`base`, what "changed" is against), as the map's timetable runs it now
 /// (`live`) and as changed here (`draft`).
 #[derive(Clone)]
-struct Own {
-    id: u64,
-    path: PathBuf,
-    stem: String,
-    saved: LineDesign,
-    base: LineDesign,
-    live: LineDesign,
-    draft: LineDesign,
+pub(super) struct Own {
+    pub(super) id: u64,
+    pub(super) path: PathBuf,
+    pub(super) stem: String,
+    pub(super) saved: LineDesign,
+    pub(super) base: LineDesign,
+    pub(super) live: LineDesign,
+    pub(super) draft: LineDesign,
 }
 
-fn own_of(id: u64, path: PathBuf, stem: String, saved: LineDesign) -> Own {
+pub(super) fn own_of(id: u64, path: PathBuf, stem: String, saved: LineDesign) -> Own {
     let base = LineDesign { live: None, pending_from: String::new(), ..saved.clone() };
     let live = match saved.live.as_deref() {
         Some(x) => LineDesign { id, live: None, pending_from: String::new(), ..x.clone() },
@@ -419,7 +419,7 @@ fn own_of(id: u64, path: PathBuf, stem: String, saved: LineDesign) -> Own {
 
 /// The company line's own line in the line editor's registry, to change - or why its trips
 /// are only shown.
-fn load(c: &Company, cl: &CompanyLine) -> Result<Own, &'static str> {
+pub(super) fn load(c: &Company, cl: &CompanyLine) -> Result<Own, &'static str> {
     if !cl.own {
         return Err(MAP_LINE);
     }
@@ -1408,33 +1408,59 @@ fn short_day(date: &str) -> String {
 /// tours' buses and drivers taken off the roster); then the registry, the map's timetable and
 /// the depot files written, and the planning read again. Returns whether the sheet closes.
 fn save(l: &mut Launcher, e: &mut PlanEdit) -> bool {
-    let Some(c) = l.company.company.clone().filter(|c| c.id == e.company) else { return true };
     let Some(o) = e.own.clone() else { return false };
-    let Some(cl) = c.lines.iter().find(|x| x.name.eq_ignore_ascii_case(&e.line)).cloned() else { return true };
+    match commit(l, &e.company, &e.line, &o, &mut e.from) {
+        Commit::Saved | Commit::Gone => true,
+        Commit::Kept => false,
+        Commit::Stale(on_disk) => {
+            e.own = Some(own_of(o.id, o.path.clone(), o.stem.clone(), on_disk));
+            (e.undo, e.sel, e.rev) = (Vec::new(), None, e.rev + 1);
+            false
+        }
+    }
+}
+
+/// What came of saving an own line's timetable (`commit`).
+pub(super) enum Commit {
+    /// Saved (said in the status line).
+    Saved,
+    /// Not saved, and nothing to show any more (the company or its line gone).
+    Gone,
+    /// Not saved (why is said): the draft is kept.
+    Kept,
+    /// Not saved: the registry has the line otherwise now (as it is there) - changed in the
+    /// line editor meanwhile, or its new timetable began.
+    Stale(LineDesign),
+}
+
+/// The draft of an own line (`o`, the company `company`'s line `line`) saved as the line
+/// editor saves a line's timetable (`save`; RosterFlow's timeplan saves through it too): a
+/// line in service from the day `from` (moved to tomorrow when it is sooner), else at once.
+pub(super) fn commit(l: &mut Launcher, company: &str, line: &str, o: &Own, from: &mut String) -> Commit {
+    let Some(c) = l.company.company.clone().filter(|c| c.id == company) else { return Commit::Gone };
+    let Some(cl) = c.lines.iter().find(|x| x.name.eq_ignore_ascii_case(line)).cloned() else { return Commit::Gone };
     if let Some(p) = reg::problems(&o.draft).first() {
         l.state.set_status(omsi_ui::tr(p.text).replace("%{n}", &p.n.to_string()), true);
-        return false;
+        return Commit::Kept;
     }
     // (the line as the registry has it now: changed meanwhile - in the line editor, or its new
     // timetable began - it is shown as it is, and saved from there)
     let r = reg::load_registry(&o.path);
     let Some(on_disk) = r.line(o.id).cloned() else {
         l.state.set_status(omsi_ui::tr(NOT_FOUND).into_owned(), true);
-        return true;
+        return Commit::Gone;
     };
     if on_disk != o.saved {
-        e.own = Some(own_of(o.id, o.path.clone(), o.stem.clone(), on_disk));
-        (e.undo, e.sel, e.rev) = (Vec::new(), None, e.rev + 1);
         kit::show(l, kit::Popup::new("departure_board", "Changed meanwhile", omsi_ui::tr("The line's timetable was changed meanwhile - in the line editor, or its new timetable began: it is shown as it is now."), "", None));
-        return false;
+        return Commit::Stale(on_disk);
     }
     let Some(lines) = map_lines(&l.company).map(|x| x.to_vec()) else {
         kit::show(l, kit::Popup::new("timer", "Not yet", omsi_ui::tr("The timetable of the day is still being read."), omsi_ui::tr("Try again in a moment."), None));
-        return false;
+        return Commit::Kept;
     };
     if core::content_dir().is_none() {
         l.state.set_status(omsi_ui::tr("There is no content folder to write the timetable into.").into_owned(), true);
-        return false;
+        return Commit::Kept;
     }
     let sl = ownline::StopLines::of(&lines, &o.stem);
     let shape = ownline::shape_of(&o.draft, &|s| sl.count(s));
@@ -1444,12 +1470,12 @@ fn save(l: &mut Launcher, e: &mut PlanEdit) -> bool {
     let (line, text) = match &diff {
         // a line in service: from the day chosen, today's tours as they are
         Some(d) if cl.service_from.is_some() => {
-            if co::dates::between(&c.date, &e.from) < 1 {
-                e.from = co::dates::add(&c.date, 1);
+            if co::dates::between(&c.date, from) < 1 {
+                *from = co::dates::add(&c.date, 1);
             }
-            let from = e.from.clone();
+            let from = from.clone();
             let replan = d.replan();
-            let Some(paid) = act(l, |c| ownline::schedule_change(c, &draft, &stem, &shape, &from, replan)) else { return false };
+            let Some(paid) = act(l, |c| ownline::schedule_change(c, &draft, &stem, &shape, &from, replan)) else { return Commit::Kept };
             let t = omsi_ui::tr("Line %{n}: the new timetable begins on %{date}; today's tours run as they are.").replace("%{n}", &number).replace("%{date}", &day_label(&from)) + &approved(paid);
             (LineDesign { live: Some(Box::new(o.live.clone())), pending_from: from, draft: false, ..draft }, t)
         }
@@ -1463,7 +1489,7 @@ fn save(l: &mut Launcher, e: &mut PlanEdit) -> bool {
                 co::plan::forget_tours(c, &s2, &replan);
                 Ok(paid)
             });
-            let Some(paid) = paid else { return false };
+            let Some(paid) = paid else { return Commit::Kept };
             let t = if anew > 0 { omsi_ui::tr("Line %{n} saved: %{k} of its tours to plan anew.").replace("%{k}", &anew.to_string()) } else { omsi_ui::tr("Line %{n} saved.").into_owned() }.replace("%{n}", &number) + &approved(paid);
             (LineDesign { live: None, pending_from: String::new(), draft: false, ..draft }, t)
         }
@@ -1475,12 +1501,12 @@ fn save(l: &mut Launcher, e: &mut PlanEdit) -> bool {
         Ok(Some(depots)) => l.state.set_status(format!("{text} {}: {depots}", omsi_ui::tr("A depot file could not be written (displays and IBIS)")), true),
         Err(err) => l.state.set_status(format!("{}: {err}", omsi_ui::tr("The timetable files could not be written")), true),
     }
-    true
+    Commit::Saved
 }
 
 /// What a change paid for its route's approval, said after it (nothing for a timetable alone:
 /// the route is the line editor's).
-fn approved(paid: co::Cents) -> String {
+pub(super) fn approved(paid: co::Cents) -> String {
     if paid > 0 {
         format!(" {}", omsi_ui::tr("Its route is approved for %{amount}.").replace("%{amount}", &super::super::eur(paid)))
     } else {
@@ -1491,7 +1517,7 @@ fn approved(paid: co::Cents) -> String {
 /// A line written into the map's registry, its timetable and its depot files as the line
 /// editor writes them (the codes given before the registry is saved, the blocks after the
 /// timetable); the line editor open on the map takes it too. Returns a depot file's error.
-fn write_line(l: &mut Launcher, map: &str, path: &Path, mut line: LineDesign) -> Result<Option<String>, String> {
+pub(super) fn write_line(l: &mut Launcher, map: &str, path: &Path, mut line: LineDesign) -> Result<Option<String>, String> {
     let content = core::content_dir().ok_or_else(|| "no content folder".to_string())?;
     let mut r = reg::load_registry(path);
     let id = line.id;

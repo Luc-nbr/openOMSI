@@ -594,7 +594,13 @@ pub(super) fn frame(l: &mut Launcher, area: Rect, c: &Company, date: &str) -> Op
     let mut out = None;
     match l.company.planning.view.min(3) {
         ROSTER => out = Some(Rect::new(body.x, body.y + 14.0, body.w, (body.h - 14.0).max(0.0))),
-        TIMEPLAN => timeplan_placeholder(l, body, c, &p),
+        TIMEPLAN => {
+            // ("View in timeplan" from a trip: that line)
+            if let Some(line) = l.company.planning.rf.timeplan_line.take() {
+                l.company.planning.timeplan.show(&c.id, &line);
+            }
+            super::timeplan::draw(l, body)
+        }
         _ => studio_page(l, body, c, date, &p, view == DRIVERS),
     }
     l.ui.end_as_drawn();
@@ -722,21 +728,6 @@ pub(super) const DAY_NAMES: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat
 
 pub(super) fn toggle(panel: &mut Panel, p: Panel) {
     *panel = if std::mem::discriminant(panel) == std::mem::discriminant(&p) { Panel::None } else { p };
-}
-
-/// The Timeplan tab: the running times and the timetable grid come here (built apart).
-fn timeplan_placeholder(l: &mut Launcher, r: Rect, c: &Company, p: &Pal) {
-    let ui = &mut l.ui;
-    let card = Rect::new(r.center().x - 260.0, r.y + 80.0, 520.0, 190.0);
-    ui.p().rounded(card, 8.0, p.sheet);
-    ui.icon("departure_board", Vec2::new(card.center().x, card.y + 42.0), 40.0, p.accent);
-    ui.text_in("Timeplan", Rect::new(card.x, card.y + 70.0, card.w, 30.0), 20.0, Weight::Bold, p.text, Align::Center);
-    let line = l.company.planning.rf.timeplan_line.as_ref().and_then(|n| c.lines.iter().find(|x| x.name.eq_ignore_ascii_case(n))).map(|x| x.number.clone());
-    let words = match line {
-        Some(n) => omsi_ui::tr("Line %{n}: its running times and its timetable grid will be planned here.").replace("%{n}", &n),
-        None => omsi_ui::tr("The lines' running times and their timetable grid will be planned here.").into_owned(),
-    };
-    ui.paragraph(&words, Vec2::new(card.x + 40.0, card.y + 112.0), card.w - 80.0, 13.5, Weight::Regular, p.dim);
 }
 
 /// The day's board, made again when the date or the company changed.

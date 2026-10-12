@@ -182,6 +182,7 @@ const _LOCALES_LINE_EXISTING: &str = include_str!("../locales/line-existing.yml"
 const _LOCALES_COMPANY_PLANNING: &str = include_str!("../locales/company-planning.yml");
 const _LOCALES_PLANNING_STUDIO: &str = include_str!("../locales/planning-studio.yml");
 const _LOCALES_ROSTERFLOW: &str = include_str!("../locales/rosterflow.yml");
+const _LOCALES_ROSTERFLOW_TIMEPLAN: &str = include_str!("../locales/rosterflow-timeplan.yml");
 
 /// Show the interface in `code` (the settings' ENG / DEU / FRA / RUS).
 pub(crate) fn ui_language(code: &str) {
