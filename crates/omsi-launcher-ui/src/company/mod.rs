@@ -203,6 +203,9 @@ pub struct CompanyView {
     pub(super) lines: lines::LinesView,
     pub(super) money: money::MoneyView,
     pub(super) planning: planning::PlanningView,
+    /// The company's duty launcher open over the pages ("Drive this duty", My duties): one
+    /// duty of the planning, fixed, and its start (`planning::duty_launch`).
+    pub(super) launch: Option<planning::DutyLaunch>,
     /// Raised whenever the company changed (the planning keeps its plans until then).
     pub(super) generation: u64,
     pub(super) career: career::CareerView,
@@ -259,6 +262,7 @@ impl Default for CompanyView {
             lines: Default::default(),
             money: Default::default(),
             planning: Default::default(),
+            launch: None,
             generation: 0,
             career: Default::default(),
             depot: Default::default(),
@@ -981,7 +985,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     let modal = modal(l);
     clock::tick(l, modal);
     let saved = modal.then(|| mask(&mut l.ui));
-    let esc = escape_home(l.company.tab, l.ui.input.keys.contains(&Key::Escape), modal, l.ui.focus.is_some(), l.company.planning.holds_choice());
+    let esc = escape_home(l.company.tab, l.ui.input.keys.contains(&Key::Escape), modal, l.ui.focus.is_some(), l.company.planning.holds_choice()) && l.company.launch.is_none();
     let body = strip(l, area);
     pages(l, body);
     back_home(l, esc);
@@ -1097,9 +1101,14 @@ pub fn screen(l: &mut Launcher) {
     } else if let Some(c) = company.as_ref() {
         // the way round across (the start screen and the page one is on, every page a click
         // away), the page under it; Escape goes back to the start screen
-        let esc = escape_home(l.company.tab, l.ui.input.keys.contains(&Key::Escape), modal, l.ui.focus.is_some(), l.company.planning.holds_choice());
-        nav(l, Rect::new(content.x, content.y, content.w, 42.0), c);
-        let body = Rect::new(content.x, content.y + 58.0, content.w, (content.h - 58.0).max(0.0));
+        let esc = escape_home(l.company.tab, l.ui.input.keys.contains(&Key::Escape), modal, l.ui.focus.is_some(), l.company.planning.holds_choice()) && l.company.launch.is_none();
+        // (the duty launcher is a screen of its own: no tabs over it)
+        let body = if l.company.launch.is_some() {
+            content
+        } else {
+            nav(l, Rect::new(content.x, content.y, content.w, 42.0), c);
+            Rect::new(content.x, content.y + 58.0, content.w, (content.h - 58.0).max(0.0))
+        };
         super::tour::anchor("company-page", body);
         pages(l, body);
         back_home(l, esc);
@@ -1120,6 +1129,12 @@ pub fn screen(l: &mut Launcher) {
 
 /// The tab's page (the start screen's tiles for `HOME_TAB`).
 fn pages(l: &mut Launcher, body: Rect) {
+    // the company's duty launcher, over every page (it goes back to the one it came from)
+    if l.company.launch.is_some() {
+        l.company.planning.away();
+        planning::draw_launch(l, body);
+        return;
+    }
     // (RosterFlow plays its opening when the planning is opened again)
     if l.company.tab != 5 {
         l.company.planning.away();
@@ -1334,6 +1349,10 @@ pub fn head_tools(l: &mut Launcher, r: Rect) -> f32 {
 /// runs only while they are open - and what it left unsaved is saved.
 pub fn leave(l: &mut Launcher) {
     clock::play(l, 0.0);
+    // (the duty launcher is closed with them: nothing of its duty stays)
+    if l.company.launch.is_some() {
+        planning::close_launch(l);
+    }
 }
 
 /// Another of the driver's companies opened (None: none is left, the founding follows): a
@@ -1352,6 +1371,7 @@ pub(super) fn switch_company(l: &mut Launcher, to: Option<Company>) {
     view.plan = None;
     view.refill.clear();
     view.planning = planning::PlanningView::default();
+    view.launch = None;
     view.career.game = None;
     view.fleet.selected = None;
     view.fleet.adverts = Default::default();
@@ -1499,6 +1519,7 @@ fn delete_company(l: &mut Launcher, id: &str) {
     view.plan = None;
     view.reports = None;
     view.planning = planning::PlanningView::default();
+    view.launch = None;
     l.state.set_status(omsi_ui::tr("%{name} is deleted.").replace("%{name}", &name), false);
 }
 

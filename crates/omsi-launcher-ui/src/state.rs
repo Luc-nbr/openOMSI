@@ -94,6 +94,10 @@ fn servers_path() -> std::path::PathBuf {
 /// duties): the company, the duty as it was set (`State::duty_key`) on its day, and the bus
 /// the plan gives its tour. That bus is not chosen on the bus step: it is the company's, in
 /// its livery (Luc). The duty is the company's only while the Drive page still has it.
+///
+/// No longer set: a company's duty is driven from the company's own duty launcher
+/// (`company::planning::duty_launch`), never through the Drive page. Kept so that a choice
+/// file of an older launcher still reads - and its duty is dropped (`Choice::fresh`).
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(default)]
 pub struct CompanyDuty {
@@ -276,8 +280,31 @@ impl Choice {
         if let Some(d) = super::season::launcher_date(&c.season, &c.phase, &c.date, &c.map, true) {
             c.date = d;
         }
+        // (a company's duty is driven from the company's own launcher now, never through the
+        // Drive page: one left in the file by an older launcher goes, with its bus and depot)
+        c.drop_company_duty();
         c
     }
+
+    /// Nothing of a company's duty left in the drive: its duty, and the bus, livery, fleet
+    /// number, plate and depot file it set. Whether there was one.
+    pub fn drop_company_duty(&mut self) -> bool {
+        let Some(d) = self.company.take() else { return false };
+        if d.bus.is_some() {
+            if !self.bus.is_empty() {
+                self.last_bus = std::mem::take(&mut self.bus);
+            }
+            self.paint.clear();
+            self.number.clear();
+            self.plate.clear();
+        }
+        if self.hof_manual {
+            self.hof_manual = false;
+            self.hof.clear();
+        }
+        true
+    }
+
     pub fn save(&self) {
         if let Ok(t) = serde_json::to_string_pretty(self) {
             let _ = std::fs::write(choice_path(), t);
@@ -1517,23 +1544,6 @@ impl State {
         c.last_bus = b.file.clone();
     }
 
-    /// The company's duty set (the choice already holds the duty): its bus put on, or for a
-    /// rental bus none - the bus step asks for the one the rental firm sends.
-    pub fn start_company_duty(&mut self, mut d: CompanyDuty) {
-        d.key = self.duty_key();
-        d.date = self.choice.date.clone();
-        match d.bus.clone() {
-            Some(b) => self.wear(&b),
-            None => {
-                self.choice.company = None;
-                self.clear_bus();
-            }
-        }
-        self.choice.company = Some(d);
-        self.bus_for = Some(self.duty_key());
-        self.touched();
-    }
-
     /// The company's duty left (another mode, map, day or duty): its bus and plate were the
     /// company's and go with it. Whether there was one.
     pub fn end_company_duty(&mut self) -> bool {
@@ -1879,6 +1889,27 @@ mod choice_tests {
         c.plate = "B-AB 1234".into();
         let back: super::Choice = serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();
         assert_eq!(back.plate, "B-AB 1234");
+    }
+
+    #[test]
+    fn a_company_duty_left_in_the_file_does_not_leak_into_the_drive_page() {
+        // (a choice file of Beta 45: the Drive page held the company's duty, its bus and depot)
+        let saved: super::Choice = serde_json::from_str(
+            r#"{"bus":"Vehicles/Citaro/Citaro.bus","paint":"Stadtbus","number":"12","plate":"GD-SB 12","hof":"Grundorf.hof","hof_manual":true,"map":"maps/Grundorf/global.cfg","line":"Linie5","tour":"2","company":{"company":"c1","name":"Stadtbus","key":"k","date":"2024-03-04","bus":{"file":"Vehicles/Citaro/Citaro.bus","name":"Citaro","paint":"Stadtbus","number":"12","plate":"GD-SB 12"}}}"#,
+        )
+        .unwrap();
+        assert!(saved.company.is_some());
+        let c = super::Choice::fresh(saved);
+        assert!(c.company.is_none());
+        assert!(c.bus.is_empty() && c.paint.is_empty() && c.number.is_empty() && c.plate.is_empty());
+        assert_eq!(c.last_bus, "Vehicles/Citaro/Citaro.bus");
+        assert!(!c.hof_manual && c.hof.is_empty());
+        // (a drive of the player's own keeps all of it)
+        let mut own = super::Choice::default();
+        own.bus = "Vehicles/x.bus".into();
+        own.plate = "B-AB 1234".into();
+        let own = super::Choice::fresh(own);
+        assert_eq!((own.bus.as_str(), own.plate.as_str()), ("Vehicles/x.bus", "B-AB 1234"));
     }
 }
 

@@ -21,6 +21,7 @@
 //! the Drivers view - a row per duty, cut and joined - switched with the roster on the tool
 //! row.
 
+mod duty_launch;
 mod plan_edit;
 mod rf_brand;
 mod rf_gantt;
@@ -34,6 +35,8 @@ mod rosterflow;
 mod timeplan;
 
 /// RosterFlow's tabs, for its tour (`company::tutorial`).
+pub(super) use duty_launch::DutyLaunch;
+pub(super) use duty_launch::{close as close_launch, draw as draw_launch};
 pub(super) const RF_ROSTER: usize = rosterflow::ROSTER;
 pub(super) const RF_VEHICLES: usize = rosterflow::VEHICLES;
 pub(super) const RF_DRIVERS: usize = rosterflow::DRIVERS;
@@ -65,11 +68,9 @@ pub(super) fn rf_picture(ui: &mut Ui, which: u8, r: Rect, a: f32, t: Option<f32>
     rf_tutorial::picture(ui, which, r, a, t);
 }
 
-use super::super::flow::Step;
-use super::super::state::{CompanyDuty, PlannedBus};
 use super::super::theme::*;
 use super::super::ui::{id_of, ButtonKind, Key, Ui};
-use super::super::{Launcher, Page};
+use super::super::Launcher;
 use super::kit::{self, Foot};
 use super::{act, day_label, eur, Dialog};
 use glam::Vec2;
@@ -476,78 +477,13 @@ fn give(l: &mut Launcher, p: &DayPlan, arm: Arm, hit: &Hit) {
     }
 }
 
-/// A duty's trips (`planned`, as the plan has them) in its tour of the day's timetable
-/// (`trips`): the first one's place as the game counts it (1 the first) and the minute it
-/// leaves, and how many there are. The plan has the trips in the order they leave, an own
-/// line's with the depot runs its timetable lacks: each is found by its name and the minute
-/// it leaves, and the depot runs are not (None: none of them is).
-fn timetable_legs(planned: &[co::network::PlannedTrip], trips: &[core::TripInfo]) -> Option<(usize, i32, usize)> {
-    let found: Vec<(usize, i32)> = planned.iter().filter_map(|x| trips.iter().find(|y| y.name == x.name && (y.departure / 60.0).round() as i32 == x.dep).map(|y| (y.index, x.dep))).collect();
-    let (first, time) = *found.first()?;
-    Some((first, time, found.len()))
-}
-
-/// "Drive this duty": the Drive page with exactly this duty - its line and tour, its first
-/// trip and as many trips as it has (`--duty-leg`), the company's map, the plan's day, the
-/// depot and the tour's bus in its paint. The player starts it there himself.
-pub(super) fn drive(l: &mut Launcher, c: &Company, p: &DayPlan, ti: usize, k: usize) {
-    let t = &p.tours[ti];
-    let d = &t.duties[k];
-    // the duty's trips as the game counts them, in the day's timetable
-    // (the timetable's tour the game drives: the one its first trip with passengers comes from
-    // - a block laid out in the studio may hold trips of several)
-    let origin = t.tour.trips.get(d.start..d.end).and_then(|x| x.iter().find(|x| x.counts() && !x.origin.trim().is_empty())).map(|x| x.origin.trim().to_string()).unwrap_or_else(|| t.tour.tour.clone());
-    let legs = l.company.planning.days.iter().find(|x| x.0 == c.map && x.1 == p.date).and_then(|x| x.2.as_ref().ok()).and_then(|lines| {
-        let line = lines.iter().find(|x| x.name.eq_ignore_ascii_case(&t.tour.line))?;
-        let tour = line.tours.iter().find(|x| x.number.trim() == origin)?;
-        timetable_legs(t.tour.trips.get(d.start..d.end)?, &tour.trips)
-    });
-    let Some((first, time, count)) = legs else {
-        kit::show(l, kit::Popup::new("timer", "Not yet", omsi_ui::tr("The timetable of the day is still being read."), omsi_ui::tr("Try again in a moment."), None));
-        return;
-    };
-    let (line, tour) = (t.tour.line.clone(), origin);
-    let ch = &mut l.state.choice;
-    ch.map = c.map.clone();
-    ch.entry = -1;
-    ch.date = p.date.clone();
-    ch.free = false;
-    ch.own_line = false;
-    ch.composed = true;
-    ch.line = Some(line.clone());
-    ch.tour = Some(tour.clone());
-    ch.time = time;
-    ch.start_trip = Some((line.clone(), tour.clone(), first, time));
-    ch.legs = vec![format!("{line}|{tour}|{first}|{count}")];
-    // (the bus the planning gives the tour: the duty is driven with it, in its livery - not
-    // chosen on the bus step, Luc; a rental bus is any bus)
-    let planned = t.bus.and_then(|b| if let BusOf::Own(id) = b { c.vehicle(id) } else { None }).filter(|v| !v.bus.trim().is_empty()).map(|v| PlannedBus {
-        file: v.bus.clone(),
-        name: v.name.clone(),
-        paint: v.house_livery.clone().filter(|h| !h.trim().is_empty()).unwrap_or_else(|| v.livery.clone()),
-        number: v.number.clone(),
-        plate: v.plate.clone(),
-    });
-    // (the line's own depot file, else the company's)
-    let hof = c.lines.iter().find(|x| x.name.eq_ignore_ascii_case(&line)).map(|x| x.hof_or(&c.depot).to_string()).unwrap_or_else(|| c.depot.clone());
-    if !hof.trim().is_empty() {
-        ch.hof = hof;
-        ch.hof_manual = true;
-    }
-    l.state.start_company_duty(CompanyDuty { company: c.id.clone(), name: c.name.clone(), bus: planned, ..Default::default() });
-    // (a later day's duty: that day's plan for the game too - the company's buses on the road
-    // with it; only the company's own day is booked)
-    if !p.today {
-        if let Err(e) = co::plan::save_drive_plan(&super::data(), &co::plan::live_plan(c, p)) {
-            log::warn!("company: the plan of {} for the game: {e:#}", p.date);
-        }
-    }
-    l.state.load_lines();
-    l.state.load_ibis();
-    super::leave(l);
-    l.go(Page::Drive);
-    l.drive.step = Step::Duty;
-    l.state.set_status(omsi_ui::tr("Your company's duty is set, with the bus its planning gives it: on the map only your company's buses run. Start the duty when you are ready.").into_owned(), false);
+/// "Drive this duty" (and the Career's "My duties"): the company's duty launcher with exactly
+/// this duty (`duty_launch`) - not the Drive page, where another duty, bus, map or day could be
+/// chosen (Luc). Nothing of an earlier company duty is left in the Drive page's choice.
+pub(super) fn drive(l: &mut Launcher, _c: &Company, p: &DayPlan, ti: usize, k: usize) {
+    let Some(r) = co::duty_launch::DutyRef::of(p, ti, k) else { return };
+    l.state.end_company_duty();
+    l.company.launch = Some(duty_launch::DutyLaunch::new(r, l.company.tab));
 }
 
 // --- the page ------------------------------------------------------------------------------
@@ -809,20 +745,5 @@ mod tests {
                 assert!(crate::_rust_i18n_try_translate(lang, k).is_some(), "{lang}: {k}");
             }
         }
-    }
-
-    #[test]
-    fn a_duty_is_driven_from_its_own_first_trip() {
-        let trip = |name: &str, index: usize, dep: f64| omsi_launcher_lib::TripInfo { name: name.into(), index, line: "7".into(), from: "A".into(), terminus: "B".into(), departure: dep * 60.0, arrival: (dep + 30.0) * 60.0, stops: Vec::new(), km: 9.0 };
-        let timetable = [trip("7 A-B", 1, 360.0), trip("7 B-A", 2, 400.0), trip("7 A-B", 3, 440.0)];
-        let planned = |name: &str, dep: i32, depot: bool| co::network::PlannedTrip { name: name.into(), line: if depot { String::new() } else { "7".into() }, dep, arr: dep + 30, stops: if depot { 0 } else { 5 }, empty: depot, ..Default::default() };
-        // an own line's tour as the plan has it: the depot runs added before and after
-        let tour = [planned("Betriebsfahrt", 352, true), planned("7 A-B", 360, false), planned("7 B-A", 400, false), planned("7 A-B", 440, false), planned("Betriebsfahrt", 470, true)];
-        // its first duty: the depot run and two trips; its second: the last trip and the run back
-        assert_eq!(timetable_legs(&tour[0..3], &timetable), Some((1, 360, 2)));
-        assert_eq!(timetable_legs(&tour[3..5], &timetable), Some((3, 440, 1)));
-        // a line of the map's own timetable: the plan's trips are the timetable's
-        assert_eq!(timetable_legs(&tour[1..4], &timetable), Some((1, 360, 3)));
-        assert_eq!(timetable_legs(&tour[4..5], &timetable), None);
     }
 }
