@@ -598,7 +598,7 @@ pub(super) fn frame(l: &mut Launcher, area: Rect, c: &Company, date: &str) -> Op
     let body = Rect::new(area.x, bar.bottom(), area.w, (area.bottom() - bar.bottom()).max(0.0));
     let mut out = None;
     match l.company.planning.view.min(3) {
-        ROSTER => out = Some(Rect::new(body.x, body.y + 14.0, body.w, (body.h - 14.0).max(0.0))),
+        ROSTER => out = Some(body),
         TIMEPLAN => {
             // ("View in timeplan" from a trip: that line)
             if let Some(line) = l.company.planning.rf.timeplan_line.take() {
