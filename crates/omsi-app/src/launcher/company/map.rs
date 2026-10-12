@@ -11,7 +11,6 @@
 //! clicked shows its card: line, tour, duty, driver, delay, passengers and condition.
 
 use super::super::mapview::{Dot, Look, Pointer};
-use super::super::ownlines;
 use super::super::theme::*;
 use super::super::ui::ButtonKind;
 use super::super::Launcher;
@@ -25,9 +24,6 @@ use omsi_ui::paint::Align;
 use omsi_ui::{Color, Rect, Weight};
 use std::collections::HashMap;
 use std::time::Instant;
-
-/// The colours of map lines without one of their own.
-const PALETTE: [&str; 8] = ["#4f8ff7", "#34b26e", "#e8aa46", "#c867d8", "#4cc3c9", "#e8705f", "#a3c94c", "#7f8cf2"];
 
 /// A tour of today with its trips as the map moves its bus.
 struct TourShape {
@@ -72,12 +68,10 @@ pub fn leave(l: &mut Launcher) {
     }
 }
 
+/// A line's colour: its own, else the one RosterFlow's chips give it (`rosterflow::line_colour`).
 fn colour_of_line(c: &Company, line: &str) -> Color {
-    let k = c.lines.iter().position(|x| x.name.eq_ignore_ascii_case(line)).unwrap_or(0);
-    match c.lines.get(k) {
-        Some(x) if !x.colour.trim().is_empty() => ownlines::colour_of(&x.colour),
-        _ => ownlines::colour_of(PALETTE[k % PALETTE.len()]),
-    }
+    let [r, g, b] = co::rosterflow::line_colour(c, line);
+    Color::rgba(r, g, b, 1.0)
 }
 
 /// The time of day the map follows (seconds): the game's while it runs on the company's map

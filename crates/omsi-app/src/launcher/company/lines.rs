@@ -30,6 +30,8 @@ pub struct LinesView {
     title: Option<(String, String)>,
     /// The termini of the depot files looked at (`hof_termini`), by name (lower case).
     hofs: HashMap<String, Option<Arc<HashSet<String>>>>,
+    /// The line's colour picker, open under its card: for which line, and where.
+    colour: Option<(String, Rect)>,
 }
 
 fn hhmm(minutes: i32) -> String {
@@ -287,6 +289,38 @@ fn tours_of(l: &mut Launcher, r: Rect, c: &Company, name: &str) {
         }
         tours.len() as f32 * rh
     });
+    colour_picker(l, &line);
+}
+
+/// The line's colour picker under its card (opened by its palette button): any colour, or
+/// back to the automatic one.
+fn colour_picker(l: &mut Launcher, line: &co::CompanyLine) {
+    let Some((name, r)) = l.company.lines.colour.clone() else { return };
+    if name != line.name {
+        return;
+    }
+    let Some(c) = l.company.company.as_ref() else { return };
+    let now = co::rosterflow::line_colour(c, &line.name);
+    l.ui.p().shadow(r, 10.0, 16.0, omsi_ui::Color::rgba(0, 0, 0, 0.35));
+    l.ui.p().rounded(r, 10.0, PANEL);
+    l.ui.p().rounded_border(r, 10.0, 1.0, EDGE);
+    let inner = r.inset(12.0);
+    let mut pick = super::super::accent_pick::picker(&mut l.ui, &format!("company-line-picker-{}", line.name), Rect::new(inner.x, inner.y, inner.w, 0.0), crate::accent::pack(now)).map(|v| Some(crate::accent::unpack(v)));
+    let br = Rect::new(inner.x, inner.bottom() - 32.0, 130.0, 32.0);
+    if l.ui.button("company-line-colour-auto", br, "Automatic", None, ButtonKind::Ghost) {
+        pick = Some(None);
+    }
+    let cr = Rect::new(inner.right() - 90.0, inner.bottom() - 32.0, 90.0, 32.0);
+    if l.ui.button("company-line-colour-done", cr, "Done", None, ButtonKind::Primary) {
+        l.company.lines.colour = None;
+    }
+    if let Some(colour) = pick {
+        let n = line.name.clone();
+        act(l, |c| {
+            co::rosterflow::set_line_colour(c, &n, colour);
+            Ok(())
+        });
+    }
 }
 
 /// The termini a depot file can show (folded as the bus step compares them: `buspick::fold`);
@@ -377,6 +411,39 @@ fn line_card(l: &mut Launcher, r: Rect, c: &Company, line: &co::CompanyLine) {
     }
     under.push(c.name.clone());
     l.ui.paragraph(&under.join("  ·  "), Vec2::new(ad.x + 24.0 + pw, ad.y + 14.0 + title_h), ad.w - pw - 38.0, kit::NOTE, Weight::Regular, TEXT_SOFT);
+    // the line's colour (Luc: a colour picker per line): its chips in RosterFlow, its plate,
+    // its line on the fleet map - the palette's, or any other from the picker
+    let row = Rect::new(ad.x + 14.0, ad.bottom() - 36.0, ad.w - 28.0, 26.0);
+    let now = co::rosterflow::line_colour(c, &line.name);
+    kit::caps(&mut l.ui, Rect::new(row.x, row.y + 5.0, 70.0, 16.0), "Colour");
+    let mut pick: Option<Option<[u8; 3]>> = None;
+    let mut sx = row.x + 74.0;
+    for (k, sw) in co::rosterflow::PALETTE.iter().enumerate() {
+        if sx + 22.0 > row.right() - 34.0 {
+            break;
+        }
+        let sr = Rect::new(sx, row.y + 2.0, 20.0, 20.0);
+        let (h, _, click) = l.ui.interact(super::super::ui::id_of(&format!("company-line-swatch-{k}")), sr);
+        l.ui.swatch(sr, 4.0, omsi_ui::Color::rgba(sw[0], sw[1], sw[2], 1.0));
+        if *sw == now || h {
+            l.ui.p().rounded_border(sr.inset(-2.0), 5.0, 1.5, TEXT);
+        }
+        if click {
+            pick = Some(Some(*sw));
+        }
+        sx += 26.0;
+    }
+    let open = l.company.lines.colour.as_ref().is_some_and(|o| o.0 == line.name);
+    if l.ui.icon_button("company-line-colour-more", Vec2::new(row.right() - 12.0, row.center().y), 12.0, "palette", "Any colour: the picker") {
+        l.company.lines.colour = if open { None } else { Some((line.name.clone(), Rect::new(ad.x, r.bottom() + 6.0, 300.0, super::super::accent_pick::PICKER_H + 56.0))) };
+    }
+    if let Some(colour) = pick {
+        let n = line.name.clone();
+        act(l, |c| {
+            co::rosterflow::set_line_colour(c, &n, colour);
+            Ok(())
+        });
+    }
     let name = line.name.clone();
     if let Some(h) = hof_pick {
         act(l, |c| {

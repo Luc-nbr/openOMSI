@@ -1290,6 +1290,11 @@ impl Launcher {
                     self.release_next = true;
                 }
                 "wheel" => self.ui.input.wheel.y += arg.trim().parse::<f32>().unwrap_or(0.0),
+                // a right click (a menu)
+                "rclick" => {
+                    self.ui.input.mouse = xy();
+                    self.ui.input.right_pressed = true;
+                }
                 // a drag: down at a place, `move` with the button still held, `up` at the end
                 "down" => {
                     self.ui.input.mouse = xy();
@@ -1307,6 +1312,10 @@ impl Launcher {
                         "Enter" => Some(Key::Enter),
                         "Escape" => Some(Key::Escape),
                         "Backspace" => Some(Key::Backspace),
+                        "Left" => Some(Key::Left),
+                        "Right" => Some(Key::Right),
+                        "Up" => Some(Key::Up),
+                        "Down" => Some(Key::Down),
                         _ => None,
                     };
                     if let Some(k) = k {

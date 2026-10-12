@@ -47,6 +47,8 @@ pub mod rng;
 pub mod specials;
 pub mod staff;
 pub mod store;
+pub mod rosterflow;
+pub mod rosterpdf;
 pub mod studio;
 pub mod training;
 

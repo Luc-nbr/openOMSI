@@ -973,6 +973,13 @@ impl Ui {
         self.fonts.width(text, px, weight)
     }
 
+    /// Text on its baseline as it is, not looked up in the translations (a product's name,
+    /// figures, a code); returns its width.
+    pub fn text_as_is(&mut self, text: &str, at: Vec2, px: f32, weight: Weight, c: Color, align: Align) -> f32 {
+        let Ui { atlas, fonts, layers, .. } = self;
+        layers.last_mut().unwrap().1.text_as_is(atlas, fonts, text, px, weight, at, align, c)
+    }
+
     /// A control's text size: its own, or the page's least (`widget_px`).
     pub fn wpx(&self, px: f32) -> f32 {
         px.max(self.widget_px)

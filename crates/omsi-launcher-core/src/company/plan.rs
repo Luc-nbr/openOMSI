@@ -127,11 +127,15 @@ pub struct Planning {
     /// buses), a weekday at a time.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub joined: Vec<super::studio::JoinedDuty>,
+    /// RosterFlow's own (`rosterflow`): its preferences, the locks, links and duty notes of
+    /// each weekday, the issues dismissed, and the draft not saved yet.
+    #[serde(default, skip_serializing_if = "super::rosterflow::Flow::is_empty")]
+    pub flow: super::rosterflow::Flow,
 }
 
 impl Default for Planning {
     fn default() -> Self {
-        Planning { week: Vec::new(), auto: false, auto_only: None, date: String::new(), fills: Vec::new(), collapsed: Vec::new(), layouts: Vec::new(), joined: Vec::new() }
+        Planning { week: Vec::new(), auto: false, auto_only: None, date: String::new(), fills: Vec::new(), collapsed: Vec::new(), layouts: Vec::new(), joined: Vec::new(), flow: Default::default() }
     }
 }
 
