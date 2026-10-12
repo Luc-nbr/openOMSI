@@ -27,8 +27,41 @@ mod rf_gantt;
 mod rf_panels;
 mod rf_prefs;
 mod rf_print;
+mod rf_tutorial;
 mod rosterflow;
 mod timeplan;
+
+/// RosterFlow's tabs, for its tour (`company::tutorial`).
+pub(super) const RF_ROSTER: usize = rosterflow::ROSTER;
+pub(super) const RF_VEHICLES: usize = rosterflow::VEHICLES;
+pub(super) const RF_DRIVERS: usize = rosterflow::DRIVERS;
+pub(super) const RF_TIMEPLAN: usize = rosterflow::TIMEPLAN;
+
+/// RosterFlow's tab and the timeplan's screen now.
+pub(super) fn rf_view(l: &Launcher) -> (usize, usize) {
+    (l.company.planning.view, l.company.planning.timeplan.screen())
+}
+
+/// RosterFlow on tab `view`, the timeplan on screen `screen` (the tour's; what is in hand let go
+/// of when the tab changes).
+pub(super) fn rf_set_view(l: &mut Launcher, view: usize, screen: Option<usize>) {
+    let p = &mut l.company.planning;
+    if p.view != view.min(3) {
+        p.view = view.min(3);
+        p.sel = None;
+        p.arm = None;
+        p.rf.settle();
+        p.rf.panel = rosterflow::Panel::None;
+    }
+    if let Some(s) = screen {
+        p.timeplan.set_screen(s);
+    }
+}
+
+/// A drawing of RosterFlow's for the tour's cards (`rf_tutorial::picture`).
+pub(super) fn rf_picture(ui: &mut Ui, which: u8, r: Rect, a: f32, t: Option<f32>) {
+    rf_tutorial::picture(ui, which, r, a, t);
+}
 
 use super::super::flow::Step;
 use super::super::state::{CompanyDuty, PlannedBus};
@@ -118,7 +151,7 @@ impl PlanningView {
     /// studio - that Escape lets go of first (before it goes back to the company's start
     /// screen).
     pub(super) fn holds_choice(&self) -> bool {
-        self.sel.is_some() || self.arm.is_some() || self.drag.is_some() || self.carry.is_some() || self.edit.is_some() || (self.view > 0 && self.rf.holds()) || (self.view == rosterflow::TIMEPLAN && self.timeplan.holds())
+        self.sel.is_some() || self.arm.is_some() || self.drag.is_some() || self.carry.is_some() || self.edit.is_some() || (self.view > 0 && self.rf.holds()) || (self.view == rosterflow::TIMEPLAN && self.timeplan.holds()) || self.rf.tut.holds()
     }
 
     /// Another page of the company is shown: RosterFlow opens with its opening again.
@@ -517,9 +550,18 @@ pub(super) fn drive(l: &mut Launcher, c: &Company, p: &DayPlan, ti: usize, k: us
 
 // --- the page ------------------------------------------------------------------------------
 
+/// The planning page: RosterFlow and its tabs, with its tutorial over them (`rf_tutorial`: its
+/// "?" menu, its help sheet and a lesson's guide; the page under what they cover gets no mouse).
 pub fn draw(l: &mut Launcher, area: Rect) {
     let Some(c) = l.company.company.clone() else { return };
     work(l, &c);
+    let held = rf_tutorial::before(l);
+    page(l, area, &c);
+    rf_tutorial::after(l, area, held);
+}
+
+fn page(l: &mut Launcher, area: Rect, c: &Company) {
+    let c = c.clone();
     // (a line's timetable over the page: the page under it without the mouse and the keys)
     let under = l.company.planning.edit.is_some().then(|| super::mask(&mut l.ui));
     let day = l.company.planning.day.min(6);
@@ -537,15 +579,22 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         return;
     };
     let area = rest;
-    week_strip(l, Rect::new(area.x, area.y, area.w, 60.0), &c);
+    let week_r = Rect::new(area.x, area.y, area.w, 60.0);
+    super::super::tour::anchor("rf-roster-week", week_r);
+    week_strip(l, week_r, &c);
     let ty = area.y + 74.0;
     let tools_r = Rect::new(area.x, ty, area.w, 40.0);
     let body = Rect::new(area.x, ty + 40.0 + 14.0, area.w, (area.bottom() - ty - 40.0 - 14.0).max(0.0));
     let plan = plan_of(l, &c, &date);
+    super::super::tour::anchor("rf-roster-tools", tools_r);
     tools(l, tools_r, &c, &date);
     let side_w = (body.w * 0.28).clamp(320.0, 440.0);
     let chart = Rect::new(body.x, body.y, (body.w - side_w - 16.0).max(200.0), body.h);
     let side = Rect::new(chart.right() + 16.0, body.y, side_w, body.h);
+    super::super::tour::anchor("rf-roster-chart", chart);
+    if matches!(plan, Some(Ok(_))) {
+        super::super::tour::anchor("rf-roster-side", side);
+    }
     match plan {
         None => {
             let inner = section(&mut l.ui, chart, "Duties");

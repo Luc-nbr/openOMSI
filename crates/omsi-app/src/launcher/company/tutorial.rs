@@ -51,11 +51,11 @@ fn file() -> PathBuf {
     omsi_launcher_lib::data_dir().join("company-tour.json")
 }
 
-fn read_all(path: &Path) -> BTreeMap<String, Seen> {
+fn read_all<T: serde::de::DeserializeOwned>(path: &Path) -> BTreeMap<String, T> {
     std::fs::read(path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
 }
 
-fn write_all(path: &Path, all: &BTreeMap<String, Seen>) {
+fn write_all<T: Serialize>(path: &Path, all: &BTreeMap<String, T>) {
     if let Some(d) = path.parent() {
         let _ = std::fs::create_dir_all(d);
     }
@@ -156,9 +156,130 @@ pub(super) fn ask(l: &mut Launcher) {
     super::super::tour::start_company(l, resume_at(&s));
 }
 
+// --- RosterFlow's tutorial ----------------------------------------------------------------------
+//
+// RosterFlow (the planning page) has a tour and lessons of its own (`planning::rf_tutorial`,
+// Luc: "build a tutorial for the new RosterFlow: I no longer understand how it works, let alone
+// other players"). What a driver has seen of them is kept beside the company's tour, in
+// `~/.openomsi/rosterflow-tour.json`; a file of before, or one without a field, reads as
+// nothing seen (`#[serde(default)]`). The tour itself (`tour::start_flow`) reaches RosterFlow's
+// tabs and drawings through here.
+
+/// What a driver has seen of RosterFlow's tour and lessons.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct FlowSeen {
+    /// The tour was shown (it started by itself once).
+    pub seen: bool,
+    /// Where it was left when it was skipped (its stop among all of them).
+    pub at: usize,
+    /// Gone through to its end.
+    pub done: bool,
+    /// The lessons done to their end (their ids).
+    pub lessons: Vec<String>,
+}
+
+fn flow_file() -> PathBuf {
+    omsi_launcher_lib::data_dir().join("rosterflow-tour.json")
+}
+
+/// What a driver has seen of RosterFlow's tutorial (nothing yet: the default).
+pub(in crate::launcher) fn flow_of(profile: &str) -> FlowSeen {
+    read_all(&flow_file()).get(profile.trim()).cloned().unwrap_or_default()
+}
+
+pub(in crate::launcher) fn flow_keep(profile: &str, s: FlowSeen) {
+    let path = flow_file();
+    let mut all = read_all(&path);
+    all.insert(profile.trim().to_string(), s);
+    write_all(&path, &all);
+}
+
+/// RosterFlow's tour was left at its stop `at`: gone through (`completed`) or skipped.
+pub(in crate::launcher) fn rf_left(profile: &str, at: usize, completed: bool) {
+    let mut s = flow_of(profile);
+    s.seen = true;
+    if completed {
+        s.done = true;
+        s.at = 0;
+    } else {
+        s.at = at;
+    }
+    flow_keep(profile, s);
+}
+
+/// Where RosterFlow's tour goes on: where it was left, from the start once seen to its end.
+pub(in crate::launcher) fn flow_resume_at(s: &FlowSeen, stops: usize) -> usize {
+    if s.done || s.at + 1 >= stops {
+        0
+    } else {
+        s.at
+    }
+}
+
+/// A lesson done to its end, kept (its tick in the "?" menu).
+pub(in crate::launcher) fn flow_lesson_done(profile: &str, id: &str) {
+    let mut s = flow_of(profile);
+    if !s.lessons.iter().any(|x| x == id) {
+        s.lessons.push(id.to_string());
+        flow_keep(profile, s);
+    }
+}
+
+/// The company's page RosterFlow is on, and RosterFlow's tabs (the planning's views).
+pub(in crate::launcher) const RF_TAB: usize = 5;
+pub(in crate::launcher) const RF_ROSTER: usize = super::planning::RF_ROSTER;
+pub(in crate::launcher) const RF_VEHICLES: usize = super::planning::RF_VEHICLES;
+pub(in crate::launcher) const RF_DRIVERS: usize = super::planning::RF_DRIVERS;
+pub(in crate::launcher) const RF_TIMEPLAN: usize = super::planning::RF_TIMEPLAN;
+
+/// RosterFlow's tab and the timeplan's screen now.
+pub(in crate::launcher) fn rf_view(l: &Launcher) -> (usize, usize) {
+    super::planning::rf_view(l)
+}
+
+/// RosterFlow on tab `view` (and the timeplan on screen `screen`), as the tour shows it.
+pub(in crate::launcher) fn rf_set_view(l: &mut Launcher, view: usize, screen: Option<usize>) {
+    super::planning::rf_set_view(l, view, screen);
+}
+
+/// One of RosterFlow's drawings for the tour's cards (0: the chain, 1: the symbols) in `r`, `a`
+/// of it seen, `t` seconds since it came (None: standing still).
+pub(in crate::launcher) fn rf_picture(ui: &mut super::super::ui::Ui, which: u8, r: omsi_ui::Rect, a: f32, t: Option<f32>) {
+    super::planning::rf_picture(ui, which, r, a, t);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rosterflows_tutorial_is_kept_per_driver_and_old_files_still_read() {
+        // nothing seen: the tour from its start; skipped: on from there; done: from the start
+        let new = FlowSeen::default();
+        assert!(!new.seen);
+        assert_eq!(flow_resume_at(&new, 30), 0);
+        let skipped = FlowSeen { seen: true, at: 7, ..Default::default() };
+        assert_eq!(flow_resume_at(&skipped, 30), 7);
+        assert_eq!(flow_resume_at(&FlowSeen { done: true, ..skipped.clone() }, 30), 0);
+        assert_eq!(flow_resume_at(&FlowSeen { at: 29, ..skipped.clone() }, 30), 0);
+        // a file of before (no lessons in it) and an empty one
+        let old: FlowSeen = serde_json::from_str(r#"{ "seen": true, "at": 3 }"#).unwrap();
+        assert_eq!((old.at, old.done, old.lessons.len()), (3, false, 0));
+        let empty: FlowSeen = serde_json::from_str("{}").unwrap();
+        assert_eq!(empty, FlowSeen::default());
+        // per driver, beside the company's tour
+        let dir = std::env::temp_dir().join(format!("omsi_flow_tour_{}", std::process::id()));
+        let path = dir.join("rosterflow-tour.json");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut all: BTreeMap<String, FlowSeen> = read_all(&path);
+        all.insert("Luc".into(), FlowSeen { seen: true, lessons: vec!["move-trip".into()], ..Default::default() });
+        write_all(&path, &all);
+        let back: BTreeMap<String, FlowSeen> = read_all(&path);
+        assert_eq!(back.get("Luc").map(|s| s.lessons.clone()), Some(vec!["move-trip".to_string()]));
+        assert!(!back.contains_key("Anna"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn the_tour_starts_once_and_goes_on_where_it_was_left() {
@@ -201,11 +322,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("omsi_company_tour_{}", std::process::id()));
         let path = dir.join("company-tour.json");
         let _ = std::fs::remove_dir_all(&dir);
-        let mut all = read_all(&path);
+        let mut all: BTreeMap<String, Seen> = read_all(&path);
         assert!(all.is_empty());
         all.insert("Luc".into(), Seen { seen: true, at: 3, ..Default::default() });
         write_all(&path, &all);
-        let back = read_all(&path);
+        let back: BTreeMap<String, Seen> = read_all(&path);
         assert_eq!(back.get("Luc").map(|s| s.at), Some(3));
         assert!(!back.contains_key("Anna"));
         let _ = std::fs::remove_dir_all(&dir);

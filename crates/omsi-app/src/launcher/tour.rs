@@ -131,9 +131,62 @@ enum Stop {
     CoEasyStaff,
     CoEasyLines,
     CoEasyCareer,
+    /// RosterFlow's tour (`FLOW_STOPS`, Luc: "I no longer understand how it works, let alone
+    /// other players"): what it is for - the chain from the timeplan to the roster, and SAVE -
+    /// then how to read its screen, and each of its tabs with its main controls lit.
+    RfWelcome,
+    RfTimeplan,
+    RfVehicles,
+    RfDrivers,
+    RfRoster,
+    RfSave,
+    RfTitle,
+    RfUndo,
+    RfDay,
+    RfKpiCounts,
+    RfKpiRest,
+    RfTools,
+    RfOptimise,
+    RfRow,
+    RfChip,
+    RfSymbols,
+    RfStatusCounts,
+    RfIssues,
+    RfStack,
+    RfMove,
+    RfCut,
+    RfNewVehicle,
+    RfDuty,
+    RfDutyPanel,
+    RfNewDuty,
+    RfWeek,
+    RfRosterChart,
+    RfRosterSide,
+    RfRosterTools,
+    RfTpBar,
+    RfTpRunning,
+    RfTpTable,
+    RfTpSave,
+    RfDone,
 }
 
 use Stop::*;
+
+/// RosterFlow's tour, in its order (each chapter's first stop starts it from the "?" menu:
+/// `flow_chapters`).
+const FLOW_STOPS: [Stop; 34] = [
+    RfWelcome, RfTimeplan, RfVehicles, RfDrivers, RfRoster, RfSave, RfTitle, RfUndo, RfDay, RfKpiCounts, RfKpiRest, RfTools, RfOptimise, RfRow, RfChip, RfSymbols, RfStatusCounts, RfIssues, RfStack, RfMove, RfCut, RfNewVehicle, RfDuty, RfDutyPanel, RfNewDuty, RfWeek, RfRosterChart,
+    RfRosterSide, RfRosterTools, RfTpBar, RfTpRunning, RfTpTable, RfTpSave, RfDone,
+];
+
+/// RosterFlow's tabs (the planning's views, `planning::rosterflow`) and the timeplan's two
+/// screens, as the tour puts RosterFlow on them.
+const RF_ROSTER: usize = super::company::tutorial::RF_ROSTER;
+const RF_VEHICLES: usize = super::company::tutorial::RF_VEHICLES;
+const RF_DRIVERS: usize = super::company::tutorial::RF_DRIVERS;
+const RF_TIMEPLAN: usize = super::company::tutorial::RF_TIMEPLAN;
+const TP_RUNNING: usize = 0;
+const TP_TABLE: usize = 1;
 
 /// The bus company's tour, in its order: the advanced mode's stops and the easy mode's mixed,
 /// each mode showing its own (`Stop::shown`).
@@ -172,6 +225,9 @@ enum Picture {
     CityMap,
     Companion,
     Arrived,
+    /// RosterFlow's chain, from the timeplan to SAVE; its Gantt's symbols, each named.
+    RfChain,
+    RfSymbols,
 }
 
 /// The way of driving a stop needs (a shift has the duty step, a free drive the start point).
@@ -192,6 +248,8 @@ enum Place {
     On(Step, Option<Mode>),
     /// The bus company, on this tab.
     Company(usize),
+    /// RosterFlow (the company's planning) on this tab, the timeplan on this screen.
+    Rf(usize, Option<usize>),
 }
 
 impl Stop {
@@ -244,6 +302,41 @@ impl Stop {
             CoEasyStaff => ("Staff", "Drivers and the others", "Your employees and the labour market. The company hires the drivers its duties need by itself at night, grants their raises and trains them - or hire them yourself now."),
             CoEasyLines => ("Lines", "What the company runs", "Take on the map's lines or make your own in the line editor. A line runs at once: the company fills its roster every morning with the buses and drivers it has."),
             CoEasyCareer => ("Career", "Your duties and your progress", "Take one of the company's duties beside your list: it is yours on that weekday every week, a click from driving it. Here too: the company's level, the training courses and the rankings."),
+            // (RosterFlow's: the keys of `rosterflow-tutorial.yml`)
+            RfWelcome => ("Guided tour", "Welcome to RosterFlow", "RosterFlow plans your company's day: when the buses run, which bus drives which trips, and which driver drives which bus. It is a chain of four steps, and nothing counts until you save. Let's walk along it."),
+            RfTimeplan => ("What RosterFlow is", "1. Timeplan: when the buses run", "Here a line gets its timetable: the minutes a bus needs from stop to stop, and how often a bus leaves. Every other step is built from these trips."),
+            RfVehicles => ("What RosterFlow is", "2. Vehicles: which bus drives which trips", "The day's trips are shared out among your buses. One bus's day of trips is called a block. A good block keeps the bus busy and has few empty runs."),
+            RfDrivers => ("What RosterFlow is", "3. Drivers: who drives", "A bus's day is too long for one driver, so each block is cut into duties: one driver's working day. A cut can only be made where a driver can get on or off: at a terminus or at the depot."),
+            RfRoster => ("What RosterFlow is", "4. Roster: which driver, which day", "Here your drivers get their duties and your buses their blocks, weekday by weekday. What you plan for a Monday repeats every Monday."),
+            RfSave => ("What RosterFlow is", "Then SAVE", "Your changes in Vehicles and Drivers are a draft. SAVE makes them the company's planning: the roster, the day and the game run it. DISCARD throws the draft away and goes back to what was saved."),
+            RfTitle => ("Reading the screen", "The title bar", "On the left: the rules (preferences), printing, search by ID and the optimiser's settings. In the middle your company and the day, with a dot: green is saved, orange means there are changes not saved yet."),
+            RfUndo => ("Reading the screen", "Undo, redo and history", "Every change can be undone (Ctrl+Z) and done again (Ctrl+Y). The clock lists all your changes, so you can go back to any one of them."),
+            RfDay => ("Reading the screen", "The day you plan", "Choose the day here. A day's planning holds for that weekday every week: change a Tuesday and every Tuesday changes."),
+            RfKpiCounts => ("Reading the screen", "How many duties and buses", "Duties: how many drivers' working days the day needs. Blocks: how many buses drive; PVR is how many are out at the busiest moment. Fewer is cheaper, as long as every trip is driven."),
+            RfKpiRest => ("Reading the screen", "Efficiency and cost", "Vehicle efficiency: the share of the buses' kilometres that carry passengers. Crew efficiency: the share of paid time spent driving. Higher is better for both. After a change, green means better and red means worse. The small tab underneath shows more figures."),
+            RfTools => ("Reading the screen", "Stats, Layers and Filter", "Stats adds columns of figures beside the rows; click a column's heading to sort. Layers chooses what the chips say: the line, the times or the stops. Filter shows only some lines, one direction or part of the day."),
+            RfOptimise => ("Reading the screen", "OPTIMIZE", "RosterFlow makes the blocks and duties for you and shows them as a proposal; the figures compare it with yours, and you accept it or keep yours. Locked rows stay as they are. The gear beside it chooses buses, duties or both."),
+            RfRow => ("Reading the screen", "A row", "Each row is one bus's block (in Drivers: one duty). On the left its ID and a tick box. Hover over the ID for the lock (OPTIMIZE leaves the row alone) and the pin (keeps it at the top)."),
+            RfChip => ("Reading the screen", "A trip", "Each coloured chip is one trip with passengers, in its line's colour. The pointed end shows the way it runs: right is outbound, left is inbound. Click it to see its card; drag it to move it."),
+            RfSymbols => ("Reading the screen", "The other symbols", "Grey-blue boxes take the bus out of the depot and back. Small dark boxes are empty runs; an orange dot means their time is a guess. Arrows mark a change of driver. Split is a long unpaid break, W, P or R a driver on the way to the next bus, and a red \"!\" a broken rule."),
+            RfStatusCounts => ("Reading the screen", "Is every trip covered?", "How many rows are shown, and how many trips have a bus and a driver. The numbers are red until every trip has both."),
+            RfIssues => ("Reading the screen", "Issues and zoom", "The issues: Global, Duty and Vehicle. Click one to see what is wrong and jump to it. On the right the zoom; Ctrl and the mouse wheel zoom the hours, Shift and the wheel move along the day."),
+            RfStack => ("Vehicles", "The stack", "Trips that no bus drives wait here, above the rows. Click one, then one of the slots that appear, to give it to a bus."),
+            RfMove => ("Vehicles", "Moving trips", "Drag a chip, or double-click it, to pick it up. Every bus it could go to shows a slot with stars: five is the cheapest, and blue means no rule is broken. Hover over a slot to see the cost, click to drop. Right-click a chip for more."),
+            RfCut => ("Vehicles", "Where drivers change", "The arrows mark where one driver hands the bus to the next; click them to join the two duties again. Hover over a gap between two trips: where a blue line shows, a click cuts a new duty there."),
+            RfNewVehicle => ("Vehicles", "A new vehicle", "Drop trips here to give them to an extra bus."),
+            RfDuty => ("Drivers", "A duty", "In Drivers each row is one driver's working day. It starts with the sign-on and ends with the sign-off (the T-shaped marks). In between are the pieces of work: the parts on one bus."),
+            RfDutyPanel => ("Drivers", "Everything about a duty", "Click a duty's ID to open its panel: its type, sign-on and sign-off, paid time, breaks, pieces of work and issues. You can lock it there, or add custom work such as office time."),
+            RfNewDuty => ("Drivers", "Building a duty", "Drag a piece of work here to start a duty of your own, or click for a spare duty. Drag pieces between duties to put them together."),
+            RfWeek => ("Roster", "The week", "Pick a day of the coming week. Your plan for a weekday repeats every week."),
+            RfRosterChart => ("Roster", "Who drives what", "Each line's tours with their duties. Drag a driver or a bus from the list onto a duty or a tour, or click one and then the other."),
+            RfRosterSide => ("Roster", "Drivers and buses", "Your drivers and buses for the day. Click a duty or a tour in the chart to see who could take it."),
+            RfRosterTools => ("Roster", "Fill, clear, repeat", "Fill the roster gives free drivers and buses to what is still open. Clear the day empties it, and Repeat copies it to the other days."),
+            RfTpBar => ("Timeplan", "Line and days", "Choose the line and the days: Monday to Friday, Saturday or Sunday. OUTBOUND and INBOUND switch the direction, and the icons on the right switch between running times and the timetable."),
+            RfTpRunning => ("Timeplan", "Running times", "The minutes a bus needs between two stops, in time bands: the rush hour can be slower than the evening. Click a box and type a number; every trip in that band moves with it."),
+            RfTpTable => ("Timeplan", "The timetable", "Every trip is a row with its time at each stop. Add trips one at a time or by headway: a first and a last departure and every how many minutes. A time typed by hand shows orange."),
+            RfTpSave => ("Timeplan", "Save, then Refresh", "Save writes the line's timetable. The status bar then says UNSYNCED - Refresh: click it, and the buses' blocks and the duties are made again for the new trips."),
+            RfDone => ("Guided tour", "Ready to plan", "This question mark brings the tour back. It also has short lessons where you try each task yourself, and a one-page help sheet."),
         }
     }
 
@@ -290,6 +383,38 @@ impl Stop {
             CoEasyStatus => Target::Part("company-status"),
             CoEasyFleet | CoEasyStaff | CoEasyLines => Target::Part("company-page"),
             CoEasyCareer => Target::Part("company-career-parts"),
+            RfWelcome => Target::Card(Picture::RfChain),
+            RfTimeplan => Target::Part("rf-tab-timeplan"),
+            RfVehicles => Target::Part("rf-tab-vehicles"),
+            RfDrivers => Target::Part("rf-tab-drivers"),
+            RfRoster => Target::Part("rf-tab-roster"),
+            RfSave => Target::Part("rf-save-discard"),
+            RfTitle => Target::Part("rf-menu"),
+            RfUndo => Target::Part("rf-undo"),
+            RfDay => Target::Part("rf-day"),
+            RfKpiCounts => Target::Part("rf-kpi-counts"),
+            RfKpiRest => Target::Part("rf-kpi-rest"),
+            RfTools => Target::Part("rf-tools"),
+            RfOptimise => Target::Part("rf-optimise"),
+            RfRow | RfDuty => Target::Part("rf-row"),
+            RfChip => Target::Part("rf-chip"),
+            RfSymbols => Target::Card(Picture::RfSymbols),
+            RfStatusCounts => Target::Part("rf-status-counts"),
+            RfIssues => Target::Part("rf-status-issues"),
+            RfStack => Target::Part("rf-stack"),
+            RfMove => Target::Part("rf-gantt"),
+            // (the first change of driver in view, else a row: its gaps)
+            RfCut => Target::Either("rf-relief", "rf-row"),
+            RfNewVehicle | RfNewDuty => Target::Part("rf-new-row"),
+            RfDutyPanel => Target::Part("rf-row-id"),
+            RfWeek => Target::Part("rf-roster-week"),
+            RfRosterChart => Target::Part("rf-roster-chart"),
+            RfRosterSide => Target::Part("rf-roster-side"),
+            RfRosterTools => Target::Part("rf-roster-tools"),
+            RfTpBar => Target::Part("rf-tp-bar"),
+            RfTpRunning | RfTpTable => Target::Part("rf-tp-body"),
+            RfTpSave => Target::Part("rf-tp-save"),
+            RfDone => Target::Part("rf-help"),
         }
     }
 
@@ -313,12 +438,27 @@ impl Stop {
             CoFinances => Place::Company(4),
             CoPlanning => Place::Company(5),
             CoCareer | CoEasyCareer => Place::Company(6),
+            // (RosterFlow: the chain and the screen shown on the Vehicles tab, then each tab)
+            RfWelcome | RfTimeplan | RfVehicles | RfDrivers | RfRoster | RfSave | RfTitle | RfUndo | RfDay | RfKpiCounts | RfKpiRest | RfTools | RfOptimise | RfRow | RfChip | RfSymbols | RfStatusCounts | RfIssues | RfStack | RfMove | RfCut | RfNewVehicle => Place::Rf(RF_VEHICLES, None),
+            RfDuty | RfDutyPanel | RfNewDuty => Place::Rf(RF_DRIVERS, None),
+            RfWeek | RfRosterChart | RfRosterSide | RfRosterTools => Place::Rf(RF_ROSTER, None),
+            RfTpBar | RfTpRunning => Place::Rf(RF_TIMEPLAN, Some(TP_RUNNING)),
+            RfTpTable | RfTpSave => Place::Rf(RF_TIMEPLAN, Some(TP_TABLE)),
+            RfDone => Place::Home,
         }
+    }
+
+    /// RosterFlow's: the tour of its own (`FLOW_STOPS`).
+    fn flow(self) -> bool {
+        FLOW_STOPS.contains(&self)
     }
 
     /// Whether the stop has something to show in the launcher as it is.
     fn shown(self, c: &Ctx) -> bool {
         match self {
+            // (RosterFlow's tour: every stop, on a phone too; a part not drawn - no stack, an
+            // empty day - is left out as the tour comes to it)
+            s if s.flow() => true,
             // (the company's tour: the founding wizard before there is a company, its pages
             // once there is one)
             CoWelcome => true,
@@ -392,6 +532,30 @@ fn company_plan(c: &Ctx) -> Vec<Stop> {
     COMPANY_STOPS.iter().copied().filter(|s| s.shown(c)).collect()
 }
 
+/// RosterFlow's tour.
+fn flow_plan() -> Vec<Stop> {
+    FLOW_STOPS.to_vec()
+}
+
+/// The chapters of RosterFlow's tour, each with the stop it starts at (for its "?" menu).
+pub(in crate::launcher) fn flow_chapters() -> Vec<(&'static str, usize)> {
+    let mut out: Vec<(&'static str, usize)> = Vec::new();
+    for (k, s) in FLOW_STOPS.iter().enumerate() {
+        let chapter = s.words().0;
+        // (the welcome and the end are the tour's own, not a chapter)
+        if matches!(s, RfWelcome | RfDone) || out.iter().any(|c| c.0 == chapter) {
+            continue;
+        }
+        out.push((chapter, k));
+    }
+    out
+}
+
+/// The stops of RosterFlow's tour (to keep where it was left within them).
+pub(in crate::launcher) fn flow_len() -> usize {
+    FLOW_STOPS.len()
+}
+
 // --- going round ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -443,6 +607,17 @@ struct Home {
     composed: bool,
     /// The bus company's tab.
     tab: usize,
+    /// RosterFlow's tab and the timeplan's screen.
+    flow: (usize, usize),
+}
+
+/// Which tour runs: the launcher's, the bus company's or RosterFlow's (the last two remember
+/// where they were left: `company::tutorial`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Kind {
+    Launcher,
+    Company,
+    Flow,
 }
 
 /// The spotlight's ring when it lands: when it went out, and whether the spotlight was on its
@@ -474,8 +649,7 @@ struct Run {
     words_age: f32,
     closing: Option<f32>,
     glide: Glide,
-    /// The bus company's tour (its end is remembered for the driver: `company::tutorial`).
-    company: bool,
+    kind: Kind,
 }
 
 /// The tour: the one running, if any, and the frame drawn without the bus between screens.
@@ -498,28 +672,34 @@ pub fn active(l: &Launcher) -> bool {
 /// Start the tour from its first stop (again, if it was running).
 pub fn start(l: &mut Launcher) {
     let plan = plan(&Ctx::of(l));
-    begin_run(l, plan, 0, false);
+    begin_run(l, plan, 0, Kind::Launcher);
 }
 
 /// Start the bus company's tour at its stop `at` (0: its welcome; one remembered from the
 /// last time it was left goes on from there).
 pub fn start_company(l: &mut Launcher, at: usize) {
     let plan = company_plan(&Ctx::of(l));
-    begin_run(l, plan, at, true);
+    begin_run(l, plan, at, Kind::Company);
 }
 
-fn begin_run(l: &mut Launcher, plan: Vec<Stop>, at: usize, company: bool) {
+/// Start RosterFlow's tour at its stop `at` (0: its welcome; a chapter's first stop from its
+/// "?" menu, or where it was left).
+pub(in crate::launcher) fn start_flow(l: &mut Launcher, at: usize) {
+    begin_run(l, flow_plan(), at, Kind::Flow);
+}
+
+fn begin_run(l: &mut Launcher, plan: Vec<Stop>, at: usize, kind: Kind) {
     // (started again while it runs: home is still where the player was)
     let home = match l.tour.run.as_ref() {
         Some(r) => r.home,
-        None => Home { page: l.page, step: l.drive.step, free: l.state.choice.free, composed: l.state.choice.composed, tab: l.company.tab },
+        None => Home { page: l.page, step: l.drive.step, free: l.state.choice.free, composed: l.state.choice.composed, tab: l.company.tab, flow: super::company::tutorial::rf_view(l) },
     };
     let moved_mode = l.tour.run.as_ref().is_some_and(|r| r.moved_mode && r.closing.is_none());
-    log::info!("launcher: the {} starts ({} stops, at {})", if company { "company's tour" } else { "guided tour" }, plan.len(), at + 1);
+    log::info!("launcher: the {kind:?} tour starts ({} stops, at {})", plan.len(), at + 1);
     let at = at.min(plan.len().saturating_sub(1));
     let Some(first) = plan.get(at).copied() else { return };
     l.ui.focus = None;
-    l.tour.run = Some(Run { plan, at, forward: true, shown: None, part: None, waited: 0, home, moved_mode, age: 0.0, words_age: 0.0, closing: None, glide: Glide::default(), company });
+    l.tour.run = Some(Run { plan, at, forward: true, shown: None, part: None, waited: 0, home, moved_mode, age: 0.0, words_age: 0.0, closing: None, glide: Glide::default(), kind });
     go_to(l, first.place());
 }
 
@@ -616,7 +796,7 @@ pub(super) fn draw(l: &mut Launcher, taken: Option<Input>) {
         (CoWelcome, Some(n)) => omsi_ui::tr("Your own bus company, %{name}").replace("%{name}", &n),
         _ => title.to_string(),
     };
-    let company = run.company;
+    let kind = run.kind;
     let open = match run.closing {
         Some(c) => 1.0 - smoothstep(c / CLOSE_S),
         None if motion => ease_out_cubic(run.age / OPEN_S),
@@ -640,7 +820,7 @@ pub(super) fn draw(l: &mut Launcher, taken: Option<Input>) {
         open,
         words,
         closing,
-        company,
+        kind,
     };
     if open < 1.0 || words < 1.0 {
         l.ui.keep_moving();
@@ -728,9 +908,18 @@ fn finish(l: &mut Launcher, completed: bool) {
     let motion = l.ui.motion;
     let Some(run) = l.tour.run.as_mut() else { return };
     let moved = run.moved_mode;
-    if run.company {
-        let (at, profile) = (run.at, l.state.config.profile.clone());
-        super::company::tutorial::left(&profile, at, completed);
+    match run.kind {
+        Kind::Company => {
+            let (at, profile) = (run.at, l.state.config.profile.clone());
+            super::company::tutorial::left(&profile, at, completed);
+        }
+        Kind::Flow => {
+            // (where it was left among all its stops: some may have been left out on the way)
+            let at = run.plan.get(run.at).and_then(|s| FLOW_STOPS.iter().position(|x| x == s)).unwrap_or(0);
+            let profile = l.state.config.profile.clone();
+            super::company::tutorial::rf_left(&profile, at, completed);
+        }
+        Kind::Launcher => {}
     }
     let Some(run) = l.tour.run.as_mut() else { return };
     log::info!("launcher: the guided tour ends at stop {} of {}", run.at + 1, run.plan.len());
@@ -746,13 +935,14 @@ fn finish(l: &mut Launcher, completed: bool) {
     }
 }
 
-/// The launcher where a stop needs it (a phone: nowhere, its tour is cards).
+/// The launcher where a stop needs it (a phone: nowhere, its tour is cards - but RosterFlow's,
+/// which goes between its tabs as on a desktop).
 fn go_to(l: &mut Launcher, place: Place) {
-    if mobile::mobile() {
+    let Some((home, kind)) = l.tour.run.as_ref().map(|r| (r.home, r.kind)) else { return };
+    if mobile::mobile() && kind != Kind::Flow {
         return;
     }
-    let Some(home) = l.tour.run.as_ref().map(|r| r.home) else { return };
-    let before = (l.page, l.drive.step, l.company.tab);
+    let before = (l.page, l.drive.step, l.company.tab, super::company::tutorial::rf_view(l));
     match place {
         Place::Keep => {}
         Place::Home => {
@@ -760,10 +950,16 @@ fn go_to(l: &mut Launcher, place: Place) {
             l.drive.step = home.step;
             l.company.tab = home.tab;
             set_mode(l, home.free, home.composed);
+            super::company::tutorial::rf_set_view(l, home.flow.0, Some(home.flow.1));
         }
         Place::Company(tab) => {
             l.go(Page::Company);
             l.company.tab = tab;
+        }
+        Place::Rf(view, screen) => {
+            l.go(Page::Company);
+            l.company.tab = super::company::tutorial::RF_TAB;
+            super::company::tutorial::rf_set_view(l, view, screen);
         }
         Place::On(step, mode) => {
             l.go(Page::Drive);
@@ -775,7 +971,7 @@ fn go_to(l: &mut Launcher, place: Place) {
             }
         }
     }
-    if (l.page, l.drive.step, l.company.tab) != before {
+    if (l.page, l.drive.step, l.company.tab, super::company::tutorial::rf_view(l)) != before {
         l.tour.quiet = true;
     }
 }
@@ -1019,8 +1215,8 @@ struct View {
     /// How far the stop's words have come in (0 to 1).
     words: f32,
     closing: bool,
-    /// The bus company's tour (its last button says so).
-    company: bool,
+    /// Which tour it is (the company's and RosterFlow's last button say so).
+    kind: Kind,
 }
 
 /// The bubble's insides, measured.
@@ -1156,14 +1352,16 @@ fn bubble_inside(ui: &mut Ui, b: Rect, v: &View, lay: &Lay) -> Option<Command> {
     let row = b.y + lay.h - pad - BUTTON_H;
     let next = if v.first && !v.last {
         "Show me around"
-    } else if v.last && v.company {
+    } else if v.last && v.kind == Kind::Company {
         "Off to work"
+    } else if v.last && v.kind == Kind::Flow {
+        "Start planning"
     } else if v.last {
         "Let's drive"
     } else {
         "Next"
     };
-    let nw = (ui.width(next, 13.0, Weight::Bold) + 36.0).max(92.0);
+    let nw = (ui.width(&omsi_ui::tr(next), 13.0, Weight::Bold) + 36.0).max(92.0);
     let next_r = Rect::new(b.right() - pad - nw, row, nw, BUTTON_H);
     let mut cmd = None;
     if ui.button("tour-next", next_r, next, None, ButtonKind::Primary) {
@@ -1179,6 +1377,242 @@ fn bubble_inside(ui: &mut Ui, b: Rect, v: &View, lay: &Lay) -> Option<Command> {
         let sw = ui.width("Skip", 13.0, Weight::Medium) + 28.0;
         if ui.button("tour-skip", Rect::new(x - 14.0, row, sw, BUTTON_H), "Skip", None, ButtonKind::Ghost) {
             cmd = Some(Command::Skip);
+        }
+    }
+    cmd
+}
+
+// --- the lessons' guide --------------------------------------------------------------------
+//
+// RosterFlow's lessons ("Try it", `company::planning::rf_tutorial`) are tasks the player does
+// himself, so their bubble takes nothing from the page: no dark and no input taken. The part
+// a step is about is ringed as the tour rings its spotlight (gliding to it, a ring going out as
+// it lands), and the bubble - the tour's, with the lesson's steps ticked off in it - lies in a
+// corner of the room it is given: the other corner when the part, or what the player drags, is
+// under it.
+
+/// What the guide's bubble is showing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(in crate::launcher) enum GuideMode {
+    /// A step to do: it ticks itself off once done (`info`: a step to read, "Got it" goes on).
+    Step { info: bool },
+    /// "End lesson" was pressed: keep the changes, undo the lesson, or go on with it.
+    Ending,
+    /// Every step done.
+    Done,
+    /// Something is needed first (the words say what): only "Close".
+    Blocked,
+}
+
+/// What the guide shows this frame.
+pub(in crate::launcher) struct Guide<'a> {
+    /// The lesson's name (over the title, as a tour's chapter).
+    pub lesson: &'a str,
+    pub title: &'a str,
+    pub text: &'a str,
+    /// The lesson's steps (their goals) and whether each is done.
+    pub steps: &'a [(&'static str, bool)],
+    /// The step on now.
+    pub at: usize,
+    /// The part the step is about, if it is drawn.
+    pub target: Option<Rect>,
+    /// Where the bubble may lie.
+    pub room: Rect,
+    pub mode: GuideMode,
+}
+
+/// What a button of the guide asked for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(in crate::launcher) enum GuideCmd {
+    /// "Got it": a step to read is done.
+    Next,
+    /// "End lesson".
+    End,
+    Keep,
+    Undo,
+    /// "Go on with the lesson" after "End lesson".
+    Resume,
+    /// A lesson that cannot begin, closed.
+    Close,
+}
+
+/// The guide's own between frames: which corner its bubble is in, and its ring's landing.
+#[derive(Default)]
+pub(in crate::launcher) struct GuideState {
+    left: bool,
+    press_in: bool,
+    glide: Glide,
+}
+
+/// The bubble's width, a step's row in it.
+const GUIDE_W: f32 = 340.0;
+const GUIDE_ROW: f32 = 22.0;
+
+/// Where a part is drawn this frame (`anchor`), for RosterFlow's lessons.
+pub(in crate::launcher) fn anchored_rect(key: &str) -> Option<Rect> {
+    anchored(key)
+}
+
+/// The bubble's height for `g` at width `w`.
+fn guide_height(ui: &Ui, g: &Guide, w: f32) -> f32 {
+    let inner = w - 2.0 * PAD;
+    let title_h = ui.paragraph_height(g.title, inner, 17.0, Weight::Bold);
+    let text_h = if g.text.is_empty() { 0.0 } else { ui.paragraph_height(g.text, inner, TEXT_PX, Weight::Regular) + 4.0 };
+    let list = if matches!(g.mode, GuideMode::Step { .. } | GuideMode::Done) { 10.0 + g.steps.iter().map(|s| guide_row_h(ui, s.0, inner)).sum::<f32>() } else { 0.0 };
+    let buttons = match g.mode {
+        GuideMode::Ending => 3.0 * (BUTTON_H + 8.0),
+        GuideMode::Done => 2.0 * (BUTTON_H + 8.0),
+        _ => BUTTON_H + 8.0,
+    };
+    PAD + 32.0 + title_h + 6.0 + text_h + list + buttons + PAD - 14.0
+}
+
+/// A step's row in the bubble: its goal on one line or two.
+fn guide_row_h(ui: &Ui, goal: &str, inner: f32) -> f32 {
+    ui.paragraph_height(goal, inner - 26.0, 12.5, Weight::Medium).max(GUIDE_ROW - 4.0) + 4.0
+}
+
+/// The corner the bubble lies in: bottom right, else bottom left (`left`).
+fn guide_dock(room: Rect, size: Vec2, left: bool) -> Rect {
+    let x = if left { room.x + MARGIN } else { room.right() - MARGIN - size.x };
+    let y = (room.bottom() - MARGIN - size.y).max(room.y + MARGIN);
+    Rect::new(x.max(room.x), y, size.x, size.y)
+}
+
+/// The guide: the ring round the step's part and the bubble. Returns what was pressed, and
+/// where the bubble lies (the page gets no mouse there next frame).
+pub(in crate::launcher) fn guide(ui: &mut Ui, g: &Guide, st: &mut GuideState) -> (Option<GuideCmd>, Rect) {
+    let w = GUIDE_W.min(g.room.w - 2.0 * MARGIN).max(200.0);
+    let h = guide_height(ui, g, w);
+    let size = Vec2::new(w, h);
+    // the corner: away from the part, and from a hand carried over it
+    let (right_r, left_r) = (guide_dock(g.room, size, false), guide_dock(g.room, size, true));
+    let (here, there) = if st.left { (left_r, right_r) } else { (right_r, left_r) };
+    if g.target.is_some_and(|t| overlap(t, here) && !overlap(t, there)) {
+        st.left = !st.left;
+    }
+    // (a press that began on the bubble is the bubble's; one carried in from the page moves it)
+    if ui.input.pressed {
+        st.press_in = here.contains(ui.input.mouse);
+    }
+    if ui.input.down && !st.press_in && here.contains(ui.input.mouse) {
+        st.left = !st.left;
+    }
+    let to = if st.left { left_r } else { right_r };
+    let b = glide_rect(ui, "guide-bubble", to);
+    // the ring round the part, as the tour's spotlight has it
+    let now = ui.time;
+    if let Some(t) = g.target.filter(|_| matches!(g.mode, GuideMode::Step { .. })) {
+        let to_hole = hole_round(t, ui.size);
+        let hole = glide_rect(ui, "guide-hole", to_hole);
+        let travelling = apart(hole, to_hole) > 1.5;
+        if st.glide.travelling && !travelling {
+            st.glide.ping = Some(now);
+        }
+        st.glide.travelling = travelling;
+        let radius = HOLE_RADIUS.min(hole.w * 0.5).min(hole.h * 0.5);
+        let p = ui.p();
+        halo(p, hole, radius, 10.0, accent().alpha(0.22));
+        p.rounded_border(hole, radius, 2.0, accent());
+        if let Some(k) = st.glide.ping.map(|t0| (now - t0) / PING_S).filter(|k| *k < 1.0 && ui.motion) {
+            let e = ease_out_cubic(k);
+            ui.p().rounded_border(hole.inset(-PING_REACH * e), radius + PING_REACH * e, 2.0, accent().alpha(0.5 * (1.0 - e)));
+            ui.keep_moving();
+        } else {
+            st.glide.ping = None;
+        }
+    } else {
+        st.glide.travelling = true;
+    }
+    // the bubble
+    ui.solid(b);
+    let p = ui.p();
+    p.shadow(Rect::new(b.x, b.y + 14.0, b.w, b.h).inset(6.0), SHEET_RADIUS, 40.0, Color::rgba(0, 0, 0, 0.45));
+    p.rounded(b, SHEET_RADIUS, PANEL);
+    p.rounded_border(b, SHEET_RADIUS, 1.0, accent().alpha(0.45));
+    ui.push_clip(b, SHEET_RADIUS);
+    let cmd = guide_inside(ui, b, g);
+    ui.pop_clip();
+    (cmd, b)
+}
+
+/// The bubble's insides: the lesson, where in it, the step's goal and its words, the steps
+/// ticked off, the buttons.
+fn guide_inside(ui: &mut Ui, b: Rect, g: &Guide) -> Option<GuideCmd> {
+    let x = b.x + PAD;
+    let inner = b.w - 2.0 * PAD;
+    let mut y = b.y + PAD - 4.0;
+    let head = omsi_ui::tr(g.lesson).to_uppercase();
+    ui.text_as_is(&head, Vec2::new(x, y + 11.0), 10.5, Weight::Bold, accent_2(), Align::Left);
+    let total = g.steps.len().max(1);
+    let done = g.steps.iter().filter(|s| s.1).count();
+    ui.text_as_is(&format!("{done} / {total}"), Vec2::new(x + inner, y + 11.0), 11.5, Weight::Medium, TEXT_DIM, Align::Right);
+    let track = Rect::new(x, y + 20.0, inner, 2.0);
+    let k = ui.spring(id_of("guide-progress"), done as f32 / total as f32, Feel::SLIDE).clamp(0.0, 1.0);
+    ui.p().rounded(track, 1.0, Color::WHITE.alpha(0.08));
+    ui.p().rounded(Rect::new(track.x, track.y, track.w * k, track.h), 1.0, accent());
+    y += 32.0;
+    y += ui.paragraph(g.title, Vec2::new(x, y), inner, 17.0, Weight::Bold, TEXT) + 6.0;
+    if !g.text.is_empty() {
+        y += ui.paragraph(g.text, Vec2::new(x, y), inner, TEXT_PX, Weight::Regular, TEXT_SOFT) + 4.0;
+    }
+    if matches!(g.mode, GuideMode::Step { .. } | GuideMode::Done) {
+        y += 10.0;
+        for (i, (goal, ok)) in g.steps.iter().enumerate() {
+            let rh = guide_row_h(ui, goal, inner);
+            let c = Vec2::new(x + 8.0, y + 9.0);
+            let now = i == g.at && g.mode != GuideMode::Done;
+            if *ok {
+                ui.p().circle(c, 8.0, OK);
+                ui.icon("check", c, 12.0, Color::WHITE);
+            } else if now {
+                ui.p().arc(c, 7.0, 8.5, 0.0, std::f32::consts::TAU, accent());
+            } else {
+                ui.p().arc(c, 7.0, 8.0, 0.0, std::f32::consts::TAU, TEXT_FAINT);
+            }
+            let ink = if now { TEXT } else if *ok { TEXT_DIM } else { TEXT_FAINT.lighten(0.15) };
+            ui.paragraph(goal, Vec2::new(x + 24.0, y - 1.0), inner - 26.0, 12.5, if now { Weight::Bold } else { Weight::Medium }, ink);
+            y += rh;
+        }
+    }
+    let _ = y;
+    // the buttons, from the bubble's foot up
+    let mut cmd = None;
+    let foot = b.bottom() - PAD + 8.0 - BUTTON_H;
+    match g.mode {
+        GuideMode::Step { info } => {
+            let ew = ui.width(&omsi_ui::tr("End lesson"), 13.0, Weight::Medium) + 28.0;
+            if ui.button("guide-end", Rect::new(x - 14.0, foot, ew, BUTTON_H), "End lesson", None, ButtonKind::Ghost) {
+                cmd = Some(GuideCmd::End);
+            }
+            if info {
+                let nw = (ui.width(&omsi_ui::tr("Got it"), 13.0, Weight::Bold) + 36.0).max(92.0);
+                if ui.button("guide-next", Rect::new(x + inner - nw, foot, nw, BUTTON_H), "Got it", None, ButtonKind::Primary) {
+                    cmd = Some(GuideCmd::Next);
+                }
+            }
+        }
+        GuideMode::Ending | GuideMode::Done => {
+            let mut fy = foot;
+            if g.mode == GuideMode::Ending && ui.button("guide-resume", Rect::new(x, fy, inner, BUTTON_H), "Go on with the lesson", None, ButtonKind::Ghost) {
+                cmd = Some(GuideCmd::Resume);
+            }
+            if g.mode == GuideMode::Ending {
+                fy -= BUTTON_H + 8.0;
+            }
+            if ui.button("guide-undo", Rect::new(x, fy, inner, BUTTON_H), "Undo the lesson", Some("livery_undo"), ButtonKind::Normal) {
+                cmd = Some(GuideCmd::Undo);
+            }
+            fy -= BUTTON_H + 8.0;
+            if ui.button("guide-keep", Rect::new(x, fy, inner, BUTTON_H), "Keep my changes", Some("check"), ButtonKind::Primary) {
+                cmd = Some(GuideCmd::Keep);
+            }
+        }
+        GuideMode::Blocked => {
+            let nw = (ui.width(&omsi_ui::tr("Close"), 13.0, Weight::Bold) + 36.0).max(92.0);
+            if ui.button("guide-close", Rect::new(x + inner - nw, foot, nw, BUTTON_H), "Close", None, ButtonKind::Primary) {
+                cmd = Some(GuideCmd::Close);
+            }
         }
     }
     cmd
@@ -1333,6 +1767,9 @@ fn picture(ui: &mut Ui, pic: Picture, r: Rect, a: f32) {
         Picture::Navigator => navigator_drawing(ui, c, r, t),
         Picture::CityMap => city_map_drawing(ui, c, r, t),
         Picture::Companion => companion_drawing(ui, c, r, t),
+        // (RosterFlow's are drawn by RosterFlow, in its own look)
+        Picture::RfChain => super::company::tutorial::rf_picture(ui, 0, r, a, t),
+        Picture::RfSymbols => super::company::tutorial::rf_picture(ui, 1, r, a, t),
     }
 }
 
@@ -2619,6 +3056,66 @@ mod tests {
     }
 
     #[test]
+    fn rosterflows_tour_is_translated() {
+        let mut missing = Vec::new();
+        for s in FLOW_STOPS {
+            let (chapter, title, text) = s.words();
+            for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
+                for k in [chapter, title, text, "Start planning", "Show me around"] {
+                    if crate::_rust_i18n_try_translate(lang, k).is_none() {
+                        missing.push(format!("{lang}: {k}"));
+                    }
+                }
+            }
+        }
+        assert!(missing.is_empty(), "{}", missing.join("\n"));
+    }
+
+    #[test]
+    fn every_stop_of_rosterflows_tour_finds_its_part() {
+        // (each part a stop points at is drawn under its name by RosterFlow: `anchor("…"`; the
+        // tabs' names are chosen in a match)
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/launcher/company");
+        let mut src = String::new();
+        for d in [dir.join("planning.rs"), dir.join("planning")] {
+            if d.is_file() {
+                src += &std::fs::read_to_string(&d).unwrap();
+            } else {
+                for e in std::fs::read_dir(&d).unwrap().filter_map(|e| e.ok()) {
+                    src += &std::fs::read_to_string(e.path()).unwrap();
+                }
+            }
+        }
+        let drawn = |k: &str| src.contains(&format!("anchor(\"{k}\"")) || (k.starts_with("rf-tab-") && src.contains(&format!("=> \"{k}\"")));
+        for s in FLOW_STOPS {
+            let keys: Vec<&str> = match s.target() {
+                Target::Part(k) => vec![k],
+                Target::Either(a, b) | Target::Both(a, b) => vec![a, b],
+                Target::Card(p) => {
+                    assert!(matches!(p, Picture::RfChain | Picture::RfSymbols), "{s:?}");
+                    vec![]
+                }
+                Target::Route => panic!("{s:?} points at a route"),
+            };
+            for k in keys {
+                assert!(drawn(k), "{s:?}: {k} is drawn nowhere");
+            }
+            // every stop puts RosterFlow on a tab (its end goes back where the player was)
+            assert!(matches!(s.place(), Place::Rf(..)) || s == RfDone, "{s:?}");
+            assert!(s.shown(&Ctx { phone: true, ..everything() }), "{s:?}");
+        }
+        // its chapters in order, each starting at its first stop
+        let chapters = flow_chapters();
+        assert_eq!(chapters.iter().map(|c| c.0).collect::<Vec<_>>(), vec!["What RosterFlow is", "Reading the screen", "Vehicles", "Drivers", "Roster", "Timeplan"]);
+        for (name, at) in chapters {
+            assert_eq!(FLOW_STOPS[at].words().0, name);
+            assert!(at == 0 || FLOW_STOPS[at - 1].words().0 != name);
+        }
+        assert_eq!(flow_len(), FLOW_STOPS.len());
+        assert_eq!((FLOW_STOPS[0], FLOW_STOPS[FLOW_STOPS.len() - 1]), (RfWelcome, RfDone));
+    }
+
+    #[test]
     fn the_companys_tour_is_translated() {
         for s in COMPANY_STOPS {
             let (chapter, title, text) = s.words();
@@ -3062,7 +3559,7 @@ mod tests {
 
     fn view(part: Option<Rect>, at: usize, total: usize) -> View {
         let (chapter, title, text) = if part.is_some() { Modes.words() } else { Navigator.words() };
-        View { chapter, title: title.to_string(), text, picture: part.is_none().then_some(Picture::Navigator), part, at, total, first: at == 0, last: at + 1 == total, phone: false, open: 1.0, words: 1.0, closing: false, company: false }
+        View { chapter, title: title.to_string(), text, picture: part.is_none().then_some(Picture::Navigator), part, at, total, first: at == 0, last: at + 1 == total, phone: false, open: 1.0, words: 1.0, closing: false, kind: Kind::Launcher }
     }
 
     fn frame(ui: &mut Ui, v: &View, g: &mut Glide) -> Option<Command> {

@@ -1586,6 +1586,7 @@ fn day_menu(l: &mut Launcher, page: Rect, k: &Cached, p: &Pal) -> Rect {
 fn colour(l: &mut Launcher, page: Rect, k: &Cached, p: &Pal, line: &str) -> Rect {
     let c: &Company = &k.view;
     let r = Rect::new(page.center().x - 170.0, page.y + 120.0, 340.0, 330.0);
+    super::super::super::tour::anchor("rf-colour", r);
     sheet(l, r, p.sheet);
     let number = c.lines.iter().find(|x| x.name.eq_ignore_ascii_case(line)).map(|x| x.number.clone()).unwrap_or_default();
     let now = rf::line_colour(c, line);
