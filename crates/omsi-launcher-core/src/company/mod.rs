@@ -68,12 +68,11 @@ pub struct Founding {
     pub depot: String,
     /// The first company day (empty: the launcher's default date).
     pub date: String,
-    pub difficulty: Difficulty,
-    /// How the dealer sells buses first: the quick buy or haggling and a contract (the easy
-    /// mode buys quickly: this is kept for when the company goes advanced).
+    /// The game mode: how much of the company the player runs himself, and how hard it is.
+    pub game_mode: GameMode,
+    /// How the dealer sells buses first: the quick buy or haggling and a contract (Casual
+    /// buys quickly: this is kept for when the company leaves Casual).
     pub buying: dealer::BuyingMode,
-    /// How much of the company the player runs himself.
-    pub mode: Mode,
 }
 
 /// A name as a file name: lower case, letters and digits, dashes between.
@@ -104,7 +103,7 @@ pub fn short_of(name: &str) -> String {
 
 /// Found a company: its starting capital booked, nothing else yet.
 pub fn found(f: &Founding, profile: &str) -> Company {
-    let r = economy::rules(f.difficulty);
+    let r = economy::rules(f.game_mode);
     let date = if dates::parse(&f.date).is_some() { f.date.clone() } else { crate::DEFAULT_DATE.to_string() };
     let short = if f.short.trim().is_empty() { short_of(&f.name) } else { f.short.trim().to_uppercase() };
     let colour = |c: &str, d: &str| if c.trim().is_empty() { d.to_string() } else { c.trim().to_string() };
@@ -121,7 +120,8 @@ pub fn found(f: &Founding, profile: &str) -> Company {
         depot: f.depot.clone(),
         founded: date.clone(),
         date,
-        difficulty: f.difficulty,
+        game_mode: GameMode::Normal,
+        legacy_difficulty: None,
         cash: 0,
         reputation: 50.0,
         punctuality: 90.0,
@@ -155,11 +155,12 @@ pub fn found(f: &Founding, profile: &str) -> Company {
         contracts: Default::default(),
         inbox: Default::default(),
         staff_rules: Default::default(),
-        mode: Mode::Advanced,
+        legacy_mode: None,
+        addons: Default::default(),
         autopilot: Default::default(),
     };
-    // (the easy mode buys quickly; the buying chosen is kept for the advanced mode)
-    autopilot::set_mode(&mut c, f.mode);
+    // (Casual buys quickly; the buying chosen is kept for the other modes)
+    autopilot::set_game_mode(&mut c, f.game_mode);
     c.book(BookingKind::Capital, r.start_capital, c.name.clone(), false);
     c
 }
@@ -246,7 +247,7 @@ mod tests {
 
     #[test]
     fn a_company_is_founded_with_its_capital() {
-        let c = found(&Founding { name: "Stadtbus Grundorf".into(), difficulty: Difficulty::Hard, date: "2024-05-06".into(), ..Default::default() }, "Luc");
+        let c = found(&Founding { name: "Stadtbus Grundorf".into(), game_mode: GameMode::Realistic, date: "2024-05-06".into(), ..Default::default() }, "Luc");
         assert_eq!((c.id.as_str(), c.short.as_str(), c.date.as_str(), c.cash), ("stadtbus-grundorf", "SG", "2024-05-06", 600_000_00));
         assert_eq!(c.ledger.len(), 1);
         assert!(c.ledger[0].kind.is_capital());

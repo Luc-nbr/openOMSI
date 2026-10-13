@@ -7,7 +7,7 @@
 //! company's buses did while it ran (`append_live`), the next close takes it in.
 
 use super::day::{self, DayReport, LiveEvent};
-use super::model::{Company, VERSION};
+use super::model::{Company, GameMode, VERSION};
 use super::network;
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
@@ -32,8 +32,20 @@ pub fn unused_id(data: &Path, name: &str) -> String {
     id
 }
 
+/// Whether the company has a plan of RosterFlow's saved: blocks laid out or duties joined in
+/// its studio, or its preferences, locks, links, notes or a draft.
+pub fn has_rosterflow_plan(c: &Company) -> bool {
+    !c.planning.layouts.is_empty() || !c.planning.joined.is_empty() || !c.planning.flow.is_empty()
+}
+
 /// A file of an older version brought up to date.
 pub fn migrate(mut c: Company) -> Company {
+    // (a file of before the game modes: its mode and difficulty give the game mode, and a
+    // company that planned in RosterFlow keeps it switched on)
+    if c.legacy_mode.is_some() || c.legacy_difficulty.is_some() {
+        c.game_mode = GameMode::from_legacy(c.legacy_mode.take(), c.legacy_difficulty.take());
+        c.addons.rosterflow = c.game_mode.rules().rosterflow && has_rosterflow_plan(&c);
+    }
     // (an older file ran every line: those its roster plans run on, the others wait for the
     // planning - a line runs only once it is planned)
     for k in 0..c.lines.len() {
@@ -295,6 +307,68 @@ mod tests {
         let d = std::env::temp_dir().join(format!("openomsi-company-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         d
+    }
+
+    /// A file as it was written before the game modes: `mode` and `difficulty` instead of
+    /// `game_mode` and `addons` (a `None` left out, as a file of before the modes had none).
+    fn old_file(c: &Company, mode: Option<&str>, difficulty: &str) -> String {
+        let mut v = serde_json::to_value(c).unwrap();
+        let o = v.as_object_mut().unwrap();
+        o.remove("game_mode");
+        o.remove("addons");
+        o.insert("difficulty".into(), difficulty.into());
+        if let Some(m) = mode {
+            o.insert("mode".into(), m.into());
+        }
+        serde_json::to_string(&v).unwrap()
+    }
+
+    #[test]
+    fn an_old_files_mode_and_difficulty_become_its_game_mode() {
+        use super::super::model::{Addons, GameMode};
+        let data = temp("game-modes");
+        let c = found(&Founding { name: "Alt".into(), ..Default::default() }, "Luc");
+        let cases = [
+            (Some("easy"), "easy", GameMode::Casual),
+            (Some("easy"), "realistic", GameMode::Casual),
+            (Some("easy"), "hard", GameMode::Casual),
+            (Some("advanced"), "easy", GameMode::Normal),
+            (Some("advanced"), "realistic", GameMode::Normal),
+            (Some("advanced"), "hard", GameMode::Realistic),
+            // (a file of before the modes was advanced)
+            (None, "easy", GameMode::Normal),
+            (None, "realistic", GameMode::Normal),
+            (None, "hard", GameMode::Realistic),
+        ];
+        for (mode, difficulty, want) in cases {
+            std::fs::create_dir_all(dir(&data)).unwrap();
+            std::fs::write(path_of(&data, &c.id), old_file(&c, mode, difficulty)).unwrap();
+            let read = load(&data, &c.id).unwrap();
+            assert_eq!(read.game_mode, want, "{mode:?} {difficulty}");
+            assert_eq!((read.legacy_mode, read.legacy_difficulty, read.addons), (None, None, Addons::default()));
+            // written again: the new field, not the old ones, and read the same
+            save(&data, &read).unwrap();
+            let text = std::fs::read_to_string(path_of(&data, &c.id)).unwrap();
+            let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+            assert!(v.get("mode").is_none() && v.get("difficulty").is_none() && v.get("game_mode").is_some());
+            assert_eq!(load(&data, &c.id).unwrap(), read);
+        }
+        // a company that planned in RosterFlow keeps it on; in Casual it is off, its plan kept
+        let mut planned = c.clone();
+        planned.planning.flow.sheet.dismissed.push((0, "issue".into()));
+        for (mode, difficulty, on) in [(Some("advanced"), "realistic", true), (Some("advanced"), "hard", true), (Some("easy"), "realistic", false)] {
+            std::fs::write(path_of(&data, &c.id), old_file(&planned, mode, difficulty)).unwrap();
+            let read = load(&data, &c.id).unwrap();
+            assert_eq!(read.addons.rosterflow, on, "{mode:?} {difficulty}");
+            assert!(has_rosterflow_plan(&read));
+        }
+        // a new file's add-on stays as it was written, the mode too
+        let mut new = c.clone();
+        new.game_mode = GameMode::Realistic;
+        new.addons.rosterflow = true;
+        save(&data, &new).unwrap();
+        assert_eq!(load(&data, &c.id).unwrap(), new);
+        let _ = std::fs::remove_dir_all(&data);
     }
 
     #[test]

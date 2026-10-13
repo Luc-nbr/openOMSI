@@ -345,13 +345,13 @@ fn spans(tours: impl Iterator<Item = (u32, i32, i32)>) -> Vec<(u32, i32, i32)> {
 /// The buses that break down on their way (drawn from the company, the date and the bus: the
 /// same day draws the same), and when.
 pub fn roll_breakdowns(c: &Company, date: &str, spans: &[(u32, i32, i32)]) -> Vec<(u32, i32)> {
-    let r = economy::rules(c.difficulty);
+    let r = economy::rules(c.game_mode);
     let day = dates::parse(date).unwrap_or(0);
     let mut out = Vec::new();
     for &(id, a, b) in spans {
         let Some(v) = c.vehicle(id) else { continue };
         let overdue = if v.km > v.next_service_km { 2.0 } else { 1.0 };
-        let p = 0.004 * r.breakdown_factor * (1.0 + (100.0 - v.condition) / 25.0) * overdue;
+        let p = 0.004 * r.breakdown_factor * c.game_mode.rules().breakdowns * (1.0 + (100.0 - v.condition) / 25.0) * overdue;
         let mut rng = Rng::of(&[&c.id, "breakdown", &id.to_string()], day);
         if rng.chance(p) {
             out.push((id, rng.int(a as i64, b.max(a) as i64) as i32));
@@ -538,7 +538,7 @@ pub fn script(c: &Company, dp: &DayPlan) -> DayScript {
 
 /// The company enters its day: the timetable read, the tender market refreshed, in the easy
 /// mode the company's own morning (`autopilot::morning`: its lines in service, the roster
-/// filled), the day's events written.
+/// filled), in Normal the roster repaired (`plan::repair_day`), the day's events written.
 fn begin_day(c: &mut Company, w: &mut dyn World) -> Result<(), String> {
     if c.clock.today.as_ref().is_some_and(|s| s.date == c.date) {
         return Ok(());
@@ -550,6 +550,10 @@ fn begin_day(c: &mut Company, w: &mut dyn World) -> Result<(), String> {
         super::autopilot::morning(c, &date, &lines);
     }
     let tours = network::in_service_only(network::tours_of_day(c, &lines, &date));
+    if c.game_mode.rules().repair_roster {
+        let r = plan::repair_day(c, &date, tours.clone());
+        plan::tell_repaired(c, &r);
+    }
     let dp = plan::day_plan(c, &date, tours, &[], &[], false);
     c.clock.today = Some(script(c, &dp));
     Ok(())
@@ -641,7 +645,7 @@ fn dispatcher_choice(c: &Company, index: usize) -> Choice {
 
 /// What a rental bus for the rest of a broken-down bus's day costs.
 pub fn rental_cost(c: &Company, index: usize) -> Cents {
-    let r = economy::rules(c.difficulty);
+    let r = economy::rules(c.game_mode);
     let kind = c.clock.today.as_ref().and_then(|s| s.breaks.get(index)).and_then(|b| c.vehicle(b.vehicle)).map(|v| v.kind).unwrap_or_default();
     economy::rent_per_day(kind, &r, c.price_index)
 }
@@ -1145,7 +1149,7 @@ mod tests {
     use super::super::staff::{applicants, hire};
     use super::super::{day, depot, found, Founding};
     use super::*;
-    use crate::company::model::{BookingKind, Difficulty, Licence};
+    use crate::company::model::{BookingKind, GameMode, Licence};
 
     /// The timetable of every day the same; the night as the store runs it.
     struct Fake(Vec<LineInfo>);
@@ -1166,7 +1170,7 @@ mod tests {
 
     fn company(buses: usize, people: usize) -> (Company, Fake) {
         let lines = vec![line("Linie5", "5", 3, true), line("Linie7", "7", 2, true)];
-        let mut c = found(&Founding { name: "Uhr".into(), difficulty: Difficulty::Realistic, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+        let mut c = found(&Founding { name: "Uhr".into(), game_mode: GameMode::Normal, date: "2024-03-04".into(), ..Default::default() }, "Luc");
         c.cash += 5_000_000_00;
         network::add_line(&mut c, &lines[0], None).unwrap();
         // (in service from the start, the dispatcher's own filling the roster's gaps)

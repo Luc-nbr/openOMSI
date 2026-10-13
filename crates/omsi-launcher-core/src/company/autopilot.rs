@@ -28,7 +28,7 @@ use super::dates;
 use super::dealer::BuyingMode;
 use super::depot::{self, Area, JobKind};
 use super::licences::{self, Endorsement};
-use super::model::{Cents, Company, Licence, Mode, Role};
+use super::model::{Cents, Company, GameMode, Licence, Role};
 use super::network;
 use super::plan::{self, Who};
 use super::research;
@@ -93,20 +93,21 @@ pub fn texts() -> Vec<&'static str> {
 
 // --- the mode ------------------------------------------------------------------------------------------
 
-/// Whether the company is run in the easy mode.
+/// Whether the company runs its routine by itself (the Casual game mode).
 pub fn on(c: &Company) -> bool {
-    c.mode == Mode::Easy
+    c.game_mode.casual()
 }
 
-/// Run the company in `mode` from now on. The easy mode buys quickly (the buying chosen is
-/// kept, and given back when it goes advanced again) and leaves to the dispatcher what waits
-/// for an answer; going advanced changes nothing else - everything the easy mode made stays.
-pub fn set_mode(c: &mut Company, mode: Mode) {
-    if c.mode == mode {
+/// Run the company in game mode `mode` from now on. Casual buys quickly (the buying chosen is
+/// kept, and given back when it leaves Casual), leaves to the dispatcher what waits for an
+/// answer, and has no RosterFlow (switched off, its data kept); leaving Casual, or going
+/// between Normal and Realistic, changes nothing else - everything the company made stays.
+pub fn set_game_mode(c: &mut Company, mode: GameMode) {
+    if c.game_mode == mode {
         return;
     }
-    match mode {
-        Mode::Easy => {
+    match (c.game_mode.casual(), mode.casual()) {
+        (false, true) => {
             c.autopilot.buying = Some(c.dealer.mode);
             c.dealer.mode = BuyingMode::Simple;
             if c.clock.ask.is_some() {
@@ -114,13 +115,29 @@ pub fn set_mode(c: &mut Company, mode: Mode) {
                 super::clock::answer(c, None, &mut run);
             }
         }
-        Mode::Advanced => {
+        (true, false) => {
             if let Some(b) = c.autopilot.buying.take() {
                 c.dealer.mode = b;
             }
         }
+        _ => {}
     }
-    c.mode = mode;
+    if !mode.rules().rosterflow {
+        c.addons.rosterflow = false;
+    }
+    c.game_mode = mode;
+}
+
+/// Switch RosterFlow on or off (Trello "Game modes 2/4"). Off, its data is kept; it cannot
+/// be switched on in a mode that has none (Casual). Returns whether it is on now.
+pub fn set_rosterflow(c: &mut Company, on: bool) -> bool {
+    c.addons.rosterflow = on && c.game_mode.rules().rosterflow;
+    c.addons.rosterflow
+}
+
+/// Whether RosterFlow is on: switched on, in a mode that has it.
+pub fn rosterflow(c: &Company) -> bool {
+    c.addons.rosterflow && c.game_mode.rules().rosterflow
 }
 
 /// What the company did by itself on `date` (the newest last).
@@ -466,14 +483,14 @@ mod tests {
     use super::super::concessions::tests::line;
     use super::super::day;
     use super::super::market::{self, MarketBus, Payment};
-    use super::super::model::Difficulty;
+    use super::super::model::GameMode;
     use super::super::{found, store, Founding};
     use super::*;
     use crate::company::day::DayReport;
 
-    fn company(mode: Mode, d: Difficulty, buses: usize, drivers: usize) -> (Company, Vec<LineInfo>) {
+    fn company(d: GameMode, buses: usize, drivers: usize) -> (Company, Vec<LineInfo>) {
         let lines = vec![line("Linie5", "5", 3, true), line("Linie7", "7", 2, true)];
-        let mut c = found(&Founding { name: "Leicht".into(), difficulty: d, date: "2024-03-04".into(), map: "maps/Grundorf/global.cfg".into(), mode, ..Default::default() }, "Luc");
+        let mut c = found(&Founding { name: "Leicht".into(), game_mode: d, date: "2024-03-04".into(), map: "maps/Grundorf/global.cfg".into(), ..Default::default() }, "Luc");
         c.cash += 5_000_000_00;
         network::add_line(&mut c, &lines[0], None).unwrap();
         let bus = MarketBus { file: "Vehicles/Citaro/Citaro.bus".into(), name: "Citaro".into(), ..Default::default() };
@@ -517,42 +534,63 @@ mod tests {
     }
 
     #[test]
-    fn the_mode_is_saved_and_an_older_file_is_advanced() {
-        let (easy, _) = company(Mode::Easy, Difficulty::Realistic, 0, 0);
-        assert_eq!(easy.mode, Mode::Easy);
+    fn the_mode_is_saved_and_an_older_file_without_an_autopilot_is_read() {
+        let (easy, _) = company(GameMode::Casual, 0, 0);
+        assert!(on(&easy));
         let dir = std::env::temp_dir().join(format!("openomsi-autopilot-mode-{}", std::process::id()));
         store::save(&dir, &easy).unwrap();
-        assert_eq!(store::load(&dir, &easy.id).unwrap().mode, Mode::Easy);
-        // a file from before the modes: no mode, no autopilot
+        assert_eq!(store::load(&dir, &easy.id).unwrap().game_mode, GameMode::Casual);
+        // a file from before the modes: no mode, no autopilot (an advanced company: Normal)
         let mut v = serde_json::to_value(&easy).unwrap();
         let o = v.as_object_mut().unwrap();
-        o.remove("mode");
+        o.remove("game_mode");
         o.remove("autopilot");
+        o.insert("difficulty".into(), "realistic".into());
         std::fs::write(store::path_of(&dir, &easy.id), serde_json::to_string(&v).unwrap()).unwrap();
         let old = store::load(&dir, &easy.id).unwrap();
-        assert_eq!((old.mode, old.autopilot.clone()), (Mode::Advanced, Autopilot::default()));
+        assert_eq!((old.game_mode, old.autopilot.clone()), (GameMode::Normal, Autopilot::default()));
         let _ = std::fs::remove_dir_all(&dir);
-        // (a company founded without a choice is advanced, as before)
-        assert_eq!(found(&Founding::default(), "x").mode, Mode::Advanced);
+        // (a company founded without a choice is Normal)
+        assert_eq!(found(&Founding::default(), "x").game_mode, GameMode::Normal);
     }
 
     #[test]
-    fn the_easy_mode_buys_quickly_and_the_advanced_mode_gets_its_buying_back() {
-        let f = Founding { name: "Kauf".into(), buying: BuyingMode::Advanced, mode: Mode::Easy, ..Default::default() };
+    fn casual_buys_quickly_and_the_other_modes_get_their_buying_back() {
+        let f = Founding { name: "Kauf".into(), buying: BuyingMode::Advanced, game_mode: GameMode::Casual, ..Default::default() };
         let mut c = found(&f, "Luc");
         assert_eq!((c.dealer.mode, c.autopilot.buying), (BuyingMode::Simple, Some(BuyingMode::Advanced)));
-        set_mode(&mut c, Mode::Advanced);
-        assert_eq!((c.mode, c.dealer.mode, c.autopilot.buying), (Mode::Advanced, BuyingMode::Advanced, None));
+        set_game_mode(&mut c, GameMode::Normal);
+        assert_eq!((c.game_mode, c.dealer.mode, c.autopilot.buying), (GameMode::Normal, BuyingMode::Advanced, None));
         // (and back: nothing else moves)
         let before = c.clone();
-        set_mode(&mut c, Mode::Easy);
-        set_mode(&mut c, Mode::Advanced);
+        set_game_mode(&mut c, GameMode::Casual);
+        set_game_mode(&mut c, GameMode::Normal);
         assert_eq!(c, before);
+        // (Normal and Realistic: only the mode)
+        set_game_mode(&mut c, GameMode::Realistic);
+        assert_eq!((c.dealer.mode, c.autopilot.buying), (BuyingMode::Advanced, None));
+    }
+
+    #[test]
+    fn rosterflow_is_an_add_on_of_normal_and_realistic_and_casual_switches_it_off() {
+        let mut c = found(&Founding { name: "Flow".into(), game_mode: GameMode::Normal, ..Default::default() }, "Luc");
+        assert!(!rosterflow(&c));
+        assert!(set_rosterflow(&mut c, true));
+        set_game_mode(&mut c, GameMode::Realistic);
+        assert!(rosterflow(&c));
+        // (Casual has none: switched off, its data kept)
+        c.planning.flow.sheet.dismissed.push((0, "x".into()));
+        set_game_mode(&mut c, GameMode::Casual);
+        assert!(!rosterflow(&c) && !c.addons.rosterflow && !c.planning.flow.sheet.dismissed.is_empty());
+        assert!(!set_rosterflow(&mut c, true));
+        // (back to Normal: off until it is switched on again)
+        set_game_mode(&mut c, GameMode::Normal);
+        assert!(!rosterflow(&c));
     }
 
     #[test]
     fn the_morning_puts_the_lines_in_service_and_fills_the_roster() {
-        let (mut c, lines) = company(Mode::Easy, Difficulty::Realistic, 3, 6);
+        let (mut c, lines) = company(GameMode::Casual, 3, 6);
         assert!(c.lines[0].service_from.is_none());
         let date = c.date.clone();
         assert!(morning(&mut c, &date, &lines));
@@ -575,7 +613,7 @@ mod tests {
 
     #[test]
     fn a_closed_day_fills_the_roster_hires_orders_parts_and_sees_to_the_fleet() {
-        let (mut c, lines) = company(Mode::Easy, Difficulty::Realistic, 8, 2);
+        let (mut c, lines) = company(GameMode::Casual, 8, 2);
         // (the stores empty and not ordering by themselves, a bus worn out)
         c.stores.stock.clear();
         c.stores.auto = false;
@@ -610,7 +648,7 @@ mod tests {
 
     #[test]
     fn the_advanced_mode_leaves_it_all_to_the_player() {
-        let (mut c, lines) = company(Mode::Advanced, Difficulty::Realistic, 8, 2);
+        let (mut c, lines) = company(GameMode::Normal, 8, 2);
         c.fleet[0].condition = 30.0;
         let staff_before = c.staff.len();
         let date = c.date.clone();
@@ -628,7 +666,7 @@ mod tests {
 
     #[test]
     fn a_line_is_taken_at_the_asking_price_and_runs_from_tomorrow() {
-        let (mut c, lines) = company(Mode::Easy, Difficulty::Realistic, 3, 6);
+        let (mut c, lines) = company(GameMode::Casual, 3, 6);
         let price = cn::asking_price_of(&c, &lines[1]);
         let cash = c.cash;
         let (ev, paid) = take_line(&mut c, &lines[1]).unwrap();
@@ -647,7 +685,7 @@ mod tests {
         let l7 = c.lines.iter().find(|l| l.name == "Linie7").unwrap();
         assert!(network::in_service(l7, clock::now(&c)));
         // without the cash nothing changes
-        let (mut poor, lines) = company(Mode::Easy, Difficulty::Realistic, 0, 0);
+        let (mut poor, lines) = company(GameMode::Casual, 0, 0);
         poor.cash = 100_00;
         let before = poor.clone();
         assert_eq!(take_line(&mut poor, &lines[1]).err(), Some("Not enough cash."));
@@ -656,11 +694,19 @@ mod tests {
 
     #[test]
     fn a_concession_put_out_again_is_renewed_at_the_asking_price() {
-        let (mut c, lines) = company(Mode::Easy, Difficulty::Realistic, 3, 6);
+        let (mut c, lines) = company(GameMode::Casual, 3, 6);
         cn::ensure(&mut c);
         let until = super::super::dates::add(&c.date, 20);
         c.concessions.held[0].until = until.clone();
+        // (Casual's concessions renew by themselves, without a tender)
         cn::refresh(&mut c, &lines);
+        assert!(!c.concessions.tenders.iter().any(|t| t.renewal && t.open()));
+        assert!(super::super::dates::between(&until, &cn::of_line(&c, "Linie5").unwrap().until) > 300);
+        // a renewal tender left from another mode: renewed at the asking price in the morning
+        c.concessions.held[0].until = until.clone();
+        c.game_mode = GameMode::Normal;
+        cn::refresh(&mut c, &lines);
+        c.game_mode = GameMode::Casual;
         assert!(c.concessions.tenders.iter().any(|t| t.renewal && t.open()));
         let date = c.date.clone();
         let cash = c.cash;
@@ -673,7 +719,7 @@ mod tests {
 
     #[test]
     fn the_minimum_staff_grows_with_the_fleet() {
-        let (mut c, _) = company(Mode::Easy, Difficulty::Realistic, 0, 0);
+        let (mut c, _) = company(GameMode::Casual, 0, 0);
         assert!(Role::ALL.iter().all(|r| minimum(&c, *r) == 0));
         let bus = MarketBus { file: "Vehicles/Citaro/Citaro.bus".into(), name: "Citaro".into(), ..Default::default() };
         for _ in 0..3 {
@@ -688,7 +734,7 @@ mod tests {
 
     #[test]
     fn a_deed_is_noted_once_a_day() {
-        let (mut c, _) = company(Mode::Easy, Difficulty::Realistic, 0, 0);
+        let (mut c, _) = company(GameMode::Casual, 0, 0);
         note(&mut c, "2024-03-04", ROSTER, vec![("d", "3".into()), ("b", "1".into())]);
         note(&mut c, "2024-03-04", ROSTER, vec![("d", "4".into()), ("b", "2".into())]);
         note(&mut c, "2024-03-04", HIRED, vec![("name", "A".into()), ("role", "Mechanic".into())]);

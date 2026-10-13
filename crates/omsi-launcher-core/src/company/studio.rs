@@ -1170,7 +1170,7 @@ mod tests {
 
     fn company() -> Company {
         let mut c = found(&Founding { name: "Studio".into(), date: "2024-03-04".into(), ..Default::default() }, "Luc");
-        c.mode = super::super::Mode::Advanced;
+        c.game_mode = super::super::GameMode::Normal;
         c.lines.push(CompanyLine { name: "Linie5".into(), number: "5".into(), numbers: vec!["5".into()], added: c.date.clone(), service_from: Some(0), ..Default::default() });
         c
     }
@@ -1203,9 +1203,9 @@ mod tests {
         assert_eq!((t3.trips.len(), t3.trips[0].origin.as_str()), (1, "2"));
         assert_eq!(block(&after, "2").1.trips.len(), 7);
         // the easy mode keeps the timetable's tours
-        c.mode = super::super::Mode::Easy;
+        c.game_mode = super::super::GameMode::Casual;
         assert_eq!(day(&c, &l).len(), 2);
-        c.mode = super::super::Mode::Advanced;
+        c.game_mode = super::super::GameMode::Normal;
         // a trip that fits: tour 3's trip back to tour 2 - and tour 3 runs no more
         let (three, _) = block(&after, "3");
         let (two, _) = block(&after, "2");

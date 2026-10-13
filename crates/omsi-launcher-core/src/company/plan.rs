@@ -24,7 +24,7 @@ use super::dates;
 use super::day::{DutyPlan, LiveEvent, Note, Plan, TourPlan};
 use super::economy;
 use super::market::{self, MarketBus};
-use super::model::{BookingKind, BusKind, BusSize, Cents, Company, Difficulty, Drive, Employee, Licence, Skills};
+use super::model::{BookingKind, BusKind, BusSize, Cents, Company, GameMode, Drive, Employee, Licence, Skills};
 use super::network::{self, TourOfDay};
 use super::rng::Rng;
 use super::staff::{self, Block, BUS_MARGIN, WEEK_DAYS};
@@ -120,6 +120,10 @@ pub struct Planning {
     /// `fill_line`: the other lines' tours run as they are planned). Not kept either.
     #[serde(skip)]
     pub auto_only: Option<String>,
+    /// The dispatcher's own only for these places (`tour_key`s for a bus, `duty_key`s for a
+    /// driver: the roster's repair, `repair_day`). Not kept either.
+    #[serde(skip)]
+    pub auto_keys: Option<Vec<String>>,
     /// The day the dispatcher's choices are for (they hold for that day only).
     #[serde(default)]
     pub date: String,
@@ -145,7 +149,7 @@ pub struct Planning {
 
 impl Default for Planning {
     fn default() -> Self {
-        Planning { week: Vec::new(), auto: false, auto_only: None, date: String::new(), fills: Vec::new(), collapsed: Vec::new(), layouts: Vec::new(), joined: Vec::new(), flow: Default::default() }
+        Planning { week: Vec::new(), auto: false, auto_only: None, auto_keys: None, date: String::new(), fills: Vec::new(), collapsed: Vec::new(), layouts: Vec::new(), joined: Vec::new(), flow: Default::default() }
     }
 }
 
@@ -334,9 +338,120 @@ pub struct Filled {
     pub no_bus: usize,
 }
 
-/// `fill_day`, told.
+/// `fill_day`, told. What the roster has that cannot run that day (a driver ill, on holiday
+/// or clashing, a bus gone, broken down or busy) is given anew first - without "Clear the day"
+/// (`repair_day`) - and what is good is kept.
 pub fn fill_day_told(c: &mut Company, date: &str, tours: Vec<TourOfDay>) -> Filled {
+    let wd = weekday_of(date);
+    let (buses, duties) = broken(c, date, tours.clone());
+    for (line, tour) in &buses {
+        set_bus(c, wd, line, tour, None);
+    }
+    for (line, tour, k) in &duties {
+        set_driver(c, wd, line, tour, *k, None);
+    }
     fill(c, date, tours, None)
+}
+
+/// What the morning's repair of the roster did (Normal, `repair_day`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Repaired {
+    /// The roster's places that could not run (duties and buses), and of them those given
+    /// anew: the rest is open.
+    pub broken: usize,
+    pub duties: usize,
+    pub buses: usize,
+}
+
+impl Repaired {
+    pub fn open(&self) -> usize {
+        self.broken.saturating_sub(self.duties + self.buses)
+    }
+}
+
+/// The inbox's word on the morning's repair: all given anew, or some still open.
+pub const REPAIRED: (&str, &str) = ("The roster was repaired", "The dispatcher gave %{n} places of today's roster anew: their driver or bus could not run them (ill, on holiday, a clash or no bus). The rest of the roster is as you planned it.");
+pub const REPAIRED_OPEN: (&str, &str) = ("Roster repaired, places still open", "The dispatcher gave %{n} places of today's roster anew, but found nobody free for %{open} of them: give them a driver or a bus in the planning, or they fall out.");
+
+/// What the morning's repair did, told in the inbox (nothing when nothing broke).
+pub fn tell_repaired(c: &mut Company, r: &Repaired) {
+    use super::inbox::{self, Kind, Message};
+    if r.broken == 0 {
+        return;
+    }
+    let (title, text, level) = if r.open() == 0 { (REPAIRED.0, REPAIRED.1, super::clock::Level::Info) } else { (REPAIRED_OPEN.0, REPAIRED_OPEN.1, super::clock::Level::Warn) };
+    let m = Message::new(Kind::Lines, title, text).arg("n", (r.duties + r.buses).to_string()).arg("open", r.open().to_string()).level(level).key("roster-repaired");
+    inbox::post(c, m);
+}
+
+/// The roster's places of `date`'s weekday that cannot run that day: the tours whose bus is
+/// gone, broken down, in the workshop, not one of the line's or busy, and the duties whose
+/// driver is ill, on holiday, away, not qualified or clashes. (The player's own duties and the
+/// agency's are left as they are.)
+pub fn broken(c: &Company, date: &str, tours: Vec<TourOfDay>) -> (Vec<(String, String)>, Vec<(String, String, usize)>) {
+    let wd = weekday_of(date);
+    let mut probe = c.clone();
+    probe.planning.auto = false;
+    let p = day_plan(&probe, date, tours, &[], &[], false);
+    let mut buses = Vec::new();
+    let mut duties = Vec::new();
+    for t in p.tours.iter().filter(|t| !t.by_player) {
+        let Some(r) = roster(c, wd, &t.tour.line, &t.tour.tour) else { continue };
+        if r.bus.is_some() && t.bus_from != Source::Roster {
+            buses.push((t.tour.line.clone(), t.tour.tour.clone()));
+        }
+        for (k, d) in t.duties.iter().enumerate() {
+            if let Some(Some(w @ Who::Staff(_))) = r.duties.get(k) {
+                if d.who != Some(*w) || d.from_ != Source::Roster {
+                    duties.push((t.tour.line.clone(), t.tour.tour.clone(), k));
+                }
+            }
+        }
+    }
+    (buses, duties)
+}
+
+/// The roster repaired for `date` (Normal's morning, Luc: "the roster repairs itself every
+/// morning"): each place of its weekday that cannot run that day (`broken`) is given to a
+/// driver or a bus that fits, as the dispatcher would; the good ones are kept, and nothing
+/// the roster left free is filled. What found nobody stays open.
+pub fn repair_day(c: &mut Company, date: &str, tours: Vec<TourOfDay>) -> Repaired {
+    let wd = weekday_of(date);
+    let (buses, duties) = broken(c, date, tours.clone());
+    let mut out = Repaired { broken: buses.len() + duties.len(), ..Default::default() };
+    if out.broken == 0 {
+        return out;
+    }
+    let mut keys = Vec::new();
+    for (line, tour) in &buses {
+        set_bus(c, wd, line, tour, None);
+        keys.push(tour_key(line, tour));
+    }
+    for (line, tour, k) in &duties {
+        set_driver(c, wd, line, tour, *k, None);
+        keys.push(duty_key(line, tour, *k));
+    }
+    let mut probe = c.clone();
+    probe.planning.auto = true;
+    probe.planning.auto_keys = Some(keys.clone());
+    let p = day_plan(&probe, date, tours, &[], &[], false);
+    for t in p.tours.iter().filter(|t| !t.by_player) {
+        if let (Some(BusOf::Own(id)), Source::Auto) = (t.bus, t.bus_from) {
+            if keys.contains(&tour_key(&t.tour.line, &t.tour.tour)) {
+                set_bus(c, wd, &t.tour.line, &t.tour.tour, Some(id));
+                out.buses += 1;
+            }
+        }
+        for (k, d) in t.duties.iter().enumerate() {
+            if let (Some(w @ Who::Staff(_)), Source::Auto) = (d.who, d.from_) {
+                if keys.contains(&duty_key(&t.tour.line, &t.tour.tour, k)) {
+                    set_driver(c, wd, &t.tour.line, &t.tour.tour, k, Some(w));
+                    out.duties += 1;
+                }
+            }
+        }
+    }
+    out
 }
 
 /// "Fill the roster" for one line's tours only (a changed line planned anew), the day's
@@ -406,13 +521,15 @@ pub enum Disruption {
 }
 
 pub fn disruptions(c: &Company, date: &str) -> Vec<Disruption> {
-    let r = economy::rules(c.difficulty);
+    let r = economy::rules(c.game_mode);
     let day = dates::parse(date).unwrap_or(0);
-    let late_factor = match c.difficulty {
-        Difficulty::Easy => 0.5,
-        Difficulty::Realistic => 1.0,
-        Difficulty::Hard => 1.4,
-    };
+    // (the game mode's disruptions: Casual rare, Normal calmer, Realistic as they always were)
+    let m = c.game_mode.rules();
+    let late_factor = match c.game_mode {
+        GameMode::Casual => 0.5,
+        GameMode::Normal => 1.0,
+        GameMode::Realistic => 1.4,
+    } * m.lateness;
     let mut out = Vec::new();
     for e in c.staff.iter().filter(|e| staff::drives(e) && e.employed_on(date) && !e.absent(date)) {
         let mut rng = Rng::of(&[&c.id, "late", &e.id.to_string()], day);
@@ -423,7 +540,7 @@ pub fn disruptions(c: &Company, date: &str) -> Vec<Disruption> {
     }
     for v in c.fleet.iter().filter(|v| v.held_on(date) && !v.in_workshop(date) && v.condition >= 20.0) {
         let mut rng = Rng::of(&[&c.id, "start", &v.id.to_string()], day);
-        let p = (0.01 + (70.0 - v.condition).max(0.0) / 70.0 * 0.06) * (0.5 + 0.5 * r.breakdown_factor);
+        let p = (0.01 + (70.0 - v.condition).max(0.0) / 70.0 * 0.06) * (0.5 + 0.5 * r.breakdown_factor) * m.breakdowns;
         if rng.chance(p) {
             let cost = (rng.range(200.0, 600.0) * c.price_index).round() as Cents * 100;
             out.push(Disruption::Breakdown { vehicle: v.id, cost });
@@ -949,7 +1066,7 @@ pub fn candidates(c: &Company, dp: &DayPlan, ti: usize, k: usize) -> Vec<Candida
 /// What the trips of a duty (or a whole tour: `0..trips`) dropped cost in the contract's
 /// penalty.
 pub fn drop_penalty(c: &Company, t: &TourOfDay, start: usize, end: usize) -> Cents {
-    let r = economy::rules(c.difficulty);
+    let r = economy::rules(c.game_mode);
     t.trips[start.min(t.trips.len())..end.min(t.trips.len())].iter().filter(|x| x.counts()).map(|x| r.drop_per_trip + (x.km * r.drop_per_km as f64).round() as Cents).sum()
 }
 
@@ -1019,7 +1136,7 @@ pub fn spare_buses(c: &Company, dp: &DayPlan, ti: usize) -> Vec<u32> {
 /// and the cash).
 pub fn rental_for(c: &Company, dp: &DayPlan, ti: usize) -> (Cents, bool) {
     let wants = super::ownline::wanted(c, &dp.tours[ti].tour);
-    let rent = economy::rent_per_day(BusKind { size: wants.unwrap_or_default(), drive: Drive::Diesel }, &economy::rules(c.difficulty), c.price_index);
+    let rent = economy::rent_per_day(BusKind { size: wants.unwrap_or_default(), drive: Drive::Diesel }, &economy::rules(c.game_mode), c.price_index);
     (rent, places_left(c) > 0 && c.cash >= rent)
 }
 
@@ -1043,6 +1160,8 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
     let usable = |id: u32| c.vehicle(id).is_some_and(|v| v.held_on(date) && !v.in_workshop(date) && v.condition >= 20.0) && !broken.contains(&id);
     // (the dispatcher's own, for a line's tours)
     let auto = |line: &str| c.planning.auto && c.planning.auto_only.as_deref().is_none_or(|l| l.eq_ignore_ascii_case(line));
+    // (and only the repair's places, `repair_day`)
+    let auto_key = |key: &str| c.planning.auto_keys.as_ref().is_none_or(|k| k.iter().any(|x| x == key));
     let mut tours = tours;
     tours.sort_by_key(|t| t.from());
     let mut out: Vec<DayTour> = tours
@@ -1085,7 +1204,7 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
     for t in out.iter_mut().filter(|t| !t.by_player && t.bus.is_none() && t.bus_problem.is_none()) {
         // (a line that asks for buses the fleet has none of says so)
         let none = if super::ownline::fleet_has_bus_for(c, &t.tour.line) { Problem::Unassigned } else { Problem::NoLineBus };
-        if !auto(&t.tour.line) {
+        if !auto(&t.tour.line) || !auto_key(&tour_key(&t.tour.line, &t.tour.tour)) {
             t.bus_problem = Some(none);
             continue;
         }
@@ -1112,7 +1231,7 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
         let mut places = places_left(c);
         for t in out.iter_mut().filter(|t| !t.by_player && t.bus.is_none()) {
             let (from, to, wants) = (t.tour.from(), t.tour.to(), super::ownline::wanted(c, &t.tour));
-            let rent = economy::rent_per_day(BusKind { size: wants.unwrap_or_default(), drive: Drive::Diesel }, &economy::rules(c.difficulty), c.price_index);
+            let rent = economy::rent_per_day(BusKind { size: wants.unwrap_or_default(), drive: Drive::Diesel }, &economy::rules(c.game_mode), c.price_index);
             match fill_of(c, date, &t.key()) {
                 Some(Fill::Bus { id }) if usable(id) && buses.free(id, from, to) => {
                     buses.take(id, from, to);
@@ -1200,7 +1319,7 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
         if t.duties[k].who.is_some() || t.duties[k].problem.is_some() || (t.bus.is_none() && !t.live) {
             continue;
         }
-        if !auto(&t.tour.line) {
+        if !auto(&t.tour.line) || !auto_key(&duty_key(&t.tour.line, &t.tour.tour, k)) {
             out[i].duties[k].problem = Some(Problem::Unassigned);
             continue;
         }
@@ -1472,7 +1591,7 @@ pub struct LivePlan {
     #[serde(default)]
     pub depot: String,
     #[serde(default)]
-    pub difficulty: Difficulty,
+    pub game_mode: GameMode,
     pub tours: Vec<LiveTour>,
 }
 
@@ -1487,7 +1606,7 @@ impl LivePlan {
     pub fn trip_event(&self, line: &str, tour: &str, dep: i32, km: f64, stops: usize, delay: f64) -> Option<LiveEvent> {
         let t = self.tour(line, tour).filter(|t| !t.dropped)?;
         let km = if km.is_finite() { km.clamp(0.0, 200.0) } else { 0.0 };
-        let passengers = if stops >= 3 { economy::passengers_for(km, dep, &economy::rules(self.difficulty)).round().max(0.0) as u32 } else { 0 };
+        let passengers = if stops >= 3 { economy::passengers_for(km, dep, &economy::rules(self.game_mode)).round().max(0.0) as u32 } else { 0 };
         Some(LiveEvent::Trip { line: t.line.clone(), tour: t.tour.clone(), vehicle: t.vehicle, km, passengers, delay, completed: true, dep: Some(dep) })
     }
 
@@ -1529,7 +1648,7 @@ pub fn live_plan(c: &Company, dp: &DayPlan) -> LivePlan {
             lt
         })
         .collect();
-    LivePlan { company: c.id.clone(), map: c.map.clone(), date: dp.date.clone(), depot: c.depot.clone(), difficulty: c.difficulty, tours }
+    LivePlan { company: c.id.clone(), map: c.map.clone(), date: dp.date.clone(), depot: c.depot.clone(), game_mode: c.game_mode, tours }
 }
 
 pub fn live_plan_file(data: &Path, id: &str) -> PathBuf {
@@ -1603,7 +1722,7 @@ mod tests {
 
     fn company(buses: usize, people: usize) -> Company {
         // (Easy: the fewest late mornings and breakdowns; the tests that want them make them)
-        let mut c = found(&Founding { name: "Plan".into(), difficulty: Difficulty::Easy, date: "2024-03-04".into(), map: "maps/Grundorf/global.cfg".into(), ..Default::default() }, "Luc");
+        let mut c = found(&Founding { name: "Plan".into(), game_mode: GameMode::Casual, date: "2024-03-04".into(), map: "maps/Grundorf/global.cfg".into(), ..Default::default() }, "Luc");
         // (in service from the start, and the dispatcher's own filling what the roster leaves
         // free - as "Fill the roster" does when asked)
         c.lines.push(CompanyLine { name: "Linie5".into(), number: "5".into(), numbers: vec!["5".into()], added: c.date.clone(), service_from: Some(0), ..Default::default() });
@@ -2043,7 +2162,7 @@ mod tests {
         for v in c.fleet.iter_mut() {
             v.condition = 21.0;
         }
-        c.difficulty = Difficulty::Hard;
+        c.game_mode = GameMode::Realistic;
         let base = c.id.clone();
         let mut found_one = false;
         for n in 0..4000 {
@@ -2234,8 +2353,8 @@ mod tests {
         assert_eq!(&covers[covers.len() - 2..], &[Cover::Player, Cover::Drop { penalty: drop_penalty(&c, &p.tours[0].tour, 0, 4) }]);
         // the penalty shown is the contract's (none on an easy economy)
         let mut hard = c.clone();
-        hard.difficulty = Difficulty::Realistic;
-        let r = economy::rules(Difficulty::Realistic);
+        hard.game_mode = GameMode::Normal;
+        let r = economy::rules(GameMode::Normal);
         assert_eq!(drop_penalty(&hard, &p.tours[0].tour, 0, 4), 4 * (r.drop_per_trip + (15.0 * r.drop_per_km as f64).round() as Cents));
         // each chosen runs the duty so
         for cv in &covers[..covers.len() - 1] {
@@ -2311,5 +2430,89 @@ mod tests {
         let is = day_issues(&p);
         assert!(is.iter().any(|i| i.text == I_DAY_FILLED && !i.hard));
         assert!(!is.iter().any(|i| i.text == I_DAY));
+    }
+
+    #[test]
+    fn the_roster_repairs_what_broke_and_keeps_what_is_good() {
+        let mut c = quiet(3, 4);
+        c.planning.auto = false;
+        let wd = weekday_of(&c.date);
+        let (b1, b2) = (c.fleet[0].id, c.fleet[1].id);
+        let (e1, e2) = (c.staff[0].id, c.staff[1].id);
+        set_bus(&mut c, wd, "Linie5", "1", Some(b1));
+        set_driver(&mut c, wd, "Linie5", "1", 0, Some(Who::Staff(e1)));
+        set_bus(&mut c, wd, "Linie5", "2", Some(b2));
+        set_driver(&mut c, wd, "Linie5", "2", 0, Some(Who::Staff(e2)));
+        let tours = vec![tour("1", 6 * 60, 3), tour("2", 6 * 60 + 10, 3), tour("3", 6 * 60 + 20, 3)];
+        // all good: nothing to repair
+        let today = c.date.clone();
+        assert_eq!(repair_day(&mut c, &today, tours.clone()), Repaired::default());
+        // tour 1's driver on holiday, its bus in the workshop
+        c.staff[0].holiday_until = Some(c.date.clone());
+        c.fleet[0].workshop_until = Some(c.date.clone());
+        assert_eq!(broken(&c, &c.date, tours.clone()), (vec![("Linie5".to_string(), "1".to_string())], vec![("Linie5".to_string(), "1".to_string(), 0)]));
+        let date = c.date.clone();
+        let r = repair_day(&mut c, &date, tours.clone());
+        assert_eq!((r.broken, r.duties, r.buses, r.open()), (2, 1, 1, 0));
+        let one = roster(&c, wd, "Linie5", "1").unwrap().clone();
+        assert!(one.bus.is_some_and(|b| b != b1 && b != b2));
+        assert!(matches!(one.duties[0], Some(Who::Staff(id)) if id != e1 && id != e2));
+        // the good one kept, and the tour the roster left free still free
+        assert_eq!(roster(&c, wd, "Linie5", "2").map(|r| (r.bus, r.duties.clone())), Some((Some(b2), vec![Some(Who::Staff(e2))])));
+        assert!(roster(&c, wd, "Linie5", "3").is_none());
+        let p = day_plan(&c, &date, tours.clone(), &[], &[], false);
+        assert!(p.tours[0].covered() && p.tours[1].covered());
+        // the inbox is told, once a morning
+        tell_repaired(&mut c, &r);
+        tell_repaired(&mut c, &r);
+        assert_eq!(c.inbox.messages.iter().filter(|m| m.title == REPAIRED.0).count(), 1);
+        // nobody free: what broke stays open, and is said
+        c.staff[2].holiday_until = Some(date.clone());
+        c.staff[3].holiday_until = Some(date.clone());
+        let r = repair_day(&mut c, &date, tours.clone());
+        assert_eq!((r.broken, r.duties, r.open()), (1, 0, 1));
+    }
+
+    #[test]
+    fn normal_mornings_are_clearly_calmer_than_realistic_ones_and_casual_ones_rare() {
+        // (testers: "half the tours fall out every day, even with everything maxed")
+        let base = company(6, 12);
+        let count = |m: GameMode| {
+            let mut c = base.clone();
+            c.game_mode = m;
+            for v in c.fleet.iter_mut() {
+                v.condition = 60.0;
+            }
+            (0..300).map(|d| disruptions(&c, &dates::add(&c.date, d)).len()).sum::<usize>()
+        };
+        let (casual, normal, realistic) = (count(GameMode::Casual), count(GameMode::Normal), count(GameMode::Realistic));
+        assert!(casual * 2 < normal && normal * 2 < realistic, "{casual} {normal} {realistic}");
+        // and the rules say so
+        let r = |m: GameMode| m.rules();
+        assert!(r(GameMode::Normal).sickness < 1.0 && r(GameMode::Normal).breakdowns < 1.0 && r(GameMode::Normal).lateness < 1.0);
+        assert_eq!((r(GameMode::Realistic).sickness, r(GameMode::Realistic).breakdowns, r(GameMode::Realistic).lateness), (1.0, 1.0, 1.0));
+        assert!(r(GameMode::Normal).repair_roster && !r(GameMode::Realistic).repair_roster && !r(GameMode::Casual).repair_roster);
+    }
+
+    #[test]
+    fn fill_the_roster_repairs_without_clearing_the_day() {
+        let mut c = quiet(2, 3);
+        c.planning.auto = false;
+        let wd = weekday_of(&c.date);
+        let (b1, e1, e2) = (c.fleet[0].id, c.staff[0].id, c.staff[1].id);
+        set_bus(&mut c, wd, "Linie5", "1", Some(b1));
+        set_driver(&mut c, wd, "Linie5", "1", 0, Some(Who::Staff(e1)));
+        set_driver(&mut c, wd, "Linie5", "2", 0, Some(Who::Staff(e2)));
+        let tours = vec![tour("1", 6 * 60, 3), tour("2", 6 * 60 + 10, 3)];
+        // tour 2's driver gone, and no bus planned for it
+        c.staff[1].notice_until = Some(dates::add(&c.date, -1));
+        let date = c.date.clone();
+        let f = fill_day_told(&mut c, &date, tours.clone());
+        assert!(f.duties >= 1 && f.buses >= 1, "{f:?}");
+        // tour 1 as it was, tour 2 given a driver who can, and the free bus
+        assert_eq!(roster(&c, wd, "Linie5", "1").map(|r| (r.bus, r.duties.clone())), Some((Some(b1), vec![Some(Who::Staff(e1))])));
+        let two = roster(&c, wd, "Linie5", "2").unwrap();
+        assert!(matches!(two.duties[0], Some(Who::Staff(id)) if id != e1 && id != e2));
+        assert!(two.bus.is_some_and(|b| b != b1));
     }
 }

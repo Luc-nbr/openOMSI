@@ -11,7 +11,7 @@
 //! drivers save).
 
 use super::career::{self, Evaluation};
-use super::model::{BookingKind, Cents, Company, Difficulty};
+use super::model::{BookingKind, Cents, Company, GameMode};
 use super::training;
 use crate::TripRun;
 use serde::{Deserialize, Serialize};
@@ -238,16 +238,16 @@ pub fn take_new_level(c: &mut Company) -> Option<u32> {
 /// The quality bonus of a tour judged `score` (the authority's, on Realistic and Hard): €12
 /// from 85 points, €20 from 95, half as much again on Hard (`book_trip` gives none to a tour
 /// that was fined).
-pub fn quality_bonus(d: Difficulty, score: u32, price_index: f64) -> Cents {
+pub fn quality_bonus(d: GameMode, score: u32, price_index: f64) -> Cents {
     let base = match score {
         95.. => 20_00,
         85..=94 => 12_00,
         _ => 0,
     } as f64;
     let factor = match d {
-        Difficulty::Easy => 0.0,
-        Difficulty::Realistic => 1.0,
-        Difficulty::Hard => 1.5,
+        GameMode::Casual => 0.0,
+        GameMode::Normal => 1.0,
+        GameMode::Realistic => 1.5,
     };
     (base * factor * price_index.max(0.0)).round() as Cents
 }
@@ -264,7 +264,7 @@ pub fn book_trip(c: &mut Company, t: &TripRun, number: &str) -> Evaluation {
         c.progress.fines += fines;
     }
     // (a tour that was fined or hit something earns no bonus, however punctual)
-    let bonus = if offences == 0 && t.crashes <= 0 { quality_bonus(c.difficulty, ev.score, c.price_index) } else { 0 };
+    let bonus = if offences == 0 && t.crashes <= 0 { quality_bonus(c.game_mode, ev.score, c.price_index) } else { 0 };
     if bonus > 0 {
         c.book(BookingKind::Bonus, bonus, format!("Line {number} (own trip)"), true);
         c.progress.bonuses += bonus;
@@ -314,13 +314,13 @@ mod tests {
     use super::super::{found, Founding};
     use super::*;
 
-    fn company(d: Difficulty) -> Company {
-        found(&Founding { name: "Stadtbus".into(), difficulty: d, date: "2024-05-06".into(), ..Default::default() }, "Luc")
+    fn company(d: GameMode) -> Company {
+        found(&Founding { name: "Stadtbus".into(), game_mode: d, date: "2024-05-06".into(), ..Default::default() }, "Luc")
     }
 
     #[test]
     fn levels_open_the_company_step_by_step() {
-        let mut c = company(Difficulty::Realistic);
+        let mut c = company(GameMode::Normal);
         assert_eq!((level(&c), title_of(1)), (1, "Start-up"));
         assert!(unlocked(&c, Feature::TrainingCentre) && !unlocked(&c, Feature::ArticulatedBuses) && !unlocked(&c, Feature::Workshop));
         assert_eq!((extra_places(&c), max_concessions(&c), loan_discount(&c)), (0, 1, 0.0));
@@ -344,7 +344,7 @@ mod tests {
 
     #[test]
     fn the_players_tours_bring_fines_bonuses_and_experience() {
-        let mut c = company(Difficulty::Hard);
+        let mut c = company(GameMode::Realistic);
         let cash = c.cash;
         let ev = book_trip(&mut c, &trip(20, 0), "5");
         assert_eq!(ev.score, 100);
@@ -359,8 +359,8 @@ mod tests {
         assert!(c.ledger.iter().any(|b| b.kind == BookingKind::Fine && b.amount == -90_00 && b.measured));
         assert_eq!((c.progress.fines, c.progress.bonuses, c.progress.judged.len()), (90_00, 30_00, 2));
         // no bonus on Easy
-        assert_eq!(quality_bonus(Difficulty::Easy, 100, 1.0), 0);
-        assert_eq!(quality_bonus(Difficulty::Realistic, 88, 1.1), 13_20);
+        assert_eq!(quality_bonus(GameMode::Casual, 100, 1.0), 0);
+        assert_eq!(quality_bonus(GameMode::Normal, 88, 1.1), 13_20);
     }
 
     #[test]
@@ -368,7 +368,7 @@ mod tests {
         assert_eq!(day_xp(10, 0, Some(95.0), 500), 40 + 20 + 25);
         assert_eq!(day_xp(10, 3, Some(85.0), 0), 40 + 10 - 6);
         assert_eq!(day_xp(0, 30, None, 0), 0);
-        let mut c = company(Difficulty::Realistic);
+        let mut c = company(GameMode::Normal);
         day_closed(&mut c, "2024-05-06", 10, 0, Some(95.0), 500);
         assert_eq!(c.progress.xp, 85);
     }

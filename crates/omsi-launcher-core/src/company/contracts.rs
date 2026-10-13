@@ -20,7 +20,7 @@ use super::clock::Level;
 use super::dates;
 use super::day::DayReport;
 use super::inbox::{self, Kind, Message};
-use super::model::{BookingKind, Cents, Company, DayRecord, Difficulty};
+use super::model::{BookingKind, Cents, Company, DayRecord, GameMode};
 use super::research;
 use super::rng::Rng;
 use serde::{Deserialize, Serialize};
@@ -497,10 +497,10 @@ fn draw(c: &Company, date: &str) -> Vec<Goal> {
     if !lines.is_empty() {
         kinds.push(6);
     }
-    let money = match c.difficulty {
-        Difficulty::Easy => 1.25,
-        Difficulty::Realistic => 1.0,
-        Difficulty::Hard => 0.8,
+    let money = match c.game_mode {
+        GameMode::Casual => 1.25,
+        GameMode::Normal => 1.0,
+        GameMode::Realistic => 0.8,
     };
     let until = dates::fmt(week + 6);
     let mut out = Vec::new();
@@ -842,7 +842,7 @@ mod tests {
     use crate::company::model::{CompanyLine, DayRecord};
 
     fn company() -> Company {
-        let mut c = found(&Founding { name: "Ziel".into(), difficulty: Difficulty::Realistic, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+        let mut c = found(&Founding { name: "Ziel".into(), game_mode: GameMode::Normal, date: "2024-03-04".into(), ..Default::default() }, "Luc");
         c.lines.push(CompanyLine { name: "Linie5".into(), number: "5".into(), added: c.date.clone(), service_from: Some(0), tours: 4, ..Default::default() });
         c
     }
@@ -894,7 +894,7 @@ mod tests {
         let text = |c: &Company| c.inbox.messages.iter().rev().find(|m| m.title == NEW_GOALS.0).map(|m| m.text.clone());
         assert_eq!(text(&a).as_deref(), Some(NEW_GOALS.1));
         let mut e = company();
-        e.mode = super::super::Mode::Easy;
+        e.game_mode = super::super::GameMode::Casual;
         refresh(&mut e, "2024-03-04");
         assert_eq!(text(&e).as_deref(), Some(NEW_GOALS_EASY.1));
     }

@@ -1206,7 +1206,7 @@ fn taken(c: &Company, week: i64, no: u32) -> bool {
 }
 
 fn drivers_market(c: &Company) -> Vec<Applicant> {
-    let r = economy::rules(c.difficulty);
+    let r = economy::rules(c.game_mode);
     let week = dates::week_of(&c.date);
     let mut rng = Rng::of(&[&c.id, "applicants"], week);
     let mut out = Vec::new();
@@ -1236,7 +1236,7 @@ fn drivers_market(c: &Company) -> Vec<Applicant> {
 /// The applicants of a role besides the drivers: fewer of them (Easy four a week, Realistic
 /// three, Hard two), numbered from a hundred for each role.
 fn role_market(c: &Company, role: Role) -> Vec<Applicant> {
-    let r = economy::rules(c.difficulty);
+    let r = economy::rules(c.game_mode);
     let week = dates::week_of(&c.date);
     let mut rng = Rng::of(&[&c.id, "applicants", key(role)], week);
     let mut out = Vec::new();
@@ -1316,7 +1316,7 @@ pub fn hire(c: &mut Company, a: &Applicant) -> Result<u32, &'static str> {
 
 /// Dismiss someone: they work their notice and leave after it. Returns their last day.
 pub fn dismiss(c: &mut Company, id: u32) -> Result<String, &'static str> {
-    let r = economy::rules(c.difficulty);
+    let r = economy::rules(c.game_mode);
     let today = c.date.clone();
     let Some(e) = c.staff.iter_mut().find(|e| e.id == id) else { return Err("They do not work here.") };
     if e.notice_until.is_some() {
@@ -1400,7 +1400,9 @@ fn told_lately(c: &Company, title: &str, name: &str, days: i64) -> bool {
 /// (their last wage and, on Hard, a severance pay booked). The inbox hears of long illnesses,
 /// of who thinks of leaving and of who resigned.
 pub fn after_day(c: &mut Company, worked: &[(u32, i32, i32, i32)], rng: &mut Rng) -> Vec<StaffNote> {
-    let r = economy::rules(c.difficulty);
+    let r = economy::rules(c.game_mode);
+    // (the game mode's share of the illness: Casual and Normal calmer)
+    let sickness = r.sickness * c.game_mode.rules().sickness;
     let today = c.date.clone();
     let mut notes = Vec::new();
     let mut leaving = Vec::new();
@@ -1443,7 +1445,7 @@ pub fn after_day(c: &mut Company, worked: &[(u32, i32, i32, i32)], rng: &mut Rng
         let away = e.absent(&dates::add(&today, 1));
         if !away && e.notice_until.is_none() {
             let stressed = 1.0 + (e.stress - 30.0).max(0.0) / 100.0 * 1.5;
-            if rng.chance(r.sickness * (1.6 - e.reliability) * stressed) {
+            if rng.chance(sickness * (1.6 - e.reliability) * stressed) {
                 let days = rng.int(1, 7);
                 let until = dates::add(&today, days);
                 e.sick_until = Some(until.clone());
@@ -1500,7 +1502,7 @@ pub fn after_day(c: &mut Company, worked: &[(u32, i32, i32, i32)], rng: &mut Rng
 mod tests {
     use super::super::{found, Founding};
     use super::*;
-    use crate::company::model::Difficulty;
+    use crate::company::model::GameMode;
 
     fn block(key: &str, from: i32, to: i32) -> Block {
         Block { key: key.into(), from, to, from_stop: "A".into(), to_stop: "B".into() }
@@ -1513,7 +1515,7 @@ mod tests {
     fn faces_follow_the_names_gender() {
         assert!(FEMALE_PORTRAITS.windows(2).all(|w| w[0] < w[1]) && FEMALE_PORTRAITS.iter().all(|p| valid(*p)));
         assert_eq!(FIRST.iter().filter(|f| f.1).count(), 20);
-        let mut c = found(&Founding { name: "Faces".into(), difficulty: Difficulty::Realistic, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+        let mut c = found(&Founding { name: "Faces".into(), game_mode: GameMode::Normal, date: "2024-03-04".into(), ..Default::default() }, "Luc");
         c.cash = 10_000_000_00;
         let week = market(&c);
         let mut seen = Vec::new();
@@ -1563,7 +1565,7 @@ mod tests {
 
     #[test]
     fn hiring_dismissing_and_the_wages() {
-        let mut c = found(&Founding { name: "Leute".into(), difficulty: Difficulty::Realistic, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+        let mut c = found(&Founding { name: "Leute".into(), game_mode: GameMode::Normal, date: "2024-03-04".into(), ..Default::default() }, "Luc");
         let market = applicants(&c);
         assert_eq!(market.len(), 6);
         assert!(market.iter().all(|a| (2_500_00..4_500_00).contains(&a.wage) && (21..=63).contains(&a.age)));
@@ -1596,7 +1598,7 @@ mod tests {
 
     #[test]
     fn someone_whose_notice_ends_leaves_with_the_last_wage() {
-        let mut c = found(&Founding { name: "Weg".into(), difficulty: Difficulty::Hard, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+        let mut c = found(&Founding { name: "Weg".into(), game_mode: GameMode::Realistic, date: "2024-03-04".into(), ..Default::default() }, "Luc");
         let a = applicants(&c)[0].clone();
         let id = hire(&mut c, &a).unwrap();
         c.staff[0].hired = "2022-03-04".into();
@@ -1613,7 +1615,7 @@ mod tests {
     }
 
     fn company() -> Company {
-        found(&Founding { name: "Rollen".into(), difficulty: Difficulty::Realistic, date: "2024-03-04".into(), ..Default::default() }, "Luc")
+        found(&Founding { name: "Rollen".into(), game_mode: GameMode::Normal, date: "2024-03-04".into(), ..Default::default() }, "Luc")
     }
 
     /// Hire `n` of a role (another week's market when this one runs out).

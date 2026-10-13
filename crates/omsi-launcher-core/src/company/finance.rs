@@ -7,7 +7,7 @@ use super::dates;
 use super::economy;
 use super::levels;
 use super::market;
-use super::model::{BookingKind, Cents, Company, Difficulty, Loan};
+use super::model::{BookingKind, Cents, Company, GameMode, Loan};
 use serde::{Deserialize, Serialize};
 
 /// What the owned fleet is worth.
@@ -52,12 +52,12 @@ pub fn monthly_income(c: &Company) -> Cents {
 /// The yearly interest the bank asks of the company: the difficulty's, less what its level
 /// saves (`levels::loan_discount`).
 pub fn rate_of(c: &Company) -> f64 {
-    (economy::rules(c.difficulty).loan_rate - levels::loan_discount(c)).max(0.0)
+    (economy::rules(c.game_mode).loan_rate - levels::loan_discount(c)).max(0.0)
 }
 
 /// The company's credit, with `collateral` (the value of what a loan buys).
 pub fn credit(c: &Company, collateral: Cents) -> Credit {
-    let r = economy::rules(c.difficulty);
+    let r = economy::rules(c.game_mode);
     let base = (r.credit_base as f64 * c.price_index).round() as Cents;
     let fleet_value = fleet_value(c) + collateral;
     let income = monthly_income(c);
@@ -101,14 +101,14 @@ pub fn room(cr: &Credit) -> Room {
 
 /// What a loan of `amount` costs a month, and over how many months (the difficulty's term).
 pub fn loan_terms(c: &Company, amount: Cents) -> (Cents, u32, f64) {
-    let r = economy::rules(c.difficulty);
+    let r = economy::rules(c.game_mode);
     let rate = rate_of(c);
     (economy::annuity(amount, rate, r.loan_months), r.loan_months, rate)
 }
 
 /// The terms the bank offers, in months: up to the difficulty's longest.
 pub fn terms_offered(c: &Company) -> Vec<u32> {
-    let longest = economy::rules(c.difficulty).loan_months;
+    let longest = economy::rules(c.game_mode).loan_months;
     [12, 24, 36, 48, 60, 72, 84, 96].into_iter().filter(|m| *m <= longest).collect()
 }
 
@@ -140,17 +140,17 @@ pub fn schedule(amount: Cents, rate: f64, months: u32) -> Vec<Instalment> {
 }
 
 /// The fee for paying a loan back early, of the amount paid back.
-pub fn early_fee_rate(d: Difficulty) -> f64 {
+pub fn early_fee_rate(d: GameMode) -> f64 {
     match d {
-        Difficulty::Easy => 0.0,
-        Difficulty::Realistic => 0.01,
-        Difficulty::Hard => 0.02,
+        GameMode::Casual => 0.0,
+        GameMode::Normal => 0.01,
+        GameMode::Realistic => 0.02,
     }
 }
 
 /// The fee for paying `amount` back early.
 pub fn early_fee(c: &Company, amount: Cents) -> Cents {
-    (amount as f64 * early_fee_rate(c.difficulty)).round() as Cents
+    (amount as f64 * early_fee_rate(c.game_mode)).round() as Cents
 }
 
 /// A loan contract: who lends to whom, how much, at what interest, over how long, the rates,
@@ -213,7 +213,7 @@ pub fn draft_loan(c: &Company, amount: Cents, months: u32, purpose: &str, collat
         first_rate: first,
         purpose: purpose.to_string(),
         security: fleet_value(c) + collateral,
-        early_fee: early_fee_rate(c.difficulty),
+        early_fee: early_fee_rate(c.game_mode),
         ..Default::default()
     }
 }
@@ -323,11 +323,11 @@ pub fn pay_rates(c: &mut Company) -> Vec<String> {
 mod tests {
     use super::super::{found, Founding};
     use super::*;
-    use crate::company::model::Difficulty;
+    use crate::company::model::GameMode;
 
     #[test]
     fn a_loan_is_paid_off_in_its_months() {
-        let mut c = found(&Founding { name: "Bank".into(), difficulty: Difficulty::Realistic, ..Default::default() }, "Luc");
+        let mut c = found(&Founding { name: "Bank".into(), game_mode: GameMode::Normal, ..Default::default() }, "Luc");
         let cash = c.cash;
         assert!(take_loan(&mut c, 10_000_000_00, "too much", 0).is_err());
         let id = take_loan(&mut c, 100_000_00, "bus", 0).unwrap();
@@ -354,7 +354,7 @@ mod tests {
         assert!(c.loans.is_empty());
         let _ = id;
         // Easy lends without interest
-        let mut e = found(&Founding { name: "Easy".into(), difficulty: Difficulty::Easy, ..Default::default() }, "Luc");
+        let mut e = found(&Founding { name: "Easy".into(), game_mode: GameMode::Casual, ..Default::default() }, "Luc");
         take_loan(&mut e, 96_000_00, "x", 0).unwrap();
         assert_eq!(e.loans[0].monthly, 1_000_00);
     }
@@ -376,7 +376,7 @@ mod tests {
             assert!(s.windows(2).all(|w| w[1].interest <= w[0].interest));
         }
         // the schedule is what the months book
-        let mut c = found(&Founding { name: "Bank".into(), difficulty: Difficulty::Realistic, ..Default::default() }, "Luc");
+        let mut c = found(&Founding { name: "Bank".into(), game_mode: GameMode::Normal, ..Default::default() }, "Luc");
         let k = LoanContract { signed_by: "Luc".into(), ..draft_loan(&c, 120_000_00, 24, "bus", 0) };
         sign_loan(&mut c, &k, 0).unwrap();
         let cash = c.cash;
@@ -390,7 +390,7 @@ mod tests {
 
     #[test]
     fn the_credit_room_is_the_base_the_fleet_and_the_income_less_the_debt() {
-        let mut c = found(&Founding { name: "Bank".into(), difficulty: Difficulty::Realistic, date: "2024-05-06".into(), ..Default::default() }, "Luc");
+        let mut c = found(&Founding { name: "Bank".into(), game_mode: GameMode::Normal, date: "2024-05-06".into(), ..Default::default() }, "Luc");
         let cr = credit(&c, 0);
         assert_eq!((cr.base, cr.fleet_value, cr.income, cr.debt), (600_000_00, 0, 0, 0));
         assert_eq!((cr.limit, cr.left), (600_000_00, 600_000_00));
@@ -421,7 +421,7 @@ mod tests {
 
     #[test]
     fn a_loan_is_taken_by_its_signed_contract_and_paid_back_early_with_a_fee() {
-        let mut c = found(&Founding { name: "Bank".into(), difficulty: Difficulty::Realistic, date: "2024-05-06".into(), ..Default::default() }, "Luc");
+        let mut c = found(&Founding { name: "Bank".into(), game_mode: GameMode::Normal, date: "2024-05-06".into(), ..Default::default() }, "Luc");
         let k = draft_loan(&c, 100_000_00, 36, "New buses", 0);
         assert_eq!((k.first_rate.as_str(), k.months, k.lender.as_str(), k.borrower.as_str()), ("2024-05-31", 36, BANK, "Bank"));
         assert!(k.interest() > 0 && k.total == k.amount + k.interest());

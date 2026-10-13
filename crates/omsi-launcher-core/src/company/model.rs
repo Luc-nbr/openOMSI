@@ -15,58 +15,138 @@ pub type Cents = i64;
 /// The version of the saved file; raised when a field changes meaning (see `store::migrate`).
 pub const VERSION: u32 = 1;
 
-/// How hard the economy is (see `economy::rules`).
+/// The company's game mode (Trello "Game modes 1/4"): one choice that sets both how much of
+/// the company the player runs himself and how hard its economy and its days are. It can be
+/// changed at any time in the company's settings; nothing is lost when it is.
+///
+/// * **Casual**: the company runs its routine by itself (`autopilot`), the simple pages, a
+///   generous economy and few disruptions.
+/// * **Normal**: every page; the player runs the company, the dispatcher helps (the roster
+///   repairs itself every morning, `plan::repair_day`), forgiving rules, calmer days.
+/// * **Realistic**: every page, real-life wages, rules and disruptions; the player solves
+///   everything himself.
+///
+/// It replaces the old pair of an easy/advanced mode and an easy/realistic/hard difficulty
+/// (`LegacyMode`, `LegacyDifficulty`, still read from older files: `GameMode::from_legacy`).
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default, Hash)]
 #[serde(rename_all = "lowercase")]
-pub enum Difficulty {
-    Easy,
+pub enum GameMode {
+    Casual,
     #[default]
+    Normal,
     Realistic,
-    Hard,
 }
 
-impl Difficulty {
-    pub const ALL: [Difficulty; 3] = [Difficulty::Easy, Difficulty::Realistic, Difficulty::Hard];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Difficulty::Easy => "Easy",
-            Difficulty::Realistic => "Realistic",
-            Difficulty::Hard => "Hard",
-        }
-    }
+/// What a game mode changes besides the economy (`economy::rules` and the other tables keyed
+/// on the mode): the pages, the company's own routine, the disruptions and the dispatcher.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ModeRules {
+    /// The company runs its routine by itself (`autopilot`) and shows the simple pages.
+    pub autopilot: bool,
+    /// RosterFlow can be switched on as an add-on (`Addons::rosterflow`).
+    pub rosterflow: bool,
+    /// The roster repairs itself every morning (`plan::repair_day`): what broke is given anew.
+    pub repair_roster: bool,
+    /// The disruptions against the mode's economy (1: as they were before the game modes):
+    /// falling ill, coming late, and buses breaking down.
+    pub sickness: f64,
+    pub lateness: f64,
+    pub breakdowns: f64,
 }
 
-/// How much of the company the player runs himself (Luc: "make an easy mode and an advanced
-/// mode for the bus company mode too ... so that players get a choice"): the easy mode leaves
-/// the routine to the company (`autopilot`) and shows fewer pages; the advanced mode is every
-/// page and every function. A company of an older file is advanced.
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default, Hash)]
-#[serde(rename_all = "lowercase")]
-pub enum Mode {
-    Easy,
-    #[default]
-    Advanced,
-}
-
-impl Mode {
-    pub const ALL: [Mode; 2] = [Mode::Easy, Mode::Advanced];
+impl GameMode {
+    pub const ALL: [GameMode; 3] = [GameMode::Casual, GameMode::Normal, GameMode::Realistic];
 
     /// Its name (English, translated when shown).
     pub fn label(self) -> &'static str {
         match self {
-            Mode::Easy => "Easy mode",
-            Mode::Advanced => "Advanced mode",
+            GameMode::Casual => "Casual",
+            GameMode::Normal => "Normal",
+            GameMode::Realistic => "Realistic",
+        }
+    }
+
+    /// Its pitch, in one line.
+    pub fn pitch(self) -> &'static str {
+        match self {
+            GameMode::Casual => "Drive and grow: the company runs itself.",
+            GameMode::Normal => "Run the company, with a helping hand.",
+            GameMode::Realistic => "Run it as a real operator does.",
+        }
+    }
+
+    /// What it offers, a few words each.
+    pub fn bullets(self) -> [&'static str; 4] {
+        match self {
+            GameMode::Casual => ["Everything automatic: rosters, repairs, staff and research", "Simple screens", "Lots of help along the way", "Generous money"],
+            GameMode::Normal => ["You run the company yourself", "The dispatcher helps: the roster repairs itself every morning", "Forgiving rules and calmer days", "Optional RosterFlow"],
+            GameMode::Realistic => ["Real-life wages, prices and rules", "Real disruptions: illness, breakdowns, delays", "You solve everything yourself", "Optional RosterFlow"],
         }
     }
 
     /// What it means, in a line or two.
     pub fn info(self) -> &'static str {
         match self {
-            Mode::Easy => "The company runs its routine by itself: rosters, spare parts, repairs, staff and research. You drive, buy buses, add lines and watch the money.",
-            Mode::Advanced => "Every page and every function: you plan the rosters, run the workshop, bid for concessions and manage everything yourself.",
+            GameMode::Casual => "The company runs its routine by itself: rosters, spare parts, repairs, staff and research. You drive, buy buses, add lines and watch the money.",
+            GameMode::Normal => "Every page and every function: you run the company, and the dispatcher repairs the roster every morning. Forgiving rules and fewer disruptions.",
+            GameMode::Realistic => "Every page and every function, with real-life wages, rules and disruptions: you plan, repair and solve everything yourself.",
         }
     }
+
+    /// The mode's rules besides the economy.
+    pub fn rules(self) -> ModeRules {
+        match self {
+            GameMode::Casual => ModeRules { autopilot: true, rosterflow: false, repair_roster: false, sickness: 0.35, lateness: 0.35, breakdowns: 0.5 },
+            GameMode::Normal => ModeRules { autopilot: false, rosterflow: true, repair_roster: true, sickness: 0.45, lateness: 0.5, breakdowns: 0.45 },
+            GameMode::Realistic => ModeRules { autopilot: false, rosterflow: true, repair_roster: false, sickness: 1.0, lateness: 1.0, breakdowns: 1.0 },
+        }
+    }
+
+    /// The company runs its routine by itself (the simple pages).
+    pub fn casual(self) -> bool {
+        self.rules().autopilot
+    }
+
+    /// The mode of a file of before the game modes: an easy mode is Casual; an advanced one
+    /// (or a file of before the modes, which was advanced) is Normal on an easy or realistic
+    /// economy and Realistic on a hard one.
+    pub fn from_legacy(mode: Option<LegacyMode>, difficulty: Option<LegacyDifficulty>) -> GameMode {
+        match (mode.unwrap_or_default(), difficulty.unwrap_or_default()) {
+            (LegacyMode::Easy, _) => GameMode::Casual,
+            (LegacyMode::Advanced, LegacyDifficulty::Hard) => GameMode::Realistic,
+            (LegacyMode::Advanced, _) => GameMode::Normal,
+        }
+    }
+}
+
+/// How hard the economy was, before the game modes (read from older files only).
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum LegacyDifficulty {
+    Easy,
+    #[default]
+    Realistic,
+    Hard,
+}
+
+/// How much of the company the player ran himself, before the game modes (read from older
+/// files only; a file of before it was advanced).
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum LegacyMode {
+    Easy,
+    #[default]
+    Advanced,
+}
+
+/// The add-ons a company can switch on (Trello "Game modes 2/4"). Switched off, an add-on's
+/// data is kept.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default, Hash)]
+#[serde(default)]
+pub struct Addons {
+    /// RosterFlow – Bus Scheduling & Crew Rostering: the planning's studio, timeplan and
+    /// tutorial. Off, the planning is the day's roster alone. Not in Casual.
+    pub rosterflow: bool,
 }
 
 /// A bus's length class: what it costs, what it carries and who may drive it.
@@ -642,7 +722,13 @@ pub struct Company {
     pub founded: String,
     /// The day that runs now: the next one "Close the day" settles.
     pub date: String,
-    pub difficulty: Difficulty,
+    /// The game mode (Casual, Normal, Realistic). A file of before it has none: its
+    /// `legacy_mode` and `legacy_difficulty` give it (`store::migrate`).
+    #[serde(default)]
+    pub game_mode: GameMode,
+    /// The difficulty of a file of before the game modes (read, never written).
+    #[serde(default, rename = "difficulty", skip_serializing)]
+    pub legacy_difficulty: Option<LegacyDifficulty>,
     pub cash: Cents,
     /// 0 to 100: the authority's view of the company (it moves the compensation ±10 %).
     pub reputation: f64,
@@ -720,9 +806,12 @@ pub struct Company {
     pub inbox: super::inbox::Inbox,
     #[serde(default)]
     pub staff_rules: super::staff::StaffRules,
-    /// How much of it the player runs himself (an older file's: the advanced mode).
+    /// The mode of a file of before the game modes (read, never written).
+    #[serde(default, rename = "mode", skip_serializing)]
+    pub legacy_mode: Option<LegacyMode>,
+    /// The add-ons switched on (`Addons`).
     #[serde(default)]
-    pub mode: Mode,
+    pub addons: Addons,
     /// What the company does by itself in the easy mode, and what it did (`autopilot`).
     #[serde(default)]
     pub autopilot: super::autopilot::Autopilot,

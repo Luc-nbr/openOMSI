@@ -30,7 +30,7 @@ use super::clock;
 use super::dates;
 use super::economy;
 use super::levels;
-use super::model::{BookingKind, Cents, Company, Difficulty};
+use super::model::{BookingKind, Cents, Company, GameMode};
 use super::network;
 use super::rng::Rng;
 use super::specials;
@@ -228,17 +228,17 @@ pub struct Rules {
     pub direct: bool,
 }
 
-pub fn rules(d: Difficulty) -> Rules {
+pub fn rules(d: GameMode) -> Rules {
     match d {
-        Difficulty::Easy => Rules { rivals: (1, 2), factor: 0.8, fee_base: 0, fee_per_tour: 0, term_weeks: 104, offers: 4, direct: true },
-        Difficulty::Realistic => Rules { rivals: (2, 3), factor: 1.0, fee_base: 1_500_00, fee_per_tour: 150_00, term_weeks: 52, offers: 3, direct: false },
-        Difficulty::Hard => Rules { rivals: (3, 4), factor: 1.15, fee_base: 3_000_00, fee_per_tour: 250_00, term_weeks: 52, offers: 3, direct: false },
+        GameMode::Casual => Rules { rivals: (1, 2), factor: 0.8, fee_base: 0, fee_per_tour: 0, term_weeks: 104, offers: 4, direct: true },
+        GameMode::Normal => Rules { rivals: (2, 3), factor: 1.0, fee_base: 1_500_00, fee_per_tour: 150_00, term_weeks: 52, offers: 3, direct: false },
+        GameMode::Realistic => Rules { rivals: (3, 4), factor: 1.15, fee_base: 3_000_00, fee_per_tour: 250_00, term_weeks: 52, offers: 3, direct: false },
     }
 }
 
 /// Map lines may be added without a concession's tender (an easy economy).
 pub fn may_add_directly(c: &Company) -> bool {
-    rules(c.difficulty).direct
+    rules(c.game_mode).direct
 }
 
 /// The operators a map draws its rivals from (made up).
@@ -301,7 +301,7 @@ pub fn fee(c: &Company, t: &Tender) -> Cents {
 
 /// The fee of a tender of a line with `day_tours` tours a day worth `value`.
 fn fee_of(c: &Company, day_tours: u32, value: Cents) -> Cents {
-    let r = rules(c.difficulty);
+    let r = rules(c.game_mode);
     let f = ((r.fee_base + r.fee_per_tour * day_tours as Cents) as f64 * c.price_index).round() as Cents;
     if value > 0 && f > 0 {
         f.min(round(value as f64 * 0.1))
@@ -334,12 +334,12 @@ fn value_at(day_km: f64, weeks: u32, per_km: f64) -> Cents {
 
 /// The authority's reference compensation per kilometre now (cents).
 pub fn reference_per_km(c: &Company) -> f64 {
-    economy::compensation_per_km(&economy::rules(c.difficulty), 50.0, c.contract_index)
+    economy::compensation_per_km(&economy::rules(c.game_mode), 50.0, c.contract_index)
 }
 
 /// What a line's week brings in at a price: the authority's payment and the fares.
 pub fn week_revenue(c: &Company, w: &Week, price: f64) -> Cents {
-    let r = economy::rules(c.difficulty);
+    let r = economy::rules(c.game_mode);
     let comp = w.km * reference_per_km(c) * price;
     let fares = w.km * r.passengers_per_km * r.fare as f64;
     (comp + fares).round() as Cents
@@ -390,7 +390,7 @@ pub fn open_tender<'a>(c: &'a Company, line: &str) -> Option<&'a Tender> {
 /// and tenders of older files (bid by the day) become auctions of the next hours. Returns
 /// whether anything changed.
 pub fn ensure(c: &mut Company) -> bool {
-    let r = rules(c.difficulty);
+    let r = rules(c.game_mode);
     let mut changed = ensure_rivals(c);
     let lines = c.lines.clone();
     let today = c.date.clone();
@@ -421,7 +421,7 @@ pub fn ensure(c: &mut Company) -> bool {
 /// A new tender of a line, its auction opening at `opens_at` (minutes) for a few hours.
 fn new_tender(c: &mut Company, l: &LineInfo, opens_at: i64, renewal: bool) -> u32 {
     ensure_rivals(c);
-    let r = rules(c.difficulty);
+    let r = rules(c.game_mode);
     c.concessions.counter += 1;
     let id = c.concessions.counter;
     let mut rng = Rng::of(&[&c.id, "tender", &l.name], id as i64);
@@ -465,7 +465,7 @@ fn new_tender(c: &mut Company, l: &LineInfo, opens_at: i64, renewal: bool) -> u3
 /// the other on the next days; renewals of the concessions ending soon; old results dropped.
 /// Returns whether anything changed.
 pub fn refresh(c: &mut Company, lines: &[LineInfo]) -> bool {
-    let r = rules(c.difficulty);
+    let r = rules(c.game_mode);
     let mut changed = ensure(c);
     changed |= mend_tenders(c, lines);
     let today = c.date.clone();
@@ -595,7 +595,7 @@ pub fn apply(c: &mut Company, l: &LineInfo) -> Result<u32, &'static str> {
 /// The rivals of a tender as its auction knows them: their limits drawn per tender (secret),
 /// when they open, who keeps quiet until the end.
 pub fn bidders(c: &Company, t: &Tender) -> Vec<Bidder> {
-    let r = rules(c.difficulty);
+    let r = rules(c.game_mode);
     let mut nobody_opened = true;
     let mut out = Vec::new();
     for (k, id) in t.bidders.iter().enumerate() {
@@ -657,7 +657,7 @@ pub fn chance(c: &Company, t: &Tender, amount: Cents) -> f64 {
             Some(Seen { character: r.character, weight: auction::weight(r.quality), last })
         })
         .collect();
-    auction::chance(amount, weight(c, t), &seen, t.value, rules(c.difficulty).factor, &t.lot())
+    auction::chance(amount, weight(c, t), &seen, t.value, rules(c.game_mode).factor, &t.lot())
 }
 
 /// The fee with the first bid.
@@ -773,7 +773,7 @@ pub fn asking_price_of(c: &Company, l: &LineInfo) -> Cents {
         return asking_price(c, t);
     }
     let (tours, km) = day_figures(l);
-    let value = value_of(c, km, rules(c.difficulty).term_weeks);
+    let value = value_of(c, km, rules(c.game_mode).term_weeks);
     value + fee_of(c, tours, value)
 }
 
@@ -895,10 +895,10 @@ pub fn after_day(c: &mut Company, date: &str, km: &[(String, f64)], lines: &[Lin
     let mut events = Vec::new();
     let tomorrow = c.date.clone();
     let keep = std::mem::replace(&mut c.date, date.to_string());
-    let r = rules(c.difficulty);
+    let r = rules(c.game_mode);
 
     // older concessions' prices: the close paid the reference for every kilometre
-    let per_km = economy::compensation_per_km(&economy::rules(c.difficulty), c.reputation, c.contract_index);
+    let per_km = economy::compensation_per_km(&economy::rules(c.game_mode), c.reputation, c.contract_index);
     for (line, k) in km {
         let Some(h) = of_line(c, line).cloned() else { continue };
         let delta = (k * per_km * (h.price - 1.0)).round() as Cents;
@@ -991,8 +991,8 @@ pub(crate) mod tests {
         }
     }
 
-    fn company(d: Difficulty) -> Company {
-        found(&Founding { name: "Tender".into(), difficulty: d, date: "2024-03-04".into(), ..Default::default() }, "Luc")
+    fn company(d: GameMode) -> Company {
+        found(&Founding { name: "Tender".into(), game_mode: d, date: "2024-03-04".into(), ..Default::default() }, "Luc")
     }
 
     /// The nights from today until `until` (inclusive), as the day's close runs them.
@@ -1009,7 +1009,7 @@ pub(crate) mod tests {
     #[test]
     fn a_round_offers_lines_the_company_does_not_run_one_a_day() {
         let lines = vec![line("Linie5", "5", 3, true), line("Linie7", "7", 2, true), line("oo_12", "12", 1, true), line("Linie9", "9", 4, true)];
-        let mut c = company(Difficulty::Realistic);
+        let mut c = company(GameMode::Normal);
         network::add_line(&mut c, &lines[0], None).unwrap();
         assert!(refresh(&mut c, &lines));
         // (the line run already is grandfathered, the player's own one is never offered)
@@ -1038,7 +1038,7 @@ pub(crate) mod tests {
     #[test]
     fn a_bid_that_leads_at_the_close_wins_and_the_line_is_run_for_the_term() {
         let lines = vec![line("Linie7", "7", 2, true)];
-        let mut c = company(Difficulty::Realistic);
+        let mut c = company(GameMode::Normal);
         c.cash = 1_000_000_00;
         c.clock.minute = 10 * 60;
         let id = apply(&mut c, &lines[0]).unwrap();
@@ -1093,7 +1093,7 @@ pub(crate) mod tests {
     #[test]
     fn buying_out_is_certain_and_a_low_bid_loses_more_often() {
         let lines = vec![line("Linie7", "7", 2, true)];
-        let mut c = company(Difficulty::Hard);
+        let mut c = company(GameMode::Realistic);
         c.cash = 1_000_000_00;
         c.clock.minute = 9 * 60;
         let id = apply(&mut c, &lines[0]).unwrap();
@@ -1109,7 +1109,7 @@ pub(crate) mod tests {
         let mut won = [0; 2];
         for n in 0..60 {
             for (k, share) in [0.45, 1.25].into_iter().enumerate() {
-                let mut c = company(Difficulty::Realistic);
+                let mut c = company(GameMode::Normal);
                 c.id = format!("c{n}");
                 c.cash = 1_000_000_00;
                 c.clock.minute = 9 * 60;
@@ -1131,7 +1131,7 @@ pub(crate) mod tests {
     #[test]
     fn the_company_level_limits_the_concessions() {
         let lines = vec![line("Linie7", "7", 2, true), line("Linie9", "9", 2, true), line("Linie3", "3", 2, true)];
-        let mut c = company(Difficulty::Realistic);
+        let mut c = company(GameMode::Normal);
         c.cash = 1_000_000_00;
         c.clock.minute = 9 * 60;
         assert_eq!(levels::max_concessions(&c), 1);
@@ -1160,7 +1160,7 @@ pub(crate) mod tests {
         }
         let shuttle = line("FFF Shuttle", "", 1, true);
         let lines = vec![depot.clone(), shuttle.clone(), line("Linie7", "7", 2, true)];
-        let mut c = company(Difficulty::Hard);
+        let mut c = company(GameMode::Realistic);
         refresh(&mut c, &lines);
         assert_eq!(c.concessions.tenders.iter().map(|t| t.line.as_str()).collect::<Vec<_>>(), vec!["Linie7"]);
         assert!(apply(&mut c, &depot).is_err() && apply(&mut c, &shuttle).is_err());
@@ -1179,7 +1179,7 @@ pub(crate) mod tests {
         let mut other = line("251", "251", 1, true);
         other.user_allowed = false;
         let lines = vec![day.clone(), other.clone()];
-        let mut c = company(Difficulty::Realistic);
+        let mut c = company(GameMode::Normal);
         c.clock.minute = 9 * 60;
         let now = clock::now(&c);
         let a = new_tender(&mut c, &day, now, false);
@@ -1197,7 +1197,7 @@ pub(crate) mod tests {
     #[test]
     fn an_easy_economy_takes_lines_directly_and_own_lines_pay_a_licence() {
         let lines = vec![line("Linie5", "5", 3, true)];
-        let mut c = company(Difficulty::Easy);
+        let mut c = company(GameMode::Casual);
         assert!(may_add_directly(&c));
         network::add_line(&mut c, &lines[0], None).unwrap();
         c.lines.push(CompanyLine { name: "oo_1".into(), number: "1".into(), own: true, ..Default::default() });
@@ -1208,7 +1208,7 @@ pub(crate) mod tests {
         assert!(c.lines.iter().any(|l| l.name == "Linie5"), "renewed by itself");
         assert!(dates::between(&c.date, &of_line(&c, "Linie5").unwrap().until) > 300);
         // the month's licence
-        let mut d = company(Difficulty::Realistic);
+        let mut d = company(GameMode::Normal);
         d.lines.push(CompanyLine { name: "oo_1".into(), number: "1".into(), own: true, ..Default::default() });
         d.date = "2024-03-31".into();
         let cash = d.cash;

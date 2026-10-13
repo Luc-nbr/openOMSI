@@ -199,7 +199,7 @@ pub fn summary(c: &Company, plan: Option<&Plan>, waiting: &[Order]) -> Value {
         "short": c.short,
         "colour": c.colours[0],
         "date": c.date,
-        "difficulty": c.difficulty.label(),
+        "difficulty": c.game_mode.label(),
         "cash": c.cash,
         "debt": c.debt(),
         "reputation": c.reputation.round(),

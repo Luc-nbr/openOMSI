@@ -383,7 +383,7 @@ impl Start {
 #[cfg(test)]
 mod tests {
     use super::super::market::{self, MarketBus, Payment};
-    use super::super::model::{CompanyLine, Difficulty};
+    use super::super::model::{CompanyLine, GameMode};
     use super::super::network::TourOfDay;
     use super::super::plan::{day_plan, set_bus, set_driver, weekday_of};
     use super::super::{found, Founding};
@@ -396,7 +396,7 @@ mod tests {
     /// A company with one bus and line 5, whose tour 2 is a depot run, three trips and the run
     /// back, the player planned on it with the bus.
     fn setup() -> (Company, Vec<TourOfDay>) {
-        let mut c = found(&Founding { name: "Stadtbus".into(), difficulty: Difficulty::Easy, date: "2024-03-04".into(), map: "maps/Grundorf/global.cfg".into(), ..Default::default() }, "Luc");
+        let mut c = found(&Founding { name: "Stadtbus".into(), game_mode: GameMode::Casual, date: "2024-03-04".into(), map: "maps/Grundorf/global.cfg".into(), ..Default::default() }, "Luc");
         c.depot = "Grundorf.hof".into();
         c.lines.push(CompanyLine { name: "Linie5".into(), number: "5".into(), numbers: vec!["5".into()], added: c.date.clone(), service_from: Some(0), ..Default::default() });
         c.cash += 5_000_000_00;

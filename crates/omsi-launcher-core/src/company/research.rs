@@ -15,7 +15,7 @@
 use super::day::DayReport;
 use super::inbox::{self, Kind, Message};
 use super::levels::{self, Feature};
-use super::model::{BookingKind, BusSize, Cents, Company, Difficulty, Employee, Role};
+use super::model::{BookingKind, BusSize, Cents, Company, GameMode, Employee, Role};
 use serde::{Deserialize, Serialize};
 
 /// The keys of research other parts of the company ask for.
@@ -241,11 +241,11 @@ pub struct Cost {
 }
 
 /// What research costs against Realistic.
-fn cost_factor(d: Difficulty) -> f64 {
+fn cost_factor(d: GameMode) -> f64 {
     match d {
-        Difficulty::Easy => 0.7,
-        Difficulty::Realistic => 1.0,
-        Difficulty::Hard => 1.3,
+        GameMode::Casual => 0.7,
+        GameMode::Normal => 1.0,
+        GameMode::Realistic => 1.3,
     }
 }
 
@@ -253,7 +253,7 @@ fn cost_factor(d: Difficulty) -> f64 {
 /// and half as much work again.
 pub fn cost(c: &Company, t: &Topic, stage: u32) -> Cost {
     let k = stage.max(1) as f64 - 1.0;
-    let money = t.money as f64 * (1.0 + 0.6 * k) * cost_factor(c.difficulty) * c.price_index.max(0.0);
+    let money = t.money as f64 * (1.0 + 0.6 * k) * cost_factor(c.game_mode) * c.price_index.max(0.0);
     Cost { money: ((money / 100_00 as f64).round() as Cents) * 100_00, trophies: t.trophies + t.trophy_step * k as i64, work: t.work * (1.0 + 0.5 * k) }
 }
 
@@ -671,7 +671,7 @@ mod tests {
         assert!(two.money > one.money && two.trophies > one.trophies && two.work > one.work);
         assert_eq!(one.trophies, 0);
         // harder companies pay more
-        c.difficulty = Difficulty::Hard;
+        c.game_mode = GameMode::Realistic;
         assert!(cost(&c, fuel, 1).money > one.money);
         c.research.done = vec!["fuel_1".into(), "fuel_2".into(), "fuel_4".into()];
         // (the stages one after the other: the fourth without the third does not count)

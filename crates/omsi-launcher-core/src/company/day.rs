@@ -348,7 +348,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
     let tours = network::in_service_only(tours);
     // (the passengers answer the fares: `fares`)
     super::fares::day(c);
-    let r = economy::rules(c.difficulty);
+    let r = economy::rules(c.game_mode);
     let date = c.date.clone();
     let month = dates::month_of(&date);
     let before = c.month(&month);
@@ -377,7 +377,8 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
     // (what research does to a kilometre's wear and maintenance, and to the late trips)
     let upkeep = super::research::wear_factor(c);
     let wear_km = wear_per_km(&r) * upkeep;
-    let late_factor = super::research::late_factor(c);
+    // (and the game mode's: Casual and Normal run late less often)
+    let late_factor = super::research::late_factor(c) * c.game_mode.rules().lateness;
     let mut on_time = 0u32;
     let mut timed = 0u32;
 
@@ -872,14 +873,14 @@ mod tests {
     use super::super::staff::{applicants, hire};
     use super::super::{found, Founding};
     use super::*;
-    use crate::company::model::{CompanyLine, Difficulty};
+    use crate::company::model::{CompanyLine, GameMode};
 
     fn tour(no: &str, from: i32, n: i32) -> TourOfDay {
         TourOfDay { line: "Linie5".into(), number: "5".into(), tour: no.into(), ai_group: String::new(), trips: (0..n).map(|k| trip(from + k * 60, from + 50 + k * 60, 12)).collect(), unplanned: false, cuts: None }
     }
 
-    fn company(d: Difficulty, buses: usize, people: usize) -> Company {
-        let mut c = found(&Founding { name: "Tag".into(), difficulty: d, date: "2024-03-04".into(), map: "maps/Grundorf/global.cfg".into(), ..Default::default() }, "Luc");
+    fn company(d: GameMode, buses: usize, people: usize) -> Company {
+        let mut c = found(&Founding { name: "Tag".into(), game_mode: d, date: "2024-03-04".into(), map: "maps/Grundorf/global.cfg".into(), ..Default::default() }, "Luc");
         // (in service from the start, and the dispatcher's own filling what the roster leaves
         // free - as "Fill the roster" does when asked)
         c.lines.push(CompanyLine { name: "Linie5".into(), number: "5".into(), numbers: vec!["5".into()], added: c.date.clone(), service_from: Some(0), ..Default::default() });
@@ -911,7 +912,7 @@ mod tests {
 
     #[test]
     fn a_school_line_is_paid_per_trip_and_strict() {
-        let mut c = company(Difficulty::Realistic, 2, 4);
+        let mut c = company(GameMode::Normal, 2, 4);
         c.lines[0].plan = Some(super::super::ownline::OwnPlan { service: ServiceKind::School, per_trip: [[20.0; 24]; 3], ..Default::default() });
         let date = c.date.clone();
         let tours = vec![tour("1", 6 * 60, 10), tour("2", 6 * 60 + 30, 10), tour("3", 8 * 60, 6)];
@@ -927,7 +928,7 @@ mod tests {
 
     #[test]
     fn an_on_demand_line_runs_only_what_was_booked() {
-        let mut c = company(Difficulty::Realistic, 2, 4);
+        let mut c = company(GameMode::Normal, 2, 4);
         let plan = |b: f32| Some(super::super::ownline::OwnPlan { service: ServiceKind::OnDemand, per_trip: [[b; 24]; 3], ..Default::default() });
         let tours = vec![tour("1", 6 * 60, 10), tour("2", 6 * 60 + 30, 10), tour("3", 8 * 60, 6)];
         // nobody books: nothing runs, nothing is dropped - not even the tour without a bus
@@ -944,7 +945,7 @@ mod tests {
     #[test]
     fn free_buses_and_drivers_cover_what_they_can() {
         // three tours, two buses, drivers for all: one tour without a bus
-        let c = company(Difficulty::Realistic, 2, 6);
+        let c = company(GameMode::Normal, 2, 6);
         let tours = vec![tour("1", 6 * 60, 8), tour("2", 6 * 60 + 20, 8), tour("3", 7 * 60, 8)];
         let plan = assign(&c, tours.clone(), &[], &[]);
         assert_eq!(plan.uncovered(), 1);
@@ -952,18 +953,18 @@ mod tests {
         assert!(plan.tours.iter().filter(|t| t.bus.is_some()).all(|t| t.duties.iter().all(|d| d.driver.is_some())));
         // a bus does a later tour after an earlier one
         let later = vec![tour("1", 6 * 60, 3), tour("2", 10 * 60, 3)];
-        let plan = assign(&company(Difficulty::Realistic, 1, 2), later, &[], &[]);
+        let plan = assign(&company(GameMode::Normal, 1, 2), later, &[], &[]);
         assert_eq!(plan.uncovered(), 0);
         assert_eq!(plan.tours[0].bus, plan.tours[1].bus);
         // no drivers: nothing covered; the player's own tour needs neither
-        let none = company(Difficulty::Realistic, 2, 0);
+        let none = company(GameMode::Normal, 2, 0);
         let plan = assign(&none, tours.clone(), &[("5".into(), "2".into())], &[]);
         assert_eq!(plan.uncovered(), 2);
         assert!(plan.tours.iter().find(|t| t.tour.tour == "2").unwrap().covered());
         assert_eq!(plan.coverage_of("Linie5"), (1, 3));
         // one driver: a long tour's two duties cannot both be theirs (over ten hours)
         let long = vec![tour("1", 5 * 60, 18)];
-        let plan = assign(&company(Difficulty::Realistic, 1, 1), long, &[], &[]);
+        let plan = assign(&company(GameMode::Normal, 1, 1), long, &[], &[]);
         assert_eq!(plan.tours[0].duties.len(), 2);
         assert!(plan.tours[0].partly());
     }
@@ -979,7 +980,7 @@ mod tests {
         let fares_of = |c: &Company, date: &str| c.ledger.iter().filter(|b| b.date == date && matches!(b.kind, BookingKind::Fares | BookingKind::Penalty)).count();
         // not planned yet: its tours are shown for the planning, but nothing runs, nothing is
         // booked or penalised
-        let mut c = company(Difficulty::Realistic, 2, 4);
+        let mut c = company(GameMode::Normal, 2, 4);
         c.lines[0].service_from = None;
         let date = c.date.clone();
         let tours = network::tours_of_day(&c, &lines, &date);
@@ -989,7 +990,7 @@ mod tests {
         assert!(r.lines[0].unplanned && r.lines[0].revenue == 0);
         assert_eq!(fares_of(&c, &date), 0);
         // planned and in service, but a tour without a bus: dropped, with the contract's penalty
-        let mut c = company(Difficulty::Realistic, 0, 4);
+        let mut c = company(GameMode::Normal, 0, 4);
         let date = c.date.clone();
         let tours = network::tours_of_day(&c, &lines, &date);
         assert!(tours.iter().all(|t| !t.unplanned));
@@ -997,7 +998,7 @@ mod tests {
         assert_eq!((r.tours, r.covered, r.uncovered, r.short_buses), (2, 0, 2, 2));
         assert!(r.dropped == 8 && r.penalties > 0 && r.lines[0].penalty == r.penalties);
         // in service from noon: the morning's tour waits, the afternoon's runs
-        let mut c = company(Difficulty::Realistic, 2, 4);
+        let mut c = company(GameMode::Normal, 2, 4);
         let date = c.date.clone();
         network::start_service(&mut c, "Linie5", super::super::clock::moment(&date, 12 * 60)).unwrap();
         let tours = network::tours_of_day(&c, &lines, &date);
@@ -1012,7 +1013,7 @@ mod tests {
 
     #[test]
     fn a_concession_not_started_after_its_grace_is_charged() {
-        for (d, charged) in [(Difficulty::Easy, false), (Difficulty::Realistic, true), (Difficulty::Hard, true)] {
+        for (d, charged) in [(GameMode::Casual, false), (GameMode::Normal, true), (GameMode::Realistic, true)] {
             let mut c = company(d, 1, 2);
             c.lines[0].service_from = None;
             c.lines[0].km = 400.0;
@@ -1023,7 +1024,7 @@ mod tests {
             assert_eq!(r.penalties > 0, charged);
         }
         // within its grace, or an own line: nothing
-        let mut c = company(Difficulty::Hard, 1, 2);
+        let mut c = company(GameMode::Realistic, 1, 2);
         c.lines[0].service_from = None;
         c.lines[0].km = 400.0;
         c.lines[0].added = dates::add(&c.date, -2);
@@ -1035,7 +1036,7 @@ mod tests {
 
     #[test]
     fn closing_a_day_books_it_and_moves_on() {
-        let mut c = company(Difficulty::Realistic, 2, 4);
+        let mut c = company(GameMode::Normal, 2, 4);
         let tours = vec![tour("1", 6 * 60, 10), tour("2", 6 * 60 + 30, 10), tour("3", 8 * 60, 6)];
         let cash = c.cash;
         let r = close_day(&mut c, tours, &[]);
@@ -1053,7 +1054,7 @@ mod tests {
         assert!(c.staff.iter().filter(|e| e.days_worked == 1).count() >= 2);
         assert!(c.last_report.is_some());
         // the same day closed again on a copy draws the same
-        let mut a = company(Difficulty::Realistic, 2, 4);
+        let mut a = company(GameMode::Normal, 2, 4);
         let mut b = a.clone();
         let t = vec![tour("1", 6 * 60, 10)];
         assert_eq!(close_day(&mut a, t.clone(), &[]), close_day(&mut b, t, &[]));
@@ -1062,7 +1063,7 @@ mod tests {
     #[test]
     fn drivers_trained_in_ticket_sales_bring_more_fares() {
         use super::super::training::{Course, CourseKind};
-        let plain = company(Difficulty::Realistic, 2, 4);
+        let plain = company(GameMode::Normal, 2, 4);
         let mut trained = plain.clone();
         for (k, e) in plain.staff.iter().enumerate() {
             let x = Course { id: k as u32 + 1, kind: CourseKind::Ticketing, employee: Some(e.id), name: e.name.clone(), from: plain.date.clone(), until: plain.date.clone(), cost: 0, done: true, subject: String::new() };
@@ -1081,7 +1082,7 @@ mod tests {
 
     #[test]
     fn the_players_own_trips_are_measured() {
-        let mut c = company(Difficulty::Realistic, 0, 0);
+        let mut c = company(GameMode::Normal, 0, 0);
         let run = TripRun { time: 1_700_000_000, map: "maps\\Grundorf\\global.cfg".into(), line: "5".into(), tour: "1".into(), stops: 12, passengers: 30, seconds: 1800.0, metres: 9000.0, completed: true, ..Default::default() };
         let elsewhere = TripRun { map: "maps/Other/global.cfg".into(), time: 1_700_000_001, ..run.clone() };
         let r = close_day(&mut c, vec![tour("1", 6 * 60, 4)], &[run.clone(), elsewhere]);
@@ -1102,7 +1103,7 @@ mod tests {
 
     #[test]
     fn a_month_end_books_the_wages_and_the_fixed_costs() {
-        let mut c = company(Difficulty::Realistic, 1, 2);
+        let mut c = company(GameMode::Normal, 1, 2);
         c.date = "2024-03-31".into();
         let r = close_day(&mut c, vec![], &[]);
         let m = c.month("2024-03");
@@ -1122,7 +1123,7 @@ mod tests {
 
     #[test]
     fn a_lease_that_ends_in_the_month_pays_its_part_of_it() {
-        let mut c = company(Difficulty::Realistic, 1, 0);
+        let mut c = company(GameMode::Normal, 1, 0);
         // (leased since January, it goes back after the 4th of March)
         c.fleet[0].acquired = "2024-01-15".into();
         c.fleet[0].tenure = Tenure::Leased { monthly: 3_100_00, until: c.date.clone(), residual: 0 };
@@ -1139,7 +1140,7 @@ mod tests {
     fn only_drivers_drive_and_the_others_do_their_work() {
         use crate::company::model::Role;
         // a mechanic, a cleaner and a service employee, and no driver: nobody drives
-        let mut c = company(Difficulty::Realistic, 2, 0);
+        let mut c = company(GameMode::Normal, 2, 0);
         for role in [Role::Mechanic, Role::Cleaner, Role::Service] {
             let a = staff::applicants_of(&c, role)[0].clone();
             hire(&mut c, &a).unwrap();
@@ -1155,7 +1156,7 @@ mod tests {
         let r = close_day(&mut c.clone(), tours.clone(), &[]);
         assert_eq!(r.covered, 0);
         // with drivers: they drive, the others are paid their hours and never planned
-        let mut c = company(Difficulty::Realistic, 2, 4);
+        let mut c = company(GameMode::Normal, 2, 4);
         let drivers: Vec<u32> = c.staff.iter().map(|e| e.id).collect();
         for role in [Role::Mechanic, Role::Cleaner] {
             let a = staff::applicants_of(&c, role)[0].clone();
@@ -1181,7 +1182,7 @@ mod tests {
     #[test]
     fn ticket_inspectors_bring_in_more_fares() {
         use crate::company::model::Role;
-        let mut c = company(Difficulty::Realistic, 2, 4);
+        let mut c = company(GameMode::Normal, 2, 4);
         c.research.done.push(super::super::research::keys::TICKET_INSPECTORS.to_string());
         let plain = c.clone();
         let a = staff::applicants_of(&c, Role::Inspector)[0].clone();
@@ -1201,7 +1202,7 @@ mod tests {
 
     #[test]
     fn hard_days_break_more_buses_than_easy_ones() {
-        let count = |d: Difficulty| {
+        let count = |d: GameMode| {
             let mut c = company(d, 4, 10);
             let mut n = 0;
             for _ in 0..120 {
@@ -1221,6 +1222,6 @@ mod tests {
             }
             n
         };
-        assert!(count(Difficulty::Hard) > count(Difficulty::Easy));
+        assert!(count(GameMode::Realistic) > count(GameMode::Casual));
     }
 }

@@ -47,7 +47,7 @@ fn line5() -> LineInfo {
 
 fn company() -> Company {
     let mut c = found(&Founding { name: "Flow".into(), date: "2024-03-04".into(), ..Default::default() }, "Luc");
-    c.mode = super::super::Mode::Advanced;
+    c.game_mode = super::super::GameMode::Normal;
     c.lines.push(CompanyLine { name: "Linie5".into(), number: "5".into(), numbers: vec!["5".into()], added: c.date.clone(), service_from: Some(0), ..Default::default() });
     c
 }

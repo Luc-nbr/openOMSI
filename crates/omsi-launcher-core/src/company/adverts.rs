@@ -18,7 +18,7 @@
 
 use super::dates;
 use super::levels::{self, Feature};
-use super::model::{BookingKind, Cents, Company, Difficulty};
+use super::model::{BookingKind, Cents, Company, GameMode};
 use super::rng::Rng;
 use serde::{Deserialize, Serialize};
 
@@ -175,11 +175,11 @@ pub struct Adverts {
     pub taken: Vec<u32>,
 }
 
-fn factor(d: Difficulty) -> f64 {
+fn factor(d: GameMode) -> f64 {
     match d {
-        Difficulty::Easy => 1.2,
-        Difficulty::Realistic => 1.0,
-        Difficulty::Hard => 0.85,
+        GameMode::Casual => 1.2,
+        GameMode::Normal => 1.0,
+        GameMode::Realistic => 0.85,
     }
 }
 
@@ -198,7 +198,7 @@ pub fn reach(c: &Company) -> f64 {
 /// An advertiser's price for an advert of `kind` on a bus of the company a month.
 pub fn price(c: &Company, kind: AdKind) -> Cents {
     let rep = 0.85 + 0.3 * c.reputation.clamp(0.0, 100.0) / 100.0;
-    let euros = kind.base() as f64 / 100.0 * reach(c) * rep * factor(c.difficulty) * c.price_index;
+    let euros = kind.base() as f64 / 100.0 * reach(c) * rep * factor(c.game_mode) * c.price_index;
     (euros.round() as Cents) * 100
 }
 

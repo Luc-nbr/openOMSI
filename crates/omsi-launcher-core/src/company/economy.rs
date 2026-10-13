@@ -33,7 +33,7 @@
 //! inflation while the contract does not keep up, loans cost interest and buses break down
 //! more often.
 
-use super::model::{BusKind, BusSize, Cents, Difficulty, Drive};
+use super::model::{BusKind, BusSize, Cents, GameMode, Drive};
 
 /// The numbers of one difficulty.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -85,9 +85,9 @@ pub struct Rules {
 }
 
 /// The rules of a difficulty.
-pub fn rules(d: Difficulty) -> Rules {
+pub fn rules(d: GameMode) -> Rules {
     match d {
-        Difficulty::Easy => Rules {
+        GameMode::Casual => Rules {
             start_capital: 2_500_000_00,
             price_factor: 0.85,
             used_markup: 0.95,
@@ -117,7 +117,7 @@ pub fn rules(d: Difficulty) -> Rules {
             applicants: 8,
             used_offers: 8,
         },
-        Difficulty::Realistic => Rules {
+        GameMode::Normal => Rules {
             start_capital: 1_200_000_00,
             price_factor: 1.0,
             used_markup: 1.10,
@@ -147,7 +147,7 @@ pub fn rules(d: Difficulty) -> Rules {
             applicants: 6,
             used_offers: 6,
         },
-        Difficulty::Hard => Rules {
+        GameMode::Realistic => Rules {
             start_capital: 600_000_00,
             price_factor: 1.08,
             used_markup: 1.20,
@@ -364,26 +364,26 @@ mod tests {
 
     #[test]
     fn prices_follow_the_difficulty() {
-        let r = rules(Difficulty::Realistic);
+        let r = rules(GameMode::Normal);
         assert_eq!(new_price(SOLO, &r, 1.0), 280_000_00);
         assert_eq!(new_price(E_ART, &r, 1.0), 800_000_00);
         assert_eq!(new_price(BusKind { size: BusSize::Solo, drive: Drive::Electric }, &r, 1.0), 550_000_00);
         assert_eq!(new_price(BusKind { size: BusSize::Articulated, drive: Drive::Diesel }, &r, 1.0), 400_000_00);
-        let easy = new_price(SOLO, &rules(Difficulty::Easy), 1.0);
-        let hard = new_price(SOLO, &rules(Difficulty::Hard), 1.0);
+        let easy = new_price(SOLO, &rules(GameMode::Casual), 1.0);
+        let hard = new_price(SOLO, &rules(GameMode::Realistic), 1.0);
         assert!(easy < 280_000_00 && hard > 280_000_00);
         // inflation raises them
         assert_eq!(new_price(SOLO, &r, 1.1), 308_000_00);
         // a grant only for the electric bus's extra cost on Realistic, on everything on Easy
         assert_eq!(grant(SOLO, 280_000_00, &r, 1.0), 0);
         assert_eq!(grant(E_ART, 800_000_00, &r, 1.0), 160_000_00);
-        assert!(grant(SOLO, easy, &rules(Difficulty::Easy), 1.0) > 0);
-        assert_eq!(grant(E_ART, 800_000_00, &rules(Difficulty::Hard), 1.0), 0);
+        assert!(grant(SOLO, easy, &rules(GameMode::Casual), 1.0) > 0);
+        assert_eq!(grant(E_ART, 800_000_00, &rules(GameMode::Realistic), 1.0), 0);
         // a day's rental of a solo bus some €360
         assert_eq!(rent_per_day(SOLO, &r, 1.0), 360_00);
         // the start capital buys a few buses
         assert!(r.start_capital > 3 * 280_000_00);
-        assert!(rules(Difficulty::Easy).start_capital > r.start_capital && r.start_capital > rules(Difficulty::Hard).start_capital);
+        assert!(rules(GameMode::Casual).start_capital > r.start_capital && r.start_capital > rules(GameMode::Realistic).start_capital);
     }
 
     #[test]
@@ -396,11 +396,11 @@ mod tests {
         // the rates add up to more than the principal, by the interest
         assert!(m * 72 > 280_000_00 && m * 72 < 330_000_00);
         // a lease with a quarter left as residual costs less a month than the loan
-        let r = rules(Difficulty::Realistic);
+        let r = rules(GameMode::Normal);
         let lease = lease_monthly(280_000_00, &r);
         assert!(lease < m && (3_400_00..3_800_00).contains(&lease), "{lease}");
         // a harder lease is dearer
-        assert!(lease_monthly(280_000_00, &rules(Difficulty::Hard)) > lease);
+        assert!(lease_monthly(280_000_00, &rules(GameMode::Realistic)) > lease);
     }
 
     #[test]
@@ -413,7 +413,7 @@ mod tests {
         // more kilometres and a worse condition cost value
         assert!(book_value(280_000_00, 6.0, 600_000.0, 100.0) < six);
         assert!(book_value(280_000_00, 6.0, 360_000.0, 40.0) < six);
-        assert_eq!(sale_price(six, &rules(Difficulty::Realistic)), 130_900_00);
+        assert_eq!(sale_price(six, &rules(GameMode::Normal)), 130_900_00);
     }
 
     #[test]
@@ -430,7 +430,7 @@ mod tests {
         assert_eq!(market_wage(45.0, 1.0), 3_310_00);
         assert_eq!(employer_cost(3_300_00), 3_993_00);
         // the peaks bring more passengers than the night
-        let r = rules(Difficulty::Realistic);
+        let r = rules(GameMode::Normal);
         assert!(passengers_for(10.0, 7 * 60, &r) > 4.0 * passengers_for(10.0, 1 * 60, &r));
         assert!((compensation_per_km(&r, 50.0, 1.0) - 120.0).abs() < 1e-9);
         assert!(compensation_per_km(&r, 100.0, 1.0) > compensation_per_km(&r, 0.0, 1.0));
@@ -440,14 +440,14 @@ mod tests {
     fn a_realistic_kilometre_earns_a_little_more_than_it_costs() {
         // revenue a km on an average hour, against energy, maintenance, a driver's share
         // (about €1.60 a km with days off and holidays) and the bus (leasing ~€0.55)
-        let r = rules(Difficulty::Realistic);
+        let r = rules(GameMode::Normal);
         let revenue = r.passengers_per_km * r.fare as f64 + compensation_per_km(&r, 50.0, 1.0);
         let cost = energy_per_km(SOLO, 1.0) + maintenance_per_km(SOLO, 3.0, 1.0) + 160.0 + 55.0;
         let margin = (revenue - cost) / revenue;
         assert!(margin > 0.0 && margin < 0.25, "{margin}");
-        let e = rules(Difficulty::Easy);
+        let e = rules(GameMode::Casual);
         let easy = e.passengers_per_km * e.fare as f64 + compensation_per_km(&e, 50.0, 1.0);
-        let h = rules(Difficulty::Hard);
+        let h = rules(GameMode::Realistic);
         let hard = h.passengers_per_km * h.fare as f64 + compensation_per_km(&h, 50.0, 1.0);
         assert!(easy > revenue * 1.3 && hard < revenue);
     }

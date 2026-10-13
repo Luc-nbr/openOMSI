@@ -641,13 +641,13 @@ pub fn finish_job(c: &mut Company, vehicle: u32, kind: JobKind, quality: f64) ->
 #[cfg(test)]
 mod tests {
     use super::super::market::{self, Payment};
-    use super::super::model::{BusKind, BusSize, Difficulty, Drive};
+    use super::super::model::{BusKind, BusSize, GameMode, Drive};
     use super::super::staff::{applicants, hire};
     use super::super::{found, Founding};
     use super::*;
 
     fn company() -> Company {
-        let mut c = found(&Founding { name: "Stadtbus".into(), difficulty: Difficulty::Realistic, date: "2024-05-06".into(), ..Default::default() }, "Luc");
+        let mut c = found(&Founding { name: "Stadtbus".into(), game_mode: GameMode::Normal, date: "2024-05-06".into(), ..Default::default() }, "Luc");
         for a in applicants(&c).into_iter().take(3) {
             hire(&mut c, &a).unwrap();
         }
