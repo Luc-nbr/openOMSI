@@ -165,6 +165,8 @@ fn ours(s: &mut Session, c: &Company, selected: Option<&str>) -> Value {
                 "timetable": (rf && (line.plan.is_some() || !line.own)).then(|| tr("Timetable: the line's running times and departures in RosterFlow's Timeplan")),
                 "edit": if line.plan.is_some() { Some(tr("Edit route: change the line in the line editor")) } else if !line.own { Some(tr(if rf { "Edit the line in the line editor: its route and displays" } else { "Edit the line in the line editor: its route, timetable and displays" })) } else { None },
                 "remove_tip": tr("Stop running this line"),
+                // (the line editor, handed over: an own line by its id, a line of the map by its name)
+                "edit_to": match line.plan.as_ref() { Some(p) => Some(format!("line-editor={}", p.line_id)), None if !line.own => Some(format!("map-line={}", line.name)), None => None },
                 "bar": { "frac": frac, "tone": share_tone(frac, !in_service), "label": label, "right": right, "tip": tip, "click": if easy && click == "planning" { "select" } else { click } },
                 "km": trf("%{km} km a day", &[("km", &grouped(line.km))]),
             })
@@ -472,7 +474,7 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Result<Value, St
                     if own.is_none() && co::autopilot::rosterflow(&c) {
                         let t = trf("Line %{n} is the company's: here is its timetable. Plan its tours and start its service on the Roster tab.", &[("n", &n)]);
                         s.say(t, false);
-                        return Some(Ok(json!({ "done": true, "selected": line.name, "hand_over": "5" })));
+                        return Some(Ok(json!({ "done": true, "selected": line.name, "hand_over": format!("timetable={}", line.name) })));
                     }
                     let t = trf("Line %{n} is the company's: plan its tours and start its service on the Planning page.", &[("n", &n)]);
                     s.say(t, false);

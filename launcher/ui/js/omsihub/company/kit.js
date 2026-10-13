@@ -147,7 +147,7 @@ export function goKey(to) {
   setCo({ popup: null, dialog: null });
   if (to.startsWith('to-normal')) {
     const tab = Number(to.split(':')[1] || HOME);
-    setCo({ dialog: { kind: 'confirm', what: 'game_mode', to: 'normal', tab } });
+    setCo({ dialog: { kind: 'confirm', what: 'game_mode', name: 'normal', tab } });
     return;
   }
   if (to === 'loan') {
@@ -407,4 +407,26 @@ export function textW(text, px, weight = 700) {
   if (!measure) measure = document.createElement('canvas').getContext('2d');
   measure.font = `${weight} ${px / 1.303}px "Hanken Grotesk", sans-serif`;
   return measure.measureText(String(text)).width;
+}
+
+/** A slider over [min, max] by `step` (`Ui::slider`): its name on the left (none: the track
+ * from the left edge), the value on the right. */
+export function Slider({ value, min, max, step = 1, label, format, onChange, style = '' }) {
+  const v = Number(value ?? min);
+  const fill = ((v - min) / (max - min || 1)) * 100;
+  return html`<div class=${'co-slider' + (label ? '' : ' bare')} style=${style}>
+    ${label && html`<span class="cut">${label}</span>`}
+    <input type="range" min=${min} max=${max} step=${step} value=${v} style=${`--fill:${fill}%`} onInput=${(e) => onChange(Number(e.currentTarget.value))} />
+    <b>${format ? format(v) : v}</b>
+  </div>`;
+}
+
+/** The crumbs of a way down (`buspick::crumbs`): the parts on the way in the accent, a click
+ * back to them; the last in ink. */
+export function Crumbs({ parts, onPick, style = '' }) {
+  return html`<div class="co-crumbs" style=${style}>${parts.map((p, k) =>
+    k + 1 === parts.length
+      ? html`<b class="cut">${p}</b>`
+      : html`<button type="button" class="cut" onClick=${() => onPick(k)}>${p}</button><${Icon} name="chevron_right" size=${14} />`,
+  )}</div>`;
 }

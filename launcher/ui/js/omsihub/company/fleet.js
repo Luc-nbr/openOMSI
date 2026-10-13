@@ -1,6 +1,193 @@
-// (being written)
-import { html } from './kit.js';
+// The company's fleet, as our game-drawn launcher's (`company/fleet.rs`, `adverts.rs`): its
+// buses as tiles (the number, the name, plate and kind, kilometres and age, the condition and
+// how the bus is now), the dealer, and the advertising on the buses; a bus's dialog (its
+// livery, what it is, selling or giving it back, a service, training its drivers), and leasing
+// or renting one of the dealer's buses.
+
+import { html, useState, tr, setCo, setUi, ui, act, useView, useSize, textW, goTab, Icon, Btn, Seg, Section, Meter, Dialog, Select } from './kit.js';
+import { DealerPage } from './dealer.js';
 
 export function FleetPage() {
-  return html`<div class="co-empty">fleet</div>`;
+  const st = ui('fleet', { tab: 0 });
+  const v = useView('fleet', { tab: st.tab });
+  if (!v?.tabs) return null;
+  const w = v.tabs.length === 2 ? 380 : 560;
+  return html`<div style="height:100%;display:flex;flex-direction:column">
+    <${Seg} value=${v.tab} options=${v.tabs.map((t, k) => [k, t])} onChange=${(k) => setUi('fleet', { tab: k })} style=${`width:${w}px;max-width:100%;height:40px;flex:none`} />
+    <div style="flex:1;min-height:0;margin-top:16px">
+      ${v.tab === 1 ? html`<${DealerPage} />` : v.tab === 2 ? html`<${Adverts} a=${v.body} />` : html`<${Buses} b=${v.body} />`}
+    </div>
+  </div>`;
 }
+
+/** The tiles' columns for a width (`fleet::layout`): at least 270 wide, the photo half as high. */
+export function layout(w) {
+  const gap = 14;
+  const cols = Math.max(1, Math.floor((w + gap) / (270 + gap)));
+  const tw = (w - gap * (cols - 1)) / cols;
+  const ph = tw * 0.52;
+  return { cols, tw, ph, th: ph + 118 };
+}
+
+/** The bus's initials (`buspick::initials`): what its tile shows for a photo. */
+export const initials = (name) =>
+  String(name || '')
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join('');
+
+/** A bus's tile (`fleet::tile`): its photo's place (the bus's initials on the night's
+ * gradient) and the room under it. */
+export function BusTile({ name, r, onClick, children, over, attrs = {} }) {
+  const ph = r.w * 0.52;
+  return html`<button type="button" class="co-bustile" style=${`left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px`} onClick=${onClick} ...${attrs}>
+    <span class="photo" style=${`height:${ph}px`}><span class="mono">${initials(name)}</span></span>
+    ${over}
+    <span class="info" style=${`top:${ph + 12}px`}>${children}</span>
+  </button>`;
+}
+
+function Buses({ b }) {
+  const [ref, size] = useSize();
+  if (!b || b.kind !== 'buses') return html`<div ref=${ref}></div>`;
+  const order = b.order && html`<div class="co-order"><${Icon} name="schedule" size=${18} class="t-accent2" /><span class="cut">${b.order}</span></div>`;
+  if (!b.buses.length) {
+    return html`<div ref=${ref}>${order}
+      <p class="co-para" style="max-width:860px;margin-top:4px">${b.empty}</p>
+      <${Btn} kind="primary" icon="directions_bus" label=${b.to_dealer} style="height:40px;margin-top:18px" onClick=${() => setUi('fleet', { tab: 1 })} />
+    </div>`;
+  }
+  const L = layout(Math.max(0, size.w - 12));
+  const gap = 14;
+  return html`<div style="height:100%;display:flex;flex-direction:column">
+    ${order && html`<div style="flex:none;height:38px">${order}</div>`}
+    <div class="co-scroll" ref=${ref} style="flex:1;min-height:0">
+      <div style=${`position:relative;height:${Math.ceil(b.buses.length / L.cols) * (L.th + gap)}px`}>
+        ${size.w > 0 &&
+        b.buses.map((bus, k) => {
+          const r = { x: (k % L.cols) * (L.tw + gap), y: Math.floor(k / L.cols) * (L.th + gap), w: L.tw, h: L.th };
+          const nw = textW(bus.number, 15, 900) + 20;
+          return html`<${BusTile} name=${bus.name} r=${r} onClick=${() => setCo({ dialog: { kind: 'vehicle', id: bus.id } })} attrs=${{ 'data-bus': bus.id }}
+            over=${html`<span class="numb" style=${`width:${nw}px`}>${bus.number}</span>
+              ${bus.advert && html`<span class="ad cut" style=${`max-width:${r.w - nw - 30}px`}>${bus.advert}</span>`}`}>
+            <b class="cut">${bus.name}</b>
+            <span class="sub cut">${bus.sub}</span>
+            <span class="facts"><span class="cut">${bus.facts}</span><span class="cond" title=${bus.condition.tip}><${Meter} frac=${bus.condition.frac} tone=${bus.condition.tone} /></span></span>
+            <span class=${'status t-' + bus.tone}><i class=${'dot-' + bus.tone}></i><span class="cut">${bus.status}</span></span>
+          </${BusTile}>`;
+        })}
+      </div>
+    </div>
+  </div>`;
+}
+
+// --- advertising --------------------------------------------------------------------------
+
+/** The advertisers' offers this week and the contracts running (`adverts::draw`). */
+function Adverts({ a }) {
+  const [armed, setArmed] = useState(null);
+  if (!a || a.kind !== 'adverts') return null;
+  return html`<div style="display:grid;grid-template-columns:max(360px, calc((100% - 16px) * 0.55)) minmax(0,1fr);gap:16px;height:100%">
+    <${Section} title=${a.offers_title}>
+      <p class="co-note" style="flex:none">${a.note}</p>
+      ${a.offers.length
+        ? html`<div class="co-scroll" style="flex:1;min-height:40px;margin-top:12px">${a.offers.map(
+            (o) => html`<div class="co-adrow" style=${`--kind:var(--co-${o.tone})`}>
+              <div class="l"><b class="cut">${o.advertiser}</b><span class="cut t-soft">${o.trade}</span><span class=${'cut t-' + o.tone} style="font-weight:500">${o.terms}</span></div>
+              <div class="r"><b class=${o.lock ? 't-dim' : ''}>${o.money}</b><span class="t-soft">${o.all}</span>
+                ${o.lock
+                  ? html`<${Btn} kind="ghost" icon="lock" label=${o.lock} style="width:180px;height:30px" onClick=${() => act('open_advert', { no: o.no })} />`
+                  : html`<${Btn} kind="primary" icon="description" label=${a.to_contract} style="width:180px;height:30px" onClick=${() => act('open_advert', { no: o.no })} />`}</div>
+            </div>`,
+          )}</div>`
+        : html`<p class="co-para" style="margin-top:12px">${a.no_offers}</p>`}
+    </${Section}>
+    <${Section} title=${a.running_title}>
+      ${a.running.length
+        ? html`<div class="co-scroll" style="flex:1;min-height:0">${a.running.map(
+            (x) => html`<div class="co-adrow running" style=${`--kind:var(--co-${x.tone})`}>
+              <div class="l"><b class="cut">${x.advertiser}</b><span class=${'cut t-' + x.tone} style="font-weight:500">${x.what}</span><span class="cut t-soft">${x.until}</span></div>
+              <div class="tools"><${Btn} kind="ghost" label=${a.look} style="width:130px;height:30px" onClick=${() => act('open_advert', { no: x.no, readonly: true })} />
+                <${Btn} kind=${armed === x.no ? 'danger' : 'ghost'} label=${armed === x.no ? x.again : x.end} title=${a.end_tip} style="width:180px;height:30px;padding:0 8px"
+                  onClick=${() => (armed === x.no ? (setArmed(null), act('advert_end', { no: x.no })) : setArmed(x.no))} /></div>
+            </div>`,
+          )}</div>`
+        : html`<p class="co-para">${a.no_running}</p>`}
+    </${Section}>
+  </div>`;
+}
+
+// --- the dialogs ----------------------------------------------------------------------------
+
+/** The photo's place and the livery on a dialog's left (`fleet::bus_side`). */
+function BusSide({ name, kind, livery, onLivery, design, designTip, onDesign, note }) {
+  const k = Math.max(0, livery.options.findIndex(([p]) => p === livery.value));
+  return html`<div class="co-busside">
+    <span class="photo"><span class="mono">${initials(name)}</span></span>
+    <div class="kind">${kind}</div>
+    <label class="co-label" style="margin-top:10px">${livery.label}</label>
+    <${Select} value=${k} options=${livery.options.map(([, l]) => l)} onChange=${(i) => onLivery(livery.options[i][0])} style="margin-top:4px" />
+    ${design ? html`<${Btn} kind="ghost" icon="livery_fill" label=${design} title=${designTip} style="width:100%;margin-top:10px" onClick=${onDesign} />` : html`<p class="co-note" style="margin-top:12px">${note}</p>`}
+  </div>`;
+}
+
+/** A row of a price table (`fleet::price_row`). */
+export const PriceRow = ({ r, h = 34 }) => html`<div class=${'co-price' + (r.strong ? ' strong' : '')} style=${`height:${h}px`}><span class="cut">${r.a}</span><b class=${'cut' + (r.tone ? ' t-' + r.tone : '')}>${r.b}</b></div>`;
+
+/** A bus of the fleet (`Dialog::Vehicle`). */
+export function VehicleDialog({ d }) {
+  const v = useView('vehicle', { id: d.id });
+  const close = () => setCo({ dialog: null });
+  if (!v) return null;
+  if (v.gone) {
+    close();
+    return null;
+  }
+  const foot = html`
+    <${Btn} kind="danger" label=${v.sell} onClick=${() => setCo({ dialog: { kind: 'confirm', what: 'sell', id: d.id } })} />
+    <${Btn} icon="construction" label=${v.service} onClick=${() => act('bus_service', { id: d.id })} />
+    <${Btn} icon="groups" label=${v.train} onClick=${() => (setUi('people', { tab: 2, group: 1, first: 0 }), setCo({ dialog: null }), goTab(2))} />
+    <span class="rest"></span>
+    <${Btn} kind="primary" label=${v.close} onClick=${close} />`;
+  return html`<${Dialog} icon="directions_bus" title=${v.title} w=${920} h=${640} onClose=${close} foot=${foot}>
+    <div class="co-busdialog">
+      <${BusSide} name=${v.name} kind=${v.bus_kind} livery=${v.livery} onLivery=${(p) => act('bus_livery', { id: d.id, livery: p })} design=${v.design} designTip=${v.design_tip} onDesign=${() => act('design_livery', { id: d.id })} />
+      <div class="right">${v.rows.map((r) => html`<${PriceRow} r=${r} />`)}
+        <div class=${'co-para t-' + v.tone} style="font-weight:700;margin-top:10px;line-height:26px">${v.status}</div></div>
+    </div>
+  </${Dialog}>`;
+}
+
+/** Leasing or renting one of the dealer's buses (`Dialog::New`). */
+export function NewDialog({ d }) {
+  const v = useView('new', { file: d.file, livery: d.livery || '', how: d.how || 0, days: d.days || 7 });
+  const put = (patch) => setCo({ dialog: { ...d, ...patch } });
+  const close = () => setCo({ dialog: null });
+  if (!v) return null;
+  if (v.gone) return null;
+  const take = async () => {
+    const r = await act('new_take', { file: d.file, livery: d.livery || '', how: d.how || 0, days: d.days || 7 });
+    if (r?.joined != null) {
+      setUi('fleet', { tab: 0 });
+      close();
+    }
+  };
+  const foot = html`<span class="rest"></span><${Btn} label=${v.cancel} onClick=${close} /><${Btn} kind="primary" icon="check_circle" label=${v.main} onClick=${take} />`;
+  return html`<${Dialog} icon="directions_bus" title=${v.title} w=${920} h=${600} onClose=${close} foot=${foot}>
+    <div class="co-busdialog">
+      <${BusSide} name=${v.name} kind=${v.bus_kind} livery=${v.livery} onLivery=${(p) => put({ livery: p })} note=${v.design_note} />
+      <div class="right">
+        <${Seg} value=${v.how} options=${v.hows.map((h, k) => [k, h])} onChange=${(k) => put({ how: k })} style="height:40px;margin-bottom:18px" />
+        ${v.how === 0
+          ? html`${v.rows.map((r) => html`<${PriceRow} r=${r} />`)}<p class="co-para" style="margin-top:12px">${v.text}</p>`
+          : html`<${PriceRow} r=${v.rows[0]} />
+            <div class="co-days"><span>${v.days_label}</span><input type="range" min="1" max="60" step="1" value=${v.days} style=${`--fill:${((v.days - 1) / 59) * 100}%`} onInput=${(e) => put({ days: Number(e.currentTarget.value) })} /><b>${v.days}</b></div>
+            <${PriceRow} r=${v.rows[1]} /><p class="co-para" style="margin-top:12px">${v.text}</p>`}
+      </div>
+    </div>
+  </${Dialog}>`;
+}
+
+export { tr };
