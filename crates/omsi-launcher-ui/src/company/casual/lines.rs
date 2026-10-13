@@ -34,13 +34,13 @@ pub(in super::super) struct Wizard {
 pub(super) fn page(l: &mut Launcher, area: Rect) {
     let Some(c) = l.company.company.clone() else { return };
     let sub = omsi_ui::tr("%{n} lines · their timetables, shifts and drivers run by themselves").replace("%{n}", &c.lines.len().to_string());
-    let (body, add) = super::page_head(l, area, super::LINES, &sub, Some(("Add a line", "add_road")));
+    let (body, add) = super::page_head(l, area, super::LINES, &sub, Some(("Add a line", "alt_route")));
     if add {
         super::run(l, super::Act::AddLine);
         return;
     }
     if c.lines.is_empty() {
-        if super::empty(l, body, "route", "No line yet", "Add your first line: pick one of the map's, or draw your own stops. It runs by itself from then on.", Some(("Add a line", "add_road"))) {
+        if super::empty(l, body, "route", "No line yet", "Add your first line: pick one of the map's, or draw your own stops. It runs by itself from then on.", Some(("Add a line", "alt_route"))) {
             super::run(l, super::Act::AddLine);
         }
         return;
@@ -175,7 +175,7 @@ pub(super) fn wizard(l: &mut Launcher, area: Rect) {
     if w.step >= 1 {
         let (label, icon) = match (w.step, &w.pick) {
             (1, _) => ("Next", "chevron_right"),
-            (_, Some(Pick::Draw)) => ("Draw the stops", "edit_location_alt"),
+            (_, Some(Pick::Draw)) => ("Draw the stops", "location_on"),
             _ => ("Start the line", "check_circle"),
         };
         let nw = kit::Foot::width(&l.ui, label, Some(icon));
@@ -274,7 +274,7 @@ fn pick_step(l: &mut Launcher, room: Rect, c: &Company, all: &[core::LineInfo], 
                 continue;
             }
             if k == 0 {
-                if choice(ui, r, "company-casual-pick-draw", "edit_location_alt", "Draw your own stops", "Click the stops on the map in the line editor: the way between them is found over the roads.", picked == Some(&Pick::Draw), None) {
+                if choice(ui, r, "company-casual-pick-draw", "location_on", "Draw your own stops", "Click the stops on the map in the line editor: the way between them is found over the roads.", picked == Some(&Pick::Draw), None) {
                     out = Some(Pick::Draw);
                 }
                 continue;
@@ -351,7 +351,7 @@ fn done_step(l: &mut Launcher, room: Rect, c: &Company, w: &Wizard, all: &[core:
         None => omsi_ui::tr(o.freq.label()).into_owned(),
     };
     row(l, "schedule", "How often", often, TEXT);
-    row(l, "event_note", "Timetable and shifts", omsi_ui::tr("Made by themselves").into_owned(), OK);
+    row(l, "event", "Timetable and shifts", omsi_ui::tr("Made by themselves").into_owned(), OK);
     match o.buses {
         Some(b) => {
             let t = if o.short > 0 { omsi_ui::tr("%{n} (buy %{m} more)").replace("%{n}", &b.to_string()).replace("%{m}", &o.short.to_string()) } else { omsi_ui::tr("%{n} (you have them)").replace("%{n}", &b.to_string()) };

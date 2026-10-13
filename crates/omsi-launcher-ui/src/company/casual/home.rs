@@ -258,7 +258,7 @@ fn tips(ui: &mut Ui, r: Rect, tips: &[Tip], phone: bool) -> Option<TipClick> {
     if tips.is_empty() {
         let row = Rect::new(r.x, y, r.w, TIP_H);
         ui.p().rounded(row, RADIUS, FIELD.alpha(0.6));
-        ui.icon("thumb_up", Vec2::new(row.x + 24.0, row.center().y), 18.0, OK);
+        ui.icon("check_circle", Vec2::new(row.x + 24.0, row.center().y), 18.0, OK);
         ui.text_in("No tips right now: everything runs well.", Rect::new(row.x + 46.0, row.y, row.w - 60.0, row.h), kit::BODY, Weight::Medium, TEXT_SOFT, Align::Left);
         return None;
     }
@@ -269,7 +269,7 @@ fn tips(ui: &mut Ui, r: Rect, tips: &[Tip], phone: bool) -> Option<TipClick> {
         let tint = if t.warn { WARN } else { accent_2() };
         ui.p().rounded(row, RADIUS, tint.alpha(0.09));
         ui.p().rounded(Rect::new(row.x, row.y, 4.0, row.h), 2.0, tint);
-        ui.icon(if t.warn { "warning" } else { "lightbulb" }, Vec2::new(row.x + 26.0, if phone { row.y + 24.0 } else { row.center().y }), 19.0, tint);
+        ui.icon(if t.warn { "warning" } else { "light" }, Vec2::new(row.x + 26.0, if phone { row.y + 24.0 } else { row.center().y }), 19.0, tint);
         let (label, ic, a) = &t.button;
         let bw = kit::Foot::width(ui, label, Some(ic)).min(r.w * 0.45);
         // (the cross that puts it away for the session)

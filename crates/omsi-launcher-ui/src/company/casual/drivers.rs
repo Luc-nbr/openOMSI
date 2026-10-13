@@ -93,13 +93,13 @@ pub(super) fn page(l: &mut Launcher, area: Rect) {
     let plan = l.company.plan.clone();
     let want = wanted(&c, plan.as_ref());
     let sub = if want > 0 { omsi_ui::tr("%{n} drivers · %{m} more wanted: hired tonight, or now").replace("%{n}", &list.len().to_string()).replace("%{m}", &want.to_string()) } else { omsi_ui::tr("%{n} drivers · every shift has its driver").replace("%{n}", &list.len().to_string()) };
-    let (body, hire) = super::page_head(l, area, super::DRIVERS, &sub, Some(("Hire automatically", "person_add")));
+    let (body, hire) = super::page_head(l, area, super::DRIVERS, &sub, Some(("Hire automatically", "person")));
     if hire {
         hire_now(l);
         return;
     }
     if list.is_empty() {
-        if super::empty(l, body, "groups", "No driver yet", "The company hires the drivers its shifts need by itself, at night. Or hire them now.", Some(("Hire automatically", "person_add"))) {
+        if super::empty(l, body, "groups", "No driver yet", "The company hires the drivers its shifts need by itself, at night. Or hire them now.", Some(("Hire automatically", "person"))) {
             hire_now(l);
         }
         return;
@@ -133,11 +133,11 @@ pub(super) fn page(l: &mut Launcher, area: Rect) {
             let bonus = omsi_ui::tr("Bonus %{amount}").replace("%{amount}", &eur(co::staff::bonus_cost(e)));
             let bw = ((r.w - 2.0 * pad - 10.0) * 0.5).floor();
             if !leaving {
-                if ui.button(&format!("company-casual-bonus-{}", e.id), Rect::new(r.x + pad, by, bw, 36.0), &bonus, Some("redeem"), ButtonKind::Normal) {
+                if ui.button(&format!("company-casual-bonus-{}", e.id), Rect::new(r.x + pad, by, bw, 36.0), &bonus, Some("stars"), ButtonKind::Normal) {
                     ask = Some(Ask::Bonus(e.id));
                 }
                 ui.tooltip(Rect::new(r.x + pad, by, bw, 36.0), "A one-off bonus: they are happier and stay longer");
-                if ui.button(&format!("company-casual-fire-{}", e.id), Rect::new(r.x + pad + bw + 10.0, by, bw, 36.0), "Fire", Some("person_remove"), ButtonKind::Ghost) {
+                if ui.button(&format!("company-casual-fire-{}", e.id), Rect::new(r.x + pad + bw + 10.0, by, bw, 36.0), "Fire", Some("logout"), ButtonKind::Ghost) {
                     ask = Some(Ask::Fire(e.id));
                 }
             }

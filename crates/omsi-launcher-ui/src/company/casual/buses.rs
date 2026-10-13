@@ -41,7 +41,7 @@ fn today_of(c: &Company, plan: Option<&co::day::Plan>, v: &co::Vehicle) -> (Stri
 pub(super) fn page(l: &mut Launcher, area: Rect) {
     let Some(c) = l.company.company.clone() else { return };
     let sub = omsi_ui::tr("%{n} buses · repairs and services happen by themselves").replace("%{n}", &logic::buses(&c).to_string());
-    let (body, buy) = super::page_head(l, area, super::BUSES, &sub, Some(("Buy a bus", "add_shopping_cart")));
+    let (body, buy) = super::page_head(l, area, super::BUSES, &sub, Some(("Buy a bus", "add")));
     if buy {
         super::run(l, super::Act::BuyBus);
         return;
@@ -52,14 +52,14 @@ pub(super) fn page(l: &mut Launcher, area: Rect) {
         Some(first) => {
             let n: u32 = c.dealer.orders.iter().map(|o| o.contract.count).sum();
             let t = omsi_ui::tr("%{n} buses on their way: the next arrives on %{date}.").replace("%{n}", &n.to_string()).replace("%{date}", &super::super::day_label(&co::dealer::day_of(&first.delivery)));
-            l.ui.icon("local_shipping", Vec2::new(body.x + 10.0, body.y + 12.0), 18.0, accent_2());
+            l.ui.icon("schedule", Vec2::new(body.x + 10.0, body.y + 12.0), 18.0, accent_2());
             l.ui.text_in(&t, Rect::new(body.x + 28.0, body.y, body.w - 28.0, 24.0), kit::BODY, Weight::Medium, TEXT, Align::Left);
             Rect::new(body.x, body.y + 38.0, body.w, (body.h - 38.0).max(0.0))
         }
         None => body,
     };
     if fleet.is_empty() {
-        if super::empty(l, body, "directions_bus", "No bus yet", "Buy your first bus in the shop: the buses that fit your lines come first, and it drives from the next morning.", Some(("Buy a bus", "add_shopping_cart"))) {
+        if super::empty(l, body, "directions_bus", "No bus yet", "Buy your first bus in the shop: the buses that fit your lines come first, and it drives from the next morning.", Some(("Buy a bus", "add"))) {
             super::run(l, super::Act::BuyBus);
         }
         return;

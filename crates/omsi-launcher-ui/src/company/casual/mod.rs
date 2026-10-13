@@ -103,10 +103,10 @@ pub(super) fn icon(tab: usize) -> &'static str {
         LINES => "route",
         DRIVERS => "groups",
         MONEY => "payments",
-        COMPANY => "storefront",
+        COMPANY => "flag",
         SHIFTS => "play_arrow",
-        SHOP => "add_shopping_cart",
-        NEW_LINE => "add_road",
+        SHOP => "add",
+        NEW_LINE => "alt_route",
         _ => "home",
     }
 }

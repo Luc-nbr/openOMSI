@@ -42,10 +42,10 @@ pub(super) fn page(l: &mut Launcher, area: Rect) {
             let r = Rect::new(v.x, y, w, if phone { 112.0 } else { 60.0 });
             ui.p().rounded(r, RADIUS, WARN.alpha(0.09));
             ui.p().rounded(Rect::new(r.x, r.y, 4.0, r.h), 2.0, WARN);
-            ui.icon("lightbulb", Vec2::new(r.x + 26.0, if phone { r.y + 24.0 } else { r.center().y }), 19.0, WARN);
+            ui.icon("light", Vec2::new(r.x + 26.0, if phone { r.y + 24.0 } else { r.center().y }), 19.0, WARN);
             let (label, icon) = match a {
-                super::Act::AddLine => ("Add a line", "add_road"),
-                _ => ("Buy a bus", "add_shopping_cart"),
+                super::Act::AddLine => ("Add a line", "alt_route"),
+                _ => ("Buy a bus", "add"),
             };
             let bw = kit::Foot::width(ui, label, Some(icon));
             let b = if phone { Rect::new(r.x + 48.0, r.bottom() - 48.0, bw, 36.0) } else { Rect::new(r.right() - 12.0 - bw, r.y + 12.0, bw, 36.0) };
@@ -194,11 +194,11 @@ fn livery_card(l: &mut Launcher, r: Rect, c: &Company) {
     l.ui.paragraph("Paint your buses in your company's own colours in the livery editor. A bus painted in it wears it in the game too.", Vec2::new(x, y), w, kit::NOTE + 0.5, Weight::Regular, TEXT_SOFT);
     let bus = livery_bus(c);
     let label = "Paint the company livery";
-    let bw = kit::Foot::width(&l.ui, label, Some("brush")).min(w);
+    let bw = kit::Foot::width(&l.ui, label, Some("livery_brush")).min(w);
     let b = Rect::new(x, r.bottom() - pad - 42.0, bw, 42.0);
     match bus {
         Some((bus, paint)) => {
-            if l.ui.button("company-casual-livery", b, label, Some("brush"), ButtonKind::Primary) {
+            if l.ui.button("company-casual-livery", b, label, Some("livery_brush"), ButtonKind::Primary) {
                 super::super::fleet::design_livery(l, &bus, &paint, None);
             }
             l.ui.tooltip(b, &omsi_ui::tr("Designing a livery costs %{amount}").replace("%{amount}", &eur(co::livery::design_fee(c))));

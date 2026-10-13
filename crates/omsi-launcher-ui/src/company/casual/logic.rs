@@ -252,10 +252,10 @@ pub(in super::super) fn tiles(c: &Company, plan: Option<&Plan>, now: i32) -> Vec
         None => (super::super::eur(c.cash), None, Words::new("In the bank: the first week comes")),
     };
     vec![
-        Tile { page: BUSES, name: "My buses", icon: "directions_bus", big: n.to_string(), good: None, under: bus_under, action: ("Buy a bus", "add_shopping_cart", Act::BuyBus) },
-        Tile { page: LINES, name: "My lines", icon: "route", big: c.lines.len().to_string(), good: None, under: lines_under, action: ("Add a line", "add_road", Act::AddLine) },
-        Tile { page: DRIVERS, name: "My drivers", icon: "groups", big: ds.len().to_string(), good: (short > 0).then_some(false), under: drivers_under, action: ("Hire automatically", "person_add", Act::HireNow) },
-        Tile { page: MONEY, name: "Money", icon: "payments", big, good, under: money_under, action: ("See where it goes", "pie_chart", Act::Open(MONEY)) },
+        Tile { page: BUSES, name: "My buses", icon: "directions_bus", big: n.to_string(), good: None, under: bus_under, action: ("Buy a bus", "add", Act::BuyBus) },
+        Tile { page: LINES, name: "My lines", icon: "route", big: c.lines.len().to_string(), good: None, under: lines_under, action: ("Add a line", "alt_route", Act::AddLine) },
+        Tile { page: DRIVERS, name: "My drivers", icon: "groups", big: ds.len().to_string(), good: (short > 0).then_some(false), under: drivers_under, action: ("Hire automatically", "person", Act::HireNow) },
+        Tile { page: MONEY, name: "Money", icon: "payments", big, good, under: money_under, action: ("See where it goes", "trending_up", Act::Open(MONEY)) },
     ]
 }
 
@@ -312,17 +312,17 @@ pub(in super::super) fn tips(c: &Company, plan: Option<&Plan>) -> Vec<Tip> {
     let tip = |id: String, words: Words, button: (&'static str, &'static str, Act), warn: bool| Tip { id, words, button, warn };
     let n = buses(c);
     if c.lines.is_empty() {
-        out.push(tip("first-line".into(), Words::new("Start with a line: pick one of the map's, or draw your own stops."), ("Add a line", "add_road", Act::AddLine), false));
+        out.push(tip("first-line".into(), Words::new("Start with a line: pick one of the map's, or draw your own stops."), ("Add a line", "alt_route", Act::AddLine), false));
     } else if n == 0 {
-        out.push(tip("first-bus".into(), Words::new("Your lines need buses. Buy your first one: it runs at once."), ("Buy a bus", "add_shopping_cart", Act::BuyBus), true));
+        out.push(tip("first-bus".into(), Words::new("Your lines need buses. Buy your first one: it runs at once."), ("Buy a bus", "add", Act::BuyBus), true));
     }
     if let Some(p) = plan {
         let (no_bus, no_driver) = p.short_of();
         if n > 0 && no_bus > 0 {
-            out.push(tip("short-buses".into(), Words::new("%{n} of today's bus runs have no bus. Buy another bus.").with("n", no_bus), ("Buy a bus", "add_shopping_cart", Act::BuyBus), true));
+            out.push(tip("short-buses".into(), Words::new("%{n} of today's bus runs have no bus. Buy another bus.").with("n", no_bus), ("Buy a bus", "add", Act::BuyBus), true));
         }
         if no_driver > 0 {
-            out.push(tip("short-drivers".into(), Words::new("%{n} shifts today have no driver. The company hires tonight, or now.").with("n", no_driver), ("Hire now", "person_add", Act::HireNow), true));
+            out.push(tip("short-drivers".into(), Words::new("%{n} shifts today have no driver. The company hires tonight, or now.").with("n", no_driver), ("Hire now", "person", Act::HireNow), true));
         }
     }
     // the depot full
@@ -335,7 +335,7 @@ pub(in super::super) fn tips(c: &Company, plan: Option<&Plan>) -> Vec<Tip> {
         let (all, morning) = week_crowded(c, &l.name);
         if all >= 3 {
             let w = if morning * 2 >= all { "Line %{n} is often full in the morning. Add a bus." } else { "Line %{n} is often full. Add a bus." };
-            out.push(tip(format!("full-{}", l.name), Words::new(w).with("n", &l.number), ("Buy a bus", "add_shopping_cart", Act::BuyBus), true));
+            out.push(tip(format!("full-{}", l.name), Words::new(w).with("n", &l.number), ("Buy a bus", "add", Act::BuyBus), true));
         }
     }
     // a fare too high or low
@@ -461,7 +461,7 @@ impl Freq {
 
     pub fn icon(self) -> &'static str {
         match self {
-            Freq::Quiet => "eco",
+            Freq::Quiet => "nights_stay",
             Freq::Normal => "schedule",
             Freq::Busy => "bolt",
         }

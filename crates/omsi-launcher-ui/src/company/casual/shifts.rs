@@ -99,9 +99,9 @@ pub(super) fn page(l: &mut Launcher, area: Rect) {
     };
     if cards.is_empty() {
         let (title, text, button) = if c.lines.is_empty() {
-            ("No line yet", "Add a line first: its shifts are here the next moment.", Some(("Add a line", "add_road")))
+            ("No line yet", "Add a line first: its shifts are here the next moment.", Some(("Add a line", "alt_route")))
         } else if logic::buses(&c) == 0 {
-            ("No bus yet", "Buy a bus for your lines: their shifts are here once it runs.", Some(("Buy a bus", "add_shopping_cart")))
+            ("No bus yet", "Buy a bus for your lines: their shifts are here once it runs.", Some(("Buy a bus", "add")))
         } else {
             ("No shift left today", "Today's shifts have all begun. Run on to the next day for new ones.", Some(("Next day", "wb_sunny")))
         };
