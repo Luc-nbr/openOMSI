@@ -3,7 +3,7 @@
 // ledger, the ticket prices - and the fare dialog with what each price does to passengers and
 // fares.
 
-import { html, useState, setCo, setUi, ui, act, useView, useSize, textW, Icon, Btn, Section, Figure, Select, Dialog, Plate, Slider } from './kit.js';
+import { html, useState, setCo, setUi, ui, act, useView, useSize, textW, Icon, Btn, Section, Figure, Select, Dialog, Plate, Slider, seen } from './kit.js';
 import { Bar } from './overview.js';
 
 export function MoneyPage() {
@@ -72,7 +72,7 @@ function Loans({ l, style, w }) {
       </div>
       ${!narrow && html`<div class="lines">${cr.lines.map(([a, b]) => html`<div><span class="cut">${a}</span><b>${b}</b></div>`)}<p>${cr.rate}</p></div>`}
     </div>
-    <div class="co-scroll" style="flex:1;min-height:0;border-top:1px solid var(--hub-hairline);margin-top:6px;padding-top:6px">
+    <div class="co-scroll" style="flex:1;min-height:0;border-top:1px solid var(--hub-hairline);margin-top:17px;padding-top:6px">
       ${l.list.length
         ? l.list.map((x) => html`<div class="co-loanrow"><div class="grow"><b class="cut">${x.what}</b><span class="cut">${x.sub}</span></div>
             ${x.paper && html`<${Btn} icon="description" label=${l.contract} style="height:34px" onClick=${() => act('open_loan_contract', { no: x.id })} />`}
@@ -148,7 +148,7 @@ function Curves({ c, v }) {
   const x = xOf(v.fare);
   return html`<div style=${`position:relative;width:${W}px;height:${H}px;margin-top:14px`}>
     <svg width=${W} height=${H} style="position:absolute;left:0;top:0;overflow:visible">
-      ${[0, 1, 2, 3, 4].map((k) => html`<rect x=${plot.x} y=${plot.y + (plot.h * k) / 4} width=${plot.w} height="1" fill=${`rgba(var(--co-white), ${k === 4 ? 0.2 : 0.06})`} />`)}
+      ${[0, 1, 2, 3, 4].map((k) => html`<rect x=${plot.x} y=${plot.y + (plot.h * k) / 4} width=${plot.w} height="1" style=${`fill:rgba(var(--co-white), ${seen(k === 4 ? 0.2 : 0.06)})`} />`)}
       <polyline points=${line(1, maxPax)} fill="none" stroke=${pax} stroke-width="2.5" stroke-linejoin="round" />
       <polyline points=${line(2, maxRev)} fill="none" stroke="rgb(var(--co-ok-fill))" stroke-width="2.5" stroke-linejoin="round" />
       ${[

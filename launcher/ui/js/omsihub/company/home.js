@@ -3,7 +3,7 @@
 // glance, operations, people, business, the company) chosen above them, each tile saying how
 // that part is doing - and under them the ways to what is often wanted.
 
-import { html, setCo, setUi, ui, useView, useSize, textW, goTab, handOver, act, cmd, Icon, Seg } from './kit.js';
+import { html, setCo, setUi, ui, useView, useSize, textW, goTab, handOver, act, cmd, Icon, Seg, seen } from './kit.js';
 
 const TABS_H = 40;
 const TABS_GAP = 22;
@@ -202,7 +202,7 @@ function Bars({ days, none, r }) {
       if (d == null) return null;
       const bh = Math.max(1.5, (h * Math.abs(d)) / span);
       const x = k * slot + (slot - bw) / 2;
-      return html`<rect x=${x} y=${d >= 0 ? zero - bh : zero} width=${bw} height=${bh} rx=${Math.min(1.5, bw * 0.4)} fill=${d >= 0 ? 'rgba(52,178,110,0.85)' : 'rgba(217,58,48,0.85)'} />`;
+      return html`<rect x=${x} y=${d >= 0 ? zero - bh : zero} width=${bw} height=${bh} rx=${Math.min(1.5, bw * 0.4)} fill=${d >= 0 ? `rgba(52,178,110,${seen(0.85, [52, 178, 110])})` : `rgba(217,58,48,${seen(0.85, [217, 58, 48])})`} />`;
     })}
   </svg>`;
 }

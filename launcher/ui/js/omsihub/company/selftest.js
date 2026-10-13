@@ -75,6 +75,15 @@ export async function selftest(check, errors) {
     check('company: the hand-over pages', false, x.message);
   }
 
+  // the company read again from its file, as after one of our editors wrote it
+  try {
+    const r = await cmd('co_reread', { id: sh.id });
+    e = await shown('read again', null, 600);
+    check('company: read again from its file', !e && r.open === sh.id && S.co.shell?.id === sh.id, e || r.open);
+  } catch (x) {
+    check('company: read again from its file', false, x.message);
+  }
+
   // the duty launcher: a duty of today's opened, its start as the command line only
   try {
     const v = await cmd('co_view', { view: 'casual', page: 'shifts' });

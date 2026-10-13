@@ -203,7 +203,7 @@ function NewLine({ v, st }) {
     if (st.pick === 'draw') {
       put({ step: 0, pick: null });
       setCo({ tab: CASUAL.LINES });
-      return handOver('casual-line=' + Math.max(0, FREQS.indexOf(st.freq)));
+      return handOver('casual-line=' + Math.max(0, FREQS.indexOf(st.freq)), { newWithDays: v.new_days });
     }
     const r = await act('casual_line', { name: st.pick });
     if (r?.focus) put({ step: 0, pick: null, freq: 'Normal', focus: r.focus });

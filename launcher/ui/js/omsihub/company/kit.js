@@ -13,7 +13,7 @@ import { S, set, toast } from '../../store.js';
 import { call } from '../../api.js';
 import { language } from '../../i18n.js';
 import { Icon as HubIcon, tr } from '../bits.js';
-import { SYMBOLS } from './symbols.js';
+import { SYMBOLS, STROKES } from './symbols.js';
 
 export { html, useEffect, useRef, useState, tr };
 
@@ -127,11 +127,12 @@ export function goTab(tab) {
 /** Open a page (or the line editor, the livery studio ...) of the company in our game-drawn
  * launcher (`OMSI_LAUNCHER_PAGE` "bus company:<page>:<company>"): the clock stops and the
  * company is saved first; this window closes. */
-export async function handOver(page) {
+export async function handOver(page, opts = {}) {
   if (S.boot?.selftest) {
     setCo({ handed: page });
     return;
   }
+  if (await inEditor(String(page), opts)) return;
   try {
     const r = await cmd('co_hand_over', { page: String(page) });
     toast(tr('This part of the bus company opens in our own launcher for now.'), 'info');
@@ -139,6 +140,63 @@ export async function handOver(page) {
   } catch (e) {
     toast(e.message, 'error');
   }
+}
+
+/** The editors drawn by this launcher (Trello "Tauri 5/6": `../editors/index.js`, on its own
+ * branch until it is merged), read once; null while they are not part of it. */
+let editors;
+async function editorsOf() {
+  if (editors === undefined) {
+    try {
+      editors = await import('../editors/index.js');
+    } catch {
+      editors = null;
+    }
+  }
+  return editors;
+}
+
+/** A hand-over our own editors take (`company::handed`'s editor pages): "line-editor[=<id>]",
+ * "map-line=<name>", "casual-line=<freq>" (`opts.newWithDays`: its timetable), and
+ * "livery=<bus>|<paint>|<bus id>". Opened here when the editors are part of this launcher -
+ * the company stopped and saved first (`co_hand_over`), read again when an editor wrote it, and
+ * Back comes to the company's page; else (or another page) false: our game-drawn launcher
+ * takes it. RosterFlow's Timeplan stays the game-drawn launcher's (`timetable=<line>`). */
+async function inEditor(page, opts) {
+  const [what, ...rest] = page.split('=');
+  const arg = rest.join('=');
+  if (!['line-editor', 'map-line', 'casual-line', 'livery'].includes(what)) return false;
+  const ed = await editorsOf();
+  const fn = what === 'livery' ? ed?.openLivery : ed?.openLineEditor;
+  if (typeof fn !== 'function') return false;
+  const company = S.co.shell?.id;
+  if (!company) return false;
+  try {
+    await cmd('co_hand_over', { page });
+  } catch {
+    return false;
+  }
+  const hooks = {
+    company,
+    back: 'company',
+    onCompanyChanged: async (id) => {
+      await cmd('co_reread', { id: id || company }).catch(() => null);
+      refresh();
+    },
+  };
+  if (what === 'livery') {
+    const [bus, paint, vehicle] = arg.split('|');
+    fn({ ...hooks, bus, paint: paint || '', vehicle: vehicle ? Number(vehicle) : undefined });
+  } else {
+    fn({
+      ...hooks,
+      onTimeplan: ({ name } = {}) => name && handOver('timetable=' + name),
+      ...(what === 'line-editor' && arg ? { line: Number(arg) } : {}),
+      ...(what === 'map-line' ? { mapLine: arg } : {}),
+      ...(what === 'casual-line' ? { newWithDays: opts.newWithDays } : {}),
+    });
+  }
+  return true;
 }
 
 /** A popup's way on (`company::go`), Casual's to its own pages (`casual::go`). */
@@ -208,6 +266,10 @@ export function goKey(to) {
 /** A Material Symbol by its name (every one the game-drawn launcher has). */
 export function Icon({ name, size = 20, class: cls = '' }) {
   const d = SYMBOLS[name];
+  const lines = !d && STROKES[name];
+  if (lines) {
+    return html`<svg class=${'hub-icon ' + cls} viewBox="0 0 24 24" width=${size} height=${size} fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${lines.map((p) => html`<path d=${p} />`)}</svg>`;
+  }
   if (!d) return html`<${HubIcon} name=${name} size=${size} class=${cls} />`;
   return html`<svg class=${'hub-icon ' + cls} viewBox="0 -960 960 960" width=${size} height=${size} fill="currentColor" aria-hidden="true"><path d=${d} /></svg>`;
 }
@@ -224,7 +286,7 @@ export const Caps = ({ text, class: cls = '' }) => html`<div class=${'co-caps ' 
 /** A section: its hairline round it and its name in capitals. */
 export function Section({ title, children, class: cls = '', style, tools }) {
   return html`<section class=${'co-section ' + cls} style=${style}>
-    ${title != null && html`<div class="co-caps" style="display:flex;align-items:center;gap:8px"><span class="grow cut">${title}</span>${tools}</div>`}
+    ${title != null && html`<div class="co-caps" style=${`display:flex;align-items:center;gap:8px${tools ? ';overflow:visible' : ''}`}><span class="grow cut">${title}</span>${tools && html`<span style="display:flex;align-items:center;height:16px">${tools}</span>`}</div>`}
     ${children}
   </section>`;
 }
@@ -248,9 +310,32 @@ export function Meter({ frac, tone = 'accent', h = 6, style = '' }) {
 /** A tone as a fill. */
 export function fill(tone, alpha = 1) {
   const rgb = { ok: 'var(--co-ok-fill)', warn: 'var(--co-warn-fill)', danger: 'var(--co-danger-fill)', early: 'var(--co-early-fill)', accent: 'var(--hub-accent-rgb)', accent2: 'var(--hub-accent-rgb)', line: '255, 210, 63' }[tone];
-  if (rgb) return `rgba(${rgb}, ${alpha})`;
-  if (tone === 'dim' || tone === 'faint') return alpha === 1 ? 'var(--hub-text-faint)' : `rgba(var(--co-white), ${0.16 * alpha})`;
-  return `rgba(var(--co-white), ${0.3 * alpha})`;
+  if (rgb) return alpha === 1 ? `rgb(${rgb})` : `rgba(${rgb}, ${seen(alpha, TONES[tone] || TONES.accent)})`;
+  if (tone === 'dim' || tone === 'faint') return alpha === 1 ? 'var(--hub-text-faint)' : `rgba(var(--co-white), ${seen(0.16 * alpha)})`;
+  return `rgba(var(--co-white), ${seen(0.3 * alpha)})`;
+}
+
+/** The meanings' colours (`--co-*-fill`; the accent as Omsi-Hub's orange: `seen` hardly
+ * depends on it). */
+const TONES = { ok: [52, 178, 110], warn: [232, 170, 70], danger: [217, 58, 48], early: [122, 168, 255], accent: [245, 134, 32], line: [255, 210, 63] };
+const toLin = (c) => ((c /= 255) <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+const toSrgb = (l) => 255 * (l <= 0.0031308 ? 12.92 * l : 1.055 * l ** (1 / 2.4) - 0.055);
+
+/** The rgba alpha that shows what the game-drawn launcher's alpha `a` of `top` shows: it
+ * blends in linear light (stronger on the night, weaker on the cream), and its light look draws
+ * a see-through white as see-through ink (`theme.rs`: overlay_alpha). As company.css's
+ * `--aw-*` and `--ac-*` (tauri2 linlight.py). */
+export function seen(a, top = [255, 255, 255]) {
+  const light = document.documentElement.dataset.theme === 'light';
+  const under = light ? [252, 234, 208] : [9, 12, 24];
+  let t = top;
+  let al = a;
+  if (light && top.every((c) => c > 250)) {
+    t = [22, 20, 26];
+    al = Math.min(0.6, 0.85 * Math.sqrt(a));
+  }
+  const xs = [0, 1, 2].filter((k) => Math.abs(t[k] - under[k]) > 40).map((k) => (toSrgb(al * toLin(t[k]) + (1 - al) * toLin(under[k])) - under[k]) / (t[k] - under[k]));
+  return xs.length ? Math.round(Math.max(0, Math.min(1, xs.reduce((s, x) => s + x, 0) / xs.length)) * 1000) / 1000 : a;
 }
 
 /** A small coloured tag with its words. */

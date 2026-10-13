@@ -4,7 +4,7 @@
 // add; and the dialog that weighs a line's needs against what the company has.
 
 import { S } from '../../store.js';
-import { html, useState, setCo, setUi, ui, act, useView, goTab, goKey, handOver, Icon, Btn, Seg, Select, Dialog, Plate, IconBtn, Tag, rgbOf } from './kit.js';
+import { html, useState, setCo, setUi, ui, act, useView, goTab, goKey, handOver, Icon, Btn, Seg, Select, Dialog, Plate, IconBtn, Tag, rgbOf, seen } from './kit.js';
 import { Bar } from './overview.js';
 
 export function LinesPage() {
@@ -104,7 +104,7 @@ function Card({ c, name }) {
       </div>
       <div>
         <div class="co-caps">${c.advert_caps}</div>
-        <div class="advert" style=${`background:rgba(${ad.join(',')},0.16)`}>
+        <div class="advert" style=${`background:rgba(${ad.join(',')},${seen(0.16, ad)})`}>
           <div style="display:flex;gap:10px"><${Plate} p=${c.plate} h=${30} /><div style="min-width:0"><b>${text.trim() || c.public_name}</b><p class="co-note">${c.under}</p></div></div>
           <div class="colours"><span class="co-caps">${c.colour_caps}</span>
             ${c.palette.map((hex) => html`<span class=${'sw' + (hex === c.colour ? ' on' : '')} style=${`background:${hex}`} onClick=${() => act('line_colour', { name, colour: hex })}></span>`)}

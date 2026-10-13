@@ -3,7 +3,7 @@
 // duty, what wants attention), the company's day as it was told, the last day closed and the
 // way to the other companies.
 
-import { html, setCo, setUi, act, cmd, useView, useSize, textW, goTab, Icon, Btn, Figure, Section, Meter, Switch } from './kit.js';
+import { html, setCo, setUi, act, cmd, useView, useSize, textW, goTab, Icon, Btn, Figure, Section, Meter, Switch, seen } from './kit.js';
 
 export function OverviewPage() {
   const v = useView('overview');
@@ -57,7 +57,7 @@ export function Chart({ c, w, h }) {
   for (let k = c.span - 1; k >= 0; k -= every) ticks.push(k);
   return html`<div style=${`position:relative;width:${w}px;height:${h}px`}>
     <svg width=${w} height=${h} style="position:absolute;left:0;top:0;overflow:visible">
-      ${c.scale.map(([v]) => html`<rect x=${plot.x} y=${yOf(v)} width=${plot.w} height="1" fill=${`rgba(var(--co-white), ${Math.abs(v) < 1 ? 0.22 : 0.06})`} />`)}
+      ${c.scale.map(([v]) => html`<rect x=${plot.x} y=${yOf(v)} width=${plot.w} height="1" style=${`fill:rgba(var(--co-white), ${seen(Math.abs(v) < 1 ? 0.22 : 0.06)})`} />`)}
       ${c.bars.map((b) => {
         const x = plot.x + b.k * slot + (slot - bw) / 2;
         const y = yOf(b.v);
@@ -66,7 +66,7 @@ export function Chart({ c, w, h }) {
           <rect x=${plot.x + b.k * slot} y=${plot.y} width=${slot} height=${plot.h} fill="transparent" />
           <rect class=${b.v >= 0 ? 'up' : 'down'} x=${x} y=${r[0]} width=${bw} height=${r[1]} rx=${Math.min(2, bw * 0.4)} /></g>`;
       })}
-      ${ticks.map((k) => html`<rect x=${plot.x + (k + 0.5) * slot} y=${plot.y + plot.h} width="1" height="4" fill="rgba(var(--co-white), 0.2)" />`)}
+      ${ticks.map((k) => html`<rect x=${plot.x + (k + 0.5) * slot} y=${plot.y + plot.h} width="1" height="4" style=${`fill:rgba(var(--co-white), ${seen(0.2)})`} />`)}
     </svg>
     ${c.scale.map(([v, t]) => html`<span class="co-axis" style=${`left:0;width:${labelW - 10}px;top:${yOf(v) - 9}px;text-align:right`}>${t}</span>`)}
     ${ticks.map((k) => html`<span class="co-axis" style=${`left:${plot.x + (k + 0.5) * slot - 60}px;width:120px;top:${plot.y + plot.h + 8}px;text-align:center`}>${c.dates[k]}</span>`)}

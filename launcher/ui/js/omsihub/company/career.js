@@ -3,7 +3,7 @@
 // the company with the licences and what the levels open, the courses, the workshop's jobs, the
 // rankings of the map, and the statistics of the trips driven.
 
-import { html, setUi, ui, act, useView, goTab, handOver, Icon, Btn, Seg, Section, Figure, Plate, IconBtn, Tag, T } from './kit.js';
+import { html, setUi, ui, act, useView, goTab, handOver, Icon, Btn, Seg, Section, Figure, Plate, IconBtn, Tag, T, fill } from './kit.js';
 import { Bar } from './overview.js';
 
 export function CareerPage() {
@@ -21,6 +21,13 @@ export function CareerPage() {
   </div>`;
 }
 
+/** An empty part's icon, title and words placed from its middle as `career::duties_part`
+ * places them (`at`: the icon's centre, the title's top and the words' top). */
+const EmptyAt = ({ e, at: [icon, title, text] }) => html`
+  <span style=${`position:absolute;left:0;right:0;top:calc(50% + ${icon - 17}px);display:flex;justify-content:center`}><${Icon} name=${e.icon} size=${34} class="t-dim" /></span>
+  <b style=${`position:absolute;left:0;right:0;top:calc(50% + ${title}px);height:26px;line-height:26px;text-align:center;font-size:var(--co-head);color:var(--hub-text-soft)`}>${e.title}</b>
+  <p class="co-note t-dim" style=${`position:absolute;left:50%;top:calc(50% + ${text}px);transform:translateX(-50%);width:min(520px, 100%)`}>${e.text}</p>`;
+
 /** The driver's duties (`career::duties_part`), and in Casual the duties to take. */
 function Duties({ b }) {
   const e = b.empty;
@@ -29,9 +36,8 @@ function Duties({ b }) {
       ${e
         ? e.reading
           ? html`<p class="co-para">${e.reading}</p>`
-          : html`<div class="co-emptymid" style="position:relative;flex:1"><${Icon} name=${e.icon} size=${34} class="t-dim" />
-              <b style="font-size:var(--co-head);color:var(--hub-text-soft)">${e.title}</b><p class="co-note t-dim" style="max-width:520px">${e.text}</p>
-              ${e.button && html`<${Btn} kind="primary" icon="event" label=${e.button} style="height:38px" onClick=${() => handOver('5')} />`}</div>`
+          : html`<div style="position:relative;flex:1"><${EmptyAt} e=${e} at=${e.button ? [-70, -40, -6] : [-50, -20, 14]} />
+              ${e.button && html`<div style="position:absolute;left:0;right:0;top:calc(50% + 50px);display:flex;justify-content:center"><${Btn} kind="primary" icon="event" label=${e.button} style="height:38px" onClick=${() => handOver('5')} /></div>`}</div>`
         : html`<div class="co-scroll" style="flex:1;min-height:0">${b.rows.map(
             (d, k) => html`<div class=${'co-myduty' + (k === 0 ? ' next' : '')}>
               <div class="when"><b class="cut">${d.date}</b><span class=${k === 0 ? 't-accent' : 't-soft'}>${d.time}</span></div>
@@ -180,7 +186,7 @@ function Scores({ values, empty }) {
   return html`<div class="co-scores">
     <div class="axis">${[100, 75, 50, 25, 0].map((v) => html`<span>${v}</span>`)}</div>
     <div class="plot">${[0, 1, 2, 3, 4].map((k) => html`<i class="grid" style=${`top:${k * 25}%`}></i>`)}
-      ${values.map(([v, tip], k) => html`<span class="bar" title=${tip} style=${`left:${(k / n) * 100}%;width:${(0.62 / n) * 100}%;height:${Math.max(1, v)}%;background:rgba(var(--co-${v >= 65 ? 'ok' : v >= 40 ? 'warn' : 'danger'}-fill),0.85)`}></span>`)}</div>
+      ${values.map(([v, tip], k) => html`<span class="bar" title=${tip} style=${`left:${(k / n) * 100}%;width:${(0.62 / n) * 100}%;height:${Math.max(1, v)}%;background:${fill(v >= 65 ? 'ok' : v >= 40 ? 'warn' : 'danger', 0.85)}`}></span>`)}</div>
   </div>`;
 }
 

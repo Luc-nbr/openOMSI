@@ -415,6 +415,10 @@ fn new_line(s: &mut Session, c: &Company, ui: &Value) -> Value {
                 Pick::Draw => [tr("Draw the stops"), "location_on".to_string()],
                 Pick::Map(_) => [tr("Start the line"), "check_circle".to_string()],
             });
+            // (the timetable a drawn line starts with in the line editor: `casual::draw_line`)
+            if matches!(pick, Pick::Draw) {
+                out["new_days"] = json!(logic::freq_days(freq));
+            }
         }
     }
     if step == 1 {

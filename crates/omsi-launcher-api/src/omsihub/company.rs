@@ -1077,6 +1077,23 @@ fn open(s: &mut Session, id: &str) -> Answer {
     Ok(json!({ "open": id }))
 }
 
+/// The company `id` read again from its file: an editor of the launcher wrote it (the line
+/// editor confirmed a line, the livery studio saved a livery - Trello "Tauri 5/6"). The one
+/// open here takes it, its day planned anew.
+fn reread(s: &mut Session, id: &str) -> Answer {
+    let c = co::store::load(&data(), id).map_err(|e| format!("{e:#}"))?;
+    if let Some(list) = s.companies.as_mut() {
+        match list.iter_mut().find(|x| x.id == id) {
+            Some(x) => *x = c.clone(),
+            None => list.push(c.clone()),
+        }
+    }
+    if s.company.as_ref().is_some_and(|x| x.id == id) {
+        switch_company(s, Some(c));
+    }
+    Ok(json!({ "open": id }))
+}
+
 /// Delete a company for good (`company::delete_company`).
 fn delete(s: &mut Session, id: &str) -> Answer {
     if s.closing {
@@ -1153,6 +1170,7 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
     Some(match cmd {
         "co_boot" => with(boot),
         "co_open" => with(|s| open(s, &str_arg(args, "id"))),
+        "co_reread" => with(|s| reread(s, &str_arg(args, "id"))),
         "co_delete" => with(|s| delete(s, &str_arg(args, "id"))),
         "co_leave" => with(leave),
         "co_found" => with(|s| chooser::found(s, args)),
