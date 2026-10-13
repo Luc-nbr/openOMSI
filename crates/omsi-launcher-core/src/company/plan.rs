@@ -2284,4 +2284,32 @@ mod tests {
         assert!(p.tours[0].covered());
         assert_eq!(close_day(&mut c, tours, &[]).covered, 2);
     }
+
+    #[test]
+    fn rosterflow_shows_what_the_days_roster_has_open() {
+        // (testers: "the tour was covered showing no issues")
+        use super::super::rosterflow::{day_issues, I_DAY, I_DAY_FILLED, I_DAY_UNPLANNED};
+        let mut c = quiet(1, 2);
+        c.planning.auto = false;
+        let wd = weekday_of(&c.date);
+        let (b1, e1) = (c.fleet[0].id, c.staff[0].id);
+        set_bus(&mut c, wd, "Linie5", "1", Some(b1));
+        set_driver(&mut c, wd, "Linie5", "1", 0, Some(Who::Staff(e1)));
+        let tours = vec![tour("1", 6 * 60, 3), tour("2", 9 * 60, 3)];
+        // all in order but the second tour, which nobody is planned for
+        let p = day_plan(&c, &c.date, tours.clone(), &[], &[], false);
+        let is = day_issues(&p);
+        assert_eq!(is.iter().map(|i| i.text).collect::<Vec<_>>(), vec![I_DAY_UNPLANNED]);
+        // the bus in the workshop: an error until it is covered for the day
+        c.fleet[0].workshop_until = Some(c.date.clone());
+        let p = day_plan(&c, &c.date, tours.clone(), &[], &[], false);
+        let is = day_issues(&p);
+        assert!(is.iter().any(|i| i.text == I_DAY && i.hard && i.args.contains(&("rule", "In the workshop".to_string()))));
+        set_fill(&mut c, &tour_key("Linie5", "1"), Some(Fill::Rental));
+        let p = day_plan(&c, &c.date, tours.clone(), &[], &[], false);
+        assert!(p.tours[0].covered());
+        let is = day_issues(&p);
+        assert!(is.iter().any(|i| i.text == I_DAY_FILLED && !i.hard));
+        assert!(!is.iter().any(|i| i.text == I_DAY));
+    }
 }

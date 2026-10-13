@@ -868,11 +868,16 @@ pub const I_UNASSIGNED: &str = "%{n} trips are not assigned to a vehicle";
 pub const I_BUSES: &str = "%{n} buses at the peak, the company has %{m}";
 pub const I_DEPOT: &str = "%{n} buses out at once, more than the depot holds (%{max})";
 pub const I_DRIVERS: &str = "%{n} duties, %{m} drivers on the staff";
+/// The day's roster (`plan::day_plan`): a tour or duty of the day open or filled for the day
+/// only - an ill driver, a bus in the workshop - and the tours nobody is planned for.
+pub const I_DAY: &str = "Line %{n} tour %{tour}: %{rule}";
+pub const I_DAY_FILLED: &str = "Line %{n} tour %{tour}: %{rule} - covered for the day";
+pub const I_DAY_UNPLANNED: &str = "%{n} tours in service have no bus or driver in the roster: they do not run";
 
-pub const ISSUE_TEXTS: [&str; 15] = [I_TYPE, I_MEAL, I_CONTINUOUS, I_SPREAD, I_SHORT_PIECE, I_CHANGEOVERS, I_TRAVEL, I_RULE, I_RULE_TIME, I_LAYOVER, I_DEADHEAD, I_UNASSIGNED, I_BUSES, I_DEPOT, I_DRIVERS];
+pub const ISSUE_TEXTS: [&str; 18] = [I_TYPE, I_MEAL, I_CONTINUOUS, I_SPREAD, I_SHORT_PIECE, I_CHANGEOVERS, I_TRAVEL, I_RULE, I_RULE_TIME, I_LAYOVER, I_DEADHEAD, I_UNASSIGNED, I_BUSES, I_DEPOT, I_DRIVERS, I_DAY, I_DAY_FILLED, I_DAY_UNPLANNED];
 
 /// The issues' short titles (the Validation panel's groups), in `ISSUE_TEXTS`' order.
-pub const ISSUE_TITLES: [&str; 15] = ["Duty type unsatisfied", "No meal break", "Driving without a break", "Spread over the limit", "Pieces too short", "Too many changes of bus", "No time to get to the relief point", "Working time", "Working time", "Layovers too short", "Deadheads estimated", "Trips not assigned", "More buses than the company has", "More buses than the depot holds", "More duties than drivers"];
+pub const ISSUE_TITLES: [&str; 18] = ["Duty type unsatisfied", "No meal break", "Driving without a break", "Spread over the limit", "Pieces too short", "Too many changes of bus", "No time to get to the relief point", "Working time", "Working time", "Layovers too short", "Deadheads estimated", "Trips not assigned", "More buses than the company has", "More buses than the depot holds", "More duties than drivers", "The day's roster", "The day's roster", "The day's roster"];
 
 /// An issue's short title (its group in the Validation panel).
 pub fn issue_title(text: &str) -> &'static str {
@@ -996,7 +1001,47 @@ pub fn board(c: &Company, lines: &[LineInfo], date: &str) -> Board {
     let wd = super::plan::weekday_of(date);
     let tours = network::tours_of_day(c, lines, date);
     let stack = stack(c, lines, wd);
-    board_of(c, wd, tours, stack)
+    let dp = super::plan::day_plan(c, date, tours.clone(), &[], &[], false);
+    let mut b = board_of(c, wd, tours, stack);
+    b.issues.extend(day_issues(&dp));
+    b
+}
+
+/// What the day's roster has open (testers: "the tour was covered showing no issues" - the
+/// blocks and duties were in order while the day's plan had a tour without its bus or a duty
+/// whose driver was ill): each tour or duty that fell out, an error while it is open and a
+/// warning once it is covered for the day; and the tours in service nobody is planned for.
+pub fn day_issues(dp: &super::plan::DayPlan) -> Vec<Issue> {
+    use super::plan::Problem;
+    let mut out = Vec::new();
+    let mut unplanned = 0;
+    for t in dp.tours.iter().filter(|t| !t.by_player && !t.tour.unplanned) {
+        let mut add = |problem: Problem, filled: bool, what: String| {
+            let text = if filled { I_DAY_FILLED } else { I_DAY };
+            out.push(Issue { scope: Scope::Global, row: None, text, args: vec![("n", t.tour.number.clone()), ("tour", t.tour.tour.clone()), ("rule", problem.label().to_string())], hard: !filled, penalty: 0, key: format!("{text}|{}|{}|{what}", t.tour.line, t.tour.tour) });
+        };
+        match t.bus_problem {
+            Some(Problem::Unassigned) => {}
+            Some(p) => add(p, t.bus.is_some(), "bus".into()),
+            None => {}
+        }
+        if t.bus.is_some() || t.live {
+            for (k, d) in t.duties.iter().enumerate() {
+                match d.problem {
+                    Some(Problem::Unassigned) | None => {}
+                    Some(p) => add(p, d.who.is_some(), format!("duty{k}")),
+                }
+            }
+        }
+        let none = t.bus_problem == Some(Problem::Unassigned) || t.duties.iter().any(|d| d.problem == Some(Problem::Unassigned) && d.who.is_none());
+        if none {
+            unplanned += 1;
+        }
+    }
+    if unplanned > 0 {
+        out.push(Issue { scope: Scope::Global, row: None, text: I_DAY_UNPLANNED, args: vec![("n", unplanned.to_string())], hard: true, penalty: 0, key: I_DAY_UNPLANNED.into() });
+    }
+    out
 }
 
 /// The board of these blocks (`tours` as `network::tours_of_day` gives them).

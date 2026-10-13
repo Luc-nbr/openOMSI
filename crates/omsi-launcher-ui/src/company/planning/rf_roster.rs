@@ -940,7 +940,17 @@ fn day_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, q: &Pal) {
     let carrying = l.company.planning.carry.map(|c| c.1.is_some());
     let clip = inner;
     let summary = omsi_ui::tr("%{c} of %{t} tours covered").replace("%{c}", &covered.to_string()).replace("%{t}", &tours.to_string());
-    let gaps = if open + no_bus == 0 { omsi_ui::tr("Nothing open.").into_owned() } else { omsi_ui::tr("%{d} duties without a driver, %{b} tours without a bus.").replace("%{d}", &open.to_string()).replace("%{b}", &no_bus.to_string()) };
+    // (covered is not "no issues": what was covered only for the day, and first trips dropped
+    // for a late driver, are said too)
+    let late_dropped = rows.iter().filter(|o| o.late && !o.filled).count();
+    let covered_today = rows.iter().filter(|o| !o.late && o.filled && o.problem.is_some_and(|x| x != Problem::Unassigned)).count();
+    let mut gaps = if open + no_bus == 0 { omsi_ui::tr("Nothing open.").into_owned() } else { omsi_ui::tr("%{d} duties without a driver, %{b} tours without a bus.").replace("%{d}", &open.to_string()).replace("%{b}", &no_bus.to_string()) };
+    if late_dropped > 0 {
+        gaps = format!("{gaps} {}", omsi_ui::tr("%{n} late starts: their first trips dropped.").replace("%{n}", &late_dropped.to_string()));
+    }
+    if covered_today > 0 {
+        gaps = format!("{gaps} {}", omsi_ui::tr("%{n} covered for today only (see Open duties).").replace("%{n}", &covered_today.to_string()));
+    }
     let look = rf_scroll::look(q);
     let q = *q;
     rf_scroll::area(&mut l.ui, &look, "plan-side", inner, &mut |ui, v| {
@@ -948,10 +958,10 @@ fn day_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, q: &Pal) {
         let mut y = v.y;
         ui.text_in(&summary, Rect::new(v.x, y, w, 22.0), 16.0, Weight::Bold, q.text, Align::Left);
         y += 26.0;
-        let ok = open + no_bus == 0;
+        let ok = open + no_bus + late_dropped == 0;
         ui.icon(if ok { "check_circle" } else { "warning" }, Vec2::new(v.x + 7.0, y + 10.0), 14.0, if ok { q.ok } else { q.warn });
-        ui.text_in(&gaps, Rect::new(v.x + 20.0, y, w - 20.0, 20.0), 12.5, Weight::Medium, if ok { q.ok } else { q.warn }, Align::Left);
-        y += 34.0;
+        let gh = ui.paragraph(&gaps, Vec2::new(v.x + 20.0, y + 2.0), w - 20.0, 12.5, Weight::Medium, if ok { q.ok } else { q.warn });
+        y += gh.max(20.0) + 14.0;
         let head = |ui: &mut Ui, y: f32, t: &str| caps(ui, Rect::new(v.x, y, w, 16.0), t, q.dim, Align::Left);
         if !morning.is_empty() {
             head(ui, y, "This morning");
