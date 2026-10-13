@@ -41,7 +41,7 @@
   --co-pill-edge: rgba(255, 255, 255, 0.561);
   --co-scrim: rgba(0, 0, 0, 0.62);
   /* see-through white and accent as the game-drawn launcher blends them (in linear light:
-     stronger on the night) - tauri2 linlight.py worked them out */
+     stronger on the night): launcher/tools/omsihub-linear-alpha.py works them out */
   --aw-03: 0.156;
   --aw-04: 0.186;
   --aw-05: 0.213;

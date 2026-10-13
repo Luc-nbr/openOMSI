@@ -324,7 +324,7 @@ const toSrgb = (l) => 255 * (l <= 0.0031308 ? 12.92 * l : 1.055 * l ** (1 / 2.4)
 /** The rgba alpha that shows what the game-drawn launcher's alpha `a` of `top` shows: it
  * blends in linear light (stronger on the night, weaker on the cream), and its light look draws
  * a see-through white as see-through ink (`theme.rs`: overlay_alpha). As company.css's
- * `--aw-*` and `--ac-*` (tauri2 linlight.py). */
+ * `--aw-*` and `--ac-*` (launcher/tools/omsihub-linear-alpha.py). */
 export function seen(a, top = [255, 255, 255]) {
   const light = document.documentElement.dataset.theme === 'light';
   const under = light ? [252, 234, 208] : [9, 12, 24];
