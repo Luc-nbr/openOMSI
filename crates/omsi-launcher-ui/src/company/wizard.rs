@@ -213,7 +213,24 @@ fn map_label(m: &core::MapInfo) -> String {
     }
 }
 
+/// The height the founding screen is laid out for (it fits a 1440 x 900 window). A lower room -
+/// a small window, or the interface zoomed far in - scrolls it whole, its buttons with it,
+/// instead of drawing its parts over each other.
+const MIN_H: f32 = 760.0;
+
 pub fn draw(l: &mut Launcher, area: Rect) {
+    if area.h >= MIN_H {
+        draw_in(l, area);
+        return;
+    }
+    let off = l.ui.scrolled("company-wizard-scroll");
+    l.ui.push_clip(area, 0.0);
+    draw_in(l, Rect::new(area.x, area.y - off, (area.w - 10.0).max(0.0), MIN_H));
+    l.ui.pop_clip();
+    l.ui.scroll_keep("company-wizard-scroll", area, MIN_H);
+}
+
+fn draw_in(l: &mut Launcher, area: Rect) {
     let Some(mut w) = l.company.wizard.take() else { return };
     let has = l.company.companies.as_ref().is_some_and(|c| !c.is_empty());
     // the head: what this is
