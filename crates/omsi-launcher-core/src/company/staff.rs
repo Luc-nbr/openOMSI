@@ -1354,6 +1354,35 @@ pub fn raise(c: &mut Company, id: u32, share: f64) {
     c.staff_rules.asks.retain(|a| a.id != id || a.share > share + 1e-9);
 }
 
+/// A one-off bonus is this share of a month's wage.
+pub const BONUS_SHARE: f64 = 0.1;
+/// What a bonus does to the one who gets it (satisfaction points).
+pub const BONUS_SATISFACTION: f64 = 12.0;
+
+/// What a bonus for someone costs now (a tenth of their monthly wage, to the ten euros).
+pub fn bonus_cost(e: &Employee) -> Cents {
+    (((e.wage as f64 * BONUS_SHARE) / 10_00 as f64).round() as Cents).max(1) * 10_00
+}
+
+/// Give someone a one-off bonus (the Casual drivers' page): booked with the wages, and they
+/// are more content for it. Returns what it cost.
+pub fn bonus(c: &mut Company, id: u32) -> Result<Cents, &'static str> {
+    let Some(e) = c.staff.iter().find(|e| e.id == id) else { return Err("They do not work here.") };
+    if e.notice_until.is_some() {
+        return Err("They are leaving already.");
+    }
+    let cost = bonus_cost(e);
+    if c.cash < cost {
+        return Err("The cash does not cover it.");
+    }
+    let name = e.name.clone();
+    c.book(BookingKind::Wages, -cost, format!("Bonus: {name}"), false);
+    if let Some(e) = c.staff.iter_mut().find(|e| e.id == id) {
+        e.satisfaction = (e.satisfaction + BONUS_SATISFACTION).min(100.0);
+    }
+    Ok(cost)
+}
+
 /// What someone costs a month (gross and the employer's share).
 pub fn monthly_cost(e: &Employee) -> Cents {
     economy::employer_cost(e.wage)
@@ -1942,5 +1971,26 @@ mod tests {
         // (no inspectors without the research)
         assert!(c.staff.iter().all(|e| e.role != Role::Inspector));
         assert!(c.inbox.messages.iter().filter(|m| m.title == "%{name} was hired").count() == 2);
+    }
+
+    #[test]
+    fn a_bonus_is_paid_once_and_makes_them_content() {
+        let mut c = found(&Founding { name: "Bonus".into(), game_mode: GameMode::Casual, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+        let a = applicants(&c).into_iter().find(|a| a.licence == Licence::D).unwrap();
+        let id = hire(&mut c, &a).unwrap();
+        let e = c.employee(id).unwrap().clone();
+        let (cash, happy) = (c.cash, e.satisfaction);
+        let cost = bonus(&mut c, id).unwrap();
+        assert_eq!(cost, bonus_cost(&e));
+        assert!(cost > 0 && cost % 10_00 == 0);
+        assert_eq!(c.cash, cash - cost);
+        assert!(c.employee(id).unwrap().satisfaction > happy || happy >= 100.0 - BONUS_SATISFACTION);
+        assert!(c.ledger.last().is_some_and(|b| b.kind == BookingKind::Wages && b.text.starts_with("Bonus")));
+        // not for someone leaving, nor without the cash
+        c.cash = 0;
+        assert!(bonus(&mut c, id).is_err());
+        dismiss(&mut c, id).unwrap();
+        c.cash = 1_000_000_00;
+        assert!(bonus(&mut c, id).is_err());
     }
 }

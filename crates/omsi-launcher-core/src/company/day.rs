@@ -16,7 +16,7 @@ use super::dates;
 use super::economy;
 use super::finance;
 use super::market;
-use super::model::{BookingKind, BusKind, BusSize, Cents, Company, DayRecord, Drive, Tenure, HISTORY_KEPT};
+use super::model::{BookingKind, BusKind, BusSize, Cents, Company, DayRecord, Drive, LineTally, Tenure, HISTORY_KEPT};
 use super::network::{self, line_of_number, TourOfDay};
 use super::rng::Rng;
 use super::staff::{self, Block, StaffNote, BUS_MARGIN, WEEK_DAYS};
@@ -241,6 +241,12 @@ pub struct LineDay {
     /// Not in service yet (not planned): its tours did not run.
     #[serde(default)]
     pub unplanned: bool,
+    /// Its trips fuller than their bus's places (an own line's, `ownline::carried`), and those
+    /// of them before ten in the morning.
+    #[serde(default)]
+    pub crowded: u32,
+    #[serde(default)]
+    pub crowded_morning: u32,
 }
 
 /// Something the day's report tells besides the figures.
@@ -586,6 +592,12 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
                     pax = taken;
                     report.crowded += crowded as u32;
                     report.left_behind += left.round() as u32;
+                    if crowded {
+                        lines[li].crowded += 1;
+                        if trip.dep.rem_euclid(1440) < 10 * 60 {
+                            lines[li].crowded_morning += 1;
+                        }
+                    }
                 }
                 let pax = pax.round().max(0.0) as u32;
                 let (fares, comp) = super::ownline::trip_income(kind, pax as f64, trip.km, per_passenger[li], comp_km, super::ownline::school_trip_pay(c, trip.km));
@@ -846,6 +858,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
         km: report.km,
         passengers: report.passengers,
         punctuality,
+        lines: report.lines.iter().map(|l| LineTally { line: l.line.clone(), passengers: l.passengers, crowded: l.crowded, crowded_morning: l.crowded_morning }).collect(),
     });
     if c.history.len() > HISTORY_KEPT {
         let extra = c.history.len() - HISTORY_KEPT;

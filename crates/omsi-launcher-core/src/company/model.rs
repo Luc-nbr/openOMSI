@@ -679,6 +679,22 @@ pub struct DayRecord {
     pub passengers: u32,
     /// Trips on time, of the trips run (0 to 100; None without trips).
     pub punctuality: Option<f64>,
+    /// Each line's day (an older file has none).
+    #[serde(default)]
+    pub lines: Vec<LineTally>,
+}
+
+/// A line's closed day, kept with the day's record: its passengers and its crowded trips (the
+/// Casual pages' "passengers this week" and their tips).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct LineTally {
+    /// The company line (its timetable name).
+    pub line: String,
+    pub passengers: u32,
+    #[serde(default)]
+    pub crowded: u32,
+    #[serde(default)]
+    pub crowded_morning: u32,
 }
 
 /// What of the week's markets is gone (bought, hired): a new week brings new offers.

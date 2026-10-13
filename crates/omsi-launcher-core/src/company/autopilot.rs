@@ -51,6 +51,50 @@ pub struct Autopilot {
     /// company goes advanced.
     #[serde(default)]
     pub buying: Option<BuyingMode>,
+    /// The shifts the player picked on the Casual home ("Drive a shift"): his for their day
+    /// only, given back to the company's drivers the next morning (`morning`).
+    #[serde(default)]
+    pub picked: Vec<Picked>,
+    /// The Casual home's calm hint "Want more control? Switch to Normal" was put away for good.
+    #[serde(default)]
+    pub normal_hint_off: bool,
+}
+
+/// A shift the player picked for one day: its day, its line and tour, and its duty.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+pub struct Picked {
+    pub date: String,
+    pub line: String,
+    pub tour: String,
+    pub duty: usize,
+}
+
+/// The player drives this shift of `date` himself, that day only: his on the weekday's roster
+/// until the next morning gives it back (a shift of his own already stays his).
+pub fn pick_shift(c: &mut Company, date: &str, line: &str, tour: &str, duty: usize) {
+    let wd = plan::weekday_of(date);
+    let mine = plan::roster(c, wd, line, tour).and_then(|r| r.duties.get(duty).copied().flatten()) == Some(Who::Player);
+    if mine {
+        return;
+    }
+    plan::set_driver(c, wd, line, tour, duty, Some(Who::Player));
+    let p = Picked { date: date.to_string(), line: line.to_string(), tour: tour.to_string(), duty };
+    if !c.autopilot.picked.contains(&p) {
+        c.autopilot.picked.push(p);
+    }
+}
+
+/// The shifts picked for another day than `date` given back to the company's drivers.
+fn give_back_picked(c: &mut Company, date: &str) {
+    let old: Vec<Picked> = c.autopilot.picked.iter().filter(|p| p.date != date).cloned().collect();
+    for p in old {
+        let wd = plan::weekday_of(&p.date);
+        let still = plan::roster(c, wd, &p.line, &p.tour).and_then(|r| r.duties.get(p.duty).copied().flatten()) == Some(Who::Player);
+        if still {
+            plan::set_driver(c, wd, &p.line, &p.tour, p.duty, None);
+        }
+    }
+    c.autopilot.picked.retain(|p| p.date == date);
 }
 
 /// Something the company did by itself: its day, its words (English, a text with `%{name}`
@@ -176,6 +220,7 @@ fn can_spend(c: &Company, cost: Cents) -> bool {
 /// its duties ask for counted. Returns whether anything changed.
 pub fn morning(c: &mut Company, date: &str, lines: &[LineInfo]) -> bool {
     let before = (c.planning.week.clone(), c.lines.iter().map(|l| l.service_from).collect::<Vec<_>>(), c.concessions.held.len(), c.cash, c.autopilot.drivers);
+    give_back_picked(c, date);
     renew(c, date);
     start_lines(c, date);
     let tours = network::tours_of_day(c, lines, date);
@@ -746,5 +791,36 @@ mod tests {
             note(&mut c, "2024-03-06", HIRED, vec![("name", k.to_string())]);
         }
         assert_eq!(c.autopilot.log.len(), LOG_KEPT);
+    }
+
+    #[test]
+    fn a_picked_shift_is_the_players_for_its_day_only() {
+        let (mut c, lines) = company(GameMode::Casual, 2, 4);
+        let today = c.date.clone();
+        morning(&mut c, &today, &lines);
+        let tours = network::tours_of_day(&c, &lines, &today);
+        let t = tours.iter().find(|t| !t.unplanned).expect("a tour in service");
+        let (line, tour) = (t.line.clone(), t.tour.clone());
+        let wd = plan::weekday_of(&today);
+        let who = |c: &Company| plan::roster(c, wd, &line, &tour).and_then(|r| r.duties.first().copied().flatten());
+        assert!(matches!(who(&c), Some(Who::Staff(_))), "the company's driver first");
+        pick_shift(&mut c, &today, &line, &tour, 0);
+        assert_eq!(who(&c), Some(Who::Player));
+        assert_eq!(c.autopilot.picked.len(), 1);
+        // the morning made again the same day keeps it
+        morning(&mut c, &today, &lines);
+        assert_eq!(who(&c), Some(Who::Player));
+        // a week on, the same weekday's morning gives it back to the company's drivers
+        let later = dates::add(&today, 7);
+        morning(&mut c, &later, &lines);
+        assert_ne!(who(&c), Some(Who::Player));
+        assert!(c.autopilot.picked.is_empty());
+        // a shift of his own every week is not taken away
+        plan::set_driver(&mut c, wd, &line, &tour, 0, Some(Who::Player));
+        pick_shift(&mut c, &later, &line, &tour, 0);
+        assert!(c.autopilot.picked.is_empty());
+        let after = dates::add(&later, 7);
+        morning(&mut c, &after, &lines);
+        assert_eq!(who(&c), Some(Who::Player));
     }
 }
