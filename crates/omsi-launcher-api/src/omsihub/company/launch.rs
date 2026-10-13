@@ -247,7 +247,10 @@ pub fn act(s: &mut Session, what: &str, args: &Value, p: &dyn crate::Platform) -
             s.generation += 1;
             // (the planning is the game-drawn launcher's until its phase; Casual's are its shifts)
             if super::pages_of(c.game_mode).contains(&5) {
-                Ok(json!({ "hand_over": "5", "date": x.map(|x| x.duty.date) }))
+                // Omsi-Hub 4/6: the duty with it, for RosterFlow's Roster to open on it
+                // (`duty_launch::to_planning`).
+                let duty = x.as_ref().map(|x| json!({ "date": x.duty.date, "line": x.duty.line, "tour": x.duty.tour, "duty": x.duty.duty }));
+                Ok(json!({ "hand_over": "5", "date": x.map(|x| x.duty.date), "duty": duty }))
             } else {
                 Ok(json!({ "tab": super::casual::SHIFTS }))
             }

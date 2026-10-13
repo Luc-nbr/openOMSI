@@ -14,3 +14,56 @@ _version: 2
   ru: "Открыть файл"
   uk: "Відкрити файл"
   pl: "Otwórz plik"
+
+# --- the Timeplan's line gone from the line editor's list -----------------------------------------
+"The line is no longer in the line editor's list: open the timetable again.":
+  en: "The line is no longer in the line editor's list: open the timetable again."
+  nl: "De lijn staat niet meer in de lijst van de lijneditor: open de dienstregeling opnieuw."
+  de: "Die Linie steht nicht mehr in der Liste des Linieneditors: öffne den Fahrplan erneut."
+  fr: "La ligne n'est plus dans la liste de l'éditeur de lignes : rouvrez l'horaire."
+  ru: "Линии больше нет в списке редактора линий: откройте расписание снова."
+  uk: "Лінії більше немає в списку редактора ліній: відкрийте розклад знову."
+  pl: "Linii nie ma już na liście edytora linii: otwórz rozkład jeszcze raz."
+
+# --- the Drivers tab's menu once single trips go to another duty (rf-driver-drag) ---------------
+# (the same words and translations as rosterflow.yml has on that branch)
+"Move the chosen trips to another duty: the bus stays the same":
+  en: "Move the chosen trips to another duty: the bus stays the same"
+  nl: "De gekozen ritten naar een andere dienst verplaatsen: de bus blijft dezelfde"
+  de: "Die gewählten Fahrten in einen anderen Dienst verschieben: der Bus bleibt derselbe"
+  fr: "Déplacer les courses choisies vers un autre service : le bus reste le même"
+  ru: "Перенести выбранные рейсы в другую смену: автобус остаётся тем же"
+  uk: "Перенести вибрані рейси до іншої зміни: автобус залишається тим самим"
+  pl: "Przenieś wybrane kursy do innej służby: autobus zostaje ten sam"
+"The chosen trips a duty of their own":
+  en: "The chosen trips a duty of their own"
+  nl: "De gekozen ritten een eigen dienst"
+  de: "Die gewählten Fahrten ein eigener Dienst"
+  fr: "Les courses choisies deviennent un service à part"
+  ru: "Выбранные рейсы — отдельной сменой"
+  uk: "Вибрані рейси — окремою зміною"
+  pl: "Wybrane kursy osobną służbą"
+"Move piece":
+  en: "Move piece"
+  nl: "Dienststuk verplaatsen"
+  de: "Dienststück verschieben"
+  fr: "Déplacer la partie"
+  ru: "Переместить часть работы"
+  uk: "Перемістити частину роботи"
+  pl: "Przenieś część pracy"
+"Take up the whole piece of work on this bus (or Alt and a drag)":
+  en: "Take up the whole piece of work on this bus (or Alt and a drag)"
+  nl: "Het hele dienststuk op deze bus oppakken (of Alt en slepen)"
+  de: "Das ganze Dienststück auf diesem Bus aufnehmen (oder Alt und Ziehen)"
+  fr: "Prendre toute la partie de travail sur ce bus (ou Alt et un glisser)"
+  ru: "Взять всю часть работы на этом автобусе (или Alt и перетаскивание)"
+  uk: "Взяти всю частину роботи на цьому автобусі (або Alt і перетягування)"
+  pl: "Podnieś całą część pracy na tym autobusie (albo Alt i przeciągnięcie)"
+"Move piece to new row":
+  en: "Move piece to new row"
+  nl: "Dienststuk naar nieuwe rij verplaatsen"
+  de: "Dienststück in neue Zeile verschieben"
+  fr: "Déplacer la partie vers une nouvelle ligne"
+  ru: "Переместить часть работы в новую строку"
+  uk: "Перемістити частину роботи в новий рядок"
+  pl: "Przenieś część pracy do nowego wiersza"

@@ -151,7 +151,7 @@ mod tests {
     fn a_graph_is_a_pdf_with_a_row_for_every_bus() {
         let trip = |a: &str, b: &str, dep: i32| PlannedTrip { line: "4".into(), from: a.into(), to: b.into(), stops: 6, dep, arr: dep + 30, origin: "1".into(), ..Default::default() };
         let t = TourOfDay { line: "Linie4".into(), number: "4".into(), tour: "1".into(), trips: vec![trip("Nord", "Süd", 360), trip("Süd", "Nord", 400)], ..Default::default() };
-        let c = Company::default();
+        let c = omsi_launcher_lib::company::found(&omsi_launcher_lib::company::Founding { name: "Ziel".into(), date: "2024-05-06".into(), ..Default::default() }, "Luc");
         let b = rf::board_of(&c, 0, vec![t], Vec::new());
         assert_eq!(bus_rows(&c, &b).len(), 1);
         assert_eq!(bus_rows(&c, &b)[0].name, "4/01");

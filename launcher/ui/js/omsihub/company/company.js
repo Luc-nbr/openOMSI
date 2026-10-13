@@ -26,6 +26,8 @@ import { InboxPage } from './inbox.js';
 import { CareerPage } from './career.js';
 import { CasualPage } from './casual.js';
 import { LaunchPage } from './launch.js';
+// Omsi-Hub 4/6: RosterFlow, the Planning page with the add-on on, over the whole window.
+import { RosterFlowPage } from '../rosterflow/index.js';
 
 // (the company's own look, loaded with its first page)
 const sheet = document.createElement('link');
@@ -143,6 +145,8 @@ export function CompanyScreen() {
   useEffect(() => {
     const k = (e) => {
       if (e.key !== 'Escape' || modalOpen() || !S.co.shell?.open || S.co.chooser || S.co.wizard || S.co.shell.launch) return;
+      // (RosterFlow has its own Escape: Omsi-Hub 4/6)
+      if (S.rf?.open && S.co.tab === 5) return;
       const el = document.activeElement;
       if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
       setCo({ tab: S.co.shell.casual ? parentOf(S.co.shell, S.co.tab) : HOME });
@@ -160,6 +164,16 @@ export function CompanyScreen() {
   else if (founding) body = html`<div class="co-body found"><${Wizard} /></div>`;
   else if (sh.launch) body = html`<div class="co-body full"><${LaunchPage} /></div>`;
   else body = html`${sh.casual ? html`<${CasualNav} />` : html`<${Nav} />`}<div class="co-body" key=${'tab' + c.tab}><${Page} /></div>`;
+  // (Omsi-Hub 4/6: RosterFlow an application of its own over the whole window, no company bar;
+  // its dialogs and the popup still over it)
+  const rosterflow = open && !sh.casual && !sh.launch && c.tab === 5 && s.rf?.open;
+  if (rosterflow) {
+    return html`<div class="co" data-tab="5">
+      <${Guard}><${RosterFlowPage} /></${Guard}>
+      <${Guard}><${Overlays} founding=${false} /></${Guard}>
+      ${c.notice && Date.now() - c.notice.at < 9000 && html`<div class=${'co-notice' + (c.notice.error ? ' error' : '')} key=${c.notice.at}>${c.notice.text}</div>`}
+    </div>`;
+  }
   return html`<div class="co" data-tab=${open ? c.tab : ''}>
     <${Guard}><${Bar} open=${open} choosing=${choosing} read=${read} /></${Guard}>
     <${Guard}>${body}</${Guard}>

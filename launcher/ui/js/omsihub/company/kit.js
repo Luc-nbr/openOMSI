@@ -85,7 +85,8 @@ export async function act(name, args = {}) {
   }
   r = r || {};
   if (r.popup) setCo({ popup: r.popup });
-  if (r.hand_over) handOver(r.hand_over);
+  // (Omsi-Hub 4/6: what came with it - the duty launcher's duty - for a page that takes it)
+  if (r.hand_over) handOver(r.hand_over, r);
   if (r.tab != null) goTab(r.tab);
   refresh();
   return r;
@@ -124,10 +125,23 @@ export function goTab(tab) {
   setCo({ tab, dialog: null });
 }
 
+/** The pages of a later phase that take a hand-over themselves (Omsi-Hub 4/6: RosterFlow takes
+ * the Planning page with the add-on on): each is asked in turn with the page and what came with
+ * it, and says (a promise of) true when it took it. */
+export const handOverHooks = [];
+
 /** Open a page (or the line editor, the livery studio ...) of the company in our game-drawn
  * launcher (`OMSI_LAUNCHER_PAGE` "bus company:<page>:<company>"): the clock stops and the
- * company is saved first; this window closes. */
-export async function handOver(page) {
+ * company is saved first; this window closes. A page of the desktop launcher's own that takes
+ * it (`handOverHooks`) opens instead. */
+export async function handOver(page, more = null) {
+  for (const take of handOverHooks) {
+    try {
+      if (await take(page, more)) return;
+    } catch {
+      /* (not taken: handed over) */
+    }
+  }
   if (S.boot?.selftest) {
     setCo({ handed: page });
     return;

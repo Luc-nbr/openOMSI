@@ -382,6 +382,11 @@ pub fn call(cmd: &str, args: &Value) -> Option<Answer> {
             };
             let id = c.id.clone();
             let screen = r.tp.guide(&id, &line, hint);
+            // (the line editor wrote the line: the company's timetables read again)
+            if args.get("reload").and_then(Value::as_bool).unwrap_or(false) {
+                company::reload_timetable(s);
+                r.cache = None;
+            }
             Ok(json!({ "screen": screen }))
         }),
         _ => return None,

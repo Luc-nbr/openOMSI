@@ -129,6 +129,12 @@ fn usizes(args: &Value, name: &str) -> Vec<usize> {
     args.get(name).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_u64).map(|x| x as usize).collect()).unwrap_or_default()
 }
 
+/// Pairs of indices (`[[block, trip], ...]`).
+fn pairs(args: &Value, name: &str) -> Vec<(usize, usize)> {
+    let pair = |v: &Value| Some((v.get(0)?.as_u64()? as usize, v.get(1)?.as_u64()? as usize));
+    args.get(name).and_then(Value::as_array).map(|a| a.iter().filter_map(pair).collect()).unwrap_or_default()
+}
+
 /// A command of RosterFlow, or None when `cmd` is not one.
 pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
     company::words::set_language(args.get("lang").and_then(Value::as_str).unwrap_or(""));
@@ -520,7 +526,7 @@ fn board_answer(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
         "lines": lines,
         "prefs": {
             "relief": rf::ReliefTiming::ALL.iter().position(|x| *x == prefs.relief).unwrap_or(0),
-            "pre_trip": prefs.pre_trip, "post_trip": prefs.post_trip,
+            "pre_trip": prefs.pre_trip, "post_trip": prefs.post_trip, "relief_before": prefs.relief_before,
             "optimise_vehicles": prefs.optimise_vehicles, "optimise_duties": prefs.optimise_duties,
         },
         "palette": rf::PALETTE.iter().map(|x| rf::hex(*x)).collect::<Vec<_>>(),
@@ -575,10 +581,12 @@ enum Hand {
     Trips { tour: usize, trips: Vec<usize> },
     Stack(usize),
     Piece { tour: usize, duty: usize },
-    /// Trips of a duty taken up one by one in the Drivers tab, to go to another duty or a new
-    /// one (Luc's change on `rf-driver-drag`: the core's `studio::plan_move_to_duty` checks them;
+    /// Trips of a duty (the Drivers tab's row `duty`, an index into the board's shaped duties)
+    /// taken up one by one, as (block, trip) pairs on one bus or several, to go to another duty
+    /// or a new one (Luc's change on `rf-driver-drag`, the game-drawn launcher's `Hand::Duty`:
+    /// the core's `studio::plan_move_to_duty` checks them and `studio::move_to_duty` makes it;
     /// until it is here, the Drivers tab takes up whole pieces, `TRIPS_TO_DUTIES`).
-    DutyTrips { tour: usize, trips: Vec<usize> },
+    DutyTrips { duty: usize, trips: Vec<(usize, usize)> },
     None,
 }
 
@@ -588,7 +596,7 @@ fn hand_of(args: &Value) -> Hand {
         "trips" => Hand::Trips { tour: usize_arg(&h, "tour"), trips: usizes(&h, "trips") },
         "stack" => Hand::Stack(usize_arg(&h, "k")),
         "piece" => Hand::Piece { tour: usize_arg(&h, "tour"), duty: usize_arg(&h, "duty") },
-        "duty_trips" => Hand::DutyTrips { tour: usize_arg(&h, "tour"), trips: usizes(&h, "trips") },
+        "duty_trips" => Hand::DutyTrips { duty: usize_arg(&h, "duty"), trips: pairs(&h, "trips") },
         _ => Hand::None,
     }
 }
@@ -1275,6 +1283,9 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value, p: &dyn Platform) -> Answer {
                     let words = trf("Piece of %{v} made a duty of its own", &[("v", &label_of(tour))]);
                     edit(s, r, words, |c| st::detach(c, wd, &tours, (tour, duty)))
                 }
+                // (Luc's driver drag, once the core has it: `st::move_to_duty(c, wd, &tours, from,
+                // &trips, DutyTarget::Duty(to) or New)`, `from` and `to` the shaped rows' duties)
+                (Hand::DutyTrips { .. }, _) => json!({}),
                 _ => json!({}),
             }
         }
@@ -1282,7 +1293,11 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value, p: &dyn Platform) -> Answer {
             // (a locked vehicle or duty is not taken up: said at once, `rf_gantt::pick`)
             let c = &k.view;
             let refused = match hand_of(args) {
-                Hand::Trips { tour, .. } | Hand::DutyTrips { tour, .. } => tours.get(tour).is_some_and(|t| rf::block_locked(c, wd, &t.line, &t.tour)).then_some(st::LOCKED),
+                Hand::Trips { tour, .. } => tours.get(tour).is_some_and(|t| rf::block_locked(c, wd, &t.line, &t.tour)).then_some(st::LOCKED),
+                Hand::DutyTrips { trips, .. } => trips
+                    .iter()
+                    .any(|&(i, j)| tours.get(i).and_then(|t| co::network::duties_of(t).iter().position(|p| p.contains(&j))).is_some_and(|d| rf::piece_locked(c, wd, &tours, i, d)))
+                    .then_some(st::DUTY_LOCKED),
                 Hand::Piece { tour, duty } => rf::piece_locked(c, wd, &tours, tour, duty).then_some(st::DUTY_LOCKED),
                 _ => None,
             };
