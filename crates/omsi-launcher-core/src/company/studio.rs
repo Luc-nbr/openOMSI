@@ -765,8 +765,10 @@ fn pieces_of(tours: &[TourOfDay], who: &[Vec<usize>], pieces: &[Vec<Range<usize>
     out
 }
 
-/// What moving trips `trips` (block, trip) of duty `from` (an index into `duties`) to `to`
-/// would make of the planning (None: refused, and why). The trips stay on their buses: their
+/// What moving trips `trips` (block, trip: indices into `tours`) of duty `from` to `to` would
+/// make of the planning (None: refused, and why). `from` and `DutyTarget::Duty` are indices into
+/// `duties(&c.planning.joined, weekday, tours)` - `rosterflow::Board::duties` when `c` is the
+/// board's company (`rosterflow::view`) and `tours` its blocks. The trips stay on their buses: their
 /// blocks are cut where the driver changes now - only where the bus stands at a terminus or the
 /// depot (`NOT_RELIEF`, `ON_THE_MOVE`) - and a cut between two pieces one driver now works on
 /// one bus goes. Every duty changed keeps to the working-time rules (`rules_of`: a hard rule it
