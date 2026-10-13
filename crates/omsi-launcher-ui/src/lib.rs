@@ -462,10 +462,15 @@ impl Launcher {
             app.company.chooser = Some(Default::default());
         }
         // (the desktop launcher hands a page of a company over: "bus company:<page>:<id>" opens
-        // that company, "bus company:tour:<id>" its tour)
+        // that company on that page; "bus company:<what>:<id>" opens it and then its tour, the
+        // line editor, a timetable or the livery studio - `company::handed`)
         if p.split(':').next().is_some_and(|x| x.trim().eq_ignore_ascii_case("bus company")) {
-            app.company.want = p.splitn(3, ':').nth(2).map(|x| x.trim().to_string()).filter(|x| !x.is_empty());
-            app.company.tour_wanted = p.split(':').nth(1).is_some_and(|x| x.trim().eq_ignore_ascii_case("tour"));
+            let mut parts = p.splitn(3, ':').skip(1);
+            let part = parts.next().unwrap_or("").trim().to_string();
+            app.company.want = parts.next().map(|x| x.trim().to_string()).filter(|x| !x.is_empty());
+            if !part.is_empty() && company::tab_of(&part).is_none() && !part.eq_ignore_ascii_case("choose") {
+                app.company.then = Some(part);
+            }
         }
     }
     // (`OMSI_LAUNCHER_LIVERY=<bus file>`: the livery studio at once)

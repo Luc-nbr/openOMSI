@@ -242,6 +242,15 @@ pub(super) fn go(l: &mut Launcher, g: kit::Go) {
     }
 }
 
+/// The line wizard's own line, drawn in the line editor with the timetable of a frequency
+/// (`logic::Freq::ALL[freq]`): as its last step opens it (`lines::make`), for the desktop
+/// launcher's wizard (`company::handed`).
+pub(super) fn draw_line(l: &mut Launcher, freq: usize) {
+    l.company.tab = LINES;
+    let f = logic::Freq::ALL[freq.min(logic::Freq::ALL.len() - 1)];
+    super::super::lineeditor::open_new_for_company_with(l, logic::freq_days(f));
+}
+
 /// "Next day": the rest of the company's day simulated and closed, to the next morning (the
 /// dispatcher decides what comes up on the way, nothing waits for an answer).
 pub(super) fn next_day(l: &mut Launcher) {

@@ -248,14 +248,22 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Result<Value, St
         "design_livery" => {
             // (the livery studio is an editor of our game-drawn launcher: the company pays when it
             // is saved there)
+            // (`id` a bus of the fleet painted in it, else `file` and `livery` the bus to design
+            // for: a new bus's, Casual's company page's)
             let mut cost = co::livery::design_fee(&c);
-            if let Some(v) = c.vehicle(id) {
+            let bus = c.vehicle(id);
+            if let Some(v) = bus {
                 cost += co::livery::paint_cost(&c, v);
             }
             if c.cash < cost {
                 popup(super::popup(s, kit::no_cash(&c, cost)))
             } else {
-                Ok(json!({ "hand_over": "livery" }))
+                let (file, paint) = match bus {
+                    Some(v) => (v.bus.clone(), v.livery.clone()),
+                    None => (str_of("file"), str_of("livery")),
+                };
+                let vehicle = bus.map(|v| v.id.to_string()).unwrap_or_default();
+                Ok(json!({ "hand_over": format!("livery={file}|{paint}|{vehicle}") }))
             }
         }
         "new_take" => {

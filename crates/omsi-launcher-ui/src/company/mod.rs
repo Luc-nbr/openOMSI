@@ -236,9 +236,10 @@ pub struct CompanyView {
     /// The company the launcher was started on (`OMSI_LAUNCHER_PAGE` "bus company:<page>:<id>",
     /// the desktop launcher handing one of its pages over): opened when the companies are read.
     pub(crate) want: Option<String>,
-    /// The company's tour asked for at the start ("bus company:tour:<id>"): started once the
-    /// company is open.
-    pub(crate) tour_wanted: bool,
+    /// What the desktop launcher handed over beside the company ("bus company:<what>:<id>": its
+    /// tour, the line editor, a timetable, the livery studio - `handed`): done once the company
+    /// is open.
+    pub(crate) then: Option<String>,
 }
 
 impl Default for CompanyView {
@@ -286,7 +287,7 @@ impl Default for CompanyView {
             refill: Vec::new(),
             unwritten: Vec::new(),
             want: None,
-            tour_wanted: false,
+            then: None,
         }
     }
 }
@@ -1145,10 +1146,9 @@ pub fn screen(l: &mut Launcher) {
         super::tour::anchor("company-page", body);
         pages(l, body);
         back_home(l, esc);
-        // (the tour the desktop launcher's "?" asked for)
-        if l.company.tour_wanted {
-            l.company.tour_wanted = false;
-            tutorial::ask(l);
+        // (what the desktop launcher handed over with the company)
+        if let Some(what) = l.company.then.take() {
+            handed(l, &what);
         }
     }
     // the first time: the company's welcome and tour (`tutorial`) - once a company is open
@@ -1205,6 +1205,36 @@ fn pages(l: &mut Launcher, body: Rect) {
         INBOX_TAB => inbox::draw(l, body),
         // (a page that is no more: the start screen)
         _ => home::draw(l, body),
+    }
+}
+
+/// What the desktop launcher handed over with the company ("bus company:<what>:<id>", `what`
+/// with its ':' and '%' written %3A and %25), done once the company is open: "tour" its tour,
+/// "line-editor" the line editor for a new own line ("line-editor=<id>" an own line),
+/// "map-line=<name>" a line of the map, "casual-line=<0..2>" a Casual line drawn at that
+/// frequency, "timetable=<line>" a line's timetable, "livery=<bus file>|<livery>|<bus id>" the
+/// livery studio (the bus id may be left out).
+pub(crate) fn handed(l: &mut Launcher, what: &str) {
+    let what = what.replace("%3A", ":").replace("%25", "%");
+    let (verb, arg) = what.split_once('=').unwrap_or((what.as_str(), ""));
+    match verb.trim() {
+        "tour" => tutorial::ask(l),
+        "line-editor" => super::lineeditor::open_for_company(l, arg.trim().parse().ok()),
+        "map-line" => super::lineeditor::open_map_line_for_company(l, arg),
+        "casual-line" => casual::draw_line(l, arg.trim().parse().unwrap_or(1)),
+        "timetable" => {
+            let hint = l.company.company.as_ref().and_then(|c| c.lines.iter().find(|x| x.name == arg)).is_some_and(co::ownline::no_timetable).then_some(super::lineeditor::NEW_LINE_HINT);
+            open_timeplan(l, arg, hint);
+        }
+        "livery" => {
+            let mut parts = arg.split('|');
+            let (bus, paint) = (parts.next().unwrap_or("").to_string(), parts.next().unwrap_or("").to_string());
+            let vehicle = parts.next().and_then(|v| v.trim().parse().ok());
+            if !bus.is_empty() {
+                fleet::design_livery(l, &bus, &paint, vehicle);
+            }
+        }
+        _ => {}
     }
 }
 

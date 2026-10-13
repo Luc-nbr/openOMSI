@@ -1289,8 +1289,11 @@ fn hand_over(s: &mut Session, args: &Value) -> Answer {
 }
 
 /// The `OMSI_LAUNCHER_PAGE` that opens the game-drawn launcher on the company's page `part` with
-/// the company `id`.
+/// the company `id` (`part` a page, or what to open there - "tour", "line-editor[=<id>]",
+/// "map-line=<name>", "casual-line=<freq>", "timetable=<line>", "livery=<bus>|<livery>|<id>":
+/// `company::handed` of the game-drawn launcher - its ':' and '%' written %3A and %25).
 pub fn hand_over_page(part: &str, id: &str) -> String {
+    let part = part.replace('%', "%25").replace(':', "%3A");
     if id.is_empty() {
         format!("bus company:{part}")
     } else {
