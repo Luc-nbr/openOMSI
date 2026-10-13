@@ -158,8 +158,8 @@ fn original_line(tt: &TimetableData, ttl: &str) -> Option<Line> {
 /// The map's line `ttl` as the line editor opens it (`core::lines::import_map_line`): its
 /// stops where the map's network has them, the depot file's own IBIS routes, the legs the map
 /// has no way for routed over the roads. With how many legs were routed and how many of the
-/// map's trips could not be taken.
-fn import(v: &mut LineEditorView, ttl: &str) -> Option<(LineDesign, usize, usize)> {
+/// map's trips could not be taken. (Also the page's line editor's, `headless`.)
+pub(super) fn import(v: &mut LineEditorView, ttl: &str) -> Option<(LineDesign, usize, usize)> {
     let tt = v.tt.clone()?;
     let line = original_line(&tt, ttl)?;
     let tiles = v.raw_tiles.clone();

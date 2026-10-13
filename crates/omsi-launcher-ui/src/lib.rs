@@ -28,6 +28,8 @@ mod editor_hub;
 pub mod flow;
 mod freedrive;
 mod hof;
+// Omsi-Hub: what the desktop launcher's editors ask of the game program (the launcher service)
+pub mod hub_service;
 pub mod intro;
 mod lineeditor;
 mod lineroute;

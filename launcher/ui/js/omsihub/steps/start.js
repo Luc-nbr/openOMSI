@@ -16,7 +16,8 @@ export function StartStep() {
   const at = c.free_entry ?? -1;
   const entries = m?.entry_points || [];
   const chosen = at >= 0 ? entries[at]?.name : null;
-  const pick = (i) => choose({ free_entry: i });
+  // (a start point chosen: no more the line editor's line to drive along)
+  const pick = (i) => choose({ free_entry: i, own_line: false });
   return html`
     <${MapBehind} trip=${null} entry=${at} onEntry=${pick} />
     <section class="hub-sheet narrow">

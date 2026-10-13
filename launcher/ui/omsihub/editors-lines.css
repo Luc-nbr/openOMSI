@@ -1,0 +1,281 @@
+/* The line editor (`lineeditor.rs`, js/omsihub/editors/lines): the player's lines and the
+   line's settings on the left, the map in the middle, a direction's stops, displays,
+   timetable and kind on the right; the table over the map; the company's estimate. Loaded with
+   editors.css. */
+
+.ed-page-body:has(.le-page) { container-type: inline-size; }
+.le-page { position: absolute; inset: 0; }
+.le-narrow-only { display: none; }
+@container (max-width: 899px) { .le-narrow-only { display: block; } .le-wide { display: none !important; } }
+.le-wide { position: absolute; inset: 0; display: grid; grid-template-columns: clamp(280px, 25%, 340px) minmax(0, 1fr) clamp(280px, 25%, 340px); gap: 12px; }
+.le-narrow .le-narrow-row { display: flex; align-items: center; gap: 10px; height: 32px; font-size: 10px; font-weight: 500; }
+.le-narrow .ed-para { margin-bottom: 12px; }
+
+/* the line's plate (yellow, or the line's colour) */
+.le-plate { display: inline-flex; align-items: center; justify-content: center; padding: 0 8px; border-radius: 5px; background: var(--hub-line); color: var(--hub-on-line); font-weight: 800; white-space: nowrap; flex: none; font-variant-numeric: tabular-nums; }
+
+/* --- the left panel ---------------------------------------------------------------------- */
+
+.le-left { padding: 12px 16px; }
+.le-left > .ed-drop, .le-company { flex: none; }
+.le-company { height: var(--hub-row); display: flex; align-items: center; gap: 10px; padding: 0 12px 0 10px; border-radius: var(--hub-r); background: var(--hub-field); font-size: 10px; font-weight: 500; }
+.le-company .hub-icon { color: var(--hub-accent-text); }
+.le-company span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.le-lines { flex: none; overflow-y: auto; margin: 10px -6px 8px; padding: 0 6px 4px; display: flex; flex-direction: column; gap: 4px; min-height: 40px; }
+.le-none { font-size: 9.6px; color: var(--hub-text-dim); height: 36px; display: flex; align-items: center; }
+.ed-row.le-line { height: 36px; padding: 0 8px; gap: 8px; flex: none; }
+.ed-row.le-line .bar { width: 4px; height: 12px; border-radius: 2px; flex: none; }
+.ed-row.le-line .name { font-size: 10px; font-weight: 500; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ed-row.le-line.map .name { font-size: 9.6px; color: var(--hub-text-soft); }
+.ed-row.le-line.on .name { color: var(--hub-on-accent); }
+.ed-row.le-line .kind { color: var(--hub-accent-text); display: inline-flex; }
+.ed-row.le-line.on .kind { color: var(--hub-on-accent); }
+.le-maphead { height: 20px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 3px 2px 0; border-top: 1px solid var(--hub-hairline); margin-top: 6px; font-size: 8.1px; font-weight: 700; text-transform: uppercase; color: var(--hub-text-dim); }
+.le-maphead b { color: var(--hub-text-faint); }
+.le-left > .hub-btn { width: 100%; flex: none; }
+/* (4 points wider than the panel's body on either side, so that a swatch's ring is not cut; the
+   hairline over it as wide as the body) */
+.le-settings { flex: 1; min-height: 0; display: flex; flex-direction: column; margin: 7px -4px 0; padding: 7px 4px 0; background: linear-gradient(var(--hub-hairline), var(--hub-hairline)) 4px 0 / calc(100% - 8px) 1px no-repeat; overflow-y: auto; }
+.le-settings > * { flex: none; }
+.le-settings .grow { flex: 1; }
+.le-two { display: grid; grid-template-columns: 90px minmax(0, 1fr); grid-template-rows: 16px var(--hub-row); gap: 2px 10px; align-items: center; }
+.le-tab .le-two { grid-template-columns: 1fr 1fr; gap: 2px 12px; }
+.le-swatches { display: flex; gap: 8px; margin: 12px 0 16px; }
+.le-settings > .ed-caps { height: 16px; display: flex; align-items: center; margin-bottom: 2px; }
+.le-settings > .ed-warn { margin-top: 4px; }
+.le-settings > .ed-toggle { margin-top: 12px; }
+/* (nine across the panel, at most 30 points each: `left_panel`) */
+.le-swatches .sw { width: min(30px, calc((100% - 64px) / 9)); aspect-ratio: 1; border-radius: 50%; cursor: pointer; position: relative; flex: none; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12); }
+.le-swatches .sw:hover::after, .le-swatches .sw.on::after { content: ""; position: absolute; inset: -3px; border-radius: 50%; box-shadow: inset 0 0 0 2px var(--hub-text-dim); }
+.le-swatches .sw.on::after { box-shadow: inset 0 0 0 2px var(--hub-text); }
+.le-swatches .any { background: var(--hub-field); display: flex; align-items: center; justify-content: center; color: var(--hub-text-soft); overflow: visible; }
+.le-settings > .ed-picker { margin: -4px 0 16px; }
+.le-foot { display: flex; flex-direction: column; gap: 8px; }
+.le-foot > .hub-btn { width: 100%; }
+.le-half { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; flex: none; }
+.le-half > * { min-width: 0; }
+.le-save-row { display: flex; gap: 12px; align-items: center; }
+.le-save-row > .hub-btn { flex: 1; }
+.le-waiting { font-size: 8.8px; font-weight: 500; color: var(--hub-accent-text); }
+
+/* --- the right panel ------------------------------------------------------------------- */
+
+.le-right { padding: 12px 16px; }
+.le-right > .ed-para { margin-top: 6px; }
+.le-right > .hub-seg { height: var(--hub-row); flex: none; }
+.le-tab { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.le-tab > * { flex: none; }
+.le-tab > .hub-seg { height: var(--hub-row); }
+.le-gap { margin-top: 4px; }
+.le-caps { display: block; margin-top: 4px; }
+.le-dest { display: grid; grid-template-columns: minmax(0, 1fr) var(--hub-row); gap: 6px; }
+.le-dest .le-menu .face { padding: 0; justify-content: center; }
+.le-dest .le-menu .face .text { display: none; }
+.le-dest .le-menu .ed-drop-list, .ed-drop-list:has(> button) { min-width: 220px; }
+/* (a list with its scroll bar beside it, `Ui::scroll_area_bar`: the rows end short of the bar) */
+.le-stops { flex: 1 !important; min-height: 0; overflow-y: auto; margin: 4px -6px 0; padding: 0 18px 0 6px; }
+.ed-row.le-stop { position: relative; height: 34px; padding: 0; gap: 0; }
+.le-stop .dot { position: absolute; left: 14px; top: 50%; width: 9px; height: 9px; border-radius: 50%; transform: translate(-50%, -50%); }
+.le-stop .dot.end { width: 12px; height: 12px; }
+.le-stop .name { margin-left: 28px; width: calc(100% - 196px); flex: none; font-size: 9.6px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* (where our game-drawn launcher puts them, from the row's right: `stops_tab`) */
+.le-stop .tools > * { position: absolute; top: 50%; transform: translateY(-50%); display: flex; }
+.le-stop .tools .time { right: 130px; width: 34px; justify-content: flex-end; font-size: 9.2px; font-weight: 700; color: var(--hub-text-soft); }
+.le-stop .tools .minus { right: 102px; }
+.le-stop .tools .plus { right: 78px; }
+.le-stop .tools .up { right: 44px; }
+.le-stop .tools .down { right: 22px; }
+.le-stop .tools .out { right: 0; }
+.le-stop .tools .ed-iconbtn { width: 20px; height: 20px; }
+.le-stop.on .tools .time, .le-stop.on .ed-iconbtn { color: var(--hub-on-accent); }
+.le-leg { position: relative; height: 20px; display: flex; align-items: center; padding-left: 28px; font-size: 8.4px; color: var(--hub-text-dim); }
+.le-leg > i { position: absolute; left: 13.5px; top: -4px; width: 1.5px; height: 28px; opacity: 0.5; }
+.le-leg span { flex: 1; }
+.le-leg span.bad { color: var(--hub-danger); }
+.le-total { display: flex; align-items: center; gap: 8px; height: var(--hub-row); margin-top: 8px; font-size: 9.6px; font-weight: 500; color: var(--hub-text-soft); }
+.le-total span { flex: 1; }
+.le-tab > .hub-btn.ghost { width: 100%; }
+.le-scroll { flex: 1 !important; min-height: 0; overflow-y: auto; margin: 0 -6px; padding: 0 6px 12px; display: flex; flex-direction: column; gap: 6px; }
+.le-scroll > * { flex: none; }
+.ed-para.small { font-size: 8.8px; }
+.ed-para.soft { color: var(--hub-text-soft); font-size: 9.2px; }
+.ed-para.faint { color: var(--hub-text-faint); font-size: 8.4px; }
+.ed-para.help { font-size: 8.4px; }
+.ed-para.accent { color: var(--hub-accent-text); }
+.le-sign { margin: 6px 0 -2px; }
+.le-known { display: flex; align-items: center; gap: 10px; font-size: 9.2px; font-weight: 500; color: var(--hub-accent-text); }
+.le-known span { flex: 1; }
+.le-depot { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+.le-head2 { display: flex; align-items: center; justify-content: space-between; }
+.le-signtext .top { display: flex; justify-content: space-between; gap: 8px; font-size: 9.2px; font-weight: 500; color: var(--hub-text-soft); margin-bottom: 4px; }
+.le-signtext .top b { font-size: 8.4px; font-weight: 500; color: var(--hub-text-faint); }
+.le-signtext .top b.over { color: var(--hub-warn); }
+.le-signtext .ed-field { height: calc(var(--hub-row) - 4px); }
+.le-signtext .ro { height: calc(var(--hub-row) - 4px); display: flex; align-items: center; padding: 0 12px; border-radius: var(--hub-r); background: var(--hub-field); box-shadow: inset 0 0 0 1px var(--hub-edge); font-size: 10px; color: var(--hub-text-dim); white-space: nowrap; overflow: hidden; }
+.le-signtext .help { font-size: 8.4px; line-height: 1.8; color: var(--hub-text-dim); margin-top: 4px; }
+.le-signtext .note { font-size: 8.1px; color: var(--hub-text-faint); margin-top: 2px; }
+.le-signtext { margin-bottom: 8px; }
+.le-route { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; align-items: center; font-size: 8.4px; }
+.le-route .ed-field { height: calc(var(--hub-row) - 4px); }
+.tone-warn { color: var(--hub-warn); }
+.tone-ok { color: var(--hub-ok); }
+.tone-bad { color: var(--hub-danger); }
+.tone-dim { color: var(--hub-text-dim); }
+.tone-faint { color: var(--hub-text-faint); }
+.tone-soft { color: var(--hub-text-soft); }
+.tone-text { color: var(--hub-text); }
+.le-ibisstop { display: grid; grid-template-columns: min(36%, 130px) minmax(0, 1fr); gap: 8px; align-items: center; font-size: 8.8px; font-weight: 500; color: var(--hub-text-soft); }
+.le-ibisstop .ed-field { height: calc(var(--hub-row) - 4px); }
+.le-ibisstop span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.le-mine { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 4px 0 10px; border-radius: var(--hub-r); background: var(--hub-field); font-size: 9.6px; font-weight: 500; }
+.le-mine span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.le-mine b { font-size: 8.8px; font-weight: 400; color: var(--hub-text-dim); }
+.le-newmine { display: grid; grid-template-columns: minmax(0, 1fr) 78px; gap: 6px; }
+.le-newmine .ed-field, .le-newmine .hub-btn { height: calc(var(--hub-row) - 4px); }
+.le-timeplan .note { display: flex; gap: 10px; align-items: flex-start; font-size: 10px; font-weight: 500; line-height: 1.8; }
+.le-timeplan .note .hub-icon { color: var(--hub-accent-text); flex: none; }
+.le-timeplan .none { font-size: 9.6px; font-weight: 700; padding-left: 30px; }
+.le-slider { display: grid; grid-template-columns: minmax(0, 36%) minmax(0, 1fr) auto; align-items: center; gap: 8px; height: 28px; font-size: 9.6px; color: var(--hub-text-soft); }
+.le-slider b { font-size: 9.2px; font-weight: 500; color: var(--hub-text); min-width: 46px; text-align: right; }
+.le-lab { height: 16px; display: flex; align-items: center; font-size: 8.1px; font-weight: 700; color: var(--hub-text-dim); }
+.le-day.off { display: flex; justify-content: space-between; gap: 8px; height: var(--hub-row); align-items: center; font-size: 10px; color: var(--hub-text-faint); }
+.le-day.off small { font-size: 8.8px; }
+.le-rule { display: block; height: 1px; background: var(--hub-hairline); margin: 4px 0; }
+/* a group of days in the Timetable tab, as `timetable_tab` lays it out (its scroll area has the
+   bar beside it) */
+.le-scroll.le-days { gap: 0; padding-right: 18px; }
+.le-group { display: flex; flex-direction: column; }
+.le-group > * { flex: none; }
+.le-group > .hub-seg { height: 32px; margin-top: 4px; }
+.le-group > .le-two.first { margin-top: 8px; }
+.le-group > .every { margin-top: 6px; }
+.le-group > .le-band { margin-top: 8px; }
+.le-group > .le-band ~ .le-band { margin-top: 10px; }
+.le-group > .le-bandrow { margin-top: 4px; }
+.le-group > .add { margin-top: 10px; }
+.le-group > .add .hub-btn { width: 100%; height: 30px; }
+.le-group > .stands { margin-top: 2px; }
+.le-group > .add + .stands { margin-top: 6px; }
+.le-group > .counts { height: 18px; margin-top: 2px; display: flex; align-items: center; font-size: 8.8px; color: var(--hub-text-dim); }
+.le-group > .le-rule { margin: 8px 0 9px; }
+.le-group > .le-day.off + .le-rule { margin-top: 4px; }
+.le-band { display: grid; grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr) 30px; gap: 0; align-items: center; }
+.le-band span { text-align: center; color: var(--hub-text-dim); }
+.le-bandrow.sized { display: grid; grid-template-columns: 56% minmax(0, 1fr); gap: 8px; align-items: center; }
+.le-bandrow .ed-drop { height: 32px; }
+.ed-row.le-kind { height: 34px; gap: 9.5px; padding: 0 6px 0 7.5px; font-size: 10px; font-weight: 500; flex: none; }
+.ed-row.le-kind .hub-icon { color: var(--hub-accent-text); }
+.ed-row.le-kind.on .hub-icon, .ed-row.le-kind.on span { color: var(--hub-on-accent); }
+.le-hol { display: grid; grid-template-columns: minmax(0, 1fr) 62px 62px 24px; gap: 6px; align-items: center; }
+.le-hol .ed-field { height: calc(var(--hub-row) - 6px); }
+.le-hol.bad .ed-field:nth-child(n + 2) { box-shadow: inset 0 -2px 0 var(--hub-warn), inset 0 0 0 1px var(--hub-edge); }
+.le-classes { display: flex; flex-wrap: wrap; gap: 6px; }
+/* the Kind tab as `service_tab` lays it out */
+.le-scroll.le-kinds { gap: 0; }
+.le-kinds > .ed-caps { height: 16px; display: flex; align-items: center; margin-top: 0; }
+.le-kinds > span > .ed-field { height: 32px; margin-top: 4px; }
+.le-kinds > .le-kind { margin-top: 2px; }
+.le-kinds > .ed-caps + .le-kind { margin-top: 4px; }
+.le-kinds > .le-kind + .ed-para { margin-top: 6px; }
+.le-kinds > .ed-para + .hub-btn { margin-top: 6px; height: 30px; }
+.le-kinds > .le-rule { margin: 8px 0 9px; }
+.le-kinds > .le-rule + .ed-caps + .le-classes { margin-top: 6px; }
+.le-kinds > * + .ed-para, .le-kinds > * + .le-hol, .le-kinds > * + .le-half, .le-kinds > * + .ed-drop, .le-kinds > * + .le-bus, .le-kinds > * + .le-suits { margin-top: 6px; }
+.le-class { height: 28px; padding: 0 13px; border-radius: 14px; background: var(--hub-field); box-shadow: inset 0 0 0 1px var(--hub-edge); color: var(--hub-text); font-size: 9.6px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+.le-class:hover { background: var(--hub-hover); }
+.le-class.on { background: var(--hub-accent); color: var(--hub-on-accent); box-shadow: none; }
+.le-class.shut { color: var(--hub-text-dim); }
+.le-class.shut .hub-icon { color: var(--hub-text-faint); }
+.le-suits { display: grid; grid-template-columns: minmax(0, 1fr) 96px; gap: 8px; align-items: start; }
+.le-suits .hub-btn { height: 28px; }
+.le-bus { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 4px 0 10px; border-radius: var(--hub-r); background: var(--hub-field); font-size: 9.6px; font-weight: 500; }
+.le-bus .hub-icon { color: var(--hub-accent-text); }
+.le-bus span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* --- the map --------------------------------------------------------------------------- */
+
+/* (the map is the ground, as the game's city map has it: `mapview::palette`; what lies on it
+   without being a sheet - its buttons, the names - a little see-through, `theme::ON_MAP`) */
+:root.hub { --le-map-ground: #090c18; --le-on-map: rgba(18, 26, 38, 0.86); }
+:root.hub[data-theme="light"] { --le-map-ground: var(--hub-ground); --le-on-map: rgba(255, 254, 252, 0.86); }
+.le-mapbox { position: relative; min-width: 0; min-height: 0; border-radius: var(--hub-r); overflow: hidden; background: var(--le-map-ground); }
+.le-map { position: absolute; inset: 0; cursor: grab; touch-action: none; }
+.le-map canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.le-map-state { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 10.4px; color: var(--hub-text-faint); pointer-events: none; }
+.le-map-hint { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); height: 30px; padding: 0 14px; border-radius: 15px; background: var(--le-on-map); color: var(--hub-text); font-size: 10px; font-weight: 500; display: flex; align-items: center; white-space: nowrap; pointer-events: none; }
+.le-map-buttons { position: absolute; top: 9px; right: 9px; display: flex; flex-direction: column; gap: 6px; }
+.le-map-buttons .b { width: 34px; height: 34px; border-radius: 50%; background: var(--le-on-map); display: flex; align-items: center; justify-content: center; }
+.le-map-buttons .ed-iconbtn { color: var(--hub-text-dim); }
+.le-map-buttons .ed-iconbtn:hover { color: var(--hub-text); }
+
+/* the company's estimate over the map's foot */
+.le-estimate { position: absolute; left: 12px; bottom: 12px; width: min(800px, calc(100% - 24px)); display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.le-estimate > * { pointer-events: auto; }
+.le-est-strip, .le-est-details, .le-est-note { background: var(--hub-panel); border-radius: var(--hub-r-sheet); box-shadow: inset 0 0 0 1px var(--hub-edge), var(--hub-shadow); }
+.le-est-strip { height: 66px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) 34px; align-items: center; padding: 0 6px 0 14px; }
+.le-est-strip .fig { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.le-est-strip .fig .ed-caps { font-size: 7.7px; }
+.le-est-strip .fig b { font-size: 12.3px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.le-est-strip .fig small { font-size: 8.4px; color: var(--hub-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.le-est-note { align-self: flex-start; height: 26px; padding: 0 12px; display: flex; align-items: center; font-size: 8.8px; font-weight: 500; color: var(--hub-text-soft); }
+.le-est-details { max-height: 330px; padding: 12px 16px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 18px; overflow: auto; }
+.le-est-details .col { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.le-est-details .col .ed-caps { font-size: 7.7px; margin-bottom: 6px; }
+.le-est-details .item { display: flex; justify-content: space-between; gap: 6px; height: 20px; align-items: center; font-size: 8.8px; color: var(--hub-text-soft); }
+.le-est-details .item b { font-weight: 400; color: var(--hub-text); white-space: nowrap; }
+.le-est-details .item b.neg { color: var(--hub-text-soft); }
+.le-est-details .item.strong span, .le-est-details .item.strong b { font-weight: 700; color: var(--hub-text); }
+.le-est-details .rule { height: 1px; background: var(--hub-hairline); margin: 2px 0; }
+.le-est-details .band { display: flex; justify-content: space-between; font-size: 9.2px; font-weight: 500; color: var(--hub-text-soft); }
+.le-est-details .band b { font-weight: 700; color: var(--hub-text); }
+.le-est-details .bnote { font-size: 8.4px; padding-left: 8px; margin-bottom: 4px; }
+.le-est-details .foot { grid-column: 1 / -1; font-size: 8.1px; color: var(--hub-text-faint); line-height: 1.8; }
+
+/* --- the table over the map --------------------------------------------------------------- */
+
+.le-table { position: absolute; inset: 8px; border-radius: var(--hub-r-sheet); background: var(--hub-panel); box-shadow: inset 0 0 0 1px var(--hub-edge); padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; }
+.le-table-head { display: grid; grid-template-columns: 190px minmax(150px, 0.45fr) minmax(150px, 0.55fr) 28px; gap: 10px; align-items: center; height: calc(var(--hub-row) - 4px); flex: none; }
+.le-table-head b { font-size: 11.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.le-table-head .hub-seg { height: calc(var(--hub-row) - 4px); }
+.le-table-head .hub-seg button.off { opacity: 0.4; }
+.le-table-head .ed-drop { height: calc(var(--hub-row) - 4px); }
+.le-table-tools { display: flex; align-items: center; gap: 4px; min-height: calc(var(--hub-row) - 4px); flex: none; flex-wrap: wrap; }
+.le-table-tools .ed-toggle { width: min(260px, 45%); flex: none; }
+.le-table-tools .kind { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 9.2px; font-weight: 500; color: var(--hub-accent-text); }
+.le-table-tools .hub-btn { height: calc(var(--hub-row) - 8px); padding: 0 10px; }
+.le-table-tools .hub-btn.ghost { padding: 0 8px; }
+.le-table-tools .lbl { font-size: 9.2px; font-weight: 500; color: var(--hub-text-dim); margin: 0 4px 0 10px; }
+.le-table-tools .hint { font-size: 9.2px; color: var(--hub-text-dim); margin-left: 8px; }
+.le-grid { flex: 1; min-height: 0; overflow: auto; position: relative; }
+.le-grid table { border-collapse: separate; border-spacing: 0; min-width: 100%; }
+/* (the rows reach across the grid however few trips it has; with none, what to do lies over
+   them where `table_layer` writes it) */
+.le-grid .rest { width: 100%; padding: 0; }
+.le-grid .le-empty { position: absolute; z-index: 4; left: 0; right: 0; top: 36px; height: 24px; display: flex; align-items: center; font-size: 10px; color: var(--hub-text-dim); pointer-events: none; }
+.le-grid th, .le-grid td { padding: 2px; height: 28px; }
+.le-grid thead th { position: sticky; top: 0; z-index: 2; background: var(--hub-panel); }
+.le-grid .name { position: sticky; left: 0; z-index: 1; background: var(--hub-panel); width: 160px; min-width: 160px; max-width: 160px; text-align: left; font-size: 9.2px; font-weight: 500; color: var(--hub-text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 4px; }
+.le-grid thead .name { z-index: 3; font-size: 8.8px; color: var(--hub-text-dim); }
+/* (a see-through white of 2.5 %, laid on in linear light as the game-drawn launcher does) */
+.le-grid tr.odd td, .le-grid tr.odd td.name { background: #32353b; }
+:root.hub[data-theme="light"] .le-grid tr.odd td, :root.hub[data-theme="light"] .le-grid tr.odd td.name { background: #f0efed; }
+.le-grid th button { width: 58px; height: 24px; border-radius: 6px; background: var(--hub-field); color: var(--hub-text-soft); font-size: 8.8px; font-weight: 700; cursor: pointer; }
+.le-grid th button:hover { background: var(--hub-hover); }
+.le-grid th button.on { background: var(--hub-accent); color: var(--hub-on-accent); }
+.le-grid .cell { width: 58px; height: 24px; border-radius: 5px; background: none; color: var(--hub-text); font-size: 9.6px; cursor: pointer; text-align: center; font-variant-numeric: tabular-nums; border: 0; }
+.le-grid .cell.first { font-weight: 700; }
+.le-grid .cell:hover { background: var(--hub-hover); }
+.le-grid .cell.falls { background: color-mix(in srgb, var(--hub-warn) 28%, transparent); color: var(--hub-warn); }
+.le-grid .cell.typing { background: var(--hub-field); box-shadow: inset 0 0 0 1px rgba(var(--hub-accent-rgb), 0.7); outline: none; padding: 0; }
+.le-table-foot { flex: none; min-height: 46px; font-size: 9.2px; line-height: 1.8; padding-top: 4px; }
+
+/* the question before a change of a line in service */
+.le-change .ed-dialog { width: min(560px, 100%); }
+.le-change h2 { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.le-change h2 .hub-icon { color: var(--hub-accent-text); }
+.le-change .row { display: flex; justify-content: space-between; gap: 10px; height: 34px; align-items: center; border-bottom: 1px solid var(--hub-hairline); font-size: 10px; font-weight: 500; color: var(--hub-text-soft); }
+.le-change .row b { color: var(--hub-text); }
+.le-change .from { display: flex; align-items: center; gap: 8px; height: 40px; margin-top: 8px; font-size: 10px; font-weight: 500; color: var(--hub-text-soft); }
+.le-change .from span { flex: 1; }
+.le-change .from b { width: 186px; text-align: center; font-size: 10.7px; color: var(--hub-text); }
+.le-change .buttons { display: grid; grid-template-columns: 1fr 1fr; }

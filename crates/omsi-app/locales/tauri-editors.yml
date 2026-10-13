@@ -1,0 +1,25 @@
+_version: 2
+# Omsi-Hub's editors in openOMSI's desktop launcher (launcher/ui/js/omsihub/editors, Trello
+# "Tauri 5/6"): the texts only those pages show. The texts our game-drawn launcher's editors
+# show already are in the other tables of this folder, which the page reads too, and are not
+# repeated here. The English text is the key, as in app.yml.
+
+"The depot editor is waiting for the line editor's changes to be saved.":
+  en: "The depot editor is waiting for the line editor's changes to be saved."
+  nl: "De depoteditor wacht tot de wijzigingen in de lijneditor zijn opgeslagen."
+  de: "Der Depot-Editor wartet, bis die Änderungen im Linieneditor gespeichert sind."
+  fr: "L'éditeur de dépôt attend que les modifications de l'éditeur de lignes soient enregistrées."
+  ru: "Редактор депо ждёт, пока изменения в редакторе линий будут сохранены."
+  uk: "Редактор депо чекає, доки зміни в редакторі ліній буде збережено."
+  pl: "Edytor zajezdni czeka, aż zmiany w edytorze linii zostaną zapisane."
+
+# (the line editor kept by the game program for the page, `lineeditor::headless`: its map's
+# roads and stops read on a worker that went down)
+"The map could not be read":
+  en: "The map could not be read"
+  nl: "De kaart kon niet worden gelezen"
+  de: "Die Karte konnte nicht gelesen werden"
+  fr: "La carte n'a pas pu être lue"
+  ru: "Не удалось прочитать карту"
+  uk: "Не вдалося прочитати карту"
+  pl: "Nie udało się odczytać mapy"

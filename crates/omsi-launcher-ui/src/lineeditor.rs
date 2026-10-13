@@ -181,6 +181,9 @@ pub struct LineEditorView {
 
 mod maplines;
 pub(crate) use maplines::import_for_timeplan;
+// Omsi-Hub: the line editor of the desktop launcher's page, kept by the game program
+// (`hub_service`'s `le`): this view without its window
+pub(crate) mod headless;
 
 /// Where the shown line's own destinations are kept (`LineEditorView::kept`): for which line
 /// (its depot group and depot file), the player's depot file (its place and name), its

@@ -87,12 +87,16 @@ export async function hubExtras() {
   const c = S.choice;
   const free = freeDrive();
   const more = await call('hub_duty_extras', { bus: c.bus, date: c.date, minutes: c.time, free });
+  // (a free drive along a line of the player's own, the line editor's "Drive it":
+  // `freedrive::free_route` - its line, its trip, the bus at the entry point nearest to it)
+  const route = c.free && c.own_line && c.free_line?.trim() && c.free_route?.trim() ? [c.free_line, c.free_route] : null;
   return {
     time: more.time,
     date: more.date,
     display_font: more.display_font || null,
     legs: !free && c.composed ? c.legs : [],
     ...(free ? { line: null, tour: null, trip: null, whole_tour: false, entry: c.free ? c.free_entry ?? -1 : c.entry } : {}),
+    ...(route ? { line: route[0], free_line: route[1], entry: -1 } : {}),
   };
 }
 

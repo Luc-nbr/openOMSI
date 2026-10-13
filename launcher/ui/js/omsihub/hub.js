@@ -14,6 +14,8 @@ import { Flow, STEP_NAMES, goStep } from './flow.js';
 import { Head, Icon, tr } from './bits.js';
 import './settings-extra.js';
 import { CompanyScreen, companyPage } from './company/company.js';
+import { EDITORS, EditorPage, editorOf, openLineEditor, openLivery } from './editors/index.js';
+import { StatusLine } from './editors/kit.js';
 
 /** Our look is the desktop window's (not the phone's, nor `?phone` in a browser). */
 export const HUB = !onPhone && !new URLSearchParams(location.search).has('phone');
@@ -50,10 +52,28 @@ function startPage(p, pages) {
     companyPage(part, p.split(':')[2]?.trim());
     return;
   }
+  // (the editors: "Editor", "Timetable", "Line editor" ... as our game-drawn launcher names them)
+  const ed = editorOf(name);
+  // (`line editor:first:displays`: the player's first line of the map, on its tab)
+  if (ed === 'lines' && part) {
+    openLineEditor({ line: part === 'first' ? 'first' : Number(part), tab: more || '' });
+    return;
+  }
+  // (`livery:chosen`: the studio on the bus chosen for the drive)
+  if (ed === 'livery' && part === 'chosen') {
+    openLivery({ bus: 'chosen' });
+    return;
+  }
+  if (ed) {
+    go(ed);
+    return;
+  }
   if (name === 'drive' || name === 'home') {
     const step = /^\d+$/.test(part || '') ? STEP_NAMES[Number(part)] : part;
     // (`drive:bus:chosen`: the bus chosen on the ground, not the tiles)
     if (step === 'bus' && more === 'chosen') S.hub.busView = 'bus';
+    // (`drive:bus:depots`: the bus's depot files, editors/hof.js)
+    if (step === 'bus' && more === 'depots') S.hub.busView = 'depots';
     go('drive', STEP_NAMES.includes(step) ? step : 'mode');
     return;
   }
@@ -91,11 +111,14 @@ export function HubShell({ pages, Toasts }) {
   if (s.page === 'company') {
     return html`<div class="hub-stage" style=${`--hub-scale:${scale()}`}><${CompanyScreen} /><${Toasts} /></div>`;
   }
-  const page = s.page === 'drive' ? null : pages.find((x) => x && x[0] === s.page);
+  // (an editor's page: ours, `editors/index.js`)
+  const editor = EDITORS[s.page] ? s.page : null;
+  const page = s.page === 'drive' || editor ? null : pages.find((x) => x && x[0] === s.page);
   return html`<div class="hub-stage" style=${`--hub-scale:${scale()}`}>
-    ${page ? html`<${PageSheet} id=${page[0]} label=${page[1]} Page=${page[3]} />` : html`<${Flow} />`}
-    <${Bar} />
+    ${editor ? html`<${EditorPage} id=${editor} />` : page ? html`<${PageSheet} id=${page[0]} label=${page[1]} Page=${page[3]} />` : html`<${Flow} />`}
+    ${!EDITORS[s.page]?.full && html`<${Bar} />`}
     ${s.hub.palette && html`<${Palette} />`}
+    <${StatusLine} />
     <${Toasts} />
   </div>`;
 }

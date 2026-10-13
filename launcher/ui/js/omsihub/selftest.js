@@ -1,7 +1,8 @@
 // Our look's part of the page's self-check (`js/selftest.js`, OPENOMSI_LAUNCHER_SELFTEST): the
 // frame and the start as our game-drawn launcher has them, every step of the drive drawn
-// without a script error - for a tour, a work shift and a free drive - and our commands
-// answering. Nothing is clicked that starts a game: the steps are set, not gone through.
+// without a script error - for a tour, a work shift and a free drive - our commands answering,
+// and the editors (`editors/selftest.js`). Nothing is clicked that starts a game: the steps are
+// set, not gone through.
 
 import { call } from '../api.js';
 import { S, set } from '../store.js';
@@ -96,6 +97,8 @@ export async function selftest(check, errors) {
   // back as it was
   set({ choice: kept, page: 'drive', hub: { ...S.hub, step: 'mode' } });
   await call('choice_save', { choice: kept }).catch(() => {});
+  // the editors (`editors/selftest.js`)
+  await (await import('./editors/selftest.js')).editorsSelftest(check, errors);
   await sleep(300);
 
   // the bus company (Trello "Tauri 2/6": js/omsihub/company/selftest.js)

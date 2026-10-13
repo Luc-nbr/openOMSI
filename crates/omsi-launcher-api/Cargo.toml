@@ -14,8 +14,9 @@ omsi-cfg = { path = "../omsi-cfg" }
 omsi-platform = { path = "../omsi-platform" }
 omsi-net = { path = "../omsi-net" }
 omsi-weather = { path = "../omsi-weather" }
-# Omsi-Hub: what our commands read (`src/omsihub.rs`: the maps' facts, the METAR airports),
-# crates the launcher's core is built of anyway
+# Omsi-Hub: what our commands read (`src/omsihub`: the maps' facts, the METAR airports, the
+# editors' timetables and depot files), crates the launcher's core is built of anyway
 omsi-map = { path = "../omsi-map" }
 omsi-content = { path = "../omsi-content" }
 omsi-timetable = { path = "../omsi-timetable" }
+omsi-vehicle = { path = "../omsi-vehicle" }

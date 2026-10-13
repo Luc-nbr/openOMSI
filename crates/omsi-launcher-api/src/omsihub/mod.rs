@@ -18,6 +18,10 @@
 //!   OMSI's list of airports.
 //! * `hub_own_lines`: the player's own lines of a map (the line editor's), which the line lists
 //!   show apart from the map's ("Map lines" / "My lines").
+//!
+//! A later part has a submodule of its own, handed the commands this one does not know by one
+//! line of `call`: `editors` (Trello "Tauri 5/6": the timetable, the bus's depot files, the
+//! line, depot and livery editors).
 
 pub mod company;
 
@@ -28,6 +32,8 @@ use omsi_launcher_lib::LineInfo;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
+pub mod editors;
+
 /// language -> (English -> translation), as `crate::i18n` keeps them.
 type Tables = HashMap<String, HashMap<String, String>>;
 
@@ -37,6 +43,7 @@ type Tables = HashMap<String, HashMap<String, String>>;
 pub const TABLES: &[(&str, &str)] = &[
     ("tauri-omsihub.yml", include_str!("../../../omsi-app/locales/tauri-omsihub.yml")),
     ("tauri-company.yml", include_str!("../../../omsi-app/locales/tauri-company.yml")),
+    ("tauri-editors.yml", include_str!("../../../omsi-app/locales/tauri-editors.yml")),
     ("app-theme.yml", include_str!("../../../omsi-app/locales/app-theme.yml")),
     ("bedrijf2.yml", include_str!("../../../omsi-app/locales/bedrijf2.yml")),
     ("bedrijfsdienst.yml", include_str!("../../../omsi-app/locales/bedrijfsdienst.yml")),
@@ -111,7 +118,7 @@ fn arg<T: serde::de::DeserializeOwned>(args: &Value, name: &str) -> Result<T, St
 }
 
 /// A command of ours, or None when `cmd` is not one (`crate::call` says it is unknown then).
-pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Option<Answer> {
+pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
     Some(match cmd {
         "hub_boot" => hub_boot(),
         "hub_shifts" => (|| {
@@ -123,17 +130,18 @@ pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Option<Answer> {
         "hub_weather_extras" => (|| hub_weather_extras(&arg::<String>(args, "map")?))(),
         "hub_own_lines" => (|| hub_own_lines(&arg::<String>(args, "map")?))(),
         // the bus company's commands (Trello "Tauri 2/6": `company.rs`)
-        c if c.starts_with("co_") => return company::call(c, args, _p),
-        _ => return None,
+        c if c.starts_with("co_") => return company::call(c, args, p),
+        // (the editors' commands: `editors.rs`)
+        _ => return editors::call(cmd, args, p),
     })
 }
 
-/// A command of ours that answers bytes (the bus company's staff portraits), or None when `cmd`
-/// is not one (`crate::call_bytes` says it is unknown then).
-pub fn call_bytes(cmd: &str, args: &Value, _p: &dyn Platform) -> Option<Result<Vec<u8>, String>> {
+/// A command of ours that answers bytes (the bus company's staff portraits, the livery
+/// studio's pictures), or None when `cmd` is not one (`crate::call_bytes` says it is unknown then).
+pub fn call_bytes(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Result<Vec<u8>, String>> {
     match cmd {
         c if c.starts_with("co_") => company::call_bytes(c, args),
-        _ => None,
+        _ => editors::call_bytes(cmd, args, p),
     }
 }
 

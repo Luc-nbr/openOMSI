@@ -199,7 +199,7 @@ effect. On Android, `openOMSI/env.txt` holds `NAME=value` lines that are set bef
 | `OMSI_LAUNCHER_INPUT` | text | - | use | app, guard, launcher-ui, platform | Scripted launcher input ("t=2 click 400,300; ..."). Removed from the game's environment by the updater. |
 | `OMSI_LAUNCHER_INTRO` | text | - | use | launcher-ui | Launcher: off skips the opening animation (pictures, tests). |
 | `OMSI_LAUNCHER_LIVERY` | text | - | use | launcher-ui | Launcher: open the livery studio on this bus. |
-| `OMSI_LAUNCHER_PAGE` | text | - | use | app, launcher-api, launcher-ui | Launcher: open this page (e.g. mods, drive:N; the desktop launcher in Omsi-Hub's look also drive:map, drive:bus:chosen); the desktop launcher hands a page of the bus company over with it (bus company:<page>:<company>, bus company:tour:<company>). |
+| `OMSI_LAUNCHER_PAGE` | text | - | use | app, launcher-api, launcher-ui | Launcher: open this page (e.g. mods, drive:N; the desktop launcher in Omsi-Hub's look also drive:map, drive:bus:chosen, drive:bus:depots, and its editors: editor, timetable, depot editor, line editor[:first[:stops\|displays\|timetable\|kind]], livery[:chosen]); the desktop launcher hands a page of the bus company over with it (bus company:<page>:<company>, bus company:tour:<company>). |
 | `OMSI_LAUNCHER_SHOT` | text | - | use | app, launcher-ui | Launcher: secs:file.png - the window's picture into a file. |
 | `OMSI_LAUNCHER_SIZE` | text | - | use | app, launcher-ui | Launcher: WxH window size (the desktop launcher's too). |
 | `OMSI_LAUNCHER_SLOW` | num | - | use | launcher-ui | Launcher: the animations this many times slower (to look at them). |

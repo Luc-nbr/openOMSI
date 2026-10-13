@@ -10,6 +10,7 @@ import { choose } from '../data.js';
 import { Icon, tr, hoursText } from './bits.js';
 import { LOGO_SVG } from './logo.js';
 import { go } from './hub.js';
+import { openEditor, openTimetable } from './editors/index.js';
 import { goStep } from './flow.js';
 import { enterCompany } from './company/company.js';
 
@@ -23,7 +24,7 @@ const MODES = [
 ];
 
 /** Hand over to our game-drawn launcher on one of its pages (`OMSI_LAUNCHER_PAGE`): what this
- * page does not have yet - the bus company until phase 2, the timetable, the editor. */
+ * page does not have yet - the bus company until phase 2 (the editors are this page's own). */
 export async function handOver(page, why) {
   if (S.boot?.selftest) return;
   if (why) toast(tr(why), 'info');
@@ -65,7 +66,7 @@ export function Home() {
     [tr('Mods'), 'extension', () => go('mods')],
     [tr('Settings'), 'settings', () => go('settings')],
     [tr('Controls'), 'keyboard', () => go('controls')],
-    [tr('Timetable'), 'schedule', () => handOver('timetable', 'The timetable opens in our own launcher for now.'), true],
+    [tr('Timetable'), 'schedule', openTimetable],
     [tr('Multiplayer'), 'groups', () => go('multiplayer')],
     [tr('Sessions'), 'sports_esports', () => go('games')],
     [tr('Tutorials'), 'help', () => go('tutorials')],
@@ -101,7 +102,7 @@ export function Home() {
         </button>
         <div class="hub-links">
           ${links.map(([label, icon, onClick, away]) => html`<button type="button" class="hub-link" onClick=${onClick}><${Icon} name=${icon} size=${16} /><span>${label}</span>${away && html`<${Icon} class="away" name="open_in_new" size=${14} />`}</button>`)}
-          <button type="button" class="hub-link long" onClick=${() => handOver('editor', 'The editor opens in our own launcher for now.')}><${Icon} name="construction" size=${16} /><span>${tr("Editor: lines, liveries, the timetable and the map's objects")}</span><${Icon} class="away" name="open_in_new" size=${14} /></button>
+          <button type="button" class="hub-link long" onClick=${openEditor}><${Icon} name="construction" size=${16} /><span>${tr("Editor: lines, liveries, the timetable and the map's objects")}</span></button>
         </div>
       </div>
     </section>

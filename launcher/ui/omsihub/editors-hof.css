@@ -1,0 +1,84 @@
+/* The bus's depot files on the bus step (`hof.rs`, js/omsihub/editors/hof.js), and the
+   editors' dialog over the page (`hof::dialog_ui`). Loaded with editors.css. */
+
+.ed-label { font-size: 10px; font-weight: 500; color: var(--hub-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; align-self: start; line-height: var(--hub-row); }
+.ed-hof-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ed-hof-field .face { height: var(--hub-row); display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: var(--hub-r); background: var(--hub-field); box-shadow: inset 0 0 0 1px var(--hub-edge); color: var(--hub-text); cursor: pointer; text-align: left; transition: background 0.08s, box-shadow 0.08s; }
+.ed-hof-field .face:hover { background: var(--hub-hover); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16); }
+.ed-hof-field .face > .hub-icon:first-child { color: var(--hub-text-soft); }
+.ed-hof-field .face > .hub-icon:last-child { color: var(--hub-text-dim); transition: transform 0.12s; }
+.ed-hof-field .face:hover > .hub-icon:last-child { color: var(--hub-text); transform: translateX(2.5px); }
+.ed-hof-field .face .text { flex: 1; min-width: 0; font-size: 10px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ed-hof-field .fit { display: flex; align-items: center; gap: 4px; height: 18px; padding-left: 2px; font-size: 8.8px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ed-hof-field .fit.ok { color: var(--hub-ok); }
+.ed-hof-field .fit.warn { color: var(--hub-warn); }
+.ed-hof-field .fit.dim { color: var(--hub-text-dim); }
+.ed-hof-mapline { display: inline-flex; align-items: center; gap: 6px; color: var(--hub-text-dim); font-size: 9.6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+.ed-hof-reading { text-align: center; padding-top: 30px; font-size: 10.4px; color: var(--hub-text-dim); }
+.ed-hof-none { font-size: 10px; color: var(--hub-text-dim); margin: 4px 0 10px; }
+.ed-hof-strip { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 6px 0 14px; margin-bottom: 14px; border-radius: var(--hub-r); font-size: 10px; font-weight: 500; color: var(--hub-text); }
+.ed-hof-strip > span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ed-hof-strip .hub-btn { height: 32px; }
+.ed-hof-strip.ok { background: color-mix(in srgb, var(--hub-ok) 10%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hub-ok) 30%, transparent); }
+.ed-hof-strip.ok > .hub-icon { color: var(--hub-ok); }
+.ed-hof-strip.warn { background: color-mix(in srgb, var(--hub-warn) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hub-warn) 30%, transparent); }
+.ed-hof-strip.warn > .hub-icon { color: var(--hub-warn); }
+.ed-hof-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.ed-hof-card { position: relative; height: 128px; padding: 0; border-radius: var(--hub-r-sheet); background: var(--hub-field); box-shadow: inset 0 0 0 1px var(--hub-edge); color: var(--hub-text); text-align: left; cursor: pointer; display: grid; grid-template-columns: 70px minmax(0, 1fr); grid-template-rows: 37px 31px 26px 34px; transition: transform 0.2s cubic-bezier(0.25, 1.3, 0.5, 1), background 0.12s, box-shadow 0.15s; }
+.ed-hof-card:hover:not(:disabled) { transform: translateY(-3px); background: var(--hub-hover); box-shadow: inset 0 0 0 1px var(--hub-edge), 0 10px 22px rgba(0, 0, 0, 0.14); }
+.ed-hof-card .ib { position: absolute; left: 16px; top: 16px; width: 40px; height: 40px; border-radius: var(--hub-r); background: rgba(255, 255, 255, 0.06); display: flex; align-items: center; justify-content: center; color: var(--hub-text-soft); }
+:root.hub[data-theme="light"] .ed-hof-card .ib { background: rgba(22, 20, 26, 0.06); }
+.ed-hof-card .head { grid-column: 2; grid-row: 1; display: flex; align-items: flex-end; gap: 8px; padding-right: 16px; min-width: 0; }
+.ed-hof-card .head b { flex: 1; min-width: 0; font-size: 11.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 22px; }
+.ed-hof-card .file { grid-column: 2; grid-row: 2; padding: 2px 16px 0 0; font-size: 8.8px; color: var(--hub-text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ed-hof-card .line { grid-column: 1 / -1; grid-row: 3; padding: 4px 16px 0; font-size: 9.6px; color: var(--hub-text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ed-hof-card .tags { grid-column: 1 / -1; grid-row: 4; display: flex; align-items: center; gap: 10px; padding: 0 16px; min-width: 0; }
+.ed-hof-card .tag { height: 20px; display: inline-flex; align-items: center; padding: 0 8px; border-radius: 6px; font-size: 8.4px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; max-width: 100%; }
+.ed-hof-card .tag.ok { color: var(--hub-ok); background: color-mix(in srgb, var(--hub-ok) 14%, transparent); }
+.ed-hof-card .tag.warn { color: var(--hub-warn); background: color-mix(in srgb, var(--hub-warn) 14%, transparent); }
+.ed-hof-card .tag.dim { color: var(--hub-text-dim); background: color-mix(in srgb, var(--hub-text-dim) 14%, transparent); }
+.ed-hof-card .tag.accent { color: var(--hub-accent-text); background: rgba(var(--hub-accent-rgb), 0.14); }
+.ed-hof-card .extra { font-size: 8.8px; color: var(--hub-text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ed-hof-card .inuse { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 10px 0 6px; border-radius: 11px; background: rgba(255, 255, 255, 0.18); font-size: 8.4px; font-weight: 700; flex: none; align-self: center; margin-top: 16px; }
+.ed-hof-card.chosen { background: var(--hub-accent); color: var(--hub-on-accent); box-shadow: inset 0 0 0 2px var(--hub-accent), 0 0 18px rgba(var(--hub-accent-rgb), 0.4); }
+.ed-hof-card.chosen:hover:not(:disabled) { background: var(--hub-accent-hover); box-shadow: inset 0 0 0 2px var(--hub-accent), 0 0 18px rgba(var(--hub-accent-rgb), 0.4); }
+.ed-hof-card.chosen .ib { background: rgba(255, 255, 255, 0.18); color: var(--hub-on-accent); }
+.ed-hof-card.chosen .file, .ed-hof-card.chosen .extra { color: var(--hub-on-accent); opacity: 0.7; }
+.ed-hof-card.chosen .line { color: var(--hub-on-accent); opacity: 0.85; }
+.ed-hof-card.chosen .tag { color: var(--hub-on-accent); background: rgba(255, 255, 255, 0.2); }
+.ed-hof-card.add { background: rgba(var(--hub-accent-rgb), 0.05); box-shadow: inset 0 0 0 1px rgba(var(--hub-accent-rgb), 0.45); }
+.ed-hof-card.add:hover:not(:disabled) { background: rgba(var(--hub-accent-rgb), 0.12); box-shadow: inset 0 0 0 1px rgba(var(--hub-accent-rgb), 0.85); }
+.ed-hof-card.add .ib { background: rgba(var(--hub-accent-rgb), 0.18); color: var(--hub-accent-text); }
+.ed-hof-card.off { cursor: default; color: var(--hub-text-dim); }
+.ed-hof-card.off.add { box-shadow: inset 0 0 0 1px rgba(var(--hub-accent-rgb), 0.2); }
+.ed-hof-card.off .ib { color: var(--hub-text-faint); background: rgba(var(--hub-accent-rgb), 0.08); }
+.ed-hof-card.off .line { color: var(--hub-text-faint); }
+
+/* a dialog over the page: the ground darkened, the sheet a little up as it comes, a light
+   along its top edge once */
+.ed-dialog-scrim { position: absolute; inset: 0; z-index: 60; background: rgba(4, 6, 14, 0.62); display: flex; align-items: center; justify-content: center; padding: 12px 16px; animation: ed-fade 0.32s ease-out; }
+@keyframes ed-fade { from { opacity: 0; } }
+.ed-dialog { position: relative; width: min(540px, 100%); max-height: 100%; overflow: auto; padding: 26px 28px 24px; border-radius: var(--hub-r-sheet); background: var(--hub-panel); box-shadow: inset 0 0 0 1px var(--hub-edge), 0 10px 40px rgba(0, 0, 0, 0.5); color: var(--hub-text); animation: ed-up 0.32s cubic-bezier(0.2, 0.9, 0.3, 1); }
+@keyframes ed-up { from { transform: translateY(22px); } }
+.ed-dialog .glow { position: absolute; top: 0; left: 0; right: 0; height: 3px; overflow: hidden; border-radius: var(--hub-r-sheet) var(--hub-r-sheet) 0 0; pointer-events: none; }
+.ed-dialog .glow::after { content: ""; position: absolute; top: 0; width: 34%; height: 3px; left: -34%; background: linear-gradient(90deg, rgba(var(--hub-accent-rgb), 0), var(--hub-accent), rgba(var(--hub-accent-rgb), 0)); animation: ed-glow 1.4s ease-in-out forwards; }
+@keyframes ed-glow { to { left: 100%; } }
+.ed-dialog h2 { font-size: 16.1px; font-weight: 700; line-height: 1.8; margin-bottom: 12px; }
+.ed-dialog .body { font-size: 10.4px; line-height: 1.8; color: var(--hub-text-soft); margin-bottom: 12px; }
+.ed-dialog .now, .ed-dialog .note { display: flex; gap: 9px; font-size: 9.6px; line-height: 1.8; color: var(--hub-text-dim); margin-bottom: 14px; }
+.ed-dialog .now .hub-icon, .ed-dialog .note .hub-icon { flex: none; margin-top: 1px; }
+.ed-dialog .note { font-size: 9.2px; color: var(--hub-text-faint); margin-bottom: 4px; }
+.ed-dialog .note small { display: block; font-size: 8.4px; margin-top: 4px; }
+.ed-dialog .offer { font-size: 10.4px; font-weight: 500; line-height: 1.8; margin-bottom: 16px; }
+.ed-dialog .offer.warn { color: var(--hub-warn); }
+.ed-dialog .choices { margin: 0 -8px 6px; }
+.ed-dialog .choices .ed-caps { display: block; padding: 8px; }
+.ed-dialog .choice { width: 100%; height: 46px; margin-bottom: 4px; display: flex; align-items: center; gap: 12px; padding: 0 12px 0 13px; border-radius: var(--hub-r); background: none; color: var(--hub-text); cursor: pointer; text-align: left; }
+.ed-dialog .choice:hover { background: var(--hub-hover); }
+.ed-dialog .choice > .hub-icon:first-child { color: var(--hub-text-soft); }
+.ed-dialog .choice > .hub-icon:last-child { color: var(--hub-text-faint); }
+.ed-dialog .choice span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ed-dialog .choice b { font-size: 10.4px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ed-dialog .choice small { font-size: 9.2px; color: var(--hub-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ed-dialog .buttons { display: flex; justify-content: flex-end; gap: 12px; margin-top: 18px; }
+.ed-dialog .buttons .hub-btn { height: 44px; padding: 0 20px; font-size: 11.1px; }
