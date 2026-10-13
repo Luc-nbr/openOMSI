@@ -384,3 +384,27 @@ export function Guard({ children }) {
   if (err) return html`<div class="co-empty t-danger" style="padding:8px;white-space:pre-wrap;font-size:9px">${String(err?.message || err)}\n${err?.stack || ''}</div>`;
   return children;
 }
+
+/** The size of an element as laid out (the stage's own units: its scale left out). */
+export function useSize() {
+  const ref = useRef(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const ro = new ResizeObserver(() => setSize({ w: el.clientWidth, h: el.clientHeight }));
+    ro.observe(el);
+    setSize({ w: el.clientWidth, h: el.clientHeight });
+    return () => ro.disconnect();
+  }, []);
+  return [ref, size];
+}
+
+let measure = null;
+/** How wide words are at a size of the game-drawn launcher (`Ui::width`: its px, drawn
+ * smaller by 1.303 here). */
+export function textW(text, px, weight = 700) {
+  if (!measure) measure = document.createElement('canvas').getContext('2d');
+  measure.font = `${weight} ${px / 1.303}px "Hanken Grotesk", sans-serif`;
+  return measure.measureText(String(text)).width;
+}

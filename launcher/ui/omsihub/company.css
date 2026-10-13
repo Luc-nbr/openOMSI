@@ -351,3 +351,32 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 /* the play speeds only where the bar has room for them (`clock::head`: a clock 640 wide) */
 .co-clock .play { display: none; }
 @container (min-width: 1469px) { .co-clock .play { display: inline-flex; } }
+
+/* --- the start screen (Normal, Realistic): the parts of the company as tiles --------------- */
+
+.co-home { overflow-x: hidden; }
+.co-hometile { position: absolute; padding: 0; overflow: hidden; }
+.co-hometile .mark { position: absolute; border-radius: var(--hub-r); background: rgba(var(--hub-accent-rgb), 0.14); color: var(--co-accent2); display: flex; align-items: center; justify-content: center; transition: background 0.1s, color 0.1s; }
+.co-hometile:hover .mark { background: var(--hub-accent); color: var(--hub-on-accent); }
+.co-hometile .name { position: absolute; font-weight: 700; color: var(--hub-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.co-hometile .badge { position: absolute; height: 24px; border-radius: 12px; padding: 0 7px; font-size: 9.2px; font-weight: 700; display: flex; align-items: center; justify-content: center; color: #fff; }
+.co-hometile .badge.accent { background: var(--hub-accent); color: var(--hub-on-accent); }
+.co-hometile .badge.warn { background: rgb(var(--co-warn-fill)); color: #1a1400; }
+.co-hometile .badge.danger { background: rgb(var(--co-danger-fill)); }
+.co-hometile .badge.ok { background: rgb(var(--co-ok-fill)); }
+.co-hometile .badge.early { background: #2a75f7; }
+.co-hometile .cash, .co-hometile .line { position: absolute; left: var(--pad); right: var(--pad); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.co-hometile .cash { font-weight: 700; font-variant-numeric: tabular-nums; }
+.co-hometile .rest { position: absolute; left: var(--pad); right: var(--pad); overflow: hidden; }
+.co-hometile .msg { display: flex; align-items: center; gap: 0; height: 24px; font-size: var(--co-note); color: var(--hub-text-dim); }
+.co-hometile .msg i { width: 7px; height: 7px; border-radius: 50%; background: var(--hub-text-faint); margin: 0 9px 0 1px; flex: none; }
+.co-hometile .msg.unread { color: var(--hub-text); font-weight: 500; }
+.co-hometile .msg.unread i { background: var(--hub-accent); }
+.co-hometile .msg .date { font-size: 9.2px; color: var(--hub-text-dim); margin-left: 8px; font-weight: 400; }
+.co-hometile .roles { display: grid; column-gap: 16px; }
+.co-hometile .role { display: flex; align-items: center; font-size: var(--co-note); color: var(--hub-text-soft); border-bottom: 1px solid color-mix(in srgb, var(--hub-hairline) 50%, transparent); }
+.co-hometile .role b { width: 36px; text-align: right; color: var(--hub-text); }
+.co-hometile .role b.t-dim { color: var(--hub-text-dim); }
+.co-way { position: absolute; height: 34px; border-radius: 17px; background: var(--hub-panel); box-shadow: inset 0 0 0 1px var(--hub-edge); color: var(--hub-text); display: flex; align-items: center; gap: 0; padding: 0 0 0 12px; font-size: 9.98px; font-weight: 700; cursor: pointer; white-space: nowrap; transition: background 0.08s, box-shadow 0.08s; }
+.co-way:hover { background: var(--hub-hover); box-shadow: inset 0 0 0 1px rgba(var(--hub-accent-rgb), 0.5); }
+.co-way .hub-icon { color: var(--co-accent2); margin-right: 6px; }
