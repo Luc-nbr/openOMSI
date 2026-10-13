@@ -88,11 +88,13 @@ function List({ heads, cards, chosen, first, onPick, onTrip, empty }) {
   // (the chosen row brought into view once each time the choice changes)
   const shown = useRef('');
   useEffect(() => {
-    const key = cards[chosen]?.key?.join('|') || '';
-    if (!key || key === shown.current) return;
+    const key = `${cards[chosen]?.key?.join('|') || ''}|${first ?? ''}`;
+    if (!cards[chosen] || key === shown.current) return;
     shown.current = key;
-    const el = box.current?.querySelector('.hub-duty.on');
-    el?.scrollIntoView({ block: 'nearest' });
+    // (a tour's row opened at the trip it starts with, else the row itself)
+    const box2 = box.current;
+    const el = box2?.querySelector('.hub-trip.first') || box2?.querySelector('.hub-duty.on');
+    if (el && box2) box2.scrollTop += el.getBoundingClientRect().top - box2.getBoundingClientRect().top - (first != null ? 120 : 8);
   });
   return html`
     <div class="hub-rule"></div>

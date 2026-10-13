@@ -1,8 +1,10 @@
 _version: 2
 # Omsi-Hub's look of openOMSI's desktop launcher (launcher/ui/js/omsihub, Trello "Tauri 1/6"):
-# the texts only that page shows. The page reads every table of this folder, so the texts our
-# game-drawn launcher shows already are not repeated here. The English text is the key, as in
-# app.yml.
+# the texts only that page shows, and the languages upstream's own texts of it lacked. The page
+# reads every table of this folder, so the texts our game-drawn launcher shows already are not
+# repeated here. The English text is the key, as in app.yml.
+
+# --- handing over to our game-drawn launcher ---------------------------------------------------
 "The bus company opens in our own launcher for now.":
   en: "The bus company opens in our own launcher for now."
   nl: "Het busbedrijf opent voorlopig in onze eigen launcher."
@@ -11,3 +13,123 @@ _version: 2
   ru: "Автобусная компания пока открывается в нашем собственном лаунчере."
   uk: "Автобусна компанія поки що відкривається в нашому власному лаунчері."
   pl: "Firma autobusowa na razie otwiera się w naszym własnym launcherze."
+"The timetable opens in our own launcher for now.":
+  en: "The timetable opens in our own launcher for now."
+  nl: "De dienstregeling opent voorlopig in onze eigen launcher."
+  de: "Der Fahrplan öffnet vorerst in unserem eigenen Launcher."
+  fr: "Les horaires s'ouvrent pour l'instant dans notre propre lanceur."
+  ru: "Расписание пока открывается в нашем собственном лаунчере."
+  uk: "Розклад поки що відкривається в нашому власному лаунчері."
+  pl: "Rozkład jazdy na razie otwiera się w naszym własnym launcherze."
+"The editor opens in our own launcher for now.":
+  en: "The editor opens in our own launcher for now."
+  nl: "De editor opent voorlopig in onze eigen launcher."
+  de: "Der Editor öffnet vorerst in unserem eigenen Launcher."
+  fr: "L'éditeur s'ouvre pour l'instant dans notre propre lanceur."
+  ru: "Редактор пока открывается в нашем собственном лаунчере."
+  uk: "Редактор поки що відкривається в нашому власному лаунчері."
+  pl: "Edytor na razie otwiera się w naszym własnym launcherze."
+
+# --- the map and where a free drive starts ------------------------------------------------------
+"Year":
+  en: "Year"
+  nl: "Jaar"
+  de: "Jahr"
+  fr: "Année"
+  ru: "Год"
+  uk: "Рік"
+  pl: "Rok"
+"Entry points":
+  en: "Entry points"
+  nl: "Startpunten"
+  de: "Einstiegspunkte"
+  fr: "Points d'entrée"
+  ru: "Точки входа"
+  uk: "Точки входу"
+  pl: "Punkty wejścia"
+"The map's first entry point":
+  en: "The map's first entry point"
+  nl: "Het eerste startpunt van de kaart"
+  de: "Der erste Einstiegspunkt der Karte"
+  fr: "Le premier point d'entrée de la carte"
+  ru: "Первая точка входа карты"
+  uk: "Перша точка входу мапи"
+  pl: "Pierwszy punkt wejścia mapy"
+"Click an entry point on the map to start there.":
+  en: "Click an entry point on the map to start there."
+  nl: "Klik op een startpunt op de kaart om daar te beginnen."
+  de: "Klicke auf einen Einstiegspunkt auf der Karte, um dort zu beginnen."
+  fr: "Cliquez sur un point d'entrée de la carte pour y commencer."
+  ru: "Щёлкните точку входа на карте, чтобы начать там."
+  uk: "Клацніть точку входу на мапі, щоб почати там."
+  pl: "Kliknij punkt wejścia na mapie, aby tam zacząć."
+
+# --- the bus -------------------------------------------------------------------------------------
+"Change bus":
+  en: "Change bus"
+  nl: "Andere bus"
+  de: "Bus wechseln"
+  fr: "Changer de bus"
+  ru: "Сменить автобус"
+  uk: "Змінити автобус"
+  pl: "Zmień autobus"
+"No bus found":
+  en: "No bus found"
+  nl: "Geen bus gevonden"
+  de: "Kein Bus gefunden"
+  fr: "Aucun bus trouvé"
+  ru: "Автобус не найден"
+  uk: "Автобус не знайдено"
+  pl: "Nie znaleziono autobusu"
+"No starred bus":
+  en: "No starred bus"
+  nl: "Geen bus met een ster"
+  de: "Kein markierter Bus"
+  fr: "Aucun bus favori"
+  ru: "Нет отмеченных автобусов"
+  uk: "Немає позначених автобусів"
+  pl: "Brak oznaczonych autobusów"
+"Reading the buses… {done} of {total}":
+  en: "Reading the buses… {done} of {total}"
+  nl: "Bussen inlezen… {done} van {total}"
+  de: "Busse werden gelesen… {done} von {total}"
+  fr: "Lecture des bus… {done} sur {total}"
+  ru: "Чтение автобусов… {done} из {total}"
+  uk: "Читання автобусів… {done} з {total}"
+  pl: "Wczytywanie autobusów… {done} z {total}"
+
+# --- the driver ----------------------------------------------------------------------------------
+"Personnel file of {name} deleted.":
+  en: "Personnel file of {name} deleted."
+  nl: "Personeelsdossier van {name} verwijderd."
+  de: "Personalakte von {name} gelöscht."
+  fr: "Dossier personnel de {name} supprimé."
+  ru: "Личное дело {name} удалено."
+  uk: "Особову справу {name} видалено."
+  pl: "Akta osobowe {name} usunięte."
+
+# --- which launcher a plain start opens -----------------------------------------------------
+"Omsi-Hub (in the game's window)":
+  en: "Omsi-Hub (in the game's window)"
+  nl: "Omsi-Hub (in het venster van het spel)"
+  de: "Omsi-Hub (im Fenster des Spiels)"
+  fr: "Omsi-Hub (dans la fenêtre du jeu)"
+  ru: "Omsi-Hub (в окне игры)"
+  uk: "Omsi-Hub (у вікні гри)"
+  pl: "Omsi-Hub (w oknie gry)"
+"Desktop (this window)":
+  en: "Desktop (this window)"
+  nl: "Desktop (dit venster)"
+  de: "Desktop (dieses Fenster)"
+  fr: "Bureau (cette fenêtre)"
+  ru: "Рабочий стол (это окно)"
+  uk: "Робочий стіл (це вікно)"
+  pl: "Pulpit (to okno)"
+"Which launcher a plain start of the game opens.":
+  en: "Which launcher a plain start of the game opens."
+  nl: "Welke launcher een gewone start van het spel opent."
+  de: "Welcher Launcher sich bei einem normalen Start des Spiels öffnet."
+  fr: "Le lanceur qu'ouvre un démarrage normal du jeu."
+  ru: "Какой лаунчер открывается при обычном запуске игры."
+  uk: "Який лаунчер відкривається під час звичайного запуску гри."
+  pl: "Który launcher otwiera się przy zwykłym uruchomieniu gry."

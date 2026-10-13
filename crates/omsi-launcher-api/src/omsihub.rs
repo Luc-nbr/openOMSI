@@ -422,6 +422,72 @@ fn nearest_airport(root: &std::path::Path, map: &str) -> String {
 mod tests {
     use super::*;
 
+    /// The texts our page shows (`launcher/ui/js/omsihub`): what it hands to `tr`, and the
+    /// words of the controls it names (`label`, `title`, `main`, `placeholder`, `help`, `text`).
+    fn page_texts() -> Vec<(String, String)> {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../launcher/ui/js/omsihub");
+        let mut files = vec![];
+        let mut todo = vec![dir];
+        while let Some(d) = todo.pop() {
+            for e in std::fs::read_dir(&d).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    todo.push(p);
+                } else if p.extension().is_some_and(|x| x == "js") && !p.ends_with("symbols.js") && !p.ends_with("logo.js") && !p.ends_with("selftest.js") {
+                    files.push(p);
+                }
+            }
+        }
+        let mut out = Vec::new();
+        for f in files {
+            let src = std::fs::read_to_string(&f).unwrap();
+            let name = f.file_name().unwrap().to_string_lossy().to_string();
+            // (`tr('…'` / `tr("…"`, and `label: '…'`, `label="…"` ...)
+            for lead in ["tr(", "label: ", "title: ", "help: ", "text: ", "label=", "title=", "main=", "placeholder=", "sub="] {
+                let mut rest = src.as_str();
+                while let Some(k) = rest.find(lead) {
+                    let after = &rest[k + lead.len()..];
+                    rest = after;
+                    let Some(q) = after.chars().next().filter(|c| *c == '\'' || *c == '"') else { continue };
+                    let body = &after[1..];
+                    let mut text = String::new();
+                    let mut chars = body.chars();
+                    while let Some(c) = chars.next() {
+                        match c {
+                            '\\' => text.extend(chars.next()),
+                            c if c == q => break,
+                            c => text.push(c),
+                        }
+                    }
+                    if text.chars().filter(|c| c.is_alphabetic()).count() >= 2 && !text.contains("${") {
+                        out.push((name.clone(), text));
+                    }
+                }
+            }
+        }
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    #[test]
+    fn every_text_of_our_page_is_translated() {
+        let texts = page_texts();
+        assert!(texts.len() > 120, "only {} texts found: is the reading of the page broken?", texts.len());
+        // (names and words that are the same in every language)
+        let as_is = ["openOMSI", "Omsi-Hub", "km"];
+        let mut missing = Vec::new();
+        for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
+            let table = crate::i18n::table(lang);
+            for (file, t) in &texts {
+                if !as_is.contains(&t.as_str()) && !table.contains_key(t) {
+                    missing.push(format!("{file} {lang}: {t:?}"));
+                }
+            }
+        }
+        assert!(missing.is_empty(), "{} translations missing (add them to crates/omsi-app/locales/tauri-omsihub.yml):\n{}", missing.len(), missing.join("\n"));
+    }
+
     #[test]
     fn the_page_has_every_table_of_the_game() {
         // (the game reads every file in the folder: a new one is the page's too)
