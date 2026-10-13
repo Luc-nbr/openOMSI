@@ -128,14 +128,15 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     trophy_bar(&mut l.ui, Rect::new(r3.x + 12.0, r3.y + 40.0, r3.w - 24.0, 44.0), &c);
     // the part
     let y = area.y + fh + gap;
-    let parts = [omsi_ui::tr("Goals").into_owned(), omsi_ui::tr("Service contracts").into_owned()];
+    let parts = [omsi_ui::tr("Goals").into_owned(), omsi_ui::tr("Service contracts").into_owned(), omsi_ui::tr("Tender bids").into_owned()];
     let refs: Vec<&str> = parts.iter().map(String::as_str).collect();
-    l.ui.segmented("company-contracts-part", Rect::new(area.x, y, 420.0f32.min(area.w), 38.0), &mut part, &refs);
+    l.ui.segmented("company-contracts-part", Rect::new(area.x, y, 600.0f32.min(area.w), 38.0), &mut part, &refs);
     let body = Rect::new(area.x, y + 38.0 + gap, area.w, (area.bottom() - y - 38.0 - gap).max(120.0));
-    if part == 0 {
-        goals(l, body, &c);
-    } else {
-        services(l, body, &c, &mut gb);
+    match part {
+        0 => goals(l, body, &c),
+        1 => services(l, body, &c, &mut gb),
+        // (testers: "for the contracts, how do I know what I bid on my tender?")
+        _ => super::concessions::bids_list(l, body, &c),
     }
     keep(part, gb);
 }
