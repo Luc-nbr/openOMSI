@@ -1,0 +1,6 @@
+_version: 2
+# The bus company in Omsi-Hub's look of openOMSI's desktop launcher (launcher/ui/js/omsihub/company,
+# crates/omsi-launcher-api/src/omsihub/company.rs, Trello "Tauri 2/6"): the texts only that page
+# says. The company's own texts are the game-drawn launcher's (company-*.yml and the others), read
+# by the page as they are. The English text is the key, as in app.yml.
+

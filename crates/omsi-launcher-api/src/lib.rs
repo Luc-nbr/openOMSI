@@ -5,6 +5,9 @@
 //! window around the page can do - its events, stepping aside while a game runs, drawing with
 //! the game's renderer - it is asked through `Platform`.
 
+// Omsi-Hub: the bus company's views are large `json!` objects (`omsihub/company`)
+#![recursion_limit = "512"]
+
 pub mod i18n;
 // Omsi-Hub: our own commands and translation tables (`omsihub.rs`)
 pub mod omsihub;
@@ -494,6 +497,7 @@ pub fn call_bytes(cmd: &str, args: &Value, p: &dyn Platform) -> Result<Vec<u8>, 
     match cmd {
         "content_picture" => content_picture(&arg::<String>(args, "path")?).ok_or_else(|| "not found".to_string()),
         "preview_frame" => preview_frame(p, arg(args, "w")?, arg(args, "h")?, arg::<Option<bool>>(args, "force")?.unwrap_or(false), arg(args, "dx")?, arg(args, "dy")?, arg(args, "zoom")?, arg(args, "quality")?),
-        _ => Err(format!("unknown command {cmd}")),
+        // Omsi-Hub: the bytes of ours (`omsihub/mod.rs`: the bus company's staff portraits)
+        _ => omsihub::call_bytes(cmd, args, p).unwrap_or_else(|| Err(format!("unknown command {cmd}"))),
     }
 }

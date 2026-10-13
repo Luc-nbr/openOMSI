@@ -1,0 +1,290 @@
+//! The bus company's words as the game-drawn launcher says them (`crates/omsi-launcher-ui/src/
+//! company/mod.rs`): every text translated in the page's language from the game's tables (the
+//! English text is the key), money, numbers and dates written as that language writes them.
+//! The page hands its language with every command (`lang`); the views say their texts whole,
+//! so that the page draws them as they come.
+
+use omsi_launcher_lib::company::{self as co, Cents};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
+
+type Table = Arc<HashMap<String, String>>;
+
+thread_local! {
+    /// The language of the command being answered on this thread, and its table.
+    static LANG: RefCell<(String, Table)> = RefCell::new((String::new(), Arc::new(HashMap::new())));
+}
+
+/// The tables read so far, by language (`crate::i18n::table` hands a copy each time).
+fn tables() -> &'static Mutex<HashMap<String, Table>> {
+    static T: OnceLock<Mutex<HashMap<String, Table>>> = OnceLock::new();
+    T.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Answer in `lang` on this thread (an ISO code, "" or "en" for English).
+pub fn set_language(lang: &str) {
+    let lang = if lang == "en" { "" } else { lang };
+    if LANG.with(|l| l.borrow().0 == lang) {
+        return;
+    }
+    let table = if lang.is_empty() {
+        Arc::new(HashMap::new())
+    } else {
+        let mut all = tables().lock().unwrap_or_else(|e| e.into_inner());
+        all.entry(lang.to_string()).or_insert_with(|| Arc::new(crate::i18n::table(lang))).clone()
+    };
+    LANG.with(|l| *l.borrow_mut() = (lang.to_string(), table));
+}
+
+/// The language answered in ("" for English).
+pub fn language() -> String {
+    LANG.with(|l| l.borrow().0.clone())
+}
+
+/// A text in the language answered in (as it is where the tables lack it).
+pub fn tr(text: &str) -> String {
+    LANG.with(|l| l.borrow().1.get(text).cloned()).unwrap_or_else(|| text.to_string())
+}
+
+/// A text with its `%{name}`s filled after the lookup.
+pub fn trf(text: &str, args: &[(&str, &str)]) -> String {
+    let mut t = tr(text);
+    for (k, v) in args {
+        t = t.replace(&format!("%{{{k}}}"), v);
+    }
+    t
+}
+
+/// A text with its `%{n}` filled.
+pub fn n_of(key: &str, n: usize) -> String {
+    tr(key).replace("%{n}", &n.to_string())
+}
+
+/// A count in words: the text for one, else the text for `n` with its `%{n}` filled.
+pub fn count_text(n: usize, one: &str, many: &str) -> String {
+    if n == 1 {
+        tr(one)
+    } else {
+        n_of(many, n)
+    }
+}
+
+/// A message's words, its `%{name}`s filled (the inbox's and the feed's own arguments).
+pub fn filled(text: &str, args: &[(String, String)]) -> String {
+    let mut t = tr(text);
+    for (k, v) in args {
+        t = t.replace(&format!("%{{{k}}}"), v);
+    }
+    t
+}
+
+// --- money and numbers ----------------------------------------------------------------------
+
+/// How a language writes a number: its thousands separator, its decimal mark, and where the
+/// euro sign goes (`company::NumberStyle` of the game-drawn launcher).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct NumberStyle {
+    thousands: char,
+    decimal: char,
+    euro: EuroAt,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum EuroAt {
+    Before,
+    BeforeSpaced,
+    After,
+}
+
+/// The narrow no-break space French, Russian, Ukrainian and Polish group thousands with.
+const NARROW: char = '\u{202F}';
+
+fn style(lang: &str) -> NumberStyle {
+    let (thousands, decimal, euro) = match lang {
+        "" | "en" => (',', '.', EuroAt::Before),
+        "nl" => ('.', ',', EuroAt::BeforeSpaced),
+        "de" | "it" | "es" | "pt" | "pt-pt" | "tr" | "da" | "id" => ('.', ',', EuroAt::After),
+        _ => (NARROW, ',', EuroAt::After),
+    };
+    NumberStyle { thousands, decimal, euro }
+}
+
+fn num_in(x: f64, places: usize, lang: &str) -> String {
+    let st = style(lang);
+    let x = if x.is_finite() { x } else { 0.0 };
+    let text = format!("{:.*}", places, x.abs());
+    let (whole, frac) = text.split_once('.').unwrap_or((text.as_str(), ""));
+    let mut out = String::new();
+    if x < 0.0 && text.chars().any(|c| c.is_ascii_digit() && c != '0') {
+        out.push('-');
+    }
+    for (i, ch) in whole.chars().enumerate() {
+        if i > 0 && (whole.len() - i) % 3 == 0 {
+            out.push(st.thousands);
+        }
+        out.push(ch);
+    }
+    if !frac.is_empty() {
+        out.push(st.decimal);
+        out.push_str(frac);
+    }
+    out
+}
+
+fn with_euro(n: String, lang: &str) -> String {
+    let (sign, n) = match n.strip_prefix('-') {
+        Some(rest) => ("-", rest.to_string()),
+        None => ("", n),
+    };
+    match style(lang).euro {
+        EuroAt::Before => format!("{sign}€{n}"),
+        EuroAt::BeforeSpaced => format!("{sign}€ {n}"),
+        EuroAt::After => format!("{sign}{n} €"),
+    }
+}
+
+fn eur_in(c: Cents, lang: &str) -> String {
+    with_euro(num_in((c as f64 / 100.0).round(), 0, lang), lang)
+}
+
+/// Whole euros, grouped as the language groups them.
+pub fn eur(c: Cents) -> String {
+    eur_in(c, &language())
+}
+
+/// Euros with their cents (a fare, a price per kilometre).
+pub fn eur_cents(c: f64) -> String {
+    with_euro(num_in(c / 100.0, 2, &language()), &language())
+}
+
+/// A whole number grouped like money (kilometres, passengers).
+pub fn grouped(n: f64) -> String {
+    num_in(n.round(), 0, &language())
+}
+
+/// A number with `places` decimals as the language writes it.
+pub fn num(x: f64, places: usize) -> String {
+    num_in(x, places, &language())
+}
+
+/// An amount with its sign and its tone: what comes in green "+€894", what goes out red
+/// "−€11,175" (`kit::signed`).
+pub fn signed(c: Cents) -> (String, &'static str) {
+    if c > 0 {
+        (format!("+{}", eur(c)), "ok")
+    } else if c < 0 {
+        (format!("−{}", eur(-c)), "danger")
+    } else {
+        (eur(0), "dim")
+    }
+}
+
+// --- dates --------------------------------------------------------------------------------------
+
+pub const WEEKDAYS: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+pub const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/// "Tue 5 Mar 1989".
+pub fn day_label(date: &str) -> String {
+    let Some(d) = co::dates::parse(date) else { return date.to_string() };
+    let (y, m, day) = co::dates::civil_from_days(d);
+    format!("{} {} {} {}", tr(WEEKDAYS[co::dates::weekday(d) as usize]), day, tr(MONTHS[(m as usize).clamp(1, 12) - 1]), y)
+}
+
+/// "Mar 1989" of a `YYYY-MM`.
+pub fn month_label(month: &str) -> String {
+    let y = month.get(..4).unwrap_or("");
+    let m: usize = month.get(5..7).and_then(|m| m.parse().ok()).unwrap_or(1);
+    format!("{} {}", tr(MONTHS[m.clamp(1, 12) - 1]), y)
+}
+
+/// "12 Oct": a date short.
+pub fn short_date(date: &str) -> String {
+    let Some(d) = co::dates::parse(date) else { return date.to_string() };
+    let (_, m, day) = co::dates::civil_from_days(d);
+    format!("{} {}", day, tr(MONTHS[(m as usize).clamp(1, 12) - 1]))
+}
+
+/// A span of minutes as the pages write it, its two largest parts: "2 d 4 h", "31 d",
+/// "4 h 10 min", "3 h", "12 min".
+pub fn span_text(minutes: i64) -> String {
+    let (d, h, m) = co::clock::span(minutes);
+    let t = match (d, h, m) {
+        (0, 0, _) => tr("%{m} min"),
+        (0, _, 0) => tr("%{h} h"),
+        (0, _, _) => tr("%{h} h %{m} min"),
+        (_, 0, _) => tr("%{d} d"),
+        _ => tr("%{d} d %{h} h"),
+    };
+    t.replace("%{d}", &d.to_string()).replace("%{h}", &h.to_string()).replace("%{m}", &m.to_string())
+}
+
+/// The colour of a 0-100 condition or satisfaction (`company::grade`).
+pub fn grade(v: f64) -> &'static str {
+    if v >= 65.0 {
+        "ok"
+    } else if v >= 40.0 {
+        "warn"
+    } else {
+        "danger"
+    }
+}
+
+/// What a share's colour says: all of it green, part amber, none red; faint when it does not
+/// count (`kit::share_colour`).
+pub fn share_tone(frac: f64, idle: bool) -> &'static str {
+    if idle {
+        "faint"
+    } else if frac >= 0.999 {
+        "ok"
+    } else if frac > 0.0 {
+        "warn"
+    } else {
+        "danger"
+    }
+}
+
+/// Today's date as the computer has it, in its own time zone.
+pub fn today() -> String {
+    if let Some((y, m, d, _, _)) = omsi_launcher_lib::local_now() {
+        return format!("{y:04}-{m:02}-{d:02}");
+    }
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    co::dates::fmt((secs / 86_400) as i64)
+}
+
+/// A map's name where the company has none of its own (`state::short_map`).
+pub fn short_map(m: &str) -> String {
+    m.trim_start_matches("maps/").trim_end_matches("/global.cfg").to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn money_is_grouped_as_the_language_groups_it() {
+        assert_eq!(eur_in(123_456_789, ""), "€1,234,568");
+        assert_eq!(eur_in(-5_000_00, ""), "-€5,000");
+        assert_eq!(eur_in(123_456_789, "nl"), "€ 1.234.568");
+        assert_eq!(eur_in(123_456_789, "de"), "1.234.568 €");
+        assert_eq!(eur_in(123_456_789, "fr"), "1\u{202F}234\u{202F}568 €");
+        assert_eq!(num_in(4.5, 1, "nl"), "4,5");
+        assert_eq!(num_in(-0.04, 1, "nl"), "0,0");
+    }
+
+    #[test]
+    fn a_text_is_said_in_the_language_asked() {
+        set_language("nl");
+        assert_eq!(language(), "nl");
+        assert_ne!(tr("Simulate to tomorrow"), "Simulate to tomorrow");
+        assert_eq!(eur(1_234_00), "€ 1.234");
+        assert!(day_label("1989-05-30").ends_with("1989"));
+        set_language("en");
+        assert_eq!(tr("Simulate to tomorrow"), "Simulate to tomorrow");
+        assert_eq!(day_label("1989-05-30"), "Tue 30 May 1989");
+        assert_eq!(span_text(2 * 1440 + 4 * 60 + 7), "2 d 4 h");
+        assert_eq!(short_map("maps/Bad_Huegelsdorf_2020/global.cfg"), "Bad_Huegelsdorf_2020");
+    }
+}

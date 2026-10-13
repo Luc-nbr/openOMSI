@@ -192,6 +192,8 @@ const _LOCALES_GAME_MODES: &str = include_str!("../locales/game-modes.yml");
 const _LOCALES_CASUAL: &str = include_str!("../locales/casual.yml");
 // (the texts only the desktop launcher's page in Omsi-Hub's look shows: launcher/ui/js/omsihub)
 const _LOCALES_TAURI_OMSIHUB: &str = include_str!("../locales/tauri-omsihub.yml");
+// (and its bus company's: launcher/ui/js/omsihub/company)
+const _LOCALES_TAURI_COMPANY: &str = include_str!("../locales/tauri-company.yml");
 
 /// Show the interface in `code` (the settings' ENG / DEU / FRA / RUS).
 pub(crate) fn ui_language(code: &str) {
