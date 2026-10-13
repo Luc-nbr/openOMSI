@@ -705,6 +705,33 @@ pub fn bid(c: &mut Company, id: u32, amount: Cents) -> Result<(), &'static str> 
     Ok(())
 }
 
+/// The company's own bid on a tender, as the pages show it (testers: "how do I know what I bid
+/// on my tender?"): its last bid and when, how many it placed, whether it leads now, and how it
+/// ended - the winning bid and who won. From the tender's `offers` and `outcome`, both kept with
+/// the company (a file older than them reads none).
+#[derive(Clone, Debug, PartialEq)]
+pub struct MyBid {
+    pub amount: Cents,
+    pub at: i64,
+    pub count: usize,
+    /// Its bid leads at `now` (an open tender).
+    pub leads: bool,
+    /// Decided: who won (empty: the company) and with what.
+    pub result: Option<(String, Cents)>,
+}
+
+/// The company's bid on `t` at `now` (None: it placed none).
+pub fn my_bid(c: &Company, t: &Tender, now: i64) -> Option<MyBid> {
+    let &(at, amount) = t.offers.iter().max_by_key(|o| o.0)?;
+    let leads = t.open() && bids(c, t, now).last().is_some_and(|p| p.who == Who::Player);
+    let result = match &t.outcome {
+        Some(Outcome::Won { amount, .. }) => Some((String::new(), *amount)),
+        Some(Outcome::Lost { winner, amount, .. } | Outcome::NoBid { winner, amount }) => Some((winner.clone(), *amount)),
+        None => None,
+    };
+    Some(MyBid { amount, at, count: t.offers.len(), leads, result })
+}
+
 /// Buy the line at once for the buy-out price (the fee too, if not paid yet): the tender is
 /// won and closed; the line is run from tomorrow.
 pub fn buy_out(c: &mut Company, id: u32) -> Result<Event, &'static str> {
@@ -1026,7 +1053,15 @@ pub(crate) mod tests {
         assert_eq!(cash - c.cash, fee(&c, &c.concessions.tenders[0]), "the fee with the first bid");
         assert!(fee(&c, &t) > 0 && fee(&c, &t) <= t.value / 10 + auction::ROUND, "a tenth of the worth at most");
         assert!(chance(&c, &c.concessions.tenders[0], high) > 0.5);
+        // the pages show the company's bid: how much and when, and that it leads
+        let at = clock::now(&c);
+        let mine = my_bid(&c, &c.concessions.tenders[0], at).unwrap();
+        assert_eq!((mine.amount, mine.at, mine.count, mine.leads, mine.result.clone()), (high, at, 1, true, None));
         let (ev, paid) = close(&mut c, id).unwrap();
+        // ... and after the result the winning bid, kept with the company
+        let kept: Concessions = serde_json::from_str(&serde_json::to_string(&c.concessions).unwrap()).unwrap();
+        let mine = my_bid(&c, &kept.tenders[0], at).unwrap();
+        assert_eq!((mine.amount, mine.leads, mine.result), (high, false, Some((String::new(), high))));
         assert!(matches!(&ev, Event::Won { number, .. } if number == "7"));
         assert_eq!(paid, high);
         assert!(matches!(c.concessions.tenders[0].outcome, Some(Outcome::Won { amount, bought: false, .. }) if amount == high));

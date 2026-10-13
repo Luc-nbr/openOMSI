@@ -186,6 +186,7 @@ const _LOCALES_ROSTERFLOW_TIMEPLAN: &str = include_str!("../locales/rosterflow-t
 const _LOCALES_ROSTERFLOW_TUTORIAL: &str = include_str!("../locales/rosterflow-tutorial.yml");
 const _LOCALES_COMPANY_DRIVE: &str = include_str!("../locales/company-drive.yml");
 const _LOCALES_BUGS_TIMETABLE: &str = include_str!("../locales/bugs-timetable.yml");
+const _LOCALES_BUGS_COMPANY: &str = include_str!("../locales/bugs-company.yml");
 
 /// Show the interface in `code` (the settings' ENG / DEU / FRA / RUS).
 pub(crate) fn ui_language(code: &str) {

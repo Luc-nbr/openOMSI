@@ -511,6 +511,8 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
         let reported = |trip: &network::PlannedTrip| tp.live && live_trips.iter().any(|(l, n, dep)| is_one_of(&tp.tour, &[(l.clone(), n.clone())]) && dep.is_none_or(|d| (d - trip.dep).abs() <= 2));
         let v = tp.bus.and_then(|b| c.vehicle(b)).cloned();
         let broken_at = tp.bus.and_then(|b| cut.iter().find(|x| x.0 == b)).map(|x| (x.1, x.2));
+        // (a spare bus sent for it runs the trips after it came: its kilometres, its wear)
+        let spare = tp.bus.and_then(|b| super::clock::spare_of(c, &date, b)).and_then(|id| c.vehicle(id)).cloned();
         for d in &tp.duties {
             let driver = d.driver.and_then(|id| if id == super::plan::AGENCY { Some(super::plan::agency_driver()) } else { c.employee(id).cloned() });
             if let Some(e) = driver.as_ref().filter(|e| e.id != super::plan::AGENCY) {
@@ -554,7 +556,8 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
                     }
                     continue;
                 }
-                let (Some(v), Some(e)) = (&v, &driver) else { continue };
+                let by_spare = spare.is_some() && broken_at.is_some_and(|(at, back)| trip.dep >= at && back.is_some_and(|b| trip.dep >= b));
+                let (Some(v), Some(e)) = (if by_spare { &spare } else { &v }, &driver) else { continue };
                 let age = dates::years_between(&v.built, &date);
                 lines[li].km += trip.km;
                 match bus_km.iter_mut().find(|b| b.0 == v.id) {
@@ -1161,7 +1164,7 @@ mod tests {
         let others: Vec<u32> = c.staff.iter().filter(|e| !drivers.contains(&e.id)).map(|e| e.id).collect();
         let plan = assign(&c, tours.clone(), &[], &[]);
         assert!(plan.tours.iter().flat_map(|t| t.duties.iter()).filter_map(|d| d.driver).all(|id| drivers.contains(&id)));
-        assert_eq!(super::super::plan::agency_max(&c), 1);
+        assert_eq!(super::super::plan::agency_max(&c), 3);
         c.date = "2024-03-31".into();
         for e in c.staff.iter_mut() {
             e.hired = "2024-03-01".into();

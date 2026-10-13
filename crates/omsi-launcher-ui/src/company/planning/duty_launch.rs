@@ -368,7 +368,7 @@ fn start_card(l: &mut Launcher, q: &Pal, r: Rect, c: &Company, s: &Sheet) {
             to_planning(l, c);
             return;
         }
-        rf_button(&mut l.ui, q, "duty-launch-start-off", go, "Start duty", false, false);
+        blocked_start(&mut l.ui, q, go, title);
         return;
     }
     caps(&mut l.ui, Rect::new(x, y, w, 16.0), "Before you start", q.dim, Align::Left);
@@ -399,6 +399,28 @@ fn start_card(l: &mut Launcher, q: &Pal, r: Rect, c: &Company, s: &Sheet) {
     }
     if rf_button(&mut l.ui, q, "duty-launch-start", go, "Start duty", true, true) {
         start(l, c, s);
+    }
+}
+
+/// "Start duty" while something keeps the duty from starting: clearly no button - no fill, a
+/// thin faint outline, a lock and the words struck through - with the reason in it
+/// (testers: the greyed button looked too much like a normal one). It takes no click.
+fn blocked_start(ui: &mut super::super::super::ui::Ui, q: &Pal, r: Rect, reason: &str) {
+    let (h, _, _) = ui.interact(super::super::super::ui::id_of("duty-launch-start-off"), r);
+    ui.p().rounded_border(r, 2.0, 1.0, q.faint.alpha(0.55));
+    let label = omsi_ui::tr("Start duty").to_uppercase();
+    let lw = ui.width(&label, 12.5, Weight::Bold);
+    let cx = r.center().x + 10.0;
+    let ty = r.y + 20.0;
+    ui.icon("lock", Vec2::new(cx - lw * 0.5 - 14.0, ty - 4.0), 16.0, q.err.alpha(0.8));
+    ui.text_as_is(&label, Vec2::new(cx, ty), 12.5, Weight::Bold, q.faint, Align::Center);
+    // (struck through: it cannot be pressed)
+    ui.p().rect(Rect::new(cx - lw * 0.5, ty - 4.5, lw, 1.2), q.faint);
+    let why = omsi_ui::tr("Not possible yet: %{reason}").replace("%{reason}", &omsi_ui::tr(reason));
+    let why = fit(ui, &why, r.w - 24.0, 11.5);
+    ui.text_as_is(&why, Vec2::new(r.center().x, r.y + 40.0), 11.5, Weight::Medium, q.err.alpha(0.9), Align::Center);
+    if h {
+        ui.tooltip(r, reason);
     }
 }
 

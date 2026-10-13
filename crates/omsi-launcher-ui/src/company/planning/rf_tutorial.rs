@@ -485,9 +485,11 @@ pub(super) fn after(l: &mut Launcher, area: Rect, held: Option<Input>) {
 }
 
 /// The tour by itself, the first time a driver opens RosterFlow (once its opening has played;
-/// not on a phone, not over a dialog or another tour).
+/// not on a phone, not over a dialog or another tour - nor over the company's question: testers
+/// saw the tour cover the morning's list of what fell out, so the issues could not be seen).
 fn first_time(l: &mut Launcher) {
-    if mobile::mobile() || tour::active(l) || l.company.planning.rf.intro.is_some() || l.company.dialog.is_some() || l.company.planning.rf.tut.lesson.is_some() {
+    let asks = l.company.company.as_ref().is_some_and(|c| c.clock.ask.is_some());
+    if mobile::mobile() || tour::active(l) || asks || l.company.planning.rf.intro.is_some() || l.company.dialog.is_some() || l.company.planning.rf.tut.lesson.is_some() {
         return;
     }
     let profile = l.state.config.profile.clone();

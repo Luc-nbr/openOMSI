@@ -837,7 +837,12 @@ fn pick_row(ui: &mut Ui, q: &Pal, name: &str, r: Rect, on: bool, swatch: Option<
         ui.p().rounded(Rect::new(x, r.y + r.h * 0.5 - 5.0, 10.0, 10.0), 2.0, s);
         x += 18.0;
     }
-    let rw = ui.width(right, 12.0, Weight::Regular).min(r.w * 0.5);
+    let full = ui.width(right, 12.0, Weight::Regular);
+    let rw = full.min(r.w * 0.62);
+    // (a reason longer than its room is shown whole under the mouse)
+    if full > rw && h {
+        ui.tooltip(r, right);
+    }
     ui.text_in(text, Rect::new(x, r.y, r.right() - x - rw - 16.0, r.h), 13.0, Weight::Medium, q.text, Align::Left);
     ui.text_in(right, Rect::new(r.right() - rw - 10.0, r.y, rw, r.h), 12.0, Weight::Regular, if on { q.text } else { right_c }, Align::Right);
     (clicked, pressed)
@@ -864,14 +869,19 @@ fn day_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, q: &Pal) {
         .filter(|e| co::staff::drives(e))
         .map(|e| {
             let mins: i32 = p.duties_of(Who::Staff(e.id)).iter().map(|&(i, k)| p.tours[i].duties[k].to - p.tours[i].duties[k].from).sum();
-            let (state, col) = if !e.employed_on(&p.date) {
-                (omsi_ui::tr("Not employed then").into_owned(), q.faint)
-            } else if e.sick_until.as_deref().is_some_and(|u| co::dates::between(&p.date, u) >= 0) {
-                (omsi_ui::tr("Ill").into_owned(), q.err)
-            } else if e.holiday_until.as_deref().is_some_and(|u| co::dates::between(&p.date, u) >= 0) {
-                (omsi_ui::tr("On holiday").into_owned(), q.dim)
+            // (exactly why someone cannot drive today: "Free" only for who can)
+            let (state, col) = if let Some(x) = pl::day_unavailable(e, &p.date, p.today) {
+                let col = match x {
+                    pl::Cannot::Ill { .. } | pl::Cannot::WeekDone { .. } => q.err,
+                    pl::Cannot::NotEmployed => q.faint,
+                    _ => q.dim,
+                };
+                (cannot_text(c, p, &x), col)
             } else if mins == 0 {
-                (omsi_ui::tr("Free").into_owned(), q.dim)
+                match pl::free_from(e, p.today) {
+                    Some(m) => (omsi_ui::tr("Free from %{time} (night's rest)").replace("%{time}", &hhmm(m)), q.warn),
+                    None => (omsi_ui::tr("Free all day").into_owned(), q.ok),
+                }
             } else {
                 (length(mins), if mins > co::staff::DAY_TARGET { q.warn } else { q.text.alpha(0.82) })
             };
@@ -930,7 +940,17 @@ fn day_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, q: &Pal) {
     let carrying = l.company.planning.carry.map(|c| c.1.is_some());
     let clip = inner;
     let summary = omsi_ui::tr("%{c} of %{t} tours covered").replace("%{c}", &covered.to_string()).replace("%{t}", &tours.to_string());
-    let gaps = if open + no_bus == 0 { omsi_ui::tr("Nothing open.").into_owned() } else { omsi_ui::tr("%{d} duties without a driver, %{b} tours without a bus.").replace("%{d}", &open.to_string()).replace("%{b}", &no_bus.to_string()) };
+    // (covered is not "no issues": what was covered only for the day, and first trips dropped
+    // for a late driver, are said too)
+    let late_dropped = rows.iter().filter(|o| o.late && !o.filled).count();
+    let covered_today = rows.iter().filter(|o| !o.late && o.filled && o.problem.is_some_and(|x| x != Problem::Unassigned)).count();
+    let mut gaps = if open + no_bus == 0 { omsi_ui::tr("Nothing open.").into_owned() } else { omsi_ui::tr("%{d} duties without a driver, %{b} tours without a bus.").replace("%{d}", &open.to_string()).replace("%{b}", &no_bus.to_string()) };
+    if late_dropped > 0 {
+        gaps = format!("{gaps} {}", omsi_ui::tr("%{n} late starts: their first trips dropped.").replace("%{n}", &late_dropped.to_string()));
+    }
+    if covered_today > 0 {
+        gaps = format!("{gaps} {}", omsi_ui::tr("%{n} covered for today only (see Open duties).").replace("%{n}", &covered_today.to_string()));
+    }
     let look = rf_scroll::look(q);
     let q = *q;
     rf_scroll::area(&mut l.ui, &look, "plan-side", inner, &mut |ui, v| {
@@ -938,10 +958,10 @@ fn day_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, q: &Pal) {
         let mut y = v.y;
         ui.text_in(&summary, Rect::new(v.x, y, w, 22.0), 16.0, Weight::Bold, q.text, Align::Left);
         y += 26.0;
-        let ok = open + no_bus == 0;
+        let ok = open + no_bus + late_dropped == 0;
         ui.icon(if ok { "check_circle" } else { "warning" }, Vec2::new(v.x + 7.0, y + 10.0), 14.0, if ok { q.ok } else { q.warn });
-        ui.text_in(&gaps, Rect::new(v.x + 20.0, y, w - 20.0, 20.0), 12.5, Weight::Medium, if ok { q.ok } else { q.warn }, Align::Left);
-        y += 34.0;
+        let gh = ui.paragraph(&gaps, Vec2::new(v.x + 20.0, y + 2.0), w - 20.0, 12.5, Weight::Medium, if ok { q.ok } else { q.warn });
+        y += gh.max(20.0) + 14.0;
         let head = |ui: &mut Ui, y: f32, t: &str| caps(ui, Rect::new(v.x, y, w, 16.0), t, q.dim, Align::Left);
         if !morning.is_empty() {
             head(ui, y, "This morning");
@@ -1140,6 +1160,13 @@ fn duty_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, ti: usize, k:
         };
         facts.push((s, if late.cover.is_some() { q.warn } else { q.err }));
     }
+    // (the agency sends so many a day: its limit, and why, where agency drivers are chosen)
+    let open_today = p.today && !t.by_player && (d.problem.is_some() || d.who.is_none());
+    let (agency_n, agency_max) = (pl::agency_used(p), pl::agency_max(c));
+    let agency_ok = agency_n < agency_max || (d.who == Some(Who::Agency) && d.from_ != Source::Roster);
+    if open_today && !agency_ok {
+        facts.push((omsi_ui::tr("No agency driver left today: %{n} of %{max}. The agency sends two, and one more for every three drivers you employ.").replace("%{n}", &agency_n.to_string()).replace("%{max}", &agency_max.to_string()), q.warn));
+    }
     let mut y = inner.y;
     l.ui.swatch(Rect::new(inner.x, y + 5.0, 3.0, 14.0), 1.0, line_colour(c, &t.tour.line));
     l.ui.text_in(&line_title(&t, Some(k)), Rect::new(inner.x + 10.0, y, inner.w - 14.0, 24.0), 15.0, Weight::Bold, q.text, Align::Left);
@@ -1160,37 +1187,35 @@ fn duty_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, ti: usize, k:
             return;
         }
     }
-    let mut options: Vec<(String, Option<Fill>, bool)> = Vec::new();
-    if p.today && !t.by_player {
-        if d.problem.is_some() || d.who.is_none() {
-            options.push((omsi_ui::tr("An agency driver for today").into_owned(), Some(Fill::Agency), true));
-            options.push((omsi_ui::tr("Drop its trips today").into_owned(), Some(Fill::Drop), true));
-            if fill_now {
-                options.push((omsi_ui::tr("Leave it to the central").into_owned(), None, true));
-            }
+    // (what fell out today: every way to cover it - each colleague who may drive it, an agency
+    // driver within the limit, the player, dropping it with the penalty shown - the one chosen
+    // marked)
+    let chosen = c.planning.fills.iter().find(|f| c.planning.date == c.date && f.key == key).map(|f| f.fill);
+    let mut options: Vec<(String, String, Option<Fill>, bool, bool)> = Vec::new();
+    if open_today {
+        for cv in pl::covers_of_duty(c, p, ti, k) {
+            let (label, note) = cover_text(c, &cv);
+            let fill = cv.fill();
+            options.push((label, note, Some(fill), true, chosen == Some(fill)));
         }
-        if d.late.is_some() {
-            options.push((omsi_ui::tr("Drop the first trips").into_owned(), Some(Fill::Drop), false));
-            if late_fill {
-                options.push((omsi_ui::tr("Let the central cover the first trips").into_owned(), None, false));
-            }
+        if fill_now {
+            options.push((omsi_ui::tr("Leave it to the central").into_owned(), String::new(), None, true, false));
+        }
+    }
+    if p.today && !t.by_player && d.late.is_some() {
+        options.push((omsi_ui::tr("Drop the first trips").into_owned(), String::new(), Some(Fill::Drop), false, false));
+        if late_fill {
+            options.push((omsi_ui::tr("Let the central cover the first trips").into_owned(), String::new(), None, false, false));
         }
     }
     let cands: Vec<(Option<Who>, String, String, Color, Option<Color>)> = {
         let mut v: Vec<(Option<Who>, String, String, Color, Option<Color>)> = Vec::new();
         v.push((Some(Who::Player), omsi_ui::tr("You").into_owned(), omsi_ui::tr("Drive it yourself").into_owned(), q.dim, Some(q.accent)));
-        let mut people: Vec<(bool, u32, String, String, Color)> = c
-            .staff
-            .iter()
-            .filter(|e| co::staff::drives(e))
-            .map(|e| {
-                let (s, col, ok) = fit_of(c, p, ti, k, e.id);
-                (ok, e.id, e.name.clone(), s, ink(q, col))
-            })
-            .collect();
-        people.sort_by(|a, b| b.0.cmp(&a.0).then(a.2.cmp(&b.2)));
-        for (_, id, name, s, col) in people {
-            v.push((Some(Who::Staff(id)), name, s, col, Some(driver_colour(c, id))));
+        // (those who can take it first - the standby drivers - then the others, each with why not)
+        for x in pl::candidates(c, p, ti, k) {
+            let (s, col, _) = fit_of(c, p, ti, k, x.id);
+            let name = c.employee(x.id).map(|e| e.name.clone()).unwrap_or_default();
+            v.push((Some(Who::Staff(x.id)), name, s, ink(q, col), Some(driver_colour(c, x.id))));
         }
         v.push((None, omsi_ui::tr("Nobody").into_owned(), String::new(), q.dim, None));
         v
@@ -1205,11 +1230,11 @@ fn duty_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, ti: usize, k:
         let w = v.w - BAR - 2.0;
         let mut yy = v.y;
         if !options.is_empty() {
-            caps(ui, Rect::new(v.x, yy, w, 16.0), "Today", q.dim, Align::Left);
+            caps(ui, Rect::new(v.x, yy, w, 16.0), "Cover it today", q.dim, Align::Left);
             yy += 22.0;
-            for (n, (label, fill, whole)) in options.iter().enumerate() {
+            for (n, (label, note, fill, whole, on)) in options.iter().enumerate() {
                 let rr = Rect::new(v.x, yy, w, 30.0);
-                if pick_row(ui, &q, &format!("plan-opt-{n}"), rr, false, None, label, "", q.dim).0 {
+                if pick_row(ui, &q, &format!("plan-opt-{n}"), rr, *on, None, label, note, q.dim).0 {
                     opt = Some((*fill, *whole));
                 }
                 yy += 32.0;
@@ -1274,13 +1299,16 @@ fn tour_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, ti: usize, q:
     y += 8.0;
     let key = pl::tour_key(&t.tour.line, &t.tour.tour);
     let fill_now = c.planning.date == c.date && c.planning.fills.iter().any(|f| f.key == key);
-    let mut options: Vec<(String, Option<Fill>)> = Vec::new();
+    // (a tour without its bus today: each spare bus of the fleet, a rental bus, dropping it with
+    // the penalty shown - the one chosen marked)
+    let chosen = c.planning.fills.iter().find(|f| c.planning.date == c.date && f.key == key).map(|f| f.fill);
+    let mut options: Vec<(String, String, Option<Fill>, bool, bool)> = Vec::new();
     if p.today && !t.by_player && (t.bus.is_none() || t.bus_problem.is_some()) {
-        let rent = co::economy::rent_per_day(co::BusKind { size: t.tour.wants().unwrap_or_default(), drive: co::Drive::Diesel }, &co::economy::rules(c.difficulty), c.price_index);
-        options.push((omsi_ui::tr("Rent a bus for today (%{amount})").replace("%{amount}", &eur(rent)), Some(Fill::Rental)));
-        options.push((omsi_ui::tr("Drop the tour today").into_owned(), Some(Fill::Drop)));
+        for (label, note, fill) in tour_covers(c, p, ti) {
+            options.push((label, note, fill, fill.is_some() && chosen == fill, fill.is_some()));
+        }
         if fill_now {
-            options.push((omsi_ui::tr("Leave it to the central").into_owned(), None));
+            options.push((omsi_ui::tr("Leave it to the central").into_owned(), String::new(), None, false, true));
         }
     }
     let mut cands: Vec<(bool, Option<u32>, String, String, Color)> = c
@@ -1307,11 +1335,11 @@ fn tour_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, ti: usize, q:
         let w = v.w - BAR - 2.0;
         let mut yy = v.y;
         if !options.is_empty() {
-            caps(ui, Rect::new(v.x, yy, w, 16.0), "Today", q.dim, Align::Left);
+            caps(ui, Rect::new(v.x, yy, w, 16.0), "Cover it today", q.dim, Align::Left);
             yy += 22.0;
-            for (n, (label, fill)) in options.iter().enumerate() {
+            for (n, (label, note, fill, on, live)) in options.iter().enumerate() {
                 let rr = Rect::new(v.x, yy, w, 30.0);
-                if pick_row(ui, &q, &format!("plan-topt-{n}"), rr, false, None, label, "", q.dim).0 {
+                if pick_row(ui, &q, &format!("plan-topt-{n}"), rr, *on, None, label, note, q.dim).0 && *live {
                     opt = Some(*fill);
                 }
                 yy += 32.0;

@@ -207,7 +207,7 @@ pub fn class_of_file(file: &str, texts: &[&str]) -> VehicleClass {
             all.push(v.manufacturer.clone());
             let refs: Vec<&str> = all.iter().map(String::as_str).collect();
             let bb = v.bounding_box;
-            classify(&refs, v.couple_back.is_some(), bb.map(|b| b[1]), bb.map(|b| b[2]))
+            classify(&refs, crate::company::market::articulation(v.couple_back.as_ref()), bb.map(|b| b[1]), bb.map(|b| b[2]))
         }
         Err(_) => {
             let refs: Vec<&str> = all.iter().map(String::as_str).collect();

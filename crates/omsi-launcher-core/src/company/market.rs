@@ -38,22 +38,33 @@ fn words(s: &str) -> Vec<String> {
 /// articulated sisters: those say nothing).
 const ELECTRIC_PARTS: [&str; 15] = ["elektromotor", "e-motor", "e_motor", "emotor", "elmotor", "fahrmotor", "traction", "traktion", "pantograph", "stromabnehmer", "hv_batt", "hvbatt", "hochvolt", "e-antrieb", "eantrieb"];
 
+/// Words that make a standard-length bus of a short bounding box (an intercity bus whose box
+/// is drawn short says so in its name: MAN's "NUE 263 - Ueberlandbus").
+const FULL_LENGTH: [&str; 6] = ["ueberland", "\u{fc}berland", "uberland", "reisebus", "coach", "intercity"];
+
 /// A bus's kind from what is known of it: its names (its name, type, maker and file), the
-/// names of its scripts and sounds (`parts`, only for the drive), whether a trailer section
-/// is coupled behind it, and its length and height in metres. Omsi-Hub's `vormVanNaam` for
-/// the names: "Gelenk", "articulated", "18C", a lone "G" an articulated bus; "Doppeldeck",
-/// "DD" a double-decker; "Midi", "10C", "O530K", "kurz" a midibus.
+/// names of its scripts and sounds (`parts`, only for the drive), whether a section is coupled
+/// behind it (`trailer`: an articulation, `articulation`), and its length and height in metres.
+/// Omsi-Hub's `vormVanNaam` for the names: "Gelenk", "articulated", "18C", a lone "G" an
+/// articulated bus; "Doppeldeck", "DD", MAN's "SD" a double-decker; "Midi", "10C", "O530K",
+/// "kurz" a midibus. A bus whose file was read (its length known) is articulated only with a
+/// section coupled behind: a folder named "Stadtgelenkbus" holds solo buses too.
 pub fn guess_kind(texts: &[&str], parts: &[&str], trailer: bool, length: Option<f32>, height: Option<f32>) -> BusKind {
     let all = texts.join(" ").to_lowercase();
     let w: Vec<String> = texts.iter().flat_map(|t| words(t)).collect();
     let has = |x: &str| w.iter().any(|y| y == x);
     let parts = parts.join(" ").to_lowercase();
     let electric = ELECTRIC.iter().any(|k| all.contains(k)) || ELECTRIC_PARTS.iter().any(|k| parts.contains(k)) || has("ev") || has("bev") || has("obus") || has("e") && (all.contains("citaro") || all.contains("urbino") || all.contains("lion"));
-    let size = if trailer || all.contains("gelenk") || all.contains("artic") || all.contains("18c") || all.contains("19c") || has("g") || has("gn") {
+    let read = length.is_some();
+    let named_articulated = all.contains("gelenk") || all.contains("artic") || all.contains("18c") || all.contains("19c") || has("g") || has("gn");
+    // (MAN's double-deckers: "SD200", "SD202", "SD77")
+    let man_sd = w.iter().any(|x| x.len() > 2 && x.starts_with("sd") && x[2..].chars().all(|c| c.is_ascii_digit()));
+    let full_length = FULL_LENGTH.iter().any(|k| all.contains(k));
+    let size = if trailer || (!read && named_articulated) {
         BusSize::Articulated
-    } else if all.contains("doppeldeck") || all.contains("double deck") || all.contains("doubledeck") || all.contains("double-deck") || has("dd") || height.is_some_and(|h| h > 3.9) {
+    } else if all.contains("doppeldeck") || all.contains("double deck") || all.contains("doubledeck") || all.contains("double-deck") || has("dd") || man_sd || height.is_some_and(|h| h > 3.9) {
         BusSize::Double
-    } else if all.contains("midi") || all.contains("10c") || all.contains("o530k") || all.contains("kurz") || length.is_some_and(|l| l > 4.0 && l < 10.6) {
+    } else if all.contains("midi") || all.contains("10c") || all.contains("o530k") || all.contains("kurz") || (!full_length && length.is_some_and(|l| l > 4.0 && l < 10.8)) {
         BusSize::Midi
     } else {
         BusSize::Solo
@@ -61,10 +72,24 @@ pub fn guess_kind(texts: &[&str], parts: &[&str], trailer: bool, length: Option<
     BusKind { size, drive: if electric { Drive::Electric } else { Drive::Diesel } }
 }
 
-/// The kind of an installed bus, from its file (`Vehicles/.../x.bus`) and its name.
-pub fn kind_of(file: &str, name: &str) -> BusKind {
-    let path = crate::resolve_content(file).unwrap_or_else(|_| std::path::PathBuf::from(file));
-    let Ok(v) = omsi_vehicle::Vehicle::load(&path) else { return guess_kind(&[name, file], &[], false, None, None) };
+/// Whether what a bus file couples behind it makes it an articulated bus (or a bus with a
+/// passenger trailer): a bicycle or luggage trailer does not ("Fahrradanhaenger.bus").
+pub fn articulation(couple_back: Option<&(String, bool)>) -> bool {
+    couple_back.is_some_and(|(file, _)| {
+        let f = file.to_lowercase();
+        !["fahrrad", "bike", "bicycle", "anhaenger", "anh\u{e4}nger", "gepaeck", "gep\u{e4}ck", "luggage"].iter().any(|k| f.contains(k))
+    })
+}
+
+/// A tram, not a bus (trams are written as `.bus` files too): the company's market leaves it
+/// out.
+pub fn is_tram(texts: &[&str]) -> bool {
+    let w: Vec<String> = texts.iter().flat_map(|t| words(t)).collect();
+    w.iter().any(|x| matches!(x.as_str(), "tram" | "trams" | "trambahn" | "strassenbahn" | "stra\u{df}enbahn" | "tramway" | "streetcar"))
+}
+
+/// The kind of a bus file read (`file` as the market knows it, `name` its name).
+pub fn kind_of_vehicle(v: &omsi_vehicle::Vehicle, file: &str, name: &str) -> BusKind {
     let texts: Vec<String> = vec![name.to_string(), file.to_string(), v.type_name.clone(), v.manufacturer.clone()];
     let file_names = |ps: &[std::path::PathBuf]| ps.iter().filter_map(|p| p.file_name().map(|n| n.to_string_lossy().to_string())).collect::<Vec<_>>();
     let mut parts = file_names(&v.scripts.scripts);
@@ -76,13 +101,22 @@ pub fn kind_of(file: &str, name: &str) -> BusKind {
     let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
     let parts: Vec<&str> = parts.iter().map(String::as_str).collect();
     let bb = v.bounding_box;
-    guess_kind(&refs, &parts, v.couple_back.is_some(), bb.map(|b| b[1]), bb.map(|b| b[2]))
+    guess_kind(&refs, &parts, articulation(v.couple_back.as_ref()), bb.map(|b| b[1]), bb.map(|b| b[2]))
+}
+
+/// The kind of an installed bus, from its file (`Vehicles/.../x.bus`) and its name.
+pub fn kind_of(file: &str, name: &str) -> BusKind {
+    let path = crate::resolve_content(file).unwrap_or_else(|_| std::path::PathBuf::from(file));
+    let Ok(v) = omsi_vehicle::Vehicle::load(&path) else { return guess_kind(&[name, file], &[], false, None, None) };
+    kind_of_vehicle(&v, file, name)
 }
 
 /// The market's buses: every bus installed (reads each bus file - on a thread of its own).
 pub fn market_of(vehicles: &[crate::VehicleInfo]) -> Vec<MarketBus> {
     let mut out: Vec<MarketBus> = vehicles
         .iter()
+        // (a tram is no bus for the company; nor is a rail vehicle's `.ovh`)
+        .filter(|v| !is_tram(&[&v.name, &v.file, &v.type_name]) && !v.file.to_lowercase().ends_with(".ovh"))
         .map(|v| MarketBus { file: v.file.clone(), name: crate::display_bus_name(&v.name), kind: kind_of(&v.file, &v.name), paints: v.paints.clone(), default_paint: v.default_paint.clone() })
         .collect();
     out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
@@ -417,6 +451,87 @@ mod tests {
         // shares with its articulated sister and its Euro 5 sound say nothing
         let citybus = guess_kind(&["Citybus by Kajosoft", "Vehicles/Citybus 628c 628g LF by Kajosoft/628c_LF_5hp500.bus"], &["elec.osc", "elektrik.osc", "batterie.osc", "articulation_varlist.txt", "Sound_926LA_E5_z.cfg", "engine.osc"], false, Some(11.95), Some(2.55));
         assert_eq!(citybus, BusKind { size: BusSize::Solo, drive: Drive::Diesel });
+    }
+
+    /// Buses an installed OMSI 2 put in the wrong size (testers: "it's not showing vehicles in
+    /// the correct category"), with the snippets of their real files.
+    #[test]
+    fn installed_buses_get_their_right_size() {
+        let read = |file: &str, text: &str| {
+            let v = omsi_vehicle::Vehicle::parse(&omsi_cfg::CfgFile::from_str(file, text));
+            let name = format!("{} {}", v.manufacturer, v.type_name);
+            kind_of_vehicle(&v, file, &name)
+        };
+        // MAN's SD200: a double-decker 3.76 m tall
+        let sd = read("Vehicles/MAN_SD200/MAN_SD77.bus", "[friendlyname]\nMAN\nSD200 - SD77\nBeige\n\n[boundingbox]\n2.5\n11.46\n3.76\n0\n-0.01\n2.29\n");
+        assert_eq!(sd.size, BusSize::Double);
+        assert_eq!(guess_kind(&["MAN SD202 - D86"], &[], false, None, None).size, BusSize::Double);
+        // a solo bus in a folder named for the articulated one (no section coupled behind)
+        let vhh = read("Vehicles/HH109_Stadtgelenkbus1999_VHH/HHStadtbus97.bus", "[friendlyname]\nHamburger Stadtbus\nVHH (1997)\nschwarz-rot\n\n[boundingbox]\n2.6\n11.95\n2.9\n0\n0\n1.9\n");
+        assert_eq!(vhh.size, BusSize::Solo);
+        // ... and the articulated one there, with its rear section
+        let g = read("Vehicles/HH109_Stadtgelenkbus1999_VHH/HHStadtgelenkbus99_main.bus", "[friendlyname]\nHamburger Stadtbus\nGelenkbus (1999)\nrot\n\n[boundingbox]\n2.6\n10.1\n2.6\n0\n0\n1.9\n\n[couple_back]\nHHStadtgelenkbus99_trail.bus\nfalse\n");
+        assert_eq!(g.size, BusSize::Articulated);
+        // a solo intercity bus pulling a bicycle trailer
+        let anh = read("Vehicles/TH_Ueberlandbus/S315UL_Euro3_Anh.bus", "[friendlyname]\nThueringer Wald\nS 315 UL Euro 3 mit Fahrradanhaenger\nweiss\n\n[boundingbox]\n2.55\n11.85\n2.84\n0\n0\n1.6\n\n[couple_back]\nFahrradanhaenger.bus\nfalse\n");
+        assert_eq!(anh.size, BusSize::Solo);
+        // MAN's Lion's City M (A47), 10.5 m: a midibus
+        let a47 = read("Vehicles/BHD_MAN_LionsCity/MAN_A47.bus", "[friendlyname]\nBHD MAN\nA47 - Lions City\nweiss\n\n[boundingbox]\n2.55\n10.6\n2.3\n0\n0.9\n1.6\n");
+        assert_eq!(a47.size, BusSize::Midi);
+        // an intercity bus whose box is drawn short stays a full-length bus
+        let nue = read("Vehicles/MAN_NL_NG_263/MAN_NUE263.bus", "[friendlyname]\nMAN Stadtbus\nA20 - NUE 263 - Ueberlandbus\nweiss\n\n[boundingbox]\n2.472\n7.213\n2.491\n0\n-0.75\n1.622\n");
+        assert_eq!(nue.size, BusSize::Solo);
+        assert_eq!(crate::service::classify(&["MAN Stadtbus A20 - NUE 263 - Ueberlandbus"], false, Some(7.213), Some(2.491)), crate::service::VehicleClass::Coach);
+        // what stays as it was: a solo coach 3.3 m tall
+        let coach = read("Vehicles/ABCoach_O560/O560.bus", "[friendlyname]\nCoach\nO560 Series Euro V - Manual\nwhite\n\n[boundingbox]\n2.55\n12.08\n3.3\n0\n0\n1.6\n");
+        assert_eq!(coach.size, BusSize::Solo);
+        // trams are no buses for the market
+        assert!(is_tram(&["Munchen Trambahn M.5.65", "Vehicles/Muenchen_M5_Wagen/Tram_wagen_1.bus"]));
+        assert!(is_tram(&["Siemens Tram Avenio-T"]));
+        assert!(!is_tram(&["MAN Lion's City", "Vehicles/MAN_NL/MAN_NL.bus"]));
+    }
+
+    /// The kinds of the buses installed in `OMSI_VEHICLES` (a game's `Vehicles` folder, only
+    /// read): `cargo test -p omsi-launcher-core survey_installed -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn survey_installed_buses() {
+        let Ok(root) = std::env::var("OMSI_VEHICLES") else { return };
+        let mut dirs: Vec<std::path::PathBuf> = std::fs::read_dir(&root).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.is_dir()).collect();
+        dirs.sort();
+        fn walk(d: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for e in std::fs::read_dir(d).into_iter().flatten().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else {
+                    out.push(p);
+                }
+            }
+        }
+        for d in dirs {
+            let mut files = Vec::new();
+            walk(&d, &mut files);
+            for (f, v) in omsi_vehicle::vehicle::offered_vehicles(&files) {
+                if v.ai_only {
+                    continue;
+                }
+                let name = format!("{} {}", v.manufacturer.trim(), v.type_name.trim());
+                let rel = f.strip_prefix(&root).map(|p| p.to_string_lossy().replace('\\', "/")).unwrap_or_default();
+                let file = format!("Vehicles/{rel}");
+                let names = |ps: &[std::path::PathBuf]| ps.iter().filter_map(|p| p.file_name().map(|n| n.to_string_lossy().to_string())).collect::<Vec<_>>();
+                let mut parts = names(&v.scripts.scripts);
+                parts.extend(names(&v.scripts.constfiles));
+                parts.extend(names(&v.scripts.varlists));
+                parts.extend(v.sound.clone());
+                let parts: Vec<&str> = parts.iter().map(String::as_str).collect();
+                let bb = v.bounding_box;
+                let texts = [name.as_str(), file.as_str(), v.type_name.as_str(), v.manufacturer.as_str()];
+                let k = guess_kind(&texts, &parts, articulation(v.couple_back.as_ref()), bb.map(|b| b[1]), bb.map(|b| b[2]));
+                let class = crate::service::classify(&texts, articulation(v.couple_back.as_ref()), bb.map(|b| b[1]), bb.map(|b| b[2]));
+                println!("{:?}\t{:?}\t{:?}\t{}\t{}\tlen {:?} h {:?} trailer {} tram {}", class, k.size, k.drive, name, file, bb.map(|b| b[1]), bb.map(|b| b[2]), v.couple_back.is_some(), is_tram(&texts));
+            }
+        }
     }
 
     fn company(d: Difficulty) -> Company {

@@ -95,6 +95,64 @@ fn span(minutes: i64) -> String {
     format!("{}:{:02} h", m / 60, m % 60)
 }
 
+/// The company's own bid on a tender in words, and its colour (testers: "how do I know what I
+/// bid on my tender?"): its last bid and when, leading or beaten; after the result whether it
+/// won, else who won with what. None: it placed no bid.
+pub(super) fn my_bid_text(c: &Company, t: &Tender) -> Option<(String, Color)> {
+    let b = cn::my_bid(c, t, ck::now(c))?;
+    let bid = omsi_ui::tr("Your bid: %{amount} at %{when}").replace("%{amount}", &eur(b.amount)).replace("%{when}", &when(c, b.at));
+    let bid = if b.count > 1 { format!("{bid} ({})", omsi_ui::tr("%{n} bids placed").replace("%{n}", &b.count.to_string())) } else { bid };
+    Some(match &b.result {
+        None if b.leads => (format!("{bid}  ·  {}", omsi_ui::tr("leading")), OK),
+        None => (format!("{bid}  ·  {}", omsi_ui::tr("beaten: bid again before it closes")), WARN),
+        Some((winner, _)) if winner.is_empty() => (format!("{bid}  ·  {}", omsi_ui::tr("you won")), OK),
+        Some((winner, amount)) => (format!("{bid}  ·  {}", omsi_ui::tr("won by %{who} with %{amount}").replace("%{who}", winner).replace("%{amount}", &eur(*amount))), WARN),
+    })
+}
+
+/// The tenders the company bid on, the latest first, for the Contracts page: the line, its
+/// bid, the deadline or how it ended.
+pub(super) fn bids_list(l: &mut Launcher, r: Rect, c: &Company) {
+    let inner = section(&mut l.ui, r, "Your tender bids");
+    let mut list: Vec<Tender> = c.concessions.tenders.iter().filter(|t| !t.offers.is_empty()).cloned().collect();
+    list.sort_by(|a, b| b.open().cmp(&a.open()).then(b.closes_at.cmp(&a.closes_at)));
+    if list.is_empty() {
+        l.ui.paragraph("The company has bid on no tender yet. The Concessions page lists the lines out to tender: bid there, and your bids show here with their deadline and result.", Vec2::new(inner.x, inner.y), inner.w, kit::ROWS, Weight::Regular, TEXT_SOFT);
+        return;
+    }
+    let cc = c.clone();
+    let mut pick: Option<u32> = None;
+    l.ui.scroll_area("company-contract-bids", inner, &mut |ui: &mut Ui, v: Rect| {
+        let rh = 80.0;
+        for (k, t) in list.iter().enumerate() {
+            let r = Rect::new(v.x, v.y + k as f32 * rh, v.w - 10.0, rh - 6.0);
+            if !ui.rect_visible(r) {
+                continue;
+            }
+            if ui.row(&format!("company-contract-bid-{}", t.id), r, false) {
+                pick = Some(t.id);
+            }
+            let x = r.x + 10.0;
+            let w = plate(ui, Vec2::new(x, r.y + 10.0), &t.number, 26.0);
+            let caption = if t.caption.is_empty() { t.line.clone() } else { t.caption.clone() };
+            ui.text_in(&caption, Rect::new(x + w + 12.0, r.y + 8.0, r.w - w - 30.0, 22.0), kit::ROWS, Weight::Bold, TEXT, Align::Left);
+            if let Some((s, col)) = my_bid_text(&cc, t) {
+                ui.text_in(&s, Rect::new(x + w + 12.0, r.y + 32.0, r.w - w - 30.0, 20.0), kit::NOTE, Weight::Medium, col, Align::Left);
+            }
+            let (state, colour) = state_of(&cc, t);
+            ui.text_in(&state, Rect::new(x + w + 12.0, r.y + 52.0, r.w - w - 30.0, 20.0), kit::NOTE, Weight::Regular, colour, Align::Left);
+        }
+        list.len() as f32 * rh
+    });
+    // (a bid picked: to its auction)
+    if let Some(id) = pick {
+        if super::shown(l, super::CONCESSIONS_TAB) {
+            l.company.tab = super::CONCESSIONS_TAB;
+            l.company.tenders.selected = Some(id);
+        }
+    }
+}
+
 /// A tender's state in a few words, and its colour.
 fn state_of(c: &Company, t: &Tender) -> (String, Color) {
     let now = ck::now(c);
@@ -165,7 +223,7 @@ fn tenders(l: &mut Launcher, r: Rect, c: &Company) {
     let cc = c.clone();
     let mut pick: Option<u32> = None;
     l.ui.scroll_area("company-tenders", rows, &mut |ui: &mut Ui, v: Rect| {
-        let rh = 88.0;
+        let rh = 108.0;
         for (k, t) in list.iter().enumerate() {
             let r = Rect::new(v.x, v.y + k as f32 * rh, v.w - 10.0, rh - 6.0);
             if !ui.rect_visible(r) {
@@ -192,6 +250,8 @@ fn tenders(l: &mut Launcher, r: Rect, c: &Company) {
             ui.text_in(&figures, Rect::new(x + w + 12.0, r.y + 34.0, r.w - w - 30.0, 20.0), kit::NOTE, Weight::Regular, TEXT_DIM, Align::Left);
             let (state, colour) = state_of(&cc, t);
             ui.text_in(&state, Rect::new(x + w + 12.0, r.y + 58.0, r.w - w - 30.0, 20.0), kit::NOTE, Weight::Medium, colour, Align::Left);
+            let (bid, bid_c) = my_bid_text(&cc, t).unwrap_or_else(|| (omsi_ui::tr("You have not bid").into_owned(), TEXT_FAINT));
+            ui.text_in(&bid, Rect::new(x + w + 12.0, r.y + 80.0, r.w - w - 30.0, 20.0), kit::NOTE, Weight::Medium, bid_c, Align::Left);
             if t.renewal {
                 ui.badge(Vec2::new(r.right() - 90.0, r.y + 8.0), &omsi_ui::tr("renewal").to_uppercase(), accent_2());
             } else if t.running(now) {
@@ -269,6 +329,10 @@ fn auction(l: &mut Launcher, r: Rect, c: &Company) {
     let (state, colour) = state_of(c, &t);
     l.ui.text_in(&state, Rect::new(inner.x, y, inner.w, 18.0), kit::ROWS, Weight::Medium, colour, Align::Left);
     y += 26.0;
+    if let Some((s, col)) = my_bid_text(c, &t) {
+        l.ui.text_in(&s, Rect::new(inner.x, y, inner.w, 18.0), kit::ROWS, Weight::Bold, col, Align::Left);
+        y += 26.0;
+    }
     // the frame: the line's worth, the least bid now, buying it outright
     let least = cn::min_bid(c, &t);
     let fw = (inner.w - 16.0) / 3.0;
