@@ -273,8 +273,10 @@ function SelectionCard({ data, c, drivers, size }) {
   const to = Math.max(...xs.map((x) => x.arr));
   const driving = xs.reduce((s, x) => s + x.arr - x.dep, 0);
   const trips = sel.filter((s) => s[0] === tour).map((s) => s[1]);
+  // (in Drivers the choice is trips of one duty, on one bus or several)
+  const duty = drivers && S.rf.tripsToDuties ? dutyOfPiece(b, tour, pieceOf(b, tour, sel[0][1])) : null;
   return html`<div class="rf-over rf-card" style=${place(c.at, 380, 196, size)}>
-    <div class="head"><${Icon} name="directions_bus" size=${17} /><b>${t.label}  ·  ${tr('%{n} trips chosen', { n: xs.length })}</b></div>
+    <div class="head"><${Icon} name=${duty ? 'person' : 'directions_bus'} size=${17} /><b>${duty ? duty[1] : t.label}  ·  ${tr('%{n} trips chosen', { n: xs.length })}</b></div>
     <div class="body">
       <${Field} cap="Driving time" value=${hm(driving)} />
       <div class="tl wide"><${TimeLine} from=${from} to=${to} mid=${`${tr('span')} ${hm(to - from)}`} /></div>
@@ -282,7 +284,7 @@ function SelectionCard({ data, c, drivers, size }) {
     <div class="foot">
       <${RfButton} label="Link" disabled=${drivers || xs.length < 2} style="width:100px;height:30px" onClick=${() => edit('link', { tour, trips })} />
       <span class="grow"></span>
-      <${RfButton} label=${`${tr('Move')} ${xs.length}`} raw solid disabled=${drivers && !S.rf.tripsToDuties} style="width:124px;height:30px" onClick=${() => pick(tripHand(b, drivers, tour, trips, trips[0], dutyOfPiece(b, tour, pieceOf(b, tour, sel[0][1]))?.[0] ?? null, sel), false)} />
+      <${RfButton} label=${`${tr('Move')} ${xs.length}`} raw solid disabled=${drivers && !S.rf.tripsToDuties} style="width:124px;height:30px" onClick=${() => pick(tripHand(b, drivers, tour, trips, trips[0], duty?.[0] ?? null, sel), false)} />
     </div>
   </div>`;
 }

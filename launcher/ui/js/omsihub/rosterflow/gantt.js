@@ -463,7 +463,7 @@ function draw(ctx, w, h, g) {
         const lr = { x: gx, y: rr.y + 2, w: Math.min(gw, 560), h: rr.h - 4 };
         const hov = inside(lr, m);
         D.roundedBorder(ctx, lr.x, lr.y, lr.w, lr.h, 3, 1, hov ? p.accent : p.line);
-        D.textIn(ctx, tr('Click for a spare duty of custom work, or drop a piece of work here to begin a duty with it'), lr.x + 10, lr.y, lr.w - 20, lr.h, 11.5, 400, hov ? p.text : p.faint);
+        D.textIn(ctx, r.tripsToDuties ? tr('Click for a spare duty of custom work, or drop trips here to begin a duty with them') : tr('Click for a spare duty of custom work, or drop a piece of work here to begin a duty with it'), lr.x + 10, lr.y, lr.w - 20, lr.h, 11.5, 400, hov ? p.text : p.faint);
         hit(lr.x, lr.y, lr.w, lr.h, { kind: 'spare' });
       }
     }
@@ -671,13 +671,38 @@ function dutyRow(ctx, g, row, cy, xOf, hit, an) {
       D.chip(ctx, cr.x, cr.y, cr.w, cr.h, colour, x.out, chipLabel(x, r.layers.label), chosen || hov ? [255, 255, 255, 1] : null, false, false, takenPiece || takenTrip ? 0.35 : 1);
       if (cr.w > 24 && cr.x > g.layout.gx - 4 && cr.x + cr.w < g.layout.gx + g.layout.gw + 4) an('rf-chip', cr.x, cr.y, cr.w, cr.h);
       if (readOnly || hand) continue;
-      hit(cr.x, cr.y, cr.w, cr.h, { kind: 'chip', tour: sp.tour, trip: j, row: row.id, dutyRow: d, piece: [sp.tour, sp.duty] });
+      hit(cr.x, cr.y, cr.w, cr.h, { kind: 'chip', tour: sp.tour, trip: j, row: row.id, dutyRow: d, piece: [sp.tour, sp.duty], ...(r.tripsToDuties ? { tip: TRIP_TIP } : {}) });
     }
   }
   return lit;
 }
 
 // --- the canvas ---------------------------------------------------------------------------------------
+
+/** A Drivers chip's tooltip once single trips go to another duty (`rf_gantt::duty_row_draw`). */
+const TRIP_TIP = 'Drag or double-click to move this trip to another duty or a new one: the bus stays the same. Shift or Ctrl and a click choose more trips. Alt and a drag takes the whole piece of work on this bus.';
+
+/** The chips of a duty's row in order of departure: (block, trip) of every trip with passengers
+ * (`rf_gantt::chips_of`). */
+export function dutyChips(b, d) {
+  const s = b.duties[d];
+  const out = [];
+  for (const sp of s?.spans || []) {
+    const t = b.blocks[sp.tour];
+    const pr = t?.pieces[sp.duty];
+    if (!pr) continue;
+    for (let j = pr[0]; j < pr[1]; j++) if (t.trips[j]?.counts) out.push([sp.tour, j]);
+  }
+  return out.sort((x, y) => b.blocks[x[0]].trips[x[1]].dep - b.blocks[y[0]].trips[y[1]].dep || x[0] - y[0]);
+}
+
+/** The chips of a duty's row from `a` to `z` (both in, either way round): Shift and a click. */
+function dutySpan(b, d, a, z) {
+  const chips = dutyChips(b, d);
+  const i = chips.findIndex((x) => x[0] === a[0] && x[1] === a[1]);
+  const k = chips.findIndex((x) => x[0] === z[0] && x[1] === z[1]);
+  return i < 0 || k < 0 ? [z] : chips.slice(Math.min(i, k), Math.max(i, k) + 1);
+}
 
 /** The trips of block `tour` from `a` to `b` (both in), with passengers. */
 function rangeOf(b, tour, a, z) {
@@ -842,14 +867,19 @@ export function Gantt({ data, drivers, readOnly, p, onTip, page }) {
       const inSel = r.sel.some(([s0, s1]) => s0 === hit.tour && s1 === hit.trip);
       // (in Drivers a choice is trips of one duty, on one bus or several)
       const sameRow = r.selRow === hit.row && r.sel[0] && (drivers || r.sel[0][0] === hit.tour);
-      if (e.shiftKey && several && sameRow && r.sel[0][0] === hit.tour) {
-        sel = rangeOf(b, hit.tour, r.sel[0][1], hit.trip).map((x) => [hit.tour, x]);
+      if (e.shiftKey && several && sameRow && (drivers || r.sel[0][0] === hit.tour)) {
+        // (along the row: in Drivers the duty's trips, of any bus)
+        sel = drivers ? dutySpan(b, hit.dutyRow, r.sel[0], [hit.tour, hit.trip]) : rangeOf(b, hit.tour, r.sel[0][1], hit.trip).map((x) => [hit.tour, x]);
         Object.assign(patch, { sel, card: { kind: 'selection', at: at(m) } });
       } else if (e.ctrlKey && several && sameRow) {
         // (Ctrl and a click: one trip added to the choice or taken out of it)
         sel = inSel ? r.sel.filter(([s0, s1]) => !(s0 === hit.tour && s1 === hit.trip)) : [...r.sel, [hit.tour, hit.trip]];
-        if (!sel.length) sel = [[hit.tour, hit.trip]];
-        Object.assign(patch, { sel, card: sel.length > 1 ? { kind: 'selection', at: at(m) } : { kind: 'trip', tour: hit.tour, trip: hit.trip, at: at(m), assign: false } });
+        // (taken out: nothing taken up, as the game-drawn launcher does)
+        if (inSel) {
+          setRf({ ...patch, sel, selRow: sel.length ? r.selRow : null, card: sel.length > 1 ? { kind: 'selection', at: at(m) } : null });
+          return;
+        }
+        Object.assign(patch, { sel, card: { kind: 'selection', at: at(m) } });
       } else if (inSel && r.sel.length > 1 && several) {
         // (a chip of the choice pressed: the whole choice comes along)
         sel = r.sel;
@@ -1027,15 +1057,7 @@ export function arrowKey(data, drivers, key, shift) {
   const rows = rowsOf(data, drivers);
   const ri = rows.findIndex((x) => x.id === r.selRow);
   if (ri < 0) return;
-  const chipsOf = (row) => {
-    if (row.kind === 'block') return b.blocks[row.i].trips.map((x, j) => (x.counts ? [row.i, j] : null)).filter(Boolean);
-    const out = [];
-    for (const sp of b.duties[row.i].spans) {
-      const [a, z] = b.blocks[sp.tour].pieces[sp.duty] || [0, 0];
-      for (let j = a; j < z; j++) if (b.blocks[sp.tour].trips[j].counts) out.push([sp.tour, j]);
-    }
-    return out;
-  };
+  const chipsOf = (row) => (row.kind === 'block' ? b.blocks[row.i].trips.map((x, j) => (x.counts ? [row.i, j] : null)).filter(Boolean) : dutyChips(b, row.i));
   const here = chipsOf(rows[ri]);
   const atK = Math.max(0, here.findIndex(([a, z]) => a === tour && z === trip));
   const dep = b.blocks[tour]?.trips[trip]?.dep;
@@ -1043,7 +1065,8 @@ export function arrowKey(data, drivers, key, shift) {
   if (key === 'ArrowLeft' || key === 'ArrowRight') {
     const n = key === 'ArrowLeft' ? atK - 1 : atK + 1;
     if (n < 0 || n >= here.length) return;
-    if (shift && !drivers && here[n][0] === tour) {
+    // (in Drivers a row is one duty: its trips are chosen together, of any bus)
+    if (shift && ((drivers && r.tripsToDuties) || (!drivers && here[n][0] === tour))) {
       const sel = r.sel.some(([a, z]) => a === here[n][0] && z === here[n][1]) ? r.sel : [...r.sel, here[n]].sort((x, y) => x[0] - y[0] || x[1] - y[1]);
       setRf({ sel, card: null });
     } else setRf({ sel: [here[n]], card: null });
