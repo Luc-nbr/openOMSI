@@ -182,7 +182,7 @@ fn loans(l: &mut Launcher, r: Rect, c: &Company) {
             kit::show(l, kit::no_cash(c, 0));
         } else {
             // (as much as the cash allows: the dialog says what it costs)
-            let amount = amount.min(c.cash.max(0) * 100 / (100 + (co::finance::early_fee_rate(c.difficulty) * 100.0).round() as i64));
+            let amount = amount.min(c.cash.max(0) * 100 / (100 + (co::finance::early_fee_rate(c.game_mode) * 100.0).round() as i64));
             super::dealer::open(l, super::dealer::Sheet::Repay { id, amount });
         }
     }

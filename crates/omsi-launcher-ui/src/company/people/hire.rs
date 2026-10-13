@@ -43,7 +43,7 @@ pub(super) fn draw(l: &mut Launcher, area: Rect, c: &Company) {
         // mode's page: the way there is the advanced mode)
         let go = if co::autopilot::on(c) {
             h += 6.0 + l.ui.paragraph(super::super::NOT_RESEARCHED_BY_ITSELF, Vec2::new(body.x + 34.0, body.y + h + 6.0), body.w.min(760.0), kit::NOTE, Weight::Regular, TEXT_DIM);
-            kit::Go::Advanced(super::super::RESEARCH_TAB)
+            kit::Go::ToNormal(super::super::RESEARCH_TAB)
         } else {
             kit::Go::Research
         };

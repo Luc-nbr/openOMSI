@@ -453,11 +453,11 @@ fn person(l: &mut Launcher, area: Rect, c: &Company, id: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use omsi_launcher_lib::company::{found, Difficulty, Founding};
+    use omsi_launcher_lib::company::{found, GameMode, Founding};
 
     #[test]
     fn the_list_is_sorted_and_filtered_by_role() {
-        let mut c = found(&Founding { name: "Liste".into(), difficulty: Difficulty::Realistic, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+        let mut c = found(&Founding { name: "Liste".into(), game_mode: GameMode::Normal, date: "2024-03-04".into(), ..Default::default() }, "Luc");
         for role in [Role::Driver, Role::Cleaner, Role::Mechanic] {
             let a = staff::applicants_of(&c, role)[0].clone();
             staff::hire(&mut c, &a).unwrap();

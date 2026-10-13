@@ -863,7 +863,7 @@ fn model_sheet(l: &mut Launcher, c: &Company, listing: Listing, livery: usize, c
     let livery = bus_side(l, side, &listing.bus.file, &listing.bus.name, listing.bus.kind, livery, &liveries, Some(None));
     let paint = liveries.get(livery).cloned().unwrap_or_default();
     let right = Rect::new(inner.x + side_w + 30.0, inner.y, inner.w - side_w - 30.0, inner.h);
-    let r = co::economy::rules(c.difficulty);
+    let r = co::economy::rules(c.game_mode);
     let list = dl::list_price(c, listing.bus.kind);
     let grant = co::economy::grant(listing.bus.kind, list, &r, c.price_index);
     let days = dl::delivery_days(c, &format!("new:{}", listing.bus.file), false, false);
@@ -1025,7 +1025,7 @@ fn offer_sheet(l: &mut Launcher, c: &Company, offer: Offer, livery: usize, count
         (count, pay) = (n, p);
         let n = count as i64;
         let painting = if paint.is_empty() { 0 } else { dl::painting_cost(c) };
-        let r = co::economy::rules(c.difficulty);
+        let r = co::economy::rules(c.game_mode);
         let grant = if offer.is_new() { co::economy::grant(offer.listing.bus.kind, offer.price, &r, c.price_index) } else { 0 };
         let total = n * (offer.price + painting - grant);
         price_row(&mut l.ui, Rect::new(right.x, y, right.w, 36.0), &omsi_ui::tr("You pay"), &eur(total), true);
@@ -1142,7 +1142,7 @@ fn talk_sheet(l: &mut Launcher, c: &Company, talk: Talk, listing: Listing, offer
     let rf = left_n as f64 / talk.max_rounds.max(1) as f64;
     kit::bar(&mut l.ui, "", Rect::new(inner.x, y, lw, kit::BAR_H), rf, kit::share_colour(rf, false), &rounds, "", &omsi_ui::tr("Each move takes a round: when none is left, his word is the last"));
     y += kit::BAR_H + 16.0;
-    let start = dl::terms(c.difficulty).patience.max(0.1);
+    let start = dl::terms(c.game_mode).patience.max(0.1);
     let mood = (talk.patience / start).clamp(0.0, 1.0);
     let mood_word = if mood >= 0.65 { omsi_ui::tr("calm") } else if mood >= 0.35 { omsi_ui::tr("getting short") } else { omsi_ui::tr("nearly out") };
     kit::bar(&mut l.ui, "", Rect::new(inner.x, y, lw, kit::BAR_H), mood, grade(mood * 100.0), &omsi_ui::tr("The dealer's patience"), &mood_word, &omsi_ui::tr("Low offers and many demands try his patience: when it is gone, he breaks the talk off"));

@@ -213,16 +213,16 @@ pub(super) enum Go {
     Licences,
     /// The Research page.
     Research,
-    /// The easy mode's company run in the advanced mode from now on, on this page of it (one
-    /// the easy mode does not show, for what it does not see to by itself).
-    Advanced(usize),
+    /// A Casual company switched to Normal (asked first, what changes said), then this page
+    /// of it (one Casual does not show, for what it does not see to by itself).
+    ToNormal(usize),
 }
 
 impl Go {
     pub fn label(self) -> &'static str {
         match self {
             Go::Research => "To the research",
-            Go::Advanced(_) => "Switch to the advanced mode",
+            Go::ToNormal(_) => "Switch to Normal",
             Go::Progress => "Show my progress",
             Go::Depot => "Build parking spaces",
             Go::Loan => "Take a loan",
@@ -240,7 +240,7 @@ impl Go {
     pub fn icon(self) -> &'static str {
         match self {
             Go::Research => "science",
-            Go::Advanced(_) => "tune",
+            Go::ToNormal(_) => "tune",
             Go::Progress => "emoji_events",
             Go::Depot => "garage",
             Go::Loan | Go::Finances => "payments",
@@ -343,7 +343,7 @@ pub(super) fn refusal(c: &Company, reason: &str) -> Popup {
             let text = omsi_ui::tr("The depot has %{spaces} parking spaces and holds %{buses} buses; a few more may stand in the street.").replace("%{spaces}", &omsi_launcher_lib::company::depot::places(c).to_string()).replace("%{buses}", &held.to_string());
             // (the easy mode builds them by itself; its depot is the advanced mode's page)
             if co::autopilot::on(c) {
-                Popup::new("garage", "No room in the depot", text, omsi_ui::tr("The company builds more parking spaces by itself before the yard is full, when its cash allows. To build them now, switch to the advanced mode."), Some(Go::Advanced(super::DEPOT_TAB)))
+                Popup::new("garage", "No room in the depot", text, omsi_ui::tr("The company builds more parking spaces by itself before the yard is full, when its cash allows. To build them now, switch to Normal."), Some(Go::ToNormal(super::DEPOT_TAB)))
             } else {
                 Popup::new("garage", "No room in the depot", text, omsi_ui::tr("Build more parking spaces at the depot: each level gives twelve."), Some(Go::Depot))
             }
@@ -352,7 +352,7 @@ pub(super) fn refusal(c: &Company, reason: &str) -> Popup {
             // (the easy mode researches them by itself; its research is the advanced mode's page)
             if co::autopilot::on(c) {
                 let what = if reason.starts_with("Articulated") { "Articulated buses need research first." } else { "Double-deckers need research first." };
-                Popup::new("science", "Research first", omsi_ui::tr(what).into_owned(), omsi_ui::tr("The company researches them by itself once a researcher works here and the trophies and the money are there. To start it now, switch to the advanced mode."), Some(Go::Advanced(super::RESEARCH_TAB)))
+                Popup::new("science", "Research first", omsi_ui::tr(what).into_owned(), omsi_ui::tr("The company researches them by itself once a researcher works here and the trophies and the money are there. To start it now, switch to Normal."), Some(Go::ToNormal(super::RESEARCH_TAB)))
             } else {
                 Popup::new("science", "Research first", said, "", Some(Go::Research))
             }
@@ -432,11 +432,11 @@ pub(super) fn draw_popup(l: &mut Launcher) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use omsi_launcher_lib::company::{found, Difficulty, Founding};
+    use omsi_launcher_lib::company::{found, GameMode, Founding};
 
     #[test]
     fn a_refusal_says_why_and_what_opens_it() {
-        let c = found(&Founding { name: "Kit".into(), difficulty: Difficulty::Realistic, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+        let c = found(&Founding { name: "Kit".into(), game_mode: GameMode::Normal, date: "2024-03-04".into(), ..Default::default() }, "Luc");
         let p = refusal(&c, "Articulated buses open at a higher company level.");
         assert_eq!(p.go, Some(Go::Progress));
         assert!(p.text.contains("level 2") && p.text.contains("of 600 points"), "{}", p.text);
@@ -447,12 +447,12 @@ mod tests {
         // the easy mode builds and researches by itself: its way to those pages is the
         // advanced mode
         let mut e = c.clone();
-        e.mode = co::Mode::Easy;
+        e.game_mode = co::GameMode::Casual;
         let p = refusal(&e, "The depot has no room for so many buses: build more parking spaces.");
-        assert_eq!(p.go, Some(Go::Advanced(super::super::DEPOT_TAB)));
+        assert_eq!(p.go, Some(Go::ToNormal(super::super::DEPOT_TAB)));
         assert!(p.unlock.contains("by itself"), "{}", p.unlock);
         let p = refusal(&e, "Double-deckers need research first: start it on the Research page.");
-        assert_eq!((p.go, p.text.as_str()), (Some(Go::Advanced(super::super::RESEARCH_TAB)), "Double-deckers need research first."));
+        assert_eq!((p.go, p.text.as_str()), (Some(Go::ToNormal(super::super::RESEARCH_TAB)), "Double-deckers need research first."));
         let p = no_cash(&c, c.cash + 100_00);
         assert!(p.text.contains(&eur(100_00)) && p.go == Some(Go::Loan));
         assert_eq!(refusal(&c, "Something new.").go, None);

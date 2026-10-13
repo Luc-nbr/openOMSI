@@ -267,7 +267,7 @@ pub fn dialog(l: &mut Launcher) {
             let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
             let mut how = how.min(1);
             l.ui.segmented("company-new-how", Rect::new(right.x, right.y, right.w, 40.0), &mut how, &refs);
-            let r = co::economy::rules(c.difficulty);
+            let r = co::economy::rules(c.game_mode);
             let mut y = right.y + 40.0 + 18.0;
             let rh = 34.0;
             let mut days = days;

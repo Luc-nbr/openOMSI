@@ -818,10 +818,10 @@ pub(super) fn way(ui: &mut Ui, r: Rect, label: &str, icon: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use omsi_launcher_lib::company::{found, Difficulty, Founding};
+    use omsi_launcher_lib::company::{found, GameMode, Founding};
 
     fn company() -> Company {
-        found(&Founding { name: "Hub".into(), difficulty: Difficulty::Realistic, date: "2024-03-04".into(), ..Default::default() }, "Luc")
+        found(&Founding { name: "Hub".into(), game_mode: GameMode::Normal, date: "2024-03-04".into(), ..Default::default() }, "Luc")
     }
 
     fn tile_of<'a>(s: &'a [Section], to: To) -> &'a Tile {

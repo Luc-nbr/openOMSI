@@ -164,11 +164,13 @@ pub(in super::super) fn close(l: &mut Launcher) {
     }
 }
 
-/// Where the duty is put right: RosterFlow's roster, or in the easy mode (whose planning is
-/// the company's own) My duties.
+/// Where the duty is put right: RosterFlow's roster (the planning's, without the add-on), or
+/// in Casual (whose planning is the company's own) My duties.
 fn to_planning_label(l: &Launcher) -> (&'static str, f32) {
-    if super::super::shown(l, 5) {
+    if super::super::shown(l, 5) && l.company.company.as_ref().is_some_and(co::autopilot::rosterflow) {
         ("Open in RosterFlow", 190.0)
+    } else if super::super::shown(l, 5) {
+        ("Open the planning", 190.0)
     } else {
         ("Back to My duties", 190.0)
     }
@@ -517,7 +519,7 @@ mod tests {
     #[test]
     fn the_launcher_texts_are_translated() {
         for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
-            for k in ["Company duty · fixed by the planning", "Open in RosterFlow", "Back to My duties", "Start duty", "The duty as planned", "Take the bus over (relief)", "Hand the bus over (relief)", "Deadhead", "Layover", "Bus and depot", "Before you start", "Cannot start", "As forecast (weather cycle)", "Route of the duty", "Planned for %{name}"] {
+            for k in ["Company duty · fixed by the planning", "Open in RosterFlow", "Open the planning", "Back to My duties", "Start duty", "The duty as planned", "Take the bus over (relief)", "Hand the bus over (relief)", "Deadhead", "Layover", "Bus and depot", "Before you start", "Cannot start", "As forecast (weather cycle)", "Route of the duty", "Planned for %{name}"] {
                 assert!(crate::_rust_i18n_try_translate(lang, k).is_some(), "{lang}: {k}");
             }
             for h in [Hitch::Gone, Hitch::NoBus(None), Hitch::Rental, Hitch::Bus(co::plan::Problem::Workshop), Hitch::NoBusFile, Hitch::NotInstalled(String::new()), Hitch::NoDriver, Hitch::NotYours(String::new()), Hitch::Driven, Hitch::Over, Hitch::Timetable] {

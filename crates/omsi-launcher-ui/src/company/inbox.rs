@@ -390,9 +390,9 @@ pub fn draw(l: &mut Launcher, area: Rect) {
 /// mode goes only to the pages it shows - the workshop's news to the fleet, while what the
 /// company sees to by itself there (the research, the contracts and goals, the planning) has
 /// no button.
-fn page_for(m: &Message, mode: co::Mode) -> Option<(usize, &'static str, &'static str)> {
+fn page_for(m: &Message, mode: co::GameMode) -> Option<(usize, &'static str, &'static str)> {
     let page = page_of(m);
-    if mode == co::Mode::Advanced {
+    if !mode.casual() {
         return page;
     }
     match m.kind {
@@ -500,7 +500,7 @@ fn details(l: &mut Launcher, r: Rect, c: &Company, m: Option<&Message>) -> (Opti
     let by = inner.bottom() - 36.0;
     let mut x = inner.x;
     let mut go = None;
-    if let Some((tab, label, icon)) = page_for(m, c.mode) {
+    if let Some((tab, label, icon)) = page_for(m, c.game_mode) {
         let w = button_w(&l.ui, label, Some(icon));
         if l.ui.button("company-inbox-go", Rect::new(x, by, w, 36.0), label, Some(icon), ButtonKind::Primary) {
             go = Some(tab);
@@ -587,16 +587,16 @@ mod tests {
         for kind in kinds {
             let m = Message::new(kind, "t", "x");
             // the advanced mode: every page as before
-            assert_eq!(page_for(&m, co::Mode::Advanced), page_of(&m), "{kind:?}");
+            assert_eq!(page_for(&m, co::GameMode::Normal), page_of(&m), "{kind:?}");
             // the easy mode: a page it shows, or no button
-            if let Some((tab, _, _)) = page_for(&m, co::Mode::Easy) {
-                assert!(super::super::pages_of(co::Mode::Easy).contains(&tab), "{kind:?} -> {tab}");
+            if let Some((tab, _, _)) = page_for(&m, co::GameMode::Casual) {
+                assert!(super::super::pages_of(co::GameMode::Casual).contains(&tab), "{kind:?} -> {tab}");
             }
         }
-        assert_eq!(page_for(&Message::new(Kind::Workshop, "t", "x"), co::Mode::Easy).map(|p| p.0), Some(1));
-        assert_eq!(page_for(&Message::new(Kind::Staff, "t", "x"), co::Mode::Easy).map(|p| p.0), Some(2));
+        assert_eq!(page_for(&Message::new(Kind::Workshop, "t", "x"), co::GameMode::Casual).map(|p| p.0), Some(1));
+        assert_eq!(page_for(&Message::new(Kind::Staff, "t", "x"), co::GameMode::Casual).map(|p| p.0), Some(2));
         for kind in [Kind::Research, Kind::Contract, Kind::Goal, Kind::Event] {
-            assert_eq!(page_for(&Message::new(kind, "t", "x"), co::Mode::Easy), None, "{kind:?}");
+            assert_eq!(page_for(&Message::new(kind, "t", "x"), co::GameMode::Casual), None, "{kind:?}");
         }
     }
 

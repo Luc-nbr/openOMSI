@@ -1,9 +1,9 @@
-//! The company's settings: its mark (a logo picture, or its monogram), how much of it the
-//! player runs himself (the easy or the advanced mode, changed at any time: going advanced
-//! shows every page with nothing lost), its date (Luc: a company date of one's own, later on
-//! as well) and, in the advanced mode, how it buys its buses. Moving the date moves the
-//! company's clock to that day's midnight and simulates nothing in between; it may not go back
-//! before the company's last booking (`clock::move_to`).
+//! The company's settings: its mark (a logo picture, or its monogram), its game mode (Casual,
+//! Normal or Realistic, changed at any time - asked first, with what changes said - and
+//! nothing is lost), its add-ons (RosterFlow, in Normal and Realistic), its date (Luc: a
+//! company date of one's own, later on as well) and, outside Casual, how it buys its buses.
+//! Moving the date moves the company's clock to that day's midnight and simulates nothing in
+//! between; it may not go back before the company's last booking (`clock::move_to`).
 
 use super::super::theme::*;
 use super::super::ui::ButtonKind;
@@ -23,7 +23,8 @@ pub(super) fn dialog(l: &mut Launcher) {
         return;
     };
     let easy = co::autopilot::on(&c);
-    let f = kit::frame(l, 760.0, if easy { 722.0 } else { 786.0 }, "settings", &omsi_ui::tr("The company's settings"));
+    let addons = c.game_mode.rules().rosterflow;
+    let f = kit::frame(l, 760.0, if easy { 722.0 } else { 786.0 } + if addons { 96.0 } else { 0.0 }, "settings", &omsi_ui::tr("The company's settings"));
     let inner = f.body;
     let mut y = inner.y;
     // its mark
@@ -52,17 +53,34 @@ pub(super) fn dialog(l: &mut Launcher) {
         }
     }
     y += 68.0 + 26.0;
-    // how much of it the player runs himself
-    kit::caps(&mut l.ui, Rect::new(inner.x, y, inner.w, 16.0), "How you run the company");
+    // its game mode (asked first: what changes is said)
+    kit::caps(&mut l.ui, Rect::new(inner.x, y, inner.w, 16.0), "Game mode");
     y += 26.0;
-    let names: Vec<String> = co::Mode::ALL.iter().map(|m| omsi_ui::tr(m.label()).into_owned()).collect();
+    let names: Vec<String> = co::GameMode::ALL.iter().map(|m| omsi_ui::tr(m.label()).into_owned()).collect();
     let refs: Vec<&str> = names.iter().map(String::as_str).collect();
-    let mut k = co::Mode::ALL.iter().position(|m| *m == c.mode).unwrap_or(1);
-    if l.ui.segmented("company-settings-mode", Rect::new(inner.x, y, 320.0f32.min(inner.w), 40.0), &mut k, &refs) {
-        set_mode(l, co::Mode::ALL[k]);
+    let mut k = co::GameMode::ALL.iter().position(|m| *m == c.game_mode).unwrap_or(1);
+    if l.ui.segmented("company-settings-mode", Rect::new(inner.x, y, 320.0f32.min(inner.w), 40.0), &mut k, &refs) && co::GameMode::ALL[k] != c.game_mode {
+        l.company.dialog = Some(Dialog::Confirm { what: super::Confirm::GameMode { to: co::GameMode::ALL[k], tab: None, settings: Some(date) } });
+        return;
     }
-    let ph = l.ui.paragraph(co::Mode::ALL[k].info(), Vec2::new(inner.x + 340.0, y + 2.0), (inner.w - 340.0).max(120.0), kit::NOTE, Weight::Regular, TEXT_SOFT);
+    let ph = l.ui.paragraph(c.game_mode.info(), Vec2::new(inner.x + 340.0, y + 2.0), (inner.w - 340.0).max(120.0), kit::NOTE, Weight::Regular, TEXT_SOFT);
     y += (ph + 2.0).max(40.0) + 28.0;
+    // its add-ons (none in Casual)
+    if addons {
+        kit::caps(&mut l.ui, Rect::new(inner.x, y, inner.w, 16.0), "Add-ons");
+        y += 24.0;
+        let mut on = co::autopilot::rosterflow(&c);
+        let row = Rect::new(inner.x, y, inner.w.min(560.0), 30.0);
+        l.ui.icon("extension", Vec2::new(row.x + 10.0, row.center().y), 18.0, accent_2());
+        if l.ui.toggle("company-settings-rosterflow", Rect::new(row.x + 30.0, row.y, row.w - 30.0, row.h), &mut on, ROSTERFLOW) {
+            set_rosterflow(l, on);
+            if on {
+                return;
+            }
+        }
+        l.ui.paragraph(ROSTERFLOW_NOTE, Vec2::new(row.x + 30.0, row.bottom() + 2.0), (row.w - 30.0 - 44.0).max(120.0), kit::NOTE, Weight::Regular, TEXT_SOFT);
+        y += 72.0;
+    }
     // how it buys (the easy mode buys quickly)
     if !easy {
         kit::caps(&mut l.ui, Rect::new(inner.x, y, inner.w, 16.0), "Buying buses");
@@ -125,11 +143,58 @@ pub(super) fn dialog(l: &mut Launcher) {
     l.company.dialog = Some(Dialog::Settings { date: d });
 }
 
-/// Run the open company in `mode` from now on (`co::autopilot::set_mode`): a page the mode does
-/// not show goes back to the start screen, and the change is said.
-pub(super) fn set_mode(l: &mut Launcher, mode: co::Mode) {
+/// The add-on's name and its note (Trello "Game modes 2/4").
+pub(super) const ROSTERFLOW: &str = "RosterFlow – Bus Scheduling & Crew Rostering";
+pub(super) const ROSTERFLOW_NOTE: &str = "Advanced: modelled on professional scheduling software that real transport operators use.";
+
+/// Switch RosterFlow on or off for the open company (`co::autopilot::set_rosterflow`; off, its
+/// plans are kept). On, the planning opens with RosterFlow's opening and offers its tutorial.
+pub(super) fn set_rosterflow(l: &mut Launcher, on: bool) {
+    let Some(now) = act(l, |c| Ok(co::autopilot::set_rosterflow(c, on))) else { return };
+    if now {
+        l.company.dialog = None;
+        super::planning::rosterflow_switched_on(l);
+        l.state.set_status(omsi_ui::tr("RosterFlow is on: the planning is its studio now.").into_owned(), false);
+    } else {
+        l.state.set_status(omsi_ui::tr("RosterFlow is off: the planning is the day's roster. Its plans are kept.").into_owned(), false);
+    }
+}
+
+/// What switching the company from game mode `from` to `to` changes, in a few sentences (the
+/// confirmation's text).
+pub(super) fn switch_text(c: &co::Company, to: co::GameMode) -> String {
+    use co::GameMode::*;
+    let from = c.game_mode;
+    let mut parts: Vec<&str> = Vec::new();
+    match (from, to) {
+        (_, Casual) => {
+            parts.push(TO_CASUAL);
+            if co::autopilot::rosterflow(c) {
+                parts.push(TO_CASUAL_RF);
+            }
+        }
+        (Casual, Normal) => parts.extend([FROM_CASUAL, TO_NORMAL]),
+        (Realistic, Normal) => parts.push(TO_NORMAL),
+        (Casual, Realistic) => parts.extend([FROM_CASUAL, TO_REALISTIC]),
+        (Normal, Realistic) => parts.push(TO_REALISTIC),
+        _ => {}
+    }
+    parts.push(KEPT);
+    parts.iter().map(|p| omsi_ui::tr(p).into_owned()).collect::<Vec<_>>().join(" ")
+}
+
+pub(super) const TO_CASUAL: &str = "The company runs its routine by itself: rosters, spare parts, repairs, staff and research, with simple screens and generous money. The planning, the depot, the workshop, the concessions, the research and the contracts pages are left out.";
+pub(super) const TO_CASUAL_RF: &str = "RosterFlow is switched off; its plans are kept.";
+pub(super) const FROM_CASUAL: &str = "Every page opens and you run the company yourself: the roster, the workshop, the concessions and the research.";
+pub(super) const TO_NORMAL: &str = "Forgiving rules and calmer days: fewer illnesses, breakdowns and delays, and the dispatcher repairs the roster every morning.";
+pub(super) const TO_REALISTIC: &str = "Real-life wages, prices and rules, and real disruptions: more illness, breakdowns and delays. The roster is no longer repaired by itself: you solve everything yourself.";
+pub(super) const KEPT: &str = "Your buses, people, lines, money and history stay as they are, and you can switch back at any time.";
+
+/// Run the open company in game mode `mode` from now on (`co::autopilot::set_game_mode`): a
+/// page the mode does not show goes back to the start screen, and the change is said.
+pub(super) fn set_mode(l: &mut Launcher, mode: co::GameMode) {
     if act(l, |c| {
-        co::autopilot::set_mode(c, mode);
+        co::autopilot::set_game_mode(c, mode);
         Ok(())
     })
     .is_none()
@@ -140,8 +205,9 @@ pub(super) fn set_mode(l: &mut Launcher, mode: co::Mode) {
         l.company.tab = super::HOME_TAB;
     }
     let text = match mode {
-        co::Mode::Easy => "The company runs in the easy mode now: it sees to its routine by itself.",
-        co::Mode::Advanced => "The company runs in the advanced mode now: every page and every function is open.",
+        co::GameMode::Casual => "The company runs in Casual now: it sees to its routine by itself.",
+        co::GameMode::Normal => "The company runs in Normal now: every page is open, and the dispatcher helps.",
+        co::GameMode::Realistic => "The company runs in Realistic now: real-life rules, and you solve everything yourself.",
     };
     l.state.set_status(omsi_ui::tr(text).into_owned(), false);
 }

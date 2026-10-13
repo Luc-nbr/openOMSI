@@ -42,7 +42,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     let Some(c) = l.company.company.clone() else { return };
     let gap = 16.0;
     // (what a line earns, under both columns)
-    let r = co::economy::rules(c.difficulty);
+    let r = co::economy::rules(c.game_mode);
     let pay = co::economy::compensation_per_km(&r, c.reputation, c.contract_index);
     let foot = omsi_ui::tr("A single ticket of the fare association costs %{single} (a passenger pays %{fare} on average, with day and season tickets); the authority pays %{km} for every kilometre run, more the better your reputation.").replace("%{single}", &super::eur_cents(co::fares::association_fare(&c) as f64)).replace("%{fare}", &super::eur_cents(r.fare as f64)).replace("%{km}", &super::eur_cents(pay));
     l.ui.text_in(&foot, Rect::new(area.x, area.bottom() - 24.0, area.w, 24.0), kit::NOTE, Weight::Regular, TEXT_DIM, Align::Left);

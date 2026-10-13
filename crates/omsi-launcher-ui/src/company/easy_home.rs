@@ -379,10 +379,10 @@ fn deeds_card(ui: &mut Ui, r: Rect, deeds: &[(String, String)]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use omsi_launcher_lib::company::{found, Difficulty, Founding, Mode};
+    use omsi_launcher_lib::company::{found, Founding, GameMode};
 
     fn company() -> Company {
-        found(&Founding { name: "Leicht".into(), difficulty: Difficulty::Realistic, date: "2024-03-04".into(), mode: Mode::Easy, ..Default::default() }, "Luc")
+        found(&Founding { name: "Leicht".into(), game_mode: GameMode::Casual, date: "2024-03-04".into(), ..Default::default() }, "Luc")
     }
 
     #[test]
@@ -394,7 +394,7 @@ mod tests {
         // every page a tile goes to is one of the easy mode's, and no tile is big
         for t in &list {
             if let To::Tab(tab) = t.to {
-                assert!(super::super::pages_of(Mode::Easy).contains(&tab), "{tab}");
+                assert!(super::super::pages_of(GameMode::Casual).contains(&tab), "{tab}");
             }
             assert!(!t.big && !t.lines.is_empty());
         }
@@ -410,8 +410,9 @@ mod tests {
         // or a way, and those chosen in an `if` or a `match` of the pages)
         let c = company();
         let mut texts: Vec<&str> = co::autopilot::texts();
-        for m in Mode::ALL {
-            texts.extend([m.label(), m.info()]);
+        for m in GameMode::ALL {
+            texts.extend([m.label(), m.info(), m.pitch()]);
+            texts.extend(m.bullets());
         }
         for s in steps(&c, None) {
             texts.push(s.title);
@@ -423,8 +424,29 @@ mod tests {
             "%{n} tours of today have no bus: get more buses.",
             "%{n} duties of today have no driver: the company hires more tonight, or hire them now.",
             "%{n} drivers: every duty has its driver.",
-            "The company runs in the easy mode now: it sees to its routine by itself.",
-            "The company runs in the advanced mode now: every page and every function is open.",
+            "The company runs in Casual now: it sees to its routine by itself.",
+            "The company runs in Normal now: every page is open, and the dispatcher helps.",
+            "The company runs in Realistic now: real-life rules, and you solve everything yourself.",
+            "Switch to %{mode}?",
+            "Switch mode",
+            "Game mode",
+            "Add-ons",
+            "The company's game mode: change it in the company's settings",
+            "RosterFlow is on: the planning is its studio now.",
+            "RosterFlow is off: the planning is the day's roster. Its plans are kept.",
+            super::super::settings::ROSTERFLOW,
+            super::super::settings::ROSTERFLOW_NOTE,
+            super::super::settings::TO_CASUAL,
+            super::super::settings::TO_CASUAL_RF,
+            super::super::settings::FROM_CASUAL,
+            super::super::settings::TO_NORMAL,
+            super::super::settings::TO_REALISTIC,
+            super::super::settings::KEPT,
+            super::super::NOT_RESEARCHED_BY_ITSELF,
+            co::plan::REPAIRED.0,
+            co::plan::REPAIRED.1,
+            co::plan::REPAIRED_OPEN.0,
+            co::plan::REPAIRED_OPEN.1,
             "The company runs no line yet: take one on, and its duties are here.",
             "The company's lines run no tours in the coming week.",
             "Every duty of the coming week is yours already.",

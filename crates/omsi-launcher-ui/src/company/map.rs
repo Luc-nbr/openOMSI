@@ -506,7 +506,7 @@ fn bus_card(l: &mut Launcher, r: Rect, c: &Company, line: &str, tour: &str, m: O
     y += 26.0;
     let pax = match (trip, km.get(m.place.trip)) {
         (Some(t), Some(k)) if !t.empty => {
-            let r = co::economy::rules(c.difficulty);
+            let r = co::economy::rules(c.game_mode);
             format!("≈ {:.0}", co::economy::passengers_for(*k, (t.dep / 60.0) as i32, &r))
         }
         _ => "—".into(),
