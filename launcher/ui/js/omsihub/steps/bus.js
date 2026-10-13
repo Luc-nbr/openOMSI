@@ -12,6 +12,7 @@ import { BusPreview } from '../../preview.js';
 import { Search, Select, Input } from '../../ui.js';
 import { Actions, Foot, Head, Icon, Switch, tr, Button } from '../bits.js';
 import { goStep, previousOf, hubStart } from '../flow.js';
+import { DepotField, DepotTiles, DepotDialog, depotHeading, depotFoot, mapLine } from '../editors/hof.js';
 
 const favKey = (file) => file.replace(/\\/g, '/').toLowerCase();
 const nice = (s) => String(s || '').replace(/_/g, ' ').split(/\s+/).filter(Boolean).join(' ');
@@ -115,8 +116,36 @@ function Picker({ onBus }) {
     </section>`;
 }
 
+/** The chosen bus's depot files in the wide sheet (`buspick::depot_browse`): the way back up
+ * (the bus's crumbs, then "Depot file"), the map's depot file on the right, and the tiles. */
+function Depots({ onBack }) {
+  useStore();
+  const v = curBus();
+  const [model, version] = splitType(v);
+  const group = nice(v.manufacturer) || nice(v.folder);
+  const [title, sub] = depotHeading();
+  const crumbs = [[tr('Buses'), []], [group, [group]], [model, [group, model]], [version, 'bus']];
+  const line = mapLine();
+  return html`
+    <section class="hub-sheet wide">
+      <div style="width:min(1140px,100%);margin:0 auto;display:flex;flex-direction:column;flex:none;align-self:stretch">
+        <${Head} icon="directions_bus" title=${title} raw sub=${sub} />
+        <div class="hub-toolbar">
+          <nav style="display:flex;align-items:center;gap:4px;font-weight:700;min-width:0;flex:1">
+            ${crumbs.map(([c, to]) => html`<button type="button" style="background:none;cursor:pointer;color:var(--hub-text-dim);white-space:nowrap" onClick=${() => onBack(to)}>${c}</button><${Icon} name="chevron_right" size=${14} />`)}
+            <span style="color:var(--hub-text);white-space:nowrap">${tr('Depot file')}</span>
+          </nav>
+          ${line && html`<span class="ed-hof-mapline"><${Icon} name="map" size=${14} />${line}</span>`}
+        </div>
+      </div>
+      <div class="hub-rule"></div>
+      <div class="hub-body"><div style="width:min(1140px,100%);margin:0 auto;padding:20px 20px 10px"><${DepotTiles} /></div></div>
+      <div style="width:min(1180px,100%);margin:0 auto;align-self:stretch"><${Foot} text=${depotFoot()} /></div>
+    </section>`;
+}
+
 /** The bus chosen: its preview on the ground, its livery and the rest on the sheet. */
-function Chosen({ onBack }) {
+function Chosen({ onBack, onDepots }) {
   const s = useStore();
   const c = s.choice;
   const v = curBus();
@@ -128,7 +157,6 @@ function Chosen({ onBack }) {
   const paints = [['', v.default_paint ? `${tr('Standard')} (${v.default_paint})` : tr('Standard')], ...v.paints.map((p) => [p, p])];
   const at = Math.max(0, paints.findIndex(([p]) => p === c.paint));
   const step = (d) => choose({ paint: paints[(at + d + paints.length) % paints.length][0] });
-  const hofs = [['', `${tr('Automatic')}${s.hof ? ` (${s.hof})` : ''}`], ...v.hofs.map((h) => [h, h])];
   const star = s.favourites.includes(favKey(v.file));
   return html`
     <div class="hub-bus-stage"><${BusPreview} look=${{ bus: v.file, paint: c.paint, map: c.map, weather: c.weather, time: c.time, date: c.date }} /></div>
@@ -149,8 +177,7 @@ function Chosen({ onBack }) {
           ${paints.length > 1 && html`<${Button} icon="chevron_left" title="Preview previous livery" onClick=${() => step(-1)} /><${Button} icon="chevron_right" title="Preview next livery" onClick=${() => step(1)} />`}
         </div>
         <div style="display:grid;grid-template-columns:110px 1fr;gap:10px 6px;align-items:center">
-          <span style="color:var(--hub-text-soft)">${tr('Depot file')}</span>
-          <${Select} raw value=${c.hof_manual ? c.hof : ''} options=${hofs} onChange=${(h) => choose({ hof: h, hof_manual: !!h })} />
+          <${DepotField} onOpen=${onDepots} />
           ${v.numbers?.length > 0 && html`<span style="color:var(--hub-text-soft)">${tr('Fleet number')}</span>
             <${Select} raw value=${c.number || v.numbers[0][0]} options=${v.numbers.map(([n, p]) => [n, p ? `${n}  (${p})` : n])} onChange=${(number) => choose({ number })} />`}
           <span style="color:var(--hub-text-soft)">${tr('Number plate')}</span>
@@ -172,6 +199,8 @@ export function BusStep() {
     loadSituations();
   }, []);
   const showing = s.hub.busView === 'bus' && curBus();
+  // (the bus's depot files in the wide sheet: `hof.rs`, editors/hof.js)
+  const depots = s.hub.busView === 'depots' && curBus();
   const show = (view, level) => {
     if (level) S.hub.busLevel = level;
     set({ hub: { ...S.hub, busView: view } });
@@ -183,10 +212,13 @@ export function BusStep() {
   };
   const last = s.situations?.[0];
   return html`
-    ${showing
-      ? html`<${Chosen} onBack=${(level) => show('tiles', level || undefined)} />`
+    ${depots
+      ? html`<${Depots} onBack=${(level) => (level === 'bus' ? show('bus') : show('tiles', level))} />`
+      : showing
+      ? html`<${Chosen} onBack=${(level) => show('tiles', level || undefined)} onDepots=${() => show('depots')} />`
       : html`<${Picker} onBus=${(b) => (b.v.file !== s.choice.bus && choose({ bus: b.v.file, paint: '', number: '', hof_manual: false }), show('bus'))} />`}
-    <${Actions} back onBack=${() => (showing ? show('tiles') : goStep(previousOf('bus')))} from=${showing ? 'calc(var(--hub-edge-in) + clamp(288px, 27.4cqw, 420px) + 14px)' : null}
+    <${DepotDialog} onOpen=${() => show('depots')} />
+    <${Actions} back onBack=${() => (depots ? show('bus') : showing ? show('tiles') : goStep(previousOf('bus')))} from=${showing ? 'calc(var(--hub-edge-in) + clamp(288px, 27.4cqw, 420px) + 14px)' : null}
       extra=${last ? [{ label: 'Continue last game', icon: 'history', onClick: () => go({ situation: last.file, lan: 'off' }), disabled: busy }] : []}
       main="Drive" mainDisabled=${!curBus() || !s.choice.map} busy=${busy} onMain=${() => go()} />
   `;

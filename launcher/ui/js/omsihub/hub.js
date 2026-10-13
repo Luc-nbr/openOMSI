@@ -56,6 +56,8 @@ function startPage(p, pages) {
     const step = /^\d+$/.test(part || '') ? STEP_NAMES[Number(part)] : part;
     // (`drive:bus:chosen`: the bus chosen on the ground, not the tiles)
     if (step === 'bus' && more === 'chosen') S.hub.busView = 'bus';
+    // (`drive:bus:depots`: the bus's depot files, editors/hof.js)
+    if (step === 'bus' && more === 'depots') S.hub.busView = 'depots';
     go('drive', STEP_NAMES.includes(step) ? step : 'mode');
     return;
   }

@@ -15,12 +15,13 @@ import { Head, Icon, tr } from '../bits.js';
 import { EditorHub } from './hub.js';
 import { TimetablePage } from './timetable.js';
 
-// (our editors' look, after omsihub.css: a sheet of their own, loaded with them)
-if (!document.querySelector('link[data-ed-css]')) {
+// (our editors' look, after omsihub.css: style sheets of their own, loaded with them)
+for (const sheet of ['editors.css', 'editors-hof.css']) {
+  if (document.querySelector(`link[data-ed-css="${sheet}"]`)) continue;
   const l = document.createElement('link');
   l.rel = 'stylesheet';
-  l.href = 'omsihub/editors.css';
-  l.dataset.edCss = '1';
+  l.href = 'omsihub/' + sheet;
+  l.dataset.edCss = sheet;
   document.head.appendChild(l);
 }
 
