@@ -355,6 +355,8 @@ pub(super) fn gantt(l: &mut Launcher, r: Rect, k: &Cached, board: &Board, p: &Pa
     let ticked = s.ticked.clone();
     let reveal = s.reveal.clone();
     let dragging = s.dragging;
+    // (a card or the menu open: the chips' tooltip keeps quiet)
+    let quiet = s.card.is_some() || s.menu.is_some();
     let wd = board.weekday;
     let prefs = c.planning.flow.prefs.clone();
     let ui = &mut l.ui;
@@ -600,7 +602,7 @@ pub(super) fn gantt(l: &mut Launcher, r: Rect, k: &Cached, board: &Board, p: &Pa
         ui.push_clip(Rect::new(gx - 4.0, rr.y, gw + 8.0, rr.h), 0.0);
         match row.kind {
             Kind::Block(i) => block_row_draw(ui, p, c, board, i, &row.id, cy, &x_of, &prefs, &hand, &sel, layers, read_only, mouse, &mut todo, &mut lit),
-            Kind::Duty(d) => duty_row_draw(ui, p, c, board, d, &row.id, cy, &x_of, &prefs, &hand, &sel, layers.label, read_only, mouse, &mut todo, &mut lit),
+            Kind::Duty(d) => duty_row_draw(ui, p, c, board, d, &row.id, cy, &x_of, &prefs, &hand, &sel, layers.label, read_only, mouse, &mut todo, &mut lit, quiet),
         }
         // the drop zones in this row
         if let (Some(zs), Some((a, b, right))) = (&zones, hand_span(board, hand.as_ref())) {
@@ -959,7 +961,7 @@ fn block_row_draw(ui: &mut Ui, p: &Pal, c: &Company, board: &Board, i: usize, ro
 
 /// A driver's duty in its row.
 #[allow(clippy::too_many_arguments)]
-fn duty_row_draw(ui: &mut Ui, p: &Pal, c: &Company, board: &Board, d: usize, row: &RowId, cy: f32, x_of: &dyn Fn(i32) -> f32, prefs: &rf::Prefs, hand: &Option<Hand>, sel: &[(usize, usize)], layer: u8, read_only: bool, mouse: Vec2, todo: &mut Vec<Do>, lit: &mut Option<(i32, i32)>) {
+fn duty_row_draw(ui: &mut Ui, p: &Pal, c: &Company, board: &Board, d: usize, row: &RowId, cy: f32, x_of: &dyn Fn(i32) -> f32, prefs: &rf::Prefs, hand: &Option<Hand>, sel: &[(usize, usize)], layer: u8, read_only: bool, mouse: Vec2, todo: &mut Vec<Do>, lit: &mut Option<(i32, i32)>, quiet: bool) {
     let s: &Shaped = &board.shaped[d];
     // the splits: a thin line across, "Split" in the middle
     let line_col = if p.light { p.dim } else { Color::rgba(220, 224, 230, 0.9) };
@@ -1066,7 +1068,9 @@ fn duty_row_draw(ui: &mut Ui, p: &Pal, c: &Company, board: &Board, d: usize, row
             if read_only || hand.is_some() {
                 continue;
             }
-            ui.tooltip(cr, "Drag or double-click to move this trip to another duty or a new one: the bus stays the same. Shift or Ctrl and a click choose more trips. Alt and a drag takes the whole piece of work on this bus.");
+            if !quiet {
+                ui.tooltip(cr, "Drag or double-click to move this trip to another duty or a new one: the bus stays the same. Shift or Ctrl and a click choose more trips. Alt and a drag takes the whole piece of work on this bus.");
+            }
             if h && ui.input.pressed {
                 todo.push(Do::Choose { tour: sp.tour, trip: j, row: row.clone(), kind: Kind::Duty(d), shift: ui.input.shift, ctrl: ui.input.ctrl, alt: ui.input.alt, at: mouse });
             }
