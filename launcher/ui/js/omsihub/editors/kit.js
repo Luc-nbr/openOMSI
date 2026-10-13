@@ -111,6 +111,89 @@ export function TimeSpin({ minutes, onChange, end, h }) {
   return html`<div class="ed-time" style=${h ? `height:${h}px` : ''}>${cell(Math.floor(shown / 60), 60)}<i>:</i>${cell(shown % 60, 5)}</div>`;
 }
 
+// --- a colour of one's own -------------------------------------------------------------------
+
+/** Hue (0 - 360), saturation and value (0 - 1) of `#rrggbb`, and back (`colour::hsv`). */
+function hsvOf(hex) {
+  const n = parseInt(String(hex).replace('#', '').slice(0, 6), 16) || 0;
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => v / 255);
+  const max = Math.max(r, g, b);
+  const d = max - Math.min(r, g, b);
+  const h = d === 0 ? 0 : max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, max === 0 ? 0 : d / max, max];
+}
+function hexOfHsv([h, s, v]) {
+  const f = (n) => {
+    const k = (n + h / 60) % 6;
+    return Math.round(255 * (v - v * s * Math.max(0, Math.min(k, 4 - k, 1))));
+  };
+  return '#' + [f(5), f(3), f(1)].map((x) => x.toString(16).padStart(2, '0')).join('');
+}
+
+/** The picker under a palette (`accent_pick::picker`): saturation and value in a square of the
+ * hue, the hues in a bar under it, the colour's code to type and a sample. `onChange` gets
+ * `#rrggbb`; the hue stays where it was while the colour is a grey. */
+export function ColourPicker({ value, onChange, ink = '#fff' }) {
+  const st = useRef({ hsv: hsvOf(value), shown: value, hex: value });
+  const [, redraw] = useState(0);
+  const s = st.current;
+  if (s.shown?.toLowerCase() !== value?.toLowerCase()) {
+    const hsv = hsvOf(value);
+    s.hsv = hsv[1] < 1e-3 || hsv[2] < 1e-3 ? [s.hsv[0], hsv[1], hsv[2]] : hsv;
+    s.hex = value;
+    s.shown = value;
+  }
+  const take = (hsv) => {
+    s.hsv = hsv;
+    const hex = hexOfHsv(hsv);
+    s.hex = hex;
+    s.shown = hex;
+    redraw((n) => n + 1);
+    onChange(hex);
+  };
+  // (held and dragged: the square or the bar follows the mouse)
+  const drag = (fn) => (e) => {
+    const el = e.currentTarget;
+    el.setPointerCapture?.(e.pointerId);
+    const at = (ev) => {
+      const r = el.getBoundingClientRect();
+      fn(Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)), Math.max(0, Math.min(1, (ev.clientY - r.top) / r.height)));
+    };
+    at(e);
+    const move = (ev) => at(ev);
+    const up = () => (el.removeEventListener('pointermove', move), el.removeEventListener('pointerup', up));
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+  };
+  const [h, sat, val] = s.hsv;
+  const hue = hexOfHsv([h, 1, 1]);
+  return html`<div class="ed-picker">
+    <div class="sq" style=${`background:linear-gradient(to bottom, transparent, #000), linear-gradient(to right, #fff, transparent), ${hue}`}
+      onPointerDown=${drag((x, y) => take([s.hsv[0], x, 1 - y]))}>
+      <i class="knob" style=${`left:${sat * 100}%;top:${(1 - val) * 100}%;background:${value}`}></i>
+    </div>
+    <div class="hues" onPointerDown=${drag((x) => {
+      const [, s0, v0] = s.hsv;
+      // (a grey has no hue to turn: it is given some colour)
+      const grey = s0 < 0.05 || v0 < 0.05;
+      take([Math.min(x, 0.9999) * 360, grey ? Math.max(s0, 0.8) : s0, grey ? Math.max(v0, 0.85) : v0]);
+    })}><i style=${`left:${(h / 360) * 100}%`}></i></div>
+    <div class="row">
+      <${Field} raw value=${s.hex} placeholder="#f58620" onInput=${(t) => {
+        s.hex = t;
+        const code = t.trim().replace(/^#/, '');
+        if (/^[0-9a-f]{6}$/i.test(code)) {
+          s.hsv = hsvOf('#' + code);
+          s.shown = '#' + code.toLowerCase();
+          onChange('#' + code.toLowerCase());
+        }
+        redraw((n) => n + 1);
+      }} />
+      <span class="sample" style=${`background:${value};color:${ink}`}>Aa</span>
+    </div>
+  </div>`;
+}
+
 /** A button (`Ui::button`): `kind` '' (a control), 'primary' (the accent), 'ghost', 'danger'. */
 export function Btn({ kind = '', icon, label, raw, onClick, disabled, title, class: cls = '', style = '' }) {
   const c = ['hub-btn', 'ed-btn', kind, cls].filter(Boolean).join(' ');

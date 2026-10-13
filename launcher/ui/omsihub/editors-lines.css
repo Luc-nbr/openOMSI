@@ -33,20 +33,23 @@
 .le-maphead { height: 20px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 3px 2px 0; border-top: 1px solid var(--hub-hairline); margin-top: 6px; font-size: 8.1px; font-weight: 700; text-transform: uppercase; color: var(--hub-text-dim); }
 .le-maphead b { color: var(--hub-text-faint); }
 .le-left > .hub-btn { width: 100%; flex: none; }
-.le-settings { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 7px; padding-top: 6px; border-top: 1px solid var(--hub-hairline); overflow-y: auto; }
+/* (4 points wider than the panel's body on either side, so that a swatch's ring is not cut; the
+   hairline over it as wide as the body) */
+.le-settings { flex: 1; min-height: 0; display: flex; flex-direction: column; margin: 7px -4px 0; padding: 7px 4px 0; background: linear-gradient(var(--hub-hairline), var(--hub-hairline)) 4px 0 / calc(100% - 8px) 1px no-repeat; overflow-y: auto; }
 .le-settings > * { flex: none; }
 .le-settings .grow { flex: 1; }
 .le-two { display: grid; grid-template-columns: 90px minmax(0, 1fr); grid-template-rows: 16px var(--hub-row); gap: 2px 10px; align-items: center; }
 .le-tab .le-two { grid-template-columns: 1fr 1fr; gap: 2px 12px; }
-.le-swatches { display: flex; gap: 8px; margin: 12px 0 16px; flex-wrap: wrap; }
+.le-swatches { display: flex; gap: 8px; margin: 12px 0 16px; }
 .le-settings > .ed-caps { height: 16px; display: flex; align-items: center; margin-bottom: 2px; }
 .le-settings > .ed-warn { margin-top: 4px; }
 .le-settings > .ed-toggle { margin-top: 12px; }
-.le-swatches .sw { width: 26px; height: 26px; border-radius: 50%; cursor: pointer; position: relative; flex: none; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12); }
-.le-swatches .sw:hover::after, .le-swatches .sw.on::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; box-shadow: inset 0 0 0 2px var(--hub-text-dim); }
+/* (nine across the panel, at most 30 points each: `left_panel`) */
+.le-swatches .sw { width: min(30px, calc((100% - 64px) / 9)); aspect-ratio: 1; border-radius: 50%; cursor: pointer; position: relative; flex: none; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12); }
+.le-swatches .sw:hover::after, .le-swatches .sw.on::after { content: ""; position: absolute; inset: -3px; border-radius: 50%; box-shadow: inset 0 0 0 2px var(--hub-text-dim); }
 .le-swatches .sw.on::after { box-shadow: inset 0 0 0 2px var(--hub-text); }
 .le-swatches .any { background: var(--hub-field); display: flex; align-items: center; justify-content: center; color: var(--hub-text-soft); overflow: visible; }
-.le-swatches .any input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+.le-settings > .ed-picker { margin: -4px 0 16px; }
 .le-foot { display: flex; flex-direction: column; gap: 8px; }
 .le-foot > .hub-btn { width: 100%; }
 .le-half { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; flex: none; }

@@ -145,3 +145,13 @@
    84 points from the sheet's right, the count right-aligned in the last 70) */
 .hub-paint-own { display: flex; align-items: center; gap: 3px; overflow: visible !important; }
 .hub-paint-own > span { min-width: 70px; text-align: right; }
+
+/* a colour of one's own (`accent_pick::picker`): the square, the hues, the code and a sample */
+.ed-picker { width: min(100%, 360px); flex: none; }
+.ed-picker .sq { position: relative; height: 120px; border-radius: 8px; cursor: crosshair; touch-action: none; }
+.ed-picker .knob { position: absolute; width: 16px; height: 16px; border-radius: 50%; border: 2px solid #fff; transform: translate(-50%, -50%); pointer-events: none; }
+.ed-picker .hues { position: relative; height: 14px; margin-top: 8px; cursor: pointer; touch-action: none; background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); }
+.ed-picker .hues i { position: absolute; top: -3px; bottom: -3px; width: 8px; margin-left: -4px; border: 2px solid #fff; border-radius: 3px; pointer-events: none; }
+.ed-picker .row { display: grid; grid-template-columns: 118px minmax(40px, 1fr); gap: 8px; margin-top: 10px; }
+.ed-picker .row .ed-field { height: 32px; }
+.ed-picker .sample { height: 32px; border-radius: var(--hub-r); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; }

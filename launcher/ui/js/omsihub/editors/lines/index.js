@@ -15,7 +15,7 @@
 
 import { html, useEffect } from '../../../../vendor/preact-htm.js';
 import { S, useStore } from '../../../store.js';
-import { Card, Heading, Row, Badge, Drop, Btn, IconBtn, Toggle, LiveField, Icon, tr, mapLabel, status } from '../kit.js';
+import { Card, Heading, Row, Badge, Drop, Btn, IconBtn, Toggle, LiveField, ColourPicker, Icon, tr, mapLabel, status } from '../kit.js';
 import { L, le } from './state.js';
 import { RightPanel, DirChoice } from './panels.js';
 import { LineMap } from './map.js';
@@ -58,6 +58,22 @@ function LeftPanel() {
   </${Card}>`;
 }
 
+/** The line's colour from the picker: while it is dragged, the last one when the one before is
+ * taken (a request a move piled up behind the mouse). */
+let colourNext = null;
+let colourBusy = false;
+function setColour(hex) {
+  colourNext = hex;
+  if (colourBusy) return;
+  colourBusy = true;
+  const go = () => {
+    const value = colourNext;
+    colourNext = null;
+    le('colour', { value }).then(() => (colourNext ? go() : (colourBusy = false)));
+  };
+  go();
+}
+
 /** The line's own settings (`left_panel`): number and name, its colour, the depot whose buses
  * drive it, the company's live displays; and the foot. */
 function Settings() {
@@ -70,10 +86,11 @@ function Settings() {
       <${LiveField} value=${line.name} placeholder="Name" onInput=${(t) => le('name', { value: t })} /></div>
     <div class="le-swatches">
       ${v.palette.map((hex) => html`<button type="button" class=${'sw' + (line.colour.toLowerCase() === hex.toLowerCase() ? ' on' : '')} style=${`background:${hex}`} onClick=${() => line.colour.toLowerCase() !== hex.toLowerCase() && le('colour', { value: hex })}></button>`)}
-      <label class=${'sw any' + (own ? ' own on' : '') + (v.colour_open ? ' on' : '')} style=${own ? `background:${line.colour};color:${inkOn(line.colour)}` : ''} title=${tr('Any colour')}>
-        <${Icon} name="palette" size=${16} /><input type="color" value=${line.colour} onInput=${(e) => le('colour', { value: e.currentTarget.value })} />
-      </label>
+      <button type="button" class=${'sw any' + (own ? ' own on' : '') + (v.colour_open ? ' on' : '')} style=${own ? `background:${line.colour};color:${inkOn(line.colour)}` : ''} title=${tr('Any colour')} onClick=${() => le('colour_open')}>
+        <${Icon} name="palette" size=${16} />
+      </button>
     </div>
+    ${v.colour_open && html`<${ColourPicker} value=${line.colour} ink=${inkOn(line.colour)} onChange=${setColour} />`}
     <span class="ed-caps">${tr('Driven by the buses of')}</span>
     ${v.groups.length
       ? html`<${Drop} raw value=${v.groups.find((g) => g.toLowerCase() === line.ai_group.toLowerCase()) ?? v.groups[0]} options=${v.groups.map((g) => [g, g])} onChange=${(g) => le('ai_group', { value: g })} />`
