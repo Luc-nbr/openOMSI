@@ -184,6 +184,7 @@ const _LOCALES_PLANNING_STUDIO: &str = include_str!("../locales/planning-studio.
 const _LOCALES_ROSTERFLOW: &str = include_str!("../locales/rosterflow.yml");
 const _LOCALES_ROSTERFLOW_TIMEPLAN: &str = include_str!("../locales/rosterflow-timeplan.yml");
 const _LOCALES_ROSTERFLOW_TUTORIAL: &str = include_str!("../locales/rosterflow-tutorial.yml");
+const _LOCALES_ROSTERFLOW_LINES: &str = include_str!("../locales/rosterflow-lines.yml");
 const _LOCALES_COMPANY_DRIVE: &str = include_str!("../locales/company-drive.yml");
 const _LOCALES_BUGS_TIMETABLE: &str = include_str!("../locales/bugs-timetable.yml");
 const _LOCALES_BUGS_COMPANY: &str = include_str!("../locales/bugs-company.yml");

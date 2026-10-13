@@ -85,8 +85,11 @@ fn ours(l: &mut Launcher, r: Rect, c: &Company) {
     let mut edit_map = None;
     let mut planning = None;
     let mut fare = None;
+    let mut timetable = None;
     // (the easy mode's lines run and are covered by themselves: no planning to click to)
     let easy = co::autopilot::on(c);
+    // (with RosterFlow a line's timetable is its Timeplan's, its route the line editor's)
+    let rf = super::planning::timetable_place(c) == super::planning::TimetablePlace::Timeplan;
     l.ui.scroll_area("company-lines", inner, &mut |ui, v| {
         let rh = 104.0;
         for (k, line) in list.iter().enumerate() {
@@ -109,6 +112,14 @@ fn ours(l: &mut Launcher, r: Rect, c: &Company) {
                 remove = Some(line.name.clone());
             }
             tx -= 38.0;
+            // (its timetable, with RosterFlow: in its Timeplan - an own line made in the line
+            // editor, or a line of the map's)
+            if rf && (line.plan.is_some() || !line.own) {
+                if ui.icon_button(&format!("company-line-timetable-{}", line.name), Vec2::new(tx - 14.0, r.y + 25.0), 16.0, "departure_board", "Timetable: the line's running times and departures in RosterFlow's Timeplan") {
+                    timetable = Some(line.name.clone());
+                }
+                tx -= 38.0;
+            }
             if let Some(p) = line.plan.as_ref() {
                 if ui.icon_button(&format!("company-line-edit-{}", line.name), Vec2::new(tx - 14.0, r.y + 25.0), 16.0, "route", "Edit route: change the line in the line editor") {
                     edit = Some(p.line_id);
@@ -116,7 +127,8 @@ fn ours(l: &mut Launcher, r: Rect, c: &Company) {
                 tx -= 38.0;
             } else if !line.own {
                 // (a line of the map's: changed in the line editor too, its new route approved)
-                if ui.icon_button(&format!("company-line-edit-{}", line.name), Vec2::new(tx - 14.0, r.y + 25.0), 16.0, "route", "Edit the line in the line editor: its route, timetable and displays") {
+                let tip = if rf { "Edit the line in the line editor: its route and displays" } else { "Edit the line in the line editor: its route, timetable and displays" };
+                if ui.icon_button(&format!("company-line-edit-{}", line.name), Vec2::new(tx - 14.0, r.y + 25.0), 16.0, "route", tip) {
                     edit_map = Some(line.name.clone());
                 }
                 tx -= 38.0;
@@ -159,7 +171,16 @@ fn ours(l: &mut Launcher, r: Rect, c: &Company) {
             let in_service = co::network::in_service(line, now);
             let (covered, all) = plan.as_ref().map(|p| p.planned_of(&line.name)).unwrap_or((0, line.tours as usize));
             let frac = if all > 0 { covered as f64 / all as f64 } else { 0.0 };
-            let (label, right, tip) = if !in_service {
+            // (confirmed with its route alone: its timetable is to be made - in RosterFlow's
+            // Timeplan, or without RosterFlow in the line editor)
+            let none_yet = co::ownline::no_timetable(line);
+            let (label, right, tip) = if none_yet {
+                (
+                    omsi_ui::tr("No timetable yet").into_owned(),
+                    omsi_ui::tr("Make it").into_owned(),
+                    if rf { omsi_ui::tr("The line runs no tour until it has a timetable. Click to make it in RosterFlow's Timeplan.").into_owned() } else { omsi_ui::tr("The line runs no tour until it has a timetable. Click to make it in the line editor.").into_owned() },
+                )
+            } else if !in_service {
                 let waits = line.service_from.is_some_and(|s| s > now);
                 (
                     if waits { omsi_ui::tr("In service from %{when}").replace("%{when}", &line.service_from.map(|s| format!("{} {}", super::day_label(&co::clock::date_of(s)), co::clock::hhmm(s))).unwrap_or_default()) } else if easy { omsi_ui::tr("Not in service yet").into_owned() } else { omsi_ui::tr("Not planned yet: %{c} of %{t} tours planned").replace("%{c}", &covered.to_string()).replace("%{t}", &all.to_string()) },
@@ -188,14 +209,21 @@ fn ours(l: &mut Launcher, r: Rect, c: &Company) {
             let colour = kit::share_colour(frac, !in_service);
             let br = Rect::new(r.x + 14.0, r.y + 48.0, r.w * 0.66, kit::BAR_H);
             if kit::bar(ui, &format!("company-line-bar-{}", line.name), br, frac, colour, &label, &right, &tip) {
-                planning = Some(line.name.clone());
+                match (none_yet, rf, line.plan.as_ref()) {
+                    (true, true, _) => timetable = Some(line.name.clone()),
+                    (true, false, Some(p)) => edit = Some(p.line_id),
+                    _ => planning = Some(line.name.clone()),
+                }
             }
             let km = omsi_ui::tr("%{km} km a day").replace("%{km}", &super::grouped(line.km));
             ui.text_in(&km, Rect::new(br.right() + 16.0, br.y, r.right() - br.right() - 30.0, 20.0), kit::NOTE, Weight::Regular, if on { on_accent() } else { TEXT_DIM }, Align::Right);
         }
         list.len() as f32 * rh
     });
-    if let Some(id) = edit {
+    if let Some(name) = timetable {
+        let hint = c.lines.iter().find(|x| x.name == name).is_some_and(co::ownline::no_timetable).then_some(super::super::lineeditor::NEW_LINE_HINT);
+        super::open_timeplan(l, &name, hint);
+    } else if let Some(id) = edit {
         super::super::lineeditor::open_for_company(l, Some(id));
     } else if let Some(name) = edit_map {
         super::super::lineeditor::open_map_line_for_company(l, &name);
@@ -473,7 +501,13 @@ fn to_add(l: &mut Launcher, r: Rect, c: &Company) {
         super::super::lineeditor::open_for_company(l, None);
         return;
     }
-    l.ui.tooltip(make, "Draw a line of the company's own in the line editor: it shows what the line costs and brings, and you confirm and pay for it there");
+    // (with RosterFlow its timetable is made in its Timeplan once it is confirmed)
+    let tip = if super::planning::timetable_place(c) == super::planning::TimetablePlace::Timeplan {
+        "Draw a line of the company's own in the line editor: you confirm and pay for its route there, then make its timetable in RosterFlow's Timeplan"
+    } else {
+        "Draw a line of the company's own in the line editor: it shows what the line costs and brings, and you confirm and pay for it there"
+    };
+    l.ui.tooltip(make, tip);
     let Some(today) = l.company.today.as_ref() else {
         l.ui.text_in("Reading the timetable…", Rect::new(inner.x, inner.y, inner.w, 24.0), kit::BODY, Weight::Regular, TEXT_SOFT, Align::Left);
         return;
@@ -687,6 +721,13 @@ pub(super) fn add_dialog(l: &mut Launcher) {
             l.company.dialog = None;
             l.company.lines.selected = Some(line.name.clone());
             let n = l.company.company.as_ref().and_then(|c| c.lines.last()).map(|x| x.number.clone()).unwrap_or_default();
+            // (with RosterFlow a line of the map's opens in its Timeplan: the map's timetable, to
+            // see and change)
+            if own.is_none() && super::planning::timetable_place(&c) == super::planning::TimetablePlace::Timeplan {
+                l.state.set_status(omsi_ui::tr("Line %{n} is the company's: here is its timetable. Plan its tours and start its service on the Roster tab.").replace("%{n}", &n), false);
+                super::open_timeplan(l, &line.name, Some(super::planning::MAP_LINE_HINT));
+                return;
+            }
             l.state.set_status(omsi_ui::tr("Line %{n} is the company's: plan its tours and start its service on the Planning page.").replace("%{n}", &n), false);
         }
     }

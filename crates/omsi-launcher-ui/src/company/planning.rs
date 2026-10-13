@@ -41,6 +41,8 @@ pub(super) const RF_ROSTER: usize = rosterflow::ROSTER;
 pub(super) const RF_VEHICLES: usize = rosterflow::VEHICLES;
 pub(super) const RF_DRIVERS: usize = rosterflow::DRIVERS;
 pub(super) const RF_TIMEPLAN: usize = rosterflow::TIMEPLAN;
+/// What the Timeplan says first of a line of the map's just added (RosterFlow on).
+pub(super) use timeplan::MAP_LINE_HINT;
 
 /// RosterFlow's tab and the timeplan's screen now.
 pub(super) fn rf_view(l: &Launcher) -> (usize, usize) {
@@ -60,6 +62,48 @@ pub(super) fn rf_set_view(l: &mut Launcher, view: usize, screen: Option<usize>) 
     }
     if let Some(s) = screen {
         p.timeplan.set_screen(s);
+    }
+}
+
+/// Where a line's timetable is changed: RosterFlow's Timeplan when the add-on is on, else the
+/// planning's sheet over the day's roster (`plan_edit`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TimetablePlace {
+    Timeplan,
+    Sheet,
+}
+
+/// Where the company's lines' timetables are changed (`TimetablePlace`).
+pub(super) fn timetable_place(c: &Company) -> TimetablePlace {
+    if co::autopilot::rosterflow(c) {
+        TimetablePlace::Timeplan
+    } else {
+        TimetablePlace::Sheet
+    }
+}
+
+/// RosterFlow's Timeplan on the company's line `line` (its timetable name), the planning's page
+/// shown on it, with `hint` said in its status bar until the line's blocks are made anew.
+pub(super) fn to_timeplan(l: &mut Launcher, line: &str, hint: Option<&'static str>) {
+    let Some(c) = l.company.company.as_ref() else { return };
+    let id = c.id.clone();
+    let p = &mut l.company.planning;
+    (p.sel, p.arm, p.edit) = (None, None, None);
+    p.view = rosterflow::TIMEPLAN;
+    p.rf.settle();
+    p.rf.panel = rosterflow::Panel::None;
+    p.rf.timeplan_line = Some(line.to_string());
+    p.timeplan.guide(&id, line, hint);
+    l.company.tab = 5;
+}
+
+/// A line's timetable opened from the planning (its heading, a tour of it tapped twice): in
+/// RosterFlow's Timeplan with the add-on on, else on the planning's sheet (that tour marked).
+pub(super) fn open_timetable(l: &mut Launcher, line: &str, date: &str, tour: Option<String>) {
+    let place = l.company.company.as_ref().map(timetable_place).unwrap_or(TimetablePlace::Sheet);
+    match place {
+        TimetablePlace::Timeplan => to_timeplan(l, line, None),
+        TimetablePlace::Sheet => plan_edit::open(l, line, date, tour),
     }
 }
 
@@ -897,6 +941,31 @@ mod tests {
                 assert!(crate::_rust_i18n_try_translate(lang, k).is_some(), "{lang}: {k}");
             }
         }
+    }
+
+    /// A line's timetable buttons (the Lines page's, the planning's heading and tours, the line
+    /// editor's) open RosterFlow's Timeplan with the add-on on, else the planning's sheet - and
+    /// Casual, which has no RosterFlow, the sheet.
+    #[test]
+    fn a_lines_timetable_opens_where_rosterflow_says() {
+        let company = |mode: co::GameMode| co::found(&co::Founding { name: "Stadtbus".into(), game_mode: mode, date: "2024-05-06".into(), ..Default::default() }, "Luc");
+        for mode in [co::GameMode::Normal, co::GameMode::Realistic] {
+            let mut c = company(mode);
+            assert_eq!(timetable_place(&c), TimetablePlace::Sheet, "{mode:?}");
+            assert!(co::autopilot::set_rosterflow(&mut c, true));
+            assert_eq!(timetable_place(&c), TimetablePlace::Timeplan, "{mode:?}");
+            co::autopilot::set_rosterflow(&mut c, false);
+            assert_eq!(timetable_place(&c), TimetablePlace::Sheet, "{mode:?}");
+        }
+        let mut casual = company(co::GameMode::Casual);
+        assert!(!co::autopilot::set_rosterflow(&mut casual, true));
+        assert_eq!(timetable_place(&casual), TimetablePlace::Sheet);
+        // the Timeplan opened on a line: shown with what to do there, read again
+        let mut tp = timeplan::TimeplanView::default();
+        tp.guide("c", "oo_5", Some(MAP_LINE_HINT));
+        assert_eq!(tp.screen(), 1, "a line of the map's: its timetable");
+        tp.guide("c", "oo_6", Some(super::super::super::lineeditor::NEW_LINE_HINT));
+        assert_eq!(tp.screen(), 0, "a new line: its running times first");
     }
 
     #[test]
