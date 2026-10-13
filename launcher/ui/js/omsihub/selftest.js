@@ -97,4 +97,7 @@ export async function selftest(check, errors) {
   set({ choice: kept, page: 'drive', hub: { ...S.hub, step: 'mode' } });
   await call('choice_save', { choice: kept }).catch(() => {});
   await sleep(300);
+
+  // the bus company (Trello "Tauri 2/6": js/omsihub/company/selftest.js)
+  await (await import('./company/selftest.js')).selftest(check, errors);
 }

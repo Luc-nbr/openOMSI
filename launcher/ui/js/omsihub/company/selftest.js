@@ -1,0 +1,100 @@
+// The bus company's part of the page's self-check (`js/omsihub/selftest.js`): its start, every
+// page of a company of the driver's (Normal's or Casual's) drawn without a script error, the
+// dialogs, the hand-overs' page names, and the duty launcher's start as a dry run - the command
+// line a duty becomes, nothing started. Nothing is bought, founded or simulated: the clock is
+// held while the check runs (company.js: `still`).
+
+import { S, set } from '../../store.js';
+import { HOME, CASUAL, setCo, setUi, cmd, act } from './kit.js';
+import { enterCompany, leaveCompany } from './company.js';
+import { startDuty } from './launch.js';
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const $ = (q) => document.querySelector(q);
+const $$ = (q) => document.querySelectorAll(q);
+
+export async function selftest(check, errors) {
+  const shown = async (what, patch, ms = 900) => {
+    const before = errors.length;
+    if (patch) setCo(patch);
+    await sleep(ms);
+    return errors.length === before ? null : `${what}: ${errors.slice(before).join('; ')}`;
+  };
+
+  // the start: how to play
+  enterCompany();
+  let e = await shown('start', null, 1500);
+  check('company: the start', !e && $$('.co-mode').length === 2, e || `${$$('.co-mode').length} ways to play`);
+  const list = S.co.list?.companies?.tiles || [];
+  e = await shown('companies', { chooser: 'companies' });
+  check('company: the companies', !e && $$('.co-company').length === list.length + 1, e || `${list.length} companies and the new one`);
+  if (!list.length) {
+    check('company: a company to look at', true, 'none in this profile: the pages are not drawn (nothing is founded by the check)');
+    await leaveCompany();
+    return;
+  }
+
+  // a company of the driver's, every page of it
+  await cmd('co_open', { id: list[0].id });
+  e = await shown('the company', { chooser: null, tab: HOME }, 1500);
+  const sh = S.co.shell;
+  check('company: its bar', !e && !!$('.co-bar .name') && !!$('.co-status') && !!$('.co-clock'), e || `${sh?.name} (${sh?.mode?.label}) ${sh?.clock?.date} ${sh?.clock?.time}`);
+  const tabs = sh?.casual ? [HOME, CASUAL.BUSES, CASUAL.SHOP, CASUAL.LINES, CASUAL.NEW_LINE, CASUAL.DRIVERS, CASUAL.MONEY, CASUAL.COMPANY, CASUAL.SHIFTS] : [HOME, 0, 1, 2, 3, 4, 6, 13];
+  for (const tab of tabs) {
+    e = await shown(`page ${tab}`, { tab, dialog: null });
+    check(`company: page ${sh?.casual ? sh.casual_pages?.pages?.[tab]?.name : sh?.names?.[tab] || 'Start screen'}`, !e && !!$('.co-body')?.firstElementChild, e || `${$$('.co-body *').length} elements`);
+  }
+  if (!sh?.casual) {
+    for (const [tab, page, key, n] of [
+      [1, 'fleet', 'tab', 3],
+      [2, 'people', 'tab', 5],
+      [6, 'career', 'part', 6],
+    ]) {
+      for (let k = 1; k < n; k++) {
+        setUi(page, { [key]: k, open: null });
+        e = await shown(`${page} ${k}`, { tab });
+        check(`company: ${page}, part ${k}`, !e, e || 'drawn');
+      }
+      setUi(page, { [key]: 0 });
+    }
+  }
+
+  // the dialogs: the settings, the clock's steps
+  for (const kind of ['settings', 'time']) {
+    e = await shown(kind, { tab: HOME, dialog: { kind } });
+    check(`company: the ${kind} dialog`, !e && !!$('.co-dialog'), e || $('.co-dialog h2')?.textContent || '');
+  }
+  setCo({ dialog: null });
+
+  // the hand-overs' pages, as our game-drawn launcher reads them
+  try {
+    const a = await cmd('co_hand_over', { page: '5' });
+    const b = await cmd('co_hand_over', { page: 'map-line=A:1' });
+    check('company: the hand-over pages', a.page === `bus company:5:${sh.id}` && b.page === `bus company:map-line=A%3A1:${sh.id}`, `${a.page} | ${b.page}`);
+  } catch (x) {
+    check('company: the hand-over pages', false, x.message);
+  }
+
+  // the duty launcher: a duty of today's opened, its start as the command line only
+  try {
+    const v = await cmd('co_view', { view: 'casual', page: 'shifts' });
+    const duty = v.cards?.[0]?.duty;
+    if (!duty) {
+      check('company: the duty launcher', true, v.reading || 'no shift today: nothing to start');
+    } else {
+      await act('drive_duty', { duty, from: HOME });
+      e = await shown('the duty launcher', null, 1500);
+      check('company: the duty launcher', !e && !!$('.co-launch'), e || $('.co-launch .head .who')?.textContent || '');
+      const r = await startDuty(true);
+      const line = (r?.args || []).join(' ');
+      check('company: a duty\'s command line', !!r?.args?.length, r?.args ? line.slice(0, 240) : JSON.stringify(r?.popup?.title || r));
+      await act('launch_close');
+    }
+  } catch (x) {
+    check('company: the duty launcher', false, x.message);
+  }
+
+  await leaveCompany();
+  set({ page: 'drive' });
+  await sleep(300);
+}

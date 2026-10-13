@@ -4,3 +4,22 @@ _version: 2
 # says. The company's own texts are the game-drawn launcher's (company-*.yml and the others), read
 # by the page as they are. The English text is the key, as in app.yml.
 
+# --- a part of the company handed over to our game-drawn launcher ------------------------------
+"This part of the bus company opens in our own launcher for now.":
+  en: "This part of the bus company opens in our own launcher for now."
+  nl: "Dit deel van het busbedrijf opent voorlopig in onze eigen launcher."
+  de: "Dieser Teil des Busunternehmens öffnet vorerst in unserem eigenen Launcher."
+  fr: "Cette partie de la compagnie de bus s'ouvre pour l'instant dans notre propre lanceur."
+  ru: "Эта часть автобусной компании пока открывается в нашем собственном лаунчере."
+  uk: "Ця частина автобусної компанії поки що відкривається в нашому власному лаунчері."
+  pl: "Ta część firmy autobusowej na razie otwiera się w naszym własnym launcherze."
+
+# --- a view still on its way -------------------------------------------------------------------
+"Reading…":
+  en: "Reading…"
+  nl: "Bezig met lezen…"
+  de: "Wird gelesen…"
+  fr: "Lecture…"
+  ru: "Чтение…"
+  uk: "Читання…"
+  pl: "Wczytywanie…"

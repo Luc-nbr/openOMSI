@@ -82,7 +82,8 @@ function startTick() {
     if (busy || S.page !== 'company') return;
     busy = true;
     try {
-      takeShell(await cmd('co_tick', { modal: modalOpen(), still: false }));
+      // (the self-check holds the clock: nothing is simulated while it looks)
+      takeShell(await cmd('co_tick', { modal: modalOpen(), still: !!S.boot?.selftest }));
     } catch (e) {
       // (the next tick tries again; what went wrong is shown while the companies are read)
       if (!S.co.shell) setCo({ failed: e.message });
