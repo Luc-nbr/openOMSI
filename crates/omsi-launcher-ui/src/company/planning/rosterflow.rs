@@ -215,12 +215,15 @@ pub(super) fn duty_row(s: &rf::Shaped) -> RowId {
     }
 }
 
-/// What is taken up to be dropped (Optibus's MOVE): trips of a bus, a trip of the stack, a
-/// duty's piece; or trips to swap with the row picked next.
+/// What is taken up to be dropped (Optibus's MOVE): trips of a bus, a trip of the stack, trips
+/// of a duty (Drivers: to another duty or a new one, the bus the same), a duty's whole piece of
+/// work on one bus (Drivers, Alt and a drag); or trips to swap with the row picked next.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Hand {
     Trips { tour: usize, trips: Vec<usize> },
     Stack(usize),
+    /// Trips (block, trip) of duty `duty` (an index into `Board::duties`).
+    Duty { duty: usize, trips: Vec<(usize, usize)> },
     Piece { tour: usize, duty: usize },
     Swap { tour: usize, trips: Vec<usize>, how: co::studio::Swap },
 }
