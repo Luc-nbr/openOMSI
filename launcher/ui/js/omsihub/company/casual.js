@@ -332,7 +332,7 @@ function Shifts({ v }) {
         <div class="top"><${Plate} p=${s.plate} h=${28} />${s.tag && html`<${Tag} text=${s.tag[0]} tone=${s.tag[1]} />`}</div>
         <b class="time">${s.time}</b>
         <span class=${'bus cut ' + (s.ok ? 't-soft' : 't-warn')}><${Icon} name="directions_bus" size=${16} class=${s.ok ? 't-dim' : 't-warn'} />${s.bus}</span>
-        <span class="trips">${s.trips}</span>
+        <span class="shift-trips">${s.trips}</span>
         <span class="grow"></span>
         <${Btn} kind=${s.primary ? 'primary' : ''} icon="play_arrow" label=${s.go} style="width:100%;height:40px" onClick=${(e) => (e.stopPropagation(), act('drive_shift', { duty: s.duty, mine: s.mine }))} />
       </div>`)}

@@ -87,8 +87,10 @@ export async function selftest(check, errors) {
       check('company: the duty launcher', !e && !!$('.co-launch'), e || $('.co-launch .head .who')?.textContent || '');
       const r = await startDuty(true);
       const line = (r?.args || []).join(' ');
-      check('company: a duty\'s command line', !!r?.args?.length, r?.args ? line.slice(0, 240) : JSON.stringify(r?.popup?.title || r));
+      // (a duty the planning gives another driver is refused with its reason, as the start says it)
+      check("company: a duty's command line", !!r?.args?.length || !!r?.popup?.title, r?.args ? line.slice(0, 240) : `refused: ${r?.popup?.title}`);
       await act('launch_close');
+      setCo({ popup: null });
     }
   } catch (x) {
     check('company: the duty launcher', false, x.message);

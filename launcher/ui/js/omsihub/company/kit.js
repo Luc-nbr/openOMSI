@@ -8,7 +8,7 @@
 // ("text", "soft", "dim", "faint", "ok", "warn", "danger", "accent", "accent2", "early",
 // "line"), drawn as `.t-<tone>` (company.css).
 
-import { html, useEffect, useRef, useState, useErrorBoundary } from '../../../vendor/preact-htm.js';
+import { html, useCallback, useEffect, useRef, useState, useErrorBoundary } from '../../../vendor/preact-htm.js';
 import { S, set, toast } from '../../store.js';
 import { call } from '../../api.js';
 import { language } from '../../i18n.js';
@@ -387,16 +387,20 @@ export function Guard({ children }) {
 
 /** The size of an element as laid out (the stage's own units: its scale left out). */
 export function useSize() {
-  const ref = useRef(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return undefined;
-    const ro = new ResizeObserver(() => setSize({ w: el.clientWidth, h: el.clientHeight }));
-    ro.observe(el);
-    setSize({ w: el.clientWidth, h: el.clientHeight });
-    return () => ro.disconnect();
+  const ro = useRef(null);
+  // (a ref given to whichever element is drawn: a page draws its measured one only later)
+  const ref = useCallback((el) => {
+    ro.current?.disconnect();
+    ro.current = null;
+    if (!el) return;
+    const measure = () => setSize((s) => (s.w === el.clientWidth && s.h === el.clientHeight ? s : { w: el.clientWidth, h: el.clientHeight }));
+    // (measured after the frame: a size taken inside the observer's own call loops it)
+    ro.current = new ResizeObserver(() => requestAnimationFrame(measure));
+    ro.current.observe(el);
+    measure();
   }, []);
+  useEffect(() => () => ro.current?.disconnect(), []);
   return [ref, size];
 }
 

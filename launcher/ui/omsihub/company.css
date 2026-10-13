@@ -66,6 +66,8 @@
 .co .grow { flex: 1; min-width: 0; }
 .co .cut { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .co .num { font-variant-numeric: tabular-nums; }
+/* (upstream's `.right` pushes a block aside: ours is only a name) */
+.co .right { margin-left: 0; }
 
 /* the bar: the company's mark, name, mode and what it has; its clock; its settings, the look,
    the tour and the way back */
@@ -171,7 +173,7 @@ button.co-pill.casual:hover { background: rgba(var(--hub-accent-rgb), 0.28); }
 .co-btn.ghost:hover:not(:disabled) { background: rgba(var(--co-white), 0.05); color: var(--hub-text); transform: none; box-shadow: none; }
 .co-btn.big { height: 44px; border-radius: var(--hub-r-action); font-size: 11.1px; }
 .co-btn.sq { width: 40px; padding: 0; }
-.co-btn.small { height: 30px; padding: 0 14px; }
+.co-btn.small { height: 30px; padding: 0 14px; font-size: var(--co-control); }
 .co-btn .hub-icon { flex: none; }
 
 .co-field { height: 40px; border-radius: var(--hub-r); background: var(--hub-field); color: var(--hub-text); box-shadow: inset 0 0 0 1px var(--hub-edge); border: 0; padding: 0 12px; outline: none; font-size: var(--co-control); font-family: inherit; width: 100%; }
@@ -1036,4 +1038,4 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 .co-casual-shifts .top { display: flex; align-items: center; justify-content: space-between; height: 30px; }
 .co-casual-shifts .time { font-size: 18.4px; line-height: 34px; margin-top: 10px; }
 .co-casual-shifts .bus { display: flex; align-items: center; gap: 8px; font-size: var(--co-note); height: 22px; margin-top: 6px; }
-.co-casual-shifts .trips { font-size: var(--co-note); color: var(--hub-text-dim); line-height: 20px; margin-top: 4px; }
+.co-casual-shifts .shift-trips { font-size: var(--co-note); color: var(--hub-text-dim); line-height: 20px; margin-top: 4px; }
