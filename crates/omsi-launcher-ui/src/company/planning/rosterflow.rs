@@ -679,8 +679,8 @@ fn title_bar(l: &mut Launcher, r: Rect, c: &Company, date: &str, p: &Pal) {
     super::super::super::tour::anchor("rf-menu", Rect::new(icons_x, r.y + 6.0, dot.x + 10.0 - icons_x, r.h - 12.0));
     ui.p().circle(dot, 5.0, if unsaved { p.warn } else { p.ok });
     ui.tooltip(Rect::new(dot.x - 8.0, dot.y - 8.0, 16.0, 16.0), if unsaved { "Changes not saved yet: SAVE makes them the company's planning, DISCARD forgets them" } else { "Saved: the company runs this planning" });
-    // the tabs, right: Vehicles, Drivers, Roster, Timeplan
-    let tabs: [(usize, &str, &str); 4] = [(VEHICLES, "directions_bus", "Vehicles"), (DRIVERS, "person", "Drivers"), (ROSTER, "group", "Roster"), (TIMEPLAN, "departure_board", "Timeplan")];
+    // the tabs, right: Timeplan, Vehicles, Drivers, Roster (the order of the work: timetable, buses, duties, who drives)
+    let tabs: [(usize, &str, &str); 4] = [(TIMEPLAN, "departure_board", "Timeplan"), (VEHICLES, "directions_bus", "Vehicles"), (DRIVERS, "person", "Drivers"), (ROSTER, "group", "Roster")];
     let mut tx = r.right();
     let mut pick_tab = None;
     for (v, icon, label) in tabs.iter().rev() {
