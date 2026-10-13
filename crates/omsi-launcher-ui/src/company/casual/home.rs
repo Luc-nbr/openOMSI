@@ -42,7 +42,7 @@ pub(super) fn draw(l: &mut Launcher, area: Rect) {
     let h = Home {
         date: super::super::day_label(&c.date),
         sentence: logic::day_sentence(&c, plan.as_ref(), now).text(),
-        solved: logic::solved(&c).into_iter().take(4).map(|(t, a)| super::super::inbox::words(&t, &a)).collect(),
+        solved: logic::solved(&c).into_iter().take(3).map(|(t, a)| super::super::inbox::words(&t, &a)).collect(),
         shifts: cards.as_ref().map(|x| x.len()).unwrap_or(0),
         mine: cards.as_ref().is_some_and(|x| super::shifts::mine_today(x)),
         tiles: logic::tiles(&c, plan.as_ref(), now),
@@ -71,7 +71,7 @@ pub(super) fn draw(l: &mut Launcher, area: Rect) {
         let cols = if phone { 2 } else { 4 };
         let gap = if phone { 10.0 } else { GAP };
         let tw = ((w - gap * (cols as f32 - 1.0)) / cols as f32).floor();
-        let th = if phone { 178.0 } else { 196.0 };
+        let th = if phone { 172.0 } else { 180.0 };
         super::super::super::tour::anchor("company-casual-tiles", Rect::new(x, y, w, h.tiles.len().div_ceil(cols) as f32 * (th + gap) - gap));
         for (k, t) in h.tiles.iter().enumerate() {
             let r = Rect::new(x + (k % cols) as f32 * (tw + gap), y + (k / cols) as f32 * (th + gap), tw, th);

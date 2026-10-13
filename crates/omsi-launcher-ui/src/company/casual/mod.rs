@@ -150,6 +150,9 @@ pub(super) fn help(tab: usize) -> (&'static str, &'static str) {
     }
 }
 
+/// The widest a Casual page grows (in the middle beyond).
+const PAGE_W: f32 = 1240.0;
+
 /// What the Casual pages keep while they are open.
 #[derive(Default)]
 pub struct CasualView {
@@ -167,6 +170,8 @@ pub struct CasualView {
 
 /// A Casual page in the company's page area.
 pub(super) fn draw(l: &mut Launcher, body: Rect) {
+    let w = body.w.min(PAGE_W);
+    let body = if l.company.tab == HOME_TAB { body } else { Rect::new((body.x + (body.w - w) * 0.5).floor(), body.y, w, body.h) };
     match l.company.tab {
         BUSES => buses::page(l, body),
         SHOP => buses::shop(l, body),

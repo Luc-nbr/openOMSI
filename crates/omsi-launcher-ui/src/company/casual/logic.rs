@@ -136,8 +136,12 @@ pub(in super::super) fn day_sentence(c: &Company, plan: Option<&Plan>, now: i32)
     let road = on_the_road(plan, now);
     let first = tours.iter().map(|t| t.tour.from()).min().unwrap_or(0);
     let last = tours.iter().map(|t| t.tour.to()).max().unwrap_or(0);
-    if road >= n {
+    if road >= n && n == 1 {
+        Words::new("Your bus is on the road.")
+    } else if road >= n {
         Words::new("All %{n} buses are on the road.").with("n", n)
+    } else if road == 1 {
+        Words::new("1 of %{n} buses is on the road.").with("n", n)
     } else if road > 0 {
         Words::new("%{k} of %{n} buses are on the road.").with("k", road).with("n", n)
     } else if now < first {
@@ -152,7 +156,7 @@ pub(in super::super) fn day_sentence(c: &Company, plan: Option<&Plan>, now: i32)
 /// The deeds' words as a Casual player reads them (the roster's jargon left out).
 fn casual_deed(text: &str) -> &str {
     match text {
-        co::autopilot::ROSTER => "Every bus and driver got today's work: %{b} buses and %{d} shifts.",
+        co::autopilot::ROSTER => "Today's work is handed out. Shifts: %{d}, buses: %{b}.",
         co::autopilot::LINE_STARTED => "Line %{n} runs from now on.",
         co::autopilot::RENEWED => "Line %{n} stays yours: its licence is renewed for %{amount}, until %{date}.",
         co::autopilot::NOT_RENEWED => "Line %{n} could not be kept: its licence costs %{amount}, more than the cash.",
@@ -242,7 +246,7 @@ pub(in super::super) fn tiles(c: &Company, plan: Option<&Plan>, now: i32) -> Vec
     let drivers_under = if ds.is_empty() {
         Words::new("Hired for you at night")
     } else if short > 0 {
-        Words::new("%{n} shifts today without a driver").with("n", short)
+        Words::new(if short == 1 { "1 shift today without a driver" } else { "%{n} shifts today without a driver" }).with("n", short)
     } else {
         Words::new("Every shift has its driver")
     };
@@ -319,10 +323,10 @@ pub(in super::super) fn tips(c: &Company, plan: Option<&Plan>) -> Vec<Tip> {
     if let Some(p) = plan {
         let (no_bus, no_driver) = p.short_of();
         if n > 0 && no_bus > 0 {
-            out.push(tip("short-buses".into(), Words::new("%{n} of today's bus runs have no bus. Buy another bus.").with("n", no_bus), ("Buy a bus", "add", Act::BuyBus), true));
+            out.push(tip("short-buses".into(), Words::new(if no_bus == 1 { "1 of today's bus runs has no bus. Buy another bus." } else { "%{n} of today's bus runs have no bus. Buy another bus." }).with("n", no_bus), ("Buy a bus", "add", Act::BuyBus), true));
         }
         if no_driver > 0 {
-            out.push(tip("short-drivers".into(), Words::new("%{n} shifts today have no driver. The company hires tonight, or now.").with("n", no_driver), ("Hire now", "person", Act::HireNow), true));
+            out.push(tip("short-drivers".into(), Words::new(if no_driver == 1 { "1 shift today has no driver. The company hires tonight, or now." } else { "%{n} shifts today have no driver. The company hires tonight, or now." }).with("n", no_driver), ("Hire now", "person", Act::HireNow), true));
         }
     }
     // the depot full

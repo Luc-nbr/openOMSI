@@ -79,7 +79,7 @@ pub(super) fn card(ui: &mut Ui, r: Rect, c: &Company, s: &ShiftCard, k: usize) -
     let (bus, ok) = bus_words(c, s);
     ui.icon("directions_bus", Vec2::new(base.x + pad + 9.0, base.y + pad + 82.0), 16.0, if ok { TEXT_DIM } else { WARN });
     ui.text_in(&bus, Rect::new(base.x + pad + 24.0, base.y + pad + 71.0, base.w - 2.0 * pad - 24.0, 22.0), kit::NOTE, Weight::Regular, if ok { TEXT_SOFT } else { WARN }, Align::Left);
-    let trips = omsi_ui::tr("%{n} trips").replace("%{n}", &s.trips.to_string());
+    let trips = super::super::home::count_text(s.trips, "1 trip", "%{n} trips");
     ui.text_in(&trips, Rect::new(base.x + pad, base.y + pad + 96.0, base.w - 2.0 * pad, 20.0), kit::NOTE, Weight::Regular, TEXT_DIM, Align::Left);
     let b = Rect::new(base.x + pad, base.bottom() - pad - 40.0, base.w - 2.0 * pad, 40.0);
     let pressed = ui.button(&format!("company-casual-shift-go-{k}"), b, "Drive this shift", Some("play_arrow"), if s.mine() || k == 0 { ButtonKind::Primary } else { ButtonKind::Normal });

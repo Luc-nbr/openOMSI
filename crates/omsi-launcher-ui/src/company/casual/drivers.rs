@@ -92,7 +92,7 @@ pub(super) fn page(l: &mut Launcher, area: Rect) {
     let list: Vec<Employee> = logic::drivers(&c).into_iter().cloned().collect();
     let plan = l.company.plan.clone();
     let want = wanted(&c, plan.as_ref());
-    let sub = if want > 0 { omsi_ui::tr("%{n} drivers · %{m} more wanted: hired tonight, or now").replace("%{n}", &list.len().to_string()).replace("%{m}", &want.to_string()) } else { omsi_ui::tr("%{n} drivers · every shift has its driver").replace("%{n}", &list.len().to_string()) };
+    let sub = if want > 0 { super::super::home::count_text(list.len(), "1 driver · %{m} more wanted: hired tonight, or now", "%{n} drivers · %{m} more wanted: hired tonight, or now").replace("%{m}", &want.to_string()) } else { super::super::home::count_text(list.len(), "1 driver · every shift has its driver", "%{n} drivers · every shift has its driver") };
     let (body, hire) = super::page_head(l, area, super::DRIVERS, &sub, Some(("Hire automatically", "person")));
     if hire {
         hire_now(l);

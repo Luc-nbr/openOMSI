@@ -164,7 +164,7 @@ pub(super) fn company(l: &mut Launcher, area: Rect) {
     let phone = super::super::super::mobile::mobile() || body.w < 760.0;
     let w = body.w.min(1180.0);
     let cw = if phone { w } else { ((w - GAP) * 0.5).floor() };
-    let ch = 300.0;
+    let ch = 270.0;
     let livery_r = Rect::new(body.x, body.y, cw, ch);
     let depot_r = if phone { Rect::new(body.x, livery_r.bottom() + GAP, cw, ch) } else { Rect::new(livery_r.right() + GAP, body.y, cw, ch) };
     livery_card(l, livery_r, &c);
@@ -188,7 +188,7 @@ fn livery_card(l: &mut Launcher, r: Rect, c: &Company) {
         l.ui.p().rounded_border(sw, RADIUS, 1.0, EDGE);
     }
     let designs = c.designs.len();
-    let t = if designs == 0 { omsi_ui::tr("No livery of your own yet: your buses wear the maker's.").into_owned() } else { omsi_ui::tr("%{n} liveries of your own").replace("%{n}", &designs.to_string()) };
+    let t = if designs == 0 { omsi_ui::tr("No livery of your own yet: your buses wear the maker's.").into_owned() } else { super::super::home::count_text(designs, "1 livery of your own", "%{n} liveries of your own") };
     l.ui.text_in(&t, Rect::new(x + 120.0, y, w - 120.0, 44.0), kit::BODY, Weight::Medium, TEXT_SOFT, Align::Left);
     y += 64.0;
     l.ui.paragraph("Paint your buses in your company's own colours in the livery editor. A bus painted in it wears it in the game too.", Vec2::new(x, y), w, kit::NOTE + 0.5, Weight::Regular, TEXT_SOFT);

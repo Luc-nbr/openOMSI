@@ -340,7 +340,7 @@ fn the_day_is_said_in_one_sentence() {
     assert_eq!(logic::day_sentence(&c, Some(&plan), 0).key, "The buses are still in the depot: the first leaves at %{time}.");
     // at 07:00 both buses drive (three tours from 06:00, two of them with a bus)
     let s = logic::day_sentence(&c, Some(&plan), 7 * 60);
-    assert!(s.key == "All %{n} buses are on the road." || s.key == "%{k} of %{n} buses are on the road.", "{s:?}");
+    assert!(["All %{n} buses are on the road.", "%{k} of %{n} buses are on the road.", "1 of %{n} buses is on the road."].contains(&s.key), "{s:?}");
     assert_eq!(logic::day_sentence(&c, Some(&plan), 23 * 60).key, "The day's work is done: every bus is back in the depot.");
 }
 

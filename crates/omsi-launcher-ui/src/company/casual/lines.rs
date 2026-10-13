@@ -33,7 +33,7 @@ pub(in super::super) struct Wizard {
 /// The lines page.
 pub(super) fn page(l: &mut Launcher, area: Rect) {
     let Some(c) = l.company.company.clone() else { return };
-    let sub = omsi_ui::tr("%{n} lines · their timetables, shifts and drivers run by themselves").replace("%{n}", &c.lines.len().to_string());
+    let sub = super::super::home::count_text(c.lines.len(), "1 line · its timetable, shifts and drivers run by themselves", "%{n} lines · their timetables, shifts and drivers run by themselves");
     let (body, add) = super::page_head(l, area, super::LINES, &sub, Some(("Add a line", "alt_route")));
     if add {
         super::run(l, super::Act::AddLine);
@@ -49,7 +49,7 @@ pub(super) fn page(l: &mut Launcher, area: Rect) {
     let phone = super::super::super::mobile::mobile() || body.w < 640.0;
     let cols = if phone { 1 } else if body.w >= 1100.0 { 3 } else { 2 };
     let cw = ((body.w - 12.0 - GAP * (cols as f32 - 1.0)) / cols as f32).floor();
-    let ch = 210.0;
+    let ch = 186.0;
     let focus = l.company.casual.focus.clone();
     let lines = c.lines.clone();
     let mut set: Option<(String, i64)> = None;
@@ -87,7 +87,7 @@ fn line_card(ui: &mut Ui, r: Rect, c: &Company, plan: Option<&co::day::Plan>, li
     ui.text_in(line.public_name(), Rect::new(x + pw + 12.0, r.y + pad, w - pw - 12.0, 30.0), 16.5, Weight::Bold, TEXT, Align::Left);
     let buses = plan.map(|p| logic::buses_on_line(p, &line.name)).unwrap_or(0);
     let pax = logic::week_passengers(c, &line.name);
-    let facts = [("directions_bus", omsi_ui::tr("%{n} buses today").replace("%{n}", &buses.to_string())), ("groups", omsi_ui::tr("%{n} passengers this week").replace("%{n}", &super::super::grouped(pax as f64)))];
+    let facts = [("directions_bus", super::super::home::count_text(buses, "1 bus today", "%{n} buses today")), ("groups", omsi_ui::tr("%{n} passengers this week").replace("%{n}", &super::super::grouped(pax as f64)))];
     let mut fx = x;
     for (ic, t) in facts {
         ui.icon(ic, Vec2::new(fx + 8.0, r.y + pad + 52.0), 16.0, TEXT_DIM);
@@ -257,8 +257,8 @@ fn pick_step(l: &mut Launcher, room: Rect, c: &Company, all: &[core::LineInfo], 
         .map(|x| {
             let runs = x.tours.iter().filter(|t| t.runs).count();
             let often = match logic::map_headway(x) {
-                Some(h) => omsi_ui::tr("%{n} buses out today · about every %{m} minutes").replace("%{n}", &runs.to_string()).replace("%{m}", &format!("{:.0}", (h / 5.0).round().max(1.0) * 5.0)),
-                None => omsi_ui::tr("%{n} buses out today").replace("%{n}", &runs.to_string()),
+                Some(h) => super::super::home::count_text(runs, "1 bus out today · about every %{m} minutes", "%{n} buses out today · about every %{m} minutes").replace("%{m}", &format!("{:.0}", (h / 5.0).round().max(1.0) * 5.0)),
+                None => super::super::home::count_text(runs, "1 bus out today", "%{n} buses out today"),
             };
             let caption = co::specials::caption_of(x, &[&depot]);
             (x.name.clone(), co::specials::number_of(x, &[&depot]), caption, often)
@@ -280,7 +280,7 @@ fn pick_step(l: &mut Launcher, room: Rect, c: &Company, all: &[core::LineInfo], 
                 continue;
             }
             let (name, number, caption, often) = &rows[k - 1];
-            let text = format!("{often}\n{caption}");
+            let text = often.clone();
             if choice(ui, r, &format!("company-casual-pick-{name}"), "route", caption, &text, picked == Some(&Pick::Map(name.clone())), Some((number, ""))) {
                 out = Some(Pick::Map(name.clone()));
             }
