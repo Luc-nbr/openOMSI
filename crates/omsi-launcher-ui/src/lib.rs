@@ -461,6 +461,12 @@ impl Launcher {
         if p.split(':').nth(1).is_some_and(|x| x.trim().eq_ignore_ascii_case("choose")) {
             app.company.chooser = Some(Default::default());
         }
+        // (the desktop launcher hands a page of a company over: "bus company:<page>:<id>" opens
+        // that company, "bus company:tour:<id>" its tour)
+        if p.split(':').next().is_some_and(|x| x.trim().eq_ignore_ascii_case("bus company")) {
+            app.company.want = p.splitn(3, ':').nth(2).map(|x| x.trim().to_string()).filter(|x| !x.is_empty());
+            app.company.tour_wanted = p.split(':').nth(1).is_some_and(|x| x.trim().eq_ignore_ascii_case("tour"));
+        }
     }
     // (`OMSI_LAUNCHER_LIVERY=<bus file>`: the livery studio at once)
     livery::from_env(&mut app);

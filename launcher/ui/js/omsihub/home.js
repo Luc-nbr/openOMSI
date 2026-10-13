@@ -11,6 +11,7 @@ import { Icon, tr, hoursText } from './bits.js';
 import { LOGO_SVG } from './logo.js';
 import { go } from './hub.js';
 import { goStep } from './flow.js';
+import { enterCompany } from './company/company.js';
 
 /** The ways to drive (kinds: 0 a tour, 1 a shift, 2 free, 4 the bus company), as the tiles
  * say them. */
@@ -45,7 +46,7 @@ const current = (c) => (c.free ? 2 : c.composed ? 1 : 0);
 
 function pick(kind) {
   if (kind === 4) {
-    handOver('bus company', 'The bus company opens in our own launcher for now.');
+    enterCompany();
     return;
   }
   choose({ free: kind === 2, composed: kind === 1 });

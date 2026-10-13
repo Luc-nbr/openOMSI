@@ -129,6 +129,16 @@ pub fn rail_item(tab: usize) -> Value {
     json!({ "tab": tab, "icon": icon(tab), "name": tr(name(tab)), "tip": tr(name(tab)), "badge": null, "away": false })
 }
 
+/// Every Casual page as the strip under the bar and its crumbs say it (the home as 100): its
+/// name, icon and the page above it; and what the strip says on the home.
+pub fn pages_json(company: &str) -> Value {
+    let mut pages = serde_json::Map::new();
+    for tab in std::iter::once(HOME_TAB).chain(ALL) {
+        pages.insert(tab.to_string(), json!({ "name": tr(name(tab)), "icon": icon(tab), "parent": parent(tab) }));
+    }
+    json!({ "pages": pages, "home": trf("%{name} · Casual", &[("name", company)]) })
+}
+
 /// A click of the Casual pages as the page carries it out.
 fn act_json(a: &Act) -> Value {
     match a {

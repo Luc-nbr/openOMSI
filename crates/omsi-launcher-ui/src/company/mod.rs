@@ -233,6 +233,12 @@ pub struct CompanyView {
     /// editor's id, the company's day): they keep waiting, tried again the next day or when
     /// the timetable is written (`changes_due`).
     unwritten: Vec<(String, u64, String)>,
+    /// The company the launcher was started on (`OMSI_LAUNCHER_PAGE` "bus company:<page>:<id>",
+    /// the desktop launcher handing one of its pages over): opened when the companies are read.
+    pub(crate) want: Option<String>,
+    /// The company's tour asked for at the start ("bus company:tour:<id>"): started once the
+    /// company is open.
+    pub(crate) tour_wanted: bool,
 }
 
 impl Default for CompanyView {
@@ -279,6 +285,8 @@ impl Default for CompanyView {
             tutorial_for: None,
             refill: Vec::new(),
             unwritten: Vec::new(),
+            want: None,
+            tour_wanted: false,
         }
     }
 }
@@ -563,9 +571,14 @@ fn work(l: &mut Launcher) {
         match m {
             Msg::Companies(p, list) => {
                 if p == profile {
-                    // (the one open stays open; else the first)
+                    // (the one open stays open; else the one the launcher was started on, else
+                    // the first)
                     let keep = view.company.as_ref().map(|c| c.id.clone());
-                    view.company = keep.and_then(|id| list.iter().find(|c| c.id == id).cloned()).or_else(|| list.first().cloned());
+                    let want = view.want.take();
+                    view.company = keep
+                        .and_then(|id| list.iter().find(|c| c.id == id).cloned())
+                        .or_else(|| want.and_then(|id| list.iter().find(|c| c.id == id).cloned()))
+                        .or_else(|| list.first().cloned());
                     view.companies = Some(list);
                     view.plan = None;
                 }
@@ -1132,6 +1145,11 @@ pub fn screen(l: &mut Launcher) {
         super::tour::anchor("company-page", body);
         pages(l, body);
         back_home(l, esc);
+        // (the tour the desktop launcher's "?" asked for)
+        if l.company.tour_wanted {
+            l.company.tour_wanted = false;
+            tutorial::ask(l);
+        }
     }
     // the first time: the company's welcome and tour (`tutorial`) - once a company is open
     if saved.is_none() && !choosing {

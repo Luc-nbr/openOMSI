@@ -332,7 +332,7 @@ flags! {
     OMSI_LAUNCHER_INPUT: Text, Test, Use, "-", "Scripted launcher input (\"t=2 click 400,300; ...\"). Removed from the game's environment by the updater.";
     OMSI_LAUNCHER_INTRO: Text, Test, Use, "-", "Launcher: off skips the opening animation (pictures, tests).";
     OMSI_LAUNCHER_LIVERY: Text, Test, Use, "-", "Launcher: open the livery studio on this bus.";
-    OMSI_LAUNCHER_PAGE: Text, Test, Use, "-", "Launcher: open this page (e.g. mods, drive:N; the desktop launcher in Omsi-Hub's look also drive:map, drive:bus:chosen); the desktop launcher hands the bus company over with it.";
+    OMSI_LAUNCHER_PAGE: Text, Test, Use, "-", "Launcher: open this page (e.g. mods, drive:N; the desktop launcher in Omsi-Hub's look also drive:map, drive:bus:chosen); the desktop launcher hands a page of the bus company over with it (bus company:<page>:<company>, bus company:tour:<company>).";
     OMSI_LAUNCHER_SHOT: Text, Test, Use, "-", "Launcher: secs:file.png - the window's picture into a file.";
     OMSI_LAUNCHER_SIZE: Text, Test, Use, "-", "Launcher: WxH window size (the desktop launcher's too).";
     OMSI_LAUNCHER_SLOW: Num, Test, Use, "-", "Launcher: the animations this many times slower (to look at them).";

@@ -1028,6 +1028,7 @@ fn shell(s: &mut Session) -> Value {
         "gen": s.generation,
         "notices": base["notices"],
         "popup": base["popup"],
+        "companies": base["companies"],
         "id": c.id, "name": c.name, "mark": mark_json(&c), "mode": mode_json(c.game_mode), "home": home_of(&c),
         "status": status, "clock": head, "rail": rail, "pages": pages,
         "names": TABS.iter().map(|t| tr(t)).collect::<Vec<_>>(),
@@ -1035,6 +1036,8 @@ fn shell(s: &mut Session) -> Value {
         "asking": c.clock.ask.is_some(),
         "reports": s.reports.is_some(), "away": s.clock.away.is_some(),
         "launch": s.launch.is_some(),
+        "sheet": s.dealer.sheet.is_some(),
+        "casual_pages": if casual { casual::pages_json(&c.name) } else { Value::Null },
         "today_read": s.map_lines().is_some(),
     })
 }
