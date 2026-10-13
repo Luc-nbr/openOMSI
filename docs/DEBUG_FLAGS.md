@@ -261,6 +261,7 @@ effect. On Android, `openOMSI/env.txt` holds `NAME=value` lines that are set bef
 | `OMSI_TRIGGER_ALL` | bool | off | use | app | Check: fire every [mouseevent] of the model and compare the variables before and after. |
 | `OMSI_TRIP_REPORT_PREVIEW` | text | - | test | app | Tests: a picture of the trip's report. |
 | `OMSI_UI_PREVIEW` | text | target/ui-preview.png | use | app, plugin-ui | Plugin UI preview test: the picture's path. |
+| `OMSI_VEHICLES` | text | - | test | launcher-core | Tests: a game's Vehicles folder the ignored bus-category survey reads (only read). |
 | `OMSI_WARM_FRAMES` | num | 0 | use | app | Offscreen: frames drawn before the picture. |
 | `OMSI_WETNESS` | num | weather | use | app, scene | Ground wetness the picture is drawn with. |
 
