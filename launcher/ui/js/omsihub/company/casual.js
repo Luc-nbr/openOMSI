@@ -87,14 +87,14 @@ function Home({ v }) {
           <span class="ring"><${Icon} name="play_arrow" size=${37} /></span><b>${v.drive}</b><span>${v.drive_sub}</span></button>
       </div>
       <div class="tiles" style=${`grid-template-columns:repeat(4, ${tw}px)`}>
-        ${v.tiles.map((t) => html`<div class="co-tile tile" onClick=${() => setCo({ tab: t.page })} data-page=${t.page}>
+        ${v.tiles.map((t) => html`<div class="co-tile ctile" onClick=${() => setCo({ tab: t.page })} data-page=${t.page}>
           <div class="name"><span class="mark"><${Icon} name=${t.icon} size=${19} /></span><b class="cut">${t.name}</b></div>
           <div class=${'big t-' + t.tone}>${t.big}</div>
           <div class="under cut" title=${t.under}>${t.under}</div>
           <span onClick=${(e) => e.stopPropagation()}><${Btn} icon=${t.action.icon} label=${t.action.label} style="width:100%;height:36px" onClick=${() => run(t.action.act)} /></span>
         </div>`)}
       </div>
-      <div class="co-caps" style="margin:8px 0 12px">${v.tips_caps}</div>
+      <div class="co-caps" style="margin:26px 0 12px">${v.tips_caps}</div>
       ${v.tips.length
         ? v.tips.map((t) => html`<div class=${'tip' + (t.warn ? ' warn' : '')}>
             <${Icon} name=${t.warn ? 'warning' : 'light'} size=${19} class="ic" />
@@ -131,7 +131,7 @@ function Buses({ v }) {
         return html`<${BusTile} name=${b.name} file=${b.file} paint=${b.livery} r=${r} onClick=${() => setCo({ dialog: { kind: 'vehicle', id: b.id } })} attrs=${{ 'data-bus': b.id }}
           over=${html`<span class="numb" style=${`width:${textW(b.number, 15, 900) + 20}px`}>${b.number}</span>`}>
           <b class="cut" style="font-size:12.7px">${b.name}</b><span class="sub cut">${b.age}</span>
-          <div style="margin-top:8px"><${Meter} frac=${b.cond} tone=${b.cond_tone} h=${8} /></div>
+          <div style="margin-top:8px"><${Meter} frac=${b.cond} tone=${b.cond_tone} h=${8} field /></div>
           <span class="casualstate"><span class="cut">${b.word}</span><b class=${'t-' + b.tone}>${b.doing}</b></span>
         </${BusTile}>`;
       })}
@@ -309,7 +309,7 @@ function Company({ v }) {
       <div class="title"><${Icon} name="garage" size=${24} class="t-accent2" /><b>${d.title}</b></div>
       <span class="co-para" style="color:var(--hub-text-soft);font-weight:500">${d.name}</span>
       <b class="used">${d.used}</b>
-      <${Meter} frac=${d.frac} tone=${d.tone} h=${10} />
+      <${Meter} frac=${d.frac} tone=${d.tone} h=${10} field />
       ${s.building && html`<p class="co-note t-accent2" style="margin-top:14px;font-size:10.75px;font-weight:500">${s.building}</p>`}
       ${s.next && html`<p class="co-note" style="margin-top:14px;font-size:10.75px">${s.next}</p>`}
       ${s.max && html`<p class="co-note" style="margin-top:14px;font-size:10.75px">${s.max}</p>`}

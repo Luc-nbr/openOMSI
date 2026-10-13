@@ -196,7 +196,7 @@ button.co-pill.casual:hover { background: rgba(var(--hub-accent-rgb), var(--ac-2
 .co-nav > .co-btn { height: 40px; min-width: 120px; padding: 0 20px; flex: none; }
 .co-nav .where { display: flex; align-items: center; min-width: 0; margin-left: 9px; flex: 1; gap: 0; color: var(--hub-text-dim); }
 .co-nav .where .home { margin-left: 9px; font-size: var(--co-body); color: var(--hub-text-dim); }
-.co-nav .where .page { display: flex; align-items: center; gap: 6px; margin-left: 6px; font-size: 13.8px; font-weight: 700; color: var(--hub-text); }
+.co-nav .where .page { flex: none; padding: 0; overflow: hidden; display: flex; align-items: center; gap: 6px; margin-left: 6px; font-size: 13.8px; font-weight: 700; color: var(--hub-text); }
 .co-nav .where .page .hub-icon { color: var(--co-accent2); }
 .co-nav .where .crumb { font-size: 13.8px; font-weight: 700; color: var(--hub-text-dim); background: none; padding: 0 4px; margin: 0 6px 0 0; cursor: pointer; white-space: nowrap; }
 .co-nav .where .crumb.last { color: var(--hub-text); cursor: default; }
@@ -341,7 +341,8 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 .co-choose .head p { font-size: var(--co-body); color: var(--hub-text-soft); line-height: 22px; margin-top: 6px; }
 .co-choose .head { margin-bottom: 30px; }
 .co-modes { display: flex; justify-content: center; gap: 24px; }
-.co-mode { width: min(380px, calc(50% - 12px)); height: 250px; padding: 26px; }
+/* (flex columns: a button centres what it holds - the one to choose sat lower than the other) */
+.co-mode { width: min(380px, calc(50% - 12px)); height: 250px; padding: 26px; display: flex; flex-direction: column; justify-content: flex-start; align-items: stretch; }
 .co-mode .mark { width: 56px; height: 56px; border-radius: var(--hub-r); background: rgba(var(--hub-accent-rgb), var(--ac-14)); color: var(--co-accent2); display: flex; align-items: center; justify-content: center; transition: background 0.1s, color 0.1s; }
 .co-mode:hover:not(.still) .mark { background: var(--hub-accent); color: var(--hub-on-accent); }
 .co-mode h3 { font-size: 16.9px; font-weight: 700; line-height: 30px; margin-top: 18px; }
@@ -352,7 +353,7 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 .co-mode.still .foot { color: var(--hub-text-dim); }
 .co-mode .later { position: absolute; right: 22px; top: 22px; height: 26px; border-radius: 13px; padding: 0 11px; display: flex; align-items: center; font-size: 9.2px; font-weight: 700; background: rgba(var(--co-warn-fill), var(--ac-18)); color: var(--co-warn); }
 .co-companies { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; max-width: calc(4 * 300px + 3 * 16px); margin: 0 auto; padding-bottom: 20px; }
-.co-company { width: 300px; height: 176px; padding: 22px 20px 0; }
+.co-company { width: 300px; height: 176px; padding: 22px 20px 0; display: flex; flex-direction: column; justify-content: flex-start; align-items: stretch; }
 .co-company .top { display: flex; align-items: flex-start; gap: 14px; height: 56px; }
 .co-company .top .side { display: flex; flex-direction: column; justify-content: center; gap: 9px; min-width: 0; height: 56px; }
 .co-company .clockline { display: flex; align-items: center; gap: 7px; font-size: var(--co-note); font-weight: 500; white-space: nowrap; }
@@ -1011,13 +1012,14 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 .co-casual-home .drive b { position: absolute; left: 26px; right: 26px; top: 120px; font-size: 19.95px; line-height: 34px; }
 .co-casual-home .drive > span:last-child { position: absolute; left: 26px; right: 26px; top: 160px; font-size: var(--co-body); font-weight: 500; opacity: 0.85; line-height: 1.8; }
 .co-casual-home .tiles { display: grid; gap: 16px; margin: 20px 0 8px; }
-.co-casual-home .tile { height: 180px; padding: 18px; display: flex; flex-direction: column; }
-.co-casual-home .tile .name { display: flex; align-items: center; gap: 10px; height: 34px; }
-.co-casual-home .tile .name b { font-size: 12.3px; }
-.co-casual-home .tile .mark { width: 34px; height: 34px; border-radius: var(--hub-r); background: rgba(var(--hub-accent-rgb), var(--ac-14)); color: var(--co-accent2); display: flex; align-items: center; justify-content: center; flex: none; transition: background 0.1s, color 0.1s; }
-.co-casual-home .tile:hover .mark { background: var(--hub-accent); color: var(--hub-on-accent); }
-.co-casual-home .tile .big { font-size: 26px; font-weight: 700; line-height: 34px; margin-top: 12px; }
-.co-casual-home .tile .under { font-size: var(--co-note); color: var(--hub-text-soft); line-height: 20px; margin-top: 4px; margin-bottom: auto; }
+/* (ctile: upstream's and the hub's .tile is the bus step's, on the field) */
+.co-casual-home .ctile { height: 180px; padding: 18px; display: flex; flex-direction: column; }
+.co-casual-home .ctile .name { display: flex; align-items: center; gap: 10px; height: 34px; }
+.co-casual-home .ctile .name b { font-size: 12.3px; }
+.co-casual-home .ctile .mark { width: 34px; height: 34px; border-radius: var(--hub-r); background: rgba(var(--hub-accent-rgb), var(--ac-14)); color: var(--co-accent2); display: flex; align-items: center; justify-content: center; flex: none; transition: background 0.1s, color 0.1s; }
+.co-casual-home .ctile:hover .mark { background: var(--hub-accent); color: var(--hub-on-accent); }
+.co-casual-home .ctile .big { font-size: 26px; font-weight: 700; line-height: 34px; margin-top: 12px; }
+.co-casual-home .ctile .under { font-size: var(--co-note); color: var(--hub-text-soft); line-height: 20px; margin-top: 4px; margin-bottom: auto; }
 .co-casual-home .tip, .co-casual-money .tip { position: relative; display: flex; align-items: center; gap: 14px; height: 56px; padding: 0 12px 0 16px; border-radius: var(--hub-r); background: color-mix(in srgb, var(--co-accent2) calc(var(--ac-09) * 100%), transparent); margin-bottom: 8px; font-size: var(--co-body); font-weight: 500; }
 .co-casual-home .tip::before, .co-casual-money .tip::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 2px; background: var(--co-accent2); }
 .co-casual-home .tip .ic, .co-casual-money .tip .ic { color: var(--co-accent2); margin-left: 2px; }

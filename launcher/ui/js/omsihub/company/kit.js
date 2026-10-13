@@ -301,10 +301,11 @@ export function Figure({ f, small }) {
   </div>`;
 }
 
-/** A thin bar of 0..1 in a tone's colour. */
-export function Meter({ frac, tone = 'accent', h = 6, style = '' }) {
+/** A thin bar of 0..1 in a tone's colour, on a see-through track (`field`: on the field's grey,
+ * as Casual's bars are drawn). */
+export function Meter({ frac, tone = 'accent', h = 6, style = '', field = false }) {
   const w = Math.max(0, Math.min(1, Number(frac) || 0)) * 100;
-  return html`<div class="co-meter" style=${`height:${h}px;border-radius:${h / 2}px;${style}`}><i style=${`width:${w}%;background:${fill(tone)}`}></i></div>`;
+  return html`<div class="co-meter" style=${`height:${h}px;border-radius:${h / 2}px;${field ? 'background:var(--hub-field);' : ''}${style}`}><i style=${`width:${w}%;background:${fill(tone)}`}></i></div>`;
 }
 
 /** A tone as a fill. */
