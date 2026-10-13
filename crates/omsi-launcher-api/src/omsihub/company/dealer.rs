@@ -148,14 +148,15 @@ pub fn listings(s: &mut Session) -> Option<Arc<Vec<Listing>>> {
         s.dealer.busy = true;
         std::thread::spawn(move || {
             let fam = families(&vehicles);
-            let list: Vec<Listing> = market
-                .iter()
-                .filter_map(|b| {
-                    let v = vehicles.iter().find(|v| v.file == b.file)?;
-                    let family = fam.get(&b.file).cloned().unwrap_or_else(|| (v.manufacturer.clone(), b.name.clone(), String::new()));
-                    Some(dl::listing_of(b.clone(), family, &dl::read_specs(&b.file)))
-                })
-                .collect();
+            // (each bus's cabin read on several threads: a few hundred bus files)
+            let list: Vec<Listing> = super::par_map(&market, |b| {
+                let v = vehicles.iter().find(|v| v.file == b.file)?;
+                let family = fam.get(&b.file).cloned().unwrap_or_else(|| (v.manufacturer.clone(), b.name.clone(), String::new()));
+                Some(dl::listing_of(b.clone(), family, &dl::read_specs(&b.file)))
+            })
+            .into_iter()
+            .flatten()
+            .collect();
             let mut s = super::session().lock().unwrap_or_else(|e| e.into_inner());
             s.dealer.listings = Some(Arc::new(list));
             s.dealer.busy = false;
@@ -689,7 +690,7 @@ pub fn sheet_view(s: &mut Session, _ui: &Value) -> Value {
             }
             v
         }
-        Sheet::Talk { talk, listing, offer, livery: _, said } => {
+        Sheet::Talk { talk, listing, offer, livery, said } => {
             let seller = offer.as_ref().map(|o| o.seller.clone()).unwrap_or_else(|| dl::dealer_name(&listing.maker));
             let what = if talk.quote.count > 1 { format!("{} × {}", talk.quote.count, listing.bus.name) } else { listing.bus.name.clone() };
             let off = talk.discount();
@@ -717,7 +718,7 @@ pub fn sheet_view(s: &mut Session, _ui: &Value) -> Value {
                 })
             });
             json!({
-                "kind": "talk", "icon": "forum", "title": trf("Talking to %{who}", &[("who", &seller)]), "file": listing.bus.file, "name": listing.bus.name,
+                "kind": "talk", "icon": "forum", "title": trf("Talking to %{who}", &[("who", &seller)]), "file": listing.bus.file, "paint": livery, "name": listing.bus.name,
                 "what": what, "first": row(tr("Asked at first"), eur(talk.quote.list), false),
                 "asks_caps": tr("He asks now").to_uppercase(), "asking": eur(talk.asking), "agreed": talk.agreed,
                 "off": (off >= 0.001).then(|| format!("−{} %", num(off * 100.0, 1))),

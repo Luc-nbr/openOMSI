@@ -29,6 +29,7 @@ mod lines;
 mod money;
 mod overview;
 mod people;
+mod photos;
 mod portraits;
 pub mod words;
 
@@ -358,7 +359,7 @@ impl Session {
         self.market_busy = true;
         self.market_for = Some(n);
         std::thread::spawn(move || {
-            let list = co::market::market_of(&vehicles);
+            let list = market_of(&vehicles);
             let mut s = session().lock().unwrap_or_else(|e| e.into_inner());
             s.market = Some(Arc::new(list));
             s.market_busy = false;
@@ -1119,6 +1120,29 @@ fn arg<T: serde::de::DeserializeOwned>(args: &Value, name: &str) -> Result<T, St
     serde_json::from_value(args.get(name).cloned().unwrap_or(Value::Null)).map_err(|e| format!("{name}: {e}"))
 }
 
+/// `f` over `items` on as many threads as the computer has, in their order: the market and the
+/// showroom read a few hundred bus files, one after the other a good twenty seconds on a page
+/// that says the dealer is setting out the buses.
+pub(crate) fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+    let n = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(1, 8);
+    let chunk = items.len().div_ceil(n).max(1);
+    let f = &f;
+    std::thread::scope(|sc| {
+        let parts: Vec<_> = items.chunks(chunk).map(|part| sc.spawn(move || part.iter().map(f).collect::<Vec<R>>())).collect();
+        parts.into_iter().flat_map(|h| h.join().unwrap_or_else(|e| std::panic::resume_unwind(e))).collect()
+    })
+}
+
+/// The market's buses (`market::market_of`, its bus files read on several threads).
+fn market_of(vehicles: &[core::VehicleInfo]) -> Vec<MarketBus> {
+    let chunk = vehicles.len().div_ceil(8).max(1);
+    let parts: Vec<&[core::VehicleInfo]> = vehicles.chunks(chunk).collect();
+    let mut out: Vec<MarketBus> = par_map(&parts, |p| co::market::market_of(p)).concat();
+    // (sorted as `market_of` sorts - a stable sort of the buses in their order - so the same list)
+    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out
+}
+
 fn str_arg(args: &Value, name: &str) -> String {
     args.get(name).and_then(Value::as_str).unwrap_or("").to_string()
 }
@@ -1148,13 +1172,15 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
 }
 
 /// A command of the bus company that answers bytes: a staff portrait's JPEG (`co_portrait`, `n`
-/// 1 to 300). None when `cmd` is not one.
+/// 1 to 300), a bus's photo as the game-drawn launcher took it (`co_photo`, `bus` and `livery`).
+/// None when `cmd` is not one.
 pub fn call_bytes(cmd: &str, args: &Value) -> Option<Result<Vec<u8>, String>> {
     match cmd {
         "co_portrait" => {
             let n = args.get("n").and_then(Value::as_u64).unwrap_or(0) as u32;
             Some(portraits::jpeg(n).map(<[u8]>::to_vec).ok_or_else(|| format!("no portrait {n}")))
         }
+        "co_photo" => Some(photos::png(&str_arg(args, "bus"), &str_arg(args, "livery"))),
         _ => None,
     }
 }
@@ -1332,6 +1358,16 @@ pub fn feed_tone(level: Level) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn work_on_several_threads_keeps_its_order() {
+        let items: Vec<u32> = (0..1000).collect();
+        assert_eq!(par_map(&items, |x| x * 2), items.iter().map(|x| x * 2).collect::<Vec<_>>());
+        assert!(par_map(&[] as &[u32], |x| *x).is_empty());
+        assert_eq!(par_map(&[7u32], |x| x + 1), vec![8]);
+        // (the market of no bus is no bus)
+        assert!(market_of(&[]).is_empty());
+    }
 
     #[test]
     fn the_pages_are_the_game_drawn_launchers() {

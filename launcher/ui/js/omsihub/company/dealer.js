@@ -8,7 +8,7 @@
 import { S } from '../../store.js';
 import { start } from '../../data.js';
 import { html, useEffect, useRef, useState, tr, setCo, setUi, ui, act, useView, useSize, textW, Icon, Btn, Seg, Chips, Select, Dialog, Meter, Slider, Crumbs, T } from './kit.js';
-import { layout, BusTile, PriceRow, initials } from './fleet.js';
+import { layout, BusTile, PriceRow, Photo } from './fleet.js';
 import { Bar } from './overview.js';
 
 const PRICE_ANY = 1000;
@@ -67,7 +67,7 @@ function Showroom({ s, st }) {
               ${size.w > 0 &&
               s.cards.map((card, k) => {
                 const r = { x: (k % L.cols) * (L.tw + gap), y: Math.floor(k / L.cols) * (L.th + gap), w: L.tw, h: L.th };
-                return html`<${BusTile} name=${card.name} r=${r} onClick=${() => open(card)} attrs=${{ 'data-card': card.key }}
+                return html`<${BusTile} name=${card.name} file=${card.file} r=${r} onClick=${() => open(card)} attrs=${{ 'data-card': card.key }}
                   over=${card.badge && html`<span class=${'co-tilebadge t-' + card.badge[1]}>${card.badge[0]}</span>`}>
                   <b class="cut">${card.title}</b><span class="sub cut" style="font-size:10.75px;height:26px;line-height:22px">${card.sub}</span>
                   <span class="price">${card.price}</span>
@@ -92,7 +92,7 @@ function Offers({ o }) {
             ${size.w > 0 &&
             o.cards.map((card, k) => {
               const r = { x: (k % L.cols) * (L.tw + gap), y: Math.floor(k / L.cols) * (L.th + gap), w: L.tw, h: L.th };
-              return html`<${BusTile} name=${card.name} r=${r} onClick=${() => act('open_offer', { id: card.id })} attrs=${{ 'data-offer': card.id }}
+              return html`<${BusTile} name=${card.name} file=${card.file} r=${r} onClick=${() => act('open_offer', { id: card.id })} attrs=${{ 'data-offer': card.id }}
                 over=${card.badge && html`<span class="co-tilebadge t-accent">${card.badge}</span>`}>
                 <b class="cut">${card.name}</b><span class="sub cut">${card.line}</span>
                 <span class="offerprice"><span class="price">${card.price}</span>${card.saving && html`<span class="t-ok save">${card.saving}</span>`}
@@ -150,7 +150,7 @@ export function DealerSheet() {
 function Side({ v, sheet, w = 290 }) {
   const k = Math.max(0, v.livery.options.findIndex(([p]) => p === v.livery.value));
   return html`<div class="co-busside" style=${`width:${w}px`}>
-    <span class="photo" style=${`width:${w}px;height:${w * 0.62}px`}><span class="mono">${initials(v.name)}</span></span>
+    <${Photo} file=${v.file} paint=${v.livery.value} name=${v.name} style=${`width:${w}px;height:${w * 0.62}px`} />
     <div class="kind">${v.bus_kind}</div>
     <label class="co-label" style="margin-top:10px">${v.livery.label}</label>
     <${Select} value=${k} options=${v.livery.options.map(([, l]) => l)} onChange=${(i) => sheet('set', { livery: v.livery.options[i][0] })} style="margin-top:4px" />
@@ -210,7 +210,7 @@ function TalkSheet({ v, sheet, close }) {
   return html`<${Dialog} icon=${v.icon} title=${v.title} w=${1180} h=${820} onClose=${close} foot=${foot} bodyStyle="overflow:hidden">
     <div style=${`display:grid;grid-template-columns:${lw}px minmax(0,1fr);gap:28px;height:100%`}>
       <div class="co-talkside">
-        <span class="photo" style=${`height:${lw * 0.52}px`}></span>
+        <${Photo} file=${v.file} paint=${v.paint} name=${v.name} mono=${false} style=${`height:${lw * 0.52}px`} />
         <b class="what">${v.what}</b>
         <${PriceRow} r=${v.first} h=${33} />
         <div class="co-caps" style="margin-top:9px">${v.asks_caps}</div>

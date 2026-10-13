@@ -4,7 +4,7 @@
 // livery, what it is, selling or giving it back, a service, training its drivers), and leasing
 // or renting one of the dealer's buses.
 
-import { html, useState, tr, setCo, setUi, ui, act, useView, useSize, textW, goTab, Icon, Btn, Seg, Section, Meter, Dialog, Select } from './kit.js';
+import { html, useEffect, useState, tr, setCo, setUi, ui, act, useView, useSize, textW, goTab, Icon, Btn, Seg, Section, Meter, Dialog, Select } from './kit.js';
 import { DealerPage } from './dealer.js';
 
 export function FleetPage() {
@@ -38,12 +38,48 @@ export const initials = (name) =>
     .map((w) => w[0].toUpperCase())
     .join('');
 
-/** A bus's tile (`fleet::tile`): its photo's place (the bus's initials on the night's
- * gradient) and the room under it. */
-export function BusTile({ name, r, onClick, children, over, attrs = {} }) {
+/** The buses' photos asked for (`file|paint`): the PNG the game-drawn launcher took
+ * (`co_photo`, `busphoto.rs`) as a blob URL, or null. One not there is asked for again after
+ * half a minute: the game-drawn launcher may have taken it meanwhile. */
+const photos = new Map();
+
+function photo(file, paint) {
+  if (!file) return Promise.resolve(null);
+  const key = `${file}|${paint || ''}`;
+  const had = photos.get(key);
+  if (had && (had.ok || Date.now() - had.at < 30000)) return had.p;
+  const tauri = window.__TAURI__;
+  const e = { at: Date.now(), ok: false };
+  e.p = tauri
+    ? tauri.core
+        .invoke('call_bytes', { cmd: 'co_photo', args: { bus: file, livery: paint || '' } })
+        .then((b) => ((e.ok = true), URL.createObjectURL(new Blob([b], { type: 'image/png' }))))
+        .catch(() => null)
+    : Promise.resolve(null);
+  photos.set(key, e);
+  return e.p;
+}
+
+/** A bus's photo (`photos().get` drawn with `image_cover`): the bus's initials on the night's
+ * gradient until it is there, or when the game-drawn launcher never took it. */
+export function Photo({ file, paint, name, style = '', mono = true }) {
+  const [src, setSrc] = useState(null);
+  useEffect(() => {
+    let gone = false;
+    photo(file, paint).then((u) => !gone && setSrc(u));
+    return () => {
+      gone = true;
+    };
+  }, [file, paint]);
+  return html`<span class=${'photo' + (src ? ' shot' : '')} style=${style + (src ? `;background-image:url("${src}")` : '')}>${!src && mono && html`<span class="mono">${initials(name)}</span>`}</span>`;
+}
+
+/** A bus's tile (`fleet::tile`): its photo (the bus's initials on the night's gradient while
+ * there is none) and the room under it. */
+export function BusTile({ name, file, paint, r, onClick, children, over, attrs = {} }) {
   const ph = r.w * 0.52;
   return html`<button type="button" class="co-bustile" style=${`left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px`} onClick=${onClick} ...${attrs}>
-    <span class="photo" style=${`height:${ph}px`}><span class="mono">${initials(name)}</span></span>
+    <${Photo} file=${file} paint=${paint} name=${name} style=${`height:${ph + 14}px;padding-bottom:14px;clip-path:inset(0 0 14px 0)`} />
     ${over}
     <span class="info" style=${`top:${ph + 12}px`}>${children}</span>
   </button>`;
@@ -69,7 +105,7 @@ function Buses({ b }) {
         b.buses.map((bus, k) => {
           const r = { x: (k % L.cols) * (L.tw + gap), y: Math.floor(k / L.cols) * (L.th + gap), w: L.tw, h: L.th };
           const nw = textW(bus.number, 15, 900) + 20;
-          return html`<${BusTile} name=${bus.name} r=${r} onClick=${() => setCo({ dialog: { kind: 'vehicle', id: bus.id } })} attrs=${{ 'data-bus': bus.id }}
+          return html`<${BusTile} name=${bus.name} file=${bus.file} paint=${bus.livery} r=${r} onClick=${() => setCo({ dialog: { kind: 'vehicle', id: bus.id } })} attrs=${{ 'data-bus': bus.id }}
             over=${html`<span class="numb" style=${`width:${nw}px`}>${bus.number}</span>
               ${bus.advert && html`<span class="ad cut" style=${`max-width:${r.w - nw - 30}px`}>${bus.advert}</span>`}`}>
             <b class="cut">${bus.name}</b>
@@ -122,10 +158,10 @@ function Adverts({ a }) {
 // --- the dialogs ----------------------------------------------------------------------------
 
 /** The photo's place and the livery on a dialog's left (`fleet::bus_side`). */
-function BusSide({ name, kind, livery, onLivery, design, designTip, onDesign, note }) {
+function BusSide({ file, name, kind, livery, onLivery, design, designTip, onDesign, note }) {
   const k = Math.max(0, livery.options.findIndex(([p]) => p === livery.value));
   return html`<div class="co-busside">
-    <span class="photo"><span class="mono">${initials(name)}</span></span>
+    <${Photo} file=${file} paint=${livery.value} name=${name} />
     <div class="kind">${kind}</div>
     <label class="co-label" style="margin-top:10px">${livery.label}</label>
     <${Select} value=${k} options=${livery.options.map(([, l]) => l)} onChange=${(i) => onLivery(livery.options[i][0])} style="margin-top:4px" />
@@ -153,7 +189,7 @@ export function VehicleDialog({ d }) {
     <${Btn} kind="primary" label=${v.close} onClick=${close} />`;
   return html`<${Dialog} icon="directions_bus" title=${v.title} w=${920} h=${640} onClose=${close} foot=${foot}>
     <div class="co-busdialog">
-      <${BusSide} name=${v.name} kind=${v.bus_kind} livery=${v.livery} onLivery=${(p) => act('bus_livery', { id: d.id, livery: p })} design=${v.design} designTip=${v.design_tip} onDesign=${() => act('design_livery', { id: d.id })} />
+      <${BusSide} file=${v.file} name=${v.name} kind=${v.bus_kind} livery=${v.livery} onLivery=${(p) => act('bus_livery', { id: d.id, livery: p })} design=${v.design} designTip=${v.design_tip} onDesign=${() => act('design_livery', { id: d.id })} />
       <div class="right">${v.rows.map((r) => html`<${PriceRow} r=${r} />`)}
         <div class=${'co-para t-' + v.tone} style="font-weight:700;margin-top:10px;line-height:26px">${v.status}</div></div>
     </div>
@@ -177,7 +213,7 @@ export function NewDialog({ d }) {
   const foot = html`<span class="rest"></span><${Btn} label=${v.cancel} onClick=${close} /><${Btn} kind="primary" icon="check_circle" label=${v.main} onClick=${take} />`;
   return html`<${Dialog} icon="directions_bus" title=${v.title} w=${920} h=${600} onClose=${close} foot=${foot}>
     <div class="co-busdialog">
-      <${BusSide} name=${v.name} kind=${v.bus_kind} livery=${v.livery} onLivery=${(p) => put({ livery: p })} note=${v.design_note} />
+      <${BusSide} file=${v.file} name=${v.name} kind=${v.bus_kind} livery=${v.livery} onLivery=${(p) => put({ livery: p })} note=${v.design_note} />
       <div class="right">
         <${Seg} value=${v.how} options=${v.hows.map((h, k) => [k, h])} onChange=${(k) => put({ how: k })} style="height:40px;margin-bottom:18px" />
         ${v.how === 0

@@ -128,7 +128,7 @@ function Buses({ v }) {
       ${size.w > 0 &&
       v.cards.map((b, k) => {
         const r = { x: (k % g.cols) * (g.cw + GAP), y: Math.floor(k / g.cols) * (g.ch + GAP), w: g.cw, h: g.ch };
-        return html`<${BusTile} name=${b.name} r=${r} onClick=${() => setCo({ dialog: { kind: 'vehicle', id: b.id } })} attrs=${{ 'data-bus': b.id }}
+        return html`<${BusTile} name=${b.name} file=${b.file} paint=${b.livery} r=${r} onClick=${() => setCo({ dialog: { kind: 'vehicle', id: b.id } })} attrs=${{ 'data-bus': b.id }}
           over=${html`<span class="numb" style=${`width:${textW(b.number, 15, 900) + 20}px`}>${b.number}</span>`}>
           <b class="cut" style="font-size:12.7px">${b.name}</b><span class="sub cut">${b.age}</span>
           <div style="margin-top:8px"><${Meter} frac=${b.cond} tone=${b.cond_tone} h=${8} /></div>
@@ -150,7 +150,7 @@ function Shop({ v, st }) {
           ${size.w > 0 &&
           v.cards.map((b, k) => {
             const r = { x: (k % g.cols) * (g.cw + GAP), y: Math.floor(k / g.cols) * (g.ch + GAP), w: g.cw, h: g.ch };
-            return html`<${BusTile} name=${b.name} r=${r} onClick=${() => act('shop_buy', { file: b.file })}
+            return html`<${BusTile} name=${b.name} file=${b.file} paint=${b.livery} r=${r} onClick=${() => act('shop_buy', { file: b.file })}
               over=${b.fits && html`<span style="position:absolute;left:10px;top:10px"><${Tag} text=${b.fits} tone="ok" /></span>`}>
               <b class="cut" style="font-size:12.7px">${b.title}</b><span class="sub cut">${b.facts}</span>
               ${b.locked

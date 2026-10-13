@@ -422,8 +422,11 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 
 /* --- the fleet ----------------------------------------------------------------------------- */
 
-.co-bustile { position: absolute; border-radius: var(--hub-r-sheet); background: var(--hub-field); box-shadow: inset 0 0 0 1px var(--hub-edge); padding: 0; text-align: left; cursor: pointer; overflow: hidden; color: var(--hub-text); transition: background 0.08s, box-shadow 0.08s; }
-.co-bustile:hover { background: var(--hub-hover); box-shadow: inset 0 0 0 1px rgba(var(--hub-accent-rgb), 0.7); }
+.co-bustile { position: absolute; border-radius: var(--hub-r-sheet); background: var(--hub-field); padding: 0; text-align: left; cursor: pointer; overflow: hidden; color: var(--hub-text); transition: background 0.08s, box-shadow 0.08s; }
+.co-bustile:hover { background: var(--hub-hover); }
+/* (its edge over the photo, as `fleet::tile` draws it last) */
+.co-bustile::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px var(--hub-edge); pointer-events: none; transition: box-shadow 0.08s; }
+.co-bustile:hover::after { box-shadow: inset 0 0 0 1px rgba(var(--hub-accent-rgb), 0.7); }
 .co-bustile .photo, .co-busside .photo { display: flex; align-items: center; justify-content: center; background: linear-gradient(#263046, #181f2e); position: relative; }
 .co-bustile .photo { position: absolute; left: 0; right: 0; top: 0; }
 .co-bustile .mono { width: 56px; height: 56px; border-radius: var(--hub-r); background: rgba(255, 255, 255, 0.09); color: #e8ebf2; font-size: 15.35px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
@@ -498,6 +501,8 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 .co-iconline .hub-icon { flex: none; margin-top: 2px; }
 .co-talkside { display: flex; flex-direction: column; min-width: 0; overflow: auto; }
 .co-talkside .photo { border-radius: var(--hub-r); background: linear-gradient(#263046, #181f2e); flex: none; }
+/* (a bus's photo, as the game-drawn launcher took it: covering its place, as `image_cover`) */
+.photo.shot { background-size: cover !important; background-position: center !important; background-repeat: no-repeat !important; }
 .co-talkside .what { font-size: var(--co-head); margin: 12px 0 10px; line-height: 1.35; }
 .co-talkside .asking { display: flex; align-items: center; justify-content: space-between; height: 38px; margin: 2px 0 14px; }
 .co-talkside .asking span { font-size: 23px; font-weight: 700; }

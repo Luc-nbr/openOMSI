@@ -289,7 +289,7 @@ fn shop(s: &mut Session, c: &Company, ui: &Value) -> Value {
             if let Some(n) = x.seats {
                 facts = format!("{facts} · {}", trf("%{n} seats", &[("n", &n.to_string())]));
             }
-            json!({ "file": x.bus.file, "name": x.bus.name, "fits": (*rank == 0 && !locked).then(|| tr("Fits your lines")), "title": title, "facts": facts, "locked": locked.then(|| tr("Opens later, as your company grows")), "price": eur(*price), "dear": *price > c.cash, "buy": tr("Buy") })
+            json!({ "file": x.bus.file, "livery": x.bus.default_paint, "name": x.bus.name, "fits": (*rank == 0 && !locked).then(|| tr("Fits your lines")), "title": title, "facts": facts, "locked": locked.then(|| tr("Opens later, as your company grows")), "price": eur(*price), "dear": *price > c.cash, "buy": tr("Buy") })
         })
         .collect();
     out["sizes"] = json!(SIZES.iter().map(|s| tr(s.0)).collect::<Vec<_>>());
