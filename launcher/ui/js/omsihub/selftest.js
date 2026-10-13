@@ -6,6 +6,8 @@
 import { call } from '../api.js';
 import { S, set } from '../store.js';
 import { t } from '../i18n.js';
+import { duty } from '../data.js';
+import { hubExtras } from './flow.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const $ = (q) => document.querySelector(q);
@@ -68,6 +70,21 @@ export async function selftest(check, errors) {
     check('hub: the duty\'s start', /^\d\d:\d\d$/.test(x.time), `${x.date} ${x.time} (${x.lead} min ahead)`);
   } catch (x) {
     check('hub: the duty\'s start', false, x.message);
+  }
+  // the command line a work shift becomes (`duty_args`: nothing is started), the shift's parts
+  // and the bus ready before its first departure in it
+  try {
+    const list = await call('hub_shifts', { map: c.map, date: c.date, minutes: 120, daypart: 0, seed: 1, legs: [] });
+    const d = list[0];
+    if (d) {
+      const time = Math.floor(d.first.departure / 60);
+      set({ choice: { ...S.choice, free: false, composed: true, line: d.first.line, tour: d.first.tour, time, start_trip: [d.first.line, d.first.tour, d.first.index, time], legs: d.key } });
+      const args = await call('duty_args', { duty: await duty(await hubExtras()) });
+      const line = args.join(' ');
+      check('hub: a shift\'s command line', line.includes('--duty-leg') && d.key.every((k) => args.includes(k)), line.slice(0, 220));
+    }
+  } catch (x) {
+    check('hub: a shift\'s command line', false, x.message);
   }
   try {
     const w = await call('hub_weather_extras', { map: c.map });

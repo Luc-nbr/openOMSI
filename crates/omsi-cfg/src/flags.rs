@@ -149,7 +149,7 @@ flags! {
     OMSI_AUDIT_LINE: Num, Test, Test, "-", "bus_audit example: the line (number and letter code) the IBIS typist enters instead of the bus's own.";
     OMSI_AUTOPILOT: Num, Test, Use, "-", "Offscreen: the player's bus follows the lanes at this speed in km/h (finds where it falls through or leaves the road).";
     OMSI_BACKEND: Text, Setup, Use, "settings", "vulkan, dx12, metal, gl or angle (dx11, d3d11; Windows): the graphics API tried first (overrides the settings). Set at runtime by the launcher and on Android.";
-    OMSI_BACKGROUND: Bool, Test, Use, "off", "A test window that does not take the keyboard focus (OMSI_INPUT drives the handlers directly); with OMSI_INPUT it ignores the real mouse too.";
+    OMSI_BACKGROUND: Bool, Test, Use, "off", "A test window that does not take the keyboard focus (OMSI_INPUT drives the handlers directly); with OMSI_INPUT it ignores the real mouse too. The desktop launcher's window as well.";
     OMSI_BASIC_PIPELINES: Bool, Switch, Once, "off", "Use the reduced (basic) render pipelines, as after a driver failed to build the full ones.";
     OMSI_BATCH: Num, Test, Use, "-", "Offscreen: prepare the map tiles this many at a time, as the window's streaming does.";
     OMSI_BENCH: Num, Test, Use, "-", "Offscreen: draw the final picture this many more times and log the median CPU and GPU-wait time.";
@@ -332,9 +332,9 @@ flags! {
     OMSI_LAUNCHER_INPUT: Text, Test, Use, "-", "Scripted launcher input (\"t=2 click 400,300; ...\"). Removed from the game's environment by the updater.";
     OMSI_LAUNCHER_INTRO: Text, Test, Use, "-", "Launcher: off skips the opening animation (pictures, tests).";
     OMSI_LAUNCHER_LIVERY: Text, Test, Use, "-", "Launcher: open the livery studio on this bus.";
-    OMSI_LAUNCHER_PAGE: Text, Test, Use, "-", "Launcher: open this page (e.g. mods, drive:N).";
+    OMSI_LAUNCHER_PAGE: Text, Test, Use, "-", "Launcher: open this page (e.g. mods, drive:N; the desktop launcher in Omsi-Hub's look also drive:map, drive:bus:chosen); the desktop launcher hands the bus company over with it.";
     OMSI_LAUNCHER_SHOT: Text, Test, Use, "-", "Launcher: secs:file.png - the window's picture into a file.";
-    OMSI_LAUNCHER_SIZE: Text, Test, Use, "-", "Launcher: WxH window size.";
+    OMSI_LAUNCHER_SIZE: Text, Test, Use, "-", "Launcher: WxH window size (the desktop launcher's too).";
     OMSI_LAUNCHER_SLOW: Num, Test, Use, "-", "Launcher: the animations this many times slower (to look at them).";
     OMSI_LAUNCHER_SPLASH: Num, Test, Use, "-", "Launcher: paint the game's loading screen at this point (0..1) over the page, for pictures.";
     OMSI_LAUNCHER_TOUR: Text, Test, Use, "-", "Launcher: start the guided tour (at this stop).";

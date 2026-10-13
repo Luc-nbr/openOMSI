@@ -139,7 +139,7 @@ effect. On Android, `openOMSI/env.txt` holds `NAME=value` lines that are set bef
 | `OMSI_APPLE_EXIT_AFTER` | num | - | use | app | iPhone/iPad: the session ends by itself after this many seconds (checks the way back to the Swift launcher without a person). |
 | `OMSI_AUDIT_LINE` | num | - | test | sim | bus_audit example: the line (number and letter code) the IBIS typist enters instead of the bus's own. |
 | `OMSI_AUTOPILOT` | num | - | use | app | Offscreen: the player's bus follows the lanes at this speed in km/h (finds where it falls through or leaves the road). |
-| `OMSI_BACKGROUND` | bool | off | use | app, launcher-ui | A test window that does not take the keyboard focus (OMSI_INPUT drives the handlers directly); with OMSI_INPUT it ignores the real mouse too. |
+| `OMSI_BACKGROUND` | bool | off | use | app, launcher-ui | A test window that does not take the keyboard focus (OMSI_INPUT drives the handlers directly); with OMSI_INPUT it ignores the real mouse too. The desktop launcher's window as well. |
 | `OMSI_BATCH` | num | - | use | scene | Offscreen: prepare the map tiles this many at a time, as the window's streaming does. |
 | `OMSI_BENCH` | num | - | use | app | Offscreen: draw the final picture this many more times and log the median CPU and GPU-wait time. |
 | `OMSI_BLEND_AB` | bool | off | use | app | Offscreen: a second picture with the blended draws in the old order, for a before/after of the draw order. |
@@ -199,9 +199,9 @@ effect. On Android, `openOMSI/env.txt` holds `NAME=value` lines that are set bef
 | `OMSI_LAUNCHER_INPUT` | text | - | use | app, guard, launcher-ui, platform | Scripted launcher input ("t=2 click 400,300; ..."). Removed from the game's environment by the updater. |
 | `OMSI_LAUNCHER_INTRO` | text | - | use | launcher-ui | Launcher: off skips the opening animation (pictures, tests). |
 | `OMSI_LAUNCHER_LIVERY` | text | - | use | launcher-ui | Launcher: open the livery studio on this bus. |
-| `OMSI_LAUNCHER_PAGE` | text | - | use | app, launcher-ui | Launcher: open this page (e.g. mods, drive:N). |
+| `OMSI_LAUNCHER_PAGE` | text | - | use | app, launcher-api, launcher-ui | Launcher: open this page (e.g. mods, drive:N; the desktop launcher in Omsi-Hub's look also drive:map, drive:bus:chosen); the desktop launcher hands the bus company over with it. |
 | `OMSI_LAUNCHER_SHOT` | text | - | use | app, launcher-ui | Launcher: secs:file.png - the window's picture into a file. |
-| `OMSI_LAUNCHER_SIZE` | text | - | use | app, launcher-ui | Launcher: WxH window size. |
+| `OMSI_LAUNCHER_SIZE` | text | - | use | app, launcher-ui | Launcher: WxH window size (the desktop launcher's too). |
 | `OMSI_LAUNCHER_SLOW` | num | - | use | launcher-ui | Launcher: the animations this many times slower (to look at them). |
 | `OMSI_LAUNCHER_SPLASH` | num | - | use | launcher-ui | Launcher: paint the game's loading screen at this point (0..1) over the page, for pictures. |
 | `OMSI_LAUNCHER_TOUR` | text | - | use | launcher-ui | Launcher: start the guided tour (at this stop). |

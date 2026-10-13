@@ -72,24 +72,28 @@ export function freeDrive() {
  * parts, the bus ready `bus_lead` minutes before the first departure, the display font chosen
  * for the bus, and a free drive's own start point. */
 export async function hubStart(extra = {}) {
-  const c = S.choice;
-  const free = freeDrive();
-  let more = {};
+  let ours;
   try {
-    more = await call('hub_duty_extras', { bus: c.bus, date: c.date, minutes: c.time, free });
+    ours = await hubExtras();
   } catch (e) {
     toast(e.message, 'error');
     return null;
   }
-  const duty = {
+  return start({ ...ours, ...extra });
+}
+
+/** What our duty adds to upstream's `duty()` (see `hubStart`). */
+export async function hubExtras() {
+  const c = S.choice;
+  const free = freeDrive();
+  const more = await call('hub_duty_extras', { bus: c.bus, date: c.date, minutes: c.time, free });
+  return {
     time: more.time,
     date: more.date,
     display_font: more.display_font || null,
     legs: !free && c.composed ? c.legs : [],
     ...(free ? { line: null, tour: null, trip: null, whole_tour: false, entry: c.free ? c.free_entry ?? -1 : c.entry } : {}),
-    ...extra,
   };
-  return start(duty);
 }
 
 const VIEWS = { profile: ProfileStep, mode: Home, map: MapStep, start: StartStep, day: DayStep, duty: DutyStep, bus: BusStep };

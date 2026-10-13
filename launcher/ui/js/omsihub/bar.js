@@ -85,7 +85,7 @@ export function Palette() {
   }, []);
   const custom = !PRESETS.some(([, c]) => c === now);
   return html`<div class="overlay" style="background:none;z-index:39" onMouseDown=${(e) => e.target === e.currentTarget && close()}>
-    <div class="hub-pop" style="right:120px">
+    <div class="hub-pop" style="right:180px">
       <h3>${tr('Accent colour')}</h3>
       <div class="hub-swatches">
         ${PRESETS.map(([name, c]) => html`<button type="button" class=${'hub-swatch' + (c === now ? ' on' : '')} title=${tr(name)} style=${`background:${hexOf(c)}`} onClick=${() => setAccent(c)}></button>`)}
