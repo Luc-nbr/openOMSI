@@ -1022,6 +1022,23 @@ pub fn screen(l: &mut Launcher) {
         clock::tick(l, modal);
     }
     let saved = (modal || (founding && l.company.popup.is_some())).then(|| mask(&mut l.ui));
+    // RosterFlow is an application of its own (Luc: "its complete own page, without other UI
+    // above it"): the whole window, no company bar or tabs; its own Back goes to the start screen
+    if !founding && !choosing && l.company.companies.is_some() && rosterflow_page(l) {
+        let esc = escape_home(l.company.tab, l.ui.input.keys.contains(&Key::Escape), modal, l.ui.focus.is_some(), l.company.planning.holds_choice());
+        let body = Rect::new(12.0, 12.0, (size.x - 24.0).max(0.0), (size.y - 24.0).max(0.0));
+        super::tour::anchor("company-page", body);
+        pages(l, body);
+        back_home(l, esc);
+        if saved.is_none() {
+            tutorial::frame(l);
+        }
+        if let Some(i) = saved {
+            l.ui.input = i;
+            overlays(l);
+        }
+        return;
+    }
     // the bar
     let bar = Rect::new(0.0, 0.0, size.x, 72.0);
     l.ui.p().rect(bar, PANEL);
@@ -1168,6 +1185,12 @@ fn pages(l: &mut Launcher, body: Rect) {
 
 /// Escape was pressed on a page (`escape_home`, decided before the page was drawn): back to
 /// the start screen - unless the page put something over itself meanwhile.
+/// Whether the page shown is RosterFlow (the planning with the add-on on), which takes the
+/// whole window.
+fn rosterflow_page(l: &Launcher) -> bool {
+    l.company.tab == 5 && l.company.launch.is_none() && l.company.company.as_ref().is_some_and(|c| co::autopilot::rosterflow(c))
+}
+
 fn back_home(l: &mut Launcher, esc: bool) {
     if esc && !modal(l) {
         l.company.tab = HOME_TAB;

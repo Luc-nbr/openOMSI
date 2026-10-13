@@ -637,6 +637,14 @@ fn title_bar(l: &mut Launcher, r: Rect, c: &Company, date: &str, p: &Pal) {
     ui.p().rect(r, p.bar);
     ui.p().rect(Rect::new(r.x, r.bottom() - 1.0, r.w, 1.0), p.line);
     let cy = r.center().y;
+    // Back: RosterFlow has the whole window, this is the way to the company's start screen
+    let ui = &mut l.ui;
+    if rf_icon(ui, p, "rf-back", Vec2::new(r.x + 22.0, cy), "chevron_left", "Back to the company's start screen (Esc)", false, true) {
+        l.company.tab = super::super::HOME_TAB;
+    }
+    let ui = &mut l.ui;
+    ui.p().rect(Rect::new(r.x + 42.0, r.y + 10.0, 1.0, r.h - 20.0), p.line);
+    let r = Rect::new(r.x + 44.0, r.y, r.w - 44.0, r.h);
     rf_brand::mark(ui, Rect::new(r.x + 10.0, cy - 15.0, 30.0, 30.0), 1.0, 1.0);
     let nw = rf_brand::wordmark(ui, Vec2::new(r.x + 48.0, cy - 6.0), 17.0, p.text, p.accent);
     ui.text_in(rf_brand::SUBTITLE, Rect::new(r.x + 49.0, cy + 3.0, nw.max(190.0) + 40.0, 16.0), 10.5, Weight::Medium, p.dim, Align::Left);

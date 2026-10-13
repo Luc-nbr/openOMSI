@@ -2459,3 +2459,11 @@ _version: 2
   pl: "Brak przerwy na posiłek"
   ru: "Нет обеденного перерыва"
   uk: "Немає обідньої перерви"
+"Back to the company's start screen (Esc)":
+  en: "Back to the company's start screen (Esc)"
+  nl: "Terug naar het startscherm van het bedrijf (Esc)"
+  de: "Zurück zum Startbildschirm des Unternehmens (Esc)"
+  fr: "Retour à l'écran d'accueil de l'entreprise (Échap)"
+  ru: "Назад на главный экран компании (Esc)"
+  uk: "Назад на головний екран компанії (Esc)"
+  pl: "Powrót do ekranu startowego firmy (Esc)"
