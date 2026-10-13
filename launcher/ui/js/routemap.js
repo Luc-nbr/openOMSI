@@ -40,7 +40,8 @@ function load(map, date, trip) {
   return cache.get(key);
 }
 
-export function RouteMap({ map, date, trip, stops = [], entry = -1, onEntry, height = 340 }) {
+// Omsi-Hub: `colors` ([casing, road, main road, route]) in place of the game's map colours
+export function RouteMap({ map, date, trip, stops = [], entry = -1, onEntry, height = 340, colors }) {
   const box = useRef();
   const cv = useRef();
   const [data, setData] = useState(null);
@@ -93,7 +94,7 @@ export function RouteMap({ map, date, trip, stops = [], entry = -1, onEntry, hei
       for (let i = 0; i < p.length; i += 2) (i ? g.lineTo : g.moveTo).call(g, X(p[i]), Y(p[i + 1]));
     };
     g.lineCap = g.lineJoin = 'round';
-    const [casing, road, main, red] = d.colors;
+    const [casing, road, main, red] = colors || d.colors;
     for (let pass = 0; pass < 2; pass++) {
       for (const r of d.roads) {
         line(r.p);

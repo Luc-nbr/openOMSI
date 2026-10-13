@@ -17,6 +17,8 @@ import { TutorialsPage } from './pages/tutorials.js';
 import { SetupPage } from './pages/setup.js';
 import { MobileApp } from './mobile/mobile.js';
 import { onPhone } from './api.js';
+// Omsi-Hub: our frame of the desktop window (js/omsihub)
+import { HubShell, HUB } from './omsihub/hub.js';
 
 // (the phone app, or `?phone` for a look at it in a browser)
 const PHONE = onPhone || new URLSearchParams(location.search).has('phone');
@@ -70,6 +72,8 @@ function App() {
     return html`<div class="splash">${s.errors.boot ? html`<div class="notice danger" style="max-width:520px">${s.errors.boot}</div>` : html`<${Spinner} />`}</div>`;
   }
   if (PHONE) return html`<${MobileApp} /><${Toasts} />`;
+  // Omsi-Hub: the desktop window in our look
+  if (HUB) return html`<${HubShell} pages=${PAGES} Toasts=${Toasts} />`;
   const page = PAGES.find((x) => x && x[0] === s.page) || PAGES[0];
   const Page = page[3];
   return html`<div class="shell">

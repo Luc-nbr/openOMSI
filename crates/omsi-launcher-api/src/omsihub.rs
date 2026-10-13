@@ -16,6 +16,8 @@
 //!   same cache as the game-drawn launcher's, `mapfacts|`);
 //! * `hub_weather_extras`: the airport whose METAR report is the map's current weather, and
 //!   OMSI's list of airports.
+//! * `hub_own_lines`: the player's own lines of a map (the line editor's), which the line lists
+//!   show apart from the map's ("Map lines" / "My lines").
 
 use crate::{Answer, Platform};
 use omsi_launcher_lib as core;
@@ -116,6 +118,7 @@ pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Option<Answer> {
         "hub_duty_extras" => (|| hub_duty_extras(&arg::<String>(args, "bus")?, &arg::<String>(args, "date")?, arg::<i32>(args, "minutes")?, arg::<bool>(args, "free")?))(),
         "hub_map_facts" => (|| hub_map_facts(&arg::<Vec<String>>(args, "maps")?))(),
         "hub_weather_extras" => (|| hub_weather_extras(&arg::<String>(args, "map")?))(),
+        "hub_own_lines" => (|| hub_own_lines(&arg::<String>(args, "map")?))(),
         _ => return None,
     })
 }
@@ -364,6 +367,15 @@ fn year_in_name(name: &str) -> Option<i32> {
         }
     }
     None
+}
+
+// --- the player's own lines ---------------------------------------------------------------
+
+/// The player's lines of `map` (`core::lines::own_lines_of_map`): the timetable line each was
+/// written as (`file`, a `LineInfo::name`), its number, name, colour and where it goes.
+fn hub_own_lines(map: &str) -> Answer {
+    let own = core::lines::own_lines_of_map(map);
+    Ok(json!(own.iter().map(|o| json!({ "file": o.file, "number": o.number, "name": o.name, "colour": o.colour, "destinations": o.destinations, "caption": o.caption() })).collect::<Vec<_>>()))
 }
 
 // --- the weather -------------------------------------------------------------------------

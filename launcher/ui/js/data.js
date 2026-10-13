@@ -3,6 +3,8 @@
 import { call, on } from './api.js';
 import { S, set, toast } from './store.js';
 import { setLanguage, t, hhmm } from './i18n.js';
+// Omsi-Hub: our look's light or dark and accent
+import { applyHubTheme } from './omsihub/theme.js';
 
 /** The duty as the launcher remembers it (`launcher-duty.json`, shared with the game's own
  * launcher window: the same fields). */
@@ -35,6 +37,8 @@ export async function boot() {
 }
 
 export function applyTheme() {
+  // Omsi-Hub: our look follows the settings' dark mode and accent (as our game-drawn launcher)
+  if (document.documentElement.classList.contains('hub')) return applyHubTheme();
   const pick = localStorage.getItem('theme') || 'dark';
   const light = pick === 'light' || (pick === 'system' && matchMedia('(prefers-color-scheme: light)').matches);
   document.documentElement.dataset.theme = light ? 'light' : 'dark';

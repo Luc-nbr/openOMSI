@@ -34,7 +34,9 @@ export async function selftest() {
   check('timetable read', await until(() => S.lines.list != null || S.lines.error), S.lines.error || `${S.lines.list?.length ?? 0} lines`);
   check('translations', !S.boot?.language || S.boot.language === 'en' || t('Settings') !== 'Settings', S.boot?.language || 'en');
   await document.fonts.ready;
-  check('font Inter', document.fonts.check('16px Inter'));
+  // Omsi-Hub: our look's font is Hanken Grotesk
+  const font = document.documentElement.classList.contains('hub') ? 'Hanken Grotesk' : 'Inter';
+  check(`font ${font}`, document.fonts.check(`16px "${font}"`));
   const map = S.maps?.[0];
   if (map) {
     const url = contentUrl(map.file.replace(/[^/]*$/, 'picture.jpg'));
@@ -82,6 +84,8 @@ export async function selftest() {
     if (dash) check(`no dashes on ${page}`, false, dash[0]);
   }
   set({ page: 'drive' });
+  // Omsi-Hub: our steps and frame (js/omsihub/selftest.js)
+  if (document.documentElement.classList.contains('hub')) await (await import('./omsihub/selftest.js')).selftest(check, errors);
   check('no script errors', errors.length === 0, errors.join('; '));
   const report = { version: S.boot?.version, seconds: Math.round(performance.now() - t0) / 1000, passed, failed, errors };
   await call('selftest_done', { report });
