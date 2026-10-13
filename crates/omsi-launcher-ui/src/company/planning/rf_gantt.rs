@@ -32,7 +32,7 @@ use omsi_ui::{Color, Rect, Weight};
 /// A row's pitch, a chip's height, the ID column, a stats column, the axis band.
 pub(super) const ROW: f32 = 27.0;
 pub(super) const CHIP: f32 = 18.0;
-pub(super) const ID_W: f32 = 96.0;
+pub(super) const ID_W: f32 = 124.0;
 pub(super) const STAT_W: f32 = 64.0;
 pub(super) const AXIS: f32 = 28.0;
 
@@ -545,6 +545,8 @@ pub(super) fn gantt(l: &mut Launcher, r: Rect, k: &Cached, board: &Board, p: &Pa
             let colour = line_colour(c, &board.tours[i].line);
             ui.swatch(Rect::new(r.x + 36.0, cy - 6.0, 3.0, 12.0), 1.0, colour);
         }
+        // (kept clear of the lock and the pin at the column's right end)
+        let label = fit(ui, &label, ID_W - 43.0 - 42.0, 12.5);
         ui.text_as_is(&label, Vec2::new(r.x + 43.0, cy + 4.5), 12.5, Weight::Bold, id_col, Align::Left);
         if id_click && !read_only {
             match row.kind {
@@ -1227,6 +1229,22 @@ pub(super) fn toggle_lock(l: &mut Launcher, board: &Board, kind: Kind) {
             }
         }
     }
+}
+
+/// `text` as it fits in `max` pixels at `size` (bold): whole, or shortened with "…".
+fn fit(ui: &Ui, text: &str, max: f32, size: f32) -> String {
+    if ui.width(text, size, Weight::Bold) <= max {
+        return text.to_string();
+    }
+    let mut cut: Vec<char> = text.chars().collect();
+    while !cut.is_empty() {
+        cut.pop();
+        let s: String = cut.iter().collect::<String>() + "…";
+        if ui.width(&s, size, Weight::Bold) <= max {
+            return s;
+        }
+    }
+    "…".to_string()
 }
 
 /// Take something up: its drop zones are worked out (each rated by what it costs).
