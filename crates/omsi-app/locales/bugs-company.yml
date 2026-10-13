@@ -299,3 +299,11 @@ _version: 2
   pl: "%{n} obsadzonych tylko na dziś (zob. Otwarte służby)."
   ru: "%{n} закрыто только на сегодня (см. «Открытые смены»)."
   uk: "%{n} закрито лише на сьогодні (див. «Відкриті зміни»)."
+# The company duty launcher's blocked start.
+"Not possible yet: %{reason}":
+  de: "Noch nicht möglich: %{reason}"
+  fr: "Pas encore possible : %{reason}"
+  nl: "Nog niet mogelijk: %{reason}"
+  pl: "Jeszcze niemożliwe: %{reason}"
+  ru: "Пока невозможно: %{reason}"
+  uk: "Поки неможливо: %{reason}"
