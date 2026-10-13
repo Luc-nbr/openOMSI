@@ -140,3 +140,8 @@
 .ed-studio-note { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 14px; align-items: center; justify-content: center; font-size: 10.4px; color: var(--hub-text-dim); pointer-events: none; }
 .ed-studio-note.error { pointer-events: auto; color: var(--hub-warn); }
 .ed-studio-note p { max-width: 520px; text-align: center; line-height: 1.8; }
+
+/* the bus step's way into the studio, beside the livery's count (`buspick::draw`: the icon
+   84 points from the sheet's right, the count right-aligned in the last 70) */
+.hub-paint-own { display: flex; align-items: center; gap: 3px; overflow: visible !important; }
+.hub-paint-own > span { min-width: 70px; text-align: right; }

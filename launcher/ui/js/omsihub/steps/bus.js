@@ -13,6 +13,9 @@ import { Search, Select, Input } from '../../ui.js';
 import { Actions, Foot, Head, Icon, Switch, tr, Button } from '../bits.js';
 import { goStep, previousOf, hubStart } from '../flow.js';
 import { DepotField, DepotTiles, DepotDialog, depotHeading, depotFoot, mapLine } from '../editors/hof.js';
+// (a livery of one's own: the studio on this bus, from the livery shown - `buspick::draw`)
+import { IconBtn } from '../editors/kit.js';
+import { openLivery } from '../editors/index.js';
 
 const favKey = (file) => file.replace(/\\/g, '/').toLowerCase();
 const nice = (s) => String(s || '').replace(/_/g, ' ').split(/\s+/).filter(Boolean).join(' ');
@@ -171,7 +174,11 @@ function Chosen({ onBack, onDepots }) {
       <div class="hub-body"><div class="hub-pad">
         <h2 style="font-size:16.9px;font-weight:700;margin-bottom:4px">${v.name}</h2>
         <p style="color:var(--hub-text-dim);margin-bottom:18px">${[v.manufacturer, v.type_name].filter(Boolean).join(' - ')}</p>
-        <div class="hub-caps"><b>${tr('Livery')}</b>${paints.length > 1 && html`<span style="color:var(--hub-text-dim)">${at + 1} / ${paints.length}</span>`}</div>
+        <div class="hub-caps"><b>${tr('Livery')}</b>
+          <span class="hub-paint-own">
+            <${IconBtn} icon="livery_fill" size=${11} title="Paint a livery of your own" onClick=${() => openLivery({ bus: v.file, paint: c.paint, back: 'drive' })} />
+            <span style="color:var(--hub-text-dim)">${paints.length > 1 ? `${at + 1} / ${paints.length}` : ''}</span>
+          </span></div>
         <div style="display:flex;gap:8px;margin-bottom:18px">
           <span style="flex:1;min-width:0"><${Select} raw value=${c.paint} options=${paints} onChange=${(paint) => choose({ paint })} /></span>
           ${paints.length > 1 && html`<${Button} icon="chevron_left" title="Preview previous livery" onClick=${() => step(-1)} /><${Button} icon="chevron_right" title="Preview next livery" onClick=${() => step(1)} />`}

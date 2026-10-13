@@ -23,7 +23,7 @@ const MODES = [
 ];
 
 /** Hand over to our game-drawn launcher on one of its pages (`OMSI_LAUNCHER_PAGE`): what this
- * page does not have yet - the bus company until phase 2, the timetable, the editor. */
+ * page does not have yet - the bus company until phase 2 (the editors are this page's own). */
 export async function handOver(page, why) {
   if (S.boot?.selftest) return;
   if (why) toast(tr(why), 'info');

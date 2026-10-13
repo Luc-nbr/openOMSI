@@ -74,7 +74,7 @@
 .ed-row.le-stop { position: relative; height: 34px; padding: 0; gap: 0; }
 .le-stop .dot { position: absolute; left: 14px; top: 50%; width: 9px; height: 9px; border-radius: 50%; transform: translate(-50%, -50%); }
 .le-stop .dot.end { width: 12px; height: 12px; }
-.le-stop .name { margin-left: 28px; width: calc(100% - 224px); flex: none; font-size: 9.6px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.le-stop .name { margin-left: 28px; width: calc(100% - 196px); flex: none; font-size: 9.6px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* (where our game-drawn launcher puts them, from the row's right: `stops_tab`) */
 .le-stop .tools > * { position: absolute; top: 50%; transform: translateY(-50%); display: flex; }
 .le-stop .tools .time { right: 130px; width: 34px; justify-content: flex-end; font-size: 9.2px; font-weight: 700; color: var(--hub-text-soft); }
