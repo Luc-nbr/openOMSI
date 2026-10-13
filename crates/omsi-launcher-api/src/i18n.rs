@@ -12,7 +12,8 @@ type Tables = HashMap<String, HashMap<String, String>>;
 
 fn tables() -> &'static Tables {
     static T: OnceLock<Tables> = OnceLock::new();
-    T.get_or_init(|| parse(TABLES))
+    // Omsi-Hub: our launcher's tables too (`omsihub::TABLES`)
+    T.get_or_init(|| crate::omsihub::with_ours(parse(TABLES), parse))
 }
 
 /// A double-quoted YAML scalar's text (the file uses nothing else).

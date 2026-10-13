@@ -132,9 +132,10 @@ fn open_with_system(what: &std::ffi::OsStr) -> Answer {
 }
 
 /// Switch to the game's own launcher window (and close this one).
+// Omsi-Hub: on a page of its own (`OMSI_LAUNCHER_PAGE`: "bus company" for our bus company)
 #[tauri::command]
-fn classic_launcher(app: AppHandle) -> Answer {
-    if !crate::classic_launcher() {
+fn classic_launcher(app: AppHandle, page: Option<String>) -> Answer {
+    if !crate::classic_launcher(page.as_deref()) {
         return Err("the game program was not found".into());
     }
     app.exit(0);

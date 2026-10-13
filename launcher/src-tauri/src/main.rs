@@ -61,6 +61,9 @@ fn main() {
                 .background_color(tauri::webview::Color(23, 24, 27, 255))
                 .visible(false)
                 .show_when_loaded(!selftest())
+                // Omsi-Hub: a window for pictures of the page leaves the keyboard where it is
+                // (`OMSI_BACKGROUND`, as our game-drawn launcher's)
+                .focused(!omsi_cfg::flags::OMSI_BACKGROUND.is_set())
                 // (the page keeps polling the running games while the window rests behind one)
                 .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
                 .on_page_load(|_, p| {
@@ -70,6 +73,11 @@ fn main() {
                 })
                 .app_mode(true)
                 .build()?;
+            // Omsi-Hub: the window's size for pictures of the page (`OMSI_LAUNCHER_SIZE=WxH`)
+            if let Some((w, h)) = omsi_cfg::flags::OMSI_LAUNCHER_SIZE.var().and_then(|v| v.split_once('x')).and_then(|(w, h)| Some((w.trim().parse::<f64>().ok()?, h.trim().parse::<f64>().ok()?))) {
+                let _ = window.set_size(tauri::LogicalSize::new(w, h));
+                let _ = window.center();
+            }
             if let Some(icon) = app.default_window_icon().cloned() {
                 let _ = window.set_icon(icon);
             }
@@ -90,16 +98,24 @@ fn main() {
     if let Err(e) = result {
         omsi_launcher_lib::log_to_file(&format!("the launcher's window could not open: {e}"));
         eprintln!("the launcher's window could not open: {e}");
-        if !classic_launcher() {
+        if !classic_launcher(None) {
             std::process::exit(1);
         }
     }
 }
 
 /// The game's own launcher window (`openomsi --launcher`), for a system without a webview.
-fn classic_launcher() -> bool {
+// Omsi-Hub: or on one of its pages (`OMSI_LAUNCHER_PAGE`), handed over from this page with
+// the webview there (no offer to install WebView2 then)
+fn classic_launcher(page: Option<&str>) -> bool {
     let Some(game) = omsi_launcher_lib::game_binary() else { return false };
     omsi_launcher_lib::log_to_file(&format!("opening the game's own launcher: {}", game.display()));
-    // (on Windows it offers to install WebView2, which is what is missing there)
-    std::process::Command::new(game).arg("--launcher").env("OPENOMSI_NO_WEBVIEW", "1").spawn().is_ok()
+    let mut c = std::process::Command::new(game);
+    c.arg("--launcher");
+    match page {
+        Some(page) => c.env("OMSI_LAUNCHER_PAGE", page),
+        // (on Windows it offers to install WebView2, which is what is missing there)
+        None => c.env("OPENOMSI_NO_WEBVIEW", "1"),
+    };
+    c.spawn().is_ok()
 }

@@ -2760,9 +2760,12 @@ name = "omsi-launcher-api"
 version = "0.1.0"
 dependencies = [
  "omsi-cfg",
+ "omsi-content",
  "omsi-launcher-core",
+ "omsi-map",
  "omsi-net",
  "omsi-platform",
+ "omsi-timetable",
  "omsi-weather",
  "serde",
  "serde_json",

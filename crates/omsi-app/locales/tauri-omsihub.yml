@@ -1,0 +1,13 @@
+_version: 2
+# Omsi-Hub's look of openOMSI's desktop launcher (launcher/ui/js/omsihub, Trello "Tauri 1/6"):
+# the texts only that page shows. The page reads every table of this folder, so the texts our
+# game-drawn launcher shows already are not repeated here. The English text is the key, as in
+# app.yml.
+"The bus company opens in our own launcher for now.":
+  en: "The bus company opens in our own launcher for now."
+  nl: "Het busbedrijf opent voorlopig in onze eigen launcher."
+  de: "Das Busunternehmen öffnet vorerst in unserem eigenen Launcher."
+  fr: "La compagnie de bus s'ouvre pour l'instant dans notre propre lanceur."
+  ru: "Автобусная компания пока открывается в нашем собственном лаунчере."
+  uk: "Автобусна компанія поки що відкривається в нашому власному лаунчері."
+  pl: "Firma autobusowa na razie otwiera się w naszym własnym launcherze."

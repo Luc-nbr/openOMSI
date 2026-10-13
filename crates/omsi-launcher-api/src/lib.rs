@@ -6,6 +6,8 @@
 //! the game's renderer - it is asked through `Platform`.
 
 pub mod i18n;
+// Omsi-Hub: our own commands and translation tables (`omsihub.rs`)
+pub mod omsihub;
 
 use omsi_launcher_lib as core;
 use serde_json::{json, Value};
@@ -482,7 +484,8 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Answer {
             std::thread::spawn(omsi_net::tunnel::ensure_cloudflared);
             Ok(Value::Null)
         }
-        _ => Err(format!("unknown command {cmd}")),
+        // Omsi-Hub: the commands of ours (`omsihub.rs`)
+        _ => omsihub::call(cmd, args, p).unwrap_or_else(|| Err(format!("unknown command {cmd}"))),
     }
 }
 
