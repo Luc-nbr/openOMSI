@@ -896,6 +896,12 @@ pub fn over_line_editor(l: &mut Launcher, draw: impl FnOnce(&mut Launcher)) {
     kit::draw_popup(l);
 }
 
+/// RosterFlow's Timeplan on the company's line `line` (its timetable name) - the line editor
+/// confirmed it, or its timetable was asked for - with `hint` in its status bar.
+pub fn open_timeplan(l: &mut Launcher, line: &str, hint: Option<&'static str>) {
+    planning::to_timeplan(l, line, hint);
+}
+
 /// A size of bus the line editor offers the company: refused with the level's popup while
 /// the company's level does not open it.
 pub fn size_locked(l: &mut Launcher, size: co::BusSize) {

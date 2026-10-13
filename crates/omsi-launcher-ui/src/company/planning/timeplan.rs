@@ -24,8 +24,12 @@
 //! line in service from the day chosen, else at once; a line of the map's at once), and the
 //! line is marked UNSYNCED until "Refresh" lets the scheduling studio make its blocks anew.
 //!
-//! Until RosterFlow's shell has a "Timeplan" tab, the Planning page's header opens it
-//! (`PlanningView::timeplan`); the shell calls `draw` with the room it gives it.
+//! With RosterFlow the company's lines get their timetables here: "New line" in the context bar
+//! opens the line editor for the route, and a line confirmed there opens here (`guide`, with what
+//! to do next in the status bar); so do a line of the map's just added - imported from the
+//! map's timetable when the line editor never saved it - and the timetable buttons elsewhere.
+//!
+//! RosterFlow's shell calls `draw` in its Timeplan tab with the room it gives it.
 
 use super::super::super::theme::*;
 use super::super::super::ui::{id_of, ButtonKind, Key, Ui};
@@ -90,6 +94,9 @@ const TIMETABLE: usize = 1;
 struct Work {
     own: Own,
     map: bool,
+    /// A line of the map's the line editor never saved: imported from the map's timetable for
+    /// the Timeplan (`lineeditor::import_for_timeplan`), into the registry when it is saved.
+    fresh: bool,
 }
 
 /// A cell chosen to type into.
@@ -155,7 +162,13 @@ pub(in super::super) struct TimeplanView {
     leaving: bool,
     /// Changes made so far (undone ones too), for RosterFlow's lessons.
     changes: u64,
+    /// What the status bar says first for a line (its timetable name): what to do next with a
+    /// line just made in the line editor or just added (`guide`), until its blocks are made.
+    hint: Option<(String, &'static str)>,
 }
+
+/// Said for a line of the map's just added (RosterFlow on): it keeps the map's timetable.
+pub(in super::super) const MAP_LINE_HINT: &str = "The line keeps the map's timetable: change it here if you like, save, then Refresh";
 
 /// What RosterFlow's lessons see of the timeplan (`TimeplanView::probe`).
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -178,6 +191,30 @@ impl TimeplanView {
     pub(in super::super) fn show(&mut self, company: &str, line: &str) {
         self.company = company.to_string();
         self.line = line.to_string();
+    }
+
+    /// Open the line `line` of the company `company` with `hint` in the status bar (the line
+    /// editor confirmed it, a line of the map's was added): read again unless changes of it are
+    /// in hand, on the running times for a new line, on the timetable for a map's.
+    pub(in super::super) fn guide(&mut self, company: &str, line: &str, hint: Option<&'static str>) {
+        let same = self.company == company && self.line.eq_ignore_ascii_case(line);
+        self.show(company, line);
+        if !(same && self.dirty()) {
+            self.loaded = None;
+        }
+        if let Some(h) = hint {
+            self.hint = Some((line.to_string(), h));
+            self.set_screen(if h == MAP_LINE_HINT { TIMETABLE } else { RUNNING });
+        }
+    }
+
+    /// What the status bar says first of the line shown: its hint (`guide`), or - an own line
+    /// with no trip saved - what to do with it.
+    fn hint_shown(&self) -> Option<&'static str> {
+        if let Some((_, h)) = self.hint.as_ref().filter(|h| h.0.eq_ignore_ascii_case(&self.line)) {
+            return Some(*h);
+        }
+        self.work.as_ref().filter(|w| !w.map && w.own.base.table.is_empty()).map(|_| super::super::super::lineeditor::NEW_LINE_HINT)
     }
 
     pub(in super::super) fn holds(&self) -> bool {
@@ -285,21 +322,29 @@ impl TimeplanView {
     }
 }
 
-/// The company line's line in the line editor's registry, made a table of trips to plan - or
-/// why it cannot be planned here.
-fn load(c: &Company, cl: &CompanyLine) -> Result<Work, &'static str> {
-    let (mut own, map) = if cl.own {
-        (plan_edit::load(c, cl)?, false)
+/// The company line's line in the line editor's registry, made a table of trips to plan - a line
+/// of the map's the line editor never saved imported from the map's timetable (`root` the
+/// game's folder) - or why it cannot be planned here.
+fn load(c: &Company, cl: &CompanyLine, root: &std::path::Path) -> Result<Work, &'static str> {
+    let (mut own, map, fresh) = if cl.own {
+        (plan_edit::load(c, cl)?, false, false)
     } else {
         let path = reg::registry_path(&reg::map_folder(&c.map));
         let r = reg::load_registry(&path);
-        let line = r.map_line(&cl.name).cloned().ok_or(MAP_NOT_EDITED)?;
-        let stem = reg::stems(&r).get(&line.id).cloned().unwrap_or_default();
-        (plan_edit::own_of(line.id, path, stem, line), true)
+        match r.map_line(&cl.name).cloned() {
+            Some(line) => {
+                let stem = reg::stems(&r).get(&line.id).cloned().unwrap_or_default();
+                (plan_edit::own_of(line.id, path, stem, line), true, false)
+            }
+            None => {
+                let line = super::super::super::lineeditor::import_for_timeplan(&c.map, root, &c.date, &cl.name).ok_or(MAP_NOT_EDITED)?;
+                (plan_edit::own_of(0, path, String::new(), line), true, true)
+            }
+        }
     };
     tp::as_table(&mut own.base);
     own.draft = own.base.clone();
-    Ok(Work { own, map })
+    Ok(Work { own, map, fresh })
 }
 
 // --- times and words -------------------------------------------------------------------------------
@@ -386,7 +431,7 @@ pub(super) fn restore(l: &mut Launcher, line: &str, design: &LineDesign, unsynce
     let Some(c) = l.company.company.clone() else { return false };
     let mut v = std::mem::take(&mut l.company.planning.timeplan);
     (v.company, v.line, v.loaded) = (c.id.clone(), line.to_string(), None);
-    load_shown(&mut v, &c);
+    load_shown(&mut v, &c, std::path::Path::new(&l.state.config.root));
     let mut ok = true;
     if let Some(w) = v.work.as_mut().filter(|w| w.own.base != *design) {
         w.own.draft = design.clone();
@@ -399,7 +444,7 @@ pub(super) fn restore(l: &mut Launcher, line: &str, design: &LineDesign, unsynce
 }
 
 /// The line chosen (the first own line, else the first), read when another is chosen.
-fn load_shown(v: &mut TimeplanView, c: &Company) {
+fn load_shown(v: &mut TimeplanView, c: &Company, root: &std::path::Path) {
     if v.company != c.id || !c.lines.iter().any(|x| x.name.eq_ignore_ascii_case(&v.line)) {
         v.company = c.id.clone();
         v.line = c.lines.iter().find(|x| x.own).or(c.lines.first()).map(|x| x.name.clone()).unwrap_or_default();
@@ -410,7 +455,7 @@ fn load_shown(v: &mut TimeplanView, c: &Company) {
         (v.undo, v.redo, v.sel, v.cell, v.adding, v.scroll, v.hscroll, v.pattern, v.leaving) = (Vec::new(), Vec::new(), None, None, None, 0.0, 0.0, 0, false);
         v.text.clear();
         match c.lines.iter().find(|x| x.name.eq_ignore_ascii_case(&v.line)) {
-            Some(cl) => match load(c, cl) {
+            Some(cl) => match load(c, cl, root) {
                 Ok(w) => {
                     let pending = w.own.saved.pending_from.clone();
                     v.from = Some(pending).filter(|d| co::dates::between(&c.date, d) >= 1).unwrap_or_else(|| co::dates::add(&c.date, 1));
@@ -425,7 +470,7 @@ fn load_shown(v: &mut TimeplanView, c: &Company) {
 }
 
 fn screen(l: &mut Launcher, v: &mut TimeplanView, area: Rect, c: &Company) {
-    load_shown(v, c);
+    load_shown(v, c, std::path::Path::new(&l.state.config.root));
     l.ui.solid(area);
     l.ui.p().rounded(area, 12.0, BG);
     let inner = area.inset(14.0);
@@ -494,6 +539,35 @@ fn context_bar(l: &mut Launcher, v: &mut TimeplanView, c: &Company, r: Rect) {
         }
         x = lr.right() + 8.0;
     }
+    // a new line: its route drawn in the line editor, its timetable made here once it is
+    // confirmed (cancelled, the line editor's Back comes back here)
+    // (its words where the bar has the room, else the "+" alone)
+    let words = omsi_ui::tr("New line").into_owned();
+    let wide = r.w >= 1240.0;
+    let nw = if wide { l.ui.width(&words, 12.5, Weight::Bold) + 44.0 } else { fh };
+    let nr = Rect::new(x, cy - fh * 0.5, nw, fh);
+    super::super::super::tour::anchor("rf-tp-new-line", nr);
+    let (nh, _, new_line) = l.ui.interact(id_of("tp-new-line"), nr);
+    l.ui.p().rounded(nr, 6.0, if nh { CELL_HOVER } else { CELL });
+    l.ui.p().rounded_border(nr, 6.0, 1.0, BORDER);
+    let ink = if nh { SKY } else { TEXT_SOFT };
+    if wide {
+        l.ui.icon("add", Vec2::new(nr.x + 16.0, cy), 18.0, ink);
+        l.ui.text_in(&words, Rect::new(nr.x + 30.0, nr.y, nr.w - 34.0, nr.h), 12.5, Weight::Bold, if nh { TEXT } else { TEXT_SOFT }, Align::Left);
+    } else {
+        l.ui.icon("add", nr.center(), 20.0, ink);
+    }
+    l.ui.tooltip(nr, "New line: draw its route in the line editor, then make its timetable here");
+    if new_line {
+        if v.dirty() && !v.leaving {
+            v.leaving = true;
+        } else {
+            v.leaving = false;
+            super::super::super::lineeditor::open_for_company(l, None);
+            return;
+        }
+    }
+    x = nr.right() + 8.0;
     // the day group
     let mut day = v.day.min(2);
     let days: Vec<String> = (0..DAY_GROUPS.len()).map(day_name).collect();
@@ -1414,6 +1488,10 @@ fn status_bar(l: &mut Launcher, v: &mut TimeplanView, c: &Company, r: Rect) {
             .is_some()
             {
                 v.unsynced.retain(|u| !u.0.eq_ignore_ascii_case(&name));
+                // (its blocks and duties made: nothing more to say of what to do next)
+                if v.hint.as_ref().is_some_and(|h| h.0.eq_ignore_ascii_case(&name)) {
+                    v.hint = None;
+                }
                 reload_timetable(l);
                 l.state.set_status(omsi_ui::tr("Line %{n}: the scheduling studio makes its blocks and duties anew.").replace("%{n}", line.number.trim()), false);
             }
@@ -1427,13 +1505,21 @@ fn status_bar(l: &mut Launcher, v: &mut TimeplanView, c: &Company, r: Rect) {
         (omsi_ui::tr("A new timetable waits for %{date}: it is the one shown, against the tours that run until then.").replace("%{date}", &day_label(&w.own.saved.pending_from)), TEXT_DIM)
     } else if v.cell.is_some() {
         (omsi_ui::tr("Type and press Enter (Tab: the next cell, Escape: leave it). Up and Down change it by a minute.").into_owned(), TEXT_DIM)
+    } else if let Some(h) = v.hint_shown() {
+        // (what to do next with a line just made or added, in the accent after its mark)
+        (omsi_ui::tr(h).into_owned(), SKY)
     } else if v.dirty() {
         (omsi_ui::tr("Changes not saved yet.").into_owned(), TEXT_DIM)
     } else {
         let _ = c;
         (omsi_ui::tr("Click a cell to type into it.").into_owned(), TEXT_DIM)
     };
-    l.ui.text_in(&note.0, Rect::new(r.x + 6.0, r.y, (x - r.x - 12.0).max(0.0), r.h), 12.5, Weight::Medium, note.1, Align::Left);
+    let mut nx = r.x + 6.0;
+    if note.1 == SKY {
+        l.ui.icon("info", Vec2::new(nx + 8.0, r.center().y), 16.0, SKY);
+        nx += 24.0;
+    }
+    l.ui.text_in(&note.0, Rect::new(nx, r.y, (x - nx - 6.0).max(0.0), r.h), 12.5, Weight::Medium, note.1, Align::Left);
 }
 
 /// The issues of the day group in a small card over the status bar: a red "!" for an error, an
@@ -1750,21 +1836,35 @@ fn save_map(l: &mut Launcher, v: &mut TimeplanView, w: &Work) -> bool {
         l.state.set_status(omsi_ui::tr(p.text).replace("%{n}", &p.n.to_string()), true);
         return false;
     }
-    let r = reg::load_registry(&o.path);
-    let Some(on_disk) = r.line(o.id).cloned() else {
-        l.state.set_status(omsi_ui::tr(plan_edit::NOT_FOUND).into_owned(), true);
-        v.loaded = None;
-        return false;
+    let Some(ttl) = o.draft.map.as_ref().map(|m| m.ttl.clone()) else { return false };
+    let mut r = reg::load_registry(&o.path);
+    // (imported for the Timeplan: still none in the registry - the line editor saved none
+    // meanwhile - else as the registry has it, not changed meanwhile)
+    let changed_meanwhile = match r.line(o.id).filter(|_| !w.fresh) {
+        _ if w.fresh => r.map_line(&ttl).is_some(),
+        Some(on_disk) => *on_disk != o.saved,
+        None => {
+            l.state.set_status(omsi_ui::tr(plan_edit::NOT_FOUND).into_owned(), true);
+            v.loaded = None;
+            return false;
+        }
     };
-    if on_disk != o.saved {
+    if changed_meanwhile {
         kit::show(l, kit::Popup::new("departure_board", "Changed meanwhile", omsi_ui::tr("The line's timetable was changed meanwhile - in the line editor, or its new timetable began: it is shown as it is now."), "", None));
         v.loaded = None;
         return false;
     }
-    let Some(ttl) = o.draft.map.as_ref().map(|m| m.ttl.clone()) else { return false };
     let Some(map) = l.company.company.as_ref().map(|c| c.map.clone()) else { return false };
-    let (old, new) = (o.live.clone(), o.draft.clone());
+    let (old, mut new) = (o.live.clone(), o.draft.clone());
     let Some(paid) = act(l, |c| ownline::apply_map_change(c, &ttl, &old, &new, false)) else { return false };
+    // (the imported line into the registry, under an id of its own, before it is written)
+    if w.fresh {
+        new.id = r.add_map_line(new.clone()).id;
+        if let Err(e) = reg::save_registry(&o.path, &r) {
+            l.state.set_status(format!("{}: {e}", omsi_ui::tr("The timetable files could not be written")), true);
+            return false;
+        }
+    }
     let number = new.number.trim().to_string();
     let result = plan_edit::write_line(l, &map, &o.path, LineDesign { live: None, pending_from: String::new(), ..new });
     reload_timetable(l);
@@ -1853,6 +1953,11 @@ pub(super) fn texts() -> Vec<&'static str> {
         "Line %{n} saved.",
         "Timeplan",
         "The line's running times and timetable, as a scheduler plans them",
+        // (a line's route made in the line editor, its timetable here)
+        "New line",
+        "New line: draw its route in the line editor, then make its timetable here",
+        MAP_LINE_HINT,
+        super::super::super::lineeditor::NEW_LINE_HINT,
     ];
     v.extend(CHARTS);
     v.extend(tp::texts());

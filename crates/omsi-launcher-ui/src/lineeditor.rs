@@ -27,6 +27,12 @@
 //! the line costs once and a month, its passengers through the day and the buses it needs
 //! (`core::company::ownline`); and "Confirm and pay", after which the company runs it. A
 //! company line changed later pays its route's approval anew.
+//!
+//! A company with RosterFlow (`ForCompany::rosterflow`) makes its lines' timetables in
+//! RosterFlow's Timeplan: the editor does the route alone. A new line starts without a
+//! departure, the Timetable tab says where its timetable is made (a line the company runs opens
+//! there), the estimate is made with a usual timetable (`ownline::as_priced`), and once the line
+//! is confirmed the Timeplan opens on it (`after_confirm`).
 
 use super::lineroute::{Anchor, Router};
 use super::mapview::{Dot, Look, Pointer};
@@ -169,9 +175,12 @@ pub struct LineEditorView {
     running: HashMap<u64, LineDesign>,
     /// "Restore the map's original" was pressed once.
     restore_armed: bool,
+    /// RosterFlow's Timeplan next (a line confirmed, or its timetable asked for).
+    go_timeplan: Option<ToTimeplan>,
 }
 
 mod maplines;
+pub(crate) use maplines::import_for_timeplan;
 
 /// Where the shown line's own destinations are kept (`LineEditorView::kept`): for which line
 /// (its depot group and depot file), the player's depot file (its place and name), its
@@ -205,7 +214,26 @@ pub struct ForCompany {
     /// The timetable a new line starts with (the Casual line wizard's "how often"); None: the
     /// company's lines' usual rush hours.
     days: Option<Vec<DayPattern>>,
+    /// The company has RosterFlow on: the editor does the route alone (`route_only`) - a new
+    /// line is confirmed without a timetable, which RosterFlow's Timeplan makes next.
+    rosterflow: bool,
 }
+
+/// RosterFlow's Timeplan next, on the company's line: an own line by the line editor's id
+/// (its timetable name the company's), else a line of the map's by its timetable name - with
+/// what the Timeplan says first.
+#[derive(Clone, Debug, PartialEq)]
+struct ToTimeplan {
+    id: Option<u64>,
+    name: String,
+    hint: Option<&'static str>,
+}
+
+/// Said in the Timeplan of a line just confirmed in the line editor (RosterFlow on).
+pub(crate) const NEW_LINE_HINT: &str = "Set the running times and departures, save, then Refresh to make the buses and duties";
+/// Said instead of the Timetable tab, working for a company with RosterFlow.
+const TIMETABLE_LATER: &str = "The timetable is made in RosterFlow's Timeplan after you confirm";
+const TIMETABLE_THERE: &str = "The line's timetable is made in RosterFlow's Timeplan.";
 
 /// The company's figures of the line shown.
 #[derive(Clone)]
@@ -219,6 +247,9 @@ struct Figures {
     cash: Cents,
     /// What the company paid to start it (and to change it since).
     paid: Cents,
+    /// Estimated with a company's starting timetable: the line has none yet (RosterFlow's
+    /// Timeplan makes it, `ownline::as_priced`).
+    priced: bool,
 }
 
 /// A change of a company's line in service, asked about before it is saved: what it costs,
@@ -317,8 +348,10 @@ pub fn open_for_company(l: &mut Launcher, line: Option<u64>) {
     let Some(c) = l.company.company.as_ref() else { return };
     let v = &mut l.pages.lines;
     let runs = c.lines.iter().filter(|x| !x.own).map(|x| x.name.clone()).collect();
-    v.company = Some(ForCompany { id: c.id.clone(), name: c.name.clone(), map: c.map.clone(), colours: c.colours.clone(), depot: c.depot.clone(), start: Some(line), stop_lines: None, cache: None, details: false, runs, start_map: None, days: None });
+    let rosterflow = co::autopilot::rosterflow(c);
+    v.company = Some(ForCompany { id: c.id.clone(), name: c.name.clone(), map: c.map.clone(), colours: c.colours.clone(), depot: c.depot.clone(), start: Some(line), stop_lines: None, cache: None, details: false, runs, start_map: None, days: None, rosterflow });
     v.company_act = None;
+    v.go_timeplan = None;
     v.loaded = None;
     l.go(super::Page::Lines);
 }
@@ -469,6 +502,22 @@ impl LineEditorView {
     /// It works for a bus company.
     pub fn for_company(&self) -> bool {
         self.company.is_some()
+    }
+
+    /// It works for a bus company with RosterFlow: the route alone - the timetable is made in
+    /// RosterFlow's Timeplan.
+    fn route_only(&self) -> bool {
+        self.company.as_ref().is_some_and(|f| f.rosterflow)
+    }
+
+    /// Why the shown line cannot be saved or confirmed yet: the route's alone with RosterFlow
+    /// (its timetable is the Timeplan's), else all of them.
+    fn problems(&self) -> Vec<reg::Problem> {
+        match self.line() {
+            Some(l) if self.route_only() && !l.is_map_line() => reg::route_problems(l),
+            Some(l) => reg::problems(l),
+            None => Vec::new(),
+        }
     }
 
     /// Back to the player's own lines (the next draw reads the map again).
@@ -861,6 +910,10 @@ fn draw_page(l: &mut Launcher, area: Rect) {
     }
     company_start(l);
     company_figures(l);
+    // (with RosterFlow no table of the timetable: its Timeplan has it)
+    if l.pages.lines.route_only() {
+        l.pages.lines.table_open = false;
+    }
     // (a phone, or a window too narrow for the map and both panels: the lines only)
     if area.w < 900.0 {
         narrow(l, area);
@@ -903,6 +956,15 @@ fn draw_page(l: &mut Launcher, area: Rect) {
     if let Some((s, e)) = status.filter(|s| !s.0.is_empty()) {
         l.state.set_status(s, e);
     }
+    // (RosterFlow: a line confirmed, or its timetable asked for - its Timeplan next)
+    if let Some(t) = l.pages.lines.go_timeplan.take() {
+        let name = t.id.and_then(|id| l.company.company.as_ref().and_then(|c| ownline::line_of(c, id)).map(|x| x.name.clone())).unwrap_or(t.name);
+        if !name.is_empty() {
+            super::company::open_timeplan(l, &name, t.hint);
+            l.go(super::Page::Company);
+            return;
+        }
+    }
     if let Some(key) = l.pages.lines.go_depots.take() {
         l.pages.depots.show(&key, true);
         l.go(super::Page::Depots);
@@ -932,6 +994,8 @@ fn take_network(l: &mut Launcher) {
             .collect();
         v.router = Some((key, router));
         v.shapes_for = None;
+        // (a line of the map's the Timeplan imported without the roads: its stops placed now)
+        maplines::place_stops(v);
         // (what was changed before the roads were read: routed now, still to be saved)
         let pending = std::mem::take(&mut v.unrouted);
         if let Some((_, router)) = v.router.as_ref() {
@@ -1166,7 +1230,7 @@ fn left_panel(l: &mut Launcher, r: Rect, maps: &[(String, String)], status: &mut
         return;
     }
     if v.company.is_some() {
-        let problems = v.line().map(reg::problems).unwrap_or_default();
+        let problems = v.problems();
         company_foot(ui, v, state, body, r.bottom() - 12.0 - ROW, &problems, figures.as_ref(), status);
         return;
     }
@@ -2211,7 +2275,41 @@ fn displays_advanced(ui: &mut Ui, v: &mut LineEditorView, r: Rect, status: &mut 
 /// bands, each part of the day with a headway of its own (the rush hours denser) and, for a
 /// company, the bus it wants - and how long a bus stands at the end; how many buses that
 /// takes.
+/// The Timetable tab working for a company with RosterFlow: no timetable here - a new line's
+/// is made in RosterFlow's Timeplan once it is confirmed, and a line the company runs is opened
+/// there.
+fn timeplan_note(ui: &mut Ui, v: &mut LineEditorView, body: Rect) {
+    let Some(line) = v.line() else { return };
+    let runs = !line.draft || line.is_map_line();
+    let to = ToTimeplan { id: line.map.is_none().then_some(line.id), name: line.map.as_ref().map(|m| m.ttl.clone()).unwrap_or_default(), hint: (!reg::has_departures(line)).then_some(NEW_LINE_HINT) };
+    let none_yet = to.hint.is_some();
+    let mut y = body.y + 6.0;
+    ui.icon("departure_board", Vec2::new(body.x + 11.0, y + 10.0), 20.0, accent_2());
+    let text = if runs { TIMETABLE_THERE } else { TIMETABLE_LATER };
+    y += ui.paragraph(text, Vec2::new(body.x + 30.0, y), body.w - 30.0, 13.0, Weight::Medium, TEXT).max(22.0) + 10.0;
+    if !runs {
+        ui.paragraph("Confirm the route here: the line runs no tour until its timetable is saved there.", Vec2::new(body.x + 30.0, y), body.w - 30.0, 12.0, Weight::Regular, TEXT_DIM);
+        return;
+    }
+    if none_yet {
+        ui.text_in(&omsi_ui::tr("No timetable yet"), Rect::new(body.x + 30.0, y, body.w - 30.0, 20.0), 12.5, Weight::Bold, WARN, Align::Left);
+        y += 28.0;
+    }
+    if ui.button("le-tt-timeplan", Rect::new(body.x, y, body.w, ROW), "Open in the Timeplan", Some("departure_board"), ButtonKind::Primary) {
+        if v.dirty {
+            v.note = Some((omsi_ui::tr("Save the line's changes first (or undo them): the Timeplan opens the line as it is saved.").into_owned(), true));
+        } else {
+            v.go_timeplan = Some(to);
+        }
+    }
+}
+
 fn timetable_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, locked: &[BusSize]) {
+    // (with RosterFlow the timetable is its Timeplan's)
+    if v.route_only() {
+        timeplan_note(ui, v, body);
+        return;
+    }
     let run: Vec<f32> = v.line().map(reg::run_minutes).unwrap_or_default();
     let for_company = v.company.is_some();
     let kind = v.line().map(|x| x.service).unwrap_or_default();
@@ -2552,6 +2650,7 @@ fn service_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, f: &ServiceFacts
     let mut title = v.line().map(|x| x.title.clone()).unwrap_or_default();
     let mut title_changed = false;
     let mut level_ask = None;
+    let route_only = v.route_only();
     ui.scroll_area("le-service", Rect::new(body.x - 6.0, body.y, body.w + 12.0, body.h), &mut |ui, a| {
         let x = a.x + 6.0;
         let w = a.w - 12.0;
@@ -2576,10 +2675,13 @@ fn service_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, f: &ServiceFacts
         }
         y += 4.0;
         y += ui.paragraph(kind.note(), Vec2::new(x, y), w, 11.5, Weight::Regular, TEXT_DIM) + 6.0;
-        if ui.button("le-kind-typical", Rect::new(x, y, w, ROW - 6.0), "Typical timetable for this kind", Some("schedule"), ButtonKind::Ghost) {
-            typical = true;
+        // (with RosterFlow the timetable is its Timeplan's)
+        if !route_only {
+            if ui.button("le-kind-typical", Rect::new(x, y, w, ROW - 6.0), "Typical timetable for this kind", Some("schedule"), ButtonKind::Ghost) {
+                typical = true;
+            }
+            y += ROW + 2.0;
         }
-        y += ROW + 2.0;
         // a school line: the school holidays it keeps
         if kind == ServiceKind::School {
             ui.p().rect(Rect::new(x, y, w, 1.0), HAIRLINE);
@@ -3205,8 +3307,14 @@ fn new_line(v: &mut LineEditorView) {
         line.draft = true;
         line.colour = fc.colours[0].clone();
         // (the company's lines start with the rush hours in their timetable, or with the one
-        // the Casual line wizard chose)
+        // the Casual line wizard chose - with RosterFlow without one: its Timeplan makes it)
         match fc.days.as_ref() {
+            _ if fc.rosterflow => {
+                for p in line.days.iter_mut() {
+                    (p.on, p.bands) = (false, Vec::new());
+                }
+                line.back_days.clear();
+            }
             Some(days) if days.len() == line.days.len() => line.days = days.clone(),
             _ => {
                 for (k, p) in line.days.iter_mut().enumerate() {
@@ -3219,6 +3327,12 @@ fn new_line(v: &mut LineEditorView) {
     (v.sel, v.dir, v.sel_stop) = (Some(id), 0, None);
     v.table_reset();
     v.touched();
+}
+
+/// Where the line editor goes once the company confirmed `line`: with RosterFlow to its
+/// Timeplan on the line (its timetable is made there), else nowhere - it stays.
+fn after_confirm(fc: &ForCompany, line: &LineDesign) -> Option<ToTimeplan> {
+    fc.rosterflow.then(|| ToTimeplan { id: Some(line.id), name: String::new(), hint: Some(NEW_LINE_HINT) })
 }
 
 /// The depot group whose depot file is the company's (else the first).
@@ -3280,11 +3394,14 @@ fn company_figures(l: &mut Launcher) {
     }
     let sl = fc.stop_lines.as_ref().filter(|s| s.0 == line.id).map(|s| &s.1);
     let shape = ownline::shape_of(line, &|s| sl.map(|x| x.count(s)).unwrap_or(0));
-    let est = ownline::estimate(c, line, &shape);
+    // (a line of its route alone - RosterFlow makes its timetable - estimated and priced with a
+    // company's starting timetable, as `ownline::confirm` prices it)
+    let priced = ownline::route_only(c, line);
+    let est = ownline::estimate(c, &ownline::as_priced(c, line), &shape);
     let plan = ownline::line_of(c, line.id).and_then(|x| x.plan.as_ref());
     let (confirmed, paid) = (plan.is_some(), plan.map(|p| p.paid).unwrap_or(0));
     let fee = if confirmed { ownline::change_fee(c, line, &shape) } else { None };
-    fc.cache = Some(Figures { key, shape, est, confirmed, fee, cash: c.cash, paid });
+    fc.cache = Some(Figures { key, shape, est, confirmed, fee, cash: c.cash, paid, priced });
 }
 
 /// The foot of the left panel working for the company: a draft is confirmed and paid (or
@@ -3450,10 +3567,17 @@ fn company_action(l: &mut Launcher, act: CompanyAct, status: &mut Option<(String
     }
     v.dirty = true;
     let (text, err) = save(v, state, &[]);
+    // (with RosterFlow the line's timetable next, in its Timeplan)
+    if act == CompanyAct::Confirm {
+        v.go_timeplan = v.company.as_ref().and_then(|fc| after_confirm(fc, &line));
+    }
+    let timeplan = v.go_timeplan.is_some();
     super::company::reload_timetable(l);
     let number = line.number.trim().to_string();
     *status = Some(if err {
         (text, true)
+    } else if act == CompanyAct::Confirm && timeplan {
+        (omsi_ui::tr("Line %{n} is the company's now: %{amount} paid. Make its timetable in RosterFlow's Timeplan.").replace("%{n}", &number).replace("%{amount}", &super::company::eur(paid)), false)
     } else if act == CompanyAct::Confirm {
         (omsi_ui::tr("Line %{n} is the company's now: %{amount} paid. Its tours are on the Planning page.").replace("%{n}", &number).replace("%{amount}", &super::company::eur(paid)), false)
     } else if paid > 0 {
@@ -3560,6 +3684,15 @@ fn estimate_card(l: &mut Launcher, map_r: Rect) {
     let ui = &mut l.ui;
     let w = (map_r.w - 24.0).min(800.0);
     let strip = Rect::new(map_r.x + 12.0, map_r.bottom() - 12.0 - 66.0, w, 66.0);
+    // (no timetable yet - RosterFlow's Timeplan makes it: estimated with a usual one, said over
+    // the strip while the details are folded)
+    if f.priced && !details {
+        let note = omsi_ui::tr("Estimated with a usual timetable: you make the line's own in RosterFlow's Timeplan");
+        let nw = (ui.width(&note, 11.5, Weight::Medium) + 24.0).min(strip.w);
+        let nr = Rect::new(strip.x, strip.y - 8.0 - 26.0, nw, 26.0);
+        ui.panel(nr);
+        ui.text_in(&note, Rect::new(nr.x + 12.0, nr.y, nr.w - 24.0, nr.h), 11.5, Weight::Medium, TEXT_SOFT, Align::Left);
+    }
     ui.panel(strip);
     let cols = 4.0;
     let cw = (strip.w - 44.0) / cols;
@@ -4108,6 +4241,91 @@ mod tests {
         let mut v = displays_of("Hohenkirchen, Therme");
         draw_displays(&mut ui, &mut v);
         assert!(!ui.drawn.contains_key(&id_of("le-depot-file")));
+    }
+
+    /// The line editor working for the company `Stadtbus`, with RosterFlow or without.
+    fn for_company(rosterflow: bool) -> LineEditorView {
+        let fc = ForCompany { id: "c".into(), name: "Stadtbus".into(), map: String::new(), colours: ["#e5484d".into(), "#2a75f7".into()], depot: String::new(), start: None, stop_lines: None, cache: None, details: false, runs: Vec::new(), start_map: None, days: None, rosterflow };
+        LineEditorView { groups: vec![("Solo".into(), "Talstadt.hof".into())], company: Some(fc), own: Some(Vec::new()), ..Default::default() }
+    }
+
+    /// The Timetable tab drawn 300 points wide.
+    fn draw_timetable(ui: &mut Ui, v: &mut LineEditorView) {
+        ui.begin(Vec2::new(330.0, 930.0), 1.0, 1.0 / 60.0);
+        timetable_tab(ui, v, Rect::new(10.0, 10.0, 300.0, 900.0), &[]);
+    }
+
+    /// With RosterFlow the line editor's company flow is the route alone: a new line has no
+    /// timetable step and no departure, its route confirmed is a valid line of the company's
+    /// with no timetable yet, the Timetable tab says the Timeplan makes it, and the page after
+    /// confirming is RosterFlow's Timeplan on the line. Without RosterFlow all is as it was.
+    #[test]
+    fn with_rosterflow_the_line_editor_makes_the_route_alone() {
+        use super::super::ui::id_of;
+        let mut v = for_company(true);
+        new_line(&mut v);
+        let stop = |id: i64, name: &str| StopRef { id, name: name.into(), ..Default::default() };
+        {
+            let l = v.line_mut().unwrap();
+            l.directions = vec![Direction { stops: vec![stop(1, "Markt"), stop(2, "Bahnhof")], legs: vec![reg::Leg { length: 800.0, ok: true, ..Default::default() }], ..Default::default() }];
+            l.directions[0].refresh_times();
+        }
+        let line = v.line().unwrap().clone();
+        assert!(line.draft && line.company == "c");
+        assert!(!reg::has_departures(&line), "no timetable of the editor's");
+        assert!(v.problems().is_empty(), "the route is all it asks: {:?}", v.problems());
+        assert_eq!(reg::problems(&line).iter().map(|p| p.text).collect::<Vec<_>>(), vec![reg::NO_DAY]);
+        // confirmed by a company with RosterFlow: its line, with no timetable yet
+        let mut c = co::found(&co::Founding { name: "Stadtbus".into(), game_mode: co::GameMode::Normal, date: "2024-05-06".into(), ..Default::default() }, "Luc");
+        assert!(co::autopilot::set_rosterflow(&mut c, true));
+        let shape = ownline::shape_of(&line, &|_| 0);
+        let cost = ownline::estimate(&c, &ownline::as_priced(&c, &line), &shape).one_off_total();
+        assert_eq!(ownline::confirm(&mut c, &line, "oo_1", &shape), Ok(cost), "the price the estimate shows");
+        assert!(ownline::line_of(&c, line.id).is_some_and(ownline::no_timetable));
+        // the page after it: the Timeplan on that line, with what to do there
+        let next = after_confirm(v.company.as_ref().unwrap(), &line);
+        assert_eq!(next, Some(ToTimeplan { id: Some(line.id), name: String::new(), hint: Some(NEW_LINE_HINT) }));
+        // the Timetable tab: no timetable here - a draft is confirmed first, a line of the
+        // company's opened in the Timeplan
+        let mut ui = Ui::new();
+        draw_timetable(&mut ui, &mut v);
+        for name in ["le-table-on", "le-table-open", "le-day-0", "le-tt-timeplan"] {
+            assert!(!ui.drawn.contains_key(&id_of(name)), "{name}");
+        }
+        (v.line_mut().unwrap().draft, v.dirty) = (false, false);
+        draw_timetable(&mut ui, &mut v);
+        let r = *ui.drawn.get(&id_of("le-tt-timeplan")).expect("to the Timeplan");
+        ui.input.mouse = r.center();
+        (ui.input.pressed, ui.input.down) = (true, true);
+        draw_timetable(&mut ui, &mut v);
+        (ui.input.pressed, ui.input.down, ui.input.released) = (false, false, true);
+        draw_timetable(&mut ui, &mut v);
+        assert_eq!(v.go_timeplan, Some(ToTimeplan { id: Some(line.id), name: String::new(), hint: Some(NEW_LINE_HINT) }));
+
+        // without RosterFlow: the timetable as before, made in the editor, and the editor stays
+        let mut old = for_company(false);
+        new_line(&mut old);
+        let l = old.line().unwrap().clone();
+        assert!(reg::has_departures(&l) && l.days.iter().any(|d| !d.bands.is_empty()), "the rush hours in its timetable");
+        assert!(after_confirm(old.company.as_ref().unwrap(), &l).is_none());
+        draw_timetable(&mut ui, &mut old);
+        assert!(ui.drawn.contains_key(&id_of("le-table-on")) && ui.drawn.contains_key(&id_of("le-day-0")) && !ui.drawn.contains_key(&id_of("le-tt-timeplan")));
+        // ... and a company without RosterFlow still needs the timetable to confirm
+        let mut plain = co::found(&co::Founding { name: "Stadtbus".into(), game_mode: co::GameMode::Normal, date: "2024-05-06".into(), ..Default::default() }, "Luc");
+        assert_eq!(ownline::confirm(&mut plain, &line, "oo_1", &shape), Err("The line is not finished yet."));
+    }
+
+    #[test]
+    fn the_rosterflow_line_texts_are_translated() {
+        let mut keys = vec![NEW_LINE_HINT, TIMETABLE_LATER, TIMETABLE_THERE, "Confirm the route here: the line runs no tour until its timetable is saved there.", "No timetable yet", "Open in the Timeplan", "Save the line's changes first (or undo them): the Timeplan opens the line as it is saved.", "Estimated with a usual timetable: you make the line's own in RosterFlow's Timeplan", "Line %{n} is the company's now: %{amount} paid. Make its timetable in RosterFlow's Timeplan."];
+        keys.extend(["Timetable: the line's running times and departures in RosterFlow's Timeplan", "Edit the line in the line editor: its route and displays", "Make it", "The line runs no tour until it has a timetable. Click to make it in RosterFlow's Timeplan.", "The line runs no tour until it has a timetable. Click to make it in the line editor."]);
+        keys.extend(["Draw a line of the company's own in the line editor: you confirm and pay for its route there, then make its timetable in RosterFlow's Timeplan", "Line %{n} is the company's: here is its timetable. Plan its tours and start its service on the Roster tab."]);
+        keys.extend([co::rosterflow::I_NO_TIMETABLE, co::rosterflow::issue_title(co::rosterflow::I_NO_TIMETABLE)]);
+        for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
+            for k in &keys {
+                assert!(crate::_rust_i18n_try_translate(lang, k).is_some(), "{lang}: {k}");
+            }
+        }
     }
 
     /// A depot file of the HOF Suite's kind (no notes on its texts, no roller blind), written

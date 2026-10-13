@@ -176,11 +176,7 @@ fn import(v: &mut LineEditorView, ttl: &str) -> Option<(LineDesign, usize, usize
     let mut l = reg::import_map_line(&tt, &line, &tiles, &stop_of)?;
     // the depot file's own IBIS route of each direction, kept while its stops are the map's
     if let Some(depot) = v.depot_of(&l.ai_group.clone()) {
-        let number = l.number.clone();
-        for d in &mut l.directions {
-            let names: Vec<&str> = d.stops.iter().map(|s| s.name.as_str()).collect();
-            d.map_route = depot.route_of(&d.number_or(&number), &names).unwrap_or(0);
-        }
+        ibis_routes(&mut l, &depot);
     }
     // the legs the map has no way for: the router's
     if let Some((_, router)) = v.router.as_ref() {
@@ -191,6 +187,62 @@ fn import(v: &mut LineEditorView, ttl: &str) -> Option<(LineDesign, usize, usize
     let routed = l.directions.iter().flat_map(|d| &d.legs).filter(|g| g.map_way.is_none()).count();
     let dropped = line.tours.iter().map(|t| t.trips.len()).sum::<usize>().saturating_sub(l.table.len());
     Some((l, routed, dropped))
+}
+
+/// Each direction's IBIS route the depot file has for its stops (kept while they are the map's).
+fn ibis_routes(l: &mut LineDesign, depot: &linehof::Depot) {
+    let number = l.number.clone();
+    for d in &mut l.directions {
+        let names: Vec<&str> = d.stops.iter().map(|s| s.name.as_str()).collect();
+        d.map_route = depot.route_of(&d.number_or(&number), &names).unwrap_or(0);
+    }
+}
+
+/// The line `ttl` of the map `map_file` (its `global.cfg`, `root` the game's folder, `date` the
+/// day its chrono is read for) as RosterFlow's Timeplan opens one the line editor never saved:
+/// imported as the line editor imports it (`import`), without the map's roads - its stops
+/// where they are come with the network the next time the line editor reads it, and a leg the
+/// map has no way for stays to be routed there. None: the map has no such line with a trip.
+pub(crate) fn import_for_timeplan(map_file: &str, root: &Path, date: &str, ttl: &str) -> Option<LineDesign> {
+    let global = omsi_cfg::find_in_roots(map_file).map(|(_, p)| p).unwrap_or_else(|| omsi_cfg::resolve_path(root, map_file));
+    let map_dir = global.parent().map(Path::to_path_buf)?;
+    let tiles = omsi_map::GlobalCfg::load(&global).map(|g| g.raw_tiles).unwrap_or_default();
+    let tt = TimetableData::load(&map_dir);
+    let line = original_line(&tt, ttl)?;
+    let stop_of = |id: i64, name: &str| -> StopRef {
+        let tile = tt.bus_stops.iter().find(|b| b.object_id == id).and_then(|b| usize::try_from(b.group).ok()).and_then(|k| tiles.get(k)).map(|t| [t.0, t.1]);
+        StopRef { id, name: if name.trim().is_empty() { format!("Stop {id}") } else { name.trim().to_string() }, tile: tile.unwrap_or_default(), ..Default::default() }
+    };
+    let mut l = reg::import_map_line(&tt, &line, &tiles, &stop_of)?;
+    // (the depot file of its depot group, as the line editor finds it)
+    let chrono = omsi_map::date_code(date).map(|c| omsi_map::active_chrono_dirs(&map_dir, c)).unwrap_or_default();
+    let ai = omsi_map::ailists::ailists_with_chrono(&map_dir, &chrono);
+    let hof = ai.groups.iter().find(|g| g.name.trim().eq_ignore_ascii_case(l.ai_group.trim())).and_then(|g| g.hof.clone()).unwrap_or_default();
+    if !hof.trim().is_empty() {
+        let (bases, _) = core::depot_roots();
+        if let Some(depot) = linehof::first_depot(hof.trim(), &bases, &reg::map_folder(map_file)) {
+            ibis_routes(&mut l, &depot);
+        }
+    }
+    Some(l)
+}
+
+/// The stops of the registry's lines without their place on the map (a line of the map's the
+/// Timeplan imported without the roads, `import_for_timeplan`) placed as the map's stops have
+/// them, now that they are read. Not a change of the player's: nothing is to be saved for it.
+pub(super) fn place_stops(v: &mut LineEditorView) {
+    let stops = &v.stops;
+    let mut placed = false;
+    for s in v.reg.lines.iter_mut().flat_map(|l| l.directions.iter_mut()).flat_map(|d| d.stops.iter_mut()).filter(|s| s.at == [0.0, 0.0]) {
+        if let Some(m) = stops.iter().find(|m| m.id == s.id && m.tile == s.tile).or_else(|| stops.iter().find(|m| m.id == s.id)) {
+            s.at = m.at;
+            placed = true;
+        }
+    }
+    if placed {
+        v.shapes_for = None;
+        v.revision += 1;
+    }
 }
 
 /// The map's line `ttl` opened as a line to edit: in the registry (saved only when changed and
@@ -508,12 +560,33 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
     }
 
+    /// A line of the map's the Timeplan imported without the roads has its stops placed once the
+    /// line editor has the map's stops: by their tile and id, else by the id alone.
+    #[test]
+    fn a_line_imported_without_the_roads_gets_its_stops_placed() {
+        let base = std::env::temp_dir().join(format!("openomsi-maplines-place-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let mut v = view(&base);
+        let tt = v.tt.clone().unwrap();
+        let seven = tt.lines.iter().find(|x| x.name == "7").unwrap();
+        let mut l = reg::import_map_line(&tt, seven, &[(0, 0)], &|id, name| StopRef { id, name: name.into(), ..Default::default() }).unwrap();
+        l.directions[0].stops[0].tile = [9, 9];
+        assert!(l.directions.iter().flat_map(|d| &d.stops).all(|s| s.at == [0.0, 0.0]));
+        v.reg.add_map_line(l);
+        let before = v.revision;
+        place_stops(&mut v);
+        let l = &v.reg.lines[0];
+        assert_eq!(l.directions[0].stops.iter().map(|s| s.at).collect::<Vec<_>>(), [[100.0, 0.0], [200.0, 0.0], [300.0, 0.0]]);
+        assert!(l.directions.iter().flat_map(|d| &d.stops).all(|s| s.at != [0.0, 0.0]) && v.revision > before && !v.dirty);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
     #[test]
     fn working_for_the_company_the_list_has_the_map_lines_it_runs() {
         let base = std::env::temp_dir().join(format!("openomsi-maplines-company-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let mut v = view(&base);
-        let fc = |runs: Vec<String>| ForCompany { id: "c".into(), name: "Stadtbus".into(), map: String::new(), colours: Default::default(), depot: String::new(), start: None, stop_lines: None, cache: None, details: false, runs, start_map: None, days: None };
+        let fc = |runs: Vec<String>| ForCompany { id: "c".into(), name: "Stadtbus".into(), map: String::new(), colours: Default::default(), depot: String::new(), start: None, stop_lines: None, cache: None, details: false, runs, start_map: None, days: None, rosterflow: false };
         v.company = Some(fc(vec!["12".into()]));
         assert_eq!(shown(&v).iter().map(|r| r.ttl.as_str()).collect::<Vec<_>>(), ["12"]);
         v.company = Some(fc(Vec::new()));

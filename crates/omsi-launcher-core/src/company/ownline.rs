@@ -888,6 +888,31 @@ pub struct OwnPlan {
     /// any bus).
     pub service: ServiceKind,
     pub vehicles: LineVehicles,
+    /// Confirmed with its route alone and no departure yet: RosterFlow's Timeplan makes its
+    /// timetable (`lines::awaits_timetable`). It runs no tour until it has one.
+    pub no_timetable: bool,
+}
+
+/// The company's own line has no timetable yet (`OwnPlan::no_timetable`): not in the map's
+/// timetable, no tours - RosterFlow's Timeplan makes it.
+pub fn no_timetable(cl: &CompanyLine) -> bool {
+    cl.own && cl.plan.as_ref().is_some_and(|p| p.no_timetable)
+}
+
+/// The line as its estimate and its price have it: one confirmed with its route alone
+/// (RosterFlow on, no departure yet: its timetable is made in RosterFlow's Timeplan) with the
+/// timetable a company's new line starts from elsewhere (`lines::company_days`), so that it
+/// costs and brings what the same line does made the usual way.
+pub fn as_priced(c: &Company, l: &LineDesign) -> LineDesign {
+    if !route_only(c, l) {
+        return l.clone();
+    }
+    LineDesign { days: lines::company_days(l.service), back_days: Vec::new(), table_on: false, table: Vec::new(), ..l.clone() }
+}
+
+/// The line is confirmed with its route alone: RosterFlow is on and it has no departure yet.
+pub fn route_only(c: &Company, l: &LineDesign) -> bool {
+    super::autopilot::rosterflow(c) && !lines::has_departures(l)
 }
 
 /// The route as a number: its stops, direction by direction (FNV-1a).
@@ -949,6 +974,7 @@ fn plan_of(c: &Company, l: &LineDesign, shape: &Shape) -> OwnPlan {
         paid: 0,
         service: l.service,
         vehicles: l.vehicles.clone(),
+        no_timetable: !lines::has_departures(l),
     }
 }
 
@@ -970,15 +996,21 @@ pub fn sizes_allowed(c: &Company, l: &LineDesign) -> Result<(), &'static str> {
 }
 
 pub fn confirm(c: &mut Company, l: &LineDesign, stem: &str, shape: &Shape) -> Result<Cents, &'static str> {
-    if !lines::problems(l).is_empty() {
+    // (with RosterFlow its route alone: the timetable is made in RosterFlow's Timeplan)
+    let route_only = route_only(c, l);
+    if !(if route_only { lines::route_problems(l) } else { lines::problems(l) }).is_empty() {
         return Err("The line is not finished yet.");
     }
     sizes_allowed(c, l)?;
     if line_of(c, l.id).is_some() || c.lines.iter().any(|x| x.name.eq_ignore_ascii_case(stem)) {
         return Err("The company runs this line already.");
     }
-    let e = estimate(c, l, shape);
+    let mut e = estimate(c, &as_priced(c, l), shape);
     let total = e.one_off_total();
+    // (no timetable yet: no tours, no kilometres)
+    if route_only {
+        (e.tours, e.km) = (Default::default(), Default::default());
+    }
     if c.cash < total {
         return Err("The company cannot pay for the line: take a loan on the Finances page, or make it smaller.");
     }
@@ -1735,5 +1767,67 @@ mod tests {
         }
         // a long tour of the day is shared by drivers
         assert!(tours.iter().any(|t| super::super::network::duties_of(t).len() > 1));
+    }
+
+    /// With RosterFlow a line is confirmed with its route alone: no departure, priced as the
+    /// same line with a company's starting timetable, "No timetable yet" - nothing of it runs,
+    /// the day closes, RosterFlow's board says so - until a timetable is saved for it.
+    #[test]
+    fn with_rosterflow_a_line_is_confirmed_with_its_route_alone() {
+        use super::super::{autopilot, day, network, plan, rosterflow as rf};
+        let mut route = line(12);
+        for p in route.days.iter_mut() {
+            p.on = false;
+        }
+        assert!(!lines::has_departures(&route));
+        assert_eq!(lines::problems(&route).iter().map(|p| p.text).collect::<Vec<_>>(), vec![lines::NO_DAY]);
+        assert!(lines::route_problems(&route).is_empty());
+        let s = shape_of(&route, &|_| 0);
+        // without RosterFlow the line needs its timetable
+        let mut plain = company(GameMode::Normal);
+        assert_eq!(confirm(&mut plain, &route, "oo_9", &s), Err("The line is not finished yet."));
+        assert!(!route_only(&plain, &route) && as_priced(&plain, &route) == route);
+        // with it: its route alone, paid as the line with the timetable it would start with
+        let mut c = company(GameMode::Normal);
+        assert!(autopilot::set_rosterflow(&mut c, true));
+        let priced = as_priced(&c, &route);
+        assert!(lines::has_departures(&priced) && priced.days == lines::company_days(ServiceKind::Regular));
+        let cost = estimate(&c, &priced, &s).one_off_total();
+        assert!(cost > estimate(&c, &route, &s).one_off_total(), "the launch is priced on its passengers");
+        let cash = c.cash;
+        assert_eq!(confirm(&mut c, &route, "oo_9", &s), Ok(cost));
+        assert_eq!(c.cash, cash - cost);
+        let cl = line_of(&c, 9).unwrap().clone();
+        assert!(no_timetable(&cl) && cl.service_from.is_none() && cl.tours == 0 && cl.km == 0.0);
+        // nothing of it runs (it is not in the map's timetable), the day closes without a penalty
+        let date = c.date.clone();
+        let tours = network::tours_of_day(&c, &[], &date);
+        assert!(tours.is_empty());
+        let dp = plan::day_plan(&c, &date, tours.clone(), &[], &[], false);
+        assert!(dp.tours.is_empty());
+        // RosterFlow's board: a global issue that opens the Timeplan on the line
+        let b = rf::board(&c, &[], &date);
+        let i = b.issues.iter().find(|i| i.text == rf::I_NO_TIMETABLE).expect("said");
+        assert_eq!((i.scope, i.hard, rf::timeplan_line_of(i)), (rf::Scope::Global, false, Some("oo_9")));
+        assert_eq!(rf::issue_text(i, &|s| s.to_string()), "Line 9 has no timetable yet: make it in the Timeplan");
+        assert_eq!(rf::issue_title(i.text), "Lines without a timetable");
+        let _ = rf::optimise(&c, &[], &date);
+        let r = day::close_day(&mut c.clone(), tours, &[]);
+        assert_eq!((r.tours, r.trips, r.dropped, r.penalties), (0, 0, 0, 0));
+        // its timetable saved (the Timeplan saves through `apply_change`): a line as any other
+        let timed = line(12);
+        assert_eq!(apply_change(&mut c, &timed, "oo_9", &shape_of(&timed, &|_| 0)), Ok(0));
+        let cl = line_of(&c, 9).unwrap();
+        assert!(!no_timetable(cl) && cl.tours > 0 && !cl.plan.as_ref().unwrap().sizes.is_empty());
+        assert!(rf::timetable_issues(&c).is_empty());
+        // a company's line waiting for its timetable keeps its files' name as a line of the
+        // timetable does: a draft of the same number makes way
+        let waiting = LineDesign { company: "c".into(), ..route.clone() };
+        assert!(lines::awaits_timetable(&waiting) && !lines::written(&waiting));
+        assert!(!lines::awaits_timetable(&LineDesign { draft: true, ..waiting.clone() }));
+        let draft = LineDesign { id: 3, draft: true, company: "c".into(), ..line(12) };
+        let reg = lines::Registry { lines: vec![draft, waiting], ..Default::default() };
+        let stems = lines::stems(&reg);
+        assert_eq!((stems[&9].as_str(), stems[&3].as_str()), ("oo_9", "oo_9_3"));
     }
 }

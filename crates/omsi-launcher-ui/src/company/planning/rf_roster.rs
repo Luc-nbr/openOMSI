@@ -558,7 +558,7 @@ fn gantt(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, q: &Pal) -> Vec<Hi
         timetable = Some((t.tour.line.clone(), Some(t.tour.tour.clone())));
     }
     if let Some((line, tour)) = timetable {
-        plan_edit::open(l, &line, &p.date, tour);
+        open_timetable(l, &line, &p.date, tour);
         return hits;
     }
     if let Some((ti, duty)) = clicked {
@@ -608,7 +608,7 @@ fn line_heading(ui: &mut Ui, q: &Pal, c: &Company, p: &DayPlan, hr: Rect, line: 
     let mut x = hr.x + 32.0;
     let covered = idx.iter().filter(|&&i| p.tours[i].covered()).count();
     let state_w = 360.0f32.min(hr.w * 0.36);
-    // the line's timetable, changed here (`plan_edit`)
+    // the line's timetable, changed in RosterFlow's Timeplan or here (`open_timetable`)
     let tt_label = omsi_ui::tr("Timetable").into_owned();
     let tt_w = 26.0 + ui.width(&tt_label, 13.0, Weight::Medium) + 12.0;
     let tt = Rect::new(hr.right() - state_w - 12.0 - tt_w, hr.y + 4.0, tt_w, hr.h - 8.0);
@@ -1092,7 +1092,8 @@ fn day_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, q: &Pal) {
     }
 }
 
-/// The way from a duty or a tour to its line's trips and timetable (`plan_edit`).
+/// The way from a duty or a tour to its line's trips and timetable (`open_timetable`: RosterFlow's
+/// Timeplan, or the planning's sheet, `plan_edit`).
 fn timetable_button(l: &mut Launcher, q: &Pal, r: Rect, name: &str) -> bool {
     let pressed = link_button(&mut l.ui, q, name, r, "departure_board", "The line's trips and timetable");
     l.ui.tooltip(r, "See the line's departures and the tours they make, and change them");
@@ -1172,7 +1173,7 @@ fn duty_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, ti: usize, k:
     l.ui.text_in(&line_title(&t, Some(k)), Rect::new(inner.x + 10.0, y, inner.w - 14.0, 24.0), 15.0, Weight::Bold, q.text, Align::Left);
     y += 32.0;
     if timetable_button(l, q, Rect::new(inner.x, y, inner.w - 4.0, 32.0), "plan-duty-tt") {
-        plan_edit::open(l, &t.tour.line, &p.date, Some(t.tour.tour.clone()));
+        open_timetable(l, &t.tour.line, &p.date, Some(t.tour.tour.clone()));
         return;
     }
     y += 42.0;
@@ -1275,7 +1276,7 @@ fn tour_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, ti: usize, q:
     l.ui.text_in(&line_title(&t, None), Rect::new(inner.x + 10.0, y, inner.w - 14.0, 24.0), 15.0, Weight::Bold, q.text, Align::Left);
     y += 32.0;
     if timetable_button(l, q, Rect::new(inner.x, y, inner.w - 4.0, 32.0), "plan-tour-tt") {
-        plan_edit::open(l, &t.tour.line, &p.date, Some(t.tour.tour.clone()));
+        open_timetable(l, &t.tour.line, &p.date, Some(t.tour.tour.clone()));
         return;
     }
     y += 42.0;

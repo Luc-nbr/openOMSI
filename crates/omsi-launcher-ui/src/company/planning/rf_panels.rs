@@ -927,6 +927,7 @@ fn issues(l: &mut Launcher, status: Rect, k: &Cached, board: &Board, p: &Pal, sc
     ui.push_clip(Rect::new(r.x, y, r.w, foot - y), 0.0);
     let mut flips: Vec<Vec<String>> = Vec::new();
     let mut reveal: Option<RowId> = None;
+    let mut timeplan: Option<String> = None;
     let mut fold: Option<&'static str> = None;
     if list.is_empty() {
         ui.text_in(if dismissed_tab { "No dismissed issues." } else { "No issues: every rule is kept." }, Rect::new(r.x + 18.0, y, r.w - 36.0, 26.0), 13.0, Weight::Medium, p.dim, Align::Left);
@@ -988,6 +989,8 @@ fn issues(l: &mut Launcher, status: Rect, k: &Cached, board: &Board, p: &Pal, sc
             ui.p().circle(Vec2::new(ir.x + 24.0 - 5.0, ir.y + 13.0), 0.1, p.dim);
             ui.paragraph(&full, Vec2::new(tr_.x, tr_.y + 1.0), tw, 12.5, Weight::Medium, if th { p.accent } else if is.hard { p.text } else { p.text.alpha(0.85) });
             if tclick {
+                // (a line without a timetable: its Timeplan)
+                timeplan = rf::timeplan_line_of(is).map(str::to_string);
                 reveal = match (is.scope, is.row) {
                     (Scope::Duty, Some(row)) => board.shaped.get(row).map(shell::duty_row),
                     (Scope::Vehicle, Some(row)) => board.tours.get(row).map(shell::block_row),
@@ -1027,6 +1030,10 @@ fn issues(l: &mut Launcher, status: Rect, k: &Cached, board: &Board, p: &Pal, sc
         } else {
             s.groups_open.push(t);
         }
+    }
+    if let Some(line) = timeplan {
+        super::to_timeplan(l, &line, Some(super::super::super::lineeditor::NEW_LINE_HINT));
+        return r;
     }
     if let Some(id) = reveal {
         if matches!(id, RowId::Duty(_)) != drivers {

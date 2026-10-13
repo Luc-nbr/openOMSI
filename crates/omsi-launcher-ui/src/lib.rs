@@ -69,6 +69,9 @@ use omsi_platform::{discord, updater};
 // `omsi_ui::tr`, whose lookup the program installs): that every text is translated.
 #[cfg(test)]
 rust_i18n::i18n!("../omsi-app/locales");
+// (a table added since the tests were compiled: read again when it changes)
+#[cfg(test)]
+const _LOCALES_ROSTERFLOW_LINES: &str = include_str!("../../omsi-app/locales/rosterflow-lines.yml");
 
 use host::host;
 use glam::Vec2;
