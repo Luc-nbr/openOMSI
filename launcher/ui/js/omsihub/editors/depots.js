@@ -18,6 +18,8 @@ import { Seg } from '../bits.js';
 import { Card, Heading, Row, Field, Drop, IconBtn, Btn, Toggle, Icon, tr, status, keep, mapLabel } from './kit.js';
 import { LedSign, IbisLcd, SideSign, useBusFont } from './signs.js';
 
+// (a name, the same in every language)
+const IBIS = 'IBIS';
 const TABS = ['Destinations', 'IBIS stops', 'Routes', 'Special trips', 'File'];
 /** The usual special and service trips (`owndepot::SPECIALS`): OMSI's own German names. */
 const SPECIALS = [['Betriebsfahrt', true], ['Leerfahrt', true], ['Dienstfahrt', true], ['Nicht einsteigen', true], ['Sonderfahrt', false], ['Schulbus', false]];
@@ -197,7 +199,7 @@ function Files() {
 function labelOf(l, k) {
   if (l?.note) return l.note.slice(0, 48);
   switch (l?.role) {
-    case 'ibis': return tr('IBIS');
+    case 'ibis': return tr(IBIS);
     case 'front_top': return tr('Front sign, top row');
     case 'front_bottom': return tr('Front sign, bottom row');
     case 'side': return tr('Side sign');
