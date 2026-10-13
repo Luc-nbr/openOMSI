@@ -285,8 +285,8 @@ fn session() -> &'static Mutex<Session> {
 }
 
 /// Run `f` on the session (the background's work done first, as every frame of the game-drawn
-/// launcher does it before it draws).
-fn with<T>(f: impl FnOnce(&mut Session) -> T) -> T {
+/// launcher does it before it draws). (Omsi-Hub 4/6: RosterFlow's commands run on it too.)
+pub(crate) fn with<T>(f: impl FnOnce(&mut Session) -> T) -> T {
     let mut s = session().lock().unwrap_or_else(|e| e.into_inner());
     work(&mut s);
     f(&mut s)
@@ -384,6 +384,16 @@ impl Session {
     pub fn in_game(&mut self) -> bool {
         self.instances().iter().any(|i| i.running)
     }
+}
+
+/// The map's timetable written (RosterFlow's Timeplan saved a line, its blocks made anew): the
+/// day's and the week's timetables read again (`company::reload_timetable`). (Omsi-Hub 4/6)
+pub fn reload_timetable(s: &mut Session) {
+    s.today_asked = None;
+    s.own_for = None;
+    s.plan = None;
+    s.timetable += 1;
+    s.generation += 1;
 }
 
 /// After a change made on a page: saved, and today's plan made again (`company::changed`).

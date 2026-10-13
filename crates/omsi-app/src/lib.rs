@@ -194,6 +194,8 @@ const _LOCALES_CASUAL: &str = include_str!("../locales/casual.yml");
 const _LOCALES_TAURI_OMSIHUB: &str = include_str!("../locales/tauri-omsihub.yml");
 // (and its bus company's: launcher/ui/js/omsihub/company)
 const _LOCALES_TAURI_COMPANY: &str = include_str!("../locales/tauri-company.yml");
+// (and its RosterFlow's: launcher/ui/js/omsihub/rosterflow)
+const _LOCALES_TAURI_ROSTERFLOW: &str = include_str!("../locales/tauri-rosterflow.yml");
 
 /// Show the interface in `code` (the settings' ENG / DEU / FRA / RUS).
 pub(crate) fn ui_language(code: &str) {

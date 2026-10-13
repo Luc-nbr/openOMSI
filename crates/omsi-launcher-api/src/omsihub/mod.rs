@@ -20,6 +20,8 @@
 //!   show apart from the map's ("Map lines" / "My lines").
 
 pub mod company;
+// RosterFlow, the planning with the add-on on (Trello "Tauri 4/6": `rosterflow.rs`)
+pub mod rosterflow;
 
 use crate::{Answer, Platform};
 use omsi_launcher_lib as core;
@@ -37,6 +39,7 @@ type Tables = HashMap<String, HashMap<String, String>>;
 pub const TABLES: &[(&str, &str)] = &[
     ("tauri-omsihub.yml", include_str!("../../../omsi-app/locales/tauri-omsihub.yml")),
     ("tauri-company.yml", include_str!("../../../omsi-app/locales/tauri-company.yml")),
+    ("tauri-rosterflow.yml", include_str!("../../../omsi-app/locales/tauri-rosterflow.yml")),
     ("app-theme.yml", include_str!("../../../omsi-app/locales/app-theme.yml")),
     ("bedrijf2.yml", include_str!("../../../omsi-app/locales/bedrijf2.yml")),
     ("bedrijfsdienst.yml", include_str!("../../../omsi-app/locales/bedrijfsdienst.yml")),
@@ -124,6 +127,7 @@ pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Option<Answer> {
         "hub_own_lines" => (|| hub_own_lines(&arg::<String>(args, "map")?))(),
         // the bus company's commands (Trello "Tauri 2/6": `company.rs`)
         c if c.starts_with("co_") => return company::call(c, args, _p),
+        c if c.starts_with("rf_") => return rosterflow::call(c, args, _p),
         _ => return None,
     })
 }
