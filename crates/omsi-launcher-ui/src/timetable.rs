@@ -270,7 +270,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     let mut pick_line = None;
     let lines: Vec<(String, usize)> = data.lines.iter().map(|x| (x.name.clone(), x.tours.len())).collect();
     let (sel_line, dirty) = (tv.line, &tv.dirty);
-    ui.scroll_area("tt-lines", Rect::new(inner.x - 6.0, inner.y + ROW + 12.0, inner.w + 12.0, inner.h - 3.0 * ROW - 32.0), &mut |ui, v| {
+    ui.scroll_area_bar("tt-lines", Rect::new(inner.x - 6.0, inner.y + ROW + 12.0, inner.w + 12.0, inner.h - 3.0 * ROW - 32.0), &mut |ui, v| {
         for (i, (name, tours)) in lines.iter().enumerate() {
             let r = Rect::new(v.x + 6.0, v.y + i as f32 * 42.0, v.w - 16.0, 38.0);
             if ui.row(&format!("tt-line-{i}"), r, i == sel_line) {
@@ -324,7 +324,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     let tours: Vec<(String, String, usize)> = line.tours.iter().map(|t| (t.number.clone(), t.trips.first().map(|x| fmt_time(x.departure)).unwrap_or_default(), t.trips.len())).collect();
     let sel_tour = tv.tour;
     let list_h = inner.h - 4.0 * (ROW + 8.0) - 8.0;
-    ui.scroll_area(&format!("tt-tours-{line_name}"), Rect::new(inner.x - 6.0, inner.y, inner.w + 12.0, list_h), &mut |ui, v| {
+    ui.scroll_area_bar(&format!("tt-tours-{line_name}"), Rect::new(inner.x - 6.0, inner.y, inner.w + 12.0, list_h), &mut |ui, v| {
         for (i, (num, first, n)) in tours.iter().enumerate() {
             let r = Rect::new(v.x + 6.0, v.y + i as f32 * 42.0, v.w - 16.0, 38.0);
             if ui.row(&format!("tt-tour-{i}"), r, i == sel_tour) {
@@ -426,7 +426,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     let rows = Rect::new(inner.x - 6.0, inner.y + 24.0, inner.w + 12.0, inner.h - 24.0 - foot - 14.0);
     let times = &mut tv.times;
     let key = format!("{line_name}-{}", tv.tour);
-    ui.scroll_area(&format!("tt-trips-{key}"), rows, &mut |ui, v| {
+    ui.scroll_area_bar(&format!("tt-trips-{key}"), rows, &mut |ui, v| {
         for (i, t) in tour.trips.iter_mut().enumerate() {
             let y = v.y + i as f32 * rh;
             let x = v.x + 6.0;

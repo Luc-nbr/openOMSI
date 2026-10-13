@@ -26,6 +26,24 @@ fn slow_motion() -> f32 {
     *SLOW.get_or_init(|| omsi_cfg::env::var("OMSI_LAUNCHER_SLOW").ok().and_then(|v| v.trim().parse::<f32>().ok()).filter(|v| *v >= 1.0).unwrap_or(1.0))
 }
 
+/// A scrollbar's thickness (`Ui::scrollbar`), the track's room included.
+pub const BAR: f32 = 12.0;
+
+/// A scrollbar's colours: the track, the thumb, the thumb under the mouse or held.
+#[derive(Clone, Copy, Debug)]
+pub struct BarLook {
+    pub track: Color,
+    pub thumb: Color,
+    pub hot: Color,
+}
+
+impl BarLook {
+    /// The launcher's: faint on its dark panels (and its light ones).
+    pub fn launcher() -> BarLook {
+        BarLook { track: TEXT.alpha(0.06), thumb: TEXT.alpha(0.26), hot: TEXT.alpha(0.46) }
+    }
+}
+
 pub fn id_of(s: &str) -> Id {
     // FNV-1a
     let mut h: u64 = 0xcbf29ce484222325;
@@ -1772,6 +1790,94 @@ impl Ui {
         self.scroll.insert(id ^ 0xabc, t.max(0.0));
     }
 
+    /// A scrollbar one can see and take (the testers: "you can't scroll across the complex
+    /// timetable"): a slim rounded thumb on a faint track in `track`, for a view of `view` out
+    /// of `total` scrolled to `pos` (0 to `total - view`). The thumb is dragged; a click on the
+    /// track beside it moves a page that way. Draws nothing and returns None when everything is
+    /// in view; else returns where it was dragged or paged to.
+    #[allow(clippy::too_many_arguments)]
+    pub fn scrollbar(&mut self, look: BarLook, name: &str, track: Rect, vertical: bool, pos: f32, view: f32, total: f32) -> Option<f32> {
+        if total <= view + 0.5 || view <= 0.0 {
+            return None;
+        }
+        let max = total - view;
+        let (start, len) = if vertical { (track.y, track.h) } else { (track.x, track.w) };
+        let thumb_len = (len * view / total).max(28.0f32.min(len * 0.5)).min(len);
+        let room = (len - thumb_len).max(1.0);
+        let at = start + room * (pos / max).clamp(0.0, 1.0);
+        let thumb = if vertical { Rect::new(track.x, at, track.w, thumb_len) } else { Rect::new(at, track.y, thumb_len, track.h) };
+        let id = id_of(name);
+        let (_, _, paged) = self.interact(id ^ 0x5c71, track);
+        let (over, held, _) = self.interact(id ^ 0x5c72, thumb);
+        let m = if vertical { self.input.mouse.y } else { self.input.mouse.x };
+        // (where on the thumb it was taken: it stays under the mouse)
+        let grab = id ^ 0x5c73;
+        if over && self.input.pressed {
+            self.scroll.insert(grab, m - at);
+        }
+        let mut out = None;
+        if held {
+            let g = self.scroll.get(&grab).copied().unwrap_or(thumb_len * 0.5);
+            out = Some(((m - g - start) / room).clamp(0.0, 1.0) * max);
+        } else if paged && !over {
+            let page = view * 0.9;
+            out = Some(if m < at { (pos - page).max(0.0) } else { (pos + page).min(max) });
+        }
+        let hot = self.anim(id ^ 0x5c74, if over || held { 1.0 } else { 0.0 }, 0.1);
+        let thick = if vertical { track.w } else { track.h };
+        let inner = if vertical { Rect::new(track.x + 3.0, track.y + 2.0, thick - 6.0, track.h - 4.0) } else { Rect::new(track.x + 2.0, track.y + 3.0, track.w - 4.0, thick - 6.0) };
+        let r = (thick - 6.0) * 0.5;
+        self.p().rounded(inner, r, look.track);
+        let t = if vertical { Rect::new(inner.x, thumb.y + 2.0, inner.w, (thumb.h - 4.0).max(8.0)) } else { Rect::new(thumb.x + 2.0, inner.y, (thumb.w - 4.0).max(8.0), inner.h) };
+        self.p().rounded(t, r, look.thumb.mix(look.hot, hot));
+        out
+    }
+
+    /// The wheel turned sideways over `r` - a sideways wheel, or Shift with the wheel - in
+    /// points to scroll by (taken: nothing else scrolls with it); 0 when it was not.
+    pub fn sideways_wheel(&mut self, r: Rect) -> f32 {
+        if !self.hover(r) || self.wheel_taken {
+            return 0.0;
+        }
+        let w = self.input.wheel;
+        let d = if w.x.abs() > 0.0 { -w.x } else if self.input.shift && w.y.abs() > 0.0 { -w.y } else { return 0.0 };
+        self.input.wheel = Vec2::ZERO;
+        self.wheel_taken = true;
+        d * 60.0
+    }
+
+    /// `scroll_area` with a scrollbar one can see and take on its right (`scrollbar`, `BAR`
+    /// wide: the rows get the room beside it), the wheel and the easing as `scroll_keep`'s.
+    pub fn scroll_area_bar(&mut self, name: &str, r: Rect, body: &mut dyn FnMut(&mut Ui, Rect) -> f32) {
+        let id = id_of(name);
+        let off = self.scroll.get(&id).copied().unwrap_or(0.0);
+        self.push_clip(r, 6.0);
+        let content = body(self, Rect::new(r.x, r.y - off, r.w - BAR, r.h));
+        self.pop_clip();
+        let max = (content - r.h).max(0.0);
+        let mut target = self.scroll.get(&(id ^ 0xabc)).copied().unwrap_or(off);
+        if max > 0.0 && self.hover(r) && self.input.wheel.y.abs() > 0.0 && !self.wheel_taken && !self.input.shift {
+            target -= self.input.wheel.y * 42.0;
+            self.wheel_taken = true;
+        }
+        let track = Rect::new(r.right() - BAR, r.y, BAR, r.h);
+        let mut now_too = false;
+        if let Some(to) = self.scrollbar(BarLook::launcher(), name, track, true, off, r.h, content) {
+            target = to;
+            now_too = true;
+        }
+        target = target.clamp(0.0, max);
+        self.scroll.insert(id ^ 0xabc, target);
+        let k = 1.0 - (-self.dt / 0.07).exp();
+        let now = if now_too { target } else { off + (target - off) * k };
+        self.scroll.insert(id, if (now - target).abs() < 0.3 { target } else { now });
+    }
+
+    /// Where the list `name` (a `scroll_area`) is scrolled to now.
+    pub fn scrolled(&self, name: &str) -> f32 {
+        self.scroll.get(&id_of(name)).copied().unwrap_or(0.0)
+    }
+
     /// A row of a list: hover highlight, the chosen one marked. Returns clicked.
     pub fn row(&mut self, name: &str, r: Rect, selected: bool) -> bool {
         let id = id_of(name);
@@ -3382,5 +3488,51 @@ mod tests {
         frame(&mut ui, &mut sel);
         assert!(ui.popup.is_none());
         assert_eq!(sel, 1);
+    }
+
+    /// A timetable of many trips and stops: its bars are seen and taken, the track pages, the
+    /// wheel with Shift goes sideways, and a list with a bar scrolls with the wheel.
+    #[test]
+    fn a_long_timetable_scrolls_both_ways_with_bars_to_take() {
+        let mut ui = Ui::new();
+        let track = Rect::new(0.0, 100.0, 400.0, BAR);
+        let frame = |ui: &mut Ui, at: Vec2, pressed: bool, down: bool, released: bool, pos: f32| {
+            ui.begin(Vec2::new(800.0, 600.0), 1.0, 1.0 / 60.0);
+            (ui.input.mouse, ui.input.pressed, ui.input.down, ui.input.released) = (at, pressed, down, released);
+            ui.scrollbar(BarLook::launcher(), "tt-h", track, false, pos, 400.0, 2000.0)
+        };
+        // everything in view: no bar
+        ui.begin(Vec2::new(800.0, 600.0), 1.0, 1.0 / 60.0);
+        assert!(ui.scrollbar(BarLook::launcher(), "none", track, false, 0.0, 400.0, 300.0).is_none());
+        // a click on the track beside the thumb: a page along
+        assert_eq!(frame(&mut ui, Vec2::new(350.0, 106.0), true, true, false, 0.0), None);
+        assert_eq!(frame(&mut ui, Vec2::new(350.0, 106.0), false, false, true, 0.0), Some(360.0));
+        // the thumb (80 points of 400) taken and moved half the room along: half the way
+        frame(&mut ui, Vec2::new(10.0, 106.0), true, true, false, 0.0);
+        let to = frame(&mut ui, Vec2::new(170.0, 106.0), false, true, false, 0.0).unwrap();
+        assert!((to - 800.0).abs() < 1.0, "{to}");
+        frame(&mut ui, Vec2::new(170.0, 106.0), false, false, true, to);
+        // Shift and the wheel over the grid: sideways, and taken
+        ui.begin(Vec2::new(800.0, 600.0), 1.0, 1.0 / 60.0);
+        (ui.input.mouse, ui.input.shift, ui.input.wheel) = (Vec2::new(50.0, 50.0), true, Vec2::new(0.0, -1.0));
+        assert_eq!(ui.sideways_wheel(Rect::new(0.0, 0.0, 400.0, 400.0)), 60.0);
+        assert_eq!(ui.input.wheel, Vec2::ZERO);
+        // (without Shift the wheel is left to the list)
+        ui.begin(Vec2::new(800.0, 600.0), 1.0, 1.0 / 60.0);
+        (ui.input.shift, ui.input.wheel) = (false, Vec2::new(0.0, -1.0));
+        assert_eq!(ui.sideways_wheel(Rect::new(0.0, 0.0, 400.0, 400.0)), 0.0);
+        // a list of 25 stops with its bar: the rows get the room beside it, the wheel scrolls it
+        let rows = Rect::new(0.0, 0.0, 300.0, 200.0);
+        let mut width = 0.0;
+        for _ in 0..120 {
+            ui.scroll_area_bar("stops", rows, &mut |_, a| {
+                width = a.w;
+                25.0 * 28.0
+            });
+            ui.begin(Vec2::new(800.0, 600.0), 1.0, 1.0 / 60.0);
+            (ui.input.mouse, ui.input.wheel) = (Vec2::new(50.0, 50.0), Vec2::new(0.0, -1.0));
+        }
+        assert_eq!(width, 300.0 - BAR);
+        assert!((ui.scrolled("stops") - (25.0 * 28.0 - 200.0)).abs() < 1.0, "{}", ui.scrolled("stops"));
     }
 }

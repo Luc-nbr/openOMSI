@@ -208,6 +208,7 @@ fn remove_dep(l: &mut LineDesign, day: usize, p: Pick) -> bool {
 /// A group of days' pattern changed in one go (`f`): a timetable that is a table gets that
 /// group's trips anew from it, as the line editor's patterns fill it - the other groups' trips
 /// stay as they are.
+#[cfg(test)]
 fn set_pattern(l: &mut LineDesign, day: usize, f: impl FnOnce(&mut DayPattern)) {
     set_dir_pattern(l, day, 0, f)
 }
@@ -623,7 +624,17 @@ fn sheet(l: &mut Launcher, area: Rect, c: &Company, e: &mut PlanEdit) -> bool {
     // (a departure added or moved there: shown so at once)
     refresh(c, &cl, e, plan.as_ref());
     let after_lanes = head_y + 20.0 + lanes as f32 * LANE_H;
-    let tb_y = after_lanes + 2.0;
+    // zoomed in: a bar along the day under the lanes, to take and move
+    let mut tb_y = after_lanes + 2.0;
+    if e.view.is_some() && e.span.is_none() {
+        let track = Rect::new(ax.x, after_lanes + 2.0, ax.w, super::super::super::ui::BAR);
+        let (t0, t1) = (ax.t0, ax.t1);
+        if let Some(to) = l.ui.scrollbar(super::super::super::ui::BarLook::launcher(), "pe-axis-h", track, false, (t0 - whole.0) as f32, (t1 - t0) as f32, (whole.1 - whole.0) as f32) {
+            let a = whole.0 + to.round() as i32;
+            e.view = fit_view((a, a + (t1 - t0)), whole);
+        }
+        tb_y += super::super::super::ui::BAR + 4.0;
+    }
     if editable {
         trip_tools(l, e, Rect::new(left.x, tb_y, left.w, 36.0), now);
         refresh(c, &cl, e, plan.as_ref());
@@ -632,7 +643,7 @@ fn sheet(l: &mut Launcher, area: Rect, c: &Company, e: &mut PlanEdit) -> bool {
     tours_chart(l, e, ax, Rect::new(left.x, tours_y, left.w, (left.bottom() - tours_y).max(40.0)));
     // the right, scrolled as one: what it needs (seen at once as the departures change), the
     // pattern in one go, the list
-    l.ui.scroll_area("pe-right", right, &mut |ui, v| {
+    l.ui.scroll_area_bar("pe-right", right, &mut |ui, v| {
         let w = v.w - 12.0;
         let mut y = needs_card(ui, e, c, &cl, Rect::new(v.x, v.y, w, 0.0)) + 18.0;
         if editable {
@@ -669,6 +680,14 @@ fn fit_view(v: (i32, i32), whole: (i32, i32)) -> Option<(i32, i32)> {
 /// taken on an empty place and moved goes along the day (`axis_lanes`).
 fn zoom(l: &mut Launcher, e: &mut PlanEdit, ax: Axis, whole: (i32, i32), lanes: Rect) {
     let ui = &mut l.ui;
+    // (zoomed in: Shift with the wheel, or a sideways wheel, goes along the day)
+    if e.view.is_some() && e.drag.is_none() {
+        let side = ui.sideways_wheel(lanes);
+        if side != 0.0 {
+            let by = (side / ax.ppm()).round() as i32;
+            e.view = fit_view((ax.t0 + by, ax.t1 + by), whole);
+        }
+    }
     let wheel = ui.input.wheel.y;
     if wheel.abs() > 0.0 && ui.hover(lanes) && !ui.wheel_taken() && e.drag.is_none() {
         let m = ax.minute(ui.input.mouse.x);
@@ -1011,7 +1030,7 @@ fn tours_chart(l: &mut Launcher, e: &mut PlanEdit, ax: Axis, r: Rect) {
     let focus = e.tour.clone();
     let pitch = (rows.h / s.rows.len() as f32).floor().clamp(TOUR_H, TOUR_MAX);
     let bar = ((pitch - 2.0) * 0.55).round().clamp(12.0, 20.0);
-    ui.scroll_area("pe-tours", rows, &mut |ui, v| {
+    ui.scroll_area_bar("pe-tours", rows, &mut |ui, v| {
         let mut y = v.y;
         for row in &s.rows {
             let rr = Rect::new(v.x, y, v.w - 8.0, pitch - 2.0);

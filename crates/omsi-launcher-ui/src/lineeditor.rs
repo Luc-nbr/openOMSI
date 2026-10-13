@@ -93,7 +93,10 @@ pub struct LineEditorView {
     /// "Fill from the patterns" pressed once.
     table_open: bool,
     table_day: usize,
-    table_col: usize,
+    /// How far the table's trips are scrolled along (points), and the cell chosen to be
+    /// scrolled into view.
+    table_col: f32,
+    table_reveal: bool,
     table_sel: Option<(usize, usize)>,
     table_text: String,
     table_fill_armed: bool,
@@ -511,7 +514,7 @@ impl LineEditorView {
     /// The table's cell chosen, what is typed into it, its page and "Fill" pressed once let go
     /// (another line is shown: they were the other's).
     fn table_reset(&mut self) {
-        (self.table_sel, self.table_text, self.table_col, self.table_fill_armed) = (None, String::new(), 0, false);
+        (self.table_sel, self.table_text, self.table_col, self.table_fill_armed) = (None, String::new(), 0.0, false);
     }
 
     /// The direction `dir` of the shown line routed again.
@@ -1390,7 +1393,7 @@ fn right_panel(l: &mut Launcher, r: Rect, status: &mut Option<(String, bool)>) {
     let mut act = None;
     let rh = 34.0;
     let lh = 20.0;
-    ui.scroll_area(&format!("le-stops-{d_idx}"), list, &mut |ui, a| {
+    ui.scroll_area_bar(&format!("le-stops-{d_idx}"), list, &mut |ui, a| {
         let mut yy = a.y;
         if rows.is_empty() {
             ui.paragraph("Click the stops on the map in the order the bus calls at them.", Vec2::new(a.x + 6.0, yy + 4.0), a.w - 12.0, 12.5, Weight::Regular, TEXT_DIM);
@@ -2293,7 +2296,7 @@ fn timetable_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, locked: &[BusS
         })
         .collect();
     let mut level_ask = None;
-    ui.scroll_area("le-timetable", Rect::new(body.x - 6.0, body.y, body.w + 12.0, body.h), &mut |ui, a| {
+    ui.scroll_area_bar("le-timetable", Rect::new(body.x - 6.0, body.y, body.w + 12.0, body.h), &mut |ui, a| {
         let x = a.x + 6.0;
         let w = a.w - 12.0;
         let mut y = a.y;
@@ -2820,7 +2823,6 @@ enum TableAct {
     UseTable(bool),
     Dir(usize),
     Day(usize),
-    Page(i32),
     Close,
 }
 
@@ -2926,58 +2928,73 @@ fn table_layer(l: &mut Launcher, map_r: Rect) {
         ui.text_in("Choose a time in the table: type it (0705), the arrow keys a minute later or earlier.", Rect::new(bx, y, x + w - bx, bh), 12.0, Weight::Regular, TEXT_DIM, Align::Left);
     }
     y += ROW;
-    // the grid: the stops down, the trips across
+    // the grid: the stops down, the trips across - scrolled both ways (the testers: "you can't
+    // scroll across the complex timetable"), the stops' names and the trips' heads frozen
     let stops: Vec<String> = line.directions.get(dir).map(|d| d.stops.iter().map(|s| s.name.clone()).collect()).unwrap_or_default();
     let foot_h = 46.0;
-    let grid = Rect::new(x, y, w, r.bottom() - 12.0 - foot_h - y);
+    let bar = super::ui::BAR;
+    let grid = Rect::new(x, y, w, r.bottom() - 12.0 - foot_h - y - bar - 2.0);
     let name_w = 160.0f32.min(w * 0.3);
     let col_w = 62.0;
-    let per_page = (((grid.w - name_w - 8.0) / col_w).floor() as usize).max(1);
-    let first = v.table_col.min(cols.len().saturating_sub(per_page));
-    let shown: Vec<usize> = cols.iter().copied().skip(first).take(per_page).collect();
     let head_h = 28.0;
-    // (the pages of trips: a few at a time)
-    if cols.len() > per_page {
-        if ui.icon_button("le-table-prev", Vec2::new(grid.x + 12.0, grid.y + head_h * 0.5), 12.0, "chevron_left", "Earlier trips") {
-            act = Some(TableAct::Page(-(per_page as i32)));
-        }
-        if ui.icon_button("le-table-next", Vec2::new(grid.x + 40.0, grid.y + head_h * 0.5), 12.0, "chevron_right", "Later trips") {
-            act = Some(TableAct::Page(per_page as i32));
-        }
-        let span = format!("{}–{} / {}", first + 1, first + shown.len(), cols.len());
-        ui.text_in(&span, Rect::new(grid.x + 56.0, grid.y, name_w - 60.0, head_h), 11.5, Weight::Medium, TEXT_DIM, Align::Left);
+    let row_h = 28.0;
+    // (the trips' room beside the names, the vertical bar's beside it)
+    let view_w = (grid.w - name_w - bar).max(col_w);
+    let total_w = cols.len() as f32 * col_w;
+    let max_x = (total_w - view_w).max(0.0);
+    let by = ui.sideways_wheel(grid);
+    let mut sx = (v.table_col + by).clamp(0.0, max_x);
+    // the bar along the trips, under the grid
+    let hbar = Rect::new(grid.x + name_w, grid.bottom() + 2.0, view_w, bar);
+    if let Some(to) = ui.scrollbar(super::ui::BarLook::launcher(), "le-table-h", hbar, false, sx, view_w, total_w) {
+        sx = to;
     }
-    for (c, &i) in shown.iter().enumerate() {
-        let cx = grid.x + name_w + c as f32 * col_w;
-        let hr = Rect::new(cx + 2.0, grid.y + 2.0, col_w - 4.0, head_h - 4.0);
+    v.table_col = sx;
+    let first = ((sx / col_w).floor() as usize).min(cols.len());
+    let last = (((sx + view_w) / col_w).ceil() as usize).min(cols.len());
+    let shown: Vec<(usize, usize)> = (first..last).map(|c| (c, cols[c])).collect();
+    let col_x = |c: usize| grid.x + name_w + c as f32 * col_w - sx;
+    // (how far along: the trips shown of all)
+    if cols.len() as f32 * col_w > view_w {
+        let span = format!("{}–{} / {}", first + 1, last, cols.len());
+        ui.text_in(&span, Rect::new(grid.x + 4.0, grid.y, name_w - 8.0, head_h), 11.5, Weight::Medium, TEXT_DIM, Align::Left);
+    }
+    ui.push_clip(Rect::new(grid.x + name_w, grid.y, view_w, head_h), 0.0);
+    for &(c, i) in &shown {
+        let hr = Rect::new(col_x(c) + 2.0, grid.y + 2.0, col_w - 4.0, head_h - 4.0);
         let chosen = sel.is_some_and(|s| s.0 == i);
         let (h, _, clicked) = ui.interact(super::ui::id_of(&format!("le-table-head-{i}")), hr);
         ui.p().rounded(hr, 6.0, if chosen { accent() } else if h { HOVER } else { FIELD });
-        let label = omsi_ui::tr("Trip %{n}").replace("%{n}", &(first + c + 1).to_string());
+        let label = omsi_ui::tr("Trip %{n}").replace("%{n}", &(c + 1).to_string());
         ui.text_in(&label, hr, 11.5, Weight::Bold, if chosen { on_accent() } else { TEXT_SOFT }, Align::Center);
         if clicked {
             act = Some(TableAct::Select(i, sel.map(|s| s.1).unwrap_or(0)));
         }
     }
+    ui.pop_clip();
     if cols.is_empty() {
         let text = if line.table.is_empty() { "The table is empty: fill it from the patterns, or add a trip." } else { "No trip of this direction on these days: add one." };
         ui.text_in(text, Rect::new(grid.x, grid.y + head_h + 8.0, grid.w, 24.0), 13.0, Weight::Regular, TEXT_DIM, Align::Left);
     }
-    let rows = Rect::new(grid.x - 6.0, grid.y + head_h, grid.w + 12.0, grid.h - head_h);
-    let row_h = 28.0;
+    let rows = Rect::new(grid.x, grid.y + head_h, grid.w, grid.h - head_h);
     let mut text = v.table_text.clone();
     let table = line.table.clone();
-    ui.scroll_area(&format!("le-table-rows-{dir}-{day}"), rows, &mut |ui, a| {
-        let gx = a.x + 6.0;
+    let cells_clip = Rect::new(grid.x + name_w, rows.y, view_w, rows.h);
+    ui.scroll_area_bar(&format!("le-table-rows-{dir}-{day}"), rows, &mut |ui, a| {
+        let gx = a.x;
         for (s, name) in stops.iter().enumerate() {
             let ry = a.y + s as f32 * row_h;
+            if !ui.rect_visible(Rect::new(gx, ry, a.w, row_h)) {
+                continue;
+            }
             if s % 2 == 1 {
-                ui.p().rect(Rect::new(gx, ry, a.w - 12.0, row_h), Color::WHITE.alpha(0.025));
+                ui.p().rect(Rect::new(gx, ry, a.w, row_h), Color::WHITE.alpha(0.025));
             }
             ui.text_in(name, Rect::new(gx + 4.0, ry, name_w - 10.0, row_h), 12.0, Weight::Medium, TEXT_SOFT, Align::Left);
-            for (c, &i) in shown.iter().enumerate() {
+            ui.push_clip(cells_clip, 0.0);
+            for &(c, i) in &shown {
                 let t = &table[i];
-                let cell = Rect::new(gx + name_w + c as f32 * col_w + 2.0, ry + 2.0, col_w - 4.0, row_h - 4.0);
+                let cell = Rect::new(col_x(c) + 2.0, ry + 2.0, col_w - 4.0, row_h - 4.0);
                 let Some(&time) = t.times.get(s) else { continue };
                 // (a stop reached before the one before it)
                 let falls = s > 0 && t.times.get(s - 1).is_some_and(|p| time < *p - 1e-3);
@@ -3009,9 +3026,21 @@ fn table_layer(l: &mut Launcher, map_r: Rect) {
                     act = Some(TableAct::Select(i, s));
                 }
             }
+            ui.pop_clip();
         }
         stops.len() as f32 * row_h + 8.0
     });
+    // (the cell chosen kept in view: the trip scrolled to when chosen by the keys or added)
+    if let Some((i, s)) = sel {
+        if let Some(c) = cols.iter().position(|&k| k == i) {
+            let cx = c as f32 * col_w;
+            if v.table_reveal {
+                v.table_col = if cx < sx { cx } else if cx + col_w > sx + view_w { cx + col_w - view_w } else { sx };
+                ui.scroll_to(&format!("le-table-rows-{dir}-{day}"), s as f32 * row_h, row_h, rows.h);
+                v.table_reveal = false;
+            }
+        }
+    }
     v.table_text = text;
     // the foot: how many trips, buses and tours; what is wrong
     let falls: Vec<(usize, usize)> = cols.iter().enumerate().filter_map(|(k, &i)| line.table[i].first_fall().map(|s| (k, s))).collect();
@@ -3042,21 +3071,18 @@ fn table_layer(l: &mut Launcher, map_r: Rect) {
         }
         TableAct::Dir(d) => {
             // (the stop chosen in the list was the other direction's)
-            (v.dir, v.sel_stop, v.table_sel, v.table_col) = (d, None, None, 0);
+            (v.dir, v.sel_stop, v.table_sel, v.table_col) = (d, None, None, 0.0);
             v.revision += 1;
             changed = false;
         }
         TableAct::Day(k) => {
-            (v.table_day, v.table_sel, v.table_col) = (k, None, 0);
-            changed = false;
-        }
-        TableAct::Page(by) => {
-            v.table_col = (first as i32 + by).max(0) as usize;
+            (v.table_day, v.table_sel, v.table_col) = (k, None, 0.0);
             changed = false;
         }
         TableAct::Select(i, s) => {
             v.table_sel = Some((i, s));
             v.table_text.clear();
+            v.table_reveal = true;
             ui.focus = Some(super::ui::id_of("le-table-cell"));
             changed = false;
         }
@@ -3071,7 +3097,7 @@ fn table_layer(l: &mut Launcher, map_r: Rect) {
             if v.table_fill_armed || line.table.is_empty() {
                 let l2 = v.line_mut().unwrap();
                 l2.table = reg::table_from_patterns(l2);
-                (v.table_sel, v.table_col, v.table_fill_armed) = (None, 0, false);
+                (v.table_sel, v.table_col, v.table_fill_armed) = (None, 0.0, false);
             } else {
                 v.table_fill_armed = true;
                 changed = false;
@@ -3094,7 +3120,7 @@ fn table_layer(l: &mut Launcher, map_r: Rect) {
             let line = v.line_mut().unwrap();
             line.table.push(trip);
             v.table_sel = Some((line.table.len() - 1, 0));
-            v.table_col = cols.len().saturating_sub(per_page - 1);
+            v.table_reveal = true;
         }
         TableAct::Copy(m) => {
             if let Some((i, s)) = sel {
@@ -3105,6 +3131,7 @@ fn table_layer(l: &mut Launcher, map_r: Rect) {
                 (t.day, t.tour) = (day, String::new());
                 line.table.push(t);
                 v.table_sel = Some((line.table.len() - 1, s));
+                v.table_reveal = true;
             }
         }
         TableAct::Shift(m) => {
@@ -3135,6 +3162,7 @@ fn table_layer(l: &mut Launcher, map_r: Rect) {
                 v.table_text.clear();
                 if next {
                     v.table_sel = Some((i, (s + 1).min(stops.len().saturating_sub(1))));
+                    v.table_reveal = true;
                     ui.focus = Some(super::ui::id_of("le-table-cell"));
                 }
             }

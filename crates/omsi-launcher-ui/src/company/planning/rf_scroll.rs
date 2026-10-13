@@ -4,7 +4,7 @@
 //! Drivers Gantt has one along the day (once zoomed in) and one down the rows, the timeplan
 //! one along its stops, the Roster tab's lists one each (`area`).
 
-use super::super::super::ui::{id_of, Ui};
+use super::super::super::ui::{id_of, BarLook, Ui};
 use super::rosterflow::Pal;
 use omsi_ui::{Color, Rect};
 
@@ -33,40 +33,8 @@ pub(super) fn look(p: &Pal) -> Look {
 /// where it was dragged or paged to.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn bar(ui: &mut Ui, look: &Look, name: &str, track: Rect, vertical: bool, pos: f32, view: f32, total: f32) -> Option<f32> {
-    if total <= view + 0.5 || view <= 0.0 {
-        return None;
-    }
-    let max = total - view;
-    let (start, len) = if vertical { (track.y, track.h) } else { (track.x, track.w) };
-    let thumb_len = (len * view / total).max(28.0f32.min(len * 0.5)).min(len);
-    let room = (len - thumb_len).max(1.0);
-    let at = start + room * (pos / max).clamp(0.0, 1.0);
-    let thumb = if vertical { Rect::new(track.x, at, track.w, thumb_len) } else { Rect::new(at, track.y, thumb_len, track.h) };
-    let id = id_of(name);
-    let (_, _, paged) = ui.interact(id ^ 0x5c71, track);
-    let (over, held, _) = ui.interact(id ^ 0x5c72, thumb);
-    let m = if vertical { ui.input.mouse.y } else { ui.input.mouse.x };
-    // (where on the thumb it was taken: it stays under the mouse)
-    let grab = id ^ 0x5c73;
-    if over && ui.input.pressed {
-        ui.scroll.insert(grab, m - at);
-    }
-    let mut out = None;
-    if held {
-        let g = ui.scroll.get(&grab).copied().unwrap_or(thumb_len * 0.5);
-        out = Some(((m - g - start) / room).clamp(0.0, 1.0) * max);
-    } else if paged && !over {
-        let page = view * 0.9;
-        out = Some(if m < at { (pos - page).max(0.0) } else { (pos + page).min(max) });
-    }
-    let hot = ui.anim(id ^ 0x5c74, if over || held { 1.0 } else { 0.0 }, 0.1);
-    let thick = if vertical { track.w } else { track.h };
-    let inner = if vertical { Rect::new(track.x + 3.0, track.y + 2.0, thick - 6.0, track.h - 4.0) } else { Rect::new(track.x + 2.0, track.y + 3.0, track.w - 4.0, thick - 6.0) };
-    let r = (thick - 6.0) * 0.5;
-    ui.p().rounded(inner, r, look.track);
-    let t = if vertical { Rect::new(inner.x, thumb.y + 2.0, inner.w, (thumb.h - 4.0).max(8.0)) } else { Rect::new(thumb.x + 2.0, inner.y, (thumb.w - 4.0).max(8.0), inner.h) };
-    ui.p().rounded(t, r, look.thumb.mix(look.hot, hot));
-    out
+    // (the launcher's own bar, in RosterFlow's colours)
+    ui.scrollbar(BarLook { track: look.track, thumb: look.thumb, hot: look.hot }, name, track, vertical, pos, view, total)
 }
 
 /// A list that scrolls in `r` with RosterFlow's bar on its right (the launcher's
