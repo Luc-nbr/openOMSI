@@ -1513,7 +1513,7 @@ fn right_panel(l: &mut Launcher, r: Rect, status: &mut Option<(String, bool)>) {
     let ly = by + ROW + 8.0;
     let is_loop = v.line().and_then(|x| x.directions.get(d_idx)).is_some_and(Direction::is_loop);
     if rows.len() >= 2 {
-        let (label, icon) = if is_loop { ("Open the loop", "link_off") } else { ("Close the loop: back to the first stop", "autorenew") };
+        let (label, icon) = if is_loop { ("Open the loop", "close") } else { ("Close the loop: back to the first stop", "autorenew") };
         if ui.button("le-loop", Rect::new(body.x, ly, body.w, ROW), label, Some(icon), ButtonKind::Ghost) {
             let d = &mut v.line_mut().unwrap().directions[d_idx];
             if is_loop {
