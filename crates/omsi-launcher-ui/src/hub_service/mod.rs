@@ -38,10 +38,42 @@ pub fn serve(cmd: &str, req: &Value, reply: Reply, renderer: &mut Option<omsi_re
         }
         // the line editor (`lineeditor::headless`): its view, or the map's roads and stops
         "le" => {
-            let v = crate::lineeditor::headless::serve(req.get("le").unwrap_or(&Value::Null));
-            reply(serde_json::json!({ "ok": true }), v.to_string().into_bytes());
+            line_editor(req, reply);
             true
         }
         _ => false,
     }
+}
+
+/// Answer `req` where it is read, if it is one of ours that draws nothing: true when it was.
+/// The service draws its pictures one after the other on one thread, and the first is slow
+/// (`warm` builds the renderer's pipelines while the launcher starts): the line editor, opened
+/// then, waited seconds for a picture it does not need. Its requests go to a thread of their
+/// own instead, in the order they came.
+pub fn at_once(req: &Value, reply: Reply) -> bool {
+    match req.get("cmd").and_then(Value::as_str) {
+        Some("le") => {
+            line_editor(req, reply);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// The line editor's request, on its thread (started with the first).
+fn line_editor(req: &Value, reply: Reply) {
+    use std::sync::mpsc::{channel, Sender};
+    use std::sync::{Mutex, OnceLock};
+    static WORKER: OnceLock<Mutex<Sender<(Value, Reply)>>> = OnceLock::new();
+    let worker = WORKER.get_or_init(|| {
+        let (tx, rx) = channel::<(Value, Reply)>();
+        let _ = std::thread::Builder::new().name("line editor".into()).spawn(move || {
+            while let Ok((req, reply)) = rx.recv() {
+                let v = crate::lineeditor::headless::serve(req.get("le").unwrap_or(&Value::Null));
+                reply(serde_json::json!({ "ok": true }), v.to_string().into_bytes());
+            }
+        });
+        Mutex::new(tx)
+    });
+    let _ = worker.lock().unwrap_or_else(|e| e.into_inner()).send((req.clone(), reply));
 }

@@ -138,17 +138,46 @@
 .le-day.off { display: flex; justify-content: space-between; gap: 8px; height: var(--hub-row); align-items: center; font-size: 10px; color: var(--hub-text-faint); }
 .le-day.off small { font-size: 8.8px; }
 .le-rule { display: block; height: 1px; background: var(--hub-hairline); margin: 4px 0; }
+/* a group of days in the Timetable tab, as `timetable_tab` lays it out (its scroll area has the
+   bar beside it) */
+.le-scroll.le-days { gap: 0; padding-right: 18px; }
+.le-group { display: flex; flex-direction: column; }
+.le-group > * { flex: none; }
+.le-group > .hub-seg { height: 32px; margin-top: 4px; }
+.le-group > .le-two.first { margin-top: 8px; }
+.le-group > .every { margin-top: 6px; }
+.le-group > .le-band { margin-top: 8px; }
+.le-group > .le-band ~ .le-band { margin-top: 10px; }
+.le-group > .le-bandrow { margin-top: 4px; }
+.le-group > .add { margin-top: 10px; }
+.le-group > .add .hub-btn { width: 100%; height: 30px; }
+.le-group > .stands { margin-top: 2px; }
+.le-group > .add + .stands { margin-top: 6px; }
+.le-group > .counts { height: 18px; margin-top: 2px; display: flex; align-items: center; font-size: 8.8px; color: var(--hub-text-dim); }
+.le-group > .le-rule { margin: 8px 0 9px; }
+.le-group > .le-day.off + .le-rule { margin-top: 4px; }
 .le-band { display: grid; grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr) 30px; gap: 0; align-items: center; }
 .le-band span { text-align: center; color: var(--hub-text-dim); }
 .le-bandrow.sized { display: grid; grid-template-columns: 56% minmax(0, 1fr); gap: 8px; align-items: center; }
 .le-bandrow .ed-drop { height: 32px; }
-.ed-row.le-kind { height: 34px; gap: 10px; padding: 0 10px; font-size: 10px; font-weight: 500; flex: none; }
+.ed-row.le-kind { height: 34px; gap: 9.5px; padding: 0 6px 0 7.5px; font-size: 10px; font-weight: 500; flex: none; }
 .ed-row.le-kind .hub-icon { color: var(--hub-accent-text); }
 .ed-row.le-kind.on .hub-icon, .ed-row.le-kind.on span { color: var(--hub-on-accent); }
 .le-hol { display: grid; grid-template-columns: minmax(0, 1fr) 62px 62px 24px; gap: 6px; align-items: center; }
 .le-hol .ed-field { height: calc(var(--hub-row) - 6px); }
 .le-hol.bad .ed-field:nth-child(n + 2) { box-shadow: inset 0 -2px 0 var(--hub-warn), inset 0 0 0 1px var(--hub-edge); }
 .le-classes { display: flex; flex-wrap: wrap; gap: 6px; }
+/* the Kind tab as `service_tab` lays it out */
+.le-scroll.le-kinds { gap: 0; }
+.le-kinds > .ed-caps { height: 16px; display: flex; align-items: center; margin-top: 0; }
+.le-kinds > span > .ed-field { height: 32px; margin-top: 4px; }
+.le-kinds > .le-kind { margin-top: 2px; }
+.le-kinds > .ed-caps + .le-kind { margin-top: 4px; }
+.le-kinds > .le-kind + .ed-para { margin-top: 6px; }
+.le-kinds > .ed-para + .hub-btn { margin-top: 6px; height: 30px; }
+.le-kinds > .le-rule { margin: 8px 0 9px; }
+.le-kinds > .le-rule + .ed-caps + .le-classes { margin-top: 6px; }
+.le-kinds > * + .ed-para, .le-kinds > * + .le-hol, .le-kinds > * + .le-half, .le-kinds > * + .ed-drop, .le-kinds > * + .le-bus, .le-kinds > * + .le-suits { margin-top: 6px; }
 .le-class { height: 28px; padding: 0 13px; border-radius: 14px; background: var(--hub-field); box-shadow: inset 0 0 0 1px var(--hub-edge); color: var(--hub-text); font-size: 9.6px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
 .le-class:hover { background: var(--hub-hover); }
 .le-class.on { background: var(--hub-accent); color: var(--hub-on-accent); box-shadow: none; }

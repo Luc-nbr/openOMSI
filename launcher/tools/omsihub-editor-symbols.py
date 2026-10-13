@@ -21,7 +21,10 @@ UI = REPO / "crates" / "omsi-launcher-ui" / "src"
 SOURCES = [
     UI / "editor_hub.rs", UI / "timetable.rs", UI / "hof.rs", UI / "lineeditor.rs",
     UI / "depoteditor.rs", UI / "ownlines.rs", UI / "busclass.rs",
-] + sorted((UI / "lineeditor").glob("*.rs")) + sorted((UI / "livery").glob("*.rs"))
+] + sorted((UI / "lineeditor").glob("*.rs")) + sorted((UI / "livery").glob("*.rs")) + [
+    # (the kinds of service the line editor offers, with their icons)
+    REPO / "crates" / "omsi-launcher-core" / "src" / "service.rs",
+]
 # what the page's editors use besides
 MORE = ["content_copy", "open_with", "departure_board", "livery_fill", "my_location", "zoom_in", "zoom_out"]
 

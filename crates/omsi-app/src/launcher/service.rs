@@ -58,11 +58,16 @@ pub fn run() -> anyhow::Result<()> {
     let out: Out = Arc::new(Mutex::new(answers()));
     let reply: Reply = Arc::new(move |id, head, body| write(&out, id, head, body));
     let (tx, rx) = std::sync::mpsc::channel::<Value>();
+    let early = reply.clone(); // Omsi-Hub: (for `hub_service::at_once`)
     std::thread::spawn(move || {
         for line in std::io::stdin().lock().lines() {
             let Ok(line) = line else { break };
             match serde_json::from_str::<Value>(&line) {
                 Ok(v) => {
+                    // Omsi-Hub: the editors' requests that draw nothing, not behind the pictures (`omsi_launcher_ui::hub_service::at_once`)
+                    if omsi_launcher_ui::hub_service::at_once(&v, { let (out, id) = (early.clone(), v.get("id").cloned().unwrap_or(Value::Null)); Arc::new(move |h, b| out(&id, h, &b)) }) {
+                        continue;
+                    }
                     if tx.send(v).is_err() {
                         break;
                     }

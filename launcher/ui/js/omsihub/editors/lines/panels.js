@@ -197,21 +197,24 @@ function TimetableTab() {
       : t.two && t.back_own && html`<p class="ed-para small">${tr('The return has departures of its own: choose Return above to change them.')}</p>`}
     ${!(t.two && t.pdir === 1 && !t.back_own) && html`<div class="le-scroll le-days">
       ${t.groups.map((g, k) => {
-        if (!g.allowed) return html`<div class="le-day off"><span>${g.name}</span><small>${g.why}</small></div><i class="le-rule"></i>`;
+        if (!g.allowed) return html`<div class="le-group"><div class="le-day off"><span>${g.name}</span><small>${g.why}</small></div><i class="le-rule"></i></div>`;
         const p = g.p;
-        return html`<${Toggle} raw label=${g.name} checked=${p.on} onChange=${(on) => pat(k, 'on', { on })} />
+        // (as `timetable_tab` lays a group out: each part its own distance under the last)
+        return html`<div class="le-group">
+          <${Toggle} raw label=${g.name} checked=${p.on} onChange=${(on) => pat(k, 'on', { on })} />
           ${p.on && html`<${Seg} full value=${p.bands.length ? 1 : 0} options=${[[0, 'One headway'], [1, 'Time bands']]} onChange=${(m) => pat(k, 'mode', { bands: m === 1 })} />
             ${!p.bands.length
-              ? html`<div class="le-two"><span class="le-lab">${tr('First')}</span><span class="le-lab">${tr('Last')}</span>
+              ? html`<div class="le-two first"><span class="le-lab">${tr('First')}</span><span class="le-lab">${tr('Last')}</span>
                   <${TimeSpin} minutes=${p.first} onChange=${(m) => pat(k, 'first', { value: m })} /><${TimeSpin} minutes=${p.last} onChange=${(m) => pat(k, 'last', { value: m })} /></div>
-                <${Slide} label="Every" value=${p.headway} min=${5} max=${120} step=${5} onChange=${(x) => pat(k, 'every', { value: x })} />`
+                <div class="every"><${Slide} label="Every" value=${p.headway} min=${5} max=${120} step=${5} onChange=${(x) => pat(k, 'every', { value: x })} /></div>`
               : html`${p.bands.map((b, i) => html`<div class="le-band"><${TimeSpin} h=${32} minutes=${b.from} onChange=${(m) => pat(k, 'band_from', { i, value: m })} /><span>–</span><${TimeSpin} h=${32} end minutes=${b.to} onChange=${(m) => pat(k, 'band_to', { i, value: m })} /><${IconBtn} icon="close" size=${10} title="Take the band out" onClick=${() => pat(k, 'band_remove', { i })} /></div>
                   <div class=${'le-bandrow' + (t.for_company ? ' sized' : '')}><${Slide} label="Every" value=${b.headway} min=${5} max=${60} step=${5} onChange=${(x) => pat(k, 'band_every', { i, value: x })} />
                     ${t.for_company && html`<${Drop} raw value=${JSON.stringify(b.size ?? null)} options=${t.sizes.map(([sz, l]) => [JSON.stringify(sz ?? null), l])} onChange=${(sz) => pat(k, 'band_size', { i, size: JSON.parse(sz) })} />`}</div>`)}
-                <${Btn} kind="ghost" icon="add" label="Add a band" onClick=${() => pat(k, 'band_add')} />`}
-            <${Slide} label="Stands" value=${p.layover} min=${0} max=${30} onChange=${(x) => pat(k, 'layover', { value: x })} />
-            <p class="ed-para small">${g.counts}</p>`}
-          <i class="le-rule"></i>`;
+                <div class="add"><${Btn} kind="ghost" icon="add" label="Add a band" onClick=${() => pat(k, 'band_add')} /></div>`}
+            <div class="stands"><${Slide} label="Stands" value=${p.layover} min=${0} max=${30} onChange=${(x) => pat(k, 'layover', { value: x })} /></div>
+            <p class="counts">${g.counts}</p>`}
+          <i class="le-rule"></i>
+        </div>`;
       })}
       <p class="ed-para faint">${tr('Each group of days becomes tours of its own; the buses go back and forth, each standing at the end for at least as long as set. With time bands the buses added for the rush hours go back to the depot after them.')}</p>
     </div>`}
@@ -226,10 +229,10 @@ function KindTab() {
   if (!k) return null;
   const sc = k.school;
   const setPeriods = (periods) => le('holidays', { periods });
-  return html`<div class="le-tab"><div class="le-scroll">
+  return html`<div class="le-tab"><div class="le-scroll le-kinds">
     <${Caps} title="Public title" />
     <${LiveField} raw value=${k.title} placeholder=${TITLE_HINT} onInput=${(t) => le('title', { value: t })} />
-    <${Caps} title="Kind of service" />
+    <${Caps} title="Kind of service" style="margin-top:10px" />
     ${k.kinds.map((x) => html`<${Row} class="le-kind" on=${x.on} onClick=${() => !x.on && le('kind', { kind: x.id })}><${Icon} name=${x.icon} size=${17} /><span>${x.label}</span></${Row}>`)}
     <p class="ed-para small">${k.note}</p>
     ${!k.route_only && html`<${Btn} kind="ghost" icon="schedule" label="Typical timetable for this kind" onClick=${() => le('typical')} />`}
