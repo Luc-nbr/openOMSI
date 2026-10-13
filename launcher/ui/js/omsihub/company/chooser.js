@@ -6,7 +6,7 @@
 
 import { S } from '../../store.js';
 import { call } from '../../api.js';
-import { html, useEffect, useState, tr, HOME, setCo, cmd, refresh, useView, Icon, Mark, ModePill, Btn, Seg, Chips, Select, Dialog, IconBtn } from './kit.js';
+import { html, useEffect, useState, tr, HOME, setCo, cmd, refresh, takeShell, useView, Icon, Mark, ModePill, Btn, Seg, Chips, Select, Dialog, IconBtn } from './kit.js';
 
 /** The companies as the chooser's view lists them (boot keeps one too). */
 export const readCompanies = () => S.co.list?.companies?.tiles || [];
@@ -20,6 +20,8 @@ export function Chooser() {
   const cv = v.companies;
   const open = async (id) => {
     await cmd('co_open', { id });
+    // (the shell of the company opened first: the founding is not shown on the way)
+    takeShell(await cmd('co_tick', { modal: true, still: true }));
     setCo({ chooser: null, tab: HOME });
     refresh();
   };
@@ -105,7 +107,6 @@ export function Wizard() {
       .then((x) => {
         if (gone) return;
         setV(x);
-        if (w.map == null || w.date == null || w.mode == null) setCo({ wizard: { ...w, map: w.map ?? x.map, date: w.date ?? x.date, mode: w.mode ?? x.mode } });
       })
       .catch(() => {});
     return () => {
@@ -121,7 +122,7 @@ export function Wizard() {
       setCo({ popup: v.maps.length ? v.popup_name : v.popup_map });
       return;
     }
-    const r = await cmd('co_found', { name: w.name, short: w.short, colours: w.colours, logo: w.logo, map: w.map ?? v.map, depot: w.depot, when: w.when, date: w.date, mode: w.mode, buying: w.buying });
+    const r = await cmd('co_found', { name: w.name, short: w.short, colours: w.colours, logo: w.logo, map: w.map ?? v.map, depot: w.depot, when: w.when, date: w.date ?? v.date, mode: w.mode || v.mode, buying: w.buying });
     if (r?.refused) {
       setCo({ popup: r.refused === 'map' ? v.popup_map : v.popup_name });
       return;
