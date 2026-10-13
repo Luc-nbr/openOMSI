@@ -817,6 +817,133 @@ pub fn fits(e: &Employee, size: BusSize, work: &[Block], b: &Block, today: bool)
     Ok(w)
 }
 
+// --- who could take a duty, and why not ----------------------------------------------------------
+
+/// Why a driver cannot take a duty, told exactly (testers were "confused by how it says drivers
+/// are free but unable to cover duties": the lists now say why).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Cannot {
+    /// Not a driver (a mechanic, a cleaner...): only drivers drive.
+    NotDriver,
+    /// Not employed on the day (not yet, or gone).
+    NotEmployed,
+    Ill { until: String },
+    Holiday { until: String },
+    /// Worked the week's days already (`WEEK_DAYS`).
+    WeekDone { days: u32 },
+    /// The licence, an endorsement or the type training for the bus.
+    Lacks(super::licences::Lack),
+    /// Drives another duty then (its `duty_key`, and its time).
+    OnDuty { key: String, from: i32, to: i32 },
+    /// The pause to the neighbouring duty is shorter than the rest (`staff::REST`).
+    Rest { minutes: i32 },
+    /// The night's rest since yesterday's last duty is too short: free from `from`.
+    NightRest { from: i32 },
+    /// The working day would come to `minutes`, over `staff::DAY_MAX`.
+    TooLong { minutes: i32 },
+}
+
+/// Why someone cannot drive on `date` at all (the day itself, before any duty), exactly; on the
+/// company's day the night's rest too (free only from `NightRest::from`). None: they can.
+pub fn day_unavailable(e: &Employee, date: &str, today: bool) -> Option<Cannot> {
+    if !staff::drives(e) {
+        Some(Cannot::NotDriver)
+    } else if !e.employed_on(date) {
+        Some(Cannot::NotEmployed)
+    } else if covers(&e.sick_until, date) {
+        Some(Cannot::Ill { until: e.sick_until.clone().unwrap_or_default() })
+    } else if covers(&e.holiday_until, date) {
+        Some(Cannot::Holiday { until: e.holiday_until.clone().unwrap_or_default() })
+    } else if today && e.week_days >= WEEK_DAYS {
+        Some(Cannot::WeekDone { days: e.week_days })
+    } else {
+        None
+    }
+}
+
+/// When a driver may begin on the company's day after yesterday's last duty (None: any time).
+pub fn free_from(e: &Employee, today: bool) -> Option<i32> {
+    e.last_end.filter(|_| today).map(|end| end + staff::NIGHT_REST - 1440).filter(|m| *m > 0)
+}
+
+/// Whether `e` can take a duty (`b`) on a bus (`DayTour::bus_of`) beside their other work of
+/// the day (`work`): the warnings, or exactly why not (`day_plan`'s own rules: `unavailable`,
+/// `fits_bus`).
+pub fn can_take(e: &Employee, date: &str, today: bool, bus: &(BusKind, Option<String>), work: &[Block], b: &Block) -> Result<Vec<Warn>, Cannot> {
+    if let Some(x) = day_unavailable(e, date, today) {
+        return Err(x);
+    }
+    if let Some(x) = super::licences::lack(e, bus.0, bus.1.as_deref()) {
+        return Err(Cannot::Lacks(x));
+    }
+    if !staff::may_drive(e, bus.0.size) {
+        return Err(Cannot::Lacks(super::licences::Lack::Licence));
+    }
+    let k = staff::check(work, b, if today { e.last_end } else { None }, None);
+    if let Some(key) = &k.double {
+        let (from, to) = work.iter().find(|x| &x.key == key).map(|x| (x.from, x.to)).unwrap_or((b.from, b.to));
+        return Err(Cannot::OnDuty { key: key.clone(), from, to });
+    }
+    if k.too_long {
+        return Err(Cannot::TooLong { minutes: staff::work_minutes(work) + (b.to - b.from) });
+    }
+    if let Some(r) = k.rest.filter(|r| *r < staff::REST) {
+        return Err(Cannot::Rest { minutes: r });
+    }
+    if k.night_rest.is_some_and(|r| r < staff::NIGHT_REST) {
+        return Err(Cannot::NightRest { from: free_from(e, today).unwrap_or(b.from) });
+    }
+    fits_bus(e, bus, work, b, today).map_err(|_| Cannot::NotDriver)
+}
+
+/// A driver as a duty's lists show them: who, free all day (a standby), and whether they can
+/// take it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Candidate {
+    pub id: u32,
+    /// No other duty that day: a standby driver.
+    pub standby: bool,
+    pub fit: Result<Vec<Warn>, Cannot>,
+}
+
+/// A driver's work on the plan's day without one duty (to see whether it fits).
+pub fn work_without(dp: &DayPlan, id: u32, skip: (usize, usize)) -> Vec<Block> {
+    dp.duties_of(Who::Staff(id))
+        .into_iter()
+        .filter(|x| *x != skip)
+        .map(|(i, k)| {
+            let t = &dp.tours[i];
+            block_of(&t.tour, &t.duties[k], duty_key(&t.tour.line, &t.tour.tour, k))
+        })
+        .collect()
+}
+
+/// Every driver for duty `k` of tour `ti`: those who can take it first (the standby drivers,
+/// then those with the fewest warnings), then those who cannot, each with the reason.
+pub fn candidates(c: &Company, dp: &DayPlan, ti: usize, k: usize) -> Vec<Candidate> {
+    let t = &dp.tours[ti];
+    let bus = t.bus_of(c);
+    let block = block_of(&t.tour, &t.duties[k], duty_key(&t.tour.line, &t.tour.tour, k));
+    let mut out: Vec<(String, Candidate)> = c
+        .staff
+        .iter()
+        .filter(|e| staff::drives(e))
+        .map(|e| {
+            let work = work_without(dp, e.id, (ti, k));
+            let fit = can_take(e, &dp.date, dp.today, &bus, &work, &block);
+            (e.name.clone(), Candidate { id: e.id, standby: work.is_empty(), fit })
+        })
+        .collect();
+    out.sort_by(|a, b| {
+        let rank = |x: &Candidate| match &x.fit {
+            Ok(w) => (0, !x.standby, w.len()),
+            Err(_) => (1, false, 0),
+        };
+        rank(&a.1).cmp(&rank(&b.1)).then(a.0.cmp(&b.0))
+    });
+    out.into_iter().map(|x| x.1).collect()
+}
+
 /// The places the depot has left today for another bus (`depot::room`'s rule: the yard's
 /// spaces, the halls the levels open, a few in the street).
 fn places_left(c: &Company) -> usize {
@@ -1963,5 +2090,42 @@ mod tests {
         let p = day_plan(&c, &c.date, tours, &[], &[], false);
         assert_eq!(agency_used(&p), 3);
         assert_eq!(p.tours.iter().filter(|t| t.duties[0].open()).count(), 1);
+    }
+
+    #[test]
+    fn a_driver_who_cannot_take_a_duty_says_why() {
+        // (testers: "confused by how it says drivers are free but unable to cover duties")
+        let mut c = quiet(2, 4);
+        c.planning.auto = false;
+        let wd = weekday_of(&c.date);
+        let (b1, b2) = (c.fleet[0].id, c.fleet[1].id);
+        let ids: Vec<u32> = c.staff.iter().map(|e| e.id).collect();
+        set_bus(&mut c, wd, "Linie5", "1", Some(b1));
+        set_bus(&mut c, wd, "Linie5", "2", Some(b2));
+        // the first drives the other tour then; the second worked the week's days; the third is ill
+        set_driver(&mut c, wd, "Linie5", "2", 0, Some(Who::Staff(ids[0])));
+        c.staff[1].week_days = WEEK_DAYS;
+        c.staff[2].sick_until = Some(c.date.clone());
+        let tours = vec![tour("1", 6 * 60, 3), tour("2", 6 * 60 + 10, 3)];
+        let p = day_plan(&c, &c.date, tours, &[], &[], false);
+        assert_eq!(p.tours[0].tour.tour, "1");
+        let cs = candidates(&c, &p, 0, 0);
+        // the one who can take it first, a standby driver (no other duty today)
+        assert_eq!(cs[0].id, ids[3]);
+        assert!(cs[0].standby && cs[0].fit.is_ok());
+        let why = |id: u32| cs.iter().find(|x| x.id == id).unwrap().fit.clone().unwrap_err();
+        assert!(matches!(why(ids[0]), Cannot::OnDuty { ref key, .. } if key == &duty_key("Linie5", "2", 0)));
+        assert_eq!(why(ids[1]), Cannot::WeekDone { days: WEEK_DAYS });
+        assert_eq!(why(ids[2]), Cannot::Ill { until: c.date.clone() });
+        // (the old check let the one with the week's days worked through: the day said no)
+        let e1 = c.employee(ids[1]).unwrap();
+        assert_eq!(day_unavailable(e1, &c.date, true), Some(Cannot::WeekDone { days: WEEK_DAYS }));
+        // the night's rest: back late yesterday, free only from the morning's rest
+        c.staff[3].last_end = Some(23 * 60);
+        let e3 = c.employee(ids[3]).unwrap();
+        let t = &p.tours[0];
+        let b = block_of(&t.tour, &t.duties[0], duty_key("Linie5", "1", 0));
+        assert_eq!(can_take(e3, &c.date, true, &t.bus_of(&c), &[], &b), Err(Cannot::NightRest { from: 23 * 60 + staff::NIGHT_REST - 1440 }));
+        assert_eq!(free_from(e3, true), Some(10 * 60));
     }
 }

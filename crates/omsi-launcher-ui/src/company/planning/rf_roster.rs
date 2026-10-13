@@ -837,7 +837,12 @@ fn pick_row(ui: &mut Ui, q: &Pal, name: &str, r: Rect, on: bool, swatch: Option<
         ui.p().rounded(Rect::new(x, r.y + r.h * 0.5 - 5.0, 10.0, 10.0), 2.0, s);
         x += 18.0;
     }
-    let rw = ui.width(right, 12.0, Weight::Regular).min(r.w * 0.5);
+    let full = ui.width(right, 12.0, Weight::Regular);
+    let rw = full.min(r.w * 0.62);
+    // (a reason longer than its room is shown whole under the mouse)
+    if full > rw && h {
+        ui.tooltip(r, right);
+    }
     ui.text_in(text, Rect::new(x, r.y, r.right() - x - rw - 16.0, r.h), 13.0, Weight::Medium, q.text, Align::Left);
     ui.text_in(right, Rect::new(r.right() - rw - 10.0, r.y, rw, r.h), 12.0, Weight::Regular, if on { q.text } else { right_c }, Align::Right);
     (clicked, pressed)
@@ -864,14 +869,19 @@ fn day_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, q: &Pal) {
         .filter(|e| co::staff::drives(e))
         .map(|e| {
             let mins: i32 = p.duties_of(Who::Staff(e.id)).iter().map(|&(i, k)| p.tours[i].duties[k].to - p.tours[i].duties[k].from).sum();
-            let (state, col) = if !e.employed_on(&p.date) {
-                (omsi_ui::tr("Not employed then").into_owned(), q.faint)
-            } else if e.sick_until.as_deref().is_some_and(|u| co::dates::between(&p.date, u) >= 0) {
-                (omsi_ui::tr("Ill").into_owned(), q.err)
-            } else if e.holiday_until.as_deref().is_some_and(|u| co::dates::between(&p.date, u) >= 0) {
-                (omsi_ui::tr("On holiday").into_owned(), q.dim)
+            // (exactly why someone cannot drive today: "Free" only for who can)
+            let (state, col) = if let Some(x) = pl::day_unavailable(e, &p.date, p.today) {
+                let col = match x {
+                    pl::Cannot::Ill { .. } | pl::Cannot::WeekDone { .. } => q.err,
+                    pl::Cannot::NotEmployed => q.faint,
+                    _ => q.dim,
+                };
+                (cannot_text(c, p, &x), col)
             } else if mins == 0 {
-                (omsi_ui::tr("Free").into_owned(), q.dim)
+                match pl::free_from(e, p.today) {
+                    Some(m) => (omsi_ui::tr("Free from %{time} (night's rest)").replace("%{time}", &hhmm(m)), q.warn),
+                    None => (omsi_ui::tr("Free all day").into_owned(), q.ok),
+                }
             } else {
                 (length(mins), if mins > co::staff::DAY_TARGET { q.warn } else { q.text.alpha(0.82) })
             };
@@ -1189,18 +1199,11 @@ fn duty_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, ti: usize, k:
     let cands: Vec<(Option<Who>, String, String, Color, Option<Color>)> = {
         let mut v: Vec<(Option<Who>, String, String, Color, Option<Color>)> = Vec::new();
         v.push((Some(Who::Player), omsi_ui::tr("You").into_owned(), omsi_ui::tr("Drive it yourself").into_owned(), q.dim, Some(q.accent)));
-        let mut people: Vec<(bool, u32, String, String, Color)> = c
-            .staff
-            .iter()
-            .filter(|e| co::staff::drives(e))
-            .map(|e| {
-                let (s, col, ok) = fit_of(c, p, ti, k, e.id);
-                (ok, e.id, e.name.clone(), s, ink(q, col))
-            })
-            .collect();
-        people.sort_by(|a, b| b.0.cmp(&a.0).then(a.2.cmp(&b.2)));
-        for (_, id, name, s, col) in people {
-            v.push((Some(Who::Staff(id)), name, s, col, Some(driver_colour(c, id))));
+        // (those who can take it first - the standby drivers - then the others, each with why not)
+        for x in pl::candidates(c, p, ti, k) {
+            let (s, col, _) = fit_of(c, p, ti, k, x.id);
+            let name = c.employee(x.id).map(|e| e.name.clone()).unwrap_or_default();
+            v.push((Some(Who::Staff(x.id)), name, s, ink(q, col), Some(driver_colour(c, x.id))));
         }
         v.push((None, omsi_ui::tr("Nobody").into_owned(), String::new(), q.dim, None));
         v

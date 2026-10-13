@@ -325,32 +325,51 @@ fn block_of(t: &DayTour, k: usize) -> Block {
     Block { key: pl::duty_key(&t.tour.line, &t.tour.tour, k), from: d.from, to: d.to, from_stop: t.tour.trips[d.start].from.clone(), to_stop: t.tour.trips[d.end - 1].to.clone() }
 }
 
-/// What a driver would make of a duty: a word and its colour.
+/// Why a driver cannot take a duty, in words (`pl::Cannot`: exactly what keeps them).
+pub(super) fn cannot_text(c: &Company, p: &DayPlan, x: &pl::Cannot) -> String {
+    use pl::Cannot as N;
+    match x {
+        N::NotDriver => omsi_ui::tr("Not a driver").into_owned(),
+        N::NotEmployed => omsi_ui::tr("Not employed then").into_owned(),
+        N::Ill { until } => omsi_ui::tr("Ill until %{date}").replace("%{date}", &day_label(until)),
+        N::Holiday { until } => omsi_ui::tr("On holiday until %{date}").replace("%{date}", &day_label(until)),
+        N::WeekDone { days } => omsi_ui::tr("Worked %{n} days this week already").replace("%{n}", &days.to_string()),
+        N::Lacks(l) => super::people::lack_text(c, l),
+        N::OnDuty { key, from, to } => {
+            let mut it = key.split('|');
+            let (line, tour) = (it.next().unwrap_or(""), it.next().unwrap_or(""));
+            let number = p.tours.iter().find(|t| t.tour.line == line && t.tour.tour == tour).map(|t| t.tour.number.clone()).unwrap_or_else(|| line.to_string());
+            omsi_ui::tr("Drives line %{n} tour %{tour} then (%{from}–%{to})").replace("%{n}", &number).replace("%{tour}", tour).replace("%{from}", &hhmm(*from)).replace("%{to}", &hhmm(*to))
+        }
+        N::Rest { minutes } => omsi_ui::tr("Only %{n} min between duties: %{min} min rest needed").replace("%{n}", &minutes.to_string()).replace("%{min}", &co::staff::REST.to_string()),
+        N::NightRest { from } => omsi_ui::tr("Night's rest after yesterday: free from %{time}").replace("%{time}", &hhmm(*from)),
+        N::TooLong { minutes } => omsi_ui::tr("Working day would be %{t}: %{max} at most").replace("%{t}", &length(*minutes)).replace("%{max}", &length(co::staff::DAY_MAX)),
+    }
+}
+
+/// The colour of a reason not to take a duty: grey for those who are away, red for the rest.
+fn cannot_colour(x: &pl::Cannot) -> Color {
+    match x {
+        pl::Cannot::NotEmployed | pl::Cannot::Holiday { .. } | pl::Cannot::NotDriver => TEXT_DIM,
+        _ => DANGER.lighten(0.2),
+    }
+}
+
+/// What a driver would make of a duty: a word and its colour, and whether they can take it
+/// (exactly why not when they cannot: `pl::can_take`).
 fn fit_of(c: &Company, p: &DayPlan, ti: usize, k: usize, id: u32) -> (String, Color, bool) {
     let Some(e) = c.employee(id) else { return ("?".into(), TEXT_FAINT, false) };
-    if !e.employed_on(&p.date) {
-        return (omsi_ui::tr("Not employed then").into_owned(), TEXT_FAINT, false);
-    }
-    if e.sick_until.as_deref().is_some_and(|u| co::dates::between(&p.date, u) >= 0) {
-        return (omsi_ui::tr("Ill").into_owned(), DANGER.lighten(0.2), false);
-    }
-    if e.holiday_until.as_deref().is_some_and(|u| co::dates::between(&p.date, u) >= 0) {
-        return (omsi_ui::tr("On holiday").into_owned(), TEXT_DIM, false);
-    }
     let t = &p.tours[ti];
     let work = blocks_without(p, id, (ti, k));
     let bus = t.bus_of(c);
-    match pl::fits_bus(e, &bus, &work, &block_of(t, k), p.today) {
-        Err(Problem::Licence | Problem::NoEndorsement | Problem::NoTypeTraining) => {
-            let why = co::licences::lack(e, bus.0, bus.1.as_deref()).map(|x| super::people::lack_text(c, &x)).unwrap_or_else(|| omsi_ui::tr("No licence for this bus").into_owned());
-            (why, DANGER.lighten(0.2), false)
-        }
-        Err(_) => (omsi_ui::tr("Clashes with other work").into_owned(), DANGER.lighten(0.2), false),
+    match pl::can_take(e, &p.date, p.today, &bus, &work, &block_of(t, k)) {
+        Err(x) => (cannot_text(c, p, &x), cannot_colour(&x), false),
         Ok(w) => match w.first() {
             Some(Warn::Overtime(m)) => (omsi_ui::tr("Overtime %{t}").replace("%{t}", &length(*m)), WARN, true),
             Some(Warn::Transfer(m)) => (omsi_ui::tr("%{n} min to change stops").replace("%{n}", &m.to_string()), WARN, true),
             Some(Warn::Experience) => (omsi_ui::tr("Little experience for this bus").into_owned(), WARN, true),
-            None => (omsi_ui::tr("Fits").into_owned(), OK, true),
+            None if work.is_empty() => (omsi_ui::tr("Can take it: free all day").into_owned(), OK, true),
+            None => (omsi_ui::tr("Can take it").into_owned(), OK, true),
         },
     }
 }
@@ -359,6 +378,16 @@ fn fit_of(c: &Company, p: &DayPlan, ti: usize, k: usize, id: u32) -> (String, Co
 /// ("No type training for the Citaro").
 fn problem_text(c: &Company, p: &DayPlan, ti: usize, k: usize, problem: Option<Problem>) -> String {
     let t = &p.tours[ti];
+    // (a rostered driver who cannot drive it: exactly why - the week's days, the rest, another duty)
+    if matches!(problem, Some(Problem::Away | Problem::Conflict)) {
+        let rostered = pl::roster(c, p.weekday, &t.tour.line, &t.tour.tour).and_then(|r| r.duties.get(k).copied().flatten());
+        if let Some(e) = rostered.and_then(|w| if let Who::Staff(id) = w { c.employee(id) } else { None }) {
+            let work = blocks_without(p, e.id, (ti, k));
+            if let Err(x) = pl::can_take(e, &p.date, p.today, &t.bus_of(c), &work, &block_of(t, k)) {
+                return format!("{}: {}", first_name(c, e.id), cannot_text(c, p, &x));
+            }
+        }
+    }
     if matches!(problem, Some(Problem::Licence | Problem::NoEndorsement | Problem::NoTypeTraining)) {
         let rostered = pl::roster(c, p.weekday, &t.tour.line, &t.tour.tour).and_then(|r| r.duties.get(k).copied().flatten());
         if let Some(e) = rostered.and_then(|w| if let Who::Staff(id) = w { c.employee(id) } else { None }) {
