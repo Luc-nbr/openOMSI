@@ -188,6 +188,7 @@ const _LOCALES_COMPANY_DRIVE: &str = include_str!("../locales/company-drive.yml"
 const _LOCALES_BUGS_TIMETABLE: &str = include_str!("../locales/bugs-timetable.yml");
 const _LOCALES_BUGS_COMPANY: &str = include_str!("../locales/bugs-company.yml");
 const _LOCALES_GAME_MODES: &str = include_str!("../locales/game-modes.yml");
+const _LOCALES_CASUAL: &str = include_str!("../locales/casual.yml");
 
 /// Show the interface in `code` (the settings' ENG / DEU / FRA / RUS).
 pub(crate) fn ui_language(code: &str) {

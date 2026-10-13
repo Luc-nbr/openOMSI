@@ -341,9 +341,9 @@ pub(super) fn refusal(c: &Company, reason: &str) -> Popup {
         "The depot has no room for another bus: build more parking spaces." | "The depot has no room for so many buses: build more parking spaces." => {
             let held = c.fleet.iter().filter(|v| v.held_on(&c.date)).count();
             let text = omsi_ui::tr("The depot has %{spaces} parking spaces and holds %{buses} buses; a few more may stand in the street.").replace("%{spaces}", &omsi_launcher_lib::company::depot::places(c).to_string()).replace("%{buses}", &held.to_string());
-            // (the easy mode builds them by itself; its depot is the advanced mode's page)
+            // (Casual builds them by itself, or the player buys a bigger depot on its company page)
             if co::autopilot::on(c) {
-                Popup::new("garage", "No room in the depot", text, omsi_ui::tr("The company builds more parking spaces by itself before the yard is full, when its cash allows. To build them now, switch to Normal."), Some(Go::ToNormal(super::DEPOT_TAB)))
+                Popup::new("garage", "No room in the depot", text, omsi_ui::tr("The company builds more parking spaces by itself when its cash allows. Or buy a bigger depot now on your company's page."), Some(Go::Depot))
             } else {
                 Popup::new("garage", "No room in the depot", text, omsi_ui::tr("Build more parking spaces at the depot: each level gives twelve."), Some(Go::Depot))
             }
@@ -411,8 +411,8 @@ pub(super) fn draw_popup(l: &mut Launcher) {
     let mut foot = Foot::new(&f);
     let mut done = f.close || l.ui.input.keys.contains(&Key::Enter);
     let mut go = None;
-    // (the easy mode leads only to the pages it shows)
-    let way = if super::easy(l) { p.go.and_then(super::easy_go) } else { p.go };
+    // (Casual leads only to its own pages)
+    let way = if super::easy(l) { p.go.and_then(super::casual::popup_go) } else { p.go };
     if let Some(g) = way {
         if foot.right(l, "company-popup-go", g.label(), Some(g.icon()), ButtonKind::Primary) {
             go = Some(g);
@@ -449,7 +449,7 @@ mod tests {
         let mut e = c.clone();
         e.game_mode = co::GameMode::Casual;
         let p = refusal(&e, "The depot has no room for so many buses: build more parking spaces.");
-        assert_eq!(p.go, Some(Go::ToNormal(super::super::DEPOT_TAB)));
+        assert_eq!(p.go, Some(Go::Depot));
         assert!(p.unlock.contains("by itself"), "{}", p.unlock);
         let p = refusal(&e, "Double-deckers need research first: start it on the Research page.");
         assert_eq!((p.go, p.text.as_str()), (Some(Go::ToNormal(super::super::RESEARCH_TAB)), "Double-deckers need research first."));

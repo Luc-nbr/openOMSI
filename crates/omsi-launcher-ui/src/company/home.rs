@@ -515,14 +515,9 @@ pub(super) fn ways_laid(ui: &Ui, w: f32, ways: &[(To, &'static str, &'static str
 
 // --- drawing --------------------------------------------------------------------------------------
 
-/// The start screen in the company's page area (the easy mode has one of its own:
-/// `easy_home`).
+/// The start screen in the company's page area (Casual has a home of its own: `casual`).
 pub fn draw(l: &mut Launcher, area: Rect) {
     let Some(c) = l.company.company.clone() else { return };
-    if co::autopilot::on(&c) {
-        super::easy_home::draw(l, area);
-        return;
-    }
     let plan = l.company.plan.clone();
     let marks = Marks::of(&c, plan.as_ref());
     let list = sections(&c, plan.as_ref(), &marks);

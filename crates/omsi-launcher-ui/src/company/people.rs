@@ -11,7 +11,7 @@
 mod hire;
 mod hours;
 mod list;
-mod portraits;
+pub(super) mod portraits;
 
 use super::super::theme::*;
 use super::super::ui::ButtonKind;

@@ -395,10 +395,12 @@ fn page_for(m: &Message, mode: co::GameMode) -> Option<(usize, &'static str, &'s
     if !mode.casual() {
         return page;
     }
-    match m.kind {
+    let page = match m.kind {
         Kind::Workshop => Some((1, "To the fleet", "directions_bus")),
-        _ => page.filter(|p| super::pages_of(mode).contains(&p.0)),
-    }
+        _ => page,
+    };
+    // (Casual's page about the same, where it has one)
+    page.map(|p| (super::casual::page_for(p.0), p.1, p.2)).filter(|p| super::pages_of(mode).contains(&p.0))
 }
 
 /// Where a message of `kind` is mended: the tab and the button's words.
@@ -593,8 +595,8 @@ mod tests {
                 assert!(super::super::pages_of(co::GameMode::Casual).contains(&tab), "{kind:?} -> {tab}");
             }
         }
-        assert_eq!(page_for(&Message::new(Kind::Workshop, "t", "x"), co::GameMode::Casual).map(|p| p.0), Some(1));
-        assert_eq!(page_for(&Message::new(Kind::Staff, "t", "x"), co::GameMode::Casual).map(|p| p.0), Some(2));
+        assert_eq!(page_for(&Message::new(Kind::Workshop, "t", "x"), co::GameMode::Casual).map(|p| p.0), Some(super::super::casual::BUSES));
+        assert_eq!(page_for(&Message::new(Kind::Staff, "t", "x"), co::GameMode::Casual).map(|p| p.0), Some(super::super::casual::DRIVERS));
         for kind in [Kind::Research, Kind::Contract, Kind::Goal, Kind::Event] {
             assert_eq!(page_for(&Message::new(kind, "t", "x"), co::GameMode::Casual), None, "{kind:?}");
         }

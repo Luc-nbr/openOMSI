@@ -11,13 +11,15 @@
 mod adverts;
 mod bank;
 mod career;
+mod casual;
+/// Casual's pages, as the company's tour puts the company on them.
+pub(crate) use casual::{BUSES as CASUAL_BUSES, COMPANY as CASUAL_COMPANY, DRIVERS as CASUAL_DRIVERS, LINES as CASUAL_LINES, MONEY as CASUAL_MONEY};
 mod chooser;
 mod clock;
 mod concessions;
 mod contracts;
 mod dealer;
 mod depot;
-mod easy_home;
 mod fares;
 mod fleet;
 mod home;
@@ -85,26 +87,15 @@ pub(super) const ICONS: [&str; 14] = ["signal_cellular_alt", "directions_bus", "
 /// The pages in the strip under the bar (`nav`), grouped as the start screen groups them: at a
 /// glance, operations, people, business, the company.
 const RAIL: [&[usize]; 5] = [&[0, INBOX_TAB], &[5, 3, MAP_TAB, 1], &[2], &[4, CONCESSIONS_TAB, CONTRACTS_TAB, 6], &[DEPOT_TAB, WORKSHOP_TAB, RESEARCH_TAB]];
-/// The easy mode's pages (Luc: "a somewhat different layout per mode; advanced has all the
-/// functions"): what a player who runs buses without every detail looks at - the overview and
-/// the inbox, the lines, the map and the fleet, the staff, the money and the career with the
-/// player's own duties. The planning, the depot, the concessions, the research, the workshop
-/// and the contracts run by themselves (`co::autopilot`) and keep their pages for the advanced
-/// mode, where nothing of them is lost.
-const EASY_RAIL: [&[usize]; 4] = [&[0, INBOX_TAB], &[3, MAP_TAB, 1], &[2], &[4, 6]];
-
-/// The strip's pages of a game mode, grouped (Casual's are the easy pages).
-fn rail(mode: co::GameMode) -> &'static [&'static [usize]] {
-    if mode.casual() {
-        &EASY_RAIL
-    } else {
-        &RAIL
-    }
-}
-
-/// The pages a game mode shows, in the strip's order.
+/// The pages a game mode shows, in the strip's order: Casual has its own (`casual`, Trello
+/// "Game modes 3/4": its own interface, not these pages with some hidden); the planning, the
+/// depot, the concessions, the research, the workshop and the contracts run by themselves
+/// there (`co::autopilot`) and keep their pages for Normal, where nothing of them is lost.
 pub(super) fn pages_of(mode: co::GameMode) -> Vec<usize> {
-    rail(mode).iter().flat_map(|g| g.iter().copied()).collect()
+    if mode.casual() {
+        return casual::PAGES.to_vec();
+    }
+    RAIL.iter().flat_map(|g| g.iter().copied()).collect()
 }
 
 /// Whether the open company is run in the easy mode.
@@ -123,6 +114,11 @@ pub(super) fn tab_of(part: &str) -> Option<usize> {
     let p = part.trim();
     if p.eq_ignore_ascii_case("home") || p.eq_ignore_ascii_case("start") {
         return Some(HOME_TAB);
+    }
+    // (Casual's pages by name: "buses", "shop", "lines", "new-line", "drivers", "money",
+    // "company", "shifts")
+    if let Some(tab) = casual::tab_named(p) {
+        return Some(tab);
     }
     p.parse::<usize>().ok().map(|n| n.min(TABS.len() - 1))
 }
@@ -213,6 +209,8 @@ pub struct CompanyView {
     /// Raised whenever the company changed (the planning keeps its plans until then).
     pub(super) generation: u64,
     pub(super) career: career::CareerView,
+    /// The Casual pages' own (`casual`).
+    pub(super) casual: casual::CasualView,
     pub(super) depot: depot::DepotView,
     pub(super) tenders: concessions::TendersView,
     pub(super) map: map::FleetMap,
@@ -269,6 +267,7 @@ impl Default for CompanyView {
             launch: None,
             generation: 0,
             career: Default::default(),
+            casual: Default::default(),
             depot: Default::default(),
             tenders: Default::default(),
             map: Default::default(),
@@ -558,6 +557,7 @@ pub(super) fn mode_pill(ui: &mut Ui, id: &str, r: Rect, mode: co::GameMode, clic
 /// What the page asks for in the background, and what came.
 fn work(l: &mut Launcher) {
     let profile = l.state.config.profile.clone();
+    let mut told: Option<Vec<DayReport>> = None;
     let view = &mut l.company;
     while let Ok(m) = view.rx.try_recv() {
         match m {
@@ -602,8 +602,12 @@ fn work(l: &mut Launcher) {
                                 *x = c.clone();
                             }
                         }
+                        let casual = c.game_mode.casual();
                         view.company = Some(c);
-                        if !run.reports.is_empty() {
+                        if casual {
+                            // (Casual says the day in a line: no report to read through)
+                            told = Some(run.reports);
+                        } else if !run.reports.is_empty() {
                             view.reports = Some(run.reports);
                         }
                         view.plan = None;
@@ -616,6 +620,9 @@ fn work(l: &mut Launcher) {
                 }
             }
         }
+    }
+    if let Some(r) = told {
+        casual::told(l, &r);
     }
     let view = &mut l.company;
     if view.companies_for.as_deref() != Some(profile.as_str()) {
@@ -820,18 +827,6 @@ pub(super) fn act<T>(l: &mut Launcher, f: impl FnOnce(&mut Company) -> Result<T,
     }
 }
 
-/// What mends something in the easy mode: the planning, the depot and the research are the
-/// company's own there (None: no button - a popup that needs one of them offers the advanced
-/// mode itself, `Go::Advanced`), the staff's courses are the career's.
-fn easy_go(g: kit::Go) -> Option<kit::Go> {
-    use kit::Go;
-    match g {
-        Go::Planning | Go::Licences | Go::Depot | Go::Research => None,
-        Go::Training => Some(Go::Courses),
-        g => Some(g),
-    }
-}
-
 /// Said under a lock Casual does not open by itself (a research it does not start).
 pub(super) const NOT_RESEARCHED_BY_ITSELF: &str = "Casual does not research this by itself: switch to Normal and start it on its Research page.";
 
@@ -846,19 +841,11 @@ fn go(l: &mut Launcher, g: kit::Go) {
     use kit::Go;
     l.company.dialog = None;
     l.company.reports = None;
-    let g = if easy(l) && g == Go::Planning {
-        l.company.tab = 6;
-        l.company.career.part = career::DUTIES;
+    // (Casual: the Casual page about it, none to what the company sees to by itself)
+    if easy(l) {
+        casual::go(l, g);
         return;
-    } else if easy(l) {
-        // (a page the easy mode hides is not opened: the company sees to that by itself)
-        match easy_go(g) {
-            Some(g) => g,
-            None => return,
-        }
-    } else {
-        g
-    };
+    }
     match g {
         Go::Progress => {
             l.company.tab = 6;
@@ -1055,7 +1042,7 @@ pub fn screen(l: &mut Launcher) {
         l.ui.tooltip(gear, "The company's settings: its name, its date, how it buys");
         right = gear.x - 16.0;
         let clock_r = Rect::new(size.x * 0.36, 16.0, (right - size.x * 0.36).max(0.0), 40.0);
-        let left = clock::head(l, clock_r);
+        let left = if c_casual(l) { casual::head(l, clock_r) } else { clock::head(l, clock_r) };
         super::tour::anchor("company-clock", Rect::new(left, clock_r.y, (clock_r.right() - left).max(0.0), clock_r.h));
         right = left - 16.0;
     }
@@ -1112,7 +1099,11 @@ pub fn screen(l: &mut Launcher) {
         let body = if l.company.launch.is_some() {
             content
         } else {
-            nav(l, Rect::new(content.x, content.y, content.w, 42.0), c);
+            if c.game_mode.casual() {
+                casual::nav(l, Rect::new(content.x, content.y, content.w, 42.0), c);
+            } else {
+                nav(l, Rect::new(content.x, content.y, content.w, 42.0), c);
+            }
             Rect::new(content.x, content.y + 58.0, content.w, (content.h - 58.0).max(0.0))
         };
         super::tour::anchor("company-page", body);
@@ -1145,6 +1136,16 @@ fn pages(l: &mut Launcher, body: Rect) {
     if l.company.tab != 5 {
         l.company.planning.away();
     }
+    // Casual: its own pages, and a way from elsewhere to one of Normal's on the Casual page
+    // about the same; out of Casual, a Casual page is the start screen
+    if c_casual(l) {
+        l.company.tab = casual::page_for(l.company.tab);
+        casual::draw(l, body);
+        return;
+    }
+    if l.company.tab > HOME_TAB {
+        l.company.tab = HOME_TAB;
+    }
     match l.company.tab {
         HOME_TAB => home::draw(l, body),
         0 => overview::draw(l, body),
@@ -1167,11 +1168,17 @@ fn pages(l: &mut Launcher, body: Rect) {
 }
 
 /// Escape was pressed on a page (`escape_home`, decided before the page was drawn): back to
-/// the start screen - unless the page put something over itself meanwhile.
+/// the start screen - unless the page put something over itself meanwhile (in Casual to the
+/// page above: the shop's is the buses).
 fn back_home(l: &mut Launcher, esc: bool) {
     if esc && !modal(l) {
-        l.company.tab = HOME_TAB;
+        l.company.tab = if c_casual(l) { casual::parent(l.company.tab) } else { HOME_TAB };
     }
+}
+
+/// The open company runs in Casual.
+fn c_casual(l: &Launcher) -> bool {
+    l.company.company.as_ref().is_some_and(|c| c.game_mode.casual())
 }
 
 /// Where the company is at home: its map, its depot and how hard its economy is.
@@ -1215,6 +1222,7 @@ fn status(l: &mut Launcher, r: Rect, c: &Company) -> f32 {
     for ((icon, value, icon_c, text_c, tip, tab), w) in items.into_iter().zip(widths).take(n) {
         let hit = Rect::new(x - gap * 0.5 + 2.0, pill.y + 3.0, w + gap - 4.0, h - 6.0);
         let (hover, _, clicked) = l.ui.interact(super::ui::id_of(&format!("company-status-{icon}")), hit);
+        let tab = if c.game_mode.casual() { casual::page_for(tab) } else { tab };
         let (hover, clicked) = if pages_of(c.game_mode).contains(&tab) { (hover, clicked) } else { (false, false) };
         if hover {
             l.ui.p().rounded(hit, hit.h * 0.5, Color::WHITE.alpha(0.06));
@@ -1245,7 +1253,7 @@ fn nav(l: &mut Launcher, r: Rect, c: &Company) {
     let gap = 4.0;
     let group_gap = 17.0;
     // (the mode's pages: the easy mode has fewer)
-    let groups = self::rail(c.game_mode);
+    let groups = &RAIL;
     let count: usize = groups.iter().map(|g| g.len()).sum();
     let rail_w = count as f32 * side + (count - groups.len()) as f32 * gap + (groups.len() - 1) as f32 * group_gap;
     let x0 = r.right() - rail_w;
@@ -1315,6 +1323,13 @@ fn strip(l: &mut Launcher, area: Rect) -> Rect {
     l.ui.text_in(&c.name, Rect::new(mark.right() + 14.0, area.y - 2.0, area.w - 60.0, 24.0), 18.0, Weight::Bold, TEXT, Align::Left);
     status(l, Rect::new(mark.right() + 14.0, area.y + 24.0, area.w - 60.0, 22.0), &c);
     let mut y = area.y + 56.0;
+    if c.game_mode.casual() {
+        // (Casual: back to the page above, the page's name, the day and "Next day")
+        y = casual::phone_nav(l, Rect::new(area.x, y, area.w, ROW + 4.0));
+        let head = Rect::new(area.x, y, area.w, 40.0);
+        casual::phone_head(l, head);
+        return Rect::new(area.x, head.bottom() + 14.0, area.w, (area.bottom() - head.bottom() - 14.0).max(0.0));
+    }
     if l.company.tab != HOME_TAB {
         // the way back, and every page in a list beside it
         let label = omsi_ui::tr("Start screen");
@@ -1385,6 +1400,7 @@ pub(super) fn switch_company(l: &mut Launcher, to: Option<Company>) {
     view.tenders = Default::default();
     view.lines = Default::default();
     view.money = Default::default();
+    view.casual = Default::default();
 }
 
 fn closing_cover(l: &mut Launcher) {
@@ -1725,7 +1741,7 @@ fn report_dialog(l: &mut Launcher) {
     // (the easy mode mends what the company does not see to itself)
     if easy {
         for f in facts.iter_mut() {
-            f.fixes = f.fixes.iter().filter_map(|g| easy_go(*g)).collect();
+            f.fixes = f.fixes.iter().filter_map(|g| casual::popup_go(*g)).collect();
         }
     }
     // the lines, each with its money
@@ -1952,6 +1968,7 @@ mod tests {
         assert_eq!(tab_of("7"), Some(DEPOT_TAB));
         assert_eq!(tab_of("99"), Some(TABS.len() - 1));
         assert_eq!(tab_of("fleet"), None);
+        assert_eq!((tab_of("shop"), tab_of("New-Line"), tab_of("shifts")), (Some(casual::SHOP), Some(casual::NEW_LINE), Some(casual::SHIFTS)));
         // (the start screen is no page of the tabs, and every page has its icon)
         assert!(HOME_TAB >= TABS.len());
         assert_eq!(ICONS.len(), TABS.len());
@@ -1969,22 +1986,20 @@ mod tests {
         for m in [co::GameMode::Normal, co::GameMode::Realistic] {
             assert_eq!(pages_of(m), RAIL.iter().flat_map(|g| g.iter().copied()).collect::<Vec<_>>());
         }
-        // Casual: what a player who runs buses looks at; what runs by itself is left out
+        // Casual: its own pages, none of Normal's
         let easy = pages_of(co::GameMode::Casual);
-        assert_eq!(easy, vec![0, INBOX_TAB, 3, MAP_TAB, 1, 2, 4, 6]);
-        for hidden in [5, DEPOT_TAB, CONCESSIONS_TAB, RESEARCH_TAB, WORKSHOP_TAB, CONTRACTS_TAB] {
-            assert!(!easy.contains(&hidden), "{}", TABS[hidden]);
+        assert_eq!(easy, casual::PAGES.to_vec());
+        for tab in 0..TABS.len() {
+            assert!(!easy.contains(&tab), "{}", TABS[tab]);
         }
-        // a way that mends something in the easy mode never goes to the planning
+        // a popup's way on in Casual: none to what the company sees to by itself
         use kit::Go;
-        for g in [Go::Progress, Go::Depot, Go::Loan, Go::Finances, Go::Courses, Go::Planning, Go::Lines, Go::Dealer, Go::Hire, Go::Training, Go::Licences] {
-            assert_ne!(easy_go(g), Some(Go::Planning), "{g:?}");
+        for g in [Go::Progress, Go::Courses, Go::Training, Go::Licences, Go::Research] {
+            assert_eq!(casual::popup_go(g), None, "{g:?}");
         }
-        assert_eq!((easy_go(Go::Planning), easy_go(Go::Training), easy_go(Go::Dealer)), (None, Some(Go::Courses), Some(Go::Dealer)));
-        // nor to the depot or the research, which it builds and starts by itself; a popup that
-        // needs them offers Normal instead
-        assert_eq!((easy_go(Go::Depot), easy_go(Go::Research), easy_go(Go::Licences)), (None, None, None));
-        assert_eq!(easy_go(Go::ToNormal(DEPOT_TAB)), Some(Go::ToNormal(DEPOT_TAB)));
+        for g in [Go::Depot, Go::Loan, Go::Finances, Go::Planning, Go::Lines, Go::Dealer, Go::Hire, Go::ToNormal(DEPOT_TAB)] {
+            assert_eq!(casual::popup_go(g), Some(g), "{g:?}");
+        }
     }
 
     #[test]
