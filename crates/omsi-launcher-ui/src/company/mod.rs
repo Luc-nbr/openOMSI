@@ -1212,13 +1212,19 @@ fn pages(l: &mut Launcher, body: Rect) {
 /// with its ':' and '%' written %3A and %25), done once the company is open: "tour" its tour,
 /// "line-editor" the line editor for a new own line ("line-editor=<id>" an own line),
 /// "map-line=<name>" a line of the map, "casual-line=<0..2>" a Casual line drawn at that
-/// frequency, "timetable=<line>" a line's timetable, "livery=<bus file>|<livery>|<bus id>" the
+/// frequency, "workshop" the career's workshop (its jobs, the repair game),
+/// "timetable=<line>" a line's timetable, "livery=<bus file>|<livery>|<bus id>" the
 /// livery studio (the bus id may be left out).
 pub(crate) fn handed(l: &mut Launcher, what: &str) {
     let what = what.replace("%3A", ":").replace("%25", "%");
     let (verb, arg) = what.split_once('=').unwrap_or((what.as_str(), ""));
     match verb.trim() {
         "tour" => tutorial::ask(l),
+        // (the workshop's jobs: the repair game is drawn here)
+        "workshop" => {
+            l.company.tab = 6;
+            l.company.career.part = career::WORKSHOP;
+        }
         "line-editor" => super::lineeditor::open_for_company(l, arg.trim().parse().ok()),
         "map-line" => super::lineeditor::open_map_line_for_company(l, arg),
         "casual-line" => casual::draw_line(l, arg.trim().parse().unwrap_or(1)),
