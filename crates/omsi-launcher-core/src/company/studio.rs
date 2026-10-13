@@ -8,7 +8,10 @@
 //! line's termini or at the depot (Luc: "relief points are ONLY a line's termini and the
 //! depot"), and joins them again; and he joins pieces of different blocks into one driver's
 //! duty (a split duty, or one that changes buses). The working-time rules (`staff::check`)
-//! refuse what may not be and warn of the rest. What he lays out is kept with the company a
+//! refuse what may not be and warn of the rest. In RosterFlow's Drivers view he moves a trip
+//! (or several) of a duty to another duty or to a new one (`plan_move_to_duty`): the bus keeps
+//! the trip, only its driver changes, and the block is cut anew where the driver changes - at a
+//! terminus or the depot again. What he lays out is kept with the company a
 //! weekday at a time, as the weekly roster is (`plan::Planning::layouts`, `joined`), and
 //! `network::tours_of_day` gives every page the day so: the planning, the day's close, and
 //! the game's plan (`plan::live_plan` runs each tour of the timetable with the bus of the
@@ -345,7 +348,7 @@ pub const LOCKED: &str = "This vehicle is locked: unlock it first.";
 pub const SWAP_FAILS: &str = "Trips could not be swapped: they do not fit on the other bus.";
 pub const DUTY_LOCKED: &str = "This duty is locked: unlock it first.";
 
-const REFUSALS: [&str; 21] = [OVERLAP, NO_TIME, IN_DEPOT, BACK_IN_DEPOT, OTHER_LINE, NOT_MOVABLE, SAME_BUS, ALONE, BETWEEN, CUT_ALREADY, ON_THE_MOVE, NOT_RELIEF, NO_PASSENGERS, NO_CUT, TOO_LONG, SAME_DUTY, NOT_JOINED, NOT_FOUND, LOCKED, SWAP_FAILS, DUTY_LOCKED];
+const REFUSALS: [&str; 24] = [OVERLAP, NO_TIME, IN_DEPOT, BACK_IN_DEPOT, OTHER_LINE, NOT_MOVABLE, SAME_BUS, ALONE, BETWEEN, CUT_ALREADY, ON_THE_MOVE, NOT_RELIEF, NO_PASSENGERS, NO_CUT, TOO_LONG, SAME_DUTY, NOT_JOINED, NOT_FOUND, LOCKED, SWAP_FAILS, DUTY_LOCKED, ONE_DUTY, DUTY_ALONE, DRIVER_NO_TIME];
 
 /// Where a trip is moved to: a bus of the day (a block's index), or a new one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -676,6 +679,294 @@ pub fn swap(c: &mut Company, weekday: u8, tours: &[TourOfDay], from: usize, pick
     let lay = plan_swap(c, weekday, tours, from, picked, to, how)?;
     unjoin_blocks(c, weekday, &tours[from].line, &[tours[from].tour.as_str(), tours[to].tour.as_str()]);
     save(c, lay);
+    Ok(())
+}
+
+// --- trips moved between duties (RosterFlow's Drivers view) ------------------------------------
+//
+// Luc: in Drivers a trip is dragged onto another duty, or onto a new one, as a trip is dragged
+// onto another bus in Vehicles. The bus keeps running its block; only the driver of the trip
+// changes. Its block is cut anew where the driver changes now - only where the bus stands at a
+// terminus or the depot - and joined where one driver now works on (a cut between two pieces of
+// the same duty goes); the duties are joined anew from their pieces, and the working-time rules
+// (`rules_of`) and the driver's way to the trip are checked.
+
+/// Why trips are not moved to another duty (English, translated when shown).
+pub const ONE_DUTY: &str = "Only trips of one duty can be moved together.";
+pub const DUTY_ALONE: &str = "These are all the trips of this duty: it is a duty of its own already.";
+pub const DRIVER_NO_TIME: &str = "The driver cannot be there in time: the work before it ends at another stop, too shortly before.";
+
+/// Where trips of a duty are moved to in the Drivers view: another duty of the day (its index
+/// in `duties`), or a new duty of their own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DutyTarget {
+    Duty(usize),
+    New,
+}
+
+/// What moving trips to another duty makes of the planning (`plan_move_to_duty`): the layouts
+/// of the lines whose blocks are cut anew, and the company's joined duties and duty notes
+/// (every weekday's) as they are then. `apply_duty_move` keeps it.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct DutyMove {
+    pub layouts: Vec<LineLayout>,
+    pub joined: Vec<JoinedDuty>,
+    pub notes: Vec<super::rosterflow::DutyNote>,
+}
+
+/// The duty (an index into `duties`) that works trip `j` of block `i`.
+pub fn duty_of_trip(duties: &[Duty], tours: &[TourOfDay], i: usize, j: usize) -> Option<usize> {
+    let k = network::duties_of(tours.get(i)?).iter().position(|r| r.contains(&j))?;
+    duty_of(duties, i, k)
+}
+
+/// Where between trips `p` and `n` of block `i` (trips with passengers, none between them) the
+/// driver can change: before a trip after which the bus stands at a terminus or the depot,
+/// the nearest `p` first (`near_p`) or the nearest `n`.
+fn relief_between(c: &Company, tours: &[TourOfDay], i: usize, p: usize, n: usize, near_p: bool) -> Result<usize, &'static str> {
+    let t = &tours[i];
+    let mut order: Vec<usize> = (p + 1..=n).collect();
+    if !near_p {
+        order.reverse();
+    }
+    let mut standing = false;
+    for k in order {
+        let (a, b) = (&t.trips[k - 1], &t.trips[k]);
+        if !same(a.end(), &b.from) {
+            continue;
+        }
+        standing = true;
+        if is_relief(c, tours, &t.line, a.end()) {
+            return Ok(k);
+        }
+    }
+    Err(if standing { NOT_RELIEF } else { ON_THE_MOVE })
+}
+
+/// A piece of work (trips `r` of block `i`) as the working-time rules see it.
+fn range_block(tours: &[TourOfDay], i: usize, r: &Range<usize>) -> Block {
+    let t = &tours[i];
+    let (from, to) = span(t, r);
+    let from_stop = t.trips.get(r.start).map(|x| x.from.clone()).unwrap_or_default();
+    let to_stop = r.end.checked_sub(1).and_then(|e| t.trips.get(e)).map(|x| x.end().to_string()).unwrap_or_default();
+    Block { key: format!("{i}/{}", r.start), from, to, from_stop, to_stop }
+}
+
+/// The pieces of duty `d` (block, trips) as `who` gives each trip's duty and `pieces` each
+/// block's pieces, in the order they begin.
+fn pieces_of(tours: &[TourOfDay], who: &[Vec<usize>], pieces: &[Vec<Range<usize>>], d: usize) -> Vec<(usize, Range<usize>)> {
+    let mut out: Vec<(usize, Range<usize>)> = Vec::new();
+    for (i, rs) in pieces.iter().enumerate() {
+        for r in rs.iter().filter(|r| who[i].get(r.start) == Some(&d)) {
+            out.push((i, r.clone()));
+        }
+    }
+    out.sort_by_key(|(i, r)| (span(&tours[*i], r).0, *i));
+    out
+}
+
+/// What moving trips `trips` (block, trip: indices into `tours`) of duty `from` to `to` would
+/// make of the planning (None: refused, and why). `from` and `DutyTarget::Duty` are indices into
+/// `duties(&c.planning.joined, weekday, tours)` - `rosterflow::Board::duties` when `c` is the
+/// board's company (`rosterflow::view`) and `tours` its blocks. The trips stay on their buses: their
+/// blocks are cut where the driver changes now - only where the bus stands at a terminus or the
+/// depot (`NOT_RELIEF`, `ON_THE_MOVE`) - and a cut between two pieces one driver now works on
+/// one bus goes. Every duty changed keeps to the working-time rules (`rules_of`: a hard rule it
+/// did not break before refuses the move with the rule's label), and a driver gets from one
+/// piece to the next in time (`DRIVER_NO_TIME`). Locked duties and buses stay as they are.
+pub fn plan_move_to_duty(c: &Company, weekday: u8, tours: &[TourOfDay], from: usize, trips: &[(usize, usize)], to: DutyTarget) -> Result<DutyMove, &'static str> {
+    use super::rosterflow::{block_locked, duty_key, duty_locked, DutyNote};
+    let ds = duties(&c.planning.joined, weekday, tours);
+    if from >= ds.len() {
+        return Err(NOT_FOUND);
+    }
+    let mut picked: Vec<(usize, usize)> = trips.to_vec();
+    picked.sort_unstable();
+    picked.dedup();
+    if picked.is_empty() {
+        return Err(NOT_FOUND);
+    }
+    // who works each trip now (a duty of `ds`), and the blocks' pieces
+    let now: Vec<Vec<Range<usize>>> = tours.iter().map(network::duties_of).collect();
+    let mut owner: Vec<Vec<usize>> = tours.iter().map(|t| vec![usize::MAX; t.trips.len()]).collect();
+    for (d, duty) in ds.iter().enumerate() {
+        for p in &duty.pieces {
+            for j in now[p.tour].get(p.duty).cloned().unwrap_or(0..0) {
+                owner[p.tour][j] = d;
+            }
+        }
+    }
+    for &(i, j) in &picked {
+        let x = tours.get(i).and_then(|t| t.trips.get(j)).ok_or(NOT_FOUND)?;
+        if !x.counts() {
+            return Err(NOT_MOVABLE);
+        }
+        if owner[i][j] != from {
+            return Err(ONE_DUTY);
+        }
+    }
+    let target = match to {
+        DutyTarget::Duty(d) if d == from => return Err(SAME_DUTY),
+        DutyTarget::Duty(d) if d >= ds.len() => return Err(NOT_FOUND),
+        DutyTarget::Duty(d) => d,
+        DutyTarget::New => {
+            let mut all = 0;
+            for p in &ds[from].pieces {
+                let r = now[p.tour].get(p.duty).cloned().unwrap_or(0..0);
+                all += tours[p.tour].trips[r].iter().filter(|x| x.counts()).count();
+            }
+            if picked.len() >= all {
+                return Err(DUTY_ALONE);
+            }
+            ds.len()
+        }
+    };
+    let locked = |d: usize| d < ds.len() && duty_key(tours, &ds[d]).is_some_and(|k| duty_locked(c, weekday, &k));
+    if locked(from) || locked(target) {
+        return Err(DUTY_LOCKED);
+    }
+    let mut blocks: Vec<usize> = picked.iter().map(|p| p.0).collect();
+    blocks.dedup();
+    if blocks.iter().any(|&i| block_locked(c, weekday, &tours[i].line, &tours[i].tour)) {
+        return Err(LOCKED);
+    }
+    // the trips to their new driver; their blocks cut where the driver changes now
+    let mut after = owner.clone();
+    for &(i, j) in &picked {
+        after[i][j] = target;
+    }
+    let mut pieces = now.clone();
+    let mut cut_at: Vec<(usize, Vec<usize>)> = Vec::new();
+    for &i in &blocks {
+        let t = &tours[i];
+        let old: Vec<usize> = now[i].iter().skip(1).map(|r| r.start).collect();
+        let counting: Vec<usize> = (0..t.trips.len()).filter(|&j| t.trips[j].counts()).collect();
+        let mut cuts: Vec<usize> = Vec::new();
+        for w in counting.windows(2) {
+            let (p, n) = (w[0], w[1]);
+            if after[i][p] == after[i][n] {
+                continue;
+            }
+            // (a cut there already stays where it is)
+            let k = match old.iter().copied().find(|&k| k > p && k <= n) {
+                Some(k) => k,
+                None => relief_between(c, tours, i, p, n, after[i][p] != owner[i][p])?,
+            };
+            cuts.push(k);
+        }
+        let mut ranges: Vec<Range<usize>> = Vec::new();
+        let mut s = 0;
+        for k in cuts.iter().copied().chain(std::iter::once(t.trips.len())) {
+            ranges.push(s..k);
+            s = k;
+        }
+        // (the runs without passengers go with the trips of their piece)
+        for r in &ranges {
+            let who = r.clone().find(|&j| t.trips[j].counts()).map(|j| after[i][j]).unwrap_or(usize::MAX);
+            for j in r.clone() {
+                after[i][j] = who;
+            }
+        }
+        pieces[i] = ranges;
+        cut_at.push((i, cuts));
+    }
+    // every duty with work on those buses, the one the trips go to first
+    let mut touched: Vec<usize> = vec![target, from];
+    for &i in &blocks {
+        for j in 0..tours[i].trips.len() {
+            for d in [owner[i][j], after[i][j]] {
+                if d != usize::MAX && !touched.contains(&d) {
+                    touched.push(d);
+                }
+            }
+        }
+    }
+    let prefs = &c.planning.flow.prefs;
+    let need = prefs.travel.minutes(prefs);
+    for &d in &touched {
+        let new = pieces_of(tours, &after, &pieces, d);
+        if new.is_empty() {
+            continue;
+        }
+        let old = if d < ds.len() { pieces_of(tours, &owner, &now, d) } else { Vec::new() };
+        let was: &[Rule] = if d < ds.len() { &ds[d].rules } else { &[] };
+        let bs: Vec<Block> = new.iter().map(|(i, r)| range_block(tours, *i, r)).collect();
+        if let Some(r) = rules_of(&bs).into_iter().find(|r| r.hard() && !was.iter().any(|w| std::mem::discriminant(w) == std::mem::discriminant(r))) {
+            return Err(r.label());
+        }
+        // (from one piece to the next: at the same stop, or with time to get there)
+        for (w, b) in new.windows(2).zip(bs.windows(2)) {
+            if old.windows(2).any(|o| o == w) {
+                continue;
+            }
+            if !same(&b[0].to_stop, &b[1].from_stop) && b[1].from - b[0].to < need {
+                return Err(DRIVER_NO_TIME);
+            }
+        }
+    }
+    // the lines' layouts with the blocks cut anew
+    let mut layouts: Vec<LineLayout> = Vec::new();
+    for (i, cuts) in &cut_at {
+        let t = &tours[*i];
+        if !layouts.iter().any(|l| same(&l.line, &t.line)) {
+            layouts.push(layout_now(c, tours, &t.line, weekday));
+        }
+        let lay = layouts.iter_mut().find(|l| same(&l.line, &t.line)).ok_or(NOT_FOUND)?;
+        let b = lay.blocks.iter_mut().find(|b| same(&b.tour, &t.tour)).ok_or(NOT_FOUND)?;
+        b.cuts = Some(cuts.iter().filter_map(|&k| t.trips.get(k)).map(TripRef::of).collect());
+    }
+    // the duties changed joined anew; their notes (type, custom work ...) follow their key
+    let refs = |ps: &[(usize, Range<usize>)]| -> Vec<PieceRef> { ps.iter().map(|(i, r)| PieceRef::of(&tours[*i], r)).collect() };
+    let mut gone: Vec<PieceRef> = Vec::new();
+    let mut groups: Vec<Vec<PieceRef>> = Vec::new();
+    let mut keys: Vec<(PieceRef, Option<PieceRef>)> = Vec::new();
+    for &d in &touched {
+        let new = refs(&pieces_of(tours, &after, &pieces, d));
+        if d < ds.len() {
+            gone.extend(refs(&pieces_of(tours, &owner, &now, d)));
+            if let Some(k) = duty_key(tours, &ds[d]) {
+                keys.push((k, new.first().cloned()));
+            }
+        }
+        gone.extend(new.iter().cloned());
+        if new.len() > 1 {
+            groups.push(new);
+        }
+    }
+    let mut joined: Vec<JoinedDuty> = c.planning.joined.iter().filter(|j| !(j.weekday == weekday && j.pieces.iter().any(|p| gone.iter().any(|g| g.same(p))))).cloned().collect();
+    joined.extend(groups.into_iter().map(|pieces| JoinedDuty { weekday, pieces }));
+    let mut notes: Vec<DutyNote> = Vec::new();
+    for n in &c.planning.flow.sheet.notes {
+        if n.weekday != weekday {
+            notes.push(n.clone());
+            continue;
+        }
+        match keys.iter().find(|(old, _)| old.same(&n.key)) {
+            Some((_, Some(new))) => notes.push(DutyNote { key: new.clone(), ..n.clone() }),
+            // (its duty is gone: all its trips went to another)
+            Some((_, None)) => {}
+            // (a note left on a key another duty has now)
+            None if keys.iter().any(|(_, new)| new.as_ref().is_some_and(|k| k.same(&n.key))) => {}
+            None => notes.push(n.clone()),
+        }
+    }
+    Ok(DutyMove { layouts, joined, notes })
+}
+
+/// Keep what `plan_move_to_duty` made of the planning.
+pub fn apply_duty_move(c: &mut Company, m: DutyMove) {
+    for l in m.layouts {
+        save(c, l);
+    }
+    c.planning.joined = m.joined;
+    c.planning.flow.sheet.notes = m.notes;
+}
+
+/// Move trips `trips` (block, trip) of duty `from` to `to` (`plan_move_to_duty`): kept for the
+/// weekday.
+pub fn move_to_duty(c: &mut Company, weekday: u8, tours: &[TourOfDay], from: usize, trips: &[(usize, usize)], to: DutyTarget) -> Result<(), &'static str> {
+    let m = plan_move_to_duty(c, weekday, tours, from, trips, to)?;
+    apply_duty_move(c, m);
     Ok(())
 }
 /// Whether `place` is one of the line's termini (where its trips with passengers begin or
@@ -1421,5 +1712,188 @@ mod tests {
         // a trip the game reports of timetable tour 2 is the block's that runs it
         assert!(tours.iter().find(|t| t.tour == "3").unwrap().runs_tour("2"));
         assert!(!tours.iter().find(|t| t.tour == "1").unwrap().runs_tour("2"));
+    }
+
+    // --- trips moved between duties --------------------------------------------------------
+
+    /// The duty that works trip `j` of block `no` on the day as `c` lays it out.
+    fn duty_at(c: &Company, l: &LineInfo, no: &str, j: usize) -> (Vec<TourOfDay>, Vec<Duty>, usize, usize) {
+        let wd = super::super::plan::weekday_of(&c.date);
+        let tours = day(c, l);
+        let ds = duties(&c.planning.joined, wd, &tours);
+        let (i, _) = block(&tours, no);
+        let d = duty_of_trip(&ds, &tours, i, j).unwrap();
+        (tours, ds, i, d)
+    }
+
+    #[test]
+    fn a_trip_moves_to_another_duty_at_a_terminus_and_back() {
+        let mut c = company();
+        // tour 1 from 06:00 (four trips, until 09:50 at A), tour 3 from 12:00 (from A)
+        let l = line_of(&[("1", 360, 4), ("3", 720, 4)]);
+        let wd = super::super::plan::weekday_of(&c.date);
+        let (tours, ds, one, a) = duty_at(&c, &l, "1", 3);
+        assert_eq!(ds.len(), 2);
+        let b = duty_of_trip(&ds, &tours, block(&tours, "3").0, 0).unwrap();
+        // tour 1's last trip (09:00 from B) to the driver of tour 3
+        move_to_duty(&mut c, wd, &tours, a, &[(one, 3)], DutyTarget::Duty(b)).unwrap();
+        let (tours, ds, one, b2) = duty_at(&c, &l, "1", 3);
+        // the bus keeps its four trips; its drivers change at B, before 09:00
+        let t1 = &tours[one];
+        assert_eq!(t1.trips.len(), 4);
+        assert_eq!(network::duties_of(t1), vec![0..3, 3..4]);
+        assert_eq!(ds.len(), 2);
+        assert_eq!(duty_of_trip(&ds, &tours, block(&tours, "3").0, 0), Some(b2));
+        assert_ne!(duty_of_trip(&ds, &tours, one, 2), Some(b2));
+        // that driver's duty: 09:00-09:50 on bus 1 and 12:00-15:50 on bus 3, a split duty
+        let d = &ds[b2];
+        assert_eq!(d.pieces.len(), 2);
+        assert!(d.split() && !d.forbidden());
+        assert_eq!((d.from(), d.to()), (540, 950));
+        // back to the first driver: one duty on bus 1 again, the cut gone
+        let a2 = duty_of_trip(&ds, &tours, one, 0).unwrap();
+        move_to_duty(&mut c, wd, &tours, b2, &[(one, 3)], DutyTarget::Duty(a2)).unwrap();
+        let (tours, ds, one, _) = duty_at(&c, &l, "1", 3);
+        assert_eq!(network::duties_of(&tours[one]), vec![0..4]);
+        assert_eq!(ds.len(), 2);
+        assert!(ds.iter().all(|d| d.pieces.len() == 1));
+        assert!(c.planning.joined.is_empty());
+    }
+
+    #[test]
+    fn trips_move_to_a_new_duty_and_their_duty_is_cut_around_them() {
+        let mut c = company();
+        let l = line5();
+        let wd = super::super::plan::weekday_of(&c.date);
+        let (tours, ds, one, a) = duty_at(&c, &l, "1", 3);
+        assert_eq!(ds.len(), 2);
+        // tour 1's 09:00 trip out of the middle of its duty: a duty of its own, and the first
+        // driver's a split duty around it (06:00-08:50, 10:00-13:50)
+        let plan = plan_move_to_duty(&c, wd, &tours, a, &[(one, 3)], DutyTarget::New).unwrap();
+        assert_eq!(plan.layouts.len(), 1);
+        assert_eq!(plan.joined.len(), 1);
+        move_to_duty(&mut c, wd, &tours, a, &[(one, 3)], DutyTarget::New).unwrap();
+        let (tours, ds, one, n) = duty_at(&c, &l, "1", 3);
+        assert_eq!(network::duties_of(&tours[one]), vec![0..3, 3..4, 4..8]);
+        assert_eq!(ds.len(), 3);
+        assert_eq!(ds[n].pieces.len(), 1);
+        let first = &ds[duty_of_trip(&ds, &tours, one, 0).unwrap()];
+        assert_eq!(first.pieces.len(), 2);
+        assert_eq!(duty_of_trip(&ds, &tours, one, 0), duty_of_trip(&ds, &tours, one, 7));
+        assert!(first.split());
+        // two trips together (Shift or Ctrl): from the second driver's day to a new duty
+        let (tours, _, two, b) = duty_at(&c, &l, "2", 6);
+        move_to_duty(&mut c, wd, &tours, b, &[(two, 6), (two, 7)], DutyTarget::New).unwrap();
+        let (tours, ds, two, m) = duty_at(&c, &l, "2", 6);
+        assert_eq!(network::duties_of(&tours[two]), vec![0..6, 6..8]);
+        assert_eq!(duty_of_trip(&ds, &tours, two, 7), Some(m));
+        assert_eq!(ds.len(), 4);
+        // what makes no sense is refused: every trip of a duty to a new one, a trip to its own
+        // duty, trips of two duties at once
+        let (tours, ds, one, n) = duty_at(&c, &l, "1", 3);
+        assert_eq!(plan_move_to_duty(&c, wd, &tours, n, &[(one, 3)], DutyTarget::New), Err(DUTY_ALONE));
+        assert_eq!(plan_move_to_duty(&c, wd, &tours, n, &[(one, 3)], DutyTarget::Duty(n)), Err(SAME_DUTY));
+        assert_eq!(plan_move_to_duty(&c, wd, &tours, n, &[(one, 3), (one, 2)], DutyTarget::New), Err(ONE_DUTY));
+        let other = duty_of_trip(&ds, &tours, one, 0).unwrap();
+        assert_eq!(plan_move_to_duty(&c, wd, &tours, other, &[(one, 3)], DutyTarget::New), Err(ONE_DUTY));
+    }
+
+    #[test]
+    fn a_trip_moves_only_where_the_drivers_can_change_at_a_terminus_or_the_depot() {
+        let c = company();
+        let l = line5();
+        let wd = super::super::plan::weekday_of(&c.date);
+        let (tours, _, one, a) = duty_at(&c, &l, "1", 3);
+        // the 09:00 trip ends at A; the bus then runs empty from elsewhere to the workshop and
+        // on: the only place it stands between there and its next trip is the workshop
+        let run = |name: &str, from: &str, to: &str, dep: i32| PlannedTrip { name: name.into(), from: from.into(), to: to.into(), dep, arr: dep + 2, stops: 0, empty: true, origin: "1".into(), ..Default::default() };
+        let mut workshop = tours.clone();
+        workshop[one].trips.insert(4, run("X1", "A-Nord", "Werkstatt", 591));
+        workshop[one].trips.insert(5, run("X2", "Werkstatt", "A-Süd", 594));
+        assert_eq!(plan_move_to_duty(&c, wd, &workshop, a, &[(one, 3)], DutyTarget::New), Err(NOT_RELIEF));
+        // where the bus is on the move between two places the drivers cannot change either
+        let mut moving = tours.clone();
+        moving[one].trips[4].from = "C".into();
+        assert_eq!(plan_move_to_duty(&c, wd, &moving, a, &[(one, 3)], DutyTarget::New), Err(ON_THE_MOVE));
+        // at the terminus it can
+        assert!(plan_move_to_duty(&c, wd, &tours, a, &[(one, 3)], DutyTarget::New).is_ok());
+        // only trips with passengers move
+        assert_eq!(plan_move_to_duty(&c, wd, &workshop, a, &[(one, 4)], DutyTarget::New), Err(NOT_MOVABLE));
+    }
+
+    #[test]
+    fn a_trip_moved_to_another_duty_keeps_to_the_working_time_rules() {
+        let wd = super::super::plan::weekday_of(&company().date);
+        // two buses at the same time: tour 2's 06:30 trip to tour 1's driver overlaps his work
+        let c = company();
+        let l = line5();
+        let (tours, ds, two, b) = duty_at(&c, &l, "2", 0);
+        let a = duty_of_trip(&ds, &tours, block(&tours, "1").0, 0).unwrap();
+        assert_eq!(plan_move_to_duty(&c, wd, &tours, b, &[(two, 0)], DutyTarget::Duty(a)), Err(Rule::Overlap.label()));
+        // tour 1 (7 h 50) and tour 3 after it: one trip more is a day of 8 h 40, three more
+        // longer than a working day may be (10 h)
+        let l = line_of(&[("1", 360, 8), ("3", 870, 4)]);
+        let (tours, ds, three, b) = duty_at(&c, &l, "3", 0);
+        let a = duty_of_trip(&ds, &tours, block(&tours, "1").0, 0).unwrap();
+        assert!(plan_move_to_duty(&c, wd, &tours, b, &[(three, 0)], DutyTarget::Duty(a)).is_ok());
+        assert_eq!(plan_move_to_duty(&c, wd, &tours, b, &[(three, 0), (three, 1), (three, 2)], DutyTarget::Duty(a)), Err(Rule::TooLong(0).label()));
+        // the driver must get to the trip: his work before ends at B at 08:50, the trip leaves
+        // A at 09:15 - five minutes' walk will do, half an hour by public transport will not
+        let mut c = company();
+        let l = line_of(&[("1", 360, 3), ("3", 555, 2)]);
+        let (tours, ds, three, b) = duty_at(&c, &l, "3", 0);
+        let a = duty_of_trip(&ds, &tours, block(&tours, "1").0, 0).unwrap();
+        assert!(plan_move_to_duty(&c, wd, &tours, b, &[(three, 0)], DutyTarget::Duty(a)).is_ok());
+        c.planning.flow.prefs.travel = super::super::rosterflow::Travel::Public;
+        c.planning.flow.prefs.public = 30;
+        assert_eq!(plan_move_to_duty(&c, wd, &tours, b, &[(three, 0)], DutyTarget::Duty(a)), Err(DRIVER_NO_TIME));
+        // a locked duty stays as it is
+        let mut c = company();
+        let (tours, ds, three, b) = duty_at(&c, &l, "3", 0);
+        let a = duty_of_trip(&ds, &tours, block(&tours, "1").0, 0).unwrap();
+        let key = super::super::rosterflow::duty_key(&tours, &ds[a]).unwrap();
+        super::super::rosterflow::set_duty_lock(&mut c, wd, &key, true);
+        assert_eq!(plan_move_to_duty(&c, wd, &tours, b, &[(three, 0)], DutyTarget::Duty(a)), Err(DUTY_LOCKED));
+    }
+
+    #[test]
+    fn undo_puts_the_duties_back_and_the_move_is_saved_and_loaded() {
+        use super::super::rosterflow as rf;
+        let mut c = company();
+        let l = line_of(&[("1", 360, 4), ("3", 720, 4)]);
+        let wd = super::super::plan::weekday_of(&c.date);
+        let (tours0, ds0, one, a) = duty_at(&c, &l, "1", 3);
+        let b = duty_of_trip(&ds0, &tours0, block(&tours0, "3").0, 0).unwrap();
+        // the driver of tour 3 has a duty type set by hand: it follows his duty
+        let key = rf::duty_key(&tours0, &ds0[b]).unwrap();
+        rf::note_mut(&mut c, wd, &key).kind = Some(rf::TYPE_NAMES[3].to_string());
+        // as RosterFlow edits: on the view, kept as the draft
+        let snapshot = rf::draft_of(&c);
+        let mut v = rf::view(&c);
+        move_to_duty(&mut v, wd, &tours0, a, &[(one, 3)], DutyTarget::Duty(b)).unwrap();
+        rf::keep_draft(&mut c, &v);
+        assert!(rf::has_draft(&c));
+        let (tours, ds, _, b2) = duty_at(&rf::view(&c), &l, "1", 3);
+        assert_ne!(ds, ds0);
+        let new_key = rf::duty_key(&tours, &ds[b2]).unwrap();
+        assert!(!new_key.is(&key), "the duty begins with the trip moved now");
+        let note = rf::view(&c).planning.flow.sheet.notes.iter().find(|n| n.key.is(&new_key)).cloned().unwrap();
+        assert_eq!(note.kind.as_deref(), Some(rf::TYPE_NAMES[3]));
+        // undone: the draft as before, the day's duties as before
+        rf::set_draft(&mut c, snapshot.clone());
+        assert!(!rf::has_draft(&c));
+        let (tours, ds, _, _) = duty_at(&rf::view(&c), &l, "1", 3);
+        assert_eq!((tours, ds), (tours0.clone(), ds0.clone()));
+        // redone and saved: the company written and read again has the same duties
+        rf::keep_draft(&mut c, &v);
+        assert!(rf::save_draft(&mut c));
+        let json = serde_json::to_string(&c).unwrap();
+        let back: Company = serde_json::from_str(&json).unwrap();
+        let (tb, db, _, _) = duty_at(&back, &l, "1", 3);
+        let (tc, dc, _, _) = duty_at(&c, &l, "1", 3);
+        assert_eq!((tb, db.clone()), (tc, dc));
+        assert_eq!(db.len(), 2);
+        assert!(db.iter().any(|d| d.pieces.len() == 2));
+        assert_eq!(back.planning.flow.sheet.notes, c.planning.flow.sheet.notes);
     }
 }

@@ -335,7 +335,7 @@ impl Stop {
             RfNewVehicle => ("Vehicles", "A new vehicle", "Drop trips here to give them to an extra bus."),
             RfDuty => ("Drivers", "A duty", "In Drivers each row is one driver's working day. It starts with the sign-on and ends with the sign-off (the T-shaped marks). In between are the pieces of work: the parts on one bus."),
             RfDutyPanel => ("Drivers", "Everything about a duty", "Click a duty's ID to open its panel: its type, sign-on and sign-off, paid time, breaks, pieces of work and issues. You can lock it there, or add custom work such as office time."),
-            RfNewDuty => ("Drivers", "Building a duty", "Drag a piece of work here to start a duty of your own, or click for a spare duty. Drag pieces between duties to put them together."),
+            RfNewDuty => ("Drivers", "Building a duty", "Drag trips here to start a duty of their own, or click for a spare duty. Drag a trip onto another duty and its driver drives it, on the same bus; Alt and a drag takes the whole piece of work."),
             RfWeek => ("Roster", "The week", "Pick a day of the coming week. Your plan for a weekday repeats every week."),
             RfRosterChart => ("Roster", "Who drives what", "Each line's tours with their duties. Drag a driver or a bus from the list onto a duty or a tour, or click one and then the other."),
             RfRosterSide => ("Roster", "Drivers and buses", "Your drivers and buses for the day. Click a duty or a tour in the chart to see who could take it."),
