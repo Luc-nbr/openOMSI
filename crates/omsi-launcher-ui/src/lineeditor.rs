@@ -1371,7 +1371,7 @@ fn right_panel(l: &mut Launcher, r: Rect, status: &mut Option<(String, bool)>) {
     let mut changed = destination_field(ui, v, d_idx, Rect::new(body.x, y, body.w, ROW), "le-terminus");
     y += ROW + 12.0;
     // the stops, the way to each between them
-    let foot_h = 2.0 * ROW + 16.0;
+    let foot_h = 3.0 * ROW + 24.0;
     let list = Rect::new(body.x - 6.0, y, body.w + 12.0, body.bottom() - y - foot_h);
     let (rows, legs, times, total) = {
         let d = &v.line().unwrap().directions[d_idx];
@@ -1505,6 +1505,25 @@ fn right_panel(l: &mut Launcher, r: Rect, status: &mut Option<(String, bool)>) {
     if ui.button("le-reverse", Rect::new(body.x + half + GAP, by, half, ROW), if two { "Reverse again" } else { "Reverse" }, Some("sync_alt"), ButtonKind::Normal) {
         reverse(v, status);
     }
+    // a ring line (the testers: "it does not allow circular routes"): the first stop again at
+    // the end, the way back to it over the roads - or the loop opened again
+    let ly = by + ROW + 8.0;
+    let is_loop = v.line().and_then(|x| x.directions.get(d_idx)).is_some_and(Direction::is_loop);
+    if rows.len() >= 2 {
+        let (label, icon) = if is_loop { ("Open the loop", "link_off") } else { ("Close the loop: back to the first stop", "autorenew") };
+        if ui.button("le-loop", Rect::new(body.x, ly, body.w, ROW), label, Some(icon), ButtonKind::Ghost) {
+            let d = &mut v.line_mut().unwrap().directions[d_idx];
+            if is_loop {
+                d.stops.pop();
+                d.fit_legs();
+            } else {
+                d.close_loop();
+            }
+            v.sel_stop = None;
+            *status = Some(if is_loop { ("The loop is open: the line ends at its last stop again".into(), false) } else { ("The loop is closed: the bus drives back to its first stop and starts again there".into(), false) });
+            route = true;
+        }
+    }
     if route {
         v.reroute(d_idx);
     } else if changed {
@@ -1519,7 +1538,8 @@ fn destination_field(ui: &mut Ui, v: &mut LineEditorView, d_idx: usize, r: Rect,
     let termini = v.termini();
     let mine = v.mine();
     let Some(d) = v.line_mut().and_then(|l| l.directions.get_mut(d_idx)) else { return false };
-    let last = omsi_ui::tr("Last stop: %{name}").replace("%{name}", d.stops.last().map(|s| s.name.trim()).unwrap_or(""));
+    // (a loop ends where it began: it shows "Ring" unless it is named)
+    let last = if d.is_loop() { omsi_ui::tr("Loop: %{name}").replace("%{name}", reg::RING) } else { omsi_ui::tr("Last stop: %{name}").replace("%{name}", d.stops.last().map(|s| s.name.trim()).unwrap_or("")) };
     let mut options = vec![last.clone()];
     options.extend(termini.iter().map(|t| t.1.clone()));
     options.extend(mine.iter().map(|m| omsi_ui::tr("Mine: %{name}").replace("%{name}", &m.name)));
@@ -3801,6 +3821,13 @@ fn map_pointer(l: &mut Launcher, map_r: Rect) {
             return;
         }
         let d = &mut line.directions[d_idx];
+        // (the first stop clicked with the last chosen: the loop closed, back to the start)
+        let last = d.stops.len().checked_sub(1);
+        if d.stops.first().is_some_and(|x| x.id == s.id && x.tile == s.tile) && sel.is_some() && sel == last && d.close_loop() {
+            v.sel_stop = None;
+            v.reroute(d_idx);
+            return;
+        }
         if let Some(k) = d.stops.iter().position(|x| x.id == s.id && x.tile == s.tile) {
             // (a stop of the line: chosen in the list)
             v.sel_stop = Some(k);

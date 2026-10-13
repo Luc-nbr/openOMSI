@@ -1705,4 +1705,35 @@ mod tests {
         assert!(design_tours(&c, &cl, &off, "oo_9", 1).is_empty());
         assert_eq!(busiest(&[]), 0);
     }
+
+    #[test]
+    fn a_ring_lines_tours_go_round_and_change_drivers_at_its_start() {
+        let mut c = company(Difficulty::Realistic);
+        // one loop of 12 stops, from Stop 0 round to Stop 0, every 15 minutes all day
+        let mut l = line(12);
+        l.directions.truncate(1);
+        assert!(l.directions[0].close_loop());
+        l.directions[0].legs[11] = Leg { length: 400.0, ok: true, ..Default::default() };
+        l.directions[0].refresh_times();
+        assert!(l.directions[0].is_loop() && l.goes_round());
+        let s = shape_of(&l, &|_| 0);
+        confirm(&mut c, &l, "oo_9", &s).unwrap();
+        let cl = line_of(&c, 9).unwrap().clone();
+        let tours = design_tours(&c, &cl, &l, "oo_9", 0);
+        assert!(!tours.is_empty());
+        for t in &tours {
+            let service: Vec<&PlannedTrip> = t.trips.iter().filter(|x| x.counts()).collect();
+            // every trip from the loop's start back to it, its destination the ring's
+            assert!(service.iter().all(|x| x.from == "Stop 0" && x.last == "Stop 0" && x.to == lines::RING && x.stops == 13));
+            // the next trip starts where the one before ended
+            assert!(service.windows(2).all(|w| w[1].from == w[0].last && w[1].dep >= w[0].arr));
+            // a duty ends at the loop's start (the terminus): where the next one takes over
+            for d in super::super::network::duties_of(t) {
+                let last = t.trips[d.end - 1].clone();
+                assert!(last.empty || last.last == "Stop 0");
+            }
+        }
+        // a long tour of the day is shared by drivers
+        assert!(tours.iter().any(|t| super::super::network::duties_of(t).len() > 1));
+    }
 }

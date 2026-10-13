@@ -344,6 +344,15 @@ impl LineDesign {
         self.table.sort_by(|a, b| a.day.cmp(&b.day).then(a.departure().total_cmp(&b.departure())).then(a.dir.cmp(&b.dir)));
     }
 
+    /// Its buses go round (a ring line, the testers: "it does not allow circular routes"): a
+    /// line of one direction, or one whose directions are all loops (`Direction::is_loop`:
+    /// clockwise and anticlockwise) - a bus at the end of a trip stands where every trip
+    /// starts, and takes the next of either loop from there.
+    pub fn goes_round(&self) -> bool {
+        let with: Vec<&Direction> = self.directions.iter().filter(|d| d.stops.len() >= 2).collect();
+        with.len() <= 1 || with.iter().all(|d| d.is_loop())
+    }
+
     /// It is a line of the map's own, edited (`map`).
     pub fn is_map_line(&self) -> bool {
         self.map.is_some()
@@ -592,6 +601,10 @@ impl Default for TimeBand {
         TimeBand { from: 6.0 * 60.0, to: 9.0 * 60.0, headway: 15.0, size: None }
     }
 }
+
+/// What a loop (`Direction::is_loop`) shows as its destination when the player names it
+/// nothing else: the displays' word for a ring line.
+pub const RING: &str = "Ring";
 
 /// The latest a band may end (the timetable's day ends at midnight).
 pub const DAY_END: f32 = 24.0 * 60.0;
@@ -908,9 +921,34 @@ impl Direction {
         self.legs.resize(n, Leg::default());
     }
 
-    /// The destination it shows: the terminus chosen, else the last stop's name.
+    /// It is a loop (the testers: "it does not allow circular routes"): at least three stops,
+    /// the last the first again - the bus goes round and ends where it began.
+    pub fn is_loop(&self) -> bool {
+        match (self.stops.first(), self.stops.last()) {
+            (Some(a), Some(b)) => self.stops.len() >= 3 && a.id == b.id && a.tile == b.tile,
+            _ => false,
+        }
+    }
+
+    /// The loop closed: its first stop again at the end, the way back to it routed anew (a leg
+    /// more). Whether it was closed (it has two stops at least, and was no loop).
+    pub fn close_loop(&mut self) -> bool {
+        if self.stops.len() < 2 || self.is_loop() {
+            return false;
+        }
+        let first = self.stops[0].clone();
+        self.stops.push(first);
+        self.fit_legs();
+        true
+    }
+
+    /// The destination it shows: the terminus chosen, else the last stop's name - a loop's
+    /// `RING` (its last stop is where it began).
     pub fn destination(&self) -> String {
         if self.terminus.trim().is_empty() {
+            if self.is_loop() {
+                return RING.to_string();
+            }
             self.stops.last().map(|s| s.name.trim().to_string()).unwrap_or_default()
         } else {
             self.terminus.trim().to_string()
@@ -1121,7 +1159,7 @@ pub fn tour_plan(l: &LineDesign) -> Vec<PlannedTour> {
         if !l.service.allows(day) {
             continue;
         }
-        for trips in tours_each(&run, &l.day_patterns(day), false) {
+        for trips in tours_each(&run, &l.day_patterns(day), l.goes_round()) {
             out.push(PlannedTour { number: (out.len() + 1).to_string(), day, trips, kept: None });
         }
     }
@@ -1288,7 +1326,7 @@ pub fn table_tours(l: &LineDesign) -> Vec<PlannedTour> {
         }
         let layover = l.days.get(day).map(|p| p.layover).unwrap_or(5.0);
         let layovers: Vec<f32> = (0..dirs).map(|d| l.pattern(d, day).map(|p| p.layover).unwrap_or(layover)).collect();
-        let chained = if l.map.is_some() { chain_at_stops(deps, l, layover) } else { chain(deps, &[], dirs, &layovers, false, false) };
+        let chained = if l.map.is_some() { chain_at_stops(deps, l, layover) } else { chain(deps, &[], dirs, &layovers, false, l.goes_round()) };
         let mut buses = cut_parked(chained, &[]);
         buses.sort_by(|a, b| a[0].departure.total_cmp(&b[0].departure));
         for trips in buses {
@@ -2873,6 +2911,91 @@ mod tests {
         assert_eq!(l.table.iter().filter(|t| t.dir == 1 && t.day == 0).count(), 3);
         assert_eq!(l.table.iter().filter(|t| t.dir == 0).cloned().collect::<Vec<_>>(), out_before);
         assert!(problems(l).is_empty());
+    }
+
+    /// A ring line: Bahnhof - Kirche - Markt - Bahnhof clockwise (and, `two`, the other way
+    /// round as well), every 10 minutes clockwise, every hour the other way.
+    fn ring(reg: &mut Registry, two: bool) -> u64 {
+        let l = reg.add_line("Busses");
+        l.number = "R1".into();
+        let mut cw = Direction { stops: vec![stop(1, "Bahnhof", 0.0), stop(2, "Kirche", 500.0), stop(3, "Markt", 900.0)], legs: vec![leg(500.0, &[10, 11]), leg(400.0, &[11, 12])], ..Default::default() };
+        assert!(!cw.is_loop());
+        assert!(cw.close_loop());
+        assert!(!cw.close_loop());
+        cw.legs[2] = leg(900.0, &[13]);
+        l.directions = vec![cw.clone()];
+        if two {
+            let mut acw = Direction { stops: cw.stops.iter().rev().cloned().collect(), legs: vec![leg(900.0, &[14]), leg(400.0, &[15]), leg(500.0, &[16])], ..Default::default() };
+            acw.terminus = "Ring anticlockwise".into();
+            l.directions.push(acw);
+        }
+        for d in &mut l.directions {
+            d.refresh_times();
+        }
+        l.days[0] = DayPattern { days: DAY_GROUPS[0].1, first: 360.0, last: 480.0, headway: 10.0, layover: 2.0, ..Default::default() };
+        if two {
+            l.set_back_own(true);
+            l.patterns_mut(1)[0] = DayPattern { first: 365.0, last: 425.0, headway: 60.0, layover: 2.0, ..l.days[0].clone() };
+        }
+        l.id
+    }
+
+    #[test]
+    fn a_ring_line_goes_round_and_is_written_as_a_loop() {
+        let mut reg = Registry::default();
+        let id = ring(&mut reg, false);
+        let l = reg.line(id).unwrap();
+        let d = &l.directions[0];
+        assert!(d.is_loop() && l.goes_round());
+        assert_eq!(d.destination(), RING);
+        assert!(problems(l).is_empty(), "{:?}", problems(l));
+        // the buses go round: every trip of a bus starts where the one before ended
+        let tours = tour_plan(l);
+        assert!(!tours.is_empty() && tours.iter().flat_map(|t| t.trips.iter()).all(|t| t.dir == 0));
+        assert!(tours.iter().any(|t| t.trips.len() > 1));
+        // the game's timetable: a trip that starts and ends at the same stop, its way back to
+        // the start a link of its own, the destination the ring's
+        let e = export(&reg, &[(0, 0)], &HashSet::new(), &HashSet::new()).unwrap();
+        let ttp = &e.files.iter().find(|f| f.0 == "oo_R1_a.ttp").unwrap().1;
+        let trip = omsi_timetable::Trip::parse(&omsi_cfg::CfgFile::from_str("oo_R1_a.ttp", ttp));
+        assert_eq!(trip.stations, vec![1, 2, 3, 1]);
+        assert_eq!(trip.terminus, RING);
+        assert!(e.links.iter().any(|(k, _, _)| (k.from_id, k.to_id) == (3, 1)));
+        assert_eq!(e.stops.len(), 3);
+        // a name the player gives the ring is its destination
+        let l = reg.line_mut(id).unwrap();
+        l.directions[0].terminus = "Innenstadtring".into();
+        assert_eq!(l.directions[0].destination(), "Innenstadtring");
+    }
+
+    #[test]
+    fn two_loops_share_their_buses_at_the_start() {
+        let mut reg = Registry::default();
+        let id = ring(&mut reg, true);
+        let l = reg.line(id).unwrap();
+        assert!(l.directions.iter().all(Direction::is_loop) && l.goes_round());
+        assert_eq!(l.directions[1].destination(), "Ring anticlockwise");
+        let tours: Vec<PlannedTour> = tour_plan(l).into_iter().filter(|t| t.day == 0).collect();
+        let trips: Vec<&Planned> = tours.iter().flat_map(|t| t.trips.iter()).collect();
+        assert_eq!((trips.iter().filter(|t| t.dir == 0).count(), trips.iter().filter(|t| t.dir == 1).count()), (13, 2));
+        // a bus back from a loop takes the next of either: clockwise twice in a row, too
+        // (two ends of a line would have made it alternate)
+        assert!(tours.iter().any(|t| t.trips.windows(2).any(|w| w[0].dir == 0 && w[1].dir == 0)));
+        assert!(tours.iter().any(|t| t.trips.windows(2).any(|w| w[0].dir != w[1].dir)));
+        // never late for its next trip
+        let run = run_minutes(l);
+        for t in &tours {
+            for w in t.trips.windows(2) {
+                assert!(w[1].departure >= w[0].departure + w[0].minutes(&run) + 2.0 - 1e-3);
+            }
+        }
+        // as a table, too
+        let mut l = l.clone();
+        l.table = table_from_patterns(&l);
+        l.table_on = true;
+        let table = table_tours(&l);
+        assert!(table.iter().any(|t| t.trips.windows(2).any(|w| w[0].dir == 0 && w[1].dir == 0)));
+        assert!(problems(&l).is_empty());
     }
 
     #[test]
