@@ -411,12 +411,12 @@ export function textW(text, px, weight = 700) {
 
 /** A slider over [min, max] by `step` (`Ui::slider`): its name on the left (none: the track
  * from the left edge), the value on the right. */
-export function Slider({ value, min, max, step = 1, label, format, onChange, style = '' }) {
+export function Slider({ value, min, max, step = 1, label, format, onChange, onRelease, style = "" }) {
   const v = Number(value ?? min);
   const fill = ((v - min) / (max - min || 1)) * 100;
   return html`<div class=${'co-slider' + (label ? '' : ' bare')} style=${style}>
     ${label && html`<span class="cut">${label}</span>`}
-    <input type="range" min=${min} max=${max} step=${step} value=${v} style=${`--fill:${fill}%`} onInput=${(e) => onChange(Number(e.currentTarget.value))} />
+    <input type="range" min=${min} max=${max} step=${step} value=${v} style=${`--fill:${fill}%`} onInput=${(e) => onChange?.(Number(e.currentTarget.value))} onChange=${(e) => onRelease?.(Number(e.currentTarget.value))} />
     <b>${format ? format(v) : v}</b>
   </div>`;
 }

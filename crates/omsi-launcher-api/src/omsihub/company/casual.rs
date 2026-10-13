@@ -531,7 +531,7 @@ fn company_page(c: &Company) -> Value {
             "title": tr("Company livery"), "colours": c.colours,
             "designs": if designs == 0 { tr("No livery of your own yet: your buses wear the maker's.") } else { count_text(designs, "1 livery of your own", "%{n} liveries of your own") },
             "text": tr("Paint your buses in your company's own colours in the livery editor. A bus painted in it wears it in the game too."),
-            "button": count.first().map(|_| tr("Paint the company livery")), "tip": trf("Designing a livery costs %{amount}", &[("amount", &eur(co::livery::design_fee(c)))]),
+            "button": count.first().map(|_| tr("Paint the company livery")), "bus": count.first().map(|x| json!([x.0, x.1])), "tip": trf("Designing a livery costs %{amount}", &[("amount", &eur(co::livery::design_fee(c)))]),
             "none": tr("Buy a bus first: then paint it."),
         },
         "depot": {
