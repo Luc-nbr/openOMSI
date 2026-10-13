@@ -368,7 +368,7 @@ fn training_part(c: &Company, ui: &Value) -> Value {
             let terms = course_terms(col.cost(c), kind);
             let have = people.iter().filter(|e| col.has(c, e)).count();
             json!({
-                "k": k, "icon": if matches!(col, Col::Type(_)) { "directions_bus" } else { kind.icon() }, "open": open, "title": col.title(c),
+                "k": k, "kind": format!("{kind:?}"), "icon": if matches!(col, Col::Type(_)) { "directions_bus" } else { kind.icon() }, "open": open, "title": col.title(c),
                 "under": if matches!(col, Col::Type(_)) { format!("{}  ·  {terms}", tr("Type training")) } else { terms },
                 "count": trf("%{n} of %{m} have it", &[("n", &have.to_string()), ("m", &people.len().to_string())]), "all": have == people.len(),
                 "tip": tr(kind.effect()),

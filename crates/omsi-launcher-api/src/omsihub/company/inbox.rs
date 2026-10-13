@@ -192,7 +192,7 @@ fn day_strip(c: &Company, from: &str, until: &str) -> Value {
         .map(|k| {
             let d = a + k;
             let (_, _, day) = co::dates::civil_from_days(d);
-            json!({ "wd": WEEKDAYS[co::dates::weekday(d) as usize], "day": day, "state": if d < today { "gone" } else if d == today { "today" } else { "coming" } })
+            json!({ "wd": tr(WEEKDAYS[co::dates::weekday(d) as usize]), "day": day, "state": if d < today { "gone" } else if d == today { "today" } else { "coming" } })
         })
         .collect();
     json!(cells)
