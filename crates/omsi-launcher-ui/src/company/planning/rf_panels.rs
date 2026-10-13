@@ -13,7 +13,7 @@ use super::rf_gantt::{self as gantt, block_label, line_colour, Kind};
 use super::rosterflow::{self as shell, rf_button, caps, edit, plain, Cached, Card, Drop, Filter, Hand, Pal, Panel, RowId, Stat};
 use glam::Vec2;
 use omsi_launcher_lib::company::rosterflow::{self as rf, Board, Custom, EvKind, Scope, Travel};
-use omsi_launcher_lib::company::studio::{self as st, Swap, Target};
+use omsi_launcher_lib::company::studio::{self as st, DutyTarget, Swap, Target};
 use omsi_launcher_lib::company::{self as co, Cents, Company};
 use omsi_ui::paint::Align;
 use omsi_ui::{Color, Rect, Weight};
@@ -447,7 +447,10 @@ fn card_draw(l: &mut Launcher, page: Rect, k: &Cached, board: &Board, p: &Pal, c
                 l.company.planning.rf.settle();
             }
             if mv {
-                let h = if drivers { Hand::Piece { tour, duty: piece } } else { Hand::Trips { tour, trips: vec![trip] } };
+                let h = match st::duty_of_trip(&board.duties, &board.tours, tour, trip) {
+                    Some(duty) if drivers => Hand::Duty { duty, trips: vec![(tour, trip)] },
+                    _ => Hand::Trips { tour, trips: vec![trip] },
+                };
                 gantt::pick(l, k, board, h, false);
                 l.company.planning.rf.card = None;
             }
@@ -585,9 +588,12 @@ fn card_draw(l: &mut Launcher, page: Rect, k: &Cached, board: &Board, p: &Pal, c
             let head = Rect::new(r.x, r.y, r.w, 40.0);
             card_head(&mut l.ui, p, head, p.card_head);
             let ui = &mut l.ui;
-            ui.icon("directions_bus", Vec2::new(r.x + 20.0, head.center().y), 17.0, Color::WHITE);
+            // (in Drivers the choice is trips of one duty, on one bus or several)
+            let duty = if drivers { st::duty_of_trip(&board.duties, &board.tours, tour, sel[0].1) } else { None };
+            ui.icon(if duty.is_some() { "person" } else { "directions_bus" }, Vec2::new(r.x + 20.0, head.center().y), 17.0, Color::WHITE);
             let words = omsi_ui::tr("%{n} trips chosen").replace("%{n}", &xs.len().to_string());
-            ui.text_as_is(&format!("{}  ·  {}", block_label(t), words), Vec2::new(r.x + 36.0, head.center().y + 5.0), 14.0, Weight::Bold, Color::WHITE, Align::Left);
+            let row_words = duty.map(|d| gantt::duty_label(board, d)).unwrap_or_else(|| block_label(t));
+            ui.text_as_is(&format!("{row_words}  ·  {words}"), Vec2::new(r.x + 36.0, head.center().y + 5.0), 14.0, Weight::Bold, Color::WHITE, Align::Left);
             let mut y = head.bottom() + 22.0;
             field(ui, p, r.x + 18.0, y, r.w - 36.0, "Driving time", &rf::hm(driving));
             y += 30.0;
@@ -596,7 +602,7 @@ fn card_draw(l: &mut Launcher, page: Rect, k: &Cached, board: &Board, p: &Pal, c
             ui.p().rect(Rect::new(r.x + 16.0, fy - 6.0, r.w - 32.0, 1.0), p.card_pill);
             let link = rf_button(ui, p, "rf-sel-link", Rect::new(r.x + 16.0, fy + 4.0, 100.0, 30.0), "Link", false, !drivers && xs.len() > 1);
             let mvw = format!("{} {}", omsi_ui::tr("Move"), xs.len());
-            let mv = rf_button(ui, p, "rf-sel-move", Rect::new(r.right() - 140.0, fy + 4.0, 124.0, 30.0), &mvw, true, !drivers);
+            let mv = rf_button(ui, p, "rf-sel-move", Rect::new(r.right() - 140.0, fy + 4.0, 124.0, 30.0), &mvw, true, !drivers || duty.is_some());
             let trips: Vec<usize> = sel.iter().filter(|s| s.0 == tour).map(|s| s.1).collect();
             if link {
                 let tours = board.tours.clone();
@@ -604,7 +610,11 @@ fn card_draw(l: &mut Launcher, page: Rect, k: &Cached, board: &Board, p: &Pal, c
                 edit(l, words, |c| rf::link(c, wd, &tours, tour, &trips));
             }
             if mv {
-                gantt::pick(l, k, board, Hand::Trips { tour, trips }, false);
+                let h = match duty {
+                    Some(duty) => Hand::Duty { duty, trips: sel.clone() },
+                    None => Hand::Trips { tour, trips },
+                };
+                gantt::pick(l, k, board, h, false);
                 l.company.planning.rf.card = None;
             }
             Some(r)
@@ -722,8 +732,11 @@ fn menu_draw(l: &mut Launcher, page: Rect, k: &Cached, board: &Board, p: &Pal, m
         let _ = row;
     } else if drivers {
         let piece_locked = m.piece.is_some_and(|(t, d)| rf::piece_locked(c, wd, &board.tours, t, d));
-        items.push(("Move", 1, !piece_locked, ""));
-        items.push(("Move to new row", 2, !piece_locked && m.duty_row.and_then(|r| board.shaped.get(r)).is_some_and(|s| s.spans.len() > 1), "The piece a duty of its own"));
+        // (the trips chosen move to another duty, the bus the same; or the whole piece of work)
+        items.push(("Move", 1, !piece_locked, "Move the chosen trips to another duty: the bus stays the same"));
+        items.push(("Move to new row", 2, !piece_locked, "The chosen trips a duty of their own"));
+        items.push(("Move piece", 24, !piece_locked && m.piece.is_some(), "Take up the whole piece of work on this bus (or Alt and a drag)"));
+        items.push(("Move piece to new row", 25, !piece_locked && m.duty_row.and_then(|r| board.shaped.get(r)).is_some_and(|s| s.spans.len() > 1), "The piece a duty of its own"));
         items.push(("Lock duty", 9, true, ""));
         items.push(("Add custom work", 22, true, "Spare, office, union or training time in the duty"));
         items.push(("—", 0, false, ""));
@@ -774,24 +787,45 @@ fn menu_draw(l: &mut Launcher, page: Rect, k: &Cached, board: &Board, p: &Pal, m
             mine
         }
     };
+    // (Drivers: the duty of the trip clicked, and the trips chosen of it)
+    let duty = if drivers && m.tour != usize::MAX { st::duty_of_trip(&board.duties, &board.tours, m.tour, m.trip) } else { None };
+    let duty_trips: Vec<(usize, usize)> = {
+        let mine: Vec<(usize, usize)> = l.company.planning.rf.sel.iter().copied().filter(|&(i, j)| duty.is_some() && st::duty_of_trip(&board.duties, &board.tours, i, j) == duty).collect();
+        if mine.is_empty() {
+            vec![(m.tour, m.trip)]
+        } else {
+            mine
+        }
+    };
     match what {
         1 => {
-            let h = match m.piece {
-                Some((t, d)) => Hand::Piece { tour: t, duty: d },
+            let h = match duty {
+                Some(duty) => Hand::Duty { duty, trips: duty_trips },
                 None => Hand::Trips { tour: m.tour, trips },
             };
             gantt::pick(l, k, board, h, false);
         }
-        2 => match m.piece {
-            Some((t, d)) => {
-                let words = omsi_ui::tr("Piece of %{v} made a duty of its own").replace("%{v}", &block_label(&tours[t]));
-                edit(l, words, |c| st::detach(c, wd, &tours, (t, d)));
+        2 => match duty {
+            Some(duty) => {
+                let words = omsi_ui::tr("%{n} trips moved from duty %{a} to a new duty").replace("%{n}", &duty_trips.len().to_string()).replace("%{a}", &gantt::duty_label(board, duty));
+                edit(l, words, |c| st::move_to_duty(c, wd, &tours, duty, &duty_trips, DutyTarget::New));
             }
             None => {
                 let words = omsi_ui::tr("%{n} trips moved from %{a} to a new vehicle").replace("%{n}", &trips.len().to_string()).replace("%{a}", &block_label(&tours[m.tour]));
                 edit(l, words, |c| st::move_trips(c, wd, &tours, m.tour, &trips, Target::New));
             }
         },
+        24 => {
+            if let Some((t, d)) = m.piece {
+                gantt::pick(l, k, board, Hand::Piece { tour: t, duty: d }, false);
+            }
+        }
+        25 => {
+            if let Some((t, d)) = m.piece {
+                let words = omsi_ui::tr("Piece of %{v} made a duty of its own").replace("%{v}", &block_label(&tours[t]));
+                edit(l, words, |c| st::detach(c, wd, &tours, (t, d)));
+            }
+        }
         3 => {
             let words = omsi_ui::tr("%{n} trips of %{a} unassigned to the stack").replace("%{n}", &trips.len().to_string()).replace("%{a}", &block_label(&tours[m.tour]));
             edit(l, words, |c| st::unassign(c, wd, &tours, m.tour, &trips));

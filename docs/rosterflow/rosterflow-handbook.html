@@ -84,6 +84,8 @@
   .g .chip { position: absolute; top: 1mm; height: 5mm; font-size: 7.5pt; font-weight: 700; color: #fff; padding-left: 1.5mm; line-height: 5mm; clip-path: polygon(0 0, calc(100% - 2mm) 0, 100% 50%, calc(100% - 2mm) 100%, 0 100%); }
   .g .dep { position: absolute; top: 1.3mm; height: 4.4mm; background: #44526a; border-radius: 1mm; font-size: 6.5pt; color: #fff; text-align: center; line-height: 4.4mm; }
   .g .cut { position: absolute; top: -.5mm; bottom: -.5mm; width: .7mm; background: var(--blue); }
+  .g .slot { position: absolute; top: .8mm; height: 5.4mm; border: .5mm dashed var(--blue); border-radius: 1mm; background: var(--blue-bg); font-size: 7.5pt; font-weight: 800; color: var(--navy); text-align: center; line-height: 5.4mm; box-sizing: border-box; }
+  .g .ghost { opacity: .35; }
   .axis { position: relative; height: 4mm; margin-left: 20mm; font-size: 7pt; color: var(--muted); }
   .axis span { position: absolute; transform: translateX(-50%); }
 
@@ -290,15 +292,43 @@
     <li><b>Undo a cut</b>Back in Vehicles, click the arrows where the drivers change. The two duties become one again.</li>
   </ol>
 
-  <h3>Building and opening a duty</h3>
+  <h3>Give a trip to another driver</h3>
+  <p>On the Drivers tab you move trips between duties just as you move them between buses on the Vehicles tab. The bus keeps running its day; only the driver of the trip changes.</p>
+  <div class="fig">
+    <div class="axis"><span style="left:0%">06</span><span style="left:25%">09</span><span style="left:50%">12</span><span style="left:75%">15</span><span style="left:100%">18</span></div>
+    <div class="g"><div class="id">Duty 1001</div><div class="track">
+      <div class="chip" style="left:2%;width:11%;background:#3d8bfd">45</div>
+      <div class="chip" style="left:14%;width:11%;background:#2b6fd6">45</div>
+      <div class="cut" style="left:25.6%"></div>
+      <div class="chip ghost" style="left:26.5%;width:11%;background:#3d8bfd">45</div>
+      <div class="cut" style="left:37.9%"></div>
+      <div class="chip" style="left:38.5%;width:11%;background:#2b6fd6">45</div>
+    </div></div>
+    <div class="g"><div class="id">Duty 1002</div><div class="track">
+      <div class="slot" style="left:26.5%;width:11%">5 &#9733;</div>
+      <div class="chip" style="left:52%;width:11%;background:#3d8bfd">45</div>
+      <div class="chip" style="left:64%;width:11%;background:#2b6fd6">45</div>
+      <div class="chip" style="left:76%;width:11%;background:#3d8bfd">45</div>
+    </div></div>
+    <div class="g"><div class="id">New duty</div><div class="track">
+      <div class="slot" style="left:26.5%;width:11%">3 &#9733;</div>
+    </div></div>
+    <div class="cap">The pale trip of duty 1001 is picked up. Duty 1002 and New duty show a slot at the same time, with stars. Dropped on 1002, its driver drives the trip on the same bus, and duty 1001 is cut before and after it (the blue lines): it becomes a split duty.</div>
+  </div>
   <ol class="steps">
-    <li><b>Combine work</b>In Drivers, drag a chip of a short duty (or double-click it) and drop it on another duty. The two become one duty with a break between them. No slot appears? The duty would get too long: take a shorter piece.</li>
-    <li><b>Open a duty</b>Click a duty's ID on the left. Its panel shows sign-on, the pieces of work, the breaks and sign-off. A long unpaid break makes it a <b>split duty</b>.</li>
-    <li><b>Lock the duty</b>Click the lock at the top of the panel. OPTIMIZE will leave it as it is.</li>
+    <li><b>Pick up a trip</b>Drag a chip, or double-click it. Slots appear on every duty it could go to, and on <b>New duty</b> at the bottom.</li>
+    <li><b>More trips at once</b><span class="key">Shift</span> and a click choose every trip of the duty between the first and this one; <span class="key">Ctrl</span> and a click add one trip or take it out. Then drag one of the chosen trips: they all come along.</li>
+    <li><b>Read the stars and the cost</b>Hold the mouse over a slot. Five stars is the cheapest choice; a <span style="color:var(--blue);font-weight:800">blue</span> slot breaks no rule, a <span style="color:var(--red);font-weight:800">red</span> one does (a meal break missing, a duty type that does not fit). The card shows the cost difference.</li>
+    <li><b>Drop it</b>Click a slot, or let go over it: the trip is that duty's work now, and its old duty is cut around it. On <b>New duty</b> the trips make a duty of their own. <span class="key">Esc</span> puts it back, <span class="key">Ctrl</span>+<span class="key">Z</span> undoes it.</li>
+    <li><b>The whole piece of work</b>Hold <span class="key">Alt</span> while you drag, or right-click and choose <b>Move piece</b>: everything the driver does on that bus comes along, as one piece.</li>
   </ol>
+  <div class="box warn"><div class="t">Where drivers can change</div>Only at a terminus or the depot: a trip from the middle of a duty moves only if the bus stands at one before and after it. The new driver must be there in time, at the same stop or with time to travel to it.</div>
+
+  <h3>Opening a duty</h3>
+  <p>Click a duty's ID on the left. Its panel shows sign-on, the pieces of work, the breaks and sign-off; a long unpaid break makes it a <b>split duty</b>. The lock at the top of the panel keeps the duty as it is: OPTIMIZE and your other edits leave it alone.</p>
 
   <div class="box rule"><div class="t">The rules RosterFlow checks</div>
-    <b>Refused (hard rules):</b> pieces that overlap, too little rest between pieces, a working day longer than the maximum.<br>
+    <b>Refused (hard rules):</b> pieces that overlap, too little rest between pieces, a working day longer than the maximum, a driver change away from a terminus or the depot, a driver who cannot get to the trip in time.<br>
     <b>Warned (soft rules):</b> overtime, a driver changing at a different stop than where they stopped, a very long break in a split duty.<br>
     You set the limits yourself under Preferences (chapter 7).
   </div>
@@ -418,6 +448,9 @@
         <tr><td><span class="key">Ctrl</span>+wheel</td><td>Zoom</td></tr>
         <tr><td><span class="key">Shift</span>+wheel</td><td>Scroll sideways</td></tr>
         <tr><td>Double-click</td><td>Pick up or drop a trip</td></tr>
+        <tr><td><span class="key">Shift</span>+click</td><td>Choose the trips of a row from the first chosen to this one</td></tr>
+        <tr><td><span class="key">Ctrl</span>+click</td><td>Add a trip to the choice, or take it out</td></tr>
+        <tr><td><span class="key">Alt</span>+drag</td><td>Drivers: take the whole piece of work on that bus</td></tr>
       </table>
     </div>
     <div>
@@ -443,7 +476,7 @@
     <tr><th style="width:38%">Problem</th><th>What to do</th></tr>
     <tr><td>My changes don't show in the game</td><td>You haven't saved. The dot is orange: press SAVE.</td></tr>
     <tr><td>"UNSYNCED" in the status bar</td><td>The timetable changed. Click Refresh to make the blocks and duties again.</td></tr>
-    <tr><td>No slot appears when I drag</td><td>Every place would break a hard rule (overlap, too long). Take a shorter piece, or change the limit under Preferences.</td></tr>
+    <tr><td>No slot appears when I drag</td><td>Every place would break a hard rule (overlap, too long, too little rest), or the drivers could not change at a terminus or the depot there. Take fewer trips, or change the limit under Preferences.</td></tr>
     <tr><td>A driver says "Free" but can't take the duty</td><td>Hover over the driver: the reason is shown (rest after yesterday, 5 days worked, no type training…).</td></tr>
     <tr><td>OPTIMIZE changed something I wanted to keep</td><td>Undo with Ctrl+Z, lock that row, and run OPTIMIZE again.</td></tr>
     <tr><td>Too many buses needed (high PVR)</td><td>Fewer trips in the rush hour, shorter layovers, or let OPTIMIZE re-chain the blocks.</td></tr>

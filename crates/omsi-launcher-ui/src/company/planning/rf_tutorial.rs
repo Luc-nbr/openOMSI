@@ -156,8 +156,8 @@ const CUT_JOIN: [Step; 5] = [
 
 const BUILD_DUTY: [Step; 6] = [
     step("Open the Drivers tab", "Each row there is one driver's working day.", "rf-tab-drivers", Check::View(DRIVERS)),
-    step("Pick up a piece of work", "Drag a chip of a short duty, or double-click it: the whole part on that bus comes along.", "rf-chip", Check::HoldPiece),
-    step("Drop it on another duty", "Click a slot: the two become one duty, with a break between them. No slot? The duty would get too long: take a shorter piece.", "rf-gantt", Check::Edited),
+    step("Pick up a trip of a duty", "Drag a chip, or double-click it. Slots appear on every duty it could go to, and on New duty. Shift or Ctrl and a click choose more trips; Alt and a drag takes the whole piece of work on that bus.", "rf-chip", Check::HoldPiece),
+    step("Drop it on another duty", "Click a slot, or let go over it: that duty's driver drives the trip now, on the same bus, and the first duty is cut around it. No slot? The duty would break a rule, or the drivers could not change at a terminus there.", "rf-gantt", Check::Edited),
     step("Open a duty", "Click a duty's ID on the left. Its panel shows what the duty is made of.", "rf-row-id", Check::PanelDuty),
     step("Read sign-on, sign-off and breaks", "Sign-on and sign-off are when the driver starts and stops. The breaks are between the pieces of work; a long unpaid one is a split.", "rf-duty-panel", Check::Info),
     step("Lock the duty", "Click the lock at the top of the panel. OPTIMIZE will leave this duty as it is.", "rf-duty-lock", Check::LockedUp),
@@ -255,6 +255,7 @@ pub(super) struct Probe {
     /// The day's board is made (Vehicles or Drivers was shown).
     pub loaded: bool,
     pub holding_trips: bool,
+    /// Trips of a duty or a whole piece of work in hand (Drivers).
     pub holding_piece: bool,
     pub zone_hover: bool,
     pub undo: usize,
@@ -363,7 +364,7 @@ fn probe(l: &Launcher, snap: Option<&rf::Snapshot>) -> Probe {
     let mut p = Probe {
         view: l.company.planning.view,
         holding_trips: matches!(s.hand, Some(Hand::Trips { .. }) | Some(Hand::Stack(_))),
-        holding_piece: matches!(s.hand, Some(Hand::Piece { .. })),
+        holding_piece: matches!(s.hand, Some(Hand::Duty { .. }) | Some(Hand::Piece { .. })),
         zone_hover: s.zone_hover.is_some(),
         undo: s.undo.len(),
         redo: s.redo.len(),
@@ -768,10 +769,12 @@ pub(super) const GLOSSARY: [(Sym, &str, &str); 22] = [
 ];
 
 /// The shortcuts: the keys (`true`: words to translate) and what they do.
-pub(super) const SHORTCUTS: [(&str, bool, &str); 12] = [
+pub(super) const SHORTCUTS: [(&str, bool, &str); 14] = [
     ("Click a chip", true, "Choose the trip and open its card"),
     ("Double-click or drag", true, "Pick it up to move it"),
     ("Shift + click", true, "Choose more trips of one row"),
+    ("Ctrl + click", true, "Add one trip to the choice, or take it out"),
+    ("Alt + drag", true, "In Drivers: take the whole piece of work on that bus"),
     ("Right-click", true, "Menu: move, swap, unassign, line colour and more"),
     ("Arrow keys", true, "To the next trip; with Shift the choice grows"),
     ("G", false, "Go to a bus or a duty by its ID"),

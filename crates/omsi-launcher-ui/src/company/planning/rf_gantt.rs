@@ -11,11 +11,13 @@
 //! timetable tour with a dot.
 //!
 //! A click on a chip chooses it and opens its card; Shift and a click widen the choice along
-//! the row; a double click (or MOVE, or a drag) takes it up, and the rows it may go to show
+//! the row, Ctrl and a click add a trip to it or take it out; a double click (or MOVE, or a
+//! drag) takes it up - in Vehicles to another bus, in Drivers to another duty, the bus the
+//! same (Alt and a drag: the whole piece of work on that bus) - and the rows it may go to show
 //! drop zones rated with stars, blue where nothing breaks, red where a rule does, with the
 //! cost they make. A right click opens the menu (Move, Move to new row, Unassign, Swap, Swap
-//! from here, View in timeplan, Delete ...). A gap between two trips at a terminus or the
-//! depot is clicked to cut a duty there; the relief arrows are clicked to join it again.
+//! from here, Move piece, View in timeplan, Delete ...). A gap between two trips at a terminus
+//! or the depot is clicked to cut a duty there; the relief arrows are clicked to join it again.
 
 use super::super::super::ui::{id_of, Key, Ui};
 use super::super::super::Launcher;
@@ -24,7 +26,7 @@ use super::rosterflow::{self as shell, block_row, duty_row, edit, Cached, Card, 
 use glam::Vec2;
 use omsi_launcher_lib::company::network::{PlannedTrip, TourOfDay};
 use omsi_launcher_lib::company::rosterflow::{self as rf, Board, EvKind, ReliefTiming, Shaped};
-use omsi_launcher_lib::company::studio::{self as st, Target};
+use omsi_launcher_lib::company::studio::{self as st, DutyTarget, Target};
 use omsi_launcher_lib::company::{self as co, Company};
 use omsi_ui::paint::Align;
 use omsi_ui::{Color, Rect, Weight};
@@ -317,7 +319,9 @@ pub(super) fn chip_label(t: &TourOfDay, x: &PlannedTrip, layers: u8) -> String {
 
 /// What the player did in the Gantt this frame (done once it is drawn).
 enum Do {
-    Choose { tour: usize, trip: usize, row: RowId, shift: bool, at: Vec2 },
+    /// A chip pressed: its trip, its row, the keys held (Shift: the choice widened along the
+    /// row, Ctrl: the trip added to it or taken out, Alt in Drivers: its whole piece of work).
+    Choose { tour: usize, trip: usize, row: RowId, kind: Kind, shift: bool, ctrl: bool, alt: bool, at: Vec2 },
     Pick(Hand, bool),
     DropZone(usize),
     Menu(Menu),
@@ -351,6 +355,8 @@ pub(super) fn gantt(l: &mut Launcher, r: Rect, k: &Cached, board: &Board, p: &Pa
     let ticked = s.ticked.clone();
     let reveal = s.reveal.clone();
     let dragging = s.dragging;
+    // (a card or the menu open: the chips' tooltip keeps quiet)
+    let quiet = s.card.is_some() || s.menu.is_some();
     let wd = board.weekday;
     let prefs = c.planning.flow.prefs.clone();
     let ui = &mut l.ui;
@@ -596,7 +602,7 @@ pub(super) fn gantt(l: &mut Launcher, r: Rect, k: &Cached, board: &Board, p: &Pa
         ui.push_clip(Rect::new(gx - 4.0, rr.y, gw + 8.0, rr.h), 0.0);
         match row.kind {
             Kind::Block(i) => block_row_draw(ui, p, c, board, i, &row.id, cy, &x_of, &prefs, &hand, &sel, layers, read_only, mouse, &mut todo, &mut lit),
-            Kind::Duty(d) => duty_row_draw(ui, p, c, board, d, &row.id, cy, &x_of, &prefs, &hand, &sel, layers.label, read_only, mouse, &mut todo, &mut lit),
+            Kind::Duty(d) => duty_row_draw(ui, p, c, board, d, &row.id, cy, &x_of, &prefs, &hand, &sel, layers.label, read_only, mouse, &mut todo, &mut lit, quiet),
         }
         // the drop zones in this row
         if let (Some(zs), Some((a, b, right))) = (&zones, hand_span(board, hand.as_ref())) {
@@ -656,7 +662,7 @@ pub(super) fn gantt(l: &mut Launcher, r: Rect, k: &Cached, board: &Board, p: &Pa
                     let lr = Rect::new(gx, rr.y + 2.0, gw.min(560.0), rr.h - 4.0);
                     let (h, _, click) = ui.interact(id_of("rf-new-duty"), lr);
                     ui.p().rounded_border(lr, 3.0, 1.0, if h { p.accent } else { p.line });
-                    ui.text_in("Click for a spare duty of custom work, or drop a piece of work here to begin a duty with it", lr.pad(10.0, 0.0), 11.5, Weight::Regular, if h { p.text } else { p.faint }, Align::Left);
+                    ui.text_in("Click for a spare duty of custom work, or drop trips here to begin a duty with them", lr.pad(10.0, 0.0), 11.5, Weight::Regular, if h { p.text } else { p.faint }, Align::Left);
                     if click {
                         todo.push(Do::Spare);
                     }
@@ -758,12 +764,18 @@ pub(super) fn hand_span(board: &Board, h: Option<&Hand>) -> Option<(i32, i32, bo
             let xs = piece_trips(board, *tour, *duty);
             Some((xs.first()?.dep, xs.iter().map(|x| x.arr).max()?, true))
         }
+        Hand::Duty { trips, .. } => {
+            let xs: Vec<(&TourOfDay, &PlannedTrip)> = trips.iter().filter_map(|&(i, j)| board.tours.get(i).and_then(|t| t.trips.get(j).map(|x| (t, x)))).collect();
+            let right = xs.iter().min_by_key(|(_, x)| x.dep).is_none_or(|(t, x)| outbound(&board.tours, &t.line, x));
+            Some((xs.iter().map(|(_, x)| x.dep).min()?, xs.iter().map(|(_, x)| x.arr).max()?, right))
+        }
     }
 }
 
 fn hand_colour(c: &Company, board: &Board, h: &Hand) -> Color {
     match h {
         Hand::Trips { tour, .. } | Hand::Swap { tour, .. } | Hand::Piece { tour, .. } => board.tours.get(*tour).map(|t| line_colour(c, &t.line)).unwrap_or(Color::WHITE),
+        Hand::Duty { trips, .. } => trips.first().and_then(|&(i, _)| board.tours.get(i)).map(|t| line_colour(c, &t.line)).unwrap_or(Color::WHITE),
         Hand::Stack(k) => board.stack.get(*k).map(|s| line_colour(c, &s.0)).unwrap_or(Color::WHITE),
     }
 }
@@ -868,7 +880,7 @@ fn block_row_draw(ui: &mut Ui, p: &Pal, c: &Company, board: &Board, i: usize, ro
             continue;
         }
         if h && ui.input.pressed {
-            todo.push(Do::Choose { tour: i, trip: j, row: row.clone(), shift: ui.input.shift, at: mouse });
+            todo.push(Do::Choose { tour: i, trip: j, row: row.clone(), kind: Kind::Block(i), shift: ui.input.shift, ctrl: ui.input.ctrl, alt: false, at: mouse });
         }
         if h && ui.input.right_pressed {
             todo.push(Do::Menu(Menu { at: mouse, tour: i, trip: j, duty_row: None, piece: None, custom: None }));
@@ -949,7 +961,7 @@ fn block_row_draw(ui: &mut Ui, p: &Pal, c: &Company, board: &Board, i: usize, ro
 
 /// A driver's duty in its row.
 #[allow(clippy::too_many_arguments)]
-fn duty_row_draw(ui: &mut Ui, p: &Pal, c: &Company, board: &Board, d: usize, row: &RowId, cy: f32, x_of: &dyn Fn(i32) -> f32, prefs: &rf::Prefs, hand: &Option<Hand>, sel: &[(usize, usize)], layer: u8, read_only: bool, mouse: Vec2, todo: &mut Vec<Do>, lit: &mut Option<(i32, i32)>) {
+fn duty_row_draw(ui: &mut Ui, p: &Pal, c: &Company, board: &Board, d: usize, row: &RowId, cy: f32, x_of: &dyn Fn(i32) -> f32, prefs: &rf::Prefs, hand: &Option<Hand>, sel: &[(usize, usize)], layer: u8, read_only: bool, mouse: Vec2, todo: &mut Vec<Do>, lit: &mut Option<(i32, i32)>, quiet: bool) {
     let s: &Shaped = &board.shaped[d];
     // the splits: a thin line across, "Split" in the middle
     let line_col = if p.light { p.dim } else { Color::rgba(220, 224, 230, 0.9) };
@@ -1004,7 +1016,7 @@ fn duty_row_draw(ui: &mut Ui, p: &Pal, c: &Company, board: &Board, d: usize, row
         let colour = line_colour(c, &t.line);
         let r = co::network::duties_of(t).get(sp.duty).cloned().unwrap_or(0..0);
         let n = t.trips.len();
-        let taken = *hand == Some(Hand::Piece { tour: sp.tour, duty: sp.duty });
+        let piece_taken = *hand == Some(Hand::Piece { tour: sp.tour, duty: sp.duty });
         // attended: a grey line from where the driver takes the bus to its departure
         if let Some(f) = t.trips.get(r.start) {
             if r.start > 0 {
@@ -1043,6 +1055,7 @@ fn duty_row_draw(ui: &mut Ui, p: &Pal, c: &Company, board: &Board, d: usize, row
             }
             let cr = Rect::new(a + 1.0, cy - CHIP * 0.5, (b - a - 2.0).max(5.0), CHIP);
             let chosen = sel.contains(&(sp.tour, j));
+            let taken = piece_taken || matches!(hand, Some(Hand::Duty { trips, .. }) if trips.contains(&(sp.tour, j)));
             let (h, _, _) = ui.interact(id_of(&format!("rf-dtrip-{d}-{}-{j}", sp.tour)), cr);
             if chosen || (h && hand.is_none()) {
                 *lit = Some((x.dep, x.arr));
@@ -1055,8 +1068,11 @@ fn duty_row_draw(ui: &mut Ui, p: &Pal, c: &Company, board: &Board, d: usize, row
             if read_only || hand.is_some() {
                 continue;
             }
+            if !quiet {
+                ui.tooltip(cr, "Drag or double-click to move this trip to another duty or a new one: the bus stays the same. Shift or Ctrl and a click choose more trips. Alt and a drag takes the whole piece of work on this bus.");
+            }
             if h && ui.input.pressed {
-                todo.push(Do::Choose { tour: sp.tour, trip: j, row: row.clone(), shift: ui.input.shift, at: mouse });
+                todo.push(Do::Choose { tour: sp.tour, trip: j, row: row.clone(), kind: Kind::Duty(d), shift: ui.input.shift, ctrl: ui.input.ctrl, alt: ui.input.alt, at: mouse });
             }
             if h && ui.input.right_pressed {
                 todo.push(Do::Menu(Menu { at: mouse, tour: sp.tour, trip: j, duty_row: Some(d), piece: Some((sp.tour, sp.duty)), custom: None }));
@@ -1067,10 +1083,26 @@ fn duty_row_draw(ui: &mut Ui, p: &Pal, c: &Company, board: &Board, d: usize, row
 
 // --- what was done ---------------------------------------------------------------------------------
 
-/// The trips of block `tour` from `a` to `b` (both in), with passengers.
-fn range_of(board: &Board, tour: usize, a: usize, b: usize) -> Vec<usize> {
-    let Some(t) = board.tours.get(tour) else { return Vec::new() };
-    (a.min(b)..=a.max(b)).filter(|&k| t.trips.get(k).is_some_and(|x| x.counts())).collect()
+/// The chips of a row, in order: (block, trip) of every trip with passengers.
+fn chips_of(board: &Board, kind: Kind) -> Vec<(usize, usize)> {
+    match kind {
+        Kind::Block(i) => board.tours.get(i).map(|t| (0..t.trips.len()).filter(|&j| t.trips[j].counts()).map(|j| (i, j)).collect()).unwrap_or_default(),
+        Kind::Duty(d) => {
+            let Some(s) = board.shaped.get(d) else { return Vec::new() };
+            let mut out: Vec<(usize, usize)> = s.spans.iter().flat_map(|sp| co::network::duties_of(&board.tours[sp.tour]).get(sp.duty).cloned().unwrap_or(0..0).filter(|&j| board.tours[sp.tour].trips[j].counts()).map(move |j| (sp.tour, j))).collect();
+            out.sort_by_key(|&(i, j)| (board.tours[i].trips[j].dep, i));
+            out
+        }
+    }
+}
+
+/// The chips of a row from `a` to `b` (both in, either way round): Shift and a click.
+fn row_span(board: &Board, kind: Kind, a: (usize, usize), b: (usize, usize)) -> Vec<(usize, usize)> {
+    let chips = chips_of(board, kind);
+    match (chips.iter().position(|x| *x == a), chips.iter().position(|x| *x == b)) {
+        (Some(x), Some(y)) => chips[x.min(y)..=x.max(y)].to_vec(),
+        _ => vec![b],
+    }
 }
 
 fn apply(l: &mut Launcher, k: &Cached, board: &Board, drivers: bool, todo: Vec<Do>) {
@@ -1081,25 +1113,54 @@ fn apply(l: &mut Launcher, k: &Cached, board: &Board, drivers: bool, todo: Vec<D
     }
     for d in todo {
         match d {
-            Do::Choose { tour, trip, row, shift, at } => {
+            Do::Choose { tour, trip, row, kind, shift, ctrl, alt, at } => {
                 let s = &mut l.company.planning.rf;
                 let key = format!("{tour}/{trip}");
                 let double = s.last_click.as_ref().is_some_and(|(k2, t)| *k2 == key && now - t < 0.4);
                 s.last_click = Some((key, now));
                 s.menu = None;
-                if shift && !drivers && s.sel_row.as_ref() == Some(&row) && s.sel.first().is_some_and(|f| f.0 == tour) {
-                    let first = s.sel[0].1;
-                    s.sel = range_of(board, tour, first, trip).into_iter().map(|x| (tour, x)).collect();
-                    s.card = Some(Card::Selection { at });
-                } else {
-                    s.sel = vec![(tour, trip)];
+                let here = (tour, trip);
+                // (the choice keeps to one row: in Vehicles one bus, in Drivers one duty)
+                let widen = s.sel_row.as_ref() == Some(&row) && !s.sel.is_empty() && (drivers || s.sel.iter().all(|x| x.0 == tour));
+                let mut kept = true;
+                if shift && widen {
+                    s.sel = row_span(board, kind, s.sel[0], here);
+                } else if ctrl && widen {
+                    match s.sel.iter().position(|x| *x == here) {
+                        Some(at_k) => {
+                            s.sel.remove(at_k);
+                            kept = false;
+                        }
+                        None => {
+                            s.sel.push(here);
+                            s.sel.sort_unstable();
+                        }
+                    }
+                } else if !(widen && s.sel.len() > 1 && s.sel.contains(&here)) {
+                    // (pressed on a trip of a choice of several: they are taken along)
+                    s.sel = vec![here];
                     s.sel_row = Some(row);
-                    s.card = Some(Card::Trip { tour, trip, at, assign: false });
+                }
+                if s.sel.is_empty() {
+                    s.sel_row = None;
+                }
+                s.card = if s.sel.len() > 1 {
+                    Some(Card::Selection { at })
+                } else if kept {
+                    Some(Card::Trip { tour, trip, at, assign: false })
+                } else {
+                    None
+                };
+                if !kept {
+                    continue;
                 }
                 // (pressed: taken up if the mouse moves on; clicked twice: taken up)
-                let hand = if drivers {
+                let hand = if drivers && alt {
                     let duty = co::network::duties_of(&board.tours[tour]).iter().position(|r| r.contains(&trip)).unwrap_or(0);
                     Hand::Piece { tour, duty }
+                } else if drivers {
+                    let Some(duty) = st::duty_of_trip(&board.duties, &board.tours, tour, trip) else { continue };
+                    Hand::Duty { duty, trips: s.sel.iter().copied().filter(|&(i, j)| st::duty_of_trip(&board.duties, &board.tours, i, j) == Some(duty)).collect() }
                 } else {
                     Hand::Trips { tour, trips: s.sel.iter().filter(|x| x.0 == tour).map(|x| x.1).collect() }
                 };
@@ -1255,6 +1316,15 @@ pub(super) fn pick(l: &mut Launcher, k: &Cached, board: &Board, h: Hand, draggin
     let refused = match &h {
         Hand::Trips { tour, .. } | Hand::Swap { tour, .. } => board.tours.get(*tour).is_some_and(|t| rf::block_locked(c, wd, &t.line, &t.tour)).then_some(st::LOCKED),
         Hand::Piece { tour, duty } => rf::piece_locked(c, wd, &board.tours, *tour, *duty).then_some(st::DUTY_LOCKED),
+        Hand::Duty { duty, trips } => {
+            let locked_duty = board.shaped.iter().any(|s| s.duty == Some(*duty) && s.locked);
+            let locked_bus = trips.iter().any(|&(i, _)| board.tours.get(i).is_some_and(|t| rf::block_locked(c, wd, &t.line, &t.tour)));
+            if locked_duty {
+                Some(st::DUTY_LOCKED)
+            } else {
+                locked_bus.then_some(st::LOCKED)
+            }
+        }
         Hand::Stack(_) => None,
     };
     if let Some(why) = refused {
@@ -1335,6 +1405,17 @@ pub(super) fn zones_for(k: &Cached, board: &Board, h: &Hand) -> Vec<Zone> {
                 probe_with(Drop::NewDuty, &|p| st::detach(p, wd, tours, (*tour, *duty)));
             }
         }
+        Hand::Duty { duty, trips } => {
+            // (every other duty the trips may go to, and a new duty of their own)
+            for (d, s) in board.shaped.iter().enumerate() {
+                let Some(di) = s.duty else { continue };
+                if di == *duty || st::plan_move_to_duty(c, wd, tours, *duty, trips, DutyTarget::Duty(di)).is_err() {
+                    continue;
+                }
+                probe_with(Drop::Duty(d), &|p| st::move_to_duty(p, wd, tours, *duty, trips, DutyTarget::Duty(di)));
+            }
+            probe_with(Drop::NewDuty, &|p| st::move_to_duty(p, wd, tours, *duty, trips, DutyTarget::New));
+        }
         Hand::Swap { .. } => {}
     }
     rate(&mut out);
@@ -1354,6 +1435,11 @@ pub(super) fn rate(zones: &mut [Zone]) {
             z.stars = z.stars.min(2);
         }
     }
+}
+
+/// The number duty `di` (an index into `Board::duties`) goes by ("1003").
+pub(super) fn duty_label(board: &Board, di: usize) -> String {
+    board.shaped.iter().position(|s| s.duty == Some(di)).map(|row| board.shaped[row].label(row)).unwrap_or_default()
 }
 
 /// Drop what is in hand at zone `zi`.
@@ -1398,6 +1484,16 @@ pub(super) fn drop_at(l: &mut Launcher, board: &Board, zi: usize) {
             let words = omsi_ui::tr("Piece of %{v} made a duty of its own").replace("%{v}", &block_label(&tours[tour]));
             edit(l, words, |c| st::detach(c, wd, &tours, (tour, duty)));
         }
+        (Hand::Duty { duty, trips }, Drop::Duty(d)) => {
+            if let Some(di) = board.shaped.get(d).and_then(|s| s.duty) {
+                let words = omsi_ui::tr("%{n} trips moved from duty %{a} to duty %{b}").replace("%{n}", &trips.len().to_string()).replace("%{a}", &duty_label(board, duty)).replace("%{b}", &board.shaped[d].label(d));
+                edit(l, words, |c| st::move_to_duty(c, wd, &tours, duty, &trips, DutyTarget::Duty(di)));
+            }
+        }
+        (Hand::Duty { duty, trips }, Drop::NewDuty) => {
+            let words = omsi_ui::tr("%{n} trips moved from duty %{a} to a new duty").replace("%{n}", &trips.len().to_string()).replace("%{a}", &duty_label(board, duty));
+            edit(l, words, |c| st::move_to_duty(c, wd, &tours, duty, &trips, DutyTarget::New));
+        }
         _ => {}
     }
     l.company.planning.rf.settle();
@@ -1410,21 +1506,15 @@ pub(super) fn arrow_key(l: &mut Launcher, k: &Cached, board: &Board, drivers: bo
     let s = &mut l.company.planning.rf;
     let Some(&(tour, trip)) = s.sel.last() else { return };
     let Some(ri) = rows_now.iter().position(|r| Some(&r.id) == s.sel_row.as_ref()) else { return };
-    // the chips of a row, in order: (block, trip)
-    let chips_of = |row: &Row| -> Vec<(usize, usize)> {
-        match row.kind {
-            Kind::Block(i) => (0..board.tours[i].trips.len()).filter(|&j| board.tours[i].trips[j].counts()).map(|j| (i, j)).collect(),
-            Kind::Duty(d) => board.shaped[d].spans.iter().flat_map(|sp| co::network::duties_of(&board.tours[sp.tour]).get(sp.duty).cloned().unwrap_or(0..0).filter(|&j| board.tours[sp.tour].trips[j].counts()).map(move |j| (sp.tour, j))).collect(),
-        }
-    };
-    let here = chips_of(&rows_now[ri]);
+    let here = chips_of(board, rows_now[ri].kind);
     let at = here.iter().position(|x| *x == (tour, trip)).unwrap_or(0);
     let Some(dep) = board.tours.get(tour).and_then(|t| t.trips.get(trip)).map(|x| x.dep) else { return };
     match key {
         Key::Left | Key::Right => {
             let next = if key == Key::Left { at.checked_sub(1) } else { Some(at + 1).filter(|n| *n < here.len()) };
             if let Some(n) = next {
-                if shift && !drivers && here[n].0 == tour {
+                // (in Drivers a row is one duty: its trips are chosen together, of any bus)
+                if shift && (drivers || here[n].0 == tour) {
                     if !s.sel.contains(&here[n]) {
                         s.sel.push(here[n]);
                         s.sel.sort_unstable();
@@ -1438,7 +1528,7 @@ pub(super) fn arrow_key(l: &mut Launcher, k: &Cached, board: &Board, drivers: bo
         Key::Up | Key::Down => {
             let other = if key == Key::Up { ri.checked_sub(1) } else { Some(ri + 1).filter(|n| *n < rows_now.len()) };
             if let Some(o) = other {
-                let there = chips_of(&rows_now[o]);
+                let there = chips_of(board, rows_now[o].kind);
                 if let Some(best) = there.iter().min_by_key(|(t2, j2)| (board.tours[*t2].trips[*j2].dep - dep).abs()) {
                     s.sel = vec![*best];
                     s.sel_row = Some(rows_now[o].id.clone());
