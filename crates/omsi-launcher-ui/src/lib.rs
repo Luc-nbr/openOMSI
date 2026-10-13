@@ -1322,6 +1322,8 @@ impl Launcher {
                 // the wheel zoom RosterFlow's Gantt)
                 "ctrl" => self.ui.input.ctrl = arg.trim() != "0",
                 "shift" => self.ui.input.shift = arg.trim() != "0",
+                // (`alt 1`: RosterFlow's Drivers take a whole piece of work up with Alt)
+                "alt" => self.ui.input.alt = arg.trim() != "0",
                 // a right click (a menu)
                 "rclick" => {
                     self.ui.input.mouse = xy();
