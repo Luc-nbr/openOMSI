@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RosterFlow Handbook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  @page { size: A4; margin: 18mm 17mm 20mm 17mm; }
+  @page :first { margin: 0; }
+  :root {
+    --navy: #0f1b2d; --navy2: #17263d; --ink: #1c2433; --muted: #5b6678; --line: #dde3ec;
+    --blue: #3d8bfd; --blue-bg: #eaf2ff; --orange: #e8890c; --orange-bg: #fff4e3;
+    --red: #d64545; --red-bg: #fdecec; --green: #23955a; --green-bg: #e7f6ee;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-family: "Hanken Grotesk", "Segoe UI", sans-serif; color: var(--ink); font-size: 10.5pt; line-height: 1.55; margin: 0; }
+  h1, h2, h3 { line-height: 1.2; color: var(--navy); }
+  h2 { font-size: 20pt; font-weight: 800; margin: 0 0 4mm; padding-top: 2mm; }
+  h3 { font-size: 12.5pt; font-weight: 700; margin: 6mm 0 2mm; break-after: avoid; page-break-after: avoid; }
+  .two, .fig, .chain, .steps > li:first-child { break-before: avoid; }
+  p { margin: 0 0 3mm; }
+  ul, ol { margin: 0 0 3mm; padding-left: 5.5mm; }
+  li { margin-bottom: 1.2mm; }
+  b { font-weight: 700; color: var(--navy); }
+  .ui { font-weight: 700; font-size: 9pt; letter-spacing: .02em; background: var(--navy); color: #fff; padding: .3mm 1.8mm; border-radius: 1.2mm; white-space: nowrap; }
+  .key { font-weight: 700; font-size: 8.5pt; border: 1px solid #b9c2d0; border-bottom-width: 2px; border-radius: 1.2mm; padding: 0 1.5mm; background: #f6f8fb; white-space: nowrap; }
+  .chapter { page-break-before: always; }
+  .kicker { font-size: 9pt; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--blue); margin-bottom: 1mm; }
+  .lead { font-size: 11.5pt; color: var(--muted); margin-bottom: 5mm; }
+
+  /* cover */
+  .cover { height: 297mm; background: var(--navy); color: #fff; padding: 30mm 22mm; position: relative; overflow: hidden; }
+  .cover .mark { display: flex; gap: 2mm; margin-bottom: 14mm; }
+  .cover .mark span { display: block; height: 6mm; border-radius: 1mm; clip-path: polygon(0 0, calc(100% - 3mm) 0, 100% 50%, calc(100% - 3mm) 100%, 0 100%); }
+  .cover h1 { color: #fff; font-size: 46pt; font-weight: 800; margin: 0; letter-spacing: -.01em; }
+  .cover .sub { font-size: 15pt; color: #9fb4d3; margin-top: 2mm; }
+  .cover .title2 { font-size: 22pt; font-weight: 700; margin-top: 22mm; color: #fff; }
+  .cover .who { font-size: 12pt; color: #c8d5ea; margin-top: 3mm; max-width: 130mm; }
+  .cover .gantt { position: absolute; left: 22mm; right: 22mm; bottom: 34mm; }
+  .cover .row { display: flex; gap: 1.5mm; margin-bottom: 2.4mm; }
+  .cover .row span { height: 5mm; border-radius: .8mm; clip-path: polygon(0 0, calc(100% - 2.2mm) 0, 100% 50%, calc(100% - 2.2mm) 100%, 0 100%); }
+  .cover .foot { position: absolute; left: 22mm; bottom: 16mm; font-size: 9pt; color: #7f93b3; }
+
+  /* toc */
+  .toc { list-style: none; padding: 0; margin-top: 6mm; }
+  .toc li { display: flex; align-items: baseline; gap: 3mm; padding: 2.4mm 0; border-bottom: 1px solid var(--line); font-size: 11pt; }
+  .toc .n { font-weight: 800; color: var(--blue); width: 8mm; }
+  .toc .d { color: var(--muted); font-size: 9.5pt; margin-left: auto; text-align: right; }
+
+  /* boxes */
+  .box { border-radius: 2.5mm; padding: 3.5mm 4.5mm; margin: 4mm 0; break-inside: avoid; }
+  .box .t { font-weight: 800; font-size: 9pt; letter-spacing: .1em; text-transform: uppercase; margin-bottom: 1mm; }
+  .tip { background: var(--blue-bg); } .tip .t { color: var(--blue); }
+  .warn { background: var(--orange-bg); } .warn .t { color: var(--orange); }
+  .rule { background: var(--red-bg); } .rule .t { color: var(--red); }
+  .good { background: var(--green-bg); } .good .t { color: var(--green); }
+
+  /* steps */
+  .steps { counter-reset: s; list-style: none; padding: 0; margin: 3mm 0 4mm; }
+  .steps > li { counter-increment: s; position: relative; padding: 2.5mm 0 2.5mm 12mm; border-bottom: 1px dashed var(--line); break-inside: avoid; margin: 0; }
+  .steps > li:last-child { border-bottom: 0; }
+  .steps > li::before { content: counter(s); position: absolute; left: 0; top: 2.2mm; width: 7.5mm; height: 7.5mm; border-radius: 50%; background: var(--navy); color: #fff; font-weight: 800; font-size: 10pt; display: flex; align-items: center; justify-content: center; }
+  .steps > li > b:first-child { display: block; font-size: 11pt; margin-bottom: .5mm; }
+
+  /* chain */
+  .chain { display: flex; align-items: stretch; gap: 0; margin: 5mm 0 6mm; break-inside: avoid; }
+  .chain .c { flex: 1; background: var(--navy); color: #fff; padding: 3.5mm 3mm 3.5mm 4mm; clip-path: polygon(0 0, calc(100% - 4mm) 0, 100% 50%, calc(100% - 4mm) 100%, 0 100%, 4mm 50%); margin-left: -2mm; }
+  .chain .c:first-child { clip-path: polygon(0 0, calc(100% - 4mm) 0, 100% 50%, calc(100% - 4mm) 100%, 0 100%); margin-left: 0; }
+  .chain .c:nth-child(2) { background: #1d3557; } .chain .c:nth-child(3) { background: #24497a; } .chain .c:nth-child(4) { background: var(--blue); }
+  .chain .n { font-size: 8pt; font-weight: 700; color: #9fb4d3; letter-spacing: .1em; }
+  .chain .c:nth-child(4) .n { color: #dbe8ff; }
+  .chain .h { font-size: 12pt; font-weight: 800; padding-left: 2mm; }
+  .chain .q { font-size: 8.5pt; color: #d5e1f3; padding-left: 2mm; line-height: 1.3; }
+  .chain .n { padding-left: 2mm; }
+
+  /* figure: mini gantt */
+  .fig { border: 1px solid var(--line); border-radius: 2.5mm; padding: 4mm; margin: 4mm 0; break-inside: avoid; background: #fbfcfe; }
+  .fig .cap { font-size: 8.5pt; color: var(--muted); margin-top: 2mm; }
+  .g { position: relative; height: 7mm; margin: 1.6mm 0; }
+  .g .id { position: absolute; left: 0; top: 1mm; font-size: 8.5pt; font-weight: 700; color: var(--navy); width: 18mm; }
+  .g .track { position: absolute; left: 20mm; right: 0; top: 0; bottom: 0; background: repeating-linear-gradient(90deg, transparent 0 calc(12.5% - 1px), #e6ebf2 calc(12.5% - 1px) 12.5%); }
+  .g .chip { position: absolute; top: 1mm; height: 5mm; font-size: 7.5pt; font-weight: 700; color: #fff; padding-left: 1.5mm; line-height: 5mm; clip-path: polygon(0 0, calc(100% - 2mm) 0, 100% 50%, calc(100% - 2mm) 100%, 0 100%); }
+  .g .dep { position: absolute; top: 1.3mm; height: 4.4mm; background: #44526a; border-radius: 1mm; font-size: 6.5pt; color: #fff; text-align: center; line-height: 4.4mm; }
+  .g .cut { position: absolute; top: -.5mm; bottom: -.5mm; width: .7mm; background: var(--blue); }
+  .axis { position: relative; height: 4mm; margin-left: 20mm; font-size: 7pt; color: var(--muted); }
+  .axis span { position: absolute; transform: translateX(-50%); }
+
+  table { width: 100%; border-collapse: collapse; margin: 3mm 0 5mm; font-size: 9.5pt; break-inside: avoid; }
+  th { text-align: left; font-size: 8.5pt; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); border-bottom: 2px solid var(--navy); padding: 1.8mm 2mm; }
+  td { border-bottom: 1px solid var(--line); padding: 2mm; vertical-align: top; }
+  td:first-child { font-weight: 700; color: var(--navy); white-space: nowrap; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 5mm; }
+  .card { border: 1px solid var(--line); border-radius: 2.5mm; padding: 3.5mm 4mm; break-inside: avoid; }
+  .card h3 { margin-top: 0; }
+  .small { font-size: 9pt; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<!-- COVER -->
+<section class="cover">
+  <div class="mark">
+    <span style="width:22mm;background:#3d8bfd"></span><span style="width:12mm;background:#e8890c"></span><span style="width:16mm;background:#23955a"></span>
+  </div>
+  <h1>RosterFlow</h1>
+  <div class="sub">Bus Scheduling &amp; Crew Rostering</div>
+  <div class="title2">The handbook</div>
+  <div class="who">From an empty timetable to every driver on the road, step by step. Written for players who have never planned a bus company before.</div>
+  <div class="gantt">
+    <div class="row"><span style="width:16mm;background:#44526a"></span><span style="width:30mm;background:#3d8bfd"></span><span style="width:30mm;background:#3d8bfd"></span><span style="width:26mm;background:#e05a8a"></span><span style="width:30mm;background:#3d8bfd"></span></div>
+    <div class="row"><span style="width:8mm;background:transparent"></span><span style="width:14mm;background:#44526a"></span><span style="width:28mm;background:#e8890c"></span><span style="width:28mm;background:#e8890c"></span><span style="width:34mm;background:#23955a"></span></div>
+    <div class="row"><span style="width:22mm;background:transparent"></span><span style="width:14mm;background:#44526a"></span><span style="width:32mm;background:#e05a8a"></span><span style="width:32mm;background:#3d8bfd"></span><span style="width:24mm;background:#e8890c"></span></div>
+  </div>
+  <div class="foot">openOMSI · Omsi-Hub launcher · Bus company mode</div>
+</section>
+
+<!-- CONTENTS -->
+<section class="chapter">
+  <div class="kicker">Contents</div>
+  <h2>What is in this handbook</h2>
+  <ol class="toc">
+    <li><span class="n">1</span>What RosterFlow is, and the four steps<span class="d">Read this first</span></li>
+    <li><span class="n">2</span>Switching it on and finding your way<span class="d">The screen, top to bottom</span></li>
+    <li><span class="n">3</span>Step 1 · Timeplan<span class="d">When do the buses run?</span></li>
+    <li><span class="n">4</span>Step 2 · Vehicles<span class="d">Which bus runs which trips?</span></li>
+    <li><span class="n">5</span>Step 3 · Drivers (duties)<span class="d">What is one driver's working day?</span></li>
+    <li><span class="n">6</span>Step 4 · Roster<span class="d">Who drives what, on which day?</span></li>
+    <li><span class="n">7</span>OPTIMIZE, issues and preferences<span class="d">Let RosterFlow help you</span></li>
+    <li><span class="n">8</span>SAVE, DISCARD and what the game does with it<span class="d">Nothing counts until you save</span></li>
+    <li><span class="n">9</span>Your first full planning in 15 minutes<span class="d">A walkthrough</span></li>
+    <li><span class="n">10</span>Shortcuts, glossary and problem solving<span class="d">Keep this page handy</span></li>
+  </ol>
+  <div class="box tip" style="margin-top:8mm"><div class="t">Don't want to read?</div>RosterFlow has a guided tour built in. Open RosterFlow and click the <b>?</b> in the title bar: it offers a guided tour, lessons to try yourself and a help sheet. Each lesson waits until you have done the step yourself.</div>
+</section>
+
+<!-- 1 -->
+<section class="chapter">
+  <div class="kicker">Chapter 1</div>
+  <h2>What RosterFlow is, and the four steps</h2>
+  <p class="lead">RosterFlow is the planning program of your bus company. It is modelled on the professional software that real transport operators use, so it plans the way they do: in four steps, each building on the one before.</p>
+
+  <div class="chain">
+    <div class="c"><div class="n">STEP 1</div><div class="h">Timeplan</div><div class="q">When do the trips run?</div></div>
+    <div class="c"><div class="n">STEP 2</div><div class="h">Vehicles</div><div class="q">Which bus drives which trips?</div></div>
+    <div class="c"><div class="n">STEP 3</div><div class="h">Drivers</div><div class="q">What is one driver's working day?</div></div>
+    <div class="c"><div class="n">STEP 4</div><div class="h">Roster</div><div class="q">Who drives what, on which day?</div></div>
+  </div>
+
+  <p>The tabs at the top right of RosterFlow are these four steps, in this order. Work from left to right: a change in an earlier step flows into the later ones.</p>
+
+  <h3>The four steps in plain words</h3>
+  <table>
+    <tr><th style="width:24%">Tab</th><th>What you decide</th><th style="width:30%">Why it matters</th></tr>
+    <tr><td>Timeplan</td><td>The timetable of a line: how long the bus takes between stops, and at what times trips leave. For example, "every 10 minutes from 07:00 to 09:00".</td><td>More trips mean more passengers, but also more buses and drivers.</td></tr>
+    <tr><td>Vehicles</td><td>Trips are chained into a <b>block</b> (a bus's day): the bus leaves the depot, drives trip after trip and returns at night.</td><td>The number of buses on the road at the busiest moment is how many buses you must own.</td></tr>
+    <tr><td>Drivers</td><td>Each bus's day is cut into <b>duties</b>: pieces of work one driver can do within the rules (length, breaks, rest).</td><td>The number of duties and paid hours decides how many drivers you need, and your wage bill.</td></tr>
+    <tr><td>Roster</td><td>Real drivers are put on the duties, per day: Marieke drives duty 3 on Tuesday.</td><td>This is where sickness, holidays and rest times come in.</td></tr>
+  </table>
+
+  <div class="box tip"><div class="t">The one idea to remember</div>A <b>duty</b> (Drivers tab) is a piece of work without a name, like "duty 3, 18:10–01:51". The <b>roster</b> puts a name on it for a day. You design the duties once per timetable, and fill in the names every week.</div>
+
+  <h3>Easy words for the hard words</h3>
+  <div class="two">
+    <div class="card"><h3>Trip</h3>One journey of a bus from one end of the line to the other. Shown as a coloured arrow; the point shows the direction.</div>
+    <div class="card"><h3>Block</h3>One bus's day: all the trips it drives between leaving and returning to the depot. In Dutch: an <i>omloop</i>.</div>
+    <div class="card"><h3>Duty</h3>One driver's working day: sign-on, pieces of work on one or more buses, breaks, sign-off.</div>
+    <div class="card"><h3>Relief point</h3>A place where one driver can hand the bus to another: a terminus or the depot.</div>
+  </div>
+</section>
+
+<!-- 2 -->
+<section class="chapter">
+  <div class="kicker">Chapter 2</div>
+  <h2>Switching it on and finding your way</h2>
+  <p class="lead">RosterFlow is an add-on for the Normal and Realistic modes. Without it your company uses the standard planning, where the game makes the blocks and duties for you.</p>
+
+  <ol class="steps">
+    <li><b>Open your company's settings</b>In the bus company, open the settings and find <b>Add-ons</b>.</li>
+    <li><b>Switch on RosterFlow</b>The switch says it is an advanced tool, modelled on professional software. Switch it on: the logo animation plays and the guided tour is offered.</li>
+    <li><b>Open Planning</b>The company's Planning page is now RosterFlow. You can switch the add-on off again at any time; your RosterFlow plan is kept.</li>
+  </ol>
+
+  <h3>The screen, top to bottom</h3>
+  <table>
+    <tr><th style="width:24%">Part</th><th>What it does</th></tr>
+    <tr><td>Title bar</td><td>The name of your schedule with a dot (<span style="color:var(--green);font-weight:800">green</span> = saved, <span style="color:var(--orange);font-weight:800">orange</span> = unsaved changes); undo, redo and history; the day switcher (Mon–Fri, Saturday, Sunday); the four tabs on the right.</td></tr>
+    <tr><td>KPI tiles</td><td>The key figures of your planning: buses at the peak (<b>PVR</b>), number of duties, paid hours, deadhead (empty) kilometres and costs. After every change, a small green or red number shows the difference. Green is better, red is worse.</td></tr>
+    <tr><td>Toolbar</td><td><span class="ui">SAVE</span> <span class="ui">DISCARD</span> Stats, Layers, Filter, Preferences, Print, and <span class="ui" style="background:var(--blue)">OPTIMIZE</span> on the right.</td></tr>
+    <tr><td>Gantt</td><td>The big chart. Time runs from left to right; each row is a bus (Vehicles) or a duty (Drivers). On the left of each row: a checkbox, a red <b style="color:var(--red)">!</b> when there is an issue, the row's ID, and on hover a lock and a pin.</td></tr>
+    <tr><td>Status bar</td><td>How much is assigned; the counts of <b>Global</b>, <b>Duty</b> and <b>Vehicle</b> issues (click to open the list); the zoom.</td></tr>
+  </table>
+
+  <div class="box tip"><div class="t">Moving around the chart</div><span class="key">Ctrl</span> + mouse wheel zooms in and out. <span class="key">Shift</span> + mouse wheel scrolls sideways. The scroll bars at the bottom and right can be dragged too.</div>
+  <div class="box warn"><div class="t">Everything is a draft</div>Whatever you change in RosterFlow is a draft until you press <span class="ui">SAVE</span>. Until then, the game keeps running the plan you saved last. See chapter 8.</div>
+</section>
+
+<!-- 3 -->
+<section class="chapter">
+  <div class="kicker">Chapter 3 · Step 1</div>
+  <h2>Timeplan: when do the buses run?</h2>
+  <p class="lead">The Timeplan is a line's timetable. Pick a line, a day group and a direction, then work on two screens: running times and the timetable.</p>
+
+  <h3>The bar at the top</h3>
+  <p>Choose the <b>line</b>, the <b>day group</b> (Mon–Fri, Saturday, Sunday) and the direction: <b>OUTBOUND</b> or <b>INBOUND</b>. The return trips can have their own times. On the right are the two screens: the clock icon (running times) and the grid icon (timetable). Under the bar is the stop strip: every stop with its code, on a rail in the line's colour.</p>
+
+  <h3>Screen A · Running times</h3>
+  <p>How many minutes the bus needs between two stops. Because traffic is slower in the rush hour, the day is split into <b>time bands</b> (for example 06:00–09:00 peak, 09:00–15:00 off-peak).</p>
+  <ol class="steps">
+    <li><b>Show the running times</b>Click the clock icon on the right of the bar.</li>
+    <li><b>Change a running time</b>Click a box with minutes in a time band, type a new number and press <span class="key">Enter</span>. Every trip in that band moves with it at once.</li>
+    <li><b>Add or remove a time band</b>⊕ adds a band, the bin removes one. Click a band's time to type a new one.</li>
+  </ol>
+
+  <h3>Screen B · Timetable</h3>
+  <p>Each row is one trip, with its time at every stop. On the left are fixed columns: PATTERN (which stops it serves), VEHICLE TYPE, START and HEADWAY (minutes since the trip before). On top are figures: the number of trips, trips by pattern and trips by hour.</p>
+  <ol class="steps">
+    <li><b>Show the timetable</b>Click the grid icon on the right of the bar.</li>
+    <li><b>Add trips by headway</b>Click the clock tool above the table. Give the first and the last departure and the minutes between buses (for example 10), then click the tick. "10,20" alternates 10 and 20 minutes.</li>
+    <li><b>Change a single trip</b>Type a new start or headway: every later trip moves with it. A time you type over a stop turns <span style="color:var(--orange);font-weight:800">orange</span>, with how far it is off.</li>
+    <li><b>Save the timetable</b>Click Save. If it asks you to mend something first, two trips leave at the same minute: undo them and add them at other times.</li>
+    <li><b>Refresh the blocks</b>The line is now marked <span class="ui" style="background:var(--orange)">UNSYNCED</span> in the status bar. Click <b>Refresh</b>: the buses' blocks and the duties are made again for the new trips.</li>
+  </ol>
+  <div class="box tip"><div class="t">Tip</div>Start simple: one headway for the whole day. When that works, add extra trips in the rush hours. Watch the KPI tiles in Vehicles: every extra trip at the peak can mean an extra bus.</div>
+</section>
+
+<!-- 4 -->
+<section class="chapter">
+  <div class="kicker">Chapter 4 · Step 2</div>
+  <h2>Vehicles: which bus runs which trips?</h2>
+  <p class="lead">Each row is one bus's day: a block. Your goal is to run all trips with as few buses and as few empty kilometres as possible.</p>
+
+  <div class="fig">
+    <div class="axis"><span style="left:0%">06</span><span style="left:25%">09</span><span style="left:50%">12</span><span style="left:75%">15</span><span style="left:100%">18</span></div>
+    <div class="g"><div class="id">Bus 101</div><div class="track">
+      <div class="dep" style="left:0%;width:5%">D</div>
+      <div class="chip" style="left:6%;width:18%;background:#3d8bfd">45-A</div>
+      <div class="chip" style="left:25%;width:18%;background:#2b6fd6">45-B</div>
+      <div class="cut" style="left:43.6%"></div>
+      <div class="chip" style="left:45%;width:18%;background:#3d8bfd">45-A</div>
+      <div class="chip" style="left:64%;width:18%;background:#2b6fd6">45-B</div>
+      <div class="dep" style="left:83%;width:5%">D</div>
+    </div></div>
+    <div class="g"><div class="id">Bus 102</div><div class="track">
+      <div class="dep" style="left:10%;width:5%">D</div>
+      <div class="chip" style="left:16%;width:16%;background:#e05a8a">322-A</div>
+      <div class="chip" style="left:33%;width:16%;background:#c2416f">322-B</div>
+      <div class="chip" style="left:50%;width:16%;background:#e05a8a">322-A</div>
+      <div class="dep" style="left:67%;width:5%">D</div>
+    </div></div>
+    <div class="cap">Grey boxes (D) are the depot: the bus pulls out and pulls in. Coloured arrows are trips in the line's colour, labelled line-direction. The blue line on bus 101 is a cut: another driver takes over there.</div>
+  </div>
+
+  <h3>Move a trip to another bus</h3>
+  <ol class="steps">
+    <li><b>Pick up a trip</b>Drag a coloured chip, or double-click it. Slots appear on every bus it could go to.</li>
+    <li><b>Read the stars and the cost</b>Hold the mouse over a slot. Five stars is the cheapest choice. A <span style="color:var(--blue);font-weight:800">blue</span> slot breaks no rule; a <span style="color:var(--red);font-weight:800">red</span> one does. The card shows the cost difference.</li>
+    <li><b>Drop it</b>Click a slot, or let go of the chip over it. <span class="key">Esc</span> puts it back.</li>
+    <li><b>Check the figures</b>The green or red numbers on the KPI tiles show what your move did.</li>
+    <li><b>Changed your mind?</b>Press <span class="key">Ctrl</span>+<span class="key">Z</span> or the undo arrow at the top.</li>
+  </ol>
+
+  <h3>The right-click menu</h3>
+  <table>
+    <tr><th style="width:26%">Choice</th><th>What it does</th></tr>
+    <tr><td>Move</td><td>Pick up the trip, as when dragging.</td></tr>
+    <tr><td>Move to new row</td><td>Give the trip a bus of its own.</td></tr>
+    <tr><td>Swap</td><td>Swap the chosen trips with what another bus runs at that time. Click the other bus next.</td></tr>
+    <tr><td>Swap from here</td><td>Swap everything from this trip on with another bus's day from then on.</td></tr>
+    <tr><td>Unassign</td><td>Take the trip off its bus. It becomes an open issue until it is placed again.</td></tr>
+    <tr><td>View in timeplan</td><td>Open the trip's line in the Timeplan.</td></tr>
+    <tr><td>Line colour</td><td>Choose the line's colour: every chip of the line changes at once.</td></tr>
+  </table>
+  <div class="box tip"><div class="t">Lock and pin</div>Hover over a row's ID. The <b>lock</b> keeps a bus exactly as it is: OPTIMIZE leaves it alone. The <b>pin</b> (or <span class="key">P</span>) puts the row at the top of the list, handy while you work on it.</div>
+</section>
+
+<!-- 5 -->
+<section class="chapter">
+  <div class="kicker">Chapter 5 · Step 3</div>
+  <h2>Drivers: what is one driver's working day?</h2>
+  <p class="lead">A bus can be on the road for 18 hours, but a driver may work about 8 to 9. So each block is cut into duties. On this tab, each row is one duty: a working day without a name yet.</p>
+
+  <h3>Cutting a bus's day into duties</h3>
+  <p>Cuts are made on the <b>Vehicles</b> tab, because duties are cut from the buses' days.</p>
+  <ol class="steps">
+    <li><b>Open the Vehicles tab</b>Find a long bus day.</li>
+    <li><b>Cut at a terminus</b>Hold the mouse over the gap between two trips. Where a blue line shows, a driver can take over (a terminus or the depot). Click to cut there.</li>
+    <li><b>Look at it in Drivers</b>There is one duty more now: the second driver's day starts where you cut.</li>
+    <li><b>Undo a cut</b>Back in Vehicles, click the arrows where the drivers change. The two duties become one again.</li>
+  </ol>
+
+  <h3>Building and opening a duty</h3>
+  <ol class="steps">
+    <li><b>Combine work</b>In Drivers, drag a chip of a short duty (or double-click it) and drop it on another duty. The two become one duty with a break between them. No slot appears? The duty would get too long: take a shorter piece.</li>
+    <li><b>Open a duty</b>Click a duty's ID on the left. Its panel shows sign-on, the pieces of work, the breaks and sign-off. A long unpaid break makes it a <b>split duty</b>.</li>
+    <li><b>Lock the duty</b>Click the lock at the top of the panel. OPTIMIZE will leave it as it is.</li>
+  </ol>
+
+  <div class="box rule"><div class="t">The rules RosterFlow checks</div>
+    <b>Refused (hard rules):</b> pieces that overlap, too little rest between pieces, a working day longer than the maximum.<br>
+    <b>Warned (soft rules):</b> overtime, a driver changing at a different stop than where they stopped, a very long break in a split duty.<br>
+    You set the limits yourself under Preferences (chapter 7).
+  </div>
+  <div class="box tip"><div class="t">What makes a good duty</div>Close to a full working day (about 8 hours of paid time), breaks at a terminus, as little time waiting as possible. Fewer, fuller duties mean fewer drivers and lower wages.</div>
+</section>
+
+<!-- 6 -->
+<section class="chapter">
+  <div class="kicker">Chapter 6 · Step 4</div>
+  <h2>Roster: who drives what, on which day?</h2>
+  <p class="lead">Now the duties get names. The Roster tab shows the coming seven days. For each day you see the lines and tours, the duties on them, and who drives each one.</p>
+
+  <ol class="steps">
+    <li><b>Pick a day</b>The day tabs at the top show the next seven days. A dot shows whether every duty is covered.</li>
+    <li><b>Give a duty a driver</b>Click a duty, then a driver in the panel on the right (or drag the driver onto the duty). The list puts the drivers who fit first, standby drivers ahead of the rest.</li>
+    <li><b>Read why a driver can't</b>Every driver who can't take the duty shows the reason: ill or on holiday, already worked 5 days this week, no licence or type training, driving another tour then, not enough rest after yesterday, or a working day over the limit.</li>
+    <li><b>Use the tools</b><b>Repeat Mon–Fri</b> or <b>Repeat on the weekend</b> copies this day's roster to the other days of its kind. <b>Fill the roster</b> gives open duties to drivers who fit. <b>Clear the day</b> empties the day so you can start again.</li>
+  </ol>
+
+  <div class="box warn"><div class="t">When something goes wrong today</div>Drivers fall ill and buses break down. On the day itself, RosterFlow's issues show what fell out. A duty can be covered by a free colleague, a standby driver, an agency driver or yourself. A broken bus can be replaced by a spare bus of the line, or a rental bus. Whatever is left can be dropped, with the contract penalty shown.</div>
+
+  <h3>Reading the colours</h3>
+  <table>
+    <tr><th style="width:30%">You see</th><th>It means</th></tr>
+    <tr><td>A duty in a driver's colour</td><td>Covered: that driver drives it.</td></tr>
+    <tr><td><span style="color:var(--orange)">Orange outline</span></td><td>Open: nobody drives it yet.</td></tr>
+    <tr><td><span style="color:var(--red)">Red outline</span></td><td>A rule is in the way, such as a clash with other work or a driver on holiday. Hover for the reason.</td></tr>
+    <tr><td>"No bus"</td><td>The tour has no bus today, for example because it is in the workshop.</td></tr>
+  </table>
+</section>
+
+<!-- 7 -->
+<section class="chapter">
+  <div class="kicker">Chapter 7</div>
+  <h2>OPTIMIZE, issues and preferences</h2>
+
+  <h3>OPTIMIZE: let RosterFlow make a proposal</h3>
+  <ol class="steps">
+    <li><b>Open Vehicles or Drivers</b>OPTIMIZE is on the toolbar of both.</li>
+    <li><b>Click OPTIMIZE</b>RosterFlow works out the blocks and duties by itself. Locked rows stay as they are.</li>
+    <li><b>Compare the figures</b>The KPI tiles now show the proposal against your planning: green where it is better, red where it is worse.</li>
+    <li><b>Accept it or keep yours</b><b>Accept</b> puts the proposal in your draft; <b>Keep mine</b> forgets it. Then adjust by hand.</li>
+  </ol>
+  <div class="box tip"><div class="t">A good habit</div>Lock what you like, then OPTIMIZE the rest. Repeat until the figures stop getting better.</div>
+
+  <h3>Issues: the to-do list of your planning</h3>
+  <ol class="steps">
+    <li><b>Open the issues</b>Click <b>Global</b>, <b>Duty Issues</b> or <b>Vehicle Issues</b> in the status bar. Global issues are about the whole day, such as tours nobody is planned for or a bus in the workshop.</li>
+    <li><b>Jump to an issue</b>Click an issue in the list: RosterFlow shows its row. Rows with an issue also have a red <b style="color:var(--red)">!</b> before their ID.</li>
+    <li><b>Fix it, or dismiss it</b>Move a trip, cut or join a duty, or change the rules under Preferences. If it is fine as it is, tick it and dismiss it.</li>
+  </ol>
+
+  <h3>Preferences: the rules of your company</h3>
+  <p>The Preferences window has four groups: <b>VEHICLES</b>, <b>DRIVERS</b>, <b>DEPOTS</b> and <b>MISC</b>. Use the search box to find one. Each preference is either:</p>
+  <div class="two">
+    <div class="card"><h3>Hard rule</h3>Never broken. OPTIMIZE always keeps to it, and a hand edit that breaks it is shown as an error.</div>
+    <div class="card"><h3>Soft rule</h3>May be broken, at a penalty. OPTIMIZE weighs the penalty against the savings.</div>
+  </div>
+  <p>Finish with <b>SAVE &amp; CLOSE</b>. OPTIMIZE and the issue checks follow your preferences from then on.</p>
+</section>
+
+<!-- 8 -->
+<section class="chapter">
+  <div class="kicker">Chapter 8</div>
+  <h2>SAVE, DISCARD and what the game does with it</h2>
+  <p class="lead">RosterFlow never changes your running company by accident. Everything you do is a draft until you save it.</p>
+  <ol class="steps">
+    <li><b>Make a change</b>Move a trip or cut a duty. The dot at the top turns <span style="color:var(--orange);font-weight:800">orange</span>: there are unsaved changes.</li>
+    <li><b>DISCARD it</b><span class="ui">DISCARD</span> forgets your changes and goes back to what was saved.</li>
+    <li><b>Or SAVE it</b><span class="ui">SAVE</span> makes it the company's planning. The dot turns <span style="color:var(--green);font-weight:800">green</span>.</li>
+  </ol>
+  <div class="box good"><div class="t">What happens after SAVE</div>
+    <ul style="margin:0">
+      <li>The day plan and the roster use your blocks and duties.</li>
+      <li>The AI buses on the fleet map drive your blocks.</li>
+      <li>"Close the day" pays wages and counts kilometres by your duties.</li>
+      <li>When you drive a company duty yourself, the company launcher starts exactly the duty you planned: line, trips, bus and depot are fixed.</li>
+    </ul>
+  </div>
+  <h3>Printing</h3>
+  <p>Print (on the toolbar) saves the <b>bus graph</b> or the <b>duty graph</b> as a PDF: the paper the real depots hang on the wall. Printing works on a computer, not on a phone.</p>
+</section>
+
+<!-- 9 -->
+<section class="chapter">
+  <div class="kicker">Chapter 9</div>
+  <h2>Your first full planning in 15 minutes</h2>
+  <p class="lead">One line, from nothing to a running day. Follow along in the game.</p>
+  <ol class="steps">
+    <li><b>Timeplan: make the timetable</b>Open Timeplan, pick your line and Mon–Fri, OUTBOUND. Add trips by headway: first 06:00, last 22:00, every 15 minutes. Do the same for INBOUND. Save.</li>
+    <li><b>Refresh</b>Click UNSYNCED · Refresh in the status bar. RosterFlow makes the blocks and duties.</li>
+    <li><b>Vehicles: look at the buses</b>Note the PVR tile: that is how many buses you need. Do you own that many? If not, buy them first, or take fewer trips in the rush hour.</li>
+    <li><b>OPTIMIZE</b>Click OPTIMIZE, compare the figures and click Accept.</li>
+    <li><b>Drivers: check the duties</b>Open a few duties. Are they around 8 hours, with a break? Fix the issues in the status bar.</li>
+    <li><b>SAVE</b>Press SAVE. The dot turns green.</li>
+    <li><b>Roster: name the drivers</b>Open Roster, pick tomorrow and click Fill the roster. Give open duties a driver by hand, or hire more drivers. Repeat on the weekend if needed.</li>
+    <li><b>Run the day</b>Let the time run. Watch the fleet map, or drive a duty yourself from the duty panel ("Drive this duty").</li>
+  </ol>
+  <div class="box tip"><div class="t">If it gets too much</div>You can always switch RosterFlow off in the company settings. The standard planning takes over, and your RosterFlow plan stays saved for later.</div>
+</section>
+
+<!-- 10 -->
+<section class="chapter">
+  <div class="kicker">Chapter 10</div>
+  <h2>Shortcuts, glossary and problem solving</h2>
+  <div class="two">
+    <div>
+      <h3 style="margin-top:0">Shortcuts</h3>
+      <table>
+        <tr><td><span class="key">Ctrl</span>+<span class="key">Z</span></td><td>Undo</td></tr>
+        <tr><td><span class="key">Ctrl</span>+<span class="key">Y</span></td><td>Redo</td></tr>
+        <tr><td><span class="key">G</span></td><td>Go to a row</td></tr>
+        <tr><td><span class="key">P</span></td><td>Pin the chosen row to the top</td></tr>
+        <tr><td><span class="key">←</span> <span class="key">→</span> <span class="key">↑</span> <span class="key">↓</span></td><td>Move along a row and between rows (<span class="key">Shift</span> widens the choice)</td></tr>
+        <tr><td><span class="key">Delete</span></td><td>Unassign the chosen trips</td></tr>
+        <tr><td><span class="key">Esc</span></td><td>Let go of what you hold</td></tr>
+        <tr><td><span class="key">Ctrl</span>+wheel</td><td>Zoom</td></tr>
+        <tr><td><span class="key">Shift</span>+wheel</td><td>Scroll sideways</td></tr>
+        <tr><td>Double-click</td><td>Pick up or drop a trip</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3 style="margin-top:0">Glossary</h3>
+      <table>
+        <tr><td>Block</td><td>One bus's day of trips</td></tr>
+        <tr><td>Deadhead</td><td>A drive without passengers</td></tr>
+        <tr><td>Duty</td><td>One driver's working day</td></tr>
+        <tr><td>Headway</td><td>Minutes between two buses</td></tr>
+        <tr><td>Layover</td><td>Waiting time at the terminus</td></tr>
+        <tr><td>Pull-out / pull-in</td><td>Leaving / returning to the depot</td></tr>
+        <tr><td>PVR</td><td>Peak vehicle requirement: buses on the road at the busiest moment</td></tr>
+        <tr><td>Relief</td><td>A driver change</td></tr>
+        <tr><td>Sign-on / sign-off</td><td>Start / end of a duty</td></tr>
+        <tr><td>Split duty</td><td>A duty with a long unpaid break</td></tr>
+        <tr><td>Time band</td><td>Part of the day with its own running times</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <h3>Problem solving</h3>
+  <table>
+    <tr><th style="width:38%">Problem</th><th>What to do</th></tr>
+    <tr><td>My changes don't show in the game</td><td>You haven't saved. The dot is orange: press SAVE.</td></tr>
+    <tr><td>"UNSYNCED" in the status bar</td><td>The timetable changed. Click Refresh to make the blocks and duties again.</td></tr>
+    <tr><td>No slot appears when I drag</td><td>Every place would break a hard rule (overlap, too long). Take a shorter piece, or change the limit under Preferences.</td></tr>
+    <tr><td>A driver says "Free" but can't take the duty</td><td>Hover over the driver: the reason is shown (rest after yesterday, 5 days worked, no type training…).</td></tr>
+    <tr><td>OPTIMIZE changed something I wanted to keep</td><td>Undo with Ctrl+Z, lock that row, and run OPTIMIZE again.</td></tr>
+    <tr><td>Too many buses needed (high PVR)</td><td>Fewer trips in the rush hour, shorter layovers, or let OPTIMIZE re-chain the blocks.</td></tr>
+    <tr><td>Wages are too high</td><td>Look at paid hours: make fuller duties, fewer split duties and less waiting time.</td></tr>
+    <tr><td>I'm lost</td><td>Click ? for the guided tour, or switch RosterFlow off: the standard planning takes over.</td></tr>
+  </table>
+  <p class="small" style="margin-top:8mm">RosterFlow is part of the Omsi-Hub launcher for openOMSI. It is inspired by professional scheduling software and simplified for play. Names and screens may change between Betas.</p>
+</section>
+
+</body>
+</html>
