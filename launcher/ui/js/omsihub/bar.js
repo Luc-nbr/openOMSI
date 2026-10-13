@@ -38,7 +38,7 @@ function Languages() {
     <span style="position:relative">
       <button type="button" class=${'hub-bar-btn' + (!FLAGS.includes(cur) ? ' on' : '')} title=${tr('Other languages')} onClick=${() => setOpen(!open)}><${Icon} name="language" size=${17} /></button>
       ${open && html`<div class="overlay" style="background:none" onMouseDown=${(e) => e.target === e.currentTarget && setOpen(false)}>
-        <div class="hub-pop" style="right:22px;width:240px;max-height:70vh;overflow:auto;padding:8px">
+        <div class="hub-pop" style="right:22px;width:240px;max-height:70cqh;overflow:auto;padding:8px">
           ${langs.map((l) => html`<button type="button" class=${'hub-rowl' + (l.code === cur ? ' on' : '')} style="width:100%;grid-template-columns:1fr" onClick=${() => (setOpen(false), setLanguage(l.code))}>${l.name}</button>`)}
         </div>
       </div>`}

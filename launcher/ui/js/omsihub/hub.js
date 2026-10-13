@@ -5,7 +5,7 @@
 // Upstream's `app.js` hands the desktop window to `HubShell` (one line); the phone keeps
 // upstream's page.
 
-import { html, useEffect } from '../../vendor/preact-htm.js';
+import { html, useEffect, useState } from '../../vendor/preact-htm.js';
 import { S, set, useStore } from '../store.js';
 import { call, onPhone } from '../api.js';
 import { applyHubTheme } from './theme.js';
@@ -43,9 +43,11 @@ export function go(page, step) {
  * (`settings`, `mods` ...) or a step of the drive (`drive:map`, `drive:3`). */
 function startPage(p, pages) {
   if (!p) return;
-  const [name, part] = p.toLowerCase().split(':').map((x) => x.trim());
+  const [name, part, more] = p.toLowerCase().split(':').map((x) => x.trim());
   if (name === 'drive' || name === 'home') {
     const step = /^\d+$/.test(part || '') ? STEP_NAMES[Number(part)] : part;
+    // (`drive:bus:chosen`: the bus chosen on the ground, not the tiles)
+    if (step === 'bus' && more === 'chosen') S.hub.busView = 'bus';
     go('drive', STEP_NAMES.includes(step) ? step : 'mode');
     return;
   }
@@ -55,9 +57,23 @@ function startPage(p, pages) {
 
 let booted = false;
 
+/** The interface's size (`ui_scale` of our game-drawn launcher): laid out for a 1440 x 820
+ * window, drawn smaller under that (down to 80 %), times the setting "Launcher size". */
+function scale() {
+  const own = Math.max(0.6, Math.min(2, Number(S.settings?.launcher_scale) || 1));
+  return Math.max(0.8, Math.min(1, innerWidth / 1440, innerHeight / 820)) * own;
+}
+
 export function HubShell({ pages, Toasts }) {
   const s = useStore();
   applyHubTheme();
+  document.documentElement.classList.toggle('hub-still', s.settings?.animations === false);
+  const [, redraw] = useState(0);
+  useEffect(() => {
+    const r = () => redraw((n) => n + 1);
+    addEventListener('resize', r);
+    return () => removeEventListener('resize', r);
+  }, []);
   useEffect(() => {
     if (booted || s.boot?.selftest) return;
     booted = true;
@@ -66,7 +82,7 @@ export function HubShell({ pages, Toasts }) {
       .catch(() => {});
   }, []);
   const page = s.page === 'drive' ? null : pages.find((x) => x && x[0] === s.page);
-  return html`<div class="hub-stage">
+  return html`<div class="hub-stage" style=${`--hub-scale:${scale()}`}>
     ${page ? html`<${PageSheet} id=${page[0]} label=${page[1]} Page=${page[3]} />` : html`<${Flow} />`}
     <${Bar} />
     ${s.hub.palette && html`<${Palette} />`}

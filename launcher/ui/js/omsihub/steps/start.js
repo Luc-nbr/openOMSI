@@ -31,6 +31,6 @@ export function StartStep() {
       </div></div>
       <${Foot} text=${tr('Click an entry point on the map to start there.')} />
     </section>
-    <${Actions} back onBack=${() => goStep(previousOf('start'))} from=${'calc(var(--hub-edge-in) + clamp(288px, 27.4vw, 420px) + 14px)'} main="Next step" onMain=${() => goStep(nextOf('start'))} />
+    <${Actions} back onBack=${() => goStep(previousOf('start'))} from=${'calc(var(--hub-edge-in) + clamp(288px, 27.4cqw, 420px) + 14px)'} main="Next step" onMain=${() => goStep(nextOf('start'))} />
   `;
 }

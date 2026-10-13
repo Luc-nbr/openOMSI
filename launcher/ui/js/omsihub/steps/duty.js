@@ -220,7 +220,7 @@ export function DutyStep() {
       <div class="hub-pad" style="padding-top:10px;padding-bottom:12px;border-top:1px solid var(--hub-hairline)"><${EntrySelect} /></div>
       <${Foot} text=${foot} />
     </section>
-    <${Actions} back onBack=${() => goStep(previousOf('duty'))} from=${'calc(var(--hub-edge-in) + clamp(288px, 27.4vw, 420px) + 14px)'}
+    <${Actions} back onBack=${() => goStep(previousOf('duty'))} from=${'calc(var(--hub-edge-in) + clamp(288px, 27.4cqw, 420px) + 14px)'}
       extra=${composed ? [{ label: 'Find other shifts', onClick: () => ((S.hubSeed = (S.hubSeed * 1103515245 + 12345) % 2147483647), set({ hubShifts: null })) }] : []}
       main="Next step" onMain=${() => goStep(nextOf('duty'))} />
   `;

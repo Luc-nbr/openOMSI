@@ -181,6 +181,6 @@ export function DayStep() {
       </div></div>
       <${Foot} text=${foot} />
     </section>
-    <${Actions} back onBack=${() => goStep(previousOf('day'))} from=${'calc(var(--hub-edge-in) + clamp(288px, 27.4vw, 420px) + 14px)'} main=${free && c.free ? 'Next: the bus' : 'Next step'} onMain=${() => goStep(nextOf('day'))} />
+    <${Actions} back onBack=${() => goStep(previousOf('day'))} from=${'calc(var(--hub-edge-in) + clamp(288px, 27.4cqw, 420px) + 14px)'} main=${free && c.free ? 'Next: the bus' : 'Next step'} onMain=${() => goStep(nextOf('day'))} />
   `;
 }

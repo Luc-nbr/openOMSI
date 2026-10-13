@@ -32,6 +32,7 @@ if (HUB && !SETTINGS_TABS.omsihub) {
   const look = [
     { type: 'toggle', key: 'dark_mode', label: 'Dark mode' },
     { type: 'select', key: 'accent', label: 'Accent colour', options: PRESETS.map(([name, c]) => [hexOf(c), name]) },
+    { type: 'slider', key: 'launcher_scale', label: 'Launcher size', min: 0.6, max: 2, step: 0.05, def: 1, format: pct, store: (v) => Math.round(v * 20) / 20 },
     { type: 'toggle', key: 'animations', label: 'Animations' },
     { type: 'select', key: 'launcher_ui', label: 'Launcher', options: [['new', 'Omsi-Hub (in the game\'s window)'], ['classic', 'Classic'], ['desktop', 'Desktop (this window)']], help: 'Which launcher a plain start of the game opens.' },
   ];

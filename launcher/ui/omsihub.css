@@ -160,8 +160,18 @@
 .hub .splash { background: var(--hub-ground); }
 .hub-icon { flex: none; display: inline-block; vertical-align: middle; }
 
-/* the window: the ground edge to edge, the bar along the top, the step's sheets on it */
-.hub-stage { position: fixed; inset: 0; background: var(--hub-ground); overflow: hidden; }
+/* the window: the ground edge to edge, the bar along the top, the step's sheets on it. The
+   whole of it is laid out for a 1440 x 820 window and drawn smaller under that, down to 80 %,
+   times the setting "Launcher size" (`--hub-scale`, js/omsihub/hub.js), as our game-drawn
+   launcher's `ui_scale`: its lengths in the stage's own units (cqw, cqh), not the window's. */
+.hub-stage {
+  position: fixed; left: 0; top: 0; overflow: hidden; background: var(--hub-ground);
+  width: calc(100vw / var(--hub-scale, 1)); height: calc(100vh / var(--hub-scale, 1));
+  transform: scale(var(--hub-scale, 1)); transform-origin: 0 0; container-type: size;
+  /* (the start's card: its logo and its tiles as tall as the window leaves them, `flow::step_mode`) */
+  --hub-avail: calc(100cqh - 107px);
+  --hub-logo-h: clamp(64px, calc(var(--hub-avail) * 0.13), 120px);
+}
 .hub-stage .page { padding: 0; overflow: visible; }
 
 /* --- glass ------------------------------------------------------------------------------ */
@@ -222,8 +232,8 @@
 .hub-step-join { width: 34px; height: 2px; margin: 0 12px 0 10px; flex: none; background: var(--hub-rail); }
 .hub-step-join.done { background: var(--hub-accent); }
 @keyframes hub-grow { from { transform: scaleX(0.3); opacity: 0.4; } }
-@media (max-width: 1240px) { .hub-step-join { width: 16px; margin: 0 8px; } }
-@media (max-width: 1100px) { .hub-step:not(.now) span { display: none; } .hub-step-join { width: 10px; margin: 0 6px; } }
+@container (max-width: 1240px) { .hub-step-join { width: 16px; margin: 0 8px; } }
+@container (max-width: 1100px) { .hub-step:not(.now) span { display: none; } .hub-step-join { width: 10px; margin: 0 6px; } }
 
 /* the palette under the bar: the accent's swatches and the dark mode */
 .hub-pop {
@@ -251,7 +261,7 @@
 }
 :root.hub[data-theme="light"] .hub-sheet { box-shadow: 0 2px 26px rgba(80, 50, 20, 0.12); }
 /* the narrow one of a step on the map, the wide one of a step without, a page's */
-.hub-sheet.narrow { left: var(--hub-edge-in); top: var(--hub-sheet-top); bottom: 30px; width: clamp(288px, 27.4vw, 420px); }
+.hub-sheet.narrow { left: var(--hub-edge-in); top: var(--hub-sheet-top); bottom: 30px; width: clamp(288px, 27.4cqw, 420px); }
 .hub-sheet.wide { left: var(--hub-edge-in); right: var(--hub-edge-in); top: var(--hub-sheet-top); bottom: calc(var(--hub-action-bottom) + var(--hub-action-h) + 24px); }
 .hub-sheet.page { left: max(var(--hub-edge-in), calc(50% - 740px)); right: max(var(--hub-edge-in), calc(50% - 740px)); top: var(--hub-sheet-top); bottom: 40px; }
 .hub-head { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; column-gap: 0; padding: 18px 20px 0; min-height: 80px; flex: none; }
@@ -300,7 +310,7 @@
 .hub-actions .hub-btn:hover:not(:disabled) { background: var(--hub-hover); transform: translateY(-2px); box-shadow: inset 0 0 0 1px var(--hub-edge), 0 6px 16px rgba(0, 0, 0, 0.18); }
 .hub-actions .hub-back { width: 100px; }
 .hub-actions .hub-go {
-  width: clamp(150px, 15.3vw, 240px); background: var(--hub-accent); color: var(--hub-on-accent); box-shadow: none;
+  width: clamp(150px, 15.3cqw, 240px); background: var(--hub-accent); color: var(--hub-on-accent); box-shadow: none;
   font-size: 13.8px; text-transform: uppercase; letter-spacing: 0.01em; position: relative; overflow: hidden;
 }
 .hub-actions .hub-go:hover:not(:disabled) { background: var(--hub-accent-hover); box-shadow: 0 8px 20px rgba(var(--hub-accent-rgb), 0.35); }
@@ -371,10 +381,10 @@
 
 .hub-start { position: absolute; z-index: 5; left: max(var(--hub-edge-in), calc(50% - 860px)); right: max(var(--hub-edge-in), calc(50% - 860px)); top: var(--hub-sheet-top); bottom: 22px; display: flex; align-items: center; pointer-events: none; }
 .hub-card { --hub-glass: var(--hub-glass-card); pointer-events: auto; width: 100%; max-height: 100%; overflow: auto; border-radius: var(--hub-r-sheet); padding: 28px 34px; display: flex; flex-direction: column; }
-.hub-card .hub-logo { height: clamp(64px, 13vh, 120px); width: auto; display: block; margin: 0 auto 16px; flex: none; }
+.hub-card .hub-logo { height: var(--hub-logo-h); width: auto; display: block; margin: 0 auto 16px; flex: none; }
 .hub-greeting { text-align: center; font-size: 24.6px; font-weight: 700; line-height: 40px; color: var(--hub-glass-ink); }
 .hub-question { text-align: center; font-size: 10.7px; color: var(--hub-glass-ink-soft); margin: 6px 0 30px; }
-.hub-modes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; height: clamp(180px, calc(100vh - 85px - 22px - 56px - 120px - 16px - 92px - 22px - 280px), 340px); flex: none; }
+.hub-modes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; height: clamp(180px, calc((var(--hub-avail) - var(--hub-logo-h) - 108px - 22px - 280px - 56px) * 0.95), 340px); flex: none; }
 .hub-mode {
   position: relative; border-radius: var(--hub-r-sheet); overflow: hidden; cursor: pointer; text-align: left; padding: 0;
   background: var(--hub-field) center / cover no-repeat; color: #fff; isolation: isolate;
@@ -393,17 +403,18 @@
 .hub-mode b { display: block; font-size: 20px; font-weight: 700; line-height: 32px; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.3); }
 .hub-mode p { font-size: 10.4px; font-weight: 500; line-height: 1.4; color: rgba(232, 235, 242, 0.92); margin-top: 6px; }
 .hub-mode.hands-over b::after { content: ""; }
-@media (max-width: 1240px) { .hub-mode b { font-size: 16.9px; line-height: 28px; } .hub-mode p { font-size: 9.6px; } }
+@container (max-width: 1240px) { .hub-mode b { font-size: 16.9px; line-height: 28px; } .hub-mode p { font-size: 9.6px; } }
 
 .hub-under { display: grid; grid-template-columns: 44fr 56fr; gap: 18px; margin-top: 22px; flex: none; }
 .hub-record {
-  border-radius: var(--hub-r-sheet); padding: 22px 24px; cursor: pointer; text-align: left; position: relative; min-height: 200px;
+  border-radius: var(--hub-r-sheet); padding: 22px 24px; cursor: pointer; text-align: left; position: relative; height: 280px;
+  display: flex; flex-direction: column; justify-content: flex-start; align-items: stretch;
   background: var(--hub-glass-on); box-shadow: inset 0 0 0 1px var(--hub-glass-edge), var(--hub-glass-shadow); color: var(--hub-glass-ink);
   transition: background 0.12s, transform 0.2s;
 }
 .hub-record:hover { background: var(--hub-glass-on-hover); transform: translateY(-2px); }
 .hub-record h3 { font-size: 8.1px; font-weight: 700; text-transform: uppercase; color: var(--hub-glass-ink-dim); letter-spacing: 0.02em; }
-.hub-figures { display: flex; gap: 30px; margin-top: 18px; }
+.hub-figures { display: flex; gap: 30px; margin-top: 16px; }
 .hub-figures div b { display: block; font-size: 21.5px; font-weight: 700; line-height: 34px; font-variant-numeric: tabular-nums; }
 .hub-figures div span { font-size: 9.6px; color: var(--hub-glass-ink-dim); }
 .hub-level { margin-top: 20px; font-size: 10px; font-weight: 500; color: var(--hub-glass-ink-soft); }
@@ -413,7 +424,7 @@
 .hub-record:hover .hub-more { color: var(--hub-glass-ink); }
 .hub-record:hover .hub-more .hub-icon { transform: translateX(3px); }
 .hub-more .hub-icon { transition: transform 0.15s; }
-.hub-links { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: minmax(44px, 58px); gap: 12px; }
+.hub-links { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 58px; gap: 12px; }
 .hub-link {
   display: flex; align-items: center; gap: 12px; padding: 0 16px; border-radius: var(--hub-r); cursor: pointer; text-align: left;
   background: var(--hub-glass-on); box-shadow: inset 0 0 0 1px var(--hub-glass-edge), var(--hub-glass-shadow); color: var(--hub-glass-ink);
@@ -507,7 +518,7 @@
 .hub-wx small { display: block; color: var(--hub-text-dim); font-size: 9.2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* the map behind the steps of the day and the duty: what the sheet leaves of the ground */
-.hub-map { position: absolute; z-index: 1; left: calc(var(--hub-edge-in) + clamp(288px, 27.4vw, 420px) + 20px); right: 20px; top: var(--hub-sheet-top); bottom: calc(var(--hub-action-bottom) + var(--hub-action-h) + 20px); }
+.hub-map { position: absolute; z-index: 1; left: calc(var(--hub-edge-in) + clamp(288px, 27.4cqw, 420px) + 20px); right: 20px; top: var(--hub-sheet-top); bottom: calc(var(--hub-action-bottom) + var(--hub-action-h) + 20px); }
 .hub-map .routemap { position: absolute; inset: 0; height: auto !important; background: none; border-radius: 0; }
 .hub-map .routemap .legend { background: var(--hub-panel); color: var(--hub-text-dim); box-shadow: inset 0 0 0 1px var(--hub-hairline); border-radius: 6px; }
 .hub-map .routemap .state { color: var(--hub-text-dim); }
@@ -538,7 +549,7 @@
 .hub-range { display: flex; align-items: center; gap: 10px; }
 
 /* the bus chosen: its preview on the ground, its paint and the rest on the sheet */
-.hub-bus-stage { position: absolute; z-index: 1; left: calc(var(--hub-edge-in) + clamp(288px, 27.4vw, 420px)); right: 0; top: calc(var(--hub-edge-in) + var(--hub-bar-h)); bottom: 0; }
+.hub-bus-stage { position: absolute; z-index: 1; left: calc(var(--hub-edge-in) + clamp(288px, 27.4cqw, 420px)); right: 0; top: calc(var(--hub-edge-in) + var(--hub-bar-h)); bottom: 0; }
 .hub-bus-stage .viewer { position: absolute; inset: 0; height: auto; background: none; }
 .hub-bus-stage .viewer .state, .hub-bus-stage .viewer .hint { color: var(--hub-text-dim); }
 .hub-bus-stage .viewer .hint { left: 24px; bottom: calc(var(--hub-action-bottom) + var(--hub-action-h) + 16px); }
@@ -670,13 +681,9 @@
 
 /* --- a smaller window ------------------------------------------------------------------- */
 
-@media (max-width: 1100px) {
-  .hub-modes { grid-template-columns: repeat(2, minmax(0, 1fr)); height: auto; grid-auto-rows: 190px; }
-  .hub-under { grid-template-columns: 1fr; }
-  .hub-card { padding: 22px 24px; }
+@container (max-width: 1000px) {
   .hub .settings-grid { grid-template-columns: 1fr; }
 }
-@media (max-height: 760px) {
-  .hub-card .hub-logo { height: 56px; margin-bottom: 8px; }
-  .hub-question { margin-bottom: 18px; }
-}
+
+/* the setting "Animations" off: nothing moves */
+.hub-still *, .hub-still *::before, .hub-still *::after { transition: none !important; animation: none !important; }
