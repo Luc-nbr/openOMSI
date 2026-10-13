@@ -27,6 +27,12 @@
 //! the line costs once and a month, its passengers through the day and the buses it needs
 //! (`core::company::ownline`); and "Confirm and pay", after which the company runs it. A
 //! company line changed later pays its route's approval anew.
+//!
+//! A company with RosterFlow (`ForCompany::rosterflow`) makes its lines' timetables in
+//! RosterFlow's Timeplan: the editor does the route alone. A new line starts without a
+//! departure, the Timetable tab says where its timetable is made (a line the company runs opens
+//! there), the estimate is made with a usual timetable (`ownline::as_priced`), and once the line
+//! is confirmed the Timeplan opens on it (`after_confirm`).
 
 use super::lineroute::{Anchor, Router};
 use super::mapview::{Dot, Look, Pointer};

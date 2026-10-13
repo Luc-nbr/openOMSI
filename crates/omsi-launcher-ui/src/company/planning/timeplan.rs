@@ -24,8 +24,12 @@
 //! line in service from the day chosen, else at once; a line of the map's at once), and the
 //! line is marked UNSYNCED until "Refresh" lets the scheduling studio make its blocks anew.
 //!
-//! Until RosterFlow's shell has a "Timeplan" tab, the Planning page's header opens it
-//! (`PlanningView::timeplan`); the shell calls `draw` with the room it gives it.
+//! With RosterFlow the company's lines get their timetables here: "New line" in the context bar
+//! opens the line editor for the route, and a line confirmed there opens here (`guide`, with what
+//! to do next in the status bar); so do a line of the map's just added - imported from the
+//! map's timetable when the line editor never saved it - and the timetable buttons elsewhere.
+//!
+//! RosterFlow's shell calls `draw` in its Timeplan tab with the room it gives it.
 
 use super::super::super::theme::*;
 use super::super::super::ui::{id_of, ButtonKind, Key, Ui};

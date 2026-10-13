@@ -6,6 +6,10 @@
 //! (`lineeditor::open_for_company`): a line made there is confirmed and paid for, and an own
 //! line of the company's is changed there too. A line chosen shows itself in public above its
 //! tours (`line_card`): its title, the depot file its buses carry, and its advertising.
+//!
+//! With RosterFlow a line's timetable is made in its Timeplan: a line confirmed with its route
+//! alone says "No timetable yet", each line has a timetable button that opens it there, and a
+//! line of the map's just added opens there on the map's timetable.
 
 use super::super::ownlines;
 use super::super::theme::*;

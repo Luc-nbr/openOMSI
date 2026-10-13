@@ -560,6 +560,27 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
     }
 
+    /// A line of the map's the Timeplan imported without the roads has its stops placed once the
+    /// line editor has the map's stops: by their tile and id, else by the id alone.
+    #[test]
+    fn a_line_imported_without_the_roads_gets_its_stops_placed() {
+        let base = std::env::temp_dir().join(format!("openomsi-maplines-place-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let mut v = view(&base);
+        let tt = v.tt.clone().unwrap();
+        let seven = tt.lines.iter().find(|x| x.name == "7").unwrap();
+        let mut l = reg::import_map_line(&tt, seven, &[(0, 0)], &|id, name| StopRef { id, name: name.into(), ..Default::default() }).unwrap();
+        l.directions[0].stops[0].tile = [9, 9];
+        assert!(l.directions.iter().flat_map(|d| &d.stops).all(|s| s.at == [0.0, 0.0]));
+        v.reg.add_map_line(l);
+        let before = v.revision;
+        place_stops(&mut v);
+        let l = &v.reg.lines[0];
+        assert_eq!(l.directions[0].stops.iter().map(|s| s.at).collect::<Vec<_>>(), [[100.0, 0.0], [200.0, 0.0], [300.0, 0.0]]);
+        assert!(l.directions.iter().flat_map(|d| &d.stops).all(|s| s.at != [0.0, 0.0]) && v.revision > before && !v.dirty);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
     #[test]
     fn working_for_the_company_the_list_has_the_map_lines_it_runs() {
         let base = std::env::temp_dir().join(format!("openomsi-maplines-company-{}", std::process::id()));
