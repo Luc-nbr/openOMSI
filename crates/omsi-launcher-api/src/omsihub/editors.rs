@@ -54,9 +54,20 @@ fn display_preview(p: &dyn Platform, bus: &str, text: &str) -> Answer {
     Ok(head)
 }
 
+/// The line editor (`lineeditor::headless`, kept by the game program: it has the map's lane
+/// network and the router): `args` is the request (`op` and what it takes), the answer what
+/// the page shows.
+fn line_editor(p: &dyn Platform, args: &Value) -> Answer {
+    let mut req = args.clone();
+    req["cmd"] = Value::String("le".into());
+    let (_, body) = p.renderer(req, std::time::Duration::from_secs(120))?;
+    serde_json::from_slice(&body).map_err(err)
+}
+
 /// A command of the editors, or None when `cmd` is not one.
 pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
     timetable::call(cmd, args).or_else(|| hof::call(cmd, args)).or_else(|| depots::call(cmd, args)).or_else(|| match cmd {
+        "hub_le" => Some(line_editor(p, args)),
         "hub_display_preview" => Some((|| display_preview(p, &arg::<String>(args, "bus")?, &arg::<String>(args, "text")?))()),
         // (a script error of the page, into the launcher's log: the window has no console)
         "hub_page_error" => Some(arg::<String>(args, "text").map(|t| {

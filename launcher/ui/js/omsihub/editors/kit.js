@@ -70,6 +70,21 @@ export function Field({ value, onInput, placeholder = '', icon, bad, class: cls 
   </label>`;
 }
 
+/** A text field whose text is the page's own while it is typed into (`Field` otherwise): the
+ * answers of a request made per key may come after the next key, and would put back an older
+ * text. Taken from `value` again once the field is left. */
+export function LiveField(props) {
+  const [text, setText] = useState(props.value ?? '');
+  const focused = useRef(false);
+  useEffect(() => {
+    if (!focused.current) setText(props.value ?? '');
+  }, [props.value]);
+  return html`<span style=${props.wrap || 'display:contents'} onFocusCapture=${() => (focused.current = true)} onBlurCapture=${() => {
+      focused.current = false;
+      setText(props.value ?? '');
+    }}><${Field} ...${props} value=${text} onInput=${(t) => (setText(t), props.onInput(t))} /></span>`;
+}
+
 /** A round button with only an icon (`Ui::icon_button`): `size` its radius. */
 export function IconBtn({ icon, title, onClick, size = 14, class: cls = '', disabled }) {
   return html`<button type="button" class=${'ed-iconbtn ' + cls} style=${`width:${size * 2}px;height:${size * 2}px`} title=${title ? tr(title) : undefined} disabled=${disabled}

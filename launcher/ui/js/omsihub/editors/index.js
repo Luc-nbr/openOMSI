@@ -15,9 +15,10 @@ import { Head, Icon, tr } from '../bits.js';
 import { EditorHub } from './hub.js';
 import { TimetablePage } from './timetable.js';
 import { DepotsPage, depotsBack } from './depots.js';
+import { LinesPage, linesBack } from './lines/index.js';
 
 // (our editors' look, after omsihub.css: style sheets of their own, loaded with them)
-for (const sheet of ['editors.css', 'editors-hof.css', 'editors-depots.css']) {
+for (const sheet of ['editors.css', 'editors-hof.css', 'editors-depots.css', 'editors-lines.css']) {
   if (document.querySelector(`link[data-ed-css="${sheet}"]`)) continue;
   const l = document.createElement('link');
   l.rel = 'stylesheet';
@@ -35,6 +36,7 @@ export const EDITORS = {
   editor: { name: 'Editor', icon: 'construction', title: 'Editor', sub: 'Make the map your own: lines of your own, liveries, the timetable and the map\'s objects.', View: EditorHub, back: () => 'drive' },
   timetable: { name: 'Timetable', icon: 'schedule', title: 'Timetable', sub: "A map's lines: their tours and when each trip leaves. Saved as the line's .ttl (in the content folder; OMSI 2's own files stay as they are).", View: TimetablePage, back: () => 'drive' },
   depots: { name: 'Depot editor', icon: 'departure_board', title: 'Depot editor', sub: "Your own depot files: the destinations and what every display shows, the IBIS's stops and routes, special and service trips. A line chooses one, and every bus that drives it gets it.", View: DepotsPage, back: depotsBack },
+  lines: { name: 'Line editor', icon: 'route', title: 'Line editor', sub: 'Click the stops in order: the way between them is found over the roads. Saved, the line is driven by you and by the timetable\'s buses.', View: LinesPage, back: linesBack },
 };
 
 /** The page `OMSI_LAUNCHER_PAGE` names, if it is an editor's ("Timetable", "line editor"...). */
@@ -57,7 +59,10 @@ export const openTimetable = () => goEditor('timetable');
 /** The line editor (`lineeditor::open_for_company`, `open_new_for_company_with`,
  * `open_map_line_for_company`): the player's own lines - or, for the bus company `company`
  * (its id), its line `line` (an id; none: a new one), a new line whose timetable starts with
- * `newWithDays`, or the map's line `mapLine` (its timetable name) it runs. */
+ * `newWithDays` (the day patterns, as `core::lines::DayPattern`), or the map's line `mapLine`
+ * (its timetable name) it runs. For the company's pages: `back` (the page Back goes to),
+ * `onTimeplan({ id, name, hint })` (RosterFlow's Timeplan on the line, after it is confirmed or
+ * asked for) and `onCompanyChanged(id)` (the editor wrote the company's file). */
 export function openLineEditor(opts = {}) {
   S.ed.lineOpen = { ...opts, at: Date.now() };
   goEditor('lines');

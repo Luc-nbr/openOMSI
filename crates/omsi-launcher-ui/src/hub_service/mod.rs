@@ -34,6 +34,12 @@ pub fn serve(cmd: &str, req: &Value, reply: Reply, renderer: &mut Option<omsi_re
             });
             true
         }
+        // the line editor (`lineeditor::headless`): its view, or the map's roads and stops
+        "le" => {
+            let v = crate::lineeditor::headless::serve(req);
+            reply(serde_json::json!({ "ok": true }), v.to_string().into_bytes());
+            true
+        }
         _ => false,
     }
 }
