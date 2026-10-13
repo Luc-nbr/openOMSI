@@ -24,7 +24,7 @@ pub(super) fn dialog(l: &mut Launcher) {
     };
     let easy = co::autopilot::on(&c);
     let addons = c.game_mode.rules().rosterflow;
-    let f = kit::frame(l, 760.0, if easy { 722.0 } else { 786.0 } + if addons { 96.0 } else { 0.0 }, "settings", &omsi_ui::tr("The company's settings"));
+    let f = kit::frame(l, 760.0, if easy { 722.0 } else { 786.0 } + if addons { 40.0 } else { 0.0 }, "settings", &omsi_ui::tr("The company's settings"));
     let inner = f.body;
     let mut y = inner.y;
     // its mark

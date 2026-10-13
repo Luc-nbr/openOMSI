@@ -174,7 +174,7 @@ impl Rows {
 
 /// The room the right column keeps under the game modes' cards: the first company day and the
 /// buying, side by side.
-const UNDER_CARDS: f32 = 150.0;
+const UNDER_CARDS: f32 = 170.0;
 
 /// A game mode as a large card to choose in the founding (Trello "Game modes 1/4"): its icon
 /// and name, its pitch, its starting capital and what it offers; the one chosen edged and
@@ -321,9 +321,9 @@ pub fn draw(l: &mut Launcher, area: Rect) {
     }
     let note = if w.mode.rules().rosterflow { "Switch the game mode at any time in the company's settings. RosterFlow, the professional scheduling studio, can be switched on there as an add-on." } else { "Switch the game mode at any time in the company's settings: nothing is lost." };
     let y = right.y + ch + 10.0;
-    l.ui.text_in(note, Rect::new(right.x, y, right.w, 18.0), kit::NOTE, Weight::Regular, TEXT_DIM, Align::Left);
+    let nh = l.ui.paragraph(note, Vec2::new(right.x, y), right.w, kit::NOTE, Weight::Regular, TEXT_DIM);
     // under them, side by side: the first company day, and how it buys its buses
-    let y = y + 30.0;
+    let y = y + nh + 12.0;
     let half = (right.w - 2.0 * GAP) / 2.0;
     let bx = right.x + half + 2.0 * GAP;
     l.ui.label(Rect::new(right.x, y, half, 20.0), "First company day");
