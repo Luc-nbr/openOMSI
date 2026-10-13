@@ -10,6 +10,8 @@
 //! * `hof`: the bus's depot files on the bus step (`hof.rs`): which one the drive takes, how
 //!   each stands to the map, and adding the map's;
 //! * `depots`: the depot editor - depot files of the player's own, the file open kept here;
+//! * the line editor (`hub_le`) and the livery studio (`hub_studio`): kept by the game program,
+//!   `hub_service` of the launcher crate;
 //!
 //! `omsihub::call` hands every command it does not know here (one line).
 
@@ -76,4 +78,28 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
         })),
         _ => None,
     })
+}
+
+/// The livery studio (`hub_service::studio`, our game-drawn launcher's own, run by the game
+/// program): `args` is the request (`op`: open, frame), the answer four bytes (little-endian)
+/// giving the length of a JSON head, the head, then the studio's picture (a PNG) when it
+/// changed - as `preview_frame` answers.
+fn studio(p: &dyn Platform, args: &Value) -> Result<Vec<u8>, String> {
+    // (the first opens the studio's renderer: as long as the bus preview's first picture)
+    let wait = if args.get("op").and_then(Value::as_str) == Some("open") { 120 } else { 30 };
+    let (head, png) = p.renderer(serde_json::json!({ "cmd": "studio", "studio": args }), std::time::Duration::from_secs(wait))?;
+    let head = head.to_string().into_bytes();
+    let mut out = Vec::with_capacity(4 + head.len() + png.len());
+    out.extend_from_slice(&(head.len() as u32).to_le_bytes());
+    out.extend_from_slice(&head);
+    out.extend_from_slice(&png);
+    Ok(out)
+}
+
+/// A command of the editors that answers bytes, or None when `cmd` is not one.
+pub fn call_bytes(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Result<Vec<u8>, String>> {
+    match cmd {
+        "hub_studio" => Some(studio(p, args)),
+        _ => None,
+    }
 }

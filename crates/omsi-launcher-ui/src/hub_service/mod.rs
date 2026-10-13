@@ -7,6 +7,8 @@
 //!   depot editor and the line editor show it (`displayfont`);
 //! * `le`: the line editor, kept here (`lineeditor::headless`): the page's request under `le`,
 //!   the view it draws (or the map's roads and stops) in the bytes;
+//! * `studio`: the livery studio, run here as our game-drawn launcher runs it (`studio`): the
+//!   page's request under `studio`, the studio's picture in the bytes;
 //!
 //! Each answer is the service's: a JSON head and the bytes after it (`Reply`). Kept in this file
 //! of our own beside the editors it serves, so that the modules it needs stay private.
@@ -15,6 +17,7 @@ use serde_json::Value;
 use std::sync::Arc;
 
 mod display;
+mod studio;
 
 /// Where an answer goes: what it says and the bytes after it.
 pub type Reply = Arc<dyn Fn(Value, Vec<u8>) + Send + Sync>;
@@ -23,7 +26,7 @@ pub type Reply = Arc<dyn Fn(Value, Vec<u8>) + Send + Sync>;
 /// answer may come later, from a worker), false when the service does not know it. `renderer`
 /// is the service's (made with `open` when there is none yet), for what is drawn.
 pub fn serve(cmd: &str, req: &Value, reply: Reply, renderer: &mut Option<omsi_render::Renderer>, open: &dyn Fn() -> anyhow::Result<omsi_render::Renderer>) -> bool {
-    let _ = (renderer, open);
+    let _ = renderer;
     let s = |k: &str| req.get(k).and_then(Value::as_str).unwrap_or("").to_string();
     match cmd {
         "display_preview" => {
@@ -41,6 +44,17 @@ pub fn serve(cmd: &str, req: &Value, reply: Reply, renderer: &mut Option<omsi_re
             line_editor(req, reply);
             true
         }
+        // the livery studio (`studio`): its thread started here, with a renderer of its own
+        "studio" => {
+            let ask = req.get("studio").cloned().unwrap_or(Value::Null);
+            if !studio::ask(&ask, reply.clone()) {
+                match open() {
+                    Ok(r) => studio::start(r, &ask, reply),
+                    Err(e) => reply(serde_json::json!({ "ok": false, "error": format!("{e:#}") }), Vec::new()),
+                }
+            }
+            true
+        }
         _ => false,
     }
 }
@@ -56,6 +70,8 @@ pub fn at_once(req: &Value, reply: Reply) -> bool {
             line_editor(req, reply);
             true
         }
+        // (the studio, once its thread runs: its pictures are drawn there)
+        Some("studio") if studio::running() => studio::ask(req.get("studio").unwrap_or(&Value::Null), reply),
         _ => false,
     }
 }

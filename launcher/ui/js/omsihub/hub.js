@@ -13,7 +13,7 @@ import { Bar, Palette } from './bar.js';
 import { Flow, STEP_NAMES, goStep } from './flow.js';
 import { Head, Icon, tr } from './bits.js';
 import './settings-extra.js';
-import { EDITORS, EditorPage, editorOf, openLineEditor } from './editors/index.js';
+import { EDITORS, EditorPage, editorOf, openLineEditor, openLivery } from './editors/index.js';
 import { StatusLine } from './editors/kit.js';
 
 /** Our look is the desktop window's (not the phone's, nor `?phone` in a browser). */
@@ -51,6 +51,11 @@ function startPage(p, pages) {
   // (`line editor:first:displays`: the player's first line of the map, on its tab)
   if (ed === 'lines' && part) {
     openLineEditor({ line: part === 'first' ? 'first' : Number(part), tab: more || '' });
+    return;
+  }
+  // (`livery:chosen`: the studio on the bus chosen for the drive)
+  if (ed === 'livery' && part === 'chosen') {
+    openLivery({ bus: 'chosen' });
     return;
   }
   if (ed) {

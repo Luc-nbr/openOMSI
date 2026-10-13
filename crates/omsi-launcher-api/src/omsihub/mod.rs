@@ -131,6 +131,12 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
     })
 }
 
+/// A command of ours that answers bytes (the livery studio's pictures), or None when `cmd` is
+/// not one.
+pub fn call_bytes(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Result<Vec<u8>, String>> {
+    editors::call_bytes(cmd, args, p)
+}
+
 // --- the start ---------------------------------------------------------------------------
 
 /// What the page opens on: `OMSI_LAUNCHER_PAGE` (as our game-drawn launcher reads it) - a page

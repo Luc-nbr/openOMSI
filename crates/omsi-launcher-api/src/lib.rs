@@ -494,6 +494,8 @@ pub fn call_bytes(cmd: &str, args: &Value, p: &dyn Platform) -> Result<Vec<u8>, 
     match cmd {
         "content_picture" => content_picture(&arg::<String>(args, "path")?).ok_or_else(|| "not found".to_string()),
         "preview_frame" => preview_frame(p, arg(args, "w")?, arg(args, "h")?, arg::<Option<bool>>(args, "force")?.unwrap_or(false), arg(args, "dx")?, arg(args, "dy")?, arg(args, "zoom")?, arg(args, "quality")?),
+        // Omsi-Hub: the commands of ours that answer bytes (`omsihub.rs`: the livery studio's pictures)
+        _ if cmd.starts_with("hub_") => omsihub::call_bytes(cmd, args, p).unwrap_or_else(|| Err(format!("unknown command {cmd}"))),
         _ => Err(format!("unknown command {cmd}")),
     }
 }
