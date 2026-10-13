@@ -1,0 +1,31 @@
+_version: 2
+# The testers' timetable bugs: the return's own times, loops (ring lines), scrolling the
+# timetables: the English text is the key, as in app.yml.
+"Trip takes":
+  de: "Fahrt dauert"
+  fr: "Le trajet dure"
+  nl: "Rit duurt"
+  pl: "Kurs trwa"
+  ru: "Рейс длится"
+  uk: "Рейс триває"
+"Leaves as the outbound does":
+  de: "Fährt wie die Hinfahrt ab"
+  fr: "Part comme l'aller"
+  nl: "Vertrekt zoals de heenrit"
+  pl: "Odjeżdża jak kurs tam"
+  ru: "Отправляется как прямой рейс"
+  uk: "Відправляється як прямий рейс"
+"The return leaves at the outbound's times. Switch this off to give it departures of its own.":
+  de: "Die Rückfahrt fährt zu den Zeiten der Hinfahrt ab. Schalte dies aus, um ihr eigene Abfahrten zu geben."
+  fr: "Le retour part aux horaires de l'aller. Désactive ceci pour lui donner ses propres départs."
+  nl: "De terugrit vertrekt op de tijden van de heenrit. Zet dit uit om hem eigen vertrektijden te geven."
+  pl: "Kurs powrotny odjeżdża o godzinach kursu tam. Wyłącz to, aby nadać mu własne odjazdy."
+  ru: "Обратный рейс отправляется по времени прямого. Выключите это, чтобы задать ему свои отправления."
+  uk: "Зворотний рейс відправляється за часом прямого. Вимкніть це, щоб задати йому власні відправлення."
+"The return has departures of its own: choose Return above to change them.":
+  de: "Die Rückfahrt hat eigene Abfahrten: wähle oben Zurück, um sie zu ändern."
+  fr: "Le retour a ses propres départs : choisis Retour ci-dessus pour les modifier."
+  nl: "De terugrit heeft eigen vertrektijden: kies hierboven Terug om ze te wijzigen."
+  pl: "Kurs powrotny ma własne odjazdy: wybierz powyżej Powrót, aby je zmienić."
+  ru: "У обратного рейса свои отправления: выберите выше «Обратно», чтобы их изменить."
+  uk: "Зворотний рейс має власні відправлення: виберіть вище «Назад», щоб їх змінити."

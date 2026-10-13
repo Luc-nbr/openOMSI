@@ -38,7 +38,7 @@ use omsi_launcher_lib as core;
 use omsi_launcher_lib::linehof;
 use omsi_launcher_lib::owndepot;
 use omsi_launcher_lib::company::{self as co, ownline, BusKind, BusSize, Cents, Drive};
-use omsi_launcher_lib::lines::{self as reg, Direction, LineDesign, Registry, StopRef, TimeBand, DAY_GROUPS};
+use omsi_launcher_lib::lines::{self as reg, DayPattern, Direction, LineDesign, Registry, StopRef, TimeBand, DAY_GROUPS};
 use omsi_launcher_lib::service::{self, BusPick, ServiceKind, VehicleClass};
 use omsi_ui::paint::Align;
 use omsi_ui::{Color, Rect, Weight};
@@ -2201,16 +2201,69 @@ fn timetable_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, locked: &[BusS
     } else if table_on {
         top += ui.paragraph("The table is the line's timetable: a change to the patterns below fills that group of days anew at once; the times typed into the other groups stay.", Vec2::new(body.x, top), body.w, 11.5, Weight::Regular, accent_2()) + 6.0;
     }
-    let body = Rect::new(body.x, top, body.w, (body.bottom() - top).max(40.0));
-    let mut changed = false;
-    let line = v.line_mut().unwrap();
-    if line.days.len() < DAY_GROUPS.len() {
-        line.days = reg::default_days();
+    // the direction (the testers: "outbound can't be changed to inbound"): each leaves and
+    // runs at times of its own
+    let two = v.line().is_some_and(|x| x.directions.iter().filter(|d| d.stops.len() >= 2).count() >= 2);
+    if two {
+        let current = v.dir;
+        if let Some(d) = v.line().and_then(|line| maplines::direction_choice(ui, line, "le-tt-dir", Rect::new(body.x, top, body.w, ROW), current)) {
+            (v.dir, v.sel_stop) = (d, None);
+            v.revision += 1;
+        }
+        top += ROW + 8.0;
     }
+    let run_dir = v.dir.min(v.line().map(|x| x.directions.len().saturating_sub(1)).unwrap_or(0));
+    // (the patterns a direction leaves by: the return's own, else the outbound's - a further
+    // trip of a line of the map's leaves by the outbound's too)
+    let pdir = usize::from(two && run_dir == 1);
+    let mut changed = false;
+    // its trip's minutes, the other direction's staying as they are
+    let total = v.line().and_then(|x| x.directions.get(run_dir)).filter(|d| d.stops.len() >= 2).map(|d| reg::fitted_times(d).last().copied().unwrap_or(1.0).max(1.0));
+    if let Some(total) = total {
+        let mut t = total;
+        let label = omsi_ui::tr("Trip takes").into_owned();
+        if ui.slider(&format!("le-tt-run-{run_dir}"), Rect::new(body.x, top, body.w, 28.0), &mut t, 1.0, 240.0f32.max(total), 1.0, &label, &|x| format!("{x:.0} min")) && (t - total).abs() >= 0.5 {
+            v.line_mut().unwrap().set_run_total(run_dir, t.round());
+            changed = true;
+        }
+        top += 34.0;
+    }
+    // the return: leaving as the outbound does, or at times of its own
+    let back_own = v.line().is_some_and(|x| x.back_own());
+    if two && pdir == 1 {
+        let mut follows = !back_own;
+        if ui.toggle("le-tt-follow", Rect::new(body.x, top, body.w, ROW), &mut follows, "Leaves as the outbound does") {
+            let line = v.line_mut().unwrap();
+            line.set_back_own(!follows);
+            if line.table_on {
+                for k in 0..DAY_GROUPS.len() {
+                    line.refill_table(k, &[1]);
+                }
+                (v.table_sel, v.table_text) = (None, String::new());
+            }
+            v.touched();
+        }
+        top += ROW + 6.0;
+        if follows {
+            ui.paragraph("The return leaves at the outbound's times. Switch this off to give it departures of its own.", Vec2::new(body.x, top), body.w, 12.0, Weight::Regular, TEXT_DIM);
+            if changed {
+                v.touched();
+            }
+            return;
+        }
+    } else if two && back_own {
+        top += ui.paragraph("The return has departures of its own: choose Return above to change them.", Vec2::new(body.x, top), body.w, 11.5, Weight::Regular, TEXT_DIM) + 6.0;
+    }
+    let body = Rect::new(body.x, top, body.w, (body.bottom() - top).max(40.0));
+    let line = v.line_mut().unwrap();
+    // (the directions a change of these patterns moves: the return too while it follows)
+    let moves: Vec<usize> = if pdir == 1 || line.back_own() { vec![pdir] } else { vec![0, 1] };
+    // (the other direction's patterns, for the buses a group needs)
+    let other: Option<Vec<DayPattern>> = (two && line.back_own()).then(|| (0..DAY_GROUPS.len()).map(|k| line.pattern(1 - pdir, k).cloned().unwrap_or_default()).collect());
+    let days = line.patterns_mut(pdir);
     // (the departures each group had: a group whose patterns change them gets its trips in the
     // table anew)
-    let before: Vec<Vec<f32>> = line.days.iter().map(|p| p.departures().iter().map(|d| d.0).collect()).collect();
-    let days = &mut line.days;
+    let before: Vec<Vec<f32>> = days.iter().map(|p| p.departures().iter().map(|d| d.0).collect()).collect();
     // (a size the company's level keeps locked says so, and asks for its popup)
     let sizes: Vec<String> = SIZES
         .iter()
@@ -2314,8 +2367,14 @@ fn timetable_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, locked: &[BusS
                 let (buses, tours, trips) = if run.is_empty() {
                     (0, 0, 0)
                 } else {
-                    let t = reg::tours(&run, p);
-                    (reg::blocks(&run, p).len(), t.len(), t.iter().map(|b| b.len()).sum::<usize>())
+                    // (both directions' departures: the other's own when it has them)
+                    let pats: Vec<DayPattern> = match other.as_ref().and_then(|o| o.get(k)) {
+                        Some(o) if pdir == 0 => vec![p.clone(), o.clone()],
+                        Some(o) => vec![o.clone(), p.clone()],
+                        None => vec![p.clone()],
+                    };
+                    let t = reg::tours_each(&run, &pats, false);
+                    (reg::blocks_each(&run, &pats, false).len(), t.len(), t.iter().map(|b| b.len()).sum::<usize>())
                 };
                 let text = if tours > buses {
                     omsi_ui::tr("%{b} buses in %{n} tours (some for the rush hours only), %{t} trips").replace("%{n}", &tours.to_string())
@@ -2335,12 +2394,12 @@ fn timetable_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, locked: &[BusS
     if changed {
         let line = v.line_mut().unwrap();
         if line.table_on {
-            let moved: Vec<usize> = (0..line.days.len()).filter(|&k| before.get(k).is_none_or(|b| *b != line.days[k].departures().iter().map(|d| d.0).collect::<Vec<f32>>())).collect();
+            let now: Vec<Vec<f32>> = line.patterns_mut(pdir).iter().map(|p| p.departures().iter().map(|d| d.0).collect()).collect();
+            let moved: Vec<usize> = (0..now.len()).filter(|&k| before.get(k) != now.get(k)).collect();
+            for &k in &moved {
+                line.refill_table(k, &moves);
+            }
             if !moved.is_empty() {
-                let fresh = reg::table_from_patterns(line);
-                line.table.retain(|t| !moved.contains(&t.day));
-                line.table.extend(fresh.into_iter().filter(|t| moved.contains(&t.day)));
-                line.table.sort_by(|a, b| a.day.cmp(&b.day).then(a.departure().total_cmp(&b.departure())).then(a.dir.cmp(&b.dir)));
                 (v.table_sel, v.table_text) = (None, String::new());
             }
         }
@@ -2649,11 +2708,16 @@ fn service_tab(ui: &mut Ui, v: &mut LineEditorView, body: Rect, f: &ServiceFacts
         if line.days == typical_days(line.service, for_company) {
             line.days = typical_days(k, for_company);
         }
+        // (and the return's own, the same)
+        if line.back_days == typical_days(line.service, for_company) {
+            line.back_days = typical_days(k, for_company);
+        }
         line.service = k;
         changed = true;
     }
     if typical {
         line.days = typical_days(line.service, for_company);
+        line.back_days.clear();
         changed = true;
     }
     if let Some(c) = toggle {
@@ -2949,7 +3013,7 @@ fn table_layer(l: &mut Launcher, map_r: Rect) {
     }
     // what was asked for
     let Some(act) = act else { return };
-    let headway = line.days.get(day).map(|p| if p.bands.is_empty() { p.headway } else { p.clean_bands().first().map(|b| b.headway).unwrap_or(p.headway) }).unwrap_or(30.0).max(1.0);
+    let headway = line.pattern(dir, day).map(|p| if p.bands.is_empty() { p.headway } else { p.clean_bands().first().map(|b| b.headway).unwrap_or(p.headway) }).unwrap_or(30.0).max(1.0);
     let mut changed = true;
     match act {
         TableAct::Close => {
@@ -2997,7 +3061,7 @@ fn table_layer(l: &mut Launcher, map_r: Rect) {
             // (after the last trip, a headway later; the first from the pattern's first departure)
             let after = cols.last().map(|&i| line.table[i].clone());
             let rel = line.directions.get(dir).map(reg::fitted_times).unwrap_or_default();
-            let first_dep = line.days.get(day).map(|p| p.departures().first().map(|x| x.0).unwrap_or(p.first)).unwrap_or(360.0);
+            let first_dep = line.pattern(dir, day).map(|p| p.departures().first().map(|x| x.0).unwrap_or(p.first)).unwrap_or(360.0);
             let trip = match after {
                 Some(mut t) => {
                     t.shift(headway);

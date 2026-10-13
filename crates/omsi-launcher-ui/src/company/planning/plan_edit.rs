@@ -139,9 +139,11 @@ fn deps(l: &LineDesign, day: usize) -> Vec<Dep> {
             let dep = times.first().copied().unwrap_or(0.0);
             out.push(Dep { dir: t.dir, dep, arr: times.last().copied().unwrap_or(dep).max(dep + 1.0), at: Some(i) });
         }
-    } else if let Some(p) = l.days.get(day) {
+    } else if l.days.get(day).is_some() {
         let run = reg::run_minutes(l);
         for dir in 0..n {
+            // (each direction by its own pattern: the return's may differ)
+            let Some(p) = l.pattern(dir, day) else { continue };
             for (dep, _) in p.departures() {
                 out.push(Dep { dir, dep, arr: dep + run.get(dir).copied().unwrap_or(1.0), at: None });
             }
@@ -207,17 +209,19 @@ fn remove_dep(l: &mut LineDesign, day: usize, p: Pick) -> bool {
 /// group's trips anew from it, as the line editor's patterns fill it - the other groups' trips
 /// stay as they are.
 fn set_pattern(l: &mut LineDesign, day: usize, f: impl FnOnce(&mut DayPattern)) {
-    if l.days.len() < DAY_GROUPS.len() {
-        l.days = reg::default_days();
-    }
-    let before: Vec<f32> = l.days[day].departures().iter().map(|d| d.0).collect();
-    f(&mut l.days[day]);
-    let after: Vec<f32> = l.days[day].departures().iter().map(|d| d.0).collect();
+    set_dir_pattern(l, day, 0, f)
+}
+
+/// `set_pattern` for the patterns direction `dir` leaves by (`LineDesign::patterns_mut`): the
+/// return's own, else the outbound's - which the return follows then, its trips made anew too.
+fn set_dir_pattern(l: &mut LineDesign, day: usize, dir: usize, f: impl FnOnce(&mut DayPattern)) {
+    let moves: Vec<usize> = if dir == 1 || l.back_own() { vec![dir] } else { vec![0, 1] };
+    let pats = l.patterns_mut(dir);
+    let before: Vec<f32> = pats[day].departures().iter().map(|d| d.0).collect();
+    f(&mut pats[day]);
+    let after: Vec<f32> = pats[day].departures().iter().map(|d| d.0).collect();
     if l.table_on && before != after {
-        let fresh = reg::table_from_patterns(l);
-        l.table.retain(|t| t.day != day);
-        l.table.extend(fresh.into_iter().filter(|t| t.day == day));
-        l.table.sort_by(|a, b| a.day.cmp(&b.day).then(a.departure().total_cmp(&b.departure())).then(a.dir.cmp(&b.dir)));
+        l.refill_table(day, &moves);
     }
 }
 
@@ -465,6 +469,8 @@ pub(in super::super) struct PlanEdit {
     from: String,
     /// Closing with changes not saved: asked first.
     leaving: bool,
+    /// The direction whose pattern and running time "In one go" changes (0 outbound, 1 return).
+    pdir: usize,
 }
 
 /// A departure being dragged: the one taken, its minute then, where the mouse took it.
@@ -515,7 +521,7 @@ pub(in super::super) fn open(l: &mut Launcher, line: &str, date: &str, tour: Opt
             day = (0..DAY_GROUPS.len()).find(|k| o.draft.service.allows(*k)).unwrap_or(0);
         }
     }
-    let e = PlanEdit { company: c.id.clone(), line: cl.name.clone(), date: date.to_string(), tour, day, own, fixed, undo: Vec::new(), last: (String::new(), f32::MIN), rev: 0, shown: None, sel: None, drag: None, press: None, span: None, view: None, pan: None, text: String::new(), from, leaving: false };
+    let e = PlanEdit { company: c.id.clone(), line: cl.name.clone(), date: date.to_string(), tour, day, own, fixed, undo: Vec::new(), last: (String::new(), f32::MIN), rev: 0, shown: None, sel: None, drag: None, press: None, span: None, view: None, pan: None, text: String::new(), from, leaving: false, pdir: 0 };
     let v = &mut l.company.planning;
     (v.arm, v.drag, v.carry, v.press) = (None, None, None, None);
     v.edit = Some(e);
@@ -916,7 +922,7 @@ fn trip_tools(l: &mut Launcher, e: &mut PlanEdit, r: Rect, now: f32) {
     let way = if d.dir == 0 { omsi_ui::tr("Outbound") } else { omsi_ui::tr("Return") };
     let tour = s.rows.iter().find(|row| row.fate != Fate::Gone && row.legs.iter().any(|g| g.2 == Some(d.dir) && (g.0 as f32 - d.dep).abs() < 0.6)).map(|row| format!("  ·  {} {}", omsi_ui::tr("Tour"), row.number)).unwrap_or_default();
     let words = format!("{} – {}  ·  {way}{tour}", hm(d.dep), hm(d.arr));
-    let headway = e.own.as_ref().and_then(|o| o.draft.days.get(e.day)).map(|p| if p.bands.is_empty() { p.headway } else { p.clean_bands().first().map(|b| b.headway).unwrap_or(p.headway) }).unwrap_or(20.0).max(1.0);
+    let headway = e.own.as_ref().and_then(|o| o.draft.pattern(d.dir, e.day)).map(|p| if p.bands.is_empty() { p.headway } else { p.clean_bands().first().map(|b| b.headway).unwrap_or(p.headway) }).unwrap_or(20.0).max(1.0);
     // the tools from the right: take out, copy, move, the time typed
     let mut bx = r.right() - 8.0;
     let mut act: Option<f32> = None;
@@ -1064,7 +1070,8 @@ fn pattern_card(ui: &mut Ui, e: &mut PlanEdit, r: Rect, now: f32) -> f32 {
     let Some(o) = e.own.as_ref() else { return r.y };
     let day = e.day;
     let kind = o.draft.service;
-    let Some(mut p) = o.draft.days.get(day).cloned() else { return r.y };
+    let two = dirs(&o.draft) >= 2;
+    let pdir = if two { e.pdir.min(1) } else { 0 };
     let table_on = o.draft.table_on;
     let mut y = r.y;
     kit::caps(ui, Rect::new(r.x, y, r.w * 0.5, 16.0), "In one go");
@@ -1073,13 +1080,61 @@ fn pattern_card(ui: &mut Ui, e: &mut PlanEdit, r: Rect, now: f32) -> f32 {
         ui.text_in(&why, Rect::new(r.x, y + 22.0, r.w, 20.0), kit::NOTE, Weight::Regular, TEXT_DIM, Align::Left);
         return y + 44.0;
     }
+    // the direction (the testers: "outbound can't be changed to inbound"): each with its own
+    // running time and, the return, departures of its own
+    if two {
+        // (the caps' row, then a row each)
+        y += 24.0;
+        let mut d = pdir;
+        if ui.segmented("pe-dir", Rect::new(r.x, y, r.w, 32.0), &mut d, &["Outbound", "Return"]) {
+            e.pdir = d;
+        }
+        y += 40.0;
+    }
+    let pdir = if two { e.pdir.min(1) } else { 0 };
+    let Some(o) = e.own.as_ref() else { return r.y };
+    // its trip's minutes (the table's trips at its times with it)
+    if let Some(total) = o.draft.directions.get(pdir).filter(|d| two && d.stops.len() >= 2).map(|d| reg::fitted_times(d).last().copied().unwrap_or(1.0).max(1.0)) {
+        let mut t = total;
+        let label = omsi_ui::tr("Trip takes").into_owned();
+        if ui.slider(&format!("pe-run-{pdir}"), Rect::new(r.x, y, r.w, 28.0), &mut t, 1.0, 240.0f32.max(total), 1.0, &label, &|x| format!("{x:.0} min")) && (t - total).abs() >= 0.5 {
+            e.edit(now, "pe-run", |line| line.set_run_total(pdir, t.round()));
+        }
+        y += 34.0;
+    }
+    let Some(o) = e.own.as_ref() else { return r.y };
+    if pdir == 1 {
+        let mut follows = !o.draft.back_own();
+        if ui.toggle("pe-follow", Rect::new(r.x, y, r.w, 28.0), &mut follows, "Leaves as the outbound does") {
+            let table = o.draft.table_on;
+            e.edit(now, "pe-follow", |line| {
+                line.set_back_own(!follows);
+                if line.table_on {
+                    for k in 0..DAY_GROUPS.len() {
+                        line.refill_table(k, &[1]);
+                    }
+                }
+            });
+            if table {
+                e.sel = None;
+            }
+        }
+        y += 34.0;
+        if follows {
+            return y + ui.paragraph("The return leaves at the outbound's times. Switch this off to give it departures of its own.", Vec2::new(r.x, y), r.w, 11.5, Weight::Regular, TEXT_DIM) + 4.0;
+        }
+    }
+    let Some(o) = e.own.as_ref() else { return r.y };
+    let Some(mut p) = o.draft.pattern(pdir, day).cloned() else { return r.y };
     let mut what: Option<&str> = None;
     let mut on = p.on;
-    if ui.toggle("pe-on", Rect::new(r.x + r.w * 0.45, y - 6.0, r.w * 0.55, 28.0), &mut on, "Runs on these days") {
+    // (beside the caps; below the direction's rows on a row of its own)
+    let on_r = if two { Rect::new(r.x, y, r.w, 28.0) } else { Rect::new(r.x + r.w * 0.45, y - 6.0, r.w * 0.55, 28.0) };
+    if ui.toggle("pe-on", on_r, &mut on, "Runs on these days") {
         p.on = on;
         what = Some("pe-on");
     }
-    y += 26.0;
+    y += if two { 34.0 } else { 26.0 };
     if p.on {
         let mut mode = usize::from(!p.bands.is_empty());
         if ui.segmented("pe-mode", Rect::new(r.x, y, r.w, 32.0), &mut mode, &["One headway", "Time bands"]) {
@@ -1156,7 +1211,7 @@ fn pattern_card(ui: &mut Ui, e: &mut PlanEdit, r: Rect, now: f32) -> f32 {
     }
     if let Some(what) = what {
         let table = e.own.as_ref().is_some_and(|o| o.draft.table_on);
-        e.edit(now, what, |line| set_pattern(line, day, |x| *x = p));
+        e.edit(now, what, |line| set_dir_pattern(line, day, pdir, |x| *x = p));
         // (a table made anew: what was chosen in it is gone)
         if table {
             e.sel = None;
@@ -1638,6 +1693,32 @@ mod tests {
         set_pattern(&mut l, 0, |p| p.layover = 9.0);
         assert_eq!(l.table, before);
         assert_eq!(l.days[0].layover, 9.0);
+    }
+
+    #[test]
+    fn the_return_is_changed_on_its_own() {
+        let mut l = line();
+        let count = |l: &LineDesign, dir: usize| deps(l, 0).iter().filter(|x| x.dir == dir).count();
+        // following the outbound, a change of the outbound moves the return too
+        set_dir_pattern(&mut l, 0, 0, |p| p.headway = 30.0);
+        assert_eq!((count(&l, 0), count(&l, 1)), (5, 5));
+        // its own: every hour, the outbound staying every 30 minutes
+        l.set_back_own(true);
+        set_dir_pattern(&mut l, 0, 1, |p| p.headway = 60.0);
+        assert_eq!((count(&l, 0), count(&l, 1)), (5, 3));
+        // and its running time: the return 4 minutes longer, the outbound as it was
+        let run = reg::run_minutes(&l);
+        l.set_run_total(1, run[1] + 4.0);
+        let after = reg::run_minutes(&l);
+        assert_eq!((after[0], after[1]), (run[0], run[1] + 4.0));
+        let back = deps(&l, 0).into_iter().find(|x| x.dir == 1).unwrap();
+        assert_eq!(back.arr - back.dep, run[1] + 4.0);
+        // as a table, a change of the return's pattern makes only its trips anew
+        as_table(&mut l);
+        let out: Vec<TableTrip> = l.table.iter().filter(|t| t.dir == 0).cloned().collect();
+        set_dir_pattern(&mut l, 0, 1, |p| p.headway = 30.0);
+        assert_eq!(count(&l, 1), 5);
+        assert_eq!(l.table.iter().filter(|t| t.dir == 0).cloned().collect::<Vec<_>>(), out);
     }
 
     #[test]
