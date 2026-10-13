@@ -873,11 +873,14 @@ pub const I_DRIVERS: &str = "%{n} duties, %{m} drivers on the staff";
 pub const I_DAY: &str = "Line %{n} tour %{tour}: %{rule}";
 pub const I_DAY_FILLED: &str = "Line %{n} tour %{tour}: %{rule} - covered for the day";
 pub const I_DAY_UNPLANNED: &str = "%{n} tours in service have no bus or driver in the roster: they do not run";
+/// A line of the company's confirmed with its route alone (`ownline::no_timetable`): it runs
+/// nothing until its timetable is made in the Timeplan (the issue's "line" its timetable name).
+pub const I_NO_TIMETABLE: &str = "Line %{n} has no timetable yet: make it in the Timeplan";
 
-pub const ISSUE_TEXTS: [&str; 18] = [I_TYPE, I_MEAL, I_CONTINUOUS, I_SPREAD, I_SHORT_PIECE, I_CHANGEOVERS, I_TRAVEL, I_RULE, I_RULE_TIME, I_LAYOVER, I_DEADHEAD, I_UNASSIGNED, I_BUSES, I_DEPOT, I_DRIVERS, I_DAY, I_DAY_FILLED, I_DAY_UNPLANNED];
+pub const ISSUE_TEXTS: [&str; 19] = [I_TYPE, I_MEAL, I_CONTINUOUS, I_SPREAD, I_SHORT_PIECE, I_CHANGEOVERS, I_TRAVEL, I_RULE, I_RULE_TIME, I_LAYOVER, I_DEADHEAD, I_UNASSIGNED, I_BUSES, I_DEPOT, I_DRIVERS, I_DAY, I_DAY_FILLED, I_DAY_UNPLANNED, I_NO_TIMETABLE];
 
 /// The issues' short titles (the Validation panel's groups), in `ISSUE_TEXTS`' order.
-pub const ISSUE_TITLES: [&str; 18] = ["Duty type unsatisfied", "No meal break", "Driving without a break", "Spread over the limit", "Pieces too short", "Too many changes of bus", "No time to get to the relief point", "Working time", "Working time", "Layovers too short", "Deadheads estimated", "Trips not assigned", "More buses than the company has", "More buses than the depot holds", "More duties than drivers", "The day's roster", "The day's roster", "The day's roster"];
+pub const ISSUE_TITLES: [&str; 19] = ["Duty type unsatisfied", "No meal break", "Driving without a break", "Spread over the limit", "Pieces too short", "Too many changes of bus", "No time to get to the relief point", "Working time", "Working time", "Layovers too short", "Deadheads estimated", "Trips not assigned", "More buses than the company has", "More buses than the depot holds", "More duties than drivers", "The day's roster", "The day's roster", "The day's roster", "Lines without a timetable"];
 
 /// An issue's short title (its group in the Validation panel).
 pub fn issue_title(text: &str) -> &'static str {
@@ -1004,7 +1007,23 @@ pub fn board(c: &Company, lines: &[LineInfo], date: &str) -> Board {
     let dp = super::plan::day_plan(c, date, tours.clone(), &[], &[], false);
     let mut b = board_of(c, wd, tours, stack);
     b.issues.extend(day_issues(&dp));
+    b.issues.extend(timetable_issues(c));
     b
+}
+
+/// The company's lines confirmed with their route alone that have no timetable yet
+/// (`ownline::no_timetable`): a global issue each, which opens the Timeplan on the line.
+pub fn timetable_issues(c: &Company) -> Vec<Issue> {
+    c.lines
+        .iter()
+        .filter(|l| super::ownline::no_timetable(l))
+        .map(|l| Issue { scope: Scope::Global, row: None, text: I_NO_TIMETABLE, args: vec![("n", l.number.trim().to_string()), ("line", l.name.clone())], hard: false, penalty: 0, key: format!("{I_NO_TIMETABLE}|{}", l.name.to_lowercase()) })
+        .collect()
+}
+
+/// The line (its timetable name) an issue opens in the Timeplan: a line without a timetable's.
+pub fn timeplan_line_of(i: &Issue) -> Option<&str> {
+    (i.text == I_NO_TIMETABLE).then(|| i.args.iter().find(|(k, _)| *k == "line").map(|(_, v)| v.as_str())).flatten()
 }
 
 /// What the day's roster has open (testers: "the tour was covered showing no issues" - the

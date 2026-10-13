@@ -1406,15 +1406,17 @@ pub fn runs_on_group(l: &LineDesign, day: usize) -> bool {
 // --- the files --------------------------------------------------------------------------------
 
 /// The file stem of each line: `oo_<number>`, with its id after it when a line before it has
-/// that stem already - the lines in the timetable before the others (a draft), the oldest
-/// first, so that a line keeps its files' names when another takes its number. No two lines
-/// have one stem (in any case).
+/// that stem already - the lines in the timetable (and a company's line waiting for its
+/// timetable, `awaits_timetable`) before the others (a draft), the oldest first, so that a
+/// line keeps its files' names when another takes its number. No two lines have one stem (in
+/// any case).
 ///
 /// A line of the map's (`LineDesign::map`) is written as its own `.ttl` and gets a stem for its
 /// trips alone (`oo_map_<its .ttl's name>`), after the player's lines: they keep theirs.
 pub fn stems(reg: &Registry) -> HashMap<u64, String> {
     let mut order: Vec<&LineDesign> = reg.lines.iter().collect();
-    order.sort_by_key(|l| (l.is_map_line(), !written(l), l.id));
+    // (a company's line waiting for its timetable keeps the name it is the company's line by)
+    order.sort_by_key(|l| (l.is_map_line(), !(written(l) || awaits_timetable(l)), l.id));
     let mut taken: HashSet<String> = HashSet::new();
     let mut out = HashMap::new();
     for l in order {
@@ -1829,6 +1831,45 @@ impl Problem {
     }
 }
 
+/// The problem of a line without a single departure (`problems`).
+pub const NO_DAY: &str = "The line runs on no day";
+
+/// The line has a departure on some day: its table's trips, or its day patterns' on the days
+/// its kind of service runs.
+pub fn has_departures(l: &LineDesign) -> bool {
+    if l.table_on {
+        !table_trips(l).is_empty()
+    } else {
+        (0..l.days.len()).any(|k| l.service.allows(k) && l.day_patterns(k).iter().any(DayPattern::runs))
+    }
+}
+
+/// Why the line's route cannot be confirmed yet: `problems` but its timetable's - a bus
+/// company with RosterFlow confirms a line with its route alone and makes its timetable in
+/// RosterFlow's Timeplan (`company::ownline::confirm`).
+pub fn route_problems(l: &LineDesign) -> Vec<Problem> {
+    problems(l).into_iter().filter(|p| p.text != NO_DAY).collect()
+}
+
+/// A company's line confirmed with its route alone that has no departure yet: RosterFlow's
+/// Timeplan makes its timetable. It stays out of the map's timetable until it has one
+/// (`written`), but keeps its files' names as a line of the timetable does (`stems`).
+pub fn awaits_timetable(l: &LineDesign) -> bool {
+    !l.draft && !l.company.is_empty() && !l.is_map_line() && !has_departures(l) && route_problems(l).is_empty()
+}
+
+/// The timetable a bus company's new line starts from: the typical one of its kind
+/// (`days_for`), a regular line's with the rush hours in it.
+pub fn company_days(kind: ServiceKind) -> Vec<DayPattern> {
+    let mut days = days_for(kind);
+    if kind == ServiceKind::Regular {
+        for (k, p) in days.iter_mut().enumerate() {
+            p.bands = default_bands(k);
+        }
+    }
+    days
+}
+
 /// Why a line cannot be saved yet (none: it can).
 pub fn problems(l: &LineDesign) -> Vec<Problem> {
     let mut out = Vec::new();
@@ -1852,9 +1893,8 @@ pub fn problems(l: &LineDesign) -> Vec<Problem> {
             out.push(p(if k == 0 { "%{n} leg(s) of the outbound direction have no way over the roads" } else { "%{n} leg(s) of the way back have no way over the roads" }, bad));
         }
     }
-    let runs = if l.table_on { !table_trips(l).is_empty() } else { (0..l.days.len()).any(|k| l.service.allows(k) && l.day_patterns(k).iter().any(DayPattern::runs)) };
-    if !runs {
-        out.push(p("The line runs on no day", 0));
+    if !has_departures(l) {
+        out.push(p(NO_DAY, 0));
     }
     // (the game needs a trip's times to run forward along its stops)
     let falling = if l.table_on { table_trips(l).iter().filter(|t| t.first_fall().is_some()).count() } else { 0 };
