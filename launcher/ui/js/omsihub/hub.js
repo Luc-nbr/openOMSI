@@ -13,6 +13,8 @@ import { Bar, Palette } from './bar.js';
 import { Flow, STEP_NAMES, goStep } from './flow.js';
 import { Head, Icon, tr } from './bits.js';
 import './settings-extra.js';
+import { EDITORS, EditorPage, editorOf } from './editors/index.js';
+import { StatusLine } from './editors/kit.js';
 
 /** Our look is the desktop window's (not the phone's, nor `?phone` in a browser). */
 export const HUB = !onPhone && !new URLSearchParams(location.search).has('phone');
@@ -44,6 +46,12 @@ export function go(page, step) {
 function startPage(p, pages) {
   if (!p) return;
   const [name, part, more] = p.toLowerCase().split(':').map((x) => x.trim());
+  // (the editors: "Editor", "Timetable", "Line editor" ... as our game-drawn launcher names them)
+  const ed = editorOf(name);
+  if (ed) {
+    go(ed);
+    return;
+  }
   if (name === 'drive' || name === 'home') {
     const step = /^\d+$/.test(part || '') ? STEP_NAMES[Number(part)] : part;
     // (`drive:bus:chosen`: the bus chosen on the ground, not the tiles)
@@ -81,11 +89,14 @@ export function HubShell({ pages, Toasts }) {
       .then((b) => startPage(b?.page, pages))
       .catch(() => {});
   }, []);
-  const page = s.page === 'drive' ? null : pages.find((x) => x && x[0] === s.page);
+  // (an editor's page: ours, `editors/index.js`)
+  const editor = EDITORS[s.page] ? s.page : null;
+  const page = s.page === 'drive' || editor ? null : pages.find((x) => x && x[0] === s.page);
   return html`<div class="hub-stage" style=${`--hub-scale:${scale()}`}>
-    ${page ? html`<${PageSheet} id=${page[0]} label=${page[1]} Page=${page[3]} />` : html`<${Flow} />`}
-    <${Bar} />
+    ${editor ? html`<${EditorPage} id=${editor} />` : page ? html`<${PageSheet} id=${page[0]} label=${page[1]} Page=${page[3]} />` : html`<${Flow} />`}
+    ${!EDITORS[s.page]?.full && html`<${Bar} />`}
     ${s.hub.palette && html`<${Palette} />`}
+    <${StatusLine} />
     <${Toasts} />
   </div>`;
 }

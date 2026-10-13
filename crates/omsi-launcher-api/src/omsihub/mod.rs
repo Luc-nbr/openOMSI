@@ -18,6 +18,10 @@
 //!   OMSI's list of airports.
 //! * `hub_own_lines`: the player's own lines of a map (the line editor's), which the line lists
 //!   show apart from the map's ("Map lines" / "My lines").
+//!
+//! A later part has a submodule of its own, handed the commands this one does not know by one
+//! line of `call`: `editors` (Trello "Tauri 5/6": the timetable, the bus's depot files, the
+//! line, depot and livery editors).
 
 use crate::{Answer, Platform};
 use omsi_launcher_lib as core;
@@ -26,6 +30,8 @@ use omsi_launcher_lib::LineInfo;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
+pub mod editors;
+
 /// language -> (English -> translation), as `crate::i18n` keeps them.
 type Tables = HashMap<String, HashMap<String, String>>;
 
@@ -33,56 +39,57 @@ type Tables = HashMap<String, HashMap<String, String>>;
 /// the game reads every file of the folder (`rust_i18n::i18n!("locales")`), so the page does
 /// too. `the_page_has_every_table_of_the_game` keeps this list whole.
 pub const TABLES: &[(&str, &str)] = &[
-    ("tauri-omsihub.yml", include_str!("../../omsi-app/locales/tauri-omsihub.yml")),
-    ("app-theme.yml", include_str!("../../omsi-app/locales/app-theme.yml")),
-    ("bedrijf2.yml", include_str!("../../omsi-app/locales/bedrijf2.yml")),
-    ("bedrijfsdienst.yml", include_str!("../../omsi-app/locales/bedrijfsdienst.yml")),
-    ("bestemming.yml", include_str!("../../omsi-app/locales/bestemming.yml")),
-    ("bugs-company.yml", include_str!("../../omsi-app/locales/bugs-company.yml")),
-    ("bugs-timetable.yml", include_str!("../../omsi-app/locales/bugs-timetable.yml")),
-    ("casual.yml", include_str!("../../omsi-app/locales/casual.yml")),
-    ("company-chooser.yml", include_str!("../../omsi-app/locales/company-chooser.yml")),
-    ("company-contracts.yml", include_str!("../../omsi-app/locales/company-contracts.yml")),
-    ("company-drive.yml", include_str!("../../omsi-app/locales/company-drive.yml")),
-    ("company-easy.yml", include_str!("../../omsi-app/locales/company-easy.yml")),
-    ("company-home.yml", include_str!("../../omsi-app/locales/company-home.yml")),
-    ("company-pages.yml", include_str!("../../omsi-app/locales/company-pages.yml")),
-    ("company-planning.yml", include_str!("../../omsi-app/locales/company-planning.yml")),
-    ("company-realtime.yml", include_str!("../../omsi-app/locales/company-realtime.yml")),
-    ("company-research.yml", include_str!("../../omsi-app/locales/company-research.yml")),
-    ("company-staff.yml", include_str!("../../omsi-app/locales/company-staff.yml")),
-    ("dealer-delivery.yml", include_str!("../../omsi-app/locales/dealer-delivery.yml")),
-    ("dealer.yml", include_str!("../../omsi-app/locales/dealer.yml")),
-    ("easy-polish.yml", include_str!("../../omsi-app/locales/easy-polish.yml")),
-    ("fix_core_company_economy.yml", include_str!("../../omsi-app/locales/fix_core_company_economy.yml")),
-    ("fix_ui_editors.yml", include_str!("../../omsi-app/locales/fix_ui_editors.yml")),
-    ("fontfit.yml", include_str!("../../omsi-app/locales/fontfit.yml")),
-    ("fonts.yml", include_str!("../../omsi-app/locales/fonts.yml")),
-    ("game-modes.yml", include_str!("../../omsi-app/locales/game-modes.yml")),
-    ("hof.yml", include_str!("../../omsi-app/locales/hof.yml")),
-    ("lakauto.yml", include_str!("../../omsi-app/locales/lakauto.yml")),
-    ("lijnen.yml", include_str!("../../omsi-app/locales/lijnen.yml")),
-    ("lijnkleur.yml", include_str!("../../omsi-app/locales/lijnkleur.yml")),
-    ("lijnsoort.yml", include_str!("../../omsi-app/locales/lijnsoort.yml")),
-    ("line-existing.yml", include_str!("../../omsi-app/locales/line-existing.yml")),
-    ("livery-layers.yml", include_str!("../../omsi-app/locales/livery-layers.yml")),
-    ("logo.yml", include_str!("../../omsi-app/locales/logo.yml")),
-    ("openomsi-0227.yml", include_str!("../../omsi-app/locales/openomsi-0227.yml")),
-    ("openomsi-0230.yml", include_str!("../../omsi-app/locales/openomsi-0230.yml")),
-    ("planning-studio.yml", include_str!("../../omsi-app/locales/planning-studio.yml")),
-    ("ritkaart.yml", include_str!("../../omsi-app/locales/ritkaart.yml")),
-    ("rosterflow-lines.yml", include_str!("../../omsi-app/locales/rosterflow-lines.yml")),
-    ("rosterflow-timeplan.yml", include_str!("../../omsi-app/locales/rosterflow-timeplan.yml")),
-    ("rosterflow-tutorial.yml", include_str!("../../omsi-app/locales/rosterflow-tutorial.yml")),
-    ("rosterflow.yml", include_str!("../../omsi-app/locales/rosterflow.yml")),
-    ("sessie.yml", include_str!("../../omsi-app/locales/sessie.yml")),
-    ("slepen.yml", include_str!("../../omsi-app/locales/slepen.yml")),
-    ("snelheid.yml", include_str!("../../omsi-app/locales/snelheid.yml")),
-    ("telefoon.yml", include_str!("../../omsi-app/locales/telefoon.yml")),
-    ("tijd.yml", include_str!("../../omsi-app/locales/tijd.yml")),
-    ("tobii.yml", include_str!("../../omsi-app/locales/tobii.yml")),
-    ("vertalingen.yml", include_str!("../../omsi-app/locales/vertalingen.yml")),
-    ("verwijderen.yml", include_str!("../../omsi-app/locales/verwijderen.yml")),
+    ("tauri-omsihub.yml", include_str!("../../../omsi-app/locales/tauri-omsihub.yml")),
+    ("tauri-editors.yml", include_str!("../../../omsi-app/locales/tauri-editors.yml")),
+    ("app-theme.yml", include_str!("../../../omsi-app/locales/app-theme.yml")),
+    ("bedrijf2.yml", include_str!("../../../omsi-app/locales/bedrijf2.yml")),
+    ("bedrijfsdienst.yml", include_str!("../../../omsi-app/locales/bedrijfsdienst.yml")),
+    ("bestemming.yml", include_str!("../../../omsi-app/locales/bestemming.yml")),
+    ("bugs-company.yml", include_str!("../../../omsi-app/locales/bugs-company.yml")),
+    ("bugs-timetable.yml", include_str!("../../../omsi-app/locales/bugs-timetable.yml")),
+    ("casual.yml", include_str!("../../../omsi-app/locales/casual.yml")),
+    ("company-chooser.yml", include_str!("../../../omsi-app/locales/company-chooser.yml")),
+    ("company-contracts.yml", include_str!("../../../omsi-app/locales/company-contracts.yml")),
+    ("company-drive.yml", include_str!("../../../omsi-app/locales/company-drive.yml")),
+    ("company-easy.yml", include_str!("../../../omsi-app/locales/company-easy.yml")),
+    ("company-home.yml", include_str!("../../../omsi-app/locales/company-home.yml")),
+    ("company-pages.yml", include_str!("../../../omsi-app/locales/company-pages.yml")),
+    ("company-planning.yml", include_str!("../../../omsi-app/locales/company-planning.yml")),
+    ("company-realtime.yml", include_str!("../../../omsi-app/locales/company-realtime.yml")),
+    ("company-research.yml", include_str!("../../../omsi-app/locales/company-research.yml")),
+    ("company-staff.yml", include_str!("../../../omsi-app/locales/company-staff.yml")),
+    ("dealer-delivery.yml", include_str!("../../../omsi-app/locales/dealer-delivery.yml")),
+    ("dealer.yml", include_str!("../../../omsi-app/locales/dealer.yml")),
+    ("easy-polish.yml", include_str!("../../../omsi-app/locales/easy-polish.yml")),
+    ("fix_core_company_economy.yml", include_str!("../../../omsi-app/locales/fix_core_company_economy.yml")),
+    ("fix_ui_editors.yml", include_str!("../../../omsi-app/locales/fix_ui_editors.yml")),
+    ("fontfit.yml", include_str!("../../../omsi-app/locales/fontfit.yml")),
+    ("fonts.yml", include_str!("../../../omsi-app/locales/fonts.yml")),
+    ("game-modes.yml", include_str!("../../../omsi-app/locales/game-modes.yml")),
+    ("hof.yml", include_str!("../../../omsi-app/locales/hof.yml")),
+    ("lakauto.yml", include_str!("../../../omsi-app/locales/lakauto.yml")),
+    ("lijnen.yml", include_str!("../../../omsi-app/locales/lijnen.yml")),
+    ("lijnkleur.yml", include_str!("../../../omsi-app/locales/lijnkleur.yml")),
+    ("lijnsoort.yml", include_str!("../../../omsi-app/locales/lijnsoort.yml")),
+    ("line-existing.yml", include_str!("../../../omsi-app/locales/line-existing.yml")),
+    ("livery-layers.yml", include_str!("../../../omsi-app/locales/livery-layers.yml")),
+    ("logo.yml", include_str!("../../../omsi-app/locales/logo.yml")),
+    ("openomsi-0227.yml", include_str!("../../../omsi-app/locales/openomsi-0227.yml")),
+    ("openomsi-0230.yml", include_str!("../../../omsi-app/locales/openomsi-0230.yml")),
+    ("planning-studio.yml", include_str!("../../../omsi-app/locales/planning-studio.yml")),
+    ("ritkaart.yml", include_str!("../../../omsi-app/locales/ritkaart.yml")),
+    ("rosterflow-lines.yml", include_str!("../../../omsi-app/locales/rosterflow-lines.yml")),
+    ("rosterflow-timeplan.yml", include_str!("../../../omsi-app/locales/rosterflow-timeplan.yml")),
+    ("rosterflow-tutorial.yml", include_str!("../../../omsi-app/locales/rosterflow-tutorial.yml")),
+    ("rosterflow.yml", include_str!("../../../omsi-app/locales/rosterflow.yml")),
+    ("sessie.yml", include_str!("../../../omsi-app/locales/sessie.yml")),
+    ("slepen.yml", include_str!("../../../omsi-app/locales/slepen.yml")),
+    ("snelheid.yml", include_str!("../../../omsi-app/locales/snelheid.yml")),
+    ("telefoon.yml", include_str!("../../../omsi-app/locales/telefoon.yml")),
+    ("tijd.yml", include_str!("../../../omsi-app/locales/tijd.yml")),
+    ("tobii.yml", include_str!("../../../omsi-app/locales/tobii.yml")),
+    ("vertalingen.yml", include_str!("../../../omsi-app/locales/vertalingen.yml")),
+    ("verwijderen.yml", include_str!("../../../omsi-app/locales/verwijderen.yml")),
 ];
 
 /// Upstream's tables with ours taken in: a text upstream's `app.yml` has keeps its
@@ -108,7 +115,7 @@ fn arg<T: serde::de::DeserializeOwned>(args: &Value, name: &str) -> Result<T, St
 }
 
 /// A command of ours, or None when `cmd` is not one (`crate::call` says it is unknown then).
-pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Option<Answer> {
+pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
     Some(match cmd {
         "hub_boot" => hub_boot(),
         "hub_shifts" => (|| {
@@ -119,7 +126,8 @@ pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Option<Answer> {
         "hub_map_facts" => (|| hub_map_facts(&arg::<Vec<String>>(args, "maps")?))(),
         "hub_weather_extras" => (|| hub_weather_extras(&arg::<String>(args, "map")?))(),
         "hub_own_lines" => (|| hub_own_lines(&arg::<String>(args, "map")?))(),
-        _ => return None,
+        // (the editors' commands: `editors.rs`)
+        _ => return editors::call(cmd, args, p),
     })
 }
 

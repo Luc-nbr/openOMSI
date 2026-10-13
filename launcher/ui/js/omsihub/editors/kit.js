@@ -1,0 +1,231 @@
+// The controls Omsi-Hub's editors are built of, after our game-drawn launcher's ui kit
+// (`crates/omsi-launcher-ui/src/ui.rs`): a card (a hairline round a section, no fill), its
+// heading in capitals, the rows of a list (the chosen one in the accent), a dropdown that opens
+// its list under the field (typing finds an option), a text field with its icon, a round icon
+// button, a switch, a small tag, and the status line along the bottom of the window. Every
+// text passed in is English and translated here (`raw` for names and figures).
+
+import { html, useEffect, useRef, useState } from '../../../vendor/preact-htm.js';
+import { S, set, useStore } from '../../store.js';
+import { Icon as BaseIcon, tr } from '../bits.js';
+import { SYMBOLS as OURS } from '../symbols.js';
+import { SYMBOLS as EDITOR, STROKED } from './symbols.js';
+
+// (the editors' icons join our look's, so that every page draws them by their names)
+for (const [k, v] of Object.entries(EDITOR)) if (!OURS[k]) OURS[k] = v;
+
+// (a script error goes into the launcher's log: the window has no console to say it in)
+const logError = (text) => import('../../api.js').then((a) => a.call('hub_page_error', { text: String(text).slice(0, 2000) })).catch(() => {});
+addEventListener('error', (e) => logError(`${e.message} (${e.filename}:${e.lineno}:${e.colno})`));
+addEventListener('unhandledrejection', (e) => logError(e.reason?.stack || e.reason));
+
+export { html, tr };
+
+/** An icon by its Material name, or one of the game's own stroked ones (the livery studio's
+ * tools). */
+export function Icon({ name, size = 20, class: cls = '' }) {
+  const s = STROKED[name];
+  if (!s) return html`<${BaseIcon} name=${name} size=${size} class=${cls} />`;
+  return html`<svg class=${'hub-icon ' + cls} viewBox="0 0 24 24" width=${size} height=${size} fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${s.map((d) => html`<path d=${d} />`)}</svg>`;
+}
+
+/** What an editor page keeps between its draws and visits (`S.ed[name]`, made at first). */
+export function keep(name, init) {
+  S.ed = S.ed || {};
+  if (!S.ed[name]) S.ed[name] = init;
+  return S.ed[name];
+}
+
+/** A section of a sheet: a hairline round it, no fill of its own. */
+export function Card({ class: cls = '', style = '', children }) {
+  return html`<section class=${'ed-card ' + cls} style=${style}>${children}</section>`;
+}
+
+/** A section's heading inside a card: its title in capitals (`Ui::heading`). */
+export function Heading({ title, raw, children }) {
+  return html`<div class="ed-heading"><span>${raw ? title : tr(title)}</span>${children}</div>`;
+}
+
+/** A row of a list: under the mouse lit, the chosen one in the accent (`Ui::row`). */
+export function Row({ on, onClick, class: cls = '', style = '', children, title }) {
+  return html`<button type="button" class=${'ed-row' + (on ? ' on' : '') + (cls ? ' ' + cls : '')} style=${style} title=${title} onClick=${onClick}>${children}</button>`;
+}
+
+/** A small coloured tag (`Ui::badge`): its words in capitals. */
+export const Badge = ({ text, raw, kind = 'accent' }) => html`<span class=${'ed-badge ' + kind}>${(raw ? text : tr(text)).toUpperCase()}</span>`;
+
+/** A text field (`Ui::text_input`): its icon on the left, red round it when `bad`. Enter and
+ * Escape leave it, as the game-drawn launcher's do. */
+export function Field({ value, onInput, placeholder = '', icon, bad, class: cls = '', style = '', raw, onEnter, mono, title, id }) {
+  return html`<label class=${'ed-field' + (bad ? ' bad' : '') + (icon ? ' with-icon' : '') + (cls ? ' ' + cls : '')} style=${style} title=${title ? tr(title) : undefined}>
+    ${icon && html`<${Icon} name=${icon} size=${18} />`}
+    <input id=${id} class=${mono ? 'mono' : ''} value=${value ?? ''} placeholder=${raw ? placeholder : tr(placeholder)} spellcheck="false"
+      onInput=${(e) => onInput(e.currentTarget.value)}
+      onKeyDown=${(e) => {
+        if (e.key === 'Enter') {
+          onEnter?.();
+          e.currentTarget.blur();
+        } else if (e.key === 'Escape') e.currentTarget.blur();
+      }} />
+  </label>`;
+}
+
+/** A round button with only an icon (`Ui::icon_button`): `size` its radius. */
+export function IconBtn({ icon, title, onClick, size = 14, class: cls = '', disabled }) {
+  return html`<button type="button" class=${'ed-iconbtn ' + cls} style=${`width:${size * 2}px;height:${size * 2}px`} title=${title ? tr(title) : undefined} disabled=${disabled}
+    onClick=${(e) => (e.stopPropagation(), onClick?.(e))}><${Icon} name=${icon} size=${Math.round(size * 1.1)} /></button>`;
+}
+
+/** A switch (`Ui::toggle`): its words on the left, the track on the right. */
+export function Toggle({ checked, onChange, label, raw, title, class: cls = '' }) {
+  return html`<label class=${'ed-toggle ' + cls} title=${title ? tr(title) : undefined}><span>${raw ? label : tr(label)}</span>
+    <input type="checkbox" checked=${!!checked} onChange=${(e) => onChange(e.currentTarget.checked)} /><i></i></label>`;
+}
+
+/** A button (`Ui::button`): `kind` '' (a control), 'primary' (the accent), 'ghost', 'danger'. */
+export function Btn({ kind = '', icon, label, raw, onClick, disabled, title, class: cls = '', style = '' }) {
+  const c = ['hub-btn', 'ed-btn', kind, cls].filter(Boolean).join(' ');
+  return html`<button type="button" class=${c} style=${style} onClick=${onClick} disabled=${disabled} title=${title ? tr(title) : undefined}>
+    ${icon && html`<${Icon} name=${icon} size=${17} />`}${label != null && label !== '' && html`<span>${raw ? label : tr(label)}</span>`}
+  </button>`;
+}
+
+// --- the dropdown -------------------------------------------------------------------------
+
+let openDrop = null;
+
+/** A dropdown (`Ui::select`): the field shows the option chosen; a click opens the list under
+ * it - the chosen one in the accent with its tick, typing narrows it, Enter takes the first,
+ * Escape or a click beside it closes it. `options` are [value, label]. */
+export function Drop({ value, options, onChange, raw, placeholder = '', class: cls = '', style = '', disabled, render }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const ref = useRef();
+  const listRef = useRef();
+  const at = options.findIndex(([v]) => v === value);
+  const label = (o) => (raw ? o[1] : tr(o[1]));
+  const shown = query ? options.filter((o) => String(label(o)).toLowerCase().includes(query.toLowerCase())) : options;
+  useEffect(() => {
+    if (!open) return;
+    const close = () => {
+      setOpen(false);
+      setQuery('');
+    };
+    openDrop = close;
+    const down = (e) => !ref.current?.contains(e.target) && !listRef.current?.contains(e.target) && close();
+    const key = (e) => {
+      if (e.key === 'Escape') close();
+      else if (e.key === 'Enter') {
+        if (shown[0]) onChange(shown[0][0]);
+        close();
+      } else if (e.key === 'Backspace') setQuery((q) => q.slice(0, -1));
+      else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) setQuery((q) => q + e.key);
+      else return;
+      e.preventDefault();
+    };
+    addEventListener('mousedown', down, true);
+    addEventListener('keydown', key, true);
+    return () => {
+      removeEventListener('mousedown', down, true);
+      removeEventListener('keydown', key, true);
+      if (openDrop === close) openDrop = null;
+    };
+  }, [open, query, options]);
+  useEffect(() => {
+    // (the chosen option in view as the list opens)
+    if (open && listRef.current) listRef.current.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
+  }, [open]);
+  const box = open && ref.current ? place(ref.current) : null;
+  return html`<span class=${'ed-drop' + (open ? ' open' : '') + (cls ? ' ' + cls : '')} style=${style} ref=${ref}>
+    <button type="button" class="face" disabled=${disabled} onClick=${() => (open ? setOpen(false) : (openDrop?.(), setOpen(true)))}>
+      <span class="text">${at >= 0 ? (render ? render(options[at], false) : label(options[at])) : html`<em>${raw ? placeholder : tr(placeholder)}</em>`}</span>
+      <${Icon} name=${open ? 'expand_less' : 'expand_more'} size=${20} />
+    </button>
+    ${box && html`<div class="ed-drop-list" ref=${listRef} style=${box}>
+      ${query && html`<div class="ed-drop-query"><${Icon} name="search" size=${16} /><span>${query}</span></div>`}
+      ${query && !shown.length && html`<div class="ed-drop-none">${tr('Nothing found')}</div>`}
+      ${shown.map((o) => html`<button type="button" class=${o[0] === value ? 'on' : ''} onClick=${() => (onChange(o[0]), setOpen(false), setQuery(''))}>
+        <span class="text">${render ? render(o, o[0] === value) : label(o)}</span>${o[0] === value && html`<${Icon} name="check" size=${15} />`}
+      </button>`)}
+    </div>`}
+  </span>`;
+}
+
+/** Where a dropdown's list goes (`popup_rect`): under the field, as wide, as long as the room
+ * under it allows (over it when there is more room there), in the stage's own units. */
+function place(el) {
+  const stage = el.closest('.hub-stage');
+  const k = stage ? stage.getBoundingClientRect().width / stage.offsetWidth || 1 : 1;
+  const r = el.getBoundingClientRect();
+  const s = stage ? stage.getBoundingClientRect() : { left: 0, top: 0, height: innerHeight };
+  const top = (r.bottom - s.top) / k + 4;
+  const height = s.height / k;
+  const below = height - top - 12;
+  const above = (r.top - s.top) / k - 16;
+  const fixed = `position:fixed;left:${(r.left - s.left) / k}px;width:${Math.max(160, r.width / k)}px`;
+  if (below < 160 && above > below) return `${fixed};bottom:${height - (r.top - s.top) / k + 4}px;max-height:${Math.min(360, above)}px`;
+  return `${fixed};top:${top}px;max-height:${Math.max(120, Math.min(360, below))}px`;
+}
+
+// --- the status line ------------------------------------------------------------------------
+
+/** A word along the bottom of the window (`State::set_status`): an error stays, the rest goes
+ * after six seconds. */
+export function status(text, err = false) {
+  if (!text) return;
+  set({ hubStatus: { text: tr(text), err: !!err, at: Date.now() } });
+}
+
+/** The status line (`Launcher::status_bar`): a dark pill in the bottom left corner; a click
+ * puts it away. */
+export function StatusLine() {
+  const s = useStore();
+  const st = s.hubStatus;
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!st || st.err) return;
+    const t = setTimeout(() => tick((n) => n + 1), 7600 - (Date.now() - st.at));
+    return () => clearTimeout(t);
+  }, [st]);
+  if (!st) return null;
+  const age = (Date.now() - st.at) / 1000;
+  if (!st.err && age > 7.5) return null;
+  const first = st.text.split('\n')[0];
+  return html`<button type="button" class=${'ed-status' + (st.err ? ' err' : '') + (!st.err && age > 6 ? ' going' : '')} title=${st.text} onClick=${() => set({ hubStatus: null })}>${first}</button>`;
+}
+
+// --- times ----------------------------------------------------------------------------------
+
+/** "h:mm" (or "h:mm:ss") from minutes after midnight (`timetable::fmt_time`). */
+export function fmtTime(min) {
+  const s = Math.round(min * 60);
+  const h = Math.trunc(s / 3600);
+  const m = Math.trunc(s / 60) % 60;
+  const sec = s % 60;
+  return sec === 0 ? `${h}:${String(m).padStart(2, '0')}` : `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+}
+
+/** Minutes after midnight from "h:mm", "h:mm:ss" or "h.mm" (after midnight as 24:10 and on);
+ * null when it is none (`timetable::parse_time`). */
+export function parseTime(t) {
+  const parts = String(t).trim().split(/[:.]/);
+  if (parts.length < 2 || parts.length > 3) return null;
+  const num = (x) => (/^\s*\d+\s*$/.test(x) ? Number(x) : NaN);
+  const h = num(parts[0]);
+  const m = num(parts[1]);
+  const s = parts.length > 2 ? num(parts[2]) : 0;
+  if ([h, m, s].some(Number.isNaN)) return null;
+  return h < 48 && m < 60 && s < 60 ? h * 60 + m + s / 60 : null;
+}
+
+/** "one tour" / "%{n} tours" and the like: `one` for one, `many` with `%{n}` else. */
+export const countOf = (n, one, many) => (n === 1 ? tr(one) : tr(many, { n }));
+
+/** The Drive page's line lists read again (`State::load_lines`): an editor changed them. */
+export function reloadLines() {
+  S.lines = { ...S.lines, key: '' };
+  import('../../data.js').then((d) => d.loadLines());
+}
+
+/** A label of the map list: its friendly name, else its name. */
+export const mapLabel = (m) => (m?.friendly || '').trim() || (m?.name || '').trim() || m?.file || '';
