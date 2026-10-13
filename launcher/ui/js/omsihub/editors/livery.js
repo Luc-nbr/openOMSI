@@ -17,7 +17,7 @@ import { choose } from '../../data.js';
 import { tr } from './kit.js';
 
 /** A request of the studio: its head (JSON) and its picture (a PNG, or none when unchanged). */
-async function studio(args) {
+export async function studio(args) {
   const buf = new Uint8Array(await call('hub_studio', args));
   const n = new DataView(buf.buffer, buf.byteOffset).getUint32(0, true);
   const head = JSON.parse(new TextDecoder().decode(buf.subarray(4, 4 + n)));

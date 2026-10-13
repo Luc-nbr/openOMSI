@@ -83,4 +83,35 @@ export async function editorsSelftest(check, errors) {
   } catch (x) {
     check('editors: the line editor', false, x.message);
   }
+
+  // the livery studio in the game program: its picture with the bus on it, the bus turned by a
+  // right drag, and its Back (nothing painted, nothing saved)
+  if (!c.bus) return;
+  try {
+    const { studio } = await import('./livery.js');
+    const size = { w: 1440, h: 880, dpr: 1 };
+    await studio({ op: 'open', bus: c.bus, paint: c.paint || '', company: '', vehicle: null });
+    let f = await studio({ op: 'frame', ...size, events: [], force: true });
+    const first = f.png?.length || 0;
+    // (the bus is read and painted on a worker: a few seconds)
+    let turned = 0;
+    for (let i = 0; i < 60 && !turned; i++) {
+      await sleep(250);
+      const drag = { 20: [{ t: 'move', x: 700, y: 450, m: {} }, { t: 'down', b: 2, m: {} }], 21: [{ t: 'move', x: 760, y: 450, m: {} }], 22: [{ t: 'move', x: 820, y: 450, m: {} }], 23: [{ t: 'up', b: 2, m: {} }] };
+      f = await studio({ op: 'frame', ...size, events: drag[i] || [] });
+      if (i > 21 && f.png) turned = f.png.length;
+    }
+    // (how long a whole new picture takes, there and back)
+    const t0 = performance.now();
+    for (let i = 0; i < 5; i++) await studio({ op: 'frame', ...size, events: [], force: true });
+    const ms = Math.round((performance.now() - t0) / 5);
+    check('editors: the livery studio draws the bus', first > 10000 && turned > 10000, `${c.bus}: ${first} bytes, turned ${turned} bytes, ${ms} ms a picture`);
+    // (its Back, in the top bar's corner)
+    await studio({ op: 'frame', ...size, events: [{ t: 'move', x: 70, y: 43, m: {} }, { t: 'down', b: 0, m: {} }] });
+    f = await studio({ op: 'frame', ...size, events: [{ t: 'up', b: 0, m: {} }] });
+    if (!f.head.left) f = await studio({ op: 'frame', ...size, events: [] });
+    check('editors: the livery studio left by its Back', !!f.head.left, f.head.left || 'still open');
+  } catch (x) {
+    check('editors: the livery studio', false, x.message);
+  }
 }
