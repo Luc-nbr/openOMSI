@@ -172,7 +172,7 @@ pub(super) fn shop(l: &mut Launcher, area: Rect) {
                 kit::tag(ui, Vec2::new(r.x + 10.0, r.y + 10.0), &t, OK);
                 let _ = tw;
             }
-            let title = if x.model.trim().is_empty() { x.bus.name.clone() } else { format!("{} {}", x.maker, x.model) };
+            let title = if x.model.trim().is_empty() { x.bus.name.clone() } else { format!("{} {} {}", x.maker, x.model, x.version).trim().to_string() };
             ui.text_in(&title, Rect::new(info.x, info.y, info.w, 24.0), 16.5, Weight::Bold, TEXT, Align::Left);
             let mut facts = omsi_ui::tr(x.bus.kind.label()).into_owned();
             if let Some(s) = x.seats {

@@ -154,7 +154,7 @@ fn today_card(ui: &mut Ui, r: Rect, h: &Home) {
         }
         ui.icon("autorenew", Vec2::new(x + 9.0, y + LINE_H * 0.5), 15.0, accent_2());
         let tr = Rect::new(x + 26.0, y, w - 26.0, LINE_H);
-        ui.text_as_is(t, Vec2::new(tr.x, tr.y + 17.5), kit::NOTE + 0.5, Weight::Regular, TEXT_SOFT, Align::Left);
+        ui.text_in(t, tr, kit::NOTE + 0.5, Weight::Regular, TEXT_SOFT, Align::Left);
         ui.tooltip(tr, t);
         y += LINE_H;
     }

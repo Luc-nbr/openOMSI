@@ -473,6 +473,8 @@ impl Freq {
 
     /// What a map line's timetable comes to: its headway in the daytime.
     pub fn of_headway(minutes: f64) -> Freq {
+        // (as the pages say it: to five minutes)
+        let minutes = (minutes / 5.0).round().max(1.0) * 5.0;
         if minutes <= 15.0 {
             Freq::Busy
         } else if minutes <= 30.0 {

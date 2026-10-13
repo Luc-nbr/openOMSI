@@ -49,7 +49,7 @@ pub(super) fn page(l: &mut Launcher, area: Rect) {
     let phone = super::super::super::mobile::mobile() || body.w < 640.0;
     let cols = if phone { 1 } else if body.w >= 1100.0 { 3 } else { 2 };
     let cw = ((body.w - 12.0 - GAP * (cols as f32 - 1.0)) / cols as f32).floor();
-    let ch = 186.0;
+    let ch = if phone { 224.0 } else { 186.0 };
     let focus = l.company.casual.focus.clone();
     let lines = c.lines.clone();
     let mut set: Option<(String, i64)> = None;
@@ -114,9 +114,13 @@ fn line_card(ui: &mut Ui, r: Rect, c: &Company, plan: Option<&co::day::Plan>, li
     } else {
         (omsi_ui::tr("Advice: %{fare}. The line could earn more.").replace("%{fare}", &eur_cents(advised as f64)), accent_2())
     };
-    ui.text_in(&advice, Rect::new(x, y + 46.0, w - 150.0, 22.0), kit::NOTE, Weight::Medium, colour, Align::Left);
-    ui.tooltip(Rect::new(x, y + 46.0, w - 150.0, 22.0), &advice);
-    if (fare - advised).abs() > 10 && ui.button(&format!("company-casual-fare-advice-{}", line.name), Rect::new(r.right() - pad - 140.0, y + 42.0, 140.0, 32.0), "Use the advice", None, ButtonKind::Ghost) {
+    // (a narrow card: the advice on a line of its own, its button under it)
+    let narrow = r.w < 440.0;
+    let aw = if narrow { w } else { w - 150.0 };
+    ui.text_in(&advice, Rect::new(x, y + 46.0, aw, 22.0), kit::NOTE, Weight::Medium, colour, Align::Left);
+    ui.tooltip(Rect::new(x, y + 46.0, aw, 22.0), &advice);
+    let b = if narrow { Rect::new(x - 12.0, y + 72.0, 150.0, 32.0) } else { Rect::new(r.right() - pad - 140.0, y + 42.0, 140.0, 32.0) };
+    if (fare - advised).abs() > 10 && ui.button(&format!("company-casual-fare-advice-{}", line.name), b, "Use the advice", None, ButtonKind::Ghost) {
         out = Some(advised);
     }
     out
