@@ -325,9 +325,9 @@ export function Switch({ checked, onChange, label, title, style }) {
 }
 
 /** A choice of options in a field (`Ui::select`). */
-export function Select({ value, options, onChange, style = '' }) {
+export function Select({ value, options, onChange, style = '', h = 40 }) {
   return html`<span class="co-select" style=${style}>
-    <select class="co-field" value=${String(value)} onChange=${(e) => onChange(Number(e.currentTarget.value))}>
+    <select class="co-field" style=${`height:${h}px`} value=${String(value)} onChange=${(e) => onChange(Number(e.currentTarget.value))}>
       ${options.map((o, k) => html`<option value=${String(k)}>${o}</option>`)}
     </select>
     <${Icon} name="expand_more" size=${20} />

@@ -931,11 +931,11 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 .co-casual-home .sentence { font-size: 16.9px; font-weight: 700; line-height: 1.35; margin: 18px 0 18px; }
 .co-casual-home .today .co-caps { margin-bottom: 4px; }
 .co-casual-home .solved { display: flex; align-items: center; gap: 11px; height: 26px; font-size: 10.75px; color: var(--hub-text-soft); padding-left: 1px; }
-.co-casual-home .drive { border-radius: var(--hub-r-sheet); background: var(--hub-accent); color: var(--hub-on-accent); text-align: left; padding: 30px 26px; display: flex; flex-direction: column; cursor: pointer; transition: transform 0.22s cubic-bezier(0.25, 1.35, 0.5, 1), background 0.1s, box-shadow 0.15s; }
+.co-casual-home .drive { border-radius: var(--hub-r-sheet); background: var(--hub-accent); color: var(--hub-on-accent); text-align: left; position: relative; min-height: 196px; padding: 0; display: block; cursor: pointer; transition: transform 0.22s cubic-bezier(0.25, 1.35, 0.5, 1), background 0.1s, box-shadow 0.15s; }
 .co-casual-home .drive:hover { transform: translateY(-3px); background: var(--hub-accent-hover); box-shadow: 0 10px 22px rgba(var(--hub-accent-rgb), 0.3); }
-.co-casual-home .drive .ring { width: 68px; height: 68px; border-radius: 50%; background: color-mix(in srgb, var(--hub-on-accent) 16%, transparent); display: flex; align-items: center; justify-content: center; }
-.co-casual-home .drive b { font-size: 19.95px; margin-top: 22px; line-height: 34px; }
-.co-casual-home .drive span { font-size: var(--co-body); font-weight: 500; opacity: 0.85; margin-top: 6px; }
+.co-casual-home .drive .ring { position: absolute; left: 26px; top: 30px; width: 68px; height: 68px; border-radius: 50%; background: color-mix(in srgb, var(--hub-on-accent) 16%, transparent); display: flex; align-items: center; justify-content: center; }
+.co-casual-home .drive b { position: absolute; left: 26px; right: 26px; top: 120px; font-size: 19.95px; line-height: 34px; }
+.co-casual-home .drive > span:last-child { position: absolute; left: 26px; right: 26px; top: 160px; font-size: var(--co-body); font-weight: 500; opacity: 0.85; line-height: 1.4; }
 .co-casual-home .tiles { display: grid; gap: 16px; margin: 20px 0 8px; }
 .co-casual-home .tile { height: 180px; padding: 18px; display: flex; flex-direction: column; }
 .co-casual-home .tile .name { display: flex; align-items: center; gap: 10px; height: 34px; }
@@ -954,10 +954,10 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 .co-casual-home .tip.calm::before { display: none; }
 .co-casual-home .hint { display: flex; align-items: center; gap: 14px; height: 64px; padding: 0 12px 0 16px; border-radius: var(--hub-r); background: color-mix(in srgb, var(--hub-field) 70%, transparent); box-shadow: inset 0 0 0 1px var(--hub-hairline); margin-top: 16px; font-size: 10.75px; font-weight: 500; color: var(--hub-text-soft); }
 .co-bustile .info .casualstate { display: flex; justify-content: space-between; gap: 8px; height: 20px; align-items: center; font-size: 9.6px; font-weight: 500; color: var(--hub-text-dim); margin-top: 2px; }
-.co-bustile .info .casualstate b { font-weight: 700; white-space: nowrap; }
+.co-bustile .info .casualstate b { font-size: 9.6px; line-height: 20px; height: auto; font-weight: 700; white-space: nowrap; }
 .co-bustile .info .shoplock { display: flex; align-items: center; gap: 8px; font-size: var(--co-note); font-weight: 500; color: var(--hub-text-dim); margin-top: 6px; }
 .co-bustile .info .shopbuy { display: flex; align-items: flex-end; justify-content: space-between; margin-top: 4px; }
-.co-bustile .info .shopbuy b { font-size: 14.6px; }
+.co-bustile .info .shopbuy b { font-size: 14.6px; height: auto; line-height: 26px; }
 .co-bustile .info .shopbuy span { font-size: var(--co-body); font-weight: 700; }
 .co-casual-lines { display: grid; gap: 16px; padding-right: 12px; }
 .co-casual-line { position: relative; height: 186px; border-radius: var(--hub-r-sheet); background: var(--hub-panel); box-shadow: inset 0 0 0 1px var(--hub-edge); padding: 18px; }

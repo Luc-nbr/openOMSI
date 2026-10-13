@@ -47,7 +47,7 @@ export function MoneyPage() {
 function Month({ m, style }) {
   const k = Math.max(0, m.months.findIndex(([x]) => x === m.month));
   return html`<${Section} title=${m.title} style=${style}
-    tools=${html`<span style="width:200px;margin:-7px 0 -9px;text-transform:none;font-weight:400"><${Select} value=${k} options=${m.months.map(([, l]) => l)} onChange=${(i) => setUi('money', { month: i > 0 ? m.months[i][0] : null })} /></span>`}>
+    tools=${html`<span style="width:200px;margin:-7px 0 -9px;text-transform:none;font-weight:400"><${Select} value=${k} h=${32} options=${m.months.map(([, l]) => l)} onChange=${(i) => setUi('money', { month: i > 0 ? m.months[i][0] : null })} /></span>`}>
     ${m.empty
       ? html`<p class="co-para">${m.empty}</p>`
       : html`<div style="overflow:hidden;flex:1;min-height:0">

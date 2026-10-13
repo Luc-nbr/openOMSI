@@ -247,7 +247,7 @@ function AskDialog() {
     return html`<${Dialog} icon=${v.icon} title=${v.title} w=${720} onClose=${() => act('ask_on', { on: true })} foot=${foot}>
       <p class="co-para" style="margin-bottom:16px">${v.text}</p>
       ${v.rows.map((r) => html`<div class="co-morning"><b class="cut">${r.title}</b>
-        <${Select} value=${r.at} options=${r.options.map(([l]) => l)} onChange=${(k) => act('morning_fill', { key: r.key, fill: r.options[k][1] })} /></div>`)}
+        <${Select} value=${r.at} h=${30} options=${r.options.map(([l]) => l)} onChange=${(k) => act('morning_fill', { key: r.key, fill: r.options[k][1] })} /></div>`)}
     </${Dialog}>`;
   }
   const foot = html`<span class="rest"></span><${Btn} kind="primary" label=${v.on} onClick=${() => act('ask_on', { on: true })} />`;

@@ -94,7 +94,7 @@ function List({ l, st }) {
     <div style="display:flex;gap:24px;align-items:flex-start;flex:none">
       <div class="grow"><${Chips} value=${l.filter} options=${l.chips.map((c, k) => [k, c])} onChange=${(k) => setUi('people', { filter: k })} /></div>
       <span class="co-note" style="font-weight:500;color:var(--hub-text-dim);line-height:34px">${l.sort_label}</span>
-      <span style="display:flex;align-items:center;gap:6px;width:min(260px, 30%)"><${Select} value=${l.sort} options=${l.sorts} onChange=${(k) => setUi('people', { sort: k })} style="flex:1" />
+      <span style="display:flex;align-items:center;gap:6px;width:min(260px, 30%)"><${Select} value=${l.sort} options=${l.sorts} h=${34} onChange=${(k) => setUi("people", { sort: k })} style="flex:1" />
         <${IconBtn} icon=${l.descending ? 'arrow_downward' : 'arrow_upward'} title=${l.dir_tip} onClick=${() => setUi('people', { descending: !l.descending })} /></span>
     </div>
     <div class="co-scroll" ref=${ref} style="flex:1;min-height:0;margin-top:16px">

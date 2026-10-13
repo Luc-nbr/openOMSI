@@ -99,7 +99,7 @@ function Card({ c, name }) {
         <div style="display:flex;gap:6px;margin-top:4px"><input class="co-field" style="height:34px" value=${text} placeholder=${c.hint} onInput=${(e) => setTitle({ for: name, text: e.currentTarget.value })} />
           ${dirty && html`<${Btn} kind="primary" label=${c.save} style="width:70px;height:34px;padding:0" onClick=${() => act('line_title', { name, text })} />`}</div>
         <div class="co-caps" style="margin-top:10px">${c.hof_caps}</div>
-        <${Select} value=${hofK} options=${c.hofs.map(([, l]) => l)} onChange=${(k) => act('line_hof', { name, hof: c.hofs[k][0] })} style="margin-top:4px" />
+        <${Select} value=${hofK} h=${34} options=${c.hofs.map(([, l]) => l)} onChange=${(k) => act('line_hof', { name, hof: c.hofs[k][0] })} style="margin-top:4px" />
         ${c.hof_words && html`<p class=${'co-note t-' + c.hof_tone} style="margin-top:6px">${c.hof_words}</p>`}
       </div>
       <div>
