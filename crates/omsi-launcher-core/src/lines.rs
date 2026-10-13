@@ -129,8 +129,14 @@ pub struct LineDesign {
     pub ai_group: String,
     /// Outbound, then the way back (a line of one direction runs it round).
     pub directions: Vec<Direction>,
-    /// One per `DAY_GROUPS` entry.
+    /// One per `DAY_GROUPS` entry: when the outbound buses leave (and, without `back_days`, the
+    /// return buses too).
     pub days: Vec<DayPattern>,
+    /// The return direction's own day patterns, one per `DAY_GROUPS` entry (the testers: "the
+    /// return trips must be able to differ from the outbound"): its first and last departure,
+    /// how often, how long a bus stands at its end. Empty: the return leaves as the outbound
+    /// does (`pattern`) - every line saved before had it so, and loads unchanged.
+    pub back_days: Vec<DayPattern>,
     /// Seconds since 1970.
     pub created: u64,
     pub modified: u64,
@@ -213,6 +219,7 @@ impl Default for LineDesign {
             ai_group: String::new(),
             directions: vec![Direction::default()],
             days: default_days(),
+            back_days: Vec::new(),
             created: 0,
             modified: 0,
             company: String::new(),
@@ -259,6 +266,82 @@ impl LineDesign {
             return self.live.as_deref_mut().unwrap();
         }
         self
+    }
+
+    /// The day pattern direction `dir` leaves by on the group of days `day`: the return's own
+    /// (`back_days`) when it has them, else the outbound's.
+    pub fn pattern(&self, dir: usize, day: usize) -> Option<&DayPattern> {
+        if dir == 1 && !self.back_days.is_empty() {
+            self.back_days.get(day).or_else(|| self.days.get(day))
+        } else {
+            self.days.get(day)
+        }
+    }
+
+    /// The return has day patterns of its own (`back_days`).
+    pub fn back_own(&self) -> bool {
+        !self.back_days.is_empty()
+    }
+
+    /// The return given day patterns of its own - the outbound's as they are, to change from
+    /// there - or made to leave as the outbound does again.
+    pub fn set_back_own(&mut self, own: bool) {
+        if own && self.back_days.is_empty() {
+            self.back_days = self.days.clone();
+        } else if !own {
+            self.back_days.clear();
+        }
+    }
+
+    /// The day patterns direction `dir` leaves by, to change (one per `DAY_GROUPS` entry): the
+    /// return's own when it has them, else the outbound's (which the return then follows).
+    pub fn patterns_mut(&mut self, dir: usize) -> &mut Vec<DayPattern> {
+        if self.days.len() < DAY_GROUPS.len() {
+            self.days = default_days();
+        }
+        if dir == 1 && !self.back_days.is_empty() {
+            if self.back_days.len() < DAY_GROUPS.len() {
+                let more: Vec<DayPattern> = self.days[self.back_days.len()..].to_vec();
+                self.back_days.extend(more);
+            }
+            &mut self.back_days
+        } else {
+            &mut self.days
+        }
+    }
+
+    /// The day patterns of each direction with stops on the group of days `day` (two at the
+    /// most), as `blocks_each` takes them.
+    pub fn day_patterns(&self, day: usize) -> Vec<DayPattern> {
+        let dirs = self.directions.iter().filter(|d| d.stops.len() >= 2).count().clamp(1, 2);
+        (0..dirs).filter_map(|d| self.pattern(d, day).cloned()).collect()
+    }
+
+    /// Direction `dir`'s trip made to take `total` minutes (its times to the stops scaled with
+    /// it, `Direction::set_total`) - and the trips of the table that ran at its times, at the
+    /// new ones (a trip whose times were typed over keeps them). The other direction keeps its
+    /// own.
+    pub fn set_run_total(&mut self, dir: usize, total: f32) {
+        let Some(d) = self.directions.get_mut(dir) else { return };
+        let old = fitted_times(d);
+        if d.times.len() != d.stops.len() {
+            d.times = old.clone();
+        }
+        d.set_total(total);
+        let new = fitted_times(d);
+        for t in self.table.iter_mut().filter(|t| t.dir == dir && same_shape(&t.relative(), &old)) {
+            let a = t.departure();
+            t.times = new.iter().map(|x| a + x).collect();
+        }
+    }
+
+    /// The table's trips of the group of days `day` in the directions `dirs` made anew from
+    /// the patterns (`table_from_patterns`); the other directions' and days' stay as they are.
+    pub fn refill_table(&mut self, day: usize, dirs: &[usize]) {
+        let fresh = table_from_patterns(self);
+        self.table.retain(|t| !(t.day == day && dirs.contains(&t.dir)));
+        self.table.extend(fresh.into_iter().filter(|t| t.day == day && dirs.contains(&t.dir)));
+        self.table.sort_by(|a, b| a.day.cmp(&b.day).then(a.departure().total_cmp(&b.departure())).then(a.dir.cmp(&b.dir)));
     }
 
     /// It is a line of the map's own, edited (`map`).
@@ -902,28 +985,41 @@ pub const PARK: f32 = 90.0;
 /// longest takes the departure; with them the bus that came out first does, so that the buses
 /// added for a rush hour are free again after it (`tours` sends them back to the depot).
 pub fn blocks(run: &[f32], p: &DayPattern) -> Vec<Vec<Planned>> {
+    blocks_each(run, std::slice::from_ref(p), false)
+}
+
+/// `blocks` with a day pattern for each direction (`pats`, the outbound's first; a direction
+/// without one leaves by the outbound's): the return's departures, and how long a bus stands
+/// at its end, its own. `round`: every trip starts where the one before ended (a line of two
+/// loops, `LineDesign::goes_round`; a line of one direction always does).
+pub fn blocks_each(run: &[f32], pats: &[DayPattern], round: bool) -> Vec<Vec<Planned>> {
     // (a line without a direction yet has no buses)
-    if run.is_empty() {
+    if run.is_empty() || pats.is_empty() {
         return Vec::new();
     }
     let dirs = run.len().clamp(1, 2);
-    let banded = !p.bands.is_empty();
+    let pat = |d: usize| pats.get(d).unwrap_or(&pats[0]);
+    let banded = (0..dirs).any(|d| !pat(d).bands.is_empty());
     let mut deps: Vec<Planned> = Vec::new();
     for dir in 0..dirs {
-        deps.extend(p.departures().into_iter().take(4000 / dirs).map(|(departure, band)| Planned { dir, departure, band, run: 0.0, profile: 0 }));
+        deps.extend(pat(dir).departures().into_iter().take(4000 / dirs).map(|(departure, band)| Planned { dir, departure, band, run: 0.0, profile: 0 }));
     }
-    chain(deps, run, dirs, p.layover, banded)
+    let layovers: Vec<f32> = (0..dirs).map(|d| pat(d).layover).collect();
+    chain(deps, run, dirs, &layovers, banded, round)
 }
 
 /// Each trip (of `dirs` directions) given to a bus ready at the end it leaves from (its minutes
-/// and `layover` after its trip before), else to a new bus: the one that has stood longest,
-/// or - `first_out` - the one that came out first.
-fn chain(mut deps: Vec<Planned>, run: &[f32], dirs: usize, layover: f32, first_out: bool) -> Vec<Vec<Planned>> {
+/// and its direction's `layover` after its trip before), else to a new bus: the one that has
+/// stood longest, or - `first_out` - the one that came out first. `round`: every direction
+/// leaves from where every one ends.
+fn chain(mut deps: Vec<Planned>, run: &[f32], dirs: usize, layover: &[f32], first_out: bool, round: bool) -> Vec<Vec<Planned>> {
     deps.sort_by(|a, b| a.departure.total_cmp(&b.departure).then(a.dir.cmp(&b.dir)));
     // (where a direction leaves from and where it ends: the two ends of the line, or the one
     // end of a line that goes round)
-    let from = |d: usize| if dirs == 1 { 0 } else { d };
-    let to = |d: usize| if dirs == 1 { 0 } else { 1 - d };
+    let one_end = dirs == 1 || round;
+    let from = |d: usize| if one_end { 0 } else { d };
+    let to = |d: usize| if one_end { 0 } else { 1 - d };
+    let stands = |d: usize| layover.get(d).or(layover.first()).copied().unwrap_or(5.0).max(0.0);
     struct Bus {
         at: usize,
         free: f32,
@@ -940,7 +1036,7 @@ fn chain(mut deps: Vec<Planned>, run: &[f32], dirs: usize, layover: f32, first_o
         let b = &mut buses[i];
         b.trips.push(d);
         b.at = to(d.dir);
-        b.free = d.departure + d.minutes(run) + layover.max(0.0);
+        b.free = d.departure + d.minutes(run) + stands(d.dir);
     }
     buses.into_iter().map(|b| b.trips).collect()
 }
@@ -949,8 +1045,13 @@ fn chain(mut deps: Vec<Planned>, run: &[f32], dirs: usize, layover: f32, first_o
 /// stands longer than `PARK` at the end (it goes back to the depot and out again later, as a
 /// tour of its own: a bus for a rush hour only).
 pub fn tours(run: &[f32], p: &DayPattern) -> Vec<Vec<Planned>> {
-    let all = blocks(run, p);
-    if p.bands.is_empty() {
+    tours_each(run, std::slice::from_ref(p), false)
+}
+
+/// `tours` with a day pattern for each direction (`blocks_each`).
+pub fn tours_each(run: &[f32], pats: &[DayPattern], round: bool) -> Vec<Vec<Planned>> {
+    let all = blocks_each(run, pats, round);
+    if pats.iter().all(|p| p.bands.is_empty()) {
         return all;
     }
     cut_parked(all, run)
@@ -1016,11 +1117,11 @@ pub fn tour_plan(l: &LineDesign) -> Vec<PlannedTour> {
     }
     let run = run_minutes(l);
     let mut out: Vec<PlannedTour> = Vec::new();
-    for (day, p) in l.days.iter().enumerate() {
+    for day in 0..l.days.len() {
         if !l.service.allows(day) {
             continue;
         }
-        for trips in tours(&run, p) {
+        for trips in tours_each(&run, &l.day_patterns(day), false) {
             out.push(PlannedTour { number: (out.len() + 1).to_string(), day, trips, kept: None });
         }
     }
@@ -1102,8 +1203,9 @@ pub fn trip_times(l: &LineDesign, t: &TableTrip) -> Vec<f32> {
 pub fn table_from_patterns(l: &LineDesign) -> Vec<TableTrip> {
     let dirs: Vec<(usize, Vec<f32>)> = l.directions.iter().enumerate().filter(|(_, d)| d.stops.len() >= 2).map(|(k, d)| (k, fitted_times(d))).take(2).collect();
     let mut out = Vec::new();
-    for (day, p) in l.days.iter().enumerate().filter(|(k, _)| l.service.allows(*k)) {
+    for day in (0..l.days.len()).filter(|k| l.service.allows(*k)) {
         for (dir, rel) in &dirs {
+            let Some(p) = l.pattern(*dir, day) else { continue };
             for (dep, _) in p.departures() {
                 out.push(TableTrip { dir: *dir, day, times: rel.iter().map(|x| dep + x).collect(), tour: String::new() });
             }
@@ -1185,7 +1287,8 @@ pub fn table_tours(l: &LineDesign) -> Vec<PlannedTour> {
             continue;
         }
         let layover = l.days.get(day).map(|p| p.layover).unwrap_or(5.0);
-        let chained = if l.map.is_some() { chain_at_stops(deps, l, layover) } else { chain(deps, &[], dirs, layover, false) };
+        let layovers: Vec<f32> = (0..dirs).map(|d| l.pattern(d, day).map(|p| p.layover).unwrap_or(layover)).collect();
+        let chained = if l.map.is_some() { chain_at_stops(deps, l, layover) } else { chain(deps, &[], dirs, &layovers, false, false) };
         let mut buses = cut_parked(chained, &[]);
         buses.sort_by(|a, b| a[0].departure.total_cmp(&b[0].departure));
         for trips in buses {
@@ -1246,10 +1349,12 @@ pub fn hourly_departures(l: &LineDesign, day: usize) -> [u32; 24] {
         for t in table_trips(l).iter().filter(|t| trip_in_group(l, t, day)) {
             out[hour(t.departure())] += 1;
         }
-    } else if let Some(p) = l.days.get(day) {
-        let dirs = run_minutes(l).len().clamp(1, 2) as u32;
-        for (t, _) in p.departures() {
-            out[hour(t)] += dirs;
+    } else if l.days.get(day).is_some() {
+        let dirs = run_minutes(l).len().clamp(1, 2);
+        for dir in 0..dirs {
+            for (t, _) in l.pattern(dir, day).map(|p| p.departures()).unwrap_or_default() {
+                out[hour(t)] += 1;
+            }
         }
     }
     out
@@ -1621,19 +1726,26 @@ pub fn import_map_line(data: &omsi_timetable::TimetableData, line: &Line, raw_ti
         map: Some(MapSource { ttl: line.name.trim().to_string(), tours, group, user_allowed: line.user_allowed, priority: line.priority }),
         ..Default::default()
     };
-    l.days = patterns_of(&l);
+    l.days = patterns_of(&l, 0);
+    // (the map's return leaving otherwise than its outbound: patterns of its own)
+    if l.directions.len() >= 2 {
+        let back = patterns_of(&l, 1);
+        if back != l.days && back.iter().any(|p| p.on) {
+            l.back_days = back;
+        }
+    }
     let t = now_secs();
     (l.created, l.modified) = (t, t);
     Some(l)
 }
 
-/// Day patterns that come near a table's first direction (a line of the map's, for "Fill from
+/// Day patterns that come near a table's direction `dir` (a line of the map's, for "Fill from
 /// the patterns"): per group of days its first and last departure and the usual time between
 /// two (in fives); a group without a trip is off.
-fn patterns_of(l: &LineDesign) -> Vec<DayPattern> {
+fn patterns_of(l: &LineDesign, dir: usize) -> Vec<DayPattern> {
     let mut days = default_days();
     for (k, p) in days.iter_mut().enumerate() {
-        let mut deps: Vec<f32> = l.table.iter().filter(|t| t.dir == 0 && trip_in_group(l, t, k)).map(|t| t.departure()).collect();
+        let mut deps: Vec<f32> = l.table.iter().filter(|t| t.dir == dir && trip_in_group(l, t, k)).map(|t| t.departure()).collect();
         deps.sort_by(f32::total_cmp);
         let (Some(&first), Some(&last)) = (deps.first(), deps.last()) else {
             p.on = false;
@@ -1702,7 +1814,7 @@ pub fn problems(l: &LineDesign) -> Vec<Problem> {
             out.push(p(if k == 0 { "%{n} leg(s) of the outbound direction have no way over the roads" } else { "%{n} leg(s) of the way back have no way over the roads" }, bad));
         }
     }
-    let runs = if l.table_on { !table_trips(l).is_empty() } else { l.days.iter().enumerate().any(|(k, d)| l.service.allows(k) && d.runs()) };
+    let runs = if l.table_on { !table_trips(l).is_empty() } else { (0..l.days.len()).any(|k| l.service.allows(k) && l.day_patterns(k).iter().any(DayPattern::runs)) };
     if !runs {
         out.push(p("The line runs on no day", 0));
     }
@@ -2559,7 +2671,7 @@ mod tests {
         // (within the day: a night trip's departure past midnight is not a time of the day)
         let mut night = l.clone();
         night.table.push(TableTrip { dir: 0, day: 0, times: vec![1472.0, 1474.0, 1478.0], tour: "1".into() });
-        let p = &patterns_of(&night)[0];
+        let p = &patterns_of(&night, 0)[0];
         assert!(p.last <= DAY_END - 1.0 && p.first == 360.0, "{p:?}");
         // a trip added by the player gets a bus of its own, numbered past the map's tours
         let mut more = l.clone();
@@ -2681,5 +2793,97 @@ mod tests {
         reg.add_map_line(LineDesign { map: Some(MapSource { ttl: "7".into(), tours: vec![MapTour { number: "1".into(), ai_group: "B".into(), mask: 799 }], ..Default::default() }), ..Default::default() });
         let back: Registry = serde_json::from_str(&serde_json::to_string(&reg).unwrap()).unwrap();
         assert_eq!(back, reg);
+    }
+
+    #[test]
+    fn the_return_leaves_by_patterns_of_its_own() {
+        let mut reg = Registry::default();
+        let id = line(&mut reg);
+        let l = reg.line_mut(id).unwrap();
+        l.days[0] = DayPattern { days: DAY_GROUPS[0].1, first: 360.0, last: 480.0, headway: 20.0, layover: 5.0, ..Default::default() };
+        // a line of before: the return follows the outbound
+        assert!(!l.back_own());
+        assert_eq!(l.pattern(1, 0), l.pattern(0, 0));
+        let same = tour_plan(l);
+        let per_dir = |t: &[PlannedTour], dir: usize| t.iter().filter(|x| x.day == 0).flat_map(|x| x.trips.iter()).filter(|x| x.dir == dir).count();
+        assert_eq!((per_dir(&same, 0), per_dir(&same, 1)), (7, 7));
+        // given its own: every 30 minutes from 6:10 to 8:10, standing 9 minutes at its end
+        l.set_back_own(true);
+        assert_eq!(l.back_days, l.days);
+        let base = l.days[0].clone();
+        l.patterns_mut(1)[0] = DayPattern { first: 370.0, last: 490.0, headway: 30.0, layover: 9.0, ..base };
+        let own = tour_plan(l);
+        assert_eq!((per_dir(&own, 0), per_dir(&own, 1)), (7, 5));
+        let back: Vec<f32> = own.iter().filter(|x| x.day == 0).flat_map(|x| x.trips.iter()).filter(|x| x.dir == 1).map(|x| x.departure).collect();
+        assert!(back.contains(&370.0) && back.contains(&490.0) && !back.contains(&360.0));
+        // (the outbound's patterns stay as they were)
+        assert_eq!(l.days[0].headway, 20.0);
+        // the table made from the patterns, and the departures an hour has, go by each direction's
+        let table = table_from_patterns(l);
+        assert_eq!(table.iter().filter(|t| t.day == 0 && t.dir == 1).count(), 5);
+        assert!(table.iter().filter(|t| t.day == 0 && t.dir == 1).all(|t| (t.departure() - 370.0) % 30.0 == 0.0));
+        let hours = hourly_departures(l, 0);
+        assert_eq!(hours[6], 3 + 2);
+        // a bus that came back stands the return's own 9 minutes before it goes out again
+        let run = run_minutes(l);
+        for bus in blocks_each(&run, &l.day_patterns(0), false) {
+            for w in bus.windows(2).filter(|w| w[0].dir == 1) {
+                assert!(w[1].departure >= w[0].departure + w[0].minutes(&run) + 9.0 - 1e-3);
+            }
+        }
+        // the export drives the return's trips at their own times
+        let e = export(&reg, &[(0, 0)], &HashSet::new(), &HashSet::new()).unwrap();
+        let ttl = &e.files.iter().find(|f| f.0 == "oo_42.ttl").unwrap().1;
+        let line = omsi_timetable::Line::parse(&omsi_cfg::CfgFile::from_str("oo_42.ttl", ttl));
+        let back_deps: Vec<f32> = line.tours.iter().filter(|t| t.extra == "799").flat_map(|t| t.trips.iter()).filter(|t| t.trip == "oo_42_b").map(|t| t.departure).collect();
+        assert_eq!(back_deps.len(), 5);
+        assert!(back_deps.contains(&370.0) && !back_deps.contains(&360.0));
+        // saved and read again, the return keeps its own; made to follow again, it does
+        let again: Registry = serde_json::from_str(&serde_json::to_string(&reg).unwrap()).unwrap();
+        assert_eq!(again, reg);
+        let l = reg.line_mut(id).unwrap();
+        l.set_back_own(false);
+        assert!(l.back_days.is_empty() && l.pattern(1, 0) == l.pattern(0, 0));
+    }
+
+    #[test]
+    fn the_return_takes_its_own_running_time_and_its_own_table() {
+        let mut reg = Registry::default();
+        let id = line(&mut reg);
+        let l = reg.line_mut(id).unwrap();
+        l.days[0] = DayPattern { days: DAY_GROUPS[0].1, first: 360.0, last: 480.0, headway: 20.0, layover: 5.0, ..Default::default() };
+        l.table = table_from_patterns(l);
+        l.table_on = true;
+        // one trip of the return typed over by hand
+        let typed = l.table.iter().position(|t| t.dir == 1 && t.day == 0).unwrap();
+        l.table[typed].times[1] += 1.0;
+        let out_before: Vec<TableTrip> = l.table.iter().filter(|t| t.dir == 0).cloned().collect();
+        // the return made to take 12 minutes: its trips with it, the typed one as typed, the
+        // outbound as it was
+        l.set_run_total(1, 12.0);
+        assert_eq!(l.directions[1].minutes(), 12.0);
+        assert!(l.directions[0].minutes() != 12.0);
+        assert!(l.table.iter().enumerate().filter(|(i, t)| t.dir == 1 && *i != typed).all(|(_, t)| (t.minutes() - 12.0).abs() < 1e-3));
+        assert!((l.table[typed].minutes() - 12.0).abs() > 1e-3);
+        assert_eq!(l.table.iter().filter(|t| t.dir == 0).cloned().collect::<Vec<_>>(), out_before);
+        // the return's patterns changed: only its trips of that day are made anew
+        l.set_back_own(true);
+        l.patterns_mut(1)[0].headway = 60.0;
+        l.refill_table(0, &[1]);
+        assert_eq!(l.table.iter().filter(|t| t.dir == 1 && t.day == 0).count(), 3);
+        assert_eq!(l.table.iter().filter(|t| t.dir == 0).cloned().collect::<Vec<_>>(), out_before);
+        assert!(problems(l).is_empty());
+    }
+
+    #[test]
+    fn a_line_saved_before_the_returns_patterns_loads_with_the_outbounds() {
+        let old: Registry = serde_json::from_str(r#"{"version":2,"map":"X","lines":[{"id":3,"number":"5","days":[{"on":true,"days":31,"first":360.0,"last":600.0,"headway":30.0,"layover":5.0}]}]}"#).unwrap();
+        let l = &old.lines[0];
+        assert!(l.back_days.is_empty());
+        assert_eq!(l.pattern(1, 0).map(|p| p.headway), Some(30.0));
+        // the outbound's patterns are what the return is given to change
+        let mut l = l.clone();
+        l.set_back_own(true);
+        assert_eq!(l.back_days, l.days);
     }
 }

@@ -608,11 +608,13 @@ pub fn forecast(l: &LineDesign, potential: f64) -> Forecast {
 /// The size a tour of the line runs with: the biggest its trips want - their band's size, or
 /// (a band on "auto", or no bands) the smallest bus their load fits into.
 pub fn tour_size(l: &LineDesign, t: &PlannedTour, f: &Forecast) -> BusSize {
-    let bands = l.days.get(t.day).map(|p| p.clean_bands()).unwrap_or_default();
+    // (each direction's bands: the return may have patterns of its own)
+    let bands = |dir: usize| l.pattern(dir, t.day).map(|p| p.clean_bands()).unwrap_or_default();
+    let bands = [bands(0), bands(1)];
     let mut size = BusSize::Midi;
     for trip in &t.trips {
         let hour = (trip.departure / 60.0).floor().max(0.0) as usize % 24;
-        let wanted = trip.band.and_then(|b| bands.get(b)).and_then(|b| b.size).unwrap_or_else(|| size_for(load(f.per_trip[t.day.min(2)][hour], hour)));
+        let wanted = trip.band.and_then(|b| bands[trip.dir.min(1)].get(b)).and_then(|b| b.size).unwrap_or_else(|| size_for(load(f.per_trip[t.day.min(2)][hour], hour)));
         size = bigger(size, wanted);
     }
     size
@@ -956,7 +958,7 @@ fn plan_of(c: &Company, l: &LineDesign, shape: &Shape) -> OwnPlan {
 /// The sizes of bus a line asks for: its kinds of bus and its time bands' buses.
 pub fn sizes_asked(l: &LineDesign) -> Vec<BusSize> {
     let mut v: Vec<BusSize> = l.vehicles.classes.iter().map(|k| k.size()).collect();
-    v.extend(l.days.iter().filter(|p| p.on).flat_map(|p| p.bands.iter().filter_map(|b| b.size)));
+    v.extend(l.days.iter().chain(l.back_days.iter()).filter(|p| p.on).flat_map(|p| p.bands.iter().filter_map(|b| b.size)));
     v.dedup();
     v
 }
