@@ -26,6 +26,7 @@ import { InboxPage } from './inbox.js';
 import { CareerPage } from './career.js';
 import { CasualPage } from './casual.js';
 import { LaunchPage } from './launch.js';
+import { MorePage, MORE_TABS } from './pages.js';
 
 // (the company's own look, loaded with its first page)
 const sheet = document.createElement('link');
@@ -189,7 +190,9 @@ function Page() {
     case 13:
       return html`<${InboxPage} />`;
     default:
-      return html`<${HomePage} />`;
+      // (the planning, the depot, the concessions, the fleet map, the research, the workshop
+      // and the contracts: `pages.js`, Trello "Tauri 3/6")
+      return MORE_TABS.includes(c.tab) ? html`<${MorePage} tab=${c.tab} />` : html`<${HomePage} />`;
   }
 }
 

@@ -189,9 +189,11 @@ fn serve(rx: std::sync::mpsc::Receiver<Value>, reply: Reply) {
             "map" => {
                 let out = reply.clone();
                 let (map, date, trip) = (s("map"), s("date"), s("trip"));
+                // Omsi-Hub: the fleet map's trips (`mapview::hub_fleet`)
+                let trips: Vec<String> = req.get("trips").and_then(Value::as_array).map(|a| a.iter().filter_map(|t| t.as_str().map(str::to_string)).collect()).unwrap_or_default();
                 std::thread::spawn(move || {
                     let global = omsi_cfg::find_in_roots(&map).map(|(_, p)| p).or_else(|| omsi_launcher_lib::content_path(&map).ok()).unwrap_or_else(|| PathBuf::from(&map));
-                    let v = omsi_launcher_ui::mapview::export(&map, &global, &date, &trip, 0.6);
+                    let v = if trips.is_empty() { omsi_launcher_ui::mapview::export(&map, &global, &date, &trip, 0.6) } else { omsi_launcher_ui::mapview::hub_fleet::export(&map, &global, &date, &trips, 0.6) };
                     out(&id, json!({ "ok": true }), v.to_string().as_bytes());
                 });
             }

@@ -32,6 +32,9 @@ mod people;
 mod photos;
 mod portraits;
 pub mod words;
+// (the rest of the pages, Trello "Tauri 3/6": a child of this module in a file of its own)
+#[path = "company_more.rs"]
+mod more;
 
 use crate::{Answer, Platform};
 use omsi_launcher_lib as core;
@@ -65,11 +68,11 @@ pub const ICONS: [&str; 14] = ["signal_cellular_alt", "directions_bus", "groups"
 /// The pages in the strip under the bar, grouped as the start screen groups them.
 pub const RAIL: [&[usize]; 5] = [&[0, INBOX_TAB], &[5, 3, MAP_TAB, 1], &[2], &[4, CONCESSIONS_TAB, CONTRACTS_TAB, 6], &[DEPOT_TAB, WORKSHOP_TAB, RESEARCH_TAB]];
 
-/// The pages this page draws itself; the others (`HANDED_OVER`) open in the game-drawn launcher
-/// until their phase: the planning and RosterFlow, the depot, the concessions, the fleet map,
-/// the research, the workshop and the contracts.
-pub const DRAWN: [usize; 7] = [0, 1, 2, 3, 4, 6, INBOX_TAB];
-pub const HANDED_OVER: [usize; 7] = [5, DEPOT_TAB, CONCESSIONS_TAB, MAP_TAB, RESEARCH_TAB, WORKSHOP_TAB, CONTRACTS_TAB];
+/// The pages this page draws itself (the depot, the concessions, the fleet map, the research,
+/// the workshop and the contracts since phase 3: `company_more.rs`); the others (`HANDED_OVER`)
+/// open in the game-drawn launcher until their phase: the planning.
+pub const DRAWN: [usize; 13] = [0, 1, 2, 3, 4, 6, DEPOT_TAB, CONCESSIONS_TAB, MAP_TAB, RESEARCH_TAB, WORKSHOP_TAB, CONTRACTS_TAB, INBOX_TAB];
+pub const HANDED_OVER: [usize; 1] = [5];
 
 /// The pages a game mode shows, in the strip's order (`company::pages_of`).
 pub fn pages_of(mode: co::GameMode) -> Vec<usize> {
@@ -1167,6 +1170,7 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
         "co_view" => with(|s| view(s, args)),
         "co_act" => with(|s| do_act(s, args, p)),
         "co_hand_over" => with(|s| hand_over(s, args)),
+        c if c.starts_with("co_more_") => return more::call(c, args, p),
         _ => return None,
     })
 }

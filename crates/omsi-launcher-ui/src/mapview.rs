@@ -32,6 +32,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 mod roads;
+// Omsi-Hub: the desktop launcher's fleet map, its trips' routes with the roads (`hub_fleet.rs`)
+pub mod hub_fleet;
 
 // The map is drawn as Omsi-Hub's setup map draws it (its `roadLayer` and `routemap.css`): on
 // the launcher's night-blue ground, every road's casing first and then every road's surface
