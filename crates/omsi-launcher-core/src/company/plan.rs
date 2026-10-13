@@ -996,6 +996,33 @@ pub fn covers_of_duty(c: &Company, dp: &DayPlan, ti: usize, k: usize) -> Vec<Cov
     out
 }
 
+/// The company's buses free to run tour `ti` instead of its own today (a spare bus for one
+/// that broke down, or none given): in the depot and fit to drive (not in the workshop, not
+/// broken down this morning), one of the line's buses, not out on another tour then - the size
+/// the tour asks for first, then the best kept.
+pub fn spare_buses(c: &Company, dp: &DayPlan, ti: usize) -> Vec<u32> {
+    let t = &dp.tours[ti];
+    let (from, to, wants) = (t.tour.from(), t.tour.to(), super::ownline::wanted(c, &t.tour));
+    let broken: Vec<u32> = dp.disruptions.iter().filter_map(|d| if let Disruption::Breakdown { vehicle, .. } = d { Some(*vehicle) } else { None }).collect();
+    let mut v: Vec<&super::model::Vehicle> = c
+        .fleet
+        .iter()
+        .filter(|v| v.held_on(&dp.date) && !v.in_workshop(&dp.date) && v.condition >= 20.0 && !broken.contains(&v.id))
+        .filter(|v| t.bus != Some(BusOf::Own(v.id)) && super::ownline::line_allows(c, &t.tour.line, v))
+        .filter(|v| !dp.tours.iter().enumerate().any(|(i, x)| i != ti && x.bus == Some(BusOf::Own(v.id)) && from < x.tour.to() + BUS_MARGIN && x.tour.from() < to + BUS_MARGIN))
+        .collect();
+    v.sort_by(|a, b| size_fit(wants, b.kind.size).cmp(&size_fit(wants, a.kind.size)).then(b.condition.partial_cmp(&a.condition).unwrap_or(std::cmp::Ordering::Equal)).then(a.id.cmp(&b.id)));
+    v.into_iter().map(|v| v.id).collect()
+}
+
+/// What a rental bus for tour `ti` costs today, and whether one can come (a place in the depot
+/// and the cash).
+pub fn rental_for(c: &Company, dp: &DayPlan, ti: usize) -> (Cents, bool) {
+    let wants = super::ownline::wanted(c, &dp.tours[ti].tour);
+    let rent = economy::rent_per_day(BusKind { size: wants.unwrap_or_default(), drive: Drive::Diesel }, &economy::rules(c.difficulty), c.price_index);
+    (rent, places_left(c) > 0 && c.cash >= rent)
+}
+
 /// The places the depot has left today for another bus (`depot::room`'s rule: the yard's
 /// spaces, the halls the levels open, a few in the street).
 fn places_left(c: &Company) -> usize {
@@ -2229,5 +2256,32 @@ mod tests {
         let f: FillChoice = serde_json::from_str(r#"{"key":"a","fill":{"kind":"agency"}}"#).unwrap();
         assert_eq!(f.fill, Fill::Agency);
         assert_eq!(serde_json::to_string(&Fill::Player).unwrap(), r#"{"kind":"player"}"#);
+    }
+
+    #[test]
+    fn a_tour_without_its_bus_is_offered_the_fleets_spare_buses() {
+        let mut c = quiet(3, 2);
+        c.planning.auto = false;
+        let wd = weekday_of(&c.date);
+        let (b1, b2, b3) = (c.fleet[0].id, c.fleet[1].id, c.fleet[2].id);
+        let ids: Vec<u32> = c.staff.iter().map(|e| e.id).collect();
+        set_bus(&mut c, wd, "Linie5", "1", Some(b1));
+        set_bus(&mut c, wd, "Linie5", "2", Some(b2));
+        set_driver(&mut c, wd, "Linie5", "1", 0, Some(Who::Staff(ids[0])));
+        set_driver(&mut c, wd, "Linie5", "2", 0, Some(Who::Staff(ids[1])));
+        // the first tour's bus is in the workshop; the second's is out at the same time
+        c.fleet[0].workshop_until = Some(c.date.clone());
+        let tours = vec![tour("1", 6 * 60, 3), tour("2", 6 * 60 + 10, 3)];
+        let p = day_plan(&c, &c.date, tours.clone(), &[], &[], false);
+        assert_eq!(p.tours[0].bus, None);
+        assert_eq!(spare_buses(&c, &p, 0), vec![b3]);
+        let (rent, ok) = rental_for(&c, &p, 0);
+        assert!(rent > 0 && ok);
+        // sent for today: the tour runs with it, and the close counts it
+        set_fill(&mut c, &tour_key("Linie5", "1"), Some(Fill::Bus { id: b3 }));
+        let p = day_plan(&c, &c.date, tours.clone(), &[], &[], false);
+        assert_eq!((p.tours[0].bus, p.tours[0].bus_from), (Some(BusOf::Own(b3)), Source::Dispatcher));
+        assert!(p.tours[0].covered());
+        assert_eq!(close_day(&mut c, tours, &[]).covered, 2);
     }
 }

@@ -1289,13 +1289,16 @@ fn tour_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, ti: usize, q:
     y += 8.0;
     let key = pl::tour_key(&t.tour.line, &t.tour.tour);
     let fill_now = c.planning.date == c.date && c.planning.fills.iter().any(|f| f.key == key);
-    let mut options: Vec<(String, Option<Fill>)> = Vec::new();
+    // (a tour without its bus today: each spare bus of the fleet, a rental bus, dropping it with
+    // the penalty shown - the one chosen marked)
+    let chosen = c.planning.fills.iter().find(|f| c.planning.date == c.date && f.key == key).map(|f| f.fill);
+    let mut options: Vec<(String, String, Option<Fill>, bool, bool)> = Vec::new();
     if p.today && !t.by_player && (t.bus.is_none() || t.bus_problem.is_some()) {
-        let rent = co::economy::rent_per_day(co::BusKind { size: t.tour.wants().unwrap_or_default(), drive: co::Drive::Diesel }, &co::economy::rules(c.difficulty), c.price_index);
-        options.push((omsi_ui::tr("Rent a bus for today (%{amount})").replace("%{amount}", &eur(rent)), Some(Fill::Rental)));
-        options.push((omsi_ui::tr("Drop the tour today").into_owned(), Some(Fill::Drop)));
+        for (label, note, fill) in tour_covers(c, p, ti) {
+            options.push((label, note, fill, fill.is_some() && chosen == fill, fill.is_some()));
+        }
         if fill_now {
-            options.push((omsi_ui::tr("Leave it to the central").into_owned(), None));
+            options.push((omsi_ui::tr("Leave it to the central").into_owned(), String::new(), None, false, true));
         }
     }
     let mut cands: Vec<(bool, Option<u32>, String, String, Color)> = c
@@ -1322,11 +1325,11 @@ fn tour_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, ti: usize, q:
         let w = v.w - BAR - 2.0;
         let mut yy = v.y;
         if !options.is_empty() {
-            caps(ui, Rect::new(v.x, yy, w, 16.0), "Today", q.dim, Align::Left);
+            caps(ui, Rect::new(v.x, yy, w, 16.0), "Cover it today", q.dim, Align::Left);
             yy += 22.0;
-            for (n, (label, fill)) in options.iter().enumerate() {
+            for (n, (label, note, fill, on, live)) in options.iter().enumerate() {
                 let rr = Rect::new(v.x, yy, w, 30.0);
-                if pick_row(ui, &q, &format!("plan-topt-{n}"), rr, false, None, label, "", q.dim).0 {
+                if pick_row(ui, &q, &format!("plan-topt-{n}"), rr, *on, None, label, note, q.dim).0 && *live {
                     opt = Some(*fill);
                 }
                 yy += 32.0;

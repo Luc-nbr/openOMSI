@@ -700,20 +700,43 @@ pub fn ask_dialog(l: &mut Launcher) {
             let title = omsi_ui::tr("%{time}  Bus %{bus} broke down").replace("%{time}", &when).replace("%{bus}", &b.bus);
             let cost = ck::rental_cost(&c, *index);
             let back = ck::hhmm(ck::moment(&c.date, (b.at + ck::RENTAL_MINUTES) as i64));
-            let t = omsi_ui::tr("It was on line %{n}; it goes to the workshop. A rental bus can take over its trips from %{time} for %{amount}; else its trips are dropped for the rest of the day, with the contract's penalty.").replace("%{n}", &b.line).replace("%{time}", &back).replace("%{amount}", &eur(cost));
+            // (testers: the spare buses of the fleet first - free from the breakdown to the end
+            // of its day, one of the line's - then a rental bus, then dropping its trips)
+            let spares = ck::spare_buses(&c, *index);
+            let spare_at = ck::hhmm(ck::moment(&c.date, (b.at + ck::SPARE_MINUTES) as i64));
+            let t = if spares.is_empty() {
+                omsi_ui::tr("It was on line %{n}; it goes to the workshop. No spare bus of the fleet is free until the end of its day. A rental bus can take over its trips from %{time} for %{amount}; else its trips are dropped for the rest of the day, with the contract's penalty.").replace("%{n}", &b.line).replace("%{time}", &back).replace("%{amount}", &eur(cost))
+            } else {
+                omsi_ui::tr("It was on line %{n}; it goes to the workshop. A spare bus of the fleet can take over its trips from %{spare}; a rental bus from %{time} for %{amount}; else its trips are dropped for the rest of the day, with the contract's penalty.").replace("%{n}", &b.line).replace("%{spare}", &spare_at).replace("%{time}", &back).replace("%{amount}", &eur(cost))
+            };
             let th = l.ui.paragraph_height(&t, 640.0 - 56.0, kit::BODY, Weight::Regular);
+            let shown: Vec<u32> = spares.iter().copied().take(4).collect();
+            let rows_h = if shown.is_empty() { 0.0 } else { 26.0 + 40.0 * shown.len() as f32 };
             // (a decision the clock waits for: no cross, both answers lead on)
-            let f = kit::frame_with(l, 640.0, 70.0 + th + 20.0 + ROW + 24.0 + kit::BUTTON_H + 26.0, "warning", &title, false);
+            let f = kit::frame_with(l, 640.0, 70.0 + th + 20.0 + rows_h + ROW + 24.0 + kit::BUTTON_H + 26.0, "warning", &title, false);
             l.ui.paragraph(&t, Vec2::new(f.body.x, f.body.y), f.body.w, kit::BODY, Weight::Regular, TEXT_SOFT);
+            let mut ry = f.body.y + th + 14.0;
+            if !shown.is_empty() {
+                l.ui.text_in(&omsi_ui::tr("Spare buses free now").to_uppercase(), Rect::new(f.body.x, ry, f.body.w, 18.0), kit::CAPS, Weight::Bold, TEXT_DIM, Align::Left);
+                ry += 24.0;
+                for id in &shown {
+                    let Some(v) = c.vehicle(*id) else { continue };
+                    let label = omsi_ui::tr("Send spare bus %{bus} (from %{time}, no extra cost)").replace("%{bus}", &format!("{} {}", v.number, v.name)).replace("%{time}", &spare_at);
+                    if l.ui.button(&format!("company-ask-spare-{id}"), Rect::new(f.body.x, ry, f.body.w, 34.0), &label, Some("directions_bus"), ButtonKind::Primary) {
+                        answer = Some((Some(Choice::Spare { vehicle: *id }), true));
+                    }
+                    ry += 40.0;
+                }
+            }
             let mut auto = c.clock.dispatcher;
-            if l.ui.toggle("company-ask-dispatcher", Rect::new(f.body.x, f.body.y + th + 16.0, f.body.w, ROW), &mut auto, "From now on the dispatcher decides") {
+            if l.ui.toggle("company-ask-dispatcher", Rect::new(f.body.x, ry + 2.0, f.body.w, ROW), &mut auto, "From now on the dispatcher decides") {
                 if let Some(c) = l.company.company.as_mut() {
                     c.clock.dispatcher = auto;
                 }
             }
             let mut foot = Foot::new(&f);
             let label = omsi_ui::tr("Rental bus, %{amount}").replace("%{amount}", &eur(cost));
-            if foot.right(l, "company-ask-rental", &label, Some("directions_bus"), ButtonKind::Primary) {
+            if foot.right(l, "company-ask-rental", &label, Some("directions_bus"), if shown.is_empty() { ButtonKind::Primary } else { ButtonKind::Normal }) {
                 answer = Some((Some(Choice::Rental), true));
             }
             if foot.right(l, "company-ask-drop", "Drop its trips", None, ButtonKind::Normal) {

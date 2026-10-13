@@ -369,6 +369,29 @@ pub(super) fn cover_text(c: &Company, x: &pl::Cover) -> (String, String) {
     }
 }
 
+/// The ways to run a tour without its bus today, in words: each spare bus of the fleet (free
+/// then, one of the line's), a rental bus (its price, or why none can come), dropping it with
+/// the contract's penalty. (label, note, the dispatcher's choice; None: nothing to choose.)
+pub(super) fn tour_covers(c: &Company, p: &DayPlan, ti: usize) -> Vec<(String, String, Option<Fill>)> {
+    let t = &p.tours[ti];
+    let mut out = Vec::new();
+    for id in pl::spare_buses(c, p, ti) {
+        let Some(v) = c.vehicle(id) else { continue };
+        let note = if t.tour.wants().is_some_and(|w| w != v.kind.size) { omsi_ui::tr("Another size than the tour asks for").into_owned() } else { omsi_ui::tr("Free then").into_owned() };
+        out.push((omsi_ui::tr("Spare bus %{bus}").replace("%{bus}", &format!("{} {}", v.number, v.name)), note, Some(Fill::Bus { id })));
+    }
+    let (rent, ok) = pl::rental_for(c, p, ti);
+    if ok {
+        out.push((omsi_ui::tr("Rent a bus for today (%{amount})").replace("%{amount}", &eur(rent)), String::new(), Some(Fill::Rental)));
+    } else {
+        out.push((omsi_ui::tr("No rental bus: no place in the depot or not the cash (%{amount})").replace("%{amount}", &eur(rent)), String::new(), None));
+    }
+    let penalty = pl::drop_penalty(c, &t.tour, 0, t.tour.trips.len());
+    let note = if penalty > 0 { omsi_ui::tr("Penalty %{amount}").replace("%{amount}", &eur(penalty)) } else { omsi_ui::tr("No penalty").into_owned() };
+    out.push((omsi_ui::tr("Drop the tour today").into_owned(), note, Some(Fill::Drop)));
+    out
+}
+
 /// The colour of a reason not to take a duty: grey for those who are away, red for the rest.
 fn cannot_colour(x: &pl::Cannot) -> Color {
     match x {
@@ -469,7 +492,24 @@ pub(super) fn morning_rows(l: &mut Launcher, c: &Company) -> Option<Vec<MorningR
             continue;
         }
         let t = &p.tours[o.tour];
-        let Some(k) = o.duty else { continue };
+        // (a bus that did not start: the spare buses, a rental bus, dropping the tour)
+        let Some(k) = o.duty else {
+            let title = format!("{}  ·  {}", line_title(t, None), omsi_ui::tr(o.problem.map(Problem::label).unwrap_or("No bus")));
+            let now = match t.bus {
+                Some(BusOf::Own(id)) if chosen(&o.key).is_none() => c.vehicle(id).map(|v| v.number.clone()).unwrap_or_default(),
+                Some(BusOf::Rental) if chosen(&o.key).is_none() => omsi_ui::tr("Rental bus").into_owned(),
+                _ => omsi_ui::tr("Trips dropped").into_owned(),
+            };
+            let mut options = vec![(omsi_ui::tr("As the central has it: %{what}").replace("%{what}", &now), None)];
+            for (label, note, fill) in tour_covers(c, &p, o.tour) {
+                if fill.is_some() {
+                    options.push((if note.is_empty() { label } else { format!("{label}  ·  {note}") }, fill));
+                }
+            }
+            let at = chosen(&o.key).and_then(|f| options.iter().position(|x| x.1 == Some(f))).unwrap_or(0);
+            out.push(MorningRow { key: o.key.clone(), title, options, at });
+            continue;
+        };
         let d = &t.duties[k];
         let title = format!("{}  ·  {}", line_title(t, Some(k)), problem_text(c, &p, o.tour, k, o.problem));
         let now = if d.who.is_some() && chosen(&o.key).is_none() { who_name(c, d.who) } else { omsi_ui::tr("Trips dropped").into_owned() };
