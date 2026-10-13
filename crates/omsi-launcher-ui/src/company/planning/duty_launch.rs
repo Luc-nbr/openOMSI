@@ -172,7 +172,7 @@ fn to_planning_label(l: &Launcher) -> (&'static str, f32) {
     } else if super::super::shown(l, 5) {
         ("Open the planning", 190.0)
     } else {
-        ("Back to My duties", 190.0)
+        ("Back to the shifts", 190.0)
     }
 }
 
@@ -184,6 +184,7 @@ fn to_planning(l: &mut Launcher, c: &Company) {
         rf_set_view(l, RF_ROSTER, None);
         l.company.planning.sel = Some(Sel::Duty(x.duty.line.clone(), x.duty.tour.clone(), x.duty.duty));
     } else {
+        // (Casual: its shifts, `casual`)
         l.company.tab = 6;
         l.company.career.part = super::super::career::DUTIES;
     }

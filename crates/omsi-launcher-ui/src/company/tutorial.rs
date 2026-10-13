@@ -30,6 +30,9 @@ pub struct Seen {
     /// The company's layout it was seen in (`LAYOUT`; 0: its pages as tabs, before the start
     /// screen).
     pub layout: u32,
+    /// Casual's own interface was shown round (`casual`): a driver who saw Normal's tour is
+    /// shown Casual's once, the first time a Casual company opens.
+    pub casual: bool,
 }
 
 /// The company's layout now: 1, the start screen with a tile for every page.
@@ -110,6 +113,12 @@ pub fn on_open(s: &Seen, company: bool) -> Option<(usize, bool)> {
     None
 }
 
+/// Casual's interface not shown round yet to a driver who saw the company's tour: its stops,
+/// past the welcome, once.
+pub fn casual_due(s: &Seen, casual: bool) -> Option<(usize, bool)> {
+    (casual && s.seen && !s.casual).then_some((1, false))
+}
+
 /// Where the "?" starts the tour: where it was left, else from the start.
 pub fn resume_at(s: &Seen) -> usize {
     if s.done {
@@ -133,12 +142,16 @@ pub(super) fn frame(l: &mut Launcher) {
     }
     l.company.tutorial_for = Some(profile.clone());
     let company = l.company.company.is_some() && l.company.wizard.is_none();
+    let casual = company && l.company.company.as_ref().is_some_and(|c| c.game_mode.casual());
     let mut s = of(&profile);
-    let Some((at, to_come)) = on_open(&s, company) else { return };
+    let Some((at, to_come)) = on_open(&s, company).or_else(|| casual_due(&s, casual)) else { return };
     s.seen = true;
     s.pages_to_come = to_come;
     if company {
         s.layout = LAYOUT;
+    }
+    if casual {
+        s.casual = true;
     }
     keep(&profile, s);
     super::super::tour::start_company(l, at);
@@ -297,6 +310,19 @@ mod tests {
         assert_eq!(resume_at(&skipped), 5);
         // seen to the end: the "?" from the start
         assert_eq!(resume_at(&Seen { seen: true, at: 5, done: true, layout: LAYOUT, ..Default::default() }), 0);
+    }
+
+    #[test]
+    fn casuals_tour_is_shown_once_to_a_driver_who_saw_normals() {
+        let seen = Seen { seen: true, done: true, layout: LAYOUT, ..Default::default() };
+        assert_eq!(on_open(&seen, true), None);
+        assert_eq!(casual_due(&seen, true), Some((1, false)));
+        assert_eq!(casual_due(&seen, false), None);
+        assert_eq!(casual_due(&Seen { casual: true, ..seen.clone() }, true), None);
+        // a driver new to it all gets the welcome first, as ever
+        assert_eq!(casual_due(&Seen::default(), true), None);
+        let old: Seen = serde_json::from_str(r#"{ "seen": true, "at": 0, "done": true, "layout": 1 }"#).unwrap();
+        assert!(!old.casual);
     }
 
     #[test]

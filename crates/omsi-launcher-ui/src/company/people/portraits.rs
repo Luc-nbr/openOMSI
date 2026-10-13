@@ -325,7 +325,7 @@ thread_local! {
 
 /// The texture of face `n` (1 to 300): None until it is decoded and uploaded, a frame or two
 /// after it is first asked for.
-pub(super) fn texture(l: &mut Launcher, n: u32) -> Option<usize> {
+pub(in super::super) fn texture(l: &mut Launcher, n: u32) -> Option<usize> {
     let key = format!("portrait:{n}");
     if let Some(t) = l.icons.get(&key) {
         return Some(*t);
@@ -352,7 +352,7 @@ pub(super) fn texture(l: &mut Launcher, n: u32) -> Option<usize> {
 }
 
 /// The textures of the faces `wanted` that are there (the others asked for).
-pub(super) fn textures(l: &mut Launcher, wanted: impl IntoIterator<Item = u32>) -> HashMap<u32, usize> {
+pub(in super::super) fn textures(l: &mut Launcher, wanted: impl IntoIterator<Item = u32>) -> HashMap<u32, usize> {
     let mut out = HashMap::new();
     for n in wanted {
         if let Some(t) = texture(l, n) {
@@ -363,7 +363,7 @@ pub(super) fn textures(l: &mut Launcher, wanted: impl IntoIterator<Item = u32>) 
 }
 
 /// A face in `r`: the picture once it is there, until then a calm square with the initials.
-pub(super) fn draw(ui: &mut Ui, r: Rect, tex: Option<usize>, name: &str) {
+pub(in super::super) fn draw(ui: &mut Ui, r: Rect, tex: Option<usize>, name: &str) {
     let radius = (r.w * 0.12).min(RADIUS);
     ui.p().rounded(r, radius, FIELD);
     match tex {

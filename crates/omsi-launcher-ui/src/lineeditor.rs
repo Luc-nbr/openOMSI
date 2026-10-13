@@ -202,6 +202,9 @@ pub struct ForCompany {
     /// and a line of them to open once the map is read.
     runs: Vec<String>,
     start_map: Option<String>,
+    /// The timetable a new line starts with (the Casual line wizard's "how often"); None: the
+    /// company's lines' usual rush hours.
+    days: Option<Vec<DayPattern>>,
 }
 
 /// The company's figures of the line shown.
@@ -314,10 +317,20 @@ pub fn open_for_company(l: &mut Launcher, line: Option<u64>) {
     let Some(c) = l.company.company.as_ref() else { return };
     let v = &mut l.pages.lines;
     let runs = c.lines.iter().filter(|x| !x.own).map(|x| x.name.clone()).collect();
-    v.company = Some(ForCompany { id: c.id.clone(), name: c.name.clone(), map: c.map.clone(), colours: c.colours.clone(), depot: c.depot.clone(), start: Some(line), stop_lines: None, cache: None, details: false, runs, start_map: None });
+    v.company = Some(ForCompany { id: c.id.clone(), name: c.name.clone(), map: c.map.clone(), colours: c.colours.clone(), depot: c.depot.clone(), start: Some(line), stop_lines: None, cache: None, details: false, runs, start_map: None, days: None });
     v.company_act = None;
     v.loaded = None;
     l.go(super::Page::Lines);
+}
+
+/// The line editor opened for the bus company on a new line of its own that starts with the
+/// timetable `days` (the Casual line wizard: the player clicks its stops, the editor shows
+/// what it costs and brings, and he confirms it there).
+pub fn open_new_for_company_with(l: &mut Launcher, days: Vec<DayPattern>) {
+    open_for_company(l, None);
+    if let Some(fc) = l.pages.lines.company.as_mut() {
+        fc.days = Some(days);
+    }
 }
 
 /// The line editor opened for the bus company on a line of the map's it runs (its timetable
@@ -3191,9 +3204,15 @@ fn new_line(v: &mut LineEditorView) {
         line.company = fc.id.clone();
         line.draft = true;
         line.colour = fc.colours[0].clone();
-        // (the company's lines start with the rush hours in their timetable)
-        for (k, p) in line.days.iter_mut().enumerate() {
-            p.bands = reg::default_bands(k);
+        // (the company's lines start with the rush hours in their timetable, or with the one
+        // the Casual line wizard chose)
+        match fc.days.as_ref() {
+            Some(days) if days.len() == line.days.len() => line.days = days.clone(),
+            _ => {
+                for (k, p) in line.days.iter_mut().enumerate() {
+                    p.bands = reg::default_bands(k);
+                }
+            }
         }
     }
     let id = line.id;

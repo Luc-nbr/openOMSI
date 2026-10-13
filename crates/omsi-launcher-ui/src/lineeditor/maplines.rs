@@ -513,7 +513,7 @@ mod tests {
         let base = std::env::temp_dir().join(format!("openomsi-maplines-company-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let mut v = view(&base);
-        let fc = |runs: Vec<String>| ForCompany { id: "c".into(), name: "Stadtbus".into(), map: String::new(), colours: Default::default(), depot: String::new(), start: None, stop_lines: None, cache: None, details: false, runs, start_map: None };
+        let fc = |runs: Vec<String>| ForCompany { id: "c".into(), name: "Stadtbus".into(), map: String::new(), colours: Default::default(), depot: String::new(), start: None, stop_lines: None, cache: None, details: false, runs, start_map: None, days: None };
         v.company = Some(fc(vec!["12".into()]));
         assert_eq!(shown(&v).iter().map(|r| r.ttl.as_str()).collect::<Vec<_>>(), ["12"]);
         v.company = Some(fc(Vec::new()));
