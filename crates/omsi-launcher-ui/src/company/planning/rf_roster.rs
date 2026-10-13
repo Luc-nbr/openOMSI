@@ -1177,23 +1177,25 @@ fn duty_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, ti: usize, k:
             return;
         }
     }
-    let mut options: Vec<(String, Option<Fill>, bool)> = Vec::new();
-    if p.today && !t.by_player {
-        if d.problem.is_some() || d.who.is_none() {
-            if agency_ok {
-                let label = omsi_ui::tr("Agency driver (today %{n} of %{max} - grows with your staff)").replace("%{n}", &agency_n.to_string()).replace("%{max}", &agency_max.to_string());
-                options.push((label, Some(Fill::Agency), true));
-            }
-            options.push((omsi_ui::tr("Drop its trips today").into_owned(), Some(Fill::Drop), true));
-            if fill_now {
-                options.push((omsi_ui::tr("Leave it to the central").into_owned(), None, true));
-            }
+    // (what fell out today: every way to cover it - each colleague who may drive it, an agency
+    // driver within the limit, the player, dropping it with the penalty shown - the one chosen
+    // marked)
+    let chosen = c.planning.fills.iter().find(|f| c.planning.date == c.date && f.key == key).map(|f| f.fill);
+    let mut options: Vec<(String, String, Option<Fill>, bool, bool)> = Vec::new();
+    if open_today {
+        for cv in pl::covers_of_duty(c, p, ti, k) {
+            let (label, note) = cover_text(c, &cv);
+            let fill = cv.fill();
+            options.push((label, note, Some(fill), true, chosen == Some(fill)));
         }
-        if d.late.is_some() {
-            options.push((omsi_ui::tr("Drop the first trips").into_owned(), Some(Fill::Drop), false));
-            if late_fill {
-                options.push((omsi_ui::tr("Let the central cover the first trips").into_owned(), None, false));
-            }
+        if fill_now {
+            options.push((omsi_ui::tr("Leave it to the central").into_owned(), String::new(), None, true, false));
+        }
+    }
+    if p.today && !t.by_player && d.late.is_some() {
+        options.push((omsi_ui::tr("Drop the first trips").into_owned(), String::new(), Some(Fill::Drop), false, false));
+        if late_fill {
+            options.push((omsi_ui::tr("Let the central cover the first trips").into_owned(), String::new(), None, false, false));
         }
     }
     let cands: Vec<(Option<Who>, String, String, Color, Option<Color>)> = {
@@ -1218,11 +1220,11 @@ fn duty_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, ti: usize, k:
         let w = v.w - BAR - 2.0;
         let mut yy = v.y;
         if !options.is_empty() {
-            caps(ui, Rect::new(v.x, yy, w, 16.0), "Today", q.dim, Align::Left);
+            caps(ui, Rect::new(v.x, yy, w, 16.0), "Cover it today", q.dim, Align::Left);
             yy += 22.0;
-            for (n, (label, fill, whole)) in options.iter().enumerate() {
+            for (n, (label, note, fill, whole, on)) in options.iter().enumerate() {
                 let rr = Rect::new(v.x, yy, w, 30.0);
-                if pick_row(ui, &q, &format!("plan-opt-{n}"), rr, false, None, label, "", q.dim).0 {
+                if pick_row(ui, &q, &format!("plan-opt-{n}"), rr, *on, None, label, note, q.dim).0 {
                     opt = Some((*fill, *whole));
                 }
                 yy += 32.0;

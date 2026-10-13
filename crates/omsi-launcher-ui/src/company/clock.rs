@@ -752,10 +752,33 @@ pub fn ask_dialog(l: &mut Launcher) {
         }
         Ask::Morning { count } => {
             let title = omsi_ui::tr("%{time}  The morning").replace("%{time}", &when);
-            let t = omsi_ui::tr("%{n} things fell out this morning: drivers late, buses that did not start. The central fills them as it can; the planning shows them and lets you choose.").replace("%{n}", &count.to_string());
-            let th = l.ui.paragraph_height(&t, 640.0 - 56.0, kit::BODY, Weight::Regular);
-            let f = kit::frame(l, 640.0, 70.0 + th + 24.0 + kit::BUTTON_H + 26.0, "wb_twilight", &title);
+            // (each thing that fell out with every way to cover it: a colleague, an agency driver,
+            // yourself, dropping it - and for a bus, a spare bus of the fleet or a rental)
+            let rows = super::planning::morning_rows(l, &c).unwrap_or_default();
+            let t = if rows.is_empty() {
+                omsi_ui::tr("%{n} things fell out this morning: drivers late, buses that did not start. The central fills them as it can; the planning shows them and lets you choose.").replace("%{n}", &count.to_string())
+            } else {
+                omsi_ui::tr("%{n} things fell out this morning: drivers ill or late, buses that did not start. Choose how to cover each, or leave it to the central.").replace("%{n}", &count.to_string())
+            };
+            let w = 760.0;
+            let th = l.ui.paragraph_height(&t, w - 56.0, kit::BODY, Weight::Regular);
+            let row_h = 58.0;
+            let shown = rows.len().min(6);
+            let f = kit::frame(l, w, 70.0 + th + 16.0 + row_h * shown as f32 + 24.0 + kit::BUTTON_H + 26.0, "wb_twilight", &title);
             l.ui.paragraph(&t, Vec2::new(f.body.x, f.body.y), f.body.w, kit::BODY, Weight::Regular, TEXT_SOFT);
+            let mut picked: Option<(String, Option<co::plan::Fill>)> = None;
+            for (n, row) in rows.iter().take(shown).enumerate() {
+                let y = f.body.y + th + 16.0 + n as f32 * row_h;
+                l.ui.text_in(&row.title, Rect::new(f.body.x, y, f.body.w, 20.0), kit::ROWS, Weight::Bold, TEXT, Align::Left);
+                let names: Vec<String> = row.options.iter().map(|o| o.0.clone()).collect();
+                let mut at = row.at;
+                if l.ui.select(&format!("company-morning-{n}"), Rect::new(f.body.x, y + 22.0, f.body.w, 30.0), &mut at, &names) && at != row.at {
+                    picked = Some((row.key.clone(), row.options[at].1));
+                }
+            }
+            if let Some((key, fill)) = picked {
+                super::planning::choose(l, &key, fill);
+            }
             let mut foot = Foot::new(&f);
             if super::shown(l, 5) && foot.right(l, "company-ask-plan", "Open the planning", Some("event"), ButtonKind::Primary) {
                 l.company.tab = 5;

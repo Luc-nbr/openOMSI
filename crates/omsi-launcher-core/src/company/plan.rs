@@ -94,6 +94,8 @@ pub enum Fill {
     Bus { id: u32 },
     Rental,
     Drop,
+    /// The player drives it himself, today only.
+    Player,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -944,6 +946,56 @@ pub fn candidates(c: &Company, dp: &DayPlan, ti: usize, k: usize) -> Vec<Candida
     out.into_iter().map(|x| x.1).collect()
 }
 
+/// What the trips of a duty (or a whole tour: `0..trips`) dropped cost in the contract's
+/// penalty.
+pub fn drop_penalty(c: &Company, t: &TourOfDay, start: usize, end: usize) -> Cents {
+    let r = economy::rules(c.difficulty);
+    t.trips[start.min(t.trips.len())..end.min(t.trips.len())].iter().filter(|x| x.counts()).map(|x| r.drop_per_trip + (x.km * r.drop_per_km as f64).round() as Cents).sum()
+}
+
+/// A way to cover a duty that fell out or stayed free on the company's day (testers: "when
+/// drivers go sick, instead of dropping the shift give me the option to cover it").
+#[derive(Clone, Debug, PartialEq)]
+pub enum Cover {
+    /// A colleague who may drive it (`standby`: free all day).
+    Colleague { id: u32, standby: bool, warn: Vec<Warn> },
+    /// An agency driver: `used` of `max` today taken already.
+    Agency { used: usize, max: usize },
+    /// The player drives it himself.
+    Player,
+    /// Its trips dropped, with the contract's penalty.
+    Drop { penalty: Cents },
+}
+
+impl Cover {
+    /// The dispatcher's choice it makes.
+    pub fn fill(&self) -> Fill {
+        match self {
+            Cover::Colleague { id, .. } => Fill::Colleague { id: *id },
+            Cover::Agency { .. } => Fill::Agency,
+            Cover::Player => Fill::Player,
+            Cover::Drop { .. } => Fill::Drop,
+        }
+    }
+}
+
+/// The ways to cover duty `k` of tour `ti` on the company's day, in the order to offer them:
+/// each free colleague who may drive it (standby drivers first), an agency driver while the
+/// agency has one left (`agency_max`), the player himself, dropping its trips. Those who cannot
+/// take it are `candidates` with their reasons.
+pub fn covers_of_duty(c: &Company, dp: &DayPlan, ti: usize, k: usize) -> Vec<Cover> {
+    let t = &dp.tours[ti];
+    let d = &t.duties[k];
+    let mut out: Vec<Cover> = candidates(c, dp, ti, k).into_iter().filter_map(|x| x.fit.ok().map(|warn| Cover::Colleague { id: x.id, standby: x.standby, warn })).collect();
+    let (used, max) = (agency_used(dp), agency_max(c));
+    if used < max || (d.who == Some(Who::Agency) && d.from_ != Source::Roster) {
+        out.push(Cover::Agency { used, max });
+    }
+    out.push(Cover::Player);
+    out.push(Cover::Drop { penalty: drop_penalty(c, &t.tour, d.start, d.end) });
+    out
+}
+
 /// The places the depot has left today for another bus (`depot::room`'s rule: the yard's
 /// spaces, the halls the levels open, a few in the street).
 fn places_left(c: &Company) -> usize {
@@ -1161,6 +1213,9 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
                     _ => (None, Source::None),
                 },
                 Some(Fill::Agency) if agency < agency_max(c) => (Some(Who::Agency), Source::Dispatcher),
+                // (the player's own today: open again when the day is closed and he did not drive it)
+                Some(Fill::Player) if !closing => (Some(Who::Player), Source::Dispatcher),
+                Some(Fill::Player) => (None, Source::Dispatcher),
                 Some(Fill::Drop) => (None, Source::Dispatcher),
                 _ if problem.is_some_and(Problem::sudden) => match pick(&work, &bus, &block) {
                     Some((id, _)) => (Some(Who::Staff(id)), Source::Central),
@@ -2127,5 +2182,52 @@ mod tests {
         let b = block_of(&t.tour, &t.duties[0], duty_key("Linie5", "1", 0));
         assert_eq!(can_take(e3, &c.date, true, &t.bus_of(&c), &[], &b), Err(Cannot::NightRest { from: 23 * 60 + staff::NIGHT_REST - 1440 }));
         assert_eq!(free_from(e3, true), Some(10 * 60));
+    }
+
+    #[test]
+    fn a_sick_drivers_duty_offers_every_way_to_cover_it() {
+        // (testers: "when drivers go sick, instead of dropping the shift give me the option to cover")
+        let mut c = quiet(1, 3);
+        c.planning.auto = false;
+        let wd = weekday_of(&c.date);
+        let ids: Vec<u32> = c.staff.iter().map(|e| e.id).collect();
+        let b1 = c.fleet[0].id;
+        set_bus(&mut c, wd, "Linie5", "1", Some(b1));
+        set_driver(&mut c, wd, "Linie5", "1", 0, Some(Who::Staff(ids[0])));
+        c.staff[0].sick_until = Some(c.date.clone());
+        // one colleague worked the week's days: not offered (the lists say why)
+        c.staff[2].week_days = WEEK_DAYS;
+        let tours = vec![tour("1", 6 * 60, 4)];
+        let p = day_plan(&c, &c.date, tours.clone(), &[], &[], false);
+        assert_eq!(p.tours[0].duties[0].problem, Some(Problem::Sick));
+        let covers = covers_of_duty(&c, &p, 0, 0);
+        assert_eq!(covers[0], Cover::Colleague { id: ids[1], standby: true, warn: Vec::new() });
+        assert!(!covers.iter().any(|x| matches!(x, Cover::Colleague { id, .. } if *id == ids[2] || *id == ids[0])));
+        assert!(covers.contains(&Cover::Agency { used: 0, max: agency_max(&c) }));
+        assert_eq!(&covers[covers.len() - 2..], &[Cover::Player, Cover::Drop { penalty: drop_penalty(&c, &p.tours[0].tour, 0, 4) }]);
+        // the penalty shown is the contract's (none on an easy economy)
+        let mut hard = c.clone();
+        hard.difficulty = Difficulty::Realistic;
+        let r = economy::rules(Difficulty::Realistic);
+        assert_eq!(drop_penalty(&hard, &p.tours[0].tour, 0, 4), 4 * (r.drop_per_trip + (15.0 * r.drop_per_km as f64).round() as Cents));
+        // each chosen runs the duty so
+        for cv in &covers[..covers.len() - 1] {
+            set_fill(&mut c, &duty_key("Linie5", "1", 0), Some(cv.fill()));
+            let p = day_plan(&c, &c.date, tours.clone(), &[], &[], false);
+            let want = match cv {
+                Cover::Colleague { id, .. } => Who::Staff(*id),
+                Cover::Agency { .. } => Who::Agency,
+                _ => Who::Player,
+            };
+            assert_eq!((p.tours[0].duties[0].who, p.tours[0].duties[0].from_), (Some(want), Source::Dispatcher));
+        }
+        // the player's own today: among his duties; closed without him driving it, it is open
+        let p = day_plan(&c, &c.date, tours.clone(), &[], &[], false);
+        assert_eq!(my_duties(&[p], &c.date, 0).len(), 1);
+        assert!(day_plan(&c, &c.date, tours.clone(), &[], &[], true).tours[0].duties[0].open());
+        // an older save's choices still read; the new one is kept by its name
+        let f: FillChoice = serde_json::from_str(r#"{"key":"a","fill":{"kind":"agency"}}"#).unwrap();
+        assert_eq!(f.fill, Fill::Agency);
+        assert_eq!(serde_json::to_string(&Fill::Player).unwrap(), r#"{"kind":"player"}"#);
     }
 }

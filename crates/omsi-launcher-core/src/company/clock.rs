@@ -448,6 +448,14 @@ pub fn script(c: &Company, dp: &DayPlan) -> DayScript {
             }
         }
     }
+    // (the duties of drivers who called in sick wait for the dispatcher too: the player chooses
+    // how to cover them)
+    let sick = dp.tours.iter().filter(|t| !t.by_player).flat_map(|t| t.duties.iter()).filter(|d| d.problem == Some(super::plan::Problem::Sick)).count();
+    if sick > 0 {
+        let at = (first - 30).max(4 * 60);
+        morning = Some(morning.map_or(at, |m| m.min(at)));
+        count += sick;
+    }
     if let Some(at) = morning {
         push(at, What::Morning { count });
     }
@@ -1440,5 +1448,21 @@ mod tests {
         assert_eq!((c.clock.real.synced, c.clock.real.lead), (None, 0));
         assert_eq!(span(2 * DAY + 4 * 60 + 7), (2, 4, 7));
         assert_eq!(span(-5), (0, 0, 0));
+    }
+
+    #[test]
+    fn a_sick_call_waits_for_the_dispatcher_in_the_morning() {
+        let (c, w) = company(2, 4);
+        let tours = network::tours_of_day(&c, &w.0, &c.date);
+        let mut dp = plan::day_plan(&c, &c.date, tours, &[], &[], false);
+        dp.disruptions.clear();
+        let none = script(&c, &dp);
+        assert!(!none.events.iter().any(|e| matches!(e.what, What::Morning { .. })));
+        // a duty whose driver called in sick: the morning asks the player how to cover it
+        dp.tours[0].duties[0].problem = Some(plan::Problem::Sick);
+        let s = script(&c, &dp);
+        let m = s.events.iter().find(|e| matches!(e.what, What::Morning { .. })).unwrap();
+        assert_eq!(m.what, What::Morning { count: 1 });
+        assert!(m.at <= dp.tours[0].tour.from() as i64);
     }
 }

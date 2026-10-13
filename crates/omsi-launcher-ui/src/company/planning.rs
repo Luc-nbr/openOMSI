@@ -347,6 +347,28 @@ pub(super) fn cannot_text(c: &Company, p: &DayPlan, x: &pl::Cannot) -> String {
     }
 }
 
+/// A way to cover an open duty in words (`pl::Cover`): what it is, and what it brings - a
+/// standby driver, the agency's limit, the contract's penalty for dropping it.
+pub(super) fn cover_text(c: &Company, x: &pl::Cover) -> (String, String) {
+    match x {
+        pl::Cover::Colleague { id, standby, warn } => {
+            let name = c.employee(*id).map(|e| e.name.clone()).unwrap_or_default();
+            let note = match warn.first() {
+                Some(Warn::Overtime(m)) => omsi_ui::tr("Overtime %{t}").replace("%{t}", &length(*m)),
+                Some(Warn::Transfer(m)) => omsi_ui::tr("%{n} min to change stops").replace("%{n}", &m.to_string()),
+                Some(Warn::Experience) => omsi_ui::tr("Little experience for this bus").into_owned(),
+                None if *standby => omsi_ui::tr("Standby: free all day").into_owned(),
+                None => omsi_ui::tr("Can take it").into_owned(),
+            };
+            (name, note)
+        }
+        pl::Cover::Agency { used, max } => (omsi_ui::tr("Agency driver (today %{n} of %{max} - grows with your staff)").replace("%{n}", &used.to_string()).replace("%{max}", &max.to_string()), String::new()),
+        pl::Cover::Player => (omsi_ui::tr("Drive it yourself").into_owned(), String::new()),
+        pl::Cover::Drop { penalty } if *penalty > 0 => (omsi_ui::tr("Drop its trips today").into_owned(), omsi_ui::tr("Penalty %{amount}").replace("%{amount}", &eur(*penalty))),
+        pl::Cover::Drop { .. } => (omsi_ui::tr("Drop its trips today").into_owned(), omsi_ui::tr("No penalty").into_owned()),
+    }
+}
+
 /// The colour of a reason not to take a duty: grey for those who are away, red for the rest.
 fn cannot_colour(x: &pl::Cannot) -> Color {
     match x {
@@ -422,6 +444,49 @@ fn bus_fit(c: &Company, p: &DayPlan, ti: usize, id: u32) -> (String, Color, bool
         return (omsi_ui::tr("Another size than the tour asks for").into_owned(), WARN, true);
     }
     (omsi_ui::tr("Free").into_owned(), OK, true)
+}
+
+// --- the morning's question -------------------------------------------------------------------
+
+/// Something that fell out on the company's day for the morning's question (`clock::ask_dialog`):
+/// what it is and why, the ways to cover it, and which is chosen now (0: as the central has it).
+pub(super) struct MorningRow {
+    pub key: String,
+    pub title: String,
+    pub options: Vec<(String, Option<Fill>)>,
+    pub at: usize,
+}
+
+/// What fell out suddenly today - drivers who called in sick, buses that did not start - with
+/// every way to cover each (None: the day's timetable is still being read).
+pub(super) fn morning_rows(l: &mut Launcher, c: &Company) -> Option<Vec<MorningRow>> {
+    work(l, c);
+    let p = plan_of(l, c, &c.date)?.ok()?;
+    let chosen = |key: &str| c.planning.fills.iter().find(|f| c.planning.date == c.date && f.key == key).map(|f| f.fill);
+    let mut out = Vec::new();
+    for o in p.open_rows() {
+        if o.late || !o.problem.is_some_and(Problem::sudden) || o.problem == Some(Problem::Player) {
+            continue;
+        }
+        let t = &p.tours[o.tour];
+        let Some(k) = o.duty else { continue };
+        let d = &t.duties[k];
+        let title = format!("{}  ·  {}", line_title(t, Some(k)), problem_text(c, &p, o.tour, k, o.problem));
+        let now = if d.who.is_some() && chosen(&o.key).is_none() { who_name(c, d.who) } else { omsi_ui::tr("Trips dropped").into_owned() };
+        let mut options = vec![(omsi_ui::tr("As the central has it: %{what}").replace("%{what}", &now), None)];
+        for cv in pl::covers_of_duty(c, &p, o.tour, k) {
+            let (label, note) = cover_text(c, &cv);
+            options.push((if note.is_empty() { label } else { format!("{label}  ·  {note}") }, Some(cv.fill())));
+        }
+        let at = chosen(&o.key).and_then(|f| options.iter().position(|x| x.1 == Some(f))).unwrap_or(0);
+        out.push(MorningRow { key: o.key.clone(), title, options, at });
+    }
+    Some(out)
+}
+
+/// The morning's answer for one thing that fell out (the dispatcher's choice for today).
+pub(super) fn choose(l: &mut Launcher, key: &str, fill: Option<Fill>) {
+    set_fill(l, key.to_string(), fill);
 }
 
 // --- giving --------------------------------------------------------------------------------
