@@ -14,9 +14,10 @@ import { S, set, useStore } from '../../store.js';
 import { Head, Icon, tr } from '../bits.js';
 import { EditorHub } from './hub.js';
 import { TimetablePage } from './timetable.js';
+import { DepotsPage, depotsBack } from './depots.js';
 
 // (our editors' look, after omsihub.css: style sheets of their own, loaded with them)
-for (const sheet of ['editors.css', 'editors-hof.css']) {
+for (const sheet of ['editors.css', 'editors-hof.css', 'editors-depots.css']) {
   if (document.querySelector(`link[data-ed-css="${sheet}"]`)) continue;
   const l = document.createElement('link');
   l.rel = 'stylesheet';
@@ -33,13 +34,8 @@ S.ed = S.ed || {};
 export const EDITORS = {
   editor: { name: 'Editor', icon: 'construction', title: 'Editor', sub: 'Make the map your own: lines of your own, liveries, the timetable and the map\'s objects.', View: EditorHub, back: () => 'drive' },
   timetable: { name: 'Timetable', icon: 'schedule', title: 'Timetable', sub: "A map's lines: their tours and when each trip leaves. Saved as the line's .ttl (in the content folder; OMSI 2's own files stay as they are).", View: TimetablePage, back: () => 'drive' },
+  depots: { name: 'Depot editor', icon: 'departure_board', title: 'Depot editor', sub: "Your own depot files: the destinations and what every display shows, the IBIS's stops and routes, special and service trips. A line chooses one, and every bus that drives it gets it.", View: DepotsPage, back: depotsBack },
 };
-
-/** Register a page of the editors (the later files of this folder: the line, depot and livery
- * editors), as `EDITORS` has them. */
-export function addEditor(id, page) {
-  EDITORS[id] = page;
-}
 
 /** The page `OMSI_LAUNCHER_PAGE` names, if it is an editor's ("Timetable", "line editor"...). */
 export function editorOf(name) {

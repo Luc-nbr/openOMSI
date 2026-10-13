@@ -196,6 +196,8 @@ fn serve(rx: std::sync::mpsc::Receiver<Value>, reply: Reply) {
                 });
             }
             "quit" => break,
+            // Omsi-Hub: the desktop launcher's editors (`omsi_launcher_ui::hub_service`)
+            other if omsi_launcher_ui::hub_service::serve(other, &req, { let (out, id) = (reply.clone(), id.clone()); Arc::new(move |h, b| out(&id, h, &b)) }, &mut renderer, &open_renderer) => {}
             other => send(&id, json!({ "ok": false, "error": format!("unknown command {other}") }), &[]),
         }
     }

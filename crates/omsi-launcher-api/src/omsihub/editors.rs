@@ -9,12 +9,14 @@
 //! * `timetable`: the Timetable page - a map's lines, their tours and the trips each runs;
 //! * `hof`: the bus's depot files on the bus step (`hof.rs`): which one the drive takes, how
 //!   each stands to the map, and adding the map's;
+//! * `depots`: the depot editor - depot files of the player's own, the file open kept here;
 //!
 //! `omsihub::call` hands every command it does not know here (one line).
 
 use crate::{Answer, Platform};
 use serde_json::Value;
 
+mod depots;
 mod hof;
 mod timetable;
 
@@ -41,21 +43,26 @@ fn global_of(file: &str) -> std::path::PathBuf {
     omsi_cfg::find_in_roots(file).map(|(_, p)| p).unwrap_or(p)
 }
 
+/// `text` on `bus`'s own destination display in its own font, drawn by the game program
+/// (`hub_service::display`): `{ failed, none, too_wide, font, picture }`, the picture a PNG as a
+/// `data:` address.
+fn display_preview(p: &dyn Platform, bus: &str, text: &str) -> Answer {
+    let (mut head, png) = p.renderer(serde_json::json!({ "cmd": "display_preview", "bus": bus, "text": text }), std::time::Duration::from_secs(30))?;
+    if !png.is_empty() {
+        head["picture"] = Value::String(format!("data:image/png;base64,{}", crate::base64(&png)));
+    }
+    Ok(head)
+}
+
 /// A command of the editors, or None when `cmd` is not one.
 pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
-    if let Some(a) = timetable::call(cmd, args) {
-        return Some(a);
-    }
-    if let Some(a) = hof::call(cmd, args) {
-        return Some(a);
-    }
-    let _ = p;
-    match cmd {
+    timetable::call(cmd, args).or_else(|| hof::call(cmd, args)).or_else(|| depots::call(cmd, args)).or_else(|| match cmd {
+        "hub_display_preview" => Some((|| display_preview(p, &arg::<String>(args, "bus")?, &arg::<String>(args, "text")?))()),
         // (a script error of the page, into the launcher's log: the window has no console)
         "hub_page_error" => Some(arg::<String>(args, "text").map(|t| {
             omsi_launcher_lib::log_to_file(&format!("page: {t}"));
             Value::Null
         })),
         _ => None,
-    }
+    })
 }
