@@ -687,3 +687,8 @@
 
 /* the setting "Animations" off: nothing moves */
 .hub-still *, .hub-still *::before, .hub-still *::after { transition: none !important; animation: none !important; }
+
+/* a view switch (the map step's list or tiles): its chosen half a light, not the accent */
+.hub-seg.quiet { background: none; box-shadow: inset 0 0 0 1px var(--hub-edge); }
+.hub-seg.quiet button.on { background: var(--hub-lift); color: var(--hub-text); }
+:root.hub[data-theme="light"] .hub-seg.quiet button.on { background: rgba(22, 20, 26, 0.09); }

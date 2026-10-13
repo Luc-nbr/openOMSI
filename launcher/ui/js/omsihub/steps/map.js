@@ -99,7 +99,7 @@ export function MapStep() {
       <div style="width:min(1140px,100%);margin:0 auto;display:flex;flex-direction:column;flex:none">
         <${Head} icon="map" title="Maps" sub=${sub} raw=${false} />
         <div class="hub-toolbar">
-          <${Seg} value=${view} options=${[['list', 'List', 'view_list'], ['tiles', 'Tiles', 'grid_view']]} onChange=${keepView} />
+          <${Seg} quiet value=${view} options=${[['list', 'List', 'view_list'], ['tiles', 'Tiles', 'grid_view']]} onChange=${keepView} />
           <div class="search"><${Search} value=${q} onInput=${setQ} placeholder="Search…" /></div>
         </div>
       </div>

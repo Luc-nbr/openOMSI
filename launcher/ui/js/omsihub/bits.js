@@ -68,8 +68,8 @@ export function Chips({ value, options, onChange, raw }) {
 }
 
 /** Segments side by side, one of them chosen. */
-export function Seg({ value, options, onChange, full }) {
-  return html`<div class=${'hub-seg' + (full ? ' full' : '')}>${options.map(([v, l, icon]) => html`<button type="button" class=${v === value ? 'on' : ''} onClick=${() => onChange(v)}>${icon && html`<${Icon} name=${icon} size=${15} />`}${tr(l)}</button>`)}</div>`;
+export function Seg({ value, options, onChange, full, quiet }) {
+  return html`<div class=${'hub-seg' + (full ? ' full' : '') + (quiet ? ' quiet' : '')}>${options.map(([v, l, icon]) => html`<button type="button" class=${v === value ? 'on' : ''} onClick=${() => onChange(v)}>${icon && html`<${Icon} name=${icon} size=${15} />`}${tr(l)}</button>`)}</div>`;
 }
 
 /** A switch: its words on the left, the track on the right. */
