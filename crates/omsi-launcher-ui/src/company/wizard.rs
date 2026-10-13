@@ -1,9 +1,8 @@
 //! Founding a company: its name and short name, its colours (and a logo picture if there is
-//! one), its home map and depot, its first day (its year decides which buses are still
-//! built new), how hard the economy is - with the starting capital each difficulty gives -,
-//! how much of it the player runs himself (the easy mode or the advanced one, each said in a
-//! line: Luc wanted players to get the choice) and, in the advanced mode, how it buys its buses
-//! (the dealer's quick buy, or haggling and contracts).
+//! one), its home map and depot, its game mode - Casual, Normal or Realistic, three large cards
+//! each with its pitch, its starting capital and what it offers (Trello "Game modes 1/4") -,
+//! its first day (its year decides which buses are still built new) and, outside Casual, how
+//! it buys its buses (the dealer's quick buy, or haggling and contracts).
 
 use super::super::theme::*;
 use super::super::ui::ButtonKind;
@@ -12,7 +11,7 @@ use super::kit::{self, Foot};
 use super::{data, eur, section};
 use glam::Vec2;
 use omsi_launcher_lib as core;
-use omsi_launcher_lib::company::{self as co, Difficulty};
+use omsi_launcher_lib::company::{self as co, GameMode};
 use omsi_ui::paint::Align;
 use omsi_ui::{Rect, Weight};
 
@@ -30,24 +29,23 @@ pub struct Wizard {
     /// `date`).
     when: usize,
     date: String,
-    difficulty: usize,
     /// 0 simple, 1 advanced (`dealer::BuyingMode::ALL`).
     buying: usize,
-    /// How much of the company the player runs himself (`co::Mode`).
-    mode: co::Mode,
+    /// The game mode chosen.
+    mode: GameMode,
 }
 
 impl Wizard {
     pub fn new(l: &Launcher) -> Wizard {
         let map = l.state.maps.iter().position(|m| m.file == l.state.choice.map).unwrap_or(0);
-        Wizard { name: String::new(), short: String::new(), colours: [0, 4], logo: None, map, depot: 0, when: 0, date: today(), difficulty: 1, buying: 1, mode: first_mode(l.company.company.as_ref()) }
+        Wizard { name: String::new(), short: String::new(), colours: [0, 4], logo: None, map, depot: 0, when: 0, date: today(), buying: 1, mode: first_mode(l.company.company.as_ref()) }
     }
 }
 
-/// The mode the founding offers first: the open company's (a second company is run as the
-/// player runs the first), the easy one for a player's first company.
-pub(super) fn first_mode(open: Option<&co::Company>) -> co::Mode {
-    open.map_or(co::Mode::Easy, |c| c.mode)
+/// The game mode the founding offers first: the open company's (a second company is run as
+/// the player runs the first), Casual for a player's first company.
+pub(super) fn first_mode(open: Option<&co::Company>) -> GameMode {
+    open.map_or(GameMode::Casual, |c| c.game_mode)
 }
 
 /// What the founding makes of the wizard's choices on `m` (its depot files `depots`, the first
@@ -62,10 +60,9 @@ fn founding(w: &Wizard, m: &core::MapInfo, depots: &[String], date: String) -> c
         map_name: map_label(m),
         depot: depots.get(w.depot).cloned().unwrap_or_default(),
         date,
-        difficulty: Difficulty::ALL[w.difficulty.min(2)],
-        // (the easy mode buys quickly; this is kept for when the company goes advanced)
+        game_mode: w.mode,
+        // (Casual buys quickly; this is kept for when the company leaves Casual)
         buying: co::dealer::BuyingMode::ALL[w.buying.min(1)],
-        mode: w.mode,
     }
 }
 
@@ -138,8 +135,8 @@ pub(super) fn depots_for(map: &core::MapInfo, vehicles: &[core::VehicleInfo]) ->
 
 /// The founding's left column, its rows and gaps: a label's room over its field, the gap after
 /// a field, a colour's label's room, the mark's size and where its words and button lie beside
-/// it, the gap under it and the modes' label's room. A low window has them closer, so that the
-/// modes' cards under them keep their words.
+/// it, the gap under it and the home's label's room (the map and the depot under the mark). A
+/// low window has them closer.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Rows {
     label: f32,
@@ -149,25 +146,25 @@ struct Rows {
     logo_text: f32,
     logo_button: f32,
     after_mark: f32,
-    modes_label: f32,
+    home_label: f32,
 }
 
-/// The least height of a mode's card: its title and four lines of its words.
-const MODE_H: f32 = 120.0;
+/// The height of the home's fields (the map and the depot).
+const HOME_H: f32 = 40.0;
 
 impl Rows {
-    const ROOMY: Rows = Rows { label: 24.0, gap: 16.0, colour_label: 26.0, mark: 68.0, logo_text: 2.0, logo_button: 30.0, after_mark: 22.0, modes_label: 26.0 };
-    const TIGHT: Rows = Rows { label: 22.0, gap: 8.0, colour_label: 22.0, mark: 56.0, logo_text: 0.0, logo_button: 20.0, after_mark: 10.0, modes_label: 22.0 };
+    const ROOMY: Rows = Rows { label: 24.0, gap: 16.0, colour_label: 26.0, mark: 68.0, logo_text: 2.0, logo_button: 30.0, after_mark: 22.0, home_label: 24.0 };
+    const TIGHT: Rows = Rows { label: 22.0, gap: 8.0, colour_label: 22.0, mark: 56.0, logo_text: 0.0, logo_button: 20.0, after_mark: 10.0, home_label: 22.0 };
 
-    /// The height from the column's top down to the modes' cards, with colour swatches `sw`
+    /// The height from the column's top down to the home's fields, with colour swatches `sw`
     /// high.
-    fn above_modes(&self, sw: f32) -> f32 {
-        2.0 * (self.label + 40.0 + self.gap) + 2.0 * (self.colour_label + sw + self.gap) + self.mark + self.after_mark + self.modes_label
+    fn above_home(&self, sw: f32) -> f32 {
+        2.0 * (self.label + 40.0 + self.gap) + 2.0 * (self.colour_label + sw + self.gap) + self.mark + self.after_mark + self.home_label
     }
 
-    /// The rows of a column `h` high: roomy where the modes' cards keep their height under them.
+    /// The rows of a column `h` high: roomy where the home's fields fit under them.
     fn of(h: f32, sw: f32) -> Rows {
-        if h >= Rows::ROOMY.above_modes(sw) + MODE_H {
+        if h >= Rows::ROOMY.above_home(sw) + HOME_H {
             Rows::ROOMY
         } else {
             Rows::TIGHT
@@ -175,17 +172,35 @@ impl Rows {
     }
 }
 
-/// A mode as a card to choose in the founding: its icon, its name and what it means; the one
-/// chosen edged in the accent. Returns whether it was clicked.
-fn mode_card(l: &mut Launcher, id: &str, r: Rect, mode: co::Mode, on: bool) -> bool {
+/// The room the right column keeps under the game modes' cards: the first company day and the
+/// buying, side by side.
+const UNDER_CARDS: f32 = 170.0;
+
+/// A game mode as a large card to choose in the founding (Trello "Game modes 1/4"): its icon
+/// and name, its pitch, its starting capital and what it offers; the one chosen edged and
+/// tinted in the accent. Returns whether it was clicked.
+fn mode_card(l: &mut Launcher, id: &str, r: Rect, mode: GameMode, on: bool) -> bool {
     let clicked = l.ui.row(id, r, false);
+    if on {
+        l.ui.p().rounded(r, RADIUS, accent().alpha(0.08));
+    }
     l.ui.p().rounded_border(r, RADIUS, if on { 2.0 } else { 1.0 }, if on { accent() } else { HAIRLINE });
     let ink = if on { accent_2() } else { TEXT_DIM };
-    l.ui.icon(super::mode_icon(mode), Vec2::new(r.x + 25.0, r.y + 25.0), 20.0, ink);
-    l.ui.text_in(mode.label(), Rect::new(r.x + 44.0, r.y + 13.0, r.w - 58.0, 24.0), kit::HEAD, Weight::Bold, if on { TEXT } else { TEXT_SOFT }, Align::Left);
-    // (its words kept in the card on a low window)
     l.ui.push_clip(Rect::new(r.x, r.y, r.w, (r.h - 6.0).max(0.0)), 0.0);
-    l.ui.paragraph(mode.info(), Vec2::new(r.x + 14.0, r.y + 46.0), r.w - 28.0, kit::NOTE, Weight::Regular, TEXT_SOFT);
+    let x = r.x + 16.0;
+    let w = (r.w - 32.0).max(40.0);
+    l.ui.p().circle(Vec2::new(x + 16.0, r.y + 30.0), 16.0, if on { accent().alpha(0.22) } else { FIELD });
+    l.ui.icon(super::mode_icon(mode), Vec2::new(x + 16.0, r.y + 30.0), 19.0, ink);
+    l.ui.text_in(mode.label(), Rect::new(x + 42.0, r.y + 16.0, w - 42.0, 28.0), kit::TITLE, Weight::Bold, if on { TEXT } else { TEXT_SOFT }, Align::Left);
+    let mut y = r.y + 58.0;
+    y += l.ui.paragraph(mode.pitch(), Vec2::new(x, y), w, kit::BODY, Weight::Medium, TEXT) + 8.0;
+    let capital = omsi_ui::tr("Starting capital %{amount}").replace("%{amount}", &eur(co::economy::rules(mode).start_capital));
+    l.ui.text_in(&capital, Rect::new(x, y, w, 20.0), kit::NOTE, Weight::Bold, LINE, Align::Left);
+    y += 30.0;
+    for b in mode.bullets() {
+        l.ui.icon("check_circle", Vec2::new(x + 8.0, y + 9.0), 15.0, if on { accent_2() } else { TEXT_DIM });
+        y += l.ui.paragraph(b, Vec2::new(x + 24.0, y), w - 24.0, kit::NOTE, Weight::Regular, TEXT_SOFT).max(18.0) + 8.0;
+    }
     l.ui.pop_clip();
     clicked
 }
@@ -265,38 +280,24 @@ pub fn draw(l: &mut Launcher, area: Rect) {
             w.logo = None;
         }
     }
-    // how much of it the player runs himself: the two modes side by side, each with its line
-    let y = y + rows.mark + rows.after_mark;
-    l.ui.label(Rect::new(left.x, y, left.w, 20.0), "How you run the company");
-    let y = y + rows.modes_label;
-    let mw = (left.w - GAP) / 2.0;
-    let mh = (left.bottom() - y).clamp(88.0, 150.0);
-    for (k, m) in co::Mode::ALL.iter().enumerate() {
-        let r = Rect::new(left.x + k as f32 * (mw + GAP), y, mw, mh);
-        if mode_card(l, &format!("company-mode-{k}"), r, *m, w.mode == *m) {
-            w.mode = *m;
-        }
-    }
-    // where and how
-    let rx = area.x + col_w + gap;
-    let right = section(&mut l.ui, Rect::new(rx, top, col_w, h), "Home and difficulty");
-    let mut y = right.y;
+    // where it is at home: the map and the depot (under the mark)
+    let mut y = y + rows.mark + rows.after_mark;
     let maps: Vec<core::MapInfo> = l.state.maps.clone();
     if maps.is_empty() {
-        l.ui.paragraph("No maps found: the company needs a map to be at home on.", Vec2::new(right.x, y), right.w, kit::BODY, Weight::Regular, WARN);
+        l.ui.paragraph("No maps found: the company needs a map to be at home on.", Vec2::new(left.x, y), left.w, kit::BODY, Weight::Regular, WARN);
     } else {
         w.map = w.map.min(maps.len() - 1);
-        l.ui.label(Rect::new(right.x, y, right.w * 0.5, 20.0), "Home map");
-        l.ui.label(Rect::new(right.x + right.w * 0.5 + GAP * 0.5, y, right.w * 0.5 - GAP * 0.5, 20.0), "Depot (the buses' depot file)");
-        y += 24.0;
+        l.ui.label(Rect::new(left.x, y, left.w * 0.5, 20.0), "Home map");
+        l.ui.label(Rect::new(left.x + left.w * 0.5 + GAP * 0.5, y, left.w * 0.5 - GAP * 0.5, 20.0), "Depot (the buses' depot file)");
+        y += rows.home_label;
         let names: Vec<String> = maps.iter().map(map_label).collect();
         let mut m = w.map;
-        if l.ui.select("company-map", Rect::new(right.x, y, right.w * 0.5 - GAP * 0.5, 40.0), &mut m, &names) {
+        if l.ui.select("company-map", Rect::new(left.x, y, left.w * 0.5 - GAP * 0.5, HOME_H), &mut m, &names) {
             w.map = m;
             w.depot = 0;
         }
         let depots = depots_for(&maps[w.map], &l.state.vehicles);
-        let dr = Rect::new(right.x + right.w * 0.5 + GAP * 0.5, y, right.w * 0.5 - GAP * 0.5, 40.0);
+        let dr = Rect::new(left.x + left.w * 0.5 + GAP * 0.5, y, left.w * 0.5 - GAP * 0.5, HOME_H);
         if depots.is_empty() {
             l.ui.text_in("The map has no depot file.", dr, kit::BODY, Weight::Regular, TEXT_SOFT, Align::Left);
         } else {
@@ -306,60 +307,49 @@ pub fn draw(l: &mut Launcher, area: Rect) {
                 w.depot = d;
             }
         }
-        y += 40.0 + 16.0;
-        // the first company day: today, the map's own date, or one of the player's own
-        l.ui.label(Rect::new(right.x, y, right.w, 20.0), "First company day");
-        y += 24.0;
-        let labels: Vec<String> = ["Today", "The map's date", "A date of my own"].iter().map(|s| omsi_ui::tr(s).into_owned()).collect();
-        let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
-        let cw = l.ui.chips_height(right.w, 36.0, &refs);
-        l.ui.chips("company-when", Rect::new(right.x, y, right.w, 36.0), &mut w.when, &refs);
-        y += cw + 10.0;
-        let first = first_day(w.when, maps.get(w.map), &l.state.choice.map, &l.state.choice.date, &w.date);
-        if w.when == 2 {
-            l.ui.date_field("company-date", Rect::new(right.x, y, 220.0, 40.0), &mut w.date);
-            y += 50.0;
-        } else {
-            let t = omsi_ui::tr("The company begins on %{date}.").replace("%{date}", &super::day_label(&first));
-            l.ui.text_in(&t, Rect::new(right.x, y, right.w, 24.0), kit::BODY, Weight::Medium, TEXT, Align::Left);
-            y += 34.0;
-        }
-        y += 4.0;
     }
-    l.ui.label(Rect::new(right.x, y, right.w, 20.0), "Difficulty");
-    y += 26.0;
-    let texts = [
-        "Generous: grants on new buses, more passengers, few breakdowns, loans without interest.",
-        "German city bus prices and wages, contracts with penalties, a margin of a few per cent.",
-        "Tight: prices rise faster than the contract pays, dear loans, more breakdowns and illness.",
-    ];
+    // the game mode: three large cards side by side
+    let rx = area.x + col_w + gap;
+    let right = section(&mut l.ui, Rect::new(rx, top, col_w, h), "Game mode");
     let cw = (right.w - 2.0 * GAP) / 3.0;
-    let ch = (right.bottom() - y - 96.0).clamp(140.0, 210.0);
-    for (k, d) in Difficulty::ALL.iter().enumerate() {
-        let r = Rect::new(right.x + k as f32 * (cw + GAP), y, cw, ch);
-        let on = w.difficulty == k;
-        if l.ui.row(&format!("company-difficulty-{k}"), r, false) {
-            w.difficulty = k;
+    let ch = (right.h - UNDER_CARDS - 16.0).max(200.0);
+    for (k, m) in GameMode::ALL.iter().enumerate() {
+        let r = Rect::new(right.x + k as f32 * (cw + GAP), right.y, cw, ch);
+        if mode_card(l, &format!("company-mode-{k}"), r, *m, w.mode == *m) {
+            w.mode = *m;
         }
-        l.ui.p().rounded_border(r, RADIUS, if on { 2.0 } else { 1.0 }, if on { accent() } else { HAIRLINE });
-        l.ui.text_in(d.label(), Rect::new(r.x + 14.0, r.y + 12.0, r.w - 28.0, 24.0), kit::HEAD, Weight::Bold, if on { TEXT } else { TEXT_SOFT }, Align::Left);
-        let capital = co::economy::rules(*d).start_capital;
-        l.ui.text_in(&eur(capital), Rect::new(r.x + 14.0, r.y + 38.0, r.w - 28.0, 22.0), kit::ROWS, Weight::Bold, LINE, Align::Left);
-        l.ui.paragraph(texts[k], Vec2::new(r.x + 14.0, r.y + 66.0), r.w - 28.0, kit::NOTE, Weight::Regular, TEXT_SOFT);
     }
-    // how it buys its buses (the easy mode: quickly)
-    let y = y + ch + 18.0;
-    l.ui.label(Rect::new(right.x, y, right.w, 20.0), "Buying buses");
-    if w.mode == co::Mode::Easy {
-        l.ui.icon("airport_shuttle", Vec2::new(right.x + 10.0, y + 45.0), 18.0, accent_2());
-        l.ui.paragraph("The easy mode buys at the list price, in one click: the buses are yours at once.", Vec2::new(right.x + 30.0, y + 34.0), right.w - 30.0, kit::NOTE, Weight::Regular, TEXT_SOFT);
+    let note = if w.mode.rules().rosterflow { "Switch the game mode at any time in the company's settings. RosterFlow, the professional scheduling studio, can be switched on there as an add-on." } else { "Switch the game mode at any time in the company's settings: nothing is lost." };
+    let y = right.y + ch + 10.0;
+    let nh = l.ui.paragraph(note, Vec2::new(right.x, y), right.w, kit::NOTE, Weight::Regular, TEXT_DIM);
+    // under them, side by side: the first company day, and how it buys its buses
+    let y = y + nh + 12.0;
+    let half = (right.w - 2.0 * GAP) / 2.0;
+    let bx = right.x + half + 2.0 * GAP;
+    l.ui.label(Rect::new(right.x, y, half, 20.0), "First company day");
+    let labels: Vec<String> = ["Today", "The map's date", "A date of my own"].iter().map(|s| omsi_ui::tr(s).into_owned()).collect();
+    let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+    let chips_h = l.ui.chips_height(half, 34.0, &refs);
+    l.ui.chips("company-when", Rect::new(right.x, y + 24.0, half, 34.0), &mut w.when, &refs);
+    let dy = y + 24.0 + chips_h + 8.0;
+    let first = first_day(w.when, maps.get(w.map), &l.state.choice.map, &l.state.choice.date, &w.date);
+    if w.when == 2 {
+        l.ui.date_field("company-date", Rect::new(right.x, dy, 220.0f32.min(half), 38.0), &mut w.date);
+    } else {
+        let t = omsi_ui::tr("The company begins on %{date}.").replace("%{date}", &super::day_label(&first));
+        l.ui.text_in(&t, Rect::new(right.x, dy, half, 22.0), kit::NOTE, Weight::Medium, TEXT, Align::Left);
+    }
+    // (Casual buys quickly)
+    l.ui.label(Rect::new(bx, y, half, 20.0), "Buying buses");
+    if w.mode.casual() {
+        l.ui.icon("airport_shuttle", Vec2::new(bx + 10.0, y + 36.0), 18.0, accent_2());
+        l.ui.paragraph("Casual buys at the list price, in one click: the buses are yours at once.", Vec2::new(bx + 30.0, y + 26.0), half - 30.0, kit::NOTE, Weight::Regular, TEXT_SOFT);
     } else {
         let modes: Vec<String> = co::dealer::BuyingMode::ALL.iter().map(|m| omsi_ui::tr(m.label()).into_owned()).collect();
         let refs: Vec<&str> = modes.iter().map(String::as_str).collect();
-        let sw = (right.w * 0.4).clamp(200.0, 280.0);
-        l.ui.segmented("company-buying", Rect::new(right.x, y + 26.0, sw, 38.0), &mut w.buying, &refs);
+        l.ui.segmented("company-buying", Rect::new(bx, y + 24.0, half.min(280.0), 36.0), &mut w.buying, &refs);
         let say = if w.buying == 0 { "A model, a number, the list price: the buses are yours at once." } else { "Haggle with the dealer, agree on extras and sign a contract; new buses are delivered." };
-        l.ui.paragraph(say, Vec2::new(right.x + sw + GAP, y + 26.0), right.w - sw - GAP, kit::NOTE, Weight::Regular, TEXT_SOFT);
+        l.ui.paragraph(say, Vec2::new(bx, y + 68.0), half, kit::NOTE, Weight::Regular, TEXT_SOFT);
     }
     // found it
     let by = area.bottom() - 44.0;
@@ -449,21 +439,21 @@ mod tests {
         assert_eq!(first_day(2, None, "", "", "nonsense"), t);
     }
 
-    fn wizard(mode: co::Mode, buying: usize) -> Wizard {
-        Wizard { name: " Stadtbus Grundorf ".into(), short: String::new(), colours: [0, 4], logo: None, map: 0, depot: 0, when: 0, date: today(), difficulty: 1, buying, mode }
+    fn wizard(mode: GameMode, buying: usize) -> Wizard {
+        Wizard { name: " Stadtbus Grundorf ".into(), short: String::new(), colours: [0, 4], logo: None, map: 0, depot: 0, when: 0, date: today(), buying, mode }
     }
 
     #[test]
-    fn the_modes_keep_their_words_in_a_low_window() {
+    fn the_left_column_fits_a_low_window() {
         let sw = 34.0;
-        // a window of 1440 x 900 (the column 553 high): the rows as they always were
-        assert_eq!(Rows::of(553.0, sw), Rows::ROOMY);
-        assert!(553.0 - Rows::ROOMY.above_modes(sw) >= MODE_H);
-        // the lowest the launcher lays out (820 high, the column 473): closer rows, and the
-        // modes' cards still nearly their height
-        let r = Rows::of(473.0, sw);
-        assert_eq!(r, Rows::TIGHT);
-        assert!(473.0 - r.above_modes(sw) >= MODE_H - 8.0, "{}", 473.0 - r.above_modes(sw));
+        // a window of 1440 x 900 (the column 553 high) and the lowest the launcher lays out
+        // (820 high, the column 473): the rows as they always were, the home's fields under them
+        for h in [553.0, 473.0] {
+            assert_eq!(Rows::of(h, sw), Rows::ROOMY);
+            assert!(h - Rows::ROOMY.above_home(sw) >= HOME_H);
+        }
+        // lower still: closer rows
+        assert_eq!(Rows::of(420.0, sw), Rows::TIGHT);
         // the mark's words and its button beside it, one over the other
         for r in [Rows::ROOMY, Rows::TIGHT] {
             assert!(r.logo_button + 36.0 <= r.mark + 0.5 && r.logo_text + 20.0 <= r.logo_button + 0.5, "{r:?}");
@@ -471,21 +461,34 @@ mod tests {
     }
 
     #[test]
-    fn the_founding_takes_the_mode_chosen() {
+    fn the_founding_takes_the_game_mode_chosen() {
         let m = map("maps/Grundorf/global.cfg", "Grundorf");
         let depots = vec!["Grundorf".to_string()];
-        // the easy mode: founded easy, buying quickly, the advanced buying kept for later
-        let f = founding(&wizard(co::Mode::Easy, 1), &m, &depots, "2024-03-04".into());
-        assert_eq!((f.mode, f.buying, f.name.as_str(), f.depot.as_str()), (co::Mode::Easy, co::dealer::BuyingMode::Advanced, "Stadtbus Grundorf", "Grundorf"));
+        // Casual: buying quickly, the advanced buying kept for later, its generous capital
+        let f = founding(&wizard(GameMode::Casual, 1), &m, &depots, "2024-03-04".into());
+        assert_eq!((f.game_mode, f.buying, f.name.as_str(), f.depot.as_str()), (GameMode::Casual, co::dealer::BuyingMode::Advanced, "Stadtbus Grundorf", "Grundorf"));
         let c = co::found(&f, "Luc");
-        assert_eq!((c.mode, c.dealer.mode), (co::Mode::Easy, co::dealer::BuyingMode::Simple));
-        // the advanced mode, as before
-        let f = founding(&wizard(co::Mode::Advanced, 0), &m, &depots, "2024-03-04".into());
-        let c = co::found(&f, "Luc");
-        assert_eq!((c.mode, c.dealer.mode), (co::Mode::Advanced, co::dealer::BuyingMode::Simple));
-        // a first company is offered the easy mode, a second one the mode of the one open
-        assert_eq!(first_mode(None), co::Mode::Easy);
-        assert_eq!(first_mode(Some(&c)), co::Mode::Advanced);
+        assert_eq!((c.game_mode, c.dealer.mode), (GameMode::Casual, co::dealer::BuyingMode::Simple));
+        assert_eq!(c.cash, co::economy::rules(GameMode::Casual).start_capital);
+        // Normal and Realistic: the buying chosen, no RosterFlow until it is switched on
+        for mode in [GameMode::Normal, GameMode::Realistic] {
+            let c = co::found(&founding(&wizard(mode, 0), &m, &depots, "2024-03-04".into()), "Luc");
+            assert_eq!((c.game_mode, c.dealer.mode, c.addons.rosterflow), (mode, co::dealer::BuyingMode::Simple, false));
+        }
+        // a first company is offered Casual, a second one the mode of the one open
+        assert_eq!(first_mode(None), GameMode::Casual);
+        assert_eq!(first_mode(Some(&co::found(&founding(&wizard(GameMode::Realistic, 0), &m, &depots, "2024-03-04".into()), "Luc"))), GameMode::Realistic);
+        // every card's words are translated
+        let mut texts = vec!["Starting capital %{amount}", "Switch the game mode at any time in the company's settings. RosterFlow, the professional scheduling studio, can be switched on there as an add-on.", "Switch the game mode at any time in the company's settings: nothing is lost.", "Casual buys at the list price, in one click: the buses are yours at once."];
+        for m in GameMode::ALL {
+            texts.extend([m.label(), m.pitch(), m.info()]);
+            texts.extend(m.bullets());
+        }
+        for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
+            for t in &texts {
+                assert!(crate::_rust_i18n_try_translate(lang, t).is_some(), "{lang}: {t:?}");
+            }
+        }
     }
 
     #[test]

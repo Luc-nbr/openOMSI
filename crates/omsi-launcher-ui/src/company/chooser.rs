@@ -236,8 +236,8 @@ fn company_tile(l: &mut Launcher, base: Rect, c: &Company) -> Option<bool> {
     // (the mode at the mark's top, its clock's line under it: the two side by side overlapped)
     let line = super::clock::tile_line(c);
     let pill_y = if line.is_some() { mark.y + 2.0 } else { mark.center().y - 11.0 };
-    let pw = super::mode_pill_w(&l.ui, c.mode).min((r.right() - 56.0 - mark.right() - 14.0).max(0.0));
-    super::mode_pill(&mut l.ui, "", Rect::new(mark.right() + 14.0, pill_y, pw, 22.0), c.mode, false);
+    let pw = super::mode_pill_w(&l.ui, c.game_mode).min((r.right() - 56.0 - mark.right() - 14.0).max(0.0));
+    super::mode_pill(&mut l.ui, "", Rect::new(mark.right() + 14.0, pill_y, pw, 22.0), c.game_mode, false);
     let w = r.w - 40.0;
     l.ui.text_in(&c.name, Rect::new(r.x + 20.0, mark.bottom() + 14.0, w, 22.0), 16.0, Weight::Bold, TEXT, Align::Left);
     let map = if c.map_name.is_empty() { super::super::state::short_map(&c.map) } else { c.map_name.clone() };

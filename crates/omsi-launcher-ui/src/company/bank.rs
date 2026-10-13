@@ -291,7 +291,7 @@ pub(super) fn repay_sheet(l: &mut Launcher, c: &Company, id: u32, amount: i64, e
     let fee = fi::early_fee(c, amount);
     let what = if loan.purpose.is_empty() { omsi_ui::tr("Loan").into_owned() } else { loan.purpose.clone() };
     let mut y = inner.y;
-    let fee_label = omsi_ui::tr("Early repayment fee (%{rate})").replace("%{rate}", &percent(fi::early_fee_rate(c.difficulty)));
+    let fee_label = omsi_ui::tr("Early repayment fee (%{rate})").replace("%{rate}", &percent(fi::early_fee_rate(c.game_mode)));
     let list = vec![
         (omsi_ui::tr("Loan").into_owned(), what, None),
         (omsi_ui::tr("Paid back now").into_owned(), eur(amount), None),
@@ -350,7 +350,7 @@ pub(super) fn credit_figure(l: &mut Launcher, r: Rect, c: &Company) -> f32 {
     let rw = r.w - lw - 16.0;
     let mut y = r.y;
     let lines = [
-        (omsi_ui::tr("Base for a %{difficulty} company").replace("%{difficulty}", &omsi_ui::tr(c.difficulty.label()).to_lowercase()), eur(cr.base)),
+        (omsi_ui::tr("Base for a %{difficulty} company").replace("%{difficulty}", &omsi_ui::tr(c.game_mode.label()).to_lowercase()), eur(cr.base)),
         (omsi_ui::tr("%{share} of the fleet's %{value}").replace("%{share}", &percent(cr.share)).replace("%{value}", &eur(cr.fleet_value)), eur((cr.share * cr.fleet_value as f64).round() as i64)),
         (omsi_ui::tr("6 months of the result (%{amount} a month)").replace("%{amount}", &eur(cr.income)), eur(fi::INCOME_MONTHS * cr.income)),
         (omsi_ui::tr("Owed already").into_owned(), format!("- {}", eur(cr.debt))),

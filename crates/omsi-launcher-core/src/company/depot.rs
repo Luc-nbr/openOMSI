@@ -25,7 +25,7 @@ use super::dates;
 use super::day::{DayReport, Note};
 use super::economy;
 use super::market;
-use super::model::{BookingKind, BusSize, Cents, Company, Difficulty, Drive};
+use super::model::{BookingKind, BusSize, Cents, Company, GameMode, Drive};
 use serde::{Deserialize, Serialize};
 
 /// The parts of the depot that are built.
@@ -143,11 +143,11 @@ pub fn step(area: Area, level: u32) -> Step {
 }
 
 /// Building costs against the reference, by difficulty.
-fn cost_factor(d: Difficulty) -> f64 {
+fn cost_factor(d: GameMode) -> f64 {
     match d {
-        Difficulty::Easy => 0.7,
-        Difficulty::Realistic => 1.0,
-        Difficulty::Hard => 1.15,
+        GameMode::Casual => 0.7,
+        GameMode::Normal => 1.0,
+        GameMode::Realistic => 1.15,
     }
 }
 
@@ -355,8 +355,8 @@ pub fn next_cost(c: &Company, area: Area) -> Option<(Cents, i64)> {
         return None;
     }
     let s = step(area, next);
-    let cost = ((s.cost as f64 * cost_factor(c.difficulty) * c.price_index / 100.0).round() as Cents) * 100;
-    let days = if c.difficulty == Difficulty::Easy { (s.days + 1) / 2 } else { s.days };
+    let cost = ((s.cost as f64 * cost_factor(c.game_mode) * c.price_index / 100.0).round() as Cents) * 100;
+    let days = if c.game_mode == GameMode::Casual { (s.days + 1) / 2 } else { s.days };
     Some((cost, days))
 }
 
@@ -753,8 +753,8 @@ mod tests {
     use super::super::{found, Founding};
     use super::*;
 
-    fn company(d: Difficulty, buses: usize) -> Company {
-        let mut c = found(&Founding { name: "Depot".into(), difficulty: d, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+    fn company(d: GameMode, buses: usize) -> Company {
+        let mut c = found(&Founding { name: "Depot".into(), game_mode: d, date: "2024-03-04".into(), ..Default::default() }, "Luc");
         c.cash += 10_000_000_00;
         // (level 2: the workshop may be built - the levels' gates are tested in `market`)
         c.progress.xp = super::super::levels::LEVEL_XP[1];
@@ -776,7 +776,7 @@ mod tests {
 
     #[test]
     fn a_company_starts_with_the_rented_yard_and_its_upkeep_is_nothing() {
-        let c = company(Difficulty::Realistic, 0);
+        let c = company(GameMode::Normal, 0);
         assert_eq!((c.site.spaces(), c.site.bays(), c.site.washes(), c.site.staff_room()), (12, 1, 0, 20));
         assert_eq!(upkeep_month(&c), 0);
         // (an old file without a site reads the same yard)
@@ -786,9 +786,9 @@ mod tests {
 
     #[test]
     fn building_costs_by_difficulty_takes_its_days_and_then_costs_upkeep() {
-        let easy = company(Difficulty::Easy, 0);
-        let hard = company(Difficulty::Hard, 0);
-        let mut c = company(Difficulty::Realistic, 0);
+        let easy = company(GameMode::Casual, 0);
+        let hard = company(GameMode::Realistic, 0);
+        let mut c = company(GameMode::Normal, 0);
         assert_eq!(next_cost(&c, Area::Wash), Some((120_000_00, 21)));
         assert_eq!(next_cost(&easy, Area::Wash), Some((84_000_00, 11)));
         assert_eq!(next_cost(&hard, Area::Wash), Some((138_000_00, 21)));
@@ -812,14 +812,14 @@ mod tests {
         // a top level is the top
         c.site.wash = 2;
         assert_eq!(build(&mut c, Area::Wash), Err("This is as big as it gets."));
-        let mut poor = company(Difficulty::Hard, 0);
+        let mut poor = company(GameMode::Realistic, 0);
         poor.cash = 10;
         assert_eq!(build(&mut poor, Area::Workshop), Err("Not enough cash."));
     }
 
     #[test]
     fn the_yard_limits_the_fleet_and_buses_outside_cost_street_parking() {
-        let mut c = company(Difficulty::Realistic, 12);
+        let mut c = company(GameMode::Normal, 12);
         assert_eq!(outside(&c), 0);
         let bus = MarketBus { file: "Vehicles/Citaro/Citaro.bus".into(), name: "Citaro".into(), ..Default::default() };
         for _ in 0..OUTSIDE_MAX {
@@ -836,7 +836,7 @@ mod tests {
         c.site.parking = 2;
         assert!(room(&c).is_ok());
         // the second hall the levels open: six places under a roof, not in the street
-        let mut hall = company(Difficulty::Realistic, 0);
+        let mut hall = company(GameMode::Normal, 0);
         hall.progress.xp = super::super::levels::LEVEL_XP[2];
         for _ in 0..18 {
             market::buy_new(&mut hall, &bus, Payment::Cash, "").unwrap();
@@ -858,7 +858,7 @@ mod tests {
 
     #[test]
     fn jobs_wait_for_a_free_bay_and_the_bus_is_out_only_while_worked_on() {
-        let mut c = company(Difficulty::Realistic, 3);
+        let mut c = company(GameMode::Normal, 3);
         let ids: Vec<u32> = c.fleet.iter().map(|v| v.id).collect();
         for &id in &ids {
             c.fleet.iter_mut().find(|v| v.id == id).unwrap().condition = 50.0;
@@ -890,7 +890,7 @@ mod tests {
         let jb = c.site.jobs.iter().find(|j| j.id == b).unwrap();
         assert_eq!(jb.started.as_deref(), Some(c.date.as_str()));
         // with two bays both start at once; until the night a job can be taken back
-        let mut two = company(Difficulty::Realistic, 3);
+        let mut two = company(GameMode::Normal, 3);
         two.site.workshop = 2;
         let v: Vec<u32> = two.fleet.iter().map(|v| v.id).collect();
         let s = order(&mut two, v[0], JobKind::Service).unwrap();
@@ -904,7 +904,7 @@ mod tests {
 
     #[test]
     fn a_service_ordered_for_a_bus_in_the_workshop_anyway_is_done_there() {
-        let mut c = company(Difficulty::Realistic, 1);
+        let mut c = company(GameMode::Normal, 1);
         let id = c.fleet[0].id;
         c.fleet[0].condition = 60.0;
         let job = order(&mut c, id, JobKind::Service).unwrap();
@@ -922,7 +922,7 @@ mod tests {
 
     #[test]
     fn buses_over_the_bays_wait_when_our_own_jobs_hold_them() {
-        let mut c = company(Difficulty::Realistic, 2);
+        let mut c = company(GameMode::Normal, 2);
         let (a, b) = (c.fleet[0].id, c.fleet[1].id);
         order(&mut c, a, JobKind::Overhaul).unwrap();
         nights(&mut c, 1);
@@ -939,7 +939,7 @@ mod tests {
 
     #[test]
     fn the_dealers_free_first_service_is_credited_once() {
-        let mut c = company(Difficulty::Realistic, 2);
+        let mut c = company(GameMode::Normal, 2);
         let (a, b) = (c.fleet[0].id, c.fleet[1].id);
         c.dealer.free_services.push(a);
         c.site.workshop = 2;
@@ -957,7 +957,7 @@ mod tests {
 
     #[test]
     fn the_washing_bay_keeps_the_fleet_clean_and_the_tank_saves_on_fuel() {
-        let mut dirty = company(Difficulty::Realistic, 10);
+        let mut dirty = company(GameMode::Normal, 10);
         let mut clean = dirty.clone();
         clean.site.wash = 1;
         nights(&mut dirty, 30);
@@ -965,7 +965,7 @@ mod tests {
         assert!(dirty.site.clean <= 40.0 && clean.site.clean > 90.0, "{} {}", dirty.site.clean, clean.site.clean);
         assert!(clean.reputation > dirty.reputation);
         // fuel: twenty diesel buses, one pump for fifteen of them - a quarter of it outside
-        let mut c = company(Difficulty::Realistic, 0);
+        let mut c = company(GameMode::Normal, 0);
         let bus = MarketBus { file: "Vehicles/Citaro/Citaro.bus".into(), name: "Citaro".into(), ..Default::default() };
         c.site.parking = 2;
         for _ in 0..20 {
@@ -977,7 +977,7 @@ mod tests {
         let n = after_day(&mut c, &date);
         assert_eq!(n.energy_outside, 30_00);
         // and an electric bus without a charger charges outside, dearer still
-        let mut e = company(Difficulty::Realistic, 0);
+        let mut e = company(GameMode::Normal, 0);
         // (electric buses open at level 3)
         e.progress.xp = super::super::levels::LEVEL_XP[2];
         let ebus = MarketBus { file: "Vehicles/E/E.bus".into(), name: "eCitaro".into(), kind: BusKind { size: BusSize::Solo, drive: Drive::Electric }, ..Default::default() };

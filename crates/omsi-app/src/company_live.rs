@@ -166,7 +166,7 @@ mod tests {
             map: c.map.clone(),
             date: c.date.clone(),
             depot: c.depot.clone(),
-            difficulty: c.difficulty,
+            game_mode: c.game_mode,
             tours: vec![
                 LiveTour { line: "Linie5".into(), number: "5".into(), tour: "1".into(), vehicle: Some(3), bus: "Vehicles/X/x.bus".into(), ..Default::default() },
                 LiveTour { line: "Linie5".into(), number: "5".into(), tour: "2".into(), dropped: true, ..Default::default() },

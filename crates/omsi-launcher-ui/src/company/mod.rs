@@ -93,16 +93,17 @@ const RAIL: [&[usize]; 5] = [&[0, INBOX_TAB], &[5, 3, MAP_TAB, 1], &[2], &[4, CO
 /// mode, where nothing of them is lost.
 const EASY_RAIL: [&[usize]; 4] = [&[0, INBOX_TAB], &[3, MAP_TAB, 1], &[2], &[4, 6]];
 
-/// The strip's pages of a mode, grouped.
-fn rail(mode: co::Mode) -> &'static [&'static [usize]] {
-    match mode {
-        co::Mode::Easy => &EASY_RAIL,
-        co::Mode::Advanced => &RAIL,
+/// The strip's pages of a game mode, grouped (Casual's are the easy pages).
+fn rail(mode: co::GameMode) -> &'static [&'static [usize]] {
+    if mode.casual() {
+        &EASY_RAIL
+    } else {
+        &RAIL
     }
 }
 
-/// The pages a mode shows, in the strip's order.
-pub(super) fn pages_of(mode: co::Mode) -> Vec<usize> {
+/// The pages a game mode shows, in the strip's order.
+pub(super) fn pages_of(mode: co::GameMode) -> Vec<usize> {
     rail(mode).iter().flat_map(|g| g.iter().copied()).collect()
 }
 
@@ -146,7 +147,7 @@ pub(super) enum Dialog {
     Dealer,
     /// A bus of the fleet: its livery, a service, selling or giving it back.
     Vehicle { id: u32, livery: usize },
-    /// Something that cannot be undone.
+    /// Something that cannot be undone (or a game mode switched: what changes is said).
     Confirm { what: Confirm },
     /// The company's time: every step, the clock's speed, the dispatcher.
     Time,
@@ -168,6 +169,9 @@ pub(super) enum Confirm {
     RemoveLine(String),
     /// The company (by its id) deleted for good.
     DeleteCompany(String),
+    /// The company run in game mode `to` from now on: then page `tab`, or back to the settings
+    /// (with the date they had) when they asked.
+    GameMode { to: co::GameMode, tab: Option<usize>, settings: Option<String> },
 }
 
 pub struct CompanyView {
@@ -511,29 +515,31 @@ pub(super) fn line(ui: &mut Ui, r: Rect, text: &str, px: f32, c: Color) {
     ui.text_in(text, r, px, Weight::Regular, c, Align::Left);
 }
 
-/// A mode's icon: the easy mode's company that runs by itself, the advanced mode's controls.
-pub(super) fn mode_icon(mode: co::Mode) -> &'static str {
+/// A game mode's icon: Casual's company that runs by itself, Normal's controls, Realistic's
+/// professional's badge.
+pub(super) fn mode_icon(mode: co::GameMode) -> &'static str {
     match mode {
-        co::Mode::Easy => "autorenew",
-        co::Mode::Advanced => "tune",
+        co::GameMode::Casual => "autorenew",
+        co::GameMode::Normal => "tune",
+        co::GameMode::Realistic => "badge",
     }
 }
 
 /// How wide a mode's pill is.
-pub(super) fn mode_pill_w(ui: &Ui, mode: co::Mode) -> f32 {
+pub(super) fn mode_pill_w(ui: &Ui, mode: co::GameMode) -> f32 {
     ui.width(&omsi_ui::tr(mode.label()), 12.0, Weight::Bold) + 40.0
 }
 
 /// A company's mode as a small pill (its icon and name; the easy mode in the accent), which a
 /// `click` one answers under the mouse. Returns whether it was clicked.
-pub(super) fn mode_pill(ui: &mut Ui, id: &str, r: Rect, mode: co::Mode, click: bool) -> bool {
+pub(super) fn mode_pill(ui: &mut Ui, id: &str, r: Rect, mode: co::GameMode, click: bool) -> bool {
     let (hover, clicked) = if click {
         let (h, _, c) = ui.interact(super::ui::id_of(id), r);
         (h, c)
     } else {
         (false, false)
     };
-    let easy = mode == co::Mode::Easy;
+    let easy = mode.casual();
     let (fill, ink) = if easy { (accent().alpha(if hover { 0.28 } else { 0.18 }), accent_2()) } else { (if hover { HOVER } else { FIELD }, TEXT_SOFT) };
     ui.p().rounded(r, r.h * 0.5, fill);
     if !easy {
@@ -542,7 +548,7 @@ pub(super) fn mode_pill(ui: &mut Ui, id: &str, r: Rect, mode: co::Mode, click: b
     ui.icon(mode_icon(mode), Vec2::new(r.x + 14.0, r.center().y), 13.0, ink);
     ui.text_in(mode.label(), Rect::new(r.x + 25.0, r.y, r.w - 30.0, r.h), 12.0, Weight::Bold, ink, Align::Left);
     if click {
-        ui.tooltip(r, "How much of the company you run yourself: change it in the company's settings");
+        ui.tooltip(r, "The company's game mode: change it in the company's settings");
     }
     clicked
 }
@@ -826,12 +832,12 @@ fn easy_go(g: kit::Go) -> Option<kit::Go> {
     }
 }
 
-/// Said under a lock the easy mode does not open by itself (a research it does not start).
-pub(super) const NOT_RESEARCHED_BY_ITSELF: &str = "The easy mode does not research this by itself: switch to the advanced mode and start it on its Research page.";
+/// Said under a lock Casual does not open by itself (a research it does not start).
+pub(super) const NOT_RESEARCHED_BY_ITSELF: &str = "Casual does not research this by itself: switch to Normal and start it on its Research page.";
 
 /// Whether the open company's mode shows the page `tab` (the start screen always).
 pub(super) fn shown(l: &Launcher, tab: usize) -> bool {
-    tab == HOME_TAB || l.company.company.as_ref().is_none_or(|c| pages_of(c.mode).contains(&tab))
+    tab == HOME_TAB || l.company.company.as_ref().is_none_or(|c| pages_of(c.game_mode).contains(&tab))
 }
 
 /// Where a popup's second button goes (in the easy mode, a way to the planning goes to the
@@ -878,9 +884,9 @@ fn go(l: &mut Launcher, g: kit::Go) {
         Go::Training => people::to_courses(l),
         Go::Licences => people::to_training(l),
         Go::Research => l.company.tab = RESEARCH_TAB,
-        Go::Advanced(tab) => {
-            settings::set_mode(l, co::Mode::Advanced);
-            l.company.tab = tab;
+        Go::ToNormal(tab) => {
+            // (asked first: what changes is said)
+            l.company.dialog = Some(Dialog::Confirm { what: Confirm::GameMode { to: co::GameMode::Normal, tab: Some(tab), settings: None } });
         }
     }
 }
@@ -1064,7 +1070,7 @@ pub fn screen(l: &mut Launcher) {
             // (the name on one line, its mode after it - a click opens the settings, where it
             // is changed - and the pill of cash, trophies and reputation beside them, Luc's style
             // for the top bar)
-            let pw = mode_pill_w(&l.ui, c.mode);
+            let pw = mode_pill_w(&l.ui, c.game_mode);
             let name_w = (l.ui.width(&c.name, 19.0, Weight::Bold) + 4.0).min((tw * 0.36).max(40.0));
             let name_r = Rect::new(mark.right() + 14.0, 23.0, name_w, 26.0);
             l.ui.text_in(&c.name, name_r, 19.0, Weight::Bold, TEXT, Align::Left);
@@ -1073,7 +1079,7 @@ pub fn screen(l: &mut Launcher) {
             let mut px = name_r.right() + 20.0;
             if pill.right() <= right {
                 super::tour::anchor("company-mode", pill);
-                if mode_pill(&mut l.ui, "company-mode-pill", pill, c.mode, true) {
+                if mode_pill(&mut l.ui, "company-mode-pill", pill, c.game_mode, true) {
                     let date = c.date.clone();
                     l.company.dialog = Some(Dialog::Settings { date });
                 }
@@ -1171,7 +1177,7 @@ fn back_home(l: &mut Launcher, esc: bool) {
 /// Where the company is at home: its map, its depot and how hard its economy is.
 fn home_of(c: &Company) -> String {
     let map = if c.map_name.is_empty() { super::state::short_map(&c.map) } else { c.map_name.clone() };
-    format!("{}  ·  {}  ·  {}", map, c.depot, omsi_ui::tr(c.difficulty.label()))
+    format!("{}  ·  {}  ·  {}", map, c.depot, omsi_ui::tr(c.game_mode.label()))
 }
 
 /// What the company has, under its name: its cash, its trophies and its reputation, each a
@@ -1209,7 +1215,7 @@ fn status(l: &mut Launcher, r: Rect, c: &Company) -> f32 {
     for ((icon, value, icon_c, text_c, tip, tab), w) in items.into_iter().zip(widths).take(n) {
         let hit = Rect::new(x - gap * 0.5 + 2.0, pill.y + 3.0, w + gap - 4.0, h - 6.0);
         let (hover, _, clicked) = l.ui.interact(super::ui::id_of(&format!("company-status-{icon}")), hit);
-        let (hover, clicked) = if pages_of(c.mode).contains(&tab) { (hover, clicked) } else { (false, false) };
+        let (hover, clicked) = if pages_of(c.game_mode).contains(&tab) { (hover, clicked) } else { (false, false) };
         if hover {
             l.ui.p().rounded(hit, hit.h * 0.5, Color::WHITE.alpha(0.06));
         }
@@ -1239,7 +1245,7 @@ fn nav(l: &mut Launcher, r: Rect, c: &Company) {
     let gap = 4.0;
     let group_gap = 17.0;
     // (the mode's pages: the easy mode has fewer)
-    let groups = self::rail(c.mode);
+    let groups = self::rail(c.game_mode);
     let count: usize = groups.iter().map(|g| g.len()).sum();
     let rail_w = count as f32 * side + (count - groups.len()) as f32 * gap + (groups.len() - 1) as f32 * group_gap;
     let x0 = r.right() - rail_w;
@@ -1319,7 +1325,7 @@ fn strip(l: &mut Launcher, area: Rect) -> Rect {
             l.company.tab = HOME_TAB;
         }
         // (the mode's pages, and the one open when it is none of them)
-        let mut tabs = pages_of(c.mode);
+        let mut tabs = pages_of(c.game_mode);
         if !tabs.contains(&l.company.tab) && l.company.tab < TABS.len() {
             tabs.push(l.company.tab);
         }
@@ -1434,7 +1440,7 @@ fn confirm_dialog(l: &mut Launcher, what: Confirm) {
                     l.company.dialog = None;
                     return;
                 };
-                let r = co::economy::rules(c.difficulty);
+                let r = co::economy::rules(c.game_mode);
                 let mut text = omsi_ui::tr("%{name} works %{days} more days (the notice) and then leaves.").replace("%{name}", &e.name).replace("%{days}", &r.notice_days.to_string());
                 if r.severance_months_per_year > 0.0 {
                     text.push(' ');
@@ -1454,15 +1460,19 @@ fn confirm_dialog(l: &mut Launcher, what: Confirm) {
                     "Delete for good",
                 )
             }
+            Confirm::GameMode { to, .. } => (omsi_ui::tr("Switch to %{mode}?").replace("%{mode}", &omsi_ui::tr(to.label())), settings::switch_text(c, *to), "Switch mode"),
         }
     };
+    // (a game mode is no harm done: its own look, and back to the settings when it came from them)
+    let switching = if let Confirm::GameMode { to, settings, .. } = &what { Some((*to, settings.clone())) } else { None };
     let h = 70.0 + l.ui.paragraph_height(&text, 520.0 - 56.0, kit::BODY, Weight::Regular) + 24.0 + kit::BUTTON_H + 24.0;
-    let f = kit::frame(l, 560.0, h.max(220.0), "warning", &title);
+    let icon = switching.as_ref().map_or("warning", |s| mode_icon(s.0));
+    let f = kit::frame(l, 560.0, h.max(220.0), icon, &title);
     l.ui.paragraph(&text, Vec2::new(f.body.x, f.body.y), f.body.w, kit::BODY, Weight::Regular, TEXT_SOFT);
     let mut foot = kit::Foot::new(&f);
-    let yes = foot.right(l, "company-confirm-yes", button, None, ButtonKind::Danger);
+    let yes = foot.right(l, "company-confirm-yes", button, None, if switching.is_some() { ButtonKind::Primary } else { ButtonKind::Danger });
     if foot.right(l, "company-confirm-no", "Cancel", None, ButtonKind::Normal) || f.close {
-        l.company.dialog = None;
+        l.company.dialog = switching.and_then(|s| s.1).map(|date| Dialog::Settings { date });
         return;
     }
     if yes {
@@ -1485,6 +1495,13 @@ fn confirm_dialog(l: &mut Launcher, what: Confirm) {
                 });
             }
             Confirm::DeleteCompany(id) => delete_company(l, &id),
+            Confirm::GameMode { to, tab, settings } => {
+                settings::set_mode(l, to);
+                if let Some(tab) = tab {
+                    l.company.tab = tab;
+                }
+                l.company.dialog = settings.map(|date| Dialog::Settings { date });
+            }
         }
     }
 }
@@ -1948,10 +1965,12 @@ mod tests {
 
     #[test]
     fn each_mode_shows_its_own_pages() {
-        // the advanced mode: every page, as the strip has always had them
-        assert_eq!(pages_of(co::Mode::Advanced), RAIL.iter().flat_map(|g| g.iter().copied()).collect::<Vec<_>>());
-        // the easy mode: what a player who runs buses looks at; what runs by itself is left out
-        let easy = pages_of(co::Mode::Easy);
+        // Normal and Realistic: every page, as the strip has always had them
+        for m in [co::GameMode::Normal, co::GameMode::Realistic] {
+            assert_eq!(pages_of(m), RAIL.iter().flat_map(|g| g.iter().copied()).collect::<Vec<_>>());
+        }
+        // Casual: what a player who runs buses looks at; what runs by itself is left out
+        let easy = pages_of(co::GameMode::Casual);
         assert_eq!(easy, vec![0, INBOX_TAB, 3, MAP_TAB, 1, 2, 4, 6]);
         for hidden in [5, DEPOT_TAB, CONCESSIONS_TAB, RESEARCH_TAB, WORKSHOP_TAB, CONTRACTS_TAB] {
             assert!(!easy.contains(&hidden), "{}", TABS[hidden]);
@@ -1963,9 +1982,9 @@ mod tests {
         }
         assert_eq!((easy_go(Go::Planning), easy_go(Go::Training), easy_go(Go::Dealer)), (None, Some(Go::Courses), Some(Go::Dealer)));
         // nor to the depot or the research, which it builds and starts by itself; a popup that
-        // needs them offers the advanced mode instead
+        // needs them offers Normal instead
         assert_eq!((easy_go(Go::Depot), easy_go(Go::Research), easy_go(Go::Licences)), (None, None, None));
-        assert_eq!(easy_go(Go::Advanced(DEPOT_TAB)), Some(Go::Advanced(DEPOT_TAB)));
+        assert_eq!(easy_go(Go::ToNormal(DEPOT_TAB)), Some(Go::ToNormal(DEPOT_TAB)));
     }
 
     #[test]

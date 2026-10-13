@@ -18,7 +18,7 @@ use omsi_ui::{Color, Rect, Weight};
 /// timetable is not read yet, or the line has no tour today).
 pub(super) fn base_passengers(l: &Launcher, c: &Company, line: &CompanyLine) -> Option<f64> {
     let plan = l.company.plan.as_ref()?;
-    let r = co::economy::rules(c.difficulty);
+    let r = co::economy::rules(c.game_mode);
     let mood = 0.85 + 0.3 * c.reputation / 100.0;
     let mut sum = 0.0;
     let mut any = false;

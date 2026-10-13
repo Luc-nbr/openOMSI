@@ -279,7 +279,7 @@ impl Stop {
             Done => ("Guided tour", "Ready to go", "This question mark shows the tour again. Have a good ride!"),
             Goodbye => ("Guided tour", "Ready to go", "That's the tour. Have a good ride!"),
             CoWelcome => ("Bus company", "Your own bus company", "Here you run a transport company on one of your maps: buy buses, hire drivers, take on lines or make your own. It runs in a time of its own, and what you drive yourself counts for it."),
-            CoFound => ("Bus company", "Found it first", "Give the company a name, its colours, its home map with a depot and how hard its economy is. Once it runs, this tour shows you round its pages."),
+            CoFound => ("Bus company", "Found it first", "Give the company a name, its colours, its home map with a depot and its game mode: Casual, Normal or Realistic. Once it runs, this tour shows you round its pages."),
             CoClock => ("Its time", "The company's own clock", "The company runs in a time of its own: let it run here, or jump on to the morning, to tomorrow or by days. At midnight the day is closed: the tours are run and the money is booked."),
             CoTabs => ("Its start screen", "Every part a tile", "Each part of the company has a tile here, grouped by theme, with what matters there now. A badge says where something waits: unread messages, tours without a driver."),
             CoStatus => ("Its start screen", "Cash, trophies, reputation", "Under the company's name, always in view: its cash, the trophies earned with goals and contracts, and its reputation. A click opens the page about it."),
@@ -296,7 +296,7 @@ impl Stop {
             CoEasyNext => ("Its start screen", "What to do next", "Your company in the easy mode, step by step: a line, buses, drivers, letting the time run and a duty of your own. The step to do now has its button; a step done gets its tick."),
             CoEasyTiles => ("Its start screen", "Its pages as tiles", "Every page of the easy mode is a tile, with what matters there now. A badge says where something waits; under the tiles are the dealer, a new line, a loan and the settings."),
             CoEasyDeeds => ("Its start screen", "Done by the company itself", "Every morning the company fills its roster, every night it hires, trains, repairs, researches and builds parking where it is needed. What it did is told here, the newest first."),
-            CoEasyMode => ("Its start screen", "The easy mode", "The company sees to its routine by itself: no planning, no auctions, no workshop to run. A click here opens the settings, where the advanced mode shows every page with nothing lost."),
+            CoEasyMode => ("Its start screen", "Casual", "The company sees to its routine by itself: no planning, no auctions, no workshop to run. A click here opens the settings, where Normal or Realistic shows every page with nothing lost."),
             CoEasyStatus => ("Its start screen", "Cash, trophies, reputation", "Under the company's name, always in view: its cash, the trophies earned with goals, and its reputation. The company spends the trophies on research by itself."),
             CoEasyFleet => ("Fleet", "Buses and the dealer", "Your buses with their condition and their livery. At the dealer you buy new or used ones at the list price, lease or rent them; worn buses go to the workshop by themselves."),
             CoEasyStaff => ("Staff", "Drivers and the others", "Your employees and the labour market. The company hires the drivers its duties need by itself at night, grants their raises and trains them - or hire them yourself now."),
@@ -3054,7 +3054,7 @@ mod tests {
         // every page it stops on is one the easy mode shows
         for s in &easy {
             if let Place::Company(tab) = s.place() {
-                assert!(tab == super::super::company::HOME_TAB || super::super::company::pages_of(omsi_launcher_lib::company::Mode::Easy).contains(&tab), "{s:?}");
+                assert!(tab == super::super::company::HOME_TAB || super::super::company::pages_of(omsi_launcher_lib::company::GameMode::Casual).contains(&tab), "{s:?}");
             }
         }
         // and no words of the advanced planning

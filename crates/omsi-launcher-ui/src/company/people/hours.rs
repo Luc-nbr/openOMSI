@@ -96,7 +96,7 @@ pub(super) fn schedule(l: &mut Launcher, area: Rect, c: &Company) {
         // (the easy mode does not research it by itself: the way there is the advanced mode)
         let go = if omsi_launcher_lib::company::autopilot::on(c) {
             ph += 6.0 + l.ui.paragraph(super::super::NOT_RESEARCHED_BY_ITSELF, Vec2::new(left.x + 48.0, y + ph + 6.0), left.w - 68.0, kit::NOTE, Weight::Regular, TEXT_DIM);
-            kit::Go::Advanced(super::super::RESEARCH_TAB)
+            kit::Go::ToNormal(super::super::RESEARCH_TAB)
         } else {
             kit::Go::Research
         };

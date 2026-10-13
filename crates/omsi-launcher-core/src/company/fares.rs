@@ -29,7 +29,7 @@
 //! `FAIR` above the association's also costs reputation, a little every day (`reputation_cost`).
 
 use super::economy;
-use super::model::{Cents, Company, CompanyLine, Difficulty};
+use super::model::{Cents, Company, CompanyLine, GameMode};
 use serde::{Deserialize, Serialize};
 
 /// The short-run and the long-run fare elasticity of demand.
@@ -71,7 +71,7 @@ fn round10(c: f64) -> Cents {
 
 /// The association's single ticket (cents).
 pub fn association_fare(c: &Company) -> Cents {
-    round10(economy::rules(c.difficulty).fare as f64 / TICKET_MIX)
+    round10(economy::rules(c.game_mode).fare as f64 / TICKET_MIX)
 }
 
 /// The band a line's fare may be set in (cents): an own line's is wide, a concession's the
@@ -81,8 +81,8 @@ pub fn band(c: &Company, l: &CompanyLine) -> (Cents, Cents) {
     let (lo, hi) = if l.own {
         (0.5, 2.5)
     } else {
-        match c.difficulty {
-            Difficulty::Hard => (0.9, 1.1),
+        match c.game_mode {
+            GameMode::Realistic => (0.9, 1.1),
             _ => (0.8, 1.2),
         }
     };
@@ -103,7 +103,7 @@ pub fn offset(c: &Company, fare: Cents) -> f64 {
 /// What a passenger of the line pays on average (cents): the difficulty's average fare, moved
 /// with the line's single ticket.
 pub fn per_passenger(c: &Company, l: &CompanyLine) -> f64 {
-    economy::rules(c.difficulty).fare as f64 * (1.0 + offset(c, fare_of(c, l)))
+    economy::rules(c.game_mode).fare as f64 * (1.0 + offset(c, fare_of(c, l)))
 }
 
 /// The passengers' share at a fare's offset once they have fully answered it.
@@ -163,7 +163,7 @@ pub fn day(c: &mut Company) {
 pub fn estimate(c: &Company, base_passengers: f64, fare: Cents) -> (f64, f64) {
     let x = offset(c, fare);
     let pax = base_passengers * long_run_share(x);
-    let per = economy::rules(c.difficulty).fare as f64 * (1.0 + x);
+    let per = economy::rules(c.game_mode).fare as f64 * (1.0 + x);
     (pax, pax * per)
 }
 
@@ -172,8 +172,8 @@ mod tests {
     use super::super::{found, Founding};
     use super::*;
 
-    fn company(d: Difficulty) -> Company {
-        let mut c = found(&Founding { name: "Fares".into(), difficulty: d, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+    fn company(d: GameMode) -> Company {
+        let mut c = found(&Founding { name: "Fares".into(), game_mode: d, date: "2024-03-04".into(), ..Default::default() }, "Luc");
         c.lines.push(CompanyLine { name: "Linie5".into(), number: "5".into(), ..Default::default() });
         c.lines.push(CompanyLine { name: "oo_1".into(), number: "1".into(), own: true, ..Default::default() });
         c
@@ -190,7 +190,7 @@ mod tests {
         assert!(long_run_share(0.2) < 1.0 && long_run_share(-0.2) > 1.0);
         assert_eq!(long_run_share(-5.0), MOST);
         // the fares' revenue is highest at p₀/|ε|
-        let c = company(Difficulty::Realistic);
+        let c = company(GameMode::Normal);
         let own = &c.lines[1];
         let best = best_fare(&c, own);
         let rev = |f: Cents| estimate(&c, 1000.0, f).1;
@@ -222,7 +222,7 @@ mod tests {
 
     #[test]
     fn fares_are_set_within_the_band() {
-        let mut c = company(Difficulty::Hard);
+        let mut c = company(GameMode::Realistic);
         let p0 = association_fare(&c);
         // a concession on Hard: ±10 %
         assert_eq!(set_fare(&mut c, "Linie5", p0 * 2), Ok((p0 as f64 * 1.1 / 10.0).round() as Cents * 10));

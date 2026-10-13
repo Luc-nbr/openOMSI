@@ -23,7 +23,7 @@ use super::day::{DayReport, Note};
 use super::depot::JobKind;
 use super::inbox::{self, Kind, Message};
 use super::market;
-use super::model::{BookingKind, BusSize, Cents, Company, Difficulty, Employee, Role, Vehicle};
+use super::model::{BookingKind, BusSize, Cents, Company, GameMode, Employee, Role, Vehicle};
 use super::research;
 use super::rng::Rng;
 use serde::{Deserialize, Serialize};
@@ -257,17 +257,17 @@ pub const DELIVERY: i64 = 16 * 60;
 pub const EXPRESS: Cents = 250_00;
 
 /// Parts' prices against Realistic.
-fn price_factor(d: Difficulty) -> f64 {
+fn price_factor(d: GameMode) -> f64 {
     match d {
-        Difficulty::Easy => 0.85,
-        Difficulty::Realistic => 1.0,
-        Difficulty::Hard => 1.1,
+        GameMode::Casual => 0.85,
+        GameMode::Normal => 1.0,
+        GameMode::Realistic => 1.1,
     }
 }
 
 /// What a part costs at the garage now (its list price).
 pub fn list_price(c: &Company, p: Part) -> Cents {
-    (p.list() as f64 * price_factor(c.difficulty) * c.price_index.max(0.0)).round() as Cents
+    (p.list() as f64 * price_factor(c.game_mode) * c.price_index.max(0.0)).round() as Cents
 }
 
 /// What a part costs the stores now: the list price less the research's discount.
@@ -277,7 +277,7 @@ pub fn price(c: &Company, p: Part) -> Cents {
 
 /// What the immediate delivery costs now.
 pub fn express_fee(c: &Company) -> Cents {
-    (EXPRESS as f64 * price_factor(c.difficulty) * c.price_index.max(0.0)).round() as Cents
+    (EXPRESS as f64 * price_factor(c.game_mode) * c.price_index.max(0.0)).round() as Cents
 }
 
 /// When what is ordered now comes for free: at 16:00 today when ordered before it, else
@@ -721,7 +721,7 @@ mod tests {
         // the research's discount, and the difficulty
         c.research.done.push("parts_1".into());
         assert_eq!(price(&c, Part::Engine), 3_150_00);
-        c.difficulty = Difficulty::Hard;
+        c.game_mode = GameMode::Realistic;
         assert!(list_price(&c, Part::Engine) > 3_500_00);
     }
 

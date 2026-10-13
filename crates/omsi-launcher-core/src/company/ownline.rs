@@ -74,7 +74,7 @@ use super::concessions;
 use super::dates;
 use super::economy;
 use super::market;
-use super::model::{BookingKind, BusKind, BusSize, Cents, Company, CompanyLine, Difficulty, Drive, Vehicle};
+use super::model::{BookingKind, BusKind, BusSize, Cents, Company, CompanyLine, GameMode, Drive, Vehicle};
 use super::network::{PlannedTrip, TourOfDay};
 use super::rng::Rng;
 use crate::lines::{self, LineDesign, PlannedTour, StopRef};
@@ -122,8 +122,8 @@ const REALISTIC: LineCosts = LineCosts {
     demand: 1.0,
 };
 
-/// The costs of a difficulty: Realistic's, about half on Easy, 1.4 times on Hard.
-pub fn costs(d: Difficulty) -> LineCosts {
+/// The costs of a game_mode: Realistic's, about half on Easy, 1.4 times on Hard.
+pub fn costs(d: GameMode) -> LineCosts {
     let scaled = |f: f64, share: f64, demand: f64| {
         let s = |c: Cents| ((c as f64 * f / 10_00 as f64).round() as Cents) * 10_00;
         LineCosts {
@@ -143,9 +143,9 @@ pub fn costs(d: Difficulty) -> LineCosts {
         }
     };
     match d {
-        Difficulty::Easy => scaled(0.5, 0.03, 1.2),
-        Difficulty::Realistic => REALISTIC,
-        Difficulty::Hard => scaled(1.4, 0.09, 0.9),
+        GameMode::Casual => scaled(0.5, 0.03, 1.2),
+        GameMode::Normal => REALISTIC,
+        GameMode::Realistic => scaled(1.4, 0.09, 0.9),
     }
 }
 
@@ -262,10 +262,10 @@ pub fn month_days(kind: ServiceKind, day: usize) -> f64 {
 /// What a school trip of `km` brings: the school authority's contract (indexed as the
 /// authority's payments are; more on Easy, less on Hard).
 pub fn school_trip_pay(c: &Company, km: f64) -> Cents {
-    let d = match c.difficulty {
-        Difficulty::Easy => 1.25,
-        Difficulty::Realistic => 1.0,
-        Difficulty::Hard => 0.85,
+    let d = match c.game_mode {
+        GameMode::Casual => 1.25,
+        GameMode::Normal => 1.0,
+        GameMode::Realistic => 0.85,
     };
     ((SCHOOL_TRIP_BASE as f64 + SCHOOL_TRIP_PER_KM as f64 * km.max(0.0)) * c.contract_index * d).round() as Cents
 }
@@ -710,8 +710,8 @@ pub fn add_depot_runs(c: &Company, tours: &mut [TourOfDay]) {
 
 /// The estimate of `l` for company `c` (`shape` from `shape_of`).
 pub fn estimate(c: &Company, l: &LineDesign, shape: &Shape) -> Estimate {
-    let k = costs(c.difficulty);
-    let r = economy::rules(c.difficulty);
+    let k = costs(c.game_mode);
+    let r = economy::rules(c.game_mode);
     let pi = c.price_index;
     let kind = l.service;
     let mut e = Estimate::default();
@@ -928,8 +928,8 @@ pub fn caption(l: &LineDesign) -> String {
 }
 
 fn plan_of(c: &Company, l: &LineDesign, shape: &Shape) -> OwnPlan {
-    let k = costs(c.difficulty);
-    let f = forecast(l, potential_of(l.service, shape, &k, economy::rules(c.difficulty).fare, l.live_displays));
+    let k = costs(c.game_mode);
+    let f = forecast(l, potential_of(l.service, shape, &k, economy::rules(c.game_mode).fare, l.live_displays));
     let allowed = l.vehicles.sizes();
     let mut per_trip = [[0.0f32; 24]; 3];
     for (d, row) in per_trip.iter_mut().enumerate() {
@@ -1019,7 +1019,7 @@ pub fn change_fee(c: &Company, l: &LineDesign, shape: &Shape) -> Option<Cents> {
     // (against what is approved: a change waiting for its day is)
     let cl = line_of(c, l.id)?;
     let p = cl.pending.as_ref().map(|x| &x.plan).or(cl.plan.as_ref())?;
-    let k = costs(c.difficulty);
+    let k = costs(c.game_mode);
     let mut fee = 0;
     if route_key(l) != p.route {
         let new = shape.stop_ids.iter().filter(|id| !p.stop_ids.contains(id)).count() as Cents;
@@ -1055,7 +1055,7 @@ pub fn map_change_fee(c: &Company, old: &LineDesign, new: &LineDesign) -> Option
     }
     let had: HashSet<i64> = old.directions.iter().flat_map(|d| d.stops.iter().map(|s| s.id)).collect();
     let added: HashSet<i64> = new.directions.iter().flat_map(|d| d.stops.iter().map(|s| s.id)).filter(|id| !had.contains(id)).collect();
-    let k = costs(c.difficulty);
+    let k = costs(c.game_mode);
     let fee = k.change_base + k.info_per_stop * added.len() as Cents;
     Some((fee as f64 * c.price_index).round() as Cents)
 }
@@ -1219,7 +1219,7 @@ pub fn trip_boardings(cl: &CompanyLine, date: &str, minute: i32) -> Option<f64> 
 /// The fare association's share of a line's fares (only the company's own lines are its).
 pub fn association_share(c: &Company, cl: &CompanyLine) -> f64 {
     if cl.own && cl.plan.is_some() {
-        costs(c.difficulty).association_share
+        costs(c.game_mode).association_share
     } else {
         0.0
     }
@@ -1227,7 +1227,7 @@ pub fn association_share(c: &Company, cl: &CompanyLine) -> f64 {
 
 /// On a month's last day: the stop fees of the own lines.
 pub fn month_end(c: &mut Company) {
-    let k = costs(c.difficulty);
+    let k = costs(c.game_mode);
     let fees: Vec<(String, Cents)> = c.lines.iter().filter_map(|l| l.plan.as_ref().map(|p| (l.number.clone(), (k.stop_fee as f64 * p.stops as f64 * c.price_index).round() as Cents))).collect();
     for (n, fee) in fees {
         c.book(BookingKind::Concession, -fee, format!("Line {n}: stop fees"), false);
@@ -1334,13 +1334,13 @@ mod tests {
         LineDesign { id: 9, number: "9".into(), name: "Ring".into(), ai_group: "Busse".into(), directions: vec![dir(false), dir(true)], days: vec![p(31), p(32), p(192)], ..Default::default() }
     }
 
-    fn company(d: Difficulty) -> Company {
-        found(&Founding { name: "Stadtbus".into(), difficulty: d, date: "2024-05-06".into(), ..Default::default() }, "Luc")
+    fn company(d: GameMode) -> Company {
+        found(&Founding { name: "Stadtbus".into(), game_mode: d, date: "2024-05-06".into(), ..Default::default() }, "Luc")
     }
 
     #[test]
     fn each_kind_of_service_has_its_riders_and_its_money() {
-        let c = company(Difficulty::Realistic);
+        let c = company(GameMode::Normal);
         let mut l = line(20);
         let s = shape_of(&l, &|_| 0);
         // school transport: pupils before eight and after noon, paid per trip by the school
@@ -1350,7 +1350,7 @@ mod tests {
         assert!(school.monthly.iter().any(|x| x.0 == "School contract" && x.1 > 0));
         assert!(!school.monthly.iter().any(|x| x.0 == "Fares" || x.0 == "Payment per km"));
         assert_eq!((school.passengers[1], school.passengers[2], school.tours[1], school.tours[2]), (0.0, 0.0, 0, 0));
-        let f = forecast(&l, potential_of(ServiceKind::School, &s, &costs(Difficulty::Realistic), 110, false));
+        let f = forecast(&l, potential_of(ServiceKind::School, &s, &costs(GameMode::Normal), 110, false));
         assert!(f.riders[0][7] > 100.0 && f.riders[0][10] == 0.0, "{} {}", f.riders[0][7], f.riders[0][10]);
         assert!((month_days(ServiceKind::School, 0) - 190.0 / 12.0).abs() < 1e-9 && month_days(ServiceKind::School, 2) == 0.0);
         // weekend trips: none on working days, a grant per km instead of the authority's money
@@ -1373,7 +1373,7 @@ mod tests {
         assert_eq!(trip_income(ServiceKind::Leisure, 10.0, 5.0, 110.0, 200.0, 0), (16_50, 5_00));
         assert_eq!(trip_income(ServiceKind::OnDemand, 2.0, 5.0, 110.0, 200.0, 0), (5_20, 10_00));
         assert_eq!(school_trip_pay(&c, 10.0), 75_00);
-        assert!(school_trip_pay(&company(Difficulty::Easy), 10.0) > school_trip_pay(&company(Difficulty::Hard), 10.0));
+        assert!(school_trip_pay(&company(GameMode::Casual), 10.0) > school_trip_pay(&company(GameMode::Realistic), 10.0));
         // bookings: a trip nobody rides is never booked, one with two riders mostly
         assert_eq!(booking(0.0).0, 0.0);
         let (p, riders) = booking(2.0);
@@ -1387,7 +1387,7 @@ mod tests {
         assert_eq!(fit_size(BusSize::Double, &[]), BusSize::Double);
         // confirmed, the company keeps its kind and its buses; a weekend line's holiday Monday
         // has Sunday's riders
-        let mut c = company(Difficulty::Realistic);
+        let mut c = company(GameMode::Normal);
         l.service = ServiceKind::Leisure;
         l.days = lines::days_for(ServiceKind::Leisure);
         l.vehicles.classes.push(crate::service::VehicleClass::Coach);
@@ -1400,14 +1400,14 @@ mod tests {
 
     #[test]
     fn the_costs_follow_the_difficulty() {
-        let (e, r, h) = (costs(Difficulty::Easy), costs(Difficulty::Realistic), costs(Difficulty::Hard));
+        let (e, r, h) = (costs(GameMode::Casual), costs(GameMode::Normal), costs(GameMode::Realistic));
         assert_eq!(r.licence_base, 2_000_00);
         assert_eq!(e.licence_base, 1_000_00);
         assert_eq!(h.licence_base, 2_800_00);
         assert!(e.association_share < r.association_share && r.association_share < h.association_share);
         assert!(e.demand > r.demand && r.demand > h.demand);
         // a twenty-stop line of 7.6 km on Realistic: some €20,000-30,000 to start
-        let c = company(Difficulty::Realistic);
+        let c = company(GameMode::Normal);
         let l = line(20);
         let s = shape_of(&l, &|_| 0);
         assert_eq!((s.stops, (s.route_km * 10.0).round()), (20, 76.0));
@@ -1415,15 +1415,15 @@ mod tests {
         assert!((15_000_00..35_000_00).contains(&est.one_off_total()), "{}", est.one_off_total());
         assert!(est.one_off.iter().any(|x| x.0 == "Association entry"));
         // the same line costs less on Easy and more on Hard
-        assert!(estimate(&company(Difficulty::Easy), &l, &s).one_off_total() < est.one_off_total());
-        assert!(estimate(&company(Difficulty::Hard), &l, &s).one_off_total() > est.one_off_total());
+        assert!(estimate(&company(GameMode::Casual), &l, &s).one_off_total() < est.one_off_total());
+        assert!(estimate(&company(GameMode::Realistic), &l, &s).one_off_total() > est.one_off_total());
     }
 
     #[test]
     fn passengers_follow_the_hour_the_stops_and_the_service() {
         let l = line(20);
         let s = shape_of(&l, &|_| 0);
-        let k = costs(Difficulty::Realistic);
+        let k = costs(GameMode::Normal);
         let pot = potential(&s, &k, 110, false);
         assert!((pot - 2200.0).abs() < 1.0, "{pot}");
         let f = forecast(&l, pot);
@@ -1470,7 +1470,7 @@ mod tests {
 
     #[test]
     fn rush_hours_get_more_buses_and_the_auto_size_follows_the_load() {
-        let c = company(Difficulty::Realistic);
+        let c = company(GameMode::Normal);
         let mut l = line(20);
         let flat = estimate(&c, &l, &shape_of(&l, &|_| 0));
         l.days[0].bands = lines::default_bands(0);
@@ -1492,7 +1492,7 @@ mod tests {
     #[test]
     fn a_line_in_service_changes_on_its_day_and_the_roster_follows() {
         use super::super::plan::{self, Who};
-        let mut c = company(Difficulty::Realistic);
+        let mut c = company(GameMode::Normal);
         let l = line(12);
         let s = shape_of(&l, &|_| 0);
         confirm(&mut c, &l, "oo_9", &s).unwrap();
@@ -1533,7 +1533,7 @@ mod tests {
     #[test]
     fn a_line_asks_only_for_the_buses_the_level_opens() {
         use crate::service::VehicleClass;
-        let mut c = company(Difficulty::Realistic);
+        let mut c = company(GameMode::Normal);
         c.progress.xp = 0;
         let mut l = line(12);
         let s = shape_of(&l, &|_| 0);
@@ -1554,7 +1554,7 @@ mod tests {
 
     #[test]
     fn a_line_is_confirmed_paid_and_changed() {
-        let mut c = company(Difficulty::Realistic);
+        let mut c = company(GameMode::Normal);
         let l = line(12);
         let s = shape_of(&l, &|_| 0);
         let cost = estimate(&c, &l, &s).one_off_total();
@@ -1597,7 +1597,7 @@ mod tests {
         month_end(&mut c);
         assert_eq!(cash - c.cash, 25_00 * 13);
         // a line with a public title: its launch is advertised under it, and the company keeps it
-        let mut d = company(Difficulty::Realistic);
+        let mut d = company(GameMode::Normal);
         let titled = LineDesign { id: 10, title: "Shuttleverkehr Altenfeld - Wurzbach".into(), ..line(12) };
         confirm(&mut d, &titled, "oo_10", &shape_of(&titled, &|_| 0)).unwrap();
         assert!(d.ledger.iter().any(|b| b.text.starts_with("Line 9 \"Shuttleverkehr Altenfeld - Wurzbach\": Launch marketing")));
@@ -1606,7 +1606,7 @@ mod tests {
 
     #[test]
     fn the_planning_knows_the_sizes_and_what_the_fleet_lacks() {
-        let mut c = company(Difficulty::Realistic);
+        let mut c = company(GameMode::Normal);
         // (articulated buses: from the second level, researched)
         c.progress.xp = super::super::levels::LEVEL_XP[1];
         c.research.done.push(super::super::research::keys::ARTICULATED.into());
@@ -1653,14 +1653,14 @@ mod tests {
     /// and the map's own line back costs nothing either; the company's line follows it.
     #[test]
     fn a_line_of_the_maps_route_is_approved_anew_when_it_changes() {
-        let mut c = company(Difficulty::Realistic);
+        let mut c = company(GameMode::Normal);
         c.lines.push(CompanyLine { name: "7".into(), number: "7".into(), numbers: vec!["7".into()], ..Default::default() });
         let old = LineDesign { map: Some(Default::default()), colour: lines::MAP_COLOUR.into(), ..line(5) };
         let mut later = old.clone();
         later.days[0].headway = 30.0;
         assert_eq!(map_change_fee(&c, &old, &later), None, "the timetable alone");
         later.directions[0].stops.push(stop(77, "Neubau"));
-        let k = costs(Difficulty::Realistic);
+        let k = costs(GameMode::Normal);
         let fee = map_change_fee(&c, &old, &later).unwrap();
         assert_eq!(fee, ((k.change_base + k.info_per_stop) as f64 * c.price_index).round() as Cents);
         let cash = c.cash;
@@ -1677,7 +1677,7 @@ mod tests {
 
     #[test]
     fn a_timetable_to_come_gives_the_planning_its_tours() {
-        let mut c = company(Difficulty::Realistic);
+        let mut c = company(GameMode::Normal);
         let l = line(12);
         let s = shape_of(&l, &|_| 0);
         confirm(&mut c, &l, "oo_9", &s).unwrap();
@@ -1708,7 +1708,7 @@ mod tests {
 
     #[test]
     fn a_ring_lines_tours_go_round_and_change_drivers_at_its_start() {
-        let mut c = company(Difficulty::Realistic);
+        let mut c = company(GameMode::Normal);
         // one loop of 12 stops, from Stop 0 round to Stop 0, every 15 minutes all day
         let mut l = line(12);
         l.directions.truncate(1);

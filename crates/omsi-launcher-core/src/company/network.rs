@@ -6,7 +6,7 @@
 
 use super::dates;
 use super::economy;
-use super::model::{BusSize, Cents, Company, CompanyLine, Difficulty, LEGACY_SERVICE};
+use super::model::{BusSize, Cents, Company, CompanyLine, GameMode, LEGACY_SERVICE};
 use super::staff::{DUTY_MAX, SPLIT_PAUSE};
 use crate::lines::OwnLine;
 use crate::LineInfo;
@@ -191,11 +191,11 @@ pub fn stop_service(c: &mut Company, name: &str) -> Result<(), &'static str> {
 /// The days of grace a concession line has to start its service, and the share of the
 /// authority's payment for its kilometres charged for every day after them it does not run
 /// (None: never charged - Easy).
-pub fn start_grace(d: Difficulty) -> Option<(i64, f64)> {
+pub fn start_grace(d: GameMode) -> Option<(i64, f64)> {
     match d {
-        Difficulty::Easy => None,
-        Difficulty::Realistic => Some((7, 0.2)),
-        Difficulty::Hard => Some((3, 0.35)),
+        GameMode::Casual => None,
+        GameMode::Normal => Some((7, 0.2)),
+        GameMode::Realistic => Some((3, 0.35)),
     }
 }
 
@@ -206,7 +206,7 @@ pub fn late_start(c: &Company, l: &CompanyLine, date: &str) -> Option<(i64, Cent
     if l.own {
         return None;
     }
-    let (grace, share) = start_grace(c.difficulty)?;
+    let (grace, share) = start_grace(c.game_mode)?;
     let end = super::clock::moment(date, 24 * 60 - 1);
     if l.service_from.is_some_and(|s| s == LEGACY_SERVICE || s <= end) {
         return None;
@@ -215,7 +215,7 @@ pub fn late_start(c: &Company, l: &CompanyLine, date: &str) -> Option<(i64, Cent
     if days < grace {
         return None;
     }
-    let r = economy::rules(c.difficulty);
+    let r = economy::rules(c.game_mode);
     let charge = (economy::compensation_per_km(&r, c.reputation, c.contract_index) * l.km * share).round() as Cents;
     (charge > 0).then_some((days, charge))
 }

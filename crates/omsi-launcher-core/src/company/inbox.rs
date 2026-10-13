@@ -686,10 +686,10 @@ pub fn texts() -> Vec<&'static str> {
 mod tests {
     use super::super::{found, Founding};
     use super::*;
-    use crate::company::model::{CompanyLine, Difficulty};
+    use crate::company::model::{CompanyLine, GameMode};
 
     fn company() -> Company {
-        let mut c = found(&Founding { name: "Post".into(), difficulty: Difficulty::Realistic, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+        let mut c = found(&Founding { name: "Post".into(), game_mode: GameMode::Normal, date: "2024-03-04".into(), ..Default::default() }, "Luc");
         c.lines.push(CompanyLine { name: "Linie5".into(), number: "5".into(), added: c.date.clone(), service_from: Some(0), ..Default::default() });
         c
     }

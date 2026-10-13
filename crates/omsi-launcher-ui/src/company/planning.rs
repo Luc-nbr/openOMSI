@@ -63,6 +63,16 @@ pub(super) fn rf_set_view(l: &mut Launcher, view: usize, screen: Option<usize>) 
     }
 }
 
+/// RosterFlow just switched on (the company's settings): the planning opens with its opening,
+/// and its tutorial is offered once it has played.
+pub(super) fn rosterflow_switched_on(l: &mut Launcher) {
+    let p = &mut l.company.planning;
+    p.away();
+    p.rf.tut.offer = true;
+    p.view = rosterflow::VEHICLES;
+    l.company.tab = 5;
+}
+
 /// A drawing of RosterFlow's for the tour's cards (`rf_tutorial::picture`).
 pub(super) fn rf_picture(ui: &mut Ui, which: u8, r: Rect, a: f32, t: Option<f32>) {
     rf_tutorial::picture(ui, which, r, a, t);
@@ -624,12 +634,38 @@ pub(super) fn drive(l: &mut Launcher, _c: &Company, p: &DayPlan, ti: usize, k: u
 
 /// The planning page: RosterFlow and its tabs, with its tutorial over them (`rf_tutorial`: its
 /// "?" menu, its help sheet and a lesson's guide; the page under what they cover gets no mouse).
+/// Without the RosterFlow add-on (`co::autopilot::rosterflow`) it is the day's roster alone:
+/// the week's days, "Clear the day" and "Fill the roster", the Gantt and its lists.
 pub fn draw(l: &mut Launcher, area: Rect) {
     let Some(c) = l.company.company.clone() else { return };
     work(l, &c);
+    if !co::autopilot::rosterflow(&c) {
+        plain_page(l, area, &c);
+        return;
+    }
     let held = rf_tutorial::before(l);
     page(l, area, &c);
     rf_tutorial::after(l, area, held);
+}
+
+/// The planning without RosterFlow: its Roster tab's page alone, without the title bar, the
+/// studio's tabs, the timeplan and the tutorial.
+fn plain_page(l: &mut Launcher, area: Rect, c: &Company) {
+    let under = l.company.planning.edit.is_some().then(|| super::mask(&mut l.ui));
+    let day = l.company.planning.day.min(6);
+    let date = co::dates::add(&c.date, day as i64);
+    l.company.planning.view = rosterflow::ROSTER;
+    l.ui.as_drawn();
+    rf_roster::page(l, area, c, &date);
+    l.ui.end_as_drawn();
+    if l.ui.input.keys.contains(&Key::Escape) {
+        l.company.planning.arm = None;
+        l.company.planning.sel = None;
+    }
+    if let Some(i) = under {
+        l.ui.input = i;
+        plan_edit::draw(l, area, c);
+    }
 }
 
 fn page(l: &mut Launcher, area: Rect, c: &Company) {

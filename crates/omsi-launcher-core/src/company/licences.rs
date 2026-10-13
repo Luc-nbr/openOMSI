@@ -20,7 +20,7 @@
 //! €600, a type training €250.
 
 use super::dates;
-use super::model::{BookingKind, BusKind, BusSize, Cents, Company, Difficulty, Drive, Employee, Licence};
+use super::model::{BookingKind, BusKind, BusSize, Cents, Company, GameMode, Drive, Employee, Licence};
 use super::training::{Course, CourseKind};
 use serde::{Deserialize, Serialize};
 
@@ -147,17 +147,17 @@ pub fn qualified_drivers(c: &Company, kind: BusKind, bus: &str) -> (usize, usize
     (staff.iter().filter(|e| lack(e, kind, Some(bus)).is_none()).count(), staff.len())
 }
 
-fn factor(d: Difficulty) -> f64 {
+fn factor(d: GameMode) -> f64 {
     match d {
-        Difficulty::Easy => 0.7,
-        Difficulty::Realistic => 1.0,
-        Difficulty::Hard => 1.3,
+        GameMode::Casual => 0.7,
+        GameMode::Normal => 1.0,
+        GameMode::Realistic => 1.3,
     }
 }
 
 /// A licence course's cost now (the course's own at founding prices, by difficulty).
 pub fn course_cost(c: &Company, kind: CourseKind) -> Cents {
-    ((kind.spec().cost as f64 * factor(c.difficulty) * c.price_index.max(0.0) / 10_00 as f64).round() as Cents) * 10_00
+    ((kind.spec().cost as f64 * factor(c.game_mode) * c.price_index.max(0.0) / 10_00 as f64).round() as Cents) * 10_00
 }
 
 /// Someone has the course's licence, endorsement or type already.

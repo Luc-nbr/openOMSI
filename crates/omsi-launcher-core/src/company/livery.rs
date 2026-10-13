@@ -12,7 +12,7 @@
 //!   and wears the livery from then on, in the game too (`Vehicle::house_livery`).
 
 use super::depot;
-use super::model::{BookingKind, BusSize, Cents, Company, Difficulty, Vehicle};
+use super::model::{BookingKind, BusSize, Cents, Company, GameMode, Vehicle};
 use serde::{Deserialize, Serialize};
 
 /// A livery of the company's own: its name in the game (the livery studio's `.cti`), the bus
@@ -30,11 +30,11 @@ pub struct Design {
 pub const DESIGN_FEE: Cents = 2_500_00;
 pub const PAINT_BASE: Cents = 4_000_00;
 
-fn factor(d: Difficulty) -> f64 {
+fn factor(d: GameMode) -> f64 {
     match d {
-        Difficulty::Easy => 0.6,
-        Difficulty::Realistic => 1.0,
-        Difficulty::Hard => 1.3,
+        GameMode::Casual => 0.6,
+        GameMode::Normal => 1.0,
+        GameMode::Realistic => 1.3,
     }
 }
 
@@ -55,12 +55,12 @@ fn euros(x: f64) -> Cents {
 
 /// What the design of a new livery costs the company now.
 pub fn design_fee(c: &Company) -> Cents {
-    euros(DESIGN_FEE as f64 * factor(c.difficulty) * c.price_index)
+    euros(DESIGN_FEE as f64 * factor(c.game_mode) * c.price_index)
 }
 
 /// What painting a bus of the fleet in a livery of the company's costs.
 pub fn paint_cost(c: &Company, v: &Vehicle) -> Cents {
-    euros(PAINT_BASE as f64 * size_factor(v.kind.size) * factor(c.difficulty) * c.price_index)
+    euros(PAINT_BASE as f64 * size_factor(v.kind.size) * factor(c.game_mode) * c.price_index)
 }
 
 fn same_file(a: &str, b: &str) -> bool {
@@ -135,8 +135,8 @@ mod tests {
     use super::*;
     use crate::company::model::{BusKind, Drive};
 
-    fn company(d: Difficulty) -> Company {
-        let mut c = found(&Founding { name: "Lack".into(), difficulty: d, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+    fn company(d: GameMode) -> Company {
+        let mut c = found(&Founding { name: "Lack".into(), game_mode: d, date: "2024-03-04".into(), ..Default::default() }, "Luc");
         c.cash += 1_000_000_00;
         let bus = MarketBus { file: "Vehicles/Citaro/Citaro.bus".into(), name: "Citaro".into(), kind: BusKind { size: BusSize::Solo, drive: Drive::Diesel }, ..Default::default() };
         market::buy_new(&mut c, &bus, Payment::Cash, "").unwrap();
@@ -145,10 +145,10 @@ mod tests {
 
     #[test]
     fn a_design_costs_its_fee_and_a_bus_its_painting() {
-        let mut c = company(Difficulty::Realistic);
+        let mut c = company(GameMode::Normal);
         assert_eq!(design_fee(&c), 2_500_00);
         assert_eq!(paint_cost(&c, &c.fleet[0]), 4_000_00);
-        assert!(design_fee(&company(Difficulty::Easy)) < design_fee(&c) && design_fee(&company(Difficulty::Hard)) > design_fee(&c));
+        assert!(design_fee(&company(GameMode::Casual)) < design_fee(&c) && design_fee(&company(GameMode::Realistic)) > design_fee(&c));
         // saved: the fee booked, the design the company's
         let cash = c.cash;
         assert_eq!(save_design(&mut c, " Stadtbus Orange ", "Vehicles/Citaro/Citaro.bus"), Ok(2_500_00));
@@ -168,7 +168,7 @@ mod tests {
 
     #[test]
     fn a_bus_is_painted_in_the_workshop() {
-        let mut c = company(Difficulty::Realistic);
+        let mut c = company(GameMode::Normal);
         let id = c.fleet[0].id;
         save_design(&mut c, "Stadtbus Orange", "Vehicles/Citaro/Citaro.bus").unwrap();
         save_design(&mut c, "Other", "Vehicles/MAN/Lion.bus").unwrap();

@@ -21,7 +21,7 @@ use super::economy;
 use super::finance;
 use super::levels;
 use super::market::{self, MarketBus, Payment};
-use super::model::{BookingKind, BusKind, BusSize, Cents, Company, Difficulty, Drive, Tenure};
+use super::model::{BookingKind, BusKind, BusSize, Cents, Company, GameMode, Drive, Tenure};
 use super::rng::Rng;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -166,7 +166,7 @@ impl Filter {
 
 /// A new bus's list price today.
 pub fn list_price(c: &Company, kind: BusKind) -> Cents {
-    economy::new_price(kind, &economy::rules(c.difficulty), c.price_index)
+    economy::new_price(kind, &economy::rules(c.game_mode), c.price_index)
 }
 
 /// What painting a bus in another livery than its own costs.
@@ -200,11 +200,11 @@ pub struct Terms {
     pub sulk_days: i64,
 }
 
-pub fn terms(d: Difficulty) -> Terms {
+pub fn terms(d: GameMode) -> Terms {
     match d {
-        Difficulty::Easy => Terms { margin: 0.16, used_margin: 0.06, rounds: 7, patience: 1.4, delivery_days: 5, warranty_new: 24, warranty_used: 12, sulk_days: 1 },
-        Difficulty::Realistic => Terms { margin: 0.11, used_margin: 0.05, rounds: 5, patience: 1.0, delivery_days: 5, warranty_new: 24, warranty_used: 6, sulk_days: 2 },
-        Difficulty::Hard => Terms { margin: 0.07, used_margin: 0.04, rounds: 4, patience: 0.75, delivery_days: 5, warranty_new: 12, warranty_used: 3, sulk_days: 4 },
+        GameMode::Casual => Terms { margin: 0.16, used_margin: 0.06, rounds: 7, patience: 1.4, delivery_days: 5, warranty_new: 24, warranty_used: 12, sulk_days: 1 },
+        GameMode::Normal => Terms { margin: 0.11, used_margin: 0.05, rounds: 5, patience: 1.0, delivery_days: 5, warranty_new: 24, warranty_used: 6, sulk_days: 2 },
+        GameMode::Realistic => Terms { margin: 0.07, used_margin: 0.04, rounds: 4, patience: 0.75, delivery_days: 5, warranty_new: 12, warranty_used: 3, sulk_days: 4 },
     }
 }
 
@@ -219,7 +219,7 @@ pub fn delivery_days(c: &Company, key: &str, stock: bool, fast: bool) -> i64 {
     if fast {
         return 0;
     }
-    let working = if stock { 1 } else { terms(c.difficulty).delivery_days.max(1) };
+    let working = if stock { 1 } else { terms(c.game_mode).delivery_days.max(1) };
     calendar_days(&c.date, working)
 }
 
@@ -362,7 +362,7 @@ const OFFER_DAYS: i64 = 5;
 const USED_DAYS: i64 = 4;
 
 fn used_price(c: &Company, kind: BusKind, age: f64, km: f64, condition: f64) -> (Cents, Cents) {
-    let r = economy::rules(c.difficulty);
+    let r = economy::rules(c.game_mode);
     let value = economy::book_value(economy::new_price(kind, &r, c.price_index), age, km, condition);
     (round_to(value as f64 * r.used_markup, 500_00), round_to(value as f64, 100_00))
 }
@@ -386,7 +386,7 @@ fn used_of_day(c: &Company, listings: &[Listing], day: i64) -> Vec<Offer> {
     if pool.is_empty() {
         return Vec::new();
     }
-    let r = economy::rules(c.difficulty);
+    let r = economy::rules(c.game_mode);
     let mut rng = Rng::of(&[&c.id, "used-market"], day);
     let n = (r.used_offers / 2).max(2);
     let date = dates::fmt(day);
@@ -422,8 +422,8 @@ fn offers_of_day(c: &Company, listings: &[Listing], day: i64) -> Vec<Offer> {
     let used = new.clone();
     let mut rng = Rng::of(&[&c.id, "offers"], day);
     let date = dates::fmt(day);
-    let r = economy::rules(c.difficulty);
-    let easy = if c.difficulty == Difficulty::Easy { 0.03 } else { 0.0 };
+    let r = economy::rules(c.game_mode);
+    let easy = if c.game_mode == GameMode::Casual { 0.03 } else { 0.0 };
     let n = rng.int(2, 3);
     let mut out = Vec::new();
     for k in 0..n {
@@ -661,7 +661,7 @@ impl Talk {
 /// (from five a bulk discount, from ten a fleet order's - see `bulk`); more for a customer of
 /// long standing with him (see `Standing`) and a little for the company's reputation and level.
 pub fn room(c: &Company, q: &Quote) -> f64 {
-    let t = terms(c.difficulty);
+    let t = terms(c.game_mode);
     let mut room = if q.used { t.margin * 0.6 + t.used_margin } else { t.margin };
     room *= match (q.kind.drive, q.kind.size) {
         (Drive::Electric, _) => 0.7,
@@ -830,7 +830,7 @@ pub fn open_talk(c: &Company, q: &Quote, now: &str) -> Result<Talk, &'static str
     if let Some(t) = c.dealer.talks.iter().find(|t| t.quote.key == q.key && t.day == day && t.quote.count == q.count) {
         return Ok(t.clone());
     }
-    let t = terms(c.difficulty);
+    let t = terms(c.game_mode);
     let mut rng = Rng::of(&[&c.id, "floor", &q.key], dates::parse(&day).unwrap_or(0));
     let give = room(c, q) * rng.range(0.8, 1.15);
     let floor = round_to(q.list as f64 * (1.0 - give), 100_00).min(q.list);
@@ -921,7 +921,7 @@ pub fn respond(c: &mut Company, talk: &mut Talk, mv: Move, now: &str) -> Reply {
     };
     if !talk.closed {
         if talk.patience <= 0.0 {
-            let until = later(now, terms(c.difficulty).sulk_days * 1440);
+            let until = later(now, terms(c.game_mode).sulk_days * 1440);
             c.dealer.breaks.retain(|b| !b.0.eq_ignore_ascii_case(&talk.quote.maker));
             c.dealer.breaks.push((talk.quote.maker.clone(), until.clone()));
             // (and he remembers it)
@@ -1026,7 +1026,7 @@ impl Contract {
 
     /// A leased bus's monthly rate, the term and its residual value (of the agreed price).
     pub fn lease(&self, c: &Company) -> (Cents, u32, Cents) {
-        let r = economy::rules(c.difficulty);
+        let r = economy::rules(c.game_mode);
         let base = self.price + self.painting + self.quick;
         (economy::lease_monthly(base, &r), r.lease_months, (base as f64 * r.lease_residual).round() as Cents)
     }
@@ -1048,8 +1048,8 @@ impl Contract {
 /// The contract for `count` new buses of a listing at `price` each (from a talk, the list
 /// price, or a special offer from stock).
 pub fn draft_new(c: &Company, l: &Listing, count: u32, price: Cents, extras: &[Extra], livery: &str, stock: Option<&Offer>) -> Contract {
-    let r = economy::rules(c.difficulty);
-    let t = terms(c.difficulty);
+    let r = economy::rules(c.game_mode);
+    let t = terms(c.game_mode);
     let key = format!("new:{}", l.bus.file);
     let fast = extras.contains(&Extra::FastDelivery);
     let painting = if livery.is_empty() || extras.contains(&Extra::Painting) { 0 } else { painting_cost(c) };
@@ -1082,7 +1082,7 @@ pub fn draft_offer(c: &Company, o: &Offer, count: u32, price: Cents, extras: &[E
     if o.is_new() {
         return draft_new(c, &o.listing, count.min(o.count), price, extras, livery, Some(o));
     }
-    let t = terms(c.difficulty);
+    let t = terms(c.game_mode);
     let painting = if livery.is_empty() || extras.contains(&Extra::Painting) { 0 } else { painting_cost(c) };
     // (a demonstrator keeps what is left of its new warranty)
     let base = if o.kind == OfferKind::Demonstrator { t.warranty_new.saturating_sub((o.age_years(&c.date) * 12.0).round() as u32).max(t.warranty_used) } else { t.warranty_used };
@@ -1228,7 +1228,7 @@ pub const CONTRACTS_KEPT: usize = 60;
 
 /// A contract's buses into the fleet, with their warranty and free service. Returns their ids.
 fn deliver(c: &mut Company, k: &Contract) -> Vec<u32> {
-    let r = economy::rules(c.difficulty);
+    let r = economy::rules(c.game_mode);
     let new_value = economy::new_price(k.listing.bus.kind, &r, c.price_index);
     let built = if k.new { c.date.clone() } else { k.built.clone() };
     let mut ids = Vec::new();
@@ -1452,7 +1452,7 @@ pub struct DealerState {
 #[cfg(test)]
 mod delivery_tests {
     use super::*;
-    use crate::company::{found, Difficulty, Founding};
+    use crate::company::{found, GameMode, Founding};
 
     /// A regular delivery takes a working week (from a Monday the next Monday, from a
     /// Thursday the Thursday after; from stock the next working day); a quick one none, for
@@ -1460,9 +1460,9 @@ mod delivery_tests {
     /// goes.
     #[test]
     fn a_bus_comes_in_a_working_week_or_at_once() {
-        for d in Difficulty::ALL {
+        for d in GameMode::ALL {
             // (2024-03-04 is a Monday, 2024-03-07 a Thursday, 2024-03-08 a Friday)
-            let c = found(&Founding { name: "Quick".into(), difficulty: d, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+            let c = found(&Founding { name: "Quick".into(), game_mode: d, date: "2024-03-04".into(), ..Default::default() }, "Luc");
             assert_eq!(delivery_days(&c, "new:x", false, false), 7, "{d:?}");
             assert_eq!(delivery_days(&c, "new:x", true, false), 1);
             assert_eq!(delivery_days(&c, "new:x", false, true), 0);
@@ -1472,7 +1472,7 @@ mod delivery_tests {
             let thursday = Company { date: "2024-03-07".into(), ..c.clone() };
             assert_eq!(delivery_days(&thursday, "new:x", false, false), 7);
         }
-        let c = found(&Founding { name: "Quick".into(), difficulty: Difficulty::Realistic, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+        let c = found(&Founding { name: "Quick".into(), game_mode: GameMode::Normal, date: "2024-03-04".into(), ..Default::default() }, "Luc");
         let mut k = Contract { new: true, list: 300_000_00, price: 280_000_00, count: 2, delivery_days: 2, ..Default::default() };
         set_quick(&c, &mut k, true);
         assert_eq!((k.delivery_days, k.quick), (0, 9_000_00));
@@ -1491,8 +1491,8 @@ mod tests {
     use super::super::{found, Founding};
     use super::*;
 
-    fn company(d: Difficulty, date: &str) -> Company {
-        let mut c = found(&Founding { name: "Stadtbus".into(), short: "SB".into(), difficulty: d, date: date.into(), ..Default::default() }, "Luc");
+    fn company(d: GameMode, date: &str) -> Company {
+        let mut c = found(&Founding { name: "Stadtbus".into(), short: "SB".into(), game_mode: d, date: date.into(), ..Default::default() }, "Luc");
         c.progress.xp = levels::LEVEL_XP[9];
         c
     }
@@ -1523,7 +1523,7 @@ mod tests {
     fn every_bus_is_to_be_had_new_at_any_date() {
         // (no model years: a company of 1985 buys an eCitaro new, and an old one's used ones
         // are of some age)
-        let c = company(Difficulty::Realistic, "1985-06-01");
+        let c = company(GameMode::Normal, "1985-06-01");
         let ls = vec![listing("SD202", "MAN", BusSize::Double, Drive::Diesel), listing("eCitaro", "Mercedes-Benz", BusSize::Solo, Drive::Electric), listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel)];
         let f = Filter::default();
         assert!(ls.iter().all(|l| f.fits(l, &c)));
@@ -1548,7 +1548,7 @@ mod tests {
 
     #[test]
     fn the_offers_change_every_day_and_expire() {
-        let c = company(Difficulty::Realistic, "2024-03-04");
+        let c = company(GameMode::Normal, "2024-03-04");
         let ls = vec![listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel), listing("Lion's City", "MAN", BusSize::Solo, Drive::Diesel), listing("Urbino 18", "Solaris", BusSize::Articulated, Drive::Diesel)];
         let now = now_of(&c);
         let today = day_offers(&c, &ls, &now);
@@ -1594,7 +1594,7 @@ mod tests {
 
     #[test]
     fn haggling_can_bring_the_price_down_but_not_below_the_floor() {
-        let mut c = company(Difficulty::Realistic, "2024-03-04");
+        let mut c = company(GameMode::Normal, "2024-03-04");
         let l = listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel);
         let q = Quote::new_bus(&c, &l, 1);
         assert_eq!(q.list, 280_000_00);
@@ -1611,7 +1611,7 @@ mod tests {
         let again = open_talk(&c, &q, &now_of(&c)).unwrap();
         assert_eq!((again.rounds, again.asking), (t.rounds, t.asking));
         // an offer at the floor is taken or met: the price is never below it
-        let mut c2 = company(Difficulty::Realistic, "2024-03-05");
+        let mut c2 = company(GameMode::Normal, "2024-03-05");
         let q2 = Quote::new_bus(&c2, &l, 1);
         let floor = open_talk(&c2, &q2, &now_of(&c2)).unwrap().floor;
         let (t2, r2) = haggle(&mut c2, &q2, &[Move::Offer(floor), Move::Offer(floor), Move::Offer(floor), Move::Offer(floor), Move::Accept]);
@@ -1619,7 +1619,7 @@ mod tests {
         assert!(t2.asking >= floor && t2.asking <= q2.list);
         assert!(r2.iter().any(|r| matches!(r, Reply::Accepted(_) | Reply::Counter(_) | Reply::LastOffer(_))));
         // the rounds run out: his last word
-        let mut c3 = company(Difficulty::Hard, "2024-03-06");
+        let mut c3 = company(GameMode::Realistic, "2024-03-06");
         let q3 = Quote::new_bus(&c3, &l, 1);
         let (t3, r3) = haggle(&mut c3, &q3, &[Move::AskDiscount; 10]);
         assert!(t3.closed && t3.rounds <= t3.max_rounds);
@@ -1636,7 +1636,7 @@ mod tests {
 
     #[test]
     fn pushing_too_hard_makes_the_dealer_break_off() {
-        let mut c = company(Difficulty::Hard, "2024-03-04");
+        let mut c = company(GameMode::Realistic, "2024-03-04");
         let l = listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel);
         let q = Quote::new_bus(&c, &l, 1);
         let (t, replies) = haggle(&mut c, &q, &[Move::Offer(100_000_00), Move::Offer(100_000_00), Move::Offer(100_000_00)]);
@@ -1657,7 +1657,7 @@ mod tests {
 
     #[test]
     fn one_bus_gets_less_off_than_an_order_and_a_regular_customer_more() {
-        let mut c = company(Difficulty::Realistic, "2024-03-04");
+        let mut c = company(GameMode::Normal, "2024-03-04");
         let l = listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel);
         let at = |c: &Company, n: u32| room(c, &Quote::new_bus(c, &l, n));
         // one bus alone: about half of what three get; five a bulk discount, ten a fleet order's
@@ -1690,7 +1690,7 @@ mod tests {
 
     #[test]
     fn a_company_from_before_gets_its_standing_from_its_contracts() {
-        let mut c = company(Difficulty::Easy, "2024-03-04");
+        let mut c = company(GameMode::Casual, "2024-03-04");
         let l = listing("Lion's City", "MAN", BusSize::Solo, Drive::Diesel);
         let mut k = draft_new(&c, &l, 3, 250_000_00, &[], "", None);
         k.signed_by = "Luc".into();
@@ -1703,7 +1703,7 @@ mod tests {
 
     #[test]
     fn extras_are_granted_from_what_the_dealer_can_give() {
-        let mut c = company(Difficulty::Easy, "2024-03-04");
+        let mut c = company(GameMode::Casual, "2024-03-04");
         let l = listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel);
         let q = Quote::new_bus(&c, &l, 2);
         let now = now_of(&c);
@@ -1729,7 +1729,7 @@ mod tests {
 
     #[test]
     fn a_signed_contract_is_paid_and_its_buses_come_on_their_day() {
-        let mut c = company(Difficulty::Realistic, "2024-03-04");
+        let mut c = company(GameMode::Normal, "2024-03-04");
         let l = listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel);
         let mut k = draft_new(&c, &l, 2, 260_000_00, &[Extra::FreeService], "", None);
         // unsigned: nothing
@@ -1796,7 +1796,7 @@ mod tests {
     #[test]
     fn the_introduction_teaches_two_drivers_the_new_model() {
         use super::super::licences::{qualified_drivers, type_key};
-        let mut c = company(Difficulty::Realistic, "2024-03-04");
+        let mut c = company(GameMode::Normal, "2024-03-04");
         c.cash += 1_000_000_00;
         for k in 0..3 {
             let a = super::super::staff::applicants(&c)[k].clone();
@@ -1824,7 +1824,7 @@ mod tests {
 
     #[test]
     fn an_offer_is_bought_once_and_used_ones_come_at_once() {
-        let mut c = company(Difficulty::Realistic, "2024-03-04");
+        let mut c = company(GameMode::Normal, "2024-03-04");
         let ls = vec![listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel)];
         let now = now_of(&c);
         let used = used_market(&c, &ls, &now);
@@ -1858,7 +1858,7 @@ mod tests {
 
     #[test]
     fn there_is_no_buying_beyond_the_depot() {
-        let mut c = company(Difficulty::Easy, "2024-03-04");
+        let mut c = company(GameMode::Casual, "2024-03-04");
         let l = listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel);
         let cap = c.site.spaces() + levels::extra_places(&c) as usize + super::super::depot::OUTSIDE_MAX;
         assert!(room_for(&c, cap).is_ok() && room_for(&c, cap + 1).is_err());
@@ -1872,7 +1872,7 @@ mod tests {
 
     #[test]
     fn a_test_drive_is_marked_and_ended() {
-        let mut c = company(Difficulty::Realistic, "2024-03-04");
+        let mut c = company(GameMode::Normal, "2024-03-04");
         let now = now_of(&c);
         start_test_drive(&mut c, "Vehicles/Citaro/Citaro.bus", "Citaro", "Red", None, &now);
         assert!(c.dealer.test_drive.is_some());

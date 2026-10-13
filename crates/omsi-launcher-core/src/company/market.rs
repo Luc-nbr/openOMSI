@@ -163,7 +163,7 @@ pub fn used_offers(c: &Company, market: &[MarketBus]) -> Vec<UsedOffer> {
     if market.is_empty() {
         return Vec::new();
     }
-    let r = economy::rules(c.difficulty);
+    let r = economy::rules(c.game_mode);
     let week = dates::week_of(&c.date);
     let mut rng = Rng::of(&[&c.id, "used"], week);
     let mut out = Vec::new();
@@ -225,7 +225,7 @@ fn pay(c: &mut Company, amount: Cents, pay: Payment, what: &str) -> Result<(), &
 
 /// What a new bus costs today, and the grant on it.
 pub fn new_offer(c: &Company, bus: &MarketBus) -> (Cents, Cents) {
-    let r = economy::rules(c.difficulty);
+    let r = economy::rules(c.game_mode);
     let price = economy::new_price(bus.kind, &r, c.price_index);
     (price, economy::grant(bus.kind, price, &r, c.price_index))
 }
@@ -285,14 +285,14 @@ pub fn buy_used(c: &mut Company, offer: &UsedOffer, how: Payment, livery: &str) 
     }
     c.taken.used.push(offer.no);
     c.book(BookingKind::Purchase, -offer.price, format!("{} (used, {:.0} km)", offer.bus.name, offer.km), false);
-    let r = economy::rules(c.difficulty);
+    let r = economy::rules(c.game_mode);
     let new_value = economy::new_price(offer.bus.kind, &r, c.price_index);
     Ok(add_vehicle(c, &offer.bus, offer.built.clone(), offer.km, offer.condition, Tenure::Owned { paid: offer.price, new_value }, livery))
 }
 
 /// What leasing a new bus costs: the monthly rate, the term in months and the residual.
 pub fn lease_offer(c: &Company, bus: &MarketBus) -> (Cents, u32, Cents) {
-    let r = economy::rules(c.difficulty);
+    let r = economy::rules(c.game_mode);
     let price = economy::new_price(bus.kind, &r, c.price_index);
     (economy::lease_monthly(price, &r), r.lease_months, (price as f64 * r.lease_residual).round() as Cents)
 }
@@ -317,7 +317,7 @@ pub fn rent(c: &mut Company, bus: &MarketBus, days: u32, livery: &str) -> Result
     // (the buses ordered from a dealer that come before it goes back need their places)
     super::depot::room_until(c, Some(until.as_str()))?;
     kind_allowed(c, bus.kind)?;
-    let r = economy::rules(c.difficulty);
+    let r = economy::rules(c.game_mode);
     let daily = economy::rent_per_day(bus.kind, &r, c.price_index);
     if days == 0 {
         return Err("Rent it for a day at least.");
@@ -340,7 +340,7 @@ pub fn value_of(c: &Company, v: &Vehicle) -> Cents {
 
 /// What selling or giving back a bus brings (negative: what it costs).
 pub fn sale_offer(c: &Company, v: &Vehicle) -> Cents {
-    let r = economy::rules(c.difficulty);
+    let r = economy::rules(c.game_mode);
     match &v.tenure {
         Tenure::Owned { .. } => economy::sale_price(value_of(c, v), &r),
         // giving a lease back early costs three months' rates
@@ -418,14 +418,14 @@ pub fn set_livery(c: &mut Company, id: u32, livery: &str) {
 
 /// The rules of the company's difficulty (a shorthand for the pages).
 pub fn rules_of(c: &Company) -> Rules {
-    economy::rules(c.difficulty)
+    economy::rules(c.game_mode)
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::{found, Founding};
     use super::*;
-    use crate::company::model::Difficulty;
+    use crate::company::model::GameMode;
 
     pub(crate) fn bus(name: &str, size: BusSize, drive: Drive) -> MarketBus {
         MarketBus { file: format!("Vehicles/{name}/{name}.bus"), name: name.into(), kind: BusKind { size, drive }, paints: vec!["Red".into(), "Blue".into()], default_paint: "Red".into() }
@@ -534,8 +534,8 @@ mod tests {
         }
     }
 
-    fn company(d: Difficulty) -> Company {
-        let mut c = found(&Founding { name: "Stadtbus".into(), short: "SB".into(), difficulty: d, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+    fn company(d: GameMode) -> Company {
+        let mut c = found(&Founding { name: "Stadtbus".into(), short: "SB".into(), game_mode: d, date: "2024-03-04".into(), ..Default::default() }, "Luc");
         // (every kind of bus open: the levels' gates have a test of their own)
         c.progress.xp = super::super::levels::LEVEL_XP[9];
         c.research.done = vec![super::super::research::keys::ARTICULATED.into(), super::super::research::keys::DOUBLE_DECKERS.into()];
@@ -546,7 +546,7 @@ mod tests {
     /// buses open with its levels.
     #[test]
     fn the_company_level_opens_the_bigger_and_electric_buses() {
-        let mut c = found(&Founding { name: "Klein".into(), short: "KL".into(), difficulty: Difficulty::Realistic, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+        let mut c = found(&Founding { name: "Klein".into(), short: "KL".into(), game_mode: GameMode::Normal, date: "2024-03-04".into(), ..Default::default() }, "Luc");
         assert!(buy_new(&mut c, &bus("Citaro", BusSize::Solo, Drive::Diesel), Payment::Cash, "").is_ok());
         assert_eq!(buy_new(&mut c, &bus("Citaro G", BusSize::Articulated, Drive::Diesel), Payment::Cash, ""), Err("Articulated buses open at a higher company level."));
         assert_eq!(lease(&mut c, &bus("eCitaro", BusSize::Solo, Drive::Electric), ""), Err("Electric buses open at a higher company level."));
@@ -560,7 +560,7 @@ mod tests {
 
     #[test]
     fn buying_new_and_used_takes_the_money_and_adds_the_bus() {
-        let mut c = company(Difficulty::Realistic);
+        let mut c = company(GameMode::Normal);
         let cash = c.cash;
         let solo = bus("Citaro", BusSize::Solo, Drive::Diesel);
         let id = buy_new(&mut c, &solo, Payment::Cash, "Blue").unwrap();
@@ -592,7 +592,7 @@ mod tests {
 
     #[test]
     fn without_the_cash_the_bank_may_lend() {
-        let mut c = company(Difficulty::Hard);
+        let mut c = company(GameMode::Realistic);
         let art = bus("Citaro G", BusSize::Articulated, Drive::Electric);
         c.cash = 10_000_00;
         assert_eq!(buy_new(&mut c, &art, Payment::Cash, ""), Err("Not enough cash."));
@@ -608,7 +608,7 @@ mod tests {
 
     #[test]
     fn leasing_renting_and_selling() {
-        let mut c = company(Difficulty::Realistic);
+        let mut c = company(GameMode::Normal);
         let solo = bus("Citaro", BusSize::Solo, Drive::Diesel);
         let cash = c.cash;
         let l = lease(&mut c, &solo, "").unwrap();

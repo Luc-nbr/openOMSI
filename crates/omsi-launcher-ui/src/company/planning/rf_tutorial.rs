@@ -48,6 +48,9 @@ pub(super) struct Tut {
     guide: GuideState,
     /// What the menu and the guide covered last frame: the page gets no mouse there.
     covers: Vec<Rect>,
+    /// RosterFlow was just switched on in the settings: once its opening has played, the
+    /// tour starts (the first time) or the menu offers it.
+    pub(super) offer: bool,
 }
 
 impl Tut {
@@ -493,12 +496,17 @@ fn first_time(l: &mut Launcher) {
         return;
     }
     let profile = l.state.config.profile.clone();
-    if l.company.planning.rf.tut.asked_for.as_deref() == Some(profile.as_str()) {
+    // (switched on just now: offered, the tour itself the first time, else its menu)
+    let offer = std::mem::take(&mut l.company.planning.rf.tut.offer);
+    if !offer && l.company.planning.rf.tut.asked_for.as_deref() == Some(profile.as_str()) {
         return;
     }
     l.company.planning.rf.tut.asked_for = Some(profile.clone());
     let mut s = seen::flow_of(&profile);
     if s.seen {
+        if offer {
+            l.company.planning.rf.tut.menu = true;
+        }
         return;
     }
     s.seen = true;
