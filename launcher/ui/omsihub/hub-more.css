@@ -9,3 +9,35 @@
 :root.hub[data-theme="light"] .hub-best { color: #1f7a48; }
 .hub-best .hub-icon { flex: none; }
 .hub-tile .pic.shot i { display: none; }
+
+/* --- the free drive's start (`freedrive::start_panel`) ---------------------------------------- */
+
+.hub-free { display: flex; flex-direction: column; min-height: 100%; }
+.hub-free .search { margin-bottom: 12px; }
+.hub-fheads { display: flex; justify-content: space-between; padding: 0 14px 0 36px; height: 22px; font-size: 7.7px; font-weight: 700; text-transform: uppercase; color: var(--hub-text-dim); }
+.hub-flist { display: flex; flex-direction: column; gap: 3px; margin: 0 -6px; }
+.hub-frow { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 0 10px; min-height: 37px; padding: 0 14px 0 6px; border-radius: var(--hub-r); background: none; color: var(--hub-text); text-align: left; cursor: pointer; transition: background 0.12s; }
+.hub-frow.tall { min-height: 51px; align-items: start; padding-top: 7px; padding-bottom: 6px; }
+.hub-frow.tall > .hub-radio { margin-top: 3px; }
+.hub-frow.line { grid-template-columns: minmax(0, 1fr) auto; padding-left: 10px; }
+.hub-frow:hover { background: var(--hub-hover); }
+.hub-frow.on { background: var(--hub-accent); color: var(--hub-on-accent); }
+.hub-frow .what { display: flex; flex-direction: column; gap: 5px; min-width: 0; font-size: 10.4px; font-weight: 700; }
+.hub-frow .what.auto { font-weight: 500; }
+.hub-frow .what b { font-size: 10.75px; }
+.hub-frow .dim { font-size: 8.8px; font-weight: 400; color: var(--hub-text-dim); }
+.hub-frow.on .dim { color: inherit; }
+.hub-frow .n { font-size: 10.75px; font-weight: 700; text-align: right; min-width: 44px; }
+.hub-fplates { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.hub-fplates .hub-plate { flex: none; font-weight: 900; }
+.hub-more-n { font-size: 8.8px; font-weight: 700; color: var(--hub-text-soft); }
+.hub-frow.on .hub-more-n { color: inherit; }
+.hub-fnote { margin: 18px 4px 0; color: var(--hub-text-dim); font-size: 10px; line-height: 1.38; }
+.hub-pins { display: flex; gap: 10px; align-items: flex-start; margin-top: auto; padding-top: 14px; color: var(--hub-text-dim); font-size: 9.2px; line-height: 16.6px; }
+.hub-pins .hub-icon { flex: none; margin-top: 1px; }
+.hub-froute-head { display: flex; align-items: center; gap: 10px; height: 32px; margin: 12px 0 12px; }
+.hub-froute-head b { font-size: 10.75px; min-width: 0; }
+/* the start in full, on up to three lines (`freedrive::foot`) */
+.hub-foot.hub-foot-wrap { height: auto; min-height: 46px; align-items: flex-start; padding-top: 13px; padding-bottom: 13px; }
+.hub-foot.hub-foot-wrap > .grow { white-space: normal; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; line-height: 17.3px; }
+.hub-foot.hub-foot-wrap > .hub-icon { margin-top: 2px; }

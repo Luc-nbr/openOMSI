@@ -13,7 +13,7 @@ import { tr } from './bits.js';
 import { Home } from './home.js';
 import { ProfileStep } from './steps/profile.js';
 import { MapStep } from './steps/map.js';
-import { StartStep } from './steps/start.js';
+import { StartStep, freeRoute } from './steps/start.js';
 import { DayStep } from './steps/day.js';
 import { DutyStep } from './steps/duty.js';
 import { BusStep } from './steps/bus.js';
@@ -93,6 +93,8 @@ export async function hubExtras() {
     display_font: more.display_font || null,
     legs: !free && c.composed ? c.legs : [],
     ...(free ? { line: null, tour: null, trip: null, whole_tour: false, entry: c.free ? c.free_entry ?? -1 : c.entry } : {}),
+    // (a free drive along a line the player chose: its route, the bus at its first stop - `freedrive`)
+    ...(free && freeRoute(c) ? { line: c.free_line, free_line: c.free_route, entry: -1 } : {}),
   };
 }
 
