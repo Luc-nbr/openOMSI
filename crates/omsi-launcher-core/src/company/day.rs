@@ -1161,7 +1161,7 @@ mod tests {
         let others: Vec<u32> = c.staff.iter().filter(|e| !drivers.contains(&e.id)).map(|e| e.id).collect();
         let plan = assign(&c, tours.clone(), &[], &[]);
         assert!(plan.tours.iter().flat_map(|t| t.duties.iter()).filter_map(|d| d.driver).all(|id| drivers.contains(&id)));
-        assert_eq!(super::super::plan::agency_max(&c), 1);
+        assert_eq!(super::super::plan::agency_max(&c), 3);
         c.date = "2024-03-31".into();
         for e in c.staff.iter_mut() {
             e.hired = "2024-03-01".into();

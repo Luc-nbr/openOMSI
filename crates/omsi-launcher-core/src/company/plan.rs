@@ -39,9 +39,17 @@ pub const PLAYER: u32 = u32::MAX - 1;
 /// An agency driver's hour, the agency's margin included (founding day's prices).
 pub const AGENCY_HOUR: Cents = 42_00;
 
-/// Agency drivers a day at most: one, and one more for every five drivers on the payroll.
+/// Agency drivers a day at most: two, and one more for every three drivers on the payroll
+/// (testers: "it only allows me to assign 2 agency drivers" - one more for every five was too
+/// few for a small company).
 pub fn agency_max(c: &Company) -> usize {
-    1 + c.staff.iter().filter(|e| staff::drives(e)).count() / 5
+    2 + c.staff.iter().filter(|e| staff::drives(e)).count() / 3
+}
+
+/// The agency drivers a day's plan takes for what fell out or stayed free (those fixed in the
+/// roster are not counted against `agency_max`).
+pub fn agency_used(dp: &DayPlan) -> usize {
+    dp.tours.iter().flat_map(|t| t.duties.iter()).filter(|d| d.who == Some(Who::Agency) && matches!(d.from_, Source::Dispatcher | Source::Central)).count()
 }
 
 // --- the roster ------------------------------------------------------------------------------
@@ -1934,5 +1942,26 @@ mod tests {
         let r = close_day(&mut c, tours, &[]);
         assert_eq!(r.covered, 2);
         assert_eq!(r.trips, 6 + 6);
+    }
+
+    #[test]
+    fn agency_drivers_grow_with_the_staff() {
+        // two for a company without drivers, one more for every three
+        assert_eq!(agency_max(&company(0, 0)), 2);
+        let mut c = quiet(4, 3);
+        assert_eq!(agency_max(&c), 3);
+        assert_eq!(agency_max(&company(0, 9)), 5);
+        // four tours with a bus and nobody planned, an agency driver asked for each: three come
+        c.planning.auto = false;
+        let wd = weekday_of(&c.date);
+        let tours: Vec<TourOfDay> = (0..4).map(|k| tour(&(k + 1).to_string(), 6 * 60 + k as i32 * 5, 2)).collect();
+        for k in 0..4 {
+            let id = c.fleet[k].id;
+            set_bus(&mut c, wd, "Linie5", &(k + 1).to_string(), Some(id));
+            set_fill(&mut c, &duty_key("Linie5", &(k + 1).to_string(), 0), Some(Fill::Agency));
+        }
+        let p = day_plan(&c, &c.date, tours, &[], &[], false);
+        assert_eq!(agency_used(&p), 3);
+        assert_eq!(p.tours.iter().filter(|t| t.duties[0].open()).count(), 1);
     }
 }

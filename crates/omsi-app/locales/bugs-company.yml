@@ -1,0 +1,16 @@
+_version: 2
+# The bus company's fixes from the testers' feedback (Trello): the agency's limit where it is chosen.
+"Agency driver (today %{n} of %{max} - grows with your staff)":
+  de: "Leiharbeitsfahrer (heute %{n} von %{max} – wächst mit Ihrem Personal)"
+  fr: "Chauffeur intérimaire (aujourd'hui %{n} sur %{max} – augmente avec votre personnel)"
+  nl: "Uitzendchauffeur (vandaag %{n} van %{max} – groeit mee met je personeel)"
+  pl: "Kierowca z agencji (dziś %{n} z %{max} – rośnie wraz z personelem)"
+  ru: "Водитель из агентства (сегодня %{n} из %{max} — растёт вместе с персоналом)"
+  uk: "Водій з агенції (сьогодні %{n} з %{max} — зростає разом із персоналом)"
+"No agency driver left today: %{n} of %{max}. The agency sends two, and one more for every three drivers you employ.":
+  de: "Heute kein Leiharbeitsfahrer mehr: %{n} von %{max}. Die Agentur schickt zwei und einen mehr für je drei Fahrer, die Sie beschäftigen."
+  fr: "Plus de chauffeur intérimaire aujourd'hui : %{n} sur %{max}. L'agence en envoie deux, et un de plus pour chaque tranche de trois chauffeurs que vous employez."
+  nl: "Vandaag geen uitzendchauffeur meer: %{n} van %{max}. Het uitzendbureau stuurt er twee, en één meer voor elke drie chauffeurs die je in dienst hebt."
+  pl: "Dziś nie ma już kierowcy z agencji: %{n} z %{max}. Agencja przysyła dwóch i jednego więcej na każdych trzech zatrudnionych kierowców."
+  ru: "Сегодня водителей из агентства больше нет: %{n} из %{max}. Агентство присылает двоих и ещё одного на каждых трёх ваших водителей."
+  uk: "Сьогодні водіїв з агенції більше немає: %{n} з %{max}. Агенція надсилає двох і ще одного на кожних трьох ваших водіїв."

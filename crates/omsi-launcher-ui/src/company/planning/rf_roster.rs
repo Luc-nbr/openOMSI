@@ -1140,6 +1140,13 @@ fn duty_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, ti: usize, k:
         };
         facts.push((s, if late.cover.is_some() { q.warn } else { q.err }));
     }
+    // (the agency sends so many a day: its limit, and why, where agency drivers are chosen)
+    let open_today = p.today && !t.by_player && (d.problem.is_some() || d.who.is_none());
+    let (agency_n, agency_max) = (pl::agency_used(p), pl::agency_max(c));
+    let agency_ok = agency_n < agency_max || (d.who == Some(Who::Agency) && d.from_ != Source::Roster);
+    if open_today && !agency_ok {
+        facts.push((omsi_ui::tr("No agency driver left today: %{n} of %{max}. The agency sends two, and one more for every three drivers you employ.").replace("%{n}", &agency_n.to_string()).replace("%{max}", &agency_max.to_string()), q.warn));
+    }
     let mut y = inner.y;
     l.ui.swatch(Rect::new(inner.x, y + 5.0, 3.0, 14.0), 1.0, line_colour(c, &t.tour.line));
     l.ui.text_in(&line_title(&t, Some(k)), Rect::new(inner.x + 10.0, y, inner.w - 14.0, 24.0), 15.0, Weight::Bold, q.text, Align::Left);
@@ -1163,7 +1170,10 @@ fn duty_panel(l: &mut Launcher, r: Rect, c: &Company, p: &DayPlan, ti: usize, k:
     let mut options: Vec<(String, Option<Fill>, bool)> = Vec::new();
     if p.today && !t.by_player {
         if d.problem.is_some() || d.who.is_none() {
-            options.push((omsi_ui::tr("An agency driver for today").into_owned(), Some(Fill::Agency), true));
+            if agency_ok {
+                let label = omsi_ui::tr("Agency driver (today %{n} of %{max} - grows with your staff)").replace("%{n}", &agency_n.to_string()).replace("%{max}", &agency_max.to_string());
+                options.push((label, Some(Fill::Agency), true));
+            }
             options.push((omsi_ui::tr("Drop its trips today").into_owned(), Some(Fill::Drop), true));
             if fill_now {
                 options.push((omsi_ui::tr("Leave it to the central").into_owned(), None, true));
