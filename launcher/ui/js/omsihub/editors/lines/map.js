@@ -256,9 +256,10 @@ export function LineMap() {
     }
     const hover = L.hover >= 0 ? m.stops[L.hover] : null;
     if (hover) dot(hover.at, LIGHT_DOT, 4.5, LINE);
-    // the names: the ends of the direction and the stop under the mouse
+    // the names: the ends of the direction and the stop under the mouse (none while the table
+    // lies over the map: `map_layer` is not drawn then)
     const labels = [];
-    if (d && d.stops.length) {
+    if (d && d.stops.length && !v.table) {
       labels.push([d.stops_at[0], d.stops[0].name, false]);
       if (d.stops.length > 1) labels.push([d.stops_at[d.stops.length - 1], d.stops[d.stops.length - 1].name, false]);
     }

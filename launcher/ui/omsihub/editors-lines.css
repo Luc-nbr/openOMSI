@@ -247,14 +247,18 @@
 .le-table-tools .lbl { font-size: 9.2px; font-weight: 500; color: var(--hub-text-dim); margin: 0 4px 0 10px; }
 .le-table-tools .hint { font-size: 9.2px; color: var(--hub-text-dim); margin-left: 8px; }
 .le-grid { flex: 1; min-height: 0; overflow: auto; position: relative; }
-.le-grid table { border-collapse: separate; border-spacing: 0; }
+.le-grid table { border-collapse: separate; border-spacing: 0; min-width: 100%; }
+/* (the rows reach across the grid however few trips it has; with none, what to do lies over
+   them where `table_layer` writes it) */
+.le-grid .rest { width: 100%; padding: 0; }
+.le-grid .le-empty { position: absolute; z-index: 4; left: 0; right: 0; top: 36px; height: 24px; display: flex; align-items: center; font-size: 10px; color: var(--hub-text-dim); pointer-events: none; }
 .le-grid th, .le-grid td { padding: 2px; height: 28px; }
 .le-grid thead th { position: sticky; top: 0; z-index: 2; background: var(--hub-panel); }
 .le-grid .name { position: sticky; left: 0; z-index: 1; background: var(--hub-panel); width: 160px; min-width: 160px; max-width: 160px; text-align: left; font-size: 9.2px; font-weight: 500; color: var(--hub-text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 4px; }
 .le-grid thead .name { z-index: 3; font-size: 8.8px; color: var(--hub-text-dim); }
-.le-grid tr.odd td { background: rgba(255, 255, 255, 0.025); }
-:root.hub[data-theme="light"] .le-grid tr.odd td { background: rgba(22, 20, 26, 0.03); }
-.le-grid tr.odd td.name { background: color-mix(in srgb, var(--hub-panel) 97%, var(--hub-text)); }
+/* (a see-through white of 2.5 %, laid on in linear light as the game-drawn launcher does) */
+.le-grid tr.odd td, .le-grid tr.odd td.name { background: #32353b; }
+:root.hub[data-theme="light"] .le-grid tr.odd td, :root.hub[data-theme="light"] .le-grid tr.odd td.name { background: #f0efed; }
 .le-grid th button { width: 58px; height: 24px; border-radius: 6px; background: var(--hub-field); color: var(--hub-text-soft); font-size: 8.8px; font-weight: 700; cursor: pointer; }
 .le-grid th button:hover { background: var(--hub-hover); }
 .le-grid th button.on { background: var(--hub-accent); color: var(--hub-on-accent); }

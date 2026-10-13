@@ -86,15 +86,14 @@ export function TableLayer() {
         : html`<span class="hint">${tr('Choose a time in the table: type it (0705), the arrow keys a minute later or earlier.')}</span>`}
     </div>
     <div class="le-grid">
-      ${!t.trips.length
-        ? html`<p class="ed-para">${tr(t.empty ? 'The table is empty: fill it from the patterns, or add a trip.' : 'No trip of this direction on these days: add one.')}</p>`
-        : html`<table>
-            <thead><tr><th class="name">${t.trips.length > 6 ? `${t.trips.length}` : ''}</th>${t.trips.map((x, c) => html`<th><button type="button" class=${sel && sel[0] === x.i ? 'on' : ''} onClick=${() => le('t_select', { i: x.i, s: sel ? sel[1] : 0 })}>${tr('Trip %{n}', { n: c + 1 })}</button></th>`)}</tr></thead>
-            <tbody>${t.stops.map((name, s) => html`<tr class=${s % 2 ? 'odd' : ''}><td class="name">${name}</td>${t.trips.map((x) => {
-              const cell = x.times[s];
-              return html`<td>${cell && html`<${Cell} i=${x.i} s=${s} time=${cell[0]} falls=${cell[1]} first=${s === 0} chosen=${!!sel && sel[0] === x.i && sel[1] === s} />`}</td>`;
-            })}</tr>`)}</tbody>
-          </table>`}
+      <table>
+        <thead><tr><th class="name">${t.trips.length > 6 ? `${t.trips.length}` : ''}</th>${t.trips.map((x, c) => html`<th><button type="button" class=${sel && sel[0] === x.i ? 'on' : ''} onClick=${() => le('t_select', { i: x.i, s: sel ? sel[1] : 0 })}>${tr('Trip %{n}', { n: c + 1 })}</button></th>`)}<th class="rest"></th></tr></thead>
+        <tbody>${t.stops.map((name, s) => html`<tr class=${s % 2 ? 'odd' : ''}><td class="name">${name}</td>${t.trips.map((x) => {
+          const cell = x.times[s];
+          return html`<td>${cell && html`<${Cell} i=${x.i} s=${s} time=${cell[0]} falls=${cell[1]} first=${s === 0} chosen=${!!sel && sel[0] === x.i && sel[1] === s} />`}</td>`;
+        })}<td class="rest"></td></tr>`)}</tbody>
+      </table>
+      ${!t.trips.length && html`<p class="le-empty">${tr(t.empty ? 'The table is empty: fill it from the patterns, or add a trip.' : 'No trip of this direction on these days: add one.')}</p>`}
     </div>
     <div class="le-table-foot"><p class=${'tone-' + t.note_tone}>${t.note}</p>${t.away && html`<p class="tone-dim">${t.away}</p>`}</div>
   </div>`;
