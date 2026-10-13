@@ -27,29 +27,8 @@ mod roster;
 mod timeplan;
 mod tutorial;
 
-/// Luc's driver drag (`rf-driver-drag`, in `beta` since 1eba782b): single trips of a duty to
-/// another duty or a new one. TODO(merge beta): `driver_drag.rs` is written against the core's
-/// `studio::plan_move_to_duty` and `move_to_duty`, which this branch has not yet - once `beta` is
-/// merged, remove the `#[cfg(any())]` below and the stub module after it, and set
-/// `TRIPS_TO_DUTIES` to true.
-#[cfg(any())]
+/// Luc's driver drag (`rf-driver-drag`): single trips of a duty to another duty or a new one.
 mod driver_drag;
-#[cfg(not(any()))]
-mod driver_drag {
-    //! (until `beta` is merged: no zones and no drops for single trips; the Drivers tab takes up
-    //! whole pieces, `TRIPS_TO_DUTIES`)
-    use super::super::company::Session;
-    use super::Rf;
-    use omsi_launcher_lib::company::rosterflow::Board;
-    use omsi_launcher_lib::company::Company;
-    use serde_json::{json, Value};
-
-    pub(super) fn zones(_c: &Company, _board: &Board, _row: usize, _trips: &[(usize, usize)], _probe_with: &mut dyn FnMut(Value, &dyn Fn(&mut Company) -> Result<(), &'static str>)) {}
-
-    pub(super) fn drop(_s: &mut Session, _r: &mut Rf, _board: &Board, _row: usize, _trips: Vec<(usize, usize)>, _kind: &str, _to: usize) -> Value {
-        json!({})
-    }
-}
 
 use super::company::words::{day_label, eur, tr, trf};
 use super::company::{self, Session};
@@ -562,9 +541,9 @@ fn board_answer(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
 pub(crate) const DAY_NAMES: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 /// Whether the Drivers tab takes up single trips to move them to another duty (the core's
-/// `studio::plan_move_to_duty`, in `beta` since 1eba782b): until then whole pieces.
-/// TODO(merge beta): true, with `driver_drag` switched on (see its module line above).
-pub(crate) const TRIPS_TO_DUTIES: bool = false;
+/// `studio::plan_move_to_duty`, Luc's driver drag), the whole piece of work by Alt and a drag
+/// or the menu's Move piece (`driver_drag`).
+pub(crate) const TRIPS_TO_DUTIES: bool = true;
 
 // --- what a card or a panel asks for -------------------------------------------------------------
 
@@ -689,7 +668,7 @@ fn zones_for(k: &Cached, board: &Board, h: &Hand) -> Vec<Value> {
                 probe_with(json!({ "kind": "new_duty" }), &|p| st::detach(p, wd, tours, (*tour, *duty)));
             }
         }
-        // (Luc's driver drag: `driver_drag`, no zones until the core has it)
+        // (Luc's driver drag: `driver_drag`)
         Hand::DutyTrips { duty, trips } => driver_drag::zones(c, board, *duty, trips, &mut probe_with),
         Hand::None => {}
     }

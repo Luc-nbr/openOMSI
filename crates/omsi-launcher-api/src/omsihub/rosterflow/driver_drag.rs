@@ -3,12 +3,6 @@
 //! on one bus or several, the bus staying the same - go to another duty or to a new one. The
 //! core works it out (`studio::plan_move_to_duty`, `move_to_duty`, `DutyTarget`); the zones are
 //! rated here as the Vehicles tab's are (`zones_for`).
-//!
-//! TODO(merge beta): this file is written against that core API, which this branch has not yet,
-//! so `rosterflow.rs` leaves it out (`#[cfg(any())]`) and uses the stub beside it. Once `beta` is
-//! merged: remove the `#[cfg(any())]` line and the stub module in `rosterflow.rs`, and set
-//! `TRIPS_TO_DUTIES` to true. The page already sends the hands (`duty_trips`: the Drivers row
-//! and the (block, trip) pairs), the menu's Move piece and Alt and a drag.
 
 use super::super::company::words::trf;
 use super::super::company::Session;
