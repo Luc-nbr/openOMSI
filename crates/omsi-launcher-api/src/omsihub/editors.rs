@@ -56,10 +56,10 @@ fn display_preview(p: &dyn Platform, bus: &str, text: &str) -> Answer {
 
 /// The line editor (`lineeditor::headless`, kept by the game program: it has the map's lane
 /// network and the router): `args` is the request (`op` and what it takes), the answer what
-/// the page shows.
+/// the page shows. (Under `le`: the service numbers its requests with an `id` of its own, and a
+/// line's id is one of the editor's.)
 fn line_editor(p: &dyn Platform, args: &Value) -> Answer {
-    let mut req = args.clone();
-    req["cmd"] = Value::String("le".into());
+    let req = serde_json::json!({ "cmd": "le", "le": args });
     let (_, body) = p.renderer(req, std::time::Duration::from_secs(120))?;
     serde_json::from_slice(&body).map_err(err)
 }

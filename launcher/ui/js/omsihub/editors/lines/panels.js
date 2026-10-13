@@ -4,7 +4,7 @@
 
 import { html } from '../../../../vendor/preact-htm.js';
 import { Seg } from '../../bits.js';
-import { Card, Heading, Row, Drop, Btn, IconBtn, Toggle, LiveField, Field, Icon, tr, fmtTime } from '../kit.js';
+import { Card, Heading, Row, Drop, Btn, IconBtn, Toggle, LiveField, Field, TimeSpin, Icon, tr, fmtTime } from '../kit.js';
 import { LedSign } from '../signs.js';
 import { L, le } from './state.js';
 import { inkOn } from './plate.js';
@@ -21,7 +21,7 @@ export function DirChoice({ value, onChange }) {
 const TITLE_HINT = 'Shuttleverkehr Altenfeld - Wurzbach';
 const MMDD = 'MM-DD';
 
-const Caps = ({ title }) => html`<span class="ed-caps le-caps">${tr(title)}</span>`;
+const Caps = ({ title, style = '' }) => html`<span class="ed-caps le-caps" style=${style}>${tr(title)}</span>`;
 
 /** The destination's field (`destination_field`): typed, or chosen from what the buses know. */
 function DestField({ dest }) {
@@ -60,11 +60,11 @@ function StopsTab() {
             <i class=${'dot' + (i === 0 || i + 1 === n ? ' end' : '')} style=${`background:${colour}`}></i>
             <span class="name">${name}</span>
             <span class="tools">
-              ${i > 0 ? html`<${IconBtn} icon="remove" size=${10} title="A minute earlier" onClick=${() => le('shift', { i, by: -1 })} /><${IconBtn} icon="add" size=${10} title="A minute later" onClick=${() => le('shift', { i, by: 1 })} />` : html`<i class="sp"></i><i class="sp"></i>`}
               <b class="time">${t.times[i] || ''}</b>
-              ${on && i > 0 ? html`<${IconBtn} icon="keyboard_arrow_up" size=${10} title="Earlier in the line" onClick=${() => le('up', { i })} />` : html`<i class="sp"></i>`}
-              ${on && i + 1 < n ? html`<${IconBtn} icon="keyboard_arrow_down" size=${10} title="Later in the line" onClick=${() => le('down', { i })} />` : html`<i class="sp"></i>`}
-              <${IconBtn} icon="close" size=${10} title="Take the stop out" onClick=${() => le('remove', { i })} />
+              ${i > 0 && html`<span class="minus"><${IconBtn} icon="remove" size=${10} title="A minute earlier" onClick=${() => le('shift', { i, by: -1 })} /></span><span class="plus"><${IconBtn} icon="add" size=${10} title="A minute later" onClick=${() => le('shift', { i, by: 1 })} /></span>`}
+              ${on && i > 0 && html`<span class="up"><${IconBtn} icon="keyboard_arrow_up" size=${10} title="Earlier in the line" onClick=${() => le('up', { i })} /></span>`}
+              ${on && i + 1 < n && html`<span class="down"><${IconBtn} icon="keyboard_arrow_down" size=${10} title="Later in the line" onClick=${() => le('down', { i })} /></span>`}
+              <span class="out"><${IconBtn} icon="close" size=${10} title="Take the stop out" onClick=${() => le('remove', { i })} /></span>
             </span>
           </${Row}>
           ${leg && html`<div class="le-leg"><i style=${`background:${colour}`}></i><span class=${leg.ok ? '' : 'bad'}>${leg.text}</span>
@@ -97,8 +97,7 @@ function DisplaysTab() {
   if (d.round) return html`<div class="le-tab">${head}<p class="ed-para le-gap">${tr('Without a way back the line goes round: the bus starts again at the first stop.')}</p></div>`;
   if (!d.advanced) {
     return html`<div class="le-tab">${head}
-      <div class="le-gap"></div>
-      <${Caps} title="Destination" />
+      <${Caps} title="Destination" style="margin-top:6px" />
       <${DestField} dest=${d.dest} />
       ${d.no_depot
         ? html`<p class="ed-para ed-warn">${d.no_depot}</p><${DepotChoice} d=${d.depot} /><p class="ed-para faint">${d.depot.hint}</p>`
@@ -165,16 +164,6 @@ function NewMine() {
 
 // --- the Timetable tab -----------------------------------------------------------------------------
 
-/** "h:mm" from minutes, and back (`Ui::time_field`). */
-const hhmm = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(Math.round(m) % 60).padStart(2, '0')}`;
-function TimeField({ minutes, onChange, end }) {
-  const shown = end && minutes >= 24 * 60 ? '00:00' : hhmm(minutes);
-  return html`<input class="le-time" type="time" value=${shown} onChange=${(e) => {
-    const [h, m] = e.currentTarget.value.split(':').map(Number);
-    if (Number.isFinite(h) && Number.isFinite(m)) onChange(h * 60 + m);
-  }} />`;
-}
-
 /** A slider (`Ui::slider`): its name, the line, its value. */
 function Slide({ label, value, min, max, step = 1, onChange, unit = 'min', raw }) {
   const fill = ((value - min) / (max - min || 1)) * 100;
@@ -213,10 +202,10 @@ function TimetableTab() {
         return html`<${Toggle} raw label=${g.name} checked=${p.on} onChange=${(on) => pat(k, 'on', { on })} />
           ${p.on && html`<${Seg} full value=${p.bands.length ? 1 : 0} options=${[[0, 'One headway'], [1, 'Time bands']]} onChange=${(m) => pat(k, 'mode', { bands: m === 1 })} />
             ${!p.bands.length
-              ? html`<div class="le-two"><span class="ed-caps">${tr('First')}</span><span class="ed-caps">${tr('Last')}</span>
-                  <${TimeField} minutes=${p.first} onChange=${(m) => pat(k, 'first', { value: m })} /><${TimeField} minutes=${p.last} onChange=${(m) => pat(k, 'last', { value: m })} /></div>
+              ? html`<div class="le-two"><span class="le-lab">${tr('First')}</span><span class="le-lab">${tr('Last')}</span>
+                  <${TimeSpin} minutes=${p.first} onChange=${(m) => pat(k, 'first', { value: m })} /><${TimeSpin} minutes=${p.last} onChange=${(m) => pat(k, 'last', { value: m })} /></div>
                 <${Slide} label="Every" value=${p.headway} min=${5} max=${120} step=${5} onChange=${(x) => pat(k, 'every', { value: x })} />`
-              : html`${p.bands.map((b, i) => html`<div class="le-band"><${TimeField} minutes=${b.from} onChange=${(m) => pat(k, 'band_from', { i, value: m })} /><span>–</span><${TimeField} end minutes=${b.to} onChange=${(m) => pat(k, 'band_to', { i, value: m })} /><${IconBtn} icon="close" size=${10} title="Take the band out" onClick=${() => pat(k, 'band_remove', { i })} /></div>
+              : html`${p.bands.map((b, i) => html`<div class="le-band"><${TimeSpin} h=${32} minutes=${b.from} onChange=${(m) => pat(k, 'band_from', { i, value: m })} /><span>–</span><${TimeSpin} h=${32} end minutes=${b.to} onChange=${(m) => pat(k, 'band_to', { i, value: m })} /><${IconBtn} icon="close" size=${10} title="Take the band out" onClick=${() => pat(k, 'band_remove', { i })} /></div>
                   <div class=${'le-bandrow' + (t.for_company ? ' sized' : '')}><${Slide} label="Every" value=${b.headway} min=${5} max=${60} step=${5} onChange=${(x) => pat(k, 'band_every', { i, value: x })} />
                     ${t.for_company && html`<${Drop} raw value=${JSON.stringify(b.size ?? null)} options=${t.sizes.map(([sz, l]) => [JSON.stringify(sz ?? null), l])} onChange=${(sz) => pat(k, 'band_size', { i, size: JSON.parse(sz) })} />`}</div>`)}
                 <${Btn} kind="ghost" icon="add" label="Add a band" onClick=${() => pat(k, 'band_add')} />`}

@@ -10,9 +10,9 @@
 
 import { html, useEffect, useRef } from '../../../../vendor/preact-htm.js';
 import { useStore } from '../../../store.js';
-import { IconBtn, Icon, tr } from '../kit.js';
-import { mapColors } from '../../steps/mapbehind.js';
-import { L, le, redraw } from './state.js';
+import { IconBtn, tr } from '../kit.js';
+import { dark } from '../../theme.js';
+import { L, le } from './state.js';
 
 /** How near the mouse must come to a stop, a dragged point or a leg (points). */
 const STOP_HIT = 10;
@@ -20,16 +20,52 @@ const VIA_HIT = 9;
 const LEG_HIT = 6;
 const DANGER = '#d93a30';
 const LINE = '#ffd23f';
-const ON_MAP = 'rgba(18, 26, 38, 0.86)';
+/** The stops of the map, quiet; the light dots (an end of the line, a dragged point). */
 const STOP_GREY = 'rgba(149, 157, 176, 0.9)';
+const LIGHT_DOT = '#e8ebf2';
+/** A road at least this many points wide, its casing a hair round it (`mapview.rs`). */
+const ROAD_PX = 1.4;
+const CASING_EDGE_FAR = 0.5;
+const CASING_EDGE_NEAR = 1.5;
+const SURFACE_GROW_NEAR = 1.0;
+/** A road at least a lane wide, and a little more on either side (metres). */
+const LANE_MIN = 3.6;
+const ROAD_MARGIN = 0.3;
+/** The closest the map goes in (metres a point); a wheel notch's step. */
+const MPP_MIN = 0.15;
+const NOTCH = 1.12;
+
+/** The map's colours in either look (`mapview::palette`): the ground, the roads' casing, a
+ * road, a main road, a stop's rim. */
+function palette() {
+  return dark()
+    ? { casing: '#212833', road: '#3c4552', main: '#495261', edge: '#090c18' }
+    : { casing: '#ac9c86', road: '#fcf9f4', main: '#ffffff', edge: '#604c4c'.replace('604c4c', '60564c') };
+}
+
+/** The accent darkened (`Color::darken`): the casing under the line's legs. */
+function darker(hex, t) {
+  const n = parseInt(String(hex).replace('#', '').slice(0, 6), 16) || 0;
+  const f = (v) => Math.round(v * (1 - t));
+  return `rgb(${f((n >> 16) & 255)}, ${f((n >> 8) & 255)}, ${f(n & 255)})`;
+}
+
+/** The roads' casing round their surface and how far their surface grows past its metres, in
+ * points, at `mpp` metres a point (`mapview::casing_edge`, its zoom bands). */
+function casingEdge(mpp) {
+  const tol = Math.min(24, Math.max(0.05, 2 ** Math.round(Math.log2(Math.max(mpp * 0.5, 1e-6)))));
+  const t = Math.max(0, Math.min(1, Math.log2(4 / (tol * 2)) / 3));
+  return [CASING_EDGE_FAR + (CASING_EDGE_NEAR - CASING_EDGE_FAR) * t, SURFACE_GROW_NEAR * t];
+}
 
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-/** The whole map in view: its 1 - 99 % box in the picture (`MapView::refit`). */
+/** The whole map in view, a little air round it (`MapView::fit_to`). */
 function fit(m, W, H) {
   const [lo, hi] = [m.lo, m.hi];
-  const mpp = Math.max((hi[0] - lo[0]) / Math.max(40, W - 60), (hi[1] - lo[1]) / Math.max(40, H - 60), 0.2);
-  return { cx: (lo[0] + hi[0]) / 2, cy: (lo[1] + hi[1]) / 2, mpp };
+  const span = [Math.max(1, hi[0] - lo[0]), Math.max(1, hi[1] - lo[1])];
+  const mpp = Math.max(span[0] / Math.max(1, W), span[1] / Math.max(1, H)) * 1.06;
+  return { cx: (lo[0] + hi[0]) / 2, cy: (lo[1] + hi[1]) / 2, mpp: Math.max(mpp, MPP_MIN), most: Math.max(mpp / 1.06 * 2, MPP_MIN * 4) };
 }
 
 /** Distance from `p` to the polyline `pts` (picture points). */
@@ -102,8 +138,9 @@ export function LineMap() {
   const draw = () => {
     const c = cv.current;
     if (!c || !box.current) return;
-    const dpr = window.devicePixelRatio || 1;
+    // (sharp on the screen: the stage may be drawn larger or smaller than laid out)
     const [W, H] = size();
+    const dpr = (window.devicePixelRatio || 1) * (c.getBoundingClientRect().width / W || 1);
     if (c.width !== Math.round(W * dpr) || c.height !== Math.round(H * dpr)) Object.assign(c, { width: Math.round(W * dpr), height: Math.round(H * dpr) });
     const g = c.getContext('2d');
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -116,72 +153,109 @@ export function LineMap() {
       g.beginPath();
       for (let i = 0; i < p.length; i += 2) (i ? g.lineTo : g.moveTo).call(g, px(p[i]), py(p[i + 1]));
     };
-    g.lineCap = g.lineJoin = 'round';
-    const [casing, road, main] = mapColors();
-    for (let pass = 0; pass < 2; pass++) {
-      for (const r of m.roads) {
-        poly(r.p);
-        g.strokeStyle = pass ? (r.main ? main : road) : casing;
-        g.lineWidth = Math.max((r.w + (pass ? 0 : 2)) / k.mpp, pass ? 1.4 : 2.4);
-        g.stroke();
+    g.lineJoin = 'round';
+    // the roads as the game's city map draws them (`MapView::build`): every casing, then the
+    // surfaces over them - the side streets' first, the main roads' over them, square-ended
+    // on a side street they run into
+    const pal = palette();
+    const [edge, grow] = casingEdge(k.mpp);
+    const surface = (r) => Math.max((Math.max(r.w, LANE_MIN) + 2 * ROAD_MARGIN) / k.mpp, ROAD_PX) + 2 * grow;
+    g.lineCap = 'round';
+    g.strokeStyle = pal.casing;
+    for (const r of m.roads) {
+      poly(r.p);
+      g.lineWidth = surface(r) + 2 * edge;
+      g.stroke();
+    }
+    g.fillStyle = pal.main;
+    for (const r of m.roads) {
+      if (!r.main) continue;
+      for (const i of [0, r.p.length - 2]) {
+        g.beginPath();
+        g.arc(px(r.p[i]), py(r.p[i + 1]), surface(r) / 2, 0, Math.PI * 2);
+        g.fill();
       }
     }
+    g.strokeStyle = pal.road;
+    for (const r of m.roads) {
+      if (r.main) continue;
+      poly(r.p);
+      g.lineWidth = surface(r);
+      g.stroke();
+    }
+    g.lineCap = 'butt';
+    g.strokeStyle = pal.main;
+    for (const r of m.roads) {
+      if (!r.main) continue;
+      poly(r.p);
+      g.lineWidth = surface(r);
+      g.stroke();
+    }
+    g.lineCap = 'round';
     const line = v.line;
     const colour = line?.colour || css('--hub-accent');
     const dirs = line?.directions || [];
     const cur = v.dir;
-    // the legs: the other direction faint, the one worked on bright, a leg without a way red
-    v.shapes.forEach((legs, d) => {
-      if (d === cur) return;
-      for (const s of legs) {
-        poly(s);
-        g.strokeStyle = colour;
-        g.globalAlpha = 0.35;
-        g.lineWidth = 4;
-        g.stroke();
-      }
-    });
-    g.globalAlpha = 1;
+    // the legs, each on a dark casing (`map_layer`): the other direction faint, the one worked
+    // on bright, a leg without a way red
+    const legs = [];
+    v.shapes.forEach((ls, d) => d !== cur && ls.forEach((s) => legs.push([s, colour, 0.35, 4])));
     (v.shapes[cur] || []).forEach((s, i) => {
       const ok = dirs[cur]?.legs[i]?.ok;
-      poly(s);
-      g.strokeStyle = ok ? colour : DANGER;
-      g.lineWidth = ok ? 5 : 3;
-      g.stroke();
+      legs.push([s, ok ? colour : DANGER, 1, ok ? 5 : 3]);
     });
-    const dot = (at, fill, r, ring) => {
+    g.strokeStyle = darker(css('--hub-accent') || '#f58620', 0.56);
+    for (const [s, , , w] of legs) {
+      poly(s);
+      g.lineWidth = w + 4;
+      g.stroke();
+    }
+    for (const [s, c2, a, w] of legs) {
+      poly(s);
+      g.strokeStyle = c2;
+      g.globalAlpha = a;
+      g.lineWidth = w;
+      g.stroke();
+    }
+    g.globalAlpha = 1;
+    // a stop on its rim, the chosen one ringed (`mark_vertices`)
+    const dot = (at, fill, r, ring, alpha = 1) => {
       const [x, y] = [px(at[0]), py(at[1])];
-      if (ring) {
-        g.beginPath();
-        g.arc(x, y, r + 2.5, 0, Math.PI * 2);
-        g.fillStyle = ring;
-        g.fill();
-      }
+      g.beginPath();
+      g.arc(x, y, r + 1.5, 0, Math.PI * 2);
+      g.fillStyle = pal.edge;
+      g.fill();
       g.beginPath();
       g.arc(x, y, r, 0, Math.PI * 2);
       g.fillStyle = fill;
+      g.globalAlpha = alpha;
       g.fill();
+      g.globalAlpha = 1;
+      if (ring) {
+        g.beginPath();
+        g.arc(x, y, r + 3, 0, Math.PI * 2);
+        g.strokeStyle = ring;
+        g.lineWidth = 2;
+        g.stroke();
+      }
     };
     // the map's stops, quiet; the line's in its colour, the chosen one ringed
     for (const s of m.stops) dot(s.at, STOP_GREY, 3.2);
     dirs.forEach((d, k2) => {
       if (k2 === cur) return;
-      g.globalAlpha = 0.5;
-      for (const at of d.stops_at || []) dot(at, colour, 4);
-      g.globalAlpha = 1;
+      for (const at of d.stops_at || []) dot(at, colour, 4, null, 0.5);
     });
-    const text = css('--hub-text') || '#e8ebf2';
     const d = dirs[cur];
     if (d) {
       const n = (d.stops_at || []).length;
       (d.stops_at || []).forEach((at, i) => {
         const end = i === 0 || i + 1 === n;
-        dot(at, end ? '#e8ebf2' : colour, end ? 6.5 : 5, v.sel_stop === i ? LINE : null);
+        dot(at, end ? LIGHT_DOT : colour, end ? 6.5 : 5, v.sel_stop === i ? LINE : null);
       });
-      for (const vias of d.vias_at || []) for (const at of vias) dot(at, '#e8ebf2', 3.5, colour);
+      for (const vias of d.vias_at || []) for (const at of vias) dot(at, LIGHT_DOT, 3.5, colour);
     }
     const hover = L.hover >= 0 ? m.stops[L.hover] : null;
-    if (hover) dot(hover.at, '#e8ebf2', 4.5, LINE);
+    if (hover) dot(hover.at, LIGHT_DOT, 4.5, LINE);
     // the names: the ends of the direction and the stop under the mouse
     const labels = [];
     if (d && d.stops.length) {
@@ -191,22 +265,25 @@ export function LineMap() {
     if (hover) labels.push([hover.at, hover.name, true]);
     g.font = '500 9.2px "Hanken Grotesk", system-ui, sans-serif';
     g.textBaseline = 'middle';
+    g.textAlign = 'center';
+    const [panel, onMap, text] = [css('--hub-panel'), css('--le-on-map'), css('--hub-text')];
     for (const [at, name, hov] of labels) {
       const [x, y] = [px(at[0]), py(at[1])];
       const w = g.measureText(name).width + 16;
       g.beginPath();
       g.roundRect(x + 10, y - 11, w, 22, 11);
-      g.fillStyle = hov ? css('--hub-panel') : ON_MAP;
+      g.fillStyle = hov ? panel : onMap;
       g.fill();
-      g.fillStyle = hov ? text : '#e8ebf2';
-      g.fillText(name, x + 18, y + 0.5);
+      g.fillStyle = text;
+      g.fillText(name, x + 10 + w / 2, y + 0.5);
     }
+    g.textAlign = 'left';
     // (where a dragged point goes, while it is held)
     const p = ptr.current;
     if (p.down?.kind && p.at && p.moved > 3) {
       g.beginPath();
       g.arc(p.at[0], p.at[1], 6, 0, Math.PI * 2);
-      g.fillStyle = '#e8ebf2';
+      g.fillStyle = css('--hub-text');
       g.fill();
       g.beginPath();
       g.arc(p.at[0], p.at[1], 3.5, 0, Math.PI * 2);
@@ -231,7 +308,7 @@ export function LineMap() {
     const c = cam();
     if (!c) return;
     const before = p ? world(p) : null;
-    c.mpp = Math.max(0.05, Math.min(200, c.mpp * f));
+    c.mpp = Math.max(MPP_MIN, Math.min(c.most, c.mpp * f));
     if (before) {
       const after = world(p);
       c.cx += before[0] - after[0];
@@ -281,15 +358,15 @@ export function LineMap() {
     }
     if (pd.moved <= 3 && v.line) {
       const u = under(p);
-      if (u.stop >= 0) le('click_stop', { i: L.view.line_stops ? mapIndex(u.stop) : u.stop });
+      if (u.stop >= 0) le('click_stop', { i: u.stop });
     }
     draw();
   };
   const first = v.line && v.line.directions[v.dir] && !v.line.directions[v.dir].stops.length;
   return html`<div class="le-map" ref=${box} onPointerDown=${onDown} onPointerMove=${onMove} onPointerUp=${onUp} onPointerLeave=${() => L.hover >= 0 && ((L.hover = -1), draw())}
-      onWheel=${(e) => (e.preventDefault(), zoom(e.deltaY > 0 ? 1.15 : 1 / 1.15, at(e)))}>
+      onWheel=${(e) => (e.preventDefault(), zoom(e.deltaY > 0 ? NOTCH : 1 / NOTCH, at(e)))}>
     <canvas ref=${cv}></canvas>
-    ${!m && html`<div class="le-map-state">${tr(v.reading ? 'Loading...' : 'Loading...')}</div>`}
+    ${!m && html`<div class="le-map-state">${tr('Loading...')}</div>`}
     ${m && first && html`<div class="le-map-hint">${tr("Click the line's first stop")}</div>`}
     <div class="le-map-buttons" onPointerDown=${(e) => e.stopPropagation()}>
       ${[['add', 'Zoom in', () => zoom(1 / 1.5)], ['remove', 'Zoom out', () => zoom(1.5)], ['near_me', 'The whole map', () => ((L.cam = null), draw())]].map(([icon, title, f]) => html`<span class="b"><${IconBtn} icon=${icon} size=${14} title=${title} onClick=${f} /></span>`)}
@@ -297,7 +374,3 @@ export function LineMap() {
   </div>`;
 }
 
-/** A stop of the map as the line editor numbers them (the map's list is the same). */
-const mapIndex = (i) => i;
-
-export { Icon };

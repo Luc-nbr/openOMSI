@@ -4,6 +4,9 @@
 /* --- the displays --------------------------------------------------------------------------- */
 
 .ed-led { position: relative; border-radius: 6px; background: rgb(12, 12, 14); box-shadow: 0 0 0 3px rgb(48, 52, 60); margin: 3px; cursor: default; flex: none; min-width: 0; }
+/* (the light look draws the sign as it draws every dark colour: its frame light, the sign dark
+   grey - `theme::to_light`) */
+:root.hub[data-theme="light"] .ed-led { background: #282624; box-shadow: 0 0 0 3px #ded8d2; }
 .ed-led .in { position: absolute; inset: 7px; display: flex; align-items: stretch; gap: 6px; color: var(--lit); overflow: hidden; }
 .ed-led .no { flex: none; display: flex; align-items: center; justify-content: center; font-size: 23px; font-weight: 800; white-space: nowrap; }
 .ed-led .to { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: space-around; align-items: center; font-weight: 700; white-space: nowrap; line-height: 1.1; }
@@ -106,7 +109,7 @@
 .de-text b { font-weight: 700; color: var(--hub-text-faint); }
 .de-text b.over { color: var(--hub-warn); }
 .ed-field.short { height: calc(var(--hub-row) - 4px); }
-.de-issue { font-size: 8.8px; font-weight: 500; line-height: 1.38; color: var(--hub-warn); }
+.de-issue { font-size: 8.8px; font-weight: 500; line-height: 1.8; color: var(--hub-warn); }
 .de-issue.bad { color: var(--hub-danger); }
 
 .de-three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px 12px; }

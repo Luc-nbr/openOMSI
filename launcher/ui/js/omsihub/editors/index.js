@@ -60,7 +60,9 @@ export const openTimetable = () => goEditor('timetable');
  * `open_map_line_for_company`): the player's own lines - or, for the bus company `company`
  * (its id), its line `line` (an id; none: a new one), a new line whose timetable starts with
  * `newWithDays` (the day patterns, as `core::lines::DayPattern`), or the map's line `mapLine`
- * (its timetable name) it runs. For the company's pages: `back` (the page Back goes to),
+ * (its timetable name) it runs. Without a company, `line` is one of the player's own (its id, or
+ * 'first') and `tab` the right panel's tab ('stops', 'displays', 'timetable', 'kind').
+ * For the company's pages: `back` (the page Back goes to),
  * `onTimeplan({ id, name, hint })` (RosterFlow's Timeplan on the line, after it is confirmed or
  * asked for) and `onCompanyChanged(id)` (the editor wrote the company's file). */
 export function openLineEditor(opts = {}) {

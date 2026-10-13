@@ -97,6 +97,20 @@ export function Toggle({ checked, onChange, label, raw, title, class: cls = '' }
     <input type="checkbox" checked=${!!checked} onChange=${(e) => onChange(e.currentTarget.checked)} /><i></i></label>`;
 }
 
+/** A time of day (`Ui::time_field`): the hours and the minutes, each with its arrows and the
+ * wheel - an hour, five minutes a step. `minutes` from midnight; `end`: a day's end (24:00 and
+ * on) shows as 00:00. `onChange` gets the minutes the field shows (0 - 1439). */
+export function TimeSpin({ minutes, onChange, end, h }) {
+  const m = Math.round(minutes);
+  const shown = end && m >= 1440 ? 0 : ((m % 1440) + 1440) % 1440;
+  const to = (by) => onChange((((shown + by) % 1440) + 1440) % 1440);
+  const cell = (v, step) => html`<div class="cell" onWheel=${(e) => (e.preventDefault(), to(e.deltaY < 0 ? step : -step))}>
+      <b>${String(v).padStart(2, '0')}</b>
+      <span class="arrows"><button type="button" tabindex="-1" onClick=${() => to(step)}><${Icon} name="expand_less" size=${16} /></button><button type="button" tabindex="-1" onClick=${() => to(-step)}><${Icon} name="expand_more" size=${16} /></button></span>
+    </div>`;
+  return html`<div class="ed-time" style=${h ? `height:${h}px` : ''}>${cell(Math.floor(shown / 60), 60)}<i>:</i>${cell(shown % 60, 5)}</div>`;
+}
+
 /** A button (`Ui::button`): `kind` '' (a control), 'primary' (the accent), 'ghost', 'danger'. */
 export function Btn({ kind = '', icon, label, raw, onClick, disabled, title, class: cls = '', style = '' }) {
   const c = ['hub-btn', 'ed-btn', kind, cls].filter(Boolean).join(' ');

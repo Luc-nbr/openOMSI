@@ -145,8 +145,21 @@ function opening() {
   const o = S.ed.lineOpen || {};
   const maps = (S.maps || []).map((m) => [mapLabel(m), m.file]);
   L.hooks = { timeplan: o.onTimeplan, companyChanged: o.onCompanyChanged };
-  le('open', { maps, root: S.boot?.root || '', date: S.choice?.date || '', choice_map: S.choice?.map || '', company: o.company || '', line: o.line ?? null, new_days: o.newWithDays || null, map_line: o.mapLine || '' });
+  const own = !o.company && o.line != null;
+  le('open', { maps, root: S.boot?.root || '', date: S.choice?.date || '', choice_map: S.choice?.map || '', company: o.company || '', line: own ? null : o.line ?? null, new_days: o.newWithDays || null, map_line: o.mapLine || '' });
+  // (a line of the player's own chosen at once, on a tab: `openLineEditor`)
+  if (own) {
+    le('view').then(() => {
+      const id = o.line === 'first' ? L.view?.rows?.[0]?.id : o.line;
+      if (id != null) le('pick_line', { id });
+      const tab = TABS.indexOf(String(o.tab || '').toLowerCase());
+      if (tab > 0) le('tab', { t: tab });
+    });
+  }
 }
+
+/** The right panel's tabs, as `openLineEditor` names them. */
+const TABS = ['stops', 'displays', 'timetable', 'kind'];
 
 export function LinesPage() {
   const s = useStore();

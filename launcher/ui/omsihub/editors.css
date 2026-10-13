@@ -15,7 +15,7 @@
 /* --- the kit (`ui.rs`) ------------------------------------------------------------------ */
 
 .ed-card { position: relative; border-radius: var(--hub-r); box-shadow: inset 0 0 0 1px var(--hub-hairline); display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.ed-heading { flex: none; height: 26px; display: flex; align-items: flex-start; gap: 8px; font-size: 8.4px; font-weight: 700; text-transform: uppercase; color: var(--hub-text-dim); letter-spacing: 0.02em; line-height: 11px; padding-top: 3px; white-space: nowrap; overflow: hidden; }
+.ed-heading { flex: none; height: 26px; display: flex; align-items: flex-start; gap: 8px; font-size: 8.4px; font-weight: 700; text-transform: uppercase; color: var(--hub-text-dim); letter-spacing: 0.02em; line-height: 11px; padding-top: 5.5px; white-space: nowrap; overflow: hidden; }
 .ed-heading > span { overflow: hidden; text-overflow: ellipsis; }
 
 .ed-row { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; height: 38px; padding: 0 12px; border-radius: var(--hub-r); background: none; color: var(--hub-text); cursor: pointer; text-align: left; transition: background 0.12s; flex: none; }
@@ -66,6 +66,14 @@
 .ed-iconbtn { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: none; color: var(--hub-text-dim); cursor: pointer; flex: none; transition: background 0.08s, transform 0.1s; }
 .ed-iconbtn:hover:not(:disabled) { background: var(--hub-lift); color: var(--hub-text); }
 .ed-iconbtn:active:not(:disabled) { transform: scale(0.92); }
+/* a time of day (`Ui::time_field`): hours : minutes, each with its arrows on the right */
+.ed-time { display: grid; grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr); height: var(--hub-row); min-width: 0; border-radius: var(--hub-r); background: var(--hub-field); box-shadow: inset 0 0 0 1px var(--hub-edge); }
+.ed-time > i { display: flex; align-items: center; justify-content: center; padding-bottom: 2px; font-style: normal; font-size: 13px; font-weight: 500; color: var(--hub-text-dim); }
+.ed-time .cell { position: relative; min-width: 0; }
+.ed-time .cell b { position: absolute; left: 8px; right: 22px; top: 0; bottom: 0; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 500; color: var(--hub-text); font-variant-numeric: tabular-nums; }
+.ed-time .arrows { position: absolute; right: 4px; top: 3px; bottom: 3px; width: 20px; display: flex; flex-direction: column; }
+.ed-time .arrows button { flex: 1; display: flex; align-items: center; justify-content: center; background: none; color: var(--hub-text-faint); cursor: pointer; padding: 0; }
+.ed-time .arrows button:hover { color: var(--hub-text); }
 .ed-iconbtn:disabled { opacity: 0.35; cursor: default; }
 
 .ed-toggle { display: flex; align-items: center; gap: 10px; height: var(--hub-row); cursor: pointer; color: var(--hub-text-soft); font-size: 10px; min-width: 0; }
@@ -80,7 +88,9 @@
 .ed-btn { gap: 6px; min-width: 0; padding: 0 12px; }
 .ed-btn > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ed-caps { font-size: 8.1px; font-weight: 700; text-transform: uppercase; color: var(--hub-text-dim); letter-spacing: 0.02em; white-space: nowrap; }
-.ed-para { font-size: 10px; line-height: 1.38; color: var(--hub-text-dim); }
+/* (a paragraph's lines are 1.38 of the game-drawn launcher's size apart, `Ui::paragraph`: of
+   the font's whole height, 1.303 em - so 1.8 em here, as every paragraph of the editors) */
+.ed-para { font-size: 10px; line-height: 1.8; color: var(--hub-text-dim); }
 .ed-warn { color: var(--hub-warn); }
 .ed-scroll { overflow: auto; min-height: 0; }
 
@@ -103,7 +113,7 @@
 .ed-tile .top b { font-size: 15.3px; font-weight: 700; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ed-tile .top > .hub-icon:last-child { color: var(--hub-text-dim); transition: color 0.1s; }
 .ed-tile:hover .top > .hub-icon:last-child { color: var(--hub-text); }
-.ed-tile p { margin-top: 12px; font-size: 10.4px; line-height: 1.38; color: var(--hub-text-soft); }
+.ed-tile p { margin-top: 12px; font-size: 10.4px; line-height: 1.8; color: var(--hub-text-soft); }
 .ed-tile .controls { margin-top: auto; display: grid; grid-template-columns: minmax(0, 1fr) min(220px, 50%); gap: 12px; }
 
 /* --- the timetable (`timetable.rs`) ------------------------------------------------------- */
@@ -115,7 +125,7 @@
 .ed-tt .foot > * { flex: 1; }
 .ed-tt .stack { flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin-top: 8px; }
 .ed-tt .stack > .whole { grid-column: 1 / -1; }
-.ed-tt .empty-note { font-size: 10px; line-height: 1.38; color: var(--hub-text-dim); padding: 8px 0; }
+.ed-tt .empty-note { font-size: 10px; line-height: 1.8; color: var(--hub-text-dim); padding: 8px 0; }
 .ed-tt-trips { flex: 1; min-height: 0; overflow: auto; margin: 0 -6px; padding: 0 16px 0 6px; }
 .ed-tt-grid { display: grid; grid-template-columns: 110px minmax(120px, 1fr) 150px 170px 28px; column-gap: 12px; row-gap: 6px; align-items: center; min-width: 640px; }
 .ed-tt-grid .head { position: sticky; top: 0; z-index: 2; height: 18px; background: var(--hub-panel); font-size: 8.8px; font-weight: 700; color: var(--hub-text-dim); white-space: nowrap; }

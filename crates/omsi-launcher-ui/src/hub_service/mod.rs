@@ -5,6 +5,8 @@
 //!
 //! * `display_preview`: a text on a bus's own destination display in its own font, as the
 //!   depot editor and the line editor show it (`displayfont`);
+//! * `le`: the line editor, kept here (`lineeditor::headless`): the page's request under `le`,
+//!   the view it draws (or the map's roads and stops) in the bytes;
 //!
 //! Each answer is the service's: a JSON head and the bytes after it (`Reply`). Kept in this file
 //! of our own beside the editors it serves, so that the modules it needs stay private.
@@ -36,7 +38,7 @@ pub fn serve(cmd: &str, req: &Value, reply: Reply, renderer: &mut Option<omsi_re
         }
         // the line editor (`lineeditor::headless`): its view, or the map's roads and stops
         "le" => {
-            let v = crate::lineeditor::headless::serve(req);
+            let v = crate::lineeditor::headless::serve(req.get("le").unwrap_or(&Value::Null));
             reply(serde_json::json!({ "ok": true }), v.to_string().into_bytes());
             true
         }
