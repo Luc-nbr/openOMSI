@@ -68,11 +68,12 @@ pub const ICONS: [&str; 14] = ["signal_cellular_alt", "directions_bus", "groups"
 /// The pages in the strip under the bar, grouped as the start screen groups them.
 pub const RAIL: [&[usize]; 5] = [&[0, INBOX_TAB], &[5, 3, MAP_TAB, 1], &[2], &[4, CONCESSIONS_TAB, CONTRACTS_TAB, 6], &[DEPOT_TAB, WORKSHOP_TAB, RESEARCH_TAB]];
 
-/// The pages this page draws itself (the depot, the concessions, the fleet map, the research,
-/// the workshop and the contracts since phase 3: `company_more.rs`); the others (`HANDED_OVER`)
-/// open in the game-drawn launcher until their phase: the planning.
-pub const DRAWN: [usize; 13] = [0, 1, 2, 3, 4, 6, DEPOT_TAB, CONCESSIONS_TAB, MAP_TAB, RESEARCH_TAB, WORKSHOP_TAB, CONTRACTS_TAB, INBOX_TAB];
-pub const HANDED_OVER: [usize; 1] = [5];
+/// The pages this page draws itself (the planning, the depot, the concessions, the fleet map,
+/// the research, the workshop and the contracts since phase 3: `company_more.rs`); the others
+/// (`HANDED_OVER`) open in the game-drawn launcher until their phase. RosterFlow - the planning
+/// with its add-on on - is handed over by the planning's page itself.
+pub const DRAWN: [usize; 14] = [0, 1, 2, 3, 4, 5, 6, DEPOT_TAB, CONCESSIONS_TAB, MAP_TAB, RESEARCH_TAB, WORKSHOP_TAB, CONTRACTS_TAB, INBOX_TAB];
+pub const HANDED_OVER: [usize; 0] = [];
 
 /// The pages a game mode shows, in the strip's order (`company::pages_of`).
 pub fn pages_of(mode: co::GameMode) -> Vec<usize> {

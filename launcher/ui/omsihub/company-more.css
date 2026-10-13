@@ -143,3 +143,85 @@
 .cm-goal, .cm-provider { background: var(--cm-lift3); }
 .cm-provider.mine { background: color-mix(in srgb, var(--co-accent2) 8%, var(--cm-lift3)); }
 .cm-lead, .cm-tender.on { background: var(--cm-lift5); }
+
+/* --- the planning (RosterFlow's Roster tab, its own palette: planning.js) ---------------------- */
+
+.pl { user-select: none; }
+.pl button { color: inherit; font-family: inherit; padding: 0; background: none; text-align: left; }
+.pl-scroll { position: absolute; overflow-y: auto; overflow-x: hidden; }
+.pl-scroll::-webkit-scrollbar { width: 12px; }
+.pl-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); border-radius: 6px; border: 3px solid transparent; background-clip: padding-box; }
+.pl-scroll::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.05); }
+:root.hub[data-theme="light"] .pl-scroll::-webkit-scrollbar-thumb { background-color: rgba(28, 36, 48, 0.24); }
+:root.hub[data-theme="light"] .pl-scroll::-webkit-scrollbar-track { background: rgba(28, 36, 48, 0.06); }
+.pl div.pl-scroll[style*="flex"] { position: relative; }
+.pl-para { font-size: 9.6px; line-height: 17.3px; }
+.pl-caps { font-size: 8.44px; font-weight: 700; text-transform: uppercase; height: 22px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl .pl-btn { position: absolute; border-radius: 2px; background: var(--b); font-size: 9.6px; font-weight: 700; text-align: center !important; white-space: nowrap; overflow: hidden; cursor: pointer; }
+.pl .pl-btn:hover { background: var(--h); }
+.pl-icon { position: absolute; border-radius: 4px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: inherit; opacity: 0.75; }
+.pl-icon:hover { background: rgba(127, 127, 127, 0.14); opacity: 1; }
+.pl-issue { position: absolute; border-radius: 3px; background: color-mix(in srgb, var(--c) 13%, transparent); box-shadow: inset 0 0 0 1.2px var(--c); color: var(--c); }
+.pl-issue.pl-press:hover { background: color-mix(in srgb, var(--c) 22%, transparent); }
+.pl-press { cursor: pointer; }
+/* the day tabs */
+.pl-day { position: absolute; cursor: pointer; }
+.pl-day:hover { background: var(--h) !important; }
+.pl-day.on, .pl-day.on:hover { background: var(--a7) !important; box-shadow: inset 0 -3px 0 var(--a); }
+.pl-sep { position: absolute; left: 0; top: 12px; bottom: 12px; width: 1px; }
+.pl-dot { position: absolute; width: 8px; height: 8px; border-radius: 50%; }
+/* the chart */
+.pl-band { position: absolute; top: 0; bottom: 0; }
+.pl .pl-foldall { position: absolute; display: flex; align-items: center; gap: 4px; color: var(--d); cursor: pointer; padding-left: 4px !important; }
+.pl .pl-foldall:hover { color: var(--t); }
+.pl-foldall span { font-size: 8.44px; font-weight: 700; text-transform: uppercase; white-space: nowrap; }
+.pl-head { position: absolute; }
+.pl-head::before, .pl-head::after { content: ""; position: absolute; left: 0; width: var(--bw); height: 1px; background: var(--l); }
+.pl-head::before { top: 0; }
+.pl-head::after { bottom: 0; }
+.pl-fold { position: absolute; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.pl-fold:hover { color: var(--t) !important; }
+.pl-hit { position: absolute; cursor: pointer; }
+.pl-plate { position: absolute; border-radius: 3px; font-size: 9.2px; font-weight: 700; display: flex; align-items: center; justify-content: center; white-space: nowrap; }
+.pl .pl-tt { position: absolute; border-radius: 3px; color: var(--a); cursor: pointer; }
+.pl .pl-tt:hover { background: var(--h); color: var(--t); }
+.pl-tt-l { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; font-size: 10px; font-weight: 500; white-space: nowrap; overflow: hidden; }
+.pl-row { position: absolute; left: 0; }
+.pl-rowlight, .pl-unplanned { position: absolute; top: 0; bottom: 0; }
+.pl-unplanned { left: var(--gx); right: 0; background: var(--u); }
+.pl-row:hover .pl-rowlight { background: var(--h); }
+.pl-row.on .pl-rowlight { background: var(--on); }
+.pl-swatch { position: absolute; width: 3px; height: 12px; border-radius: 1px; }
+.pl-bus { position: absolute; border-radius: 3px; background: var(--f); }
+.pl-bus:hover { background: var(--fh); }
+.pl-ring { position: absolute; border-radius: 4px; pointer-events: none; }
+.pl-duty { position: absolute; border-radius: 3px; background: var(--f); overflow: hidden; }
+.pl-duty:hover { background: var(--fh); }
+.pl-shade { position: absolute; background: rgba(0, 0, 0, 0.3); }
+.pl-late { position: absolute; border-radius: 3px; pointer-events: none; }
+.pl-warn { position: absolute; width: 6px; height: 6px; border-radius: 50%; pointer-events: none; }
+/* the side */
+.pl-summary { font-size: 12.3px; font-weight: 700; height: 26px; line-height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-gaps { position: relative; margin-bottom: 14px; min-height: 20px; }
+.pl-morning { position: relative; padding-left: 14px; margin-bottom: 6px; min-height: 18px; }
+.pl-morning > i { position: absolute; left: 1px; top: 5px; width: 6px; height: 6px; border-radius: 50%; }
+.pl-open { position: relative; display: block; width: 100%; height: 46px; margin-bottom: 2px; border-radius: 3px; cursor: grab; }
+.pl-open:hover { background: var(--h); }
+.pl-openbar { position: absolute; left: 0; top: 6px; bottom: 6px; width: 3px; background: var(--c); }
+.pl-move { color: var(--f); }
+.pl-open:hover .pl-move { color: var(--t); }
+.pl-slot { position: relative; height: 32px; }
+.pl-pick { position: absolute; border-radius: 3px; cursor: pointer; }
+.pl-pick:hover { background: var(--h); }
+.pl-pick.on { background: var(--a16); }
+.pl-pick.fits:hover { box-shadow: inset 0 0 0 2px var(--a); }
+.pl-pickbar { position: absolute; left: 0; top: 5px; bottom: 5px; width: 3px; background: var(--a); }
+.pl-pickswatch { position: absolute; left: 12px; width: 10px; height: 10px; border-radius: 2px; }
+.pl .pl-link { position: absolute; border-radius: 3px; background: var(--t3); box-shadow: inset 0 0 0 1px var(--t16); color: var(--a); cursor: pointer; }
+.pl .pl-link:hover { background: var(--a12); box-shadow: inset 0 0 0 1px var(--a); }
+.pl-link-l { position: absolute; left: 34px; right: 8px; top: 0; bottom: 0; display: flex; align-items: center; font-size: 10px; font-weight: 500; white-space: nowrap; overflow: hidden; }
+.pl-link:hover .pl-link-l { color: var(--t); }
+.pl-carry { position: absolute; z-index: 30; border-radius: 3px; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4); font-size: 9.6px; font-weight: 700; display: flex; align-items: center; justify-content: center; white-space: nowrap; overflow: hidden; pointer-events: none; }
+.pl-weekday { display: flex; align-items: center; height: 32px; border-bottom: 1px solid var(--hub-hairline); font-size: var(--co-rows); }
+.pl-weekday span { width: 230px; font-weight: 500; flex: none; }
+.pl-weekday b { font-weight: 700; }

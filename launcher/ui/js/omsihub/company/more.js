@@ -22,7 +22,7 @@ document.head.append(sheet);
 
 /** The tabs this part draws (`company::TABS`): the planning, the depot, the concessions, the
  * fleet map, the research, the workshop and the contracts. */
-export const MORE_TABS = [7, 8, 9, 10, 11, 12];
+export const MORE_TABS = [5, 7, 8, 9, 10, 11, 12];
 
 /** A view of this part (`co_more_view`), asked again whenever the company changed, an action was
  * taken, or `args` differ; the last one is shown until the new one comes (`kit::useView`). */

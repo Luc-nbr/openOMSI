@@ -31,7 +31,7 @@ function Duties({ b }) {
           ? html`<p class="co-para">${e.reading}</p>`
           : html`<div class="co-emptymid" style="position:relative;flex:1"><${Icon} name=${e.icon} size=${34} class="t-dim" />
               <b style="font-size:var(--co-head);color:var(--hub-text-soft)">${e.title}</b><p class="co-note t-dim" style="max-width:520px">${e.text}</p>
-              ${e.button && html`<${Btn} kind="primary" icon="event" label=${e.button} style="height:38px" onClick=${() => handOver('5')} />`}</div>`
+              ${e.button && html`<${Btn} kind="primary" icon="event" label=${e.button} style="height:38px" onClick=${() => goTab(5)} />`}</div>`
         : html`<div class="co-scroll" style="flex:1;min-height:0">${b.rows.map(
             (d, k) => html`<div class=${'co-myduty' + (k === 0 ? ' next' : '')}>
               <div class="when"><b class="cut">${d.date}</b><span class=${k === 0 ? 't-accent' : 't-soft'}>${d.time}</span></div>

@@ -238,12 +238,12 @@ function AskDialog() {
   }
   if (v.kind === 'tender') {
     const foot = html`<span class="rest"></span><${Btn} label=${v.on} onClick=${() => act('ask_on', { on: true })} />
-      ${v.auction && html`<${Btn} kind="primary" icon="payments" label=${v.auction} onClick=${() => act('ask_on', { on: false }).then(() => handOver('8'))} />`}`;
+      ${v.auction && html`<${Btn} kind="primary" icon="payments" label=${v.auction} onClick=${() => act('ask_on', { on: false }).then(() => goTab(8))} />`}`;
     return html`<${Dialog} icon=${v.icon} title=${v.title} w=${640} onClose=${() => act('ask_on', { on: true })} foot=${foot}><p class="co-para">${v.text}</p></${Dialog}>`;
   }
   if (v.kind === 'morning') {
     const foot = html`<span class="rest"></span><${Btn} label=${v.on} onClick=${() => act('ask_on', { on: true })} />
-      ${v.planning && html`<${Btn} kind="primary" icon="event" label=${v.planning} onClick=${() => act('ask_on', { on: false }).then(() => handOver('5'))} />`}`;
+      ${v.planning && html`<${Btn} kind="primary" icon="event" label=${v.planning} onClick=${() => act('ask_on', { on: false }).then(() => goTab(5))} />`}`;
     return html`<${Dialog} icon=${v.icon} title=${v.title} w=${720} onClose=${() => act('ask_on', { on: true })} foot=${foot}>
       <p class="co-para" style="margin-bottom:16px">${v.text}</p>
       ${v.rows.map((r) => html`<div class="co-morning"><b class="cut">${r.title}</b>

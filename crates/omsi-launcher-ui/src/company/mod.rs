@@ -1214,7 +1214,8 @@ fn pages(l: &mut Launcher, body: Rect) {
 /// "map-line=<name>" a line of the map, "casual-line=<0..2>" a Casual line drawn at that
 /// frequency, "workshop" the career's workshop (its jobs, the repair game),
 /// "timetable=<line>" a line's timetable, "livery=<bus file>|<livery>|<bus id>" the
-/// livery studio (the bus id may be left out).
+/// livery studio (the bus id may be left out), "plan-line=<line>|<date>|<tour>" the
+/// planning's sheet of a line's trips and timetable.
 pub(crate) fn handed(l: &mut Launcher, what: &str) {
     let what = what.replace("%3A", ":").replace("%25", "%");
     let (verb, arg) = what.split_once('=').unwrap_or((what.as_str(), ""));
@@ -1231,6 +1232,14 @@ pub(crate) fn handed(l: &mut Launcher, what: &str) {
         "timetable" => {
             let hint = l.company.company.as_ref().and_then(|c| c.lines.iter().find(|x| x.name == arg)).is_some_and(co::ownline::no_timetable).then_some(super::lineeditor::NEW_LINE_HINT);
             open_timeplan(l, arg, hint);
+        }
+        // the planning's sheet of a line's trips and timetable, a day and a tour marked
+        // ("plan-line=<line>|<date>|<tour>": the desktop launcher's planning, phase 3)
+        "plan-line" => {
+            let mut parts = arg.split('|');
+            let (line, date, tour) = (parts.next().unwrap_or("").to_string(), parts.next().unwrap_or("").to_string(), parts.next().unwrap_or("").to_string());
+            l.company.tab = 5;
+            planning::open_timetable(l, &line, &date, (!tour.is_empty()).then_some(tour));
         }
         "livery" => {
             let mut parts = arg.split('|');
