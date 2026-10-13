@@ -19,3 +19,5 @@ omsi-weather = { path = "../omsi-weather" }
 omsi-map = { path = "../omsi-map" }
 omsi-content = { path = "../omsi-content" }
 omsi-timetable = { path = "../omsi-timetable" }
+# Omsi-Hub: the buses' depot files (`src/omsihub/hub_more.rs`: the bus that fits the duty best)
+omsi-vehicle = { path = "../omsi-vehicle" }

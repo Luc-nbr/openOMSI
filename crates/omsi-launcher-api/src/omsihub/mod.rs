@@ -20,6 +20,7 @@
 //!   show apart from the map's ("Map lines" / "My lines").
 
 pub mod company;
+pub mod hub_more;
 
 use crate::{Answer, Platform};
 use omsi_launcher_lib as core;
@@ -123,6 +124,8 @@ pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Option<Answer> {
         "hub_map_facts" => (|| hub_map_facts(&arg::<Vec<String>>(args, "maps")?))(),
         "hub_weather_extras" => (|| hub_weather_extras(&arg::<String>(args, "map")?))(),
         "hub_own_lines" => (|| hub_own_lines(&arg::<String>(args, "map")?))(),
+        // what phase 1 left of the drive's steps (Trello "Tauri 3/6": `hub_more.rs`)
+        c if c.starts_with("hub_more_") => return hub_more::call(c, args),
         // the bus company's commands (Trello "Tauri 2/6": `company.rs`)
         c if c.starts_with("co_") => return company::call(c, args, _p),
         _ => return None,

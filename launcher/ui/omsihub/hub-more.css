@@ -1,0 +1,11 @@
+/* What the drive's steps of Omsi-Hub's look have beyond phase 1's (Trello "Tauri 3/6"), after
+   our game-drawn launcher (crates/omsi-launcher-ui/src): the bus that fits the duty best, the
+   free drive's start points and own line, the duty's roadbook, the custom weather, the welcome.
+   Lengths are the game-drawn launcher's, its type sizes drawn smaller by 1.303 (omsihub.css).
+   Loaded by js/omsihub/steps/more.js. */
+
+/* the bus step: whether the bus fits the duty best (`buspick::bus_sheet`) */
+.hub-best { display: flex; align-items: center; gap: 10px; height: 20px; margin: -8px 0 12px; color: #34b26e; font-size: 9.6px; font-weight: 500; }
+:root.hub[data-theme="light"] .hub-best { color: #1f7a48; }
+.hub-best .hub-icon { flex: none; }
+.hub-tile .pic.shot i { display: none; }
