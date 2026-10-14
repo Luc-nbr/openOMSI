@@ -5,7 +5,7 @@
 // accepted, and is not).
 
 import { S } from '../../store.js';
-import { setRf, setPart, rfAct, pick, ROSTER, VEHICLES, DRIVERS, TIMEPLAN } from './state.js';
+import { setRf, setPart, rfAct, pick, dropAt, ROSTER, VEHICLES, DRIVERS, TIMEPLAN } from './state.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -31,7 +31,7 @@ function firstTrip(b) {
 /** Put RosterFlow in state `name` (see the cases). */
 export async function applyShot(name) {
   const [what, arg] = String(name || '').split('.');
-  const view = { roster: ROSTER, timeplan: TIMEPLAN, timetable: TIMEPLAN, drivers: DRIVERS, duty: DRIVERS, dzones: DRIVERS, dmenu: DRIVERS }[what] ?? VEHICLES;
+  const view = { roster: ROSTER, timeplan: TIMEPLAN, timetable: TIMEPLAN, drivers: DRIVERS, duty: DRIVERS, dzones: DRIVERS, dmenu: DRIVERS, ddrop: DRIVERS }[what] ?? VEHICLES;
   // (no opening, no tour of its own)
   setRf({ view, intro: null, tut: { ...S.rf.tut, asked: S.boot?.config?.profile || '', offer: false } });
   if (what === 'timetable') setPart('tp', { tab: 1 });
@@ -93,6 +93,15 @@ export async function applyShot(name) {
       const piece = Math.max(0, b.blocks[t[0]].pieces.findIndex(([a, z]) => t[1] >= a && t[1] < z));
       const row = b.blocks[t[0]].duty_rows?.[piece] ?? 0;
       return pick(S.rf.tripsToDuties ? { kind: 'duty_trips', duty: row, trips: [t] } : { kind: 'piece', tour: t[0], duty: piece }, false);
+    }
+    // (Luc's driver drag, done in the sandbox's draft: the first trip of a duty to the first slot)
+    case 'ddrop': {
+      if (!t) return null;
+      const piece = Math.max(0, b.blocks[t[0]].pieces.findIndex(([a2, z]) => t[1] >= a2 && t[1] < z));
+      const row = b.blocks[t[0]].duty_rows?.[piece] ?? 0;
+      await pick({ kind: 'duty_trips', duty: row, trips: [t] }, false);
+      for (let k = 0; k < 100 && !Array.isArray(S.rf.zones); k++) await sleep(100);
+      return S.rf.zones?.length ? dropAt(0) : null;
     }
     case 'proposal':
       return rfAct('optimise');
