@@ -90,7 +90,7 @@ export function UpdateRow() {
     <div style="margin-top:8px"><${Button} kind="ghost" icon="open_in_new" raw label=${u?.repo || 'github.com/Luc-nbr/openOMSI'} onClick=${() => updateAct('repo')} /></div>
     <div class="row wrap hub-credit" style="gap:8px;align-items:center;margin-top:10px">
       <span class="muted small grow">${tr("Omsi-Hub is built on openOMSI, the open rebuild of OMSI 2's engine.")}</span>
-      <${Button} kind="ghost" icon="open_in_new" raw label="github.com/openOMSI-Project/openOMSI" onClick=${() => call('open_url', { url: UPSTREAM }).catch(() => {})} />
+      <${Button} kind="ghost" icon="open_in_new" raw label=${UPSTREAM.replace('https://', '')} onClick=${() => call('open_url', { url: UPSTREAM }).catch(() => {})} />
     </div>
   </div>`;
 }
