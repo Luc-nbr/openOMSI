@@ -361,7 +361,7 @@ export function Meter({ frac, tone = 'accent', h = 6, style = '', field = false 
 
 /** A tone as a fill. */
 export function fill(tone, alpha = 1) {
-  const rgb = { ok: 'var(--co-ok-fill)', warn: 'var(--co-warn-fill)', danger: 'var(--co-danger-fill)', early: 'var(--co-early-fill)', accent: 'var(--hub-accent-rgb)', accent2: 'var(--hub-accent-text-rgb)', line: '255, 210, 63' }[tone];
+  const rgb = { ok: 'var(--co-ok-fill)', warn: 'var(--co-warn-fill)', danger: 'var(--co-danger-fill)', early: 'var(--co-early-fill)', accent: 'var(--hub-accent-rgb)', accent2: 'var(--hub-accent-soft-rgb)', line: '255, 210, 63' }[tone];
   if (rgb) return alpha === 1 ? `rgb(${rgb})` : `rgba(${rgb}, ${seen(alpha, TONES[tone] || TONES.accent)})`;
   if (tone === 'dim' || tone === 'faint') return alpha === 1 ? 'var(--hub-text-faint)' : `rgba(var(--co-white), ${seen(0.16 * alpha)})`;
   return `rgba(var(--co-white), ${seen(0.3 * alpha)})`;

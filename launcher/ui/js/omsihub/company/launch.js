@@ -8,7 +8,17 @@ import { S, toast } from '../../store.js';
 import { duty } from '../../data.js';
 import { RouteMap } from '../../routemap.js';
 import { dark } from '../theme.js';
+import { mapColors } from '../steps/mapbehind.js';
 import { html, useEffect, act, cmd, useView, Icon, Mark, Select, inkOn, rgbOf } from './kit.js';
+
+/** The duty's route as the game-drawn launcher draws it here (`duty_launch::route_map`): the
+ * roads grey on the night, white on the light look's ground; the route in the accent. */
+function routeColors() {
+  const accent = mapColors()[3];
+  if (dark()) return ['#090c18', '#3c4552', '#3c4552', accent];
+  const ground = getComputedStyle(document.documentElement).getPropertyValue('--hub-ground').trim() || '#fcead0';
+  return [ground, '#fffefc', '#fffefc', accent];
+}
 
 /** Start the duty: upstream's duty as the base, the company's duty over it on the Rust side
  * (`launch_start`, as our game-drawn launcher starts it); `dry` only says the command line. */
@@ -60,7 +70,7 @@ export function LaunchPage() {
           </div>
           <div class="right">
             <div class="map"><span class="maplabel">${v.map_caps}</span>
-              <${RouteMap} map=${v.map} date=${v.date} trip=${v.trips.join('|')} read=${() => cmd('co_duty_map', { map: v.map, date: v.date, trips: v.trips })} height=${0} colors=${dark() ? ['#14171c', '#3b4656', '#4a5770', '#3fa8ff'] : ['#cbd3dd', '#ffffff', '#ffffff', '#127ce2']} /></div>
+              <${RouteMap} map=${v.map} date=${v.date} trip=${v.trips.join('|')} read=${() => cmd('co_duty_map', { map: v.map, date: v.date, trips: v.trips })} height=${0} colors=${routeColors()} /></div>
             <div class="low">
               <div class="card bus"><span class="caps">${v.bus_caps}</span>
                 ${v.bus.map(([a, b]) => html`<div class="busrow"><span>${a}</span><b class="cut">${b?.trim() ? b : '-'}</b></div>`)}

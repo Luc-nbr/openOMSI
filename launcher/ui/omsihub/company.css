@@ -966,6 +966,11 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 .co-launch .right { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
 .co-launch .map { position: relative; flex: 0 0 52%; min-height: 160px; border-radius: 4px; overflow: hidden; background: var(--rf-sheet); }
 .co-launch .map > div { position: absolute; inset: 0; }
+/* (the duty's route as the Drive page's map draws it, `duty_launch::route_map`: no count of roads) */
+.co-launch .map .routemap { background: none; }
+.co-launch .map .routemap .legend { display: none; }
+:root.hub[data-theme="dark"] .co-launch .map { background: #090c18; }
+:root.hub[data-theme="light"] .co-launch .map { background: var(--hub-ground); }
 .co-launch .maplabel { position: absolute; left: 10px; top: 10px; z-index: 2; width: 170px; height: 24px; border-radius: 4px; background: var(--rf-bar); font-size: 8.4px; font-weight: 700; text-transform: uppercase; display: flex; align-items: center; padding: 0 10px; }
 .co-launch .low { flex: 1; min-height: 80px; display: grid; grid-template-columns: 48% minmax(120px, 1fr); gap: 16px; }
 .co-launch .busrow { display: grid; grid-template-columns: clamp(90px, 36%, 140px) minmax(0, 1fr); align-items: center; height: 30px; border-bottom: 1px solid var(--rf-line); margin-bottom: 3px; font-size: 9.98px; }

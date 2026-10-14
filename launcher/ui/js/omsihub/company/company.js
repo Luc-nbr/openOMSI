@@ -8,6 +8,7 @@
 // page asks for views and sends actions, and ticks the company's clock four times a second
 // (`co_tick`), which answers with the bar's and the strip's shell.
 
+import { useRef, useState } from '../../../vendor/preact-htm.js';
 import { S, useStore, set } from '../../store.js';
 import { call } from '../../api.js';
 import { contrast } from '../theme.js';
@@ -268,14 +269,30 @@ function Bar({ open, choosing, read }) {
   const sh = c.shell;
   const isDark = dark();
   const settings = () => setCo({ dialog: { kind: 'settings' } });
-  return html`<header class="co-bar">
+  // (Omsi-Hub 6/6: on a narrow bar - a small window, a large "Launcher size" - the company's
+  // day and time go first, then the status's figures from the right, as `clock::head` and
+  // `company::status` leave out what has no room; all back when the window changes)
+  const ref = useRef();
+  const [fit, setFit] = useState({ now: true, n: 3 });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || el.scrollWidth <= el.clientWidth + 1) return;
+    if (fit.now && open && !sh?.casual) setFit({ ...fit, now: false });
+    else if (fit.n > 0) setFit({ ...fit, n: fit.n - 1 });
+  });
+  useEffect(() => {
+    const again = () => setFit({ now: true, n: 3 });
+    addEventListener('resize', again);
+    return () => removeEventListener('resize', again);
+  }, []);
+  return html`<header class="co-bar" ref=${ref}>
     ${open
       ? html`<span title=${sh.home} style="display:contents"><${Mark} mark=${sh.mark} size=${44} /><span class="name cut" title=${sh.home}>${sh.name}</span></span>
         <${ModePill} mode=${sh.mode} onClick=${settings} title=${tr("The company's game mode: change it in the company's settings")} />
-        <${Status} />`
+        <${Status} n=${fit.n} />`
       : html`<span class="lone"><${Icon} name="garage" size=${26} class="t-accent2" /><span><b>${tr('Bus company')}</b><span>${tr('Your own transport company: buses, people and lines, in a time of its own.')}</span></span></span>`}
     <span class="tools">
-      ${open && html`${sh.casual ? html`<${CasualClock} />` : html`<${Clock} />`}<span class="gap16"></span>
+      ${open && html`${sh.casual ? html`<${CasualClock} />` : html`<${Clock} now=${fit.now} />`}<span class="gap16"></span>
         <${Btn} class="sq" icon="settings" title=${tr("The company's settings: its name, its date, how it buys")} onClick=${settings} /><span class="gap8"></span>`}
       <${Btn} class="sq" icon=${isDark ? 'dark_mode' : 'light_mode'} title=${tr(isDark ? 'Switch to the light mode' : 'Switch to the dark mode')} onClick=${(e) => flipLook(e)} /><span class="gap8"></span>
       ${read && !choosing && html`<${Btn} class="sq co-help" icon="help" title=${tr('A tour of the bus company')} onClick=${askTour} /><span class="gap12"></span>`}
@@ -286,10 +303,11 @@ function Bar({ open, choosing, read }) {
 
 /** What the company has: its cash, its trophies and its reputation, each a click from the page
  * about it (`company::status`). */
-function Status() {
+function Status({ n = 3 }) {
   const sh = S.co.shell;
+  if (!n) return null;
   return html`<span class="co-status">
-    ${sh.status.map((it) => html`<button type="button" class=${it.tab != null ? 'go' : ''} title=${it.tip} onClick=${() => it.tab != null && goTab(it.tab)}>
+    ${sh.status.slice(0, n).map((it) => html`<button type="button" class=${it.tab != null ? 'go' : ''} title=${it.tip} onClick=${() => it.tab != null && goTab(it.tab)}>
       <span class=${'dot ' + it.tone}><${Icon} name=${it.icon} size=${16} /></span><span class=${'t-' + it.text}>${it.value}</span>
     </button>`)}
   </span>`;
@@ -298,7 +316,7 @@ function Status() {
 /** The company's clock in the bar (`clock::head`): the day and the time - with the real clock
  * its live dot and how far it was fast-forwarded - the play speeds where there is room, +1 h,
  * Simulate to tomorrow and the time dialog. */
-function Clock() {
+function Clock({ now = true }) {
   const sh = S.co.shell;
   const k = sh.clock;
   const speeds = [
@@ -315,10 +333,10 @@ function Clock() {
     return tr(i === 1 ? "Run the company's clock at ten minutes a second while this page is open" : "Run the company's clock at a minute a second while this page is open");
   };
   return html`<span class="co-clock">
-    <span class="now" title=${k.tip || undefined}>
+    ${now && html`<span class="now" title=${k.tip || undefined}>
       <span class=${'label' + (k.in_game ? ' game' : '')}>${k.lead && html`<span class="lead">${k.lead}</span>`}${k.live && html`<i class="live"></i>`}${k.label}</span>
       <span class="date">${k.date}</span><span class=${'time' + (k.speed > 0 ? ' playing' : '')}>${k.time}</span>
-    </span>
+    </span>`}
     <span class="play" style="gap:8px">
       ${speeds.map(([label, speed, w], i) => html`<${Btn} kind=${Math.abs(k.speed - speed) < 1e-6 ? 'primary' : 'ghost'} label=${label} style=${`width:${w}px;padding:0`} title=${playTip(speed, i)} onClick=${() => play(speed)} />`)}
     </span>

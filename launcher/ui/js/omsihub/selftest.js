@@ -102,6 +102,17 @@ export async function selftest(check, errors) {
     check('hub: the updates', false, x.message);
   }
 
+  // the game controllers (Trello "Tauri 6/6": `pads.js`): the devices as the game program reads
+  // them - with the game program at hand (`full`)
+  if (S.boot?.selftest === 'full') {
+    try {
+      const v = await call('hub_pads', { op: 'open' });
+      check('hub: the game controllers', Array.isArray(v.devices) && Array.isArray(v.funcs), `${v.devices.length} set up, ${v.add.length} more connected`);
+    } catch (x) {
+      check('hub: the game controllers', false, x.message);
+    }
+  }
+
   // what phase 3 added to the drive (Trello "Tauri 3/6": steps/selftest-more.js)
   await (await import('./steps/selftest-more.js')).selftest(check, errors, step);
 
