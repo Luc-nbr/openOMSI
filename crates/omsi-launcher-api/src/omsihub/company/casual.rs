@@ -285,7 +285,7 @@ fn shop(s: &mut Session, c: &Company, ui: &Value) -> Value {
         .iter()
         .map(|(rank, locked, price, x)| {
             let title = if x.model.trim().is_empty() { x.bus.name.clone() } else { format!("{} {} {}", x.maker, x.model, x.version).trim().to_string() };
-            let mut facts = tr(x.bus.kind.label());
+            let mut facts = super::vehicles::kind_label(&x.bus);
             if let Some(n) = x.seats {
                 facts = format!("{facts} · {}", trf("%{n} seats", &[("n", &n.to_string())]));
             }
@@ -618,9 +618,13 @@ fn hire_now(s: &mut Session) -> Result<Value, String> {
     }
     let names = apply(s, |c| {
         let mut out = Vec::new();
-        for _ in 0..n {
+        // (nobody left to hire this week: the player asked, so a job advert - free in Casual -
+        // brings new applicants, once a press; Beta 54)
+        let mut advertised = false;
+        while out.len() < n {
             match co::staff::hire_best(c, Role::Driver) {
                 Some(name) => out.push(name),
+                None if !advertised && co::staff::best_applicant(c, Role::Driver).is_none() && co::staff::advertise(c, Role::Driver).is_ok() => advertised = true,
                 None => break,
             }
         }

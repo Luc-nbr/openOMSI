@@ -14,12 +14,14 @@ export function MoneyPage() {
   const gap = 14;
   const box = (x, y, w, h) => `position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
   let body = null;
+  let tall = 0;
   if (size.w > 0) {
     const n = v.figures.length;
     const fw = (size.w - (n - 1) * gap) / n;
     const y = 100 + gap;
     if (v.easy) {
       const h = Math.max(260, size.h - y);
+      tall = y + h;
       const cw = (size.w - gap) / 2;
       body = html`${v.figures.map((f, k) => html`<div style=${box(k * (fw + gap), 0, fw, 100)}><${Figure} f=${f} /></div>`)}
         <${Month} m=${v.month} style=${box(0, y, cw, h)} />
@@ -31,6 +33,7 @@ export function MoneyPage() {
       const cw = (size.w - (cols - 1) * gap) / cols;
       const y2 = y + h1 + gap;
       const h2 = Math.max(100, size.h - y2);
+      tall = y2 + h2;
       const lw = (size.w - gap) * 0.62;
       body = html`${v.figures.map((f, k) => html`<div style=${box(k * (fw + gap), 0, fw, 100)}><${Figure} f=${f} small=${fw < 170} /></div>`)}
         <${Month} m=${v.month} style=${box(0, y, cw, h1)} />
@@ -40,7 +43,9 @@ export function MoneyPage() {
           : html`<${Ledger} l=${v.ledger} style=${box(0, y2, lw, h2)} /><${Fares} f=${v.fares} style=${box(lw + gap, y2, size.w - lw - gap, h2)} />`}`;
     }
   }
-  return html`<div ref=${ref} style="position:relative;height:100%;overflow:hidden">${body}</div>`;
+  // (the cards keep their least heights: on a low window the page scrolls to them - Beta 53's
+  // layout check)
+  return html`<div ref=${ref} style="position:relative;height:100%;overflow-x:hidden;overflow-y:auto"><div style=${`position:relative;height:${Math.max(tall, 1)}px`}>${body}</div></div>`;
 }
 
 /** The month by kind of booking, and its result (`money::month_overview`). */

@@ -1,0 +1,35 @@
+/* The buses the company works with, and the models' categories and regions (Beta 54):
+   js/omsihub/company/vehicles.js. The list draws the rows in sight only (`vh-item`, placed). */
+
+.vh { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 10px; color: var(--hub-text); font-size: var(--co-body, 11.5px); }
+.vh-note { flex: none; max-width: 860px; line-height: 1.8; }
+.vh-mode { flex: none; display: flex; align-items: center; gap: 16px; min-width: 0; }
+.vh-count { flex: none; font-size: var(--co-note, 10.4px); font-weight: 700; color: var(--hub-text-soft); white-space: nowrap; }
+.vh-quick { flex: none; display: flex; flex-wrap: wrap; gap: 8px; }
+.vh-filters { flex: none; display: flex; flex-wrap: wrap; gap: 8px; }
+.vh-filters .co-field { height: 36px; }
+.vh-shown { flex: none; display: flex; align-items: center; gap: 8px; min-height: 32px; font-size: var(--co-note, 10.4px); color: var(--hub-text-dim); }
+.vh-shown .rest { flex: 1; }
+.vh-list { flex: 1; min-height: 160px; overflow-x: hidden; overflow-y: auto; margin-right: -12px; padding-right: 12px; }
+.vh-item { position: absolute; left: 0; right: 0; }
+.vh-head { height: 100%; display: flex; align-items: flex-end; justify-content: space-between; padding: 0 4px 6px; font-size: var(--co-caps, 9.6px); font-weight: 700; text-transform: uppercase; color: var(--hub-text-dim); box-shadow: inset 0 -1px 0 var(--hub-hairline); }
+.vh-row { height: 100%; display: grid; grid-template-columns: 36px minmax(0, 1fr) minmax(100px, 170px) minmax(100px, 170px) auto; align-items: center; gap: 10px; padding: 0 4px; border-radius: var(--hub-r); }
+.vh-row:hover { background: rgba(var(--co-white, 255, 255, 255), 0.04); }
+.vh-row.off .vh-what, .vh-row.off .vh-mono { opacity: 0.45; }
+.vh-mono { width: 36px; height: 36px; border-radius: var(--hub-r); background: var(--hub-field); box-shadow: inset 0 0 0 1px var(--hub-hairline); display: flex; align-items: center; justify-content: center; font-size: 10.75px; font-weight: 800; color: var(--hub-text-soft); }
+.vh-what { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+.vh-what b { font-size: var(--co-rows, 11.1px); line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vh-what span { font-size: var(--co-note, 10.4px); color: var(--hub-text-dim); line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vh-row .vh-pick { height: 32px; padding: 0 8px; font-size: var(--co-note, 10.4px); }
+.vh-pick.fixed { box-shadow: inset 0 0 0 1px rgba(var(--hub-accent-rgb), 0.7); }
+.vh-row .co-switch { min-height: 32px; }
+/* the launcher's Settings: the list in its card */
+.vh-settings { display: flex; flex-direction: column; min-width: 0; }
+.vh-settings > .vh { flex: none; }
+.vh-settings .vh-list { min-height: 300px; }
+/* (Settings lays its cards out in two columns: the list takes the whole width) */
+.settings-grid:has(.vh-settings) { grid-template-columns: minmax(0, 1fr); }
+/* (a low window, or a large Launcher size: the note gives way, the dialog scrolls to the list) */
+@container (max-height: 600px) {
+  .vh-note { display: none; }
+}

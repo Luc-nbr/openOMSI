@@ -71,8 +71,10 @@ fn settings(s: &mut Session, args: &Value) -> Value {
     let date = args.get("date").and_then(Value::as_str).filter(|d| co::dates::parse(d).is_some()).unwrap_or(&c.date).to_string();
     let logo_text = c.logo.as_deref().map(|p| p.rsplit(['/', '\\']).next().unwrap_or(p).to_string()).unwrap_or_else(|| tr("No logo picture: the short name is the mark."));
     let on = c.clock.real.on;
+    let vehicles = super::vehicles::settings_part(s);
     json!({
         "title": tr("The company's settings"),
+        "vehicles": vehicles,
         "mark_caps": tr("The company's mark").to_uppercase(), "mark": mark_json(&c), "logo_text": logo_text,
         "choose_logo": tr("Choose a logo picture"), "remove_logo": c.logo.is_some().then(|| tr("Remove the picture")),
         "mode_caps": tr("Game mode").to_uppercase(), "modes": GameMode::ALL.iter().map(|m| mode_json(*m)).collect::<Vec<_>>(), "mode": super::mode_key(c.game_mode), "mode_info": tr(c.game_mode.info()),

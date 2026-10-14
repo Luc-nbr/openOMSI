@@ -251,7 +251,11 @@
 .rf-studio { position: absolute; inset: 0; display: flex; flex-direction: column; }
 
 .rf-kpis { position: relative; flex: none; height: 100px; padding-top: 4px; background: var(--rf-bg); }
-.rf-kpis.open { height: 376px; }
+/* (opened on a low window - a small one, or a large Launcher size: the figures scroll in their
+   own room, the toolbar and some of the Gantt stay in sight; Beta 53's layout check) */
+.rf-kpis.open { height: 376px; max-height: calc(100% - 100px); display: flex; flex-direction: column; }
+.rf-kscroll { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; }
+.rf-kpis:not(.open) .rf-kscroll { overflow: hidden; }
 .rf-kpis .rf-krow { position: relative; display: flex; height: 92px; }
 .rf-kpis .anchor { position: absolute; top: 0; bottom: 0; left: 0; width: 40%; pointer-events: none; }
 .rf-kpis .anchor.rest { left: 40%; width: 60%; }
@@ -300,12 +304,15 @@
 .rf-status { flex: none; height: 32px; display: flex; align-items: center; padding: 0 8px; background: var(--rf-status); box-shadow: inset 0 1px 0 var(--rf-line); font-size: 9.6px; position: relative; z-index: 2; }
 .rf-status > .rf-wordmark { margin-left: 6px; font-size: 10.75px; }
 .rf-status .sep { width: 1px; height: 16px; flex: none; background: var(--rf-line); margin: 0 7px; }
-.rf-status .counts { display: flex; align-items: center; gap: 14px; min-width: 0; }
-.rf-status .counts .shown { color: var(--rf-dim); font-weight: 500; white-space: nowrap; }
-.rf-status .count { display: flex; align-items: center; gap: 5px; font-weight: 700; white-space: nowrap; }
+/* (a narrow RosterFlow: what is shown shortened with an ellipsis, the counts and the issues kept -
+   they ran over the issues at 200 %, Beta 53's layout check) */
+.rf-status > .rf-wordmark { flex: none; }
+.rf-status .counts { display: flex; align-items: center; gap: 14px; min-width: 0; flex: 0 1 auto; overflow: hidden; }
+.rf-status .counts .shown { color: var(--rf-dim); font-weight: 500; white-space: nowrap; min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.rf-status .count { display: flex; align-items: center; gap: 5px; font-weight: 700; white-space: nowrap; flex: none; }
 .rf-status .count.all { color: var(--rf-accent); }
 .rf-status .count.part { color: var(--rf-err); }
-.rf-status .issues { display: flex; align-items: center; }
+.rf-status .issues { display: flex; align-items: center; flex: none; }
 .rf-issue { height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 8px 0 4px; border-radius: 3px; color: var(--rf-dim); font-weight: 500; white-space: nowrap; }
 .rf-issue:hover, .rf-issue.on { background: var(--rf-hover2); color: var(--rf-text); }
 .rf-issue > span { display: flex; }
@@ -324,7 +331,7 @@
 .rf-card > .head { flex: none; height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--rf-card-head); color: #fff; font-size: 10.75px; font-weight: 700; white-space: nowrap; }
 .rf-card > .head.warn { background: color-mix(in srgb, var(--rf-warn) 95%, #000); }
 .rf-card > .head b { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.rf-card > .head .who { display: flex; align-items: center; gap: 6px; color: #fff; font-weight: 700; }
+.rf-card > .head .who { display: flex; align-items: center; gap: 6px; min-height: 20px; color: #fff; font-weight: 700; }
 .rf-card > .head .who u { text-underline-offset: 2px; }
 .rf-card > .head .veh { height: 28px; display: flex; align-items: center; gap: 6px; padding: 0 6px; border-radius: 3px; color: #fff; font-weight: 700; }
 .rf-card > .head .veh:hover, .rf-card > .head .pal:hover { background: rgba(255, 255, 255, 0.22); }
@@ -372,6 +379,7 @@
 .rf-menu { display: flex; flex-direction: column; padding: 5px 0; border-radius: 4px; background: var(--rf-menu); color: var(--rf-menu-text); box-shadow: var(--rf-shadow); z-index: 35; overflow-y: auto; overflow-x: hidden; }
 .rf-menu hr { border: 0; height: 1px; flex: none; margin: 4px 0; background: color-mix(in srgb, var(--rf-menu-text) 12%, transparent); }
 .rf-menu .menu-caps { padding: 8px 14px 4px; color: var(--rf-card-dim); flex: none; }
+.rf-history { max-height: calc(100% - 8px); }
 .rf-menu .now { padding: 4px 14px; font-size: 9.6px; font-weight: 700; color: var(--rf-accent); flex: none; }
 .rf-menu .rf-check, .rf-menu .rf-switch { color: var(--rf-menu-text); }
 .rf-menu .rf-check b { box-shadow: inset 0 0 0 1.3px var(--rf-card-dim); }
@@ -438,7 +446,7 @@
 .rf-issues .group { display: flex; align-items: center; gap: 8px; height: 30px; }
 .rf-issues .group b { flex: 1; font-size: 9.6px; font-weight: 700; }
 .rf-issues .badge { min-width: 22px; height: 18px; padding: 0 5px; border-radius: 9px; display: flex; align-items: center; justify-content: center; background: var(--rf-dim); color: var(--rf-sheet); font-size: 8.45px; font-weight: 700; }
-.rf-issues .fold { color: var(--rf-dim); display: flex; }
+.rf-issues .fold { color: var(--rf-dim); display: flex; align-items: center; justify-content: center; min-width: 20px; min-height: 20px; }
 .rf-issues .issue { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; }
 .rf-issues .issue.in { padding-left: 22px; }
 .rf-issues .tick { width: 18px; height: 18px; flex: none; margin-top: -1px; border-radius: 3px; box-shadow: inset 0 0 0 1.3px var(--rf-dim); display: flex; align-items: center; justify-content: center; color: #fff; }
@@ -654,7 +662,7 @@
 .tp-band .knob { position: absolute; width: 12px; height: 12px; border-radius: 50%; background: color-mix(in srgb, var(--tp-border) 75%, #fff); }
 .tp-band .knob.on { background: var(--tp-dim); }
 .tp-round { position: absolute; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--tp-cell); color: var(--tp-dim); box-shadow: inset 0 0 0 1px var(--tp-border); z-index: 2; }
-.tp-round.small { width: 18px; height: 18px; }
+.tp-round.small { width: 20px; height: 20px; margin: -1px 0 0 -1px; }
 .tp-round:hover { color: var(--tp-text); background: var(--tp-cell-hover); }
 .tp-cell { position: absolute; top: 0; height: 36px; display: flex; align-items: center; justify-content: center; background: var(--tp-cell); box-shadow: inset -1px -1px 0 var(--tp-border); font-size: 9.98px; font-weight: 500; color: var(--tp-text); white-space: nowrap; overflow: hidden; }
 button.tp-cell:hover { background: var(--tp-cell-hover); }

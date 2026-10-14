@@ -77,6 +77,7 @@ function Kpis({ k }) {
   const r = S.rf;
   const open = r.kpisOpen;
   return html`<div class=${'rf-kpis' + (open ? ' open' : '')}>
+    <div class="rf-kscroll">
     <div class="rf-krow">
       <span class="anchor" data-rf="rf-kpi-counts"></span><span class="anchor rest" data-rf="rf-kpi-rest"></span>
       ${k.top.map((t) => html`<${Tile} t=${t} />`)}
@@ -86,6 +87,7 @@ function Kpis({ k }) {
       <${Histogram} bars=${k.types} caption="Duty types" style="left:10%;width:32%" onClick=${() => setRf({ panel: { kind: 'histogram', which: 0 } })} />
       <${Histogram} bars=${k.bands} caption="Duties paid time" style="left:48%;width:32%" onClick=${() => setRf({ panel: { kind: 'histogram', which: 1 } })} />
     </div>`}
+    </div>
     <button type="button" class="rf-kpitab" title=${tr(open ? 'Fewer figures' : 'More figures: splits, changeovers, paid, spread, work, driving and platform time, the histograms')} onClick=${() => setRf({ kpisOpen: !open })}><${Icon} name=${open ? 'expand_less' : 'expand_more'} size=${12} /></button>
   </div>`;
 }

@@ -7,6 +7,8 @@
 import { S } from '../../store.js';
 import { call } from '../../api.js';
 import { html, useEffect, useState, tr, HOME, setCo, cmd, refresh, takeShell, useView, Icon, Mark, ModePill, Btn, Seg, Chips, Select, Dialog, IconBtn } from './kit.js';
+// (the buses the company works with: Beta 54)
+import { VehiclePicker } from './vehicles.js';
 
 /** The companies as the chooser's view lists them (boot keeps one too). */
 export const readCompanies = () => S.co.list?.companies?.tiles || [];
@@ -122,7 +124,7 @@ export function Wizard() {
       setCo({ popup: v.maps.length ? v.popup_name : v.popup_map });
       return;
     }
-    const r = await cmd('co_found', { name: w.name, short: w.short, colours: w.colours, logo: w.logo, map: w.map ?? v.map, depot: w.depot, when: w.when, date: w.date ?? v.date, mode: w.mode || v.mode, buying: w.buying });
+    const r = await cmd('co_found', { name: w.name, short: w.short, colours: w.colours, logo: w.logo, map: w.map ?? v.map, depot: w.depot, when: w.when, date: w.date ?? v.date, mode: w.mode || v.mode, buying: w.buying, vehicles: w.vehicles || null });
     if (r?.refused) {
       setCo({ popup: r.refused === 'map' ? v.popup_map : v.popup_name });
       return;
@@ -135,6 +137,12 @@ export function Wizard() {
     if (p) put({ logo: p });
   };
   const logoName = w.logo ? w.logo.split(/[\\/]/).pop() : v.no_logo;
+  // (the buses the company works with: the map's region proposed until the player chooses -
+  // Beta 54; the choice is the wizard's until the company is founded)
+  const vh = v.vehicles;
+  const vchoice = w.vehicles || { mode: vh.proposed, off: [] };
+  const putNow = (patch) => setCo((c) => ({ wizard: { ...(c.wizard || w), ...patch } }));
+  const vmode = (m) => cmd('co_vehicles_act', { what: 'mode', mode: m, scope: 'wizard', choice: vchoice, map: v.map_file }).then((r) => r?.choice && putNow({ vehicles: r.choice }));
   const mode = w.mode || v.mode;
   const casual = mode === 'casual';
   return html`<div class="co-found">
@@ -181,6 +189,12 @@ export function Wizard() {
                 : html`<${Seg} value=${w.buying} options=${v.buyings.map((x, i) => [i, x])} onChange=${(b) => put({ buying: b })} style="max-width:280px;margin-top:4px" />
                   <p class="says">${v.buying_says[w.buying]}</p>`}</div>
           </div>
+          <div class="vehicles">
+            <label class="co-label">${vh.caps}</label>
+            <div class="row2"><${Seg} value=${vchoice.mode} options=${vh.modes} onChange=${vmode} style="flex:1;min-width:0;max-width:520px;height:38px" />
+              <${Btn} icon="directions_bus" label=${vh.choose} onClick=${() => put({ picker: true })} /></div>
+            <p class="says">${vh.say}</p>
+          </div>
         </section>
       </div>
       <div class="foot">
@@ -189,5 +203,6 @@ export function Wizard() {
         <${Btn} kind="primary" icon="check_circle" label=${v.found} onClick=${found} />
       </div>
     </div>
+    ${w.picker && html`<${VehiclePicker} choice=${vchoice} onChoice=${(c) => putNow({ vehicles: c })} map=${v.map_file} onClose=${() => putNow({ picker: false })} />`}
   </div>`;
 }

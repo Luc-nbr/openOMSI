@@ -65,7 +65,8 @@ export function RouteMap({ map, date, trip, stops = [], entry = -1, onEntry, hei
     const c = cv.current;
     const d = data;
     if (!c || !d || d.error) return;
-    const dpr = window.devicePixelRatio || 1;
+    // (times the Launcher size the stage is scaled by, so the canvas stays sharp)
+    const dpr = (window.devicePixelRatio || 1) * stageScale();
     const W = box.current.clientWidth;
     const H = box.current.clientHeight;
     if (c.width !== Math.round(W * dpr) || c.height !== Math.round(H * dpr)) Object.assign(c, { width: Math.round(W * dpr), height: Math.round(H * dpr) });
@@ -185,9 +186,18 @@ export function RouteMap({ map, date, trip, stops = [], entry = -1, onEntry, hei
     };
   }, []);
 
+  // how much bigger the map shows than its own lengths: Omsi-Hub's stage is scaled as a whole
+  // (the setting Launcher size, a CSS transform), the mouse moves in the scaled pixels
+  const stageScale = () => {
+    const b = box.current;
+    const r = b?.getBoundingClientRect();
+    return b?.clientWidth && r?.width ? r.width / b.clientWidth : 1;
+  };
+  // the mouse in the map's own pixels (those it draws and zooms in)
   const at = (e) => {
     const r = cv.current.getBoundingClientRect();
-    return [e.clientX - r.left, e.clientY - r.top];
+    const k = stageScale();
+    return [(e.clientX - r.left) / k, (e.clientY - r.top) / k];
   };
   const entryAt = ([px, py]) => {
     const d = data;

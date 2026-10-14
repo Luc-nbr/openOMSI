@@ -218,6 +218,8 @@ pub enum BookingKind {
     Depot,
     Wages,
     Severance,
+    /// Job adverts for new applicants (`staff::advertise`).
+    Recruitment,
     /// Contract penalties: trips dropped, trips late.
     Penalty,
     /// Traffic fines of the player's own tours (red lights, speed cameras).
@@ -245,7 +247,7 @@ pub enum BookingKind {
 }
 
 impl BookingKind {
-    pub const ALL: [BookingKind; 30] = [
+    pub const ALL: [BookingKind; 31] = [
         BookingKind::Capital,
         BookingKind::Loan,
         BookingKind::Repayment,
@@ -264,6 +266,7 @@ impl BookingKind {
         BookingKind::Depot,
         BookingKind::Wages,
         BookingKind::Severance,
+        BookingKind::Recruitment,
         BookingKind::Penalty,
         BookingKind::Fine,
         BookingKind::Bonus,
@@ -298,6 +301,7 @@ impl BookingKind {
             BookingKind::Depot => "Depot",
             BookingKind::Wages => "Wages",
             BookingKind::Severance => "Severance",
+            BookingKind::Recruitment => "Job adverts",
             BookingKind::Penalty => "Penalties",
             BookingKind::Fine => "Traffic fines",
             BookingKind::Bonus => "Quality bonus",
@@ -409,6 +413,10 @@ pub struct Vehicle {
     /// passengers notice (`staff::clean_factor`; 75, an older file's, is as it ever was).
     #[serde(default = "seventy_five")]
     pub clean: f64,
+    /// Where its model is built for, as the market had it when the bus came (`vehicles`;
+    /// None: a bus of before - every company's choice takes it).
+    #[serde(default)]
+    pub region: Option<super::vehicles::Region>,
 }
 
 fn seventy_five() -> f64 {
@@ -703,6 +711,10 @@ pub struct Taken {
     pub week: i64,
     pub used: Vec<u32>,
     pub applicants: Vec<u32>,
+    /// The rounds of job adverts this week, by role (none: the week's first applicants -
+    /// `staff::advertise`, Beta 54).
+    #[serde(default)]
+    pub rounds: Vec<(Role, u32)>,
 }
 
 /// Numbers that only go up: a sold bus or a person who left never gives theirs away.
@@ -831,6 +843,10 @@ pub struct Company {
     /// What the company does by itself in the easy mode, and what it did (`autopilot`).
     #[serde(default)]
     pub autopilot: super::autopilot::Autopilot,
+    /// The buses it works with: UK, European, all or its own selection (`vehicles`; a company
+    /// of before: all).
+    #[serde(default)]
+    pub vehicles: super::vehicles::VehicleChoice,
 }
 
 fn one() -> f64 {

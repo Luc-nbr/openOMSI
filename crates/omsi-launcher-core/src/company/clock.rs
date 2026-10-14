@@ -622,6 +622,7 @@ pub fn spare_buses(c: &Company, index: usize) -> Vec<u32> {
         .filter(|v| v.id != b.vehicle && v.held_on(&s.date) && !v.in_workshop(&s.date) && v.condition >= 20.0 && !morning.contains(&v.id))
         .filter(|v| !s.breaks.iter().any(|x| x.vehicle == v.id && x.at <= to))
         .filter(|v| b.line_name.is_empty() || super::ownline::line_allows(c, &b.line_name, v))
+        .filter(|v| super::vehicles::vehicle_allowed(c, v))
         .filter(|v| !s.busy.iter().any(|&(id, a, z)| id == v.id && a < to + margin && from < z + margin))
         .filter(|v| !s.breaks.iter().any(|x| x.choice == Some(Choice::Spare { vehicle: v.id }) && x.at < to && from < x.until.max(x.at + SPARE_MINUTES)))
         .collect();

@@ -129,6 +129,9 @@ pub fn wizard(s: &mut Session, args: &Value) -> Result<Value, String> {
     v["casual_buying"] = json!(tr("Casual buys at the list price, in one click: the buses are yours at once."));
     v["buyings"] = json!(co::dealer::BuyingMode::ALL.iter().map(|m| tr(m.label())).collect::<Vec<_>>());
     v["buying_says"] = json!([tr("A model, a number, the list price: the buses are yours at once."), tr("Haggle with the dealer, agree on extras and sign a contract; new buses are delivered.")]);
+    // (the buses the company works with: the map's region proposed - Beta 54)
+    v["vehicles"] = super::vehicles::wizard_part(s, &maps.get(k).map(|m| m.file.clone()).unwrap_or_default());
+    v["map_file"] = json!(maps.get(k).map(|m| m.file.clone()).unwrap_or_default());
     v["cancel"] = json!(has.then(|| tr("Cancel")));
     v["found"] = json!(tr("Found the company"));
     v["need_name"] = json!(tr("Give the company a name."));
@@ -166,6 +169,8 @@ pub fn found(s: &mut Session, args: &Value) -> Result<Value, String> {
         date: first_day(when, Some(m), &chosen_map, &chosen_date, &own),
         game_mode: mode,
         buying: co::dealer::BuyingMode::ALL[buying],
+        // (the wizard's choice, else the map's region)
+        vehicles: args.get("vehicles").filter(|v| !v.is_null()).and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_else(|| co::vehicles::VehicleChoice::for_region(super::vehicles::region_of_map(s, &m.file))),
     };
     let mut c = co::found(&f, &core::load_config().profile);
     c.id = co::store::unused_id(&data(), &c.name);
@@ -185,7 +190,7 @@ mod tests {
     fn the_first_day_is_today_or_the_maps() {
         let t = today();
         assert_eq!(first_day(0, None, "", "", ""), t);
-        let bh = core::MapInfo { name: "Bad_Huegelsdorf_2020".into(), friendly: String::new(), file: "maps/Bad_Huegelsdorf_2020/global.cfg".into(), description: String::new(), entry_points: Vec::new(), hof: String::new(), installed: false };
+        let bh = core::MapInfo { name: "Bad_Huegelsdorf_2020".into(), friendly: String::new(), file: "maps/Bad_Huegelsdorf_2020/global.cfg".into(), description: String::new(), entry_points: Vec::new(), hof: String::new(), installed: false, left_hand: false };
         assert_eq!(map_date(&bh, "maps/Bad_Huegelsdorf_2020/global.cfg", "2005-10-12"), "2005-10-12");
         assert_eq!(map_date(&bh, "maps/Other/global.cfg", "2005-10-12"), "2020-05-30");
         assert_eq!(first_day(2, None, "", "", "1999-01-02"), "1999-01-02");

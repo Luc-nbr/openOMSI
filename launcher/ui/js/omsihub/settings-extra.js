@@ -6,7 +6,7 @@
 // navigator's board, size, stop signs and signing on, and the updates' Check now with this
 // fork's releases. (Speeds follow upstream's own Units.)
 
-import { html } from '../../vendor/preact-htm.js';
+import { html, useEffect, useState } from '../../vendor/preact-htm.js';
 import { SETTINGS_TABS } from '../pages/settings-schema.js';
 import { onPhone } from '../api.js';
 import { PRESETS, hexOf } from './theme.js';
@@ -92,4 +92,16 @@ if (HUB && !SETTINGS_TABS.omsihub) {
       if (k >= 0) c.rows.splice(k, 1, { type: 'custom', id: 'hub-update', view: () => html`<${UpdateRow} />` });
     }
   }
+  // (Beta 54) the bus models' categories and regions, for every company: what the dealer, the
+  // market and the shop of the bus company go by (`company/vehicles.js`)
+  SETTINGS_TABS.push({ id: 'vehicles', label: 'Vehicles', cols: [{ title: 'Bus categories and regions', rows: [{ type: 'custom', id: 'hub-vehicles', view: () => html`<${Vehicles} />` }] }] });
+}
+
+/** The models' categories and regions (loaded with the tab: the company's list). */
+function Vehicles() {
+  const [m, setM] = useState(null);
+  useEffect(() => {
+    import('./company/vehicles.js').then(setM).catch(() => {});
+  }, []);
+  return m ? html`<${m.VehicleClasses} />` : null;
 }

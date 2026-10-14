@@ -47,12 +47,15 @@ pub fn view(s: &mut Session, ui: &Value) -> Value {
     out["body"] = match tab {
         2 => adverts(&c),
         1 => Value::Null,
-        _ => our_buses(&c),
+        _ => {
+            let left = super::vehicles::left_out(s, &c);
+            our_buses(&c, &left)
+        }
     };
     out
 }
 
-fn our_buses(c: &Company) -> Value {
+fn our_buses(c: &Company, left: &std::collections::HashSet<String>) -> Value {
     let order = c.dealer.orders.iter().min_by_key(|o| dl::minutes_of(&o.delivery)).map(|first| {
         let n: u32 = c.dealer.orders.iter().map(|o| o.contract.count).sum();
         trf("%{n} buses on order: the next arrive on %{date}.", &[("n", &n.to_string()), ("date", &day_label(&dl::day_of(&first.delivery)))])
@@ -65,7 +68,8 @@ fn our_buses(c: &Company) -> Value {
             json!({
                 "id": bus.id, "number": bus.number, "name": bus.name, "file": bus.bus, "livery": bus.livery,
                 "advert": ad::advert_of(c, bus.id).map(|k| format!("{}  ·  {}", tr("Ad"), k.advertiser)),
-                "sub": format!("{}  ·  {}", bus.plate, tr(bus.kind.label())),
+                // (a model the company does not work with any more: the bus stays - Beta 54)
+                "sub": if left.contains(&omsi_launcher_lib::company::vehicles::key_of(&bus.bus)) { format!("{}  ·  {}  ·  {}", bus.plate, tr(bus.kind.label()), tr("not in your selection")) } else { format!("{}  ·  {}", bus.plate, tr(bus.kind.label())) },
                 "facts": format!("{} km  ·  {}", grouped(bus.km.round()), trf("%{n} years", &[("n", &format!("{:.0}", bus.age_years(&c.date)))])),
                 "condition": { "frac": bus.condition / 100.0, "tone": grade(bus.condition), "tip": trf("Condition: %{n} of 100", &[("n", &format!("{:.0}", bus.condition))]) },
                 "status": status, "tone": tone,
@@ -168,8 +172,8 @@ pub fn new_view(s: &mut Session, args: &Value) -> Value {
     let livery = args.get("livery").and_then(Value::as_str).unwrap_or("").to_string();
     let how = args.get("how").and_then(Value::as_u64).unwrap_or(0).min(1);
     let days = args.get("days").and_then(Value::as_u64).unwrap_or(7).clamp(1, 60) as i64;
-    s.ask_market();
-    let Some(bus) = s.market.as_ref().and_then(|m| m.iter().find(|b| b.file == file).cloned()) else { return json!({ "gone": true }) };
+    // (as the player has it, and only a model the company works with: Beta 54)
+    let Some(bus) = super::vehicles::market_bus(s, &file).filter(|b| c.vehicles.allows(b)) else { return json!({ "gone": true }) };
     let r = co::economy::rules(c.game_mode);
     let (rows, text, action, cost) = if how == 0 {
         let (monthly, months, residual) = market::lease_offer(&c, &bus);
@@ -189,7 +193,7 @@ pub fn new_view(s: &mut Session, args: &Value) -> Value {
         )
     };
     json!({
-        "title": bus.name, "file": bus.file, "name": bus.name, "bus_kind": tr(bus.kind.label()),
+        "title": bus.name, "file": bus.file, "name": bus.name, "bus_kind": super::vehicles::kind_label(&bus),
         "livery": livery_choice(s, &bus.file, &livery), "design_note": tr("A house livery of your own comes with the livery studio."),
         "hows": [tr("Lease"), tr("Rent")], "how": how, "days": days, "days_label": tr("Days"),
         "rows": rows, "text": text, "main": action, "cost": cost, "cancel": tr("Cancel"),
@@ -271,8 +275,7 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Result<Value, St
             let paint = str_of("livery");
             let how = args.get("how").and_then(Value::as_u64).unwrap_or(0);
             let days = args.get("days").and_then(Value::as_u64).unwrap_or(7).clamp(1, 60) as u32;
-            s.ask_market();
-            let Some(bus) = s.market.as_ref().and_then(|m| m.iter().find(|b| b.file == file).cloned()) else { return Some(Ok(json!({}))) };
+            let Some(bus) = super::vehicles::market_bus(s, &file).filter(|b| c.vehicles.allows(b)) else { return Some(Ok(json!({}))) };
             let r = co::economy::rules(c.game_mode);
             let cost = if how == 0 { market::lease_offer(&c, &bus).0 } else { co::economy::rent_per_day(bus.kind, &r, c.price_index) * days as i64 };
             if c.cash < cost {

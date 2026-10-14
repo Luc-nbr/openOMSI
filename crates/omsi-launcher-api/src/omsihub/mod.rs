@@ -555,6 +555,51 @@ mod tests {
         assert!(missing.is_empty(), "{} translations missing (add them to crates/omsi-app/locales/tauri-omsihub.yml):\n{}", missing.len(), missing.join("\n"));
     }
 
+    /// The mouse under the stage's scale (Beta 54, Luc: "zooming the map should zoom where the
+    /// cursor is"): our pages are scaled as a whole by the Launcher size, so a mouse position
+    /// taken from a box's left or top edge is in scaled pixels. Where one is, it is divided by
+    /// the scale (`(e.clientX - r.left) / k`) or made a fraction of the box's width (`/
+    /// r.width`) - never used as it is.
+    #[test]
+    fn mouse_positions_follow_the_stage_scale() {
+        let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../launcher/ui/js");
+        let mut files = vec![ui.join("routemap.js"), ui.join("pages/drive.js")];
+        let mut todo = vec![ui.join("omsihub")];
+        while let Some(d) = todo.pop() {
+            for e in std::fs::read_dir(&d).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    todo.push(p);
+                } else if p.extension().is_some_and(|x| x == "js") {
+                    files.push(p);
+                }
+            }
+        }
+        let mut raw = Vec::new();
+        for f in files {
+            let src = std::fs::read_to_string(&f).unwrap();
+            for (n, line) in src.lines().enumerate() {
+                for axis in ["clientX - ", "clientY - "] {
+                    let mut rest = line;
+                    while let Some(k) = rest.find(axis) {
+                        let after = &rest[k + axis.len()..];
+                        rest = after;
+                        // (an edge of a box: `r.left`, `box.top`, `b.left` ...)
+                        let word: String = after.chars().take_while(|c| c.is_alphanumeric() || *c == '.' || *c == '_').collect();
+                        if !(word.ends_with(".left") || word.ends_with(".top")) {
+                            continue;
+                        }
+                        let tail = after[word.len()..].trim_start();
+                        if !(tail.starts_with(") /") || tail.starts_with(")/")) {
+                            raw.push(format!("{}:{}: {}", f.file_name().unwrap().to_string_lossy(), n + 1, line.trim()));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(raw.is_empty(), "mouse positions not divided by the stage's scale:\n{}", raw.join("\n"));
+    }
+
     #[test]
     fn the_page_has_every_table_of_the_game() {
         // (the game reads every file in the folder: a new one is the page's too)

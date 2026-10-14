@@ -559,7 +559,7 @@ function DutyPanel({ data, id, gTop }) {
 function History({ data, size }) {
   const undo = data.head?.undo || [];
   const shown = undo.map((l, k) => [l, k]).reverse().slice(0, 14);
-  return html`<div class="rf-over rf-menu rf-history" style=${`left:${size.w - 760}px;top:4px;width:380px`}>
+  return html`<div class="rf-over rf-menu rf-history" style=${`left:${Math.max(4, size.w - 760)}px;top:4px;width:380px`}>
     <${Caps} text="Schedule history" class="menu-caps" />
     <div class="now">${tr('Now')}</div>
     ${shown.map(([label, k]) => html`<${MenuItem} label=${label} raw title="Go back to before this change" onClick=${() => rfAct('back_to', { k }).then(() => setRf({ panel: null }))} />`)}

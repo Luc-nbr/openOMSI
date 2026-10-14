@@ -143,6 +143,8 @@ pub fn listing_of(bus: MarketBus, family: (String, String, String), specs: &Spec
 pub struct Filter {
     pub search: String,
     pub size: Option<BusSize>,
+    /// A category of `vehicles` (a coach is no solo bus here: Beta 54).
+    pub category: Option<super::vehicles::Category>,
     pub drive: Option<Drive>,
     /// The highest new price (0: any).
     pub max_price: Cents,
@@ -154,7 +156,7 @@ impl Filter {
         if !q.is_empty() && ![&l.bus.name, &l.maker, &l.model, &l.version, &l.bus.file].iter().any(|s| s.to_lowercase().contains(&q)) {
             return false;
         }
-        if self.size.is_some_and(|s| s != l.bus.kind.size) || self.drive.is_some_and(|d| d != l.bus.kind.drive) {
+        if self.size.is_some_and(|s| s != l.bus.kind.size) || self.drive.is_some_and(|d| d != l.bus.kind.drive) || self.category.is_some_and(|k| k != super::vehicles::category_of(&l.bus)) {
             return false;
         }
         if self.max_price > 0 && list_price(c, l.bus.kind) > self.max_price {
@@ -1499,7 +1501,7 @@ mod tests {
 
     fn listing(name: &str, maker: &str, size: BusSize, drive: Drive) -> Listing {
         Listing {
-            bus: MarketBus { file: format!("Vehicles/{name}/{name}.bus"), name: name.into(), kind: BusKind { size, drive }, paints: vec!["Red".into()], default_paint: "Red".into() },
+            bus: MarketBus { file: format!("Vehicles/{name}/{name}.bus"), name: name.into(), kind: BusKind { size, drive }, paints: vec!["Red".into()], default_paint: "Red".into(), ..Default::default() },
             maker: maker.into(),
             model: name.into(),
             version: "3 doors".into(),

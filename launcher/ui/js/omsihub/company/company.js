@@ -296,7 +296,7 @@ function Bar({ open, choosing, read }) {
         <${Btn} class="sq" icon="settings" title=${tr("The company's settings: its name, its date, how it buys")} onClick=${settings} /><span class="gap8"></span>`}
       <${Btn} class="sq" icon=${isDark ? 'dark_mode' : 'light_mode'} title=${tr(isDark ? 'Switch to the light mode' : 'Switch to the dark mode')} onClick=${(e) => flipLook(e)} /><span class="gap8"></span>
       ${read && !choosing && html`<${Btn} class="sq co-help" icon="help" title=${tr('A tour of the bus company')} onClick=${askTour} /><span class="gap12"></span>`}
-      <${Btn} icon="chevron_left" label=${tr('Back')} style="width:112px" onClick=${() => leaveCompany()} />
+      <${Btn} class="co-back" icon="chevron_left" label=${tr('Back')} title=${tr('Back')} style="width:112px" onClick=${() => leaveCompany()} />
     </span>
   </header>`;
 }
@@ -341,7 +341,7 @@ function Clock({ now = true }) {
       ${speeds.map(([label, speed, w], i) => html`<${Btn} kind=${Math.abs(k.speed - speed) < 1e-6 ? 'primary' : 'ghost'} label=${label} style=${`width:${w}px;padding:0`} title=${playTip(speed, i)} onClick=${() => play(speed)} />`)}
     </span>
     <${Btn} label="+1 h" style="width:70px;padding:0" title=${tr("Simulate one hour of the company's time")} onClick=${() => act('hour')} />
-    <${Btn} kind="primary" icon="nights_stay" label=${tr('Simulate to tomorrow')} title=${tr(k.in_game ? "The game leads the company's clock while it runs" : 'Simulate the rest of the day: the tours run, what happens is told, and the day is closed at midnight')} onClick=${() => act('tomorrow')} />
+    <${Btn} kind="primary" class="co-tomorrow" icon="nights_stay" label=${tr('Simulate to tomorrow')} title=${tr(k.in_game ? "The game leads the company's clock while it runs" : 'Simulate the rest of the day: the tours run, what happens is told, and the day is closed at midnight')} onClick=${() => act('tomorrow')} />
     <${Btn} class="sq" icon="schedule" style="width:42px" title=${tr("More steps, the clock's speed and the dispatcher")} onClick=${() => !sh.cover && setCo({ dialog: { kind: 'time' } })} />
   </span>`;
 }
@@ -365,7 +365,7 @@ function Nav() {
   const sh = c.shell;
   const home = c.tab === HOME;
   return html`<nav class="co-nav">
-    <${Btn} kind=${home ? 'primary' : ''} icon="apps" label=${tr('Start screen')} title=${tr('Every part of the company as a tile (Escape)')} onClick=${() => !home && setCo({ tab: HOME })} />
+    <${Btn} kind=${home ? 'primary' : ''} class="co-start" icon="apps" label=${tr('Start screen')} title=${tr('Every part of the company as a tile (Escape)')} onClick=${() => !home && setCo({ tab: HOME })} />
     <span class="where">
       ${home
         ? html`<span class="home cut">${sh.home}</span>`
@@ -400,7 +400,7 @@ function CasualNav() {
   const parent = parentOf(sh, tab);
   const crumbs = [parent, tab].filter((t) => t !== HOME);
   return html`<nav class="co-nav">
-    <${Btn} kind=${home ? 'primary' : ''} icon="home" label=${tr('Home')} style="min-width:110px" title=${tr("Back to your company's home (Escape)")} onClick=${() => !home && setCo({ tab: HOME })} />
+    <${Btn} kind=${home ? 'primary' : ''} class="co-start" icon="home" label=${tr('Home')} style="min-width:110px" title=${tr("Back to your company's home (Escape)")} onClick=${() => !home && setCo({ tab: HOME })} />
     <span class="where">
       ${home
         ? html`<span class="home cut">${sh.casual_pages?.home}</span>`

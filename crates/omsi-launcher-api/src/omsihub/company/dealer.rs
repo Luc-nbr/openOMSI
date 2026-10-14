@@ -14,7 +14,8 @@ use omsi_launcher_lib::company::adverts::{self as ad, AdContract};
 use omsi_launcher_lib::company::dealer::{self as dl, BuyingMode, Contract, Extra, Filter, Listing, Move, Offer, OfferKind, PayWay, Quote, Reply, Signed, Talk};
 use omsi_launcher_lib::company::finance::{self as fi, LoanContract, Room};
 use omsi_launcher_lib::company::market::Payment;
-use omsi_launcher_lib::company::{self as co, BusSize, Company, Drive};
+use omsi_launcher_lib::company::vehicles::Category;
+use omsi_launcher_lib::company::{self as co, Company, Drive};
 use serde_json::{json, Value};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -163,7 +164,20 @@ pub fn listings(s: &mut Session) -> Option<Arc<Vec<Listing>>> {
             s.generation += 1;
         });
     }
-    s.dealer.listings.clone()
+    let raw = s.dealer.listings.clone()?;
+    // (Beta 54: the categories and regions as the player corrected them, and only the models
+    // the company works with - the showroom, the day's offers, the used market, the shop)
+    let co = super::vehicles::corrections(s).clone();
+    let choice = s.company.as_ref().map(|c| c.vehicles.clone());
+    Some(Arc::new(
+        raw.iter()
+            .filter_map(|l| {
+                let mut l = l.clone();
+                co.apply(&mut l.bus);
+                choice.as_ref().is_none_or(|v| v.allows(&l.bus)).then_some(l)
+            })
+            .collect(),
+    ))
 }
 
 /// The dealer's clock (`dealer::tick`): the orders due delivered, what is over forgotten - once a
@@ -329,11 +343,14 @@ fn filter_of(ui: &Value) -> Filter {
     let max = ui.get("max_price").and_then(Value::as_f64).unwrap_or(PRICE_ANY);
     Filter {
         search: ui.get("search").and_then(Value::as_str).unwrap_or("").to_string(),
-        size: match size {
-            1 => Some(BusSize::Midi),
-            2 => Some(BusSize::Solo),
-            3 => Some(BusSize::Articulated),
-            4 => Some(BusSize::Double),
+        // (by category: a coach is no solo bus - Beta 54)
+        size: None,
+        category: match size {
+            1 => Some(Category::Midi),
+            2 => Some(Category::Solo),
+            3 => Some(Category::Articulated),
+            4 => Some(Category::Double),
+            5 => Some(Category::Coach),
             _ => None,
         },
         drive: match drive {
@@ -395,7 +412,7 @@ fn showroom(c: &Company, all: &[Listing], offers: &[Offer], ui: &Value) -> Value
         let (m, model) = (level.first().cloned().unwrap_or_default(), level.get(1).cloned().unwrap_or_default());
         for x in fit.iter().filter(|x| searching || (x.maker == m && x.model == model)) {
             let badge = if offered.contains(&x.bus.file) { Some(special()) } else { locked_tag(c, x).map(|(t, tone)| json!([t, tone])) };
-            cards.push(json!({ "key": format!("v-{}", x.bus.file), "title": if searching { x.bus.name.clone() } else { version_of(x) }, "sub": tr(x.bus.kind.label()), "price": price_of(c, &[*x], true), "badge": badge, "file": x.bus.file, "name": x.bus.name, "to": { "bus": x.bus.file } }));
+            cards.push(json!({ "key": format!("v-{}", x.bus.file), "title": if searching { x.bus.name.clone() } else { version_of(x) }, "sub": super::vehicles::kind_label(&x.bus), "price": price_of(c, &[*x], true), "badge": badge, "file": x.bus.file, "name": x.bus.name, "to": { "bus": x.bus.file } }));
         }
     } else if let Some(m) = level.first() {
         let ls: Vec<&Listing> = fit.iter().copied().filter(|x| &x.maker == m).collect();
@@ -439,7 +456,7 @@ fn showroom(c: &Company, all: &[Listing], offers: &[Offer], ui: &Value) -> Value
         "empty": tr("No bus fits: loosen the filters, or look at the used market."),
         "filters": {
             "search": tr("Search a bus"),
-            "size_label": tr("Size"), "sizes": (["All", "Midibus", "Solo", "Articulated", "Double-decker"].iter().map(|x| tr(x)).collect::<Vec<_>>()),
+            "size_label": tr("Size"), "sizes": (["All", "Midibus", "Solo", "Articulated", "Double-decker", "Coach"].iter().map(|x| tr(x)).collect::<Vec<_>>()),
             "drive_label": tr("Drive"), "drives": (["All", "Diesel", "Electric"].iter().map(|x| tr(x)).collect::<Vec<_>>()),
             "price_label": tr("Price up to"), "any": tr("Any"),
         },
@@ -600,7 +617,7 @@ pub fn sheet_view(s: &mut Session, _ui: &Value) -> Value {
             let mut rows = vec![
                 row(tr("Maker"), listing.maker.clone(), false),
                 row(tr("Model"), if listing.version.is_empty() { listing.model.clone() } else { format!("{}  ·  {}", listing.model, listing.version) }, false),
-                row(tr("Kind"), tr(listing.bus.kind.label()), false),
+                row(tr("Kind"), super::vehicles::kind_label(&listing.bus), false),
                 row(tr("Places"), places(&listing), false),
                 row(tr("List price"), eur(list), false),
             ];
@@ -611,7 +628,7 @@ pub fn sheet_view(s: &mut Session, _ui: &Value) -> Value {
             let allowed = co::market::kind_allowed(&c, listing.bus.kind);
             let lock = allowed.err().map(|e| kit::refusal(&c, e).text);
             let mut v = json!({
-                "kind": "model", "icon": "directions_bus", "title": listing.bus.name, "file": listing.bus.file, "name": listing.bus.name, "bus_kind": tr(listing.bus.kind.label()),
+                "kind": "model", "icon": "directions_bus", "title": listing.bus.name, "file": listing.bus.file, "name": listing.bus.name, "bus_kind": super::vehicles::kind_label(&listing.bus),
                 "livery": livery_choice(s, &listing.bus.file, &livery), "design_note": tr("A house livery of your own comes with the livery studio."),
                 "rows": rows, "lock": lock, "quick": quick, "count": count, "max": 10, "pay": pay,
                 "count_label": tr("Buses"), "pays": [tr("Cash"), tr("Bank loan")],
@@ -647,7 +664,7 @@ pub fn sheet_view(s: &mut Session, _ui: &Value) -> Value {
             v
         }
         Sheet::Offer { offer, livery, count, pay, quick } => {
-            let mut rows = vec![row(tr("Seller"), offer.seller.clone(), false), row(tr("Kind"), tr(offer.listing.bus.kind.label()), false), row(tr("Places"), places(&offer.listing), false)];
+            let mut rows = vec![row(tr("Seller"), offer.seller.clone(), false), row(tr("Kind"), super::vehicles::kind_label(&offer.listing.bus), false), row(tr("Places"), places(&offer.listing), false)];
             if offer.is_new() {
                 rows.push(row(tr("Delivery"), tr("from stock: two days after signing"), false));
             } else {
@@ -665,7 +682,7 @@ pub fn sheet_view(s: &mut Session, _ui: &Value) -> Value {
             let allowed = co::market::kind_allowed(&c, offer.listing.bus.kind);
             let lock = allowed.err().map(|e| kit::refusal(&c, e).text);
             let mut v = json!({
-                "kind": "offer", "icon": "stars", "title": format!("{}  ·  {}", tr(offer.kind.label()), offer.listing.bus.name), "file": offer.listing.bus.file, "name": offer.listing.bus.name, "bus_kind": tr(offer.listing.bus.kind.label()),
+                "kind": "offer", "icon": "stars", "title": format!("{}  ·  {}", tr(offer.kind.label()), offer.listing.bus.name), "file": offer.listing.bus.file, "name": offer.listing.bus.name, "bus_kind": super::vehicles::kind_label(&offer.listing.bus),
                 "livery": livery_choice(s, &offer.listing.bus.file, &livery), "design_note": tr("A house livery of your own comes with the livery studio."),
                 "rows": rows, "lock": lock, "quick": quick, "count": count, "max": offer.count, "pay": pay,
                 "count_label": tr("Buses"), "pays": [tr("Cash"), tr("Bank loan")],
@@ -737,7 +754,7 @@ pub fn sheet_view(s: &mut Session, _ui: &Value) -> Value {
         Sheet::Contract { contract: k, readonly } => {
             let now = if readonly { k.signed_at.clone() } else { dl::now_of(&c) };
             let seller_is = tr(if k.new { "Dealer of new buses" } else { "Seller of used buses" });
-            let mut bus = vec![row(tr("Bus"), format!("{} × {}", k.count, k.listing.bus.name), true), row(tr("Kind"), tr(k.listing.bus.kind.label()), false)];
+            let mut bus = vec![row(tr("Bus"), format!("{} × {}", k.count, k.listing.bus.name), true), row(tr("Kind"), super::vehicles::kind_label(&k.listing.bus), false)];
             if k.new {
                 bus.push(row(tr("Condition"), tr("New"), false));
             } else {
@@ -1614,7 +1631,8 @@ mod tests {
         assert_eq!(typed_euros("abc"), None);
         assert_eq!(name_cmp("DL9", "dl10"), Ordering::Less);
         let f = filter_of(&json!({ "size": 3, "drive": 2, "max_price": 400.0 }));
-        assert_eq!((f.size, f.drive, f.max_price), (Some(BusSize::Articulated), Some(Drive::Electric), 400_000_00));
+        assert_eq!((f.category, f.drive, f.max_price), (Some(Category::Articulated), Some(Drive::Electric), 400_000_00));
+        assert_eq!(filter_of(&json!({ "size": 5 })).category, Some(Category::Coach));
         assert_eq!(filter_of(&json!({})).max_price, 0);
     }
 }

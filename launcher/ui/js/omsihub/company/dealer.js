@@ -46,7 +46,7 @@ function Showroom({ s, st }) {
     if (card.to.level) setUi('dealer', { level: card.to.level });
     else act('open_model', { file: card.to.bus });
   };
-  return html`<div style="display:grid;grid-template-columns:min(270px, 30%) minmax(0,1fr);gap:24px;height:100%">
+  return html`<div style="display:grid;grid-template-columns:min(270px, 30%) minmax(0,1fr);gap:24px;grid-template-rows:minmax(0,1fr);height:100%">
     <div class="co-filters">
       <label class="co-search"><${Icon} name="search" size=${18} /><input class="co-field" value=${st.search} placeholder=${f.search} onInput=${(e) => setUi('dealer', { search: e.currentTarget.value })} /></label>
       <label class="co-label" style="margin-top:18px">${f.size_label}</label>
@@ -208,7 +208,7 @@ function TalkSheet({ v, sheet, close }) {
   const foot = html`<span class="rest"></span><${Btn} label=${v.leave} onClick=${close} />
     ${v.deal && html`<${Btn} kind="primary" icon="description" label=${v.deal} onClick=${() => sheet('deal')} />`}`;
   return html`<${Dialog} icon=${v.icon} title=${v.title} w=${1180} h=${820} onClose=${close} foot=${foot} bodyStyle="overflow:hidden">
-    <div style=${`display:grid;grid-template-columns:${lw}px minmax(0,1fr);gap:28px;height:100%`}>
+    <div style=${`display:grid;grid-template-columns:${lw}px minmax(0,1fr);gap:28px;grid-template-rows:minmax(0,1fr);height:100%`}>
       <div class="co-talkside">
         <${Photo} file=${v.file} paint=${v.paint} name=${v.name} mono=${false} style=${`height:${lw * 0.52}px`} />
         <b class="what">${v.what}</b>

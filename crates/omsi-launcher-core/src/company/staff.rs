@@ -1205,12 +1205,87 @@ fn taken(c: &Company, week: i64, no: u32) -> bool {
     c.taken.week == week && c.taken.applicants.contains(&no)
 }
 
+/// How many times the company advertised for a role this week (0: the week's own applicants).
+pub fn round_of(c: &Company, role: Role) -> u32 {
+    if c.taken.week != dates::week_of(&c.date) {
+        return 0;
+    }
+    c.taken.rounds.iter().find(|x| x.0 == role).map_or(0, |x| x.1)
+}
+
+/// The seed's words of a role's applicants this week: a round of adverts its own (round 0 the
+/// week's first, as ever).
+fn seed_of(c: &Company, role: Option<Role>, round: u32) -> Rng {
+    let week = dates::week_of(&c.date);
+    let r = format!("round {round}");
+    match (role, round) {
+        (None, 0) => Rng::of(&[&c.id, "applicants"], week),
+        (None, _) => Rng::of(&[&c.id, "applicants", &r], week),
+        (Some(role), 0) => Rng::of(&[&c.id, "applicants", key(role)], week),
+        (Some(role), _) => Rng::of(&[&c.id, "applicants", key(role), &r], week),
+    }
+}
+
+/// What a job advert for new applicants costs: nothing in Casual, a modest fee at the company's
+/// prices otherwise (Normal €250, Realistic €450 at founding).
+pub fn advert_fee(c: &Company) -> Cents {
+    let base: f64 = match c.game_mode {
+        super::model::GameMode::Casual => return 0,
+        super::model::GameMode::Normal => 250_00.0,
+        super::model::GameMode::Realistic => 450_00.0,
+    };
+    ((base * c.price_index.max(0.1) / 10_00.0).round() as Cents) * 10_00
+}
+
+/// Whether the company can advertise for a role now (and why not).
+pub fn may_advertise(c: &Company, role: Role) -> Result<(), &'static str> {
+    hireable(c, role)?;
+    let fee = advert_fee(c);
+    if fee > 0 && c.cash < fee {
+        return Err("Not enough cash for a job advert.");
+    }
+    Ok(())
+}
+
+/// Advertise for new applicants of a role (Luc, Beta 54: "applicants can be refreshed when
+/// they run out and you need many, so you can keep hiring new people"): the role's applicants
+/// not hired are replaced by a new round of them at once, their faces new ones while there are
+/// (the round's faces count as given). As often as the player likes; the fee is booked
+/// (`advert_fee`). The automatic hiring and Casual's autopilot never advertise by themselves.
+/// Returns how many new applicants came.
+pub fn advertise(c: &mut Company, role: Role) -> Result<usize, &'static str> {
+    may_advertise(c, role)?;
+    // (the faces of those it had count as given: the new ones get faces of their own)
+    for a in applicants_of(c, role) {
+        note_portrait(c, a.portrait);
+    }
+    let week = dates::week_of(&c.date);
+    if c.taken.week != week {
+        c.taken = Taken { week, ..Default::default() };
+    }
+    let next = round_of(c, role) + 1;
+    match c.taken.rounds.iter_mut().find(|x| x.0 == role) {
+        Some(x) => x.1 = next,
+        None => c.taken.rounds.push((role, next)),
+    }
+    let fee = advert_fee(c);
+    if fee > 0 {
+        c.book(BookingKind::Recruitment, -fee, format!("Job advert: {}", role.label()), false);
+    }
+    let n = applicants_of(c, role).len();
+    inbox::post(c, Message::new(Kind::Staff, "New applicants: %{role}", "%{n} people answered your job advert. They are on the Staff page this week.").arg("role", role.label()).arg("n", n.to_string()));
+    Ok(n)
+}
+
 fn drivers_market(c: &Company) -> Vec<Applicant> {
     let r = economy::rules(c.game_mode);
     let week = dates::week_of(&c.date);
-    let mut rng = Rng::of(&[&c.id, "applicants"], week);
+    // (a round of adverts its own applicants, numbered from a thousand a round: Beta 54)
+    let round = round_of(c, Role::Driver);
+    let mut rng = seed_of(c, None, round);
     let mut out = Vec::new();
-    for no in 0..r.applicants as u32 {
+    for k in 0..r.applicants as u32 {
+        let no = round * 1000 + k;
         let name = format!("{} {}", rng.pick(&FIRST).map(|f| f.0).unwrap_or("Alex"), rng.pick(&LAST).unwrap_or(&"Weber"));
         let experience = (rng.f64().powf(1.5) * 90.0 + 3.0).round();
         let age = (21.0 + experience * 0.35 + rng.range(0.0, 18.0)).round().min(63.0) as u32;
@@ -1238,10 +1313,11 @@ fn drivers_market(c: &Company) -> Vec<Applicant> {
 fn role_market(c: &Company, role: Role) -> Vec<Applicant> {
     let r = economy::rules(c.game_mode);
     let week = dates::week_of(&c.date);
-    let mut rng = Rng::of(&[&c.id, "applicants", key(role)], week);
+    let round = round_of(c, role);
+    let mut rng = seed_of(c, Some(role), round);
     let mut out = Vec::new();
     for k in 0..(r.applicants / 2).max(2) as u32 {
-        let no = 100 * role_index(role) + k;
+        let no = round * 1000 + 100 * role_index(role) + k;
         let name = format!("{} {}", rng.pick(&FIRST).map(|f| f.0).unwrap_or("Alex"), rng.pick(&LAST).unwrap_or(&"Weber"));
         let experience = (rng.f64().powf(1.3) * 90.0 + 3.0).round();
         let age = (19.0 + experience * 0.35 + rng.range(0.0, 20.0)).round().min(64.0) as u32;
@@ -1265,7 +1341,7 @@ pub fn hire(c: &mut Company, a: &Applicant) -> Result<u32, &'static str> {
         return Err("They have found work elsewhere.");
     }
     if c.taken.week != week {
-        c.taken = Taken { week, used: Vec::new(), applicants: Vec::new() };
+        c.taken = Taken { week, ..Default::default() };
     }
     c.taken.applicants.push(a.no);
     c.counters.employee += 1;
@@ -1535,6 +1611,71 @@ mod tests {
 
     fn block(key: &str, from: i32, to: i32) -> Block {
         Block { key: key.into(), from, to, from_stop: "A".into(), to_stop: "B".into() }
+    }
+
+    /// Job adverts (Beta 54): a new round brings new applicants with numbers and faces of
+    /// their own, those hired from the round before stay hired and do not come back, the fee
+    /// is booked (Casual pays nothing), the other roles keep theirs, and a new week starts at
+    /// the week's own applicants again.
+    #[test]
+    fn a_job_advert_brings_new_applicants() {
+        let mut c = found(&Founding { name: "Advert".into(), game_mode: GameMode::Normal, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+        c.cash = 10_000_000_00;
+        let first = applicants(&c);
+        let mechanics = applicants_of(&c, Role::Mechanic);
+        let hired = hire(&mut c, &first[0]).expect("hired");
+        assert_eq!(round_of(&c, Role::Driver), 0);
+        let cash = c.cash;
+        let n = advertise(&mut c, Role::Driver).expect("advertised");
+        assert_eq!(round_of(&c, Role::Driver), 1);
+        let second = applicants(&c);
+        assert_eq!(n, second.len());
+        assert!(!second.is_empty());
+        // (new numbers, none of the first round's, and new faces - none of the staff's or the first round's)
+        assert!(second.iter().all(|a| a.no >= 1000 && a.no < 1100), "{:?}", second.iter().map(|a| a.no).collect::<Vec<_>>());
+        let faces: Vec<u32> = first.iter().map(|a| a.portrait).chain(c.staff.iter().map(|e| e.portrait)).collect();
+        assert!(second.iter().all(|a| !faces.contains(&a.portrait)), "a face came back");
+        let mut seen = std::collections::HashSet::new();
+        assert!(second.iter().all(|a| seen.insert(a.portrait)));
+        assert_ne!(first.iter().map(|a| a.name.clone()).collect::<Vec<_>>(), second.iter().map(|a| a.name.clone()).collect::<Vec<_>>());
+        // (the one hired stays, the others of the first round are gone)
+        assert!(c.staff.iter().any(|e| e.id == hired));
+        assert!(!applicants(&c).iter().any(|a| a.no == first[0].no));
+        // (hiring from the second round works, and that one does not come back)
+        let b = second[0].clone();
+        hire(&mut c, &b).expect("hired from the advert");
+        assert!(!applicants(&c).iter().any(|a| a.no == b.no));
+        assert!(hire(&mut c, &b).is_err());
+        // (the fee: booked as a job advert; the mechanics' applicants are the same as before)
+        let fee = advert_fee(&c);
+        assert_eq!(fee, 250_00);
+        assert!(c.ledger.iter().any(|x| x.kind == BookingKind::Recruitment && x.amount == -fee));
+        assert!(cash - c.cash >= fee);
+        assert_eq!(applicants_of(&c, Role::Mechanic).iter().map(|a| a.no).collect::<Vec<_>>(), mechanics.iter().map(|a| a.no).collect::<Vec<_>>());
+        // (another round: numbers from 2000, again new faces)
+        advertise(&mut c, Role::Driver).unwrap();
+        let third = applicants(&c);
+        assert!(third.iter().all(|a| a.no >= 2000 && a.no < 2100));
+        assert!(third.iter().all(|a| !second.iter().any(|b| b.portrait == a.portrait)));
+        // (a role's own round: the mechanics' numbers stay theirs)
+        advertise(&mut c, Role::Mechanic).unwrap();
+        assert!(applicants_of(&c, Role::Mechanic).iter().all(|a| a.no >= 1000 + 100 * role_index(Role::Mechanic) && a.no < 1100 + 100 * role_index(Role::Mechanic)));
+        // (a new week: the week's own applicants, round 0)
+        c.date = "2024-03-11".into();
+        assert_eq!(round_of(&c, Role::Driver), 0);
+        assert!(applicants(&c).iter().all(|a| a.no < 100));
+        // (no cash: no advert)
+        c.cash = 100_00;
+        assert!(may_advertise(&c, Role::Driver).is_err());
+        // (Casual: free)
+        let mut easy = found(&Founding { name: "Easy".into(), game_mode: GameMode::Casual, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+        assert_eq!(advert_fee(&easy), 0);
+        let before = easy.cash;
+        advertise(&mut easy, Role::Driver).unwrap();
+        assert_eq!(easy.cash, before);
+        // (an older file: no rounds)
+        let t: Taken = serde_json::from_str(r#"{"week":3,"used":[],"applicants":[1,2]}"#).unwrap();
+        assert!(t.rounds.is_empty());
     }
 
     /// Faces follow the names (Luc): every applicant of a week has a face of their name's

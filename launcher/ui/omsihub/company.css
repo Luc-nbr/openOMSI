@@ -140,7 +140,7 @@
    the tour and the way back */
 .co-bar { position: absolute; left: 0; right: 0; top: 0; height: 72px; background: var(--hub-panel); border-bottom: 1px solid var(--hub-edge); display: flex; align-items: center; padding: 0 24px; gap: 0; z-index: 10; }
 .co-bar .co-mark { width: 44px; height: 44px; flex: none; }
-.co-bar .name { font-size: 14.6px; font-weight: 700; margin-left: 14px; max-width: 36%; flex: none; }
+.co-bar .name { font-size: 14.6px; font-weight: 700; margin-left: 14px; max-width: 36%; flex: 0 1 auto; min-width: 0; }
 .co-bar .co-pill { margin-left: 10px; }
 .co-bar .co-status { margin-left: 16px; }
 .co-bar .tools { margin-left: auto; display: flex; align-items: center; gap: 0; flex: none; }
@@ -196,7 +196,7 @@ button.co-pill.casual:hover { background: rgba(var(--hub-accent-rgb), var(--ac-2
 .co-nav > .co-btn { height: 40px; min-width: 120px; padding: 0 20px; flex: none; }
 .co-nav .where { display: flex; align-items: center; min-width: 0; margin-left: 9px; flex: 1; gap: 0; color: var(--hub-text-dim); }
 .co-nav .where .home { margin-left: 9px; font-size: var(--co-body); color: var(--hub-text-dim); }
-.co-nav .where .page { flex: none; padding: 0; overflow: hidden; display: flex; align-items: center; gap: 6px; margin-left: 6px; font-size: 13.8px; font-weight: 700; color: var(--hub-text); }
+.co-nav .where .page { flex: 0 1 auto; min-width: 0; padding: 0; overflow: hidden; display: flex; align-items: center; gap: 6px; margin-left: 6px; font-size: 13.8px; font-weight: 700; color: var(--hub-text); }
 .co-nav .where .page .hub-icon { color: var(--co-accent2); }
 .co-nav .where .crumb { font-size: 13.8px; font-weight: 700; color: var(--hub-text-dim); background: none; padding: 0 4px; margin: 0 6px 0 0; cursor: pointer; white-space: nowrap; }
 .co-nav .where .crumb.last { color: var(--hub-text); cursor: default; }
@@ -214,6 +214,24 @@ button.co-pill.casual:hover { background: rgba(var(--hub-accent-rgb), var(--ac-2
 .co-rail .badge.danger { background: rgb(var(--co-danger-fill)); }
 .co-rail .badge.ok { background: rgb(var(--co-ok-fill)); }
 .co-rail .badge.early { background: #2a75f7; }
+
+/* (a narrow stage - a small window, or a large Launcher size: Beta 53's layout check): the bar,
+   the way round and the pages closer to the edges, the rail's icons a little closer together;
+   narrower still, Back, Simulate to tomorrow and the start screen's button as icons, their
+   words in their tooltips */
+@container (max-width: 1100px) {
+  .co-bar { padding: 0 16px; }
+  .co-nav, .co-body { left: 16px; right: 16px; }
+  .co-rail { margin-left: 12px; }
+  .co-rail .group { gap: 2px; }
+  .co-rail .sep { margin: 0 4px; }
+  .co-rail button, .co-rail.casual button { width: 34px; height: 34px; }
+  .co-rail .badge { left: 20px; }
+}
+@container (max-width: 960px) {
+  .co-bar .co-back, .co-clock .co-tomorrow, .co-nav > .co-start { font-size: 0; gap: 0; padding: 0; width: 40px !important; min-width: 40px !important; }
+  .co-clock .co-next { min-width: 0 !important; }
+}
 
 /* the room of the pages */
 .co-body { position: absolute; left: 24px; right: 24px; top: 146px; bottom: 40px; }
@@ -373,10 +391,11 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 
 /* the founding: the company on the left, the game mode on the right */
 .co-found { height: 100%; overflow: auto; }
-.co-found .inner { min-height: 760px; height: 100%; display: flex; flex-direction: column; }
+/* (as tall as the window, or as its content - the game mode's cards and the vehicles: never squeezed) */
+.co-found .inner { min-height: max(760px, 100%); height: auto; display: flex; flex-direction: column; }
 .co-found h1 { font-size: 18.4px; font-weight: 700; line-height: 32px; flex: none; }
 .co-found .intro { font-size: var(--co-body); color: var(--hub-text-soft); line-height: 1.8; max-width: 1100px; margin-top: 8px; flex: none; }
-.co-found .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; flex: 1; min-height: 0; margin-top: 18px; }
+.co-found .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; flex: 1 0 auto; min-height: 0; margin-top: 18px; }
 .co-found .co-section { padding: 14px 18px 14px; }
 .co-found .left { display: flex; flex-direction: column; gap: 0; }
 .co-found .row { margin-bottom: 16px; }
@@ -392,7 +411,7 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 .co-found .logo .what p { font-size: var(--co-note); color: var(--hub-text-soft); line-height: 22px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .co-found .logo .what .btns { display: flex; gap: 10px; margin-top: 6px; }
 .co-found .home2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.co-found .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; flex: 1; min-height: 200px; }
+.co-found .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; flex: 1 0 auto; min-height: 200px; }
 .co-found .card { border-radius: var(--hub-r); box-shadow: inset 0 0 0 1px var(--hub-hairline); padding: 14px 16px; text-align: left; background: none; color: var(--hub-text); cursor: pointer; overflow: hidden; display: block; transition: background 0.08s; }
 .co-found .card:hover { background: rgba(var(--co-white), var(--aw-03)); }
 .co-found .card.on { background: rgba(var(--hub-accent-rgb), var(--ac-08)); box-shadow: inset 0 0 0 2px var(--hub-accent); }
@@ -401,6 +420,20 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 .co-found .card.on .top i { background: rgba(var(--hub-accent-rgb), var(--ac-22)); color: var(--co-accent2); }
 .co-found .card .top b { font-size: var(--co-title); color: var(--hub-text-soft); }
 .co-found .card.on .top b { color: var(--hub-text); }
+/* the hiring's bar: the roles and the job advert (Beta 54) */
+.co-hirebar { flex: none; display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.co-hirebar > .co-btn { flex: none; }
+.co-hirenone { max-width: 760px; }
+/* the buses the company works with (Beta 54: `vehicles.js`) */
+.co-found .vehicles { flex: none; margin-top: 14px; }
+.co-found .vehicles .row2 { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; margin-top: 4px; }
+.co-found .vehicles .says { font-size: var(--co-note); color: var(--hub-text-soft); line-height: 1.8; margin-top: 6px; }
+/* (a narrow stage: the company and the game mode one under the other, the page scrolled) */
+@container (max-width: 1100px) {
+  .co-found .inner { height: auto; min-height: 0; }
+  .co-found .cols { grid-template-columns: minmax(0, 1fr); flex: none; }
+  .co-found .cards { flex: none; min-height: 0; }
+}
 .co-found .card .pitch { font-size: var(--co-body); font-weight: 500; line-height: 1.8; margin-top: 12px; }
 .co-found .card .capital { font-size: var(--co-note); font-weight: 700; color: var(--co-line); margin-top: 8px; line-height: 20px; }
 :root.hub[data-theme="light"] .co-found .card .capital { color: #8a6a00; }
@@ -544,7 +577,7 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 
 /* --- the dealer ---------------------------------------------------------------------------- */
 
-.co-filters { display: flex; flex-direction: column; min-width: 0; }
+.co-filters { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; padding-right: 6px; }
 .co-search { position: relative; display: block; }
 .co-search > .hub-icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--hub-text-dim); pointer-events: none; }
 .co-search > .co-field { padding-left: 38px; }

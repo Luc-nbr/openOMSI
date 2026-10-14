@@ -178,7 +178,7 @@ function Chosen({ onBack, onDepots }) {
     <section class="hub-sheet narrow">
       <div class="hub-pad" style="padding-top:18px;display:flex;align-items:center;gap:6px">
         <nav style="display:flex;align-items:center;gap:4px;font-size:9.6px;font-weight:700;color:var(--hub-text-dim);min-width:0;flex:1;flex-wrap:wrap">
-          ${[tr('Buses'), group, model].map((x, k) => html`<button type="button" style="background:none;cursor:pointer;color:inherit" onClick=${() => onBack(k === 0 ? [] : k === 1 ? [group] : [group, model])}>${x}</button><${Icon} name="chevron_right" size=${13} />`)}
+          ${[tr('Buses'), group, model].map((x, k) => html`<button type="button" class="hub-crumb" style="background:none;cursor:pointer;color:inherit" onClick=${() => onBack(k === 0 ? [] : k === 1 ? [group] : [group, model])}>${x}</button><${Icon} name="chevron_right" size=${13} />`)}
           <span style="color:var(--hub-text)">${version}</span>
         </nav>
         <button type="button" class=${'star' + (star ? ' on' : '')} title=${tr(star ? 'Remove from the favourites' : 'Add to the favourites')} onClick=${() => toggleFavourite(v.file)}><${Icon} name="star" size=${18} /></button>
