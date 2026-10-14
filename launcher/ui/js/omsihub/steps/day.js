@@ -12,6 +12,7 @@ import { Actions, Caps, Chips, Foot, Head, Icon, Slider, Switch, tr, Button } fr
 import { goStep, nextOf, previousOf, freeDrive } from '../flow.js';
 import { MapBehind } from './mapbehind.js';
 import { Select } from '../../ui.js';
+import { CustomWeather, EditAsCustom, customItem, isCustom } from './day-more.js';
 
 export const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 export const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -42,6 +43,7 @@ export const dateText = (d) => {
 export function weatherName(w) {
   if (!w) return tr('As on the map');
   if (w === 'cycle') return tr('Weather cycle');
+  if (isCustom(w)) return tr('Custom weather');
   if (w.startsWith('metar:')) return tr('Current weather at %{code}', { code: w.slice(6) });
   return S.weather?.find((x) => x.file === w)?.name || w;
 }
@@ -122,6 +124,7 @@ export function DayStep() {
     choose({ season: v, date: `${String(y).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(Math.min(d, daysIn(y, month))).padStart(2, '0')}` });
   };
   const items = weatherItems(c, wx?.airport);
+  items.splice(1, 0, customItem(c));
   const lines = s.lines.list;
   const running = lines ? lines.filter((l) => l.tours.some((t) => t.runs)).length : null;
   const foot = `${dayName(c.date)} · ${running == null ? tr('Reading the timetable…') : running === 1 ? tr('1 line runs on this day') : tr('%{n} lines run on this day', { n: running })}`;
@@ -165,6 +168,7 @@ export function DayStep() {
         </div>
         <div class="hub-section">
           <${Caps} title="Weather" value=${c.weather ? weatherName(c.weather) : tr('Map default')} />
+          ${isCustom(c.weather) ? html`<${CustomWeather} />` : html`<${EditAsCustom} weather=${c.weather} />
           <div class="hub-weather">
             ${items.map(([value, name, meta, icon, raw]) => {
               const on = value === c.weather || (value.startsWith('metar:') && metar);
@@ -176,7 +180,7 @@ export function DayStep() {
           ${metar && wx?.airports?.length > 0 && html`<div style="display:flex;align-items:center;gap:10px;margin-top:10px">
             <span style="color:var(--hub-text-soft);width:70px">${tr('Airport')}</span>
             <span style="flex:1"><${Select} raw value=${c.weather.slice(6)} options=${wx.airports} onChange=${(code) => choose({ weather: `metar:${code}` })} /></span>
-          </div>`}
+          </div>`}`}
         </div>
       </div></div>
       <${Foot} text=${foot} />

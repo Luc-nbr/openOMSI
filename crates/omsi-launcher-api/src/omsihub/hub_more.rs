@@ -7,6 +7,9 @@
 //!   whose depot files know the duty's trips, the map's own fleet before the others, then the
 //!   one that knows most; a free drive (or a duty no depot file knows) the bus the map's depot
 //!   runs most.
+//! * `hub_more_weather_read`, `hub_more_weather_write`: one's own weather (`custom:...`) as the
+//!   day step's editor shows its fields, a preset made one's own to edit, and the fields
+//!   written back (`daytime::body`, `weather_choice::CustomWeather`).
 
 use crate::Answer;
 use omsi_launcher_lib as core;
@@ -23,6 +26,8 @@ fn arg<T: serde::de::DeserializeOwned>(args: &Value, name: &str) -> Result<T, St
 pub fn call(cmd: &str, args: &Value) -> Option<Answer> {
     Some(match cmd {
         "hub_more_bus_best" => bus_best(args),
+        "hub_more_weather_read" => weather_read(args),
+        "hub_more_weather_write" => weather_write(args),
         _ => return None,
     })
 }
@@ -206,6 +211,69 @@ fn bus_best(args: &Value) -> Answer {
     Ok(rank(&c, free).unwrap_or(Value::Null))
 }
 
+
+// --- one's own weather ---------------------------------------------------------------------------
+
+use omsi_content::weather_choice::{custom_weather, CustomWeather};
+
+/// One's own weather as the editor shows it (the fields of `CustomWeather`).
+fn custom_json(c: &CustomWeather) -> Value {
+    json!({
+        "visibility_m": c.visibility_m, "brightness": c.brightness, "wind_dir": c.wind_dir, "wind_speed": c.wind_speed,
+        "temp_c": c.temp_c, "humidity": c.humidity, "pressure": c.pressure, "cloud_cover": c.cloud_cover,
+        "cloud_base_m": c.cloud_base_m, "precip": c.precip, "precip_intensity": c.precip_intensity,
+        "road_wetness": c.road_wetness, "snow_cover": c.snow_cover, "snow_on_road": c.snow_on_road,
+    })
+}
+
+/// The editor's fields back into one's own weather (a field left out keeps the default).
+fn custom_of(v: &Value) -> CustomWeather {
+    let mut c = CustomWeather::default();
+    let f = |k: &str, d: f32| v.get(k).and_then(Value::as_f64).map(|x| x as f32).unwrap_or(d);
+    let b = |k: &str, d: bool| v.get(k).and_then(Value::as_bool).unwrap_or(d);
+    c.visibility_m = f("visibility_m", c.visibility_m);
+    c.brightness = f("brightness", c.brightness);
+    c.wind_dir = f("wind_dir", c.wind_dir);
+    c.wind_speed = f("wind_speed", c.wind_speed);
+    c.temp_c = f("temp_c", c.temp_c);
+    c.humidity = f("humidity", c.humidity);
+    c.pressure = f("pressure", c.pressure);
+    c.cloud_cover = f("cloud_cover", c.cloud_cover);
+    c.cloud_base_m = f("cloud_base_m", c.cloud_base_m);
+    c.precip = f("precip", c.precip as f32).round() as i32;
+    c.precip_intensity = f("precip_intensity", c.precip_intensity);
+    c.road_wetness = f("road_wetness", c.road_wetness);
+    c.snow_cover = b("snow_cover", c.snow_cover);
+    c.snow_on_road = b("snow_on_road", c.snow_on_road);
+    c.normalize();
+    c
+}
+
+/// The weather chosen as the day step reads it (`daytime::DayCtx`): one's own weather's fields
+/// when it is one, else None, and a preset as one's own weather to edit (`drive::
+/// selected_weather_as_custom`), else None: `{ custom, as_custom }`.
+fn weather_read(args: &Value) -> Answer {
+    let w: String = arg::<Option<String>>(args, "weather")?.unwrap_or_default();
+    let custom = custom_weather(Some(&w)).map(|c| custom_json(&c));
+    let preset = !(w.is_empty() || w == "cycle" || w.to_ascii_lowercase().starts_with("metar:") || custom.is_some());
+    let as_custom = preset
+        .then(|| {
+            let root = core::root_dir().ok()?;
+            let weather = omsi_content::weather::Weather::load(&omsi_cfg::resolve_path(&root, &w)).ok()?;
+            let wet = (weather.ground_wet[0] / 255.0).clamp(0.0, 1.0);
+            Some(CustomWeather::from_weather(&weather, 1.0, wet).encode())
+        })
+        .flatten();
+    Ok(json!({ "custom": custom, "as_custom": as_custom, "fresh": CustomWeather::default().encode() }))
+}
+
+/// The editor's fields as the weather's value (`CustomWeather::encode`, made sound first), and
+/// the fields as they are kept: `{ weather, custom }`.
+fn weather_write(args: &Value) -> Answer {
+    let c = custom_of(args.get("custom").unwrap_or(&Value::Null));
+    Ok(json!({ "weather": c.encode(), "custom": custom_json(&c) }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,5 +291,18 @@ mod tests {
         // a free drive: the one the map's depot runs most
         assert_eq!(rank(&c, true).unwrap()["free"], true);
         assert_eq!(fold("Müller-Straße 3"), "mullerstrasse3");
+    }
+
+    #[test]
+    fn ones_own_weather_goes_through_the_editor_unchanged() {
+        let w = "custom:vis=1200;br=0.80;wd=270;ws=6.5;t=-3.0;rh=88;p=1013;c=0.750;cb=50;pt=2;pi=120;wet=0.40;snow=1;snowroad=0";
+        let read = weather_read(&json!({ "weather": w })).unwrap();
+        assert!(read["as_custom"].is_null());
+        let back = weather_write(&json!({ "custom": read["custom"] })).unwrap();
+        assert_eq!(back["weather"], w);
+        // (out of range made sound, a preset's word is not one's own weather)
+        let back = weather_write(&json!({ "custom": { "visibility_m": 10.0, "precip": 7 } })).unwrap();
+        assert_eq!((back["custom"]["visibility_m"].as_f64(), back["custom"]["precip"].as_i64()), (Some(50.0), Some(2)));
+        assert!(weather_read(&json!({ "weather": "cycle" })).unwrap()["custom"].is_null());
     }
 }
