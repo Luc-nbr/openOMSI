@@ -32,7 +32,7 @@ const EmptyAt = ({ e, at: [icon, title, text] }) => html`
 /** The driver's duties (`career::duties_part`), and in Casual the duties to take. */
 function Duties({ b }) {
   const e = b.empty;
-  return html`<div style=${`display:grid;grid-template-columns:minmax(0,1fr) ${b.easy ? 'clamp(340px, 42%, 560px)' : 'clamp(260px, 30%, 380px)'};gap:12px;height:100%`}>
+  return html`<div style=${`display:grid;grid-template-columns:minmax(0,1fr) ${b.easy ? 'clamp(340px, 42%, 560px)' : 'clamp(260px, 30%, 380px)'};gap:12px;grid-template-rows:minmax(0,1fr);height:100%`}>
     <${Section} title=${b.title}>
       ${e
         ? e.reading
@@ -141,7 +141,7 @@ function Training({ b }) {
 function Workshop({ b }) {
   if (b.game) return html`<${RepairGame} g=${b.game} />`;
   if (b.locked) return html`<${Section} title=${b.title} style="max-width:760px;height:150px"><p class="co-para">${b.locked}</p></${Section}>`;
-  return html`<div style="display:grid;grid-template-columns:62% minmax(0,1fr);gap:12px;height:100%">
+  return html`<div style="display:grid;grid-template-columns:62% minmax(0,1fr);gap:12px;grid-template-rows:minmax(0,1fr);height:100%">
     <${Section} title=${b.title}>
       ${b.jobs.length
         ? html`<div class="co-scroll" style="flex:1;min-height:0">${b.jobs.map(
@@ -200,7 +200,7 @@ function Statistics({ b }) {
   </div>`;
   const m = b.mine;
   const c = b.company;
-  return html`<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;height:100%">
+  return html`<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;grid-template-rows:minmax(0,1fr);height:100%">
     ${m ? half(m.figures, m.title, m.values, m.empty, m.foot) : html`<p class="co-note t-dim">${b.no_driver}</p>`}
     ${half(c.figures, c.title, c.values, c.empty, c.foot)}
   </div>`;

@@ -9,6 +9,7 @@ export function OverviewPage() {
   const v = useView('overview');
   const [ref, size] = useSize();
   let body = null;
+  let tall = 0;
   if (v?.figures && size.w > 0) {
     const gap = 14;
     const fw = (size.w - 5 * gap) / 6;
@@ -20,21 +21,26 @@ export function OverviewPage() {
     const y2 = y + h1 + gap;
     const h2 = Math.max(140, size.h - y2);
     const h3 = Math.max(170, h2 * 0.6);
-    const box = (x, yy, w, h) => `position:absolute;left:${x}px;top:${yy}px;width:${w}px;height:${h}px`;
+    const h4 = Math.max(80, h2 - h3 - gap);
+    // (how tall it all is: on a low window more than the page - then the page scrolls)
+    tall = Math.max(y2 + h2, y2 + h3 + gap + h4);
+    const box =(x, yy, w, h) => `position:absolute;left:${x}px;top:${yy}px;width:${w}px;height:${h}px`;
     body = html`
       ${v.figures.map((f, k) => html`<div style=${box(k * (fw + gap), 0, fw, fh)} title=${f.tip}><${Figure} f=${f} small=${fw < 170} /></div>`)}
       <${Section} title=${v.chart_title} style=${box(0, y, leftW, h1)}><${Chart} c=${v.chart} w=${leftW - 36} h=${h1 - 58} /></${Section}>
       <${Today} t=${v.today} style=${box(leftW + gap, y, rightW, h1)} />
       <${Feed} f=${v.feed} style=${box(0, y2, leftW, h2)} />
       <${LastDay} l=${v.last} style=${box(leftW + gap, y2, rightW, h3)} h=${h3 - 58} />
-      <${Section} title=${v.companies.title} style=${box(leftW + gap, y2 + h3 + gap, rightW, Math.max(80, h2 - h3 - gap))}>
+      <${Section} title=${v.companies.title} style=${box(leftW + gap, y2 + h3 + gap, rightW, h4)}>
         <div style="display:flex;align-items:center;gap:12px;margin-top:-4px"><span class="co-para grow cut">${v.companies.text}</span>
           <${Btn} icon="sync_alt" label=${v.companies.button} style="height:38px" onClick=${() => cmd('co_act', { act: 'play', speed: 0 }).finally(() => setCo({ chooser: 'companies' }))} /></div>
       </${Section}>`;
   }
-  // (the last card at least 80 high runs past the page's foot on a low window, as the game-drawn
-  // launcher's does: not cut off)
-  return html`<div class="co-overview" ref=${ref} style="position:relative;height:100%;overflow:visible">${body}</div>`;
+  // (the cards keep their least heights: on a low window - a small one, or a large Launcher size -
+  // they run past the page's foot and the page scrolls to them; Beta 53's layout check)
+  return html`<div class="co-overview" ref=${ref} style="position:relative;height:100%;overflow-x:hidden;overflow-y:auto">
+    <div style=${`position:relative;height:${Math.max(tall, 1)}px`}>${body}</div>
+  </div>`;
 }
 
 /** The last days' results as bars on a scale of round steps, the days under them

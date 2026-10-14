@@ -107,7 +107,7 @@ function Buses({ b }) {
 function Adverts({ a }) {
   const [armed, setArmed] = useState(null);
   if (!a || a.kind !== 'adverts') return null;
-  return html`<div style="display:grid;grid-template-columns:max(360px, calc((100% - 16px) * 0.55)) minmax(0,1fr);gap:16px;height:100%">
+  return html`<div style="display:grid;grid-template-columns:max(360px, calc((100% - 16px) * 0.55)) minmax(0,1fr);gap:16px;grid-template-rows:minmax(0,1fr);height:100%">
     <${Section} title=${a.offers_title}>
       <p class="co-note" style="flex:none">${a.note}</p>
       ${a.offers.length
