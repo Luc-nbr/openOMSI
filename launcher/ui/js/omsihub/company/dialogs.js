@@ -198,11 +198,25 @@ function ReportDialog() {
         ${v.lines.map((x) => html`<button type="button" class="co-row co-reportline" onClick=${() => act('report_line', { line: x.line })}>
             <${Plate} p=${x.plate} h=${24} style="margin-left:8px" /><span class="cut t-soft" style="flex:1">${x.text}</span><b class=${'t-' + x.tone}>${x.net}</b><${Icon} name=${x.open ? 'expand_less' : 'expand_more'} size=${18} class="t-dim" /></button>
           ${x.open && html`<div class="co-reportmoney">${x.rows.map(([label, t, tone]) => html`<div><span>${label}</span><b class=${'t-' + tone}>${t}</b></div>`)}<p>${x.note}</p></div>`}`)}`}
+      ${v.drops?.length > 0 && html`<div class="co-caps" style="display:flex;margin:18px 0 8px"><span class="grow">${v.drops_caps}</span><span style="text-transform:none;font-weight:400;font-size:var(--co-note)">${v.drops_hint}</span></div>
+        ${v.drops.map((d) => html`<button type="button" class="co-row co-reportdrop" title=${d.date} onClick=${() => toPlanning(d.link)}>
+            <i class=${'dot-' + d.tone}></i><span class="cut t-soft" style="flex:1">${d.text}</span><b class=${'cut t-' + d.tone}>${d.why}</b><${Icon} name="chevron_right" size=${18} class="t-dim" /></button>`)}
+        ${v.drops_more && html`<p class="co-reportmore">${v.drops_more}</p>`}`}
       ${v.facts.length > 0 && html`<div class="co-caps" style="margin:18px 0 10px">${v.facts_caps}</div>
         ${v.facts.map((f) => html`<div class="co-fact"><i class=${'dot-' + f.tone}></i><div><p>${f.text}</p>
           ${f.fixes.length > 0 && html`<div class="fixes">${f.fixes.map((g) => html`<${Btn} icon=${g.icon} label=${g.label} style="height:34px" onClick=${() => (act('close_reports'), goKey(g.to))} />`)}</div>`}</div></div>`)}`}
     </div>
   </${Dialog}>`;
+}
+
+/** A trip dropped, in the planning (#96): RosterFlow on its weekday with its tour, duty or block
+ * shown - the Planning page where RosterFlow is not on. */
+function toPlanning(link) {
+  act('close_reports');
+  import('../rosterflow/index.js')
+    .then((m) => m.openRosterFlow(link || {}))
+    .then((ok) => ok || goKey('planning'))
+    .catch(() => goKey('planning'));
 }
 
 // --- while the player was away ---------------------------------------------------------------

@@ -272,7 +272,8 @@ function roundClip(ctx, x, y, w, h, r) {
   ctx.clip();
 }
 
-/** A deadhead: a small dark rounded box (an orange dot where its time is estimated). */
+/** A deadhead: a small dark rounded box (an orange dot where its time is estimated). Returns
+ * where it was drawn, [left, right]. */
 export function deadhead(ctx, p, a, b, cy, estimated) {
   const w = Math.max(b - a, 9);
   const x = a + Math.min((b - a) - w, 0) * 0.5;
@@ -280,22 +281,36 @@ export function deadhead(ctx, p, a, b, cy, estimated) {
   rounded(ctx, x, y, w, CHIP * 0.84, 3, p.dead);
   roundedBorder(ctx, x, y, w, CHIP * 0.84, 3, 1, [255, 255, 255, 0.1]);
   if (estimated) circle(ctx, x + w / 2, cy, 3, p.warn);
+  return [x, x + w];
 }
 
-/** A pull-out or pull-in: a grey-blue box (an orange dot where the company adds it itself). */
-export function pull(ctx, p, a, b, cy, generated) {
-  const w = Math.max(b - a, 12);
-  const x = b - a < 12 ? b - 12 : a;
+/** The least width of a pull-out or pull-in, and of a T-bar. */
+export const PULL_W = 12;
+export const TBAR_W = 6;
+
+/** A pull-out or pull-in: a grey-blue box (an orange dot where the company adds it itself). Too
+ * narrow for its symbol it grows away from the block (`out`: a pull-out, which grows to the left;
+ * a pull-in grows to the right), never over the trips beside it. Returns where it was drawn,
+ * [left, right]. */
+export function pull(ctx, p, a, b, cy, generated, out = true) {
+  const w = Math.max(b - a, PULL_W);
+  const x = b - a >= PULL_W ? a : out ? b - PULL_W : a;
   rounded(ctx, x, cy - CHIP / 2, w, CHIP, 3, p.pull);
   if (generated) circle(ctx, x + w / 2, cy, 3, p.warn);
+  return [x, x + w];
 }
 
-/** A T-bar: the pre- or post-trip check, a sign-on or a sign-off (`left`: its bar on the left). */
+/** A T-bar: the pre- or post-trip check, a sign-on or a sign-off (`left`: its bar on the left,
+ * the start of a block or a duty; else on the right, the end). The line ends where the block's
+ * first (or after its last) part is drawn - `b` (or `a`) is that edge - and a T too short for its
+ * symbol grows away from the block, so it stays joined at every zoom. Returns [left, right]. */
 export function tBar(ctx, p, a, b, cy, left) {
   const col = p.light ? p.dim : [200, 206, 214, 1];
-  const aa = Math.min(a, b - 6);
-  rect(ctx, aa, cy - 0.75, b - aa, 1.5, col);
-  rect(ctx, left ? aa : b - 1.5, cy - 7, 1.5, 14, col);
+  const aa = left ? Math.min(a, b - TBAR_W) : a;
+  const bb = left ? b : Math.max(b, a + TBAR_W);
+  rect(ctx, aa, cy - 0.75, bb - aa, 1.5, col);
+  rect(ctx, left ? aa : bb - 1.5, cy - 7, 1.5, 14, col);
+  return [aa, bb];
 }
 
 /** A relief arrow: down (the driver gets off), up (gets on), or both (handed over). */

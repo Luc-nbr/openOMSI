@@ -462,11 +462,12 @@ fn new_tender(c: &mut Company, l: &LineInfo, opens_at: i64, renewal: bool) -> u3
 
 /// The market as the day `lines` were read for has it: a new round of tenders every four
 /// weeks (map lines the company does not run, the player's own left out), opening one after
-/// the other on the next days; renewals of the concessions ending soon; old results dropped.
-/// Returns whether anything changed.
+/// the other on the next days; renewals of the concessions ending soon; old results dropped;
+/// the lines won for a day to come taken on (`take_on`). Returns whether anything changed.
 pub fn refresh(c: &mut Company, lines: &[LineInfo]) -> bool {
     let r = rules(c.game_mode);
     let mut changed = ensure(c);
+    changed |= take_on(c, lines);
     changed |= mend_tenders(c, lines);
     let today = c.date.clone();
     let now = clock::now(c);
@@ -524,6 +525,40 @@ pub fn refresh(c: &mut Company, lines: &[LineInfo]) -> bool {
         }
     }
     changed
+}
+
+/// The lines of the concessions won for a day to come taken on at once (Trello #95: a line won
+/// in a tender was taken on only in the night before its first day, so RosterFlow and the
+/// planning could not show it to be planned ahead). It is the company's line from now, not in
+/// service (its tours are shown, neither run nor charged), and goes into service from its
+/// concession's first day at the soonest (`network::start_service`); its days of grace count
+/// from then (`network::late_start`). Its figures from the map's timetable (`lines`), else
+/// the tender's. Returns whether any was taken on.
+pub fn take_on(c: &mut Company, lines: &[LineInfo]) -> bool {
+    let today = c.date.clone();
+    let new: Vec<Concession> = c.concessions.held.iter().filter(|h| dates::between(&today, &h.from) > 0 && !c.lines.iter().any(|l| l.name.eq_ignore_ascii_case(&h.line))).cloned().collect();
+    for h in &new {
+        match lines.iter().find(|l| l.name.eq_ignore_ascii_case(&h.line)) {
+            Some(l) => {
+                let _ = network::add_line(c, l, None);
+            }
+            None => {
+                let t = c.concessions.tenders.iter().rev().find(|t| t.line.eq_ignore_ascii_case(&h.line));
+                let (caption, tours, day_km) = t.map(|t| (t.caption.clone(), t.day_tours, t.day_km)).unwrap_or_default();
+                c.lines.push(super::model::CompanyLine { name: h.line.clone(), number: h.number.clone(), numbers: vec![h.number.clone()], caption, tours, km: day_km, ..Default::default() });
+            }
+        }
+        if let Some(l) = c.lines.iter_mut().find(|l| l.name.eq_ignore_ascii_case(&h.line)) {
+            l.added = h.from.clone();
+        }
+    }
+    !new.is_empty()
+}
+
+/// When the line's concession begins (the clock's minutes), if it begins after `now`: its
+/// service starts then at the soonest.
+pub fn starts_after(c: &Company, line: &str, now: i64) -> Option<i64> {
+    of_line(c, line).map(|h| clock::moment(&h.from, 0)).filter(|&at| at > now)
 }
 
 /// Open tenders as `specials` reads their timetables now. Older versions offered timetables
@@ -835,7 +870,7 @@ fn last_bids(c: &Company, t: &Tender, placed: &[Placed]) -> Vec<RivalBid> {
     out
 }
 
-/// A tender won: the concession from tomorrow (the line taken on in the night), or a renewal
+/// A tender won: the concession from tomorrow (its line taken on at once: `take_on`), or a renewal
 /// added to the old term.
 fn take(c: &mut Company, t: &Tender) -> Event {
     let tomorrow = dates::add(&c.date, 1);
@@ -918,23 +953,8 @@ pub fn after_day(c: &mut Company, date: &str, km: &[(String, f64)], lines: &[Lin
         }
     }
 
-    // lines won, run from tomorrow
-    let new: Vec<Concession> = c.concessions.held.iter().filter(|h| h.from == tomorrow && !c.lines.iter().any(|l| l.name.eq_ignore_ascii_case(&h.line))).cloned().collect();
-    for h in new {
-        match lines.iter().find(|l| l.name.eq_ignore_ascii_case(&h.line)) {
-            Some(l) => {
-                let _ = network::add_line(c, l, None);
-            }
-            None => {
-                let t = c.concessions.tenders.iter().rev().find(|t| t.line.eq_ignore_ascii_case(&h.line));
-                let (caption, tours, day_km) = t.map(|t| (t.caption.clone(), t.day_tours, t.day_km)).unwrap_or_default();
-                c.lines.push(super::model::CompanyLine { name: h.line.clone(), number: h.number.clone(), numbers: vec![h.number.clone()], caption, added: tomorrow.clone(), tours, km: day_km, ..Default::default() });
-            }
-        }
-        if let Some(l) = c.lines.iter_mut().find(|l| l.name.eq_ignore_ascii_case(&h.line)) {
-            l.added = tomorrow.clone();
-        }
-    }
+    // lines won, run from tomorrow (those the clock or a page took on already: `take_on`)
+    take_on(c, lines);
 
     // concessions that ended today
     let ended: Vec<Concession> = c.concessions.held.iter().filter(|h| dates::between(&h.until, date) >= 0).cloned().collect();
@@ -1065,7 +1085,7 @@ pub(crate) mod tests {
         assert!(matches!(&ev, Event::Won { number, .. } if number == "7"));
         assert_eq!(paid, high);
         assert!(matches!(c.concessions.tenders[0].outcome, Some(Outcome::Won { amount, bought: false, .. }) if amount == high));
-        // the line comes in the night, from tomorrow on
+        // the line comes with the market's next look (or the night), in service from tomorrow on
         assert!(!c.lines.iter().any(|l| l.name == "Linie7"));
         ensure(&mut c);
         assert!(of_line(&c, "Linie7").is_some(), "won for tomorrow: kept");
@@ -1088,6 +1108,81 @@ pub(crate) mod tests {
         let ev = nights_until(&mut c, &h.until.clone(), &lines);
         assert!(ev.iter().any(|e| matches!(e, Event::Ended { number } if number == "7")));
         assert!(!c.lines.iter().any(|l| l.name == "Linie7"));
+    }
+
+    /// A tender of `l` won by the company now (bought out).
+    fn won(c: &mut Company, l: &LineInfo) {
+        c.cash = c.cash.max(1_000_000_00);
+        c.clock.minute = 10 * 60;
+        let id = apply(c, l).unwrap();
+        buy_out(c, id).unwrap();
+    }
+
+    #[test]
+    fn a_line_won_is_the_companys_at_once_to_be_planned_for_its_first_day() {
+        // (Trello #95: tendered lines did not show in RosterFlow - won, the line came only in
+        // the night before its first day; a line of Bad Hügelsdorf's is named after its days)
+        use super::super::rosterflow as rf;
+        let mut sat = line("Samstag", "301", 3, true);
+        sat.tours[2].runs = false;
+        let lines = vec![sat.clone(), line("Linie7", "7", 2, true)];
+        let mut c = company(GameMode::Normal);
+        won(&mut c, &lines[0]);
+        assert!(!c.lines.iter().any(|l| l.name == "Samstag"), "won: not taken on by the auction itself");
+        // the market's next look (the launcher's, or the clock's at the day's start) takes it on
+        assert!(refresh(&mut c, &lines));
+        let tomorrow = dates::add(&c.date, 1);
+        let cl = c.lines.iter().find(|l| l.name == "Samstag").unwrap().clone();
+        assert_eq!((cl.number.as_str(), cl.added.as_str(), cl.service_from), ("301", tomorrow.as_str(), None));
+        assert_eq!(network::late_start(&c, &cl, &c.date), None, "nothing charged before its first day");
+        // RosterFlow has its blocks and duties today and tomorrow, by its number
+        for date in [c.date.clone(), tomorrow.clone()] {
+            let b = rf::board(&rf::view(&c), &lines, &date);
+            let mine: Vec<_> = b.tours.iter().filter(|t| t.line == "Samstag").collect();
+            assert_eq!(mine.len(), 2, "{date}: the tours that run");
+            assert!(mine.iter().all(|t| t.number == "301" && t.unplanned));
+            assert!(b.duties.len() >= 2 && b.shaped.len() >= 2);
+        }
+        // put into service now: from its concession's first day
+        let now = clock::now(&c);
+        let at = network::start_service(&mut c, "Samstag", now).unwrap();
+        assert_eq!(at, clock::moment(&tomorrow, 0));
+        let tours = network::tours_of_day(&c, &lines, &tomorrow);
+        assert!(tours.iter().filter(|t| t.line == "Samstag").all(|t| !t.unplanned));
+        assert!(network::tours_of_day(&c, &lines, &c.date.clone()).iter().filter(|t| t.line == "Samstag").all(|t| t.unplanned), "not today");
+        // the night does not take it on twice, and the concession runs from tomorrow
+        let today = c.date.clone();
+        nights_until(&mut c, &today, &lines);
+        assert_eq!(c.lines.iter().filter(|l| l.name == "Samstag").count(), 1);
+        assert_eq!(of_line(&c, "Samstag").unwrap().from, c.date);
+        refresh(&mut c, &lines);
+        assert!(of_line(&c, "Samstag").is_some(), "kept once it runs");
+    }
+
+    #[test]
+    fn a_line_won_and_given_up_before_its_first_day_goes_with_its_concession() {
+        let lines = vec![line("Linie7", "7", 2, true)];
+        let mut c = company(GameMode::Normal);
+        won(&mut c, &lines[0]);
+        refresh(&mut c, &lines);
+        assert!(c.lines.iter().any(|l| l.name == "Linie7"));
+        network::remove_line(&mut c, "Linie7");
+        assert!(of_line(&c, "Linie7").is_none());
+        refresh(&mut c, &lines);
+        let today = c.date.clone();
+        nights_until(&mut c, &today, &lines);
+        assert!(!c.lines.iter().any(|l| l.name == "Linie7"), "not taken on again");
+    }
+
+    #[test]
+    fn a_line_whose_timetable_is_not_read_comes_with_the_tenders_figures() {
+        let lines = vec![line("Linie7", "7", 2, true)];
+        let mut c = company(GameMode::Normal);
+        won(&mut c, &lines[0]);
+        assert!(take_on(&mut c, &[]));
+        let cl = c.lines.iter().find(|l| l.name == "Linie7").unwrap();
+        assert_eq!((cl.number.as_str(), cl.tours), ("7", 2));
+        assert!(!take_on(&mut c, &lines), "once");
     }
 
     #[test]

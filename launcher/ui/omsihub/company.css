@@ -675,6 +675,10 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 .co-reportline { height: 40px; margin-bottom: 4px; gap: 14px; padding-right: 6px; }
 .co-reportline b { font-size: var(--co-rows); flex: none; }
 .co-reportmoney { padding: 0 30px 10px 52px; }
+.co-reportdrop { height: 34px; margin-bottom: 2px; gap: 12px; padding: 0 6px 0 10px; }
+.co-reportdrop > i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.co-reportdrop b { font-size: var(--co-note); font-weight: 500; max-width: 48%; flex: none; }
+.co-reportmore { font-size: var(--co-note); color: var(--hub-text-dim); margin: 4px 0 0 30px; }
 .co-reportmoney > div { border: 0; font-size: var(--co-note); }
 .co-reportmoney span { color: var(--hub-text-soft); }
 .co-reportmoney b { font-weight: 500; }

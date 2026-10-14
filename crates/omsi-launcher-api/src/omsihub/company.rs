@@ -267,7 +267,7 @@ pub struct Session {
     instances_at: Option<Instant>,
     /// The phone's orders and the concessions' market: when they were last looked at.
     orders_at: Option<Instant>,
-    concessions_for: Option<(String, String, usize)>,
+    concessions_for: Option<(String, String, usize, usize)>,
     /// The dealer: its showroom, its clock and the sheet open (`dealer`).
     pub dealer: dealer::DealerState,
     /// The company's duty launcher (`launch`).
@@ -679,7 +679,8 @@ fn depot_tick(s: &mut Session) {
     if t.map != c.map || t.date != c.date || t.error.is_some() {
         return;
     }
-    let key = (c.id.clone(), c.date.clone(), c.lines.len());
+    // (and again once a tender is won: its line is the company's at once, `concessions::take_on`)
+    let key = (c.id.clone(), c.date.clone(), c.lines.len(), c.concessions.held.len());
     if s.concessions_for.as_ref() == Some(&key) {
         return;
     }

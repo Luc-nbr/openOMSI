@@ -41,7 +41,8 @@ export { ROSTER, VEHICLES, DRIVERS, TIMEPLAN, rfOpen };
 
 /** Open RosterFlow on the company's page (`planning::to_timeplan`, `rosterflow_switched_on`,
  * `duty_launch::to_planning`): `view` a tab, `day` the day of the week, `sel` a duty chosen on the
- * Roster tab, `line` a line for the Timeplan (`hint`: what its status bar says first), `offer`
+ * Roster tab, `reveal` a row of the Vehicles or Drivers tab shown (the day's report's trips
+ * dropped), `line` a line for the Timeplan (`hint`: what its status bar says first), `offer`
  * its tutorial's menu (switched on just now). */
 export async function openRosterFlow(o = {}) {
   const on = await rfCmd('rf_on').catch(() => null);
@@ -56,6 +57,7 @@ export async function openRosterFlow(o = {}) {
   if (o.day != null) patch.day = o.day;
   if (o.line) Object.assign(patch, { view: TIMEPLAN, tpLine: o.line, tpHint: o.hint || null });
   if (o.sel) patch.roster = { ...r.roster, sel: o.sel, arm: null };
+  if (o.reveal) Object.assign(patch, { reveal: o.reveal, selRow: o.reveal });
   if (o.offer) patch.tut = { ...r.tut, offer: true };
   // (a state of its own for a picture: no opening)
   if (o.shot) patch.intro = null;

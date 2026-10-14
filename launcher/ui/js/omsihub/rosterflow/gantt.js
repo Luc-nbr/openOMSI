@@ -515,12 +515,13 @@ function blockRow(ctx, g, row, cy, xOf, hit, an) {
   const prefs = data.prefs;
   const hand = r.hand;
   let lit = null;
-  // the pre-trip check, and a pull-out the timetable has none of (the company's estimate)
+  // the block's start and end (#98): the pre- and post-trip checks' T-bars joined to the pull-out
+  // and pull-in (the timetable's depot runs) or straight to the first and last trip - the bus
+  // runs from the depot into its first trip as the T's line - at the minutes the duties count
   const first = t.trips[0];
-  if (!first.empty) {
-    D.pull(ctx, p, xOf(first.dep - 8), xOf(first.dep) - 2, cy, true);
-    D.tBar(ctx, p, xOf(first.dep - 8 - prefs.pre_trip), xOf(first.dep - 8) - 2, cy, true);
-  } else D.tBar(ctx, p, xOf(first.dep - prefs.pre_trip), xOf(first.dep) - 1, cy, true);
+  const last = t.trips[n - 1];
+  D.tBar(ctx, p, xOf(first.dep - prefs.pre_trip), blockEdge(ctx, p, first, xOf, cy, true), cy, true);
+  D.tBar(ctx, p, blockEdge(ctx, p, last, xOf, cy, false), xOf(last.arr + prefs.post_trip), cy, false);
   t.trips.forEach((x, j) => {
     const a = xOf(x.dep);
     const bb = Math.max(xOf(x.arr), a + 4);
@@ -531,8 +532,8 @@ function blockRow(ctx, g, row, cy, xOf, hit, an) {
       else if (r.layers.breaks && x.dep - prev.arr > 0 && xOf(x.dep) - xOf(prev.arr) > 18) D.textAt(ctx, `${x.dep - prev.arr}m`, (xOf(prev.arr) + a) / 2, cy + 3.5, 9.5, 500, p.dim, 'center');
     }
     if (x.empty || !x.counts) {
-      if (x.empty && (j === 0 || j + 1 === n)) D.pull(ctx, p, a + 1, bb - 1, cy, false);
-      else D.deadhead(ctx, p, a + 1, bb - 1, cy, false);
+      // (the first and the last are the block's edges, drawn with its checks)
+      if (j > 0 && j + 1 < n) D.deadhead(ctx, p, a + 1, bb - 1, cy, false);
       return;
     }
     const cr = { x: a + 1, y: cy - CHIP / 2, w: Math.max(5, bb - a - 2), h: CHIP };
@@ -546,12 +547,6 @@ function blockRow(ctx, g, row, cy, xOf, hit, an) {
     if (readOnly || hand) return;
     hit(cr.x, cr.y, cr.w, cr.h, { kind: 'chip', tour: i, trip: j, row: row.id });
   });
-  // the post-trip check, and a pull-in the timetable has none of
-  const last = t.trips[n - 1];
-  if (!last.empty) {
-    D.pull(ctx, p, xOf(last.arr) + 2, xOf(last.arr + 8), cy, true);
-    D.tBar(ctx, p, xOf(last.arr + 8) + 2, xOf(last.arr + 8 + prefs.post_trip), cy, false);
-  } else D.tBar(ctx, p, xOf(last.arr) + 1, xOf(last.arr + prefs.post_trip), cy, false);
   // the reliefs: arrows where a driver gets off and on, a grey line while it is attended; a click
   // there joins the duties again
   t.pieces.slice(1).forEach(([start], k) => {
@@ -589,6 +584,17 @@ function blockRow(ctx, g, row, cy, xOf, hit, an) {
   return lit;
 }
 
+/** A block's first trip (`start`) or its last as the edge its check's T-bar joins: an empty run
+ * (the timetable's depot run) as a pull-out or pull-in box, another trip without passengers as a
+ * deadhead box - both drawn here - or the chip's edge (the chip the row draws). Returns its x. */
+function blockEdge(ctx, p, x, xOf, cy, start) {
+  const a = xOf(x.dep);
+  const bb = Math.max(xOf(x.arr), a + 4);
+  if (x.empty) return D.pull(ctx, p, a + 1, bb - 1, cy, false, start)[start ? 0 : 1];
+  if (!x.counts) return D.deadhead(ctx, p, a + 1, bb - 1, cy, false)[start ? 0 : 1];
+  return start ? a + 1 : a + 1 + Math.max(5, bb - a - 2);
+}
+
 /** A driver's duty in its row (`rf_gantt::duty_row_draw`). Returns the time lit. */
 function dutyRow(ctx, g, row, cy, xOf, hit, an) {
   const { data, readOnly, p, mouse: m } = g;
@@ -612,12 +618,34 @@ function dutyRow(ctx, g, row, cy, xOf, hit, an) {
       D.textIn(ctx, word, (xa + xb) / 2 - ww / 2, cy - 7, ww, 14, 10, 500, lineCol, 'center');
     }
   }
+  // the block's start and end where a piece begins or ends with its bus's day (#98): the
+  // pull-out or pull-in and the checks as the Vehicles tab draws them, the sign-on and sign-off
+  // one T-bar with the check, joined to them at every zoom
+  const joined = new Map();
+  for (const sp of s.spans) {
+    const t = b.blocks[sp.tour];
+    const [rs, re] = t.pieces[sp.duty] || [0, 0];
+    const n = t.trips.length;
+    if (!n || re <= rs) continue;
+    if (rs === 0) {
+      const on = s.events.findIndex((e) => e.kind === 'on' && e.to === sp.from);
+      const box = D.tBar(ctx, p, xOf(on >= 0 ? s.events[on].from : sp.from), blockEdge(ctx, p, t.trips[0], xOf, cy, true), cy, true);
+      if (on >= 0) joined.set(on, box);
+    }
+    if (re === n) {
+      const off = s.events.findIndex((e) => e.kind === 'off' && e.from === sp.to);
+      const box = D.tBar(ctx, p, blockEdge(ctx, p, t.trips[n - 1], xOf, cy, false), xOf(off >= 0 ? s.events[off].to : sp.to), cy, false);
+      if (off >= 0) joined.set(off, box);
+    }
+  }
   // the events: sign-on and sign-off, travel, custom work
   s.events.forEach((e, k) => {
     const a = xOf(e.from);
     const z = xOf(e.to);
     const er = { x: a, y: cy - CHIP / 2, w: Math.max(8, z - a), h: CHIP };
-    if (e.kind === 'on') D.tBar(ctx, p, a, z, cy, true);
+    const box = joined.get(k);
+    if (box) Object.assign(er, { x: box[0], w: Math.max(8, box[1] - box[0]) });
+    else if (e.kind === 'on') D.tBar(ctx, p, a, z, cy, true);
     else if (e.kind === 'off') D.tBar(ctx, p, a, z, cy, false);
     else if (e.kind === 'travel') {
       const bw = Math.max(14, z - a - 2);
@@ -659,8 +687,8 @@ function dutyRow(ctx, g, row, cy, xOf, hit, an) {
         D.deadhead(ctx, p, xOf(prev.arr) + 1, xOf(prev.arr + DEADHEAD_MIN) - 1, cy, true);
       }
       if (x.empty || !x.counts) {
-        if (x.empty && (j === 0 || j + 1 === n)) D.pull(ctx, p, a + 1, bb - 1, cy, false);
-        else D.deadhead(ctx, p, a + 1, bb - 1, cy, false);
+        // (the block's first and last: drawn with the checks above)
+        if (j > 0 && j + 1 < n) D.deadhead(ctx, p, a + 1, bb - 1, cy, false);
         continue;
       }
       const cr = { x: a + 1, y: cy - CHIP / 2, w: Math.max(5, bb - a - 2), h: CHIP };

@@ -265,6 +265,102 @@ pub fn forget_tours(c: &mut Company, line: &str, tours: &[String]) -> usize {
     before - c.planning.week.len()
 }
 
+/// What the roster kept when the day's blocks and duties changed (`follow`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Followed {
+    /// The duties that have a driver, and those of lines in service without one (their trips
+    /// are dropped until the roster gives them one).
+    pub kept: usize,
+    pub open: usize,
+}
+
+/// The roster of `weekday` kept with its buses and duties when the day's blocks and duties
+/// change (#96: RosterFlow's Save, a layout the timetable no longer fits). The roster gives
+/// them by their place - the block's name, the duty's index in it - so a duty cut or joined
+/// anew moved the drivers onto other duties and left others without one, and the day dropped
+/// their trips. `before` and `after` are the day's tours (`network::tours_of_day`) as they
+/// were and are now. A block keeps its bus by its name; a duty keeps its driver by the trip it
+/// begins with (on its bus, else on another of its line's); a duty that begins with another
+/// trip now takes the driver of a duty it is joined with (one driver works a joined duty), else
+/// the driver who had most of its trips (a duty cut in two stays with its driver, both halves,
+/// until the roster gives one to another), else it has none until the roster gives it one.
+pub fn follow(c: &mut Company, weekday: u8, before: &[TourOfDay], after: &[TourOfDay]) -> Followed {
+    use super::studio::TripRef;
+    // the drivers as the roster gave them: by line, block and the trip their duty begins with;
+    // and every trip a driver had
+    let mut had: Vec<(String, String, TripRef, Who)> = Vec::new();
+    let mut driven: Vec<(String, TripRef, Who)> = Vec::new();
+    for t in before {
+        let Some(r) = roster(c, weekday, &t.line, &t.tour) else { continue };
+        for (k, p) in network::duties_of(t).iter().enumerate() {
+            let (Some(Some(w)), Some(x)) = (r.duties.get(k), t.trips.get(p.start)) else { continue };
+            had.push((t.line.clone(), t.tour.clone(), TripRef::of(x), *w));
+            driven.extend(t.trips[p.clone()].iter().filter(|x| x.counts()).map(|x| (t.line.clone(), TripRef::of(x), *w)));
+        }
+    }
+    let touched = |r: &RosterTour| r.weekday == weekday && before.iter().chain(after).any(|t| same(&t.line, &r.line) && same(&t.tour, &r.tour));
+    let old: Vec<RosterTour> = c.planning.week.iter().filter(|r| touched(r)).cloned().collect();
+    c.planning.week.retain(|r| !touched(r));
+    let pieces: Vec<Vec<std::ops::Range<usize>>> = after.iter().map(network::duties_of).collect();
+    let mut given: Vec<Vec<Option<Who>>> = after
+        .iter()
+        .zip(&pieces)
+        .map(|(t, ps)| {
+            ps.iter()
+                .map(|p| {
+                    let first = TripRef::of(t.trips.get(p.start)?);
+                    let mine = |h: &&(String, String, TripRef, Who)| same(&h.0, &t.line) && h.2 == first;
+                    had.iter().filter(mine).find(|h| same(&h.1, &t.tour)).or_else(|| had.iter().find(mine)).map(|h| h.3)
+                })
+                .collect()
+        })
+        .collect();
+    // (a duty's other pieces: its driver)
+    for i in 0..after.len() {
+        for k in 0..given[i].len() {
+            if given[i][k].is_none() {
+                given[i][k] = super::studio::partners(c, weekday, after, i, k).into_iter().find_map(|(j, m)| given.get(j).and_then(|g| g.get(m).copied().flatten()));
+            }
+        }
+    }
+    // (the driver who had most of its trips with passengers)
+    for (i, t) in after.iter().enumerate() {
+        for (k, p) in pieces[i].iter().enumerate() {
+            if given[i][k].is_some() {
+                continue;
+            }
+            let mut count: Vec<(Who, usize)> = Vec::new();
+            for x in t.trips[p.clone()].iter().filter(|x| x.counts()) {
+                let Some(w) = driven.iter().find(|(l, r, _)| same(l, &t.line) && r.is(x)).map(|d| d.2) else { continue };
+                match count.iter_mut().find(|n| n.0 == w) {
+                    Some(n) => n.1 += 1,
+                    None => count.push((w, 1)),
+                }
+            }
+            given[i][k] = count.iter().fold(None, |best: Option<&(Who, usize)>, n| if best.is_none_or(|b| n.1 > b.1) { Some(n) } else { best }).map(|n| n.0);
+        }
+    }
+    let mut out = Followed::default();
+    for (i, t) in after.iter().enumerate() {
+        let bus = old.iter().find(|r| same(&r.line, &t.line) && same(&r.tour, &t.tour)).and_then(|r| r.bus);
+        let mut duties = given[i].clone();
+        for d in &duties {
+            match d {
+                Some(_) => out.kept += 1,
+                None if !t.unplanned => out.open += 1,
+                None => {}
+            }
+        }
+        while duties.last() == Some(&None) {
+            duties.pop();
+        }
+        if bus.is_some() || !duties.is_empty() {
+            c.planning.week.push(RosterTour { weekday, line: t.line.clone(), tour: t.tour.clone(), bus, duties });
+        }
+    }
+    out
+}
+
 /// What a weekday's roster holds: the duties given to someone, the buses given.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Rostered {
@@ -808,10 +904,12 @@ impl DayPlan {
                                 None => None,
                             },
                             dropped_before: d.late.filter(|l| l.cover.is_none()).map(|l| l.until),
+                            problem: d.problem,
                         })
                         .collect(),
                     by_player: t.by_player,
                     live: t.live,
+                    bus_problem: t.bus_problem,
                 })
                 .collect(),
         }
