@@ -10,6 +10,9 @@
 //! * `hub_more_weather_read`, `hub_more_weather_write`: one's own weather (`custom:...`) as the
 //!   day step's editor shows its fields, a preset made one's own to edit, and the fields
 //!   written back (`daytime::body`, `weather_choice::CustomWeather`).
+//! * `hub_more_welcome`, `hub_more_folder`, `hub_more_personnel`: the welcome (`welcome.rs`):
+//!   whether it opens and where, what a folder pointed to as OMSI 2's is, and a driver's
+//!   personnel number and code for the pass.
 
 use crate::Answer;
 use omsi_launcher_lib as core;
@@ -28,6 +31,9 @@ pub fn call(cmd: &str, args: &Value) -> Option<Answer> {
         "hub_more_bus_best" => bus_best(args),
         "hub_more_weather_read" => weather_read(args),
         "hub_more_weather_write" => weather_write(args),
+        "hub_more_welcome" => welcome_due(),
+        "hub_more_folder" => folder(args),
+        "hub_more_personnel" => personnel(args),
         _ => return None,
     })
 }
@@ -274,6 +280,114 @@ fn weather_write(args: &Value) -> Answer {
     Ok(json!({ "weather": c.encode(), "custom": custom_json(&c) }))
 }
 
+
+// --- the welcome -----------------------------------------------------------------------------
+
+/// Whether the welcome opens as the launcher starts, and at which step (`welcome::due`): when
+/// it was not seen yet (`welcome_done`), or wherever `OMSI_LAUNCHER_WELCOME` says (`off`:
+/// never); and whether the OMSI 2 folder has to be pointed to (`welcome::folder_needed`):
+/// `{ step, folder }`, `step` null when it does not open.
+fn welcome_due() -> Answer {
+    let settings = core::get_settings().unwrap_or_else(|_| core::settings_from_text(None));
+    let asked = omsi_cfg::env::var("OMSI_LAUNCHER_WELCOME").ok().map(|a| a.trim().to_ascii_lowercase());
+    let step = match asked.as_deref() {
+        Some("off" | "0") => None,
+        Some(a) if !a.is_empty() => Some(match a {
+            "language" | "1" => "language",
+            "interface" | "ui" | "2" => "interface",
+            "animations" | "3" => "animations",
+            "folder" => "folder",
+            "driver" | "profile" => "driver",
+            "ready" | "done" => "ready",
+            _ => "language",
+        }),
+        _ => (!settings.get("welcome_done").and_then(Value::as_bool).unwrap_or(false)).then_some("language"),
+    };
+    let root = core::load_config().root;
+    Ok(json!({ "step": step, "folder": !omsi_cfg::missing_original_essentials(Path::new(root.trim())).is_empty() }))
+}
+
+/// What a folder pointed to as OMSI 2's is (`welcome::folder_verdict`): `fine`, `empty`,
+/// `missing`, `own` (openOMSI's own folder) or `lacks` with what it lacks.
+fn folder_verdict(root: &str, exists: bool, own: bool, missing: &[String]) -> (&'static str, String) {
+    if root.trim().is_empty() {
+        ("empty", String::new())
+    } else if !exists {
+        ("missing", String::new())
+    } else if own || missing.iter().any(|m| m.contains("content folder")) {
+        ("own", String::new())
+    } else if missing.is_empty() {
+        ("fine", String::new())
+    } else {
+        ("lacks", missing.iter().take(3).cloned().collect::<Vec<_>>().join(", "))
+    }
+}
+
+fn folder(args: &Value) -> Answer {
+    let root: String = arg::<Option<String>>(args, "root")?.unwrap_or_default();
+    let p = Path::new(root.trim());
+    let (verdict, what) = folder_verdict(&root, p.is_dir(), p.join("openomsi.exe").exists() || p.join("openomsi").is_file(), &omsi_cfg::missing_original_essentials(p));
+    Ok(json!({ "verdict": verdict, "what": what }))
+}
+
+/// A driver's personnel number and code in `personnel.json` (the companion's, kept by the
+/// driver's name in lower case: `welcome::personnel_in`), if they are sound.
+fn personnel_in(text: &str, driver: &str) -> Option<(String, String)> {
+    let v: Value = serde_json::from_str(text).ok()?;
+    let e = v.get("drivers")?.get(driver.trim().to_lowercase())?;
+    let (number, code) = (e.get("number")?.as_str()?, e.get("code")?.as_str()?);
+    let digits = |s: &str, n: std::ops::RangeInclusive<usize>| n.contains(&s.len()) && s.bytes().all(|b| b.is_ascii_digit());
+    (digits(number, 3..=10) && digits(code, 3..=8)).then(|| (number.to_string(), code.to_string()))
+}
+
+/// `n` digits from `rnd`, the first of them 1-9 (the companion's `signon::digits`).
+fn digits(n: usize, rnd: &mut dyn FnMut() -> u64) -> String {
+    (0..n).map(|i| char::from(b'0' + if i == 0 { 1 + rnd() % 9 } else { rnd() % 10 } as u8)).collect()
+}
+
+fn random_u64() -> u64 {
+    use std::hash::{BuildHasher, Hasher};
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+    h.write_u64(N.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+    h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0));
+    h.finish()
+}
+
+/// A driver's personnel number and code (`~/.openomsi/personnel.json`): read, and with `make`
+/// made and written down when the driver has none yet - as the game-drawn launcher's welcome
+/// does for a new driver (`companion::personnel_of_driver`), so they are known before the first
+/// sign-on. A file that is there but not one of these is left alone. `{ number, code }` or null.
+fn personnel(args: &Value) -> Answer {
+    let name: String = arg(args, "name")?;
+    let make = arg::<Option<bool>>(args, "make")?.unwrap_or(false);
+    let path = core::data_dir().join("personnel.json");
+    let text = std::fs::read_to_string(&path).ok();
+    if let Some((number, code)) = text.as_deref().and_then(|t| personnel_in(t, &name)) {
+        return Ok(json!({ "number": number, "code": code }));
+    }
+    let key = { let k = name.trim().to_lowercase(); if k.is_empty() { "driver".to_string() } else { k } };
+    let mut file: serde_json::Map<String, Value> = match text.as_deref().map(str::trim) {
+        None | Some("") => serde_json::Map::new(),
+        Some(t) => match serde_json::from_str::<Value>(t).ok().and_then(|v| v.get("drivers").and_then(Value::as_object).cloned()) {
+            Some(d) => d,
+            None => return Ok(Value::Null),
+        },
+    };
+    if !make {
+        return Ok(Value::Null);
+    }
+    let mut rnd = random_u64;
+    let (number, code) = (digits(6, &mut rnd), digits(4, &mut rnd));
+    file.insert(key, json!({ "number": number, "code": code }));
+    let body = serde_json::to_string_pretty(&json!({ "drivers": file })).map_err(|e| e.to_string())?;
+    // (written beside it first and put in its place whole: the game reading it at the same
+    // moment never finds it half written)
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, body).and_then(|_| std::fs::rename(&tmp, &path)).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(json!({ "number": number, "code": code }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,5 +418,22 @@ mod tests {
         let back = weather_write(&json!({ "custom": { "visibility_m": 10.0, "precip": 7 } })).unwrap();
         assert_eq!((back["custom"]["visibility_m"].as_f64(), back["custom"]["precip"].as_i64()), (Some(50.0), Some(2)));
         assert!(weather_read(&json!({ "weather": "cycle" })).unwrap()["custom"].is_null());
+    }
+
+    #[test]
+    fn the_welcome_judges_the_folder_and_reads_the_pass_as_the_game_drawn_one() {
+        assert_eq!(folder_verdict(" ", false, false, &[]).0, "empty");
+        assert_eq!(folder_verdict("D:/nowhere", false, false, &["maps".into()]).0, "missing");
+        assert_eq!(folder_verdict("C:/openOMSI", true, true, &["Omsi.exe".into()]).0, "own");
+        assert_eq!(folder_verdict("C:/x", true, false, &["the content folder".into()]).0, "own");
+        assert_eq!(folder_verdict("C:/OMSI 2", true, false, &[]).0, "fine");
+        assert_eq!(folder_verdict("C:/half", true, false, &["maps".into(), "Vehicles".into(), "Fonts".into(), "Sceneryobjects".into()]), ("lacks", "maps, Vehicles, Fonts".to_string()));
+        let file = r#"{ "drivers": { "anna": { "number": "482913", "code": "4821" }, "bad": { "number": "12ab", "code": "1" } } }"#;
+        assert_eq!(personnel_in(file, "Anna"), Some(("482913".into(), "4821".into())));
+        assert_eq!(personnel_in(file, "bad"), None);
+        let mut k = 0u64;
+        let mut rnd = || { k += 1; k * 7 };
+        let d = digits(6, &mut rnd);
+        assert!(d.len() == 6 && !d.starts_with('0') && d.bytes().all(|b| b.is_ascii_digit()), "{d}");
     }
 }

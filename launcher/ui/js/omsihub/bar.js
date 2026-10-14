@@ -15,7 +15,7 @@ import { stepsOf, goStep, canGo, chosenLine } from './flow.js';
 /** The languages with a flag in the bar (`flow::FLAGS`); the others are in the globe's menu. */
 const FLAGS = ['ENG', 'DEU', 'FRA', 'NLD'];
 
-function Flag({ code }) {
+export function Flag({ code }) {
   const bands = (cs, across) => cs.map((c, i) => (across ? html`<rect x=${i * 6} y="0" width="6" height="13" fill=${c} />` : html`<rect x="0" y=${(i * 13) / 3} width="18" height=${13 / 3 + 0.2} fill=${c} />`));
   let body;
   if (code === 'DEU') body = bands(['#000000', '#dd0000', '#ffce00'], false);

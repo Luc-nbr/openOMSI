@@ -114,5 +114,5 @@ button.hub-rb-trip.first:hover { background: var(--hub-accent); }
 .hub-cwx-rows .hub-slider { min-height: 34px; }
 .hub-cwx-rows > .gap { margin-bottom: 6px; }
 .hub-cwx-precip { display: grid; grid-template-columns: 130px minmax(0, 1fr); align-items: center; height: 32px; margin: 2px 0 4px; }
-.hub-cwx-precip > span { color: var(--hub-text-soft); font-size: 10px; }
+.hub-cwx-precip > span { color: var(--hub-text-dim); font-size: 10px; }
 .hub-cwx-rows .hub-switch { min-height: 38px; }

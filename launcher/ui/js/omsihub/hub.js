@@ -14,6 +14,7 @@ import { Flow, STEP_NAMES, goStep } from './flow.js';
 import { Head, Icon, tr } from './bits.js';
 import './settings-extra.js';
 import { CompanyScreen, companyPage } from './company/company.js';
+import { Welcome, welcomeAtStart } from './welcome.js';
 
 /** Our look is the desktop window's (not the phone's, nor `?phone` in a browser). */
 export const HUB = !onPhone && !new URLSearchParams(location.search).has('phone');
@@ -85,8 +86,11 @@ export function HubShell({ pages, Toasts }) {
     booted = true;
     call('hub_boot')
       .then((b) => startPage(b?.page, pages))
-      .catch(() => {});
+      .catch(() => {})
+      .then(welcomeAtStart);
   }, []);
+  // the welcome: in place of the page while it is open (phase 3, `welcome.js`)
+  if (s.hubWelcome?.open) return html`<div class="hub-stage" style=${`--hub-scale:${scale()}`}><${Welcome} /><${Toasts} /></div>`;
   // the bus company: the whole window its own (its own bar)
   if (s.page === 'company') {
     return html`<div class="hub-stage" style=${`--hub-scale:${scale()}`}><${CompanyScreen} /><${Toasts} /></div>`;
