@@ -74,6 +74,8 @@ export async function selftest() {
     }
   }
   for (const page of ['drive', 'multiplayer', 'profile', 'mods', 'settings', 'controls', 'games', 'tutorials', 'timetable', 'setup']) {
+    // Omsi-Hub: the timetable is our editor's page in our look (checked by js/omsihub/selftest.js)
+    if (page === 'timetable' && document.documentElement.classList.contains('hub')) continue;
     const before = errors.length;
     set({ page });
     await sleep(500);

@@ -30,10 +30,11 @@ export async function selftest(check, errors) {
   check('hub: the look', !!css.getPropertyValue('--hub-ground').trim(), `${document.documentElement.dataset.theme} ${css.getPropertyValue('--hub-accent').trim()}`);
   check('hub: the font', getComputedStyle(document.body).fontFamily.includes('Hanken Grotesk'), getComputedStyle(document.body).fontFamily);
 
-  // the start: greeting, the four ways to drive, the record, the links
+  // the start: greeting, the four ways to drive, the record, the links (upstream's Model test
+  // among them)
   let e = await step('mode');
   const greeting = $('.hub-greeting')?.textContent || '';
-  check('hub: the start', !e && $$('.hub-mode').length === 4 && !!$('.hub-record') && $$('.hub-link').length === 10, e || `${greeting} | ${$$('.hub-mode').length} tiles, ${$$('.hub-link').length} links`);
+  check('hub: the start', !e && $$('.hub-mode').length === 4 && !!$('.hub-record') && $$('.hub-link').length === 11, e || `${greeting} | ${$$('.hub-mode').length} tiles, ${$$('.hub-link').length} links`);
   check('hub: our texts translated', !S.boot?.language || S.boot.language === 'en' || t('How do you want to drive today?') !== 'How do you want to drive today?', S.boot?.language || 'en');
 
   // every step, for a tour, a work shift and a free drive

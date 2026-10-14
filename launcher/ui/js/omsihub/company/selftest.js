@@ -68,13 +68,14 @@ export async function selftest(check, errors) {
   }
   setCo({ dialog: null });
 
-  // the hand-overs' pages, as our game-drawn launcher reads them
+  // a hand-over to another part of the launcher: the clock stops, the company is saved (no
+  // page of a game-drawn launcher any more)
   try {
-    const a = await cmd('co_hand_over', { page: '5' });
+    const a = await cmd('co_hand_over', { page: 'line-editor' });
     const b = await cmd('co_hand_over', { page: 'map-line=A:1' });
-    check('company: the hand-over pages', a.page === `bus company:5:${sh.id}` && b.page === `bus company:map-line=A%3A1:${sh.id}`, `${a.page} | ${b.page}`);
+    check('company: the hand-overs', !!a && !!b && !('page' in a) && a.edit == null && b.edit == null, JSON.stringify([a, b]));
   } catch (x) {
-    check('company: the hand-over pages', false, x.message);
+    check('company: the hand-overs', false, x.message);
   }
 
   // the company read again from its file, as after one of our editors wrote it

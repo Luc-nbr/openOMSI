@@ -1,8 +1,8 @@
 // The self-check of the company's pages of phase 3 (Trello "Tauri 3/6"), called by the bus
 // company's (`selftest.js`) with a company of the driver's open: the planning, the depot, the
 // concessions, the fleet map, the research, the workshop and the contracts drawn without a
-// script error, their views answering, the planning's hand-over of a line's timetable as our
-// game-drawn launcher reads it - and, with OPENOMSI_LAUNCHER_SELFTEST=full, the fleet map's
+// script error, their views answering, the planning's hand-over of a line's timetable - and,
+// with OPENOMSI_LAUNCHER_SELFTEST=full, the fleet map's
 // roads and routes read by the game program. Nothing is bought, built, bid or given.
 
 import { S } from '../../store.js';
@@ -57,7 +57,7 @@ export async function selftest(check, errors, shown) {
   }
   // a line's trips and timetable: the planning's own sheet over it (Omsi-Hub 6/6: `planedit.js`),
   // drawn without a script error, its departures read, closed again - nothing changed; the
-  // hand-over's page name as the game-drawn launcher reads it still
+  // hand-over of a line's timetable answering
   try {
     const v = await cmd('co_more_view', { view: 'planning', day: 0 });
     const g = v.gantt?.groups?.[0];
@@ -74,8 +74,9 @@ export async function selftest(check, errors, shown) {
       await cmd('co_more_act', { act: 'pe_close' });
       setUi('planning', { edit: null });
     }
+    // (a line the company does not have: no line editor's page to name)
     const a = await cmd('co_hand_over', { page: 'plan-line=oo_5|2024-06-04|2' });
-    check('company: the hand-over of a line\'s timetable', a.page === `bus company:plan-line=oo_5|2024-06-04|2:${sh.id}`, a.page);
+    check('company: the hand-over of a line\'s timetable', !!a && !('page' in a) && a.edit == null, JSON.stringify(a));
   } catch (x) {
     check('company: the hand-over of a line\'s timetable', false, x.message);
   }
