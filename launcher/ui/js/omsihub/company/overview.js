@@ -86,7 +86,7 @@ export function Bar({ b, onClick }) {
 function Today({ t, style }) {
   const c = t.covered;
   const n = t.next;
-  return html`<${Section} title=${t.title} style=${style}>
+  return html`<${Section} class="co-today" title=${t.title} style=${style}>
     <div style="overflow:hidden;flex:1;min-height:0">
       ${c.bar ? html`<div style="margin-bottom:18px"><${Bar} b=${c.bar} onClick=${c.bar.click ? () => goTab(5) : null} /></div>` : html`<div class=${'co-para t-' + c.tone} style="line-height:24px;margin-bottom:10px;font-weight:500">${c.text}</div>`}
       ${n && n.duty && html`<div class="co-nextduty">

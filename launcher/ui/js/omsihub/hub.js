@@ -119,7 +119,8 @@ export function HubShell({ pages, Toasts }) {
   if (s.hubWelcome?.open) return html`<div class="hub-stage" style=${`--hub-scale:${scale()}`}><${Welcome} />${updates}<${Toasts} /></div>`;
   // the bus company: the whole window its own (its own bar)
   if (s.page === 'company') {
-    return html`<div class="hub-stage" style=${`--hub-scale:${scale()}`}><${CompanyScreen} />${updates}<${Toasts} /></div>`;
+    // (Omsi-Hub 6/6: the company's tour over it)
+    return html`<div class="hub-stage" style=${`--hub-scale:${scale()}`}><${CompanyScreen} /><${TourOverlay} />${updates}<${Toasts} /></div>`;
   }
   // (an editor's page: ours, `editors/index.js`)
   const editor = EDITORS[s.page] ? s.page : null;

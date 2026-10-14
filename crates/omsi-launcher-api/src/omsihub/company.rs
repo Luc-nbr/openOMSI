@@ -34,6 +34,8 @@ mod people;
 mod photos;
 mod portraits;
 pub mod words;
+// (what a driver has seen of the company's tour, Trello "Tauri 6/6")
+mod tour;
 // (the rest of the pages, Trello "Tauri 3/6": a child of this module in a file of its own)
 #[path = "company_more.rs"]
 mod more;
@@ -1215,6 +1217,7 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
         "co_view" => with(|s| view(s, args)),
         "co_act" => with(|s| do_act(s, args, p)),
         "co_hand_over" => with(|s| hand_over(s, args)),
+        "co_tour" => Ok(tour::answer(args)),
         // (Omsi-Hub 6/6: the company's line of the line editor's line `id`, for RosterFlow's
         // Timeplan once the line editor confirmed it)
         "co_line_of" => with(|s| {

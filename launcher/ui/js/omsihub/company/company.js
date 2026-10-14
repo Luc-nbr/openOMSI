@@ -29,6 +29,8 @@ import { LaunchPage } from './launch.js';
 // Omsi-Hub 4/6: RosterFlow, the Planning page with the add-on on, over the whole window.
 import { RosterFlowPage } from '../rosterflow/index.js';
 import { MorePage, MORE_TABS } from './pages.js';
+// Omsi-Hub 6/6: the company's own guided tour
+import { startCompanyTour } from '../tour.js';
 
 // (the company's own look, loaded with its first page)
 const sheet = document.createElement('link');
@@ -68,6 +70,8 @@ export function enterCompany(over = {}) {
 export function companyPage(part, id) {
   const casual = { buses: CASUAL.BUSES, shop: CASUAL.SHOP, lines: CASUAL.LINES, 'new-line': CASUAL.NEW_LINE, drivers: CASUAL.DRIVERS, money: CASUAL.MONEY, company: CASUAL.COMPANY, shifts: CASUAL.SHIFTS };
   if (part === 'choose') return enterCompany();
+  // (its tour, from where it was left: `company::handed`'s "tour")
+  if (part === 'tour') return enterCompany({ chooser: null, tab: HOME, want: id || null, tourWant: true });
   // Omsi-Hub 4/6: the Planning page opens RosterFlow when its add-on is on, as the game-drawn
   // launcher does ("5~<state>": RosterFlow in a state of its own, for the comparison pictures)
   const [first, shot] = String(part || '').split('~');
@@ -79,6 +83,16 @@ export function companyPage(part, id) {
 }
 
 let stopTick = null;
+/** For which driver (and with a company or not) the company's tour was looked at this session
+ * (`CompanyView::tutorial_for`). */
+let tourAsked = null;
+
+/** The "?" in the company's bar: the tour from where it was left (`tutorial::ask`). */
+function askTour() {
+  cmd('co_tour', { what: 'ask' })
+    .then((r) => startCompanyTour(r?.at || 0))
+    .catch(() => startCompanyTour(0));
+}
 
 /** The clock's tick (`clock::tick`): four times a second, the shell back with it; a dialog or
  * a decision open holds what waits for it (`modal`). */
@@ -170,6 +184,23 @@ export function CompanyScreen() {
     setCo({ rfWant: null });
     handOver('5', more);
   }, [open, c.rfWant]);
+  // (Omsi-Hub 6/6: the company's tour by itself the first time a driver comes - the welcome and
+  // the founding without a company, its pages once one runs - not over a dialog nor another
+  // tour, not in the self-check: `tutorial::frame`; asked for at the start, from the "?"'s place)
+  const tourKey = read && !choosing && !c.dialog && !s.hubTour && !s.boot?.selftest ? `${s.config?.profile || ''}|${open ? 1 : 0}` : null;
+  useEffect(() => {
+    if (!tourKey) return;
+    if (c.tourWant && open) {
+      setCo({ tourWant: false });
+      askTour();
+      return;
+    }
+    if (tourAsked === tourKey) return;
+    tourAsked = tourKey;
+    cmd('co_tour', { what: 'open', company: !!open, casual: !!sh?.casual })
+      .then((r) => r?.at != null && startCompanyTour(r.at))
+      .catch(() => {});
+  }, [tourKey, c.tourWant]);
   let body;
   if (!read) body = html`<div class="co-body found"><div class="co-empty">${c.failed || tr('Reading your companies…')}</div></div>`;
   else if (choosing) body = html`<div class="co-body found"><${Chooser} /></div>`;
@@ -238,7 +269,7 @@ function Bar({ open, choosing, read }) {
       ${open && html`${sh.casual ? html`<${CasualClock} />` : html`<${Clock} />`}<span class="gap16"></span>
         <${Btn} class="sq" icon="settings" title=${tr("The company's settings: its name, its date, how it buys")} onClick=${settings} /><span class="gap8"></span>`}
       <${Btn} class="sq" icon=${isDark ? 'dark_mode' : 'light_mode'} title=${tr(isDark ? 'Switch to the light mode' : 'Switch to the dark mode')} onClick=${(e) => flipLook(e)} /><span class="gap8"></span>
-      ${read && !choosing && html`<${Btn} class="sq" icon="help" title=${tr('A tour of the bus company')} onClick=${() => handOver('tour')} /><span class="gap12"></span>`}
+      ${read && !choosing && html`<${Btn} class="sq co-help" icon="help" title=${tr('A tour of the bus company')} onClick=${askTour} /><span class="gap12"></span>`}
       <${Btn} icon="chevron_left" label=${tr('Back')} style="width:112px" onClick=${() => leaveCompany()} />
     </span>
   </header>`;
@@ -293,7 +324,7 @@ function CasualClock() {
   const k = S.co.shell.clock;
   return html`<span class="co-clock">
     <span class="casual-now"><span class="date">${k.date}</span><span class="time">${k.time}</span></span>
-    <${Btn} kind="primary" icon="wb_sunny" label=${tr('Next day')} style="min-width:150px" title=${tr('Run the rest of the day: the buses drive, the money comes in, and you start the next morning')} onClick=${() => act('next_day')} />
+    <${Btn} kind="primary" class="co-next" icon="wb_sunny" label=${tr('Next day')} style="min-width:150px" title=${tr('Run the rest of the day: the buses drive, the money comes in, and you start the next morning')} onClick=${() => act('next_day')} />
   </span>`;
 }
 

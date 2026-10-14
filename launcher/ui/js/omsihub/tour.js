@@ -15,13 +15,16 @@
 // is left out as the tour comes to it. The parts are found by what this page draws (no layout
 // of another module is worked out here).
 //
-// The bus company's and RosterFlow's tours are the company's (phase 2 and 4).
+// The bus company's tour goes the same way over its pages (Trello "Tauri 6/6": `COMPANY_STOPS`,
+// `startCompanyTour`), what a driver has seen of it kept as the game-drawn launcher keeps it
+// (`co_tour`); RosterFlow's is its own (phase 4).
 
 import { html, useEffect, useLayoutEffect, useRef, useState } from '../../vendor/preact-htm.js';
 import { S, set, useStore } from '../store.js';
 import { choose, curMap, curBus } from '../data.js';
 import { Icon, tr } from './bits.js';
 import { goStep } from './flow.js';
+import { HOME, CASUAL, setCo, cmd } from './company/kit.js';
 
 let cssLoaded = false;
 function loadCss() {
@@ -60,10 +63,56 @@ const STOPS = [
   ['companion', 'In the game', 'Phone & tablet', "Signing on, the duty menu and the bus's screens can also be on a phone or tablet in your network. Turn it on under Settings › General › Phone & tablet; the game shows the address and the code when you drive.", { card: 'companion' }, 'keep'],
   ['done', 'Guided tour', 'Ready to go', 'This question mark shows the tour again. Have a good ride!', 'bar-help', 'home'],
 ];
-const byId = Object.fromEntries(STOPS.map((s) => [s[0], s]));
+
+/** The bus company's tour (`tour::COMPANY_STOPS`): its welcome, the founding wizard (no company
+ * yet), its start screen, what it has, its clock, the way round its pages, the pages and its
+ * "?" - Normal's stops and Casual's mixed, each mode making its own (`shown`). Where the page
+ * is: ['co', a tab of the company], or 'home' (where the player was). */
+const COMPANY_STOPS = [
+  ['coWelcome', 'Bus company', 'Your own bus company', 'Here you run a transport company on one of your maps: buy buses, hire drivers, take on lines or make your own. It runs in a time of its own, and what you drive yourself counts for it.', { card: 'welcome' }, ['co', HOME]],
+  ['coFound', 'Bus company', 'Found it first', 'Give the company a name, its colours, its home map with a depot and its game mode: Casual, Normal or Realistic. Once it runs, this tour shows you round its pages.', 'company-wizard', ['co', HOME]],
+  ['coTabs', 'Its start screen', 'Every part a tile', 'Each part of the company has a tile here, grouped by theme, with what matters there now. A badge says where something waits: unread messages, tours without a driver.', 'company-tiles', ['co', HOME]],
+  ['coCasToday', 'Home', "Your company's day", 'How the day goes, in one sentence, and under it what your company solved by itself: a bus that broke down and the spare bus that took over, drivers hired at night.', 'company-casual-today', ['co', HOME]],
+  ['coCasDrive', 'Home', 'Drive a shift', "The big button: pick one of today's shifts - its line, its time, its bus - and its start opens. You start the game there.", 'company-casual-drive', ['co', HOME]],
+  ['coCasTiles', 'Home', 'Four tiles', 'Your buses, your lines, your drivers and the money, each with one big number and one button. A click on a tile opens its page.', 'company-casual-tiles', ['co', HOME]],
+  ['coCasTips', 'Home', 'Tips', 'Your company says what would help now, in plain words: a bus more, a fare too high, a full depot. The button beside a tip does it.', 'company-casual-tips', ['co', HOME]],
+  ['coCasNext', 'Home', 'Next day', 'Your company runs the rest of the day by itself: the buses drive, the money comes in. Next day takes you to the next morning.', 'company-casual-next', ['co', HOME]],
+  ['coCasMode', 'Home', 'Casual', 'The company sees to its routine by itself: planning, workshop, staff and research. A click here opens the settings, where Normal shows every page with nothing lost.', 'company-mode', ['co', HOME]],
+  ['coStatus', 'Its start screen', 'Cash, trophies, reputation', "Under the company's name, always in view: its cash, the trophies earned with goals and contracts, and its reputation. A click opens the page about it.", 'company-status', ['co', HOME]],
+  ['coCasStatus', 'Home', 'Cash, trophies, reputation', "Under the company's name, always in view: its cash, the trophies earned with goals, and its reputation. A click on the cash opens the money.", 'company-status', ['co', HOME]],
+  ['coClock', 'Its time', "The company's own clock", 'The company runs in a time of its own: let it run here, or jump on to the morning, to tomorrow or by days. At midnight the day is closed: the tours are run and the money is booked.', 'company-clock', ['co', HOME]],
+  ['coNav', 'Its pages', 'Back and across', 'This button takes you back to the start screen from every page, as Escape does. The icons on the right open any other page at once.', 'company-nav', ['co', 0]],
+  ['coOverview', 'Overview', 'The figures', "The cash, this month's result, the fleet, the staff, punctuality and reputation at a glance.", 'company-figures', ['co', 0]],
+  ['coToday', 'Overview', 'What wants your attention', "Today's tours and how many are covered, your own next duty, and what needs doing. A click takes you to the page that helps.", 'company-today', ['co', 0]],
+  ['coFleet', 'Fleet', 'Buses and the dealer', 'Your buses with their condition and their livery. At the dealer you buy new or used ones, haggle, lease or rent, and sign the contract.', 'company-page', ['co', 1]],
+  ['coCasBuses', 'My buses', 'Your buses', 'Every bus as a card, with its age and its condition. Repairs happen by themselves; Buy a bus opens the shop, the buses that fit your lines first. The icons up here open every page.', 'company-page', ['co', CASUAL.BUSES]],
+  ['coCasHelp', 'My buses', 'A question mark on every page', 'Not sure what a page is for? Its question mark says it in a few words.', 'company-casual-help', ['co', CASUAL.BUSES]],
+  ['coStaff', 'Staff', 'Drivers and the others', 'Hire drivers on the labour market and keep them content. Their wages, licences, holidays and days ill all count.', 'company-page', ['co', 2]],
+  ['coLines', 'Lines', 'What the company runs', "Take on the map's lines or make your own in the line editor: its kind, its buses, its timetable. A line runs once it is planned.", 'company-page', ['co', 3]],
+  ['coCasLines', 'My lines', 'Your lines', 'Every line with its buses and passengers. The slider sets its fare, with advice beside it. Add a line takes three steps: the line, how often, done.', 'company-page', ['co', CASUAL.LINES]],
+  ['coCasDrivers', 'My drivers', 'Your drivers', 'Who drives for you and how well. The company hires the drivers it needs at night; give a bonus, or let someone go.', 'company-page', ['co', CASUAL.DRIVERS]],
+  ['coPlanning', 'Planning', 'Who drives what', 'The week as a chart: drag drivers and buses onto the tours and duties, or let the dispatcher fill the roster. Plan yourself as a driver too.', 'company-page', ['co', 5]],
+  ['coFinances', 'Finances', 'The money', "Every booking, month by month: fares, the authority's money, wages, fuel and repairs. Loans come from the bank here.", 'company-page', ['co', 4]],
+  ['coCasMoney', 'Money', 'Where the money goes', 'Week by week what came in and went out, and the biggest costs in plain words, with a tip when something costs too much.', 'company-page', ['co', CASUAL.MONEY]],
+  ['coCasCompany', 'My company', 'Livery and depot', "Paint your buses in your company's livery, and buy a bigger depot when the buses no longer fit.", 'company-page', ['co', CASUAL.COMPANY]],
+  ['coCareer', 'Career', 'Your duties and your progress', "My duties lists the duties planned for you, each a click from driving it. Here too: the company's level, the training courses and the rankings.", 'company-career-parts', ['co', 6]],
+  ['coDone', 'Bus company', 'Off to work', 'This question mark shows the tour again. Good luck with your company!', 'company-help', 'home'],
+];
+/** The stops only Casual makes, and those only Normal and Realistic make (`CASUAL_ONLY`,
+ * `ADVANCED_ONLY`). */
+const CASUAL_ONLY = ['coCasToday', 'coCasDrive', 'coCasTiles', 'coCasTips', 'coCasNext', 'coCasMode', 'coCasStatus', 'coCasBuses', 'coCasHelp', 'coCasLines', 'coCasDrivers', 'coCasMoney', 'coCasCompany'];
+const ADVANCED_ONLY = ['coTabs', 'coStatus', 'coClock', 'coNav', 'coOverview', 'coToday', 'coFleet', 'coStaff', 'coLines', 'coPlanning', 'coFinances', 'coCareer'];
+const byId = Object.fromEntries([...STOPS, ...COMPANY_STOPS].map((s) => [s[0], s]));
 
 /** Whether a stop has something to show in the launcher as it is (`Stop::shown`). */
 function shown(id, c) {
+  // (the company's tour: the founding before there is a company, its pages once there is one,
+  // each mode its own)
+  if (id === 'coWelcome') return true;
+  if (id === 'coFound') return !c.company;
+  if (CASUAL_ONLY.includes(id)) return c.company && c.easy;
+  if (ADVANCED_ONLY.includes(id)) return c.company && !c.easy;
+  if (id === 'coDone') return c.company;
   switch (id) {
     case 'startAt':
       return c.map && c.entries;
@@ -87,7 +136,9 @@ function shown(id, c) {
 function ctx() {
   const m = curMap();
   const server = S.choice?.lan_mode === 'join';
-  return { map: !!m, entries: !server && !!m?.entry_points?.length, bus: !!curBus(), ownLine: !!S.choice?.own_line, server };
+  const sh = S.co?.shell;
+  const company = S.page === 'company' && !!sh?.open && !S.co.wizard && !S.co.chooser;
+  return { map: !!m, entries: !server && !!m?.entry_points?.length, bus: !!curBus(), ownLine: !!S.choice?.own_line, server, company, easy: company && !!sh.casual };
 }
 
 // --- the parts pointed at --------------------------------------------------------------------
@@ -155,6 +206,41 @@ function part(name) {
       return union(visible($('.hub-sheet.wide .hub-toolbar nav')), visible($('.hub-sheet.wide .hub-tiles')));
     case 'bus-look':
       return visible(actionButton('View in 3D'));
+    // the bus company's (`company::*`'s anchors)
+    case 'company-wizard':
+      return visible($('.co-found .inner'));
+    case 'company-clock':
+      return visible($('.co-bar .co-clock'));
+    case 'company-tiles':
+      return visible($('.co-home > div'));
+    case 'company-status':
+      return visible($('.co-bar .co-status'));
+    case 'company-nav':
+      return visible($('.co-nav'));
+    case 'company-figures':
+      return [...document.querySelectorAll('.co-overview .co-figure')].map(visible).reduce(union, null);
+    case 'company-today':
+      return visible($('.co-overview .co-today'));
+    case 'company-page':
+      return visible($('.co-body') || $('.co .rf'));
+    case 'company-career-parts':
+      return visible($('.co-body .co-seg'));
+    case 'company-help':
+      return visible($('.co-bar .co-help'));
+    case 'company-casual-today':
+      return visible($('.co-casual-home section.today'));
+    case 'company-casual-drive':
+      return visible($('.co-casual-home .drive'));
+    case 'company-casual-tiles':
+      return visible($('.co-casual-home .tiles'));
+    case 'company-casual-tips':
+      return [...document.querySelectorAll('.co-casual-home .tip')].map(visible).reduce(union, null);
+    case 'company-casual-next':
+      return visible($('.co-bar .co-next'));
+    case 'company-mode':
+      return visible($('.co-bar .co-pill'));
+    case 'company-casual-help':
+      return visible($('.co-casual-head .co-iconbtn'));
     default:
       return null;
   }
@@ -167,13 +253,19 @@ const put = (patch) => S.hubTour && set({ hubTour: { ...S.hubTour, ...patch } })
 const still = () => S.settings?.animations === false;
 
 /** Start the tour from its first stop (again, if it was running): home is where the player is. */
-export function startTour(at = 0) {
+export function startTour(at = 0, kind = 'drive') {
   loadCss();
-  const plan = STOPS.filter((s) => shown(s[0], ctx())).map((s) => s[0]);
-  const home = T()?.home || { page: S.page, step: S.hub.step, free: !!S.choice.free, composed: !!S.choice.composed, busView: S.hub.busView };
+  const plan = (kind === 'company' ? COMPANY_STOPS : STOPS).filter((s) => shown(s[0], ctx())).map((s) => s[0]);
+  const home = T()?.home || { page: S.page, step: S.hub.step, free: !!S.choice.free, composed: !!S.choice.composed, busView: S.hub.busView, tab: S.co?.tab };
   const k = Math.min(Math.max(0, at), plan.length - 1);
-  set({ hubTour: { plan, at: k, forward: true, home, moved: !!T()?.moved, waited: 0, shown: null, rect: null, closing: false, opened: Date.now() } });
+  set({ hubTour: { kind, plan, at: k, forward: true, home, moved: !!T()?.moved, waited: 0, shown: null, rect: null, closing: false, opened: Date.now() } });
   goTo(byId[plan[k]][5]);
+}
+
+/** The bus company's tour at its stop `at` (`tour::start_company`): by itself the first time,
+ * from the "?" where it was left (`co_tour`). */
+export function startCompanyTour(at = 0) {
+  startTour(at, 'company');
 }
 
 /** The way of driving (as the start's tiles set it, but not saved: it is the tour's). */
@@ -190,10 +282,13 @@ function goTo(place) {
   if (!t || place === 'keep') return;
   if (place === 'home') {
     const h = t.home;
+    // (the company's tour: back on the company's page the player was on)
+    if (t.kind === 'company') return setCo({ tab: h.tab ?? HOME, dialog: null });
     setMode(h.free, h.composed);
     set({ page: h.page, hub: { ...S.hub, step: h.step, busView: h.busView, palette: false } });
     return;
   }
+  if (place[0] === 'co') return setCo({ tab: place[1], dialog: null, popup: null });
   const [step, mode] = place;
   if (mode === 'shift') setMode(false, true);
   if (mode === 'free') setMode(true, false);
@@ -228,11 +323,13 @@ function leaveOut() {
   goTo(byId[plan[at]][5]);
 }
 
-/** The end: the player's own place back, the dark goes (`tour::finish`). */
-function finish() {
+/** The end: the player's own place back, the dark goes (`tour::finish`); the company's tour
+ * remembers where it was left (`completed`: its last stop gone through). */
+function finish(completed) {
   const t = T();
   if (!t) return;
   goTo('home');
+  if (t.kind === 'company' && !S.boot?.selftest) cmd('co_tour', { what: 'left', at: t.at, completed: !!completed }).catch(() => {});
   // (saved again as the player had it: the tour's way of driving may have been saved meanwhile)
   if (T()?.moved) choose({ free: t.home.free, composed: t.home.composed });
   if (still()) return set({ hubTour: null });
@@ -389,12 +486,13 @@ export function TourOverlay() {
   const [, chapter, title0, text, target] = shownStop;
   const name = (s.profile?.name || s.config?.profile || '').trim();
   const title = shownStop[0] === 'welcome' && name ? tr('Welcome aboard, %{name}', { name }) : tr(title0);
+  const company = t.kind === 'company';
   const isCard = typeof target === 'object';
   const at = Math.max(0, t.plan.indexOf(shownStop[0]));
   const total = t.plan.length;
   const first = at === 0;
   const last = at + 1 >= total;
-  const next = first && !last ? 'Show me around' : last ? "Let's drive" : 'Next';
+  const next = first && !last ? 'Show me around' : last ? (company ? 'Off to work' : "Let's drive") : 'Next';
   const ring = hole && !isCard && !t.closing ? Math.min(1, Math.min(hole.w, hole.h) / 28) : 0;
   const arrow = pos && hole && !isCard && !t.closing && settled ? arrowOf({ ...pos, w: bubble.current?.offsetWidth || 372, h: bubble.current?.offsetHeight || 200 }, pos.side, hole) : null;
   const box = (r) => (r ? `left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px` : 'display:none');
@@ -419,4 +517,32 @@ export function TourOverlay() {
       </div>
     </section>
   </div>`;
+}
+
+/** The self-check's walk through the bus company's tour (Omsi-Hub 6/6): started, every stop on
+ * its page with its part found (a stop whose part is not drawn left out, as the tour leaves it
+ * out), skipped again - nothing is kept of it (`finish` keeps nothing in the self-check). */
+export async function checkCompanyTour(check, errors) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const before = errors.length;
+  startCompanyTour(0);
+  await sleep(600);
+  const ids = [...(T()?.plan || [])];
+  const lost = [];
+  for (const id of ids) {
+    const k = T()?.plan.indexOf(id) ?? -1;
+    if (k < 0) {
+      lost.push(id);
+      continue;
+    }
+    put({ at: k, waited: 0, forward: true });
+    goTo(byId[id][5]);
+    await sleep(700);
+    const st = byId[id];
+    if (typeof st[4] !== 'object' && !part(st[4])) lost.push(`${st[2]} (${st[4]})`);
+  }
+  finish(false);
+  await sleep(400);
+  const ok = ids.length > 2 && !lost.length && errors.length === before;
+  check('company: its tour finds every part', ok, errors.length > before ? errors.slice(before).join('; ') : lost.length ? `${ids.length - lost.length} of ${ids.length} stops; not found: ${lost.join('; ')}` : `${ids.length} stops`);
 }

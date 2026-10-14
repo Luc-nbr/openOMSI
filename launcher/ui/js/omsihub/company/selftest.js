@@ -107,6 +107,21 @@ export async function selftest(check, errors) {
     check('company: the duty launcher', false, x.message);
   }
 
+  // the company's own tour (Trello "Tauri 6/6"): every stop finds its part
+  setCo({ tab: HOME, dialog: null, popup: null });
+  await sleep(500);
+  await (await import('../tour.js')).checkCompanyTour(check, errors);
+  // a line's timetable handed over is the line editor's without RosterFlow (its page named)
+  try {
+    const line = (await cmd('co_view', { view: 'lines' }))?.ours?.rows?.find((r) => r.edit_to);
+    if (line) {
+      const r = await cmd('co_hand_over', { page: `plan-line=${line.name}|${sh.clock?.date || ''}|1` });
+      check("company: a line's timetable handed to the line editor", r.edit === line.edit_to, `${line.name}: ${r.edit}`);
+    }
+  } catch (x) {
+    check("company: a line's timetable handed to the line editor", false, x.message);
+  }
+
   await leaveCompany();
   set({ page: 'drive' });
   await sleep(300);
