@@ -55,6 +55,8 @@ export async function welcomeAtStart() {
   try {
     const d = await call('hub_more_welcome');
     if (d?.step) open(d.step, d.folder || d.step === 'folder');
+    // (`OMSI_LAUNCHER_TOUR=n`: the tour at its n-th stop, for pictures of it, once the content is read)
+    else if (d?.tour) setTimeout(() => import('./tour.js').then((m) => m.startTour(d.tour - 1)), 2500);
   } catch (e) {
     // (no welcome is better than no launcher)
   }

@@ -197,7 +197,7 @@ export function BusStep() {
       ? html`<${Chosen} onBack=${(level) => show('tiles', level || undefined)} />`
       : html`<${Picker} onBus=${(b) => (b.v.file !== s.choice.bus && choose({ bus: b.v.file, paint: '', number: '', hof_manual: false }), show('bus'))} />`}
     <${Actions} back onBack=${() => (showing ? show('tiles') : goStep(previousOf('bus')))} from=${showing ? 'calc(var(--hub-edge-in) + clamp(288px, 27.4cqw, 420px) + 14px)' : null}
-      extra=${last ? [{ label: 'Continue last game', icon: 'history', onClick: () => go({ situation: last.file, lan: 'off' }), disabled: busy }] : []}
-      main="Drive" mainDisabled=${!curBus() || !s.choice.map} busy=${busy} onMain=${() => go()} />
+      extra=${[...(last ? [{ label: 'Continue last game', icon: 'history', onClick: () => go({ situation: last.file, lan: 'off' }), disabled: busy }] : []), ...(!showing && curBus() ? [{ label: 'View in 3D', icon: '360', onClick: () => show('bus') }] : [])]}
+      main=${s.choice.free || !s.choice.line || (s.choice.composed && !(s.choice.legs || []).length) ? 'Drive' : 'Start the duty'} mainDisabled=${!curBus() || !s.choice.map} busy=${busy} onMain=${() => go()} />
   `;
 }

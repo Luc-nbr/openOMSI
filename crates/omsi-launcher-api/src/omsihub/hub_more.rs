@@ -11,8 +11,8 @@
 //!   day step's editor shows its fields, a preset made one's own to edit, and the fields
 //!   written back (`daytime::body`, `weather_choice::CustomWeather`).
 //! * `hub_more_welcome`, `hub_more_folder`, `hub_more_personnel`: the welcome (`welcome.rs`):
-//!   whether it opens and where, what a folder pointed to as OMSI 2's is, and a driver's
-//!   personnel number and code for the pass.
+//!   whether it opens and where (and the guided tour, `OMSI_LAUNCHER_TOUR`), what a folder
+//!   pointed to as OMSI 2's is, and a driver's personnel number and code for the pass.
 
 use crate::Answer;
 use omsi_launcher_lib as core;
@@ -304,7 +304,10 @@ fn welcome_due() -> Answer {
         _ => (!settings.get("welcome_done").and_then(Value::as_bool).unwrap_or(false)).then_some("language"),
     };
     let root = core::load_config().root;
-    Ok(json!({ "step": step, "folder": !omsi_cfg::missing_original_essentials(Path::new(root.trim())).is_empty() }))
+    // (`OMSI_LAUNCHER_TOUR=n`: the guided tour at its n-th stop as the launcher starts, as the
+    // game-drawn launcher's `tour::begin` - for pictures of it)
+    let tour = omsi_cfg::env::var("OMSI_LAUNCHER_TOUR").ok().and_then(|v| v.trim().parse::<usize>().ok()).filter(|n| *n > 0);
+    Ok(json!({ "step": step, "folder": !omsi_cfg::missing_original_essentials(Path::new(root.trim())).is_empty(), "tour": tour }))
 }
 
 /// What a folder pointed to as OMSI 2's is (`welcome::folder_verdict`): `fine`, `empty`,

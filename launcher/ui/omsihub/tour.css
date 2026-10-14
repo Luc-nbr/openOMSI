@@ -1,0 +1,58 @@
+/* The guided tour (Trello "Tauri 3/6"), as our game-drawn launcher draws it
+   (crates/omsi-launcher-ui/src/tour.rs): the dark over the window with a spotlight round a
+   part, the ring round it, and the bubble beside it - or a card in the middle with a drawing.
+   Lengths are the game-drawn launcher's, its type sizes drawn smaller by 1.303 (omsihub.css).
+   Loaded by js/omsihub/tour.js. */
+
+.hub-tour { position: absolute; inset: 0; z-index: 60; overflow: hidden; animation: hub-tour-in 0.3s ease-out; --hub-tour-glide: 0.44s cubic-bezier(0.3, 1.15, 0.45, 1); }
+@keyframes hub-tour-in { from { opacity: 0; } }
+.hub-tour.closing { opacity: 0; transition: opacity 0.32s ease-in; pointer-events: none; }
+/* the dark, its soft edge a feather's width round the spotlight (the game-drawn launcher's .66,
+   blended in linear light, darkens about as much as .45 blended plainly) */
+.hub-tour-dim { position: absolute; pointer-events: none; box-shadow: 0 0 0 4000px rgba(4, 8, 18, 0.45), inset 0 0 12px 6px rgba(4, 8, 18, 0.45); transition: left var(--hub-tour-glide), top var(--hub-tour-glide), width var(--hub-tour-glide), height var(--hub-tour-glide), border-radius var(--hub-tour-glide); }
+.hub-tour-ring { position: absolute; pointer-events: none; box-shadow: inset 0 0 0 2px var(--hub-accent), 0 0 12px 3px rgba(var(--hub-accent-rgb), 0.42); transition: left var(--hub-tour-glide), top var(--hub-tour-glide), width var(--hub-tour-glide), height var(--hub-tour-glide), opacity 0.2s; }
+.hub-tour-ping { position: absolute; pointer-events: none; outline: 2px solid var(--hub-accent); outline-offset: -2px; animation: hub-tour-ping 0.7s cubic-bezier(0.2, 0.7, 0.3, 1) forwards; }
+@keyframes hub-tour-ping { from { opacity: 0.5; } to { opacity: 0; outline-offset: 12px; } }
+
+/* the bubble (a card: wider, a drawing on top) */
+.hub-tour-bubble {
+  position: absolute; width: 372px; padding: 22px; border-radius: var(--hub-r-sheet); background: var(--hub-panel); color: var(--hub-text);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3), 0 22px 48px rgba(0, 0, 0, 0.5);
+  transition: left var(--hub-tour-glide), top var(--hub-tour-glide); animation: hub-tour-rise 0.3s ease-out;
+}
+:root.hub[data-theme="light"] .hub-tour-bubble { box-shadow: inset 0 0 0 1px var(--hub-edge), 0 22px 48px rgba(80, 50, 20, 0.22); }
+@keyframes hub-tour-rise { from { transform: translateY(8px); } }
+.hub-tour-bubble.card { width: 560px; padding-top: 10px; }
+.hub-tour-bubble .pic { height: 196px; margin: 0 -12px 18px; border-radius: var(--hub-r); background: #0d1322 center / cover no-repeat; }
+.hub-tour-bubble .words { animation: hub-tour-words 0.22s ease-out; }
+@keyframes hub-tour-words { from { opacity: 0; transform: translateY(6px); } }
+.hub-tour-bubble .top { display: flex; align-items: center; justify-content: space-between; height: 16px; }
+.hub-tour-bubble .top b { font-size: 8.06px; font-weight: 700; color: var(--hub-accent-text); }
+:root.hub[data-theme="light"] .hub-tour-bubble .top b { color: var(--hub-accent); }
+.hub-tour-bubble .top span { font-size: 8.83px; font-weight: 500; color: var(--hub-text-dim); }
+.hub-tour-bubble .track { height: 2px; margin-top: 8px; border-radius: 1px; background: rgba(255, 255, 255, 0.26); overflow: hidden; }
+:root.hub[data-theme="light"] .hub-tour-bubble .track { background: rgba(22, 20, 26, 0.1); }
+.hub-tour-bubble .track i { display: block; height: 100%; background: var(--hub-accent); transition: width 0.3s; }
+.hub-tour-bubble h3 { margin: 10px 0 0; font-size: 15.35px; line-height: 27.6px; font-weight: 700; }
+.hub-tour-bubble p { margin: 6px 0 0; font-size: 10.36px; line-height: 18.63px; color: var(--hub-text-soft); }
+.hub-tour-bubble .row { display: flex; align-items: center; gap: 8px; height: 36px; margin-top: 20px; }
+.hub-tour-bubble .row .grow { flex: 1; }
+.hub-tour-bubble .row button { height: 36px; border-radius: var(--hub-r); font-size: 9.98px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; }
+.hub-tour-bubble .skip { margin-left: -14px; padding: 0 14px; background: none; color: var(--hub-text-dim); font-weight: 500 !important; }
+.hub-tour-bubble .skip:hover { background: rgba(255, 255, 255, 0.05); color: var(--hub-text); }
+.hub-tour-bubble .back { padding: 0 20px 0 14px; background: var(--hub-panel); color: var(--hub-text); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.26); }
+:root.hub[data-theme="light"] .hub-tour-bubble .back { box-shadow: inset 0 0 0 1px var(--hub-edge); }
+.hub-tour-bubble .back:hover { background: var(--hub-hover); }
+.hub-tour-bubble .next { min-width: 92px; padding: 0 18px; background: var(--hub-accent); color: var(--hub-on-accent); }
+.hub-tour-bubble .next:hover { background: var(--hub-accent-hover); }
+/* the arrow at the spotlight */
+.hub-tour-arrow { position: absolute; overflow: visible; }
+.hub-tour-arrow path { fill: var(--hub-panel); stroke: rgba(255, 255, 255, 0.3); stroke-width: 1; }
+:root.hub[data-theme="light"] .hub-tour-arrow path { stroke: var(--hub-edge); }
+.hub-tour-arrow.below { top: -9px; }
+.hub-tour-arrow.above { bottom: -9px; transform: rotate(180deg); }
+.hub-tour-arrow.right { left: -13px; transform: rotate(-90deg); }
+.hub-tour-arrow.left { right: -13px; transform: rotate(90deg); }
+
+/* without animations: where it goes at once */
+:root.hub-still .hub-tour, :root.hub-still .hub-tour * { animation: none !important; transition: none !important; }

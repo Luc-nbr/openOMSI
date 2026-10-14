@@ -15,6 +15,7 @@ import { Head, Icon, tr } from './bits.js';
 import './settings-extra.js';
 import { CompanyScreen, companyPage } from './company/company.js';
 import { Welcome, welcomeAtStart } from './welcome.js';
+import { TourOverlay } from './tour.js';
 
 /** Our look is the desktop window's (not the phone's, nor `?phone` in a browser). */
 export const HUB = !onPhone && !new URLSearchParams(location.search).has('phone');
@@ -100,6 +101,7 @@ export function HubShell({ pages, Toasts }) {
     ${page ? html`<${PageSheet} id=${page[0]} label=${page[1]} Page=${page[3]} />` : html`<${Flow} />`}
     <${Bar} />
     ${s.hub.palette && html`<${Palette} />`}
+    <${TourOverlay} />
     <${Toasts} />
   </div>`;
 }
