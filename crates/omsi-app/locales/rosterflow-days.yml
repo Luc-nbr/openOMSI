@@ -373,3 +373,17 @@ _version: 2
   pl: "Dni nadchodzącego tygodnia, które jeżdżą według tego rozkładu"
   ru: "Дни ближайшей недели, работающие по этому расписанию"
   uk: "Дні найближчого тижня, що працюють за цим розкладом"
+"Another timetable: all %{n} of its trips match":
+  de: "Anderer Fahrplan: alle %{n} seiner Fahrten passen"
+  fr: "Autre horaire : ses %{n} courses correspondent toutes"
+  nl: "Andere dienstregeling: alle %{n} ritten passen"
+  pl: "Inny rozkład: pasują wszystkie jego %{n} kursy"
+  ru: "Другое расписание: совпадают все его %{n} рейсов"
+  uk: "Інший розклад: збігаються всі його %{n} рейсів"
+"%{n} of this day's trips do not run there":
+  de: "%{n} Fahrten dieses Tages fahren dort nicht"
+  fr: "%{n} courses de ce jour n'y roulent pas"
+  nl: "%{n} ritten van deze dag rijden daar niet"
+  pl: "%{n} kursów tego dnia tam nie jeździ"
+  ru: "%{n} рейсов этого дня там не ходят"
+  uk: "%{n} рейсів цього дня там не ходять"

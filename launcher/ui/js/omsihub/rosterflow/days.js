@@ -10,7 +10,7 @@ import { html, useEffect } from '../../../vendor/preact-htm.js';
 import { S } from '../../store.js';
 import { tr } from '../bits.js';
 import { setRf, rfCmd, rfAct, after, bump, settle, VEHICLES } from './state.js';
-import { Icon, RfButton, IconBtn, Caps, CheckRow, Seg } from './ui.js';
+import { Icon, RfButton, Caps, CheckRow, Seg } from './ui.js';
 
 // (its own look, beside rosterflow.css)
 if (!document.querySelector('link[data-rf-days-css]')) {
@@ -68,8 +68,12 @@ function outlook(d) {
   if (d.reading || !d.preview) return [tr('Reading the timetable…'), 'dim'];
   const p = d.preview;
   if (p.exact) return [tr('Same timetable: an exact copy'), 'ok'];
+  if (p.missing === 0) {
+    const all = tr('Another timetable: all %{n} of its trips match', { n: p.total });
+    return [p.gone > 0 ? `${all} · ${tr("%{n} of this day's trips do not run there", { n: p.gone })}` : all, 'ok'];
+  }
   const words = tr('Another timetable: %{a} of %{b} trips match', { a: p.matched, b: p.total });
-  return [p.missing > 0 ? `${words} · ${tr('%{n} to plan by hand', { n: p.missing })}` : words, 'warn'];
+  return [`${words} · ${tr('%{n} to plan by hand', { n: p.missing })}`, 'warn'];
 }
 
 /** SAVE's "Apply to" window (Optibus's apply to days): the day shown and how it is saved, what
@@ -98,7 +102,7 @@ export function ApplyWindow({ size }) {
     const r = await rfAct('save', { apply: { source_as: a.sourceAs, targets, vehicles: a.vehicles, drivers: a.drivers } });
     settle();
     const rep = r?.report;
-    const shown = rep && rep.days.some((d) => !d.exact);
+    const shown = rep && rep.days.some((d) => d.missing.length > 0);
     setRf({ panel: shown ? { kind: 'copied', report: rep } : null, apply: null });
   };
   const all = week(v);
@@ -169,7 +173,7 @@ export function CopyReport({ report, gTop }) {
     <div class="body">
       ${report.days.map((d) => html`<div class="day">
         <div class="head"><b>${d.label}</b><span class="dim">${tr(d.every_week ? 'Every week' : 'This date only')}</span><span class="grow"></span>
-          <span class=${d.exact ? 'ok' : 'warn'}>${d.exact ? tr('Exact copy') : tr('%{a} of %{b} trips as copied', { a: d.matched, b: d.total })}</span></div>
+          <span class=${d.missing.length ? 'warn' : 'ok'}>${d.exact ? tr('Exact copy') : tr('%{a} of %{b} trips as copied', { a: d.matched, b: d.total })}</span></div>
         ${d.gone > 0 && html`<p class="dim">${tr('%{n} trips of the pattern do not run that day.', { n: d.gone })}</p>`}
         ${d.missing.length > 0 && html`<p class="dim">${tr("To plan by hand: they run as the day's timetable has them.")}</p>`}
         ${d.missing.map((m) => html`<button type="button" class="trip" title=${tr('Show the trip on its day')} onClick=${() => goTo(d.k, days[d.k]?.date, m)}><${Icon} name="directions_bus" size=${14} /><span class="cut">${m.label}</span><${Icon} name="chevron_right" size=${14} /></button>`)}
@@ -203,12 +207,14 @@ export function DayChip({ data }) {
     if (r?.report) setRf({ panel: { kind: 'copied', report: r.report } });
   });
   return html`<span class="rf-daychip" data-rf="rf-day-chip">
-    ${d.tags.map((t) => (t.kind === 'missing'
-      ? html`<button type="button" class=${'tag ' + t.tone} title=${tr('The trips to plan by hand, each a link to it')} onClick=${() => setRf({ panel: { kind: 'copied', report: ownReport(data) } })}>${t.text}</button>`
-      : html`<span class=${'tag ' + t.tone}>${t.text}</span>`))}
+    ${d.tags.map((t) => {
+      if (t.kind === 'missing') return html`<button type="button" class=${'tag ' + t.tone} title=${tr('The trips to plan by hand, each a link to it')} onClick=${() => setRf({ panel: { kind: 'copied', report: ownReport(data) } })}>${t.text}</button>`;
+      // (what it follows, with the cross that stops it following)
+      if (t.kind === 'follows') return html`<span class=${'tag ' + t.tone}>${t.text}<button type="button" class="x" title=${tr('Stop following: this day keeps its planning as it is')} onClick=${() => rfAct('day_unfollow')}><${Icon} name="close" size=${11} /></button></span>`;
+      return html`<span class=${'tag ' + t.tone}>${t.text}</span>`;
+    })}
     ${d.reset && html`<button type="button" class="act" data-rf="rf-day-reset" title=${tr('Make this day as its pattern is again: its own changes go')} onClick=${reset}><${Icon} name="restart_alt" size=${14} />${tr('Reset to pattern')}</button>`}
     ${d.refresh && html`<button type="button" class="act" title=${tr('Its pattern changed since it was copied: copy it again')} onClick=${reset}><${Icon} name="refresh" size=${14} />${tr('Refresh')}</button>`}
-    ${d.tags.some((t) => t.kind === 'follows') && html`<${IconBtn} icon="link_off" size=${15} title="Stop following: this day keeps its planning as it is" onClick=${() => rfAct('day_unfollow')} />`}
     ${lines.map((l) => html`<button type="button" class="act warn" title=${tr('The timetable changed since the scheduling studio made the blocks of this line: make its blocks and duties anew')} onClick=${() => refreshLine(l.line)}><${Icon} name="refresh" size=${14} />${tr('UNSYNCED')} · ${tr('Line %{n}', { n: l.number })}</button>`)}
   </span>`;
 }
