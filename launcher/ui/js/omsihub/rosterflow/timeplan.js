@@ -231,6 +231,7 @@ function ContextBar({ v }) {
       newLine();
     }}><${Icon} name="add" size=${wide ? 18 : 20} />${wide && html`<span>${tr('New line')}</span>`}</button>
     <span class="tp-select" style="flex:0 1 150px;min-width:96px"><select value=${String(t.day)} onChange=${(e) => tpSet({ day: Number(e.currentTarget.value), cell: null, text: '', adding: null, chart: null, issuesOpen: false, sel: null, scroll: 0 })}>${v.days.map((d, k) => html`<option value=${String(k)}>${d}</option>`)}</select><${Icon} name="expand_more" size=${18} /></span>
+    ${v.calendar?.length > 0 && html`<${DayStrip} v=${v} />`}
     <button type="button" class="tp-ib" title=${tr('Undo')} onClick=${() => tpAct('undo').then(() => tpSet({ cell: null, sel: null }))}><${Icon} name="turn_left" size=${15} /></button>
     <button type="button" class="tp-ib" title=${tr('Redo')} onClick=${() => tpAct('redo').then(() => tpSet({ cell: null, sel: null }))}><${Icon} name="turn_right" size=${15} /></button>
     <i class="tp-sep"></i>
@@ -243,6 +244,20 @@ function ContextBar({ v }) {
     ${v.runs && html`<span class="tp-from">${v.from?.show && html`<button type="button" class="tp-ib small" title=${tr('A day earlier')} onClick=${() => tpAct('from', { by: -1 })}><${Icon} name="chevron_left" size=${13} /></button><b>${v.from.label}</b><button type="button" class="tp-ib small" title=${tr('A day later')} onClick=${() => tpAct('from', { by: 1 })}><${Icon} name="chevron_right" size=${13} /></button>`}</span>`}
     <button type="button" class=${'tp-save' + (v.dirty ? ' dirty' : '')} data-rf="rf-tp-save" onClick=${() => v.dirty && tpAct('save').then((x) => x?.day != null && tpSet({ day: x.day, issuesOpen: !!x.issues_open }))}><${Icon} name="save" size=${18} /><span>${v.save || tr('Saved')}</span></button>
   </div>`;
+}
+
+/** The days of the coming week that use the timetable shown (Trello #100): each day lit when it
+ * runs this day group's timetable, marked when it runs another than its weekday's (a holiday's);
+ * a click shows the day group it runs. */
+function DayStrip({ v }) {
+  const t = S.rf.tp;
+  return html`<span class="tp-days" data-rf="rf-tp-days" title=${tr('The days of the coming week that run this timetable')}>
+    ${v.calendar.map((d) => {
+      const [day, num] = String(d.label).split(' ');
+      const cls = 'd' + (d.on ? ' on' : '') + (d.odd ? ' odd' : '') + (!d.read ? ' wait' : d.group == null ? ' none' : '');
+      return html`<button type="button" class=${cls} title=${`${d.label}: ${d.tip}`} onClick=${() => d.group != null && d.group !== t.day && tpSet({ day: d.group, cell: null, text: '', adding: null, chart: null, issuesOpen: false, sel: null, scroll: 0 })}><b>${(day || '').slice(0, 2)}</b><small>${num || ''}</small></button>`;
+    })}
+  </span>`;
 }
 
 // --- the strip ------------------------------------------------------------------------------------------

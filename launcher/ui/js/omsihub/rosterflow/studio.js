@@ -15,6 +15,7 @@ import { Wordmark } from './brand.js';
 import { Overlays } from './panels.js';
 import { PrefsWindow } from './prefs.js';
 import { useSize } from '../company/kit.js';
+import { openApply, DayChip, DaysLayer, useRevealTrip } from './days.js';
 
 export function Studio({ p, drivers }) {
   const r = S.rf;
@@ -31,6 +32,7 @@ export function Studio({ p, drivers }) {
     timer.current = setTimeout(() => setTip(t), 450);
   };
   useKeys(data, drivers);
+  useRevealTrip(data);
   const [ref, size] = useSize();
   // (where the Gantt begins: the cards of its header lie on it)
   const [gTop, setGTop] = useState(0);
@@ -47,6 +49,7 @@ export function Studio({ p, drivers }) {
     <${Gantt} data=${data} drivers=${drivers} readOnly=${proposal} p=${p} onTip=${onTip} />
     <${StatusBar} data=${data} drivers=${drivers} />
     <${Overlays} data=${data} drivers=${drivers} p=${p} size=${size} gTop=${gTop} />
+    <${DaysLayer} size=${size} gTop=${gTop} />
     ${r.prefs && html`<${PrefsWindow} />`}
     ${tip && html`<div class="rf-tip" style=${`left:${tip.x + 14}px;top:${tip.y + 18}px`}>${tip.text}</div>`}
   </div>`;
@@ -101,7 +104,10 @@ function Toolbar({ data, drivers, proposal }) {
   const stack = data.board.stack.length;
   return html`<div class="rf-toolbar">
     <span data-rf="rf-save-discard" class="pair">
-      <${RfButton} label="Save" solid disabled=${!dirty || proposal} data="rf-save" title="Make the changes the company's planning: the roster, the day and the game run it" style="width:116px" onClick=${() => rfAct('save')} />
+      <span class="rf-split">
+        <${RfButton} label="Save" solid disabled=${!dirty || proposal} data="rf-save" title="Make the changes the company's planning: the roster, the day and the game run it" style="width:88px" onClick=${() => rfAct('save')} />
+        <${RfButton} label=${html`<${Icon} name="expand_more" size=${18} />`} raw solid disabled=${proposal} data="rf-apply-open" title="Save and apply to other days: every day of this day type, the days with the same timetable, or from a date until a date" style="width:28px;padding:0" onClick=${openApply} />
+      </span>
       <${RfButton} label="Discard" disabled=${!dirty || proposal} data="rf-discard" style="width:116px" onClick=${() => rfAct('discard').then(() => setRf({ hand: null, zones: null, sel: [], card: null, menu: null }))} />
     </span>
     <span class="tools" data-rf="rf-tools">
@@ -113,6 +119,7 @@ function Toolbar({ data, drivers, proposal }) {
     </span>
     ${r.filter.issues && html`<span class="rf-fchip">${tr('Issues (%{n})', { n: r.filter.issues.length })}<button type="button" onClick=${() => setRf({ filter: { ...r.filter, issues: null } })}><${Icon} name="close" size=${14} /></button></span>`}
     ${filterOn && html`<span class="rf-fchip">${tr('Filter')}<button type="button" onClick=${() => setRf({ filter: { ...NO_FILTER, issues: r.filter.issues } })}><${Icon} name="close" size=${14} /></button></span>`}
+    <${DayChip} data=${data} />
     <span class="grow"></span>
     ${stack > 0 && !drivers && html`<span class="rf-stackpill">${tr('Stack: %{n} unassigned', { n: stack })}</span>`}
     <span class="opt" data-rf="rf-optimise">
@@ -177,7 +184,7 @@ function useKeys(data, drivers) {
     const k = (e) => {
       const r = S.rf;
       const { data: d, drivers: dr } = ref.current;
-      if (!r.open || !d?.board || r.prefs || S.co?.popup || S.co?.dialog || r.tut.sheet) return;
+      if (!r.open || !d?.board || r.prefs || S.co?.popup || S.co?.dialog || r.tut.sheet || r.panel?.kind === 'apply') return;
       const el = document.activeElement;
       if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
       if (e.ctrlKey || e.metaKey) {

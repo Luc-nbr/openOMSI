@@ -301,6 +301,49 @@ pub fn unfork(c: &mut Company, date: &str) -> bool {
     }
 }
 
+/// The slots whose plan the draft changed.
+pub fn changed_slots(c: &Company) -> Vec<u8> {
+    let p = &c.planning;
+    let Some(d) = &p.flow.draft else { return Vec::new() };
+    let mut slots: Vec<u8> = p.layouts.iter().chain(d.layouts.iter()).map(|l| l.weekday).chain(p.joined.iter().chain(d.joined.iter()).map(|j| j.weekday)).collect();
+    let sh = [&p.flow.sheet, &d.sheet];
+    slots.extend(sh.iter().flat_map(|s| s.locks.iter().map(|x| x.weekday).chain(s.links.iter().map(|x| x.weekday)).chain(s.notes.iter().map(|x| x.weekday)).chain(s.spares.iter().map(|x| x.weekday)).chain(s.dismissed.iter().map(|x| x.0))));
+    slots.sort_unstable();
+    slots.dedup();
+    slots.retain(|&s| part_of(&d.layouts, &d.joined, &d.sheet, s) != part_of(&p.layouts, &p.joined, &p.flow.sheet, s));
+    slots
+}
+
+/// The draft takes the saved plan of `slot`: what it changed there is forgotten.
+pub fn draft_takes_saved(c: &mut Company, slot: u8) {
+    if c.planning.flow.draft.is_none() {
+        return;
+    }
+    let mut d = rf::draft_of(c);
+    let saved = part_of(&c.planning.layouts, &c.planning.joined, &c.planning.flow.sheet, slot);
+    put_part(&mut d, slot, saved);
+    rf::set_draft(c, d);
+}
+
+/// The copied days in step with their pattern now (neither changed since the copy).
+pub fn in_step(c: &Company) -> Vec<u8> {
+    c.planning.flow.days.follows.iter().map(|f| f.day).filter(|&d| state(c, d).is_in_step()).collect()
+}
+
+/// These copied days are in step with their pattern as both are now (both changed alike, as
+/// a timetable's Refresh changes them).
+pub fn restep(c: &mut Company, slots: &[u8]) {
+    let now: Vec<(u8, u64, u64)> = c.planning.flow.days.follows.iter().filter(|f| f.print != 0 && slots.contains(&f.day)).map(|f| {
+        let w = What { vehicles: f.vehicles, drivers: f.drivers };
+        (f.day, print(c, f.day, w), print(c, f.pattern, w))
+    }).collect();
+    for f in c.planning.flow.days.follows.iter_mut() {
+        if let Some(n) = now.iter().find(|n| n.0 == f.day) {
+            (f.print, f.source) = (n.1, n.2);
+        }
+    }
+}
+
 // --- the fingerprint ------------------------------------------------------------------------------
 
 /// FNV-1a: the same number for the same text on every machine and with every compiler.
@@ -711,6 +754,13 @@ pub struct State {
     pub matched: u32,
     pub total: u32,
     pub missing: Vec<Missed>,
+}
+
+impl State {
+    /// A copy as it was made, its pattern too.
+    pub fn is_in_step(&self) -> bool {
+        self.pattern.is_some() && !self.own && !self.unsynced
+    }
 }
 
 /// What the plan of `slot` is (on `c` as the studio shows it: its draft in).
