@@ -1,10 +1,10 @@
-// The settings our game-drawn launcher has and upstream's Settings page lacks, put into
-// upstream's schema (`pages/settings-schema.js`) when our look is on - so the page itself stays
-// upstream's: the light or the dark look and the accent (instead of upstream's own theme, which
-// this window does not use), the animations, the IBIS filled in by itself, the phone and tablet
-// companion, the head tracking's source and the Tobii's edges, the navigator's board, size,
-// stop signs, speed unit and signing on, which launcher a plain start opens, and the updates'
-// Check now with this fork's releases.
+// The settings Omsi-Hub has and upstream's Settings page lacks, put into upstream's schema
+// (`pages/settings-schema.js`) when our look is on - so the page itself stays upstream's: the
+// light or the dark look, the accent and the launcher's size (instead of upstream's own theme,
+// drive layout and size, which our look does not use), the animations, the IBIS filled in by
+// itself, the phone and tablet companion, the head tracking's source and the Tobii's edges, the
+// navigator's board, size, stop signs and signing on, and the updates' Check now with this
+// fork's releases. (Speeds follow upstream's own Units.)
 
 import { html } from '../../vendor/preact-htm.js';
 import { SETTINGS_TABS } from '../pages/settings-schema.js';
@@ -35,8 +35,6 @@ if (HUB && !SETTINGS_TABS.omsihub) {
   // (in the game-drawn launcher's order, under the phone and tablet companion)
   const look = [
     { type: 'slider', key: 'launcher_scale', label: 'Launcher size', min: 0.6, max: 2, step: 0.05, def: 1, format: pct, store: (v) => Math.round(v * 20) / 20 },
-    // (phase 6: this window is the default, the game's own where it cannot open)
-    { type: 'select', key: 'launcher_ui', label: 'Launcher', options: [['desktop', 'Desktop (this window)'], ['game', 'Omsi-Hub (in the game\'s window)'], ['classic', 'Classic']], help: 'Which launcher a plain start of the game opens.' },
     { type: 'toggle', key: 'animations', label: 'Animations' },
     { type: 'select', key: 'accent', label: 'Accent colour', options: PRESETS.map(([name, c]) => [hexOf(c), name]) },
     { type: 'toggle', key: 'dark_mode', label: 'Dark mode' },
@@ -47,6 +45,11 @@ if (HUB && !SETTINGS_TABS.omsihub) {
     { type: 'button', label: 'Start the tour', icon: 'route', patch: () => (import('./hub.js').then((h) => (h.go('drive', 'mode'), import('./tour.js').then((m) => setTimeout(() => m.startTour(), 300)))), {}) },
   ];
   if (general && theme >= 0) general.splice(theme, 1);
+  // (upstream's drive layout and launcher size: our drive's steps and our own size above)
+  for (const id of ['launcher_layout', 'launcher_size']) {
+    const k = general?.findIndex((r) => r.type === 'custom' && r.id === id) ?? -1;
+    if (k >= 0) general.splice(k, 1);
+  }
   // the phone and tablet companion, after the voice chat
   insert('general', 0, [
     { type: 'toggle', key: 'companion', label: 'Phone & tablet', help: 'Sign on, the duty menu and the bus\'s screens on a phone or tablet in your network. The game shows the address and the pairing code when you drive.' },
@@ -59,7 +62,6 @@ if (HUB && !SETTINGS_TABS.omsihub) {
     { type: 'toggle', key: 'nav_board', label: 'Duty board under the navigator' },
     { type: 'slider', key: 'nav_scale', label: 'Navigator size', min: 0.6, max: 2, step: 0.05, def: 1, format: pct, store: (v) => Math.round(v * 20) / 20 },
     { type: 'select', key: 'stop_style', label: 'Bus stop signs', options: [['de', 'German (H)'], ['uk', 'British'], ['fr', 'French']] },
-    { type: 'select', key: 'speed_unit', label: 'Speed in', options: [['kmh', 'km/h'], ['mph', 'mph (miles per hour)']] },
     { type: 'toggle', key: 'nav_signon', label: 'Sign on with personnel number and code', help: 'Before a duty the navigator asks for your number and code and for the duty order to be accepted. Off, the map and the duty show at once.' },
   ], (r) => r.key === 'nav_ai');
   // (phase 6: the navigator back to its corner, its own size, the board under it - as the game-drawn

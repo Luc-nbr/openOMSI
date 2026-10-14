@@ -29,6 +29,7 @@ pub mod pipeline_cache;
 mod pipelines;
 mod puddles;
 mod rt;
+mod rt_tex;
 mod shaders;
 mod srgb_encode;
 mod triple;
@@ -139,6 +140,9 @@ pub struct Renderer {
     last_frame: Option<std::time::Instant>,
     /// The next frame stands alone (an offscreen picture): the exposure is there at once.
     pub instant_exposure: bool,
+    /// The next picture keeps its depth to be read back (`render_to_image_with_depth`): the
+    /// depth prepass runs whatever else it would.
+    pub(crate) depth_readback: bool,
     /// Overlay pipeline without multisampling, for drawing the HUD after the post pass.
     overlay_pipeline_1x: wgpu::RenderPipeline,
     xr_ui_pipeline: wgpu::RenderPipeline,
@@ -174,6 +178,7 @@ pub struct Renderer {
     /// What the window's pictures drew since start, summed (OMSI_PROFILE): instances that
     /// passed the culling and draws per pass.
     pub counts: std::cell::RefCell<std::collections::BTreeMap<&'static str, f64>>,
+    pub frame_draws: (usize, usize),
     profiling: bool,
     draw_audit_at: std::time::Instant,
     /// Reuse a small set of encoding workers instead of creating OS threads for each
@@ -248,6 +253,9 @@ pub struct RenderOptions {
     /// The original's `performance_maxObjDist` (m): objects farther away are not drawn
     /// unless they say `[noDistanceCheck]`. 0 = no limit.
     pub max_obj_dist: f32,
+    /// The mirrors of an Enhanced picture are shaded as the picture is (the settings'
+    /// `mirror_quality=enhanced`), not with the plain light (see `Renderer::render_inner`).
+    pub mirror_enhanced: bool,
     /// Only the meshes the models mark `[shadow]` cast sun shadows, as in OMSI 2 (else every
     /// solid mesh does).
     pub omsi_shadow_casters: bool,
@@ -288,6 +296,7 @@ impl Default for RenderOptions {
             fxaa: true,
             min_obj_size: 0.013,
             max_obj_dist: 0.0,
+            mirror_enhanced: false,
             omsi_shadow_casters: false,
             shadow_blobs: true,
             reflections: true,

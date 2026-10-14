@@ -2,8 +2,10 @@
 //!
 //! OMSI looks a texture up by *file name* in a search order: the object's `texture` folder,
 //! then the global `Texture` folder, trying a same-stem DDS first, the exact name, then other supported
-//! extensions (`.dds`, `.bmp`, `.tga`, `.jpg`, `.png`), plus seasonal (`Texture\Spring` …) and
-//! `_LOW` variants. A `<texture>.cfg` sidecar carries per-texture flags.
+//! extensions (OMSI's `.dds`, `.bmp`, `.tga`, `.jpg`, `.png`, and what openOMSI reads besides:
+//! `.jpeg`, `.webp`, `.tif`, `.gif`, `.ktx2`, `.ktx`, `.qoi`, `.hdr`, `.exr`, `.pnm`), plus
+//! seasonal (`Texture\Spring` …) and `_LOW` variants. A `<texture>.cfg` sidecar carries
+//! per-texture flags.
 
 use hashbrown::HashMap;
 use parking_lot::Mutex;
@@ -11,7 +13,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub mod bc;
+pub mod blocks;
 pub mod dds;
+pub mod ktx;
 pub mod gpu;
 pub mod tga;
 
@@ -97,7 +101,8 @@ pub enum TextureError {
     Decode(PathBuf, String),
 }
 
-pub const EXTENSIONS: [&str; 5] = ["dds", "bmp", "tga", "jpg", "png"];
+/// The picture formats a texture is looked for in, OMSI's first.
+pub const EXTENSIONS: [&str; 16] = ["dds", "bmp", "tga", "jpg", "png", "jpeg", "webp", "tif", "tiff", "gif", "ktx2", "ktx", "qoi", "hdr", "exr", "pnm"];
 
 /// Decode an image file into RGBA8.
 pub fn decode_file(path: &Path) -> Result<Image, TextureError> {
@@ -112,6 +117,9 @@ pub fn decode_bytes(bytes: &[u8], path: &Path) -> Result<Image, TextureError> {
     if bytes.starts_with(b"DDS ") {
         return dds::decode(bytes).map_err(|e| TextureError::Decode(path.to_path_buf(), e));
     }
+    if ktx::is_ktx(bytes) {
+        return ktx::decode(bytes).map_err(|e| TextureError::Decode(path.to_path_buf(), e));
+    }
     let is_tga_ext = matches!(ext.as_str(), "tga");
     let looks_tga = bytes.len() > 18 && (1..=3).contains(&(bytes[2] & 7)) && bytes[2] & 0xF0 == 0 && matches!(bytes[16], 8 | 15 | 16 | 24 | 32);
     if is_tga_ext && looks_tga && !bytes.starts_with(b"BM") && !bytes.starts_with(&[0xFF, 0xD8]) {
@@ -123,6 +131,8 @@ pub fn decode_bytes(bytes: &[u8], path: &Path) -> Result<Image, TextureError> {
         image::ImageFormat::Jpeg
     } else if bytes.starts_with(b"\x89PNG") {
         image::ImageFormat::Png
+    } else if let Some(f) = sniff_other(bytes) {
+        f
     } else if looks_tga {
         // a TGA under another name (NEOMAN's `W_Bader_KR498_disp.png`): D3DX reads it by content
         return tga::decode(bytes).map_err(|e| TextureError::Decode(path.to_path_buf(), e));
@@ -156,6 +166,33 @@ pub fn decode_bytes(bytes: &[u8], path: &Path) -> Result<Image, TextureError> {
         has_alpha = bmp32_alpha(bytes, width, height, &mut rgba);
     }
     Ok(Image { width, height, rgba, has_alpha })
+}
+
+/// The formats beyond OMSI's by their signatures (WebP, GIF, TIFF, QOI, OpenEXR, Radiance
+/// HDR, icons, PNM): a picture is read as what it is, whatever its name says.
+fn sniff_other(b: &[u8]) -> Option<image::ImageFormat> {
+    use image::ImageFormat as F;
+    Some(if b.len() > 12 && &b[0..4] == b"RIFF" && &b[8..12] == b"WEBP" {
+        F::WebP
+    } else if b.starts_with(b"GIF87a") || b.starts_with(b"GIF89a") {
+        F::Gif
+    } else if b.starts_with(b"II*\0") || b.starts_with(b"MM\0*") {
+        F::Tiff
+    } else if b.starts_with(b"qoif") {
+        F::Qoi
+    } else if b.starts_with(&[0x76, 0x2F, 0x31, 0x01]) {
+        F::OpenExr
+    } else if b.starts_with(b"#?RADIANCE") || b.starts_with(b"#?RGBE") {
+        F::Hdr
+    } else if b.starts_with(&[0, 0, 1, 0]) && b.len() > 6 && b[4] > 0 {
+        F::Ico
+    } else if b.len() > 2 && b[0] == b'P' && (b'1'..=b'7').contains(&b[1]) && b[2].is_ascii_whitespace() {
+        F::Pnm
+    } else if b.starts_with(b"farbfeld") {
+        F::Farbfeld
+    } else {
+        return None;
+    })
 }
 
 /// A copy of a palette bitmap whose colour count (`biClrUsed`, `biClrImportant`) is cut to
@@ -301,17 +338,27 @@ fn find_texture_uncached(name: &str, dirs: &[&Path]) -> Option<PathBuf> {
     // the GG2 gantries with the pack's stock sign, the Grundorf Island `Sign` plates and
     // tunnel signs with the `Road` folder's road textures, the `Generic` objects with a
     // London bus stop's `text.bmp` - so it is not done.
-    find_texture_in_season(name, dirs, season_folder().as_deref())
+    find_texture_in_season(name, dirs, season_folder().as_deref()).or_else(|| {
+        // a picture that came with a glTF / FBX / OBJ model, beside it or packed into it
+        let bare = name.trim().replace('\\', "/");
+        let bare = bare.rsplit('/').next().unwrap_or(&bare);
+        omsi_cfg::model_texture(bare).filter(|p| omsi_cfg::vfs::is_file(p))
+    })
 }
 
 fn find_texture_in_season(name: &str, dirs: &[&Path], season: Option<&str>) -> Option<PathBuf> {
     // a file named in full (a paint scheme's picture, resolved in its scheme's folder)
     let full = Path::new(name.trim());
-    if full.is_absolute() {
-        if let (Some(parent), Some(file)) = (full.parent(), full.file_name().and_then(|f| f.to_str())) {
-            if let Some(found) = find_texture_in_dir(parent, file) {
-                return Some(found);
+    let remote = names_another_machine(name);
+    if full.is_absolute() || remote {
+        if under_content_root(full) {
+            if let (Some(parent), Some(file)) = (full.parent(), full.file_name().and_then(|f| f.to_str())) {
+                if let Some(found) = find_texture_in_dir(parent, file) {
+                    return Some(found);
+                }
             }
+        } else if remote {
+            return None;
         }
     }
     let name = name.trim().replace('\\', "/");
@@ -340,6 +387,9 @@ fn find_texture_in_season(name: &str, dirs: &[&Path], season: Option<&str>) -> O
     // Keep the pack's directory priority, then prefer its seasonal variant.
     for dir in &dirs {
         for cand_name in &names {
+            if !stays_inside(dir, cand_name) {
+                continue;
+            }
             if let Some(found) = find_texture_in_dir(dir, cand_name) {
                 return Some(found);
             }
@@ -354,6 +404,9 @@ fn find_texture_in_season(name: &str, dirs: &[&Path], season: Option<&str>) -> O
         if let Some(i) = parts.iter().position(|p| omsi_cfg::CONTENT_FOLDERS.iter().any(|f| f.eq_ignore_ascii_case(p))) {
             let rel = parts[i..].join("/");
             for root in omsi_cfg::content_roots() {
+                if !stays_inside(&root, &rel) {
+                    continue;
+                }
                 if let Some(found) = find_texture_in_dir(&root, &rel) {
                     return Some(found);
                 }
@@ -366,6 +419,46 @@ fn find_texture_in_season(name: &str, dirs: &[&Path], season: Option<&str>) -> O
         }
     }
     None
+}
+
+fn names_another_machine(name: &str) -> bool {
+    let b = name.trim().as_bytes();
+    if b.len() >= 2 && matches!(b[0], b'\\' | b'/') && matches!(b[1], b'\\' | b'/') {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::path::{Component, Prefix};
+        if let Some(Component::Prefix(p)) = Path::new(name.trim()).components().next() {
+            return !matches!(p.kind(), Prefix::Disk(_) | Prefix::VerbatimDisk(_));
+        }
+    }
+    false
+}
+
+fn under_content_root(path: &Path) -> bool {
+    !path.components().any(|c| matches!(c, std::path::Component::ParentDir))
+        && omsi_cfg::content_roots().iter().any(|r| path.starts_with(r))
+}
+
+fn stays_inside(dir: &Path, name: &str) -> bool {
+    if name.contains(':') {
+        return false;
+    }
+    let roots = omsi_cfg::content_roots();
+    let mut depth = dir.components().count();
+    let floor = roots.iter().filter(|r| dir.starts_with(r)).map(|r| r.components().count()).max().unwrap_or(if roots.is_empty() { 1 } else { depth });
+    for c in omsi_cfg::windows_components(name) {
+        if c == ".." {
+            if depth <= floor {
+                return false;
+            }
+            depth -= 1;
+        } else {
+            depth += 1;
+        }
+    }
+    true
 }
 
 /// Prefer the authored DDS replacement within one search location. Folder/season
@@ -680,6 +773,7 @@ mod tests {
     #[test]
     fn dds_precedes_exact_names_but_preserves_folder_priority() {
         let dir = std::env::temp_dir().join(format!("omsi-dds-priority-{}", std::process::id()));
+        omsi_cfg::add_content_root(dir.clone());
         let local = dir.join("local");
         let global = dir.join("global");
         std::fs::create_dir_all(&local).unwrap();
@@ -768,6 +862,39 @@ mod tests {
             find_texture("\\New Territories East\\Freetex_Lolipop\\x.bmp", &[tex.as_path()]),
             Some(sub.join("x.bmp"))
         );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn texture_names_from_content_stay_in_the_content_folders() {
+        let dir = std::env::temp_dir().join(format!("omsi-texture-confined-{}", std::process::id()));
+        let root = dir.join("content");
+        let model = root.join("Vehicles/Bus/model");
+        let tex = root.join("Vehicles/Bus/texture");
+        let outside = dir.join("outside");
+        for d in [&model, &tex, &outside] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::write(tex.join("in.bmp"), b"x").unwrap();
+        std::fs::write(tex.join("abs.bmp"), b"x").unwrap();
+        std::fs::write(outside.join("abs.bmp"), b"x").unwrap();
+        std::fs::write(outside.join("secret.bmp"), b"x").unwrap();
+        omsi_cfg::add_content_root(root.clone());
+        assert_eq!(find_texture_uncached("..\\texture\\in.bmp", &[model.as_path()]), Some(tex.join("in.bmp")));
+        assert_eq!(find_texture_uncached("..\\..\\..\\..\\outside\\secret.bmp", &[model.as_path()]), None);
+        assert_eq!(find_texture_uncached("..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\outside\\secret.bmp", &[model.as_path()]), None);
+        let abs = outside.join("abs.bmp");
+        assert_eq!(find_texture_uncached(abs.to_str().unwrap(), &[tex.as_path()]), Some(tex.join("abs.bmp")));
+        assert_eq!(find_texture_uncached(tex.join("in.bmp").to_str().unwrap(), &[]), Some(tex.join("in.bmp")));
+        for remote in ["\\\\203.0.113.5\\s\\in.bmp", "//203.0.113.5/s/in.bmp", "\\\\?\\UNC\\203.0.113.5\\s\\in.bmp", "\\\\.\\pipe\\in.bmp"] {
+            assert!(names_another_machine(remote), "{remote}");
+            assert_eq!(find_texture_in_season(remote, &[tex.as_path()], None), None, "{remote}");
+        }
+        assert!(!stays_inside(&tex, "C:x.bmp"));
+        assert!(!stays_inside(&tex, "..\\C:\\x.bmp"));
+        assert!(stays_inside(&outside, "x.bmp"));
+        assert!(!stays_inside(&outside, "..\\outside\\secret.bmp"));
+        omsi_cfg::remove_content_root(&root);
         std::fs::remove_dir_all(&dir).ok();
     }
 

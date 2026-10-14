@@ -45,13 +45,14 @@ mod tests {
 
     /// The assembled modules are byte for byte the single files they were cut from (sizes
     /// and hashes taken of `shader.wgsl` and `enhanced.wgsl` before the cut, updated for
-    /// 0.2.30's capped surface pull and the Vanilla/transparency fixes in both modules).
+    /// 0.2.30's capped surface pull and the Vanilla/transparency fixes in both modules, and
+    /// 0.2.42's night sphere map and lacquer, and people lit as bodies, not leaves, and the far map's shadow where no traced one is found).
     /// (with Unix line ends: a Windows checkout may turn the parts' into CRLF, as it did the
     /// single files', and the 0.2.31 release's Windows test failed on that alone)
     #[test]
     fn assembled_shaders_are_the_old_files() {
         let (scene, enhanced) = (super::SCENE.replace("\r\n", "\n"), super::ENHANCED.replace("\r\n", "\n"));
-        assert_eq!((scene.len(), fnv1a(&scene)), (120_793, 0xb2b2_cb06_2f5d_e19b));
-        assert_eq!((enhanced.len(), fnv1a(&enhanced)), (83_414, 0x529f_739f_825b_5775));
+        assert_eq!((scene.len(), fnv1a(&scene)), (120_956, 0x321f_4579_3b08_5bfd));
+        assert_eq!((enhanced.len(), fnv1a(&enhanced)), (85_916, 0x913f_48f7_1516_8247));
     }
 }

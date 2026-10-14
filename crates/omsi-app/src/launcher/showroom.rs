@@ -9,12 +9,15 @@
 //! a fresh `World` (whose caches belong to one scene); the old scene goes when the new one
 //! is ready, so the picture never goes blank while switching.
 //!
-//! A second showroom, the studio, takes the bus picker's photos (see `busphoto`): the same
-//! bus in the same light, from a corner that never moves, read back into a picture. The
-//! photos are kept here because they go with the graphics device, as the showroom does.
+//! Omsi-Hub: a second showroom, the studio, takes the bus step's photos (`omsihub_game::
+//! service::photo`): the same bus in the same light, from a corner that never moves, read
+//! back into a picture; and the livery studio draws its bus with a camera of its own here.
 
 use super::super::*;
-pub(crate) use omsi_launcher_ui::showroom::*;
+// Omsi-Hub: what it shows and how a bus is framed, as the livery studio and the photos need it
+pub(crate) use omsihub_game::showroom::*;
+// (its `Parts` is the bus shown, not the app's)
+pub(crate) use omsihub_game::showroom::Parts;
 use glam::{DVec3, Vec3};
 use omsi_render::{Camera, Lighting, Renderer, Scene};
 use std::sync::mpsc::{channel, Receiver};
@@ -56,6 +59,61 @@ struct Shown {
     lighting: Lighting,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PreviewView {
+    #[default]
+    Outside,
+    Passenger,
+    Driver,
+}
+
+impl PreviewView {
+    pub const ALL: [PreviewView; 3] = [PreviewView::Outside, PreviewView::Passenger, PreviewView::Driver];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            PreviewView::Outside => "outside",
+            PreviewView::Passenger => "passenger",
+            PreviewView::Driver => "driver",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<PreviewView> {
+        PreviewView::ALL.into_iter().find(|v| v.name() == name)
+    }
+}
+
+fn authored_camera(def: &omsi_vehicle::Vehicle, view: PreviewView) -> Option<&omsi_vehicle::Camera> {
+    match view {
+        PreviewView::Outside => None,
+        PreviewView::Passenger => def.cameras_pax.first(),
+        PreviewView::Driver => def.cameras_driver.get(def.camera_std).or(def.cameras_driver.first()),
+    }
+}
+
+impl Shown {
+    fn inside_camera(&self, view: PreviewView, look: (f32, f32), zoom: f32) -> Option<Camera> {
+        let vehicle = self.vehicle.as_ref()?;
+        let camera = |c: &omsi_vehicle::Camera, (position, yaw, pitch, roll): (DVec3, f32, f32, f32)| Camera {
+            position,
+            yaw,
+            pitch: pitch.clamp(-89.0, 89.0),
+            roll,
+            fov_deg: (c.fov * zoom).clamp(20.0, 100.0),
+            near: 0.1,
+            far: 6000.0,
+        };
+        let turned = |c: &omsi_vehicle::Camera| omsi_vehicle::Camera { yaw: c.yaw + look.0, pitch: (c.pitch + look.1).clamp(-89.0, 89.0), ..c.clone() };
+        if let Some(c) = authored_camera(&vehicle.ty.def, view) {
+            return Some(camera(c, vehicle.camera_world_full(&turned(c))));
+        }
+        vehicle.trailers.iter().find_map(|t| {
+            let c = authored_camera(&t.ty.def, view)?;
+            Some(camera(c, t.camera_world_full(&turned(c))))
+        })
+    }
+}
+
 pub struct Showroom {
     shown: Option<Shown>,
     wanted: Option<Look>,
@@ -83,6 +141,9 @@ pub struct Showroom {
     pitch_to: f32,
     zoom_to: f32,
     pub auto_turn: bool,
+    pub view: PreviewView,
+    inside_look: (f32, f32),
+    inside_zoom: f32,
     idle: f32,
     /// Where the bus stands in the picture (see `frame`): the part asked for, the part it is
     /// framed in now (eased towards it), and the seconds since it was last asked for.
@@ -100,8 +161,6 @@ pub struct Showroom {
     pub generation: u64,
     /// Where the camera aims: ahead of the bus's middle by this share of its length.
     aim: f32,
-    /// The bus picker's photos, on the GPU with this showroom (see `busphoto`).
-    pub photos: omsi_launcher_ui::busphoto::Photos,
     /// A camera of the caller's own in place of the orbit (the livery studio's).
     camera: Option<Camera>,
     /// A second picture with a camera of its own, drawn with the first (the livery studio's
@@ -115,18 +174,47 @@ pub struct Showroom {
     pub drawn: u64,
 }
 
-
-/// Names the bus whose preview is being read and placed, until it is in the picture. The studio
-/// keeps a mark of its own (sharing one, a bus it was still photographing when it was chosen was
-/// taken for one that had hung, and the studio took away the mark of the bus being shown).
+/// Names the bus whose preview is being read and placed, until it is in the picture: the bus
+/// and the process placing it. Omsi-Hub: the photo studio keeps a mark of its own (sharing one,
+/// a bus it was still photographing when it was chosen was taken for one that had hung, and the
+/// studio took away the mark of the bus being shown).
 fn placing_mark(studio: bool) -> PathBuf {
-    omsi_launcher_lib::data_dir().join(if studio { "studio-placing.txt" } else { "showroom-placing.txt" })
+    preview_guard_path(&omsi_launcher_lib::data_dir(), placing_kind(studio), omsi_platform::VERSION)
 }
 
-/// Whether a placing mark (the file's text) says that placing `bus` hung a launcher: it names
-/// the bus, and not this launcher, whose process is `pid` (its other showroom - the livery
-/// studio's - may be placing the same bus now; a launcher that hung is not here to read it).
-/// A mark of before the process was written in it names the bus alone.
+/// The placing mark's kind (`preview_guard_path`): the bus preview's, or the photo studio's.
+fn placing_kind(studio: bool) -> &'static str {
+    if studio {
+        "studio-placing"
+    } else {
+        "placing"
+    }
+}
+
+fn preview_guard_path(dir: &Path, kind: &str, version: &str) -> PathBuf {
+    // A newer renderer or loader must get a chance to retry previews an older one failed.
+    dir.join(format!("showroom-{kind}-{version}.txt"))
+}
+
+/// Whether the preview of `bus` is left out: placing it hung the program of this version once
+/// (its mark of `kind` names it, and not this process `pid`: Omsi-Hub's other showroom - the
+/// photo studio's - may be placing the same bus now), now or before.
+fn preview_is_skipped(dir: &Path, version: &str, kind: &str, bus: &str, pid: u32) -> bool {
+    let mark = preview_guard_path(dir, kind, version);
+    let skip = preview_guard_path(dir, "skip", version);
+    if std::fs::read_to_string(&mark).is_ok_and(|m| hung(&m, bus, pid)) {
+        log::warn!("showroom: the preview of {bus} did not finish when it was last tried; it is left out for this version ({})", skip.display());
+        let _ = std::fs::remove_file(mark);
+        let mut list = std::fs::read_to_string(&skip).unwrap_or_default();
+        list.push_str(bus.trim());
+        list.push('\n');
+        let _ = std::fs::write(&skip, list);
+    }
+    std::fs::read_to_string(skip).is_ok_and(|t| t.lines().any(|b| b.trim() == bus.trim()))
+}
+
+/// Whether a placing mark (the file's text) says that placing `bus` hung a launcher service: it
+/// names the bus, and not this process `pid`. A mark without a process names the bus alone.
 fn hung(mark: &str, bus: &str, pid: u32) -> bool {
     let mut lines = mark.lines();
     lines.next().is_some_and(|b| b.trim() == bus.trim()) && lines.next().is_none_or(|p| p.trim() != pid.to_string())
@@ -134,8 +222,8 @@ fn hung(mark: &str, bus: &str, pid: u32) -> bool {
 
 /// The launcher ends in order (closed, or a test's time is up) while a preview is being
 /// placed: that is no hang, and the bus must not be left out of the previews from then on
-/// (a test ended mid-placing put the bus it showed into `showroom-skip.txt`). Both marks go:
-/// the bus picker's and the livery studio's.
+/// (a test ended mid-placing put the bus it showed into the skip list). Both marks go: the
+/// bus preview's and the photo studio's.
 pub(super) fn clear_placing_mark() {
     for studio in [false, true] {
         let _ = std::fs::remove_file(placing_mark(studio));
@@ -161,7 +249,10 @@ fn args_for(look: &Look) -> Args {
     if !look.date.is_empty() {
         v.extend(["--date".into(), look.date.clone()]);
     }
-    Args::try_parse_from(v).unwrap_or_else(|_| Args::parse_from(["omsi"]))
+    let mut args = Args::try_parse_from(v).unwrap_or_else(|_| Args::parse_from(["omsi"]));
+    // (drawn the way the game will be)
+    args.session_settings = crate::startup::SessionSettings::for_showroom(&crate::settings::Settings::load());
+    args
 }
 
 // (a launcher closed while a preview loads did not hang: the mark goes with it)
@@ -190,6 +281,9 @@ impl Showroom {
             pitch_to: 8.0,
             zoom_to: 1.0,
             auto_turn: false,
+            view: PreviewView::Outside,
+            inside_look: (0.0, 0.0),
+            inside_zoom: 1.0,
             idle: 0.0,
             stage_to: WHOLE,
             stage_now: WHOLE,
@@ -200,7 +294,6 @@ impl Showroom {
             dirty: true,
             generation: 0,
             aim: 0.0,
-            photos: Default::default(),
             reread: false,
             camera: None,
             second: None,
@@ -274,6 +367,9 @@ impl Showroom {
     /// The part of the picture the bus is to stand in (shares of it; see `stage_in`), asked
     /// for every frame the showroom is on screen. Away for a moment (the tiles were shown),
     /// the bus is put there at once; while shown it glides there (the window resized).
+    /// (Omsi-Hub's game-drawn bus step asked for it; the desktop launcher's shows the whole
+    /// picture and does not yet.)
+    #[allow(dead_code)]
     pub fn set_stage(&mut self, stage: Stage) {
         if self.stage_idle > 0.3 && self.stage_now != stage {
             self.stage_now = stage;
@@ -365,6 +461,8 @@ impl Showroom {
     pub fn want(&mut self, look: Look) {
         if self.wanted.as_ref() != Some(&look) {
             self.wanted = Some(look);
+            self.failed = None;
+            self.error = None;
         }
     }
 
@@ -375,7 +473,9 @@ impl Showroom {
     }
 
     /// Draw the bus's destination displays in the display font `font` (None: its own), as the
-    /// game will (`--display-font`): the bus shown takes it at once.
+    /// game will (`--display-font`): the bus shown takes it at once. (The desktop launcher's
+    /// bus step does not ask for it yet.)
+    #[allow(dead_code)]
     pub fn letter(&mut self, font: Option<String>) {
         self.letters = font;
     }
@@ -385,26 +485,56 @@ impl Showroom {
         self.shown.as_ref().map(|s| s.options.as_slice())
     }
 
-    /// `want` the launcher's choice: compared first, the look is made only when it changed
-    /// (it was made, five strings cloned, every frame).
-    pub fn want_choice(&mut self, root: &str, c: &omsi_launcher_ui::state::Choice) {
-        let same = self.wanted.as_ref().is_some_and(|w| {
-            w.map == c.map && w.bus == c.bus && w.paint == c.paint && w.weather == c.weather && w.time == c.time && w.date == c.date && w.root.as_os_str() == root
-        });
-        if !same {
-            self.want(Look { root: PathBuf::from(root), map: c.map.clone(), bus: c.bus.clone(), paint: c.paint.clone(), weather: c.weather.clone(), time: c.time, date: c.date.clone() });
-        }
+    fn fail(&mut self, look: Look, error: String) {
+        self.error = Some(error);
+        self.failed = Some(look);
+        // A failed selection must not expose the previous bus through any preview API.
+        self.shown = None;
+        self.target = None;
+        self.loading = None;
+        self.opening = None;
     }
 
     /// The mouse dragged over the empty part of the window (degrees), or turned the wheel.
     pub fn orbit(&mut self, dx: f32, dy: f32) {
+        if self.view != PreviewView::Outside {
+            self.inside_look.0 += dx * 0.35;
+            self.inside_look.1 = (self.inside_look.1 - dy * 0.25).clamp(-85.0, 85.0);
+            self.dirty = true;
+            self.idle = 0.0;
+            return;
+        }
         self.yaw_to += dx * 0.35;
         self.pitch_to = (self.pitch_to + dy * 0.25).clamp(-4.0, 55.0);
         self.idle = 0.0;
     }
     pub fn zoom_by(&mut self, k: f32) {
+        if self.view != PreviewView::Outside {
+            self.inside_zoom = (self.inside_zoom * k).clamp(0.5, 1.5);
+            self.dirty = true;
+            self.idle = 0.0;
+            return;
+        }
         self.zoom_to = (self.zoom_to * k).clamp(0.55, 2.2);
         self.idle = 0.0;
+    }
+
+    pub fn can_view(&self, view: PreviewView) -> bool {
+        self.shown.as_ref().is_some_and(|s| s.vehicle.is_some() && (view == PreviewView::Outside || s.inside_camera(view, (0.0, 0.0), 1.0).is_some()))
+    }
+
+    pub fn views(&self) -> Vec<&'static str> {
+        PreviewView::ALL.into_iter().filter(|v| self.can_view(*v)).map(PreviewView::name).collect()
+    }
+
+    pub fn set_view(&mut self, view: PreviewView) {
+        if self.view != view && self.can_view(view) {
+            self.view = view;
+            self.inside_look = (0.0, 0.0);
+            self.inside_zoom = 1.0;
+            self.idle = 0.0;
+            self.dirty = true;
+        }
     }
 
     /// Per frame: start loading what is wanted, take over what finished loading, move the
@@ -429,6 +559,11 @@ impl Showroom {
                 Ok(Ok(ready)) => {
                     self.loading = None;
                     self.shown = Some(self.place(renderer, ready));
+                    if !self.can_view(self.view) {
+                        self.view = PreviewView::Outside;
+                    }
+                    self.inside_look = (0.0, 0.0);
+                    self.inside_zoom = 1.0;
                     self.error = None;
                     self.dirty = true;
                     swapped = true;
@@ -436,18 +571,12 @@ impl Showroom {
                 Ok(Err(e)) => {
                     let _ = std::fs::remove_file(placing_mark(self.studio));
                     log::warn!("showroom {}: {e}", look.bus);
-                    self.error = Some(e);
-                    // (the bus before stayed in the picture as if it were the one chosen, and
-                    // the failed one was read again every frame)
-                    self.failed = Some(look.clone());
-                    self.shown = None;
-                    self.loading = None;
+                    self.fail(look.clone(), e);
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
                 Err(_) => {
                     let _ = std::fs::remove_file(placing_mark(self.studio));
-                    self.failed = Some(look.clone());
-                    self.loading = None;
+                    self.fail(look.clone(), "The preview loader stopped before the bus was ready".into());
                 }
             }
         }
@@ -516,7 +645,7 @@ impl Showroom {
         self.busy = self.loading.is_some();
         // camera
         self.idle += dt;
-        if self.auto_turn && self.idle > 4.0 {
+        if self.auto_turn && self.view == PreviewView::Outside && self.idle > 4.0 {
             self.yaw_to += dt * 6.0;
         }
         let k = 1.0 - (-dt / 0.18).exp();
@@ -529,33 +658,15 @@ impl Showroom {
         self.zoom += (self.zoom_to - self.zoom) * k;
         // (the stage moving moves the bus: drawn again too, which it was not while it eased)
         self.ease_stage(dt);
-        // the bus's own state, whenever the picture is drawn again
-        if let (true, Some(s)) = (self.dirty, self.shown.as_mut()) {
-            if let (Some(v), Some(r)) = (s.vehicle.as_mut(), s.render.as_mut()) {
-                player::sync_vehicle_transforms(renderer, &mut s.scene, v, r, &mut s.trailers, false);
-            }
-        }
         swapped
     }
 
     fn start_loading(&mut self, look: Look) {
         self.reread = false;
-        // A preview that never came (the launcher hung while placing it, and had to be
-        // ended) is not tried again for that bus: the bus is remembered and the launcher hung
-        // at every start, whatever version (#1478, #1635).
-        // (`showroom-skip.txt` keeps such buses, a line each; delete it to try them again)
-        let skip = omsi_launcher_lib::data_dir().join("showroom-skip.txt");
-        if std::fs::read_to_string(placing_mark(self.studio)).is_ok_and(|m| hung(&m, &look.bus, std::process::id())) {
-            log::warn!("showroom: the preview of {} hung the launcher when it was last tried; it is left out from now on ({})", look.bus, skip.display());
-            let _ = std::fs::remove_file(placing_mark(self.studio));
-            let mut list = std::fs::read_to_string(&skip).unwrap_or_default();
-            list.push_str(look.bus.trim());
-            list.push('\n');
-            let _ = std::fs::write(&skip, list);
-        }
-        if std::fs::read_to_string(&skip).is_ok_and(|t| t.lines().any(|b| b.trim() == look.bus.trim())) {
-            self.error = Some("The 3D preview of this bus stopped the launcher once, so it is left out".into());
-            self.failed = Some(look);
+        self.error = None;
+        // Prevent a repeat hang on restart, but retry after an update (#1478, #1635).
+        if preview_is_skipped(&omsi_launcher_lib::data_dir(), omsi_platform::VERSION, placing_kind(self.studio), &look.bus, std::process::id()) {
+            self.fail(look, "The 3D preview of this bus stopped the launcher once, so it is left out".into());
             return;
         }
         let _ = std::fs::write(placing_mark(self.studio), format!("{}\n{}\n", look.bus.trim(), std::process::id()));
@@ -604,10 +715,12 @@ impl Showroom {
         let args = args_for(&r.look);
         let (weather, model) = crate::weather_setup::load_weather_run(&args);
         let envir = omsi_content::Envir::load(&args.root.join("envir.cfg")).ok();
-        let mut sky = crate::weather_setup::SkyState { clouds: None, model };
+        let mut sky = crate::weather_setup::SkyState { clouds: None, model, look: args.session_settings };
         setup_sky(&args, renderer, &mut scene, envir.as_ref(), Some(&weather), &mut sky.clouds);
         add_floor(renderer, &mut scene);
         let world = r.world;
+        // (the panes wear this weather's snow as the bus goes onto the GPU)
+        world.settings.set_snow(weather.snow);
         let mut vehicle = r.vehicle;
         vehicle.position = DVec3::ZERO;
         vehicle.heading = 0.0;
@@ -708,6 +821,14 @@ impl Showroom {
     fn render(&mut self, renderer: &mut Renderer, target: &wgpu::TextureView, w: u32, h: u32, with: Option<Camera>) {
         let (yaw, pitch, zoom, stage, aim, studio) = (self.yaw, self.pitch, self.zoom, self.stage_now, self.aim, self.studio);
         let Some(s) = self.shown.as_mut() else { return };
+        if let (Some(v), Some(r)) = (s.vehicle.as_mut(), s.render.as_mut()) {
+            player::sync_vehicle_transforms(renderer, &mut s.scene, v, r, &mut s.trailers, self.view != PreviewView::Outside);
+        }
+        if let Some(cam) = s.inside_camera(self.view, self.inside_look, self.inside_zoom) {
+            s.scene.overlays.clear();
+            renderer.render(&mut s.scene, target, w, h, &cam, &s.lighting);
+            return;
+        }
         let aspect = w as f32 / h.max(1) as f32;
         let cam = match with.or(self.camera) {
             Some(c) => c,
@@ -727,7 +848,7 @@ impl Showroom {
     /// The camera is still easing towards where the mouse turned it (or turning by itself):
     /// more pictures are coming.
     pub fn moving(&self) -> bool {
-        self.dirty || (self.yaw_to - self.yaw).abs() > 0.05 || (self.pitch_to - self.pitch).abs() > 0.05 || (self.zoom_to - self.zoom).abs() > 0.001 || (self.auto_turn && self.idle > 4.0)
+        self.dirty || (self.yaw_to - self.yaw).abs() > 0.05 || (self.pitch_to - self.pitch).abs() > 0.05 || (self.zoom_to - self.zoom).abs() > 0.001 || (self.auto_turn && self.view == PreviewView::Outside && self.idle > 4.0)
     }
 
     /// The last picture drawn, as RGBA rows (width, height, pixels) - read back from the
@@ -828,6 +949,96 @@ fn fonts_on(world: &scene::World, vehicle: &mut omsi_sim::VehicleInstance, lette
 }
 
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::mem::ManuallyDrop;
+
+    fn look(bus: &str) -> Look {
+        Look { bus: bus.into(), ..Look::default() }
+    }
+
+    #[test]
+    fn uses_the_authored_standard_driver_camera_and_passenger_camera() {
+        let mut def = omsi_vehicle::Vehicle::default();
+        def.cameras_driver = vec![omsi_vehicle::Camera { yaw: 10.0, ..Default::default() }, omsi_vehicle::Camera { yaw: 35.0, ..Default::default() }];
+        def.camera_std = 1;
+        def.cameras_pax = vec![omsi_vehicle::Camera { yaw: 180.0, ..Default::default() }];
+        assert_eq!(authored_camera(&def, PreviewView::Driver).unwrap().yaw, 35.0);
+        assert_eq!(authored_camera(&def, PreviewView::Passenger).unwrap().yaw, 180.0);
+        def.camera_std = 99;
+        assert_eq!(authored_camera(&def, PreviewView::Driver).unwrap().yaw, 10.0);
+        assert!(authored_camera(&def, PreviewView::Outside).is_none());
+        assert!(authored_camera(&omsi_vehicle::Vehicle::default(), PreviewView::Passenger).is_none());
+    }
+
+    #[test]
+    fn looking_and_zooming_inside_preserves_the_exterior_orbit() {
+        let mut showroom = ManuallyDrop::new(Showroom::new());
+        showroom.view = PreviewView::Passenger;
+        let exterior = (showroom.yaw_to, showroom.pitch_to, showroom.zoom_to);
+        showroom.orbit(100.0, 100.0);
+        showroom.zoom_by(0.8);
+        assert_eq!((showroom.yaw_to, showroom.pitch_to, showroom.zoom_to), exterior);
+        assert_eq!(showroom.inside_look, (35.0, -25.0));
+        assert!((showroom.inside_zoom - 0.8).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_view_needs_a_bus_and_its_camera() {
+        let mut showroom = ManuallyDrop::new(Showroom::new());
+        assert!(!showroom.can_view(PreviewView::Outside));
+        assert!(showroom.views().is_empty());
+        showroom.set_view(PreviewView::Driver);
+        assert_eq!(showroom.view, PreviewView::Outside);
+        assert_eq!(PreviewView::from_name("passenger"), Some(PreviewView::Passenger));
+        assert_eq!(PreviewView::from_name("roof"), None);
+    }
+
+    #[test]
+    fn failure_ends_loading_and_hides_the_picture() {
+        // Avoid Drop's installation-wide placing marker in these self-contained tests.
+        let mut showroom = ManuallyDrop::new(Showroom::new());
+        let selected = look("unavailable.bus");
+        showroom.want(selected.clone());
+        let (_tx, rx) = channel();
+        showroom.loading = Some((selected.clone(), rx));
+        let (_world_tx, world_rx) = channel();
+        let (prefetch_tx, _prefetch_rx) = channel();
+        showroom.opening = Some((world_rx, prefetch_tx));
+
+        showroom.fail(selected.clone(), "Cannot load the bus".into());
+
+        assert_eq!(showroom.failed.as_ref(), Some(&selected));
+        assert_eq!(showroom.error.as_deref(), Some("Cannot load the bus"));
+        assert!(showroom.loading.is_none());
+        assert!(showroom.opening.is_none());
+        assert!(!showroom.has_picture());
+        assert!(showroom.picture().is_none());
+    }
+
+    #[test]
+    fn changed_selection_clears_failure_but_unchanged_selection_does_not_retry() {
+        let mut showroom = ManuallyDrop::new(Showroom::new());
+        let failed = look("unavailable.bus");
+        showroom.want(failed.clone());
+        showroom.fail(failed.clone(), "Cannot load the bus".into());
+
+        showroom.want(failed.clone());
+        assert_eq!(showroom.failed.as_ref(), Some(&failed));
+        assert!(showroom.error.is_some());
+
+        showroom.want(look("available.bus"));
+        assert!(showroom.failed.is_none());
+        assert!(showroom.error.is_none());
+
+        showroom.want(failed.clone());
+        assert_eq!(showroom.wanted.as_ref(), Some(&failed));
+        assert!(showroom.failed.is_none());
+        assert!(showroom.error.is_none());
+    }
+}
+
 /// The light of the look's time and weather, with the sun's shadow under the bus. Always
 /// the plain renderer, whatever the game's graphics setting: a preview is to be quick and
 /// clear, not the game's picture (no enhanced exposure and glow, no weather effects).
@@ -870,12 +1081,55 @@ fn add_floor(renderer: &Renderer, scene: &mut Scene) {
 }
 
 #[cfg(test)]
-mod tests {
+mod guard_tests {
     use super::*;
 
     #[test]
+    fn old_preview_failures_do_not_block_a_new_version() {
+        let dir = std::env::temp_dir().join(format!("openomsi-preview-old-failures-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let bus = "Vehicles/test/bus.bus";
+        std::fs::write(dir.join("showroom-skip.txt"), bus).unwrap();
+        std::fs::write(dir.join("showroom-placing.txt"), bus).unwrap();
+        std::fs::write(preview_guard_path(&dir, "skip", "0.1.1"), bus).unwrap();
+        std::fs::write(preview_guard_path(&dir, "placing", "0.1.1"), bus).unwrap();
+
+        assert!(!preview_is_skipped(&dir, "0.1.2", "placing", bus, 0));
+        assert!(!preview_guard_path(&dir, "skip", "0.1.2").exists());
+        assert!(preview_guard_path(&dir, "placing", "0.1.1").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn unfinished_preview_is_still_blocked_in_the_same_version() {
+        let dir = std::env::temp_dir().join(format!("openomsi-preview-current-failure-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let bus = "Vehicles/test/bus.bus";
+        std::fs::write(preview_guard_path(&dir, "placing", "0.1.1"), bus).unwrap();
+
+        assert!(preview_is_skipped(&dir, "0.1.1", "placing", bus, 0));
+        assert!(!preview_guard_path(&dir, "placing", "0.1.1").exists());
+        assert!(preview_is_skipped(&dir, "0.1.1", "placing", bus, 0));
+        assert!(!preview_is_skipped(&dir, "0.1.1", "placing", "Vehicles/test/other.bus", 0));
+        assert!(!preview_is_skipped(&dir, "0.1.2", "placing", bus, 0));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_bus_hung_only_when_another_process_was_placing_it() {
+        let bus = "Vehicles\\MAN_SD200\\SD200.bus";
+        assert!(hung(&format!("{bus}\n41\n"), bus, 42), "a service before this one");
+        assert!(hung(bus, bus, 42), "a mark of before the process was in it");
+        assert!(!hung(&format!("{bus}\n42\n"), bus, 42), "this process's other showroom, placing it now");
+        assert!(!hung("Vehicles\\MAN_NL202\\NL202.bus\n41\n", bus, 42), "another bus");
+        assert!(!hung("", bus, 42));
+    }
+
+    #[test]
     fn the_stage_is_taken_at_once_after_a_while_away_and_glided_to_while_shown() {
-        let mut s = Showroom::new();
+        let mut s = std::mem::ManuallyDrop::new(Showroom::new());
         let (a, b) = ([0.3, 0.1, 0.98, 0.8], [0.25, 0.1, 0.98, 0.85]);
         s.set_stage(a);
         assert_eq!(s.stage_now, a, "the first time: at once");
@@ -891,20 +1145,9 @@ mod tests {
             s.ease_stage(1.0 / 60.0);
         }
         assert_eq!(s.stage_now, b);
-        // the tiles were shown a while: back in the showroom, the bus stands where it should
+        // (away a while: back, the bus stands where it should)
         s.ease_stage(0.5);
         s.set_stage(a);
         assert_eq!(s.stage_now, a);
-    }
-
-
-    #[test]
-    fn a_bus_hung_a_launcher_only_when_another_one_was_placing_it() {
-        let bus = "Vehicles\\MAN_SD200\\SD200.bus";
-        assert!(hung(&format!("{bus}\n41\n"), bus, 42), "a launcher before this one");
-        assert!(hung(bus, bus, 42), "a mark of before the process was in it");
-        assert!(!hung(&format!("{bus}\n42\n"), bus, 42), "this launcher's other showroom, placing it now");
-        assert!(!hung("Vehicles\\MAN_NL202\\NL202.bus\n41\n", bus, 42), "another bus");
-        assert!(!hung("", bus, 42));
     }
 }

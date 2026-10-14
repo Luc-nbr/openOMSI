@@ -28,7 +28,7 @@
   background: var(--hub-panel); color: var(--hub-text); border: 1px solid var(--hub-wedge); border-radius: var(--hub-r-sheet);
   box-shadow: 0 2px 26px rgba(0, 0, 0, 0.45); overflow: hidden;
 }
-:root.hub[data-theme="light"] .hub-wsheet, :root.hub[data-theme="light"] .hub-wdialog { box-shadow: 0 2px 26px rgba(80, 50, 20, 0.12); }
+:root.hub[data-theme="light"] .hub-wsheet { box-shadow: 0 2px 26px rgba(80, 50, 20, 0.12); }
 .hub-wmove { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
 .hub-wmove.right { animation: hub-wfrom-right 0.42s cubic-bezier(0.2, 0.8, 0.25, 1); }
 .hub-wmove.left { animation: hub-wfrom-left 0.42s cubic-bezier(0.2, 0.8, 0.25, 1); }
@@ -80,7 +80,7 @@
 .hub-wflag.script::after { border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24); }
 :root.hub[data-theme="light"] .hub-wflag.script { background: rgba(22, 20, 26, 0.08); }
 
-/* the cards of two choices (the interface, the animations): a picture, a radio and a title, a line */
+/* the cards of two choices (the animations): a picture, a radio and a title, a line */
 .hub-wcards { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .hub-wcards.anim { gap: 16px; }
 .hub-wcard { flex-direction: column; align-items: stretch; padding: 10px 10px 16px; border-radius: var(--hub-r-sheet); }
@@ -92,21 +92,6 @@
 .hub-wcard .t { display: flex; align-items: center; gap: 10px; height: 24px; margin: 16px 0 0 4px; }
 .hub-wcard .t b { font-size: 13.05px; font-weight: 700; }
 .hub-wcard .line { margin: 6px 10px 0; font-size: 9.98px; line-height: 17.94px; color: var(--hub-text-dim); }
-
-/* the interface's dialog over the language, a veil under it */
-.hub-wveil { position: absolute; inset: 0; z-index: 40; background: var(--hub-ground); opacity: 0.82; animation: hub-wveil 0.25s ease-out; }
-@keyframes hub-wveil { from { opacity: 0; } }
-.hub-wdialog {
-  position: absolute; z-index: 41; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(calc(100% - 48px), 1020px); max-height: calc(100% - 24px);
-  display: flex; flex-direction: column; background: var(--hub-panel); border-radius: var(--hub-r-sheet); box-shadow: 0 0 30px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-  animation: hub-wdialog 0.34s cubic-bezier(0.3, 1.35, 0.5, 1);
-}
-@keyframes hub-wdialog { from { transform: translate(-50%, calc(-50% + 22px)) scale(0.94); opacity: 0; } }
-.hub-wdialog .hub-whead { padding: 24px 32px 0; }
-.hub-wdialog .hub-whead h1 { width: auto; margin-top: 4px; font-size: 19.95px; line-height: 35.9px; }
-.hub-wdialog .hub-whead p { width: auto; margin-top: 6px; }
-.hub-wdialog .hub-wcards { margin: 22px 32px 0; padding-bottom: 6px; overflow-y: auto; min-height: 0; }
-.hub-wdialog .hub-wfoot { padding: 0 32px; }
 
 /* the animations' little scene */
 .hub-wscene { position: relative; height: 140px; border-radius: var(--hub-r); overflow: hidden; background: color-mix(in srgb, var(--hub-field) 35%, #090c18); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22); }
@@ -182,9 +167,6 @@
 .hub-wgo.start .words i { background: var(--hub-accent); color: var(--hub-on-accent); }
 .hub-wgo .words b { margin-top: 6px; height: 30px; line-height: 30px; font-size: 17.65px; font-weight: 700; }
 .hub-wgo .words > span { margin-top: 6px; font-size: 10.36px; line-height: 18.63px; font-weight: 500; color: rgba(232, 235, 242, 0.92); }
-.hub-wclassic { display: flex; flex-direction: column; align-items: center; }
-.hub-wclassic .pic { width: min(100%, 560px); aspect-ratio: 1.6; border-radius: var(--hub-r); background: center / cover no-repeat; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1); }
-.hub-wclassic p { margin: 14px 0 0; font-size: 9.98px; color: var(--hub-text-dim); }
 
 /* without animations: everything where it goes at once */
 :root.hub-still .hub-welcome *, :root.hub-still .hub-welcome::after { animation: none !important; transition: none !important; }

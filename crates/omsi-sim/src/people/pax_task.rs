@@ -259,7 +259,7 @@ impl PeopleSim {
         buses: &[BusNow],
         bus_ix: &HashMap<BusId, usize>,
         at_stops: &HashMap<BusId, BusAtStops>,
-        player_bus: Option<&VehicleInstance>,
+        player_bus: Option<&PlayerBusView>,
         taken_ticket: &mut bool,
         remove: &mut Vec<usize>,
     ) {
@@ -341,8 +341,13 @@ impl PeopleSim {
                         let force_exit = reg.all_exit
                             && !bn.terminus.as_ref().is_some_and(|name| stop.is_named(name));
                         if !force_exit && p.dest.as_ref().is_some_and(|dest| stop.is_named(dest)) {
-                            let departing = bn.speed.abs() > 0.1
-                                && !bn.entry_open.iter().chain(&bn.exit_open).any(|open| *open);
+                            // (or simply under way: many buses report a door "open" to the
+                            // passengers while its release is on, and with that their riders
+                            // never chose a point and asked only once the stop was in
+                            // reach, a few metres before it, #2346)
+                            let departing = (bn.speed.abs() > 0.1
+                                && !bn.entry_open.iter().chain(&bn.exit_open).any(|open| *open))
+                                || bn.speed.abs() > 3.0;
                             let arrived = reg.next == Some(stop.id)
                                 && bn.speed.abs() < 1.0
                                 && bn.exit_open.iter().any(|open| *open);
@@ -481,7 +486,7 @@ impl PeopleSim {
         buses: &[BusNow],
         bus_ix: &HashMap<BusId, usize>,
         world: &dyn World,
-        player_bus: Option<&VehicleInstance>,
+        player_bus: Option<&PlayerBusView>,
         taken_ticket: &mut bool,
     ) {
         let p = self.pax(i).unwrap().clone();
@@ -602,8 +607,20 @@ impl PeopleSim {
             }
             return;
         }
-        // out of the bus: into the world, on along the pavement (task 8)
+        // out of the bus: into the world, on along the pavement (task 8) - or, with no
+        // pavement there, a few steps away from the door (`away_point`)
         let Some((w, h)) = self.pax_world(&p, buses, bus_ix) else { return };
+        // (facing away from the bus's side: they stepped out walking along the aisle, and
+        // with no pavement in reach they stood there with their back or their side to the
+        // door, #1290)
+        let h = p.inside.and_then(|b| bus_ix.get(&b)).map(|k| &buses[*k]).map_or(h, |bn| away_from_side(bn.pos, bn.fwd(), w, h));
+        let away = {
+            let l = p.pos.as_vec3();
+            let side = p.door.and_then(|d| bn.cabin.exits.get(d)).map(|e| e.side).unwrap_or(1.0);
+            let out = (bn.world(l + Vec3::X * side) - bn.world(l)).normalize_or_zero();
+            let along = (bn.world(l + Vec3::Y) - bn.world(l)).normalize_or_zero();
+            away_point(w, out, along, self.people[i].id)
+        };
         let stop = reg.next;
         let pp = self.pax_mut(i).unwrap();
         pp.inside = None;
@@ -612,7 +629,17 @@ impl PeopleSim {
         if debug_pax() {
             log::info!("t={:.1} pax {} gets off at stop {:?} by exit {:?}", self.time, self.people[i].label(), stop, p.door);
         }
-        self.walk_street(i, w, h, stop, world, remove);
+        self.walk_street_from_bus(i, w, h, stop, away, world, remove);
+    }
+
+    /// `walk_street` for somebody off a bus: where the stop has no pavement to go on
+    /// along, they walk to `away` first (`State::Leaving`) instead of standing in the door.
+    #[allow(clippy::too_many_arguments)]
+    pub fn walk_street_from_bus(&mut self, i: usize, at: DVec3, heading: f64, stop: Option<i64>, away: DVec3, world: &dyn World, remove: &mut Vec<usize>) {
+        self.walk_street(i, at, heading, stop, world, remove);
+        if matches!(self.people[i].state, State::Standing) {
+            self.people[i].state = State::Leaving { to: away };
+        }
     }
 
     /// sub_626818 / task 8: on as a pedestrian along the pavement from the stop - or gone
@@ -630,6 +657,7 @@ impl PeopleSim {
         p.place = Place::Ground;
         p.interior = 0.0;
         p.vel = DVec2::ZERO;
+        p.t_state = 0.0;
         let _ = &remove;
         match (lane, self.ped.as_ref()) {
             (Some((l, s)), Some(_)) => {
@@ -639,4 +667,43 @@ impl PeopleSim {
             _ => p.state = State::Standing,
         }
     }
+}
+
+/// The heading (degrees, 0 along +y) of somebody stepping out at `at` of a bus standing at
+/// `bus` with its front along `fwd`: straight away from the side of the bus they are on.
+/// `h` when they are not beside it (on its axis).
+pub fn away_from_side(bus: DVec3, fwd: DVec2, at: DVec3, h: f64) -> f64 {
+    let d = (at - bus).truncate();
+    let side = d - fwd * d.dot(fwd);
+    if side.length() < 0.1 {
+        return h;
+    }
+    side.x.atan2(side.y).to_degrees().rem_euclid(360.0)
+}
+
+#[cfg(test)]
+mod away_tests {
+    use super::*;
+
+    #[test]
+    fn people_getting_off_face_away_from_the_bus() {
+        // a bus heading north (+y): its right-hand doors open to the east
+        let h = away_from_side(DVec3::ZERO, DVec2::new(0.0, 1.0), DVec3::new(1.4, 3.0, 0.0), 0.0);
+        assert!((h - 90.0).abs() < 1e-6, "{h}");
+        // heading east (+x), doors on the right open to the south
+        let h = away_from_side(DVec3::new(10.0, 10.0, 0.0), DVec2::new(1.0, 0.0), DVec3::new(7.0, 8.6, 0.0), 0.0);
+        assert!((h - 180.0).abs() < 1e-6, "{h}");
+        // left-hand doors (driving on the left): to the west of a bus heading north
+        let h = away_from_side(DVec3::ZERO, DVec2::new(0.0, 1.0), DVec3::new(-1.4, -2.0, 0.0), 0.0);
+        assert!((h - 270.0).abs() < 1e-6, "{h}");
+    }
+}
+
+/// Where somebody off a bus walks to where no pavement is: 2.5 to 5 m out from the door
+/// (`out`: away from the bus's side, unit) and up to 7 m to either side along the bus
+/// (`along`, unit), by the person's number, so that a busload spreads out instead of
+/// crowding the doorway.
+pub fn away_point(door: DVec3, out: DVec3, along: DVec3, id: u32) -> DVec3 {
+    let r = |k: u32| (id.wrapping_mul(2_654_435_761).wrapping_add(k.wrapping_mul(40_503)) % 1000) as f64 / 1000.0;
+    door + out * (2.5 + 2.5 * r(1)) + along * (14.0 * r(2) - 7.0)
 }

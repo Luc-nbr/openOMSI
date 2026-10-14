@@ -150,7 +150,7 @@ async function doc(name, anchor) {
     if (!r.ok) throw new Error(r.status);
     md = await r.text();
   } catch {
-    view.querySelector(".doc").innerHTML = `<h1>Not found</h1><p>There is no document called <code>${name}</code>.</p>`;
+    view.querySelector(".doc").innerHTML = `<h1>Not found</h1><p>There is no document called <code>${esc(name)}</code>.</p>`;
     return;
   }
   const box = view.querySelector(".doc");
@@ -190,15 +190,52 @@ async function gh(path) {
 function esc(t) {
   return String(t ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+const MD_TAGS = new Set(["a", "abbr", "b", "blockquote", "br", "code", "dd", "del", "details", "div", "dl", "dt", "em", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "img", "input", "ins", "kbd", "li", "mark", "ol", "p", "pre", "q", "s", "samp", "small", "span", "strike", "strong", "sub", "summary", "sup", "table", "tbody", "td", "tfoot", "th", "thead", "tr", "tt", "u", "ul"]);
+const MD_DROP = new Set(["script", "style", "iframe", "frame", "frameset", "object", "embed", "applet", "form", "link", "meta", "base", "template", "noscript", "textarea", "select", "button", "svg", "math", "title", "xmp", "noembed", "noframes", "plaintext", "audio", "video", "source", "track", "canvas", "portal", "dialog"]);
+const MD_ATTRS = {
+  "*": ["title"],
+  a: ["href"],
+  img: ["src", "alt", "width", "height"],
+  p: ["align"],
+  div: ["align"],
+  td: ["align", "colspan", "rowspan"],
+  th: ["align", "colspan", "rowspan"],
+  ol: ["start"],
+  details: ["open"],
+  input: ["type", "checked", "disabled"],
+};
+function safeUrl(value, image) {
+  try {
+    const u = new URL(value.trim(), `https://github.com/${REPO}/issues/`);
+    if (u.protocol === "https:" || u.protocol === "http:" || (!image && u.protocol === "mailto:")) return u.href;
+  } catch {}
+  return null;
+}
 function md(text) {
-  // the author's markdown, with anything active taken out of it (scripts, frames, event
-  // handlers, javascript: links)
   const t = document.createElement("template");
   t.innerHTML = marked.parse(text || "");
-  t.content.querySelectorAll("script, style, iframe, object, embed, form, link, meta").forEach(e => e.remove());
-  t.content.querySelectorAll("*").forEach(e => [...e.attributes].forEach(a => {
-    if (/^on/i.test(a.name) || (/^(href|src)$/i.test(a.name) && /^\s*(javascript|data):/i.test(a.value) && !/^data:image\//i.test(a.value))) e.removeAttribute(a.name);
-  }));
+  for (const e of [...t.content.querySelectorAll("*")]) {
+    const tag = e.localName;
+    if (e.namespaceURI !== "http://www.w3.org/1999/xhtml" || MD_DROP.has(tag) || (tag === "input" && e.getAttribute("type") !== "checkbox")) {
+      e.remove();
+      continue;
+    }
+    if (!MD_TAGS.has(tag)) {
+      e.replaceWith(...e.childNodes);
+      continue;
+    }
+    const allowed = [...MD_ATTRS["*"], ...(MD_ATTRS[tag] || [])];
+    for (const a of [...e.attributes]) {
+      const name = a.name.toLowerCase();
+      if (tag === "code" && name === "class" && /^language-[\w+-]+$/.test(a.value)) continue;
+      if (!allowed.includes(name)) { e.removeAttribute(a.name); continue; }
+      if (name === "href" || name === "src") {
+        const url = safeUrl(a.value, name === "src");
+        if (url) e.setAttribute(a.name, url); else e.removeAttribute(a.name);
+      }
+    }
+    if (tag === "input") e.setAttribute("disabled", "");
+  }
   return t.innerHTML;
 }
 function ago(date) {

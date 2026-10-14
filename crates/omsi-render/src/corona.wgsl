@@ -332,6 +332,10 @@ fn fs_enhanced(in: CoronaOut) -> @location(0) vec4<f32> {
         let w = max(0.1, px * 1.5);
         let core = exp(-r * r / (w * w)) * 3.0 + exp(-r * 9.0) * 0.35;
         shape = mix(core * max(lit, shape) + shape * 0.22, shape, wet);
+        // (round, inside the circle the sprite holds: a far lamp's sprite is a few pixels,
+        // the core spans it, and brighter than white even in its corners it showed the
+        // whole quad - a square blot of light for every distant headlamp)
+        shape = shape * (1.0 - smoothstep(1.0 - px, 1.0, r));
     }
     return vec4<f32>(in.color.rgb * shape * in.color.a * scale, 1.0);
 }

@@ -1158,7 +1158,15 @@ impl TrafficSim {
         }
         if !car.state.drive(&self.net, dt, lead_now, stop_at) {
             if debug {
-                log::info!("t={:.1}: car {} ran out of road at {:.1} m/s: taken off", self.time, car.id, car.state.speed);
+                // (where, and the nearest lane start beyond the end: a network gap the map's
+                // paths do not close shows here)
+                let lane = &self.net.lanes[car.state.lane];
+                let end = lane.end();
+                let near = (0..self.net.lanes.len())
+                    .filter(|&l| l != car.state.lane && self.net.lanes[l].kind == lane.kind)
+                    .map(|l| (l, (self.net.lanes[l].start() - end).length()))
+                    .min_by(|a, b| a.1.total_cmp(&b.1));
+                log::info!("t={:.1}: car {} ran out of road at {:.1} m/s on lane {} ending at ({:.1}, {:.1}, {:.1}) heading {:.0}: taken off (nearest lane start {:?}, next {:?}, route {}, pool {:?}, type {})", self.time, car.id, car.state.speed, car.state.lane, end.x, end.y, end.z, lane.headings.last().copied().unwrap_or(0.0), near.map(|(l, d)| (l, d, self.net.lanes[l].headings.first().copied().unwrap_or(0.0), self.net.lanes[l].start().z)), lane.next.iter().map(|&n| (n, self.net.lanes[n].no_cars, self.net.lanes[n].density)).collect::<Vec<_>>(), car.state.route.len(), car.state.traffic_pool.as_ref().map(|p| p.0), car.state.veh_type);
             }
             return None;
         }
@@ -1192,6 +1200,17 @@ impl TrafficSim {
                 log::info!("doors t={:.1} car {} {} phase {:?} speed {:.1}: AtStation {st} door {} {} {} {} target {} {} {} halte {} timer {}", self.time, car.id, v.ty.def.type_name, car.bus.as_ref().map(|b| b.phase), car.state.speed, g("door_0"), g("door_1"), g("door_2"), g("door_3"), g("doorTarget_0"), g("doorTarget_1"), g("doorTarget_2"), g("bremse_halte_sw"), g("door_AI_timer"));
             }
         }
+        // Full drivetrain scripts read the ordinary pedals even under AI control. Leaving
+        // them at zero keeps fuel injection and the loaded engine sounds at idle.
+        car.vehicle.set_controls(crate::Controls {
+            throttle: (car.state.cmd / car.state.accel.max(0.1)).clamp(0.0, 1.0),
+            brake: if car.state.held && car.state.speed < 0.3 {
+                1.0
+            } else {
+                (-car.state.cmd / car.state.decel.max(0.5)).clamp(0.0, 1.0)
+            },
+            ..Default::default()
+        });
         // An emergency vehicle on an active drive is told `TrafficPriorityWarningNeeded`
         // (`priority_warning`) while it crosses against a red light or has a vehicle in its
         // way close ahead: its script sounds the siren or the horn on it.

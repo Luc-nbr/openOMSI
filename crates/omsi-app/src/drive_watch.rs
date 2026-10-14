@@ -403,8 +403,8 @@ pub(crate) fn notice(o: &Offence) -> Notice {
             title: omsi_ui::tr("Speed camera").into_owned(),
             // (in miles an hour where the player chose it: `crate::units`)
             detail: tr_with(
-                if crate::units::mph() { "%{speed} mph where %{limit} is allowed · fine %{amount}" } else { "%{speed} km/h where %{limit} is allowed · fine %{amount}" },
-                &[("speed", format!("{:.0}", crate::units::speed(o.speed))), ("limit", format!("{:.0}", crate::units::sign(o.limit))), ("amount", euros(o.fine))],
+                if crate::units::Units::now() != crate::units::Units::Metric { "%{speed} mph where %{limit} is allowed · fine %{amount}" } else { "%{speed} km/h where %{limit} is allowed · fine %{amount}" },
+                &[("speed", format!("{:.0}", crate::units::Units::now().speed(o.speed).0)), ("limit", format!("{:.0}", crate::units::Units::now().speed_limit(o.limit))), ("amount", euros(o.fine))],
             ),
             left: NOTICE_FOR,
             shown: 0.0,

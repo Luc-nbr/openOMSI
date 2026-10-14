@@ -85,6 +85,9 @@ pub struct Career {
     jolts: Vec<Jolt>,
     /// The duty's trip being driven, rated on its own.
     trip: Option<TripRun>,
+    /// Metres driven in each bus (manufacturer and type, as the personnel file's
+    /// `[perbusinfo]` names it) that `save` has not put into the file yet.
+    bus_metres: Vec<(String, f64)>,
 }
 
 /// A jolt as it happened (Lua plugins' `jolt` event): the smoothed accelerations along and
@@ -164,6 +167,7 @@ impl Default for Career {
             written: Written::default(),
             jolts: Vec::new(),
             trip: None,
+            bus_metres: Vec::new(),
         }
     }
 }
@@ -208,6 +212,18 @@ impl Career {
         Career { driver, path: Some(path), penalty, ..Default::default() }
     }
 
+    /// `metres` driven in the bus of this `[friendlyname]` (a bus without one is not counted).
+    fn bus_step(&mut self, manufacturer: &str, type_name: &str, metres: f64) {
+        if manufacturer.is_empty() && type_name.is_empty() {
+            return;
+        }
+        let is = |k: &str| k.len() == manufacturer.len() + 1 + type_name.len() && k.starts_with(manufacturer) && k.ends_with(type_name);
+        match self.bus_metres.iter_mut().find(|(k, _)| is(k)) {
+            Some((_, m)) => *m += metres,
+            None => self.bus_metres.push((format!("{manufacturer} {type_name}"), metres)),
+        }
+    }
+
     /// One simulation frame of the player's bus.
     pub fn tick(&mut self, dt: f32, bus: &VehicleInstance, riders: usize) {
         self.seconds += dt as f64;
@@ -220,6 +236,7 @@ impl Career {
             if step <= (v.abs() * dt) as f64 * 2.0 + 2.0 {
                 self.metres += step;
                 step_km = step / 1000.0;
+                self.bus_step(&bus.ty.def.manufacturer, &bus.ty.def.type_name, step);
             }
         }
         self.last_pos = Some(bus.position);
@@ -449,6 +466,14 @@ impl Career {
         // to the next save - rounding each save gained or lost up to 50 m every time
         let hm = ((self.metres - w.metres) / 100.0).max(0.0).floor();
         d.hektom = d.hektom.round() + hm;
+        // and each bus's (Omsi.exe 0x745ce0: under "manufacturer type"), the rest carried
+        for (bus, m) in &mut self.bus_metres {
+            let hm = (*m / 100.0).max(0.0).floor();
+            if hm > 0.0 {
+                d.add_bus_hektom(bus, hm as i64);
+                *m -= hm * 100.0;
+            }
+        }
         for i in 0..4 {
             d.crashes[i] += self.crashes[i] - w.crashes[i];
         }
@@ -565,6 +590,29 @@ fn data_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The kilometres of a session go to the bus they were driven in too, whole hectometres
+    /// at a time and the rest carried to the next save (#2475).
+    #[test]
+    fn the_personnel_file_keeps_each_buss_kilometres() {
+        let path = std::env::temp_dir().join(format!("omsi_career_perbus_{}.odr", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let mut c = Career { path: Some(path.clone()), ..Default::default() };
+        c.metres = 1250.0;
+        c.bus_step("MAN", "SD202 - D86", 1000.0);
+        c.bus_step("MAN", "NG 272", 250.0);
+        c.bus_step("", "", 40.0);
+        c.save().unwrap();
+        let d = Driver::load(&path).unwrap();
+        assert_eq!(d.hektom, 12.0);
+        assert_eq!(d.per_bus, vec![("MAN SD202 - D86".to_string(), 10), ("MAN NG 272".to_string(), 2)]);
+        c.metres += 60.0;
+        c.bus_step("MAN", "NG 272", 60.0);
+        c.save().unwrap();
+        let d = Driver::load(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(d.per_bus, vec![("MAN SD202 - D86".to_string(), 10), ("MAN NG 272".to_string(), 3)]);
+    }
 
     /// A tenth of a second's twitch of the heading (6 m/s² across) is no jolt; a bend held
     /// for two seconds at 3.5 m/s² is.

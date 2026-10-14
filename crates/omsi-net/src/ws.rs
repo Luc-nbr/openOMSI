@@ -23,6 +23,7 @@ use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use tungstenite::protocol::WebSocketConfig;
 use tungstenite::{Message, WebSocket};
 
 /// What a server tells about itself (`GET /status`, and the launcher's list).
@@ -343,6 +344,72 @@ pub fn query(target: &str, with_icon: bool) -> Result<ServerInfo, String> {
 
 /// Connections the gateway serves at once (players, status requests, mod streams).
 const MAX_CONNECTIONS: usize = 64;
+const PER_SOURCE: usize = 16;
+const HEAD_WAIT: Duration = Duration::from_secs(3);
+const DATAGRAM_LIMIT: usize = 4096;
+const STREAM_LIMIT: usize = 128 * 1024;
+
+fn datagram_config() -> WebSocketConfig {
+    WebSocketConfig::default().read_buffer_size(8 * 1024).max_message_size(Some(DATAGRAM_LIMIT)).max_frame_size(Some(DATAGRAM_LIMIT))
+}
+
+fn stream_config() -> WebSocketConfig {
+    WebSocketConfig::default().max_message_size(Some(STREAM_LIMIT)).max_frame_size(Some(STREAM_LIMIT))
+}
+
+fn gateway_clients() -> &'static Mutex<std::collections::HashMap<SocketAddr, std::net::IpAddr>> {
+    static CLIENTS: std::sync::OnceLock<Mutex<std::collections::HashMap<SocketAddr, std::net::IpAddr>>> = std::sync::OnceLock::new();
+    CLIENTS.get_or_init(Default::default)
+}
+
+pub(crate) fn gateway_client(local: SocketAddr) -> Option<std::net::IpAddr> {
+    gateway_clients().lock().unwrap_or_else(|e| e.into_inner()).get(&local).copied()
+}
+
+pub(crate) struct GatewayClient(SocketAddr);
+
+impl GatewayClient {
+    pub(crate) fn register(local: SocketAddr, ip: std::net::IpAddr) -> GatewayClient {
+        gateway_clients().lock().unwrap_or_else(|e| e.into_inner()).insert(local, ip);
+        GatewayClient(local)
+    }
+}
+
+impl Drop for GatewayClient {
+    fn drop(&mut self) {
+        gateway_clients().lock().unwrap_or_else(|e| e.into_inner()).remove(&self.0);
+    }
+}
+
+#[derive(Default)]
+struct Sources(Mutex<std::collections::HashMap<std::net::IpAddr, usize>>);
+
+struct SourceSlot(Arc<Sources>, std::net::IpAddr);
+
+impl Sources {
+    fn take(self: &Arc<Self>, source: std::net::IpAddr) -> Option<SourceSlot> {
+        let key = source_key(source);
+        let mut open = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let n = open.entry(key).or_insert(0);
+        if *n >= PER_SOURCE {
+            return None;
+        }
+        *n += 1;
+        Some(SourceSlot(self.clone(), key))
+    }
+}
+
+impl Drop for SourceSlot {
+    fn drop(&mut self) {
+        let mut open = self.0 .0.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(n) = open.get_mut(&self.1) {
+            *n -= 1;
+            if *n == 0 {
+                open.remove(&self.1);
+            }
+        }
+    }
+}
 
 /// The host's or server's side (see the module).
 pub struct WsGateway {
@@ -372,6 +439,7 @@ impl WsGateway {
         std::thread::Builder::new().name("ws gateway".into()).spawn(move || {
             // connections served at once (each its own thread): more are closed at once
             let open = Arc::new(AtomicUsize::new(0));
+            let sources = Arc::new(Sources::default());
             while !st.load(Ordering::Relaxed) {
                 match listener.accept() {
                     Ok((stream, peer)) => {
@@ -380,10 +448,22 @@ impl WsGateway {
                             drop(stream);
                             continue;
                         }
+                        let slot = if peer.ip().is_loopback() {
+                            None
+                        } else {
+                            match sources.take(peer.ip()) {
+                                Some(slot) => Some(slot),
+                                None => {
+                                    log::debug!("ws gateway: {peer}: {PER_SOURCE} connections open already from there; closed");
+                                    drop(stream);
+                                    continue;
+                                }
+                            }
+                        };
                         open.fetch_add(1, Ordering::Relaxed);
-                        let (st, inf, conn, held) = (st.clone(), inf.clone(), conn.clone(), open.clone());
+                        let (st, inf, conn, held, src) = (st.clone(), inf.clone(), conn.clone(), open.clone(), sources.clone());
                         let spawned = std::thread::Builder::new().name("ws player".into()).spawn(move || {
-                            if let Err(e) = serve(stream, target, &inf, &st, &conn) {
+                            if let Err(e) = serve(stream, slot, target, &inf, &st, &conn, &src) {
                                 log::debug!("ws gateway: {peer}: {e}");
                             }
                             held.fetch_sub(1, Ordering::Relaxed);
@@ -427,22 +507,27 @@ fn header<'a>(head: &'a str, name: &str) -> Option<&'a str> {
     head.lines().skip(1).find_map(|l| l.split_once(':').filter(|(k, _)| k.trim().eq_ignore_ascii_case(name)).map(|(_, v)| v.trim()))
 }
 
-/// Where a WebSocket comes from: its peer's address, or - from the loopback, as through a
-/// reverse proxy (Caddy, nginx) or a tunnel on the same machine - the client's address that
-/// proxy forwards (`X-Forwarded-For`'s first entry, `X-Real-IP`, `CF-Connecting-IP`).
-fn client_addr(head: &str, peer: Option<SocketAddr>) -> String {
-    let Some(peer) = peer else { return "?".into() };
-    if peer.ip().is_loopback() {
-        let forwarded = header(head, "cf-connecting-ip")
-            .or_else(|| header(head, "x-forwarded-for").and_then(|v| v.split(',').next()))
-            .or_else(|| header(head, "x-real-ip"))
-            .map(str::trim)
-            .and_then(|v| v.parse::<std::net::IpAddr>().ok());
-        if let Some(ip) = forwarded {
-            return ip.to_string();
-        }
+fn client_ip(head: &str, peer: Option<SocketAddr>) -> Option<std::net::IpAddr> {
+    let peer = peer?;
+    if !peer.ip().is_loopback() {
+        return Some(peer.ip());
     }
-    peer.ip().to_string()
+    header(head, "cf-connecting-ip")
+        .or_else(|| header(head, "x-forwarded-for").and_then(|v| v.rsplit(',').next()))
+        .map(str::trim)
+        .and_then(|v| v.parse::<std::net::IpAddr>().ok())
+        .filter(|ip| !ip.is_loopback())
+}
+
+pub(crate) fn source_key(ip: std::net::IpAddr) -> std::net::IpAddr {
+    match ip {
+        std::net::IpAddr::V6(v6) if v6.to_ipv4_mapped().is_none() => {
+            let s = v6.segments();
+            std::net::IpAddr::V6(std::net::Ipv6Addr::new(s[0], s[1], s[2], s[3], 0, 0, 0, 0))
+        }
+        std::net::IpAddr::V6(v6) => std::net::IpAddr::V4(v6.to_ipv4_mapped().expect("mapped")),
+        v4 => v4,
+    }
 }
 
 /// Compare two secrets in a time that does not tell how much of them matched.
@@ -495,15 +580,25 @@ pub fn local_admin(request: &[u8], peer: Option<SocketAddr>, info: &Mutex<Server
 }
 
 /// One TCP connection to the gateway: a status request, the icon, or a player's WebSocket.
-fn serve(stream: TcpStream, target: SocketAddr, info: &Mutex<ServerInfo>, stop: &AtomicBool, connected: &AtomicUsize) -> Result<(), String> {
+fn serve(stream: TcpStream, slot: Option<SourceSlot>, target: SocketAddr, info: &Mutex<ServerInfo>, stop: &AtomicBool, connected: &AtomicUsize, sources: &Arc<Sources>) -> Result<(), String> {
     let peer = stream.peer_addr().ok();
     stream.set_nonblocking(false).map_err(|e| e.to_string())?;
-    stream.set_read_timeout(Some(Duration::from_secs(10))).map_err(|e| e.to_string())?;
+    stream.set_read_timeout(Some(HEAD_WAIT)).map_err(|e| e.to_string())?;
     let mut head = [0u8; 2048];
     let n = stream.peek(&mut head).map_err(|e| e.to_string())?;
     let req = String::from_utf8_lossy(&head[..n]).to_string();
     let path = req.split_whitespace().nth(1).unwrap_or("/").to_string();
     let upgrade = req.to_ascii_lowercase().contains("upgrade: websocket");
+    let client = client_ip(&req, peer);
+    let source = client.map(|ip| ip.to_string()).unwrap_or_else(|| peer.map(|p| p.ip().to_string()).unwrap_or_else(|| "?".into()));
+    let _slot = match (slot, client) {
+        (Some(slot), _) => Some(slot),
+        (None, Some(ip)) => Some(sources.take(ip).ok_or_else(|| format!("{source}: {PER_SOURCE} connections open already"))?),
+        (None, None) => None,
+    };
+    if !upgrade || path.starts_with("/tcp") {
+        stream.set_read_timeout(Some(Duration::from_secs(10))).map_err(|e| e.to_string())?;
+    }
     if !upgrade {
         let mut s = stream;
         // (the request is read off the socket before the answer: some proxies wait)
@@ -546,20 +641,21 @@ fn serve(stream: TcpStream, target: SocketAddr, info: &Mutex<ServerInfo>, stop: 
     if path.starts_with("/tcp") {
         // a byte stream to the session's TCP port (the host's mods): the way the files go
         // where only HTTP gets through
-        let mut ws = tungstenite::accept(stream).map_err(|e| e.to_string())?;
+        let mut ws = tungstenite::accept_with_config(stream, Some(stream_config())).map_err(|e| e.to_string())?;
         // (the 10 s of the request's read held every chunk that long)
         ws.get_mut().set_read_timeout(Some(Duration::from_millis(5))).map_err(|e| e.to_string())?;
         let tcp = TcpStream::connect(SocketAddr::from(([127, 0, 0, 1], target.port()))).map_err(|e| e.to_string())?;
         return pump_tcp(&mut ws, tcp, stop);
     }
-    let mut ws = tungstenite::accept(stream).map_err(|e| e.to_string())?;
+    let mut ws = tungstenite::accept_with_config(stream, Some(datagram_config())).map_err(|e| e.to_string())?;
     let udp = UdpSocket::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
     udp.set_nonblocking(true).map_err(|e| e.to_string())?;
     // the session sees this player at the socket's 127.0.0.1 address ("joined from
     // 127.0.0.1:<port>"): say who that is, for a server's operator
-    if let Ok(local) = udp.local_addr() {
-        log::info!("gateway: player WebSocket from {} on {local}", client_addr(&req, peer));
-    }
+    let _client = udp.local_addr().ok().map(|local| {
+        log::info!("gateway: player WebSocket from {source} on {local}");
+        client.map(|ip| GatewayClient::register(local, ip))
+    });
     ws.get_mut().set_read_timeout(Some(Duration::from_millis(5))).map_err(|e| e.to_string())?;
     connected.fetch_add(1, Ordering::Relaxed);
     let r = pump(&mut ws, &udp, |u, d| u.send_to(d, target).map(|_| ()), stop);
@@ -691,7 +787,7 @@ pub fn tcp_forward(url: &str) -> std::io::Result<SocketAddr> {
             let url = url.clone();
             std::thread::spawn(move || {
                 let r = (|| -> Result<(), String> {
-                    let (mut ws, _) = tungstenite::connect(&url).map_err(|e| format!("{url}: {e}"))?;
+                    let (mut ws, _) = tungstenite::client::connect_with_config(&url, Some(stream_config()), 3).map_err(|e| format!("{url}: {e}"))?;
                     match ws.get_mut() {
                         tungstenite::stream::MaybeTlsStream::Plain(s) => s.set_read_timeout(Some(Duration::from_millis(5))),
                         tungstenite::stream::MaybeTlsStream::Rustls(s) => s.get_mut().set_read_timeout(Some(Duration::from_millis(5))),
@@ -733,7 +829,7 @@ impl WsClient {
         let (tx, rx) = std::sync::mpsc::channel();
         let u = url.to_string();
         std::thread::spawn(move || {
-            let _ = tx.send(tungstenite::connect(&u).map(|x| x.0).map_err(|e| format!("{u}: {e}")));
+            let _ = tx.send(tungstenite::client::connect_with_config(&u, Some(datagram_config()), 3).map(|x| x.0).map_err(|e| format!("{u}: {e}")));
         });
         let mut ws = rx.recv_timeout(Duration::from_secs(12)).map_err(|_| format!("{url}: no answer within 12 s"))??;
         match ws.get_mut() {
@@ -903,14 +999,16 @@ mod tests {
         let local: SocketAddr = "127.0.0.1:50000".parse().unwrap();
         let far: SocketAddr = "203.0.113.7:50000".parse().unwrap();
         let req = |h: &str| format!("GET / HTTP/1.1\r\nHost: x\r\n{h}Upgrade: websocket\r\n\r\n");
-        assert_eq!(client_addr(&req("X-Forwarded-For: 198.51.100.4, 10.0.0.1\r\n"), Some(local)), "198.51.100.4");
-        assert_eq!(client_addr(&req("X-Real-IP: 2001:db8::1\r\n"), Some(local)), "2001:db8::1");
-        assert_eq!(client_addr(&req("CF-Connecting-IP: 192.0.2.9\r\nX-Forwarded-For: 198.51.100.4\r\n"), Some(local)), "192.0.2.9");
+        let ip = |s: &str| Some(s.parse::<std::net::IpAddr>().unwrap());
+        assert_eq!(client_ip(&req("X-Forwarded-For: 10.0.0.1, 198.51.100.4\r\n"), Some(local)), ip("198.51.100.4"));
+        assert_eq!(client_ip(&req("X-Real-IP: 2001:db8::1\r\n"), Some(local)), None);
+        assert_eq!(client_ip(&req("CF-Connecting-IP: 192.0.2.9\r\nX-Forwarded-For: 198.51.100.4\r\n"), Some(local)), ip("192.0.2.9"));
         // no proxy: the peer; a header from the internet is not believed
-        assert_eq!(client_addr(&req(""), Some(local)), "127.0.0.1");
-        assert_eq!(client_addr(&req("X-Forwarded-For: 198.51.100.4\r\n"), Some(far)), "203.0.113.7");
-        assert_eq!(client_addr(&req("X-Forwarded-For: not-an-address\r\n"), Some(local)), "127.0.0.1");
-        assert_eq!(client_addr(&req(""), None), "?");
+        assert_eq!(client_ip(&req(""), Some(local)), None);
+        assert_eq!(client_ip(&req("X-Forwarded-For: 127.0.0.1\r\n"), Some(local)), None);
+        assert_eq!(client_ip(&req("X-Forwarded-For: 198.51.100.4\r\n"), Some(far)), ip("203.0.113.7"));
+        assert_eq!(client_ip(&req("X-Forwarded-For: not-an-address\r\n"), Some(local)), None);
+        assert_eq!(client_ip(&req(""), None), None);
     }
 
     #[test]
@@ -1019,6 +1117,43 @@ mod tests {
         assert!(again, "the datagram came back through the second connection");
         assert!(client.alive.load(Ordering::Relaxed));
         assert_eq!(client.reconnects(), 1);
+    }
+
+    #[test]
+    fn a_message_larger_than_a_datagram_ends_the_websocket() {
+        let gw = WsGateway::start("127.0.0.1:0".parse().unwrap(), "127.0.0.1:9".parse().unwrap(), ServerInfo::default()).unwrap();
+        let (mut ws, _) = tungstenite::connect(format!("ws://{}/ws", gw.addr)).unwrap();
+        if let tungstenite::stream::MaybeTlsStream::Plain(s) = ws.get_mut() {
+            s.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+        }
+        ws.send(Message::Binary(vec![0u8; 64 * 1024].into())).unwrap();
+        let t0 = Instant::now();
+        let ended = loop {
+            match ws.read() {
+                Err(tungstenite::Error::Io(e)) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
+                Ok(Message::Close(_)) | Err(_) => break true,
+                Ok(_) => {}
+            }
+            if t0.elapsed() > Duration::from_secs(10) {
+                break false;
+            }
+        };
+        assert!(ended, "the gateway kept a 64 KiB message");
+    }
+
+    #[test]
+    fn one_source_holds_only_so_many_connections() {
+        let sources = Arc::new(Sources::default());
+        let ip = |s: &str| s.parse::<std::net::IpAddr>().unwrap();
+        let held: Vec<SourceSlot> = (0..PER_SOURCE).map(|_| sources.take(ip("198.51.100.4")).unwrap()).collect();
+        assert!(sources.take(ip("198.51.100.4")).is_none());
+        assert!(sources.take(ip("203.0.113.7")).is_some());
+        drop(held);
+        assert!(sources.take(ip("198.51.100.4")).is_some());
+        let v6: Vec<SourceSlot> = (0..PER_SOURCE).map(|i| sources.take(ip(&format!("2001:db8:1:2::{i:x}"))).unwrap()).collect();
+        assert!(sources.take(ip("2001:db8:1:2:ffff::9")).is_none());
+        assert!(sources.take(ip("2001:db8:1:3::1")).is_some());
+        drop(v6);
     }
 
     #[test]

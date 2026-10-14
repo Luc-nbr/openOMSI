@@ -257,7 +257,7 @@ pub fn parse_chrono_cfg(f: &CfgFile) -> ChronoCfg {
             // a count, then that many line names (the original: StrToInt, then ReadLn
             // n times). The count is not a line: read as one it took line "1" or "2" off.
             "deactivate_lines" => {
-                let n = r.i32().max(0);
+                let n = (r.i32().max(0) as usize).min(r.lines().len().saturating_sub(r.pos()));
                 c.deactivate_lines = (0..n).map(|_| r.str().trim().to_string()).filter(|s| !s.is_empty()).collect();
             }
             _ => {}
@@ -482,6 +482,12 @@ mod legacy_tests {
         let named = format!("[ailist]\n0\n1\n0\n{groups}");
         let a = super::AiLists::parse(&omsi_cfg::CfgFile::from_str("ailists.cfg", &named));
         assert_eq!(a.groups[a.default_group].name, "Ambulance");
+    }
+
+    #[test]
+    fn a_chrono_count_larger_than_the_file_reads_what_is_there() {
+        let f = omsi_cfg::CfgFile::from_str("chrono.cfg", "[deactivate_lines]\n2147483647\n5 & 5N\n");
+        assert_eq!(super::parse_chrono_cfg(&f).deactivate_lines, vec!["5 & 5N".to_string()]);
     }
 }
 

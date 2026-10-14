@@ -4,13 +4,9 @@
 //! key per direction, the frame's number as its nonce, so a frame that was changed, dropped,
 //! repeated or reordered ends the connection.
 //!
-//! The greeting is plain text: `OMSIMODS/2 <session> <client key>` and `OK <host key>`. A
-//! host answers a game of the old, unencrypted protocol (`OMSIMODS/1`) with an `ERR` line
+//! The greeting is plain text: `OMSIMODS/3 <session> <client key>` and `OK <host key> <session key> <signature>`. A
+//! host answers a game of an older protocol (`OMSIMODS/1`, `OMSIMODS/2`) with an `ERR` line
 //! that says to update.
-//!
-//! What it does not do: authenticate the host. Anyone who sees the session's UDP packets
-//! knows its id, so a man in the middle on the same network could stand between the two
-//! (the mods are checked against the list's SHA-256 all the same); it stops listening in.
 
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
 use ring::agreement::{agree_ephemeral, EphemeralPrivateKey, UnparsedPublicKey, X25519};
@@ -19,11 +15,31 @@ use ring::rand::SystemRandom;
 use std::io::{self, BufRead, Read, Write};
 
 /// The protocol a game speaks now.
-pub(crate) const MAGIC: &str = "OMSIMODS/2";
+pub(crate) const MAGIC: &str = "OMSIMODS/3";
 /// The unencrypted protocol of the games before it.
 pub(crate) const OLD_MAGIC: &str = "OMSIMODS/1";
+const OLD_MAGIC_2: &str = "OMSIMODS/2";
+
+pub(crate) fn is_old(magic: &str) -> bool {
+    magic == OLD_MAGIC || magic == OLD_MAGIC_2
+}
+
+fn proof_text(session: u64, client: &str, host: &str) -> Vec<u8> {
+    format!("{MAGIC} {} {client} {host}", omsi_net::session_hex(session)).into_bytes()
+}
+
+pub(crate) fn prove(key: &omsi_net::hostkey::HostKey, client: &str, host: &str) -> String {
+    format!("{} {}", hex(key.public()), hex(&key.sign("mods", &proof_text(key.session(), client, host))))
+}
+
+pub(crate) fn proven(session: u64, client: &str, host: &str, public: &str, sig: &str) -> bool {
+    match (unhex(public), unhex(sig)) {
+        (Some(p), Some(s)) => omsi_net::hostkey::verify(session, &p, "mods", &proof_text(session, client, host), &s),
+        _ => false,
+    }
+}
 /// What a host tells a game of the old protocol.
-pub(crate) const OLD_PEER: &str = "ERR the host's openOMSI sends its mods encrypted (OMSIMODS/2): update openOMSI to join with them";
+pub(crate) const OLD_PEER: &str = "ERR the host's openOMSI sends its mods encrypted (OMSIMODS/3): update openOMSI to join with them";
 
 /// The most plain bytes one frame carries.
 const FRAME: usize = 64 * 1024;

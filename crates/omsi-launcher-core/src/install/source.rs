@@ -66,11 +66,18 @@ pub(super) fn unpack_archive(job: &Job, content: &Path, src: &Path, dest: &Path,
     match kind {
         ArchiveKind::SevenZip => {
             let mut done = 0u64;
-            sevenz_rust2::decompress_file_with_extract_fn(src, dest, |entry, reader, target| {
+            sevenz_rust2::decompress_file_with_extract_fn(src, dest, |entry, reader, _| {
                 if job.cancelled() {
                     return Err(sevenz_rust2::Error::Io(std::io::Error::new(std::io::ErrorKind::Interrupted, "cancelled"), "install cancelled".into()));
                 }
-                let wrote = sevenz_rust2::default_entry_extract_fn(entry, reader, target)?;
+                let Some(target) = staged_target(dest, entry.name()) else {
+                    std::io::copy(reader, &mut std::io::sink()).map_err(|e| sevenz_rust2::Error::Io(e, "skipping a refused entry".into()))?;
+                    if !entry.is_directory {
+                        job.set(|p| p.warnings.push(format!("unsafe 7z path refused: {}", entry.name())));
+                    }
+                    return Ok(true);
+                };
+                let wrote = sevenz_rust2::default_entry_extract_fn(entry, reader, &target)?;
                 if wrote && entry.has_stream && !entry.is_directory {
                     done += 1;
                     job.files_done.store(done, Ordering::Relaxed);
@@ -114,6 +121,11 @@ pub(super) fn unpack_archive(job: &Job, content: &Path, src: &Path, dest: &Path,
         return Err(anyhow!(Cancelled));
     }
     Ok(())
+}
+
+pub(super) fn staged_target(dest: &Path, name: &str) -> Option<PathBuf> {
+    let target = dest.join(safe_rel(name)?);
+    target.starts_with(dest).then_some(target)
 }
 
 pub(super) enum Source {

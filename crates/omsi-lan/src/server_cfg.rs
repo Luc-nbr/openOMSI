@@ -77,7 +77,8 @@ tunnel = 1
 radius = 0
 
 # players who say \"/admin <password>\" in the chat get the Administration menu (Esc):
-# send players away, bring them, the clock, its speed, the weather (empty: nobody)
+# send players away, bring them, the clock, its speed, the weather. The password needs at
+# least 8 characters; empty: nobody
 admin_password =
 
 # how fast the clock runs (1 = real time, 2 = twice as fast, up to 30)
@@ -155,7 +156,7 @@ impl ServerCfg {
             tunnel: flag("tunnel", true),
             radius: num("radius", 0) as i32,
             icon,
-            admin_password: kv.get("admin_password").cloned().unwrap_or_default(),
+            admin_password: admin_password(kv.get("admin_password").cloned().unwrap_or_default()),
             time_speed: kv.get("time_speed").and_then(|v| v.parse::<f64>().ok()).filter(|v| v.is_finite()).unwrap_or(1.0).clamp(1.0, 30.0),
             real_time: flag("real_time", false),
             metar_sync: flag("metar_sync", false),
@@ -165,6 +166,14 @@ impl ServerCfg {
             voice: crate::voice::VoiceServer::from_kv(|k| kv.get(k).cloned()),
         })
     }
+}
+
+fn admin_password(password: String) -> String {
+    if !password.is_empty() && password.chars().count() < crate::admin::MIN_PASSWORD {
+        log::warn!("server.cfg: admin_password has fewer than {} characters: nobody administers this server until it is longer", crate::admin::MIN_PASSWORD);
+        return String::new();
+    }
+    password
 }
 
 /// The buses a dedicated server allows (`vehicles`; empty: every bus it has).
@@ -226,7 +235,14 @@ pub fn player_info<'a>(q: &omsi_net::Pose, pose_of: impl Fn(u32) -> Option<&'a o
 
 #[cfg(test)]
 mod vehicles_tests {
-    use super::allows;
+    use super::{admin_password, allows};
+
+    #[test]
+    fn a_short_admin_password_leaves_the_administration_off() {
+        assert_eq!(admin_password("1234".into()), "");
+        assert_eq!(admin_password(String::new()), "");
+        assert_eq!(admin_password("eight888".into()), "eight888");
+    }
 
     #[test]
     fn the_list_allows_its_buses_only() {

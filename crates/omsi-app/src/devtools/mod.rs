@@ -27,7 +27,7 @@ use std::time::Instant;
 use glam::Vec2;
 use winit::keyboard::KeyCode;
 
-use crate::launcher::ui::Key;
+use omsi_ui::kit::Key;
 use crate::App;
 
 pub(crate) use reload::Kind;
@@ -243,7 +243,8 @@ impl App {
     pub(crate) fn devtools_key(&mut self, code: KeyCode, pressed: bool, repeat: bool) -> bool {
         let ctrl = self.input.keys.contains(&KeyCode::ControlLeft) || self.input.keys.contains(&KeyCode::ControlRight);
         let shift = self.input.keys.contains(&KeyCode::ShiftLeft) || self.input.keys.contains(&KeyCode::ShiftRight);
-        if pressed && !repeat && code == KeyCode::KeyD && ctrl && shift {
+        // (not where the player bound Ctrl+Shift+D to something, #2478)
+        if pressed && !repeat && code == KeyCode::KeyD && ctrl && shift && !self.chord_bound(code, shift, ctrl, false) {
             self.toggle_devtools();
             return true;
         }
@@ -316,6 +317,12 @@ impl App {
     /// The developer tools' frame: their files looked at, the overlays and the panel drawn
     /// over the picture (in place of the pause menu's screens, which are closed).
     pub(crate) fn frame_devtools(&mut self, dt: f32) {
+        let sim = self.player_to_drawn_pose();
+        self.devtools_now(dt);
+        self.player_back_to_sim_pose(sim);
+    }
+
+    fn devtools_now(&mut self, dt: f32) {
         let Some(s) = self.gfx.surface.as_ref() else { return };
         let (w, h) = (s.config.width as f32, s.config.height as f32);
         let dpi = self.window.as_ref().map(|w| w.scale_factor() as f32).unwrap_or(1.0);

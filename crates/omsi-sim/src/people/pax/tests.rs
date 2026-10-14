@@ -473,3 +473,34 @@ pub fn routes_follow_the_link_order_and_one_way_links() {
     assert_eq!(next(1, 0), Some(0));
     assert_eq!(next(1, 2), Some(2));
 }
+
+/// A British depot file's row names the route in front of the destination (`402 Apsley
+/// Station`, `B2 Apsley Station`): the people waiting for Apsley Station take the bus, and
+/// at Apsley Station it empties. A name that only begins the same stays another.
+#[test]
+fn a_route_in_front_of_the_terminus_is_not_part_of_its_name() {
+    let here = test_stop("Market", "");
+    let termini: HashSet<String> = ["Apsley Station".to_string()].into_iter().collect();
+    for shown in ["402 Apsley Station", "B2 Apsley Station", "Apsley Station"] {
+        assert_eq!(fit(1, &here, None, &termini, shown, &Takes::Terminus), Some(Fit::Terminus), "{shown}");
+        assert_eq!(at_stop(2, &test_stop("Apsley Station", ""), Some(shown), &Takes::Terminus), AtStop::Empties, "{shown}");
+    }
+    for shown in ["402 Apsley Bus Station", "Via Apsley Station", "402"] {
+        assert_eq!(fit(1, &here, None, &termini, shown, &Takes::Terminus), None, "{shown}");
+        assert_ne!(at_stop(2, &test_stop("Apsley Station", ""), Some(shown), &Takes::Terminus), AtStop::Empties, "{shown}");
+    }
+}
+
+#[test]
+fn the_other_platform_of_the_stop_keeps_the_request_point() {
+    let stop = request_stop();
+    let mut rider = Pax::new(1.1, 0.5);
+    rider.dest = Some(stop.name.clone());
+    assert!(!rider.wants_stop_at(&stop, DVec3::Y * 1000.0, true));
+    let point = rider.stop_request_at.unwrap().1;
+    // nearer now, the bus takes the stop's other object (same name) for the next stop
+    let other = RequestStop { id: 43, pos: stop.pos + DVec3::X * 20.0, ..stop.clone() };
+    assert!(!rider.wants_stop_at(&other, DVec3::Y * (point + 10.0), true));
+    assert_eq!(rider.stop_request_at, Some((43, point)));
+    assert!(rider.wants_stop_at(&other, DVec3::Y * (point - 10.0), true));
+}

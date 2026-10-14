@@ -35,6 +35,7 @@
 //! (`omsi_cfg::mark_sandbox`).
 
 mod channel;
+mod paced;
 mod store;
 
 use channel::{SecureReader, SecureWriter};
@@ -412,7 +413,7 @@ fn collect(args: &ModSource) -> (Manifest, Vec<PathBuf>) {
 }
 
 /// Serve the session's mods on TCP `port` (a thread; the list is made in the background).
-pub fn serve(port: u16, session: u64, args: &ModSource) {
+pub fn serve(port: u16, key: Arc<omsi_net::hostkey::HostKey>, args: &ModSource) {
     if omsi_cfg::flags::OMSI_NO_LAN_MODS.is_set() {
         return;
     }
@@ -448,10 +449,10 @@ pub fn serve(port: u16, session: u64, args: &ModSource) {
                     continue;
                 }
                 open.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                let (ready, held) = (ready.clone(), open.clone());
+                let (ready, held, key) = (ready.clone(), open.clone(), key.clone());
                 let spawned = std::thread::Builder::new().name("lan-mods-conn".into()).spawn(move || {
                     let peer = stream.peer_addr().ok();
-                    if let Err(e) = handle(stream, session, &ready) {
+                    if let Err(e) = handle(stream, &key, &ready) {
                         log::info!("LAN mods: connection from {peer:?} ended: {e}");
                     }
                     held.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
@@ -468,17 +469,23 @@ pub fn serve(port: u16, session: u64, args: &ModSource) {
 const MAX_CONNECTIONS: usize = 16;
 /// The longest request line (they are a few words).
 const MAX_LINE: u64 = 256;
+const MAX_REPLY: u64 = 4096;
 
 /// One line of at most `MAX_LINE` bytes (a longer one ends the connection).
 fn read_line_limited(input: &mut impl BufRead, line: &mut String) -> std::io::Result<usize> {
-    let n = input.by_ref().take(MAX_LINE).read_line(line)?;
-    if n as u64 >= MAX_LINE && !line.ends_with('\n') {
-        return Err(std::io::Error::other("request line too long"));
+    read_line_within(input, line, MAX_LINE)
+}
+
+fn read_line_within(input: &mut impl BufRead, line: &mut String, max: u64) -> std::io::Result<usize> {
+    let n = input.by_ref().take(max).read_line(line)?;
+    if n as u64 >= max && !line.ends_with('\n') {
+        return Err(std::io::Error::other("line too long"));
     }
     Ok(n)
 }
 
-fn handle(stream: TcpStream, session: u64, ready: &Mutex<Option<Arc<(Manifest, Vec<PathBuf>)>>>) -> std::io::Result<()> {
+fn handle(stream: TcpStream, key: &omsi_net::hostkey::HostKey, ready: &Mutex<Option<Arc<(Manifest, Vec<PathBuf>)>>>) -> std::io::Result<()> {
+    let session = key.session();
     stream.set_read_timeout(Some(Duration::from_secs(120)))?;
     stream.set_nodelay(true).ok();
     let mut out = stream.try_clone()?;
@@ -487,7 +494,7 @@ fn handle(stream: TcpStream, session: u64, ready: &Mutex<Option<Arc<(Manifest, V
     read_line_limited(&mut input, &mut line)?;
     let hello: Vec<&str> = line.split_whitespace().collect();
     // (a game of the unencrypted protocol is told why it gets nothing)
-    if hello.first() == Some(&channel::OLD_MAGIC) {
+    if hello.first().is_some_and(|m| channel::is_old(m)) {
         writeln!(out, "{}", channel::OLD_PEER)?;
         return Ok(());
     }
@@ -509,7 +516,7 @@ fn handle(stream: TcpStream, session: u64, ready: &Mutex<Option<Arc<(Manifest, V
     };
     let (manifest, sources) = (&data.0, &data.1);
     let keys = channel::Handshake::new()?;
-    writeln!(out, "OK {}", keys.public_hex())?;
+    writeln!(out, "OK {} {}", keys.public_hex(), channel::prove(key, hello[2], &keys.public_hex()))?;
     let (send, receive) = keys.finish(session, false, hello[2])?;
     let mut out = SecureWriter::new(out, send);
     let mut input = SecureReader::new(input, receive);
@@ -650,7 +657,7 @@ pub struct Report {
 
 fn read_reply(input: &mut impl BufRead) -> Result<Option<u64>, String> {
     let mut line = String::new();
-    input.read_line(&mut line).map_err(|e| e.to_string())?;
+    read_line_within(input, &mut line, MAX_REPLY).map_err(|e| e.to_string())?;
     let t = line.trim();
     if let Some(rest) = t.strip_prefix("OK") {
         let rest = rest.trim();
@@ -684,7 +691,7 @@ fn save_hash_cache(c: &HashCache) {
 /// first content root; the host's map becomes ours. `progress` is told (done, total bytes).
 /// A connection to the host's mods, greeted and its keys agreed: the socket (to shut it
 /// down), and the encrypted halves.
-type Connection = (TcpStream, SecureWriter<TcpStream>, SecureReader<BufReader<TcpStream>>);
+type Connection = (TcpStream, SecureWriter<TcpStream>, SecureReader<BufReader<paced::Paced<TcpStream>>>);
 
 /// A connection to the host's mods, greeted.
 fn open(host: SocketAddr, session: u64) -> Result<Connection, String> {
@@ -696,11 +703,11 @@ fn open(host: SocketAddr, session: u64) -> Result<Connection, String> {
     stream.set_nodelay(true).ok();
     let raw = stream.try_clone().map_err(|e| e.to_string())?;
     let mut out = stream.try_clone().map_err(|e| e.to_string())?;
-    let mut input = BufReader::with_capacity(1 << 20, stream);
+    let mut input = BufReader::with_capacity(1 << 20, paced::Paced::greeting(stream));
     let keys = channel::Handshake::new().map_err(|e| e.to_string())?;
     writeln!(out, "{} {} {}", channel::MAGIC, omsi_net::session_hex(session), keys.public_hex()).map_err(|e| e.to_string())?;
     let mut line = String::new();
-    input.read_line(&mut line).map_err(|e| e.to_string())?;
+    read_line_within(&mut input, &mut line, MAX_REPLY).map_err(|e| e.to_string())?;
     let t = line.trim();
     let Some(host_key) = t.strip_prefix("OK ") else {
         let said = t.strip_prefix("ERR").unwrap_or(t).trim();
@@ -710,9 +717,17 @@ fn open(host: SocketAddr, session: u64) -> Result<Connection, String> {
         }
         return Err(format!("the host says: {said}"));
     };
-    let (send, receive) = keys.finish(session, true, host_key.trim()).map_err(|e| e.to_string())?;
+    let proof: Vec<&str> = host_key.split_whitespace().collect();
+    let [host_key, public, sig] = proof[..] else {
+        return Err("the host's openOMSI is older: both need the same version".into());
+    };
+    if !channel::proven(session, &keys.public_hex(), host_key, public, sig) {
+        return Err("the host could not prove it runs this session: its mods are not taken".into());
+    }
+    let (send, receive) = keys.finish(session, true, host_key).map_err(|e| e.to_string())?;
     // (then a stalled transfer ends the attempt instead of holding the game's start for ever)
-    input.get_ref().set_read_timeout(Some(Duration::from_secs(25))).ok();
+    input.get_ref().get_ref().set_read_timeout(Some(Duration::from_secs(25))).ok();
+    input.get_mut().pace();
     Ok((raw, SecureWriter::new(out, send), SecureReader::new(input, receive)))
 }
 
@@ -955,7 +970,9 @@ mod tests {
     }
 
     /// A host serving `files` (relative path, contents) on a local port: its address.
-    fn serve_files(session: u64, files: &[(&str, Vec<u8>)]) -> (SocketAddr, PathBuf) {
+    fn serve_files(files: &[(&str, Vec<u8>)]) -> (SocketAddr, PathBuf, u64) {
+        let key = Arc::new(omsi_net::hostkey::HostKey::generate().unwrap());
+        let session = key.session();
         let dir = std::env::temp_dir().join(format!("openomsi-lan-serve-{}-{session:x}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let mut entries = Vec::new();
@@ -971,18 +988,18 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
-                let ready = ready.clone();
-                std::thread::spawn(move || handle(stream, session, &ready));
+                let (ready, key) = (ready.clone(), key.clone());
+                std::thread::spawn(move || handle(stream, &key, &ready));
             }
         });
-        (addr, dir)
+        (addr, dir, session)
     }
 
     #[test]
     fn mods_go_encrypted_over_tcp() {
         let marker = b"[name]\nPLAINTEXT-MARKER-wire\n".repeat(5000);
         let small = b"[mesh]\nPLAINTEXT-MARKER-two\n".to_vec();
-        let (addr, dir) = serve_files(0x5e55, &[("maps/M/global.cfg", marker.clone()), ("maps/M/x.sco", small.clone())]);
+        let (addr, dir, session) = serve_files(&[("maps/M/global.cfg", marker.clone()), ("maps/M/x.sco", small.clone())]);
         // what goes over the wire: a relay in between records it
         let relay = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let relay_addr = relay.local_addr().unwrap();
@@ -1005,7 +1022,7 @@ mod tests {
                 let _ = c.shutdown(std::net::Shutdown::Both);
             });
         }
-        let (raw, mut out, mut input) = open(relay_addr, 0x5e55).unwrap();
+        let (raw, mut out, mut input) = open(relay_addr, session).unwrap();
         out.write_all(b"LIST\nGET 0\nGET 1\nGET 7\nGET ../../etc/passwd\nGET maps/M/global.cfg\nBYE\n").unwrap();
         out.flush().unwrap();
         let len = read_reply(&mut input).unwrap().unwrap();
@@ -1031,18 +1048,20 @@ mod tests {
         assert!(!wire.windows(16).any(|w| w == b"PLAINTEXT-MARKER"), "plain text on the wire");
         assert!(!wire.windows(10).any(|w| w == b"global.cfg"), "a file name on the wire");
         // another session's id gets nothing
-        assert!(open(addr, 0x5e56).err().unwrap().contains("not this session"));
+        assert!(open(addr, session ^ 1).err().unwrap().contains("not this session"));
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn an_old_peer_is_refused_clearly() {
         // a game of the old protocol, at a new host
-        let (addr, dir) = serve_files(0x01d, &[("maps/M/global.cfg", b"x".to_vec())]);
-        let mut s = TcpStream::connect(addr).unwrap();
-        s.write_all(format!("OMSIMODS/1 {}\n", omsi_net::session_hex(0x01d)).as_bytes()).unwrap();
-        let reply = read_reply(&mut BufReader::new(s)).unwrap_err();
-        assert!(reply.contains("update openOMSI"), "{reply}");
+        let (addr, dir, session) = serve_files(&[("maps/M/global.cfg", b"x".to_vec())]);
+        for magic in ["OMSIMODS/1", "OMSIMODS/2"] {
+            let mut s = TcpStream::connect(addr).unwrap();
+            s.write_all(format!("{magic} {} {}\n", omsi_net::session_hex(session), "00".repeat(32)).as_bytes()).unwrap();
+            let reply = read_reply(&mut BufReader::new(s)).unwrap_err();
+            assert!(reply.contains("update openOMSI"), "{reply}");
+        }
         std::fs::remove_dir_all(&dir).ok();
         // a host of the old protocol answers this one's greeting as it answered any other
         let old = TcpListener::bind(("127.0.0.1", 0)).unwrap();
@@ -1055,6 +1074,46 @@ mod tests {
         });
         let err = open(old_addr, 0x01d).err().unwrap();
         assert!(err.contains("older") && err.contains("same version"), "{err}");
+    }
+
+    #[test]
+    fn a_mods_server_without_the_session_key_is_refused() {
+        let real = omsi_net::hostkey::HostKey::generate().unwrap();
+        let impostor = omsi_net::hostkey::HostKey::generate().unwrap();
+        let session = real.session();
+        let fake = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let fake_addr = fake.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for i in 0..2 {
+                let (s, _) = fake.accept().unwrap();
+                let mut line = String::new();
+                BufReader::new(s.try_clone().unwrap()).read_line(&mut line).unwrap();
+                let client = line.split_whitespace().nth(2).unwrap_or("").to_string();
+                let keys = channel::Handshake::new().unwrap();
+                let host = keys.public_hex();
+                let reply = if i == 0 { channel::prove(&impostor, &client, &host) } else { format!("{} {}", omsi_net::hostkey::hex(real.public()), "00".repeat(64)) };
+                let _ = (&s).write_all(format!("OK {host} {reply}\n").as_bytes());
+            }
+        });
+        for _ in 0..2 {
+            let err = open(fake_addr, session).err().unwrap();
+            assert!(err.contains("could not prove"), "{err}");
+        }
+    }
+
+    #[test]
+    fn a_host_that_never_ends_a_line_is_given_up() {
+        assert!(read_reply(&mut std::io::Cursor::new(vec![b'A'; 1 << 20])).unwrap_err().contains("too long"));
+        let host = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let addr = host.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let (mut s, _) = host.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(s.try_clone().unwrap()).read_line(&mut line).unwrap();
+            let _ = s.write_all(&[b'A'; 64 * 1024]);
+            std::thread::sleep(Duration::from_secs(2));
+        });
+        assert!(open(addr, 0x5e57).err().unwrap().contains("too long"));
     }
 
     #[test]

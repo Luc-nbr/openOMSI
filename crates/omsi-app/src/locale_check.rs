@@ -335,12 +335,13 @@ fn push(out: &mut Vec<Literal>, text: String, line: usize, stack: &[Frame], in_t
     out.push(Literal { text, line, call });
 }
 
-/// The `.rs` files of the interface, as (path under `src` with `/`, file). The launcher is the
-/// crate omsi-launcher-ui (beside this one): all of its files are read, named `launcher/...`
-/// as when they were this crate's.
+/// The `.rs` files of the interface, as (path under `src` with `/`, file). What is left of
+/// Omsi-Hub's launcher in the game program is the crate omsihub-game (beside this one: the
+/// livery studio, the line editor, the duty board ...): all of its files are read, named
+/// `launcher/...` as when they were this crate's.
 fn sources() -> Vec<(String, PathBuf)> {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let launcher = Path::new(env!("CARGO_MANIFEST_DIR")).join("../omsi-launcher-ui/src");
+    let launcher = Path::new(env!("CARGO_MANIFEST_DIR")).join("../omsihub-game/src");
     let mut out = Vec::new();
     let mut todo: Vec<(PathBuf, &Path, &str)> = SCOPE.iter().map(|s| src.join(s)).filter(|p| p.exists()).map(|p| (p, src.as_path(), "")).collect();
     todo.push((launcher.clone(), launcher.as_path(), "launcher/"));

@@ -20,6 +20,7 @@ import { Welcome, welcomeAtStart } from './welcome.js';
 import { TourOverlay } from './tour.js';
 // (Omsi-Hub 6/6: the updates, as the game-drawn launcher offers them)
 import { useUpdates, UpdateDialog, UpdatedNotice } from './update.js';
+import { GameEndDialogs } from '../crash.js';
 
 /** Our look is the desktop window's (not the phone's, nor `?phone` in a browser). */
 export const HUB = !onPhone && !new URLSearchParams(location.search).has('phone');
@@ -34,9 +35,9 @@ export const ABOUT = {
   multiplayer: ['groups', 'Multiplayer', 'Drive with friends by a code, or on servers that are always on.'],
   profile: ['badge', 'Service record', 'Everything the logbook kept, from the first duty to the last.'],
   mods: ['extension', 'Mods', 'A bus, a map, scenery, a whole OMSI folder - as a folder or a .zip, .7z or .rar. The original OMSI 2 folder is never written to.'],
+  modeltest: ['check', 'Model test', 'A bus loaded as the game loads it: every warning of its files, models and scripts, and the textures that are missing.'],
   settings: ['settings', 'Settings', 'Every change is saved at once; the game reads them when it starts.'],
   controls: ['keyboard', 'Controls', 'Click a key and press the new one (hold Shift, Ctrl or Alt for a combination); Escape leaves it as it is.'],
-  pads: ['sports_esports', 'Controls', "What each axis and button of a wheel, pedals or joystick does - OMSI 2's gamectrler.cfg, kept in the content folder."],
   games: ['sports_esports', 'Sessions', 'The games you started, and who drives with you.'],
   tutorials: ['help', 'Tutorials', "OMSI 2's own lessons: each opens its situation, with its pages beside the picture (Enter turns the page)."],
   setup: ['folder_open', 'Setup', 'Where the original game and this one are.'],
@@ -114,8 +115,9 @@ export function HubShell({ pages, Toasts }) {
       .then(welcomeAtStart);
   }, []);
   useUpdates();
-  // (the update's dialog and its notice over whatever is drawn, as the game-drawn launcher's)
-  const updates = html`<${UpdateDialog} /><${UpdatedNotice} />`;
+  // (the update's dialog and its notice over whatever is drawn, and upstream's word on a game
+  // that ended on an error)
+  const updates = html`<${UpdateDialog} /><${UpdatedNotice} /><${GameEndDialogs} />`;
   // the welcome: in place of the page while it is open (phase 3, `welcome.js`)
   if (s.hubWelcome?.open) return html`<div class="hub-stage" style=${`--hub-scale:${scale()}`}><${Welcome} />${updates}<${Toasts} /></div>`;
   // the bus company: the whole window its own (its own bar)
@@ -141,8 +143,7 @@ export function HubShell({ pages, Toasts }) {
  * what, the way back in its corner; the page's own head keeps only what it has in its corner
  * (the Controls page's switch). */
 function PageSheet({ id, label, Page }) {
-  // (Omsi-Hub 6/6: the Controls page's game controllers have a head of their own, `pads.js`)
-  const [icon, title, sub] = id === 'controls' && S.hubPads ? ABOUT.pads : ABOUT[id] || ['info', label, ''];
+  const [icon, title, sub] = ABOUT[id] || ['info', label, ''];
   return html`<section class="hub-sheet page" key=${id}>
     <${Head} icon=${icon} title=${title} sub=${tr(sub)}
       tools=${html`<button type="button" class="hub-btn hub-page-back" onClick=${() => go('drive')}><${Icon} name="chevron_left" size=${18} />${tr('Back')}</button>`} />

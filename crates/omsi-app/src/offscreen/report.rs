@@ -10,6 +10,7 @@ impl Offscreen<'_> {
         let Self {
             ref mut traffic,
             ref world,
+            ref mut scenery,
             ref renderer,
             ref mut scene,
             ref mut sim_view,
@@ -17,7 +18,7 @@ impl Offscreen<'_> {
             ..
         } = *self;
         if let Some(t) = traffic.as_mut() {
-            view_sync::sync(ViewSync::traffic(t), sim_view, world, renderer, scene);
+            view_sync::sync(ViewSync::traffic(t, scenery), sim_view, world, renderer, scene);
             let buses = t
                 .cars
                 .iter()
@@ -346,6 +347,9 @@ impl Offscreen<'_> {
             ref camera,
             ref renderer,
             ref mut scene,
+            ref world,
+            ref mut humans_off,
+            ref mut sim_view,
             ..
         } = *self;
         let v: Vec<f32> = spec
@@ -388,6 +392,27 @@ impl Offscreen<'_> {
             }
             // where the clickable switches actually are on this screen
             let vp = cam.view_proj(w as f32 / h as f32, player.vehicle.position);
+            // the tear-off ticket blocks, aimed at as the window's click does (#2399)
+            if let Some(hm) = humans_off.as_mut() {
+                if sim_view.people.ticket_blocks.is_none() {
+                    hm.sync_money(&mut sim_view.people, world, renderer, scene, &player.vehicle);
+                }
+            }
+            if let Some(b) = sim_view.people.ticket_blocks.as_ref() {
+                if let Some(n) = b.hit(o, d, &player.vehicle) {
+                    log::info!("click at ({}, {}) tears a ticket off block {n}", v[0], v[1]);
+                }
+                for (n, c) in b.centres(&player.vehicle) {
+                    let ndc = vp.project_point3(c);
+                    if ndc.z < 0.0 || ndc.z > 1.0 || ndc.x.abs() > 1.0 || ndc.y.abs() > 1.0 {
+                        log::info!("  ticket block {n}: off screen");
+                        continue;
+                    }
+                    let (sx, sy) = ((ndc.x * 0.5 + 0.5) * w as f32, (0.5 - ndc.y * 0.5) * h as f32);
+                    let (o2, d2) = cursor_ray(&cam, sx, sy, w as f32, h as f32);
+                    log::info!("  ticket block {n} at screen ({sx:.0}, {sy:.0}): aiming there hits block {:?}", b.hit(o2, d2, &player.vehicle));
+                }
+            }
             let mut switches: Vec<(String, f32, f32)> = Vec::new();
             {
                 let (mut total, mut invisible, mut offscreen) = (0, 0, 0);
@@ -559,7 +584,7 @@ impl Offscreen<'_> {
                     p.vehicle.physics.velocity_kmh()
                 );
                 if omsi_cfg::flags::OMSI_DEBUG_HUMANS.is_set() {
-                    for (id, pos, rot, name) in world.bus_stops.lock().iter() {
+                    for (id, pos, rot, name) in world.data.peek().lists.bus_stops.iter() {
                         log::info!(
                             "  bus stop {id} '{name}' at ({:.1}, {:.1}) heading {rot:.0}",
                             pos.x,
@@ -567,7 +592,7 @@ impl Offscreen<'_> {
                         );
                     }
                 }
-                if let Some((id, pos, _, name)) = world.bus_stops.lock().iter().min_by(|a, b| (a.1 - p.vehicle.position).length().total_cmp(&(b.1 - p.vehicle.position).length())) {
+                if let Some((id, pos, _, name)) = world.data.peek().lists.bus_stops.iter().min_by(|a, b| (a.1 - p.vehicle.position).length().total_cmp(&(b.1 - p.vehicle.position).length())) {
                     log::info!(
                         "nearest bus stop {id} '{name}' at ({:.1}, {:.1}) is {:.1} m away",
                         pos.x,

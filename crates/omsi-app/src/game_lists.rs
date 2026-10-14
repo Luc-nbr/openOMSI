@@ -39,6 +39,8 @@ pub(crate) enum ListKind {
     Tours(String, Option<(String, usize, usize)>),
     Drivers,
     Numbers,
+    /// The vehicles placed in the world, to take the wheel of one of them (#2026).
+    SwitchTo,
     /// The termini of the bus's depot file, for its destination display.
     Destinations,
     /// The route numbers (lines) for the destination display: the depot file's and the
@@ -213,6 +215,44 @@ fn bus_label(name: &str) -> String {
 }
 
 /// Numbers inside names sort as numbers (DL9 before DL10), case does not matter.
+/// The map's entry points by name, in the order Omsi.exe's list shows them: each name once
+/// with its places in global.cfg's order (an entry point without a name stands alone).
+fn spot_groups(points: &[omsi_map::global::EntryPoint]) -> Vec<(Option<String>, Vec<usize>)> {
+    let mut groups: Vec<(Option<String>, Vec<usize>)> = Vec::new();
+    for (i, e) in points.iter().enumerate() {
+        let name = e.name.trim();
+        if name.is_empty() {
+            groups.push((None, vec![i]));
+        } else if let Some(g) = groups.iter_mut().find(|g| g.0.as_deref().is_some_and(|n| n.to_lowercase() == name.to_lowercase())) {
+            g.1.push(i);
+        } else {
+            groups.push((Some(name.to_string()), vec![i]));
+        }
+    }
+    // (the nameless ones after the names, in their own order)
+    groups.sort_by(|a, b| match (&a.0, &b.0) {
+        (Some(x), Some(y)) => omsi_cfg::collate::windows_cmp(x, y),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => a.1[0].cmp(&b.1[0]),
+    });
+    groups
+}
+
+/// Does a vehicle stand on entry point `ep`: the player's own bus, an AI vehicle or a LAN
+/// player's (the bus put down there, with half a metre to spare, would touch it)?
+fn spot_taken(app: &App, w: &omsi_scene::World, ep: &omsi_map::global::EntryPoint) -> bool {
+    use omsi_sim::collision::Obb;
+    let (Some(p), Some((pos, rot))) = (app.player.as_ref(), w.entry_point_place(ep)) else {
+        return false;
+    };
+    let def = &p.vehicle.ty.def;
+    let mut body = Obb::from_box(def.bounding_box.unwrap_or(omsi_sim::ai_traffic::model::DEFAULT_BOX), pos, omsi_sim::vehicle::body_heading(def, rot[0], false));
+    body.half += glam::DVec2::splat(0.5);
+    omsi_sim::ai_traffic::model::vehicle_bodies(&p.vehicle).iter().any(|o| body.overlaps(o))
+        || app.session.traffic.as_ref().is_some_and(|t| t.touches(&[body], pos))
+}
+
 fn bus_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     use std::cmp::Ordering;
     let (a, b) = (a.to_lowercase(), b.to_lowercase());
@@ -270,6 +310,24 @@ fn liveries(def: &omsi_vehicle::Vehicle) -> Vec<String> {
     names
 }
 
+/// A seed that differs from call to call (the random livery).
+fn fresh_seed() -> u64 {
+    use std::hash::{BuildHasher, Hasher};
+    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+    h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0));
+    h.finish()
+}
+
+/// One of `items`, chosen by `seed` (None for none).
+fn pick_random<T>(items: &[T], seed: u64) -> Option<&T> {
+    // (splitmix64: neighbouring seeds land far apart)
+    let mut z = seed.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    z ^= z >> 31;
+    (!items.is_empty()).then(|| &items[(z % items.len() as u64) as usize])
+}
+
 /// A depot file's name for the lists: its `[name]`, and the file.
 fn hof_label(p: &std::path::Path) -> String {
     let file = p.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
@@ -315,9 +373,10 @@ fn keyboard_cfg(app: &App) -> omsi_content::KeyboardCfg {
 }
 
 fn write_keyboard_cfg(_app: &App, cfg: &omsi_content::KeyboardCfg) -> Result<(), String> {
-    let dir = crate::startup::content_dir().ok_or_else(|| "No writable openOMSI content folder was found".to_string())?.join("Inputs");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let path = dir.join("keyboard.cfg");
+    let path = omsi_cfg::own_input("keyboard.cfg").ok_or_else(|| "No home folder was found to keep the key bindings in".to_string())?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
     let tmp = path.with_extension("cfg.tmp");
     cfg.save(&tmp).map_err(|e| e.to_string())?;
     omsi_content::KeyboardCfg::load(&tmp).map_err(|e| e.to_string())?;
@@ -538,10 +597,13 @@ pub(crate) fn items(app: &App, kind: &ListKind) -> Vec<(String, String)> {
         }
         ListKind::Spots => {
             if let Some(w) = app.world.as_ref() {
-                // (the map's entry points, as the launcher's "Start at" lists them)
-                for (i, e) in w.global.entry_points.iter().enumerate() {
-                    let label = if e.name.trim().is_empty() { format!("{} {}", tr("entry"), e.index + 1) } else { e.name.trim().to_string() };
-                    out.push((label, format!("spot {i}")));
+                // (the map's entry points as OMSI's list shows them: a name once, in its
+                // order, and left out where every place of it is taken)
+                for (name, places) in spot_groups(&w.global.entry_points) {
+                    if places.iter().any(|&i| !spot_taken(app, w, &w.global.entry_points[i])) {
+                        let label = name.unwrap_or_else(|| format!("{} {}", tr("entry"), w.global.entry_points[places[0]].index + 1));
+                        out.push((label, format!("spot {}", places[0])));
+                    }
                 }
             }
             if out.is_empty() {
@@ -613,6 +675,32 @@ pub(crate) fn items(app: &App, kind: &ListKind) -> Vec<(String, String)> {
                 for (label, name) in files {
                     out.push((label, format!("placehof {name}")));
                 }
+            }
+        }
+        ListKind::SwitchTo => {
+            // (the nearest first; the line's action is its place in `placed`)
+            let here = app.player.as_ref().map(|p| p.vehicle.position).or_else(|| app.camera.as_ref().map(|c| c.position));
+            let mut rows: Vec<(f64, String, String)> = app
+                .session
+                .placed
+                .iter()
+                .enumerate()
+                .map(|(k, q)| {
+                    let def = &q.vehicle.ty.def;
+                    let name = format!("{} {}", def.manufacturer.trim(), def.type_name.trim()).trim().to_string();
+                    let number = q.vehicle.ty.program.str_var("number").and_then(|i| q.vehicle.state.str_vars.get(i as usize)).map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
+                    let dist = here.map(|h| (q.vehicle.position - h).truncate().length()).unwrap_or(0.0);
+                    let label = match number {
+                        Some(n) => format!("{name}  |  {n}  |  {}", crate::units::Units::now().distance(dist)),
+                        None => format!("{name}  |  {}", crate::units::Units::now().distance(dist)),
+                    };
+                    (dist, label, format!("switchto {k}"))
+                })
+                .collect();
+            rows.sort_by(|a, b| a.0.total_cmp(&b.0));
+            out.extend(rows.into_iter().map(|(_, l, a)| (l, a)));
+            if out.is_empty() {
+                out.push((tr("There is no other vehicle to drive"), "back".into()));
             }
         }
         ListKind::Numbers => {
@@ -749,6 +837,7 @@ pub(crate) fn menu_extras(
         }
         ListKind::Drivers => (MenuKind::List, head("Driver..."), None),
         ListKind::Numbers => (MenuKind::List, head("Fleet number..."), None),
+        ListKind::SwitchTo => (MenuKind::List, head("Drive another vehicle..."), None),
         ListKind::Destinations => (MenuKind::List, head("Destination display..."), None),
         ListKind::RouteNumbers => (MenuKind::List, Some((tr("Route number"), String::new())), None),
         ListKind::Hofs => (MenuKind::List, head("Depot file (HOF)..."), None),
@@ -953,10 +1042,14 @@ pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -
                 return None;
             }
             let found = app.world.clone().and_then(|w| {
-                let ep = arg.trim().parse::<usize>().ok().and_then(|i| w.global.entry_points.get(i))?;
+                let first = arg.trim().parse::<usize>().ok().filter(|&i| i < w.global.entry_points.len())?;
                 // (the entry points of tiles that are not loaded come from the map index)
                 w.index();
-                w.entry_point_place(ep).map(|(pos, rot)| (pos, rot[0]))
+                // the first place of that name nobody stands on, in global.cfg's order: as
+                // in OMSI, choosing the name again moves the bus on to the next one
+                let (_, places) = spot_groups(&w.global.entry_points).into_iter().find(|(_, p)| p.contains(&first))?;
+                let free = places.iter().copied().find(|&i| !spot_taken(app, &w, &w.global.entry_points[i])).unwrap_or(first);
+                w.entry_point_place(&w.global.entry_points[free]).map(|(pos, rot)| (pos, rot[0]))
             });
             match found {
                 Some((pos, heading)) => {
@@ -972,7 +1065,13 @@ pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -
         ListKind::PlaceMaker | ListKind::PlaceType(_) => Some(ListKind::PlaceLivery(arg.to_string())),
         ListKind::PlaceLivery(bus) => Some(ListKind::PlaceHof(bus.clone(), arg.to_string())),
         ListKind::PlaceHof(bus, paint) => {
-            let (bus, paint, hof) = (bus.clone(), paint.clone(), arg.trim().to_string());
+            let (bus, mut paint, hof) = (bus.clone(), paint.clone(), arg.trim().to_string());
+            // "Random livery": one of the bus's liveries, drawn now (#2410: no livery asked
+            // for gave the model's own textures every time)
+            if paint.trim().is_empty() {
+                let names = bus_def(app, &bus).map(|d| liveries(&d)).unwrap_or_default();
+                paint = pick_random(&names, fresh_seed()).cloned().unwrap_or_default();
+            }
             app.close_game_menu();
             app.place_vehicle(&bus, Some(paint).filter(|p| !p.is_empty()), Some(hof).filter(|h| !h.is_empty()));
             None
@@ -1010,6 +1109,13 @@ pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -
             }
             None
         }
+        ListKind::SwitchTo => {
+            if let Ok(k) = arg.trim().parse::<usize>() {
+                app.close_game_menu();
+                app.switch_vehicle_to(k);
+            }
+            None
+        }
         ListKind::Numbers => {
             if let (Some((n, reg)), Some(p)) = (arg.split_once('\u{1}'), app.player.as_mut()) {
                 let v = &mut p.vehicle;
@@ -1042,6 +1148,32 @@ pub(crate) use duty::*;
 
 #[cfg(test)]
 mod tests {
+    /// "Random livery" draws among all liveries (#2410: it always gave the same one).
+    #[test]
+    fn random_livery_reaches_every_livery() {
+        let names = ["A", "B", "C", "D"];
+        let mut seen = std::collections::HashSet::new();
+        for seed in 0..64u64 {
+            seen.insert(*super::pick_random(&names, seed).unwrap());
+        }
+        assert_eq!(seen.len(), 4);
+        assert!(super::pick_random::<&str>(&[], 7).is_none());
+        assert_ne!(super::fresh_seed(), super::fresh_seed());
+    }
+
+    /// The start points as OMSI lists them: a name once (Gerolstein's ten depot places of
+    /// one name are one line), its places in global.cfg's order, the names in OMSI's order.
+    #[test]
+    fn start_points_are_grouped_by_name_in_omsis_order() {
+        let ep = |name: &str| omsi_map::global::EntryPoint { name: name.into(), ..Default::default() };
+        let points = [ep("beta"), ep("Nordspitze Bauernhof"), ep("Äpfel"), ep(""), ep("nordspitze bauernhof"), ep("ab"), ep("Nordspitze Bauernhof")];
+        let groups = super::spot_groups(&points);
+        let names: Vec<Option<&str>> = groups.iter().map(|g| g.0.as_deref()).collect();
+        assert_eq!(names, [Some("ab"), Some("Äpfel"), Some("beta"), Some("Nordspitze Bauernhof"), None]);
+        assert_eq!(groups[3].1, [1, 4, 6]);
+        assert_eq!(groups[4].1, [3]);
+    }
+
     #[test]
     fn searches_model_and_hof_names_and_paths_without_losing_their_actions() {
         assert!(super::search_matches("Volvo BRT", "bus Vehicles/Pack/biarticulado.bus", "VOLVO biarticulado"));

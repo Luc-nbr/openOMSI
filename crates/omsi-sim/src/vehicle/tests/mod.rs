@@ -846,3 +846,41 @@ fn a_single_railcar_retrails_without_trailers() {
     v.retrail(1.0 / 30.0, &|d| Some(DVec3::new(0.0, -d, 0.0)));
     assert!(v.trailers.is_empty());
 }
+
+/// A paint scheme's folder gives only what its `.cti` names, each by its full name; a
+/// picture the folder has not got keeps its bare name and is found where the model's own
+/// textures are. The folder is no search path for the rest: with it first in line, a
+/// same-named file left there for another scheme (the IK-103's yellow sedista-diffuse.bmp
+/// beside the grey bars schemes) painted the details of every scheme of the folder.
+#[test]
+fn a_scheme_folder_supplies_only_what_its_cti_names() {
+    let dir = std::env::temp_dir().join(format!("omsi_vehicle_scheme_folder_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("yellow.bmp"), b"BM").unwrap();
+    let ty = VehicleType {
+        def: Default::default(),
+        model: omsi_model::Model { ctc_textures: vec![("Body".into(), "body.bmp".into()), ("Seats".into(), "sedista.bmp".into())], ..Default::default() },
+        model_dir: dir.clone(),
+        program: Arc::new(omsi_script::compile(&omsi_script::CompileInput::default())),
+        meshes: Vec::new(),
+        paint_schemes: vec![PaintScheme {
+            name: "Yellow".into(),
+            dir: dir.clone(),
+            textures: vec![("Body".into(), "yellow.bmp".into()), ("Seats".into(), "sedista-diffuse.bmp".into())],
+            set_vars: Vec::new(),
+        }],
+        texchanges: Vec::new(),
+        wheel_meshes: Vec::new(),
+        suspension_axles: Vec::new(),
+        missing_packs: Vec::new(),
+        mesh_bounds: Vec::new(),
+        mesh_boxes: Vec::new(),
+    };
+    let (map, folder) = ty.scheme_substitutions(0);
+    std::fs::remove_dir_all(&dir).ok();
+    assert_eq!(folder.as_deref(), Some(dir.as_path()));
+    let body = std::path::Path::new(&map["body.bmp"]);
+    assert_eq!(body.file_name().and_then(|n| n.to_str()), Some("yellow.bmp"), "a picture the folder has: its full name");
+    assert!(body.is_absolute(), "{}", map["body.bmp"]);
+    assert_eq!(map["sedista.bmp"], "sedista-diffuse.bmp", "a picture the folder has not got: the bare name, found with the model's textures");
+}

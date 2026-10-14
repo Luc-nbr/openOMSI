@@ -396,13 +396,9 @@ pub(crate) fn eta(dist: f64, speed: f32) -> f64 {
     dist / speed.max(5.0) as f64
 }
 
-/// A distance as the navigator says it: metres to the ten, kilometres to the tenth.
+/// A distance as the navigator says it, in the units chosen (`crate::units`).
 pub(crate) fn distance_text(d: f64) -> String {
-    if d >= 1000.0 {
-        format!("{:.1} km", d / 1000.0)
-    } else {
-        format!("{:.0} m", (d / 10.0).round() * 10.0)
-    }
+    crate::units::Units::now().distance(d)
 }
 
 /// A time to go as the navigator says it.

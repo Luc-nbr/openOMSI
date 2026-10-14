@@ -460,14 +460,22 @@ impl Node {
 
     /// Every entry index below this node.
     fn all(&self, out: &mut Vec<usize>) {
-        out.extend(self.files.iter().map(|f| f.1));
-        for d in self.dirs.values() {
-            d.all(out);
+        let mut stack = vec![self];
+        while let Some(n) = stack.pop() {
+            out.extend(n.files.iter().map(|f| f.1));
+            stack.extend(n.dirs.values().rev());
         }
     }
 
     fn has_ext_deep(&self, exts: &[&str]) -> bool {
-        self.files.iter().any(|(f, _)| has_ext(f, exts)) || self.dirs.values().any(|d| d.has_ext_deep(exts))
+        let mut stack = vec![self];
+        while let Some(n) = stack.pop() {
+            if n.files.iter().any(|(f, _)| has_ext(f, exts)) {
+                return true;
+            }
+            stack.extend(n.dirs.values());
+        }
+        false
     }
 }
 
@@ -482,7 +490,7 @@ fn has_ext(name: &str, exts: &[&str]) -> bool {
 /// turns into a way out once the separators are unified - which is why this runs after.
 fn safe_rel(name: &str) -> Option<String> {
     let name = name.replace('\\', "/");
-    if name.starts_with('/') || name.contains('\0') {
+    if name.starts_with('/') || name.contains('\0') || name.len() > MAX_REL_BYTES {
         return None;
     }
     let mut parts = Vec::new();
@@ -490,23 +498,40 @@ fn safe_rel(name: &str) -> Option<String> {
         match p {
             "" | "." => continue,
             ".." => return None,
-            p if p.contains(':') => return None,
+            p if p.contains(':') || p.ends_with(['.', ' ']) || windows_device(p) => return None,
             p => parts.push(p),
         }
     }
-    (!parts.is_empty()).then(|| parts.join("/"))
+    (!parts.is_empty() && parts.len() <= MAX_REL_DEPTH).then(|| parts.join("/"))
+}
+
+const MAX_REL_BYTES: usize = 1024;
+const MAX_REL_DEPTH: usize = 64;
+
+fn windows_device(part: &str) -> bool {
+    let stem = part.split('.').next().unwrap_or(part).trim_end_matches(' ').to_ascii_uppercase();
+    match stem.as_str() {
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$" => true,
+        s => (s.starts_with("COM") || s.starts_with("LPT")) && matches!(&s[3..], "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"),
+    }
 }
 
 /// An error unless `rel` is a `safe_rel` path: checked again right before anything is
 /// written, so that nothing lands outside its folder whatever the plan says.
-/// For `mods`: whether `rel` is a plain path inside the content folder.
-pub(crate) fn check_rel_pub(rel: &str) -> Result<()> {
-    check_rel(rel)
-}
-
 fn check_rel(rel: &str) -> Result<()> {
     if safe_rel(rel).as_deref() != Some(rel) {
         return Err(anyhow!("refused to write {rel:?}: it is not a plain path inside the mod"));
+    }
+    Ok(())
+}
+
+pub(crate) fn check_installed_rel(rel: &str) -> Result<()> {
+    let plain = !rel.is_empty()
+        && !rel.starts_with(['/', '\\'])
+        && !rel.contains('\0')
+        && rel.split(['/', '\\']).all(|p| !p.is_empty() && p != "." && p != ".." && !p.contains(':'));
+    if !plain {
+        return Err(anyhow!("refused {rel:?}: it is not a plain path inside the content folder"));
     }
     Ok(())
 }

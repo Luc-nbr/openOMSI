@@ -20,11 +20,54 @@ pub fn finite(text: &str) -> Option<f64> {
     text.trim().parse::<f64>().ok().filter(|v| v.is_finite())
 }
 
-/// The answer to a challenge: SHA-256 of the challenge and the password, in hex.
-pub fn response(challenge: &str, password: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let h = Sha256::new().chain_update(b"omsi2rw-admin").chain_update(challenge.as_bytes()).chain_update([0u8]).chain_update(password.as_bytes()).finalize();
-    h.iter().map(|b| format!("{b:02x}")).collect()
+pub const KDF_ROUNDS: u32 = 600_000;
+const MIN_ROUNDS: u32 = 100_000;
+const MAX_ROUNDS: u32 = 5_000_000;
+pub const MIN_PASSWORD: usize = 8;
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn unhex(s: &str) -> Option<Vec<u8>> {
+    if s.len() % 2 != 0 || !s.is_ascii() {
+        return None;
+    }
+    (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).ok()).collect()
+}
+
+fn derive(password: &str, salt: &[u8], rounds: u32) -> [u8; 32] {
+    let mut key = [0u8; 32];
+    let rounds = std::num::NonZeroU32::new(rounds.max(1)).expect("not zero");
+    ring::pbkdf2::derive(ring::pbkdf2::PBKDF2_HMAC_SHA256, rounds, salt, password.as_bytes(), &mut key);
+    key
+}
+
+fn keyed_response(key: &[u8; 32], challenge: &str) -> String {
+    let mut ctx = ring::hmac::Context::with_key(&ring::hmac::Key::new(ring::hmac::HMAC_SHA256, key));
+    ctx.update(b"omsi2rw-admin");
+    ctx.update(challenge.as_bytes());
+    hex(ctx.sign().as_ref())
+}
+
+pub fn answer(challenge: &str, password: &str) -> Option<String> {
+    let mut it = challenge.split_whitespace();
+    let (c, salt, rounds) = (it.next()?, it.next()?, it.next()?.parse::<u32>().ok()?);
+    if it.next().is_some() || c.len() > 64 || !(MIN_ROUNDS..=MAX_ROUNDS).contains(&rounds) {
+        return None;
+    }
+    let salt = unhex(salt).filter(|s| (16..=64).contains(&s.len()))?;
+    Some(keyed_response(&derive(password, &salt, rounds), c))
+}
+
+fn fresh_salt() -> [u8; 16] {
+    use ring::rand::SecureRandom;
+    let mut salt = [0u8; 16];
+    if ring::rand::SystemRandom::new().fill(&mut salt).is_err() {
+        salt[..8].copy_from_slice(&omsi_net::random_session_id().to_le_bytes());
+        salt[8..].copy_from_slice(&omsi_net::random_session_id().to_le_bytes());
+    }
+    salt
 }
 
 /// Equal strings, compared in time independent of where they differ.
@@ -88,6 +131,8 @@ pub struct ServerAdmin {
     /// When wrong answers came lately (the lock counts them, whoever sent them: a player
     /// who reconnects is somebody new).
     failures: Vec<std::time::Instant>,
+    kdf: Option<(String, [u8; 16], [u8; 32])>,
+    admin_at: std::collections::HashMap<u32, Option<std::net::SocketAddr>>,
 }
 
 /// A dedicated server admin's order for the AI traffic.
@@ -115,9 +160,27 @@ const LOCK_WINDOW: std::time::Duration = std::time::Duration::from_secs(120);
 impl ServerAdmin {
     /// Forget the rights and challenges of players no longer in the session.
     pub fn prune(&mut self, lan: &LanSession) {
-        let here: std::collections::HashSet<u32> = lan.peers().map(|p| p.pose.id).collect();
-        self.admins.retain(|id| here.contains(id));
-        self.challenges.retain(|id, _| here.contains(id));
+        let here: std::collections::HashMap<u32, Option<std::net::SocketAddr>> = lan.peers().map(|p| (p.pose.id, p.addr)).collect();
+        let at = &self.admin_at;
+        self.admins.retain(|id| {
+            let moved = matches!((at.get(id), here.get(id)), (Some(a), Some(h)) if a != h);
+            if moved {
+                log::warn!("server: player {id} talks from another address now: no longer an admin until the password is given again");
+            }
+            here.contains_key(id) && !moved
+        });
+        let admins = &self.admins;
+        self.admin_at.retain(|id, _| admins.contains(id));
+        self.challenges.retain(|id, _| here.contains_key(id));
+    }
+
+    fn derived(&mut self) -> ([u8; 16], [u8; 32]) {
+        if self.kdf.as_ref().map(|k| &k.0) != Some(&self.password) {
+            let salt = fresh_salt();
+            self.kdf = Some((self.password.clone(), salt, derive(&self.password, &salt, KDF_ROUNDS)));
+        }
+        let k = self.kdf.as_ref().expect("just made");
+        (k.1, k.2)
     }
 
     fn locked(&mut self) -> bool {
@@ -148,8 +211,9 @@ pub fn server_command(lan: &mut LanSession, from: u32, text: &str, adm: &mut Ser
                 lan.command(from, "admin-locked");
             } else {
                 let c = format!("{:016x}{:016x}", omsi_net::random_session_id(), omsi_net::random_session_id());
+                let (salt, _) = adm.derived();
                 adm.challenges.insert(from, c.clone());
-                lan.command(from, &format!("admin-challenge {c}"));
+                lan.command(from, &format!("admin-challenge {c} {} {KDF_ROUNDS}", hex(&salt)));
             }
         }
         "auth" => {
@@ -157,8 +221,9 @@ pub fn server_command(lan: &mut LanSession, from: u32, text: &str, adm: &mut Ser
             if adm.locked() {
                 lan.command(from, "admin-locked");
             } else if let (false, Some(c)) = (adm.password.is_empty(), challenge) {
-                if same(arg.trim(), &response(&c, &adm.password)) {
+                if same(arg.trim(), &keyed_response(&adm.derived().1, &c)) {
                     adm.admins.insert(from);
+                    adm.admin_at.insert(from, lan.peers().find(|p| p.pose.id == from).and_then(|p| p.addr));
                     log::info!("server: player {from} administers the server now");
                     lan.command(from, "admin-ok");
                 } else {
@@ -301,6 +366,32 @@ pub fn server_command(lan: &mut LanSession, from: u32, text: &str, adm: &mut Ser
         // a player's game showed a notification (`notify`): said for the tool that sent it
         "notify-seen" => log::info!("server: player {from} saw notice {}", arg.trim()),
         _ => log::info!("server: command '{text}' from player {from} not taken"),
+    }
+}
+
+#[cfg(test)]
+mod password_tests {
+    use super::*;
+
+    #[test]
+    fn the_answer_needs_the_password_and_a_slow_key() {
+        let salt = "00112233445566778899aabbccddeeff";
+        let a = answer(&format!("c0ffee {salt} {MIN_ROUNDS}"), "correct horse").unwrap();
+        assert_eq!(a, keyed_response(&derive("correct horse", &unhex(salt).unwrap(), MIN_ROUNDS), "c0ffee"));
+        assert_ne!(answer(&format!("c0ffee {salt} {MIN_ROUNDS}"), "wrong horse"), Some(a));
+        assert_eq!(answer(&format!("c0ffee {salt} 1"), "correct horse"), None);
+        assert_eq!(answer("c0ffee", "correct horse"), None);
+        assert_eq!(answer(&format!("c0ffee 00 {MIN_ROUNDS}"), "correct horse"), None);
+        assert_eq!(answer(&format!("c0ffee {salt} {}", MAX_ROUNDS + 1), "correct horse"), None);
+    }
+
+    #[test]
+    fn the_server_keeps_its_key_until_the_password_changes() {
+        let mut adm = ServerAdmin { password: "a long password".into(), ..Default::default() };
+        let first = adm.derived();
+        assert_eq!(adm.derived(), first);
+        adm.password = "another long one".into();
+        assert_ne!(adm.derived(), first);
     }
 }
 

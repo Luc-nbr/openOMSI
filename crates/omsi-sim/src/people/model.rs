@@ -72,6 +72,10 @@ pub enum State {
     /// Task 8 without a path (+0x2f0 = -1): somebody who got off where no pavement is
     /// stands where they are until the player is gone.
     Standing,
+    /// Somebody who got off where no pavement is, on the way to `to`: a few steps away
+    /// from the door and to the side, so the doorway stays free and no crowd stands at it
+    /// (Omsi.exe left them where they stepped down); there they stand (`Standing`).
+    Leaving { to: DVec3 },
     /// A passenger (see `humans_pax`).
     Pax(Box<Pax>),
 }
@@ -82,6 +86,7 @@ impl State {
             State::Strolling(_) => "WalkStreet",
             State::Idle => "Idle",
             State::Standing => "WalkStreet",
+            State::Leaving { .. } => "WalkStreet",
             State::Pax(p) => p.task.name(),
         }
     }
@@ -105,8 +110,6 @@ pub struct Person {
     pub ty: Arc<HumanType>,
     /// Clothing variant (`HumanType::variant_texture`).
     pub variant: usize,
-    /// The renderer's meshes and instances of the person (the view gives them).
-    pub meshes: Vec<(usize, usize)>,
     pub position: DVec3,
     pub heading: f64,
     /// Heading in the bus frame while inside one.
@@ -118,23 +121,11 @@ pub struct Person {
     pub activity: Activity,
     /// The animation: Omsi.exe's walk phase and joint angles (sub_626ae8).
     pub anim: OmsiAnim,
-    /// Optional earlier IK/foot-planted animation, allocated only for experimental rendering.
-    pub procedural: Option<crate::human::Pose>,
     pub state: State,
     /// Seconds in the current state.
     pub t_state: f32,
-    /// Skinned positions and normals, per mesh.
-    pub skins: Vec<(Vec<Vec3>, Vec<Vec3>)>,
-    /// The bones the skins were made with, and whether this frame's pose changed them
-    /// (somebody standing still keeps the mesh of the frame before: skinning and uploading
-    /// thirty waiting people every frame took 2 ms of the frame at a bus station).
-    pub skin_bones: Option<[glam::Affine3A; crate::human::SLOTS]>,
-    pub pose_changed: bool,
     /// Interior light of the bus the person is in (0 outside).
     pub interior: f32,
-    /// The interior light as drawn: it follows `interior` over a moment (stepping through
-    /// the door, people lit up and went dark again from one frame to the next).
-    pub lit: f32,
     /// The tilt of the floor the person stands on (a bus pitching under the brakes and
     /// leaning in a bend), without its heading: riders are drawn with it. Upright on the
     /// ground; drawn upright in a tilted bus, their feet sank through the floor on one side.
@@ -156,14 +147,6 @@ pub struct Person {
     pub detour_side: f64,
     /// Why the person is standing, for `OMSI_DEBUG_PAX`.
     pub why: &'static str,
-    /// Whether this person has ever been posed (an unposed model is the file's T-pose).
-    pub skinned: bool,
-    /// Frames since the last pose and where the person stood then (the
-    /// feet of a mesh posed a frame ago stay on the floor when it is drawn there).
-    pub since_posed: u32,
-    pub posed_at: (DVec3, f64),
-    /// Ankles of the last pose (model frame), for `OMSI_TRACE_PAX`.
-    pub ankles: [Vec3; 2],
     /// A scripted test person (`OMSI_PAX_GALLERY`).
     pub puppet: Option<Puppet>,
     /// LAN play: one of the host's people, drawn where the host says (`mirror_set`).
@@ -381,6 +364,16 @@ pub struct PeopleSim {
     /// The timetable's name of each stop object (`Schedule::stop_names`), the names the
     /// targets above are made of.
     pub stop_names: Option<HashMap<i64, String>>,
+    /// Per bus stop, the stop objects its trips go on to by timetable name
+    /// (`Schedule::stop_target_objects`): whose exit weight a destination has.
+    pub stop_target_objects: Option<HashMap<i64, HashMap<String, Vec<i64>>>>,
+    /// How many of `types` (the first) people are drawn from at random: the figures put
+    /// after them (`type_index`: the player's figure on foot - the map's driver -, other
+    /// players' figures) are nobody's to wear but theirs.
+    pub pool_types: usize,
+    /// What a passenger of the player's bus has just said (the voice's name, `TooCold_1`):
+    /// the HUD shows OMSI's hint for it (`Languages/*_basic*.olf`, `RL_PassDlg_<name>`).
+    pub dialog: Option<String>,
     /// The player's duty (`set_duty`): its trip, the stop of it the duty is due at, and
     /// whether the trip has reached its last stop. None: free drive, and nobody waiting
     /// boards the player's bus.
@@ -522,6 +515,8 @@ pub struct Footfall {
 /// A line a passenger says: the sample and where they stand.
 pub struct VoiceLine {
     pub position: DVec3,
+    /// Who says it (the person's id): their lips move with it.
+    pub speaker: u32,
     pub path: std::path::PathBuf,
 }
 

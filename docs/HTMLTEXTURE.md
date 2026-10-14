@@ -58,12 +58,37 @@ is not `htmlTexture 7`.
 
 ### LED destination signs
 
-A page drawn on an LED matrix is lit like the Krueger and K++ panels in Enhanced when its
-material has a dot mask and a white light map: either the `\S:n` mask above, or a plain
-picture of the dots as `[matl_transmap]` (black between the dots), with a `[matl_lightmap]`
-that is white all over. The lit dots then burn at the `LED glow` setting's brightness and
-bloom. A page's sign keeps that brightness at night even where it sits inside the cab
-(behind a coach's windscreen); a script texture's panel in the cab (a dashboard's LCD) dims.
+A page drawn on an LED matrix burns like the Krueger and K++ panels in Enhanced when it is
+declared `lit` (below) and its material has a dot mask and a white light map: either the
+`\S:n` mask above, or a plain picture of the dots as `[matl_transmap]` (black between the
+dots), with a `[matl_lightmap]` that is white all over. The lit dots then burn at the
+`LED glow` setting's brightness and bloom, and, like the Krueger's and K++ panels', the
+slot stays one of the bus's own screens: its dots keep the display's glow over the burn.
+A page's sign keeps that brightness at night
+even where it sits inside the cab (behind a coach's windscreen); a script texture's panel
+in the cab (a dashboard's LCD) dims.
+
+### A page as a surface: `lit`
+
+A page is a **display** by default: drawn at its own brightness, which is what a bus's own
+panel is. A page that is a **surface** - a road sign, a poster, a notice board - wants the
+world's light instead, so put `lit` on the line after its path:
+
+```
+[htmltexture]
+512
+160
+sign\route.html
+lit
+```
+
+With it the page is shaded like every other material - the sun, the street's lamps, the fog,
+the eye's own adaptation - so a sign face dims with the night it stands in, and the slot
+showing it stops being the bus's own screen with it (its bright pixels glow as a surface's
+do - an LED page, above, keeps the screen and its dots' glow). The word is the page's own: it reaches every slot that shows the page, wherever that
+slot is - a scenery object's and a vehicle's alike. Without the word nothing changes at all,
+and the word is openOMSI's own: Omsi.exe knows neither `[htmltexture]` nor `lit` and draws
+the slot unlit.
 
 ### Html file
 
@@ -324,7 +349,8 @@ buttons or boxes and react to `click`.
 ## Scenery objects
 
 A scenery object (`.sco`) can show pages too: `[htmltexture]` in its model config and
-`[useHtmlTexture]` on the material, the same as in a vehicle. The page is looked up in the
+`[useHtmlTexture]` on the material, the same as in a vehicle - and the `lit` word after the
+page's path works there as it does on a vehicle (above). The page is looked up in the
 model folder, then in the folder of the `.sco`.
 
 A scenery page only gets the basic API: `omsi.setVar`, `omsi.trigger`, `omsi.getVar`,

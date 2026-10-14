@@ -25,10 +25,11 @@
 //! so) or with the code of another session:
 //!
 //! ```text
-//! HELLO|<proto>|<session or ->|<name>|<bus>|<map>|<date>|<time>|<weather>|<season>|<nonce>
+//! HELLO|<proto>|<session or ->|<name>|<bus>|<map>|<date>|<time>|<weather>|<season>|<nonce>|<challenge>|<proof>
 //!                                                client → host (every second until answered)
-//! WELCOME|<proto>|<id>|<session>|<host name>|<map>|<date>|<time>|<weather>|<season>|<players>
+//! WELCOME|<proto>|<id>|<session>|<host name>|<map>|<date>|<time>|<weather>|<season>|<players>|<secret>
 //!                                                host → client
+//! CHALLENGE|<challenge>                          host → client (a known nonce from a new address)
 //! REJECT|<proto>|<reason>                        host → client
 //! DISCOVER|<proto>                               broadcast, client → any host
 //! HERE|<proto>|<host name>|<session>|<map>|<players>
@@ -75,6 +76,11 @@
 //! LAN's), and a joining game says hello to all of them at once, takes the first that
 //! answers, and gives up with a message saying why that may be after `JOIN_TIMEOUT`.
 
+/// The line the launcher looks for in the game's log when the game is over: the server sent
+/// the player away (kick, ban) or turned it away at the door, with the server's message.
+pub const LEFT_SERVER: &str = "LAN: disconnected from the server: ";
+
+mod admission;
 pub mod addrs;
 pub mod bridge;
 pub mod wire;
@@ -83,6 +89,8 @@ pub mod vars;
 pub mod ws;
 pub mod tunnel;
 pub mod official;
+pub mod hostkey;
+pub mod remote_text;
 
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -103,7 +111,7 @@ pub use wire::{
 /// passed on to the other players.
 /// 6: up to 63 sound and moving-part values in a state (a 6-bit count: the AA-FR Agora's
 /// sound variables alone filled the 31 there was room for).
-pub const PROTOCOL: u32 = 6;
+pub const PROTOCOL: u32 = 7;
 /// (omsi-plugin's `MULTIPLAYER_PORTS` keeps `omsi.send` off this one and the `PORT_RANGE` after it.)
 pub const DEFAULT_PORT: u16 = 27015;
 /// Ports a host tries after the default one when that is taken (a second session on the
@@ -992,7 +1000,7 @@ impl Pose {
             tour: parts.get(11).map(|t| clean_text(t, MAX_FIELD)).unwrap_or_default(),
             texts: parts.get(12).map(|t| decode_texts(t, MAX_TEXTS, MAX_TEXT_LEN)).unwrap_or_default(),
             figure: parts.get(13).and_then(|f| human_path(f)).unwrap_or_default(),
-            freetex: parts.get(14).map(|t| decode_texts(t, MAX_FREETEX, MAX_FREETEX_LEN)).unwrap_or_default(),
+            freetex: parts.get(14).map(|t| remote_text::only_relative(decode_texts(t, MAX_FREETEX, MAX_FREETEX_LEN))).unwrap_or_default(),
             ..Default::default()
         })
     }
@@ -1274,6 +1282,9 @@ pub struct Peer {
     pub dropped: u32,
     /// The nonce of the player's hellos (host side).
     nonce: Option<u64>,
+    secret: [u8; 16],
+    home: Option<SocketAddr>,
+    settled: bool,
     /// The latest states as they came (arrival, state), oldest first: the game draws the
     /// player's bus between two of them (`Pose::sent_ms`), not only the newest.
     pub history: std::collections::VecDeque<(Instant, Pose)>,
@@ -1296,6 +1307,9 @@ impl Peer {
             dropped: 0,
             history: std::collections::VecDeque::new(),
             nonce: None,
+            secret: admission::random_bytes(),
+            home: addr,
+            settled: false,
         }
     }
 
@@ -1343,12 +1357,16 @@ pub struct LanSession {
     nonce: u64,
     /// Say hello once more to the address that answered (see `on_welcome`).
     confirm: bool,
+    rebind: admission::Rebind,
+    rebind_secret: Option<[u8; 16]>,
+    answer: Option<u64>,
     pub my_id: u32,
     pub my_name: String,
     /// The host's session id; a client learns it from the code or the welcome.
     pub session: u64,
     /// Whether the client was given the session id (a code) and insists on it.
     session_required: bool,
+    strangers_told: bool,
     /// Our own world: sent in hellos, welcomes and the host's clock messages (the game
     /// keeps its time up to date with `set_clock`).
     pub world: WorldInfo,
@@ -1429,11 +1447,12 @@ pub struct LanSession {
     pub world_received: u64,
     /// The code as a bridge over the internet (see `bridge`): STUN, UPnP, the rendezvous.
     bridge: Option<bridge::Bridge>,
+    host_key: Option<std::sync::Arc<hostkey::HostKey>>,
     /// Players who went lately (host): (nonce, name, id, when). One who comes back soon
     /// keeps their number and is "back", not a newcomer.
     gone_lately: Vec<(Option<u64>, String, u32, Instant)>,
     /// Players the host sent away (host): their nonces, so they are not let in again.
-    banned: Vec<(u64, String)>,
+    banned: Vec<admission::Ban>,
     /// Commands for this game (`command`): (from, text).
     commands: Vec<(u32, String)>,
     /// How fast the session's clock runs (the host's time speed; a client: the host's as
@@ -1471,10 +1490,14 @@ impl LanSession {
             other_reject: None,
             nonce: random_session_id() ^ ((std::process::id() as u64) << 48),
             confirm: false,
+            rebind: admission::Rebind::new(),
+            rebind_secret: None,
+            answer: None,
             my_id: if role == Role::Host { 1 } else { 0 },
             my_name: clean_text(name, MAX_NAME),
             session: 0,
             session_required: false,
+            strangers_told: false,
             world,
             peers: HashMap::new(),
             next_id: 2,
@@ -1523,6 +1546,7 @@ impl LanSession {
             world_sent: Cell::new(0),
             world_received: 0,
             bridge: None,
+            host_key: None,
             gone_lately: Vec::new(),
             banned: Vec::new(),
             commands: Vec::new(),
@@ -1546,8 +1570,10 @@ impl LanSession {
                     socket.set_nonblocking(true)?;
                     socket.set_broadcast(true)?;
                     let mut s = LanSession::new(socket, Role::Host, name, world);
-                    s.session = random_session_id();
-                    s.bridge = bridge::Bridge::start(true, s.session, local_addrs(p), p);
+                    let key = std::sync::Arc::new(hostkey::HostKey::generate().ok_or_else(|| std::io::Error::other("no key for the session"))?);
+                    s.session = key.session();
+                    s.bridge = bridge::Bridge::start(true, s.session, Some(key.clone()), local_addrs(p), p);
+                    s.host_key = Some(key);
                     log::info!("LAN: hosting session {} on port {p} as '{name}' (protocol {PROTOCOL}), code {}", session_hex(s.session), s.code().map(|c| c.encode()).unwrap_or_default());
                     if p != port {
                         log::info!("LAN: port {port} is taken (another session on this machine?), using {p}");
@@ -1581,7 +1607,7 @@ impl LanSession {
             // a code works over the internet too: the rendezvous tells the host's public
             // address and the host opens the way (see `bridge`); that takes a little longer
             let port = s.local_addr().map(|a| a.port()).unwrap_or(0);
-            s.bridge = bridge::Bridge::start(false, id, local_addrs(port), port);
+            s.bridge = bridge::Bridge::start(false, id, None, local_addrs(port), port);
             if s.bridge.is_some() {
                 s.join_timeout = s.join_timeout.max(Duration::from_secs(25));
                 s.host = None;
@@ -1670,14 +1696,14 @@ impl LanSession {
                 let parts: Vec<&str> = text.split('|').collect();
                 if parts[0] == "HERE" {
                     if field(&parts, 1).parse::<u32>().ok() != Some(PROTOCOL) {
-                        log::warn!("LAN: host at {from} speaks protocol {} (we speak {PROTOCOL}); skipping it", field(&parts, 1));
+                        log::warn!("LAN: host at {from} speaks protocol {} (we speak {PROTOCOL}); skipping it", clean_text(field(&parts, 1), 8));
                         continue;
                     }
                     log::info!(
                         "LAN: found host '{}' at {from} (session {}, {} on {})",
                         clean_text(field(&parts, 2), MAX_NAME),
-                        field(&parts, 3),
-                        field(&parts, 5),
+                        clean_text(field(&parts, 3), 16),
+                        clean_text(field(&parts, 5), 8),
                         clean_text(field(&parts, 4), 260)
                     );
                     let session = parse_session_hex(field(&parts, 3));
@@ -1686,6 +1712,10 @@ impl LanSession {
             }
         }
         Ok(None)
+    }
+
+    pub fn host_key(&self) -> Option<std::sync::Arc<hostkey::HostKey>> {
+        self.host_key.clone()
     }
 
     /// The code other players join this session with (hosts only).
@@ -1886,9 +1916,7 @@ impl LanSession {
             self.send(format!("KICK|{reason}").as_bytes(), a);
         }
         if ban {
-            if let Some(n) = p.nonce {
-                self.banned.push((n, reason.clone()));
-            }
+            self.banned.push(admission::Ban { nonce: p.nonce, ip: p.addr.and_then(admission::source_ip), why: reason.clone() });
         }
         self.broadcast(format!("BYE|{id}").as_bytes(), None);
         self.notice(format!("{} was sent away by the host", p.label()), None);
@@ -2144,27 +2172,54 @@ impl LanSession {
         } else {
             "-".to_string()
         };
-        let msg = format!(
+        let mut msg = format!(
             "HELLO|{PROTOCOL}|{session}|{}|{}|{}|{:016X}",
             self.my_name,
             vehicle_path(&mine.bus).unwrap_or_default(),
             self.world.fields(),
             self.nonce
         );
+        if let (Some(secret), Some(c)) = (self.rebind_secret, self.answer) {
+            msg.push_str(&format!("|{c:016x}|{:016x}", admission::proof(&secret, c)));
+        }
         for h in to {
             self.send(msg.as_bytes(), h);
         }
     }
 
-    fn send_welcome(&self, id: u32, to: SocketAddr) {
+    fn welcome_session(&self, to: SocketAddr, named: bool) -> String {
+        if named || self.strangers_told || addrs::is_local_peer(to) {
+            session_hex(self.session)
+        } else {
+            "-".to_string()
+        }
+    }
+
+    fn send_welcome(&self, id: u32, to: SocketAddr, named: bool) {
+        let session = self.welcome_session(to, named);
         let msg = format!(
             "WELCOME|{PROTOCOL}|{id}|{}|{}|{}|{}",
-            session_hex(self.session),
+            session,
             self.my_name,
             self.world.fields(),
             self.peers.len() + 1
         );
+        let msg = match self.peers.get(&id) {
+            Some(p) if p.home == Some(to) => format!("{msg}|{}", admission::secret_hex(&p.secret)),
+            _ => msg,
+        };
         self.send(msg.as_bytes(), to);
+    }
+
+    fn on_challenge(&mut self, parts: &[&str]) {
+        if let (Some(_), Ok(c)) = (self.rebind_secret, u64::from_str_radix(field(parts, 1).trim(), 16)) {
+            self.answer = Some(c);
+            if self.connected {
+                self.confirm = true;
+            } else {
+                self.hello_acc = self.hello_acc.max(1.0);
+            }
+        }
     }
 
     /// What differs between the host's world and ours and stays so: the map (players on
@@ -2328,6 +2383,10 @@ impl LanSession {
         self.events.push(LanEvent::Notice(why.clone()));
         self.rejected = Some(why);
         self.timed_out = true;
+    }
+
+    pub fn tell_strangers_the_session(&mut self) {
+        self.strangers_told = true;
     }
 
     /// Say hello once more at once (the way to the host was made again: a new connection
@@ -2552,7 +2611,7 @@ impl LanSession {
             };
             let parts: Vec<&str> = text.split('|').collect();
             match (parts[0], self.role) {
-                ("DISCOVER", Role::Host) => {
+                ("DISCOVER", Role::Host) if addrs::is_local_peer(from) => {
                     let msg = format!(
                         "HERE|{PROTOCOL}|{}|{}|{}|{}",
                         self.my_name,
@@ -2564,6 +2623,7 @@ impl LanSession {
                 }
                 ("HELLO", Role::Host) => self.on_hello(&parts, from),
                 ("WELCOME", Role::Client) => self.on_welcome(&parts, from),
+                ("CHALLENGE", Role::Client) if self.host == Some(from) || (self.host.is_none() && self.candidates.contains(&from)) => self.on_challenge(&parts),
                 ("REJECT", Role::Client) if self.host.is_none() || Some(from) == self.host => {
                     let reason = clean_text(field(&parts, 2), 300);
                     // One of several addresses tried at once may belong to another computer
@@ -2752,6 +2812,7 @@ impl LanSession {
             return None;
         }
         peer.last_seen = Instant::now();
+        peer.settled = true;
         Some(peer)
     }
 
@@ -3001,11 +3062,11 @@ impl LanSession {
         let asked = field(parts, 2);
         if asked != "-" && !asked.is_empty() && parse_session_hex(asked) != Some(self.session) {
             log::warn!(
-                "LAN: '{name}' at {from} asked for session {asked}, this is {}; turned away",
+                "LAN: '{name}' at {from} asked for session {}, this is {}; turned away",
+                clean_text(asked, 16),
                 session_hex(self.session)
             );
-            let code = self.code().map(|c| c.encode()).unwrap_or_default();
-            self.reject(from, &format!("wrong session code: this host now runs another session ({code}) - ask for the current code"));
+            self.reject(from, "wrong session code: this host now runs another session - ask for the current code");
             return;
         }
         let bus = vehicle_path(field(parts, 4)).unwrap_or_default();
@@ -3017,10 +3078,24 @@ impl LanSession {
         let (id, here) = match self.peers.iter().find(|(_, p)| same(p)) {
             Some((id, _)) => {
                 let id = *id;
+                let by_secret = match (nonce, self.peers.get(&id)) {
+                    (Some(n), Some(p)) => self.rebind.proven(n, from, &p.secret, field(parts, 11), field(parts, 12)),
+                    _ => false,
+                };
+                let proven = by_secret || self.peers.get(&id).is_some_and(|p| p.addr == Some(from) || !p.settled);
+                if !proven {
+                    if let Some(n) = nonce {
+                        self.send(format!("CHALLENGE|{:016x}", self.rebind.challenge(n, from)).as_bytes(), from);
+                    }
+                    return;
+                }
                 if let Some(p) = self.peers.get_mut(&id) {
                     if p.addr != Some(from) {
                         log::info!("LAN: player {id} now talks from {from}");
                         p.addr = Some(from);
+                    }
+                    if by_secret {
+                        p.home = Some(from);
                     }
                 }
                 (id, None)
@@ -3040,8 +3115,8 @@ impl LanSession {
                 );
                 return;
             }
-            None if nonce.is_some_and(|n| self.banned.iter().any(|b| b.0 == n)) => {
-                let why = self.banned.iter().find(|b| Some(b.0) == nonce).map(|b| b.1.clone()).unwrap_or_default();
+            None if (nonce.is_none() && !self.banned.is_empty()) || admission::banned(&self.banned, nonce, from).is_some() => {
+                let why = admission::banned(&self.banned, nonce, from).unwrap_or_default().to_string();
                 self.reject(from, &if why.is_empty() { "the host has sent you away from this session".to_string() } else { format!("the host has sent you away from this session: {why}") });
                 return;
             }
@@ -3116,7 +3191,7 @@ impl LanSession {
         if let Some(p) = self.peers.get_mut(&id) {
             p.last_seen = Instant::now();
         }
-        self.send_welcome(id, from);
+        self.send_welcome(id, from, asked != "-" && !asked.is_empty());
         if let Some(here) = here {
             self.send(
                 format!("NOTE|In this session: {}", clean_text(&here, 200)).as_bytes(),
@@ -3182,6 +3257,10 @@ impl LanSession {
             }
         }
         self.my_id = id;
+        if let Some(s) = admission::parse_secret(field(parts, 11)) {
+            self.rebind_secret = Some(s);
+        }
+        self.answer = None;
         self.session = session;
         self.connected = true;
         self.lost_at = None;

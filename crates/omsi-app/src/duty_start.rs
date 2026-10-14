@@ -38,7 +38,7 @@ impl Preopened {
 /// line (`--line`, `--tour`, `--trip`).
 pub(crate) fn player_duty(sch: &mut schedule::Schedule, world: &World, args: &Args, now: f64) -> Result<schedule::PlayerDuty, String> {
     if let Some(route) = args.free_line.as_deref().filter(|r| !r.trim().is_empty()) {
-        return sch.free_line_duty(world, args.line.as_deref().unwrap_or(""), route, now);
+        return sch.free_line_duty(&*world.data(), args.line.as_deref().unwrap_or(""), route, now);
     }
     if args.duty_legs.is_empty() {
         let line = args.line.as_deref().unwrap_or("");
@@ -87,7 +87,8 @@ pub(crate) fn place_on_duty(args: &mut Args) {
     net.link(1.5);
     // the entry points and where they stand (heading from the object)
     let entries: Vec<(usize, String, DVec3, f64)> = {
-        let pos = world.object_positions.lock();
+        let data = world.data.peek();
+        let pos = &data.objects;
         world
             .global
             .entry_points

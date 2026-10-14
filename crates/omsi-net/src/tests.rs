@@ -89,6 +89,15 @@ fn info_carries_the_freetex_pictures_and_an_older_info_has_none() {
 }
 
 #[test]
+fn info_drops_freetex_pictures_that_leave_the_vehicle() {
+    let mut p = pose(1.5);
+    p.freetex = vec![r"\\attacker.example\s\x.bmp".into(), r"..\..\Anzeigen\17.tga".into(), "C:/x.bmp".into()];
+    let text = p.encode_info();
+    let q = Pose::decode_info(&text.split('|').collect::<Vec<_>>()).unwrap();
+    assert_eq!(q.freetex, vec![String::new(), r"..\..\Anzeigen\17.tga".to_string(), String::new()]);
+}
+
+#[test]
 fn info_round_trip_and_cleaning() {
     let mut p = pose(1.5);
     p.id = 7;
@@ -269,6 +278,18 @@ fn addresses_are_told_apart() {
             (ip("172.29.160.1"), AddrKind::Virtual, Some(ip("172.29.175.255"))),
         ]
     );
+}
+
+#[test]
+fn only_nearby_games_hear_where_the_host_is() {
+    let at = |s: &str| s.parse::<SocketAddr>().unwrap();
+    assert!(addrs::is_local_peer(at("127.0.0.1:5000")));
+    assert!(addrs::is_local_peer(at("192.168.1.20:5000")));
+    assert!(addrs::is_local_peer(at("100.74.245.63:5000")));
+    assert!(!addrs::is_local_peer(at("[2001:db8::1]:5000")));
+    let far = at("198.51.100.77:5000");
+    let near = addrs::local_addresses().iter().any(|l| l.ip.octets()[..3] == [198, 51, 100]);
+    assert_eq!(addrs::is_local_peer(far), near);
 }
 
 #[test]

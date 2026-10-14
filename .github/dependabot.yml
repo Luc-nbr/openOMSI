@@ -1,19 +1,17 @@
-# Dependency updates, once a week. Minor and patch versions of the crates come together in
-# one pull request so they do not flood the list; a new major version (winit...) comes on
-# its own, as it usually needs code changes. Security fixes come whenever an advisory is
-# published, whatever the schedule.
+# Dependency updates, once a month. Minor and patch versions of the crates come together in
+# one pull request, and new major versions together in another, so they do not flood the
+# list. Security fixes come whenever an advisory is published, whatever the schedule.
 version: 2
 updates:
   - package-ecosystem: cargo
     directory: /
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
     # a release is only proposed once it is a week old: a broken or compromised one is
     # usually yanked by then (security fixes do not wait)
     cooldown:
       default-days: 7
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     groups:
       # wgpu, wgpu-hal and naga are released together and must stay on one version (the
       # game hands wgpu-hal's and naga's types to wgpu): their updates come as one pull
@@ -28,6 +26,10 @@ updates:
         update-types:
           - minor
           - patch
+      # the new major versions, in one pull request: each needs its code looked at
+      majors:
+        update-types:
+          - major
     # a new major wgpu changes the experimental ray query API Enhanced+ is built on (and the
     # gpu-allocator patch): it is moved to by hand
     ignore:
@@ -37,12 +39,17 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "naga"
         update-types: ["version-update:semver-major"]
+      # glam 0.34 moved the camera matrices (perspective_rh, look_to_rh...) to glam::camera,
+      # and jni 0.22 changed the Android bridge's API: both are moved to by hand
+      - dependency-name: "glam"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "jni"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
     # (a week old, as for the crates)
     cooldown:
       default-days: 7

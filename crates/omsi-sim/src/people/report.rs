@@ -167,6 +167,11 @@ impl PeopleSim {
         self.message.take()
     }
 
+    /// What a rider of the player's bus has just said (see `dialog`).
+    pub fn take_dialog(&mut self) -> Option<String> {
+        self.dialog.take()
+    }
+
     /// What the driver should do now, for the HUD: a passenger waiting at the cash desk
     /// for the ticket (only when the driver has to sell it).
     pub fn hint(&self) -> Option<String> {
@@ -179,7 +184,9 @@ impl PeopleSim {
     }
 
     /// People sitting on each `[passpos]` of the player's bus, for `GetHumanCountOnSeat`
-    /// (the BVG Citaro folds its tip-up seats down when somebody sits on them).
+    /// (the BVG Citaro folds its tip-up seats down when somebody sits on them): the
+    /// passengers, and a player on foot or a LAN player's figure sitting there too (on a
+    /// seat the script still showed folded up, they sat in the air).
     pub fn seat_counts(&self) -> Vec<u32> {
         let Some(cabin) = self.player_cabin.as_ref() else {
             return Vec::new();
@@ -188,7 +195,8 @@ impl PeopleSim {
             State::Pax(x) if x.inside == Some(BusId::Player) && x.task == Task::SittingInBus => x.seat,
             _ => None,
         });
-        seat_numbers(&cabin.seats, sitting)
+        let avatars = self.avatar_cmds.values().filter_map(|c| c.seat).filter(|s| s.0 == BusId::Player).map(|s| s.1);
+        seat_numbers(&cabin.seats, sitting.chain(avatars))
     }
 
     /// How many people stand on each `paths.cfg` link inside the player's bus, for the

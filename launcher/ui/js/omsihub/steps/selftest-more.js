@@ -79,7 +79,7 @@ export async function selftest(check, errors, step) {
     const before = errors.length;
     const { welcomeStep } = await import('../welcome.js');
     const seen = [];
-    for (const id of ['language', 'interface', 'animations', 'driver', 'ready']) {
+    for (const id of ['language', 'animations', 'driver', 'ready']) {
       welcomeStep(id);
       await sleep(450);
       seen.push(`${id}${$('.hub-welcome') ? '' : ' (missing)'}`);

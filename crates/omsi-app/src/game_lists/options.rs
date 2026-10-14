@@ -20,6 +20,7 @@ pub(super) fn option_now(app: &App, verb: &str, arg: &str) -> Option<f32> {
         "pedal_t" => s.pedal_throttle,
         "pedal_b" => s.pedal_brake,
         "mouse_sens" => s.mouse_sens,
+        "key_pedal_speed" => s.key_pedal_speed,
         "mouse_pedal_strength" => s.mouse_pedal_strength,
         "look_sens" => s.look_sens,
         "ht_yaw" => s.head_tracking_yaw,
@@ -170,6 +171,10 @@ pub(super) fn option_set(app: &mut App, verb: &str, arg: &str, v: f32) -> Option
         "mouse_sens" => {
             app.settings.mouse_sens = (v * 100.0).round() / 100.0;
             Some(("mouse_sens", app.settings.mouse_sens.to_string()))
+        }
+        "key_pedal_speed" => {
+            app.settings.key_pedal_speed = ((v * 100.0).round() / 100.0).clamp(0.25, 2.0);
+            Some(("key_pedal_speed", app.settings.key_pedal_speed.to_string()))
         }
         "mouse_pedal_strength" => {
             app.settings.mouse_pedal_strength = ((v * 100.0).round() / 100.0).clamp(0.5, 2.0);
@@ -373,6 +378,8 @@ pub(super) fn toggle_now(app: &App, id: &str) -> Option<bool> {
         "navigator" => if app.vr_active() { app.vr_nav_profile().enabled } else { app.menus.navigator.as_ref().is_some_and(|n| n.enabled) },
         "nav_ai" => app.menus.navigator.as_ref().map_or(s.nav_ai, |n| n.show_ai),
         "nav_board" => app.menus.navigator.as_ref().map_or(s.nav_board, |n| n.board),
+        "nav_surface" => app.menus.navigator.as_ref().map_or(s.nav_surface, |n| n.show_surface),
+        "nav_light" => app.menus.navigator.as_ref().map_or(s.nav_light, |n| n.light),
         "shadows" => s.shadows,
         "head" => s.head_movement,
         "cam_smooth" => s.driverview_smooth,
@@ -382,6 +389,7 @@ pub(super) fn toggle_now(app: &App, id: &str) -> Option<bool> {
         "mouse_right" => s.mouse_right_off,
         "mouse_smooth" => s.mouse_smooth,
         "mouse_hold" => s.mouse_hold,
+        "mouse_pedals" => s.mouse_pedals,
         "blinker_cancel" => s.blinker_cancel,
         "fps" => s.show_fps,
         "get_up" => s.get_up,
@@ -478,6 +486,20 @@ pub(super) fn toggle_set(app: &mut App, id: &str, on: bool) -> Option<(&'static 
             app.settings.nav_board = on;
             Some(("nav_board", bit))
         }
+        "nav_surface" => {
+            if let Some(n) = app.menus.navigator.as_mut() {
+                n.show_surface = on;
+            }
+            app.settings.nav_surface = on;
+            Some(("nav_surface", bit))
+        }
+        "nav_light" => {
+            if let Some(n) = app.menus.navigator.as_mut() {
+                n.light = on;
+            }
+            app.settings.nav_light = on;
+            Some(("nav_light", bit))
+        }
         "shadows" => {
             app.settings.shadows = on;
             Some(("shadows", bit))
@@ -493,7 +515,7 @@ pub(super) fn toggle_set(app: &mut App, id: &str, on: bool) -> Option<(&'static 
         // (at once: stuck under a bridge a map made too low, the bus drives on)
         "coll_objects" => {
             app.settings.collision_objects = on;
-            let cw = app.world.as_ref().map(|w| w.collision.lock().clone());
+            let cw = app.world.as_ref().map(|w| w.data.peek().lists.collision.clone());
             if let Some(p) = app.player.as_mut() {
                 p.vehicle.collision = cw.filter(|_| on);
             }
@@ -528,6 +550,10 @@ pub(super) fn toggle_set(app: &mut App, id: &str, on: bool) -> Option<(&'static 
             app.settings.mouse_hold = on;
             app.sync_mouse_grab();
             Some(("mouse_hold", bit))
+        }
+        "mouse_pedals" => {
+            app.settings.mouse_pedals = on;
+            Some(("mouse_pedals", bit))
         }
         "get_up" => {
             app.settings.get_up = on;

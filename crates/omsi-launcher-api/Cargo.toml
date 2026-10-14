@@ -10,6 +10,7 @@ serde.workspace = true
 serde_json.workspace = true
 omsi-launcher-core = { path = "../omsi-launcher-core" }
 omsi-cfg = { path = "../omsi-cfg" }
+omsi-timetable = { path = "../omsi-timetable" }
 # (the version the release was built as: OPENOMSI_VERSION, as the game's)
 omsi-platform = { path = "../omsi-platform" }
 omsi-net = { path = "../omsi-net" }
@@ -18,7 +19,6 @@ omsi-weather = { path = "../omsi-weather" }
 # editors' timetables and depot files), crates the launcher's core is built of anyway
 omsi-map = { path = "../omsi-map" }
 omsi-content = { path = "../omsi-content" }
-omsi-timetable = { path = "../omsi-timetable" }
 # Omsi-Hub: the buses' depot files (`src/omsihub/hub_more.rs`: the bus that fits the duty best)
 omsi-vehicle = { path = "../omsi-vehicle" }
 # Omsi-Hub: what a bus offers as bus options (`src/omsihub/hub_more/busoptions.rs`: its model and

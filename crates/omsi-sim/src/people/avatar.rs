@@ -483,7 +483,9 @@ impl PeopleSim {
                 p.place = Place::Ground;
                 p.tilt = Mat4::IDENTITY;
                 p.interior = 0.0;
-                let ground = cmd.floor.unwrap_or_else(|| world.walk_height(cmd.pos.x, cmd.pos.y).unwrap_or(cmd.pos.z));
+                // The floor at the walker's own level, not the highest face here: the highest is
+                // the roof of the building they stand under (an indoor bus terminus, a canopy).
+                let ground = cmd.floor.unwrap_or_else(|| world.walk_height_near(cmd.pos.x, cmd.pos.y, cmd.pos.z).unwrap_or(cmd.pos.z));
                 let origin = DVec3::new(cmd.pos.x, cmd.pos.y, if cmd.floor.is_some() { ground } else { cmd.pos.z.max(ground) } + cmd.lift.max(0.0));
                 p.position = origin;
                 p.heading = cmd.heading;

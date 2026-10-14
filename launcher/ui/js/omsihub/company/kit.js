@@ -14,12 +14,14 @@ import { call } from '../../api.js';
 import { language } from '../../i18n.js';
 import { Icon as HubIcon, tr } from '../bits.js';
 import { SYMBOLS, STROKES } from './symbols.js';
+// (the editors a hand-over opens: the line editor, the livery studio)
+import * as editors from '../editors/index.js';
 
 export { html, useEffect, useRef, useState, tr };
 
-/** The start screen's page (`company::HOME_TAB`) and the pages handed to our game-drawn
- * launcher until their phase (`HANDED_OVER`): none since phase 3 (`pages.js`; the planning
- * hands RosterFlow over itself while its add-on is on). */
+/** The start screen's page (`company::HOME_TAB`) and the pages handed over elsewhere
+ * (`HANDED_OVER`): none since phase 3 (`pages.js`; the planning hands RosterFlow over itself
+ * while its add-on is on). */
 export const HOME = 100;
 export const HANDED = [];
 /** Casual's pages (`casual::BUSES` ...). */
@@ -116,7 +118,7 @@ export function takeShell(sh) {
   if (Object.keys(patch).length) setCo(patch);
 }
 
-/** Go to a page of the company: one of a later phase opens in our game-drawn launcher. */
+/** Go to a page of the company (one another part of this launcher takes: `handOver`). */
 export function goTab(tab) {
   if (HANDED.includes(tab)) {
     handOver(String(tab));
@@ -133,10 +135,8 @@ export const handOverHooks = [];
 /** Open what the company's pages hand over (`company::handed`'s parts): RosterFlow takes the
  * planning and a line's timetable with its add-on on (`handOverHooks`); a page of the company is
  * opened here; the workshop's jobs, a line's sheet on the planning and our editors (the line
- * editor, the livery studio) are this launcher's own since phase 6. Only what none of them takes
- * - the editors' module missing - opens in our game-drawn launcher (`OMSI_LAUNCHER_PAGE` "bus
- * company:<page>:<company>"): the clock stops and the company is saved first; this window
- * closes. */
+ * editor, the livery studio) are this launcher's own. (The game draws no launcher of its own
+ * any more: there is nowhere else to hand over to.) */
 export async function handOver(page, opts = {}) {
   for (const take of handOverHooks) {
     try {
@@ -173,35 +173,14 @@ export async function handOver(page, opts = {}) {
     }
   }
   if (await inEditor(String(page), opts)) return;
-  try {
-    const r = await cmd('co_hand_over', { page: String(page) });
-    toast(tr('This part of the bus company opens in our own launcher for now.'), 'info');
-    await call('classic_launcher', { page: r.page });
-  } catch (e) {
-    toast(e.message, 'error');
-  }
-}
-
-/** The editors drawn by this launcher (Trello "Tauri 5/6": `../editors/index.js`, on its own
- * branch until it is merged), read once; null while they are not part of it. */
-let editors;
-async function editorsOf() {
-  if (editors === undefined) {
-    try {
-      editors = await import('../editors/index.js');
-    } catch {
-      editors = null;
-    }
-  }
-  return editors;
+  console.warn('bus company: nothing opens', page);
 }
 
 /** A hand-over our own editors take (`company::handed`'s editor pages): "line-editor[=<id>]",
  * "map-line=<name>", "casual-line=<freq>" (`opts.newWithDays`: its timetable), and
- * "livery=<bus>|<paint>|<bus id>". Opened here when the editors are part of this launcher -
- * the company stopped and saved first (`co_hand_over`), read again when an editor wrote it, and
- * Back comes to the company's page; else (or another page) false: our game-drawn launcher
- * takes it. A line's timetable ("timetable=<line>", the planning's "plan-line=<line>|...") is
+ * "livery=<bus>|<paint>|<bus id>". Opened here - the company stopped and saved first
+ * (`co_hand_over`), read again when an editor wrote it, and Back comes to the company's page;
+ * another page: false. A line's timetable ("timetable=<line>", the planning's "plan-line=<line>|...") is
  * RosterFlow's Timeplan with the add-on on (its hook takes it first), else the line editor's
  * Timetable tab on that line. */
 async function inEditor(page, opts) {
@@ -212,9 +191,7 @@ async function inEditor(page, opts) {
     return !!r?.edit && inEditor(r.edit, { ...opts, tab: 'timetable' });
   }
   if (!['line-editor', 'map-line', 'casual-line', 'livery'].includes(what)) return false;
-  const ed = await editorsOf();
-  const fn = what === 'livery' ? ed?.openLivery : ed?.openLineEditor;
-  if (typeof fn !== 'function') return false;
+  const fn = what === 'livery' ? editors.openLivery : editors.openLineEditor;
   const company = S.co.shell?.id;
   if (!company) return false;
   try {

@@ -11,7 +11,7 @@
 //! A phone runs the launcher's page inside the game program itself: there the same service
 //! runs on a thread of its own (`in_process`), asked through a channel instead of a pipe.
 
-use super::showroom::{Look, Showroom};
+use super::showroom::{Look, PreviewView, Showroom};
 use omsi_render::Renderer;
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
@@ -22,7 +22,7 @@ use std::time::Instant;
 type Out = Arc<Mutex<Box<dyn Write + Send>>>;
 
 /// Where an answer goes: the request's `id`, what it says, the bytes after it.
-type Reply = Arc<dyn Fn(&Value, Value, &[u8]) + Send + Sync>;
+pub(super) type Reply = Arc<dyn Fn(&Value, Value, &[u8]) + Send + Sync>;
 
 /// The answers' channel: stdout as the program got it, while anything else printing to
 /// stdout from here on (a stray `println!` deep in the game) goes to stderr instead and
@@ -54,18 +54,17 @@ fn write(out: &Out, id: &Value, mut head: Value, body: &[u8]) {
 /// `openomsi --launcher-service`: requests on stdin, answers on stdout.
 pub fn run() -> anyhow::Result<()> {
     super::install();
-    crate::launcher_statics();
     let out: Out = Arc::new(Mutex::new(answers()));
     let reply: Reply = Arc::new(move |id, head, body| write(&out, id, head, body));
     let (tx, rx) = std::sync::mpsc::channel::<Value>();
-    let early = reply.clone(); // Omsi-Hub: (for `hub_service::at_once`)
+    let early = reply.clone(); // Omsi-Hub: (for `omsihub_game::service::at_once`)
     std::thread::spawn(move || {
         for line in std::io::stdin().lock().lines() {
             let Ok(line) = line else { break };
             match serde_json::from_str::<Value>(&line) {
                 Ok(v) => {
-                    // Omsi-Hub: the editors' requests that draw nothing, not behind the pictures (`omsi_launcher_ui::hub_service::at_once`)
-                    if omsi_launcher_ui::hub_service::at_once(&v, { let (out, id) = (early.clone(), v.get("id").cloned().unwrap_or(Value::Null)); Arc::new(move |h, b| out(&id, h, &b)) }) {
+                    // Omsi-Hub: the editors' requests that draw nothing, not behind the pictures (`omsihub_game::service::at_once`)
+                    if omsihub_game::service::at_once(&v, { let (out, id) = (early.clone(), v.get("id").cloned().unwrap_or(Value::Null)); Arc::new(move |h, b| out(&id, h, &b)) }) {
                         continue;
                     }
                     if tx.send(v).is_err() {
@@ -124,6 +123,7 @@ fn serve(rx: std::sync::mpsc::Receiver<Value>, reply: Reply) {
     let send = |id: &Value, head: Value, body: &[u8]| reply(id, head, body);
     let mut renderer: Option<Renderer> = None;
     let mut showroom = Showroom::new();
+    let pads = super::pads::Pads::start();
     let mut last = Instant::now();
     while let Ok(req) = rx.recv() {
         let id = req.get("id").cloned().unwrap_or(Value::Null);
@@ -163,6 +163,9 @@ fn serve(rx: std::sync::mpsc::Receiver<Value>, reply: Reply) {
                 if zoom != 1.0 {
                     showroom.zoom_by(zoom);
                 }
+                if let Some(view) = req.get("view").and_then(Value::as_str).and_then(PreviewView::from_name) {
+                    showroom.set_view(view);
+                }
                 if renderer.is_none() {
                     match open_renderer() {
                         Ok(r) => renderer = Some(r),
@@ -179,7 +182,7 @@ fn serve(rx: std::sync::mpsc::Receiver<Value>, reply: Reply) {
                 let before = showroom.drawn;
                 let (w, h) = (f("w", 960.0) as u32, f("h", 540.0) as u32);
                 let _ = showroom.preview(r, w, h);
-                let head = json!({ "ok": true, "busy": showroom.busy, "failed": showroom.failed(), "error": showroom.error, "moving": showroom.moving(), "picture": showroom.has_picture() });
+                let head = json!({ "ok": true, "busy": showroom.busy, "failed": showroom.failed(), "error": showroom.error, "moving": showroom.moving(), "picture": showroom.has_picture(), "view": showroom.view.name(), "views": showroom.views() });
                 let new = showroom.drawn != before || req.get("force").and_then(Value::as_bool).unwrap_or(false);
                 match (new, showroom.picture()) {
                     (true, Some(tex)) => {
@@ -198,13 +201,18 @@ fn serve(rx: std::sync::mpsc::Receiver<Value>, reply: Reply) {
                 let trips: Vec<String> = req.get("trips").and_then(Value::as_array).map(|a| a.iter().filter_map(|t| t.as_str().map(str::to_string)).collect()).unwrap_or_default();
                 std::thread::spawn(move || {
                     let global = omsi_cfg::find_in_roots(&map).map(|(_, p)| p).or_else(|| omsi_launcher_lib::content_path(&map).ok()).unwrap_or_else(|| PathBuf::from(&map));
-                    let v = if trips.is_empty() { omsi_launcher_ui::mapview::export(&map, &global, &date, &trip, 0.6) } else { omsi_launcher_ui::mapview::hub_fleet::export(&map, &global, &date, &trips, 0.6) };
+                    let v = if trips.is_empty() { omsi_launcher_model::mapview::export(&map, &global, &date, &trip, 0.6) } else { omsi_launcher_model::mapview::hub_fleet::export(&map, &global, &date, &trips, 0.6) };
                     out(&id, json!({ "ok": true }), v.to_string().as_bytes());
                 });
             }
+            "pads" => pads.ask(req, reply.clone()),
+            "key_actions" => {
+                let out = reply.clone();
+                std::thread::spawn(move || out(&id, json!({ "ok": true }), super::key_actions::key_actions(&req).to_string().as_bytes()));
+            }
             "quit" => break,
-            // Omsi-Hub: the desktop launcher's editors (`omsi_launcher_ui::hub_service`)
-            other if omsi_launcher_ui::hub_service::serve(other, &req, { let (out, id) = (reply.clone(), id.clone()); Arc::new(move |h, b| out(&id, h, &b)) }, &mut renderer, &open_renderer) => {}
+            // Omsi-Hub: the desktop launcher's editors (`omsihub_game::service`)
+            other if omsihub_game::service::serve(other, &req, { let (out, id) = (reply.clone(), id.clone()); Arc::new(move |h, b| out(&id, h, &b)) }, &mut renderer, &open_renderer) => {}
             other => send(&id, json!({ "ok": false, "error": format!("unknown command {other}") }), &[]),
         }
     }

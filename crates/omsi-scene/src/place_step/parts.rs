@@ -102,7 +102,7 @@ pub(super) fn object_html_pages(
     if let Some((_, o3d_mats, overrides)) = ot.meshes.get(mi) {
         for o in overrides.iter().filter(|o| !o.item) {
             let Some(page) = o.use_script_texture.map(|n| n.max(0) as usize) else { continue };
-            let Some(def) = ot.model.html_textures.iter().find(|d| d.script_index == page) else { continue };
+            let Some(def) = ot.model.html_page(page) else { continue };
             let Some(slot) = omsi_sim::vehicle::override_slot(o3d_mats, o) else { continue };
             let mat = match html_mats.get(&page) {
                 Some(m) => *m,
@@ -115,7 +115,12 @@ pub(super) fn object_html_pages(
                         &Image { width: w, height: h, rgba: [0, 0, 0, 255].repeat((w * h) as usize), has_alpha: true },
                         false,
                     );
-                    let mat = renderer.add_material(scene, Some(tex), text_alpha(o3d_mats, slot, overrides), [1.0; 4], true);
+                    // A page declared `lit` (the word after its path, see
+                    // `HtmlTextureDef::lit`) is a surface: shaded like every other material -
+                    // the sun, the street's lamps, the fog, the eye's own metering - so a
+                    // sign face dims with the night it stands in. Left out, the page is a
+                    // display, drawn at its own brightness: an outdoor screen.
+                    let mat = renderer.add_material(scene, Some(tex), text_alpha(o3d_mats, slot, overrides), [1.0; 4], !def.lit);
                     let mat = gpu.material(renderer, scene, mat);
                     tg.textures.push(tex);
                     tg.materials.push(mat);

@@ -787,7 +787,7 @@ impl Companion {
             "break_since": self.phone.break_since.map(f64::floor),
             "screens": screens,
             "stop_style": omsi_launcher_lib::stop_style(&app.settings.stop_style),
-            "accent": crate::accent::css(),
+            "accent": crate::accent::css().into_iter().map(|(k, v)| (k.to_string(), serde_json::Value::String(v))).collect::<serde_json::Map<_, _>>(),
             "navigator": app.menus.navigator.is_some(),
             "report": self.watch.report,
             // (the page covers its QR code and pairing code as well)
@@ -1056,16 +1056,6 @@ fn lookup(lang: &str, key: &str) -> Option<String> {
     crate::_rust_i18n_try_translate(lang, key).map(|t| t.into_owned())
 }
 
-/// A driver's personnel number and code (`~/.openomsi/personnel.json`), made and written
-/// down now when the driver has none yet: the launcher's welcome shows them on a new driver's
-/// pass, as Omsi-Hub does, so they are known before the first sign-on. `name` is the driver's
-/// file name, as the game keys them (`signon::driver_key`).
-pub(crate) fn personnel_of_driver(name: &str) -> Option<(String, String)> {
-    let dir = crate::lan::data_dir()?;
-    let p = signon::PersonnelFile::load(Some(dir.join("personnel.json"))).of(&signon::driver_key(Some(name)), &mut random_u64);
-    Some((p.number, p.code))
-}
-
 /// Random numbers: std's `RandomState` keys come from the system's random source (as
 /// `voice`'s plugin key).
 pub(crate) fn random_u64() -> u64 {
@@ -1095,52 +1085,6 @@ pub(crate) fn reveal(on: bool) {
 /// "Show" was pressed lately: the address and the codes are not covered now.
 fn revealed() -> bool {
     REVEALED_UNTIL.lock().is_some_and(|t| Instant::now() < t)
-}
-
-/// cloudflared for the launcher's settings: there or not, being fetched, or the fetch failed
-/// (the launcher's own type: it asks through `Host::cloudflared`).
-pub(crate) use omsi_launcher_ui::host::Cloudflared;
-
-/// The last look for cloudflared (at most every two seconds: the settings are drawn every
-/// frame), and a download under way or failed.
-static CLOUDFLARED: parking_lot::Mutex<Option<(Instant, Cloudflared)>> = parking_lot::Mutex::new(None);
-
-/// Whether cloudflared is there for the Cloudflare tunnel (see [`download_cloudflared`]).
-pub(crate) fn cloudflared() -> Cloudflared {
-    let mut g = CLOUDFLARED.lock();
-    match g.as_ref() {
-        Some((_, Cloudflared::Downloading)) => return Cloudflared::Downloading,
-        Some((t, c)) if t.elapsed() < Duration::from_secs(2) => return c.clone(),
-        _ => {}
-    }
-    let failed = matches!(g.as_ref(), Some((_, Cloudflared::Failed)));
-    let found = match omsi_net::tunnel::find_cloudflared() {
-        Some(p) => Cloudflared::Installed(p),
-        None if failed => Cloudflared::Failed,
-        None => Cloudflared::Missing,
-    };
-    *g = Some((Instant::now(), found.clone()));
-    found
-}
-
-/// Fetch cloudflared - only when the player asks for it in the launcher's settings: Cloudflare's
-/// own release build from its GitHub releases, checked against its published SHA-256, into
-/// `~/.openomsi/bin` (`omsi_net::tunnel::ensure_cloudflared`). On a thread of its own.
-pub(crate) fn download_cloudflared() {
-    {
-        let mut g = CLOUDFLARED.lock();
-        if matches!(g.as_ref(), Some((_, Cloudflared::Downloading))) {
-            return;
-        }
-        *g = Some((Instant::now(), Cloudflared::Downloading));
-    }
-    let spawned = std::thread::Builder::new().name("cloudflared download".into()).spawn(|| {
-        let got = omsi_net::tunnel::ensure_cloudflared();
-        *CLOUDFLARED.lock() = Some((Instant::now(), got.map_or(Cloudflared::Failed, Cloudflared::Installed)));
-    });
-    if spawned.is_err() {
-        *CLOUDFLARED.lock() = Some((Instant::now(), Cloudflared::Failed));
-    }
 }
 
 /// The game ends: the tunnel's cloudflared goes with it (kept in a static, which Rust never
@@ -1361,7 +1305,7 @@ fn run(app: &mut App, command: http::Command) -> Value {
                     http::Pointer::Move => omsi_sim::htmltex::PointerKind::Move,
                     http::Pointer::Up => omsi_sim::htmltex::PointerKind::Up,
                 };
-                return json!({ "ok": p.html_pointer(n, uf, vf, kind) });
+                return json!({ "ok": p.html_pointer(n, uf, vf, kind, &mut app.integrations.plugin_pointer) });
             }
             match kind {
                 http::Pointer::Down => {
@@ -1422,7 +1366,7 @@ fn run(app: &mut App, command: http::Command) -> Value {
                 http::Pointer::Move => omsi_sim::htmltex::PointerKind::Move,
                 http::Pointer::Up => omsi_sim::htmltex::PointerKind::Up,
             };
-            json!({ "ok": p.html_pointer(page, u, v, kind) })
+            json!({ "ok": p.html_pointer(page, u, v, kind, &mut app.integrations.plugin_pointer) })
         }
         C::Tap { screen, kind, x, y } => {
             let Some(s) = COMPANION.lock().as_ref().and_then(|c| c.screens.iter().find(|s| s.id == screen).cloned()) else { return json!({ "ok": false }) };
@@ -1437,9 +1381,9 @@ fn run(app: &mut App, command: http::Command) -> Value {
             match kind {
                 http::Pointer::Down => {
                     // a page under it takes the press, as under the mouse (`input_script`)
-                    if let Some((page, u, v)) = p.html_hit(origin, dir) {
+                    if let Some((page, u, v)) = p.html_hit(origin, dir, &app.integrations.plugin_pointer) {
                         p.release();
-                        p.html_pointer(page, u, v, omsi_sim::htmltex::PointerKind::Down);
+                        p.html_pointer(page, u, v, omsi_sim::htmltex::PointerKind::Down, &mut app.integrations.plugin_pointer);
                         set_page_held(&screen, Some((page, u, v)));
                         return json!({ "ok": true, "page": true });
                     }
@@ -1454,15 +1398,15 @@ fn run(app: &mut App, command: http::Command) -> Value {
                 }
                 http::Pointer::Move => {
                     if let Some((page, u, v)) = s.page_held {
-                        let (u, v) = p.html_hit(origin, dir).filter(|h| h.0 == page).map_or((u, v), |h| (h.1, h.2));
-                        p.html_pointer(page, u, v, omsi_sim::htmltex::PointerKind::Move);
+                        let (u, v) = p.html_hit(origin, dir, &app.integrations.plugin_pointer).filter(|h| h.0 == page).map_or((u, v), |h| (h.1, h.2));
+                        p.html_pointer(page, u, v, omsi_sim::htmltex::PointerKind::Move, &mut app.integrations.plugin_pointer);
                     }
                     json!({ "ok": true })
                 }
                 http::Pointer::Up => {
                     if let Some((page, u, v)) = s.page_held {
-                        let (u, v) = p.html_hit(origin, dir).filter(|h| h.0 == page).map_or((u, v), |h| (h.1, h.2));
-                        p.html_pointer(page, u, v, omsi_sim::htmltex::PointerKind::Up);
+                        let (u, v) = p.html_hit(origin, dir, &app.integrations.plugin_pointer).filter(|h| h.0 == page).map_or((u, v), |h| (h.1, h.2));
+                        p.html_pointer(page, u, v, omsi_sim::htmltex::PointerKind::Up, &mut app.integrations.plugin_pointer);
                         set_page_held(&screen, None);
                     } else if s.held.is_some() {
                         p.release();

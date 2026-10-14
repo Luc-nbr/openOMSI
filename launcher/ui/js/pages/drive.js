@@ -1,17 +1,19 @@
 // Drive: the duty is put together here - map, bus, line and tour (or a free drive), the
 // start time and date, the weather and the traffic - and started.
 
-import { html, useState, useEffect, useRef } from '../../vendor/preact-htm.js';
+import { html, useState, useEffect, useRef, useMemo } from '../../vendor/preact-htm.js';
 import { S, useStore, set, toast } from '../store.js';
 import { t, hhmm, longDate, language } from '../i18n.js';
 import { call, contentUrl } from '../api.js';
 import { Icon } from '../icons.js';
-import { Button, Card, Field, Select, Input, Toggle, Segmented, Slider, Picture, Notice, Spinner, PageHead, Tag } from '../ui.js';
-import { choose, curMap, curBus, curLine, curTour, pickedTrip, realTime, realDate, start, loadSituations, duty } from '../data.js';
+import { Button, Card, Field, Select, Input, Toggle, Segmented, Slider, Picture, Notice, Spinner, PageHead, Tag, Search, Dialog } from '../ui.js';
+import { choose, curMap, curBus, curLine, curTour, pickedTrip, realTime, realDate, start, loadSituations, duty, weatherName, weatherOfItsOwn, mapName, askJoined, noServerBus, busFile, launcherLayout } from '../data.js';
 import { MapPicker } from './map-picker.js';
+import { ClassicDrive } from './drive-classic.js';
 import { BusPicker } from './bus-picker.js';
 import { BusPreview } from '../preview.js';
 import { RouteMap } from '../routemap.js';
+import { WeatherEditor, isCustomWeather, editableWeather } from './weather-editor.js';
 
 /** HH:MM of seconds of the day (the timetables' unit). */
 export const hms = (s) => hhmm((s || 0) / 60);
@@ -23,26 +25,86 @@ export const depotRun = (x) => !x.line?.trim() || /betriebsfahrt|leerfahrt|diens
 
 /** The trip a start at `now` (seconds) takes: the one under way or the next. */
 export function tripAt(tour, now) {
+  // a night tour's times run on past 24:00: at 03:25, before the tour's first trip of the
+  // day, its trip of 27:30 is the one at 03:30 (the tour begun the evening before, #2166)
+  const n = tour.trips.length;
+  if (n && now < 86400 && tour.trips[0].departure > now && tour.trips[n - 1].departure >= now + 86400 - 120) now += 86400;
   const i = tour.trips.findIndex((x) => x.departure >= now - 120);
   return i >= 0 ? i : tour.trips.length ? tour.trips.length - 1 : -1;
 }
 
+export const lineMatches = (l, q) => !q || `${l.name} ${l.termini.join(' ')}`.toLowerCase().includes(q);
+
+export function tourTrip(tour, now, q) {
+  const ended = tour.runs && tour.trips.every((x) => x.departure < now - 120);
+  const first = tour.trips.length ? tripAt(tour, now) : -1;
+  const has = (s) => (s || '').toLowerCase().includes(q);
+  if (!q || has(tour.number)) return { ended, at: first };
+  const from = ended ? 0 : Math.max(first, 0);
+  const at = tour.trips.findIndex((x, i) => i >= from && (has(x.name) || has(x.line) || has(x.from) || has(x.terminus) || x.stops?.some((st) => has(st.name))));
+  const hit = tour.trips[at];
+  const via = hit && !has(hit.line) && !has(hit.from) && !has(hit.terminus) ? hit.stops?.find((st) => has(st.name))?.name : null;
+  return { ended, at, via };
+}
+
+export function findTours(line, now, q, showEnded, keep) {
+  const all = (line?.tours || []).map((tour) => ({ tour, ...tourTrip(tour, now, q) })).filter((x) => x.at >= 0 || (!x.tour.trips.length && (!q || x.tour.number.toLowerCase().includes(q))));
+  const endedCount = all.filter((x) => x.ended).length;
+  const dep = (x) => x.tour.trips[x.at]?.departure ?? Infinity;
+  const shown = all
+    .filter((x) => showEnded || !x.ended || (!q && x.tour.number === keep))
+    .sort((a, b) => b.tour.runs - a.tour.runs || a.ended - b.ended || (q ? dep(a) - dep(b) : 0) || a.tour.number.localeCompare(b.tour.number, undefined, { numeric: true }));
+  return { shown, endedCount };
+}
+
+export function tourRoute(tour) {
+  const service = tour.trips.filter((x) => !depotRun(x));
+  const from = (service[0] || tour.trips[0])?.from || '';
+  const to = (service[service.length - 1] || tour.trips[tour.trips.length - 1])?.terminus || '';
+  return from || to ? `${from} → ${to}` : '';
+}
+
+export function chooseLine(l) {
+  const tr = findTours(l, S.choice.time * 60, '', false).shown[0]?.tour || l?.tours.find((x) => x.runs) || l?.tours[0];
+  choose({ line: l.name, tour: tr?.number ?? null, start_trip: null });
+}
+
+export function chooseTour(x, trip) {
+  if (x.number === S.choice.tour && !trip) return;
+  const patch = { tour: x.number, start_trip: null };
+  if (!x.runs && x.next_run && !realDate()) patch.date = x.next_run;
+  choose(patch);
+  if (trip) pickTrip(trip);
+}
+
 export function DrivePage() {
+  useStore();
+  return launcherLayout() === 'classic' ? html`<${ClassicDrive} />` : html`<${CardsDrive} />`;
+}
+
+function CardsDrive() {
   const s = useStore();
   const [picker, setPicker] = useState(null);
   const c = s.choice;
+  useEffect(() => {
+    askJoined();
+  }, [c?.lan_mode, c?.lan_addr]);
   if (!c) return null;
   return html`
     <${PageHead} title="Drive" text="Choose where and what you drive, then start." />
     ${s.errors.maps && html`<${Notice} kind="danger">${s.errors.maps}</${Notice}>`}
     <div class="drive">
-      <div class="stack">
-        <${MapCard} onPick=${() => setPicker('map')} />
-        <${BusCard} onPick=${() => setPicker('bus')} preview=${picker !== 'bus'} />
-        <${DutyCard} />
-        <div class="grid-2" style="gap:16px">
-          <${TimeCard} />
-          <${ConditionsCard} />
+      <div class="drive-cols">
+        <div class="stack">
+          <${MapCard} onPick=${() => setPicker('map')} />
+          <${BusCard} onPick=${() => setPicker('bus')} preview=${picker !== 'bus'} />
+        </div>
+        <div class="stack">
+          <${DutyCard} />
+          <div class="grid-2" style="gap:16px">
+            <${TimeCard} />
+            <${ConditionsCard} />
+          </div>
         </div>
       </div>
       <div class="side">
@@ -54,9 +116,48 @@ export function DrivePage() {
   `;
 }
 
+// the player's notes on maps and buses (#1791): read once, saved as they are typed
+let notesNow = null;
+const noteKey = (kind, file) => `${kind}:${(file || '').replace(/\\/g, '/').toLowerCase()}`;
+
+/** A note of the player's own on a map or a bus, kept on this computer. */
+export function Notes({ kind, file }) {
+  const key = noteKey(kind, file);
+  const [text, setText] = useState(notesNow?.[key] || '');
+  const [open, setOpen] = useState(!!notesNow?.[key]);
+  const timer = useRef(0);
+  useEffect(() => {
+    let alive = true;
+    const show = (all) => alive && (setText(all[key] || ''), setOpen(!!all[key]));
+    if (notesNow) show(notesNow);
+    else call('notes_get').then((all) => ((notesNow = all || {}), show(notesNow)), () => {});
+    return () => {
+      alive = false;
+    };
+  }, [key]);
+  const save = (v) => {
+    setText(v);
+    if (notesNow) notesNow[key] = v;
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => call('notes_save', { key, text: v }).catch(() => {}), 600);
+  };
+  if (!file) return null;
+  if (!open) return html`<div><${Button} small kind="ghost" icon="file" label="Add a note" onClick=${() => setOpen(true)} /></div>`;
+  return html`<textarea class="input" rows="3" style="width:100%" placeholder=${t('Your own note, kept on this computer')} value=${text} onInput=${(e) => save(e.currentTarget.value)}></textarea>`;
+}
+
 function MapCard({ onPick }) {
   const s = useStore();
   const m = curMap();
+  const srv = s.choice.lan_mode === 'join' ? s.choice.lan_server || { name: s.choice.lan_addr } : null;
+  if (srv) {
+    return html`<${Card} title="Map" actions=${html`<${Button} small icon="x" label="Leave the server" onClick=${() => choose({ lan_mode: 'off' })} />`}>
+      <div class="stack" style="gap:8px">
+        <h3>${s.choice.lan_map ? mapName(s.choice.lan_map.replace(/\\/g, '/')) : m ? m.friendly || m.name : ''}</h3>
+        <div class="muted small">${t('Set by {server}', { server: srv.name || s.choice.lan_addr })}</div>
+      </div>
+    </${Card}>`;
+  }
   return html`<${Card} title="Map" actions=${html`<${Button} small icon="map" label="Change map" onClick=${onPick} disabled=${!s.maps?.length} />`}>
     ${!s.maps
       ? html`<div class="row muted"><${Spinner} /> ${t('Reading the maps…')}</div>`
@@ -68,6 +169,7 @@ function MapCard({ onPick }) {
               <h3>${m.friendly || m.name}</h3>
               <p>${m.description || ''}</p>
               <div class="row" style="margin-top:8px">${m.installed && html`<${Tag}>${t('Mod')}</${Tag}>`}<span class="muted small">${t('{n} entry points', { n: m.entry_points.length })}</span></div>
+              <div style="margin-top:8px"><${Notes} kind="map" file=${m.file} /></div>
             </div>
           </div>`}
   </${Card}>`;
@@ -86,6 +188,7 @@ function BusCard({ onPick, preview }) {
       : !v
         ? html`<${Notice} kind="warn">${t('No bus is installed.')}</${Notice}>`
         : html`<div class="stack">
+            ${noServerBus() && html`<${Notice} kind="danger">${t('The server offers none of the vehicles installed here')}</${Notice}>`}
             ${preview && html`<${BusPreview} class="in-card" look=${{ bus: v.file, paint: c.paint, map: c.map, weather: c.weather, time: c.time, date: c.date }} />`}
             <div class="row">
               <div class="grow">
@@ -117,7 +220,22 @@ function DutyCard() {
   const line = curLine();
   const tour = curTour();
   const [showEnded, setShowEnded] = useState(false);
+  const [lineQ, setLineQ] = useState('');
+  const [tourQ, setTourQ] = useState('');
   const now = c.time * 60;
+  const lineRef = useRef();
+  const tourRef = useRef();
+  const toChosen = (el, q) => {
+    if (!el) return;
+    const on = !q && el.querySelector('.on');
+    el.scrollTop = on ? el.scrollTop + on.getBoundingClientRect().top - el.getBoundingClientRect().top - 8 : 0;
+  };
+  useEffect(() => toChosen(lineRef.current, lineQ), [c.map, c.free, s.lines.key, !!s.lines.list, lineQ]);
+  useEffect(() => toChosen(tourRef.current, tourQ), [c.map, c.free, c.line, s.lines.key, !!s.lines.list, tourQ]);
+  useEffect(() => setTourQ(''), [c.line]);
+  useEffect(() => setLineQ(''), [c.map]);
+  const tq = tourQ.trim().toLowerCase();
+  const found = useMemo(() => findTours(line, now, tq, showEnded, c.tour), [line, now, tq, showEnded, c.tour]);
   // the trip a start takes is brought into view when the duty changes (not while one scrolls)
   const tripsRef = useRef();
   const tripKey = `${c.line}|${c.tour}|${c.time}|${pickedTrip()}|${!!s.lines.list}`;
@@ -127,6 +245,16 @@ function DutyCard() {
     if (on) el.scrollTop += on.getBoundingClientRect().top - el.getBoundingClientRect().top - 70;
   }, [tripKey]);
   const entries = m ? [[-1, c.free ? 'Automatic (the map\'s first)' : 'Automatic (nearest to the first stop)'], ...m.entry_points.map((e, i) => [i, e.name])] : [];
+  // the tours of every line that leave next from the chosen time (#1885)
+  const upcoming = useMemo(() => {
+    const out = [];
+    for (const l of lines) for (const x of l.tours) {
+      if (!x.runs) continue;
+      const trip = x.trips[tripAt(x, now)];
+      if (trip && trip.departure >= now - 120 && !depotRun(trip)) out.push({ l, x, trip });
+    }
+    return out.sort((a, b) => a.trip.departure - b.trip.departure).slice(0, 15);
+  }, [lines, now]);
 
   let body;
   if (c.free) {
@@ -142,35 +270,66 @@ function DutyCard() {
   } else if (!lines.length) {
     body = html`<${Notice}>${t('This map has no lines to drive on this date. Choose a free drive, or another date.')}</${Notice}>`;
   } else {
-    const tours = line ? [...line.tours] : [];
-    const ended = (x) => x.runs && x.trips.every((tr) => tr.departure < now - 120);
-    const endedCount = tours.filter(ended).length;
-    const shown = tours.filter((x) => showEnded || !ended(x)).sort((a, b) => b.runs - a.runs || ended(a) - ended(b));
+    const lq = lineQ.trim().toLowerCase();
+    const foundLines = lines.filter((l) => lineMatches(l, lq));
+    const { shown, endedCount } = found;
     const picked = pickedTrip();
     const trips = tour?.trips || [];
     const auto = tour ? tripAt(tour, now) : -1;
     const current = picked != null ? trips.findIndex((x) => x.index === picked) : auto;
     body = html`<div class="stack">
-      <div class="grid-2">
-        <${Field} label="Line">
-          <${Select} raw value=${c.line ?? ''} options=${lines.map((l) => [l.name, l.termini.length ? `${l.name} - ${l.termini.join(' - ')}` : l.name])} onChange=${(name) => {
-            const l = lines.find((x) => x.name === name);
-            const tr = l?.tours.find((x) => x.runs) || l?.tours[0];
-            choose({ line: name, tour: tr?.number ?? null, start_trip: null });
-          }} />
-        </${Field}>
-        <${Field} label="Tour">
-          <${Select} raw value=${c.tour ?? ''} options=${shown.map((x) => [x.number, `${x.number} - ${x.days}${!x.runs ? ` - ${t('not on this day')}` : ended(x) ? ` - ${t('ended')}` : ''}`])} onChange=${(number) => {
-            const x = tours.find((y) => y.number === number);
-            const patch = { tour: number, start_trip: null };
-            // a tour of another day moves the date to the next day it runs (OMSI lists only the day's tours)
-            if (x && !x.runs && x.next_run && !realDate()) patch.date = x.next_run;
-            choose(patch);
-          }} />
-        </${Field}>
+      <div class="duty-pick">
+        <div class="stack" style="gap:8px">
+          <div class="row duty-pick-head"><span class="label grow">${t('Line')}</span><span class="muted small">${lq ? `${foundLines.length} / ${lines.length}` : lines.length}</span></div>
+          <${Search} value=${lineQ} onInput=${setLineQ} placeholder="Filter lines..." />
+          <div class="pick-list" ref=${lineRef}>
+            ${foundLines.length === 0 && html`<p class="muted small" style="padding:8px">${t('No line matches.')}</p>`}
+            ${foundLines.map((l) => html`<button type="button" class=${'list-item' + (l.name === c.line ? ' on' : '')} onClick=${() => l.name !== c.line && chooseLine(l)}>
+              <div class="grow" style="min-width:0">
+                <span class="line-badge" style="max-width:100%;justify-content:flex-start"><span class="ellipsis">${l.name}</span></span>
+                ${l.termini.length > 0 && html`<div class="sub ellipsis" style="margin-top:4px">${l.termini.join(' - ')}</div>`}
+              </div>
+              <span class="muted small row" style="gap:4px" title=${t('Tours of this line on the chosen day')}><${Icon} name="calendar" size=${13} />${l.tours.filter((x) => x.runs).length}</span>
+            </button>`)}
+          </div>
+        </div>
+        <div class="stack" style="gap:8px">
+          <div class="row duty-pick-head"><span class="label grow">${t('Tour')}</span>${endedCount > 0 && html`<${Toggle} checked=${showEnded} onChange=${setShowEnded} label=${t('Show ended tours ({n})', { n: endedCount })} />`}</div>
+          <${Search} value=${tourQ} onInput=${setTourQ} placeholder="Filter tours: number, route, stop..." />
+          <div class="pick-list" ref=${tourRef}>
+            ${shown.length === 0 && html`<p class="muted small" style="padding:8px">${t(tq ? 'No tour has a trip still to come that matches.' : 'No tour left at this time: show the ended tours, or start earlier.')}</p>`}
+            ${shown.map(({ tour: x, ended: done, at, via }) => {
+              const trip = x.trips[at];
+              const live = x.runs && !done;
+              const hit = tq && trip && !x.number.toLowerCase().includes(tq);
+              const days = !x.runs ? (x.next_run ? t('runs {date}', { date: longDate(x.next_run) }) : t('never within a year')) : done ? t('ended') : x.days;
+              return html`<button type="button" class=${'list-item' + (x.number === c.tour ? ' on' : '') + (live ? '' : ' dim')} onClick=${() => chooseTour(x, hit ? trip : null)}>
+                <div class="grow" style="min-width:0">
+                  <div class="row"><b class="grow ellipsis">${x.number}</b>${trip && html`<span class=${'num small' + (live ? ' accent-fg' : ' muted')}>${hms(trip.departure)} - ${hms(trip.arrival)}</span>`}</div>
+                  <div class="sub ellipsis">${hit ? `${trip.line ? `${trip.line} | ` : ''}${trip.from} → ${trip.terminus}${via ? ` | ${t('via {stop}', { stop: via })}` : ''}` : tourRoute(x)}</div>
+                  <div class="sub ellipsis">${t('{n} trips', { n: x.trips.length })} - ${days}</div>
+                </div>
+              </button>`;
+            })}
+          </div>
+        </div>
       </div>
-      ${endedCount > 0 && html`<${Toggle} checked=${showEnded} onChange=${setShowEnded} label=${t('Show ended tours ({n})', { n: endedCount })} />`}
-      ${tour && !tour.runs && html`<${Notice} kind="warn">${tour.next_run ? t('This tour does not run on the chosen date; it runs next on {date}.', { date: longDate(tour.next_run) }) : t('This tour does not run within a year of the chosen date.')}</${Notice}>`}
+      ${upcoming.length > 0 && html`<details class="next-tours">
+        <summary class="label" style="cursor:pointer">${t('Next departures from {time}', { time: hhmm(c.time) })}</summary>
+        <table class="table" style="margin-top:8px">
+          <tbody>
+            ${upcoming.map(({ l, x, trip }) => html`<tr class=${'click' + (l.name === c.line && x.number === c.tour ? ' on' : '')} onClick=${() => (choose({ line: l.name, tour: x.number, start_trip: null }), pickTrip(trip))}>
+              <td class="num"><b>${hms(trip.departure)}</b></td>
+              <td><span class="line-badge">${trip.line || l.name}</span></td>
+              <td>${t('Tour')} ${x.number}</td>
+              <td class="ellipsis" style="max-width:320px">${trip.from} → ${trip.terminus}</td>
+            </tr>`)}
+          </tbody>
+        </table>
+      </details>`}
+      ${tour && !tour.runs && html`<${Notice} kind="warn">${tour.next_run ? t('This tour does not run on the chosen date; it runs next on {date}.', { date: longDate(tour.next_run) }) : t('This tour does not run within a year of the chosen date.')}
+        ${tour.next_run && !realDate() && html`<div style="margin-top:8px"><${Button} small icon="calendar" label="Drive it on that day" onClick=${() => choose({ date: tour.next_run, season: 'auto', own_date: null })} /></div>`}</${Notice}>`}
+      ${tour && html`<${TourBus} tour=${tour} />`}
       ${tour && html`<div>
         <div class="row" style="margin-bottom:8px"><span class="label">${t('Trips of the tour')}</span><span class="muted small right">${t('Click a trip to start with it')}</span></div>
         <div class="trips" ref=${tripsRef}>
@@ -188,6 +347,7 @@ function DutyCard() {
           </table>
         </div>
       </div>`}
+      <${IbisBox} />
       <${Field} label="Start at"><${Select} value=${c.entry} options=${entries} onChange=${(v) => choose({ entry: Number(v) })} /></${Field}>
       ${trips[current] && html`<${RouteMap} map=${c.map} date=${c.date} trip=${trips[current].name} entry=${c.entry}
         stops=${trips[current].stops.map((x) => ({ time: hms(x.dep || x.arr), name: x.name }))} onEntry=${(entry) => choose({ entry })} />`}
@@ -198,8 +358,76 @@ function DutyCard() {
   </${Card}>`;
 }
 
+/** The buses the map's ailists.cfg gives the tour's AI group, to drive one of them (#1886). */
+function TourBus({ tour }) {
+  const s = useStore();
+  const c = s.choice;
+  const [found, setFound] = useState([]);
+  useEffect(() => {
+    setFound([]);
+    if (!tour.ai_group || !c.map) return;
+    let alive = true;
+    call('tour_buses', { map: c.map, group: tour.ai_group, date: c.date }).then((r) => alive && setFound(r || []), () => {});
+    return () => (alive = false);
+  }, [c.map, c.date, tour.ai_group]);
+  const buses = found
+    .map((f) => {
+      const v = (s.vehicles || []).find((x) => busFile(x.file) === busFile(f.file));
+      if (!v) return null;
+      const paint = v.paints.includes(f.paint) ? f.paint : '';
+      const number = (v.numbers || []).some(([n]) => n === f.number) ? f.number : '';
+      return { v, paint, number };
+    })
+    .filter(Boolean)
+    .slice(0, 10);
+  if (!buses.length) return null;
+  return html`<div class="row muted small" style="gap:6px;flex-wrap:wrap;align-items:center">
+    <span>${t('Buses the timetable gives this tour:')}</span>
+    ${buses.map(({ v, paint, number }) => {
+      const on = v.file === c.bus && (c.paint || '') === paint;
+      return html`<${Button} small kind=${on ? 'primary' : ''} icon=${on ? 'check' : 'bus'} label=${[v.name, paint].filter(Boolean).join(' - ')} onClick=${() => choose({ bus: v.file, paint, number, hof_manual: false })} />`;
+    })}
+  </div>`;
+}
+
+function ibisCodes(info, code, line) {
+  return code.length > 2 ? [code.slice(0, -2), code.slice(-2)] : [info.line_code || line, code];
+}
+
+function IbisBox() {
+  const s = useStore();
+  const x = s.ibis;
+  if (!x || s.choice.free) return null;
+  const i = x.info;
+  let body;
+  if ('error' in x) body = html`<${Notice} kind="warn">${x.error}</${Notice}>`;
+  else if (!i.routes.length) body = html`<p class="muted small">${t('Depot file {hof} has no entries for this line. Type line {line} and the terminus code by hand, or press Shift+U.', { hof: i.hof, line: i.line_code || s.choice.line })}</p>`;
+  else {
+    body = html`<div class="trips">
+        <table class="table ibis">
+          <thead><tr><th></th><th>${t('Line')}</th><th>${t('Route code')}</th></tr></thead>
+          <tbody>
+            ${i.routes.slice(0, 3).map((r) => {
+              const [line, route] = ibisCodes(i, r.code, s.choice.line);
+              return html`<tr>
+                <td class="ellipsis">${(r.name || r.terminus).trim()}</td>
+                <td><span class="line-badge">${line}</span></td>
+                <td><span class="line-badge">${route}</span></td>
+              </tr>`;
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div class="muted small">${t('Depot file {hof} | Shift+U in the game types it for you', { hof: i.hof })}</div>`;
+  }
+  return html`<div class="stack" style="gap:8px">
+    <span class="label">IBIS</span>
+    ${body}
+  </div>`;
+}
+
 /** HH:MM typed in 24 hours (the timetables' clock, whatever the system's locale says). */
-function TimeInput({ minutes, onChange, disabled }) {
+export function TimeInput({ minutes, onChange, disabled }) {
   const [text, setText] = useState(hhmm(minutes));
   useEffect(() => setText(hhmm(minutes)), [minutes]);
   const commit = () => {
@@ -209,11 +437,61 @@ function TimeInput({ minutes, onChange, disabled }) {
     if (h >= 0 && h < 24 && mi >= 0 && mi < 60) onChange(h * 60 + mi);
     else setText(hhmm(minutes));
   };
-  return html`<input class="input num" value=${text} disabled=${disabled} maxlength="5" placeholder="09:00" onInput=${(e) => setText(e.currentTarget.value)} onBlur=${commit} onKeyDown=${(e) => e.key === 'Enter' && e.currentTarget.blur()} />`;
+  // the mouse wheel turns the clock: a minute over the minutes, an hour over the hours (#2351)
+  const wheel = (e) => {
+    if (disabled) return;
+    e.preventDefault();
+    const d = e.deltaY || e.deltaX;
+    if (!d) return;
+    const box = e.currentTarget.getBoundingClientRect();
+    const hours = e.shiftKey || e.clientX - box.left < Math.min(box.width / 2, 34);
+    const step = (d < 0 ? 1 : -1) * (hours ? 60 : 1);
+    onChange((((minutes + step) % 1440) + 1440) % 1440);
+  };
+  return html`<input class="input num" value=${text} disabled=${disabled} maxlength="5" placeholder="09:00" title=${t('The mouse wheel turns the hours (left) or the minutes (right)')} onWheel=${wheel} onInput=${(e) => setText(e.currentTarget.value)} onBlur=${commit} onKeyDown=${(e) => e.key === 'Enter' && e.currentTarget.blur()} />`;
+}
+
+/** A month to click a day in (#2351, #1625): the week starts on Monday, as the timetables'. */
+function DatePicker({ value, onPick, onClose }) {
+  const at = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
+  const [month, setMonth] = useState(() => (at ? new Date(Date.UTC(+at[1], +at[2] - 1, 1)) : new Date(Date.UTC(new Date().getFullYear(), new Date().getMonth(), 1))));
+  const y = month.getUTCFullYear();
+  const m = month.getUTCMonth();
+  const step = (n) => setMonth(new Date(Date.UTC(y, m + n, 1)));
+  const loc = language();
+  const title = new Intl.DateTimeFormat(loc, { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(month);
+  const dayName = new Intl.DateTimeFormat(loc, { weekday: 'short', timeZone: 'UTC' });
+  // (2024-01-01 was a Monday)
+  const heads = [0, 1, 2, 3, 4, 5, 6].map((i) => dayName.format(new Date(Date.UTC(2024, 0, 1 + i))));
+  const lead = (month.getUTCDay() + 6) % 7;
+  const days = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  const iso = (d) => new Date(Date.UTC(y, m, d)).toISOString().slice(0, 10);
+  const today = localNow().date;
+  const cell = 'height:34px;border-radius:6px;border:none;font:inherit;cursor:pointer;';
+  return html`<${Dialog} title="Choose a date" onClose=${onClose}>
+    <div class="stack" style="gap:10px;min-width:280px">
+      <div class="row" style="gap:6px;align-items:center">
+        <${Button} small kind="ghost" icon="left" title="Previous month" onClick=${() => step(-1)} />
+        <div class="grow" style="text-align:center;font-weight:600">${title}</div>
+        <${Button} small kind="ghost" icon="right" title="Next month" onClick=${() => step(1)} />
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center">
+        ${heads.map((h) => html`<div class="muted small">${h}</div>`)}
+        ${Array.from({ length: lead }, () => html`<div></div>`)}
+        ${Array.from({ length: days }, (_, i) => {
+          const d = iso(i + 1);
+          const on = d === value;
+          const bg = on ? 'background:var(--accent);color:#000;font-weight:600;' : 'background:var(--surface-2);color:var(--text);';
+          const ring = d === today && !on ? 'box-shadow:inset 0 0 0 1px var(--accent);' : '';
+          return html`<button type="button" style=${cell + bg + ring} onClick=${() => onPick(d)}>${i + 1}</button>`;
+        })}
+      </div>
+    </div>
+  </${Dialog}>`;
 }
 
 /** A date typed as the timetables write it (YYYY-MM-DD), whatever the system's locale. */
-function DateInput({ value, onChange, disabled }) {
+export function DateInput({ value, onChange, disabled }) {
   const [text, setText] = useState(value);
   useEffect(() => setText(value), [value]);
   const commit = () => {
@@ -222,13 +500,23 @@ function DateInput({ value, onChange, disabled }) {
     if (d && d.getUTCMonth() === +m[2] - 1) onChange(d.toISOString().slice(0, 10));
     else setText(value);
   };
-  return html`<input class="input num" value=${text} disabled=${disabled} maxlength="10" placeholder="1989-05-30" onInput=${(e) => setText(e.currentTarget.value)} onBlur=${commit} onKeyDown=${(e) => e.key === 'Enter' && e.currentTarget.blur()} />`;
+  // the mouse wheel steps a day (#2351)
+  const wheel = (e) => {
+    if (disabled) return;
+    e.preventDefault();
+    const d = e.deltaY || e.deltaX;
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
+    if (!d || !m) return;
+    onChange(new Date(Date.UTC(+m[1], +m[2] - 1, +m[3] + (d < 0 ? 1 : -1))).toISOString().slice(0, 10));
+  };
+  return html`<input class="input num" value=${text} disabled=${disabled} maxlength="10" placeholder="1989-05-30" onWheel=${wheel} onInput=${(e) => setText(e.currentTarget.value)} onBlur=${commit} onKeyDown=${(e) => e.key === 'Enter' && e.currentTarget.blur()} />`;
 }
 
 /** Start the tour at this trip: at its departure (or at the real time: the bus waits). */
 export function pickTrip(x) {
   const c = S.choice;
-  const time = realTime() ? c.time : Math.floor(x.departure / 60);
+  // (a trip after midnight of a night tour, 24:30, starts at 00:30)
+  const time = realTime() ? c.time : Math.floor(x.departure / 60) % (24 * 60);
   choose({ time, start_trip: [c.line, c.tour, x.index, time] });
 }
 
@@ -246,6 +534,12 @@ export async function setSeason(season, phase) {
   choose({ season, phase, own_date: own, ...(r?.date ? { date: r.date } : {}) });
 }
 
+export function localNow() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return { time: d.getHours() * 60 + d.getMinutes(), date: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` };
+}
+
 function TimeCard() {
   const s = useStore();
   const c = s.choice;
@@ -253,23 +547,69 @@ function TimeCard() {
   const cur = w.find((x) => x.file === c.weather);
   const rt = realTime();
   const rd = realDate();
+  const [airport, setAirport] = useState('');
+  useEffect(() => {
+    setAirport('');
+    if (c.map) call('nearest_airport', { map: c.map }).then(setAirport).catch(() => {});
+  }, [c.map]);
+  const metar = c.weather?.startsWith('metar:') ? c.weather.slice(6) || airport : airport;
+  const [airports, setAirports] = useState([]);
+  const [editing, setEditing] = useState(null);
+  const [picking, setPicking] = useState(false);
+  const custom = isCustomWeather(c.weather);
+  useEffect(() => {
+    if (c.weather?.startsWith('metar:') && !airports.length) call('metar_airports').then(setAirports).catch(() => {});
+  }, [c.weather]);
+  const weatherHelp = cur ? cur.description
+    : c.weather?.startsWith('metar:') ? t('METAR of {} (fetched at the start)', [metar])
+    : c.weather === 'cycle' ? 'Changes every 25-60 minutes, as the month allows'
+    : custom ? 'Set visibility, wind, clouds, rain, temperature and road state'
+    : c.weather ? null : 'Develops by itself through the day and the season';
+  if (c.lan_mode === 'join') {
+    const srv = c.lan_server || {};
+    return html`<${Card} title="Time and weather">
+      <div class="stack" style="gap:10px">
+        <div class="muted small">${t('Set by {server}', { server: srv.name || c.lan_addr })}</div>
+        <dl class="facts">
+          <dt>${t('Time')}</dt><dd>${srv.time || '-'}</dd>
+          <dt>${t('Weather')}</dt><dd>${srv.weather || t("the map's (the server's)")}</dd>
+        </dl>
+        <p class="muted small">${t('On a server the map, the time, the date and the weather are the same for everybody: the server keeps the world\'s clock. You choose your bus and your duty.')}</p>
+      </div>
+    </${Card}>`;
+  }
   return html`<${Card} title="Time and weather">
     <div class="stack">
       <div class="grid-2">
         <${Field} label="Start time" help=${rt ? 'Follows the computer\'s clock (Settings)' : null}>
-          <${TimeInput} minutes=${c.time} disabled=${rt} onChange=${(time) => choose({ time })} />
+          <div class="row" style="gap:6px">
+            <div class="grow"><${TimeInput} minutes=${c.time} disabled=${rt} onChange=${(time) => choose({ time })} /></div>
+            ${!rt && html`<${Button} icon="clock" title="Current time" onClick=${() => choose({ time: localNow().time })} />`}
+          </div>
         </${Field}>
         <${Field} label="Date" help=${rd ? 'Today (Settings)' : null}>
-          <${DateInput} value=${c.date} disabled=${rd} onChange=${(date) => choose({ date, season: 'auto', own_date: null })} />
+          <div class="row" style="gap:6px">
+            <div class="grow"><${DateInput} value=${c.date} disabled=${rd} onChange=${(date) => choose({ date, season: 'auto', own_date: null })} /></div>
+            ${!rd && html`<${Button} icon="down" title="Choose a date" onClick=${() => setPicking(true)} />`}
+            ${!rd && html`<${Button} icon="calendar" title="Current date" onClick=${() => choose({ date: localNow().date, season: 'auto', own_date: null })} />`}
+          </div>
         </${Field}>
       </div>
       <${Field} label="Season">
         <${Select} value=${c.season} options=${SEASONS} onChange=${(v) => setSeason(v, c.phase)} />
       </${Field}>
       ${c.season !== 'auto' && html`<${Segmented} full value=${c.phase} options=${PHASES} onChange=${(p) => setSeason(c.season, p)} />`}
-      <${Field} label="Weather" help=${cur ? cur.description : c.weather ? null : 'Develops by itself through the day and the season'}>
-        <${Select} raw value=${c.weather} options=${[['', t('Natural weather')], ...w.map((x) => [x.file, x.name])]} onChange=${(weather) => choose({ weather })} />
+      <${Field} label="Weather" help=${weatherHelp}>
+        <div class="row" style="gap:6px">
+          <div class="grow"><${Select} raw value=${c.weather} options=${[['', t('Natural weather')], [custom ? c.weather : 'custom:', t('Custom weather')], ...(metar ? [[`metar:${metar}`, t('Current weather')]] : []), ['cycle', t('Weather cycle')], ...(weatherOfItsOwn(c.weather) && !custom && c.weather !== `metar:${metar}` && c.weather !== 'cycle' ? [[c.weather, weatherName(c.weather)]] : []), ...w.map((x) => [x.file, x.name])]} onChange=${(weather) => (isCustomWeather(weather) ? setEditing(weather) : choose({ weather }))} /></div>
+          ${editableWeather(c.weather) && html`<${Button} icon="sliders" title=${custom ? 'Custom weather' : 'Edit selected weather as custom'} onClick=${() => setEditing(c.weather)} />`}
+        </div>
       </${Field}>
+      ${editing != null && html`<${WeatherEditor} from=${editing} onClose=${() => setEditing(null)} />`}
+      ${picking && html`<${DatePicker} value=${c.date} onClose=${() => setPicking(false)} onPick=${(date) => (setPicking(false), choose({ date, season: 'auto', own_date: null }))} />`}
+      ${c.weather?.startsWith('metar:') && airports.length > 0 && html`<${Field} label="Airport">
+        <${Select} raw value=${metar} options=${airports} onChange=${(code) => choose({ weather: `metar:${code}` })} />
+      </${Field}>`}
     </div>
   </${Card}>`;
 }
@@ -297,9 +637,9 @@ function Summary() {
   const [busy, setBusy] = useState(false);
   const [args, setArgs] = useState(null);
   const trip = tour && !c.free ? (pickedTrip() != null ? tour.trips.find((x) => x.index === pickedTrip()) : tour.trips[tripAt(tour, c.time * 60)]) : null;
-  const ready = m && v && (c.free || (line && tour));
-  const running = s.poll.instances?.length || 0;
   const joined = c.lan_mode === 'join';
+  const ready = m && v && (c.free || (line && tour)) && !noServerBus();
+  const running = s.poll.instances?.length || 0;
   const go = async (extra) => {
     setBusy(true);
     await start(extra);
@@ -309,7 +649,7 @@ function Summary() {
   return html`
     <section class="card summary">
       <${Picture} src=${m ? mapPicture(m.file) : ''}>
-        ${m && html`<div class="over"><b>${m.friendly || m.name}</b><span>${longDate(c.date)} - ${hhmm(c.time)}</span></div>`}
+        ${m && html`<div class="over"><b>${joined && c.lan_map ? mapName(c.lan_map.replace(/\\/g, '/')) : m.friendly || m.name}</b><span>${joined ? `${c.lan_server?.time || ''} ${t("(the server's clock)")}` : `${longDate(c.date)} - ${hhmm(c.time)}`}</span></div>`}
       </${Picture}>
       <div class="card-body stack" style="gap:14px">
         ${trip && !depotRun(trip)
@@ -320,11 +660,11 @@ function Summary() {
           ${!c.free && html`<dt>${t('Line')}</dt><dd>${line ? line.name : '-'}</dd>`}
           ${!c.free && html`<dt>${t('Tour')}</dt><dd>${tour ? tour.number : '-'}</dd>`}
           ${trip && html`<dt>${t('First trip')}</dt><dd class="num">${hms(trip.departure)} ${trip.from}</dd>`}
-          <dt>${t('Weather')}</dt><dd>${s.weather?.find((x) => x.file === c.weather)?.name || t('Natural weather')}</dd>
+          <dt>${t('Weather')}</dt><dd>${joined ? c.lan_server?.weather || t("the map's (the server's)") : weatherName(c.weather, s.weather)}</dd>
           <dt>${t('Driver')}</dt><dd>${s.config?.profile || '-'}</dd>
         </dl>
         ${joined && html`<${Notice} icon="users">
-          <div class="row"><span class="grow">${t('Joining {server}', { server: c.lan_addr })}</span><${Button} small kind="ghost" label="Leave" onClick=${() => choose({ lan_mode: 'off' })} /></div>
+          <div class="row"><span class="grow">${t('Joining {server}', { server: c.lan_server?.name || c.lan_addr })}</span><${Button} small kind="ghost" label="Leave" onClick=${() => choose({ lan_mode: 'off' })} /></div>
         </${Notice}>`}
         <${Button} kind="primary" big wide icon="play" disabled=${!ready || busy} onClick=${() => go()}>
           ${busy ? t('Starting…') : joined ? t('Join and drive') : c.free ? t('Start driving') : t('Start the duty')}
@@ -344,7 +684,7 @@ function Continue({ go, busy }) {
   useEffect(() => {
     loadSituations();
   }, []);
-  if (!s.situations?.length) return null;
+  if (!s.situations?.length || s.choice.lan_mode === 'join') return null;
   return html`<${Card} title="Continue">
     <div class="list" style="margin:-6px -8px">
       ${s.situations.slice(0, 5).map((x) => html`<div class="list-item" onClick=${() => !busy && go({ situation: x.file })}>

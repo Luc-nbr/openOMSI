@@ -1,0 +1,48 @@
+[package]
+name = "omsihub-game"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Omsi-Hub in the game program: the duty in the navigator, the stop signs, the loading screen, and the desktop launcher's editors the launcher service keeps (line editor, livery studio, display previews, bus photos)"
+
+[dependencies]
+anyhow.workspace = true
+glam.workspace = true
+hashbrown.workspace = true
+image.workspace = true
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+wgpu.workspace = true
+winit.workspace = true
+omsi-cfg = { path = "../omsi-cfg" }
+omsi-content = { path = "../omsi-content" }
+omsi-launcher-core = { path = "../omsi-launcher-core" }
+omsi-map = { path = "../omsi-map" }
+omsi-model = { path = "../omsi-model" }
+omsi-render = { path = "../omsi-render" }
+omsi-scene = { path = "../omsi-scene" }
+omsi-sim = { path = "../omsi-sim" }
+omsi-texture = { path = "../omsi-texture" }
+omsi-timetable = { path = "../omsi-timetable" }
+omsi-ui = { path = "../omsi-ui" }
+omsi-vehicle = { path = "../omsi-vehicle" }
+ab_glyph.workspace = true
+rayon.workspace = true
+sha2.workspace = true
+# the livery studio: shapes, outlines and SVG pictures rasterised (as omsi-ui does its icons)
+resvg = { version = "0.45", default-features = false }
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+# the livery studio's clipboard and file dialogs (its pictures)
+arboard = { version = "3", default-features = false }
+rfd.workspace = true
+
+[features]
+# what the game's tests see: the duty board's fixtures (`nav_duty::tests`)
+test-support = []
+
+[dev-dependencies]
+# the tests that every text is translated read the game's tables (`crates/omsi-app/locales`)
+# as the game does
+rust-i18n = "4"

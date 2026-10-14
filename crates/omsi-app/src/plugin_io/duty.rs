@@ -60,7 +60,7 @@ pub(crate) fn start(app: &mut App, line: &str, tour: &str, trip: usize, stop: us
     if app.net.lan.as_ref().is_some_and(|l| l.role == omsi_net::Role::Client) {
         return Err("in a LAN session the host gives the duties".into());
     }
-    let sch = app.session.schedule.as_ref().ok_or("the map has no timetable")?;
+    let sch = crate::duty_book::timetable(app).ok_or("the map has no timetable")?;
     let known = sch.data.lines.iter().find(|l| l.name.trim().eq_ignore_ascii_case(line.trim())).and_then(|l| l.tours.iter().find(|t| t.number.trim().eq_ignore_ascii_case(tour.trim())));
     if known.is_none() {
         return Err(format!("no tour {tour} of line {line}"));
@@ -84,7 +84,7 @@ pub(crate) fn finish(app: &mut App) -> bool {
 }
 
 pub(crate) fn lines(app: &App) -> Vec<op::Line> {
-    let Some(sch) = app.session.schedule.as_ref() else { return Vec::new() };
+    let Some(sch) = crate::duty_book::timetable(app) else { return Vec::new() };
     sch.data
         .lines
         .iter()
@@ -97,7 +97,7 @@ pub(crate) fn lines(app: &App) -> Vec<op::Line> {
 }
 
 pub(crate) fn tour_stops(app: &App, line: &str, tour: &str, trip: Option<usize>) -> Vec<(usize, usize, String, f64)> {
-    let Some(sch) = app.session.schedule.as_ref() else { return Vec::new() };
+    let Some(sch) = crate::duty_book::timetable(app) else { return Vec::new() };
     match trip {
         Some(t) => sch.tour_trip_stops(line, tour, t),
         None => sch.tour_stops(line, tour),
@@ -136,19 +136,20 @@ pub(crate) fn tiles(app: &App) -> Vec<op::Tile> {
 
 pub(crate) fn stops(app: &App) -> Vec<op::MapStop> {
     let Some(w) = app.world.as_ref() else { return Vec::new() };
-    let list = w.bus_stops.lock().clone();
+    let list = w.data.peek().lists.bus_stops.clone();
     list.into_iter().map(|(id, p, h, name)| op::MapStop { id, name, pos: [p.x, p.y, p.z, h] }).collect()
 }
 
 pub(crate) fn object(app: &App, id: i64) -> Option<[f64; 4]> {
     let w = app.world.as_ref()?;
-    let (p, r) = *w.object_positions.lock().get(&id)?;
+    let (p, r) = *w.data.peek().objects.get(&id)?;
     Some([p.x, p.y, p.z, r[0]])
 }
 
 pub(crate) fn objects_near(app: &App, x: f64, y: f64, r: f64) -> Vec<(i64, [f64; 4])> {
     let Some(w) = app.world.as_ref() else { return Vec::new() };
-    let all = w.object_positions.lock();
+    let data = w.data.peek();
+    let all = &data.objects;
     all.iter().filter(|(_, (p, _))| (p.x - x).hypot(p.y - y) <= r).map(|(id, (p, rot))| (*id, [p.x, p.y, p.z, rot[0]])).collect()
 }
 

@@ -5,12 +5,13 @@
 //!
 //! The game program finds this launcher beside itself and opens it on a plain start; when
 //! the webview cannot start here (no WebView2 runtime on an old Windows, no WebKitGTK), the
-//! game's own launcher window opens instead (`classic_launcher`).
+//! program ends with an error, which the game tells the player about.
 
 // a window, not a console program, on Windows
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod commands;
+mod discord;
 mod protocol;
 mod service;
 
@@ -24,8 +25,54 @@ pub(crate) fn selftest() -> bool {
     std::env::var_os("OPENOMSI_LAUNCHER_SELFTEST").is_some_and(|v| !v.is_empty() && v != "0")
 }
 
+/// `OPENOMSI_WEBVIEW_FRESH` (the game starts the launcher so after its window could not open
+/// on a Windows that has WebView2): the web view's profile (`EBWebView` in the launcher's data
+/// folder) is set aside - a broken one stops WebView2 from starting - and where that folder
+/// cannot be written at all, one in the temporary folder is used. None: Tauri's own place.
+fn fresh_webview_profile(app: &tauri::App) -> Option<std::path::PathBuf> {
+    if !cfg!(windows) || std::env::var_os("OPENOMSI_WEBVIEW_FRESH").is_none() {
+        return None;
+    }
+    let temp = std::env::temp_dir().join("openOMSI-webview");
+    let Ok(dir) = app.path().app_local_data_dir() else { return Some(temp) };
+    if std::fs::create_dir_all(&dir).is_err() {
+        omsi_launcher_lib::log_to_file(&format!("webview: {} cannot be made, the profile goes to {}", dir.display(), temp.display()));
+        return Some(temp);
+    }
+    let profile = dir.join("EBWebView");
+    if profile.exists() {
+        let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let aside = dir.join(format!("EBWebView.old-{secs}"));
+        if let Err(e) = std::fs::rename(&profile, &aside) {
+            omsi_launcher_lib::log_to_file(&format!("webview: the profile {} cannot be set aside ({e}), using {}", profile.display(), temp.display()));
+            return Some(temp);
+        }
+        omsi_launcher_lib::log_to_file(&format!("webview: the profile was set aside as {}", aside.display()));
+    }
+    Some(dir)
+}
+
+/// Tell the games started from now on which screen this window stands on (#1959, #2025: the
+/// game opened on the main screen): the middle of the screen the window is on, else (no
+/// screen known) the window's own middle.
+fn remember_screen(window: &tauri::Window) {
+    let at = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .map(|m| (m.position().x + m.size().width as i32 / 2, m.position().y + m.size().height as i32 / 2))
+        .or_else(|| {
+            let (p, s) = (window.outer_position().ok()?, window.outer_size().ok()?);
+            Some((p.x + s.width as i32 / 2, p.y + s.height as i32 / 2))
+        });
+    if at.is_some() {
+        omsi_launcher_lib::instances::set_screen_at(at);
+    }
+}
+
 fn main() {
     omsi_cfg::migrate_legacy_data_dir();
+    omsi_launcher_lib::adopt_own_inputs();
     let args: Vec<String> = std::env::args().collect();
     // (the terminal commands of the old launcher binary work here too)
     if args.get(1).is_some_and(|a| a == "--cli") {
@@ -51,7 +98,11 @@ fn main() {
             if selftest() {
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             }
-            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+            let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()));
+            if let Some(dir) = fresh_webview_profile(app) {
+                builder = builder.data_directory(dir);
+            }
+            let window = builder
                 .title("openOMSI")
                 .inner_size(1280.0, 800.0)
                 .min_inner_size(960.0, 620.0)
@@ -74,17 +125,29 @@ fn main() {
                 .app_mode(true)
                 .build()?;
             // Omsi-Hub: the window's size for pictures of the page (`OMSI_LAUNCHER_SIZE=WxH`)
-            if let Some((w, h)) = omsi_cfg::flags::OMSI_LAUNCHER_SIZE.var().and_then(|v| v.split_once('x')).and_then(|(w, h)| Some((w.trim().parse::<f64>().ok()?, h.trim().parse::<f64>().ok()?))) {
+            if let Some((w, h)) = omsi_launcher_api::omsihub::launcher_size() {
                 let _ = window.set_size(tauri::LogicalSize::new(w, h));
                 let _ = window.center();
             }
             if let Some(icon) = app.default_window_icon().cloned() {
                 let _ = window.set_icon(icon);
             }
+            remember_screen(&window.as_ref().window());
             commands::start_watch(app.handle().clone());
+            if !selftest() {
+                discord::start();
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. } | tauri::WindowEvent::Focused(true)) {
+                remember_screen(window);
+            }
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if omsi_launcher_api::installing() {
+                    api.prevent_close();
+                }
+            }
             // the window closed while it rests behind a game: the program ends with it
             if let tauri::WindowEvent::Destroyed = event {
                 if window.app_handle().webview_windows().is_empty() {
@@ -93,29 +156,17 @@ fn main() {
             }
         })
         .build(tauri::generate_context!())
-        .map(|app| app.run(|_, e| if let tauri::RunEvent::Exit = e { service::stop() }));
+        .map(|app| {
+            app.run(|_, e| match e {
+                tauri::RunEvent::ExitRequested { api, .. } if omsi_launcher_api::installing() => api.prevent_exit(),
+                tauri::RunEvent::Exit => service::stop(),
+                _ => {}
+            })
+        });
 
     if let Err(e) = result {
         omsi_launcher_lib::log_to_file(&format!("the launcher's window could not open: {e}"));
         eprintln!("the launcher's window could not open: {e}");
-        if !classic_launcher(None) {
-            std::process::exit(1);
-        }
+        std::process::exit(1);
     }
-}
-
-/// The game's own launcher window (`openomsi --launcher`), for a system without a webview.
-// Omsi-Hub: or on one of its pages (`OMSI_LAUNCHER_PAGE`), handed over from this page with
-// the webview there (no offer to install WebView2 then)
-fn classic_launcher(page: Option<&str>) -> bool {
-    let Some(game) = omsi_launcher_lib::game_binary() else { return false };
-    omsi_launcher_lib::log_to_file(&format!("opening the game's own launcher: {}", game.display()));
-    let mut c = std::process::Command::new(game);
-    c.arg("--launcher");
-    match page {
-        Some(page) => c.env("OMSI_LAUNCHER_PAGE", page),
-        // (on Windows it offers to install WebView2, which is what is missing there)
-        None => c.env("OPENOMSI_NO_WEBVIEW", "1"),
-    };
-    c.spawn().is_ok()
 }

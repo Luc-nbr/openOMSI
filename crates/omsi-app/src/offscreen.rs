@@ -30,6 +30,8 @@ struct Offscreen<'a> {
     renderer: Renderer,
     scene: Scene,
     world: World,
+    /// the scenery objects' scripts (see `World::scenery_sync`)
+    scenery: omsi_sim::scenery::SceneryState,
     camera: Camera,
     traffic: Option<traffic::Traffic>,
     schedule: Option<schedule::Schedule>,
@@ -65,6 +67,7 @@ struct Offscreen<'a> {
     lan_audio: Option<omsi_audio::AudioEngine>,
     lan_off: Option<omsi_net::LanSession>,
     remotes_off: lan::LanGame,
+    lan_world_off: crate::lan_world::LanWorld,
     /// the clock of the moment the run has reached (the start, the workshop's wait and the
     /// seconds run; a dedicated server's own), as the window's goes on
     run_clock: omsi_sim::SimClock,
@@ -87,7 +90,7 @@ struct Offscreen<'a> {
     recorder: Option<record::Recorder>,
     /// What each stage of the steps took in all (s, see `frame_stages`; logged with
     /// OMSI_PROFILE).
-    profile: std::collections::BTreeMap<&'static str, f64>,
+    profile: crate::profile_keys::ProfileTimes,
     /// The worst the bus did on the way, for the drive report.
     drive_extremes: DriveExtremes,
     /// The sky's cloud type and the physical weather model (see `weather_setup::SkyState`).
@@ -103,11 +106,24 @@ pub(crate) fn run_offscreen(
     crate::frame_stages::log_order();
     let mut run = Offscreen::setup(args, out, lan_off, remotes_off)?;
     let mut steps = 0;
+    // OMSI_PROFILE: the steps that took long (a stutter the window would show), by name
+    let profile = omsi_cfg::flags::OMSI_PROFILE.is_set();
+    let mut slow = 0usize;
     for i in 0..run.total_frames {
         steps += 1;
-        if !run.step(i)? {
+        let t = std::time::Instant::now();
+        let go_on = run.step(i)?;
+        let ms = t.elapsed().as_secs_f64() * 1000.0;
+        if profile && i > 0 && ms > 50.0 {
+            slow += 1;
+            log::info!("profile: offscreen step {i} took {ms:.0} ms");
+        }
+        if !go_on {
             break;
         }
+    }
+    if profile {
+        log::info!("profile: {slow} offscreen steps over 50 ms of {steps}");
     }
     run.finish_recording()?;
     run.log_profile(steps);
@@ -198,6 +214,7 @@ fn pose_player(p: &mut Player, renderer: &Renderer, scene: &mut Scene, args: &Ar
         renderer,
         scene,
         matches!(args.view.as_str(), "driver" | "pax"),
+        crate::rain::quality_of(&settings.rain_quality),
     );
     crate::scene::sync_vehicle_damage(renderer, scene, &mut p.vehicle, &mut p.render);
     p.sync_driver(renderer, scene, 1.0 / 30.0, settings.driver, args.view == "driver");
@@ -214,12 +231,23 @@ fn world_lights(
     eye: DVec3,
     vehicles: &[&omsi_sim::VehicleInstance],
 ) {
-    lights::set_cone_strength(weather.fog.0, precip_of(weather).1, daylight.night);
     lights::upload_corona_textures(renderer);
     world.update_light_map_atlas(renderer, eye);
-    lights::collect(world, scene, daylight, eye, vehicles);
+    lights::collect(world, scene, daylight, eye, vehicles, lights::ConeWeather::new(weather.fog.0, daylight.night));
     // (and the pictures the lights asked for first now: a picture has the one frame)
     lights::upload_corona_textures(renderer);
+}
+
+/// The run's step: a tick of the simulation's fixed step (`omsi_sim::tick::RATE_HZ`), as
+/// the window's.
+fn run_dt() -> f32 {
+    (1.0 / omsi_sim::tick::RATE_HZ) as f32
+}
+
+/// The run's steps in `secs` seconds (at least one): what happens every second happens every
+/// second.
+fn steps_in(secs: f64) -> usize {
+    (secs * omsi_sim::tick::RATE_HZ).round().max(1.0) as usize
 }
 
 /// The offscreen loop's fixed steps kept to the clock when other games take part (a LAN

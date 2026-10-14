@@ -326,9 +326,23 @@ fn safe_names() {
     for bad in ["..\\..\\..\\evil", "a/..\\..\\b", "../x", "a/../b", "/etc/passwd", "\\\\server\\share\\x", "C:\\x", "C:x", "Foo/C:evil/x.bus", "a\0b", "", "./."] {
         assert_eq!(safe_rel(bad), None, "{bad:?}");
     }
+    for bad in ["Plugins/NUL", "a/con.txt", "a/Com1.dll", "a/LPT9", "a/aux .x", "Vehicles/Foo./x.bus", "Vehicles/Foo /x.bus", "a/x.bus.", "a/...", "a/CONOUT$"] {
+        assert_eq!(safe_rel(bad), None, "{bad:?}");
+    }
+    for good in ["Vehicles/Console/x.bus", "a/COM10.txt", "a/null.cfg", "a/.hidden", "Sceneryobjects/Laterne/model/LPT.o3d"] {
+        assert_eq!(safe_rel(good).as_deref(), Some(good), "{good:?}");
+    }
     assert!(check_rel("Vehicles/Foo").is_ok());
     assert!(check_rel("Vehicles/../Foo").is_err());
     assert!(check_rel("maps/..").is_err());
+    assert_eq!(safe_rel("a/COM0"), None);
+    assert_eq!(safe_rel("a/LPT0.txt"), None);
+    for kept in ["Vehicles/Old Bus.", "Sceneryobjects/Aux", "Vehicles/Foo /x"] {
+        assert!(check_installed_rel(kept).is_ok(), "{kept:?}");
+    }
+    for bad in ["../x", "a/../b", "/etc", "\\\\server\\x", "C:x", "a//b", ""] {
+        assert!(check_installed_rel(bad).is_err(), "{bad:?}");
+    }
 }
 
 #[test]
@@ -359,6 +373,35 @@ fn backslash_traversal_in_a_zip_is_refused() {
     assert_eq!(p.state, "done", "{p:?}");
     assert_eq!(std::fs::metadata(content.join("Vehicles/Bar/Texture/a.dds")).unwrap().len(), 100);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn absurdly_deep_or_long_names_are_refused() {
+    let deep = format!("Sceneryobjects/{}x.sco", "a/".repeat(32_000));
+    assert_eq!(safe_rel(&deep), None);
+    let at_limit = format!("{}x.sco", "a/".repeat(63));
+    assert_eq!(safe_rel(&at_limit).as_deref(), Some(at_limit.as_str()));
+    assert_eq!(safe_rel(&format!("{}x.sco", "a/".repeat(64))), None);
+    assert_eq!(safe_rel(&format!("Vehicles/{}.bus", "b".repeat(1100))), None);
+    let mut root = Node::default();
+    root.insert(&at_limit, 7);
+    root.insert("Vehicles/Foo/foo.bus", 3);
+    root.insert("Vehicles/Bar/bar.bus", 5);
+    let mut all = Vec::new();
+    root.all(&mut all);
+    assert_eq!(all, vec![5, 3, 7]);
+    assert!(root.has_ext_deep(&["sco"]));
+    assert!(!root.has_ext_deep(&["ovh"]));
+}
+
+#[test]
+fn seven_zip_names_stay_inside_the_staging_folder() {
+    let dest = tmp("7zslip").join("staging");
+    assert_eq!(staged_target(&dest, "Vehicles/Foo/foo.bus"), Some(dest.join("Vehicles/Foo/foo.bus")));
+    assert_eq!(staged_target(&dest, "Vehicles\\Foo\\foo.bus"), Some(dest.join("Vehicles/Foo/foo.bus")));
+    for bad in ["a/C:Plugins/evil.dll", "a/C:openomsi.exe", "C:\\Plugins\\evil.dll", "\\\\host\\share\\x", "../x", "/etc/x", "Plugins/NUL"] {
+        assert_eq!(staged_target(&dest, bad), None, "{bad:?}");
+    }
 }
 
 #[cfg(unix)]

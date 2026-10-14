@@ -1,15 +1,15 @@
 // The welcome (Trello "Tauri 3/6": what phase 1 left), as our game-drawn launcher's
 // (`crates/omsi-launcher-ui/src/welcome.rs`): what a player sees the first time the launcher
 // opens, in place of the start. In Luc's order: the language - every one openOMSI speaks, as
-// tiles with their flags, spoken at once; a dialog over it asking for the new interface or the
-// classic one; the animations, on or off, with a little scene that shows what "on" means; the
-// OMSI 2 folder when none was found; the driver - a new one, or one already on this computer,
+// tiles with their flags, spoken at once; the animations, on or off, with a little scene that
+// shows what "on" means; the OMSI 2 folder when none was found; the driver - a new one, or one already on this computer,
 // with their personnel pass; and the way on - the tour, straight to the start, or the game's
 // driving lessons.
 //
 // It lies under a bar of its own steps on the start's ground, as one sheet in the middle of the
-// window; going on, the next step slides in from the side it lies on, and the dialog comes up
-// out of a veil - none of it with the setting "animations" off. `welcome_done` is written when
+// window; going on, the next step slides in from the side it lies on - not with the setting
+// "animations" off. (The choice between this launcher and a classic one is gone: this launcher
+// is the only one.) `welcome_done` is written when
 // it is finished or skipped. It opens when that is not set, or where `OMSI_LAUNCHER_WELCOME`
 // says (`hub_more_welcome`).
 
@@ -34,7 +34,6 @@ function loadCss() {
 /** The steps: their word and icon in the bar (`Step::label`). */
 const LABELS = {
   language: ['Language', 'language'],
-  interface: ['Interface', 'grid_view'],
   animations: ['Animations', 'bolt'],
   folder: ['Game folder', 'folder_open'],
   driver: ['Your driver', 'person'],
@@ -42,10 +41,7 @@ const LABELS = {
 };
 
 /** The steps in their order: the folder's only when it has to be pointed to. */
-export const stepsOf = (folder) => ['language', 'interface', 'animations', ...(folder ? ['folder'] : []), 'driver', 'ready'];
-
-/** What the sheet shows on a step: the interface's dialog lies over the language's sheet. */
-const sheetStep = (s) => (s === 'interface' ? 'language' : s);
+export const stepsOf = (folder) => ['language', 'animations', ...(folder ? ['folder'] : []), 'driver', 'ready'];
 
 const W = () => S.hubWelcome;
 const put = (patch) => S.hubWelcome && set({ hubWelcome: { ...S.hubWelcome, ...patch } });
@@ -85,7 +81,7 @@ function goTo(to) {
   const steps = stepsOf(w.folder);
   const forward = steps.indexOf(to) > steps.indexOf(w.step);
   const patch = { step: to, focus: to === 'driver' };
-  if (sheetStep(to) !== sheetStep(w.step)) Object.assign(patch, { side: forward ? 1 : -1, seq: w.seq + 1 });
+  Object.assign(patch, { side: forward ? 1 : -1, seq: w.seq + 1 });
   put(patch);
 }
 const next = () => {
@@ -99,13 +95,9 @@ const back = () => {
   if (k > 0) goTo(steps[k - 1]);
 };
 
-const uiOf = () => String(S.settings?.launcher_ui || 'desktop').trim().toLowerCase();
-/** Whether the classic launcher was chosen. */
-const classic = () => uiOf() === 'classic';
-
 /** The welcome is over (finished, or skipped): `welcome_done` is written and what comes after
- * begins (`welcome::apply`): the classic launcher opens in this one's place; without an OMSI 2
- * to drive, Setup says what is missing; else the start (with the tour), or the lessons. */
+ * begins (`welcome::apply`): without an OMSI 2 to drive, Setup says what is missing; else the
+ * start (with the tour), or the lessons. */
 async function finish(then) {
   const w = W();
   if (!w || w.leaving) return;
@@ -114,10 +106,6 @@ async function finish(then) {
   await new Promise((r) => setTimeout(r, still ? 0 : 160));
   await saveSettings({ welcome_done: true });
   set({ hubWelcome: null });
-  if (classic()) {
-    call('classic_launcher', { page: null }).catch((e) => toast(e.message, 'error'));
-    return;
-  }
   const { go } = await import('./hub.js');
   if (!S.boot?.root && !S.config?.root) return go('setup');
   if (then === 'lessons') return go('tutorials');
@@ -162,7 +150,7 @@ function heading(step) {
       return [tr('Who is driving?'), tr('Your duties, kilometres and level are kept per driver. Everything stays on this computer: there is nothing to sign in to.')];
     case 'ready': {
       const name = chosenDriver();
-      return [name ? tr('Ready to go, %{name}', { name }) : tr('Ready to go'), tr(classic() ? 'That is everything. The classic launcher opens as soon as the launcher has started again.' : 'That is everything. Would you like a short tour of the launcher first?')];
+      return [name ? tr('Ready to go, %{name}', { name }) : tr('Ready to go'), tr('That is everything. Would you like a short tour of the launcher first?')];
     }
     default:
       return [tr('Welcome to openOMSI'), tr('Choose the language of the launcher and the game. It applies at once, and you can change it any time in the settings.')];
@@ -178,7 +166,7 @@ const eyebrow = (step) => {
 function Sheet() {
   const s = useStore();
   const w = s.hubWelcome;
-  const step = sheetStep(w.step);
+  const step = w.step;
   const [title, sub] = heading(step);
   const Body = { language: Languages, animations: Animations, folder: Folder, driver: Driver, ready: Ready }[step];
   const move = w.side === 0 ? 'rise' : w.side > 0 ? 'right' : 'left';
@@ -209,7 +197,6 @@ function Foot({ step }) {
   if (step === 'language' || step === 'animations') way = html`<${Btn} kind="primary" icon="chevron_right" label="Next" onClick=${next} />`;
   else if (step === 'folder') way = html`<${FolderWay} />`;
   else if (step === 'driver') way = html`<${Btn} kind="primary" icon="chevron_right" label="Next" onClick=${driverNext} />`;
-  else if (step === 'ready' && classic()) way = html`<${Btn} kind="primary" icon="restart_alt" label="Restart in the classic interface" onClick=${() => finish('start')} />`;
   else if (step === 'ready') way = html`<${Btn} kind="ghost" icon="help" label="New to OMSI? Driving lessons" onClick=${() => finish('lessons')} />`;
   return html`<footer class="hub-wfoot">
     ${steps.indexOf(step) > 0 && html`<${Btn} kind="back" icon="chevron_left" label="Back" onClick=${back} />`}
@@ -302,50 +289,6 @@ function Languages() {
         <${LangFlag} code=${l.code} /><b>${l.name}</b>${on && html`<${Icon} name="check" size=${17} />`}</button>`;
     })}
   </div>`;
-}
-
-// --- the interface (the dialog) ---------------------------------------------------------------
-
-/** The dialog over the language: the new interface or the classic one, each with a picture of
- * it (`welcome::dialog`). In this window "new" is our look - here, or in the game's window. */
-function Dialog() {
-  const s = useStore();
-  const cur = uiOf() === 'classic' ? 'classic' : 'new';
-  const pick = (v) => {
-    if (v === cur) return;
-    // (the new interface is this window, or the game's own when that was chosen before:
-    // choosing it again keeps the window the player has)
-    saveSettings({ launcher_ui: v === 'new' ? (s.hubWelcomeUi === 'game' ? 'game' : 'desktop') : v });
-  };
-  useEffect(() => {
-    if (s.hubWelcomeUi == null) set({ hubWelcomeUi: uiOf() });
-    const key = (e) => (e.key === 'Escape' ? back() : e.key === 'Enter' ? next() : null);
-    addEventListener('keydown', key);
-    return () => removeEventListener('keydown', key);
-  }, []);
-  const cards = [
-    ['new', 'New interface', 'ui-new', "Omsi-Hub's look: you set up your duty step by step on the map, with your bus in 3D."],
-    ['classic', 'Classic interface', 'ui-classic', "openOMSI's own launcher: every page in one window, with the menu on the left."],
-  ];
-  return html`<div class="hub-wveil"></div>
-    <section class="hub-wdialog">
-      <div class="hub-whead">
-        <div class="eyebrow">${eyebrow('interface')}</div>
-        <h1>${tr('Which interface do you want to use?')}</h1>
-        <p>${tr('Both start the same game, and you can switch later.')}</p>
-      </div>
-      <div class="hub-wcards">
-        ${cards.map(([v, title, pic, line]) => html`<button type="button" class=${'hub-wtile hub-wcard' + (cur === v ? ' on' : '')} onClick=${() => pick(v)}>
-          <span class="pic" style=${`background-image:url("omsihub/${pic}.jpg")`}>${cur === v && html`<i><${Icon} name="check" size=${17} /></i>`}</span>
-          <span class="t"><span class=${'hub-radio' + (cur === v ? ' on' : '')}></span><b>${tr(title)}</b></span>
-          <span class="line">${tr(line)}</span>
-        </button>`)}
-      </div>
-      <footer class="hub-wfoot">
-        <${Btn} kind="back" icon="chevron_left" label="Back" onClick=${back} /><span class="grow"></span>
-        <${Btn} kind="primary" icon="chevron_right" label="Next" onClick=${next} />
-      </footer>
-    </section>`;
 }
 
 // --- the animations --------------------------------------------------------------------------
@@ -702,12 +645,9 @@ function Driver() {
 
 // --- ready -----------------------------------------------------------------------------------
 
-/** The way on: the tour or straight to the start, as tiles with a photo each; with the classic
- * launcher chosen, a picture of it instead (`welcome::ready`). */
+/** The way on: the tour or straight to the start, as tiles with a photo each
+ * (`welcome::ready`). */
 function Ready() {
-  if (classic())
-    return html`<div class="hub-wclassic"><span class="pic" style="background-image:url(&quot;omsihub/ui-classic.jpg&quot;)"></span>
-      <p>${tr('From now on openOMSI opens in its classic launcher.')}</p></div>`;
   const tiles = [
     ['tour', 'Take the tour', 'route', 'mode-tour', 'A minute along the launcher: where you set up a duty, your service record and the settings.'],
     ['start', 'Start right away', 'play_arrow', 'mode-free', 'Straight to the start: choose how you want to drive today.'],
@@ -730,11 +670,10 @@ export function Welcome() {
     if (!w) return;
     // (the steps without a text field go on with Enter as well)
     const key = (e) => {
-      if (e.key !== 'Enter' || W()?.step === 'interface') return;
+      if (e.key !== 'Enter') return;
       if (document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) return;
       const st = W()?.step;
       if (st === 'language' || st === 'animations') next();
-      else if (st === 'ready' && !classic()) finish('start');
       else if (st === 'ready') finish('start');
     };
     addEventListener('keydown', key);
@@ -744,6 +683,5 @@ export function Welcome() {
   return html`<div class=${'hub-welcome' + (w.leaving ? ' leaving' : '')}>
     <${Bar} />
     <div class="hub-wroom"><${Sheet} /></div>
-    ${w.step === 'interface' && html`<${Dialog} />`}
   </div>`;
 }

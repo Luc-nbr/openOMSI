@@ -6,8 +6,10 @@
 //! Nothing here knows the game's state: the app hands over plain values (a status line, a
 //! version) and shows what comes back.
 
+pub mod avatars;
 pub mod discord;
 pub mod presence;
+pub mod proxy;
 pub mod recovery;
 pub mod updater;
 pub mod webview2;

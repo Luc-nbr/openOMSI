@@ -99,7 +99,7 @@ impl Schedule {
     /// `clock` gives the date: tours carry a validity mask (bits 0-6 Monday…Sunday, 7 public
     /// holiday, 8 school days, 9 school holidays) that selects which run today.
     pub fn new(root: &Path, world: &World, clock: &omsi_sim::SimClock) -> Schedule {
-        let mut sim = ScheduleSim::new(root, world, clock);
+        let mut sim = ScheduleSim::new(root, &*world.data(), clock);
         // the player's own lines that ask for buses of their own (`line_buses`)
         let buses = line_buses(root, world, &sim);
         if !buses.is_empty() {
@@ -119,13 +119,13 @@ impl Schedule {
     /// The lanes a trip runs on (for the navigator): its track, else the station links
     /// between its stops, as far as the tiles have brought them - and whether that is all.
     pub fn trip_route(&self, world: &World, traffic: &Traffic, trip_name: &str) -> (Vec<usize>, bool) {
-        self.sim.trip_route(world, &traffic.sim, trip_name)
+        self.sim.trip_route(&*world.data(), &traffic.sim, trip_name)
     }
 
     /// `OMSI_CHECK_TRIPS=1`: the routes of every trip on the loaded lanes checked (see
     /// `ScheduleSim::check_routes`).
     pub fn check_routes(&self, world: &World, traffic: &mut Traffic) {
-        self.sim.check_routes(world, &mut traffic.sim)
+        self.sim.check_routes(&*world.data(), &mut traffic.sim)
     }
 
     /// A drive for the player's bus company (`--company`): its plan of the day, and the map's
@@ -146,7 +146,7 @@ impl Schedule {
             };
             parts.push(part);
         }
-        self.sim.player_plan(world, &parts)
+        self.sim.player_plan(&*world.data(), &parts)
     }
 
     /// Assign the player a tour of a line (see `ScheduleSim::player_duty`).
@@ -159,7 +159,7 @@ impl Schedule {
         trip: Option<&str>,
         whole_tour: bool,
     ) -> Result<PlayerDuty, String> {
-        self.sim.player_duty(world, line, tour, now, trip, whole_tour)
+        self.sim.player_duty(&*world.data(), line, tour, now, trip, whole_tour)
     }
 
     /// Make the departure boards of the stops whose displays are near
@@ -221,7 +221,7 @@ fn line_buses(root: &Path, world: &World, sim: &ScheduleSim) -> HashMap<String, 
             }
         }
         if chosen.is_empty() {
-            let hof = world.ailists.groups.iter().find(|g| g.name.eq_ignore_ascii_case(&group)).and_then(|g| g.hof.clone());
+            let hof = world.data().map.ailists.groups.iter().find(|g| g.name.eq_ignore_ascii_case(&group)).and_then(|g| g.hof.clone());
             for file in want.buses.iter().flat_map(|p| if p.file.trim().is_empty() { p.files.clone() } else { vec![p.file.clone()] }) {
                 let path = omsi_cfg::resolve_path(root, &file);
                 let Ok(t) = VehicleType::load_ai(root, &path).map(Arc::new).map_err(|e| log::debug!("{}: {e}", path.display())) else { continue };

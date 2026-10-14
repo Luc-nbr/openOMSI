@@ -70,7 +70,7 @@ pub fn open_public_gateway(session: &LanSession, info: omsi_net::ws::ServerInfo,
         return;
     }
     // (in the background: cloudflared is fetched first when it is not installed)
-    let sid = session.session;
+    let Some(key) = session.host_key() else { return };
     let gw_port = port_of_gateway();
     let _ = std::thread::Builder::new().name("tunnel".into()).spawn(move || {
         let Some(port) = gw_port else { return };
@@ -106,11 +106,11 @@ pub fn open_public_gateway(session: &LanSession, info: omsi_net::ws::ServerInfo,
             }
             match (now, &posted) {
                 (Some(u), None) => {
-                    omsi_net::bridge::post_tunnel(sid, &u);
+                    omsi_net::bridge::post_tunnel(&key, &u);
                     posted = Some((u, Instant::now()));
                 }
                 (Some(u), Some((p, t))) if *p != u || t.elapsed() > Duration::from_secs(1800) => {
-                    omsi_net::bridge::post_tunnel(sid, &u);
+                    omsi_net::bridge::post_tunnel(&key, &u);
                     posted = Some((u, Instant::now()));
                 }
                 _ => {}

@@ -264,7 +264,7 @@ fn take(content: &Path, r: &mut Registry, id: &str) -> anyhow::Result<usize> {
         return Ok(r.mods.len() - 1);
     }
     let rel = id.strip_prefix("found:").ok_or_else(|| anyhow::anyhow!("no mod {id}"))?;
-    if install::check_rel_pub(rel).is_err() || !content.join(rel).exists() {
+    if install::check_installed_rel(rel).is_err() || !content.join(rel).exists() {
         anyhow::bail!("{rel} is not in the content folder");
     }
     let name = rel.rsplit('/').next().unwrap_or(rel).to_string();
@@ -352,7 +352,7 @@ pub fn remove(content: &Path, id: &str) -> anyhow::Result<String> {
     let m = r.mods.remove(k);
     unmount(content, &m.paths);
     for p in &m.paths {
-        install::check_rel_pub(p)?;
+        install::check_installed_rel(p)?;
         for at in [content.join(p), disabled_dir(content, &m.id).join(p)] {
             if at.is_dir() {
                 std::fs::remove_dir_all(&at).map_err(|e| anyhow::anyhow!("deleting {}: {e}", at.display()))?;

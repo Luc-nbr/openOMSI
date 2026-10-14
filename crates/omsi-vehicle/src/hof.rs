@@ -173,7 +173,7 @@ impl Hof {
                 "name" => h.name = r.str().to_string(),
                 "servicetrip" => h.service_trip = r.str().to_string(),
                 "global_strings" => {
-                    let n = r.usize();
+                    let n = r.count();
                     h.global_strings = (0..n).map(|_| r.str().to_string()).collect();
                 }
                 "addterminus" | "addterminus_allexit" => {
@@ -240,7 +240,7 @@ impl Hof {
                     // the list of the trip read last (0x7ea16f: DynArrayHigh of the trips);
                     // pushed as one more list, a trip without one (the IVU data routes of
                     // some depot files) gave every later trip the stops of the one before
-                    let n = r.usize();
+                    let n = r.count();
                     let list: Vec<String> = (0..n).map(|_| r.str().to_string()).collect();
                     if let Some(last) = h.info_busstop_lists.last_mut() {
                         *last = list;

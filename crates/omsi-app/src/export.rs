@@ -21,15 +21,13 @@ struct Prim {
 pub fn export_glb(root: &Path, vt: &VehicleType, vehicle: &VehicleInstance, scheme: Option<usize>, out: &Path) -> Result<()> {
     let textures = omsi_texture::TextureCache::new();
     let dirs = vt.texture_dirs(root);
-    let (subst, scheme_dir): (hashbrown::HashMap<String, String>, Option<std::path::PathBuf>) = match scheme {
+    let (subst, _scheme_dir): (hashbrown::HashMap<String, String>, Option<std::path::PathBuf>) = match scheme {
         Some(i) => vt.scheme_substitutions(i),
         None => (vt.default_substitutions(root), None),
     };
-    let mut dirs_all: Vec<&Path> = Vec::new();
-    if let Some(d) = &scheme_dir {
-        dirs_all.push(d.as_path());
-    }
-    dirs_all.extend(dirs.iter().map(|p| p.as_path()));
+    // (the scheme's pictures are named in full by the substitutions; its folder is no
+    // search path for the model's other textures)
+    let dirs_all: Vec<&Path> = dirs.iter().map(|p| p.as_path()).collect();
     // textures by (lower-case) file name → (png bytes, has alpha)
     let mut images: Vec<(Vec<u8>, bool)> = Vec::new();
     let mut image_index: HashMap<String, Option<usize>> = HashMap::new();

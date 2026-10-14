@@ -290,7 +290,7 @@ impl VehicleInstance {
             cabin_air: None,
             ai_visuals: true,
             ai_visuals_missed: 0.0,
-            var_index,
+            var_index: std::sync::Arc::new(var_index),
             props_plan: PropsPlan::default(),
             pax_vars: std::sync::OnceLock::new(),
             engine_ids: std::sync::OnceLock::new(),
@@ -445,6 +445,25 @@ impl VehicleInstance {
         self.set_engine_var("Colorscheme", scheme.map(|i| i as f32).unwrap_or(-1.0));
         if let Some(i) = scheme {
             for (var, v) in self.ty.paint_schemes[i].set_vars.clone() {
+                self.set_var(&var, v);
+            }
+        }
+    }
+
+    /// The scheme's `[setvar]`s set again, before every frame of the scripts: Omsi.exe
+    /// writes them each frame, not once, and scripts count on it. The Ikarbus cockpit
+    /// turns `v_font` to the Cyrillic font (7) while its switch is on and leaves it there
+    /// when the switch goes off; the scheme's `v_font 0` every frame is what brings the
+    /// Latin font back, which the matrix then draws at the next terminus. Set once, the
+    /// display stayed Cyrillic for good.
+    pub(crate) fn apply_scheme_vars_each_frame(&mut self) {
+        let Some(Some(i)) = self.host.paint_scheme else { return };
+        if let Some(s) = self.ty.paint_schemes.get(i) {
+            if s.set_vars.is_empty() {
+                return;
+            }
+            let vars = s.set_vars.clone();
+            for (var, v) in vars {
                 self.set_var(&var, v);
             }
         }

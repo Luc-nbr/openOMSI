@@ -4,6 +4,7 @@
 pub fn is_game_action(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
     name.starts_with("view_")
+        || name.starts_with("radio_")
         || matches!(
             name.as_str(),
             "sim_pause"
@@ -28,6 +29,11 @@ pub fn door_action(name: &str) -> Option<usize> {
         return Some(0);
     }
     n.strip_prefix("door_").and_then(|d| d.parse::<usize>().ok()).filter(|d| (1..=9).contains(d))
+}
+
+/// The door release on any bus, `doors_release` (see `Player::door_release`).
+pub fn is_door_release(name: &str) -> bool {
+    name.eq_ignore_ascii_case("doors_release")
 }
 
 #[cfg(test)]

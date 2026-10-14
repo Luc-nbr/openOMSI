@@ -10,6 +10,7 @@ use ab_glyph::{Font, FontVec, PxScale, ScaleFont, VariableFont};
 use omsi_render::{Renderer, Scene, TextureId};
 
 mod menu;
+mod perf_panel;
 mod text;
 
 pub use text::TextCache;
@@ -19,10 +20,9 @@ use text::*;
 // ---------------------------------------------------------------------------------------
 // the chat
 
-/// How many rows the chat shows (a long line takes several), and how many lines it keeps to
-/// scroll back.
+/// How many rows the chat shows (a long line takes several; the lines it keeps to scroll
+/// back: `omsi_lan::game::CHAT_KEEP`).
 const CHAT_SHOWN: usize = 8;
-pub const CHAT_KEEP: usize = 200;
 
 /// A notification: a card over the navigator that goes by itself - from the server
 /// (`notify`), the plugins, the update check, and what the game tells the driver to do
@@ -332,12 +332,18 @@ pub struct Frame<'a> {
     pub notes: &'a [String],
     /// The frame rate, top right (the `show_fps` setting).
     pub fps: Option<f32>,
+    pub perf: Option<&'a crate::perf_overlay::PerfOverlay>,
+    pub perf_detailed: bool,
+    pub perf_touch: Option<Option<f32>>,
     /// The game stands paused.
     pub paused: bool,
     /// The game menu is open, with this line chosen (labels from `GAME_MENU`).
     pub menu: Option<(usize, &'a [(&'a str, &'a str)])>,
     /// The first line shown when a finger scrolled the menu (`App::menu_top`).
     pub menu_top: Option<f32>,
+    /// A seat or view slider of the settings window held by the mouse (its line): only that
+    /// line is drawn, over the undimmed picture, so the view can be seen changing (#2359).
+    pub menu_peek: Option<usize>,
     /// Ids of the game menu's lines that are greyed out and cannot be chosen (the timetable
     /// without an active route).
     pub menu_disabled: &'a [&'a str],
@@ -435,6 +441,7 @@ pub struct Ui {
     /// Where the information bar was drawn (within the panel, before `origin_x`), for the
     /// navigator to keep out of its way.
     pub info_rect: Option<[f32; 4]>,
+    perf: perf_panel::PerfPanel,
 }
 
 /// Between the information bar's parts.
@@ -514,7 +521,7 @@ impl Ui {
         self.chat.rect[2] += x;
     }
     pub fn new() -> Option<Ui> {
-        Some(Ui { origin_x: 0.0, text: TextCache::new()?, chat: ChatWidget::default(), menu_rects: Vec::new(), menu_arrows: Vec::new(), menu_scroll_thumb: None, menu_scroll_track: None, menu_ctl: Vec::new(), dd_rects: Vec::new(), dd_top: 0, dd_rows: 8, dd_scroll: None, menu_side: Vec::new(), menu_pane: Vec::new(), menu_pane_start: 0, menu_pane_go: None, menu_pane_box: None, menu_pane_scroll: None, menu_time: Vec::new(), anim: Default::default(), anim_dt: 0.0, menu_overlay_range: 0..0, splash: None, vr_cursor_overlay: None, vr_tooltip_overlay: None, menu_start: 0, menu_rows: 0, menu_row_h: 1.0, images: Default::default(), info_rect: None })
+        Some(Ui { origin_x: 0.0, text: TextCache::new()?, chat: ChatWidget::default(), menu_rects: Vec::new(), menu_arrows: Vec::new(), menu_scroll_thumb: None, menu_scroll_track: None, menu_ctl: Vec::new(), dd_rects: Vec::new(), dd_top: 0, dd_rows: 8, dd_scroll: None, menu_side: Vec::new(), menu_pane: Vec::new(), menu_pane_start: 0, menu_pane_go: None, menu_pane_box: None, menu_pane_scroll: None, menu_time: Vec::new(), anim: Default::default(), anim_dt: 0.0, menu_overlay_range: 0..0, vr_cursor_overlay: None, vr_tooltip_overlay: None, menu_start: 0, menu_rows: 0, menu_row_h: 1.0, images: Default::default(), info_rect: None, perf: Default::default(), splash: None })
     }
 
     /// Draw the frame's interface: its overlays go after the HUD's in `scene.overlays`.
@@ -650,6 +657,7 @@ impl Ui {
             self.text.rounded(r, scene, [x - 6.0 * s, y, x + l.w as f32 + 6.0 * s, y + l.h as f32], 6.0 * s, [28, 28, 28, (220.0 * self.text.backdrop.min(1.0)) as u8]);
             scene.overlays.push((l.tex, [x, y, x + l.w as f32, y + l.h as f32]));
         }
+        self.draw_perf(r, scene, f, s, dt);
         // --- the information bar, along the top in the middle: in as many rows as the room
         // it has needs
         self.info_rect = None;
@@ -1431,11 +1439,9 @@ fn clip_left(tc: &TextCache, text: &str, px: f32, width: f32) -> String {
     t.into_iter().collect()
 }
 
-/// A chat line with its bad words starred out (rustrict: profanity, slurs and the usual
-/// ways of writing around a filter, without a word list to keep).
+/// A chat line with its bad words starred out (see `omsi_lan::game::filter_chat`).
 pub fn filter_chat(text: &str) -> String {
-    use rustrict::CensorStr;
-    text.censor()
+    omsi_lan::game::filter_chat(text)
 }
 
 /// Fit all VR page buttons above the separately reserved Back button.
@@ -1480,7 +1486,7 @@ mod tests {
         let camera = omsi_render::Camera { position: glam::DVec3::new(0.0, 0.0, -1.0e6), yaw: 0.0, pitch: -89.0, roll: 0.0, fov_deg: 60.0, near: 0.5, far: 10.0 };
         let lighting = omsi_render::Lighting { sky_color: glam::Vec3::new(0.32, 0.38, 0.46), ..Default::default() };
         for (name, cursor) in [("pauze.png", (-1.0, -1.0)), ("pauze-muis.png", (120.0, 300.0))] {
-            let frame = Frame { scale: 1.0, ui_scale: 1.0, opacity: 0.9, width: w as f32, height: h as f32, cursor, vr: false, tooltip: None, chat: None, chat_size: 1.0, notes: &[], fps: None, paused: true, menu: Some((0, &items[..])), menu_top: None, menu_disabled: &[], timetable: None, info: None, info_room: None, tutorial: None, tags: Vec::new(), notices: &[], notice_anchor: None, menu_kind: MenuKind::Game, menu_head: None, menu_preview: None, pane_first: None, menu_tabs: None, menu_kbd: false, dropdown: None, steer_cross: None, tooltip_above: false };
+            let frame = Frame { scale: 1.0, ui_scale: 1.0, opacity: 0.9, width: w as f32, height: h as f32, cursor, vr: false, tooltip: None, chat: None, chat_size: 1.0, notes: &[], fps: None, paused: true, menu: Some((0, &items[..])), menu_top: None, menu_disabled: &[], timetable: None, info: None, info_room: None, tutorial: None, tags: Vec::new(), notices: &[], notice_anchor: None, menu_kind: MenuKind::Game, menu_head: None, menu_preview: None, pane_first: None, menu_tabs: None, menu_kbd: false, dropdown: None, steer_cross: None, tooltip_above: false, menu_peek: None, perf: None, perf_detailed: false, perf_touch: None };
             // (frames enough for the eases to settle)
             for _ in 0..40 {
                 scene.overlays.clear();

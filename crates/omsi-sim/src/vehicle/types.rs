@@ -649,9 +649,19 @@ impl VehicleType {
             return (map, None);
         };
         for (ctc_name, file) in &s.textures {
+            // The picture is the scheme folder's, named in full; one the folder has not
+            // is looked for where the model's own textures are. Only what the `.cti` names
+            // comes from the scheme folder: the folder is no search path for the rest of
+            // the model's textures - with it first in line, a same-named file left there
+            // for another scheme (the IK-103's yellow `sedista-diffuse.bmp` beside the grey
+            // bars schemes) painted the details of every scheme of the folder.
+            let value = match omsi_texture::find_texture(file, &[s.dir.as_path()]) {
+                Some(full) => full.to_string_lossy().into_owned(),
+                None => file.clone(),
+            };
             for (name, default) in &self.model.ctc_textures {
                 if name.eq_ignore_ascii_case(ctc_name) {
-                    map.insert(default.to_ascii_lowercase(), file.clone());
+                    map.insert(default.to_ascii_lowercase(), value.clone());
                 }
             }
         }

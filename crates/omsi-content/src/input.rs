@@ -214,7 +214,7 @@ pub fn load_game_controllers(path: &Path) -> Result<Vec<GameController>, omsi_cf
                 }
             }
             "buttons" => {
-                let n = r.usize();
+                let n = r.count();
                 let mut b = Vec::with_capacity(n);
                 for _ in 0..n {
                     let a = r.str().to_string();

@@ -9,9 +9,10 @@
 //! there (`server_command`).
 //!
 //! The password never goes over the network: the player's game asks (`auth?`), the server
-//! answers with a fresh challenge (`admin-challenge <hex>`), and the game sends
-//! `auth <SHA-256(challenge, password)>`. Wrong answers lock the administration for a
-//! while; a player's rights end when the player leaves.
+//! answers with a fresh challenge, its salt and rounds (`admin-challenge <hex> <salt>
+//! <rounds>`), and the game sends `auth <HMAC(PBKDF2(password, salt, rounds), challenge)>`.
+//! Wrong answers lock the administration for a while; a player's rights end when the
+//! player leaves.
 //!
 //! Actions (the text of a line, also what goes over the network): `kick <id>`,
 //! `ban <id>`, `bring <id>`, `goto <id>`, `time <seconds>`, `speed <factor>`,
@@ -23,7 +24,7 @@ use crate::App;
 use omsi_net::{LanSession, Role};
 
 pub(crate) use omsi_lan::admin::{duty_arg, parse_duty, ServerAdmin, TrafficOrder, LOCAL_ADMIN};
-use omsi_lan::admin::{beside, finite, notice_targets, response};
+use omsi_lan::admin::{answer, beside, finite, notice_targets};
 
 /// The clock speeds offered.
 pub(crate) const SPEEDS: [f64; 6] = [1.0, 2.0, 4.0, 8.0, 15.0, 30.0];
@@ -250,7 +251,8 @@ pub(crate) fn clear_ai_traffic(app: &mut App) {
         return;
     }
     if let (Some(t), Some(w), Some(r), Some(scene)) = (app.session.traffic.as_mut(), app.world.as_ref(), app.renderer.as_ref(), app.scene.as_mut()) {
-        let removed = t.clear_random(&mut app.gfx.sim_view.traffic, w, r, scene);
+        let removed = t.clear_random();
+        crate::view_sync::apply_traffic(t, &mut app.gfx.sim_view.traffic, w, r, scene);
         app.service_msg = Some((format!("{removed} AI vehicles taken off the road"), 3.0));
     }
 }
@@ -258,13 +260,6 @@ pub(crate) fn clear_ai_traffic(app: &mut App) {
 /// A player's id (the argument of an action).
 fn who_id(arg: &str) -> Option<u32> {
     arg.trim().parse::<u32>().ok()
-}
-
-/// Ask the server for its administration with `password` (see the module); the password
-/// waits in the session's `LanGame::admin_password` for the server's challenge.
-pub(crate) fn request(lan: &mut LanSession, game: &mut crate::lan::LanGame, password: &str) {
-    game.admin_password = Some(password.to_string());
-    lan.command(1, "auth?");
 }
 
 /// The own bus (or the walker) put beside another vehicle.
@@ -282,7 +277,7 @@ pub(crate) fn teleport(app: &mut App, at: glam::DVec3, heading: f64) {
     // bridge), else the highest ground there (a place picked on the map, at no height)
     let ground = app.world.as_ref().and_then(|w| {
         let near = (at.z != 0.0)
-            .then(|| crate::scene::drive_probe(&w.terrains, &w.surfaces, at.x, at.y, at.z + 1.5).below)
+            .then(|| w.data.peek().drive_probe(at.x, at.y, at.z + 1.5).below)
             .flatten()
             .filter(|b| (at.z - b).abs() < 3.0);
         near.or_else(|| w.walk_height(at.x, at.y))
@@ -378,7 +373,10 @@ pub(crate) fn command(app: &mut App, from: u32, text: &str) {
         "admin-challenge" if from == 1 => {
             let pw = app.net.remotes.admin_password.take();
             if let (Some(pw), Some(l)) = (pw, app.net.lan.as_mut()) {
-                l.command(1, &format!("auth {}", response(arg.trim(), &pw)));
+                match answer(arg, &pw) {
+                    Some(a) => l.command(1, &format!("auth {a}")),
+                    None => log::warn!("LAN: the server's admin challenge is not one this game answers (an older or a foreign server)"),
+                }
             }
         }
         // (host → us) a duty given by the server's dispatch: `duty <line> <tour> <trip> <stop>`
@@ -473,7 +471,7 @@ pub(crate) fn guard_fall(app: &mut App, dt: f32) {
     // building's roof is not its ground - measured from the roof, a bus driving under it
     // had fallen through the world and was put up there), and the highest there is
     let (under, ground) = match app.world.as_ref() {
-        Some(w) => (crate::scene::drive_probe(&w.terrains, &w.surfaces, at.x, at.y, at.z + 1.5).below, w.walk_height(at.x, at.y)),
+        Some(w) => (w.data.peek().drive_probe(at.x, at.y, at.z + 1.5).below, w.walk_height(at.x, at.y)),
         None => (None, None),
     };
     app.session.safe_age += dt;

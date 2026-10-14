@@ -44,6 +44,10 @@ debug = false
 # window shown with its first page instead of white (`show_when_loaded`), WebKitGTK's blank
 # window on NVIDIA. Every crate of the fork that Cargo.lock lists is patched.
 [patch.crates-io]
+# glib 0.18.5 of the GTK3 stack Tauri needs on Linux, with the fix of RUSTSEC-2024-0429
+# (VariantStrIter wrote through a pointer it did not own mutably) brought from glib 0.20;
+# see launcher/patches/README.md
+glib = { path = "../patches/glib" }
 tauri = { git = "https://github.com/openOMSI-org/tauri-openomsi", rev = "880c1b18348a" }
 tauri-build = { git = "https://github.com/openOMSI-org/tauri-openomsi", rev = "880c1b18348a" }
 tauri-codegen = { git = "https://github.com/openOMSI-org/tauri-openomsi", rev = "880c1b18348a" }

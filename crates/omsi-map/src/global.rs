@@ -225,8 +225,11 @@ impl GlobalCfg {
                     g.traffic_density_passenger.push((t, d));
                 }
                 "entrypoints" => {
-                    let n = r.usize();
+                    let n = r.count();
                     for _ in 0..n {
+                        if r.pos() >= r.lines().len() {
+                            break;
+                        }
                         let index = r.i32();
                         let object_id = r.i64();
                         let unknown = r.i32();
@@ -283,5 +286,15 @@ mod tests {
         assert_eq!(g.raw_tiles, vec![(0, 0), (0, 0), (5, 5)]);
         assert_eq!(g.tiles[1].index, 2);
         assert_eq!(g.raw_tiles.get(2), Some(&(5, 5)));
+    }
+
+    #[test]
+    fn an_entry_point_count_larger_than_the_file_reads_what_is_there() {
+        let text = "[entrypoints]\n1000000000000\n0\n7\n0\n1\n2\n3\n0\n0\n0\n1\n0\nDepot\n";
+        let g = GlobalCfg::parse(&omsi_cfg::CfgFile::from_str("global.cfg", text));
+        assert_eq!(g.entry_points.len(), 1);
+        assert_eq!(g.entry_points[0].name, "Depot");
+        let g = GlobalCfg::parse(&omsi_cfg::CfgFile::from_str("global.cfg", "[entrypoints]\n1000000000000\n"));
+        assert!(g.entry_points.is_empty());
     }
 }

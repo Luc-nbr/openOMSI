@@ -51,6 +51,7 @@ export function Home() {
   const links = [
     [tr('Driver: %{name}', { name }), 'person', () => goStep('profile')],
     [tr('Mods'), 'extension', () => go('mods')],
+    [tr('Model test'), 'check', () => go('modeltest')],
     [tr('Settings'), 'settings', () => go('settings')],
     [tr('Controls'), 'keyboard', () => go('controls')],
     [tr('Timetable'), 'schedule', openTimetable],

@@ -48,6 +48,9 @@ enum Btn {
     Wipers,
     SaloonLights,
     Ticket,
+    /// The Q key, held: the bus's announcement or microphone, whatever its keys put there
+    /// (#2107: a phone had no way to play the stop announcement).
+    Announce,
     Tilt,
     Info,
     Navigator,
@@ -61,7 +64,7 @@ enum Btn {
 impl Btn {
     /// Held down while the finger stays (a push button), rather than a tap.
     fn held(self) -> bool {
-        matches!(self, Btn::Door(_) | Btn::DirectDoor(_) | Btn::Horn | Btn::Engine)
+        matches!(self, Btn::Door(_) | Btn::DirectDoor(_) | Btn::Horn | Btn::Engine | Btn::Announce)
     }
 }
 
@@ -116,10 +119,12 @@ enum Role {
     Mouse,
     /// The game menu's (or the chooser's) list: a drag scrolls it, a tap picks a line.
     Menu,
+    MenuSlider,
     /// The small navigator: a tap opens the city map, a drag moves it (as the mouse does,
     /// #940), where it then stays - out of the middle of the screen, which it covered on a
     /// phone (#1138).
     Navigator,
+    Panel,
 }
 
 struct Touched {
@@ -501,6 +506,7 @@ impl App {
                     (Btn::Wipers, "water_drop", "Wipers", p.vehicle.var("wiper_sw").is_some_and(|v| v > 0.5)),
                     (Btn::SaloonLights, "highlight", "Saloon lights", false),
                     (Btn::Ticket, "confirmation_number", "Sell ticket", false),
+                    (Btn::Announce, "campaign", "Announcement (Q)", false),
                     (Btn::InteriorCam, "airline_seat_recline_normal", "Next seat view", false),
                     (Btn::Navigator, "navigation", "Navigator", self.menus.navigator.as_ref().is_some_and(|n| n.enabled)),
                     (Btn::Info, "info", "Information bar", self.menus.info_bar),
@@ -561,6 +567,8 @@ impl App {
                 let d = p - t.wheel_c;
                 Role::Wheel(d.y.atan2(d.x), d.length())
             }
+        } else if self.game_panel_touch(p.x, p.y) {
+            Role::Panel
         } else if self.menus.navigator.as_ref().is_some_and(|n| n.over_panel(p.x, p.y)) {
             Role::Navigator
         } else {
@@ -586,12 +594,13 @@ impl App {
             // (the line under the finger lights up; it is picked when the finger comes up
             // without having moved - a finger that came down to scroll used to pick the
             // line it landed on)
-            Role::Menu => self.on_cursor(p.x, p.y),
+            Role::Menu if !self.input.touch.fingers.iter().any(|f| f.role == Role::MenuSlider) => self.on_cursor(p.x, p.y),
             Role::Wheel(..) => self.input.touch.steering = true,
             _ => {}
         }
-        self.input.touch.fingers.push(Touched { id, start: p, pos: p, role, moved: false, since: Instant::now() });
-        self.touch_pedals(p);
+        let moved = role == Role::Menu && self.input.touch.fingers.iter().any(|f| f.role == Role::MenuSlider);
+        self.input.touch.fingers.push(Touched { id, start: p, pos: p, role, moved, since: Instant::now() });
+        self.input.touch_pedals(p);
         // two fingers on the picture: a pinch
         let looks: Vec<Vec2> = self.input.touch.fingers.iter().filter(|f| matches!(f.role, Role::Look | Role::Mouse)).map(|f| f.pos).collect();
         if looks.len() == 2 {
@@ -602,7 +611,7 @@ impl App {
     pub(crate) fn finger_move(&mut self, id: u64, p: Vec2) {
         let u = self.input.touch.u;
         let Some(k) = self.input.touch.fingers.iter().position(|f| f.id == id) else { return };
-        let last = self.input.touch.fingers[k].pos;
+        let (last, start, was_moved) = (self.input.touch.fingers[k].pos, self.input.touch.fingers[k].start, self.input.touch.fingers[k].moved);
         {
             let f = &mut self.input.touch.fingers[k];
             f.pos = p;
@@ -611,6 +620,16 @@ impl App {
             }
         }
         let role = self.input.touch.fingers[k].role;
+        if role == Role::Menu && self.input.touch.fingers.iter().any(|f| f.role == Role::MenuSlider) { return; }
+        let sideways = (p.x - start.x).abs() >= (p.y - start.y).abs();
+        let grip = if role == Role::Menu && !was_moved && self.input.touch.fingers[k].moved && sideways && self.shell_takes_mouse() { self.shell.onto_slider(start, p) } else { None };
+        if let Some(q) = grip {
+            self.input.touch.fingers.iter_mut().filter(|f| f.role == Role::Menu).for_each(|f| f.moved = true);
+            self.input.touch.fingers[k].role = Role::MenuSlider;
+            self.on_cursor(q.x, q.y);
+            self.shell.button(true);
+            return;
+        }
         match role {
             Role::Wheel(a0, _) => {
                 // The wheel turns as far round as the finger goes round its centre - the
@@ -633,7 +652,7 @@ impl App {
                 }
                 self.input.touch.fingers[k].role = Role::Wheel(a, d.length());
             }
-            Role::Throttle | Role::Brake => self.touch_pedals(p),
+            Role::Throttle | Role::Brake => self.input.touch_pedals(p),
             Role::Stick => {
                 let d = p - self.input.touch.stick_c;
                 self.input.touch.stick_at = Some((self.input.touch.stick_c, d.clamp_length_max(self.input.touch.stick_r)));
@@ -645,6 +664,14 @@ impl App {
                 if self.input.touch.fingers[k].moved {
                     self.on_cursor(p.x, p.y);
                 }
+            }
+            Role::Panel => {
+                self.input.cursor = (p.x, p.y);
+                self.game_panel_drag(p.x);
+            }
+            Role::MenuSlider => {
+                let q = self.shell.onto_slider(start, p).unwrap_or(p);
+                self.on_cursor(q.x, q.y);
             }
             Role::Cockpit | Role::Mouse => {
                 if let (Role::Mouse, Some(_)) = (role, self.input.touch.pinch) {
@@ -732,6 +759,9 @@ impl App {
                 self.on_cursor(p.x, p.y);
                 self.left_button(event_loop, false);
             }
+            Role::Panel => {
+                self.game_panel_click(false);
+            }
             Role::Navigator => {
                 if f.moved {
                     self.on_cursor(p.x, p.y);
@@ -743,6 +773,11 @@ impl App {
                     }
                     _ => self.left_button(event_loop, false),
                 }
+            }
+            Role::MenuSlider => {
+                let at = if cancelled { Vec2::splat(-1e4) } else { self.shell.onto_slider(f.start, p).unwrap_or(p) };
+                self.on_cursor(at.x, at.y);
+                self.shell.button(false);
             }
             Role::Menu => {
                 if !f.moved && !cancelled {
@@ -763,23 +798,6 @@ impl App {
                     self.left_button(event_loop, true);
                     self.left_button(event_loop, false);
                 }
-            }
-        }
-    }
-
-    /// The pedals from where the fingers on them are: the higher up the pedal, the harder
-    /// it is pressed (a finger at its foot presses a little).
-    fn touch_pedals(&mut self, _p: Vec2) {
-        let t = &mut self.input.touch;
-        let depth = |r: Rect, y: f32| (0.2 + 0.8 * ((r.bottom() - y) / r.h)).clamp(0.2, 1.0);
-        for f in &t.fingers {
-            match f.role {
-                Role::Throttle => t.throttle = depth(t.throttle_r, f.pos.y),
-                Role::Brake => t.brake = depth(t.brake_r, f.pos.y),
-                // (the clutch pushed in most of the way is in: the gearboxes want it at 1
-                // to take a gear, see `pedal_ends`, and a thumb seldom sits at the top edge)
-                Role::Clutch => t.clutch = if depth(t.clutch_r, f.pos.y) >= 0.75 { 1.0 } else { depth(t.clutch_r, f.pos.y) },
-                _ => {}
             }
         }
     }
@@ -952,6 +970,7 @@ impl App {
                 self.vehicle_action("ticket_give", true);
                 self.vehicle_action("ticket_give", false);
             }
+            Btn::Announce => self.tap_key(event_loop, KeyCode::KeyQ, false, down),
             Btn::InteriorCam => {
                 self.game_action("view_interiorcam_plus");
             }
@@ -1080,7 +1099,7 @@ impl App {
             }
             if let Some(v) = speed {
                 let at = Vec2::new(w * 0.5, h - 22.0 * u);
-                let s = format!("{v:.0} km/h");
+                let s = crate::units::Units::now().speed_text(v);
                 let tw = fonts.width(&s, 20.0 * u, Weight::Bold);
                 pt.rounded(Rect::new(at.x - tw * 0.5 - 12.0 * u, at.y - 24.0 * u, tw + 24.0 * u, 34.0 * u), 10.0 * u, panel_bg);
                 pt.text(atlas, fonts, &s, 20.0 * u, Weight::Bold, at, Align::Center, TEXT);
@@ -1299,5 +1318,24 @@ mod tests {
         assert_eq!(deg(&Settings { wheel_range: 1800.0, wheel_lock: 0.0, ..Default::default() }), 900.0);
         // a lock set of its own wins
         assert_eq!(deg(&Settings { wheel_range: 900.0, wheel_lock: 540.0, ..Default::default() }), 270.0);
+    }
+}
+
+impl InputState {
+    /// The pedals from where the fingers on them are: the higher up the pedal, the harder
+    /// it is pressed (a finger at its foot presses a little).
+    fn touch_pedals(&mut self, _p: Vec2) {
+        let t = &mut self.touch;
+        let depth = |r: Rect, y: f32| (0.2 + 0.8 * ((r.bottom() - y) / r.h)).clamp(0.2, 1.0);
+        for f in &t.fingers {
+            match f.role {
+                Role::Throttle => t.throttle = depth(t.throttle_r, f.pos.y),
+                Role::Brake => t.brake = depth(t.brake_r, f.pos.y),
+                // (the clutch pushed in most of the way is in: the gearboxes want it at 1
+                // to take a gear, see `pedal_ends`, and a thumb seldom sits at the top edge)
+                Role::Clutch => t.clutch = if depth(t.clutch_r, f.pos.y) >= 0.75 { 1.0 } else { depth(t.clutch_r, f.pos.y) },
+                _ => {}
+            }
+        }
     }
 }
