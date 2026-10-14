@@ -720,9 +720,26 @@ pub fn duty_of_trip(duties: &[Duty], tours: &[TourOfDay], i: usize, j: usize) ->
     duty_of(duties, i, k)
 }
 
+/// Whether drivers can change between trips `a` and `b` of a block of line `line` (`b` right
+/// after `a`): where the bus stands between them at a terminus or the depot (`NOT_RELIEF` where
+/// it stands elsewhere). Where `b` begins at another place than `a` ends and no run is listed
+/// between two trips with passengers (an own line's way back, a deadhead whose time is
+/// estimated: Luc's line 880 runs one way only), the bus stands where the first one ended
+/// before it runs empty: the drivers change there, or where the next one begins, at a terminus
+/// or the depot. Between an empty run and another place it is on the move (`ON_THE_MOVE`).
+fn change_between(c: &Company, tours: &[TourOfDay], line: &str, a: &PlannedTrip, b: &PlannedTrip) -> Result<(), &'static str> {
+    if same(a.end(), &b.from) {
+        return if is_relief(c, tours, line, a.end()) { Ok(()) } else { Err(NOT_RELIEF) };
+    }
+    if a.counts() && b.counts() && (is_relief(c, tours, line, a.end()) || is_relief(c, tours, line, &b.from)) {
+        return Ok(());
+    }
+    Err(ON_THE_MOVE)
+}
+
 /// Where between trips `p` and `n` of block `i` (trips with passengers, none between them) the
-/// driver can change: before a trip after which the bus stands at a terminus or the depot,
-/// the nearest `p` first (`near_p`) or the nearest `n`.
+/// driver can change: before a trip after which the bus stands at a terminus or the depot
+/// (`change_between`), the nearest `p` first (`near_p`) or the nearest `n`.
 fn relief_between(c: &Company, tours: &[TourOfDay], i: usize, p: usize, n: usize, near_p: bool) -> Result<usize, &'static str> {
     let t = &tours[i];
     let mut order: Vec<usize> = (p + 1..=n).collect();
@@ -731,13 +748,9 @@ fn relief_between(c: &Company, tours: &[TourOfDay], i: usize, p: usize, n: usize
     }
     let mut standing = false;
     for k in order {
-        let (a, b) = (&t.trips[k - 1], &t.trips[k]);
-        if !same(a.end(), &b.from) {
-            continue;
-        }
-        standing = true;
-        if is_relief(c, tours, &t.line, a.end()) {
-            return Ok(k);
+        match change_between(c, tours, &t.line, &t.trips[k - 1], &t.trips[k]) {
+            Ok(()) => return Ok(k),
+            Err(e) => standing |= e == NOT_RELIEF,
         }
     }
     Err(if standing { NOT_RELIEF } else { ON_THE_MOVE })
@@ -1008,13 +1021,7 @@ pub fn can_cut(c: &Company, tours: &[TourOfDay], i: usize, at: usize) -> Result<
     if pieces.iter().any(|r| r.start == at) {
         return Err(CUT_ALREADY);
     }
-    let (a, b) = (&t.trips[at - 1], &t.trips[at]);
-    if !same(a.end(), &b.from) {
-        return Err(ON_THE_MOVE);
-    }
-    if !is_relief(c, tours, &t.line, a.end()) {
-        return Err(NOT_RELIEF);
-    }
+    change_between(c, tours, &t.line, &t.trips[at - 1], &t.trips[at])?;
     let p = pieces.iter().find(|r| r.contains(&at)).ok_or(NOT_FOUND)?;
     if !t.trips[p.start..at].iter().any(PlannedTrip::counts) || !t.trips[at..p.end].iter().any(PlannedTrip::counts) {
         return Err(NO_PASSENGERS);
@@ -1811,9 +1818,16 @@ mod tests {
         workshop[one].trips.insert(4, run("X1", "A-Nord", "Werkstatt", 591));
         workshop[one].trips.insert(5, run("X2", "Werkstatt", "A-Süd", 594));
         assert_eq!(plan_move_to_duty(&c, wd, &workshop, a, &[(one, 3)], DutyTarget::New), Err(NOT_RELIEF));
-        // where the bus is on the move between two places the drivers cannot change either
+        // where the bus runs empty from where a trip ended to another place, without a run
+        // listed (a deadhead whose time is estimated), it stood at the terminus first: the
+        // drivers change there (Luc's line 880 runs one way only, all its returns so)
         let mut moving = tours.clone();
         moving[one].trips[4].from = "C".into();
+        assert!(plan_move_to_duty(&c, wd, &moving, a, &[(one, 3)], DutyTarget::New).is_ok());
+        // but not where empty runs end somewhere and what follows begins elsewhere
+        let mut moving = workshop.clone();
+        moving[one].trips[5].from = "Werkstatt-Hof".into();
+        moving[one].trips[6].from = "C".into();
         assert_eq!(plan_move_to_duty(&c, wd, &moving, a, &[(one, 3)], DutyTarget::New), Err(ON_THE_MOVE));
         // at the terminus it can
         assert!(plan_move_to_duty(&c, wd, &tours, a, &[(one, 3)], DutyTarget::New).is_ok());

@@ -154,7 +154,14 @@ export async function pick(hand, dragging = false) {
   if (hand.kind === 'swap') return;
   const zones = await rfCmd('rf_view', { view: 'zones', day: S.rf.day, hand }).catch(() => []);
   // (still the same hand: a drop meanwhile let it go)
-  if (S.rf.hand === hand) setRf({ zones: Array.isArray(zones) ? zones : [] });
+  if (S.rf.hand !== hand) return;
+  setRf({ zones: Array.isArray(zones) ? zones : [] });
+  // (a duty's trips that may go nowhere: why, in the corner - rather than a drag that ends in
+  // nothing)
+  if (hand.kind === 'duty_trips' && Array.isArray(zones) && !zones.length) {
+    const why = await rfCmd('rf_view', { view: 'why', day: S.rf.day, hand }).catch(() => null);
+    if (why?.text && S.rf.hand === hand) say(why.text, true);
+  }
 }
 
 /** Drop what is in hand at zone `zi` (`rf_gantt::drop_at`). */

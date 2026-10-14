@@ -4,7 +4,7 @@
 //! core works it out (`studio::plan_move_to_duty`, `move_to_duty`, `DutyTarget`); the zones are
 //! rated here as the Vehicles tab's are (`zones_for`).
 
-use super::super::company::words::trf;
+use super::super::company::words::{tr, trf};
 use super::super::company::Session;
 use super::{edit, Rf};
 use omsi_launcher_lib::company::rosterflow::Board;
@@ -36,6 +36,16 @@ pub(super) fn zones(c: &Company, board: &Board, row: usize, trips: &[(usize, usi
         probe_with(json!({ "kind": "duty", "d": d }), &|p| st::move_to_duty(p, wd, tours, from, trips, DutyTarget::Duty(di)));
     }
     probe_with(json!({ "kind": "new_duty" }), &|p| st::move_to_duty(p, wd, tours, from, trips, DutyTarget::New));
+}
+
+/// Why trips `trips` of the duty on row `row` go nowhere (no zone at all): what a new duty of
+/// their own refuses, translated.
+pub(super) fn why(c: &Company, board: &Board, row: usize, trips: &[(usize, usize)]) -> String {
+    let Some(from) = duty_of_row(board, row) else { return String::new() };
+    match st::plan_move_to_duty(c, board.weekday, &board.tours, from, trips, DutyTarget::New) {
+        Err(e) => tr(e),
+        Ok(_) => String::new(),
+    }
 }
 
 /// The trips dropped at a zone (`kind` "duty" with its row `to`, or "new_duty"): the edit in

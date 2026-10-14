@@ -591,6 +591,11 @@ fn view(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
             json!(list)
         }
         "zones" => json!(zones_for(&k, board, &hand_of(args))),
+        // (no zone for a duty's trips: why, said in the corner - Luc's line 880 offered none)
+        "why" => match hand_of(args) {
+            Hand::DutyTrips { duty, trips } => json!({ "text": driver_drag::why(c, board, duty, &trips) }),
+            _ => json!({}),
+        },
         "duty" => duty_view(c, board, usize_arg(args, "row")),
         other => return Err(format!("no view {other}")),
     })
