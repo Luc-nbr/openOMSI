@@ -207,9 +207,10 @@ pub fn close_day(data: &Path, c: &mut Company) -> Result<DayReport> {
     let lines = crate::list_lines(&c.map, &c.date)?;
     super::studio::retire_stale(c, &lines, &date);
     let tours = network::tours_of_day(c, &lines, &c.date);
+    let unassigned = network::off_every_bus(c, &lines, &date);
     network::refresh_lines(c, &lines);
     let trips = crate::trips_of(data, &c.profile);
-    let report = day::close_day(c, tours, &trips);
+    let report = day::close_day_with(c, tours, &unassigned, &trips);
     let report = super::depot::after_close(c, report, &lines);
     save(data, c)?;
     saved_with_live(data, &c.id, &date);
@@ -269,8 +270,9 @@ impl super::clock::World for Disk<'_> {
         let date = c.date.clone();
         super::studio::retire_stale(c, lines, &date);
         let tours = network::tours_of_day(c, lines, &c.date);
+        let unassigned = network::off_every_bus(c, lines, &date);
         let trips = crate::trips_of(self.data, &c.profile);
-        let report = day::close_day(c, tours, &trips);
+        let report = day::close_day_with(c, tours, &unassigned, &trips);
         Ok(super::depot::after_close(c, report, lines))
     }
 }

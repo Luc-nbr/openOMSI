@@ -303,6 +303,15 @@ pub(crate) fn timetable_tours(c: &Company, lines: &[LineInfo]) -> Vec<TourOfDay>
     out
 }
 
+/// The trips of `date` on no bus (RosterFlow's stack, `rosterflow::stack`): their line and the
+/// trip. The easy mode keeps the timetable's tours, every trip on a bus.
+pub fn off_every_bus(c: &Company, lines: &[LineInfo], date: &str) -> Vec<(String, PlannedTrip)> {
+    if super::autopilot::on(c) {
+        return Vec::new();
+    }
+    super::rosterflow::stack(c, lines, super::plan::weekday_of(date))
+}
+
 /// The tours that run: those of lines in service.
 pub fn in_service_only(tours: Vec<TourOfDay>) -> Vec<TourOfDay> {
     tours.into_iter().filter(|t| !t.unplanned).collect()

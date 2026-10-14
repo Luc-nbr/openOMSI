@@ -587,6 +587,7 @@ pub fn bridge(c: &mut Company, date: &str, report: &DayReport) {
             Note::Ended { number } => add(Kind::Lines, Level::Bad, "", ENDED, vec![arg("n", number)]),
             Note::NotStarted { number, days, charge } => add(Kind::Lines, Level::Bad, "", NOT_STARTED, vec![arg("n", number), arg("days", days), arg("amount", charge)]),
             Note::Accident { number, cost } => add(Kind::Fleet, Level::Bad, "", ACCIDENT, vec![arg("n", number), arg("amount", cost)]),
+            Note::Unsaved => add(Kind::Lines, Level::Warn, "rosterflow-unsaved", UNSAVED, Vec::new()),
         }
     }
     for s in &report.staff {
@@ -655,6 +656,8 @@ const LOST: (&str, &str) = ("Tender lost", "%{who} won the tender for line %{n}.
 const ENDED: (&str, &str) = ("Concession ended", "The concession for line %{n} has ended: the line is no longer yours.");
 const NOT_STARTED: (&str, &str) = ("Line not in service", "Line %{n} is still not in service, %{days} days after it was taken on: the authority charged %{amount}. Plan its tours and start its service.");
 const ACCIDENT: (&str, &str) = ("Accident", "Bus %{n} had an accident on its tour: damage %{amount}.");
+/// (#96: the day ran the saved planning, not RosterFlow's draft)
+pub const UNSAVED: (&str, &str) = ("RosterFlow not saved", "RosterFlow had changes of this day that were not saved: the day ran the saved blocks and duties. Save them in RosterFlow (or discard them) so the day runs what it shows.");
 const ILL: (&str, &str) = ("Ill", "%{name} is ill until %{date}.");
 const HOLIDAY: (&str, &str) = ("On holiday", "%{name} is on holiday until %{date}.");
 const RESIGNED: (&str, &str) = ("Notice handed in", "%{name} has resigned; their last day is %{date}.");
@@ -675,7 +678,7 @@ pub fn texts() -> Vec<&'static str> {
     out.extend(Kind::ALL.iter().map(|k| k.label()));
     out.extend(["It is today.", "It begins today and lasts until %{until}.", "It is over: everything is as usual again."]);
     for (a, b) in [
-        WELCOME, BREAKDOWN, SERVICE, RETURNED, LOAN_PAID, MONTH, BUILT, BAY_WAIT, WON, LOST, ENDED, NOT_STARTED, ACCIDENT, ILL, HOLIDAY, RESIGNED, UNHAPPY, LEFT, RATES, UNCOVERED, PENALTIES, FINES, COMPLAINTS, CROWDED, IN_THE_RED, LOW_CASH,
+        WELCOME, BREAKDOWN, SERVICE, RETURNED, LOAN_PAID, MONTH, BUILT, BAY_WAIT, WON, LOST, ENDED, NOT_STARTED, ACCIDENT, UNSAVED, ILL, HOLIDAY, RESIGNED, UNHAPPY, LEFT, RATES, UNCOVERED, PENALTIES, FINES, COMPLAINTS, CROWDED, IN_THE_RED, LOW_CASH,
     ] {
         out.extend([a, b]);
     }

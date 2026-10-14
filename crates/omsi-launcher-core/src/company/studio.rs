@@ -1910,4 +1910,166 @@ mod tests {
         assert!(db.iter().any(|d| d.pieces.len() == 2));
         assert_eq!(back.planning.flow.sheet.notes, c.planning.flow.sheet.notes);
     }
+
+    // --- #96: what RosterFlow saved is what the day runs ---------------------------------------
+
+    /// `c` with `buses` buses and `people` drivers who may drive them, nobody ill or away.
+    fn staffed(c: &mut Company, buses: usize, people: usize) {
+        use super::super::market::{self, MarketBus, Payment};
+        use super::super::staff::{applicants, hire};
+        c.cash += 5_000_000_00;
+        let bus = MarketBus { file: "Vehicles/Citaro/Citaro.bus".into(), name: "Citaro".into(), ..Default::default() };
+        for _ in 0..buses {
+            market::buy_new(c, &bus, Payment::Cash, "").unwrap();
+        }
+        let id = c.id.clone();
+        while c.staff.len() < people {
+            for a in applicants(c) {
+                if c.staff.len() < people && a.licence == crate::company::model::Licence::D {
+                    hire(c, &a).unwrap();
+                }
+            }
+            c.id.push('x');
+            c.taken = Default::default();
+        }
+        c.id = id;
+        for e in c.staff.iter_mut() {
+            e.sick_until = None;
+            e.holiday_until = None;
+        }
+    }
+
+    /// Two buses' days of fourteen trips (05:00-18:50 and 05:30-19:20): two duties each, cut
+    /// at noon; the roster filled.
+    fn rostered() -> (Company, LineInfo) {
+        let mut c = company();
+        staffed(&mut c, 2, 6);
+        let l = line_of(&[("1", 300, 14), ("2", 330, 14)]);
+        let date = c.date.clone();
+        let tours = day(&c, &l);
+        super::super::plan::fill_day(&mut c, &date, tours);
+        (c, l)
+    }
+
+    /// The drivers the roster gives tour `tour`'s duties, by the trip each begins with.
+    fn drivers_of(c: &Company, l: &LineInfo, tour: &str) -> Vec<(i32, Option<super::super::plan::Who>)> {
+        let wd = super::super::plan::weekday_of(&c.date);
+        let tours = day(c, l);
+        let (_, t) = block(&tours, tour);
+        let r = super::super::plan::roster(c, wd, "Linie5", tour);
+        network::duties_of(t).iter().enumerate().map(|(k, p)| (t.trips[p.start].dep, r.and_then(|r| r.duties.get(k).copied().flatten()))).collect()
+    }
+
+    /// The day closed as the store closes it (the trips on no bus too); the report.
+    fn close(c: &mut Company, l: &LineInfo) -> super::super::day::DayReport {
+        let date = c.date.clone();
+        let tours = day(c, l);
+        let off = network::off_every_bus(c, std::slice::from_ref(l), &date);
+        super::super::day::close_day_with(c, tours, &off, &[])
+    }
+
+    /// What no bus or driver was planned for (the day's own events - an illness, a breakdown,
+    /// someone late - left out): (tour, duty, trips).
+    fn unplanned(r: &super::super::day::DayReport) -> Vec<(String, Option<usize>, u32)> {
+        use super::super::day::DropWhy;
+        use super::super::plan::Problem;
+        r.drops.iter().filter(|d| d.why == DropWhy::NoBlock || d.problem == Some(Problem::Unassigned)).map(|d| (d.tour.clone(), d.duty, d.trips)).collect()
+    }
+
+    #[test]
+    fn a_saved_cut_keeps_the_rosters_drivers_on_their_duties() {
+        // (testers: "it shows loads didn't run, but in the planning it was allocated" - the
+        // roster gives a duty its driver by its index in the bus's day, and a cut made in
+        // RosterFlow moved the afternoon's driver onto the new duty of the morning and left the
+        // afternoon without one: its trips were dropped)
+        use super::super::rosterflow as rf;
+        let (mut c, l) = rostered();
+        let date = c.date.clone();
+        let wd = super::super::plan::weekday_of(&date);
+        let before = drivers_of(&c, &l, "1");
+        assert_eq!(before.len(), 2);
+        assert!(before.iter().all(|d| d.1.is_some()), "{before:?}");
+        assert!(unplanned(&close(&mut c.clone(), &l)).is_empty(), "everything planned runs");
+        // a cut before the 08:00 trip, in RosterFlow's draft, saved
+        let mut v = rf::view(&c);
+        let tours = day(&v, &l);
+        let (one, _) = block(&tours, "1");
+        cut(&mut v, wd, &tours, one, 3).unwrap();
+        rf::keep_draft(&mut c, &v);
+        // (the day runs the saved planning meanwhile, and says so)
+        assert!(rf::draft_differs(&c, wd) && !rf::draft_differs(&c, (wd + 1) % 7));
+        assert!(close(&mut c.clone(), &l).notes.contains(&super::super::day::Note::Unsaved));
+        let f = rf::save_draft_following(&mut c, &[(date.clone(), vec![l.clone()])]).unwrap();
+        assert_eq!((f.kept, f.open), (5, 0));
+        // the afternoon keeps its driver; the morning's driver keeps both halves of the morning
+        // until the roster gives the new duty to another
+        let after = drivers_of(&c, &l, "1");
+        assert_eq!(after, vec![(300, before[0].1), (480, before[0].1), (before[1].0, before[1].1)]);
+        let r = close(&mut c.clone(), &l);
+        assert!(unplanned(&r).is_empty(), "{:?}", r.drops);
+        assert!(!r.notes.contains(&super::super::day::Note::Unsaved));
+        // a duty without a driver: its trips are dropped, said why, with the duty they belong to
+        super::super::plan::set_driver(&mut c, wd, "Linie5", "1", 1, None);
+        let r = close(&mut c, &l);
+        assert_eq!(unplanned(&r), vec![("1".to_string(), Some(1), 4)]);
+        let d = r.drops.iter().find(|d| d.duty == Some(1)).unwrap();
+        assert_eq!((d.why, d.from, d.to, d.number.as_str()), (super::super::day::DropWhy::NoDriver, 480, 710, "5"));
+    }
+
+    #[test]
+    fn a_piece_joined_into_a_duty_takes_its_driver_when_saved() {
+        use super::super::rosterflow as rf;
+        let (mut c, l) = rostered();
+        let date = c.date.clone();
+        let wd = super::super::plan::weekday_of(&date);
+        let afternoon = drivers_of(&c, &l, "2")[1].1;
+        let mut v = rf::view(&c);
+        let tours = day(&v, &l);
+        let (one, _) = block(&tours, "1");
+        cut(&mut v, wd, &tours, one, 3).unwrap();
+        // (the new piece joined with tour 2's afternoon: one driver for both)
+        let tours = day(&v, &l);
+        let (one, t1) = block(&tours, "1");
+        let (two, t2) = block(&tours, "2");
+        let p2 = network::duties_of(t2)[1].clone();
+        v.planning.joined.push(JoinedDuty { weekday: wd, pieces: vec![PieceRef::of(t2, &p2), PieceRef::of(t1, &network::duties_of(t1)[1])] });
+        assert_eq!(partners(&v, wd, &tours, one, 1), vec![(two, 1)]);
+        rf::keep_draft(&mut c, &v);
+        let f = rf::save_draft_following(&mut c, &[(date, vec![l.clone()])]).unwrap();
+        assert_eq!(f.open, 0);
+        assert_eq!(drivers_of(&c, &l, "1")[1], (480, afternoon));
+    }
+
+    #[test]
+    fn a_trip_left_on_no_bus_is_dropped_and_said_so() {
+        // (RosterFlow's stack: the day left such a trip out as if the timetable had none - no
+        // penalty, nothing said)
+        use super::super::rosterflow as rf;
+        let (mut c, l) = rostered();
+        let date = c.date.clone();
+        let wd = super::super::plan::weekday_of(&date);
+        let mut v = rf::view(&c);
+        let tours = day(&v, &l);
+        let (two, t2) = block(&tours, "2");
+        let last = t2.trips.len() - 1;
+        unassign(&mut v, wd, &tours, two, &[last]).unwrap();
+        rf::keep_draft(&mut c, &v);
+        rf::save_draft_following(&mut c, &[(date.clone(), vec![l.clone()])]).unwrap();
+        assert_eq!(network::off_every_bus(&c, std::slice::from_ref(&l), &date).len(), 1);
+        // (tour 2's automatic cut moved a trip earlier with its last trip gone: the afternoon's
+        // driver stays with the afternoon)
+        assert!(drivers_of(&c, &l, "2").iter().all(|d| d.1.is_some()));
+        let left_out = super::super::day::close_day(&mut c.clone(), day(&c, &l), &[]);
+        let r = close(&mut c, &l);
+        assert_eq!(unplanned(&r), vec![(String::new(), None, 1)]);
+        assert_eq!((r.trips, r.dropped), (left_out.trips + 1, left_out.dropped + 1));
+        assert!(r.penalties > left_out.penalties);
+        // (another weekday runs its own blocks: Tuesday all of them)
+        let tue = tours_of_day(&c, std::slice::from_ref(&l), &dates_add(&date, 1));
+        assert_eq!(tue.iter().map(|t| t.trips.len()).sum::<usize>(), 28);
+    }
+
+    fn dates_add(date: &str, k: i64) -> String {
+        super::super::dates::add(date, k)
+    }
 }

@@ -71,6 +71,9 @@ pub struct DutyPlan {
     /// The driver comes late: the trips that leave before this minute are dropped.
     #[serde(default)]
     pub dropped_before: Option<i32>,
+    /// Why it has no driver (the day's report says it for its trips dropped).
+    #[serde(default)]
+    pub problem: Option<super::plan::Problem>,
 }
 
 /// A tour of the day with its bus and duties.
@@ -82,6 +85,9 @@ pub struct TourPlan {
     /// The player drove it (a trip report says so), or the game reported it live.
     pub by_player: bool,
     pub live: bool,
+    /// Why it has no bus (the day's report says it for its trips dropped).
+    #[serde(default)]
+    pub bus_problem: Option<super::plan::Problem>,
 }
 
 impl TourPlan {
@@ -149,11 +155,11 @@ pub fn assign(c: &Company, tours: Vec<TourOfDay>, player: &[(String, String)], l
     for t in tours {
         let duties: Vec<DutyPlan> = network::duties_of(&t)
             .into_iter()
-            .map(|r| DutyPlan { from: t.trips[r.start].dep, to: t.trips[r.clone()].iter().map(|x| x.arr).max().unwrap_or(0), start: r.start, end: r.end, driver: None, dropped_before: None })
+            .map(|r| DutyPlan { from: t.trips[r.start].dep, to: t.trips[r.clone()].iter().map(|x| x.arr).max().unwrap_or(0), start: r.start, end: r.end, driver: None, dropped_before: None, problem: None })
             .collect();
         let by_player = is_one_of(&t, player);
         let is_live = !by_player && is_one_of(&t, live);
-        let mut plan = TourPlan { tour: t, bus: None, duties, by_player, live: is_live };
+        let mut plan = TourPlan { tour: t, bus: None, duties, by_player, live: is_live, bus_problem: None };
         if !by_player && !is_live {
             let from = plan.tour.from();
             let wants = plan.tour.wants();
@@ -277,6 +283,65 @@ pub enum Note {
     NotStarted { number: String, days: i64, charge: Cents },
     /// A driver of the company had an accident with the bus: the damage (`incidents`).
     Accident { number: String, cost: Cents },
+    /// RosterFlow had changes of the day's weekday not saved: the day ran the saved planning
+    /// (#96: blocks and duties a draft showed were not what ran).
+    Unsaved,
+}
+
+/// Why trips of the day were dropped (#96: the report says why each was).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DropWhy {
+    /// Its tour had no bus (`Dropped::problem` says why: none planned, in the workshop ...).
+    NoBus,
+    /// Its duty had no driver (`problem`: none planned, ill, on holiday ...).
+    NoDriver,
+    /// The bus broke down on its tour, and nothing took the trips over.
+    BrokeDown,
+    /// The driver came late to the duty's beginning.
+    Late,
+    /// On no bus at all: taken off every block in RosterFlow (its stack).
+    NoBlock,
+}
+
+impl DropWhy {
+    pub const LABELS: [&'static str; 5] = ["No bus", "No driver", "The bus broke down on the way", "The driver came late", "On no bus: the trips wait on RosterFlow's stack"];
+
+    pub fn label(self) -> &'static str {
+        Self::LABELS[self as usize]
+    }
+}
+
+/// Trips of the day dropped together: of one tour (block) and duty, one after the other, for
+/// one reason.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Dropped {
+    /// The company line (its timetable name), the number shown, the block and the duty (its
+    /// index in the block; None: the tour's bus, or no block).
+    pub line: String,
+    pub number: String,
+    pub tour: String,
+    #[serde(default)]
+    pub duty: Option<usize>,
+    /// The first one's departure and the last one's arrival, and how many.
+    pub from: i32,
+    pub to: i32,
+    pub trips: u32,
+    pub why: DropWhy,
+    #[serde(default)]
+    pub problem: Option<super::plan::Problem>,
+}
+
+/// A trip with passengers dropped, into the report's list: with the one before when it is of
+/// the same tour and duty and dropped for the same reason.
+#[allow(clippy::too_many_arguments)]
+fn note_drop(list: &mut Vec<Dropped>, line: &str, number: &str, tour: &str, duty: Option<usize>, trip: &network::PlannedTrip, why: DropWhy, problem: Option<super::plan::Problem>) {
+    if let Some(d) = list.last_mut().filter(|d| d.line == line && d.tour == tour && d.duty == duty && d.why == why && d.problem == problem) {
+        d.to = d.to.max(trip.arr);
+        d.trips += 1;
+        return;
+    }
+    list.push(Dropped { line: line.to_string(), number: number.to_string(), tour: tour.to_string(), duty, from: trip.dep, to: trip.arr, trips: 1, why, problem });
 }
 
 /// What a closed day came to.
@@ -323,6 +388,9 @@ pub struct DayReport {
     /// Accidents, fines, complaints and passengers taken ill on the modelled trips.
     #[serde(default)]
     pub incidents: super::incidents::Tally,
+    /// The trips dropped, and why (#96).
+    #[serde(default)]
+    pub drops: Vec<Dropped>,
 }
 
 /// Maps named alike (`maps/Grundorf/global.cfg`, with either slash and any case).
@@ -350,6 +418,13 @@ struct Sums {
 /// timetable read for `c.date`), `trips` the player's trip reports (all of them; those of
 /// the company's map and lines not booked yet count). Moves the company to the next day.
 pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> DayReport {
+    close_day_with(c, tours, &[], trips)
+}
+
+/// `close_day` with the trips on no bus (`network::off_every_bus`: RosterFlow's stack): of a
+/// line in service they are dropped too, with the contract's penalty (#96: the day left them
+/// out as if the timetable had none).
+pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(String, network::PlannedTrip)], trips: &[TripRun]) -> DayReport {
     // (only what is planned runs: a line not in service books nothing)
     let tours = network::in_service_only(tours);
     // (the passengers answer the fares: `fares`)
@@ -368,6 +443,10 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
     let line_effects: Vec<(f64, f64)> = c.lines.iter().map(|l| super::inbox::line_effect(c, &date, &l.number)).collect();
     let mut rng = Rng::of(&[&c.id, "day"], dates::parse(&date).unwrap_or(0));
     let mut report = DayReport { date: date.clone(), ..Default::default() };
+    // (RosterFlow's changes of this weekday not saved: the day runs the saved planning, said)
+    if super::rosterflow::draft_differs(c, super::plan::weekday_of(&date)) {
+        report.notes.push(Note::Unsaved);
+    }
     let day_end = super::clock::moment(&date, 24 * 60 - 1);
     let mut lines: Vec<LineDay> = c.lines.iter().map(|l| LineDay { line: l.name.clone(), number: l.number.clone(), colour: l.colour.clone(), unplanned: !network::in_service(l, day_end), ..Default::default() }).collect();
     let per_passenger: Vec<f64> = c.lines.iter().map(|l| super::fares::per_passenger(c, l)).collect();
@@ -520,7 +599,7 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
         let broken_at = tp.bus.and_then(|b| cut.iter().find(|x| x.0 == b)).map(|x| (x.1, x.2));
         // (a spare bus sent for it runs the trips after it came: its kilometres, its wear)
         let spare = tp.bus.and_then(|b| super::clock::spare_of(c, &date, b)).and_then(|id| c.vehicle(id)).cloned();
-        for d in &tp.duties {
+        for (k, d) in tp.duties.iter().enumerate() {
             let driver = d.driver.and_then(|id| if id == super::plan::AGENCY { Some(super::plan::agency_driver()) } else { c.employee(id).cloned() });
             if let Some(e) = driver.as_ref().filter(|e| e.id != super::plan::AGENCY) {
                 match worked.iter_mut().find(|w| w.0 == e.id) {
@@ -553,13 +632,26 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
                 if reported(trip) {
                     continue;
                 }
-                let run = v.is_some() && driver.is_some() && broken_at.is_none_or(|(at, back)| trip.dep < at || back.is_some_and(|b| trip.dep >= b)) && d.dropped_before.is_none_or(|t| trip.dep >= t);
+                let broke = broken_at.is_some_and(|(at, back)| trip.dep >= at && back.is_none_or(|b| trip.dep < b));
+                let late = d.dropped_before.is_some_and(|t| trip.dep < t);
+                let run = v.is_some() && driver.is_some() && !broke && !late;
                 if !run {
                     if counts {
                         lines[li].dropped += 1;
                         report.dropped += 1;
                         let strict = if kind == ServiceKind::School { super::ownline::SCHOOL_DROP } else { 1 };
                         sums[li].penalty += (r.drop_per_trip + (trip.km * r.drop_per_km as f64).round() as Cents) * strict;
+                        // (why, for the report: the bus first, then the driver, then the day's events)
+                        let (why, problem, duty) = if v.is_none() {
+                            (DropWhy::NoBus, tp.bus_problem.or(Some(super::plan::Problem::Unassigned)), None)
+                        } else if driver.is_none() {
+                            (DropWhy::NoDriver, d.problem.or(Some(super::plan::Problem::Unassigned)), Some(k))
+                        } else if broke {
+                            (DropWhy::BrokeDown, None, None)
+                        } else {
+                            (DropWhy::Late, None, Some(k))
+                        };
+                        note_drop(&mut report.drops, &tp.tour.line, &tp.tour.number, &tp.tour.tour, duty, trip, why, problem);
                     }
                     continue;
                 }
@@ -619,6 +711,25 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
                 }
             }
         }
+    }
+    // the trips on no bus (RosterFlow's stack) of the lines in service: dropped
+    for (line, trip) in unassigned.iter().filter(|(_, x)| x.counts()) {
+        let Some(li) = lines.iter().position(|l| l.line.eq_ignore_ascii_case(line)) else { continue };
+        if !c.lines.get(li).is_some_and(|cl| network::in_service(cl, super::clock::moment(&date, trip.dep as i64))) {
+            continue;
+        }
+        let kind = kinds.get(li).copied().unwrap_or_default();
+        if kind == ServiceKind::OnDemand {
+            continue;
+        }
+        lines[li].trips += 1;
+        report.trips += 1;
+        lines[li].dropped += 1;
+        report.dropped += 1;
+        let strict = if kind == ServiceKind::School { super::ownline::SCHOOL_DROP } else { 1 };
+        sums[li].penalty += (r.drop_per_trip + (trip.km * r.drop_per_km as f64).round() as Cents) * strict;
+        let (name, number) = (lines[li].line.clone(), lines[li].number.clone());
+        note_drop(&mut report.drops, &name, &number, "", None, trip, DropWhy::NoBlock, None);
     }
     for (li, s) in sums.iter().enumerate() {
         let text = format!("Line {}", lines[li].number);

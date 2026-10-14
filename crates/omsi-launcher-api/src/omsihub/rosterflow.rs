@@ -953,8 +953,15 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
             return Ok(last);
         }
         "save" => {
-            return Ok(match company::act(s, |c| Ok(rf::save_draft(c))) {
-                Ok(true) => said(tr("Saved: the roster, the day and the game run this planning now."), false),
+            // (the roster's buses and drivers stay with their blocks and duties on every day of
+            // the week whose timetable is read: #96)
+            let week: Vec<(String, Vec<LineInfo>)> = match s.company.as_ref() {
+                Some(c) => (0..7).map(|k| co::dates::add(&c.date, k)).filter_map(|d| company::lines_of(s, &d).map(|l| (d, l))).collect(),
+                None => Vec::new(),
+            };
+            return Ok(match company::act(s, |c| Ok(rf::save_draft_following(c, &week))) {
+                Ok(Some(f)) if f.open > 0 => said(format!("{} {}", tr("Saved: the roster, the day and the game run this planning now."), trf("%{n} duties have no driver in the roster: their trips are dropped until they get one (the Roster tab, Fill the roster).", &[("n", &f.open.to_string())])), true),
+                Ok(Some(_)) => said(tr("Saved: the roster, the day and the game run this planning now."), false),
                 _ => json!({}),
             });
         }

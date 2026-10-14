@@ -220,6 +220,7 @@ fn note_text(n: &Note, easy: bool) -> (String, &'static str, Option<Go>) {
         Note::Ended { number } => (trf("The concession for line %{n} has ended: the line is no longer yours.", &[("n", number)]), "danger", None),
         Note::NotStarted { number, days, charge } => (trf("Line %{n} is still not in service, %{days} days after it was taken on: the authority charged %{amount}. Plan its tours and start its service.", &[("n", number), ("days", &days.to_string()), ("amount", &eur(*charge))]), "danger", Some(Go::Planning)),
         Note::Accident { number, cost } => (trf("Bus %{n} had an accident on its tour: damage %{amount}.", &[("n", number), ("amount", &eur(*cost))]), "danger", Some(Go::Training)),
+        Note::Unsaved => (tr("RosterFlow had changes of this day that were not saved: the day ran the saved blocks and duties. Save them in RosterFlow (or discard them) so the day runs what it shows."), "warn", Some(Go::Planning)),
     }
 }
 
@@ -410,14 +411,55 @@ fn report(s: &mut Session) -> Value {
             })
         })
         .collect();
+    // the trips dropped, each with why and the way to it in the planning (#96)
+    let drops: Vec<Value> = reports.iter().flat_map(|r| r.drops.iter().map(move |d| (r.date.clone(), d))).map(|(date, d)| drop_json(&c, &date, d)).collect();
+    let more = drops.len().saturating_sub(DROPS_SHOWN);
     json!({
         "title": title, "figures": figures,
+        "drops_caps": tr("Trips dropped").to_uppercase(), "drops_hint": tr("Click one to see it in the planning"),
+        "drops": drops.into_iter().take(DROPS_SHOWN).collect::<Vec<_>>(),
+        "drops_more": (more > 0).then(|| trf("and %{n} more", &[("n", &more.to_string())])),
         "money_caps": tr("Money").to_uppercase(), "money": kinds.iter().map(|(k, a)| { let (t, tone) = signed(*a); json!([tr(k.label()), t, tone]) }).collect::<Vec<_>>(),
         "lines_caps": tr("Lines").to_uppercase(), "lines_hint": tr("Click a line for its money"), "lines": lines,
         "facts_caps": tr("What happened").to_uppercase(),
         "facts": facts.iter().map(|(t, tone, fixes)| json!({ "text": t, "tone": tone, "fixes": fixes.iter().map(|g| g.json()).collect::<Vec<_>>() })).collect::<Vec<_>>(),
         "close": tr("Close the report"),
     })
+}
+
+/// The report lists this many runs of trips dropped (the rest: "and n more").
+const DROPS_SHOWN: usize = 40;
+
+/// A run of trips dropped (`day::Dropped`) as the report lists it: its line, block and times, why
+/// (a problem's words where there is one), and where it opens in the planning - RosterFlow's
+/// Roster tab on that weekday with the tour or duty chosen, or its Vehicles tab with the block
+/// shown (the weekday's next day in the week the planning shows).
+fn drop_json(c: &co::Company, date: &str, d: &co::day::Dropped) -> Value {
+    use co::day::DropWhy;
+    let why = match d.problem {
+        Some(p) if p != co::plan::Problem::Unassigned => format!("{}: {}", tr(d.why.label()), tr(p.label())),
+        Some(_) => format!("{}: {}", tr(d.why.label()), tr("none planned")),
+        None => tr(d.why.label()),
+    };
+    // (the block as RosterFlow names it: "1/02")
+    let tour = if d.tour.len() == 1 && d.tour.chars().all(|c| c.is_ascii_digit()) { format!("0{}", d.tour) } else { d.tour.clone() };
+    let block = if d.tour.is_empty() { String::new() } else { format!("{}/{}", d.number, tour) };
+    let hm = |m: i32| ck::hhmm(m as i64);
+    let words = if block.is_empty() {
+        trf("Line %{n}  ·  %{from}–%{to}  ·  %{k} trips", &[("n", &d.number), ("from", &hm(d.from)), ("to", &hm(d.to)), ("k", &d.trips.to_string())])
+    } else {
+        trf("Line %{n}, vehicle %{block}  ·  %{from}–%{to}  ·  %{k} trips", &[("n", &d.number), ("block", &block), ("from", &hm(d.from)), ("to", &hm(d.to)), ("k", &d.trips.to_string())])
+    };
+    let wd = co::plan::weekday_of(date);
+    let day = (0..7).find(|k| co::plan::weekday_of(&co::dates::add(&c.date, *k)) == wd).unwrap_or(0);
+    let link = match (d.why, d.duty) {
+        (DropWhy::NoBus, _) => json!({ "view": 0, "day": day, "sel": { "tour": [d.line, d.tour] } }),
+        (DropWhy::NoDriver, Some(k)) => json!({ "view": 0, "day": day, "sel": { "duty": [d.line, d.tour, k] } }),
+        (DropWhy::NoBlock, _) => json!({ "view": 1, "day": day }),
+        _ => json!({ "view": 1, "day": day, "reveal": format!("B|{}|{}", d.line, d.tour) }),
+    };
+    let tone = if d.why == DropWhy::NoBlock || d.problem == Some(co::plan::Problem::Unassigned) { "warn" } else { "danger" };
+    json!({ "text": words, "why": why, "tone": tone, "link": link, "date": day_label(date) })
 }
 
 /// What happened while the player was away (`clock::away_dialog`).

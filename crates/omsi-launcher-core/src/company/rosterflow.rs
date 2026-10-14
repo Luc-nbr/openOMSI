@@ -495,6 +495,32 @@ pub fn save_draft(c: &mut Company) -> bool {
     true
 }
 
+/// "Save" with the roster kept to its buses and duties (`plan::follow`, #96) on the days of
+/// `week` (each date with its timetable read; a weekday not among them keeps its roster as it
+/// is). None: there was no draft.
+pub fn save_draft_following(c: &mut Company, week: &[(String, Vec<LineInfo>)]) -> Option<super::plan::Followed> {
+    c.planning.flow.draft.as_ref()?;
+    let before: Vec<Vec<TourOfDay>> = week.iter().map(|(date, lines)| network::tours_of_day(c, lines, date)).collect();
+    save_draft(c);
+    let mut out = super::plan::Followed::default();
+    for ((date, lines), was) in week.iter().zip(before) {
+        let now = network::tours_of_day(c, lines, date);
+        let f = super::plan::follow(c, super::plan::weekday_of(date), &was, &now);
+        out.kept += f.kept;
+        out.open += f.open;
+    }
+    Some(out)
+}
+
+/// Whether the draft has changes of `weekday`'s blocks or duties not saved (the day's close
+/// runs the saved ones and says so).
+pub fn draft_differs(c: &Company, weekday: u8) -> bool {
+    let Some(d) = c.planning.flow.draft.as_ref() else { return false };
+    let lay = |v: &[LineLayout]| v.iter().filter(|l| l.weekday == weekday).cloned().collect::<Vec<_>>();
+    let joined = |v: &[JoinedDuty]| v.iter().filter(|j| j.weekday == weekday).cloned().collect::<Vec<_>>();
+    lay(&d.layouts) != lay(&c.planning.layouts) || joined(&d.joined) != joined(&c.planning.joined)
+}
+
 /// "Discard": the draft forgotten, back to what was saved.
 pub fn discard_draft(c: &mut Company) -> bool {
     c.planning.flow.draft.take().is_some()
