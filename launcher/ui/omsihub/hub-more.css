@@ -116,3 +116,34 @@ button.hub-rb-trip.first:hover { background: var(--hub-accent); }
 .hub-cwx-precip { display: grid; grid-template-columns: 130px minmax(0, 1fr); align-items: center; height: 32px; margin: 2px 0 4px; }
 .hub-cwx-precip > span { color: var(--hub-text-dim); font-size: 10px; }
 .hub-cwx-rows .hub-switch { min-height: 38px; }
+
+/* --- the bus step: the bus options (`busoptions::section`) --------------------------------- */
+
+.hub-bo { margin-bottom: 10px; }
+.hub-bo-head { display: flex; align-items: center; justify-content: space-between; height: 26px; margin-bottom: 4px; }
+.hub-bo-head b { font-size: 8.44px; font-weight: 700; text-transform: uppercase; color: var(--hub-text-dim); }
+.hub-bo-reset { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 12px; border-radius: var(--hub-r); background: none; color: var(--hub-text-dim); font-size: 9.98px; font-weight: 500; cursor: pointer; }
+.hub-bo-reset:hover { background: var(--hub-lift); color: var(--hub-text); }
+.hub-bo-row { position: relative; display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 8px 0 10px; }
+.hub-bo-row.on::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 1.5px; background: var(--hub-accent); }
+.hub-bo-row .name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.hub-bo-row .name b { font-size: 9.98px; font-weight: 500; color: var(--hub-text-soft); }
+.hub-bo-row.on .name b { color: var(--hub-text); }
+.hub-bo-row .name small { font-size: 8.06px; color: var(--hub-text-faint); }
+.hub-bo-switch, .hub-bo-list { flex: none; width: clamp(150px, 52%, 200px); }
+.hub-bo-switch { display: flex; height: 30px; padding: 3px; border-radius: 15px; background: var(--hub-field); }
+.hub-bo-switch button { position: relative; flex: auto; border-radius: 12px; background: none; color: var(--hub-text-dim); font-size: 9.2px; font-weight: 500; cursor: pointer; transition: background 0.15s, color 0.15s; }
+.hub-bo-switch button:hover { color: var(--hub-text); }
+.hub-bo-switch button.on { background: var(--hub-hover); color: var(--hub-text); font-weight: 700; }
+.hub-bo-switch button.mine { background: var(--hub-accent); color: var(--hub-on-accent); }
+.hub-bo-switch button i { position: absolute; left: 50%; bottom: 2px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--hub-accent-text); opacity: 0.4; }
+.hub-bo-switch button i.strong { opacity: 0.95; }
+.hub-bo-switch button.mine i { background: var(--hub-on-accent); }
+.hub-bo-list .select { height: 30px; font-size: 9.2px; }
+.hub-bo-fold { display: flex; align-items: center; gap: 8px; width: 100%; height: 34px; padding: 0 4px; border-radius: var(--hub-r); background: none; color: var(--hub-text-dim); cursor: pointer; margin-bottom: 4px; }
+.hub-bo-fold:hover { background: var(--hub-hover); }
+.hub-bo-fold span { font-size: 9.6px; font-weight: 500; color: var(--hub-text-soft); }
+.hub-bo-fold em { font-style: normal; font-size: 9.2px; color: var(--hub-text-faint); }
+.hub-bo-fold em.on { color: var(--hub-accent-text); }
+.hub-bo-note { margin: 0 0 6px 10px; font-size: 8.83px; line-height: 15.9px; color: var(--hub-text-dim); }
+.hub-bo-rule { height: 1px; margin: 0 0 14px; background: var(--hub-hairline); }

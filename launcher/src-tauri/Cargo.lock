@@ -2759,12 +2759,15 @@ dependencies = [
 name = "omsi-launcher-api"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "omsi-cfg",
  "omsi-content",
  "omsi-launcher-core",
  "omsi-map",
+ "omsi-model",
  "omsi-net",
  "omsi-platform",
+ "omsi-sim",
  "omsi-timetable",
  "omsi-vehicle",
  "omsi-weather",

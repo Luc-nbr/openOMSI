@@ -87,10 +87,13 @@ export async function hubExtras() {
   const c = S.choice;
   const free = freeDrive();
   const more = await call('hub_duty_extras', { bus: c.bus, date: c.date, minutes: c.time, free });
+  // (phase 3: the bus options chosen for the bus, `--setvar` after the paint)
+  const setVars = await call('hub_more_setvars', { bus: c.bus, paint: c.paint || '' }).catch(() => []);
   return {
     time: more.time,
     date: more.date,
     display_font: more.display_font || null,
+    set_vars: setVars,
     legs: !free && c.composed ? c.legs : [],
     ...(free ? { line: null, tour: null, trip: null, whole_tour: false, entry: c.free ? c.free_entry ?? -1 : c.entry } : {}),
     // (a free drive along a line the player chose: its route, the bus at its first stop - `freedrive`)

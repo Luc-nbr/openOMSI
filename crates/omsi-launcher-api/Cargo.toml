@@ -21,3 +21,8 @@ omsi-content = { path = "../omsi-content" }
 omsi-timetable = { path = "../omsi-timetable" }
 # Omsi-Hub: the buses' depot files (`src/omsihub/hub_more.rs`: the bus that fits the duty best)
 omsi-vehicle = { path = "../omsi-vehicle" }
+# Omsi-Hub: what a bus offers as bus options (`src/omsihub/hub_more/busoptions.rs`: its model and
+# its liveries as the game reads them), crates the launcher is built of anyway
+omsi-model = { path = "../omsi-model" }
+omsi-sim = { path = "../omsi-sim" }
+anyhow.workspace = true

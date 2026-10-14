@@ -13,6 +13,10 @@
 //! * `hub_more_welcome`, `hub_more_folder`, `hub_more_personnel`: the welcome (`welcome.rs`):
 //!   whether it opens and where (and the guided tour, `OMSI_LAUNCHER_TOUR`), what a folder
 //!   pointed to as OMSI 2's is, and a driver's personnel number and code for the pass.
+//! * `hub_more_bus_options`, `hub_more_bus_option_set`, `hub_more_setvars`: the bus step's bus
+//!   options (`hub_more/busoptions.rs`).
+
+mod busoptions;
 
 use crate::Answer;
 use omsi_launcher_lib as core;
@@ -34,6 +38,9 @@ pub fn call(cmd: &str, args: &Value) -> Option<Answer> {
         "hub_more_welcome" => welcome_due(),
         "hub_more_folder" => folder(args),
         "hub_more_personnel" => personnel(args),
+        "hub_more_bus_options" => busoptions::view(args),
+        "hub_more_bus_option_set" => busoptions::set(args),
+        "hub_more_setvars" => busoptions::for_game(args),
         _ => return None,
     })
 }
