@@ -69,6 +69,20 @@ pub struct BlockLayout {
     pub trips: Vec<TripRef>,
     #[serde(default)]
     pub cuts: Option<Vec<TripRef>>,
+    /// Trips the drivers change on at a relief point on the way (RosterFlow's mid-trip
+    /// relief): each cut in two at its stop there, a duty beginning with the second part.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reliefs: Vec<MidRelief>,
+}
+
+/// A trip of a block cut at a relief point on the way: the trip as the timetable has it, and
+/// the stop of it the drivers change at (its place in the trip's stops, 0 the first, and its
+/// name, to see it is still that stop).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct MidRelief {
+    pub trip: TripRef,
+    pub stop: usize,
+    pub name: String,
 }
 
 /// A line's blocks on a weekday as the player laid them out.
@@ -120,7 +134,7 @@ fn same(a: &str, b: &str) -> bool {
 /// None when it no longer fits them: a trip it names is gone, or a trip with passengers is in
 /// none of its blocks. Each block with the trips its duties begin with (None: cut
 /// automatically).
-fn build(l: &LineLayout, tours: &[&TourOfDay]) -> Option<Vec<(TourOfDay, Option<Vec<TripRef>>)>> {
+fn build(l: &LineLayout, tours: &[&TourOfDay], info: Option<&LineInfo>) -> Option<Vec<(TourOfDay, Option<Vec<TripRef>>)>> {
     let template = tours.first()?;
     let mut pool: Vec<(&PlannedTrip, bool)> = tours.iter().flat_map(|t| t.trips.iter()).map(|x| (x, false)).collect();
     let mut out = Vec::new();
@@ -140,11 +154,21 @@ fn build(l: &LineLayout, tours: &[&TourOfDay]) -> Option<Vec<(TourOfDay, Option<
             continue;
         }
         trips.sort_by_key(|x| x.dep);
+        // (the trips the drivers change on at a relief point on the way: in two, a duty
+        // beginning with the second part - a stop no longer on the trip leaves it whole)
+        let mut cuts = b.cuts.clone();
+        for r in &b.reliefs {
+            let Some(k) = trips.iter().position(|x| x.part.is_none() && r.trip.is(x)) else { continue };
+            let Some((first, second)) = info.and_then(|i| split_trip(i, &trips[k], r.stop, &r.name)) else { continue };
+            cuts.get_or_insert_with(Vec::new).push(TripRef::of(&second));
+            trips[k] = first;
+            trips.insert(k + 1, second);
+        }
         // (its depot group: the timetable tour's of its name, else the one its first trip
         // comes from)
         let group = tours.iter().find(|t| same(&t.tour, &b.tour)).or_else(|| tours.iter().find(|t| same(&t.tour, &trips[0].origin))).map(|t| t.ai_group.clone()).unwrap_or_default();
         let t = TourOfDay { line: template.line.clone(), number: template.number.clone(), tour: b.tour.clone(), ai_group: group, trips, unplanned: false, cuts: None };
-        out.push((t, b.cuts.clone()));
+        out.push((t, cuts));
     }
     if pool.iter().any(|(x, used)| !*used && x.counts()) {
         return None;
@@ -152,15 +176,78 @@ fn build(l: &LineLayout, tours: &[&TourOfDay]) -> Option<Vec<(TourOfDay, Option<
     Some(out)
 }
 
-/// The day's tours of the timetable (`network::timetable_tours`) as the player laid out their
-/// lines on `weekday`. Returns the blocks whose duties he cut, with the trips they begin with
-/// (found once the depot runs are in, `resolve_cuts`).
-pub fn arrange(c: &Company, weekday: u8, tours: &mut Vec<TourOfDay>) -> Vec<(usize, Vec<TripRef>)> {
+/// The timetable's own of trip `x` of line `info` (its stops and their times): by its tour,
+/// its name and the minute the whole trip leaves.
+pub fn trip_info<'a>(info: &'a LineInfo, x: &PlannedTrip) -> Option<&'a crate::TripInfo> {
+    let dep = x.whole_dep();
+    info.tours.iter().filter(|t| t.number.trim() == x.origin.trim()).flat_map(|t| t.trips.iter()).find(|y| y.name == x.name && (y.departure / 60.0).round() as i32 == dep)
+}
+
+/// Trip `x` of line `info` cut at its stop `stop` (named `name`): its two parts, the bus at the
+/// stop at the minute the timetable has it there (`PlannedTrip::split_at`). None: no such stop
+/// on the way between its ends.
+pub fn split_trip(info: &LineInfo, x: &PlannedTrip, stop: usize, name: &str) -> Option<(PlannedTrip, PlannedTrip)> {
+    let y = trip_info(info, x)?;
+    let s = y.stops.get(stop)?;
+    if !same(&s.name, name) {
+        return None;
+    }
+    let span = (y.arrival - y.departure).max(1.0);
+    x.split_at(stop, &s.name, (s.dep / 60.0).round() as i32, (s.dep - y.departure) / span)
+}
+
+/// A trip as the layouts know it: a part of a trip cut on the way by the whole trip.
+pub fn whole_ref(x: &PlannedTrip) -> TripRef {
+    TripRef { tour: x.origin.trim().to_string(), name: x.name.clone(), dep: x.whole_dep() }
+}
+
+/// Trips `idx` of block `t` whole (each once): a part of a trip cut on the way stands for it.
+fn wholes(t: &TourOfDay, idx: &[usize]) -> Vec<PlannedTrip> {
+    let mut out: Vec<PlannedTrip> = Vec::new();
+    for &k in idx {
+        let Some(x) = t.trips.get(k) else { continue };
+        let w = match &x.part {
+            Some(p) if p.second => match k.checked_sub(1).and_then(|j| t.trips.get(j)) {
+                Some(f) => f.joined(x),
+                None => continue,
+            },
+            Some(_) => match t.trips.get(k + 1) {
+                Some(n) if n.is_second() => x.joined(n),
+                _ => x.clone(),
+            },
+            None => x.clone(),
+        };
+        if !out.iter().any(|o| TripRef::of(o) == TripRef::of(&w)) {
+            out.push(w);
+        }
+    }
+    out
+}
+
+/// A block's cuts kept as `at` (the trips of `t` its duties begin with): a second part of a
+/// trip is a relief on the way (`BlockLayout::reliefs`), the others the trips cut before.
+fn set_block_cuts(b: &mut BlockLayout, t: &TourOfDay, at: &[usize]) {
+    let mut cuts = Vec::new();
+    let mut reliefs = Vec::new();
+    for x in at.iter().filter_map(|&k| t.trips.get(k)) {
+        match &x.part {
+            Some(p) if p.second => reliefs.push(MidRelief { trip: whole_ref(x), stop: p.stop, name: p.at.clone() }),
+            _ => cuts.push(TripRef::of(x)),
+        }
+    }
+    b.cuts = Some(cuts);
+    b.reliefs = reliefs;
+}
+
+/// The day's tours of the timetable (`network::timetable_tours`, `info` the timetable read) as
+/// the player laid out their lines on `weekday`. Returns the blocks whose duties he cut, with
+/// the trips they begin with (found once the depot runs are in, `resolve_cuts`).
+pub fn arrange(c: &Company, weekday: u8, tours: &mut Vec<TourOfDay>, info: &[LineInfo]) -> Vec<(usize, Vec<TripRef>)> {
     let mut laid: Vec<Vec<(TourOfDay, Option<Vec<TripRef>>)>> = Vec::new();
     let mut lines: Vec<&str> = Vec::new();
     for l in c.planning.layouts.iter().filter(|l| l.weekday == weekday) {
         let mine: Vec<&TourOfDay> = tours.iter().filter(|t| same(&t.line, &l.line)).collect();
-        if let Some(blocks) = build(l, &mine) {
+        if let Some(blocks) = build(l, &mine, info.iter().find(|x| same(&x.name, &l.line))) {
             laid.push(blocks);
             lines.push(&l.line);
         }
@@ -200,7 +287,7 @@ pub fn stale(c: &Company, lines: &[LineInfo], date: &str) -> Vec<String> {
         .filter(|l| l.weekday == wd)
         .filter(|l| {
             let mine: Vec<&TourOfDay> = raw.iter().filter(|t| same(&t.line, &l.line)).collect();
-            !mine.is_empty() && build(l, &mine).is_none()
+            !mine.is_empty() && build(l, &mine, None).is_none()
         })
         .map(|l| l.line.clone())
         .collect()
@@ -337,7 +424,7 @@ pub const ALONE: &str = "This bus runs only this trip already.";
 pub const BETWEEN: &str = "A duty can only be cut between two trips.";
 pub const CUT_ALREADY: &str = "A new duty begins there already.";
 pub const ON_THE_MOVE: &str = "The bus is on the move there: drivers change only where it stands.";
-pub const NOT_RELIEF: &str = "Drivers change only at the line's termini or at the depot.";
+pub const NOT_RELIEF: &str = "Drivers change only at a relief point that allows it (Preferences â€º Relief Points).";
 pub const NO_PASSENGERS: &str = "Each duty needs a trip with passengers.";
 pub const NO_CUT: &str = "No duty begins there.";
 pub const TOO_LONG: &str = "That duty would be longer than a working day may be (10 h).";
@@ -348,7 +435,7 @@ pub const LOCKED: &str = "This vehicle is locked: unlock it first.";
 pub const SWAP_FAILS: &str = "Trips could not be swapped: they do not fit on the other bus.";
 pub const DUTY_LOCKED: &str = "This duty is locked: unlock it first.";
 
-const REFUSALS: [&str; 24] = [OVERLAP, NO_TIME, IN_DEPOT, BACK_IN_DEPOT, OTHER_LINE, NOT_MOVABLE, SAME_BUS, ALONE, BETWEEN, CUT_ALREADY, ON_THE_MOVE, NOT_RELIEF, NO_PASSENGERS, NO_CUT, TOO_LONG, SAME_DUTY, NOT_JOINED, NOT_FOUND, LOCKED, SWAP_FAILS, DUTY_LOCKED, ONE_DUTY, DUTY_ALONE, DRIVER_NO_TIME];
+const REFUSALS: [&str; 26] = [OVERLAP, NO_TIME, IN_DEPOT, BACK_IN_DEPOT, OTHER_LINE, NOT_MOVABLE, SAME_BUS, ALONE, BETWEEN, CUT_ALREADY, ON_THE_MOVE, NOT_RELIEF, NO_PASSENGERS, NO_CUT, TOO_LONG, SAME_DUTY, NOT_JOINED, NOT_FOUND, LOCKED, SWAP_FAILS, DUTY_LOCKED, ONE_DUTY, DUTY_ALONE, DRIVER_NO_TIME, NOT_ON_THE_WAY, MID_ALREADY];
 
 /// Where a trip is moved to: a bus of the day (a block's index), or a new one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -362,16 +449,24 @@ pub enum Target {
 /// (added again), and so are cuts the player did not make.
 fn layout_now(c: &Company, tours: &[TourOfDay], line: &str, weekday: u8) -> LineLayout {
     let stack = c.planning.layouts.iter().find(|l| l.weekday == weekday && same(&l.line, line)).map(|l| l.stack.clone()).unwrap_or_default();
-    let blocks = tours
-        .iter()
-        .filter(|t| same(&t.line, line))
-        .map(|t| BlockLayout {
-            tour: t.tour.clone(),
-            trips: t.trips.iter().filter(|x| !x.origin.trim().is_empty()).map(TripRef::of).collect(),
-            cuts: t.cuts.as_ref().map(|cs| cs.iter().filter_map(|&k| t.trips.get(k)).map(TripRef::of).collect()),
-        })
-        .collect();
+    let blocks = tours.iter().filter(|t| same(&t.line, line)).map(layout_of_block).collect();
     LineLayout { weekday, line: line.to_string(), blocks, stack }
+}
+
+/// A block of the day as a layout keeps it: its trips (a trip cut on the way once, with its
+/// relief), the cuts the player made.
+pub fn layout_of_block(t: &TourOfDay) -> BlockLayout {
+    let mut b = BlockLayout { tour: t.tour.clone(), trips: t.trips.iter().filter(|x| !x.origin.trim().is_empty() && !x.is_second()).map(TripRef::of).collect(), cuts: None, reliefs: Vec::new() };
+    if let Some(cs) = t.cuts.as_ref() {
+        set_block_cuts(&mut b, t, cs);
+    }
+    b
+}
+
+/// A block's cuts kept as the trips of `t` its duties begin with (`at`), a relief on the way
+/// among them (`set_block_cuts`).
+pub fn set_cuts_of(b: &mut BlockLayout, t: &TourOfDay, at: &[usize]) {
+    set_block_cuts(b, t, at);
 }
 
 fn save(c: &mut Company, l: LineLayout) {
@@ -466,7 +561,7 @@ fn with_links(c: &Company, weekday: u8, t: &TourOfDay, picked: &[usize]) -> Vec<
     let mut out: Vec<usize> = picked.to_vec();
     for &k in picked {
         let Some(x) = t.trips.get(k) else { continue };
-        for r in super::rosterflow::linked(c, weekday, &t.line, &TripRef::of(x)) {
+        for r in super::rosterflow::linked(c, weekday, &t.line, &whole_ref(x)) {
             if let Some(j) = t.trips.iter().position(|y| r.is(y)) {
                 out.push(j);
             }
@@ -485,6 +580,7 @@ fn take_out(lay: &mut LineLayout, tour: &str, refs: &[TripRef], line_trips: &[&P
     if let Some(cuts) = b.cuts.as_mut() {
         cuts.retain(|t| !refs.contains(t));
     }
+    b.reliefs.retain(|r| !refs.contains(&r.trip));
     tidy(lay, line_trips);
     Ok(())
 }
@@ -513,10 +609,13 @@ pub fn plan_move_many(c: &Company, weekday: u8, tours: &[TourOfDay], from: usize
         return Err(NOT_FOUND);
     }
     let idx = with_links(c, weekday, src, picked);
-    let moving: Vec<&PlannedTrip> = idx.iter().map(|&k| src.trips.get(k).ok_or(NOT_FOUND)).collect::<Result<_, _>>()?;
-    if moving.iter().any(|x| !x.counts() || x.origin.trim().is_empty()) {
+    let raw: Vec<&PlannedTrip> = idx.iter().map(|&k| src.trips.get(k).ok_or(NOT_FOUND)).collect::<Result<_, _>>()?;
+    if raw.iter().any(|x| !x.counts() || x.origin.trim().is_empty()) {
         return Err(NOT_MOVABLE);
     }
+    // (a trip cut on the way moves whole: its relief goes)
+    let whole = wholes(src, &idx);
+    let moving: Vec<&PlannedTrip> = whole.iter().collect();
     guard_block(c, weekday, tours, from)?;
     let line_trips: Vec<&PlannedTrip> = tours.iter().filter(|t| same(&t.line, &src.line)).flat_map(|t| t.trips.iter()).collect();
     let mut lay = layout_now(c, tours, &src.line, weekday);
@@ -536,11 +635,11 @@ pub fn plan_move_many(c: &Company, weekday: u8, tours: &[TourOfDay], from: usize
             b.trips.extend(refs.iter().cloned());
         }
         Target::New => {
-            if src.trips.iter().filter(|t| t.counts()).count() == moving.len() {
+            if src.trips.iter().filter(|t| t.counts() && !t.is_second()).count() == moving.len() {
                 return Err(ALONE);
             }
             all_fit(&[], &moving, &line_trips)?;
-            lay.blocks.push(BlockLayout { tour: new_name(c, weekday, tours, &src.line), trips: refs.clone(), cuts: None });
+            lay.blocks.push(BlockLayout { tour: new_name(c, weekday, tours, &src.line), trips: refs.clone(), cuts: None, reliefs: Vec::new() });
         }
     }
     take_out(&mut lay, &src.tour, &refs, &line_trips)?;
@@ -578,7 +677,7 @@ pub fn unassign(c: &mut Company, weekday: u8, tours: &[TourOfDay], from: usize, 
     guard_block(c, weekday, tours, from)?;
     let line_trips: Vec<&PlannedTrip> = tours.iter().filter(|t| same(&t.line, &src.line)).flat_map(|t| t.trips.iter()).collect();
     let mut lay = layout_now(c, tours, &src.line, weekday);
-    let refs: Vec<TripRef> = moving.iter().map(|x| TripRef::of(x)).collect();
+    let refs: Vec<TripRef> = wholes(src, &idx).iter().map(TripRef::of).collect();
     lay.stack.extend(refs.iter().cloned());
     take_out(&mut lay, &src.tour, &refs, &line_trips)?;
     unjoin_blocks(c, weekday, &src.line, &[src.tour.as_str()]);
@@ -606,7 +705,7 @@ pub fn plan_assign(c: &Company, weekday: u8, tours: &[TourOfDay], line: &str, x:
             let b = lay.blocks.iter_mut().find(|b| same(&b.tour, &dst.tour)).ok_or(NOT_FOUND)?;
             b.trips.push(r.clone());
         }
-        Target::New => lay.blocks.push(BlockLayout { tour: new_name(c, weekday, tours, line), trips: vec![r.clone()], cuts: None }),
+        Target::New => lay.blocks.push(BlockLayout { tour: new_name(c, weekday, tours, line), trips: vec![r.clone()], cuts: None, reliefs: Vec::new() }),
     }
     lay.stack.retain(|t| *t != r);
     tidy(&mut lay, &line_trips);
@@ -649,16 +748,19 @@ pub fn plan_swap(c: &Company, weekday: u8, tours: &[TourOfDay], from: usize, pic
     let picked_trips: Vec<&PlannedTrip> = idx.iter().filter_map(|&k| src.trips.get(k)).filter(|x| x.counts() && !x.origin.trim().is_empty()).collect();
     let Some(first) = picked_trips.iter().map(|x| x.dep).min() else { return Err(NOT_MOVABLE) };
     let last = picked_trips.iter().map(|x| x.arr).max().unwrap_or(first);
-    let movable = |x: &&PlannedTrip| x.counts() && !x.origin.trim().is_empty();
-    let (a, b): (Vec<&PlannedTrip>, Vec<&PlannedTrip>) = match how {
-        Swap::Span => (picked_trips.clone(), dst.trips.iter().filter(movable).filter(|x| x.dep < last && x.arr > first).collect()),
-        Swap::FromHere => (src.trips.iter().filter(movable).filter(|x| x.dep >= first).collect(), dst.trips.iter().filter(movable).filter(|x| x.dep >= first).collect()),
+    let movable = |x: &PlannedTrip| x.counts() && !x.origin.trim().is_empty();
+    // (the trips of a bus whole: a trip cut on the way is swapped whole, its relief gone)
+    let of = |t: &TourOfDay, f: &dyn Fn(&PlannedTrip) -> bool| -> Vec<PlannedTrip> { wholes(t, &(0..t.trips.len()).filter(|&k| movable(&t.trips[k]) && f(&t.trips[k])).collect::<Vec<_>>()) };
+    let (a, b): (Vec<PlannedTrip>, Vec<PlannedTrip>) = match how {
+        Swap::Span => (wholes(src, &idx.iter().copied().filter(|&k| src.trips.get(k).is_some_and(movable)).collect::<Vec<_>>()), of(dst, &|x| x.dep < last && x.arr > first)),
+        Swap::FromHere => (of(src, &|x| x.dep >= first), of(dst, &|x| x.dep >= first)),
     };
+    let (a, b): (Vec<&PlannedTrip>, Vec<&PlannedTrip>) = (a.iter().collect(), b.iter().collect());
     let ra: Vec<TripRef> = a.iter().map(|x| TripRef::of(x)).collect();
     let rb: Vec<TripRef> = b.iter().map(|x| TripRef::of(x)).collect();
     let line_trips: Vec<&PlannedTrip> = tours.iter().filter(|t| same(&t.line, &src.line)).flat_map(|t| t.trips.iter()).collect();
     // (each bus's day as it would be: what it keeps, and what it takes over)
-    let keep = |t: &TourOfDay, gone: &[TripRef]| -> Vec<PlannedTrip> { t.trips.iter().filter(|x| !gone.contains(&TripRef::of(x))).cloned().collect() };
+    let keep = |t: &TourOfDay, gone: &[TripRef]| -> Vec<PlannedTrip> { t.trips.iter().filter(|x| !gone.contains(&whole_ref(x))).cloned().collect() };
     all_fit(&keep(src, &ra), &b, &line_trips).map_err(|_| SWAP_FAILS)?;
     all_fit(&keep(dst, &rb), &a, &line_trips).map_err(|_| SWAP_FAILS)?;
     let mut lay = layout_now(c, tours, &src.line, weekday);
@@ -668,6 +770,7 @@ pub fn plan_swap(c: &Company, weekday: u8, tours: &[TourOfDay], from: usize, pic
         if let Some(cuts) = blk.cuts.as_mut() {
             cuts.retain(|t| !gone.contains(t));
         }
+        blk.reliefs.retain(|r| !gone.contains(&r.trip));
         blk.trips.extend(comes.iter().cloned());
     }
     tidy(&mut lay, &line_trips);
@@ -894,8 +997,6 @@ pub fn plan_move_to_duty(c: &Company, weekday: u8, tours: &[TourOfDay], from: us
             }
         }
     }
-    let prefs = &c.planning.flow.prefs;
-    let need = prefs.travel.minutes(prefs);
     for &d in &touched {
         let new = pieces_of(tours, &after, &pieces, d);
         if new.is_empty() {
@@ -912,6 +1013,8 @@ pub fn plan_move_to_duty(c: &Company, weekday: u8, tours: &[TourOfDay], from: us
             if old.windows(2).any(|o| o == w) {
                 continue;
             }
+            // (the way between them as the relief points have it: `rosterflow::travel_between`)
+            let need = super::rosterflow::travel_between(c, tours, &b[0].to_stop, &b[1].from_stop, None).1;
             if !same(&b[0].to_stop, &b[1].from_stop) && b[1].from - b[0].to < need {
                 return Err(DRIVER_NO_TIME);
             }
@@ -926,7 +1029,8 @@ pub fn plan_move_to_duty(c: &Company, weekday: u8, tours: &[TourOfDay], from: us
         }
         let lay = layouts.iter_mut().find(|l| same(&l.line, &t.line)).ok_or(NOT_FOUND)?;
         let b = lay.blocks.iter_mut().find(|b| same(&b.tour, &t.tour)).ok_or(NOT_FOUND)?;
-        b.cuts = Some(cuts.iter().filter_map(|&k| t.trips.get(k)).map(TripRef::of).collect());
+        // (a relief on the way one driver now works on both sides of: the trip whole again)
+        set_block_cuts(b, t, cuts);
     }
     // the duties changed joined anew; their notes (type, custom work ...) follow their key
     let refs = |ps: &[(usize, Range<usize>)]| -> Vec<PieceRef> { ps.iter().map(|(i, r)| PieceRef::of(&tours[*i], r)).collect() };
@@ -982,17 +1086,11 @@ pub fn move_to_duty(c: &mut Company, weekday: u8, tours: &[TourOfDay], from: usi
     apply_duty_move(c, m);
     Ok(())
 }
-/// Whether `place` is one of the line's termini (where its trips with passengers begin or
-/// end) or the depot (where its blocks' depot runs begin or end, or the company's depot).
-pub fn is_relief(c: &Company, tours: &[TourOfDay], line: &str, place: &str) -> bool {
-    let place = place.trim();
-    if place.is_empty() {
-        return false;
-    }
-    let mine = || tours.iter().filter(|t| same(&t.line, line));
-    let terminus = mine().flat_map(|t| t.trips.iter()).filter(|x| x.counts()).any(|x| same(&x.from, place) || same(x.end(), place));
-    let depot = same(place, "Depot") || (!c.depot.trim().is_empty() && same(place, c.depot.trim_end_matches(".hof"))) || mine().any(|t| t.trips.first().is_some_and(|x| x.empty && same(&x.from, place)) || t.trips.last().is_some_and(|x| x.empty && same(x.end(), place)));
-    terminus || depot
+/// Whether drivers may change at `place` (of a block of line `_line`): a relief point - a
+/// terminus of the day's lines, the depot or a stop the player added (`rosterflow::uses_at`)
+/// - that allows relief.
+pub fn is_relief(c: &Company, tours: &[TourOfDay], _line: &str, place: &str) -> bool {
+    super::rosterflow::uses_at(c, tours, place).is_some_and(|u| u.relief)
 }
 
 /// The trips block `t`'s duties begin with now (the first left out).
@@ -1005,7 +1103,8 @@ fn set_cuts(c: &mut Company, weekday: u8, tours: &[TourOfDay], i: usize, at: &[u
     let t = &tours[i];
     let mut lay = layout_now(c, tours, &t.line, weekday);
     if let Some(b) = lay.blocks.iter_mut().find(|b| same(&b.tour, &t.tour)) {
-        b.cuts = Some(at.iter().filter_map(|&k| t.trips.get(k)).map(TripRef::of).collect());
+        // (a relief on the way no duty begins at any more: the trip whole again)
+        set_block_cuts(b, t, at);
     }
     unjoin_blocks(c, weekday, &t.line, &[t.tour.as_str()]);
     save(c, lay);
@@ -1040,8 +1139,72 @@ pub fn cut(c: &mut Company, weekday: u8, tours: &[TourOfDay], i: usize, at: usiz
     Ok(())
 }
 
+// --- reliefs on the way (RosterFlow's mid-trip relief) ------------------------------------------
+//
+// Luc (2026-10-14): drivers may change halfway along a trip too, at a relief point that allows it
+// (`rosterflow::ReliefPoint`). The trip is cut in two at that stop (`BlockLayout::reliefs`,
+// `split_trip`): the bus runs it whole, the first part is the duty before's and the second the
+// next one's, at the minute the timetable has the bus there.
+
+/// Why a trip is not cut on the way (English, translated when shown).
+pub const NOT_ON_THE_WAY: &str = "That stop is not on the way between the trip's first and last stop.";
+pub const MID_ALREADY: &str = "This trip has a relief on the way already.";
+
+/// The stops on the way of trip `j` of block `i` (`info` the timetable read) drivers may change
+/// at, or why not: (its place in the trip's stops, its name, the minute the bus is there, Ok or
+/// the reason). Only the stops that are relief points (`rosterflow::uses_at`).
+pub fn mid_stops(c: &Company, tours: &[TourOfDay], info: &[LineInfo], i: usize, j: usize) -> Vec<(usize, String, i32, Result<(), &'static str>)> {
+    let Some(t) = tours.get(i) else { return Vec::new() };
+    let Some(x) = t.trips.get(j).filter(|x| x.counts() && x.part.is_none() && !x.origin.trim().is_empty()) else { return Vec::new() };
+    let Some(y) = info.iter().find(|l| same(&l.name, &t.line)).and_then(|l| trip_info(l, x)) else { return Vec::new() };
+    let mut out = Vec::new();
+    for (k, s) in y.stops.iter().enumerate().skip(1).take(y.stops.len().saturating_sub(2)) {
+        let Some(u) = super::rosterflow::uses_at(c, tours, &s.name) else { continue };
+        let when = (s.dep / 60.0).round() as i32;
+        let ok = if !u.relief { Err(NOT_RELIEF) } else if when <= x.dep || when >= x.arr { Err(NOT_ON_THE_WAY) } else { Ok(()) };
+        out.push((k, s.name.trim().to_string(), when, ok));
+    }
+    out
+}
+
+/// Whether block `i` may be cut inside its trip `j`, at its stop `stop` (a driver takes over on
+/// the way there).
+pub fn can_cut_mid(c: &Company, tours: &[TourOfDay], info: &[LineInfo], i: usize, j: usize, stop: usize) -> Result<(), &'static str> {
+    let t = tours.get(i).ok_or(NOT_FOUND)?;
+    let x = t.trips.get(j).ok_or(NOT_FOUND)?;
+    if x.part.is_some() {
+        return Err(MID_ALREADY);
+    }
+    if !x.counts() || x.origin.trim().is_empty() {
+        return Err(NOT_MOVABLE);
+    }
+    match mid_stops(c, tours, info, i, j).into_iter().find(|m| m.0 == stop) {
+        Some((_, _, _, ok)) => ok,
+        None => Err(NOT_RELIEF),
+    }
+}
+
+/// Cut block `i` inside its trip `j` at its stop `stop` (`can_cut_mid`): a new duty begins there,
+/// the duties the block's pieces were joined into taken apart (their pieces change).
+pub fn cut_mid(c: &mut Company, weekday: u8, tours: &[TourOfDay], info: &[LineInfo], i: usize, j: usize, stop: usize) -> Result<(), &'static str> {
+    can_cut_mid(c, tours, info, i, j, stop)?;
+    guard_block(c, weekday, tours, i)?;
+    let t = &tours[i];
+    let x = &t.trips[j];
+    let name = trip_info(info.iter().find(|l| same(&l.name, &t.line)).ok_or(NOT_FOUND)?, x).and_then(|y| y.stops.get(stop)).map(|s| s.name.trim().to_string()).ok_or(NOT_FOUND)?;
+    let mut lay = layout_now(c, tours, &t.line, weekday);
+    let b = lay.blocks.iter_mut().find(|b| same(&b.tour, &t.tour)).ok_or(NOT_FOUND)?;
+    // (the cuts as they are now, the automatic ones too, and the relief on the way)
+    set_block_cuts(b, t, &starts(t));
+    b.reliefs.push(MidRelief { trip: whole_ref(x), stop, name });
+    unjoin_blocks(c, weekday, &t.line, &[t.tour.as_str()]);
+    save(c, lay);
+    Ok(())
+}
+
 /// Join the duty of block `i` that begins with trip `at` to the one before it: the cut taken
-/// out, unless the duty would be longer than `DAY_MAX`.
+/// out, unless the duty would be longer than `DAY_MAX`. A relief on the way goes so: the trip
+/// is whole again.
 pub fn uncut(c: &mut Company, weekday: u8, tours: &[TourOfDay], i: usize, at: usize) -> Result<(), &'static str> {
     let t = tours.get(i).ok_or(NOT_FOUND)?;
     guard_block(c, weekday, tours, i)?;

@@ -8,8 +8,9 @@
 //!
 //! What the game runs is what is saved: the draft (`Flow::draft`) is the studio's alone until
 //! "Save" (`save_draft`) - the roster, the day's close and the game keep the saved blocks and
-//! duties meanwhile. Relief points stay the line's termini and the depot (Luc's choice), as in
-//! `studio`.
+//! duties meanwhile. The relief points are the depot, the lines' termini and the stops on the
+//! way the player adds (`ReliefPoint`, Luc 2026-10-14: halfway along a trip too), each with what
+//! it may be used for and its own travel times (`travel_between`).
 
 use super::economy;
 use super::model::{BusKind, BusSize, Cents, Company, Drive};
@@ -243,6 +244,10 @@ pub struct Prefs {
     pub walk: i32,
     pub public: i32,
     pub car: i32,
+    /// Relief points: the depot's and the termini's settings, and the stops on the way the
+    /// player added (`ReliefPoint`); travel between two of them (`TravelPair`).
+    pub points: Vec<ReliefPoint>,
+    pub pairs: Vec<TravelPair>,
     /// Duty breaks: a duty working more than `meal_after` needs a break of `meal.value`.
     pub meal: Limit,
     pub meal_after: i32,
@@ -290,6 +295,8 @@ impl Default for Prefs {
             walk: 5,
             public: 15,
             car: 10,
+            points: Vec::new(),
+            pairs: Vec::new(),
             meal: Limit::hard(30),
             meal_after: 360,
             continuous: Limit::hard(270),
@@ -308,6 +315,264 @@ impl Default for Prefs {
             optimise_duties: true,
         }
     }
+}
+
+// --- relief points and travel ------------------------------------------------------------------
+//
+// The tester (2026-10-14): "not every start point will have the same definitions". The depot and
+// every line's termini are relief points by themselves, and the player adds stops on a line's way
+// (a stop several lines share is one point). Each says what it may be used for - a duty begins
+// or ends there, drivers change on the bus there, a break is taken there - and how long a driver
+// takes to get there; between two points the player may set the minutes too. What is not set
+// falls back to the point's own, then to the defaults (`Prefs::travel`, `walk` ...).
+
+/// The depot as a relief point: all of its names are this one point.
+pub const DEPOT_POINT: &str = "Depot";
+
+/// A relief point's settings (Preferences â€º Relief Points and Duty Travel).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct ReliefPoint {
+    /// Its stop as the timetable names it (`DEPOT_POINT` for the depot).
+    pub stop: String,
+    /// A stop on the way the player added (else the depot or a terminus, there by itself).
+    pub added: bool,
+    /// The line it was picked on (an added stop).
+    pub line: String,
+    /// A duty may begin or end there (sign-on, sign-off).
+    pub sign: bool,
+    /// Drivers may change on the bus there.
+    pub relief: bool,
+    /// A meal break or a split's break may be taken there.
+    pub breaks: bool,
+    /// The way a driver gets there, and how long each way takes (None: the defaults).
+    pub travel: Option<Travel>,
+    pub walk: Option<i32>,
+    pub public: Option<i32>,
+    pub car: Option<i32>,
+}
+
+impl Default for ReliefPoint {
+    fn default() -> Self {
+        ReliefPoint { stop: String::new(), added: false, line: String::new(), sign: true, relief: true, breaks: true, travel: None, walk: None, public: None, car: None }
+    }
+}
+
+impl ReliefPoint {
+    /// Its own minutes of a way (None: not set).
+    pub fn minutes(&self, way: Travel) -> Option<i32> {
+        match way {
+            Travel::Walk => self.walk,
+            Travel::Public => self.public,
+            Travel::Car => self.car,
+        }
+    }
+
+    /// What it may be used for.
+    pub fn uses(&self) -> Uses {
+        Uses { sign: self.sign, relief: self.relief, breaks: self.breaks }
+    }
+}
+
+/// The minutes between two relief points by each way (Duty Travel's table), from `from` to
+/// `to` (None: not set). The way back is the same unless it is set too.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct TravelPair {
+    pub from: String,
+    pub to: String,
+    pub walk: Option<i32>,
+    pub public: Option<i32>,
+    pub car: Option<i32>,
+}
+
+impl TravelPair {
+    pub fn minutes(&self, way: Travel) -> Option<i32> {
+        match way {
+            Travel::Walk => self.walk,
+            Travel::Public => self.public,
+            Travel::Car => self.car,
+        }
+    }
+}
+
+/// What a relief point may be used for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Uses {
+    pub sign: bool,
+    pub relief: bool,
+    pub breaks: bool,
+}
+
+/// Whether `place` is the company's depot: "Depot", the depot file's name, or where a block's
+/// depot run begins or ends (`tours` the day's).
+pub fn is_depot(c: &Company, tours: &[TourOfDay], place: &str) -> bool {
+    let place = place.trim();
+    if place.is_empty() {
+        return false;
+    }
+    same(place, DEPOT_POINT) || (!c.depot.trim().is_empty() && same(place, c.depot.trim_end_matches(".hof"))) || tours.iter().any(|t| t.trips.first().is_some_and(|x| x.empty && same(&x.from, place)) || t.trips.last().is_some_and(|x| x.empty && same(x.end(), place)))
+}
+
+/// Whether `place` is a terminus of the day's lines: where a trip with passengers begins or
+/// ends (a trip cut on the way by its own ends).
+pub fn is_terminus(tours: &[TourOfDay], place: &str) -> bool {
+    let place = place.trim();
+    !place.is_empty() && tours.iter().flat_map(|t| t.trips.iter()).filter(|x| x.counts()).any(|x| (!x.is_second() && same(&x.from, place)) || (x.part.as_ref().is_none_or(|p| p.second) && same(x.end(), place)))
+}
+
+/// The relief point a place is: the depot's names are one (`DEPOT_POINT`), a stop its own name.
+pub fn point_key(c: &Company, tours: &[TourOfDay], place: &str) -> String {
+    if is_depot(c, tours, place) {
+        DEPOT_POINT.to_string()
+    } else {
+        place.trim().to_string()
+    }
+}
+
+/// The settings kept of a relief point (by its key).
+pub fn point<'a>(p: &'a Prefs, key: &str) -> Option<&'a ReliefPoint> {
+    p.points.iter().find(|x| same(&x.stop, key))
+}
+
+/// What `place` may be used for as a relief point (`tours` the day's), None where it is none:
+/// not the depot, no terminus, no stop the player added. The depot and the termini allow
+/// everything until the player says otherwise.
+pub fn uses_at(c: &Company, tours: &[TourOfDay], place: &str) -> Option<Uses> {
+    let key = point_key(c, tours, place);
+    if key.is_empty() {
+        return None;
+    }
+    let kept = point(&c.planning.flow.prefs, &key);
+    let auto = key == DEPOT_POINT || is_terminus(tours, &key);
+    match kept {
+        Some(x) if auto || x.added => Some(x.uses()),
+        None if auto => Some(Uses { sign: true, relief: true, breaks: true }),
+        _ => None,
+    }
+}
+
+/// How a driver gets from relief point `from` to relief point `to` (their keys, `point_key`)
+/// and how long it takes, the most specific first: the way set by hand (`way`), else the
+/// quickest way the pair has times for, else the way of the point he goes to, of the one he
+/// comes from, else the default way; its minutes the pair's (the way back's where the pair has
+/// none set), else the points' own (where he goes, where he comes from), else the defaults.
+pub fn travel_of(p: &Prefs, from: &str, to: &str, way: Option<Travel>) -> (Travel, i32) {
+    let pair = |a: &str, b: &str| p.pairs.iter().find(|x| same(&x.from, a) && same(&x.to, b));
+    let set = |x: &&TravelPair| Travel::ALL.iter().any(|w| x.minutes(*w).is_some());
+    let pair = pair(from, to).filter(set).or_else(|| pair(to, from).filter(set));
+    let (dest, orig) = (point(p, to), point(p, from));
+    let way = way
+        .or_else(|| pair.and_then(|x| Travel::ALL.iter().filter_map(|w| x.minutes(*w).map(|m| (*w, m))).min_by_key(|(_, m)| *m).map(|(w, _)| w)))
+        .or_else(|| dest.and_then(|x| x.travel))
+        .or_else(|| orig.and_then(|x| x.travel))
+        .unwrap_or(p.travel);
+    let m = pair.and_then(|x| x.minutes(way)).or_else(|| dest.and_then(|x| x.minutes(way))).or_else(|| orig.and_then(|x| x.minutes(way))).unwrap_or_else(|| way.minutes(p));
+    (way, m.max(0))
+}
+
+/// How a driver gets from `from` to `to` (places of the day `tours`) and how long it takes
+/// (`travel_of`); no time between a place and itself.
+pub fn travel_between(c: &Company, tours: &[TourOfDay], from: &str, to: &str, way: Option<Travel>) -> (Travel, i32) {
+    let p = &c.planning.flow.prefs;
+    let (a, b) = (point_key(c, tours, from), point_key(c, tours, to));
+    if same(&a, &b) {
+        return (way.unwrap_or(p.travel), 0);
+    }
+    travel_of(p, &a, &b, way)
+}
+
+/// What kind of relief point a row of the Preferences is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PointKind {
+    Depot,
+    Terminus,
+    OnTheWay,
+}
+
+/// A relief point as the Preferences list it: its stop, kind, the lines (their numbers) it is
+/// of, and its settings (the defaults where none are kept).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PointRow {
+    pub stop: String,
+    pub kind: PointKind,
+    pub lines: Vec<String>,
+    pub point: ReliefPoint,
+}
+
+/// The company's relief points (`lines` the timetable read): the depot, every line's termini,
+/// and the stops on the way the player added - a stop several lines share once.
+pub fn relief_points(c: &Company, lines: &[LineInfo]) -> Vec<PointRow> {
+    let p = &c.planning.flow.prefs;
+    let tours = network::timetable_tours(c, lines);
+    let kept = |stop: &str| point(p, stop).cloned().unwrap_or_else(|| ReliefPoint { stop: stop.to_string(), ..Default::default() });
+    let mut out: Vec<PointRow> = vec![PointRow { stop: DEPOT_POINT.into(), kind: PointKind::Depot, lines: Vec::new(), point: kept(DEPOT_POINT) }];
+    let add = |stop: &str, kind: PointKind, number: &str, out: &mut Vec<PointRow>| {
+        let stop = stop.trim();
+        if stop.is_empty() || is_depot(c, &tours, stop) {
+            return;
+        }
+        match out.iter_mut().find(|r| same(&r.stop, stop)) {
+            Some(r) => {
+                if !number.is_empty() && !r.lines.iter().any(|l| l == number) {
+                    r.lines.push(number.to_string());
+                }
+                if kind == PointKind::Terminus {
+                    r.kind = kind;
+                }
+            }
+            None => out.push(PointRow { stop: stop.to_string(), kind, lines: if number.is_empty() { Vec::new() } else { vec![number.to_string()] }, point: kept(stop) }),
+        }
+    };
+    for cl in &c.lines {
+        for x in tours.iter().filter(|t| same(&t.line, &cl.name)).flat_map(|t| t.trips.iter()).filter(|x| x.counts()) {
+            add(&x.from, PointKind::Terminus, cl.number.trim(), &mut out);
+            add(x.end(), PointKind::Terminus, cl.number.trim(), &mut out);
+        }
+    }
+    for x in p.points.iter().filter(|x| x.added) {
+        let number = c.lines.iter().find(|l| same(&l.name, &x.line)).map(|l| l.number.trim().to_string()).unwrap_or_default();
+        add(&x.stop, PointKind::OnTheWay, &number, &mut out);
+    }
+    // (the lines whose way an added stop is on)
+    for r in out.iter_mut().filter(|r| r.kind == PointKind::OnTheWay) {
+        for cl in &c.lines {
+            let on = lines.iter().filter(|l| same(&l.name, &cl.name)).flat_map(|l| l.tours.iter()).flat_map(|t| t.trips.iter()).any(|y| y.stops.iter().any(|s| same(&s.name, &r.stop)));
+            if on && !r.lines.iter().any(|l| l == cl.number.trim()) {
+                r.lines.push(cl.number.trim().to_string());
+            }
+        }
+    }
+    out
+}
+
+/// The stops of each company line (`lines` the timetable read) a stop on the way can be picked
+/// of: its name, its number, and its stops in the order its longest trip calls at them, then
+/// the others' further ones.
+pub fn line_stops(c: &Company, lines: &[LineInfo]) -> Vec<(String, String, Vec<String>)> {
+    let mut out = Vec::new();
+    for cl in &c.lines {
+        let mut trips: Vec<&crate::TripInfo> = lines.iter().filter(|l| same(&l.name, &cl.name)).flat_map(|l| l.tours.iter()).flat_map(|t| t.trips.iter()).filter(|y| y.stops.len() >= 3).collect();
+        trips.sort_by_key(|y| std::cmp::Reverse(y.stops.len()));
+        let mut stops: Vec<String> = Vec::new();
+        for y in trips {
+            for s in &y.stops {
+                if !s.name.trim().is_empty() && !stops.iter().any(|x| same(x, &s.name)) {
+                    stops.push(s.name.trim().to_string());
+                }
+            }
+        }
+        out.push((cl.name.clone(), cl.number.trim().to_string(), stops));
+    }
+    out
+}
+
+/// The relief points' settings kept as the Preferences changed them: what says nothing (a
+/// terminus or the depot with every use allowed and no travel of its own) is left out, and so
+/// are pairs without a time.
+pub fn tidy_points(p: &mut Prefs) {
+    p.points.retain(|x| !x.stop.trim().is_empty() && (x.added || !x.sign || !x.relief || !x.breaks || x.travel.is_some() || x.walk.is_some() || x.public.is_some() || x.car.is_some()));
+    p.pairs.retain(|x| !same(&x.from, &x.to) && (x.walk.is_some() || x.public.is_some() || x.car.is_some()));
 }
 
 // --- what is kept ------------------------------------------------------------------------------
@@ -579,7 +844,8 @@ pub const LINK_TWO: &str = "Pick two trips or more to link.";
 /// Links they were in are merged into the new one.
 pub fn link(c: &mut Company, weekday: u8, tours: &[TourOfDay], i: usize, picked: &[usize]) -> Result<(), &'static str> {
     let t = tours.get(i).ok_or(st::NOT_FOUND)?;
-    let mut refs: Vec<TripRef> = picked.iter().filter_map(|&k| t.trips.get(k)).filter(|x| x.counts() && !x.origin.trim().is_empty()).map(TripRef::of).collect();
+    // (a trip cut on the way by the whole trip)
+    let mut refs: Vec<TripRef> = picked.iter().filter_map(|&k| t.trips.get(k)).filter(|x| x.counts() && !x.origin.trim().is_empty()).map(st::whole_ref).collect();
     if refs.len() < 2 {
         return Err(LINK_TWO);
     }
@@ -605,7 +871,7 @@ pub fn link(c: &mut Company, weekday: u8, tours: &[TourOfDay], i: usize, picked:
 /// Take the link of trip `k` of block `i` apart.
 pub fn unlink(c: &mut Company, weekday: u8, tours: &[TourOfDay], i: usize, k: usize) -> bool {
     let Some(x) = tours.get(i).and_then(|t| t.trips.get(k)) else { return false };
-    let r = TripRef::of(x);
+    let r = st::whole_ref(x);
     let line = tours[i].line.clone();
     let before = c.planning.flow.sheet.links.len();
     c.planning.flow.sheet.links.retain(|l| !(l.weekday == weekday && same(&l.line, &line) && l.trips.contains(&r)));
@@ -761,6 +1027,9 @@ pub struct Shaped {
     pub locked: bool,
     /// Its issues: indices into `Board::issues`.
     pub issues: Vec<usize>,
+    /// Where it stands at relief points that allow no break (`ReliefPoint::breaks`): no break
+    /// is taken in these minutes (`breaks_of`).
+    pub no_rest: Vec<(i32, i32)>,
 }
 
 impl Shaped {
@@ -882,9 +1151,18 @@ pub const ISSUE_TEXTS: [&str; 19] = [I_TYPE, I_MEAL, I_CONTINUOUS, I_SPREAD, I_S
 /// The issues' short titles (the Validation panel's groups), in `ISSUE_TEXTS`' order.
 pub const ISSUE_TITLES: [&str; 19] = ["Duty type unsatisfied", "No meal break", "Driving without a break", "Spread over the limit", "Pieces too short", "Too many changes of bus", "No time to get to the relief point", "Working time", "Working time", "Layovers too short", "Deadheads estimated", "Trips not assigned", "More buses than the company has", "More buses than the depot holds", "More duties than drivers", "The day's roster", "The day's roster", "The day's roster", "Lines without a timetable"];
 
+/// The relief points' issues (`ReliefPoint`): a duty begins or ends, takes a split's break, or
+/// drivers change on a bus where the point does not allow it - and their titles.
+pub const I_SIGN_ON: &str = "Signs on at %{stop}, where no duty may begin";
+pub const I_SIGN_OFF: &str = "Signs off at %{stop}, where no duty may end";
+pub const I_BREAK_PLACE: &str = "A split's break at %{stop}, where no break may be taken";
+pub const I_RELIEF_PLACE: &str = "Drivers change at %{stop}, where no relief is allowed";
+pub const PLACE_TEXTS: [&str; 4] = [I_SIGN_ON, I_SIGN_OFF, I_BREAK_PLACE, I_RELIEF_PLACE];
+pub const PLACE_TITLES: [&str; 4] = ["Duties begin or end at a wrong place", "Duties begin or end at a wrong place", "Breaks at a wrong place", "Reliefs at a wrong place"];
+
 /// An issue's short title (its group in the Validation panel).
 pub fn issue_title(text: &str) -> &'static str {
-    ISSUE_TEXTS.iter().position(|t| *t == text).map(|k| ISSUE_TITLES[k]).unwrap_or("Issues")
+    ISSUE_TEXTS.iter().position(|t| *t == text).map(|k| ISSUE_TITLES[k]).or_else(|| PLACE_TEXTS.iter().position(|t| *t == text).map(|k| PLACE_TITLES[k])).unwrap_or("Issues")
 }
 
 /// An issue's words filled in (`tr`: how a text is translated).
@@ -1072,12 +1350,12 @@ pub fn board_of(c: &Company, wd: u8, tours: Vec<TourOfDay>, stack: Vec<(String, 
     for (di, d) in duties.iter().enumerate() {
         let key = duty_key(&tours, d);
         let n = key.as_ref().and_then(|k| note(c, wd, k)).cloned().unwrap_or_default();
-        let s = shape(p, &tours, d, Some(di), key, &n);
+        let s = shape(c, &tours, d, Some(di), key, &n);
         shaped.push(s);
     }
     for sp in c.planning.flow.sheet.spares.iter().filter(|s| s.weekday == wd) {
         let n = DutyNote { custom: sp.custom.clone(), kind: sp.kind.clone(), locked: sp.locked, paid: sp.paid, ..Default::default() };
-        let mut s = shape(p, &tours, &Duty { pieces: Vec::new(), rules: Vec::new() }, None, None, &n);
+        let mut s = shape(c, &tours, &Duty { pieces: Vec::new(), rules: Vec::new() }, None, None, &n);
         s.spare = Some(sp.id);
         shaped.push(s);
     }
@@ -1133,6 +1411,10 @@ pub fn board_of(c: &Company, wd: u8, tours: Vec<TourOfDay>, stack: Vec<(String, 
                 add(I_TRAVEL, vec![("stop", start_b.clone()), ("need", hm(need)), ("have", hm((b.from - a.to).max(0)))], true, 0);
             }
         }
+        // (where it begins and ends and takes a split's break: relief points that allow it)
+        for (text, stop) in place_issues(c, &tours, s) {
+            add(text, vec![("stop", stop)], true, 0);
+        }
         for (text, args, hard, penalty) in found {
             s.issues.push(issues.len());
             issues.push(Issue { scope: Scope::Duty, row: Some(row), text, args, hard, penalty, key: format!("{text}|{rk}") });
@@ -1149,8 +1431,16 @@ pub fn board_of(c: &Company, wd: u8, tours: Vec<TourOfDay>, stack: Vec<(String, 
                     let _ = st::travel(&line, x.end(), &n.from);
                     issues.push(Issue { scope: Scope::Vehicle, row: Some(i), text: I_DEADHEAD, args: vec![("from", x.end().trim().to_string()), ("to", n.from.trim().to_string())], hard: false, penalty: 0, key: format!("{I_DEADHEAD}|{rk}") });
                 }
-            } else if p.layover.on && x.counts() && n.counts() && n.dep - x.arr < p.layover.value {
+            } else if p.layover.on && x.counts() && n.counts() && !n.is_second() && n.dep - x.arr < p.layover.value {
                 issues.push(Issue { scope: Scope::Vehicle, row: Some(i), text: I_LAYOVER, args: vec![("time", hm(n.dep - x.arr)), ("stop", n.from.trim().to_string()), ("min", hm(p.layover.value))], hard: p.layover.hard, penalty: p.layover.penalty, key: format!("{I_LAYOVER}|{rk}") });
+            }
+        }
+        // (drivers change only where a relief point allows it: a cut made before it said no)
+        for r in network::duties_of(t).iter().skip(1) {
+            let (Some(x), Some(n)) = (r.start.checked_sub(1).and_then(|k| t.trips.get(k)), t.trips.get(r.start)) else { continue };
+            let ok = |place: &str| uses_at(c, &tours, place).is_some_and(|u| u.relief);
+            if !(ok(x.end()) || (!same(x.end(), &n.from) && ok(&n.from))) {
+                issues.push(Issue { scope: Scope::Vehicle, row: Some(i), text: I_RELIEF_PLACE, args: vec![("stop", n.from.trim().to_string())], hard: true, penalty: 0, key: format!("{I_RELIEF_PLACE}|{}/{}/{}", t.line, t.tour, n.dep) });
             }
         }
     }
@@ -1173,8 +1463,35 @@ pub fn board_of(c: &Company, wd: u8, tours: Vec<TourOfDay>, stack: Vec<(String, 
     Board { weekday: wd, tours, duties, shaped, issues, figures, stack }
 }
 
+/// Where a duty (`s`) begins and ends, and takes a split's break, at a relief point that does
+/// not allow it (`ReliefPoint`): each issue's words and the stop. A place that is no relief point
+/// at all is the block's issue (`I_RELIEF_PLACE`).
+fn place_issues(c: &Company, tours: &[TourOfDay], s: &Shaped) -> Vec<(&'static str, String)> {
+    let p = &c.planning.flow.prefs;
+    let mut out = Vec::new();
+    let places: Vec<(String, String)> = s.spans.iter().map(|sp| piece_places(&tours[sp.tour], &network::duties_of(&tours[sp.tour]).get(sp.duty).cloned().unwrap_or(0..0))).collect();
+    let may = |place: &str, f: fn(&Uses) -> bool| uses_at(c, tours, place).is_none_or(|u| f(&u));
+    if let Some((first, _)) = places.first() {
+        if !may(first, |u| u.sign) {
+            out.push((I_SIGN_ON, first.clone()));
+        }
+    }
+    if let Some((_, last)) = places.last() {
+        if !may(last, |u| u.sign) {
+            out.push((I_SIGN_OFF, last.clone()));
+        }
+    }
+    for w in 0..s.spans.len().saturating_sub(1) {
+        if s.spans[w + 1].from - s.spans[w].to >= p.split_min && !may(&places[w].1, |u| u.breaks) && !may(&places[w + 1].0, |u| u.breaks) {
+            out.push((I_BREAK_PLACE, places[w].1.clone()));
+        }
+    }
+    out
+}
+
 /// A duty's shape (`Shaped`) from its pieces and its note.
-fn shape(p: &Prefs, tours: &[TourOfDay], d: &Duty, di: Option<usize>, key: Option<PieceRef>, n: &DutyNote) -> Shaped {
+fn shape(c: &Company, tours: &[TourOfDay], d: &Duty, di: Option<usize>, key: Option<PieceRef>, n: &DutyNote) -> Shaped {
+    let p = &c.planning.flow.prefs;
     let mut spans: Vec<Span> = d
         .pieces
         .iter()
@@ -1193,27 +1510,53 @@ fn shape(p: &Prefs, tours: &[TourOfDay], d: &Duty, di: Option<usize>, key: Optio
     if let Some(f) = spans.first() {
         events.push(Ev { kind: EvKind::SignOn, from: f.from - sign_on, to: f.from });
     }
+    // (a break only where a relief point allows it: the driver waits where he comes from or
+    // where he goes to, the travel before or after)
+    let rest = |place: &str| uses_at(c, tours, place).is_none_or(|u| u.breaks);
+    let mut no_rest: Vec<(i32, i32)> = Vec::new();
     for w in 0..spans.len().saturating_sub(1) {
         let (a, b) = (spans[w], spans[w + 1]);
         let gap = b.from - a.to;
         let (_, end_a) = piece_places(&tours[a.tour], &range(&a));
         let (start_b, _) = piece_places(&tours[b.tour], &range(&b));
-        let mode = n.travel.iter().find(|(k, _)| *k as usize == w).map(|x| x.1).unwrap_or(p.travel);
-        let m = if same(&end_a, &start_b) { 0 } else { mode.minutes(p) };
+        let set = n.travel.iter().find(|(k, _)| *k as usize == w).map(|x| x.1);
+        // (the way as the relief points have it: the pair, the points' own, the defaults)
+        let (mode, m) = travel_between(c, tours, &end_a, &start_b, set);
+        let (rest_a, rest_b) = (rest(&end_a), rest(&start_b));
+        if !rest_a && !rest_b {
+            no_rest.push((a.to, b.from));
+        }
         if gap >= p.split_min {
             let so = p.sign_off_split;
             let son = p.sign_on_split;
             events.push(Ev { kind: EvKind::SignOff, from: a.to, to: a.to + so });
+            // (the split's break where he goes to, when not where he comes from)
+            let early = !rest_a && rest_b;
             if m > 0 {
-                events.push(Ev { kind: EvKind::Travel(mode), from: b.from - son - m, to: b.from - son });
+                let at = if early { a.to + so } else { b.from - son - m };
+                events.push(Ev { kind: EvKind::Travel(mode), from: at, to: at + m });
             }
             events.push(Ev { kind: EvKind::SignOn, from: b.from - son, to: b.from });
-            let (s0, s1) = (a.to + so, b.from - son - m);
+            let (s0, s1) = if early { (a.to + so + m, b.from - son) } else { (a.to + so, b.from - son - m) };
             if s1 > s0 {
                 splits.push((s0, s1));
             }
         } else if m > 0 {
-            events.push(Ev { kind: EvKind::Travel(mode), from: a.to, to: a.to + m });
+            // (the wait where he comes from, when not where he goes to)
+            let at = if !rest_b && rest_a { b.from - m } else { a.to };
+            events.push(Ev { kind: EvKind::Travel(mode), from: at, to: at + m });
+        }
+    }
+    if p.layover_breaks {
+        for sp in &spans {
+            let t = &tours[sp.tour];
+            let r = range(sp);
+            for k in r.start + 1..r.end {
+                let (x, nx) = (&t.trips[k - 1], &t.trips[k]);
+                if same(x.end(), &nx.from) && nx.dep > x.arr && !rest(x.end()) {
+                    no_rest.push((x.arr, nx.dep));
+                }
+            }
         }
     }
     if let Some(l) = spans.last() {
@@ -1237,7 +1580,7 @@ fn shape(p: &Prefs, tours: &[TourOfDay], d: &Duty, di: Option<usize>, key: Optio
         Some(k) => (k, true),
         None => (p.duty_types.iter().position(|t| t.fits(start, end, split)), false),
     };
-    Shaped { duty: di, spare: None, key, spans, events, custom: n.custom.clone(), start, end, work, paid, driving, platform, splits, changeovers, kind, kind_set, locked: n.locked, issues: Vec::new() }
+    Shaped { duty: di, spare: None, key, spans, events, custom: n.custom.clone(), start, end, work, paid, driving, platform, splits, changeovers, kind, kind_set, locked: n.locked, issues: Vec::new(), no_rest }
 }
 
 /// The breaks of a duty a meal or a rest can be taken in: the gaps between its work, and (if
@@ -1265,6 +1608,8 @@ pub fn breaks_of(p: &Prefs, tours: &[TourOfDay], s: &Shaped) -> Vec<(i32, i32)> 
             }
         }
     }
+    // (none at a relief point that allows no break)
+    out.retain(|b| !s.no_rest.iter().any(|r| b.0 >= r.0 && b.1 <= r.1));
     out.sort();
     out
 }
@@ -1310,7 +1655,8 @@ fn figures(c: &Company, tours: &[TourOfDay], shaped: &[Shaped], issues: &[Issue]
         for x in &t.trips {
             if x.counts() {
                 f.service_km += x.km;
-                f.assigned += 1;
+                // (a trip two drivers share once)
+                f.assigned += usize::from(!x.is_second());
             } else {
                 f.dead_km += x.km;
             }
@@ -1382,9 +1728,9 @@ fn block_line(c: &Company, wd: u8, line: &str, raw: &[&TourOfDay], current: &[&T
     let mut blocks: Vec<st::BlockLayout> = Vec::new();
     let mut taken: Vec<TripRef> = Vec::new();
     for t in current.iter().filter(|t| keep.iter().any(|k| same(k, &t.tour))) {
-        let refs: Vec<TripRef> = t.trips.iter().filter(|x| !x.origin.trim().is_empty()).map(TripRef::of).collect();
-        taken.extend(refs.iter().cloned());
-        blocks.push(st::BlockLayout { tour: t.tour.clone(), trips: refs, cuts: t.cuts.as_ref().map(|cs| cs.iter().filter_map(|&k| t.trips.get(k)).map(TripRef::of).collect()) });
+        let b = st::layout_of_block(t);
+        taken.extend(b.trips.iter().cloned());
+        blocks.push(b);
     }
     // the units: each trip with passengers, with the depot runs before the first of its tour
     // and after the last, the empty runs in the day with the trip before them
@@ -1496,7 +1842,7 @@ fn block_line(c: &Company, wd: u8, line: &str, raw: &[&TourOfDay], current: &[&T
             k.to_string()
         });
         names.push(name.clone());
-        blocks.push(st::BlockLayout { tour: name, trips: trips.iter().filter(|x| !x.origin.trim().is_empty()).map(TripRef::of).collect(), cuts: None });
+        blocks.push(st::BlockLayout { tour: name, trips: trips.iter().filter(|x| !x.origin.trim().is_empty()).map(TripRef::of).collect(), cuts: None, reliefs: Vec::new() });
     }
     LineLayout { weekday: wd, line: line.to_string(), blocks, stack: Vec::new() }
 }
@@ -1617,7 +1963,7 @@ pub fn optimise_with(c: &Company, lines: &[LineInfo], date: &str, vehicles: bool
             block_line(c, wd, &cl.name, &mine_raw, &mine_now, &k)
         } else {
             let mut now = c.planning.layouts.iter().find(|l| l.weekday == wd && same(&l.line, &cl.name)).cloned().unwrap_or_else(|| LineLayout { weekday: wd, line: cl.name.clone(), ..Default::default() });
-            now.blocks = mine_now.iter().map(|t| st::BlockLayout { tour: t.tour.clone(), trips: t.trips.iter().filter(|x| !x.origin.trim().is_empty()).map(TripRef::of).collect(), cuts: t.cuts.as_ref().map(|cs| cs.iter().filter_map(|&k| t.trips.get(k)).map(TripRef::of).collect()) }).collect();
+            now.blocks = mine_now.iter().map(|t| st::layout_of_block(t)).collect();
             now
         };
         layouts.push(lay);
@@ -1660,13 +2006,17 @@ pub fn optimise_with(c: &Company, lines: &[LineInfo], date: &str, vehicles: bool
         (end - start - unpaid).max(MIN_PAID)
     };
     let mut groups: Vec<Vec<usize>> = Vec::new();
+    // (a duty begins where a relief point allows it, and takes a split's break where one does)
+    let unsigned = |place: &str| uses_at(c, &tours, place).is_some_and(|u| !u.sign);
+    let no_rest = |place: &str| uses_at(c, &tours, place).is_some_and(|u| !u.breaks);
     for (ci, x) in cuts.iter().enumerate() {
-        let alone = fixed as f64 + paid_of(&[x]) as f64 * rate;
+        let alone = fixed as f64 + paid_of(&[x]) as f64 * rate + if unsigned(&x.at) { 500_00 as f64 } else { 0.0 };
         let mut best: Option<(usize, f64)> = None;
         for (gi, g) in groups.iter().enumerate() {
             let last = &cuts[*g.last().unwrap()];
             let gap = x.from - last.to;
-            let travel = if same(&last.till, &x.at) { 0 } else { p.travel.minutes(&p) };
+            // (the way as the relief points have it)
+            let travel = travel_between(c, &tours, &last.till, &x.at, None).1;
             if gap < travel + staff::REST {
                 continue;
             }
@@ -1687,6 +2037,9 @@ pub fn optimise_with(c: &Company, lines: &[LineInfo], date: &str, vehicles: bool
                     continue;
                 }
                 penalty += p.max_spread.penalty as f64;
+            }
+            if gap >= p.split_min && no_rest(&last.till) && no_rest(&x.at) {
+                penalty += 500_00 as f64;
             }
             let changes = ps.windows(2).filter(|w| w[0].tour != w[1].tour).count() as i32;
             if p.changeovers.on && changes > p.changeovers.value {
@@ -1727,7 +2080,8 @@ pub fn optimise_with(c: &Company, lines: &[LineInfo], date: &str, vehicles: bool
         for b in lay.blocks.iter_mut() {
             let Some(i) = tours.iter().position(|t| same(&t.line, &lay.line) && same(&t.tour, &b.tour)) else { continue };
             if let Some((_, s)) = starts.iter().find(|(k, _)| *k == i) {
-                b.cuts = Some(s.iter().filter_map(|&k| tours[i].trips.get(k)).map(TripRef::of).collect());
+                // (a relief on the way no duty begins at: the trip whole again)
+                st::set_cuts_of(b, &tours[i], s);
             }
         }
     }
@@ -1764,6 +2118,8 @@ pub fn texts() -> Vec<&'static str> {
     let mut out: Vec<&'static str> = Vec::new();
     out.extend(ISSUE_TEXTS);
     out.extend(ISSUE_TITLES);
+    out.extend(PLACE_TEXTS);
+    out.extend(PLACE_TITLES);
     out.extend(ReliefTiming::LABELS);
     out.extend(Travel::LABELS);
     out.extend(Tri::LABELS);
@@ -1776,3 +2132,5 @@ pub fn texts() -> Vec<&'static str> {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod relief_tests;

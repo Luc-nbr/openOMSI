@@ -1,0 +1,74 @@
+_version: 2
+# RosterFlow's relief points (Luc 2026-10-14): Preferences › Relief Points and Duty Travel -
+# each point's uses and travel, the table between two points - and drivers changing halfway
+# along a trip: the cut on the way, its issues and refusals.
+"Drivers change only at a relief point that allows it (Preferences › Relief Points).":
+  de: "Fahrer wechseln nur an einem Ablösepunkt, der das erlaubt (Einstellungen › Ablösepunkte)."
+  fr: "Les conducteurs ne se relaient qu'à un point de relève qui le permet (Préférences › Points de relève)."
+  nl: "Chauffeurs wisselen alleen op een aflospunt dat dat toestaat (Voorkeuren › Aflospunten)."
+  pl: "Kierowcy zmieniają się tylko w punkcie zmiany, który na to pozwala (Preferencje › Punkty zmiany)."
+  ru: "Водители меняются только в пункте пересменки, где это разрешено (Предпочтения › Пункты пересменки)."
+  uk: "Водії змінюються лише в пункті перезміни, де це дозволено (Вподобання › Пункти перезміни)."
+"That stop is not on the way between the trip's first and last stop.":
+  de: "Diese Haltestelle liegt nicht zwischen der ersten und der letzten Haltestelle der Fahrt."
+  fr: "Cet arrêt n'est pas sur le parcours entre le premier et le dernier arrêt du trajet."
+  nl: "Die halte ligt niet onderweg tussen de eerste en de laatste halte van de rit."
+  pl: "Ten przystanek nie leży na trasie między pierwszym a ostatnim przystankiem kursu."
+  ru: "Эта остановка не лежит на пути между первой и последней остановкой рейса."
+  uk: "Ця зупинка не лежить на шляху між першою та останньою зупинкою рейсу."
+"This trip has a relief on the way already.":
+  de: "Diese Fahrt hat schon eine Ablösung unterwegs."
+  fr: "Ce trajet a déjà une relève en route."
+  nl: "Deze rit heeft al een aflossing onderweg."
+  pl: "Ten kurs ma już zmianę kierowcy na trasie."
+  ru: "У этого рейса уже есть пересменка в пути."
+  uk: "Цей рейс уже має перезміну в дорозі."
+"Signs on at %{stop}, where no duty may begin":
+  de: "Dienstbeginn in %{stop}, wo kein Dienst beginnen darf"
+  fr: "Prise de service à %{stop}, où aucun service ne peut commencer"
+  nl: "Meldt zich aan bij %{stop}, waar geen dienst mag beginnen"
+  pl: "Rozpoczęcie w %{stop}, gdzie żadna służba nie może się zaczynać"
+  ru: "Явка на %{stop}, где смена начинаться не может"
+  uk: "Явка на %{stop}, де зміна починатися не може"
+"Signs off at %{stop}, where no duty may end":
+  de: "Dienstende in %{stop}, wo kein Dienst enden darf"
+  fr: "Fin de service à %{stop}, où aucun service ne peut finir"
+  nl: "Meldt zich af bij %{stop}, waar geen dienst mag eindigen"
+  pl: "Zakończenie w %{stop}, gdzie żadna służba nie może się kończyć"
+  ru: "Сдача на %{stop}, где смена заканчиваться не может"
+  uk: "Здача на %{stop}, де зміна закінчуватися не може"
+"A split's break at %{stop}, where no break may be taken":
+  de: "Die Pause eines geteilten Dienstes in %{stop}, wo keine Pause erlaubt ist"
+  fr: "La coupure d'un service en %{stop}, où aucune pause n'est permise"
+  nl: "De pauze van een gebroken dienst bij %{stop}, waar geen pauze mag"
+  pl: "Przerwa służby dzielonej w %{stop}, gdzie przerwa jest niedozwolona"
+  ru: "Перерыв разрывной смены на %{stop}, где перерыв не разрешён"
+  uk: "Перерва розривної зміни на %{stop}, де перерва не дозволена"
+"Drivers change at %{stop}, where no relief is allowed":
+  de: "Fahrerwechsel in %{stop}, wo keine Ablösung erlaubt ist"
+  fr: "Relève à %{stop}, où aucune relève n'est permise"
+  nl: "Chauffeurswissel bij %{stop}, waar geen aflossing mag"
+  pl: "Zmiana kierowców w %{stop}, gdzie zmiana jest niedozwolona"
+  ru: "Пересменка на %{stop}, где пересменка не разрешена"
+  uk: "Перезміна на %{stop}, де перезміна не дозволена"
+"Duties begin or end at a wrong place":
+  de: "Dienste beginnen oder enden am falschen Ort"
+  fr: "Services commencés ou finis au mauvais endroit"
+  nl: "Diensten beginnen of eindigen op een verkeerde plek"
+  pl: "Służby zaczynają się lub kończą w złym miejscu"
+  ru: "Смены начинаются или заканчиваются не там"
+  uk: "Зміни починаються або закінчуються не там"
+"Breaks at a wrong place":
+  de: "Pausen am falschen Ort"
+  fr: "Pauses au mauvais endroit"
+  nl: "Pauzes op een verkeerde plek"
+  pl: "Przerwy w złym miejscu"
+  ru: "Перерывы не там"
+  uk: "Перерви не там"
+"Reliefs at a wrong place":
+  de: "Ablösungen am falschen Ort"
+  fr: "Relèves au mauvais endroit"
+  nl: "Aflossingen op een verkeerde plek"
+  pl: "Zmiany kierowców w złym miejscu"
+  ru: "Пересменки не там"
+  uk: "Перезміни не там"

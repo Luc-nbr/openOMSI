@@ -349,6 +349,20 @@ struct Sums {
 /// Close the company's day: `tours` are its tours of the day (`network::tours_of_day` of the
 /// timetable read for `c.date`), `trips` the player's trip reports (all of them; those of
 /// the company's map and lines not booked yet count). Moves the company to the next day.
+/// Trip `j` of a tour of the day as the close books it: the trip, and - a trip cut at a relief
+/// point on the way (`network::Part`) - the whole of it at its first part, with the duty of its
+/// second part and the minute that one begins. None at a second part (booked with the first).
+fn whole_trip(tp: &TourPlan, j: usize) -> Option<(network::PlannedTrip, Option<(&DutyPlan, i32)>)> {
+    let x = tp.tour.trips.get(j)?;
+    if x.is_second() {
+        return None;
+    }
+    match tp.tour.trips.get(j + 1).filter(|n| x.part.is_some() && n.is_second()) {
+        Some(n) => Some((x.joined(n), tp.duties.iter().find(|d| d.start <= j + 1 && j + 1 < d.end).map(|d| (d, n.dep)))),
+        None => Some((x.clone(), None)),
+    }
+}
+
 pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> DayReport {
     // (only what is planned runs: a line not in service books nothing)
     let tours = network::in_service_only(tours);
@@ -532,7 +546,11 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
                     None => worked.push((e.id, d.to - d.from, d.to, d.from)),
                 }
             }
-            for trip in &tp.tour.trips[d.start..d.end] {
+            for j in d.start..d.end {
+                // (a trip two duties share, cut at a relief point on the way: one trip, booked
+                // with its first part, run only when the duties of both parts are)
+                let Some((trip, rest)) = whole_trip(tp, j) else { continue };
+                let trip = &trip;
                 let counts = trip.counts();
                 let kind = kinds.get(li).copied().unwrap_or_default();
                 // (an on-demand trip nobody booked stays in the depot: no kilometres, no money,
@@ -553,7 +571,8 @@ pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> D
                 if reported(trip) {
                     continue;
                 }
-                let run = v.is_some() && driver.is_some() && broken_at.is_none_or(|(at, back)| trip.dep < at || back.is_some_and(|b| trip.dep >= b)) && d.dropped_before.is_none_or(|t| trip.dep >= t);
+                let rest_runs = rest.is_none_or(|(d2, at)| d2.driver.is_some() && d2.dropped_before.is_none_or(|t| at >= t));
+                let run = rest_runs && v.is_some() && driver.is_some() && broken_at.is_none_or(|(at, back)| trip.dep < at || back.is_some_and(|b| trip.dep >= b)) && d.dropped_before.is_none_or(|t| trip.dep >= t);
                 if !run {
                     if counts {
                         lines[li].dropped += 1;

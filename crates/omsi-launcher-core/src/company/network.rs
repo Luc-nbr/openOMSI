@@ -37,13 +37,63 @@ pub struct PlannedTrip {
     /// show, often another name). Empty: `to`.
     #[serde(default)]
     pub last: String,
+    /// A part of a trip two drivers share, cut at a relief point on the way (`studio`'s
+    /// mid-trip relief). None: the whole trip.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub part: Option<Part>,
+}
+
+/// What a part of a trip cut at a relief point on the way knows of the whole trip.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct Part {
+    /// The second part (from the relief point on); else the first (up to it).
+    pub second: bool,
+    /// The stop it is cut at: its place in the trip's stops (0 the first) and its name.
+    pub stop: usize,
+    pub at: String,
+    /// The whole trip: when it leaves and arrives, its kilometres and its stops.
+    pub dep: i32,
+    pub arr: i32,
+    pub km: f64,
+    pub stops: u32,
 }
 
 impl PlannedTrip {
     /// A trip with passengers (a depot run or a short positioning trip carries none: a duty is
-    /// not cut before one).
+    /// not cut before one). A part of a trip counts as the whole does.
     pub fn counts(&self) -> bool {
-        !self.empty && self.stops >= 3
+        !self.empty && self.part.as_ref().map_or(self.stops, |p| p.stops) >= 3
+    }
+
+    /// The second part of a trip cut at a relief point on the way.
+    pub fn is_second(&self) -> bool {
+        self.part.as_ref().is_some_and(|p| p.second)
+    }
+
+    /// When the whole trip leaves (the timetable's minute, a part's too).
+    pub fn whole_dep(&self) -> i32 {
+        self.part.as_ref().map_or(self.dep, |p| p.dep)
+    }
+
+    /// The trip cut at its stop `stop` (named `at`, reached at minute `when`, `share` of the way
+    /// there): its two parts, or None where the stop is not on the way between its ends.
+    pub fn split_at(&self, stop: usize, at: &str, when: i32, share: f64) -> Option<(PlannedTrip, PlannedTrip)> {
+        if self.part.is_some() || stop == 0 || stop + 1 >= self.stops as usize || when <= self.dep || when >= self.arr {
+            return None;
+        }
+        let share = share.clamp(0.0, 1.0);
+        let whole = |second: bool| Some(Part { second, stop, at: at.trim().to_string(), dep: self.dep, arr: self.arr, km: self.km, stops: self.stops });
+        let first = PlannedTrip { arr: when, km: self.km * share, stops: stop as u32 + 1, last: at.trim().to_string(), part: whole(false), ..self.clone() };
+        let second = PlannedTrip { from: at.trim().to_string(), dep: when, km: self.km * (1.0 - share), stops: self.stops - stop as u32, part: whole(true), ..self.clone() };
+        Some((first, second))
+    }
+
+    /// The whole trip again of its first part (`self`) and its second (`rest`).
+    pub fn joined(&self, rest: &PlannedTrip) -> PlannedTrip {
+        match &self.part {
+            Some(p) => PlannedTrip { arr: p.arr, km: p.km, stops: p.stops, last: rest.last.clone(), part: None, ..self.clone() },
+            None => self.clone(),
+        }
     }
 
     /// Where the bus stands once it has run it: its last stop.
@@ -241,7 +291,7 @@ pub fn line_of_number<'a>(c: &'a Company, number: &str) -> Option<&'a CompanyLin
 /// here.
 pub fn tours_of_day(c: &Company, lines: &[LineInfo], date: &str) -> Vec<TourOfDay> {
     let mut out = timetable_tours(c, lines);
-    let cuts = if super::autopilot::on(c) { Vec::new() } else { super::studio::arrange(c, super::plan::weekday_of(date), &mut out) };
+    let cuts = if super::autopilot::on(c) { Vec::new() } else { super::studio::arrange(c, super::plan::weekday_of(date), &mut out, lines) };
     finish_tours(c, out, date, cuts)
 }
 
@@ -286,6 +336,7 @@ pub(crate) fn timetable_tours(c: &Company, lines: &[LineInfo]) -> Vec<TourOfDay>
                     empty: super::specials::trip_kind(&x.line, &x.name, &x.terminus, x.stops.len(), &[&c.depot]).empty(),
                     origin: t.number.clone(),
                     last: x.stops.last().map(|s| s.name.clone()).unwrap_or_default(),
+                    part: None,
                 })
                 .collect();
             trips.sort_by_key(|x| x.dep);
@@ -466,7 +517,7 @@ pub(crate) mod tests {
     use super::*;
 
     pub fn trip(dep: i32, arr: i32, stops: u32) -> PlannedTrip {
-        PlannedTrip { name: format!("t{dep}"), line: "5".into(), from: "A".into(), to: "B".into(), dep, arr, km: (arr - dep) as f64 * 0.3, stops, empty: false, origin: String::new(), last: String::new() }
+        PlannedTrip { name: format!("t{dep}"), line: "5".into(), from: "A".into(), to: "B".into(), dep, arr, km: (arr - dep) as f64 * 0.3, stops, empty: false, origin: String::new(), last: String::new(), part: None }
     }
 
     #[test]
