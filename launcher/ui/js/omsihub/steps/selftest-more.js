@@ -70,6 +70,32 @@ export async function selftest(check, errors, step) {
     e = await step('bus', {});
     set({ hub: { ...S.hub, busView: 'bus' } });
     await sleep(900);
+    globalThis.hubProbe?.('the bus sheet');
+    // the 3D view turned by a drag (Luc, Beta 53: "slow and laggy"): its pictures while it
+    // turns, and the sharp one after letting go (`preview.js`'s `hubPreviewStats`)
+    await (async () => {
+      const v = $('.hub-bus-stage .viewer');
+      const ps = window.hubPreviewStats;
+      if (!v || !ps) return check('hub: the 3D view turns smoothly', true, 'no 3D view here');
+      for (let k = 0; k < 40 && !$('.hub-bus-stage .viewer canvas[width]'); k++) await sleep(250);
+      await sleep(1500);
+      const r = v.getBoundingClientRect();
+      const at = (x) => ({ clientX: r.left + r.width * x, clientY: r.top + r.height / 2, bubbles: true, pointerId: 7, buttons: 1 });
+      const [n0, ms0] = [ps.turning, ps.turnMs];
+      v.dispatchEvent(new PointerEvent('pointerdown', at(0.4)));
+      const t0 = performance.now();
+      for (let k = 1; k <= 60; k++) {
+        v.dispatchEvent(new PointerEvent('pointermove', at(0.4 + k * 0.004)));
+        await sleep(25);
+      }
+      const secs = (performance.now() - t0) / 1000;
+      v.dispatchEvent(new PointerEvent('pointerup', { ...at(0.64), buttons: 0 }));
+      await sleep(1500);
+      const n = ps.turning - n0;
+      const ms = n ? (ps.turnMs - ms0) / n : 0;
+      const fps = n / secs;
+      check('hub: the 3D view turns smoothly', n > 0 && ms < 120, `${n} pictures while turning (${fps.toFixed(1)} a second, ${ms.toFixed(0)} ms each, ${ps.last ? `${ps.last.w}x${ps.last.h}` : ''}), the sharp one ${ps.sharpMs == null ? 'not yet' : `${Math.round(ps.sharpMs)} ms`} after letting go`);
+    })();
     check('hub: the bus sheet of phase 3', !e && !!$('.hub-sheet.narrow'), e || `${$$('.hub-bo-row').length} option rows, display font ${$('.hub-df') ? 'there' : 'missing'}`);
     set({ hub: { ...S.hub, busView: 'tiles' } });
   }

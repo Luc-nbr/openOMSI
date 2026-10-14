@@ -125,6 +125,10 @@ fn serve(rx: std::sync::mpsc::Receiver<Value>, reply: Reply) {
     let mut showroom = Showroom::new();
     let pads = super::pads::Pads::start();
     let mut last = Instant::now();
+    // Omsi-Hub: the preview's read-back buffer kept between pictures, and its timings
+    // (`Timings`: a line in the log every few seconds while it turns)
+    let mut readback: Option<wgpu::Buffer> = None;
+    let mut timings = Timings::default();
     while let Ok(req) = rx.recv() {
         let id = req.get("id").cloned().unwrap_or(Value::Null);
         let s = |k: &str| req.get(k).and_then(Value::as_str).unwrap_or("").to_string();
@@ -178,17 +182,22 @@ fn serve(rx: std::sync::mpsc::Receiver<Value>, reply: Reply) {
                 let r = renderer.as_mut().unwrap();
                 let dt = last.elapsed().as_secs_f32().min(0.1);
                 last = Instant::now();
+                let t0 = Instant::now();
                 showroom.update(r, dt);
                 let before = showroom.drawn;
                 let (w, h) = (f("w", 960.0) as u32, f("h", 540.0) as u32);
                 let _ = showroom.preview(r, w, h);
-                let head = json!({ "ok": true, "busy": showroom.busy, "failed": showroom.failed(), "error": showroom.error, "moving": showroom.moving(), "picture": showroom.has_picture(), "view": showroom.view.name(), "views": showroom.views() });
+                let mut head = json!({ "ok": true, "busy": showroom.busy, "failed": showroom.failed(), "error": showroom.error, "moving": showroom.moving(), "picture": showroom.has_picture(), "view": showroom.view.name(), "views": showroom.views() });
                 let new = showroom.drawn != before || req.get("force").and_then(Value::as_bool).unwrap_or(false);
                 match (new, showroom.picture()) {
                     (true, Some(tex)) => {
                         // (lighter while it turns: the still picture after it is the sharp one)
                         let quality = f("quality", 90.0).clamp(40.0, 95.0) as u8;
-                        let jpeg = read_jpeg(r, tex, quality).unwrap_or_default();
+                        // Omsi-Hub: how long it took (the page keeps it, the log says it)
+                        let drawn = t0.elapsed();
+                        let (jpeg, read, enc) = read_jpeg(r, tex, &mut readback, quality).unwrap_or_default();
+                        timings.add(drawn, read, enc, jpeg.len(), tex.width(), tex.height());
+                        head["ms"] = json!([drawn.as_secs_f32() * 1000.0, read.as_secs_f32() * 1000.0, enc.as_secs_f32() * 1000.0]);
                         send(&id, head, &jpeg);
                     }
                     _ => send(&id, head, &[]),
@@ -234,15 +243,63 @@ fn open_renderer() -> anyhow::Result<Renderer> {
     Ok(r)
 }
 
-/// The picture read back from the graphics card, as a JPEG.
-fn read_jpeg(r: &Renderer, tex: &wgpu::Texture, quality: u8) -> anyhow::Result<Vec<u8>> {
+/// Omsi-Hub: how long the preview's pictures take - drawn, read back, made a JPEG - and how
+/// large they are, said in the log every five seconds while pictures are asked for
+/// (`launcher-service.log`: "preview: ..."), so a preview that gets slow shows there.
+#[derive(Default)]
+struct Timings {
+    since: Option<Instant>,
+    n: u32,
+    drawn: f32,
+    read: f32,
+    enc: f32,
+    bytes: usize,
+    size: (u32, u32),
+}
+
+impl Timings {
+    fn add(&mut self, drawn: std::time::Duration, read: std::time::Duration, enc: std::time::Duration, bytes: usize, w: u32, h: u32) {
+        let since = *self.since.get_or_insert_with(Instant::now);
+        self.n += 1;
+        self.drawn += drawn.as_secs_f32() * 1000.0;
+        self.read += read.as_secs_f32() * 1000.0;
+        self.enc += enc.as_secs_f32() * 1000.0;
+        self.bytes += bytes;
+        self.size = (w, h);
+        if since.elapsed().as_secs_f32() >= 5.0 {
+            let n = self.n as f32;
+            log::info!(
+                "launcher service: preview {} pictures in {:.1} s ({:.1} a second): drawn {:.1} ms, read back {:.1} ms, encoded {:.1} ms, {:.0} KB each, the last {}x{}",
+                self.n,
+                since.elapsed().as_secs_f32(),
+                n / since.elapsed().as_secs_f32(),
+                self.drawn / n,
+                self.read / n,
+                self.enc / n,
+                self.bytes as f32 / n / 1024.0,
+                self.size.0,
+                self.size.1
+            );
+            *self = Timings::default();
+        }
+    }
+}
+
+/// The picture read back from the graphics card, as a JPEG (Omsi-Hub: into a read-back buffer
+/// kept for the next picture of the same size; answers how long reading back and encoding took).
+fn read_jpeg(r: &Renderer, tex: &wgpu::Texture, keep: &mut Option<wgpu::Buffer>, quality: u8) -> anyhow::Result<(Vec<u8>, std::time::Duration, std::time::Duration)> {
+    let t0 = Instant::now();
     let (w, h) = (tex.width(), tex.height());
     let row = (w * 4).div_ceil(256) * 256;
-    let buf = r.device.create_buffer(&wgpu::BufferDescriptor { label: Some("preview readback"), size: (row * h) as u64, usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ, mapped_at_creation: false });
+    let size = (row * h) as u64;
+    if keep.as_ref().is_none_or(|b| b.size() != size) {
+        *keep = Some(r.device.create_buffer(&wgpu::BufferDescriptor { label: Some("preview readback"), size, usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ, mapped_at_creation: false }));
+    }
+    let buf = keep.as_ref().unwrap();
     let mut enc = r.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("preview readback") });
     enc.copy_texture_to_buffer(
         tex.as_image_copy(),
-        wgpu::TexelCopyBufferInfo { buffer: &buf, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(row), rows_per_image: Some(h) } },
+        wgpu::TexelCopyBufferInfo { buffer: buf, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(row), rows_per_image: Some(h) } },
         wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
     );
     r.queue.submit([enc.finish()]);
@@ -264,7 +321,9 @@ fn read_jpeg(r: &Renderer, tex: &wgpu::Texture, quality: u8) -> anyhow::Result<V
     }
     drop(data);
     buf.unmap();
+    let read = t0.elapsed();
+    let t1 = Instant::now();
     let mut jpeg = Vec::new();
     image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, quality).encode(&rgb, w, h, image::ExtendedColorType::Rgb8)?;
-    Ok(jpeg)
+    Ok((jpeg, read, t1.elapsed()))
 }

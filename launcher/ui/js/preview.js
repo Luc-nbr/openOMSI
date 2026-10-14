@@ -3,7 +3,14 @@
 // textures and every part, under the chosen time and weather.
 //
 // One request a picture, and the drag and the wheel ride along with it, so a turn costs one
-// round trip. Every picture is full size, turning or not. Nothing is asked while nothing moves.
+// round trip. Nothing is asked while nothing moves.
+//
+// Omsi-Hub (Luc, Beta 53: "the 3D viewer is slow and lags"): every picture was full size, and a
+// full-size JPEG took 40-90 ms to draw, read back and encode - about 20 pictures a second on a
+// 1920 x 1080 window, fewer on a high-DPI screen. Now a picture is at most 0.4 megapixels while
+// the mouse turns the bus (drawn larger to the view; about 50 a second), at most 1.6 while it
+// eases out after letting go, so the sharp one is there at once, and full size when it stands
+// still. The timings are kept in `window.hubPreviewStats` (the self-check reads them).
 
 import { html, useEffect, useRef, useState } from '../vendor/preact-htm.js';
 import { call, on } from './api.js';
@@ -18,6 +25,13 @@ async function frame(args) {
   const jpeg = buf.length > 4 + n ? new Blob([buf.subarray(4 + n)], { type: 'image/jpeg' }) : null;
   return { head, jpeg };
 }
+
+/** Omsi-Hub: how the preview keeps up - pictures while it turns and their round trip, the
+ * sharp picture's time after letting go (`selftest`, the bus step's check). */
+const stats = (window.hubPreviewStats = { turning: 0, turnMs: 0, sharpMs: null, last: null });
+/** The most pixels of a picture while the mouse turns the bus, and while it eases out. */
+const TURNING_PX = 400000;
+const EASING_PX = 1600000;
 
 const VIEWS = [['outside', 'Outside view', 'bus'], ['passenger', 'Passenger view', 'users'], ['driver', "Driver's view", 'person']];
 
@@ -43,12 +57,18 @@ export function BusPreview({ look, class: cls = '' }) {
     (async () => {
       while (st.alive) {
         const el = host.current;
-        // (full size while it turns too: a smaller picture stretched over the view is blurred)
         const k = Math.min(window.devicePixelRatio || 1, 2);
-        const w = Math.round((el?.clientWidth || 640) * k);
-        const h = Math.round((el?.clientHeight || 360) * k);
         const soft = st.dragging || st.easing;
-        const args = { w, h, force: st.force, dx: st.dx, dy: st.dy, zoom: st.zoom, quality: soft ? 70 : 90, view: st.view };
+        // (Omsi-Hub: smaller while it turns - the sharp one follows as it is let go)
+        const cw = el?.clientWidth || 640;
+        const ch = el?.clientHeight || 360;
+        const most = st.dragging ? TURNING_PX : st.easing ? EASING_PX : Infinity;
+        const s = Math.min(k, Math.sqrt(most / (cw * ch)));
+        const w = Math.round(cw * s);
+        const h = Math.round(ch * s);
+        const args = { w, h, force: st.force, dx: st.dx, dy: st.dy, zoom: st.zoom, quality: st.dragging ? 70 : soft ? 82 : 90, view: st.view };
+        const turning = st.dragging;
+        const t0 = performance.now();
         st.view = null;
         st.dx = st.dy = 0;
         st.zoom = 1;
@@ -56,12 +76,21 @@ export function BusPreview({ look, class: cls = '' }) {
         let more = false;
         try {
           const { head, jpeg } = await frame(args);
+          const ms = performance.now() - t0;
           if (jpeg && canvas.current) {
             const bmp = await createImageBitmap(jpeg);
             const c = canvas.current;
             if (c.width !== bmp.width || c.height !== bmp.height) Object.assign(c, { width: bmp.width, height: bmp.height });
             c.getContext('2d').drawImage(bmp, 0, 0);
             bmp.close();
+            if (turning) {
+              stats.turning += 1;
+              stats.turnMs += ms;
+            } else if (st.letGo) {
+              stats.sharpMs = performance.now() - st.letGo;
+              st.letGo = null;
+            }
+            stats.last = { ms, w: c.width, h: c.height, service: head.ms };
           }
           setViews(`${head.view || 'outside'}|${(head.views || []).join(',')}`);
           setState(head.failed || head.ok === false ? 'failed' : head.picture ? (head.busy ? 'switching' : 'ok') : 'loading');
@@ -105,7 +134,10 @@ export function BusPreview({ look, class: cls = '' }) {
       onPointerDown=${(e) => {
         last.current = { x: e.clientX, y: e.clientY };
         r.current.dragging = true;
-        e.currentTarget.setPointerCapture(e.pointerId);
+        // (Omsi-Hub: a pointer the page made itself - the self-check's - has nothing to capture)
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {}
       }}
       onPointerMove=${(e) => {
         const p = last.current;
@@ -118,6 +150,8 @@ export function BusPreview({ look, class: cls = '' }) {
       onPointerUp=${() => {
         last.current = null;
         r.current.dragging = false;
+        // (Omsi-Hub: from here to the sharp picture)
+        r.current.letGo = performance.now();
         wake(true);
       }}
       onWheel=${(e) => {
