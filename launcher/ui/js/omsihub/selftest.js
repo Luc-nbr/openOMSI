@@ -7,8 +7,11 @@
 import { call } from '../api.js';
 import { S, set } from '../store.js';
 import { t } from '../i18n.js';
-import { duty } from '../data.js';
+import { duty, saveSettings } from '../data.js';
 import { hubExtras } from './flow.js';
+// (Beta 53: the layout checker at every page and state the checks show)
+import { probe, atScales, told, SCALES } from './layout.js';
+import { go } from './hub.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const $ = (q) => document.querySelector(q);
@@ -16,11 +19,20 @@ const $$ = (q) => document.querySelectorAll(q);
 
 export async function selftest(check, errors) {
   const kept = { ...S.choice };
+  // the layout checker's probe for every part's checks (`layout.js`): what is shown now fits
+  globalThis.hubProbe = (name) => probe(check, name);
+  /** The layout of a state at every Launcher size (`layout.SCALES`), told as one check. */
+  globalThis.hubProbeScales = async (name) => {
+    const bad = [];
+    await atScales(SCALES, name, (at, f) => f.length && bad.push(`${at}: ${told(f)}`));
+    check(`layout: ${name}, every Launcher size`, !bad.length, bad.join(' || ') || SCALES.map((x) => `${Math.round(x * 100)} %`).join(', '));
+  };
   const step = async (id, patch) => {
     const before = errors.length;
     if (patch) set({ choice: { ...S.choice, ...patch } });
     set({ page: 'drive', hub: { ...S.hub, step: id } });
     await sleep(700);
+    globalThis.hubProbe(`step ${id}${patch ? ` (${patch.free ? 'free' : patch.composed ? 'shift' : 'tour'})` : ''}`);
     return errors.length === before ? null : errors.slice(before).join('; ');
   };
 
@@ -35,6 +47,23 @@ export async function selftest(check, errors) {
   let e = await step('mode');
   const greeting = $('.hub-greeting')?.textContent || '';
   check('hub: the start', !e && $$('.hub-mode').length === 4 && !!$('.hub-record') && $$('.hub-link').length === 11, e || `${greeting} | ${$$('.hub-mode').length} tiles, ${$$('.hub-link').length} links`);
+  await globalThis.hubProbeScales('the start');
+  // Ctrl and the wheel size the launcher (`zoom.js`): a notch up, then Ctrl 0 (the setting as it was)
+  {
+    const was = S.settings?.launcher_scale ?? 1;
+    const card = $('.hub-card');
+    const r = card?.getBoundingClientRect();
+    card?.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, ctrlKey: true, clientX: r.left + 40, clientY: r.top + 40, bubbles: true, cancelable: true }));
+    await sleep(300);
+    const up = S.settings?.launcher_scale;
+    const note = S.toasts.some((x) => x.id === 'hub-size');
+    dispatchEvent(new KeyboardEvent('keydown', { key: '0', code: 'Digit0', ctrlKey: true, bubbles: true }));
+    await sleep(300);
+    const reset = S.settings?.launcher_scale;
+    check('hub: Ctrl and the wheel size the launcher', Math.abs(up - (Math.round(Math.min(2, was + 0.05) * 20) / 20)) < 1e-9 && note && reset === 1, `${was} → ${up} (said: ${note}), Ctrl 0 → ${reset}`);
+    if (was !== 1) await saveSettings({ launcher_scale: was });
+    await sleep(400);
+  }
   check('hub: our texts translated', !S.boot?.language || S.boot.language === 'en' || t('How do you want to drive today?') !== 'How do you want to drive today?', S.boot?.language || 'en');
 
   // every step, for a tour, a work shift and a free drive
@@ -50,6 +79,27 @@ export async function selftest(check, errors) {
       check(`hub: step ${id} (${mode})`, !e && sheet, e || now);
     }
   }
+  await globalThis.hubProbeScales('the duty step');
+  // upstream's pages in our sheet, each one's layout (and the Settings page's tabs)
+  for (const page of ['multiplayer', 'profile', 'mods', 'modeltest', 'settings', 'controls', 'games', 'tutorials', 'setup']) {
+    go(page);
+    await sleep(600);
+    globalThis.hubProbe(`page ${page}`);
+  }
+  go('settings');
+  await sleep(500);
+  // (each tab of Settings, and the first at every Launcher size)
+  const tabs = [...$$('.hub-page-body .tabs button')];
+  for (const b of tabs) {
+    b.click();
+    await sleep(350);
+    globalThis.hubProbe(`settings, ${b.textContent.trim()}`);
+  }
+  tabs[0]?.click();
+  await sleep(300);
+  await globalThis.hubProbeScales('page settings');
+  go('drive', 'mode');
+  await sleep(400);
   // (the step's main action is there, and is not pressed)
   check('hub: the main action', !!$('.hub-go'), $('.hub-go')?.textContent || '');
 

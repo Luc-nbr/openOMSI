@@ -22,6 +22,7 @@ export async function editorsSelftest(check, errors) {
     await sleep(900);
     const e = errors.length === before ? null : errors.slice(before).join('; ');
     check(`editors: page ${id}`, !e && !!$('.ed-page'), e || $('.ed-page .hub-head h2')?.textContent || 'drawn');
+    globalThis.hubProbe?.(`editor ${id}`);
   }
   set({ page: 'drive', hub: { ...S.hub, step: 'mode' } });
   await sleep(300);

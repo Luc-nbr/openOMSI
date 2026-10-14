@@ -23,6 +23,10 @@ import { useUpdates, UpdateDialog, UpdatedNotice } from './update.js';
 import { GameEndDialogs } from '../crash.js';
 // (Ctrl and the wheel size the launcher, outside RosterFlow)
 import { installZoom } from './zoom.js';
+// (words shortened with an ellipsis: the whole of them as a tooltip)
+import { installAutoTitles } from './autotitle.js';
+// (the layout checker, on `window.hubLayout` for the pictures' grid of window sizes)
+import './layout.js';
 // (the opening: Omsi-Hub's logo drawn over the page as the launcher opens)
 import { startIntro } from './intro.js';
 
@@ -97,11 +101,18 @@ let booted = false;
 /** The opening while it plays (`intro.js`). */
 let intro = null;
 
+/** The smallest window the pages are laid out for (CSS px): a larger "Launcher size" never
+ * makes the layout smaller than this - at 200 % a small window laid the editors' columns over
+ * each other and put the start's tiles past its edge (Luc, Beta 52). */
+export const MIN_STAGE = [760, 480];
+
 /** The interface's size (as Omsi-Hub's game-drawn launcher had it): laid out for a 1440 x 820
- * window, drawn smaller under that (down to 80 %), times the setting "Launcher size". */
-function scale() {
+ * window, drawn smaller under that (down to 80 %), times the setting "Launcher size" - as large
+ * as the window allows (`MIN_STAGE`). */
+export function scale() {
   const own = Math.max(0.6, Math.min(2, Number(S.settings?.launcher_scale) || 1));
-  return Math.max(0.8, Math.min(1, innerWidth / 1440, innerHeight / 820)) * own;
+  const want = Math.max(0.8, Math.min(1, innerWidth / 1440, innerHeight / 820)) * own;
+  return Math.min(want, Math.max(1, Math.min(innerWidth / MIN_STAGE[0], innerHeight / MIN_STAGE[1])));
 }
 
 /** Whether the window has the keyboard (upstream's resting while a game runs asks). */
@@ -132,6 +143,7 @@ export function HubShell({ pages, Toasts }) {
     return () => removeEventListener('resize', r);
   }, []);
   useEffect(installZoom, []);
+  useEffect(installAutoTitles, []);
   // (before the first picture of the page: the opening covers it from its first frame)
   useLayoutEffect(() => {
     intro = startIntro();

@@ -18,6 +18,7 @@ export async function selftest(check, errors) {
     const before = errors.length;
     if (patch) setCo(patch);
     await sleep(ms);
+    globalThis.hubProbe?.(`company, ${what}`);
     return errors.length === before ? null : `${what}: ${errors.slice(before).join('; ')}`;
   };
 
@@ -28,6 +29,12 @@ export async function selftest(check, errors) {
   const list = S.co.list?.companies?.tiles || [];
   e = await shown('companies', { chooser: 'companies' });
   check('company: the companies', !e && $$('.co-company').length === list.length + 1, e || `${list.length} companies and the new one`);
+  // the founding wizard, looked at and left (nothing founded)
+  $('.co-company.new')?.click();
+  e = await shown('the founding wizard', null, 1200);
+  check('company: the founding wizard', !e && !!S.co.wizard, e || 'drawn');
+  setCo({ wizard: null });
+  await sleep(300);
   if (!list.length) {
     check('company: a company to look at', true, 'none in this profile: the pages are not drawn (nothing is founded by the check)');
     await leaveCompany();
@@ -40,6 +47,8 @@ export async function selftest(check, errors) {
   const sh = S.co.shell;
   check('company: its bar', !e && !!$('.co-bar .name') && !!$('.co-status') && !!$('.co-clock'), e || `${sh?.name} (${sh?.mode?.label}) ${sh?.clock?.date} ${sh?.clock?.time}`);
   const tabs = sh?.casual ? [HOME, CASUAL.BUSES, CASUAL.SHOP, CASUAL.LINES, CASUAL.NEW_LINE, CASUAL.DRIVERS, CASUAL.MONEY, CASUAL.COMPANY, CASUAL.SHIFTS] : [HOME, 0, 1, 2, 3, 4, 6, 13];
+  // (its start screen at every Launcher size)
+  await globalThis.hubProbeScales?.('company, the start screen');
   for (const tab of tabs) {
     e = await shown(`page ${tab}`, { tab, dialog: null });
     check(`company: page ${sh?.casual ? sh.casual_pages?.pages?.[tab]?.name : sh?.names?.[tab] || 'Start screen'}`, !e && !!$('.co-body')?.firstElementChild, e || `${$$('.co-body *').length} elements`);

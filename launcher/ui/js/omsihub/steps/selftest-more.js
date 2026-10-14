@@ -108,6 +108,7 @@ export async function selftest(check, errors, step) {
     for (const id of ['language', 'animations', 'driver', 'ready']) {
       welcomeStep(id);
       await sleep(450);
+      globalThis.hubProbe?.(`the welcome, ${id}`);
       seen.push(`${id}${$('.hub-welcome') ? '' : ' (missing)'}`);
     }
     const tiles = (welcomeStep('language'), await sleep(300), $$('.hub-wlang').length);
@@ -126,11 +127,13 @@ export async function selftest(check, errors, step) {
     const { startTour } = await import('../tour.js');
     startTour();
     await sleep(900);
+    globalThis.hubProbe?.('the guided tour, stop 1');
     const first = $('.hub-tour-bubble h3')?.textContent || '';
     $('.hub-tour-bubble .next')?.click();
     await sleep(900);
     $('.hub-tour-bubble .next')?.click();
     await sleep(900);
+    globalThis.hubProbe?.('the guided tour, stop 3');
     const third = $('.hub-tour-bubble h3')?.textContent || '';
     const spot = !!$('.hub-tour-ring');
     $('.hub-tour-bubble .skip')?.click();

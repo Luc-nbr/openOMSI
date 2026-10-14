@@ -3,8 +3,9 @@
 // drawn without a script error, its commands answering (the day's board, the drop zones of a
 // trip and of a duty's trip, the candidates, a proposal and keeping one's own), the tutorial (the
 // menu, the help sheet, every stop of the guided tour finding its part) and the lessons' checks
-// run on what RosterFlow shows, as far as they go without an edit. Nothing is edited, saved or
-// printed: a proposal is kept out ("Keep mine"), a lesson ends keeping the nothing it changed.
+// run on what RosterFlow shows, as far as they go without an edit. Nothing is saved or printed: a
+// proposal is kept out ("Keep mine"), a lesson ends keeping the nothing it changed; the one edit,
+// the mouse's drag in Drivers, is undone at once.
 
 import { S } from '../../store.js';
 import { HOME, setCo, cmd, handOver } from '../company/kit.js';
@@ -37,6 +38,61 @@ function inARow(el, open) {
     right = Math.max(right, r.right);
   }
   return out;
+}
+
+/** Where the Gantt's parts lie on the screen (`gantt.js` keeps them on its canvas: `rfHits`). */
+function ganttHits(kind) {
+  const cv = $('.rf-gantt canvas');
+  if (!cv) return [];
+  const box = cv.getBoundingClientRect();
+  const k = cv.offsetWidth ? box.width / cv.offsetWidth : 1;
+  return (cv.rfHits || [])
+    .filter((h) => h.kind === kind)
+    .map((h) => ({ ...h, cx: box.left + (h.x + h.w / 2) * k, cy: box.top + (h.y + h.h / 2) * k }))
+    .filter((h) => h.cx > box.left + 200 * k && h.cx < box.right - 16 && h.cy > box.top && h.cy < box.bottom);
+}
+
+/** A mouse event as the mouse makes it: to whatever lies under the point (a part over the canvas
+ * takes it, as it would take a real mouse's), not to the canvas itself. Returns the element hit. */
+function mouseAt(type, x, y, buttons, mods = {}) {
+  const el = document.elementFromPoint(x, y);
+  el?.dispatchEvent(new MouseEvent(type, { clientX: x, clientY: y, bubbles: true, cancelable: true, button: 0, buttons, ...mods }));
+  return el;
+}
+
+/** Luc's driver drag with the mouse in the Drivers tab: a chip of a duty pressed, moved until it
+ * is taken up, carried over a drop zone of another duty (or New duty) and let go there. What it
+ * found and whether the move took (an edit in the draft, undone after). */
+async function driverDrag(mods = {}) {
+  const chips = ganttHits('chip');
+  const byRow = {};
+  for (const c of chips) (byRow[c.dutyRow] ||= []).push(c);
+  const chip = Object.values(byRow).find((r) => r.length >= 2)?.[0] || chips[0];
+  if (!chip) return { ok: false, said: 'no chip of a duty in view' };
+  const edits = S.rf.edits;
+  const under = mouseAt('mousedown', chip.cx, chip.cy, 1, mods);
+  if (under?.tagName !== 'CANVAS') return { ok: false, said: `${under?.tagName}.${under?.className} lies over the chip` };
+  for (let k = 1; k <= 4; k++) {
+    mouseAt('mousemove', chip.cx + 3 * k, chip.cy + 3 * k, 1, mods);
+    await sleep(40);
+  }
+  await until(() => Array.isArray(S.rf.zones), 15000);
+  await sleep(500);
+  const zones = ganttHits('zone');
+  const zone = zones.find((z) => S.rf.zones?.[z.zi]?.drop?.kind === 'duty') || zones[0];
+  if (!zone) {
+    mouseAt('mouseup', chip.cx + 12, chip.cy + 12, 0, mods);
+    return { ok: false, said: `taken up: ${S.rf.hand?.kind}, ${S.rf.zones?.length ?? 0} zones, none in view - ${S.co.notice?.text || ''}` };
+  }
+  const kind = S.rf.zones[zone.zi]?.drop?.kind;
+  mouseAt('mousemove', zone.cx, zone.cy, 1, mods);
+  await sleep(400);
+  const card = !!$('.rf-zonecard');
+  const dropped = mouseAt('mouseup', zone.cx, zone.cy, 0, mods);
+  await until(() => S.rf.edits > edits, 8000);
+  const ok = S.rf.edits > edits && dropped?.tagName === 'CANVAS';
+  if (ok) await rfAct('undo');
+  return { ok, said: `${S.rf.hand ? S.rf.hand.kind : 'dropped'} on ${kind}${zone.zi} (${zones.length} zones${card ? ', its cost card' : ''})${ok ? ': moved, undone' : ` - ${S.co.notice?.text || 'not moved'}`}` };
 }
 
 async function until(f, ms = 20000) {
@@ -92,9 +148,11 @@ export async function selftest(check, errors) {
   ]) {
     e = await shown(() => setRf({ view, card: null, menu: null, panel: null, hand: null, zones: null, sel: [] }), 1500);
     check(`rosterflow: the ${name} tab`, !e && !!$(sel), e || `${$$('.rf-body *').length} elements`);
+    await globalThis.hubProbeScales?.(`RosterFlow, ${name}`);
   }
   for (const tab of [0, 1]) {
     e = await shown(() => setPart('tp', { tab }), 1200);
+    globalThis.hubProbe?.(`RosterFlow, the Timeplan's ${tab ? 'timetable' : 'running times'}`);
     check(`rosterflow: the Timeplan's ${tab ? 'timetable' : 'running times'}`, !e && (!!$('.tp-body') || !!$('.tp-why')), e || ($('.tp-why')?.textContent || `${$$('.tp-cell').length} cells`).slice(0, 160));
   }
   setPart('tp', { tab: 0 });
@@ -148,11 +206,13 @@ export async function selftest(check, errors) {
   for (const [name, patch, sel] of panels) {
     e = await shown(() => setRf(patch), 500);
     check(`rosterflow: ${name}`, !e && !!$(sel), e || 'drawn');
+    globalThis.hubProbe?.(`RosterFlow, ${name}`);
   }
   setRf({ panel: null, kpisOpen: false });
   for (const item of ['layover', 'prepost', 'signing', 'relief', 'travel', 'breaks', 'continuous', 'limits', 'pieces', 'changeover', 'split', 'types', 'depot', 'costs', 'algorithm']) {
     e = await shown(() => setRf({ prefs: { ...(S.rf.prefs || { search: '', inUse: false }), item } }), 500);
     if (e || !$('.rf-prefs .pbody')) check(`rosterflow: the preferences, ${item}`, false, e || 'not drawn');
+    if (item === 'layover' || item === 'types' || item === 'costs') globalThis.hubProbe?.(`RosterFlow, the preferences, ${item}`);
   }
   check('rosterflow: the preferences', !!S.rf.prefs?.v && !!$('.rf-prefs .pbody'), `${$$('.rf-prefs .item').length} items`);
   setRf({ prefs: null });
@@ -178,6 +238,7 @@ export async function selftest(check, errors) {
     ]) {
       e = await shown(() => setRf(patch), 600);
       check(`rosterflow: ${name}`, !e && !!$(sel), e || 'drawn');
+      globalThis.hubProbe?.(`RosterFlow, ${name}`);
     }
     settle();
     setRf({ panel: null });
@@ -208,6 +269,30 @@ export async function selftest(check, errors) {
       check(`rosterflow: the drop zones of ${name}`, Array.isArray(S.rf.zones), zz.map((x) => `${x.drop.kind}${x.drop.d ?? ''} ${x.stars}* ${x.delta_text}`).join(', ') || 'none');
       settle();
     }
+    // the drag itself, with the mouse: a trip onto another duty, the move kept (and undone)
+    for (const [name, mods] of [['a trip', {}], ['a piece (Alt)', { altKey: true }]]) {
+      settle();
+      setRf({ view: DRIVERS, zones: null, scroll: 0, pan: 0, zoom: 1 });
+      await sleep(900);
+      const before = errors.length;
+      const r = await driverDrag(mods);
+      check(`rosterflow: Drivers, ${name} dragged onto another duty`, r.ok && errors.length === before, (errors.length === before ? '' : errors.slice(before).join('; ') + ' | ') + r.said);
+      await sleep(600);
+    }
+    settle();
+    // Ctrl and the wheel over the Gantt: RosterFlow's zoom, never the launcher's size
+    {
+      setRf({ view: DRIVERS, zoom: 1 });
+      await sleep(600);
+      const cv = $('.rf-gantt canvas');
+      const scale = S.settings?.launcher_scale ?? 1;
+      const box = cv?.getBoundingClientRect();
+      for (let k = 0; k < 2; k++) cv?.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, ctrlKey: true, clientX: box.left + box.width * 0.6, clientY: box.top + box.height / 2, bubbles: true, cancelable: true }));
+      await sleep(500);
+      const zoomed = S.rf.zoom;
+      check("rosterflow: Ctrl and the wheel zoom the Gantt, not the launcher", zoomed > 1 && (S.settings?.launcher_scale ?? 1) === scale, `RosterFlow's zoom ${zoomed.toFixed(2)}, Launcher size ${S.settings?.launcher_scale ?? 1}`);
+      setRf({ zoom: 1, pan: 0 });
+    }
     e = await shown(() => setRf({ menu: { at: { x: 300, y: 200 }, tour: i, trip: j, dutyRow: row, piece: [i, piece], custom: null } }), 500);
     check("rosterflow: the Drivers tab's menu", !e && !!$('.rf-menu'), e || [...$$('.rf-menu .rf-mi')].map((x) => x.textContent).join(', '));
     settle();
@@ -229,14 +314,17 @@ export async function selftest(check, errors) {
   // the tutorial: its menu, the help sheet, every stop of the tour finding its part
   e = await shown(() => setPart('tut', { menu: true, seen: { seen: true, at: 0, done: false, lessons: [] } }), 500);
   check("rosterflow: the tutorial's menu", !e && !!$('.rf-tutmenu'), e || `${$$('.rf-tutmenu button').length} entries`);
+  globalThis.hubProbe?.("RosterFlow, the tutorial's menu");
   e = await shown(() => setPart('tut', { menu: false, sheet: true }), 800);
   check('rosterflow: the help sheet', !e && $$('.rf-help .word canvas').length > 10, e || `${$$('.rf-help .word').length} words, ${$$('.rf-help .key').length} shortcuts`);
+  globalThis.hubProbe?.('RosterFlow, the help sheet');
   setPart('tut', { sheet: false });
   startTour(0);
   const lost = [];
   for (let k = 0; k < STOPS.length; k++) {
     setPart('tut', { tour: { ...S.rf.tut.tour, at: k } });
     await sleep(700);
+    if (k % 4 === 0) globalThis.hubProbe?.(`RosterFlow, the guided tour, stop ${k + 1}`);
     const target = STOPS[k][3];
     const found = target.startsWith('card:') ? !!$('.rf-tour .rf-pic') : target.split('|').some((n) => anchored(n));
     if (!found) lost.push(`${k + 1} ${STOPS[k][1]} (${target})`);
@@ -275,6 +363,7 @@ export async function selftest(check, errors) {
       await sleep(1200);
       reached = S.rf.tut.lesson?.at ?? reached;
     }
+    globalThis.hubProbe?.(`RosterFlow, lesson "${title}"`);
     const l = S.rf.tut.lesson;
     if (!l) check(`rosterflow: lesson "${title}" on its way`, false, `no lesson after it began: ${JSON.stringify({ ...S.rf.tut, seen: undefined }).slice(0, 240)} open=${S.rf.open} tab=${S.co.tab}`);
     const why = l?.stage === 'blocked' ? `waits: ${l.why}` : `${l?.done.filter(Boolean).length ?? 0} of ${steps.length} steps ticked off by themselves`;
