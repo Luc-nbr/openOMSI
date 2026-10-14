@@ -1,0 +1,16 @@
+/* Omsi-Hub's Bus3D: the page's own 3D view of a bus (js/omsihub/bus3d/viewer.js). Classes
+   begin with b3d- (upstream's global sheet has collided with ours before). */
+
+.b3d-viewer { position: relative; overflow: hidden; touch-action: none; }
+.b3d-viewer canvas { opacity: 0; transition: opacity 0.18s ease-out; outline: none; }
+.b3d-viewer canvas.b3d-on { opacity: 1; }
+.b3d-viewer .b3d-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; user-select: none; }
+.b3d-viewer .state.corner { inset: auto 12px 12px auto; }
+@media (prefers-reduced-motion: reduce) {
+  .b3d-viewer canvas { transition: none; }
+}
+
+/* The tiles' photos: the page's own (bus3d/photo.js) are transparent and framed with room round
+   the bus, so they are shown whole rather than cropped to the tile. */
+.hub-tile .pic.shot { background-size: contain !important; background-position: center 45% !important; }
+.photo.shot { background-size: contain !important; }

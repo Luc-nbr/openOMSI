@@ -47,7 +47,7 @@ export function Photo({ file, paint, name, style = '', mono = true }) {
     let gone = false;
     // (Omsi-Hub 6/6: one not there is photographed by the game program, `photos.js`)
     const leave = file ? wantPhoto(file, paint) : null;
-    photo(file, paint).then((u) => !gone && setSrc(u));
+    photo(file, paint, (u) => !gone && setSrc(u)).then((u) => !gone && setSrc(u));
     return () => {
       gone = true;
       leave?.();

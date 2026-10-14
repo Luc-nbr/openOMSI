@@ -242,15 +242,34 @@ fn served(mut bytes: Vec<u8>, scrambled: &[ScrambledBlock]) -> Vec<u8> {
     bytes
 }
 
-/// The bytes of pack `id` for the page.
-pub fn pack_bytes(id: &str) -> Result<Vec<u8>, String> {
+/// The bytes of pack `id` as served (kept a few seconds: the page asks for them in parts).
+fn served_pack(id: &str) -> Result<Arc<Vec<u8>>, String> {
+    static LAST: OnceLock<Mutex<Option<(String, Arc<Vec<u8>>, std::time::Instant)>>> = OnceLock::new();
+    let last = LAST.get_or_init(Default::default);
+    if let Some((k, b, at)) = last.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        if k == id && at.elapsed() < std::time::Duration::from_secs(20) {
+            return Ok(b.clone());
+        }
+    }
     let place = reg().packs.get(id).cloned().ok_or_else(|| "no such pack".to_string())?;
-    match place {
-        Place::Memory(b) => Ok((*b).clone()),
+    let bytes = match place {
+        Place::Memory(b) => b,
         Place::File(f, scrambled) => {
             let bytes = std::fs::read(&f).map_err(|e| format!("{}: {e}", f.display()))?;
-            Ok(served(bytes, &scrambled))
+            Arc::new(served(bytes, &scrambled))
         }
+    };
+    *last.lock().unwrap_or_else(|e| e.into_inner()) = Some((id.to_string(), bytes.clone(), std::time::Instant::now()));
+    Ok(bytes)
+}
+
+/// The bytes of pack `id` for the page, or bytes `from..to` of it (the page fetches a large
+/// pack in a few parts at once: one stream of the window's protocol is the slow part).
+pub fn pack_bytes(id: &str, range: Option<(u64, u64)>) -> Result<Vec<u8>, String> {
+    let b = served_pack(id)?;
+    match range {
+        Some((from, to)) => b.get(from as usize..(to as usize).min(b.len())).map(<[u8]>::to_vec).ok_or_else(|| "outside the pack".into()),
+        None => Ok((*b).clone()),
     }
 }
 
@@ -262,7 +281,7 @@ fn read_for_look(root: &Path, bus: &str, manifest: &Manifest) -> Result<(Arc<Bus
             return Ok((l.read.clone(), l.head.clone()));
         }
     }
-    let bytes = pack_bytes(&manifest.pack)?;
+    let bytes = pack_bytes(&manifest.pack, None)?;
     let (head, _) = pack::read_pack(&bytes)?;
     let read = Arc::new(pack::read_bus(root, bus).map_err(|e| format!("{e:#}"))?);
     let head = Arc::new(head);

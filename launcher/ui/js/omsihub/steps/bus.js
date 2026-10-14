@@ -8,7 +8,8 @@ import { html, useEffect, useMemo, useState } from '../../../vendor/preact-htm.j
 import { S, set, useStore } from '../../store.js';
 import { choose, curBus, loadSituations } from '../../data.js';
 import { toggleFavourite } from '../../pages/bus-picker.js';
-import { BusPreview } from '../../preview.js';
+// (Omsi-Hub Bus3D: the bus drawn by the page's own renderer, `bus3d/viewer.js`)
+import { Bus3D } from '../bus3d/viewer.js';
 import { Search, Select, Input } from '../../ui.js';
 import { Actions, Foot, Head, Icon, Switch, tr, Button } from '../bits.js';
 import { goStep, previousOf, hubStart } from '../flow.js';
@@ -173,7 +174,7 @@ function Chosen({ onBack, onDepots }) {
   const step = (d) => choose({ paint: paints[(at + d + paints.length) % paints.length][0] });
   const star = s.favourites.includes(favKey(v.file));
   return html`
-    <div class="hub-bus-stage"><${BusPreview} look=${{ bus: v.file, paint: c.paint, map: c.map, weather: c.weather, time: c.time, date: c.date }} /></div>
+    <div class="hub-bus-stage"><${Bus3D} bus=${v.file} paint=${c.paint} /></div>
     <section class="hub-sheet narrow">
       <div class="hub-pad" style="padding-top:18px;display:flex;align-items:center;gap:6px">
         <nav style="display:flex;align-items:center;gap:4px;font-size:9.6px;font-weight:700;color:var(--hub-text-dim);min-width:0;flex:1;flex-wrap:wrap">

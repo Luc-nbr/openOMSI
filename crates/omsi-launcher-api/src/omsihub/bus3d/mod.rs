@@ -131,7 +131,10 @@ pub fn call(cmd: &str, args: &Value) -> Option<Answer> {
 /// A command of Bus3D that answers bytes, or None when `cmd` is not one.
 pub fn call_bytes(cmd: &str, args: &Value) -> Option<Result<Vec<u8>, String>> {
     Some(match cmd {
-        "b3d_pack" => cache::pack_bytes(&arg_str(args, "id")),
+        "b3d_pack" => {
+            let num = |k: &str| args.get(k).and_then(Value::as_u64);
+            cache::pack_bytes(&arg_str(args, "id"), num("from").zip(num("to")))
+        }
         "b3d_tex" => (|| {
             let path = cache::texture(&arg_str(args, "id"))?;
             let num = |k: &str| args.get(k).and_then(Value::as_u64);
