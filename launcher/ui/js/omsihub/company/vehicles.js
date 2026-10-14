@@ -135,7 +135,7 @@ export function VehicleList({ scope = 'company', choice = null, onChoice, map = 
 export function VehiclesDialog() {
   const close = () => setCo({ dialog: { kind: 'settings' } });
   const foot = html`<span class="rest"></span><${Btn} kind="primary" label=${tr('Done')} onClick=${close} />`;
-  return html`<${Dialog} icon="directions_bus" title=${tr('Your vehicles')} w=${1000} h=${760} onClose=${close} foot=${foot} bodyStyle="display:flex;flex-direction:column;overflow:hidden">
+  return html`<${Dialog} icon="directions_bus" title=${tr('Your vehicles')} w=${1000} h=${760} onClose=${close} foot=${foot} bodyStyle="display:flex;flex-direction:column;overflow:auto">
     <${VehicleList} scope="company" />
   </${Dialog}>`;
 }
@@ -143,7 +143,7 @@ export function VehiclesDialog() {
 /** The founding wizard's choice of models (`choice` the wizard keeps; `map` its map's file). */
 export function VehiclePicker({ choice, onChoice, map, onClose }) {
   const foot = html`<span class="rest"></span><${Btn} kind="primary" label=${tr('Done')} onClick=${onClose} />`;
-  return html`<${Dialog} icon="directions_bus" title=${tr('Your vehicles')} w=${1000} h=${760} onClose=${onClose} foot=${foot} bodyStyle="display:flex;flex-direction:column;overflow:hidden">
+  return html`<${Dialog} icon="directions_bus" title=${tr('Your vehicles')} w=${1000} h=${760} onClose=${onClose} foot=${foot} bodyStyle="display:flex;flex-direction:column;overflow:auto">
     <${VehicleList} scope="wizard" choice=${choice} onChoice=${onChoice} map=${map} />
   </${Dialog}>`;
 }

@@ -29,3 +29,7 @@
 .vh-settings .vh-list { min-height: 300px; }
 /* (Settings lays its cards out in two columns: the list takes the whole width) */
 .settings-grid:has(.vh-settings) { grid-template-columns: minmax(0, 1fr); }
+/* (a low window, or a large Launcher size: the note gives way, the dialog scrolls to the list) */
+@container (max-height: 600px) {
+  .vh-note { display: none; }
+}

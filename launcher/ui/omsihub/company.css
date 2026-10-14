@@ -391,10 +391,11 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 
 /* the founding: the company on the left, the game mode on the right */
 .co-found { height: 100%; overflow: auto; }
-.co-found .inner { min-height: 760px; height: 100%; display: flex; flex-direction: column; }
+/* (as tall as the window, or as its content - the game mode's cards and the vehicles: never squeezed) */
+.co-found .inner { min-height: max(760px, 100%); height: auto; display: flex; flex-direction: column; }
 .co-found h1 { font-size: 18.4px; font-weight: 700; line-height: 32px; flex: none; }
 .co-found .intro { font-size: var(--co-body); color: var(--hub-text-soft); line-height: 1.8; max-width: 1100px; margin-top: 8px; flex: none; }
-.co-found .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; flex: 1; min-height: 0; margin-top: 18px; }
+.co-found .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; flex: 1 0 auto; min-height: 0; margin-top: 18px; }
 .co-found .co-section { padding: 14px 18px 14px; }
 .co-found .left { display: flex; flex-direction: column; gap: 0; }
 .co-found .row { margin-bottom: 16px; }
@@ -410,7 +411,7 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 .co-found .logo .what p { font-size: var(--co-note); color: var(--hub-text-soft); line-height: 22px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .co-found .logo .what .btns { display: flex; gap: 10px; margin-top: 6px; }
 .co-found .home2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.co-found .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; flex: 1; min-height: 200px; }
+.co-found .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; flex: 1 0 auto; min-height: 200px; }
 .co-found .card { border-radius: var(--hub-r); box-shadow: inset 0 0 0 1px var(--hub-hairline); padding: 14px 16px; text-align: left; background: none; color: var(--hub-text); cursor: pointer; overflow: hidden; display: block; transition: background 0.08s; }
 .co-found .card:hover { background: rgba(var(--co-white), var(--aw-03)); }
 .co-found .card.on { background: rgba(var(--hub-accent-rgb), var(--ac-08)); box-shadow: inset 0 0 0 2px var(--hub-accent); }
