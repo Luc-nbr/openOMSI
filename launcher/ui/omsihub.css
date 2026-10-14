@@ -713,6 +713,15 @@
   .hub .settings-grid { grid-template-columns: 1fr; }
 }
 
+/* a new page or step fades up from the ground, as the game-drawn launcher's plain
+   change of screen (`transition::FADE_S`, 0.24 s), a little longer and softer (Luc, Beta 53):
+   opacity only - a transform would make the wrapper the frame of the sheets placed in the stage */
+@keyframes hub-page-in { from { opacity: 0; } }
+.hub-flow, .hub-stage > .hub-sheet.page, .co-body, .rf-body { animation: hub-page-in 0.33s cubic-bezier(0.22, 1, 0.36, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .hub-flow, .hub-stage > .hub-sheet.page, .co-body, .rf-body { animation: none; }
+}
+
 /* the setting "Animations" off: nothing moves */
 .hub-still *, .hub-still *::before, .hub-still *::after { transition: none !important; animation: none !important; }
 
