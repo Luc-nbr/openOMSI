@@ -161,7 +161,7 @@ export function TimeplanTab() {
   return html`<div class="rf-tp" data-rf="rf-tp">
     <${ContextBar} v=${v} />
     ${t.tab === TIMETABLE && v.ready && html`<${Kpis} v=${v} />`}
-    <div class="tp-body" style=${`top:${BAR_H + 6 + (t.tab === TIMETABLE && v.ready ? KPI_H + 6 : 0)}px`} data-rf=${v.ready ? 'rf-tp-body' : undefined}>
+    <div class=${"tp-body" + (v.ready && !v.no_side ? "" : " empty")} style=${`top:${BAR_H + 6 + (t.tab === TIMETABLE && v.ready ? KPI_H + 6 : 0)}px`} data-rf=${v.ready ? 'rf-tp-body' : undefined}>
       ${!v.ready ? html`<p class="tp-why">${v.why || tr('The company runs no line yet: add one on the Lines page first.')}</p>` : v.no_side ? html`<p class="tp-why">${v.no_side}</p>` : t.tab === RUNNING ? html`<${Running} v=${v} />` : html`<${Timetable} v=${v} />`}
     </div>
     ${v.ready && html`<${StatusBar} v=${v} />`}

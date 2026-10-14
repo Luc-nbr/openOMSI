@@ -36,9 +36,16 @@ export async function applyShot(name) {
   setRf({ view, intro: null, tut: { ...S.rf.tut, asked: S.boot?.config?.profile || '', offer: false } });
   if (what === 'timetable') setPart('tp', { tab: 1 });
   if (what === 'timeplan') setPart('tp', { tab: 0 });
+  // ("timeplan.76": that line)
+  if ((what === 'timetable' || what === 'timeplan') && arg) setRf({ tpLine: arg, tpHint: null });
   const b = await board();
   if (!b) return;
   await sleep(300);
+  // (the line read, its screen as asked)
+  if ((what === 'timetable' || what === 'timeplan') && arg) {
+    await sleep(1500);
+    setPart('tp', { tab: what === 'timetable' ? 1 : 0 });
+  }
   const t = firstTrip(b);
   // (where the game-drawn launcher's picture clicks: its first chip, 220,241 of its window)
   const at = { x: 208, y: 181 };
@@ -89,6 +96,10 @@ export async function applyShot(name) {
     }
     case 'proposal':
       return rfAct('optimise');
+    // (both graphs kept as PDF files, not opened: the sandbox's Downloads)
+    case 'printpdf':
+      await rfAct('print', { bus: true });
+      return rfAct('print', { bus: false });
     case 'tutmenu':
       return setPart('tut', { menu: true, seen: { seen: true, at: 0, done: false, lessons: [] } });
     case 'help':
