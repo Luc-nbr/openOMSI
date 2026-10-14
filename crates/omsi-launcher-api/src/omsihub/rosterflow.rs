@@ -31,6 +31,10 @@ mod tutorial;
 /// Luc's driver drag (`rf-driver-drag`): single trips of a duty to another duty or a new one.
 mod driver_drag;
 
+/// A duty's breaks and driving periods as the page shows them, and the rules as the Preferences
+/// change them (testers, 2026-10-14).
+mod breaks;
+
 use super::company::words::{day_label, eur, tr, trf};
 use super::company::{self, Session};
 use crate::{Answer, Platform};
@@ -335,6 +339,7 @@ fn board_json(c: &Company, board: &Board) -> Value {
                 "spans": s.spans.iter().map(|x| json!({ "tour": x.tour, "duty": x.duty, "from": x.from, "to": x.to })).collect::<Vec<_>>(),
                 "events": events,
                 "issues": { "any": !any.is_empty(), "hard": any.iter().any(|x| x.hard), "tip": any.iter().map(|x| issue_words(x)).collect::<Vec<_>>().join("\n") },
+                "rest": breaks::duty_json(p, s),
             })
         })
         .collect();
@@ -597,6 +602,14 @@ fn view(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
             _ => json!({}),
         },
         "duty" => duty_view(c, board, usize_arg(args, "row")),
+        // (the Preferences as edited, not saved yet: what breaks each rule with them, next to its
+        // fields while the window is open)
+        "prefs_check" => {
+            let prefs: rf::Prefs = arg(args, "prefs")?;
+            let mut v = c.clone();
+            v.planning.flow.prefs = prefs;
+            breaks::prefs_check(board, &rf::board(&v, &k.lines, &k.date))
+        }
         other => return Err(format!("no view {other}")),
     })
 }
@@ -770,8 +783,6 @@ fn duty_view(c: &Company, board: &Board, row: usize) -> Value {
         }
         pieces.push(v);
     }
-    let breaks: Vec<(i32, i32)> = rf::breaks_of(prefs, &board.tours, s).into_iter().filter(|b| b.1 - b.0 >= prefs.break_min).collect();
-    let breaks_words = (!breaks.is_empty()).then(|| format!("{}: {}", tr("Breaks"), breaks.iter().take(6).map(|b| format!("{} ({})", rf::clock(b.0), rf::hm(b.1 - b.0))).collect::<Vec<_>>().join(", ")));
     json!({
         "label": s.label(row), "id": duty_id(s), "kind": tr(s.kind_name(prefs)), "locked": s.locked, "spare": s.spare.is_some(),
         "types": names, "type_at": at,
@@ -782,7 +793,7 @@ fn duty_view(c: &Company, board: &Board, row: usize) -> Value {
         "sign_off": note.as_ref().and_then(|n| n.sign_off).unwrap_or(prefs.sign_off),
         "pieces": pieces,
         "travel_labels": Travel::LABELS.iter().map(|x| tr(x)).collect::<Vec<_>>(),
-        "breaks": breaks_words,
+        "rest": breaks::panel_json(prefs, s),
         "custom": s.custom.iter().map(|cw| format!("{}  {}–{}", tr(&cw.kind), rf::clock(cw.from), rf::clock(cw.to))).collect::<Vec<_>>(),
         "kinds": rf::CUSTOM_KINDS.iter().map(|x| tr(x)).collect::<Vec<_>>(),
         "issues": s.issues.iter().map(|&i| json!({ "text": issue_words(&board.issues[i]), "hard": board.issues[i].hard })).collect::<Vec<_>>(),
@@ -836,6 +847,25 @@ fn edit(s: &mut Session, r: &mut Rf, label: String, f: impl FnOnce(&mut Company)
         }
         Err(why) => said(tr(why), true),
     }
+}
+
+/// The company's preferences changed (from `was`; `before` what broke each rule then): the day
+/// made again with them at once - its issues, figures, breaks and driving periods - and an
+/// Optimise proposal made to the old rules dropped (it stayed while the day's own board was the
+/// same, and Accept then kept a plan cut to the old rules). What the changed rules break now is
+/// said, with Optimise offered to work to them.
+fn rules_applied(s: &mut Session, r: &mut Rf, date: &str, was: &rf::Prefs, before: Option<&[(&'static str, usize)]>) -> Value {
+    r.cache = None;
+    r.proposal = None;
+    let mut out = said(tr("Preferences saved: the issues and Optimise follow them."), false);
+    if let Some(Ok(k)) = ensure(s, r, date) {
+        let offer = breaks::offer(was, &k.view.planning.flow.prefs, before, &k.board);
+        if let Some(text) = offer.get("text").and_then(Value::as_str) {
+            out["say"]["text"] = json!(text);
+        }
+        out["offer"] = offer;
+    }
+    out
 }
 
 /// Undo the last edit (`back`), or redo the last undone (`rosterflow::undo`).
@@ -978,14 +1008,13 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
         }
         "prefs" => {
             let prefs: rf::Prefs = arg(args, "prefs")?;
+            let was = s.company.as_ref().map(|c| c.planning.flow.prefs.clone()).unwrap_or_default();
+            let before = r.cache.as_ref().filter(|k| k.date == date).map(|k| breaks::rule_counts(&k.board));
             return Ok(match company::act(s, |c| {
                 c.planning.flow.prefs = prefs;
                 Ok(())
             }) {
-                Ok(()) => {
-                    r.cache = None;
-                    said(tr("Preferences saved: the issues and Optimise follow them."), false)
-                }
+                Ok(()) => rules_applied(s, r, &date, &was, before.as_deref()),
                 Err(_) => json!({}),
             });
         }
@@ -1390,6 +1419,74 @@ mod tests {
         assert_eq!(k["top"][0]["delta"][1], true);
         assert_eq!(k["more"].as_array().map(Vec::len), Some(2));
         assert!(kpis_json(&b.figures, None)["top"][0]["delta"].is_null());
+    }
+
+    /// Line 5 between A and B with tours 1 (06:00) and 2 (06:30) of eight trips of 50 minutes,
+    /// ten minutes at each end, and a company that runs it.
+    fn line5_company() -> (Company, omsi_launcher_lib::LineInfo) {
+        use omsi_launcher_lib::{LineInfo, StopInfo, TourInfo, TripInfo};
+        let trip = |no: &str, k: i32, from: i32| {
+            let (a, b) = if k % 2 == 0 { ("A", "B") } else { ("B", "A") };
+            let dep = from + k * 60;
+            TripInfo { name: format!("5 {no}-{k}"), index: 0, line: "5".into(), from: a.into(), terminus: format!("{b} Bf"), departure: dep as f64 * 60.0, arrival: (dep + 50) as f64 * 60.0, stops: (0..6).map(|s| StopInfo { name: match s { 0 => a.to_string(), 5 => b.to_string(), _ => format!("S{s}") }, id: s, arr: 0.0, dep: 0.0 }).collect(), km: 20.0 }
+        };
+        let tour = |no: &str, from: i32| TourInfo { number: no.into(), ai_group: String::new(), first: 0.0, last: 0.0, days: "daily".into(), runs: true, next_run: None, trips: (0..8).map(|k| trip(no, k, from)).collect() };
+        let l = LineInfo { name: "Linie5".into(), user_allowed: true, termini: vec!["A".into(), "B".into()], tours: vec![tour("1", 360), tour("2", 390)] };
+        let mut c = co::found(&co::Founding { name: "Flow".into(), game_mode: co::GameMode::Normal, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+        c.lines.push(co::model::CompanyLine { name: "Linie5".into(), number: "5".into(), numbers: vec!["5".into()], added: c.date.clone(), service_from: Some(0), ..Default::default() });
+        (c, l)
+    }
+
+    #[test]
+    fn a_rule_saved_applies_to_the_day_at_once_and_a_proposal_of_the_old_rules_goes() {
+        // (testers: "When it asks me about amount of time that can be worked before a break etc,
+        // its not actually realising this immediately")
+        company::words::set_language("en");
+        let (c, l) = line5_company();
+        let date = c.date.clone();
+        let mut s = Session::default();
+        s.company = Some(c);
+        company::test_week(&mut s, vec![l]);
+        let mut r = Rf::default();
+        let count = |k: &Cached, text: &str| k.board.issues.iter().filter(|i| i.text == text).count();
+        let k = ensure(&mut s, &mut r, &date).unwrap().unwrap();
+        // two whole tours of 7:50 with ten-minute layovers: no break, over 4:30 and no meal break
+        assert_eq!((count(&k, rf::I_CONTINUOUS), count(&k, rf::I_MEAL)), (2, 2));
+        let duty = &k.json["duties"][0]["rest"];
+        assert_eq!(duty["periods"].as_array().map(Vec::len), Some(1));
+        assert_eq!(duty["periods"][0]["over"], true);
+        assert!(duty["meal"]["tip"].as_str().is_some_and(|t| t.contains("No meal break by")));
+        // Optimise's proposal, made to these rules
+        r.proposal = Some(Proposal { date: date.clone(), generation: k.generation, base: k.rev.clone(), board: k.board.clone(), view: k.view.clone(), layouts: Vec::new(), joined: Vec::new() });
+        // the rules edited, not saved: what each breaks then, next to its fields
+        let mut edited = (*k.view).clone();
+        edited.planning.flow.prefs.break_from = 10;
+        edited.planning.flow.prefs.break_min = 10;
+        let check = breaks::prefs_check(&k.board, &rf::board(&edited, &k.lines, &date));
+        assert_eq!(check["counts"]["continuous"]["n"], 0);
+        assert_eq!(check["counts"]["continuous"]["text"], "Nothing breaks this rule now. (2 with the saved rules)");
+        assert_eq!(check["counts"]["breaks"]["text"], "2 duties break this rule now.");
+        // the rules saved as the "prefs" action saves them (`company::act` writes the company to
+        // the data folder, so here it is changed in the session): the cached day is the old
+        // rules' until they are applied
+        let was = s.company.as_ref().unwrap().planning.flow.prefs.clone();
+        let before = breaks::rule_counts(&k.board);
+        {
+            let p = &mut s.company.as_mut().unwrap().planning.flow.prefs;
+            p.break_from = 10;
+            p.break_min = 10;
+            p.meal_after = 240;
+        }
+        assert_eq!(count(&ensure(&mut s, &mut r, &date).unwrap().unwrap(), rf::I_CONTINUOUS), 2, "the cache of the old rules");
+        let out = rules_applied(&mut s, &mut r, &date, &was, Some(&before));
+        let k = ensure(&mut s, &mut r, &date).unwrap().unwrap();
+        assert_eq!((count(&k, rf::I_CONTINUOUS), count(&k, rf::I_MEAL)), (0, 2));
+        assert_eq!(k.json["duties"][0]["rest"]["periods"].as_array().map(Vec::len), Some(8));
+        assert!(r.proposal.is_none(), "a proposal made to the old rules");
+        // the changed rule the duties break: said at once, Optimise offered
+        assert_eq!(out["offer"]["text"], "Broken now by the changed rules: Duty Breaks (2 duties)");
+        assert_eq!(out["say"]["text"], out["offer"]["text"]);
+        assert!(out["offer"]["groups"].as_array().is_some_and(|g| g.iter().any(|x| x == rf::I_MEAL)));
     }
 
     /// The English texts the commands hand to `tr`/`trf` (the first literal of each call).

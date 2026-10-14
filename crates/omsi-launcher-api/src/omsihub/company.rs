@@ -607,6 +607,16 @@ pub fn week_work(s: &mut Session) {
     });
 }
 
+/// Tests: the company's week read as `lines` every day, without the map (RosterFlow's day made
+/// from them at once).
+#[cfg(test)]
+pub(crate) fn test_week(s: &mut Session, lines: Vec<core::LineInfo>) {
+    let Some(c) = s.company.as_ref() else { return };
+    let week: Vec<(String, String)> = (0..7).map(|k| (c.map.clone(), co::dates::add(&c.date, k))).collect();
+    let days = week.iter().map(|(m, d)| (m.clone(), d.clone(), Ok(lines.clone()))).collect();
+    s.week = Week { days, asked: week, cache: Vec::new(), read_at: s.timetable };
+}
+
 /// The plan of a day of the week (None: its timetable is still being read; `planning::plan_of`).
 pub fn plan_of(s: &mut Session, date: &str) -> Option<Result<co::plan::DayPlan, String>> {
     let c = s.company.as_ref()?;
