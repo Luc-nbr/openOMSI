@@ -1,0 +1,31 @@
+[package]
+name = "omsihub-livery"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Omsi-Hub's livery studio's core, shared by the game program's studio and the desktop launcher's page: the project, the bake, the paint on the CPU and the livery written into the game"
+
+[dependencies]
+glam.workspace = true
+log.workspace = true
+rayon.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+ab_glyph.workspace = true
+# shapes, outlines and SVG pictures rasterised (as omsi-ui does its icons)
+resvg = { version = "0.45", default-features = false }
+omsi-cfg = { path = "../omsi-cfg" }
+omsi-launcher-core = { path = "../omsi-launcher-core" }
+omsi-model = { path = "../omsi-model" }
+omsi-sim = { path = "../omsi-sim" }
+omsi-texture = { path = "../omsi-texture" }
+omsi-vehicle = { path = "../omsi-vehicle" }
+
+[dev-dependencies]
+# (the tests write pictures for the export and the picture reader)
+image.workspace = true
+
+[features]
+# what the game program's studio's tests see: the box bus, a texel's share of paint
+test-support = []

@@ -26,6 +26,8 @@ members = [
     # Omsi-Hub: its pieces of the game program (the navigator's duty, the loading screen, the
     # desktop launcher's editors the launcher service keeps)
     "crates/omsihub-game",
+    # (its livery studio's core, shared with the desktop launcher's page studio)
+    "crates/omsihub-livery",
     "crates/omsi-lan",
     "crates/omsi-platform",
     "crates/omsi-guard",

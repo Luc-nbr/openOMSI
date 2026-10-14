@@ -1125,13 +1125,13 @@ pub enum NameError {
 impl NameError {
     pub fn message(&self) -> String {
         match self {
-            NameError::Empty => omsi_ui::tr("Give the livery a name.").into_owned(),
-            NameError::TooLong => omsi_ui::tr("The name is too long (48 characters at most).").into_owned(),
-            NameError::Character(c) => omsi_ui::tr("OMSI cannot read the character '%{c}' in a name.").replace("%{c}", &c.to_string()),
-            NameError::Edge => omsi_ui::tr("The name cannot begin or end with a space.").into_owned(),
-            NameError::Bracket => omsi_ui::tr("The name cannot begin with '['.").into_owned(),
-            NameError::Reserved => omsi_ui::tr("That name is reserved; choose another.").into_owned(),
-            NameError::Taken(n) => omsi_ui::tr("This bus already has a livery called '%{name}'.").replace("%{name}", n),
+            NameError::Empty => crate::tr("Give the livery a name.").into_owned(),
+            NameError::TooLong => crate::tr("The name is too long (48 characters at most).").into_owned(),
+            NameError::Character(c) => crate::tr("OMSI cannot read the character '%{c}' in a name.").replace("%{c}", &c.to_string()),
+            NameError::Edge => crate::tr("The name cannot begin or end with a space.").into_owned(),
+            NameError::Bracket => crate::tr("The name cannot begin with '['.").into_owned(),
+            NameError::Reserved => crate::tr("That name is reserved; choose another.").into_owned(),
+            NameError::Taken(n) => crate::tr("This bus already has a livery called '%{name}'.").replace("%{name}", n),
         }
     }
 }

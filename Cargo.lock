@@ -4061,6 +4061,7 @@ dependencies = [
  "omsi-timetable",
  "omsi-ui",
  "omsi-vehicle",
+ "omsihub-livery",
  "rayon",
  "resvg",
  "rfd",
@@ -4070,6 +4071,27 @@ dependencies = [
  "sha2",
  "wgpu",
  "winit",
+]
+
+[[package]]
+name = "omsihub-livery"
+version = "0.1.0"
+dependencies = [
+ "ab_glyph",
+ "glam",
+ "image",
+ "log",
+ "omsi-cfg",
+ "omsi-launcher-core",
+ "omsi-model",
+ "omsi-sim",
+ "omsi-texture",
+ "omsi-vehicle",
+ "rayon",
+ "resvg",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

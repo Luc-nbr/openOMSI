@@ -971,7 +971,8 @@ pub fn lab_to_linear(lab: [f32; 3]) -> [f32; 3] {
     [(3.2406 * x - 1.5372 * y - 0.4986 * z).max(0.0), (-0.9689 * x + 1.8758 * y + 0.0415 * z).max(0.0), (0.0557 * x - 0.2040 * y + 1.0570 * z).max(0.0)]
 }
 
-#[cfg(test)]
+// (the box bus is the game program's studio's tests' too: `test-support`)
+#[cfg(any(test, feature = "test-support"))]
 pub mod tests {
     use super::*;
 
@@ -1172,6 +1173,7 @@ pub mod tests {
 
     /// A body colour (yellow, most of it), a black trim (the window surrounds, a fifth) and a
     /// grey part (a bumper, an eighth).
+    #[cfg(test)]
     fn yellow_black_grey() -> Vec<[u8; 3]> {
         let mut cs = vec![[240u8, 200, 20]; 650];
         cs.extend(vec![[200u8, 166, 16]; 60]);

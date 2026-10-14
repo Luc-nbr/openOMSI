@@ -27,6 +27,9 @@ omsi-texture = { path = "../omsi-texture" }
 omsi-timetable = { path = "../omsi-timetable" }
 omsi-ui = { path = "../omsi-ui" }
 omsi-vehicle = { path = "../omsi-vehicle" }
+# the livery studio's core (the project, the bake, the paint, the export), shared with the
+# desktop launcher's page studio
+omsihub-livery = { path = "../omsihub-livery" }
 ab_glyph.workspace = true
 rayon.workspace = true
 sha2.workspace = true
@@ -43,6 +46,7 @@ rfd.workspace = true
 test-support = []
 
 [dev-dependencies]
+omsihub-livery = { path = "../omsihub-livery", features = ["test-support"] }
 # the tests that every text is translated read the game's tables (`crates/omsi-app/locales`)
 # as the game does
 rust-i18n = "4"

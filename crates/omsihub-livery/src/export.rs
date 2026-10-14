@@ -127,13 +127,13 @@ fn write(job: &Job, tx: &std::sync::mpsc::Sender<Msg>) -> Result<Vec<String>, St
     let mut written = Vec::new();
     let n = job.targets.len().max(1) as f32;
     for (k, t) in job.targets.iter().enumerate() {
-        let _ = tx.send(Msg::Progress(omsi_ui::tr("Painting the textures…").into_owned(), k as f32 / n));
+        let _ = tx.send(Msg::Progress(crate::tr("Painting the textures…").into_owned(), k as f32 / n));
         let from = Painting { geom: &job.geom, outside: &job.outside, zones: &job.zones, layers: &job.layers, pictures: &job.pictures, mirror: job.mirror };
         let said = |f: f32| {
-            let _ = tx.send(Msg::Progress(omsi_ui::tr("Painting the textures…").into_owned(), (k as f32 + f * 0.8) / n));
+            let _ = tx.send(Msg::Progress(crate::tr("Painting the textures…").into_owned(), (k as f32 + f * 0.8) / n));
         };
         let Some((out, w, h, alpha)) = paint_full(&from, k, t.index, &t.base, t.template.as_ref(), &|| false, &said)? else { continue };
-        let _ = tx.send(Msg::Progress(omsi_ui::tr("Compressing…").into_owned(), (k as f32 + 0.85) / n));
+        let _ = tx.send(Msg::Progress(crate::tr("Compressing…").into_owned(), (k as f32 + 0.85) / n));
         let format = if alpha { omsi_texture::bc::Bc::Bc3 } else { omsi_texture::bc::Bc::Bc1 { punch: false } };
         let dds = omsi_texture::dds::encode(&out, w, h, format);
         let hash = sha2::Sha256::digest(&dds);
@@ -220,7 +220,7 @@ pub fn paint_full(from: &Painting, k: usize, index: u8, base: &Path, template: O
     let mut out = vec![0u8; (w * h * 4) as usize];
     let mut cache = RasterCache::default();
     let mut ops: Option<Vec<paint::Prepared>> = None;
-    let template = template.and_then(|tp| super::template_pictures(tp, w, h));
+    let template = template.and_then(|tp| crate::template_pictures(tp, w, h));
     let none = Zones::default();
     let mut y = 0;
     while y < h {
@@ -298,6 +298,12 @@ pub fn next_number(dir: &Path) -> u32 {
 mod tests {
     use super::super::bake::tests::box_bus;
     use super::*;
+
+    /// The paint scheme named `paint` of `vt`, as the game picks it for `--paint`.
+    fn paint_scheme(vt: &omsi_sim::VehicleType, paint: Option<&str>) -> Option<usize> {
+        let asked = paint.map(str::trim).filter(|p| !p.is_empty())?;
+        vt.paint_schemes.iter().position(|s| s.name.eq_ignore_ascii_case(asked))
+    }
 
     #[test]
     fn a_livery_is_written_into_the_content_folder_and_read_by_the_game() {
@@ -394,7 +400,7 @@ mod tests {
         let bus = bus_dir.join("box.bus");
         // the bus step looks at the bus before the livery is there
         let before = omsi_sim::VehicleType::load(&install, &bus).unwrap();
-        assert_eq!(crate::spawn::paint_scheme(&before, Some("Lucstad")), None);
+        assert_eq!(paint_scheme(&before, Some("Lucstad")), None);
         // the save, into the content folder's copy of the [CTC] folder (as `save` makes it)
         let ctc = content.join(bus_dir.join("Texture").strip_prefix(&install).unwrap());
         std::fs::create_dir_all(&ctc).unwrap();
@@ -428,7 +434,7 @@ mod tests {
         }
         // the same launcher picks it: the paint is there, its body texture the one written
         let vt = omsi_sim::VehicleType::load(&install, &bus).unwrap();
-        let scheme = crate::spawn::paint_scheme(&vt, Some("Lucstad"));
+        let scheme = paint_scheme(&vt, Some("Lucstad"));
         let names: Vec<&str> = vt.paint_schemes.iter().map(|s| s.name.as_str()).collect();
         assert!(scheme.is_some(), "the saved livery among the bus's paints: {names:?}");
         let (subst, scheme_dir) = vt.scheme_substitutions(scheme.unwrap());

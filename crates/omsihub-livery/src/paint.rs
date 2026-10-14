@@ -176,7 +176,7 @@ impl Canvas {
         self
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     /// How much of texel `i` is paint (0..1): its zones' paint by their parts.
     pub fn paint_share(&self, i: usize) -> f32 {
         let (a, b, t) = self.mix[i];

@@ -345,6 +345,9 @@ fn sources() -> Vec<(String, PathBuf)> {
     let mut out = Vec::new();
     let mut todo: Vec<(PathBuf, &Path, &str)> = SCOPE.iter().map(|s| src.join(s)).filter(|p| p.exists()).map(|p| (p, src.as_path(), "")).collect();
     todo.push((launcher.clone(), launcher.as_path(), "launcher/"));
+    // (and the livery studio's core, its crate omsihub-livery since the page studio shares it)
+    let livery = Path::new(env!("CARGO_MANIFEST_DIR")).join("../omsihub-livery/src");
+    todo.push((livery.clone(), livery.as_path(), "launcher/livery/"));
     while let Some((p, root, prefix)) = todo.pop() {
         if p.is_dir() {
             todo.extend(std::fs::read_dir(&p).unwrap().flatten().map(|e| (e.path(), root, prefix)));
