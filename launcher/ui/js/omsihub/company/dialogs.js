@@ -90,7 +90,7 @@ function SettingsDialog({ d }) {
         <p class="co-note">${v.mode_info}</p></div>
       ${v.addons && html`<div class="co-caps">${v.addons.caps}</div>
         <div class="addon"><${Icon} name="extension" size=${18} class="t-accent2" />
-          <div style="flex:1;min-width:0;max-width:530px"><${Switch} checked=${v.addons.on} label=${v.addons.label} onChange=${(on) => act('rosterflow', { on }).then((r) => r?.rosterflow && (close(), handOver('5')))} />
+          <div style="flex:1;min-width:0;max-width:530px"><${Switch} checked=${v.addons.on} label=${v.addons.label} onChange=${(on) => act('rosterflow', { on }).then((r) => r?.rosterflow && (close(), handOver('5', { switched: true })))} />
             <p class="co-note">${v.addons.note}</p></div></div>`}
       ${v.buying && html`<div class="co-caps">${v.buying.caps}</div>
         <div class="pair"><${Seg} value=${v.buying.mode} options=${v.buying.modes.map((m, i) => [i, m])} onChange=${(i) => act('buying_mode', { mode: i })} style="width:320px;height:40px" />

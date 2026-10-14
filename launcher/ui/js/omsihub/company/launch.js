@@ -8,7 +8,7 @@ import { S, toast } from '../../store.js';
 import { duty } from '../../data.js';
 import { RouteMap } from '../../routemap.js';
 import { dark } from '../theme.js';
-import { html, useEffect, act, useView, handOver, Icon, Mark, Select, inkOn, rgbOf } from './kit.js';
+import { html, useEffect, act, useView, Icon, Mark, Select, inkOn, rgbOf } from './kit.js';
 
 /** Start the duty: upstream's duty as the base, the company's duty over it on the Rust side
  * (`launch_start`, as our game-drawn launcher starts it); `dry` only says the command line. */
@@ -41,10 +41,8 @@ export function LaunchPage() {
   }, []);
   if (!v) return null;
   const close = () => act('launch_close');
-  const fix = async () => {
-    const r = await act('launch_fix');
-    if (r?.hand_over) handOver(r.hand_over);
-  };
+  // (Omsi-Hub 4/6: `act` hands over itself, with the duty; a second hand-over here raced it)
+  const fix = () => act('launch_fix');
   return html`<div class="co-launch">
     <div class="head">
       <${Mark} mark=${v.mark} size=${48} />

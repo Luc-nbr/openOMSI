@@ -1,0 +1,26 @@
+_version: 2
+# RosterFlow in Omsi-Hub's look of openOMSI's desktop launcher (launcher/ui/js/omsihub/rosterflow,
+# crates/omsi-launcher-api/src/omsihub/rosterflow.rs, Trello "Tauri 4/6"): the texts only that page
+# says. RosterFlow's own texts are the game-drawn launcher's (rosterflow*.yml, planning-studio.yml,
+# company-planning.yml and the others), read by the page as they are. The English text is the key,
+# as in app.yml.
+
+# --- a print kept -------------------------------------------------------------------------------
+"Open the file":
+  en: "Open the file"
+  nl: "Bestand openen"
+  de: "Datei öffnen"
+  fr: "Ouvrir le fichier"
+  ru: "Открыть файл"
+  uk: "Відкрити файл"
+  pl: "Otwórz plik"
+
+# --- the Timeplan's line gone from the line editor's list -----------------------------------------
+"The line is no longer in the line editor's list: open the timetable again.":
+  en: "The line is no longer in the line editor's list: open the timetable again."
+  nl: "De lijn staat niet meer in de lijst van de lijneditor: open de dienstregeling opnieuw."
+  de: "Die Linie steht nicht mehr in der Liste des Linieneditors: öffne den Fahrplan erneut."
+  fr: "La ligne n'est plus dans la liste de l'éditeur de lignes : rouvrez l'horaire."
+  ru: "Линии больше нет в списке редактора линий: откройте расписание снова."
+  uk: "Лінії більше немає в списку редактора ліній: відкрийте розклад знову."
+  pl: "Linii nie ma już na liście edytora linii: otwórz rozkład jeszcze raz."

@@ -103,4 +103,6 @@ export async function selftest(check, errors) {
 
   // the bus company (Trello "Tauri 2/6": js/omsihub/company/selftest.js)
   await (await import('./company/selftest.js')).selftest(check, errors);
+  // RosterFlow, the Planning page with its add-on on (Omsi-Hub 4/6: js/omsihub/rosterflow/selftest.js)
+  await (await import('./rosterflow/selftest.js')).selftest(check, errors);
 }

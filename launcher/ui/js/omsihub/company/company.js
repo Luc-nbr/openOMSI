@@ -26,6 +26,8 @@ import { InboxPage } from './inbox.js';
 import { CareerPage } from './career.js';
 import { CasualPage } from './casual.js';
 import { LaunchPage } from './launch.js';
+// Omsi-Hub 4/6: RosterFlow, the Planning page with the add-on on, over the whole window.
+import { RosterFlowPage } from '../rosterflow/index.js';
 
 // (the company's own look, loaded with its first page)
 const sheet = document.createElement('link');
@@ -65,6 +67,10 @@ export function enterCompany(over = {}) {
 export function companyPage(part, id) {
   const casual = { buses: CASUAL.BUSES, shop: CASUAL.SHOP, lines: CASUAL.LINES, 'new-line': CASUAL.NEW_LINE, drivers: CASUAL.DRIVERS, money: CASUAL.MONEY, company: CASUAL.COMPANY, shifts: CASUAL.SHIFTS };
   if (part === 'choose') return enterCompany();
+  // Omsi-Hub 4/6: the Planning page opens RosterFlow when its add-on is on, as the game-drawn
+  // launcher does ("5~<state>": RosterFlow in a state of its own, for the comparison pictures)
+  const [first, shot] = String(part || '').split('~');
+  if (first === '5') return enterCompany({ chooser: null, tab: HOME, want: id || null, rfWant: { shot: shot || null } });
   let tab = HOME;
   if (/^\d+$/.test(part || '')) tab = Number(part);
   else if (part in casual) tab = casual[part];
@@ -143,6 +149,8 @@ export function CompanyScreen() {
   useEffect(() => {
     const k = (e) => {
       if (e.key !== 'Escape' || modalOpen() || !S.co.shell?.open || S.co.chooser || S.co.wizard || S.co.shell.launch) return;
+      // (RosterFlow has its own Escape: Omsi-Hub 4/6)
+      if (S.rf?.open && S.co.tab === 5) return;
       const el = document.activeElement;
       if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
       setCo({ tab: S.co.shell.casual ? parentOf(S.co.shell, S.co.tab) : HOME });
@@ -154,12 +162,29 @@ export function CompanyScreen() {
   const choosing = read && c.chooser && !c.wizard;
   const founding = read && !choosing && (c.wizard || !sh.open);
   const open = read && !choosing && !founding && sh.open;
+  // (Omsi-Hub 4/6: the Planning page asked for at the start, once the company is open)
+  useEffect(() => {
+    if (!open || !c.rfWant) return;
+    const more = c.rfWant;
+    setCo({ rfWant: null });
+    handOver('5', more);
+  }, [open, c.rfWant]);
   let body;
   if (!read) body = html`<div class="co-body found"><div class="co-empty">${c.failed || tr('Reading your companies…')}</div></div>`;
   else if (choosing) body = html`<div class="co-body found"><${Chooser} /></div>`;
   else if (founding) body = html`<div class="co-body found"><${Wizard} /></div>`;
   else if (sh.launch) body = html`<div class="co-body full"><${LaunchPage} /></div>`;
   else body = html`${sh.casual ? html`<${CasualNav} />` : html`<${Nav} />`}<div class="co-body" key=${'tab' + c.tab}><${Page} /></div>`;
+  // (Omsi-Hub 4/6: RosterFlow an application of its own over the whole window, no company bar;
+  // its dialogs and the popup still over it)
+  const rosterflow = open && !sh.casual && !sh.launch && c.tab === 5 && s.rf?.open;
+  if (rosterflow) {
+    return html`<div class="co" data-tab="5">
+      <${Guard}><${RosterFlowPage} /></${Guard}>
+      <${Guard}><${Overlays} founding=${false} /></${Guard}>
+      ${c.notice && Date.now() - c.notice.at < 9000 && html`<div class=${'co-notice' + (c.notice.error ? ' error' : '')} key=${c.notice.at}>${c.notice.text}</div>`}
+    </div>`;
+  }
   return html`<div class="co" data-tab=${open ? c.tab : ''}>
     <${Guard}><${Bar} open=${open} choosing=${choosing} read=${read} /></${Guard}>
     <${Guard}>${body}</${Guard}>

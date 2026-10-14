@@ -3960,6 +3960,21 @@ pub fn pick_file_of(title: &str, kind: &str, extensions: &[&str]) -> Option<Path
     }
 }
 
+/// Omsi-Hub 4/6: where to save a file, asked with `name` filled in and only files of
+/// `extensions` offered under `kind` (RosterFlow's prints in the desktop launcher, as the
+/// game-drawn launcher asks for them).
+pub fn save_file_as(title: &str, name: &str, kind: &str, extensions: &[&str]) -> Option<PathBuf> {
+    #[cfg(not(target_os = "android"))]
+    {
+        rfd::FileDialog::new().set_title(title).set_file_name(name).add_filter(kind, extensions).save_file()
+    }
+    #[cfg(target_os = "android")]
+    {
+        let _ = (title, name, kind, extensions);
+        None
+    }
+}
+
 /// A phone runs one program: the launcher hands the game's command line over here and the
 /// same process plays it in the same window (see the app's `android.rs`) instead of starting
 /// another process.
