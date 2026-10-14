@@ -667,9 +667,7 @@ impl App {
                                 parse_time(&self.args.time),
                             ) {
                                 Ok(mut d) => {
-                                    if let Some(k) = self.args.duty_trip {
-                                        d.start_at(k, self.args.duty_first_stop);
-                                    }
+                                    crate::duty_start::begin(&mut d, &self.args);
                                     if self.args.is_resuming() {
                                         d.resume(&mut p.vehicle, parse_time(&self.args.time), self.args.situation_next_stop);
                                         // the IBIS keeps its saved trip; with --autostart
