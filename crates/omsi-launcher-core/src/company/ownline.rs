@@ -1044,6 +1044,21 @@ pub fn confirm(c: &mut Company, l: &LineDesign, stem: &str, shape: &Shape) -> Re
     Ok(total)
 }
 
+/// An own line taken on from the map's timetable (`network::add_line`: the Lines page) linked to
+/// its line in the line editor's registry, as a line confirmed there is (`confirm`): its plan,
+/// by which RosterFlow's Timeplan, the line editor's changes and the passengers find it. Nothing
+/// is paid: the line was the player's already. False: no such company line without its plan, or
+/// the company has the registry's line already.
+pub fn link(c: &mut Company, l: &LineDesign, stem: &str, shape: &Shape) -> bool {
+    if line_of(c, l.id).is_some() {
+        return false;
+    }
+    let plan = plan_of(c, l, shape);
+    let Some(cl) = c.lines.iter_mut().find(|x| x.own && x.plan.is_none() && x.name.trim().eq_ignore_ascii_case(stem.trim())) else { return false };
+    cl.plan = Some(plan);
+    true
+}
+
 /// What saving an edited company line costs: the route approved anew when its stops changed,
 /// with the passenger information of the stops new to it and the live displays newly asked
 /// for (None: nothing to pay).
@@ -1428,6 +1443,27 @@ mod tests {
         assert_eq!((kind_of(cl), cl.plan.as_ref().unwrap().vehicles.classes.len()), (ServiceKind::Leisure, 1));
         assert!(cl.plan.as_ref().unwrap().sizes.iter().all(|x| x.1 == BusSize::Solo));
         assert!(trip_boardings(cl, "2024-05-06", 12 * 60).unwrap() > 0.0);
+    }
+
+    #[test]
+    fn a_line_taken_on_from_the_map_is_linked_to_its_line() {
+        // (the Lines page takes on an own line of the map's timetable without its plan: linked,
+        // the company finds it by its line's id, as a line confirmed in the line editor)
+        let mut c = company(GameMode::Normal);
+        let l = line(6);
+        let s = shape_of(&l, &|_| 0);
+        c.lines.push(CompanyLine { name: "oo_9".into(), number: "9".into(), own: true, ..Default::default() });
+        let cash = c.cash;
+        assert!(line_of(&c, l.id).is_none());
+        assert!(link(&mut c, &l, "OO_9", &s));
+        let cl = line_of(&c, l.id).unwrap();
+        assert_eq!((cl.name.as_str(), cl.plan.as_ref().unwrap().paid, c.cash), ("oo_9", 0, cash));
+        // once only, and not a line of the map's or another name
+        assert!(!link(&mut c, &l, "oo_9", &s));
+        c.lines.push(CompanyLine { name: "Linie5".into(), number: "5".into(), ..Default::default() });
+        let mut other = line(4);
+        other.id = l.id + 1;
+        assert!(!link(&mut c, &other, "Linie5", &shape_of(&other, &|_| 0)));
     }
 
     #[test]

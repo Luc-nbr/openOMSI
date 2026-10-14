@@ -450,6 +450,8 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Result<Value, St
                 let date = c.date.clone();
                 return Some(match apply(s, |c| {
                     co::network::add_line(c, &line, own.as_ref())?;
+                    // (the player's own line: linked to its line of the line editor's at once)
+                    super::link_own_lines(c, &all);
                     co::autopilot::start_lines(c, &date);
                     Ok(())
                 }) {
@@ -468,10 +470,16 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Result<Value, St
                     Err(p) => Ok(json!({ "popup": p })),
                 });
             }
-            match apply(s, |c| co::network::add_line(c, &line, own.as_ref())) {
+            match apply(s, |c| {
+                co::network::add_line(c, &line, own.as_ref())?;
+                // (the player's own line: linked to its line of the line editor's at once, so
+                // RosterFlow's Timeplan opens it right away)
+                super::link_own_lines(c, &all);
+                Ok(())
+            }) {
                 Ok(()) => {
                     let n = s.company.as_ref().and_then(|c| c.lines.last()).map(|x| x.number.clone()).unwrap_or_default();
-                    if own.is_none() && co::autopilot::rosterflow(&c) {
+                    if co::autopilot::rosterflow(&c) {
                         let t = trf("Line %{n} is the company's: here is its timetable. Plan its tours and start its service on the Roster tab.", &[("n", &n)]);
                         s.say(t, false);
                         return Some(Ok(json!({ "done": true, "selected": line.name, "hand_over": format!("timetable={}", line.name) })));

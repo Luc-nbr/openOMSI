@@ -233,6 +233,9 @@ pub struct Session {
     timetable: u64,
     pub own: Vec<core::lines::OwnLine>,
     own_for: Option<String>,
+    /// The company, its lines and the timetable's revision its own lines were last linked for
+    /// (`link_own_lines`: tried once each, not every round).
+    own_linked: Option<(String, usize, u64)>,
     /// Today's plan (None: to be made again).
     pub plan: Option<Plan>,
     /// A simulation (or a catch-up) has the company on its thread.
@@ -422,6 +425,29 @@ pub fn reload_timetable(s: &mut Session) {
     s.generation += 1;
 }
 
+/// The company's own lines taken on from the map's timetable (the Lines page,
+/// `network::add_line`) linked to their line in the line editor's registry, found by the
+/// timetable name it is written as (`lines::stems`), as a line confirmed in the line editor is
+/// (`ownline::link`): without it RosterFlow's Timeplan said the line was no longer in the line
+/// editor's list. True: one was linked.
+pub fn link_own_lines(c: &mut Company, lines: &[core::LineInfo]) -> bool {
+    let names: Vec<String> = c.lines.iter().filter(|x| x.own && x.plan.is_none()).map(|x| x.name.clone()).collect();
+    if names.is_empty() {
+        return false;
+    }
+    let r = core::lines::load_registry(&core::lines::registry_path(&core::lines::map_folder(&c.map)));
+    let stems = core::lines::stems(&r);
+    let mut any = false;
+    for name in names {
+        let Some((id, stem)) = stems.iter().find(|(_, st)| st.eq_ignore_ascii_case(name.trim())) else { continue };
+        let Some(l) = r.line(*id) else { continue };
+        let sl = co::ownline::StopLines::of(lines, stem);
+        let shape = co::ownline::shape_of(l, &|st| sl.count(st));
+        any |= co::ownline::link(c, l, stem, &shape);
+    }
+    any
+}
+
 /// After a change made on a page: saved, and today's plan made again (`company::changed`).
 pub fn changed(s: &mut Session) {
     s.plan = None;
@@ -508,6 +534,18 @@ fn work(s: &mut Session) {
         let map = c.map.clone();
         s.own_for = Some(map.clone());
         s.own = core::lines::own_lines_of_map(&map);
+    }
+    // own lines taken on before they were linked to their line (Beta 54 and older): linked now
+    let tried = s.company.as_ref().map(|c| (c.id.clone(), c.lines.len(), s.timetable));
+    let linked = match (s.company.as_mut(), s.today.as_ref()) {
+        (Some(c), Some(t)) if t.map == c.map && s.own_linked != tried => {
+            s.own_linked = tried;
+            link_own_lines(c, &t.lines)
+        }
+        _ => false,
+    };
+    if linked {
+        changed(s);
     }
     // a line's change waiting for its day: its day has come; and its tours planned anew
     due::changes_due(s);
