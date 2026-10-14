@@ -444,7 +444,9 @@ export function TimeInput({ minutes, onChange, disabled }) {
     const d = e.deltaY || e.deltaX;
     if (!d) return;
     const box = e.currentTarget.getBoundingClientRect();
-    const hours = e.shiftKey || e.clientX - box.left < Math.min(box.width / 2, 34);
+    // (Omsi-Hub: in the field's own pixels - its stage may be scaled by the Launcher size)
+    const k = box.width / (e.currentTarget.offsetWidth || box.width || 1) || 1;
+    const hours = e.shiftKey || (e.clientX - box.left) / k < Math.min(box.width / k / 2, 34);
     const step = (d < 0 ? 1 : -1) * (hours ? 60 : 1);
     onChange((((minutes + step) % 1440) + 1440) % 1440);
   };
