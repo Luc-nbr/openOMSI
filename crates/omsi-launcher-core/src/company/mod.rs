@@ -54,6 +54,7 @@ pub mod rosterpdf;
 pub mod studio;
 pub mod timeplan;
 pub mod training;
+pub mod unassign;
 pub mod vehicles;
 
 pub use model::*;
