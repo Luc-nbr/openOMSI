@@ -13,7 +13,7 @@ import { tr } from './bits.js';
 import { Home } from './home.js';
 import { ProfileStep } from './steps/profile.js';
 import { MapStep } from './steps/map.js';
-import { StartStep } from './steps/start.js';
+import { StartStep, freeRoute } from './steps/start.js';
 import { DayStep } from './steps/day.js';
 import { DutyStep } from './steps/duty.js';
 import { BusStep } from './steps/bus.js';
@@ -87,16 +87,17 @@ export async function hubExtras() {
   const c = S.choice;
   const free = freeDrive();
   const more = await call('hub_duty_extras', { bus: c.bus, date: c.date, minutes: c.time, free });
-  // (a free drive along a line of the player's own, the line editor's "Drive it":
-  // `freedrive::free_route` - its line, its trip, the bus at the entry point nearest to it)
-  const route = c.free && c.own_line && c.free_line?.trim() && c.free_route?.trim() ? [c.free_line, c.free_route] : null;
+  // (phase 3: the bus options chosen for the bus, `--setvar` after the paint)
+  const setVars = await call('hub_more_setvars', { bus: c.bus, paint: c.paint || '' }).catch(() => []);
   return {
     time: more.time,
     date: more.date,
     display_font: more.display_font || null,
+    set_vars: setVars,
     legs: !free && c.composed ? c.legs : [],
     ...(free ? { line: null, tour: null, trip: null, whole_tour: false, entry: c.free ? c.free_entry ?? -1 : c.entry } : {}),
-    ...(route ? { line: route[0], free_line: route[1], entry: -1 } : {}),
+    // (a free drive along a line the player chose: its route, the bus at its first stop - `freedrive`)
+    ...(free && freeRoute(c) ? { line: c.free_line, free_line: c.free_route, entry: -1 } : {}),
   };
 }
 

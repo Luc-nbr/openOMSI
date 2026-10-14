@@ -26,6 +26,7 @@
 pub mod company;
 // RosterFlow, the planning with the add-on on (Trello "Tauri 4/6": `rosterflow.rs`)
 pub mod rosterflow;
+pub mod hub_more;
 
 use crate::{Answer, Platform};
 use omsi_launcher_lib as core;
@@ -91,6 +92,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("sessie.yml", include_str!("../../../omsi-app/locales/sessie.yml")),
     ("slepen.yml", include_str!("../../../omsi-app/locales/slepen.yml")),
     ("snelheid.yml", include_str!("../../../omsi-app/locales/snelheid.yml")),
+    ("tauri-company-more.yml", include_str!("../../../omsi-app/locales/tauri-company-more.yml")),
     ("telefoon.yml", include_str!("../../../omsi-app/locales/telefoon.yml")),
     ("tijd.yml", include_str!("../../../omsi-app/locales/tijd.yml")),
     ("tobii.yml", include_str!("../../../omsi-app/locales/tobii.yml")),
@@ -132,6 +134,8 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
         "hub_map_facts" => (|| hub_map_facts(&arg::<Vec<String>>(args, "maps")?))(),
         "hub_weather_extras" => (|| hub_weather_extras(&arg::<String>(args, "map")?))(),
         "hub_own_lines" => (|| hub_own_lines(&arg::<String>(args, "map")?))(),
+        // what phase 1 left of the drive's steps (Trello "Tauri 3/6": `hub_more.rs`)
+        c if c.starts_with("hub_more_") => return hub_more::call(c, args),
         // the bus company's commands (Trello "Tauri 2/6": `company.rs`)
         c if c.starts_with("co_") => return company::call(c, args, p),
         c if c.starts_with("rf_") => return rosterflow::call(c, args, p),
@@ -145,6 +149,8 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
 pub fn call_bytes(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Result<Vec<u8>, String>> {
     match cmd {
         c if c.starts_with("co_") => company::call_bytes(c, args),
+        // (phase 3: the display font's previews, `hub_more/displayfont.rs`)
+        c if c.starts_with("hub_more_") => hub_more::call_bytes(c, args),
         _ => editors::call_bytes(cmd, args, p),
     }
 }

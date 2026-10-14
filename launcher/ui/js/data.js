@@ -78,7 +78,8 @@ function fixChoice() {
     c.paint = '';
     c.number = '';
   }
-  if (S.weather && c.weather && !S.weather.some((w) => w.file === c.weather)) c.weather = '';
+  // Omsi-Hub: the weather cycle, an airport's current weather and one's own are no files
+  if (S.weather && c.weather && !/^(cycle$|metar:|custom:)/i.test(c.weather) && !S.weather.some((w) => w.file === c.weather)) c.weather = '';
   set({ choice: c });
 }
 

@@ -37,7 +37,7 @@ function Duties({ b }) {
         ? e.reading
           ? html`<p class="co-para">${e.reading}</p>`
           : html`<div style="position:relative;flex:1"><${EmptyAt} e=${e} at=${e.button ? [-70, -40, -6] : [-50, -20, 14]} />
-              ${e.button && html`<div style="position:absolute;left:0;right:0;top:calc(50% + 50px);display:flex;justify-content:center"><${Btn} kind="primary" icon="event" label=${e.button} style="height:38px" onClick=${() => handOver('5')} /></div>`}</div>`
+              ${e.button && html`<div style="position:absolute;left:0;right:0;top:calc(50% + 50px);display:flex;justify-content:center"><${Btn} kind="primary" icon="event" label=${e.button} style="height:38px" onClick=${() => goTab(5)} /></div>`}</div>`
         : html`<div class="co-scroll" style="flex:1;min-height:0">${b.rows.map(
             (d, k) => html`<div class=${'co-myduty' + (k === 0 ? ' next' : '')}>
               <div class="when"><b class="cut">${d.date}</b><span class=${k === 0 ? 't-accent' : 't-soft'}>${d.time}</span></div>

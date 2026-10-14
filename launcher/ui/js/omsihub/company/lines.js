@@ -31,7 +31,9 @@ function barClick(row) {
     case 'select':
       return setUi('lines', { selected: row.name });
     default:
-      return handOver('5');
+      // (the planning with the line in view: `lines::to_planning`)
+      setUi('planning', { day: 0, focus: row.name });
+      return goTab(5);
   }
 }
 
@@ -69,7 +71,7 @@ function Tours({ t, name }) {
       <div class="co-caps" style="display:flex;align-items:center;margin:-6px 0 8px">
         <span class="grow">${t.title}</span>
         <${Btn} kind="ghost" icon="add" label=${t.add} style="height:32px" onClick=${() => setUi('lines', { selected: null })} />
-        ${t.planning && html`<${Btn} kind="ghost" icon="event" label=${t.planning} style="height:32px" onClick=${() => handOver('5')} />`}
+        ${t.planning && html`<${Btn} kind="ghost" icon="event" label=${t.planning} style="height:32px" onClick=${() => goTab(5)} />`}
       </div>
       ${t.reading
         ? html`<p class="co-para">${t.reading}</p>`

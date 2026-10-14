@@ -1,0 +1,176 @@
+/* What the drive's steps of Omsi-Hub's look have beyond phase 1's (Trello "Tauri 3/6"), after
+   our game-drawn launcher (crates/omsi-launcher-ui/src): the bus that fits the duty best, the
+   free drive's start points and own line, the duty's roadbook, the custom weather, the welcome.
+   Lengths are the game-drawn launcher's, its type sizes drawn smaller by 1.303 (omsihub.css).
+   Loaded by js/omsihub/steps/more.js. */
+
+/* the bus step: whether the bus fits the duty best (`buspick::bus_sheet`) */
+.hub-best { display: flex; align-items: center; gap: 10px; height: 20px; margin: -8px 0 12px; color: #34b26e; font-size: 9.6px; font-weight: 500; }
+:root.hub[data-theme="light"] .hub-best { color: #1f7a48; }
+.hub-best .hub-icon { flex: none; }
+.hub-tile .pic.shot i { display: none; }
+
+/* --- the free drive's start (`freedrive::start_panel`) ---------------------------------------- */
+
+.hub-free { display: flex; flex-direction: column; min-height: 100%; }
+.hub-free .search { margin-bottom: 12px; }
+.hub-fheads { display: flex; justify-content: space-between; padding: 0 14px 0 36px; height: 22px; font-size: 7.7px; font-weight: 700; text-transform: uppercase; color: var(--hub-text-dim); }
+.hub-flist { display: flex; flex-direction: column; gap: 3px; margin: 0 -6px; }
+.hub-frow { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 0 10px; min-height: 37px; padding: 0 14px 0 6px; border-radius: var(--hub-r); background: none; color: var(--hub-text); text-align: left; cursor: pointer; transition: background 0.12s; }
+.hub-frow.tall { min-height: 51px; align-items: start; padding-top: 7px; padding-bottom: 6px; }
+.hub-frow.tall > .hub-radio { margin-top: 3px; }
+.hub-frow.line { grid-template-columns: minmax(0, 1fr) auto; padding-left: 10px; }
+.hub-frow:hover { background: var(--hub-hover); }
+.hub-frow.on { background: var(--hub-accent); color: var(--hub-on-accent); }
+.hub-frow .what { display: flex; flex-direction: column; gap: 5px; min-width: 0; font-size: 10.4px; font-weight: 700; }
+.hub-frow .what.auto { font-weight: 500; }
+.hub-frow .what b { font-size: 10.75px; }
+.hub-frow .dim { font-size: 8.8px; font-weight: 400; color: var(--hub-text-dim); }
+.hub-frow.on .dim { color: inherit; }
+.hub-frow .n { font-size: 10.75px; font-weight: 700; text-align: right; min-width: 44px; }
+.hub-fplates { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.hub-fplates .hub-plate { flex: none; font-weight: 900; }
+.hub-more-n { font-size: 8.8px; font-weight: 700; color: var(--hub-text-soft); }
+.hub-frow.on .hub-more-n { color: inherit; }
+.hub-fnote { margin: 18px 4px 0; color: var(--hub-text-dim); font-size: 10px; line-height: 1.38; }
+.hub-pins { display: flex; gap: 10px; align-items: flex-start; margin-top: auto; padding-top: 14px; color: var(--hub-text-dim); font-size: 9.2px; line-height: 16.6px; }
+.hub-pins .hub-icon { flex: none; margin-top: 1px; }
+.hub-froute-head { display: flex; align-items: center; gap: 10px; height: 32px; margin: 12px 0 12px; }
+.hub-froute-head b { font-size: 10.75px; min-width: 0; }
+/* the start in full, on up to three lines (`freedrive::foot`) */
+.hub-foot.hub-foot-wrap { height: auto; min-height: 46px; align-items: flex-start; padding-top: 13px; padding-bottom: 13px; }
+.hub-foot.hub-foot-wrap > .grow { white-space: normal; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; line-height: 17.3px; }
+.hub-foot.hub-foot-wrap > .hub-icon { margin-top: 2px; }
+
+/* --- the duty step: the map's buttons and the roadbook (`flow::step_duty`) ------------------- */
+
+/* the roadbook's width beside the map, and the map's buttons right of the route */
+.hub { --hub-book-w: clamp(290px, 24cqw, 380px); }
+.hub:has(.hub-roadbook) .hub-map { right: calc(var(--hub-edge-in) + var(--hub-book-w) + 20px); }
+.hub-maptools { position: absolute; z-index: 6; top: calc(var(--hub-sheet-top) + 8px); right: var(--hub-edge-in); width: 32px; display: flex; flex-direction: column; background: var(--hub-panel); border-radius: var(--hub-r); box-shadow: 0 0 14px rgba(0, 0, 0, 0.35), inset 0 0 0 1px var(--hub-edge); }
+:root.hub[data-theme="light"] .hub-maptools { box-shadow: 0 0 14px rgba(80, 50, 20, 0.14), inset 0 0 0 1px var(--hub-edge); }
+.hub-maptools.book { right: calc(var(--hub-edge-in) + var(--hub-book-w) + 14px); }
+.hub-maptools button { height: 32px; display: grid; place-items: center; background: none; color: var(--hub-text-soft); cursor: pointer; }
+.hub-maptools button + button { box-shadow: inset 0 1px 0 var(--hub-hairline); }
+.hub-maptools button:hover { color: var(--hub-text); }
+.hub-bookhandle { position: absolute; z-index: 6; top: calc(var(--hub-sheet-top) + 8px); right: calc(var(--hub-edge-in) + 42px); width: 126px; height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border-radius: var(--hub-r); background: var(--hub-panel); color: var(--hub-text); box-shadow: inset 0 0 0 1px var(--hub-edge); font-weight: 700; font-size: 10px; cursor: pointer; transition: background 0.08s, transform 0.12s; }
+.hub-bookhandle:hover { background: var(--hub-hover); transform: translateY(-1px); }
+
+.hub-roadbook { position: absolute; z-index: 5; right: var(--hub-edge-in); top: var(--hub-sheet-top); width: var(--hub-book-w); bottom: calc(var(--hub-action-bottom) + var(--hub-action-h) + 24px); min-height: 200px;
+  background: var(--hub-panel); color: var(--hub-text); border: 1px solid var(--hub-edge); border-radius: var(--hub-r-sheet); box-shadow: 0 2px 26px rgba(0, 0, 0, 0.45); }
+:root.hub[data-theme="light"] .hub-roadbook { box-shadow: 0 2px 26px rgba(80, 50, 20, 0.12); }
+.hub-roadbook header h3 { position: absolute; left: 16px; top: 14px; margin: 0; font-size: 8.44px; line-height: 10px; font-weight: 700; text-transform: uppercase; color: var(--hub-text-dim); }
+.hub-rb-shut { position: absolute; right: 14px; top: 10px; width: 30px; height: 30px; display: grid; place-items: center; border-radius: var(--hub-r); background: none; color: var(--hub-text-dim); cursor: pointer; }
+.hub-rb-shut:hover { background: var(--hub-lift); color: var(--hub-text); }
+.hub-rb-body { position: absolute; left: 16px; right: 16px; top: 46px; bottom: 174px; display: flex; flex-direction: column; }
+.hub-roadbook.note .hub-rb-body { bottom: auto; }
+.hub-rb-title { height: 22px; line-height: 22px; font-size: 10.75px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hub-rb-sub { margin-top: -2px; height: 16px; line-height: 16px; font-size: 8.83px; color: var(--hub-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hub-rb-note { margin: 0; font-size: 9.98px; line-height: 17.9px; color: var(--hub-text-dim); }
+.hub-rb-list { flex: 1; min-height: 0; margin: 2px -4px 0; overflow-y: auto; }
+.hub-rb-trip { display: flex; flex-direction: column; justify-content: flex-start; width: calc(100% - 12px); height: 46px; margin: 0 0 6px 4px; padding: 4px 10px 0; border-radius: 6px; background: none; color: var(--hub-text); text-align: left; }
+button.hub-rb-trip { cursor: pointer; transition: background 0.12s; }
+button.hub-rb-trip:hover { background: var(--hub-hover); }
+.hub-rb-trip.first { background: var(--hub-accent); cursor: default; }
+button.hub-rb-trip.first:hover { background: var(--hub-accent); }
+.hub-rb-trip b { display: block; height: 20px; line-height: 20px; font-size: 9.98px; font-weight: 700; }
+.hub-rb-trip span { display: block; height: 18px; line-height: 18px; font-size: 8.44px; color: var(--hub-text-dim); }
+.hub-rb-trip.first span { color: var(--hub-text-dim); }
+.hub-rb-trip.earlier b, .hub-rb-trip.earlier span { color: var(--hub-text-faint); }
+.hub-rb-stops { margin: 0 0 12px; }
+.hub-rb-stop { position: relative; display: flex; align-items: center; height: 24px; margin-left: 4px; width: calc(100% - 12px); }
+.hub-rb-stop time { width: 54px; padding-left: 6px; flex: none; font-size: 9.2px; font-weight: 500; font-stretch: condensed; color: var(--hub-text-soft); font-variant-numeric: tabular-nums; }
+.hub-rb-stop.end time { color: var(--hub-text); }
+.hub-rb-stop i { position: absolute; left: 57px; top: 9px; width: 6px; height: 6px; border-radius: 50%; background: var(--hub-text-faint); }
+.hub-rb-stop.end i { left: 56px; top: 8px; width: 8px; height: 8px; background: var(--hub-text); }
+.hub-rb-stop.on::before { content: ''; position: absolute; left: 59px; top: 12px; width: 2px; height: 24px; background: rgba(255, 255, 255, 0.12); }
+:root.hub[data-theme="light"] .hub-rb-stop.on::before { background: rgba(22, 20, 26, 0.12); }
+.hub-rb-stop span { position: absolute; left: 74px; right: 80px; font-size: 9.6px; }
+.hub-rb-stop.end span { font-weight: 700; }
+.hub-rb-stop em { position: absolute; right: 4px; font-style: normal; font-size: 8.44px; font-weight: 500; color: var(--hub-text-dim); }
+.hub-rb-change { display: flex; align-items: center; gap: 9px; width: calc(100% - 12px); height: 30px; margin: 0 0 6px 4px; padding: 0 8px 0 9px; border-radius: 6px; background: color-mix(in srgb, var(--hub-accent) 16%, transparent); color: var(--hub-text); font-size: 9.2px; font-weight: 700; white-space: nowrap; overflow: hidden; }
+.hub-rb-change .hub-icon { color: var(--hub-accent); flex: none; }
+
+/* what to type into the IBIS (`drive::ibis_box`) */
+.hub-ibis { position: absolute; left: 16px; right: 16px; bottom: 14px; height: 150px; padding: 36px 12px 0; border-radius: 6px; background: var(--hub-field); }
+.hub-roadbook.note .hub-ibis { top: 106px; bottom: auto; height: 160px; }
+.hub-ibis-head { position: absolute; left: 12px; top: 9px; font-size: 8.44px; line-height: 10px; font-weight: 700; text-transform: uppercase; color: var(--hub-text-dim); }
+.hub-ibis p { margin: -4px 0 0; font-size: 9.2px; line-height: 16.6px; color: var(--hub-text-dim); }
+.hub-ibis p.err { color: var(--hub-danger, #e5484d); }
+.hub-ibis-row { display: flex; align-items: center; height: 22px; margin: -2px 0 4px; }
+.hub-ibis-row:first-child { margin-top: -2px; }
+.hub-ibis-row .grow { flex: 1; min-width: 0; padding-right: 10px; font-size: 9.6px; font-weight: 500; }
+.hub-ibis-row .pair { flex: none; width: 80px; display: flex; align-items: center; }
+.hub-ibis-row .pair:last-child { width: 80px; margin-right: 0; }
+.hub-ibis-row .k { flex: none; width: 34px; font-size: 8.44px; color: var(--hub-text-dim); }
+.hub-ibis-row b { height: 18px; line-height: 18px; padding: 0 6px; border-radius: 4px; background: var(--hub-accent); font-size: 9.6px; font-weight: 700; white-space: nowrap; }
+.hub-ibis-foot { height: 18px; line-height: 18px; margin-top: 2px; font-size: 8.44px; color: var(--hub-text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* --- the day step: one's own weather (`daytime::body`) ------------------------------------- */
+
+.hub-cwx > .hub-btn, .hub-cwx-edit > .hub-btn { width: 100%; height: 34px; }
+.hub-cwx-edit { margin-bottom: 10px; }
+.hub-cwx-rows { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.hub-cwx-rows .hub-slider { min-height: 34px; }
+.hub-cwx-rows > .gap { margin-bottom: 6px; }
+.hub-cwx-precip { display: grid; grid-template-columns: 130px minmax(0, 1fr); align-items: center; height: 32px; margin: 2px 0 4px; }
+.hub-cwx-precip > span { color: var(--hub-text-dim); font-size: 10px; }
+.hub-cwx-rows .hub-switch { min-height: 38px; }
+
+/* --- the bus step: the bus options (`busoptions::section`) --------------------------------- */
+
+.hub-bo { margin-bottom: 10px; }
+.hub-bo-head { display: flex; align-items: center; justify-content: space-between; height: 26px; margin-bottom: 4px; }
+.hub-bo-head b { font-size: 8.44px; font-weight: 700; text-transform: uppercase; color: var(--hub-text-dim); }
+.hub-bo-reset { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 12px; border-radius: var(--hub-r); background: none; color: var(--hub-text-dim); font-size: 9.98px; font-weight: 500; cursor: pointer; }
+.hub-bo-reset:hover { background: var(--hub-lift); color: var(--hub-text); }
+.hub-bo-row { position: relative; display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 8px 0 10px; }
+.hub-bo-row.on::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 1.5px; background: var(--hub-accent); }
+.hub-bo-row .name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.hub-bo-row .name b { font-size: 9.98px; font-weight: 500; color: var(--hub-text-soft); }
+.hub-bo-row.on .name b { color: var(--hub-text); }
+.hub-bo-row .name small { font-size: 8.06px; color: var(--hub-text-faint); }
+.hub-bo-switch, .hub-bo-list { flex: none; width: clamp(150px, 52%, 200px); }
+.hub-bo-switch { display: flex; height: 30px; padding: 3px; border-radius: 15px; background: var(--hub-field); }
+.hub-bo-switch button { position: relative; flex: auto; border-radius: 12px; background: none; color: var(--hub-text-dim); font-size: 9.2px; font-weight: 500; cursor: pointer; transition: background 0.15s, color 0.15s; }
+.hub-bo-switch button:hover { color: var(--hub-text); }
+.hub-bo-switch button.on { background: var(--hub-hover); color: var(--hub-text); font-weight: 700; }
+.hub-bo-switch button.mine { background: var(--hub-accent); color: var(--hub-on-accent); }
+.hub-bo-switch button i { position: absolute; left: 50%; bottom: 2px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--hub-accent-text); opacity: 0.4; }
+.hub-bo-switch button i.strong { opacity: 0.95; }
+.hub-bo-switch button.mine i { background: var(--hub-on-accent); }
+.hub-bo-list .select { height: 30px; font-size: 9.2px; }
+.hub-bo-fold { display: flex; align-items: center; gap: 8px; width: 100%; height: 34px; padding: 0 4px; border-radius: var(--hub-r); background: none; color: var(--hub-text-dim); cursor: pointer; margin-bottom: 4px; }
+.hub-bo-fold:hover { background: var(--hub-hover); }
+.hub-bo-fold span { font-size: 9.6px; font-weight: 500; color: var(--hub-text-soft); }
+.hub-bo-fold em { font-style: normal; font-size: 9.2px; color: var(--hub-text-faint); }
+.hub-bo-fold em.on { color: var(--hub-accent-text); }
+.hub-bo-note { margin: 0 0 6px 10px; font-size: 8.83px; line-height: 15.9px; color: var(--hub-text-dim); }
+.hub-bo-rule { height: 1px; margin: 0 0 14px; background: var(--hub-hairline); }
+
+/* --- the bus step: the display font (`displayfont::section`) ------------------------------- */
+
+.hub-df { margin-bottom: 6px; }
+.hub-df .hub-bo-head { margin-bottom: 6px; }
+.hub-df-note, .hub-df-wait, .hub-df-says { margin: 0 0 6px 2px; font-size: 9.2px; line-height: 16.6px; color: var(--hub-text-dim); }
+.hub-df-wait, .hub-df-says { color: var(--hub-text-faint); }
+.hub-df-note.ok { color: var(--hub-ok); }
+.hub-df-note.warn { color: var(--hub-warn); }
+.hub-df-source { width: min(100%, 420px); margin: 4px 0 8px; }
+.hub-df-source .hub-seg { height: 30px; }
+.hub-df-pick { position: relative; margin-bottom: 8px; }
+.hub-df-pick .field { display: flex; align-items: center; gap: 10px; width: 100%; height: 40px; padding: 0 10px; border-radius: var(--hub-r); background: var(--hub-field); color: var(--hub-text); box-shadow: inset 0 0 0 1px var(--hub-edge); font-size: 9.98px; cursor: pointer; text-align: left; }
+.hub-df-pick .field .ellipsis { flex: 1; min-width: 0; }
+.hub-df-pick.open .field { box-shadow: inset 0 0 0 1.5px var(--hub-accent); }
+.hub-df-pick .pic { height: 22px; max-width: 150px; flex: none; border-radius: 3px; image-rendering: pixelated; object-fit: contain; object-position: left center; }
+.hub-df-pick .pic.none { width: 60px; height: 22px; background: rgb(10, 9, 8); }
+.hub-df-pick .list { position: absolute; z-index: 20; left: 0; right: 0; top: 44px; max-height: 300px; overflow-y: auto; padding: 4px; border-radius: var(--hub-r); background: var(--hub-panel); box-shadow: inset 0 0 0 1px var(--hub-edge), 0 10px 30px rgba(0, 0, 0, 0.45); }
+.hub-df-pick .list button { display: flex; align-items: center; gap: 10px; width: 100%; height: 34px; padding: 0 8px; border-radius: 6px; background: none; color: var(--hub-text); font-size: 9.6px; cursor: pointer; text-align: left; }
+.hub-df-pick .list button:hover { background: var(--hub-hover); }
+.hub-df-pick .list button.on { background: rgba(var(--hub-accent-rgb), 0.2); }
+.hub-df-pick .list .ellipsis { flex: 1; min-width: 0; }
+.hub-df-sign { height: 58px; margin-bottom: 6px; padding: 7px; border-radius: 8px; background: rgb(10, 9, 8); box-shadow: inset 0 0 0 1px var(--hub-edge); display: flex; align-items: center; justify-content: center; }
+.hub-df-sign .big { max-width: 100%; max-height: 100%; image-rendering: pixelated; }
+.hub-df-sign .wait { font-size: 9.2px; color: var(--hub-text-faint); }
+.hub-df-style { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
+.hub-df-style .hub-slider { min-height: 30px; }

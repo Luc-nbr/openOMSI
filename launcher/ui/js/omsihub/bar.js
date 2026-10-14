@@ -11,11 +11,12 @@ import { LOGO_SVG } from './logo.js';
 import { applyHubTheme, PRESETS, chosen, dark, hexOf, parseHex } from './theme.js';
 import { go } from './hub.js';
 import { stepsOf, goStep, canGo, chosenLine } from './flow.js';
+import { startTour } from './tour.js';
 
 /** The languages with a flag in the bar (`flow::FLAGS`); the others are in the globe's menu. */
 const FLAGS = ['ENG', 'DEU', 'FRA', 'NLD'];
 
-function Flag({ code }) {
+export function Flag({ code }) {
   const bands = (cs, across) => cs.map((c, i) => (across ? html`<rect x=${i * 6} y="0" width="6" height="13" fill=${c} />` : html`<rect x="0" y=${(i * 13) / 3} width="18" height=${13 / 3 + 0.2} fill=${c} />`));
   let body;
   if (code === 'DEU') body = bands(['#000000', '#dd0000', '#ffce00'], false);
@@ -134,6 +135,7 @@ export function Bar() {
       : html`${line && html`<span class="hub-plate" style="margin-right:14px;height:24px">${line}</span>`}<${Steps} />`}
     <span class="hub-bar-fill"></span>
     ${!start && html`<button type="button" class="hub-bar-btn" title=${tr('Home')} onClick=${() => go('drive', 'mode')}><${Icon} name="home" size=${17} /></button>`}
+    <button type="button" class=${'hub-bar-btn hub-bar-help' + (s.hubTour && !s.hubTour.closing ? ' on' : '')} title=${tr('Show the tour')} onClick=${() => startTour()}><${Icon} name="help" size=${17} /></button>
     <button type="button" class="hub-bar-btn" title=${tr(isDark ? 'Switch to the light mode' : 'Switch to the dark mode')} onClick=${(e) => flipLook(e)}><${Icon} name=${isDark ? 'dark_mode' : 'light_mode'} size=${17} /></button>
     <button type="button" class=${'hub-bar-btn' + (s.hub.palette ? ' on' : '')} title=${tr('Accent colour')} onClick=${() => set({ hub: { ...S.hub, palette: !S.hub.palette } })}><${Icon} name="palette" size=${17} /></button>
     <button type="button" class=${'hub-bar-btn' + (s.page === 'settings' ? ' on' : '')} title=${tr('Settings')} onClick=${() => go('settings')}><${Icon} name="settings" size=${17} /></button>

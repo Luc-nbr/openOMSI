@@ -1,0 +1,17 @@
+_version: 2
+# The rest of the bus company in Omsi-Hub's look of openOMSI's desktop launcher - the planning,
+# the depot, the concessions, the fleet map, the research, the workshop and the contracts
+# (launcher/ui/js/omsihub/company, crates/omsi-launcher-api/src/omsihub/company_more.rs, Trello
+# "Tauri 3/6"): the texts only those pages say. The company's own texts are the game-drawn
+# launcher's (company-*.yml and the others), read by the page as they are. The English text is
+# the key, as in app.yml; a text upstream's app.yml has keeps its own translation there.
+
+# --- the fleet map while the game program reads the map ------------------------------------------
+"Reading the map…":
+  en: "Reading the map…"
+  nl: "De kaart wordt gelezen…"
+  de: "Karte wird gelesen…"
+  fr: "Lecture de la carte…"
+  ru: "Читаем карту…"
+  uk: "Читаємо карту…"
+  pl: "Wczytywanie mapy…"

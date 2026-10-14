@@ -7,6 +7,9 @@ import { html } from '../../vendor/preact-htm.js';
 import { t } from '../i18n.js';
 import { SYMBOLS as OURS } from './symbols.js';
 import { SYMBOLS as THEIRS } from '../symbols.js';
+// (phase 3: every symbol the game-drawn launcher has, as the company's pages have them - the
+// roadbook's, the welcome's and the rest the steps' own set lacks)
+import { SYMBOLS as ALL } from './company/symbols.js';
 
 export { html };
 
@@ -20,7 +23,7 @@ export function tr(text, vars) {
 
 /** A Material Symbol by its own name (ours), or by upstream's name. */
 export function Icon({ name, size = 20, class: cls = '' }) {
-  const d = OURS[name] || THEIRS[name] || OURS.info;
+  const d = OURS[name] || ALL[name] || THEIRS[name] || OURS.info;
   return html`<svg class=${'hub-icon ' + cls} viewBox="0 -960 960 960" width=${size} height=${size} fill="currentColor" aria-hidden="true"><path d=${d} /></svg>`;
 }
 

@@ -58,6 +58,8 @@ export async function selftest(check, errors) {
       setUi(page, { [key]: 0 });
     }
   }
+  // the pages of phase 3 (`selftest-more.js`)
+  await (await import('./selftest-more.js')).selftest(check, errors, shown);
 
   // the dialogs: the settings, the clock's steps
   for (const kind of ['settings', 'time']) {

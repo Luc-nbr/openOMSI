@@ -18,10 +18,10 @@ import { SYMBOLS, STROKES } from './symbols.js';
 export { html, useEffect, useRef, useState, tr };
 
 /** The start screen's page (`company::HOME_TAB`) and the pages handed to our game-drawn
- * launcher until their phase (`HANDED_OVER`): the planning, the depot, the concessions, the
- * fleet map, the research, the workshop and the contracts. */
+ * launcher until their phase (`HANDED_OVER`): none since phase 3 (`pages.js`; the planning
+ * hands RosterFlow over itself while its add-on is on). */
 export const HOME = 100;
-export const HANDED = [5, 7, 8, 9, 10, 11, 12];
+export const HANDED = [];
 /** Casual's pages (`casual::BUSES` ...). */
 export const CASUAL = { BUSES: 101, LINES: 102, DRIVERS: 103, MONEY: 104, COMPANY: 105, SHIFTS: 106, SHOP: 107, NEW_LINE: 108 };
 

@@ -16,6 +16,10 @@ import { DepotField, DepotTiles, DepotDialog, depotHeading, depotFoot, mapLine }
 // (a livery of one's own: the studio on this bus, from the livery shown - `buspick::draw`)
 import { IconBtn } from '../editors/kit.js';
 import { openLivery } from '../editors/index.js';
+// (the tiles' photos and the bus that fits the duty best: Trello "Tauri 3/6")
+import { useBest, bestWord, bestFoot, BestLine, TilePhoto } from './bus-more.js';
+import { BusOptions } from './busoptions.js';
+import { DisplayFont, sampleOf } from './displayfont.js';
 
 const favKey = (file) => file.replace(/\\/g, '/').toLowerCase();
 const nice = (s) => String(s || '').replace(/_/g, ' ').split(/\s+/).filter(Boolean).join(' ');
@@ -53,9 +57,9 @@ const versions = (n) => (n === 1 ? tr('one version') : tr('%{count} versions', {
 const liveries = (n) => (n === 1 ? tr('one livery') : tr('%{count} liveries', { count: n }));
 const initials = (name) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
 
-function Tile({ title, sub, on, onClick, star, onStar, badge }) {
+function Tile({ title, sub, on, onClick, star, onStar, badge, photo, paint }) {
   return html`<button type="button" class=${'hub-tile' + (on ? ' on' : '')} onClick=${onClick}>
-    <span class="pic hub-mono" style="padding-bottom:0;height:150px"><i>${initials(title)}</i></span>
+    <${TilePhoto} file=${photo} paint=${paint} title=${title} />
     <span class="cap"><b>${title}</b><span><em>${sub}</em>${badge && html`<span class="tag" style="height:18px;font-size:8.1px">${badge}</span>`}
       ${star != null && html`<span role="button" class=${'star' + (star ? ' on' : '')} title=${tr(star ? 'Remove from the favourites' : 'Add to the favourites')} onClick=${(e) => (e.stopPropagation(), onStar())}><${Icon} name="star" size=${16} /></span>`}</span></span>
   </button>`;
@@ -77,23 +81,30 @@ function Picker({ onBus }) {
   const fav = (b) => s.favourites.includes(favKey(b.v.file));
   const keepBus = (b) => !favOnly || fav(b) || b.v.file === cur;
   const has = (list) => list.some((b) => b.v.file === cur);
+  // (the bus that fits the duty best: marked on its tiles; a tile's photo is the chosen bus's,
+  // else the best one's, else its first)
+  const best = useBest();
+  const isBest = (list) => !!best && list.some((b) => b.v.file === best.file);
+  const marked = (sub, is) => (is ? `${sub} · ${bestWord(best)}` : sub);
+  const pickOf = (list) => (list.find((b) => b.v.file === cur) || (best && list.find((b) => b.v.file === best.file)) || list[0])?.v.file;
   const ql = q.trim().toLowerCase();
   let tiles;
   if (ql) {
     const hits = groups.flatMap((g) => g.models.flatMap((m) => m.buses)).filter(keepBus).filter((b) => [b.v.name, b.group, b.model, b.version, b.v.file].some((x) => x.toLowerCase().includes(ql)));
-    tiles = hits.map((b) => ({ key: b.v.file, title: `${b.group} ${b.model}`, sub: `${b.version} · ${liveries(b.v.paints.length + 1)}`, on: b.v.file === cur, star: fav(b), b }));
+    tiles = hits.map((b) => ({ key: b.v.file, title: `${b.group} ${b.model}`, sub: marked(`${b.version} · ${liveries(b.v.paints.length + 1)}`, isBest([b])), on: b.v.file === cur, star: fav(b), b, photo: b.v.file }));
   } else if (!level.length) {
-    tiles = groups.map((g) => ({ g, buses: g.models.flatMap((m) => m.buses).filter(keepBus) })).filter((x) => x.buses.length).map(({ g, buses }) => ({ key: g.name, title: g.name, sub: versions(buses.length), on: has(buses), open: [g.name] }));
+    tiles = groups.map((g) => ({ g, buses: g.models.flatMap((m) => m.buses).filter(keepBus) })).filter((x) => x.buses.length).map(({ g, buses }) => ({ key: g.name, title: g.name, sub: marked(versions(buses.length), isBest(buses)), on: has(buses), open: [g.name], photo: pickOf(buses) }));
   } else if (level.length === 1) {
     const g = groups.find((x) => x.name === level[0]);
-    tiles = (g?.models || []).map((m) => ({ m, buses: m.buses.filter(keepBus) })).filter((x) => x.buses.length).map(({ m, buses }) => ({ key: m.name, title: m.name, sub: versions(buses.length), on: has(buses), open: [level[0], m.name] }));
+    tiles = (g?.models || []).map((m) => ({ m, buses: m.buses.filter(keepBus) })).filter((x) => x.buses.length).map(({ m, buses }) => ({ key: m.name, title: m.name, sub: marked(versions(buses.length), isBest(buses)), on: has(buses), open: [level[0], m.name], photo: pickOf(buses) }));
   } else {
     const m = groups.find((x) => x.name === level[0])?.models.find((x) => x.name === level[1]);
-    tiles = (m?.buses || []).filter(keepBus).map((b) => ({ key: b.v.file, title: b.version, sub: liveries(b.v.paints.length + 1), on: b.v.file === cur, star: fav(b), b }));
+    tiles = (m?.buses || []).filter(keepBus).map((b) => ({ key: b.v.file, title: b.version, sub: marked(liveries(b.v.paints.length + 1), isBest([b])), on: b.v.file === cur, star: fav(b), b, photo: b.v.file }));
   }
   const crumbs = [tr('Buses'), ...level];
   const v = curBus();
-  const foot = `${tr('%{n} buses installed', { n: all.length })}${v ? ` · ${v.name}` : ''}`;
+  const bf = bestFoot(best);
+  const foot = `${tr('%{n} buses installed', { n: all.length })}${bf ? ` · ${bf}` : v ? ` · ${v.name}` : ''}`;
   return html`
     <section class="hub-sheet wide">
       <div style="width:min(1140px,100%);margin:0 auto;display:flex;flex-direction:column;flex:none;align-self:stretch">
@@ -112,7 +123,7 @@ function Picker({ onBus }) {
           ? html`<div class="empty"><span class="spinner"></span><b>${s.vehiclesProgress ? tr('Reading the buses… {done} of {total}').replace('{done}', s.vehiclesProgress.done).replace('{total}', s.vehiclesProgress.total) : tr('Reading the buses…')}</b></div>`
           : !tiles.length
             ? html`<div class="empty"><${Icon} name="directions_bus" size=${34} /><b>${tr(favOnly ? 'No starred bus' : 'No bus found')}</b></div>`
-            : html`<div class="hub-tiles">${tiles.map((x) => html`<${Tile} key=${x.key} title=${x.title} sub=${x.sub} on=${x.on} star=${x.star} onStar=${() => toggleFavourite(x.b.v.file)}
+            : html`<div class="hub-tiles">${tiles.map((x) => html`<${Tile} key=${x.key} title=${x.title} sub=${x.sub} on=${x.on} star=${x.star} photo=${x.photo} paint=${x.photo === cur ? s.choice.paint : ''} onStar=${() => toggleFavourite(x.b.v.file)}
                 onClick=${() => (x.b ? onBus(x.b) : keep(x.open))} />`)}</div>`}
       </div></div>
       <div style="width:min(1180px,100%);margin:0 auto;align-self:stretch"><${Foot} text=${foot} /></div>
@@ -174,6 +185,7 @@ function Chosen({ onBack, onDepots }) {
       <div class="hub-body"><div class="hub-pad">
         <h2 style="font-size:16.9px;font-weight:700;margin-bottom:4px">${v.name}</h2>
         <p style="color:var(--hub-text-dim);margin-bottom:18px">${[v.manufacturer, v.type_name].filter(Boolean).join(' - ')}</p>
+        <${BestLine} file=${v.file} />
         <div class="hub-caps"><b>${tr('Livery')}</b>
           <span class="hub-paint-own">
             <${IconBtn} icon="livery_fill" size=${11} title="Paint a livery of your own" onClick=${() => openLivery({ bus: v.file, paint: c.paint, back: 'drive' })} />
@@ -183,6 +195,8 @@ function Chosen({ onBack, onDepots }) {
           <span style="flex:1;min-width:0"><${Select} raw value=${c.paint} options=${paints} onChange=${(paint) => choose({ paint })} /></span>
           ${paints.length > 1 && html`<${Button} icon="chevron_left" title="Preview previous livery" onClick=${() => step(-1)} /><${Button} icon="chevron_right" title="Preview next livery" onClick=${() => step(1)} />`}
         </div>
+        <${BusOptions} bus=${v.file} paint=${c.paint} />
+        <${DisplayFont} bus=${v.file} text=${sampleOf(c)} />
         <div style="display:grid;grid-template-columns:110px 1fr;gap:10px 6px;align-items:center">
           <${DepotField} onOpen=${onDepots} />
           ${v.numbers?.length > 0 && html`<span style="color:var(--hub-text-soft)">${tr('Fleet number')}</span>
@@ -226,7 +240,7 @@ export function BusStep() {
       : html`<${Picker} onBus=${(b) => (b.v.file !== s.choice.bus && choose({ bus: b.v.file, paint: '', number: '', hof_manual: false }), show('bus'))} />`}
     <${DepotDialog} onOpen=${() => show('depots')} />
     <${Actions} back onBack=${() => (depots ? show('bus') : showing ? show('tiles') : goStep(previousOf('bus')))} from=${showing ? 'calc(var(--hub-edge-in) + clamp(288px, 27.4cqw, 420px) + 14px)' : null}
-      extra=${last ? [{ label: 'Continue last game', icon: 'history', onClick: () => go({ situation: last.file, lan: 'off' }), disabled: busy }] : []}
-      main="Drive" mainDisabled=${!curBus() || !s.choice.map} busy=${busy} onMain=${() => go()} />
+      extra=${[...(last ? [{ label: 'Continue last game', icon: 'history', onClick: () => go({ situation: last.file, lan: 'off' }), disabled: busy }] : []), ...(!showing && !depots && curBus() ? [{ label: 'View in 3D', icon: '360', onClick: () => show('bus') }] : [])]}
+      main=${s.choice.free || !s.choice.line || (s.choice.composed && !(s.choice.legs || []).length) ? 'Drive' : 'Start the duty'} mainDisabled=${!curBus() || !s.choice.map} busy=${busy} onMain=${() => go()} />
   `;
 }

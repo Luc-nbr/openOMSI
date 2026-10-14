@@ -94,6 +94,9 @@ export async function selftest(check, errors) {
     check('hub: the METAR airports', false, x.message);
   }
 
+  // what phase 3 added to the drive (Trello "Tauri 3/6": steps/selftest-more.js)
+  await (await import('./steps/selftest-more.js')).selftest(check, errors, step);
+
   // back as it was
   set({ choice: kept, page: 'drive', hub: { ...S.hub, step: 'mode' } });
   await call('choice_save', { choice: kept }).catch(() => {});
