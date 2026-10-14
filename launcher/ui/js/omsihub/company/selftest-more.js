@@ -21,7 +21,8 @@ export async function selftest(check, errors, shown) {
   }
   // every page, drawn, with what it is made of
   const pages = [
-    [5, 'the planning', () => ($('.pl') ? `${$$('.pl-day').length} days, ${$$('.pl-head').length} lines, ${$$('.pl-duty, .pl-issue').length} duties and issues` : !!$('.co-body') && 'handed over (RosterFlow)')],
+    // (with the add-on on, RosterFlow takes the page: `rosterflow/selftest.js` checks it)
+    [5, 'the planning', () => ($('.pl') ? `${$$('.pl-day').length} days, ${$$('.pl-head').length} lines, ${$$('.pl-duty, .pl-issue').length} duties and issues` : $('.rf') ? 'RosterFlow takes it' : !!$('.co-body') && 'handed over (RosterFlow)')],
     [7, 'the depot', () => $('.cm-plan') && `${$$('.cm-bus').length} buses on the yard`],
     [8, 'the concessions', () => $$('.co-section').length === 3 && `${$$('.cm-tender').length} tenders`],
     [9, 'the fleet map', () => $('.cm-panel') && ($('.cm-mapbox') ? 'map and panel' : 'panel')],

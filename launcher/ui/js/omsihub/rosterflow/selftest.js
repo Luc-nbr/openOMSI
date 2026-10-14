@@ -231,7 +231,9 @@ export async function selftest(check, errors) {
     const l = S.rf.tut.lesson;
     if (!l) check(`rosterflow: lesson "${title}" on its way`, false, `no lesson after it began: ${JSON.stringify({ ...S.rf.tut, seen: undefined }).slice(0, 240)} open=${S.rf.open} tab=${S.co.tab}`);
     const why = l?.stage === 'blocked' ? `waits: ${l.why}` : `${l?.done.filter(Boolean).length ?? 0} of ${steps.length} steps ticked off by themselves`;
-    const ok = errors.length === before && !!$('.rf-guide') && (l?.stage === 'blocked' || (l?.at ?? 0) >= Math.min(runs.filter(Boolean).length, steps.length));
+    // (a null among the runs is a step that needs an edit: the lesson goes as far as the runs before it)
+    const stop = runs.indexOf(null);
+    const ok = errors.length === before && !!$('.rf-guide') && (l?.stage === 'blocked' || (l?.at ?? 0) >= Math.min(stop < 0 ? runs.length : stop, steps.length));
     const state = ok ? '' : ` [${JSON.stringify({ ...l, start: undefined, done: undefined })} view=${S.rf.view} board=${!!S.rf.data?.board} guide=${!!$('.rf-guide')} tour=${!!S.rf.tut.tour} rf=${!!$(".rf")} guard=${($(".co-empty.t-danger")?.textContent || "").slice(0, 400)}]`;
     check(`rosterflow: lesson "${title}"`, ok, (errors.length === before ? why : errors.slice(before).join('; ')) + state);
     settle();
