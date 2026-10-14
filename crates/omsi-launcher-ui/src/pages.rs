@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 
 // the "Add binding" picker of the keyboard page: OMSI's events and the installed buses' own
 // triggers, searchable
-mod keybind_picker;
+pub(crate) mod keybind_picker;
 pub use keybind_picker::keybind_picker;
 use keybind_picker::{controller_action_choices, KeyActionOption};
 
@@ -145,7 +145,7 @@ fn release_feedback(io: &mut Option<omsi_input::controllers::Devices>, active: &
 use super::{mobile, state};
 mod profile;
 mod settings;
-mod controls;
+pub(crate) mod controls;
 mod sessions;
 mod mods;
 mod setup;

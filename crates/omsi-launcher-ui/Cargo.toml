@@ -44,6 +44,11 @@ resvg = { version = "0.45", default-features = false }
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
 
+# Windows: a window never shown for DirectInput's devices on the desktop launcher's controllers
+# page (`hub_service::pads`)
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }
+
 [target.'cfg(not(target_os = "android"))'.dependencies]
 arboard = { version = "3", default-features = false }
 # the desktop's file dialogs (the livery studio's pictures, the company's prints)

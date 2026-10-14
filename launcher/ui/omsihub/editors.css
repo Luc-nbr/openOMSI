@@ -155,3 +155,50 @@
 .ed-picker .row { display: grid; grid-template-columns: 118px minmax(40px, 1fr); gap: 8px; margin-top: 10px; }
 .ed-picker .row .ed-field { height: 32px; }
 .ed-picker .sample { height: 32px; border-radius: var(--hub-r); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; }
+
+/* --- the Controls page's game controllers (`js/omsihub/pads.js`, `pages/controls.rs`) --- */
+
+.hub-pads-note { font-size: 9.6px; color: var(--hub-text-dim); line-height: 1.4; margin: 8px 12px 20px; }
+.hub-pads { display: grid; grid-template-columns: min(32%, 360px) minmax(0, 1fr); gap: 28px; min-height: 420px; }
+.hub-pads > .ed-card { padding: 14px 18px; }
+.hub-pads .rows { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 4px; margin: 0 -6px; padding: 0 6px; }
+.hub-pads .rows .ed-row { height: 44px; }
+.hub-pads .rows .ed-row .name { font-size: 10px; }
+.hub-pads .rows .ed-row .name.away { color: var(--hub-text-dim); }
+.hub-pads .rows .ed-row .off { font-size: 8.8px; font-weight: 700; color: var(--hub-text-faint); }
+.hub-pads .rows .ed-row .hub-icon.ok { color: var(--hub-ok); }
+.hub-pads .rows .ed-row .hub-icon.faint { color: var(--hub-text-faint); }
+.hub-pads .rows > .hub-btn { flex: none; height: 38px; margin-top: 2px; }
+.hub-pads .rows > .hub-btn span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hub-pads-para { font-size: 10px; color: var(--hub-text-dim); line-height: 1.4; padding: 4px 6px; }
+.hub-pads-list .foot { flex: none; display: flex; flex-direction: column; gap: 14px; margin-top: 12px; }
+.hub-pads-list .foot .hub-btn { height: 40px; width: 100%; }
+.hub-pads-device .head { flex: none; display: flex; align-items: center; gap: 12px; height: 30px; margin-bottom: 8px; }
+.hub-pads-device .head .ed-heading { flex: 1; min-width: 0; padding-top: 0; height: auto; align-items: center; }
+.hub-pads-device .head .use { flex: none; width: 170px; height: 30px; }
+.hub-pads-device .head .hub-btn { flex: none; height: 30px; }
+.hub-pads-device .detail { flex: 1; min-height: 0; overflow: auto; margin: 0 -6px; padding: 0 6px; }
+.hub-pads-device .ff .hub-slider { min-height: 36px; margin-bottom: 6px; }
+.hub-pads-device .ff .ed-toggle { margin: 8px 0 14px; }
+.hub-pads-device .axis { display: grid; grid-template-columns: 110px minmax(30px, 1fr) minmax(120px, 200px) 110px 140px; gap: 14px; align-items: center; height: 36px; margin-bottom: 6px; }
+.hub-pads-device .axis .name, .hub-pads-device .button .name { font-size: 10px; color: var(--hub-text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* (the axis as it stands: white .06 blended in linear light, as the game-drawn launcher draws it) */
+.hub-pads .bar { position: relative; height: 12px; border-radius: 4px; background: rgba(255, 255, 255, 0.237); }
+:root.hub[data-theme="light"] .hub-pads .bar { background: rgba(22, 20, 26, 0.108); }
+.hub-pads .bar i { position: absolute; top: -3px; bottom: -3px; width: 4px; border-radius: 2px; background: var(--hub-accent); }
+.hub-pads-device h3 { font-size: 10.75px; font-weight: 700; color: var(--hub-text); margin: 16px 0 6px; }
+.hub-pads-device .buttons { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 4px 14px; padding-bottom: 8px; }
+.hub-pads-device .button { display: grid; grid-template-columns: 90px minmax(0, 1fr) 104px; gap: 14px; align-items: center; height: 36px; padding: 0 4px; border-radius: 6px; }
+.hub-pads-device .button.lit { background: rgba(var(--hub-accent-rgb), 0.5); }
+.hub-pads-device > .foot { flex: none; display: flex; align-items: center; gap: 14px; margin-top: 10px; }
+.hub-pads-device > .foot .hub-btn { width: 260px; height: 36px; }
+.hub-pads-device .wizard { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
+.hub-pads-device .wizard h2 { font-size: 13px; font-weight: 700; color: var(--hub-text); line-height: 20px; }
+.hub-pads-device .wizard p { font-size: 10.4px; color: var(--hub-text-soft); line-height: 1.4; margin-top: 8px; }
+.hub-pads-device .wizard p.bad { color: var(--hub-danger); font-size: 10px; font-weight: 500; }
+.hub-pads-device .wizard .ed-toggle { margin-top: 14px; }
+.hub-pads-device .wizard .axis-live { display: grid; grid-template-columns: 84px minmax(40px, 1fr); gap: 6px; align-items: center; height: 26px; }
+.hub-pads-device .wizard .axis-live > span:first-child { font-size: 9.2px; font-weight: 500; color: var(--hub-text-dim); }
+.hub-pads-device .wizard .axis-live .bar { height: 8px; }
+.hub-pads-device .wizard .foot { flex: none; display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.hub-pads-device .wizard .foot .hub-btn { height: 36px; min-width: 110px; }

@@ -7,6 +7,8 @@ import { t } from '../i18n.js';
 import { call } from '../api.js';
 import { saveSettings, cached } from '../data.js';
 import { Button, Card, Search, Segmented, Tabs, Notice, Empty, Spinner, Dialog, useConfirm, PageHead, Slider } from '../ui.js';
+// Omsi-Hub: the game controllers set up as our game-drawn launcher does (`omsihub/pads.js`)
+import { HubPads, HUB_PADS } from '../omsihub/pads.js';
 
 // --- keys ---------------------------------------------------------------------------------
 
@@ -484,6 +486,8 @@ function ActionPicker({ bindings, onClose, onPick }) {
 let deadzoneTimer = 0;
 
 function Controllers() {
+  // Omsi-Hub: our page of the devices, read by the game program
+  if (HUB_PADS) return html`<${HubPads} />`;
   const s = useStore();
   const pads = usePads();
   const dz = Number(s.settings?.ctrl_deadzone ?? 0);

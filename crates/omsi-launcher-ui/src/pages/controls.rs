@@ -13,7 +13,7 @@ use omsi_launcher_lib as core;
 /// reset of the head's middle.
 pub(super) const PAD_GAME_ACTIONS: [&str; 29] = ["head_tracking_recenter", "head_tracking_toggle", "doors_all", "door_4", "door_3", "door_2", "door_1", "gear_up", "gear_down", "view_look_left", "view_look_right", "view_look_up", "view_look_down", "view_reset_direction", "view_reset_all_directions", "view_interiorcam_plus", "view_interiorcam_minus", "view_toggle_viewpoint", "view_toggle_interior", "view_set_driver", "view_set_passenger", "view_set_outside", "sim_pause", "open_menu", "screenshot", "quicksave", "toggel_mouse_ctrl", "toggel_ctrler", "voice_radio"];
 
-pub(super) fn action_text(names: &omsi_input::describe::ControlNames, a: &str) -> String {
+pub(crate) fn action_text(names: &omsi_input::describe::ControlNames, a: &str) -> String {
     known_action(a).unwrap_or_else(|| names.control(a))
 }
 
@@ -335,7 +335,7 @@ pub fn controls(l: &mut Launcher, area: Rect) {
 }
 
 /// Hide empty slots beyond the physical buttons without changing the saved controller file.
-fn shown_button_count(buttons: &[(String, String)], physical: usize, revealed: Option<usize>) -> usize {
+pub(crate) fn shown_button_count(buttons: &[(String, String)], physical: usize, revealed: Option<usize>) -> usize {
     physical
         .max(buttons.iter().rposition(|(action, _)| !action.trim().is_empty()).map(|i| i + 1).unwrap_or(0))
         .max(revealed.map(|i| i + 1).unwrap_or(0))
@@ -698,7 +698,7 @@ fn remove_device(devices: &mut Vec<omsi_input::controllers::DeviceCfg>, selected
 }
 
 /// A device's button `b` as its line names it: a hat's direction, or the button's number.
-fn button_label(b: usize) -> String {
+pub(crate) fn button_label(b: usize) -> String {
     match b.checked_sub(crate::controllers::HAT_BUTTONS) {
         Some(h) => omsi_ui::tr(["Hat %{n} up", "Hat %{n} right", "Hat %{n} down", "Hat %{n} left"][h % 4]).replace("%{n}", &(h / 4 + 1).to_string()),
         None => omsi_ui::tr("Button %{n}").replace("%{n}", &(b + 1).to_string()),
@@ -706,7 +706,7 @@ fn button_label(b: usize) -> String {
 }
 
 /// The steps of the set-up assistant (see `Wizard`): what the player is asked each time.
-const WIZARD_STEPS: [(&str, &str); 5] = [
+pub(crate) const WIZARD_STEPS: [(&str, &str); 5] = [
     ("Let go of everything", "Take your hands off the wheel and your feet off the pedals (the wheel in the middle), then press Next."),
     ("Steering", "Turn the wheel (or move the stick) all the way to the LEFT and hold it there, then press Next."),
     ("Throttle", "Press the throttle pedal all the way down and hold it, then press Next. No pedals: Skip."),
@@ -875,7 +875,7 @@ fn feedback_setup(
 /// The axes the assistant found: `rest` where everything rested, `at` where the axes stood
 /// with the wheel turned left, the throttle, the brake and the clutch pressed (all None: that
 /// step skipped).
-fn wizard_result(rest: &[Option<f32>; 8], at: &[[Option<f32>; 8]]) -> [Option<(omsi_input::controllers::Func, bool)>; 8] {
+pub(crate) fn wizard_result(rest: &[Option<f32>; 8], at: &[[Option<f32>; 8]]) -> [Option<(omsi_input::controllers::Func, bool)>; 8] {
     use omsi_input::controllers::Func;
     let mut axes: [Option<(Func, bool)>; 8] = [None; 8];
     let steer = at.first().and_then(|a| moved_most(rest, a, &[]));
@@ -912,7 +912,7 @@ fn wizard_result(rest: &[Option<f32>; 8], at: &[[Option<f32>; 8]]) -> [Option<(o
 
 /// The axis that moved most from `rest` to `now` (at least a sixth of its travel), not one of
 /// `exclude`: (slot, how far, signed).
-fn moved_most(rest: &[Option<f32>; 8], now: &[Option<f32>; 8], exclude: &[usize]) -> Option<(usize, f32)> {
+pub(crate) fn moved_most(rest: &[Option<f32>; 8], now: &[Option<f32>; 8], exclude: &[usize]) -> Option<(usize, f32)> {
     (0..8)
         .filter(|k| !exclude.contains(k))
         .filter_map(|k| Some((k, now[k]? - rest[k].unwrap_or(0.0))))
@@ -922,7 +922,7 @@ fn moved_most(rest: &[Option<f32>; 8], now: &[Option<f32>; 8], exclude: &[usize]
 
 /// Write the devices to the content folder's `Inputs/gamectrler.cfg` (OMSI 2's own is only
 /// read; the game takes the content folder's first).
-fn save_gamectrler(devices: &[omsi_input::controllers::DeviceCfg]) -> Result<std::path::PathBuf, String> {
+pub(crate) fn save_gamectrler(devices: &[omsi_input::controllers::DeviceCfg]) -> Result<std::path::PathBuf, String> {
     let candidate = core::content_dir().unwrap_or_else(core::data_dir).join("Inputs");
     let dir = if (candidate.exists() || std::fs::create_dir_all(&candidate).is_ok()) && omsi_cfg::is_writable(&candidate) {
         candidate

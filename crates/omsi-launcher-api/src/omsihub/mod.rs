@@ -137,6 +137,7 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
         "hub_weather_extras" => (|| hub_weather_extras(&arg::<String>(args, "map")?))(),
         "hub_own_lines" => (|| hub_own_lines(&arg::<String>(args, "map")?))(),
         "hub_photo" => hub_photo(args, p),
+        "hub_pads" => hub_pads(args, p),
         // what phase 1 left of the drive's steps (Trello "Tauri 3/6": `hub_more.rs`)
         c if c.starts_with("hub_more_") => return hub_more::call(c, args),
         c if c.starts_with("hub_update") => return update::call(c, args),
@@ -180,6 +181,16 @@ fn hub_photo(args: &Value, p: &dyn Platform) -> Answer {
     } else {
         Err(head.get("error").and_then(Value::as_str).unwrap_or("no photo").to_string())
     }
+}
+
+// --- the game controllers ----------------------------------------------------------------
+
+/// The Controls page's game controllers (Omsi-Hub 6/6, `hub_service::pads`): read and set up by
+/// the game program, which reads the devices as the game does. `args` is the page's ask (`op`,
+/// `act` and what it takes), the answer what the page shows.
+fn hub_pads(args: &Value, p: &dyn Platform) -> Answer {
+    let (_, body) = p.renderer(json!({ "cmd": "pads", "pads": args }), std::time::Duration::from_secs(30))?;
+    serde_json::from_slice(&body).map_err(err)
 }
 
 // --- work shifts -------------------------------------------------------------------------

@@ -11,6 +11,8 @@
 //!   page's request under `studio`, the studio's picture in the bytes;
 //! * `photo`: a bus photographed for the bus picker's tiles and the company's, kept where our
 //!   game-drawn launcher keeps its photos (`photo`, Trello "Tauri 6/6");
+//! * `pads`: the Controls page's game controllers, read and set up here as our game-drawn
+//!   launcher does it (`pads`, Trello "Tauri 6/6");
 //!
 //! Each answer is the service's: a JSON head and the bytes after it (`Reply`). Kept in this file
 //! of our own beside the editors it serves, so that the modules it needs stay private.
@@ -19,6 +21,7 @@ use serde_json::Value;
 use std::sync::Arc;
 
 mod display;
+mod pads;
 mod photo;
 mod studio;
 
@@ -45,6 +48,11 @@ pub fn serve(cmd: &str, req: &Value, reply: Reply, renderer: &mut Option<omsi_re
         // the line editor (`lineeditor::headless`): its view, or the map's roads and stops
         "le" => {
             line_editor(req, reply);
+            true
+        }
+        // the game controllers (`pads`), on their thread
+        "pads" => {
+            pads::ask(req, reply);
             true
         }
         // the livery studio (`studio`): its thread started here, with a renderer of its own
@@ -76,6 +84,10 @@ pub fn at_once(req: &Value, reply: Reply) -> bool {
     match req.get("cmd").and_then(Value::as_str) {
         Some("le") => {
             line_editor(req, reply);
+            true
+        }
+        Some("pads") => {
+            pads::ask(req, reply);
             true
         }
         // (the studio, once its thread runs: its pictures are drawn there)

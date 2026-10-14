@@ -65,7 +65,7 @@ fn action_options(names: &omsi_input::describe::ControlNames, script_actions: &H
 /// The actions a controller's button can be given on the launcher's page, and their labels:
 /// the keyboard file's vehicle actions, the H-pattern gates and the game's own (built once
 /// and kept, not every frame).
-pub(super) fn controller_action_choices(names: &omsi_input::describe::ControlNames, bindings: &Value) -> (Vec<String>, Vec<String>) {
+pub(crate) fn controller_action_choices(names: &omsi_input::describe::ControlNames, bindings: &Value) -> (Vec<String>, Vec<String>) {
     let mut actions: Vec<String> = vec!["<none>".into()];
     actions.extend(bindings.get("vehicles").and_then(|a| a.as_array()).map(|a| a.iter().filter_map(|b| b.get("action").and_then(|x| x.as_str()).map(String::from)).collect::<Vec<_>>()).unwrap_or_default());
     // H-pattern shifters use OMSI's "_fest" actions: pressing the gate selects the gear,

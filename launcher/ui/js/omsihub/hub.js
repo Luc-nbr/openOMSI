@@ -36,6 +36,7 @@ export const ABOUT = {
   mods: ['extension', 'Mods', 'A bus, a map, scenery, a whole OMSI folder - as a folder or a .zip, .7z or .rar. The original OMSI 2 folder is never written to.'],
   settings: ['settings', 'Settings', 'Every change is saved at once; the game reads them when it starts.'],
   controls: ['keyboard', 'Controls', 'Click a key and press the new one (hold Shift, Ctrl or Alt for a combination); Escape leaves it as it is.'],
+  pads: ['sports_esports', 'Controls', "What each axis and button of a wheel, pedals or joystick does - OMSI 2's gamectrler.cfg, kept in the content folder."],
   games: ['sports_esports', 'Sessions', 'The games you started, and who drives with you.'],
   tutorials: ['help', 'Tutorials', "OMSI 2's own lessons: each opens its situation, with its pages beside the picture (Enter turns the page)."],
   setup: ['folder_open', 'Setup', 'Where the original game and this one are.'],
@@ -140,7 +141,8 @@ export function HubShell({ pages, Toasts }) {
  * what, the way back in its corner; the page's own head keeps only what it has in its corner
  * (the Controls page's switch). */
 function PageSheet({ id, label, Page }) {
-  const [icon, title, sub] = ABOUT[id] || ['info', label, ''];
+  // (Omsi-Hub 6/6: the Controls page's game controllers have a head of their own, `pads.js`)
+  const [icon, title, sub] = id === 'controls' && S.hubPads ? ABOUT.pads : ABOUT[id] || ['info', label, ''];
   return html`<section class="hub-sheet page" key=${id}>
     <${Head} icon=${icon} title=${title} sub=${tr(sub)}
       tools=${html`<button type="button" class="hub-btn hub-page-back" onClick=${() => go('drive')}><${Icon} name="chevron_left" size=${18} />${tr('Back')}</button>`} />
