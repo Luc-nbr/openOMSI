@@ -1,7 +1,8 @@
 // The start (the drive's "Mode" step), as our game-drawn launcher's (`flow::step_mode`): the
 // logo over the greeting, the ways to drive as tiles with a photo each - a work shift, a tour,
 // a free drive, and the bus company beside them - and under them the driver's service record
-// and the ways to everything else. The glass card is as tall as what is on it.
+// and the ways to everything else. The glass card is as tall as what is on it; what does not
+// fit scrolls inside it (`hub-card-in`), under the card's rim, which stays where the card is.
 
 import { html } from '../../vendor/preact-htm.js';
 import { useStore } from '../store.js';
@@ -61,7 +62,7 @@ export function Home() {
     [tr('Setup'), 'folder_open', () => go('setup')],
   ];
   return html`<div class="hub-start">
-    <section class="hub-card hub-glass glow">
+    <section class="hub-card hub-glass glow"><div class="hub-card-in">
       <div dangerouslySetInnerHTML=${{ __html: LOGO_SVG }} style="display:contents"></div>
       <h1 class="hub-greeting">${greeting(name)}</h1>
       <p class="hub-question">${tr('How do you want to drive today?')}</p>
@@ -93,6 +94,6 @@ export function Home() {
           <button type="button" class="hub-link long" onClick=${openEditor}><${Icon} name="construction" size=${16} /><span>${tr("Editor: lines, liveries, the timetable and the map's objects")}</span></button>
         </div>
       </div>
-    </section>
+    </div></section>
   </div>`;
 }

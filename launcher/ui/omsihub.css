@@ -390,7 +390,11 @@
 /* --- the start (the mode step) ---------------------------------------------------------- */
 
 .hub-start { position: absolute; z-index: 5; left: max(var(--hub-edge-in), calc(50% - 860px)); right: max(var(--hub-edge-in), calc(50% - 860px)); top: var(--hub-sheet-top); bottom: 22px; display: flex; align-items: center; pointer-events: none; }
-.hub-card { --hub-glass: var(--hub-glass-card); pointer-events: auto; width: 100%; max-height: 100%; overflow: auto; border-radius: var(--hub-r-sheet); padding: 28px 34px; display: flex; flex-direction: column; }
+/* (the card itself does not scroll: its rim, `.hub-glass::before`, is placed in it and scrolled
+   away with its content - Beta 52's tenth link made the start scroll, and the rim's bottom edge
+   ran as a line across the service record; what does not fit scrolls in `.hub-card-in`) */
+.hub-card { --hub-glass: var(--hub-glass-card); pointer-events: auto; width: 100%; max-height: 100%; overflow: hidden; border-radius: var(--hub-r-sheet); display: flex; flex-direction: column; }
+.hub-card-in { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 28px 34px; display: flex; flex-direction: column; border-radius: inherit; }
 .hub-card .hub-logo { height: var(--hub-logo-h); width: auto; display: block; margin: 0 auto 16px; flex: none; }
 .hub-greeting { text-align: center; font-size: 24.6px; font-weight: 700; line-height: 40px; color: var(--hub-glass-ink); }
 .hub-question { text-align: center; font-size: 10.7px; color: var(--hub-glass-ink-soft); margin: 6px 0 30px; }
@@ -444,7 +448,10 @@
 .hub-link .hub-icon { color: var(--hub-glass-ink-soft); }
 .hub-link:hover { background: var(--hub-glass-on-hover); transform: translateY(-2px); }
 .hub-link:hover .hub-icon { color: var(--hub-glass-ink); }
-.hub-link.long { grid-column: 1 / -1; }
+/* (the editor's long link beside the last one: nine links and Model test fill four rows, as
+   Beta 51's nine did, and the start fits a 1440 x 820 window again) */
+.hub-link.long { grid-column: span 2; }
+.hub-links > .hub-link.long:nth-child(3n + 1) { grid-column: 1 / -1; }
 .hub-link .away { opacity: 0.6; }
 
 /* --- the steps -------------------------------------------------------------------------- */
