@@ -4,9 +4,10 @@
 //! the advanced mode.
 //!
 //! A block keeps to its line. The player moves a trip with passengers to another bus of the
-//! line, or to a new one; he cuts a block into duties, only where the bus stands at one of the
-//! line's termini or at the depot (Luc: "relief points are ONLY a line's termini and the
-//! depot"), and joins them again; and he joins pieces of different blocks into one driver's
+//! line, or to a new one; he cuts a block into duties, only at a relief point that allows it -
+//! where the bus stands at a terminus or the depot, or halfway along a trip at a stop the player
+//! made a relief point (`cut_mid`, Luc 2026-10-14; it was "relief points are ONLY a line's
+//! termini and the depot" before) - and joins them again; and he joins pieces of different blocks into one driver's
 //! duty (a split duty, or one that changes buses). The working-time rules (`staff::check`)
 //! refuse what may not be and warn of the rest. In RosterFlow's Drivers view he moves a trip
 //! (or several) of a duty to another duty or to a new one (`plan_move_to_duty`): the bus keeps
