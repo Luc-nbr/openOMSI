@@ -12,6 +12,8 @@ command -v cargo >/dev/null 2>&1 || { echo "Install Rust from https://rustup.rs,
 target="${OPENOMSI_TARGET:-$(rustc -vV | sed -n 's/^host: //p')}"
 version="${OPENOMSI_VERSION:-$(sh scripts/version.sh 2>/dev/null || echo 0.0.0)}"
 export OPENOMSI_VERSION="$version"
+# (Tauri and the bundle take a semver: the first three numbers - a fork's release has four)
+semver=$(printf '%s' "${version%%-*}" | cut -d. -f1-3)
 cargo build --locked --release --target "$target" -p omsi-app -p omsi-launcher-core
 out=dist/macos
 app="$out/openOMSI.app"
@@ -23,10 +25,10 @@ cp "target/$target/release/openomsi-launcher" "$app/Contents/MacOS/openomsi-laun
 cp "assets/steam_redist/libsteam_api.dylib" "$app/Contents/MacOS/"
 # the desktop launcher (launcher/, Tauri on WebKit), stamped with the release version (its
 # About window and the Info.plist inside it said tauri.conf.json's)
-TAURI_CONFIG="{\"version\":\"${version%%-*}\"}" cargo build --locked --release --target "$target" --manifest-path launcher/src-tauri/Cargo.toml
+TAURI_CONFIG="{\"version\":\"$semver\"}" cargo build --locked --release --target "$target" --manifest-path launcher/src-tauri/Cargo.toml
 cp "launcher/src-tauri/target/$target/release/openomsi-launcher-app" "$app/Contents/MacOS/openomsi-launcher-app"
 cp assets/icons/app/openomsi.icns "$app/Contents/Resources/openomsi.icns"
 # (the bundle's version is numbers only: a test build's -pr<number> is left out there)
-sed -e "s/@VERSION@/${version%%-*}/g" scripts/macos/Info.plist > "$app/Contents/Info.plist"
+sed -e "s/@VERSION@/$semver/g" scripts/macos/Info.plist > "$app/Contents/Info.plist"
 codesign --force --deep --sign - "$app" >/dev/null 2>&1 || true
 printf '\nopenOMSI %s built. Play: open "%s/%s"\n' "$version" "$PWD" "$app"
