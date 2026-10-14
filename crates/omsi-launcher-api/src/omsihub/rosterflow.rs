@@ -24,7 +24,8 @@
 
 mod print;
 mod roster;
-mod timeplan;
+// (its Own, load_own and commit save the planning's sheet of a line too: Omsi-Hub 6/6)
+pub(crate) mod timeplan;
 mod tutorial;
 
 /// Luc's driver drag (`rf-driver-drag`): single trips of a duty to another duty or a new one.

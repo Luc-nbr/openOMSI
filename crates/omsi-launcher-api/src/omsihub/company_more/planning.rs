@@ -1100,11 +1100,19 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Answer> {
                 None => Ok(json!({})),
             }
         }
-        // a line's trips and timetable: the planning's sheet of our game-drawn launcher
-        // (`plan_edit`) - handed over with the line, the day and the tour to mark
+        // a line's trips and timetable (`planning::open_timetable`): RosterFlow's Timeplan with
+        // the add-on on (handed to it), else the planning's own sheet (`plan_edit`, Omsi-Hub
+        // 6/6) with the day and the tour to mark
         "plan_timetable" => {
-            let part = format!("plan-line={}|{}|{}", str_arg(args, "line"), date, str_arg(args, "tour"));
-            Ok(json!({ "hand_over": part }))
+            let line = str_arg(args, "line");
+            if s.company.as_ref().is_some_and(co::autopilot::rosterflow) {
+                return Some(Ok(json!({ "hand_over": format!("timetable={line}") })));
+            }
+            let tour = Some(str_arg(args, "tour")).filter(|t| !t.is_empty());
+            let e = super::plan_edit::open(s, &line, &date, tour);
+            let opened = e.is_some();
+            super::more(s).edit = e;
+            Ok(json!({ "plan_edit": opened }))
         }
         _ => return None,
     })

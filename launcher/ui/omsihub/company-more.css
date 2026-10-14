@@ -225,3 +225,95 @@
 .pl-weekday { display: flex; align-items: center; height: 32px; border-bottom: 1px solid var(--hub-hairline); font-size: var(--co-rows); }
 .pl-weekday span { width: 230px; font-weight: 500; flex: none; }
 .pl-weekday b { font-weight: 700; }
+
+/* --- the planning's sheet of a line's trips and timetable (phase 6: `company/planedit.js`,
+   `plan_edit::sheet`), in the launcher's own look over RosterFlow's palette ------------------- */
+
+.pe { position: absolute; inset: 0; z-index: 6; background: var(--hub-panel); color: var(--hub-text); border-radius: var(--hub-r-sheet); box-shadow: 0 0 24px rgba(0, 0, 0, 0.55); user-select: none; }
+.pe > * { position: absolute; }
+.pe button { color: inherit; }
+/* (the planning's own buttons are laid out by hand: a segment's words in its middle again) */
+.pe .co-seg button { text-align: center; padding: 0 4px; }
+.pe-seg { height: 34px; }
+.pe-close { width: 32px; height: 32px; }
+.pe-pattern .capsrow { display: flex; align-items: center; justify-content: space-between; height: 28px; margin-bottom: 6px; }
+.pe-pattern .capsrow .pe-caps { margin: 0; }
+.pe-pattern .capsrow .co-switch { width: 55%; }
+.pe-head { display: flex; align-items: center; gap: 14px; height: 40px; }
+.pe-head .words { flex: 1; min-width: 0; display: flex; flex-direction: column; margin-top: -4px; }
+.pe-head .words b { font-size: 14.6px; line-height: 24px; }
+.pe-head .words span { font-size: 9.2px; line-height: 18px; color: var(--hub-text-dim); }
+.pe-head .date { font-size: var(--co-rows); font-weight: 700; color: var(--hub-text-soft); text-align: right; margin-right: 30px; }
+.pe-note { margin: 0; height: 20px; line-height: 20px; font-size: 9.2px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pe-caps { font-size: 8.44px; font-weight: 700; text-transform: uppercase; color: var(--hub-text-dim); height: 16px; line-height: 16px; white-space: nowrap; }
+.pe-caps.r { text-align: right; }
+.pe-hint { height: 18px; line-height: 18px; font-size: 9.2px; color: var(--hub-text-dim); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pe-axis .hr { position: absolute; top: 0; width: 32px; height: 16px; line-height: 16px; text-align: center; font-size: 9.2px; font-weight: 700; color: var(--hub-text-dim); }
+.pe-axis .hl { position: absolute; top: 18px; width: 1px; background: var(--hub-hairline); opacity: 0.6; }
+.pe-lane { position: absolute; left: 0; right: 0; border-radius: 8px; background: color-mix(in srgb, var(--hub-field) 70%, transparent); cursor: crosshair; overflow: visible; }
+.pe-lane > i, .pe-lane > span { position: absolute; pointer-events: none; }
+.pe-lane .dep { top: 7px; width: 3px; height: 20px; border-radius: 1.5px; }
+.pe-lane .trip { bottom: 9px; height: 4px; border-radius: 2px; opacity: 0.55; }
+.pe-lane .chosen { top: 4px; width: 6px; height: 26px; border-radius: 3px; background: var(--hub-text); }
+.pe-lane .mark { top: 1.5px; width: 5px; height: 5px; border-radius: 50%; background: var(--co-accent2); }
+.pe-lane .time { top: 27px; width: 40px; height: 14px; line-height: 14px; text-align: center; font-size: 8.44px; color: var(--hub-text-dim); }
+.pe-lane .time.on { font-weight: 700; color: var(--hub-text); }
+.pe-lane .guide { top: 7px; width: 2px; height: 20px; border-radius: 1px; opacity: 0.4; }
+.pe-lane .add { top: 27px; width: 52px; height: 14px; line-height: 14px; text-align: center; font-size: 8.44px; font-weight: 700; }
+.pe-dragtag { position: absolute; transform: translateX(-50%); height: 22px; line-height: 22px; padding: 0 8px; border-radius: 6px; background: var(--hub-accent); color: #fff; font-size: 9.6px; font-weight: 700; white-space: nowrap; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4); pointer-events: none; }
+.pe-lanehead { height: 42px; }
+.pe-lanehead > i { position: absolute; left: 0; top: 4px; width: 4px; height: 34px; border-radius: 2px; }
+.pe-lanehead .word { position: absolute; left: 12px; top: 1px; right: 0; height: 14px; line-height: 14px; font-size: 8.44px; font-weight: 700; color: var(--hub-text-dim); }
+.pe-lanehead b { position: absolute; left: 12px; top: 14px; right: 0; height: 16px; line-height: 16px; font-size: 10px; }
+.pe-lanehead .count { position: absolute; left: 12px; top: 29px; right: 0; height: 14px; line-height: 14px; font-size: 8.8px; color: var(--hub-text-dim); }
+.pe-bar { height: 12px; border-radius: 6px; background: var(--hub-hairline); }
+.pe-bar i { position: absolute; top: 2px; bottom: 2px; border-radius: 4px; background: var(--hub-text-faint); }
+.pe-tools { display: flex; align-items: center; gap: 2px; padding: 0 8px 0 12px; border-radius: 8px; background: rgba(var(--co-white), var(--aw-03)); }
+.pe-tools > b { flex: 1; min-width: 0; font-size: 10px; }
+.pe-tools .none { font-size: 9.6px; color: var(--hub-text-dim); }
+.pe-tools .co-field { width: 76px; height: 28px; margin-right: 8px; text-align: center; font-size: 10px; }
+.pe-tours .pe-caps { position: absolute; left: 0; top: 0; }
+.pe-tours .legend { position: absolute; right: 0; top: 0; display: flex; gap: 8px; }
+.pe-tours .legend span { display: flex; align-items: center; gap: 4px; font-size: 8.8px; font-weight: 700; color: var(--hub-text-dim); height: 16px; }
+.pe-tours .legend i { width: 7px; height: 7px; border-radius: 50%; }
+.pe-tours .none { position: absolute; top: 22px; margin: 0; font-size: 9.2px; color: var(--hub-text-dim); }
+.pe-tours .rows { position: absolute; left: 0; right: 0; }
+.pe-tours .row { position: absolute; left: 0; right: 8px; border-radius: 5px; }
+.pe-tours .row.focus { background: color-mix(in srgb, var(--hub-accent) 12%, transparent); }
+.pe-tours .row > * { position: absolute; }
+.pe-tours .row .hl { top: 0; bottom: 0; width: 1px; background: var(--hub-hairline); opacity: 0.4; }
+.pe-tours .row > b { left: 4px; width: 66px; top: 0; bottom: 0; display: flex; align-items: center; font-size: 9.6px; }
+.pe-tours .row .fate { left: 70.5px; top: calc(50% - 3.5px); width: 7px; height: 7px; border-radius: 50%; }
+.pe-tours .row .bus { left: 82px; width: 78px; top: 0; bottom: 0; display: flex; align-items: center; font-size: 8.8px; font-weight: 500; }
+.pe-tours .row .leg { border-radius: 3px; }
+.pe-right { padding-right: 12px; }
+.pe-right > * { position: relative; }
+.pe-right hr { border: 0; height: 1px; background: var(--hub-hairline); margin: 8px 0 10px; }
+.pe-needs .caps3 { display: grid; grid-template-columns: 58% 21% 21%; margin-bottom: 6px; }
+.pe-needs .fig { display: grid; grid-template-columns: 58% 21% 21%; height: 24px; align-items: center; border-bottom: 1px solid var(--hub-hairline); margin-bottom: 1px; font-size: 10px; }
+.pe-needs .fig > span:first-child { color: var(--hub-text-soft); }
+.pe-needs .fig .now { text-align: right; font-weight: 500; color: var(--hub-text-dim); }
+.pe-needs .fig b { text-align: right; }
+.pe-needs p, .pe-pattern p { margin: 6px 0 0; font-size: 9.6px; line-height: 1.38; }
+.pe-needs p.soft { color: var(--hub-text-soft); }
+.pe-pattern p.dim { color: var(--hub-text-dim); font-size: 8.8px; }
+.pe-pattern .pe-caps { margin-bottom: 8px; }
+.pe-pattern > .co-switch, .pe-pattern > .co-slider { margin: 4px 0; }
+.pe-pattern .two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; margin-bottom: 6px; }
+.pe-pattern .two .lab { font-size: 8.8px; font-weight: 700; color: var(--hub-text-dim); height: 18px; }
+.pe-pattern .band { display: grid; grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr) 24px; align-items: center; gap: 4px 0; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--hub-hairline); }
+.pe-pattern .band > span { text-align: center; color: var(--hub-text-dim); }
+.pe-list .lhead { display: flex; align-items: center; gap: 6px; height: 24px; margin-top: 4px; }
+.pe-list .lhead i { width: 4px; height: 12px; border-radius: 2px; }
+.pe-list .lhead b { font-size: 9.6px; color: var(--hub-text-soft); }
+.pe-list .chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 2px 0 10px; }
+.pe-list .chips button { width: 54px; height: 24px; border-radius: 6px; border: 0; background: var(--hub-field); font-size: 9.6px; font-weight: 500; cursor: pointer; font-variant-numeric: tabular-nums; }
+.pe-list .chips button:hover { background: var(--hub-hover); }
+.pe-list .chips button.on { color: #fff; font-weight: 700; }
+.pe-footline { height: 1px; background: var(--hub-hairline); }
+.pe-foot { display: flex; align-items: center; gap: 6px; }
+.pe-foot .grow { flex: 1; }
+.pe-foot .text { margin-left: 8px; font-size: 9.6px; font-weight: 500; max-width: 40%; }
+.pe-foot .ask { font-size: 11.5px; color: var(--co-warn); }
+.pe-foot .from { display: flex; align-items: center; width: 250px; margin-right: 8px; }
+.pe-foot .from b { flex: 1; text-align: center; font-size: 10px; }

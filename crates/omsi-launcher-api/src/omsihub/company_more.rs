@@ -28,6 +28,9 @@ mod fleetmap;
 mod planning;
 // (what "Fill the roster" left open, also said when an own line's change took effect: `due`)
 pub(super) use planning::open_text;
+// (Trello "Tauri 6/6": the planning's sheet of a line's trips and timetable)
+#[path = "company_more/plan_edit.rs"]
+mod plan_edit;
 #[path = "company_more/research.rs"]
 mod research;
 #[path = "company_more/workshop.rs"]
@@ -44,6 +47,8 @@ pub struct More {
     company: Option<String>,
     pub tenders: concessions::TendersState,
     pub map: fleetmap::MapState,
+    /// The planning's sheet of a line, while it is open (`plan_edit`).
+    pub edit: Option<plan_edit::PlanEdit>,
 }
 
 fn more_state() -> &'static Mutex<More> {
@@ -101,6 +106,15 @@ fn view(s: &mut Session, args: &Value) -> Answer {
         "fleetmap" => fleetmap::view(s, args),
         "planning" => planning::view(s, args),
         "service" => planning::service_view(s, args),
+        // (the sheet gone - another company, the line given up - says so: `none`)
+        "plan_edit" => {
+            let mut m = more(s);
+            let shown = m.edit.as_mut().and_then(|e| plan_edit::view(s, e));
+            if shown.is_none() {
+                m.edit = None;
+            }
+            shown.unwrap_or_else(|| json!({ "none": true }))
+        }
         other => return Err(format!("no view {other}")),
     })
 }
@@ -108,6 +122,20 @@ fn view(s: &mut Session, args: &Value) -> Answer {
 /// What a click on a page of this part does.
 fn act(s: &mut Session, args: &Value) -> Answer {
     let what = str_arg(args, "act");
+    // the planning's sheet of a line (`plan_edit`): opened, closed, and what its controls do
+    if what == "pe_close" {
+        more(s).edit = None;
+        return Ok(json!({}));
+    }
+    if what.starts_with("pe_") {
+        let mut m = more(s);
+        let Some(e) = m.edit.as_mut() else { return Ok(json!({ "closed": true })) };
+        let r = plan_edit::act(s, e, &what, args).unwrap_or_else(|| Err(format!("no action {what}")));
+        if r.as_ref().is_ok_and(|v| v.get("closed").is_some()) {
+            m.edit = None;
+        }
+        return r;
+    }
     let r = depot::act(s, &what, args)
         .or_else(|| workshop::act(s, &what, args))
         .or_else(|| research::act(s, &what, args))

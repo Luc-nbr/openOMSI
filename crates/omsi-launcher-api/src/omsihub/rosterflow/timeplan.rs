@@ -43,11 +43,11 @@ const TIMETABLE: usize = 1;
 pub(crate) struct Own {
     id: u64,
     path: PathBuf,
-    stem: String,
-    saved: LineDesign,
-    base: LineDesign,
-    live: LineDesign,
-    draft: LineDesign,
+    pub(crate) stem: String,
+    pub(crate) saved: LineDesign,
+    pub(crate) base: LineDesign,
+    pub(crate) live: LineDesign,
+    pub(crate) draft: LineDesign,
 }
 
 fn own_of(id: u64, path: PathBuf, stem: String, saved: LineDesign) -> Own {
@@ -175,7 +175,8 @@ impl Tp {
 // --- reading the line -------------------------------------------------------------------------------
 
 /// The company line's own line in the line editor's registry (`plan_edit::load`).
-fn load_own(c: &Company, cl: &CompanyLine) -> Result<Own, &'static str> {
+/// (Omsi-Hub 6/6: the planning's sheet of a line's timetable opens the line this way too.)
+pub(crate) fn load_own(c: &Company, cl: &CompanyLine) -> Result<Own, &'static str> {
     let id = cl.plan.as_ref().map(|p| p.line_id).ok_or(NOT_FOUND)?;
     let path = reg::registry_path(&reg::map_folder(&c.map));
     let r = reg::load_registry(&path);
@@ -830,7 +831,7 @@ fn approved(paid: co::Cents) -> String {
 }
 
 /// What came of saving an own line's timetable (`plan_edit::Commit`).
-enum Commit {
+pub(crate) enum Commit {
     Saved,
     Gone,
     Kept,
@@ -893,7 +894,8 @@ fn say_into(out: &mut Value, text: String, error: bool) {
 /// The draft of an own line saved as the line editor saves a line's timetable
 /// (`plan_edit::commit`): a line in service from the day `from` (moved to tomorrow when it is
 /// sooner), else at once - its changed tours' buses and drivers taken off the roster.
-fn commit(s: &mut Session, company_id: &str, line: &str, o: &Own, from: &mut String, out: &mut Value) -> Commit {
+/// (Omsi-Hub 6/6: the planning's sheet of a line's timetable saves through it too.)
+pub(crate) fn commit(s: &mut Session, company_id: &str, line: &str, o: &Own, from: &mut String, out: &mut Value) -> Commit {
     let Some(c) = s.company.clone().filter(|c| c.id == company_id) else { return Commit::Gone };
     let Some(cl) = c.lines.iter().find(|x| x.name.eq_ignore_ascii_case(line)).cloned() else { return Commit::Gone };
     if let Some(p) = reg::problems(&o.draft).first() {

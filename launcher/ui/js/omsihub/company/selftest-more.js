@@ -55,8 +55,25 @@ export async function selftest(check, errors, shown) {
   } catch (x) {
     check('company: the planning, tomorrow', false, x.message);
   }
-  // a line's trips and timetable, handed to our game-drawn launcher on the planning's sheet
+  // a line's trips and timetable: the planning's own sheet over it (Omsi-Hub 6/6: `planedit.js`),
+  // drawn without a script error, its departures read, closed again - nothing changed; the
+  // hand-over's page name as the game-drawn launcher reads it still
   try {
+    const v = await cmd('co_more_view', { view: 'planning', day: 0 });
+    const g = v.gantt?.groups?.[0];
+    if (v.rosterflow || !g) check("company: a line's trips and timetable", true, v.rosterflow ? 'RosterFlow: its Timeplan' : 'no line today');
+    else {
+      const before = errors.length;
+      const r = await cmd('co_more_act', { act: 'plan_timetable', line: g.name, tour: '', date: v.date });
+      setUi('planning', { edit: r.plan_edit ? Date.now() : null });
+      await shown('the sheet', { tab: 5, dialog: null }, 1500);
+      const pe = await cmd('co_more_view', { view: 'plan_edit' });
+      const drawn = !!$('.pe .pe-axis');
+      const said = `${pe.title}: ${(pe.lanes || []).map((l) => `${l.word} ${l.deps.length}`).join(', ')}, ${pe.rows?.length} tours${pe.editable ? '' : ' (as they run)'}`;
+      check("company: a line's trips and timetable", r.plan_edit && drawn && errors.length === before && Array.isArray(pe.lanes), errors.length > before ? errors.slice(before).join('; ') : said);
+      await cmd('co_more_act', { act: 'pe_close' });
+      setUi('planning', { edit: null });
+    }
     const a = await cmd('co_hand_over', { page: 'plan-line=oo_5|2024-06-04|2' });
     check('company: the hand-over of a line\'s timetable', a.page === `bus company:plan-line=oo_5|2024-06-04|2:${sh.id}`, a.page);
   } catch (x) {

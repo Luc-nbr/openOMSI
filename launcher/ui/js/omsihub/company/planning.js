@@ -15,6 +15,7 @@
 import { html, useEffect, useRef, useState, ui, setUi, setCo, useSize, textW, Icon, Btn, Seg, Switch, Dialog, HOME, handOver, tr } from './kit.js';
 import { useMore, actMore, TextIn, box, rosterFlowPage } from './more.js';
 import { dark } from '../theme.js';
+import { PlanEdit } from './planedit.js';
 
 /** The day tabs' band, the toolbar, a line's heading, the ID column, the side panel's heading,
  * the axis, a scrollbar's room (`rf_roster`, `rf_gantt::AXIS`, `rf_scroll::BAR`). */
@@ -115,8 +116,12 @@ function fitWords(w, px, full, short) {
   return null;
 }
 
-/** What the page holds (`PlanningView`). */
-const st0 = { day: 0, sel: null, arm: null, clear_armed: false, service: null, focus: null };
+/** What the page holds (`PlanningView`; `edit`: the sheet of a line's trips and timetable open). */
+const st0 = { day: 0, sel: null, arm: null, clear_armed: false, service: null, focus: null, edit: null };
+
+/** A line's trips and timetable (`planning::open_timetable`): the planning's own sheet over the
+ * page (Omsi-Hub 6/6: `planedit.js`), or RosterFlow's Timeplan with the add-on on. */
+const openSheet = (args) => actMore('plan_timetable', args).then((r) => r?.plan_edit && setUi('planning', { edit: Date.now(), arm: null, sel: null }));
 const keyOfArm = (a) => (a ? (a.driver ? 'd:' + a.driver : 'b:' + a.bus) : '');
 
 export function PlanningPage() {
@@ -135,7 +140,7 @@ export function PlanningPage() {
     const k = (e) => {
       if (e.key !== 'Escape') return;
       const s = ui('planning', st0);
-      if (s.service) return;
+      if (s.service || s.edit) return;
       if (s.arm || s.sel) {
         e.stopImmediatePropagation();
         setUi('planning', { arm: null, sel: null });
@@ -171,6 +176,7 @@ export function PlanningPage() {
   return html`<div class="cm-page pl" ref=${ref} style=${`background:${rgba(q.bg)};color:${rgba(q.text)}`}>
     ${body}
     ${drag.chip}
+    ${st.edit && size.w > 0 && html`<${PlanEdit} key=${st.edit} W=${size.w} H=${size.h} />`}
     ${st.service && html`<${ServiceDialog} s=${st.service} />`}
   </div>`;
 }
@@ -349,7 +355,7 @@ function Gantt({ v, st, r, drag }) {
   const tap = (t, k) => {
     // (tapped twice: the line's timetable, that tour marked)
     if (secondTap(k == null ? `bus-${t.ti}` : `duty-${t.ti}-${k}`)) {
-      actMore('plan_timetable', { line: t.line, tour: t.tour, date });
+      openSheet({ line: t.line, tour: t.tour, date });
       return;
     }
     const arm = st.arm;
@@ -442,7 +448,7 @@ function Heading({ gr, y, w, date }) {
     ${!gr.none && html`<button type="button" class="pl-fold" title=${gr.fold_tip} style=${box(4, cy - 12, 24, 24) + `;color:${rgba(q.dim)};--t:${rgba(q.text)}`} onClick=${toggle}><${Icon} name=${gr.folded ? 'chevron_right' : 'expand_more'} size=${18} /></button>`}
     ${parts}
     ${tags}
-    <button type="button" class="pl-tt" title=${gr.tt.tip} style=${box(tt.x, tt.y, tt.w, tt.h) + `;--a:${rgba(q.accent)};--t:${rgba(q.text)};--h:${rgba(q.text, 0.06)}`} onClick=${() => actMore('plan_timetable', { line: gr.name, tour: '', date })}>
+    <button type="button" class="pl-tt" title=${gr.tt.tip} style=${box(tt.x, tt.y, tt.w, tt.h) + `;--a:${rgba(q.accent)};--t:${rgba(q.text)};--h:${rgba(q.text, 0.06)}`} onClick=${() => openSheet({ line: gr.name, tour: '', date })}>
       <span class="cm-icon" style=${`left:5px;top:${tt.h / 2 - 8}px`}><${Icon} name="departure_board" size=${16} /></span>
       <span class="pl-tt-l" style=${`left:26px;width:${tt.w - 28}px`}>${gr.tt.label}</span>
     </button>
@@ -639,7 +645,7 @@ function Facts({ s, v, w }) {
       <i class="pl-swatch" style=${`left:0;top:5px;height:14px;background:${s.colour}`}></i>
       <${TextIn} x=${10} y=${0} w=${w - 14} h=${24} px=${15} weight=${700} color=${rgba(q.text)}>${s.head}</${TextIn}>
     </div>
-    <div style="position:relative;height:42px"><${TtButton} y=${0} w=${w - 4} tt=${s.tt} onClick=${() => actMore('plan_timetable', { line: s.line, tour: s.tour, date: v.date })} /></div>
+    <div style="position:relative;height:42px"><${TtButton} y=${0} w=${w - 4} tt=${s.tt} onClick=${() => openSheet({ line: s.line, tour: s.tour, date: v.date })} /></div>
     ${s.facts.map((f) => html`<div style="margin:0 6px 4px 0;min-height:18px"><${Para} px=${12.5} color=${ink(q, f.tone)}>${f.text}</${Para}></div>`)}
     <div style="height:8px"></div>`;
 }
