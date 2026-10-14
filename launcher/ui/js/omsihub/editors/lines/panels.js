@@ -38,7 +38,10 @@ function StopsTab() {
   const v = L.view;
   const t = v.stops_tab;
   const colour = v.line.colour;
-  if (!t || t.none) return null;
+  if (!t) return null;
+  // (the way back of a line without one: the view has no direction there - `none` - but the
+  // page offers to make it, and the choice to go back to Outbound; that came after `none`
+  // returned nothing, and the whole tab went blank)
   if (v.dir === 1 && !t.two) {
     return html`<div class="le-tab">
       <${DirChoice} value=${v.dir} onChange=${(d) => le('dir', { d })} />
@@ -46,6 +49,7 @@ function StopsTab() {
       <${Btn} kind="primary" icon="sync_alt" label="Reverse: make the way back" onClick=${() => le('reverse')} />
     </div>`;
   }
+  if (t.none) return html`<div class="le-tab"><${DirChoice} value=${v.dir} onChange=${(d) => le('dir', { d })} /></div>`;
   const n = t.rows.length;
   return html`<div class="le-tab">
     <${DirChoice} value=${v.dir} onChange=${(d) => le('dir', { d })} />
