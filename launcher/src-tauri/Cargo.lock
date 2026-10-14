@@ -2920,6 +2920,7 @@ dependencies = [
  "omsi-map",
  "omsi-model",
  "omsi-net",
+ "omsi-o3d",
  "omsi-platform",
  "omsi-sim",
  "omsi-texture",
