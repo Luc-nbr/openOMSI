@@ -89,15 +89,32 @@ function startPage(p, pages) {
 
 let booted = false;
 
-/** The interface's size (`ui_scale` of our game-drawn launcher): laid out for a 1440 x 820
+/** The interface's size (as Omsi-Hub's game-drawn launcher had it): laid out for a 1440 x 820
  * window, drawn smaller under that (down to 80 %), times the setting "Launcher size". */
 function scale() {
   const own = Math.max(0.6, Math.min(2, Number(S.settings?.launcher_scale) || 1));
   return Math.max(0.8, Math.min(1, innerWidth / 1440, innerHeight / 820)) * own;
 }
 
+/** Whether the window has the keyboard (upstream's resting while a game runs asks). */
+function useFocused() {
+  const [focused, setFocused] = useState(() => document.hasFocus());
+  useEffect(() => {
+    const on = () => setFocused(true);
+    const off = () => setFocused(false);
+    addEventListener('focus', on);
+    addEventListener('blur', off);
+    return () => {
+      removeEventListener('focus', on);
+      removeEventListener('blur', off);
+    };
+  }, []);
+  return focused;
+}
+
 export function HubShell({ pages, Toasts }) {
   const s = useStore();
+  const focused = useFocused();
   applyHubTheme();
   document.documentElement.classList.toggle('hub-still', s.settings?.animations === false);
   const [, redraw] = useState(0);
@@ -118,6 +135,14 @@ export function HubShell({ pages, Toasts }) {
   // (the update's dialog and its notice over whatever is drawn, and upstream's word on a game
   // that ended on an error)
   const updates = html`<${UpdateDialog} /><${UpdatedNotice} /><${GameEndDialogs} />`;
+  // (upstream's: the launcher rests while a game it started runs and the window is in the
+  // background, so that the game has the graphics card to itself)
+  const resting = !s.boot?.selftest && s.settings?.launcher_rest !== false && s.poll.instances?.length > 0 && !focused;
+  if (resting) {
+    return html`<div class="hub-stage" style=${`--hub-scale:${scale()}`}>
+      <div class="splash resting"><${Icon} name="directions_bus" size=${40} /><p>${tr('The launcher rests while you drive, so that the game has the graphics card to itself. It is back as soon as the game ends.')}</p></div>
+      ${updates}<${Toasts} /></div>`;
+  }
   // the welcome: in place of the page while it is open (phase 3, `welcome.js`)
   if (s.hubWelcome?.open) return html`<div class="hub-stage" style=${`--hub-scale:${scale()}`}><${Welcome} />${updates}<${Toasts} /></div>`;
   // the bus company: the whole window its own (its own bar)

@@ -4,31 +4,15 @@ _version: 2
 # reads every table of this folder, so the texts our game-drawn launcher shows already are not
 # repeated here. The English text is the key, as in app.yml.
 
-# --- handing over to our game-drawn launcher ---------------------------------------------------
-"The bus company opens in our own launcher for now.":
-  en: "The bus company opens in our own launcher for now."
-  nl: "Het busbedrijf opent voorlopig in onze eigen launcher."
-  de: "Das Busunternehmen öffnet vorerst in unserem eigenen Launcher."
-  fr: "La compagnie de bus s'ouvre pour l'instant dans notre propre lanceur."
-  ru: "Автобусная компания пока открывается в нашем собственном лаунчере."
-  uk: "Автобусна компанія поки що відкривається в нашому власному лаунчері."
-  pl: "Firma autobusowa na razie otwiera się w naszym własnym launcherze."
-"The timetable opens in our own launcher for now.":
-  en: "The timetable opens in our own launcher for now."
-  nl: "De dienstregeling opent voorlopig in onze eigen launcher."
-  de: "Der Fahrplan öffnet vorerst in unserem eigenen Launcher."
-  fr: "Les horaires s'ouvrent pour l'instant dans notre propre lanceur."
-  ru: "Расписание пока открывается в нашем собственном лаунчере."
-  uk: "Розклад поки що відкривається в нашому власному лаунчері."
-  pl: "Rozkład jazdy na razie otwiera się w naszym własnym launcherze."
-"The editor opens in our own launcher for now.":
-  en: "The editor opens in our own launcher for now."
-  nl: "De editor opent voorlopig in onze eigen launcher."
-  de: "Der Editor öffnet vorerst in unserem eigenen Launcher."
-  fr: "L'éditeur s'ouvre pour l'instant dans notre propre lanceur."
-  ru: "Редактор пока открывается в нашем собственном лаунчере."
-  uk: "Редактор поки що відкривається в нашому власному лаунчері."
-  pl: "Edytor na razie otwiera się w naszym własnym launcherze."
+# --- upstream's pages in our look ---------------------------------------------------------------
+"A bus loaded as the game loads it: every warning of its files, models and scripts, and the textures that are missing.":
+  en: "A bus loaded as the game loads it: every warning of its files, models and scripts, and the textures that are missing."
+  nl: "Een bus geladen zoals het spel hem laadt: elke waarschuwing over zijn bestanden, modellen en scripts, en de texturen die ontbreken."
+  de: "Ein Bus, geladen wie das Spiel ihn lädt: jede Warnung zu seinen Dateien, Modellen und Skripten und die fehlenden Texturen."
+  fr: "Un bus chargé comme le jeu le charge : chaque avertissement sur ses fichiers, modèles et scripts, et les textures manquantes."
+  ru: "Автобус, загруженный так, как его загружает игра: все предупреждения о его файлах, моделях и скриптах и недостающие текстуры."
+  uk: "Автобус, завантажений так, як його завантажує гра: усі попередження щодо його файлів, моделей і скриптів та відсутні текстури."
+  pl: "Autobus wczytany tak, jak wczytuje go gra: każde ostrzeżenie o jego plikach, modelach i skryptach oraz brakujące tekstury."
 
 # --- the map and where a free drive starts ------------------------------------------------------
 "Year":

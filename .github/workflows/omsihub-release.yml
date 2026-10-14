@@ -60,7 +60,7 @@ jobs:
         if: steps.v.outputs.exists != 'true'
         with:
           key: omsihub-x64
-          # (the desktop launcher - the default launcher, openomsi-launcher-app.exe beside the
+          # (the desktop launcher - the only launcher, openomsi-launcher-app.exe beside the
           # game - is a workspace of its own, as release.yml caches it)
           workspaces: |
             . -> target

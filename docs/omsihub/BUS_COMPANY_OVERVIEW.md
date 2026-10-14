@@ -10,7 +10,7 @@ This file explains what the **bus company mode** of the Omsi-Hub fork of openOMS
   - editors for lines, liveries and depots;
   - the bus company mode with its planning program **RosterFlow**.
 - **Releases:** a push to `beta` builds a release named `v<major.minor.commit>.<n>` through GitHub Actions. The game's updater installs it for players.
-- **Launcher:** the default on a computer is openOMSI's Tauri 2 launcher (`launcher/`), rewritten in six phases to the game-drawn Rust launcher's pages (`docs/omsihub/TAURI_PARITY.md`). The game-drawn Rust launcher (`crates/omsi-launcher-ui`) stays as the fallback: chosen in the settings (`launcher_ui=game`), with `openomsi --launcher`, and where the desktop launcher cannot open.
+- **Launcher:** openOMSI's Tauri 2 launcher (`launcher/`) is the only one. It was rewritten in six phases to the pages of Omsi-Hub's game-drawn Rust launcher (`docs/omsihub/TAURI_PARITY.md`); since Beta 52 (openOMSI 0.2.48) that Rust launcher is gone, as openOMSI's own game-drawn launcher is. What the desktop launcher still asks of the game program (the line editor kept headless, the livery studio drawn as pictures, the display previews, the bus photos) is the crate `crates/omsihub-game`, run by the launcher service (`openomsi --launcher-service`).
 
 ## 2. What the bus company is
 
@@ -141,12 +141,9 @@ There is one choice per company, which can be changed at any time in the company
   - `ownline`, `livery`, `fleetmap`, `duty_launch`;
   - for RosterFlow: `studio`, `rosterflow`, `timeplan`, `rosterpdf`;
   - `rng`: seeded draws, so the same company on the same day draws the same numbers.
-- **UI (Rust launcher)** is in `crates/omsi-launcher-ui/src/company/`:
-  - one file per page;
-  - `casual/` for Casual's own interface;
-  - `planning/` for the standard planning, plus `rosterflow.rs`, `rf_gantt.rs`, `rf_panels.rs`, `rf_prefs.rs`, `rf_print.rs`, `rf_brand.rs`, `rf_tutorial.rs`, `rf_roster.rs`, `timeplan.rs` and `duty_launch.rs`.
-  - The line editor is `crates/omsi-launcher-ui/src/lineeditor.rs`.
-- **Tauri launcher** is `launcher/ui/js/omsihub/` and `launcher/ui/omsihub*.css`. Its commands go through `crates/omsi-launcher-api/src/omsihub/` into the same core.
+- **UI** is the Tauri launcher: `launcher/ui/js/omsihub/` (`company/` one file per page, `company/casual.js` for Casual's own interface, `rosterflow/` for RosterFlow, `editors/` for the editors) and `launcher/ui/omsihub*.css`. Its commands go through `crates/omsi-launcher-api/src/omsihub/` into the same core.
+  - The line editor's logic is `crates/omsihub-game/src/lineeditor.rs` (kept by the game program, `lineeditor/headless/` answers the page), the livery studio `crates/omsihub-game/src/livery/`.
+  - The old Rust UI (`crates/omsi-launcher-ui/src/company/`, `lineeditor.rs` ...) that many comments name as where a page came from is in git history: `git show 399e6ef7:crates/omsi-launcher-ui/src/<file>` (Beta 51).
 - **Texts** are in `crates/omsi-app/locales/*.yml`. English is the key, with translations in nl, de, fr, ru, uk and pl. Tests fail when a text is missing.
 
 ## 6. Rules when changing it

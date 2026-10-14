@@ -1,11 +1,20 @@
-# The desktop launcher against the game-drawn one
+# The desktop launcher and the game-drawn one it replaced
 
-Trello "Tauri 6/6": every page, step and dialog of the launcher the game draws itself
+Trello "Tauri 6/6": every page, step and dialog of the launcher Omsi-Hub's game drew itself
 (`crates/omsi-launcher-ui`, "Rust" below) and how far the desktop launcher (`launcher/`,
-"Tauri" below) has it. Since phase 6 the desktop launcher is the default on a computer
-(`launcher_ui=desktop`); the game-drawn one stays as the fallback (`launcher_ui=game` in the
-settings, `openomsi --launcher`, `OMSI_CLASSIC_LAUNCHER=1`, no WebView2, no
-`openomsi-launcher-app` beside the game).
+"Tauri" below) has it.
+
+**Since Beta 52 (openOMSI 0.2.48) the Rust launcher is gone** - as openOMSI's own game-drawn
+launcher is - and the desktop launcher is the only one: a plain start opens it, and where it is
+missing or its window cannot open (no WebView2) the game says so and offers Microsoft's
+installer (upstream's `launcher_link`). There is no `launcher_ui` setting, no `openomsi
+--launcher` and no `OMSI_CLASSIC_LAUNCHER` any more. The "Rust" column below is history: what
+the desktop launcher was checked against (the files are in git, `git show
+399e6ef7:crates/omsi-launcher-ui/src/<file>`, Beta 51; many comments of the page and of
+`omsi-launcher-api`'s `omsihub` name them as where a page came from). What the game program
+still does for the desktop launcher - the line editor kept headless, the livery studio drawn as
+pictures, a text on a bus's display, the bus photos - is the crate `crates/omsihub-game`, run by
+the launcher service (`openomsi --launcher-service`).
 
 ## How it was checked
 
@@ -39,10 +48,10 @@ in phase 6 and made the same; **open** - not there, and why.
 | Light and dark, the switch's circle (`theme_switch.rs`) | `bar.js` | same |
 | Accent colour: the presets and a picker for any other (`accent_pick.rs`) | the bar's palette (`bar.js`); the Settings page's choice | same under the bar; the Settings page lists the presets only |
 | "Launcher size" (`launcher_scale`), Ctrl + wheel | `hub.js` `scale()` | same |
-| The welcome: language, interface, animations, game folder, driver, ready (`welcome.rs`) | `welcome.js` | same |
+| The welcome: language, interface, animations, game folder, driver, ready (`welcome.rs`) | `welcome.js` | same; since Beta 52 without the interface's step (new or classic launcher): there is one launcher |
 | The tour, 22 stops (`tour.rs`) | `tour.js` | same |
 | The bus company's tour, 28 stops | `tour.js` `COMPANY_STOPS` | same (phase 6) |
-| The update: Check now, the dialog, installed and started again, "Updated to Beta N" (`update.rs`) | `update.js`, `omsihub/update.rs` | same (phase 6) |
+| The update: Check now, the dialog, installed and started again, "Updated to Beta N" (`update.rs`) | `update.js`, `omsihub/update.rs` | same (phase 6); upstream's own updates page (`updates.js`) stays off in our look: ours reads this fork's releases |
 | The opening: the logo drawn (`intro.rs`) | `logo.js` | same |
 | Bus across the screen between pages (`transition.rs`, `page_bus`, off by default) | - | open: not ported - off by default, and only motion |
 | The phone and tablet launcher (`mobile.rs`, `phone.rs`) | upstream's `js/mobile` | upstream's: phones keep it |
@@ -64,9 +73,9 @@ in phase 6 and made the same; **open** - not there, and why.
 
 | Rust | Tauri | Status |
 | --- | --- | --- |
-| Settings: Graphics, Driving, Camera, Sound, Gameplay, General (`pages/settings.rs`) | upstream's `pages/settings.js` with `settings-extra.js` | fixed: rows 40 high with the field 55 % wide, a switch's name the whole width, a slider's name, track and value on one line, a lone button the row's width, the head tracking's own rows under its switch, the General tab's order, Reset navigator; kept beside them: a Dark mode switch (the Rust launcher has the bar's moon only) and upstream's support package (the Rust launcher has it on Setup) |
+| Settings: Graphics, Driving, Camera, Sound, Gameplay, General (`pages/settings.rs`) | upstream's `pages/settings.js` with `settings-extra.js` | (Beta 52: no "Launcher" row; speeds in upstream's Units, Omsi-Hub's `speed_unit=mph` taken over as British; upstream's drive layout and launcher size rows left out in our look) fixed: rows 40 high with the field 55 % wide, a switch's name the whole width, a slider's name, track and value on one line, a lone button the row's width, the head tracking's own rows under its switch, the General tab's order, Reset navigator; kept beside them: a Dark mode switch (the Rust launcher has the bar's moon only) and upstream's support package (the Rust launcher has it on Setup) |
 | Controls: the keyboard (`pages/controls.rs`, `keybind_picker.rs`) | upstream's `pages/controls.js` | upstream's |
-| Controls: the game controllers - devices, axes, buttons, the set-up, Save | `pads.js`, `hub_service::pads` | fixed: upstream only showed what a device sends; the force feedback's direction test (it turns the wheel) stays in the Rust launcher, the set-up asks for the direction by hand |
+| Controls: the game controllers - devices, axes, buttons, the set-up, Save | upstream's `pages/controllers.js` (0.2.47) | upstream's: since Beta 52 openOMSI's own page (devices, axes, buttons, the step-by-step set-up, the force feedback's test) in place of ours (`pads.js`, `hub_service::pads`, gone) |
 | Multiplayer, host (`multiplayer.rs`, `host.rs`) | upstream's `pages/multiplayer.js` | upstream's |
 | Service record (`pages/profile.rs`) | upstream's `pages/profile.js` | upstream's |
 | Sessions (`pages/sessions.rs`) | upstream's `pages/games.js` | upstream's |
@@ -108,25 +117,42 @@ in phase 6 and made the same; **open** - not there, and why.
 | Casual: home, buses, shop, lines, new line, drivers, money, company, shifts (`casual/`) | `company/casual.js` | same |
 | RosterFlow: vehicles, timeplan, roster, the help, print, preferences, the lessons (`planning/rf_*.rs`, `planning/timeplan.rs`) | `rosterflow/` | same |
 
-## What is still handed over to the game-drawn launcher
+## Nothing is handed over any more
 
-`kit.js` `handOver` opens what the company hands over on this launcher's own pages: a page of
-the company, RosterFlow's planning and a line's timetable, the workshop's job, a line's trips
-on the planning's sheet, the line editor (`line-editor`, `map-line=`, `casual-line=`), the
-livery studio, the depot editor and the Timetable page. Left:
+Until Beta 51 a few things still went to the game-drawn launcher: `kit.js` `handOver` when the
+editors' module was missing from the page, the welcome's classic interface, upstream's Setup
+page's "The game's own launcher - Open it", and the game itself where the Tauri app was missing
+or its window could not open. Since Beta 52 none of them is there: the editors are a plain
+import of the company's kit, the welcome has no interface step, upstream took its Setup row out,
+and the game gives upstream's message (and WebView2 rescue) instead.
 
-* `kit.js`, the end of `handOver`: what none of them takes - only when this launcher's editors
-  are missing from the page (`editors/index.js` not loaded) - opens in the Rust launcher.
-* `welcome.js`: the classic interface chosen in the welcome opens the classic launcher, as the
-  choice asks.
-* upstream's `pages/setup.js`, "The game's own launcher - Open it": the way to it, kept on
-  purpose for a computer where the webview has trouble.
-* The game itself (`launcher_link`): the Rust launcher where the Tauri app is missing or its
-  window cannot open.
+## Upstream's desktop launcher pages (openOMSI 0.2.47)
+
+| Upstream | In our look | |
+| --- | --- | --- |
+| Model test (`pages/modeltest.js`) | on the start's links, in our page sheet | reachable |
+| Inside views of the bus (`preview.js`, the showroom's `PreviewView`) | the bus step's preview (upstream's `BusPreview`): Outside, Passenger, Driver | reachable |
+| The launcher rests while a game runs (`launcher_rest`) | our shell rests too | reachable |
+| Game controllers with a set-up (`pages/controllers.js`) | Controls | reachable (ours gone) |
+| A game that ended on an error says so (`crash.js`) | over every page of ours | reachable |
+| The window grows with its size (`fit_zoom`) | left out: our look keeps the system's size, a larger window shows more (Luc) | not used |
+| A classic Drive page in steps (`drive-classic.js`, `launcher_layout`) | left out: our drive's steps are the drive | not used |
+| Updates and versions (`updates.js`, `versions.js`) | left out: our updater reads this fork's releases ("Beta N") | not used |
+
+## Keeping upstream merges easy
+
+Our code lives in files and folders of its own: `launcher/ui/js/omsihub/`, `launcher/ui/omsihub*.css`,
+the `omsihub` module of `omsi-launcher-api`, `crates/omsihub-game`, the Omsi-Hub tables in
+`crates/omsi-app/locales`, and this folder. Upstream's files carry only small hooks, each marked
+`Omsi-Hub:` (one `mod` or `use` line, a hand-over at the end of a `match`, a field added to a
+struct literal) - conflicts there are expected at every merge and are resolved by putting the
+hook back on upstream's new version. Everything else stays upstream's: take theirs. The larger
+exceptions are upstream's interface kit and theme (`omsi-ui`'s `kit.rs`, `theme.rs`, which carry
+our look - the light look, the accent, glass), the navigator (the duty board, the pins, the
+sign-on page) and the simulation's duty (composed duties, free drives along a line, the bus
+company's tours): merge those hunk by hunk.
 
 ## Open
 
 * The bus across the screen between pages (`page_bus`).
-* The force feedback's direction test in the controllers' set-up (the wheel turns by itself;
-  not ported without a person at the wheel to check it).
 * macOS: this fork's release job builds and packs the desktop launcher for Windows only.
