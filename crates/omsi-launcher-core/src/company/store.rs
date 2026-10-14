@@ -211,6 +211,8 @@ pub fn close_day(data: &Path, c: &mut Company) -> Result<DayReport> {
     let trips = crate::trips_of(data, &c.profile);
     let report = day::close_day(c, tours, &trips);
     let report = super::depot::after_close(c, report, &lines);
+    // (the plans of single dates that are past now go)
+    super::plandays::tidy(c);
     save(data, c)?;
     saved_with_live(data, &c.id, &date);
     Ok(report)
@@ -271,7 +273,9 @@ impl super::clock::World for Disk<'_> {
         let tours = network::tours_of_day(c, lines, &c.date);
         let trips = crate::trips_of(self.data, &c.profile);
         let report = day::close_day(c, tours, &trips);
-        Ok(super::depot::after_close(c, report, lines))
+        let report = super::depot::after_close(c, report, lines);
+        super::plandays::tidy(c);
+        Ok(report)
     }
 }
 

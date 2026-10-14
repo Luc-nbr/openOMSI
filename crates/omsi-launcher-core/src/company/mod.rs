@@ -41,6 +41,7 @@ pub mod network;
 pub mod ownline;
 pub mod parts;
 pub mod plan;
+pub mod plandays;
 pub mod rankings;
 pub mod remote;
 pub mod research;

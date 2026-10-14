@@ -420,12 +420,16 @@ pub struct Flow {
     pub prefs: Prefs,
     pub sheet: Sheet,
     pub draft: Option<Draft>,
+    /// Which plan each day runs: the plans of single dates, and the days copied from another
+    /// (`plandays`). Kept outside the draft: a copy is made as it is saved.
+    #[serde(skip_serializing_if = "super::plandays::Days::is_empty")]
+    pub days: super::plandays::Days,
 }
 
 impl Flow {
     /// Nothing but the defaults (left out of the saved company).
     pub fn is_empty(&self) -> bool {
-        self.prefs == Prefs::default() && self.sheet.is_empty() && self.draft.is_none()
+        self.prefs == Prefs::default() && self.sheet.is_empty() && self.draft.is_none() && self.days.is_empty()
     }
 }
 
@@ -1001,7 +1005,7 @@ impl Board {
 /// The day of `date` (`lines` the timetable read for it) as RosterFlow shows it, from the
 /// company as the studio sees it (`view`).
 pub fn board(c: &Company, lines: &[LineInfo], date: &str) -> Board {
-    let wd = super::plan::weekday_of(date);
+    let wd = super::plandays::slot_of(c, date);
     let tours = network::tours_of_day(c, lines, date);
     let stack = stack(c, lines, wd);
     let dp = super::plan::day_plan(c, date, tours.clone(), &[], &[], false);
@@ -1566,7 +1570,7 @@ pub fn weighed(b: &Board) -> Cents {
 /// (`weighed`) of what the preferences ask for, the duties alone made anew on the blocks as
 /// they are, and the day as it is. Nothing is kept; `apply` keeps it.
 pub fn optimise(c: &Company, lines: &[LineInfo], date: &str) -> (Vec<LineLayout>, Vec<JoinedDuty>) {
-    let wd = super::plan::weekday_of(date);
+    let wd = super::plandays::slot_of(c, date);
     let p = &c.planning.flow.prefs;
     let now = (c.planning.layouts.iter().filter(|l| l.weekday == wd).cloned().collect::<Vec<_>>(), c.planning.joined.iter().filter(|j| j.weekday == wd).cloned().collect::<Vec<_>>());
     let mut cands = vec![optimise_with(c, lines, date, p.optimise_vehicles, p.optimise_duties)];
@@ -1588,7 +1592,7 @@ pub fn optimise(c: &Company, lines: &[LineInfo], date: &str) -> (Vec<LineLayout>
 
 /// Optimise with the vehicles (`vehicles`) and the duties (`duties`) made anew or kept.
 pub fn optimise_with(c: &Company, lines: &[LineInfo], date: &str, vehicles: bool, duties: bool) -> (Vec<LineLayout>, Vec<JoinedDuty>) {
-    let wd = super::plan::weekday_of(date);
+    let wd = super::plandays::slot_of(c, date);
     let mut p = c.planning.flow.prefs.clone();
     p.optimise_vehicles = vehicles;
     p.optimise_duties = duties;

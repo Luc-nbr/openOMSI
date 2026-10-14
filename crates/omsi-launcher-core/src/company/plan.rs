@@ -1328,7 +1328,7 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
         let bus = t.bus_of(c);
         let block = block_of(&t.tour, &t.duties[k], duty_key(&t.tour.line, &t.tour.tour, k));
         // (a piece of a duty the player joined in the studio: its other pieces' driver first)
-        let partner = super::studio::partner_driver(c, wd, &out, i, k).and_then(|id| {
+        let partner = super::studio::partner_driver(c, super::plandays::slot_of(c, date), &out, i, k).and_then(|id| {
             let e = c.employee(id).filter(|e| unavailable(e, date, today).is_none())?;
             fits_bus(e, &bus, work.of(id), &block, today).ok().map(|w| (id, w))
         });
