@@ -91,7 +91,10 @@ function offChosen() {
   const s = S.rf.roster;
   const items = s.multi?.length ? s.multi : s.sel ? [s.sel] : [];
   if (!items.length) return null;
-  return rAct('off_many', { items }).then((r) => {
+  // (one: said as what it was)
+  const [it] = items;
+  const one = items.length === 1 && (it.duty ? rAct('off_driver', { line: it.duty[0], tour: it.duty[1], k: it.duty[2] }) : rAct('off_bus', { line: it.tour[0], tour: it.tour[1] }));
+  return (one || rAct('off_many', { items })).then((r) => {
     rsSet({ multi: [], sel: null });
     return r;
   });
@@ -567,9 +570,11 @@ function drawChart(ctx, w, h, g) {
         const chosen = (sel?.duty && sel.duty[0] === t.line && sel.duty[1] === t.tour && sel.duty[2] === k) || inMulti(s, selOf(t, k));
         dutyChip(ctx, p, t, d, br, ppm, xOf, dh, chosen);
         hit(br.x, br.y, br.w, br.h, { kind: 'duty', ti, duty: k, tip: d.tip });
-        // (its driver taken off with the cross, on the mouse or chosen)
-        if (!d.open && d.off && (dh || chosen) && br.w >= br.h + 8) {
-          const xr = { x: br.x + br.w - br.h + 3, y: br.y + 3, w: br.h - 6, h: br.h - 6 };
+        // (its driver taken off with the cross, on the mouse or chosen: inside its end, or beside
+        // a chip too narrow for it - and kept while the mouse is on it)
+        const inner = br.w >= br.h + 8;
+        const xr = { x: inner ? br.x + br.w - br.h + 3 : br.x + br.w + 3, y: br.y + 3, w: br.h - 6, h: br.h - 6 };
+        if (!d.open && d.off && (dh || chosen || inside(xr, m))) {
           offMark(ctx, p, xr, inside(xr, m));
           hit(xr.x, xr.y, xr.w, xr.h, { kind: 'off', ti, duty: k, tip: tr('Take the driver off this duty (Delete)') });
         }
