@@ -20,6 +20,8 @@ pub mod casual;
 mod chooser;
 mod dealer;
 mod dialogs;
+// (an own line's change taking effect on its day, Trello "Tauri 6/6")
+mod due;
 mod fleet;
 mod home;
 mod inbox;
@@ -275,6 +277,12 @@ pub struct Session {
     pub casual: casual::CasualState,
     /// The driver's career as read (`career`).
     pub driver: Option<career::Driver>,
+    /// Lines whose changed timetable took effect: their tours planned anew once the timetable
+    /// is read again (`due::refill`). (Omsi-Hub 6/6)
+    refill: Vec<String>,
+    /// Changes of own lines whose timetable could not be written (the company, the line
+    /// editor's id, the company's day): they keep waiting (`due::changes_due`).
+    unwritten: Vec<(String, u64, String)>,
 }
 
 /// The timetables of the company's week, read on a thread, and the plans made of them for a
@@ -491,6 +499,9 @@ fn work(s: &mut Session) {
         s.own_for = Some(map.clone());
         s.own = core::lines::own_lines_of_map(&map);
     }
+    // a line's change waiting for its day: its day has come; and its tours planned anew
+    due::changes_due(s);
+    due::refill(s);
     // the easy mode's morning before today's plan is made: saved when it changed anything
     if s.plan.is_none() && !s.closing && easy_morning(s) {
         changed(s);
@@ -1204,6 +1215,12 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
         "co_view" => with(|s| view(s, args)),
         "co_act" => with(|s| do_act(s, args, p)),
         "co_hand_over" => with(|s| hand_over(s, args)),
+        // (Omsi-Hub 6/6: the company's line of the line editor's line `id`, for RosterFlow's
+        // Timeplan once the line editor confirmed it)
+        "co_line_of" => with(|s| {
+            let id = args.get("id").and_then(Value::as_u64).unwrap_or(0);
+            Ok(json!({ "name": s.company.as_ref().and_then(|c| co::ownline::line_of(c, id)).map(|x| x.name.clone()) }))
+        }),
         c if c.starts_with("co_more_") => return more::call(c, args, p),
         _ => return None,
     })
@@ -1349,7 +1366,11 @@ fn hand_over(s: &mut Session, args: &Value) -> Answer {
     leave(s)?;
     let part = str_arg(args, "page");
     let id = s.company.as_ref().map(|c| c.id.clone()).unwrap_or_default();
-    Ok(json!({ "page": hand_over_page(&part, &id) }))
+    // (a line's timetable without RosterFlow - which takes it first - is the line editor's: the
+    // line editor's page for the line named, `lines::edit_to`)
+    let named = part.strip_prefix("timetable=").or_else(|| part.strip_prefix("plan-line=").map(|x| x.split('|').next().unwrap_or("")));
+    let edit = named.and_then(|n| s.company.as_ref()?.lines.iter().find(|l| l.name == n).and_then(lines::edit_to));
+    Ok(json!({ "page": hand_over_page(&part, &id), "edit": edit }))
 }
 
 /// The `OMSI_LAUNCHER_PAGE` that opens the game-drawn launcher on the company's page `part` with

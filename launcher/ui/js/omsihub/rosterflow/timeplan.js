@@ -194,10 +194,13 @@ async function newLine() {
   open({
     company,
     back: 'company',
-    onTimeplan: async ({ name, hint } = {}) => {
+    onTimeplan: async ({ id, name, hint } = {}) => {
       await reread(company);
+      // (a line just confirmed comes by the line editor's id, as `lineeditor::after_confirm`
+      // gives it: the Timeplan takes the company's name of it, `ownline::line_of`)
+      const line = name || (id != null && (await coCmd('co_line_of', { id }).catch(() => null))?.name) || '';
       set({ page: 'company' });
-      setRf({ open: true, view: 3, tpLine: name, tpHint: hint ? 'new' : null, tpReload: true });
+      setRf({ open: true, view: 3, tpLine: line, tpHint: hint ? 'new' : null, tpReload: true });
       setCo({ tab: 5 });
     },
     onCompanyChanged: (id) => reread(id).then(() => bump()),

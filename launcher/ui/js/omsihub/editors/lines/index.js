@@ -164,6 +164,12 @@ function opening() {
   L.hooks = { timeplan: o.onTimeplan, companyChanged: o.onCompanyChanged };
   const own = !o.company && o.line != null;
   le('open', { maps, root: S.boot?.root || '', date: S.choice?.date || '', choice_map: S.choice?.map || '', company: o.company || '', line: own ? null : o.line ?? null, new_days: o.newWithDays || null, map_line: o.mapLine || '' });
+  // (the company's line on a tab: its timetable, handed over from the Lines page or the
+  // planning; the tab stays while the line opens)
+  if (o.company && o.tab) {
+    const tab = TABS.indexOf(String(o.tab).toLowerCase());
+    if (tab > 0) le('tab', { t: tab });
+  }
   // (a line of the player's own chosen at once, on a tab: `openLineEditor`)
   if (own) {
     le('view').then(() => {

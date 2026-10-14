@@ -142,6 +142,12 @@ export async function handOver(page, opts = {}) {
       /* (not taken: handed over) */
     }
   }
+  // (Omsi-Hub 6/6: a page of the company this launcher draws itself - the concessions after a
+  // tender was asked for, the planning without RosterFlow - is opened here)
+  if (/^\d+$/.test(String(page)) && !HANDED.includes(Number(page))) {
+    setCo({ tab: Number(page), dialog: null, popup: null });
+    return;
+  }
   if (S.boot?.selftest) {
     setCo({ handed: page });
     return;
@@ -175,10 +181,16 @@ async function editorsOf() {
  * "livery=<bus>|<paint>|<bus id>". Opened here when the editors are part of this launcher -
  * the company stopped and saved first (`co_hand_over`), read again when an editor wrote it, and
  * Back comes to the company's page; else (or another page) false: our game-drawn launcher
- * takes it. RosterFlow's Timeplan stays the game-drawn launcher's (`timetable=<line>`). */
+ * takes it. A line's timetable ("timetable=<line>", the planning's "plan-line=<line>|...") is
+ * RosterFlow's Timeplan with the add-on on (its hook takes it first), else the line editor's
+ * Timetable tab on that line. */
 async function inEditor(page, opts) {
   const [what, ...rest] = page.split('=');
   const arg = rest.join('=');
+  if (what === 'timetable' || what === 'plan-line') {
+    const r = await cmd('co_hand_over', { page }).catch(() => null);
+    return !!r?.edit && inEditor(r.edit, { ...opts, tab: 'timetable' });
+  }
   if (!['line-editor', 'map-line', 'casual-line', 'livery'].includes(what)) return false;
   const ed = await editorsOf();
   const fn = what === 'livery' ? ed?.openLivery : ed?.openLineEditor;
@@ -204,7 +216,12 @@ async function inEditor(page, opts) {
   } else {
     fn({
       ...hooks,
-      onTimeplan: ({ name } = {}) => name && handOver('timetable=' + name),
+      // (a line just confirmed comes by the line editor's id: its name is the company's)
+      onTimeplan: async ({ id, name } = {}) => {
+        const line = name || (id != null && (await cmd('co_line_of', { id }).catch(() => null))?.name);
+        if (line) handOver('timetable=' + line);
+      },
+      ...(opts.tab ? { tab: opts.tab } : {}),
       ...(what === 'line-editor' && arg ? { line: Number(arg) } : {}),
       ...(what === 'map-line' ? { mapLine: arg } : {}),
       ...(what === 'casual-line' ? { newWithDays: opts.newWithDays } : {}),

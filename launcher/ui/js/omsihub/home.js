@@ -4,8 +4,7 @@
 // and the ways to everything else. The glass card is as tall as what is on it.
 
 import { html } from '../../vendor/preact-htm.js';
-import { S, set, useStore, toast } from '../store.js';
-import { call } from '../api.js';
+import { useStore } from '../store.js';
 import { choose } from '../data.js';
 import { Icon, tr, hoursText } from './bits.js';
 import { LOGO_SVG } from './logo.js';
@@ -22,18 +21,6 @@ const MODES = [
   [2, 'Free drive', 'map', 'mode-free', "Only a map and a bus. The traffic and the timetable's buses drive around you; nothing is booked."],
   [4, 'Bus company', 'garage', 'mode-company', 'Your own transport company: buy, lease or rent buses, hire drivers and run lines day by day.'],
 ];
-
-/** Hand over to our game-drawn launcher on one of its pages (`OMSI_LAUNCHER_PAGE`): what this
- * page does not have yet - the bus company until phase 2 (the editors are this page's own). */
-export async function handOver(page, why) {
-  if (S.boot?.selftest) return;
-  if (why) toast(tr(why), 'info');
-  try {
-    await call('classic_launcher', { page });
-  } catch (e) {
-    toast(e.message, 'error');
-  }
-}
 
 /** The greeting by the hour of the day. */
 function greeting(name) {

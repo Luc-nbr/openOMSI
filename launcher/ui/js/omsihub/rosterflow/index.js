@@ -76,6 +76,9 @@ export function leaveRosterFlow() {
  * ("timetable=<line>"; a line of the map's just added with what to do next). */
 async function rfTakes(page, more) {
   const p = String(page);
+  // (Omsi-Hub 6/6: the planning's "plan-line=<line>|<date>|<tour>" too, as
+  // `planning::open_timetable` opens the Timeplan with the add-on on)
+  if (p.startsWith('plan-line=')) return openRosterFlow({ line: p.slice('plan-line='.length).split('|')[0] });
   if (p !== '5' && !p.startsWith('timetable=')) return false;
   if (p === '5') {
     const o = {};

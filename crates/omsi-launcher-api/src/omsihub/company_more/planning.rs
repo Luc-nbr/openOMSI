@@ -163,7 +163,7 @@ fn weekdays_text(days: &[u8]) -> String {
 }
 
 /// What "Fill the roster" left open, in words ("" when nothing).
-fn open_text(f: &pl::Filled) -> String {
+pub(in super::super) fn open_text(f: &pl::Filled) -> String {
     let mut parts = Vec::new();
     let open = f.unqualified + f.busy;
     if open > 0 {

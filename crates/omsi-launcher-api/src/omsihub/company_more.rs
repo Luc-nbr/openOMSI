@@ -26,6 +26,8 @@ mod depot;
 mod fleetmap;
 #[path = "company_more/planning.rs"]
 mod planning;
+// (what "Fill the roster" left open, also said when an own line's change took effect: `due`)
+pub(super) use planning::open_text;
 #[path = "company_more/research.rs"]
 mod research;
 #[path = "company_more/workshop.rs"]
