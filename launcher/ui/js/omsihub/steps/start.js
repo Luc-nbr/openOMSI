@@ -7,7 +7,7 @@
 // and one of its routes, and the bus starts at the route's first stop with the game knowing the
 // line (`--free-line`) - the navigator draws the way, the IBIS can be typed for it.
 
-import { html, useEffect, useState } from '../../../vendor/preact-htm.js';
+import { html, useEffect, useLayoutEffect, useRef, useState } from '../../../vendor/preact-htm.js';
 import { S, set, useStore, toast } from '../../store.js';
 import { call } from '../../api.js';
 import { choose, curMap } from '../../data.js';
@@ -157,8 +157,21 @@ function entryName(m, e) {
   return x ? x.name || `${tr('entry')} ${e + 1}` : null;
 }
 
-/** Plates side by side within the room; what does not fit is counted ("+3"). */
-function Plates({ lines, h, w }) {
+/** Plates side by side within the room - `w`, or less where the row has less (a large Launcher
+ * size: Beta 53's layout check) -; what does not fit is counted ("+3"). */
+function Plates({ lines, h, w: most }) {
+  const ref = useRef(null);
+  const [room, setRoom] = useState(most);
+  useLayoutEffect(() => {
+    const el = ref.current?.parentElement;
+    if (!el) return undefined;
+    const measure = () => setRoom((r) => (el.clientWidth > 0 && Math.abs(el.clientWidth - r) > 1 ? el.clientWidth : r));
+    measure();
+    const ro = new ResizeObserver(() => requestAnimationFrame(measure));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const w = Math.min(most, room);
   let x = 0;
   const out = [];
   for (let k = 0; k < lines.length; k++) {
@@ -171,7 +184,7 @@ function Plates({ lines, h, w }) {
     out.push(html`<span class="hub-plate" style=${`height:${h}px;min-width:${h * 1.8}px;font-size:${(h * 0.6) / 1.303}px;border-radius:5px`}>${lines[k]}</span>`);
     x += need + 5;
   }
-  return html`<span class="hub-fplates">${out}</span>`;
+  return html`<span class="hub-fplates" ref=${ref} title=${lines.length > out.length ? lines.join(', ') : undefined}>${out}</span>`;
 }
 
 export function StartStep() {

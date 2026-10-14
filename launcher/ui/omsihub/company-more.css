@@ -102,6 +102,9 @@
 .cm-goal.running { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--co-accent2) 40%, transparent); }
 .cm-goal-title { font-size: var(--co-head); font-weight: 700; line-height: 1.35; }
 .cm-goal-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; height: 22px; margin-top: 12px; font-size: var(--co-note); font-weight: 500; white-space: nowrap; }
+/* (a narrow card: the days left shortened with an ellipsis, the reward kept - Beta 53's layout check) */
+.cm-goal-line > * { flex: none; }
+.cm-goal-line > .t-soft { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .cm-goal-when { height: 22px; margin-top: 8px; display: flex; align-items: center; font-size: var(--co-note); font-weight: 500; }
 .cm-goal-foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 14px; }
 .cm-goal.running .cm-goal-foot { margin-top: 12px; }

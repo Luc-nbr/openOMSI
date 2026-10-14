@@ -304,12 +304,15 @@
 .rf-status { flex: none; height: 32px; display: flex; align-items: center; padding: 0 8px; background: var(--rf-status); box-shadow: inset 0 1px 0 var(--rf-line); font-size: 9.6px; position: relative; z-index: 2; }
 .rf-status > .rf-wordmark { margin-left: 6px; font-size: 10.75px; }
 .rf-status .sep { width: 1px; height: 16px; flex: none; background: var(--rf-line); margin: 0 7px; }
-.rf-status .counts { display: flex; align-items: center; gap: 14px; min-width: 0; }
-.rf-status .counts .shown { color: var(--rf-dim); font-weight: 500; white-space: nowrap; }
-.rf-status .count { display: flex; align-items: center; gap: 5px; font-weight: 700; white-space: nowrap; }
+/* (a narrow RosterFlow: what is shown shortened with an ellipsis, the counts and the issues kept -
+   they ran over the issues at 200 %, Beta 53's layout check) */
+.rf-status > .rf-wordmark { flex: none; }
+.rf-status .counts { display: flex; align-items: center; gap: 14px; min-width: 0; flex: 0 1 auto; overflow: hidden; }
+.rf-status .counts .shown { color: var(--rf-dim); font-weight: 500; white-space: nowrap; min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.rf-status .count { display: flex; align-items: center; gap: 5px; font-weight: 700; white-space: nowrap; flex: none; }
 .rf-status .count.all { color: var(--rf-accent); }
 .rf-status .count.part { color: var(--rf-err); }
-.rf-status .issues { display: flex; align-items: center; }
+.rf-status .issues { display: flex; align-items: center; flex: none; }
 .rf-issue { height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 8px 0 4px; border-radius: 3px; color: var(--rf-dim); font-weight: 500; white-space: nowrap; }
 .rf-issue:hover, .rf-issue.on { background: var(--rf-hover2); color: var(--rf-text); }
 .rf-issue > span { display: flex; }

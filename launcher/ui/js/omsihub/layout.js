@@ -8,6 +8,7 @@
 //   cut off by a box around it that does not scroll, or smaller than 18 px as laid out;
 // - words cut off without an ellipsis and the whole of them in a tooltip, or cut off at the
 //   foot of a box of a fixed height;
+// - words running out of their box sideways, over what lies beside it;
 // - two parts of one row or grid lying over each other.
 //
 // Menus, cards, dialogs, tooltips and tours lie over the page on purpose: what they cover is not
@@ -194,6 +195,15 @@ export function checkLayout(root = document.body) {
       if (cs.overflowY !== 'visible' && cs.overflowY !== 'auto' && cs.overflowY !== 'scroll' && el.scrollHeight > el.clientHeight + 2 && !cs.webkitLineClamp?.match?.(/\d/)) {
         tell('words cut off at the foot', el, `${el.scrollHeight} of ${el.clientHeight} px`);
       }
+    }
+    // words running out of their box sideways, over what lies beside it (a row's words that do
+    // not fit and are not shortened: RosterFlow's status bar over its issues, Beta 53)
+    if (ownText(el) && parent && isShown(parent) && /^(static|relative|sticky)$/.test(cs.position) && !interactive) {
+      const pcs = getComputedStyle(parent);
+      const pr = parent.getBoundingClientRect();
+      const inner = { left: pr.left + parseFloat(pcs.borderLeftWidth) * k, right: pr.right - parseFloat(pcs.borderRightWidth) * k };
+      const over = Math.max(rect.right - inner.right, inner.left - rect.left);
+      if (pcs.overflowX === 'visible' && over > 3 && !/^(inline|contents)$/.test(pcs.display) && box.right > box.left) tell('runs out of its box', el, `${Math.round(over)} px past ${nameOf(parent)}`);
     }
     // two parts of one row or grid over each other
     const d = cs.display;
