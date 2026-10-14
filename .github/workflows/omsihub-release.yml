@@ -9,7 +9,8 @@
 # with "mac" ticked on any branch, builds openOMSI.app with the Omsi-Hub interface for Apple
 # silicon and Intel as upstream's release.yml does (scripts/build-macos.sh), signed ad hoc (no
 # Apple Developer account: the player opens it once with right-click > Open), and keeps it as
-# the run's artifacts - a .dmg and the zip the updater knows (openOMSI-<v>-macos-<arch>.zip) -
+# the run's artifacts - a .dmg and the zip the updater knows (openOMSI-<v>-macos-<arch>.zip,
+# <v> like 0.2.48-hub-mac14.318) -
 # without a release. docs/omsihub/MACOS.md says how to start it and what to test.
 name: Omsi-Hub release
 
@@ -85,10 +86,20 @@ jobs:
       - name: Workspace regression tests
         if: steps.v.outputs.exists != 'true' && !inputs.tested
         run: cargo test --locked --workspace --no-fail-fast -- --skip locale_check
+      # (as scripts/build-windows.cmd does it, but the Tauri app stamped with the version's
+      # first three numbers: Tauri takes a semver only, and the fork's versions have four -
+      # the script would hand it all four)
       - name: Build
         if: steps.v.outputs.exists != 'true'
-        shell: cmd
-        run: scripts\build-windows.cmd x86_64-pc-windows-msvc
+        shell: bash
+        run: |
+          t=x86_64-pc-windows-msvc
+          cargo build --locked --release --target $t -p omsi-app -p omsi-launcher-core
+          mkdir -p dist/windows
+          cp target/$t/release/openomsi.exe target/$t/release/openomsi-launcher.exe dist/windows/
+          TAURI_CONFIG="{\"version\":\"${OPENOMSI_VERSION%.*}\"}" cargo build --locked --release --target $t --manifest-path launcher/src-tauri/Cargo.toml
+          cp launcher/src-tauri/target/$t/release/openomsi-launcher-app.exe dist/windows/
+          cp assets/steam_redist/steam_api64.dll dist/windows/
       # (as release.yml: Microsoft's shader compiler for DirectX 12 beside the program -
       # without it the old FXC overflows its stack on the sky's shaders)
       - name: DirectX shader compiler
@@ -161,12 +172,15 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      # (a test build: its version has a "-", so the updater never replaces it with a release)
+      # (a test build: "-hub" in its version, so the updater never replaces it with a release,
+      # `updater::is_test_build`; three numbers before the first "-": the semver Tauri and the
+      # bundle take from it, scripts/build-macos.sh - 0.2.48-hub-mac14.318)
       - name: Version
         run: |
           git remote add upstream https://github.com/openOMSI-Project/openOMSI.git
           git fetch --no-tags upstream main
-          v="$(sh scripts/omsihub-version.sh)-mactest${{ github.run_number }}"
+          v4="$(sh scripts/omsihub-version.sh)"
+          v="${v4%.*}-hub-mac${{ github.run_number }}.${v4##*.}"
           echo "OPENOMSI_VERSION=$v" >> "$GITHUB_ENV"
           echo "### Omsi-Hub $v for the Mac (${{ matrix.arch }}), a test build" >> "$GITHUB_STEP_SUMMARY"
       - uses: dtolnay/rust-toolchain@stable
