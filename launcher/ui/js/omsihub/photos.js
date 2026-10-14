@@ -14,6 +14,16 @@ import { call } from '../api.js';
 import { fetchBytes } from './bus3d/urls.js';
 import { takePhoto } from './bus3d/photo.js';
 
+// (the tiles' own photos are shown whole, not cropped: `bus3d.css`, loaded here too - the company's
+// pages show photos without a 3D view)
+if (!document.querySelector('link[data-b3d-css]')) {
+  const l = document.createElement('link');
+  l.rel = 'stylesheet';
+  l.href = 'omsihub/bus3d.css';
+  l.dataset.b3dCss = '1';
+  document.head.appendChild(l);
+}
+
 /** `file|paint` -> { p: the URL's promise, ok, at, failed, later: listeners of the new photo }. */
 const photos = new Map();
 /** The photos waiting to be taken, the last asked for at the end, with how many tiles want each. */
