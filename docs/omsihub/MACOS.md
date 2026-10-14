@@ -94,10 +94,11 @@ This PC cannot build or run the Mac app, so before the first run on GitHub:
   --target aarch64-apple-darwin` of `omsi-launcher-core`, `omsi-launcher-api` and the Tauri app
   (`launcher/src-tauri`) - no errors, no warnings.
 - **Not checked here:** `omsihub-game` and the game program (`omsi-app`) for macOS - their
-  audio (cpal's CoreAudio) needs Apple's SDK to compile; upstream builds them on macOS in
-  `release.yml`, and our job builds them the same way (`scripts/build-macos.sh`). Our code in
-  them has no Windows-only parts left (the livery studio's fonts are looked up in the Mac's
-  font folders; fonts it does not find are left out of its list).
+  audio (cpal's CoreAudio) needs Apple's SDK to compile. The first run on GitHub (38564506559)
+  compiled them for Apple silicon and stopped at the Tauri app's version (fixed: the version
+  Tauri gets is three numbers now). Our code in them has no Windows-only parts left (the livery
+  studio's fonts are looked up in the Mac's font folders; fonts it does not find are left out
+  of its list).
 - **Not run:** the app itself on a Mac - the opening, WebKit's drawing of the pages (Safari's
   engine, not WebView2), the dialogs to choose a folder, the game's window, Metal, the
   updater on macOS (a test build is never updated: its version has a "-").

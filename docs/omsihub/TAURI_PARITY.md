@@ -52,7 +52,7 @@ in phase 6 and made the same; **open** - not there, and why.
 | The tour, 22 stops (`tour.rs`) | `tour.js` | same |
 | The bus company's tour, 28 stops | `tour.js` `COMPANY_STOPS` | same (phase 6) |
 | The update: Check now, the dialog, installed and started again, "Updated to Beta N" (`update.rs`) | `update.js`, `omsihub/update.rs` | same (phase 6); upstream's own updates page (`updates.js`) stays off in our look: ours reads this fork's releases |
-| The opening: the logo drawn (`intro.rs`) | `logo.js` | same |
+| The opening: the logo drawn (`intro.rs`) | `intro.js` (the logo's parts: `logo.js`) | same since Beta 53 (it went with the game-drawn launcher in Beta 52; the logo reads Omsi-Hub) |
 | Bus across the screen between pages (`transition.rs`, `page_bus`, off by default) | - | open: not ported - off by default, and only motion |
 | The phone and tablet launcher (`mobile.rs`, `phone.rs`) | upstream's `js/mobile` | upstream's: phones keep it |
 
