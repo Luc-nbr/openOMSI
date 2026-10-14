@@ -6,6 +6,7 @@
 
 import { html, useEffect, useState, tr, setCo, setUi, ui, act, useView, useSize, textW, goTab, Icon, Btn, Seg, Section, Meter, Dialog, Select } from './kit.js';
 import { DealerPage } from './dealer.js';
+import { photo, wantPhoto } from '../photos.js';
 
 export function FleetPage() {
   const st = ui('fleet', { tab: 0 });
@@ -38,37 +39,18 @@ export const initials = (name) =>
     .map((w) => w[0].toUpperCase())
     .join('');
 
-/** The buses' photos asked for (`file|paint`): the PNG the game-drawn launcher took
- * (`co_photo`, `busphoto.rs`) as a blob URL, or null. One not there is asked for again after
- * half a minute: the game-drawn launcher may have taken it meanwhile. */
-const photos = new Map();
-
-function photo(file, paint) {
-  if (!file) return Promise.resolve(null);
-  const key = `${file}|${paint || ''}`;
-  const had = photos.get(key);
-  if (had && (had.ok || Date.now() - had.at < 30000)) return had.p;
-  const tauri = window.__TAURI__;
-  const e = { at: Date.now(), ok: false };
-  e.p = tauri
-    ? tauri.core
-        .invoke('call_bytes', { cmd: 'co_photo', args: { bus: file, livery: paint || '' } })
-        .then((b) => ((e.ok = true), URL.createObjectURL(new Blob([b], { type: 'image/png' }))))
-        .catch(() => null)
-    : Promise.resolve(null);
-  photos.set(key, e);
-  return e.p;
-}
-
 /** A bus's photo (`photos().get` drawn with `image_cover`): the bus's initials on the night's
  * gradient until it is there, or when the game-drawn launcher never took it. */
 export function Photo({ file, paint, name, style = '', mono = true }) {
   const [src, setSrc] = useState(null);
   useEffect(() => {
     let gone = false;
+    // (Omsi-Hub 6/6: one not there is photographed by the game program, `photos.js`)
+    const leave = file ? wantPhoto(file, paint) : null;
     photo(file, paint).then((u) => !gone && setSrc(u));
     return () => {
       gone = true;
+      leave?.();
     };
   }, [file, paint]);
   return html`<span class=${'photo' + (src ? ' shot' : '')} style=${style + (src ? `;background-image:url("${src}")` : '')}>${!src && mono && html`<span class="mono">${initials(name)}</span>`}</span>`;

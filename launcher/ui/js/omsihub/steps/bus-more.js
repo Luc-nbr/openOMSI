@@ -1,6 +1,7 @@
 // What the bus step has beyond phase 1's (Trello "Tauri 3/6"), as our game-drawn launcher's
 // (`buspick.rs`, `busphoto.rs`): the tiles' photos - the bus drawn by the game's renderer, as
-// the game-drawn launcher took it (`co_photo`), its initials on the night's gradient until then -
+// the game-drawn launcher took it (`co_photo`; one not there taken by the game program, phase 6),
+// its initials on the night's gradient until then -
 // and the bus that fits the duty best (`hub_more_bus_best`): marked on its tiles, said under the
 // grid and on its sheet. A free drive has no trips to fit: there the bus the map's depot runs
 // most is marked.
@@ -10,6 +11,7 @@ import { S, useStore } from '../../store.js';
 import { call } from '../../api.js';
 import { Icon, tr } from '../bits.js';
 import './more.js';
+import { photo, wantPhoto } from '../photos.js';
 
 /** The duty the bus is weighed for: map, day, free or not, the tour or the shift's legs. */
 function dutyOf(c) {
@@ -61,25 +63,6 @@ export function BestLine({ file }) {
   return html`<div class="hub-best"><${Icon} name="check_circle" size=${16} /><span>${p.depot ? `${line} · ${p.depot}` : line}</span></div>`;
 }
 
-/** The buses' photos asked for (`file|paint`): the PNG the game-drawn launcher took
- * (`co_photo`, `busphoto.rs`) as a blob URL, or null - asked again after half a minute. */
-const photos = new Map();
-function photo(file, paint) {
-  const key = `${file}|${paint || ''}`;
-  const had = photos.get(key);
-  if (had && (had.ok || Date.now() - had.at < 30000)) return had.p;
-  const tauri = window.__TAURI__;
-  const e = { at: Date.now(), ok: false };
-  e.p = tauri
-    ? tauri.core
-        .invoke('call_bytes', { cmd: 'co_photo', args: { bus: file, livery: paint || '' } })
-        .then((b) => ((e.ok = true), URL.createObjectURL(new Blob([b], { type: 'image/png' }))))
-        .catch(() => null)
-    : Promise.resolve(null);
-  photos.set(key, e);
-  return e.p;
-}
-
 const initials = (name) =>
   String(name || '')
     .split(/\s+/)
@@ -95,9 +78,12 @@ export function TilePhoto({ file, paint, title }) {
   useEffect(() => {
     let gone = false;
     setSrc(null);
+    // (Omsi-Hub 6/6: one not there is photographed by the game program, `photos.js`)
+    const leave = file ? wantPhoto(file, paint) : null;
     if (file) photo(file, paint).then((u) => !gone && setSrc(u));
     return () => {
       gone = true;
+      leave?.();
     };
   }, [file, paint]);
   return html`<span class=${'pic hub-mono' + (src ? ' shot' : '')} style=${'padding-bottom:0;height:150px' + (src ? `;background:url("${src}") center / cover no-repeat` : '')}>${!src && html`<i>${initials(title)}</i>`}</span>`;

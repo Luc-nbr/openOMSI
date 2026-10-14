@@ -9,6 +9,8 @@
 //!   the view it draws (or the map's roads and stops) in the bytes;
 //! * `studio`: the livery studio, run here as our game-drawn launcher runs it (`studio`): the
 //!   page's request under `studio`, the studio's picture in the bytes;
+//! * `photo`: a bus photographed for the bus picker's tiles and the company's, kept where our
+//!   game-drawn launcher keeps its photos (`photo`, Trello "Tauri 6/6");
 //!
 //! Each answer is the service's: a JSON head and the bytes after it (`Reply`). Kept in this file
 //! of our own beside the editors it serves, so that the modules it needs stay private.
@@ -17,6 +19,7 @@ use serde_json::Value;
 use std::sync::Arc;
 
 mod display;
+mod photo;
 mod studio;
 
 /// Where an answer goes: what it says and the bytes after it.
@@ -53,6 +56,11 @@ pub fn serve(cmd: &str, req: &Value, reply: Reply, renderer: &mut Option<omsi_re
                     Err(e) => reply(serde_json::json!({ "ok": false, "error": format!("{e:#}") }), Vec::new()),
                 }
             }
+            true
+        }
+        // a bus's photo (`photo`): on its thread, with a renderer of its own
+        "photo" => {
+            photo::ask(req, reply, open);
             true
         }
         _ => false,

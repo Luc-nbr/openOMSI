@@ -136,6 +136,7 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
         "hub_map_facts" => (|| hub_map_facts(&arg::<Vec<String>>(args, "maps")?))(),
         "hub_weather_extras" => (|| hub_weather_extras(&arg::<String>(args, "map")?))(),
         "hub_own_lines" => (|| hub_own_lines(&arg::<String>(args, "map")?))(),
+        "hub_photo" => hub_photo(args, p),
         // what phase 1 left of the drive's steps (Trello "Tauri 3/6": `hub_more.rs`)
         c if c.starts_with("hub_more_") => return hub_more::call(c, args),
         c if c.starts_with("hub_update") => return update::call(c, args),
@@ -164,6 +165,21 @@ pub fn call_bytes(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Result<Ve
 /// (`settings`, `mods` ...) or a step of the drive (`drive:map`, `drive:bus` ...).
 fn hub_boot() -> Answer {
     Ok(json!({ "page": omsi_cfg::flags::OMSI_LAUNCHER_PAGE.var() }))
+}
+
+// --- the buses' photos --------------------------------------------------------------------
+
+/// A bus photographed by the game program for the tiles (Omsi-Hub 6/6, `hub_service::photo`): kept
+/// where the game-drawn launcher keeps its photos, which `co_photo` reads. `bus` and `paint` as
+/// the tiles name them, `map` the map whose light it is taken in. Answers once it is kept.
+fn hub_photo(args: &Value, p: &dyn Platform) -> Answer {
+    let s = |k: &str| args.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+    let (head, _) = p.renderer(json!({ "cmd": "photo", "bus": s("bus"), "paint": s("paint"), "map": s("map") }), std::time::Duration::from_secs(150))?;
+    if head.get("ok").and_then(Value::as_bool) == Some(true) {
+        Ok(json!({ "ok": true }))
+    } else {
+        Err(head.get("error").and_then(Value::as_str).unwrap_or("no photo").to_string())
+    }
 }
 
 // --- work shifts -------------------------------------------------------------------------

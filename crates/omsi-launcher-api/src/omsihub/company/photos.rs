@@ -1,8 +1,8 @@
 //! The buses' photos on the fleet's, the dealer's and Casual's tiles: the PNGs our game-drawn
 //! launcher took with the game's own renderer (`omsi-launcher-ui/src/busphoto.rs`) and keeps
 //! under `~/.openomsi/cache/busphotos/`. The page asks for a bus's photo in a paint once
-//! (`co_photo`) and shows the bus's initials while there is none: taking one needs the game's
-//! renderer, so a bus never pictured in the game-drawn launcher keeps its initials here.
+//! (`co_photo`) and shows the bus's initials while there is none; one never taken is taken by
+//! the game program for the page (`hub_photo`, Omsi-Hub 6/6) and kept there the same way.
 
 use omsi_launcher_lib as core;
 use std::path::{Path, PathBuf};
