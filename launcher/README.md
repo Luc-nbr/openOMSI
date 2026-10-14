@@ -29,9 +29,19 @@ whose webview cannot start.
 ## How the game and the launcher find each other
 
 A plain start of `openomsi` (a double click) opens `openomsi-launcher-app` when it lies beside
-the game (or in `launcher/src-tauri/target/{release,debug}` of a source tree);
-`OMSI_CLASSIC_LAUNCHER=1` or `openomsi --launcher` open the game's own launcher window
-instead. The launcher starts each duty as `openomsi` with a full command line, the way the old
+the game (or in `launcher/src-tauri/target/{release,debug}` of a source tree) - this fork's
+default (`launcher_ui=desktop`; `new`, its old name for the launcher the game draws, reads as
+`desktop` too). The game's own launcher window opens instead with `launcher_ui=game` (Omsi-Hub
+in the game's window) or `=classic` (openOMSI's own), with `OMSI_CLASSIC_LAUNCHER=1` or
+`openomsi --launcher`, and by itself where this program is missing or its window cannot open
+(no WebView2: the game's window offers to install it). The desktop launcher hands over to it
+(`classic_launcher`, `OMSI_LAUNCHER_PAGE`) only where a choice asks for it: the classic
+launcher chosen in the welcome.
+
+This fork's page is `ui/js/omsihub/` (Omsi-Hub's look, its bus company, RosterFlow and editors,
+`ui/omsihub*.css`), its commands the `omsihub` module of `omsi-launcher-api`; upstream's files
+carry a marked line where they hand over to it. `docs/omsihub/TAURI_PARITY.md` lists every page
+of the launcher the game draws and how far this one has it. The launcher starts each duty as `openomsi` with a full command line, the way the old
 launcher did, and rests out of sight while a game it started runs when the setting
 "The launcher rests while a game runs" is on. The duty chosen is kept in
 `~/.openomsi/launcher-duty.json`, which both launchers read.

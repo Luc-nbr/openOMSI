@@ -48,6 +48,11 @@ Start the game, point the launcher to your OMSI 2 folder once, pick a map, a bus
 and drive. Mods go into the folder next to the game (or through the launcher's **Mods**
 page); the original installation is never written to.
 
+The launcher opens in a window of its own (`openomsi-launcher-app`, beside the game); Settings
+→ General → Launcher switches to the one the game draws in its own window, or openOMSI's
+classic one, which also opens by itself where the desktop launcher cannot (a Windows without
+WebView2). See [the launcher](docs/USER_GUIDE.md#the-launcher).
+
 From 0.1.7 on the launcher updates itself: when a newer release is out it asks at the start
 and, with your yes, downloads it, replaces the program and starts again (on Android through
 the system's installer). Settings → General → Updates switches the check off or installs without

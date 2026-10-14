@@ -207,7 +207,7 @@ effect. On Android, `openOMSI/env.txt` holds `NAME=value` lines that are set bef
 | `OMSI_LAUNCHER_TOUR` | text | - | use | launcher-api, launcher-ui | Launcher: start the guided tour (at this stop). |
 | `OMSI_LAUNCHER_TRANSITION_AT` | num | - | use | launcher-ui | Launcher: hold the page transition at this point (0..1), for pictures. |
 | `OMSI_LAUNCHER_TRANSITION_SLOW` | num | - | use | launcher-ui | Launcher: the page transition this many times slower. |
-| `OMSI_LAUNCHER_UI` | text | - | use | app | Launcher: new, classic or desktop (openOMSI's Tauri launcher, when it is beside the program), whatever the settings say. |
+| `OMSI_LAUNCHER_UI` | text | - | use | app | Launcher: desktop (the Tauri launcher, when it is beside the program), game (the one the game draws) or classic, whatever the settings say. |
 | `OMSI_LAUNCHER_WELCOME` | text | - | use | launcher-api, launcher-ui | Launcher: off skips the welcome (pictures, tests). |
 | `OMSI_LIVERY_LOOK` | text | - | test | launcher-ui | Tests: a folder for pictures of the livery studio. |
 | `OMSI_LIVERY_WINDOWS` | text | - | test | launcher-ui | Tests: pictures of a print on the windows (<OMSI folder>\|<out folder>\|<bus>[;<bus>...]). |
@@ -272,7 +272,7 @@ effect. On Android, `openOMSI/env.txt` holds `NAME=value` lines that are set bef
 | `OMSI_AI_MODEL_LOCK` | bool | off | use | sim | AI cars steer no further than their model's own steering lock (no 60 degree allowance for tight turns). |
 | `OMSI_AI_WAY_ONLY` | bool | off | use | app | AI vehicles stand on their way with the plain ground sampler, as before (A/B). |
 | `OMSI_BASIC_PIPELINES` | bool | off | once | guard, render | Use the reduced (basic) render pipelines, as after a driver failed to build the full ones. |
-| `OMSI_CLASSIC_LAUNCHER` | bool | off | use | app | A plain start opens the game's own launcher window even when the desktop launcher (openomsi-launcher-app) is chosen (launcher_ui=desktop) and beside the program. |
+| `OMSI_CLASSIC_LAUNCHER` | bool | off | use | app | A plain start opens the game's own launcher window even when the desktop launcher (openomsi-launcher-app, the default: launcher_ui=desktop) is beside the program. |
 | `OMSI_CROSSING_DEFORM` | bool | off | use | scene | Apply the crossings' ground deformation again (A/B; Omsi.exe does not). |
 | `OMSI_CUT_PLAIN` | bool | off | use | scene | Road-cut textures uploaded without GPU-made mipmaps. |
 | `OMSI_FIXED_SCALE` | bool | off | use | app | Keep the render scale fixed (no dynamic resolution). |
@@ -336,7 +336,7 @@ effect. On Android, `openOMSI/env.txt` holds `NAME=value` lines that are set bef
 | `OMSI_NO_SURF` | bool | off | once | scene | Every road as smooth as before (no surface texture) (A/B). |
 | `OMSI_NO_TEXCOMPRESS` | bool | off | use | render | No runtime texture compression. |
 | `OMSI_NO_TUNNEL` | bool | off | use | lan | LAN: no tunnel. |
-| `OMSI_NO_UPDATE` | bool | off | use | app, launcher-ui | No update check. |
+| `OMSI_NO_UPDATE` | bool | off | use | app, launcher-api, launcher-ui | No update check. |
 | `OMSI_NO_VAR_SYNC` | bool | off | use | app | LAN: no variable sync. |
 | `OMSI_NO_WHEEL_SLIP` | bool | off | use | sim | Every wheel grips, as before wheels turned on their own (A/B). |
 | `OMSI_OLD_WORLD_GRID` | bool | off | use | map | Maps with world coordinates take the one tile size of 371.9 m (comparison). |

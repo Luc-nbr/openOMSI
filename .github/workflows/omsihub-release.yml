@@ -60,6 +60,11 @@ jobs:
         if: steps.v.outputs.exists != 'true'
         with:
           key: omsihub-x64
+          # (the desktop launcher - the default launcher, openomsi-launcher-app.exe beside the
+          # game - is a workspace of its own, as release.yml caches it)
+          workspaces: |
+            . -> target
+            launcher/src-tauri -> target
       # (the language check needs every text in the six languages of the interface: a text
       # the project adds shows in English until it is translated, so it does not hold up a
       # release)

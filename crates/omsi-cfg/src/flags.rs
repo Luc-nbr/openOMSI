@@ -173,7 +173,7 @@ flags! {
     OMSI_CHECK_WALLS: Bool, Test, Use, "off", "Check: everybody inside a bus who stands away from its walkways.";
     OMSI_CHECK_WHEELS: Bool, Test, Use, "off", "Map check: probe the ground along every lane's wheel tracks (invisible walls, humps, holes).";
     OMSI_CHURN: Text, Test, Use, "-", "Offscreen: x,y - load the tiles round that point and unload/reload the start area (streaming test).";
-    OMSI_CLASSIC_LAUNCHER: Bool, Switch, Use, "off", "A plain start opens the game's own launcher window even when the desktop launcher (openomsi-launcher-app) is chosen (launcher_ui=desktop) and beside the program.";
+    OMSI_CLASSIC_LAUNCHER: Bool, Switch, Use, "off", "A plain start opens the game's own launcher window even when the desktop launcher (openomsi-launcher-app, the default: launcher_ui=desktop) is beside the program.";
     OMSI_CLICK_ALL: Bool, Test, Use, "off", "Check: aim at every clickable item of the cab and report which one would actually be operated.";
     OMSI_CLOUDFLARED: Text, Setup, Use, "-", "Path of the cloudflared binary for the LAN tunnel (searched after the game's folder, before the PATH).";
     OMSI_CLOUDFLARED_OWN: Bool, Test, Use, "off", "LAN tunnel: only the game's own downloaded cloudflared, to test the download.";
@@ -340,7 +340,7 @@ flags! {
     OMSI_LAUNCHER_TOUR: Text, Test, Use, "-", "Launcher: start the guided tour (at this stop).";
     OMSI_LAUNCHER_TRANSITION_AT: Num, Test, Use, "-", "Launcher: hold the page transition at this point (0..1), for pictures.";
     OMSI_LAUNCHER_TRANSITION_SLOW: Num, Test, Use, "-", "Launcher: the page transition this many times slower.";
-    OMSI_LAUNCHER_UI: Text, Test, Use, "-", "Launcher: new, classic or desktop (openOMSI's Tauri launcher, when it is beside the program), whatever the settings say.";
+    OMSI_LAUNCHER_UI: Text, Test, Use, "-", "Launcher: desktop (the Tauri launcher, when it is beside the program), game (the one the game draws) or classic, whatever the settings say.";
     OMSI_LAUNCHER_WELCOME: Text, Test, Use, "-", "Launcher: off skips the welcome (pictures, tests).";
     OMSI_LIST_ALIGNED: Bool, Debug, Use, "off", "Log the splines aligned to the terrain.";
     OMSI_LIVERY_LOOK: Text, Test, Test, "-", "Tests: a folder for pictures of the livery studio.";

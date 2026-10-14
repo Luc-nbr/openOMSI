@@ -2186,23 +2186,27 @@ mod record_tests {
         assert_eq!(without_hidden(vec!["Dirk".into()], &[]), vec!["Dirk".to_string()]);
     }
 
-    /// The welcome is shown until it was gone through; the new launcher unless the classic
-    /// one was chosen.
+    /// The welcome is shown until it was gone through; the desktop launcher unless the one the
+    /// game draws or the classic one was chosen - "new", the game-drawn one's old name that
+    /// every settings file of before has, is the desktop one now.
     #[test]
     fn the_welcome_and_the_launcher_choice_are_read_and_written() {
         let v = settings_from_text(None);
         assert_eq!(v["welcome_done"], json!(false));
-        assert_eq!(v["launcher_ui"], json!("new"));
+        assert_eq!(v["launcher_ui"], json!("desktop"));
         let mut v = settings_from_text(Some("welcome_done=1\nlauncher_ui=Classic\n"));
         assert_eq!(v["welcome_done"], json!(true));
         assert_eq!(v["launcher_ui"], json!("classic"));
-        assert_eq!(settings_from_text(Some("launcher_ui=fancy\n"))["launcher_ui"], json!("new"));
-        // (openOMSI's desktop launcher only when chosen: a plain start opens this one)
-        assert_eq!(settings_from_text(Some("launcher_ui=desktop\n"))["launcher_ui"], json!("desktop"));
+        assert_eq!(settings_from_text(Some("launcher_ui=fancy\n"))["launcher_ui"], json!("desktop"));
+        assert_eq!(settings_from_text(Some("launcher_ui=new\n"))["launcher_ui"], json!("desktop"));
+        assert_eq!(settings_from_text(Some("launcher_ui=game\n"))["launcher_ui"], json!("game"));
         assert_eq!(launcher_ui(" Desktop "), "desktop");
-        v["launcher_ui"] = json!("new");
+        assert_eq!(launcher_ui("GAME"), "game");
+        v["launcher_ui"] = json!("game");
         let text = settings_to_text(&v, None);
-        assert!(text.contains("welcome_done=1\n") && text.contains("launcher_ui=new\n"), "{text}");
+        assert!(text.contains("welcome_done=1\n") && text.contains("launcher_ui=game\n"), "{text}");
+        v["launcher_ui"] = json!("new");
+        assert!(settings_to_text(&v, None).contains("launcher_ui=desktop\n"));
     }
 
     /// The interface's accent: the logo's orange unless chosen, written as `#rrggbb`.
@@ -2747,13 +2751,16 @@ pub fn stop_style(v: &str) -> &'static str {
     }
 }
 
-/// Which launcher opens (`launcher_ui`): "classic" for openOMSI's own, "desktop" for
-/// openOMSI's desktop launcher (its Tauri window, `launcher/`), anything else the new one.
+/// Which launcher opens (`launcher_ui`): "desktop" for the desktop launcher (its Tauri window,
+/// `launcher/`, in Omsi-Hub's look), "game" for Omsi-Hub's launcher drawn in the game's own
+/// window, "classic" for openOMSI's own. "new" - the game-drawn one's name from before the
+/// desktop launcher had Omsi-Hub's look (Trello "Tauri 6/6") - and anything else is the desktop
+/// one: where its program or its webview is missing the game-drawn one opens by itself.
 pub fn launcher_ui(v: &str) -> &'static str {
     match v.trim() {
         v if v.eq_ignore_ascii_case("classic") => "classic",
-        v if v.eq_ignore_ascii_case("desktop") => "desktop",
-        _ => "new",
+        v if v.eq_ignore_ascii_case("game") => "game",
+        _ => "desktop",
     }
 }
 
@@ -2862,9 +2869,10 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
     // departure itself the player was late at once)
     v["bus_lead"] = json!(BUS_LEAD_DEFAULT);
     // the first start's welcome was gone through (or skipped), and which launcher opens: the
-    // new one ("new", Omsi-Hub's look) or openOMSI's classic one ("classic")
+    // desktop one ("desktop", Omsi-Hub's look in a window of its own), the one the game draws
+    // ("game") or openOMSI's classic one ("classic")
     v["welcome_done"] = json!(false);
-    v["launcher_ui"] = json!("new");
+    v["launcher_ui"] = json!("desktop");
     // the navigator's own size on top of the interface's, and the stop signs on its map
     // (German, British or French)
     v["nav_scale"] = json!(1.0);
@@ -3408,7 +3416,7 @@ pub fn settings_to_text(v: &Value, old: Option<&str>) -> String {
     text.push_str(&format!("companion={}\ncompanion_hide={}\ncompanion_tunnel={}\n", b("companion", false), b("companion_hide", true), b("companion_tunnel", false)));
     text.push_str(&format!("launcher_scale={}\n", launcher_scale(v.get("launcher_scale").and_then(|x| x.as_f64()))));
     text.push_str(&format!("animations={}\npage_bus={}\ndark_mode={}\nbus_lead={}\n", b("animations", true), b("page_bus", false), b("dark_mode", false), bus_lead(Some(n("bus_lead", BUS_LEAD_DEFAULT)))));
-    text.push_str(&format!("welcome_done={}\nlauncher_ui={}\n", b("welcome_done", false), launcher_ui(v.get("launcher_ui").and_then(|x| x.as_str()).unwrap_or("new"))));
+    text.push_str(&format!("welcome_done={}\nlauncher_ui={}\n", b("welcome_done", false), launcher_ui(v.get("launcher_ui").and_then(|x| x.as_str()).unwrap_or("desktop"))));
     text.push_str(&format!("nav_scale={}\nstop_style={}\nspeed_unit={}\n", nav_scale(v.get("nav_scale").and_then(|x| x.as_f64())), stop_style(v.get("stop_style").and_then(|x| x.as_str()).unwrap_or("de")), speed_unit(v.get("speed_unit").and_then(|x| x.as_str()).unwrap_or("kmh"))));
     text.push_str(&format!(
         "head_tracking_source={}\ntobii_edges={}\n",

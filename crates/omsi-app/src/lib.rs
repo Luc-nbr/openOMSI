@@ -319,9 +319,9 @@ pub fn run() -> Result<()> {
             return Ok(());
         }
         PANICS_TO_LAUNCHER_LOG.store(true, std::sync::atomic::Ordering::Relaxed);
-        // a plain start (not `--launcher`): the desktop launcher only when the player chose it
-        // (`launcher_ui=desktop` or `OMSI_LAUNCHER_UI=desktop`, see `desktop_launcher_chosen`)
-        // and it is beside the game - this build's own launcher is the one a plain start opens
+        // a plain start (not `--launcher`): the desktop launcher, unless the player chose the
+        // game's own (`launcher_ui=game` or `=classic`, see `desktop_launcher_chosen`), when it
+        // is beside the game and its window opens - this build's own launcher otherwise
         if !args.launcher && desktop_launcher_chosen() && open_app_launcher()? {
             return Ok(());
         }

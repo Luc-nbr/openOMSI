@@ -177,8 +177,8 @@ pub struct Launcher {
 }
 
 /// Whether the player chose this launcher (the settings' `launcher_ui`, read the way the
-/// launcher's `State` reads them). `OMSI_LAUNCHER_UI=classic|new` decides instead, for
-/// looking at either without changing the settings.
+/// launcher's `State` reads them). `OMSI_LAUNCHER_UI=classic|game|desktop` decides instead,
+/// for looking at either without changing the settings.
 // (classic copy: added for the choice between the launchers)
 pub fn chosen() -> bool {
     if let Ok(v) = omsi_cfg::env::var("OMSI_LAUNCHER_UI") {
@@ -190,7 +190,7 @@ pub fn chosen() -> bool {
 /// Whether settings `v` open the classic launcher.
 // (classic copy: added for the choice between the launchers)
 fn is_classic(v: &serde_json::Value) -> bool {
-    core::launcher_ui(v.get("launcher_ui").and_then(|x| x.as_str()).unwrap_or("new")) == "classic"
+    core::launcher_ui(v.get("launcher_ui").and_then(|x| x.as_str()).unwrap_or("desktop")) == "classic"
 }
 
 /// Run the launcher window until it is closed.

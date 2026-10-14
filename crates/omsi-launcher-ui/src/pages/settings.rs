@@ -1091,6 +1091,11 @@ fn general_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, c
         s["launcher_scale"] = json!(core::launcher_scale(Some(own as f64)));
         *dirty = 0.3;
     }
+    // (which launcher a plain start opens, Trello "Tauri 6/6": the desktop one in Omsi-Hub's
+    // look - this one where it cannot open - this one in the game's window, or the classic one)
+    let r = c.row();
+    sel_setting(ui, s, dirty, "s-launcher-ui", r, "Launcher", "launcher_ui", &[("desktop", "Desktop window"), ("game", "Omsi-Hub (in the game's window)"), ("classic", "Classic")]);
+    ui.tooltip(r, "Which launcher a plain start of the game opens.");
     // (the opening, the bus between pages, the tiles following the mouse: off for less motion)
     toggle_setting(ui, s, dirty, c.row(), "Animations", "animations");
     // (the bus across the screen between pages: off by default, too much on every page)

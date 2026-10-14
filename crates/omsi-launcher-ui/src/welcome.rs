@@ -973,7 +973,8 @@ fn dialog(l: &mut Launcher, d: f32) {
         let at = if stacked { Vec2::new(x, base.y + head_h - off + k as f32 * (card_h + gap)) } else { Vec2::new(x + k as f32 * (cw + gap), base.y + head_h) };
         let id = id_of(&format!("welcome-ui-{value}"));
         let t = l.ui.tile(id, Rect::new(at.x, at.y, cw, card_h), SHEET_RADIUS);
-        let on = current == *value;
+        // (the new interface: the desktop launcher or the game's own window, as chosen)
+        let on = (current == "classic") == (*value == "classic");
         let sel = l.ui.anim(id ^ 0x5e1, if on { 1.0 } else { 0.0 }, 0.07);
         l.ui.tile_shadow(&t);
         if sel > 0.01 {
@@ -1012,6 +1013,8 @@ fn dialog(l: &mut Launcher, d: f32) {
         l.ui.scroll_keep("welcome-ui-cards", view, cards_h + 12.0);
     }
     if let Some(v) = chosen {
+        // (the new interface opens in the desktop launcher where it can, Trello "Tauri 6/6")
+        let v = if v == "new" { "desktop" } else { v };
         l.state.settings["launcher_ui"] = json!(v);
         l.state.settings_dirty = 0.3;
         log::info!("launcher: the welcome chose the {v} interface");

@@ -428,7 +428,7 @@ fn launcher_choice(l: &mut Launcher, r: Rect) {
     let lw = l.ui.width("Launcher", 13.0, Weight::Medium) + 14.0;
     l.ui.label(Rect::new(r.x, r.y, lw, r.h), "Launcher");
     let seg = Rect::new(r.x + lw, r.y, (r.w - lw).max(0.0), r.h);
-    let mut pick = usize::from(core::launcher_ui(get(&l.state.settings, "launcher_ui").as_str().unwrap_or("classic")) == "new");
+    let mut pick = usize::from(core::launcher_ui(get(&l.state.settings, "launcher_ui").as_str().unwrap_or("classic")) != "classic");
     if l.ui.segmented("s-launcher-ui", seg, &mut pick, &LAUNCHERS) {
         let in_game = l.state.in_game();
         match switch_launcher(&mut l.state.settings, pick, in_game) {
@@ -462,7 +462,9 @@ fn switch_launcher(settings: &mut Value, pick: usize, in_game: bool) -> Switch {
         settings["launcher_ui"] = json!("classic");
         return Switch::Stay;
     }
-    settings["launcher_ui"] = json!("new");
+    // (the new one: the desktop launcher in Omsi-Hub's look, or the game's own window where
+    // the desktop one cannot open)
+    settings["launcher_ui"] = json!("desktop");
     if in_game {
         Switch::Later
     } else {
@@ -2866,12 +2868,12 @@ mod settings_tests {
     fn choosing_the_new_launcher_starts_the_launcher_again_unless_a_game_runs() {
         let mut s = core::settings_from_text(Some("launcher_ui=classic\n"));
         assert_eq!(switch_launcher(&mut s, 1, false), Switch::Restart);
-        assert_eq!(s["launcher_ui"], json!("new"));
+        assert_eq!(s["launcher_ui"], json!("desktop"));
         // (what a new start reads: the new launcher)
         assert!(!super::super::is_classic(&core::settings_from_text(Some(&core::settings_to_text(&s, None)))));
         let mut s = core::settings_from_text(Some("launcher_ui=classic\n"));
         assert_eq!(switch_launcher(&mut s, 1, true), Switch::Later);
-        assert_eq!(s["launcher_ui"], json!("new"));
+        assert_eq!(s["launcher_ui"], json!("desktop"));
         assert_eq!(switch_launcher(&mut s, 0, true), Switch::Stay);
         assert_eq!(s["launcher_ui"], json!("classic"));
         assert!(super::super::is_classic(&s));

@@ -99,7 +99,7 @@ const back = () => {
   if (k > 0) goTo(steps[k - 1]);
 };
 
-const uiOf = () => String(S.settings?.launcher_ui || 'new').trim().toLowerCase();
+const uiOf = () => String(S.settings?.launcher_ui || 'desktop').trim().toLowerCase();
 /** Whether the classic launcher was chosen. */
 const classic = () => uiOf() === 'classic';
 
@@ -313,8 +313,9 @@ function Dialog() {
   const cur = uiOf() === 'classic' ? 'classic' : 'new';
   const pick = (v) => {
     if (v === cur) return;
-    // (the desktop window is our look too: choosing it again keeps the window the player has)
-    saveSettings({ launcher_ui: v === 'new' && s.hubWelcomeUi === 'desktop' ? 'desktop' : v });
+    // (the new interface is this window, or the game's own when that was chosen before:
+    // choosing it again keeps the window the player has)
+    saveSettings({ launcher_ui: v === 'new' ? (s.hubWelcomeUi === 'game' ? 'game' : 'desktop') : v });
   };
   useEffect(() => {
     if (s.hubWelcomeUi == null) set({ hubWelcomeUi: uiOf() });

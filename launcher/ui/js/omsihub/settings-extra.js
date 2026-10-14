@@ -37,7 +37,8 @@ if (HUB && !SETTINGS_TABS.omsihub) {
     { type: 'select', key: 'accent', label: 'Accent colour', options: PRESETS.map(([name, c]) => [hexOf(c), name]) },
     { type: 'slider', key: 'launcher_scale', label: 'Launcher size', min: 0.6, max: 2, step: 0.05, def: 1, format: pct, store: (v) => Math.round(v * 20) / 20 },
     { type: 'toggle', key: 'animations', label: 'Animations' },
-    { type: 'select', key: 'launcher_ui', label: 'Launcher', options: [['new', 'Omsi-Hub (in the game\'s window)'], ['classic', 'Classic'], ['desktop', 'Desktop (this window)']], help: 'Which launcher a plain start of the game opens.' },
+    // (phase 6: this window is the default, the game's own where it cannot open)
+    { type: 'select', key: 'launcher_ui', label: 'Launcher', options: [['desktop', 'Desktop (this window)'], ['game', 'Omsi-Hub (in the game\'s window)'], ['classic', 'Classic']], help: 'Which launcher a plain start of the game opens.' },
     // (phase 3: the first start's welcome and the tour through the launcher once more, as our
     // game-drawn launcher's General tab has them; no setting changes by them - the welcome's
     // own `welcome_done` written a moment after the page's save of the unchanged ones)

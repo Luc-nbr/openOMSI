@@ -108,7 +108,7 @@ _version: 2
   uk: "Особову справу {name} видалено."
   pl: "Akta osobowe {name} usunięte."
 
-# --- which launcher a plain start opens -----------------------------------------------------
+# --- which launcher a plain start opens (also the game-drawn launcher's settings, phase 6) -----
 "Omsi-Hub (in the game's window)":
   en: "Omsi-Hub (in the game's window)"
   nl: "Omsi-Hub (in het venster van het spel)"
@@ -125,6 +125,14 @@ _version: 2
   ru: "Рабочий стол (это окно)"
   uk: "Робочий стіл (це вікно)"
   pl: "Pulpit (to okno)"
+"Desktop window":
+  en: "Desktop window"
+  nl: "Desktopvenster"
+  de: "Desktop-Fenster"
+  fr: "Fenêtre de bureau"
+  ru: "Окно рабочего стола"
+  uk: "Вікно робочого столу"
+  pl: "Okno pulpitu"
 "Which launcher a plain start of the game opens.":
   en: "Which launcher a plain start of the game opens."
   nl: "Welke launcher een gewone start van het spel opent."

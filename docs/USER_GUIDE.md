@@ -73,11 +73,11 @@ second (starter), **Shift+D** (drive), **.** (parking brake off), then throttle.
 whole start-up by itself (main switch, ignition, starter, gearbox to neutral); `--autostart`
 is the same thing for an offscreen run.
 
-**Updates.** When the launcher starts it asks
-[github.com/openOMSI-org/openOMSI](https://github.com/openOMSI-org/openOMSI) for the latest release
+**Updates.** When the launcher starts (the desktop launcher or the one the game draws) it asks
+[github.com/Luc-nbr/openOMSI](https://github.com/Luc-nbr/openOMSI) for the latest release
 and, when there is a newer one, offers it: **Update now** downloads it (checked against the
 SHA-256 GitHub lists), puts the new program in place of the old one and starts the launcher
-again - on Windows `openomsi.exe` and `openomsi-launcher.exe`, on macOS the `openOMSI.app`
+again - on Windows `openomsi.exe`, `openomsi-launcher-app.exe` and `openomsi-launcher.exe`, on macOS the `openOMSI.app`
 you started, on Linux the program files; mods, content and settings stay. On Android the
 system's installer asks "Do you want to update this app?"; Update replaces openOMSI and starts
 it again, Cancel leaves it as it was. Settings → General → Updates: look for updates at the start (on
@@ -231,8 +231,20 @@ nothing - what virtual bus companies ask their drivers for.
 
 ## The launcher
 
-The launcher is the game's own window (`crates/omsi-app/src/launcher`): `omsi` started
-without arguments (or with `--launcher`) opens it. It is drawn with wgpu - no web engine -
+A plain start of the game (no arguments, a double click) opens the **desktop launcher**: its
+own window beside the game (`launcher/`, `openomsi-launcher-app` - Tauri on WebView2 on
+Windows, WebKitGTK on Linux), with this fork's Omsi-Hub look and everything the launcher the
+game draws has: the drive's steps, the bus company with RosterFlow, the editors and the
+updates. Settings → General → **Launcher** chooses another one for the next plain start:
+*Omsi-Hub (in the game's window)* (`launcher_ui=game`) or *Classic*, openOMSI's own
+(`launcher_ui=classic`). The game's own window opens by itself where the desktop launcher's
+program is not beside the game, or where its window cannot open (a Windows without WebView2:
+it offers to install it); `openomsi --launcher` and `OMSI_CLASSIC_LAUNCHER=1` open it on
+purpose. Phones and tablets keep the launcher the game draws. Settings files of before say
+`launcher_ui=new`: that is the desktop launcher now.
+
+The launcher the game draws is the game's own window (`crates/omsi-app/src/launcher`): `omsi`
+started with `--launcher` (or as above) opens it. It is drawn with wgpu - no web engine -
 flat and dark (neutral greys, one amber accent), every control custom (sliders, switches,
 dropdowns, a calendar, a time picker, text fields, segmented buttons), Material Symbols
 icons and Inter (`crates/omsi-ui`). The Drive page shows the chosen bus in a card, as a
