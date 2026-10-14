@@ -307,7 +307,7 @@ pub fn buy_used(c: &mut Company, offer: &UsedOffer, how: Payment, livery: &str) 
     }
     pay(c, offer.price, how, &offer.bus.name)?;
     if c.taken.week != week {
-        c.taken = super::model::Taken { week, used: Vec::new(), applicants: Vec::new() };
+        c.taken = super::model::Taken { week, ..Default::default() };
     }
     c.taken.used.push(offer.no);
     c.book(BookingKind::Purchase, -offer.price, format!("{} (used, {:.0} km)", offer.bus.name, offer.km), false);
