@@ -67,6 +67,9 @@ function open(step, folder) {
   set({ hubWelcome: { open: true, step, folder, side: 0, seq: 0, typing: false, made: null, root: null, focus: step === 'driver' } });
 }
 
+/** The welcome open at `step` (the self-check's look at each of them). */
+export const welcomeStep = (step) => open(step, false);
+
 /** Show the welcome again from its first step (the settings): `welcome_done` is false until it
  * is finished again. */
 export async function showWelcomeAgain() {
