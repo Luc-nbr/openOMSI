@@ -23,6 +23,20 @@
 //! Positions go to the page in the o3d frame the 3D view draws in (x right, y up, z forward),
 //! as the project file keeps a decal's place; a brush stroke's points are kept in the bus's own
 //! frame (x right, y forward, z up), as the game program's studio writes them.
+//!
+//! THE FORMATS. One project format for both studios: `project.json` (and `project.autosave.json`)
+//! under `~/.openomsi/liveries/<id>/`, `omsihub-livery`'s `model::Project` - the old Electron
+//! app's JSON (`shared/lak.ts`: its Dutch field names, a decal's `midden` in o3d axes) with what
+//! the game program's studio added: `lakgroep` (a paint group's fill), `verloop` (gradients),
+//! `omlijning` (outlines), `pad` (own shapes), `hoogteM`/`verhoudingVast`, `spiegelbeeld` beside
+//! the old `zelfdeRichting`, `letterafstand`, `ookOverRamen`, `ookOp` (the family). Two things of
+//! the old app are read differently: a brush stroke is a polyline on the bus in the bus's frame
+//! with its normals (`punten` as `[[x, y, z]]`, `normalen`), where the old app kept flat o3d
+//! triples with the camera it was painted from (such a project does not open here, as it did not
+//! in the game program's studio); and a fill's `bron: 'start'` is left out - `lakgroep` does its
+//! work. What goes into the game is the same everywhere: the textures written as DDS (BC1, BC3
+//! with alpha) under `<CTC>\LiveryStudio\<nnnn>_<slug>\` and a `~LiveryStudio_<nnnn>_<slug>.cti`
+//! beside the bus's own, in openOMSI's content folder.
 
 mod place;
 mod prepare;
