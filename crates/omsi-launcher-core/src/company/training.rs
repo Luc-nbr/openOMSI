@@ -655,7 +655,7 @@ mod tests {
     }
 
     fn with_bus(c: &mut Company) -> u32 {
-        let bus = market::MarketBus { file: "Vehicles/SD/SD.bus".into(), name: "SD".into(), kind: BusKind { size: BusSize::Solo, drive: Drive::Diesel }, paints: vec![], default_paint: String::new() };
+        let bus = market::MarketBus { file: "Vehicles/SD/SD.bus".into(), name: "SD".into(), kind: BusKind { size: BusSize::Solo, drive: Drive::Diesel }, paints: vec![], default_paint: String::new(), ..Default::default() };
         market::buy_new(c, &bus, Payment::Cash, "").unwrap()
     }
 

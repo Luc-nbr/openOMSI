@@ -21,6 +21,13 @@ pub struct MarketBus {
     /// Its liveries, and the name of its own.
     pub paints: Vec<String>,
     pub default_paint: String,
+    /// Where it is built for: the side its driver sits on (`vehicles::guess_region`, or the
+    /// player's correction).
+    #[serde(default)]
+    pub region: super::vehicles::Region,
+    /// A coach (`vehicles::Category::Coach`): a solo bus to the market.
+    #[serde(default)]
+    pub coach: bool,
 }
 
 /// The words that make a bus electric (in its name, file or the names of its scripts).
@@ -106,9 +113,24 @@ pub fn kind_of_vehicle(v: &omsi_vehicle::Vehicle, file: &str, name: &str) -> Bus
 
 /// The kind of an installed bus, from its file (`Vehicles/.../x.bus`) and its name.
 pub fn kind_of(file: &str, name: &str) -> BusKind {
+    class_of(file, name).0
+}
+
+/// An installed bus's kind, whether it is a coach, and its region (`vehicles`), from its file
+/// and its name.
+pub fn class_of(file: &str, name: &str) -> (BusKind, bool, super::vehicles::Region) {
+    use super::vehicles::{guess_coach, guess_region};
     let path = crate::resolve_content(file).unwrap_or_else(|_| std::path::PathBuf::from(file));
-    let Ok(v) = omsi_vehicle::Vehicle::load(&path) else { return guess_kind(&[name, file], &[], false, None, None) };
-    kind_of_vehicle(&v, file, name)
+    let Ok(v) = omsi_vehicle::Vehicle::load(&path) else { return (guess_kind(&[name, file], &[], false, None, None), guess_coach(&[name, file]), guess_region(None, &[name, file])) };
+    class_of_vehicle(&v, file, name)
+}
+
+/// A bus file read: its kind, whether it is a coach, and its region (the side its first
+/// driver's camera sits on).
+pub fn class_of_vehicle(v: &omsi_vehicle::Vehicle, file: &str, name: &str) -> (BusKind, bool, super::vehicles::Region) {
+    use super::vehicles::{guess_coach, guess_region};
+    let texts = [name, file, v.type_name.as_str(), v.manufacturer.as_str()];
+    (kind_of_vehicle(v, file, name), guess_coach(&texts), guess_region(v.cameras_driver.first().map(|c| c.pos[0]), &texts))
 }
 
 /// The market's buses: every bus installed (reads each bus file - on a thread of its own).
@@ -117,7 +139,10 @@ pub fn market_of(vehicles: &[crate::VehicleInfo]) -> Vec<MarketBus> {
         .iter()
         // (a tram is no bus for the company; nor is a rail vehicle's `.ovh`)
         .filter(|v| !is_tram(&[&v.name, &v.file, &v.type_name]) && !v.file.to_lowercase().ends_with(".ovh"))
-        .map(|v| MarketBus { file: v.file.clone(), name: crate::display_bus_name(&v.name), kind: kind_of(&v.file, &v.name), paints: v.paints.clone(), default_paint: v.default_paint.clone() })
+        .map(|v| {
+            let (kind, coach, region) = class_of(&v.file, &v.name);
+            MarketBus { file: v.file.clone(), name: crate::display_bus_name(&v.name), kind, paints: v.paints.clone(), default_paint: v.default_paint.clone(), region, coach }
+        })
         .collect();
     out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     out
@@ -209,6 +234,7 @@ pub(crate) fn add_vehicle(c: &mut Company, bus: &MarketBus, built: String, km: f
         workshop_until: None,
         breakdowns: 0,
         clean: 95.0,
+        region: Some(bus.region),
     });
     id
 }
@@ -422,13 +448,13 @@ pub fn rules_of(c: &Company) -> Rules {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::super::{found, Founding};
     use super::*;
     use crate::company::model::GameMode;
 
     pub(crate) fn bus(name: &str, size: BusSize, drive: Drive) -> MarketBus {
-        MarketBus { file: format!("Vehicles/{name}/{name}.bus"), name: name.into(), kind: BusKind { size, drive }, paints: vec!["Red".into(), "Blue".into()], default_paint: "Red".into() }
+        MarketBus { file: format!("Vehicles/{name}/{name}.bus"), name: name.into(), kind: BusKind { size, drive }, paints: vec!["Red".into(), "Blue".into()], default_paint: "Red".into(), ..Default::default() }
     }
 
     #[test]

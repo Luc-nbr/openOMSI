@@ -769,6 +769,10 @@ pub struct MapInfo {
     /// Installed as a mod (in the content folder).
     #[serde(default)]
     pub installed: bool,
+    /// It drives on the left (`[LHT]` in its global.cfg): a British map, to the bus company's
+    /// vehicles (`company::vehicles::map_region`).
+    #[serde(default)]
+    pub left_hand: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -785,7 +789,8 @@ pub fn list_maps() -> Result<Vec<MapInfo>> {
     for (folder, dirs) in merged_folders("maps") {
         // a map is one folder: the first copy that has a global.cfg
         let Some(d) = dirs.into_iter().find(|d| omsi_cfg::vfs::is_file(&d.join("global.cfg"))) else { continue };
-        let key = format!("map|{lang}|{}", d.display());
+        // (v2: with the side it drives on)
+        let key = format!("map|v2|{lang}|{}", d.display());
         let mut stamped = vec![d.clone(), d.join("global.cfg"), d.join("ailists.cfg")];
         stamped.extend(dsc_candidates(&d.join("global.cfg"), lang));
         let stamp = index::files_stamp(&stamped);
@@ -846,7 +851,7 @@ fn read_map(d: &Path, folder: &str, lang: &str) -> Option<MapInfo> {
     }
     // (the depot groups' first: a plain car group's name line is no depot)
     let hof = omsi_map::ailists::AiLists::load(&d.join("ailists.cfg")).ok().and_then(|l| l.groups.iter().filter(|g| g.is_depot).chain(l.groups.iter()).find_map(|g| g.hof.clone())).unwrap_or_default();
-    Some(MapInfo { name: if g.name.trim().is_empty() { folder.to_string() } else { g.name.trim().to_string() }, friendly, file: format!("maps/{folder}/global.cfg"), description, entry_points: entries, hof, installed: in_content(d) })
+    Some(MapInfo { name: if g.name.trim().is_empty() { folder.to_string() } else { g.name.trim().to_string() }, friendly, file: format!("maps/{folder}/global.cfg"), description, entry_points: entries, hof, installed: in_content(d), left_hand: g.left_hand_traffic })
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

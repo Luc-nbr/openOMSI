@@ -53,6 +53,7 @@ pub mod rosterpdf;
 pub mod studio;
 pub mod timeplan;
 pub mod training;
+pub mod vehicles;
 
 pub use model::*;
 
@@ -73,6 +74,8 @@ pub struct Founding {
     /// How the dealer sells buses first: the quick buy or haggling and a contract (Casual
     /// buys quickly: this is kept for when the company leaves Casual).
     pub buying: dealer::BuyingMode,
+    /// The buses it works with (`vehicles`; the founding wizard proposes the map's region).
+    pub vehicles: vehicles::VehicleChoice,
 }
 
 /// A name as a file name: lower case, letters and digits, dashes between.
@@ -158,6 +161,7 @@ pub fn found(f: &Founding, profile: &str) -> Company {
         legacy_mode: None,
         addons: Default::default(),
         autopilot: Default::default(),
+        vehicles: f.vehicles.clone(),
     };
     // (Casual buys quickly; the buying chosen is kept for the other modes)
     autopilot::set_game_mode(&mut c, f.game_mode);

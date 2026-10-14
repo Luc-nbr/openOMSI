@@ -409,6 +409,10 @@ pub struct Vehicle {
     /// passengers notice (`staff::clean_factor`; 75, an older file's, is as it ever was).
     #[serde(default = "seventy_five")]
     pub clean: f64,
+    /// Where its model is built for, as the market had it when the bus came (`vehicles`;
+    /// None: a bus of before - every company's choice takes it).
+    #[serde(default)]
+    pub region: Option<super::vehicles::Region>,
 }
 
 fn seventy_five() -> f64 {
@@ -831,6 +835,10 @@ pub struct Company {
     /// What the company does by itself in the easy mode, and what it did (`autopilot`).
     #[serde(default)]
     pub autopilot: super::autopilot::Autopilot,
+    /// The buses it works with: UK, European, all or its own selection (`vehicles`; a company
+    /// of before: all).
+    #[serde(default)]
+    pub vehicles: super::vehicles::VehicleChoice,
 }
 
 fn one() -> f64 {

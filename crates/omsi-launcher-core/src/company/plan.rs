@@ -1126,6 +1126,8 @@ pub fn spare_buses(c: &Company, dp: &DayPlan, ti: usize) -> Vec<u32> {
         .iter()
         .filter(|v| v.held_on(&dp.date) && !v.in_workshop(&dp.date) && v.condition >= 20.0 && !broken.contains(&v.id))
         .filter(|v| t.bus != Some(BusOf::Own(v.id)) && super::ownline::line_allows(c, &t.tour.line, v))
+        // (a model the company does not work with any more is no spare: Beta 54)
+        .filter(|v| super::vehicles::vehicle_allowed(c, v))
         .filter(|v| !dp.tours.iter().enumerate().any(|(i, x)| i != ti && x.bus == Some(BusOf::Own(v.id)) && from < x.tour.to() + BUS_MARGIN && x.tour.from() < to + BUS_MARGIN))
         .collect();
     v.sort_by(|a, b| size_fit(wants, b.kind.size).cmp(&size_fit(wants, a.kind.size)).then(b.condition.partial_cmp(&a.condition).unwrap_or(std::cmp::Ordering::Equal)).then(a.id.cmp(&b.id)));

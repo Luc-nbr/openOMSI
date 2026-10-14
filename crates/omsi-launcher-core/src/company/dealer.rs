@@ -1499,7 +1499,7 @@ mod tests {
 
     fn listing(name: &str, maker: &str, size: BusSize, drive: Drive) -> Listing {
         Listing {
-            bus: MarketBus { file: format!("Vehicles/{name}/{name}.bus"), name: name.into(), kind: BusKind { size, drive }, paints: vec!["Red".into()], default_paint: "Red".into() },
+            bus: MarketBus { file: format!("Vehicles/{name}/{name}.bus"), name: name.into(), kind: BusKind { size, drive }, paints: vec!["Red".into()], default_paint: "Red".into(), ..Default::default() },
             maker: maker.into(),
             model: name.into(),
             version: "3 doors".into(),
