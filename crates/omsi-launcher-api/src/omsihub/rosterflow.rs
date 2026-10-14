@@ -508,6 +508,10 @@ fn board_answer(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
     let head = json!({
         "date": date,
         "name": format!("{}  ·  {}", c.name, day_label(&date)),
+        // (the two halves of the name: a narrow title bar leaves out the day first, then the
+        // company - `fitTitle` of the page)
+        "company": c.name,
+        "day_text": day_label(&date),
         "day_words": format!("{} {}", tr(DAY_NAMES[wd as usize % 7]).to_uppercase(), day_label(&date).split_whitespace().skip(1).take(2).collect::<Vec<_>>().join(" ").to_uppercase()),
         "service": tr(DAY_NAMES[wd as usize % 7]),
         "draft": rf::has_draft(&c),

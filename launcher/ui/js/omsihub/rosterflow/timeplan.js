@@ -224,13 +224,13 @@ function ContextBar({ v }) {
     tpAct('line', { line: l.name });
   };
   return html`<div class="tp-bar" data-rf="rf-tp-bar" ref=${bar}>
-    ${v.lines.length > 0 && html`<span class="tp-select" style="width:220px"><select value=${String(lineAt)} onChange=${(e) => pickLine(Number(e.currentTarget.value))}>${v.lines.map((l, k) => html`<option value=${String(k)}>${l.label}</option>`)}</select><${Icon} name="expand_more" size=${18} /></span>`}
+    ${v.lines.length > 0 && html`<span class="tp-select" style="flex:0 1 220px;min-width:110px"><select value=${String(lineAt)} onChange=${(e) => pickLine(Number(e.currentTarget.value))}>${v.lines.map((l, k) => html`<option value=${String(k)}>${l.label}</option>`)}</select><${Icon} name="expand_more" size=${18} /></span>`}
     <button type="button" class=${'tp-new' + (wide ? '' : ' narrow')} data-rf="rf-tp-new-line" title=${tr('New line: draw its route in the line editor, then make its timetable here')} onClick=${() => {
       if (v.dirty && !t.leaving) return tpSet({ leaving: true });
       tpSet({ leaving: false });
       newLine();
     }}><${Icon} name="add" size=${wide ? 18 : 20} />${wide && html`<span>${tr('New line')}</span>`}</button>
-    <span class="tp-select" style="width:150px"><select value=${String(t.day)} onChange=${(e) => tpSet({ day: Number(e.currentTarget.value), cell: null, text: '', adding: null, chart: null, issuesOpen: false, sel: null, scroll: 0 })}>${v.days.map((d, k) => html`<option value=${String(k)}>${d}</option>`)}</select><${Icon} name="expand_more" size=${18} /></span>
+    <span class="tp-select" style="flex:0 1 150px;min-width:96px"><select value=${String(t.day)} onChange=${(e) => tpSet({ day: Number(e.currentTarget.value), cell: null, text: '', adding: null, chart: null, issuesOpen: false, sel: null, scroll: 0 })}>${v.days.map((d, k) => html`<option value=${String(k)}>${d}</option>`)}</select><${Icon} name="expand_more" size=${18} /></span>
     <button type="button" class="tp-ib" title=${tr('Undo')} onClick=${() => tpAct('undo').then(() => tpSet({ cell: null, sel: null }))}><${Icon} name="turn_left" size=${15} /></button>
     <button type="button" class="tp-ib" title=${tr('Redo')} onClick=${() => tpAct('redo').then(() => tpSet({ cell: null, sel: null }))}><${Icon} name="turn_right" size=${15} /></button>
     <i class="tp-sep"></i>

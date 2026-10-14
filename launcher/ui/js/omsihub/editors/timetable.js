@@ -126,7 +126,7 @@ function LinesCard({ maps }) {
       status(e.message, true);
     }
   };
-  return html`<${Card} class="tt-lines">
+  return html`<${Card} class="ed-ttc-lines">
     <${Heading} title="Lines" />
     <${Drop} raw value=${V.loaded} options=${names} onChange=${pickMap} />
     <div class="list" style="margin-top:12px">
@@ -157,7 +157,7 @@ function ToursCard() {
     const r = await edit('repeat', { offset: off, until });
     if (r) status(tr('%{n} tour(s) made, every %{every} min up to %{time}', { n: r.made, every: off, time: fmtTime(until) }));
   };
-  return html`<${Card} class="tt-tours">
+  return html`<${Card} class="ed-ttc-tours">
     <${Heading} raw title=${tr('Line %{line}', { line: line.name })} />
     <div class="list">
       ${line.tours.map((t, i) => html`<${Row} on=${i === V.tour} onClick=${() => (Object.assign(V, { tour: i, column: 2 }), redraw())}>
@@ -178,7 +178,7 @@ function ToursCard() {
 function TripsCard() {
   const line = V.data.lines[V.line];
   const tour = line.tours[V.tour];
-  if (!tour) return html`<${Card} class="tt-trips"><span></span></${Card}>`;
+  if (!tour) return html`<${Card} class="ed-ttc-trips"><span></span></${Card}>`;
   const key = `${V.line}|${V.tour}`;
   if (V.timesFor !== key || V.times.length !== tour.trips.length) {
     V.times = tour.trips.map((t) => fmtTime(t.departure));
@@ -196,7 +196,7 @@ function TripsCard() {
   };
   const n = V.dirty.size;
   const label = n === 0 ? 'Saved' : n === 1 ? 'Save' : tr('Save all (%{n} lines)', { n });
-  return html`<${Card} class="tt-trips">
+  return html`<${Card} class="ed-ttc-trips">
     <${Heading} raw title=${`${tr('Tour %{tour}', { tour: tour.number })} - ${tour.ai_group}`} />
     <div class="ed-tt-trips">
       <div class="ed-tt-grid">

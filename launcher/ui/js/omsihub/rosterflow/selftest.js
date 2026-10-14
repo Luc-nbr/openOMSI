@@ -18,6 +18,27 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const $ = (q) => document.querySelector(q);
 const $$ = (q) => document.querySelectorAll(q);
 
+/** What is wrong with `el`'s parts lying side by side in its one row (those of the parts named
+ * by `open` one by one): one over the one before it, past the end, above or below the row. */
+function inARow(el, open) {
+  if (!el) return ['not drawn'];
+  const box = el.getBoundingClientRect();
+  const parts = [...el.children]
+    .flatMap((k) => (open.some((c) => k.classList.contains(c)) ? [...k.children] : [k]))
+    .filter((k) => k.offsetWidth > 0 && getComputedStyle(k).position !== 'absolute');
+  const out = [];
+  let right = box.left;
+  for (const k of parts) {
+    const r = k.getBoundingClientRect();
+    const name = k.getAttribute('class') || k.tagName.toLowerCase();
+    if (r.left < right - 0.5) out.push(`${name} over the one before it`);
+    if (r.right > box.right + 0.5) out.push(`${name} past the end`);
+    if (r.top < box.top - 0.5 || r.bottom > box.bottom + 0.5) out.push(`${name} out of the row`);
+    right = Math.max(right, r.right);
+  }
+  return out;
+}
+
 async function until(f, ms = 20000) {
   const t0 = Date.now();
   while (Date.now() - t0 < ms) {
@@ -77,6 +98,32 @@ export async function selftest(check, errors) {
     check(`rosterflow: the Timeplan's ${tab ? 'timetable' : 'running times'}`, !e && (!!$('.tp-body') || !!$('.tp-why')), e || ($('.tp-why')?.textContent || `${$$('.tp-cell').length} cells`).slice(0, 160));
   }
   setPart('tp', { tab: 0 });
+
+  // a narrow window (RosterFlow made narrower in place: 1180 to 776 px, what the smallest window
+  // leaves at a Launcher size of 125 % and 150 %): the title bar one row of 48 px whose parts
+  // neither overlap nor run over its end, the menu's icons and undo, redo and the history all
+  // there, and the toolbar's (and the Timeplan's bar's) parts side by side
+  const rf = $('.rf');
+  for (const [view, name] of [[VEHICLES, 'Vehicles'], [ROSTER, 'Roster'], [TIMEPLAN, 'Timeplan']]) {
+    setRf({ view, card: null, menu: null, panel: null });
+    for (const w of [1180, 936, 776]) {
+      rf.style.right = 'auto';
+      rf.style.width = `${w}px`;
+      e = await shown(null, 700);
+      const bar = $('.rf-title');
+      const wrong = [
+        ...(bar?.offsetHeight === 48 ? [] : [`${bar?.offsetHeight} px high`]),
+        ...inARow(bar, ['rf-icons', 'undo']),
+        ...($$('.rf-title .rf-icons .rf-ibtn').length === 5 && $$('.rf-title .undo .rf-ibtn').length === 3 ? [] : ['icons missing']),
+        ...(view === VEHICLES ? inARow($('.rf-toolbar'), []).map((x) => `toolbar: ${x}`) : []),
+        ...(view === TIMEPLAN && $('.tp-bar') ? inARow($('.tp-bar'), ['tp-sides']).map((x) => `Timeplan's bar: ${x}`) : []),
+      ];
+      check(`rosterflow: the title bar at ${w} px (${name})`, !e && !wrong.length, e || wrong.join('; ') || `level ${bar.className.match(/fit(\d)/)?.[1]}: ${bar.querySelector('.rf-name > b')?.textContent.trim().slice(0, 60) || 'the dot'}`);
+    }
+  }
+  rf.style.removeProperty('right');
+  rf.style.removeProperty('width');
+  await sleep(300);
 
   // the panels and windows over Vehicles
   setRf({ view: VEHICLES });

@@ -599,7 +599,7 @@ function Guide({ p, size }) {
       <i class="track"><i style=${`width:${(doneN / steps.length) * 100}%`}></i></i>
       <b class="title">${tr(title)}</b>
       ${text && html`<p>${tr(text)}</p>`}
-      ${(mode === 'step' || mode === 'info' || mode === 'done') && html`<div class="steps">${steps.map((s, i) => {
+      ${(mode === 'step' || mode === 'info' || mode === 'done') && html`<div class="rf-steps">${steps.map((s, i) => {
         const on = i === l.at && mode !== 'done';
         return html`<div class=${'st' + (l.done[i] ? ' ok' : on ? ' now' : '')}><i>${l.done[i] && html`<${Icon} name="check" size=${12} />`}</i><span>${tr(s[0])}</span></div>`;
       })}</div>`}

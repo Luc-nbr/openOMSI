@@ -12,7 +12,7 @@
 // page and a line's timetable open RosterFlow when the add-on is on, the duty launcher's "Open
 // in RosterFlow" its Roster on the duty.
 
-import { html, useEffect, useRef } from '../../../vendor/preact-htm.js';
+import { html, useEffect, useLayoutEffect, useRef, useState } from '../../../vendor/preact-htm.js';
 import { S } from '../../store.js';
 import { language } from '../../i18n.js';
 import { tr } from '../bits.js';
@@ -160,28 +160,94 @@ export function RosterFlowPage() {
   </div>`;
 }
 
+// (what the title bar gives way with in a narrow window, `fitTitle`: the least the name shows
+// with its day before the day goes, and with the company alone before that goes; the saved dot;
+// the gap before it; what a tab saves as an icon besides its label; the wordmark and its gap;
+// what the day switcher gives up; the margin before a level comes back)
+const FULL_MIN = 150;
+const NAME_MIN = 44;
+const DOT = 10;
+const DOT_GAP = 7;
+const TAB_SAVE = 6;
+const BRAND_SAVE = 204;
+const DAY_SAVE = 44;
+const SLACK = 4;
+
+/** How much of the title bar gives way so that it stays one row of 48 px, in this order: 0
+ * nothing (the company and its day shortened with an ellipsis down to `FULL_MIN`), 1 the day
+ * left out, 2 the company left out (the saved dot stays), 3 the tabs as icons, 4 the mark without
+ * the wordmark and a narrower day switcher. The back button, the menu's icons and undo, redo and
+ * the history always stay. `now`: the level drawn, as `bar` shows it. */
+export function fitTitle(bar, now) {
+  const slot = bar.querySelector('.rf-name');
+  if (!slot) return now;
+  const cs = getComputedStyle(slot);
+  // (the room the name has now: what the slot is wide, less what still runs over the bar's end)
+  const over = Math.max(0, bar.scrollWidth - bar.clientWidth);
+  const freeNow = slot.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - over;
+  const labels = [...bar.querySelectorAll('.rf-tab > span')].reduce((a, s) => a + s.scrollWidth + TAB_SAVE, 0);
+  const names = bar.querySelector('.rf-brand .names');
+  const brand = (names?.offsetWidth ? names.offsetWidth + 8 : BRAND_SAVE) + DAY_SAVE;
+  const save = (l) => (l >= 3 ? labels : 0) + (l >= 4 ? brand : 0);
+  const free = (l) => freeNow - save(now) + save(l) - (l < now ? SLACK : 0);
+  const [full, company] = [...slot.querySelectorAll('.rf-measure b')].map((b) => b.offsetWidth);
+  if (free(0) >= Math.min(full || 0, FULL_MIN) + DOT_GAP + DOT) return 0;
+  if (free(1) >= Math.min(company || 0, NAME_MIN) + DOT_GAP + DOT) return 1;
+  if (free(2) >= DOT) return 2;
+  if (free(3) >= DOT) return 3;
+  return 4;
+}
+
+/** The title bar's level of `fitTitle`, measured again when the bar's width or what it says
+ * changes. */
+function useTitleFit(deps) {
+  const ref = useRef(null);
+  const [fit, setFit] = useState(0);
+  const now = useRef(0);
+  now.current = fit;
+  useLayoutEffect(() => {
+    const bar = ref.current;
+    if (!bar) return;
+    const run = () => {
+      const f = fitTitle(bar, now.current);
+      if (f !== now.current) setFit(f);
+    };
+    run();
+    // (measured after the frame: a size taken inside the observer's own call loops it)
+    const ro = new ResizeObserver(() => requestAnimationFrame(run));
+    ro.observe(bar);
+    return () => ro.disconnect();
+  }, [...deps, fit]);
+  return [ref, fit];
+}
+
 /** The title bar (`rosterflow::title_bar`): the way back, the mark and the name, the menu's icons,
- * the schedule's name, undo, redo and the history, the day, and the tabs. */
+ * the schedule's name, undo, redo and the history, the day, and the tabs - one row of 48 px at
+ * any width (`fitTitle`). */
 function TitleBar() {
   const r = S.rf;
   const head = r.data?.head;
   const studio = r.view === VEHICLES || r.view === DRIVERS;
   const undo = head?.undo?.length || 0;
-  const tab = (v, icon, label, anchor) => html`<button type="button" class=${'rf-tab' + (r.view === v ? ' on' : '')} data-rf=${anchor} onClick=${() => r.view !== v && setRf({ view: v, hand: null, zones: null, sel: [], card: null, menu: null, panel: null, press: null, dragging: false, selRow: null })}><${Icon} name=${icon} size=${18} /><span>${tr(label)}</span></button>`;
-  return html`<header class="rf-title">
+  const full = head?.name || '';
+  const company = head?.company ?? full;
+  const [ref, fit] = useTitleFit([full, company, r.view, language()]);
+  const tab = (v, icon, label, anchor) => html`<button type="button" class=${'rf-tab' + (r.view === v ? ' on' : '')} data-rf=${anchor} title=${fit >= 3 ? tr(label) : undefined} onClick=${() => r.view !== v && setRf({ view: v, hand: null, zones: null, sel: [], card: null, menu: null, panel: null, press: null, dragging: false, selRow: null })}><${Icon} name=${icon} size=${18} /><span>${tr(label)}</span></button>`;
+  return html`<header class=${`rf-title fit${fit}`} ref=${ref}>
     <${IconBtn} icon="chevron_left" title="Back to the company's start screen (Esc)" onClick=${leaveRosterFlow} />
     <i class="sep"></i>
     <span class="rf-brand"><${Mark} size=${30} /><span class="names"><${Wordmark} size=${17} /><small>${tr(SUBTITLE)}</small></span></span>
     <i class="sep"></i>
-    <span class="menu" data-rf="rf-menu">
+    <span class="rf-icons" data-rf="rf-menu">
       <${IconBtn} icon="tune" title="Preferences: the rules the duties are checked against and Optimise works to" onClick=${() => setRf({ prefs: { item: 'signing', search: '', inUse: false } })} />
       <${IconBtn} icon="description" title="Print the bus graph or the duty graph as a PDF file" onClick=${() => toggle('print')} />
       <${IconBtn} icon="search" title="Go to a vehicle or a duty by its ID (G)" onClick=${() => toggle({ kind: 'goto', text: '' })} />
       <${IconBtn} icon="settings" title="Optimisation settings" onClick=${() => toggle('optimise')} />
       <${IconBtn} icon="help" data="rf-help" title="Tutorial: a guided tour, lessons to try yourself and a help sheet" on=${r.tut.menu} onClick=${tutMenu} />
-      <span class="name">
-        <b class="cut">${head?.name || ''}</b>
+      <span class="rf-name" title=${full}>
+        ${fit < 2 && html`<b class="cut">${fit === 0 ? full : company}</b>`}
         <i class=${'dot' + (head?.draft ? ' draft' : '')} title=${tr(head?.draft ? 'Changes not saved yet: SAVE makes them the company\'s planning, DISCARD forgets them' : 'Saved: the company runs this planning')}></i>
+        <span class="rf-measure" aria-hidden="true"><b>${full}</b><b>${company}</b></span>
       </span>
     </span>
     <span class="undo" data-rf="rf-undo">

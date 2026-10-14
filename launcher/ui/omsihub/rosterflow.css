@@ -216,7 +216,9 @@
 
 /* --- the title bar ----------------------------------------------------------------------------- */
 
-.rf-title { flex: none; height: 48px; display: flex; align-items: center; background: var(--rf-bar); box-shadow: inset 0 -1px 0 var(--rf-line); position: relative; z-index: 30; }
+/* (one row of 48 px at any width: what does not fit gives way - the name's day, the name, the
+   tabs' labels, the wordmark - `fitTitle` in rosterflow/index.js sets the level `fitN`) */
+.rf-title { flex: none; height: 48px; display: flex; align-items: center; flex-wrap: nowrap; overflow: hidden; background: var(--rf-bar); box-shadow: inset 0 -1px 0 var(--rf-line); position: relative; z-index: 30; }
 .rf-title > .rf-ibtn:first-child { margin-left: 7px; }
 .rf-title .sep { width: 1px; height: 28px; flex: none; background: var(--rf-line); }
 .rf-title > .sep:nth-of-type(1) { margin-left: 5px; }
@@ -224,11 +226,17 @@
 .rf-title .rf-brand .names { display: flex; flex-direction: column; gap: 3px; width: 196px; }
 .rf-title .rf-brand .names small { font-size: 8.06px; font-weight: 500; color: var(--rf-dim); white-space: nowrap; }
 .rf-title .rf-brand + .sep { margin-left: 14px; }
-.rf-title .menu { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; margin-left: 11px; height: 36px; }
-.rf-title .menu .name { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 0 10px; }
-.rf-title .menu .name b { font-size: 11.5px; font-weight: 700; color: var(--rf-warn); }
-.rf-title .menu .name .dot { width: 10px; height: 10px; flex: none; border-radius: 50%; background: var(--rf-ok); }
-.rf-title .menu .name .dot.draft { background: var(--rf-warn); }
+/* (not `.menu`: upstream's styles.css makes every `.menu` a drop-down column) */
+.rf-title .rf-icons { position: static; flex: 1; min-width: 0; display: flex; flex-direction: row; align-items: center; gap: 6px; margin-left: 11px; height: 36px; }
+.rf-title .rf-name { position: relative; flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 0 10px; overflow: hidden; }
+.rf-title .rf-name b { font-size: 11.5px; font-weight: 700; color: var(--rf-warn); white-space: nowrap; }
+.rf-title .rf-name .dot { width: 10px; height: 10px; flex: none; border-radius: 50%; background: var(--rf-ok); }
+.rf-title .rf-name .dot.draft { background: var(--rf-warn); }
+.rf-title .rf-measure { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: flex-start; visibility: hidden; pointer-events: none; }
+.rf-title.fit3 .rf-tab, .rf-title.fit4 .rf-tab { gap: 0; padding: 0 11px; }
+.rf-title.fit3 .rf-tab > span, .rf-title.fit4 .rf-tab > span { max-width: 0; overflow: hidden; }
+.rf-title.fit4 .rf-brand .names { display: none; }
+.rf-title.fit4 .rf-day { width: 132px; }
 .rf-title .undo { display: flex; align-items: center; gap: 4px; margin-right: 11px; flex: none; }
 .rf-day { width: 176px; height: 32px; flex: none; display: flex; align-items: center; gap: 9px; padding: 0 5px 0 9px; color: var(--rf-dim); box-shadow: -1px 0 0 var(--rf-line); margin-right: 10px; }
 .rf-day b { flex: 1; min-width: 0; font-size: 10px; font-weight: 700; color: var(--rf-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
@@ -596,7 +604,9 @@
 .tp-ib:hover { color: var(--tp-text); background: var(--tp-cell); }
 .tp-ib.small { width: 20px; height: 20px; }
 .tp-sep { width: 1px; height: 28px; flex: none; background: var(--tp-border); margin: 0 4px; }
-.tp-sides { flex: 1; min-width: 0; display: flex; justify-content: center; gap: 36px; height: 100%; }
+/* (as wide as its two words at least: in a narrow window the line's and the day's lists give way,
+   and the gap between the words) */
+.tp-sides { flex: 1 0 auto; display: flex; justify-content: center; gap: clamp(14px, 2.5vw, 36px); height: 100%; }
 .tp-sides button { position: relative; height: 100%; font-size: 9.98px; font-weight: 700; color: var(--tp-dim); white-space: nowrap; }
 .tp-sides button:hover:not(.off) { color: var(--tp-text); }
 .tp-sides button.on { color: var(--tp-text); }
@@ -774,7 +784,7 @@ button.tp-cell:hover { background: var(--tp-cell-hover); }
 .rf-guide { z-index: 75; padding: 18px; box-shadow: 0 10px 34px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(var(--hub-accent-rgb), 0.45); }
 .rf-guide .title { display: block; font-size: 13.05px; font-weight: 700; margin-bottom: 6px; }
 .rf-guide p { margin: 0; font-size: 10px; line-height: 1.45; color: var(--rf-soft); }
-.rf-guide .steps { display: flex; flex-direction: column; gap: 5px; margin-top: 12px; }
+.rf-guide .rf-steps { display: flex; flex-direction: column; gap: 5px; margin-top: 12px; }
 .rf-guide .st { display: flex; align-items: center; gap: 8px; font-size: 9.6px; color: var(--rf-dim); }
 .rf-guide .st i { width: 15px; height: 15px; flex: none; border-radius: 50%; box-shadow: inset 0 0 0 1.3px var(--rf-dim); display: flex; align-items: center; justify-content: center; color: #fff; }
 .rf-guide .st.ok i { background: var(--rf-ok); box-shadow: none; }
