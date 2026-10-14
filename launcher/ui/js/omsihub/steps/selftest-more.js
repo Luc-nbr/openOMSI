@@ -9,6 +9,8 @@ import { call } from '../../api.js';
 import { S, set } from '../../store.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// (what the display font's previews write without a duty: a name, not a text to translate)
+const SAMPLE = '12 Hauptbahnhof';
 const $ = (q) => document.querySelector(q);
 const $$ = (q) => document.querySelectorAll(q);
 
@@ -60,7 +62,7 @@ export async function selftest(check, errors, step) {
       check('hub: the bus options', false, x.message);
     }
     try {
-      const f = await settled('hub_more_font_view', { bus, text: '12 Hauptbahnhof' }, 60);
+      const f = await settled('hub_more_font_view', { bus, text: SAMPLE }, 60);
       check('hub: the display font', !!(f.failed || f.plan || f.reading), f.reading ? 'still reading' : f.failed ? 'the displays could not be read' : f.sign ? `${f.options.length - 1} fonts, ${f.sign.font}` : 'drawn as pictures of its own');
     } catch (x) {
       check('hub: the display font', false, x.message);
