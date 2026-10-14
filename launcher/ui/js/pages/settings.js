@@ -99,6 +99,8 @@ function Row({ row, ask }) {
     case 'button':
       return html`<${ButtonRow} row=${row} />`;
     case 'custom':
+      // Omsi-Hub: a row of ours with a view of its own (`omsihub/settings-extra.js`)
+      if (row.view) return row.view({ ask });
       return CUSTOM[row.id]?.({ ask }) || null;
   }
   return null;

@@ -120,12 +120,19 @@ function Steps() {
   </nav>`;
 }
 
+/** The version as the bar shows it: a test build `<release>-beta<N>` as "Beta N"
+ * (`updater::shown_version`), any other as it is. */
+const shownVersion = (v = '') => {
+  const m = /-beta(\d+)$/.exec(v);
+  return m ? `Beta ${m[1]}` : v;
+};
+
 export function Bar() {
   const s = useStore();
   const onPage = s.page !== 'drive';
   const start = !onPage && s.hub.step === 'mode';
   const plain = start || onPage;
-  const version = s.boot?.version || '';
+  const version = shownVersion(s.boot?.version || '');
   const running = (s.poll.instances || []).filter((i) => i.running !== false).length;
   const line = !plain && chosenLine();
   const isDark = dark();

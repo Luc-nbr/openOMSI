@@ -18,6 +18,8 @@ import { EDITORS, EditorPage, editorOf, openLineEditor, openLivery } from './edi
 import { StatusLine } from './editors/kit.js';
 import { Welcome, welcomeAtStart } from './welcome.js';
 import { TourOverlay } from './tour.js';
+// (Omsi-Hub 6/6: the updates, as the game-drawn launcher offers them)
+import { useUpdates, UpdateDialog, UpdatedNotice } from './update.js';
 
 /** Our look is the desktop window's (not the phone's, nor `?phone` in a browser). */
 export const HUB = !onPhone && !new URLSearchParams(location.search).has('phone');
@@ -110,11 +112,14 @@ export function HubShell({ pages, Toasts }) {
       .catch(() => {})
       .then(welcomeAtStart);
   }, []);
+  useUpdates();
+  // (the update's dialog and its notice over whatever is drawn, as the game-drawn launcher's)
+  const updates = html`<${UpdateDialog} /><${UpdatedNotice} />`;
   // the welcome: in place of the page while it is open (phase 3, `welcome.js`)
-  if (s.hubWelcome?.open) return html`<div class="hub-stage" style=${`--hub-scale:${scale()}`}><${Welcome} /><${Toasts} /></div>`;
+  if (s.hubWelcome?.open) return html`<div class="hub-stage" style=${`--hub-scale:${scale()}`}><${Welcome} />${updates}<${Toasts} /></div>`;
   // the bus company: the whole window its own (its own bar)
   if (s.page === 'company') {
-    return html`<div class="hub-stage" style=${`--hub-scale:${scale()}`}><${CompanyScreen} /><${Toasts} /></div>`;
+    return html`<div class="hub-stage" style=${`--hub-scale:${scale()}`}><${CompanyScreen} />${updates}<${Toasts} /></div>`;
   }
   // (an editor's page: ours, `editors/index.js`)
   const editor = EDITORS[s.page] ? s.page : null;
@@ -125,6 +130,7 @@ export function HubShell({ pages, Toasts }) {
     ${s.hub.palette && html`<${Palette} />`}
     <${StatusLine} />
     <${TourOverlay} />
+    ${updates}
     <${Toasts} />
   </div>`;
 }

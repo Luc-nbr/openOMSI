@@ -3,11 +3,14 @@
 // upstream's: the light or the dark look and the accent (instead of upstream's own theme, which
 // this window does not use), the animations, the IBIS filled in by itself, the phone and tablet
 // companion, the head tracking's source and the Tobii's edges, the navigator's board, size,
-// stop signs, speed unit and signing on, and which launcher a plain start opens.
+// stop signs, speed unit and signing on, which launcher a plain start opens, and the updates'
+// Check now with this fork's releases.
 
+import { html } from '../../vendor/preact-htm.js';
 import { SETTINGS_TABS } from '../pages/settings-schema.js';
 import { onPhone } from '../api.js';
 import { PRESETS, hexOf } from './theme.js';
+import { UpdateRow } from './update.js';
 
 const pct = (v) => `${Math.round(v * 100)} %`;
 const deg = (v) => `${v.toFixed(2)}°`;
@@ -69,4 +72,11 @@ if (HUB && !SETTINGS_TABS.omsihub) {
     { type: 'slider', key: 'head_tracking_smoothing', label: 'Smoothing', min: 0, max: 1, step: 0.05, def: 0.5, format: pct, store: r2, when: (s) => s.head_tracking_source !== 'opentrack' },
     { type: 'slider', key: 'head_tracking_dead_zone', label: 'Dead zone', min: 0, max: 1, step: 0.05, def: 0.1, format: deg, store: r2, when: (s) => s.head_tracking_source !== 'opentrack' },
   ], (r) => r.key === 'head_tracking');
+  // (phase 6: the updates' Check now and this fork's releases in place of upstream's version line)
+  for (const t of SETTINGS_TABS) {
+    for (const c of t.cols || []) {
+      const k = (c.rows || []).findIndex((r) => r.type === 'custom' && r.id === 'version');
+      if (k >= 0) c.rows.splice(k, 1, { type: 'custom', id: 'hub-update', view: () => html`<${UpdateRow} />` });
+    }
+  }
 }

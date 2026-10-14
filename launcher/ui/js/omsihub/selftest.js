@@ -94,6 +94,14 @@ export async function selftest(check, errors) {
     check('hub: the METAR airports', false, x.message);
   }
 
+  // the updates (Trello "Tauri 6/6": `update.js`): their state answers, the version as shown
+  try {
+    const u = await call('hub_update', { lang: 'en' });
+    check('hub: the updates', typeof u.line === 'string' && !!u.shown, `${u.shown}: ${u.line}${u.dialog ? ` (${u.dialog.title})` : ''}`);
+  } catch (x) {
+    check('hub: the updates', false, x.message);
+  }
+
   // what phase 3 added to the drive (Trello "Tauri 3/6": steps/selftest-more.js)
   await (await import('./steps/selftest-more.js')).selftest(check, errors, step);
 

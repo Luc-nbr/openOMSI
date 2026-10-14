@@ -692,3 +692,23 @@
 .hub-seg.quiet { background: none; box-shadow: inset 0 0 0 1px var(--hub-edge); }
 .hub-seg.quiet button.on { background: var(--hub-lift); color: var(--hub-text); }
 :root.hub[data-theme="light"] .hub-seg.quiet button.on { background: rgba(22, 20, 26, 0.09); }
+
+/* --- the updates (phase 6: `js/omsihub/update.js`, as `update.rs` draws them) ------------ */
+
+.hub .hub-update { z-index: 70; }
+.hub .hub-update .dialog { width: min(560px, calc(100% - 48px)); min-height: 250px; padding: 20px 24px; display: flex; flex-direction: column; }
+.hub-update .head { display: flex; align-items: center; gap: 12px; height: 28px; }
+.hub-update .head h2 { font-size: 13.8px; font-weight: 700; margin: 0; }
+.hub-update .mark { color: var(--hub-accent); display: flex; }
+.hub-update .mark.bad { color: var(--hub-danger); }
+.hub-update p { margin: 16px 0 0; font-size: 10px; line-height: 1.38; color: var(--hub-text-dim); }
+.hub-update .bar { margin-top: 18px; height: 10px; border-radius: 5px; background: var(--hub-rail); overflow: hidden; }
+.hub-update .bar i { display: block; height: 100%; background: var(--hub-accent); border-radius: 5px; }
+.hub-update .auto { margin-top: auto; padding-top: 12px; }
+.hub-update .foot { display: flex; gap: 10px; align-items: center; margin-top: 14px; }
+.hub-update .foot .grow { flex: 1; }
+.hub-updated { position: absolute; z-index: 65; top: 18px; right: 20px; height: 42px; display: flex; align-items: center; gap: 10px; padding: 0 18px 0 12px; border-radius: 8px;
+  background: var(--hub-panel); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hub-accent) 60%, transparent); color: var(--hub-text); font-size: 10.4px;
+  animation: hub-updated 9s ease forwards; }
+.hub-updated .hub-icon { color: var(--hub-accent); }
+@keyframes hub-updated { 0% { opacity: 0; } 3% { opacity: 1; } 93% { opacity: 1; } 100% { opacity: 0; } }

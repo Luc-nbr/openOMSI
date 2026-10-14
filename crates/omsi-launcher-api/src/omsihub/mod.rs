@@ -27,6 +27,8 @@ pub mod company;
 // RosterFlow, the planning with the add-on on (Trello "Tauri 4/6": `rosterflow.rs`)
 pub mod rosterflow;
 pub mod hub_more;
+// the updates from the fork's releases (Trello "Tauri 6/6": `update.rs`)
+pub mod update;
 
 use crate::{Answer, Platform};
 use omsi_launcher_lib as core;
@@ -136,6 +138,7 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
         "hub_own_lines" => (|| hub_own_lines(&arg::<String>(args, "map")?))(),
         // what phase 1 left of the drive's steps (Trello "Tauri 3/6": `hub_more.rs`)
         c if c.starts_with("hub_more_") => return hub_more::call(c, args),
+        c if c.starts_with("hub_update") => return update::call(c, args),
         // the bus company's commands (Trello "Tauri 2/6": `company.rs`)
         c if c.starts_with("co_") => return company::call(c, args, p),
         c if c.starts_with("rf_") => return rosterflow::call(c, args, p),
