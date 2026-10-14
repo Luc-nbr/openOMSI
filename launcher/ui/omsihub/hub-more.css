@@ -59,7 +59,7 @@
 .hub-roadbook { position: absolute; z-index: 5; right: var(--hub-edge-in); top: var(--hub-sheet-top); width: var(--hub-book-w); bottom: calc(var(--hub-action-bottom) + var(--hub-action-h) + 24px); min-height: 200px;
   background: var(--hub-panel); color: var(--hub-text); border: 1px solid var(--hub-edge); border-radius: var(--hub-r-sheet); box-shadow: 0 2px 26px rgba(0, 0, 0, 0.45); }
 :root.hub[data-theme="light"] .hub-roadbook { box-shadow: 0 2px 26px rgba(80, 50, 20, 0.12); }
-.hub-roadbook header h3 { position: absolute; left: 16px; top: 7px; margin: 0; font-size: 8.44px; line-height: 10px; font-weight: 700; text-transform: uppercase; color: var(--hub-text-dim); }
+.hub-roadbook header h3 { position: absolute; left: 16px; top: 14px; margin: 0; font-size: 8.44px; line-height: 10px; font-weight: 700; text-transform: uppercase; color: var(--hub-text-dim); }
 .hub-rb-shut { position: absolute; right: 14px; top: 10px; width: 30px; height: 30px; display: grid; place-items: center; border-radius: var(--hub-r); background: none; color: var(--hub-text-dim); cursor: pointer; }
 .hub-rb-shut:hover { background: var(--hub-lift); color: var(--hub-text); }
 .hub-rb-body { position: absolute; left: 16px; right: 16px; top: 46px; bottom: 174px; display: flex; flex-direction: column; }
@@ -77,7 +77,7 @@ button.hub-rb-trip.first:hover { background: var(--hub-accent); }
 .hub-rb-trip span { display: block; height: 18px; line-height: 18px; font-size: 8.44px; color: var(--hub-text-dim); }
 .hub-rb-trip.first span { color: var(--hub-text-dim); }
 .hub-rb-trip.earlier b, .hub-rb-trip.earlier span { color: var(--hub-text-faint); }
-.hub-rb-stops { margin: -6px 0 12px; }
+.hub-rb-stops { margin: 0 0 12px; }
 .hub-rb-stop { position: relative; display: flex; align-items: center; height: 24px; margin-left: 4px; width: calc(100% - 12px); }
 .hub-rb-stop time { width: 54px; padding-left: 6px; flex: none; font-size: 9.2px; font-weight: 500; font-stretch: condensed; color: var(--hub-text-soft); font-variant-numeric: tabular-nums; }
 .hub-rb-stop.end time { color: var(--hub-text); }
