@@ -27,6 +27,8 @@ import { installZoom } from './zoom.js';
 /** Our look is the desktop window's (not the phone's, nor `?phone` in a browser). */
 export const HUB = !onPhone && !new URLSearchParams(location.search).has('phone');
 if (HUB) document.documentElement.classList.add('hub');
+// (the app is Omsi-Hub: the page's title, as the window's - `main.rs`)
+if (HUB) document.title = 'Omsi-Hub';
 
 /** What our frame keeps: the step of the drive, the palette open or not. */
 S.hub = { step: 'mode', palette: false };

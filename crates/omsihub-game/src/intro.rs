@@ -1,5 +1,5 @@
-//! openOMSI's mark as the launcher's opening drew it - a blue ring round a bus that opens into
-//! the route under the name, as a bus loop opens into the line - for the game's loading screen
+//! Omsi-Hub's mark (openOMSI's, named Omsi-Hub since Beta 53) - a ring round a bus that opens
+//! into the route under the name, as a bus loop opens into the line - for the game's loading screen
 //! (`Loading`, drawn by `splash`): the ring and the line drawn as far as the map has loaded, the
 //! stops springing up as the bar reaches them, and the mark at the top of the pause menu.
 //!
@@ -18,7 +18,7 @@ use super::ui::{id_of, Ui};
 
 // The mark's colours, as the drawing has them.
 /// The ring and the line.
-/// "open" and the bus front; "OMSI".
+/// "Omsi-" and the bus front; "Hub".
 const INK: Color = Color::rgba(236, 238, 242, 1.0);
 const ORANGE: Color = Color::rgba(244, 134, 32, 1.0);
 /// The stops: their white rims; the first one's red; the German stop's yellow and green; the
@@ -71,24 +71,24 @@ const RIM_R: f32 = 62.0;
 const FIRST_STOP: f32 = 93.0;
 /// The terminus: this far before the foot of the name's last letter.
 const TERMINUS_BACK: f32 = 62.0;
-/// "open": its capitals would be this tall (its small letters are 107), on a baseline this far
-/// under the ring's middle, this far right of the ring's outer edge, its letters this much
-/// closer than the face sets them; rounder than the face, as the drawing's (wider, and
-/// thinned to its weight again).
-const OPEN_CAP: f32 = 151.5;
-const OPEN_BASE: f32 = 15.0;
-const OPEN_GAP: f32 = 40.0;
-const OPEN_TRACK: f32 = -5.0;
-const OPEN_STYLE: Style = Style { slant: 0.0, bold: -0.006, stretch: 0.12 };
-/// "OMSI": its capitals this tall, boldened and all, on a baseline a little lower than open's,
-/// this much closer to it than the face would set it (the drawing has the words all but
-/// touch), its letters this much further apart than the face sets them; leaning (the face has
-/// no italic), wider and heavier than the face's heaviest.
-const OMSI_CAP: f32 = 163.0;
-const OMSI_BASE: f32 = 27.5;
-const OMSI_CLOSER: f32 = 14.0;
-const OMSI_TRACK: f32 = 3.0;
-const OMSI_STYLE: Style = Style { slant: 0.27, bold: 0.025, stretch: 0.19 };
+/// "Omsi-" (where openOMSI's mark had "open"): its capitals this tall (its small letters are
+/// 107), on a baseline this far under the ring's middle, this far right of the ring's outer
+/// edge, its letters this much closer than the face sets them; rounder than the face, as the
+/// drawing's (wider, and thinned to its weight again).
+const LIGHT_CAP: f32 = 151.5;
+const LIGHT_BASE: f32 = 15.0;
+const LIGHT_GAP: f32 = 40.0;
+const LIGHT_TRACK: f32 = -5.0;
+const LIGHT_STYLE: Style = Style { slant: 0.0, bold: -0.006, stretch: 0.12 };
+/// "Hub" (where it had "OMSI"): its capitals this tall, boldened and all, on a baseline a
+/// little lower than the first word's, this much closer to it than the face would set it (the
+/// drawing has the words all but touch), its letters this much further apart than the face
+/// sets them; leaning (the face has no italic), wider and heavier than the face's heaviest.
+const HEAVY_CAP: f32 = 163.0;
+const HEAVY_BASE: f32 = 27.5;
+const HEAVY_CLOSER: f32 = 14.0;
+const HEAVY_TRACK: f32 = 3.0;
+const HEAVY_STYLE: Style = Style { slant: 0.27, bold: 0.025, stretch: 0.19 };
 /// The bus front, round its middle (this far above the ring's): its body, rounded so much at
 /// the top and at the foot; the destination band and the windscreen cut out of it (and how
 /// round their corners are); the headlights; the wheels under it, the mirrors beside it.
@@ -119,7 +119,7 @@ const PULSE: f32 = 0.7;
 
 // --- the mark while the game loads -------------------------------------------------------
 
-/// openOMSI's mark as the game's loading screen has it (`crate::splash`): the opening's
+/// Omsi-Hub's mark as the game's loading screen has it (`crate::splash`): the opening's
 /// drawing with the pen where the loading is - the ring and the line are the bar of what is
 /// loaded, faint ahead of the pen. The bus front springs up once the ring has closed round
 /// it, each stop as the pen reaches it (the ones ahead wait faintly), the terminus rings
@@ -230,7 +230,7 @@ impl Loading {
 
 // --- the mark at rest ------------------------------------------------------------------
 
-/// openOMSI's mark where a page shows it (the start, the welcome): the opening's last frame,
+/// Omsi-Hub's mark where a page shows it (the start, the welcome): the opening's last frame,
 /// and alive under the mouse - a light runs round the ring and along the line to the terminus,
 /// the bus front hops and flashes its headlights when the light has gone round it, the stops
 /// brighten and swell as it passes them and the terminus rings, as when the pen drew them;
@@ -243,7 +243,7 @@ pub struct Logo {
     /// mark last frame (the light sets off when it comes onto it, not for as long as it stays).
     light_from: Option<f32>,
     over: bool,
-    /// The colour of "open" and of the bus front: when none, the look's (white on the dark
+    /// The colour of "Omsi-" and of the bus front: when none, the look's (white on the dark
     /// look, dark ink on the light one); the start's glass gives its own ink.
     pub ink: Option<Color>,
 }
@@ -327,7 +327,7 @@ fn bus_hop(since: f32) -> (f32, f32) {
 
 impl Logo {
     /// The mark fitted into `area` (centred, as large as it fits), drawn as it is in either
-    /// look (`Ui::as_drawn`: "OMSI" in its orange, not darkened as coloured words are on the
+    /// look (`Ui::as_drawn`: "Hub" in its orange, not darkened as coloured words are on the
     /// light look). Returns where it stands.
     pub fn draw(&mut self, ui: &mut Ui, name: &str, area: Rect) -> Rect {
         ui.as_drawn();
@@ -698,7 +698,7 @@ struct Timing {
 
 /// The mark laid out in its own pixels (a 1440 x 900 window's): the ring round 0, 0 with the
 /// bus front in it, the line from its foot on under the name, the name on its baselines over
-/// the line - "open" white, "OMSI" orange, heavy and leaning - and the stops on the line: by
+/// the line - "Omsi-" white, "Hub" orange, heavy and leaning - and the stops on the line: by
 /// the ring, half way, and the terminus under the name's end.
 #[derive(Clone, Debug)]
 struct Mark {
@@ -720,12 +720,12 @@ impl Mark {
         let u = RING_R / DRAWN_R;
         let (r, stroke, foot) = (DRAWN_R * u, STROKE * u, FOOT * u);
         let mut letters = Vec::new();
-        let mut x = r + stroke * 0.5 + OPEN_GAP * u;
+        let mut x = r + stroke * 0.5 + LIGHT_GAP * u;
         let mut name_end = 0.0;
-        let words = [("open", Weight::Bold, OPEN_STYLE, OPEN_CAP, OPEN_BASE, OPEN_TRACK, INK), ("OMSI", Weight::Black, OMSI_STYLE, OMSI_CAP, OMSI_BASE, OMSI_TRACK, ORANGE)];
+        let words = [("Omsi-", Weight::Bold, LIGHT_STYLE, LIGHT_CAP, LIGHT_BASE, LIGHT_TRACK, INK), ("Hub", Weight::Black, HEAVY_STYLE, HEAVY_CAP, HEAVY_BASE, HEAVY_TRACK, ORANGE)];
         for (n, (word, weight, style, cap, base, track, color)) in words.into_iter().enumerate() {
             if n > 0 {
-                x -= OMSI_CLOSER * u;
+                x -= HEAVY_CLOSER * u;
             }
             // (the size that makes its capitals, boldened or thinned, as tall as asked)
             let cap = cap * u;
@@ -744,7 +744,7 @@ impl Mark {
         }
         // the terminus under the last letter's foot, the H half way to it from the first stop
         let last = letters.last().expect("the name has letters");
-        let line_end = name_end - OMSI_TRACK * u - TERMINUS_BACK * u;
+        let line_end = name_end - HEAVY_TRACK * u - TERMINUS_BACK * u;
         let first = FIRST_STOP * u;
         let stops = [
             Stop { at: Vec2::new(first, foot), kind: Kind::First },
@@ -752,8 +752,8 @@ impl Mark {
             Stop { at: Vec2::new(line_end, foot), kind: Kind::Terminus },
         ];
         let outer = r + stroke * 0.5;
-        let top = (-outer).min(OMSI_BASE * u - last.cap);
-        let right = (name_end + OMSI_STYLE.slant * last.cap).max(line_end + RIM_R * u);
+        let top = (-outer).min(HEAVY_BASE * u - last.cap);
+        let right = (name_end + HEAVY_STYLE.slant * last.cap).max(line_end + RIM_R * u);
         let bounds = Rect::new(-outer, top, right + outer, foot + RIM_R * u - top);
         let mut m = Mark { u, r, stroke, foot, line_end, bus: Vec2::new(0.0, -BUS_UP * u), letters, stops, bounds, timing: Timing { letters: Vec::new(), stops: [0.0; 3], ring: 0.0 } };
         // where the pen gets to each, as shares of the stroke (the same at every size)
@@ -936,22 +936,22 @@ mod tests {
     fn the_mark_is_laid_out_and_fits() {
         let fonts = Fonts::hanken();
         let m = Mark::new(&fonts);
-        // the letters in order, after the ring; "OMSI" leaning, "open" upright
-        assert_eq!(m.letters.iter().map(|l| l.text.as_str()).collect::<String>(), "openOMSI");
+        // the letters in order, after the ring; "Hub" leaning, "Omsi-" upright
+        assert_eq!(m.letters.iter().map(|l| l.text.as_str()).collect::<String>(), "Omsi-Hub");
         assert!(m.letters.windows(2).all(|w| w[1].x > w[0].x) && m.letters[0].x > m.r + m.stroke * 0.5);
-        assert!(m.letters[..4].iter().all(|l| l.style.slant == 0.0) && m.letters[4..].iter().all(|l| l.style.slant > 0.2));
-        // "OMSI" a little larger than "open", standing a little lower
-        assert!(m.letters[4].cap > m.letters[0].cap && m.letters[4].base > m.letters[0].base);
-        // the first stop by the ring, the H half way to the terminus, under the end of "open";
+        assert!(m.letters[..5].iter().all(|l| l.style.slant == 0.0) && m.letters[5..].iter().all(|l| l.style.slant > 0.2));
+        // "Hub" a little larger than "Omsi-", standing a little lower
+        assert!(m.letters[5].cap > m.letters[0].cap && m.letters[5].base > m.letters[0].base);
+        // the first stop by the ring, the H half way to the terminus, under "Omsi-";
         // the terminus under the name's last letter
         assert!(m.stops[0].at.x > 0.0 && m.stops[0].at.x < m.r);
         assert!((m.stops[1].at.x - (m.stops[0].at.x + m.stops[2].at.x) * 0.5).abs() < 1e-3);
-        assert!(m.stops[1].at.x > m.letters[3].x && m.stops[1].at.x < m.letters[4].x);
+        assert!(m.stops[1].at.x > m.letters[0].x && m.stops[1].at.x < m.letters[5].x);
         assert!(m.stops[2].at.x > m.letters[7].x - 20.0 && m.stops[2].at.x == m.line_end);
         // the pen closes the ring, then meets the stops and the letters in order
         assert!(m.timing.letters.windows(2).all(|w| w[1] > w[0]));
         assert!(m.timing.ring < m.timing.stops[0] && m.timing.stops[0] < m.timing.letters[0]);
-        assert!(m.timing.letters[3] < m.timing.stops[1] && m.timing.stops[1] < m.timing.letters[4] && m.timing.stops[2] == 1.0);
+        assert!(m.timing.letters[0] < m.timing.stops[1] && m.timing.stops[1] < m.timing.letters[5] && m.timing.stops[2] == 1.0);
         // the name clear of the line, the ring's opening open: where the pen sets down is well
         // clear of the line it leaves by
         assert!(m.foot - m.stroke * 0.5 - m.letters[0].base > 0.3 * m.letters[0].cap);

@@ -138,7 +138,7 @@ export function Bar() {
   const isDark = dark();
   return html`<header class="hub-bar hub-glass">
     ${plain
-      ? html`<button type="button" class="hub-brand" onClick=${() => go('drive', 'mode')} title="openOMSI"><span dangerouslySetInnerHTML=${{ __html: LOGO_SVG }} style="display:flex"></span><span class="hub-version">${version}</span></button>`
+      ? html`<button type="button" class="hub-brand" onClick=${() => go('drive', 'mode')} title="Omsi-Hub"><span dangerouslySetInnerHTML=${{ __html: LOGO_SVG }} style="display:flex"></span><span class="hub-version">${version}</span></button>`
       : html`${line && html`<span class="hub-plate" style="margin-right:14px;height:24px">${line}</span>`}<${Steps} />`}
     <span class="hub-bar-fill"></span>
     ${!start && html`<button type="button" class="hub-bar-btn" title=${tr('Home')} onClick=${() => go('drive', 'mode')}><${Icon} name="home" size=${17} /></button>`}

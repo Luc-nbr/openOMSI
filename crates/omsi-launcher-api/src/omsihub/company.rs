@@ -969,7 +969,7 @@ fn realtime_tip(c: &Company) -> String {
     if !realtime(c) {
         return tr("The company's time stands still while it is closed: the real clock is off in the company's settings.");
     }
-    let mut t = tr("In step with the real clock: the company's time goes on while openOMSI is closed, and is caught up when you open the company.");
+    let mut t = tr("In step with the real clock: the company's time goes on while Omsi-Hub is closed, and is caught up when you open the company.");
     if c.clock.real.lead > 0 {
         t.push('\n');
         t.push_str(&trf("Fast-forwarded: %{span} ahead of the real clock.", &[("span", &words::span_text(c.clock.real.lead))]));

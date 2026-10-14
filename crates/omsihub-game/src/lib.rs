@@ -3,7 +3,7 @@
 //! its own any more; what is left of Omsi-Hub's game-drawn launcher is here, without a window:
 //!
 //! * in the game: the duty in the navigator (`nav_duty`), the bus stop signs on its maps
-//!   (`stop_signs`) and the loading screen with openOMSI's mark (`splash`, `intro`);
+//!   (`stop_signs`) and the loading screen with Omsi-Hub's mark (`splash`, `intro`);
 //! * for the desktop launcher's editors, through the launcher service (`openomsi
 //!   --launcher-service`, the game's `launcher::service`, which hands what it does not know to
 //!   `service::serve`): the line editor kept here while its page draws it (`lineeditor`), the
@@ -35,6 +35,10 @@ pub mod stop_signs;
 mod editor_host;
 
 pub use omsi_ui::{accent, kit as ui, theme};
+
+/// The app's name where the player sees it: the game's window, the mark (Luc, Beta 53: the app
+/// is Omsi-Hub; the files and folders keep openOMSI's names).
+pub const APP_NAME: &str = "Omsi-Hub";
 
 // The tests read the game's translation tables as the game does (the modules here ask
 // `omsi_ui::tr`, whose lookup the program installs): that every text is translated.

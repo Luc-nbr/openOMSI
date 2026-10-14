@@ -41,7 +41,7 @@ function loadCss() {
 /** The stops in their order (`tour::STOPS` of a desktop): its chapter, title and words, what it
  * points at (a card's drawing, or the part's name) and where the launcher has to be. */
 const STOPS = [
-  ['welcome', 'Guided tour', 'Welcome aboard', "openOMSI puts real duties together from the timetables of your own OMSI maps and gets the game ready for you. In a minute you'll know where everything is.", { card: 'welcome' }, ['mode']],
+  ['welcome', 'Guided tour', 'Welcome aboard', "Omsi-Hub puts real duties together from the timetables of your own OMSI maps and gets the game ready for you. In a minute you'll know where everything is.", { card: 'welcome' }, ['mode']],
   ['modes', 'The start', 'How do you want to drive?', "A work shift is put together from the timetable's real trips. A tour is one bus's trips on one line, as OMSI gives them. And a free drive is just a map and a bus.", 'mode-tiles', ['mode']],
   ['record', 'The start', 'Your record and the rest', 'On the left, your service record: what you have driven and how close the next level is. On the right, the way to everything else: mods, settings, controls, timetables and more.', 'start-links', ['mode']],
   ['languages', 'The start', 'Your language', 'A flag switches the language at once; the globe beside them has all the others. The game speaks it too.', 'bar-flags', ['mode']],
@@ -51,7 +51,7 @@ const STOPS = [
   ['startAt', 'The map', 'Where the bus starts', 'On Automatic the bus is put down nearest to your duty\'s first stop. Or pick a place yourself: the orange marks on the map are the same places.', 'map-start', ['map']],
   ['mainAction', 'The map', 'On you go', 'Bottom right, on every step, is the button that takes you on. On the last step it starts the game with your duty.', 'main-action', ['map']],
   ['day', 'The day', 'Day and weather', 'Choose the date, the time and the weather. The timetable runs as it does on that day: on a Sunday there are often fewer buses.', 'day-sheet', ['day']],
-  ['shiftLength', 'The duty', 'How long do you want to drive?', 'Say how long your shift is and in which part of the day it starts. openOMSI looks for shifts like that among the timetable\'s real trips.', 'shift-length', ['duty', 'shift']],
+  ['shiftLength', 'The duty', 'How long do you want to drive?', 'Say how long your shift is and in which part of the day it starts. Omsi-Hub looks for shifts like that among the timetable\'s real trips.', 'shift-length', ['duty', 'shift']],
   ['shiftList', 'The duty', 'Your shifts', 'These are the shifts that fit. Click one to see all its trips, with the breaks in between; Find other shifts draws new ones.', 'shift-list', ['duty', 'shift']],
   ['shiftRoute', 'The duty', 'Your route', 'On the map, in blue, is where the shift you pick takes you, with every stop on the way. Drag to look around; the wheel zooms.', 'shift-map', ['duty', 'shift']],
   ['freeStarts', 'Free drive', 'Where do you start?', "On a free drive you choose where the bus starts: at a stop where trips begin, at one on the way, or at one of the map's entry points. The traffic and the timetable's buses drive around you.", 'free-starts', ['start', 'free']],

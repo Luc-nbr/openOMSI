@@ -145,7 +145,7 @@ function heading(step) {
     case 'animations':
       return [tr('Animations on or off?'), tr('Screens that slide in, tiles that rise under the mouse, a bus between the menus. Some like it lively, others calm.')];
     case 'folder':
-      return [tr('Where is OMSI 2?'), tr('openOMSI drives on the maps and buses of the original OMSI 2. Point once to the folder you play from.')];
+      return [tr('Where is OMSI 2?'), tr('Omsi-Hub drives on the maps and buses of the original OMSI 2. Point once to the folder you play from.')];
     case 'driver':
       return [tr('Who is driving?'), tr('Your duties, kilometres and level are kept per driver. Everything stays on this computer: there is nothing to sign in to.')];
     case 'ready': {
@@ -153,7 +153,7 @@ function heading(step) {
       return [name ? tr('Ready to go, %{name}', { name }) : tr('Ready to go'), tr('That is everything. Would you like a short tour of the launcher first?')];
     }
     default:
-      return [tr('Welcome to openOMSI'), tr('Choose the language of the launcher and the game. It applies at once, and you can change it any time in the settings.')];
+      return [tr('Welcome to Omsi-Hub'), tr('Choose the language of the launcher and the game. It applies at once, and you can change it any time in the settings.')];
   }
 }
 
@@ -489,9 +489,9 @@ function Folder() {
   const root = folderText();
   const says = {
     fine: ['check_circle', 'ok', 'A complete OMSI 2: the maps, the buses and everything the game needs are there.'],
-    empty: ['warning', 'warn', 'openOMSI did not find OMSI 2 by itself. Choose the folder with Omsi.exe in it.'],
+    empty: ['warning', 'warn', 'Omsi-Hub did not find OMSI 2 by itself. Choose the folder with Omsi.exe in it.'],
     missing: ['warning', 'warn', 'That folder does not exist.'],
-    own: ['warning', 'warn', "That is openOMSI's own folder. Choose the original OMSI 2, the one with Omsi.exe in it."],
+    own: ['warning', 'warn', "That is Omsi-Hub's own folder. Choose the original OMSI 2, the one with Omsi.exe in it."],
     lacks: ['warning', 'warn', 'Not a complete OMSI 2: it lacks %{what}.'],
   }[v?.verdict];
   const browse = async () => {
@@ -505,7 +505,7 @@ function Folder() {
       <${Btn} label="Browse" onClick=${browse} />
     </div>
     ${says && html`<div class=${'verdict ' + says[1]}><${Icon} name=${says[0]} size=${17} /><span>${tr(says[2], { what: v.what })}</span></div>`}
-    <p class="note">${tr('Steam, the box version, a folder you moved yourself - all fine. openOMSI only reads it and never writes into it.')}</p>
+    <p class="note">${tr('Steam, the box version, a folder you moved yourself - all fine. Omsi-Hub only reads it and never writes into it.')}</p>
   </div>`;
 }
 

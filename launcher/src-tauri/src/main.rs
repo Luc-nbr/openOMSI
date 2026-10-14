@@ -103,7 +103,8 @@ fn main() {
                 builder = builder.data_directory(dir);
             }
             let window = builder
-                .title("openOMSI")
+                // Omsi-Hub: the app's name (Luc, Beta 53)
+                .title("Omsi-Hub")
                 .inner_size(1280.0, 800.0)
                 .min_inner_size(960.0, 620.0)
                 .center()

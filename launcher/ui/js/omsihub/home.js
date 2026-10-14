@@ -17,7 +17,7 @@ import { enterCompany } from './company/company.js';
 /** The ways to drive (kinds: 0 a tour, 1 a shift, 2 free, 4 the bus company), as the tiles
  * say them. */
 const MODES = [
-  [1, 'Work shift', 'schedule', 'mode-shift', "Choose how long you want to drive and when: openOMSI puts a shift together from the timetable's real trips, on with another line where lines meet."],
+  [1, 'Work shift', 'schedule', 'mode-shift', "Choose how long you want to drive and when: Omsi-Hub puts a shift together from the timetable's real trips, on with another line where lines meet."],
   [0, 'Tour', 'route', 'mode-tour', "One bus's trips on one line, as OMSI's timetable dialog gives them: pick the line, the tour and the trip to start with."],
   [2, 'Free drive', 'map', 'mode-free', "Only a map and a bus. The traffic and the timetable's buses drive around you; nothing is booked."],
   [4, 'Bus company', 'garage', 'mode-company', 'Your own transport company: buy, lease or rent buses, hire drivers and run lines day by day.'],

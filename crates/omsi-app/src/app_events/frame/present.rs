@@ -702,7 +702,9 @@ impl App {
                 .unwrap_or_default();
             self.perf.fps = self.perf.frames as f32;
             let title = format!(
-                "openOMSI - {} fps{speed} - {:.0},{:.0},{:.0} yaw {:.0}",
+                // (Omsi-Hub: the app's name)
+                "{} - {} fps{speed} - {:.0},{:.0},{:.0} yaw {:.0}",
+                omsihub_game::APP_NAME,
                 self.perf.frames,
                 cam.position.x,
                 cam.position.y,

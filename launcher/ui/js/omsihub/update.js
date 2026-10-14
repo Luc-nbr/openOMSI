@@ -1,7 +1,7 @@
 // The updates as our game-drawn launcher shows them (`crates/omsi-launcher-ui/src/update.rs`,
 // Trello "Tauri 6/6"): a new version offered in a dialog over the page - Update now, Not now,
 // What's new, and "install updates without asking" - its download and its installation, a
-// failure with Try again; "Updated to openOMSI x" in the top right corner for a few seconds
+// failure with Try again; "Updated to Omsi-Hub x" in the top right corner for a few seconds
 // after an update; the Settings page's "Check now" with what the last look found. Looking,
 // downloading, installing and starting the new launcher are the Rust side's
 // (`omsihub/update.rs`): the page asks for the state once a second.
@@ -12,6 +12,9 @@ import { call } from '../api.js';
 import { language } from '../i18n.js';
 import { saveSettings } from '../data.js';
 import { Icon, Button, Switch, tr } from './bits.js';
+
+/** The project Omsi-Hub is built on (the credit under the version, as a fork owes it). */
+const UPSTREAM = 'https://github.com/openOMSI-Project/openOMSI';
 
 const ask = (what) =>
   call(what ? 'hub_update_act' : 'hub_update', { what, lang: language() })
@@ -58,7 +61,7 @@ export function UpdateDialog() {
   </div>`;
 }
 
-/** "Updated to openOMSI x" in the top right corner, faded in and out (`draw_updated_notice`). */
+/** "Updated to Omsi-Hub x" in the top right corner, faded in and out (`draw_updated_notice`). */
 export function UpdatedNotice() {
   const s = useStore();
   const n = s.hubUpdated;
@@ -85,5 +88,9 @@ export function UpdateRow() {
       <span class="muted small grow">${u?.line || ''}</span>
     </div>
     <div style="margin-top:8px"><${Button} kind="ghost" icon="open_in_new" raw label=${u?.repo || 'github.com/Luc-nbr/openOMSI'} onClick=${() => updateAct('repo')} /></div>
+    <div class="row wrap hub-credit" style="gap:8px;align-items:center;margin-top:10px">
+      <span class="muted small grow">${tr("Omsi-Hub is built on openOMSI, the open rebuild of OMSI 2's engine.")}</span>
+      <${Button} kind="ghost" icon="open_in_new" raw label="github.com/openOMSI-Project/openOMSI" onClick=${() => call('open_url', { url: UPSTREAM }).catch(() => {})} />
+    </div>
   </div>`;
 }

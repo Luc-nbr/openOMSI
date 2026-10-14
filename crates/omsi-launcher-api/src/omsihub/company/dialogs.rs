@@ -83,7 +83,7 @@ fn settings(s: &mut Session, args: &Value) -> Value {
         }),
         "date_caps": tr("The company's date").to_uppercase(),
         "now": trf("Today it is %{date}, %{time}.", &[("date", &day_label(&c.date)), ("time", &ck::hhmm(ck::now(&c)))]),
-        "realtime": { "on": on, "label": tr("Run with the real clock, also while openOMSI is closed"), "say": tr(if on { "When you open the company, the time since is simulated, a month at most. Fast-forwarding moves it ahead of the real clock." } else { "Off: the company's time stands still while it is closed." }) },
+        "realtime": { "on": on, "label": tr("Run with the real clock, also while Omsi-Hub is closed"), "say": tr(if on { "When you open the company, the time since is simulated, a month at most. Fast-forwarding moves it ahead of the real clock." } else { "Off: the company's time stands still while it is closed." }) },
         "date": date, "date_label": day_label(&date),
         "earliest": ck::earliest_date(&c).map(|e| trf("Not before %{date}: the company's last booking.", &[("date", &day_label(&e))])),
         "warn": tr("Moving the date changes what the company finds there: the dealer's offers and the used market of that day, deliveries and contracts by their own dates, concessions and leases running to theirs. The days between are not simulated: they bring no money and no wear."),

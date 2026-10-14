@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "openOMSI Launcher",
+  "productName": "Omsi-Hub",
   "version": "0.2.33",
   "identifier": "io.github.turbo-devv.openomsi.launcher",
   "build": {

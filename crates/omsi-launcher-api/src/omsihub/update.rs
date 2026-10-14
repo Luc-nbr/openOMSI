@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 struct State {
     u: Updater,
     started: Instant,
-    /// "Updated to openOMSI x" not said yet (`updater::just_updated`, read once).
+    /// "Updated to Omsi-Hub x" not said yet (`updater::just_updated`, read once).
     updated: Option<String>,
 }
 
@@ -143,7 +143,7 @@ fn tick() -> Value {
                         std::process::exit(0);
                     });
                 }
-                Err(e) => note = Some(tr("openOMSI %{version} is installed; start it again yourself (%{error}).").replace("%{version}", &r.version).replace("%{error}", &e.to_string())),
+                Err(e) => note = Some(tr("Omsi-Hub %{version} is installed; start it again yourself (%{error}).").replace("%{version}", &r.version).replace("%{error}", &e.to_string())),
             }
         }
         _ => {}
@@ -160,19 +160,19 @@ fn tick() -> Value {
     let dialog = open.then(|| match &status {
         Status::Available(rel) => json!({
             "kind": "available", "icon": "system_update",
-            "title": tr("openOMSI %{version} is available").replace("%{version}", &rel.version),
+            "title": tr("Omsi-Hub %{version} is available").replace("%{version}", &rel.version),
             "text": tr("You have %{current}. Update now? The launcher downloads the new version (%{size}) from GitHub, puts it in place of this one and starts again - your mods and settings stay as they are.").replace("%{current}", current).replace("%{size}", &mb(rel.size)),
             "auto": auto,
         }),
         Status::Downloading { release, done, total } => json!({
             "kind": "busy", "icon": "download",
-            "title": tr("Downloading openOMSI %{version}").replace("%{version}", &release.version),
+            "title": tr("Downloading Omsi-Hub %{version}").replace("%{version}", &release.version),
             "text": tr("%{done} of %{total} from %{source}").replace("%{done}", &mb(*done)).replace("%{total}", &mb(*total)).replace("%{source}", &format!("github.com/{}", updater::REPO)),
             "frac": if *total > 0 { *done as f64 / *total as f64 } else { 0.0 },
         }),
         Status::Installing(release) | Status::Restarting(release) => json!({
             "kind": "busy", "icon": "install_desktop",
-            "title": tr("Installing openOMSI %{version}").replace("%{version}", &release.version),
+            "title": tr("Installing Omsi-Hub %{version}").replace("%{version}", &release.version),
             "text": tr("The new version is put in place; the launcher starts again in a moment."),
             "frac": 1.0,
         }),
@@ -185,10 +185,10 @@ fn tick() -> Value {
         Status::UpToDate => tr("%{version} is the latest version").replace("%{version}", current),
         Status::Available(rel) => tr("%{version} is available").replace("%{version}", &rel.version),
         Status::Failed(_) => tr("The last check failed"),
-        _ => tr("This is openOMSI %{version}").replace("%{version}", current),
+        _ => tr("This is Omsi-Hub %{version}").replace("%{version}", current),
     };
     let busy = matches!(status, Status::Checking | Status::Downloading { .. } | Status::Installing(_) | Status::WaitingForInstaller(_) | Status::Restarting(_));
-    let updated = s.updated.take().map(|v| tr("Updated to openOMSI %{version}").replace("%{version}", &v));
+    let updated = s.updated.take().map(|v| tr("Updated to Omsi-Hub %{version}").replace("%{version}", &v));
     json!({
         "dialog": dialog,
         "line": line,
