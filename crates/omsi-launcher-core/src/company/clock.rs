@@ -845,6 +845,11 @@ pub fn advance(c: &mut Company, to: i64, w: &mut dyn World, quick: bool) -> Resu
                 c.clock.minute = (at - day0) as u32;
             }
             apply(c, due, quick, &mut run);
+            // (a line won is the company's at once, to be planned for its first day: #95)
+            if matches!(due, Due::Close(_)) {
+                let date = c.date.clone();
+                cn::take_on(c, &w.lines(c, &date)?);
+            }
             if quick {
                 if let Some(Ask::Breakdown { index }) = c.clock.ask.clone() {
                     let choice = dispatcher_choice(c, index);
@@ -1352,6 +1357,22 @@ mod tests {
         let bids: Vec<&FeedItem> = c.clock.feed.iter().filter(|f| f.text.contains("bids %{amount}") || f.text.starts_with("You bid")).collect();
         assert!(bids.len() >= 2 && bids.iter().all(|f| f.at >= t.opens_at && f.at < t.closes_at));
         assert!(c.clock.feed.iter().any(|f| f.at == t.closes_at && f.text.starts_with("Line %{n}")));
+    }
+
+    #[test]
+    fn a_line_won_as_the_clock_closes_its_tender_is_the_companys_at_once() {
+        // (#95: so RosterFlow shows it to be planned for its first day, tomorrow)
+        let (mut c, mut w) = company(1, 2);
+        advance(&mut c, moment("2024-03-04", 9 * 60), &mut w, true).unwrap();
+        c.concessions.tenders.clear();
+        let id = cn::apply(&mut c, &w.0[1]).unwrap();
+        let t = c.concessions.tenders.iter().find(|t| t.id == id).unwrap().clone();
+        cn::bid(&mut c, id, t.buy_out() - super::super::auction::ROUND).unwrap();
+        advance(&mut c, t.closes_at + 1, &mut w, true).unwrap();
+        assert!(matches!(c.concessions.tenders.iter().find(|t| t.id == id).unwrap().outcome, Some(cn::Outcome::Won { .. })));
+        assert_eq!(c.date, "2024-03-04");
+        let l = c.lines.iter().find(|l| l.name == "Linie7").expect("taken on at the close");
+        assert_eq!((l.added.as_str(), l.service_from), ("2024-03-05", None));
     }
 
     #[test]

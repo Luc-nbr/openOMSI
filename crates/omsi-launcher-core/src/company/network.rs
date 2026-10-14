@@ -170,13 +170,15 @@ pub fn in_service(l: &CompanyLine, moment: i64) -> bool {
     l.service_from.is_some_and(|s| s == LEGACY_SERVICE || moment >= s)
 }
 
-/// Put a line into service from `from` (the clock's minutes; now at the soonest): its tours
-/// from then on run as they are planned, and what is not covered is dropped with the
-/// contract's penalty. Returns when it begins.
+/// Put a line into service from `from` (the clock's minutes; now at the soonest, and a line won
+/// in a tender not before its concession begins: `concessions::starts_after`): its tours from
+/// then on run as they are planned, and what is not covered is dropped with the contract's
+/// penalty. Returns when it begins.
 pub fn start_service(c: &mut Company, name: &str, from: i64) -> Result<i64, &'static str> {
     let now = super::clock::now(c);
+    let begins = super::concessions::starts_after(c, name, now).unwrap_or(now);
     let Some(l) = c.lines.iter_mut().find(|l| l.name.eq_ignore_ascii_case(name)) else { return Err("The company does not run this line.") };
-    let from = from.max(now);
+    let from = from.max(begins);
     l.service_from = Some(from);
     Ok(from)
 }
@@ -220,8 +222,12 @@ pub fn late_start(c: &Company, l: &CompanyLine, date: &str) -> Option<(i64, Cent
     (charge > 0).then_some((days, charge))
 }
 
+/// Give up a line (a concession won for a day to come goes with it: its line was taken on at
+/// once, `concessions::take_on`; one that runs already is given up by `concessions::ensure`).
 pub fn remove_line(c: &mut Company, name: &str) {
     c.lines.retain(|l| !l.name.eq_ignore_ascii_case(name));
+    let today = c.date.clone();
+    c.concessions.held.retain(|h| !(h.line.eq_ignore_ascii_case(name) && dates::between(&today, &h.from) > 0));
 }
 
 /// The company line a trip report names (by the number its displays showed).
