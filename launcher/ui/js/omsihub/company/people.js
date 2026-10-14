@@ -174,15 +174,20 @@ function Person({ p }) {
 function Hire({ h }) {
   const [ref, size] = useSize();
   const cols = Math.max(1, Math.min(4, Math.floor(size.w / 440)));
+  // (a job advert for the role shown: new applicants at once - Beta 54; prominent when nobody is
+  // left to hire)
+  const ad = h.advert;
+  const advert = ad && html`<${Btn} kind=${ad.prominent ? 'primary' : ''} icon="campaign" label=${ad.label} title=${ad.why || ad.tip} disabled=${!!ad.why} style="height:38px" onClick=${() => act('advertise', { role: h.pick })} />`;
   return html`<div style="height:100%;display:flex;flex-direction:column">
-    <div style="flex:none"><${Chips} value=${h.pick} options=${h.chips.map((c, k) => [k, c])} onChange=${(k) => setUi('people', { hire_role: k })} /></div>
+    <div class="co-hirebar"><div style="flex:1;min-width:0"><${Chips} value=${h.pick} options=${h.chips.map((c, k) => [k, c])} onChange=${(k) => setUi('people', { hire_role: k })} /></div>${!ad?.prominent && advert}</div>
     <div class="co-scroll" ref=${ref} style="flex:1;min-height:0;margin-top:16px">
       ${h.locked
         ? html`<div class="co-locked"><${Icon} name="lock" size=${20} class="t-dim" /><div><p class="co-para">${h.locked.why}</p>
             ${h.locked.more && html`<p class="co-note t-dim" style="margin-top:6px">${h.locked.more}</p>`}
             <${Btn} kind="primary" icon=${h.locked.go.icon} label=${h.locked.go.label} style="height:38px;margin-top:16px" onClick=${() => goKey(h.locked.go.to)} /></div></div>`
         : !h.cards.length
-          ? html`<p class="co-para" style="font-weight:500">${h.none}</p>`
+          ? html`<div class="co-hirenone"><p class="co-para" style="font-weight:500">${ad?.none_left || h.none}</p>
+              ${advert && html`<div style="margin-top:14px">${advert}</div><p class="co-note" style="margin-top:8px">${ad.why || ad.tip}</p>`}</div>`
           : html`<div class="co-hirecards" style=${`grid-template-columns:repeat(${cols}, minmax(0,1fr))`}>${h.cards.map(
               (a) => html`<div class="co-hirecard">
                 <div class="top"><${Portrait} n=${a.portrait} name=${a.name} size=${96} />
@@ -199,7 +204,7 @@ function Hire({ h }) {
               </div>`,
             )}</div>`}
     </div>
-    <div class="co-note cut" style="flex:none;height:30px;line-height:30px;margin-top:10px">${h.foot}</div>
+    <div class="co-note cut" style="flex:none;height:30px;line-height:30px;margin-top:10px">${ad?.round ? `${ad.round}  ·  ` : ''}${h.foot}</div>
   </div>`;
 }
 

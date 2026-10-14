@@ -618,9 +618,13 @@ fn hire_now(s: &mut Session) -> Result<Value, String> {
     }
     let names = apply(s, |c| {
         let mut out = Vec::new();
-        for _ in 0..n {
+        // (nobody left to hire this week: the player asked, so a job advert - free in Casual -
+        // brings new applicants, once a press; Beta 54)
+        let mut advertised = false;
+        while out.len() < n {
             match co::staff::hire_best(c, Role::Driver) {
                 Some(name) => out.push(name),
+                None if !advertised && co::staff::best_applicant(c, Role::Driver).is_none() && co::staff::advertise(c, Role::Driver).is_ok() => advertised = true,
                 None => break,
             }
         }

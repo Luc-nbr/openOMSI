@@ -253,6 +253,7 @@ fn hire_part(c: &Company, ui: &Value) -> Value {
         return out;
     }
     let mine: Vec<Applicant> = market.into_iter().filter(|a| a.role == role).collect();
+    out["advert"] = advert_part(c, role, mine.is_empty());
     let cards: Vec<Value> = mine
         .iter()
         .map(|a| {
@@ -278,6 +279,22 @@ fn hire_part(c: &Company, ui: &Value) -> Value {
     out["none"] = json!(tr("Nobody else applies for this work this week."));
     out["hire"] = json!(tr("Hire"));
     out
+}
+
+/// The job advert of a role (Beta 54: `staff::advertise`): its button, what it costs, why it
+/// cannot be placed now; prominent when nobody is left to hire.
+fn advert_part(c: &Company, role: Role, none_left: bool) -> Value {
+    let fee = staff::advert_fee(c);
+    let costs = if fee > 0 { trf("A job advert costs %{amount}: the applicants who are left make way for new ones at once.", &[("amount", &eur(fee))]) } else { tr("A job advert is free: the applicants who are left make way for new ones at once.") };
+    let round = staff::round_of(c, role);
+    json!({
+        "label": tr("Advertise for new applicants"),
+        "tip": costs,
+        "prominent": none_left,
+        "why": staff::may_advertise(c, role).err().map(tr),
+        "round": (round > 0).then(|| trf("Job adverts this week: %{n}", &[("n", &round.to_string())])),
+        "none_left": none_left.then(|| tr("Nobody is left to hire for this work this week. A job advert brings new applicants at once.")),
+    })
 }
 
 /// A column of the training matrix: a licence or endorsement, a model's type training, or one of
@@ -522,6 +539,19 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Result<Value, St
             staff::raise(c, id, 0.05);
             Ok(())
         })),
+        // (a job advert for the role shown: new applicants at once - Beta 54)
+        "advertise" => {
+            let k = args.get("role").and_then(Value::as_u64).unwrap_or(0).min(Role::ALL.len() as u64 - 1) as usize;
+            let role = Role::ALL[k];
+            match apply(s, |c| staff::advertise(c, role)) {
+                Ok(n) => {
+                    let t = trf("%{n} new applicants answered the job advert.", &[("n", &n.to_string())]);
+                    s.say(t, false);
+                    Ok(json!({}))
+                }
+                Err(p) => Ok(json!({ "popup": p })),
+            }
+        }
         "keep" => done(apply(s, |c| staff::withdraw_notice(c, id)).map(|_| ())),
         "grant_raise" => done(apply(s, |c| staff::answer_raise(c, id, true)).map(|_| ())),
         "refuse_raise" => done(apply(s, |c| staff::answer_raise(c, id, false)).map(|_| ())),

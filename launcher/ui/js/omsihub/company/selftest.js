@@ -74,6 +74,12 @@ export async function selftest(check, errors) {
       }
       setUi(page, { [key]: 0 });
     }
+    // (Beta 54: the hiring's job advert - its button there, with what it costs or why not)
+    setUi('people', { tab: 1, hire_role: 0 });
+    e = await shown('the hiring', { tab: 2 });
+    const ad = $('.co-hirebar > .co-btn') || $('.co-hirenone .co-btn');
+    check('company: the job advert for new applicants', !e && !!ad, e || (ad ? `${ad.textContent.trim()}: ${ad.title}` : 'no button'));
+    setUi('people', { tab: 0 });
   }
   // the pages of phase 3 (`selftest-more.js`)
   await (await import('./selftest-more.js')).selftest(check, errors, shown);
