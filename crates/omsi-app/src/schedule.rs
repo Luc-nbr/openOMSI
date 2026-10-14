@@ -140,13 +140,24 @@ impl Schedule {
     /// of the tour from its trip `first` (1 = the first) on (see `ScheduleSim::player_plan`).
     pub fn player_plan(&mut self, world: &World, legs: &[String]) -> Result<PlayerDuty, String> {
         let mut parts = Vec::with_capacity(legs.len());
-        for leg in legs {
-            let Some(part) = omsi_launcher_lib::compose::Block::parse(leg) else {
+        // (a duty of the bus company that begins or ends halfway along a trip: its first leg's
+        // first trip from a stop on, its last leg's last trip to one - `first@stop`, `trips@stop`)
+        let (mut from, mut to) = (None, None);
+        for (k, leg) in legs.iter().enumerate() {
+            let Some((part, a, b)) = omsi_launcher_lib::compose::Block::parse_between(leg) else {
                 return Err(format!("'{leg}' is not a part of a duty (line|tour|first trip|trips)"));
             };
+            if k == 0 {
+                from = a;
+            }
+            if k + 1 == legs.len() {
+                to = b;
+            }
             parts.push(part);
         }
-        self.sim.player_plan(&*world.data(), &parts)
+        let mut d = self.sim.player_plan(&*world.data(), &parts)?;
+        d.between(from, to);
+        Ok(d)
     }
 
     /// Assign the player a tour of a line (see `ScheduleSim::player_duty`).

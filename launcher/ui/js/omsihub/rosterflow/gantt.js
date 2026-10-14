@@ -210,9 +210,40 @@ export const pieceOf = (b, tour, trip) => Math.max(0, (b.blocks[tour]?.pieces ||
  * Move piece) the whole piece still. */
 export function tripHand(b, drivers, tour, trips, trip, duty = null, pairs = null, piece = false) {
   const some = trips.length ? trips : [trip];
-  if (!drivers) return { kind: 'trips', tour, trips: some };
+  if (!drivers) return { kind: 'trips', tour, trips: withParts(b, tour, some) };
   if (S.rf.tripsToDuties && duty != null && !piece) return { kind: 'duty_trips', duty, trips: pairs?.length ? pairs : some.map((j) => [tour, j]) };
   return { kind: 'piece', tour, duty: pieceOf(b, tour, trip) };
+}
+
+/** Trips `list` of block `tour` with the other part of a trip cut at a relief point on the way:
+ * a bus's trip moves whole (`studio::wholes`). */
+function withParts(b, tour, list) {
+  const t = b.blocks[tour];
+  const out = [...list];
+  for (const j of list) {
+    const x = t?.trips[j];
+    const o = x?.part === 1 ? j + 1 : x?.part === 2 ? j - 1 : null;
+    if (o != null && !out.includes(o)) out.push(o);
+  }
+  return out.sort((a, z) => a - z);
+}
+
+/** A part of a trip cut on the way: where and when the drivers change (its tip). */
+const partTip = (x) => (x.part ? tr('Relief on the way at %{stop} (%{time})', { stop: x.at, time: clock(x.part === 1 ? x.arr : x.dep) }) : null);
+
+/** The stops on the way trip `j` of block `i` can be cut at (`mids`, the core's
+ * `studio::mid_stops`): small marks on its chip `cr`, lit under the mouse; a click cuts the duty
+ * there (`studio::cut_mid`). */
+function midTicks(ctx, g, x, cr, cy, xOf, hit, i, j) {
+  const { p, mouse: m } = g;
+  for (const [stop, name, at, ok, tip] of x.mids || []) {
+    const xm = xOf(at);
+    if (xm < cr.x + 4 || xm > cr.x + cr.w - 4) continue;
+    const zr = { x: xm - 4, y: cr.y - 2, w: 8, h: cr.h + 4 };
+    if (ok && inside(zr, m)) D.rect(ctx, xm - 1, cy - CHIP * 0.6, 2, CHIP * 1.2, p.accent);
+    else D.rect(ctx, xm - 0.6, cr.y + cr.h - 5, 1.2, 5, ok ? [255, 255, 255, 0.8] : [0, 0, 0, 0.35]);
+    hit(zr.x, zr.y, zr.w, zr.h, { kind: 'mid', tour: i, trip: j, stop, name, time: at, ok, tip, raw: true });
+  }
 }
 
 /** The lanes the stack's trips lie in (no two at once in one lane). */
@@ -550,10 +581,13 @@ function blockRow(ctx, g, row, cy, xOf, hit, an) {
     const hov = inside(cr, m) && !hand;
     const outline = chosen || hov ? [255, 255, 255, 1] : x.bad ? p.err : null;
     if (chosen || hov) lit = [x.dep, x.arr];
-    D.chip(ctx, cr.x, cr.y, cr.w, cr.h, colour, x.out, chipLabel(x, r.layers.label), outline, x.linked, r.layers.moved && x.moved, taken ? 0.35 : 1);
+    // (a part of a trip cut on the way: its edge straight where the drivers change)
+    if (x.part) D.cutChip(ctx, cr.x, cr.y, cr.w, cr.h, colour, x.out, chipLabel(x, r.layers.label), outline, taken ? 0.35 : 1, x.part === 2, x.part === 1);
+    else D.chip(ctx, cr.x, cr.y, cr.w, cr.h, colour, x.out, chipLabel(x, r.layers.label), outline, x.linked, r.layers.moved && x.moved, taken ? 0.35 : 1);
     if (cr.w > 24 && cr.x > g.layout.gx - 4 && cr.x + cr.w < g.layout.gx + g.layout.gw + 4) an('rf-chip', cr.x, cr.y, cr.w, cr.h);
     if (readOnly || hand) return;
-    hit(cr.x, cr.y, cr.w, cr.h, { kind: 'chip', tour: i, trip: j, row: row.id });
+    hit(cr.x, cr.y, cr.w, cr.h, { kind: 'chip', tour: i, trip: j, row: row.id, ...(x.part ? { tip: partTip(x), raw: true } : {}) });
+    midTicks(ctx, g, x, cr, cy, xOf, hit, i, j);
   });
   // the reliefs: arrows where a driver gets off and on, a grey line while it is attended; a click
   // there joins the duties again
@@ -705,10 +739,13 @@ function dutyRow(ctx, g, row, cy, xOf, hit, an) {
       const takenTrip = hand?.kind === 'duty_trips' && hand.trips.some(([i, k]) => i === sp.tour && k === j);
       const hov = inside(cr, m) && !hand;
       if (chosen || hov) lit = [x.dep, x.arr];
-      D.chip(ctx, cr.x, cr.y, cr.w, cr.h, colour, x.out, chipLabel(x, r.layers.label), chosen || hov ? [255, 255, 255, 1] : null, false, false, takenPiece || takenTrip ? 0.35 : 1);
+      // (a part of a trip cut on the way: its edge straight where the drivers change)
+      if (x.part) D.cutChip(ctx, cr.x, cr.y, cr.w, cr.h, colour, x.out, chipLabel(x, r.layers.label), chosen || hov ? [255, 255, 255, 1] : null, takenPiece || takenTrip ? 0.35 : 1, x.part === 2, x.part === 1);
+      else D.chip(ctx, cr.x, cr.y, cr.w, cr.h, colour, x.out, chipLabel(x, r.layers.label), chosen || hov ? [255, 255, 255, 1] : null, false, false, takenPiece || takenTrip ? 0.35 : 1);
       if (cr.w > 24 && cr.x > g.layout.gx - 4 && cr.x + cr.w < g.layout.gx + g.layout.gw + 4) an('rf-chip', cr.x, cr.y, cr.w, cr.h);
       if (readOnly || hand) continue;
-      hit(cr.x, cr.y, cr.w, cr.h, { kind: 'chip', tour: sp.tour, trip: j, row: row.id, dutyRow: d, piece: [sp.tour, sp.duty], ...(r.tripsToDuties ? { tip: TRIP_TIP } : {}) });
+      const pt = partTip(x);
+      hit(cr.x, cr.y, cr.w, cr.h, { kind: 'chip', tour: sp.tour, trip: j, row: row.id, dutyRow: d, piece: [sp.tour, sp.duty], ...(r.tripsToDuties ? { tip: TRIP_TIP } : {}), ...(pt ? { tip: r.tripsToDuties ? `${pt}\n${tr(TRIP_TIP)}` : pt, raw: true } : {}) });
     }
   }
   if (!hand) dutyRest(ctx, g, s, d, cy, xOf, hit, lineCol);
@@ -1073,6 +1110,10 @@ export function Gantt({ data, drivers, readOnly, p, onTip, page }) {
         break;
       case 'gap':
         if (hit.ok) edit('cut', { tour: hit.tour, at: hit.at });
+        break;
+      case 'mid':
+        // (cut inside a trip, at a relief point on the way)
+        if (hit.ok) edit('cut_mid', { tour: hit.tour, trip: hit.trip, stop: hit.stop, name: hit.name, time: hit.time });
         break;
       case 'spare':
         edit('spare');

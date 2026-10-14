@@ -353,6 +353,13 @@
 .rf-timeline > span i { position: absolute; left: 0; right: 0; top: 9.5px; height: 1px; background: var(--rf-card-dim); }
 .rf-timeline > span i::after { content: ""; position: absolute; right: 0; top: -4px; border-left: 6px solid var(--rf-card-dim); border-top: 4.5px solid transparent; border-bottom: 4.5px solid transparent; }
 .rf-timeline > span em { position: relative; padding: 0 5px; background: var(--rf-card); font-style: normal; font-size: 8.45px; font-weight: 500; color: var(--rf-card-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+/* the trip card's relief on the way: where the trip is cut, or the stops it can be cut at */
+.rf-card .rf-mids { display: flex; align-items: center; gap: 6px; flex: none; min-height: 28px; min-width: 0; }
+.rf-card .rf-mids .cap { font-size: 8.45px; font-weight: 700; color: var(--rf-card-dim); white-space: nowrap; }
+.rf-card .rf-mids .at { font-size: 10px; font-weight: 500; color: var(--rf-card-text); white-space: nowrap; }
+.rf-card .rf-mids .mid { height: 24px; min-width: 0; display: flex; align-items: center; gap: 4px; padding: 0 7px; border-radius: 3px; background: var(--rf-card-pill); color: var(--rf-card-text); font-size: 9.2px; }
+.rf-card .rf-mids .mid span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 90px; }
+.rf-card .rf-mids .mid:hover { background: rgba(var(--rf-accent-rgb), 0.18); color: var(--rf-accent); }
 .rf-card .assign { display: flex; flex-direction: column; flex: none; }
 .rf-card .assign button { height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 6px; border-radius: 3px; color: var(--rf-card-text); font-size: 9.6px; }
 .rf-card .assign button:hover { background: rgba(var(--rf-accent-rgb), 0.16); }
@@ -540,6 +547,31 @@
 .pf-type .two { display: flex; gap: 8px; }
 .pf-add { align-self: flex-start; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 3px; box-shadow: inset 0 0 0 1px var(--rf-dim); font-size: 9.6px; font-weight: 700; }
 .pf-add:hover { color: var(--rf-accent); box-shadow: inset 0 0 0 1px var(--rf-accent); }
+/* Relief Points and Duty Travel's tables: a row per relief point, and the table between two */
+.pf-points { display: flex; flex-direction: column; gap: 10px; }
+.pf-table { width: 100%; max-width: 920px; border-collapse: collapse; font-size: 10px; flex: none; }
+.pf-table th { height: 26px; padding: 0 8px; text-align: left; font-size: 8.45px; font-weight: 700; color: var(--rf-dim); border-bottom: 1px solid var(--rf-line); white-space: nowrap; }
+.pf-table td { height: 32px; padding: 0 8px; border-bottom: 1px solid var(--rf-line); color: var(--rf-text); }
+.pf-table tbody tr:hover td { background: var(--rf-hover); }
+.pf-table .c { text-align: center; }
+.pf-table .dim { color: var(--rf-dim); white-space: nowrap; }
+.pf-table .name { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.pf-table .pf-tick { display: inline-flex; min-height: 22px; gap: 0; }
+.pf-table .del { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 3px; color: var(--rf-dim); }
+.pf-table .del:hover { color: var(--rf-err); background: var(--rf-hover2); }
+.pf-pick > span:first-child { width: 200px; }
+.pf-sub { flex: none; margin-top: 10px; font-size: 9.2px; font-weight: 700; color: var(--rf-accent); }
+.pf-min { width: 64px; height: 26px; padding: 0 6px; border: 0; border-radius: 3px; outline: none; background: var(--rf-field); box-shadow: inset 0 0 0 1px var(--rf-line); color: var(--rf-text); font: inherit; font-size: 10px; text-align: center; -moz-appearance: textfield; }
+.pf-min::-webkit-inner-spin-button, .pf-min::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.pf-min::placeholder { color: var(--rf-faint); }
+.pf-min:focus { box-shadow: inset 0 0 0 1.5px var(--rf-accent); }
+.pf-matrix { flex: none; width: fit-content; overflow: auto; max-height: 360px; max-width: 100%; border-radius: 3px; box-shadow: inset 0 0 0 1px var(--rf-line); }
+.pf-matrix table { border-collapse: collapse; font-size: 9.6px; }
+.pf-matrix th { position: sticky; top: 0; z-index: 1; height: 28px; max-width: 96px; padding: 0 6px; background: var(--rf-bg); font-size: 8.45px; font-weight: 700; color: var(--rf-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-matrix tr > th:first-child { position: sticky; left: 0; z-index: 2; text-align: left; }
+.pf-matrix td { padding: 2px 4px; text-align: center; border-top: 1px solid var(--rf-line); }
+.pf-matrix td.x { color: var(--rf-faint); }
+.pf-matrix .pf-min { width: 52px; }
 .rf-prefs > .foot { position: absolute; left: 18px; right: 24px; bottom: 20px; height: 34px; display: flex; align-items: center; gap: 10px; }
 .pf-save { height: 32px; padding: 0 16px; border-radius: 2px; box-shadow: inset 0 0 0 1px var(--rf-accent); color: var(--rf-accent); font-size: 9.6px; font-weight: 700; }
 .pf-save:hover { background: rgba(var(--rf-accent-rgb), 0.12); }

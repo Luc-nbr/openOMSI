@@ -336,9 +336,7 @@ fn player_duty(
     if let (Some(sch), Some(_), Some(p)) = (schedule.as_mut(), &args.line, player.as_mut()) {
         match crate::duty_start::player_duty(sch, world, args, parse_time(&args.time)) {
             Ok(mut d) => {
-                if let Some(k) = args.duty_trip {
-                    d.start_at(k, args.duty_first_stop);
-                }
+                crate::duty_start::begin(&mut d, args);
                 if args.is_resuming() {
                     d.resume(&mut p.vehicle, parse_time(&args.time), args.situation_next_stop);
                     // (as in the window: see `App`)

@@ -48,6 +48,24 @@ pub(crate) fn player_duty(sch: &mut schedule::Schedule, world: &World, args: &Ar
     }
 }
 
+/// The stop of its first trip a duty of the bus company begins at on the way (a relief halfway
+/// along the trip: the first `--duty-leg`'s `first@stop`), if it does.
+pub(crate) fn mid_start(args: &Args) -> Option<usize> {
+    args.duty_legs.first().and_then(|l| omsi_launcher_lib::compose::Block::parse_between(l)).and_then(|x| x.1).filter(|s| *s > 0)
+}
+
+/// The duty begun where `place_on_duty` put the bus (`args.duty_trip`, `duty_first_stop`). One
+/// that begins on the way (`mid_start`) begins at its relief stop or after it, wherever the bus
+/// stands (`PlayerDuty::start_at_here`): looking where the bus is put it back at the trip's
+/// first stop while that stop's tile was not loaded.
+pub(crate) fn begin(d: &mut schedule::PlayerDuty, args: &Args) {
+    match (args.duty_trip, mid_start(args)) {
+        (Some(0) | None, Some(s)) => d.start_at_here(0, args.duty_first_stop.max(s)),
+        (Some(k), _) => d.start_at(k, args.duty_first_stop),
+        (None, None) => {}
+    }
+}
+
 /// With a duty (`--schedule --line`): the trip it starts with and the stop of it (`args.
 /// duty_trip`, `args.duty_first_stop`), and with `--auto-entry` the entry point nearest to
 /// that stop by road (`args.entry`).
@@ -81,6 +99,8 @@ pub(crate) fn place_on_duty(args: &mut Args) {
     let mut sch = schedule::Schedule::new(&args.root, world, &clock);
     let now = parse_time(&args.time);
     let Ok(mut duty) = player_duty(&mut sch, world, args, now) else { return };
+    // (a duty that begins on the way: the bus to an entry point near its relief stop, `begin`)
+    let from_stop = mid_start(args);
     let map = world.navigation_map();
     duty.learn_places(&map.places);
     let mut net = omsi_sim::traffic::Network { lanes: map.lanes, ..Default::default() };
@@ -107,7 +127,8 @@ pub(crate) fn place_on_duty(args: &mut Args) {
             continue;
         }
         // per stop: the route lanes up to it (the way in must not skip it)
-        for (j, stop) in trip.stops.iter().enumerate().take(4) {
+        let skip = if k == first_k { from_stop.unwrap_or(0) } else { 0 };
+        for (j, stop) in trip.stops.iter().enumerate().skip(skip).take(4) {
             let Some(p) = stop.position else { continue };
             let Some(li) = route.iter().position(|&l| net.lanes[l].nearest_point(p).map(|q| q.1 < 25.0).unwrap_or(false)) else { continue };
             let targets: Vec<usize> = route[li.saturating_sub(60)..=li].to_vec();
@@ -131,7 +152,7 @@ pub(crate) fn place_on_duty(args: &mut Args) {
             // begins: the nearest way to the stop put the bus at the terminus and the depot
             // run was skipped (#1642).
             let route_start = net.lanes[route[0]].start();
-            let depot = (args.auto_entry && (p - route_start).truncate().length() > 100.0)
+            let depot = (args.auto_entry && skip == 0 && (p - route_start).truncate().length() > 100.0)
                 .then(|| {
                     entries
                         .iter()
@@ -184,4 +205,43 @@ pub(crate) fn place_on_duty(args: &mut Args) {
         }
     }
     log::info!("duty start: no stop of the next trips can be reached from the entry points; the timetable decides, {:.1} s", t0.elapsed().as_secs_f64());
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn duty() -> schedule::PlayerDuty {
+        let stops = (0..5).map(|i| schedule::PlannedStop { object_id: i, name: format!("s{i}"), arr: 600.0 * i as f64, dep: 600.0 * i as f64, position: None, dir: schedule::StopDir::default(), stops: true }).collect();
+        let trip = schedule::PlannedTrip { name: "5 A-B".into(), line: "5".into(), terminus: "B".into(), departure: 0.0, end: 2400.0, stops };
+        schedule::PlayerDuty::new("Linie5".into(), "2".into(), vec![trip.clone(), trip], 0, 0, true)
+    }
+
+    /// A duty of the bus company that takes the bus over halfway along its first trip (the
+    /// launcher's `--duty-leg line|tour|first@stop|trips`): begun at that stop, not at the
+    /// trip's first one, however the bus was placed.
+    #[test]
+    fn a_duty_from_a_relief_on_the_way_begins_at_that_stop() {
+        let args = |legs: &[&str]| Args::parse_from(["openomsi"].into_iter().chain(legs.iter().flat_map(|l| ["--duty-leg", l])));
+        let mut a = args(&["Linie5|2|1@3|3"]);
+        assert_eq!(mid_start(&a), Some(3));
+        assert_eq!(mid_start(&args(&["Linie5|2|1|3@2"])), None);
+        assert_eq!(mid_start(&args(&[])), None);
+        // no entry point found for it: at the relief stop
+        let mut d = duty();
+        begin(&mut d, &a);
+        assert_eq!((d.trip_index, d.next_stop), (0, 3));
+        // an entry point nearer a stop after it: from there
+        a.duty_trip = Some(0);
+        a.duty_first_stop = 4;
+        let mut d = duty();
+        begin(&mut d, &a);
+        assert_eq!(d.next_stop, 4);
+        // a duty from a trip's first stop as before: where the bus was placed
+        let mut b = args(&["Linie5|2|1|3"]);
+        b.duty_trip = Some(1);
+        b.duty_first_stop = 1;
+        let mut d = duty();
+        begin(&mut d, &b);
+        assert_eq!((d.trip_index, d.next_stop), (1, 1));
+    }
 }

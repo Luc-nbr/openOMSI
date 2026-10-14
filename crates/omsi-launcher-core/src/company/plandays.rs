@@ -28,7 +28,7 @@ use super::model::Company;
 use super::network::{self, PlannedTrip, TourOfDay};
 use super::plan;
 use super::rosterflow::{self as rf, BlockLock, Draft, DutyNote, Link, Sheet, Spare};
-use super::studio::{self as st, BlockLayout, JoinedDuty, LineLayout, TripRef};
+use super::studio::{self as st, BlockLayout, JoinedDuty, LineLayout, MidRelief, TripRef};
 use crate::LineInfo;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -472,14 +472,25 @@ fn fresh_name(names: &[String]) -> String {
     n.to_string()
 }
 
+/// A trip as a layout names it: a part of a trip cut on the way by the whole trip's departure.
+fn whole_ref(t: &PlannedTrip) -> TripRef {
+    TripRef { tour: t.origin.trim().to_string(), name: t.name.clone(), dep: t.whole_dep() }
+}
+
 /// A line's blocks as the day has them (`tours`), to change.
 fn layout_of(slot: u8, line: &str, tours: &[&TourOfDay]) -> LineLayout {
     let blocks = tours
         .iter()
         .map(|t| BlockLayout {
             tour: t.tour.clone(),
-            trips: t.trips.iter().filter(|x| !x.origin.trim().is_empty()).map(TripRef::of).collect(),
-            cuts: t.cuts.as_ref().map(|cs| cs.iter().filter_map(|&k| t.trips.get(k)).map(TripRef::of).collect()),
+            // (a trip cut at a relief point on the way is laid out whole, its relief beside it)
+            trips: t.trips.iter().filter(|x| !x.origin.trim().is_empty() && !x.is_second()).map(whole_ref).collect(),
+            cuts: t.cuts.as_ref().map(|cs| cs.iter().filter_map(|&k| t.trips.get(k)).filter(|x| !x.is_second()).map(whole_ref).collect()),
+            reliefs: t
+                .trips
+                .iter()
+                .filter_map(|x| x.part.as_ref().filter(|p| p.second).map(|p| MidRelief { trip: TripRef { tour: x.origin.trim().to_string(), name: x.name.clone(), dep: p.dep }, stop: p.stop, name: p.at.clone() }))
+                .collect(),
         })
         .collect();
     LineLayout { weekday: slot, line: line.to_string(), blocks, stack: Vec::new() }
@@ -539,7 +550,7 @@ pub fn copy(c: &mut Company, from_slot: u8, src: Day, to_slot: u8, dst: Day, w: 
                 claimed.extend(kept.iter().copied());
                 names.push(t.tour.trim().to_string());
                 copied.push((line.clone(), t.tour.clone()));
-                blocks.push(BlockLayout { tour: t.tour.clone(), trips: kept.iter().map(|id| TripRef::of(&raw[id.0].trips[id.1])).collect(), cuts: None });
+                blocks.push(BlockLayout { tour: t.tour.clone(), trips: kept.iter().map(|id| TripRef::of(&raw[id.0].trips[id.1])).collect(), cuts: None, reliefs: Vec::new() });
             }
             // what the source left unassigned waits on the stack here too
             let mut stack: Vec<TripRef> = Vec::new();
@@ -560,7 +571,7 @@ pub fn copy(c: &mut Company, from_slot: u8, src: Day, to_slot: u8, dst: Day, w: 
                 let name = if names.iter().any(|n| same(n, &u.tour)) { fresh_name(&names) } else { u.tour.trim().to_string() };
                 names.push(name.clone());
                 made.missing.extend(rest.iter().filter(|&&k| u.trips[k].counts()).map(|&k| missed(u, &u.trips[k], &name)));
-                blocks.push(BlockLayout { tour: name, trips: rest.iter().map(|&k| TripRef::of(&u.trips[k])).collect(), cuts: None });
+                blocks.push(BlockLayout { tour: name, trips: rest.iter().map(|&k| TripRef::of(&u.trips[k])).collect(), cuts: None, reliefs: Vec::new() });
             }
             layouts.push(LineLayout { weekday: to_slot, line: line.clone(), blocks, stack });
         }

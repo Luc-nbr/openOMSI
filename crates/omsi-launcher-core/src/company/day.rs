@@ -417,6 +417,20 @@ struct Sums {
 /// Close the company's day: `tours` are its tours of the day (`network::tours_of_day` of the
 /// timetable read for `c.date`), `trips` the player's trip reports (all of them; those of
 /// the company's map and lines not booked yet count). Moves the company to the next day.
+/// Trip `j` of a tour of the day as the close books it: the trip, and - a trip cut at a relief
+/// point on the way (`network::Part`) - the whole of it at its first part, with the duty of its
+/// second part and the minute that one begins. None at a second part (booked with the first).
+fn whole_trip(tp: &TourPlan, j: usize) -> Option<(network::PlannedTrip, Option<(&DutyPlan, i32)>)> {
+    let x = tp.tour.trips.get(j)?;
+    if x.is_second() {
+        return None;
+    }
+    match tp.tour.trips.get(j + 1).filter(|n| x.part.is_some() && n.is_second()) {
+        Some(n) => Some((x.joined(n), tp.duties.iter().find(|d| d.start <= j + 1 && j + 1 < d.end).map(|d| (d, n.dep)))),
+        None => Some((x.clone(), None)),
+    }
+}
+
 pub fn close_day(c: &mut Company, tours: Vec<TourOfDay>, trips: &[TripRun]) -> DayReport {
     close_day_with(c, tours, &[], trips)
 }
@@ -611,7 +625,11 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                     None => worked.push((e.id, d.to - d.from, d.to, d.from)),
                 }
             }
-            for trip in &tp.tour.trips[d.start..d.end] {
+            for j in d.start..d.end {
+                // (a trip two duties share, cut at a relief point on the way: one trip, booked
+                // with its first part, run only when the duties of both parts are)
+                let Some((trip, rest)) = whole_trip(tp, j) else { continue };
+                let trip = &trip;
                 let counts = trip.counts();
                 let kind = kinds.get(li).copied().unwrap_or_default();
                 // (an on-demand trip nobody booked stays in the depot: no kilometres, no money,
@@ -634,7 +652,10 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                 }
                 let broke = broken_at.is_some_and(|(at, back)| trip.dep >= at && back.is_none_or(|b| trip.dep < b));
                 let late = d.dropped_before.is_some_and(|t| trip.dep < t);
-                let run = v.is_some() && driver.is_some() && !broke && !late;
+                // (a trip shared with another duty at a relief point on the way runs only when
+                // that duty runs too)
+                let rest_runs = rest.is_none_or(|(d2, at)| d2.driver.is_some() && d2.dropped_before.is_none_or(|t| at >= t));
+                let run = rest_runs && v.is_some() && driver.is_some() && !broke && !late;
                 if !run {
                     if counts {
                         lines[li].dropped += 1;
@@ -646,6 +667,12 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                             (DropWhy::NoBus, tp.bus_problem.or(Some(super::plan::Problem::Unassigned)), None)
                         } else if driver.is_none() {
                             (DropWhy::NoDriver, d.problem.or(Some(super::plan::Problem::Unassigned)), Some(k))
+                        } else if !rest_runs {
+                            // (the other half of a trip shared at a relief point on the way)
+                            match rest {
+                                Some((d2, _)) if d2.driver.is_none() => (DropWhy::NoDriver, d2.problem.or(Some(super::plan::Problem::Unassigned)), None),
+                                _ => (DropWhy::Late, None, None),
+                            }
                         } else if broke {
                             (DropWhy::BrokeDown, None, None)
                         } else {

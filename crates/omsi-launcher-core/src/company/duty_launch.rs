@@ -202,7 +202,10 @@ pub fn sheet(c: &Company, p: &DayPlan, r: &DutyRef, now: i64, trips: &[TripRun])
                 s.rows.push(Row::Break { at: b.end().to_string(), from: b.arr, to: x.dep });
             }
         }
-        s.rows.push(Row::Trip { dep: x.dep, arr: x.arr, line: x.line.clone(), from: x.from.clone(), to: x.to.clone(), empty: x.empty, name: x.name.clone() });
+        // (the first part of a trip cut at a relief point on the way: to the stop the next
+        // driver takes over at)
+        let to = if x.part.as_ref().is_some_and(|p| !p.second) { x.end().to_string() } else { x.to.clone() };
+        s.rows.push(Row::Trip { dep: x.dep, arr: x.arr, line: x.line.clone(), from: x.from.clone(), to, empty: x.empty, name: x.name.clone() });
         if x.empty {
             s.deadheads += 1;
         } else {
@@ -262,7 +265,7 @@ pub fn sheet(c: &Company, p: &DayPlan, r: &DutyRef, now: i64, trips: &[TripRun])
 fn driven(c: &Company, t: &DayTour, planned: &[PlannedTrip], trips: &[TripRun]) -> bool {
     trips.iter().filter(|r| r.time > c.trips_seen && !r.free && same_map(&r.map, &c.map) && r.line.trim().eq_ignore_ascii_case(t.tour.number.trim())).any(|r| {
         let dep = (r.departure / 60.0).round() as i32;
-        planned.iter().any(|x| x.counts() && x.dep == dep && (if x.origin.trim().is_empty() { &t.tour.tour } else { &x.origin }).trim() == r.tour.trim())
+        planned.iter().any(|x| x.counts() && x.whole_dep() == dep && (if x.origin.trim().is_empty() { &t.tour.tour } else { &x.origin }).trim() == r.tour.trim())
     })
 }
 
@@ -278,19 +281,42 @@ fn same_map(a: &str, b: &str) -> bool {
 /// depot runs are not. None: none is found, or a trip with passengers is missing or out of
 /// order (the timetable changed since the plan was made).
 pub fn timetable_legs(planned: &[PlannedTrip], trips: &[TripInfo]) -> Option<(usize, i32, usize)> {
-    let mut found: Vec<(usize, i32)> = Vec::new();
+    timetable_part(planned, trips).map(|p| (p.first, p.time, p.trips))
+}
+
+/// A duty's trips in its tour of the day's timetable (`timetable_legs`), and where it begins
+/// and ends on the way: a duty that takes a bus over at a relief point halfway along a trip
+/// (RosterFlow's mid-trip relief, `network::Part`) drives that trip from that stop on, one that
+/// hands the bus over halfway ends its last trip there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TimetablePart {
+    pub first: usize,
+    /// The minute the duty's first trip leaves (from the relief point, where it begins there).
+    pub time: i32,
+    pub trips: usize,
+    /// The stop of the first trip it begins at, of the last it ends at (0 the first).
+    pub from_stop: Option<usize>,
+    pub to_stop: Option<usize>,
+}
+
+pub fn timetable_part(planned: &[PlannedTrip], trips: &[TripInfo]) -> Option<TimetablePart> {
+    let mut found: Vec<(usize, i32, &PlannedTrip)> = Vec::new();
     for x in planned {
-        match trips.iter().find(|y| y.name == x.name && (y.departure / 60.0).round() as i32 == x.dep) {
-            Some(y) => found.push((y.index, x.dep)),
+        // (a part of a trip is found by the whole trip's minute)
+        match trips.iter().find(|y| y.name == x.name && (y.departure / 60.0).round() as i32 == x.whole_dep()) {
+            Some(y) => found.push((y.index, x.dep, x)),
             None if x.empty => {}
             None => return None,
         }
     }
-    let (first, time) = *found.first()?;
+    let (first, time, x0) = *found.first()?;
     if found.iter().enumerate().any(|(n, f)| f.0 != first + n) {
         return None;
     }
-    Some((first, time, found.len()))
+    let last = found.last().map(|f| f.2).unwrap_or(x0);
+    let from_stop = x0.part.as_ref().filter(|p| p.second).map(|p| p.stop);
+    let to_stop = last.part.as_ref().filter(|p| !p.second).map(|p| p.stop);
+    Some(TimetablePart { first, time, trips: found.len(), from_stop, to_stop })
 }
 
 /// What the game is started with for a duty: everything fixed by the company.
@@ -306,6 +332,10 @@ pub struct Start {
     /// The first trip (its place in the tour) and the duty's part as `--duty-leg` takes it.
     pub first: usize,
     pub legs: Vec<String>,
+    /// The stop of its first trip it begins at, and of its last it ends at, where it does so on
+    /// the way (a relief halfway along a trip: `TimetablePart`).
+    pub from_stop: Option<usize>,
+    pub to_stop: Option<usize>,
     pub bus: String,
     pub paint: String,
     pub number: String,
@@ -321,9 +351,11 @@ pub fn start(s: &Sheet, lines: &[crate::LineInfo], lead: i64) -> Result<Start, H
     }
     let Some(bus) = s.bus.as_ref() else { return Err(Hitch::NoBus(None)) };
     let line = s.duty.line.clone();
-    let legs = lines.iter().find(|x| x.name.eq_ignore_ascii_case(&line)).and_then(|l| l.tours.iter().find(|t| t.number.trim() == s.game_tour.trim())).and_then(|t| timetable_legs(&s.planned, &t.trips));
-    let Some((first, dep, count)) = legs else { return Err(Hitch::Timetable) };
+    let legs = lines.iter().find(|x| x.name.eq_ignore_ascii_case(&line)).and_then(|l| l.tours.iter().find(|t| t.number.trim() == s.game_tour.trim())).and_then(|t| timetable_part(&s.planned, &t.trips));
+    let Some(part) = legs else { return Err(Hitch::Timetable) };
+    let (first, dep, count) = (part.first, part.time, part.trips);
     let (date, time) = crate::lead_start(&s.duty.date, dep, lead);
+    let leg = crate::compose::Block { line: line.clone(), tour: s.game_tour.clone(), first, trips: count, departure: 0.0 };
     Ok(Start {
         company: s.company.clone(),
         map: s.map.clone(),
@@ -332,7 +364,10 @@ pub fn start(s: &Sheet, lines: &[crate::LineInfo], lead: i64) -> Result<Start, H
         line: line.clone(),
         tour: s.game_tour.clone(),
         first,
-        legs: vec![format!("{line}|{}|{first}|{count}", s.game_tour)],
+        // (`line|tour|first|trips`, a relief on the way after an `@`)
+        legs: vec![leg.arg_between(part.from_stop, part.to_stop)],
+        from_stop: part.from_stop,
+        to_stop: part.to_stop,
         bus: bus.file.clone(),
         paint: bus.paint.clone(),
         number: bus.number.clone(),
@@ -390,7 +425,7 @@ mod tests {
     use super::*;
 
     fn trip(name: &str, dep: i32, arr: i32, from: &str, to: &str, empty: bool) -> PlannedTrip {
-        PlannedTrip { name: name.into(), line: if empty { String::new() } else { "5".into() }, from: from.into(), to: to.into(), dep, arr, km: 8.0, stops: if empty { 0 } else { 10 }, empty, origin: String::new(), last: String::new() }
+        PlannedTrip { name: name.into(), line: if empty { String::new() } else { "5".into() }, from: from.into(), to: to.into(), dep, arr, km: 8.0, stops: if empty { 0 } else { 10 }, empty, origin: String::new(), last: String::new(), part: None }
     }
 
     /// A company with one bus and line 5, whose tour 2 is a depot run, three trips and the run
@@ -516,6 +551,46 @@ mod tests {
             let (a, b) = h.words();
             assert!(!a.is_empty() && !b.is_empty());
         }
+    }
+
+    #[test]
+    fn a_duty_begins_or_ends_halfway_along_a_trip_at_its_relief_point() {
+        // tour 2's first trip cut at its stop 3 (5 A-B at 06:00, there at 06:15): the first
+        // duty hands the bus over there, the second takes it over and goes on
+        let (mut c, mut tours) = setup();
+        let (a, b) = tours[0].trips[1].split_at(3, "Mitte", 375, 0.5).unwrap();
+        tours[0].trips[1] = a;
+        tours[0].trips.insert(2, b);
+        tours[0].cuts = Some(vec![2]);
+        let wd = weekday_of(&c.date);
+        set_driver(&mut c, wd, "Linie5", "2", 1, Some(Who::Player));
+        let now = super::super::clock::moment(&c.date, 300);
+        let p = day_plan(&c, &c.date, tours.clone(), &[], &[], false);
+        // the second duty: from Mitte at 06:15, the rest of that trip and the two after
+        let s = sheet(&c, &p, &DutyRef::of(&p, 0, 1).unwrap(), now, &[]);
+        assert!(s.startable(), "{:?}", s.hitches);
+        assert!(matches!(&s.rows[0], Row::SignOn { at, time: 375, relief: true } if at == "Mitte"));
+        let st = start(&s, &timetable(), 10).unwrap();
+        assert_eq!((st.first, st.from_stop, st.to_stop), (1, Some(3), None));
+        assert_eq!(st.legs, vec!["Linie5|2|1@3|3".to_string()]);
+        assert_eq!(crate::compose::Block::parse(&st.legs[0]), Some(("Linie5".into(), "2".into(), 1, 3)));
+        // (the game starts before the relief, not before the trip's first stop)
+        assert_eq!((st.date.as_str(), st.time), ("2024-03-04", 365));
+        // the first duty: out of the depot, to Mitte - its trip ends there
+        set_driver(&mut c, wd, "Linie5", "2", 1, None);
+        set_driver(&mut c, wd, "Linie5", "2", 0, Some(Who::Player));
+        let p = day_plan(&c, &c.date, tours, &[], &[], false);
+        let s = sheet(&c, &p, &DutyRef::of(&p, 0, 0).unwrap(), now, &[]);
+        assert!(s.startable(), "{:?}", s.hitches);
+        assert!(matches!(&s.rows[2], Row::Trip { to, .. } if to == "Mitte"));
+        assert!(matches!(s.rows.last(), Some(Row::SignOff { at, time: 375, relief: true }) if at == "Mitte"));
+        let st = start(&s, &timetable(), 10).unwrap();
+        assert_eq!((st.first, st.from_stop, st.to_stop), (1, None, Some(3)));
+        assert_eq!(st.legs, vec!["Linie5|2|1|1@3".to_string()]);
+        assert_eq!(st.duty(crate::Duty::default(), "").legs, st.legs);
+        // a trip report of the whole trip says the duty was driven
+        let run = TripRun { time: c.trips_seen + 1, map: c.map.clone(), line: "5".into(), tour: "2".into(), departure: 360.0 * 60.0, ..Default::default() };
+        assert_eq!(sheet(&c, &p, &DutyRef::of(&p, 0, 0).unwrap(), now, &[run]).hitches, vec![Hitch::Driven]);
     }
 
     #[test]

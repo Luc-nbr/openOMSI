@@ -343,3 +343,22 @@ export function checkbox(ctx, p, cx, cy, on, hover) {
     icon(ctx, 'check', cx, cy, 11, [255, 255, 255, 1]);
   } else roundedBorder(ctx, x, y, 13, 13, 2, 1.3, hover ? p.text : p.dim);
 }
+
+/** A part of a trip cut at a relief point on the way (`network::Part`): the trip's chip with a
+ * straight edge where the drivers change - at its start (`cutStart`, the second part) or its end
+ * (`cutEnd`, the first) - its words in what is left of it. */
+export function cutChip(ctx, x, y, w, h, colour, right, label, outline, a, cutStart, cutEnd) {
+  if (w <= 0.5 || h <= 0.5) return;
+  // (the whole chip drawn on past the cut, and cut there)
+  const ext = h * 1.5;
+  const ex = cutStart ? x - ext : x;
+  const ew = w + (cutStart ? ext : 0) + (cutEnd ? ext : 0);
+  clip(ctx, x - (cutStart ? 0 : 3), y - 3, w + (cutStart ? 0 : 3) + (cutEnd ? 0 : 3), h + 6);
+  chip(ctx, ex, y, ew, h, colour, right, '', outline, false, false, a);
+  unclip(ctx);
+  const size = 11;
+  const tip = Math.min(h * 0.45, w * 0.45);
+  const lead = right ? (cutStart ? 3 : 2) : cutStart ? 3 : tip + 2;
+  const room = w - lead - (right ? (cutEnd ? 3 : tip + 2) : 3);
+  if (label && room > 8 && width(ctx, label, size, 700) <= room) textAt(ctx, label, x + lead + room / 2, y + h / 2 + 4, size, 700, alpha(inkOn(colour), a), 'center');
+}

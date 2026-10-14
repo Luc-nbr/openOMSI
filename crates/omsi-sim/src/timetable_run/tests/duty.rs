@@ -1089,6 +1089,35 @@ fn a_composed_duty_goes_on_with_the_next_tour() {
     assert_eq!(d.tour_trip(), 5, "a save names the trip by its place in its own tour");
 }
 
+/// A duty of the bus company that takes the bus over halfway along its first trip and hands it
+/// over halfway along its last (RosterFlow's relief on the way, `PlayerDuty::between`): the
+/// first trip is driven from its relief stop on, the last ends at its relief stop.
+#[test]
+fn a_duty_begins_and_ends_at_relief_stops_on_the_way() {
+    let five = |dep: f64| planned(dep, &[(0.0, dep, dep), (500.0, dep + 100.0, dep + 100.0), (1000.0, dep + 200.0, dep + 200.0), (1500.0, dep + 300.0, dep + 300.0), (2000.0, dep + 400.0, dep + 400.0)]);
+    let mut d = PlayerDuty::new("5".into(), "1".into(), vec![five(0.0), five(1000.0)], 0, 0, true);
+    d.between(Some(2), Some(3));
+    assert_eq!(d.next_stop, 2, "the first trip from its stop 2 on");
+    assert_eq!(d.trips[0].stops.len(), 5, "the first trip keeps its stops: the IBIS knows its whole route");
+    assert_eq!((d.trips[1].stops.len(), d.trips[1].end), (4, 1300.0), "the last trip ends at its stop 3");
+    assert_eq!(d.trips[1].terminus, "T", "its destination shown as before");
+    // the bus driven from stop 2 on (`duty_start::begin`): stops 2, 3 and 4 served
+    d.start_at_here(0, 2);
+    assert_eq!(d.next_stop, 2);
+    for (x, t) in [(1000.0, 190.0), (1500.0, 300.0), (2000.0, 400.0)] {
+        d.advance(glam::DVec3::new(x, 0.0, 0.0), t);
+    }
+    assert!(d.trip_done());
+    // a stop that is not on the way changes nothing
+    let mut e = PlayerDuty::new("5".into(), "1".into(), vec![five(0.0)], 0, 0, true);
+    e.between(Some(4), Some(4));
+    assert_eq!((e.next_stop, e.trips[0].stops.len()), (0, 5));
+    e.between(Some(0), Some(0));
+    assert_eq!((e.next_stop, e.trips[0].stops.len()), (0, 5));
+    e.between(None, None);
+    assert_eq!(e.trips[0].end, 400.0);
+}
+
 /// A free drive along a line (`--free-line`): the bus goes on from stop to stop as on a
 /// duty - the navigator and the IBIS follow it - but it is never late, and no stop it
 /// leaves is counted for the personnel file.

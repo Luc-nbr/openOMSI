@@ -117,12 +117,33 @@ impl Block {
     }
 
     pub fn parse(s: &str) -> Option<(String, String, usize, usize)> {
+        Self::parse_between(s).map(|(b, _, _)| b)
+    }
+
+    /// As `--duty-leg` takes a part of a duty that begins or ends on the way (a relief at a stop
+    /// of a trip, RosterFlow's mid-trip relief): its first trip driven from its stop `from` on
+    /// (`first@from`), its last one to its stop `to` (`trips@to`), the stops counted from 0.
+    pub fn arg_between(&self, from: Option<usize>, to: Option<usize>) -> String {
+        let at = |n: usize, stop: Option<usize>| stop.map(|s| format!("{n}@{s}")).unwrap_or_else(|| n.to_string());
+        format!("{}|{}|{}|{}", self.line, self.tour, at(self.first, from), at(self.trips, to))
+    }
+
+    /// A part as `arg_between` writes it: the part (`parse`'s), and the stops it begins and ends
+    /// at on the way (None: the trips' own first and last).
+    #[allow(clippy::type_complexity)]
+    pub fn parse_between(s: &str) -> Option<((String, String, usize, usize), Option<usize>, Option<usize>)> {
         let (line, rest) = s.split_once('|')?;
         let mut back = rest.rsplitn(3, '|');
-        let trips = back.next()?.trim().parse().ok()?;
-        let first = back.next()?.trim().parse().ok()?;
+        let num = |t: &str| -> Option<(usize, Option<usize>)> {
+            match t.trim().split_once('@') {
+                Some((n, stop)) => Some((n.trim().parse().ok()?, Some(stop.trim().parse().ok()?))),
+                None => Some((t.trim().parse().ok()?, None)),
+            }
+        };
+        let (trips, to) = num(back.next()?)?;
+        let (first, from) = num(back.next()?)?;
         let tour = back.next()?;
-        Some((line.to_string(), tour.to_string(), first, trips))
+        Some(((line.to_string(), tour.to_string(), first, trips), from, to))
     }
 }
 
@@ -562,6 +583,14 @@ mod tests {
         let b = Block { line: "4 Liman-ZS".into(), tour: "Mo|Fr 3".into(), first: 2, trips: 5, departure: 0.0 };
         assert_eq!(Block::parse(&b.arg()), Some(("4 Liman-ZS".into(), "Mo|Fr 3".into(), 2, 5)));
         assert_eq!(Block::parse("x|y"), None);
+        // (a part that begins and ends on the way: its stops after the trips', `@`)
+        let arg = b.arg_between(Some(4), Some(7));
+        assert_eq!(arg, "4 Liman-ZS|Mo|Fr 3|2@4|5@7");
+        assert_eq!(Block::parse_between(&arg), Some((("4 Liman-ZS".into(), "Mo|Fr 3".into(), 2, 5), Some(4), Some(7))));
+        assert_eq!(Block::parse(&arg), Some(("4 Liman-ZS".into(), "Mo|Fr 3".into(), 2, 5)));
+        assert_eq!(Block::parse_between(&b.arg()).map(|x| (x.1, x.2)), Some((None, None)));
+        assert_eq!(b.arg_between(None, None), b.arg());
+        assert_eq!(Block::parse("x|y|2@|3"), None);
     }
 
     /// A real map's duties, printed: `OMSI_MAP=".../maps/Berlin-Spandau" cargo test -p

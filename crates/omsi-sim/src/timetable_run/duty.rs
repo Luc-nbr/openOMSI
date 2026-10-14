@@ -472,6 +472,25 @@ impl PlayerDuty {
         }
     }
 
+    /// A duty of the bus company that begins or ends on the way (a relief halfway along a
+    /// trip, RosterFlow's: `--duty-leg`'s `first@stop` and `trips@stop`): its first trip is
+    /// driven from its stop `from` on, its last ends at its stop `to` - the stops after it are
+    /// the next driver's. A stop that is no stop on the way of that trip changes nothing.
+    pub fn between(&mut self, from: Option<usize>, to: Option<usize>) {
+        if let (Some(e), Some(t)) = (to, self.trips.last_mut()) {
+            if e > 0 && e + 1 < t.stops.len() {
+                t.stops.truncate(e + 1);
+                t.end = t.stops[e].arr.max(t.departure);
+                t.set_dirs();
+            }
+        }
+        if let Some(s) = from {
+            if s > 0 && self.trips.get(self.trip_index).is_some_and(|t| s + 1 < t.stops.len()) {
+                self.next_stop = s;
+            }
+        }
+    }
+
     /// Like `start_at`, for a bus that stays where it is (the stop was chosen in the menu,
     /// the bus is not put there): the first update does not look where the bus stands and
     /// does not move the chosen stop to one it happens to be near.
