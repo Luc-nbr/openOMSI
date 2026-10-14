@@ -16,6 +16,7 @@ import { goStep, nextOf, previousOf, chosenLine } from '../flow.js';
 import { MapBehind } from './mapbehind.js';
 import { EntrySelect } from './map.js';
 import { dayName } from './day.js';
+import { DutyMapTools } from './duty-more.js';
 
 const DAYPARTS = ['All day', 'Morning', 'Midday', 'Evening', 'Night'];
 const hhmm = (sec) => hms(sec);
@@ -186,6 +187,7 @@ function Tours({ c }) {
 
 export function DutyStep() {
   const s = useStore();
+  const [fit, refit] = useState(0);
   const c = s.choice;
   const composed = !!c.composed;
   const line = chosenLine();
@@ -213,7 +215,8 @@ export function DutyStep() {
       })()
     : tour?.trips[pickedTrip() != null ? Math.max(0, tour.trips.findIndex((x) => x.index === pickedTrip())) : Math.max(0, tripAt(tour, c.time * 60))];
   return html`
-    <${MapBehind} trip=${trip || null} />
+    <${MapBehind} key=${fit} trip=${trip || null} />
+    <${DutyMapTools} onRefit=${() => refit((k) => k + 1)} />
     <section class="hub-sheet narrow">
       <${Head} icon="schedule" title=${title} raw sub=${sub} />
       ${composed ? html`<${Shifts} c=${c} />` : html`<${Tours} c=${c} />`}

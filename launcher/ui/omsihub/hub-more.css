@@ -41,3 +41,67 @@
 .hub-foot.hub-foot-wrap { height: auto; min-height: 46px; align-items: flex-start; padding-top: 13px; padding-bottom: 13px; }
 .hub-foot.hub-foot-wrap > .grow { white-space: normal; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; line-height: 17.3px; }
 .hub-foot.hub-foot-wrap > .hub-icon { margin-top: 2px; }
+
+/* --- the duty step: the map's buttons and the roadbook (`flow::step_duty`) ------------------- */
+
+/* the roadbook's width beside the map, and the map's buttons right of the route */
+.hub { --hub-book-w: clamp(290px, 24cqw, 380px); }
+.hub:has(.hub-roadbook) .hub-map { right: calc(var(--hub-edge-in) + var(--hub-book-w) + 20px); }
+.hub-maptools { position: absolute; z-index: 6; top: calc(var(--hub-sheet-top) + 8px); right: var(--hub-edge-in); width: 32px; display: flex; flex-direction: column; background: var(--hub-panel); border-radius: var(--hub-r); box-shadow: 0 0 14px rgba(0, 0, 0, 0.35), inset 0 0 0 1px var(--hub-edge); }
+:root.hub[data-theme="light"] .hub-maptools { box-shadow: 0 0 14px rgba(80, 50, 20, 0.14), inset 0 0 0 1px var(--hub-edge); }
+.hub-maptools.book { right: calc(var(--hub-edge-in) + var(--hub-book-w) + 14px); }
+.hub-maptools button { height: 32px; display: grid; place-items: center; background: none; color: var(--hub-text-soft); cursor: pointer; }
+.hub-maptools button + button { box-shadow: inset 0 1px 0 var(--hub-hairline); }
+.hub-maptools button:hover { color: var(--hub-text); }
+.hub-bookhandle { position: absolute; z-index: 6; top: calc(var(--hub-sheet-top) + 8px); right: calc(var(--hub-edge-in) + 42px); width: 126px; height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border-radius: var(--hub-r); background: var(--hub-panel); color: var(--hub-text); box-shadow: inset 0 0 0 1px var(--hub-edge); font-weight: 700; font-size: 10px; cursor: pointer; transition: background 0.08s, transform 0.12s; }
+.hub-bookhandle:hover { background: var(--hub-hover); transform: translateY(-1px); }
+
+.hub-roadbook { position: absolute; z-index: 5; right: var(--hub-edge-in); top: var(--hub-sheet-top); width: var(--hub-book-w); bottom: calc(var(--hub-action-bottom) + var(--hub-action-h) + 24px); min-height: 200px;
+  background: var(--hub-panel); color: var(--hub-text); border: 1px solid var(--hub-edge); border-radius: var(--hub-r-sheet); box-shadow: 0 2px 26px rgba(0, 0, 0, 0.45); }
+:root.hub[data-theme="light"] .hub-roadbook { box-shadow: 0 2px 26px rgba(80, 50, 20, 0.12); }
+.hub-roadbook header h3 { position: absolute; left: 16px; top: 7px; margin: 0; font-size: 8.44px; line-height: 10px; font-weight: 700; text-transform: uppercase; color: var(--hub-text-dim); }
+.hub-rb-shut { position: absolute; right: 14px; top: 10px; width: 30px; height: 30px; display: grid; place-items: center; border-radius: var(--hub-r); background: none; color: var(--hub-text-dim); cursor: pointer; }
+.hub-rb-shut:hover { background: var(--hub-lift); color: var(--hub-text); }
+.hub-rb-body { position: absolute; left: 16px; right: 16px; top: 46px; bottom: 174px; display: flex; flex-direction: column; }
+.hub-roadbook.note .hub-rb-body { bottom: auto; }
+.hub-rb-title { height: 22px; line-height: 22px; font-size: 10.75px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hub-rb-sub { margin-top: -2px; height: 16px; line-height: 16px; font-size: 8.83px; color: var(--hub-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hub-rb-note { margin: 0; font-size: 9.98px; line-height: 17.9px; color: var(--hub-text-dim); }
+.hub-rb-list { flex: 1; min-height: 0; margin: 2px -4px 0; overflow-y: auto; }
+.hub-rb-trip { display: flex; flex-direction: column; justify-content: flex-start; width: calc(100% - 12px); height: 46px; margin: 0 0 6px 4px; padding: 4px 10px 0; border-radius: 6px; background: none; color: var(--hub-text); text-align: left; }
+button.hub-rb-trip { cursor: pointer; transition: background 0.12s; }
+button.hub-rb-trip:hover { background: var(--hub-hover); }
+.hub-rb-trip.first { background: var(--hub-accent); cursor: default; }
+button.hub-rb-trip.first:hover { background: var(--hub-accent); }
+.hub-rb-trip b { display: block; height: 20px; line-height: 20px; font-size: 9.98px; font-weight: 700; }
+.hub-rb-trip span { display: block; height: 18px; line-height: 18px; font-size: 8.44px; color: var(--hub-text-dim); }
+.hub-rb-trip.first span { color: var(--hub-text-dim); }
+.hub-rb-trip.earlier b, .hub-rb-trip.earlier span { color: var(--hub-text-faint); }
+.hub-rb-stops { margin: -6px 0 12px; }
+.hub-rb-stop { position: relative; display: flex; align-items: center; height: 24px; margin-left: 4px; width: calc(100% - 12px); }
+.hub-rb-stop time { width: 54px; padding-left: 6px; flex: none; font-size: 9.2px; font-weight: 500; font-stretch: condensed; color: var(--hub-text-soft); font-variant-numeric: tabular-nums; }
+.hub-rb-stop.end time { color: var(--hub-text); }
+.hub-rb-stop i { position: absolute; left: 57px; top: 9px; width: 6px; height: 6px; border-radius: 50%; background: var(--hub-text-faint); }
+.hub-rb-stop.end i { left: 56px; top: 8px; width: 8px; height: 8px; background: var(--hub-text); }
+.hub-rb-stop.on::before { content: ''; position: absolute; left: 59px; top: 12px; width: 2px; height: 24px; background: rgba(255, 255, 255, 0.12); }
+:root.hub[data-theme="light"] .hub-rb-stop.on::before { background: rgba(22, 20, 26, 0.12); }
+.hub-rb-stop span { position: absolute; left: 74px; right: 80px; font-size: 9.6px; }
+.hub-rb-stop.end span { font-weight: 700; }
+.hub-rb-stop em { position: absolute; right: 4px; font-style: normal; font-size: 8.44px; font-weight: 500; color: var(--hub-text-dim); }
+.hub-rb-change { display: flex; align-items: center; gap: 9px; width: calc(100% - 12px); height: 30px; margin: 0 0 6px 4px; padding: 0 8px 0 9px; border-radius: 6px; background: color-mix(in srgb, var(--hub-accent) 16%, transparent); color: var(--hub-text); font-size: 9.2px; font-weight: 700; white-space: nowrap; overflow: hidden; }
+.hub-rb-change .hub-icon { color: var(--hub-accent); flex: none; }
+
+/* what to type into the IBIS (`drive::ibis_box`) */
+.hub-ibis { position: absolute; left: 16px; right: 16px; bottom: 14px; height: 150px; padding: 36px 12px 0; border-radius: 6px; background: var(--hub-field); }
+.hub-roadbook.note .hub-ibis { top: 106px; bottom: auto; height: 160px; }
+.hub-ibis-head { position: absolute; left: 12px; top: 9px; font-size: 8.44px; line-height: 10px; font-weight: 700; text-transform: uppercase; color: var(--hub-text-dim); }
+.hub-ibis p { margin: -4px 0 0; font-size: 9.2px; line-height: 16.6px; color: var(--hub-text-dim); }
+.hub-ibis p.err { color: var(--hub-danger, #e5484d); }
+.hub-ibis-row { display: flex; align-items: center; height: 22px; margin: -2px 0 4px; }
+.hub-ibis-row:first-child { margin-top: -2px; }
+.hub-ibis-row .grow { flex: 1; min-width: 0; padding-right: 10px; font-size: 9.6px; font-weight: 500; }
+.hub-ibis-row .pair { flex: none; width: 80px; display: flex; align-items: center; }
+.hub-ibis-row .pair:last-child { width: 80px; margin-right: 0; }
+.hub-ibis-row .k { flex: none; width: 34px; font-size: 8.44px; color: var(--hub-text-dim); }
+.hub-ibis-row b { height: 18px; line-height: 18px; padding: 0 6px; border-radius: 4px; background: var(--hub-accent); font-size: 9.6px; font-weight: 700; white-space: nowrap; }
+.hub-ibis-foot { height: 18px; line-height: 18px; margin-top: 2px; font-size: 8.44px; color: var(--hub-text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
