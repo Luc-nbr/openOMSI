@@ -1003,7 +1003,9 @@ export function Gantt({ data, drivers, readOnly, p, onTip, page }) {
     if (!L) return;
     const r = S.rf;
     const notch = Math.max(-3, Math.min(3, -e.deltaY / 100)) || (e.deltaY < 0 ? 1 : -1);
-    if (e.ctrlKey && e.deltaY) {
+    // (Ctrl and the wheel are RosterFlow's own here, never the launcher's size: `zoom.js`;
+    // Cmd on a Mac)
+    if ((e.ctrlKey || e.metaKey) && e.deltaY) {
       // zoomed about the minute under the mouse
       const atMin = L.t0 + L.pan + (m.x - L.gx) / L.ppm;
       const zoom = Math.max(1, Math.min(8, r.zoom * (e.deltaY < 0 ? 1.25 : 0.8)));

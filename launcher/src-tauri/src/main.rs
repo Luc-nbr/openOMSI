@@ -123,6 +123,9 @@ fn main() {
                     }
                 })
                 .app_mode(true)
+                // Omsi-Hub: WebView2's own zoom stays off - Ctrl and the wheel size the launcher
+                // in the page ("Launcher size", `ui/js/omsihub/zoom.js`), or zoom RosterFlow
+                .zoom_hotkeys_enabled(false)
                 .build()?;
             // Omsi-Hub: the window's size for pictures of the page (`OMSI_LAUNCHER_SIZE=WxH`)
             if let Some((w, h)) = omsi_launcher_api::omsihub::launcher_size() {

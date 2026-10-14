@@ -21,6 +21,8 @@ import { TourOverlay } from './tour.js';
 // (Omsi-Hub 6/6: the updates, as the game-drawn launcher offers them)
 import { useUpdates, UpdateDialog, UpdatedNotice } from './update.js';
 import { GameEndDialogs } from '../crash.js';
+// (Ctrl and the wheel size the launcher, outside RosterFlow)
+import { installZoom } from './zoom.js';
 
 /** Our look is the desktop window's (not the phone's, nor `?phone` in a browser). */
 export const HUB = !onPhone && !new URLSearchParams(location.search).has('phone');
@@ -123,6 +125,7 @@ export function HubShell({ pages, Toasts }) {
     addEventListener('resize', r);
     return () => removeEventListener('resize', r);
   }, []);
+  useEffect(installZoom, []);
   useEffect(() => {
     if (booted || s.boot?.selftest) return;
     booted = true;
