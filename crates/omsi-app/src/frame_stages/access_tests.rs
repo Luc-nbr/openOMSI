@@ -33,6 +33,8 @@ fn field_group(field: &str) -> Option<Option<Group>> {
         | "session.traffic_heavy_frame" | "session.first_populate" | "pipeline" => Some(Traffic),
         "session.humans" | "session.humans_populate_t" | "session.on_foot" => Some(People),
         "session.duty" | "session.duty_places" | "session.career" | "session.journey" => Some(Duty),
+        // Omsi-Hub: the trip report and the drive watch of a duty
+        "session.trip_report" | "session.drive_watch" => Some(Duty),
         "session.world_day" | "session.clock_jump" | "session.pending_time" | "session.autosave_t" => Some(Clock),
         "session.rain" | "session.cabin_air" | "session.spray" | "session.lamps_on" | "session.envir" | "session.weather"
         | "session.wetness" | "session.cloud_drift" | "session.weather_blend" | "session.weather_cycle" | "session.metar_rx"

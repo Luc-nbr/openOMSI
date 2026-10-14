@@ -7,7 +7,7 @@
 //!   depot editor and the line editor show it (`displayfont`);
 //! * `le`: the line editor, kept here (`lineeditor::headless`): the page's request under `le`,
 //!   the view it draws (or the map's roads and stops) in the bytes;
-//! * `studio`: the livery studio, run here as our game-drawn launcher runs it (`studio`): the
+//! * `studio`: the livery studio, drawn here on a host of its own (`studio`, `EditorHost`): the
 //!   page's request under `studio`, the studio's picture in the bytes;
 //! * `photo`: a bus photographed for the bus step's tiles and the company's (`photo`, Trello
 //!   "Tauri 6/6").
@@ -15,8 +15,7 @@
 //! (The Controls page's game controllers are openOMSI's own since its 0.2.47: the service's
 //! `pads`.)
 //!
-//! Each answer is the service's: a JSON head and the bytes after it (`Reply`). Kept in this file
-//! of our own beside the editors it serves, so that the modules it needs stay private.
+//! Each answer is the service's: a JSON head and the bytes after it (`Reply`).
 
 use serde_json::Value;
 use std::sync::Arc;

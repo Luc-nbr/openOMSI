@@ -98,8 +98,6 @@ impl App {
             self.args.editor = false;
             self.toggle_editor();
         }
-        // the phone and tablet companion (`companion=1`): sign-on, duty, the bus's screens
-        crate::companion::frame(self, dt);
     }
 }
 

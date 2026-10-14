@@ -393,7 +393,9 @@ fn every_text_the_interface_shows_is_translated_into_its_six_languages() {
             }
         }
     }
-    assert!(checked > 1500, "only {checked} texts found: is the reading of the source broken?");
+    // (about 500 since the game-drawn launcher left with upstream 0.2.47: the editors in
+    // omsihub-game and the overlays over the drive)
+    assert!(checked > 400, "only {checked} texts found: is the reading of the source broken?");
     assert!(missing.is_empty(), "{} translations missing (add them to locales/vertalingen.yml):\n{}", missing.len(), missing.join("\n"));
 }
 

@@ -1544,9 +1544,10 @@ fn set_held(screen: &str, held: bool) {
     }
 }
 
-/// Once a frame: the setting, the server, the driver and the duty, the devices' commands,
-/// the state and the pictures for them.
-pub(crate) fn frame(app: &mut App, _dt: f32) {
+/// Once a frame (the integrations' stage: the phone runs the game's actions as the keys do):
+/// the setting, the server, the driver and the duty, the devices' commands, the state and the
+/// pictures for them.
+pub(crate) fn each_frame(app: &mut App) {
     // (a dedicated server has no driver at its place)
     if app.args.server.is_some() {
         return;

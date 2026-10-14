@@ -12,6 +12,9 @@ use std::sync::Arc;
 
 pub(super) fn install() {
     omsihub_game::host::set(Box::new(HubHost));
+    // (the game's tables for what the editors here say, in the settings' language until a
+    // request names its own)
+    crate::ui_language(&crate::settings::Settings::load().language);
 }
 
 struct HubHost;

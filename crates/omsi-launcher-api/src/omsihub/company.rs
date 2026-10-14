@@ -12,8 +12,8 @@
 //! * The page ticks the clock (`co_tick`), asks for the view of what it shows (`co_view`: the
 //!   bar, the start screen, a page, a dialog - every text translated and every amount written
 //!   in the page's language), and does what a click does (`co_act`).
-//! * The pages of later phases hand over to the game-drawn launcher on that page
-//!   (`hand_over`): its `OMSI_LAUNCHER_PAGE` is "bus company:<page>:<company>".
+//! * What a page hands over to another part of the desktop launcher (an editor, RosterFlow's
+//!   Timeplan) stops the clock and saves the company first (`hand_over`).
 
 mod career;
 pub mod casual;
@@ -75,9 +75,9 @@ pub const ICONS: [&str; 14] = ["signal_cellular_alt", "directions_bus", "groups"
 pub const RAIL: [&[usize]; 5] = [&[0, INBOX_TAB], &[5, 3, MAP_TAB, 1], &[2], &[4, CONCESSIONS_TAB, CONTRACTS_TAB, 6], &[DEPOT_TAB, WORKSHOP_TAB, RESEARCH_TAB]];
 
 /// The pages this page draws itself (the planning, the depot, the concessions, the fleet map,
-/// the research, the workshop and the contracts since phase 3: `company_more.rs`); the others
-/// (`HANDED_OVER`) open in the game-drawn launcher until their phase. RosterFlow - the planning
-/// with its add-on on - is handed over by the planning's page itself.
+/// the research, the workshop and the contracts since phase 3: `company_more.rs`): every page
+/// (`HANDED_OVER` is empty since the game-drawn launcher it opened them in is gone). RosterFlow -
+/// the planning with its add-on on - is handed over by the planning's page itself.
 pub const DRAWN: [usize; 14] = [0, 1, 2, 3, 4, 5, 6, DEPOT_TAB, CONCESSIONS_TAB, MAP_TAB, RESEARCH_TAB, WORKSHOP_TAB, CONTRACTS_TAB, INBOX_TAB];
 pub const HANDED_OVER: [usize; 0] = [];
 
@@ -1368,18 +1368,17 @@ fn do_act(s: &mut Session, args: &Value, p: &dyn Platform) -> Answer {
     })
 }
 
-/// A page of a later phase opened in the game-drawn launcher, on that page and with this company
-/// (`OMSI_LAUNCHER_PAGE` "bus company:<page>:<company>"; `page` a number of `TABS`, a Casual
-/// page's name, or "home"): the clock stops and the company is saved before the window goes.
+/// What the company's page hands over to another part of the launcher (`page`: "line-editor",
+/// "livery=...", "timetable=<line>" ... - `kit.js` `handOver`): the clock stops and the company is
+/// saved first; a line's timetable says which line editor's page shows it (`edit`).
 fn hand_over(s: &mut Session, args: &Value) -> Answer {
     leave(s)?;
     let part = str_arg(args, "page");
-    let id = s.company.as_ref().map(|c| c.id.clone()).unwrap_or_default();
     // (a line's timetable without RosterFlow - which takes it first - is the line editor's: the
     // line editor's page for the line named, `lines::edit_to`)
     let named = part.strip_prefix("timetable=").or_else(|| part.strip_prefix("plan-line=").map(|x| x.split('|').next().unwrap_or("")));
     let edit = named.and_then(|n| s.company.as_ref()?.lines.iter().find(|l| l.name == n).and_then(lines::edit_to));
-    Ok(json!({ "page": hand_over_page(&part, &id), "edit": edit }))
+    Ok(json!({ "edit": edit }))
 }
 
 /// The duty launcher's map (Omsi-Hub 6/6): the routes of every trip of the duty, as
@@ -1401,19 +1400,6 @@ fn duty_map(args: &Value, p: &dyn Platform) -> Answer {
         o.remove("tracks");
     }
     Ok(v)
-}
-
-/// The `OMSI_LAUNCHER_PAGE` that opens the game-drawn launcher on the company's page `part` with
-/// the company `id` (`part` a page, or what to open there - "tour", "line-editor[=<id>]",
-/// "map-line=<name>", "casual-line=<freq>", "timetable=<line>", "livery=<bus>|<livery>|<id>":
-/// `company::handed` of the game-drawn launcher - its ':' and '%' written %3A and %25).
-pub fn hand_over_page(part: &str, id: &str) -> String {
-    let part = part.replace('%', "%25").replace(':', "%3A");
-    if id.is_empty() {
-        format!("bus company:{part}")
-    } else {
-        format!("bus company:{part}:{id}")
-    }
 }
 
 /// A day of the company as the views write it with its time (`clock::text` of a feed line).
@@ -1469,8 +1455,6 @@ mod tests {
         both.sort_unstable();
         assert_eq!(both, (0..TABS.len()).collect::<Vec<_>>());
         assert_eq!(page_name(HOME_TAB), "Start screen");
-        assert_eq!(hand_over_page("7", "stadtbus"), "bus company:7:stadtbus");
-        assert_eq!(hand_over_page("home", ""), "bus company:home");
         assert_eq!(started_at(&["--time".into(), "06:45".into()]), Some(405));
         for m in co::GameMode::ALL {
             assert_eq!(mode_of(mode_key(m)), Some(m));

@@ -1082,7 +1082,7 @@ pub(crate) mod tests {
         assert_eq!(along(&net, &lanes, 0, 0.0, (5, 0.0)), None);
         assert_eq!(eta(1200.0, 10.0), 120.0);
         assert_eq!(eta(100.0, 0.0), 20.0, "standing: at walking pace");
-        assert_eq!((distance_text(1234.0), distance_text(234.0), distance_text(4.0)), ("1.2 km".to_string(), "230 m".to_string(), "0 m".to_string()));
+        assert_eq!((distance_text(1234.0), distance_text(234.0), distance_text(4.0)), ("1.2 km".to_string(), "230 m".to_string(), "10 m".to_string()), "(units::Units: at least 10 m)");
         assert_eq!((eta_text(30.0), eta_text(150.0)), ("<1 min".to_string(), "3 min".to_string()));
     }
 

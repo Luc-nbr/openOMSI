@@ -112,5 +112,8 @@ impl App {
                 crate::plugins::queue_event(&mut self.integrations.plugin_events, "pedestrian", vec![omsi_plugin::InfoValue::Num(hurt as f64)]);
             }
         }
+        // Omsi-Hub: the phone and tablet companion (`companion=1`): sign-on, duty, the bus's
+        // screens
+        crate::companion::each_frame(self);
     }
 }
