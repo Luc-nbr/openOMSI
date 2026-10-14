@@ -330,6 +330,7 @@ flags! {
     OMSI_LAN_SAY: Text, Test, Use, "-", "\"30=Hallo;45=Bye\": LAN chat lines said at these seconds of the session.";
     OMSI_LAN_TRACE: Text, Debug, Use, "-", "LAN CSV file: where the host's people are drawn.";
     OMSI_LAUNCHER: Text, Setup, Use, "-", "Program a plain start opens as the launcher instead of the desktop launcher (openomsi-launcher-app) beside the game.";
+    OMSI_LAUNCHER_INTRO: Text, Test, Use, "-", "Desktop launcher: the opening (Omsi-Hub's logo drawn) - off leaves it out, a number of seconds holds it at that moment (pictures).";
     OMSI_LAUNCHER_PAGE: Text, Test, Use, "-", "Desktop launcher (Omsi-Hub's look): open on this page - a page (settings, mods ...), a step of the drive (drive:map, drive:N, drive:bus:chosen, drive:bus:depots), an editor (editor, timetable, depot editor, line editor[:first[:stops|displays|timetable|kind]], livery[:chosen]) or the bus company's (bus company:<page>:<company>, bus company:tour:<company>).";
     OMSI_LAUNCHER_SIZE: Text, Test, Use, "-", "Desktop launcher: WxH window size (pictures, tests).";
     OMSI_LAUNCHER_SLOW: Num, Test, Use, "-", "The interface kit's animations this many times slower (to look at them).";

@@ -722,6 +722,17 @@
   .hub-flow, .hub-stage > .hub-sheet.page, .co-body, .rf-body { animation: none; }
 }
 
+/* the opening (`js/omsihub/intro.js`): Omsi-Hub's logo drawn over the page as the launcher
+   opens, on the look's ground with a faint light of the accent round it */
+.hub-intro { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding-bottom: 4vh; background: var(--hub-ground, #0a142e); cursor: pointer; }
+.hub-intro-light { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at 50% 48%, rgba(var(--hub-accent-rgb, 245, 134, 32), 0.05), rgba(var(--hub-accent-rgb, 245, 134, 32), 0) 62%); }
+.hub-intro-mark { position: relative; overflow: visible; transform-origin: 50% 50%; }
+.hub-i-line, .hub-i-pulse { stroke: var(--hub-accent-chosen, #f58620); }
+.hub-i-ink { fill: var(--hub-logo-ink); }
+.hub-i-pen { fill: color-mix(in srgb, var(--hub-accent-chosen, #f58620) 18%, #fff); }
+.hub-i-glow-in { stop-color: color-mix(in srgb, var(--hub-accent-chosen, #f58620) 65%, #fff); stop-opacity: 1; }
+.hub-i-glow-out { stop-color: color-mix(in srgb, var(--hub-accent-chosen, #f58620) 65%, #fff); stop-opacity: 0; }
+
 /* the setting "Animations" off: nothing moves */
 .hub-still *, .hub-still *::before, .hub-still *::after { transition: none !important; animation: none !important; }
 

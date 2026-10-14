@@ -171,7 +171,8 @@ pub fn launcher_size() -> Option<(f64, f64)> {
 /// What the page opens on: `OMSI_LAUNCHER_PAGE` - a page (`settings`, `mods` ...) or a step of
 /// the drive (`drive:map`, `drive:bus` ...).
 fn hub_boot() -> Answer {
-    Ok(json!({ "page": omsi_cfg::flags::OMSI_LAUNCHER_PAGE.var() }))
+    // (and the opening: `OMSI_LAUNCHER_INTRO`, off or held at a moment - `intro.js`)
+    Ok(json!({ "page": omsi_cfg::flags::OMSI_LAUNCHER_PAGE.var(), "intro": omsi_cfg::flags::OMSI_LAUNCHER_INTRO.var() }))
 }
 
 // --- the buses' photos --------------------------------------------------------------------

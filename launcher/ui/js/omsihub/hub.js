@@ -5,7 +5,7 @@
 // Upstream's `app.js` hands the desktop window to `HubShell` (one line); the phone keeps
 // upstream's page.
 
-import { html, useEffect, useState } from '../../vendor/preact-htm.js';
+import { html, useEffect, useLayoutEffect, useState } from '../../vendor/preact-htm.js';
 import { S, set, useStore } from '../store.js';
 import { call, onPhone } from '../api.js';
 import { applyHubTheme } from './theme.js';
@@ -23,6 +23,8 @@ import { useUpdates, UpdateDialog, UpdatedNotice } from './update.js';
 import { GameEndDialogs } from '../crash.js';
 // (Ctrl and the wheel size the launcher, outside RosterFlow)
 import { installZoom } from './zoom.js';
+// (the opening: Omsi-Hub's logo drawn over the page as the launcher opens)
+import { startIntro } from './intro.js';
 
 /** Our look is the desktop window's (not the phone's, nor `?phone` in a browser). */
 export const HUB = !onPhone && !new URLSearchParams(location.search).has('phone');
@@ -92,6 +94,8 @@ function startPage(p, pages) {
 }
 
 let booted = false;
+/** The opening while it plays (`intro.js`). */
+let intro = null;
 
 /** The interface's size (as Omsi-Hub's game-drawn launcher had it): laid out for a 1440 x 820
  * window, drawn smaller under that (down to 80 %), times the setting "Launcher size". */
@@ -128,11 +132,18 @@ export function HubShell({ pages, Toasts }) {
     return () => removeEventListener('resize', r);
   }, []);
   useEffect(installZoom, []);
+  // (before the first picture of the page: the opening covers it from its first frame)
+  useLayoutEffect(() => {
+    intro = startIntro();
+  }, []);
   useEffect(() => {
     if (booted || s.boot?.selftest) return;
     booted = true;
     call('hub_boot')
-      .then((b) => startPage(b?.page, pages))
+      .then((b) => {
+        intro?.asked(b?.intro);
+        startPage(b?.page, pages);
+      })
       .catch(() => {})
       .then(welcomeAtStart);
   }, []);

@@ -196,6 +196,7 @@ effect. On Android, `openOMSI/env.txt` holds `NAME=value` lines that are set bef
 | `OMSI_LANES_NEAR` | text | - | use | app | x,y,r: log the driving lanes passing there. |
 | `OMSI_LAN_AUDIO` | bool | off | use | app | Offscreen LAN: with the other buses' sounds. |
 | `OMSI_LAN_SAY` | text | - | use | lan | "30=Hallo;45=Bye": LAN chat lines said at these seconds of the session. |
+| `OMSI_LAUNCHER_INTRO` | text | - | use | launcher-api | Desktop launcher: the opening (Omsi-Hub's logo drawn) - off leaves it out, a number of seconds holds it at that moment (pictures). |
 | `OMSI_LAUNCHER_PAGE` | text | - | use | launcher-api | Desktop launcher (Omsi-Hub's look): open on this page - a page (settings, mods ...), a step of the drive (drive:map, drive:N, drive:bus:chosen, drive:bus:depots), an editor (editor, timetable, depot editor, line editor[:first[:stops\|displays\|timetable\|kind]], livery[:chosen]) or the bus company's (bus company:<page>:<company>, bus company:tour:<company>). |
 | `OMSI_LAUNCHER_SIZE` | text | - | use | launcher-api | Desktop launcher: WxH window size (pictures, tests). |
 | `OMSI_LAUNCHER_SLOW` | num | - | use | ui | The interface kit's animations this many times slower (to look at them). |
