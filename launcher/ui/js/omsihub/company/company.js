@@ -66,7 +66,7 @@ export function enterCompany(over = {}) {
 }
 
 /** The company's page `OMSI_LAUNCHER_PAGE` names ("bus company[:<page>[:<company>]]", as our
- * game-drawn launcher reads it): a number of its pages, "home", a Casual page's name, or
+ * game-drawn launcher once read it): a number of its pages, "home", a Casual page's name, or
  * "choose" for the start. */
 export function companyPage(part, id) {
   const casual = { buses: CASUAL.BUSES, shop: CASUAL.SHOP, lines: CASUAL.LINES, 'new-line': CASUAL.NEW_LINE, drivers: CASUAL.DRIVERS, money: CASUAL.MONEY, company: CASUAL.COMPANY, shifts: CASUAL.SHIFTS };

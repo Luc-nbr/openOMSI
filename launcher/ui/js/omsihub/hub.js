@@ -48,7 +48,7 @@ export function go(page, step) {
   set({ page, hub: { ...S.hub, palette: false, ...(step ? { step } : {}) } });
 }
 
-/** The page `OMSI_LAUNCHER_PAGE` names, as our game-drawn launcher reads it: a page
+/** The page `OMSI_LAUNCHER_PAGE` names (as our game-drawn launcher once read it): a page
  * (`settings`, `mods` ...) or a step of the drive (`drive:map`, `drive:3`). */
 function startPage(p, pages) {
   if (!p) return;
