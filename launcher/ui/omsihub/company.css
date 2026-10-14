@@ -1114,3 +1114,50 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 .co-casual-shifts .time { font-size: 18.4px; line-height: 34px; margin-top: 7px; }
 .co-casual-shifts .bus { display: flex; align-items: center; gap: 8px; font-size: var(--co-note); height: 22px; margin-top: 0; }
 .co-casual-shifts .shift-trips { font-size: var(--co-note); color: var(--hub-text-dim); line-height: 20px; margin-top: 3px; }
+
+/* --- the workshop job the player does (phase 6: `company/repair.js`, `repair_game::play`) ---- */
+
+.co-repair { height: 100%; display: flex; flex-direction: column; }
+.co-repair .head { display: flex; align-items: flex-start; gap: 10px; flex: none; height: 64px; }
+.co-repair .head .what { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.co-repair .head .what b { font-size: 13.8px; line-height: 26px; }
+.co-repair .head .what span { font-size: 10.75px; color: var(--hub-text-dim); line-height: 18px; margin-top: 2px; }
+.co-repair .head .clock { width: min(300px, 30%); margin-right: 16px; display: flex; flex-direction: column; align-items: stretch; }
+.co-repair .head .clock b { font-size: 15.3px; line-height: 26px; text-align: right; font-variant-numeric: tabular-nums; }
+.co-repair .head .clock .co-meter { margin-top: 8px; }
+.co-repair .body { flex: 1; min-height: 0; display: flex; gap: 16px; }
+.co-repair .stage { flex: 1; min-width: 0; padding: 0; align-items: center; justify-content: center; }
+.co-repair .stage .hint { position: absolute; left: 16px; right: 16px; bottom: 14px; margin: 0; height: 20px; line-height: 20px; text-align: center; font-size: 10.75px; color: var(--hub-text-dim); }
+.co-repair .side { width: min(360px, 36%); flex: none; padding: 14px 16px; }
+.co-repair .side .name { display: flex; align-items: center; gap: 6px; height: 36px; margin: 0 0 16px 3px; }
+.co-repair .side .name b { font-size: 15.3px; }
+.co-repair .side .checking { font-size: var(--co-rows); font-weight: 500; color: var(--hub-text-soft); line-height: 20px; }
+.co-repair .side .checkbar { margin-top: 8px; }
+.co-repair .side .checkbar .run { width: 0; background: var(--co-accent2); animation: co-repair-check linear forwards; }
+@keyframes co-repair-check { to { width: 100%; } }
+.co-repair .side .unchecked { margin: 0; font-size: var(--co-rows); color: var(--hub-text-soft); line-height: 20px; }
+.co-repair .side .reading { margin: 6px 0 18px; font-size: 12.3px; font-weight: 500; line-height: 1.38; }
+.co-repair .side .fixes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+.co-repair-bus { position: relative; }
+.co-repair-bus svg { display: block; }
+.co-repair-bus .mark { position: absolute; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; border: 0; padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  background: rgba(12, 16, 26, 0.92); color: #fff; box-shadow: inset 0 0 0 2.5px rgba(255, 255, 255, 0.12); transition: transform 0.12s; }
+.co-repair-bus .mark:hover { transform: scale(1.12); }
+.co-repair-bus .mark.accent2 { color: var(--hub-accent); box-shadow: inset 0 0 0 2.5px color-mix(in srgb, var(--hub-accent) 12%, transparent); }
+.co-repair-bus .mark.ok { color: var(--co-ok); box-shadow: inset 0 0 0 17px rgba(52, 178, 110, 0.35); }
+.co-repair-bus .mark.on { outline: 6px solid rgba(255, 255, 255, 0.25); }
+.co-repair-bus .mark.accent2.on { outline-color: color-mix(in srgb, var(--hub-accent) 25%, transparent); }
+.co-repair-bus .mark.ok.on { outline-color: rgba(52, 178, 110, 0.25); }
+.co-repair-done { width: min(760px, 100%); margin: 0 auto; height: 100%; }
+.co-repair-done .top { display: flex; gap: 10px; height: 44px; }
+.co-repair-done .top .pct { width: 160px; font-size: 27.6px; line-height: 44px; }
+.co-repair-done .top .bus { display: block; font-size: 12.3px; line-height: 20px; margin-top: 2px; }
+.co-repair-done .top .saved { display: block; font-size: var(--co-rows); font-weight: 500; line-height: 20px; }
+.co-repair-done .tally { margin: 14px 0 0; font-size: 10.75px; color: var(--hub-text-soft); line-height: 18px; }
+.co-repair-done .rows { margin-top: 14px; flex: 1; min-height: 0; overflow: hidden; }
+.co-repair-done .row { display: grid; grid-template-columns: 28px 122px minmax(0, 1fr) 220px; align-items: center; height: 31px; border-bottom: 1px solid var(--hub-hairline); margin-bottom: 1px; }
+.co-repair-done .row .hub-icon { margin-left: 2px; }
+.co-repair-done .row b { font-size: var(--co-rows); }
+.co-repair-done .row .reading { font-size: 10.75px; color: var(--hub-text-soft); }
+.co-repair-done .row .did { font-size: 10.75px; font-weight: 500; text-align: right; }
+.co-repair-done .foot { display: flex; justify-content: flex-end; flex: none; margin-top: 8px; }

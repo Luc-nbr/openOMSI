@@ -103,7 +103,7 @@ export function Wizard() {
   const put = (patch) => setCo({ wizard: { ...w, ...patch } });
   useEffect(() => {
     let gone = false;
-    cmd('co_wizard', { map: w.map, when: w.when, date: w.date, name: w.name, mode: w.mode })
+    cmd('co_wizard', { map: w.map, when: w.when, date: w.date, name: w.name, mode: w.mode, logo: w.logo })
       .then((x) => {
         if (gone) return;
         setV(x);
@@ -112,7 +112,7 @@ export function Wizard() {
     return () => {
       gone = true;
     };
-  }, [w.map, w.when, w.date, w.name, w.mode]);
+  }, [w.map, w.when, w.date, w.name, w.mode, w.logo]);
   if (!v) return null;
   const palette = v.palette;
   const short = w.short.trim() ? w.short.trim().toUpperCase() : v.short_hint;
@@ -150,7 +150,7 @@ export function Wizard() {
             <input class="co-field" style="margin-top:4px;width:calc(50% - 6px)" maxlength="4" value=${w.short} placeholder=${v.short_hint} onInput=${(e) => put({ short: e.currentTarget.value.slice(0, 4) })} /></div>
           ${[0, 1].map((k) => html`<div class="row"><label class="co-label">${v.colours[k]}</label>
             <div class="swatches">${palette.map((hex, i) => html`<span class=${'swatch' + (w.colours[k] === i ? ' on' : '')} style=${`background:${hex}`} onClick=${() => put({ colours: k === 0 ? [i, w.colours[1]] : [w.colours[0], i] })}></span>`)}</div></div>`)}
-          <div class="logo"><${Mark} mark=${{ short, colours: [palette[w.colours[0]], palette[w.colours[1]]], logo: null }} size=${68} />
+          <div class="logo"><${Mark} mark=${{ short, colours: [palette[w.colours[0]], palette[w.colours[1]]], logo: (w.logo && v.logo) || null }} size=${68} />
             <div class="what"><p>${logoName}</p>
               <div class="btns"><${Btn} icon="photo_camera" label=${v.choose_logo} onClick=${pickLogo} />
                 ${w.logo && html`<${Btn} icon="close" label=${v.remove_logo} onClick=${() => put({ logo: null })} />`}</div></div></div>

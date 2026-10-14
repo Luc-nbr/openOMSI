@@ -418,7 +418,7 @@ pub fn view(s: &mut Session, args: &Value) -> Value {
     let Some(c) = s.company.clone() else { return Value::Null };
     let part = args.get("part").and_then(Value::as_u64).unwrap_or(0) as usize;
     let lv = levels::level(&c);
-    let body = match part {
+    let mut body = match part {
         1 => progress_part(s, &c),
         2 => training_part(&c),
         3 => workshop_part(&c),
@@ -426,6 +426,12 @@ pub fn view(s: &mut Session, args: &Value) -> Value {
         5 => statistics_part(s, &c),
         _ => duties_part(s, &c),
     };
+    // (Omsi-Hub 6/6: the job the player does, in the workshop part's place while it is open)
+    if part == 3 {
+        if let Some(g) = s.repair.as_ref() {
+            body["game"] = super::repair::view(g);
+        }
+    }
     json!({ "parts": PARTS.iter().map(|p| tr(p)).collect::<Vec<_>>(), "part": part, "level": format!("{}  ·  {}", trf("Level %{n}", &[("n", &lv.to_string())]), tr(levels::title_of(lv))), "body": body })
 }
 

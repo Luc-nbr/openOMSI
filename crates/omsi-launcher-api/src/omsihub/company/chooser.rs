@@ -123,6 +123,8 @@ pub fn wizard(s: &mut Session, args: &Value) -> Result<Value, String> {
     v["when"] = json!(when);
     v["date"] = json!(own);
     v["begins"] = json!(trf("The company begins on %{date}.", &[("date", &day_label(&first))]));
+    // (Omsi-Hub 6/6: the logo picture chosen, as the mark will show it - the preview's own)
+    v["logo"] = json!(args.get("logo").and_then(Value::as_str).filter(|l| !l.is_empty()).and_then(super::logo_picture));
     v["buying_label"] = json!(tr("Buying buses"));
     v["casual_buying"] = json!(tr("Casual buys at the list price, in one click: the buses are yours at once."));
     v["buyings"] = json!(co::dealer::BuyingMode::ALL.iter().map(|m| tr(m.label())).collect::<Vec<_>>());

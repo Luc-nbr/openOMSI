@@ -51,6 +51,12 @@ pub fn call(cmd: &str, args: &Value) -> Option<Answer> {
     })
 }
 
+/// The bus options chosen for `bus` in `paint` as the game takes them (`--setvar`): the bus
+/// company's duty launcher passes them as the drive does (Omsi-Hub 6/6).
+pub fn setvars(bus: &str, paint: &str) -> Vec<(String, f32)> {
+    busoptions::vars_for(bus, paint)
+}
+
 /// The bytes of ours that start with `hub_more_`, or None when it is not one.
 pub fn call_bytes(cmd: &str, args: &Value) -> Option<Result<Vec<u8>, String>> {
     Some(match cmd {

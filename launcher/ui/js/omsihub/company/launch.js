@@ -1,6 +1,6 @@
 // The company's duty launcher, as our game-drawn launcher's (`company/planning/duty_launch.rs`):
 // a duty of the company fixed by the planning - its day and times, its rows (sign on, the trips,
-// the breaks, sign off), the route of its first trip on the map, its bus and depot - and the
+// the breaks, sign off), the routes of its trips on the map, its bus and depot - and the
 // start: the weather is the player's to choose, or why it cannot start yet. In RosterFlow's
 // look (its own palette in either look).
 
@@ -8,7 +8,7 @@ import { S, toast } from '../../store.js';
 import { duty } from '../../data.js';
 import { RouteMap } from '../../routemap.js';
 import { dark } from '../theme.js';
-import { html, useEffect, act, useView, Icon, Mark, Select, inkOn, rgbOf } from './kit.js';
+import { html, useEffect, act, cmd, useView, Icon, Mark, Select, inkOn, rgbOf } from './kit.js';
 
 /** Start the duty: upstream's duty as the base, the company's duty over it on the Rust side
  * (`launch_start`, as our game-drawn launcher starts it); `dry` only says the command line. */
@@ -60,7 +60,7 @@ export function LaunchPage() {
           </div>
           <div class="right">
             <div class="map"><span class="maplabel">${v.map_caps}</span>
-              <${RouteMap} map=${v.map} date=${v.date} trip=${v.trips[0] || ''} height=${0} colors=${dark() ? ['#14171c', '#3b4656', '#4a5770', '#3fa8ff'] : ['#cbd3dd', '#ffffff', '#ffffff', '#127ce2']} /></div>
+              <${RouteMap} map=${v.map} date=${v.date} trip=${v.trips.join('|')} read=${() => cmd('co_duty_map', { map: v.map, date: v.date, trips: v.trips })} height=${0} colors=${dark() ? ['#14171c', '#3b4656', '#4a5770', '#3fa8ff'] : ['#cbd3dd', '#ffffff', '#ffffff', '#127ce2']} /></div>
             <div class="low">
               <div class="card bus"><span class="caps">${v.bus_caps}</span>
                 ${v.bus.map(([a, b]) => html`<div class="busrow"><span>${a}</span><b class="cut">${b?.trim() ? b : '-'}</b></div>`)}

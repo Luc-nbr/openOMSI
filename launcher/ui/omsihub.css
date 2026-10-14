@@ -712,3 +712,10 @@
   animation: hub-updated 9s ease forwards; }
 .hub-updated .hub-icon { color: var(--hub-accent); }
 @keyframes hub-updated { 0% { opacity: 0; } 3% { opacity: 1; } 93% { opacity: 1; } 100% { opacity: 0; } }
+
+/* the duty step's scale bar (phase 6, `shiftsheet::scale_bar`): in the window's bottom left */
+.hub-scalebar { position: absolute; z-index: 2; left: calc(var(--hub-edge-in) - 10px); bottom: 14px; height: 0; border-top: 1.5px solid var(--hub-text-faint); pointer-events: none; }
+.hub-scalebar::before, .hub-scalebar::after { content: ''; position: absolute; top: -4.75px; width: 1.5px; height: 8px; background: var(--hub-text-faint); }
+.hub-scalebar::before { left: -0.75px; }
+.hub-scalebar::after { right: -0.75px; }
+.hub-scalebar span { position: absolute; left: calc(100% + 6px); top: -9.75px; height: 18px; line-height: 18px; font-size: 8.45px; font-weight: 500; color: var(--hub-text-dim); white-space: nowrap; }

@@ -3,7 +3,8 @@
 // the company with the licences and what the levels open, the courses, the workshop's jobs, the
 // rankings of the map, and the statistics of the trips driven.
 
-import { html, setUi, ui, act, useView, goTab, handOver, Icon, Btn, Seg, Section, Figure, Plate, IconBtn, Tag, T, fill } from './kit.js';
+import { html, setUi, ui, act, useView, goTab, Icon, Btn, Seg, Section, Figure, Plate, IconBtn, Tag, T, fill } from './kit.js';
+import { RepairGame } from './repair.js';
 import { Bar } from './overview.js';
 
 export function CareerPage() {
@@ -135,9 +136,10 @@ function Training({ b }) {
   </div>`;
 }
 
-/** The workshop's jobs the driver can do (`career::workshop_part`); the repair game itself is
- * in our game-drawn launcher. */
+/** The workshop's jobs the driver can do (`career::workshop_part`), and the job he does in
+ * their place while it is open (Omsi-Hub 6/6: `repair.js`). */
 function Workshop({ b }) {
+  if (b.game) return html`<${RepairGame} g=${b.game} />`;
   if (b.locked) return html`<${Section} title=${b.title} style="max-width:760px;height:150px"><p class="co-para">${b.locked}</p></${Section}>`;
   return html`<div style="display:grid;grid-template-columns:62% minmax(0,1fr);gap:12px;height:100%">
     <${Section} title=${b.title}>
@@ -145,7 +147,7 @@ function Workshop({ b }) {
         ? html`<div class="co-scroll" style="flex:1;min-height:0">${b.jobs.map(
             (j) => html`<div class="co-job"><span class="icon" style=${`color:var(--co-${j.tone === 'accent2' ? 'accent2' : j.tone})`}><${Icon} name=${j.icon} size=${20} /></span>
               <div class="grow"><b class="cut">${j.name}</b><span class="cut">${j.what}</span></div><span class="t-ok save">${j.save}</span>
-              <${Btn} icon=${j.can ? null : 'lock'} label=${j.button} title=${j.can ? undefined : j.tip} style="width:138px;height:36px;padding:0 6px" onClick=${() => (j.can ? handOver('workshop') : act('job_blocked', { kind: j.kind }))} /></div>`,
+              <${Btn} icon=${j.can ? null : 'lock'} label=${j.button} title=${j.can ? undefined : j.tip} style="width:138px;height:36px;padding:0 6px" onClick=${() => (j.can ? act('job_start', { vehicle: j.id, kind: j.kind }) : act('job_blocked', { kind: j.kind }))} /></div>`,
           )}</div>`
         : html`<p class="co-para">${b.none}</p>`}
     </${Section}>

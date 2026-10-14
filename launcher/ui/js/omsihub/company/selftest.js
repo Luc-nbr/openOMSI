@@ -107,6 +107,27 @@ export async function selftest(check, errors) {
     check('company: the duty launcher', false, x.message);
   }
 
+  // the workshop job the player does (Trello "Tauri 6/6"): begun, its bus and parts drawn, a
+  // part checked, left again - nothing is booked
+  try {
+    const w = await cmd('co_view', { view: 'career', part: 3 });
+    const job = w?.body?.jobs?.find((j) => j.can);
+    if (!job) check('company: the workshop job', true, w?.body?.locked ? 'no workshop yet' : 'no bus to work on today');
+    else {
+      setUi('career', { part: 3 });
+      await act('job_start', { vehicle: job.id, kind: job.kind });
+      e = await shown('the workshop job', { tab: 6 }, 1200);
+      const drawn = $$('.co-repair-bus .mark').length;
+      await act('job_inspect', { part: 'lights' });
+      const g = (await cmd('co_view', { view: 'career', part: 3 }))?.body?.game;
+      check('company: the workshop job', !e && drawn === 8 && !!g?.parts?.[0]?.reading, e || `${g?.title}: ${drawn} parts, lights: ${g?.parts?.[0]?.reading}`);
+      await act('job_leave');
+      setUi('career', { part: 0 });
+    }
+  } catch (x) {
+    check('company: the workshop job', false, x.message);
+  }
+
   // the company's own tour (Trello "Tauri 6/6"): every stop finds its part
   setCo({ tab: HOME, dialog: null, popup: null });
   await sleep(500);

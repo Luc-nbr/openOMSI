@@ -34,14 +34,15 @@ function onRoute(d) {
   return d;
 }
 
-function load(map, date, trip) {
+function load(map, date, trip, read) {
   const key = `${map}|${date}|${trip}`;
-  if (!cache.has(key)) cache.set(key, call('route_map', { map, date, trip }).then(onRoute, (e) => ({ error: e.message })));
+  // Omsi-Hub: `read` reads the map another way (the company's duty: every trip's route at once)
+  if (!cache.has(key)) cache.set(key, (read ? read() : call('route_map', { map, date, trip })).then(onRoute, (e) => ({ error: e.message })));
   return cache.get(key);
 }
 
 // Omsi-Hub: `colors` ([casing, road, main road, route]) in place of the game's map colours
-export function RouteMap({ map, date, trip, stops = [], entry = -1, onEntry, height = 340, colors }) {
+export function RouteMap({ map, date, trip, stops = [], entry = -1, onEntry, height = 340, colors, read, onView }) {
   const box = useRef();
   const cv = useRef();
   const [data, setData] = useState(null);
@@ -51,7 +52,7 @@ export function RouteMap({ map, date, trip, stops = [], entry = -1, onEntry, hei
   useEffect(() => {
     if (!map) return;
     let alive = true;
-    load(map, date, trip).then((d) => {
+    load(map, date, trip, read).then((d) => {
       if (!alive) return;
       setData(d);
       view.current = null;
@@ -84,6 +85,8 @@ export function RouteMap({ map, date, trip, stops = [], entry = -1, onEntry, hei
       view.current = { cx: (lo[0] + hi[0]) / 2, cy: (lo[1] + hi[1]) / 2, mpp: span };
     }
     const v = view.current;
+    // Omsi-Hub: the metres a pixel holds, for a scale bar of ours beside the map
+    onView?.(v.mpp);
     const g = c.getContext('2d');
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, W, H);

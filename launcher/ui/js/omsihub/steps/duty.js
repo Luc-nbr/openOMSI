@@ -215,7 +215,7 @@ export function DutyStep() {
       })()
     : tour?.trips[pickedTrip() != null ? Math.max(0, tour.trips.findIndex((x) => x.index === pickedTrip())) : Math.max(0, tripAt(tour, c.time * 60))];
   return html`
-    <${MapBehind} key=${fit} trip=${trip || null} />
+    <${MapBehind} key=${fit} trip=${trip || null} scale />
     <${DutyMapTools} onRefit=${() => refit((k) => k + 1)} />
     <section class="hub-sheet narrow">
       <${Head} icon="schedule" title=${title} raw sub=${sub} />

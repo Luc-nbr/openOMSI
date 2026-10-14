@@ -36,6 +36,8 @@ mod portraits;
 pub mod words;
 // (what a driver has seen of the company's tour, Trello "Tauri 6/6")
 mod tour;
+// (the workshop job the player does himself, Trello "Tauri 6/6")
+mod repair;
 // (the rest of the pages, Trello "Tauri 3/6": a child of this module in a file of its own)
 #[path = "company_more.rs"]
 mod more;
@@ -132,7 +134,7 @@ pub fn mark_json(c: &Company) -> Value {
 }
 
 /// A logo picture as the page shows it (read once; at most 3 MB).
-fn logo_picture(path: &str) -> Option<String> {
+pub fn logo_picture(path: &str) -> Option<String> {
     static KEPT: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
     let kept = KEPT.get_or_init(Default::default);
     if let Some(x) = kept.lock().unwrap_or_else(|e| e.into_inner()).get(path) {
@@ -285,6 +287,8 @@ pub struct Session {
     /// Changes of own lines whose timetable could not be written (the company, the line
     /// editor's id, the company's day): they keep waiting (`due::changes_due`).
     unwritten: Vec<(String, u64, String)>,
+    /// The workshop job the player does, under way or done (`repair`). (Omsi-Hub 6/6)
+    pub repair: Option<repair::Game>,
 }
 
 /// The timetables of the company's week, read on a thread, and the plans made of them for a
@@ -1218,6 +1222,7 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
         "co_act" => with(|s| do_act(s, args, p)),
         "co_hand_over" => with(|s| hand_over(s, args)),
         "co_tour" => Ok(tour::answer(args)),
+        "co_duty_map" => duty_map(args, p),
         // (Omsi-Hub 6/6: the company's line of the line editor's line `id`, for RosterFlow's
         // Timeplan once the line editor confirmed it)
         "co_line_of" => with(|s| {
@@ -1347,6 +1352,7 @@ fn do_act(s: &mut Session, args: &Value, p: &dyn Platform) -> Answer {
             .or_else(|| money::act(s, &what, args))
             .or_else(|| inbox::act(s, &what, args))
             .or_else(|| career::act(s, &what, args, p))
+            .or_else(|| repair::act(s, &what, args))
             .or_else(|| casual::act(s, &what, args, p))
             .or_else(|| launch::act(s, &what, args, p))
             .unwrap_or_else(|| Err(format!("no action {what}"))),
@@ -1374,6 +1380,27 @@ fn hand_over(s: &mut Session, args: &Value) -> Answer {
     let named = part.strip_prefix("timetable=").or_else(|| part.strip_prefix("plan-line=").map(|x| x.split('|').next().unwrap_or("")));
     let edit = named.and_then(|n| s.company.as_ref()?.lines.iter().find(|l| l.name == n).and_then(lines::edit_to));
     Ok(json!({ "page": hand_over_page(&part, &id), "edit": edit }))
+}
+
+/// The duty launcher's map (Omsi-Hub 6/6): the routes of every trip of the duty, as
+/// `duty_launch::route_map` looks at them (`Look::trips`) - read by the game program in one go
+/// (`mapview::hub_fleet`) and given as upstream's route map has a trip's (`route_map`): the
+/// roads, the routes and the stops. The session is not held while the game program reads.
+fn duty_map(args: &Value, p: &dyn Platform) -> Answer {
+    let trips: Vec<String> = args.get("trips").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
+    let (map, date) = (str_arg(args, "map"), str_arg(args, "date"));
+    let (_, body) = p.renderer(json!({ "cmd": "map", "map": map, "date": date, "trip": "", "trips": trips }), std::time::Duration::from_secs(180))?;
+    let mut v: Value = serde_json::from_slice(&body).map_err(|e| format!("{e:#}"))?;
+    let tracks = v.get("tracks").and_then(Value::as_array).cloned().unwrap_or_default();
+    let route: Vec<Value> = tracks.iter().filter_map(|t| t.get("p").filter(|p| p.as_array().is_some_and(|a| !a.is_empty())).cloned()).collect();
+    let stops: Vec<Value> = tracks.iter().flat_map(|t| t.get("stops").and_then(Value::as_array).cloned().unwrap_or_default()).filter(|s| s.is_array()).map(|at| json!({ "at": at, "k": -1 })).collect();
+    v["route"] = json!(route);
+    v["stops"] = json!(stops);
+    v["entries"] = json!([]);
+    if let Some(o) = v.as_object_mut() {
+        o.remove("tracks");
+    }
+    Ok(v)
 }
 
 /// The `OMSI_LAUNCHER_PAGE` that opens the game-drawn launcher on the company's page `part` with

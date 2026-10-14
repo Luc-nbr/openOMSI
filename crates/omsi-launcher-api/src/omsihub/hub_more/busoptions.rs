@@ -357,12 +357,17 @@ pub fn set(args: &Value) -> Answer {
 /// What the game gets for `bus` in livery `paint` (`--setvar`): `[[var, value]]`.
 pub fn for_game(args: &Value) -> Answer {
     let (bus, paint) = (arg_str(args, "bus"), arg_str(args, "paint"));
-    let picks = BusOptions::load().of(&bus);
+    Ok(json!(vars_for(&bus, &paint)))
+}
+
+/// The bus options chosen for `bus` in `paint`, as the game takes them (`Options::for_game`).
+pub fn vars_for(bus: &str, paint: &str) -> Vec<(String, f32)> {
+    let picks = BusOptions::load().of(bus);
     if picks.is_empty() {
-        return Ok(json!([]));
+        return Vec::new();
     }
-    let cat = catalogue(&bus).ok().flatten();
-    Ok(json!(setvars(cat.as_deref(), &paint, &picks)))
+    let cat = catalogue(bus).ok().flatten();
+    setvars(cat.as_deref(), paint, &picks)
 }
 
 #[cfg(test)]

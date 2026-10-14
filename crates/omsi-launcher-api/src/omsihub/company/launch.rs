@@ -205,6 +205,8 @@ fn start(s: &mut Session, args: &Value, p: &dyn crate::Platform) -> Result<Value
     let weather = s.launch.as_ref().map(|x| x.weather.clone()).unwrap_or_else(|| "cycle".into());
     let mut d = st.duty(base, &weather);
     d.display_font = core::busfonts::BusFonts::load().font_for(&st.bus);
+    // (the bus options chosen for the bus, as `duty_launch::start` passes them: Omsi-Hub 6/6)
+    d.set_vars = super::super::hub_more::setvars(&st.bus, &st.paint);
     if dry {
         return Ok(json!({ "args": core::duty_args(&d).map_err(|e| format!("{e:#}"))? }));
     }
