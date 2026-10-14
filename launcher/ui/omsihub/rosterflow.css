@@ -324,6 +324,8 @@
 .rf-zoom:hover { color: var(--rf-text); }
 
 .rf-tip { position: absolute; z-index: 95; max-width: 360px; padding: 6px 9px; border-radius: 4px; background: var(--rf-tip); color: var(--rf-tip-ink); font-size: 9.6px; line-height: 1.35; box-shadow: var(--rf-shadow); pointer-events: none; white-space: normal; }
+/* (a tip of several lines: a break or a driving period of a duty) */
+.rf-tip.pre { white-space: pre-line; }
 
 /* --- cards, menus, windows ---------------------------------------------------------------------- */
 
@@ -478,6 +480,20 @@
 .rf-duty .way .rf-seg { width: 250px; height: 24px; }
 .rf-duty .between { padding-left: 16px; font-size: 8.45px; color: var(--rf-dim); margin-bottom: 2px; }
 .rf-duty .breaks { font-size: 9.2px; color: var(--rf-dim); margin: 8px 0; }
+/* a duty's breaks and driving periods: a dot in the colour the Gantt gives them */
+.rf-duty .rest, .rf-restcard .item { display: flex; align-items: center; gap: 7px; min-height: 19px; font-size: 9.2px; }
+.rf-duty .rest i, .rf-restcard .item i { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--rf-faint); }
+.rf-duty .rest i.ok, .rf-restcard .item i.ok { background: var(--rf-ok); }
+.rf-duty .rest i.split, .rf-restcard .item i.split { background: var(--rf-dim); }
+.rf-duty .rest i.calm, .rf-restcard .item i.calm { background: transparent; box-shadow: inset 0 0 0 1.5px var(--rf-dim); }
+.rf-duty .rest i.warn, .rf-restcard .item i.warn { background: var(--rf-warn); }
+.rf-duty .rest i.err, .rf-restcard .item i.err { background: var(--rf-err); }
+.rf-restcard > .body { gap: 3px; }
+.rf-restcard .why { margin: 1px 0; font-size: 9.4px; line-height: 1.35; color: var(--rf-card-text); }
+.rf-restcard .rf-caps { color: var(--rf-card-dim); margin-top: 4px; }
+.rf-restcard .item { color: var(--rf-card-text); }
+.rf-restcard .item.on { font-weight: 700; }
+.rf-restcard .item em { margin-left: auto; font-style: normal; color: var(--rf-card-dim); }
 .rf-duty .custom { display: flex; align-items: center; height: 26px; font-size: 9.6px; }
 .rf-duty .addcw { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 .rf-duty .addcw .rf-stepper { height: 28px; }
@@ -508,6 +524,9 @@
 .pf-row em { font-style: normal; font-size: 8.8px; color: var(--rf-dim); }
 .pf-limit { display: flex; flex-direction: column; gap: 10px; }
 .pf-note { margin: 0; font-size: 9.2px; color: var(--rf-dim); }
+/* what breaks a rule with the preferences as edited, next to its fields */
+.pf-live { margin: 4px 0 0; font-size: 9.6px; font-weight: 600; color: var(--rf-ok); }
+.pf-live.bad { color: var(--rf-err); }
 .pf-auto { font-size: 10px; font-weight: 500; }
 .pf-types { display: flex; flex-direction: column; gap: 12px; }
 .pf-type { padding: 10px 12px; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--rf-line); background: var(--rf-sheet); }

@@ -278,10 +278,11 @@ fn breaks_meals_and_continuous_driving_are_checked() {
     c2.planning.flow.prefs.continuous.on = false;
     let b = board(&c2, std::slice::from_ref(&l), &c2.date.clone());
     assert!(!b.issues.iter().any(|i| i.text == I_CONTINUOUS || i.text == I_MEAL));
-    // with layovers of 20 minutes counting as breaks: fine
+    // with layovers of 10 minutes counting as breaks (shown as breaks from 10): fine
     let mut c3 = company();
     c3.planning.flow.prefs.break_min = 10;
     c3.planning.flow.prefs.meal.value = 10;
+    c3.planning.flow.prefs.break_from = 10;
     let b = board(&c3, std::slice::from_ref(&l), &c3.date.clone());
     assert!(!b.issues.iter().any(|i| i.text == I_CONTINUOUS || i.text == I_MEAL));
     let _ = p;
@@ -535,4 +536,159 @@ fn a_lessons_snapshot_puts_the_draft_the_saved_planning_and_the_colours_back() {
     c.lines.push(CompanyLine { name: "Neu".into(), colour: "#123456".into(), ..Default::default() });
     snap.restore(&mut c);
     assert_eq!(c.lines[1].colour, "#123456");
+}
+
+#[test]
+fn a_duty_shows_its_breaks_and_driving_periods_as_the_rules_count_them() {
+    // (testers: "when you define for it to show you periods between a break it does not tell
+    // me"; "if over a figure eg 15 mins then it shows something as a break")
+    let c = company();
+    let l = line5();
+    let b = board(&c, std::slice::from_ref(&l), &c.date.clone());
+    let s = &b.shaped[0];
+    let p = &c.planning.flow.prefs;
+    // the plan the duty keeps is the one the rules count
+    assert_eq!(s.plan, break_plan(p, &b.tours, s));
+    // ten-minute layovers: standing time, no break - one driving period from sign-on to
+    // sign-off, over the 4:30 of the continuous rule; no meal break once 6:00 are worked
+    assert!(s.plan.breaks.is_empty());
+    assert_eq!(s.plan.stretches, vec![Stretch { from: s.start, to: s.end, over: true }]);
+    assert_eq!(s.plan.meal_due, Some(MealDue { from: s.start + p.meal_after, to: s.end, late: None }));
+    let mine: Vec<&Issue> = s.issues.iter().map(|&i| &b.issues[i]).collect();
+    assert!(mine.iter().any(|i| i.text == I_MEAL));
+    let cont = mine.iter().find(|i| i.text == I_CONTINUOUS).unwrap();
+    assert!(cont.args.contains(&("time", hm(s.plan.longest()))));
+    // gaps shown as breaks from ten minutes: every layover a break, too short to end a driving
+    // period (15) or for a meal (30) - the picture says so, and the issues stay
+    let mut c2 = company();
+    c2.planning.flow.prefs.break_from = 10;
+    let b2 = board(&c2, std::slice::from_ref(&l), &c2.date.clone());
+    let plan = &b2.shaped[0].plan;
+    assert_eq!(plan.breaks.len(), 7);
+    assert!(plan.breaks.iter().all(|x| x.kind == BreakKind::Short && !x.resets && !x.meal));
+    assert_eq!(plan.stretches.len(), 1);
+    assert_eq!(b2.issues.len(), b.issues.len());
+    // breaks of ten minutes end a driving period: one a trip, none over; still no meal break
+    c2.planning.flow.prefs.break_min = 10;
+    let b3 = board(&c2, std::slice::from_ref(&l), &c2.date.clone());
+    let plan = &b3.shaped[0].plan;
+    assert!(plan.breaks.iter().all(|x| x.kind == BreakKind::Break && x.resets));
+    assert_eq!(plan.stretches.len(), 8);
+    assert!(plan.stretches.iter().all(|x| !x.over));
+    assert!(!b3.issues.iter().any(|i| i.text == I_CONTINUOUS));
+    assert!(b3.issues.iter().any(|i| i.text == I_MEAL), "no break of 30 yet");
+    // a gap under the threshold is standing time even where it is long enough for a break:
+    // it ends no driving period
+    c2.planning.flow.prefs.break_from = 20;
+    let b4 = board(&c2, std::slice::from_ref(&l), &c2.date.clone());
+    assert!(b4.shaped[0].plan.breaks.is_empty());
+    assert!(b4.issues.iter().any(|i| i.text == I_CONTINUOUS));
+    // a split between two pieces: a break of its own kind, the meal break and the end of a
+    // driving period
+    let mut c5 = company();
+    let two = line_of(&[("1", 360, 3), ("2", 720, 3)]);
+    let w = wd(&c5);
+    let tours = tours_of_day(&c5, std::slice::from_ref(&two), &c5.date);
+    st::join(&mut c5, w, &tours, (0, 0), (1, 0)).unwrap();
+    let b5 = board(&c5, std::slice::from_ref(&two), &c5.date.clone());
+    let s5 = b5.shaped.iter().find(|x| x.spans.len() == 2).unwrap();
+    let split = s5.plan.breaks.iter().find(|x| x.kind == BreakKind::Split).unwrap();
+    assert!(split.meal && split.resets);
+    assert_eq!((split.from, split.to), (s5.splits[0].0, s5.splits[0].1));
+    assert_eq!(s5.plan.stretches.len(), 2);
+    assert_eq!(s5.plan.meal_due, None);
+}
+
+#[test]
+fn the_meal_break_comes_before_the_duty_has_worked_its_time() {
+    // tour 1 from 06:00 to 11:50, tour 2 from 12:30: one duty with half an hour between them
+    let mut c = company();
+    let l = line_of(&[("1", 360, 6), ("2", 750, 2)]);
+    let w = wd(&c);
+    let tours = tours_of_day(&c, std::slice::from_ref(&l), &c.date);
+    st::join(&mut c, w, &tours, (0, 0), (1, 0)).unwrap();
+    let date = c.date.clone();
+    let duty = |c: &Company| {
+        let b = board(c, std::slice::from_ref(&l), &date);
+        let s = b.shaped.iter().find(|x| x.spans.len() == 2).cloned().unwrap();
+        let texts: Vec<&'static str> = s.issues.iter().map(|&i| b.issues[i].text).collect();
+        (s, texts)
+    };
+    let (s, texts) = duty(&c);
+    // the break from 11:55 (the post-trip check) to 12:25 (the pre-trip check): a meal break,
+    // but after 6:10 of work from the sign-on at 05:45 - too late for 6:00
+    let meal = s.plan.breaks.iter().find(|x| x.kind == BreakKind::Meal).unwrap();
+    assert_eq!((meal.from, meal.to), (715, 745));
+    assert_eq!(s.plan.meal_due, Some(MealDue { from: 705, to: 715, late: Some(370) }));
+    assert!(texts.contains(&I_MEAL_LATE) && !texts.contains(&I_MEAL), "{texts:?}");
+    // 6:30 allowed: in time
+    c.planning.flow.prefs.meal_after = 390;
+    let (s, texts) = duty(&c);
+    assert_eq!(s.plan.meal_due, None);
+    assert!(!texts.contains(&I_MEAL_LATE) && !texts.contains(&I_MEAL));
+    // a meal break of 45: the half hour is a break, no meal break at all
+    c.planning.flow.prefs.meal.value = 45;
+    let (s, texts) = duty(&c);
+    assert!(s.plan.breaks.iter().all(|x| x.kind == BreakKind::Break));
+    assert!(texts.contains(&I_MEAL));
+}
+
+#[test]
+fn a_rule_changed_changes_the_issues_at_once() {
+    // (testers: "When it asks me about amount of time that can be worked before a break etc, its
+    // not actually realising this immediately")
+    let mut c = company();
+    let l = line5();
+    let date = c.date.clone();
+    let count = |c: &Company, text: &str| board(&view(c), std::slice::from_ref(&l), &date).issues.iter().filter(|i| i.text == text).count();
+    assert_eq!(count(&c, I_CONTINUOUS), 2);
+    c.planning.flow.prefs.continuous.value = 600;
+    assert_eq!(count(&c, I_CONTINUOUS), 0);
+    c.planning.flow.prefs.continuous.value = 120;
+    assert_eq!(count(&c, I_CONTINUOUS), 2);
+    // the ten-minute layovers made breaks that end a driving period: none over 2:00
+    c.planning.flow.prefs.break_from = 10;
+    c.planning.flow.prefs.break_min = 10;
+    assert_eq!(count(&c, I_CONTINUOUS), 0);
+    // the meal rule: a day of 8:15 within the time worked before a meal, then over it
+    assert_eq!(count(&c, I_MEAL), 2);
+    c.planning.flow.prefs.meal_after = 540;
+    assert_eq!(count(&c, I_MEAL), 0);
+    c.planning.flow.prefs.meal_after = 240;
+    assert_eq!(count(&c, I_MEAL), 2);
+    // (a draft keeps its blocks and duties; the rules are the company's at once)
+    let mut v = view(&c);
+    set_block_lock(&mut v, wd(&c), "Linie5", "1", true);
+    keep_draft(&mut c, &v);
+    assert!(has_draft(&c));
+    c.planning.flow.prefs.meal.on = false;
+    assert_eq!(count(&c, I_MEAL), 0);
+    // (an old save without the threshold: the default)
+    let old: Prefs = serde_json::from_str(r#"{"break_min":20}"#).unwrap();
+    assert_eq!((old.break_from, old.break_min), (15, 20));
+}
+
+#[test]
+fn optimise_pairs_pieces_only_across_a_break_the_rules_count() {
+    // two buses cut at 10:00 and 10:30: the first's morning and the second's afternoon have 40
+    // minutes between them at A
+    let l = line5();
+    let joined_of = |c: &Company| {
+        let date = c.date.clone();
+        let (lays, joined) = optimise(c, std::slice::from_ref(&l), &date);
+        let mut probe = c.clone();
+        let w = wd(c);
+        apply(&mut probe, w, lays, joined);
+        board(&probe, std::slice::from_ref(&l), &date)
+    };
+    let b = joined_of(&company());
+    assert!(b.shaped.iter().any(|s| s.spans.len() == 2), "a duty of two pieces");
+    assert!(!b.issues.iter().any(|i| i.text == I_CONTINUOUS || i.text == I_MEAL || i.text == I_MEAL_LATE), "{:?}", b.issues.iter().map(|i| i.text).collect::<Vec<_>>());
+    // a break is 45 minutes now: the 40 between them end no driving period, the pieces are not
+    // paired over them
+    let mut c = company();
+    c.planning.flow.prefs.break_min = 45;
+    let b = joined_of(&c);
+    assert!(!b.issues.iter().any(|i| i.text == I_CONTINUOUS), "{:?}", b.issues.iter().map(|i| issue_text(i, &|t| t.to_string())).collect::<Vec<_>>());
+    assert_eq!(b.figures.assigned, 16);
 }

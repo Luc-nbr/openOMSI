@@ -4,7 +4,8 @@
 // rows, the Validation panel (open and dismissed issues, Filter Issues, Dismiss Issues), the duty
 // panel (its type, lock, times, paid time, signing, pieces, travel, breaks and custom work), and
 // the small windows of the toolbar, the title bar and the status bar (history, Stats, Layers,
-// Filter, zoom, print, the day, a line's colour, go to, the optimisation settings, a histogram).
+// Filter, zoom, print, the day, a line's colour, go to, the optimisation settings, a histogram);
+// and a duty's break or driving period clicked in the Drivers Gantt, with the duty's others.
 // Everything in the studio's own units (its top left 0, 0), as `rf_panels` lays it out.
 
 import { html, useEffect, useRef, useState } from '../../../vendor/preact-htm.js';
@@ -136,6 +137,8 @@ function Card({ data, card, drivers, size }) {
       return html`<${StackCard} data=${data} c=${card} size=${size} />`;
     case 'selection':
       return html`<${SelectionCard} data=${data} c=${card} drivers=${drivers} size=${size} />`;
+    case 'rest':
+      return html`<${RestCard} data=${data} c=${card} size=${size} />`;
     default:
       return null;
   }
@@ -243,6 +246,34 @@ function EventCard({ data, c, size }) {
       <div class="tl wide"><${TimeLine} from=${e.from} to=${e.to} mid=${`${e.to - e.from} min`} /></div>
       ${e.kind === 'travel' && html`<${Seg} at=${e.mode} labels=${TRAVEL} onPick=${(k) => edit('travel_event', { row: c.row, mode: k, from: e.from })} />`}
       ${e.kind === 'custom' && html`<${RfButton} label="Delete" style="width:120px;height:28px" onClick=${() => edit('custom_delete', { row: c.row, ci: e.ci })} />`}
+    </div>
+  </div>`;
+}
+
+/** A duty's break, driving period or missing meal break clicked in the Drivers Gantt: when, what it
+ * keeps or breaks, and the duty's breaks and driving periods with it (`breaks.rs`). */
+function RestCard({ data, c, size }) {
+  const s = data.board.duties[c.row];
+  const rest = s?.rest;
+  if (!rest) return null;
+  const it = c.what === 'break' ? rest.breaks[c.k] : c.what === 'period' ? rest.periods[c.k] : rest.meal;
+  if (!it) return null;
+  const head = c.what === 'break' ? it.label : c.what === 'period' ? `${tr('Driving period')} ${it.text}` : tr(it.late ? 'Meal break too late' : 'No meal break');
+  const lines = String(it.tip || '').split('\n').slice(c.what === 'meal' ? 0 : 1);
+  const bad = (c.what === 'period' && it.over) || c.what === 'meal';
+  const tone = (hard) => (hard ? 'err' : 'warn');
+  const h = Math.min(size.h - 12, 132 + lines.length * 17 + (rest.breaks.length + rest.periods.length) * 19 + 44);
+  return html`<div class="rf-over rf-card rf-restcard" style=${place(c.at, 360, h, size)}>
+    <div class=${'head' + (bad ? ' warn' : '')}><${Icon} name="person" size=${17} /><b class="cut">${s.label}  ·  ${head}</b></div>
+    <div class="body">
+      <div class="tl wide"><${TimeLine} from=${it.from} to=${it.to} mid=${hm(it.to - it.from)} /></div>
+      ${lines.map((l) => html`<p class="why">${l}</p>`)}
+      <hr />
+      <${Caps} text="Breaks" />
+      ${!rest.breaks.length && html`<p class="why">${tr('None')}</p>`}
+      ${rest.breaks.map((b, k) => html`<div class=${'item' + (c.what === 'break' && c.k === k ? ' on' : '')} title=${b.tip}><i class=${b.kind === 'split' ? 'split' : b.counts ? 'ok' : 'short'}></i><span>${b.label}</span><em>${clock(b.from)}–${clock(b.to)}</em></div>`)}
+      <${Caps} text="Driving periods" />
+      ${rest.periods.map((x, k) => html`<div class=${'item' + (c.what === 'period' && c.k === k ? ' on' : '')} title=${x.tip}><i class=${x.over ? tone(rest.period_hard) : 'calm'}></i><span>${x.text}</span><em>${clock(x.from)}–${clock(x.to)}</em></div>`)}
     </div>
   </div>`;
 }
@@ -537,7 +568,12 @@ function DutyPanel({ data, id, gTop }) {
           ${v.pieces.length > 1 && html`<button type="button" title=${tr('Take the piece out: a duty of its own')} onClick=${() => rfAct('detach', { tour: pc.tour, duty: pc.duty })}><${Icon} name="close" size=${15} /></button>`}</div>
         ${pc.travel != null && html`<div class="way"><${Icon} name="directions_walk" size=${15} /><${Seg} at=${pc.travel} labels=${v.travel_labels} raw onPick=${(k) => note('travel', k, { gap: n })} /></div>`}
         ${pc.between && html`<div class="between">${pc.between}</div>`}`)}
-      ${v.breaks && html`<p class="breaks">${v.breaks}</p>`}
+      ${v.rest && html`<${Caps} text="Breaks" style="margin-top:8px" />
+        ${!v.rest.breaks.length && html`<p class="breaks">${v.rest.none}</p>`}
+        ${v.rest.breaks.map((b) => html`<div class="rest" title=${b.tip}><i class=${b.kind === 'split' ? 'split' : b.counts ? 'ok' : 'short'}></i><span>${b.words}</span></div>`)}
+        <${Caps} text="Driving periods" style="margin-top:6px" />
+        ${v.rest.periods.map((x) => html`<div class="rest" title=${x.tip}><i class=${x.over ? (v.rest.period_hard ? 'err' : 'warn') : 'calm'}></i><span>${x.words}</span></div>`)}
+        ${v.rest.meal && html`<div class="rest"><i class=${v.rest.meal_hard ? 'err' : 'warn'}></i><span>${v.rest.meal}</span></div>`}`}
       <${Caps} text="Custom work" style="margin-top:8px" />
       ${v.custom.map((cw, n) => html`<div class="custom"><span>${cw}</span><button type="button" onClick=${() => rfAct('custom_delete', { row, ci: n })}><${Icon} name="delete" size=${15} /></button></div>`)}
       <div class="addcw">
@@ -580,12 +616,15 @@ function StatsWindow({ drivers, gTop }) {
 function LayersWindow({ gTop }) {
   const ly = S.rf.layers;
   const set = (patch) => setRf({ layers: { ...ly, ...patch } });
-  return html`<div class="rf-over rf-menu rf-small" style=${`left:330px;top:${gTop - 2}px;width:330px;height:230px`}>
+  const periods = ly.periods !== false;
+  return html`<div class="rf-over rf-menu rf-small" style=${`left:330px;top:${gTop - 2}px;width:330px;height:286px`}>
     <${Caps} text="Trips" class="menu-caps" />
     ${['Route', 'Start and end time', 'Start and end stops'].map((w, k) => html`<${CheckRow} on=${ly.label === k} label=${w} onChange=${() => set({ label: k })} />`)}
     <${Caps} text="Between trips" class="menu-caps" />
     <${CheckRow} on=${ly.breaks} label="Break duration" onChange=${() => set({ breaks: !ly.breaks })} />
     <${CheckRow} on=${ly.moved} label="Mark trips off their timetable tour" onChange=${() => set({ moved: !ly.moved })} />
+    <${Caps} text="Duties" class="menu-caps" />
+    <${CheckRow} on=${periods} label="Driving periods under the duties" onChange=${() => set({ periods: !periods })} />
   </div>`;
 }
 

@@ -243,12 +243,17 @@ pub struct Prefs {
     pub walk: i32,
     pub public: i32,
     pub car: i32,
-    /// Duty breaks: a duty working more than `meal_after` needs a break of `meal.value`.
+    /// Duty breaks: a duty working more than `meal_after` needs a break of `meal.value`, begun
+    /// before it has worked `meal_after`.
     pub meal: Limit,
     pub meal_after: i32,
     /// Continuous break: at most `continuous.value` without a break of `break_min`.
     pub continuous: Limit,
     pub break_min: i32,
+    /// A gap in a duty this long or longer is a break (labelled in the Gantt, counted by the
+    /// meal and continuous rules); a shorter one is standing time (testers: "if over a figure eg
+    /// 15 mins then it shows something as a break").
+    pub break_from: i32,
     /// A layover inside a piece counts as a break (Optibus's "attendance counts as break").
     pub layover_breaks: bool,
     /// Time limitation: the spread (sign-on to sign-off) at most.
@@ -294,6 +299,7 @@ impl Default for Prefs {
             meal_after: 360,
             continuous: Limit::hard(270),
             break_min: 15,
+            break_from: 15,
             layover_breaks: true,
             max_spread: Limit::soft(780, 50_00),
             min_piece: Limit::soft(60, 10_00),
@@ -787,6 +793,8 @@ pub struct Shaped {
     pub locked: bool,
     /// Its issues: indices into `Board::issues`.
     pub issues: Vec<usize>,
+    /// Its breaks and driving periods as the rules count them (`break_plan`).
+    pub plan: BreakPlan,
 }
 
 impl Shaped {
@@ -881,6 +889,7 @@ pub struct Issue {
 // the issues' words
 pub const I_TYPE: &str = "Duty type unsatisfied: the duty is %{type}";
 pub const I_MEAL: &str = "No meal break: a duty working over %{after} needs a break of %{min}";
+pub const I_MEAL_LATE: &str = "Meal break too late: %{time} of work before it, at most %{after}";
 pub const I_CONTINUOUS: &str = "%{time} without a break: at most %{max} before a break of %{min}";
 pub const I_SPREAD: &str = "Spread of %{time}, over the limit of %{max}";
 pub const I_SHORT_PIECE: &str = "A piece of %{time}, shorter than %{min}";
@@ -903,10 +912,10 @@ pub const I_DAY_UNPLANNED: &str = "%{n} tours in service have no bus or driver i
 /// nothing until its timetable is made in the Timeplan (the issue's "line" its timetable name).
 pub const I_NO_TIMETABLE: &str = "Line %{n} has no timetable yet: make it in the Timeplan";
 
-pub const ISSUE_TEXTS: [&str; 19] = [I_TYPE, I_MEAL, I_CONTINUOUS, I_SPREAD, I_SHORT_PIECE, I_CHANGEOVERS, I_TRAVEL, I_RULE, I_RULE_TIME, I_LAYOVER, I_DEADHEAD, I_UNASSIGNED, I_BUSES, I_DEPOT, I_DRIVERS, I_DAY, I_DAY_FILLED, I_DAY_UNPLANNED, I_NO_TIMETABLE];
+pub const ISSUE_TEXTS: [&str; 20] = [I_TYPE, I_MEAL, I_MEAL_LATE, I_CONTINUOUS, I_SPREAD, I_SHORT_PIECE, I_CHANGEOVERS, I_TRAVEL, I_RULE, I_RULE_TIME, I_LAYOVER, I_DEADHEAD, I_UNASSIGNED, I_BUSES, I_DEPOT, I_DRIVERS, I_DAY, I_DAY_FILLED, I_DAY_UNPLANNED, I_NO_TIMETABLE];
 
 /// The issues' short titles (the Validation panel's groups), in `ISSUE_TEXTS`' order.
-pub const ISSUE_TITLES: [&str; 19] = ["Duty type unsatisfied", "No meal break", "Driving without a break", "Spread over the limit", "Pieces too short", "Too many changes of bus", "No time to get to the relief point", "Working time", "Working time", "Layovers too short", "Deadheads estimated", "Trips not assigned", "More buses than the company has", "More buses than the depot holds", "More duties than drivers", "The day's roster", "The day's roster", "The day's roster", "Lines without a timetable"];
+pub const ISSUE_TITLES: [&str; 20] = ["Duty type unsatisfied", "No meal break", "Meal break too late", "Driving without a break", "Spread over the limit", "Pieces too short", "Too many changes of bus", "No time to get to the relief point", "Working time", "Working time", "Layovers too short", "Deadheads estimated", "Trips not assigned", "More buses than the company has", "More buses than the depot holds", "More duties than drivers", "The day's roster", "The day's roster", "The day's roster", "Lines without a timetable"];
 
 /// An issue's short title (its group in the Validation panel).
 pub fn issue_title(text: &str) -> &'static str {
@@ -1134,7 +1143,7 @@ pub fn board_of(c: &Company, wd: u8, tours: Vec<TourOfDay>, stack: Vec<(String, 
             Some(t) => add(I_TYPE, vec![("type", t.name.clone())], true, 0),
             None => add(I_TYPE, vec![("type", OTHER.to_string())], true, 0),
         }
-        check_breaks(p, &tours, s, &mut add);
+        check_breaks(p, s, &mut add);
         if p.max_spread.on && s.spread() > p.max_spread.value {
             add(I_SPREAD, vec![("time", hm(s.spread())), ("max", hm(p.max_spread.value))], p.max_spread.hard, p.max_spread.penalty);
         }
@@ -1263,11 +1272,14 @@ fn shape(p: &Prefs, tours: &[TourOfDay], d: &Duty, di: Option<usize>, key: Optio
         Some(k) => (k, true),
         None => (p.duty_types.iter().position(|t| t.fits(start, end, split)), false),
     };
-    Shaped { duty: di, spare: None, key, spans, events, custom: n.custom.clone(), start, end, work, paid, driving, platform, splits, changeovers, kind, kind_set, locked: n.locked, issues: Vec::new() }
+    let mut s = Shaped { duty: di, spare: None, key, spans, events, custom: n.custom.clone(), start, end, work, paid, driving, platform, splits, changeovers, kind, kind_set, locked: n.locked, issues: Vec::new(), plan: BreakPlan::default() };
+    s.plan = break_plan(p, tours, &s);
+    s
 }
 
 /// The breaks of a duty a meal or a rest can be taken in: the gaps between its work, and (if
-/// the preferences say so) the layovers inside its pieces.
+/// the preferences say so) the layovers inside its pieces with no other work in them - only
+/// those of `Prefs::break_from` or more: a shorter gap is standing time.
 pub fn breaks_of(p: &Prefs, tours: &[TourOfDay], s: &Shaped) -> Vec<(i32, i32)> {
     let mut busy: Vec<(i32, i32)> = s.spans.iter().map(|x| (x.from, x.to)).chain(s.events.iter().map(|e| (e.from, e.to))).collect();
     busy.sort();
@@ -1285,29 +1297,163 @@ pub fn breaks_of(p: &Prefs, tours: &[TourOfDay], s: &Shaped) -> Vec<(i32, i32)> 
             let r = network::duties_of(t).get(sp.duty).cloned().unwrap_or(0..0);
             for k in r.start + 1..r.end {
                 let (x, n) = (&t.trips[k - 1], &t.trips[k]);
-                if same(x.end(), &n.from) && n.dep > x.arr {
+                // (custom work or travel in the layover: no break)
+                if same(x.end(), &n.from) && n.dep > x.arr && !s.events.iter().any(|e| e.from < n.dep && x.arr < e.to) {
                     out.push((x.arr, n.dep));
                 }
             }
         }
     }
+    out.retain(|b| b.1 - b.0 >= p.break_from.max(1));
     out.sort();
     out
 }
 
-fn check_breaks(p: &Prefs, tours: &[TourOfDay], s: &Shaped, add: &mut dyn FnMut(&'static str, Vec<(&'static str, String)>, bool, Cents)) {
-    if s.spans.is_empty() {
-        return;
+/// What a break of a duty is, as RosterFlow shows it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BreakKind {
+    /// Between two pieces, long enough to be a split (unpaid: `Prefs::split_min`).
+    Split,
+    /// Long enough for the meal rule (`Prefs::meal`).
+    Meal,
+    /// Long enough to end a driving period (`Prefs::break_min`).
+    Break,
+    /// A break (`Prefs::break_from`), too short to end a driving period.
+    Short,
+}
+
+/// A break of a duty: when, what it is, and which rules it counts for.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DutyBreak {
+    pub from: i32,
+    pub to: i32,
+    pub kind: BreakKind,
+    /// Long enough for the meal break a long duty needs (`Prefs::meal`).
+    pub meal: bool,
+    /// Long enough to end a driving period (`Prefs::break_min`).
+    pub resets: bool,
+}
+
+/// A driving period of a duty: its work from the sign-on, or from a break that ends one, to the
+/// next such break or the sign-off (the continuous rule's), and whether it is longer than the
+/// rule allows.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Stretch {
+    pub from: i32,
+    pub to: i32,
+    pub over: bool,
+}
+
+/// Where a duty breaks the meal rule: from `from`, when it has worked `Prefs::meal_after`, to
+/// `to` (its meal break that came too late, or its end); `late` the minutes worked before that
+/// late meal break (None: no meal break at all).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MealDue {
+    pub from: i32,
+    pub to: i32,
+    pub late: Option<i32>,
+}
+
+/// A duty's breaks and its driving periods between them as the rules see them: the issues
+/// (`check_breaks`), the Gantt's labels and band and the duty panel all take them from here, so
+/// the picture and the issues agree (testers: "it does not tell me so it's a bit of guesswork").
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct BreakPlan {
+    pub breaks: Vec<DutyBreak>,
+    pub stretches: Vec<Stretch>,
+    /// The meal rule broken (`MealDue`).
+    pub meal_due: Option<MealDue>,
+}
+
+impl BreakPlan {
+    /// The longest driving period.
+    pub fn longest(&self) -> i32 {
+        self.stretches.iter().map(|s| s.to - s.from).max().unwrap_or(0)
     }
-    let breaks = breaks_of(p, tours, s);
-    if p.meal.on && s.work > p.meal_after && !breaks.iter().any(|b| b.1 - b.0 >= p.meal.value) {
-        add(I_MEAL, vec![("after", hm(p.meal_after)), ("min", hm(p.meal.value))], p.meal.hard, p.meal.penalty);
-    }
-    if p.continuous.on {
-        let longest = longest_stretch(s.start, s.end, &breaks, p.break_min);
-        if longest > p.continuous.value {
-            add(I_CONTINUOUS, vec![("time", hm(longest)), ("max", hm(p.continuous.value)), ("min", hm(p.break_min))], p.continuous.hard, p.continuous.penalty);
+}
+
+/// The minute duty `s` has worked `worked` minutes by (its splits unpaid, not work).
+fn minute_worked(s: &Shaped, worked: i32) -> i32 {
+    let mut at = s.start;
+    let mut left = worked;
+    let mut splits = s.splits.clone();
+    splits.sort();
+    for (a, z) in splits {
+        if at + left <= a {
+            break;
         }
+        left -= (a - at).max(0);
+        at = at.max(z);
+    }
+    at + left
+}
+
+/// The minutes duty `s` has worked by minute `m` (its splits unpaid, not work).
+fn worked_by(s: &Shaped, m: i32) -> i32 {
+    let off: i32 = s.splits.iter().map(|x| (x.1.min(m) - x.0).max(0)).sum();
+    (m - s.start - off).max(0)
+}
+
+/// The breaks of duty `s` and the driving periods between them (`BreakPlan`).
+pub fn break_plan(p: &Prefs, tours: &[TourOfDay], s: &Shaped) -> BreakPlan {
+    let mut out = BreakPlan::default();
+    if s.spans.is_empty() {
+        return out;
+    }
+    for (from, to) in breaks_of(p, tours, s) {
+        let len = to - from;
+        let split = s.splits.iter().any(|x| x.0 < to && from < x.1);
+        let meal = p.meal.on && len >= p.meal.value;
+        let resets = len >= p.break_min;
+        let kind = if split {
+            BreakKind::Split
+        } else if meal {
+            BreakKind::Meal
+        } else if resets {
+            BreakKind::Break
+        } else {
+            BreakKind::Short
+        };
+        out.breaks.push(DutyBreak { from, to, kind, meal, resets });
+    }
+    // the driving periods: from the sign-on to each break that ends one, and on to the sign-off
+    let mut since = s.start;
+    for b in out.breaks.iter().filter(|b| b.resets) {
+        if b.from < since {
+            since = since.max(b.to);
+            continue;
+        }
+        out.stretches.push(Stretch { from: since, to: b.from, over: false });
+        since = b.to;
+    }
+    if s.end > since || out.stretches.is_empty() {
+        out.stretches.push(Stretch { from: since, to: s.end.max(since), over: false });
+    }
+    for st in out.stretches.iter_mut() {
+        st.over = p.continuous.on && st.to - st.from > p.continuous.value;
+    }
+    // the meal rule: a duty working over `meal_after` has its meal break before it has worked
+    // that long
+    if p.meal.on && s.work > p.meal_after {
+        let due = minute_worked(s, p.meal_after);
+        if !out.breaks.iter().any(|b| b.meal && b.from <= due) {
+            let late = out.breaks.iter().find(|b| b.meal && b.from > due);
+            out.meal_due = Some(MealDue { from: due, to: late.map(|b| b.from).unwrap_or(s.end), late: late.map(|b| worked_by(s, b.from)) });
+        }
+    }
+    out
+}
+
+/// The meal and continuous rules of duty `s`, as its `BreakPlan` has them.
+fn check_breaks(p: &Prefs, s: &Shaped, add: &mut dyn FnMut(&'static str, Vec<(&'static str, String)>, bool, Cents)) {
+    let plan = &s.plan;
+    match plan.meal_due {
+        Some(MealDue { late: Some(m), .. }) => add(I_MEAL_LATE, vec![("time", hm(m)), ("after", hm(p.meal_after)), ("min", hm(p.meal.value))], p.meal.hard, p.meal.penalty),
+        Some(_) => add(I_MEAL, vec![("after", hm(p.meal_after)), ("min", hm(p.meal.value))], p.meal.hard, p.meal.penalty),
+        None => {}
+    }
+    if plan.stretches.iter().any(|x| x.over) {
+        add(I_CONTINUOUS, vec![("time", hm(plan.longest())), ("max", hm(p.continuous.value)), ("min", hm(p.break_min.max(p.break_from)))], p.continuous.hard, p.continuous.penalty);
     }
 }
 
@@ -1581,6 +1727,57 @@ fn cut_block(c: &Company, tours: &[TourOfDay], i: usize, p: &Prefs) -> Vec<Range
     out
 }
 
+/// Whether pieces `ps` (in order) may be one duty by the meal and continuous rules as far as the
+/// gaps between them go, and the penalties of the soft ones they break (None: a hard one): the
+/// pieces joined by gaps too short to end a driving period (`Prefs::break_min`, `break_from`)
+/// within the continuous limit together, and a duty working over `meal_after` with a gap of a
+/// meal break before it has worked that long. (A piece alone is as `cut_block` cut it.)
+fn pair_breaks(p: &Prefs, ps: &[&Cut]) -> Option<f64> {
+    let mut penalty = 0.0;
+    let mut broken = |lim: &Limit| {
+        if lim.hard {
+            return false;
+        }
+        penalty += lim.penalty as f64;
+        true
+    };
+    let rest = p.break_min.max(p.break_from);
+    if p.continuous.on {
+        let mut run = ps.first().map(|x| x.from).unwrap_or(0);
+        let mut over = false;
+        for w in ps.windows(2) {
+            if w[1].from - w[0].to >= rest {
+                run = w[1].from;
+            } else {
+                over |= w[1].to - run > p.continuous.value;
+            }
+        }
+        if over && !broken(&p.continuous) {
+            return None;
+        }
+    }
+    if p.meal.on {
+        let start = ps.first().map(|x| x.from).unwrap_or(0) - p.sign_on;
+        let end = ps.iter().map(|x| x.to).max().unwrap_or(0) + p.sign_off;
+        let gaps: Vec<(i32, i32)> = ps.windows(2).map(|w| (w[0].to, w[1].from)).collect();
+        let unpaid: i32 = gaps.iter().map(|g| g.1 - g.0).filter(|g| *g >= p.split_min).sum();
+        if end - start - unpaid > p.meal_after {
+            // (the minute it has worked `meal_after`: the splits unpaid)
+            let mut due = start + p.meal_after;
+            for g in gaps.iter().filter(|g| g.1 - g.0 >= p.split_min) {
+                if g.0 < due {
+                    due += g.1 - g.0;
+                }
+            }
+            let meal = p.meal.value.max(p.break_from);
+            if !gaps.iter().any(|g| g.1 - g.0 >= meal && g.0 <= due) && !broken(&p.meal) {
+                return None;
+            }
+        }
+    }
+    Some(penalty)
+}
+
 /// What a planning costs Optimise: the day's cost, the soft rules' penalties, and every hard
 /// rule broken as dear as a bus a day more (so a planning that breaks none is chosen first).
 pub fn weighed(b: &Board) -> Cents {
@@ -1720,6 +1917,10 @@ pub fn optimise_with(c: &Company, lines: &[LineInfo], date: &str, vehicles: bool
                     continue;
                 }
                 penalty += p.changeovers.penalty as f64;
+            }
+            match pair_breaks(&p, &ps) {
+                Some(more) => penalty += more,
+                None => continue,
             }
             let delta = (paid_of(&ps) - before) as f64 * rate + penalty;
             if delta < alone && best.is_none_or(|b| delta < b.1) {
