@@ -53,6 +53,9 @@ fork's Omsi-Hub look; it is the only launcher - the game draws none of its own. 
 missing, or its window cannot open (a Windows without WebView2: the game offers Microsoft's
 installer), the game says so. See [the launcher](docs/USER_GUIDE.md#the-launcher).
 
+Logo wordmark set in Switzer by Indian Type Foundry (Fontshare): "Omsi-" as outlines in the
+logo's drawing only (the font is not part of this repository); "Hub" in Hanken Grotesk (OFL).
+
 From 0.1.7 on the launcher updates itself: when a newer release is out it asks at the start
 and, with your yes, downloads it, replaces the program and starts again (on Android through
 the system's installer). Settings → General → Updates switches the check off or installs without

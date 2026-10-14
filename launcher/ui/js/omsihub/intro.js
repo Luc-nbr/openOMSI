@@ -51,10 +51,9 @@ const PASS_BELOW = 0.2;
 const MAX_STEP = 0.05;
 /** The mark's drawing at a 1440 x 900 window: its ring (174 in the drawing) 64 px round. */
 const UNIT = 64 / 174;
-/** "Hub"'s slant, and its letters' capitals; "Omsi-"'s capitals. */
+/** "Hub"'s slant; the capitals of "Omsi-" and of "Hub" (`logo.js`). */
 const SLANT = 0.26;
-const HEAVY_CAP = 170;
-const LIGHT_CAP = 152.7;
+const [LIGHT_CAP, HEAVY_CAP] = MARK.caps;
 
 // --- easing (`intro.rs`'s) ------------------------------------------------------------------
 
