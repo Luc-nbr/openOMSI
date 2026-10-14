@@ -32,7 +32,9 @@ export function OverviewPage() {
           <${Btn} icon="sync_alt" label=${v.companies.button} style="height:38px" onClick=${() => cmd('co_act', { act: 'play', speed: 0 }).finally(() => setCo({ chooser: 'companies' }))} /></div>
       </${Section}>`;
   }
-  return html`<div class="co-overview" ref=${ref} style="position:relative;height:100%;overflow:hidden">${body}</div>`;
+  // (the last card at least 80 high runs past the page's foot on a low window, as the game-drawn
+  // launcher's does: not cut off)
+  return html`<div class="co-overview" ref=${ref} style="position:relative;height:100%;overflow:visible">${body}</div>`;
 }
 
 /** The last days' results as bars on a scale of round steps, the days under them

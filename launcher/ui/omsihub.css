@@ -29,6 +29,7 @@
   --hub-accent-deep: #cb6f1b;
   --hub-accent-chosen: #f58620;
   --hub-accent-text: #f9bc84;
+  --hub-accent-text-rgb: 249, 188, 132;
   --hub-on-accent: #181006;
   --hub-ground: #0a142e;
   --hub-panel: #141a26;
@@ -39,11 +40,14 @@
   --hub-text-soft: #c4cad6;
   --hub-text-dim: #959db0;
   --hub-text-faint: #60687a;
-  --hub-edge: rgba(255, 255, 255, 0.08);
-  --hub-hairline: rgba(255, 255, 255, 0.09);
+  /* (theme.rs's see-through whites - an edge .08, a hairline .09, a switch's track .16, a
+     slider's rail .12 - as it blends them, in linear light: over the panel about as strong as
+     these blended plainly, `--aw-*` of omsihub/company.css) */
+  --hub-edge: rgba(255, 255, 255, 0.268);
+  --hub-hairline: rgba(255, 255, 255, 0.287);
   --hub-lift: rgba(255, 255, 255, 0.06);
-  --hub-track: rgba(255, 255, 255, 0.16);
-  --hub-rail: rgba(255, 255, 255, 0.12);
+  --hub-track: rgba(255, 255, 255, 0.407);
+  --hub-rail: rgba(255, 255, 255, 0.34);
   --hub-knob: #f0f0f0;
   --hub-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
   --hub-scrim: rgba(4, 7, 15, 0.62);
@@ -115,11 +119,13 @@
   --hub-text-soft: #464248;
   --hub-text-dim: #645f62;
   --hub-text-faint: #86807e;
-  --hub-edge: rgba(22, 20, 26, 0.13);
-  --hub-hairline: rgba(22, 20, 26, 0.1);
+  /* (the dark look's see-through whites as see-through ink, `theme.rs`'s `overlay_alpha`, in
+     linear light as the bus company's are, omsihub/company.css) */
+  --hub-edge: rgba(22, 20, 26, 0.126);
+  --hub-hairline: rgba(22, 20, 26, 0.134);
   --hub-lift: rgba(22, 20, 26, 0.05);
-  --hub-track: rgba(22, 20, 26, 0.16);
-  --hub-rail: rgba(22, 20, 26, 0.12);
+  --hub-track: rgba(22, 20, 26, 0.185);
+  --hub-rail: rgba(22, 20, 26, 0.157);
   --hub-shadow: 0 6px 24px rgba(60, 40, 20, 0.14);
   --hub-scrim: rgba(30, 24, 18, 0.4);
   --hub-glass: rgba(255, 255, 255, 0.4);
@@ -188,7 +194,11 @@
   -webkit-mask-composite: xor; mask-composite: exclude;
 }
 .hub-glass.glow { box-shadow: 0 0 0 1px rgba(var(--hub-accent-rgb), 0.06), 0 0 34px var(--hub-glass-glow), 0 18px 40px rgba(0, 0, 0, 0.08); }
-:root.hub[data-theme="dark"] .hub-glass.glow { box-shadow: 0 0 0 1px rgba(var(--hub-accent-rgb), 0.28), 0 0 30px var(--hub-glass-glow), 0 18px 40px rgba(0, 0, 0, 0.35); }
+/* (dark: the game-drawn launcher's glow round the pane and the light caught inside its edge are
+   the accent's, blended in linear light - stronger than they look as numbers: matched to its
+   pictures, `flow::glass_pane`; no shadow under the pane) */
+:root.hub[data-theme="dark"] .hub-glass.glow { box-shadow: 0 0 24px rgba(var(--hub-accent-rgb), 0.62), inset 0 0 18px rgba(var(--hub-accent-rgb), 0.6); }
+:root.hub[data-theme="dark"] .hub-bar.hub-glass { box-shadow: inset 0 0 8px rgba(var(--hub-accent-rgb), 0.4); }
 
 /* --- the top bar ------------------------------------------------------------------------ */
 
@@ -647,10 +657,21 @@
 .hub .slider .top span:first-child { color: var(--hub-text-soft); }
 .hub .slider .top span:last-child { color: var(--hub-text); font-weight: 500; }
 .hub .field > label, .hub .label { font-size: 8.4px; font-weight: 700; text-transform: uppercase; color: var(--hub-text-dim); letter-spacing: 0.02em; }
-.hub .setting-row { padding: 6px 0; min-height: 40px; }
+/* (the game-drawn launcher's settings rows: a field 34 px high every 40 px, 55 % of the column;
+   a switch's name the whole width; a slider's name left, its value right and the track between,
+   `pages::settings`) */
+.hub .setting-row { padding: 3px 0; min-height: 40px; grid-template-columns: minmax(0, 1fr) 55%; gap: 12px; }
+.hub .setting-row.full { grid-template-columns: 1fr; }
+.hub .setting-row:has(> .toggle) { grid-template-columns: minmax(0, 1fr) auto; }
+.hub .setting-row .select, .hub .setting-row .input { height: 34px; }
+.hub .setting-row .slider { display: grid; grid-template-columns: min(38%, 170px) minmax(0, 1fr) minmax(58px, auto); align-items: center; gap: 10px; }
+.hub .setting-row .slider .top { display: contents; }
+.hub .setting-row .slider .top span:last-child { grid-column: 3; grid-row: 1; text-align: right; }
+.hub .setting-row .slider input { grid-column: 2; grid-row: 1; }
+.hub .setting-row.full > div:only-child > .btn:only-child { width: 100%; height: 34px; }
 .hub .setting-row .name { color: var(--hub-text-soft); font-size: 10px; }
 .hub .setting-row .name span { color: var(--hub-text-faint); }
-.hub .settings-grid { gap: 22px; }
+.hub .settings-grid { gap: 22px; align-items: stretch; }
 .hub .tag { border-radius: 11px; background: var(--hub-hover); color: var(--hub-text-soft); }
 .hub .tag.accent { background: rgba(var(--hub-accent-rgb), 0.16); color: var(--hub-accent-text); }
 .hub .notice { border-radius: var(--hub-r); background: var(--hub-field); }

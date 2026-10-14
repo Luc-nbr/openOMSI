@@ -10,7 +10,7 @@ This file explains what the **bus company mode** of the Omsi-Hub fork of openOMS
   - editors for lines, liveries and depots;
   - the bus company mode with its planning program **RosterFlow**.
 - **Releases:** a push to `beta` builds a release named `v<major.minor.commit>.<n>` through GitHub Actions. The game's updater installs it for players.
-- **Launcher:** today it is the game-drawn Rust launcher (`crates/omsi-launcher-ui`). A rewrite into openOMSI's Tauri 2 launcher (`launcher/`) is in progress in six phases. The Rust launcher stays the default until the rewrite reaches parity.
+- **Launcher:** the default on a computer is openOMSI's Tauri 2 launcher (`launcher/`), rewritten in six phases to the game-drawn Rust launcher's pages (`docs/omsihub/TAURI_PARITY.md`). The game-drawn Rust launcher (`crates/omsi-launcher-ui`) stays as the fallback: chosen in the settings (`launcher_ui=game`), with `openomsi --launcher`, and where the desktop launcher cannot open.
 
 ## 2. What the bus company is
 
@@ -146,7 +146,7 @@ There is one choice per company, which can be changed at any time in the company
   - `casual/` for Casual's own interface;
   - `planning/` for the standard planning, plus `rosterflow.rs`, `rf_gantt.rs`, `rf_panels.rs`, `rf_prefs.rs`, `rf_print.rs`, `rf_brand.rs`, `rf_tutorial.rs`, `rf_roster.rs`, `timeplan.rs` and `duty_launch.rs`.
   - The line editor is `crates/omsi-launcher-ui/src/lineeditor.rs`.
-- **Tauri launcher (in progress)** is `launcher/ui/js/omsihub/` and `launcher/ui/omsihub.css`. Its commands go through `crates/omsi-launcher-api/src/omsihub/` into the same core.
+- **Tauri launcher** is `launcher/ui/js/omsihub/` and `launcher/ui/omsihub*.css`. Its commands go through `crates/omsi-launcher-api/src/omsihub/` into the same core.
 - **Texts** are in `crates/omsi-app/locales/*.yml`. English is the key, with translations in nl, de, fr, ru, uk and pl. Tests fail when a text is missing.
 
 ## 6. Rules when changing it
@@ -184,5 +184,4 @@ There is one choice per company, which can be changed at any time in the company
   - enabling and disabling vehicle models;
   - balance (wages against revenue);
   - a realistic advertising market and the company's own marketing campaigns;
-  - the multiplayer company (a server, roles, open duties);
-  - the Tauri 2 rewrite of the whole launcher.
+  - the multiplayer company (a server, roles, open duties).

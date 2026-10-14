@@ -132,7 +132,9 @@ export function applyHubTheme() {
   set('--hub-accent-chosen', hexOf(rgb));
   set('--hub-on-accent', hex(s.on));
   // (the accent as words or a mark on a sheet: lighter on the dark one, darker on the light)
-  set('--hub-accent-text', hex(isDark ? s.soft : onLight(s.base)));
+  const text = isDark ? s.soft : onLight(s.base);
+  set('--hub-accent-text', hex(text));
+  set('--hub-accent-text-rgb', text.map((v) => Math.round(Math.max(0, Math.min(255, v)))).join(', '));
   // the ground: the night blue, or the accent's own light tint
   set('--hub-ground', isDark ? '#0a142e' : hex(lightGround(rgb)));
 }

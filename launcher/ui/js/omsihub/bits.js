@@ -21,9 +21,10 @@ export function tr(text, vars) {
   return s;
 }
 
-/** A Material Symbol by its own name (ours), or by upstream's name. */
+/** A Material Symbol by its own name (ours), or by upstream's name; a name none has leaves its
+ * room empty, as our game-drawn launcher's atlas does (`Ui::icon`). */
 export function Icon({ name, size = 20, class: cls = '' }) {
-  const d = OURS[name] || ALL[name] || THEIRS[name] || OURS.info;
+  const d = OURS[name] || ALL[name] || THEIRS[name] || '';
   return html`<svg class=${'hub-icon ' + cls} viewBox="0 -960 960 960" width=${size} height=${size} fill="currentColor" aria-hidden="true"><path d=${d} /></svg>`;
 }
 

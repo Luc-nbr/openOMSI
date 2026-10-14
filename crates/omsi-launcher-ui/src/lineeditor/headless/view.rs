@@ -24,6 +24,16 @@ fn tone(c: Color) -> &'static str {
 }
 
 pub(super) fn view(s: &mut Session) -> Value {
+    // (a line whose depot group the map lacks - or none - is driven by the map's first, as the
+    // window's left panel sets it: a change to be saved)
+    let first = s.v.groups.first().map(|g| g.0.clone());
+    let unknown = s.v.line().is_some_and(|l| !s.v.groups.iter().any(|g| g.0.eq_ignore_ascii_case(&l.ai_group)));
+    if let (Some(first), true) = (first, unknown) {
+        if let Some(line) = s.v.line_mut() {
+            line.ai_group = first;
+            s.v.touched();
+        }
+    }
     let status = s.status.take();
     let go = s.go.take().or_else(|| s.v.go_timeplan.take().map(|t| json!({ "timeplan": { "id": t.id, "name": t.name, "hint": t.hint.map(|h| omsi_ui::tr(h).into_owned()) } })));
     let go = go.or_else(|| s.v.go_depots.take().map(|k| json!({ "depots": k })));
