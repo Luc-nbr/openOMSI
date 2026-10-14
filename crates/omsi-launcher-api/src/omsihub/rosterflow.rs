@@ -31,6 +31,9 @@ mod tutorial;
 /// Luc's driver drag (`rf-driver-drag`): single trips of a duty to another duty or a new one.
 mod driver_drag;
 
+/// The relief points (Preferences) and the reliefs on the way (the board).
+mod relief;
+
 use super::company::words::{day_label, eur, tr, trf};
 use super::company::{self, Session};
 use crate::{Answer, Platform};
@@ -469,7 +472,8 @@ pub(crate) fn ensure(s: &mut Session, r: &mut Rf, date: &str) -> Option<Result<C
     let c = s.company.clone()?;
     let view = rf::view(&c);
     let board = rf::board(&view, &lines, date);
-    let json = board_json(&view, &board);
+    let mut json = board_json(&view, &board);
+    relief::add_mids(&mut json, &view, &board, &lines);
     let rev = format!("{:x}", hash_of(&json.to_string()));
     let k = Cached { date: date.to_string(), generation: rf_generation(s), board: Arc::new(board), view: Arc::new(view), lines: Arc::new(lines), json: Arc::new(json), rev };
     if r.cache.as_ref().is_none_or(|old| old.date != date) {
@@ -568,7 +572,7 @@ fn view(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
     let what = str_arg(args, "view");
     let Some(date) = date_of(s, args) else { return Ok(json!({ "none": true })) };
     match what.as_str() {
-        "prefs" => return Ok(prefs_view(s)),
+        "prefs" => return Ok(prefs_view(s, r, &date)),
         _ => {}
     }
     let k = match ensure(s, r, &date) {
@@ -761,7 +765,9 @@ fn duty_view(c: &Company, board: &Board, row: usize) -> Value {
             let here_end = trips.last().map(|x| x.end().trim().to_string()).unwrap_or_default();
             let next_start = piece_trips(board, next.tour, next.duty).first().map(|x| x.from.trim().to_string()).unwrap_or_default();
             if !here_end.eq_ignore_ascii_case(&next_start) {
-                let mode = note.as_ref().and_then(|nn| nn.travel.iter().find(|x| x.0 as usize == n).map(|x| x.1)).unwrap_or(prefs.travel);
+                // (as the relief points have it: the pair, the points' own, the defaults)
+                let set = note.as_ref().and_then(|nn| nn.travel.iter().find(|x| x.0 as usize == n).map(|x| x.1));
+                let mode = rf::travel_between(c, &board.tours, &here_end, &next_start, set).0;
                 v["travel"] = json!(Travel::ALL.iter().position(|x| *x == mode).unwrap_or(0));
             } else {
                 let gap = next.from - sp.to;
@@ -789,12 +795,17 @@ fn duty_view(c: &Company, board: &Board, row: usize) -> Value {
     })
 }
 
-/// The Preferences window's start: the preferences as kept, and what the costs are as the
-/// company pays them.
-fn prefs_view(s: &mut Session) -> Value {
+/// The Preferences window's start: the preferences as kept, what the costs are as the company
+/// pays them, and the relief points of the day `date`'s timetable (none while it is read).
+fn prefs_view(s: &mut Session, r: &mut Rf, date: &str) -> Value {
+    let lines = match ensure(s, r, date) {
+        Some(Ok(k)) => (*k.lines).clone(),
+        _ => Vec::new(),
+    };
     let Some(c) = s.company.as_ref() else { return json!({ "none": true }) };
     let (hour, fixed, day, per_km) = rf::rates(c);
     json!({
+        "relief_points": relief::prefs_points(c, &lines),
         "prefs": c.planning.flow.prefs,
         "defaults": rf::Prefs::default(),
         "rates": { "wage": hour.round() as Cents, "driver_fixed": fixed, "vehicle_fixed": day, "per_km": per_km.round() as Cents },
@@ -977,7 +988,9 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
             return Ok(json!({}));
         }
         "prefs" => {
-            let prefs: rf::Prefs = arg(args, "prefs")?;
+            let mut prefs: rf::Prefs = arg(args, "prefs")?;
+            // (a relief point's settings that say nothing are not kept)
+            rf::tidy_points(&mut prefs);
             return Ok(match company::act(s, |c| {
                 c.planning.flow.prefs = prefs;
                 Ok(())
@@ -1097,6 +1110,15 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
                 let words = trf("Duties joined on %{v} at %{time}", &[("v", &label_of(tour)), ("time", &time)]);
                 edit(s, r, words, |c| st::uncut(c, wd, &tours, tour, at))
             }
+        }
+        "cut_mid" => {
+            // (a duty cut inside a trip, at a relief point on the way: `studio::cut_mid`)
+            let (trip, stop) = (usize_arg(args, "trip"), usize_arg(args, "stop"));
+            let name = str_arg(args, "name");
+            let time = args.get("time").and_then(Value::as_i64).map(|m| rf::clock(m as i32)).unwrap_or_default();
+            let words = trf("Duty cut on %{v} on the way, at %{stop} (%{time})", &[("v", &label_of(tour)), ("stop", &name), ("time", &time)]);
+            let lines = k.lines.clone();
+            edit(s, r, words, |c| st::cut_mid(c, wd, &tours, &lines, tour, trip, stop))
         }
         "join_piece" => {
             let (duty, d) = (usize_arg(args, "duty"), usize_arg(args, "into"));

@@ -209,7 +209,7 @@ export async function selftest(check, errors) {
     globalThis.hubProbe?.(`RosterFlow, ${name}`);
   }
   setRf({ panel: null, kpisOpen: false });
-  for (const item of ['layover', 'prepost', 'signing', 'relief', 'travel', 'breaks', 'continuous', 'limits', 'pieces', 'changeover', 'split', 'types', 'depot', 'costs', 'algorithm']) {
+  for (const item of ['layover', 'prepost', 'signing', 'points', 'relief', 'travel', 'breaks', 'continuous', 'limits', 'pieces', 'changeover', 'split', 'types', 'depot', 'costs', 'algorithm']) {
     e = await shown(() => setRf({ prefs: { ...(S.rf.prefs || { search: '', inUse: false }), item } }), 500);
     if (e || !$('.rf-prefs .pbody')) check(`rosterflow: the preferences, ${item}`, false, e || 'not drawn');
     if (item === 'layover' || item === 'types' || item === 'costs') globalThis.hubProbe?.(`RosterFlow, the preferences, ${item}`);

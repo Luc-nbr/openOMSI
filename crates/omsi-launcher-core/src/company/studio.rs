@@ -424,7 +424,7 @@ pub const ALONE: &str = "This bus runs only this trip already.";
 pub const BETWEEN: &str = "A duty can only be cut between two trips.";
 pub const CUT_ALREADY: &str = "A new duty begins there already.";
 pub const ON_THE_MOVE: &str = "The bus is on the move there: drivers change only where it stands.";
-pub const NOT_RELIEF: &str = "Drivers change only at a relief point that allows it (Preferences â€º Relief Points).";
+pub const NOT_RELIEF: &str = "Drivers change only at a relief point that allows it (Preferences › Relief Points).";
 pub const NO_PASSENGERS: &str = "Each duty needs a trip with passengers.";
 pub const NO_CUT: &str = "No duty begins there.";
 pub const TOO_LONG: &str = "That duty would be longer than a working day may be (10 h).";
@@ -1153,13 +1153,37 @@ pub const MID_ALREADY: &str = "This trip has a relief on the way already.";
 /// The stops on the way of trip `j` of block `i` (`info` the timetable read) drivers may change
 /// at, or why not: (its place in the trip's stops, its name, the minute the bus is there, Ok or
 /// the reason). Only the stops that are relief points (`rosterflow::uses_at`).
-pub fn mid_stops(c: &Company, tours: &[TourOfDay], info: &[LineInfo], i: usize, j: usize) -> Vec<(usize, String, i32, Result<(), &'static str>)> {
+pub fn mid_stops(c: &Company, tours: &[TourOfDay], info: &[LineInfo], i: usize, j: usize) -> Vec<MidStop> {
+    mids_with(tours, info, i, j, &mut |s| super::rosterflow::uses_at(c, tours, s))
+}
+
+/// A stop on the way a trip may be cut at, or why not (`mid_stops`).
+pub type MidStop = (usize, String, i32, Result<(), &'static str>);
+
+/// Every trip's stops on the way of the day (`mid_stops`), each relief point looked up once:
+/// (block, trip, its stops).
+pub fn day_mid_stops(c: &Company, tours: &[TourOfDay], info: &[LineInfo]) -> Vec<(usize, usize, Vec<MidStop>)> {
+    let mut known: std::collections::HashMap<String, Option<super::rosterflow::Uses>> = std::collections::HashMap::new();
+    let mut uses = |s: &str| *known.entry(s.trim().to_lowercase()).or_insert_with(|| super::rosterflow::uses_at(c, tours, s));
+    let mut out = Vec::new();
+    for (i, t) in tours.iter().enumerate() {
+        for j in 0..t.trips.len() {
+            let m = mids_with(tours, info, i, j, &mut uses);
+            if !m.is_empty() {
+                out.push((i, j, m));
+            }
+        }
+    }
+    out
+}
+
+fn mids_with(tours: &[TourOfDay], info: &[LineInfo], i: usize, j: usize, uses: &mut dyn FnMut(&str) -> Option<super::rosterflow::Uses>) -> Vec<MidStop> {
     let Some(t) = tours.get(i) else { return Vec::new() };
     let Some(x) = t.trips.get(j).filter(|x| x.counts() && x.part.is_none() && !x.origin.trim().is_empty()) else { return Vec::new() };
     let Some(y) = info.iter().find(|l| same(&l.name, &t.line)).and_then(|l| trip_info(l, x)) else { return Vec::new() };
     let mut out = Vec::new();
     for (k, s) in y.stops.iter().enumerate().skip(1).take(y.stops.len().saturating_sub(2)) {
-        let Some(u) = super::rosterflow::uses_at(c, tours, &s.name) else { continue };
+        let Some(u) = uses(&s.name) else { continue };
         let when = (s.dep / 60.0).round() as i32;
         let ok = if !u.relief { Err(NOT_RELIEF) } else if when <= x.dep || when >= x.arr { Err(NOT_ON_THE_WAY) } else { Ok(()) };
         out.push((k, s.name.trim().to_string(), when, ok));

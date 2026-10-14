@@ -152,7 +152,10 @@ function TripCard({ data, c, drivers, size }) {
   }, [c.assign, c.tour, c.trip]);
   if (!x) return null;
   const list = c.assign ? cands || [] : [];
-  const h = 300 + (c.assign ? 26 * (list.length + 1) + 10 : 0);
+  // (a relief on the way: where the trip is cut, or the stops it can be cut at)
+  const mids = x.part ? [] : (x.mids || []).filter((m) => m[3]);
+  const reliefRow = !!x.part || mids.length > 0;
+  const h = 300 + (c.assign ? 26 * (list.length + 1) + 10 : 0) + (reliefRow ? 36 : 0);
   const piece = pieceOf(b, c.tour, c.trip);
   const duty = dutyOfPiece(b, c.tour, piece);
   const cl = data.lines.find((l) => eq(l.name, t.line));
@@ -175,6 +178,11 @@ function TripCard({ data, c, drivers, size }) {
       <${Field} cap="To" value=${x.to} />
       <hr />
       <div class="tl"><span class="cap">${tr('Time').toUpperCase()}:</span><${TimeLine} from=${x.dep} to=${x.arr} mid=${`${x.arr - x.dep} min, ${x.km.toFixed(1)} km`} /></div>
+      ${reliefRow && html`<div class="rf-mids"><span class="cap">${tr('Relief on the way').toUpperCase()}:</span>
+        ${x.part
+          ? html`<b class="at">${x.at}  ·  ${clock(x.part === 1 ? x.arr : x.dep)}</b><button type="button" class="mid" title=${tr('Join the two duties: one driver works the trip whole')} onClick=${() => edit('uncut', { tour: c.tour, at: x.part === 2 ? c.trip : c.trip + 1 })}><${Icon} name="link" size=${14} /><span>${tr('Join')}</span></button>`
+          : mids.slice(0, 4).map(([stop, name, at, , tip]) => html`<button type="button" class="mid" title=${tip} onClick=${() => edit('cut_mid', { tour: c.tour, trip: c.trip, stop, name, time: at })}><${Icon} name="sync_alt" size=${14} /><b>${clock(at)}</b><span>${name}</span></button>`)}
+      </div>`}
       ${c.assign && html`<hr /><div class="assign">
         ${list.map((a) => html`<button type="button" onClick=${() => edit('move', { tour: c.tour, trips: [c.trip], to: a.tour })}><${Icon} name="directions_bus" size=${15} /><b>${a.label}</b></button>`)}
         <button type="button" class="new" onClick=${() => edit('move', { tour: c.tour, trips: [c.trip], to: null })}><${Icon} name="add" size=${15} /><b>${tr('New vehicle')}</b></button>

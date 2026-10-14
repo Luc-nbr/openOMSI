@@ -329,7 +329,7 @@ impl Default for Prefs {
 /// The depot as a relief point: all of its names are this one point.
 pub const DEPOT_POINT: &str = "Depot";
 
-/// A relief point's settings (Preferences â€º Relief Points and Duty Travel).
+/// A relief point's settings (Preferences › Relief Points and Duty Travel).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct ReliefPoint {

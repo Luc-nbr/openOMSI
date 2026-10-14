@@ -9,12 +9,12 @@ import { html, useEffect } from '../../../vendor/preact-htm.js';
 import { S } from '../../store.js';
 import { tr } from '../bits.js';
 import { setRf, rfCmd, rfAct, hm, clock, eur } from './state.js';
-import { Icon, RfButton, Switch, CheckRow, Seg, Stepper } from './ui.js';
+import { Icon, RfButton, Switch, CheckRow, Seg, Stepper, Select } from './ui.js';
 
 /** The preferences, by kind: (kind, its icon, its items). */
 const KINDS = [
   ['Vehicles', 'directions_bus', ['layover', 'prepost']],
-  ['Drivers', 'person', ['signing', 'relief', 'travel', 'breaks', 'continuous', 'limits', 'pieces', 'changeover', 'split', 'types']],
+  ['Drivers', 'person', ['signing', 'points', 'relief', 'travel', 'breaks', 'continuous', 'limits', 'pieces', 'changeover', 'split', 'types']],
   ['Depots', 'local_parking', ['depot']],
   ['Misc', 'apps', ['costs', 'algorithm']],
 ];
@@ -23,6 +23,7 @@ const NAME = {
   layover: 'Layover',
   prepost: 'Pre/Post-Trip',
   signing: 'Driver Signing',
+  points: 'Relief Points',
   relief: 'Relief Timing',
   travel: 'Duty Travel',
   breaks: 'Duty Breaks',
@@ -41,6 +42,7 @@ const INFO = {
   layover: 'The least time a bus stands between two trips at one place.',
   prepost: "The bus's check before it leaves the depot and after it is back.",
   signing: "The paid minutes a driver signs on before work and off after it, at the duty's ends and around a split.",
+  points: "Where drivers may begin or end a duty, change on the bus and take a break: the depot and the lines' termini by themselves, and the stops on a line's way you add.",
   relief: "When the driver changes within the bus's layover at a relief point (a terminus or the depot).",
   travel: 'How a driver gets to a relief point at another place, and how long it takes.',
   breaks: 'A duty working longer than this needs a meal break of at least this long.',
@@ -76,6 +78,8 @@ function inUse(it, p) {
       return p.duty_types.length > 0;
     case 'costs':
       return p.wage != null || p.driver_fixed != null || p.vehicle_fixed != null || p.per_km != null;
+    case 'points':
+      return (p.points || []).length > 0;
     default:
       return true;
   }
@@ -84,6 +88,104 @@ function inUse(it, p) {
 const RELIEF = ['ArrivalDeparture', 'OnArrival', 'OnDeparture', 'MidLayover', 'BeforeDeparture'];
 const TRAVEL = ['Walk', 'Public', 'Car'];
 const TRI = ['No', 'Yes', 'Either'];
+/** The ways' minutes in the preferences, by `TRAVEL`. */
+const WAY_FIELD = ['walk', 'public', 'car'];
+
+const eq = (a, b) => String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
+
+/** The relief points as the Preferences list them (`rf_view` prefs' `relief_points`): the ones
+ * added since in, the ones taken out left out, each with its settings as edited. */
+function pointRows(v, pr) {
+  const rp = v.relief_points || { points: [], line_stops: [], kinds: [] };
+  const kept = pr.points || [];
+  const added = kept.filter((x) => x.added);
+  const rows = rp.points.filter((r) => r.kind !== 2 || added.some((x) => eq(x.stop, r.stop)));
+  for (const x of added) {
+    if (rows.some((r) => eq(r.stop, x.stop))) continue;
+    const ls = rp.line_stops.find((l) => eq(l.line, x.line));
+    rows.push({ stop: x.stop, name: x.stop, kind: 2, lines: ls?.number || '', point: x });
+  }
+  return rows.map((r) => ({ ...r, point: kept.find((x) => eq(x.stop, r.stop)) || r.point }));
+}
+
+/** The relief points with `row`'s settings changed by `patch` (kept from now on). */
+function setPoint(pr, row, patch) {
+  const list = pr.points || [];
+  const k = list.findIndex((x) => eq(x.stop, row.stop));
+  if (k >= 0) return list.map((x, i) => (i === k ? { ...x, ...patch } : x));
+  return [...list, { ...row.point, stop: row.stop, ...patch }];
+}
+
+/** Minutes in a small field: empty for none (`null`), what it falls back to greyed in it. */
+function Minutes0({ value, placeholder, set }) {
+  const put = (t) => set(t.trim() === '' ? null : Math.max(0, Math.min(240, Math.round(Number(t)) || 0)));
+  return html`<input class="pf-min" type="number" min="0" max="240" value=${value ?? ''} placeholder=${placeholder} onChange=${(ev) => put(ev.currentTarget.value)} />`;
+}
+
+/** Preferences › Relief Points (`rosterflow::ReliefPoint`): every point and what it may be used
+ * for, and a stop on a line's way added. */
+function ReliefPoints({ v, pr, put, e, set }) {
+  const rp = v.relief_points || { points: [], line_stops: [], kinds: [] };
+  const rows = pointRows(v, pr);
+  const ls = rp.line_stops || [];
+  const li = Math.min(e.addLine || 0, Math.max(0, ls.length - 1));
+  const line = ls[li];
+  const free = line ? line.stops.filter((s) => !rows.some((r) => eq(r.stop, s))) : [];
+  const si = Math.min(e.addStop || 0, Math.max(0, free.length - 1));
+  const use = (row, key) => html`<${CheckRow} on=${row.point[key]} label="" raw class="pf-tick" onChange=${(x) => put({ points: setPoint(pr, row, { [key]: x }) })} />`;
+  const add = () => put({ points: [...(pr.points || []), { stop: free[si], added: true, line: line.line, sign: true, relief: true, breaks: true, travel: null, walk: null, public: null, car: null }] });
+  return html`<div class="pf-points">
+    <table class="pf-table">
+      <thead><tr><th>${tr('Relief point').toUpperCase()}</th><th>${tr('Lines').toUpperCase()}</th><th>${tr('Kind').toUpperCase()}</th><th class="c">${tr('Sign-on/off').toUpperCase()}</th><th class="c">${tr('Relief').toUpperCase()}</th><th class="c">${tr('Break').toUpperCase()}</th><th></th></tr></thead>
+      <tbody>${rows.map((r) => html`<tr>
+        <td class="name" title=${r.name}>${r.name}</td><td class="dim">${r.lines}</td><td class="dim">${rp.kinds[r.kind] || ''}</td>
+        <td class="c">${use(r, 'sign')}</td><td class="c">${use(r, 'relief')}</td><td class="c">${use(r, 'breaks')}</td>
+        <td class="c">${r.kind === 2 && html`<button type="button" class="del" title=${tr('Take this stop out of the relief points')} onClick=${() => put({ points: (pr.points || []).filter((x) => !eq(x.stop, r.stop)) })}><${Icon} name="delete" size=${16} /></button>`}</td>
+      </tr>`)}</tbody>
+    </table>
+    ${ls.length
+      ? html`<div class="pf-row pf-pick"><span>${tr('Add a stop on the way')}</span>
+          <${Select} value=${li} options=${ls.map((l) => tr('Line %{n}', { n: l.number }))} style="width:150px" onChange=${(k) => set({ addLine: k, addStop: 0 })} />
+          <${Select} value=${si} options=${free.length ? free : ['-']} style="width:240px" onChange=${(k) => set({ addStop: k })} />
+          <${RfButton} label="Add stop" disabled=${!free.length} style="width:130px;height:30px" onClick=${add} />
+        </div>`
+      : html`<p class="pf-note">${tr("The lines' stops show once the timetable is read.")}</p>`}
+  </div>`;
+}
+
+/** Duty Travel per relief point and between two (`rosterflow::travel_of`): each point's own way
+ * and minutes, and the table from a point to another, one way at a time. An empty field takes
+ * what comes after it: the way back's, the points' own, then the defaults. */
+function TravelPoints({ v, pr, put, e, set }) {
+  const rows = pointRows(v, pr);
+  if (!rows.length) return null;
+  const labels = v.travel_labels;
+  const way = e.way || 0;
+  const f = WAY_FIELD[way];
+  const pairs = pr.pairs || [];
+  const pairOf = (a, b) => pairs.find((x) => eq(x.from, a.stop) && eq(x.to, b.stop));
+  const setPair = (a, b, m) => {
+    const k = pairs.findIndex((x) => eq(x.from, a.stop) && eq(x.to, b.stop));
+    const next = k >= 0 ? pairs.map((x, i) => (i === k ? { ...x, [f]: m } : x)) : [...pairs, { from: a.stop, to: b.stop, walk: null, public: null, car: null, [f]: m }];
+    put({ pairs: next.filter((x) => x.walk != null || x.public != null || x.car != null) });
+  };
+  const fallback = (a, b) => pairOf(b, a)?.[f] ?? b.point[f] ?? a.point[f] ?? pr[f];
+  return html`<b class="pf-sub">${tr('Per relief point').toUpperCase()}</b>
+    <table class="pf-table">
+      <thead><tr><th>${tr('Relief point').toUpperCase()}</th><th>${tr('Way').toUpperCase()}</th>${labels.map((l) => html`<th class="c">${l.toUpperCase()}</th>`)}</tr></thead>
+      <tbody>${rows.map((r) => html`<tr>
+        <td class="name" title=${r.name}>${r.name}</td>
+        <td><${Select} value=${r.point.travel ? TRAVEL.indexOf(r.point.travel) + 1 : 0} options=${[tr('Default'), ...labels]} style="width:170px;height:26px" onChange=${(k) => put({ points: setPoint(pr, r, { travel: k ? TRAVEL[k - 1] : null }) })} /></td>
+        ${WAY_FIELD.map((w) => html`<td class="c"><${Minutes0} value=${r.point[w]} placeholder=${pr[w]} set=${(m) => put({ points: setPoint(pr, r, { [w]: m }) })} /></td>`)}
+      </tr>`)}</tbody>
+    </table>
+    <div class="pf-row"><b class="pf-sub">${tr('Between two relief points').toUpperCase()}</b><span class="grow"></span><${Seg} at=${way} labels=${labels} raw style="width:420px" onPick=${(k) => set({ way: k })} /></div>
+    <div class="pf-matrix"><table>
+      <tr><th>${tr('From → to').toUpperCase()}</th>${rows.map((b) => html`<th title=${b.name}>${b.name}</th>`)}</tr>
+      ${rows.map((a) => html`<tr><th title=${a.name}>${a.name}</th>${rows.map((b) => (eq(a.stop, b.stop) ? html`<td class="x">-</td>` : html`<td><${Minutes0} value=${pairOf(a, b)?.[f]} placeholder=${fallback(a, b)} set=${(m) => setPair(a, b, m)} /></td>`))}</tr>`)}
+    </table></div>
+    <p class="pf-note">${tr("An empty field takes the way back's time, else the relief point's own, else the default.")}</p>`;
+}
 
 
 
@@ -170,13 +272,17 @@ export function PrefsWindow() {
     case 'relief':
       body = html`${RELIEF.map((t, k) => html`<${CheckRow} on=${pr.relief === t} label=${v.relief_labels[k]} raw style="width:460px" onChange=${() => put({ relief: t })} />`)}
         ${pr.relief === 'BeforeDeparture' && html`<${Minutes} label="Minutes before the departure" value=${pr.relief_before} max=${60} set=${(x) => put({ relief_before: x })} />`}
-        <p class="pf-note">${tr("Relief points are the line's termini and the depot.")}</p>`;
+        <p class="pf-note">${tr("Relief points are set in Relief Points: the depot, the lines' termini and the stops you add.")}</p>`;
+      break;
+    case 'points':
+      body = html`<${ReliefPoints} v=${v} pr=${pr} put=${put} e=${e} set=${set} />`;
       break;
     case 'travel':
       body = html`<div class="pf-row"><span>${tr('Way by default')}</span><${Seg} at=${Math.max(0, TRAVEL.indexOf(pr.travel))} labels=${v.travel_labels} raw style="width:420px" onPick=${(k) => put({ travel: TRAVEL[k] })} /></div>
         <${Minutes} label="Walk (W)" value=${pr.walk} max=${120} set=${(x) => put({ walk: x })} />
         <${Minutes} label="Public transport (P)" value=${pr.public} max=${120} set=${(x) => put({ public: x })} />
-        <${Minutes} label="Staff car (R)" value=${pr.car} max=${120} set=${(x) => put({ car: x })} />`;
+        <${Minutes} label="Staff car (R)" value=${pr.car} max=${120} set=${(x) => put({ car: x })} />
+        <${TravelPoints} v=${v} pr=${pr} put=${put} e=${e} set=${set} />`;
       break;
     case 'breaks':
       body = html`<${Minutes} label="A duty working longer than" value=${pr.meal_after} step=${15} max=${900} set=${(x) => put({ meal_after: x })} />
