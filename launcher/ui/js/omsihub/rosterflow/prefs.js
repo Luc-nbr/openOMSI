@@ -3,9 +3,11 @@
 // DEPOTS, MISC - and their preferences under them; the one chosen on the right, with what it
 // sets and, for a rule, whether it is a hard rule (never broken by Optimise, an error by hand)
 // or a soft one that costs a penalty. SAVE CHANGES, CANCEL, SAVE & CLOSE at the foot. The
-// preferences changed here are kept only when saved (`rf_act` "prefs").
+// preferences changed here are kept only when saved (`rf_act` "prefs"); meanwhile each rule says
+// next to its fields how many duties break it as edited (`rf_view` "prefs_check"), and after a
+// save the studio says what the changed rules break, with Optimise offered.
 
-import { html, useEffect } from '../../../vendor/preact-htm.js';
+import { html, useEffect, useRef } from '../../../vendor/preact-htm.js';
 import { S } from '../../store.js';
 import { tr } from '../bits.js';
 import { setRf, rfCmd, rfAct, hm, clock, eur } from './state.js';
@@ -104,6 +106,30 @@ function Limit({ lim, label, step, max, fmt, set }) {
 /** A setting in minutes: its words and its stepper. */
 const Minutes = ({ label, value, step = 1, max, set }) => html`<div class="pf-row"><span>${tr(label)}</span><${Stepper} value=${value} step=${step} min=${0} max=${max} fmt=${hm} style="width:150px" onChange=${set} /></div>`;
 
+/** What breaks a rule with the preferences as edited (`breaks.rs` `prefs_check`), next to its
+ * fields: red where anything does. */
+const Live = ({ live, item, name }) => {
+  const c = live?.[item];
+  return c ? html`<p class=${'pf-live' + (c.n > 0 && item !== 'split' ? ' bad' : '')}>${name ? `${tr(name)}: ${c.text}` : c.text}</p>` : null;
+};
+
+/** The live check of the preferences as edited, a moment after the last change (and again after
+ * a save, when the saved rules are these). */
+function useLive(pr, saves) {
+  const seq = useRef(0);
+  const key = JSON.stringify(pr);
+  useEffect(() => {
+    if (!pr) return undefined;
+    const n = ++seq.current;
+    const t = setTimeout(() => {
+      rfCmd('rf_view', { view: 'prefs_check', day: S.rf.day, prefs: pr })
+        .then((x) => n === seq.current && S.rf.prefs && setRf({ prefs: { ...S.rf.prefs, live: x?.counts || null } }))
+        .catch(() => {});
+    }, 280);
+    return () => clearTimeout(t);
+  }, [key, saves]);
+}
+
 /** A cost: as the company pays (none), or set. */
 function Cost({ label, value, auto, step, set }) {
   const on = value != null;
@@ -142,6 +168,7 @@ export function PrefsWindow() {
     if (e.v) return;
     rfCmd('rf_view', { view: 'prefs', day: S.rf.day }).then((v) => setRf({ prefs: { ...S.rf.prefs, v, prefs: v.prefs } })).catch(() => setRf({ prefs: null }));
   }, []);
+  useLive(e.prefs, e.saves || 0);
   if (!e.v) return html`<div class="rf-over rf-prefs"></div>`;
   const v = e.v;
   const pr = e.prefs;
@@ -149,14 +176,18 @@ export function PrefsWindow() {
   const put = (patch) => set({ prefs: { ...pr, ...patch } });
   const q = (e.search || '').trim().toLowerCase();
   const item = e.item || 'signing';
+  const live = e.live;
   const save = async (close) => {
-    await rfAct('prefs', { prefs: pr });
+    const r = await rfAct('prefs', { prefs: pr });
+    // (what the changed rules break now: over the Gantt, with Optimise offered)
+    setRf({ ruleOffer: r?.offer || null });
     if (close) setRf({ prefs: null });
+    else set({ saves: (S.rf.prefs?.saves || 0) + 1 });
   };
   let body;
   switch (item) {
     case 'layover':
-      body = html`<${Limit} lim=${pr.layover} label="Least layover" step=${1} max=${120} fmt=${hm} set=${(x) => put({ layover: x })} />`;
+      body = html`<${Limit} lim=${pr.layover} label="Least layover" step=${1} max=${120} fmt=${hm} set=${(x) => put({ layover: x })} /><${Live} live=${live} item="layover" />`;
       break;
     case 'prepost':
       body = html`<${Minutes} label="Pre-trip check" value=${pr.pre_trip} max=${60} set=${(x) => put({ pre_trip: x })} /><${Minutes} label="Post-trip check" value=${pr.post_trip} max=${60} set=${(x) => put({ post_trip: x })} />`;
@@ -176,34 +207,42 @@ export function PrefsWindow() {
       body = html`<div class="pf-row"><span>${tr('Way by default')}</span><${Seg} at=${Math.max(0, TRAVEL.indexOf(pr.travel))} labels=${v.travel_labels} raw style="width:420px" onPick=${(k) => put({ travel: TRAVEL[k] })} /></div>
         <${Minutes} label="Walk (W)" value=${pr.walk} max=${120} set=${(x) => put({ walk: x })} />
         <${Minutes} label="Public transport (P)" value=${pr.public} max=${120} set=${(x) => put({ public: x })} />
-        <${Minutes} label="Staff car (R)" value=${pr.car} max=${120} set=${(x) => put({ car: x })} />`;
+        <${Minutes} label="Staff car (R)" value=${pr.car} max=${120} set=${(x) => put({ car: x })} />
+        <${Live} live=${live} item="travel" />`;
       break;
     case 'breaks':
-      body = html`<${Minutes} label="A duty working longer than" value=${pr.meal_after} step=${15} max=${900} set=${(x) => put({ meal_after: x })} />
-        <${Limit} lim=${pr.meal} label="needs a meal break of" step=${5} max=${180} fmt=${hm} set=${(x) => put({ meal: x })} />`;
+      body = html`<${Minutes} label="Show a gap as a break from" value=${pr.break_from ?? 15} step=${5} max=${120} set=${(x) => put({ break_from: x })} />
+        <p class="pf-note">${tr('A shorter gap between two pieces or two trips is standing time: no break, it ends no driving period and counts for no rule.')}</p>
+        <${Minutes} label="A duty working longer than" value=${pr.meal_after} step=${15} max=${900} set=${(x) => put({ meal_after: x })} />
+        <${Limit} lim=${pr.meal} label="needs a meal break of" step=${5} max=${180} fmt=${hm} set=${(x) => put({ meal: x })} />
+        ${pr.meal.on && html`<p class="pf-note">${tr('The meal break begins before the duty has worked that long.')}</p>`}
+        <${Live} live=${live} item="breaks" />
+        <${Live} live=${live} item="continuous" name="Continuous Break" />`;
       break;
     case 'continuous':
       body = html`<${Limit} lim=${pr.continuous} label="Longest work without a break" step=${15} max=${720} fmt=${hm} set=${(x) => put({ continuous: x })} />
         <${Minutes} label="A break is at least" value=${pr.break_min} step=${5} max=${120} set=${(x) => put({ break_min: x })} />
-        <${Switch} on=${pr.layover_breaks} label="A layover with the bus counts as a break" style="width:420px" onChange=${(x) => put({ layover_breaks: x })} />`;
+        <${Switch} on=${pr.layover_breaks} label="A layover with the bus counts as a break" style="width:420px" onChange=${(x) => put({ layover_breaks: x })} />
+        <p class="pf-note">${tr('Gaps shorter than %{t} are standing time (Duty Breaks: show a gap as a break from).', { t: hm(pr.break_from ?? 15) })}</p>
+        <${Live} live=${live} item="continuous" />`;
       break;
     case 'limits':
-      body = html`<${Limit} lim=${pr.max_spread} label="Spread at most" step=${15} max=${1440} fmt=${hm} set=${(x) => put({ max_spread: x })} />`;
+      body = html`<${Limit} lim=${pr.max_spread} label="Spread at most" step=${15} max=${1440} fmt=${hm} set=${(x) => put({ max_spread: x })} /><${Live} live=${live} item="limits" />`;
       break;
     case 'pieces':
-      body = html`<${Limit} lim=${pr.min_piece} label="Pieces at least" step=${5} max=${600} fmt=${hm} set=${(x) => put({ min_piece: x })} />`;
+      body = html`<${Limit} lim=${pr.min_piece} label="Pieces at least" step=${5} max=${600} fmt=${hm} set=${(x) => put({ min_piece: x })} /><${Live} live=${live} item="pieces" />`;
       break;
     case 'changeover':
-      body = html`<${Limit} lim=${pr.changeovers} label="Changes of bus at most" step=${1} max=${10} fmt=${String} set=${(x) => put({ changeovers: x })} />`;
+      body = html`<${Limit} lim=${pr.changeovers} label="Changes of bus at most" step=${1} max=${10} fmt=${String} set=${(x) => put({ changeovers: x })} /><${Live} live=${live} item="changeover" />`;
       break;
     case 'split':
-      body = html`<${Minutes} label="A split is a break of at least" value=${pr.split_min} step=${5} max=${600} set=${(x) => put({ split_min: x })} />`;
+      body = html`<${Minutes} label="A split is a break of at least" value=${pr.split_min} step=${5} max=${600} set=${(x) => put({ split_min: x })} /><${Live} live=${live} item="split" />`;
       break;
     case 'types':
-      body = html`<${DutyTypes} types=${pr.duty_types} v=${v} set=${(x) => put({ duty_types: x })} />`;
+      body = html`<${Live} live=${live} item="types" /><${DutyTypes} types=${pr.duty_types} v=${v} set=${(x) => put({ duty_types: x })} />`;
       break;
     case 'depot':
-      body = html`<${Limit} lim=${pr.depot_capacity} label="Buses out at once at most" step=${1} max=${500} fmt=${String} set=${(x) => put({ depot_capacity: x })} />`;
+      body = html`<${Limit} lim=${pr.depot_capacity} label="Buses out at once at most" step=${1} max=${500} fmt=${String} set=${(x) => put({ depot_capacity: x })} /><${Live} live=${live} item="depot" />`;
       break;
     case 'costs':
       body = html`<${Cost} label="A driver's hour" value=${pr.wage} auto=${v.rates.wage} step=${50} set=${(x) => put({ wage: x })} />

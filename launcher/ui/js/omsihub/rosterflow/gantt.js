@@ -6,7 +6,9 @@
 // (an orange dot where the time is estimated), pull-outs and pull-ins as grey-blue boxes, the
 // pre- and post-trip checks and the sign-on and sign-off as T-bars, the reliefs as arrows, splits
 // as a line with "Split", travel as an amber box with W, P or R, custom work as a white box,
-// linked trips striped, a trip moved off its timetable tour with a dot.
+// linked trips striped, a trip moved off its timetable tour with a dot. In Drivers every break
+// of a duty is labelled in its gap with its kind and length, and its driving periods between
+// the breaks that end one lie in a band under its row (`dutyRest`).
 //
 // A click on a chip chooses it and opens its card; Shift and a click widen the choice along the
 // row; a double click (or MOVE, or a drag) takes it up, and the rows it may go to show drop zones
@@ -30,6 +32,11 @@ export const STAT_LABEL = { start: 'Start time', end: 'End time', spread: 'Sprea
 /** A scrollbar's thickness, the track's room included (`rf_scroll::BAR`). */
 export const BAR = 12;
 const DEADHEAD_MIN = 5;
+/** The band of a duty's driving periods under its row (the Layers' "Driving periods"). */
+const BAND = 12;
+
+/** A row's pitch: a duty's a band taller while its driving periods are shown. */
+export const rowPitch = (drivers) => (drivers && S.rf.layers.periods !== false ? ROW + BAND : ROW);
 
 const eq = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
 
@@ -279,7 +286,8 @@ function draw(ctx, w, h, g) {
   const stackH = sRows ? sRows * ROW + 26 : 0;
   const hbarH = r.zoom > 1.001 ? BAR : 0;
   const body = { x: 0, y: AXIS + stackH, w, h: Math.max(0, h - AXIS - stackH - hbarH) };
-  const contentH = (rows.length + 2) * ROW;
+  const RH = rowPitch(drivers);
+  const contentH = (rows.length + 2) * RH;
   const visible = total / r.zoom;
   const pan = Math.max(0, Math.min(Math.max(0, total - visible), r.pan));
   let scroll = Math.max(0, Math.min(Math.max(0, contentH - body.h), r.scroll));
@@ -287,8 +295,8 @@ function draw(ctx, w, h, g) {
   if (r.reveal) {
     const i = rows.findIndex((x) => x.id === r.reveal);
     if (i >= 0) {
-      const y = i * ROW;
-      if (y < scroll || y + ROW > scroll + body.h) scroll = Math.max(0, Math.min(Math.max(0, contentH - body.h), y - body.h * 0.3));
+      const y = i * RH;
+      if (y < scroll || y + RH > scroll + body.h) scroll = Math.max(0, Math.min(Math.max(0, contentH - body.h), y - body.h * 0.3));
     }
     g.revealed = scroll;
   }
@@ -369,12 +377,12 @@ function draw(ctx, w, h, g) {
   const span = handSpan(b, hand);
   let anchoredRow = false;
   for (const row of rows) {
-    const rr = { x: 0, y, w, h: ROW };
-    y += ROW;
-    if (rr.y + ROW < body.y || rr.y > body.y + body.h) continue;
+    const rr = { x: 0, y, w, h: RH };
+    y += RH;
+    if (rr.y + RH < body.y || rr.y > body.y + body.h) continue;
     const cy = rr.y + ROW / 2;
     // (the tour's row: the first one wholly in view)
-    if (!anchoredRow && rr.y >= body.y && rr.y + ROW <= body.y + body.h) {
+    if (!anchoredRow && rr.y >= body.y && rr.y + RH <= body.y + body.h) {
       anchoredRow = true;
       an('rf-row', rr.x, rr.y, rr.w - 12, rr.h);
       an('rf-row-id', rr.x + 4, rr.y, ID_W - 8, rr.h);
@@ -599,13 +607,14 @@ function dutyRow(ctx, g, row, cy, xOf, hit, an) {
   const prefs = data.prefs;
   const hand = r.hand;
   let lit = null;
-  // the splits: a thin line across, "Split" in the middle
+  // the splits: a thin line across, "Split" in the middle (where no break's label says more)
   const lineCol = p.light ? p.dim : [220, 224, 230, 0.9];
+  const labelled = (a, z) => (s.rest?.breaks || []).some((bk) => bk.from < z && a < bk.to);
   for (const [a, z] of s.splits) {
     const xa = xOf(a);
     const xb = xOf(z);
     D.rect(ctx, xa, cy - 0.5, Math.max(0, xb - xa), 1, lineCol);
-    if (xb - xa > 50) {
+    if (xb - xa > 50 && !labelled(a, z)) {
       const word = tr('Split');
       const ww = D.width(ctx, word, 10, 500) + 10;
       D.rect(ctx, (xa + xb) / 2 - ww / 2, cy - 7, ww, 14, p.grid);
@@ -674,7 +683,69 @@ function dutyRow(ctx, g, row, cy, xOf, hit, an) {
       hit(cr.x, cr.y, cr.w, cr.h, { kind: 'chip', tour: sp.tour, trip: j, row: row.id, dutyRow: d, piece: [sp.tour, sp.duty], ...(r.tripsToDuties ? { tip: TRIP_TIP } : {}) });
     }
   }
+  if (!hand) dutyRest(ctx, g, s, d, cy, xOf, hit, lineCol);
+  else dutyRest(ctx, g, s, d, cy, xOf, () => {}, lineCol);
   return lit;
+}
+
+/** A duty's breaks and driving periods (testers: "when you define for it to show you periods
+ * between a break it does not tell me so its a bit of guesswork"), as the core counts them for
+ * the issues (`rosterflow::break_plan`): each break labelled in its gap with its kind and length
+ * ("Break 0:35", "Meal 0:45", "Split 3:10"; only its length where the gap is narrow, a tick where
+ * narrower still), green where it counts for the meal or continuous rule, grey where it is too
+ * short to; under the row the driving periods between the breaks that end one, each with its
+ * length, red (amber for a soft rule) over the Continuous Break limit, and a line where the duty
+ * works on without its meal break. A hover tells what each keeps or breaks, a click opens its
+ * card. */
+function dutyRest(ctx, g, s, d, cy, xOf, hit, lineCol) {
+  const { p } = g;
+  const rest = s.rest;
+  if (!rest) return;
+  const tone = (hard) => (hard ? p.err : p.warn);
+  rest.breaks.forEach((bk, k) => {
+    const xa = xOf(bk.from);
+    const xb = xOf(bk.to);
+    const room = xb - xa - 4;
+    const col = bk.kind === 'split' ? lineCol : bk.counts ? p.ok : alpha(p.text, p.light ? 0.45 : 0.5);
+    hit(xa, cy - CHIP / 2, Math.max(4, xb - xa), CHIP, { kind: 'rest', what: 'break', row: d, k, tip: bk.tip, raw: true, pre: true });
+    const text = [bk.label, bk.short].find((t) => D.width(ctx, t, 9.5, 700) + 10 <= room);
+    if (!text) {
+      // (too narrow for words: a tick in the gap, its card on hover)
+      if (xb - xa >= 3) D.rect(ctx, (xa + xb) / 2 - 0.75, cy - 4, 1.5, 8, col);
+      return;
+    }
+    const tw = D.width(ctx, text, 9.5, 700) + 10;
+    const x = (xa + xb) / 2 - tw / 2;
+    D.rounded(ctx, x, cy - 7, tw, 14, 7, p.grid);
+    D.roundedBorder(ctx, x, cy - 7, tw, 14, 7, 1.1, col);
+    D.textAt(ctx, text, x + tw / 2, cy + 3.5, 9.5, 700, col, 'center');
+  });
+  if (S.rf.layers.periods === false) return;
+  // the driving periods, in the band under the row
+  const by = cy + ROW / 2;
+  const calm = alpha(p.text, p.light ? 0.5 : 0.55);
+  rest.periods.forEach((st, k) => {
+    const xa = xOf(st.from);
+    const xb = xOf(st.to);
+    if (xb - xa < 1) return;
+    const col = st.over ? tone(rest.period_hard) : calm;
+    // (the length in a lighter tone of the colour on the dark look: red on red is hard to read)
+    const ink = st.over ? (p.light ? col : mix(col, [255, 255, 255, 1], 0.4)) : alpha(p.text, p.light ? 0.68 : 0.72);
+    D.rect(ctx, xa + 0.5, by, Math.max(1, xb - xa - 1), BAND - 3, alpha(st.over ? col : p.text, st.over ? 0.14 : 0.06));
+    D.rect(ctx, xa + 0.5, by, Math.max(1, xb - xa - 1), 1.5, col);
+    if (D.width(ctx, st.text, 9, 700) + 6 <= xb - xa) D.textAt(ctx, st.text, (xa + xb) / 2, by + BAND - 3.5, 9, 700, ink, 'center');
+    hit(xa, by, xb - xa, BAND - 2, { kind: 'rest', what: 'period', row: d, k, tip: st.tip, raw: true, pre: true });
+  });
+  // (the meal break missing: from where it was due to the late meal break, or the duty's end)
+  const meal = rest.meal;
+  if (meal) {
+    const xa = xOf(meal.from);
+    const xb = Math.max(xOf(meal.to), xa + 3);
+    const col = tone(rest.meal_hard);
+    D.rect(ctx, xa, by + BAND - 3.5, xb - xa, 2, col);
+    D.rect(ctx, xa - 0.75, by + 1, 1.5, BAND - 3, col);
+    hit(xa - 3, by + BAND - 6, xb - xa + 6, 6, { kind: 'rest', what: 'meal', row: d, k: 0, tip: meal.tip, raw: true, pre: true });
+  }
 }
 
 // --- the canvas ---------------------------------------------------------------------------------------
@@ -791,7 +862,7 @@ export function Gantt({ data, drivers, readOnly, p, onTip, page }) {
   const showTip = (hit, m) => {
     if (!onTip) return;
     // (a Drivers chip's long tip keeps quiet while a card or the menu is open)
-    if (hit?.tip && !(hit.kind === 'chip' && (S.rf.card || S.rf.menu))) onTip({ text: hit.raw ? hit.tip : tr(hit.tip), ...at(m) });
+    if (hit?.tip && !(hit.kind === 'chip' && (S.rf.card || S.rf.menu))) onTip({ text: hit.raw ? hit.tip : tr(hit.tip), pre: !!hit.pre, ...at(m) });
     else onTip(null);
   };
 
@@ -978,6 +1049,10 @@ export function Gantt({ data, drivers, readOnly, p, onTip, page }) {
       case 'spare':
         edit('spare');
         break;
+      case 'rest':
+        if (onTip) onTip(null);
+        setRf({ menu: null, card: { kind: 'rest', row: hit.row, what: hit.what, k: hit.k, at: at(m) } });
+        break;
       default:
     }
     void b;
@@ -1016,7 +1091,7 @@ export function Gantt({ data, drivers, readOnly, p, onTip, page }) {
       const d = Math.abs(e.deltaX) > 0 ? e.deltaX / 100 : -notch;
       setRf({ pan: Math.round(r.pan + (d * L.total) / r.zoom / 12) });
     } else {
-      setRf({ scroll: Math.max(0, Math.min(Math.max(0, L.contentH - L.body.h), r.scroll - notch * ROW * 2)) });
+      setRf({ scroll: Math.max(0, Math.min(Math.max(0, L.contentH - L.body.h), r.scroll - notch * rowPitch(g.drivers) * 2)) });
     }
   };
 

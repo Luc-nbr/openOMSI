@@ -89,7 +89,7 @@ pub(crate) fn duty_json(p: &Prefs, s: &Shaped) -> Value {
         })
         .collect();
     let periods: Vec<Value> = plan.stretches.iter().map(|st| json!({ "from": st.from, "to": st.to, "text": rf::hm(st.to - st.from), "over": st.over, "tip": period_tip(p, plan, st) })).collect();
-    let meal = plan.meal_due.map(|m| json!({ "from": m.from, "to": m.to, "tip": meal_words(p, &m) }));
+    let meal = plan.meal_due.map(|m| json!({ "from": m.from, "to": m.to, "late": m.late.is_some(), "tip": meal_words(p, &m) }));
     json!({ "breaks": breaks, "periods": periods, "meal": meal, "period_hard": p.continuous.hard, "meal_hard": p.meal.hard })
 }
 

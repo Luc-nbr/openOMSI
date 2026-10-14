@@ -44,11 +44,12 @@ export function Studio({ p, drivers }) {
     ${!r.fullscreen && html`<${Kpis} k=${data.kpis} />`}
     <${Toolbar} data=${data} drivers=${drivers} proposal=${proposal} />
     ${proposal && html`<${Proposal} />`}
+    ${!proposal && offerOpen(r.ruleOffer, data) && html`<${RuleOffer} o=${r.ruleOffer} />`}
     <${Gantt} data=${data} drivers=${drivers} readOnly=${proposal} p=${p} onTip=${onTip} />
     <${StatusBar} data=${data} drivers=${drivers} />
     <${Overlays} data=${data} drivers=${drivers} p=${p} size=${size} gTop=${gTop} />
     ${r.prefs && html`<${PrefsWindow} />`}
-    ${tip && html`<div class="rf-tip" style=${`left:${tip.x + 14}px;top:${tip.y + 18}px`}>${tip.text}</div>`}
+    ${tip && html`<div class=${'rf-tip' + (tip.pre ? ' pre' : '')} style=${`left:${tip.x + 14}px;top:${tip.y + 18}px`}>${tip.text}</div>`}
   </div>`;
 }
 
@@ -130,6 +131,23 @@ function Proposal() {
     <span class="grow">${tr('Optimised proposal: the KPIs show it against your planning. Locked vehicles and duties are kept.')}</span>
     <${RfButton} label="Accept" solid style="width:140px" onClick=${() => rfAct('accept')} />
     <${RfButton} label="Keep mine" style="width:140px" onClick=${() => rfAct('keep_mine')} />
+  </div>`;
+}
+
+/** The changed rules' offer is still of use: the day breaks one of them still (not dismissed). */
+const offerOpen = (o, data) => !!o && data.board.issues.some((i) => !i.dismissed && o.groups.includes(i.group));
+
+/** After the Preferences were saved: what the changed rules break now, said at once, and
+ * Optimise offered to work to them (testers: "its not actually realising this immediately"). */
+function RuleOffer({ o }) {
+  return html`<div class="rf-proposal rf-ruleoffer" data-rf="rf-rule-offer">
+    <${Icon} name="warning" size=${18} />
+    <span class="grow" title=${o.text}>${o.text}</span>
+    <${RfButton} label=${o.button} raw solid style="width:160px" onClick=${() => {
+      setRf({ ruleOffer: null });
+      rfAct('optimise');
+    }} />
+    <${IconBtn} icon="close" title="Close" onClick=${() => setRf({ ruleOffer: null })} />
   </div>`;
 }
 
