@@ -93,3 +93,9 @@
 .rf-apply > .body > .rf-seg button { white-space: normal; line-height: 1.2; padding: 4px 6px; }
 .rf-daychip .tag .x { width: 14px; height: 14px; margin: 0 -4px 0 4px; display: inline-flex; align-items: center; justify-content: center; border-radius: 7px; color: var(--rf-dim); }
 .rf-daychip .tag .x:hover { color: var(--rf-err); background: var(--rf-hover2); }
+
+/* --- the Roster tab: taking a driver or a bus off (roster.js) ------------------------------------------ */
+
+.rr-scroll > [data-off] { display: contents; }
+.rr-scroll > [data-off] > .rf-caps { color: var(--rf-dim); margin-top: 10px; }
+.rr-offzone { flex: none; height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 12px; margin-top: 6px; border-radius: 3px; box-shadow: inset 0 0 0 1.5px var(--rf-err); background: color-mix(in srgb, var(--rf-err) 10%, transparent); color: var(--rf-err); font-size: 9.8px; font-weight: 700; }

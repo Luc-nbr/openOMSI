@@ -92,6 +92,10 @@ pub(crate) struct Rf {
     pub(crate) tp: timeplan::Tp,
     /// A lesson's snapshot (`tutorial`).
     pub(crate) lesson: Option<tutorial::Kept>,
+    /// The Roster tab's undo and redo: the roster and the day's choices before each change
+    /// (`roster::Kept`).
+    roster_undo: Vec<roster::Kept>,
+    roster_redo: Vec<roster::Kept>,
 }
 
 fn state() -> &'static Mutex<Rf> {
@@ -1439,6 +1443,7 @@ mod tests {
         assert!(texts.len() > 150, "only {} texts found", texts.len());
         let mut core: Vec<&str> = rf::texts();
         core.extend(st::texts());
+        core.extend(co::unassign::texts());
         let mut missing = Vec::new();
         for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
             let table = crate::i18n::table(lang);

@@ -24,7 +24,7 @@ import { Icon, IconBtn } from './ui.js';
 import { Studio } from './studio.js';
 import { TitleWindows, useOutsideClose } from './panels.js';
 import { PrefsWindow } from './prefs.js';
-import { RosterTab, rosterEscape } from './roster.js';
+import { RosterTab, rosterEscape, rosterUndo } from './roster.js';
 import { TimeplanTab, tpEscape } from './timeplan.js';
 import { Tutorial, tutEscape, tutMenu } from './tutorial.js';
 
@@ -229,6 +229,9 @@ function TitleBar() {
   const head = r.data?.head;
   const studio = r.view === VEHICLES || r.view === DRIVERS;
   const undo = head?.undo?.length || 0;
+  // (on the Roster tab the arrows are the roster's own: `roster.js`)
+  const roster = r.view === ROSTER;
+  const ru = r.rosterUndo || {};
   const full = head?.name || '';
   const company = head?.company ?? full;
   const [ref, fit] = useTitleFit([full, company, r.view, language()]);
@@ -251,8 +254,8 @@ function TitleBar() {
       </span>
     </span>
     <span class="undo" data-rf="rf-undo">
-      <${IconBtn} icon="livery_undo" title="Undo (Ctrl+Z)" disabled=${!undo || !studio} onClick=${() => rfAct('undo')} />
-      <${IconBtn} icon="livery_redo" title="Redo (Ctrl+Y)" disabled=${!head?.redo || !studio} onClick=${() => rfAct('redo')} />
+      <${IconBtn} icon="livery_undo" title="Undo (Ctrl+Z)" disabled=${roster ? !ru.n : !undo || !studio} onClick=${() => (roster ? rosterUndo(true) : rfAct('undo'))} />
+      <${IconBtn} icon="livery_redo" title="Redo (Ctrl+Y)" disabled=${roster ? !ru.redo : !head?.redo || !studio} onClick=${() => (roster ? rosterUndo(false) : rfAct('redo'))} />
       <${IconBtn} icon="history" title="Schedule history: every change, to go back to" disabled=${!undo} on=${panelIs('history')} onClick=${() => toggle('history')} />
     </span>
     <button type="button" class="rf-day" data-rf="rf-day" title=${tr('The day shown: the planning of a weekday holds for that weekday every week')} onClick=${() => toggle('day')}>

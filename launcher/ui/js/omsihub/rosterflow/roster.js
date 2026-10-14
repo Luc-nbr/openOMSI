@@ -17,8 +17,8 @@ import { act as coAct, setCo } from '../company/kit.js';
 import { alpha, mix, hex, tone, css, lighten } from './pal.js';
 import * as D from './draw.js';
 import { AXIS } from './draw.js';
-import { setRf, setPart, rfCmd, after, bump, say, TIMEPLAN } from './state.js';
-import { Icon, RfButton, IconBtn } from './ui.js';
+import { setRf, setPart, rfCmd, after, bump, say, TIMEPLAN, DRIVERS } from './state.js';
+import { Icon, RfButton, IconBtn, MenuItem } from './ui.js';
 import { anchor, begin, forget } from './anchors.js';
 import { BAR, barLook, drawBar } from './gantt.js';
 
@@ -52,14 +52,124 @@ async function rAct(act, args = {}) {
   return r;
 }
 
-/** Escape on the Roster tab: the driver or bus taken up, what is chosen. */
+/** Escape on the Roster tab: its menu, the driver or bus taken up, what is chosen. */
 export function rosterEscape() {
   const s = S.rf.roster;
-  if (s.arm || s.sel || s.clear) {
-    rsSet({ arm: null, sel: null, clear: false });
+  if (S.rf.menu?.roster) {
+    setRf({ menu: null });
+    return true;
+  }
+  if (s.arm || s.sel || s.clear || s.multi?.length) {
+    rsSet({ arm: null, sel: null, clear: false, multi: [] });
     return true;
   }
   return !!S.co.dialog;
+}
+
+// --- taking off -------------------------------------------------------------------------------------
+// (testers: "an easier way to deallocate a driver or a bus" - the rules are the core's
+// `unassign`: the day's choice taken back, the central's cover given up, else out of the roster;
+// what has begun, was driven or runs in the game stays and says why)
+
+/** Undo (`back`) or redo the Roster tab's last change (the title bar's arrows, Ctrl+Z, Ctrl+Y). */
+export function rosterUndo(back) {
+  return rAct(back ? 'undo' : 'redo');
+}
+
+/** The chosen as the Rust side takes them: a duty `{duty: [line, tour, k]}`, a tour's bus `{tour: [line, tour]}`. */
+const selOf = (t, k) => (k != null ? { duty: [t.line, t.tour, k] } : { tour: [t.line, t.tour] });
+
+/** Take the driver off duty `k` of tour `ti` (or, `k` null, the tour's bus). */
+function offOne(v, ti, k) {
+  const t = v?.plan?.tours[ti];
+  if (!t) return null;
+  return k != null ? rAct('off_driver', { line: t.line, tour: t.tour, k }) : rAct('off_bus', { line: t.line, tour: t.tour });
+}
+
+/** Take off what is chosen (several with Ctrl or Shift, or the one chosen). */
+function offChosen() {
+  const s = S.rf.roster;
+  const items = s.multi?.length ? s.multi : s.sel ? [s.sel] : [];
+  if (!items.length) return null;
+  return rAct('off_many', { items }).then((r) => {
+    rsSet({ multi: [], sel: null });
+    return r;
+  });
+}
+
+const inMulti = (s, sel) => (s.multi || []).some((x) => armIs(x, sel));
+
+/** A small cross over a chip, to take off what it holds (`hover`: under the mouse). */
+function offMark(ctx, p, r, hover) {
+  D.circle(ctx, r.x + r.w / 2, r.y + r.h / 2, r.w / 2, hover ? p.err : [0, 0, 0, 0.45]);
+  D.icon(ctx, 'close', r.x + r.w / 2, r.y + r.h / 2, r.w * 0.72, [255, 255, 255, 1]);
+}
+
+/** The menu of a duty, a tour's bus, a driver or a bus of the list (a right click). */
+function RosterMenu({ v, m }) {
+  const close = () => setRf({ menu: null });
+  const today = S.rf.day === 0;
+  let items = [];
+  if (m.kind === 'duty' || m.kind === 'bus') {
+    const t = v.plan?.tours[m.ti];
+    if (!t) return null;
+    if (m.kind === 'duty') {
+      const d = t.duties[m.k];
+      items = [
+        ['Remove driver', !!d?.off, () => offOne(v, m.ti, m.k)],
+        ['Give to…', !t.by_player, () => rsSet({ sel: selOf(t, m.k), multi: [] })],
+        ['Show in Drivers', !!d?.rf, () => setRf({ view: DRIVERS, panel: { kind: 'duty', id: d.rf }, reveal: d.rf, selRow: d.rf, hand: null, zones: null, sel: [], card: null })],
+      ];
+    } else {
+      items = [
+        ['Remove bus', !!t.bus?.off, () => offOne(v, m.ti, null)],
+        ['Change bus…', !t.by_player, () => rsSet({ sel: selOf(t, null), multi: [] })],
+      ];
+    }
+  } else if (m.kind === 'staff') items = [[today ? 'Remove from all duties today' : 'Remove from all duties of this day', true, () => rAct('off_staff', { who: m.who })]];
+  else if (m.kind === 'vehicle') items = [[today ? 'Remove from all tours today' : 'Remove from all tours of this day', true, () => rAct('off_vehicle', { bus: m.bus })]];
+  const h = items.length * 30 + 10;
+  return html`<div class="rf-over rf-menu" style=${`left:${m.at.x}px;top:${m.at.y}px;width:250px;height:${h}px`}>
+    ${items.map(([label, on, go]) => html`<${MenuItem} label=${label} disabled=${!on} onClick=${() => {
+      close();
+      go();
+    }} />`)}
+  </div>`;
+}
+
+/** Where the mouse is in the tab's own units (the stage is scaled), for a menu there. */
+function tabPoint(e) {
+  const el = document.querySelector('.rf-roster');
+  if (!el) return { x: 0, y: 0 };
+  const b = el.getBoundingClientRect();
+  const k = el.offsetWidth ? b.width / el.offsetWidth : 1;
+  return { x: Math.min((e.clientX - b.left) / k, el.offsetWidth - 256), y: (e.clientY - b.top) / k };
+}
+
+/** Delete or Backspace takes off what is chosen; Ctrl+Z and Ctrl+Y undo and redo. */
+function useRosterKeys() {
+  useEffect(() => {
+    const k = (e) => {
+      const r = S.rf;
+      if (!r.open || r.view !== 0 || S.co.popup || S.co.dialog || r.service || r.prefs) return;
+      const el = document.activeElement;
+      if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+      if (e.ctrlKey || e.metaKey) {
+        const key = e.key.toLowerCase();
+        if (key === 'z' && !e.shiftKey) rosterUndo(true);
+        else if (key === 'y' || (key === 'z' && e.shiftKey)) rosterUndo(false);
+        else return;
+        e.preventDefault();
+        return;
+      }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && (r.roster.sel || r.roster.multi?.length)) {
+        e.preventDefault();
+        offChosen();
+      }
+    };
+    addEventListener('keydown', k);
+    return () => removeEventListener('keydown', k);
+  }, []);
 }
 
 /** The tab's view (`rf_roster`), asked again when the day, the choice or the company changed. */
@@ -71,7 +181,13 @@ function useRoster() {
   useEffect(() => {
     let gone = false;
     rfCmd('rf_roster', { day: r.day, sel })
-      .then((x) => !gone && setV(x))
+      .then((x) => {
+        if (gone) return;
+        setV(x);
+        // (the title bar's undo and redo on this tab are the roster's)
+        const ru = S.rf.rosterUndo;
+        if (!ru || ru.n !== (x.undo || 0) || ru.redo !== (x.redo || 0)) setRf({ rosterUndo: { n: x.undo || 0, redo: x.redo || 0 } });
+      })
       .catch((e) => !gone && setV({ error: e.message }));
     return () => {
       gone = true;
@@ -94,6 +210,10 @@ export function RosterTab({ p }) {
   const v = useRoster();
   const [drag, setDrag] = useState(null);
   const tab = useRef(null);
+  // (the view as it is when a drag ends)
+  const vr = useRef(v);
+  vr.current = v;
+  useRosterKeys();
   // (a duty or tour carried to the list, a driver or bus dragged to the chart: at the mouse)
   useEffect(() => {
     if (!drag) return undefined;
@@ -105,10 +225,19 @@ export function RosterTab({ p }) {
       const el = document.elementFromPoint(e.clientX, e.clientY);
       if (d.from === 'chart') {
         const t = el?.closest?.('[data-arm]');
-        if (!t) return;
+        const zone = el?.closest?.('[data-off]');
+        if (!t) {
+          // (back onto the open duties or the buses: taken off)
+          if (zone && (zone.dataset.off === 'driver') === (d.hit.duty != null)) offOne(vr.current, d.hit.ti, d.hit.duty);
+          return;
+        }
         const arm = JSON.parse(t.dataset.arm);
         if (arm.kind === 'driver' && d.hit.duty == null) return;
-        give(arm, d.hit);
+        // (back onto who has it: taken off)
+        const tour = vr.current?.plan?.tours[d.hit.ti];
+        const has = d.hit.duty != null ? JSON.stringify(tour?.duties[d.hit.duty]?.who ?? null) === JSON.stringify(arm.who) : arm.kind === 'bus' && tour?.bus?.id === arm.bus;
+        if (has) offOne(vr.current, d.hit.ti, d.hit.duty);
+        else give(arm, d.hit);
       } else if (d.from === 'list') {
         const hit = window.__rfRosterHit?.(e.clientX, e.clientY);
         if (hit) give(d.arm, hit);
@@ -132,6 +261,7 @@ export function RosterTab({ p }) {
           <${Side} v=${v} startDrag=${(d) => setDrag(d)} carrying=${drag?.from === 'chart' && drag.moved ? drag.hit : null} />`}
     </div>
     ${drag?.moved && html`<div class="rr-carry" style=${carryStyle(drag)}>${drag.label}</div>`}
+    ${S.rf.menu?.roster && html`<${RosterMenu} v=${v} m=${S.rf.menu} />`}
     ${S.rf.service && html`<${ServiceDialog} d=${S.rf.service} />`}
   </div>`;
 }
@@ -166,6 +296,7 @@ function Tools({ v }) {
       } else rsSet({ clear: true });
     }} />
     <${RfButton} label="Fill the roster" solid title="Fix in the roster what the dispatcher would take: free buses, and free drivers by the working-time rules. Only what is planned runs." onClick=${() => rAct('fill')} />
+    ${s.multi?.length > 0 && html`<${RfButton} label=${tr('Unassign selected (%{n})', { n: s.multi.length })} raw data="rf-roster-off-chosen" title="Take the drivers and buses chosen off (Delete)" onClick=${offChosen} />`}
   </div>`;
 }
 
@@ -267,12 +398,22 @@ function Chart({ v, p, startDrag, carrying }) {
     const was = g.down;
     g.down = null;
     if (!h || h !== was) return;
-    click(h);
+    click(h, e.ctrlKey || e.metaKey || e.shiftKey);
   };
-  const click = (h) => {
+  // (a right click: the menu of the duty or the tour's bus)
+  const menu = (e) => {
+    e.preventDefault();
+    const h = top(local(e));
+    if (!h || !['bus', 'duty', 'off'].includes(h.kind)) return;
+    setRf({ menu: { roster: true, kind: h.duty != null ? 'duty' : 'bus', ti: h.ti, k: h.duty, at: tabPoint(e) } });
+  };
+  const click = (h, more) => {
     const s = S.rf.roster;
     const pl = g.v.plan;
     switch (h.kind) {
+      case 'off':
+        offOne(g.v, h.ti, h.duty);
+        break;
       case 'fold':
         rAct('fold', { line: h.line });
         break;
@@ -304,8 +445,18 @@ function Chart({ v, p, startDrag, carrying }) {
           give(s.arm, h);
           return;
         }
-        const sel = h.duty != null ? { duty: [t.line, t.tour, h.duty] } : { tour: [t.line, t.tour] };
-        rsSet({ sel: armIs(s.sel, sel) ? null : sel });
+        const sel = selOf(t, h.duty);
+        // (Ctrl or Shift: chosen besides the others, to take off together)
+        if (more) {
+          const multi = [...(s.multi || [])];
+          if (s.sel && !multi.some((x) => armIs(x, s.sel))) multi.push(s.sel);
+          const at = multi.findIndex((x) => armIs(x, sel));
+          if (at >= 0) multi.splice(at, 1);
+          else multi.push(sel);
+          rsSet({ multi, sel: null });
+          return;
+        }
+        rsSet({ sel: armIs(s.sel, sel) ? null : sel, multi: [] });
         break;
       }
       default:
@@ -320,7 +471,7 @@ function Chart({ v, p, startDrag, carrying }) {
   };
   g.carrying = carrying;
   return html`<div class="rr-chart" ref=${box}>
-    <canvas ref=${cv} onMouseMove=${move} onMouseDown=${down} onMouseUp=${up} onWheel=${wheel} onMouseLeave=${() => ((g.mouse = null), again())}></canvas>
+    <canvas ref=${cv} onMouseMove=${move} onMouseDown=${down} onMouseUp=${up} onContextMenu=${menu} onWheel=${wheel} onMouseLeave=${() => ((g.mouse = null), again())}></canvas>
   </div>`;
 }
 
@@ -398,17 +549,30 @@ function drawChart(ctx, w, h, g) {
       const chipH = Math.max(18, Math.min(24, pitch - 8));
       const chip = { x: 100, y: cy - chipH / 2, w: LEFT - 110, h: chipH };
       const hov = inside(chip, m) || (g.carrying && g.carrying.ti === ti && g.carrying.duty == null);
-      busChip(ctx, p, t, chip, hov, tourOn);
+      const tourMulti = inMulti(s, selOf(t, null));
+      busChip(ctx, p, t, chip, hov, tourOn || tourMulti);
       hit(chip.x, chip.y, chip.w, chip.h, { kind: 'bus', ti, duty: null, tip: t.bus.tip || '' });
+      // (its bus taken off with the cross, on the mouse or chosen)
+      if (t.bus.kind === 'bus' && t.bus.off && (inside(chip, m) || tourOn || tourMulti)) {
+        const xr = { x: chip.x + chip.w - chip.h + 3, y: chip.y + 3, w: chip.h - 6, h: chip.h - 6 };
+        offMark(ctx, p, xr, inside(xr, m));
+        hit(xr.x, xr.y, xr.w, xr.h, { kind: 'off', ti, duty: null, tip: tr('Take the bus off this tour (Delete)') });
+      }
       // the duties on the hours
       const barH = Math.max(18, Math.min(26, pitch - 8));
       D.clip(ctx, gx - 4, row.y, gw + 8, row.h);
       t.duties.forEach((d, k) => {
         const br = { x: xOf(d.from), y: cy - barH / 2, w: Math.max(6, (d.to - d.from) * ppm), h: barH };
         const dh = inside(br, m);
-        const chosen = sel?.duty && sel.duty[0] === t.line && sel.duty[1] === t.tour && sel.duty[2] === k;
+        const chosen = (sel?.duty && sel.duty[0] === t.line && sel.duty[1] === t.tour && sel.duty[2] === k) || inMulti(s, selOf(t, k));
         dutyChip(ctx, p, t, d, br, ppm, xOf, dh, chosen);
         hit(br.x, br.y, br.w, br.h, { kind: 'duty', ti, duty: k, tip: d.tip });
+        // (its driver taken off with the cross, on the mouse or chosen)
+        if (!d.open && d.off && (dh || chosen) && br.w >= br.h + 8) {
+          const xr = { x: br.x + br.w - br.h + 3, y: br.y + 3, w: br.h - 6, h: br.h - 6 };
+          offMark(ctx, p, xr, inside(xr, m));
+          hit(xr.x, xr.y, xr.w, xr.h, { kind: 'off', ti, duty: k, tip: tr('Take the driver off this duty (Delete)') });
+        }
       });
       D.unclip(ctx);
     }
@@ -539,9 +703,9 @@ function dutyChip(ctx, p, t, d, br, ppm, xOf, h, chosen) {
 // --- the side ---------------------------------------------------------------------------------------
 
 /** A list row with a name, what it says on the right, and a swatch (`rf_roster::pick_row`). */
-function PickRow({ on, swatch, text, right, rtone = 'dim', arm, onTap, onPress, lit }) {
+function PickRow({ on, swatch, text, right, rtone = 'dim', arm, onTap, onPress, lit, onMenu }) {
   return html`<button type="button" class=${'rr-pick' + (on ? ' on' : '') + (lit ? ' lit' : '')} data-arm=${arm ? JSON.stringify(arm) : undefined} title=${right || undefined}
-    onMouseDown=${(e) => e.button === 0 && onPress?.(e)} onClick=${onTap}>
+    onMouseDown=${(e) => e.button === 0 && onPress?.(e)} onClick=${onTap} onContextMenu=${onMenu && ((e) => (e.preventDefault(), onMenu(e)))}>
     ${swatch && html`<i class="sw" style=${`background:${swatch}`}></i>`}<span class="cut">${text}</span><span class=${'right cut t-' + (on ? 'text' : rtone)}>${right}</span>
   </button>`;
 }
@@ -565,26 +729,31 @@ function DayPanel({ d, startDrag, carrying }) {
   const press = (a, label, fill, ink) => (e) => startDrag({ from: 'list', arm: a, label, fill, ink, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, moved: false });
   const target = (kind) => !!carrying && (kind === 'bus' || carrying.duty != null);
   const me = { kind: 'driver', who: 'player', name: tr('You') };
+  // (a duty or a bus carried here from the chart: taken off where it is let go)
+  const offZone = (kind) => html`<div class="rr-offzone" data-off=${kind}><${Icon} name="close" size=${15} />${tr(kind === 'driver' ? 'Let go here to take the driver off' : 'Let go here to take the bus off')}</div>`;
+  const menuOf = (m) => (e) => setRf({ menu: { roster: true, at: tabPoint(e), ...m } });
   return html`<b class="rr-sum">${d.summary}</b>
     <p class=${'rr-gaps ' + (d.ok ? 'ok' : 'warn')}><${Icon} name=${d.ok ? 'check_circle' : 'warning'} size=${14} />${d.gaps}</p>
     ${d.morning.length > 0 && html`<span class="rf-caps">${tr('This morning').toUpperCase()}</span>${d.morning.map(([t, k]) => html`<p class="rr-morning"><i class=${'dot ' + k}></i>${t}</p>`)}`}
-    ${d.open_rows.length > 0 && html`<span class="rf-caps">${tr('Open duties').toUpperCase()}</span>${d.open_rows.map((o) => html`<button type="button" class="rr-open" onClick=${() => rsSet({ sel: o.duty != null ? { duty: [o.line, o.name, o.duty] } : { tour: [o.line, o.name] } })}
+    ${carrying && carrying.duty != null && offZone('driver')}
+    ${d.open_rows.length > 0 && html`<div data-off="driver"><span class="rf-caps">${tr('Open duties').toUpperCase()}</span>${d.open_rows.map((o) => html`<button type="button" class="rr-open" onClick=${() => rsSet({ sel: o.duty != null ? { duty: [o.line, o.name, o.duty] } : { tour: [o.line, o.name] } })}
       onMouseDown=${(e) => e.button === 0 && startDrag({ from: 'chart', hit: { ti: o.tour, duty: o.duty }, label: o.title, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, moved: false })}>
-      <i class=${'bar ' + o.tone}></i><span class=${'ic ' + o.tone}><${Icon} name=${o.hard ? 'error' : 'warning'} size=${14} /></span><b class="cut">${o.title}</b><span class=${'cut t-' + o.tone}>${o.fill}</span><span class="grab"><${Icon} name="open_with" size=${15} /></span></button>`)}`}
+      <i class=${'bar ' + o.tone}></i><span class=${'ic ' + o.tone}><${Icon} name=${o.hard ? 'error' : 'warning'} size=${14} /></span><b class="cut">${o.title}</b><span class=${'cut t-' + o.tone}>${o.fill}</span><span class="grab"><${Icon} name="open_with" size=${15} /></span></button>`)}</div>`}
     <span class="rf-caps">${tr('Drivers').toUpperCase()}</span>
     <p class="rr-hint">${tr('Tap one, then a duty - or drag it there; or drag a duty here.')}</p>
-    <${PickRow} on=${armIs(s.arm, me)} swatch=${'var(--rf-accent)'} text=${tr('You')} right=${tr('Your own duties')} arm=${me} lit=${target('driver')} onTap=${() => armTap(me)} onPress=${press(me, tr('You'), 'var(--rf-accent)', '#fff')} />
+    <${PickRow} on=${armIs(s.arm, me)} swatch=${'var(--rf-accent)'} text=${tr('You')} right=${tr('Your own duties')} arm=${me} lit=${target('driver')} onTap=${() => armTap(me)} onPress=${press(me, tr('You'), 'var(--rf-accent)', '#fff')} onMenu=${menuOf({ kind: 'staff', who: 'player' })} />
     ${d.staff.map((e) => {
       const a = { kind: 'driver', who: { staff: e.id }, name: e.name };
-      return html`<${PickRow} on=${armIs(s.arm, a)} swatch=${e.colour} text=${e.name} right=${e.state} rtone=${e.tone} arm=${a} lit=${target('driver')} onTap=${() => armTap(a)} onPress=${press(a, e.first, e.colour, '#0e121c')} />`;
+      return html`<${PickRow} on=${armIs(s.arm, a)} swatch=${e.colour} text=${e.name} right=${e.state} rtone=${e.tone} arm=${a} lit=${target('driver')} onTap=${() => armTap(a)} onPress=${press(a, e.first, e.colour, '#0e121c')} onMenu=${menuOf({ kind: 'staff', who: { staff: e.id } })} />`;
     })}
     ${!d.staff.length && html`<p class="rr-hint">${tr('Nobody on the payroll yet.')}</p>`}
-    <span class="rf-caps">${tr('Buses').toUpperCase()}</span>
+    <div data-off="bus"><span class="rf-caps">${tr('Buses').toUpperCase()}</span>
+    ${carrying && carrying.duty == null && offZone('bus')}
     ${d.buses.map((b) => {
       const a = { kind: 'bus', bus: b.id, name: b.name };
-      return html`<${PickRow} on=${armIs(s.arm, a)} text=${b.name} right=${b.state} rtone=${b.tone} arm=${a} lit=${target('bus')} onTap=${() => armTap(a)} onPress=${press(a, b.number, null, null)} />`;
+      return html`<${PickRow} on=${armIs(s.arm, a)} text=${b.name} right=${b.state} rtone=${b.tone} arm=${a} lit=${target('bus')} onTap=${() => armTap(a)} onPress=${press(a, b.number, null, null)} onMenu=${menuOf({ kind: 'vehicle', bus: b.id })} />`;
     })}
-    ${!d.buses.length && html`<p class="rr-hint">${tr('No bus in the fleet yet.')}</p>`}`;
+    ${!d.buses.length && html`<p class="rr-hint">${tr('No bus in the fleet yet.')}</p>`}</div>`;
 }
 
 /** The way from a duty or a tour to its line's trips and timetable (RosterFlow's Timeplan). */
