@@ -234,7 +234,7 @@ fn setvars(cat: Option<&Catalogue>, livery: &str, picks: &BTreeMap<String, f32>)
 
 /// The vehicle file the game drives for `bus` (`spawn::player_bus_path`): a rear section's
 /// front.
-fn player_bus_path(root: &Path, bus: &str) -> anyhow::Result<PathBuf> {
+pub(super) fn player_bus_path(root: &Path, bus: &str) -> anyhow::Result<PathBuf> {
     let path = omsi_cfg::resolve_path(root, bus);
     let def = omsi_vehicle::Vehicle::load(&path)?;
     let fronts = if def.coupling_front.is_some() { omsi_vehicle::vehicle::front_sections_of(&path) } else { Vec::new() };

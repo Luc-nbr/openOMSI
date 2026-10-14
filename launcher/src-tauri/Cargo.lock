@@ -2768,6 +2768,7 @@ dependencies = [
  "omsi-net",
  "omsi-platform",
  "omsi-sim",
+ "omsi-texture",
  "omsi-timetable",
  "omsi-vehicle",
  "omsi-weather",

@@ -15,8 +15,11 @@
 //!   pointed to as OMSI 2's is, and a driver's personnel number and code for the pass.
 //! * `hub_more_bus_options`, `hub_more_bus_option_set`, `hub_more_setvars`: the bus step's bus
 //!   options (`hub_more/busoptions.rs`).
+//! * `hub_more_font_view`, `hub_more_font_set`, `hub_more_font_add` and the bytes of
+//!   `hub_more_font_pic`: the bus step's display font (`hub_more/displayfont.rs`).
 
 mod busoptions;
+mod displayfont;
 
 use crate::Answer;
 use omsi_launcher_lib as core;
@@ -41,6 +44,17 @@ pub fn call(cmd: &str, args: &Value) -> Option<Answer> {
         "hub_more_bus_options" => busoptions::view(args),
         "hub_more_bus_option_set" => busoptions::set(args),
         "hub_more_setvars" => busoptions::for_game(args),
+        "hub_more_font_view" => displayfont::view(args),
+        "hub_more_font_set" => displayfont::set(args),
+        "hub_more_font_add" => displayfont::add(args),
+        _ => return None,
+    })
+}
+
+/// The bytes of ours that start with `hub_more_`, or None when it is not one.
+pub fn call_bytes(cmd: &str, args: &Value) -> Option<Result<Vec<u8>, String>> {
+    Some(match cmd {
+        "hub_more_font_pic" => displayfont::picture(args),
         _ => return None,
     })
 }

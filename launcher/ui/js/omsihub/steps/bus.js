@@ -15,6 +15,7 @@ import { goStep, previousOf, hubStart } from '../flow.js';
 // (the tiles' photos and the bus that fits the duty best: Trello "Tauri 3/6")
 import { useBest, bestWord, bestFoot, BestLine, TilePhoto } from './bus-more.js';
 import { BusOptions } from './busoptions.js';
+import { DisplayFont, sampleOf } from './displayfont.js';
 
 const favKey = (file) => file.replace(/\\/g, '/').toLowerCase();
 const nice = (s) => String(s || '').replace(/_/g, ' ').split(/\s+/).filter(Boolean).join(' ');
@@ -160,6 +161,7 @@ function Chosen({ onBack }) {
           ${paints.length > 1 && html`<${Button} icon="chevron_left" title="Preview previous livery" onClick=${() => step(-1)} /><${Button} icon="chevron_right" title="Preview next livery" onClick=${() => step(1)} />`}
         </div>
         <${BusOptions} bus=${v.file} paint=${c.paint} />
+        <${DisplayFont} bus=${v.file} text=${sampleOf(c)} />
         <div style="display:grid;grid-template-columns:110px 1fr;gap:10px 6px;align-items:center">
           <span style="color:var(--hub-text-soft)">${tr('Depot file')}</span>
           <${Select} raw value=${c.hof_manual ? c.hof : ''} options=${hofs} onChange=${(h) => choose({ hof: h, hof_manual: !!h })} />

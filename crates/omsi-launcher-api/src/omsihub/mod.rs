@@ -137,6 +137,8 @@ pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Option<Answer> {
 pub fn call_bytes(cmd: &str, args: &Value, _p: &dyn Platform) -> Option<Result<Vec<u8>, String>> {
     match cmd {
         c if c.starts_with("co_") => company::call_bytes(c, args),
+        // (phase 3: the display font's previews, `hub_more/displayfont.rs`)
+        c if c.starts_with("hub_more_") => hub_more::call_bytes(c, args),
         _ => None,
     }
 }

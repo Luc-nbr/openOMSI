@@ -25,4 +25,6 @@ omsi-vehicle = { path = "../omsi-vehicle" }
 # its liveries as the game reads them), crates the launcher is built of anyway
 omsi-model = { path = "../omsi-model" }
 omsi-sim = { path = "../omsi-sim" }
+# (and the display font's previews: the fonts' bitmaps, `hub_more/displayfont.rs`)
+omsi-texture = { path = "../omsi-texture" }
 anyhow.workspace = true
