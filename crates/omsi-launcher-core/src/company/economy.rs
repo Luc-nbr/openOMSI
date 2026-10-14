@@ -221,13 +221,33 @@ pub const WRITE_OFF_YEARS: f64 = 12.0;
 pub const RESIDUAL: f64 = 0.10;
 
 /// A bus's book value: its new price written off linearly over twelve years to a tenth,
-/// corrected for kilometres above or below the usual and for its condition.
+/// corrected for kilometres above the usual and for its condition. (Fewer kilometres than
+/// usual add nothing: a bus gained value with them, a new one more than its price.)
 pub fn book_value(new_value: Cents, age_years: f64, km: f64, condition: f64) -> Cents {
-    let age = (1.0 - (1.0 - RESIDUAL) * age_years.max(0.0) / WRITE_OFF_YEARS).max(RESIDUAL);
     let usual = KM_PER_YEAR * age_years.max(0.0);
-    let km = (1.0 - (km - usual) / 1_500_000.0).clamp(0.85, 1.10);
+    let km = (1.0 - (km - usual) / 1_500_000.0).clamp(0.85, 1.0);
     let cond = 0.75 + 0.25 * (condition.clamp(0.0, 100.0) / 100.0);
-    (new_value as f64 * age * km * cond).round() as Cents
+    (new_value as f64 * written_off(age_years) * km * cond).round() as Cents
+}
+
+/// What is left of a bus's new price at `age_years`: written off linearly over twelve years to
+/// a tenth.
+fn written_off(age_years: f64) -> f64 {
+    (1.0 - (1.0 - RESIDUAL) * age_years.max(0.0) / WRITE_OFF_YEARS).max(RESIDUAL)
+}
+
+/// What a bus loses the moment it is the company's: a new one when it is registered, a used one
+/// the dealer's margin.
+pub const FIRST_LOSS_NEW: f64 = 0.12;
+pub const FIRST_LOSS_USED: f64 = 0.04;
+
+/// The most a bus the company bought is worth: what it paid for it (`Tenure::Owned`'s `paid`, a
+/// grant taken off) less the first loss, written off from then on as `book_value` writes off a
+/// bus of its age. `age_bought`: the bus's age when it was bought (under half a year: new).
+pub fn bought_value(paid: Cents, age_bought: f64, age_now: f64) -> Cents {
+    let first = if age_bought < 0.5 { FIRST_LOSS_NEW } else { FIRST_LOSS_USED };
+    let since = written_off(age_now) / written_off(age_bought);
+    (paid.max(0) as f64 * (1.0 - first) * since.min(1.0)).round() as Cents
 }
 
 /// What a dealer pays for a bus of that book value.
@@ -410,9 +430,10 @@ mod tests {
         assert_eq!(six, 154_000_00);
         // never under the residual (but the condition and the kilometres still count)
         assert_eq!(book_value(280_000_00, 20.0, 1_200_000.0, 100.0), 28_000_00);
-        // more kilometres and a worse condition cost value
+        // more kilometres and a worse condition cost value; fewer add nothing
         assert!(book_value(280_000_00, 6.0, 600_000.0, 100.0) < six);
         assert!(book_value(280_000_00, 6.0, 360_000.0, 40.0) < six);
+        assert_eq!(book_value(280_000_00, 6.0, 0.0, 100.0), six);
         assert_eq!(sale_price(six, &rules(GameMode::Normal)), 130_900_00);
     }
 

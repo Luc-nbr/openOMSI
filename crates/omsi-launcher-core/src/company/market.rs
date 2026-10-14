@@ -356,10 +356,18 @@ pub fn rent(c: &mut Company, bus: &MarketBus, days: u32, livery: &str) -> Result
     Ok(add_vehicle(c, bus, built, 150_000.0, 85.0, Tenure::Rented { daily, until }, livery))
 }
 
-/// What a bus of the fleet is worth now (owned ones; leased and rented are not ours).
+/// What a bus of the fleet is worth now (owned ones; leased and rented are not ours): what such
+/// a bus fetches (its new price written off, its kilometres and its condition), but never more
+/// than the company paid for it less what a bus loses once it is the company's, written off
+/// from then on (`economy::bought_value`). (The market's value alone, from a new one's list
+/// price, made a bus worth more than its price right after buying it.)
 pub fn value_of(c: &Company, v: &Vehicle) -> Cents {
     match &v.tenure {
-        Tenure::Owned { new_value, .. } => economy::book_value(*new_value, v.age_years(&c.date), v.km, v.condition),
+        Tenure::Owned { paid, new_value } => {
+            let age = v.age_years(&c.date);
+            let market = economy::book_value(*new_value, age, v.km, v.condition);
+            market.min(economy::bought_value(*paid, dates::years_between(&v.built, &v.acquired), age))
+        }
         _ => 0,
     }
 }
@@ -616,6 +624,50 @@ pub(crate) mod tests {
         assert_ne!(used_offers(&c, &market)[0], o);
     }
 
+    /// A bus is worth less than the company paid the moment it is bought, and goes down from
+    /// there (Trello #73: right after buying it was worth more than its price).
+    #[test]
+    fn a_bus_is_worth_less_than_its_price_once_bought() {
+        for mode in [GameMode::Casual, GameMode::Normal, GameMode::Realistic] {
+            let mut c = company(mode);
+            c.cash = 10_000_000_00;
+            let paid_of = |c: &Company, id: u32| match c.vehicle(id).unwrap().tenure {
+                Tenure::Owned { paid, .. } => paid,
+                _ => unreachable!(),
+            };
+            // new, and new with a grant: some 12 % under what the company paid
+            for b in [bus("Citaro", BusSize::Solo, Drive::Diesel), bus("eCitaro", BusSize::Solo, Drive::Electric)] {
+                let id = buy_new(&mut c, &b, Payment::Cash, "").unwrap();
+                let paid = paid_of(&c, id);
+                let now = value_of(&c, c.vehicle(id).unwrap());
+                assert!(now < paid && now as f64 > paid as f64 * 0.85, "{mode:?} {} {now} {paid}", b.name);
+                assert!(sale_offer(&c, c.vehicle(id).unwrap()) < paid);
+            }
+            // used (Casual's dealer sells under the book value): a few per cent under its price
+            let offers = used_offers(&c, &[bus("Citaro", BusSize::Solo, Drive::Diesel)]);
+            let id = buy_used(&mut c, &offers[0], Payment::Cash, "").unwrap();
+            let paid = paid_of(&c, id);
+            let now = value_of(&c, c.vehicle(id).unwrap());
+            assert!(now < paid && now as f64 >= paid as f64 * 0.5, "{mode:?} used {now} {paid}");
+        }
+        // after 1, 5 and 12 years with the usual kilometres: down each time, to the residual,
+        // never above the price, also when new buses cost much more by then
+        let mut c = company(GameMode::Normal);
+        let id = buy_new(&mut c, &bus("Citaro", BusSize::Solo, Drive::Diesel), Payment::Cash, "").unwrap();
+        let bought = c.date.clone();
+        let mut last = value_of(&c, c.vehicle(id).unwrap());
+        for years in [1, 5, 12] {
+            c.date = dates::add(&bought, (years as f64 * 365.25) as i64);
+            c.price_index *= 1.5;
+            let v = c.fleet.iter_mut().find(|v| v.id == id).unwrap();
+            v.km = economy::KM_PER_YEAR * years as f64;
+            let now = value_of(&c, c.vehicle(id).unwrap());
+            assert!(now < last, "{years}: {now} {last}");
+            last = now;
+        }
+        assert!((last as f64 - 280_000_00.0 * economy::RESIDUAL * (1.0 - economy::FIRST_LOSS_NEW)).abs() < 3_000_00.0, "{last}");
+    }
+
     #[test]
     fn without_the_cash_the_bank_may_lend() {
         let mut c = company(GameMode::Realistic);
@@ -657,9 +709,10 @@ pub(crate) mod tests {
         let owed: Cents = part_month(&c, c.vehicle(l).unwrap(), &today).iter().map(|p| p.1).sum();
         let got = sell(&mut c, l).unwrap();
         assert!(got < 0 && owed < 0 && c.cash == before + got + owed);
-        // a bus bought and sold the same day brings 85 % of its price
+        // a bus bought and sold the same day brings 85 % of what it is worth once registered:
+        // some three quarters of its price
         let b = buy_new(&mut c, &solo, Payment::Cash, "").unwrap();
-        assert_eq!(sell(&mut c, b).unwrap(), 238_000_00);
+        assert_eq!(sell(&mut c, b).unwrap(), 209_400_00);
         assert!(c.vehicle(b).is_none());
         // a service: the bus runs today, the night has it in the workshop tomorrow
         let s = buy_new(&mut c, &solo, Payment::Cash, "").unwrap();
