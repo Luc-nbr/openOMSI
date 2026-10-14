@@ -152,6 +152,16 @@ our look - the light look, the accent, glass), the navigator (the duty board, th
 sign-on page) and the simulation's duty (composed duties, free drives along a line, the bus
 company's tours): merge those hunk by hunk.
 
+Two checks of upstream's catch what a merge forgets:
+
+* `frame_stages::access_tests` - every field of the `App` belongs to a group, and a frame stage
+  reaches only the groups it declares (functions are followed by name: a free function of ours
+  called like one of upstream's, `frame(app)`, is mixed up with it). Our fields go into the
+  group lists there with an `Omsi-Hub:` line; our phone companion runs in the integrations stage.
+* `omsi-launcher-api`'s `every_text_of_our_page_is_translated` - upstream drops the languages of
+  texts it no longer shows from `app.yml`; the ones our page still shows go into
+  `tauri-omsihub.yml` (0.2.47: "Continue last game", "Update now" ...).
+
 ## Open
 
 * The bus across the screen between pages (`page_bus`).
