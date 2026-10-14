@@ -1,0 +1,98 @@
+/* The livery studio on the page (js/omsihub/bus3d/lak/studio.js), after the game program's
+   studio: the bar along the top, the layers on the left, the bus in the middle, what the chosen
+   layer offers on the right. Classes begin with lak-. Sizes in the stage's units, as the
+   editors' (editors.css). */
+
+.lak-studio { position: fixed; inset: 0; z-index: 40; background: var(--hub-ground); display: grid; grid-template-rows: 52px minmax(0, 1fr); color: var(--hub-text); font-size: 10px; }
+.lak-top { display: flex; align-items: center; gap: 8px; padding: 0 14px; box-shadow: inset 0 -1px 0 var(--hub-hairline); min-width: 0; }
+.lak-top > b { font-size: 12px; font-weight: 700; }
+.lak-top .lak-name { width: min(320px, 30vw); flex: none; }
+.lak-gap { flex: 1; min-width: 8px; }
+.lak-chip { display: inline-flex; align-items: center; gap: 6px; height: var(--hub-row); padding: 0 10px; border-radius: var(--hub-r); background: var(--hub-field); box-shadow: inset 0 0 0 1px var(--hub-edge); color: var(--hub-text-soft); cursor: pointer; font-size: 10px; white-space: nowrap; }
+.lak-chip.on { color: var(--hub-accent-text); box-shadow: inset 0 0 0 1px rgba(var(--hub-accent-rgb), 0.7); }
+
+.lak-main { display: grid; grid-template-columns: 240px minmax(0, 1fr) 300px; min-height: 0; }
+@media (max-width: 900px) { .lak-main { grid-template-columns: 200px minmax(0, 1fr) 250px; } }
+
+/* the layers */
+.lak-left { display: flex; flex-direction: column; min-height: 0; padding: 12px; gap: 10px; box-shadow: inset -1px 0 0 var(--hub-hairline); }
+.lak-create { position: relative; }
+.lak-create > .ed-btn { width: 100%; justify-content: center; }
+.lak-kinds { position: absolute; z-index: 5; top: calc(100% + 6px); left: 0; width: 320px; max-width: 70vw; padding: 6px; border-radius: var(--hub-r); background: var(--hub-panel); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35), inset 0 0 0 1px var(--hub-edge); display: flex; flex-direction: column; gap: 2px; }
+.lak-kinds button { display: flex; align-items: flex-start; gap: 10px; padding: 8px; border-radius: 6px; background: none; color: var(--hub-text); cursor: pointer; text-align: left; }
+.lak-kinds button:hover { background: var(--hub-hover); }
+.lak-kinds button > span { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.lak-kinds b { font-size: 10.4px; font-weight: 700; }
+.lak-kinds small { font-size: 9.2px; color: var(--hub-text-dim); line-height: 1.4; }
+.lak-list { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.lak-layer { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 4px 0 8px; border-radius: 6px; cursor: pointer; min-width: 0; }
+.lak-layer:hover { background: var(--hub-hover); }
+.lak-layer.on { background: rgba(var(--hub-accent-rgb), 0.16); box-shadow: inset 0 0 0 1px rgba(var(--hub-accent-rgb), 0.5); }
+.lak-layer.off .nm { color: var(--hub-text-faint); }
+.lak-layer .sw { width: 14px; height: 14px; border-radius: 4px; flex: none; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25); }
+.lak-layer .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+.lak-layer button { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; border-radius: 50%; background: none; color: var(--hub-text-dim); cursor: pointer; flex: none; }
+.lak-layer button:hover { background: var(--hub-lift); color: var(--hub-text); }
+.lak-layer-tools { display: flex; gap: 4px; justify-content: center; }
+.lak-empty, .lak-begun { font-size: 9.6px; color: var(--hub-text-dim); line-height: 1.5; }
+
+/* the bus */
+.lak-view { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+.lak-view .viewer.lak-bus { position: absolute; inset: 0; width: auto; height: auto; max-height: none; aspect-ratio: auto; background: none; }
+.lak-view .viewer.lak-bus canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: default; }
+.lak-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.lak-outline { fill: none; stroke: var(--hub-accent); stroke-width: 1.6; }
+.lak-outline.copy { stroke-dasharray: 5 4; opacity: 0.75; }
+.lak-edge { fill: none; stroke: var(--hub-accent); stroke-width: 2; stroke-dasharray: 8 5; }
+.lak-pen { fill: none; stroke: #fff; stroke-width: 1.6; }
+.lak-grip { fill: #fff; stroke: var(--hub-accent); stroke-width: 1.5; }
+.lak-brush { fill: none; stroke: #fff; stroke-width: 1.4; filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.8)); }
+.lak-brush.gum { stroke-dasharray: 4 3; }
+.lak-making { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; max-width: calc(100% - 24px); padding: 6px 6px 6px 14px; border-radius: 22px; background: rgba(18, 26, 38, 0.9); color: #e3e7ee; font-size: 10px; }
+.lak-making > span { min-width: 0; }
+.lak-views { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); display: flex; gap: 4px; padding: 4px; border-radius: 20px; background: rgba(18, 26, 38, 0.82); }
+.lak-views button { min-width: 30px; height: 28px; padding: 0 8px; border-radius: 14px; background: none; color: #d6dbe4; cursor: pointer; font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+.lak-views button:hover { background: rgba(255, 255, 255, 0.12); }
+.lak-views button.on { background: rgba(var(--hub-accent-rgb), 0.85); color: var(--hub-on-accent); }
+.lak-note { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 14px; align-items: center; justify-content: center; font-size: 10.4px; color: var(--hub-text-dim); background: color-mix(in srgb, var(--hub-ground) 55%, transparent); }
+.lak-note .error { color: var(--hub-warn); max-width: 520px; text-align: center; line-height: 1.6; }
+.lak-progress { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(360px, 80%); padding: 14px 16px 12px; border-radius: var(--hub-r); background: rgba(18, 26, 38, 0.92); color: #e3e7ee; font-size: 10px; display: flex; flex-direction: column; gap: 10px; }
+.lak-progress > i { display: block; height: 4px; border-radius: 2px; background: var(--hub-accent); transition: width 0.3s; }
+.lak-say { position: absolute; z-index: 45; left: 22px; bottom: 10px; max-width: 60vw; padding: 6px 14px; border-radius: 12px; background: rgba(18, 26, 38, 0.9); color: #d6dbe4; font-size: 9.6px; cursor: pointer; }
+.lak-say.error { color: #ffb4a8; }
+
+/* what the chosen layer offers */
+.lak-right { min-height: 0; overflow: auto; box-shadow: inset 1px 0 0 var(--hub-hairline); }
+.lak-panel { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px 20px; }
+.lak-panel h3 { display: flex; align-items: center; gap: 8px; font-size: 10.75px; font-weight: 700; margin-top: 6px; }
+.lak-hint { font-size: 9.6px; color: var(--hub-text-dim); line-height: 1.5; }
+.lak-info { font-size: 8.8px; color: var(--hub-text-faint); line-height: 1.5; }
+.lak-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.lak-row > span:first-child { flex: none; width: 92px; color: var(--hub-text-soft); font-size: 10px; }
+.lak-row > .ed-field, .lak-row > .ed-drop { flex: 1; min-width: 0; height: var(--hub-row); }
+.lak-range { display: grid; grid-template-columns: 92px minmax(0, 1fr) 54px; align-items: center; gap: 8px; color: var(--hub-text-soft); font-size: 10px; }
+.lak-range input { width: 100%; accent-color: var(--hub-accent); }
+.lak-range b { font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; color: var(--hub-text); }
+.lak-num { display: grid; grid-template-columns: 92px minmax(0, 1fr) 20px; align-items: center; gap: 8px; color: var(--hub-text-soft); font-size: 10px; }
+.lak-num input { height: var(--hub-row); min-width: 0; border-radius: var(--hub-r); background: var(--hub-field); box-shadow: inset 0 0 0 1px var(--hub-edge); border: 0; color: var(--hub-text); padding: 0 10px; font: inherit; font-size: 10px; }
+.lak-num em { font-style: normal; color: var(--hub-text-dim); }
+.lak-swatches { display: flex; gap: 6px; flex-wrap: wrap; }
+.lak-swatches button { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 6px; border-radius: 14px; background: var(--hub-field); box-shadow: inset 0 0 0 1px var(--hub-edge); color: var(--hub-text-soft); cursor: pointer; font-size: 9.6px; }
+.lak-swatches button.on { box-shadow: inset 0 0 0 1.5px var(--hub-accent); color: var(--hub-text); }
+.lak-swatches i { width: 16px; height: 16px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3); background-image: linear-gradient(45deg, rgba(128, 128, 128, 0.3) 25%, transparent 25%); }
+.lak-colour { display: flex; flex-direction: column; gap: 8px; }
+.lak-colour .ed-picker { width: 100%; }
+.lak-recent { display: flex; flex-wrap: wrap; gap: 5px; }
+.lak-recent button { width: 20px; height: 20px; border-radius: 5px; cursor: pointer; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25); }
+
+/* no bus asked for */
+.lak-chooser { grid-template-rows: 52px minmax(0, 1fr); }
+.lak-choose { display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr); gap: 24px; padding: 20px 24px; min-height: 0; overflow: auto; align-content: start; }
+.lak-choose section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.lak-choose h3 { font-size: 11px; font-weight: 700; }
+.lak-choose label { display: flex; flex-direction: column; gap: 4px; color: var(--hub-text-soft); font-size: 10px; }
+.lak-choose select { height: var(--hub-row); border-radius: var(--hub-r); background: var(--hub-field); color: var(--hub-text); border: 0; box-shadow: inset 0 0 0 1px var(--hub-edge); padding: 0 8px; font: inherit; font-size: 10px; }
+.lak-project { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 10px 12px; border-radius: var(--hub-r); background: var(--hub-field); box-shadow: inset 0 0 0 1px var(--hub-edge); color: var(--hub-text); cursor: pointer; text-align: left; }
+.lak-project:hover { background: var(--hub-hover); }
+.lak-project small { color: var(--hub-text-dim); font-size: 9.2px; }
+@media (max-width: 760px) { .lak-choose { grid-template-columns: minmax(0, 1fr); } }

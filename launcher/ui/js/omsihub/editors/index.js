@@ -16,7 +16,8 @@ import { EditorHub } from './hub.js';
 import { TimetablePage } from './timetable.js';
 import { DepotsPage, depotsBack } from './depots.js';
 import { LinesPage, linesBack } from './lines/index.js';
-import { LiveryPage } from './livery.js';
+// (the livery studio on the page's own GPU, the game program's where the page cannot draw)
+import { LiveryEditor } from '../bus3d/lak/page.js';
 
 // (our editors' look, after omsihub.css: style sheets of their own, loaded with them)
 for (const sheet of ['editors.css', 'editors-hof.css', 'editors-depots.css', 'editors-lines.css']) {
@@ -38,8 +39,8 @@ export const EDITORS = {
   timetable: { name: 'Timetable', icon: 'schedule', title: 'Timetable', sub: "A map's lines: their tours and when each trip leaves. Saved as the line's .ttl (in the content folder; OMSI 2's own files stay as they are).", View: TimetablePage, back: () => 'drive' },
   depots: { name: 'Depot editor', icon: 'departure_board', title: 'Depot editor', sub: "Your own depot files: the destinations and what every display shows, the IBIS's stops and routes, special and service trips. A line chooses one, and every bus that drives it gets it.", View: DepotsPage, back: depotsBack },
   lines: { name: 'Line editor', icon: 'route', title: 'Line editor', sub: 'Click the stops in order: the way between them is found over the roads. Saved, the line is driven by you and by the timetable\'s buses.', View: LinesPage, back: linesBack },
-  // (the studio over the whole window, its own way back: `livery.js`)
-  livery: { name: 'Livery', icon: 'palette', title: 'Livery editor', sub: 'Paint a bus in colours of your own and drive it.', View: LiveryPage, back: () => 'editor', full: true },
+  // (the studio over the whole window, its own way back: `bus3d/lak/studio.js`, `livery.js`)
+  livery: { name: 'Livery', icon: 'palette', title: 'Livery editor', sub: 'Paint a bus in colours of your own and drive it.', View: LiveryEditor, back: () => 'editor', full: true },
 };
 
 /** The page `OMSI_LAUNCHER_PAGE` names, if it is an editor's ("Timetable", "line editor"...). */

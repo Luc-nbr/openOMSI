@@ -29,4 +29,13 @@ omsi-sim = { path = "../omsi-sim" }
 omsi-texture = { path = "../omsi-texture" }
 # Omsi-Hub: the page's own 3D view reads the buses' meshes as the game does (`src/omsihub/bus3d`)
 omsi-o3d = { path = "../omsi-o3d" }
+# Omsi-Hub: the livery studio's core (`src/omsihub/lak`: the projects, the zones, the save into
+# the game), shared with the game program's studio
+omsihub-livery = { path = "../omsihub-livery" }
+glam.workspace = true
+sha2.workspace = true
 anyhow.workspace = true
+
+[dev-dependencies]
+# (the livery studio's tests write a picture)
+image.workspace = true

@@ -3663,6 +3663,8 @@ name = "omsi-launcher-api"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "glam",
+ "image",
  "omsi-cfg",
  "omsi-content",
  "omsi-launcher-core",
@@ -3676,8 +3678,10 @@ dependencies = [
  "omsi-timetable",
  "omsi-vehicle",
  "omsi-weather",
+ "omsihub-livery",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

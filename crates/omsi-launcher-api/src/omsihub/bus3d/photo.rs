@@ -43,10 +43,21 @@ pub fn name_of(bus: &str, paint: &str) -> String {
     format!("p3-{}", tex::id_of(&format!("photo-{STYLE}|{}|{}", bus.replace('\\', "/").trim().to_lowercase(), paint.trim().to_lowercase())))
 }
 
+/// What was found of the photos' files lately, by photo.
+fn seen() -> &'static Mutex<HashMap<String, (Instant, bool)>> {
+    static SEEN: OnceLock<Mutex<HashMap<String, (Instant, bool)>>> = OnceLock::new();
+    SEEN.get_or_init(Default::default)
+}
+
+/// A bus's files changed (the livery studio saved a livery for it): its photos are checked
+/// again at once.
+pub fn forget(_bus: &str) {
+    seen().lock().unwrap_or_else(|e| e.into_inner()).clear();
+}
+
 /// Whether the files of a photo are as they were (asked at most once a minute per photo).
 fn fresh(name: &str, stamps: &[(PathBuf, u64, u64)]) -> bool {
-    static SEEN: OnceLock<Mutex<HashMap<String, (Instant, bool)>>> = OnceLock::new();
-    let seen = SEEN.get_or_init(Default::default);
+    let seen = seen();
     if let Some((at, ok)) = seen.lock().unwrap_or_else(|e| e.into_inner()).get(name) {
         if at.elapsed() < Duration::from_secs(60) {
             return *ok;

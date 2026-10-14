@@ -310,6 +310,14 @@ pub fn look_of(root: &Path, bus: &str, manifest: &Manifest, paint: Option<&str>,
     Ok(look)
 }
 
+/// The bus read as the game reads it, with its pack's head and manifest (the livery studio's
+/// preparation: the read the 3D view made, when it was this bus).
+pub fn read_of(root: &Path, bus: &str) -> Result<(Arc<BusRead>, Arc<Head>, Arc<Manifest>), String> {
+    let (manifest, _) = pack_of(root, bus)?;
+    let (read, head) = read_for_look(root, bus, &manifest)?;
+    Ok((read, head, manifest))
+}
+
 /// Open `bus` in `paint`: its pack (kept or built) and its look.
 pub fn open(root: &Path, bus: &str, paint: Option<&str>, options: &[(String, f32)]) -> Result<Opened, String> {
     let t0 = std::time::Instant::now();

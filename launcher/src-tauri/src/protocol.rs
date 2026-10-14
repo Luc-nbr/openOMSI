@@ -2,7 +2,7 @@
 //! shows - a map's `picture.jpg` from the OMSI folder, the content folder or an archive used in
 //! place (`content/<path>`). Nothing else on the disk can be asked for.
 //!
-//! Omsi-Hub: and the bytes of our 3D view (`bytes/<cmd>?args=<json>`: the commands
+//! Omsi-Hub: and the bytes of our 3D view and livery studio (`bytes/<cmd>?args=<json>`: the commands
 //! `omsi-launcher-api`'s `omsihub::bus3d` answers with bytes - a bus's pack, a texture, a photo -
 //! asked for by id, never by path), so that the page's renderer can fetch them from its worker,
 //! where the window's commands are not; the phone's web view asks for them the same way
@@ -32,7 +32,8 @@ fn bytes(path: &str, query: &str) -> Response<Vec<u8>> {
     let cmd = path.trim_start_matches('/').trim_start_matches("bytes/").to_string();
     let args = query.split('&').find_map(|kv| kv.strip_prefix("args=")).map(percent_decode).unwrap_or_else(|| "{}".into());
     let args: serde_json::Value = serde_json::from_str(&args).unwrap_or(serde_json::Value::Null);
-    let answer = if cmd.starts_with("b3d_") { omsi_launcher_api::call_bytes(&cmd, &args, &NoWindow) } else { Err("not one of these".into()) };
+    // (and the livery studio's: its pictures, decals and templates, by hash and number)
+    let answer = if cmd.starts_with("b3d_") || cmd.starts_with("lak_") { omsi_launcher_api::call_bytes(&cmd, &args, &NoWindow) } else { Err("not one of these".into()) };
     match answer {
         Ok(body) => Response::builder()
             .status(StatusCode::OK)
@@ -111,6 +112,9 @@ mod tests {
         let r = super::bytes("/bytes/content_picture", "args=%7B%22path%22%3A%22envir.cfg%22%7D");
         assert_eq!(r.status(), tauri::http::StatusCode::NOT_FOUND);
         let r = super::bytes("/bytes/b3d_tex", "args=%7B%22id%22%3A%22nothing%22%7D");
+        assert_eq!(r.status(), tauri::http::StatusCode::NOT_FOUND);
+        // (a livery's picture by its hash in a project: never a path)
+        let r = super::bytes("/bytes/lak_picture", "args=%7B%22id%22%3A%22..%2F..%22%2C%22hash%22%3A%22x%22%7D");
         assert_eq!(r.status(), tauri::http::StatusCode::NOT_FOUND);
     }
 }
