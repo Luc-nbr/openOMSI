@@ -4,12 +4,24 @@
 # (crates/omsi-app/src/updater.rs). It runs on every push to beta, by hand, and from
 # omsihub-sync.yml after that merged the project's main into beta (a push with the workflow's
 # own token starts no workflow). A version that already has its release is left alone.
+#
+# The Mac (job `mac`, Luc's Mac test builds): a push to the branch mac-test, or a run by hand
+# with "mac" ticked on any branch, builds openOMSI.app with the Omsi-Hub interface for Apple
+# silicon and Intel as upstream's release.yml does (scripts/build-macos.sh), signed ad hoc (no
+# Apple Developer account: the player opens it once with right-click > Open), and keeps it as
+# the run's artifacts - a .dmg and the zip the updater knows (openOMSI-<v>-macos-<arch>.zip) -
+# without a release. docs/omsihub/MACOS.md says how to start it and what to test.
 name: Omsi-Hub release
 
 on:
   push:
-    branches: [beta]
+    branches: [beta, mac-test]
   workflow_dispatch:
+    inputs:
+      mac:
+        description: Only the Mac test build of this branch (artifacts, no release)
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       tested:
@@ -29,6 +41,8 @@ env:
 
 jobs:
   release:
+    # (beta's Windows release; a Mac test build publishes nothing)
+    if: ${{ github.ref == 'refs/heads/beta' && !inputs.mac }}
     runs-on: windows-latest
     env:
       GH_TOKEN: ${{ github.token }}
@@ -127,3 +141,67 @@ jobs:
           } > notes.md
           gh release create "v$v" "out/openOMSI-$v-windows-x64.zip" -R "$GITHUB_REPOSITORY" \
             --target "$(git rev-parse HEAD)" --title "openOMSI $v (Omsi-Hub)" --notes-file notes.md --latest
+
+  mac:
+    if: ${{ github.ref == 'refs/heads/mac-test' || inputs.mac }}
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            arch: arm64
+          # Intel Macs: built on the Apple silicon runner for x86_64 (as release.yml)
+          - target: x86_64-apple-darwin
+            arch: x64
+    env:
+      OPENOMSI_TARGET: ${{ matrix.target }}
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # (a test build: its version has a "-", so the updater never replaces it with a release)
+      - name: Version
+        run: |
+          git remote add upstream https://github.com/openOMSI-Project/openOMSI.git
+          git fetch --no-tags upstream main
+          v="$(sh scripts/omsihub-version.sh)-mactest${{ github.run_number }}"
+          echo "OPENOMSI_VERSION=$v" >> "$GITHUB_ENV"
+          echo "### Omsi-Hub $v for the Mac (${{ matrix.arch }}), a test build" >> "$GITHUB_STEP_SUMMARY"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: omsihub-mac-${{ matrix.target }}
+          workspaces: |
+            . -> target
+            launcher/src-tauri -> target
+      - name: Build
+        run: scripts/build-macos.sh
+      # (the app's name where the Mac shows it - the Dock, the menu bar; the bundle's file name
+      # stays openOMSI.app), signed again ad hoc: no Apple Developer account
+      - name: Omsi-Hub's name, signed ad hoc
+        run: |
+          app=dist/macos/openOMSI.app
+          plutil -replace CFBundleName -string "Omsi-Hub" "$app/Contents/Info.plist"
+          plutil -replace CFBundleDisplayName -string "Omsi-Hub" "$app/Contents/Info.plist"
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --verbose=2 "$app"
+      - name: Package (.dmg and the updater's zip)
+        run: |
+          mkdir -p out dmg
+          v="$OPENOMSI_VERSION"
+          cp README.md LICENSE dist/macos/
+          (cd dist/macos && ditto -c -k --sequesterRsrc --keepParent openOMSI.app "../../out/openOMSI-$v-macos-${{ matrix.arch }}.zip")
+          cp -R dist/macos/openOMSI.app dmg/
+          cp docs/omsihub/MACOS.md "dmg/Read me first (Mac).md"
+          ln -s /Applications dmg/Applications
+          hdiutil create -volname "Omsi-Hub" -srcfolder dmg -ov -format UDZO "out/Omsi-Hub-$v-macos-${{ matrix.arch }}.dmg"
+          ls -la out
+      - uses: actions/upload-artifact@v7
+        with:
+          retention-days: 14
+          name: omsihub-macos-${{ matrix.arch }}
+          path: out/*

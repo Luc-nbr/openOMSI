@@ -471,3 +471,10 @@ _version: 2
   ru: "Omsi-Hub основан на openOMSI — открытой реконструкции движка OMSI 2."
   uk: "Omsi-Hub побудовано на openOMSI — відкритій реконструкції рушія OMSI 2."
   pl: "Omsi-Hub powstał na bazie openOMSI, otwartej odbudowy silnika OMSI 2."
+"On a Mac: copy the whole OMSI 2 folder (with Omsi.exe, maps and Vehicles) from a Windows PC to this Mac, then choose it here.":
+  nl: "Op een Mac: kopieer de hele OMSI 2-map (met Omsi.exe, maps en Vehicles) van een Windows-pc naar deze Mac en kies hem hier."
+  de: "Auf einem Mac: Kopiere den ganzen OMSI-2-Ordner (mit Omsi.exe, maps und Vehicles) von einem Windows-PC auf diesen Mac und wähle ihn hier."
+  fr: "Sur un Mac : copie tout le dossier OMSI 2 (avec Omsi.exe, maps et Vehicles) d'un PC Windows sur ce Mac, puis choisis-le ici."
+  ru: "На Mac: скопируйте всю папку OMSI 2 (с Omsi.exe, maps и Vehicles) с ПК на Windows на этот Mac и выберите её здесь."
+  uk: "На Mac: скопіюйте всю теку OMSI 2 (з Omsi.exe, maps і Vehicles) з ПК на Windows на цей Mac і виберіть її тут."
+  pl: "Na Macu: skopiuj cały folder OMSI 2 (z Omsi.exe, maps i Vehicles) z komputera z Windows na tego Maca i wybierz go tutaj."

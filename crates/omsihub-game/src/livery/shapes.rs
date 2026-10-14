@@ -102,9 +102,24 @@ const WINDOWS_FONTS: &[(&str, &[&str])] = &[
     ("Verdana", &["verdanab.ttf", "verdana.ttf"]),
 ];
 
-fn fonts_dir() -> std::path::PathBuf {
-    let windir = std::env::var_os("WINDIR").map(std::path::PathBuf::from).unwrap_or_else(|| "C:\\Windows".into());
-    windir.join("Fonts")
+/// Where this computer keeps its fonts: Windows's Fonts folder; elsewhere the system's and the
+/// user's font folders of a Mac (Arial, Verdana ... are in its supplemental fonts) and Linux's
+/// with Microsoft's core fonts. A font found in none is left out of the list (Omsi-Hub on a Mac).
+fn fonts_dirs() -> Vec<std::path::PathBuf> {
+    if cfg!(windows) {
+        let windir = std::env::var_os("WINDIR").map(std::path::PathBuf::from).unwrap_or_else(|| "C:\\Windows".into());
+        return vec![windir.join("Fonts")];
+    }
+    let mut v: Vec<std::path::PathBuf> = ["/System/Library/Fonts/Supplemental", "/Library/Fonts", "/usr/share/fonts/truetype/msttcorefonts", "/usr/share/fonts/TTF"].iter().map(std::path::PathBuf::from).collect();
+    if let Some(home) = std::env::var_os("HOME") {
+        v.push(std::path::PathBuf::from(home).join("Library/Fonts"));
+    }
+    v
+}
+
+/// A font file of the computer's, in the first font folder that has it.
+fn font_file(name: &str) -> Option<std::path::PathBuf> {
+    fonts_dirs().into_iter().map(|d| omsi_cfg::resolve_path(&d, name)).find(|p| p.is_file())
 }
 
 /// The fonts this computer has, by name (the launcher's own first).
@@ -112,9 +127,8 @@ pub fn font_names() -> &'static [String] {
     static NAMES: OnceLock<Vec<String>> = OnceLock::new();
     NAMES.get_or_init(|| {
         let mut v = vec![DEFAULT_FONT.to_string(), "Roboto".to_string()];
-        let dir = fonts_dir();
         for (name, files) in WINDOWS_FONTS {
-            if files.iter().any(|f| omsi_cfg::resolve_path(&dir, f).is_file()) {
+            if files.iter().any(|f| font_file(f).is_some()) {
                 v.push(name.to_string());
             }
         }
@@ -157,11 +171,10 @@ pub fn font(name: &str) -> Arc<FontSet> {
             .unwrap_or_default(),
         n if n == DEFAULT_FONT => Vec::new(),
         n => {
-            let dir = fonts_dir();
             WINDOWS_FONTS
                 .iter()
                 .find(|(f, _)| *f == n)
-                .and_then(|(_, files)| files.iter().find_map(|f| std::fs::read(omsi_cfg::resolve_path(&dir, f)).ok()))
+                .and_then(|(_, files)| files.iter().find_map(|f| font_file(f).and_then(|p| std::fs::read(p).ok())))
                 .and_then(|b| FontVec::try_from_vec(b).ok())
                 .into_iter()
                 .collect()

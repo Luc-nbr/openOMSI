@@ -429,8 +429,9 @@ function Animations() {
 
 // --- the folder ------------------------------------------------------------------------------
 
-/** Where Steam puts OMSI 2: the field's hint (a path, not a text to translate). */
-const FOLDER_HINT = 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\OMSI 2';
+/** Where Steam puts OMSI 2: the field's hint (a path, not a text to translate) - on a Mac, where
+ * the folder copied from a Windows PC is put (OMSI 2 runs on Windows only). */
+const folderHint = () => (S.boot?.platform === 'macos' ? '~/OMSI 2' : 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\OMSI 2');
 
 /** The folder being pointed to: what was typed or chosen, else the one set. */
 const folderText = () => W()?.root ?? (S.config?.root || S.boot?.root || '');
@@ -501,11 +502,12 @@ function Folder() {
   return html`<div class="hub-wfolder">
     <div class="hub-wcaps">${tr('OMSI 2 folder')}</div>
     <div class="row">
-      <label class="hub-wfield"><${Icon} name="folder_open" size=${18} /><input value=${root} placeholder=${FOLDER_HINT} spellcheck="false" onInput=${(e) => put({ root: e.currentTarget.value })} /></label>
+      <label class="hub-wfield"><${Icon} name="folder_open" size=${18} /><input value=${root} placeholder=${folderHint()} spellcheck="false" onInput=${(e) => put({ root: e.currentTarget.value })} /></label>
       <${Btn} label="Browse" onClick=${browse} />
     </div>
     ${says && html`<div class=${'verdict ' + says[1]}><${Icon} name=${says[0]} size=${17} /><span>${tr(says[2], { what: v.what })}</span></div>`}
     <p class="note">${tr('Steam, the box version, a folder you moved yourself - all fine. Omsi-Hub only reads it and never writes into it.')}</p>
+    ${S.boot?.platform === 'macos' && html`<p class="note">${tr('On a Mac: copy the whole OMSI 2 folder (with Omsi.exe, maps and Vehicles) from a Windows PC to this Mac, then choose it here.')}</p>`}
   </div>`;
 }
 

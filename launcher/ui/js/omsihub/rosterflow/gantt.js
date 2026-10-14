@@ -874,8 +874,9 @@ export function Gantt({ data, drivers, readOnly, p, onTip, page }) {
         // (along the row: in Drivers the duty's trips, of any bus)
         sel = drivers ? dutySpan(b, hit.dutyRow, r.sel[0], [hit.tour, hit.trip]) : rangeOf(b, hit.tour, r.sel[0][1], hit.trip).map((x) => [hit.tour, x]);
         Object.assign(patch, { sel, card: { kind: 'selection', at: at(m) } });
-      } else if (e.ctrlKey && several && sameRow) {
-        // (Ctrl and a click: one trip added to the choice or taken out of it)
+      } else if ((e.ctrlKey || e.metaKey) && several && sameRow) {
+        // (Ctrl and a click - Cmd on a Mac, whose Ctrl and a click is a right click: one trip
+        // added to the choice or taken out of it)
         sel = inSel ? r.sel.filter(([s0, s1]) => !(s0 === hit.tour && s1 === hit.trip)) : [...r.sel, [hit.tour, hit.trip]];
         // (taken out: nothing taken up, as the game-drawn launcher does)
         if (inSel) {
