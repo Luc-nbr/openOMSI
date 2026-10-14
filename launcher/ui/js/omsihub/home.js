@@ -69,8 +69,8 @@ export function Home() {
       <div class="hub-modes">
         ${MODES.map(([kind, title, icon, picture, text]) => html`<button type="button" class=${'hub-mode' + (kind === on ? ' on' : '')} data-mode=${kind} onClick=${() => pick(kind)}>
           <span class="photo" style=${`background-image:url("omsihub/${picture}.jpg")`}></span>
-          <span class="what">
-            <span class="badge"><${Icon} name=${icon} size=${21} /></span>
+          <span class="hub-mode-what">
+            <span class="hub-mode-badge"><${Icon} name=${icon} size=${21} /></span>
             <b>${tr(title)}</b>
             <p>${tr(text)}</p>
           </span>

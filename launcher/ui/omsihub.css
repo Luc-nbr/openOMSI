@@ -244,6 +244,15 @@
 @keyframes hub-grow { from { transform: scaleX(0.3); opacity: 0.4; } }
 @container (max-width: 1240px) { .hub-step-join { width: 16px; margin: 0 8px; } }
 @container (max-width: 1100px) { .hub-step:not(.now) span { display: none; } .hub-step-join { width: 10px; margin: 0 6px; } }
+/* (narrower still - a small window at a large Launcher size: the version in the bar goes, the
+   languages are the current flag and the globe's list, the joins between the steps shorter;
+   the bar keeps its height and its parts stay side by side) */
+@container (max-width: 960px) {
+  .hub-bar .hub-version { display: none; }
+  .hub-flags .hub-flag:not(.on) { display: none; }
+  .hub-step-join { width: 6px; margin: 0 4px; }
+  .hub-bar { gap: 2px; }
+}
 
 /* the palette under the bar: the accent's swatches and the dark mode */
 .hub-pop {
@@ -320,7 +329,9 @@
 .hub-actions .hub-btn:hover:not(:disabled) { background: var(--hub-hover); transform: translateY(-2px); box-shadow: inset 0 0 0 1px var(--hub-edge), 0 6px 16px rgba(0, 0, 0, 0.18); }
 .hub-actions .hub-back { width: 100px; }
 .hub-actions .hub-go {
-  width: clamp(150px, 15.3cqw, 240px); background: var(--hub-accent); color: var(--hub-on-accent); box-shadow: none;
+  /* (as wide as its words need - "START THE DUTY", a longer one in another language - from the
+     width the game-drawn launcher gave it up) */
+  width: auto; min-width: clamp(150px, 15.3cqw, 240px); max-width: 46%; text-overflow: ellipsis; background: var(--hub-accent); color: var(--hub-on-accent); box-shadow: none;
   font-size: 13.8px; text-transform: uppercase; letter-spacing: 0.01em; position: relative; overflow: hidden;
 }
 .hub-actions .hub-go:hover:not(:disabled) { background: var(--hub-accent-hover); box-shadow: 0 8px 20px rgba(var(--hub-accent-rgb), 0.35); }
@@ -393,12 +404,15 @@
 /* (the card itself does not scroll: its rim, `.hub-glass::before`, is placed in it and scrolled
    away with its content - Beta 52's tenth link made the start scroll, and the rim's bottom edge
    ran as a line across the service record; what does not fit scrolls in `.hub-card-in`) */
-.hub-card { --hub-glass: var(--hub-glass-card); pointer-events: auto; width: 100%; max-height: 100%; overflow: hidden; border-radius: var(--hub-r-sheet); display: flex; flex-direction: column; }
+.hub-card { --hub-glass: var(--hub-glass-card); pointer-events: auto; width: 100%; min-width: 0; max-height: 100%; overflow: hidden; border-radius: var(--hub-r-sheet); display: flex; flex-direction: column; }
 .hub-card-in { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 28px 34px; display: flex; flex-direction: column; border-radius: inherit; }
 .hub-card .hub-logo { height: var(--hub-logo-h); width: auto; display: block; margin: 0 auto 16px; flex: none; }
 .hub-greeting { text-align: center; font-size: 24.6px; font-weight: 700; line-height: 40px; color: var(--hub-glass-ink); }
 .hub-question { text-align: center; font-size: 10.7px; color: var(--hub-glass-ink-soft); margin: 6px 0 30px; }
-.hub-modes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; height: clamp(180px, calc((var(--hub-avail) - var(--hub-logo-h) - 108px - 22px - 280px - 56px) * 0.95), 340px); flex: none; }
+/* (the tiles as tall as the window leaves them, and taller where their words need it: a large
+   Launcher size on a small window put the badges over the tiles' top and cut the titles - Luc,
+   Beta 52 at 200 %; each tile's words are placed in it, at its foot) */
+.hub-modes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; grid-auto-rows: minmax(clamp(180px, calc((var(--hub-avail) - var(--hub-logo-h) - 108px - 22px - 280px - 56px) * 0.95), 340px), auto); flex: none; }
 .hub-mode {
   position: relative; border-radius: var(--hub-r-sheet); overflow: hidden; cursor: pointer; text-align: left; padding: 0;
   background: var(--hub-field) center / cover no-repeat; color: #fff; isolation: isolate;
@@ -410,16 +424,17 @@
 .hub-mode:hover { transform: translateY(-4px) scale(1.012); box-shadow: 0 14px 30px rgba(0, 0, 0, 0.28), inset 0 0 0 1px rgba(var(--hub-accent-rgb), 0.55); }
 .hub-mode:hover .photo { transform: scale(1.06); }
 .hub-mode.on { box-shadow: 0 0 0 2.5px var(--hub-accent), 0 0 24px rgba(var(--hub-accent-rgb), 0.45); }
-.hub-mode .what { position: absolute; left: 20px; right: 20px; bottom: 20px; }
-.hub-mode .badge { width: 42px; height: 42px; border-radius: var(--hub-r); background: rgba(255, 255, 255, 0.16); display: flex; align-items: center; justify-content: center; margin-bottom: 6px; color: #fff; transition: background 0.15s, color 0.15s; }
-.hub-mode:hover .badge { background: rgba(var(--hub-accent-rgb), 0.92); color: var(--hub-on-accent); }
-.hub-mode.on .badge { background: var(--hub-accent); color: var(--hub-on-accent); }
+.hub-mode { display: flex; flex-direction: column; justify-content: flex-end; min-width: 0; }
+.hub-mode .hub-mode-what { position: relative; display: block; padding: 20px; min-width: 0; }
+.hub-mode .hub-mode-badge { width: 42px; height: 42px; border-radius: var(--hub-r); background: rgba(255, 255, 255, 0.16); display: flex; align-items: center; justify-content: center; margin-bottom: 6px; color: #fff; transition: background 0.15s, color 0.15s; }
+.hub-mode:hover .hub-mode-badge { background: rgba(var(--hub-accent-rgb), 0.92); color: var(--hub-on-accent); }
+.hub-mode.on .hub-mode-badge { background: var(--hub-accent); color: var(--hub-on-accent); }
 .hub-mode b { display: block; font-size: 20px; font-weight: 700; line-height: 32px; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.3); }
 .hub-mode p { font-size: 10.4px; font-weight: 500; line-height: 1.4; color: rgba(232, 235, 242, 0.92); margin-top: 6px; }
 .hub-mode.hands-over b::after { content: ""; }
 @container (max-width: 1240px) { .hub-mode b { font-size: 16.9px; line-height: 28px; } .hub-mode p { font-size: 9.6px; } }
 
-.hub-under { display: grid; grid-template-columns: 44fr 56fr; gap: 18px; margin-top: 22px; flex: none; }
+.hub-under { display: grid; grid-template-columns: minmax(0, 44fr) minmax(0, 56fr); gap: 18px; margin-top: 22px; flex: none; }
 .hub-record {
   border-radius: var(--hub-r-sheet); padding: 22px 24px; cursor: pointer; text-align: left; position: relative; height: 280px;
   display: flex; flex-direction: column; justify-content: flex-start; align-items: stretch;
@@ -428,7 +443,7 @@
 }
 .hub-record:hover { background: var(--hub-glass-on-hover); transform: translateY(-2px); }
 .hub-record h3 { font-size: 8.1px; font-weight: 700; text-transform: uppercase; color: var(--hub-glass-ink-dim); letter-spacing: 0.02em; }
-.hub-figures { display: flex; gap: 30px; margin-top: 16px; }
+.hub-figures { display: flex; flex-wrap: wrap; gap: 8px 30px; margin-top: 16px; }
 .hub-figures div b { display: block; font-size: 21.5px; font-weight: 700; line-height: 34px; font-variant-numeric: tabular-nums; }
 .hub-figures div span { font-size: 9.6px; color: var(--hub-glass-ink-dim); }
 .hub-level { margin-top: 20px; font-size: 10px; font-weight: 500; color: var(--hub-glass-ink-soft); }
@@ -453,6 +468,25 @@
 .hub-link.long { grid-column: span 2; }
 .hub-links > .hub-link.long:nth-child(3n + 1) { grid-column: 1 / -1; }
 .hub-link .away { opacity: 0.6; }
+/* a narrow window, or a large Launcher size: the ways to drive in two columns (one on the
+   narrowest), the service record over the links, the links in two columns */
+@container (max-width: 1100px) {
+  .hub-modes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hub-under { grid-template-columns: minmax(0, 1fr); }
+  .hub-record { height: auto; min-height: 200px; }
+}
+@container (max-width: 760px) {
+  .hub-links { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hub-links > .hub-link.long { grid-column: 1 / -1; }
+  .hub-card-in { padding: 20px 18px; }
+}
+@container (max-width: 520px) {
+  .hub-modes { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* the bus sheet's way back up (Buses > its group > ...): a target as tall as a row's */
+.hub-crumb { min-height: 26px; padding: 0 5px; border-radius: 6px; }
+.hub-crumb:hover { background: var(--hub-hover); }
 
 /* --- the steps -------------------------------------------------------------------------- */
 
@@ -519,7 +553,7 @@
 .hub-time input { width: 44px; height: 32px; text-align: center; background: none; border: 0; outline: none; font-size: 11.5px; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--hub-text); border-radius: 6px; }
 .hub-time input:focus { background: var(--hub-hover); }
 .hub-time .spin { display: flex; flex-direction: column; }
-.hub-time .spin button { width: 18px; height: 14px; display: flex; align-items: center; justify-content: center; background: none; color: var(--hub-text-dim); cursor: pointer; border-radius: 4px; }
+.hub-time .spin button { width: 20px; height: 18px; display: flex; align-items: center; justify-content: center; background: none; color: var(--hub-text-dim); cursor: pointer; border-radius: 4px; }
 .hub-time .spin button:hover { color: var(--hub-text); background: var(--hub-hover); }
 .hub-date { position: relative; height: 44px; border-radius: var(--hub-r); background: var(--hub-field); box-shadow: inset 0 0 0 1px var(--hub-hairline); display: flex; align-items: center; gap: 8px; padding: 0 12px; color: var(--hub-text); }
 .hub-date input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }

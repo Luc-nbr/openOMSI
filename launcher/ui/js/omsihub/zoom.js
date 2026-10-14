@@ -13,6 +13,7 @@ import { S, set } from '../store.js';
 import { saveSettings } from '../data.js';
 import { tr } from './bits.js';
 import { rfOpen } from './rosterflow/state.js';
+import { scale } from './hub.js';
 
 export const MIN = 0.6;
 export const MAX = 2;
@@ -45,7 +46,11 @@ export function zoomBy(by) {
     saving = setTimeout(() => saveSettings({ launcher_scale: launcherScale() }), 250);
   }
   // the note: one at a time, replaced while the wheel turns
-  const text = tr('Launcher size: %{pct} (Ctrl+wheel, Ctrl 0 for the normal size)', { pct: `${Math.round(to * 100)}%` });
+  let text = tr('Launcher size: %{pct} (Ctrl+wheel, Ctrl 0 for the normal size)', { pct: `${Math.round(to * 100)}%` });
+  // (a window too small for the size asked: the pages as large as it allows, `hub.scale`)
+  const fit = Math.max(0.8, Math.min(1, innerWidth / 1440, innerHeight / 820));
+  const shown = Math.round((scale() / fit) * 100);
+  if (shown < Math.round(to * 100)) text += ` - ${tr('as large as this window allows: %{pct}', { pct: `${shown}%` })}`;
   set({ toasts: [...S.toasts.filter((x) => x.id !== NOTE), { id: NOTE, text, kind: 'info' }] });
   clearTimeout(noteTimer);
   noteTimer = setTimeout(() => set({ toasts: S.toasts.filter((x) => x.id !== NOTE) }), 1800);

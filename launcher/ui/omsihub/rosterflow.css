@@ -263,7 +263,7 @@
 .rf-tile .num em.good { color: var(--rf-ok); }
 .rf-tile .num em.bad { color: var(--rf-err); }
 .rf-tile .cap { position: absolute; left: 6px; right: 6px; top: 48px; height: 16px; display: flex; align-items: center; justify-content: center; font-size: 8.45px; font-weight: 700; text-transform: uppercase; color: var(--rf-text); white-space: nowrap; overflow: hidden; }
-.rf-tile .formula { position: absolute; left: 6px; right: 6px; top: 64px; height: 14px; display: flex; align-items: center; justify-content: center; font-size: 8.06px; color: var(--rf-dim); white-space: nowrap; overflow: hidden; }
+.rf-tile .formula { position: absolute; left: 6px; right: 6px; top: 64px; height: 14px; display: block; line-height: 14px; text-align: center; font-size: 8.06px; color: var(--rf-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rf-hist { position: absolute; top: 0; height: 92px; }
 .rf-hist .bars { position: absolute; left: 10px; right: 10px; top: 0; height: 74px; display: flex; justify-content: center; align-items: flex-end; }
 .rf-hist .bar { width: 56px; max-width: 56px; flex: 0 1 56px; display: flex; flex-direction: column; align-items: center; min-width: 0; }
@@ -273,7 +273,8 @@
 .rf-hist .bar small { height: 16px; line-height: 16px; font-size: 7.3px; color: var(--rf-dim); white-space: nowrap; overflow: hidden; max-width: 100%; }
 .rf-hist .cap { position: absolute; left: 0; right: 0; top: 76px; height: 14px; text-align: center; font-size: 8.45px; font-weight: 700; color: var(--rf-text); }
 .rf-hist:hover .cap { color: var(--rf-accent); }
-.rf-kpitab { position: absolute; left: 50%; bottom: 0; width: 28px; height: 9px; margin-left: -14px; border-radius: 2px; background: var(--rf-tool); color: var(--rf-text); display: flex; align-items: center; justify-content: center; }
+/* (the figures' tab: 18 high to hit - Beta 53's layout check - drawn as the 9 px tab it was) */
+.rf-kpitab { position: absolute; left: 50%; bottom: 0; width: 36px; height: 18px; margin-left: -18px; background-clip: content-box; padding: 9px 4px 0; border-radius: 2px; background: var(--rf-tool); color: var(--rf-text); display: flex; align-items: center; justify-content: center; }
 .rf-kpitab:hover { background-image: linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1)); }
 
 .rf-toolbar { flex: none; height: 40px; display: flex; align-items: center; padding: 0 4px; background: var(--rf-tool); position: relative; z-index: 2; }
@@ -440,9 +441,9 @@
 .rf-issues .fold { color: var(--rf-dim); display: flex; }
 .rf-issues .issue { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; }
 .rf-issues .issue.in { padding-left: 22px; }
-.rf-issues .tick { width: 14px; height: 14px; flex: none; margin-top: 1px; border-radius: 2px; box-shadow: inset 0 0 0 1.3px var(--rf-dim); display: flex; align-items: center; justify-content: center; color: #fff; }
+.rf-issues .tick { width: 18px; height: 18px; flex: none; margin-top: -1px; border-radius: 3px; box-shadow: inset 0 0 0 1.3px var(--rf-dim); display: flex; align-items: center; justify-content: center; color: #fff; }
 .rf-issues .tick.on { background: var(--rf-accent); box-shadow: none; }
-.rf-issues .go { flex: 1; min-width: 0; font-size: 9.6px; font-weight: 500; line-height: 1.35; color: var(--rf-soft); text-align: left; }
+.rf-issues .go { flex: 1; min-width: 0; min-height: 20px; font-size: 9.6px; font-weight: 500; line-height: 1.35; color: var(--rf-soft); text-align: left; }
 .rf-issues .go.hard { color: var(--rf-text); }
 .rf-issues .go:hover { color: var(--rf-accent); }
 .rf-issues > .foot { flex: none; display: flex; justify-content: space-between; padding: 10px 18px 14px; box-shadow: inset 0 1px 0 var(--rf-line); }
@@ -504,7 +505,7 @@
 .pf-type { padding: 10px 12px; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--rf-line); background: var(--rf-sheet); }
 .pf-type > .top { display: flex; align-items: center; gap: 10px; }
 .pf-type > .top input { width: 200px; height: 28px; padding: 0 8px; border: 0; border-radius: 3px; outline: none; background: var(--rf-field); box-shadow: inset 0 0 0 1px var(--rf-line); color: var(--rf-text); font-size: 10px; }
-.pf-type > .top button { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 3px; color: var(--rf-dim); }
+.pf-type > .top button { width: 28px; height: 28px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 3px; color: var(--rf-dim); }
 .pf-type > .top button:hover { color: var(--rf-text); background: var(--rf-hover2); }
 .pf-type > .top button.del:hover { color: var(--rf-err); }
 .pf-type .grid { display: grid; grid-template-columns: 130px 1fr; gap: 6px 10px; align-items: center; margin-top: 8px; }

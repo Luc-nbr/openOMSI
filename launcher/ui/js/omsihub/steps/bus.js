@@ -111,7 +111,7 @@ function Picker({ onBus }) {
         <${Head} icon="directions_bus" title="Buses" sub=${tr('Which bus are you taking out?')} />
         <div class="hub-toolbar">
           <nav style="display:flex;align-items:center;gap:4px;font-weight:700;min-width:0">
-            ${crumbs.map((c, k) => html`${k > 0 && html`<${Icon} name="chevron_right" size=${14} />`}<button type="button" style=${`background:none;cursor:pointer;color:${k === crumbs.length - 1 ? 'var(--hub-text)' : 'var(--hub-text-dim)'};white-space:nowrap`} onClick=${() => keep(level.slice(0, k))}>${c}</button>`)}
+            ${crumbs.map((c, k) => html`${k > 0 && html`<${Icon} name="chevron_right" size=${14} />`}<button type="button" class="hub-crumb" style=${`background:none;cursor:pointer;color:${k === crumbs.length - 1 ? 'var(--hub-text)' : 'var(--hub-text-dim)'};white-space:nowrap`} onClick=${() => keep(level.slice(0, k))}>${c}</button>`)}
           </nav>
           <div class="search"><${Search} value=${q} onInput=${setQ} placeholder="Search buses…" /></div>
           <span style="width:170px"><${Switch} label="Favourites only" checked=${favOnly} onChange=${setFavOnly} /></span>
@@ -146,7 +146,7 @@ function Depots({ onBack }) {
         <${Head} icon="directions_bus" title=${title} raw sub=${sub} />
         <div class="hub-toolbar">
           <nav style="display:flex;align-items:center;gap:4px;font-weight:700;min-width:0;flex:1">
-            ${crumbs.map(([c, to]) => html`<button type="button" style="background:none;cursor:pointer;color:var(--hub-text-dim);white-space:nowrap" onClick=${() => onBack(to)}>${c}</button><${Icon} name="chevron_right" size=${14} />`)}
+            ${crumbs.map(([c, to]) => html`<button type="button" class="hub-crumb" style="background:none;cursor:pointer;color:var(--hub-text-dim);white-space:nowrap" onClick=${() => onBack(to)}>${c}</button><${Icon} name="chevron_right" size=${14} />`)}
             <span style="color:var(--hub-text);white-space:nowrap">${tr('Depot file')}</span>
           </nav>
           ${line && html`<span class="ed-hof-mapline"><${Icon} name="map" size=${14} />${line}</span>`}

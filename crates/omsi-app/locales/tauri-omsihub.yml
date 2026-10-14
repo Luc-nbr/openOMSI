@@ -478,3 +478,10 @@ _version: 2
   ru: "На Mac: скопируйте всю папку OMSI 2 (с Omsi.exe, maps и Vehicles) с ПК на Windows на этот Mac и выберите её здесь."
   uk: "На Mac: скопіюйте всю теку OMSI 2 (з Omsi.exe, maps і Vehicles) з ПК на Windows на цей Mac і виберіть її тут."
   pl: "Na Macu: skopiuj cały folder OMSI 2 (z Omsi.exe, maps i Vehicles) z komputera z Windows na tego Maca i wybierz go tutaj."
+"as large as this window allows: %{pct}":
+  nl: "zo groot als dit venster toelaat: %{pct}"
+  de: "so groß, wie dieses Fenster es zulässt: %{pct}"
+  fr: "aussi grand que cette fenêtre le permet : %{pct}"
+  ru: "насколько позволяет это окно: %{pct}"
+  uk: "наскільки дозволяє це вікно: %{pct}"
+  pl: "tak duży, jak pozwala to okno: %{pct}"
