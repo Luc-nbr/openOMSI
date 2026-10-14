@@ -57,11 +57,14 @@ pub(crate) struct Cached {
     pub rev: String,
 }
 
-/// Optimise's proposal for a date and generation: the board and what to keep.
+/// Optimise's proposal for a date and generation: the board and what to keep. `base` is the
+/// revision of the day it was made from: a change of the company that leaves the day as it was
+/// (the week's timetables read, the clock's minutes) keeps it, as the game-drawn launcher keeps it.
 #[derive(Clone)]
 struct Proposal {
     date: String,
     generation: u64,
+    base: String,
     board: Arc<Board>,
     view: Arc<Company>,
     layouts: Vec<LineLayout>,
@@ -430,8 +433,14 @@ fn kpis_json(f: &Figures, was: Option<&Figures>) -> Value {
 
 /// The day's board, made again when the date or the company changed (`rosterflow::ensure`):
 /// None while its timetable is read (`Err` when it could not be).
+/// The company's generation as RosterFlow counts it: a playing clock's quiet minutes left out,
+/// as the game-drawn launcher leaves them out (`Session::quiet`).
+pub(crate) fn rf_generation(s: &Session) -> u64 {
+    s.generation.wrapping_sub(s.quiet)
+}
+
 pub(crate) fn ensure(s: &mut Session, r: &mut Rf, date: &str) -> Option<Result<Cached, String>> {
-    let generation = s.generation;
+    let generation = rf_generation(s);
     if let Some(k) = r.cache.as_ref().filter(|k| k.date == date && k.generation == generation) {
         return Some(Ok(k.clone()));
     }
@@ -460,14 +469,16 @@ pub(crate) fn ensure(s: &mut Session, r: &mut Rf, date: &str) -> Option<Result<C
     let board = rf::board(&view, &lines, date);
     let json = board_json(&view, &board);
     let rev = format!("{:x}", hash_of(&json.to_string()));
-    let k = Cached { date: date.to_string(), generation: s.generation, board: Arc::new(board), view: Arc::new(view), lines: Arc::new(lines), json: Arc::new(json), rev };
+    let k = Cached { date: date.to_string(), generation: rf_generation(s), board: Arc::new(board), view: Arc::new(view), lines: Arc::new(lines), json: Arc::new(json), rev };
     if r.cache.as_ref().is_none_or(|old| old.date != date) {
         r.undo.clear();
         r.redo.clear();
         r.before = None;
     }
-    if r.proposal.as_ref().is_some_and(|p| p.date != date || p.generation != k.generation) {
-        r.proposal = None;
+    match r.proposal.as_mut() {
+        Some(p) if p.date != date || (p.generation != k.generation && p.base != k.rev) => r.proposal = None,
+        Some(p) => p.generation = k.generation,
+        None => {}
     }
     r.cache = Some(k.clone());
     Some(Ok(k))
@@ -1013,7 +1024,7 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value, p: &dyn Platform) -> Answer {
             let mut probe = (*k.view).clone();
             rf::apply(&mut probe, wd, lays.clone(), joined.clone());
             let pb = rf::board(&probe, &k.lines, &k.date);
-            r.proposal = Some(Proposal { date: k.date.clone(), generation: k.generation, board: Arc::new(pb), view: Arc::new(probe), layouts: lays, joined });
+            r.proposal = Some(Proposal { date: k.date.clone(), generation: k.generation, base: k.rev.clone(), board: Arc::new(pb), view: Arc::new(probe), layouts: lays, joined });
             json!({ "proposal": true })
         }
         "accept" => match r.proposal.take() {

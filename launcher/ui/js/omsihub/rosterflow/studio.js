@@ -77,12 +77,12 @@ function Kpis({ k }) {
   const r = S.rf;
   const open = r.kpisOpen;
   return html`<div class=${'rf-kpis' + (open ? ' open' : '')}>
-    <div class="row" data-rf-row="0">
+    <div class="rf-krow">
       <span class="anchor" data-rf="rf-kpi-counts"></span><span class="anchor rest" data-rf="rf-kpi-rest"></span>
       ${k.top.map((t) => html`<${Tile} t=${t} />`)}
     </div>
-    ${open && k.more.map((row) => html`<div class="row">${row.map((t) => html`<${Tile} t=${t} />`)}</div>`)}
-    ${open && html`<div class="row hists">
+    ${open && k.more.map((row) => html`<div class="rf-krow">${row.map((t) => html`<${Tile} t=${t} />`)}</div>`)}
+    ${open && html`<div class="rf-krow hists">
       <${Histogram} bars=${k.types} caption="Duty types" style="left:10%;width:32%" onClick=${() => setRf({ panel: { kind: 'histogram', which: 0 } })} />
       <${Histogram} bars=${k.bands} caption="Duties paid time" style="left:48%;width:32%" onClick=${() => setRf({ panel: { kind: 'histogram', which: 1 } })} />
     </div>`}

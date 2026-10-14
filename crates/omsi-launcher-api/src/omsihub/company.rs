@@ -231,6 +231,10 @@ pub struct Session {
     pub clock: ClockState,
     /// Raised whenever the company changed: the page asks for its view again.
     pub generation: u64,
+    /// Omsi-Hub 4/6: how many of those were a playing clock's quiet minutes only (`adopt`), which
+    /// the game-drawn launcher does not count as a change: RosterFlow's day and its proposal
+    /// stay through them (`generation - quiet`).
+    pub quiet: u64,
     /// What the page says in its corner, as the game-drawn launcher says it in its status line.
     pub notices: Vec<(String, bool)>,
     /// A popup the session raised itself (the clock's "busy").
@@ -752,6 +756,7 @@ pub fn adopt(s: &mut Session, mut c: Company, run: Run) {
         s.reports = Some(run.reports);
     }
     if quiet && running {
+        s.quiet += 1;
         if let (Some(c), Some(list)) = (s.company.as_ref(), s.companies.as_mut()) {
             if let Some(x) = list.iter_mut().find(|x| x.id == c.id) {
                 *x = c.clone();

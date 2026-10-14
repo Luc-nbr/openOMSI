@@ -281,12 +281,12 @@ export function tutEscape() {
 }
 
 /** The tour from stop `at`. */
-function startTour(at) {
+export function startTour(at) {
   tutSet({ menu: false, sheet: false, lesson: null, tour: { plan: STOPS.map((_, k) => k), at: Math.max(0, Math.min(STOPS.length - 1, at)), forward: true, waited: 0, home: { view: S.rf.view, tab: S.rf.tp.tab } } });
 }
 
 /** The tour over (`tour::finish`): the player's place back, where it was left kept. */
-function leaveTour(completed) {
+export function leaveTour(completed) {
   const t = S.rf.tut.tour;
   if (!t) return;
   const at = t.plan[t.at] ?? 0;
@@ -297,7 +297,7 @@ function leaveTour(completed) {
 }
 
 /** Begin lesson `id`: the company kept as it is now. */
-async function beginLesson(id) {
+export async function beginLesson(id) {
   await rfCmd('rf_tut_act', { act: 'begin', lesson: id }).catch(() => {});
   const p = probe();
   const steps = LESSONS.find((l) => l[0] === id)[2];
@@ -305,7 +305,7 @@ async function beginLesson(id) {
 }
 
 /** End the lesson on its way: its changes kept, or the company put back as it found it. */
-async function endLesson(undo) {
+export async function endLesson(undo) {
   const l = S.rf.tut.lesson;
   tutSet({ lesson: null });
   if (!l) return;
@@ -408,7 +408,10 @@ function placeBubble(hole, w, h, size) {
 /** The guided tour: the dark with the spotlight round the stop's part, the bubble (or the card)
  * with its words and buttons; the keys go on (→, Enter), back (←) and out (Escape). */
 function Tour({ p, size }) {
-  const t = S.rf.tut.tour;
+  // (its own redraw can come once the tour is over: the last stop is drawn as nothing then)
+  const kept = useRef(null);
+  if (S.rf.tut.tour) kept.current = S.rf.tut.tour;
+  const t = kept.current;
   const [, redraw] = useState(0);
   const stop = STOPS[t.plan[t.at]];
   const [chapter, title, text, target, view, screen] = stop;
@@ -480,6 +483,7 @@ function Tour({ p, size }) {
   });
   const [bx, by, side] = part ? placeBubble(hole, w, bh, size) : [(size.w - w) / 2, Math.max(MARGIN, (size.h - bh) / 2), 'over'];
   const next = first && !last ? 'Show me around' : last ? 'Start planning' : 'Next';
+  if (!S.rf.tut.tour) return null;
   return html`<div class="rf-tour">
     <div class=${'hole' + (part ? '' : ' point')} style=${`left:${hole.x}px;top:${hole.y}px;width:${hole.w}px;height:${hole.h}px`}></div>
     <div class=${'bubble ' + side + (card ? ' card' : '')} ref=${bubble} style=${`left:${bx}px;top:${by}px;width:${w}px`}>
@@ -506,7 +510,11 @@ function Tour({ p, size }) {
  * ring round its part, its bubble in a corner clear of the part. */
 function Guide({ p, size }) {
   const r = S.rf;
-  const l = r.tut.lesson;
+  // (its own redraw can come once the lesson is over, before the page takes it away: the last one
+  // is drawn as nothing then)
+  const last = useRef(null);
+  if (r.tut.lesson) last.current = r.tut.lesson;
+  const l = last.current;
   const [, redraw] = useState(0);
   useEffect(() => {
     const k = setInterval(() => redraw((n) => n + 1), 300);
@@ -584,6 +592,7 @@ function Guide({ p, size }) {
   const hole = target ? holeRound(target, size) : null;
   const set = (patch) => tutSet({ lesson: { ...S.rf.tut.lesson, ...patch } });
   const doneN = l.done.filter(Boolean).length;
+  if (!S.rf.tut.lesson) return null;
   return html`${hole && html`<div class="rf-ring" style=${`left:${hole.x}px;top:${hole.y}px;width:${hole.w}px;height:${hole.h}px`}></div>`}
     <div class="rf-guide" ref=${ref} style=${`left:${gx}px;top:${gy}px;width:${W}px`}>
       <div class="top"><span class="chapter">${tr(def[1]).toUpperCase()}</span><span class="count">${doneN} / ${steps.length}</span></div>
@@ -824,7 +833,7 @@ function Picture({ which, p, w }) {
     paint();
     return () => cancelAnimationFrame(raf);
   }, [which, w]);
-  return html`<canvas ref=${ref} class="pic" style=${`width:${w}px;height:${h}px`}></canvas>`;
+  return html`<canvas ref=${ref} class="rf-pic" style=${`width:${w}px;height:${h}px`}></canvas>`;
 }
 
 function chainPicture(ctx, p, r, t) {

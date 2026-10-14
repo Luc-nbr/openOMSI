@@ -67,6 +67,10 @@ export function enterCompany(over = {}) {
 export function companyPage(part, id) {
   const casual = { buses: CASUAL.BUSES, shop: CASUAL.SHOP, lines: CASUAL.LINES, 'new-line': CASUAL.NEW_LINE, drivers: CASUAL.DRIVERS, money: CASUAL.MONEY, company: CASUAL.COMPANY, shifts: CASUAL.SHIFTS };
   if (part === 'choose') return enterCompany();
+  // Omsi-Hub 4/6: the Planning page opens RosterFlow when its add-on is on, as the game-drawn
+  // launcher does ("5~<state>": RosterFlow in a state of its own, for the comparison pictures)
+  const [first, shot] = String(part || '').split('~');
+  if (first === '5') return enterCompany({ chooser: null, tab: HOME, want: id || null, rfWant: { shot: shot || null } });
   let tab = HOME;
   if (/^\d+$/.test(part || '')) tab = Number(part);
   else if (part in casual) tab = casual[part];
@@ -158,6 +162,13 @@ export function CompanyScreen() {
   const choosing = read && c.chooser && !c.wizard;
   const founding = read && !choosing && (c.wizard || !sh.open);
   const open = read && !choosing && !founding && sh.open;
+  // (Omsi-Hub 4/6: the Planning page asked for at the start, once the company is open)
+  useEffect(() => {
+    if (!open || !c.rfWant) return;
+    const more = c.rfWant;
+    setCo({ rfWant: null });
+    handOver('5', more);
+  }, [open, c.rfWant]);
   let body;
   if (!read) body = html`<div class="co-body found"><div class="co-empty">${c.failed || tr('Reading your companies…')}</div></div>`;
   else if (choosing) body = html`<div class="co-body found"><${Chooser} /></div>`;

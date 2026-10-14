@@ -466,7 +466,7 @@ function Issues({ data, drivers, scope, size }) {
   const any = ticks.length > 0;
   return html`<div class="rf-over rf-issues" style=${`right:150px;bottom:${32 + 8}px;width:470px;height:${h}px`} data-rf="rf-issues-panel">
     <div class="head"><b>${tr(SCOPE_TITLE[scope])}</b><button type="button" onClick=${() => setRf({ panel: null })}><${Icon} name="close" size=${20} /></button></div>
-    <div class="tabs">${['Open issues', 'Dismissed issues'].map((l, k) => html`<button type="button" class=${(k === 1) === dismissedTab ? 'on' : ''} onClick=${() => (k === 1) !== dismissedTab && setRf({ dismissedTab: k === 1, issueTicks: [] })}>${tr(l).toUpperCase()}</button>`)}</div>
+    <div class="rf-itabs">${['Open issues', 'Dismissed issues'].map((l, k) => html`<button type="button" class=${(k === 1) === dismissedTab ? 'on' : ''} onClick=${() => (k === 1) !== dismissedTab && setRf({ dismissedTab: k === 1, issueTicks: [] })}>${tr(l).toUpperCase()}</button>`)}</div>
     <${CheckRow} on=${allOn} label=${tr('Select all (%{n})', { n: list.length })} raw class="all" onChange=${() => setRf({ issueTicks: allOn ? [] : keys })} />
     <div class="list">
       ${!list.length && html`<p class="none">${tr(dismissedTab ? 'No dismissed issues.' : 'No issues: every rule is kept.')}</p>`}

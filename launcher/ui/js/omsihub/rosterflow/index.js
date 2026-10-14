@@ -57,8 +57,11 @@ export async function openRosterFlow(o = {}) {
   if (o.line) Object.assign(patch, { view: TIMEPLAN, tpLine: o.line, tpHint: o.hint || null });
   if (o.sel) patch.roster = { ...r.roster, sel: o.sel, arm: null };
   if (o.offer) patch.tut = { ...r.tut, offer: true };
+  // (a state of its own for a picture: no opening)
+  if (o.shot) patch.intro = null;
   setRf(patch);
   setCo({ tab: 5, dialog: null });
+  if (o.shot) import('./shots.js').then((m) => m.applyShot(o.shot));
   return true;
 }
 
@@ -83,6 +86,7 @@ async function rfTakes(page, more) {
       Object.assign(o, { view: ROSTER, day: Math.max(0, k), sel: { duty: [d.line, d.tour, d.duty] } });
     }
     if (more?.switched) Object.assign(o, { view: VEHICLES, offer: true });
+    if (more?.shot) o.shot = more.shot;
     return openRosterFlow(o);
   }
   const line = p.slice('timetable='.length);
@@ -164,7 +168,7 @@ function TitleBar() {
   return html`<header class="rf-title">
     <${IconBtn} icon="chevron_left" title="Back to the company's start screen (Esc)" onClick=${leaveRosterFlow} />
     <i class="sep"></i>
-    <span class="brand"><${Mark} size=${30} /><span class="names"><${Wordmark} size=${17} /><small>${tr(SUBTITLE)}</small></span></span>
+    <span class="rf-brand"><${Mark} size=${30} /><span class="names"><${Wordmark} size=${17} /><small>${tr(SUBTITLE)}</small></span></span>
     <i class="sep"></i>
     <span class="menu" data-rf="rf-menu">
       <${IconBtn} icon="tune" title="Preferences: the rules the duties are checked against and Optimise works to" onClick=${() => setRf({ prefs: { item: 'signing', search: '', inUse: false } })} />
@@ -185,7 +189,7 @@ function TitleBar() {
     <button type="button" class="rf-day" data-rf="rf-day" title=${tr('The day shown: the planning of a weekday holds for that weekday every week')} onClick=${() => toggle('day')}>
       <${Icon} name="calendar_month" size=${18} /><b>${head?.day_words || ''}</b><${Icon} name="expand_more" size=${18} />
     </button>
-    <span class="tabs">
+    <span class="rf-tabs">
       ${tab(TIMEPLAN, 'departure_board', 'Timeplan', 'rf-tab-timeplan')}
       ${tab(VEHICLES, 'directions_bus', 'Vehicles', 'rf-tab-vehicles')}
       ${tab(DRIVERS, 'person', 'Drivers', 'rf-tab-drivers')}
