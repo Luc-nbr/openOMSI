@@ -204,11 +204,11 @@ effect. On Android, `openOMSI/env.txt` holds `NAME=value` lines that are set bef
 | `OMSI_LAUNCHER_SIZE` | text | - | use | app, launcher-ui | Launcher: WxH window size (the desktop launcher's too). |
 | `OMSI_LAUNCHER_SLOW` | num | - | use | launcher-ui | Launcher: the animations this many times slower (to look at them). |
 | `OMSI_LAUNCHER_SPLASH` | num | - | use | launcher-ui | Launcher: paint the game's loading screen at this point (0..1) over the page, for pictures. |
-| `OMSI_LAUNCHER_TOUR` | text | - | use | launcher-ui | Launcher: start the guided tour (at this stop). |
+| `OMSI_LAUNCHER_TOUR` | text | - | use | launcher-api, launcher-ui | Launcher: start the guided tour (at this stop). |
 | `OMSI_LAUNCHER_TRANSITION_AT` | num | - | use | launcher-ui | Launcher: hold the page transition at this point (0..1), for pictures. |
 | `OMSI_LAUNCHER_TRANSITION_SLOW` | num | - | use | launcher-ui | Launcher: the page transition this many times slower. |
 | `OMSI_LAUNCHER_UI` | text | - | use | app | Launcher: new, classic or desktop (openOMSI's Tauri launcher, when it is beside the program), whatever the settings say. |
-| `OMSI_LAUNCHER_WELCOME` | text | - | use | launcher-ui | Launcher: off skips the welcome (pictures, tests). |
+| `OMSI_LAUNCHER_WELCOME` | text | - | use | launcher-api, launcher-ui | Launcher: off skips the welcome (pictures, tests). |
 | `OMSI_LIVERY_LOOK` | text | - | test | launcher-ui | Tests: a folder for pictures of the livery studio. |
 | `OMSI_LIVERY_WINDOWS` | text | - | test | launcher-ui | Tests: pictures of a print on the windows (<OMSI folder>\|<out folder>\|<bus>[;<bus>...]). |
 | `OMSI_MAP` | text | - | test | launcher-core | Tests: the map the timetable tests read. |
