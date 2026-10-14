@@ -148,7 +148,8 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
         "rf_on" => with_rf(|s, _| Ok(on_json(s))),
         "rf_board" => with_rf(|s, r| board_answer(s, r, args)),
         "rf_view" => with_rf(|s, r| view(s, r, args)),
-        "rf_act" => with_rf(|s, r| act(s, r, args, p)),
+        "rf_act" => with_rf(|s, r| act(s, r, args)),
+        "rf_print" => print::print(args),
         c if c.starts_with("rf_tp") => return timeplan::call(c, args),
         c if c.starts_with("rf_roster") => return roster::call(c, args, p),
         c if c.starts_with("rf_tut") => return tutorial::call(c, args),
@@ -925,7 +926,7 @@ fn delete_custom(c: &mut Company, board: &Board, row: usize, ci: usize) {
 }
 
 /// What a click, a drop or a menu's line does (`rf_act`: `act` and what it needs, `day` the day).
-fn act(s: &mut Session, r: &mut Rf, args: &Value, p: &dyn Platform) -> Answer {
+fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
     let what = str_arg(args, "act");
     let Some(date) = date_of(s, args) else { return Ok(json!({})) };
     // what needs no board
@@ -1004,7 +1005,6 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value, p: &dyn Platform) -> Answer {
             r.cache = None;
             return Ok(json!({}));
         }
-        "print" => return Ok(print::print(s, r, &date, args.get("bus").and_then(Value::as_bool).unwrap_or(true), p)),
         _ => {}
     }
     let k = match ensure(s, r, &date) {

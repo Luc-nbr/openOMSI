@@ -2,14 +2,13 @@
 //! graph (a row per vehicle: its trips as bars in the line's colour, the pull-outs and pull-ins
 //! black, its duties as a band under it) and the duty graph (a row per duty: its signing, trips,
 //! travel and custom work, its vehicles under it), laid out as Optibus's "Bus Graph"
-//! (`co::rosterpdf`). The file is kept in the player's Downloads folder (a folder given in
-//! `OMSI_ROSTERFLOW_PDF` instead: the screenshot runs check the print so), and the page opens
-//! it or its folder.
+//! (`co::rosterpdf`), saved where the player chooses (a folder given in `OMSI_ROSTERFLOW_PDF`
+//! instead: the screenshot runs check the print so); the page shows its folder then.
 
 use super::super::company::words::tr;
 use super::super::company::Session;
-use super::{block_label, ensure, outbound, Rf, DAY_NAMES};
-use crate::Platform;
+use super::{block_label, date_of, ensure, outbound, with_rf, Rf, DAY_NAMES};
+use crate::Answer;
 use omsi_launcher_lib as core;
 use omsi_launcher_lib::company::network::TourOfDay;
 use omsi_launcher_lib::company::rosterflow::{self as rf, Board, EvKind};
@@ -103,43 +102,49 @@ pub(crate) fn pdf_of(c: &Company, board: &Board, date: &str, bus: bool) -> Vec<u
     pdf::graph(&title, &info, &printed, &tr("Page"), &rows)
 }
 
-/// Where the prints are kept: `OMSI_ROSTERFLOW_PDF`, else the player's Downloads, else the data
-/// folder's `rosterflow`.
-fn folder() -> PathBuf {
-    if let Ok(d) = std::env::var("OMSI_ROSTERFLOW_PDF") {
-        if !d.trim().is_empty() {
-            return PathBuf::from(d);
-        }
-    }
-    let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from);
-    match home.map(|h| h.join("Downloads")).filter(|d| d.is_dir()) {
-        Some(d) => d,
-        None => core::data_dir().join("rosterflow"),
-    }
-}
-
-/// Print the day shown into a PDF file in the prints' folder: what the page shows then (the
-/// file, its folder, and whether to open it - not when a folder was given for the check).
-pub(crate) fn print(s: &mut Session, r: &mut Rf, date: &str, bus: bool, _p: &dyn Platform) -> Value {
+/// The day shown as a PDF file: its file name and its bytes, or what to say instead.
+fn made(s: &mut Session, r: &mut Rf, date: &str, bus: bool) -> Result<(String, Vec<u8>), Value> {
     let k = match ensure(s, r, date) {
         Some(Ok(k)) => k,
-        Some(Err(e)) => return json!({ "say": { "text": e, "error": true } }),
-        None => return json!({ "say": { "text": tr("Reading the timetable…"), "error": false } }),
+        Some(Err(e)) => return Err(json!({ "say": { "text": e, "error": true } })),
+        None => return Err(json!({ "say": { "text": tr("Reading the timetable…"), "error": false } })),
     };
-    let bytes = pdf_of(&k.view, &k.board, date, bus);
-    let dir = folder();
     let name = format!("{}-{}.pdf", if bus { "bus-graph" } else { "duty-graph" }, date);
-    let path = dir.join(&name);
-    let written = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, &bytes));
-    match written {
+    Ok((name, pdf_of(&k.view, &k.board, date, bus)))
+}
+
+/// Print the day shown (`rf_print`, `day` and `bus`): saved where the player chooses, as the
+/// game-drawn launcher saves it (a folder given in `OMSI_ROSTERFLOW_PDF` takes the file without
+/// asking: the screenshot runs and the checks print so). The dialog is shown with the company
+/// let go, so that its clock and the page go on meanwhile; the page shows the folder then.
+pub(crate) fn print(args: &Value) -> Answer {
+    let bus = args.get("bus").and_then(Value::as_bool).unwrap_or(true);
+    let made = with_rf(|s, r| {
+        let date = date_of(s, args).ok_or("no day")?;
+        Ok::<_, String>(made(s, r, &date, bus))
+    })?;
+    let (name, bytes) = match made {
+        Ok(x) => x,
+        Err(said) => return Ok(said),
+    };
+    let given = std::env::var("OMSI_ROSTERFLOW_PDF").ok().filter(|d| !d.trim().is_empty());
+    let path = match &given {
+        Some(dir) => PathBuf::from(dir).join(&name),
+        None => match core::save_file_as(&tr("Save the graph as a PDF file"), &name, "PDF", &["pdf"]) {
+            Some(p) => p,
+            None => return Ok(json!({})),
+        },
+    };
+    let written = path.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| std::fs::write(&path, &bytes));
+    Ok(match written {
         Ok(()) => json!({
             "printed": path.to_string_lossy(),
-            "folder": dir.to_string_lossy(),
-            "open": std::env::var("OMSI_ROSTERFLOW_PDF").is_err(),
+            "folder": path.parent().map(|d| d.to_string_lossy().to_string()).unwrap_or_default(),
+            "reveal": given.is_none(),
             "say": { "text": tr("Saved: %{file}").replace("%{file}", &path.display().to_string()), "error": false },
         }),
         Err(e) => json!({ "say": { "text": format!("{}: {e}", tr("Could not save the file")), "error": true } }),
-    }
+    })
 }
 
 #[cfg(test)]

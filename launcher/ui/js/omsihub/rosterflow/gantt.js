@@ -751,6 +751,8 @@ export function Gantt({ data, drivers, readOnly, p, onTip, page }) {
     g.revealed = null;
     const out = draw(ctx, w, h, g);
     g.hits = out.hits;
+    // (what is where, for the checks and the pictures: `shots.js` drags with the mouse so)
+    c.rfHits = out.hits;
     // (a row asked for, scrolled to: kept, and asked no more)
     if (S.rf.reveal) setRf({ reveal: null, scroll: g.revealed ?? S.rf.scroll });
     else if (g.scroll !== S.rf.scroll || g.pan !== S.rf.pan) {
@@ -788,7 +790,8 @@ export function Gantt({ data, drivers, readOnly, p, onTip, page }) {
 
   const showTip = (hit, m) => {
     if (!onTip) return;
-    if (hit?.tip) onTip({ text: hit.raw ? hit.tip : tr(hit.tip), ...at(m) });
+    // (a Drivers chip's long tip keeps quiet while a card or the menu is open)
+    if (hit?.tip && !(hit.kind === 'chip' && (S.rf.card || S.rf.menu))) onTip({ text: hit.raw ? hit.tip : tr(hit.tip), ...at(m) });
     else onTip(null);
   };
 

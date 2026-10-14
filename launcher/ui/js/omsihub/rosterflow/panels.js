@@ -12,7 +12,7 @@ import { S } from '../../store.js';
 import { call } from '../../api.js';
 import { tr } from '../bits.js';
 import { hex as hexOf } from './pal.js';
-import { setRf, rfCmd, rfAct, edit, pick, settle, toggle, clock, hm, say, NO_FILTER, VEHICLES, DRIVERS, TIMEPLAN } from './state.js';
+import { setRf, rfCmd, rfAct, after, edit, pick, settle, toggle, clock, hm, say, NO_FILTER, VEHICLES, DRIVERS, TIMEPLAN } from './state.js';
 import { STATS, STAT_LABEL, handSpan, pieceOf, pieceTrips, tripHand } from './gantt.js';
 import { Icon, RfButton, IconBtn, Caps, Switch, CheckRow, Seg, Stepper, MenuItem, Select } from './ui.js';
 import { AXIS } from './draw.js';
@@ -631,10 +631,12 @@ function ZoomMenu() {
 
 /** Print: the bus graph or the duty graph as a PDF file, kept and opened. */
 function PrintMenu() {
+  // (saved where the player chooses; its folder shown then, as the game-drawn launcher shows it)
   const print = async (bus) => {
     setRf({ panel: null });
-    const r = await rfAct('print', { bus });
-    if (r?.printed && r.open) call('open_path', { path: r.printed }).catch(() => call('open_path', { path: r.folder }).catch(() => {}));
+    const r = await rfCmd('rf_print', { day: S.rf.day, bus }).catch((e) => ({ say: { text: e.message, error: true } }));
+    after(r);
+    if (r?.printed && r.reveal) call('open_path', { path: r.folder }).catch(() => {});
   };
   return html`<div class="rf-over rf-menu" style="left:280px;top:4px;width:260px;height:74px">
     <${MenuItem} label="Bus graph (PDF)" title="Every vehicle's day on the hours, as Optibus prints it" onClick=${() => print(true)} />

@@ -5,7 +5,7 @@
 // accepted, and is not).
 
 import { S } from '../../store.js';
-import { setRf, setPart, rfAct, pick, dropAt, ROSTER, VEHICLES, DRIVERS, TIMEPLAN } from './state.js';
+import { setRf, setPart, rfCmd, rfAct, after, pick, dropAt, ROSTER, VEHICLES, DRIVERS, TIMEPLAN } from './state.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -31,7 +31,7 @@ function firstTrip(b) {
 /** Put RosterFlow in state `name` (see the cases). */
 export async function applyShot(name) {
   const [what, arg] = String(name || '').split('.');
-  const view = { roster: ROSTER, timeplan: TIMEPLAN, timetable: TIMEPLAN, drivers: DRIVERS, duty: DRIVERS, dzones: DRIVERS, dmenu: DRIVERS, ddrop: DRIVERS }[what] ?? VEHICLES;
+  const view = { roster: ROSTER, timeplan: TIMEPLAN, timetable: TIMEPLAN, drivers: DRIVERS, duty: DRIVERS, dzones: DRIVERS, dmenu: DRIVERS, ddrop: DRIVERS, mousedrag: DRIVERS }[what] ?? VEHICLES;
   // (no opening, no tour of its own)
   setRf({ view, intro: null, tut: { ...S.rf.tut, asked: S.boot?.config?.profile || '', offer: false } });
   if (what === 'timetable') setPart('tp', { tab: 1 });
@@ -94,6 +94,32 @@ export async function applyShot(name) {
       const row = b.blocks[t[0]].duty_rows?.[piece] ?? 0;
       return pick(S.rf.tripsToDuties ? { kind: 'duty_trips', duty: row, trips: [t] } : { kind: 'piece', tour: t[0], duty: piece }, false);
     }
+    // (the mouse: a chip of the first row pressed and dragged over the first slot, its cost card
+    // shown ("mousedrag.hover") or let go there - the drag of the page's own handlers, in the
+    // sandbox's draft)
+    case 'mousedrag': {
+      await sleep(500);
+      const cv = document.querySelector('.rf-gantt canvas');
+      const hits = cv?.rfHits || [];
+      const chip = hits.find((h) => h.kind === 'chip');
+      if (!chip) return null;
+      const box = cv.getBoundingClientRect();
+      const k = box.width / cv.offsetWidth;
+      const ev = (x, y, buttons = 1) => ({ clientX: box.left + x * k, clientY: box.top + y * k, bubbles: true, button: 0, buttons });
+      const [cx, cy] = [chip.x + chip.w / 2, chip.y + chip.h / 2];
+      cv.dispatchEvent(new MouseEvent('mousedown', ev(cx, cy)));
+      cv.dispatchEvent(new MouseEvent('mousemove', ev(cx + 20, cy + 20)));
+      for (let n = 0; n < 100 && !Array.isArray(S.rf.zones); n++) await sleep(100);
+      await sleep(400);
+      const zone = (cv.rfHits || []).find((h) => h.kind === 'zone');
+      if (!zone) return null;
+      const [zx, zy] = [zone.x + zone.w / 2, zone.y + zone.h / 2];
+      cv.dispatchEvent(new MouseEvent('mousemove', ev(zx, zy)));
+      await sleep(700);
+      if (arg === 'hover') return null;
+      cv.dispatchEvent(new MouseEvent('mouseup', ev(zx, zy, 0)));
+      return null;
+    }
     // (Luc's driver drag, done in the sandbox's draft: the first trip of a duty to the first slot)
     case 'ddrop': {
       if (!t) return null;
@@ -105,10 +131,10 @@ export async function applyShot(name) {
     }
     case 'proposal':
       return rfAct('optimise');
-    // (both graphs kept as PDF files, not opened: the sandbox's Downloads)
+    // (both graphs printed: into OMSI_ROSTERFLOW_PDF's folder, no dialog)
     case 'printpdf':
-      await rfAct('print', { bus: true });
-      return rfAct('print', { bus: false });
+      after(await rfCmd('rf_print', { day: S.rf.day, bus: true }));
+      return after(await rfCmd('rf_print', { day: S.rf.day, bus: false }));
     case 'tutmenu':
       return setPart('tut', { menu: true, seen: { seen: true, at: 0, done: false, lessons: [] } });
     case 'help':
