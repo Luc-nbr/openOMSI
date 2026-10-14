@@ -1469,6 +1469,10 @@ pub fn board_of(c: &Company, wd: u8, tours: Vec<TourOfDay>, stack: Vec<(String, 
 fn place_issues(c: &Company, tours: &[TourOfDay], s: &Shaped) -> Vec<(&'static str, String)> {
     let p = &c.planning.flow.prefs;
     let mut out = Vec::new();
+    // (no relief point set: the depot and the termini allow everything)
+    if p.points.is_empty() {
+        return out;
+    }
     let places: Vec<(String, String)> = s.spans.iter().map(|sp| piece_places(&tours[sp.tour], &network::duties_of(&tours[sp.tour]).get(sp.duty).cloned().unwrap_or(0..0))).collect();
     let may = |place: &str, f: fn(&Uses) -> bool| uses_at(c, tours, place).is_none_or(|u| f(&u));
     if let Some((first, _)) = places.first() {
@@ -1512,7 +1516,7 @@ fn shape(c: &Company, tours: &[TourOfDay], d: &Duty, di: Option<usize>, key: Opt
     }
     // (a break only where a relief point allows it: the driver waits where he comes from or
     // where he goes to, the travel before or after)
-    let rest = |place: &str| uses_at(c, tours, place).is_none_or(|u| u.breaks);
+    let rest = |place: &str| p.points.is_empty() || uses_at(c, tours, place).is_none_or(|u| u.breaks);
     let mut no_rest: Vec<(i32, i32)> = Vec::new();
     for w in 0..spans.len().saturating_sub(1) {
         let (a, b) = (spans[w], spans[w + 1]);
@@ -2007,8 +2011,9 @@ pub fn optimise_with(c: &Company, lines: &[LineInfo], date: &str, vehicles: bool
     };
     let mut groups: Vec<Vec<usize>> = Vec::new();
     // (a duty begins where a relief point allows it, and takes a split's break where one does)
-    let unsigned = |place: &str| uses_at(c, &tours, place).is_some_and(|u| !u.sign);
-    let no_rest = |place: &str| uses_at(c, &tours, place).is_some_and(|u| !u.breaks);
+    let set = !p.points.is_empty();
+    let unsigned = |place: &str| set && uses_at(c, &tours, place).is_some_and(|u| !u.sign);
+    let no_rest = |place: &str| set && uses_at(c, &tours, place).is_some_and(|u| !u.breaks);
     for (ci, x) in cuts.iter().enumerate() {
         let alone = fixed as f64 + paid_of(&[x]) as f64 * rate + if unsigned(&x.at) { 500_00 as f64 } else { 0.0 };
         let mut best: Option<(usize, f64)> = None;

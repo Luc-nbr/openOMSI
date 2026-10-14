@@ -45,6 +45,9 @@ pub(super) fn add_mids(json: &mut Value, c: &Company, board: &Board, lines: &[Li
             let Some(v) = json.get_mut("blocks").and_then(|b| b.get_mut(i)).and_then(|b| b.get_mut("trips")).and_then(|t| t.get_mut(j)) else { continue };
             v["part"] = json!(if p.second { 2 } else { 1 });
             v["at"] = json!(p.at);
+            // (the way the whole trip runs: a second part begins at the relief stop)
+            let first = if p.second { j.checked_sub(1).and_then(|k| t.trips.get(k)).unwrap_or(x) } else { x };
+            v["out"] = json!(super::outbound(&board.tours, &t.line, first));
             v["linked"] = json!(x.counts() && !rf::linked(c, wd, &t.line, &st::whole_ref(x)).is_empty());
         }
     }
