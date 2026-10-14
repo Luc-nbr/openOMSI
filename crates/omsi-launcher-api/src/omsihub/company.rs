@@ -36,6 +36,7 @@ mod portraits;
 pub mod words;
 // (what a driver has seen of the company's tour, Trello "Tauri 6/6")
 mod tour;
+pub mod vehicles;
 // (the workshop job the player does himself, Trello "Tauri 6/6")
 mod repair;
 // (the rest of the pages, Trello "Tauri 3/6": a child of this module in a file of its own)
@@ -289,6 +290,9 @@ pub struct Session {
     unwritten: Vec<(String, u64, String)>,
     /// The workshop job the player does, under way or done (`repair`). (Omsi-Hub 6/6)
     pub repair: Option<repair::Game>,
+    /// The player's corrections of the buses' categories and regions, and the market corrected
+    /// by them (`vehicles`, Beta 54).
+    pub classes: vehicles::Classes,
 }
 
 /// The timetables of the company's week, read on a thread, and the plans made of them for a
@@ -1219,6 +1223,10 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
         }),
         "co_company" => with(|s| Ok(serde_json::to_value(&s.company).unwrap_or(Value::Null))),
         "co_view" => with(|s| view(s, args)),
+        // (the buses the company works with, and the categories and regions of the models:
+        // with a company open, in the founding wizard and in the launcher's Settings - Beta 54)
+        "co_vehicles" => with(|s| Ok(vehicles::view(s, args))),
+        "co_vehicles_act" => with(|s| vehicles::act(s, args)),
         "co_act" => with(|s| do_act(s, args, p)),
         "co_hand_over" => with(|s| hand_over(s, args)),
         "co_tour" => Ok(tour::answer(args)),

@@ -285,7 +285,7 @@ fn shop(s: &mut Session, c: &Company, ui: &Value) -> Value {
         .iter()
         .map(|(rank, locked, price, x)| {
             let title = if x.model.trim().is_empty() { x.bus.name.clone() } else { format!("{} {} {}", x.maker, x.model, x.version).trim().to_string() };
-            let mut facts = tr(x.bus.kind.label());
+            let mut facts = super::vehicles::kind_label(&x.bus);
             if let Some(n) = x.seats {
                 facts = format!("{facts} · {}", trf("%{n} seats", &[("n", &n.to_string())]));
             }
