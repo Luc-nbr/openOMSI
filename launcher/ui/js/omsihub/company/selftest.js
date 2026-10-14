@@ -33,6 +33,14 @@ export async function selftest(check, errors) {
   $('.co-company.new')?.click();
   e = await shown('the founding wizard', null, 1200);
   check('company: the founding wizard', !e && !!S.co.wizard, e || 'drawn');
+  // (Beta 54: the buses it will work with - the map's region proposed, the models' list)
+  check('company: the wizard proposes its vehicles', !!$('.co-found .vehicles .co-seg button.on'), $('.co-found .vehicles .says')?.textContent || 'no vehicles part');
+  $('.co-found .vehicles .row2 > .co-btn')?.click();
+  for (let k = 0; k < 40 && !$('.vh-row') && !$('.vh .co-para'); k++) await sleep(500);
+  e = await shown("the wizard's vehicles", null, 300);
+  check("company: the wizard's vehicles", !e && $$('.vh-row').length > 0, e || `${$$('.vh-row').length} rows; ${$('.vh-count')?.textContent || ''}`);
+  setCo((c) => ({ wizard: { ...c.wizard, picker: false } }));
+  await sleep(200);
   setCo({ wizard: null });
   await sleep(300);
   if (!list.length) {
@@ -71,9 +79,9 @@ export async function selftest(check, errors) {
   await (await import('./selftest-more.js')).selftest(check, errors, shown);
 
   // the dialogs: the settings, the clock's steps
-  for (const kind of ['settings', 'time']) {
-    e = await shown(kind, { tab: HOME, dialog: { kind } });
-    check(`company: the ${kind} dialog`, !e && !!$('.co-dialog'), e || $('.co-dialog h2')?.textContent || '');
+  for (const kind of ['settings', 'time', 'vehicles']) {
+    e = await shown(kind, { tab: HOME, dialog: { kind } }, kind === 'vehicles' ? 2500 : 900);
+    check(`company: the ${kind} dialog`, !e && !!$('.co-dialog') && (kind !== 'vehicles' || $$('.vh-row').length > 0), e || `${$('.co-dialog h2')?.textContent || ''}${kind === 'vehicles' ? `: ${$$('.vh-row').length} rows, ${$('.vh-count')?.textContent || ''}` : ''}`);
   }
   setCo({ dialog: null });
 

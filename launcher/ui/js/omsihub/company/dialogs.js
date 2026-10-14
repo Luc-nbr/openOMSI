@@ -11,6 +11,8 @@ import { VehicleDialog, NewDialog } from './fleet.js';
 import { DealerSheet } from './dealer.js';
 import { AddLineDialog } from './lines.js';
 import { FareDialog } from './money.js';
+// (the buses the company works with: Beta 54)
+import { VehiclesDialog } from './vehicles.js';
 
 /** Something lies over the pages: the clock holds what waits for it (`company::modal`). */
 export function modalOpen() {
@@ -50,6 +52,8 @@ function OpenDialog({ d }) {
       return html`<${AddLineDialog} d=${d} />`;
     case 'fare':
       return html`<${FareDialog} d=${d} />`;
+    case 'vehicles':
+      return html`<${VehiclesDialog} />`;
     default:
       return null;
   }
@@ -77,7 +81,9 @@ function SettingsDialog({ d }) {
     <span class="rest"></span>
     <${Btn} kind=${v.move ? '' : 'primary'} label=${v.close} onClick=${close} />
     ${v.move && html`<${Btn} kind="primary" icon="calendar_month" label=${v.move} onClick=${moveTo} />`}`;
-  const h = (v.buying ? 786 : 722) + (v.addons ? 40 : 0);
+  const h = (v.buying ? 786 : 722) + (v.addons ? 40 : 0) + (v.vehicles ? 132 : 0);
+  const vh = v.vehicles;
+  const vmode = (m) => cmd('co_vehicles_act', { what: 'mode', mode: m, scope: 'company' }).then(() => refresh());
   return html`<${Dialog} icon="settings" title=${v.title} w=${760} h=${h} onClose=${close} foot=${foot}>
     <div class="co-settings">
       <div class="co-caps">${v.mark_caps}</div>
@@ -95,6 +101,10 @@ function SettingsDialog({ d }) {
       ${v.buying && html`<div class="co-caps">${v.buying.caps}</div>
         <div class="pair"><${Seg} value=${v.buying.mode} options=${v.buying.modes.map((m, i) => [i, m])} onChange=${(i) => act('buying_mode', { mode: i })} style="width:320px;height:40px" />
           <p class="co-note">${v.buying.say}</p></div>`}
+      ${vh && html`<div class="co-caps">${vh.caps}</div>
+        <div class="pair"><${Seg} value=${vh.mode} options=${vh.modes} onChange=${vmode} style="width:560px;max-width:100%;height:40px" />
+          <span class="co-note">${vh.count}</span></div>
+        <div style="display:flex;align-items:center;gap:14px;margin:-6px 0 18px"><${Btn} icon="directions_bus" label=${vh.choose} onClick=${() => setCo({ dialog: { kind: 'vehicles' } })} /><p class="co-note" style="flex:1;min-width:0">${vh.say}</p></div>`}
       <div class="co-caps">${v.date_caps}</div>
       <div class="co-para" style="color:var(--hub-text);font-weight:500;line-height:24px;margin-bottom:10px">${v.now}</div>
       <${Switch} checked=${v.realtime.on} label=${v.realtime.label} onChange=${(on) => act('realtime', { on })} style="min-height:36px" />

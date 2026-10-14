@@ -144,6 +144,7 @@ pub fn view(s: &mut Session, args: &Value) -> Value {
                 "file": b.file, "name": b.name, "maker": maker, "initials": initials(&b.name),
                 "cat": c.key(), "region": b.region.key(),
                 "cat_fixed": fix.category.is_some(), "region_fixed": fix.region.is_some(),
+                "guess_cat": gc.key(), "guess_region": gr.key(),
                 "guess": trf("Detected: %{cat}, %{region}", &[("cat", &tr(gc.label())), ("region", &tr(gr.label()))]),
                 "on": choice.allows(b),
                 "owned": owned.get(&k).copied().unwrap_or(0),

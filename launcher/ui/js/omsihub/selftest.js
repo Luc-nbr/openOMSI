@@ -95,6 +95,14 @@ export async function selftest(check, errors) {
     await sleep(350);
     globalThis.hubProbe(`settings, ${b.textContent.trim()}`);
   }
+  // (Beta 54: the bus models' categories and regions - the list comes once the buses are read)
+  const vtab = tabs.find((b) => b.textContent.trim() === t('Vehicles'));
+  if (vtab) {
+    vtab.click();
+    for (let k = 0; k < 60 && !$('.vh-row'); k++) await sleep(500);
+    check("settings: the bus models' categories and regions", $$('.vh-row').length > 0, `${$$('.vh-row').length} rows drawn; ${$('.vh-shown')?.textContent || $('.vh .co-para')?.textContent || 'nothing'}`);
+    globalThis.hubProbe('settings, Vehicles (the list)');
+  } else check("settings: the bus models' categories and regions", false, 'no Vehicles tab');
   tabs[0]?.click();
   await sleep(300);
   await globalThis.hubProbeScales('page settings');

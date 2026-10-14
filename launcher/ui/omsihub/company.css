@@ -419,6 +419,10 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 .co-found .card.on .top i { background: rgba(var(--hub-accent-rgb), var(--ac-22)); color: var(--co-accent2); }
 .co-found .card .top b { font-size: var(--co-title); color: var(--hub-text-soft); }
 .co-found .card.on .top b { color: var(--hub-text); }
+/* the buses the company works with (Beta 54: `vehicles.js`) */
+.co-found .vehicles { flex: none; margin-top: 14px; }
+.co-found .vehicles .row2 { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; margin-top: 4px; }
+.co-found .vehicles .says { font-size: var(--co-note); color: var(--hub-text-soft); line-height: 1.8; margin-top: 6px; }
 /* (a narrow stage: the company and the game mode one under the other, the page scrolled) */
 @container (max-width: 1100px) {
   .co-found .inner { height: auto; min-height: 0; }
