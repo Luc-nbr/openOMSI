@@ -354,6 +354,53 @@ fn in_service(v: &Tp, c: &Company) -> bool {
     !w.map && c.lines.iter().find(|x| x.name.eq_ignore_ascii_case(&v.line)).is_some_and(|cl| cl.service_from.is_some()) && reg::timetable_differs(&w.own.live, &w.own.draft)
 }
 
+// --- the days that use a timetable (Trello #100) ---------------------------------------------------
+
+/// The day group whose timetable of `l` the line `name` runs in `lines` (one day's): the group
+/// most of whose departures it has, the weekday's own (`natural`) on a tie; None without trips.
+fn group_run(l: &LineDesign, lines: &[core::LineInfo], name: &str, natural: usize) -> Option<usize> {
+    let li = lines.iter().find(|x| x.name.eq_ignore_ascii_case(name))?;
+    let deps: std::collections::HashSet<i32> = li.tours.iter().filter(|t| t.runs).flat_map(|t| t.trips.iter()).map(|x| (x.departure / 60.0).round() as i32).collect();
+    if deps.is_empty() {
+        return None;
+    }
+    let score = |g: usize| day_trips(l, g).iter().filter(|(_, t)| t.first().is_some_and(|d| deps.contains(d))).count();
+    let best = (0..DAY_GROUPS.len()).max_by_key(|&g| (score(g), g == natural))?;
+    (score(best) > 0).then_some(best)
+}
+
+/// The calendar strip: the days of the week shown and which use the timetable of day group
+/// `shown` - each day its weekday's group, another (a holiday's timetable), none (no trips of
+/// the line) or not read yet.
+fn calendar(s: &Session, c: &Company, l: &LineDesign, name: &str, shown: usize) -> Vec<Value> {
+    (0..7)
+        .map(|k| {
+            let date = co::dates::add(&c.date, k);
+            let natural = super::days::group_of(co::plan::weekday_of(&date));
+            let lines = company::lines_of(s, &date);
+            let group = lines.as_ref().map(|x| group_run(l, x, name, natural));
+            let tip = match group {
+                None => tr("Reading the timetable…"),
+                Some(None) => tr("No trips of this line on this day"),
+                Some(Some(g)) if g == natural => trf("Runs the %{days} timetable", &[("days", &day_name(g))]),
+                Some(Some(g)) => trf("Runs the %{days} timetable, not its weekday's: a holiday or another day", &[("days", &day_name(g))]),
+            };
+            json!({ "k": k, "date": date, "label": super::days::short(&date), "group": group.flatten(), "read": group.is_some(), "on": group.flatten() == Some(shown), "odd": group.flatten().is_some_and(|g| g != natural), "tip": tip })
+        })
+        .collect()
+}
+
+/// The lines saved here since the scheduling studio made their blocks on day group `group`, for
+/// that day's planning (its UNSYNCED - Refresh): their names and numbers.
+pub(crate) fn unsynced_on(r: &Rf, c: &Company, group: usize) -> Vec<Value> {
+    r.tp
+        .unsynced
+        .iter()
+        .filter(|u| u.1 == group)
+        .map(|u| json!({ "line": u.0, "number": c.lines.iter().find(|l| l.name.eq_ignore_ascii_case(&u.0)).map(|l| l.number.trim().to_string()).unwrap_or_else(|| u.0.clone()) }))
+        .collect()
+}
+
 // --- the view ---------------------------------------------------------------------------------------
 
 /// What the page keeps and hands: the day group, the side, the pattern, the screen.
@@ -395,6 +442,8 @@ pub fn call(cmd: &str, args: &Value) -> Option<Answer> {
 }
 
 fn view(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
+    // (the week's timetables, for the calendar strip)
+    company::week_work(s);
     let Some(c) = s.company.clone() else { return Ok(json!({ "none": true })) };
     let v = &mut r.tp;
     load_shown(v, &c);
@@ -444,6 +493,7 @@ fn view(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
     o.insert("errors".into(), json!(errors));
     o.insert("warnings".into(), json!(warnings));
     o.insert("unsynced".into(), json!(!unsynced.is_empty()));
+    o.insert("calendar".into(), json!(calendar(s, &c, &w.own.live, &v.line, sh.day)));
     o.insert("hint".into(), json!(v.hint_shown().map(tr)));
     o.insert("pending".into(), json!((!w.own.saved.pending_from.is_empty()).then(|| trf("A new timetable waits for %{date}: it is the one shown, against the tours that run until then.", &[("date", &day_label(&w.own.saved.pending_from))]))));
     o.insert("patterns".into(), json!((0..side.patterns.len()).map(|k| json!({
@@ -572,7 +622,11 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
             return Ok(json!({}));
         }
         "save" => return Ok(save(s, r, sh.day)),
-        "refresh" => return Ok(refresh(s, r)),
+        "refresh" => {
+            // (a day's planning refreshes a line of its own: `line`)
+            let line = Some(str_arg(args, "line")).filter(|l| !l.trim().is_empty());
+            return Ok(refresh(s, r, line));
+        }
         _ => {}
     }
     let Some(line) = v.draft().cloned() else { return Ok(json!({})) };
@@ -783,18 +837,22 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
 
 /// "UNSYNCED – Refresh": the scheduling studio makes the line's blocks and duties anew on the
 /// day groups saved since (`co::timeplan::resync`).
-fn refresh(s: &mut Session, r: &mut Rf) -> Value {
+fn refresh(s: &mut Session, r: &mut Rf, line: Option<String>) -> Value {
     let v = &mut r.tp;
-    let name = v.line.clone();
+    let name = line.unwrap_or_else(|| v.line.clone());
     let days: Vec<usize> = v.unsynced.iter().filter(|u| u.0.eq_ignore_ascii_case(&name)).map(|u| u.1).collect();
     if days.is_empty() {
         return json!({});
     }
-    let number = v.draft().map(|d| d.number.trim().to_string()).unwrap_or_default();
+    let number = s.company.as_ref().and_then(|c| c.lines.iter().find(|l| l.name.eq_ignore_ascii_case(&name)).map(|l| l.number.trim().to_string())).unwrap_or_default();
     if company::act(s, |c| {
+        // (the days copied from another that were in step stay so: both lose the line's alike)
+        let wds: Vec<u8> = days.iter().flat_map(|d| tp::weekdays(*d)).collect();
+        let in_step: Vec<u8> = co::plandays::in_step(c).into_iter().filter(|&d| co::plandays::follow_of(c, d).is_some_and(|f| wds.contains(&f.day) && wds.contains(&f.pattern))).collect();
         for d in &days {
             tp::resync(c, &name, *d);
         }
+        co::plandays::restep(c, &in_step);
         Ok(())
     })
     .is_err()

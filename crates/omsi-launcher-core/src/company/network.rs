@@ -246,8 +246,14 @@ pub fn line_of_number<'a>(c: &'a Company, number: &str) -> Option<&'a CompanyLin
 /// tours - the Lines page, the planning, the clock and the day's close all take them from
 /// here.
 pub fn tours_of_day(c: &Company, lines: &[LineInfo], date: &str) -> Vec<TourOfDay> {
+    tours_of_slot(c, lines, date, super::plandays::slot_of(c, date))
+}
+
+/// The tours of `date` laid out by the plan of slot `slot` (`plandays`: a weekday's, or one of
+/// single dates) - `tours_of_day` with the date's own.
+pub fn tours_of_slot(c: &Company, lines: &[LineInfo], date: &str, slot: u8) -> Vec<TourOfDay> {
     let mut out = timetable_tours(c, lines);
-    let cuts = if super::autopilot::on(c) { Vec::new() } else { super::studio::arrange(c, super::plan::weekday_of(date), &mut out) };
+    let cuts = if super::autopilot::on(c) { Vec::new() } else { super::studio::arrange(c, slot, &mut out) };
     finish_tours(c, out, date, cuts)
 }
 

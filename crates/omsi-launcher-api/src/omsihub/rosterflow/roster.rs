@@ -15,6 +15,7 @@ use omsi_launcher_lib as core;
 use omsi_launcher_lib::company::licences::{self, Lack};
 use omsi_launcher_lib::company::plan::{self as pl, BusOf, DayPlan, DayTour, Disruption, Fill, Problem, Source, Warn, Who};
 use omsi_launcher_lib::company::staff::Block;
+use omsi_launcher_lib::company::unassign as un;
 use omsi_launcher_lib::company::{self as co, Company};
 use serde_json::{json, Value};
 
@@ -346,7 +347,8 @@ fn view(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
         }
         Some(Ok(p)) => p,
     };
-    let _ = r;
+    out["undo"] = json!(r.roster_undo.len());
+    out["redo"] = json!(r.roster_redo.len());
     out["plan"] = plan_json(&c, &p);
     out["side"] = side_json(&c, &p, args.get("sel").unwrap_or(&Value::Null));
     Ok(out)
@@ -397,7 +399,11 @@ fn plan_json(c: &Company, p: &DayPlan) -> Value {
             })
         })
         .collect();
-    let tours: Vec<Value> = p.tours.iter().enumerate().map(|(ti, t)| tour_json(c, p, ti, t)).collect();
+    // (each duty's row in RosterFlow's Drivers tab: "Show in Drivers")
+    let blocks: Vec<co::network::TourOfDay> = p.tours.iter().map(|t| t.tour.clone()).collect();
+    let duties = co::studio::duties(&c.planning.joined, co::plandays::slot_of(c, &p.date), &blocks);
+    let rf_id = |ti: usize, k: usize| co::studio::duty_of(&duties, ti, k).and_then(|d| co::rosterflow::duty_key(&blocks, &duties[d])).map(|x| format!("D|{}/{}/{}/{}", x.line, x.tour, x.first.name, x.first.dep));
+    let tours: Vec<Value> = p.tours.iter().enumerate().map(|(ti, t)| tour_json(c, p, ti, t, &rf_id)).collect();
     json!({ "t0": t0, "t1": t1.max(t0 + 60), "groups": groups_json, "tours": tours, "today": p.today, "empty": p.tours.is_empty() && c.lines.is_empty() })
 }
 
@@ -406,7 +412,8 @@ fn rf_colour(c: &Company, line: &str) -> String {
 }
 
 /// A tour's row: its bus chip and its duties on the hours.
-fn tour_json(c: &Company, p: &DayPlan, ti: usize, t: &DayTour) -> Value {
+fn tour_json(c: &Company, p: &DayPlan, ti: usize, t: &DayTour, rf_id: &dyn Fn(usize, usize) -> Option<String>) -> Value {
+    let fixed = pl::roster(c, p.weekday, &t.tour.line, &t.tour.tour);
     let bus_tip = tr("The tour's bus: tap a bus in the list, then here - or drag it here. Tap it twice: the line's timetable");
     let bus = if t.by_player {
         json!({ "kind": "player", "text": tr("You drove it.") })
@@ -421,10 +428,13 @@ fn tour_json(c: &Company, p: &DayPlan, ti: usize, t: &DayTour) -> Value {
                     BusOf::Own(id) => (c.vehicle(id).map(|x| format!("{}  {}", x.number, x.name)).unwrap_or_default(), t.bus_from == Source::Auto),
                     BusOf::Rental => (tr("Rental bus"), false),
                 };
-                json!({ "kind": "bus", "text": text, "suggested": suggested, "problem": t.bus_problem.map(|x| problem_tone(Some(x))), "tip": bus_tip })
+                json!({ "kind": "bus", "text": text, "suggested": suggested, "problem": t.bus_problem.map(|x| problem_tone(Some(x))), "tip": bus_tip, "id": if let BusOf::Own(id) = b { Some(id) } else { None } })
             }
         }
     };
+    // (what can be taken off: what runs, or what the roster fixed)
+    let mut bus = bus;
+    bus["off"] = json!(!t.by_player && (t.bus.is_some() || fixed.is_some_and(|r| r.bus.is_some())));
     let duties: Vec<Value> = t
         .duties
         .iter()
@@ -460,6 +470,10 @@ fn tour_json(c: &Company, p: &DayPlan, ti: usize, t: &DayTour) -> Value {
             v["late"] = json!(d.late.map(|l| json!({ "until": l.until.min(d.to), "covered": l.cover.is_some() })));
             v["warn"] = json!(!d.warn.is_empty());
             v["tip"] = json!(format!("{times}  ·  {}", who_name(c, if t.by_player { Some(Who::Player) } else { d.who })));
+            let rostered = fixed.and_then(|r| r.duties.get(k).copied().flatten());
+            v["who"] = json!(if t.by_player { None } else { d.who });
+            v["off"] = json!(!t.by_player && (d.who.is_some() || rostered.is_some()));
+            v["rf"] = json!(rf_id(ti, k));
             v
         })
         .collect();
@@ -737,7 +751,7 @@ fn give_driver(s: &mut Session, p: &DayPlan, ti: usize, k: usize, who: Option<Wh
         })
     } else {
         let blocks: Vec<co::network::TourOfDay> = p.tours.iter().map(|t| t.tour.clone()).collect();
-        let others: Vec<(String, String, usize)> = co::studio::partners(c, wd, &blocks, ti, k).into_iter().map(|(i, k)| (p.tours[i].tour.line.clone(), p.tours[i].tour.tour.clone(), k)).collect();
+        let others: Vec<(String, String, usize)> = co::studio::partners(c, co::plandays::slot_of(c, &p.date), &blocks, ti, k).into_iter().map(|(i, k)| (p.tours[i].tour.line.clone(), p.tours[i].tour.tour.clone(), k)).collect();
         company::act(s, |c| {
             pl::set_driver(c, wd, &line, &tour, k, who);
             for (line, tour, k) in &others {
@@ -789,8 +803,213 @@ fn said(text: impl Into<String>, error: bool) -> Value {
     json!({ "say": { "text": text.into(), "error": error } })
 }
 
-/// What a click on the Roster tab does (`rf_roster_act`: `act`, `day`, and what it needs).
+// --- undo and redo ------------------------------------------------------------------------------------
+
+/// The roster and the day's choices as they were before a change of the Roster tab, and the
+/// change in words (its undo and redo).
+#[derive(Clone)]
+pub(crate) struct Kept {
+    week: Vec<pl::RosterTour>,
+    date: String,
+    fills: Vec<pl::FillChoice>,
+    label: String,
+}
+
+impl Kept {
+    fn of(c: &Company, label: String) -> Kept {
+        Kept { week: c.planning.week.clone(), date: c.planning.date.clone(), fills: c.planning.fills.clone(), label }
+    }
+
+    fn same(&self, c: &Company) -> bool {
+        self.week == c.planning.week && self.date == c.planning.date && self.fills == c.planning.fills
+    }
+
+    fn put(&self, c: &mut Company) {
+        c.planning.week = self.week.clone();
+        c.planning.date = self.date.clone();
+        c.planning.fills = self.fills.clone();
+    }
+}
+
+/// Undo the Roster tab's last change (`back`), or redo the last undone.
+fn undo(s: &mut Session, r: &mut Rf, back: bool) -> Value {
+    let Some(c) = s.company.as_ref() else { return json!({}) };
+    let item = if back { r.roster_undo.pop() } else { r.roster_redo.pop() };
+    let Some(k) = item else { return json!({}) };
+    let now = Kept::of(c, k.label.clone());
+    if back {
+        r.roster_redo.push(now);
+    } else {
+        r.roster_undo.push(now);
+    }
+    let _ = company::act(s, |c| {
+        k.put(c);
+        Ok(())
+    });
+    let words = if back { tr("Undone: %{edit}") } else { tr("Redone: %{edit}") };
+    said(words.replace("%{edit}", &k.label), false)
+}
+
+/// What a click on the Roster tab does (`act_on`), each change of the roster kept for undo.
 fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
+    let what = str_arg(args, "act");
+    if what == "undo" || what == "redo" {
+        return Ok(undo(s, r, what == "undo"));
+    }
+    let before = s.company.as_ref().map(|c| Kept::of(c, String::new()));
+    let out = act_on(s, r, args)?;
+    if let (Some(mut k), Some(c)) = (before, s.company.as_ref()) {
+        if !k.same(c) {
+            k.label = out.pointer("/say/text").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| tr("The roster changed"));
+            r.roster_undo.push(k);
+            if r.roster_undo.len() > 60 {
+                r.roster_undo.remove(0);
+            }
+            r.roster_redo.clear();
+        }
+    }
+    Ok(out)
+}
+
+// --- taking off -----------------------------------------------------------------------------------------
+
+/// A tour of the plan by its line and name.
+fn find(p: &DayPlan, line: &str, tour: &str) -> Option<usize> {
+    p.tours.iter().position(|t| t.tour.line == line && t.tour.tour == tour)
+}
+
+/// What was taken off, in words: a driver of a duty, a tour's bus (`co::unassign`).
+fn off_words(p: &DayPlan, o: &un::Off, ti: usize, k: Option<usize>, gone: &str, day: &str) -> String {
+    let t = &p.tours[ti];
+    let (n, tour) = (t.tour.number.clone(), t.tour.tour.clone());
+    let kk = k.map(|k| (k + 1).to_string()).unwrap_or_default();
+    match (o, k) {
+        (un::Off::Roster, Some(_)) => trf("%{who} taken off line %{n}, tour %{tour}, duty %{k}: nobody for it in the roster of %{day}.", &[("who", gone), ("n", &n), ("tour", &tour), ("k", &kk), ("day", day)]),
+        (un::Off::Choice, Some(_)) => trf("Your choice for today taken back: line %{n}, tour %{tour}, duty %{k} is open again.", &[("n", &n), ("tour", &tour), ("k", &kk)]),
+        (un::Off::Dropped { penalty, .. }, Some(_)) => trf("Line %{n}, tour %{tour}, duty %{k} without its driver today: its trips are dropped (penalty %{amount}).", &[("n", &n), ("tour", &tour), ("k", &kk), ("amount", &eur(*penalty))]),
+        (un::Off::Roster, None) => trf("Bus %{bus} taken off line %{n}, tour %{tour}: no bus for it in the roster of %{day}.", &[("bus", gone), ("n", &n), ("tour", &tour), ("day", day)]),
+        (un::Off::Choice, None) => trf("Your bus for today taken back: line %{n}, tour %{tour} has no bus again.", &[("n", &n), ("tour", &tour)]),
+        (un::Off::Rental { rent }, _) => trf("The rental bus of line %{n}, tour %{tour} is cancelled: its %{amount} for the day are not paid.", &[("n", &n), ("tour", &tour), ("amount", &eur(*rent))]),
+        (un::Off::Dropped { penalty, rent }, None) => {
+            let mut s = trf("Line %{n}, tour %{tour} without its bus today: its trips are dropped (penalty %{amount}).", &[("n", &n), ("tour", &tour), ("amount", &eur(*penalty))]);
+            if *rent > 0 {
+                s = format!("{s} {}", trf("The rental bus is cancelled: %{amount} not paid.", &[("amount", &eur(*rent))]));
+            }
+            s
+        }
+    }
+}
+
+/// What taking several off did, in words.
+fn many_words(m: &un::Many, head: String) -> Value {
+    if m.done.is_empty() && m.stayed.is_empty() {
+        return said(tr("Nothing to take off."), false);
+    }
+    let mut s = head;
+    let (penalty, rent) = m.money();
+    if penalty > 0 {
+        s = format!("{s} {}", trf("Trips dropped today: penalty %{amount}.", &[("amount", &eur(penalty))]));
+    }
+    if rent > 0 {
+        s = format!("{s} {}", trf("Rental buses cancelled: %{amount} not paid.", &[("amount", &eur(rent))]));
+    }
+    if !m.stayed.is_empty() {
+        s = format!("{s} {}", m.stayed.iter().map(|w| tr(w)).collect::<Vec<_>>().join(" "));
+    }
+    said(s.trim(), m.done.is_empty())
+}
+
+/// Take off a duty's driver or a tour's bus, what is chosen, or all of a driver's or a bus's of
+/// the day (`co::unassign`); what stays says why.
+fn off(s: &mut Session, p: &DayPlan, what: &str, args: &Value, day: &str) -> Value {
+    let Some(c) = s.company.clone() else { return json!({}) };
+    let (line, tour) = (str_arg(args, "line"), str_arg(args, "tour"));
+    // (tried on a copy first: a refusal changes nothing, and says why)
+    let one = |s: &mut Session, f: &dyn Fn(&mut Company) -> Result<un::Off, &'static str>| -> Result<un::Off, Value> {
+        let mut probe = c.clone();
+        if let Err(why) = f(&mut probe) {
+            return Err(said(tr(why), true));
+        }
+        company::act(s, |c| f(c)).map_err(|p| json!({ "popup": p }))
+    };
+    match what {
+        "off_driver" => {
+            let k = usize_arg(args, "k");
+            let Some(ti) = find(p, &line, &tour).filter(|&i| k < p.tours[i].duties.len()) else { return said(tr(un::NOT_FOUND), true) };
+            let who = p.tours[ti].duties[k].who.or_else(|| pl::roster(&c, p.weekday, &line, &tour).and_then(|r| r.duties.get(k).copied().flatten()));
+            match one(s, &|c| un::driver_off(c, p, ti, k)) {
+                Ok(o) => said(off_words(p, &o, ti, Some(k), &who_name(&c, who), day), false),
+                Err(v) => v,
+            }
+        }
+        "off_bus" => {
+            let Some(ti) = find(p, &line, &tour) else { return said(tr(un::NOT_FOUND), true) };
+            let bus = match p.tours[ti].bus {
+                Some(BusOf::Own(id)) => Some(id),
+                _ => pl::roster(&c, p.weekday, &line, &tour).and_then(|r| r.bus),
+            };
+            let name = bus.and_then(|id| c.vehicle(id)).map(|v| v.number.clone()).unwrap_or_default();
+            match one(s, &|c| un::bus_off(c, p, ti)) {
+                Ok(o) => said(off_words(p, &o, ti, None, &name, day), false),
+                Err(v) => v,
+            }
+        }
+        "off_many" => {
+            // (the chosen: `{duty: [line, tour, k]}` and `{tour: [line, tour]}`)
+            let items: Vec<(usize, Option<usize>)> = args
+                .get("items")
+                .and_then(Value::as_array)
+                .map(|v| {
+                    v.iter()
+                        .filter_map(|x| {
+                            if let Some(d) = x.get("duty").and_then(Value::as_array) {
+                                let ti = find(p, d.first()?.as_str()?, d.get(1)?.as_str()?)?;
+                                Some((ti, Some(d.get(2)?.as_u64()? as usize)))
+                            } else {
+                                let t = x.get("tour")?.as_array()?;
+                                Some((find(p, t.first()?.as_str()?, t.get(1)?.as_str()?)?, None))
+                            }
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let mut m = un::Many::default();
+            let _ = company::act(s, |c| {
+                m = un::many_off(c, p, &items);
+                Ok(())
+            });
+            let head = trf("%{n} taken off.", &[("n", &m.done.len().to_string())]);
+            many_words(&m, head)
+        }
+        "off_staff" => {
+            let who: Option<Who> = serde_json::from_value(args.get("who").cloned().unwrap_or(Value::Null)).ok();
+            let Some(who) = who else { return json!({}) };
+            let mut m = un::Many::default();
+            let _ = company::act(s, |c| {
+                m = un::driver_off_all(c, p, who);
+                Ok(())
+            });
+            let head = trf("%{who} taken off %{n} duties of %{day}.", &[("who", &who_name(&c, Some(who))), ("n", &m.done.len().to_string()), ("day", day)]);
+            many_words(&m, head)
+        }
+        "off_vehicle" => {
+            let bus = args.get("bus").and_then(Value::as_u64).map(|x| x as u32);
+            let Some(bus) = bus else { return json!({}) };
+            let mut m = un::Many::default();
+            let _ = company::act(s, |c| {
+                m = un::bus_off_all(c, p, bus);
+                Ok(())
+            });
+            let name = c.vehicle(bus).map(|v| v.number.clone()).unwrap_or_default();
+            let head = trf("Bus %{bus} taken off %{n} tours of %{day}.", &[("bus", &name), ("n", &m.done.len().to_string()), ("day", day)]);
+            many_words(&m, head)
+        }
+        _ => json!({}),
+    }
+}
+
+/// What a click on the Roster tab does (`rf_roster_act`: `act`, `day`, and what it needs).
+fn act_on(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
     let Some(c) = s.company.clone() else { return Ok(json!({})) };
     let what = str_arg(args, "act");
     let day = usize_arg(args, "day").min(6);
@@ -880,6 +1099,10 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
         Some(Ok(p)) => p,
         _ => return Ok(json!({})),
     };
+    // (taking a driver or a bus off: `off`)
+    if what.starts_with("off_") {
+        return Ok(off(s, &p, &what, args, &day_name));
+    }
     let ti = usize_arg(args, "ti");
     if ti >= p.tours.len() {
         return Ok(json!({}));

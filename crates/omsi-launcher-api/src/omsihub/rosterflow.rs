@@ -22,6 +22,8 @@
 //!
 //! Every text comes translated (`company::words`), every amount in the page's language.
 
+/// The plan copied to the other days it works with (Trello #100).
+mod days;
 mod print;
 mod roster;
 // (its Own, load_own and commit save the planning's sheet of a line too: Omsi-Hub 6/6)
@@ -94,6 +96,10 @@ pub(crate) struct Rf {
     pub(crate) tp: timeplan::Tp,
     /// A lesson's snapshot (`tutorial`).
     pub(crate) lesson: Option<tutorial::Kept>,
+    /// The Roster tab's undo and redo: the roster and the day's choices before each change
+    /// (`roster::Kept`).
+    roster_undo: Vec<roster::Kept>,
+    roster_redo: Vec<roster::Kept>,
 }
 
 fn state() -> &'static Mutex<Rf> {
@@ -510,6 +516,7 @@ fn board_answer(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
     let Some(date) = date_of(s, args) else { return Ok(json!({ "none": true })) };
     let c = s.company.clone().ok_or("no company")?;
     let wd = co::plan::weekday_of(&date);
+    let shown_view = rf::view(&c);
     let head = json!({
         "date": date,
         "name": format!("{}  ·  {}", c.name, day_label(&date)),
@@ -524,6 +531,10 @@ fn board_answer(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
         "redo": r.redo.len(),
         "edits": r.edits,
         "gen": s.generation,
+        // (what each day of the week runs, and the day shown: `days`)
+        "days": days::marks(&shown_view),
+        "day": days::shown(&shown_view, &date),
+        "unsynced": timeplan::unsynced_on(r, &c, days::group_of(wd)),
     });
     let k = match ensure(s, r, &date) {
         None => return Ok(json!({ "head": head, "reading": tr("Reading the timetable…") })),
@@ -574,6 +585,7 @@ fn view(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
     let Some(date) = date_of(s, args) else { return Ok(json!({ "none": true })) };
     match what.as_str() {
         "prefs" => return Ok(prefs_view(s)),
+        "apply" => return Ok(days::apply_view(s, &date)),
         _ => {}
     }
     let k = match ensure(s, r, &date) {
@@ -982,19 +994,10 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
             }
             return Ok(last);
         }
-        "save" => {
-            // (the roster's buses and drivers stay with their blocks and duties on every day of
-            // the week whose timetable is read: #96)
-            let week: Vec<(String, Vec<LineInfo>)> = match s.company.as_ref() {
-                Some(c) => (0..7).map(|k| co::dates::add(&c.date, k)).filter_map(|d| company::lines_of(s, &d).map(|l| (d, l))).collect(),
-                None => Vec::new(),
-            };
-            return Ok(match company::act(s, |c| Ok(rf::save_draft_following(c, &week))) {
-                Ok(Some(f)) if f.open > 0 => said(format!("{} {}", tr("Saved: the roster, the day and the game run this planning now."), trf("%{n} duties have no driver in the roster: their trips are dropped until they get one (the Roster tab, Fill the roster).", &[("n", &f.open.to_string())])), true),
-                Ok(Some(_)) => said(tr("Saved: the roster, the day and the game run this planning now."), false),
-                _ => json!({}),
-            });
-        }
+        // (SAVE, and Apply to the other days: `days`)
+        "save" => return Ok(days::save(s, r, &date, args.get("apply"))),
+        "day_reset" => return Ok(days::reset(s, r, &date)),
+        "day_unfollow" => return Ok(days::unfollow(s, r, &date)),
         "discard" => {
             return Ok(match company::act(s, |c| Ok(rf::discard_draft(c))) {
                 Ok(true) => {
@@ -1537,6 +1540,7 @@ mod tests {
         assert!(texts.len() > 150, "only {} texts found", texts.len());
         let mut core: Vec<&str> = rf::texts();
         core.extend(st::texts());
+        core.extend(co::unassign::texts());
         let mut missing = Vec::new();
         for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
             let table = crate::i18n::table(lang);

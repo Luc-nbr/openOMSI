@@ -41,6 +41,7 @@ pub mod network;
 pub mod ownline;
 pub mod parts;
 pub mod plan;
+pub mod plandays;
 pub mod rankings;
 pub mod remote;
 pub mod research;
@@ -53,6 +54,7 @@ pub mod rosterpdf;
 pub mod studio;
 pub mod timeplan;
 pub mod training;
+pub mod unassign;
 pub mod vehicles;
 
 pub use model::*;

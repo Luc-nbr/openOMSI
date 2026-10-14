@@ -916,7 +916,7 @@ fn give_driver(s: &mut Session, p: &DayPlan, ti: usize, k: usize, who: Option<Wh
     } else {
         // (a piece of a duty joined in the studio: its other pieces go to the same driver)
         let blocks: Vec<co::network::TourOfDay> = p.tours.iter().map(|t| t.tour.clone()).collect();
-        let others: Vec<(String, String, usize)> = co::studio::partners(c, wd, &blocks, ti, k).into_iter().map(|(i, k)| (p.tours[i].tour.line.clone(), p.tours[i].tour.tour.clone(), k)).collect();
+        let others: Vec<(String, String, usize)> = co::studio::partners(c, co::plandays::slot_of(c, &p.date), &blocks, ti, k).into_iter().map(|(i, k)| (p.tours[i].tour.line.clone(), p.tours[i].tour.tour.clone(), k)).collect();
         apply(s, |c| {
             pl::set_driver(c, wd, &line, &tour, k, who);
             for (line, tour, k) in &others {

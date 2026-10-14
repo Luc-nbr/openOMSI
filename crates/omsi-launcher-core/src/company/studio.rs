@@ -192,7 +192,7 @@ pub fn resolve_cuts(tours: &mut [TourOfDay], cuts: &[(usize, Vec<TripRef>)]) {
 
 /// The lines whose layout on `date`'s weekday the timetable (`lines`) no longer fits.
 pub fn stale(c: &Company, lines: &[LineInfo], date: &str) -> Vec<String> {
-    let wd = super::plan::weekday_of(date);
+    let wd = super::plandays::slot_of(c, date);
     let raw = network::timetable_tours(c, lines);
     c.planning
         .layouts
@@ -216,7 +216,7 @@ pub fn retire_stale(c: &mut Company, lines: &[LineInfo], date: &str) -> Vec<Stri
     if super::autopilot::on(c) {
         return Vec::new();
     }
-    let wd = super::plan::weekday_of(date);
+    let wd = super::plandays::slot_of(c, date);
     let gone = stale(c, lines, date);
     let mut numbers = Vec::new();
     for line in &gone {

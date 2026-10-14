@@ -1,0 +1,101 @@
+/* RosterFlow: the plan copied to the other days it works with (Trello #100, `rosterflow/days.js`):
+   SAVE's arrow, the "Apply to" window, the report of what was copied, the toolbar's day chip, the
+   day switcher's marks and the Timeplan's strip of the days that run its timetable. In the
+   page's tokens (`rosterflow.css`), so light and dark alike. */
+
+/* --- SAVE and its arrow --------------------------------------------------------------------------- */
+
+.rf-split { display: flex; gap: 1px; }
+.rf-split > .rf-btn:first-child { border-radius: 2px 0 0 2px; }
+.rf-split > .rf-btn:last-child { border-radius: 0 2px 2px 0; display: inline-flex; align-items: center; justify-content: center; }
+
+/* --- the "Apply to" window ------------------------------------------------------------------------- */
+
+.rf-apply { min-height: 240px; }
+.rf-apply > .body { gap: 7px; }
+.rf-apply .accent { color: var(--rf-accent); }
+.rf-apply .dim { color: var(--rf-dim); }
+.rf-apply-src { display: flex; align-items: center; gap: 8px; min-height: 34px; font-size: 11.5px; }
+.rf-apply-src > .hub-icon { color: var(--rf-accent); }
+.rf-apply-src .dim { font-size: 10px; }
+.rf-apply-note { margin: 0; font-size: 9.8px; line-height: 1.45; color: var(--rf-dim); display: flex; gap: 6px; align-items: flex-start; }
+.rf-apply-note.warn { color: var(--rf-warn); }
+.rf-apply-note.err { color: var(--rf-err); }
+.rf-apply-note .hub-icon { flex: none; margin-top: 1px; }
+.rf-apply-range { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 10px; color: var(--rf-soft); }
+.rf-apply-range .rf-select { width: 130px; height: 30px; }
+.rf-apply-range .dim { flex-basis: 100%; font-size: 9.6px; }
+.rf-apply-what { display: flex; gap: 24px; }
+.rf-apply-days { display: flex; flex-direction: column; border-radius: 3px; box-shadow: inset 0 0 0 1px var(--rf-line); }
+.rf-apply-days .row { display: flex; align-items: center; gap: 10px; min-height: 38px; padding: 0 10px; box-shadow: inset 0 -1px 0 var(--rf-line); }
+.rf-apply-days .row:last-child { box-shadow: none; }
+.rf-apply-days .row.on { background: rgba(var(--rf-accent-rgb), 0.08); }
+.rf-apply-days .row .rf-check span { font-weight: 700; }
+.rf-apply-days .row .rf-seg { height: 24px; }
+.rf-apply-days .what { flex: 1; font-size: 9.8px; color: var(--rf-dim); }
+.rf-apply-days .what.ok { color: var(--rf-ok); }
+.rf-apply-days .what.warn { color: var(--rf-warn); }
+.rf-apply .tag, .rf-daychip .tag { flex: none; height: 18px; display: inline-flex; align-items: center; padding: 0 7px; border-radius: 9px; font-size: 8.6px; font-weight: 700; white-space: nowrap; text-transform: uppercase; }
+.rf .tag.dim { background: color-mix(in srgb, var(--rf-dim) 22%, transparent); color: var(--rf-soft); }
+.rf .tag.sky { background: rgba(var(--rf-accent-rgb), 0.22); color: var(--rf-text); }
+.rf .tag.warn { background: color-mix(in srgb, var(--rf-warn) 24%, transparent); color: var(--rf-text); }
+.rf .tag.ok { background: color-mix(in srgb, var(--rf-ok) 24%, transparent); color: var(--rf-text); }
+
+/* --- what was copied ------------------------------------------------------------------------------ */
+
+.rf-copied { z-index: 31; }
+.rf-copied > .body { gap: 12px; }
+.rf-copied .day { display: flex; flex-direction: column; gap: 4px; }
+.rf-copied .day .head { display: flex; align-items: center; gap: 8px; font-size: 10.5px; }
+.rf-copied .day p { margin: 0; font-size: 9.6px; }
+.rf-copied .dim { color: var(--rf-dim); }
+.rf-copied .ok { color: var(--rf-ok); font-weight: 700; font-size: 9.6px; }
+.rf-copied .warn { color: var(--rf-warn); font-weight: 700; font-size: 9.6px; }
+.rf-copied .trip { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-radius: 3px; background: var(--rf-field); color: var(--rf-soft); font-size: 9.8px; text-align: left; }
+.rf-copied .trip:hover { background: rgba(var(--rf-accent-rgb), 0.16); color: var(--rf-text); }
+.rf-copied .trip > .hub-icon:first-child { color: var(--rf-accent); }
+.rf-copied .trip .cut { flex: 1; }
+
+/* --- the day shown, on the toolbar ---------------------------------------------------------------------- */
+
+.rf-daychip { display: inline-flex; align-items: center; gap: 5px; margin-left: 10px; min-width: 0; overflow: hidden; }
+.rf-daychip button.tag { cursor: pointer; }
+.rf-daychip button.tag:hover { filter: brightness(1.15); }
+.rf-daychip .act { flex: none; height: 24px; display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border-radius: 2px; background: var(--rf-btn); color: var(--rf-btn-ink); font-size: 8.8px; font-weight: 700; text-transform: uppercase; white-space: nowrap; }
+.rf-daychip .act:hover { background-image: linear-gradient(rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.08)); }
+.rf-daychip .act.warn { background: color-mix(in srgb, var(--rf-warn) 85%, #000); color: #fff; }
+.rf-daychip .rf-ibtn { width: 24px; height: 24px; }
+
+/* --- the day switcher ------------------------------------------------------------------------------------ */
+
+.rf-mi.rf-dayitem { height: auto; min-height: 30px; display: flex; flex-direction: column; justify-content: center; gap: 3px; padding-top: 4px; padding-bottom: 4px; }
+.rf-mi.rf-dayitem.on { color: var(--rf-accent); font-weight: 700; }
+.rf-dayitem .marks { display: flex; gap: 4px; overflow: hidden; }
+.rf-dayitem .marks i { font-style: normal; font-size: 8.2px; font-weight: 700; text-transform: uppercase; padding: 1px 6px; border-radius: 7px; white-space: nowrap; color: var(--rf-menu-text); background: color-mix(in srgb, var(--rf-card-dim) 20%, transparent); }
+.rf-dayitem .marks i.sky { background: rgba(var(--rf-accent-rgb), 0.2); }
+.rf-dayitem .marks i.warn { background: color-mix(in srgb, var(--rf-warn) 28%, transparent); }
+
+/* --- the Timeplan: the days that run its timetable --------------------------------------------------- */
+
+.tp-days { display: inline-flex; gap: 2px; flex: none; }
+.tp-days .d { width: 26px; height: 34px; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 4px; background: var(--tp-field); box-shadow: inset 0 0 0 1px var(--tp-border); color: var(--tp-faint); line-height: 1.1; }
+.tp-days .d b { font-size: 8.4px; font-weight: 700; text-transform: uppercase; }
+.tp-days .d small { font-size: 9px; font-weight: 500; }
+.tp-days .d:hover { background: var(--tp-cell-hover); }
+.tp-days .d.on { background: var(--tp-sky-on); box-shadow: inset 0 0 0 1.5px var(--tp-sky); color: var(--tp-text); }
+.tp-days .d.odd { box-shadow: inset 0 -3px 0 var(--tp-orange), inset 0 0 0 1px var(--tp-border); }
+.tp-days .d.on.odd { box-shadow: inset 0 -3px 0 var(--tp-orange), inset 0 0 0 1.5px var(--tp-sky); }
+.tp-days .d.none { opacity: 0.45; cursor: default; }
+.tp-days .d.wait { opacity: 0.6; cursor: progress; }
+
+/* (the presets' words in full, on two rows where they need them; the cross in a tag) */
+.rf-apply > .body > .rf-seg { height: auto; min-height: 30px; }
+.rf-apply > .body > .rf-seg button { white-space: normal; line-height: 1.2; padding: 4px 6px; }
+.rf-daychip .tag .x { width: 14px; height: 14px; margin: 0 -4px 0 4px; display: inline-flex; align-items: center; justify-content: center; border-radius: 7px; color: var(--rf-dim); }
+.rf-daychip .tag .x:hover { color: var(--rf-err); background: var(--rf-hover2); }
+
+/* --- the Roster tab: taking a driver or a bus off (roster.js) ------------------------------------------ */
+
+.rr-scroll > [data-off] { display: contents; }
+.rr-scroll > [data-off] > .rf-caps { color: var(--rf-dim); margin-top: 10px; }
+.rr-offzone { flex: none; height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 12px; margin-top: 6px; border-radius: 3px; box-shadow: inset 0 0 0 1.5px var(--rf-err); background: color-mix(in srgb, var(--rf-err) 10%, transparent); color: var(--rf-err); font-size: 9.8px; font-weight: 700; }

@@ -17,6 +17,7 @@ import { setRf, rfCmd, rfAct, after, edit, pick, settle, toggle, clock, hm, say,
 import { STATS, STAT_LABEL, handSpan, pieceOf, pieceTrips, tripHand } from './gantt.js';
 import { Icon, RfButton, IconBtn, Caps, Switch, CheckRow, Seg, Stepper, MenuItem, Select } from './ui.js';
 import { AXIS } from './draw.js';
+import { DayItem, dayMenuHeight } from './days.js';
 
 const eq = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
 
@@ -683,12 +684,14 @@ function PrintMenu() {
   </div>`;
 }
 
-/** The day: the next seven. */
+/** The day: the next seven, each with what it runs (`days.js`: follows a day, its own changes,
+ * this date only, a pattern of others). */
 function DayMenu({ size }) {
   const r = S.rf;
   const days = r.days || [];
-  return html`<div class="rf-over rf-menu" style=${`left:${size.w - 560}px;top:4px;width:230px;height:220px`}>
-    ${days.map((d, k) => html`<${MenuItem} label=${d.label} raw on=${r.day === k} onClick=${() => {
+  const marks = r.data?.head?.days || [];
+  return html`<div class="rf-over rf-menu" style=${`left:${size.w - 560}px;top:4px;width:270px;height:${dayMenuHeight(days, marks)}px`}>
+    ${days.map((d, k) => html`<${DayItem} label=${d.label} tags=${marks[k]} on=${r.day === k} onPick=${() => {
       setRf({ day: k, panel: null });
       settle();
     }} />`)}
