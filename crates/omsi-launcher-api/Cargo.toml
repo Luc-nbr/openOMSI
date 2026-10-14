@@ -27,4 +27,6 @@ omsi-model = { path = "../omsi-model" }
 omsi-sim = { path = "../omsi-sim" }
 # (and the display font's previews: the fonts' bitmaps, `hub_more/displayfont.rs`)
 omsi-texture = { path = "../omsi-texture" }
+# Omsi-Hub: the page's own 3D view reads the buses' meshes as the game does (`src/omsihub/bus3d`)
+omsi-o3d = { path = "../omsi-o3d" }
 anyhow.workspace = true

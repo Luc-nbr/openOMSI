@@ -18,7 +18,7 @@
 //! * `hub_more_font_view`, `hub_more_font_set`, `hub_more_font_add` and the bytes of
 //!   `hub_more_font_pic`: the bus step's display font (`hub_more/displayfont.rs`).
 
-mod busoptions;
+pub(crate) mod busoptions;
 mod displayfont;
 
 use crate::Answer;

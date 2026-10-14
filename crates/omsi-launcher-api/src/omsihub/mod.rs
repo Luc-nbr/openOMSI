@@ -26,6 +26,8 @@ pub mod company;
 // RosterFlow, the planning with the add-on on (Trello "Tauri 4/6": `rosterflow.rs`)
 pub mod rosterflow;
 pub mod hub_more;
+// Bus3D: the page's own 3D view, livery studio and bus photos (`bus3d/`)
+pub mod bus3d;
 // the updates from the fork's releases (Trello "Tauri 6/6": `update.rs`)
 pub mod update;
 
@@ -136,6 +138,7 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
         "hub_weather_extras" => (|| hub_weather_extras(&arg::<String>(args, "map")?))(),
         "hub_own_lines" => (|| hub_own_lines(&arg::<String>(args, "map")?))(),
         "hub_photo" => hub_photo(args, p),
+        c if c.starts_with("b3d_") => return bus3d::call(c, args),
         // what phase 1 left of the drive's steps (Trello "Tauri 3/6": `hub_more.rs`)
         c if c.starts_with("hub_more_") => return hub_more::call(c, args),
         c if c.starts_with("hub_update") => return update::call(c, args),
@@ -152,6 +155,7 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
 pub fn call_bytes(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Result<Vec<u8>, String>> {
     match cmd {
         c if c.starts_with("co_") => company::call_bytes(c, args),
+        c if c.starts_with("b3d_") => bus3d::call_bytes(c, args),
         // (phase 3: the display font's previews, `hub_more/displayfont.rs`)
         c if c.starts_with("hub_more_") => hub_more::call_bytes(c, args),
         _ => editors::call_bytes(cmd, args, p),
