@@ -79,6 +79,9 @@ export function companyPage(part, id) {
   let tab = HOME;
   if (/^\d+$/.test(part || '')) tab = Number(part);
   else if (part in casual) tab = casual[part];
+  // (Omsi-Hub 6/6: what `company::handed` opens - a line's timetable, the line editor, the livery
+  // studio ... - opened here once the company is: `handOver` takes it to its page)
+  else if (part && part !== 'home') return enterCompany({ chooser: null, tab: HOME, want: id || null, handWant: part });
   enterCompany({ chooser: null, tab: HANDED.includes(tab) ? HOME : tab, want: id || null });
 }
 
@@ -184,6 +187,12 @@ export function CompanyScreen() {
     setCo({ rfWant: null });
     handOver('5', more);
   }, [open, c.rfWant]);
+  useEffect(() => {
+    if (!open || !c.handWant) return;
+    const part = c.handWant;
+    setCo({ handWant: null });
+    handOver(part.replace(/%3A/g, ':').replace(/%25/g, '%'));
+  }, [open, c.handWant]);
   // (Omsi-Hub 6/6: the company's tour by itself the first time a driver comes - the welcome and
   // the founding without a company, its pages once one runs - not over a dialog nor another
   // tour, not in the self-check: `tutorial::frame`; asked for at the start, from the "?"'s place)

@@ -130,10 +130,13 @@ export function goTab(tab) {
  * it, and says (a promise of) true when it took it. */
 export const handOverHooks = [];
 
-/** Open a page (or the line editor, the livery studio ...) of the company in our game-drawn
- * launcher (`OMSI_LAUNCHER_PAGE` "bus company:<page>:<company>"): the clock stops and the
- * company is saved first; this window closes. A page of the desktop launcher's own that takes
- * it (`handOverHooks`) opens instead. */
+/** Open what the company's pages hand over (`company::handed`'s parts): RosterFlow takes the
+ * planning and a line's timetable with its add-on on (`handOverHooks`); a page of the company is
+ * opened here; the workshop's jobs, a line's sheet on the planning and our editors (the line
+ * editor, the livery studio) are this launcher's own since phase 6. Only what none of them takes
+ * - the editors' module missing - opens in our game-drawn launcher (`OMSI_LAUNCHER_PAGE` "bus
+ * company:<page>:<company>"): the clock stops and the company is saved first; this window
+ * closes. */
 export async function handOver(page, opts = {}) {
   for (const take of handOverHooks) {
     try {
@@ -151,6 +154,23 @@ export async function handOver(page, opts = {}) {
   if (S.boot?.selftest) {
     setCo({ handed: page });
     return;
+  }
+  // (the workshop's jobs: the career's part, where the job is done here - Omsi-Hub 6/6)
+  if (page === 'workshop') {
+    setUi('career', { part: 3 });
+    setCo({ tab: 6, dialog: null });
+    return;
+  }
+  // (a line's trips and timetable without RosterFlow: the planning's own sheet over it, Omsi-Hub
+  // 6/6 - "plan-line=<line>|<date>|<tour>")
+  if (String(page).startsWith('plan-line=')) {
+    const [line, date, tour] = String(page).slice('plan-line='.length).split('|');
+    const r = await cmd('co_more_act', { act: 'plan_timetable', line, date: date || '', tour: tour || '' }).catch(() => null);
+    if (r?.plan_edit) {
+      setUi('planning', { edit: Date.now(), arm: null, sel: null });
+      setCo({ tab: 5, dialog: null });
+      return;
+    }
   }
   if (await inEditor(String(page), opts)) return;
   try {
