@@ -14,7 +14,7 @@ import { call } from '../../api.js';
 import { tr } from '../bits.js';
 import { hex as hexOf } from './pal.js';
 import { setRf, rfCmd, rfAct, after, edit, pick, settle, toggle, clock, hm, say, NO_FILTER, VEHICLES, DRIVERS, TIMEPLAN } from './state.js';
-import { STATS, STAT_LABEL, handSpan, pieceOf, pieceTrips, tripHand } from './gantt.js';
+import { STATS, STAT_LABEL, handSpan, pieceOf, pieceTrips, tripHand, dutyHand } from './gantt.js';
 import { Icon, RfButton, IconBtn, Caps, Switch, CheckRow, Seg, Stepper, MenuItem, Select } from './ui.js';
 import { AXIS } from './draw.js';
 import { DayItem, dayMenuHeight } from './days.js';
@@ -324,10 +324,12 @@ function SelectionCard({ data, c, drivers, size }) {
   const to = Math.max(...xs.map((x) => x.arr));
   const driving = xs.reduce((s, x) => s + x.arr - x.dep, 0);
   const trips = sel.filter((s) => s[0] === tour).map((s) => s[1]);
-  // (in Drivers the choice is trips of one duty, on one bus or several)
+  // (in Drivers the choice is trips of one duty or of several, on one bus or several)
   const duty = drivers && S.rf.tripsToDuties ? dutyOfPiece(b, tour, pieceOf(b, tour, sel[0][1])) : null;
+  // (trips of several duties: how many, dragged up or down together)
+  const many = duty ? new Set(sel.map(([i, j]) => dutyOfPiece(b, i, pieceOf(b, i, j))?.[0])).size : 1;
   return html`<div class="rf-over rf-card" style=${place(c.at, 380, 196, size)}>
-    <div class="head"><${Icon} name=${duty ? 'person' : 'directions_bus'} size=${17} /><b>${duty ? duty[1] : t.label}  ·  ${tr('%{n} trips chosen', { n: xs.length })}</b></div>
+    <div class="head"><${Icon} name=${duty ? 'person' : 'directions_bus'} size=${17} /><b>${many > 1 ? tr('%{n} duties', { n: many }) : duty ? duty[1] : t.label}  ·  ${tr('%{n} trips chosen', { n: xs.length })}</b></div>
     <div class="body">
       <${Field} cap="Driving time" value=${hm(driving)} />
       <div class="tl wide"><${TimeLine} from=${from} to=${to} mid=${`${tr('span')} ${hm(to - from)}`} /></div>
@@ -410,23 +412,26 @@ function Menu({ data, m, drivers, size }) {
     const mine = S.rf.sel.filter((s) => s[0] === m.tour).map((s) => s[1]);
     return mine.length ? mine : [m.trip];
   })();
-  // (Drivers: the trips chosen of the duty clicked)
+  // (Drivers: the trips chosen - of several duties too, the trip clicked one of them - else
+  // those of the duty clicked)
   const dutyTrips = (() => {
-    const mine = S.rf.sel.filter(([i, j]) => dutyOfPiece(b, i, pieceOf(b, i, j))?.[0] === m.dutyRow);
+    const sel = S.rf.sel;
+    if (sel.length > 1 && sel.some(([i, j]) => i === m.tour && j === m.trip)) return sel;
+    const mine = sel.filter(([i, j]) => dutyOfPiece(b, i, pieceOf(b, i, j))?.[0] === m.dutyRow);
     return mine.length ? mine : [[m.tour, m.trip]];
   })();
   const go = (what) => {
     setRf({ menu: null });
     switch (what) {
       case 1:
-        if (drivers && S.rf.tripsToDuties && m.tour != null && m.dutyRow != null) pick({ kind: 'duty_trips', duty: m.dutyRow, trips: dutyTrips }, false);
+        if (drivers && S.rf.tripsToDuties && m.tour != null && m.dutyRow != null) pick(dutyHand(m.dutyRow, dutyTrips), false);
         else pick(m.piece ? { kind: 'piece', tour: m.piece[0], duty: m.piece[1] } : { kind: 'trips', tour: m.tour, trips }, false);
         break;
       case 24:
         if (m.piece) pick({ kind: 'piece', tour: m.piece[0], duty: m.piece[1] }, false);
         break;
       case 26:
-        edit('drop', { hand: { kind: 'duty_trips', duty: m.dutyRow, trips: dutyTrips }, zone: { kind: 'new_duty' } });
+        edit('drop', { hand: dutyHand(m.dutyRow, dutyTrips), zone: { kind: 'new_duty' } });
         break;
       case 2:
         if (m.piece) edit('detach', { tour: m.piece[0], duty: m.piece[1] });

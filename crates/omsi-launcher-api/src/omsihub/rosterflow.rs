@@ -633,7 +633,12 @@ fn view(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
         "zones" => json!(zones_for(&k, board, &hand_of(args))),
         // (no zone for a duty's trips: why, said in the corner - Luc's line 880 offered none)
         "why" => match hand_of(args) {
-            Hand::DutyTrips { duty, trips } => json!({ "text": driver_drag::why(c, board, duty, &trips) }),
+            Hand::DutyTrips { duty, trips, rows } => {
+                // (and why not to row `to`: a drop there refused)
+                let to = args.get("to").and_then(Value::as_u64).map(|x| x as usize);
+                let again = |v: &Company| co::network::tours_of_day(v, &k.lines, &k.date);
+                json!({ "text": driver_drag::why(c, board, duty, &trips, &rows, to, &again) })
+            }
             _ => json!({}),
         },
         "duty" => duty_view(c, board, usize_arg(args, "row"), &k.lines),
@@ -659,8 +664,10 @@ enum Hand {
     /// taken up one by one, as (block, trip) pairs on one bus or several, to go to another duty
     /// or a new one (Luc's change on `rf-driver-drag`, the game-drawn launcher's `Hand::Duty`:
     /// the core's `studio::plan_move_to_duty` checks them and `studio::move_to_duty` makes it;
-    /// until it is here, the Drivers tab takes up whole pieces, `TRIPS_TO_DUTIES`).
-    DutyTrips { duty: usize, trips: Vec<(usize, usize)> },
+    /// until it is here, the Drivers tab takes up whole pieces, `TRIPS_TO_DUTIES`). Trips of
+    /// several duties go together, each duty's as many rows on: `rows` the duties' rows as the
+    /// page shows them (`driver_drag::targets`).
+    DutyTrips { duty: usize, trips: Vec<(usize, usize)>, rows: Vec<usize> },
     None,
 }
 
@@ -670,7 +677,7 @@ fn hand_of(args: &Value) -> Hand {
         "trips" => Hand::Trips { tour: usize_arg(&h, "tour"), trips: usizes(&h, "trips") },
         "stack" => Hand::Stack(usize_arg(&h, "k")),
         "piece" => Hand::Piece { tour: usize_arg(&h, "tour"), duty: usize_arg(&h, "duty") },
-        "duty_trips" => Hand::DutyTrips { duty: usize_arg(&h, "duty"), trips: pairs(&h, "trips") },
+        "duty_trips" => Hand::DutyTrips { duty: usize_arg(&h, "duty"), trips: pairs(&h, "trips"), rows: usizes(&h, "rows") },
         _ => Hand::None,
     }
 }
@@ -739,7 +746,10 @@ fn zones_for(k: &Cached, board: &Board, h: &Hand) -> Vec<Value> {
             }
         }
         // (Luc's driver drag: `driver_drag`)
-        Hand::DutyTrips { duty, trips } => driver_drag::zones(c, board, *duty, trips, &mut probe_with),
+        Hand::DutyTrips { duty, trips, rows } => {
+            let again = |v: &Company| co::network::tours_of_day(v, &k.lines, &k.date);
+            driver_drag::zones(c, board, *duty, trips, rows, &again, &mut probe_with)
+        }
         Hand::None => {}
     }
     let stars = rate(&out.iter().map(|z| (z.1, z.2)).collect::<Vec<_>>());
@@ -908,6 +918,11 @@ fn said(text: impl Into<String>, error: bool) -> Value {
 /// An edit of the draft (`f` on the company as the studio sees it): what was before kept for
 /// Undo and for the figures' differences; a refusal said with its reason (`rosterflow::edit`).
 fn edit(s: &mut Session, r: &mut Rf, label: String, f: impl FnOnce(&mut Company) -> Result<(), &'static str>) -> Value {
+    edit_with(s, r, label, |c| f(c).map_err(tr))
+}
+
+/// `edit` whose refusal is said in words already translated.
+fn edit_with(s: &mut Session, r: &mut Rf, label: String, f: impl FnOnce(&mut Company) -> Result<(), String>) -> Value {
     let Some(c) = s.company.as_ref() else { return json!({}) };
     let mut v = rf::view(c);
     let snapshot = rf::draft_of(c);
@@ -927,7 +942,7 @@ fn edit(s: &mut Session, r: &mut Rf, label: String, f: impl FnOnce(&mut Company)
             r.before = before;
             json!({ "edited": true })
         }
-        Err(why) => said(tr(why), true),
+        Err(why) => said(why, true),
     }
 }
 
@@ -1545,7 +1560,11 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
                     edit(s, r, words, |c| st::detach(c, wd, &tours, (tour, duty)))
                 }
                 // (Luc's driver drag: `driver_drag`)
-                (Hand::DutyTrips { duty, trips }, "duty" | "new_duty") => driver_drag::drop(s, r, &board, duty, trips, kind, usize_arg(&zone, "d")),
+                (Hand::DutyTrips { duty, trips, rows }, "duty" | "new_duty") => {
+                    let (lines, day) = (k.lines.clone(), k.date.clone());
+                    let again = move |v: &Company| co::network::tours_of_day(v, &lines, &day);
+                    driver_drag::drop(s, r, &board, duty, trips, &rows, kind, usize_arg(&zone, "d"), &again)
+                }
                 _ => json!({}),
             }
         }
@@ -1555,8 +1574,10 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
             let refused = match hand_of(args) {
                 Hand::Trips { tour, .. } => tours.get(tour).is_some_and(|t| rf::block_locked(c, wd, &t.line, &t.tour)).then_some(st::LOCKED),
                 // (the duty locked, or one of the trips' buses: `rf_gantt::pick`'s `Hand::Duty`)
-                Hand::DutyTrips { duty, trips } => {
-                    if board.shaped.get(duty).is_some_and(|x| x.locked) {
+                Hand::DutyTrips { duty, trips, .. } => {
+                    // (trips of several duties: any of their duties locked)
+                    let locked = |&(i, j): &(usize, usize)| st::duty_of_trip(&board.duties, &tours, i, j).and_then(|di| board.shaped.iter().find(|x| x.duty == Some(di))).is_some_and(|x| x.locked);
+                    if board.shaped.get(duty).is_some_and(|x| x.locked) || trips.iter().any(locked) {
                         Some(st::DUTY_LOCKED)
                     } else {
                         trips.iter().any(|&(i, _)| tours.get(i).is_some_and(|t| rf::block_locked(c, wd, &t.line, &t.tour))).then_some(st::LOCKED)

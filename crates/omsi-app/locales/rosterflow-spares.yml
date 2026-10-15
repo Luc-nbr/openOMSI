@@ -1,0 +1,39 @@
+_version: 2
+# RosterFlow's Drivers tab (Beta 61): trips of several duties dragged up or down together, and
+# spare lines - their times typed or dragged, a name, a sign-on point, several a day - which the
+# live day, the dispatcher and service control use within their hours.
+"Not every duty chosen has a duty that many rows up or down.":
+  de: "Nicht jeder gewählte Dienst hat so viele Zeilen darüber oder darunter einen Dienst."
+  fr: "Tous les services choisis n'ont pas un service autant de lignes plus haut ou plus bas."
+  nl: "Niet elke gekozen dienst heeft zoveel rijen hoger of lager een dienst."
+  pl: "Nie każda wybrana służba ma służbę o tyle wierszy wyżej lub niżej."
+  ru: "Не у каждой выбранной смены есть смена на столько строк выше или ниже."
+  uk: "Не кожна вибрана зміна має зміну на стільки рядків вище або нижче."
+"A spare duty of custom work takes no trips.":
+  de: "Ein Reservedienst mit eigener Arbeit nimmt keine Fahrten auf."
+  fr: "Un service de réserve en travail personnalisé ne prend aucun trajet."
+  nl: "Een reservedienst met eigen werk neemt geen ritten."
+  pl: "Służba rezerwowa z własną pracą nie przyjmuje kursów."
+  ru: "Резервная смена с особой работой не берёт рейсы."
+  uk: "Резервна зміна з особливою роботою не бере рейси."
+"Duty %{d}: %{why}":
+  de: "Dienst %{d}: %{why}"
+  fr: "Service %{d} : %{why}"
+  nl: "Dienst %{d}: %{why}"
+  pl: "Służba %{d}: %{why}"
+  ru: "Смена %{d}: %{why}"
+  uk: "Зміна %{d}: %{why}"
+"%{n} trips of %{m} duties moved to other duties":
+  de: "%{n} Fahrten von %{m} Diensten in andere Dienste verschoben"
+  fr: "%{n} trajets de %{m} services déplacés vers d'autres services"
+  nl: "%{n} ritten van %{m} diensten naar andere diensten verplaatst"
+  pl: "%{n} kursów z %{m} służb przeniesiono do innych służb"
+  ru: "%{n} рейсов из %{m} смен перенесены в другие смены"
+  uk: "%{n} рейсів із %{m} змін перенесено в інші зміни"
+"%{n} trips of %{m} duties moved to new duties":
+  de: "%{n} Fahrten von %{m} Diensten in neue Dienste verschoben"
+  fr: "%{n} trajets de %{m} services déplacés vers de nouveaux services"
+  nl: "%{n} ritten van %{m} diensten naar nieuwe diensten verplaatst"
+  pl: "%{n} kursów z %{m} służb przeniesiono do nowych służb"
+  ru: "%{n} рейсов из %{m} смен перенесены в новые смены"
+  uk: "%{n} рейсів із %{m} змін перенесено в нові зміни"

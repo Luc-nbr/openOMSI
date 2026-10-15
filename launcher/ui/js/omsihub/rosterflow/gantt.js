@@ -11,11 +11,14 @@
 // the breaks that end one lie in a band under its row (`dutyRest`).
 //
 // A click on a chip chooses it and opens its card; Shift and a click widen the choice along the
-// row; a double click (or MOVE, or a drag) takes it up, and the rows it may go to show drop zones
-// rated with stars, blue where nothing breaks, red where a rule does, with the cost they make. A
-// right click opens the menu. A gap between two trips at a terminus or the depot is clicked to
-// cut a duty there; the relief arrows are clicked to join it again. The canvas draws what it is
-// told and keeps where each part lies (`hits`), as the game-drawn launcher's frame does.
+// row (in Drivers Ctrl or Shift and a click on another duty add its trips, and a chip of a duty
+// ticked with others takes all of theirs: each duty's trips go as many rows up or down as the one
+// taken hold of); a double click (or MOVE, or a drag) takes it up, and the rows it may go to
+// show drop zones rated with stars, blue where nothing breaks, red where a rule does, with the
+// cost they make. A right click opens the menu. A gap between two trips at a terminus or the
+// depot is clicked to cut a duty there; the relief arrows are clicked to join it again. The
+// canvas draws what it is told and keeps where each part lies (`hits`), as the game-drawn
+// launcher's frame does.
 
 import { html, useEffect, useRef } from '../../../vendor/preact-htm.js';
 import { S } from '../../store.js';
@@ -23,7 +26,7 @@ import { tr } from '../bits.js';
 import { alpha, mix, hex, inkOn } from './pal.js';
 import * as D from './draw.js';
 import { ROW, CHIP, ID_W, STAT_W, AXIS } from './draw.js';
-import { setRf, pick, dropAt, edit, clock, hm } from './state.js';
+import { setRf, pick, dropAt, dropTo, edit, clock, hm } from './state.js';
 import { anchor, begin, forget } from './anchors.js';
 import { colourBy, colourOf, tripColour, stackColour } from './colourby.js';
 // (the day's trips that ran late or were dropped, marked on their chips)
@@ -214,9 +217,20 @@ export const pieceOf = (b, tour, trip) => Math.max(0, (b.blocks[tour]?.pieces ||
 export function tripHand(b, drivers, tour, trips, trip, duty = null, pairs = null, piece = false) {
   const some = trips.length ? trips : [trip];
   if (!drivers) return { kind: 'trips', tour, trips: withParts(b, tour, some) };
-  if (S.rf.tripsToDuties && duty != null && !piece) return { kind: 'duty_trips', duty, trips: pairs?.length ? pairs : some.map((j) => [tour, j]) };
+  if (S.rf.tripsToDuties && duty != null && !piece) return dutyHand(duty, pairs?.length ? pairs : some.map((j) => [tour, j]));
   return { kind: 'piece', tour, duty: pieceOf(b, tour, trip) };
 }
+
+/** Trips of duties taken hold of on row `duty` (`driver_drag`): those of several rows go
+ * together, each duty's as many rows on as the one taken hold of - in the rows as they are
+ * shown (sorted, filtered, pinned). */
+export function dutyHand(duty, trips) {
+  const data = S.rf.data;
+  return { kind: 'duty_trips', duty, trips, rows: data?.board ? rowsOf(data, true).map((x) => x.i) : [] };
+}
+
+/** The Drivers row (an index into the board's duties) of chip `[block, trip]`. */
+export const rowOfChip = (b, [i, j]) => b.blocks[i]?.duty_rows?.[pieceOf(b, i, j)] ?? null;
 
 /** Trips `list` of block `tour` with the other part of a trip cut at a relief point on the way:
  * a bus's trip moves whole (`studio::wholes`). */
@@ -783,7 +797,8 @@ function dutyRest(ctx, g, s, d, cy, xOf, hit, lineCol) {
     const xb = xOf(bk.to);
     const room = xb - xa - 4;
     const col = bk.kind === 'split' ? lineCol : bk.counts ? p.ok : alpha(p.text, p.light ? 0.45 : 0.5);
-    hit(xa, cy - CHIP / 2, Math.max(4, xb - xa), CHIP, { kind: 'rest', what: 'break', row: d, k, tip: bk.tip, raw: true, pre: true });
+    // (no wider than the gap: drawn after the chips, it would take the press off the next one)
+    hit(xa, cy - CHIP / 2, Math.max(1, xb - xa), CHIP, { kind: 'rest', what: 'break', row: d, k, tip: bk.tip, raw: true, pre: true });
     const text = [bk.label, bk.short].find((t) => D.width(ctx, t, 9.5, 700) + 10 <= room);
     if (!text) {
       // (too narrow for words: a tick in the gap, its card on hover)
@@ -935,6 +950,22 @@ export function Gantt({ data, drivers, readOnly, p, onTip, page }) {
   };
   const at = (m) => ({ x: (g.cardOrigin || g.origin).x + m.x, y: (g.cardOrigin || g.origin).y + m.y });
 
+  /** A duty's trips held let go on a row of the Drivers tab where no drop zone is (none offered
+   * there, or not worked out yet: they are tried on a copy of the day, `pick`): dropped there all
+   * the same, and the core moves them or says why not (`driver_drag::drop`). The new row below
+   * the duties is "New duty". False where it is no row, or the row they were taken from. */
+  const dropOnRow = (m) => {
+    const h = S.rf.hand;
+    const L = g.layout;
+    if (!drivers || h?.kind !== 'duty_trips' || !L || !inside(L.body, m) || m.x < L.gx) return false;
+    const k = Math.floor((m.y - L.body.y + L.scroll) / rowPitch(true));
+    const row = L.rows[k];
+    if (row && row.kind === 'duty' && row.i !== h.duty) dropTo(h, { kind: 'duty', d: row.i });
+    else if (k === L.rows.length) dropTo(h, { kind: 'new_duty' });
+    else return false;
+    return true;
+  };
+
   const showTip = (hit, m) => {
     if (!onTip) return;
     // (a Drivers chip's long tip keeps quiet while a card or the menu is open)
@@ -1000,7 +1031,9 @@ export function Gantt({ data, drivers, readOnly, p, onTip, page }) {
     const hit = top(m);
     g.down = hit;
     const r = S.rf;
-    // (pressed on nothing: the card and the menu close, the choice goes; a hand stays held)
+    // (pressed on nothing: the card and the menu close, the choice goes; a hand stays held - a
+    // duty's trips held are put on the row pressed)
+    if (!hit && dropOnRow(m)) return;
     if (!hit) {
       if (r.card || r.menu || (r.sel.length && !r.hand)) setRf({ card: null, menu: null, ...(r.hand ? {} : { sel: [], selRow: null }) });
       return;
@@ -1015,13 +1048,20 @@ export function Gantt({ data, drivers, readOnly, p, onTip, page }) {
       let sel;
       const several = !drivers || r.tripsToDuties;
       const inSel = r.sel.some(([s0, s1]) => s0 === hit.tour && s1 === hit.trip);
-      // (in Drivers a choice is trips of one duty, on one bus or several)
+      // (in Vehicles a choice is trips of one bus; in Drivers trips of one duty or of several,
+      // on one bus or several - each duty's go as many rows on: `driver_drag`)
       const sameRow = r.selRow === hit.row && r.sel[0] && (drivers || r.sel[0][0] === hit.tour);
-      if (e.shiftKey && several && sameRow && (drivers || r.sel[0][0] === hit.tour)) {
-        // (along the row: in Drivers the duty's trips, of any bus)
-        sel = drivers ? dutySpan(b, hit.dutyRow, r.sel[0], [hit.tour, hit.trip]) : rangeOf(b, hit.tour, r.sel[0][1], hit.trip).map((x) => [hit.tour, x]);
-        Object.assign(patch, { sel, card: { kind: 'selection', at: at(m) } });
-      } else if ((e.ctrlKey || e.metaKey) && several && sameRow) {
+      const across = drivers && r.tripsToDuties && r.sel.length > 0;
+      // (the duty rows ticked, when the chip's is one of two or more: their trips all)
+      const ticked = drivers && r.tripsToDuties ? b.duties.map((x, d) => (r.ticked.includes(x.id) ? d : null)).filter((d) => d != null) : [];
+      if (e.shiftKey && several && (sameRow || across)) {
+        // (along the row: in Drivers the duty's trips, of any bus, from its last one chosen; the
+        // other rows' chosen stay)
+        const anchor = drivers ? [...r.sel].reverse().find((x) => rowOfChip(b, x) === hit.dutyRow) : r.sel[0];
+        if (drivers) sel = anchor ? [...r.sel.filter((x) => rowOfChip(b, x) !== hit.dutyRow), ...dutySpan(b, hit.dutyRow, anchor, [hit.tour, hit.trip])] : inSel ? r.sel : [...r.sel, [hit.tour, hit.trip]];
+        else sel = rangeOf(b, hit.tour, r.sel[0][1], hit.trip).map((x) => [hit.tour, x]);
+        Object.assign(patch, { sel, selRow: hit.row, card: { kind: 'selection', at: at(m) } });
+      } else if ((e.ctrlKey || e.metaKey) && several && (sameRow || across)) {
         // (Ctrl and a click - Cmd on a Mac, whose Ctrl and a click is a right click: one trip
         // added to the choice or taken out of it)
         sel = inSel ? r.sel.filter(([s0, s1]) => !(s0 === hit.tour && s1 === hit.trip)) : [...r.sel, [hit.tour, hit.trip]];
@@ -1030,10 +1070,14 @@ export function Gantt({ data, drivers, readOnly, p, onTip, page }) {
           setRf({ ...patch, sel, selRow: sel.length ? r.selRow : null, card: sel.length > 1 ? { kind: 'selection', at: at(m) } : null });
           return;
         }
-        Object.assign(patch, { sel, card: { kind: 'selection', at: at(m) } });
+        Object.assign(patch, { sel, selRow: hit.row, card: { kind: 'selection', at: at(m) } });
       } else if (inSel && r.sel.length > 1 && several) {
         // (a chip of the choice pressed: the whole choice comes along)
         sel = r.sel;
+      } else if (!e.altKey && ticked.length > 1 && ticked.includes(hit.dutyRow)) {
+        // (a chip of a duty ticked with others: all their trips, to drag up or down together)
+        sel = ticked.flatMap((d) => dutyChips(b, d));
+        Object.assign(patch, { sel, selRow: hit.row, card: { kind: 'selection', at: at(m) } });
       } else {
         sel = [[hit.tour, hit.trip]];
         Object.assign(patch, { sel, selRow: hit.row, card: { kind: 'trip', tour: hit.tour, trip: hit.trip, at: at(m), assign: false } });
@@ -1068,7 +1112,7 @@ export function Gantt({ data, drivers, readOnly, p, onTip, page }) {
     if (r.press) setRf({ press: null });
     if (r.dragging) {
       if (hit?.kind === 'zone') dropAt(hit.zi);
-      else setRf({ hand: null, zones: null, dragging: false });
+      else if (!dropOnRow(m)) setRf({ hand: null, zones: null, dragging: false });
       return;
     }
     const was = g.down;
