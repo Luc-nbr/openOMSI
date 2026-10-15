@@ -578,7 +578,7 @@ pub fn apply(c: &mut Company, dp: &DayPlan, ti: usize, dep: i32, act: Act, auto:
     ck::tell(c, run, at, text, args.clone(), Level::Info);
     // (back on time: said, as the trips ahead now run)
     let d = delays(c, dp, Some(now), None).swap_remove(ti);
-    let back = t.tour.trips.iter().zip(&d).find(|(trip, x)| x.runs && !x.known && trip.dep >= dep && x.late <= LATE_AT).map(|(trip, _)| trip.dep);
+    let back = t.tour.trips.iter().zip(&d).find(|(trip, x)| x.runs && !x.known && trip.dep >= dep && x.late < economy::LATE_FROM).map(|(trip, _)| trip.dep);
     if let Some(m) = back {
         let said = vec![ck::arg("bus", number(c, bus)), ck::arg("n", &t.tour.number), ck::arg("time", time(m))];
         ck::tell(c, run, at, BACK_ON_TIME, said, Level::Good);
