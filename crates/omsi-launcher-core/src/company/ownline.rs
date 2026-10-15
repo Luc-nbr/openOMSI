@@ -1012,7 +1012,7 @@ pub fn confirm(c: &mut Company, l: &LineDesign, stem: &str, shape: &Shape) -> Re
     if route_only {
         (e.tours, e.km) = (Default::default(), Default::default());
     }
-    if c.cash < total {
+    if !c.can_pay(total) {
         return Err("The company cannot pay for the line: take a loan on the Finances page, or make it smaller.");
     }
     let number = l.number.trim().to_string();
@@ -1121,7 +1121,7 @@ pub fn apply_map_change(c: &mut Company, name: &str, old: &LineDesign, new: &Lin
         sizes_allowed(c, new)?;
     }
     let fee = if restored { 0 } else { map_change_fee(c, old, new).unwrap_or(0) };
-    if c.cash < fee {
+    if !c.can_pay(fee) {
         return Err("The company cannot pay for the change: take a loan on the Finances page.");
     }
     let number = new.number.trim().to_string();
@@ -1176,7 +1176,7 @@ fn changed(c: &mut Company, l: &LineDesign, stem: &str, shape: &Shape, from: &st
     let old = cl.pending.as_ref().map(|x| x.plan.clone()).or_else(|| cl.plan.clone()).unwrap_or_default();
     sizes_allowed(c, l)?;
     let fee = change_fee(c, l, shape).unwrap_or(0);
-    if c.cash < fee {
+    if !c.can_pay(fee) {
         return Err("The company cannot pay for the change: take a loan on the Finances page.");
     }
     let number = l.number.trim().to_string();

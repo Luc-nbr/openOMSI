@@ -52,12 +52,12 @@ pub fn monthly_income(c: &Company) -> Cents {
 /// The yearly interest the bank asks of the company: the difficulty's, less what its level
 /// saves (`levels::loan_discount`).
 pub fn rate_of(c: &Company) -> f64 {
-    (economy::rules(c.game_mode).loan_rate - levels::loan_discount(c)).max(0.0)
+    (economy::rules_for(c).loan_rate - levels::loan_discount(c)).max(0.0)
 }
 
 /// The company's credit, with `collateral` (the value of what a loan buys).
 pub fn credit(c: &Company, collateral: Cents) -> Credit {
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     let base = (r.credit_base as f64 * c.price_index).round() as Cents;
     let fleet_value = fleet_value(c) + collateral;
     let income = monthly_income(c);
@@ -101,14 +101,14 @@ pub fn room(cr: &Credit) -> Room {
 
 /// What a loan of `amount` costs a month, and over how many months (the difficulty's term).
 pub fn loan_terms(c: &Company, amount: Cents) -> (Cents, u32, f64) {
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     let rate = rate_of(c);
     (economy::annuity(amount, rate, r.loan_months), r.loan_months, rate)
 }
 
 /// The terms the bank offers, in months: up to the difficulty's longest.
 pub fn terms_offered(c: &Company) -> Vec<u32> {
-    let longest = economy::rules(c.game_mode).loan_months;
+    let longest = economy::rules_for(c).loan_months;
     [12, 24, 36, 48, 60, 72, 84, 96].into_iter().filter(|m| *m <= longest).collect()
 }
 
@@ -148,8 +148,11 @@ pub fn early_fee_rate(d: GameMode) -> f64 {
     }
 }
 
-/// The fee for paying `amount` back early.
+/// The fee for paying `amount` back early (none with a sandbox's loans without interest).
 pub fn early_fee(c: &Company, amount: Cents) -> Cents {
+    if super::sandbox::of(c).free_loans {
+        return 0;
+    }
     (amount as f64 * early_fee_rate(c.game_mode)).round() as Cents
 }
 
@@ -213,7 +216,7 @@ pub fn draft_loan(c: &Company, amount: Cents, months: u32, purpose: &str, collat
         first_rate: first,
         purpose: purpose.to_string(),
         security: fleet_value(c) + collateral,
-        early_fee: early_fee_rate(c.game_mode),
+        early_fee: if super::sandbox::of(c).free_loans { 0.0 } else { early_fee_rate(c.game_mode) },
         ..Default::default()
     }
 }
@@ -281,7 +284,7 @@ pub fn repay(c: &mut Company, id: u32, amount: Cents) -> Result<(), &'static str
         return Err("Choose an amount.");
     }
     let fee = early_fee(c, amount);
-    if c.cash < amount + fee {
+    if !c.can_pay(amount + fee) {
         return Err("Not enough cash.");
     }
     c.loans[i].remaining -= amount;
@@ -294,14 +297,16 @@ pub fn repay(c: &mut Company, id: u32, amount: Cents) -> Result<(), &'static str
     Ok(())
 }
 
-/// The month's rates of every loan: interest on what is left, the rest repays it. Returns
-/// the purposes of the loans paid off.
+/// The month's rates of every loan: interest on what is left, the rest repays it (a sandbox's
+/// loans without interest: none on those running either). Returns the purposes of the loans
+/// paid off.
 pub fn pay_rates(c: &mut Company) -> Vec<String> {
     let mut done = Vec::new();
     let loans = std::mem::take(&mut c.loans);
     let mut kept = Vec::new();
+    let free = super::sandbox::of(c).free_loans;
     for mut l in loans {
-        let interest = (l.remaining as f64 * l.rate / 12.0).round() as Cents;
+        let interest = if free { 0 } else { (l.remaining as f64 * l.rate / 12.0).round() as Cents };
         let principal = (l.monthly - interest).clamp(0, l.remaining);
         // (the last rate pays what is left, whatever the rounding left over)
         let principal = if l.months_left <= 1 { l.remaining } else { principal };

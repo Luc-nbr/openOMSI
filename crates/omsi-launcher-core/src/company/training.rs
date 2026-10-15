@@ -235,7 +235,7 @@ pub fn enrol(c: &mut Company, kind: CourseKind, employee: Option<u32>) -> Result
         None => String::new(),
     };
     let cost = cost_of(c, kind);
-    if c.cash < cost {
+    if !c.can_pay(cost) {
         return Err("Not enough money for the course.");
     }
     let who = if name.is_empty() { kind.label().to_string() } else { format!("{} ({name})", kind.label()) };

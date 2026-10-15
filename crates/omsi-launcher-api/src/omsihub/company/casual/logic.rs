@@ -250,7 +250,7 @@ pub(crate) fn tiles(c: &Company, plan: Option<&Plan>, now: i32) -> Vec<Tile> {
     let week = week_result(c);
     let (big, good, money_under) = match week {
         Some(r) => (super::super::words::eur(r), Some(r >= 0), Words::new("This week's result")),
-        None => (super::super::words::eur(c.cash), None, Words::new("In the bank: the first week comes")),
+        None => (super::super::sandbox::cash(c), None, Words::new("In the bank: the first week comes")),
     };
     vec![
         Tile { page: BUSES, name: "My buses", icon: "directions_bus", big: n.to_string(), good: None, under: bus_under, action: ("Buy a bus", "add", Act::BuyBus) },
@@ -357,7 +357,7 @@ pub(crate) fn tips(c: &Company, plan: Option<&Plan>) -> Vec<Tip> {
         }
     }
     // money tight
-    if c.cash < co::autopilot::cushion(c) && !c.lines.is_empty() {
+    if !co::sandbox::unlimited(c) && c.cash < co::autopilot::cushion(c) && !c.lines.is_empty() {
         out.push(tip("cash".into(), Words::new("Money is getting tight. See where it goes."), ("See the money", "payments", Act::Open(MONEY)), true));
     }
     // the inbox's important messages

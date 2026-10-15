@@ -304,7 +304,7 @@ pub fn courses_for(role: Role) -> &'static [CourseKind] {
 /// Whether the company may hire someone of a role: ticket inspectors only once it has
 /// researched them.
 pub fn hireable(c: &Company, role: Role) -> Result<(), &'static str> {
-    if role == Role::Inspector && !c.research.has(super::research::keys::TICKET_INSPECTORS) {
+    if role == Role::Inspector && !super::research::has(c, super::research::keys::TICKET_INSPECTORS) {
         return Err("Ticket inspectors can be hired once the company has researched ticket inspection.");
     }
     Ok(())
@@ -323,7 +323,7 @@ pub fn friendliness_of(experience: f64, service: f64) -> f64 {
 pub fn signs_on_late(c: &Company, e: &Employee, date: &str) -> i32 {
     let day = dates::parse(date).unwrap_or(0);
     let mut rng = Rng::of(&[&c.id, "sign-on", &e.id.to_string()], day);
-    let mode = c.game_mode.rules().lateness * super::research::late_factor(c);
+    let mode = c.game_mode.rules().lateness * super::research::late_factor(c) * super::sandbox::of(c).lateness;
     let unhappy = if e.satisfaction < 50.0 { 0.02 } else { 0.0 };
     let stressed = if e.stress > 70.0 { 0.02 } else { 0.0 };
     let p = (0.015 + 0.08 * (1.0 - e.skills.punctuality / 100.0) + unhappy + stressed) * mode;
@@ -507,7 +507,7 @@ pub fn set_hours(c: &mut Company, role: Role, h: Hours) -> Result<(), &'static s
     if role == Role::Driver {
         return Err("Bus drivers work their duties: plan them on the Planning page.");
     }
-    if !c.research.has(super::research::keys::SHIFT_SCHEDULE) {
+    if !super::research::has(c, super::research::keys::SHIFT_SCHEDULE) {
         return Err("The working hours can be set once the company has researched the shift schedule.");
     }
     c.staff_rules.set_hours(role, h);
@@ -986,7 +986,7 @@ pub fn best_applicant(c: &Company, role: Role) -> Option<Applicant> {
 /// (the automatic hiring, and the easy mode's `autopilot`). Returns their name.
 pub fn hire_best(c: &mut Company, role: Role) -> Option<String> {
     let a = best_applicant(c, role)?;
-    if c.cash < 2 * economy::employer_cost(a.wage) {
+    if !c.can_pay(2 * economy::employer_cost(a.wage)) {
         return None;
     }
     hire(c, &a).ok().map(|_| a.name)
@@ -1253,6 +1253,10 @@ fn seed_of(c: &Company, role: Option<Role>, round: u32) -> Rng {
 /// What a job advert for new applicants costs: nothing in Casual, a modest fee at the company's
 /// prices otherwise (Normal €250, Realistic €450 at founding).
 pub fn advert_fee(c: &Company) -> Cents {
+    // (a sandbox that hires without limits: free)
+    if super::sandbox::of(c).free_hiring {
+        return 0;
+    }
     let base: f64 = match c.game_mode {
         super::model::GameMode::Casual => return 0,
         super::model::GameMode::Normal => 250_00.0,
@@ -1265,7 +1269,7 @@ pub fn advert_fee(c: &Company) -> Cents {
 pub fn may_advertise(c: &Company, role: Role) -> Result<(), &'static str> {
     hireable(c, role)?;
     let fee = advert_fee(c);
-    if fee > 0 && c.cash < fee {
+    if fee > 0 && !c.can_pay(fee) {
         return Err("Not enough cash for a job advert.");
     }
     Ok(())
@@ -1283,15 +1287,7 @@ pub fn advertise(c: &mut Company, role: Role) -> Result<usize, &'static str> {
     for a in applicants_of(c, role) {
         note_portrait(c, a.portrait);
     }
-    let week = dates::week_of(&c.date);
-    if c.taken.week != week {
-        c.taken = Taken { week, ..Default::default() };
-    }
-    let next = round_of(c, role) + 1;
-    match c.taken.rounds.iter_mut().find(|x| x.0 == role) {
-        Some(x) => x.1 = next,
-        None => c.taken.rounds.push((role, next)),
-    }
+    new_round(c, role);
     let fee = advert_fee(c);
     if fee > 0 {
         c.book(BookingKind::Recruitment, -fee, format!("Job advert: {}", role.label()), false);
@@ -1301,8 +1297,22 @@ pub fn advertise(c: &mut Company, role: Role) -> Result<usize, &'static str> {
     Ok(n)
 }
 
+/// A new round of applicants of a role this week (`advertise`, and a sandbox that hires without
+/// limits when a role's are all hired: `hire`).
+fn new_round(c: &mut Company, role: Role) {
+    let week = dates::week_of(&c.date);
+    if c.taken.week != week {
+        c.taken = Taken { week, ..Default::default() };
+    }
+    let next = round_of(c, role) + 1;
+    match c.taken.rounds.iter_mut().find(|x| x.0 == role) {
+        Some(x) => x.1 = next,
+        None => c.taken.rounds.push((role, next)),
+    }
+}
+
 fn drivers_market(c: &Company) -> Vec<Applicant> {
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     let week = dates::week_of(&c.date);
     // (a round of adverts its own applicants, numbered from a thousand a round: Beta 54)
     let round = round_of(c, Role::Driver);
@@ -1335,7 +1345,7 @@ fn drivers_market(c: &Company) -> Vec<Applicant> {
 /// The applicants of a role besides the drivers: fewer of them (Easy four a week, Realistic
 /// three, Hard two), numbered from a hundred for each role.
 fn role_market(c: &Company, role: Role) -> Vec<Applicant> {
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     let week = dates::week_of(&c.date);
     let round = round_of(c, role);
     let mut rng = seed_of(c, Some(role), round);
@@ -1412,12 +1422,18 @@ pub fn hire(c: &mut Company, a: &Applicant) -> Result<u32, &'static str> {
     if a.role == Role::Driver {
         super::licences::induction(c, id);
     }
+    // (a sandbox: qualified for every bus with everything unlocked, and new applicants at once
+    // when it hires without limits and the role's are all hired)
+    super::sandbox::hired(c, id);
+    if super::sandbox::of(c).free_hiring && applicants_of(c, a.role).is_empty() {
+        new_round(c, a.role);
+    }
     Ok(id)
 }
 
 /// Dismiss someone: they work their notice and leave after it. Returns their last day.
 pub fn dismiss(c: &mut Company, id: u32) -> Result<String, &'static str> {
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     let today = c.date.clone();
     let Some(e) = c.staff.iter_mut().find(|e| e.id == id) else { return Err("They do not work here.") };
     if e.notice_until.is_some() {
@@ -1473,7 +1489,7 @@ pub fn bonus(c: &mut Company, id: u32) -> Result<Cents, &'static str> {
         return Err("They are leaving already.");
     }
     let cost = bonus_cost(e);
-    if c.cash < cost {
+    if !c.can_pay(cost) {
         return Err("The cash does not cover it.");
     }
     let name = e.name.clone();
@@ -1530,9 +1546,10 @@ fn told_lately(c: &Company, title: &str, name: &str, days: i64) -> bool {
 /// resignations, and those whose notice ends leave (their last wage and, on Hard, a severance
 /// pay booked). The inbox hears of long illnesses, of who thinks of leaving and of who resigned.
 pub fn after_day(c: &mut Company, worked: &[(u32, i32, i32, i32)], rng: &mut Rng) -> Vec<StaffNote> {
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     // (the game mode's share of the illness: Casual and Normal calmer)
     let sickness = r.sickness * c.game_mode.rules().sickness;
+    let knobs = *super::sandbox::of(c);
     let today = c.date.clone();
     let mut notes = Vec::new();
     let mut leaving = Vec::new();
@@ -1568,6 +1585,8 @@ pub fn after_day(c: &mut Company, worked: &[(u32, i32, i32, i32)], rng: &mut Rng
         let target = (60.0 + 150.0 * (e.wage as f64 / market - 1.0) - if overtime { 8.0 } else { 0.0 } - (e.stress - 35.0).max(0.0) * 0.5 + if holiday { 6.0 } else { 0.0 } - grudge).clamp(0.0, 100.0);
         let was = e.satisfaction;
         e.satisfaction = ((e.satisfaction + (target - e.satisfaction) * 0.1) * 10.0).round() / 10.0;
+        // (a sandbox without staff morale: everyone content and calm, nobody resigns)
+        super::sandbox::content(&knobs, e);
         if e.satisfaction < 35.0 && was >= 35.0 {
             notes.push(StaffNote::Unhappy { name: e.name.clone() });
         }

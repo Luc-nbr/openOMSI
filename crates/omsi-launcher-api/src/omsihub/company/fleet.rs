@@ -175,7 +175,7 @@ pub fn new_view(s: &mut Session, args: &Value) -> Value {
     let days = args.get("days").and_then(Value::as_u64).unwrap_or(7).clamp(1, 60) as i64;
     // (as the player has it, and only a model the company works with: Beta 54)
     let Some(bus) = super::vehicles::market_bus(s, &file).filter(|b| c.vehicles.allows(b)) else { return json!({ "gone": true }) };
-    let r = co::economy::rules(c.game_mode);
+    let r = co::economy::rules_for(&c);
     let (rows, text, action, cost) = if how == 0 {
         let (monthly, months, residual) = market::lease_offer(&c, &bus);
         (
@@ -260,7 +260,7 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Result<Value, St
             if let Some(v) = bus {
                 cost += co::livery::paint_cost(&c, v);
             }
-            if c.cash < cost {
+            if !c.can_pay(cost) {
                 popup(super::popup(s, kit::no_cash(&c, cost)))
             } else {
                 let (file, paint) = match bus {
@@ -277,9 +277,9 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Result<Value, St
             let how = args.get("how").and_then(Value::as_u64).unwrap_or(0);
             let days = args.get("days").and_then(Value::as_u64).unwrap_or(7).clamp(1, 60) as u32;
             let Some(bus) = super::vehicles::market_bus(s, &file).filter(|b| c.vehicles.allows(b)) else { return Some(Ok(json!({}))) };
-            let r = co::economy::rules(c.game_mode);
+            let r = co::economy::rules_for(&c);
             let cost = if how == 0 { market::lease_offer(&c, &bus).0 } else { co::economy::rent_per_day(bus.kind, &r, c.price_index) * days as i64 };
-            if c.cash < cost {
+            if !c.can_pay(cost) {
                 return Some(popup(super::popup(s, kit::no_cash(&c, cost))));
             }
             match apply(s, |c| if how == 0 { market::lease(c, &bus, &paint) } else { market::rent(c, &bus, days, &paint) }) {

@@ -169,7 +169,7 @@ impl Filter {
 
 /// A new bus's list price today.
 pub fn list_price(c: &Company, kind: BusKind) -> Cents {
-    economy::new_price(kind, &economy::rules(c.game_mode), c.price_index)
+    economy::new_price(kind, &economy::rules_for(c), c.price_index)
 }
 
 /// What painting a bus in another livery than its own costs.
@@ -371,7 +371,7 @@ const OFFER_DAYS: i64 = 5;
 const USED_DAYS: i64 = 4;
 
 fn used_price(c: &Company, kind: BusKind, age: f64, km: f64, condition: f64) -> (Cents, Cents) {
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     let value = economy::book_value(economy::new_price(kind, &r, c.price_index), age, km, condition);
     (round_to(value as f64 * r.used_markup, 500_00), round_to(value as f64, 100_00))
 }
@@ -426,7 +426,7 @@ fn used_of_day(c: &Company, listings: &[Listing], day: i64) -> Vec<Offer> {
     if pool.is_empty() {
         return Vec::new();
     }
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     let mut rng = Rng::of(&[&c.id, "used-market"], day);
     let n = (r.used_offers / 2).max(2);
     let date = dates::fmt(day);
@@ -466,7 +466,7 @@ fn offers_of_day(c: &Company, listings: &[Listing], day: i64) -> Vec<Offer> {
     let used = new.clone();
     let mut rng = Rng::of(&[&c.id, "offers"], day);
     let date = dates::fmt(day);
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     let easy = if c.game_mode == GameMode::Casual { 0.03 } else { 0.0 };
     let n = rng.int(2, 3);
     let mut out = Vec::new();
@@ -1083,7 +1083,7 @@ impl Contract {
 
     /// A leased bus's monthly rate, the term and its residual value (of the agreed price).
     pub fn lease(&self, c: &Company) -> (Cents, u32, Cents) {
-        let r = economy::rules(c.game_mode);
+        let r = economy::rules_for(c);
         let base = self.price + self.painting + self.quick;
         (economy::lease_monthly(base, &r), r.lease_months, (base as f64 * r.lease_residual).round() as Cents)
     }
@@ -1105,7 +1105,7 @@ impl Contract {
 /// The contract for `count` new buses of a listing at `price` each (from a talk, the list
 /// price, or a special offer from stock).
 pub fn draft_new(c: &Company, l: &Listing, count: u32, price: Cents, extras: &[Extra], livery: &str, stock: Option<&Offer>) -> Contract {
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     let t = terms(c.game_mode);
     let key = format!("new:{}", l.bus.file);
     let fast = extras.contains(&Extra::FastDelivery);
@@ -1200,7 +1200,7 @@ fn can_have(c: &Company, l: &Listing) -> Result<(), &'static str> {
 /// Pay `amount` (with `security` the bank's for a loan).
 fn pay(c: &mut Company, amount: Cents, how: Payment, what: &str, security: Cents) -> Result<(), &'static str> {
     match how {
-        Payment::Cash if c.cash < amount => Err("Not enough cash."),
+        Payment::Cash if !c.can_pay(amount) => Err("Not enough cash."),
         Payment::Cash => Ok(()),
         Payment::Loan => finance::take_loan(c, amount, what, security).map(|_| ()),
     }
@@ -1234,7 +1234,7 @@ pub fn sign(c: &mut Company, k: &Contract, listings: &[Listing], now: &str) -> R
             }
             let (monthly, _, _) = k.lease(c);
             // (the leasing company wants to see a month's rates in the bank)
-            if c.cash < monthly * k.count as Cents {
+            if !c.can_pay(monthly * k.count as Cents) {
                 return Err("Not enough cash.");
             }
         }
@@ -1287,7 +1287,7 @@ pub const CONTRACTS_KEPT: usize = 60;
 
 /// A contract's buses into the fleet, with their warranty and free service. Returns their ids.
 fn deliver(c: &mut Company, k: &Contract) -> Vec<u32> {
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     let new_value = economy::new_price(k.listing.bus.kind, &r, c.price_index);
     let built = if k.new { c.date.clone() } else { k.built.clone() };
     let from = if k.new { AgeFrom::New } else { k.age_from };
@@ -1607,12 +1607,12 @@ mod tests {
         assert_eq!(cash - c.cash, price_2005);
         let v = c.vehicle(ids[0]).unwrap().clone();
         assert_eq!((v.built.as_str(), v.age_from), ("2005-07-01", AgeFrom::Manual));
-        let new_value = economy::new_price(v.kind, &economy::rules(c.game_mode), c.price_index);
+        let new_value = economy::new_price(v.kind, &economy::rules_for(&c), c.price_index);
         let market_2005 = economy::book_value(new_value, dates::years_between("2005-07-01", &c.date), v.km, v.condition);
         let value = market::value_of(&c, &v);
         assert_eq!(value, market_2005.min(economy::bought_value(price_2005, v.age_years(&c.date), v.age_years(&c.date))));
         assert!(value <= price_2005);
-        assert_eq!(market::sale_offer(&c, &v), economy::sale_price(value, &economy::rules(c.game_mode)));
+        assert_eq!(market::sale_offer(&c, &v), economy::sale_price(value, &economy::rules_for(&c)));
         // its plate, kept as text, says nothing to the age any more
         let mut plated_bus = v.clone();
         plated_bus.plate = "AD17 SUL".into();

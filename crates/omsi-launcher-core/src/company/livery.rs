@@ -95,7 +95,7 @@ pub fn save_design(c: &mut Company, name: &str, bus: &str) -> Result<Cents, &'st
         return Err("The livery needs a name.");
     }
     let cost = save_cost(c, name);
-    if c.cash < cost {
+    if !c.can_pay(cost) {
         return Err("Not enough cash.");
     }
     c.book(BookingKind::Livery, -cost, format!("Livery design \"{name}\""), false);

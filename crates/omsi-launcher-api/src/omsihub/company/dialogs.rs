@@ -80,6 +80,7 @@ fn settings(s: &mut Session, args: &Value) -> Value {
         "choose_logo": tr("Choose a logo picture"), "remove_logo": c.logo.is_some().then(|| tr("Remove the picture")),
         "mode_caps": tr("Game mode").to_uppercase(), "modes": GameMode::ALL.iter().map(|m| mode_json(*m)).collect::<Vec<_>>(), "mode": super::mode_key(c.game_mode), "mode_info": tr(c.game_mode.info()),
         "addons": c.game_mode.rules().rosterflow.then(|| json!({ "caps": tr("Add-ons").to_uppercase(), "label": tr(ROSTERFLOW), "note": tr(ROSTERFLOW_NOTE), "on": co::autopilot::rosterflow(&c) })),
+        "company_mode": super::sandbox::settings_part(&c),
         "buying": (!easy).then(|| {
             let mode = BuyingMode::ALL.iter().position(|m| *m == c.dealer.mode).unwrap_or(1);
             json!({ "caps": tr("Buying buses").to_uppercase(), "modes": BuyingMode::ALL.iter().map(|m| tr(m.label())).collect::<Vec<_>>(), "mode": mode, "say": tr(if mode == 0 { "A model, a number, the list price: the buses are yours at once." } else { "Haggle with the dealer, agree on extras and sign a contract; new buses are delivered." }) })
@@ -177,7 +178,7 @@ fn confirm(s: &mut Session, args: &Value) -> Value {
         }
         "dismiss" => {
             let Some(e) = c.employee(id) else { return json!({ "gone": true }) };
-            let r = co::economy::rules(c.game_mode);
+            let r = co::economy::rules_for(&c);
             let mut text = trf("%{name} works %{days} more days (the notice) and then leaves.", &[("name", &e.name), ("days", &r.notice_days.to_string())]);
             if r.severance_months_per_year > 0.0 {
                 text.push(' ');
@@ -197,6 +198,14 @@ fn confirm(s: &mut Session, args: &Value) -> Value {
         "game_mode" => {
             let Some(to) = super::mode_of(&name) else { return json!({ "gone": true }) };
             (trf("Switch to %{mode}?", &[("mode", &tr(to.label()))]), switch_text(&c, to), tr("Switch mode"), mode_icon(to), false)
+        }
+        // (Beta 61: a career turned into a sandbox, for good)
+        "sandbox" => {
+            if co::sandbox::is_sandbox(&c) {
+                return json!({ "gone": true });
+            }
+            let (title, text, button) = super::sandbox::confirm_text(&c);
+            (title, text, button, "sports_esports", true)
         }
         // (a holiday approved over the limit, Beta 57: `id` is the request's number)
         "holiday" => {
@@ -494,7 +503,7 @@ fn away(s: &mut Session) -> Value {
         "figures": [
             { "label": tr("Days closed"), "value": k.days.to_string(), "under": "", "tone": "text" },
             { "label": tr("Result"), "value": res, "under": "", "tone": if k.days == 0 { "dim" } else { res_tone } },
-            { "label": tr("Cash"), "value": eur(c.cash), "under": trf("%{amount} while you were away", &[("amount", &signed(c.cash - a.cash_before).0)]), "tone": if c.cash < 0 { "danger" } else { "text" } },
+            { "label": tr("Cash"), "value": super::sandbox::cash(&c), "under": trf("%{amount} while you were away", &[("amount", &signed(c.cash - a.cash_before).0)]), "tone": super::sandbox::cash_tone(&c) },
         ],
         "caps": tr("What happened").to_uppercase(),
         "none": tr("Nothing out of the ordinary: the tours ran as planned. The feed and the inbox have every line."),
@@ -848,6 +857,7 @@ pub fn act(s: &mut Session, what: &str, args: &Value, _p: &dyn crate::Platform) 
                 Some(m) => set_mode(s, m),
                 None => Ok(json!({})),
             },
+            "sandbox" => Ok(super::sandbox::make(s)),
             "holiday" => Ok(super::people::holidays::answer(s, id, true, true)),
             _ => Ok(json!({})),
         },

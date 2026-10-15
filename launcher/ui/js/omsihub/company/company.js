@@ -30,6 +30,8 @@ import { ReputationPage } from './reputation.js';
 import { OpsPage } from './ops.js';
 import { CareerPage } from './career.js';
 import { CasualPage } from './casual.js';
+// (Beta 61: a sandbox company's rules, and the badge by its name)
+import { SandboxPage, SandboxBadge } from './sandbox.js';
 import { LaunchPage } from './launch.js';
 // Omsi-Hub 4/6: RosterFlow, the Planning page with the add-on on, over the whole window.
 import { RosterFlowPage } from '../rosterflow/index.js';
@@ -245,6 +247,8 @@ export function CompanyScreen() {
 function Page() {
   const c = S.co;
   const sh = c.shell;
+  // (a sandbox's own page, in Casual too: `company::SANDBOX_TAB`)
+  if (sh.sandbox && c.tab === sh.sandbox.tab) return html`<${SandboxPage} />`;
   if (sh.casual) return html`<${CasualPage} tab=${c.tab} />`;
   switch (c.tab) {
     case 0:
@@ -300,6 +304,7 @@ function Bar({ open, choosing, read }) {
   return html`<header class="co-bar" ref=${ref}>
     ${open
       ? html`<span title=${sh.home} style="display:contents"><${Mark} mark=${sh.mark} size=${44} /><span class="name cut" title=${sh.home}>${sh.name}</span></span>
+        <${SandboxBadge} b=${sh.sandbox} onClick=${() => goTab(sh.sandbox.tab)} />
         <${ModePill} mode=${sh.mode} onClick=${settings} title=${tr("The company's game mode: change it in the company's settings")} />
         <${Status} n=${fit.n} />`
       : html`<span class="lone"><${Icon} name="garage" size=${26} class="t-accent2" /><span><b>${tr('Bus company')}</b><span>${tr('Your own transport company: buses, people and lines, in a time of its own.')}</span></span></span>`}

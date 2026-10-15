@@ -276,9 +276,20 @@ pub fn rules(d: GameMode) -> Rules {
     }
 }
 
+/// The rules the company's tenders run by: its game mode's, and a sandbox with everything
+/// unlocked takes the map's lines on directly, its concessions renewing by themselves
+/// (`sandbox::unlocked`).
+pub fn rules_of(c: &Company) -> Rules {
+    let mut r = rules(c.game_mode);
+    if super::sandbox::unlocked(c) {
+        r.direct = true;
+    }
+    r
+}
+
 /// Map lines may be added without a concession's tender (an easy economy).
 pub fn may_add_directly(c: &Company) -> bool {
-    rules(c.game_mode).direct
+    rules_of(c).direct
 }
 
 /// The operators a map draws its rivals from (made up).
@@ -350,7 +361,7 @@ pub fn fee(c: &Company, t: &Tender) -> Cents {
 
 /// The fee of a tender of a line with `day_tours` tours a day worth `value`.
 fn fee_of(c: &Company, day_tours: u32, value: Cents) -> Cents {
-    let r = rules(c.game_mode);
+    let r = rules_of(c);
     let f = ((r.fee_base + r.fee_per_tour * day_tours as Cents) as f64 * c.price_index).round() as Cents;
     if value > 0 && f > 0 {
         f.min(round(value as f64 * 0.1))
@@ -388,12 +399,12 @@ fn reference_at(day_km: f64, weeks: u32, per_km: f64) -> Cents {
 
 /// The authority's reference compensation per kilometre now (cents).
 pub fn reference_per_km(c: &Company) -> f64 {
-    economy::compensation_per_km(&economy::rules(c.game_mode), 50.0, c.contract_index)
+    economy::compensation_per_km(&economy::rules_for(c), 50.0, c.contract_index)
 }
 
 /// What a line's week brings in at a price: the authority's payment and the fares.
 pub fn week_revenue(c: &Company, w: &Week, price: f64) -> Cents {
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     let comp = w.km * reference_per_km(c) * price;
     let fares = w.km * r.passengers_per_km * r.fare as f64;
     (comp + fares).round() as Cents
@@ -444,7 +455,7 @@ pub fn open_tender<'a>(c: &'a Company, line: &str) -> Option<&'a Tender> {
 /// and tenders of older files (bid by the day) become auctions of the next hours. Returns
 /// whether anything changed.
 pub fn ensure(c: &mut Company) -> bool {
-    let r = rules(c.game_mode);
+    let r = rules_of(c);
     let mut changed = ensure_rivals(c);
     let lines = c.lines.clone();
     let today = c.date.clone();
@@ -492,7 +503,7 @@ pub fn ensure(c: &mut Company) -> bool {
 /// A new tender of a line, its auction opening at `opens_at` (minutes) for a few hours.
 fn new_tender(c: &mut Company, l: &LineInfo, opens_at: i64, renewal: bool) -> u32 {
     ensure_rivals(c);
-    let r = rules(c.game_mode);
+    let r = rules_of(c);
     c.concessions.counter += 1;
     let id = c.concessions.counter;
     let mut rng = Rng::of(&[&c.id, "tender", &l.name], id as i64);
@@ -539,7 +550,7 @@ fn new_tender(c: &mut Company, l: &LineInfo, opens_at: i64, renewal: bool) -> u3
 /// the other on the next days; renewals of the concessions ending soon; old results dropped;
 /// the lines won for a day to come taken on (`take_on`). Returns whether anything changed.
 pub fn refresh(c: &mut Company, lines: &[LineInfo]) -> bool {
-    let r = rules(c.game_mode);
+    let r = rules_of(c);
     let mut changed = ensure(c);
     changed |= take_on(c, lines);
     changed |= mend_tenders(c, lines);
@@ -704,7 +715,7 @@ pub fn apply(c: &mut Company, l: &LineInfo) -> Result<u32, &'static str> {
 /// The rivals of a tender as its auction knows them: their floors drawn per tender (secret),
 /// when they open, who keeps quiet until the end.
 pub fn bidders(c: &Company, t: &Tender) -> Vec<Bidder> {
-    let r = rules(c.game_mode);
+    let r = rules_of(c);
     let mut nobody_opened = true;
     let mut out = Vec::new();
     for (k, id) in t.bidders.iter().enumerate() {
@@ -787,7 +798,7 @@ pub fn chance(c: &Company, t: &Tender, amount: Cents) -> f64 {
             Some(Seen { character: r.character, quality: r.quality, last })
         })
         .collect();
-    auction::chance(amount, quality_in(c, t), &seen, rules(c.game_mode).factor, &t.lot())
+    auction::chance(amount, quality_in(c, t), &seen, rules_of(c).factor, &t.lot())
 }
 
 /// The fee with the first bid.
@@ -795,7 +806,7 @@ fn pay_fee(c: &mut Company, id: u32) -> Result<(), &'static str> {
     let Some(t) = c.concessions.tenders.iter().find(|t| t.id == id).cloned() else { return Err("There is no such tender.") };
     if !t.fee_paid {
         let f = fee(c, &t);
-        if c.cash < f {
+        if !c.can_pay(f) {
             return Err("Not enough cash.");
         }
         c.book(BookingKind::Concession, -f, format!("Tender line {}", t.number), false);
@@ -869,7 +880,7 @@ pub fn buy_out(c: &mut Company, id: u32) -> Result<Event, &'static str> {
     }
     level_allows(c, id)?;
     let price = t.buy_out();
-    if c.cash < price + if t.fee_paid { 0 } else { fee(c, &t) } {
+    if !c.can_pay(price + if t.fee_paid { 0 } else { fee(c, &t) }) {
         return Err("Not enough cash.");
     }
     pay_fee(c, id)?;
@@ -900,7 +911,7 @@ pub fn asking_price_of(c: &Company, l: &LineInfo) -> Cents {
         return asking_price(c, t);
     }
     let (tours, km) = day_figures(l);
-    let value = value_of(c, km, rules(c.game_mode).term_weeks);
+    let value = value_of(c, km, rules_of(c).term_weeks);
     value + fee_of(c, tours, value)
 }
 
@@ -914,7 +925,7 @@ pub fn take_at_asking(c: &mut Company, id: u32) -> Result<(Event, Cents), &'stat
     }
     level_allows(c, id)?;
     let price = asking_price(c, &t);
-    if c.cash < price {
+    if !c.can_pay(price) {
         return Err("Not enough cash.");
     }
     pay_fee(c, id)?;
@@ -1025,10 +1036,10 @@ pub fn after_day(c: &mut Company, date: &str, km: &[(String, f64)], lines: &[Lin
     let mut events = Vec::new();
     let tomorrow = c.date.clone();
     let keep = std::mem::replace(&mut c.date, date.to_string());
-    let r = rules(c.game_mode);
+    let r = rules_of(c);
 
     // older concessions' prices: the close paid the reference for every kilometre
-    let per_km = economy::compensation_per_km(&economy::rules(c.game_mode), c.reputation, c.contract_index);
+    let per_km = economy::compensation_per_km(&economy::rules_for(c), c.reputation, c.contract_index);
     for (line, k) in km {
         let Some(h) = of_line(c, line).cloned() else { continue };
         let delta = (k * per_km * (h.price - 1.0)).round() as Cents;

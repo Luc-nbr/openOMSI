@@ -417,13 +417,14 @@ fn spans(tours: impl Iterator<Item = (u32, i32, i32)>) -> Vec<(u32, i32, i32)> {
 /// The buses that break down on their way (drawn from the company, the date and the bus: the
 /// same day draws the same), and when.
 pub fn roll_breakdowns(c: &Company, date: &str, spans: &[(u32, i32, i32)]) -> Vec<(u32, i32)> {
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     let day = dates::parse(date).unwrap_or(0);
     let mut out = Vec::new();
     for &(id, a, b) in spans {
         let Some(v) = c.vehicle(id) else { continue };
         let overdue = if v.km > v.next_service_km { 2.0 } else { 1.0 };
-        let p = 0.004 * r.breakdown_factor * c.game_mode.rules().breakdowns * (1.0 + (100.0 - v.condition) / 25.0) * overdue;
+        // (a sandbox's breakdown factor: `sandbox::Sandbox::breakdowns`)
+        let p = 0.004 * r.breakdown_factor * c.game_mode.rules().breakdowns * super::sandbox::of(c).breakdowns * (1.0 + (100.0 - v.condition) / 25.0) * overdue;
         let mut rng = Rng::of(&[&c.id, "breakdown", &id.to_string()], day);
         if rng.chance(p) {
             out.push((id, rng.int(a as i64, b.max(a) as i64) as i32));
@@ -460,7 +461,7 @@ fn roll_accidents(c: &Company, dp: &DayPlan, spans: &[(u32, i32, i32)], skip: &[
                 p += trips * super::incidents::chances(&e, &trained.get(&e.id).copied().unwrap_or_default(), 30).0;
             }
         }
-        let p = p * SERIOUS * c.game_mode.rules().breakdowns;
+        let p = p * SERIOUS * c.game_mode.rules().breakdowns * super::sandbox::of(c).accidents;
         let mut rng = Rng::of(&[&c.id, "crash", &id.to_string()], day);
         if rng.chance(p) {
             out.push((id, rng.int(a as i64, b.max(a) as i64) as i32));
@@ -817,7 +818,7 @@ fn dispatcher_choice(c: &Company, index: usize) -> Choice {
         return Choice::Spare { vehicle: x.vehicle };
     }
     let cost = rental_cost(c, index);
-    if c.cash >= cost * 5 {
+    if c.can_pay(cost * 5) {
         return Choice::Rental;
     }
     match offers.first() {
@@ -828,7 +829,7 @@ fn dispatcher_choice(c: &Company, index: usize) -> Choice {
 
 /// What a rental bus for the rest of a broken-down bus's day costs.
 pub fn rental_cost(c: &Company, index: usize) -> Cents {
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     let kind = c.clock.today.as_ref().and_then(|s| s.breaks.get(index)).and_then(|b| c.vehicle(b.vehicle)).map(|v| v.kind).unwrap_or_default();
     economy::rent_per_day(kind, &r, c.price_index)
 }

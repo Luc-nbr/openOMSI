@@ -92,7 +92,9 @@ function SettingsDialog({ d }) {
     <span class="rest"></span>
     <${Btn} kind=${v.move ? '' : 'primary'} label=${v.close} onClick=${close} />
     ${v.move && html`<${Btn} kind="primary" icon="calendar_month" label=${v.move} onClick=${moveTo} />`}`;
-  const h = (v.buying ? 786 : 722) + (v.addons ? 40 : 0) + (v.vehicles ? 132 : 0);
+  const h = (v.buying ? 786 : 722) + (v.addons ? 40 : 0) + (v.vehicles ? 132 : 0) + (v.company_mode ? 112 : 0);
+  // (Beta 61: a career or a sandbox - turned into a sandbox once, after a confirmation)
+  const cm = v.company_mode;
   const vh = v.vehicles;
   const vmode = (m) => cmd('co_vehicles_act', { what: 'mode', mode: m, scope: 'company' }).then(() => refresh());
   return html`<${Dialog} icon="settings" title=${v.title} w=${760} h=${h} onClose=${close} foot=${foot}>
@@ -105,6 +107,14 @@ function SettingsDialog({ d }) {
       <div class="co-caps">${v.mode_caps}</div>
       <div class="pair"><${Seg} value=${k} options=${v.modes.map((m, i) => [i, m.label])} onChange=${(i) => setCo({ dialog: { kind: 'confirm', what: 'game_mode', name: v.modes[i].key, settings: v.date } })} style="width:320px;height:40px" />
         <p class="co-note">${v.mode_info}</p></div>
+      ${cm && html`<div class="co-caps">${cm.caps}</div>
+        <div class="addon co-company-mode"><${Icon} name=${cm.icon} size=${18} class="t-accent2" />
+          <div style="flex:1;min-width:0;max-width:430px"><b>${cm.label}</b>
+            <p class="co-note">${cm.info}</p>
+            ${cm.note && html`<p class="co-note">${cm.note}</p>`}</div>
+          ${cm.switch
+            ? html`<${Btn} icon="sports_esports" label=${cm.switch} onClick=${() => setCo({ dialog: { kind: 'confirm', what: 'sandbox', settings: v.date } })} />`
+            : html`<${Btn} kind="primary" icon="sports_esports" label=${cm.open} onClick=${() => goTab(cm.tab)} />`}</div>`}
       ${v.addons && html`<div class="co-caps">${v.addons.caps}</div>
         <div class="addon"><${Icon} name="extension" size=${18} class="t-accent2" />
           <div style="flex:1;min-width:0;max-width:530px"><${Switch} checked=${v.addons.on} label=${v.addons.label} onChange=${(on) => act('rosterflow', { on }).then((r) => r?.rosterflow && (close(), handOver('5', { switched: true })))} />

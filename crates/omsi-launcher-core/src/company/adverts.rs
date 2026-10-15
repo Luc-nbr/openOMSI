@@ -322,7 +322,7 @@ pub fn penalty(k: &AdContract) -> Cents {
 pub fn end_early(c: &mut Company, no: u32) -> Result<Cents, &'static str> {
     let Some(k) = c.adverts.contracts.iter().find(|k| k.no == no && k.running()).cloned() else { return Err("There is no such contract.") };
     let fee = penalty(&k);
-    if c.cash < fee {
+    if !c.can_pay(fee) {
         return Err("Not enough cash.");
     }
     c.book(BookingKind::Advertising, -fee, format!("Advert contract {} ({}) ended early", k.no, k.advertiser), false);

@@ -130,7 +130,7 @@ pub fn view(s: &mut Session) -> Value {
     let here = c.staff.iter().filter(|e| e.employed_on(&c.date) && !e.absent(&c.date)).count();
     let timed = c.history.iter().any(|d| d.punctuality.is_some());
     let figures = vec![
-        json!({ "label": tr("Cash"), "value": eur(c.cash), "under": if c.debt() > 0 { trf("Loans: %{amount}", &[("amount", &eur(c.debt()))]) } else { String::new() }, "tone": if c.cash >= 0 { "text" } else { "danger" }, "tip": tr("The money the company has now") }),
+        json!({ "label": tr("Cash"), "value": super::sandbox::cash(&c), "under": if c.debt() > 0 { trf("Loans: %{amount}", &[("amount", &eur(c.debt()))]) } else { String::new() }, "tone": super::sandbox::cash_tone(&c), "tip": tr("The money the company has now") }),
         json!({ "label": tr("This month"), "value": signed(month.result()).0, "under": month_label(&month.month), "tone": if month.result() >= 0 { "ok" } else { "danger" }, "tip": tr("What running the lines brought this month, less what it cost (buying and loans apart)") }),
         json!({ "label": tr("Fleet"), "value": c.fleet.len().to_string(), "under": trf("%{n} ready today", &[("n", &ready.to_string())]), "tone": "text", "tip": tr("Buses of the company, and how many are not in the workshop today") }),
         json!({ "label": tr("Staff"), "value": c.staff.len().to_string(), "under": trf("%{n} at work today", &[("n", &here.to_string())]), "tone": "text", "tip": tr("People on the payroll, and how many are not ill or on holiday today") }),

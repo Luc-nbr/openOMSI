@@ -226,9 +226,25 @@ pub fn stages_done(r: &Research, t: &Topic) -> u32 {
     (1..=t.stages).take_while(|n| r.has(&stage_key(t, *n))).count() as u32
 }
 
+/// How many stages of a topic count as done for the company: those it researched, or all of
+/// them in a sandbox with everything unlocked.
+pub fn stages_of(c: &Company, t: &Topic) -> u32 {
+    if super::sandbox::unlocked(c) {
+        t.stages
+    } else {
+        stages_done(&c.research, t)
+    }
+}
+
+/// Whether the research `key` (a topic's, or a stage's) counts as done for the company (all of
+/// it in a sandbox with everything unlocked).
+pub fn has(c: &Company, key: &str) -> bool {
+    super::sandbox::unlocked(c) || c.research.has(key)
+}
+
 /// How many stages of the topic `key` the company has done.
 fn n(c: &Company, key: &str) -> u32 {
-    TOPICS.iter().find(|t| t.key == key).map(|t| stages_done(&c.research, t)).unwrap_or(0)
+    TOPICS.iter().find(|t| t.key == key).map(|t| stages_of(c, t)).unwrap_or(0)
 }
 
 /// What a stage costs: money (now, at the company's difficulty), trophies, and the work
@@ -260,7 +276,7 @@ pub fn cost(c: &Company, t: &Topic, stage: u32) -> Cost {
 /// Whether the company has what a need asks.
 pub fn met(c: &Company, need: Need) -> bool {
     match need {
-        Need::Done(key) => c.research.has(key),
+        Need::Done(key) => has(c, key),
         Need::Level(lv) => levels::level(c) >= lv,
     }
 }
@@ -284,7 +300,7 @@ pub enum State {
 }
 
 pub fn state(c: &Company, t: &Topic) -> State {
-    if stages_done(&c.research, t) >= t.stages {
+    if stages_of(c, t) >= t.stages {
         State::Done
     } else if c.research.running.as_ref().is_some_and(|r| r.topic == t.key) {
         State::Running
@@ -298,7 +314,7 @@ pub fn state(c: &Company, t: &Topic) -> State {
 /// Start the next stage of a topic: its money booked, its trophies spent. Returns the stage.
 pub fn start(c: &mut Company, key: &str) -> Result<u32, &'static str> {
     let Some(t) = TOPICS.iter().find(|t| t.key == key) else { return Err("There is no such research.") };
-    let stage = stages_done(&c.research, t) + 1;
+    let stage = stages_of(c, t) + 1;
     if stage > t.stages {
         return Err("This research is done.");
     }
@@ -316,7 +332,7 @@ pub fn start(c: &mut Company, key: &str) -> Result<u32, &'static str> {
     if c.trophies < k.trophies {
         return Err("Not enough trophies: the company earns them with goals and contracts.");
     }
-    if c.cash < k.money {
+    if !c.can_pay(k.money) {
         return Err("Not enough cash.");
     }
     c.book(BookingKind::Research, -k.money, format!("{} {}/{}", t.title, stage, t.stages), false);
@@ -443,8 +459,8 @@ pub fn migrate(c: &mut Company) {
 /// need none).
 pub fn allows(c: &Company, size: BusSize) -> bool {
     match size {
-        BusSize::Articulated => c.research.has(keys::ARTICULATED),
-        BusSize::Double => c.research.has(keys::DOUBLE_DECKERS),
+        BusSize::Articulated => has(c, keys::ARTICULATED),
+        BusSize::Double => has(c, keys::DOUBLE_DECKERS),
         BusSize::Midi | BusSize::Solo => true,
     }
 }
@@ -479,7 +495,7 @@ pub fn dirt_factor(c: &Company) -> f64 {
 
 /// How clean the fleet stays at least without a washing bay (the cleaners' rounds).
 pub fn clean_floor(c: &Company) -> f64 {
-    if c.research.has("auto_cleaning") {
+    if has(c, "auto_cleaning") {
         55.0
     } else {
         35.0
@@ -488,7 +504,7 @@ pub fn clean_floor(c: &Company) -> f64 {
 
 /// What it does to the buses the washing bay washes a night.
 pub fn wash_factor(c: &Company) -> f64 {
-    if c.research.has("auto_washing") {
+    if has(c, "auto_washing") {
         1.5
     } else {
         1.0
@@ -497,7 +513,7 @@ pub fn wash_factor(c: &Company) -> f64 {
 
 /// What it does to the buses the pumps and chargers serve a night.
 pub fn refuel_factor(c: &Company) -> f64 {
-    if c.research.has("auto_refuelling") {
+    if has(c, "auto_refuelling") {
         1.5
     } else {
         1.0
@@ -526,7 +542,7 @@ pub fn repair_factor(c: &Company) -> f64 {
 
 /// Whether a bus that breaks down is repaired at an external depot (a day sooner).
 pub fn auto_repair(c: &Company) -> bool {
-    c.research.has("auto_repair") && c.research.has("external_depots")
+    has(c, "auto_repair") && has(c, "external_depots")
 }
 
 /// How many passengers the ticket inspectors check against the usual: 15 % more a stage.

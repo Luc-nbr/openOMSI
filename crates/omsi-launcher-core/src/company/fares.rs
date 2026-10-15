@@ -101,9 +101,9 @@ pub fn offset(c: &Company, fare: Cents) -> f64 {
 }
 
 /// What a passenger of the line pays on average (cents): the difficulty's average fare, moved
-/// with the line's single ticket.
+/// with the line's single ticket (and a sandbox's factor on the fares, `sandbox::Sandbox::income`).
 pub fn per_passenger(c: &Company, l: &CompanyLine) -> f64 {
-    economy::rules(c.game_mode).fare as f64 * (1.0 + offset(c, fare_of(c, l)))
+    economy::rules(c.game_mode).fare as f64 * (1.0 + offset(c, fare_of(c, l))) * super::sandbox::of(c).income
 }
 
 /// The passengers' share at a fare's offset once they have fully answered it.
@@ -165,7 +165,7 @@ pub fn day(c: &mut Company) {
 pub fn estimate(c: &Company, base_passengers: f64, fare: Cents) -> (f64, f64) {
     let x = offset(c, fare);
     let pax = base_passengers * long_run_share(x);
-    let per = economy::rules(c.game_mode).fare as f64 * (1.0 + x);
+    let per = economy::rules(c.game_mode).fare as f64 * (1.0 + x) * super::sandbox::of(c).income;
     (pax, pax * per)
 }
 

@@ -342,7 +342,7 @@ fn to_add(s: &mut Session, c: &Company, mine_chosen: bool) -> Value {
 /// to add; what a line earns under both.
 pub fn view(s: &mut Session, ui: &Value) -> Value {
     let Some(c) = s.company.clone() else { return Value::Null };
-    let r = co::economy::rules(c.game_mode);
+    let r = co::economy::rules_for(&c);
     let pay = co::economy::compensation_per_km(&r, c.reputation, c.contract_index);
     let foot = trf("A single ticket of the fare association costs %{single} (a passenger pays %{fare} on average, with day and season tickets); the authority pays %{km} for every kilometre run, more the better your reputation.", &[("single", &eur_cents(co::fares::association_fare(&c) as f64)), ("fare", &eur_cents(r.fare as f64)), ("km", &eur_cents(pay))]);
     let selected = ui.get("selected").and_then(Value::as_str).filter(|n| c.lines.iter().any(|x| x.name == *n)).map(str::to_string);
@@ -388,7 +388,7 @@ pub fn add_view(s: &mut Session, args: &Value) -> Value {
         "name": name, "title": trf(if direct || easy { "Add line %{n}" } else { "Apply for line %{n}" }, &[("n", &number)]),
         "intro": tr(intro), "needs_caps": tr("The line needs").to_uppercase(), "need_caps": tr("Needs").to_uppercase(), "have_caps": tr("The company has free").to_uppercase(),
         "rows": rows, "short": short, "fine": fine,
-        "asking": asking.map(|p| json!({ "text": trf("Its concession at the asking price: %{amount} (the company has %{cash}).", &[("amount", &eur(p)), ("cash", &eur(c.cash))]), "ok": c.cash >= p })),
+        "asking": asking.map(|p| json!({ "text": trf("Its concession at the asking price: %{amount} (the company has %{cash}).", &[("amount", &eur(p)), ("cash", &super::sandbox::cash(&c))]), "ok": c.can_pay(p) })),
         "main": match asking { Some(p) => trf("Take it on for %{amount}", &[("amount", &eur(p))]), None if direct => tr("Add the line"), None => tr("Apply for its concession") },
         "main_icon": if direct { "add" } else { "receipt_long" }, "cancel": tr("Cancel"),
         "dealer": (short_b > 0).then(|| tr("To the dealer")), "hire": (short_d > 0).then(|| tr("Hire drivers")),

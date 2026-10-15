@@ -556,7 +556,7 @@ fn bulk_line(count: u32) -> Value {
 /// the money is there.
 fn pay_line(c: &Company, amount: i64, pay: usize) -> (Value, bool) {
     if pay == 0 {
-        (row(tr("Cash afterwards"), eur(c.cash - amount), false), c.cash >= amount)
+        (row(tr("Cash afterwards"), eur(c.cash - amount), false), c.can_pay(amount))
     } else {
         let (monthly, months, rate) = fi::loan_terms(c, amount);
         let terms = trf("%{n} months at %{rate} %", &[("n", &months.to_string()), ("rate", &num(rate * 100.0, 1))]);
@@ -611,7 +611,7 @@ pub fn sheet_view(s: &mut Session, _ui: &Value) -> Value {
     let armed = s.dealer.discard_armed;
     match sheet {
         Sheet::Model { listing, livery, count, pay, quick } => {
-            let r = co::economy::rules(c.game_mode);
+            let r = co::economy::rules_for(&c);
             let list = dl::list_price(&c, listing.bus.kind);
             let grant = co::economy::grant(listing.bus.kind, list, &r, c.price_index);
             let days = dl::delivery_days(&c, &format!("new:{}", listing.bus.file), false, false);
@@ -695,7 +695,7 @@ pub fn sheet_view(s: &mut Session, _ui: &Value) -> Value {
             if quick {
                 let n = count as i64;
                 let painting = if livery.is_empty() { 0 } else { dl::painting_cost(&c) };
-                let r = co::economy::rules(c.game_mode);
+                let r = co::economy::rules_for(&c);
                 let grant = if offer.is_new() { co::economy::grant(offer.listing.bus.kind, offer.price, &r, c.price_index) } else { 0 };
                 let total = n * (offer.price + painting - grant);
                 let (pl, _) = pay_line(&c, total, pay);
@@ -1130,10 +1130,12 @@ pub fn act(s: &mut Session, what: &str, args: &Value, _p: &dyn crate::Platform) 
         "open_repay" => {
             let id = args.get("id").and_then(Value::as_u64).unwrap_or(0) as u32;
             let amount = c.loans.iter().find(|x| x.id == id).map(|x| x.remaining).unwrap_or(0);
-            if c.cash <= 0 {
+            // (a sandbox whose spending never fails pays back what it likes)
+            let free = co::sandbox::quiet_cash(&c);
+            if c.cash <= 0 && !free {
                 popup_of(super::popup(s, kit::no_cash(&c, 0)))
             } else {
-                let amount = amount.min(c.cash.max(0) * 100 / (100 + (fi::early_fee_rate(c.game_mode) * 100.0).round() as i64));
+                let amount = if free { amount } else { amount.min(c.cash.max(0) * 100 / (100 + (fi::early_fee_rate(c.game_mode) * 100.0).round() as i64)) };
                 open(s, Sheet::Repay { id, amount });
                 Ok(json!({}))
             }
@@ -1225,7 +1227,7 @@ fn sheet_act(s: &mut Session, c: &Company, what: &str, args: &Value) -> Result<V
                 "main" if quick => {
                     let n = count as i64;
                     let painting = if livery.is_empty() { 0 } else { dl::painting_cost(c) };
-                    let r = co::economy::rules(c.game_mode);
+                    let r = co::economy::rules_for(c);
                     let grant = co::economy::grant(listing.bus.kind, dl::list_price(c, listing.bus.kind), &r, c.price_index);
                     let total = n * (dl::quick_price(c, &listing, count) + painting - grant);
                     let (_, ok) = pay_line(c, total, pay);
@@ -1314,7 +1316,7 @@ fn sheet_act(s: &mut Session, c: &Company, what: &str, args: &Value) -> Result<V
                 "main" if quick => {
                     let n = count as i64;
                     let painting = if livery.is_empty() { 0 } else { dl::painting_cost(c) };
-                    let r = co::economy::rules(c.game_mode);
+                    let r = co::economy::rules_for(c);
                     let grant = if offer.is_new() { co::economy::grant(offer.listing.bus.kind, offer.price, &r, c.price_index) } else { 0 };
                     let total = n * (offer.price + painting - grant);
                     let (_, ok) = pay_line(c, total, pay);
@@ -1434,9 +1436,9 @@ fn sheet_act(s: &mut Session, c: &Company, what: &str, args: &Value) -> Result<V
                     }
                     s.dealer.discard_armed = false;
                     let ok = match k.pay {
-                        PayWay::Cash => c.cash >= k.due(),
+                        PayWay::Cash => c.can_pay(k.due()),
                         PayWay::Loan => fi::credit_left(c, k.due()) >= k.due(),
-                        PayWay::Lease => c.cash >= k.lease(c).0 * k.count as i64,
+                        PayWay::Lease => c.can_pay(k.lease(c).0 * k.count as i64),
                     };
                     set(s, Sheet::Contract { contract: k.clone(), readonly });
                     if !k.is_signed() {
@@ -1582,7 +1584,7 @@ fn sheet_act(s: &mut Session, c: &Company, what: &str, args: &Value) -> Result<V
                 return Ok(json!({}));
             }
             let fee = fi::early_fee(c, amount);
-            if c.cash < amount + fee {
+            if !c.can_pay(amount + fee) {
                 return popup_of(super::popup(s, kit::no_cash(c, amount + fee)));
             }
             match apply(s, |c| fi::repay(c, id, amount)) {

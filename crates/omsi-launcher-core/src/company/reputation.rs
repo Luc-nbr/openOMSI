@@ -146,10 +146,12 @@ pub fn change(c: &mut Company, date: &str, cause: Cause, amount: f64, count: u32
         return 0.0;
     }
     let m = mode(c.game_mode);
-    let mut want = amount;
+    // (a sandbox's factors on what is gained and what is lost)
+    let knobs = super::sandbox::of(c);
+    let mut want = amount * knobs.reputation_gain;
     let mut capped = 0.0;
     if amount < 0.0 {
-        want = amount * m.loss;
+        want = amount * m.loss * knobs.reputation_loss;
         let (day, week) = losses(c, date);
         let room = (m.day_cap - day).min(m.week_cap - week).max(0.0);
         if -want > room {

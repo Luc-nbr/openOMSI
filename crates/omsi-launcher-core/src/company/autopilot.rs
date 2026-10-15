@@ -208,9 +208,10 @@ pub fn cushion(c: &Company) -> Cents {
     c.staff.iter().filter(|e| e.notice_until.is_none()).map(staff::monthly_cost).sum::<Cents>() + (5_000_00.0 * c.price_index.max(1.0)).round() as Cents
 }
 
-/// Whether the company can spend `cost` and keep its cushion.
+/// Whether the company can spend `cost` and keep its cushion (with a sandbox's unlimited money,
+/// always).
 fn can_spend(c: &Company, cost: Cents) -> bool {
-    c.cash - cost >= cushion(c)
+    super::sandbox::unlimited(c) || c.cash - cost >= cushion(c)
 }
 
 // --- the morning -----------------------------------------------------------------------------------
@@ -488,7 +489,7 @@ fn research_next(c: &mut Company, date: &str) {
         if research::state(c, t) != research::State::Open {
             continue;
         }
-        let k = research::cost(c, t, research::stages_done(&c.research, t) + 1);
+        let k = research::cost(c, t, research::stages_of(c, t) + 1);
         if c.trophies < k.trophies || !can_spend(c, 2 * k.money) {
             continue;
         }

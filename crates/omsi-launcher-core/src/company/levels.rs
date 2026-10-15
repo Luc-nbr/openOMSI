@@ -186,9 +186,10 @@ impl Feature {
     }
 }
 
-/// Is `feature` open to the company (its level has reached the feature's).
+/// Is `feature` open to the company (its level has reached the feature's, or its sandbox has
+/// everything unlocked).
 pub fn unlocked(c: &Company, feature: Feature) -> bool {
-    level(c) >= feature.level()
+    super::sandbox::unlocked(c) || level(c) >= feature.level()
 }
 
 /// What opens at a level.
@@ -206,6 +207,9 @@ pub fn extra_places(c: &Company) -> u32 {
 /// 3, 6, 8 and 10, and for every stage of its research into the area
 /// (`research::extra_concessions`).
 pub fn max_concessions(c: &Company) -> usize {
+    if super::sandbox::unlocked(c) {
+        return super::sandbox::UNLIMITED_CONCESSIONS;
+    }
     let l = level(c);
     1 + [3, 6, 8, 10].iter().filter(|x| l >= **x).count() + super::research::extra_concessions(c)
 }

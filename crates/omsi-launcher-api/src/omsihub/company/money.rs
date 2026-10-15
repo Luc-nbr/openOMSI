@@ -118,7 +118,7 @@ pub fn view(s: &mut Session, ui: &Value) -> Value {
     let tone = |r: i64| if r >= 0 { "ok" } else { "danger" };
     let easy = co::autopilot::on(&c);
     let mut figures = vec![
-        json!({ "label": tr("Cash"), "value": eur(c.cash), "under": "", "tone": if c.cash >= 0 { "text" } else { "danger" } }),
+        json!({ "label": tr("Cash"), "value": super::sandbox::cash(&c), "under": "", "tone": super::sandbox::cash_tone(&c) }),
         json!({ "label": tr("Debt"), "value": eur(c.debt()), "under": trf("%{n} loans", &[("n", &c.loans.len().to_string())]), "tone": "text" }),
         json!({ "label": tr("Fleet value"), "value": eur(fleet_value), "under": tr("the buses owned"), "tone": "text", "open": "fleet_value", "tip": tr("By age band: what the buses cost new, are worth and lost") }),
         json!({ "label": tr("This month"), "value": signed(this.result()).0, "under": month_label(&this.month), "tone": tone(this.result()) }),
@@ -137,7 +137,7 @@ pub fn view(s: &mut Session, ui: &Value) -> Value {
 /// A line's passengers a day at the association's fare, from today's tours (`fares::base_passengers`).
 fn base_passengers(s: &Session, c: &Company, line: &CompanyLine) -> Option<f64> {
     let plan = s.plan.as_ref()?;
-    let r = co::economy::rules(c.game_mode);
+    let r = co::economy::rules_for(c);
     let mood = co::reputation::demand_factor(c.reputation);
     let mut sum = 0.0;
     let mut any = false;
