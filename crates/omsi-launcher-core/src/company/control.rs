@@ -658,6 +658,11 @@ pub const LATE_FEED: &str = "Bus %{bus} on line %{n} tour %{tour} runs %{min} mi
 pub const LATE_TITLE: &str = "Bus %{bus} runs late";
 pub const LATE_TEXT: &str = "Line %{n} tour %{tour}: %{min} minutes behind. Left as it is: %{trips} late trips ahead, %{amount} in penalties. The Operations page has ways to bring it back on time.";
 
+/// The words service control tells (for their translations).
+pub fn texts() -> Vec<&'static str> {
+    vec![SHORT_TURNED, EXPRESSED, LAYOVER_CUT, SWAPPED, COVERED, AGENCY_COVERS, BACK_ON_TIME, BY_CONTROLLER, LATE_FEED, LATE_TITLE, LATE_TEXT]
+}
+
 fn number(c: &Company, id: Option<u32>) -> String {
     id.and_then(|id| c.vehicle(id)).map(|v| v.number.clone()).unwrap_or_default()
 }
@@ -747,11 +752,16 @@ impl ArgsOf for Message {
 // --- the clock's watch ------------------------------------------------------------------------------
 
 /// The clock looks at its day every `WATCH_EVERY` minutes (`clock::advance`): `watch` with the
-/// day's plan as it runs now.
-pub fn watch_day(c: &mut Company, w: &mut dyn World, run: &mut Run) -> Result<(), String> {
+/// day's plan as it runs now. A quick run (closing the day at once, catching up, the game's
+/// clock) only for Casual's controller, every half hour: nobody reads notices then.
+pub fn watch_day(c: &mut Company, w: &mut dyn World, quick: bool, run: &mut Run) -> Result<(), String> {
+    if quick && !super::autopilot::on(c) {
+        return Ok(());
+    }
+    let every = if quick { 30 } else { WATCH_EVERY };
     let now = c.clock.minute as i32;
     let Some(s) = script(c, &c.date) else { return Ok(()) };
-    if now >= ck::DAY as i32 || s.watch.at.is_some_and(|a| a <= now && now < a + WATCH_EVERY) {
+    if now >= ck::DAY as i32 || s.watch.at.is_some_and(|a| a <= now && now < a + every) {
         return Ok(());
     }
     let date = c.date.clone();

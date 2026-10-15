@@ -1140,7 +1140,7 @@ pub fn advance(c: &mut Company, to: i64, w: &mut dyn World, quick: bool) -> Resu
         c.clock.minute = (limit - day0) as u32;
         hook(c, limit, quick, &mut run);
         // (service control: the buses running late told, Casual's controller acting)
-        super::control::watch_day(c, w, &mut run)?;
+        super::control::watch_day(c, w, quick, &mut run)?;
         if c.clock.ask.is_some() {
             c.clock.target = Some(to);
             run.stopped = true;
