@@ -15,3 +15,9 @@
 .rf-legend .item i { flex: none; width: 12px; height: 9px; border-radius: 2px; }
 .rf-legend .item .cut { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rf-legend .more { padding: 0 10px 7px; font-size: 9px; color: var(--rf-dim); }
+
+/* --- a duty's sign-on, sign-off and break points (the duty panel) -------------------------------------- */
+
+.rf-duty .rf-signat .rf-select { flex: 1; min-width: 0; }
+.rf-duty .rf-breakat > span { font-size: 8.8px; font-weight: 500; white-space: nowrap; }
+.rf-duty .rf-breakat .rf-select { flex: 1; min-width: 0; max-width: 220px; }

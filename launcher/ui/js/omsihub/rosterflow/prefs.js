@@ -192,6 +192,16 @@ function TravelPoints({ v, pr, put, e, set }) {
 
 
 
+/** Where the company's drivers sign on or off (`Prefs::sign_on_at`): where the bus is (null), or a
+ * relief point that allows it (its key). */
+function SignPoint({ label, value, rows, set }) {
+  const keys = rows.map((r) => r.stop);
+  const extra = value && !keys.some((k) => eq(k, value)) ? [value] : [];
+  const k = keys.findIndex((x) => eq(x, value));
+  const at = value == null ? 0 : 1 + (k >= 0 ? k : keys.length);
+  return html`<div class="pf-row"><span>${tr(label)}</span><${Select} value=${at} options=${[tr('Where the bus is'), ...rows.map((r) => r.name), ...extra]} style="width:240px" onChange=${(n) => set(n === 0 ? null : keys[n - 1] ?? value)} /></div>`;
+}
+
 /** A rule's editor (`rf_prefs::limit`): in use, its value, hard or soft, the penalty. */
 function Limit({ lim, label, step, max, fmt, set }) {
   const put = (patch) => set({ ...lim, ...patch });
@@ -298,7 +308,10 @@ export function PrefsWindow() {
       body = html`<${Minutes} label="Sign-on at the duty's start" value=${pr.sign_on} max=${60} set=${(x) => put({ sign_on: x })} />
         <${Minutes} label="Sign-off at the duty's end" value=${pr.sign_off} max=${60} set=${(x) => put({ sign_off: x })} />
         <${Minutes} label="Sign-on after a split" value=${pr.sign_on_split} max=${60} set=${(x) => put({ sign_on_split: x })} />
-        <${Minutes} label="Sign-off before a split" value=${pr.sign_off_split} max=${60} set=${(x) => put({ sign_off_split: x })} />`;
+        <${Minutes} label="Sign-off before a split" value=${pr.sign_off_split} max=${60} set=${(x) => put({ sign_off_split: x })} />
+        <${SignPoint} label="Drivers sign on at" value=${pr.sign_on_at} rows=${pointRows(v, pr).filter((r) => r.point.sign)} set=${(x) => put({ sign_on_at: x })} />
+        <${SignPoint} label="Drivers sign off at" value=${pr.sign_off_at} rows=${pointRows(v, pr).filter((r) => r.point.sign)} set=${(x) => put({ sign_off_at: x })} />
+        <p class="pf-note">${tr("Where the bus is, or a relief point that allows duties to begin and end there: the driver travels to the bus and back as Duty Travel has it. A duty can choose its own in its panel.")}</p>`;
       break;
     case 'relief':
       body = html`${RELIEF.map((t, k) => html`<${CheckRow} on=${pr.relief === t} label=${v.relief_labels[k]} raw style="width:460px" onChange=${() => put({ relief: t })} />`)}
