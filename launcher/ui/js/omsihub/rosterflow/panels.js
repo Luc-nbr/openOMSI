@@ -907,7 +907,8 @@ function GoTo({ data, drivers, text, size }) {
   const b = data.board;
   const go = () => {
     const want = text.trim().toLowerCase();
-    const found = drivers ? b.duties.find((s) => s.label.toLowerCase() === want)?.id : b.blocks.find((t) => t.label.toLowerCase() === want || t.label.toLowerCase().endsWith('/' + want) || t.tour.toLowerCase() === want)?.id;
+    // (a spare line named "9001 Early": by its number too)
+    const found = drivers ? b.duties.find((s) => s.label.toLowerCase() === want || s.label.split(' ')[0].toLowerCase() === want)?.id : b.blocks.find((t) => t.label.toLowerCase() === want || t.label.toLowerCase().endsWith('/' + want) || t.tour.toLowerCase() === want)?.id;
     if (found) setRf({ reveal: found, selRow: found, pinned: S.rf.pinned.filter((x) => x !== found), panel: null });
     else say(tr('No vehicle or duty with that ID.'), true);
   };
