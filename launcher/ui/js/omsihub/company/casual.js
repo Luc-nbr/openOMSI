@@ -8,6 +8,7 @@ import { S } from '../../store.js';
 import { html, useState, setCo, setUi, ui, act, useView, useSize, textW, handOver, goKey, Icon, Btn, Chips, Plate, IconBtn, Tag, Slider, Meter, fill, rgbOf, CASUAL } from './kit.js';
 import { BusTile, initials } from './fleet.js';
 import { Portrait } from './people.js';
+import { ComingRows } from './agenda.js';
 
 const PAGE = { [CASUAL.BUSES]: 'buses', [CASUAL.SHOP]: 'shop', [CASUAL.LINES]: 'lines', [CASUAL.NEW_LINE]: 'new_line', [CASUAL.DRIVERS]: 'drivers', [CASUAL.MONEY]: 'money', [CASUAL.COMPANY]: 'company', [CASUAL.SHIFTS]: 'shifts' };
 const GAP = 16;
@@ -94,6 +95,8 @@ function Home({ v }) {
           <span onClick=${(e) => e.stopPropagation()}><${Btn} icon=${t.action.icon} label=${t.action.label} style="width:100%;height:36px" onClick=${() => run(t.action.act)} /></span>
         </div>`)}
       </div>
+      <div class="co-caps" style="margin:26px 0 12px">${v.coming_caps}</div>
+      <${ComingRows} list=${v.coming} n=${6} none=${v.no_coming} casual />
       <div class="co-caps" style="margin:26px 0 12px">${v.tips_caps}</div>
       ${v.tips.length
         ? v.tips.map((t) => html`<div class=${'tip' + (t.warn ? ' warn' : '')}>

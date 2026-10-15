@@ -24,6 +24,8 @@ import { PeoplePage } from './people.js';
 import { LinesPage } from './lines.js';
 import { MoneyPage } from './money.js';
 import { InboxPage } from './inbox.js';
+// (Beta 57: what is coming)
+import { AgendaPage } from './agenda.js';
 import { CareerPage } from './career.js';
 import { CasualPage } from './casual.js';
 import { LaunchPage } from './launch.js';
@@ -255,6 +257,8 @@ function Page() {
       return html`<${CareerPage} />`;
     case 13:
       return html`<${InboxPage} />`;
+    case 14:
+      return html`<${AgendaPage} />`;
     default:
       // (the planning, the depot, the concessions, the fleet map, the research, the workshop
       // and the contracts: `pages.js`, Trello "Tauri 3/6")

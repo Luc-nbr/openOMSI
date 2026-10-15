@@ -78,7 +78,8 @@ pub fn kind_icon(k: Kind) -> &'static str {
     }
 }
 
-fn event_icon(key: &str) -> &'static str {
+// (the agenda's too)
+pub(super) fn event_icon(key: &str) -> &'static str {
     match key {
         "fuel_shortage" | "fuel_drop" => "water_drop",
         "environment_days" => "air",

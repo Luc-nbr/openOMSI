@@ -4,6 +4,7 @@
 // that part is doing - and under them the ways to what is often wanted.
 
 import { html, setCo, setUi, ui, useView, useSize, textW, goTab, handOver, act, cmd, Icon, Seg, seen } from './kit.js';
+import { ComingRows } from './agenda.js';
 
 const TABS_H = 40;
 const TABS_GAP = 22;
@@ -49,7 +50,10 @@ function grid(area, tiles, moreRows) {
   const top = area.y + Math.floor(Math.max(0, (area.h - height) * 0.42));
   const tw = Math.min(w, TABS_MAX_W);
   const tabs = { x: Math.floor(area.x + (area.w - tw) * 0.5), y: top, w: Math.floor(tw), h: TABS_H };
-  const colW = Math.floor((w - GAP) / 2);
+  // (two columns; more where the big tiles ask for them - at a glance: the overview, the agenda
+  // and the inbox)
+  const cols = Math.max(2, Math.ceil(slots / rows));
+  const colW = Math.floor((w - GAP * (cols - 1)) / cols);
   const y0 = top + TABS_H + TABS_GAP;
   let col = 0;
   let row = 0;
@@ -181,6 +185,7 @@ function Extra({ e, r }) {
   if (e.kind === 'money') return html`<${Bars} days=${e.days} none=${e.none} r=${r} />`;
   if (e.kind === 'messages') return html`<${Messages} list=${e.list} none=${e.none} r=${r} />`;
   if (e.kind === 'roles') return html`<${Roles} roles=${e.list} r=${r} />`;
+  if (e.kind === 'agenda') return r.h >= 20 ? html`<${ComingRows} list=${e.list} n=${Math.max(0, Math.floor((r.h + 2) / 24))} none=${e.none} />` : null;
   return null;
 }
 

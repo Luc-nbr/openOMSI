@@ -214,6 +214,8 @@ fn home(s: &mut Session, c: &Company) -> Value {
         .take(logic::TIPS)
         .map(|t| json!({ "id": t.id, "text": t.words.text(), "warn": t.warn, "button": { "label": tr(t.button.0), "icon": t.button.1, "act": act_json(&t.button.2) } }))
         .collect();
+    // (Beta 57: what is coming, the agenda's next entries - each a click to Casual's page for it)
+    let (coming, _) = super::agenda::coming(s, 6, true);
     json!({
         "page": "home", "today_caps": tr("Today").to_uppercase(), "date": day_label(&c.date),
         "sentence": logic::day_sentence(c, plan.as_ref(), now).text(),
@@ -222,6 +224,7 @@ fn home(s: &mut Session, c: &Company) -> Value {
         "calm": tr("Nothing went wrong today: your company runs smoothly."),
         "drive": tr("Drive a shift"),
         "drive_sub": if mine { tr("Your shift of today is waiting") } else if shifts > 0 { trf("%{n} of today's shifts to choose from", &[("n", &shifts.to_string())]) } else { tr("See today's shifts") },
+        "coming_caps": tr("Coming up").to_uppercase(), "coming": coming, "no_coming": tr("Nothing coming up"),
         "tiles": tiles, "tips_caps": tr("Tips").to_uppercase(), "tips": tips, "no_tips": tr("No tips right now: everything runs well."), "not_now": tr("Not now"),
         "hint": logic::hint_due(c).then(|| json!({ "text": tr("Want more control? Normal opens every page: planning, workshop, tenders. Nothing of your company is lost."), "yes": tr("Switch to Normal"), "no": tr("Don't show again") })),
     })

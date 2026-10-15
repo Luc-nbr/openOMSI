@@ -789,7 +789,8 @@ fn money(c: &Company, k: &Known, from: &str, until: &str, out: &mut Vec<Entry>) 
         }
     }
     for e in &c.inbox.events {
-        let mut x = Entry::new(&e.from, Kind::WorldEvent, e.title(), Go::Inbox);
+        // (its key: the pages' icon for it)
+        let mut x = Entry::new(&e.from, Kind::WorldEvent, e.title(), Go::Inbox).arg("event", &e.key);
         if let Some(n) = &e.line {
             x = x.arg("n", n);
         }

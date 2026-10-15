@@ -4,7 +4,7 @@
 //! behind a page's button. The badges are the strip's too (`Marks`).
 
 use super::words::{count_text, eur, filled, grouped, n_of, short_date, signed, share_tone, tr, trf};
-use super::{overview, CONCESSIONS_TAB, CONTRACTS_TAB, DEPOT_TAB, ICONS, INBOX_TAB, MAP_TAB, RESEARCH_TAB, WORKSHOP_TAB};
+use super::{agenda, overview, AGENDA_TAB, CONCESSIONS_TAB, CONTRACTS_TAB, DEPOT_TAB, ICONS, INBOX_TAB, MAP_TAB, RESEARCH_TAB, WORKSHOP_TAB};
 use omsi_launcher_lib::company::day::Plan;
 use omsi_launcher_lib::company::{self as co, Company, Role};
 use serde_json::{json, Value};
@@ -134,6 +134,16 @@ pub fn view(s: &mut super::Session) -> Value {
     inbox.big = true;
     let newest: Vec<Value> = c.inbox.messages.iter().rev().take(8).map(|m| json!([filled(&m.title, &m.args), short_date(&m.date), !m.read])).collect();
     inbox.extra = json!({ "kind": "messages", "list": newest, "none": tr("No messages yet") });
+    // (Beta 57: what is coming, the Agenda's next entries; a badge for what needs the player
+    // this week)
+    let (soon, needs) = agenda::coming(s, 8, false);
+    let mut coming = Tile::new(tab(AGENDA_TAB), "Agenda", ICONS[AGENDA_TAB]).line(agenda::needs_text(needs), if needs > 0 { "warn" } else { "dim" });
+    coming.big = true;
+    if needs > 0 {
+        coming.badge = Some((badge_text(needs), "warn"));
+        coming.tip = agenda::needs_text(needs);
+    }
+    coming.extra = json!({ "kind": "agenda", "title": tr("Coming up"), "list": soon, "none": tr("Nothing coming up") });
     // operations: the planning, the lines, the map, the fleet
     let mut planning = Tile::new(tab(5), "Planning", ICONS[5]);
     planning = match &plan {
@@ -255,7 +265,7 @@ pub fn view(s: &mut super::Session) -> Value {
         }
     }
     let sections: Vec<(&str, Vec<Tile>)> = vec![
-        ("At a glance", vec![mark(ov), mark(inbox)]),
+        ("At a glance", vec![mark(ov), coming, mark(inbox)]),
         ("Operations", vec![mark(planning), mark(lines), mark(map), mark(fleet)]),
         ("People", vec![mark(people), hire, training]),
         ("Business", vec![mark(money), concessions, mark(contracts), mark(career)]),
