@@ -158,14 +158,23 @@ impl HostState {
         Answered { changed: c.together != before, body }
     }
 
-    fn answer_inner(&mut self, c: &mut Company, here: &Here, body: &str) -> Value {
-        let Ok(req) = serde_json::from_str::<Request>(body) else { return refusal(UNKNOWN) };
+    /// Whether a message comes with the session's code (else the refusal, saying nothing else).
+    pub fn admits(&self, body: &str) -> Result<Request, Value> {
+        let Ok(req) = serde_json::from_str::<Request>(body) else { return Err(refusal(UNKNOWN)) };
         if req.v != code::VERSION {
-            return refusal(code::NEWER);
+            return Err(refusal(code::NEWER));
         }
         if !same_secret(&req.secret, &self.secret) || req.company != code::tag_of(&self.company) {
-            return refusal(BAD_SECRET);
+            return Err(refusal(BAD_SECRET));
         }
+        Ok(req)
+    }
+
+    fn answer_inner(&mut self, c: &mut Company, here: &Here, body: &str) -> Value {
+        let req = match self.admits(body) {
+            Ok(r) => r,
+            Err(v) => return v,
+        };
         if c.id != self.company {
             return refusal(NOT_OPEN_COMPANY);
         }

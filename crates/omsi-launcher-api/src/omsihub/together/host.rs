@@ -107,6 +107,9 @@ fn handle(body: &str) -> String {
         words::set_language(&lang);
         let mut g = hosting();
         let Some(h) = g.as_mut() else { return th::refusal(th::BAD_SECRET).to_string() };
+        if let Err(v) = h.st.admits(body) {
+            return v.to_string();
+        }
         if s.company.as_ref().map(|c| c.id.as_str()) != Some(h.company.as_str()) {
             return th::refusal(th::NOT_OPEN_COMPANY).to_string();
         }
