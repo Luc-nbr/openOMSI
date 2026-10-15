@@ -354,6 +354,7 @@ const NOT_COVERED: &str = "%{count} tours not covered";
 const SHORT_OF: &str = "%{buses} without a bus, %{duties} duties without a driver";
 const NOT_IN_SERVICE: &str = "Line %{n} is not in service yet";
 const PLAN_IT: &str = "Plan its tours and start its service";
+const PLAN_NAMED: &str = "%{name}: plan its tours and start its service";
 const LINE_STARTS: &str = "Line %{n} starts its service";
 const LINE_CHANGES: &str = "Line %{n}: its changes take effect";
 const TENDER_OPENS: &str = "Line %{n} is out to tender: the auction opens";
@@ -402,7 +403,7 @@ pub fn texts() -> Vec<&'static str> {
     let mut v = vec![
         ON_HOLIDAY, BACK_FROM_HOLIDAY, ASKED, NOT_ANSWERED, ANSWER_HOLIDAY, PLANNER_ANSWERS, SILENCE_IS_NO, BACK_AFTER_ILLNESS, COURSE_ENDS, COURSE_ENDS_PLAIN, YOUR_COURSE_ENDS, STARTS, LAST_DAY, RESIGNED, DISMISSED, ANSWER_RAISE, RAISE_NOTE,
         BROKE_DOWN, CRASHED, WAITING, SPARE_SENT, RENTAL_SENT, TRIPS_DROPPED, BACK_FROM_WORKSHOP, JOB_DONE, AFTER_BREAKDOWN, AFTER_ACCIDENT, INTO_WORKSHOP, WAITS_BAY, WAITS_PARTS, SINCE, PARTS_ARRIVE, PARTS_COUNT, SERVICE_DUE, ESTIMATED, LEASE_ENDS, RENTAL_ENDS, LEAVES_FLEET, DELIVERY, WARRANTY_ENDS, BUILDING_DONE,
-        NOT_COVERED, SHORT_OF, NOT_IN_SERVICE, PLAN_IT, LINE_STARTS, LINE_CHANGES, TENDER_OPENS, RENEWAL_OPENS, TENDER_CLOSES, KEEP_IT, CONCESSION_BEGINS, CONCESSION_ENDS, RENEWAL_OUT, GOAL_LAST_DAY, FUEL_BEGINS, FUEL_ENDS, CLEANING_BEGINS, CLEANING_ENDS, INTERNET_BEGINS, INTERNET_CHANGES, INTERNET_ENDS, ADVERT_ENDS,
+        NOT_COVERED, SHORT_OF, NOT_IN_SERVICE, PLAN_IT, PLAN_NAMED, LINE_STARTS, LINE_CHANGES, TENDER_OPENS, RENEWAL_OPENS, TENDER_CLOSES, KEEP_IT, CONCESSION_BEGINS, CONCESSION_ENDS, RENEWAL_OUT, GOAL_LAST_DAY, FUEL_BEGINS, FUEL_ENDS, CLEANING_BEGINS, CLEANING_ENDS, INTERNET_BEGINS, INTERNET_CHANGES, INTERNET_ENDS, ADVERT_ENDS,
         MONTH_CLOSE, LOAN_RATES, LOAN_LAST, RESEARCH_DONE, AT_PACE, RESEARCH_IDLE, PUBLIC_HOLIDAY, SCHOOL_BEGINS, UNTIL, SCHOOL_ENDS, FROM_UNTIL, LOAN,
         NEW_YEAR, GOOD_FRIDAY, EASTER_MONDAY, LABOUR_DAY, ASCENSION, WHIT_MONDAY, CHRISTMAS, SECOND_CHRISTMAS,
     ];
@@ -675,7 +676,12 @@ fn lines(c: &Company, k: &Known, out: &mut Vec<Entry>) {
     for l in &c.lines {
         let about = || About::Line(l.name.clone());
         match l.service_from {
-            None => out.push(Entry::new(today, Kind::NotInService, NOT_IN_SERVICE, Go::Line(l.name.clone())).note(PLAN_IT).arg("n", &l.number).sev(Severity::Warn).about(about()).mine(true)),
+            None => {
+                // (its name where it has one: a map's line and an own line may share a number)
+                let x = Entry::new(today, Kind::NotInService, NOT_IN_SERVICE, Go::Line(l.name.clone())).arg("n", &l.number).sev(Severity::Warn).about(about()).mine(true);
+                let name = l.public_name();
+                out.push(if name.is_empty() { x.note(PLAN_IT) } else { x.note(PLAN_NAMED).arg("name", name) });
+            }
             Some(m) if m != LEGACY_SERVICE && m > now => out.push(Entry::new(&clock::date_of(m), Kind::LineStarts, LINE_STARTS, Go::Line(l.name.clone())).at(clock::minute_of(m)).arg("n", &l.number).about(about())),
             Some(_) => {}
         }

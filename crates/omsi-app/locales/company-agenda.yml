@@ -654,3 +654,10 @@ _version: 2
   pl: "%{n} w terminarzu"
   ru: "%{n} в календаре"
   uk: "%{n} у календарі"
+"%{name}: plan its tours and start its service":
+  de: "%{name}: Planen Sie die Umläufe und starten Sie den Betrieb"
+  fr: "%{name} : planifiez ses services et lancez son service"
+  nl: "%{name}: plan de omlopen en start de dienst"
+  pl: "%{name}: zaplanuj brygady i uruchom kursowanie"
+  ru: "%{name}: запланируйте обороты и запустите работу"
+  uk: "%{name}: заплануйте обороти і запустіть роботу"

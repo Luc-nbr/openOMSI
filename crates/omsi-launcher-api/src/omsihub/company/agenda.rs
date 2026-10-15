@@ -258,11 +258,14 @@ pub fn view(s: &mut Session, ui: &Value) -> Value {
             format!("{:04}-{:02}", n.div_euclid(12), n.rem_euclid(12) + 1)
         };
         let picked = co::dates::fmt(pick);
+        // ("Today · Mon 19 Oct 2026", else the day alone)
+        let head = day_head(&c, &picked);
+        let label = if head == short_day(&picked) { super::words::day_label(&picked) } else { format!("{head}  ·  {}", super::words::day_label(&picked)) };
         out["month"] = json!({
             "key": month, "label": month_label(&month), "prev": step(-1), "next": step(1), "prev_label": month_label(&step(-1)), "next_label": month_label(&step(1)), "this": month == this_month, "this_label": tr("This month"), "this_key": this_month,
             "weekdays": WEEKDAYS.iter().map(|w| tr(w)).collect::<Vec<_>>(),
             "weeks": weeks,
-            "day": { "date": picked, "label": format!("{}  ·  {}", day_head(&c, &picked), super::words::day_label(&picked)), "items": items(&picked), "empty": tr("Nothing on this day") },
+            "day": { "date": picked, "label": label, "items": items(&picked), "empty": tr("Nothing on this day") },
         });
     } else {
         let mut days: Vec<String> = shown.iter().map(|e| e.date.clone()).collect();
