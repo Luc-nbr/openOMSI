@@ -567,9 +567,7 @@ function drawChart(ctx, w, h, g) {
       // (the tour's trips dropped and late on the day: a count on its bus chip)
       const tourSvc = SV.ofTour(SV.serviceOf(v), t.line, t.tour);
       if (tourSvc.length) SV.count(ctx, chip, tourSvc);
-      hit(chip.x, chip.y, chip.w, chip.h, { kind: 'bus', ti, duty: null, tip: tourSvc.length ? [t.bus.tip, ...tourSvc.map(SV.tipOf)].filter(Boolean).join('
-
-') : t.bus.tip || '' });
+      hit(chip.x, chip.y, chip.w, chip.h, { kind: 'bus', ti, duty: null, tip: tourSvc.length ? [t.bus.tip, ...tourSvc.map(SV.tipOf)].filter(Boolean).join('\n\n') : t.bus.tip || '' });
       if (busOff) {
         const xr = { x: chip.x + chip.w - chip.h + 3, y: chip.y + 3, w: chip.h - 6, h: chip.h - 6 };
         offMark(ctx, p, xr, inside(xr, m));
@@ -591,9 +589,7 @@ function drawChart(ctx, w, h, g) {
         dutyChip(ctx, p, t, d, br, ppm, xOf, dh, chosen, always ? br.h : 0);
         const svc = SV.ofTour(SV.serviceOf(v), t.line, t.tour, k);
         for (const o of svc) SV.tick(ctx, xOf(o.dep), br, o);
-        hit(br.x, br.y, br.w, br.h, { kind: 'duty', ti, duty: k, tip: svc.length ? [d.tip, ...svc.map(SV.tipOf)].filter(Boolean).join('
-
-') : d.tip });
+        hit(br.x, br.y, br.w, br.h, { kind: 'duty', ti, duty: k, tip: svc.length ? [d.tip, ...svc.map(SV.tipOf)].filter(Boolean).join('\n\n') : d.tip });
         if (!d.open && d.off && (always || dh || chosen || inside(xr, m))) {
           offMark(ctx, p, xr, inside(xr, m));
           hit(xr.x, xr.y, xr.w, xr.h, { kind: 'off', ti, duty: k, tip: tr('Take the driver off this duty (Delete)') });
