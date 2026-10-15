@@ -69,6 +69,13 @@ pub fn driver_off(c: &mut Company, p: &DayPlan, ti: usize, k: usize) -> Result<O
     }
     let (line, tour) = (t.tour.line.clone(), t.tour.tour.clone());
     let key = plan::duty_key(&line, &tour, k);
+    // (an agency driver booked for the day, the duty given him for it: given back - `agency`)
+    if let (Some(Who::Staff(id)), Source::Dispatcher) = (d.who, d.from_) {
+        let piece = t.tour.trips.get(d.start).map(|x| super::studio::PieceRef { line: line.clone(), tour: tour.clone(), first: super::studio::TripRef::of(x) });
+        if super::agency::is_booked(id) && piece.is_some_and(|piece| super::agency::release(c, &p.date, &piece)) {
+            return Ok(Off::Choice);
+        }
+    }
     match (d.who, d.from_) {
         (Some(_), Source::Dispatcher) => {
             plan::set_fill(c, &key, None);

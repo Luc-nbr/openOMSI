@@ -15,6 +15,7 @@
 //! call them, and the rules are tested on their own.
 
 pub mod adverts;
+pub mod agency;
 pub mod auction;
 pub mod autopilot;
 pub mod career;

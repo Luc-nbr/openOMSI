@@ -623,7 +623,7 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
         let spare = tp.bus.and_then(|b| super::clock::spare_of(c, &date, b)).and_then(|id| c.vehicle(id)).cloned();
         for (k, d) in tp.duties.iter().enumerate() {
             let driver = d.driver.and_then(|id| if id == super::plan::AGENCY { Some(super::plan::agency_driver()) } else { c.employee(id).cloned() });
-            if let Some(e) = driver.as_ref().filter(|e| e.id != super::plan::AGENCY) {
+            if let Some(e) = driver.as_ref().filter(|e| e.id != super::plan::AGENCY && !super::agency::is_booked(e.id)) {
                 match worked.iter_mut().find(|w| w.0 == e.id) {
                     Some(w) => {
                         w.1 += d.to - d.from;
@@ -1343,7 +1343,6 @@ mod tests {
         let others: Vec<u32> = c.staff.iter().filter(|e| !drivers.contains(&e.id)).map(|e| e.id).collect();
         let plan = assign(&c, tours.clone(), &[], &[]);
         assert!(plan.tours.iter().flat_map(|t| t.duties.iter()).filter_map(|d| d.driver).all(|id| drivers.contains(&id)));
-        assert_eq!(super::super::plan::agency_max(&c), 3);
         c.date = "2024-03-31".into();
         for e in c.staff.iter_mut() {
             e.hired = "2024-03-01".into();

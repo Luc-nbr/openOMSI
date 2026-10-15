@@ -37,13 +37,26 @@ fn length(minutes: i32) -> String {
     format!("{} h {:02}", minutes / 60, minutes % 60)
 }
 
+/// Someone of the staff by name - or an agency driver booked for the day by his number
+/// (`co::agency`).
+fn name_of(c: &Company, id: u32) -> String {
+    match c.employee(id) {
+        Some(e) if co::agency::is_booked(e.id) => trf("Agency driver %{n}", &[("n", &co::agency::number_of(e).to_string())]),
+        Some(e) => e.name.clone(),
+        None => "?".into(),
+    }
+}
+
 fn first_name(c: &Company, id: u32) -> String {
+    if let Some(e) = c.employee(id).filter(|e| co::agency::is_booked(e.id)) {
+        return trf("Agency %{n}", &[("n", &co::agency::number_of(e).to_string())]);
+    }
     c.employee(id).map(|e| e.name.split_whitespace().next().unwrap_or(&e.name).to_string()).unwrap_or_else(|| "?".into())
 }
 
 fn who_name(c: &Company, w: Option<Who>) -> String {
     match w {
-        Some(Who::Staff(id)) => c.employee(id).map(|e| e.name.clone()).unwrap_or_else(|| "?".into()),
+        Some(Who::Staff(id)) => name_of(c, id),
         Some(Who::Player) => tr("You"),
         Some(Who::Agency) => tr("Agency driver"),
         None => tr("Nobody"),
@@ -110,7 +123,7 @@ fn cannot_text(c: &Company, p: &DayPlan, x: &pl::Cannot) -> String {
 fn cover_text(c: &Company, x: &pl::Cover) -> (String, String) {
     match x {
         pl::Cover::Colleague { id, standby, warn } => {
-            let name = c.employee(*id).map(|e| e.name.clone()).unwrap_or_default();
+            let name = name_of(c, *id);
             let note = match warn.first() {
                 Some(Warn::Overtime(m)) => trf("Overtime %{t}", &[("t", &length(*m))]),
                 Some(Warn::Transfer(m)) => trf("%{n} min to change stops", &[("n", &m.to_string())]),
@@ -120,7 +133,7 @@ fn cover_text(c: &Company, x: &pl::Cover) -> (String, String) {
             };
             (name, note)
         }
-        pl::Cover::Agency { used, max } => (trf("Agency driver (today %{n} of %{max} - grows with your staff)", &[("n", &used.to_string()), ("max", &max.to_string())]), String::new()),
+        pl::Cover::Agency { used } => (trf("Agency driver (%{n} sent today: as many as you ask for)", &[("n", &used.to_string())]), String::new()),
         pl::Cover::Player => (tr("Drive it yourself"), String::new()),
         pl::Cover::Drop { penalty } if *penalty > 0 => (tr("Drop its trips today"), trf("Penalty %{amount}", &[("amount", &eur(*penalty))])),
         pl::Cover::Drop { .. } => (tr("Drop its trips today"), tr("No penalty")),
@@ -200,20 +213,16 @@ fn today_only(c: &Company, p: &DayPlan, ti: usize, k: usize, who: Option<Who>) -
     p.today && t.duties[k].problem.is_some_and(|x| x != Problem::Unassigned) && rostered.is_some() && who != Some(Who::Player)
 }
 
-/// An agency driver for the whole duty in the list of who drives it: what it costs, and - for
-/// today only - whether the agency has one left (`pl::agency_max`); in the roster one comes each
-/// time the weekday does. (No game mode or level keeps the agency away: only its drivers a day.)
+/// An agency driver for the whole duty in the list of who drives it: what it costs, for today only
+/// or - in the roster - each time the weekday comes. (The agency sends as many as are asked for:
+/// no game mode or level keeps it away, only the cost. Drivers booked ahead are cheaper: the
+/// Staff page's Agencies tab, `co::agency`.)
 fn agency_state(c: &Company, p: &DayPlan, ti: usize, k: usize) -> (String, &'static str) {
     let cost = eur(pl::agency_cost(c, p, ti, k));
     if !today_only(c, p, ti, k, Some(Who::Agency)) {
         return (trf("%{amount} for this duty, every %{day}", &[("amount", &cost), ("day", &weekday_name(p.weekday))]), "dim");
     }
-    let (n, max) = (pl::agency_sent(c, p).to_string(), pl::agency_max(c).to_string());
-    if pl::agency_room(c, p, ti, k) {
-        (trf("%{amount} for this duty, today only (%{n} of %{max} today)", &[("amount", &cost), ("n", &n), ("max", &max)]), "ok")
-    } else {
-        (trf("No agency driver left today (%{n} of %{max})", &[("n", &n), ("max", &max)]), "err")
-    }
+    (trf("%{amount} for this duty, today only (%{n} sent today)", &[("amount", &cost), ("n", &pl::agency_sent(c, p).to_string())]), "ok")
 }
 
 /// A duty's problem in words (`planning::problem_text`).
@@ -530,7 +539,7 @@ fn tour_json(c: &Company, p: &DayPlan, ti: usize, t: &DayTour, rf_id: &dyn Fn(us
                 } else {
                     match d.who {
                         Some(Who::Staff(id)) => {
-                            let full = c.employee(id).map(|e| e.name.clone()).unwrap_or_default();
+                            let full = name_of(c, id);
                             let initials: String = full.split_whitespace().filter_map(|w| w.chars().next()).take(2).collect::<String>().to_uppercase();
                             (driver_colour(c, id), "#0e121c", first_name(c, id), initials, if d.from_ == Source::Auto { 0.6 } else { 1.0 })
                         }
@@ -604,13 +613,21 @@ fn day_side(c: &Company, p: &DayPlan) -> Value {
             }
         }
     }
+    // (the agency drivers booked for the day too, after the staff: what they are paid for at least)
     let staff: Vec<Value> = c
         .staff
         .iter()
         .filter(|e| co::staff::drives(e))
+        .chain(co::agency::drivers_on(c, &p.date))
         .map(|e| {
             let mins: i32 = p.duties_of(Who::Staff(e.id)).iter().map(|&(i, k)| p.tours[i].duties[k].to - p.tours[i].duties[k].from).sum();
-            let (state, tone) = if let Some(x) = pl::day_unavailable(e, &p.date, p.today) {
+            let (state, tone) = if co::agency::is_booked(e.id) {
+                let hours = match co::agency::window(c, e.id) {
+                    Some((a, z)) => format!("{}–{}", hhmm(a), hhmm(z)),
+                    None => length(co::agency::minutes_booked(c, e.id)),
+                };
+                (trf("Booked %{hours}  ·  %{driven} driven", &[("hours", &hours), ("driven", &length(mins))]), if mins == 0 { "warn" } else { "soft" })
+            } else if let Some(x) = pl::day_unavailable(e, &p.date, p.today) {
                 let tone = match x {
                     pl::Cannot::Ill { .. } | pl::Cannot::WeekDone { .. } => "err",
                     pl::Cannot::NotEmployed => "faint",
@@ -625,7 +642,7 @@ fn day_side(c: &Company, p: &DayPlan) -> Value {
             } else {
                 (length(mins), if mins > co::staff::DAY_TARGET { "warn" } else { "soft" })
             };
-            json!({ "id": e.id, "name": e.name, "colour": driver_colour(c, e.id), "first": first_name(c, e.id), "state": state, "tone": tone })
+            json!({ "id": e.id, "name": name_of(c, e.id), "colour": driver_colour(c, e.id), "first": first_name(c, e.id), "state": state, "tone": tone })
         })
         .collect();
     let buses: Vec<Value> = c
@@ -730,11 +747,6 @@ fn duty_side(c: &Company, p: &DayPlan, ti: usize, k: usize) -> Value {
         facts.push(json!([s, if late.cover.is_some() { "warn" } else { "err" }]));
     }
     let open_today = p.today && !t.by_player && (d.problem.is_some() || d.who.is_none());
-    let (agency_n, agency_max) = (pl::agency_sent(c, p), pl::agency_max(c));
-    let agency_ok = pl::agency_room(c, p, ti, k);
-    if open_today && !agency_ok {
-        facts.push(json!([trf("No agency driver left today: %{n} of %{max}. The agency sends two, and one more for every three drivers you employ.", &[("n", &agency_n.to_string()), ("max", &agency_max.to_string())]), "warn"]));
-    }
     let chosen = c.planning.fills.iter().find(|f| c.planning.date == c.date && f.key == key).map(|f| f.fill);
     let mut options: Vec<Value> = Vec::new();
     if open_today {
@@ -764,7 +776,7 @@ fn duty_side(c: &Company, p: &DayPlan, ti: usize, k: usize) -> Value {
     cands.push(json!({ "who": Who::Agency, "name": tr("Agency driver"), "state": state, "tone": tone, "swatch": "grey", "on": current == Some(Who::Agency) }));
     for x in pl::candidates(c, p, ti, k) {
         let (st, tone, _) = fit_of(c, p, ti, k, x.id);
-        let name = c.employee(x.id).map(|e| e.name.clone()).unwrap_or_default();
+        let name = name_of(c, x.id);
         cands.push(json!({ "who": Who::Staff(x.id), "name": name, "state": st, "tone": tone, "swatch": driver_colour(c, x.id), "on": current == Some(Who::Staff(x.id)) }));
     }
     cands.push(json!({ "who": null, "name": tr("Nobody"), "state": "", "tone": "dim", "swatch": null, "on": false }));
@@ -854,12 +866,23 @@ fn give_driver(s: &mut Session, p: &DayPlan, ti: usize, k: usize, who: Option<Wh
     let Some(c) = s.company.as_ref() else { return json!({}) };
     let t = &p.tours[ti];
     let (line, tour) = (t.tour.line.clone(), t.tour.tour.clone());
-    let for_today = today_only(c, p, ti, k, who);
-    // (for today the agency sends so many a day: said when none is left)
-    if for_today && who == Some(Who::Agency) && !pl::agency_room(c, p, ti, k) {
-        let (n, max) = (pl::agency_sent(c, p).to_string(), pl::agency_max(c).to_string());
-        return said(trf("No agency driver left today: %{n} of %{max}. The agency sends two, and one more for every three drivers you employ.", &[("n", &n), ("max", &max)]), true);
+    let blocks: Vec<co::network::TourOfDay> = p.tours.iter().map(|t| t.tour.clone()).collect();
+    let partners = co::studio::partners(c, co::plandays::slot_of(c, &p.date), &blocks, ti, k);
+    let pieces: Vec<co::studio::PieceRef> = std::iter::once((ti, k)).chain(partners.iter().copied()).filter_map(|(i, m)| co::studio::piece_ref(&blocks, i, m)).collect();
+    let date = p.date.clone();
+    // (an agency driver booked for the day: the duty given him for his day only - `co::agency`)
+    if let Some(Who::Staff(id)) = who.filter(|w| matches!(w, Who::Staff(id) if co::agency::is_booked(*id))) {
+        return match company::act(s, |c| {
+            for piece in &pieces {
+                co::agency::give(c, id, piece.clone());
+            }
+            Ok(())
+        }) {
+            Ok(()) => json!({}),
+            Err(p) => json!({ "popup": p }),
+        };
     }
+    let for_today = today_only(c, p, ti, k, who);
     let wd = p.weekday;
     let r = if for_today {
         let fill = match who {
@@ -869,13 +892,19 @@ fn give_driver(s: &mut Session, p: &DayPlan, ti: usize, k: usize, who: Option<Wh
         };
         let key = pl::duty_key(&line, &tour, k);
         company::act(s, |c| {
+            // (a booked agency driver who had it gives it back)
+            for piece in &pieces {
+                co::agency::release(c, &date, piece);
+            }
             pl::set_fill(c, &key, fill);
             Ok(())
         })
     } else {
-        let blocks: Vec<co::network::TourOfDay> = p.tours.iter().map(|t| t.tour.clone()).collect();
-        let others: Vec<(String, String, usize)> = co::studio::partners(c, co::plandays::slot_of(c, &p.date), &blocks, ti, k).into_iter().map(|(i, k)| (p.tours[i].tour.line.clone(), p.tours[i].tour.tour.clone(), k)).collect();
+        let others: Vec<(String, String, usize)> = partners.iter().map(|&(i, k)| (p.tours[i].tour.line.clone(), p.tours[i].tour.tour.clone(), k)).collect();
         company::act(s, |c| {
+            for piece in &pieces {
+                co::agency::release(c, &date, piece);
+            }
             pl::set_driver(c, wd, &line, &tour, k, who);
             for (line, tour, k) in &others {
                 pl::set_driver(c, wd, line, tour, *k, who);
@@ -935,23 +964,38 @@ pub(crate) struct Kept {
     week: Vec<pl::RosterTour>,
     date: String,
     fills: Vec<pl::FillChoice>,
+    /// The duties given to the agency drivers booked ahead (their bookings themselves are the
+    /// Staff page's).
+    given: Vec<(u32, Vec<co::studio::PieceRef>)>,
     label: String,
 }
 
 impl Kept {
     fn of(c: &Company, label: String) -> Kept {
-        Kept { week: c.planning.week.clone(), date: c.planning.date.clone(), fills: c.planning.fills.clone(), label }
+        Kept { week: c.planning.week.clone(), date: c.planning.date.clone(), fills: c.planning.fills.clone(), given: given_of(c), label }
     }
 
     fn same(&self, c: &Company) -> bool {
-        self.week == c.planning.week && self.date == c.planning.date && self.fills == c.planning.fills
+        self.week == c.planning.week && self.date == c.planning.date && self.fills == c.planning.fills && self.given == given_of(c)
     }
 
     fn put(&self, c: &mut Company) {
         c.planning.week = self.week.clone();
         c.planning.date = self.date.clone();
         c.planning.fills = self.fills.clone();
+        for b in c.planning.agency.iter_mut() {
+            for d in b.drivers.iter_mut() {
+                if let Some(g) = self.given.iter().find(|g| g.0 == d.employee.id) {
+                    d.duties = g.1.clone();
+                }
+            }
+        }
     }
+}
+
+/// The duties given to each booked agency driver.
+fn given_of(c: &Company) -> Vec<(u32, Vec<co::studio::PieceRef>)> {
+    c.planning.agency.iter().flat_map(|b| b.drivers.iter().map(|d| (d.employee.id, d.duties.clone()))).collect()
 }
 
 /// Undo the Roster tab's last change (`back`), or redo the last undone.

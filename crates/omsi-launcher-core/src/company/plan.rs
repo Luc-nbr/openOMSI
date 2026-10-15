@@ -39,15 +39,8 @@ pub const PLAYER: u32 = u32::MAX - 1;
 /// An agency driver's hour, the agency's margin included (founding day's prices).
 pub const AGENCY_HOUR: Cents = 42_00;
 
-/// Agency drivers a day at most: two, and one more for every three drivers on the payroll
-/// (testers: "it only allows me to assign 2 agency drivers" - one more for every five was too
-/// few for a small company).
-pub fn agency_max(c: &Company) -> usize {
-    2 + c.staff.iter().filter(|e| staff::drives(e)).count() / 3
-}
-
-/// The agency drivers a day's plan takes for what fell out or stayed free (those fixed in the
-/// roster are not counted against `agency_max`).
+/// The agency drivers a day's plan takes for what fell out or stayed free (not those fixed in the
+/// roster, nor those booked ahead: `agency`).
 pub fn agency_used(dp: &DayPlan) -> usize {
     dp.tours.iter().flat_map(|t| t.duties.iter()).filter(|d| d.who == Some(Who::Agency) && matches!(d.from_, Source::Dispatcher | Source::Central)).count()
 }
@@ -75,12 +68,11 @@ pub fn agency_sent(c: &Company, dp: &DayPlan) -> usize {
     n
 }
 
-/// Whether duty `k` of tour `ti` can have an agency driver for the day: the agency has one left
-/// (`agency_max`), or one was sent for it - or for a piece joined with it - already.
-pub fn agency_room(c: &Company, dp: &DayPlan, ti: usize, k: usize) -> bool {
-    let slot = super::plandays::slot_of(c, &dp.date);
-    let mine = std::iter::once((ti, k)).chain(joined_pieces(c, slot, &dp.tours, ti, k)).any(|(i, m)| agency_sent_for(dp, i, m));
-    mine || agency_sent(c, dp) < agency_max(c)
+/// Whether duty `k` of tour `ti` can have an agency driver for the day: always - the agency sends
+/// as many as are asked for (Luc, 2026-10-15: "you must be able to hire as many as you want"; it
+/// was two a day, and one more for every three drivers). Only what they cost limits them.
+pub fn agency_room(_c: &Company, _dp: &DayPlan, _ti: usize, _k: usize) -> bool {
+    true
 }
 
 /// What an agency driver costs for duty `k` of tour `ti`: the hours of it and of the pieces
@@ -213,11 +205,14 @@ pub struct Planning {
     /// When the drivers who come late on the company's day arrive (`Arrival`, `pin_arrivals`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub arrivals: Vec<Arrival>,
+    /// The agency drivers booked ahead for a day (`agency`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agency: Vec<super::agency::Booking>,
 }
 
 impl Default for Planning {
     fn default() -> Self {
-        Planning { week: Vec::new(), auto: false, auto_only: None, auto_keys: None, date: String::new(), fills: Vec::new(), collapsed: Vec::new(), layouts: Vec::new(), joined: Vec::new(), flow: Default::default(), arrivals: Vec::new() }
+        Planning { week: Vec::new(), auto: false, auto_only: None, auto_keys: None, date: String::new(), fills: Vec::new(), collapsed: Vec::new(), layouts: Vec::new(), joined: Vec::new(), flow: Default::default(), arrivals: Vec::new(), agency: Vec::new() }
     }
 }
 
@@ -711,7 +706,7 @@ pub fn repair_day(c: &mut Company, date: &str, tours: Vec<TourOfDay>) -> Repaire
         for (k, d) in t.duties.iter().enumerate() {
             if let (Some(w @ Who::Staff(_)), Source::Auto) = (d.who, d.from_) {
                 if keys.contains(&duty_key(&t.tour.line, &t.tour.tour, k)) {
-                    set_driver(c, wd, &t.tour.line, &t.tour.tour, k, Some(w));
+                    keep_driver(c, wd, t, k, w);
                     out.duties += 1;
                 }
             }
@@ -724,6 +719,19 @@ pub fn repair_day(c: &mut Company, date: &str, tours: Vec<TourOfDay>) -> Repaire
 /// other tours weighed as they are.
 pub fn fill_line(c: &mut Company, date: &str, tours: Vec<TourOfDay>, line: &str) -> Filled {
     fill(c, date, tours, Some(line))
+}
+
+/// The driver the dispatcher took for duty `k` of `t` kept: in the weekday's roster - or, an agency
+/// driver booked for the day, given him for his day only (`agency::give`).
+fn keep_driver(c: &mut Company, wd: u8, t: &DayTour, k: usize, w: Who) {
+    if let Who::Staff(id) = w {
+        if super::agency::is_booked(id) {
+            let first = super::studio::TripRef::of(&t.tour.trips[t.duties[k].start]);
+            super::agency::give(c, id, super::studio::PieceRef { line: t.tour.line.clone(), tour: t.tour.tour.clone(), first });
+            return;
+        }
+    }
+    set_driver(c, wd, &t.tour.line, &t.tour.tour, k, Some(w));
 }
 
 fn fill(c: &mut Company, date: &str, tours: Vec<TourOfDay>, only: Option<&str>) -> Filled {
@@ -766,7 +774,7 @@ fn fill(c: &mut Company, date: &str, tours: Vec<TourOfDay>, only: Option<&str>) 
         }
         for (k, d) in t.duties.iter().enumerate() {
             if let (Some(w @ Who::Staff(_)), Source::Auto) = (d.who, d.from_) {
-                set_driver(c, wd, &t.tour.line, &t.tour.tour, k, Some(w));
+                keep_driver(c, wd, t, k, w);
             }
         }
     }
@@ -1345,20 +1353,23 @@ pub fn candidates(c: &Company, dp: &DayPlan, ti: usize, k: usize) -> Vec<Candida
     let t = &dp.tours[ti];
     let bus = t.bus_of(c);
     let block = block_of(&t.tour, &t.duties[k], duty_key(&t.tour.line, &t.tour.tour, k));
+    // (the agency drivers booked for the day too, first among those who can: `agency`)
     let mut out: Vec<(String, Candidate)> = c
         .staff
         .iter()
         .filter(|e| staff::drives(e))
+        .chain(super::agency::drivers_on(c, &dp.date))
         .map(|e| {
             let work = work_without(dp, e.id, (ti, k));
             let fit = can_take(e, &dp.date, dp.today, &bus, &work, &block);
-            (e.name.clone(), Candidate { id: e.id, standby: work.is_empty(), fit })
+            let name = if super::agency::is_booked(e.id) { format!("{:06}", super::agency::number_of(e)) } else { e.name.clone() };
+            (name, Candidate { id: e.id, standby: work.is_empty(), fit })
         })
         .collect();
     out.sort_by(|a, b| {
         let rank = |x: &Candidate| match &x.fit {
-            Ok(w) => (0, !x.standby, w.len()),
-            Err(_) => (1, false, 0),
+            Ok(w) => (0, !super::agency::is_booked(x.id), !x.standby, w.len()),
+            Err(_) => (1, false, false, 0),
         };
         rank(&a.1).cmp(&rank(&b.1)).then(a.0.cmp(&b.0))
     });
@@ -1378,8 +1389,8 @@ pub fn drop_penalty(c: &Company, t: &TourOfDay, start: usize, end: usize) -> Cen
 pub enum Cover {
     /// A colleague who may drive it (`standby`: free all day).
     Colleague { id: u32, standby: bool, warn: Vec<Warn> },
-    /// An agency driver: `used` of `max` today taken already.
-    Agency { used: usize, max: usize },
+    /// An agency driver (`used` sent today already: as many as are asked for).
+    Agency { used: usize },
     /// The player drives it himself.
     Player,
     /// Its trips dropped, with the contract's penalty.
@@ -1399,8 +1410,8 @@ impl Cover {
 }
 
 /// The ways to cover duty `k` of tour `ti` on the company's day, in the order to offer them:
-/// each free colleague who may drive it (standby drivers first), an agency driver while the
-/// agency has one left (`agency_max`), the player himself, dropping its trips. Those who cannot
+/// each free colleague who may drive it (standby drivers first), an agency driver from the
+/// agency (as many as are asked for), the player himself, dropping its trips. Those who cannot
 /// take it are `candidates` with their reasons.
 pub fn covers_of_duty(c: &Company, dp: &DayPlan, ti: usize, k: usize) -> Vec<Cover> {
     let t = &dp.tours[ti];
@@ -1408,7 +1419,7 @@ pub fn covers_of_duty(c: &Company, dp: &DayPlan, ti: usize, k: usize) -> Vec<Cov
     let mut out: Vec<Cover> = candidates(c, dp, ti, k).into_iter().filter_map(|x| x.fit.ok().map(|warn| Cover::Colleague { id: x.id, standby: x.standby, warn })).collect();
     // (one agency driver for the whole duty, its joined pieces too)
     if agency_room(c, dp, ti, k) {
-        out.push(Cover::Agency { used: agency_sent(c, dp), max: agency_max(c) });
+        out.push(Cover::Agency { used: agency_sent(c, dp) });
     }
     out.push(Cover::Player);
     out.push(Cover::Drop { penalty: drop_penalty(c, &t.tour, d.start, d.end) });
@@ -1567,11 +1578,35 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
         }
     }
 
-    // 2. the drivers: the roster's, in the order the duties begin
+    // 2. the drivers: the agency drivers booked for the day on the duties given them that day
+    // (`agency`), then the roster's, in the order the duties begin
     let mut work = Work::default();
     let mut order: Vec<(usize, usize)> = out.iter().enumerate().filter(|(_, t)| !t.by_player).flat_map(|(i, t)| (0..t.duties.len()).map(move |k| (i, k))).collect();
     order.sort_by_key(|&(i, k)| out[i].duties[k].from);
+    let booked: Vec<&Employee> = super::agency::drivers_on(c, date);
+    for e in &booked {
+        for p in super::agency::duties_of(c, e.id) {
+            let found = order.iter().copied().find(|&(i, k)| {
+                let t = &out[i];
+                same(&t.tour.line, &p.line) && same(&t.tour.tour, &p.tour) && t.tour.trips.get(t.duties[k].start).is_some_and(|x| p.first.is(x))
+            });
+            let Some((i, k)) = found.filter(|&(i, k)| out[i].duties[k].who.is_none()) else { continue };
+            let bus = out[i].bus_of(c);
+            let t = &out[i];
+            let block = block_of(&t.tour, &t.duties[k], duty_key(&t.tour.line, &t.tour.tour, k));
+            if let Ok(w) = fits_bus(e, &bus, work.of(e.id), &block, today) {
+                work.push(e.id, block);
+                let d = &mut out[i].duties[k];
+                d.who = Some(Who::Staff(e.id));
+                d.from_ = Source::Dispatcher;
+                d.warn = w;
+            }
+        }
+    }
     for &(i, k) in &order {
+        if out[i].duties[k].who.is_some() {
+            continue;
+        }
         let Some(who) = roster(c, wd, &out[i].tour.line, &out[i].tour.tour).and_then(|r| r.duties.get(k).copied().flatten()) else { continue };
         let bus = out[i].bus_of(c);
         let t = &out[i];
@@ -1603,15 +1638,21 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
             }
         }
     }
-    // the dispatcher's own for what the roster left free (tours with a bus, or reported live)
-    let people: Vec<&Employee> = c.staff.iter().filter(|e| unavailable(e, date, today).is_none()).collect();
+    // the dispatcher's own for what the roster left free (tours with a bus, or reported live): the
+    // agency drivers booked for the day first (they are paid for the day all the same), within
+    // the hours they come for
+    let people: Vec<&Employee> = c.staff.iter().filter(|e| unavailable(e, date, today).is_none()).chain(booked.iter().copied()).collect();
     let pick = |work: &Work, bus: &(BusKind, Option<String>), block: &Block| -> Option<(u32, Vec<Warn>)> {
-        let mut best: Option<((bool, bool, i32, u32, i64), u32, Vec<Warn>)> = None;
+        let mut best: Option<((bool, bool, bool, i32, u32, i64), u32, Vec<Warn>)> = None;
         for e in &people {
+            let is_booked = super::agency::is_booked(e.id);
+            if is_booked && !super::agency::within(c, e.id, block) {
+                continue;
+            }
             let Ok(w) = fits_bus(e, bus, work.of(e.id), block, today) else { continue };
             let worked = staff::work_minutes(work.of(e.id));
             let fills = worked > 0 && !w.iter().any(|x| matches!(x, Warn::Overtime(_)));
-            let score = (staff::qualified(e, bus.0.size), fills, -worked, WEEK_DAYS.saturating_sub(e.week_days), (e.experience * 10.0) as i64);
+            let score = (is_booked, staff::qualified(e, bus.0.size), fills, -worked, WEEK_DAYS.saturating_sub(e.week_days), (e.experience * 10.0) as i64);
             if best.as_ref().is_none_or(|b| score > b.0) {
                 best = Some((score, e.id, w));
             }
@@ -1672,7 +1713,6 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
     let central = |p: Option<Problem>| p.is_some_and(Problem::sudden) || (p == Some(Problem::Holiday) && c.game_mode != GameMode::Realistic);
     if today {
         let slot = super::plandays::slot_of(c, date);
-        let mut agency = 0usize;
         for &(i, k) in &order {
             let t = &out[i];
             if t.duties[k].who.is_some() || (t.bus.is_none() && !t.live) {
@@ -1684,33 +1724,29 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
             let problem = t.duties[k].problem;
             // (a piece joined with others into one driver's duty: the choice for any of them is
             // the whole duty's, and one agency driver drives all of it - testers: "it only
-            // applied to a part of it not the full thing")
+            // applied to a part of it not the full thing"; the agency sends as many as asked)
             let joined = joined_pieces(c, slot, &out, i, k);
             let partner_fill = || joined.iter().find_map(|&(j, m)| fill_of(c, date, &duty_key(&out[j].tour.line, &out[j].tour.tour, m)).filter(|f| matches!(f, Fill::Agency | Fill::Colleague { .. } | Fill::Player)));
-            let sent = joined.iter().any(|&(j, m)| out[j].duties[m].who == Some(Who::Agency) && matches!(out[j].duties[m].from_, Source::Dispatcher | Source::Central));
-            let agency_left = sent || agency < agency_max(c);
             let (who, from_) = match fill_of(c, date, &key).or_else(partner_fill) {
                 Some(Fill::Colleague { id }) => match c.employee(id).filter(|e| unavailable(e, date, today).is_none()).map(|e| fits_bus(e, &bus, work.of(id), &block, today)) {
                     Some(Ok(_)) => (Some(Who::Staff(id)), Source::Dispatcher),
                     _ => (None, Source::None),
                 },
-                Some(Fill::Agency) if agency_left => (Some(Who::Agency), Source::Dispatcher),
+                Some(Fill::Agency) => (Some(Who::Agency), Source::Dispatcher),
                 // (the player's own today: open again when the day is closed and he did not drive it)
                 Some(Fill::Player) if !closing => (Some(Who::Player), Source::Dispatcher),
                 Some(Fill::Player) => (None, Source::Dispatcher),
                 Some(Fill::Drop) => (None, Source::Dispatcher),
+                // (the central: a free colleague - the agency drivers booked for the day first -,
+                // else one sent by the agency)
                 _ if central(problem) => match pick(&work, &bus, &block) {
                     Some((id, _)) => (Some(Who::Staff(id)), Source::Central),
-                    None if agency_left => (Some(Who::Agency), Source::Central),
-                    None => (None, Source::None),
+                    None => (Some(Who::Agency), Source::Central),
                 },
                 _ => (None, Source::None),
             };
             if let Some(Who::Staff(id)) = who {
                 work.push(id, block);
-            }
-            if who == Some(Who::Agency) && !sent {
-                agency += 1;
             }
             let d = &mut out[i].duties[k];
             d.who = who;
@@ -1885,9 +1921,11 @@ pub fn settle_morning(c: &mut Company, dp: &DayPlan) -> (Plan, Vec<Note>) {
     for t in &dp.tours {
         for d in t.duties.iter().filter(|d| d.who == Some(Who::Agency)) {
             let cost = ((d.to - d.from).max(0) as f64 / 60.0 * hour).round() as Cents;
-            c.book(BookingKind::Wages, -cost, format!("Agency driver, line {} tour {}", t.tour.number, t.tour.tour), false);
+            c.book(BookingKind::Agency, -cost, format!("Agency driver, line {} tour {}", t.tour.number, t.tour.tour), false);
         }
     }
+    // (and those booked ahead for the day: their hours booked, or driven when more)
+    super::agency::settle(c, dp);
     (plan, notes)
 }
 
@@ -2624,13 +2662,11 @@ mod tests {
     }
 
     #[test]
-    fn agency_drivers_grow_with_the_staff() {
-        // two for a company without drivers, one more for every three
-        assert_eq!(agency_max(&company(0, 0)), 2);
+    fn the_agency_sends_as_many_drivers_as_are_asked_for() {
+        // (Luc, 2026-10-15: "you must be able to hire as many as you want" - it was two a day, and
+        // one more for every three drivers)
         let mut c = quiet(4, 3);
-        assert_eq!(agency_max(&c), 3);
-        assert_eq!(agency_max(&company(0, 9)), 5);
-        // four tours with a bus and nobody planned, an agency driver asked for each: three come
+        // four tours with a bus and nobody planned, an agency driver asked for each: four come
         c.planning.auto = false;
         let wd = weekday_of(&c.date);
         let tours: Vec<TourOfDay> = (0..4).map(|k| tour(&(k + 1).to_string(), 6 * 60 + k as i32 * 5, 2)).collect();
@@ -2640,8 +2676,9 @@ mod tests {
             set_fill(&mut c, &duty_key("Linie5", &(k + 1).to_string(), 0), Some(Fill::Agency));
         }
         let p = day_plan(&c, &c.date, tours, &[], &[], false);
-        assert_eq!(agency_used(&p), 3);
-        assert_eq!(p.tours.iter().filter(|t| t.duties[0].open()).count(), 1);
+        assert_eq!(agency_used(&p), 4);
+        assert_eq!(p.tours.iter().filter(|t| t.duties[0].open()).count(), 0);
+        assert!(agency_room(&c, &p, 0, 0));
     }
 
     #[test]
@@ -2700,7 +2737,7 @@ mod tests {
         let covers = covers_of_duty(&c, &p, 0, 0);
         assert_eq!(covers[0], Cover::Colleague { id: ids[1], standby: true, warn: Vec::new() });
         assert!(!covers.iter().any(|x| matches!(x, Cover::Colleague { id, .. } if *id == ids[2] || *id == ids[0])));
-        assert!(covers.contains(&Cover::Agency { used: 0, max: agency_max(&c) }));
+        assert!(covers.contains(&Cover::Agency { used: 0 }));
         assert_eq!(&covers[covers.len() - 2..], &[Cover::Player, Cover::Drop { penalty: drop_penalty(&c, &p.tours[0].tour, 0, 4) }]);
         // the penalty shown is the contract's (none on an easy economy)
         let mut hard = c.clone();
