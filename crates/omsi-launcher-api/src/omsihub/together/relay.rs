@@ -216,6 +216,8 @@ mod tests {
 
     /// The match arms of a page's `act` (the names of its actions), read from its source.
     fn acts_in(src: &str) -> Vec<String> {
+        // (a Windows checkout has CRLF line ends: the body's end is found on LF alone)
+        let src = &src.replace("\r\n", "\n");
         let Some(i) = src.find("fn act(") else { return Vec::new() };
         let body = &src[i..src[i..].find("\n}\n").map_or(src.len(), |j| i + j)];
         let mut out = Vec::new();

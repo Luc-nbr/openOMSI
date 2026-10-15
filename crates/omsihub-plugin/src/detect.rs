@@ -73,12 +73,15 @@ impl Problem {
 }
 
 /// A file or folder of `dir` by its name, whatever its case (as on Windows).
+/// The name comes back as it is on disk (Windows finds `dir.join(name)` in any case and would
+/// keep the asked one).
 fn child(dir: &Path, name: &str) -> Option<PathBuf> {
-    let direct = dir.join(name);
-    if direct.exists() {
-        return Some(direct);
-    }
-    std::fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).find(|p| p.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(name)))
+    let listed = std::fs::read_dir(dir).ok().and_then(|r| {
+        let all: Vec<PathBuf> = r.flatten().map(|e| e.path()).collect();
+        let exact = all.iter().find(|p| p.file_name().is_some_and(|n| n.to_string_lossy() == name)).cloned();
+        exact.or_else(|| all.into_iter().find(|p| p.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(name))))
+    });
+    listed.or_else(|| Some(dir.join(name)).filter(|p| p.exists()))
 }
 
 fn is_bundle(p: &Path) -> bool {
