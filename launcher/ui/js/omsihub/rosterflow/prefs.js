@@ -7,7 +7,7 @@
 // next to its fields how many duties break it as edited (`rf_view` "prefs_check"), and after a
 // save the studio says what the changed rules break, with Optimise offered.
 
-import { html, useEffect, useRef } from '../../../vendor/preact-htm.js';
+import { html, useEffect, useRef, useState } from '../../../vendor/preact-htm.js';
 import { S } from '../../store.js';
 import { tr } from '../bits.js';
 import { setRf, rfCmd, rfAct, hm, clock, eur } from './state.js';
@@ -118,10 +118,25 @@ function setPoint(pr, row, patch) {
   return [...list, { ...row.point, stop: row.stop, ...patch }];
 }
 
-/** Minutes in a small field: empty for none (`null`), what it falls back to greyed in it. */
+/** Minutes in a small field: empty for none (`null`), what it falls back to greyed in it. What
+ * is typed is the field's own until it is left or Enter is pressed: the page is drawn anew four
+ * times a second while the company's clock runs, and a field given its value back each time lost
+ * what was typed in it before it was kept (Luc: Duty Travel's table "cannot be edited"). */
 function Minutes0({ value, placeholder, set }) {
-  const put = (t) => set(t.trim() === '' ? null : Math.max(0, Math.min(240, Math.round(Number(t)) || 0)));
-  return html`<input class="pf-min" type="number" min="0" max="240" value=${value ?? ''} placeholder=${placeholder} onChange=${(ev) => put(ev.currentTarget.value)} />`;
+  const shown = value == null ? '' : String(value);
+  const [text, setText] = useState(shown);
+  const typing = useRef(false);
+  useEffect(() => {
+    if (!typing.current) setText(shown);
+  }, [shown]);
+  const put = (t) => {
+    typing.current = false;
+    const m = String(t).trim() === '' ? null : Math.max(0, Math.min(240, Math.round(Number(t)) || 0));
+    setText(m == null ? '' : String(m));
+    if (m !== (value ?? null)) set(m);
+  };
+  return html`<input class="pf-min" type="number" min="0" max="240" value=${text} placeholder=${placeholder}
+    onInput=${(ev) => ((typing.current = true), setText(ev.currentTarget.value))} onChange=${(ev) => put(ev.currentTarget.value)} onBlur=${(ev) => typing.current && put(ev.currentTarget.value)} />`;
 }
 
 /** Preferences › Relief Points (`rosterflow::ReliefPoint`): every point and what it may be used
