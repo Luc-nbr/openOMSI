@@ -81,6 +81,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("company-tender-score.yml", include_str!("../../../omsi-app/locales/company-tender-score.yml")),
     ("company-together.yml", include_str!("../../../omsi-app/locales/company-together.yml")),
     ("company-together-gate.yml", include_str!("../../../omsi-app/locales/company-together-gate.yml")),
+    ("company-multiplayer.yml", include_str!("../../../omsi-app/locales/company-multiplayer.yml")),
     ("dealer-delivery.yml", include_str!("../../../omsi-app/locales/dealer-delivery.yml")),
     ("dealer.yml", include_str!("../../../omsi-app/locales/dealer.yml")),
     ("easy-polish.yml", include_str!("../../../omsi-app/locales/easy-polish.yml")),

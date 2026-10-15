@@ -207,8 +207,6 @@ fn start(s: &mut Session, args: &Value, p: &dyn crate::Platform) -> Result<Value
     d.display_font = core::busfonts::BusFonts::load().font_for(&st.bus);
     // (the bus options chosen for the bus, as `duty_launch::start` passes them: Omsi-Hub 6/6)
     d.set_vars = super::super::hub_more::setvars(&st.bus, &st.paint);
-    // (Beta 58: while "Play together" runs, the boss's game hosts: friends drive in his world)
-    super::super::together::boss_duty(&c, &mut d);
     if dry {
         return Ok(json!({ "args": core::duty_args(&d).map_err(|e| format!("{e:#}"))? }));
     }

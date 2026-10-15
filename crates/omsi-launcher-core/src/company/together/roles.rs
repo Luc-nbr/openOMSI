@@ -81,15 +81,15 @@ impl Perm {
         match self {
             Perm::Drive => "directions_bus",
             Perm::Finances => "payments",
-            Perm::Spend => "shopping_cart",
+            Perm::Spend => "receipt_long",
             Perm::Staff => "badge",
             Perm::Lines => "route",
             Perm::Plans => "calendar_month",
-            Perm::Assign => "assignment_ind",
-            Perm::Approve => "how_to_reg",
+            Perm::Assign => "sync_alt",
+            Perm::Approve => "check_circle",
             Perm::Service => "traffic",
             Perm::Settings => "settings",
-            Perm::Players => "manage_accounts",
+            Perm::Players => "group",
         }
     }
 }
@@ -147,9 +147,9 @@ impl Role {
     pub fn icon(self) -> &'static str {
         match self {
             Role::Driver => "directions_bus",
-            Role::Planner => "event_note",
-            Role::Manager => "work",
-            Role::CoOwner => "workspace_premium",
+            Role::Planner => "event",
+            Role::Manager => "stars",
+            Role::CoOwner => "key",
         }
     }
 

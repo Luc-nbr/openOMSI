@@ -48,8 +48,17 @@ export function setUi(page, patch) {
   setCo((c) => ({ ui: { ...c.ui, [page]: { ...(c.ui[page] || {}), ...patch } } }));
 }
 
-/** A command of the bus company in the page's language. */
-export const cmd = (name, args = {}) => call(name, { ...args, lang: language() });
+/** The company's commands a friend of "Play together" relays to the boss's launcher while he
+ * looks at the boss's company's pages (`together::relay::RELAYED`). */
+const RELAYED = new Set(['co_tick', 'co_view', 'co_act', 'co_more_view', 'co_more_act', 'co_line_of']);
+
+/** A command of the bus company in the page's language (Beta 61: relayed to the boss's launcher
+ * on the pages of a company joined with "Play together", `S.co.remote`). */
+export const cmd = (name, args = {}) => {
+  const lang = language();
+  if (S.co?.remote && RELAYED.has(name)) return call('tg_relay', { cmd: name, args: { ...args, lang }, lang });
+  return call(name, { ...args, lang });
+};
 
 /** The view `name` of the company (`co_view`), asked again whenever the company changed (the
  * shell's generation), an action was taken, or `args` differ. Until the new one comes the
@@ -138,6 +147,13 @@ export const handOverHooks = [];
  * editor, the livery studio) are this launcher's own. (The game draws no launcher of its own
  * any more: there is nowhere else to hand over to.) */
 export async function handOver(page, opts = {}) {
+  // (Beta 61: on a company joined with "Play together" only its own pages open; the editors,
+  // RosterFlow and the boss's game are his launcher's)
+  if (S.co?.remote) {
+    if (/^\d+$/.test(String(page))) setCo({ tab: Number(page), dialog: null, popup: null });
+    else toast(tr('Only the boss can do this, on his own launcher.'), 'error');
+    return;
+  }
   for (const take of handOverHooks) {
     try {
       if (await take(page, opts)) return;

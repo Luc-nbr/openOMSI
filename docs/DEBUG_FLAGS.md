@@ -341,7 +341,8 @@ effect. On Android, `openOMSI/env.txt` holds `NAME=value` lines that are set bef
 | `OMSI_SIM_THREAD` | bool | off | use | sim | Window: the AI traffic's, the people's and the scenery scripts' steps run on a thread of its own while the picture is drawn (one frame later); the offscreen run ignores it. |
 | `OMSI_TERRAIN_ALIGN` | bool | off | use | scene | Align the terrain to the splines again at load (A/B; Omsi.exe does not). |
 | `OMSI_TEXTURE_RAIN` | bool | off | use | scene | OMSI 2's own texture rain on the glass instead of the drops. |
-| `OMSI_TOGETHER` | bool | off | use | launcher-api | The bus company's "Play together" (multiplayer, still in beta): its buttons work and its server may start. Without it they show "Multiplayer - coming soon (beta)" and every tg_ command is refused. |
+| `OMSI_TOGETHER` | bool | off | use | launcher-api | The bus company's "Play together" (multiplayer) forced on, even when OMSI_TOGETHER_OFF or the launcher's kill switch has it off (for testing). |
+| `OMSI_TOGETHER_OFF` | bool | off | use | launcher-api | The bus company's "Play together" (multiplayer) switched off: its buttons show "Multiplayer - coming soon (beta)", no session starts and every tg_ command is refused. |
 | `OMSI_TRACKIR_NATIVE` | text | on | use | input | 0 turns the native TrackIR interface off. |
 | `OMSI_TRAFFIC_ALL_GROUPS` | bool | off | use | app | Let restricted AI groups (aircraft, depot fleets) drive everywhere. |
 | `OMSI_TYRE_SUSPENSION` | bool | off | once | sim | The old suspension with wheel mass, tyre and bump stops (A/B). |

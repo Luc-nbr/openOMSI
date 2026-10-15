@@ -4,7 +4,7 @@
 //! behind a page's button. The badges are the strip's too (`Marks`).
 
 use super::words::{count_text, eur, filled, grouped, n_of, short_date, signed, share_tone, tr, trf};
-use super::{agenda, overview, sandbox, AGENDA_TAB, CONCESSIONS_TAB, CONTRACTS_TAB, DEPOT_TAB, ICONS, INBOX_TAB, MAP_TAB, OPS_TAB, REPUTATION_TAB, RESEARCH_TAB, SANDBOX_TAB, WORKSHOP_TAB};
+use super::{agenda, overview, sandbox, AGENDA_TAB, CONCESSIONS_TAB, CONTRACTS_TAB, DEPOT_TAB, ICONS, INBOX_TAB, MAP_TAB, OPS_TAB, REPUTATION_TAB, RESEARCH_TAB, SANDBOX_TAB, TOGETHER_TAB, WORKSHOP_TAB};
 use omsi_launcher_lib::company::day::Plan;
 use omsi_launcher_lib::company::{self as co, Company, Role};
 use serde_json::{json, Value};
@@ -276,6 +276,11 @@ pub fn view(s: &mut super::Session) -> Value {
     let settings = Tile::new("settings", "Settings", "settings").line(tr("Name, mark, date and buying"), "dim");
     // (Beta 61: a sandbox's rules, its own page)
     let sandbox_tile = co::sandbox::is_sandbox(&c).then(|| Tile::new(tab(SANDBOX_TAB), "Sandbox", ICONS[SANDBOX_TAB]).line(sandbox::changed_text(&c), "soft").line(tr("Set the company's rules"), "dim"));
+    // (Beta 61: the company shared with friends)
+    let together_tile = super::super::together::enabled().then(|| {
+        let (text, tone) = super::super::together::tile_line(&c);
+        Tile::new(tab(TOGETHER_TAB), "Multiplayer", ICONS[TOGETHER_TAB]).line(text, tone).line(tr("Players, roles and duties"), "dim")
+    });
     let mut concessions = mark(concessions);
     if concessions.badge.is_none() {
         if let Some((n, tip)) = live_badge {
@@ -288,7 +293,7 @@ pub fn view(s: &mut super::Session) -> Value {
         ("Operations", vec![mark(planning), mark(ops), mark(lines), mark(map), mark(fleet)]),
         ("People", vec![mark(people), hire, training]),
         ("Business", vec![mark(money), concessions, mark(contracts), mark(rep), mark(career)]),
-        ("Company", vec![mark(depot), mark(workshop), mark(research), settings].into_iter().chain(sandbox_tile).collect()),
+        ("Company", vec![mark(depot), mark(workshop), mark(research), settings].into_iter().chain(together_tile).chain(sandbox_tile).collect()),
     ];
     let sections: Vec<Value> = sections
         .into_iter()
@@ -326,8 +331,8 @@ mod tests {
         // every page has its tile
         let tos: Vec<String> = v["sections"].as_array().unwrap().iter().flat_map(|x| x["tiles"].as_array().unwrap().iter().map(|t| t["to"].as_str().unwrap().to_string())).collect();
         for k in 0..super::super::TABS.len() {
-            // (the Sandbox page is a sandbox company's alone)
-            assert_eq!(tos.contains(&format!("tab:{k}")), k != SANDBOX_TAB, "page {k}");
+            // (the Sandbox page is a sandbox company's alone; Multiplayer while it is on)
+            assert_eq!(tos.contains(&format!("tab:{k}")), k != SANDBOX_TAB && (k != TOGETHER_TAB || super::super::super::together::enabled()), "page {k}");
         }
         assert_eq!(v["sections"][1]["tiles"][0]["lines"][0][0], "Reading the timetable…");
     }

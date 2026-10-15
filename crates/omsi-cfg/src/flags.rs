@@ -475,7 +475,8 @@ flags! {
     OMSI_TOBII_DLL: Text, Setup, Use, "-", "The Tobii Stream Engine DLL to load instead of the Tobii Experience's.";
     OMSI_TOBII_RAW: Text, Test, Test, "-", "Tests: a file for the Tobii tracker's raw poses (record_the_tracker_here).";
     OMSI_TOBII_SECS: Num, Test, Test, "8", "Tests: how long the Tobii tracker is recorded.";
-    OMSI_TOGETHER: Bool, Switch, Use, "off", "The bus company's \"Play together\" (multiplayer, still in beta): its buttons work and its server may start. Without it they show \"Multiplayer - coming soon (beta)\" and every tg_ command is refused.";
+    OMSI_TOGETHER: Bool, Switch, Use, "off", "The bus company's \"Play together\" (multiplayer) forced on, even when OMSI_TOGETHER_OFF or the launcher's kill switch has it off (for testing).";
+    OMSI_TOGETHER_OFF: Bool, Switch, Use, "off", "The bus company's \"Play together\" (multiplayer) switched off: its buttons show \"Multiplayer - coming soon (beta)\", no session starts and every tg_ command is refused.";
     OMSI_TONE_CONTRAST: Text, Tuning, Once, "1", "day[,night]: tone mapping contrast.";
     OMSI_TOUCH: Bool, Test, Use, "off", "The on-screen touch controls on a computer.";
     OMSI_TRACE_AI: Text, Debug, Use, "-", "CSV: every AI car's pose, steering and speed every frame.";
