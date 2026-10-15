@@ -1,6 +1,8 @@
 //! A boss's company server and a friend's launcher over the loopback: joining, the day, taking a
-//! duty and being refused one, starting it in the boss's world, reporting its trips, and the
-//! day's close booking them; a bad code. No game is started.
+//! duty and being refused one, starting it in his own game (no world of the boss's), reporting
+//! its trips, and the day's close booking them - that duty alone, the rest of its tour as
+//! planned; a bad code. The roles and their permissions, checked on the boss's side; asking for
+//! a duty and its approval; a duty whose day closed before it was driven. No game is started.
 
 use super::super::duty_launch::DutyRef;
 use super::super::market::{self, MarketBus, Payment};
@@ -12,6 +14,7 @@ use super::book::{self, ClaimState};
 use super::client;
 use super::code::{self, CompanyCode};
 use super::host::{self, Here, HostState};
+use super::roles::{Perm, Role};
 use super::server::Server;
 use super::wire::{DriveStart, DutyState, Request, Snapshot};
 use crate::{TripInfo, TripRun};
@@ -61,12 +64,11 @@ fn timetable() -> Vec<crate::LineInfo> {
     }]
 }
 
-/// The boss's side: his company, its tours, the session's state, his game's code.
+/// The boss's side: his company, its tours, the session's state.
 struct Boss {
     c: Company,
     tours: Vec<TourOfDay>,
     st: HostState,
-    world: Option<(String, String)>,
 }
 
 impl Boss {
@@ -85,9 +87,8 @@ fn serve(boss: Arc<Mutex<Boss>>) -> Server {
     Server::start(0, true, Arc::new(move |body: &str| {
         let mut b = boss.lock().unwrap();
         let p = b.plan();
-        let world = b.world.clone();
         let Boss { c, st, .. } = &mut *b;
-        let here = Here { plan: Some(&p), lines: &lines, world, now: now(), lead: 10 };
+        let here = Here { plan: Some(&p), lines: &lines, now: now(), lead: 10 };
         st.answer(c, &here, body).body.to_string()
     }))
     .unwrap()
@@ -105,8 +106,7 @@ fn snap(v: &Value) -> Snapshot {
 fn friends_join_take_duties_drive_them_and_the_day_books_their_trips() {
     let (c, tours) = setup();
     let secret = [9, 8, 7, 6, 5, 4, 3, 2];
-    let game = omsi_net::SessionCode::single(omsi_net::PROTOCOL as u8, Ipv4Addr::new(192, 168, 1, 20), 27015, 0x1234_5678_9ABC).encode();
-    let boss = Arc::new(Mutex::new(Boss { st: HostState::new(&c.id, "Luc", secret), world: None, c, tours }));
+    let boss = Arc::new(Mutex::new(Boss { st: HostState::new(&c.id, "Luc", secret), c, tours }));
     let server = serve(boss.clone());
     let id = boss.lock().unwrap().c.id.clone();
     let code = CompanyCode { secret, session: 1, version: code::VERSION, port: server.port(), company: code::tag_of(&id), ips: vec![Ipv4Addr::LOCALHOST] };
@@ -141,19 +141,15 @@ fn friends_join_take_duties_drive_them_and_the_day_books_their_trips() {
     let v = client::send(&base, &req(&code, "piet-2", "Piet", "release", Some(&duty)), client::TIMEOUT).unwrap();
     assert_eq!(v["error"].as_str(), Some(book::NOT_YOURS));
 
-    // driving it: the boss's world is not open yet, then it is
-    let v = client::send(&base, &req(&code, "jan-1", "Jan", "start", Some(&duty)), client::TIMEOUT).unwrap();
-    assert_eq!(v["error"].as_str(), Some(host::WORLD_CLOSED), "{v}");
-    let map = boss.lock().unwrap().c.map.clone();
-    boss.lock().unwrap().world = Some((game.clone(), map));
+    // driving it: in his own game, alone, at once - the boss opens no world
     let v = client::send(&base, &req(&code, "jan-1", "Jan", "start", Some(&duty)), client::TIMEOUT).unwrap();
     assert_eq!(v["ok"], true, "{v}");
     let start: DriveStart = serde_json::from_value(v["start"].clone()).unwrap();
-    assert_eq!((start.game.as_str(), start.line.as_str(), start.tour.as_str(), start.first), (game.as_str(), "Linie5", "2", 1));
+    assert_eq!((start.line.as_str(), start.tour.as_str(), start.first, start.date.as_str()), ("Linie5", "2", 1, "2024-03-04"));
     assert_eq!(start.legs, vec!["Linie5|2|1|3".to_string()]);
     assert_eq!(start.bus, "Vehicles/Citaro/Citaro.bus");
-    let d = start.duty(crate::Duty { traffic: Some(40), ..Default::default() }, "Jan");
-    assert_eq!((d.lan.as_deref(), d.lan_name.as_deref(), d.company.as_deref(), d.traffic), (Some(format!("join:{game}").as_str()), Some("Jan"), None, Some(40)));
+    let d = start.duty(crate::Duty { traffic: Some(40), ..Default::default() });
+    assert_eq!((d.lan.as_deref(), d.lan_name.as_deref(), d.company.as_deref(), d.traffic), (Some("off"), None, None, Some(40)));
     assert_eq!(snap(&v).duties[0].state, DutyState::Driving);
 
     // the trips his game judged: those of the duty are taken (once), another is refused
@@ -172,6 +168,10 @@ fn friends_join_take_duties_drive_them_and_the_day_books_their_trips() {
     // (passengers no more than a bus can have carried)
     assert_eq!((s.results[0].trips, s.results[0].passengers), (3, 20 + 250 + 15));
     assert!(s.notices.iter().any(|n| n.text == host::FINISHED));
+    // his own figures: the trips, the duty, what they brought the company
+    let you = s.you.clone().unwrap();
+    assert_eq!((you.role, you.perms.clone(), you.stats.trips, you.stats.duties, you.stats.passengers), (Role::Driver, vec![Perm::Drive], 3, 1, 285));
+    assert!(you.stats.fares > 0 && you.stats.fares == s.results[0].fares);
 
     // the day's close books his trips as the boss's own: measured, the tour run
     let mut b = boss.lock().unwrap();
@@ -183,7 +183,8 @@ fn friends_join_take_duties_drive_them_and_the_day_books_their_trips() {
     let cash = c.cash;
     let closed = c.date.clone();
     let report = super::super::day::close_day_with(c, tours, &[], &trips);
-    assert_eq!((report.measured, report.by_player, report.covered, report.tours), (3, 1, 1, 1));
+    // (his duty alone is his: the tour is not the boss's own)
+    assert_eq!((report.measured, report.by_player, report.covered, report.tours), (3, 0, 1, 1));
     assert!(c.ledger.iter().any(|b| b.date == closed && b.measured && b.text.contains("own trip")));
     assert_ne!(c.cash, cash);
     book::after_close(c, &closed);
@@ -197,7 +198,7 @@ fn claims_wait_for_the_boss_when_he_says_so_and_a_bad_code_gets_nowhere() {
     let (mut c, tours) = setup();
     c.together.open_claims = false;
     let secret = [1, 1, 2, 3, 5, 8, 13, 21];
-    let boss = Arc::new(Mutex::new(Boss { st: HostState::new(&c.id, "Luc", secret), world: None, c, tours }));
+    let boss = Arc::new(Mutex::new(Boss { st: HostState::new(&c.id, "Luc", secret), c, tours }));
     let server = serve(boss.clone());
     let id = boss.lock().unwrap().c.id.clone();
     let code = CompanyCode { secret, session: 1, version: code::VERSION, port: server.port(), company: code::tag_of(&id), ips: vec![Ipv4Addr::LOCALHOST] };
@@ -216,9 +217,9 @@ fn claims_wait_for_the_boss_when_he_says_so_and_a_bad_code_gets_nowhere() {
         let g = book::answer(&mut b.c, &duty, true).unwrap();
         assert_eq!(b.c.together.claim_of(&duty).map(|x| x.state), Some(ClaimState::Planned));
         assert_eq!(b.plan().tours[0].duties[0].who, Some(Who::Guest(g)));
-        // (not driven by the close: open, its trips dropped)
+        // (not driven by the close: the central covers it, as the boss's own)
         let p = day_plan(&b.c, &b.c.date, b.tours.clone(), &[], &[], true);
-        assert_eq!(p.tours[0].duties[0].who, None);
+        assert_eq!((p.tours[0].duties[0].who, p.tours[0].duties[0].problem), (Some(Who::Agency), Some(super::super::plan::Problem::Player)));
         // the boss takes him off again, and gives it him himself
         assert_eq!(book::release(&mut b.c, &duty, None), Ok(g));
         let p = b.plan();
@@ -258,4 +259,280 @@ fn an_old_company_file_loads_with_nobody_playing_together() {
     assert!(back.together.open_claims && back.together.claims.is_empty());
     // a duty given to a player keeps its name when saved
     assert_eq!(serde_json::to_string(&Who::Guest(3)).unwrap(), r#"{"guest":3}"#);
+}
+
+/// The boss's side answered in-process (no server): `what` of player `player`, with `fill`
+/// setting the rest of the message.
+fn ask(b: &mut Boss, player: &str, what: &str, fill: impl FnOnce(&mut Request)) -> Value {
+    let mut r = Request { v: code::VERSION, secret: b.st.secret.iter().map(|x| format!("{x:02x}")).collect(), company: code::tag_of(&b.c.id), player: player.into(), name: player.to_uppercase(), what: what.into(), ..Default::default() };
+    fill(&mut r);
+    let p = b.plan();
+    let lines = timetable();
+    let here = Here { plan: Some(&p), lines: &lines, now: now(), lead: 10 };
+    let body = serde_json::to_string(&r).unwrap();
+    b.st.answer(&mut b.c, &here, &body).body
+}
+
+fn boss() -> Boss {
+    let (c, tours) = setup();
+    Boss { st: HostState::new(&c.id, "Luc", [3; 8]), c, tours }
+}
+
+fn guest_no(b: &Boss, player: &str) -> u32 {
+    b.c.together.guests.iter().find(|g| g.id == player).unwrap().no
+}
+
+#[test]
+fn every_message_is_checked_against_the_players_permissions_on_the_bosss_side() {
+    let mut b = boss();
+    let v = ask(&mut b, "jan", "hello", |_| {});
+    let duty = snap(&v).duties[0].duty.clone();
+    ask(&mut b, "piet", "hello", |_| {});
+    let (jan, piet) = (guest_no(&b, "jan"), guest_no(&b, "piet"));
+    // a driver: drives and asks, nothing more - whatever his page shows
+    let you = snap(&v).you.unwrap();
+    assert_eq!((you.role, you.perms), (Role::Driver, vec![Perm::Drive]));
+    for (what, perm) in [("assign", Perm::Assign), ("unassign", Perm::Assign), ("answer", Perm::Approve), ("set_role", Perm::Players), ("kick", Perm::Players)] {
+        let v = ask(&mut b, "jan", what, |r| {
+            r.duty = Some(duty.clone());
+            r.target = piet;
+            r.role = Role::CoOwner;
+            r.perms = Perm::ALL.to_vec();
+        });
+        assert_eq!((v["ok"].as_bool(), v["error"].as_str(), v["perm"].as_str()), (Some(false), Some(host::NOT_ALLOWED), Some(perm.key())), "{what}: {v}");
+    }
+    assert!(b.c.together.claims.is_empty());
+    assert_eq!(b.c.together.guest(piet).unwrap().role, Role::Driver);
+    // (a driver the boss took driving from cannot take a duty either)
+    let now = now();
+    assert!(b.st.set_role(&mut b.c, now, piet, Role::Driver, &[]));
+    let v = ask(&mut b, "piet", "take", |r| r.duty = Some(duty.clone()));
+    assert_eq!(v["perm"].as_str(), Some("drive"), "{v}");
+    // the boss makes Jan the dispatcher: he gives the duty to Piet... who may not drive
+    assert!(b.st.set_role(&mut b.c, now, jan, Role::Planner, Role::Planner.preset()));
+    let v = ask(&mut b, "jan", "snapshot", |_| {});
+    let you = snap(&v).you.unwrap();
+    assert!(you.perms.contains(&Perm::Assign) && you.perms.contains(&Perm::Plans) && !you.perms.contains(&Perm::Finances));
+    assert!(snap(&v).notices.iter().any(|n| n.text == host::ROLE_SET));
+    assert_eq!(snap(&v).members.len(), 2, "who duties can be given to");
+    assert!(b.st.set_role(&mut b.c, now, piet, Role::Driver, Role::Driver.preset()));
+    let v = ask(&mut b, "jan", "assign", |r| {
+        r.duty = Some(duty.clone());
+        r.target = piet;
+    });
+    assert_eq!(v["ok"], true, "{v}");
+    assert!(b.c.together.claim_of(&duty).is_some_and(|x| x.guest == piet && x.given && x.state == ClaimState::Planned));
+    assert_eq!(b.plan().tours[0].duties[0].who, Some(Who::Guest(piet)));
+    // (the duty's sheet kept with it, and how his game starts on it)
+    let x = b.c.together.claim_of(&duty).unwrap();
+    assert_eq!((x.number.as_str(), x.from, x.to, x.sheet.len(), x.bus.as_str()), ("5", 350, 480, 5, "Vehicles/Citaro/Citaro.bus"));
+    assert!(x.start.is_some());
+    // Piet sees it as his; Jan takes him off again
+    let v = ask(&mut b, "piet", "snapshot", |_| {});
+    assert_eq!(snap(&v).duties[0].state, DutyState::Mine);
+    assert!(snap(&v).members.is_empty(), "a driver does not see the players' permissions");
+    let v = ask(&mut b, "jan", "unassign", |r| r.duty = Some(duty.clone()));
+    assert_eq!(v["ok"], true, "{v}");
+    assert!(b.c.together.claims.is_empty());
+    // a planner manages no players
+    let v = ask(&mut b, "jan", "set_role", |r| {
+        r.target = piet;
+        r.role = Role::Manager;
+    });
+    assert_eq!(v["perm"].as_str(), Some("players"));
+}
+
+#[test]
+fn players_are_managed_only_by_those_who_may_do_as_much_themselves() {
+    let mut b = boss();
+    for p in ["anna", "bert", "cor"] {
+        ask(&mut b, p, "hello", |_| {});
+    }
+    let (anna, bert, cor) = (guest_no(&b, "anna"), guest_no(&b, "bert"), guest_no(&b, "cor"));
+    let now = now();
+    // Anna: a manager who may also manage players, but not see the money
+    let mut want = Role::Manager.preset().to_vec();
+    want.push(Perm::Players);
+    want.retain(|p| *p != Perm::Finances);
+    b.st.set_role(&mut b.c, now, anna, Role::Manager, &want);
+    let g = b.c.together.guest(anna).unwrap();
+    assert_eq!((g.grant.clone(), g.deny.clone()), (vec![Perm::Players], vec![Perm::Finances]));
+    // she makes Bert a planner
+    let v = ask(&mut b, "anna", "set_role", |r| {
+        r.target = bert;
+        r.role = Role::Planner;
+        r.perms = Role::Planner.preset().to_vec();
+    });
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(b.c.together.guest(bert).unwrap().perms(), Role::Planner.preset().to_vec());
+    // ...but cannot give what she has not (the money), nor raise herself
+    let v = ask(&mut b, "anna", "set_role", |r| {
+        r.target = bert;
+        r.role = Role::Manager;
+        r.perms = Role::Manager.preset().to_vec();
+    });
+    assert_eq!(v["error"].as_str(), Some(host::NOT_ABOVE), "{v}");
+    let v = ask(&mut b, "anna", "set_role", |r| {
+        r.target = anna;
+        r.role = Role::CoOwner;
+        r.perms = Perm::ALL.to_vec();
+    });
+    assert_eq!(v["error"].as_str(), Some(host::NOT_ABOVE));
+    // a co-owner is above her: she cannot send him away
+    b.st.set_role(&mut b.c, now, cor, Role::CoOwner, &Perm::ALL);
+    let v = ask(&mut b, "anna", "kick", |r| r.target = cor);
+    assert_eq!(v["error"].as_str(), Some(host::NOT_ABOVE));
+    // the co-owner sends Bert away for the session, then removes Anna from the company
+    let v = ask(&mut b, "cor", "kick", |r| r.target = bert);
+    assert_eq!(v["ok"], true, "{v}");
+    let v = ask(&mut b, "bert", "snapshot", |_| {});
+    assert_eq!((v["error"].as_str(), v.get("snapshot").is_none()), (Some(host::KICKED), true));
+    let v = ask(&mut b, "cor", "kick", |r| {
+        r.target = anna;
+        r.ban = true;
+    });
+    assert_eq!(v["ok"], true, "{v}");
+    assert!(b.c.together.guest(anna).unwrap().banned);
+    let v = ask(&mut b, "anna", "hello", |_| {});
+    assert_eq!(v["error"].as_str(), Some(host::BANNED));
+    assert!(host::ending(host::BANNED) && host::ending(host::KICKED) && !host::ending(host::READING));
+    // the boss lets them back
+    b.st.let_back(&mut b.c, now, anna);
+    b.st.let_back(&mut b.c, now, bert);
+    assert_eq!(ask(&mut b, "anna", "hello", |_| {})["ok"], true);
+    assert_eq!(ask(&mut b, "bert", "hello", |_| {})["ok"], true);
+    // (what the company keeps of roles reads back)
+    let back: Company = serde_json::from_value(serde_json::to_value(&b.c).unwrap()).unwrap();
+    assert_eq!(back.together.guest(anna).unwrap().perms(), b.c.together.guest(anna).unwrap().perms());
+}
+
+#[test]
+fn a_driver_asks_for_a_duty_and_whoever_may_approve_says_yes_or_takes_one_at_once() {
+    let mut b = boss();
+    b.c.together.open_claims = false;
+    let v = ask(&mut b, "jan", "hello", |_| {});
+    let duty = snap(&v).duties[0].duty.clone();
+    ask(&mut b, "eva", "hello", |_| {});
+    let (jan, eva) = (guest_no(&b, "jan"), guest_no(&b, "eva"));
+    // Jan asks: not his yet
+    let v = ask(&mut b, "jan", "take", |r| r.duty = Some(duty.clone()));
+    assert_eq!(v["state"].as_str(), Some("asked"), "{v}");
+    assert!(snap(&ask(&mut b, "jan", "snapshot", |_| {})).asks.is_empty(), "a driver approves nothing");
+    // Eva, the dispatcher, sees the request and says yes
+    b.st.set_role(&mut b.c, now(), eva, Role::Planner, Role::Planner.preset());
+    let s = snap(&ask(&mut b, "eva", "snapshot", |_| {}));
+    assert_eq!(s.asks.len(), 1);
+    assert_eq!((s.asks[0].no, s.asks[0].name.as_str(), s.asks[0].number.as_str()), (jan, "JAN", "5"));
+    let v = ask(&mut b, "eva", "answer", |r| {
+        r.duty = Some(duty.clone());
+        r.yes = true;
+    });
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(b.c.together.claim_of(&duty).map(|x| (x.guest, x.state)), Some((jan, ClaimState::Planned)));
+    // a no: the request goes
+    ask(&mut b, "jan", "release", |r| r.duty = Some(duty.clone()));
+    ask(&mut b, "jan", "take", |r| r.duty = Some(duty.clone()));
+    let v = ask(&mut b, "eva", "answer", |r| {
+        r.duty = Some(duty.clone());
+        r.yes = false;
+    });
+    assert_eq!(v["ok"], true, "{v}");
+    assert!(b.c.together.claims.is_empty());
+    assert!(snap(&v).notices.iter().any(|n| n.text == host::REFUSED));
+    // one who may approve takes an open duty at once
+    let v = ask(&mut b, "eva", "take", |r| r.duty = Some(duty.clone()));
+    assert_eq!(v["state"].as_str(), Some("planned"), "{v}");
+}
+
+/// A company whose tour 2 is cut into two duties: the first (350 - 430) for a player, the
+/// second (440 - 480) for an agency driver.
+fn two_duties() -> Boss {
+    let mut b = boss();
+    b.tours[0].cuts = Some(vec![3]);
+    let wd = super::super::plan::weekday_of(&b.c.date);
+    super::super::plan::set_driver(&mut b.c, wd, "Linie5", "2", 1, Some(Who::Agency));
+    b
+}
+
+fn run(dep: i32, passengers: i32, fines: i64) -> TripRun {
+    TripRun { time: 1, driver: "x".into(), map: "maps/Grundorf/global.cfg".into(), line: "5".into(), tour: "2".into(), departure: dep as f64 * 60.0, arrival: (dep + 30) as f64 * 60.0, completed: true, planned: 10, stops: 10, late: 2, metres: 8000.0, seconds: 1800.0, passengers, fines, red_lights: (fines > 0) as i32, ..Default::default() }
+}
+
+#[test]
+fn what_a_player_drives_is_the_bosss_companys_his_duty_alone_with_its_fines() {
+    let mut b = two_duties();
+    let v = ask(&mut b, "jan", "hello", |_| {});
+    let s = snap(&v);
+    assert_eq!(s.duties.iter().map(|d| (d.from, d.to, d.state)).collect::<Vec<_>>(), vec![(350, 430, DutyState::Open), (440, 480, DutyState::Company)]);
+    let duty = s.duties[0].duty.clone();
+    assert_eq!(ask(&mut b, "jan", "take", |r| r.duty = Some(duty.clone()))["ok"], true);
+    assert_eq!(ask(&mut b, "jan", "start", |r| r.duty = Some(duty.clone()))["ok"], true);
+    // his trips, one with a red light run: and one of the agency driver's duty, refused
+    let v = ask(&mut b, "jan", "report", |r| {
+        r.duty = Some(duty.clone());
+        r.trips = vec![run(360, 30, 0), run(400, 25, 120_00), run(440, 99, 0)];
+        r.done = true;
+    });
+    assert_eq!((v["taken"].as_u64(), v["refused"].as_u64()), (Some(2), Some(1)), "{v}");
+    let g = b.c.together.guest(guest_no(&b, "jan")).unwrap().stats.clone();
+    assert_eq!((g.trips, g.duties, g.passengers, g.fines, g.stops, g.on_time), (2, 1, 55, 120_00, 20, 16));
+    assert_eq!(g.punctuality(), Some(80.0));
+    // the close: his two trips measured, with the fine; the agency driver's duty modelled
+    let closed = b.c.date.clone();
+    let trips = book::trips_for_close(&b.c);
+    let tours = b.tours.clone();
+    let cash = b.c.cash;
+    let report = super::super::day::close_day_with(&mut b.c, tours, &[], &trips);
+    assert_eq!((report.measured, report.by_player, report.covered), (2, 0, 1), "{report:?}");
+    let booked = |kind: super::super::model::BookingKind, measured: bool| b.c.ledger.iter().filter(|x| x.date == closed && x.kind == kind && x.measured == measured).map(|x| x.amount).sum::<i64>();
+    use super::super::model::BookingKind;
+    assert!(booked(BookingKind::Fares, true) > 0, "his fares");
+    assert!(booked(BookingKind::Fares, false) > 0, "the agency driver's duty runs as planned: not dropped with the tour");
+    assert_eq!(booked(BookingKind::Fine, true), -120_00, "his fine is the company's");
+    assert!(report.dropped == 0, "nothing of the tour dropped: {report:?}");
+    assert_ne!(b.c.cash, cash);
+    book::after_close(&mut b.c, &closed);
+    assert!(b.c.together.claims.is_empty() && b.c.together.trips.is_empty());
+}
+
+#[test]
+fn a_duty_whose_day_closed_before_it_was_driven_stays_the_players_and_books_what_it_can() {
+    let mut b = boss();
+    let v = ask(&mut b, "jan", "hello", |_| {});
+    let duty = snap(&v).duties[0].duty.clone();
+    assert_eq!(ask(&mut b, "jan", "take", |r| r.duty = Some(duty.clone()))["ok"], true);
+    let jan = guest_no(&b, "jan");
+    // the boss's day closes before Jan drives (he was offline): the company covered it
+    let closed = b.c.date.clone();
+    let tours = b.tours.clone();
+    let report = super::super::day::close_day_with(&mut b.c, tours, &[], &[]);
+    assert_eq!((report.covered, report.dropped), (1, 0), "{report:?}");
+    assert_eq!(b.c.date, super::super::dates::add(&closed, 1));
+    book::after_close(&mut b.c, &closed);
+    let x = b.c.together.claim_of(&duty).cloned().unwrap();
+    assert!(x.late && x.state == ClaimState::Planned && x.start.is_some(), "{x:?}");
+    // his page still has it, and he drives it now: with the start kept
+    let s = snap(&ask(&mut b, "jan", "snapshot", |_| {}));
+    let late = s.duties.iter().find(|d| book::same_duty(&d.duty, &duty)).unwrap();
+    assert_eq!((late.state, late.from, late.number.as_str()), (DutyState::Late, 350, "5"));
+    let v = ask(&mut b, "jan", "start", |r| r.duty = Some(duty.clone()));
+    assert_eq!(v["ok"], true, "{v}");
+    // its trips: checked against the duty as it was, booked at once - the fine and the bonus,
+    // not the fares (the company had it covered)
+    let fines_before = b.c.ledger.iter().filter(|x| x.kind == super::super::model::BookingKind::Fine).count();
+    let v = ask(&mut b, "jan", "report", |r| {
+        r.duty = Some(duty.clone());
+        r.trips = vec![run(360, 30, 80_00), run(999, 1, 0)];
+        r.done = true;
+    });
+    assert_eq!((v["ok"].as_bool(), v["taken"].as_u64(), v["refused"].as_u64()), (Some(true), Some(1), Some(1)), "{v}");
+    assert_eq!(b.c.ledger.iter().filter(|x| x.kind == super::super::model::BookingKind::Fine).count(), fines_before + 1);
+    let g = b.c.together.guest(jan).unwrap().stats.clone();
+    assert_eq!((g.trips, g.late, g.fares, g.fines, g.duties), (1, 1, 0, 80_00, 1));
+    // (not booked a second time by the next close)
+    assert!(book::trips_for_close(&b.c).is_empty());
+    // finished: it goes with the next close
+    let today = b.c.date.clone();
+    book::after_close(&mut b.c, &today);
+    assert!(b.c.together.claims.is_empty());
 }

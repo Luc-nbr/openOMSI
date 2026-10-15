@@ -1621,11 +1621,17 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
         }
     }
 
-    // (Beta 58: a player of "Play together" on the duty he has today, before anybody else)
+    // (Beta 58: a player of "Play together" on the duty he has today, before anybody else; when
+    // the day is closed and he did not drive it, the central covers it as the boss's own - and
+    // one he drove is his alone, not the rest of its tour: Beta 61)
     if today {
         for t in out.iter_mut().filter(|t| !t.by_player) {
             for (k, d) in t.duties.iter_mut().enumerate() {
                 if let Some(g) = super::together::guest_on(c, date, &t.tour.line, &t.tour.tour, k) {
+                    if closing && !super::together::book::drove(c, date, &t.tour.line, &t.tour.tour, k) {
+                        d.problem = Some(Problem::Player);
+                        continue;
+                    }
                     d.who = Some(Who::Guest(g));
                     d.from_ = Source::Dispatcher;
                 }
@@ -1841,16 +1847,6 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
             // (sent during the day by service control: from then on)
             let cover_from = cover.and_then(|_| super::control::cover_from(c, date, &t.tour.line, &t.tour.tour, k));
             out[i].duties[k].late = Some(LatePiece { until, cover, from_, cover_from });
-        }
-    }
-    // (a duty a player of "Play together" had and did not drive: open when the day is closed,
-    // its trips dropped)
-    if closing {
-        for t in out.iter_mut().filter(|t| !t.by_player) {
-            for d in t.duties.iter_mut().filter(|d| matches!(d.who, Some(Who::Guest(_)))) {
-                d.who = None;
-                d.problem = Some(Problem::Player);
-            }
         }
     }
     DayPlan { date: date.to_string(), weekday: wd, today, tours: out, disruptions: dis }

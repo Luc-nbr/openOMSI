@@ -7,12 +7,18 @@
 //! rules goes out.
 //!
 //! What a player asks (`Request::what`): `hello`, `snapshot`, `take` / `release` a duty,
-//! `start` driving it (answered with the duty's start and the boss's game session code),
-//! `report` its trips (`done` at its end), `say` a line to everyone, `leave`.
+//! `start` driving it (answered with the duty's start in his own game), `report` its trips
+//! (`done` at its end), `say` a line to everyone, `leave`; with the permission for it, `assign`
+//! / `unassign` a duty of a player (`target`), `answer` a request (`yes`), `set_role` of a
+//! player (`role`, `perms`), `kick` one (`ban`), and `page`: a page of the company's own,
+//! relayed to the boss's launcher (`page`: its command and arguments).
 
 use super::super::duty_launch::DutyRef;
+use super::book::GuestStats;
+use super::roles::{Perm, Role};
 use crate::TripRun;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(default)]
@@ -37,6 +43,16 @@ pub struct Request {
     pub in_game: bool,
     /// The last notice the player has (only newer ones come).
     pub since: u64,
+    /// The player an action is about (`assign`, `set_role`, `kick`), and what it sets.
+    pub target: u32,
+    pub yes: bool,
+    pub ban: bool,
+    pub role: Role,
+    pub perms: Vec<Perm>,
+    /// A page of the company relayed (`{ "cmd": …, "args": … }`).
+    pub page: Value,
+    /// The company's logo wanted with the answer (the player's page does not have it yet).
+    pub logo: bool,
 }
 
 /// The company as the friend's page shows it.
@@ -51,6 +67,8 @@ pub struct Card {
     pub map_name: String,
     /// The boss (his profile's name).
     pub boss: String,
+    /// The logo as the page shows it (a `data:` address; only when asked for: `Request::logo`).
+    pub logo: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -79,6 +97,8 @@ pub enum DutyState {
     Asked,
     Driving,
     Done,
+    /// Mine, its day closed before I drove it: still mine to drive (`book::Claim::late`).
+    Late,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -100,8 +120,9 @@ pub struct SnapDuty {
     pub bus: String,
     pub file: String,
     pub state: DutyState,
-    /// Who drives it (a name; empty: nobody).
+    /// Who drives it (a name; empty: nobody), and the player who has it (0: none).
     pub who: String,
+    pub guest: u32,
     /// Why it cannot be taken (`Closed`: English, a key of the translations).
     pub why: String,
 }
@@ -109,10 +130,13 @@ pub struct SnapDuty {
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(default)]
 pub struct SnapPlayer {
+    /// His number in the company (0: the boss).
+    pub no: u32,
     pub name: String,
     pub me: bool,
     pub boss: bool,
     pub online: bool,
+    pub role: Role,
     /// What he drives now (line number, tour, duty; None: nothing).
     pub driving: Option<(String, String, usize)>,
 }
@@ -148,6 +172,44 @@ pub struct SnapResult {
     pub done: bool,
 }
 
+/// The player himself: his role, what he may do, what he drove for the company.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct SnapYou {
+    pub no: u32,
+    pub name: String,
+    pub role: Role,
+    pub perms: Vec<Perm>,
+    pub stats: GuestStats,
+}
+
+/// A player of the company as one who manages players (or gives duties) sees him.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct SnapMember {
+    pub no: u32,
+    pub name: String,
+    pub role: Role,
+    pub perms: Vec<Perm>,
+    pub online: bool,
+    pub banned: bool,
+    /// His duties of the day.
+    pub duties: usize,
+    pub stats: GuestStats,
+}
+
+/// A duty a player asked for, as one who may approve sees it.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct SnapAsk {
+    pub duty: DutyRef,
+    pub number: String,
+    pub from: i32,
+    pub to: i32,
+    pub no: u32,
+    pub name: String,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(default)]
 pub struct Snapshot {
@@ -156,8 +218,6 @@ pub struct Snapshot {
     /// The company's clock: the minute of its day.
     pub minute: i32,
     pub open_claims: bool,
-    /// The boss's game runs and hosts the company's world.
-    pub world: bool,
     pub lines: Vec<SnapLine>,
     pub duties: Vec<SnapDuty>,
     pub players: Vec<SnapPlayer>,
@@ -165,10 +225,16 @@ pub struct Snapshot {
     pub results: Vec<SnapResult>,
     /// The day's timetable is being read (no duties yet).
     pub reading: bool,
+    /// The player himself.
+    pub you: Option<SnapYou>,
+    /// The company's players (to one who gives duties or manages players), the duties asked for
+    /// (to one who may approve them).
+    pub members: Vec<SnapMember>,
+    pub asks: Vec<SnapAsk>,
 }
 
-/// How a player's game starts on his duty in the boss's world (`duty_launch::Start`, which the
-/// boss's launcher works out: the friend's has no company).
+/// How a player's game starts on his duty (`duty_launch::Start`, which the boss's launcher works
+/// out: the friend's has no company): in his own game, alone, at the duty's day and time.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(default)]
 pub struct DriveStart {
@@ -185,14 +251,15 @@ pub struct DriveStart {
     pub number: String,
     pub plate: String,
     pub hof: String,
-    /// The boss's game session code (`--lan-join`).
-    pub game: String,
+    /// A relief on the way: where the duty takes the bus over, and where it hands it on.
+    pub from_stop: Option<usize>,
+    pub to_stop: Option<usize>,
 }
 
 impl DriveStart {
     /// The duty as the friend's launcher starts the game: `base` (his game options) with the
-    /// duty's start, joining the boss's world as `name`.
-    pub fn duty(&self, base: crate::Duty, name: &str) -> crate::Duty {
+    /// duty's start, in a game of his own.
+    pub fn duty(&self, base: crate::Duty) -> crate::Duty {
         let st = super::super::duty_launch::Start {
             company: self.company.clone(),
             map: self.map.clone(),
@@ -202,8 +269,8 @@ impl DriveStart {
             tour: self.tour.clone(),
             first: self.first,
             legs: self.legs.clone(),
-            from_stop: None,
-            to_stop: None,
+            from_stop: self.from_stop,
+            to_stop: self.to_stop,
             bus: self.bus.clone(),
             paint: self.paint.clone(),
             number: self.number.clone(),
@@ -211,15 +278,13 @@ impl DriveStart {
             hof: self.hof.clone(),
         };
         let mut d = st.duty(base, "");
-        // (in the boss's world: his date, time and weather, his company's buses - the friend has
-        // no company of his own to run)
-        d.lan = Some(format!("join:{}", self.game.trim()));
-        d.lan_name = Some(name.to_string()).filter(|n| !n.trim().is_empty());
+        // (alone, not in a session; the friend has no company of his own to run: his trips go
+        // to the boss's by his launcher)
         d.company = None;
         d
     }
 
-    pub fn of(s: &super::super::duty_launch::Start, game: &str) -> DriveStart {
+    pub fn of(s: &super::super::duty_launch::Start) -> DriveStart {
         DriveStart {
             company: s.company.clone(),
             map: s.map.clone(),
@@ -234,7 +299,8 @@ impl DriveStart {
             number: s.number.clone(),
             plate: s.plate.clone(),
             hof: s.hof.clone(),
-            game: game.to_string(),
+            from_stop: s.from_stop,
+            to_stop: s.to_stop,
         }
     }
 }
