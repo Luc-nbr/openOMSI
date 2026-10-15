@@ -174,6 +174,16 @@ fn plan_of(c: &Company, apply: Option<&Value>) -> Option<Plan> {
     Some(Plan { only: a.get("source_as").and_then(Value::as_str) == Some("date"), targets, what: What { vehicles: flag("vehicles"), drivers: flag("drivers") } })
 }
 
+/// The days a copy from `date` reached that run the timetable of another day type and did not
+/// match it all (testers: "I can't copy a timetable from MF to SA or SU"): a plan copies onto the
+/// trips a day has, so the line's timetable goes there first - the Timeplan's "Copy to…"
+/// (`plandays::copy_table`). Said after what was copied.
+fn timetable_hint(date: &str, made: &[(String, bool, Copied)]) -> Option<String> {
+    let group = group_of(co::plan::weekday_of(date));
+    let days: Vec<String> = made.iter().filter(|m| !m.2.exact() && group_of(co::plan::weekday_of(&m.0)) != group).map(|m| short(&m.0)).collect();
+    (!days.is_empty()).then(|| trf("%{days} run the timetable of another day type: copy the line's timetable there first (Timeplan, Timetable, Copy to…), save and Refresh - then the plan finds the same trips there.", &[("days", &days.join(", "))]))
+}
+
 /// What a SAVE says: saved, and how many duties the roster has no driver for now (`plan::follow`).
 fn saved_text(open: usize) -> String {
     let saved = tr("Saved: the roster, the day and the game run this planning now.");
@@ -253,6 +263,9 @@ pub(super) fn save(s: &mut Session, r: &mut Rf, date: &str, apply: Option<&Value
     };
     if missing > 0 {
         text = format!("{text} {}", trf("%{n} trips matched nothing: they run as their timetable has them, to plan by hand.", &[("n", &missing.to_string())]));
+    }
+    if let Some(h) = timetable_hint(date, &made) {
+        text = format!("{text} {h}");
     }
     if !unread.is_empty() {
         text = format!("{text} {}", trf("Not copied, their timetable is still being read: %{days}.", &[("days", &unread.join(", "))]));
@@ -407,6 +420,9 @@ pub(super) fn copy_rows(s: &mut Session, r: &mut Rf, date: &str, args: &Value) -
     if missing > 0 && matched > 0 {
         text = format!("{text} {}", trf("%{n} of their trips were not copied: they match no trip there, or a locked vehicle or duty there has them.", &[("n", &missing.to_string())]));
     }
+    if let Some(h) = timetable_hint(date, &made) {
+        text = format!("{text} {h}");
+    }
     if !unread.is_empty() {
         text = format!("{text} {}", trf("Not copied, their timetable is still being read: %{days}.", &[("days", &unread.join(", "))]));
     }
@@ -452,5 +468,18 @@ mod tests {
         super::super::super::company::words::set_language("en");
         assert!(short("2024-03-08").starts_with("FRI 8"));
         assert_eq!((group_of(0), group_of(4), group_of(5), group_of(6)), (0, 0, 1, 2));
+    }
+
+    #[test]
+    fn a_plan_copied_onto_the_weekend_says_to_copy_the_timetable_first() {
+        super::super::super::company::words::set_language("en");
+        let partial = Copied { gone: 3, ..Default::default() };
+        // (Friday onto Saturday and Sunday, matched in part: the timetable goes there first)
+        let made = vec![("2024-03-09".to_string(), true, partial.clone()), ("2024-03-10".to_string(), true, partial.clone()), ("2024-03-05".to_string(), true, partial)];
+        let hint = timetable_hint("2024-03-08", &made).unwrap();
+        assert!(hint.starts_with("SAT 9") && hint.contains("SUN 10") && !hint.contains("TUE"), "{hint}");
+        // a day of the same timetable, or one copied exactly: nothing to say
+        assert!(timetable_hint("2024-03-08", &made[2..]).is_none());
+        assert!(timetable_hint("2024-03-08", &[("2024-03-09".to_string(), true, Copied::default())]).is_none());
     }
 }

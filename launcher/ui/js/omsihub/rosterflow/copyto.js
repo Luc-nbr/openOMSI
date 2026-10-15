@@ -54,6 +54,7 @@ export function CopyTo({ gTop }) {
       <div class="days">${days.map((d) => html`<div class="day"><${CheckRow} on=${!!pn.ticks[d.k]} label=${d.label} raw onChange=${(x) => put({ ticks: { ...pn.ticks, [d.k]: x } })} />${d.type === mine && html`<span class="tag dim">${tr('Same day type')}</span>`}</div>`)}</div>
       <${Seg} at=${pn.as === 'date' ? 1 : 0} labels=${['Every week', 'This date only']} style="height:26px" onPick=${(k) => put({ as: k === 1 ? 'date' : 'week' })} />
       <p class="note">${tr('Only the trips that match there are copied (same line, way, departure and stops); the rest are listed. It goes into your draft: SAVE keeps it.')}</p>
+      ${ticked.some((d) => d.type !== mine) && html`<p class="note">${tr("A day of another day type gets the same trips once the line's timetable is copied there first (Timeplan, Timetable, Copy to…).")}</p>`}
     </div>
     <div class="foot"><span class="grow"></span>
       <${RfButton} label="Cancel" style="width:100px;height:30px" onClick=${() => setRf({ panel: null })} />

@@ -1,0 +1,70 @@
+/* The Timeplan's timetable: the trips chosen together and "Copy to…" (`rosterflow/timeplan.js`,
+   `rosterflow/tpcopy.js`), in the Timeplan's own palette (rosterflow.css, `--tp-*`). */
+
+/* the rows chosen: their times tinted too */
+.tp-row.on .times .tp-cell:not(.dash):not(.on) { background: color-mix(in srgb, var(--tp-sky) 12%, var(--tp-cell)); }
+.tp-row > .num, .tp-row > .pat { user-select: none; }
+
+/* the bar over the frozen columns while trips are chosen */
+.tp-selbar { position: absolute; display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; border-radius: 6px; background: var(--tp-panel); box-shadow: inset 0 0 0 1px var(--tp-sky); z-index: 3; }
+.tp-selbar .line { display: flex; align-items: center; gap: 6px; height: 28px; min-width: 0; }
+.tp-selbar b { font-size: 9.98px; font-weight: 700; color: var(--tp-sky); min-width: 0; }
+.tp-selbar .grow { flex: 1; }
+.tp-selbar .lbl { font-size: 8.45px; font-weight: 700; color: var(--tp-dim); white-space: nowrap; }
+.tp-selbar input { width: 44px; height: 24px; padding: 0 6px; border: 0; border-radius: 4px; outline: none; background: var(--tp-field); box-shadow: inset 0 0 0 1px var(--tp-border); color: var(--tp-text); font-size: 9.98px; text-align: center; }
+.tp-selbar input:focus { box-shadow: inset 0 0 0 1.5px var(--tp-sky); }
+.tp-selbar .tp-select { height: 26px; flex: 1 1 auto; min-width: 90px; margin-left: 4px; }
+.tp-selbar .tp-select select { border-radius: 4px; font-size: 9.2px; padding: 0 26px 0 8px; }
+.tp-selbar .tp-ib.small { width: 22px; height: 22px; }
+
+/* "Copy to…" */
+.tp-copy { position: absolute; top: 68px; right: 14px; width: 400px; max-height: calc(100% - 116px); display: flex; flex-direction: column; border-radius: 6px; background: var(--tp-panel); color: var(--tp-text); box-shadow: 0 8px 18px rgba(0, 0, 0, 0.45); z-index: 16; overflow: hidden; }
+.tp-copy > .head { flex: none; height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 6px 0 12px; background: var(--tp-sky); color: #fff; font-size: 10.75px; }
+.tp-copy > .head b { flex: 1; min-width: 0; }
+.tp-copy > .head button { width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; border-radius: 3px; color: #fff; }
+.tp-copy > .head button:hover { background: rgba(255, 255, 255, 0.18); }
+.tp-copy > .body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 8px 12px 12px; }
+.tp-copy .caps { margin-top: 6px; font-size: 8.45px; font-weight: 700; color: var(--tp-sky); }
+.tp-copy .note { margin: 0; font-size: 9.2px; line-height: 1.45; color: var(--tp-dim); }
+.tp-copy .cut { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.tp-src { display: flex; align-items: center; gap: 4px; min-height: 32px; padding-right: 4px; border-radius: 4px; }
+.tp-src:hover { background: var(--tp-cell); }
+.tp-src.on { background: var(--tp-sky-on); }
+.tp-src .pick { flex: 1; min-width: 0; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px; text-align: left; font-size: 9.98px; color: var(--tp-text); }
+.tp-src .pick > i { width: 12px; height: 12px; flex: none; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--tp-dim); }
+.tp-src.on .pick > i { box-shadow: inset 0 0 0 3.5px var(--tp-sky); }
+.tp-src .pick > span { flex: 1 1 auto; min-width: 0; font-weight: 700; }
+.tp-src .pick > small { flex: 0 1 auto; min-width: 0; font-size: 8.8px; color: var(--tp-dim); }
+.tp-src .rename { flex: 2; min-width: 0; height: 26px; padding: 0 8px; border: 0; border-radius: 4px; outline: none; background: var(--tp-field); box-shadow: inset 0 0 0 1.5px var(--tp-sky); color: var(--tp-text); font-size: 9.98px; }
+.tp-src .ib { width: 24px; height: 24px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 4px; color: var(--tp-dim); }
+.tp-src .ib:hover { color: var(--tp-text); background: var(--tp-cell-hover); }
+.tp-src .ib.armed { color: #fff; background: var(--tp-red); }
+
+.tp-copy .days { display: flex; flex-direction: column; }
+.tp-tick { height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 4px; text-align: left; font-size: 9.98px; color: var(--tp-text); }
+.tp-tick:hover:not(.off) { background: var(--tp-cell); }
+.tp-tick > b { width: 16px; height: 16px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 3px; box-shadow: inset 0 0 0 1.5px var(--tp-dim); color: #fff; }
+.tp-tick.on > b { background: var(--tp-sky); box-shadow: none; }
+.tp-tick > span { flex: 1; min-width: 0; font-weight: 700; }
+.tp-tick > i { flex: none; font-style: normal; font-size: 8.8px; color: var(--tp-dim); }
+.tp-tick > i.warn { color: var(--tp-orange); font-weight: 700; }
+.tp-tick.off { cursor: default; }
+.tp-tick.off > span, .tp-tick.off > b { opacity: 0.45; }
+
+.tp-seg { display: flex; margin: 4px 0 2px; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--tp-border); overflow: hidden; }
+.tp-seg button { flex: 1; height: 28px; font-size: 9.2px; font-weight: 700; color: var(--tp-dim); }
+.tp-seg button:hover { color: var(--tp-text); }
+.tp-seg button.on { background: var(--tp-sky-on); color: var(--tp-sky); }
+
+.tp-copy .foot { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.tp-copy .foot .grow { flex: 1; }
+.tp-btn { height: 30px; min-width: 96px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 12px; border-radius: 4px; background: var(--tp-cell); color: var(--tp-text); font-size: 9.6px; font-weight: 700; white-space: nowrap; }
+.tp-btn:hover:not(:disabled) { background: var(--tp-cell-hover); }
+.tp-btn.solid { background: var(--tp-sky); color: #fff; }
+.tp-btn.solid:hover:not(:disabled) { filter: brightness(1.08); background: var(--tp-sky); }
+.tp-btn:disabled { opacity: 0.45; cursor: default; }
+.tp-copy .keep { display: flex; gap: 8px; }
+.tp-copy .keep input { flex: 1; min-width: 0; height: 30px; padding: 0 8px; border: 0; border-radius: 4px; outline: none; background: var(--tp-field); box-shadow: inset 0 0 0 1px var(--tp-border); color: var(--tp-text); font-size: 9.98px; }
+.tp-copy .keep input:focus { box-shadow: inset 0 0 0 1.5px var(--tp-sky); }
+.tp-selbar .cut { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

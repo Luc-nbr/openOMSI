@@ -23,6 +23,11 @@
 //! "Reset to pattern" (`recopy`); its source changed since, it is UNSYNCED and a Refresh copies
 //! it again. A copy is the day's own plan like one made by hand, so the game and the day's
 //! close run it. (The roster - which bus and driver - stays a weekday's: `plan::RosterTour`.)
+//!
+//! A plan copied to a day of another timetable finds little to match there: Saturday and Sunday
+//! run a timetable of their own. The Timeplan's "Copy to…" (`timetable`) copies the timetable
+//! itself first - a line's trips of one day onto others, or a template of them kept by name -
+//! after which the plan copies onto those days as onto a day of the same timetable.
 
 use super::model::Company;
 use super::network::{self, PlannedTrip, TourOfDay};
@@ -45,11 +50,15 @@ pub struct Days {
     pub dates: Vec<DateSlot>,
     /// The days made by copying another.
     pub follows: Vec<Follow>,
+    /// The Timeplan's templates: a line's timetable of a day kept by name, to copy onto other
+    /// days ("Copy to…" from it, `timetable`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub templates: Vec<Template>,
 }
 
 impl Days {
     pub fn is_empty(&self) -> bool {
-        self.dates.is_empty() && self.follows.is_empty()
+        self.dates.is_empty() && self.follows.is_empty() && self.templates.is_empty()
     }
 }
 
@@ -801,6 +810,11 @@ pub fn timetable_key(c: &Company, lines: &[LineInfo]) -> u64 {
 /// A day's rows (buses, duties) copied to other days by themselves: RosterFlow's "Copy to…".
 mod rows;
 pub use rows::{copy_rows, rows_slot, Rows};
+
+/// A line's timetable of a day copied to other days, and the templates: the Timeplan's "Copy
+/// to…".
+mod timetable;
+pub use timetable::{clear_day, copy_table, drop_template, move_templates, rename_template, save_template, template, templates_of, trips_on, DayCopied, How, Template, Trip};
 
 #[cfg(test)]
 mod tests;

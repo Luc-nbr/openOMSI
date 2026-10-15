@@ -140,6 +140,7 @@ export function ApplyWindow({ size }) {
       })}
     </div>
     ${ticked.some((d) => d.preview && !d.preview.exact) && html`<p class="rf-apply-note warn"><${Icon} name="warning" size=${14} />${tr('A day of another timetable takes only the trips that match (same line, way, departure and stops). The rest run as its timetable has them and are listed, to plan by hand.')}</p>`}
+    ${ticked.some((d) => d.preview && !d.preview.exact && !d.in_type) && html`<p class="rf-apply-note">${tr("A day of another day type gets the same trips once the line's timetable is copied there first (Timeplan, Timetable, Copy to…).")}</p>`}
     ${v.others?.length > 0 && html`<p class="rf-apply-note">${tr('Your changes on %{days} are saved too.', { days: v.others.join(', ') })}</p>`}`;
   const foot = html`<span class="grow"></span>
     <${RfButton} label="Cancel" style="width:116px;height:32px" onClick=${() => setRf({ panel: null, apply: null })} />
