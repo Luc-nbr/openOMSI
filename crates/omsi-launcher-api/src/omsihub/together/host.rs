@@ -77,6 +77,15 @@ fn plan_of(s: &Session, h: &mut Hosting) -> Option<DayPlan> {
     Some(p)
 }
 
+/// The boss's world opened since it was last looked at: told to everyone.
+fn see_world(h: &mut Hosting, c: &Company, world: &Option<(String, String)>) {
+    let open = world.as_ref().is_some_and(|(_, m)| th::same_map(m, &c.map));
+    if open && !h.world_open {
+        h.st.tell(unix_now(), th::WORLD_OPEN, Vec::new());
+    }
+    h.world_open = open;
+}
+
 /// The notices the boss is told in the company's corner (the rest are in his panel).
 const TOLD: [&str; 6] = [th::JOINED, th::LEFT, th::ASKS, th::WAITS, th::FINISHED, th::SAYS];
 
@@ -103,6 +112,9 @@ fn handle(body: &str) -> String {
         }
         let plan = plan_of(s, h);
         let world = world();
+        if let Some(c) = s.company.as_ref() {
+            see_world(h, c, &world);
+        }
         let (now, lead) = (unix_now(), lead());
         let answered = {
             let Some(c) = s.company.as_mut() else { return th::refusal(th::NOT_OPEN_COMPANY).to_string() };
@@ -399,11 +411,7 @@ fn view(s: &mut Session) -> Value {
     };
     let plan = plan_of(s, h);
     let world = world();
-    let open = world.as_ref().is_some_and(|(_, m)| th::same_map(m, &c.map));
-    if open && !h.world_open {
-        h.st.tell(unix_now(), th::WORLD_OPEN, Vec::new());
-    }
-    h.world_open = open;
+    see_world(h, &c, &world);
     let port = h.server.port();
     let mut ways: Vec<Value> = omsi_net::addrs::joinable_addresses().iter().take(4).map(|a| json!([tr(a.label()), format!("{}:{port}", a.ip), if a.kind.is_vpn() { "ok" } else { "soft" }])).collect();
     ways.push(match h.server.tunnel() {

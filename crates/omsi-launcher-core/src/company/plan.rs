@@ -1629,7 +1629,10 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
         let d = &mut out[i].duties[k];
         match who {
             Who::Player if closing => d.problem = Some(Problem::Player),
-            Who::Player | Who::Agency | Who::Guest(_) => {
+            // (a player of "Play together" is never in the roster: only his claim of the day puts
+            // him on a duty)
+            Who::Guest(_) => {}
+            Who::Player | Who::Agency => {
                 d.who = Some(who);
                 d.from_ = Source::Roster;
             }
