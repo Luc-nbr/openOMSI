@@ -59,6 +59,7 @@ fn who_name(c: &Company, w: Option<Who>) -> String {
         Some(Who::Staff(id)) => name_of(c, id),
         Some(Who::Player) => tr("You"),
         Some(Who::Agency) => tr("Agency driver"),
+        Some(Who::Guest(g)) => co::together::guest_name(c, g),
         None => tr("Nobody"),
     }
 }
@@ -545,6 +546,8 @@ fn tour_json(c: &Company, p: &DayPlan, ti: usize, t: &DayTour, rf_id: &dyn Fn(us
                         }
                         Some(Who::Player) => ("accent".to_string(), "#ffffff", tr("You"), String::new(), 1.0),
                         Some(Who::Agency) => ("grey".to_string(), "#ffffff", tr("Agency"), String::new(), 1.0),
+                        // (Beta 58: a player of "Play together")
+                        Some(Who::Guest(g)) => (super::super::together::GUEST_COLOUR.to_string(), "#0e121c", co::together::guest_name(c, g), String::new(), 1.0),
                         None => ("grey".to_string(), "#ffffff", String::new(), String::new(), 1.0),
                     }
                 };
@@ -707,8 +710,27 @@ fn day_side(c: &Company, p: &DayPlan) -> Value {
         "on_way": on_way, "on_way_caps": tr("On the way today").to_uppercase(),
         "open_rows": open_rows,
         "staff": staff,
+        "guests": guest_rows(c, p),
         "buses": buses,
     })
+}
+
+/// Beta 58: the players of "Play together" online now, to give a duty of the company's day
+/// (`together`): who they are, what they drive.
+fn guest_rows(c: &Company, p: &DayPlan) -> Vec<Value> {
+    if !p.today {
+        return Vec::new();
+    }
+    super::super::together::online_guests(c)
+        .into_iter()
+        .map(|(g, name, driving)| {
+            let state = match driving {
+                Some(r) => trf("Playing together · drives line %{n}", &[("n", &p.tours.iter().find(|t| t.tour.line.eq_ignore_ascii_case(&r.line)).map(|t| t.tour.number.clone()).unwrap_or(r.line.clone()))]),
+                None => tr("Playing together · online"),
+            };
+            json!({ "who": Who::Guest(g), "name": name, "state": state, "colour": super::super::together::GUEST_COLOUR })
+        })
+        .collect()
 }
 
 /// A duty chosen: its times, who drives it and why, who else could; on the company's day what
@@ -774,6 +796,17 @@ fn duty_side(c: &Company, p: &DayPlan, ti: usize, k: usize) -> Value {
     // (an agency driver for the whole duty, with what it costs: testers, "no option to use agency")
     let (state, tone) = agency_state(c, p, ti, k);
     cands.push(json!({ "who": Who::Agency, "name": tr("Agency driver"), "state": state, "tone": tone, "swatch": "grey", "on": current == Some(Who::Agency) }));
+    // (Beta 58: the players of "Play together" online, for today - and the one who has it)
+    if p.today && matches!(t.bus, Some(BusOf::Own(_))) {
+        let mut guests = guest_rows(c, p);
+        if let Some(Who::Guest(g)) = current.filter(|w| !guests.iter().any(|x| x["who"] == json!(w))) {
+            guests.push(json!({ "who": Who::Guest(g), "name": co::together::guest_name(c, g), "state": tr("Playing together · offline"), "colour": super::super::together::GUEST_COLOUR }));
+        }
+        for x in guests {
+            let on = x["who"] == json!(current);
+            cands.push(json!({ "who": x["who"], "name": x["name"], "state": x["state"], "tone": "ok", "swatch": x["colour"], "on": on }));
+        }
+    }
     for x in pl::candidates(c, p, ti, k) {
         let (st, tone, _) = fit_of(c, p, ti, k, x.id);
         let name = name_of(c, x.id);
@@ -863,6 +896,15 @@ fn tour_side(c: &Company, p: &DayPlan, ti: usize) -> Value {
 /// for it - for today only (`planning::give_driver`). The pieces joined with it in the studio
 /// go to the same driver.
 fn give_driver(s: &mut Session, p: &DayPlan, ti: usize, k: usize, who: Option<Who>) -> Value {
+    // (Beta 58: to a player of "Play together", for today; one who had it gives it up)
+    if let Some(Who::Guest(g)) = who {
+        return super::super::together::give_to_guest(s, p, ti, k, g);
+    }
+    if let (Some(Who::Guest(_)), Some(r)) = (p.tours[ti].duties[k].who, co::duty_launch::DutyRef::of(p, ti, k)) {
+        if let Err(p) = company::act(s, |c| co::together::book::release(c, &r, None).map(|_| ())) {
+            return json!({ "popup": p });
+        }
+    }
     let Some(c) = s.company.as_ref() else { return json!({}) };
     let t = &p.tours[ti];
     let (line, tour) = (t.tour.line.clone(), t.tour.tour.clone());

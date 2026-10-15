@@ -3865,6 +3865,11 @@ fn duty_args_for_root(d: &Duty, root: &Path) -> Result<Vec<String>> {
             a.extend(["--company".into(), id.to_string()]);
         }
     }
+    // (Beta 58: the company's world opened without a duty of the player's - "Play together":
+    // its buses on their tours, the boss on foot)
+    if let Some(id) = d.company.as_deref().map(str::trim).filter(|x| !x.is_empty() && schedule && d.line.as_deref().is_none_or(|l| l.trim().is_empty())) {
+        a.extend(["--company".into(), id.to_string()]);
+    }
     if d.autostart.unwrap_or(false) {
         a.push("--autostart".into());
     }

@@ -348,10 +348,10 @@ pub fn snapshot(c: &Company, here: &Here, st: &HostState, guest: Option<u32>, si
                 continue;
             }
             let colour = c.lines.iter().find(|l| l.name.eq_ignore_ascii_case(&t.tour.line)).map(|l| l.colour.clone()).unwrap_or_default();
-            let bus = match t.bus {
-                Some(BusOf::Own(id)) => c.vehicle(id).map(|v| format!("{} {}", v.number, v.name).trim().to_string()).unwrap_or_default(),
-                Some(BusOf::Rental) => "Rental bus".into(),
-                None => String::new(),
+            let (bus, file) = match t.bus {
+                Some(BusOf::Own(id)) => c.vehicle(id).map(|v| (format!("{} {}", v.number, v.name).trim().to_string(), v.bus.clone())).unwrap_or_default(),
+                Some(BusOf::Rental) => ("Rental bus".into(), String::new()),
+                None => (String::new(), String::new()),
             };
             for (k, d) in t.duties.iter().enumerate() {
                 let Some(r) = DutyRef::of(p, ti, k) else { continue };
@@ -372,6 +372,7 @@ pub fn snapshot(c: &Company, here: &Here, st: &HostState, guest: Option<u32>, si
                     trips: trips.iter().filter(|x| x.counts()).count(),
                     km: trips.iter().map(|x| x.km).sum::<f64>().round(),
                     bus: bus.clone(),
+                    file: file.clone(),
                     ..Default::default()
                 };
                 let begun = now >= clock::moment(&p.date, d.from as i64);

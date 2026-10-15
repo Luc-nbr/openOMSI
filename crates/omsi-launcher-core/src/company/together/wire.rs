@@ -95,8 +95,10 @@ pub struct SnapDuty {
     pub last: String,
     pub trips: usize,
     pub km: f64,
-    /// Its bus (fleet number and model; empty: none yet).
+    /// Its bus (fleet number and model; empty: none yet) and the bus's file (to see that it is
+    /// installed where it is driven).
     pub bus: String,
+    pub file: String,
     pub state: DutyState,
     /// Who drives it (a name; empty: nobody).
     pub who: String,

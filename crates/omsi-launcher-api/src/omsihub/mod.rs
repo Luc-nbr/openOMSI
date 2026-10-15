@@ -32,6 +32,8 @@ pub mod bus3d;
 pub mod lak;
 // the updates from the fork's releases (Trello "Tauri 6/6": `update.rs`)
 pub mod update;
+// Beta 58: "Play together" in the bus company (`together.rs`)
+pub mod together;
 
 use crate::{Answer, Platform};
 use omsi_launcher_lib as core;
@@ -74,6 +76,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("company-realtime.yml", include_str!("../../../omsi-app/locales/company-realtime.yml")),
     ("company-research.yml", include_str!("../../../omsi-app/locales/company-research.yml")),
     ("company-staff.yml", include_str!("../../../omsi-app/locales/company-staff.yml")),
+    ("company-together.yml", include_str!("../../../omsi-app/locales/company-together.yml")),
     ("dealer-delivery.yml", include_str!("../../../omsi-app/locales/dealer-delivery.yml")),
     ("dealer.yml", include_str!("../../../omsi-app/locales/dealer.yml")),
     ("easy-polish.yml", include_str!("../../../omsi-app/locales/easy-polish.yml")),
@@ -160,6 +163,7 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
         // the bus company's commands (Trello "Tauri 2/6": `company.rs`)
         c if c.starts_with("co_") => return company::call(c, args, p),
         c if c.starts_with("rf_") => return rosterflow::call(c, args, p),
+        c if c.starts_with("tg_") => return together::call(c, args, p),
         // (the editors' commands: `editors.rs`)
         _ => return editors::call(cmd, args, p),
     })
