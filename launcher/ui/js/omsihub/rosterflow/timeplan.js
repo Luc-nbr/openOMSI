@@ -251,7 +251,12 @@ function ContextBar({ v }) {
     ${[[RUNNING, 'schedule', 'Running times'], [TIMETABLE, 'grid_view', 'Timetable']].map(([tab, icon, tip]) => html`<button type="button" class=${'tp-screen' + (t.tab === tab ? ' on' : '')} title=${tr(tip)} onClick=${() => t.tab !== tab && tpSet({ tab, cell: null, text: '' })}><${Icon} name=${icon} size=${20} /></button>`)}
     <i class="tp-sep"></i>
     ${v.runs && html`<span class="tp-from">${v.from?.show && html`<button type="button" class="tp-ib small" title=${tr('A day earlier')} onClick=${() => tpAct('from', { by: -1 })}><${Icon} name="chevron_left" size=${13} /></button><b>${v.from.label}</b><button type="button" class="tp-ib small" title=${tr('A day later')} onClick=${() => tpAct('from', { by: 1 })}><${Icon} name="chevron_right" size=${13} /></button>`}</span>`}
-    <button type="button" class=${'tp-save' + (v.dirty ? ' dirty' : '')} data-rf="rf-tp-save" onClick=${() => v.dirty && tpAct('save').then((x) => x?.day != null && tpSet({ day: x.day, issuesOpen: !!x.issues_open }))}><${Icon} name="save" size=${18} /><span>${v.save || tr('Saved')}</span></button>
+    <button type="button" class=${'tp-save' + (v.dirty ? ' dirty' : '')} data-rf="rf-tp-save" onClick=${() => v.dirty && tpAct('save').then((x) => {
+      // (the trips chosen are places in the table: read again, or on the day group of an
+      // error, they would be other trips - Delete would take those out)
+      const off = { cell: null, text: '', sel: null, picked: [], anchor: null };
+      tpSet(x?.day != null ? { ...off, day: x.day, issuesOpen: !!x.issues_open, adding: null, scroll: 0 } : off);
+    })}><${Icon} name="save" size=${18} /><span>${v.save || tr('Saved')}</span></button>
   </div>`;
 }
 
