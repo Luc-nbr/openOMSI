@@ -34,6 +34,8 @@ import { RosterFlowPage } from '../rosterflow/index.js';
 import { MorePage, MORE_TABS } from './pages.js';
 // Omsi-Hub 6/6: the company's own guided tour
 import { startCompanyTour } from '../tour.js';
+// (Beta 58: "Play together")
+import { TogetherButton } from './together.js';
 
 // (the company's own look, loaded with its first page)
 const sheet = document.createElement('link');
@@ -297,6 +299,7 @@ function Bar({ open, choosing, read }) {
       : html`<span class="lone"><${Icon} name="garage" size=${26} class="t-accent2" /><span><b>${tr('Bus company')}</b><span>${tr('Your own transport company: buses, people and lines, in a time of its own.')}</span></span></span>`}
     <span class="tools">
       ${open && html`${sh.casual ? html`<${CasualClock} />` : html`<${Clock} now=${fit.now} />`}<span class="gap16"></span>
+        <${TogetherButton} />
         <${Btn} class="sq" icon="settings" title=${tr("The company's settings: its name, its date, how it buys")} onClick=${settings} /><span class="gap8"></span>`}
       <${Btn} class="sq" icon=${isDark ? 'dark_mode' : 'light_mode'} title=${tr(isDark ? 'Switch to the light mode' : 'Switch to the dark mode')} onClick=${(e) => flipLook(e)} /><span class="gap8"></span>
       ${read && !choosing && html`<${Btn} class="sq co-help" icon="help" title=${tr('A tour of the bus company')} onClick=${askTour} /><span class="gap12"></span>`}

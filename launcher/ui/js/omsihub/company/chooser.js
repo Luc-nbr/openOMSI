@@ -9,6 +9,8 @@ import { call } from '../../api.js';
 import { html, useEffect, useState, tr, HOME, setCo, cmd, refresh, takeShell, useView, Icon, Mark, ModePill, Btn, Seg, Chips, Select, Dialog, IconBtn } from './kit.js';
 // (the buses the company works with: Beta 54)
 import { VehiclePicker } from './vehicles.js';
+// (Beta 58: a friend's company joined with its session code)
+import { JoinPage } from './together.js';
 
 /** The companies as the chooser's view lists them (boot keeps one too). */
 export const readCompanies = () => S.co.list?.companies?.tiles || [];
@@ -19,6 +21,7 @@ export function Chooser() {
   if (!v) return null;
   const step = S.co.chooser;
   if (step === 'mode') return html`<${Modes} v=${v.modes} n=${v.companies.tiles.length} />`;
+  if (step === 'join') return html`<${JoinPage} />`;
   const cv = v.companies;
   const open = async (id) => {
     await cmd('co_open', { id });
@@ -64,11 +67,10 @@ function Modes({ v }) {
         <span class="mark"><${Icon} name="person" size=${30} /></span>
         <h3>${v.single.title}</h3><p>${v.single.text}</p><span class="foot">${v.single.foot}</span>
       </button>
-      <div class="co-tile co-mode still" title=${v.multi.tip}>
-        <span class="later">${v.multi.foot}</span>
+      <button type="button" class="co-tile co-mode" data-mode="join" title=${v.multi.tip} onClick=${() => setCo({ chooser: 'join' })}>
         <span class="mark"><${Icon} name="groups" size=${30} /></span>
         <h3>${v.multi.title}</h3><p>${v.multi.text}</p><span class="foot">${v.multi.foot}</span>
-      </div>
+      </button>
     </div>
     <span style="flex:0.6 1 0"></span>
   </div>`;

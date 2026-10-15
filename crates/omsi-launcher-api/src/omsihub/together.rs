@@ -63,3 +63,51 @@ fn duty_arg(args: &Value) -> Option<DutyRef> {
 fn unix_now() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
+
+#[cfg(test)]
+mod tests {
+    use omsi_launcher_lib::company::together::{book, client, code, host};
+
+    /// Every text of "Play together" - the company's side, the launcher's and the page's
+    /// (`together.js`) - in the six languages.
+    #[test]
+    fn every_together_text_is_translated() {
+        let mut texts: Vec<String> = book::texts().into_iter().chain(host::texts()).chain([code::NOT_A_CODE, code::GAME_CODE, code::TYPO, code::NEWER, client::UNREACHED]).map(String::from).collect();
+        let js = include_str!("../../../../launcher/ui/js/omsihub/company/together.js");
+        // (this file without its tests)
+        let own = include_str!("together.rs").split("#[cfg(test)]").next().unwrap_or("");
+        let sources = [(own, "tr(\"", '"'), (include_str!("together/host.rs"), "tr(\"", '"'), (include_str!("together/join.rs"), "tr(\"", '"'), (js, "tr('", '\'')];
+        for (src, lead, end) in sources {
+            for lead in [lead.to_string(), lead.replacen("tr(", "trf(", 1)] {
+                let mut rest = src;
+                while let Some(k) = rest.find(lead.as_str()) {
+                    let after = &rest[k + lead.len()..];
+                    rest = after;
+                    let mut t = String::new();
+                    let mut chars = after.chars();
+                    while let Some(c) = chars.next() {
+                        match c {
+                            '\\' => t.extend(chars.next()),
+                            c if c == end => break,
+                            c => t.push(c),
+                        }
+                    }
+                    if t.chars().filter(|c| c.is_alphabetic()).count() >= 2 {
+                        texts.push(t);
+                    }
+                }
+            }
+        }
+        assert!(texts.len() > 100, "only {} texts found", texts.len());
+        let mut missing = Vec::new();
+        for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
+            let table = crate::i18n::table(lang);
+            for t in &texts {
+                if !table.contains_key(t) {
+                    missing.push(format!("{lang}: {t:?}"));
+                }
+            }
+        }
+        assert!(missing.is_empty(), "{} missing (crates/omsi-app/locales/company-together.yml):\n{}", missing.len(), missing.join("\n"));
+    }
+}

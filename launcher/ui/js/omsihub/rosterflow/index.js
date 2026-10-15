@@ -248,6 +248,7 @@ function TitleBar() {
       <${IconBtn} icon="description" title="Print the bus graph or the duty graph as a PDF file" onClick=${() => toggle('print')} />
       <${IconBtn} icon="search" title="Go to a vehicle or a duty by its ID (G)" onClick=${() => toggle({ kind: 'goto', text: '' })} />
       <${IconBtn} icon="settings" title="Optimisation settings" onClick=${() => toggle('optimise')} />
+      <${IconBtn} icon="groups" title="Play together: friends drive duties of your company in your world" onClick=${() => setCo({ dialog: { kind: 'together' } })} />
       <${IconBtn} icon="help" data="rf-help" title="Tutorial: a guided tour, lessons to try yourself and a help sheet" on=${r.tut.menu} onClick=${tutMenu} />
       <span class="rf-name" title=${full}>
         ${fit < 2 && html`<b class="cut">${fit === 0 ? full : company}</b>`}

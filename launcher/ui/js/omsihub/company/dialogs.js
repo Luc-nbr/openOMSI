@@ -13,6 +13,8 @@ import { AddLineDialog } from './lines.js';
 import { FareDialog } from './money.js';
 // (the buses the company works with: Beta 54)
 import { VehiclesDialog } from './vehicles.js';
+// (Beta 58: the boss's "Play together" panel)
+import { TogetherDialog } from './together.js';
 
 /** Something lies over the pages: the clock holds what waits for it (`company::modal`). */
 export function modalOpen() {
@@ -54,6 +56,8 @@ function OpenDialog({ d }) {
       return html`<${FareDialog} d=${d} />`;
     case 'vehicles':
       return html`<${VehiclesDialog} />`;
+    case 'together':
+      return html`<${TogetherDialog} />`;
     default:
       return null;
   }

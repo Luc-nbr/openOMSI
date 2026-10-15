@@ -57,6 +57,7 @@ export function Home() {
     [tr('Controls'), 'keyboard', () => go('controls')],
     [tr('Timetable'), 'schedule', openTimetable],
     [tr('Multiplayer'), 'groups', () => go('multiplayer')],
+    [tr('Join a company'), 'garage', () => enterCompany({ chooser: 'join' })],
     [tr('Sessions'), 'sports_esports', () => go('games')],
     [tr('Tutorials'), 'help', () => go('tutorials')],
     [tr('Setup'), 'folder_open', () => go('setup')],

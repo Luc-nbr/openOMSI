@@ -760,6 +760,11 @@ function DayPanel({ d, startDrag, carrying }) {
     <span class="rf-caps">${tr('Drivers').toUpperCase()}</span>
     <p class="rr-hint">${tr('Tap one, then a duty - or drag it there; or drag a duty here.')}</p>
     <${PickRow} on=${armIs(s.arm, me)} swatch=${'var(--rf-accent)'} text=${tr('You')} right=${tr('Your own duties')} arm=${me} lit=${target('driver')} onTap=${() => armTap(me)} onPress=${press(me, tr('You'), 'var(--rf-accent)', '#fff')} onMenu=${menuOf({ kind: 'staff', who: 'player' })} />
+    ${(d.guests || []).map((g) => {
+      // (Beta 58: the players of "Play together" online, for today)
+      const a = { kind: 'driver', who: g.who, name: g.name };
+      return html`<${PickRow} on=${armIs(s.arm, a)} swatch=${g.colour} text=${g.name} right=${g.state} rtone="ok" arm=${a} lit=${target('driver')} onTap=${() => armTap(a)} onPress=${press(a, g.name, g.colour, '#0e121c')} />`;
+    })}
     ${d.staff.map((e) => {
       const a = { kind: 'driver', who: { staff: e.id }, name: e.name };
       return html`<${PickRow} on=${armIs(s.arm, a)} swatch=${e.colour} text=${e.name} right=${e.state} rtone=${e.tone} arm=${a} lit=${target('driver')} onTap=${() => armTap(a)} onPress=${press(a, e.first, e.colour, '#0e121c')} onMenu=${menuOf({ kind: 'staff', who: { staff: e.id } })} />`;
