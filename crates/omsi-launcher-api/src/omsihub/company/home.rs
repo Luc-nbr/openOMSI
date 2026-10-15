@@ -4,7 +4,7 @@
 //! behind a page's button. The badges are the strip's too (`Marks`).
 
 use super::words::{count_text, eur, filled, grouped, n_of, short_date, signed, share_tone, tr, trf};
-use super::{agenda, overview, AGENDA_TAB, CONCESSIONS_TAB, CONTRACTS_TAB, DEPOT_TAB, ICONS, INBOX_TAB, MAP_TAB, RESEARCH_TAB, WORKSHOP_TAB};
+use super::{agenda, overview, REPUTATION_TAB, AGENDA_TAB, CONCESSIONS_TAB, CONTRACTS_TAB, DEPOT_TAB, ICONS, INBOX_TAB, MAP_TAB, RESEARCH_TAB, WORKSHOP_TAB};
 use omsi_launcher_lib::company::day::Plan;
 use omsi_launcher_lib::company::{self as co, Company, Role};
 use serde_json::{json, Value};
@@ -14,6 +14,8 @@ use serde_json::{json, Value};
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Marks {
     pub unread: usize,
+    /// The passengers' complaints to answer.
+    pub complaints: usize,
     /// (the page, what the alert says, its tone)
     pub alerts: Vec<(usize, String, &'static str)>,
 }
@@ -29,12 +31,15 @@ impl Marks {
             .filter(|(_, _, tone, _)| *tone != "soft")
             .map(|(_, text, tone, tab)| (tab, text, tone))
             .collect();
-        Marks { unread, alerts }
+        Marks { unread, complaints: co::complaints::open_count(c), alerts }
     }
 
     /// The badge of a page: its unread messages (the inbox), else how many alerts it has, in the
     /// tone of the worst; and the alerts' words.
     pub fn badge(&self, tab: usize) -> Option<(String, &'static str, String)> {
+        if tab == REPUTATION_TAB {
+            return (self.complaints > 0).then(|| (badge_text(self.complaints), "warn", trf("%{n} complaints to answer", &[("n", &self.complaints.to_string())])));
+        }
         if tab == INBOX_TAB {
             return (self.unread > 0).then(|| (badge_text(self.unread), "accent", trf("%{n} unread", &[("n", &self.unread.to_string())])));
         }
@@ -226,6 +231,7 @@ pub fn view(s: &mut super::Session) -> Value {
         },
         "dim",
     );
+    let rep = Tile::new(tab(REPUTATION_TAB), "Reputation", ICONS[REPUTATION_TAB]).line(trf("%{n} of 100", &[("n", &format!("{:.0}", c.reputation))]), "soft").line(if marks.complaints > 0 { trf("%{n} complaints to answer", &[("n", &marks.complaints.to_string())]) } else { tr("What raises and lowers it") }, if marks.complaints > 0 { "warn" } else { "dim" });
     let lv = co::levels::level(&c);
     let (xp, _, next) = co::levels::progress(&c);
     let mut career = Tile::new(tab(6), "Career", ICONS[6]).line(format!("{}  ·  {}", trf("Level %{n}", &[("n", &lv.to_string())]), tr(co::levels::title_of(lv))), "soft");
@@ -268,7 +274,7 @@ pub fn view(s: &mut super::Session) -> Value {
         ("At a glance", vec![mark(ov), coming, mark(inbox)]),
         ("Operations", vec![mark(planning), mark(lines), mark(map), mark(fleet)]),
         ("People", vec![mark(people), hire, training]),
-        ("Business", vec![mark(money), concessions, mark(contracts), mark(career)]),
+        ("Business", vec![mark(money), concessions, mark(contracts), mark(rep), mark(career)]),
         ("Company", vec![mark(depot), mark(workshop), mark(research), settings]),
     ];
     let sections: Vec<Value> = sections

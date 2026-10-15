@@ -33,6 +33,7 @@ mod lines;
 mod money;
 mod overview;
 mod people;
+mod reputation;
 mod photos;
 mod portraits;
 pub mod words;
@@ -62,7 +63,7 @@ use words::{day_label, eur, grouped, num, tr, trf};
 
 /// The company's pages, as the game-drawn launcher numbers them (`company::TABS`): the
 /// `OMSI_LAUNCHER_PAGE` it reads is "bus company:<number>".
-pub const TABS: [&str; 15] = ["Overview", "Fleet", "Staff", "Lines", "Finances", "Planning", "Career", "Depot", "Concessions", "Map", "Research", "Workshop", "Contracts", "Inbox", "Agenda"];
+pub const TABS: [&str; 16] = ["Overview", "Fleet", "Staff", "Lines", "Finances", "Planning", "Career", "Depot", "Concessions", "Map", "Research", "Workshop", "Contracts", "Inbox", "Agenda", "Reputation"];
 pub const DEPOT_TAB: usize = 7;
 pub const CONCESSIONS_TAB: usize = 8;
 pub const MAP_TAB: usize = 9;
@@ -71,18 +72,20 @@ pub const WORKSHOP_TAB: usize = 11;
 pub const CONTRACTS_TAB: usize = 12;
 pub const INBOX_TAB: usize = 13;
 pub const AGENDA_TAB: usize = 14;
+/// The reputation explained, and the passengers' complaints (Luc 2026-10-15).
+pub const REPUTATION_TAB: usize = 15;
 /// The company's start screen (no page of `TABS`).
 pub const HOME_TAB: usize = 100;
 /// The pages' icons, in the order of `TABS`.
-pub const ICONS: [&str; 15] = ["signal_cellular_alt", "directions_bus", "groups", "route", "payments", "calendar_month", "military_tech", "garage", "public", "map", "search", "construction", "description", "chat", "event"];
+pub const ICONS: [&str; 16] = ["signal_cellular_alt", "directions_bus", "groups", "route", "payments", "calendar_month", "military_tech", "garage", "public", "map", "search", "construction", "description", "chat", "event", "star"];
 /// The pages in the strip under the bar, grouped as the start screen groups them.
-pub const RAIL: [&[usize]; 5] = [&[0, AGENDA_TAB, INBOX_TAB], &[5, 3, MAP_TAB, 1], &[2], &[4, CONCESSIONS_TAB, CONTRACTS_TAB, 6], &[DEPOT_TAB, WORKSHOP_TAB, RESEARCH_TAB]];
+pub const RAIL: [&[usize]; 5] = [&[0, AGENDA_TAB, INBOX_TAB], &[5, 3, MAP_TAB, 1], &[2], &[4, CONCESSIONS_TAB, CONTRACTS_TAB, REPUTATION_TAB, 6], &[DEPOT_TAB, WORKSHOP_TAB, RESEARCH_TAB]];
 
 /// The pages this page draws itself (the planning, the depot, the concessions, the fleet map,
 /// the research, the workshop and the contracts since phase 3: `company_more.rs`): every page
 /// (`HANDED_OVER` is empty since the game-drawn launcher it opened them in is gone). RosterFlow -
 /// the planning with its add-on on - is handed over by the planning's page itself.
-pub const DRAWN: [usize; 15] = [0, 1, 2, 3, 4, 5, 6, DEPOT_TAB, CONCESSIONS_TAB, MAP_TAB, RESEARCH_TAB, WORKSHOP_TAB, CONTRACTS_TAB, INBOX_TAB, AGENDA_TAB];
+pub const DRAWN: [usize; 16] = [0, 1, 2, 3, 4, 5, 6, DEPOT_TAB, CONCESSIONS_TAB, MAP_TAB, RESEARCH_TAB, WORKSHOP_TAB, CONTRACTS_TAB, INBOX_TAB, AGENDA_TAB, REPUTATION_TAB];
 pub const HANDED_OVER: [usize; 0] = [];
 
 /// The pages a game mode shows, in the strip's order (`company::pages_of`).
@@ -1109,7 +1112,7 @@ fn shell(s: &mut Session) -> Value {
     let status = [
         ("payments", eur(c.cash), "ok", if c.cash >= 0 { "text" } else { "danger" }, "Cash: the money the company has now", 4),
         ("emoji_events", grouped(c.trophies as f64), "warn", "text", if co::autopilot::on(&c) { "Trophies: earned with goals, spent by the company on research by itself" } else { "Trophies: earned with goals and contracts, spent on research" }, RESEARCH_TAB),
-        ("star", format!("{} %", num(c.reputation.clamp(0.0, 100.0), 1)), "early", "text", "Reputation: what passengers and the authority think of the company", 0),
+        ("star", format!("{} %", num(c.reputation.clamp(0.0, 100.0), 1)), "early", "text", "Reputation: what passengers and the authority think of the company", REPUTATION_TAB),
     ];
     let pages = pages_of(c.game_mode);
     let status: Vec<Value> = status
@@ -1367,6 +1370,7 @@ fn view(s: &mut Session, args: &Value) -> Answer {
         "money" => money::view(s, args),
         "inbox" => inbox::view(s, args),
         "agenda" => agenda::view(s, args),
+        "reputation" => reputation::view(s, args),
         "career" => career::view(s, args),
         "casual" => casual::view(s, args),
         "launch" => launch::view(s, args),
@@ -1451,6 +1455,7 @@ fn do_act(s: &mut Session, args: &Value, p: &dyn Platform) -> Answer {
             .or_else(|| lines::act(s, &what, args))
             .or_else(|| money::act(s, &what, args))
             .or_else(|| inbox::act(s, &what, args))
+            .or_else(|| reputation::act(s, &what, args))
             .or_else(|| career::act(s, &what, args, p))
             .or_else(|| repair::act(s, &what, args))
             .or_else(|| casual::act(s, &what, args, p))

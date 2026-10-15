@@ -1,0 +1,32 @@
+/* The company's Reputation page (js/omsihub/company/reputation.js): three columns - the
+   reputation and its log, what moves it, what to do - and the complaints with their talk. */
+
+.co-rep { height: 100%; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+.co-rep-tabs { flex: none; }
+.co-rep-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 16px; }
+.co-rep-split { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1.4fr; gap: 16px; }
+.co-rep-col { min-width: 0; overflow: hidden; }
+.co-rep-col > .co-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+.co-rep-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; font-size: var(--co-body); }
+.co-rep-big { font-size: 26px; font-variant-numeric: tabular-nums; }
+.co-rep-row { display: flex; gap: 10px; align-items: center; font-size: var(--co-rows); line-height: 24px; min-width: 0; }
+.co-rep-row .when { flex: none; width: 82px; }
+.co-rep-row b { flex: none; font-variant-numeric: tabular-nums; }
+.co-rep-log { flex: 1; min-height: 60px; overflow-y: auto; }
+.co-rep-effect { display: flex; gap: 10px; align-items: center; font-size: var(--co-rows); padding: 6px 0; border-bottom: 1px solid var(--hub-hairline); }
+.co-rep-effect b { flex: none; max-width: 46%; text-align: right; font-weight: 600; }
+.co-rep-tip { display: flex; gap: 10px; align-items: center; width: 100%; text-align: left; font: inherit; font-size: var(--co-rows); color: inherit; background: none; border: 0; border-radius: var(--hub-r); padding: 8px 6px; cursor: pointer; }
+.co-rep-tip:hover { background: var(--hub-hairline); }
+.co-rep-complaint { display: flex; gap: 10px; align-items: center; width: 100%; text-align: left; font: inherit; color: inherit; background: none; border: 0; border-radius: var(--hub-r); box-shadow: inset 0 0 0 1px var(--hub-hairline); padding: 8px 10px; margin-bottom: 8px; cursor: pointer; font-size: var(--co-rows); }
+.co-rep-complaint > .grow { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.co-rep-complaint.on { box-shadow: inset 0 0 0 2px var(--hub-accent); }
+.co-rep-complaint:not(.open) { opacity: 0.75; }
+.co-rep-sev { flex: none; font-weight: 700; text-transform: uppercase; font-size: var(--co-caps); }
+.co-rep-who { display: flex; gap: 10px; align-items: center; font-size: var(--co-body); margin-bottom: 10px; flex: none; }
+.co-rep-who > .grow { display: flex; flex-direction: column; }
+.co-rep-mood { width: 140px; display: flex; flex-direction: column; gap: 4px; }
+.co-rep-lines { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px 2px; }
+.co-rep-say { max-width: 78%; align-self: flex-start; padding: 8px 12px; border-radius: 12px 12px 12px 4px; background: var(--hub-hairline); font-size: var(--co-chat); line-height: 1.45; }
+.co-rep-say.mine { align-self: flex-end; border-radius: 12px 12px 4px 12px; background: rgba(var(--co-early-fill), 0.18); }
+.co-rep-choices { flex: none; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.co-rep-end { flex: none; margin-top: 10px; font-weight: 600; font-size: var(--co-body); }
