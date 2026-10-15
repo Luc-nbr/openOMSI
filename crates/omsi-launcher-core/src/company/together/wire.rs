@@ -142,6 +142,9 @@ pub struct SnapResult {
     pub xp: i64,
     pub on_time: u32,
     pub stops: u32,
+    /// What the trips bring in as the day's close books them: the fares and the authority's
+    /// payment (cents).
+    pub fares: i64,
     pub done: bool,
 }
 

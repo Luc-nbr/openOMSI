@@ -807,3 +807,17 @@ _version: 2
   pl: "Gra z tobą · offline"
   ru: "Играет вместе · не в сети"
   uk: "Грає разом · не в мережі"
+"for the company %{amount}":
+  de: "für den Betrieb %{amount}"
+  fr: "pour l'entreprise %{amount}"
+  nl: "voor het bedrijf %{amount}"
+  pl: "dla firmy %{amount}"
+  ru: "компании %{amount}"
+  uk: "компанії %{amount}"
+"%{trips} trips · %{passengers} passengers · score %{score} · for the company %{amount}":
+  de: "%{trips} Fahrten · %{passengers} Fahrgäste · Wertung %{score} · für den Betrieb %{amount}"
+  fr: "%{trips} trajets · %{passengers} voyageurs · note %{score} · pour l'entreprise %{amount}"
+  nl: "%{trips} ritten · %{passengers} reizigers · score %{score} · voor het bedrijf %{amount}"
+  pl: "%{trips} kursów · %{passengers} pasażerów · wynik %{score} · dla firmy %{amount}"
+  ru: "рейсов: %{trips} · пассажиров: %{passengers} · оценка %{score} · компании %{amount}"
+  uk: "рейсів: %{trips} · пасажирів: %{passengers} · оцінка %{score} · компанії %{amount}"

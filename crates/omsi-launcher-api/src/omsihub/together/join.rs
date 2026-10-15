@@ -7,7 +7,7 @@
 //! his own history (`~/.openomsi/together/<driver>-history.json`); his career counts the trips
 //! from his own trip records, as every drive's.
 
-use super::super::company::words::{day_label, tr, trf};
+use super::super::company::words::{day_label, eur, tr, trf};
 use super::super::company::{self};
 use super::{duty_arg, duty_words, notice_json, unix_now};
 use crate::{Answer, Platform};
@@ -495,7 +495,8 @@ fn view() -> Value {
         .iter()
         .map(|r| {
             let on_time = if r.stops > 0 { (100 * r.on_time / r.stops).to_string() + " %" } else { "-".into() };
-            json!({ "title": duty_words(&r.number, &r.duty), "text": trf("%{trips} trips · %{passengers} passengers · %{km} km · on time %{p} · score %{score} · +%{xp} XP", &[("trips", &r.trips.to_string()), ("passengers", &r.passengers.to_string()), ("km", &format!("{:.0}", r.km)), ("p", &on_time), ("score", &r.score.to_string()), ("xp", &r.xp.to_string())]), "done": r.done })
+            let text = trf("%{trips} trips · %{passengers} passengers · %{km} km · on time %{p} · score %{score} · +%{xp} XP", &[("trips", &r.trips.to_string()), ("passengers", &r.passengers.to_string()), ("km", &format!("{:.0}", r.km)), ("p", &on_time), ("score", &r.score.to_string()), ("xp", &r.xp.to_string())]);
+            json!({ "title": duty_words(&r.number, &r.duty), "text": format!("{text}  ·  {}", trf("for the company %{amount}", &[("amount", &eur(r.fares))])), "done": r.done })
         })
         .collect();
     let driving = j.drive.as_ref().map(|d| trf("Your game drives %{duty} in the boss's world: its trips go to the company as they end.", &[("duty", &duty_words(&d.number, &d.duty))]));

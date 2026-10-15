@@ -133,7 +133,8 @@ export function TogetherDialog() {
             <span class="acts"><${Btn} kind="primary" label=${w.yes} onClick=${() => go('tg_host_answer', { duty: a.duty, yes: true })} /><${Btn} label=${w.no} onClick=${() => go('tg_host_answer', { duty: a.duty, yes: false })} /></span></div>`)}`}
         ${v.theirs.length > 0 && html`<div class="co-caps">${w.duties_caps}</div>
           ${v.theirs.map((a) => html`<div class="tg-line"><b class="cut">${a.name}</b><span class="cut">${a.what}</span><span class="dim">${a.times} · ${a.state}</span>
-            <span class="acts">${a.off && html`<${Btn} label=${w.off} onClick=${() => go('tg_host_off', { duty: a.duty })} />`}</span></div>`)}`}
+            <span class="acts">${a.off && html`<${Btn} label=${w.off} onClick=${() => go('tg_host_off', { duty: a.duty })} />`}</span></div>
+            ${a.result && html`<p class="note tg-result-line">${a.result}</p>`}`)}`}
         <div class="co-caps">${w.notices_caps}</div>
         <div class="tg-say"><input class="co-field" value=${say} placeholder=${w.say} onInput=${(e) => setSay(e.currentTarget.value)} onKeyDown=${(e) => e.key === 'Enter' && send()} /><${Btn} label=${w.send} onClick=${send} /></div>
         <div class="tg-notices">${v.notices.map((n) => html`<div><span class="dim">${n.at}</span>${n.text}</div>`)}</div>

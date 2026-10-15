@@ -381,6 +381,11 @@ fn duty_rows(c: &Company, p: Option<&DayPlan>) -> (Vec<Value>, Vec<Value>) {
                     _ => "Planned",
                 }));
                 v["off"] = json!(st == ClaimState::Planned);
+                // (what his trips came to so far)
+                let r = th::result_of(c, p, &x.duty);
+                if r.trips > 0 {
+                    v["result"] = json!(trf("%{trips} trips · %{passengers} passengers · score %{score} · for the company %{amount}", &[("trips", &r.trips.to_string()), ("passengers", &r.passengers.to_string()), ("score", &r.score.to_string()), ("amount", &super::super::company::words::eur(r.fares))]));
+                }
                 theirs.push(v);
             }
         }

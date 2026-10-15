@@ -300,8 +300,16 @@ pub fn same_map(a: &str, b: &str) -> bool {
 pub fn result_of(c: &Company, p: Option<&DayPlan>, r: &DutyRef) -> SnapResult {
     let mut res = SnapResult { duty: r.clone(), number: duty_args(p, r)[0].1.clone(), ..Default::default() };
     let mut total = 0u32;
+    let r_ = super::super::economy::rules(c.game_mode);
+    let per_km = super::super::economy::compensation_per_km(&r_, c.reputation, c.contract_index);
     for t in book::trips_of(c, r) {
         let ev = super::super::career::evaluate(&t.trip);
+        // (as the close books it: `day::close_day`)
+        if let Some(l) = super::super::network::line_of_number(c, &t.trip.line) {
+            let km = super::super::career::believable_km(&t.trip);
+            let (fares, comp) = super::super::ownline::trip_income(super::super::ownline::kind_of(l), t.trip.passengers.max(0) as f64, km, super::super::fares::per_passenger(c, l), per_km, super::super::ownline::school_trip_pay(c, km));
+            res.fares += fares + comp;
+        }
         res.trips += 1;
         res.passengers += t.trip.passengers;
         res.km += super::super::career::believable_km(&t.trip);
