@@ -673,7 +673,11 @@ fn duty_side(c: &Company, p: &DayPlan, ti: usize, k: usize) -> Value {
     let mut options: Vec<Value> = Vec::new();
     if open_today {
         for cv in pl::covers_of_duty(c, p, ti, k) {
-            let (label, note) = cover_text(c, &cv);
+            let (label, mut note) = cover_text(c, &cv);
+            // (the agency's driver for the whole duty: what he costs)
+            if matches!(cv, pl::Cover::Agency { .. }) {
+                note = eur(pl::agency_cost(c, p, ti, k));
+            }
             let fill = cv.fill();
             options.push(json!({ "label": label, "note": note, "fill": fill, "key": key, "on": chosen == Some(fill) }));
         }
