@@ -47,6 +47,7 @@ pub mod io;
 pub mod lua;
 pub mod ui;
 pub mod oop;
+pub mod switch;
 pub mod wasm;
 pub mod wasm_plugin;
 
@@ -876,14 +877,22 @@ pub struct Plugins {
 
 impl Plugins {
     /// Load the plugins of each `plugins` folder given (the first folder's copy of an
-    /// `.opl` name wins).
+    /// `.opl` name wins), but those its `disabled.txt` lists (see [`switch`]).
     pub fn load(dirs: &[PathBuf], hosts: &HostConfig) -> Plugins {
+        let off: Vec<Vec<String>> = dirs.iter().map(|d| switch::disabled(d)).collect();
+        let skip = |k: usize, path: &Path| {
+            let skip = switch::is_off(&off[k], path);
+            if skip {
+                log::info!("plugin {} left out: switched off in {}", path.display(), switch::FILE);
+            }
+            skip
+        };
         let mut loaded: Vec<Plugin> = Vec::new();
         let mut seen = std::collections::HashSet::new();
-        for dir in dirs {
+        for (k, dir) in dirs.iter().enumerate() {
             for opl in find_opls(dir) {
                 let key = opl.strip_prefix(dir).unwrap_or(&opl).to_string_lossy().to_ascii_lowercase();
-                if !seen.insert(key) {
+                if !seen.insert(key) || skip(k, &opl) {
                     continue;
                 }
                 match Plugin::load(&opl, dir, hosts) {
@@ -899,10 +908,10 @@ impl Plugins {
         let hub = api::runtime::SharedHub::default();
         let ui = hub.ui.clone();
         let mut seen = std::collections::HashSet::new();
-        for dir in dirs {
+        for (k, dir) in dirs.iter().enumerate() {
             for path in lua::find_lua(dir) {
                 let key = path.strip_prefix(dir).unwrap_or(&path).to_string_lossy().to_ascii_lowercase();
-                if !seen.insert(key) {
+                if !seen.insert(key) || skip(k, &path) {
                     continue;
                 }
                 match lua::LuaPlugin::start_spec(lua::LuaSpec::disk(&path), &path, &mut lua::NoVehicle, hub.clone()) {
@@ -916,8 +925,11 @@ impl Plugins {
         }
         // compiled plugins (`.oop`): a name a `.lua` plugin has already is left out
         let mut wasm = Vec::new();
-        for dir in dirs {
+        for (k, dir) in dirs.iter().enumerate() {
             for path in oop::find_oop(dir) {
+                if skip(k, &path) {
+                    continue;
+                }
                 let name = path.file_stem().map(|n| n.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
                 if lua.iter().any(|p: &lua::LuaPlugin| p.name.eq_ignore_ascii_case(&name)) || wasm.iter().any(|p: &wasm_plugin::WasmHost| p.name.eq_ignore_ascii_case(&name)) {
                     log::warn!("plugin {} left out: a plugin of that name is loaded already", path.display());
