@@ -841,6 +841,8 @@ fn prefs_view(s: &mut Session, r: &mut Rf, date: &str) -> Value {
         "travel_labels": Travel::LABELS.iter().map(|x| tr(x)).collect::<Vec<_>>(),
         "tri_labels": rf::Tri::LABELS.iter().map(|x| tr(x)).collect::<Vec<_>>(),
         "type_names": c.planning.flow.prefs.duty_types.iter().map(|t| tr(&t.name)).collect::<Vec<_>>(),
+        // (the least a duty is paid always: Time Limitations' least length of a duty says so)
+        "min_paid": co::staff::MIN_PAID,
     })
 }
 

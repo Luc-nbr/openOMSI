@@ -180,6 +180,8 @@ pub struct DutyType {
     pub end_by: i32,
     /// The spread (sign-on to sign-off) at most.
     pub max_length: i32,
+    /// The spread at least (0: no least; a tester, 2026-10-15: "the shortest a duty can be").
+    pub min_length: i32,
     pub split: Tri,
     pub allowed: bool,
     pub penalty: Cents,
@@ -187,18 +189,18 @@ pub struct DutyType {
 
 impl Default for DutyType {
     fn default() -> Self {
-        DutyType { name: String::new(), start_from: 0, start_to: 1439, end_by: 1800, max_length: 600, split: Tri::Either, allowed: true, penalty: 0 }
+        DutyType { name: String::new(), start_from: 0, start_to: 1439, end_by: 1800, max_length: 600, min_length: 0, split: Tri::Either, allowed: true, penalty: 0 }
     }
 }
 
 impl DutyType {
     fn new(name: &str, start: (i32, i32), end_by: i32, max_length: i32, split: Tri) -> DutyType {
-        DutyType { name: name.into(), start_from: start.0, start_to: start.1, end_by, max_length, split, allowed: true, penalty: 0 }
+        DutyType { name: name.into(), start_from: start.0, start_to: start.1, end_by, max_length, min_length: 0, split, allowed: true, penalty: 0 }
     }
 
     /// Whether a duty from `start` to `end` (split or not) is of this type.
     pub fn fits(&self, start: i32, end: i32, split: bool) -> bool {
-        start >= self.start_from && start <= self.start_to && end <= self.end_by && end - start <= self.max_length && self.split.allows(split)
+        start >= self.start_from && start <= self.start_to && end <= self.end_by && end - start <= self.max_length && end - start >= self.min_length && self.split.allows(split)
     }
 }
 
@@ -263,6 +265,9 @@ pub struct Prefs {
     pub layover_breaks: bool,
     /// Time limitation: the spread (sign-on to sign-off) at most.
     pub max_spread: Limit,
+    /// Time limitation: the spread at least (off by default, an old save's too). A shorter duty
+    /// is an issue, and is paid up to it (`paid_floor`: four hours, `MIN_PAID`, always).
+    pub min_duty: Limit,
     /// Pieces of work at least this long.
     pub min_piece: Limit,
     /// Changes of bus in a duty at most.
@@ -309,6 +314,7 @@ impl Default for Prefs {
             break_from: 15,
             layover_breaks: true,
             max_spread: Limit::soft(780, 50_00),
+            min_duty: Limit::off(MIN_PAID),
             min_piece: Limit::soft(60, 10_00),
             changeovers: Limit::soft(2, 15_00),
             split_min: st::SPLIT_BREAK,
@@ -1199,9 +1205,21 @@ pub const I_RELIEF_PLACE: &str = "Drivers change at %{stop}, where no relief is 
 pub const PLACE_TEXTS: [&str; 4] = [I_SIGN_ON, I_SIGN_OFF, I_BREAK_PLACE, I_RELIEF_PLACE];
 pub const PLACE_TITLES: [&str; 4] = ["Duties begin or end at a wrong place", "Duties begin or end at a wrong place", "Breaks at a wrong place", "Reliefs at a wrong place"];
 
+/// A duty shorter than the least length of a duty (Time Limitations, `Prefs::min_duty`), and its
+/// title.
+pub const I_SHORT_DUTY: &str = "A duty of %{time}, shorter than %{min}";
+pub const LENGTH_TEXTS: [&str; 1] = [I_SHORT_DUTY];
+pub const LENGTH_TITLES: [&str; 1] = ["Duties too short"];
+
 /// An issue's short title (its group in the Validation panel).
 pub fn issue_title(text: &str) -> &'static str {
-    ISSUE_TEXTS.iter().position(|t| *t == text).map(|k| ISSUE_TITLES[k]).or_else(|| PLACE_TEXTS.iter().position(|t| *t == text).map(|k| PLACE_TITLES[k])).unwrap_or("Issues")
+    ISSUE_TEXTS
+        .iter()
+        .position(|t| *t == text)
+        .map(|k| ISSUE_TITLES[k])
+        .or_else(|| PLACE_TEXTS.iter().position(|t| *t == text).map(|k| PLACE_TITLES[k]))
+        .or_else(|| LENGTH_TEXTS.iter().position(|t| *t == text).map(|k| LENGTH_TITLES[k]))
+        .unwrap_or("Issues")
 }
 
 /// An issue's words filled in (`tr`: how a text is translated).
@@ -1429,6 +1447,9 @@ pub fn board_of(c: &Company, wd: u8, tours: Vec<TourOfDay>, stack: Vec<(String, 
         if p.max_spread.on && s.spread() > p.max_spread.value {
             add(I_SPREAD, vec![("time", hm(s.spread())), ("max", hm(p.max_spread.value))], p.max_spread.hard, p.max_spread.penalty);
         }
+        if p.min_duty.on && s.spread() < p.min_duty.value {
+            add(I_SHORT_DUTY, vec![("time", hm(s.spread())), ("min", hm(p.min_duty.value))], p.min_duty.hard, p.min_duty.penalty);
+        }
         if p.min_piece.on {
             if let Some(sp) = s.spans.iter().find(|sp| sp.to - sp.from < p.min_piece.value) {
                 add(I_SHORT_PIECE, vec![("time", hm(sp.to - sp.from)), ("min", hm(p.min_piece.value))], p.min_piece.hard, p.min_piece.penalty);
@@ -1613,7 +1634,7 @@ fn shape(c: &Company, tours: &[TourOfDay], d: &Duty, di: Option<usize>, key: Opt
     let end = events.iter().map(|e| e.to).chain(spans.iter().map(|s| s.to)).max().unwrap_or(0);
     let unpaid: i32 = splits.iter().map(|s| s.1 - s.0).sum();
     let work = (end - start - unpaid).max(0);
-    let paid = n.paid.unwrap_or(work.max(MIN_PAID));
+    let paid = n.paid.unwrap_or(work.max(paid_floor(p)));
     let driving: i32 = spans.iter().map(|s| tours[s.tour].trips[range(s)].iter().map(|x| x.arr - x.dep).sum::<i32>()).sum();
     let platform: i32 = spans.iter().map(|s| s.to - s.from).sum();
     let changeovers = spans.windows(2).filter(|w| w[0].tour != w[1].tour).count();
@@ -1626,6 +1647,16 @@ fn shape(c: &Company, tours: &[TourOfDay], d: &Duty, di: Option<usize>, key: Opt
     let mut s = Shaped { duty: di, spare: None, key, spans, events, custom: n.custom.clone(), start, end, work, paid, driving, platform, splits, changeovers, kind, kind_set, locked: n.locked, issues: Vec::new(), plan: BreakPlan::default(), no_rest };
     s.plan = break_plan(p, tours, &s);
     s
+}
+
+/// The least a duty is paid: four hours (`MIN_PAID`), or the least length of a duty (Time
+/// Limitations, `Prefs::min_duty`) where that is longer and in use.
+pub fn paid_floor(p: &Prefs) -> i32 {
+    if p.min_duty.on {
+        MIN_PAID.max(p.min_duty.value)
+    } else {
+        MIN_PAID
+    }
 }
 
 /// The breaks of a duty a meal or a rest can be taken in: the gaps between its work, and (if
@@ -2106,7 +2137,7 @@ const HARD: f64 = 500_00.0;
 
 /// The rules of a duty as a whole Optimise weighs for pieces `ps` (in order) as one duty: its
 /// type (one the duty types allow, at its penalty), its length (Time Limitations: the spread at
-/// most) and its changes of bus - the soft ones' penalties, and how many hard ones
+/// most and at least) and its changes of bus - the soft ones' penalties, and how many hard ones
 /// it breaks. (The duty's sign-on and sign-off as `shape` has them; a gap of a split's length a
 /// split.)
 fn whole_rules(p: &Prefs, ps: &[&Cut]) -> (f64, usize) {
@@ -2125,6 +2156,7 @@ fn whole_rules(p: &Prefs, ps: &[&Cut]) -> (f64, usize) {
         }
     };
     rule(end - start > p.max_spread.value, &p.max_spread);
+    rule(end - start < p.min_duty.value, &p.min_duty);
     rule(changes > p.changeovers.value, &p.changeovers);
     // (never longer than a day leaves the night's rest for: no duty across two service days)
     if end - start > 1440 - staff::NIGHT_REST {
@@ -2339,7 +2371,7 @@ pub fn optimise_with(c: &Company, lines: &[LineInfo], date: &str, vehicles: bool
         let start = ps.first().map(|x| x.from).unwrap_or(0) - p.sign_on;
         let end = ps.iter().map(|x| x.to).max().unwrap_or(0) + p.sign_off;
         let unpaid: i32 = ps.windows(2).map(|w| w[1].from - w[0].to).filter(|g| *g >= p.split_min).sum();
-        (end - start - unpaid).max(MIN_PAID)
+        (end - start - unpaid).max(paid_floor(&p))
     };
     let mut groups: Vec<Vec<usize>> = Vec::new();
     // (a duty begins where a relief point allows it, and takes a split's break where one does)
@@ -2456,6 +2488,8 @@ pub fn texts() -> Vec<&'static str> {
     out.extend(ISSUE_TITLES);
     out.extend(PLACE_TEXTS);
     out.extend(PLACE_TITLES);
+    out.extend(LENGTH_TEXTS);
+    out.extend(LENGTH_TITLES);
     out.extend(ReliefTiming::LABELS);
     out.extend(Travel::LABELS);
     out.extend(Tri::LABELS);

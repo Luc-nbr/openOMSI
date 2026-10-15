@@ -1,6 +1,7 @@
 //! Optimise on a line whose bus does not stand at one stop between two trips, Optimise saying
 //! when it finds nothing better, keeping to the duty types (testers, 2026-10-15: "optimise
-//! feature do not work in rosterflow").
+//! feature do not work in rosterflow"); and the least length of a duty ("the shortest a duty can
+//! be").
 
 use super::super::{found, Founding};
 use super::*;
@@ -108,11 +109,61 @@ fn optimise_makes_only_the_duty_types_the_preferences_allow() {
 }
 
 #[test]
+fn a_duty_shorter_than_the_least_length_is_an_issue_and_paid_up_to_it() {
+    // one tour from 06:00 to 07:50: a duty of 2:15, sign-on and sign-off in
+    let l = back_and_forth(&[("1", 360, 2)]);
+    let mut c = company();
+    let date = c.date.clone();
+    let duty = |c: &Company| {
+        let b = board(c, std::slice::from_ref(&l), &date);
+        let s = b.shaped[0].clone();
+        let mine: Vec<Issue> = s.issues.iter().map(|&i| b.issues[i].clone()).collect();
+        (s, mine)
+    };
+    let (s, mine) = duty(&c);
+    assert_eq!(s.spread(), 135);
+    // no least length by default (an old save's too): paid four hours, no issue
+    assert!(!c.planning.flow.prefs.min_duty.on);
+    assert_eq!(s.paid, MIN_PAID);
+    assert!(!mine.iter().any(|i| i.text == I_SHORT_DUTY));
+    // at least 6:00, a soft rule: a warning that costs its penalty, and paid six hours
+    c.planning.flow.prefs.min_duty = Limit { on: true, value: 360, hard: false, penalty: 30_00 };
+    let (s, mine) = duty(&c);
+    let short = mine.iter().find(|i| i.text == I_SHORT_DUTY).expect("too short");
+    assert!(!short.hard && short.penalty == 30_00);
+    assert!(short.args.contains(&("time", hm(135))) && short.args.contains(&("min", hm(360))));
+    assert_eq!(s.paid, 360);
+    assert_eq!(issue_title(I_SHORT_DUTY), "Duties too short");
+    // a hard rule: an error
+    c.planning.flow.prefs.min_duty.hard = true;
+    assert!(duty(&c).1.iter().any(|i| i.text == I_SHORT_DUTY && i.hard));
+    // under four hours: paid four hours still
+    c.planning.flow.prefs.min_duty.value = 120;
+    let (s, mine) = duty(&c);
+    assert_eq!(s.paid, MIN_PAID);
+    assert!(!mine.iter().any(|i| i.text == I_SHORT_DUTY));
+    // a duty type's least length: shorter, the duty is not of that type
+    let mut c = company();
+    assert_eq!(duty(&c).0.kind, Some(0), "an early shift");
+    c.planning.flow.prefs.duty_types[0].min_length = 180;
+    let (s, mine) = duty(&c);
+    assert_eq!(s.kind, None);
+    assert!(mine.iter().any(|i| i.text == I_TYPE));
+    // old saves: no least length anywhere
+    let old: Prefs = serde_json::from_str(r#"{"max_spread":{"on":true,"value":700,"hard":false,"penalty":0}}"#).unwrap();
+    assert_eq!(old.min_duty, Limit::off(MIN_PAID));
+    let t: DutyType = serde_json::from_str(r#"{"name":"Early shift","start_from":180,"start_to":479,"end_by":960,"max_length":600}"#).unwrap();
+    assert_eq!(t.min_length, 0);
+}
+
+#[test]
 fn optimise_weighs_a_duty_as_a_whole_by_its_type_and_length() {
-    let p = Prefs::default();
+    let p = Prefs { min_duty: Limit { on: true, value: 360, hard: true, penalty: 0 }, ..Default::default() };
     let cut = |from: i32, to: i32, tour: usize| Cut { tour, range: 0..1, from, to, at: "A".into(), till: "A".into() };
-    // a piece of 06:00 to 09:00 with one of 09:30 to 12:30 on another bus: an early shift
+    // a piece of 06:00 to 09:00 alone: too short (hard); with one of 09:30 to 12:30 on another bus
+    // long enough, an early shift
     let (a, b) = (cut(360, 540, 0), cut(570, 750, 1));
+    assert_eq!(whole_rules(&p, &[&a]), (0.0, 1));
     assert_eq!(whole_rules(&p, &[&a, &b]), (0.0, 0));
     // one from 14:00 to 18:00 after a split: a split shift may not begin after 13:00 - no type
     let (c1, c2) = (cut(840, 960, 0), cut(1080, 1320, 1));
