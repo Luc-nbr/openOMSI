@@ -244,6 +244,17 @@ pub(super) fn act(s: &mut Session, op: &str, req: &Value) -> Result<(), String> 
             s.v.change_ask = None;
             return Ok(());
         }
+        // (the company read again from its file, the line's changes kept: RosterFlow's Routes tab
+        // lets the company's clock go on while a route is drawn, and its acts are to write onto
+        // the company as it is now - its figures made again with it)
+        "c_reread" => {
+            let Some(id) = s.company.as_ref().map(|c| c.id.clone()) else { return Ok(()) };
+            s.company = Some(co::store::load(&core::data_dir(), &id).map_err(|e| format!("{e:#}"))?);
+            if let Some(fc) = s.v.company.as_mut() {
+                fc.cache = None;
+            }
+            return Ok(());
+        }
         "c_change_day" => {
             if let Some(ask) = s.v.change_ask.as_mut() {
                 let d = req.get("d").and_then(Value::as_i64).unwrap_or(0);
