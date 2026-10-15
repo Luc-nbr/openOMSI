@@ -565,7 +565,9 @@ function AddForm({ v, top }) {
   const pattern = Math.min(a.pattern, Math.max(0, v.patterns.length - 1));
   const stops = v.patterns[pattern]?.stops || [];
   const first = parseTime(a.first);
-  const last = parseTime(a.last);
+  // (an end before the start, "22:00" until "00:30": after midnight, `timeplan::end_after`)
+  const typed = parseTime(a.last);
+  const last = typed != null && first != null && typed < first && typed + 1440 <= 2160 ? typed + 1440 : typed;
   const heads = parseHeadways(a.headway);
   const ok = first != null && last != null && heads && last >= first;
   const note = ok ? tr('%{n} trips', { n: generated(first, last, heads) }) : tr('Type the times as 06:00 and the headway in minutes');

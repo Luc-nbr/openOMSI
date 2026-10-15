@@ -962,7 +962,10 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
             let side = tp::sides(&line)[sh.side].clone();
             let pattern = usize_arg(args, "pattern").min(side.patterns.len().saturating_sub(1));
             let Some(&dir) = side.patterns.get(pattern) else { return Ok(json!({})) };
-            let (first, last, heads) = (tp::parse_time(&str_arg(args, "first")), tp::parse_time(&str_arg(args, "last")), tp::parse_headways(&str_arg(args, "headway")));
+            let first = tp::parse_time(&str_arg(args, "first"));
+            // (an end before the start: after midnight)
+            let last = tp::parse_time(&str_arg(args, "last")).map(|t| first.map_or(t, |f| tp::end_after(f, t)));
+            let heads = tp::parse_headways(&str_arg(args, "headway"));
             let set = tp::run_set(&line, day, dir);
             let n = line.directions[dir].stops.len();
             let control = usize_arg(args, "control").min(n.saturating_sub(1));
