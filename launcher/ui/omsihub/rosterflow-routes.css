@@ -75,9 +75,15 @@
 .rt-pin.start b { background: #2e9d5b; }
 .rt-pin.end b { background: #d0453a; }
 .rt-search { position: absolute; left: 10px; top: 10px; z-index: 3; width: min(270px, calc(100% - 70px)); }
-.rt-search .field { height: 34px; display: flex; align-items: center; gap: 6px; padding: 0 6px 0 11px; border-radius: 17px; background: var(--le-on-map); color: var(--hub-text-dim); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); }
-.rt-search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: none; background: none; color: var(--hub-text); font: inherit; font-size: 9.98px; }
-.rt-search .clear { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 50%; color: var(--hub-text-dim); }
+/* (the box is a label of class "field", which styles.css lays out as a column - the icon over
+   the words: one row here, at the height of RosterFlow's other searches (`.rf-input`), whatever
+   sheet comes after) */
+.rf-tp.rt .rt-search > .field { box-sizing: border-box; height: 36px; margin: 0; display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 6px; padding: 0 6px 0 11px; border-radius: 18px; background: var(--le-on-map); color: var(--hub-text-dim); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); }
+.rf-tp.rt .rt-search > .field:focus-within { box-shadow: inset 0 0 0 1.5px var(--hub-accent), 0 2px 8px rgba(0, 0, 0, 0.25); }
+.rf-tp.rt .rt-search > .field > .hub-icon { flex: none; display: block; }
+.rf-tp.rt .rt-search > .field > input { flex: 1 1 auto; min-width: 0; height: 100%; margin: 0; padding: 0; border: 0; outline: none; background: none; box-shadow: none; color: var(--hub-text); font: inherit; font-size: 9.98px; line-height: normal; }
+.rf-tp.rt .rt-search > .field > input::placeholder { color: var(--hub-text-dim); }
+.rt-search .clear { flex: none; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 50%; color: var(--hub-text-dim); }
 .rt-search .clear:hover { color: var(--hub-text); }
 .rt-search .list { max-height: 260px; overflow-y: auto; margin-top: 6px; padding: 4px; border-radius: 8px; background: var(--tp-panel); box-shadow: inset 0 0 0 1px var(--tp-border), 0 8px 24px rgba(0, 0, 0, 0.35); }
 .rt-search .list p { margin: 0; padding: 7px 8px; font-size: 9.2px; color: var(--tp-dim); }
