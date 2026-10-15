@@ -142,7 +142,7 @@ fn services(c: &Company, args: &Value) -> Value {
 /// The buses' internet: the four providers side by side (`contracts::internet`).
 fn internet(c: &Company, args: &Value) -> Value {
     let title = tr("Internet on the buses");
-    if !c.research.has(co::research::keys::WLAN) {
+    if !co::research::has(c, co::research::keys::WLAN) {
         return json!({ "title": title, "locked": tr("The buses have no WLAN yet. Research it, and the internet providers make their offers here: your passengers like to be online, and a connection that lasts the day raises your reputation."), "to_research": tr("To the research") });
     }
     let active = ct::internet_today(c).cloned();

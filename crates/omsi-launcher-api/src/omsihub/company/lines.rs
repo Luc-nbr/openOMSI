@@ -388,7 +388,7 @@ pub fn add_view(s: &mut Session, args: &Value) -> Value {
         "name": name, "title": trf(if direct || easy { "Add line %{n}" } else { "Apply for line %{n}" }, &[("n", &number)]),
         "intro": tr(intro), "needs_caps": tr("The line needs").to_uppercase(), "need_caps": tr("Needs").to_uppercase(), "have_caps": tr("The company has free").to_uppercase(),
         "rows": rows, "short": short, "fine": fine,
-        "asking": asking.map(|p| json!({ "text": trf("Its concession at the asking price: %{amount} (the company has %{cash}).", &[("amount", &eur(p)), ("cash", &eur(c.cash))]), "ok": c.cash >= p })),
+        "asking": asking.map(|p| json!({ "text": trf("Its concession at the asking price: %{amount} (the company has %{cash}).", &[("amount", &eur(p)), ("cash", &super::sandbox::cash(&c))]), "ok": c.can_pay(p) })),
         "main": match asking { Some(p) => trf("Take it on for %{amount}", &[("amount", &eur(p))]), None if direct => tr("Add the line"), None => tr("Apply for its concession") },
         "main_icon": if direct { "add" } else { "receipt_long" }, "cancel": tr("Cancel"),
         "dealer": (short_b > 0).then(|| tr("To the dealer")), "hire": (short_d > 0).then(|| tr("Hire drivers")),

@@ -450,7 +450,7 @@ fn schedule_part(c: &Company, ui: &Value) -> Value {
     let pick = ui.get("hours_role").and_then(Value::as_u64).unwrap_or(0).min(staff::OTHERS.len() as u64 - 1) as usize;
     let chips: Vec<String> = staff::OTHERS.iter().map(|r| format!("{}  {}", tr(staff::plural(*r)), c.staff.iter().filter(|e| e.role == *r).count())).collect();
     let role = staff::OTHERS[pick];
-    let open = c.research.has(keys::SHIFT_SCHEDULE);
+    let open = co::research::has(c, keys::SHIFT_SCHEDULE);
     let h = c.staff_rules.hours_of(role);
     let have = c.staff.iter().filter(|e| e.role == role && e.notice_until.is_none()).count() as u32;
     let (shifts, uncovered) = staff::shifts(c, &c.date, role);
@@ -621,7 +621,7 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Result<Value, St
                 }
                 None => {
                     let cost = col.cost(&c);
-                    if c.cash < cost {
+                    if !c.can_pay(cost) {
                         return Some(Ok(json!({ "popup": super::popup(s, kit::no_cash(&c, cost)) })));
                     }
                     let r = if staff_course { apply(s, |c| Ok(training::enrol_all(c, kind))) } else { apply(s, |c| Ok(licences::enrol_all(c, kind, &subject))) };

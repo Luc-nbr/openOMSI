@@ -60,7 +60,7 @@ fn need_text(n: Need) -> String {
 pub fn view(s: &mut Session, _args: &Value) -> Value {
     let Some(c) = s.company.clone() else { return Value::Null };
     let strip = json!([
-        { "icon": "payments", "value": eur(c.cash), "tone": if c.cash < 0 { "danger" } else { "ok" }, "tip": tr("Cash") },
+        { "icon": "payments", "value": super::super::sandbox::cash(&c), "tone": if super::super::sandbox::cash_tone(&c) == "danger" { "danger" } else { "ok" }, "tip": tr("Cash") },
         { "icon": "emoji_events", "value": grouped(c.trophies as f64), "tone": "warn", "tip": tr("Trophies: earned with goals and contracts, spent on research") },
         { "icon": "star", "value": format!("{} %", num(c.reputation, 1)), "tone": "accent2", "tip": tr("Rating: how the authority and the passengers see the company") },
     ]);
@@ -109,7 +109,7 @@ fn banner(c: &Company) -> Value {
 /// A topic's card (`research::card`).
 fn card(c: &Company, t: &Topic) -> Value {
     let state = rs::state(c, t);
-    let done = rs::stages_done(&c.research, t);
+    let done = rs::stages_of(c, t);
     let running = c.research.running.as_ref().filter(|x| x.topic == t.key);
     let part = running.map(|x| x.share()).unwrap_or(0.0);
     let mut out = json!({
@@ -132,7 +132,7 @@ fn card(c: &Company, t: &Topic) -> Value {
             let k = rs::cost(c, t, done + 1);
             let short = k.trophies - c.trophies;
             out["money"] = json!(eur(k.money));
-            out["money_tone"] = json!(if c.cash < k.money { "danger" } else { "text" });
+            out["money_tone"] = json!(if !c.can_pay(k.money) { "danger" } else { "text" });
             out["trophies"] = json!(if short > 0 { trf("%{n} (%{short} missing)", &[("n", &grouped(k.trophies as f64)), ("short", &grouped(short as f64))]) } else { grouped(k.trophies as f64) });
             out["trophies_tone"] = json!(if short > 0 { "danger" } else { "text" });
             if state == State::Open {
@@ -150,7 +150,7 @@ fn card(c: &Company, t: &Topic) -> Value {
 /// What a topic does, its stages, its price and what it needs, in a popup (`research::info`).
 fn info(c: &Company, key: &str) -> Option<Value> {
     let t = rs::topic(key)?;
-    let done = rs::stages_done(&c.research, t);
+    let done = rs::stages_of(c, t);
     let mut text = tr(t.info);
     text.push_str("\n\n");
     if done >= t.stages {
@@ -176,7 +176,7 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Answer> {
         "research_start" => {
             let key = str_arg(args, "key");
             let Some(t) = rs::topic(&key) else { return Some(Ok(json!({}))) };
-            let k = rs::cost(&c, t, rs::stages_done(&c.research, t) + 1);
+            let k = rs::cost(&c, t, rs::stages_of(&c, t) + 1);
             if c.research.running.is_some() {
                 let p = kit::Popup::new("search", "A research is running", tr("Your researchers work on one research at a time: wait until it is done, or stop it at the top of the page."), "", None);
                 return Some(popup_answer(p.json(casual)));
@@ -186,7 +186,7 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Answer> {
                 let p = kit::Popup::new("emoji_events", "Not enough trophies", text, tr("Trophies are earned with goals and contracts: see the Contracts page and the inbox."), None);
                 return Some(popup_answer(p.json(casual)));
             }
-            if k.money > c.cash {
+            if !c.can_pay(k.money) {
                 return Some(popup_answer(kit::no_cash(&c, k.money).json(casual)));
             }
             match apply(s, |c| rs::start(c, t.key)) {

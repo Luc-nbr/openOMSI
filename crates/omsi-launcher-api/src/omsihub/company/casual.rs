@@ -292,7 +292,7 @@ fn shop(s: &mut Session, c: &Company, ui: &Value) -> Value {
             if let Some(n) = x.seats {
                 facts = format!("{facts} · {}", trf("%{n} seats", &[("n", &n.to_string())]));
             }
-            json!({ "file": x.bus.file, "livery": x.bus.default_paint, "name": x.bus.name, "fits": (*rank == 0 && !locked).then(|| tr("Fits your lines")), "title": title, "facts": facts, "locked": locked.then(|| tr("Opens later, as your company grows")), "price": eur(*price), "dear": *price > c.cash, "buy": tr("Buy") })
+            json!({ "file": x.bus.file, "livery": x.bus.default_paint, "name": x.bus.name, "fits": (*rank == 0 && !locked).then(|| tr("Fits your lines")), "title": title, "facts": facts, "locked": locked.then(|| tr("Opens later, as your company grows")), "price": eur(*price), "dear": !c.can_pay(*price), "buy": tr("Buy") })
         })
         .collect();
     out["sizes"] = json!(SIZES.iter().map(|s| tr(s.0)).collect::<Vec<_>>());
@@ -403,7 +403,7 @@ fn new_line(s: &mut Session, c: &Company, ui: &Value) -> Value {
             });
             rows.push(json!(["groups", tr("Drivers"), match o.drivers { Some(d) => trf("%{n}, hired by themselves", &[("n", &d.to_string())]), None => tr("Hired by themselves") }, "ok"]));
             if let Some(p) = o.price {
-                rows.push(json!(["receipt_long", tr("Its licence"), eur(p), if c.cash >= p { "text" } else { "danger" }]));
+                rows.push(json!(["receipt_long", tr("Its licence"), eur(p), if c.can_pay(p) { "text" } else { "danger" }]));
             }
             out["title"] = json!(match pick {
                 Pick::Map(_) => trf("Line %{n}, ready to run", &[("n", &o.number)]),
@@ -501,7 +501,7 @@ fn money(c: &Company) -> Value {
         json!({ "text": tr(text), "label": tr(label), "icon": icon, "act": act_json(&a) })
     });
     json!({
-        "page": "money", "head": head(MONEY, trf("In the bank: %{cash}", &[("cash", &eur(c.cash))]), None),
+        "page": "money", "head": head(MONEY, trf("In the bank: %{cash}", &[("cash", &super::sandbox::cash(&c))]), None),
         "weeks_caps": tr("Week by week").to_uppercase(), "in": tr("In"), "out": tr("Out"),
         "weeks": weeks.iter().map(|w| { let res = w.income - w.expenses; let (t, tone) = signed(res); let label = short_date(&w.from); json!({ "label": label, "income": w.income, "expenses": w.expenses, "short": short_money(res), "tone": tone, "tip": format!("{}: {}  ·  {} {}  ·  {} {}", label, t, tr("In"), eur(w.income), tr("Out"), eur(w.expenses)) }) }).collect::<Vec<_>>(),
         "no_weeks": tr("No day closed yet: press Next day, and the first week's money shows here."),

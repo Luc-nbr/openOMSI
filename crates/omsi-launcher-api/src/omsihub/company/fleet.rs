@@ -260,7 +260,7 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Result<Value, St
             if let Some(v) = bus {
                 cost += co::livery::paint_cost(&c, v);
             }
-            if c.cash < cost {
+            if !c.can_pay(cost) {
                 popup(super::popup(s, kit::no_cash(&c, cost)))
             } else {
                 let (file, paint) = match bus {
@@ -279,7 +279,7 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Result<Value, St
             let Some(bus) = super::vehicles::market_bus(s, &file).filter(|b| c.vehicles.allows(b)) else { return Some(Ok(json!({}))) };
             let r = co::economy::rules(c.game_mode);
             let cost = if how == 0 { market::lease_offer(&c, &bus).0 } else { co::economy::rent_per_day(bus.kind, &r, c.price_index) * days as i64 };
-            if c.cash < cost {
+            if !c.can_pay(cost) {
                 return Some(popup(super::popup(s, kit::no_cash(&c, cost))));
             }
             match apply(s, |c| if how == 0 { market::lease(c, &bus, &paint) } else { market::rent(c, &bus, days, &paint) }) {

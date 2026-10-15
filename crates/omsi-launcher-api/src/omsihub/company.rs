@@ -38,6 +38,8 @@ mod overview;
 mod people;
 mod reputation;
 mod photos;
+// (Beta 61: a sandbox company's rules, set by the player)
+pub mod sandbox;
 mod portraits;
 pub mod words;
 // (what a driver has seen of the company's tour, Trello "Tauri 6/6")
@@ -66,7 +68,7 @@ use words::{day_label, eur, grouped, num, tr, trf};
 
 /// The company's pages, as the game-drawn launcher numbers them (`company::TABS`): the
 /// `OMSI_LAUNCHER_PAGE` it reads is "bus company:<number>".
-pub const TABS: [&str; 17] = ["Overview", "Fleet", "Staff", "Lines", "Finances", "Planning", "Career", "Depot", "Concessions", "Map", "Research", "Workshop", "Contracts", "Inbox", "Agenda", "Operations", "Reputation"];
+pub const TABS: [&str; 18] = ["Overview", "Fleet", "Staff", "Lines", "Finances", "Planning", "Career", "Depot", "Concessions", "Map", "Research", "Workshop", "Contracts", "Inbox", "Agenda", "Operations", "Reputation", "Sandbox"];
 pub const DEPOT_TAB: usize = 7;
 pub const CONCESSIONS_TAB: usize = 8;
 pub const MAP_TAB: usize = 9;
@@ -79,26 +81,39 @@ pub const AGENDA_TAB: usize = 14;
 pub const OPS_TAB: usize = ops::OPS_TAB;
 /// The reputation explained, and the passengers' complaints (Luc 2026-10-15).
 pub const REPUTATION_TAB: usize = 16;
+/// A sandbox company's rules (`sandbox`; only a sandbox has the page: `pages_for`).
+pub const SANDBOX_TAB: usize = sandbox::SANDBOX_TAB;
 /// The company's start screen (no page of `TABS`).
 pub const HOME_TAB: usize = 100;
 /// The pages' icons, in the order of `TABS`.
-pub const ICONS: [&str; 17] = ["signal_cellular_alt", "directions_bus", "groups", "route", "payments", "calendar_month", "military_tech", "garage", "public", "map", "search", "construction", "description", "chat", "event", "traffic", "star"];
+pub const ICONS: [&str; 18] = ["signal_cellular_alt", "directions_bus", "groups", "route", "payments", "calendar_month", "military_tech", "garage", "public", "map", "search", "construction", "description", "chat", "event", "traffic", "star", "science"];
 /// The pages in the strip under the bar, grouped as the start screen groups them.
-pub const RAIL: [&[usize]; 5] = [&[0, AGENDA_TAB, INBOX_TAB], &[5, OPS_TAB, 3, MAP_TAB, 1], &[2], &[4, CONCESSIONS_TAB, CONTRACTS_TAB, REPUTATION_TAB, 6], &[DEPOT_TAB, WORKSHOP_TAB, RESEARCH_TAB]];
+/// (the Sandbox page last, a group of its own: only a sandbox company shows it)
+pub const RAIL: [&[usize]; 6] = [&[0, AGENDA_TAB, INBOX_TAB], &[5, OPS_TAB, 3, MAP_TAB, 1], &[2], &[4, CONCESSIONS_TAB, CONTRACTS_TAB, REPUTATION_TAB, 6], &[DEPOT_TAB, WORKSHOP_TAB, RESEARCH_TAB], &[SANDBOX_TAB]];
 
 /// The pages this page draws itself (the planning, the depot, the concessions, the fleet map,
 /// the research, the workshop and the contracts since phase 3: `company_more.rs`): every page
 /// (`HANDED_OVER` is empty since the game-drawn launcher it opened them in is gone). RosterFlow -
 /// the planning with its add-on on - is handed over by the planning's page itself.
-pub const DRAWN: [usize; 17] = [0, 1, 2, 3, 4, 5, 6, DEPOT_TAB, CONCESSIONS_TAB, MAP_TAB, RESEARCH_TAB, WORKSHOP_TAB, CONTRACTS_TAB, INBOX_TAB, AGENDA_TAB, OPS_TAB, REPUTATION_TAB];
+pub const DRAWN: [usize; 18] = [0, 1, 2, 3, 4, 5, 6, DEPOT_TAB, CONCESSIONS_TAB, MAP_TAB, RESEARCH_TAB, WORKSHOP_TAB, CONTRACTS_TAB, INBOX_TAB, AGENDA_TAB, OPS_TAB, REPUTATION_TAB, SANDBOX_TAB];
 pub const HANDED_OVER: [usize; 0] = [];
 
-/// The pages a game mode shows, in the strip's order (`company::pages_of`).
+/// The pages a game mode shows, in the strip's order (`company::pages_of`; the Sandbox page is
+/// a sandbox company's: `pages_for`).
 pub fn pages_of(mode: co::GameMode) -> Vec<usize> {
     if mode.casual() {
         return casual::PAGES.to_vec();
     }
-    RAIL.iter().flat_map(|g| g.iter().copied()).collect()
+    RAIL.iter().flat_map(|g| g.iter().copied()).filter(|t| *t != SANDBOX_TAB).collect()
+}
+
+/// The pages a company shows: its game mode's, and a sandbox's own page.
+pub fn pages_for(c: &Company) -> Vec<usize> {
+    let mut out = pages_of(c.game_mode);
+    if co::sandbox::is_sandbox(c) {
+        out.push(SANDBOX_TAB);
+    }
+    out
 }
 
 /// A page's name as the strip under the bar says it.
@@ -1115,11 +1130,11 @@ fn shell(s: &mut Session) -> Value {
     let casual = c.game_mode.casual();
     // what the company has: cash, trophies, reputation, each a click from the page about it
     let status = [
-        ("payments", eur(c.cash), "ok", if c.cash >= 0 { "text" } else { "danger" }, "Cash: the money the company has now", 4),
+        ("payments", sandbox::cash(&c), "ok", sandbox::cash_tone(&c), "Cash: the money the company has now", 4),
         ("emoji_events", grouped(c.trophies as f64), "warn", "text", if co::autopilot::on(&c) { "Trophies: earned with goals, spent by the company on research by itself" } else { "Trophies: earned with goals and contracts, spent on research" }, RESEARCH_TAB),
         ("star", format!("{} %", num(c.reputation.clamp(0.0, 100.0), 1)), "early", "text", "Reputation: what passengers and the authority think of the company", REPUTATION_TAB),
     ];
-    let pages = pages_of(c.game_mode);
+    let pages = pages_for(&c);
     let status: Vec<Value> = status
         .iter()
         .map(|(icon, value, tone, text_tone, tip, tab)| {
@@ -1141,12 +1156,14 @@ fn shell(s: &mut Session) -> Value {
     });
     // the strip: the pages with their badges
     let marks = home::Marks::of(&c, s.plan.as_ref());
-    let rail: Vec<Vec<Value>> = if casual {
+    let sandbox_item = || json!({ "tab": SANDBOX_TAB, "icon": ICONS[SANDBOX_TAB], "name": tr(TABS[SANDBOX_TAB]), "badge": null, "tip": tr(TABS[SANDBOX_TAB]), "away": false });
+    let mut rail: Vec<Vec<Value>> = if casual {
         vec![casual::PAGES.iter().map(|t| casual::rail_item(*t)).collect()]
     } else {
         RAIL.iter()
             .map(|g| {
                 g.iter()
+                    .filter(|t| **t != SANDBOX_TAB)
                     .map(|&tab| {
                         let mut tip = tr(TABS[tab]);
                         let badge = marks.badge(tab).map(|(n, tone, why)| {
@@ -1155,10 +1172,15 @@ fn shell(s: &mut Session) -> Value {
                         });
                         json!({ "tab": tab, "icon": ICONS[tab], "name": tr(TABS[tab]), "badge": badge, "tip": tip, "away": HANDED_OVER.contains(&tab) })
                     })
-                    .collect()
+                    .collect::<Vec<Value>>()
             })
+            .filter(|g| !g.is_empty())
             .collect()
     };
+    // (a sandbox's own page last, a group of its own - in Casual too)
+    if co::sandbox::is_sandbox(&c) {
+        rail.push(vec![sandbox_item()]);
+    }
     let cover = s.closing.then(|| match s.clock.catching {
         Some(m) => trf("Catching up %{span} of the company's time…", &[("span", &words::span_text(m))]),
         None => tr("Simulating the company's time…"),
@@ -1169,7 +1191,7 @@ fn shell(s: &mut Session) -> Value {
         "notices": base["notices"],
         "popup": base["popup"],
         "companies": base["companies"],
-        "id": c.id, "name": c.name, "mark": mark_json(&c), "mode": mode_json(c.game_mode), "home": home_of(&c),
+        "id": c.id, "name": c.name, "mark": mark_json(&c), "mode": mode_json(c.game_mode), "home": home_of(&c), "sandbox": sandbox::badge(&c),
         "status": status, "clock": head, "rail": rail, "pages": pages, "together": super::together::gate(),
         "names": TABS.iter().map(|t| tr(t)).collect::<Vec<_>>(),
         "casual": casual, "cover": cover,
@@ -1177,7 +1199,7 @@ fn shell(s: &mut Session) -> Value {
         "reports": s.reports.is_some(), "away": s.clock.away.is_some(),
         "launch": s.launch.is_some(),
         "sheet": s.dealer.sheet.is_some(),
-        "casual_pages": if casual { casual::pages_json(&c.name) } else { Value::Null },
+        "casual_pages": if casual { sandbox::casual_pages(&c, casual::pages_json(&c.name)) } else { Value::Null },
         "today_read": s.map_lines().is_some(),
     })
 }
@@ -1377,6 +1399,7 @@ fn view(s: &mut Session, args: &Value) -> Answer {
         "agenda" => agenda::view(s, args),
         "reputation" => reputation::view(s, args),
         "ops" => ops::view(s),
+        "sandbox" => sandbox::view(s),
         "career" => career::view(s, args),
         "casual" => casual::view(s, args),
         "launch" => launch::view(s, args),
@@ -1470,6 +1493,7 @@ fn do_act(s: &mut Session, args: &Value, p: &dyn Platform) -> Answer {
             .or_else(|| casual::act(s, &what, args, p))
             .or_else(|| launch::act(s, &what, args, p))
             .or_else(|| ops::act(s, &what, args))
+            .or_else(|| sandbox::act(s, &what, args))
             .unwrap_or_else(|| Err(format!("no action {what}"))),
     };
     r.map(|mut v| {

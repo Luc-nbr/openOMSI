@@ -24,7 +24,7 @@ pub fn view(s: &mut Session) -> Value {
             json!({
                 "id": c.id, "name": c.name, "mark": mark_json(c), "mode": mode_json(c.game_mode),
                 "clock": tile_line(c).map(|(t, tone)| json!([t, tone])), "home": home,
-                "day": format!("{}  ·  {}", day_label(&c.date), eur(c.cash)), "negative": c.cash < 0,
+                "day": format!("{}  ·  {}", day_label(&c.date), super::sandbox::cash(c)), "negative": super::sandbox::cash_tone(c) == "danger", "sandbox": super::sandbox::badge(c),
             })
         })
         .collect();
@@ -119,6 +119,8 @@ pub fn wizard(s: &mut Session, args: &Value) -> Result<Value, String> {
     v["cards"] = json!(cards);
     v["mode"] = json!(super::mode_key(mode));
     v["mode_note"] = json!(tr(if mode.rules().rosterflow { "Switch the game mode at any time in the company's settings. RosterFlow, the professional scheduling studio, can be switched on there as an add-on." } else { "Switch the game mode at any time in the company's settings: nothing is lost." }));
+    // (Beta 61: a career, or a sandbox whose rules the player sets)
+    v["company_mode"] = super::sandbox::wizard_part(args);
     v["first_label"] = json!(tr("First company day"));
     v["whens"] = json!([tr("Today"), tr("The map's date"), tr("A date of my own")]);
     v["when"] = json!(when);
@@ -172,13 +174,18 @@ pub fn found(s: &mut Session, args: &Value) -> Result<Value, String> {
         buying: co::dealer::BuyingMode::ALL[buying],
         // (the wizard's choice, else the map's region)
         vehicles: args.get("vehicles").filter(|v| !v.is_null()).and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_else(|| co::vehicles::VehicleChoice::for_region(super::vehicles::region_of_map(s, &m.file))),
+        company_mode: args.get("company_mode").and_then(Value::as_str).and_then(co::sandbox::CompanyMode::of_key).unwrap_or_default(),
     };
     let mut c = co::found(&f, &core::load_config().profile);
     c.id = co::store::unused_id(&data(), &c.name);
     let id = c.id.clone();
     switch_company(s, Some(c));
     super::changed(s);
-    let t = trf("%{name} is founded. Add a line, buy a bus and hire drivers.", &[("name", &f.name)]);
+    let t = if f.company_mode == co::sandbox::CompanyMode::Sandbox {
+        trf("%{name} is founded as a sandbox: set its rules on the Sandbox page.", &[("name", &f.name)])
+    } else {
+        trf("%{name} is founded. Add a line, buy a bus and hire drivers.", &[("name", &f.name)])
+    };
     s.say(t, false);
     Ok(json!({ "open": id, "tab": HOME_TAB }))
 }

@@ -246,7 +246,8 @@ fn progress_part(s: &mut Session, c: &Company) -> Value {
                 [tr("Fines paid").to_uppercase(), eur(c.progress.fines), if c.progress.fines > 0 { "warn" } else { "text" }],
                 [tr("Bonuses").to_uppercase(), eur(c.progress.bonuses), if c.progress.bonuses > 0 { "ok" } else { "text" }],
                 [tr("Own work saved").to_uppercase(), eur(c.progress.saved), "text"],
-                [tr("Concessions").to_uppercase(), levels::max_concessions(c).to_string(), "text"],
+                // (a sandbox with everything unlocked holds as many as it likes)
+                [tr("Concessions").to_uppercase(), if co::sandbox::unlocked(c) { "∞".to_string() } else { levels::max_concessions(c).to_string() }, "text"],
             ],
         },
         "features_title": tr("What the levels open"), "features": features,

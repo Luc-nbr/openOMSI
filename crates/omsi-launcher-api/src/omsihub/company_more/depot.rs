@@ -204,7 +204,7 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Answer> {
                 let f = if a == Area::Workshop { co::levels::Feature::Workshop } else { co::levels::Feature::ElectricBuses };
                 return Some(popup_answer(kit::locked(&c, f).json(casual)));
             }
-            if c.cash < cost {
+            if !c.can_pay(cost) {
                 return Some(popup_answer(kit::no_cash(&c, cost).json(casual)));
             }
             match apply(s, |c| dp::build(c, a)) {

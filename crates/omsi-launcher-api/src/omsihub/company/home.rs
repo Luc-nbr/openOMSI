@@ -4,7 +4,7 @@
 //! behind a page's button. The badges are the strip's too (`Marks`).
 
 use super::words::{count_text, eur, filled, grouped, n_of, short_date, signed, share_tone, tr, trf};
-use super::{agenda, overview, AGENDA_TAB, CONCESSIONS_TAB, CONTRACTS_TAB, DEPOT_TAB, ICONS, INBOX_TAB, MAP_TAB, OPS_TAB, REPUTATION_TAB, RESEARCH_TAB, WORKSHOP_TAB};
+use super::{agenda, overview, sandbox, AGENDA_TAB, CONCESSIONS_TAB, CONTRACTS_TAB, DEPOT_TAB, ICONS, INBOX_TAB, MAP_TAB, OPS_TAB, REPUTATION_TAB, RESEARCH_TAB, SANDBOX_TAB, WORKSHOP_TAB};
 use omsi_launcher_lib::company::day::Plan;
 use omsi_launcher_lib::company::{self as co, Company, Role};
 use serde_json::{json, Value};
@@ -138,7 +138,7 @@ pub fn view(s: &mut super::Session) -> Value {
     let (res, res_c) = signed(month.result());
     let mut ov = Tile::new(tab(0), "Overview", ICONS[0]).line(trf("This month: %{amount}", &[("amount", &res)]), res_c);
     ov.big = true;
-    ov.extra = json!({ "kind": "money", "cash": eur(c.cash), "tone": if c.cash >= 0 { "text" } else { "danger" }, "days": last_days(&c), "none": tr("No day closed yet") });
+    ov.extra = json!({ "kind": "money", "cash": sandbox::cash(&c), "tone": sandbox::cash_tone(&c), "days": last_days(&c), "none": tr("No day closed yet") });
     let mut inbox = Tile::new(tab(INBOX_TAB), "Inbox", ICONS[INBOX_TAB]);
     inbox = if marks.unread > 0 { inbox.line(n_of("%{n} unread", marks.unread), "accent2") } else { inbox.line(tr("Nothing unread"), "dim") };
     inbox.big = true;
@@ -235,7 +235,7 @@ pub fn view(s: &mut super::Session) -> Value {
     let contracts = Tile::new(tab(CONTRACTS_TAB), "Contracts", ICONS[CONTRACTS_TAB]).line(count_text(c.trophies.max(0) as usize, "1 trophy", "%{n} trophies"), "soft").line(
         if running_goals > 0 {
             count_text(running_goals, "1 goal running", "%{n} goals running")
-        } else if c.research.has(co::research::keys::WLAN) {
+        } else if co::research::has(&c, co::research::keys::WLAN) {
             tr("Goals, and internet for the buses")
         } else {
             tr("Goals with a reward, service contracts")
@@ -274,6 +274,8 @@ pub fn view(s: &mut super::Session) -> Value {
         None => Tile::new(tab(RESEARCH_TAB), "Research", ICONS[RESEARCH_TAB]).line(n_of("%{n} researched", c.research.done.len()), "soft").line(count_text(c.trophies.max(0) as usize, "1 trophy to spend", "%{n} trophies to spend"), "dim"),
     };
     let settings = Tile::new("settings", "Settings", "settings").line(tr("Name, mark, date and buying"), "dim");
+    // (Beta 61: a sandbox's rules, its own page)
+    let sandbox_tile = co::sandbox::is_sandbox(&c).then(|| Tile::new(tab(SANDBOX_TAB), "Sandbox", ICONS[SANDBOX_TAB]).line(sandbox::changed_text(&c), "soft").line(tr("Set the company's rules"), "dim"));
     let mut concessions = mark(concessions);
     if concessions.badge.is_none() {
         if let Some((n, tip)) = live_badge {
@@ -286,7 +288,7 @@ pub fn view(s: &mut super::Session) -> Value {
         ("Operations", vec![mark(planning), mark(ops), mark(lines), mark(map), mark(fleet)]),
         ("People", vec![mark(people), hire, training]),
         ("Business", vec![mark(money), concessions, mark(contracts), mark(rep), mark(career)]),
-        ("Company", vec![mark(depot), mark(workshop), mark(research), settings]),
+        ("Company", vec![mark(depot), mark(workshop), mark(research), settings].into_iter().chain(sandbox_tile).collect()),
     ];
     let sections: Vec<Value> = sections
         .into_iter()
@@ -324,7 +326,8 @@ mod tests {
         // every page has its tile
         let tos: Vec<String> = v["sections"].as_array().unwrap().iter().flat_map(|x| x["tiles"].as_array().unwrap().iter().map(|t| t["to"].as_str().unwrap().to_string())).collect();
         for k in 0..super::super::TABS.len() {
-            assert!(tos.contains(&format!("tab:{k}")), "page {k}");
+            // (the Sandbox page is a sandbox company's alone)
+            assert_eq!(tos.contains(&format!("tab:{k}")), k != SANDBOX_TAB, "page {k}");
         }
         assert_eq!(v["sections"][1]["tiles"][0]["lines"][0][0], "Reading the timetable…");
     }

@@ -75,7 +75,7 @@ pub fn view(s: &mut Session, args: &Value) -> Value {
         "ways": [tr("Delivery at 16:00: free"), trf("At once: %{amount}", &[("amount", &eur(pt::express_fee(&c)))])],
         "note": note,
         "sum": trf("Sum: %{amount}", &[("amount", &eur(if n == 0 { 0 } else { sum }))]),
-        "sum_tone": if sum > c.cash && n > 0 { "danger" } else { "text" },
+        "sum_tone": if !c.can_pay(sum) && n > 0 { "danger" } else { "text" },
         "chosen": n,
         "buy": tr("Buy"), "clear": tr("Choose nothing"),
     });
@@ -139,7 +139,7 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Answer> {
             let n: u32 = list.iter().map(|x| x.1).sum();
             if n > 0 {
                 let cost = pt::order_cost(&c, &list, express);
-                if cost > c.cash {
+                if !c.can_pay(cost) {
                     return Some(popup_answer(kit::no_cash(&c, cost).json(c.game_mode.casual())));
                 }
             }
