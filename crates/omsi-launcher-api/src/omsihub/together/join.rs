@@ -228,7 +228,9 @@ fn run(stop: Arc<AtomicBool>) {
                 let mut g = joined();
                 let Some(j) = g.as_mut() else { return };
                 take_answer(j, &v);
-                if req.what == "report" {
+                // (a report the boss's launcher could not take now is sent again)
+                let error = v.get("error").and_then(Value::as_str).unwrap_or("");
+                if req.what == "report" && !omsi_launcher_lib::company::together::host::passing(error) {
                     if let Some(d) = j.drive.as_mut() {
                         d.sent.extend(req.trips.iter().map(|t| (t.departure / 60.0).round() as i32));
                     }

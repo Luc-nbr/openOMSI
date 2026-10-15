@@ -821,3 +821,10 @@ _version: 2
   pl: "%{trips} kursów · %{passengers} pasażerów · wynik %{score} · dla firmy %{amount}"
   ru: "рейсов: %{trips} · пассажиров: %{passengers} · оценка %{score} · компании %{amount}"
   uk: "рейсів: %{trips} · пасажирів: %{passengers} · оцінка %{score} · компанії %{amount}"
+"The boss's company is busy with its day just now: try again in a moment.":
+  de: "Der Betrieb des Chefs ist gerade mit seinem Tag beschäftigt: versuche es gleich noch einmal."
+  fr: "L'entreprise du patron est occupée par sa journée en ce moment : réessayez dans un instant."
+  nl: "Het bedrijf van de baas is nu met zijn dag bezig: probeer het zo nog eens."
+  pl: "Firma szefa jest właśnie zajęta swoim dniem: spróbuj za chwilę."
+  ru: "Компания босса сейчас занята своим днём: попробуйте чуть позже."
+  uk: "Компанія боса зараз зайнята своїм днем: спробуйте трохи згодом."

@@ -110,6 +110,11 @@ fn handle(body: &str) -> String {
         if s.company.as_ref().map(|c| c.id.as_str()) != Some(h.company.as_str()) {
             return th::refusal(th::NOT_OPEN_COMPANY).to_string();
         }
+        // (the company's day simulated on a thread, which hands its own copy back: nothing is
+        // changed meanwhile - the friend's launcher asks again)
+        if s.closing {
+            return th::refusal(th::BUSY).to_string();
+        }
         let plan = plan_of(s, h);
         let world = world();
         if let Some(c) = s.company.as_ref() {

@@ -19,13 +19,20 @@ const NOTICES_KEPT: usize = 80;
 /// The duties that ended longer ago than this are left out of the friend's day (minutes).
 const ENDED_SHOWN: i32 = 60;
 
-/// Why a message is not answered (English: the keys of the translations).
+/// Why a message is not answered (English: the keys of the translations). `READING`, `BUSY` and
+/// `NOT_OPEN_COMPANY` pass: a friend's launcher asks again (`passing`).
 pub const BAD_SECRET: &str = "The code is no longer valid: ask the boss for the code of his session.";
 pub const WORLD_CLOSED: &str = "The boss's world isn't open yet.";
 pub const WORLD_MAP: &str = "The boss's game runs another map: the company's world has to be open.";
 pub const READING: &str = "The boss's launcher is still reading the day's timetable: try again in a moment.";
 pub const UNKNOWN: &str = "The boss's launcher did not understand that: both players need the same version of Omsi-Hub.";
 pub const NOT_OPEN_COMPANY: &str = "The boss does not have the company open right now.";
+pub const BUSY: &str = "The boss's company is busy with its day just now: try again in a moment.";
+
+/// Whether a refusal passes by itself (the friend's launcher sends the same again later).
+pub fn passing(error: &str) -> bool {
+    [READING, BUSY, NOT_OPEN_COMPANY].contains(&error)
+}
 
 /// What is told to everyone (English: the keys of the translations).
 pub const JOINED: &str = "%{name} joined the company.";
@@ -44,7 +51,7 @@ pub const WORLD_OPEN: &str = "The boss's world is open: duties can be driven.";
 
 /// Every English text of this file (for the translations' check).
 pub fn texts() -> Vec<&'static str> {
-    vec![BAD_SECRET, WORLD_CLOSED, WORLD_MAP, READING, UNKNOWN, NOT_OPEN_COMPANY, JOINED, LEFT, TOOK, ASKS, GAVE, REFUSED, BACK, OFF, WAITS, DRIVES, FINISHED, SAYS, WORLD_OPEN]
+    vec![BAD_SECRET, WORLD_CLOSED, WORLD_MAP, READING, UNKNOWN, NOT_OPEN_COMPANY, BUSY, JOINED, LEFT, TOOK, ASKS, GAVE, REFUSED, BACK, OFF, WAITS, DRIVES, FINISHED, SAYS, WORLD_OPEN]
 }
 
 /// A player as the session knows him now.
