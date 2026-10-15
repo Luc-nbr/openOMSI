@@ -1,0 +1,37 @@
+/* The company's Sandbox page (js/omsihub/company/sandbox.js): its head, the knobs in their
+   groups as columns, the balance and the reputation set by hand; and the badge by a sandbox
+   company's name (the bar, the companies' tiles). */
+
+.co-sb { height: 100%; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+.co-sb-top { flex: none; display: flex; align-items: center; gap: 14px; }
+.co-sb-top > .grow { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.co-sb-top .title { font-size: 20px; }
+.co-sb-top .changed { flex: none; font-size: var(--co-rows); }
+.co-sb-grid { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; align-content: start; padding-bottom: 8px; }
+.co-sb-group { min-width: 0; }
+.co-sb-caps { display: inline-flex; align-items: center; gap: 6px; }
+.co-sb-knob { padding: 10px 0 10px 10px; border-left: 3px solid transparent; border-bottom: 1px solid var(--hub-hairline); }
+.co-sb-knob:last-child { border-bottom: 0; }
+.co-sb-knob.changed { border-left-color: var(--hub-accent); }
+.co-sb-knob .co-note { margin: 2px 0 4px; }
+.co-sb-knob .head { display: flex; align-items: center; gap: 10px; font-size: var(--co-control); }
+.co-sb-knob .val { flex: none; font-weight: 700; font-variant-numeric: tabular-nums; }
+.co-sb-knob.changed .val { color: var(--hub-accent); }
+.co-sb-knob .slide { display: flex; align-items: center; gap: 10px; }
+.co-sb-knob .career { display: block; font-size: var(--co-caps); color: var(--hub-text-dim); }
+.co-sb-set { display: flex; align-items: center; gap: 10px; margin: 10px 0 4px; }
+.co-sb-set .what { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.co-sb-set .what b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.co-sb-set .co-field { width: 150px; height: 38px; }
+
+/* the badge by a sandbox company's name */
+.co-sandbox-badge { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; border-radius: 12px; font-size: var(--co-caps); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--hub-accent); background: color-mix(in srgb, var(--hub-accent) 16%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hub-accent) 45%, transparent); white-space: nowrap; }
+.co-sandbox-badge.go { cursor: pointer; }
+.co-sandbox-badge.go:hover { background: color-mix(in srgb, var(--hub-accent) 26%, transparent); }
+.co-sandbox-badge.small { height: 20px; padding: 0 7px; }
+
+/* the founding's choice and the settings' block */
+.co-found .company-mode { margin-top: 10px; }
+.co-found .company-mode .row2 { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+.co-found .company-mode .row2 .says { display: inline-flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.co-company-mode { align-items: flex-start; }

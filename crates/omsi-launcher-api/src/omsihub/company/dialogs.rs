@@ -205,7 +205,7 @@ fn confirm(s: &mut Session, args: &Value) -> Value {
                 return json!({ "gone": true });
             }
             let (title, text, button) = super::sandbox::confirm_text(&c);
-            (title, text, button, "science", true)
+            (title, text, button, "sports_esports", true)
         }
         // (a holiday approved over the limit, Beta 57: `id` is the request's number)
         "holiday" => {

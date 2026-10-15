@@ -174,7 +174,7 @@ impl Group {
     pub fn icon(self) -> &'static str {
         match self {
             Group::Money => "payments",
-            Group::Unlocks => "lock_open",
+            Group::Unlocks => "key",
             Group::Economy => "trending_up",
             Group::Operations => "traffic",
             Group::Staff => "groups",

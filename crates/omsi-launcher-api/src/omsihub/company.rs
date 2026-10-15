@@ -86,7 +86,7 @@ pub const SANDBOX_TAB: usize = sandbox::SANDBOX_TAB;
 /// The company's start screen (no page of `TABS`).
 pub const HOME_TAB: usize = 100;
 /// The pages' icons, in the order of `TABS`.
-pub const ICONS: [&str; 18] = ["signal_cellular_alt", "directions_bus", "groups", "route", "payments", "calendar_month", "military_tech", "garage", "public", "map", "search", "construction", "description", "chat", "event", "traffic", "star", "science"];
+pub const ICONS: [&str; 18] = ["signal_cellular_alt", "directions_bus", "groups", "route", "payments", "calendar_month", "military_tech", "garage", "public", "map", "search", "construction", "description", "chat", "event", "traffic", "star", "sports_esports"];
 /// The pages in the strip under the bar, grouped as the start screen groups them.
 /// (the Sandbox page last, a group of its own: only a sandbox company shows it)
 pub const RAIL: [&[usize]; 6] = [&[0, AGENDA_TAB, INBOX_TAB], &[5, OPS_TAB, 3, MAP_TAB, 1], &[2], &[4, CONCESSIONS_TAB, CONTRACTS_TAB, REPUTATION_TAB, 6], &[DEPOT_TAB, WORKSHOP_TAB, RESEARCH_TAB], &[SANDBOX_TAB]];

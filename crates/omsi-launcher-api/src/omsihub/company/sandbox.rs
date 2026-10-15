@@ -37,7 +37,7 @@ pub fn badge(c: &Company) -> Value {
     if !sb::is_sandbox(c) {
         return Value::Null;
     }
-    json!({ "label": tr("Sandbox"), "icon": "science", "tip": tr("A sandbox company: you set its rules on the Sandbox page."), "tab": SANDBOX_TAB })
+    json!({ "label": tr("Sandbox"), "icon": "sports_esports", "tip": tr("A sandbox company: you set its rules on the Sandbox page."), "tab": SANDBOX_TAB })
 }
 
 /// How many knobs differ from the Career's, as the page and the start screen's tile say it.
@@ -53,7 +53,7 @@ pub fn changed_text(c: &Company) -> String {
 pub fn casual_pages(c: &Company, mut pages: Value) -> Value {
     if sb::is_sandbox(c) {
         if let Some(m) = pages.get_mut("pages").and_then(Value::as_object_mut) {
-            m.insert(SANDBOX_TAB.to_string(), json!({ "name": tr("Sandbox"), "icon": "science", "parent": super::HOME_TAB }));
+            m.insert(SANDBOX_TAB.to_string(), json!({ "name": tr("Sandbox"), "icon": "sports_esports", "parent": super::HOME_TAB }));
         }
     }
     pages
@@ -65,7 +65,7 @@ pub fn settings_part(c: &Company) -> Value {
     let mode = c.company_mode;
     json!({
         "caps": tr("Company mode").to_uppercase(), "key": mode.key(), "label": tr(mode.label()), "info": tr(mode.info()),
-        "icon": if sb::is_sandbox(c) { "science" } else { "military_tech" },
+        "icon": if sb::is_sandbox(c) { "sports_esports" } else { "military_tech" },
         "switch": (!sb::is_sandbox(c)).then(|| tr("Turn into a sandbox")),
         "note": (!sb::is_sandbox(c)).then(|| tr("A sandbox cannot be turned back into a career.")),
         "open": sb::is_sandbox(c).then(|| tr("Open the Sandbox page")), "tab": SANDBOX_TAB,
@@ -98,7 +98,7 @@ pub fn wizard_part(args: &Value) -> Value {
     let chosen = args.get("company_mode").and_then(Value::as_str).and_then(sb::CompanyMode::of_key).unwrap_or_default();
     let cards: Vec<Value> = sb::CompanyMode::ALL
         .iter()
-        .map(|m| json!({ "key": m.key(), "label": tr(m.label()), "info": tr(m.info()), "icon": if *m == sb::CompanyMode::Sandbox { "science" } else { "military_tech" } }))
+        .map(|m| json!({ "key": m.key(), "label": tr(m.label()), "info": tr(m.info()), "icon": if *m == sb::CompanyMode::Sandbox { "sports_esports" } else { "military_tech" } }))
         .collect();
     json!({
         "caps": tr("Company mode").to_uppercase(), "cards": cards, "key": chosen.key(),

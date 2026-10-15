@@ -9,6 +9,8 @@ import { call } from '../../api.js';
 import { html, useEffect, useState, tr, HOME, setCo, cmd, refresh, takeShell, useView, Icon, Mark, ModePill, Btn, Seg, Chips, Select, Dialog, IconBtn } from './kit.js';
 // (the buses the company works with: Beta 54)
 import { VehiclePicker } from './vehicles.js';
+// (Beta 61: a sandbox company's tile says it is one)
+import { SandboxBadge } from './sandbox.js';
 // (Beta 58: a friend's company joined with its session code)
 import { JoinPage } from './together.js';
 
@@ -82,6 +84,7 @@ function CompanyTile({ t, tip, onOpen, onDelete }) {
   return html`<button type="button" class="co-tile co-company" data-company=${t.id} onClick=${onOpen}>
     <div class="top"><${Mark} mark=${t.mark} size=${56} />
       <span class="side"><${ModePill} mode=${t.mode} />
+        <${SandboxBadge} b=${t.sandbox} small />
         ${t.clock && html`<span class=${'clockline t-' + t.clock[1]}><i></i>${t.clock[0]}</span>`}</span>
     </div>
     <b class="cut">${t.name}</b>
@@ -96,7 +99,7 @@ function CompanyTile({ t, tip, onOpen, onDelete }) {
 /** A new founding (`Wizard::new`): no name, orange and blue, the map of the last duty, today,
  * buying by contract, the mode of the company open (Casual else). */
 export function newWizard() {
-  return { name: '', short: '', colours: [0, 4], logo: null, map: null, depot: 0, when: 0, date: null, buying: 1, mode: S.co.shell?.mode?.key || null };
+  return { name: '', short: '', colours: [0, 4], logo: null, map: null, depot: 0, when: 0, date: null, buying: 1, mode: S.co.shell?.mode?.key || null, company_mode: 'career' };
 }
 
 /** The founding wizard (`wizard::draw`): laid out for the room it has, scrolled whole when the
@@ -107,7 +110,7 @@ export function Wizard() {
   const put = (patch) => setCo({ wizard: { ...w, ...patch } });
   useEffect(() => {
     let gone = false;
-    cmd('co_wizard', { map: w.map, when: w.when, date: w.date, name: w.name, mode: w.mode, logo: w.logo })
+    cmd('co_wizard', { map: w.map, when: w.when, date: w.date, name: w.name, mode: w.mode, logo: w.logo, company_mode: w.company_mode || 'career' })
       .then((x) => {
         if (gone) return;
         setV(x);
@@ -116,7 +119,7 @@ export function Wizard() {
     return () => {
       gone = true;
     };
-  }, [w.map, w.when, w.date, w.name, w.mode, w.logo]);
+  }, [w.map, w.when, w.date, w.name, w.mode, w.logo, w.company_mode]);
   if (!v) return null;
   const palette = v.palette;
   const short = w.short.trim() ? w.short.trim().toUpperCase() : v.short_hint;
@@ -126,7 +129,7 @@ export function Wizard() {
       setCo({ popup: v.maps.length ? v.popup_name : v.popup_map });
       return;
     }
-    const r = await cmd('co_found', { name: w.name, short: w.short, colours: w.colours, logo: w.logo, map: w.map ?? v.map, depot: w.depot, when: w.when, date: w.date ?? v.date, mode: w.mode || v.mode, buying: w.buying, vehicles: w.vehicles || null });
+    const r = await cmd('co_found', { name: w.name, short: w.short, colours: w.colours, logo: w.logo, map: w.map ?? v.map, depot: w.depot, when: w.when, date: w.date ?? v.date, mode: w.mode || v.mode, buying: w.buying, vehicles: w.vehicles || null, company_mode: w.company_mode || 'career' });
     if (r?.refused) {
       setCo({ popup: r.refused === 'map' ? v.popup_map : v.popup_name });
       return;
@@ -147,6 +150,9 @@ export function Wizard() {
   const vmode = (m) => cmd('co_vehicles_act', { what: 'mode', mode: m, scope: 'wizard', choice: vchoice, map: v.map_file }).then((r) => r?.choice && putNow({ vehicles: r.choice }));
   const mode = w.mode || v.mode;
   const casual = mode === 'casual';
+  // (Beta 61: a career, or a sandbox whose rules the player sets)
+  const cm = v.company_mode;
+  const cmk = Math.max(0, cm.cards.findIndex((x) => x.key === cm.key));
   return html`<div class="co-found">
     <div class="inner">
       <h1>${v.title}</h1>
@@ -179,6 +185,12 @@ export function Wizard() {
             <ul>${cd.bullets.map((b) => html`<li><${Icon} name="check_circle" size=${15} /><span>${b}</span></li>`)}</ul>
           </button>`)}</div>
           <p class="mode-note">${v.mode_note}</p>
+          <div class="company-mode">
+            <label class="co-label">${cm.caps}</label>
+            <div class="row2"><${Seg} value=${cmk} options=${cm.cards.map((x, i) => [i, x.label])} onChange=${(i) => put({ company_mode: cm.cards[i].key })} style="width:280px;height:38px;flex:none" />
+              <span class="says"><${Icon} name=${cm.cards[cmk].icon} size=${16} class="t-accent2" /> ${cm.cards[cmk].info}</span></div>
+            <p class="says">${cm.note}</p>
+          </div>
           <div class="under">
             <div><label class="co-label">${v.first_label}</label>
               <div style="margin-top:4px"><${Chips} value=${w.when} options=${v.whens.map((x, i) => [i, x])} onChange=${(k) => put({ when: k })} /></div>
