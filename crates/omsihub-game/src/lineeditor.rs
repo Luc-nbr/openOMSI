@@ -1,9 +1,11 @@
 //! The line editor: a line of the player's own on any map. The map fills the middle of the
 //! page with every bus stop on it; the player clicks the stops in order and the way between
 //! each two is found over the roads (`lineroute`) - kerb side, lane changes, loose ends, as the
-//! game's buses will drive it. "Reverse" makes the way back from the stops across the road.
-//! A leg is dragged through a point of the player's choosing; a stop is put in after the one
-//! chosen in the list, moved up or down, or taken out there.
+//! game's buses will drive it. "Reverse" makes the way back from the stops across the road;
+//! Automatic (`BackRoute`) keeps making it so as the outbound changes, Manual has the player
+//! click its stops. A leg is dragged through a point of the player's choosing; a stop is put
+//! in after the one chosen in the list, moved up or down, or taken out there - or clicked on
+//! the map again (Shift+click puts it in again, as a loop needs).
 //!
 //! On the left the player's lines of the map and the line's own settings (number, name,
 //! colour, the depot whose buses drive it); on the right a direction's stops with the minutes
