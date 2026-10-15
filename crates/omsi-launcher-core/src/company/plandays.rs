@@ -798,5 +798,9 @@ pub fn timetable_key(c: &Company, lines: &[LineInfo]) -> u64 {
     fnv(&keys.join("\n"))
 }
 
+/// A day's rows (buses, duties) copied to other days by themselves: RosterFlow's "Copy to…".
+mod rows;
+pub use rows::{copy_rows, rows_slot, Rows};
+
 #[cfg(test)]
 mod tests;

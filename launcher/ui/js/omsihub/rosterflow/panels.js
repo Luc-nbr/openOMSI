@@ -19,6 +19,7 @@ import { Icon, RfButton, IconBtn, Caps, Switch, CheckRow, Seg, Stepper, MenuItem
 import { AXIS } from './draw.js';
 import { DayItem, dayMenuHeight } from './days.js';
 import { BY, BY_LABEL, colourBy, setColourBy, legendOn, Legend } from './colourby.js';
+import { CopyTo, openCopyTo } from './copyto.js';
 
 const eq = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
 
@@ -82,6 +83,7 @@ export function Overlays({ data, drivers, p, size, gTop }) {
   const kind = panel?.kind || panel;
   return html`<div class="rf-layer">
     ${r.ticked.length > 0 && html`<${Batch} b=${b} drivers=${drivers} gTop=${gTop} />`}
+    ${kind === 'copyto' && r.ticked.length > 0 && html`<${CopyTo} gTop=${gTop} />`}
     <${Legend} data=${data} drivers=${drivers} p=${p} />
     ${kind === 'issues' && html`<${Issues} data=${data} drivers=${drivers} scope=${panel.scope} size=${size} />`}
     ${kind === 'duty' && html`<${DutyPanel} data=${data} id=${panel.id} gTop=${gTop} />`}
@@ -113,7 +115,8 @@ export function TitleWindows({ data, drivers, size }) {
 
 // --- the batch toolbar -------------------------------------------------------------------------------
 
-/** The ticked rows' tools over the Gantt's header: lock, unlock, unassign to the stack. */
+/** The ticked rows' tools over the Gantt's header: lock, unlock, unassign to the stack, and copy
+ * them to other days (`copyto.js`). */
 function Batch({ drivers, gTop }) {
   const r = S.rf;
   const ids = r.ticked;
@@ -121,8 +124,9 @@ function Batch({ drivers, gTop }) {
     <${IconBtn} icon="lock" title="Lock the rows ticked" onClick=${() => edit('lock_rows', { ids, on: true }).then(() => setRf({ ticked: ids }))} />
     <${IconBtn} icon="livery_unlock" title="Unlock the rows ticked" onClick=${() => edit('lock_rows', { ids, on: false }).then(() => setRf({ ticked: ids }))} />
     <${IconBtn} icon="inventory_2" title="Unassign the ticked vehicles' trips to the stack" disabled=${drivers} onClick=${() => edit('unassign_rows', { ids }).then(() => setRf({ ticked: [] }))} />
+    <button type="button" class=${'copy' + (r.panel?.kind === 'copyto' ? ' on' : '')} data-rf="rf-copyto-open" title=${tr('Copy the rows ticked to other days: only the trips that match there go along (Ctrl+C, then Ctrl+V on another day)')} onClick=${() => (r.panel?.kind === 'copyto' ? setRf({ panel: null }) : openCopyTo())}><${Icon} name="content_copy" size=${15} /><span>${tr('Copy to…')}</span></button>
     <b>${tr('%{n} rows selected', { n: ids.length })}</b>
-    <button type="button" class="x" onClick=${() => setRf({ ticked: [] })}><${Icon} name="close" size=${15} /></button>
+    <button type="button" class="x" onClick=${() => setRf({ ticked: [], ...(r.panel?.kind === 'copyto' ? { panel: null } : {}) })}><${Icon} name="close" size=${15} /></button>
   </div>`;
 }
 

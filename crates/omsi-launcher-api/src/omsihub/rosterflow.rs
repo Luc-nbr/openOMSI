@@ -1057,6 +1057,8 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
         "save" => return Ok(days::save(s, r, &date, args.get("apply"))),
         "day_reset" => return Ok(days::reset(s, r, &date)),
         "day_unfollow" => return Ok(days::unfollow(s, r, &date)),
+        // (the selection bar's "Copy to…", Ctrl+C and Ctrl+V: `days`)
+        "copy_rows" => return Ok(days::copy_rows(s, r, &date, args)),
         "discard" => {
             return Ok(match company::act(s, |c| Ok(rf::discard_draft(c))) {
                 Ok(true) => {

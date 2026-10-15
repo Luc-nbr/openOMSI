@@ -175,8 +175,8 @@ export function CopyReport({ report, gTop }) {
         <div class="head"><b>${d.label}</b><span class="dim">${tr(d.every_week ? 'Every week' : 'This date only')}</span><span class="grow"></span>
           <span class=${d.missing.length ? 'warn' : 'ok'}>${d.exact ? tr('Exact copy') : tr('%{a} of %{b} trips as copied', { a: d.matched, b: d.total })}</span></div>
         ${d.gone > 0 && html`<p class="dim">${tr('%{n} trips of the pattern do not run that day.', { n: d.gone })}</p>`}
-        ${d.missing.length > 0 && html`<p class="dim">${tr("To plan by hand: they run as the day's timetable has them.")}</p>`}
-        ${d.missing.map((m) => html`<button type="button" class="trip" title=${tr('Show the trip on its day')} onClick=${() => goTo(d.k, days[d.k]?.date, m)}><${Icon} name="directions_bus" size=${14} /><span class="cut">${m.label}</span><${Icon} name="chevron_right" size=${14} /></button>`)}
+        ${d.missing.length > 0 && html`<p class="dim">${report.rows ? tr('Not copied: they match no trip there, or a locked vehicle or duty there has them. Each is shown on the day it was copied from.') : tr("To plan by hand: they run as the day's timetable has them.")}</p>`}
+        ${d.missing.map((m) => html`<button type="button" class="trip" title=${tr('Show the trip on its day')} onClick=${() => goTo(m.k ?? d.k, days[m.k ?? d.k]?.date, m)}><${Icon} name="directions_bus" size=${14} /><span class="cut">${m.label}</span><${Icon} name="chevron_right" size=${14} /></button>`)}
       </div>`)}
     </div>
   </div>`;
