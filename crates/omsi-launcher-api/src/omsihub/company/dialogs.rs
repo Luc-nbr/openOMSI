@@ -444,7 +444,13 @@ fn drop_json(c: &co::Company, date: &str, d: &co::day::Dropped) -> Value {
     let why = match d.problem {
         Some(p) if p != co::plan::Problem::Unassigned => format!("{}: {}", tr(d.why.label()), tr(p.label())),
         Some(_) => format!("{}: {}", tr(d.why.label()), tr("none planned")),
-        None => tr(d.why.label()),
+        // (a bus broken down: when the bus sent for it ran its trips - only those before it came,
+        // or after it had to go, are lost)
+        None => match d.sent {
+            Some((from, Some(until))) => format!("{}: {}", tr(d.why.label()), trf("a bus sent ran its trips from %{from} until %{until}", &[("from", &ck::hhmm(from as i64)), ("until", &ck::hhmm(until as i64))])),
+            Some((from, None)) => format!("{}: {}", tr(d.why.label()), trf("a bus sent ran its trips from %{from}", &[("from", &ck::hhmm(from as i64))])),
+            None => tr(d.why.label()),
+        },
     };
     // (the block as RosterFlow names it: "1/02")
     let tour = if d.tour.len() == 1 && d.tour.chars().all(|c| c.is_ascii_digit()) { format!("0{}", d.tour) } else { d.tour.clone() };
@@ -672,6 +678,15 @@ fn morning_rows(s: &mut Session, c: &Company) -> Option<Vec<Value>> {
     Some(out)
 }
 
+/// A spare bus to send for a breakdown, as its button says it: from when, and until when it
+/// can run before its own tour (`clock::spare_offers`).
+pub fn spare_label(bus: &str, from: &str, until: Option<i32>) -> String {
+    match until {
+        Some(u) => trf("Send spare bus %{bus} (from %{time} until %{until}, no extra cost)", &[("bus", bus), ("time", from), ("until", &ck::hhmm(u as i64))]),
+        None => trf("Send spare bus %{bus} (from %{time}, no extra cost)", &[("bus", bus), ("time", from)]),
+    }
+}
+
 /// The question the clock waits for (`clock::ask_dialog`).
 fn ask(s: &mut Session) -> Value {
     let Some(c) = s.company.clone() else { return Value::Null };
@@ -681,17 +696,22 @@ fn ask(s: &mut Session) -> Value {
         Ask::Breakdown { index } => {
             let Some(b) = c.clock.today.as_ref().and_then(|x| x.breaks.get(*index)).cloned() else { return json!({ "kind": "gone" }) };
             let cost = ck::rental_cost(&c, *index);
-            let back = ck::hhmm(ck::moment(&c.date, (b.at + ck::RENTAL_MINUTES) as i64));
-            let spares = ck::spare_buses(&c, *index);
-            let spare_at = ck::hhmm(ck::moment(&c.date, (b.at + ck::SPARE_MINUTES) as i64));
-            let text = if spares.is_empty() {
-                trf("It was on line %{n}; it goes to the workshop. No spare bus of the fleet is free until the end of its day. A rental bus can take over its trips from %{time} for %{amount}; else its trips are dropped for the rest of the day, with the contract's penalty.", &[("n", &b.line), ("time", &back), ("amount", &eur(cost))])
+            let (spare_from, rental_from) = ck::arrivals(&c, *index);
+            let back = ck::hhmm(ck::moment(&c.date, rental_from as i64));
+            let spares = ck::spare_offers(&c, *index);
+            let spare_at = ck::hhmm(ck::moment(&c.date, spare_from as i64));
+            // (an accident: the same choices, its damage repaired in the workshop)
+            let first = if b.accident { trf("It had an accident on line %{n}: its damage is repaired in the workshop.", &[("n", &b.line)]) } else { trf("It was on line %{n}; it goes to the workshop.", &[("n", &b.line)]) };
+            let rest = if spares.is_empty() {
+                trf("No spare bus of the fleet is free now. A rental bus can take over its trips from %{time} for %{amount}; else its trips are dropped for the rest of the day, with the contract's penalty.", &[("time", &back), ("amount", &eur(cost))])
             } else {
-                trf("It was on line %{n}; it goes to the workshop. A spare bus of the fleet can take over its trips from %{spare}; a rental bus from %{time} for %{amount}; else its trips are dropped for the rest of the day, with the contract's penalty.", &[("n", &b.line), ("spare", &spare_at), ("time", &back), ("amount", &eur(cost))])
+                trf("A spare bus of the fleet can take over its trips from %{spare}; a rental bus from %{time} for %{amount}; else its trips are dropped for the rest of the day, with the contract's penalty.", &[("spare", &spare_at), ("time", &back), ("amount", &eur(cost))])
             };
-            let shown: Vec<Value> = spares.iter().take(4).filter_map(|id| c.vehicle(*id)).map(|v| json!({ "id": v.id, "label": trf("Send spare bus %{bus} (from %{time}, no extra cost)", &[("bus", &format!("{} {}", v.number, v.name)), ("time", &spare_at)]) })).collect();
+            let text = format!("{first} {rest}");
+            let shown: Vec<Value> = spares.iter().take(6).filter_map(|x| c.vehicle(x.vehicle).map(|v| (x, v))).map(|(x, v)| json!({ "id": v.id, "label": spare_label(&format!("{} {}", v.number, v.name), &spare_at, x.until) })).collect();
+            let title = if b.accident { "%{time}  Bus %{bus} had an accident" } else { "%{time}  Bus %{bus} broke down" };
             json!({
-                "kind": "breakdown", "icon": "warning", "closable": false, "title": trf("%{time}  Bus %{bus} broke down", &[("time", &when), ("bus", &b.bus)]), "text": text,
+                "kind": "breakdown", "icon": "warning", "closable": false, "title": trf(title, &[("time", &when), ("bus", &b.bus)]), "text": text,
                 "spares_caps": (!shown.is_empty()).then(|| tr("Spare buses free now").to_uppercase()), "spares": shown,
                 "dispatcher": c.clock.dispatcher, "dispatcher_label": tr("From now on the dispatcher decides"),
                 "rental": trf("Rental bus, %{amount}", &[("amount", &eur(cost))]), "drop": tr("Drop its trips"),

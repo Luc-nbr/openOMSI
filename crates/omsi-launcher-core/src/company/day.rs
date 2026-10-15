@@ -302,10 +302,12 @@ pub enum DropWhy {
     Late,
     /// On no bus at all: taken off every block in RosterFlow (its stack).
     NoBlock,
+    /// The bus had an accident on its tour, and nothing took the trips over.
+    Crashed,
 }
 
 impl DropWhy {
-    pub const LABELS: [&'static str; 5] = ["No bus", "No driver", "The bus broke down on the way", "The driver came late", "On no bus: the trips wait on RosterFlow's stack"];
+    pub const LABELS: [&'static str; 6] = ["No bus", "No driver", "The bus broke down on the way", "The driver came late", "On no bus: the trips wait on RosterFlow's stack", "The bus had an accident on the way"];
 
     pub fn label(self) -> &'static str {
         Self::LABELS[self as usize]
@@ -330,18 +332,22 @@ pub struct Dropped {
     pub why: DropWhy,
     #[serde(default)]
     pub problem: Option<super::plan::Problem>,
+    /// A bus broken down or crashed: from when (and until when) the bus sent for it ran its
+    /// trips - those dropped are the ones before it came, or after it had to go.
+    #[serde(default)]
+    pub sent: Option<(i32, Option<i32>)>,
 }
 
 /// A trip with passengers dropped, into the report's list: with the one before when it is of
 /// the same tour and duty and dropped for the same reason.
 #[allow(clippy::too_many_arguments)]
-fn note_drop(list: &mut Vec<Dropped>, line: &str, number: &str, tour: &str, duty: Option<usize>, trip: &network::PlannedTrip, why: DropWhy, problem: Option<super::plan::Problem>) {
-    if let Some(d) = list.last_mut().filter(|d| d.line == line && d.tour == tour && d.duty == duty && d.why == why && d.problem == problem) {
+fn note_drop(list: &mut Vec<Dropped>, line: &str, number: &str, tour: &str, duty: Option<usize>, trip: &network::PlannedTrip, why: DropWhy, problem: Option<super::plan::Problem>, sent: Option<(i32, Option<i32>)>) {
+    if let Some(d) = list.last_mut().filter(|d| d.line == line && d.tour == tour && d.duty == duty && d.why == why && d.problem == problem && d.sent == sent) {
         d.to = d.to.max(trip.arr);
         d.trips += 1;
         return;
     }
-    list.push(Dropped { line: line.to_string(), number: number.to_string(), tour: tour.to_string(), duty, from: trip.dep, to: trip.arr, trips: 1, why, problem });
+    list.push(Dropped { line: line.to_string(), number: number.to_string(), tour: tour.to_string(), duty, from: trip.dep, to: trip.arr, trips: 1, why, problem, sent });
 }
 
 /// What a closed day came to.
@@ -610,7 +616,9 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
         // the day is the model's)
         let reported = |trip: &network::PlannedTrip| tp.live && live_trips.iter().any(|(l, n, dep)| is_one_of(&tp.tour, &[(l.clone(), n.clone())]) && dep.is_none_or(|d| (d - trip.dep).abs() <= 2));
         let v = tp.bus.and_then(|b| c.vehicle(b)).cloned();
-        let broken_at = tp.bus.and_then(|b| cut.iter().find(|x| x.0 == b)).map(|x| (x.1, x.2));
+        // (a bus broken down or crashed: the trips from then are lost, but those the bus sent
+        // for it runs - from when it came, until it had to go: `clock::Cut`)
+        let broken_at = tp.bus.and_then(|b| cut.iter().find(|x| x.vehicle == b)).copied();
         // (a spare bus sent for it runs the trips after it came: its kilometres, its wear)
         let spare = tp.bus.and_then(|b| super::clock::spare_of(c, &date, b)).and_then(|id| c.vehicle(id)).cloned();
         for (k, d) in tp.duties.iter().enumerate() {
@@ -650,7 +658,7 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                 if reported(trip) {
                     continue;
                 }
-                let broke = broken_at.is_some_and(|(at, back)| trip.dep >= at && back.is_none_or(|b| trip.dep < b));
+                let broke = broken_at.is_some_and(|x| x.lost(trip.dep));
                 let late = d.dropped_before.is_some_and(|t| trip.dep < t);
                 // (a trip shared with another duty at a relief point on the way runs only when
                 // that duty runs too)
@@ -674,15 +682,16 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                                 _ => (DropWhy::Late, None, None),
                             }
                         } else if broke {
-                            (DropWhy::BrokeDown, None, None)
+                            (if broken_at.is_some_and(|x| x.accident) { DropWhy::Crashed } else { DropWhy::BrokeDown }, None, None)
                         } else {
                             (DropWhy::Late, None, Some(k))
                         };
-                        note_drop(&mut report.drops, &tp.tour.line, &tp.tour.number, &tp.tour.tour, duty, trip, why, problem);
+                        let sent = broken_at.filter(|_| broke).and_then(|x| x.back.map(|b| (b, x.until)));
+                        note_drop(&mut report.drops, &tp.tour.line, &tp.tour.number, &tp.tour.tour, duty, trip, why, problem, sent);
                     }
                     continue;
                 }
-                let by_spare = spare.is_some() && broken_at.is_some_and(|(at, back)| trip.dep >= at && back.is_some_and(|b| trip.dep >= b));
+                let by_spare = spare.is_some() && broken_at.is_some_and(|x| trip.dep >= x.at && x.covered(trip.dep));
                 let (Some(v), Some(e)) = (if by_spare { &spare } else { &v }, &driver) else { continue };
                 let age = dates::years_between(&v.built, &date);
                 lines[li].km += trip.km;
@@ -756,7 +765,7 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
         let strict = if kind == ServiceKind::School { super::ownline::SCHOOL_DROP } else { 1 };
         sums[li].penalty += (r.drop_per_trip + (trip.km * r.drop_per_km as f64).round() as Cents) * strict;
         let (name, number) = (lines[li].line.clone(), lines[li].number.clone());
-        note_drop(&mut report.drops, &name, &number, "", None, trip, DropWhy::NoBlock, None);
+        note_drop(&mut report.drops, &name, &number, "", None, trip, DropWhy::NoBlock, None, None);
     }
     for (li, s) in sums.iter().enumerate() {
         let text = format!("Line {}", lines[li].number);
@@ -778,6 +787,17 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
         l.compensation += s.compensation;
         l.running += (s.energy + s.maintenance).round() as Cents;
         l.penalty += s.penalty;
+    }
+    // (an accident that took a bus off the road: its damage, a bigger one than a scrape's)
+    for x in cut.iter().filter(|x| x.accident) {
+        let Some(v) = c.vehicle(x.vehicle) else { continue };
+        let size = match v.kind.size {
+            BusSize::Midi => 0.8,
+            BusSize::Solo => 1.0,
+            _ => 1.35,
+        };
+        let mut crash = Rng::of(&[&c.id, "crash-damage", &v.id.to_string()], dates::parse(&date).unwrap_or(0));
+        tally.accidents.push((v.number.clone(), ((crash.range(2_500.0, 9_000.0) * size * c.price_index).round() as Cents) * 100));
     }
     for (number, cost) in &tally.accidents {
         c.book(BookingKind::Repair, -cost, format!("Accident damage, bus {number}"), false);
@@ -819,7 +839,14 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
             v.km += km;
             v.condition = (v.condition - km * wear_km).max(0.0);
         }
-        if cut.iter().any(|x| x.0 == v.id) {
+        if let Some(x) = cut.iter().find(|x| x.vehicle == v.id && x.accident) {
+            // (an accident: in the workshop for its damage, booked with the day's accidents)
+            let mut crash = Rng::of(&[&c.id, "crash-days", &x.vehicle.to_string()], dates::parse(&date).unwrap_or(0));
+            let days = crash.int(2, 4);
+            let days = if mechanics > 0 { (days - 1).max(1) } else { days };
+            v.workshop_until = Some(dates::add(&date, days));
+            v.condition = (v.condition - 8.0).max(0.0);
+        } else if cut.iter().any(|x| x.vehicle == v.id) {
             let days = rng.int(1, 3);
             let days = if mechanics > 0 { (days - 1).max(1) } else { days };
             let until = dates::add(&date, days);
