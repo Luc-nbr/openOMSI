@@ -69,6 +69,11 @@ pub fn driver_off(c: &mut Company, p: &DayPlan, ti: usize, k: usize) -> Result<O
     }
     let (line, tour) = (t.tour.line.clone(), t.tour.tour.clone());
     let key = plan::duty_key(&line, &tour, k);
+    // (a player of "Play together" on it today: the duty taken back from him - `together`)
+    if let Some(Who::Guest(_)) = d.who {
+        let r = super::duty_launch::DutyRef { date: p.date.clone(), line: line.clone(), tour: tour.clone(), duty: k };
+        return super::together::book::release(c, &r, None).map(|_| Off::Choice);
+    }
     // (an agency driver booked for the day, the duty given him for it: given back - `agency`)
     if let (Some(Who::Staff(id)), Source::Dispatcher) = (d.who, d.from_) {
         let piece = t.tour.trips.get(d.start).map(|x| super::studio::PieceRef { line: line.clone(), tour: tour.clone(), first: super::studio::TripRef::of(x) });

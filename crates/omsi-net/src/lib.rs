@@ -91,6 +91,8 @@ pub mod tunnel;
 pub mod official;
 pub mod hostkey;
 pub mod remote_text;
+// Omsi-Hub: plain HTTP and random bytes for the launchers' "Play together" (`http`)
+pub mod http;
 
 use std::cell::Cell;
 use std::collections::HashMap;

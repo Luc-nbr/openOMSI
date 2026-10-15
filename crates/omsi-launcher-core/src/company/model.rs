@@ -861,6 +861,10 @@ pub struct Company {
     /// of before: all).
     #[serde(default)]
     pub vehicles: super::vehicles::VehicleChoice,
+    /// "Play together": the players who came, the duties of the day they have, the trips they
+    /// drove for the company (`together`).
+    #[serde(default)]
+    pub together: super::together::Together,
 }
 
 fn one() -> f64 {

@@ -248,6 +248,7 @@ pub fn sheet(c: &Company, p: &DayPlan, r: &DutyRef, now: i64, trips: &[TripRun])
         None => s.hitches.push(Hitch::NoDriver),
         Some(Who::Staff(id)) => s.hitches.push(Hitch::NotYours(c.employee(id).map(|e| e.name.clone()).unwrap_or_else(|| "?".into()))),
         Some(Who::Agency) => s.hitches.push(Hitch::NotYours("Agency driver".into())),
+        Some(Who::Guest(g)) => s.hitches.push(Hitch::NotYours(super::together::guest_name(c, g))),
     }
     // driven already, or over
     if t.by_player || (p.today && driven(c, t, planned, trips)) {

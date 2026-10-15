@@ -57,6 +57,8 @@ pub mod rosterflow;
 pub mod rosterpdf;
 pub mod studio;
 pub mod timeplan;
+// (Beta 58: friends drive duties of the company's day in the boss's world)
+pub mod together;
 pub mod training;
 pub mod unassign;
 pub mod vehicles;
@@ -168,6 +170,7 @@ pub fn found(f: &Founding, profile: &str) -> Company {
         addons: Default::default(),
         autopilot: Default::default(),
         vehicles: f.vehicles.clone(),
+        together: Default::default(),
     };
     // (Casual buys quickly; the buying chosen is kept for the other modes)
     autopilot::set_game_mode(&mut c, f.game_mode);

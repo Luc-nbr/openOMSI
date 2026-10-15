@@ -491,6 +491,7 @@ fn who_label(c: &Company, w: Option<Who>) -> String {
         Some(Who::Staff(id)) => c.employee(id).map(|e| e.name.clone()).unwrap_or_default(),
         Some(Who::Agency) => "agency".into(),
         Some(Who::Player) => "you".into(),
+        Some(Who::Guest(g)) => super::together::guest_name(c, g),
         None => String::new(),
     }
 }

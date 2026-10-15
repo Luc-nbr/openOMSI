@@ -209,8 +209,11 @@ pub fn close_day(data: &Path, c: &mut Company) -> Result<DayReport> {
     let tours = network::tours_of_day(c, &lines, &c.date);
     let unassigned = network::off_every_bus(c, &lines, &date);
     network::refresh_lines(c, &lines);
-    let trips = crate::trips_of(data, &c.profile);
+    let mut trips = crate::trips_of(data, &c.profile);
+    // (and what the players of "Play together" drove for the company that day)
+    trips.extend(super::together::book::trips_for_close(c));
     let report = day::close_day_with(c, tours, &unassigned, &trips);
+    super::together::book::after_close(c, &date);
     let report = super::depot::after_close(c, report, &lines);
     // (the plans of single dates that are past now go)
     super::plandays::tidy(c);
@@ -273,8 +276,10 @@ impl super::clock::World for Disk<'_> {
         super::studio::retire_stale(c, lines, &date);
         let tours = network::tours_of_day(c, lines, &c.date);
         let unassigned = network::off_every_bus(c, lines, &date);
-        let trips = crate::trips_of(self.data, &c.profile);
+        let mut trips = crate::trips_of(self.data, &c.profile);
+        trips.extend(super::together::book::trips_for_close(c));
         let report = day::close_day_with(c, tours, &unassigned, &trips);
+        super::together::book::after_close(c, &date);
         let report = super::depot::after_close(c, report, lines);
         super::plandays::tidy(c);
         Ok(report)

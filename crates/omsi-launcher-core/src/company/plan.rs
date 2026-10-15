@@ -120,6 +120,9 @@ pub enum Who {
     Player,
     /// A driver of an agency, for the day.
     Agency,
+    /// A player of "Play together" (his number in `together::Together::guests`): on the
+    /// company's day only, never in the roster.
+    Guest(u32),
 }
 
 /// A tour of the weekly roster: on a weekday, its bus and who drives each of its duties.
@@ -1112,7 +1115,7 @@ impl DayPlan {
                             driver: match d.who {
                                 Some(Who::Staff(id)) => Some(id),
                                 Some(Who::Agency) => Some(AGENCY),
-                                Some(Who::Player) => Some(PLAYER),
+                                Some(Who::Player) | Some(Who::Guest(_)) => Some(PLAYER),
                                 None => None,
                             },
                             dropped_before: d.late.filter(|l| l.cover.is_none()).map(|l| l.until),
@@ -1578,6 +1581,18 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
         }
     }
 
+    // (Beta 58: a player of "Play together" on the duty he has today, before anybody else)
+    if today {
+        for t in out.iter_mut().filter(|t| !t.by_player) {
+            for (k, d) in t.duties.iter_mut().enumerate() {
+                if let Some(g) = super::together::guest_on(c, date, &t.tour.line, &t.tour.tour, k) {
+                    d.who = Some(Who::Guest(g));
+                    d.from_ = Source::Dispatcher;
+                }
+            }
+        }
+    }
+
     // 2. the drivers: the agency drivers booked for the day on the duties given them that day
     // (`agency`), then the roster's, in the order the duties begin
     let mut work = Work::default();
@@ -1614,7 +1629,7 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
         let d = &mut out[i].duties[k];
         match who {
             Who::Player if closing => d.problem = Some(Problem::Player),
-            Who::Player | Who::Agency => {
+            Who::Player | Who::Agency | Who::Guest(_) => {
                 d.who = Some(who);
                 d.from_ = Source::Roster;
             }
@@ -1779,6 +1794,16 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
                 work.push(id, piece);
             }
             out[i].duties[k].late = Some(LatePiece { until, cover, from_ });
+        }
+    }
+    // (a duty a player of "Play together" had and did not drive: open when the day is closed,
+    // its trips dropped)
+    if closing {
+        for t in out.iter_mut().filter(|t| !t.by_player) {
+            for d in t.duties.iter_mut().filter(|d| matches!(d.who, Some(Who::Guest(_)))) {
+                d.who = None;
+                d.problem = Some(Problem::Player);
+            }
         }
     }
     DayPlan { date: date.to_string(), weekday: wd, today, tours: out, disruptions: dis }
