@@ -299,6 +299,12 @@ fn problem_text(c: &Company, p: &DayPlan, ti: usize, k: usize, problem: Option<P
             }
         }
     }
+    // (a holiday known ahead, Beta 57: whose, and until when)
+    if problem == Some(Problem::Holiday) {
+        if let Some((e, until)) = rostered().and_then(|e| e.on_holiday(&p.date).map(|u| (e, u))) {
+            return format!("{}: {}", first_name(c, e.id), trf("On holiday until %{date}", &[("date", &day_label(until))]));
+        }
+    }
     if matches!(problem, Some(Problem::Licence | Problem::NoEndorsement | Problem::NoTypeTraining)) {
         if let Some(e) = rostered() {
             let (kind, bus) = t.bus_of(c);

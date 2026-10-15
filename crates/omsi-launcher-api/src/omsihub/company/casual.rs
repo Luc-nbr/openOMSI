@@ -450,7 +450,7 @@ fn drivers(s: &mut Session, c: &Company) -> Value {
                 (trf("Leaves on %{date}", &[("date", &day_label(u))]), "warn")
             } else if e.sick_until.as_deref().is_some_and(|u| co::dates::between(&c.date, u) >= 0) {
                 (tr("Ill today"), "warn")
-            } else if e.holiday_until.as_deref().is_some_and(|u| co::dates::between(&c.date, u) >= 0) {
+            } else if e.on_holiday(&c.date).is_some() {
                 (tr("On holiday"), "dim")
             } else if e.training_until.as_deref().is_some_and(|u| co::dates::between(&c.date, u) >= 0) {
                 (tr("On a course today"), "dim")

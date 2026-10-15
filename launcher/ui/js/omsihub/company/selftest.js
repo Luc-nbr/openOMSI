@@ -64,7 +64,7 @@ export async function selftest(check, errors) {
   if (!sh?.casual) {
     for (const [tab, page, key, n] of [
       [1, 'fleet', 'tab', 3],
-      [2, 'people', 'tab', 5],
+      [2, 'people', 'tab', 6],
       [6, 'career', 'part', 6],
     ]) {
       for (let k = 1; k < n; k++) {

@@ -1,7 +1,10 @@
 //! The staff and the labour market (`crates/omsi-launcher-ui/src/company/people.rs`, `people/`):
 //! My employees with a card for everyone and a person opened; Hire employees, the week's
 //! applicants of every role; Licences & training, who of the drivers may drive which bus and the
-//! courses; the Work schedule of the roles besides the drivers; and the staff's Settings.
+//! courses; the Work schedule of the roles besides the drivers; the Holidays asked for and planned
+//! (`holidays`); and the staff's Settings.
+
+pub mod holidays;
 
 use super::kit::{self, Go, Popup};
 use super::words::{day_label, eur, eur_cents, grade, num, tr, trf};
@@ -14,7 +17,7 @@ use omsi_launcher_lib::company::training::{self, CourseKind};
 use omsi_launcher_lib::company::{self as co, Company, Employee, Licence, Role};
 use serde_json::{json, Value};
 
-pub const TABS: [&str; 5] = ["My employees", "Hire employees", "Licences & training", "Work schedule", "Settings"];
+pub const TABS: [&str; 6] = ["My employees", "Hire employees", "Licences & training", "Work schedule", "Holidays", "Settings"];
 const SORTS: [&str; 6] = ["Name", "Role", "Wage", "Level", "Satisfaction", "Stress"];
 /// Said under a lock Casual does not open by itself.
 const NOT_RESEARCHED_BY_ITSELF: &str = "Casual does not research this by itself: switch to Normal and start it on its Research page.";
@@ -88,8 +91,8 @@ fn doing(c: &Company, plan: Option<&Plan>, e: &Employee) -> (String, String, &'s
     if let Some(u) = until(&e.sick_until) {
         return (tr("Ill"), until_text(&u), "warn");
     }
-    if let Some(u) = until(&e.holiday_until) {
-        return (tr("On holiday"), until_text(&u), "soft");
+    if let Some(u) = e.on_holiday(today) {
+        return (tr("On holiday"), until_text(u), "soft");
     }
     if let Some(u) = until(&e.training_until) {
         return (tr("On a course"), until_text(&u), "accent2");
@@ -177,7 +180,15 @@ fn list_part(c: &Company, plan: Option<&Plan>, ui: &Value) -> Value {
         .iter()
         .map(|e| {
             let (a, b, tone) = doing(c, plan, e);
-            let tag = if e.notice_until.is_some() { Some(json!([tr(if e.resigned { "Resigned" } else { "Leaving" }), "danger"])) } else if asks.contains(&e.id) { Some(json!([tr("Asks for a raise"), "warn"])) } else { None };
+            let tag = if e.notice_until.is_some() {
+                Some(json!([tr(if e.resigned { "Resigned" } else { "Leaving" }), "danger"]))
+            } else if asks.contains(&e.id) {
+                Some(json!([tr("Asks for a raise"), "warn"]))
+            } else if e.leave.pending().is_some() {
+                Some(json!([tr("Asks for a holiday"), "warn"]))
+            } else {
+                None
+            };
             json!({ "id": e.id, "portrait": e.portrait(), "name": e.name, "role": tr(e.role.label()), "icon": staff::icon(e.role), "wage": per_hour(e.wage), "tag": tag, "doing": [a, b, tone], "needs": needs(e) })
         })
         .collect();
@@ -200,6 +211,15 @@ fn person(c: &Company, plan: Option<&Plan>, e: &Employee) -> Value {
     let pay = vec![json!([tr("A month"), eur(e.wage)]), json!([tr("By the hour"), per_hour(e.wage)]), json!([tr("The market pays"), eur(market)]), json!([tr("Costs a month"), eur(staff::monthly_cost(e))])];
     let ask = c.staff_rules.ask_of(e.id).cloned().map(|ask| trf("Asks for %{n} % more, until %{date}", &[("n", &format!("{:.0}", ask.share * 100.0)), ("date", &day_label(&ask.until))]));
     let mut facts: Vec<Value> = vec![json!([tr("Reliable"), format!("{:.0} %", e.reliability * 100.0)]), json!([tr("Days worked"), e.days_worked.to_string()]), json!([tr("Holiday days left"), e.holiday_left.to_string()])];
+    // (their holidays asked for: the days not planned yet, the rejections of the year)
+    let free = co::holidays::free_days(e, None);
+    if free != e.holiday_left {
+        facts.push(json!([tr("Not planned yet"), free.to_string()]));
+    }
+    let refused = e.leave.refused(&c.date);
+    if refused > 0 {
+        facts.push(json!([tr("Holidays rejected this year"), refused.to_string()]));
+    }
     if staff::drives(e) {
         facts.insert(0, json!([tr("Licence"), licence_line(e.licence, &e.endorsements)]));
         facts.insert(1, json!([tr("Driving · punctuality · service"), format!("{:.0} · {:.0} · {:.0}", e.skills.driving, e.skills.punctuality, e.skills.service)]));
@@ -507,7 +527,8 @@ pub fn view(s: &mut Session, ui: &Value) -> Value {
         1 => hire_part(&c, ui),
         2 => training_part(&c, ui),
         3 => schedule_part(&c, ui),
-        4 => settings_part(&c),
+        4 => holidays::part(&c, ui),
+        5 => settings_part(&c),
         _ => list_part(&c, plan.as_ref(), ui),
     };
     json!({ "tabs": tabs, "tab": tab, "info": trf("Wages %{amount} a month with the employer's share  ·  %{n} duties today", &[("amount", &eur(wages)), ("n", &duties.to_string())]), "body": body })
@@ -636,6 +657,7 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Result<Value, St
                 Ok(())
             }))
         }
+        "holiday_answer" | "holiday_limit" => return holidays::act(s, what, args),
         "staff_minimum" => {
             let Some(role) = role_of(args.get("role").and_then(Value::as_str).unwrap_or("")) else { return Some(Ok(json!({}))) };
             let n = args.get("n").and_then(Value::as_u64).unwrap_or(0).min(99) as u32;

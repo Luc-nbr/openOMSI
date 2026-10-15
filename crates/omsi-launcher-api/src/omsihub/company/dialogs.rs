@@ -157,7 +157,7 @@ fn time(s: &mut Session) -> Value {
 // --- a confirmation ----------------------------------------------------------------------------------
 
 /// A confirmation (`Confirm`): its title, its words, its button (`what`: sell, dismiss,
-/// remove_line, delete_company, game_mode).
+/// remove_line, delete_company, game_mode, holiday).
 fn confirm(s: &mut Session, args: &Value) -> Value {
     let Some(c) = s.company.clone() else { return Value::Null };
     let what = args.get("what").and_then(Value::as_str).unwrap_or("");
@@ -196,6 +196,11 @@ fn confirm(s: &mut Session, args: &Value) -> Value {
         "game_mode" => {
             let Some(to) = super::mode_of(&name) else { return json!({ "gone": true }) };
             (trf("Switch to %{mode}?", &[("mode", &tr(to.label()))]), switch_text(&c, to), tr("Switch mode"), mode_icon(to), false)
+        }
+        // (a holiday approved over the limit, Beta 57: `id` is the request's number)
+        "holiday" => {
+            let Some((title, text)) = super::people::holidays::confirm(&c, id) else { return json!({ "gone": true }) };
+            (title, text, tr("Approve anyway"), "warning", false)
         }
         _ => return json!({ "gone": true }),
     };
@@ -815,6 +820,7 @@ pub fn act(s: &mut Session, what: &str, args: &Value, _p: &dyn crate::Platform) 
                 Some(m) => set_mode(s, m),
                 None => Ok(json!({})),
             },
+            "holiday" => Ok(super::people::holidays::answer(s, id, true, true)),
             _ => Ok(json!({})),
         },
         // the clock's questions

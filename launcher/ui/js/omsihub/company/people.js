@@ -1,9 +1,10 @@
 // The company's staff, as our game-drawn launcher's (`company/people.rs`, `people/`): the
 // employees as cards (their role, name, wage, what they do now and their four bars) and one of
 // them on a page of their own; the week's applicants; the licences, bus types and courses as a
-// matrix; the working hours of the staff who do not drive; and the hiring rules.
+// matrix; the working hours of the staff who do not drive; the holidays asked for and planned
+// (Beta 57: `people/holidays.rs`); and the hiring rules.
 
-import { html, useEffect, useState, setCo, setUi, ui, act, useView, useSize, goKey, Icon, Btn, Seg, Chips, Select, Section, Meter, Switch, IconBtn, Slider, Tag } from './kit.js';
+import { html, useEffect, useState, setCo, setUi, ui, act, useView, useSize, goKey, Icon, Btn, Seg, Chips, Select, Section, Meter, Switch, IconBtn, Slider, Tag, fill } from './kit.js';
 
 // --- the portraits -------------------------------------------------------------------------
 
@@ -57,7 +58,7 @@ export function PeoplePage() {
   const per = Math.max(1, Math.floor((size.w - nameW - 12) / 150));
   const v = useView('people', { ...st, per }, size.w > 0);
   if (!v?.tabs) return html`<div ref=${ref} style="height:100%"></div>`;
-  const tabsW = Math.min(v.tabs.length === 5 ? 900 : 420, size.w);
+  const tabsW = Math.min(v.tabs.length >= 5 ? 1040 : 420, size.w);
   const b = v.body;
   let body = null;
   if (b.kind === 'person') body = html`<${Person} p=${b} />`;
@@ -65,6 +66,7 @@ export function PeoplePage() {
   else if (b.kind === 'hire') body = html`<${Hire} h=${b} />`;
   else if (b.kind === 'training') body = html`<${Training} t=${b} nameW=${nameW} />`;
   else if (b.kind === 'schedule') body = html`<${Schedule} s=${b} />`;
+  else if (b.kind === 'holidays') body = html`<${Holidays} h=${b} />`;
   else if (b.kind === 'settings') body = html`<${Rules} r=${b} />`;
   return html`<div ref=${ref} style="height:100%;display:flex;flex-direction:column">
     <div style="display:flex;align-items:center;gap:20px;flex:none;height:40px">
@@ -307,5 +309,76 @@ function Rules({ r }) {
     <p class="co-note t-dim">${r.follow_note}</p>
     <${Switch} checked=${r.grant} label=${r.grant_label} onChange=${(on) => act('staff_rule', { which: 'grant', on })} style="min-height:36px;margin-top:10px" />
     <p class="co-note t-dim">${r.grant_note}</p>
+  </div>`;
+}
+
+// --- the holidays (Beta 57) ----------------------------------------------------------------
+
+/** Answer a holiday request (`people::holidays::answer`): an approval over the limit asks first
+ * (`dialogs::confirm`'s "holiday"). */
+export async function answerHoliday(no, approve) {
+  const r = await act('holiday_answer', { no, approve });
+  if (r?.over) setCo({ dialog: { kind: 'confirm', what: 'holiday', id: no } });
+}
+
+/** A holiday request (`people::holidays::request`): whose, its days, why and how much it
+ * matters, what is left of their days, the planner's suggestion, the days over the limit, and
+ * its answer or the buttons (`compact`: as the inbox's card shows it). */
+export function HolidayRequest({ r, compact }) {
+  return html`<div class=${'co-holreq' + (compact ? ' compact' : '')} onClick=${compact ? (e) => e.stopPropagation() : undefined}>
+    ${!compact && html`<${Portrait} n=${r.portrait} name=${r.name} size=${52} />`}
+    <div class="body">
+      ${!compact && html`<div class="who"><b class="cut">${r.name}</b><span class="cut"><${Icon} name=${r.role_icon} size=${14} class="t-accent2" />${r.role}</span></div>`}
+      <div class="when"><${Icon} name=${r.icon} size=${16} class="t-accent2" /><b>${r.dates}</b><span>${r.length}</span></div>
+      <div class="tags"><span>${r.reason}</span><${Tag} text=${r.priority[0]} tone=${r.priority[1]} />${r.refused && html`<${Tag} text=${r.refused} tone="danger" />`}</div>
+      ${!compact && html`<div class="facts"><span>${r.asked}</span>${r.due && html`<span class="t-warn">${r.due}</span>`}<span>${r.left}</span></div>`}
+      ${r.advice && html`<div class=${'advice ' + (r.advice.approve ? 't-ok' : 't-warn')}>${r.advice.text}</div>`}
+      ${r.over && html`<div class="advice t-danger"><${Icon} name="warning" size=${14} />${r.over}</div>`}
+    </div>
+    ${r.open
+      ? html`<div class="answer"><${Btn} kind="primary" icon="check" label=${r.approve} small onClick=${() => answerHoliday(r.no, true)} /><${Btn} icon="close" label=${r.reject} small onClick=${() => answerHoliday(r.no, false)} /></div>`
+      : html`<div class="answer"><b class=${'t-' + r.tone}>${r.state}</b></div>`}
+  </div>`;
+}
+
+/** The Holidays tab (`people::holidays::part`): the limit, the calendar of the coming weeks (a
+ * day picked shows who is off, who asked and the cover), and the requests. */
+function Holidays({ h }) {
+  const pick = (d) => setUi('people', { hday: d.date });
+  return html`<div class="co-hol">
+    <div class="left">
+      <div class="co-hol-limit">
+        <b class="cut">${h.limit_title}</b>
+        <${IconBtn} icon="remove" size=${15} title=${h.fewer} onClick=${() => h.limit > 1 && act('holiday_limit', { n: h.limit - 1 })} />
+        <b class="n">${h.limit}</b>
+        <${IconBtn} icon="add" size=${15} title=${h.more} onClick=${() => h.limit < h.most && act('holiday_limit', { n: h.limit + 1 })} />
+        <span class="co-note t-dim cut">${h.by_fleet}</span>
+        ${h.own && html`<${Btn} kind="ghost" icon="restart_alt" label=${h.reset} small onClick=${() => act('holiday_limit', { reset: true })} />`}
+      </div>
+      <p class="co-note t-soft" style="margin:6px 0 12px">${h.mode}</p>
+      <div class="co-caps" style="margin-bottom:8px">${h.calendar_title}</div>
+      <div class="co-holcal">
+        ${h.weekdays.map((w) => html`<span class="wd">${w}</span>`)}
+        ${h.days.map(
+          (d) => html`<button type="button" class=${'day' + (d.gone ? ' gone' : '') + (d.today ? ' today' : '') + (d.on ? ' on' : '')} title=${d.tip || undefined} disabled=${d.gone} onClick=${() => pick(d)}>
+            <span class="top"><b>${d.day}</b>${d.month && html`<i>${d.month}</i>`}${d.short > 0 && html`<${Icon} name="warning" size=${13} class="t-danger" />`}</span>
+            ${!d.gone && html`<span class=${'count t-' + d.tone}>${d.count}${d.asked > 0 && html`<i>+${d.asked}</i>`}</span><${Meter} frac=${d.frac} tone=${d.tone} h=${5} />`}
+          </button>`,
+        )}
+      </div>
+      <div class="co-hollegend">${h.legend.map(([t, tone]) => html`<span><i style=${`background:${fill(tone)}`}></i>${t}</span>`)}</div>
+      <section class="co-section co-holday">
+        <div class="co-caps">${h.day.title}</div>
+        <div class="co-payrow"><span>${h.day.off_title}</span><b class="cut">${h.day.off.length ? h.day.off.join(', ') : h.day.nobody}</b></div>
+        <div class="co-payrow"><span>${h.day.asked_title}</span><b class="cut">${h.day.asked.length ? h.day.asked.join(', ') : h.day.nobody}</b></div>
+        <p class=${'co-note t-' + h.day.cover_tone} style="margin-top:6px">${h.day.cover}</p>
+      </section>
+      <div class="co-holnotes">${h.notes.map((n) => html`<p class="co-note t-dim">${n}</p>`)}</div>
+    </div>
+    <div class="co-scroll right">
+      <div class="co-caps" style="margin-bottom:10px">${h.waiting_title}</div>
+      ${h.waiting.length ? h.waiting.map((r) => html`<${HolidayRequest} r=${r} />`) : html`<p class="co-para t-soft" style="margin-bottom:16px">${h.none}</p>`}
+      ${h.done.length > 0 && html`<div class="co-caps" style="margin:18px 0 10px">${h.done_title}</div>${h.done.map((r) => html`<${HolidayRequest} r=${r} />`)}`}
+    </div>
   </div>`;
 }

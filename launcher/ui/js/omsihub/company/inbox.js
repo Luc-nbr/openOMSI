@@ -1,9 +1,10 @@
 // The company's inbox, as our game-drawn launcher's (`company/inbox.rs`): the messages by kind
 // as cards (the unread with the accent's mark), the trophies' bar under them, and the message
-// chosen on the right - what an event does and on which days, a goal's progress and reward, and
-// the way to the page about it.
+// chosen on the right - what an event does and on which days, a goal's progress and reward, a
+// holiday request with its Approve and Reject buttons (Beta 57), and the way to the page about it.
 
 import { html, setUi, ui, act, useView, goTab, Icon, Btn, Chips, IconBtn, fill } from './kit.js';
+import { HolidayRequest } from './people.js';
 
 export function InboxPage() {
   const st = ui('inbox', { filter: 'all', open: null });
@@ -62,6 +63,7 @@ function Card({ m, on, onOpen, onDelete }) {
       <p>${m.text}</p>
       ${m.goal && html`<div style="margin-top:6px"><${Reward} g=${m.goal} /></div>`}
       ${m.bar && html`<div style="margin-top:10px"><${WideBar} b=${m.bar} /></div>`}
+      ${m.leave?.open && html`<${HolidayRequest} r=${m.leave} compact />`}
     </div>
   </div>`;
 }
@@ -84,9 +86,10 @@ function Details({ v, m }) {
           ${m.goal && html`${m.goal.bar && html`<div style="margin-bottom:10px"><${WideBar} b=${m.goal.bar} h=${28} /></div>`}<${Reward} g=${m.goal} />
             <p class="co-note t-dim" style="margin:8px 0">${m.goal.rule}</p><b class="t-soft" style="font-size:var(--co-rows)">${m.goal.state}</b>`}
           ${!m.goal && m.bar && html`<${WideBar} b=${m.bar} h=${28} />`}
+          ${m.leave && html`<${HolidayRequest} r=${m.leave} />`}
         </div>
         <div style="display:flex;gap:10px;flex:none;margin-top:10px">
-          ${m.go && html`<${Btn} kind="primary" icon=${m.go.icon} label=${m.go.label} style="height:36px" onClick=${() => goTab(m.go.tab)} />`}
+          ${m.go && html`<${Btn} kind="primary" icon=${m.go.icon} label=${m.go.label} style="height:36px" onClick=${() => (m.go.ui && setUi(m.go.ui.page, m.go.ui.patch), goTab(m.go.tab))} />`}
           ${m.read && html`<${Btn} label=${v.unread_label} style="height:36px" onClick=${() => act('inbox_unread', { id: m.id })} />`}
           <span class="grow"></span>
           <${Btn} kind="danger" icon="delete" label=${v.delete} style="height:36px" onClick=${() => (setUi('inbox', { open: null }), act('inbox_delete', { id: m.id }))} />
