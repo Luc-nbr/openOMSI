@@ -59,6 +59,7 @@ function Month({ m, style }) {
           ${m.rows.map(([label, t, tone]) => html`<div class="co-monthrow"><span class="cut">${label}</span><b class=${'t-' + tone}>${t}</b></div>`)}
           <div class="co-monthrow result"><span>${m.result_label}</span><b class=${'t-' + m.result_tone}>${m.result}</b></div>
           ${m.capital && html`<p class="co-note" style="margin-top:12px">${m.capital}</p>`}
+          ${m.late && html`<button type="button" class="late-how" style="margin-top:10px" onClick=${() => setCo({ dialog: { kind: 'late' } })}><${Icon} name="schedule" size=${15} />${m.late}</button>`}
         </div>`}
   </${Section}>`;
 }

@@ -201,7 +201,8 @@ pub fn model(c: &Company, plan: &Plan, date: &str, cut: &[Cut]) -> Model {
             }
             if first {
                 first = false;
-                match drivers.iter().find(|w| w.0 == id) {
+                // (the agency's drivers share one number: each of their duties begins afresh)
+                match drivers.iter().find(|w| w.0 == id && id != AGENCY) {
                     // (from another duty: on the same bus straight on, or a walk to another)
                     Some(&(_, end, pt, pj)) => {
                         let walk = if pt == ti { 0 } else { RELIEF_WALK };
@@ -278,7 +279,8 @@ pub fn model(c: &Company, plan: &Plan, date: &str, cut: &[Cut]) -> Model {
             }
             match drivers.iter_mut().find(|w| w.0 == id) {
                 Some(w) => *w = (id, free, ti, j),
-                None => drivers.push((id, free, ti, j)),
+                None if id != AGENCY => drivers.push((id, free, ti, j)),
+                None => {}
             }
             out[ti][j] = Some(Timed { dep: dep_delay, arr: arr_delay, bus, causes, earlier });
         }
@@ -620,6 +622,21 @@ pub fn today(c: &Company, plan: &Plan, now: i32) -> Vec<Outcome> {
     }
     out.sort_by_key(|o| o.dep);
     out
+}
+
+/// Where bus `number` broke down on `date` (the day's trips kept): its line's number, its block,
+/// the minute and its driver (the inbox's message names them, `inbox::bridge`).
+pub fn breakdown_of(c: &Company, date: &str, number: &str) -> Option<(String, String, i32, Option<u32>)> {
+    let id = c.fleet.iter().find(|v| v.number == number)?.id;
+    let day = of_day(c, date)?;
+    day.iter().find_map(|o| {
+        let at = o.causes.iter().find_map(|x| match x {
+            Cause::Breakdown { bus, at, .. } if *bus == id => Some(*at),
+            _ => None,
+        });
+        let lost = matches!(o.dropped, Some(DropWhy::BrokeDown | DropWhy::Crashed)) && o.bus == Some(id);
+        at.or(lost.then_some(o.dep)).map(|at| (o.number.clone(), o.tour.clone(), at, o.driver))
+    })
 }
 
 // --- advice --------------------------------------------------------------------------------------

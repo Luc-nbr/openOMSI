@@ -578,7 +578,18 @@ pub fn bridge(c: &mut Company, date: &str, report: &DayReport) {
     };
     for n in &report.notes {
         match n {
-            Note::Breakdown { number, until, cost } => add(Kind::Fleet, Level::Bad, "", BREAKDOWN, vec![arg("n", number), arg("date", until), arg("amount", cost)]),
+            // (with its plate and model, and where and with whom: `lateness::breakdown_of`)
+            Note::Breakdown { number, until, cost } => match (super::lateness::breakdown_of(c, date, number), c.fleet.iter().find(|v| v.number == *number)) {
+                (Some((line, tour, at, driver)), Some(v)) => {
+                    let who = match driver.and_then(|d| c.employee(d)) {
+                        Some(e) => e.name.clone(),
+                        None => "an agency driver".to_string(),
+                    };
+                    let args = vec![arg("n", number), arg("plate", &v.plate), arg("model", &v.name), arg("line", &line), arg("block", format!("{line}/{tour}")), arg("time", format!("{:02}:{:02}", at.rem_euclid(1440) / 60, at.rem_euclid(60))), arg("name", who), arg("date", until), arg("amount", cost)];
+                    add(Kind::Fleet, Level::Bad, "", BREAKDOWN_ON, args)
+                }
+                _ => add(Kind::Fleet, Level::Bad, "", BREAKDOWN, vec![arg("n", number), arg("date", until), arg("amount", cost)]),
+            },
             Note::Service { number } => add(Kind::Workshop, Level::Info, "", SERVICE, vec![arg("n", number)]),
             Note::Returned { number, name } => add(Kind::Fleet, Level::Info, "", RETURNED, vec![arg("n", number), arg("name", name)]),
             Note::LoanPaid { purpose } => add(Kind::Finance, Level::Good, "", LOAN_PAID, vec![arg("what", purpose)]),
@@ -648,6 +659,7 @@ pub fn bridge(c: &mut Company, date: &str, report: &DayReport) {
 }
 
 const BREAKDOWN: (&str, &str) = ("Breakdown", "Bus %{n} broke down on its tour: in the workshop until %{date}, repairs %{amount}.");
+const BREAKDOWN_ON: (&str, &str) = ("Breakdown", "Bus %{n} (%{plate}, %{model}) broke down on line %{line}, block %{block}, at %{time} with %{name} at the wheel: in the workshop until %{date}, repairs %{amount}.");
 const SERVICE: (&str, &str) = ("Service due", "Bus %{n} is due for its service: in the workshop tomorrow.");
 const RETURNED: (&str, &str) = ("A bus went back", "Bus %{n} (%{name}) went back: its lease or rental ended.");
 const LOAN_PAID: (&str, &str) = ("Loan paid off", "A loan is paid off: %{what}.");
@@ -681,7 +693,7 @@ pub fn texts() -> Vec<&'static str> {
     out.extend(Kind::ALL.iter().map(|k| k.label()));
     out.extend(["It is today.", "It begins today and lasts until %{until}.", "It is over: everything is as usual again."]);
     for (a, b) in [
-        WELCOME, BREAKDOWN, SERVICE, RETURNED, LOAN_PAID, MONTH, BUILT, BAY_WAIT, WON, LOST, ENDED, NOT_STARTED, ACCIDENT, UNSAVED, ILL, HOLIDAY, RESIGNED, UNHAPPY, LEFT, RATES, UNCOVERED, PENALTIES, FINES, COMPLAINTS, CROWDED, IN_THE_RED, LOW_CASH,
+        WELCOME, BREAKDOWN, BREAKDOWN_ON, SERVICE, RETURNED, LOAN_PAID, MONTH, BUILT, BAY_WAIT, WON, LOST, ENDED, NOT_STARTED, ACCIDENT, UNSAVED, ILL, HOLIDAY, RESIGNED, UNHAPPY, LEFT, RATES, UNCOVERED, PENALTIES, FINES, COMPLAINTS, CROWDED, IN_THE_RED, LOW_CASH,
     ] {
         out.extend([a, b]);
     }

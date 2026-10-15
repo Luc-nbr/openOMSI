@@ -30,6 +30,8 @@ fn month_part(c: &Company, chosen: Option<&str>) -> Value {
         "empty": (rows.is_empty() && capital.is_empty()).then(|| tr("Nothing booked this month yet.")),
         "rows": rows.iter().map(|(kind, a)| { let (t, tone) = signed(*a); json!([tr(kind.label()), t, tone]) }).collect::<Vec<_>>(),
         "result_label": tr("Result"), "result": res, "result_tone": res_tone,
+        // (the deductions for late running of the days kept: `late::finance_view`)
+        "late": (!c.lateness.days.is_empty()).then(|| tr("Deductions for late running")),
         "capital": (!capital.is_empty()).then(|| format!("{}: {}", tr("Investment and financing"), capital.iter().map(|(k, a)| format!("{} {}", tr(k.label()), signed(*a).0)).collect::<Vec<_>>().join("  ·  "))),
     })
 }

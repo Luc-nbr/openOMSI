@@ -28,6 +28,7 @@ mod fleet;
 mod home;
 mod inbox;
 pub mod kit;
+pub mod late;
 mod launch;
 mod lines;
 mod money;
@@ -1370,6 +1371,9 @@ fn view(s: &mut Session, args: &Value) -> Answer {
         "career" => career::view(s, args),
         "casual" => casual::view(s, args),
         "launch" => launch::view(s, args),
+        // (late running: the finances' deductions, the advice of the last day closed)
+        "late" => late::finance_view(s),
+        "late_advice" => late::advice_view(s),
         "settings" | "time" | "confirm" | "report" | "away" | "ask" | "vehicle" | "new" | "add_line" | "fare" => dialogs::view(s, &what, args),
         other => return Err(format!("no view {other}")),
     })
