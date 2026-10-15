@@ -3679,6 +3679,7 @@ dependencies = [
  "omsi-vehicle",
  "omsi-weather",
  "omsihub-livery",
+ "omsihub-plugin",
  "serde",
  "serde_json",
  "sha2",

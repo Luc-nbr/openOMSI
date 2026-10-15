@@ -50,6 +50,14 @@ pub static FEATURES: &[Feature] = &[
     Feature { id: "live_link", label: "Live link to Omsi-Hub", needs: &["send"], essential: false, fallback: "Omsi-Hub reads the results when the drive ends" },
 ];
 
+/// The notes [`Compat`] gives, for the player (English: the launcher translates them).
+pub const NOTE_UNKNOWN: &str = "The version was not found: the first drive checks what this openOMSI offers";
+pub const NOTE_TOO_OLD: &str = "This openOMSI is older than 0.2.0: update it to use Omsi-Hub";
+pub const NOTE_OLD_API: &str = "This openOMSI's plugin interface is too old: update openOMSI";
+pub const NOTE_NO_DUTY: &str = "This openOMSI does not tell plugins about the duty: update openOMSI";
+pub const NOTE_NEWER_API: &str = "This openOMSI has a newer plugin interface: update Omsi-Hub for everything to work";
+pub const NOTES: &[&str] = &[NOTE_UNKNOWN, NOTE_TOO_OLD, NOTE_OLD_API, NOTE_NO_DUTY, NOTE_NEWER_API];
+
 /// How well the add-on works with a game.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -95,8 +103,8 @@ fn all_features(on: impl Fn(&Feature) -> bool) -> Vec<FeatureState> {
 /// the plugin ever ran there.
 pub fn estimate(version: Option<&GameVersion>) -> Compat {
     match version {
-        None => Compat { level: Level::Unknown, api: None, features: all_features(|_| true), notes: vec!["The version was not found: the first drive checks what this openOMSI offers".into()], confirmed: false },
-        Some(v) if *v < FIRST_SUPPORTED => Compat { level: Level::Unsupported, api: None, features: all_features(|_| false), notes: vec!["This openOMSI is older than 0.2.0: update it to use Omsi-Hub".into()], confirmed: false },
+        None => Compat { level: Level::Unknown, api: None, features: all_features(|_| true), notes: vec![NOTE_UNKNOWN.into()], confirmed: false },
+        Some(v) if *v < FIRST_SUPPORTED => Compat { level: Level::Unsupported, api: None, features: all_features(|_| false), notes: vec![NOTE_TOO_OLD.into()], confirmed: false },
         Some(_) => Compat { level: Level::Supported, api: None, features: all_features(|_| true), notes: Vec::new(), confirmed: false },
     }
 }
@@ -108,15 +116,15 @@ pub fn negotiate(hello: &Hello) -> Compat {
     let mut notes = Vec::new();
     let essential_missing = FEATURES.iter().zip(&features).any(|(f, s)| f.essential && !s.on);
     let level = if hello.api < API_ABI {
-        notes.push("This openOMSI's plugin interface is too old: update openOMSI".into());
+        notes.push(NOTE_OLD_API.into());
         Level::Unsupported
     } else if essential_missing {
-        notes.push("This openOMSI does not tell plugins about the duty: update openOMSI".into());
+        notes.push(NOTE_NO_DUTY.into());
         Level::Unsupported
     } else if hello.api > API_ABI {
         // (an ABI raised: something the add-on uses may have changed; what the handshake found
         // still works, the rest is for an update of Omsi-Hub)
-        notes.push("This openOMSI has a newer plugin interface: update Omsi-Hub for everything to work".into());
+        notes.push(NOTE_NEWER_API.into());
         Level::Limited
     } else if features.iter().any(|f| !f.on) {
         Level::Limited

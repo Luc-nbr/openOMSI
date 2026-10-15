@@ -22,6 +22,16 @@ pub const NAME: &str = "omsihub";
 pub const VERSION: &str = "1.0.0";
 /// The plugin's files.
 pub const FILES: &[(&str, &str)] = &[("main.lua", include_str!("../lua/main.lua")), ("hubjson.lua", include_str!("../lua/hubjson.lua"))];
+/// The texts the plugin shows (`tr` in `lua/main.lua`), in English: Omsi-Hub puts their
+/// translations into the assignment (`bridge::Assignment::texts`).
+pub const TEXTS: &[&str] = &[
+    "On duty: trip %{trip} of %{trips}",
+    "Not started yet",
+    "Duty %{duty}: line %{line}, tour %{tour}",
+    "Start duty",
+    "F10: use the panel with the mouse",
+    "The duty could not be started: %{reason}",
+];
 /// What Omsi-Hub put there, beside the plugin's files.
 pub const STAMP: &str = "omsihub-plugin.json";
 /// A game's list of the plugins switched off, in its plugins folder.
@@ -224,6 +234,17 @@ mod tests {
         assert_eq!(status(&plugins).state, State::Off);
         assert_eq!(install(&plugins).unwrap().state, State::On);
         assert_eq!(std::fs::read_to_string(plugins.join(DISABLED_LIST)).unwrap(), "# switched off in the game\nother\n");
+    }
+
+    #[test]
+    fn every_text_of_the_plugin_is_listed() {
+        let main = FILES[0].1;
+        let mut shown: Vec<&str> = main.split("tr(\"").skip(1).map(|r| &r[..r.find('"').unwrap()]).collect();
+        shown.sort();
+        shown.dedup();
+        let mut listed = TEXTS.to_vec();
+        listed.sort();
+        assert_eq!(shown, listed);
     }
 
     #[test]
