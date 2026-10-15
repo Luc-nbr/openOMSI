@@ -373,3 +373,25 @@ _version: 2
   pl: "Wtyczka Omsi-Hub nie jest włączona w tym openOMSI"
   ru: "Плагин Omsi-Hub не включён в этом openOMSI"
   uk: "Плагін Omsi-Hub не ввімкнено в цьому openOMSI"
+# (the game's own options: the Add-ons page, crates/omsi-app/src/addons.rs)
+"Downloading...":
+  de: "Wird heruntergeladen..."
+  fr: "Téléchargement..."
+  nl: "Bezig met downloaden..."
+  pl: "Pobieranie..."
+  ru: "Загрузка..."
+  uk: "Завантаження..."
+"The download failed: %{reason}":
+  de: "Der Download ist fehlgeschlagen: %{reason}"
+  fr: "Le téléchargement a échoué : %{reason}"
+  nl: "Het downloaden is mislukt: %{reason}"
+  pl: "Pobieranie nie powiodło się: %{reason}"
+  ru: "Не удалось загрузить: %{reason}"
+  uk: "Не вдалося завантажити: %{reason}"
+"The add-ons change when the game starts the next time":
+  de: "Die Add-ons ändern sich beim nächsten Spielstart"
+  fr: "Les extensions changent au prochain lancement du jeu"
+  nl: "De add-ons veranderen bij de volgende start van het spel"
+  pl: "Dodatki zmienią się przy następnym uruchomieniu gry"
+  ru: "Дополнения изменятся при следующем запуске игры"
+  uk: "Доповнення зміняться під час наступного запуску гри"

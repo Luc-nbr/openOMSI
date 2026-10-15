@@ -373,6 +373,9 @@ pub(super) fn option_set(app: &mut App, verb: &str, arg: &str, v: f32) -> Option
 
 /// Whether the switch `id` is on (None: `id` is no switch).
 pub(super) fn toggle_now(app: &App, id: &str) -> Option<bool> {
+    if let Some(addon) = id.strip_prefix("addon:") {
+        return crate::addons::is_on(addon);
+    }
     let s = &app.settings;
     Some(match id {
         "navigator" => if app.vr_active() { app.vr_nav_profile().enabled } else { app.menus.navigator.as_ref().is_some_and(|n| n.enabled) },
@@ -458,6 +461,10 @@ pub(super) fn toggle_now(app: &App, id: &str) -> Option<bool> {
 
 /// Switch `id` on or off; the key and value to keep for the next game.
 pub(super) fn toggle_set(app: &mut App, id: &str, on: bool) -> Option<(&'static str, String)> {
+    if let Some(addon) = id.strip_prefix("addon:") {
+        crate::addons::switch(app, addon, on);
+        return None;
+    }
     let bit = (on as u8).to_string();
     match id {
         "navigator" => {
