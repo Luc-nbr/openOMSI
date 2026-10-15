@@ -8,7 +8,7 @@
 import { S } from '../../store.js';
 import { start } from '../../data.js';
 import { html, useEffect, useRef, useState, tr, setCo, setUi, ui, act, useView, useSize, textW, Icon, Btn, Seg, Chips, Select, Dialog, Meter, Slider, Crumbs, T } from './kit.js';
-import { layout, BusTile, PriceRow, Photo } from './fleet.js';
+import { layout, BusTile, PriceRow, Photo, AgeSet } from './fleet.js';
 import { Bar } from './overview.js';
 
 const PRICE_ANY = 1000;
@@ -177,6 +177,7 @@ function ModelSheet({ v, sheet, close }) {
       <${Side} v=${v} sheet=${sheet} w=${sideW} />
       <div>
         ${v.rows.map((r) => html`<${PriceRow} r=${r} h=${33} />`)}
+        ${v.age && html`<${AgeSet} a=${v.age} onSet=${(y) => sheet('set', { age: y })} />`}
         <div style="height:16px"></div>
         ${v.lock && html`<div class="co-iconline t-warn" style="font-size:var(--co-body)"><${Icon} name="lock" size=${18} /><span>${v.lock}</span></div>`}
         ${v.max > 1 && html`<${Slider} label=${v.count_label} value=${v.count} min=${1} max=${v.max} onChange=${(n) => sheet('set', { count: n })} style="height:36px;margin-bottom:10px" />`}

@@ -17,6 +17,7 @@
 
 // (what is coming: the Agenda page, the start's "Coming up", Casual's list - Beta 57)
 pub(crate) mod agenda;
+mod age;
 mod career;
 pub mod casual;
 mod chooser;
@@ -1370,7 +1371,7 @@ fn view(s: &mut Session, args: &Value) -> Answer {
         "career" => career::view(s, args),
         "casual" => casual::view(s, args),
         "launch" => launch::view(s, args),
-        "settings" | "time" | "confirm" | "report" | "away" | "ask" | "vehicle" | "new" | "add_line" | "fare" => dialogs::view(s, &what, args),
+        "settings" | "time" | "confirm" | "report" | "away" | "ask" | "vehicle" | "new" | "add_line" | "fare" | "fleet_value" => dialogs::view(s, &what, args),
         other => return Err(format!("no view {other}")),
     })
 }

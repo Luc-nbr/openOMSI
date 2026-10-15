@@ -738,6 +738,37 @@ pub(crate) mod tests {
         assert!((last as f64 - 280_000_00.0 * economy::age_factor(12.0)).abs() < 3_000_00.0, "{last}");
     }
 
+    /// The player's own year of first registration overrides the plate's or the market's, its
+    /// value follows it, and switching it off brings the old date back; a new British bus gets
+    /// a plate of today's age identifier.
+    #[test]
+    fn the_age_set_by_hand_overrides_and_values_follow_it() {
+        let mut c = company(GameMode::Normal);
+        c.date = "2026-10-15".into();
+        let mut uk = bus("ADL E400", BusSize::Double, Drive::Diesel);
+        uk.region = super::super::vehicles::Region::Uk;
+        let id = buy_new(&mut c, &uk, Payment::Cash, "").unwrap();
+        let v = c.vehicle(id).unwrap().clone();
+        assert!(v.plate.starts_with("SB76 "), "{}", v.plate);
+        assert_eq!(v.age_from, AgeFrom::New);
+        let new_value = value_of(&c, &v);
+        set_age(&mut c, id, Some("2011")).unwrap();
+        let v = c.vehicle(id).unwrap().clone();
+        assert_eq!((v.built.as_str(), v.age_from), ("2011-07-01", AgeFrom::Manual));
+        assert!(value_of(&c, &v) < new_value / 5, "{}", value_of(&c, &v));
+        assert!(set_age(&mut c, id, Some("old")).is_err());
+        set_age(&mut c, id, None).unwrap();
+        let v = c.vehicle(id).unwrap();
+        assert_eq!((v.built.as_str(), v.age_from), ("2026-10-15", AgeFrom::New));
+        // the fleet by age band
+        let bands = by_age_band(&c);
+        assert_eq!(bands[0].1, vec![id]);
+        assert!(bands[1..].iter().all(|b| b.1.is_empty()));
+        // a European bus keeps the company's plate
+        let eu = buy_new(&mut c, &bus("Citaro", BusSize::Solo, Drive::Diesel), Payment::Cash, "").unwrap();
+        assert!(c.vehicle(eu).unwrap().plate.starts_with("SB-K "));
+    }
+
     #[test]
     fn without_the_cash_the_bank_may_lend() {
         let mut c = company(GameMode::Realistic);

@@ -27,6 +27,7 @@ pub fn view(s: &mut Session, what: &str, args: &Value) -> Value {
         "new" => super::fleet::new_view(s, args),
         "add_line" => super::lines::add_view(s, args),
         "fare" => super::money::fare_view(s, args),
+        "fleet_value" => super::age::fleet_value_view(s, args),
         _ => Value::Null,
     }
 }

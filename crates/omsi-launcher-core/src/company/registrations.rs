@@ -395,6 +395,26 @@ mod tests {
         assert_eq!(era_of(&["MAN NL 202", "Vehicles/MAN_NL/MAN_NL.bus"], 2026), None);
     }
 
+    /// A used British bus takes a plate of its list and is as old as it says; a European one
+    /// keeps its drawn age and gets no plate.
+    #[test]
+    fn a_used_bus_is_as_old_as_its_plate() {
+        let c = super::super::found(&super::super::Founding { name: "Stadtbus".into(), short: "SB".into(), date: "2026-10-15".into(), ..Default::default() }, "Luc");
+        let today = dates::parse("2026-10-15").unwrap();
+        let list: Vec<String> = ["CN65 AAE", "883"].iter().map(|s| s.to_string()).collect();
+        let mut uk = MarketBus { file: "Vehicles/E400/E400.bus".into(), name: "E400".into(), region: Region::Uk, ..Default::default() };
+        let r = used(&c, &uk, &list, today, "2020-05-01".into(), (2.0, 15.0), &mut Rng::new(3));
+        assert_eq!((r.plate.as_str(), r.from), ("CN65 AAE", AgeFrom::Plate));
+        assert!(r.built.as_str() >= "2015-09-01" && r.built.as_str() <= "2016-02-29", "{}", r.built);
+        // no dated plate of a fitting age: one of its drawn age
+        let r = used(&c, &uk, &["883".to_string()], today, "2020-05-01".into(), (2.0, 15.0), &mut Rng::new(3));
+        assert_eq!((r.built.as_str(), r.from), ("2020-05-01", AgeFrom::Generated));
+        assert_eq!(decode_uk(&r.plate).map(|d| d.from), Some((2020, 3)));
+        uk.region = Region::Europe;
+        let r = used(&c, &uk, &list, today, "2020-05-01".into(), (2.0, 15.0), &mut Rng::new(3));
+        assert_eq!(r, Registered { plate: String::new(), built: "2020-05-01".into(), from: AgeFrom::Generated });
+    }
+
     #[test]
     fn a_typed_year_is_a_date() {
         assert_eq!(typed_date("2015", "2026-10-15").as_deref(), Some("2015-07-01"));
