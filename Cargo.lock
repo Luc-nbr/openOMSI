@@ -3805,7 +3805,9 @@ dependencies = [
  "mlua",
  "omsi-cfg",
  "oop-format",
+ "sha2",
  "wasmi",
+ "zip",
 ]
 
 [[package]]

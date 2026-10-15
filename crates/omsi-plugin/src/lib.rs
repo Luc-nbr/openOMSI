@@ -42,6 +42,7 @@
 //! answers over its standard input and output (started directly on Windows and through
 //! Wine elsewhere). The frame is one round trip.
 
+pub mod addons;
 pub mod api;
 pub mod io;
 pub mod lua;
