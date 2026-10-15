@@ -92,6 +92,13 @@
 .le-leg > i { position: absolute; left: 13.5px; top: -4px; width: 1.5px; height: 28px; opacity: 0.5; }
 .le-leg span { flex: 1; }
 .le-leg span.bad { color: var(--hub-danger); }
+/* (the way back made from the outbound: what came of it, and the mark of a stop across the road
+   of a name like the outbound's, or of none there) */
+.ed-para.le-ok { color: var(--hub-ok); }
+.le-stop .le-mark { display: inline-flex; vertical-align: -2px; margin-right: 4px; }
+.le-stop .le-mark.missing { color: var(--hub-warn); }
+.le-stop .le-mark.alike { color: var(--hub-text-soft); }
+.le-stop.on .le-mark { color: var(--hub-on-accent); }
 .le-total { display: flex; align-items: center; gap: 8px; height: var(--hub-row); margin-top: 8px; font-size: 9.6px; font-weight: 500; color: var(--hub-text-soft); }
 .le-total span { flex: 1; }
 .le-tab > .hub-btn.ghost { width: 100%; }

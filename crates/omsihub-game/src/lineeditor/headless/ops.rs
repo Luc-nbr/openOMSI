@@ -95,6 +95,8 @@ fn open(s: &mut Session, req: &Value) -> R {
 fn edit(s: &mut Session, op: &str, req: &Value) -> R {
     let v = &mut s.v;
     let mut status: Option<(String, bool)> = None;
+    // ("Automatic" pressed once: anything else lets it go)
+    let back_armed = std::mem::take(&mut v.back_armed);
     match op {
         // --- the left panel ------------------------------------------------------------
         "pick_map" => {
@@ -187,6 +189,7 @@ fn edit(s: &mut Session, op: &str, req: &Value) -> R {
             let Some(n) = v.line().and_then(|l| l.directions.get(d_idx)).map(|d| d.stops.len()) else { return Ok(()) };
             let j = if op == "up" { i.checked_sub(1) } else { (i + 1 < n).then_some(i + 1) };
             if let (Some(j), true) = (j, i < n) {
+                own_back(v, d_idx, &mut status);
                 let d = &mut v.line_mut().unwrap().directions[d_idx];
                 d.stops.swap(i, j);
                 for g in &mut d.legs {
@@ -198,16 +201,10 @@ fn edit(s: &mut Session, op: &str, req: &Value) -> R {
         }
         "remove" => {
             let (d_idx, i) = (v.dir, u_of(req, "i"));
-            if let Some(d) = v.line_mut().and_then(|l| l.directions.get_mut(d_idx)).filter(|d| i < d.stops.len()) {
-                d.stops.remove(i);
-                // (the legs either side become one, without their dragged points)
-                if i < d.legs.len() {
-                    d.legs.remove(i);
-                } else if !d.legs.is_empty() {
-                    d.legs.pop();
-                }
-                if i > 0 && i - 1 < d.legs.len() {
-                    d.legs[i - 1].vias.clear();
+            if v.line().and_then(|l| l.directions.get(d_idx)).is_some_and(|d| i < d.stops.len()) {
+                own_back(v, d_idx, &mut status);
+                if let Some(d) = v.line_mut().and_then(|l| l.directions.get_mut(d_idx)) {
+                    take_out(d, i);
                 }
                 v.sel_stop = None;
                 v.reroute(d_idx);
@@ -246,9 +243,13 @@ fn edit(s: &mut Session, op: &str, req: &Value) -> R {
             }
         }
         "reverse" => reverse(v, &mut status),
+        "back_mode" => back_mode(v, s_of(req, "mode") == "auto", back_armed, &mut status),
         "loop" => {
             let d_idx = v.dir;
             let is_loop = v.line().and_then(|x| x.directions.get(d_idx)).is_some_and(Direction::is_loop);
+            if v.line().and_then(|l| l.directions.get(d_idx)).is_some_and(|d| is_loop || d.stops.len() >= 2) {
+                own_back(v, d_idx, &mut status);
+            }
             if let Some(d) = v.line_mut().and_then(|l| l.directions.get_mut(d_idx)) {
                 if is_loop {
                     d.stops.pop();
@@ -284,7 +285,7 @@ fn edit(s: &mut Session, op: &str, req: &Value) -> R {
             }
         }
         // --- the map ---------------------------------------------------------------------
-        "click_stop" => click_stop(s, u_of(req, "i")),
+        "click_stop" => click_stop(s, u_of(req, "i"), b_of(req, "add"), &mut status),
         "drag_via" | "drag_new" => {
             let Some(at) = super::world(s, req.get("at").unwrap_or(&Value::Null)) else { return Ok(()) };
             let v = &mut s.v;
@@ -377,32 +378,39 @@ fn edit(s: &mut Session, op: &str, req: &Value) -> R {
 }
 
 /// A stop of the map clicked (`map_pointer`): into the direction (after the stop chosen in the
-/// list, else at its end), chosen in the list when the line has it - or, the first stop clicked
-/// with the last one chosen, the loop closed.
-fn click_stop(s: &mut Session, i: usize) {
+/// list, else at its end) - or, when the direction has it already, out of it again (Luc:
+/// "selecting a stop twice on the map will remove it"); with Shift held (`add`) always in, as
+/// a loop has its first stop again. A stop of a way back the line editor made makes it the
+/// player's (`own_back`).
+fn click_stop(s: &mut Session, i: usize, add: bool, status: &mut Option<(String, bool)>) {
     let v = &mut s.v;
     let Some(st) = v.stops.get(i).cloned() else { return };
     let (d_idx, sel) = (v.dir, v.sel_stop);
-    let Some(line) = v.line_mut() else { return };
-    if d_idx >= line.directions.len() {
+    if !v.line().is_some_and(|l| d_idx < l.directions.len()) {
         return;
     }
-    let d = &mut line.directions[d_idx];
-    let last = d.stops.len().checked_sub(1);
-    if d.stops.first().is_some_and(|x| x.id == st.id && x.tile == st.tile) && sel.is_some() && sel == last && d.close_loop() {
-        v.sel_stop = None;
-        v.reroute(d_idx);
-        return;
-    }
-    if let Some(k) = d.stops.iter().position(|x| x.id == st.id && x.tile == st.tile) {
-        v.sel_stop = Some(k);
-        v.revision += 1;
-        return;
-    }
+    let same = |x: &StopRef| x.id == st.id && x.tile == st.tile;
+    let d = &v.line().unwrap().directions[d_idx];
+    // a stop the direction has already is taken out - the one chosen in the list if it is
+    // that stop, else the last time it comes (a loop's end: the loop opens) - and the legs
+    // either side of it become one; with Shift held it is put in again (a loop calls at a stop
+    // twice), but never twice in a row
     let at_k = match sel {
         Some(k) if k + 1 < d.stops.len() => k + 1,
         _ => d.stops.len(),
     };
+    let taken = if add { None } else { sel.filter(|&k| d.stops.get(k).is_some_and(same)).or_else(|| d.stops.iter().rposition(same)) };
+    if taken.is_none() && (at_k.checked_sub(1).and_then(|k| d.stops.get(k)).is_some_and(same) || d.stops.get(at_k).is_some_and(same)) {
+        return;
+    }
+    own_back(v, d_idx, status);
+    let d = &mut v.line_mut().unwrap().directions[d_idx];
+    if let Some(k) = taken {
+        take_out(d, k);
+        v.sel_stop = None;
+        v.reroute(d_idx);
+        return;
+    }
     d.stops.insert(at_k, st);
     // (the leg it lands in is two legs now, its dragged points gone)
     d.fit_legs();
@@ -927,4 +935,138 @@ fn table(s: &mut Session, op: &str, req: &Value) -> R {
         v.touched();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stop(id: i64, name: &str, x: f64, y: f64) -> StopRef {
+        StopRef { tile: [0, 0], id, name: name.into(), at: [x, y], ..Default::default() }
+    }
+
+    /// A new line on a map of six stops, its roads not read (the legs straight).
+    fn session() -> Session {
+        let mut s = Session::new();
+        s.v.stops = vec![stop(1, "Bahnhof", 0.0, 0.0), stop(11, "Bahnhof", 0.0, 12.0), stop(2, "Kirche", 500.0, 0.0), stop(21, "Kirche B", 500.0, 14.0), stop(3, "Markt", 900.0, 0.0), stop(4, "Wald", 1300.0, 0.0)];
+        new_line(&mut s.v);
+        s
+    }
+
+    fn op(s: &mut Session, op: &str, req: Value) {
+        apply(s, op, &req).unwrap();
+    }
+
+    /// The stops of direction `d` of the line, by their ids.
+    fn ids(s: &Session, d: usize) -> Vec<i64> {
+        s.v.line().unwrap().directions.get(d).map(|d| d.stops.iter().map(|x| x.id).collect()).unwrap_or_default()
+    }
+
+    fn clicks(s: &mut Session, stops: &[usize]) {
+        for i in stops {
+            op(s, "click_stop", json!({ "i": i }));
+        }
+    }
+
+    #[test]
+    fn a_stop_clicked_again_goes_and_with_shift_comes_in_again() {
+        let mut s = session();
+        clicks(&mut s, &[0, 2, 4, 5]);
+        assert_eq!(ids(&s, 0), vec![1, 2, 3, 4]);
+        // Kirche clicked again: out, the legs either side of it one
+        clicks(&mut s, &[2]);
+        assert_eq!(ids(&s, 0), vec![1, 3, 4]);
+        assert_eq!(s.v.line().unwrap().directions[0].legs.len(), 2);
+        // Bahnhof with Shift: in again at the end, a loop - but never twice in a row
+        op(&mut s, "click_stop", json!({ "i": 0, "add": true }));
+        assert_eq!(ids(&s, 0), vec![1, 3, 4, 1]);
+        assert!(s.v.line().unwrap().directions[0].is_loop());
+        op(&mut s, "click_stop", json!({ "i": 0, "add": true }));
+        assert_eq!(ids(&s, 0), vec![1, 3, 4, 1]);
+        // without Shift its last time goes: the loop opens
+        clicks(&mut s, &[0]);
+        assert_eq!(ids(&s, 0), vec![1, 3, 4]);
+        // the time chosen in the list goes when it is that stop
+        op(&mut s, "click_stop", json!({ "i": 0, "add": true }));
+        op(&mut s, "sel_stop", json!({ "i": 0 }));
+        clicks(&mut s, &[0]);
+        assert_eq!(ids(&s, 0), vec![3, 4, 1]);
+    }
+
+    #[test]
+    fn an_automatic_way_back_follows_the_outbound_until_its_stops_are_changed_by_hand() {
+        let mut s = session();
+        clicks(&mut s, &[0, 2, 4]);
+        op(&mut s, "back_mode", json!({ "mode": "auto" }));
+        assert_eq!((s.v.line().unwrap().back_route, s.v.dir), (BackRoute::Auto, 1));
+        // Markt has no stop across the road; Kirche B is of a name like Kirche's
+        assert_eq!(ids(&s, 1), vec![3, 21, 11]);
+        let report = super::super::view::back_view(&s.v, s.v.line().unwrap());
+        assert_eq!(report["marks"][0]["kind"], "missing");
+        assert_eq!(report["marks"][1]["kind"], "alike");
+        assert!(report["marks"][2].is_null());
+        assert_eq!(report["notes"][0]["tone"], "warn");
+        // the outbound changes, and the way back with it
+        op(&mut s, "dir", json!({ "d": 0 }));
+        clicks(&mut s, &[5]);
+        assert_eq!(ids(&s, 1), vec![4, 3, 21, 11]);
+        // a stop of the way back clicked out: it is the player's now, and stays as it is
+        op(&mut s, "dir", json!({ "d": 1 }));
+        clicks(&mut s, &[4]);
+        assert_eq!(ids(&s, 1), vec![4, 21, 11]);
+        assert_eq!(s.v.line().unwrap().back_route, BackRoute::Manual);
+        op(&mut s, "dir", json!({ "d": 0 }));
+        clicks(&mut s, &[5]);
+        assert_eq!((ids(&s, 0), ids(&s, 1)), (vec![1, 2, 3], vec![4, 21, 11]));
+        // Automatic again: the first press only says what goes, the second makes it anew
+        op(&mut s, "back_mode", json!({ "mode": "auto" }));
+        assert_eq!((s.v.line().unwrap().back_route, ids(&s, 1)), (BackRoute::Manual, vec![4, 21, 11]));
+        op(&mut s, "back_mode", json!({ "mode": "auto" }));
+        assert_eq!((s.v.line().unwrap().back_route, ids(&s, 1)), (BackRoute::Auto, vec![3, 21, 11]));
+    }
+
+    #[test]
+    fn the_way_back_texts_are_translated() {
+        let keys = [
+            "Press Automatic again: the way back you made goes, and the program makes it from the outbound",
+            "The way back follows the outbound: give the outbound its stops, and it is made from them",
+            "The program makes the way back from the outbound now, and makes it again whenever the outbound's stops change",
+            "The way back is yours now: click stops on the map to put them in or take them out",
+            "Click the stops of the way back on the map, in the order the bus calls at them",
+            "The way back is set by hand now: it no longer follows the outbound",
+            "Give the outbound its stops: the way back is made from them",
+            "Across the road from %{name}: a name like it",
+            "No stop across the road: the bus calls at this one both ways",
+            "No stop across the road for %{n} stop(s): the bus calls at the outbound's own (%{names})",
+            "%{n} leg(s) have no way over the roads (red): drag them, or set the way back by hand",
+            "%{n} stop(s) taken by a name like the outbound's (marked): check them on the map",
+            "Every stop has its stop across the road, and every leg a way over the roads",
+        ];
+        for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
+            for k in keys {
+                assert!(crate::_rust_i18n_try_translate(lang, k).is_some(), "{lang}: {k}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_manual_way_back_is_clicked_or_kept_as_it_was_made() {
+        let mut s = session();
+        clicks(&mut s, &[0, 2]);
+        // none yet: the player clicks its stops
+        op(&mut s, "back_mode", json!({ "mode": "manual" }));
+        assert_eq!((s.v.line().unwrap().directions.len(), s.v.dir), (2, 1));
+        assert!(ids(&s, 1).is_empty());
+        clicks(&mut s, &[3, 1]);
+        assert_eq!(ids(&s, 1), vec![21, 11]);
+        // made the same from the outbound: no "press again"
+        op(&mut s, "back_mode", json!({ "mode": "auto" }));
+        assert_eq!(s.v.line().unwrap().back_route, BackRoute::Auto);
+        // back to Manual: what was made stays, to change
+        op(&mut s, "back_mode", json!({ "mode": "manual" }));
+        assert_eq!((s.v.line().unwrap().back_route, ids(&s, 1)), (BackRoute::Manual, vec![21, 11]));
+        clicks(&mut s, &[4]);
+        assert_eq!(ids(&s, 1), vec![21, 11, 3]);
+        assert_eq!(ids(&s, 0), vec![1, 2]);
+    }
 }

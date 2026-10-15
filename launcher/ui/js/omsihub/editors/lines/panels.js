@@ -34,6 +34,20 @@ function DestField({ dest }) {
 
 // --- the Stops tab -------------------------------------------------------------------------------
 
+/** What the way back's two ways of making it say (`back_mode`). */
+const autoText = () => tr('The program makes the way back from the outbound: its stops the other way round, each the stop across the road, and again whenever they change.');
+const manualText = () => tr("You click the stops of the way back on the map, as the outbound's.");
+
+/** How the way back is made (`back_mode`): by the program from the outbound, or by the
+ * player's clicks - and, while its stops are the ones made from the outbound, what came of
+ * the stops across the road and of its legs. */
+function BackChoice({ b }) {
+  const tone = { warn: 'ed-warn', soft: 'soft', ok: 'le-ok' };
+  return html`<${Seg} full value=${b.auto ? 'auto' : 'manual'} options=${[['auto', b.armed ? 'Press again' : 'Automatic', 'sync_alt'], ['manual', 'Manual', 'touch_app']]} onChange=${(mode) => le('back_mode', { mode })} />
+    <p class="ed-para small soft">${b.auto ? autoText() : manualText()}</p>
+    ${b.notes.map((x) => html`<p class=${'ed-para small ' + (tone[x.tone] || '')}>${x.text}</p>`)}`;
+}
+
 function StopsTab() {
   const v = L.view;
   const t = v.stops_tab;
@@ -46,23 +60,31 @@ function StopsTab() {
     return html`<div class="le-tab">
       <${DirChoice} value=${v.dir} onChange=${(d) => le('dir', { d })} />
       <p class="ed-para le-gap">${tr('Without a way back the line goes round: the bus starts again at the first stop.')}</p>
-      <${Btn} kind="primary" icon="sync_alt" label="Reverse: make the way back" onClick=${() => le('reverse')} />
+      ${t.back
+        ? html`<${Btn} kind="primary" icon="sync_alt" label="Automatic: the program makes it" onClick=${() => le('back_mode', { mode: 'auto' })} />
+            <p class="ed-para small soft">${autoText()}</p>
+            <${Btn} icon="touch_app" label="Manual: click its stops yourself" onClick=${() => le('back_mode', { mode: 'manual' })} />
+            <p class="ed-para small soft">${manualText()}</p>`
+        : html`<${Btn} kind="primary" icon="sync_alt" label="Reverse: make the way back" onClick=${() => le('reverse')} />`}
     </div>`;
   }
   if (t.none) return html`<div class="le-tab"><${DirChoice} value=${v.dir} onChange=${(d) => le('dir', { d })} /></div>`;
   const n = t.rows.length;
+  const marks = t.back?.marks || [];
   return html`<div class="le-tab">
     <${DirChoice} value=${v.dir} onChange=${(d) => le('dir', { d })} />
+    ${t.back && html`<${BackChoice} b=${t.back} />`}
     <${Caps} title="Destination" />
     <${DestField} dest=${t.dest} />
     <div class="le-stops">
-      ${!n && html`<p class="ed-para">${tr('Click the stops on the map in the order the bus calls at them.')}</p>`}
+      ${!n && !t.back?.auto && html`<p class="ed-para">${tr('Click the stops on the map in the order the bus calls at them.')}</p>`}
       ${t.rows.map((name, i) => {
         const leg = t.legs[i];
         const on = v.sel_stop === i;
+        const mark = marks[i];
         return html`<${Row} class="le-stop" on=${on} onClick=${() => le('sel_stop', { i })}>
             <i class=${'dot' + (i === 0 || i + 1 === n ? ' end' : '')} style=${`background:${colour}`}></i>
-            <span class="name">${name}</span>
+            <span class="name">${mark && html`<span class=${'le-mark ' + mark.kind} title=${mark.text}><${Icon} name=${mark.kind === 'missing' ? 'warning' : 'info'} size=${11} /></span>`}${name}</span>
             <span class="tools">
               <b class="time">${t.times[i] || ''}</b>
               ${i > 0 && html`<span class="minus"><${IconBtn} icon="remove" size=${10} title="A minute earlier" onClick=${() => le('shift', { i, by: -1 })} /></span><span class="plus"><${IconBtn} icon="add" size=${10} title="A minute later" onClick=${() => le('shift', { i, by: 1 })} /></span>`}
@@ -75,6 +97,7 @@ function StopsTab() {
             ${leg.vias > 0 && html`<${IconBtn} icon="restart_alt" size=${9} title="Straighten the leg (its dragged points go)" onClick=${() => le('clear_vias', { i })} />`}</div>`}`;
       })}
     </div>
+    <p class="ed-para faint">${tr('Click a stop on the map to put it in, and again to take it out. Shift+click puts in a stop the line has already, as a loop needs.')}</p>
     <div class="le-total"><span>${t.total}</span>
       <${IconBtn} icon="remove" size=${12} title="The whole trip a minute shorter" onClick=${() => le('total', { by: -1 })} />
       <${IconBtn} icon="add" size=${12} title="The whole trip a minute longer" onClick=${() => le('total', { by: 1 })} /></div>

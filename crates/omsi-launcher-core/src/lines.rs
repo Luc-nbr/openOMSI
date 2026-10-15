@@ -137,6 +137,11 @@ pub struct LineDesign {
     /// how often, how long a bus stands at its end. Empty: the return leaves as the outbound
     /// does (`pattern`) - every line saved before had it so, and loads unchanged.
     pub back_days: Vec<DayPattern>,
+    /// How the way back is made (`BackRoute`): by the player's clicks, or by the line editor
+    /// from the outbound - and made again whenever the outbound's stops change. Every line
+    /// saved before had it by hand, and loads so.
+    #[serde(default)]
+    pub back_route: BackRoute,
     /// Seconds since 1970.
     pub created: u64,
     pub modified: u64,
@@ -220,6 +225,7 @@ impl Default for LineDesign {
             directions: vec![Direction::default()],
             days: default_days(),
             back_days: Vec::new(),
+            back_route: BackRoute::Manual,
             created: 0,
             modified: 0,
             company: String::new(),
@@ -465,6 +471,20 @@ pub struct OwnDestination {
     pub name: String,
     pub sign: Vec<String>,
     pub code: i32,
+}
+
+/// How a line's way back is made (`LineDesign::back_route`; Luc: "let the program decide the
+/// route back, or select it manually").
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum BackRoute {
+    /// The player clicks its stops on the map, as the outbound's (a line saved before: its way
+    /// back as it was made, "Reverse" or not).
+    #[default]
+    Manual,
+    /// The line editor makes it from the outbound: its stops from the last to the first, each
+    /// the stop across the road (`across_the_road`), routed - again whenever they change.
+    Auto,
 }
 
 /// A stop of a direction: the map object the timetable names (its tile, as object ids repeat
@@ -972,22 +992,131 @@ impl Direction {
     }
 }
 
-/// The way back of `out`: its stops from the last to the first, each the stop of the same
-/// name across the road (the nearest within `reach` metres, of `all` the map's stops), else
-/// the same one.
+/// The way back of `out`: its stops from the last to the first, each the stop across the road
+/// (`across_the_road`), else the same one.
 pub fn opposite_stops(out: &[StopRef], all: &[StopRef], reach: f64) -> Vec<StopRef> {
+    across_the_road(out, all, reach).into_iter().map(|x| x.0).collect()
+}
+
+/// How the way back found a stop across the road (`across_the_road`), the better first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Across {
+    /// A stop of the same name.
+    Named,
+    /// A stop of a name like it (`names_alike`): another platform of it ("Bahnhof B" for
+    /// "Bahnhof A", "Markt (Steig 2)"), "Str." for "Straße", the one name the start of the
+    /// other ("Markt" for "Markt Nord"), or a letter typed otherwise.
+    Alike,
+    /// None within reach: the outbound's own stop.
+    Missing,
+}
+
+/// The way back of `out`, each stop with how it was found: the outbound's stops from the last
+/// to the first, each the stop across the road - of `all` the map's stops within `reach`
+/// metres, one of the same name, else of a name like it, the nearest of them - else the same
+/// one (`Across::Missing`).
+pub fn across_the_road(out: &[StopRef], all: &[StopRef], reach: f64) -> Vec<(StopRef, Across)> {
     let dist = |a: &StopRef, b: &StopRef| ((a.at[0] - b.at[0]).powi(2) + (a.at[1] - b.at[1]).powi(2)).sqrt();
     out.iter()
         .rev()
         .map(|s| {
-            let name = s.name.trim().to_lowercase();
             all.iter()
-                .filter(|o| (o.id, o.tile) != (s.id, s.tile) && !name.is_empty() && o.name.trim().to_lowercase() == name && dist(o, s) <= reach)
-                .min_by(|a, b| dist(a, s).total_cmp(&dist(b, s)))
-                .cloned()
-                .unwrap_or_else(|| s.clone())
+                .filter(|o| (o.id, o.tile) != (s.id, s.tile) && dist(o, s) <= reach)
+                .filter_map(|o| names_alike(&s.name, &o.name).map(|k| (o, k, dist(o, s))))
+                .min_by(|a, b| a.1.cmp(&b.1).then(a.2.total_cmp(&b.2)))
+                .map(|(o, k, _)| (o.clone(), k))
+                .unwrap_or_else(|| (s.clone(), Across::Missing))
         })
         .collect()
+}
+
+/// A stop's name as the way back compares it: its words in lower case without punctuation,
+/// "Straße" and "Strasse" (at a word's end too) as "str", as "Str." is.
+fn name_words(name: &str) -> Vec<String> {
+    name.to_lowercase()
+        .replace('ß', "ss")
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(|w| match w.strip_suffix("strasse") {
+            Some(head) => format!("{head}str"),
+            None => w.to_string(),
+        })
+        .collect()
+}
+
+/// The words of a stop's name without what tells its platforms or its directions apart: a part
+/// in brackets, what follows "Richtung", and at the end a letter, a number of one or two
+/// digits or a platform's word ("Bahnhof Steig 2", "Markt B", "Kirche Ri. Dorf": "bahnhof",
+/// "markt", "kirche").
+fn name_core(name: &str) -> Vec<String> {
+    const TOWARDS: [&str; 6] = ["richtung", "ri", "towards", "direction", "kierunek", "kier"];
+    const PLATFORM: [&str; 9] = ["steig", "bussteig", "bstg", "gleis", "platform", "stand", "bay", "quai", "stanowisko"];
+    let mut plain = String::new();
+    let mut depth = 0u32;
+    for c in name.chars() {
+        match c {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth = depth.saturating_sub(1),
+            _ if depth == 0 => plain.push(c),
+            _ => {}
+        }
+    }
+    let mut w = name_words(&plain);
+    if let Some(k) = w.iter().skip(1).position(|x| TOWARDS.contains(&x.as_str())) {
+        w.truncate(k + 1);
+    }
+    while let Some(last) = w.last().filter(|_| w.len() > 1) {
+        let mark = last.chars().count() == 1 || (last.len() <= 2 && last.chars().all(|c| c.is_ascii_digit())) || PLATFORM.contains(&last.as_str());
+        if !mark {
+            break;
+        }
+        w.pop();
+    }
+    w
+}
+
+/// How alike two stops' names are (`Across`): the same words, or alike - the same once their
+/// platforms and directions are left out (`name_core`), the one the start of the other, or a
+/// letter or two typed otherwise. None: not alike (nor a name of no words, or one that says
+/// no more than "stop").
+fn names_alike(a: &str, b: &str) -> Option<Across> {
+    const GENERIC: [&str; 5] = ["stop", "halt", "haltestelle", "bus", "arret"];
+    let (wa, wb) = (name_words(a), name_words(b));
+    if wa.is_empty() || wb.is_empty() {
+        return None;
+    }
+    if wa == wb {
+        return Some(Across::Named);
+    }
+    let (ca, cb) = (name_core(a), name_core(b));
+    if ca.is_empty() || cb.is_empty() || [&ca, &cb].iter().any(|c| c.len() == 1 && GENERIC.contains(&c[0].as_str())) {
+        return None;
+    }
+    let (short, long) = if ca.len() <= cb.len() { (&ca, &cb) } else { (&cb, &ca) };
+    let (ja, jb) = (ca.concat(), cb.concat());
+    let typo = edit_distance(&ja, &jb) <= match ja.chars().count().min(jb.chars().count()) {
+        0..=4 => 0,
+        5..=9 => 1,
+        _ => 2,
+    };
+    let alike = ca == cb || (long.starts_with(short) && short.concat().chars().count() >= 4) || typo;
+    alike.then_some(Across::Alike)
+}
+
+/// The letters to change, put in or take out to make `a` into `b` (Levenshtein).
+fn edit_distance(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut prev = row[0];
+        row[0] = i + 1;
+        for j in 0..b.len() {
+            let here = row[j + 1];
+            row[j + 1] = (prev + usize::from(ca != b[j])).min(row[j] + 1).min(here + 1);
+            prev = here;
+        }
+    }
+    row[b.len()]
 }
 
 // --- tours from a pattern ------------------------------------------------------------------
@@ -2501,6 +2630,45 @@ mod tests {
         let back: Vec<i64> = opposite_stops(&out, &all, 150.0).iter().map(|s| s.id).collect();
         // Markt across the road is too far: the same stop; Kirche has none; Bahnhof has one
         assert_eq!(back, vec![3, 2, 11]);
+    }
+
+    #[test]
+    fn the_way_back_takes_a_stop_of_a_name_like_it() {
+        let all = vec![
+            stop(1, "Bahnhof A", 0.0),
+            stop(11, "Bahnhof B", 20.0),
+            stop(2, "Hauptstraße", 500.0),
+            stop(22, "Hauptstr. 2", 505.0),
+            stop(21, "Hauptstr.", 530.0),
+            stop(3, "Markt Nord", 900.0),
+            stop(31, "Markt Süd", 930.0),
+            stop(4, "Kirche (Ri. Dorf)", 1300.0),
+            stop(41, "Kirche (Ri. Stadt)", 1310.0),
+            stop(42, "Kirche", 1250.0),
+            stop(5, "Stop 5", 1700.0),
+            stop(51, "Stop 51", 1710.0),
+            stop(6, "Rathaus", 2100.0),
+            stop(61, "Rathhaus", 2120.0),
+        ];
+        let out: Vec<StopRef> = [1, 2, 3, 4, 5, 6].iter().map(|id| all.iter().find(|s| s.id == *id).unwrap().clone()).collect();
+        let back: Vec<(i64, Across)> = across_the_road(&out, &all, 150.0).iter().map(|(s, k)| (s.id, *k)).collect();
+        // a typo is alike; "Stop 51" is no name; the other Kirche the nearer of two alike;
+        // Markt Süd is another stop; the same name wins over a nearer one alike; another
+        // platform is alike
+        use Across::*;
+        assert_eq!(back, vec![(61, Alike), (5, Missing), (41, Alike), (3, Missing), (21, Named), (11, Alike)]);
+        // (and the stops back are the same `opposite_stops` gives)
+        assert_eq!(opposite_stops(&out, &all, 150.0).iter().map(|s| s.id).collect::<Vec<_>>(), back.iter().map(|x| x.0).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn a_line_saved_before_has_its_way_back_by_hand() {
+        let mut j = serde_json::to_value(LineDesign::default()).unwrap();
+        j.as_object_mut().unwrap().remove("back_route");
+        assert_eq!(serde_json::from_value::<LineDesign>(j).unwrap().back_route, BackRoute::Manual);
+        let j = serde_json::to_value(LineDesign { back_route: BackRoute::Auto, ..Default::default() }).unwrap();
+        assert_eq!(j["back_route"], "auto");
+        assert_eq!(serde_json::from_value::<LineDesign>(j).unwrap().back_route, BackRoute::Auto);
     }
 
     #[test]

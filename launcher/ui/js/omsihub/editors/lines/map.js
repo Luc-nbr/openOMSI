@@ -4,9 +4,10 @@
 // a leg without a way red and straight - and its stops in its colour, the chosen one ringed;
 // the names of the direction's ends and of the stop under the mouse beside them.
 //
-// Dragged to move, the wheel to zoom where the mouse is; a stop clicked goes into the line
-// (`click_stop`); a dragged point of a leg moves, a leg dragged gets a new one (`drag_via`,
-// `drag_new`) - the line editor routes the leg again.
+// Dragged to move, the wheel to zoom where the mouse is; a stop clicked goes into the line,
+// clicked again out of it - with Shift always in, as a loop has a stop twice (`click_stop`); a
+// dragged point of a leg moves, a leg dragged gets a new one (`drag_via`, `drag_new`) - the
+// line editor routes the leg again.
 
 import { html, useEffect, useRef } from '../../../../vendor/preact-htm.js';
 import { useStore } from '../../../store.js';
@@ -359,7 +360,7 @@ export function LineMap() {
     }
     if (pd.moved <= 3 && v.line) {
       const u = under(p);
-      if (u.stop >= 0) le('click_stop', { i: u.stop });
+      if (u.stop >= 0) le('click_stop', { i: u.stop, add: e.shiftKey });
     }
     draw();
   };

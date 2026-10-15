@@ -1,9 +1,11 @@
 //! The line editor: a line of the player's own on any map. The map fills the middle of the
 //! page with every bus stop on it; the player clicks the stops in order and the way between
 //! each two is found over the roads (`lineroute`) - kerb side, lane changes, loose ends, as the
-//! game's buses will drive it. "Reverse" makes the way back from the stops across the road.
-//! A leg is dragged through a point of the player's choosing; a stop is put in after the one
-//! chosen in the list, moved up or down, or taken out there.
+//! game's buses will drive it. "Reverse" makes the way back from the stops across the road;
+//! Automatic (`BackRoute`) keeps making it so as the outbound changes, Manual has the player
+//! click its stops. A leg is dragged through a point of the player's choosing; a stop is put
+//! in after the one chosen in the list, moved up or down, or taken out there - or clicked on
+//! the map again (Shift+click puts it in again, as a loop needs).
 //!
 //! On the left the player's lines of the map and the line's own settings (number, name,
 //! colour, the depot whose buses drive it); on the right a direction's stops with the minutes
@@ -40,7 +42,7 @@ use omsi_launcher_lib as core;
 use omsi_launcher_lib::linehof;
 use omsi_launcher_lib::owndepot;
 use omsi_launcher_lib::company::{self as co, ownline, BusKind, BusSize, Cents, Drive};
-use omsi_launcher_lib::lines::{self as reg, DayPattern, Direction, LineDesign, Registry, StopRef, TimeBand, DAY_GROUPS};
+use omsi_launcher_lib::lines::{self as reg, BackRoute, DayPattern, Direction, LineDesign, Registry, StopRef, TimeBand, DAY_GROUPS};
 use omsi_launcher_lib::service::{self, BusPick, ServiceKind, VehicleClass};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -126,6 +128,9 @@ pub struct LineEditorView {
     /// Bumped whenever what the map draws of the line changes.
     revision: u64,
     delete_armed: bool,
+    /// "Automatic" was pressed once on a way back of the player's own (`back_mode`): pressed
+    /// again, it is made anew from the outbound.
+    back_armed: bool,
     /// Working for a bus company (its Lines page opened the editor).
     company: Option<ForCompany>,
     /// What the company's buttons asked for (done after the panels).
@@ -515,6 +520,10 @@ impl LineEditorView {
             };
         }
         self.touched();
+        // (a way back the line editor makes follows the outbound's stops)
+        if dir == 0 && self.line().is_some_and(|l| l.back_route == BackRoute::Auto && !l.is_map_line()) {
+            make_back(self, true);
+        }
     }
 
     /// Read the map's registry, names and depot groups (another map was chosen).
@@ -763,22 +772,133 @@ fn drive_target(v: &LineEditorView) -> Option<(String, String)> {
 
 // --- the right panel: a direction's stops, and the timetable ----------------------------------
 
-/// The way back made anew: the outbound stops from the last to the first, each the stop of
-/// the same name across the road, routed.
-fn reverse(v: &mut LineEditorView, status: &mut Option<(String, bool)>) {
-    let all = v.stops.clone();
+/// The same stops, in the same order.
+fn same_stops(a: &[StopRef], b: &[StopRef]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.id == y.id && x.tile == y.tile)
+}
+
+/// The way back made from the outbound (`BackRoute::Auto`, and "Reverse"): the outbound's
+/// stops from the last to the first, each the stop across the road (`reg::across_the_road`),
+/// routed; it keeps its IBIS route code. Following the outbound (`follow`) it is not made again
+/// while its stops stay the same, and keeps what else is its own: its trips' number, its
+/// destination while it ends at the same stop, and a leg between the same two stops as before
+/// with its dragged points. Whether it was made.
+fn make_back(v: &mut LineEditorView, follow: bool) -> bool {
+    // (the map's stops not read yet: made once they are, `headless::take`)
+    if follow && v.stops.is_empty() {
+        return false;
+    }
+    let Some(id) = v.sel else { return false };
+    let Some(line) = v.reg.lines.iter_mut().find(|l| l.id == id) else { return false };
+    let Some(out) = line.directions.first() else { return false };
+    let stops = reg::opposite_stops(&out.stops, &v.stops, ACROSS);
+    let old = line.directions.get(1);
+    if follow && old.is_some_and(|d| same_stops(&d.stops, &stops)) {
+        return false;
+    }
+    let same = |a: &StopRef, b: &StopRef| a.id == b.id && a.tile == b.tile;
+    let mut back = Direction { stops, ibis_route: old.map(|d| d.ibis_route).unwrap_or(0), ..Default::default() };
+    if let Some(old) = old.filter(|_| follow) {
+        back.number = old.number.clone();
+        if old.stops.last().zip(back.stops.last()).is_some_and(|(a, b)| same(a, b)) {
+            (back.terminus, back.sign, back.terminus_code) = (old.terminus.clone(), old.sign.clone(), old.terminus_code);
+        }
+        back.legs = back
+            .stops
+            .windows(2)
+            .map(|w| old.stops.windows(2).zip(&old.legs).find(|(o, _)| same(&o[0], &w[0]) && same(&o[1], &w[1])).map(|(_, g)| reg::Leg { vias: g.vias.clone(), ..Default::default() }).unwrap_or_default())
+            .collect();
+    }
+    line.directions.truncate(1);
+    line.directions.push(back);
+    if v.dir == 1 {
+        v.sel_stop = None;
+    }
+    v.reroute(1);
+    true
+}
+
+/// How the way back is made (`back_mode`): from the outbound by the line editor (`auto`), or by
+/// the player's clicks. A line without one gets it - made, or empty to click its stops into;
+/// one made by the player and made anew from the outbound goes, which the first press says
+/// (`armed`: pressed before). A line of the map's keeps its way back as the map has it.
+fn back_mode(v: &mut LineEditorView, auto: bool, armed: bool, status: &mut Option<(String, bool)>) {
+    let Some(line) = v.line().filter(|l| !l.is_map_line()) else { return };
+    let mode = if auto { BackRoute::Auto } else { BackRoute::Manual };
+    let has = line.directions.len() > 1;
+    if has && line.back_route == mode {
+        v.dir = 1;
+        return;
+    }
+    let made = reg::opposite_stops(&line.directions[0].stops, &v.stops, ACROSS);
+    if auto && has && !armed && !line.directions[1].stops.is_empty() && !v.stops.is_empty() && !same_stops(&line.directions[1].stops, &made) {
+        v.back_armed = true;
+        *status = Some(("Press Automatic again: the way back you made goes, and the program makes it from the outbound".into(), false));
+        return;
+    }
     let Some(line) = v.line_mut() else { return };
+    line.back_route = mode;
+    if !has {
+        line.directions.push(Direction::default());
+    }
+    (v.dir, v.sel_stop) = (1, None);
+    if !(auto && make_back(v, true)) {
+        v.touched();
+        v.revision += 1;
+    }
+    let short = v.line().is_some_and(|l| l.directions[0].stops.len() < 2);
+    *status = Some((
+        match (auto, has) {
+            (true, _) if short => "The way back follows the outbound: give the outbound its stops, and it is made from them",
+            (true, _) => "The program makes the way back from the outbound now, and makes it again whenever the outbound's stops change",
+            (false, true) => "The way back is yours now: click stops on the map to put them in or take them out",
+            (false, false) => "Click the stops of the way back on the map, in the order the bus calls at them",
+        }
+        .into(),
+        false,
+    ));
+}
+
+/// The player changes the stops of a way back the line editor made (`BackRoute::Auto`,
+/// direction `d_idx`): it is the player's from now on, as it is (`BackRoute::Manual`), and no
+/// longer follows the outbound.
+fn own_back(v: &mut LineEditorView, d_idx: usize, status: &mut Option<(String, bool)>) {
+    if d_idx != 1 {
+        return;
+    }
+    if let Some(line) = v.line_mut().filter(|l| l.back_route == BackRoute::Auto) {
+        line.back_route = BackRoute::Manual;
+        *status = Some(("The way back is set by hand now: it no longer follows the outbound".into(), false));
+    }
+}
+
+/// The stop `i` taken out of a direction: the legs either side of it become one, without
+/// their dragged points (routed again after).
+fn take_out(d: &mut Direction, i: usize) {
+    if i >= d.stops.len() {
+        return;
+    }
+    d.stops.remove(i);
+    if i < d.legs.len() {
+        d.legs.remove(i);
+    } else if !d.legs.is_empty() {
+        d.legs.pop();
+    }
+    if i > 0 && i - 1 < d.legs.len() {
+        d.legs[i - 1].vias.clear();
+    }
+}
+
+/// The way back made anew: the outbound stops from the last to the first, each the stop
+/// across the road, routed (`make_back`).
+fn reverse(v: &mut LineEditorView, status: &mut Option<(String, bool)>) {
+    let Some(line) = v.line() else { return };
     if line.directions[0].stops.len() < 2 {
         *status = Some(("Give the outbound direction its stops first".into(), true));
         return;
     }
-    // (the way back keeps the route code it had on the IBIS)
-    let ibis_route = line.directions.get(1).map(|d| d.ibis_route).unwrap_or(0);
-    let back = Direction { stops: reg::opposite_stops(&line.directions[0].stops, &all, ACROSS), ibis_route, ..Default::default() };
-    line.directions.truncate(1);
-    line.directions.push(back);
+    make_back(v, false);
     (v.dir, v.sel_stop) = (1, None);
-    v.reroute(1);
     let bad = v.line().map(|x| x.directions[1].legs.iter().filter(|g| !g.ok).count()).unwrap_or(0);
     *status = Some(if bad > 0 {
         (omsi_ui::tr("The way back is made; %{n} leg(s) have no way over the roads (red): drag them, or change a stop").replace("%{n}", &bad.to_string()), true)
