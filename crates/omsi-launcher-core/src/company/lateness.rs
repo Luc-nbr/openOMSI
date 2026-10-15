@@ -23,6 +23,7 @@
 //! and the report sums them up (`Lateness`). `advice` turns the causes into what to change.
 
 use super::clock::{self, Cut};
+use super::control::{self, Act, Control};
 use super::dates;
 use super::day::{self, DropWhy, Plan, TourPlan};
 use super::economy;
@@ -126,6 +127,13 @@ pub struct Timed {
     pub bus: u32,
     pub causes: Vec<Cause>,
     pub earlier: Vec<Cause>,
+    /// It had begun when the model looked (`model_with`'s `now`): its own hold-ups are known.
+    pub known: bool,
+    /// The controller's doing (`control`): the share of it not run in service (a short-turn, out
+    /// of service), the minutes taken off its delay, the bus swapped in that ran it.
+    pub lost: f64,
+    pub recovered: i32,
+    pub swapped: Option<u32>,
 }
 
 impl Timed {
@@ -155,9 +163,21 @@ pub fn band(weekday: u32, minute: i32) -> (f64, bool) {
     }
 }
 
-/// Work out the day's trips as they run (see the module): `cut` the buses cut short today
-/// (`clock::breakdowns`).
+/// Work out the day's trips as they ran (see the module): `cut` the buses cut short today
+/// (`clock::breakdowns`), with what the controller did (`control`, the day's script).
 pub fn model(c: &Company, plan: &Plan, date: &str, cut: &[Cut]) -> Model {
+    let controls = control::of_day(c, date);
+    model_with(c, plan, date, cut, &controls, None, None)
+}
+
+/// A trip's own minutes on the way, set by hand (tests: `model_with`'s `own`).
+pub type Own<'a> = &'a dyn Fn(usize, usize) -> f64;
+
+/// `model` with the controller's `controls` (the day's, and one more to see what it would do),
+/// as the clock sees the day at `now` (None: all of it, the close): a trip not begun by then
+/// carries the delay it starts with, its own hold-ups not known yet. `own`: each trip's own
+/// minutes on the way by hand (tests), instead of the traffic, the driver, the bus and chance.
+pub fn model_with(c: &Company, plan: &Plan, date: &str, cut: &[Cut], controls: &[&Control], now: Option<i32>, own: Option<Own>) -> Model {
     let day = dates::parse(date).unwrap_or(0);
     let wd = dates::weekday(day);
     let factor = super::research::late_factor(c) * c.game_mode.rules().lateness;
@@ -167,6 +187,10 @@ pub fn model(c: &Company, plan: &Plan, date: &str, cut: &[Cut]) -> Model {
     // (each bus: when it is free, as it ran, after which trip; each driver the same)
     let mut buses: Vec<(u32, f64, usize, usize)> = Vec::new();
     let mut drivers: Vec<(u32, f64, usize, usize)> = Vec::new();
+    // (each tour: the bus the controller swapped in, and the trip before run - a short-turn cuts
+    // the start of the next trip too)
+    let mut swapped: Vec<Option<u32>> = vec![None; plan.tours.len()];
+    let mut last_run: Vec<Option<i32>> = vec![None; plan.tours.len()];
     for (ti, k) in order {
         let tp = &plan.tours[ti];
         let d = &tp.duties[k];
@@ -175,6 +199,7 @@ pub fn model(c: &Company, plan: &Plan, date: &str, cut: &[Cut]) -> Model {
         let broken_at = tp.bus.and_then(|b| cut.iter().find(|x| x.vehicle == b)).copied();
         let spare = tp.bus.and_then(|b| clock::spare_of(c, date, b));
         let event = super::inbox::line_effect(c, date, &tp.tour.number).0;
+        let mine: Vec<&Control> = controls.iter().copied().filter(|x| control::same(&x.line, &tp.tour.line) && control::same(&x.tour, &tp.tour.tour)).collect();
         let mut first = true;
         for j in d.start..d.end {
             let x = &tp.tour.trips[j];
@@ -184,16 +209,32 @@ pub fn model(c: &Company, plan: &Plan, date: &str, cut: &[Cut]) -> Model {
             if day::why_not(c, tp, hk, head, broken_at).is_some() {
                 continue;
             }
+            let here: Vec<&Control> = mine.iter().copied().filter(|m| m.dep == x.dep).collect();
+            // (the controller swapped a bus in from this trip on: it runs the rest of the block)
+            let swap = here.iter().find_map(|m| if let Act::Swap { vehicle, .. } = m.act { Some(vehicle) } else { None });
+            // (what the bus swapped out would have brought late: the swap takes it off)
+            let swap_saved = swap.and_then(|_| swapped[ti].or(tp.bus)).and_then(|old| buses.iter().find(|b| b.0 == old)).map_or(0.0, |&(_, free, pt, pj)| {
+                let p = &plan.tours[pt].tour.trips[pj];
+                (free + (x.dep - p.arr).clamp(0, control::MIN_LAYOVER) as f64 - x.dep as f64).max(0.0)
+            });
+            if swap.is_some() {
+                swapped[ti] = swap;
+            }
             let head_dep = tp.tour.trips[head].dep;
             let by_spare = spare.is_some() && broken_at.is_some_and(|b| head_dep >= b.at && b.covered(head_dep));
-            let Some(bus) = (if by_spare { spare } else { tp.bus }) else { continue };
+            let Some(bus) = (if by_spare { spare } else { swapped[ti].or(tp.bus) }) else { continue };
             let v = c.vehicle(bus);
-            // when the bus, the driver and a spare are there
+            // when the bus, the driver and a spare are there (a bus coming in late keeps
+            // `control::MIN_LAYOVER` of its layover for the driver's rest)
             let mut ready: Vec<(f64, Cause, Option<(usize, usize)>)> = Vec::new();
-            if let Some(&(_, free, pt, pj)) = buses.iter().find(|b| b.0 == bus) {
+            if let Some(&(_, free, pt, pj)) = buses.iter().find(|b| b.0 == bus).filter(|_| swap.is_none()) {
                 let p = &plan.tours[pt].tour.trips[pj];
-                let stop = if p.last.is_empty() { p.to.clone() } else { p.last.clone() };
-                ready.push((free, Cause::Carried { dep: p.dep, arr: p.arr, stop, late: (free - p.arr as f64).round() as i32, layover: x.dep - p.arr, deadhead: !p.counts(), minutes: 0 }, Some((pt, pj))));
+                let late = free - p.arr as f64;
+                if late > 0.0 {
+                    let stop = if p.last.is_empty() { p.to.clone() } else { p.last.clone() };
+                    let rest = (x.dep - p.arr).clamp(0, control::MIN_LAYOVER) as f64;
+                    ready.push((free + rest, Cause::Carried { dep: p.dep, arr: p.arr, stop, late: late.round() as i32, layover: x.dep - p.arr, deadhead: !p.counts(), minutes: 0 }, Some((pt, pj))));
+                }
             }
             if let (true, Some(b)) = (by_spare, broken_at) {
                 let back = b.back.unwrap_or(b.at);
@@ -210,11 +251,13 @@ pub fn model(c: &Company, plan: &Plan, date: &str, cut: &[Cut]) -> Model {
                         ready.push((end + walk as f64, Cause::Relief { driver: id, end: end.round() as i32, gap, minutes: 0 }, Some((pt, pj))));
                     }
                     // (the morning: came late, the trips before were dropped; or signs on a few
-                    // minutes late)
+                    // minutes late - known once the duty has begun)
                     None => {
+                        // (with the trips' own minutes set by hand, no draw: `own`)
                         let at = match d.dropped_before {
                             Some(t) => t + SIGN_ON_WALK,
-                            None => d.from + staff::signs_on_late(c, &e, date),
+                            None if own.is_none() && now.is_none_or(|m| d.from <= m) => d.from + staff::signs_on_late(c, &e, date),
+                            None => d.from,
                         };
                         ready.push((at as f64, Cause::SignOn { driver: id, minutes: 0 }, None));
                     }
@@ -228,7 +271,24 @@ pub fn model(c: &Company, plan: &Plan, date: &str, cut: &[Cut]) -> Model {
                     binding = Some((cause, from));
                 }
             }
-            let dep_delay = at - x.dep as f64;
+            let mut dep_delay = at - x.dep as f64;
+            // the controller's doing at this trip: a shorter layover takes minutes off its start; a
+            // short-turn (here, or at the trip before) and running out of service cut a part of it;
+            // a bus swapped in leaves on time
+            let mut recovered = swap_saved;
+            let mut lost: f64 = 0.0;
+            for m in &mine {
+                match m.act {
+                    Act::Layover { saved } if m.dep == x.dep => {
+                        let r = (saved as f64).min(dep_delay.max(0.0));
+                        dep_delay -= r;
+                        recovered += r;
+                    }
+                    Act::ShortTurn { part, .. } if m.dep == x.dep || last_run[ti] == Some(m.dep) => lost = lost.max(part),
+                    Act::Express { part, .. } if m.dep == x.dep => lost = lost.max(part),
+                    _ => {}
+                }
+            }
             let mut causes: Vec<Cause> = Vec::new();
             let mut earlier: Vec<Cause> = Vec::new();
             if let Some((mut cause, from)) = binding {
@@ -240,7 +300,8 @@ pub fn model(c: &Company, plan: &Plan, date: &str, cut: &[Cut]) -> Model {
                     }
                 }
             }
-            // on the way
+            // on the way (known once the trip has begun)
+            let known = now.is_none_or(|m| x.dep as f64 + dep_delay <= m as f64);
             let run = (x.arr - x.dep).max(1) as f64;
             let counts = x.counts();
             let mut rng = Rng::of(&[&c.id, "running", &tp.tour.line, &tp.tour.tour], day * 1440 + x.dep as i64);
@@ -250,25 +311,33 @@ pub fn model(c: &Company, plan: &Plan, date: &str, cut: &[Cut]) -> Model {
             let worn = v.map_or(0.0, |v| run * (1.0 - v.condition / 100.0).max(0.0) * 0.06 * factor);
             let events = run * event * 0.4;
             let chance = run * rng.range(-0.03, 0.05) * factor;
-            let mut arr_delay = dep_delay + traffic + slow + worn + events + chance;
-            let parts = [
-                (traffic, Cause::Traffic { peak, minutes: 0 }),
-                (slow, Cause::Driver { driver: id, minutes: 0 }),
-                (worn, Cause::Bus { bus, minutes: 0 }),
-                (events, Cause::Event { minutes: 0 }),
-                (chance, Cause::Chance { minutes: 0 }),
-            ];
-            for (m, mut cause) in parts {
-                if m.round() >= 1.0 {
-                    cause.set_minutes(m.round() as i32);
-                    causes.push(cause);
+            let parts = match own {
+                Some(f) => [(f(ti, j), Cause::Chance { minutes: 0 }), (0.0, Cause::Traffic { peak, minutes: 0 }), (0.0, Cause::Driver { driver: id, minutes: 0 }), (0.0, Cause::Bus { bus, minutes: 0 }), (0.0, Cause::Event { minutes: 0 })],
+                None => [(traffic, Cause::Traffic { peak, minutes: 0 }), (slow, Cause::Driver { driver: id, minutes: 0 }), (worn, Cause::Bus { bus, minutes: 0 }), (events, Cause::Event { minutes: 0 }), (chance, Cause::Chance { minutes: 0 })],
+            };
+            let mut arr_delay = dep_delay;
+            if known {
+                for (m, mut cause) in parts {
+                    arr_delay += m;
+                    if m.round() >= 1.0 {
+                        cause.set_minutes(m.round() as i32);
+                        causes.push(cause);
+                    }
+                }
+                // (broken down on the way: its passengers wait for the bus sent, or long)
+                if let Some(b) = broken_at.filter(|b| !by_spare && x.dep < b.at && b.at <= x.arr) {
+                    let wait = b.back.map_or(BREAKDOWN_WAIT, |s| s - b.at).clamp(5, 90);
+                    arr_delay += wait as f64;
+                    causes.push(Cause::Breakdown { bus, at: b.at, spare: b.back, minutes: wait });
                 }
             }
-            // (broken down on the way: its passengers wait for the bus sent, or long)
-            if let Some(b) = broken_at.filter(|b| !by_spare && x.dep < b.at && b.at <= x.arr) {
-                let wait = b.back.map_or(BREAKDOWN_WAIT, |s| s - b.at).clamp(5, 90);
-                arr_delay += wait as f64;
-                causes.push(Cause::Breakdown { bus, at: b.at, spare: b.back, minutes: wait });
+            // (a short-turn or running out of service: the minutes it saves off the end)
+            for m in &here {
+                if let Act::ShortTurn { saved, .. } | Act::Express { saved, .. } = m.act {
+                    let r = (saved as f64).min(arr_delay.max(0.0));
+                    arr_delay -= r;
+                    recovered += r;
+                }
             }
             // (a bus may come in a little early; the next trip still waits for its time)
             let arr_delay = arr_delay.max(-3.0);
@@ -282,7 +351,9 @@ pub fn model(c: &Company, plan: &Plan, date: &str, cut: &[Cut]) -> Model {
                 None if id != AGENCY => drivers.push((id, free, ti, j)),
                 None => {}
             }
-            out[ti][j] = Some(Timed { dep: dep_delay, arr: arr_delay, bus, causes, earlier });
+            last_run[ti] = Some(x.dep);
+            let swapped_bus = swapped[ti].filter(|_| !by_spare && swapped[ti] != tp.bus);
+            out[ti][j] = Some(Timed { dep: dep_delay, arr: arr_delay, bus, causes, earlier, known, lost, recovered: recovered.round() as i32, swapped: swapped_bus });
         }
     }
     out
@@ -302,7 +373,7 @@ pub fn whole(m: &Model, ti: usize, j: usize, joined: bool) -> Option<Timed> {
     let mut earlier = a.earlier;
     earlier.extend(b.earlier);
     earlier.truncate(3);
-    Some(Timed { dep: a.dep, arr: b.arr, bus: a.bus, causes, earlier })
+    Some(Timed { dep: a.dep, arr: b.arr, bus: a.bus, causes, earlier, known: a.known && b.known, lost: a.lost.max(b.lost), recovered: a.recovered + b.recovered, swapped: a.swapped.or(b.swapped) })
 }
 
 // --- what became of a trip ---------------------------------------------------------------------
@@ -589,7 +660,8 @@ pub fn today(c: &Company, plan: &Plan, now: i32) -> Vec<Outcome> {
     let date = c.date.clone();
     let r = economy::rules(c.game_mode);
     let cut = clock::breakdowns(c, plan, &date, &[]);
-    let m = model(c, plan, &date, &cut);
+    let controls = control::of_day(c, &date);
+    let m = model_with(c, plan, &date, &cut, &controls, Some(now), None);
     let mut out: Vec<Outcome> = Vec::new();
     for (ti, tp) in plan.tours.iter().enumerate().filter(|(_, t)| !t.by_player) {
         let school = c.lines.iter().find(|l| l.name.eq_ignore_ascii_case(&tp.tour.line)).is_some_and(|l| super::ownline::kind_of(l) == ServiceKind::School);
@@ -779,4 +851,4 @@ pub fn advice(c: &Company, day: &Lateness) -> Vec<Advice> {
 
 #[cfg(test)]
 #[path = "lateness_tests.rs"]
-mod tests;
+pub(crate) mod tests;

@@ -733,7 +733,9 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                     continue;
                 }
                 let by_spare = spare.is_some() && broken_at.is_some_and(|x| trip.dep >= x.at && x.covered(trip.dep));
-                let (Some(v), Some(e)) = (if by_spare { &spare } else { &v }, &driver) else { continue };
+                // (service control: a bus swapped in runs the trip)
+                let swapped = late_model.get(ti).and_then(|m| m.get(j)).and_then(|x| x.as_ref()).and_then(|x| x.swapped).filter(|_| !by_spare).and_then(|id| c.vehicle(id)).cloned();
+                let (Some(v), Some(e)) = (if by_spare { &spare } else if swapped.is_some() { &swapped } else { &v }, &driver) else { continue };
                 let age = dates::years_between(&v.built, &date);
                 lines[li].km += trip.km;
                 match bus_km.iter_mut().find(|b| b.0 == v.id) {
@@ -768,6 +770,11 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                         }
                     }
                 }
+                // (service control: the part of a trip cut short carries nobody, and costs a part of
+                // its penalty)
+                let cut_short = late_model.get(ti).and_then(|m| m.get(j)).and_then(|x| x.as_ref()).map_or(0.0, |x| x.lost);
+                pax *= 1.0 - cut_short;
+                sums[li].penalty += super::control::part_penalty(&r, trip, cut_short);
                 let pax = pax.round().max(0.0) as u32;
                 let (fares, comp) = super::ownline::trip_income(kind, pax as f64, trip.km, per_passenger[li], comp_km, super::ownline::school_trip_pay(c, trip.km));
                 let skilled = trained.get(&e.id).copied().unwrap_or_default();

@@ -250,7 +250,8 @@ fn offer_line(o: &Offer) -> String {
     if o.is_new() {
         tr("New, from stock")
     } else {
-        format!("{} {}  ·  {} km  ·  {} {:.0}", tr("built"), o.built.get(..4).unwrap_or(""), grouped(o.km), tr("condition"), o.condition)
+        let plate = if o.registration.is_empty() { String::new() } else { format!("{}  ·  ", o.registration) };
+        format!("{plate}{} {}  ·  {} km  ·  {} {:.0}", tr("built"), o.built.get(..4).unwrap_or(""), grouped(o.km), tr("condition"), o.condition)
     }
 }
 
@@ -668,7 +669,10 @@ pub fn sheet_view(s: &mut Session, _ui: &Value) -> Value {
             if offer.is_new() {
                 rows.push(row(tr("Delivery"), tr("from stock: two days after signing"), false));
             } else {
-                rows.push(row(tr("Built"), format!("{}  ({})", offer.built.get(..7).unwrap_or(""), trf("%{n} years", &[("n", &num(offer.age_years(&c.date), 1))])), false));
+                if !offer.registration.is_empty() {
+                    rows.push(row(tr("Plate"), offer.registration.clone(), false));
+                }
+                rows.extend(super::age::offer_row(&c, &offer));
                 rows.push(row(tr("Kilometres"), format!("{} km", grouped(offer.km)), false));
                 rows.push(row(tr("Condition"), format!("{:.0} / 100", offer.condition), false));
             }
@@ -684,7 +688,7 @@ pub fn sheet_view(s: &mut Session, _ui: &Value) -> Value {
             let mut v = json!({
                 "kind": "offer", "icon": "stars", "title": format!("{}  ·  {}", tr(offer.kind.label()), offer.listing.bus.name), "file": offer.listing.bus.file, "name": offer.listing.bus.name, "bus_kind": super::vehicles::kind_label(&offer.listing.bus),
                 "livery": livery_choice(s, &offer.listing.bus.file, &livery), "design_note": tr("A house livery of your own comes with the livery studio."),
-                "rows": rows, "lock": lock, "quick": quick, "count": count, "max": offer.count, "pay": pay,
+                "rows": rows, "lock": lock, "quick": quick, "count": count, "max": offer.count, "pay": pay, "age": super::age::offer_switch(&offer),
                 "count_label": tr("Buses"), "pays": [tr("Cash"), tr("Bank loan")],
                 "close": tr("Close"), "test": tr("Test drive"), "test_tip": tr("Drive it on your map from your depot: a free drive outside the company's time. Back here when the game ends."),
             });
@@ -1286,6 +1290,21 @@ fn sheet_act(s: &mut Session, c: &Company, what: &str, args: &Value) -> Result<V
                     }
                     if let Some(v) = args.get("quick").and_then(Value::as_bool) {
                         quick = v;
+                    }
+                    // (the age the player sets himself: its price follows; empty, the offer's own)
+                    let mut offer = offer;
+                    if let Some(y) = args.get("age").and_then(Value::as_str) {
+                        let now = dl::now_of(c);
+                        let all = listings(s).map(|l| l.to_vec()).unwrap_or_default();
+                        let own = dl::offer(c, &all, &offer.id, &now).unwrap_or_else(|| offer.clone());
+                        if y.trim().is_empty() {
+                            offer = own;
+                        } else {
+                            match dl::with_age(c, &own, y) {
+                                Some(o) => offer = o,
+                                None => return popup_of(refuse(s, "Type a year of first registration, as 2015.")),
+                            }
+                        }
                     }
                     set(s, Sheet::Offer { offer, livery, count, pay, quick });
                     Ok(json!({}))

@@ -22,6 +22,7 @@ use super::finance;
 use super::levels;
 use super::market::{self, MarketBus, Payment};
 use super::model::{BookingKind, BusKind, BusSize, Cents, Company, GameMode, Drive, Tenure};
+use super::registrations::{self, AgeFrom, Registered};
 use super::rng::Rng;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -310,6 +311,12 @@ pub struct Offer {
     pub seller: String,
     pub published: String,
     pub expires: String,
+    /// A used bus's plate, when its model's list gave it one (or a British model's own: empty,
+    /// the company's), and where its age comes from (`registrations`).
+    #[serde(default)]
+    pub registration: String,
+    #[serde(default)]
+    pub age_from: AgeFrom,
 }
 
 impl Offer {
@@ -369,6 +376,23 @@ fn used_price(c: &Company, kind: BusKind, age: f64, km: f64, condition: f64) -> 
     (round_to(value as f64 * r.used_markup, 500_00), round_to(value as f64, 100_00))
 }
 
+/// What a fleet sale asks of a bus's used price.
+const BATCH_SHARE: f64 = 0.88;
+
+/// A used offer with the date of first registration the player sets himself (`typed`: a year or
+/// "YYYY-MM"; Luc: "you can also toggle it to put in an age yourself"): its price and value
+/// follow that age. None: not a used offer, or not a year. (Its plate stays.)
+pub fn with_age(c: &Company, o: &Offer, typed: &str) -> Option<Offer> {
+    if !matches!(o.kind, OfferKind::Used | OfferKind::Batch) {
+        return None;
+    }
+    let built = registrations::typed_date(typed, &c.date)?;
+    let age = dates::years_between(&built, &c.date);
+    let (price, value) = used_price(c, o.listing.bus.kind, age, o.km, o.condition);
+    let price = if o.kind == OfferKind::Batch { round_to(price as f64 * BATCH_SHARE, 500_00) } else { price };
+    Some(Offer { built, price, reference: value, age_from: AgeFrom::Manual, ..o.clone() })
+}
+
 /// A used bus `ages` years old (the least, the most). None: no such bus.
 fn used_build(today: i64, rng: &mut Rng, ages: (f64, f64)) -> Option<(String, f64)> {
     let year = dates::civil_from_days(today).0;
@@ -395,7 +419,9 @@ fn used_of_day(c: &Company, listings: &[Listing], day: i64) -> Vec<Offer> {
     let mut out = Vec::new();
     for k in 0..n {
         let Some(l) = rng.pick(&pool).copied() else { break };
-        let Some((built, age)) = used_build(day, &mut rng, (2.0, 15.0)) else { continue };
+        let Some((built, _)) = used_build(day, &mut rng, (2.0, 15.0)) else { continue };
+        let reg = registrations::used(c, &l.bus, &registrations::list_for(&l.bus), day, built, (2.0, 15.0), &mut rng);
+        let age = dates::years_between(&reg.built, &date);
         let km = (age * rng.range(45_000.0, 72_000.0) / 1000.0).round() * 1000.0;
         let condition = (95.0 - age * 3.0 + rng.range(-15.0, 10.0)).clamp(20.0, 92.0).round();
         let (price, value) = used_price(c, l.bus.kind, age, km, condition);
@@ -404,7 +430,7 @@ fn used_of_day(c: &Company, listings: &[Listing], day: i64) -> Vec<Offer> {
             kind: OfferKind::Used,
             listing: l.clone(),
             count: 1,
-            built,
+            built: reg.built,
             km,
             condition,
             price,
@@ -412,6 +438,8 @@ fn used_of_day(c: &Company, listings: &[Listing], day: i64) -> Vec<Offer> {
             seller: USED_CENTRE.to_string(),
             published: at(&date, 7 * 60),
             expires: at(&dates::add(&date, USED_DAYS), 7 * 60),
+            registration: reg.plate,
+            age_from: reg.from,
         });
     }
     out
@@ -438,7 +466,7 @@ fn offers_of_day(c: &Company, listings: &[Listing], day: i64) -> Vec<Offer> {
             let Some(l) = rng.pick(&new).copied() else { continue };
             let list = economy::new_price(l.bus.kind, &r, c.price_index);
             let off = rng.range(0.06, 0.14) + easy;
-            out.push(Offer { id, kind: OfferKind::Discount, listing: l.clone(), count: rng.int(1, 4) as u32, built: date.clone(), km: 0.0, condition: 100.0, price: round_to(list as f64 * (1.0 - off), 100_00), reference: list, seller: dealer_name(&l.maker), published, expires });
+            out.push(Offer { id, kind: OfferKind::Discount, listing: l.clone(), count: rng.int(1, 4) as u32, built: date.clone(), km: 0.0, condition: 100.0, price: round_to(list as f64 * (1.0 - off), 100_00), reference: list, seller: dealer_name(&l.maker), published, expires, registration: String::new(), age_from: AgeFrom::New });
         } else if roll < 0.7 {
             let Some(l) = rng.pick(&new).copied() else { continue };
             let list = economy::new_price(l.bus.kind, &r, c.price_index);
@@ -458,15 +486,19 @@ fn offers_of_day(c: &Company, listings: &[Listing], day: i64) -> Vec<Offer> {
                 seller: dealer_name(&l.maker),
                 published,
                 expires,
+                registration: String::new(),
+                age_from: AgeFrom::Generated,
             });
         } else {
             let Some(l) = rng.pick(&used).copied() else { continue };
-            let Some((built, age)) = used_build(day, &mut rng, (6.0, 14.0)) else { continue };
+            let Some((built, _)) = used_build(day, &mut rng, (6.0, 14.0)) else { continue };
+            let reg = registrations::used(c, &l.bus, &registrations::list_for(&l.bus), day, built, (6.0, 14.0), &mut rng);
+            let (built, age) = (reg.built.clone(), dates::years_between(&reg.built, &date));
             let km = (age * rng.range(50_000.0, 68_000.0) / 1000.0).round() * 1000.0;
             let condition = (90.0 - age * 2.8 + rng.range(-8.0, 6.0)).clamp(30.0, 90.0).round();
             let (price, value) = used_price(c, l.bus.kind, age, km, condition);
             let seller = rng.pick(&OPERATORS).copied().unwrap_or(OPERATORS[0]).to_string();
-            out.push(Offer { id, kind: OfferKind::Batch, listing: l.clone(), count: rng.int(3, 6) as u32, built, km, condition, price: round_to(price as f64 * 0.88, 500_00), reference: value, seller, published, expires });
+            out.push(Offer { id, kind: OfferKind::Batch, listing: l.clone(), count: rng.int(3, 6) as u32, built, km, condition, price: round_to(price as f64 * BATCH_SHARE, 500_00), reference: value, seller, published, expires, registration: reg.plate, age_from: reg.from });
         }
     }
     out
@@ -989,6 +1021,11 @@ pub struct Contract {
     pub built: String,
     pub km: f64,
     pub condition: f64,
+    /// A used bus's plate and where its age comes from (`Offer`'s).
+    #[serde(default)]
+    pub registration: String,
+    #[serde(default)]
+    pub age_from: AgeFrom,
     /// The offer it buys (its id), if any.
     pub offer: Option<String>,
     /// Per bus: the list price, the agreed price, the grant and the painting.
@@ -1098,6 +1135,8 @@ pub fn draft_offer(c: &Company, o: &Offer, count: u32, price: Cents, extras: &[E
         built: o.built.clone(),
         km: o.km,
         condition: o.condition,
+        registration: o.registration.clone(),
+        age_from: o.age_from,
         offer: Some(o.id.clone()),
         list: o.price,
         price,
@@ -1233,8 +1272,9 @@ fn deliver(c: &mut Company, k: &Contract) -> Vec<u32> {
     let r = economy::rules(c.game_mode);
     let new_value = economy::new_price(k.listing.bus.kind, &r, c.price_index);
     let built = if k.new { c.date.clone() } else { k.built.clone() };
+    let from = if k.new { AgeFrom::New } else { k.age_from };
     let mut ids = Vec::new();
-    for _ in 0..k.count {
+    for n in 0..k.count {
         let tenure = match k.pay {
             PayWay::Lease => {
                 let (monthly, months, residual) = k.lease(c);
@@ -1242,7 +1282,10 @@ fn deliver(c: &mut Company, k: &Contract) -> Vec<u32> {
             }
             _ => Tenure::Owned { paid: k.price + k.painting - k.grant, new_value },
         };
-        let id = market::add_vehicle(c, &k.listing.bus, built.clone(), k.km, k.condition, tenure, &k.livery);
+        // (a fleet sale's plate is its first bus's: the others get one of their age)
+        let plate = if n == 0 && !k.new { k.registration.clone() } else { String::new() };
+        let reg = Registered { plate, built: built.clone(), from };
+        let id = market::add_registered(c, &k.listing.bus, reg, k.km, k.condition, tenure, &k.livery);
         let until = dates::add(&c.date, (k.warranty_months as f64 * 30.44).round() as i64);
         c.dealer.warranties.push(Warranty { vehicle: id, until });
         if k.extras.contains(&Extra::FreeService) {

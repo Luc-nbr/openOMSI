@@ -8,6 +8,7 @@ use super::dates;
 use super::economy::{self, Rules};
 use super::finance;
 use super::model::{BookingKind, BusKind, BusSize, Cents, Company, Drive, Tenure, Vehicle};
+use super::registrations::{self, AgeFrom, Registered};
 use super::rng::Rng;
 use serde::{Deserialize, Serialize};
 
@@ -211,10 +212,17 @@ pub fn used_offers(c: &Company, market: &[MarketBus]) -> Vec<UsedOffer> {
 
 /// A bus into the fleet: its number, plate and first service.
 pub(crate) fn add_vehicle(c: &mut Company, bus: &MarketBus, built: String, km: f64, condition: f64, tenure: Tenure, livery: &str) -> u32 {
+    let from = if built == c.date { AgeFrom::New } else { AgeFrom::Generated };
+    add_registered(c, bus, Registered { plate: String::new(), built, from }, km, condition, tenure, livery)
+}
+
+/// A bus into the fleet with its registration: the plate it came with (none: a British model's
+/// of its date of first registration, else the company's - `registrations::plate_for`).
+pub(crate) fn add_registered(c: &mut Company, bus: &MarketBus, reg: Registered, km: f64, condition: f64, tenure: Tenure, livery: &str) -> u32 {
     c.counters.vehicle += 1;
     let id = c.counters.vehicle;
     let number = c.next_fleet_number();
-    let plate = c.plate_for(&number);
+    let plate = if reg.plate.trim().is_empty() { registrations::plate_for(c, bus, &number, &reg.built, id) } else { reg.plate.trim().to_string() };
     let next_service_km = ((km / SERVICE_KM).floor() + 1.0) * SERVICE_KM;
     c.fleet.push(Vehicle {
         id,
@@ -225,7 +233,7 @@ pub(crate) fn add_vehicle(c: &mut Company, bus: &MarketBus, built: String, km: f
         kind: bus.kind,
         livery: livery.to_string(),
         house_livery: None,
-        built,
+        built: reg.built,
         km,
         condition,
         next_service_km,
@@ -235,8 +243,77 @@ pub(crate) fn add_vehicle(c: &mut Company, bus: &MarketBus, built: String, km: f
         breakdowns: 0,
         clean: 95.0,
         region: Some(bus.region),
+        age_from: reg.from,
+        built_auto: None,
     });
     id
+}
+
+/// Set a bus's date of first registration (`date`, "YYYY-MM-DD") the player knows, over what its
+/// plate or the market said; None: back to that.
+pub fn set_age(c: &mut Company, id: u32, date: Option<&str>) -> Result<(), &'static str> {
+    let today = c.date.clone();
+    let Some(v) = c.fleet.iter_mut().find(|v| v.id == id) else { return Err("This bus is not in the fleet.") };
+    match date {
+        Some(d) => {
+            let Some(d) = registrations::typed_date(d, &today) else { return Err("Type a year of first registration, as 2015.") };
+            if v.built_auto.is_none() {
+                v.built_auto = Some((v.built.clone(), v.age_from));
+            }
+            v.built = d;
+            v.age_from = AgeFrom::Manual;
+        }
+        None => {
+            if let Some((built, from)) = v.built_auto.take() {
+                v.built = built;
+                v.age_from = from;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// How a bus's value is worked out (`value_of`): its new price, the factors of its age,
+/// kilometres and condition, the market's value from them, and the most it is worth for what
+/// the company paid (None: not the company's).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Valued {
+    pub new_value: Cents,
+    pub age: f64,
+    pub age_factor: f64,
+    pub km_factor: f64,
+    pub condition_factor: f64,
+    pub market: Cents,
+    pub cap: Option<Cents>,
+    pub value: Cents,
+}
+
+/// How `value_of` comes to a bus's value (None: leased or rented).
+pub fn valued(c: &Company, v: &Vehicle) -> Option<Valued> {
+    let Tenure::Owned { paid, new_value } = &v.tenure else { return None };
+    let age = v.age_years(&c.date);
+    let (age_factor, km_factor, condition_factor) = economy::book_factors(age, v.km, v.condition);
+    let market = economy::book_value(*new_value, age, v.km, v.condition);
+    let cap = economy::bought_value(*paid, dates::years_between(&v.built, &v.acquired), age);
+    Some(Valued { new_value: *new_value, age, age_factor, km_factor, condition_factor, market, cap: (cap < market).then_some(cap), value: market.min(cap) })
+}
+
+/// The age bands the finances count the fleet in (years: from, to; the last open).
+pub const AGE_BANDS: [(u32, Option<u32>); 4] = [(0, Some(3)), (4, Some(7)), (8, Some(12)), (13, None)];
+
+/// The owned fleet by age band (`AGE_BANDS`): per band its buses, what they cost new and what
+/// they are worth now.
+pub fn by_age_band(c: &Company) -> Vec<(usize, Vec<u32>, Cents, Cents)> {
+    let mut out: Vec<(usize, Vec<u32>, Cents, Cents)> = (0..AGE_BANDS.len()).map(|k| (k, Vec::new(), 0, 0)).collect();
+    for v in &c.fleet {
+        let Some(x) = valued(c, v) else { continue };
+        let years = x.age.floor() as u32;
+        let k = AGE_BANDS.iter().position(|(_, to)| to.is_none_or(|t| years <= t)).unwrap_or(AGE_BANDS.len() - 1);
+        out[k].1.push(v.id);
+        out[k].2 += x.new_value;
+        out[k].3 += x.value;
+    }
+    out
 }
 
 /// Pay `amount` for something: from the cash, or with a loan of it.
@@ -362,14 +439,7 @@ pub fn rent(c: &mut Company, bus: &MarketBus, days: u32, livery: &str) -> Result
 /// from then on (`economy::bought_value`). (The market's value alone, from a new one's list
 /// price, made a bus worth more than its price right after buying it.)
 pub fn value_of(c: &Company, v: &Vehicle) -> Cents {
-    match &v.tenure {
-        Tenure::Owned { paid, new_value } => {
-            let age = v.age_years(&c.date);
-            let market = economy::book_value(*new_value, age, v.km, v.condition);
-            market.min(economy::bought_value(*paid, dates::years_between(&v.built, &v.acquired), age))
-        }
-        _ => 0,
-    }
+    valued(c, v).map(|x| x.value).unwrap_or(0)
 }
 
 /// What selling or giving back a bus brings (negative: what it costs).
@@ -665,7 +735,38 @@ pub(crate) mod tests {
             assert!(now < last, "{years}: {now} {last}");
             last = now;
         }
-        assert!((last as f64 - 280_000_00.0 * economy::RESIDUAL * (1.0 - economy::FIRST_LOSS_NEW)).abs() < 3_000_00.0, "{last}");
+        assert!((last as f64 - 280_000_00.0 * economy::age_factor(12.0)).abs() < 3_000_00.0, "{last}");
+    }
+
+    /// The player's own year of first registration overrides the plate's or the market's, its
+    /// value follows it, and switching it off brings the old date back; a new British bus gets
+    /// a plate of today's age identifier.
+    #[test]
+    fn the_age_set_by_hand_overrides_and_values_follow_it() {
+        let mut c = company(GameMode::Normal);
+        c.date = "2026-10-15".into();
+        let mut uk = bus("ADL E400", BusSize::Double, Drive::Diesel);
+        uk.region = super::super::vehicles::Region::Uk;
+        let id = buy_new(&mut c, &uk, Payment::Cash, "").unwrap();
+        let v = c.vehicle(id).unwrap().clone();
+        assert!(v.plate.starts_with("SB76 "), "{}", v.plate);
+        assert_eq!(v.age_from, AgeFrom::New);
+        let new_value = value_of(&c, &v);
+        set_age(&mut c, id, Some("2011")).unwrap();
+        let v = c.vehicle(id).unwrap().clone();
+        assert_eq!((v.built.as_str(), v.age_from), ("2011-07-01", AgeFrom::Manual));
+        assert!(value_of(&c, &v) < new_value / 5, "{}", value_of(&c, &v));
+        assert!(set_age(&mut c, id, Some("old")).is_err());
+        set_age(&mut c, id, None).unwrap();
+        let v = c.vehicle(id).unwrap();
+        assert_eq!((v.built.as_str(), v.age_from), ("2026-10-15", AgeFrom::New));
+        // the fleet by age band
+        let bands = by_age_band(&c);
+        assert_eq!(bands[0].1, vec![id]);
+        assert!(bands[1..].iter().all(|b| b.1.is_empty()));
+        // a European bus keeps the company's plate
+        let eu = buy_new(&mut c, &bus("Citaro", BusSize::Solo, Drive::Diesel), Payment::Cash, "").unwrap();
+        assert!(c.vehicle(eu).unwrap().plate.starts_with("SB-K "));
     }
 
     #[test]

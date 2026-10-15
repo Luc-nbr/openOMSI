@@ -120,7 +120,7 @@ pub fn view(s: &mut Session, ui: &Value) -> Value {
     let mut figures = vec![
         json!({ "label": tr("Cash"), "value": eur(c.cash), "under": "", "tone": if c.cash >= 0 { "text" } else { "danger" } }),
         json!({ "label": tr("Debt"), "value": eur(c.debt()), "under": trf("%{n} loans", &[("n", &c.loans.len().to_string())]), "tone": "text" }),
-        json!({ "label": tr("Fleet value"), "value": eur(fleet_value), "under": tr("the buses owned"), "tone": "text" }),
+        json!({ "label": tr("Fleet value"), "value": eur(fleet_value), "under": tr("the buses owned"), "tone": "text", "open": "fleet_value", "tip": tr("By age band: what the buses cost new, are worth and lost") }),
         json!({ "label": tr("This month"), "value": signed(this.result()).0, "under": month_label(&this.month), "tone": tone(this.result()) }),
         json!({ "label": tr("Last month"), "value": signed(prev.result()).0, "under": month_label(&prev.month), "tone": tone(prev.result()) }),
     ];

@@ -10,7 +10,7 @@ import { html, tr, setCo, act, cmd, refresh, useView, goTab, goKey, handOver, Ic
 import { VehicleDialog, NewDialog } from './fleet.js';
 import { DealerSheet } from './dealer.js';
 import { AddLineDialog } from './lines.js';
-import { FareDialog } from './money.js';
+import { FareDialog, FleetValueDialog } from './money.js';
 // (the buses the company works with: Beta 54)
 import { VehiclesDialog } from './vehicles.js';
 // (Beta 58: the boss's "Play together" panel)
@@ -56,6 +56,8 @@ function OpenDialog({ d }) {
       return html`<${AddLineDialog} d=${d} />`;
     case 'fare':
       return html`<${FareDialog} d=${d} />`;
+    case 'fleet_value':
+      return html`<${FleetValueDialog} />`;
     case 'vehicles':
       return html`<${VehiclesDialog} />`;
     case 'together':

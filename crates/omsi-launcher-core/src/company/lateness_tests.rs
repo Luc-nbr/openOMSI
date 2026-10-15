@@ -8,7 +8,7 @@ use crate::company::staff::{applicants, hire};
 use crate::company::{found, Founding};
 
 /// A Realistic company (lateness at full) with one bus and one driver, on a Monday.
-fn company() -> (Company, u32, u32) {
+pub(crate) fn company() -> (Company, u32, u32) {
     let mut c = found(&Founding { name: "Late".into(), game_mode: GameMode::Realistic, date: "2024-03-04".into(), map: "maps/Grundorf/global.cfg".into(), ..Default::default() }, "Luc");
     c.cash += 5_000_000_00;
     let bus = market::MarketBus { file: "Vehicles/Citaro/Citaro.bus".into(), name: "Citaro".into(), ..Default::default() };
@@ -27,7 +27,7 @@ fn company() -> (Company, u32, u32) {
 }
 
 /// One block of `n` trips of 50 minutes from `from`, `layover` minutes between, one duty.
-fn plan(from: i32, n: i32, layover: i32, bus: u32, driver: u32) -> Plan {
+pub(crate) fn plan(from: i32, n: i32, layover: i32, bus: u32, driver: u32) -> Plan {
     let trips: Vec<_> = (0..n).map(|k| trip(from + k * (50 + layover), from + 50 + k * (50 + layover), 12)).collect();
     let to = trips.last().map_or(from, |t| t.arr);
     let tour = TourOfDay { line: "Linie5".into(), number: "5".into(), tour: "1".into(), ai_group: String::new(), trips, unplanned: false, cuts: None };

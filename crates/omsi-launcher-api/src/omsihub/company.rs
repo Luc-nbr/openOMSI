@@ -17,6 +17,7 @@
 
 // (what is coming: the Agenda page, the start's "Coming up", Casual's list - Beta 57)
 pub(crate) mod agenda;
+mod age;
 mod career;
 pub mod casual;
 mod chooser;
@@ -32,6 +33,7 @@ pub mod late;
 mod launch;
 mod lines;
 mod money;
+mod ops;
 mod overview;
 mod people;
 mod photos;
@@ -63,7 +65,7 @@ use words::{day_label, eur, grouped, num, tr, trf};
 
 /// The company's pages, as the game-drawn launcher numbers them (`company::TABS`): the
 /// `OMSI_LAUNCHER_PAGE` it reads is "bus company:<number>".
-pub const TABS: [&str; 15] = ["Overview", "Fleet", "Staff", "Lines", "Finances", "Planning", "Career", "Depot", "Concessions", "Map", "Research", "Workshop", "Contracts", "Inbox", "Agenda"];
+pub const TABS: [&str; 16] = ["Overview", "Fleet", "Staff", "Lines", "Finances", "Planning", "Career", "Depot", "Concessions", "Map", "Research", "Workshop", "Contracts", "Inbox", "Agenda", "Operations"];
 pub const DEPOT_TAB: usize = 7;
 pub const CONCESSIONS_TAB: usize = 8;
 pub const MAP_TAB: usize = 9;
@@ -72,18 +74,20 @@ pub const WORKSHOP_TAB: usize = 11;
 pub const CONTRACTS_TAB: usize = 12;
 pub const INBOX_TAB: usize = 13;
 pub const AGENDA_TAB: usize = 14;
+/// Service control on the company's day (`ops`).
+pub const OPS_TAB: usize = ops::OPS_TAB;
 /// The company's start screen (no page of `TABS`).
 pub const HOME_TAB: usize = 100;
 /// The pages' icons, in the order of `TABS`.
-pub const ICONS: [&str; 15] = ["signal_cellular_alt", "directions_bus", "groups", "route", "payments", "calendar_month", "military_tech", "garage", "public", "map", "search", "construction", "description", "chat", "event"];
+pub const ICONS: [&str; 16] = ["signal_cellular_alt", "directions_bus", "groups", "route", "payments", "calendar_month", "military_tech", "garage", "public", "map", "search", "construction", "description", "chat", "event", "traffic"];
 /// The pages in the strip under the bar, grouped as the start screen groups them.
-pub const RAIL: [&[usize]; 5] = [&[0, AGENDA_TAB, INBOX_TAB], &[5, 3, MAP_TAB, 1], &[2], &[4, CONCESSIONS_TAB, CONTRACTS_TAB, 6], &[DEPOT_TAB, WORKSHOP_TAB, RESEARCH_TAB]];
+pub const RAIL: [&[usize]; 5] = [&[0, AGENDA_TAB, INBOX_TAB], &[5, OPS_TAB, 3, MAP_TAB, 1], &[2], &[4, CONCESSIONS_TAB, CONTRACTS_TAB, 6], &[DEPOT_TAB, WORKSHOP_TAB, RESEARCH_TAB]];
 
 /// The pages this page draws itself (the planning, the depot, the concessions, the fleet map,
 /// the research, the workshop and the contracts since phase 3: `company_more.rs`): every page
 /// (`HANDED_OVER` is empty since the game-drawn launcher it opened them in is gone). RosterFlow -
 /// the planning with its add-on on - is handed over by the planning's page itself.
-pub const DRAWN: [usize; 15] = [0, 1, 2, 3, 4, 5, 6, DEPOT_TAB, CONCESSIONS_TAB, MAP_TAB, RESEARCH_TAB, WORKSHOP_TAB, CONTRACTS_TAB, INBOX_TAB, AGENDA_TAB];
+pub const DRAWN: [usize; 16] = [0, 1, 2, 3, 4, 5, 6, DEPOT_TAB, CONCESSIONS_TAB, MAP_TAB, RESEARCH_TAB, WORKSHOP_TAB, CONTRACTS_TAB, INBOX_TAB, AGENDA_TAB, OPS_TAB];
 pub const HANDED_OVER: [usize; 0] = [];
 
 /// The pages a game mode shows, in the strip's order (`company::pages_of`).
@@ -1368,13 +1372,14 @@ fn view(s: &mut Session, args: &Value) -> Answer {
         "money" => money::view(s, args),
         "inbox" => inbox::view(s, args),
         "agenda" => agenda::view(s, args),
+        "ops" => ops::view(s),
         "career" => career::view(s, args),
         "casual" => casual::view(s, args),
         "launch" => launch::view(s, args),
         // (late running: the finances' deductions, the advice of the last day closed)
         "late" => late::finance_view(s),
         "late_advice" => late::advice_view(s),
-        "settings" | "time" | "confirm" | "report" | "away" | "ask" | "vehicle" | "new" | "add_line" | "fare" => dialogs::view(s, &what, args),
+        "settings" | "time" | "confirm" | "report" | "away" | "ask" | "vehicle" | "new" | "add_line" | "fare" | "fleet_value" => dialogs::view(s, &what, args),
         other => return Err(format!("no view {other}")),
     })
 }
@@ -1459,6 +1464,7 @@ fn do_act(s: &mut Session, args: &Value, p: &dyn Platform) -> Answer {
             .or_else(|| repair::act(s, &what, args))
             .or_else(|| casual::act(s, &what, args, p))
             .or_else(|| launch::act(s, &what, args, p))
+            .or_else(|| ops::act(s, &what, args))
             .unwrap_or_else(|| Err(format!("no action {what}"))),
     };
     r.map(|mut v| {

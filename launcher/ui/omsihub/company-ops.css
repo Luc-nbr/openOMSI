@@ -1,0 +1,37 @@
+/* The company's Operations page (`company/ops.js`): service control on the company's day - the
+   buses running late, the late drivers, the breakdowns, each with its ways out. Only the
+   company's own tokens (company.css), so the light and the dark look both follow. */
+
+.co-ops { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.co-ops .head { flex: none; display: flex; align-items: center; gap: 20px; min-height: 44px; flex-wrap: wrap; }
+.co-ops .head .names { flex: 1; min-width: 220px; }
+.co-ops .head b { display: block; font-size: var(--co-title); line-height: 22px; }
+.co-ops .head span { display: block; font-size: var(--co-note); color: var(--hub-text-dim); line-height: 18px; }
+.co-ops .head .notice { display: flex; align-items: center; gap: 10px; font-size: var(--co-note); color: var(--hub-text-soft); }
+.co-ops .body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 10px 10px 0; display: flex; flex-direction: column; gap: 14px; }
+.co-ops .co-section > .co-caps { margin-bottom: 8px; }
+.co-ops .empty { font-size: var(--co-rows); color: var(--hub-text-dim); line-height: 22px; }
+
+/* a bus, a driver, a breakdown */
+.co-ops-card { padding: 10px 0 12px; border-top: 1px solid var(--hub-hairline); }
+.co-ops-card:first-of-type { border-top: 0; padding-top: 2px; }
+.co-ops-card .top { display: flex; align-items: baseline; gap: 12px; }
+.co-ops-card .top b { font-size: var(--co-head); }
+.co-ops-card .top .min { font-size: var(--co-head); font-weight: 800; font-variant-numeric: tabular-nums; }
+.co-ops-card .where { font-size: var(--co-rows); color: var(--hub-text-soft); line-height: 18px; margin-top: 2px; }
+.co-ops-card .nothing { font-size: var(--co-note); color: var(--hub-text-dim); line-height: 17px; margin: 2px 0 6px; }
+.co-ops-card .none { font-size: var(--co-note); color: var(--hub-text-dim); font-style: italic; }
+
+/* a way out */
+.co-ops-opt { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 44px; padding: 5px 8px; border-radius: var(--hub-r); }
+.co-ops-opt:hover { background: var(--hub-hover); }
+.co-ops-opt.best { box-shadow: inset 0 0 0 1px var(--hub-accent); }
+.co-ops-opt .ic { width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--hub-field); }
+.co-ops-opt .words { display: flex; flex-direction: column; min-width: 0; font-size: var(--co-rows); font-weight: 600; line-height: 17px; }
+.co-ops-opt .words .effect { font-size: var(--co-note); font-weight: 400; color: var(--hub-text-dim); }
+.co-ops-opt .words .tag { font-size: 9.2px; font-weight: 700; color: var(--hub-accent); text-transform: uppercase; letter-spacing: 0.04em; }
+.co-ops-opt.bad .words .effect { color: var(--co-warn); }
+
+/* what was done today */
+.co-ops-done { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 8px; font-size: var(--co-rows); line-height: 22px; }
+.co-ops-done .time { color: var(--hub-text-dim); font-variant-numeric: tabular-nums; }

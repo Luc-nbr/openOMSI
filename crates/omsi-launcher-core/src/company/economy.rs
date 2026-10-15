@@ -10,8 +10,10 @@
 //!   Midibuses (~10 m) about €200k (diesel), double-deckers €450k. We take €280k, €400k,
 //!   €550k, €800k, €200k and €450k.
 //! - **Depreciation**: German tax tables (AfA) write a bus off over 9 years; operators run them
-//!   12-15 years. Here: linear over 12 years down to a 10 % residual, corrected for the
-//!   kilometres (60,000 a year is usual for a city bus) and the condition.
+//!   12-15 years, and the used market pays for age (Luc, 2026-10-15): some 18 % is lost in the
+//!   first year, then 8-10 % of the new price a year, less later, to a 10 % residual at 15-18
+//!   years (`age_factor`) - corrected for the kilometres (60,000 a year is usual for a city
+//!   bus) and the condition.
 //! - **Fuel**: a 12 m diesel city bus uses 38-45 l/100 km, an articulated one 50-60, a midibus
 //!   25-30; diesel costs operators about €1.45/l net. A battery bus uses 1.0-1.4 kWh/km with
 //!   heating (articulated 1.5-1.9); depot charging at about €0.25/kWh net.
@@ -247,24 +249,56 @@ pub fn grant(kind: BusKind, price: Cents, r: &Rules, price_index: f64) -> Cents 
 
 /// Kilometres a city bus usually runs in a year (for the used market and depreciation).
 pub const KM_PER_YEAR: f64 = 60_000.0;
-/// Years over which a bus is written off, and what is left after them.
-pub const WRITE_OFF_YEARS: f64 = 12.0;
+/// What is left of a bus's new price at the end, however old it is.
 pub const RESIDUAL: f64 = 0.10;
 
-/// A bus's book value: its new price written off linearly over twelve years to a tenth,
-/// corrected for kilometres above the usual and for its condition. (Fewer kilometres than
-/// usual add nothing: a bus gained value with them, a new one more than its price.)
-pub fn book_value(new_value: Cents, age_years: f64, km: f64, condition: f64) -> Cents {
+/// What is left of a new price at an age (years, the left of the curve's points): the used
+/// market's prices of city buses - a fifth lost in the first year, then 8 points of the new
+/// price a year, fewer as it ages, to the residual at 18 years.
+const AGE_CURVE: [(f64, f64); 14] = [
+    (0.0, 1.0),
+    (1.0, 0.82),
+    (2.0, 0.74),
+    (3.0, 0.66),
+    (4.0, 0.58),
+    (5.0, 0.51),
+    (6.0, 0.45),
+    (7.0, 0.39),
+    (8.0, 0.34),
+    (10.0, 0.26),
+    (12.0, 0.19),
+    (14.0, 0.14),
+    (16.0, 0.115),
+    (18.0, RESIDUAL),
+];
+
+/// What is left of a bus's new price at `age_years` (`AGE_CURVE`, straight between its points).
+pub fn age_factor(age_years: f64) -> f64 {
+    let a = age_years.max(0.0);
+    for w in AGE_CURVE.windows(2) {
+        let ((a0, f0), (a1, f1)) = (w[0], w[1]);
+        if a <= a1 {
+            return f0 + (f1 - f0) * (a - a0) / (a1 - a0);
+        }
+    }
+    RESIDUAL
+}
+
+/// The factors of a book value: of the age, of the kilometres above the usual, of the
+/// condition (`book_value` multiplies the new price by them).
+pub fn book_factors(age_years: f64, km: f64, condition: f64) -> (f64, f64, f64) {
     let usual = KM_PER_YEAR * age_years.max(0.0);
     let km = (1.0 - (km - usual) / 1_500_000.0).clamp(0.85, 1.0);
     let cond = 0.75 + 0.25 * (condition.clamp(0.0, 100.0) / 100.0);
-    (new_value as f64 * written_off(age_years) * km * cond).round() as Cents
+    (age_factor(age_years), km, cond)
 }
 
-/// What is left of a bus's new price at `age_years`: written off linearly over twelve years to
-/// a tenth.
-fn written_off(age_years: f64) -> f64 {
-    (1.0 - (1.0 - RESIDUAL) * age_years.max(0.0) / WRITE_OFF_YEARS).max(RESIDUAL)
+/// A bus's book value: its new price by its age (`age_factor`), corrected for kilometres above
+/// the usual and for its condition. (Fewer kilometres than usual add nothing: a bus gained
+/// value with them, a new one more than its price.)
+pub fn book_value(new_value: Cents, age_years: f64, km: f64, condition: f64) -> Cents {
+    let (age, km, cond) = book_factors(age_years, km, condition);
+    (new_value as f64 * age * km * cond).round() as Cents
 }
 
 /// What a bus loses the moment it is the company's: a new one when it is registered, a used one
@@ -273,12 +307,14 @@ pub const FIRST_LOSS_NEW: f64 = 0.12;
 pub const FIRST_LOSS_USED: f64 = 0.04;
 
 /// The most a bus the company bought is worth: what it paid for it (`Tenure::Owned`'s `paid`, a
-/// grant taken off) less the first loss, written off from then on as `book_value` writes off a
-/// bus of its age. `age_bought`: the bus's age when it was bought (under half a year: new).
+/// grant taken off) less the first loss, and as it ages less as `age_factor` has it from the
+/// age it was bought at (the first loss is the first part of what it loses: a new bus is worth
+/// 88 % once registered and 82 % a year on). `age_bought`: the bus's age when it was bought
+/// (under half a year: new).
 pub fn bought_value(paid: Cents, age_bought: f64, age_now: f64) -> Cents {
     let first = if age_bought < 0.5 { FIRST_LOSS_NEW } else { FIRST_LOSS_USED };
-    let since = written_off(age_now) / written_off(age_bought);
-    (paid.max(0) as f64 * (1.0 - first) * since.min(1.0)).round() as Cents
+    let since = age_factor(age_now) / age_factor(age_bought);
+    (paid.max(0) as f64 * (1.0 - first).min(since)).round() as Cents
 }
 
 /// What a dealer pays for a bus of that book value.
@@ -470,17 +506,36 @@ mod tests {
     }
 
     #[test]
-    fn a_bus_loses_its_value_over_twelve_years() {
+    fn a_bus_loses_its_value_with_its_age() {
         assert_eq!(book_value(280_000_00, 0.0, 0.0, 100.0), 280_000_00);
+        // the first year some 18 %, then 8-10 % of the new price a year
+        let one = age_factor(1.0);
+        assert!((0.80..=0.85).contains(&one), "{one}");
+        for y in 1..8 {
+            let drop = age_factor(y as f64) - age_factor(y as f64 + 1.0);
+            assert!((0.045..=0.10).contains(&drop), "{y}: {drop}");
+        }
+        // ever down, to a tenth at 15-18 years and never under it
+        for y in 0..25 {
+            assert!(age_factor(y as f64 + 1.0) <= age_factor(y as f64));
+        }
+        assert!((0.10..=0.13).contains(&age_factor(15.0)));
+        assert_eq!(age_factor(18.0), RESIDUAL);
+        assert_eq!(age_factor(30.0), RESIDUAL);
+        // a 15-year-old bus costs a small part of a new one
+        assert!(book_value(280_000_00, 15.0, 900_000.0, 100.0) < 280_000_00 / 7);
         let six = book_value(280_000_00, 6.0, 360_000.0, 100.0);
-        assert_eq!(six, 154_000_00);
-        // never under the residual (but the condition and the kilometres still count)
+        assert_eq!(six, 126_000_00);
         assert_eq!(book_value(280_000_00, 20.0, 1_200_000.0, 100.0), 28_000_00);
         // more kilometres and a worse condition cost value; fewer add nothing
         assert!(book_value(280_000_00, 6.0, 600_000.0, 100.0) < six);
         assert!(book_value(280_000_00, 6.0, 360_000.0, 40.0) < six);
         assert_eq!(book_value(280_000_00, 6.0, 0.0, 100.0), six);
-        assert_eq!(sale_price(six, &rules(GameMode::Normal)), 130_900_00);
+        assert_eq!(sale_price(six, &rules(GameMode::Normal)), 107_100_00);
+        // what the company paid: 12 % off once registered, 18 % after a year, then the curve
+        assert_eq!(bought_value(280_000_00, 0.0, 0.0), 246_400_00);
+        assert_eq!(bought_value(280_000_00, 0.0, 1.0), 229_600_00);
+        assert_eq!(bought_value(100_000_00, 8.0, 10.0), (100_000_00 as f64 * 0.26 / 0.34).round() as Cents);
     }
 
     #[test]
