@@ -7,7 +7,9 @@
 //! day's timetable has: Saturday and Sunday run a timetable of their own, so a weekday's plan
 //! found next to nothing to match there - and nothing copied the trips themselves. This does: a
 //! line's timetable of one day group (`lines::DAY_GROUPS`: Monday to Friday, Saturday, Sunday
-//! with the public holidays) onto others, in place of theirs or added to them.
+//! with the public holidays) onto others, in place of theirs or added to them. Saved and
+//! refreshed, the day groups run the same trips, and the plan copies onto them as onto a day of
+//! the same timetable.
 //!
 //! A copy's source is a `Template`: the day shown (`Template::of_day`), the trips chosen there
 //! (`of_trips`), or one kept by name with the company (`Days::templates`) to copy again later -
@@ -117,20 +119,27 @@ fn map_tours(l: &LineDesign) -> HashSet<String> {
     l.map.iter().flat_map(|m| m.tours.iter().map(|t| t.number.trim().to_string())).filter(|n| !n.is_empty()).collect()
 }
 
+/// The trips of `l` on day group `day`.
+pub fn trips_on(l: &LineDesign, day: usize) -> usize {
+    l.table.iter().filter(|t| !t.times.is_empty() && tp::in_day(l, t, day)).count()
+}
+
 /// Day group `day` of `l` emptied: the player's trips of it taken out, and the map's tours
 /// that ran then run on their other days only (a tour left with no day goes with its trips).
 /// Returns how many trips the day had.
 pub fn clear_day(l: &mut LineDesign, day: usize) -> usize {
-    let had = l.table.iter().filter(|t| !t.times.is_empty() && tp::in_day(l, t, day)).count();
+    let had = trips_on(l, day);
     let tours = map_tours(l);
     let of_tour = |t: &TableTrip| tours.contains(t.tour.trim());
     l.table.retain(|t| of_tour(t) || t.day != day);
     let service = l.service;
+    let runs_on = |mask: i32, g: usize| service.allows(g) && reg::kept_mask(service, mask) & bits(g) != 0;
     let mut dead: HashSet<String> = HashSet::new();
     if let Some(m) = l.map.as_mut() {
-        for mt in m.tours.iter_mut() {
+        // (only the tours that ran on the day: the others stay as the map has them)
+        for mt in m.tours.iter_mut().filter(|mt| runs_on(mt.mask, day)) {
             mt.mask &= !bits(day);
-            if !(0..DAY_GROUPS.len()).any(|g| service.allows(g) && reg::kept_mask(service, mt.mask) & bits(g) != 0) {
+            if !(0..DAY_GROUPS.len()).any(|g| runs_on(mt.mask, g)) {
                 dead.insert(mt.number.trim().to_string());
             }
         }
@@ -201,18 +210,28 @@ pub fn template(c: &Company, id: u32) -> Option<&Template> {
     c.planning.flow.days.templates.iter().find(|t| t.id == id)
 }
 
-/// `t` kept by the name `name` under a number of its own. Returns the number (None: no name,
-/// or no trip to keep).
+/// `t` kept by the name `name` under a number of its own - in the place of the line's template
+/// of that name, if it has one. Returns the number (None: no name, or no trip to keep).
 pub fn save_template(c: &mut Company, mut t: Template, name: &str) -> Option<u32> {
     t.name = clean_name(name)?;
     if t.trips.is_empty() {
         return None;
     }
     let ts = &mut c.planning.flow.days.templates;
-    t.id = ts.iter().map(|x| x.id).max().unwrap_or(0) + 1;
-    let id = t.id;
-    ts.push(t);
-    Some(id)
+    let same = |x: &Template| x.line.trim().eq_ignore_ascii_case(t.line.trim()) && x.name.eq_ignore_ascii_case(&t.name);
+    match ts.iter().position(same) {
+        Some(k) => {
+            t.id = ts[k].id;
+            ts[k] = t;
+            Some(ts[k].id)
+        }
+        None => {
+            t.id = ts.iter().map(|x| x.id).max().unwrap_or(0) + 1;
+            let id = t.id;
+            ts.push(t);
+            Some(id)
+        }
+    }
 }
 
 /// Template `id` named `name`. Returns whether it was (no such template, or no name: not).

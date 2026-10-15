@@ -814,7 +814,7 @@ pub use rows::{copy_rows, rows_slot, Rows};
 /// A line's timetable of a day copied to other days, and the templates: the Timeplan's "Copy
 /// to…".
 mod timetable;
-pub use timetable::{clear_day, copy_table, drop_template, move_templates, rename_template, save_template, template, templates_of, DayCopied, How, Template, Trip};
+pub use timetable::{clear_day, copy_table, drop_template, move_templates, rename_template, save_template, template, templates_of, trips_on, DayCopied, How, Template, Trip};
 
 #[cfg(test)]
 mod tests;
