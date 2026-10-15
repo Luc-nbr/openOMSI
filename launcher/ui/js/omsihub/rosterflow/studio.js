@@ -16,6 +16,7 @@ import { Overlays } from './panels.js';
 import { PrefsWindow } from './prefs.js';
 import { useSize } from '../company/kit.js';
 import { openApply, DayChip, DaysLayer, useRevealTrip } from './days.js';
+import { copyKey, pasteKey } from './copyto.js';
 
 export function Studio({ p, drivers }) {
   const r = S.rf;
@@ -194,7 +195,8 @@ function StatusBar({ data, drivers }) {
 // --- the keys -----------------------------------------------------------------------------------------
 
 /** The shortcuts (`rosterflow::keys`): G go to, P pin, the arrows along a row and between rows
- * (Shift to widen the choice), Ctrl+Z and Ctrl+Y, Delete to unassign. */
+ * (Shift to widen the choice), Ctrl+Z and Ctrl+Y, Delete to unassign, Ctrl+C and Ctrl+V the rows
+ * ticked to another day (`copyto.js`). */
 function useKeys(data, drivers) {
   const ref = useRef({});
   ref.current = { data, drivers };
@@ -210,7 +212,11 @@ function useKeys(data, drivers) {
         if (key === 'z' && e.shiftKey) rfAct('redo');
         else if (key === 'z') rfAct('undo');
         else if (key === 'y') rfAct('redo');
-        else return;
+        else if (key === 'c' && !e.shiftKey) {
+          if (!copyKey()) return;
+        } else if (key === 'v' && !e.shiftKey) {
+          if (!pasteKey()) return;
+        } else return;
         e.preventDefault();
         return;
       }

@@ -2,11 +2,12 @@
 //! each day of the coming week runs - its weekday's plan, one of its own, a copy of another
 //! day's and whether it is still as copied - for the day switcher and the toolbar's chip; the
 //! "Apply to" window of SAVE (each day of the week with what a copy would match there); the save
-//! that copies; and "Reset to pattern" / "Refresh".
+//! that copies; "Reset to pattern" / "Refresh"; and the selection bar's "Copy to…" (Ctrl+C,
+//! Ctrl+V) of the rows ticked (`plandays::copy_rows`).
 
 use super::super::company::words::{day_label, tr, trf};
 use super::super::company::{self, Session};
-use super::{said, Rf, DAY_NAMES};
+use super::{block_id, duty_id, edit, said, Rf, DAY_NAMES};
 use omsi_launcher_lib::company::plandays::{self as pd, Copied, Day, Missed, What};
 use omsi_launcher_lib::company::rosterflow as rf;
 use omsi_launcher_lib::company::{self as co, Company};
@@ -314,6 +315,119 @@ pub(super) fn reset(s: &mut Session, r: &mut Rf, date: &str) -> Value {
         }
         _ => json!({}),
     }
+}
+
+// --- "Copy to…" ------------------------------------------------------------------------------------
+
+/// The rows the page names by their ids (`block_id`, `duty_id`) on the day `b`: buses' blocks,
+/// duties by their key, spare duties by their number.
+fn rows_of(b: &rf::Board, ids: &[String]) -> pd::Rows {
+    let mut rows = pd::Rows::default();
+    for id in ids {
+        if let Some(t) = b.tours.iter().find(|t| block_id(t) == *id) {
+            rows.blocks.push((t.line.clone(), t.tour.clone()));
+        } else if let Some(x) = b.shaped.iter().find(|x| duty_id(x) == *id) {
+            match (&x.key, x.spare) {
+                (Some(k), _) => rows.duties.push(k.clone()),
+                (None, Some(sp)) => rows.spares.push(sp),
+                _ => {}
+            }
+        }
+    }
+    rows
+}
+
+/// "Copy to…" (the selection bar, Ctrl+C and Ctrl+V; testers, Beta 56): the rows ticked on the
+/// day `date` (`ids`) copied to the days chosen (`targets`: the day switcher's `k`, each `as`
+/// "week" every week, "date" that date only, "runs" into the plan it runs) - into the draft, so
+/// Undo takes it back and SAVE keeps it. Only the trips that match go along; what did not comes
+/// back as the report, each a link to it on its day.
+pub(super) fn copy_rows(s: &mut Session, r: &mut Rf, date: &str, args: &Value) -> Value {
+    company::week_work(s);
+    let Some(c) = s.company.clone() else { return json!({}) };
+    let ids: Vec<String> = args.get("ids").cloned().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
+    let Some(src_lines) = company::lines_of(s, date) else { return said(tr("Reading the timetable…"), true) };
+    let rows = rows_of(&rf::board(&rf::view(&c), &src_lines, date), &ids);
+    if rows.is_empty() {
+        return said(tr("Tick the rows to copy first."), true);
+    }
+    let win = window(&c);
+    let k0 = win.iter().position(|d| d == date).unwrap_or(0);
+    let targets: Vec<(String, String)> = args
+        .get("targets")
+        .and_then(Value::as_array)
+        .map(|v| v.iter().filter_map(|t| Some((win.get(t.get("k")?.as_u64()? as usize)?.clone(), t.get("as").and_then(Value::as_str).unwrap_or("week").to_string()))).filter(|(d, _)| d != date).collect())
+        .unwrap_or_default();
+    if targets.is_empty() {
+        return said(tr("Choose the days to copy to."), true);
+    }
+    let mut jobs: Vec<(String, String, Vec<LineInfo>)> = Vec::new();
+    let mut unread: Vec<String> = Vec::new();
+    for (d, how) in targets {
+        match company::lines_of(s, &d) {
+            Some(l) => jobs.push((d, how, l)),
+            None => unread.push(short(&d)),
+        }
+    }
+    // (that date only: a plan of the date's own, begun as the one it ran - before the edit, so
+    // Undo takes the copy back and the date keeps that plan)
+    let dates: Vec<String> = jobs.iter().filter(|j| j.1 == "date").map(|j| j.0.clone()).collect();
+    if !dates.is_empty() {
+        let _ = company::act(s, |c| {
+            for d in &dates {
+                pd::rows_slot(c, d, false);
+            }
+            Ok(())
+        });
+    }
+    let n = ids.len().to_string();
+    let days: Vec<String> = jobs.iter().map(|j| short(&j.0)).collect();
+    let words = trf("%{n} rows copied to %{days}", &[("n", &n), ("days", &days.join(", "))]);
+    let mut made: Vec<(String, bool, Copied)> = Vec::new();
+    let d0 = date.to_string();
+    let out = edit(s, r, words, |c| {
+        let from = pd::slot_of(c, &d0);
+        for (d, how, lines) in &jobs {
+            let to = if how == "week" { co::plan::weekday_of(d) } else { pd::slot_of(c, d) };
+            let m = pd::copy_rows(c, from, Day { date: &d0, lines: &src_lines }, to, Day { date: d, lines }, &rows);
+            made.push((d.clone(), to < pd::FIRST_DATE_SLOT, m));
+        }
+        Ok(())
+    });
+    if out.get("edited").is_none() {
+        return out;
+    }
+    let matched: u32 = made.iter().map(|m| m.2.matched).sum();
+    let missing: usize = made.iter().map(|m| m.2.missing.len()).sum();
+    let mut text = if matched == 0 && rows.spares.is_empty() {
+        tr("Nothing was copied: no trip of those days matches the rows' trips, or a locked vehicle or duty there has them.")
+    } else {
+        trf("Copied to %{days}: in your draft - SAVE keeps it, Undo takes it back.", &[("days", &days.join(", "))])
+    };
+    if missing > 0 && matched > 0 {
+        text = format!("{text} {}", trf("%{n} of their trips were not copied: they match no trip there, or a locked vehicle or duty there has them.", &[("n", &missing.to_string())]));
+    }
+    if !unread.is_empty() {
+        text = format!("{text} {}", trf("Not copied, their timetable is still being read: %{days}.", &[("days", &unread.join(", "))]));
+    }
+    // (the trips not copied are the source day's: their links go there)
+    let report: Vec<Value> = made
+        .iter()
+        .map(|(d, week, m)| {
+            let missing: Vec<Value> = m.missing.iter().map(|x| {
+                let mut v = missed_json(x);
+                v["k"] = json!(k0);
+                v
+            }).collect();
+            json!({ "k": win.iter().position(|x| x == d).unwrap_or(0), "label": short(d), "every_week": week, "matched": m.matched, "total": m.total, "exact": m.exact(), "gone": m.gone, "missing": missing })
+        })
+        .collect();
+    let mut out = said(text, matched == 0 || missing > 0 || !unread.is_empty());
+    out["edited"] = json!(true);
+    if missing > 0 {
+        out["report"] = json!({ "from": short(date), "rows": true, "days": report });
+    }
+    out
 }
 
 /// "Stop following": the day keeps its plan as it is, no pattern's any more.

@@ -326,10 +326,16 @@ fn board_json(c: &Company, board: &Board) -> Value {
         .enumerate()
         .map(|(row, s)| {
             let any: Vec<&rf::Issue> = s.issues.iter().map(|&i| &board.issues[i]).filter(|i| !rf::dismissed(c, wd, &i.key)).collect();
+            // (where it signs on and off: the point chosen, else where the bus is - `signing`)
+            let (on_at, off_at) = sign_places(board, s);
+            let (first_on, last_off) = (s.events.iter().position(|e| e.kind == EvKind::SignOn), s.events.iter().rposition(|e| e.kind == EvKind::SignOff));
             let events: Vec<Value> = s
                 .events
                 .iter()
-                .map(|e| match e.kind {
+                .enumerate()
+                .map(|(k, e)| match e.kind {
+                    EvKind::SignOn if Some(k) == first_on => json!({ "kind": "on", "from": e.from, "to": e.to, "at": on_at }),
+                    EvKind::SignOff if Some(k) == last_off => json!({ "kind": "off", "from": e.from, "to": e.to, "at": off_at }),
                     EvKind::SignOn => json!({ "kind": "on", "from": e.from, "to": e.to }),
                     EvKind::SignOff => json!({ "kind": "off", "from": e.from, "to": e.to }),
                     EvKind::Travel(m) => json!({ "kind": "travel", "letter": m.letter(), "mode": Travel::ALL.iter().position(|x| *x == m).unwrap_or(0), "label": tr(m.label()), "from": e.from, "to": e.to }),
@@ -367,7 +373,7 @@ fn board_json(c: &Company, board: &Board) -> Value {
         .iter()
         .map(|(line, x)| {
             let number = c.lines.iter().find(|l2| l2.name.eq_ignore_ascii_case(line)).map(|l2| l2.number.clone()).unwrap_or_default();
-            json!({ "line": line, "number": number, "colour": colour_of(c, line), "dep": x.dep, "arr": x.arr, "from": x.from.trim(), "to": x.end().trim(), "num": x.line.trim(), "out": outbound(tours, line, x) })
+            json!({ "line": line, "number": number, "colour": colour_of(c, line), "dep": x.dep, "arr": x.arr, "from": x.from.trim(), "to": x.end().trim(), "num": x.line.trim(), "name": x.name, "out": outbound(tours, line, x) })
         })
         .collect();
     let (t0, t1) = day_span(board);
@@ -538,6 +544,8 @@ fn board_answer(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
         "days": days::marks(&shown_view),
         "day": days::shown(&shown_view, &date),
         "unsynced": timeplan::unsynced_on(r, &c, days::group_of(wd)),
+        // (how the Gantt colours the trips: the company's choice, Layers › Colour by)
+        "colour_by": c.planning.flow.colour_by,
     });
     let k = match ensure(s, r, &date) {
         None => return Ok(json!({ "head": head, "reading": tr("Reading the timetable…") })),
@@ -575,6 +583,9 @@ fn board_answer(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
 }
 
 pub(crate) const DAY_NAMES: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+/// How the Gantt may colour the trips besides by their line (`Flow::colour_by`).
+const COLOUR_BY: [&str; 3] = ["trip", "block", "duty"];
 
 /// Whether the Drivers tab takes up single trips to move them to another duty (the core's
 /// `studio::plan_move_to_duty`, Luc's driver drag), the whole piece of work by Alt and a drag
@@ -616,7 +627,7 @@ fn view(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
             Hand::DutyTrips { duty, trips } => json!({ "text": driver_drag::why(c, board, duty, &trips) }),
             _ => json!({}),
         },
-        "duty" => duty_view(c, board, usize_arg(args, "row")),
+        "duty" => duty_view(c, board, usize_arg(args, "row"), &k.lines),
         // (the Preferences as edited, not saved yet: what breaks each rule with them, next to its
         // fields while the window is open)
         "prefs_check" => {
@@ -753,9 +764,35 @@ fn rate(zones: &[(Cents, bool)]) -> Vec<u8> {
         .collect()
 }
 
-/// The duty panel (`rf_panels::duty_panel`): its type, times, paid time, signing, pieces, the
-/// way between them, its breaks, its custom work and its issues.
-fn duty_view(c: &Company, board: &Board, row: usize) -> Value {
+/// A relief point in words: the depot's translated, a stop by its name.
+fn point_name(key: &str) -> String {
+    if key == rf::DEPOT_POINT {
+        tr("Depot")
+    } else {
+        key.to_string()
+    }
+}
+
+/// Where duty `s` signs on and off, in words: the point it (or the company) chose, else where its
+/// first bus is taken over and its last left.
+fn sign_places(board: &Board, s: &rf::Shaped) -> (String, String) {
+    let bus_on = s.spans.first().and_then(|sp| piece_trips(board, sp.tour, sp.duty).first()).map(|x| x.from.trim().to_string()).unwrap_or_default();
+    let bus_off = s.spans.last().and_then(|sp| piece_trips(board, sp.tour, sp.duty).last()).map(|x| x.end().trim().to_string()).unwrap_or_default();
+    (s.points.on.as_deref().map(point_name).unwrap_or(bus_on), s.points.off.as_deref().map(point_name).unwrap_or(bus_off))
+}
+
+/// The relief points a duty may sign on and off at, and take a break at (`lines` the day's
+/// timetable): each one's key and name.
+fn duty_points(c: &Company, lines: &[LineInfo]) -> (Vec<Value>, Vec<Value>) {
+    let rows = rf::relief_points(c, lines);
+    let of = |f: fn(&rf::ReliefPoint) -> bool| rows.iter().filter(|r| f(&r.point)).map(|r| json!({ "key": r.stop, "name": point_name(&r.stop) })).collect::<Vec<_>>();
+    (of(|p| p.sign), of(|p| p.breaks))
+}
+
+/// The duty panel (`rf_panels::duty_panel`): its type, times, paid time, signing and where, pieces,
+/// the way between them and where their breaks are taken, its breaks, its custom work and its
+/// issues.
+fn duty_view(c: &Company, board: &Board, row: usize, lines: &[LineInfo]) -> Value {
     let Some(s) = board.shaped.get(row) else { return json!({ "gone": true }) };
     let wd = board.weekday;
     let prefs = &c.planning.flow.prefs;
@@ -766,6 +803,8 @@ fn duty_view(c: &Company, board: &Board, row: usize) -> Value {
     names.extend(prefs.duty_types.iter().map(|t| tr(&t.name)));
     names.push(tr(rf::OTHER));
     let at = if s.kind_set { s.kind.map(|k| k + 1).unwrap_or(names.len() - 1) } else { 0 };
+    let (sign_points, break_points) = duty_points(c, lines);
+    let places = sign_places(board, s);
     let times = [
         (tr("Sign-on"), rf::clock(s.start)),
         (tr("Sign-off"), rf::clock(s.end)),
@@ -788,6 +827,8 @@ fn duty_view(c: &Company, board: &Board, row: usize) -> Value {
         if let Some(next) = s.spans.get(n + 1) {
             let here_end = trips.last().map(|x| x.end().trim().to_string()).unwrap_or_default();
             let next_start = piece_trips(board, next.tour, next.duty).first().map(|x| x.from.trim().to_string()).unwrap_or_default();
+            // (where the break after it is taken: a relief point chosen, else where the bus is)
+            v["break_at"] = json!(note.as_ref().and_then(|nn| nn.breaks_at.iter().find(|x| x.0 as usize == n).map(|x| x.1.clone())));
             if !here_end.eq_ignore_ascii_case(&next_start) {
                 // (as the relief points have it: the pair, the points' own, the defaults)
                 let set = note.as_ref().and_then(|nn| nn.travel.iter().find(|x| x.0 as usize == n).map(|x| x.1));
@@ -808,6 +849,14 @@ fn duty_view(c: &Company, board: &Board, row: usize) -> Value {
         "signing": s.key.is_some(),
         "sign_on": note.as_ref().and_then(|n| n.sign_on).unwrap_or(prefs.sign_on),
         "sign_off": note.as_ref().and_then(|n| n.sign_off).unwrap_or(prefs.sign_off),
+        // (where: the duty's choice - null as the company has it, empty where the bus is - the
+        // company's, and the relief points that allow it)
+        "sign_on_at": note.as_ref().and_then(|n| n.sign_on_at.clone()),
+        "sign_off_at": note.as_ref().and_then(|n| n.sign_off_at.clone()),
+        "sign_company": { "on": prefs.sign_on_at.as_deref().map(point_name), "off": prefs.sign_off_at.as_deref().map(point_name) },
+        "sign_places": { "on": places.0, "off": places.1 },
+        "sign_points": sign_points,
+        "break_points": break_points,
         "pieces": pieces,
         "travel_labels": Travel::LABELS.iter().map(|x| tr(x)).collect::<Vec<_>>(),
         "rest": breaks::panel_json(prefs, s),
@@ -1008,6 +1057,8 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
         "save" => return Ok(days::save(s, r, &date, args.get("apply"))),
         "day_reset" => return Ok(days::reset(s, r, &date)),
         "day_unfollow" => return Ok(days::unfollow(s, r, &date)),
+        // (the selection bar's "Copy to…", Ctrl+C and Ctrl+V: `days`)
+        "copy_rows" => return Ok(days::copy_rows(s, r, &date, args)),
         "discard" => {
             return Ok(match company::act(s, |c| Ok(rf::discard_draft(c))) {
                 Ok(true) => {
@@ -1058,6 +1109,16 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
             });
             return Ok(json!({}));
         }
+        "colour_by" => {
+            // (Layers › Colour by: kept for the company, not in the draft - no edit of the plan)
+            let by = str_arg(args, "by");
+            let by = if COLOUR_BY.contains(&by.as_str()) { by } else { String::new() };
+            let _ = company::act(s, |c| {
+                c.planning.flow.colour_by = by;
+                Ok(())
+            });
+            return Ok(json!({}));
+        }
         "colour" => {
             // (the line's colour is the company's, not the draft's: plates and the map take it)
             let line = str_arg(args, "line");
@@ -1084,14 +1145,19 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
             let (lays, joined) = rf::optimise(&k.view, &k.lines, &k.date);
             let mut probe = (*k.view).clone();
             rf::apply(&mut probe, wd, lays.clone(), joined.clone());
+            // (a duty's own sign-on, sign-off and break points stay its own)
+            rf::signing::keep_points(&k.view, &mut probe, &k.lines, &k.date);
             let pb = rf::board(&probe, &k.lines, &k.date);
             r.proposal = Some(Proposal { date: k.date.clone(), generation: k.generation, base: k.rev.clone(), board: Arc::new(pb), view: Arc::new(probe), layouts: lays, joined });
             json!({ "proposal": true })
         }
         "accept" => match r.proposal.take() {
             Some(pr) => {
+                let (lines, date) = (k.lines.clone(), k.date.clone());
                 let out = edit(s, r, tr("Optimised"), |c| {
+                    let before = c.clone();
                     rf::apply(c, wd, pr.layouts, pr.joined);
+                    rf::signing::keep_points(&before, c, &lines, &date);
                     Ok(())
                 });
                 if out.get("edited").is_some() {
@@ -1286,6 +1352,23 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
                     let on = field == "sign_on";
                     (trf("Signing of duty %{d} set", &[("d", &label)]), Box::new(move |n: &mut rf::DutyNote| if on { n.sign_on = Some(v) } else { n.sign_off = Some(v) }))
                 }
+                "sign_on_at" | "sign_off_at" => {
+                    // (a relief point's key; empty where the bus is, null as the company has it)
+                    let at: Option<String> = value.as_str().map(|x| x.trim().to_string());
+                    let off = field == "sign_off_at";
+                    let words = if off { trf("Sign-off point of duty %{d} set", &[("d", &label)]) } else { trf("Sign-on point of duty %{d} set", &[("d", &label)]) };
+                    (words, Box::new(move |n: &mut rf::DutyNote| if off { n.sign_off_at = at.clone() } else { n.sign_on_at = at.clone() }))
+                }
+                "break_at" => {
+                    let gap = usize_arg(args, "gap") as u32;
+                    let at: Option<String> = value.as_str().map(str::trim).filter(|x| !x.is_empty()).map(String::from);
+                    (trf("Break place of duty %{d} set", &[("d", &label)]), Box::new(move |n: &mut rf::DutyNote| {
+                        n.breaks_at.retain(|x| x.0 != gap);
+                        if let Some(a) = &at {
+                            n.breaks_at.push((gap, a.clone()));
+                        }
+                    }))
+                }
                 "travel" => {
                     let gap = usize_arg(args, "gap") as u32;
                     let mode = Travel::ALL[(value.as_u64().unwrap_or(0) as usize).min(Travel::ALL.len() - 1)];
@@ -1312,7 +1395,15 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
             let from = args.get("from").and_then(Value::as_i64).unwrap_or(0) as i32;
             let Some(x) = board.shaped.get(row) else { return Ok(json!({})) };
             let Some(key) = x.key.clone() else { return Ok(json!({})) };
-            let gap = x.spans.iter().rposition(|sp| sp.to <= from).unwrap_or(0) as u32;
+            // (before the first piece: the way from the sign-on point; after the last: to the
+            // sign-off point - `signing`)
+            let gap = if x.spans.first().is_some_and(|sp| from < sp.from) {
+                rf::signing::ON_LEG
+            } else if x.spans.last().is_some_and(|sp| from >= sp.to) {
+                rf::signing::OFF_LEG
+            } else {
+                x.spans.iter().rposition(|sp| sp.to <= from).unwrap_or(0) as u32
+            };
             let words = trf("Travel of duty %{d} by %{mode}", &[("d", &x.label(row)), ("mode", &tr(Travel::ALL[mode].label()))]);
             edit(s, r, words, |c| {
                 let n = rf::note_mut(c, wd, &key);

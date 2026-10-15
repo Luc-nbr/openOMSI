@@ -237,6 +237,10 @@ pub struct Prefs {
     pub sign_off: i32,
     pub sign_on_split: i32,
     pub sign_off_split: i32,
+    /// Where drivers sign on and off (a relief point's key; None: where the bus is), unless a
+    /// duty chose its own (`signing`).
+    pub sign_on_at: Option<String>,
+    pub sign_off_at: Option<String>,
     pub relief: ReliefTiming,
     pub relief_before: i32,
     /// Duty travel: how drivers get to a relief point elsewhere, and how long it takes.
@@ -294,6 +298,8 @@ impl Default for Prefs {
             sign_off: 5,
             sign_on_split: 5,
             sign_off_split: 5,
+            sign_on_at: None,
+            sign_off_at: None,
             relief: ReliefTiming::ArrivalDeparture,
             relief_before: 5,
             travel: Travel::Walk,
@@ -634,11 +640,19 @@ pub struct DutyNote {
     pub sign_on: Option<i32>,
     #[serde(default)]
     pub sign_off: Option<i32>,
+    /// Where the duty signs on and off (a relief point's key, empty where the bus is; None: as
+    /// the company has it), and takes the break after its piece `n` (by `n`): `signing`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sign_on_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sign_off_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub breaks_at: Vec<(u32, String)>,
 }
 
 impl DutyNote {
     fn is_blank(&self) -> bool {
-        self.kind.is_none() && !self.locked && self.travel.is_empty() && self.custom.is_empty() && self.paid.is_none() && self.sign_on.is_none() && self.sign_off.is_none()
+        self.kind.is_none() && !self.locked && self.travel.is_empty() && self.custom.is_empty() && self.paid.is_none() && self.sign_on.is_none() && self.sign_off.is_none() && !self.has_points()
     }
 }
 
@@ -695,12 +709,16 @@ pub struct Flow {
     /// (`plandays`). Kept outside the draft: a copy is made as it is saved.
     #[serde(skip_serializing_if = "super::plandays::Days::is_empty")]
     pub days: super::plandays::Days,
+    /// How the Gantt colours the trips (Layers › Colour by, testers 2026-10-15): "trip" by the
+    /// timetable's trip, "block" by the bus, "duty" by the duty; empty by the line.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub colour_by: String,
 }
 
 impl Flow {
     /// Nothing but the defaults (left out of the saved company).
     pub fn is_empty(&self) -> bool {
-        self.prefs == Prefs::default() && self.sheet.is_empty() && self.draft.is_none() && self.days.is_empty()
+        self.prefs == Prefs::default() && self.sheet.is_empty() && self.draft.is_none() && self.days.is_empty() && self.colour_by.is_empty()
     }
 }
 
@@ -1068,6 +1086,8 @@ pub struct Shaped {
     /// Where it stands at relief points that allow no break (`ReliefPoint::breaks`): no break
     /// is taken in these minutes (`breaks_of`).
     pub no_rest: Vec<(i32, i32)>,
+    /// Where it signs on and off and takes its breaks elsewhere than where the bus is (`signing`).
+    pub points: signing::Points,
 }
 
 impl Shaped {
@@ -1201,7 +1221,7 @@ pub const PLACE_TITLES: [&str; 4] = ["Duties begin or end at a wrong place", "Du
 
 /// An issue's short title (its group in the Validation panel).
 pub fn issue_title(text: &str) -> &'static str {
-    ISSUE_TEXTS.iter().position(|t| *t == text).map(|k| ISSUE_TITLES[k]).or_else(|| PLACE_TEXTS.iter().position(|t| *t == text).map(|k| PLACE_TITLES[k])).unwrap_or("Issues")
+    ISSUE_TEXTS.iter().position(|t| *t == text).map(|k| ISSUE_TITLES[k]).or_else(|| PLACE_TEXTS.iter().position(|t| *t == text).map(|k| PLACE_TITLES[k])).or_else(|| signing::title_of(text)).unwrap_or("Issues")
 }
 
 /// An issue's words filled in (`tr`: how a text is translated).
@@ -1442,7 +1462,8 @@ pub fn board_of(c: &Company, wd: u8, tours: Vec<TourOfDay>, stack: Vec<(String, 
             let (a, b) = (s.spans[w], s.spans[w + 1]);
             let (_, end_a) = piece_places(&tours[a.tour], &network::duties_of(&tours[a.tour]).get(a.duty).cloned().unwrap_or(0..0));
             let (start_b, _) = piece_places(&tours[b.tour], &network::duties_of(&tours[b.tour]).get(b.duty).cloned().unwrap_or(0..0));
-            if same(&end_a, &start_b) {
+            // (the same place, unless its break is taken elsewhere: `signing`)
+            if same(&end_a, &start_b) && !s.points.breaks.iter().any(|(k, _)| *k == w) {
                 continue;
             }
             let need: i32 = s.events.iter().filter(|e| e.from >= a.to && e.from < b.from).map(|e| e.to - e.from).sum();
@@ -1507,25 +1528,26 @@ pub fn board_of(c: &Company, wd: u8, tours: Vec<TourOfDay>, stack: Vec<(String, 
 /// at all is the block's issue (`I_RELIEF_PLACE`).
 fn place_issues(c: &Company, tours: &[TourOfDay], s: &Shaped) -> Vec<(&'static str, String)> {
     let p = &c.planning.flow.prefs;
-    let mut out = Vec::new();
+    // (the points it chose, checked always: `signing`)
+    let mut out = signing::pick_issues(c, tours, s);
     // (no relief point set: the depot and the termini allow everything)
     if p.points.is_empty() {
         return out;
     }
     let places: Vec<(String, String)> = s.spans.iter().map(|sp| piece_places(&tours[sp.tour], &network::duties_of(&tours[sp.tour]).get(sp.duty).cloned().unwrap_or(0..0))).collect();
     let may = |place: &str, f: fn(&Uses) -> bool| uses_at(c, tours, place).is_none_or(|u| f(&u));
-    if let Some((first, _)) = places.first() {
+    if let Some((first, _)) = places.first().filter(|_| s.points.on.is_none()) {
         if !may(first, |u| u.sign) {
             out.push((I_SIGN_ON, first.clone()));
         }
     }
-    if let Some((_, last)) = places.last() {
+    if let Some((_, last)) = places.last().filter(|_| s.points.off.is_none()) {
         if !may(last, |u| u.sign) {
             out.push((I_SIGN_OFF, last.clone()));
         }
     }
     for w in 0..s.spans.len().saturating_sub(1) {
-        if s.spans[w + 1].from - s.spans[w].to >= p.split_min && !may(&places[w].1, |u| u.breaks) && !may(&places[w + 1].0, |u| u.breaks) {
+        if s.spans[w + 1].from - s.spans[w].to >= p.split_min && !s.points.breaks.iter().any(|(k, _)| *k == w) && !may(&places[w].1, |u| u.breaks) && !may(&places[w + 1].0, |u| u.breaks) {
             out.push((I_BREAK_PLACE, places[w].1.clone()));
         }
     }
@@ -1550,8 +1572,16 @@ fn shape(c: &Company, tours: &[TourOfDay], d: &Duty, di: Option<usize>, key: Opt
     let sign_on = n.sign_on.unwrap_or(p.sign_on);
     let sign_off = n.sign_off.unwrap_or(p.sign_off);
     let range = |s: &Span| network::duties_of(&tours[s.tour]).get(s.duty).cloned().unwrap_or(0..0);
+    // (where it signs on and off: its own point, the company's, else where the bus is - the
+    // travel between that and the bus before and after: `signing`)
+    let mut points = signing::Points { on: signing::sign_point(p, n, false), off: signing::sign_point(p, n, true), breaks: Vec::new() };
     if let Some(f) = spans.first() {
-        events.push(Ev { kind: EvKind::SignOn, from: f.from - sign_on, to: f.from });
+        let lead = points.on.as_ref().and_then(|at| signing::leg(c, tours, n, at, &piece_places(&tours[f.tour], &range(f)).0, false));
+        let m = lead.map(|x| x.1).unwrap_or(0);
+        if let Some((way, _)) = lead {
+            events.push(Ev { kind: EvKind::Travel(way), from: f.from - m, to: f.from });
+        }
+        events.push(Ev { kind: EvKind::SignOn, from: f.from - m - sign_on, to: f.from - m });
     }
     // (a break only where a relief point allows it: the driver waits where he comes from or
     // where he goes to, the travel before or after)
@@ -1563,6 +1593,12 @@ fn shape(c: &Company, tours: &[TourOfDay], d: &Duty, di: Option<usize>, key: Opt
         let (_, end_a) = piece_places(&tours[a.tour], &range(&a));
         let (start_b, _) = piece_places(&tours[b.tour], &range(&b));
         let set = n.travel.iter().find(|(k, _)| *k as usize == w).map(|x| x.1);
+        // (its break taken at a relief point chosen: there and back)
+        if let Some(at) = signing::break_point(n, w) {
+            signing::break_at(c, tours, &at, (&end_a, a.to), (&start_b, b.from), set, &mut events, &mut splits, &mut no_rest);
+            points.breaks.push((w, at));
+            continue;
+        }
         // (the way as the relief points have it: the pair, the points' own, the defaults)
         let (mode, m) = travel_between(c, tours, &end_a, &start_b, set);
         let (rest_a, rest_b) = (rest(&end_a), rest(&start_b));
@@ -1603,7 +1639,12 @@ fn shape(c: &Company, tours: &[TourOfDay], d: &Duty, di: Option<usize>, key: Opt
         }
     }
     if let Some(l) = spans.last() {
-        events.push(Ev { kind: EvKind::SignOff, from: l.to, to: l.to + sign_off });
+        let tail = points.off.as_ref().and_then(|at| signing::leg(c, tours, n, at, &piece_places(&tours[l.tour], &range(l)).1, true));
+        let m = tail.map(|x| x.1).unwrap_or(0);
+        if let Some((way, _)) = tail {
+            events.push(Ev { kind: EvKind::Travel(way), from: l.to, to: l.to + m });
+        }
+        events.push(Ev { kind: EvKind::SignOff, from: l.to + m, to: l.to + m + sign_off });
     }
     for (k, cw) in n.custom.iter().enumerate() {
         events.push(Ev { kind: EvKind::Custom(k), from: cw.from, to: cw.to });
@@ -1623,7 +1664,7 @@ fn shape(c: &Company, tours: &[TourOfDay], d: &Duty, di: Option<usize>, key: Opt
         Some(k) => (k, true),
         None => (p.duty_types.iter().position(|t| t.fits(start, end, split)), false),
     };
-    let mut s = Shaped { duty: di, spare: None, key, spans, events, custom: n.custom.clone(), start, end, work, paid, driving, platform, splits, changeovers, kind, kind_set, locked: n.locked, issues: Vec::new(), plan: BreakPlan::default(), no_rest };
+    let mut s = Shaped { duty: di, spare: None, key, spans, events, custom: n.custom.clone(), start, end, work, paid, driving, platform, splits, changeovers, kind, kind_set, locked: n.locked, issues: Vec::new(), plan: BreakPlan::default(), no_rest, points };
     s.plan = break_plan(p, tours, &s);
     s
 }
@@ -2356,6 +2397,7 @@ pub fn texts() -> Vec<&'static str> {
     out.extend(ISSUE_TITLES);
     out.extend(PLACE_TEXTS);
     out.extend(PLACE_TITLES);
+    out.extend(signing::TEXTS);
     out.extend(ReliefTiming::LABELS);
     out.extend(Travel::LABELS);
     out.extend(Tri::LABELS);
@@ -2365,6 +2407,9 @@ pub fn texts() -> Vec<&'static str> {
     out.extend([LINK_ONE_BUS, LINK_TWO]);
     out
 }
+
+/// A duty's own sign-on, sign-off and break points (testers, 2026-10-15).
+pub mod signing;
 
 #[cfg(test)]
 mod tests;

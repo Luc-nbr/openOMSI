@@ -18,6 +18,8 @@ import { STATS, STAT_LABEL, handSpan, pieceOf, pieceTrips, tripHand } from './ga
 import { Icon, RfButton, IconBtn, Caps, Switch, CheckRow, Seg, Stepper, MenuItem, Select } from './ui.js';
 import { AXIS } from './draw.js';
 import { DayItem, dayMenuHeight } from './days.js';
+import { BY, BY_LABEL, colourBy, setColourBy, legendOn, Legend } from './colourby.js';
+import { CopyTo, openCopyTo } from './copyto.js';
 
 const eq = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
 
@@ -81,10 +83,12 @@ export function Overlays({ data, drivers, p, size, gTop }) {
   const kind = panel?.kind || panel;
   return html`<div class="rf-layer">
     ${r.ticked.length > 0 && html`<${Batch} b=${b} drivers=${drivers} gTop=${gTop} />`}
+    ${kind === 'copyto' && r.ticked.length > 0 && html`<${CopyTo} gTop=${gTop} />`}
+    <${Legend} data=${data} drivers=${drivers} p=${p} />
     ${kind === 'issues' && html`<${Issues} data=${data} drivers=${drivers} scope=${panel.scope} size=${size} />`}
     ${kind === 'duty' && html`<${DutyPanel} data=${data} id=${panel.id} gTop=${gTop} />`}
     ${kind === 'stats' && html`<${StatsWindow} drivers=${drivers} gTop=${gTop} />`}
-    ${kind === 'layers' && html`<${LayersWindow} gTop=${gTop} />`}
+    ${kind === 'layers' && html`<${LayersWindow} data=${data} gTop=${gTop} />`}
     ${kind === 'filter' && html`<${FilterWindow} data=${data} size=${size} />`}
     ${kind === 'zoom' && html`<${ZoomMenu} />`}
     ${kind === 'histogram' && html`<${HistogramWindow} k=${data.kpis} which=${panel.which} size=${size} />`}
@@ -111,7 +115,8 @@ export function TitleWindows({ data, drivers, size }) {
 
 // --- the batch toolbar -------------------------------------------------------------------------------
 
-/** The ticked rows' tools over the Gantt's header: lock, unlock, unassign to the stack. */
+/** The ticked rows' tools over the Gantt's header: lock, unlock, unassign to the stack, and copy
+ * them to other days (`copyto.js`). */
 function Batch({ drivers, gTop }) {
   const r = S.rf;
   const ids = r.ticked;
@@ -119,8 +124,9 @@ function Batch({ drivers, gTop }) {
     <${IconBtn} icon="lock" title="Lock the rows ticked" onClick=${() => edit('lock_rows', { ids, on: true }).then(() => setRf({ ticked: ids }))} />
     <${IconBtn} icon="livery_unlock" title="Unlock the rows ticked" onClick=${() => edit('lock_rows', { ids, on: false }).then(() => setRf({ ticked: ids }))} />
     <${IconBtn} icon="inventory_2" title="Unassign the ticked vehicles' trips to the stack" disabled=${drivers} onClick=${() => edit('unassign_rows', { ids }).then(() => setRf({ ticked: [] }))} />
+    <button type="button" class=${'copy' + (r.panel?.kind === 'copyto' ? ' on' : '')} data-rf="rf-copyto-open" title=${tr('Copy the rows ticked to other days: only the trips that match there go along (Ctrl+C, then Ctrl+V on another day)')} onClick=${() => (r.panel?.kind === 'copyto' ? setRf({ panel: null }) : openCopyTo())}><${Icon} name="content_copy" size=${15} /><span>${tr('Copy to…')}</span></button>
     <b>${tr('%{n} rows selected', { n: ids.length })}</b>
-    <button type="button" class="x" onClick=${() => setRf({ ticked: [] })}><${Icon} name="close" size=${15} /></button>
+    <button type="button" class="x" onClick=${() => setRf({ ticked: [], ...(r.panel?.kind === 'copyto' ? { panel: null } : {}) })}><${Icon} name="close" size=${15} /></button>
   </div>`;
 }
 
@@ -248,10 +254,11 @@ function EventCard({ data, c, size }) {
   const e = s?.events[c.ev];
   if (!e) return null;
   const kind = e.kind === 'on' ? tr('Sign-on') : e.kind === 'off' ? tr('Sign-off') : e.kind === 'travel' ? `${tr('Travel')} (${e.label})` : e.label;
-  return html`<div class="rf-over rf-card" style=${place(c.at, 330, 190, size)}>
+  return html`<div class="rf-over rf-card" style=${place(c.at, 330, e.at ? 220 : 190, size)}>
     <div class="head"><${Icon} name="person" size=${17} /><b>${s.label}  ·  ${kind}</b></div>
     <div class="body">
       <${Field} cap="Type" value=${kind} />
+      ${e.at && html`<${Field} cap="Where" value=${e.at} />`}
       <div class="tl wide"><${TimeLine} from=${e.from} to=${e.to} mid=${`${e.to - e.from} min`} /></div>
       ${e.kind === 'travel' && html`<${Seg} at=${e.mode} labels=${TRAVEL} onPick=${(k) => edit('travel_event', { row: c.row, mode: k, from: e.from })} />`}
       ${e.kind === 'custom' && html`<${RfButton} label="Delete" style="width:120px;height:28px" onClick=${() => edit('custom_delete', { row: c.row, ci: e.ci })} />`}
@@ -571,12 +578,15 @@ function DutyPanel({ data, id, gTop }) {
       <div class="line"><span>${tr('Paid time')}</span><${Stepper} value=${v.paid} step=${5} min=${0} max=${1440} fmt=${hm} style="width:130px" onChange=${(x) => note('paid', x)} />
         ${v.paid_set && html`<${RfButton} label="Automatic" style="width:100px;height:28px" onClick=${() => note('paid_auto', null)} />`}</div>
       ${v.signing && html`<div class="line"><span>${tr('Sign-on')}</span><${Stepper} value=${v.sign_on} step=${1} min=${0} max=${60} fmt=${(x) => `${x} min`} style="width:110px" onChange=${(x) => note('sign_on', x)} /></div>
-        <div class="line"><span>${tr('Sign-off')}</span><${Stepper} value=${v.sign_off} step=${1} min=${0} max=${60} fmt=${(x) => `${x} min`} style="width:110px" onChange=${(x) => note('sign_off', x)} /></div>`}
+        <div class="line"><span>${tr('Sign-off')}</span><${Stepper} value=${v.sign_off} step=${1} min=${0} max=${60} fmt=${(x) => `${x} min`} style="width:110px" onChange=${(x) => note('sign_off', x)} /></div>
+        <${SignAt} label="Sign on at" value=${v.sign_on_at} company=${v.sign_company?.on} now=${v.sign_places?.on} list=${v.sign_points || []} onPick=${(x) => note('sign_on_at', x)} />
+        <${SignAt} label="Sign off at" value=${v.sign_off_at} company=${v.sign_company?.off} now=${v.sign_places?.off} list=${v.sign_points || []} onPick=${(x) => note('sign_off_at', x)} />`}
       <${Caps} text="Pieces of work" style="margin-top:6px" />
       ${v.pieces.map((pc, n) => html`<div class="piece"><span class="plate" style=${`background:${pc.colour}`}>${pc.number}</span><span class="cut">${pc.words}</span>
           ${v.pieces.length > 1 && html`<button type="button" title=${tr('Take the piece out: a duty of its own')} onClick=${() => rfAct('detach', { tour: pc.tour, duty: pc.duty })}><${Icon} name="close" size=${15} /></button>`}</div>
         ${pc.travel != null && html`<div class="way"><${Icon} name="directions_walk" size=${15} /><${Seg} at=${pc.travel} labels=${v.travel_labels} raw onPick=${(k) => note('travel', k, { gap: n })} /></div>`}
-        ${pc.between && html`<div class="between">${pc.between}</div>`}`)}
+        ${pc.between && html`<div class="between">${pc.between}</div>`}
+        ${n + 1 < v.pieces.length && html`<${BreakAt} value=${pc.break_at} list=${v.break_points || []} onPick=${(x) => note('break_at', x, { gap: n })} />`}`)}
       ${v.rest && html`<${Caps} text="Breaks" style="margin-top:8px" />
         ${!v.rest.breaks.length && html`<p class="breaks">${v.rest.none}</p>`}
         ${v.rest.breaks.map((b) => html`<div class="rest" title=${b.tip}><i class=${b.kind === 'split' ? 'split' : b.counts ? 'ok' : 'short'}></i><span>${b.words}</span></div>`)}
@@ -595,6 +605,25 @@ function DutyPanel({ data, id, gTop }) {
       ${v.spare && html`<${RfButton} label="Delete duty" style="width:160px;height:30px;margin-top:10px" onClick=${() => rfAct('spare_remove', { row }).then(() => setRf({ panel: null }))} />`}
     </div>
   </div>`;
+}
+
+/** Where a duty signs on or off (`signing`): as the company has it (null), where the bus is
+ * (empty), or a relief point that allows it (its key); `now` where it does now, in words. */
+function SignAt({ label, value, company, now, list, onPick }) {
+  const keys = list.map((x) => x.key);
+  const extra = value && !keys.includes(value) ? [value] : [];
+  const options = [`${tr('As the company has it')}: ${company || tr('Where the bus is')}`, tr('Where the bus is'), ...list.map((x) => x.name), ...extra];
+  const at = value == null ? 0 : value === '' ? 1 : 2 + (keys.includes(value) ? keys.indexOf(value) : keys.length);
+  return html`<div class="line rf-signat" title=${now ? `${tr(label)}: ${now}` : undefined}><span>${tr(label)}</span><${Select} value=${at} options=${options} style="width:210px;height:28px" onChange=${(k) => onPick(k === 0 ? null : k === 1 ? '' : keys[k - 2] ?? value)} /></div>`;
+}
+
+/** Where the break after a piece is taken (`signing`): where the bus is, or a relief point that
+ * allows breaks - the driver travels there and back. */
+function BreakAt({ value, list, onPick }) {
+  const keys = list.map((x) => x.key);
+  const extra = value && !keys.includes(value) ? [value] : [];
+  const at = value ? 1 + (keys.includes(value) ? keys.indexOf(value) : keys.length) : 0;
+  return html`<div class="way rf-breakat"><${Icon} name="location_on" size=${15} /><span>${tr('Break at')}</span><${Select} value=${at} options=${[tr('Where the bus is'), ...list.map((x) => x.name), ...extra]} style="width:200px;height:26px" onChange=${(k) => onPick(k === 0 ? null : keys[k - 1] ?? value)} /></div>`;
 }
 
 // --- the small windows -----------------------------------------------------------------------------------
@@ -621,12 +650,17 @@ function StatsWindow({ drivers, gTop }) {
   </div>`;
 }
 
-/** Layers: what the trips' chips say, and the layovers' minutes. */
-function LayersWindow({ gTop }) {
+/** Layers: what the trips' chips say and how they are coloured (the company's choice, with its
+ * legend), and the layovers' minutes. */
+function LayersWindow({ data, gTop }) {
   const ly = S.rf.layers;
   const set = (patch) => setRf({ layers: { ...ly, ...patch } });
   const periods = ly.periods !== false;
-  return html`<div class="rf-over rf-menu rf-small" style=${`left:330px;top:${gTop - 2}px;width:330px;height:286px`}>
+  const by = colourBy(data);
+  return html`<div class="rf-over rf-menu rf-small" style=${`left:330px;top:${gTop - 2}px;width:330px;height:460px`}>
+    <${Caps} text="Colour by" class="menu-caps" />
+    ${BY.map((k, n) => html`<${CheckRow} on=${by === k} label=${BY_LABEL[n]} onChange=${() => by !== k && setColourBy(k)} />`)}
+    <${CheckRow} on=${legendOn(data)} label="Show the legend" onChange=${() => set({ legend: !legendOn(data) })} />
     <${Caps} text="Trips" class="menu-caps" />
     ${['Route', 'Start and end time', 'Start and end stops'].map((w, k) => html`<${CheckRow} on=${ly.label === k} label=${w} onChange=${() => set({ label: k })} />`)}
     <${Caps} text="Between trips" class="menu-caps" />

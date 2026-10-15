@@ -1,0 +1,44 @@
+/* RosterFlow's Vehicles and Drivers tabs, Beta 57 (testers, 2026-10-15): the legend of the
+   trips' colours (`colourby.js`), the selection bar's "Copy to…" picker (`copyto.js`) and a
+   duty's sign-on, sign-off and break points in its panel. In the page's tokens
+   (`rosterflow.css`), so light and dark alike. */
+
+/* --- the legend ----------------------------------------------------------------------------------- */
+
+.rf-legend { right: 18px; bottom: 52px; width: 230px; max-height: 46%; display: flex; flex-direction: column; border-radius: 4px; background: var(--rf-sheet); color: var(--rf-text); box-shadow: var(--rf-shadow); z-index: 24; overflow: hidden; }
+.rf-legend .head { flex: none; height: 28px; display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 4px 0 10px; font-size: 9.6px; box-shadow: inset 0 -1px 0 var(--rf-line); }
+.rf-legend .head b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rf-legend .head button { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 3px; color: var(--rf-dim); }
+.rf-legend .head button:hover { color: var(--rf-text); background: var(--rf-hover); }
+.rf-legend .items { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 10px; padding: 7px 10px; overflow: auto; }
+.rf-legend .item { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 9.6px; color: var(--rf-soft); }
+.rf-legend .item i { flex: none; width: 12px; height: 9px; border-radius: 2px; }
+.rf-legend .item .cut { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rf-legend .more { padding: 0 10px 7px; font-size: 9px; color: var(--rf-dim); }
+
+/* --- a duty's sign-on, sign-off and break points (the duty panel) -------------------------------------- */
+
+.rf-duty .rf-signat .rf-select { flex: 1; min-width: 0; }
+.rf-duty .rf-breakat > span { font-size: 8.8px; font-weight: 500; white-space: nowrap; }
+.rf-duty .rf-breakat .rf-select { flex: 1; min-width: 0; max-width: 220px; }
+
+/* --- "Copy to…": the selection bar's button and its picker --------------------------------------------- */
+
+.rf-batch .copy { height: 24px; display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; margin-left: 4px; border-radius: 3px; color: #fff; font-size: 9.6px; font-weight: 700; white-space: nowrap; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45); }
+.rf-batch .copy:hover, .rf-batch .copy.on { background: rgba(255, 255, 255, 0.18); }
+.rf-copyto { display: flex; flex-direction: column; border-radius: 4px; background: var(--rf-sheet); color: var(--rf-text); box-shadow: var(--rf-shadow); z-index: 33; overflow: hidden; }
+.rf-copyto > .head { flex: none; height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 6px 0 12px; background: var(--rf-accent); color: #fff; font-size: 10.75px; }
+.rf-copyto > .head b { flex: 1; min-width: 0; }
+.rf-copyto > .head button { width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; border-radius: 3px; color: #fff; }
+.rf-copyto > .head button:hover { background: rgba(255, 255, 255, 0.18); }
+.rf-copyto > .body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; overflow: auto; }
+.rf-copyto .type { align-self: flex-start; height: 26px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 3px; background: rgba(var(--rf-accent-rgb), 0.14); color: var(--rf-text); font-size: 9.6px; font-weight: 700; }
+.rf-copyto .type:hover { background: rgba(var(--rf-accent-rgb), 0.26); }
+.rf-copyto .days { display: flex; flex-direction: column; }
+.rf-copyto .day { display: flex; align-items: center; gap: 8px; height: 30px; }
+.rf-copyto .day .rf-check { flex: 1; min-width: 0; }
+.rf-copyto .day .rf-check span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rf-copyto .tag { flex: none; height: 18px; display: inline-flex; align-items: center; padding: 0 7px; border-radius: 9px; font-size: 8.6px; font-weight: 700; white-space: nowrap; text-transform: uppercase; }
+.rf-copyto .note { margin: 0; font-size: 9.2px; line-height: 1.45; color: var(--rf-dim); }
+.rf-copyto > .foot { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px 10px; }
+.rf-copyto > .foot .grow { flex: 1; }
