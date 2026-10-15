@@ -24,6 +24,7 @@ pub mod career;
 pub mod clock;
 pub mod concessions;
 pub mod contracts;
+pub mod control;
 pub mod dates;
 pub mod day;
 pub mod dealer;
