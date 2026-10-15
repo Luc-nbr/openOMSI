@@ -669,10 +669,13 @@ function nextCell(v, c) {
     if (c.band + 1 < bands) return { kind: 'run', band: c.band + 1, seg: 0 };
     return null;
   }
-  if (c.kind === 'start') return { kind: 'headway', i: c.i };
+  // (the first trip has no headway to type)
+  if (c.kind === 'start') return v.tt?.rows[0]?.i === c.i ? null : { kind: 'headway', i: c.i };
   if (c.kind === 'time') {
+    // (the next stop shown: with timepoints only, not one left out)
     const row = v.tt?.rows.find((r) => r.i === c.i);
-    return row && c.s + 1 < row.n ? { ...c, s: c.s + 1 } : null;
+    const next = row?.cells.find((x) => x && x.s > c.s);
+    return next ? { ...c, s: next.s } : null;
   }
   return null;
 }
