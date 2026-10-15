@@ -23,6 +23,7 @@ pub mod autopilot;
 pub mod career;
 pub mod clock;
 pub mod concessions;
+pub mod complaints;
 pub mod contracts;
 pub mod dates;
 pub mod day;
@@ -173,6 +174,7 @@ pub fn found(f: &Founding, profile: &str) -> Company {
         vehicles: f.vehicles.clone(),
         together: Default::default(),
         reputation_log: Default::default(),
+        complaints: Default::default(),
     };
     // (Casual buys quickly; the buying chosen is kept for the other modes)
     autopilot::set_game_mode(&mut c, f.game_mode);

@@ -980,6 +980,7 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
     super::research::day(c, &date, &mut report);
     super::parts::day(c, &date, &mut report);
     super::contracts::day(c, &date, &mut report);
+    super::complaints::day(c, &date, &report);
     super::inbox::day(c, &date, &mut report);
     // (the easy mode's night: what the company sees to by itself, `autopilot`)
     if super::autopilot::on(c) {

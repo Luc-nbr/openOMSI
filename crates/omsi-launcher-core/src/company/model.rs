@@ -868,6 +868,9 @@ pub struct Company {
     /// What raised or lowered the reputation lately (`reputation`).
     #[serde(default)]
     pub reputation_log: super::reputation::Log,
+    /// The passengers' complaints to answer, and those answered lately (`complaints`).
+    #[serde(default)]
+    pub complaints: super::complaints::Complaints,
 }
 
 fn one() -> f64 {
