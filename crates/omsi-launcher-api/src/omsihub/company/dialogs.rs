@@ -27,6 +27,7 @@ pub fn view(s: &mut Session, what: &str, args: &Value) -> Value {
         "new" => super::fleet::new_view(s, args),
         "add_line" => super::lines::add_view(s, args),
         "fare" => super::money::fare_view(s, args),
+        "fleet_value" => super::age::fleet_value_view(s, args),
         _ => Value::Null,
     }
 }
@@ -424,6 +425,8 @@ fn report(s: &mut Session) -> Value {
         "drops_caps": tr("Trips dropped").to_uppercase(), "drops_hint": tr("Click one to see it in the planning"),
         "drops": drops.into_iter().take(DROPS_SHOWN).collect::<Vec<_>>(),
         "drops_more": (more > 0).then(|| trf("and %{n} more", &[("n", &more.to_string())])),
+        // (late running: the trips with their causes, punctuality, deductions, advice)
+        "late": super::late::report_part(&c, &reports),
         "money_caps": tr("Money").to_uppercase(), "money": kinds.iter().map(|(k, a)| { let (t, tone) = signed(*a); json!([tr(k.label()), t, tone]) }).collect::<Vec<_>>(),
         "lines_caps": tr("Lines").to_uppercase(), "lines_hint": tr("Click a line for its money"), "lines": lines,
         "facts_caps": tr("What happened").to_uppercase(),
@@ -470,7 +473,11 @@ fn drop_json(c: &co::Company, date: &str, d: &co::day::Dropped) -> Value {
         _ => json!({ "view": 1, "day": day, "reveal": format!("B|{}|{}", d.line, d.tour) }),
     };
     let tone = if d.why == DropWhy::NoBlock || d.problem == Some(co::plan::Problem::Unassigned) { "warn" } else { "danger" };
-    json!({ "text": words, "why": why, "tone": tone, "link": link, "date": day_label(date) })
+    // (its bus and driver, or the one missing that was planned and why it could not come)
+    let why = if d.bus.is_some() || d.driver.is_some() { super::late::dropped_text(c, d.why, d.problem, d.bus, d.driver) } else { why };
+    let words = if d.trip.trim().is_empty() { words } else { format!("{words}  ·  {}", trf("trip %{id}", &[("id", d.trip.trim())])) };
+    let duty = d.duty.map(|k| trf("Duty %{n}", &[("n", &(k + 1).to_string())]));
+    json!({ "text": words, "why": why, "tone": tone, "link": link, "date": day_label(date), "duty": duty, "bus": super::late::bus_json(c, d.bus), "driver": super::late::driver_json(c, d.driver) })
 }
 
 /// What happened while the player was away (`clock::away_dialog`).

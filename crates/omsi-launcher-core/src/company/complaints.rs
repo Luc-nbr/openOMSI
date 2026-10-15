@@ -110,6 +110,25 @@ pub struct Complaint {
     pub echo: bool,
     #[serde(default)]
     pub variant: u32,
+    /// A late trip: its minutes late, the cause that brought it most (`lateness::Cause::key`),
+    /// its bus and driver.
+    #[serde(default)]
+    pub minutes: i32,
+    #[serde(default)]
+    pub cause: String,
+    #[serde(default)]
+    pub bus: Option<u32>,
+    #[serde(default)]
+    pub driver: Option<u32>,
+}
+
+/// What the lateness model knows of a late trip complained about.
+#[derive(Clone, Debug, Default)]
+struct Late {
+    minutes: i32,
+    cause: String,
+    bus: Option<u32>,
+    driver: Option<u32>,
 }
 
 impl Complaint {
@@ -164,25 +183,41 @@ pub fn day_pass(c: &Company) -> Cents {
 pub fn day(c: &mut Company, date: &str, report: &DayReport) {
     expire(c, date);
     let mut rng = Rng::of(&[&c.id, "complaints", date], 0);
-    let mut cand: Vec<(Kind, String, i32, Option<DropWhy>, u8, f64)> = Vec::new();
+    let mut cand: Vec<(Kind, String, i32, Option<DropWhy>, u8, f64, Late)> = Vec::new();
     // (what went wrong, with how likely it brings a complaint)
     for d in &report.drops {
         let kind = if matches!(d.why, DropWhy::BrokeDown | DropWhy::Crashed) { Kind::Breakdown } else { Kind::Dropped };
         let sev = if d.trips >= 3 { 3 } else { 2 };
-        cand.push((kind, d.number.clone(), d.from, Some(d.why), sev, (0.25 + 0.1 * d.trips as f64).min(0.8)));
+        cand.push((kind, d.number.clone(), d.from, Some(d.why), sev, (0.25 + 0.1 * d.trips as f64).min(0.8), Late::default()));
     }
     let hour = |rng: &mut Rng| rng.int(6, 20) as i32 * 60 + rng.int(0, 11) as i32 * 5;
-    for l in report.lines.iter().filter(|l| l.late > 0) {
-        let t = hour(&mut rng);
-        let sev = if l.late >= 6 { 2 } else { 1 };
-        cand.push((Kind::Late, l.number.clone(), t, None, sev, (0.08 * l.late as f64).min(0.6)));
+    // late trips: the worst of each line as the lateness model ran it - its time, minutes,
+    // bus, driver and main cause (a day of an older file, without them: the line's count)
+    let late: Vec<&super::lateness::Outcome> = report.lateness.trips.iter().filter(|o| o.dropped.is_none() && o.minutes >= 5).collect();
+    if late.is_empty() {
+        for l in report.lines.iter().filter(|l| l.late > 0) {
+            let t = hour(&mut rng);
+            let sev = if l.late >= 6 { 2 } else { 1 };
+            cand.push((Kind::Late, l.number.clone(), t, None, sev, (0.08 * l.late as f64).min(0.6), Late::default()));
+        }
+    }
+    let mut numbers: Vec<&str> = late.iter().map(|o| o.number.as_str()).collect();
+    numbers.sort_unstable();
+    numbers.dedup();
+    for n in numbers {
+        let mine: Vec<&&super::lateness::Outcome> = late.iter().filter(|o| o.number == n).collect();
+        let Some(worst) = mine.iter().max_by_key(|o| o.minutes) else { continue };
+        let sev = if worst.minutes >= 30 { 3 } else if worst.minutes >= 15 { 2 } else { 1 };
+        let p = (0.05 * mine.len() as f64 + 0.02 * worst.minutes as f64).min(0.6);
+        let x = Late { minutes: worst.minutes, cause: worst.main().map(|c| c.key().to_string()).unwrap_or_default(), bus: worst.bus, driver: worst.driver };
+        cand.push((Kind::Late, n.to_string(), worst.dep, None, sev, p, x));
     }
     let busy: Vec<&super::day::LineDay> = report.lines.iter().filter(|l| l.passengers > 0).collect();
     let any_line = |rng: &mut Rng| busy.get(rng.int(0, busy.len().max(1) as i64 - 1) as usize).map(|l| l.number.clone());
     if report.left_behind > 0 || report.crowded > 0 {
         if let Some(n) = any_line(&mut rng) {
             let t = hour(&mut rng);
-            cand.push((Kind::Crowded, n, t, None, if report.left_behind > 50 { 2 } else { 1 }, (0.02 * report.crowded as f64 + 0.002 * report.left_behind as f64).min(0.6)));
+            cand.push((Kind::Crowded, n, t, None, if report.left_behind > 50 { 2 } else { 1 }, (0.02 * report.crowded as f64 + 0.002 * report.left_behind as f64).min(0.6), Late::default()));
         }
     }
     let held: Vec<f64> = c.fleet.iter().filter(|v| v.held_on(date)).map(|v| v.clean).collect();
@@ -190,33 +225,33 @@ pub fn day(c: &mut Company, date: &str, report: &DayReport) {
     if clean < 55.0 {
         if let Some(n) = any_line(&mut rng) {
             let t = hour(&mut rng);
-            cand.push((Kind::Dirty, n, t, None, if clean < 35.0 { 2 } else { 1 }, ((55.0 - clean) / 60.0).min(0.5)));
+            cand.push((Kind::Dirty, n, t, None, if clean < 35.0 { 2 } else { 1 }, ((55.0 - clean) / 60.0).min(0.5), Late::default()));
         }
     }
     if report.incidents.complaints > 0 {
         if let Some(n) = any_line(&mut rng) {
             let t = hour(&mut rng);
-            cand.push((Kind::Rude, n, t, None, 2, (0.2 * report.incidents.complaints as f64).min(0.7)));
+            cand.push((Kind::Rude, n, t, None, 2, (0.2 * report.incidents.complaints as f64).min(0.7), Late::default()));
         }
     }
     for l in c.lines.iter().filter(|l| !l.number.is_empty()) {
         let x = super::fares::offset(c, super::fares::fare_of(c, l));
         if x > super::fares::FAIR && report.lines.iter().any(|d| d.line == l.name && d.passengers > 0) {
-            cand.push((Kind::Fare, l.number.clone(), 0, None, 1, ((x - super::fares::FAIR) * 0.5).min(0.4)));
+            cand.push((Kind::Fare, l.number.clone(), 0, None, 1, ((x - super::fares::FAIR) * 0.5).min(0.4), Late::default()));
         }
     }
     // (spread: the likelier ones first, a few a day at most)
     let mut drawn: Vec<_> = cand.into_iter().filter(|x| rng.chance(x.5)).collect();
     drawn.sort_by(|a, b| b.4.cmp(&a.4).then(b.5.total_cmp(&a.5)));
     let deadline = dates::add(date, days_to_answer(c.game_mode));
-    for (kind, line, time, why, severity, _) in drawn.into_iter().take(per_day(c.game_mode)) {
+    for (kind, line, time, why, severity, _, x) in drawn.into_iter().take(per_day(c.game_mode)) {
         c.complaints.counter += 1;
         let id = c.complaints.counter;
         let passenger = format!("{} {}", FIRST[rng.int(0, 15) as usize], LAST[rng.int(0, 15) as usize]);
         let variant = rng.int(0, 1) as u32;
         let mood = (42.0 - 8.0 * severity as f64 + rng.range(-5.0, 5.0)).clamp(5.0, 60.0);
-        let mut k = Complaint { id, date: date.to_string(), deadline: deadline.clone(), passenger, line, time, kind, why, severity, mood, used: Vec::new(), talk: Vec::new(), state: State::Open, reputation: 0.0, paid: 0, echo: false, variant };
-        k.talk.push(Said { mine: false, text: opening(kind, variant).to_string(), args: args_of(c, &k) });
+        let mut k = Complaint { id, date: date.to_string(), deadline: deadline.clone(), passenger, line, time, kind, why, severity, mood, used: Vec::new(), talk: Vec::new(), state: State::Open, reputation: 0.0, paid: 0, echo: false, variant, minutes: x.minutes, cause: x.cause, bus: x.bus, driver: x.driver };
+        k.talk.push(Said { mine: false, text: opening_of(&k).to_string(), args: args_of(c, &k) });
         c.complaints.list.push(k);
         if c.game_mode.casual() {
             answer_by_itself(c, id, date);
@@ -252,6 +287,15 @@ pub fn open_count(c: &Company) -> usize {
     c.complaints.list.iter().filter(|k| k.open()).count()
 }
 
+/// The passenger's first words, with a late trip's minutes when the lateness model has them.
+pub fn opening_of(k: &Complaint) -> &'static str {
+    match k.kind {
+        Kind::Late if k.minutes > 0 && k.variant % 2 == 0 => "I waited at the stop for line %{line} at %{time} and the bus came %{minutes} minutes late. I missed my connection!",
+        Kind::Late if k.minutes > 0 => "Your line %{line} at %{time} was %{minutes} minutes late. I was late for work because of it.",
+        kind => opening(kind, k.variant),
+    }
+}
+
 /// The passenger's first words.
 pub fn opening(kind: Kind, variant: u32) -> &'static str {
     let v = variant % 2 == 0;
@@ -283,7 +327,18 @@ pub fn explain(k: &Complaint) -> &'static str {
         (Kind::Dropped, _) => "We are sorry. That trip could not run, and we should have told you.",
         (Kind::Breakdown, Some(DropWhy::Crashed)) => "We are sorry. The bus was in an accident; we are glad nobody was hurt.",
         (Kind::Breakdown, _) => "We are sorry. The bus broke down, and help took too long to come.",
-        (Kind::Late, _) => "We are sorry. Traffic and a timetable that was too tight held the bus up.",
+        (Kind::Late, _) => match k.cause.as_str() {
+            "sign_on" => "We are sorry. The driver signed on late, so the bus left late.",
+            "carried" => "We are sorry. The bus came in late from its trip before and had too little layover to catch up.",
+            "relief" => "We are sorry. The driver came from another duty that ran late.",
+            "breakdown" => "We are sorry. A bus broke down and the one sent for it took time.",
+            "peak" => "We are sorry. The rush-hour traffic held the bus up more than the timetable allows.",
+            "traffic" => "We are sorry. Traffic held the bus up.",
+            "driver" => "We are sorry. The driver drove more slowly than the timetable needs.",
+            "bus" => "We are sorry. The bus was in poor condition and could not keep to time.",
+            "event" => "We are sorry. Roadworks or a diversion on the line held the bus up.",
+            _ => "We are sorry. Traffic and a timetable that was too tight held the bus up.",
+        },
         (Kind::Crowded, _) => "We are sorry. More people rode than we had places for.",
         (Kind::Dirty, _) => "We are sorry. That bus should never have gone out like that.",
         (Kind::Rude, _) => "We are sorry. That is not how our drivers should treat anyone.",
@@ -294,7 +349,13 @@ pub fn explain(k: &Complaint) -> &'static str {
 /// The company's promise for the cause, and the page it is done on (`company::TABS`).
 pub fn promise(k: &Complaint) -> (&'static str, usize) {
     match k.kind {
-        Kind::Late => ("We will give line %{line} more layover so the buses keep to time.", 5),
+        Kind::Late => match k.cause.as_str() {
+            "sign_on" => ("We will make sure our drivers sign on in time.", 2),
+            "breakdown" | "bus" => ("We will have our buses serviced more often.", 11),
+            "driver" => ("The driver will get more training on the route.", 2),
+            "event" => ("We will plan more time on line %{line} while the works last.", 5),
+            _ => ("We will give line %{line} more layover so the buses keep to time.", 5),
+        },
         Kind::Dropped => ("We will keep spare drivers and buses ready for line %{line}.", 2),
         Kind::Breakdown => ("We will have our buses serviced more often.", 11),
         Kind::Crowded => ("We will put a bigger bus or more trips on line %{line}.", 5),
@@ -375,6 +436,7 @@ fn args_of(c: &Company, k: &Complaint) -> Vec<(String, String)> {
         ("line".into(), k.line.clone()),
         ("time".into(), format!("{:02}:{:02}", (k.time / 60).rem_euclid(24), k.time.rem_euclid(60))),
         ("fare".into(), format!("{:.2} €", fare as f64 / 100.0)),
+        ("minutes".into(), k.minutes.to_string()),
     ]
 }
 
@@ -491,7 +553,7 @@ mod tests {
         let r = DayReport {
             trips: 100,
             dropped: 6,
-            drops: vec![Dropped { line: "Linie5".into(), number: "5".into(), tour: "1".into(), duty: Some(0), from: 7 * 60 + 15, to: 9 * 60, trips: 6, why: DropWhy::NoDriver, problem: None, sent: None }],
+            drops: vec![Dropped { line: "Linie5".into(), number: "5".into(), tour: "1".into(), duty: Some(0), from: 7 * 60 + 15, to: 9 * 60, trips: 6, why: DropWhy::NoDriver, problem: None, sent: None, bus: None, driver: None, trip: String::new() }],
             lines: vec![LineDay { line: "Linie5".into(), number: "5".into(), passengers: 300, ..Default::default() }],
             ..Default::default()
         };
@@ -533,6 +595,30 @@ mod tests {
         assert_eq!(k.state, State::Angry);
         assert!(c.reputation < rep && c.reputation > rep - 1.0);
         assert_eq!(reply(&mut c, id, Choice::Apologise, "2024-03-05").err(), Some("This complaint is closed."));
+    }
+
+    #[test]
+    fn a_late_trip_complaint_names_its_minutes_and_real_cause() {
+        use super::super::lateness::{Cause as Why, Lateness, Outcome};
+        let o = Outcome { line: "Linie5".into(), number: "5".into(), dep: 8 * 60 + 10, bus: Some(3), driver: Some(7), minutes: 18, causes: vec![Why::SignOn { driver: 7, minutes: 18 }], ..Default::default() };
+        let r = DayReport { trips: 100, late: 1, lateness: Lateness { trips: vec![o], ..Default::default() }, lines: vec![LineDay { line: "Linie5".into(), number: "5".into(), passengers: 300, late: 1, ..Default::default() }], ..Default::default() };
+        let mut c = company(GameMode::Normal);
+        for k in 0..60 {
+            c.id = format!("l{k}");
+            c.complaints = Complaints::default();
+            day(&mut c, "2024-03-04", &r);
+            if !c.complaints.list.is_empty() {
+                break;
+            }
+        }
+        let k = c.complaints.list.first().expect("a complaint came").clone();
+        assert_eq!((k.kind, k.time, k.minutes, k.cause.as_str(), k.bus, k.driver, k.severity), (Kind::Late, 8 * 60 + 10, 18, "sign_on", Some(3), Some(7), 2));
+        assert!(k.talk[0].text.contains("%{minutes} minutes"));
+        assert!(explain(&k).contains("signed on late") && promise(&k).1 == 2);
+        // the reputation counts the late trip once, by itself (not the punctuality band too)
+        let mut c = company(GameMode::Realistic);
+        let taken = super::super::reputation::close_day(&mut c, "2024-03-04", &r, Some(50.0), &Default::default());
+        assert!((taken + super::super::reputation::LATE_TRIP).abs() < 1e-9, "{taken}");
     }
 
     #[test]

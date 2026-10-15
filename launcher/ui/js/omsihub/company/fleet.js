@@ -152,7 +152,29 @@ function BusSide({ file, name, kind, livery, onLivery, design, designTip, onDesi
 }
 
 /** A row of a price table (`fleet::price_row`). */
-export const PriceRow = ({ r, h = 34 }) => html`<div class=${'co-price' + (r.strong ? ' strong' : '')} style=${`height:${h}px`}><span class="cut">${r.a}</span><b class=${'cut' + (r.tone ? ' t-' + r.tone : '')}>${r.b}</b></div>`;
+export const PriceRow = ({ r, h = 34 }) => html`<div class=${'co-price' + (r.strong ? ' strong' : '')} style=${`height:${h}px`} title=${r.tip || undefined}><span class="cut">${r.a}</span><b class=${'cut' + (r.tone ? ' t-' + r.tone : '')}>${r.b}</b></div>`;
+
+/** Setting a bus's age oneself (`age::age_switch`): a switch, and the year of first
+ * registration with its button; `onSet('')` goes back to the plate's or the market's. */
+export function AgeSet({ a, onSet }) {
+  const [on, setOn] = useState(a.on);
+  const [year, setYear] = useState(a.year);
+  useEffect(() => {
+    setOn(a.on);
+    setYear(a.year);
+  }, [a.on, a.year]);
+  const flip = (e) => {
+    const v = e.currentTarget.checked;
+    setOn(v);
+    if (!v && a.on) onSet('');
+  };
+  return html`<div class="co-ageset" title=${a.tip} style="display:flex;align-items:center;gap:10px;margin-top:10px;min-height:36px">
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" checked=${on} onChange=${flip} /><span>${a.label}</span></label>
+    ${on && html`<input class="co-field" style="width:150px;height:34px" inputmode="numeric" value=${year} placeholder=${a.placeholder}
+        onInput=${(e) => setYear(e.currentTarget.value)} onKeyDown=${(e) => e.key === 'Enter' && year.trim() && onSet(year.trim())} />
+      <${Btn} label=${a.apply} style="height:34px" onClick=${() => year.trim() && onSet(year.trim())} />`}
+  </div>`;
+}
 
 /** A bus of the fleet (`Dialog::Vehicle`). */
 export function VehicleDialog({ d }) {
@@ -173,6 +195,7 @@ export function VehicleDialog({ d }) {
     <div class="co-busdialog">
       <${BusSide} file=${v.file} name=${v.name} kind=${v.bus_kind} livery=${v.livery} onLivery=${(p) => act('bus_livery', { id: d.id, livery: p })} design=${v.design} designTip=${v.design_tip} onDesign=${() => act('design_livery', { id: d.id })} />
       <div class="right">${v.rows.map((r) => html`<${PriceRow} r=${r} />`)}
+        ${v.age && html`<${AgeSet} a=${v.age} onSet=${(y) => act('bus_age', { id: d.id, year: y })} />`}
         <div class=${'co-para t-' + v.tone} style="font-weight:700;margin-top:10px;line-height:26px">${v.status}</div></div>
     </div>
   </${Dialog}>`;

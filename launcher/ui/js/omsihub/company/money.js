@@ -35,7 +35,7 @@ export function MoneyPage() {
       const h2 = Math.max(100, size.h - y2);
       tall = y2 + h2;
       const lw = (size.w - gap) * 0.62;
-      body = html`${v.figures.map((f, k) => html`<div style=${box(k * (fw + gap), 0, fw, 100)}><${Figure} f=${f} small=${fw < 170} /></div>`)}
+      body = html`${v.figures.map((f, k) => html`<div style=${box(k * (fw + gap), 0, fw, 100) + (f.open ? ';cursor:pointer' : '')} title=${f.tip} onClick=${f.open ? () => setCo({ dialog: { kind: f.open } }) : undefined}><${Figure} f=${f} small=${fw < 170} /></div>`)}
         <${Month} m=${v.month} style=${box(0, y, cw, h1)} />
         <${Loans} l=${v.loans} style=${box(cw + gap, y, cw, h1)} w=${cw - 36} />
         ${wide
@@ -59,6 +59,7 @@ function Month({ m, style }) {
           ${m.rows.map(([label, t, tone]) => html`<div class="co-monthrow"><span class="cut">${label}</span><b class=${'t-' + tone}>${t}</b></div>`)}
           <div class="co-monthrow result"><span>${m.result_label}</span><b class=${'t-' + m.result_tone}>${m.result}</b></div>
           ${m.capital && html`<p class="co-note" style="margin-top:12px">${m.capital}</p>`}
+          ${m.late && html`<button type="button" class="late-how" style="margin-top:10px" onClick=${() => setCo({ dialog: { kind: 'late' } })}><${Icon} name="schedule" size=${15} />${m.late}</button>`}
         </div>`}
   </${Section}>`;
 }
@@ -176,4 +177,22 @@ function Curves({ c, v }) {
     <span class="co-axis" style=${`left:${plot.x + plot.w - 40}px;width:80px;text-align:center;top:${plot.y + plot.h + 8}px`}>${c.hi_text}</span>
     <span class="co-axis t-accent" style=${`left:${x - 40}px;width:80px;text-align:center;top:${plot.y + plot.h + 8}px;font-weight:700`}>${v.fare_text}</span>
   </div>`;
+}
+
+/** The fleet's value by age band (`age::fleet_value_view`): per band its buses, what they cost
+ * new, are worth and lost; a band's buses and how each value is worked out on hover. */
+export function FleetValueDialog() {
+  const v = useView('fleet_value', {});
+  const close = () => setCo({ dialog: null });
+  if (!v) return null;
+  const cols = 'grid-template-columns:minmax(0,1.1fr) 70px repeat(3,minmax(0,1fr));gap:12px;align-items:center';
+  const cell = (x, k) => html`<span class="cut" style=${k ? 'text-align:right' : ''}>${x}</span>`;
+  const foot = html`<span class="rest"></span><${Btn} kind="primary" label=${v.close} onClick=${close} />`;
+  return html`<${Dialog} icon="payments" title=${v.title} w=${860} onClose=${close} foot=${foot}>
+    <div class="co-caps" style=${'display:grid;' + cols + ';padding:0 4px 6px'}>${v.head.map(cell)}</div>
+    ${v.rows.map((r) => html`<div class="co-monthrow" title=${r.tip || undefined} style=${'display:grid;' + cols}>${[r.band, r.buses, r.new, r.now, r.lost].map(cell)}</div>`)}
+    <div class="co-monthrow result" style=${'display:grid;' + cols}>${v.total.map(cell)}</div>
+    <p class="co-note" style="margin-top:14px">${v.note}</p>
+    ${v.other && html`<p class="co-note" style="margin-top:6px">${v.other}</p>`}
+  </${Dialog}>`;
 }

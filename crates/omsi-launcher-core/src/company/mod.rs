@@ -25,6 +25,7 @@ pub mod clock;
 pub mod concessions;
 pub mod complaints;
 pub mod contracts;
+pub mod control;
 pub mod dates;
 pub mod day;
 pub mod dealer;
@@ -35,6 +36,7 @@ pub mod fares;
 pub mod finance;
 pub mod holidays;
 pub mod inbox;
+pub mod lateness;
 pub mod fleetmap;
 pub mod incidents;
 pub mod levels;
@@ -48,6 +50,7 @@ pub mod parts;
 pub mod plan;
 pub mod plandays;
 pub mod rankings;
+pub mod registrations;
 pub mod remote;
 pub mod reputation;
 pub mod research;
@@ -175,6 +178,7 @@ pub fn found(f: &Founding, profile: &str) -> Company {
         together: Default::default(),
         reputation_log: Default::default(),
         complaints: Default::default(),
+        lateness: Default::default(),
     };
     // (Casual buys quickly; the buying chosen is kept for the other modes)
     autopilot::set_game_mode(&mut c, f.game_mode);

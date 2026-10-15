@@ -1,0 +1,55 @@
+/* Late running and the trips dropped (`company/late.js`, `rosterflow/service.js`): the day
+   report's part, the finances' deductions, the advice, and RosterFlow's service group and card. */
+
+.t-bg-ok { background: var(--co-ok, #34b26e); color: #fff; }
+.t-bg-warn { background: var(--co-warn, #e8aa46); color: #1e1a0a; }
+.t-bg-orange { background: #ee7a22; color: #fff; }
+.t-bg-danger { background: var(--co-danger, #d93a30); color: #fff; }
+
+.late-link { color: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font: inherit; }
+.late-link:hover { color: var(--co-accent, #f28c28); }
+
+.late-trip { margin-bottom: 4px; }
+.late-head { height: 34px; gap: 10px; padding: 0 6px 0 8px; width: 100%; }
+.late-badge { min-width: 30px; height: 18px; padding: 0 5px; border-radius: 4px; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.late-who { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 0 10px 4px 48px; font-size: var(--co-note, 10.4px); }
+.late-who > span { display: inline-flex; align-items: center; gap: 4px; }
+.late-why { padding: 2px 10px 8px 48px; font-size: var(--co-note, 10.4px); line-height: 1.7; }
+.late-why p { margin: 0; }
+
+.late-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
+.late-puncts .list { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; max-height: 180px; overflow-y: auto; }
+.late-puncts .list > div { display: flex; justify-content: space-between; gap: 8px; font-size: var(--co-note, 10.4px); }
+
+.late-money { margin-top: 16px; }
+.late-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; margin-top: 6px; }
+.late-cols .co-monthrow { display: flex; gap: 10px; }
+.late-cols .co-monthrow > span:first-child { flex: 1; }
+.late-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.late-how { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; font-size: var(--co-note, 10.4px); color: var(--co-accent, #f28c28); cursor: pointer; }
+.late-how:hover { text-decoration: underline; }
+
+.late-advice { display: flex; gap: 12px; margin-bottom: 10px; }
+.late-advice p { margin: 0; font-size: 11.1px; line-height: 1.7; }
+.late-advice .fixes { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+
+/* RosterFlow */
+.rf-svc { display: flex; flex-direction: column; gap: 2px; font-size: 11px; line-height: 1.45; width: 100%; }
+.rf-svc .top { display: flex; align-items: center; gap: 8px; }
+.rf-svc .badge { min-width: 26px; height: 16px; padding: 0 4px; border-radius: 3px; font-size: 9.5px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex: none; color: #fff; background: #ee7a22; }
+.rf-svc.warn .badge { background: #e2b228; color: #1e1a0a; }
+.rf-svc.danger .badge { background: #de3e3e; }
+.rf-svc .dim { opacity: 0.7; }
+.rf-svc .who { display: flex; align-items: center; gap: 5px; }
+.rf-svc .why { padding-left: 2px; }
+.rf-svc .money { opacity: 0.8; }
+.rf-svc-link { color: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font: inherit; padding: 0; }
+.rf-svc-link:hover { color: var(--rf-accent, #2f80ed); }
+.rf-svc-group { margin-bottom: 8px; }
+.rf-svc-group .group { display: flex; align-items: center; gap: 8px; }
+.rf-svc-group .group .dim { margin-left: auto; opacity: 0.7; font-size: 10.5px; }
+.rf-svc-row { cursor: pointer; padding: 6px 4px; border-radius: 3px; }
+.rf-svc-row:hover { background: rgba(127, 127, 127, 0.12); }
+.rf-svc-advice { display: flex; gap: 8px; padding: 6px 4px; font-size: 11px; line-height: 1.5; }
+.rf-svc-advice p { margin: 0; }
+.rf-svc-advice .btns { display: flex; gap: 12px; margin-top: 3px; flex-wrap: wrap; }

@@ -957,12 +957,17 @@ pub enum BusOf {
     Rental,
 }
 
-/// A driver late for a duty's beginning: open until `until`, unless `cover` drives it.
+/// A driver late for a duty's beginning: open until `until`, unless `cover` drives it (an
+/// employee, a booked agency driver, or `AGENCY`: one the agency sends on the day).
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub struct LatePiece {
     pub until: i32,
     pub cover: Option<u32>,
     pub from_: Source,
+    /// The cover was sent during the day (service control, `control::cover_from`): it drives
+    /// the trips from this minute on, those before it are dropped. None: all of them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cover_from: Option<i32>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
@@ -983,6 +988,16 @@ pub struct DayDuty {
 impl DayDuty {
     pub fn open(&self) -> bool {
         self.who.is_none()
+    }
+
+    /// The trips leaving before this minute are dropped: its driver comes late, and nobody
+    /// covers them (or the cover came later: `LatePiece::cover_from`).
+    pub fn dropped_before(&self) -> Option<i32> {
+        let l = self.late?;
+        match l.cover {
+            None => Some(l.until),
+            Some(_) => l.cover_from.filter(|&f| f > self.from).map(|f| f.min(l.until)),
+        }
     }
 }
 
@@ -1118,7 +1133,7 @@ impl DayPlan {
                                 Some(Who::Player) | Some(Who::Guest(_)) => Some(PLAYER),
                                 None => None,
                             },
-                            dropped_before: d.late.filter(|l| l.cover.is_none()).map(|l| l.until),
+                            dropped_before: d.dropped_before(),
                             problem: d.problem,
                         })
                         .collect(),
@@ -1377,6 +1392,31 @@ pub fn candidates(c: &Company, dp: &DayPlan, ti: usize, k: usize) -> Vec<Candida
         rank(&a.1).cmp(&rank(&b.1)).then(a.0.cmp(&b.0))
     });
     out.into_iter().map(|x| x.1).collect()
+}
+
+/// Who can drive the first trips of duty `k` of tour `ti` before its late driver comes
+/// (`DayDuty::late`: service control's cover): the company's drivers and the agency drivers
+/// booked for the day free then and fit for the bus, the booked ones first, then the standby
+/// drivers (no other duty that day). (id, standby)
+pub fn late_covers(c: &Company, dp: &DayPlan, ti: usize, k: usize) -> Vec<(u32, bool)> {
+    let Some(t) = dp.tours.get(ti) else { return Vec::new() };
+    let Some(d) = t.duties.get(k) else { return Vec::new() };
+    let (Some(l), Some(Who::Staff(late))) = (d.late, d.who) else { return Vec::new() };
+    let piece = Block { key: late_key(&t.tour.line, &t.tour.tour, k), from: d.from, to: l.until.min(d.to), from_stop: t.tour.trips.get(d.start).map(|x| x.from.clone()).unwrap_or_default(), to_stop: String::new() };
+    let bus = t.bus_of(c);
+    let mut out: Vec<(bool, bool, u32)> = c
+        .staff
+        .iter()
+        .chain(super::agency::drivers_on(c, &dp.date))
+        .filter(|e| e.id != late && unavailable(e, &dp.date, dp.today).is_none())
+        .filter(|e| !super::agency::is_booked(e.id) || super::agency::within(c, e.id, &piece))
+        .filter_map(|e| {
+            let work = work_without(dp, e.id, (usize::MAX, 0));
+            fits_bus(e, &bus, &work, &piece, dp.today).ok().map(|_| (!super::agency::is_booked(e.id), !work.is_empty(), e.id))
+        })
+        .collect();
+    out.sort();
+    out.into_iter().map(|(_, busy, id)| (id, !busy)).collect()
 }
 
 /// What the trips of a duty (or a whole tour: `0..trips`) dropped cost in the contract's
@@ -1787,6 +1827,8 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
             let bus = t.bus_of(c);
             let (cover, from_) = match fill_of(c, date, &key) {
                 Some(Fill::Colleague { id }) if c.employee(id).is_some_and(|e| id != employee && unavailable(e, date, today).is_none() && fits_bus(e, &bus, work.of(id), &piece, today).is_ok()) => (Some(id), Source::Dispatcher),
+                // (an agency driver sent for the late driver's first trips: service control)
+                Some(Fill::Agency) => (Some(AGENCY), Source::Dispatcher),
                 Some(_) => (None, Source::Dispatcher),
                 None => match pick(&work, &bus, &piece) {
                     Some((id, _)) if id != employee => (Some(id), Source::Central),
@@ -1796,7 +1838,9 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
             if let Some(id) = cover {
                 work.push(id, piece);
             }
-            out[i].duties[k].late = Some(LatePiece { until, cover, from_ });
+            // (sent during the day by service control: from then on)
+            let cover_from = cover.and_then(|_| super::control::cover_from(c, date, &t.tour.line, &t.tour.tour, k));
+            out[i].duties[k].late = Some(LatePiece { until, cover, from_, cover_from });
         }
     }
     // (a duty a player of "Play together" had and did not drive: open when the day is closed,
@@ -1949,6 +1993,15 @@ pub fn settle_morning(c: &mut Company, dp: &DayPlan) -> (Plan, Vec<Note>) {
     for t in &dp.tours {
         for d in t.duties.iter().filter(|d| d.who == Some(Who::Agency)) {
             let cost = ((d.to - d.from).max(0) as f64 / 60.0 * hour).round() as Cents;
+            c.book(BookingKind::Agency, -cost, format!("Agency driver, line {} tour {}", t.tour.number, t.tour.tour), false);
+        }
+    }
+    // (an agency driver sent for a late driver's first trips: their hours, `control`)
+    for t in &dp.tours {
+        for d in t.duties.iter() {
+            let Some(l) = d.late.filter(|l| l.cover == Some(AGENCY)) else { continue };
+            let from = l.cover_from.unwrap_or(d.from).max(d.from);
+            let cost = ((l.until.min(d.to) - from).max(0) as f64 / 60.0 * hour).round() as Cents;
             c.book(BookingKind::Agency, -cost, format!("Agency driver, line {} tour {}", t.tour.number, t.tour.tour), false);
         }
     }

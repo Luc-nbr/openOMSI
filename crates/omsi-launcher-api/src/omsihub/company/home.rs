@@ -4,7 +4,7 @@
 //! behind a page's button. The badges are the strip's too (`Marks`).
 
 use super::words::{count_text, eur, filled, grouped, n_of, short_date, signed, share_tone, tr, trf};
-use super::{agenda, overview, REPUTATION_TAB, AGENDA_TAB, CONCESSIONS_TAB, CONTRACTS_TAB, DEPOT_TAB, ICONS, INBOX_TAB, MAP_TAB, RESEARCH_TAB, WORKSHOP_TAB};
+use super::{agenda, overview, AGENDA_TAB, CONCESSIONS_TAB, CONTRACTS_TAB, DEPOT_TAB, ICONS, INBOX_TAB, MAP_TAB, OPS_TAB, REPUTATION_TAB, RESEARCH_TAB, WORKSHOP_TAB};
 use omsi_launcher_lib::company::day::Plan;
 use omsi_launcher_lib::company::{self as co, Company, Role};
 use serde_json::{json, Value};
@@ -18,6 +18,8 @@ pub struct Marks {
     pub complaints: usize,
     /// (the page, what the alert says, its tone)
     pub alerts: Vec<(usize, String, &'static str)>,
+    /// What service control has for the player (`control::waiting`).
+    pub ops: usize,
 }
 
 impl Marks {
@@ -31,7 +33,7 @@ impl Marks {
             .filter(|(_, _, tone, _)| *tone != "soft")
             .map(|(_, text, tone, tab)| (tab, text, tone))
             .collect();
-        Marks { unread, complaints: co::complaints::open_count(c), alerts }
+        Marks { unread, complaints: co::complaints::open_count(c), alerts, ops: co::control::waiting(c) }
     }
 
     /// The badge of a page: its unread messages (the inbox), else how many alerts it has, in the
@@ -42,6 +44,9 @@ impl Marks {
         }
         if tab == INBOX_TAB {
             return (self.unread > 0).then(|| (badge_text(self.unread), "accent", trf("%{n} unread", &[("n", &self.unread.to_string())])));
+        }
+        if tab == OPS_TAB {
+            return (self.ops > 0).then(|| (badge_text(self.ops), "warn", count_text(self.ops, "1 thing for service control", "%{n} things for service control")));
         }
         let mine: Vec<&(usize, String, &'static str)> = self.alerts.iter().filter(|a| a.0 == tab).collect();
         if mine.is_empty() {
@@ -167,6 +172,12 @@ pub fn view(s: &mut super::Session) -> Value {
         Some(_) => planning.line(tr("No tours run today."), "soft"),
         None => planning.line(tr("Reading the timetable…"), "dim"),
     };
+    // (service control: the buses late, the drivers late, the breakdowns of today)
+    let late = c.clock.today.as_ref().filter(|x| x.date == c.date).map_or(0, |x| x.watch.late.len());
+    let ops = Tile::new(tab(OPS_TAB), "Operations", ICONS[OPS_TAB]).line(
+        if late > 0 { count_text(late, "1 bus running late", "%{n} buses running late") } else { tr("Every bus on time") },
+        if late > 0 { "warn" } else { "soft" },
+    ).line(tr("Service control: bring late buses back on time"), "dim");
     let now = co::clock::now(&c);
     let running = c.lines.iter().filter(|x| co::network::in_service(x, now)).count();
     let mut lines = Tile::new(tab(3), "Lines", ICONS[3]);
@@ -272,7 +283,7 @@ pub fn view(s: &mut super::Session) -> Value {
     }
     let sections: Vec<(&str, Vec<Tile>)> = vec![
         ("At a glance", vec![mark(ov), coming, mark(inbox)]),
-        ("Operations", vec![mark(planning), mark(lines), mark(map), mark(fleet)]),
+        ("Operations", vec![mark(planning), mark(ops), mark(lines), mark(map), mark(fleet)]),
         ("People", vec![mark(people), hire, training]),
         ("Business", vec![mark(money), concessions, mark(contracts), mark(rep), mark(career)]),
         ("Company", vec![mark(depot), mark(workshop), mark(research), settings]),

@@ -59,8 +59,8 @@
 //!   from noon on (`SCHOOL_HOURLY`), whatever the fare (they have passes) - and is paid by the
 //!   school authority per trip: €45 and €3 a kilometre (German districts pay some €2.50 to €4
 //!   a kilometre for their school runs). It runs on about 190 school days a year, and the
-//!   authority is strict: a late trip costs three times the contract's penalty, a dropped one
-//!   twice (`SCHOOL_LATE`, `SCHOOL_DROP`).
+//!   authority is strict: a dropped trip costs twice the contract's penalty, a late one its
+//!   share of that (`SCHOOL_DROP`, `economy::late_share`).
 //! - *Weekend and leisure trips* carry people out for the day - 55 % of a regular line's riders
 //!   at the stops, Saturdays and Sundays, from the late morning to the evening
 //!   (`LEISURE_HOURLY`) - at one and a half times the fare (day tickets, visitors); a tourist
@@ -205,8 +205,9 @@ pub const SCHOOL_TRIP_PER_KM: Cents = 3_00;
 pub const SCHOOL_DAYS: f64 = 190.0;
 /// Pupils a stop brings on a school day (both ways together).
 pub const PUPILS_PER_STOP: f64 = 45.0;
-/// The school authority is strict: a late school trip costs this many times the contract's
-/// penalty for a late trip, a dropped one this many times the penalty for a dropped one.
+/// The school authority is strict: a dropped school trip costs this many times the penalty for
+/// a dropped one, and a late one its share of that (`economy::late_share`). `SCHOOL_LATE` was
+/// the flat late penalty's (kept for what still names it).
 pub const SCHOOL_LATE: Cents = 3;
 pub const SCHOOL_DROP: Cents = 2;
 /// A weekend line's fare against the single ticket (day tickets, family tickets, visitors at

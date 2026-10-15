@@ -546,11 +546,13 @@ fn board_answer(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
         "gen": s.generation,
         // (what each day of the week runs, and the day shown: `days`)
         // (and how many entries the company's agenda has then: Beta 57)
-        "days": company::agenda::rf_marks(&c, days::marks(&shown_view)),
+        "days": company::late::rf_marks(s, &c, company::agenda::rf_marks(&c, days::marks(&shown_view))),
         "day": days::shown(&shown_view, &date),
         "unsynced": timeplan::unsynced_on(r, &c, days::group_of(wd)),
         // (how the Gantt colours the trips: the company's choice, Layers › Colour by)
         "colour_by": c.planning.flow.colour_by,
+        // (the day's trips that ran late or were dropped: today's as it runs, a closed day's)
+        "outcomes": company::late::service_json(s, &c, &date),
     });
     let k = match ensure(s, r, &date) {
         None => return Ok(json!({ "head": head, "reading": tr("Reading the timetable…") })),

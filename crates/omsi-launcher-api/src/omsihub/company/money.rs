@@ -30,6 +30,8 @@ fn month_part(c: &Company, chosen: Option<&str>) -> Value {
         "empty": (rows.is_empty() && capital.is_empty()).then(|| tr("Nothing booked this month yet.")),
         "rows": rows.iter().map(|(kind, a)| { let (t, tone) = signed(*a); json!([tr(kind.label()), t, tone]) }).collect::<Vec<_>>(),
         "result_label": tr("Result"), "result": res, "result_tone": res_tone,
+        // (the deductions for late running of the days kept: `late::finance_view`)
+        "late": (!c.lateness.days.is_empty()).then(|| tr("Deductions for late running")),
         "capital": (!capital.is_empty()).then(|| format!("{}: {}", tr("Investment and financing"), capital.iter().map(|(k, a)| format!("{} {}", tr(k.label()), signed(*a).0)).collect::<Vec<_>>().join("  ·  "))),
     })
 }
@@ -118,7 +120,7 @@ pub fn view(s: &mut Session, ui: &Value) -> Value {
     let mut figures = vec![
         json!({ "label": tr("Cash"), "value": eur(c.cash), "under": "", "tone": if c.cash >= 0 { "text" } else { "danger" } }),
         json!({ "label": tr("Debt"), "value": eur(c.debt()), "under": trf("%{n} loans", &[("n", &c.loans.len().to_string())]), "tone": "text" }),
-        json!({ "label": tr("Fleet value"), "value": eur(fleet_value), "under": tr("the buses owned"), "tone": "text" }),
+        json!({ "label": tr("Fleet value"), "value": eur(fleet_value), "under": tr("the buses owned"), "tone": "text", "open": "fleet_value", "tip": tr("By age band: what the buses cost new, are worth and lost") }),
         json!({ "label": tr("This month"), "value": signed(this.result()).0, "under": month_label(&this.month), "tone": tone(this.result()) }),
         json!({ "label": tr("Last month"), "value": signed(prev.result()).0, "under": month_label(&prev.month), "tone": tone(prev.result()) }),
     ];

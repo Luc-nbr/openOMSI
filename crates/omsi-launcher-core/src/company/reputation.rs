@@ -21,6 +21,13 @@ use serde::{Deserialize, Serialize};
 
 /// Where the reputation goes back to on decent days.
 pub const BASELINE: f64 = 50.0;
+/// What a dropped trip costs, and a late one (`economy::LATE_FROM` minutes or more; from
+/// `economy::LATE_FULL` minutes on, as much as a dropped one). `control` weighs its ways with
+/// these too.
+pub const DROP: f64 = 0.06;
+pub const LATE_TRIP: f64 = 0.01;
+/// What the late trips of a day cost at most.
+pub const LATE_MOST: f64 = 0.6;
 /// Days of log kept.
 pub const KEEP_DAYS: i64 = 35;
 
@@ -196,7 +203,15 @@ pub fn close_day(c: &mut Company, date: &str, report: &DayReport, punctuality: O
     let before = c.reputation;
     // trips dropped: 0.06 a trip, at most 1.2 (was 0.25, at most 5)
     if report.dropped > 0 {
-        change(c, date, Cause::Dropped, -(0.06 * report.dropped as f64).min(1.2), report.dropped);
+        change(c, date, Cause::Dropped, -(DROP * report.dropped as f64).min(1.2), report.dropped);
+    }
+    // the late trips one by one, as the lateness model ran them (`lateness`): 0.01 a trip, a
+    // trip half an hour late as much as a dropped one, at most 0.6
+    let late: Vec<i32> = report.lateness.trips.iter().filter(|o| o.dropped.is_none() && o.minutes >= super::economy::LATE_FROM).map(|o| o.minutes).collect();
+    let per_trip = !late.is_empty();
+    if per_trip {
+        let cost: f64 = late.iter().map(|m| if *m >= super::economy::LATE_FULL { DROP } else { LATE_TRIP }).sum();
+        change(c, date, Cause::Late, -cost.min(LATE_MOST), late.len() as u32);
     }
     // full buses and people left behind (was 0.01 and 0.002, at most 1.5)
     let crowd = (0.004 * report.crowded as f64 + 0.0008 * report.left_behind as f64).min(0.5);
@@ -209,6 +224,8 @@ pub fn close_day(c: &mut Company, date: &str, report: &DayReport, punctuality: O
         let late = report.late;
         if report.dropped == 0 && p >= 90.0 {
             change(c, date, Cause::Punctual, 0.15, report.trips.saturating_sub(late));
+        } else if per_trip {
+            // (the late trips were counted one by one above)
         } else if p < 60.0 {
             change(c, date, Cause::Late, -0.25, late);
         } else if p < 75.0 {

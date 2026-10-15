@@ -421,6 +421,12 @@ pub struct Vehicle {
     /// None: a bus of before - every company's choice takes it).
     #[serde(default)]
     pub region: Option<super::vehicles::Region>,
+    /// Where `built` comes from: its plate, the market, the player (`registrations`).
+    #[serde(default)]
+    pub age_from: super::registrations::AgeFrom,
+    /// `built` and where it came from before the player set the age himself (None: he did not).
+    #[serde(default)]
+    pub built_auto: Option<(String, super::registrations::AgeFrom)>,
 }
 
 fn seventy_five() -> f64 {
@@ -871,6 +877,10 @@ pub struct Company {
     /// The passengers' complaints to answer, and those answered lately (`complaints`).
     #[serde(default)]
     pub complaints: super::complaints::Complaints,
+    /// The trips of the days closed that ran late or were dropped, and why (`lateness`; a few
+    /// weeks kept), and what the live day reported of today's.
+    #[serde(default)]
+    pub lateness: super::lateness::Store,
 }
 
 fn one() -> f64 {

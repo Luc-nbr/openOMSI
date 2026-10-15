@@ -26,6 +26,8 @@ import { ROW, CHIP, ID_W, STAT_W, AXIS } from './draw.js';
 import { setRf, pick, dropAt, edit, clock, hm } from './state.js';
 import { anchor, begin, forget } from './anchors.js';
 import { colourBy, colourOf, tripColour, stackColour } from './colourby.js';
+// (the day's trips that ran late or were dropped, marked on their chips)
+import * as SV from './service.js';
 
 /** The stats columns beside the IDs (`rosterflow::Stat`). */
 export const STATS = ['start', 'end', 'spread', 'paid', 'driving', 'km', 'trips', 'type'];
@@ -309,6 +311,7 @@ function draw(ctx, w, h, g) {
   const prefs = data.prefs;
   // (the trips' colours as the Layers ask: by the line, the trip ID, the block or the duty)
   g.by = colourBy(data);
+  g.svc = SV.indexOf(SV.serviceOf(data));
   D.rect(ctx, 0, 0, w, h, p.grid);
   // the columns: the IDs, the stats, the hours
   const lw = ID_W + stats.length * STAT_W;
@@ -588,9 +591,11 @@ function blockRow(ctx, g, row, cy, xOf, hit, an) {
     // (a part of a trip cut on the way: its edge straight where the drivers change)
     if (x.part) D.cutChip(ctx, cr.x, cr.y, cr.w, cr.h, colour, x.out, chipLabel(x, r.layers.label), outline, taken ? 0.35 : 1, x.part === 2, x.part === 1);
     else D.chip(ctx, cr.x, cr.y, cr.w, cr.h, colour, x.out, chipLabel(x, r.layers.label), outline, x.linked, r.layers.moved && x.moved, taken ? 0.35 : 1);
+    const svc = SV.at(g.svc, t.id, x.dep);
+    SV.mark(ctx, cr, svc);
     if (cr.w > 24 && cr.x > g.layout.gx - 4 && cr.x + cr.w < g.layout.gx + g.layout.gw + 4) an('rf-chip', cr.x, cr.y, cr.w, cr.h);
     if (readOnly || hand) return;
-    hit(cr.x, cr.y, cr.w, cr.h, { kind: 'chip', tour: i, trip: j, row: row.id, ...(x.part ? { tip: partTip(x), raw: true } : {}) });
+    hit(cr.x, cr.y, cr.w, cr.h, { kind: 'chip', tour: i, trip: j, row: row.id, ...(x.part ? { tip: partTip(x), raw: true } : {}), ...(svc ? { tip: SV.tipOf(svc), raw: true } : {}) });
     midTicks(ctx, g, x, cr, cy, xOf, hit, i, j);
   });
   // the reliefs: arrows where a driver gets off and on, a grey line while it is attended; a click
@@ -746,10 +751,12 @@ function dutyRow(ctx, g, row, cy, xOf, hit, an) {
       // (a part of a trip cut on the way: its edge straight where the drivers change)
       if (x.part) D.cutChip(ctx, cr.x, cr.y, cr.w, cr.h, colour, x.out, chipLabel(x, r.layers.label), chosen || hov ? [255, 255, 255, 1] : null, takenPiece || takenTrip ? 0.35 : 1, x.part === 2, x.part === 1);
       else D.chip(ctx, cr.x, cr.y, cr.w, cr.h, colour, x.out, chipLabel(x, r.layers.label), chosen || hov ? [255, 255, 255, 1] : null, false, false, takenPiece || takenTrip ? 0.35 : 1);
+      const svc = SV.at(g.svc, t.id, x.dep);
+      SV.mark(ctx, cr, svc);
       if (cr.w > 24 && cr.x > g.layout.gx - 4 && cr.x + cr.w < g.layout.gx + g.layout.gw + 4) an('rf-chip', cr.x, cr.y, cr.w, cr.h);
       if (readOnly || hand) continue;
       const pt = partTip(x);
-      hit(cr.x, cr.y, cr.w, cr.h, { kind: 'chip', tour: sp.tour, trip: j, row: row.id, dutyRow: d, piece: [sp.tour, sp.duty], ...(r.tripsToDuties ? { tip: TRIP_TIP } : {}), ...(pt ? { tip: r.tripsToDuties ? `${pt}\n${tr(TRIP_TIP)}` : pt, raw: true } : {}) });
+      hit(cr.x, cr.y, cr.w, cr.h, { kind: 'chip', tour: sp.tour, trip: j, row: row.id, dutyRow: d, piece: [sp.tour, sp.duty], ...(r.tripsToDuties ? { tip: TRIP_TIP } : {}), ...(pt ? { tip: r.tripsToDuties ? `${pt}\n${tr(TRIP_TIP)}` : pt, raw: true } : {}), ...(svc ? { tip: SV.tipOf(svc), raw: true } : {}) });
     }
   }
   if (!hand) dutyRest(ctx, g, s, d, cy, xOf, hit, lineCol);

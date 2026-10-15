@@ -390,6 +390,8 @@ fn view(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
     out["undo"] = json!(r.roster_undo.len());
     out["redo"] = json!(r.roster_redo.len());
     out["plan"] = plan_json(&c, &p);
+    // (the day's trips that ran late or were dropped, marked on the tours and duties)
+    out["outcomes"] = company::late::service_json(s, &c, &date);
     out["side"] = side_json(&c, &p, args.get("sel").unwrap_or(&Value::Null));
     Ok(out)
 }
@@ -681,7 +683,7 @@ fn day_side(c: &Company, p: &DayPlan) -> Value {
                         Some(BusOf::Own(id)) => c.vehicle(id).map(|v| v.number.clone()).unwrap_or_default(),
                         None => String::new(),
                     },
-                    (Some(k), true) => t.duties[k].late.and_then(|x| x.cover).map(|id| who_name(c, Some(Who::Staff(id)))).unwrap_or_default(),
+                    (Some(k), true) => t.duties[k].late.and_then(|x| x.cover).map(|id| who_name(c, Some(if id == co::plan::AGENCY { Who::Agency } else { Who::Staff(id) }))).unwrap_or_default(),
                     (Some(k), false) => who_name(c, t.duties[k].who),
                 }
             } else {
@@ -763,7 +765,7 @@ fn duty_side(c: &Company, p: &DayPlan, ti: usize, k: usize) -> Value {
     }
     if let Some(late) = d.late {
         let s = match late.cover {
-            Some(id) => trf("The driver is late until %{t}: %{name} drives the first trips.", &[("t", &hhmm(late.until)), ("name", &who_name(c, Some(Who::Staff(id))))]),
+            Some(id) => trf("The driver is late until %{t}: %{name} drives the first trips.", &[("t", &hhmm(late.until)), ("name", &who_name(c, Some(if id == co::plan::AGENCY { Who::Agency } else { Who::Staff(id) })))]),
             None => trf("The driver is late until %{t}: the trips before are dropped.", &[("t", &hhmm(late.until))]),
         };
         facts.push(json!([s, if late.cover.is_some() { "warn" } else { "err" }]));

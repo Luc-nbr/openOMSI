@@ -10,12 +10,14 @@ import { html, tr, setCo, act, cmd, refresh, useView, goTab, goKey, handOver, Ic
 import { VehicleDialog, NewDialog } from './fleet.js';
 import { DealerSheet } from './dealer.js';
 import { AddLineDialog } from './lines.js';
-import { FareDialog } from './money.js';
+import { FareDialog, FleetValueDialog } from './money.js';
 // (the buses the company works with: Beta 54)
 import { VehiclesDialog } from './vehicles.js';
 // (Beta 58: the boss's "Play together" panel)
 import { TogetherDialog } from './together.js';
 import { togetherOn } from './gate.js';
+// (late running: the report's part, the finances' deductions)
+import { LateSection, LateDialog, WhoLink } from './late.js';
 
 /** Something lies over the pages: the clock holds what waits for it (`company::modal`). */
 export function modalOpen() {
@@ -55,10 +57,14 @@ function OpenDialog({ d }) {
       return html`<${AddLineDialog} d=${d} />`;
     case 'fare':
       return html`<${FareDialog} d=${d} />`;
+    case 'fleet_value':
+      return html`<${FleetValueDialog} />`;
     case 'vehicles':
       return html`<${VehiclesDialog} />`;
     case 'together':
       return togetherOn() ? html`<${TogetherDialog} />` : null;
+    case 'late':
+      return html`<${LateDialog} />`;
     default:
       return null;
   }
@@ -205,8 +211,10 @@ function ReportDialog() {
           ${x.open && html`<div class="co-reportmoney">${x.rows.map(([label, t, tone]) => html`<div><span>${label}</span><b class=${'t-' + tone}>${t}</b></div>`)}<p>${x.note}</p></div>`}`)}`}
       ${v.drops?.length > 0 && html`<div class="co-caps" style="display:flex;margin:18px 0 8px"><span class="grow">${v.drops_caps}</span><span style="text-transform:none;font-weight:400;font-size:var(--co-note)">${v.drops_hint}</span></div>
         ${v.drops.map((d) => html`<button type="button" class="co-row co-reportdrop" title=${d.date} onClick=${() => toPlanning(d.link)}>
-            <i class=${'dot-' + d.tone}></i><span class="cut t-soft" style="flex:1">${d.text}</span><b class=${'cut t-' + d.tone}>${d.why}</b><${Icon} name="chevron_right" size=${18} class="t-dim" /></button>`)}
+            <i class=${'dot-' + d.tone}></i><span class="cut t-soft" style="flex:1">${d.text}</span><b class=${'cut t-' + d.tone}>${d.why}</b><${Icon} name="chevron_right" size=${18} class="t-dim" /></button>
+          ${(d.bus || d.driver) && html`<div class="late-who">${d.duty && html`<span class="t-dim">${d.duty}</span>`}${d.bus && html`<span><${Icon} name="directions_bus" size=${13} /> <${WhoLink} w=${d.bus} bus before=${done} /></span>`}${d.driver && html`<span><${Icon} name="person" size=${13} /> <${WhoLink} w=${d.driver} before=${done} /></span>`}</div>`}`)}
         ${v.drops_more && html`<p class="co-reportmore">${v.drops_more}</p>`}`}
+      <${LateSection} v=${v.late} before=${done} />
       ${v.facts.length > 0 && html`<div class="co-caps" style="margin:18px 0 10px">${v.facts_caps}</div>
         ${v.facts.map((f) => html`<div class="co-fact"><i class=${'dot-' + f.tone}></i><div><p>${f.text}</p>
           ${f.fixes.length > 0 && html`<div class="fixes">${f.fixes.map((g) => html`<${Btn} icon=${g.icon} label=${g.label} style="height:34px" onClick=${() => (act('close_reports'), goKey(g.to))} />`)}</div>`}</div></div>`)}`}
