@@ -12,6 +12,7 @@ use super::super::company::{self, Session};
 use super::{str_arg, usize_arg, with_rf, Rf};
 use crate::{Answer, Platform};
 use omsi_launcher_lib as core;
+use omsi_launcher_lib::company::clock::{self as ck, Choice, Level, What};
 use omsi_launcher_lib::company::licences::{self, Lack};
 use omsi_launcher_lib::company::plan::{self as pl, BusOf, DayPlan, DayTour, Disruption, Fill, Problem, Source, Warn, Who};
 use omsi_launcher_lib::company::staff::Block;
@@ -411,6 +412,46 @@ fn rf_colour(c: &Company, line: &str) -> String {
     co::rosterflow::hex(co::rosterflow::line_colour(c, line))
 }
 
+// --- breakdowns on the way ---------------------------------------------------------------------------
+
+/// Today's breakdowns and accidents that came already (`clock::DayScript::breaks` indices), of
+/// tour `t`'s bus before the tour ended: on the company's day only (testers: the Roster tab
+/// did not show the tour whose bus broke down).
+fn breaks_of(c: &Company, p: &DayPlan, t: &DayTour) -> Vec<usize> {
+    let Some(BusOf::Own(id)) = t.bus.filter(|_| p.today && !t.by_player) else { return Vec::new() };
+    let Some(s) = c.clock.today.as_ref().filter(|s| s.date == p.date) else { return Vec::new() };
+    let came = |i: usize| s.events.iter().any(|e| e.done && e.what == What::Breakdown { index: i });
+    s.breaks.iter().enumerate().filter(|&(i, b)| b.vehicle == id && b.at < t.tour.to() && came(i)).map(|(i, _)| i).collect()
+}
+
+/// A breakdown in words (its inbox message): what happened, and the spare buses free or what
+/// was sent; and its tone.
+fn break_words(c: &Company, i: usize) -> Option<(String, &'static str)> {
+    let m = ck::break_message(c, i)?;
+    let (title, text) = company::message_words(&m);
+    Some((format!("{title}: {text}"), if m.level == Level::Bad { "err" } else { "warn" }))
+}
+
+/// What can still be sent for breakdown `i`: while it waits for the answer, or for trips
+/// dropped - each spare bus free, a rental bus, dropping them (only while it waits).
+fn break_options(c: &Company, i: usize) -> Vec<Value> {
+    let Some(b) = c.clock.today.as_ref().and_then(|s| s.breaks.get(i)) else { return Vec::new() };
+    if !matches!(b.choice, None | Some(Choice::Drop)) {
+        return Vec::new();
+    }
+    let (spare_from, rental_from) = ck::arrivals(c, i);
+    let mut out: Vec<Value> = ck::spare_offers(c, i)
+        .iter()
+        .filter_map(|x| c.vehicle(x.vehicle).map(|v| (x, v)))
+        .map(|(x, v)| json!({ "index": i, "choice": Choice::Spare { vehicle: v.id }, "label": company::spare_label(&format!("{} {}", v.number, v.name), &hhmm(spare_from), x.until), "note": tr("Free now") }))
+        .collect();
+    out.push(json!({ "index": i, "choice": Choice::Rental, "label": trf("Rental bus, %{amount}", &[("amount", &eur(ck::rental_cost(c, i)))]), "note": trf("From %{time}", &[("time", &hhmm(rental_from))]) }));
+    if b.choice.is_none() {
+        out.push(json!({ "index": i, "choice": Choice::Drop, "label": tr("Drop its trips"), "note": "" }));
+    }
+    out
+}
+
 /// A tour's row: its bus chip and its duties on the hours.
 fn tour_json(c: &Company, p: &DayPlan, ti: usize, t: &DayTour, rf_id: &dyn Fn(usize, usize) -> Option<String>) -> Value {
     let fixed = pl::roster(c, p.weekday, &t.tour.line, &t.tour.tour);
@@ -435,6 +476,14 @@ fn tour_json(c: &Company, p: &DayPlan, ti: usize, t: &DayTour, rf_id: &dyn Fn(us
     // (what can be taken off: what runs, or what the roster fixed)
     let mut bus = bus;
     bus["off"] = json!(!t.by_player && (t.bus.is_some() || fixed.is_some_and(|r| r.bus.is_some())));
+    // (its bus broke down or crashed today: marked, the words under the mouse)
+    if let Some((words, tone)) = breaks_of(c, p, t).last().and_then(|&i| break_words(c, i)) {
+        let tip = bus["tip"].as_str().unwrap_or("").to_string();
+        bus["problem"] = json!(tone);
+        bus["broke"] = json!(true);
+        bus["tip"] = json!(format!("{words}
+{tip}"));
+    }
     let duties: Vec<Value> = t
         .duties
         .iter()
@@ -510,6 +559,18 @@ fn day_side(c: &Company, p: &DayPlan) -> Value {
         match *d {
             Disruption::Late { employee, minutes } => morning.push(json!([trf("%{name} comes %{n} minutes late.", &[("name", &who_name(c, Some(Who::Staff(employee)))), ("n", &minutes.to_string())]), "warn"])),
             Disruption::Breakdown { vehicle, cost } => morning.push(json!([trf("Bus %{n} did not start: towed to the workshop (%{amount}).", &[("n", &c.vehicle(vehicle).map(|v| v.number.clone()).unwrap_or_default()), ("amount", &eur(cost))]), "err"])),
+        }
+    }
+    // (the buses that broke down or crashed on the way today, each to its tour)
+    let mut on_way: Vec<Value> = Vec::new();
+    for (ti, t) in p.tours.iter().enumerate() {
+        for i in breaks_of(c, p, t) {
+            if on_way.iter().any(|x| x["index"] == json!(i)) {
+                continue;
+            }
+            if let Some((words, tone)) = break_words(c, i) {
+                on_way.push(json!({ "index": i, "text": words, "tone": tone, "tour": ti, "line": t.tour.line, "name": t.tour.tour }));
+            }
         }
     }
     let staff: Vec<Value> = c
@@ -595,6 +656,7 @@ fn day_side(c: &Company, p: &DayPlan) -> Value {
         "ok": open + no_bus + late_dropped == 0,
         "gaps": gaps,
         "morning": morning,
+        "on_way": on_way, "on_way_caps": tr("On the way today").to_uppercase(),
         "open_rows": open_rows,
         "staff": staff,
         "buses": buses,
@@ -696,6 +758,14 @@ fn tour_side(c: &Company, p: &DayPlan, ti: usize) -> Value {
     if let Some(w) = t.tour.wants() {
         facts.push(json!([trf("The tour asks for: %{kind}", &[("kind", &tr(co::BusKind { size: w, drive: co::Drive::Diesel }.label()))]), "dim"]));
     }
+    // (its bus broke down or crashed today: what happened, and what can still be sent)
+    let mut sends: Vec<Value> = Vec::new();
+    for i in breaks_of(c, p, t) {
+        if let Some((words, tone)) = break_words(c, i) {
+            facts.push(json!([words, tone]));
+        }
+        sends.extend(break_options(c, i));
+    }
     let key = pl::tour_key(&t.tour.line, &t.tour.tour);
     let fill_now = c.planning.date == c.date && c.planning.fills.iter().any(|f| f.key == key);
     let chosen = c.planning.fills.iter().find(|f| c.planning.date == c.date && f.key == key).map(|f| f.fill);
@@ -722,6 +792,7 @@ fn tour_side(c: &Company, p: &DayPlan, ti: usize) -> Value {
     json!({
         "kind": "tour", "title": tr("Tour").to_uppercase(), "ti": ti, "line": t.tour.line, "tour": t.tour.tour,
         "colour": rf_colour(c, &t.tour.line), "head": line_title(t, None), "facts": facts, "options": options,
+        "sends": sends, "sends_caps": tr("Send a bus for it").to_uppercase(),
         "cands": if t.by_player { Vec::new() } else { cands }, "by_player": t.by_player,
     })
 }
@@ -1041,6 +1112,14 @@ fn act_on(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
                 Ok(()) => json!({}),
                 Err(p) => json!({ "popup": p }),
             });
+        }
+        // (a bus sent for one that broke down or crashed today: `clock::choose`)
+        "break_choose" => {
+            let index = usize_arg(args, "index");
+            if let Some(choice) = args.get("choice").cloned().and_then(|v| serde_json::from_value::<Choice>(v).ok()) {
+                company::choose_break(s, index, choice);
+            }
+            return Ok(json!({}));
         }
         "set_fill" => {
             let key = str_arg(args, "key");

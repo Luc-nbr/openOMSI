@@ -672,7 +672,9 @@ function busChip(ctx, p, t, r, h, on) {
     if (b.problem) D.roundedBorder(ctx, r.x, r.y, r.w, r.h, 3, 1.2, tone(p, b.problem));
     const col = b.suggested ? p.dim : p.text;
     D.icon(ctx, 'directions_bus', r.x + 11, r.y + r.h / 2, 13, col);
-    D.textIn(ctx, b.text, r.x + 22, r.y, r.w - 26, r.h, 12, 700, col);
+    D.textIn(ctx, b.text, r.x + 22, r.y, r.w - 26 - (b.broke ? 16 : 0), r.h, 12, 700, col);
+    // (its bus broke down or crashed today: `rf_roster::breaks_of`)
+    if (b.broke) D.icon(ctx, 'error', r.x + r.w - 11, r.y + r.h / 2, 13, tone(p, b.problem || 'err'));
   }
   if (on) D.roundedBorder(ctx, r.x - 1.5, r.y - 1.5, r.w + 3, r.h + 3, 4, 1.6, p.accent);
 }
@@ -740,6 +742,7 @@ function DayPanel({ d, startDrag, carrying }) {
   return html`<b class="rr-sum">${d.summary}</b>
     <p class=${'rr-gaps ' + (d.ok ? 'ok' : 'warn')}><${Icon} name=${d.ok ? 'check_circle' : 'warning'} size=${14} />${d.gaps}</p>
     ${d.morning.length > 0 && html`<span class="rf-caps">${tr('This morning').toUpperCase()}</span>${d.morning.map(([t, k]) => html`<p class="rr-morning"><i class=${'dot ' + k}></i>${t}</p>`)}`}
+    ${d.on_way?.length > 0 && html`<span class="rf-caps">${d.on_way_caps}</span>${d.on_way.map((o) => html`<button type="button" class="rr-morning rr-onway" onClick=${() => rsSet({ sel: { tour: [o.line, o.name] } })}><i class=${'dot ' + o.tone}></i><span>${o.text}</span></button>`)}`}
     ${carrying && carrying.duty != null && offZone('driver')}
     ${d.open_rows.length > 0 && html`<div data-off="driver"><span class="rf-caps">${tr('Open duties').toUpperCase()}</span>${d.open_rows.map((o) => html`<button type="button" class="rr-open" onClick=${() => rsSet({ sel: o.duty != null ? { duty: [o.line, o.name, o.duty] } : { tour: [o.line, o.name] } })}
       onMouseDown=${(e) => e.button === 0 && startDrag({ from: 'chart', hit: { ti: o.tour, duty: o.duty }, label: o.title, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, moved: false })}>
@@ -782,6 +785,7 @@ function TourPanel({ d }) {
   return html`<div class="rr-title"><i style=${`background:${d.colour}`}></i><b class="cut">${d.head}</b></div>
     <${TimetableButton} line=${d.line} />
     ${d.facts.map(([t, k]) => html`<p class=${'rr-fact t-' + k}>${t}</p>`)}
+    ${d.sends?.length > 0 && html`<span class="rf-caps">${d.sends_caps}</span>${d.sends.map((o) => html`<${PickRow} text=${o.label} right=${o.note} onTap=${() => rAct('break_choose', { index: o.index, choice: o.choice })} />`)}`}
     ${d.options.length > 0 && html`<span class="rf-caps">${tr('Cover it today').toUpperCase()}</span>${d.options.map((o) => html`<${PickRow} on=${o.on} text=${o.label} right=${o.note} onTap=${() => o.live && rAct('set_fill', { key: o.key, fill: o.fill })} />`)}`}
     ${!d.by_player && html`<span class="rf-caps">${tr('Which bus runs it').toUpperCase()}</span>${d.cands.map((c) => html`<${PickRow} on=${c.on} text=${c.name} right=${c.state} rtone=${c.tone} onTap=${() => rAct('give_bus', { ti: d.ti, bus: c.bus })} />`)}`}`;
 }

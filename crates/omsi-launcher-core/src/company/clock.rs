@@ -345,9 +345,9 @@ pub struct Run {
     pub stopped: bool,
     /// Lines added to the feed.
     pub told: usize,
-    /// Today's breakdowns and accidents that came on the way (`DayScript::breaks` indices): the
-    /// pages say them where the player is.
-    pub breaks: Vec<usize>,
+    /// The breakdowns and accidents decided on the way (by the dispatcher, without asking), as
+    /// the inbox tells them: the pages say them where the player is.
+    pub breaks: Vec<super::inbox::Message>,
 }
 
 /// What the simulation needs from outside: the timetable and the night.
@@ -855,6 +855,7 @@ pub fn decide(c: &mut Company, index: usize, choice: Choice, run: &mut Run) {
         x.spare_until = until;
     }
     post_break(c, index);
+    run.breaks.extend(break_message(c, index));
 }
 
 // --- what is told of a breakdown ----------------------------------------------------------------
@@ -953,7 +954,6 @@ fn apply(c: &mut Company, due: Due, quick: bool, run: &mut Run) {
                     let Some(b) = c.clock.today.as_ref().and_then(|s| s.breaks.get(index)).cloned() else { return };
                     let text = if b.accident { "Bus %{bus} had an accident on line %{n}" } else { "Bus %{bus} broke down on line %{n}" };
                     tell(c, run, when, text, vec![arg("bus", &b.bus), arg("n", &b.line)], Level::Bad);
-                    run.breaks.push(index);
                     // (the inbox says it at once, with the spare buses free: wherever the player is)
                     post_break(c, index);
                     if asks && !c.clock.dispatcher {
@@ -1904,7 +1904,7 @@ mod tests {
         // classed it as lost mileage"; its tour runs hourly from 06:00, half an hour a trip)
         let (mut c, mut w, bus) = broken_at(7 * 60 + 50, 9 * 60 + 30, false);
         let run = advance(&mut c, moment("2024-03-04", 12 * 60), &mut w, false).unwrap();
-        assert!(run.stopped && run.breaks == vec![0]);
+        assert!(run.stopped && run.breaks.is_empty());
         // (the inbox says it at once, with the spare buses free)
         let m = c.inbox.messages.iter().find(|m| m.title == BROKE_TITLE).unwrap();
         assert_eq!((m.text.as_str(), m.value("bus")), (SPARES_FREE, Some(bus.number.as_str())));
@@ -1986,7 +1986,7 @@ mod tests {
     fn the_dispatcher_says_what_he_sent_and_an_older_breakdown_reads() {
         let (mut c, mut w, _) = broken_at(7 * 60 + 50, 9 * 60 + 30, false);
         let run = advance(&mut c, moment("2024-03-04", 12 * 60), &mut w, true).unwrap();
-        assert!(!run.stopped && run.breaks == vec![0]);
+        assert!(!run.stopped && run.breaks.len() == 1 && run.breaks[0].text == BY_SPARE);
         assert!(matches!(c.clock.today.as_ref().unwrap().breaks[0].choice, Some(Choice::Spare { .. })));
         assert_eq!(c.inbox.messages.iter().find(|m| m.title == BROKE_TITLE).map(|m| m.text.as_str()), Some(BY_SPARE));
         let old: Broken = serde_json::from_str(r#"{"vehicle":1,"bus":"101","line":"5","at":480,"choice":{"spare":{"vehicle":2}}}"#).unwrap();

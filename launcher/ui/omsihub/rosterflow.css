@@ -618,6 +618,9 @@
 .rr-morning .dot.ok { background: var(--rf-ok); }
 .rr-morning .dot.warn { background: var(--rf-warn); }
 .rr-morning .dot.err, .rr-morning .dot.danger { background: var(--rf-err); }
+/* (the buses that broke down or crashed on the way today, each opening its tour) */
+.rr-onway { width: 100%; padding: 2px 0; border: 0; background: none; font-family: inherit; text-align: left; cursor: pointer; }
+.rr-onway:hover span { color: var(--rf-text); }
 .rr-open { display: grid; grid-template-columns: 3px 22px 1fr 24px; grid-template-rows: 24px 18px; align-items: center; height: 46px; flex: none; padding: 2px 0; border-radius: 3px; font-size: 9.6px; text-align: left; }
 .rr-open:hover { background: var(--rf-hover); }
 .rr-open .bar { grid-row: 1 / 3; grid-column: 1; align-self: stretch; margin: 4px 0; background: var(--rf-warn); }
