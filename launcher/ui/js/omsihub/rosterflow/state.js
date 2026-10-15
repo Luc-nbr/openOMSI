@@ -111,9 +111,14 @@ export async function rfAct(act, args = {}) {
   }
   after(r);
   if (r?.edited) setRf((x) => ({ edits: x.edits + 1 }));
+  // (undone or redone: the day's blocks and trips are numbered anew, as after an edit - what is
+  // chosen, held or carded by its numbers let go)
+  if (r?.say && UNDOES.includes(act)) settle();
   bump();
   return r;
 }
+
+const UNDOES = ['undo', 'redo', 'back_to'];
 
 /** The hand let go of and the cards closed (after an edit: the day's indices change). */
 export function settle() {

@@ -323,7 +323,9 @@ function EventCard({ data, c, size }) {
   if (!e) return null;
   const kind = e.kind === 'on' ? tr('Sign-on') : e.kind === 'off' ? tr('Sign-off') : e.kind === 'travel' ? `${tr('Travel')} (${e.label})` : e.label;
   // (what is typed as it would be: an end before the start is the next day's)
-  const from = typed[0] == null ? e.from : parseClock(typed[0]);
+  let from = typed[0] == null ? e.from : parseClock(typed[0]);
+  // (work past midnight, "00:30" on the card: a start typed so is that night's too)
+  if (typed[0] != null && from != null && e.from >= 1440 && from < 1440 && from + 1440 <= 1800) from += 1440;
   let to = typed[1] == null ? e.to : parseClock(typed[1]);
   if (from != null && to != null && to <= from && to < 1440 && typed[1] != null) to += 1440;
   const ok = from != null && to != null && to - from >= 5;
@@ -458,7 +460,7 @@ function Menu({ data, m, drivers, size }) {
           ['Move to new row', 2, !pieceLocked && (s?.spans.length || 0) > 1, 'The piece a duty of its own'],
         ];
     items.push(
-      ['Lock duty', 9, true, ''],
+      [pieceLocked ? 'Unlock duty' : 'Lock duty', 9, true, ''],
       ['Add custom work', 22, true, 'Spare, office, union or training time in the duty'],
       ['—'],
       ['View in vehicle schedule', 23, true, ''],
@@ -905,7 +907,8 @@ function GoTo({ data, drivers, text, size }) {
   const b = data.board;
   const go = () => {
     const want = text.trim().toLowerCase();
-    const found = drivers ? b.duties.find((s) => s.label.toLowerCase() === want)?.id : b.blocks.find((t) => t.label.toLowerCase() === want || t.label.toLowerCase().endsWith('/' + want) || t.tour.toLowerCase() === want)?.id;
+    // (a spare line named "9001 Early": by its number too)
+    const found = drivers ? b.duties.find((s) => s.label.toLowerCase() === want || s.label.split(' ')[0].toLowerCase() === want)?.id : b.blocks.find((t) => t.label.toLowerCase() === want || t.label.toLowerCase().endsWith('/' + want) || t.tour.toLowerCase() === want)?.id;
     if (found) setRf({ reveal: found, selRow: found, pinned: S.rf.pinned.filter((x) => x !== found), panel: null });
     else say(tr('No vehicle or duty with that ID.'), true);
   };

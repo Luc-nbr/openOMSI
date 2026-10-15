@@ -1154,6 +1154,22 @@ fn delete_custom(c: &mut Company, board: &Board, row: usize, ci: usize) {
     }
 }
 
+/// The trips with passengers of the buses `ids` (`block_id`) unassigned to the stack (the batch
+/// toolbar's): one bus at a time, each on the day as it then is (`again`: the day's blocks of the
+/// company as it is) - a layout of the day before the first bus went keeps that bus's trips on it
+/// and on the stack at once, and its line no longer fits it. A bus that may not change stays.
+fn unassign_blocks(c: &mut Company, wd: u8, ids: &[String], again: &dyn Fn(&Company) -> Vec<TourOfDay>) {
+    for id in ids {
+        let tours = again(c);
+        let Some(i) = tours.iter().position(|t| block_id(t) == *id) else { continue };
+        let picked: Vec<usize> = (0..tours[i].trips.len()).filter(|&j| tours[i].trips[j].counts() && !tours[i].trips[j].origin.trim().is_empty()).collect();
+        let mut lay = c.clone();
+        if st::unassign(&mut lay, wd, &tours, i, &picked).is_ok() {
+            *c = lay;
+        }
+    }
+}
+
 /// What a click, a drop or a menu's line does (`rf_act`: `act` and what it needs, `day` the day).
 fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
     let what = str_arg(args, "act");
@@ -1399,16 +1415,9 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
         "unassign_rows" => {
             let ids: Vec<String> = arg::<Vec<String>>(args, "ids").unwrap_or_default();
             let words = trf("%{n} vehicles unassigned to the stack", &[("n", &ids.len().to_string())]);
+            let (lines, day) = (k.lines.clone(), k.date.clone());
             edit(s, r, words, |c| {
-                // (one bus at a time, each on the day as it then is)
-                for id in &ids {
-                    let Some(i) = tours.iter().position(|t| block_id(t) == *id) else { continue };
-                    let picked: Vec<usize> = (0..tours[i].trips.len()).filter(|&j| tours[i].trips[j].counts() && !tours[i].trips[j].origin.trim().is_empty()).collect();
-                    let mut lay = c.clone();
-                    if st::unassign(&mut lay, wd, &tours, i, &picked).is_ok() {
-                        *c = lay;
-                    }
-                }
+                unassign_blocks(c, wd, &ids, &|v: &Company| co::network::tours_of_day(v, &lines, &day));
                 Ok(())
             })
         }
@@ -1757,6 +1766,26 @@ mod tests {
         assert_eq!(out["offer"]["text"], "Broken now by the changed rules: Duty Breaks (2 duties)");
         assert_eq!(out["say"]["text"], out["offer"]["text"]);
         assert!(out["offer"]["groups"].as_array().is_some_and(|g| g.iter().any(|x| x == rf::I_MEAL)));
+    }
+
+    #[test]
+    fn two_vehicles_of_a_line_ticked_go_to_the_stack_together() {
+        let (c, l) = line5_company();
+        let date = c.date.clone();
+        let mut s = Session::default();
+        s.company = Some(c);
+        company::test_week(&mut s, vec![l]);
+        let mut r = Rf::default();
+        let k = ensure(&mut s, &mut r, &date).unwrap().unwrap();
+        assert_eq!(k.board.tours.len(), 2);
+        let ids: Vec<String> = k.board.tours.iter().map(block_id).collect();
+        let mut v = (*k.view).clone();
+        unassign_blocks(&mut v, k.board.weekday, &ids, &|x: &Company| co::network::tours_of_day(x, &k.lines, &date));
+        // (both buses' trips on the stack, the line's layout still fitting the timetable: not
+        // the first bus's trips on it and on the stack at once, the line back to automatic)
+        let b = rf::board(&v, &k.lines, &date);
+        assert!(b.tours.is_empty(), "{:?}", b.tours.iter().map(|t| &t.tour).collect::<Vec<_>>());
+        assert_eq!(b.stack.len(), 16);
     }
 
     #[test]

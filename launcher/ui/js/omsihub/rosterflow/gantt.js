@@ -37,7 +37,6 @@ export const STATS = ['start', 'end', 'spread', 'paid', 'driving', 'km', 'trips'
 export const STAT_LABEL = { start: 'Start time', end: 'End time', spread: 'Spread', paid: 'Paid time', driving: 'Driving time', km: 'Distance', trips: 'Trips', type: 'Duty type' };
 /** A scrollbar's thickness, the track's room included (`rf_scroll::BAR`). */
 export const BAR = 12;
-const DEADHEAD_MIN = 5;
 /** Custom work dragged in steps of five minutes (as its card's and the duty panel's times go),
  * until 06:00 the next morning (`rosterflow::LAST_MINUTE`). */
 const SNAP = 5;
@@ -761,7 +760,7 @@ function dutyRow(ctx, g, row, cy, xOf, hit, an) {
       const bb = Math.max(xOf(x.arr), a + 4);
       if (j > rs && x.dh != null) {
         const prev = t.trips[j - 1];
-        D.deadhead(ctx, p, xOf(prev.arr) + 1, xOf(prev.arr + DEADHEAD_MIN) - 1, cy, true);
+        D.deadhead(ctx, p, xOf(prev.arr) + 1, xOf(prev.arr + x.dh) - 1, cy, true);
       }
       if (x.empty || !x.counts) {
         // (the block's first and last: drawn with the checks above)
