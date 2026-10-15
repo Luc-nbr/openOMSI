@@ -74,6 +74,10 @@ fn ask_of(c: &Company, ui: &Value) -> Ask {
     let mode = ui.get("amode").and_then(Value::as_u64).unwrap_or(0).min(2) as usize;
     let from = ui.get("afrom").and_then(Value::as_i64).unwrap_or(6 * 60) as i32;
     let to = ui.get("ato").and_then(Value::as_i64).unwrap_or(14 * 60) as i32;
+    // (an end at or before the start is past midnight, as the day's late duties run: the time
+    // fields have no day, and 18:00 to 01:00 was refused as not lasting an hour)
+    let to = to.rem_euclid(1440);
+    let to = if to <= from { to + 1440 } else { to };
     let keys: Vec<String> = ui.get("aduties").and_then(Value::as_array).map(|v| v.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
     Ask { date: picked(c, ui), count: ui.get("acount").and_then(Value::as_u64).unwrap_or(1).clamp(1, ag::MOST as u64) as u32, mode, hours: (mode == 1).then_some((from, to)), keys }
 }
@@ -237,6 +241,20 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Result<Value, St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hours_that_end_past_midnight_are_booked_as_one_stretch() {
+        use omsi_launcher_lib::company::{found, Founding};
+        let c = found(&Founding { name: "Agency".into(), date: "2026-10-15".into(), ..Default::default() }, "Luc");
+        let hours = |from: i32, to: i32| ask_of(&c, &json!({ "amode": 1, "afrom": from, "ato": to })).hours;
+        assert_eq!(hours(6 * 60, 14 * 60), Some((360, 840)));
+        // 18:00 to 01:00: seven hours, not a refusal
+        assert_eq!(hours(18 * 60, 60), Some((1080, 1500)));
+        // (as the page sends it back, and with its start changed afterwards)
+        assert_eq!(hours(18 * 60, 1500), Some((1080, 1500)));
+        assert_eq!(hours(20 * 60, 1500), Some((1200, 1500)));
+        assert_eq!(hours(0, 0), Some((0, 1440)));
+    }
 
     /// Every text of the Agencies tab - its own and the core's (`agency::texts`) - in the six
     /// languages.
