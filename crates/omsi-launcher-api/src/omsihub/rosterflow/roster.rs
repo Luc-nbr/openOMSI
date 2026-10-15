@@ -190,6 +190,31 @@ fn fit_of(c: &Company, p: &DayPlan, ti: usize, k: usize, id: u32) -> (String, &'
     }
 }
 
+/// Whether giving duty `k` of tour `ti` to `who` is for today only (`give_driver`): on the
+/// company's day, a duty that fell out with somebody fixed for it in the roster (the player
+/// himself goes into the roster).
+fn today_only(c: &Company, p: &DayPlan, ti: usize, k: usize, who: Option<Who>) -> bool {
+    let t = &p.tours[ti];
+    let rostered = pl::roster(c, p.weekday, &t.tour.line, &t.tour.tour).and_then(|r| r.duties.get(k).copied().flatten());
+    p.today && t.duties[k].problem.is_some_and(|x| x != Problem::Unassigned) && rostered.is_some() && who != Some(Who::Player)
+}
+
+/// An agency driver for the whole duty in the list of who drives it: what it costs, and - for
+/// today only - whether the agency has one left (`pl::agency_max`); in the roster one comes each
+/// time the weekday does. (No game mode or level keeps the agency away: only its drivers a day.)
+fn agency_state(c: &Company, p: &DayPlan, ti: usize, k: usize) -> (String, &'static str) {
+    let cost = eur(pl::agency_cost(c, p, ti, k));
+    if !today_only(c, p, ti, k, Some(Who::Agency)) {
+        return (trf("%{amount} for this duty, every %{day}", &[("amount", &cost), ("day", &weekday_name(p.weekday))]), "dim");
+    }
+    let (n, max) = (pl::agency_sent(c, p).to_string(), pl::agency_max(c).to_string());
+    if pl::agency_room(c, p, ti, k) {
+        (trf("%{amount} for this duty, today only (%{n} of %{max} today)", &[("amount", &cost), ("n", &n), ("max", &max)]), "ok")
+    } else {
+        (trf("No agency driver left today (%{n} of %{max})", &[("n", &n), ("max", &max)]), "err")
+    }
+}
+
 /// A duty's problem in words (`planning::problem_text`).
 fn problem_text(c: &Company, p: &DayPlan, ti: usize, k: usize, problem: Option<Problem>) -> String {
     let t = &p.tours[ti];
@@ -504,7 +529,9 @@ fn side_json(c: &Company, p: &DayPlan, sel: &Value) -> Value {
 /// Nothing chosen: the day in short, what fell out, and the drivers and buses to give.
 fn day_side(c: &Company, p: &DayPlan) -> Value {
     let (tours, covered, open, no_bus) = p.counts();
-    let rows = p.open_rows();
+    // (a duty or a bus nobody was planned for, covered today - an agency driver, a rental bus -
+    // is open no more: testers saw it "still in the open duties")
+    let rows: Vec<pl::OpenRow> = p.open_rows().into_iter().filter(|o| o.late || !(o.filled && o.problem == Some(Problem::Unassigned))).collect();
     let mut morning: Vec<Value> = Vec::new();
     for d in &p.disruptions {
         match *d {
@@ -637,8 +664,8 @@ fn duty_side(c: &Company, p: &DayPlan, ti: usize, k: usize) -> Value {
         facts.push(json!([s, if late.cover.is_some() { "warn" } else { "err" }]));
     }
     let open_today = p.today && !t.by_player && (d.problem.is_some() || d.who.is_none());
-    let (agency_n, agency_max) = (pl::agency_used(p), pl::agency_max(c));
-    let agency_ok = agency_n < agency_max || (d.who == Some(Who::Agency) && d.from_ != Source::Roster);
+    let (agency_n, agency_max) = (pl::agency_sent(c, p), pl::agency_max(c));
+    let agency_ok = pl::agency_room(c, p, ti, k);
     if open_today && !agency_ok {
         facts.push(json!([trf("No agency driver left today: %{n} of %{max}. The agency sends two, and one more for every three drivers you employ.", &[("n", &agency_n.to_string()), ("max", &agency_max.to_string())]), "warn"]));
     }
@@ -662,15 +689,21 @@ fn duty_side(c: &Company, p: &DayPlan, ti: usize, k: usize) -> Value {
     }
     let current = if t.by_player { Some(Who::Player) } else { d.who };
     let mut cands: Vec<Value> = vec![json!({ "who": Who::Player, "name": tr("You"), "state": tr("Drive it yourself"), "tone": "dim", "swatch": "accent", "on": current == Some(Who::Player) })];
+    // (an agency driver for the whole duty, with what it costs: testers, "no option to use agency")
+    let (state, tone) = agency_state(c, p, ti, k);
+    cands.push(json!({ "who": Who::Agency, "name": tr("Agency driver"), "state": state, "tone": tone, "swatch": "grey", "on": current == Some(Who::Agency) }));
     for x in pl::candidates(c, p, ti, k) {
         let (st, tone, _) = fit_of(c, p, ti, k, x.id);
         let name = c.employee(x.id).map(|e| e.name.clone()).unwrap_or_default();
         cands.push(json!({ "who": Who::Staff(x.id), "name": name, "state": st, "tone": tone, "swatch": driver_colour(c, x.id), "on": current == Some(Who::Staff(x.id)) }));
     }
     cands.push(json!({ "who": null, "name": tr("Nobody"), "state": "", "tone": "dim", "swatch": null, "on": false }));
+    // (one plain way to take its driver off, on top: testers found it "a lot harder now")
+    let rostered = pl::roster(c, p.weekday, &t.tour.line, &t.tour.tour).and_then(|r| r.duties.get(k).copied().flatten());
+    let off = (!t.by_player && (d.who.is_some() || rostered.is_some())).then(|| trf("Unassign %{who}", &[("who", &who_name(c, d.who.or(rostered)))]));
     json!({
         "kind": "duty", "title": tr("Duty").to_uppercase(), "ti": ti, "k": k, "line": t.tour.line, "tour": t.tour.tour,
-        "colour": rf_colour(c, &t.tour.line), "head": line_title(t, Some(k)), "facts": facts,
+        "colour": rf_colour(c, &t.tour.line), "head": line_title(t, Some(k)), "facts": facts, "off": off,
         "options": options, "cands": cands, "by_player": t.by_player,
         "drive": (p.today && !t.by_player).then(|| co::duty_launch::DutyRef::of(p, ti, k)).flatten(),
     })
@@ -719,9 +752,16 @@ fn tour_side(c: &Company, p: &DayPlan, ti: usize) -> Value {
     cands.sort_by(|a, b| b.0.cmp(&a.0));
     let mut cands: Vec<Value> = cands.into_iter().map(|x| x.1).collect();
     cands.push(json!({ "bus": null, "name": tr("No bus"), "state": "", "tone": "dim", "on": false }));
+    // (its bus taken off in one plain step, on top)
+    let fixed = pl::roster(c, p.weekday, &t.tour.line, &t.tour.tour).and_then(|r| r.bus);
+    let off = (!t.by_player && (t.bus.is_some() || fixed.is_some())).then(|| match t.bus {
+        Some(BusOf::Rental) => tr("Cancel the rental bus"),
+        Some(BusOf::Own(id)) => trf("Unassign bus %{bus}", &[("bus", &c.vehicle(id).map(|v| v.number.clone()).unwrap_or_default())]),
+        None => trf("Unassign bus %{bus}", &[("bus", &fixed.and_then(|id| c.vehicle(id)).map(|v| v.number.clone()).unwrap_or_default())]),
+    });
     json!({
         "kind": "tour", "title": tr("Tour").to_uppercase(), "ti": ti, "line": t.tour.line, "tour": t.tour.tour,
-        "colour": rf_colour(c, &t.tour.line), "head": line_title(t, None), "facts": facts, "options": options,
+        "colour": rf_colour(c, &t.tour.line), "head": line_title(t, None), "facts": facts, "options": options, "off": off,
         "cands": if t.by_player { Vec::new() } else { cands }, "by_player": t.by_player,
     })
 }
@@ -735,10 +775,14 @@ fn give_driver(s: &mut Session, p: &DayPlan, ti: usize, k: usize, who: Option<Wh
     let Some(c) = s.company.as_ref() else { return json!({}) };
     let t = &p.tours[ti];
     let (line, tour) = (t.tour.line.clone(), t.tour.tour.clone());
-    let rostered = pl::roster(c, p.weekday, &line, &tour).and_then(|r| r.duties.get(k).copied().flatten());
-    let today_only = p.today && t.duties[k].problem.is_some_and(|x| x != Problem::Unassigned) && rostered.is_some() && who != Some(Who::Player);
+    let for_today = today_only(c, p, ti, k, who);
+    // (for today the agency sends so many a day: said when none is left)
+    if for_today && who == Some(Who::Agency) && !pl::agency_room(c, p, ti, k) {
+        let (n, max) = (pl::agency_sent(c, p).to_string(), pl::agency_max(c).to_string());
+        return said(trf("No agency driver left today: %{n} of %{max}. The agency sends two, and one more for every three drivers you employ.", &[("n", &n), ("max", &max)]), true);
+    }
     let wd = p.weekday;
-    let r = if today_only {
+    let r = if for_today {
         let fill = match who {
             Some(Who::Staff(id)) => Some(Fill::Colleague { id }),
             Some(Who::Agency) => Some(Fill::Agency),
@@ -850,12 +894,24 @@ fn undo(s: &mut Session, r: &mut Rf, back: bool) -> Value {
     said(words.replace("%{edit}", &k.label), false)
 }
 
+/// When the company day's late drivers arrive, kept before its roster is first changed here
+/// (`pl::pin_arrivals`; the morning keeps them too): moved to a duty that begins after it, a
+/// driver is not late for it.
+fn pin_arrivals(s: &mut Session) {
+    let Some(date) = s.company.as_ref().map(|c| c.date.clone()) else { return };
+    let Some(Ok(p)) = company::plan_of(s, &date) else { return };
+    if s.company.as_ref().is_some_and(|c| !pl::arrivals_due(c, &p).is_empty()) {
+        let _ = company::act(s, |c| Ok(pl::pin_arrivals(c, &p)));
+    }
+}
+
 /// What a click on the Roster tab does (`act_on`), each change of the roster kept for undo.
 fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
     let what = str_arg(args, "act");
     if what == "undo" || what == "redo" {
         return Ok(undo(s, r, what == "undo"));
     }
+    pin_arrivals(s);
     let before = s.company.as_ref().map(|c| Kept::of(c, String::new()));
     let out = act_on(s, r, args)?;
     if let (Some(mut k), Some(c)) = (before, s.company.as_ref()) {
@@ -1114,6 +1170,12 @@ fn act_on(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
                 return Ok(json!({}));
             }
             let who: Option<Who> = serde_json::from_value(args.get("who").cloned().unwrap_or(Value::Null)).ok();
+            // ("Nobody" for a duty someone drives: taken off as the cross takes it off - the day's
+            // choice taken back too, which the roster alone did not)
+            if who.is_none() && p.tours[ti].duties[k].who.is_some() {
+                let t = &p.tours[ti].tour;
+                return Ok(off(s, &p, "off_driver", &json!({ "line": t.line, "tour": t.tour, "k": k }), &day_name));
+            }
             give_driver(s, &p, ti, k, who)
         }
         "give_bus" => {

@@ -32,6 +32,10 @@ const ROW_MAX = 38;
 
 const rsSet = (patch) => setPart('roster', patch);
 const inside = (r, m) => m && m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h;
+// (the same part of the chart, pressed and let go: by what it is, not by its object - the chart
+// is drawn anew while the mouse moves and the press takes the chip up, and a click on a chip or
+// its cross was lost so: testers found taking a driver off "a lot harder now")
+const sameHit = (a, b) => !!a && !!b && a.kind === b.kind && a.ti === b.ti && a.duty === b.duty && a.line === b.line && a.all === b.all;
 
 /** The pitch of a tour's row: the room shared by `rows`, between the least and the most. */
 function rowPitch(room, rows) {
@@ -121,6 +125,8 @@ function RosterMenu({ v, m }) {
       items = [
         ['Remove driver', !!d?.off, () => offOne(v, m.ti, m.k)],
         ['Give to…', !t.by_player, () => rsSet({ sel: selOf(t, m.k), multi: [] })],
+        // (the whole duty to an agency driver at once; the panel says what it costs)
+        ['Give to an agency driver', !t.by_player && d?.who !== 'agency', () => rAct('give_driver', { ti: m.ti, k: m.k, who: 'agency' })],
         ['Show in Drivers', !!d?.rf, () => setRf({ view: DRIVERS, panel: { kind: 'duty', id: d.rf }, reveal: d.rf, selRow: d.rf, hand: null, zones: null, sel: [], card: null })],
       ];
     } else {
@@ -400,7 +406,7 @@ function Chart({ v, p, startDrag, carrying }) {
     const h = top(m);
     const was = g.down;
     g.down = null;
-    if (!h || h !== was) return;
+    if (!sameHit(h, was)) return;
     click(h, e.ctrlKey || e.metaKey || e.shiftKey);
   };
   // (a right click: the menu of the duty or the tour's bus)
@@ -553,10 +559,11 @@ function drawChart(ctx, w, h, g) {
       const chip = { x: 100, y: cy - chipH / 2, w: LEFT - 110, h: chipH };
       const hov = inside(chip, m) || (g.carrying && g.carrying.ti === ti && g.carrying.duty == null);
       const tourMulti = inMulti(s, selOf(t, null));
-      busChip(ctx, p, t, chip, hov, tourOn || tourMulti);
+      // (its bus taken off with the cross, always shown at the chip's end)
+      const busOff = t.bus.kind === 'bus' && t.bus.off;
+      busChip(ctx, p, t, chip, hov, tourOn || tourMulti, busOff ? chip.h : 0);
       hit(chip.x, chip.y, chip.w, chip.h, { kind: 'bus', ti, duty: null, tip: t.bus.tip || '' });
-      // (its bus taken off with the cross, on the mouse or chosen)
-      if (t.bus.kind === 'bus' && t.bus.off && (inside(chip, m) || tourOn || tourMulti)) {
+      if (busOff) {
         const xr = { x: chip.x + chip.w - chip.h + 3, y: chip.y + 3, w: chip.h - 6, h: chip.h - 6 };
         offMark(ctx, p, xr, inside(xr, m));
         hit(xr.x, xr.y, xr.w, xr.h, { kind: 'off', ti, duty: null, tip: tr('Take the bus off this tour (Delete)') });
@@ -568,13 +575,15 @@ function drawChart(ctx, w, h, g) {
         const br = { x: xOf(d.from), y: cy - barH / 2, w: Math.max(6, (d.to - d.from) * ppm), h: barH };
         const dh = inside(br, m);
         const chosen = (sel?.duty && sel.duty[0] === t.line && sel.duty[1] === t.tour && sel.duty[2] === k) || inMulti(s, selOf(t, k));
-        dutyChip(ctx, p, t, d, br, ppm, xOf, dh, chosen);
-        hit(br.x, br.y, br.w, br.h, { kind: 'duty', ti, duty: k, tip: d.tip });
-        // (its driver taken off with the cross, on the mouse or chosen: inside its end, or beside
-        // a chip too narrow for it - and kept while the mouse is on it)
+        // (its driver taken off with the cross: always shown inside the end of a chip wide enough
+        // for it and its words; else on the mouse or chosen, inside its end or beside a chip too
+        // narrow for it - and kept while the mouse is on it)
+        const always = !d.open && d.off && br.w >= br.h * 2 + 24;
         const inner = br.w >= br.h + 8;
         const xr = { x: inner ? br.x + br.w - br.h + 3 : br.x + br.w + 3, y: br.y + 3, w: br.h - 6, h: br.h - 6 };
-        if (!d.open && d.off && (dh || chosen || inside(xr, m))) {
+        dutyChip(ctx, p, t, d, br, ppm, xOf, dh, chosen, always ? br.h : 0);
+        hit(br.x, br.y, br.w, br.h, { kind: 'duty', ti, duty: k, tip: d.tip });
+        if (!d.open && d.off && (always || dh || chosen || inside(xr, m))) {
           offMark(ctx, p, xr, inside(xr, m));
           hit(xr.x, xr.y, xr.w, xr.h, { kind: 'off', ti, duty: k, tip: tr('Take the driver off this duty (Delete)') });
         }
@@ -661,8 +670,8 @@ function inkOn(c) {
   return lum > 0.6 ? [26, 20, 0, 1] : [255, 255, 255, 1];
 }
 
-/** A tour's bus in the ID column (`rf_roster::bus_chip`). */
-function busChip(ctx, p, t, r, h, on) {
+/** A tour's bus in the ID column (`rf_roster::bus_chip`); `reserve`: the room its end keeps for the cross. */
+function busChip(ctx, p, t, r, h, on, reserve = 0) {
   const b = t.bus;
   if (b.kind === 'player') D.textIn(ctx, b.text, r.x, r.y, r.w, r.h, 12, 700, p.accent);
   else if (b.kind === 'none') issueChip(ctx, r.x, r.y, r.w, r.h, tone(p, b.tone), b.icon, b.text, h);
@@ -672,13 +681,13 @@ function busChip(ctx, p, t, r, h, on) {
     if (b.problem) D.roundedBorder(ctx, r.x, r.y, r.w, r.h, 3, 1.2, tone(p, b.problem));
     const col = b.suggested ? p.dim : p.text;
     D.icon(ctx, 'directions_bus', r.x + 11, r.y + r.h / 2, 13, col);
-    D.textIn(ctx, b.text, r.x + 22, r.y, r.w - 26, r.h, 12, 700, col);
+    D.textIn(ctx, b.text, r.x + 22, r.y, r.w - 26 - reserve, r.h, 12, 700, col);
   }
   if (on) D.roundedBorder(ctx, r.x - 1.5, r.y - 1.5, r.w + 3, r.h + 3, 4, 1.6, p.accent);
 }
 
-/** A duty on the hours (`rf_roster::duty_chip`). */
-function dutyChip(ctx, p, t, d, br, ppm, xOf, h, chosen) {
+/** A duty on the hours (`rf_roster::duty_chip`); `reserve`: the room its end keeps for the cross. */
+function dutyChip(ctx, p, t, d, br, ppm, xOf, h, chosen, reserve = 0) {
   if (d.open) {
     const col = tone(p, d.tone);
     const say = D.width(ctx, d.full, 11.5, 700) + 36 <= br.w ? d.full : d.words;
@@ -693,15 +702,16 @@ function dutyChip(ctx, p, t, d, br, ppm, xOf, h, chosen) {
       D.rect(ctx, xa, br.y + br.h - shade, Math.max(2, xOf(z) - xa), shade, [0, 0, 0, 0.3]);
     }
     const ink = alpha(hex(d.ink), Math.max(0.7, d.faint));
-    const fits = (txt) => txt && D.width(ctx, txt, 11.5, 700) + 12 <= br.w;
-    const words = fits(d.full) ? d.full : fits(d.label) ? d.label : d.short && D.width(ctx, d.short, 11.5, 700) + 8 <= br.w ? d.short : null;
-    if (words) D.textIn(ctx, words, br.x + 6, br.y, br.w - 10, br.h, 11.5, 700, ink);
+    const room = br.w - reserve;
+    const fits = (txt) => txt && D.width(ctx, txt, 11.5, 700) + 12 <= room;
+    const words = fits(d.full) ? d.full : fits(d.label) ? d.label : d.short && D.width(ctx, d.short, 11.5, 700) + 8 <= room ? d.short : null;
+    if (words) D.textIn(ctx, words, br.x + 6, br.y, room - 10, br.h, 11.5, 700, ink);
   }
   if (d.late) {
     const lw = Math.max(3, (d.late.until - d.from) * ppm);
     D.rounded(ctx, br.x, br.y, lw, br.h, 3, alpha(d.late.covered ? p.dim : p.err, 0.6));
   }
-  if (d.warn) D.circle(ctx, br.x + br.w - 5, br.y + 5, 3, p.warn);
+  if (d.warn) D.circle(ctx, br.x + br.w - 5 - reserve, br.y + 5, 3, p.warn);
   if (chosen) D.roundedBorder(ctx, br.x - 2, br.y - 2, br.w + 4, br.h + 4, 4, 2, p.text);
 }
 
@@ -764,15 +774,23 @@ function DayPanel({ d, startDrag, carrying }) {
 /** The way from a duty or a tour to its line's trips and timetable (RosterFlow's Timeplan). */
 const TimetableButton = ({ line }) => html`<button type="button" class="rr-tt" title=${tr('See the line\'s departures and the tours they make, and change them')} onClick=${() => setRf({ view: TIMEPLAN, tpLine: line, tpHint: null })}><${Icon} name="departure_board" size=${16} /><span>${tr("The line's trips and timetable")}</span></button>`;
 
+/** The plain way to take off what a duty or a tour has, on top of its panel (`label`: what it
+ * says, from the Rust side). */
+const OffButton = ({ label, go }) => html`<${RfButton} label=${label} raw data="rf-roster-off-side" title="Take it off (Delete)" style="width:100%;height:32px;margin:4px 0;box-shadow:inset 0 0 0 1.5px var(--rf-err)" onClick=${go} />`;
+
+/** The swatches the Rust side names (the player's, the agency's). */
+const SWATCH = { accent: 'var(--rf-accent)', grey: 'var(--rf-grey)' };
+
 /** A duty chosen (`rf_roster::duty_panel`): its times, who drives it and why, who else could; on
  * the company's day what to do when it is open, and "Drive this duty". */
 function DutyPanel({ d }) {
   return html`<div class="rr-title"><i style=${`background:${d.colour}`}></i><b class="cut">${d.head}</b></div>
+    ${d.off && html`<${OffButton} label=${d.off} go=${() => rAct('off_driver', { line: d.line, tour: d.tour, k: d.k })} />`}
     <${TimetableButton} line=${d.line} />
     ${d.facts.map(([t, k]) => html`<p class=${'rr-fact t-' + k}>${t}</p>`)}
     ${d.options.length > 0 && html`<span class="rf-caps">${tr('Cover it today').toUpperCase()}</span>${d.options.map((o) => html`<${PickRow} on=${o.on} text=${o.label} right=${o.note} onTap=${() => rAct('set_fill', { key: o.key, fill: o.fill })} />`)}`}
     <span class="rf-caps">${tr('Who drives it').toUpperCase()}</span>
-    ${d.cands.map((c) => html`<${PickRow} on=${c.on} swatch=${c.swatch === 'accent' ? 'var(--rf-accent)' : c.swatch} text=${c.name} right=${c.state} rtone=${c.tone} onTap=${() => !d.by_player && rAct('give_driver', { ti: d.ti, k: d.k, who: c.who })} />`)}
+    ${d.cands.map((c) => html`<${PickRow} on=${c.on} swatch=${SWATCH[c.swatch] || c.swatch} text=${c.name} right=${c.state} rtone=${c.tone} onTap=${() => !d.by_player && rAct('give_driver', { ti: d.ti, k: d.k, who: c.who })} />`)}
     ${d.drive && html`<${RfButton} label="Drive this duty" solid style="width:100%;height:36px;margin-top:12px" onClick=${() => coAct('drive_duty', { duty: d.drive, from: 5 }).then(() => setRf({ open: true }))} />`}`;
 }
 
@@ -780,6 +798,7 @@ function DutyPanel({ d }) {
  * company's day a rental bus or dropping it. */
 function TourPanel({ d }) {
   return html`<div class="rr-title"><i style=${`background:${d.colour}`}></i><b class="cut">${d.head}</b></div>
+    ${d.off && html`<${OffButton} label=${d.off} go=${() => rAct('off_bus', { line: d.line, tour: d.tour })} />`}
     <${TimetableButton} line=${d.line} />
     ${d.facts.map(([t, k]) => html`<p class=${'rr-fact t-' + k}>${t}</p>`)}
     ${d.options.length > 0 && html`<span class="rf-caps">${tr('Cover it today').toUpperCase()}</span>${d.options.map((o) => html`<${PickRow} on=${o.on} text=${o.label} right=${o.note} onTap=${() => o.live && rAct('set_fill', { key: o.key, fill: o.fill })} />`)}`}

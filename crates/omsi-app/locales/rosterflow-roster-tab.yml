@@ -1,0 +1,60 @@
+_version: 2
+# RosterFlow's Roster tab after Beta 56's testers: an agency driver for the whole duty in the list
+# of who drives it and in the duty's menu (with what it costs), one plain button on top of the
+# side panel to take a driver or a bus off.
+"%{amount} for this duty, every %{day}":
+  de: "%{amount} für diesen Dienst, jede Woche (%{day})"
+  fr: "%{amount} pour ce service, chaque semaine (%{day})"
+  nl: "%{amount} voor deze dienst, elke week (%{day})"
+  pl: "%{amount} za tę służbę, co tydzień (%{day})"
+  ru: "%{amount} за эту смену, каждую неделю (%{day})"
+  uk: "%{amount} за цю зміну, щотижня (%{day})"
+"%{amount} for this duty, today only (%{n} of %{max} today)":
+  de: "%{amount} für diesen Dienst, nur heute (heute %{n} von %{max})"
+  fr: "%{amount} pour ce service, aujourd'hui seulement (%{n} sur %{max} aujourd'hui)"
+  nl: "%{amount} voor deze dienst, alleen vandaag (vandaag %{n} van %{max})"
+  pl: "%{amount} za tę służbę, tylko dziś (dziś %{n} z %{max})"
+  ru: "%{amount} за эту смену, только сегодня (сегодня %{n} из %{max})"
+  uk: "%{amount} за цю зміну, лише сьогодні (сьогодні %{n} з %{max})"
+"No agency driver left today (%{n} of %{max})":
+  de: "Heute kein Leihfahrer mehr frei (%{n} von %{max})"
+  fr: "Plus de chauffeur intérimaire aujourd'hui (%{n} sur %{max})"
+  nl: "Vandaag geen uitzendkracht meer (%{n} van %{max})"
+  pl: "Dziś nie ma już kierowcy z agencji (%{n} z %{max})"
+  ru: "Сегодня водителей из агентства больше нет (%{n} из %{max})"
+  uk: "Сьогодні водіїв з агентства більше немає (%{n} з %{max})"
+"Unassign %{who}":
+  de: "%{who} entfernen"
+  fr: "Retirer %{who}"
+  nl: "%{who} weghalen"
+  pl: "Zdejmij: %{who}"
+  ru: "Снять: %{who}"
+  uk: "Зняти: %{who}"
+"Unassign bus %{bus}":
+  de: "Bus %{bus} entfernen"
+  fr: "Retirer le bus %{bus}"
+  nl: "Bus %{bus} weghalen"
+  pl: "Zdejmij autobus %{bus}"
+  ru: "Снять автобус %{bus}"
+  uk: "Зняти автобус %{bus}"
+"Cancel the rental bus":
+  de: "Mietbus abbestellen"
+  fr: "Annuler le bus de location"
+  nl: "Huurbus afzeggen"
+  pl: "Anuluj autobus z wypożyczalni"
+  ru: "Отменить арендованный автобус"
+  uk: "Скасувати орендований автобус"
+"Take it off (Delete)":
+  de: "Entfernen (Entf)"
+  fr: "Le retirer (Suppr)"
+  nl: "Weghalen (Delete)"
+  pl: "Zdejmij (Delete)"
+  ru: "Снять (Delete)"
+  uk: "Зняти (Delete)"
+"Give to an agency driver":
+  de: "An einen Leihfahrer geben"
+  fr: "Confier à un chauffeur intérimaire"
+  nl: "Aan een uitzendkracht geven"
+  pl: "Przydziel kierowcy z agencji"
+  ru: "Отдать водителю из агентства"
+  uk: "Віддати водію з агентства"
