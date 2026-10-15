@@ -860,7 +860,7 @@ function Picker({ value, onPick }) {
   };
   const hue = toHex([hsv[0], 1, 1]);
   return html`<div class="rf-picker">
-    <div class="sv" ref=${sq} style=${`background:${hue}`} onMouseDown=${drag(sq, (x, y) => emit([hsv[0], x, 1 - y]))}><i style=${`left:${hsv[1] * 100}%;top:${(1 - hsv[2]) * 100}%;background:${value}`}></i></div>
+    <div class="sv" ref=${sq} style=${`background-color:${hue}`} onMouseDown=${drag(sq, (x, y) => emit([hsv[0], x, 1 - y]))}><i style=${`left:${hsv[1] * 100}%;top:${(1 - hsv[2]) * 100}%;background:${value}`}></i></div>
     <div class="hue" ref=${bar} onMouseDown=${drag(bar, (x) => emit([Math.min(359.99, x * 360), hsv[1] < 0.05 ? 0.8 : hsv[1], hsv[2] < 0.05 ? 0.85 : hsv[2]]))}><i style=${`left:${(hsv[0] / 360) * 100}%`}></i></div>
     <div class="row"><input value=${code} onInput=${(e) => {
       const v = e.currentTarget.value;
