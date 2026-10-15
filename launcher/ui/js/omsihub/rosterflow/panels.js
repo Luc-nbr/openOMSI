@@ -823,7 +823,7 @@ function DayMenu({ size }) {
   const marks = r.data?.head?.days || [];
   return html`<div class="rf-over rf-menu" style=${`left:${size.w - 560}px;top:4px;width:270px;height:${dayMenuHeight(days, marks)}px`}>
     ${days.map((d, k) => html`<${DayItem} label=${d.label} tags=${marks[k]} on=${r.day === k} onPick=${() => {
-      setRf({ day: k, panel: null });
+      setRf({ day: k, panel: null, ticked: [] });
       settle();
     }} />`)}
   </div>`;
