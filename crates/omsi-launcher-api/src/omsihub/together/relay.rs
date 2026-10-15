@@ -314,6 +314,30 @@ mod tests {
         assert_eq!(need("co_act", &json!({ "act": "sell" })).refusal()["perm"], "spend");
     }
 
+    /// A page run for a player on the boss's session: his own corner and popup, the boss's left
+    /// as they were; his shell shows his pages.
+    #[test]
+    fn a_players_pages_keep_their_own_state_and_leave_the_bosss() {
+        use super::super::super::company::{relayed, Session, Viewer};
+        use omsi_launcher_lib::company::{found, Founding, GameMode};
+        super::super::super::company::words::set_language("en");
+        let c = found(&Founding { name: "Stadtbus".into(), game_mode: GameMode::Normal, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+        let mut s = Session::default();
+        s.company = Some(c);
+        s.say("for the boss", false);
+        let mut v = Viewer::default();
+        let planner = omsi_launcher_lib::company::together::Role::Planner.preset();
+        let sh = relayed(&mut s, &mut v, "co_tick", &json!({}), planner).unwrap();
+        assert_eq!(sh["remote"]["perms"].as_array().map(Vec::len), Some(planner.len()));
+        assert!(sh["notices"].as_array().is_some_and(Vec::is_empty), "the boss's corner is not the player's");
+        assert!(sh["pages"].as_array().unwrap().iter().all(|t| tab_need(t.as_u64().unwrap() as usize).met(planner)));
+        assert_eq!(s.notices.len(), 1);
+        // (what is said to the player stays his, for his next shell)
+        let lines = relayed(&mut s, &mut v, "co_view", &json!({ "view": "lines" }), planner).unwrap();
+        assert!(lines.get("none").is_none());
+        assert_eq!(s.notices.len(), 1);
+    }
+
     #[test]
     fn the_shell_shows_a_player_only_his_pages() {
         let sh = json!({
