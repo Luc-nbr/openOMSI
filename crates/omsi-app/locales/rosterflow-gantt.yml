@@ -58,13 +58,6 @@ _version: 2
   pl: "Przerwa w"
   ru: "Перерыв в"
   uk: "Перерва в"
-"Where":
-  de: "Wo"
-  fr: "Où"
-  nl: "Waar"
-  pl: "Gdzie"
-  ru: "Где"
-  uk: "Де"
 "Where the bus is":
   de: "Wo der Bus steht"
   fr: "Là où est le bus"
