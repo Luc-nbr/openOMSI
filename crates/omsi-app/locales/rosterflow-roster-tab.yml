@@ -9,20 +9,6 @@ _version: 2
   pl: "%{amount} za tę służbę, co tydzień (%{day})"
   ru: "%{amount} за эту смену, каждую неделю (%{day})"
   uk: "%{amount} за цю зміну, щотижня (%{day})"
-"%{amount} for this duty, today only (%{n} of %{max} today)":
-  de: "%{amount} für diesen Dienst, nur heute (heute %{n} von %{max})"
-  fr: "%{amount} pour ce service, aujourd'hui seulement (%{n} sur %{max} aujourd'hui)"
-  nl: "%{amount} voor deze dienst, alleen vandaag (vandaag %{n} van %{max})"
-  pl: "%{amount} za tę służbę, tylko dziś (dziś %{n} z %{max})"
-  ru: "%{amount} за эту смену, только сегодня (сегодня %{n} из %{max})"
-  uk: "%{amount} за цю зміну, лише сьогодні (сьогодні %{n} з %{max})"
-"No agency driver left today (%{n} of %{max})":
-  de: "Heute kein Leihfahrer mehr frei (%{n} von %{max})"
-  fr: "Plus de chauffeur intérimaire aujourd'hui (%{n} sur %{max})"
-  nl: "Vandaag geen uitzendkracht meer (%{n} van %{max})"
-  pl: "Dziś nie ma już kierowcy z agencji (%{n} z %{max})"
-  ru: "Сегодня водителей из агентства больше нет (%{n} из %{max})"
-  uk: "Сьогодні водіїв з агентства більше немає (%{n} з %{max})"
 "Unassign %{who}":
   de: "%{who} entfernen"
   fr: "Retirer %{who}"

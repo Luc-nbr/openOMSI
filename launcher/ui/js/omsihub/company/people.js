@@ -58,7 +58,7 @@ export function PeoplePage() {
   const per = Math.max(1, Math.floor((size.w - nameW - 12) / 150));
   const v = useView('people', { ...st, per }, size.w > 0);
   if (!v?.tabs) return html`<div ref=${ref} style="height:100%"></div>`;
-  const tabsW = Math.min(v.tabs.length >= 5 ? 1040 : 420, size.w);
+  const tabsW = Math.min(v.tabs.length >= 7 ? 1180 : v.tabs.length >= 5 ? 1040 : 420, size.w);
   const b = v.body;
   let body = null;
   if (b.kind === 'person') body = html`<${Person} p=${b} />`;
@@ -67,6 +67,7 @@ export function PeoplePage() {
   else if (b.kind === 'training') body = html`<${Training} t=${b} nameW=${nameW} />`;
   else if (b.kind === 'schedule') body = html`<${Schedule} s=${b} />`;
   else if (b.kind === 'holidays') body = html`<${Holidays} h=${b} />`;
+  else if (b.kind === 'agencies') body = html`<${Agencies} a=${b} st=${st} />`;
   else if (b.kind === 'settings') body = html`<${Rules} r=${b} />`;
   return html`<div ref=${ref} style="height:100%;display:flex;flex-direction:column">
     <div style="display:flex;align-items:center;gap:20px;flex:none;height:40px">
@@ -309,6 +310,82 @@ function Rules({ r }) {
     <p class="co-note t-dim">${r.follow_note}</p>
     <${Switch} checked=${r.grant} label=${r.grant_label} onChange=${(on) => act('staff_rule', { which: 'grant', on })} style="min-height:36px;margin-top:10px" />
     <p class="co-note t-dim">${r.grant_note}</p>
+  </div>`;
+}
+
+// --- the agency drivers booked ahead (Beta 57) ---------------------------------------------
+
+/** The Agencies tab (`people::agencies::part`): the coming weeks with what is booked, the day
+ * picked booked - how many, a whole day, some hours or some of its open duties, and what it
+ * costs - and the bookings with Cancel. The form's state is the page's (`aday`, `acount`,
+ * `amode`, `afrom`, `ato`, `aduties`). */
+function Agencies({ a, st }) {
+  const d = a.day;
+  const picked = st.aduties || [];
+  const toggle = (key) => setUi('people', { aduties: picked.includes(key) ? picked.filter((k) => k !== key) : [...picked, key] });
+  const form = { aday: d.date, acount: d.count, amode: d.mode, afrom: d.from, ato: d.to, aduties: picked };
+  const book = async () => {
+    const r = await act('agency_book', form);
+    if (r?.booked) setUi('people', { aduties: [] });
+  };
+  const time = (value, key) => html`<input type="time" class="co-field co-timefield" step="900" value=${hhmm(value)} onChange=${(e) => {
+    const [h, m] = e.currentTarget.value.split(':').map(Number);
+    if (!isNaN(h)) setUi('people', { [key]: h * 60 + (m || 0) });
+  }} />`;
+  const row = (b) => html`<section class="co-section" style="margin-bottom:10px;padding:12px 14px">
+    <div class="co-payrow"><b class="cut">${b.date}</b><b class=${b.gone ? 't-soft' : ''}>${b.cost}</b></div>
+    <div class="co-payrow"><span class="cut">${b.what}</span><span class="cut t-soft">${b.names}</span></div>
+    ${b.given && html`<p class="co-note t-accent2" style="margin-top:4px">${b.given}</p>`}
+    ${b.cancel && html`<div style="display:flex;align-items:center;gap:12px;margin-top:8px">
+      <${Btn} icon="event_busy" label=${b.cancel} small onClick=${() => act('agency_cancel', { no: b.no })} />
+      ${b.fee && html`<span class="co-note t-warn cut">${b.fee}</span>`}</div>`}
+  </section>`;
+  return html`<div class="co-hol">
+    <div class="left">
+      <div class="co-caps" style="margin-bottom:8px">${a.calendar_title}</div>
+      <div class="co-holcal">
+        ${a.weekdays.map((w) => html`<span class="wd">${w}</span>`)}
+        ${a.days.map(
+          (x) => html`<button type="button" class=${'day' + (x.gone ? ' gone' : '') + (x.today ? ' today' : '') + (x.on ? ' on' : '')} title=${x.tip || undefined} disabled=${x.gone} onClick=${() => setUi('people', { aday: x.date, aduties: [] })}>
+            <span class="top"><b>${x.day}</b>${x.month && html`<i>${x.month}</i>`}</span>
+            ${x.count && html`<span class=${'count t-' + x.tone}>${x.count}</span><${Meter} frac=${x.frac} tone=${x.tone} h=${5} />`}
+          </button>`,
+        )}
+      </div>
+      <section class="co-section co-holday" style="margin-top:14px">
+        <div class="co-caps">${a.title} · ${d.title}</div>
+        ${d.why
+          ? html`<p class="co-note t-warn" style="margin-top:6px">${d.why}</p>`
+          : html`<div class="co-hol-limit" style="margin-top:8px">
+              <b class="cut">${d.count_title}</b>
+              <${IconBtn} icon="remove" size=${15} title=${d.fewer} onClick=${() => d.count > 1 && setUi('people', { acount: d.count - 1 })} />
+              <b class="n">${d.count}</b>
+              <${IconBtn} icon="add" size=${15} title=${d.more} onClick=${() => d.count < d.most && setUi('people', { acount: d.count + 1 })} />
+            </div>
+            <${Seg} value=${d.mode} options=${d.modes.map((m, k) => [k, m])} onChange=${(k) => setUi('people', { amode: k })} style="width:min(460px,100%);height:34px;margin-top:8px" />
+            ${d.mode === 1 && html`<div class="times" style="display:flex;align-items:center;gap:10px;margin-top:10px">${time(d.from, 'afrom')}<span>–</span>${time(d.to, 'ato')}</div>`}
+            ${d.mode === 2 &&
+            (d.duties
+              ? d.duties.length
+                ? html`<div class="co-scroll" style="max-height:220px;margin-top:10px">${d.duties.map(
+                    (x) => html`<button type="button" class="co-payrow" style="width:100%;border:0;background:none;color:inherit;font:inherit;cursor:pointer;text-align:left" onClick=${() => toggle(x.key)}>
+                      <span class="cut"><${Icon} name=${x.on ? 'check_box' : 'check_box_outline_blank'} size=${16} class=${x.on ? 't-accent2' : 't-dim'} /> ${x.label}</span><b>${x.time}</b></button>`,
+                  )}</div>`
+                : html`<p class="co-note t-soft" style="margin-top:8px">${d.no_duties}</p>`
+              : html`<p class="co-note t-soft" style="margin-top:8px">${d.far}</p>`)}
+            <p class="co-note t-dim" style="margin-top:8px">${d.mode_note}</p>
+            <div style="display:flex;align-items:center;gap:14px;margin-top:10px">
+              <${Btn} kind="primary" icon="person_add" label=${d.book} onClick=${book} />
+              <span class=${'co-note cut t-' + d.quote_tone}>${d.quote}</span>
+            </div>`}
+      </section>
+      <div class="co-holnotes">${a.notes.map((n) => html`<p class="co-note t-dim">${n}</p>`)}</div>
+    </div>
+    <div class="co-scroll right">
+      <div class="co-caps" style="margin-bottom:10px">${a.coming_title}</div>
+      ${a.coming.length ? a.coming.map(row) : html`<p class="co-para t-soft" style="margin-bottom:16px">${a.none}</p>`}
+      ${a.lately.length > 0 && html`<div class="co-caps" style="margin:18px 0 10px">${a.lately_title}</div>${a.lately.map(row)}`}
+    </div>
   </div>`;
 }
 

@@ -682,8 +682,8 @@ function busChip(ctx, p, t, r, h, on, reserve = 0) {
     const col = b.suggested ? p.dim : p.text;
     D.icon(ctx, 'directions_bus', r.x + 11, r.y + r.h / 2, 13, col);
     D.textIn(ctx, b.text, r.x + 22, r.y, r.w - 26 - reserve - (b.broke ? 16 : 0), r.h, 12, 700, col);
-    // (its bus broke down or crashed today: `rf_roster::breaks_of`)
-    if (b.broke) D.icon(ctx, 'error', r.x + r.w - reserve - 11, r.y + r.h / 2, 13, tone(p, b.problem || 'err'));
+    // (its bus broke down or crashed today: `rf_roster::breaks_of`; left of the cross's room)
+    if (b.broke) D.icon(ctx, 'error', r.x + r.w - 11 - reserve, r.y + r.h / 2, 13, tone(p, b.problem || 'err'));
   }
   if (on) D.roundedBorder(ctx, r.x - 1.5, r.y - 1.5, r.w + 3, r.h + 3, 4, 1.6, p.accent);
 }

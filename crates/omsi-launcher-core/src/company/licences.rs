@@ -137,7 +137,8 @@ pub fn lack(e: &Employee, kind: BusKind, bus: Option<&str>) -> Option<Lack> {
         return Some(Lack::Endorsement(x));
     }
     let key = bus.map(type_key).filter(|k| !k.is_empty())?;
-    (!e.types.iter().any(|t| *t == key)).then_some(Lack::Type(key))
+    // (an agency driver booked ahead drives any type: `agency::ANY_TYPE`)
+    (!e.types.iter().any(|t| *t == key || t == super::agency::ANY_TYPE)).then_some(Lack::Type(key))
 }
 
 /// The drivers (employed, not leaving) who may drive the bus file `bus` of `kind`, and of how

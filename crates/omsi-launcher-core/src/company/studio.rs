@@ -841,6 +841,12 @@ fn change_between(c: &Company, tours: &[TourOfDay], line: &str, a: &PlannedTrip,
     Err(ON_THE_MOVE)
 }
 
+/// Whether drivers may change between trips `a` and `b` of a block of line `line`, by the rule a
+/// cut by hand keeps (`change_between`): Optimise cuts the blocks by it too.
+pub fn may_change(c: &Company, tours: &[TourOfDay], line: &str, a: &PlannedTrip, b: &PlannedTrip) -> bool {
+    change_between(c, tours, line, a, b).is_ok()
+}
+
 /// Where between trips `p` and `n` of block `i` (trips with passengers, none between them) the
 /// driver can change: before a trip after which the bus stands at a terminus or the depot
 /// (`change_between`), the nearest `p` first (`near_p`) or the nearest `n`.

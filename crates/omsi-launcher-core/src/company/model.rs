@@ -244,10 +244,12 @@ pub enum BookingKind {
     Services,
     /// The money of goals reached (`contracts`).
     Rewards,
+    /// Agency drivers: sent on the day, or booked ahead (`agency`).
+    Agency,
 }
 
 impl BookingKind {
-    pub const ALL: [BookingKind; 31] = [
+    pub const ALL: [BookingKind; 32] = [
         BookingKind::Capital,
         BookingKind::Loan,
         BookingKind::Repayment,
@@ -279,6 +281,7 @@ impl BookingKind {
         BookingKind::Parts,
         BookingKind::Services,
         BookingKind::Rewards,
+        BookingKind::Agency,
     ];
 
     pub fn label(self) -> &'static str {
@@ -314,6 +317,7 @@ impl BookingKind {
             BookingKind::Parts => "Spare parts",
             BookingKind::Services => "Service contracts",
             BookingKind::Rewards => "Goal rewards",
+            BookingKind::Agency => "Agency drivers",
         }
     }
 
@@ -901,7 +905,8 @@ impl Company {
     }
 
     pub fn employee(&self, id: u32) -> Option<&Employee> {
-        self.staff.iter().find(|e| e.id == id)
+        // (an agency driver booked for a day is one of its drivers that day: `agency`)
+        self.staff.iter().find(|e| e.id == id).or_else(|| super::agency::driver(self, id))
     }
 
     /// What is still owed on all loans.

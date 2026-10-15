@@ -2,8 +2,9 @@
 //! My employees with a card for everyone and a person opened; Hire employees, the week's
 //! applicants of every role; Licences & training, who of the drivers may drive which bus and the
 //! courses; the Work schedule of the roles besides the drivers; the Holidays asked for and planned
-//! (`holidays`); and the staff's Settings.
+//! (`holidays`); the agency drivers booked ahead for a day (`agencies`); and the staff's Settings.
 
+pub mod agencies;
 pub mod holidays;
 
 use super::kit::{self, Go, Popup};
@@ -17,7 +18,7 @@ use omsi_launcher_lib::company::training::{self, CourseKind};
 use omsi_launcher_lib::company::{self as co, Company, Employee, Licence, Role};
 use serde_json::{json, Value};
 
-pub const TABS: [&str; 6] = ["My employees", "Hire employees", "Licences & training", "Work schedule", "Holidays", "Settings"];
+pub const TABS: [&str; 7] = ["My employees", "Hire employees", "Licences & training", "Work schedule", "Holidays", "Agencies", "Settings"];
 const SORTS: [&str; 6] = ["Name", "Role", "Wage", "Level", "Satisfaction", "Stress"];
 /// Said under a lock Casual does not open by itself.
 const NOT_RESEARCHED_BY_ITSELF: &str = "Casual does not research this by itself: switch to Normal and start it on its Research page.";
@@ -523,12 +524,15 @@ pub fn view(s: &mut Session, ui: &Value) -> Value {
     let wages: i64 = c.staff.iter().map(staff::monthly_cost).sum();
     let duties: usize = s.plan.as_ref().map(|p| p.tours.iter().filter(|t| !t.by_player && !t.live && !t.tour.unplanned).map(|t| t.duties.len()).sum()).unwrap_or(0);
     let plan = s.plan.clone();
+    // (the Agencies tab's day picked: its open duties, when its timetable is read)
+    let aplan = if tab == 5 { agencies::plan_for(s, ui) } else { None };
     let body = match tab {
         1 => hire_part(&c, ui),
         2 => training_part(&c, ui),
         3 => schedule_part(&c, ui),
         4 => holidays::part(&c, ui),
-        5 => settings_part(&c),
+        5 => agencies::part(&c, aplan.as_ref(), ui),
+        6 => settings_part(&c),
         _ => list_part(&c, plan.as_ref(), ui),
     };
     json!({ "tabs": tabs, "tab": tab, "info": trf("Wages %{amount} a month with the employer's share  ·  %{n} duties today", &[("amount", &eur(wages)), ("n", &duties.to_string())]), "body": body })
@@ -658,6 +662,7 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Result<Value, St
             }))
         }
         "holiday_answer" | "holiday_limit" => return holidays::act(s, what, args),
+        "agency_book" | "agency_cancel" => return agencies::act(s, what, args),
         "staff_minimum" => {
             let Some(role) = role_of(args.get("role").and_then(Value::as_str).unwrap_or("")) else { return Some(Ok(json!({}))) };
             let n = args.get("n").and_then(Value::as_u64).unwrap_or(0).min(99) as u32;

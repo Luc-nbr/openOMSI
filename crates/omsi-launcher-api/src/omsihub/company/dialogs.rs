@@ -563,7 +563,7 @@ fn cover_text(c: &Company, x: &pl::Cover) -> (String, String) {
             };
             (name, note)
         }
-        pl::Cover::Agency { used, max } => (trf("Agency driver (today %{n} of %{max} - grows with your staff)", &[("n", &used.to_string()), ("max", &max.to_string())]), String::new()),
+        pl::Cover::Agency { used } => (trf("Agency driver (%{n} sent today: as many as you ask for)", &[("n", &used.to_string())]), String::new()),
         pl::Cover::Player => (tr("Drive it yourself"), String::new()),
         pl::Cover::Drop { penalty } if *penalty > 0 => (tr("Drop its trips today"), trf("Penalty %{amount}", &[("amount", &eur(*penalty))])),
         pl::Cover::Drop { .. } => (tr("Drop its trips today"), tr("No penalty")),
