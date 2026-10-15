@@ -390,6 +390,8 @@ fn view(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
     out["undo"] = json!(r.roster_undo.len());
     out["redo"] = json!(r.roster_redo.len());
     out["plan"] = plan_json(&c, &p);
+    // (the day's trips that ran late or were dropped, marked on the tours and duties)
+    out["outcomes"] = company::late::service_json(s, &c, &date);
     out["side"] = side_json(&c, &p, args.get("sel").unwrap_or(&Value::Null));
     Ok(out)
 }

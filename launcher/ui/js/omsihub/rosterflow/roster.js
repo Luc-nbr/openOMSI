@@ -21,6 +21,8 @@ import { setRf, setPart, rfCmd, after, bump, say, TIMEPLAN, DRIVERS } from './st
 import { Icon, RfButton, IconBtn, MenuItem } from './ui.js';
 import { anchor, begin, forget } from './anchors.js';
 import { BAR, barLook, drawBar } from './gantt.js';
+// (the day's trips that ran late or were dropped, marked on the tours and duties)
+import * as SV from './service.js';
 
 const DAY_H = 50;
 const TOOL_H = 40;
@@ -562,7 +564,12 @@ function drawChart(ctx, w, h, g) {
       // (its bus taken off with the cross, always shown at the chip's end)
       const busOff = t.bus.kind === 'bus' && t.bus.off;
       busChip(ctx, p, t, chip, hov, tourOn || tourMulti, busOff ? chip.h : 0);
-      hit(chip.x, chip.y, chip.w, chip.h, { kind: 'bus', ti, duty: null, tip: t.bus.tip || '' });
+      // (the tour's trips dropped and late on the day: a count on its bus chip)
+      const tourSvc = SV.ofTour(SV.serviceOf(v), t.line, t.tour);
+      if (tourSvc.length) SV.count(ctx, chip, tourSvc);
+      hit(chip.x, chip.y, chip.w, chip.h, { kind: 'bus', ti, duty: null, tip: tourSvc.length ? [t.bus.tip, ...tourSvc.map(SV.tipOf)].filter(Boolean).join('
+
+') : t.bus.tip || '' });
       if (busOff) {
         const xr = { x: chip.x + chip.w - chip.h + 3, y: chip.y + 3, w: chip.h - 6, h: chip.h - 6 };
         offMark(ctx, p, xr, inside(xr, m));
@@ -582,7 +589,11 @@ function drawChart(ctx, w, h, g) {
         const inner = br.w >= br.h + 8;
         const xr = { x: inner ? br.x + br.w - br.h + 3 : br.x + br.w + 3, y: br.y + 3, w: br.h - 6, h: br.h - 6 };
         dutyChip(ctx, p, t, d, br, ppm, xOf, dh, chosen, always ? br.h : 0);
-        hit(br.x, br.y, br.w, br.h, { kind: 'duty', ti, duty: k, tip: d.tip });
+        const svc = SV.ofTour(SV.serviceOf(v), t.line, t.tour, k);
+        for (const o of svc) SV.tick(ctx, xOf(o.dep), br, o);
+        hit(br.x, br.y, br.w, br.h, { kind: 'duty', ti, duty: k, tip: svc.length ? [d.tip, ...svc.map(SV.tipOf)].filter(Boolean).join('
+
+') : d.tip });
         if (!d.open && d.off && (always || dh || chosen || inside(xr, m))) {
           offMark(ctx, p, xr, inside(xr, m));
           hit(xr.x, xr.y, xr.w, xr.h, { kind: 'off', ti, duty: k, tip: tr('Take the driver off this duty (Delete)') });
