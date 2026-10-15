@@ -800,6 +800,7 @@ fn simulated(s: &mut Session, r: Result<(Company, Run), String>) {
             let casual = c.game_mode.casual();
             // (the company still open: nothing else can be while the cover is up)
             if s.company.as_ref().is_none_or(|x| x.id == c.id) {
+                say_breaks(s, &run.breaks);
                 s.company = Some(c);
                 if casual {
                     // (Casual says the day in a line: no report to read through)
@@ -822,6 +823,7 @@ fn simulated(s: &mut Session, r: Result<(Company, Run), String>) {
 /// clock's quiet minutes now and then). Stepped ahead of the real clock, its lead is kept.
 pub fn adopt(s: &mut Session, mut c: Company, run: Run) {
     ck::keep_lead(&mut c, real_now());
+    say_breaks(s, &run.breaks);
     let quiet = run.reports.is_empty() && !run.stopped && c.clock.feed.iter().rev().take(run.told).all(|f| f.level == Level::Minor);
     let running = s.clock.speed > 0.0 || realtime(&c);
     s.company = Some(c);
@@ -843,6 +845,37 @@ pub fn adopt(s: &mut Session, mut c: Company, run: Run) {
     }
     s.clock.dirty = None;
     changed(s);
+}
+
+/// The breakdowns and accidents a run decided by itself (the dispatcher), said where the player
+/// is - the company's pages and RosterFlow (testers: "it does not inform me that I can
+/// allocate" a spare bus); the inbox keeps them.
+fn say_breaks(s: &mut Session, said: &[co::inbox::Message]) {
+    for m in said {
+        let (title, text) = message_words(m);
+        s.say(format!("{title}: {text}"), m.level == Level::Bad);
+    }
+}
+
+/// A message of the inbox in words: its title and its text, translated and filled.
+pub fn message_words(m: &co::inbox::Message) -> (String, String) {
+    (inbox::words(&m.title, &m.args), inbox::words(&m.text, &m.args))
+}
+
+pub use dialogs::spare_label;
+
+/// A breakdown's choice made on RosterFlow's Roster tab (`clock::choose`): the clock's question
+/// answered when it waits for it - the simulation going on where it was going -, else trips
+/// dropped get a spare or a rental bus from now on.
+pub fn choose_break(s: &mut Session, index: usize, choice: ck::Choice) {
+    let Some(c) = s.company.as_mut() else { return };
+    let to = ck::choose(c, index, choice);
+    changed(s);
+    if s.clock.speed == 0.0 {
+        if let Some(to) = to {
+            simulate(s, to, false);
+        }
+    }
 }
 
 /// Save what a playing clock left unsaved.
@@ -974,6 +1007,7 @@ fn follow(s: &mut Session, c: &Company) {
     let d = data();
     let live = co::store::peek_live(&d, &c.id, already);
     let mut told = 0;
+    let mut said = Vec::new();
     if !live.is_empty() {
         s.clock.live_seen.insert(key, already + live.len());
         told += ck::tell_live(&mut c, &live);
@@ -981,10 +1015,15 @@ fn follow(s: &mut Session, c: &Company) {
     if let Some(lines) = s.map_lines().map(|l| l.to_vec()) {
         let mut w = Disk::new(&d).knowing(&c.map.clone(), &c.date.clone(), lines);
         match ck::follow(&mut c, minute, &mut w) {
-            Ok(run) => told += run.told,
+            Ok(run) => {
+                told += run.told;
+                said = run.breaks;
+            }
             Err(e) => log_warn(&format!("company: following the game's clock: {e}")),
         }
     }
+    // (the game leads: the dispatcher decided, and the pages say what he sent)
+    say_breaks(s, &said);
     let synced = ck::with_game(&mut c, real_now());
     let moved = s.company.as_ref().is_none_or(|x| ck::now(x) != ck::now(&c));
     if told > 0 || synced || moved {
