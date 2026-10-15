@@ -14,9 +14,16 @@
 //!   `band`), the driver's punctuality and experience, the bus's condition, the day's events on
 //!   the line (`inbox::line_effect`), and a small part of chance; a bus breaking down on the way
 //!   holds its passengers until the spare comes;
-//! - its minutes late are the most it ran behind, at its start or its end, and a trip is late
-//!   from `economy::LATE_FROM` minutes. The chance is drawn from the company, the trip and the
-//!   date: the same plan on similar days runs alike.
+//! - its minutes late are the most it ran behind, at its start or its end, in whole minutes as a
+//!   clock shows them (2 min 59 s behind is 2), and a trip is late from `economy::LATE_FROM`
+//!   minutes. The chance is drawn from the company, the trip and the date: the same plan on
+//!   similar days runs alike;
+//! - the minutes a trip runs late are traced to the causes they began with (`Timed::roots`): a
+//!   delay carried on from the trip before, or a driver coming late from another duty, brings
+//!   that trip's causes along, less what the layover took up. The sums by cause count each late
+//!   trip under the cause that brought it the most minutes (`Outcome::root`), so a short layover
+//!   no longer takes every trip after the first late one; the trips that carried a delay on are
+//!   told apart (`Lateness::carried`), as the advice for more layover counts them.
 //!
 //! The close books each late trip's deduction (`economy::late_share` of its value), keeps the
 //! late and dropped trips of the last `KEPT_DAYS` days (`Store`, for RosterFlow and the advice),
@@ -134,13 +141,48 @@ pub struct Timed {
     pub lost: f64,
     pub recovered: i32,
     pub swapped: Option<u32>,
+    /// Its minutes late by the cause they began with (`Cause::key`), up the chain: what it
+    /// started with (the trip before's own causes, less what the layover took up) and what it
+    /// lost on the way. The minutes made up on the way are not taken off (a share of each).
+    pub roots: Vec<(&'static str, f64)>,
 }
 
 impl Timed {
-    /// Its minutes late: the most it ran behind, at its start or its end.
+    /// Its minutes late: the most it ran behind, at its start or its end, in whole minutes as a
+    /// clock shows them (2 min 59 s behind is 2: on time, `economy::LATE_FROM`).
     pub fn minutes(&self) -> i32 {
-        self.dep.max(self.arr).round().max(0.0) as i32
+        (self.dep.max(self.arr) + 1e-6).floor().max(0.0) as i32
     }
+
+    /// The cause that brought it the most of its minutes, up the chain (`roots`).
+    pub fn root(&self) -> Option<&'static str> {
+        self.roots.iter().filter(|r| r.1 > 0.0).max_by(|a, b| a.1.total_cmp(&b.1)).map(|r| r.0)
+    }
+}
+
+/// `m` minutes more of cause `key` (none: nothing).
+fn add_root(roots: &mut Vec<(&'static str, f64)>, key: &'static str, m: f64) {
+    if m <= 1e-9 {
+        return;
+    }
+    match roots.iter_mut().find(|r| r.0 == key) {
+        Some(r) => r.1 += m,
+        None => roots.push((key, m)),
+    }
+}
+
+/// `to` minutes of the delay `from` was made of, its causes in the same shares; the minutes it
+/// could give (at the most all of `from`'s).
+fn trace(roots: &mut Vec<(&'static str, f64)>, from: &[(&'static str, f64)], to: f64) -> f64 {
+    let sum: f64 = from.iter().map(|r| r.1.max(0.0)).sum();
+    if sum <= 1e-9 || to <= 0.0 {
+        return 0.0;
+    }
+    let k = (to / sum).min(1.0);
+    for &(key, m) in from {
+        add_root(roots, key, m.max(0.0) * k);
+    }
+    sum * k
 }
 
 /// The day's trips as run: `[tour][trip]` of the plan (None: not run, or not modelled).
@@ -292,11 +334,22 @@ pub fn model_with(c: &Company, plan: &Plan, date: &str, cut: &[Cut], controls: &
             }
             let mut causes: Vec<Cause> = Vec::new();
             let mut earlier: Vec<Cause> = Vec::new();
+            let mut roots: Vec<(&'static str, f64)> = Vec::new();
             if let Some((mut cause, from)) = binding {
+                // (what it starts with, by the causes up the chain: the trip before's delay as it
+                // came in, less what the layover took up; the rest - a relief planned too tight,
+                // a late sign-on, a breakdown - its own)
+                let start = dep_delay.max(0.0);
+                let prev = from.and_then(|(pt, pj)| out[pt][pj].as_ref());
+                let inherited = prev.map_or(0.0, |p| trace(&mut roots, &p.roots, start.min(p.arr.max(0.0))));
+                add_root(&mut roots, cause.key(), start - inherited);
                 cause.set_minutes(dep_delay.round() as i32);
-                if cause.minutes() >= 1 {
+                // (the second part of a trip cut at a relief point on the way runs on with the
+                // first part's delay: the same trip, not one before it - no layover to lengthen)
+                let same_trip = x.is_second() && j > 0 && from == Some((ti, j - 1)) && matches!(cause, Cause::Carried { .. });
+                if cause.minutes() >= 1 && !same_trip {
                     causes.push(cause);
-                    if let Some(prev) = from.and_then(|(pt, pj)| out[pt][pj].as_ref()) {
+                    if let Some(prev) = prev {
                         earlier = prev.causes.iter().chain(prev.earlier.iter()).filter(|c| !matches!(c, Cause::Carried { .. } | Cause::Relief { .. })).cloned().take(3).collect();
                     }
                 }
@@ -320,6 +373,7 @@ pub fn model_with(c: &Company, plan: &Plan, date: &str, cut: &[Cut], controls: &
             if known {
                 for (m, mut cause) in parts {
                     arr_delay += m;
+                    add_root(&mut roots, cause.key(), m);
                     if m.round() >= 1.0 {
                         cause.set_minutes(m.round() as i32);
                         causes.push(cause);
@@ -329,6 +383,7 @@ pub fn model_with(c: &Company, plan: &Plan, date: &str, cut: &[Cut], controls: &
                 if let Some(b) = broken_at.filter(|b| !by_spare && x.dep < b.at && b.at <= x.arr) {
                     let wait = b.back.map_or(BREAKDOWN_WAIT, |s| s - b.at).clamp(5, 90);
                     arr_delay += wait as f64;
+                    add_root(&mut roots, "breakdown", wait as f64);
                     causes.push(Cause::Breakdown { bus, at: b.at, spare: b.back, minutes: wait });
                 }
             }
@@ -354,7 +409,7 @@ pub fn model_with(c: &Company, plan: &Plan, date: &str, cut: &[Cut], controls: &
             }
             last_run[ti] = Some(x.dep);
             let swapped_bus = swapped[ti].filter(|_| !by_spare && swapped[ti] != tp.bus);
-            out[ti][j] = Some(Timed { dep: dep_delay, arr: arr_delay, bus, causes, earlier, known, lost, recovered: recovered.round() as i32, swapped: swapped_bus });
+            out[ti][j] = Some(Timed { dep: dep_delay, arr: arr_delay, bus, causes, earlier, known, lost, recovered: recovered.round() as i32, swapped: swapped_bus, roots });
         }
     }
     out
@@ -374,7 +429,9 @@ pub fn whole(m: &Model, ti: usize, j: usize, joined: bool) -> Option<Timed> {
     let mut earlier = a.earlier;
     earlier.extend(b.earlier);
     earlier.truncate(3);
-    Some(Timed { dep: a.dep, arr: b.arr, bus: a.bus, causes, earlier, known: a.known && b.known, lost: a.lost.max(b.lost), recovered: a.recovered + b.recovered, swapped: a.swapped.or(b.swapped) })
+    // (its minutes are the part's that ran the most behind: that part's causes up the chain)
+    let roots = if b.arr >= a.dep { b.roots } else { a.roots };
+    Some(Timed { dep: a.dep, arr: b.arr, bus: a.bus, causes, earlier, known: a.known && b.known, lost: a.lost.max(b.lost), recovered: a.recovered + b.recovered, swapped: a.swapped.or(b.swapped), roots })
 }
 
 // --- what became of a trip ---------------------------------------------------------------------
@@ -416,6 +473,10 @@ pub struct Outcome {
     pub dropped: Option<DropWhy>,
     #[serde(default)]
     pub problem: Option<Problem>,
+    /// The cause that brought it the most of its minutes, up the chain (`Timed::root`; a
+    /// `Cause::key`). Empty: a day closed before it was kept (`main` then).
+    #[serde(default)]
+    pub root: String,
 }
 
 impl Outcome {
@@ -432,6 +493,21 @@ impl Outcome {
     /// counts with it in the sums by cause, `Lateness::causes`).
     pub fn main(&self) -> Option<&Cause> {
         self.causes.iter().max_by_key(|c| c.minutes())
+    }
+
+    /// The cause it counts under in the sums by cause (`Lateness::causes`): the one that brought
+    /// it the most minutes up the chain (`root`), else its `main`.
+    pub fn cause_key(&self) -> &str {
+        if self.root.is_empty() {
+            self.main().map_or("chance", |c| c.key())
+        } else {
+            &self.root
+        }
+    }
+
+    /// It carried a delay on from the trip before (`Cause::Carried`).
+    pub fn carried(&self) -> bool {
+        self.causes.iter().any(|c| matches!(c, Cause::Carried { .. }))
     }
 }
 
@@ -457,6 +533,7 @@ pub fn dropped(c: &Company, date: &str, tp: &TourPlan, k: usize, trip: &PlannedT
 pub fn late(tp: &TourPlan, k: usize, trip: &PlannedTrip, bus: u32, driver: u32, t: Timed, value: Cents) -> Outcome {
     let minutes = t.minutes();
     let share = economy::late_share(minutes);
+    let root = t.root().unwrap_or_default().to_string();
     Outcome {
         line: tp.tour.line.clone(),
         number: tp.tour.number.clone(),
@@ -475,6 +552,7 @@ pub fn late(tp: &TourPlan, k: usize, trip: &PlannedTrip, bus: u32, driver: u32, 
         deduction: (value as f64 * share).round() as Cents,
         dropped: None,
         problem: None,
+        root,
     }
 }
 
@@ -540,11 +618,16 @@ pub struct Lateness {
     #[serde(default)]
     pub duties: Vec<Punct>,
     /// The deductions by tier (up to five minutes, under `economy::LATE_FULL`, from it) and by
-    /// the main cause.
+    /// the cause each late trip began with (`Outcome::cause_key`): the same trips, each once in
+    /// each.
     #[serde(default)]
     pub tiers: Vec<Sum>,
     #[serde(default)]
     pub causes: Vec<Sum>,
+    /// Of the late trips, those that carried a delay on from the trip before (a layover too short
+    /// to take it up): the trips the advice for more layover counts (`Advice::Layover`).
+    #[serde(default)]
+    pub carried: Sum,
 }
 
 fn punct<'a>(list: &'a mut Vec<Punct>, key: &str) -> &'a mut Punct {
@@ -575,7 +658,11 @@ impl Lateness {
         for o in &late {
             let t = &mut self.tiers[o.tier().clamp(1, 3) - 1];
             (t.trips, t.minutes, t.amount) = (t.trips + 1, t.minutes + o.minutes as u32, t.amount + o.deduction);
-            let key = o.main().map_or("chance", |c| c.key());
+            if o.carried() {
+                let c = &mut self.carried;
+                (c.trips, c.minutes, c.amount) = (c.trips + 1, c.minutes + o.minutes as u32, c.amount + o.deduction);
+            }
+            let key = o.cause_key();
             let s = match self.causes.iter().position(|s| s.key == key) {
                 Some(i) => &mut self.causes[i],
                 None => {

@@ -87,7 +87,8 @@ pub struct Rules {
     pub used_offers: usize,
 }
 
-/// From this many minutes a trip counts as late (OMSI's 180 s: up to two minutes is on time).
+/// From this many whole minutes behind a trip counts as late (`lateness::Timed::minutes`; as
+/// OMSI's 180 s: up to 2 min 59 s behind is on time).
 pub const LATE_FROM: i32 = 3;
 /// From this many minutes a late trip costs its whole value, as a trip dropped does.
 pub const LATE_FULL: i32 = 30;

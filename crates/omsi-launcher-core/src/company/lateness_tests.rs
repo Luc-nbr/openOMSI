@@ -105,4 +105,152 @@ fn old_saves_load() {
     assert!(r.lateness.trips.is_empty());
     let d: crate::company::day::Dropped = serde_json::from_str(r#"{"line":"L","number":"5","tour":"1","from":360,"to":410,"trips":1,"why":"late"}"#).unwrap();
     assert_eq!((d.bus, d.driver, d.trip.as_str()), (None, None, ""));
+    // (a late trip kept before its cause was traced up the chain: its main cause counts, and a
+    // day's sums kept before the trips carried on were told apart)
+    let o: Outcome = serde_json::from_str(r#"{"line":"L","number":"5","tour":"1","dep":600,"arr":650,"minutes":4,"causes":[{"kind":"carried","dep":540,"arr":590,"stop":"B","late":6,"layover":5,"deadhead":false,"minutes":4}],"deduction":1000}"#).unwrap();
+    assert_eq!((o.root.as_str(), o.cause_key(), o.carried()), ("", "carried", true));
+    let l: Lateness = serde_json::from_str(r#"{"lines":[],"hours":[],"duties":[],"tiers":[],"causes":[]}"#).unwrap();
+    assert_eq!(l.carried, Sum::default());
+}
+
+// --- the day's numbers, pinned (Luc 2026-10-15: "I think it's not calculating correctly at all") --
+
+/// The day as the model runs it with each trip's own minutes on the way set by hand (`own`): no
+/// traffic, no driver, no bus, no chance, no late sign-on.
+fn run(c: &Company, p: &Plan, own: &dyn Fn(usize, usize) -> f64) -> Model {
+    model_with(c, p, &c.date, &[], &[], None, Some(own))
+}
+
+fn timed(m: &Model, ti: usize) -> Vec<Timed> {
+    m[ti].iter().map(|x| x.clone().unwrap()).collect()
+}
+
+/// A tour of `trips` (departure, arrival) on line 5, its block `tour`, one duty of `driver`.
+fn tour(name: &str, trips: &[(i32, i32)], bus: u32, driver: u32) -> TourPlan {
+    let trips: Vec<_> = trips.iter().map(|&(a, z)| trip(a, z, 12)).collect();
+    let (from, to) = (trips[0].dep, trips.last().unwrap().arr);
+    let n = trips.len();
+    let tour = TourOfDay { line: "Linie5".into(), number: "5".into(), tour: name.into(), ai_group: String::new(), trips, unplanned: false, cuts: None };
+    TourPlan { tour, bus: Some(bus), duties: vec![DutyPlan { start: 0, end: n, from, to, driver: Some(driver), dropped_before: None, problem: None }], ..Default::default() }
+}
+
+/// The close's sums of a modelled day (`day::close_day_with` alike): every trip timed, the late
+/// ones with their deductions (each trip worth 100 EUR).
+fn close(p: &Plan, m: &Model) -> (Lateness, Vec<Outcome>) {
+    let mut l = Lateness::default();
+    let mut out = Vec::new();
+    for (ti, tp) in p.tours.iter().enumerate() {
+        let d = &tp.duties[0];
+        for (j, x) in tp.tour.trips.iter().enumerate() {
+            let Some(t) = whole(m, ti, j, false) else { continue };
+            l.count(&tp.tour.number, &tp.tour.tour, 0, d.driver.unwrap(), x.dep, t.minutes());
+            if t.minutes() >= economy::LATE_FROM {
+                out.push(late(tp, 0, x, t.bus, d.driver.unwrap(), t, 100_00));
+            }
+        }
+    }
+    (l.finish(&out), out)
+}
+
+#[test]
+fn a_layover_takes_up_all_but_the_rest_and_a_delay_neither_grows_nor_counts_twice() {
+    let (c, bus, driver) = company();
+    // the first trip loses six minutes on the way, the others none
+    let own = |_: usize, j: usize| if j == 0 { 6.0 } else { 0.0 };
+    // five minutes' layover: the driver keeps three (`control::MIN_LAYOVER`), two take the delay up
+    let t = timed(&run(&c, &plan(10 * 60, 4, 5, bus, driver), &own), 0);
+    assert_eq!(t.iter().map(Timed::minutes).collect::<Vec<_>>(), vec![6, 4, 2, 0]);
+    // (carried on, not added to its own: 4 minutes late, not 6 + 4)
+    assert_eq!(t[1].causes, vec![Cause::Carried { dep: 600, arr: 650, stop: "B".into(), late: 6, layover: 5, deadhead: false, minutes: 4 }]);
+    assert_eq!((t[1].dep, t[1].arr), (4.0, 4.0));
+    // ... and traced to what began it: the first trip's own minutes
+    assert_eq!(t[1].root(), Some("chance"));
+    assert_eq!(t[3].causes, vec![], "back on time");
+    // no layover: it carries on to the end of the block, but no more than it was
+    let t = timed(&run(&c, &plan(10 * 60, 4, 0, bus, driver), &own), 0);
+    assert_eq!(t.iter().map(Timed::minutes).collect::<Vec<_>>(), vec![6, 6, 6, 6]);
+    // ten minutes' layover: the next trip leaves on time
+    let t = timed(&run(&c, &plan(10 * 60, 4, 10, bus, driver), &own), 0);
+    assert_eq!(t.iter().map(Timed::minutes).collect::<Vec<_>>(), vec![6, 0, 0, 0]);
+}
+
+#[test]
+fn on_time_is_under_three_whole_minutes_and_pays_nothing() {
+    let (c, bus, driver) = company();
+    let p = plan(10 * 60, 1, 0, bus, driver);
+    let minutes = |m: f64| timed(&run(&c, &p, &move |_, _| m), 0)[0].minutes();
+    // (2 min 59 s behind is on time, as the live day's 180 s; 3 minutes is late)
+    assert_eq!([minutes(0.0), minutes(1.0), minutes(2.6), minutes(2.99), minutes(3.0), minutes(5.9), minutes(6.0)], [0, 1, 2, 2, 3, 5, 6]);
+    for (m, tier, share) in [(0, 0, 0.0), (1, 0, 0.0), (2, 0, 0.0), (3, 1, 0.10), (5, 1, 0.10), (6, 2, 0.136), (29, 2, 0.964), (30, 3, 1.0)] {
+        assert_eq!(economy::late_tier(m), tier, "{m} min");
+        assert!((economy::late_share(m) - share).abs() < 1e-9, "{m} min: {}", economy::late_share(m));
+    }
+    // a trip on time is timed, but in no tier and in no cause
+    let (l, out) = close(&p, &run(&c, &p, &|_, _| 2.5));
+    assert!(out.is_empty());
+    assert_eq!((l.lines[0].timed, l.lines[0].late), (1, 0));
+    assert_eq!(l.tiers.iter().map(|t| t.trips).sum::<u32>(), 0);
+    assert!(l.causes.is_empty() && l.deductions() == 0);
+}
+
+#[test]
+fn a_late_trip_counts_once_in_a_tier_and_once_under_the_cause_it_began_with() {
+    let (mut c, bus, driver) = company();
+    let other = market::buy_new(&mut c, &market::MarketBus { file: "Vehicles/Citaro/Citaro.bus".into(), name: "Citaro".into(), ..Default::default() }, Payment::Cash, "").unwrap();
+    // block 1 on one bus to 10:50, then the driver walks to block 2 on another bus leaving at 10:50
+    // (no time planned for the relief), and block 2 goes on after five minutes' layover
+    let p = Plan { tours: vec![tour("1", &[(600, 650)], bus, driver), tour("2", &[(650, 700), (705, 755), (760, 810)], other, driver)] };
+    // the trip of block 1 loses two minutes on the way
+    let m = run(&c, &p, &|ti, _| if ti == 0 { 2.0 } else { 0.0 });
+    let b = timed(&m, 1);
+    // the relief: the two minutes the driver came in late, and the walk (`RELIEF_WALK`)
+    assert_eq!(b[0].minutes(), 2 + RELIEF_WALK);
+    assert!(matches!(b[0].causes[0], Cause::Relief { gap: 0, minutes: 5, .. }));
+    assert_eq!(b[0].root(), Some("relief"), "{:?}", b[0].roots);
+    // carried on to the next trip, less the two minutes the layover takes up
+    assert_eq!(b[1].minutes(), 3);
+    assert!(matches!(b[1].causes[0], Cause::Carried { late: 5, layover: 5, minutes: 3, .. }));
+    assert_eq!(b[1].root(), Some("relief"));
+    assert_eq!(b[2].minutes(), 1);
+    let (l, out) = close(&p, &m);
+    assert_eq!(out.len(), 2);
+    assert!(out.iter().all(|o| o.root == "relief"));
+    // the tiers and the causes: the same trips and the same money, each trip once
+    let sum = |s: &[Sum]| (s.iter().map(|x| x.trips).sum::<u32>(), s.iter().map(|x| x.amount).sum::<Cents>());
+    assert_eq!(sum(&l.tiers), (2, 20_00));
+    assert_eq!(sum(&l.causes), sum(&l.tiers));
+    assert_eq!(l.causes, vec![Sum { key: "relief".into(), trips: 2, minutes: 8, amount: 20_00 }]);
+    // one of them carried its delay on from the trip before, as the advice for more layover says
+    assert_eq!(l.carried.trips, 1);
+    let layover: u32 = advice(&c, &l).iter().map(|a| if let Advice::Layover { trips, .. } = a { *trips } else { 0 }).sum();
+    assert_eq!(layover, l.carried.trips);
+    // by line, by hour and by duty: the same trips timed, the same late
+    let total = |v: &[Punct]| (v.iter().map(|p| p.timed).sum::<u32>(), v.iter().map(|p| p.late).sum::<u32>());
+    assert_eq!(total(&l.lines), (4, 2));
+    assert_eq!(total(&l.hours), total(&l.lines));
+    assert_eq!(total(&l.duties), total(&l.lines));
+}
+
+#[test]
+fn the_second_part_of_a_trip_cut_at_a_relief_point_is_the_same_trip() {
+    let (c, bus, driver) = company();
+    let part = |second: bool| Some(crate::company::network::Part { second, stop: 5, at: "Mitte".into(), dep: 600, arr: 650, km: 15.0, stops: 12 });
+    let (mut a, mut b) = (trip(600, 625, 6), trip(625, 650, 6));
+    (a.part, b.part) = (part(false), part(true));
+    let tour = TourOfDay { line: "Linie5".into(), number: "5".into(), tour: "1".into(), ai_group: String::new(), trips: vec![a, b], unplanned: false, cuts: None };
+    let duties = vec![
+        DutyPlan { start: 0, end: 1, from: 600, to: 625, driver: Some(driver), dropped_before: None, problem: None },
+        DutyPlan { start: 1, end: 2, from: 625, to: 650, driver: Some(crate::company::plan::AGENCY), dropped_before: None, problem: None },
+    ];
+    let p = Plan { tours: vec![TourPlan { tour, bus: Some(bus), duties, ..Default::default() }] };
+    let m = run(&c, &p, &|_, j| if j == 0 { 5.0 } else { 0.0 });
+    // the whole trip: five minutes late from its first part's own, not "late from the trip
+    // before" (no layover at the relief point to lengthen)
+    let t = whole(&m, 0, 0, true).unwrap();
+    assert_eq!(t.minutes(), 5);
+    assert_eq!(t.causes, vec![Cause::Chance { minutes: 5 }]);
+    assert_eq!(t.root(), Some("chance"));
+    let o = late(&p.tours[0], 0, &p.tours[0].tour.trips[0].joined(&p.tours[0].tour.trips[1]), bus, driver, t, 100_00);
+    assert!(!o.carried());
+    assert!(advice(&c, &Lateness { trips: vec![o], ..Default::default() }).is_empty());
 }
