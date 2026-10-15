@@ -944,6 +944,8 @@ mod tests {
             breakdowns: 0,
             clean: 75.0,
             region: None,
+            age_from: Default::default(),
+            built_auto: None,
         }
     }
 

@@ -421,6 +421,12 @@ pub struct Vehicle {
     /// None: a bus of before - every company's choice takes it).
     #[serde(default)]
     pub region: Option<super::vehicles::Region>,
+    /// Where `built` comes from: its plate, the market, the player (`registrations`).
+    #[serde(default)]
+    pub age_from: super::registrations::AgeFrom,
+    /// `built` and where it came from before the player set the age himself (None: he did not).
+    #[serde(default)]
+    pub built_auto: Option<(String, super::registrations::AgeFrom)>,
 }
 
 fn seventy_five() -> f64 {

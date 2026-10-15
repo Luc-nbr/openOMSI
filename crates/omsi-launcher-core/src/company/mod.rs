@@ -47,6 +47,7 @@ pub mod parts;
 pub mod plan;
 pub mod plandays;
 pub mod rankings;
+pub mod registrations;
 pub mod remote;
 pub mod research;
 pub mod rng;
