@@ -555,6 +555,9 @@ fn begin_day(c: &mut Company, w: &mut dyn World) -> Result<(), String> {
         plan::tell_repaired(c, &r);
     }
     let dp = plan::day_plan(c, &date, tours, &[], &[], false);
+    // (when the late drivers arrive, kept: moved to a duty that begins later, they are late
+    // for it only when it begins before)
+    plan::pin_arrivals(c, &dp);
     c.clock.today = Some(script(c, &dp));
     Ok(())
 }

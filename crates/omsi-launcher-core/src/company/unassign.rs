@@ -72,6 +72,27 @@ pub fn driver_off(c: &mut Company, p: &DayPlan, ti: usize, k: usize) -> Result<O
     match (d.who, d.from_) {
         (Some(_), Source::Dispatcher) => {
             plan::set_fill(c, &key, None);
+            // (the pieces joined with it have the same choice - one agency driver drives them
+            // all: taken back with it; one that has begun keeps it, and this one is dropped)
+            let slot = super::plandays::slot_of(c, &p.date);
+            let mut kept = false;
+            for (i, j) in plan::joined_pieces(c, slot, &p.tours, ti, k) {
+                let x = &p.tours[i];
+                let y = &x.duties[j];
+                if y.from_ != Source::Dispatcher {
+                    continue;
+                }
+                if y.who.is_some() && begun(c, p, y.from) {
+                    kept = true;
+                } else {
+                    plan::set_fill(c, &plan::duty_key(&x.tour.line, &x.tour.tour, j), None);
+                }
+            }
+            if kept {
+                let penalty = plan::drop_penalty(c, &t.tour, d.start, d.end);
+                plan::set_fill(c, &key, Some(Fill::Drop));
+                return Ok(Off::Dropped { penalty, rent: 0 });
+            }
             return Ok(Off::Choice);
         }
         (Some(_), Source::Central) => {
