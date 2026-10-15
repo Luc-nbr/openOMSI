@@ -517,6 +517,9 @@ pub struct Employee {
     /// `staff::migrate`; 0: none was free, `Employee::portrait`).
     #[serde(default)]
     pub portrait: u32,
+    /// The holidays they asked for, and the answers (`holidays`; an older file: none).
+    #[serde(default)]
+    pub leave: super::holidays::Leave,
 }
 
 /// What an employee does.
@@ -575,7 +578,14 @@ impl Employee {
 
     pub fn absent(&self, today: &str) -> bool {
         let until = |u: &Option<String>| u.as_deref().is_some_and(|u| dates::between(today, u) >= 0);
-        until(&self.sick_until) || until(&self.holiday_until) || until(&self.training_until)
+        until(&self.sick_until) || self.on_holiday(today).is_some() || until(&self.training_until)
+    }
+
+    /// The last day of the holiday they are on at `date`: one begun before the requests
+    /// (`holiday_until`), or one approved (`holidays`) - known ahead, so the planning keeps them
+    /// off duty then.
+    pub fn on_holiday(&self, date: &str) -> Option<&str> {
+        self.holiday_until.as_deref().filter(|u| dates::between(date, u) >= 0).or_else(|| self.leave.approved_on(date).map(|r| r.until.as_str()))
     }
 
     pub fn employed_on(&self, today: &str) -> bool {

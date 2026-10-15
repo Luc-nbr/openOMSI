@@ -169,6 +169,7 @@ const _LOCALES_COMPANY_PAGES: &str = include_str!("../locales/company-pages.yml"
 const _LOCALES_COMPANY_RESEARCH: &str = include_str!("../locales/company-research.yml");
 const _LOCALES_COMPANY_STAFF: &str = include_str!("../locales/company-staff.yml");
 const _LOCALES_COMPANY_CONTRACTS: &str = include_str!("../locales/company-contracts.yml");
+const _LOCALES_COMPANY_HOLIDAYS: &str = include_str!("../locales/company-holidays.yml");
 const _LOCALES_COMPANY_HOME: &str = include_str!("../locales/company-home.yml");
 const _LOCALES_COMPANY_CHOOSER: &str = include_str!("../locales/company-chooser.yml");
 const _LOCALES_DEALER_DELIVERY: &str = include_str!("../locales/dealer-delivery.yml");

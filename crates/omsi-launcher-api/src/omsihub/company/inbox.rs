@@ -51,7 +51,16 @@ fn icon_of(c: &Company, m: &Message) -> &'static str {
     if let Some(e) = m.event.and_then(|id| c.inbox.event(id)) {
         return event_icon(&e.key);
     }
+    if m.leave.is_some() {
+        return "calendar_month";
+    }
     kind_icon(m.kind)
+}
+
+/// The holiday request a message is about, as the pages show it (`people::holidays::request`).
+fn leave_of(c: &Company, m: &Message) -> Option<Value> {
+    let (e, r) = co::holidays::find(c, m.leave?)?;
+    Some(super::people::holidays::request(c, e, r))
 }
 
 pub fn kind_icon(k: Kind) -> &'static str {
@@ -229,7 +238,12 @@ fn details(c: &Company, m: &Message) -> Value {
     }
     if let Some((tab, label, icon)) = page_for(m, c.game_mode) {
         out["go"] = json!({ "tab": tab, "label": tr(label), "icon": icon });
+        // (a holiday request: the Staff page's Holidays tab)
+        if m.leave.is_some() && !c.game_mode.casual() {
+            out["go"] = json!({ "tab": tab, "label": tr("To the holiday planner"), "icon": "calendar_month", "ui": { "page": "people", "patch": { "tab": 4, "open": null } } });
+        }
     }
+    out["leave"] = leave_of(c, m).unwrap_or(Value::Null);
     out
 }
 
@@ -287,6 +301,7 @@ pub fn view(s: &mut Session, args: &Value) -> Value {
                 "id": m.id, "icon": icon_of(&c, m), "tone": tone_of(m.level), "read": m.read,
                 "title": words(&m.title, &m.args), "date": short_day(&m.date), "text": words(&m.text, &m.args),
                 "goal": goal.map(|g| json!({ "trophies": g.trophies, "reward": eur(g.reward) })), "bar": bar_of(&c, m),
+                "leave": leave_of(&c, m),
             })
         })
         .collect();

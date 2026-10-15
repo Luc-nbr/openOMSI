@@ -647,8 +647,9 @@ pub fn tell_repaired(c: &mut Company, r: &Repaired) {
 
 /// The roster's places of `date`'s weekday that cannot run that day: the tours whose bus is
 /// gone, broken down, in the workshop, not one of the line's or busy, and the duties whose
-/// driver is ill, on holiday, away, not qualified or clashes. (The player's own duties and the
-/// agency's are left as they are.)
+/// driver is ill, away, not qualified or clashes. (The player's own duties and the agency's are
+/// left as they are, and so are those of a driver on holiday: known ahead, the day covers them
+/// and the place stays theirs for when they are back - `day_plan`.)
 pub fn broken(c: &Company, date: &str, tours: Vec<TourOfDay>) -> (Vec<(String, String)>, Vec<(String, String, usize)>) {
     let wd = weekday_of(date);
     let mut probe = c.clone();
@@ -662,6 +663,10 @@ pub fn broken(c: &Company, date: &str, tours: Vec<TourOfDay>) -> (Vec<(String, S
             buses.push((t.tour.line.clone(), t.tour.tour.clone()));
         }
         for (k, d) in t.duties.iter().enumerate() {
+            // (a driver on holiday keeps their place: the day covers it, `day_plan`)
+            if d.problem == Some(Problem::Holiday) {
+                continue;
+            }
             if let Some(Some(w @ Who::Staff(_))) = r.duties.get(k) {
                 if d.who != Some(*w) || d.from_ != Source::Roster {
                     duties.push((t.tour.line.clone(), t.tour.tour.clone(), k));
@@ -1174,7 +1179,7 @@ fn unavailable(e: &Employee, date: &str, today: bool) -> Option<Problem> {
         Some(Problem::Away)
     } else if covers(&e.sick_until, date) {
         Some(Problem::Sick)
-    } else if covers(&e.holiday_until, date) {
+    } else if e.on_holiday(date).is_some() {
         Some(Problem::Holiday)
     } else if today && e.week_days >= WEEK_DAYS {
         Some(Problem::Away)
@@ -1268,8 +1273,8 @@ pub fn day_unavailable(e: &Employee, date: &str, today: bool) -> Option<Cannot> 
         Some(Cannot::NotEmployed)
     } else if covers(&e.sick_until, date) {
         Some(Cannot::Ill { until: e.sick_until.clone().unwrap_or_default() })
-    } else if covers(&e.holiday_until, date) {
-        Some(Cannot::Holiday { until: e.holiday_until.clone().unwrap_or_default() })
+    } else if let Some(until) = e.on_holiday(date) {
+        Some(Cannot::Holiday { until: until.to_string() })
     } else if today && e.week_days >= WEEK_DAYS {
         Some(Cannot::WeekDone { days: e.week_days })
     } else {
@@ -1640,7 +1645,31 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
             None => out[i].duties[k].problem = Some(Problem::Unassigned),
         }
     }
-    // what is open today: the dispatcher's choice, else the central for what came suddenly
+    // a driver on holiday (known ahead, Beta 57: `holidays`): a free colleague covers their duty,
+    // on any day planned, the roster kept theirs (today the dispatcher's own choice first)
+    for &(i, k) in &order {
+        let t = &out[i];
+        let d = &t.duties[k];
+        if d.who.is_some() || d.problem != Some(Problem::Holiday) || (t.bus.is_none() && !t.live) {
+            continue;
+        }
+        let key = duty_key(&t.tour.line, &t.tour.tour, k);
+        if today && fill_of(c, date, &key).is_some() {
+            continue;
+        }
+        let bus = t.bus_of(c);
+        let block = block_of(&t.tour, d, key);
+        if let Some((id, w)) = pick(&work, &bus, &block) {
+            work.push(id, block);
+            let d = &mut out[i].duties[k];
+            d.who = Some(Who::Staff(id));
+            d.from_ = Source::Central;
+            d.warn = w;
+        }
+    }
+    // what is open today: the dispatcher's choice, else the central for what came suddenly (and,
+    // but on Realistic, for a holiday nobody could cover: an agency driver)
+    let central = |p: Option<Problem>| p.is_some_and(Problem::sudden) || (p == Some(Problem::Holiday) && c.game_mode != GameMode::Realistic);
     if today {
         let slot = super::plandays::slot_of(c, date);
         let mut agency = 0usize;
@@ -1670,7 +1699,7 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
                 Some(Fill::Player) if !closing => (Some(Who::Player), Source::Dispatcher),
                 Some(Fill::Player) => (None, Source::Dispatcher),
                 Some(Fill::Drop) => (None, Source::Dispatcher),
-                _ if problem.is_some_and(Problem::sudden) => match pick(&work, &bus, &block) {
+                _ if central(problem) => match pick(&work, &bus, &block) {
                     Some((id, _)) => (Some(Who::Staff(id)), Source::Central),
                     None if agency_left => (Some(Who::Agency), Source::Central),
                     None => (None, Source::None),
@@ -1816,6 +1845,7 @@ pub fn agency_driver() -> Employee {
         stress: 20.0,
         friendliness: 60.0,
         portrait: 0,
+        leave: Default::default(),
     }
 }
 
@@ -2276,14 +2306,27 @@ mod tests {
         c.staff[0].last_end = Some(23 * 60);
         let p = day_plan(&c, &c.date, vec![tour("2", 6 * 60, 3)], &[], &[], false);
         assert_eq!(p.tours[0].duties[0].problem, Some(Problem::Conflict));
-        // on holiday: open, and not sudden (the central leaves it)
+        // on holiday (known ahead, Beta 57): the central covers it - nobody free, an agency
+        // driver -, but on Realistic it stays open for the player
         c.staff[0].last_end = None;
         c.staff[0].holiday_until = Some(c.date.clone());
         c.staff[1].holiday_until = Some(c.date.clone());
         c.staff[2].holiday_until = Some(c.date.clone());
         let p = day_plan(&c, &c.date, vec![tour("2", 12 * 60, 3)], &[], &[], false);
         assert_eq!(p.tours[0].duties[0].problem, Some(Problem::Holiday));
+        assert_eq!((p.tours[0].duties[0].who, p.tours[0].duties[0].from_), (Some(Who::Agency), Source::Central));
+        c.game_mode = GameMode::Realistic;
+        let p = day_plan(&c, &c.date, vec![tour("2", 12 * 60, 3)], &[], &[], false);
         assert!(p.tours[0].duties[0].open());
+        // (a colleague free: they cover it, on any day planned, the roster kept the driver's)
+        c.staff[1].holiday_until = None;
+        let later = dates::add(&c.date, 7);
+        c.staff[0].holiday_until = Some(later.clone());
+        let p = day_plan(&c, &later, vec![tour("2", 12 * 60, 3)], &[], &[], false);
+        let d = &p.tours[0].duties[0];
+        assert!(matches!(d.who, Some(Who::Staff(id)) if id != e1) && d.problem == Some(Problem::Holiday) && d.from_ == Source::Central, "{d:?}");
+        assert!(broken(&c, &later, vec![tour("2", 12 * 60, 3)]).1.is_empty());
+        assert_eq!(roster(&c, wd, "Linie5", "2").unwrap().duties[0], Some(Who::Staff(e1)));
     }
 
     #[test]
@@ -2755,8 +2798,8 @@ mod tests {
         // all good: nothing to repair
         let today = c.date.clone();
         assert_eq!(repair_day(&mut c, &today, tours.clone()), Repaired::default());
-        // tour 1's driver on holiday, its bus in the workshop
-        c.staff[0].holiday_until = Some(c.date.clone());
+        // tour 1's driver ill, its bus in the workshop
+        c.staff[0].sick_until = Some(c.date.clone());
         c.fleet[0].workshop_until = Some(c.date.clone());
         assert_eq!(broken(&c, &c.date, tours.clone()), (vec![("Linie5".to_string(), "1".to_string())], vec![("Linie5".to_string(), "1".to_string(), 0)]));
         let date = c.date.clone();
@@ -2765,6 +2808,10 @@ mod tests {
         let one = roster(&c, wd, "Linie5", "1").unwrap().clone();
         assert!(one.bus.is_some_and(|b| b != b1 && b != b2));
         assert!(matches!(one.duties[0], Some(Who::Staff(id)) if id != e1 && id != e2));
+        // (a driver on holiday is not broken, Beta 57: the day covers them, their place kept)
+        c.staff[1].holiday_until = Some(date.clone());
+        assert!(broken(&c, &date, tours.clone()).1.is_empty());
+        c.staff[1].holiday_until = None;
         // the good one kept, and the tour the roster left free still free
         assert_eq!(roster(&c, wd, "Linie5", "2").map(|r| (r.bus, r.duties.clone())), Some((Some(b2), vec![Some(Who::Staff(e2))])));
         assert!(roster(&c, wd, "Linie5", "3").is_none());
@@ -2775,6 +2822,7 @@ mod tests {
         tell_repaired(&mut c, &r);
         assert_eq!(c.inbox.messages.iter().filter(|m| m.title == REPAIRED.0).count(), 1);
         // nobody free: what broke stays open, and is said
+        c.staff[1].sick_until = Some(date.clone());
         c.staff[2].holiday_until = Some(date.clone());
         c.staff[3].holiday_until = Some(date.clone());
         let r = repair_day(&mut c, &date, tours.clone());

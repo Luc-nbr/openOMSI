@@ -856,6 +856,46 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 .co-rules .minrow .now { font-size: var(--co-note); color: var(--hub-text-dim); font-weight: 400; margin-left: 10px; }
 .co-rules .minrow.off, .co-rules .minrow.off > .hub-icon { color: var(--hub-text-dim); }
 
+/* --- the holidays (Beta 57: people.js `Holidays`, `HolidayRequest`) --------------------------- */
+
+.co-hol { height: 100%; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(320px, 1fr); gap: 22px; }
+.co-hol .left { min-height: 0; overflow: auto; padding-right: 6px; }
+.co-hol .right { min-height: 0; padding-right: 10px; }
+.co-hol-limit { display: flex; align-items: center; gap: 8px; min-height: 36px; flex-wrap: wrap; font-size: var(--co-rows); }
+.co-hol-limit > b.cut { font-size: var(--co-head); margin-right: 6px; }
+.co-hol-limit > b.n { width: 34px; text-align: center; font-size: var(--co-title); }
+.co-hol-limit > .co-note { margin-left: 8px; }
+.co-holcal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.co-holcal .wd { text-align: center; font-size: var(--co-caps); font-weight: 700; color: var(--hub-text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+.co-holcal .day { display: flex; flex-direction: column; gap: 4px; min-width: 0; height: 58px; padding: 6px 7px; border: 0; border-radius: var(--hub-r); background: var(--hub-panel); box-shadow: inset 0 0 0 1px var(--hub-hairline); color: var(--hub-text); text-align: left; cursor: pointer; font: inherit; }
+.co-holcal .day:hover:not(:disabled) { background: color-mix(in srgb, var(--hub-panel) 70%, var(--hub-hover)); }
+.co-holcal .day.gone { opacity: 0.4; cursor: default; }
+.co-holcal .day.today { box-shadow: inset 0 0 0 1.5px var(--hub-accent); }
+.co-holcal .day.on { background: color-mix(in srgb, var(--hub-panel) calc(100% - var(--ac-12) * 100%), var(--co-accent2)); box-shadow: inset 0 0 0 1.5px var(--co-accent2); }
+.co-holcal .day .top { display: flex; align-items: center; gap: 4px; font-size: var(--co-rows); }
+.co-holcal .day .top i { font-style: normal; font-size: var(--co-note); color: var(--hub-text-dim); flex: 1; }
+.co-holcal .day .count { font-size: var(--co-note); font-weight: 700; }
+.co-holcal .day .count i { font-style: normal; font-weight: 500; color: var(--co-warn); margin-left: 5px; }
+.co-hollegend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 10px 0 14px; font-size: var(--co-note); color: var(--hub-text-soft); }
+.co-hollegend span { display: inline-flex; align-items: center; gap: 6px; }
+.co-hollegend i { width: 10px; height: 10px; border-radius: 3px; }
+.co-holday { margin-bottom: 12px; }
+.co-holday .co-payrow b { max-width: 60%; }
+.co-holnotes p { margin-bottom: 6px; line-height: 1.6; }
+.co-holreq { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; margin-bottom: 10px; border-radius: var(--hub-r); background: var(--hub-panel); box-shadow: inset 0 0 0 1px var(--hub-hairline); cursor: default; }
+.co-holreq.compact { margin: 10px 0 0; padding: 10px 12px; background: var(--hub-field); box-shadow: none; }
+.co-holreq .body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.co-holreq .who { display: flex; align-items: center; gap: 10px; }
+.co-holreq .who b { font-size: var(--co-head); }
+.co-holreq .who span { display: inline-flex; align-items: center; gap: 4px; font-size: var(--co-note); color: var(--hub-text-soft); }
+.co-holreq .when { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--co-rows); }
+.co-holreq .when span { color: var(--hub-text-soft); font-size: var(--co-note); }
+.co-holreq .tags { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--co-note); color: var(--hub-text-soft); }
+.co-holreq .facts { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: var(--co-note); color: var(--hub-text-dim); }
+.co-holreq .advice { display: flex; align-items: center; gap: 6px; font-size: var(--co-note); font-weight: 500; }
+.co-holreq .answer { display: flex; flex-direction: column; gap: 6px; align-items: stretch; flex: none; width: 120px; text-align: right; font-size: var(--co-note); }
+.co-holreq.compact .answer { width: 110px; }
+
 /* --- the inbox ------------------------------------------------------------------------------ */
 
 .co-inbox { flex: 1; min-height: 0; display: grid; grid-template-columns: max(360px, calc((100% - 14px) * 0.56)) minmax(0, 1fr); gap: 14px; margin-top: 14px; }

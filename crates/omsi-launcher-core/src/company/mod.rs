@@ -29,6 +29,7 @@ pub mod depot;
 pub mod economy;
 pub mod fares;
 pub mod finance;
+pub mod holidays;
 pub mod inbox;
 pub mod fleetmap;
 pub mod incidents;

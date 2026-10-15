@@ -435,6 +435,9 @@ pub struct StaffRules {
     pub portraits_used: Vec<u32>,
     #[serde(default)]
     pub last: Option<RolesDay>,
+    /// How many may be off on holiday a day, and the requests' numbers (`holidays`).
+    #[serde(default)]
+    pub holidays: super::holidays::HolidayRules,
 }
 
 fn yes() -> bool {
@@ -443,7 +446,7 @@ fn yes() -> bool {
 
 impl Default for StaffRules {
     fn default() -> Self {
-        StaffRules { hours: Vec::new(), auto_hire: false, minimum: Vec::new(), follow_prices: true, wage_index: 0.0, grant_small: false, asks: Vec::new(), portraits_used: Vec::new(), last: None }
+        StaffRules { hours: Vec::new(), auto_hire: false, minimum: Vec::new(), follow_prices: true, wage_index: 0.0, grant_small: false, asks: Vec::new(), portraits_used: Vec::new(), last: None, holidays: Default::default() }
     }
 }
 
@@ -1382,6 +1385,7 @@ pub fn hire(c: &mut Company, a: &Applicant) -> Result<u32, &'static str> {
         stress: 15.0,
         friendliness: a.friendliness(),
         portrait,
+        leave: Default::default(),
     });
     // (the induction: the fleet's models)
     if a.role == Role::Driver {
@@ -1500,10 +1504,10 @@ fn told_lately(c: &Company, title: &str, name: &str, days: i64) -> bool {
 
 /// The night after a working day: experience, stress and friendliness for the drivers
 /// (`worked`: id, minutes, the end of their last duty and the start of their first), satisfaction
-/// for everyone moving towards what their wage, their hours and their stress make of it,
-/// illness (more under stress) and holidays, resignations, and those whose notice ends leave
-/// (their last wage and, on Hard, a severance pay booked). The inbox hears of long illnesses,
-/// of who thinks of leaving and of who resigned.
+/// for everyone moving towards what their wage, their hours, their stress and the holidays
+/// refused them make of it, illness (more under stress) and the holidays (`holidays::night`),
+/// resignations, and those whose notice ends leave (their last wage and, on Hard, a severance
+/// pay booked). The inbox hears of long illnesses, of who thinks of leaving and of who resigned.
 pub fn after_day(c: &mut Company, worked: &[(u32, i32, i32, i32)], rng: &mut Rng) -> Vec<StaffNote> {
     let r = economy::rules(c.game_mode);
     // (the game mode's share of the illness: Casual and Normal calmer)
@@ -1537,8 +1541,10 @@ pub fn after_day(c: &mut Company, worked: &[(u32, i32, i32, i32)], rng: &mut Rng
         }
         let market = market_wage(e.role, e.experience, price_index) as f64;
         let overtime = w.is_some_and(|w| w.1 > DAY_TARGET);
-        let holiday = e.holiday_until.as_deref().is_some_and(|u| dates::between(&today, u) >= 0);
-        let target = (60.0 + 150.0 * (e.wage as f64 / market - 1.0) - if overtime { 8.0 } else { 0.0 } - (e.stress - 35.0).max(0.0) * 0.5 + if holiday { 6.0 } else { 0.0 }).clamp(0.0, 100.0);
+        let holiday = e.on_holiday(&today).is_some();
+        // (holidays refused lately weigh on them: `holidays::grudge`)
+        let grudge = super::holidays::grudge(e, &today);
+        let target = (60.0 + 150.0 * (e.wage as f64 / market - 1.0) - if overtime { 8.0 } else { 0.0 } - (e.stress - 35.0).max(0.0) * 0.5 + if holiday { 6.0 } else { 0.0 } - grudge).clamp(0.0, 100.0);
         let was = e.satisfaction;
         e.satisfaction = ((e.satisfaction + (target - e.satisfaction) * 0.1) * 10.0).round() / 10.0;
         if e.satisfaction < 35.0 && was >= 35.0 {
@@ -1558,13 +1564,8 @@ pub fn after_day(c: &mut Company, worked: &[(u32, i32, i32, i32)], rng: &mut Rng
                 if days >= 5 {
                     told.push(Message::new(Kind::Staff, "%{name} is ill for a long time", "%{name} is ill for %{n} days. Their work waits or falls to the others.").arg("name", e.name.clone()).arg("n", days.to_string()));
                 }
-            } else if e.holiday_left >= 5 && rng.chance(0.012) {
-                let days = rng.int(5, 10.min(e.holiday_left as i64)) as u32;
-                let until = dates::add(&today, days as i64);
-                e.holiday_until = Some(until.clone());
-                e.holiday_left -= (days * 5).div_ceil(7);
-                notes.push(StaffNote::Holiday { name: e.name.clone(), until });
             }
+            // (holidays are asked for ahead now, Beta 57: `holidays::night`)
         }
         if e.notice_until.is_none() && e.satisfaction < 25.0 && rng.chance(0.03) {
             let until = dates::add(&today, 14);
@@ -1583,6 +1584,8 @@ pub fn after_day(c: &mut Company, worked: &[(u32, i32, i32, i32)], rng: &mut Rng
             inbox::post(c, m);
         }
     }
+    // (the holidays asked for, answered and begun)
+    notes.extend(super::holidays::night(c, &today));
     for id in leaving {
         let Some(e) = c.staff.iter().find(|e| e.id == id).cloned() else { continue };
         if paid_monthly(&e) {
