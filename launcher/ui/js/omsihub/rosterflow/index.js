@@ -27,6 +27,7 @@ import { TitleWindows, useOutsideClose } from './panels.js';
 import { PrefsWindow } from './prefs.js';
 import { RosterTab, rosterEscape, rosterUndo } from './roster.js';
 import { TimeplanTab, tpEscape } from './timeplan.js';
+import { RoutesTab, rtEscape, holdChanges, ROUTES } from './routes.js';
 import { Tutorial, tutEscape, tutMenu } from './tutorial.js';
 
 // (RosterFlow's own look, loaded with it)
@@ -141,6 +142,7 @@ export function RosterFlowPage() {
       const x = S.rf;
       if (x.intro) return setRf({ intro: null });
       if (x.view === TIMEPLAN && tpEscape()) return;
+      if (x.view === ROUTES && rtEscape()) return;
       if (x.view === ROSTER && rosterEscape()) return;
       if (holds()) return letGo();
       leaveRosterFlow();
@@ -152,6 +154,7 @@ export function RosterFlowPage() {
   let body;
   if (studio) body = html`<${Studio} p=${p} drivers=${r.view === DRIVERS} />`;
   else if (r.view === ROSTER) body = html`<${RosterTab} p=${p} />`;
+  else if (r.view === ROUTES) body = html`<${RoutesTab} p=${p} />`;
   else body = html`<${TimeplanTab} p=${p} />`;
   return html`<div class=${'rf' + (p.light ? ' light' : ' dark')} ref=${ref}>
     <${TitleBar} />
@@ -238,7 +241,7 @@ function TitleBar() {
   const full = head?.name || '';
   const company = head?.company ?? full;
   const [ref, fit] = useTitleFit([full, company, r.view, language()]);
-  const tab = (v, icon, label, anchor) => html`<button type="button" class=${'rf-tab' + (r.view === v ? ' on' : '')} data-rf=${anchor} title=${fit >= 3 ? tr(label) : undefined} onClick=${() => r.view !== v && setRf({ view: v, hand: null, zones: null, sel: [], card: null, menu: null, panel: null, press: null, dragging: false, selRow: null })}><${Icon} name=${icon} size=${18} /><span>${tr(label)}</span></button>`;
+  const tab = (v, icon, label, anchor) => html`<button type="button" class=${'rf-tab' + (r.view === v ? ' on' : '')} data-rf=${anchor} title=${fit >= 3 ? tr(label) : undefined} onClick=${() => r.view !== v && !holdChanges() && setRf({ view: v, hand: null, zones: null, sel: [], card: null, menu: null, panel: null, press: null, dragging: false, selRow: null })}><${Icon} name=${icon} size=${18} /><span>${tr(label)}</span></button>`;
   return html`<header class=${`rf-title fit${fit}`} ref=${ref}>
     <${IconBtn} icon="chevron_left" title="Back to the company's start screen (Esc)" onClick=${leaveRosterFlow} />
     <i class="sep"></i>
@@ -266,6 +269,7 @@ function TitleBar() {
       <${Icon} name="calendar_month" size=${18} /><b>${head?.day_words || ''}</b><${Icon} name="expand_more" size=${18} />
     </button>
     <span class="rf-tabs">
+      ${tab(ROUTES, 'route', 'Routes', 'rf-tab-routes')}
       ${tab(TIMEPLAN, 'departure_board', 'Timeplan', 'rf-tab-timeplan')}
       ${tab(VEHICLES, 'directions_bus', 'Vehicles', 'rf-tab-vehicles')}
       ${tab(DRIVERS, 'person', 'Drivers', 'rf-tab-drivers')}
