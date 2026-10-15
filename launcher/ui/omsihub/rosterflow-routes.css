@@ -1,0 +1,116 @@
+/* RosterFlow's Routes tab (`rosterflow/routes.js`): Optibus's route editor in the Timeplan's look
+   (its --tp-* colours) - the route bar on top, the direction's stops on the left, the line
+   editor's map on the right, the trip-time strip along the foot. */
+
+/* --- the route bar --------------------------------------------------------------------------------- */
+
+.rt-cap { flex: none; font-size: 8.45px; font-weight: 700; color: var(--tp-dim); }
+.rt-bar .tp-select select:disabled { cursor: default; color: var(--tp-dim); }
+.rt-bar .tp-sides { flex: 1 1 auto; min-width: 0; }
+.rt-bar .tp-sides button { min-width: 0; max-width: 48%; overflow: hidden; text-overflow: ellipsis; }
+.rt-colour-wrap { position: relative; flex: none; }
+.rt-colour { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; border-radius: 6px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25); }
+.rt-colour:hover, .rt-colour.on { box-shadow: inset 0 0 0 2px var(--tp-sky); }
+.rt-pop { position: absolute; top: 42px; left: 0; z-index: 30; width: 268px; padding: 12px; display: flex; flex-direction: column; gap: 10px; border-radius: 8px; background: var(--tp-panel); box-shadow: inset 0 0 0 1px var(--tp-border), 0 8px 24px rgba(0, 0, 0, 0.35); }
+.rt-pop .ed-picker { width: 100%; }
+.rt-swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.rt-swatches .sw { width: 26px; height: 26px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2); }
+.rt-swatches .sw.on { box-shadow: 0 0 0 2px var(--tp-panel), 0 0 0 4px var(--tp-sky); }
+.rt-act { height: 34px; flex: 0 1 auto; min-width: 0; max-width: 280px; display: flex; align-items: center; gap: 7px; padding: 0 14px 0 11px; border-radius: 6px; background: var(--tp-cell); box-shadow: inset 0 0 0 1px var(--tp-border); color: var(--tp-text); font-size: 9.98px; font-weight: 700; white-space: nowrap; }
+.rt-act span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.rt-act:hover { background: var(--tp-cell-hover); }
+.rt-act.primary { background: var(--tp-sky); color: #fff; box-shadow: none; }
+.rt-act.primary:hover { filter: brightness(1.08); }
+.rt-act.blocked { opacity: 0.55; }
+.rt-wait { flex: none; font-size: 9.2px; color: var(--tp-dim); white-space: nowrap; }
+.rt-failed { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.rt-failed p { margin: 0; }
+
+/* --- the stops ------------------------------------------------------------------------------------- */
+
+.rt-main { position: absolute; left: 14px; right: 14px; top: 70px; bottom: 166px; display: flex; gap: 8px; }
+.rt-side { width: 300px; flex: none; display: flex; flex-direction: column; border-radius: 6px; background: var(--tp-pane); overflow: hidden; }
+.rt-head { flex: none; display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 6px; padding: 10px 10px 6px; }
+.rt-field { height: 30px; min-width: 0; border: 0; border-radius: 5px; outline: none; padding: 0 9px; background: var(--tp-field); box-shadow: inset 0 0 0 1px var(--tp-border); color: var(--tp-text); font: inherit; font-size: 9.98px; font-weight: 500; }
+.rt-field:focus { box-shadow: inset 0 0 0 1.5px var(--tp-sky); }
+.rt-field.num { font-weight: 700; text-align: center; }
+.rt-pattern { flex: none; padding: 0 10px 8px; box-shadow: inset 0 -1px 0 var(--tp-border); }
+.rt-pattern .tp-select { width: 100%; }
+.rt-pattern select:disabled { cursor: default; }
+.rt-stops { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 6px 8px; }
+.rt-stop { position: relative; display: grid; grid-template-columns: 26px minmax(0, 1fr) auto auto; align-items: center; gap: 6px; height: 32px; padding: 0 4px 0 2px; border-radius: 4px; cursor: pointer; font-size: 9.98px; }
+.rt-stop:hover { background: var(--tp-cell); }
+.rt-stop.on { background: var(--tp-sky-on); }
+.rt-stop.over { box-shadow: inset 0 2px 0 var(--tp-sky); }
+.rt-stop .rail { position: relative; align-self: stretch; }
+.rt-stop .rail::before { content: ""; position: absolute; left: 11px; top: 0; bottom: 0; width: 4px; background: var(--c); }
+.rt-stop.first .rail::before { top: 50%; }
+.rt-stop.last .rail::before { bottom: 50%; }
+.rt-stop.first.last .rail::before { display: none; }
+.rt-stop .rail i { position: absolute; left: 6px; top: 50%; width: 14px; height: 14px; margin-top: -7px; border-radius: 50%; background: #fff; box-shadow: inset 0 0 0 3px var(--c); }
+.rt-stop .rail i.end { background: var(--c); }
+.rt-stop .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--tp-text); }
+.rt-stop .code { font-size: 8.45px; font-weight: 700; color: var(--tp-dim); }
+.rt-stop .tools { display: flex; gap: 1px; visibility: hidden; }
+.rt-stop:hover .tools, .rt-stop.on .tools { visibility: visible; }
+.rt-stop .tools button { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 4px; color: var(--tp-dim); }
+.rt-stop .tools button:hover:not(:disabled) { background: var(--tp-cell-hover); color: var(--tp-text); }
+.rt-stop .tools button:disabled { color: var(--tp-faint); cursor: default; }
+.rt-leg { margin: 0 6px 2px 34px; font-size: 8.8px; color: var(--tp-red); }
+.rt-foot { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px 10px 12px; box-shadow: inset 0 1px 0 var(--tp-border); }
+.rt-sum { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 9.98px; font-weight: 700; color: var(--tp-text); white-space: nowrap; }
+.rt-tools { display: flex; gap: 2px; }
+.rt-note { margin: 0; font-size: 8.8px; line-height: 1.35; color: var(--tp-dim); }
+.rt-note.warn { color: var(--tp-orange); }
+.rt-stops > .rt-note { padding: 6px 6px 0; }
+.rt-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 14px 12px; font-size: 9.98px; line-height: 1.4; color: var(--tp-dim); }
+.rt-empty p { margin: 0; }
+
+/* --- the map --------------------------------------------------------------------------------------- */
+
+.rt-map { position: relative; flex: 1; min-width: 0; border-radius: 6px; overflow: hidden; background: var(--le-map-ground); }
+.rt-pin { position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 2; pointer-events: none; }
+.rt-pin b { position: absolute; left: 0; bottom: 12px; transform: translateX(-50%); padding: 3px 7px; border-radius: 4px; color: #fff; font-size: 8.45px; font-weight: 800; white-space: nowrap; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35); }
+.rt-pin b::after { content: ""; position: absolute; left: 50%; bottom: -3px; width: 7px; height: 7px; margin-left: -3.5px; background: inherit; transform: rotate(45deg); }
+.rt-pin.start b { background: #2e9d5b; }
+.rt-pin.end b { background: #d0453a; }
+.rt-search { position: absolute; left: 10px; top: 10px; z-index: 3; width: min(270px, calc(100% - 70px)); }
+.rt-search .field { height: 34px; display: flex; align-items: center; gap: 6px; padding: 0 6px 0 11px; border-radius: 17px; background: var(--le-on-map); color: var(--hub-text-dim); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); }
+.rt-search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: none; background: none; color: var(--hub-text); font: inherit; font-size: 9.98px; }
+.rt-search .clear { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 50%; color: var(--hub-text-dim); }
+.rt-search .clear:hover { color: var(--hub-text); }
+.rt-search .list { max-height: 260px; overflow-y: auto; margin-top: 6px; padding: 4px; border-radius: 8px; background: var(--tp-panel); box-shadow: inset 0 0 0 1px var(--tp-border), 0 8px 24px rgba(0, 0, 0, 0.35); }
+.rt-search .list p { margin: 0; padding: 7px 8px; font-size: 9.2px; color: var(--tp-dim); }
+.rt-search .hit { display: flex; align-items: center; gap: 2px; }
+.rt-search .hit .go { flex: 1; min-width: 0; height: 28px; padding: 0 8px; border-radius: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; font-size: 9.98px; color: var(--tp-text); }
+.rt-search .hit .go:hover { background: var(--tp-cell); }
+.rt-search .hit .add, .rt-search .hit .in { width: 26px; height: 26px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 4px; color: var(--tp-sky); }
+.rt-search .hit .add:hover { background: var(--tp-cell); }
+.rt-search .hit .in { color: var(--tp-dim); }
+.rt-fit { position: absolute; top: 129px; right: 9px; z-index: 2; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--le-on-map); color: var(--hub-text-dim); }
+.rt-fit:hover { color: var(--hub-text); }
+
+/* --- the trip-time strip --------------------------------------------------------------------------- */
+
+.rt-strip { position: absolute; left: 14px; right: 14px; bottom: 14px; height: 144px; display: flex; border-radius: 6px; background: var(--tp-pane); overflow: hidden; }
+.rt-strip-empty { flex: 1; display: flex; align-items: center; margin: 0; padding: 0 20px; font-size: 9.98px; color: var(--tp-dim); }
+.rt-strip-scroll { position: relative; flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; }
+.rt-strip-row { position: relative; height: 100%; }
+.rt-strip .col { position: absolute; top: 14px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 0 6px; box-sizing: border-box; }
+.rt-strip .col .name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9.2px; font-style: italic; color: var(--tp-name); }
+.rt-strip .col .code { font-size: 8.45px; font-weight: 700; color: var(--tp-text); }
+.rt-strip .rail { position: absolute; top: 61px; height: 5px; border-radius: 2.5px; }
+.rt-strip .dot { position: absolute; top: 53.5px; width: 20px; height: 20px; margin-left: -10px; }
+.rt-strip .dot i { position: absolute; inset: 4px; border-radius: 50%; background: #fff; box-shadow: inset 0 0 0 3px var(--c); }
+.rt-strip .dot.end i { background: var(--c); box-shadow: none; }
+.rt-strip .seg { position: absolute; top: 88px; width: 56px; height: 30px; margin-left: -28px; padding: 0; border: 0; border-radius: 4px; background: var(--tp-cell); box-shadow: inset 0 0 0 1px var(--tp-border); color: var(--tp-text); font: inherit; font-size: 9.98px; font-weight: 700; text-align: center; white-space: nowrap; }
+.rt-strip button.seg:hover { background: var(--tp-cell-hover); }
+.rt-strip .seg.on { outline: none; background: var(--tp-field); box-shadow: inset 0 0 0 1.5px var(--tp-sky); }
+.rt-total { width: 196px; flex: none; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 5px; padding: 0 16px; box-shadow: inset 1px 0 0 var(--tp-border); }
+.rt-total .cap { font-size: 8.45px; font-weight: 700; color: var(--tp-dim); }
+.rt-total b { font-size: 17.65px; font-weight: 400; color: var(--tp-sky); white-space: nowrap; }
+.rt-total .src { font-size: 8.45px; line-height: 1.35; color: var(--tp-dim); }
+.rt-link { display: flex; align-items: center; gap: 5px; padding: 0; font-size: 8.8px; font-weight: 700; color: var(--tp-sky); }
+.rt-link:hover { text-decoration: underline; }
+/* (RosterFlow's page takes no selection; what is typed here does) */
+.rf-tp.rt input { user-select: text; -webkit-user-select: text; }
