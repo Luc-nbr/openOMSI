@@ -577,7 +577,8 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
         c.book(BookingKind::Compensation, comp, format!("Line {} (own trip)", l.number), true);
         // (its fines, its quality bonus and its experience: `levels`)
         super::levels::book_trip(c, t, &l.number);
-        if !t.tour.trim().is_empty() {
+        // (a player of "Play together" drove his duty alone, not the whole tour: Beta 61)
+        if !t.tour.trim().is_empty() && !super::together::book::is_guest_trip(c, t) {
             player.push((t.line.clone(), t.tour.clone()));
         }
     }
@@ -677,6 +678,10 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
         // (a spare bus sent for it runs the trips after it came: its kilometres, its wear)
         let spare = tp.bus.and_then(|b| super::clock::spare_of(c, &date, b)).and_then(|id| c.vehicle(id)).cloned();
         for (k, d) in tp.duties.iter().enumerate() {
+            // (a duty a player of "Play together" drove: booked with the measured trips, Beta 61)
+            if super::together::book::drove(c, &date, &tp.tour.line, &tp.tour.tour, k) {
+                continue;
+            }
             let driver = d.driver.and_then(|id| if id == super::plan::AGENCY { Some(super::plan::agency_driver()) } else { c.employee(id).cloned() });
             if let Some(e) = driver.as_ref().filter(|e| e.id != super::plan::AGENCY && !super::agency::is_booked(e.id)) {
                 match worked.iter_mut().find(|w| w.0 == e.id) {

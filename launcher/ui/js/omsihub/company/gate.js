@@ -1,6 +1,6 @@
-// "Play together" blocked for now (Luc 2026-10-15: "block the multiplayer buttons for now
-// because that's still in beta"): its buttons are shown disabled as coming soon unless the
-// launcher runs with OMSI_TOGETHER set (docs/DEBUG_FLAGS.md). The company's shell says it
+// "Play together" on for the company mode (Beta 61), with a kill switch: switched off (the
+// launcher's `together::KILLED`, or OMSI_TOGETHER_OFF; OMSI_TOGETHER forces it on - see
+// docs/DEBUG_FLAGS.md) its buttons are shown disabled as coming soon. The company's shell says it
 // (`together`); outside a company the gate is asked once (`tg_gate`).
 
 import { S } from '../../store.js';

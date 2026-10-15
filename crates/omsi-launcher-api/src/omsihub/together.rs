@@ -1,31 +1,37 @@
-//! "Play together" in the bus company, the launcher's side (Beta 58; the company's side is
-//! `omsi_launcher_lib::company::together`): the boss starts a session in his company (`host`:
-//! the company server, its code, who is online and what each drives, the claims to say yes or
-//! no to, his world opened as the host of a game session), and friends join it with the code
-//! (`join`: the boss's company in a simple view of its own - the day, the open duties, their
-//! own duties with Drive, their results - their game started on their duty in the boss's world).
+//! "Play together" in the bus company, the launcher's side (Beta 58, built out in Beta 61; the
+//! company's side is `omsi_launcher_lib::company::together`): the boss shares his open company
+//! (`host`: the company server, its code, who is online with his role and permissions and what
+//! each drives, the duties asked for, the activity - the company's "Multiplayer" page), and
+//! friends join it with the code (`join`: the boss's company in a menu of its own - their role,
+//! their duties with Drive, the open duties to ask for, their figures, the players, the news -
+//! and, as their role allows, the company's own pages relayed to the boss's launcher: `relay`).
+//! Nobody opens a world: each drives his duties in his own game, at his own pace.
 //!
 //! The commands are `tg_…`; the texts come in the page's language (`lang`), as the company's.
 
 mod host;
 mod join;
+pub mod relay;
 
 use super::company::words::{self, tr, trf};
 use crate::{Answer, Platform};
 use omsi_launcher_lib::company::duty_launch::DutyRef;
 use omsi_launcher_lib::company::together::wire::Notice;
+use omsi_launcher_lib::company::together::{Perm, Role};
 use serde_json::{json, Value};
 
-pub use host::{boss_duty, give_to_guest, online_guests};
+pub use host::{give_to_guest, online_guests, rail_badge, tile_line};
 
 /// The colour a player of "Play together" has on the rosters.
 pub const GUEST_COLOUR: &str = "#e58fd8";
 
-/// "Play together" is open (Luc 2026-10-15: "block the multiplayer buttons for now because
-/// that's still in beta"): only with `OMSI_TOGETHER` set. Its code stays; without the switch
-/// the pages show it as coming soon and every command is refused, so no server starts.
+/// The kill switch (Beta 61): "Play together" is on for the bus company unless this is set, or
+/// the launcher runs with `OMSI_TOGETHER_OFF`. `OMSI_TOGETHER` forces it on (for testing).
+pub const KILLED: bool = false;
+
+/// "Play together" is open (Luc 2026-10-15: on for the company mode, with a kill switch).
 pub fn enabled() -> bool {
-    omsi_cfg::flags::OMSI_TOGETHER.is_set()
+    omsi_cfg::flags::OMSI_TOGETHER.is_set() || (!KILLED && !omsi_cfg::flags::OMSI_TOGETHER_OFF.is_set())
 }
 
 /// What the pages say while it is blocked.
@@ -48,7 +54,7 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
     }
     if cmd.starts_with("tg_host") {
         host::remember_language();
-        return host::call(cmd, args, p);
+        return host::call(cmd, args);
     }
     join::call(cmd, args, p)
 }
@@ -77,6 +83,29 @@ pub fn duty_words(number: &str, r: &DutyRef) -> String {
     format!("{} {}  ·  {} {}  ·  {} {}", tr("Line"), number, tr("Tour"), r.tour, tr("Duty"), r.duty + 1)
 }
 
+/// A role as the pages show it: its key, name, icon and what it is for.
+pub fn role_json(r: Role) -> Value {
+    json!({ "key": r.key(), "label": tr(r.label()), "icon": r.icon(), "about": tr(r.about()) })
+}
+
+/// A permission as the pages show it.
+pub fn perm_json(p: Perm) -> Value {
+    json!({ "key": p.key(), "label": tr(p.label()), "icon": p.icon() })
+}
+
+/// Every role and permission, for the pages' editors.
+pub fn roles_json() -> Value {
+    json!({
+        "roles": Role::ALL.iter().map(|r| { let mut v = role_json(*r); v["perms"] = json!(r.preset().iter().map(|p| p.key()).collect::<Vec<_>>()); v }).collect::<Vec<_>>(),
+        "perms": Perm::ALL.iter().map(|p| perm_json(*p)).collect::<Vec<_>>(),
+    })
+}
+
+/// Permissions as the pages send them (their keys).
+fn perms_arg(args: &Value) -> Vec<Perm> {
+    args.get("perms").and_then(Value::as_array).map(|a| a.iter().filter_map(|x| x.as_str().and_then(Perm::of)).collect()).unwrap_or_default()
+}
+
 /// A duty as a page sends it back.
 fn duty_arg(args: &Value) -> Option<DutyRef> {
     serde_json::from_value(args.get("duty").cloned().unwrap_or(Value::Null)).ok()
@@ -88,17 +117,19 @@ fn unix_now() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use omsi_launcher_lib::company::together::{book, client, code, host};
+    use omsi_launcher_lib::company::together::{book, client, code, host, roles};
 
     /// Every text of "Play together" - the company's side, the launcher's and the page's
-    /// (`together.js`) - in the six languages.
+    /// (`together.js`, `multiplayer.js`) - in the six languages.
     #[test]
     fn every_together_text_is_translated() {
-        let mut texts: Vec<String> = book::texts().into_iter().chain(host::texts()).chain([code::NOT_A_CODE, code::GAME_CODE, code::TYPO, code::NEWER, client::UNREACHED]).map(String::from).collect();
+        let mut texts: Vec<String> = book::texts().into_iter().chain(host::texts()).chain(roles::texts()).chain([code::NOT_A_CODE, code::GAME_CODE, code::TYPO, code::NEWER, client::UNREACHED]).map(String::from).collect();
         let js = include_str!("../../../../launcher/ui/js/omsihub/company/together.js");
+        let mp = include_str!("../../../../launcher/ui/js/omsihub/company/multiplayer.js");
         // (this file without its tests)
         let own = include_str!("together.rs").split("#[cfg(test)]").next().unwrap_or("");
-        let sources = [(own, "tr(\"", '"'), (include_str!("together/host.rs"), "tr(\"", '"'), (include_str!("together/join.rs"), "tr(\"", '"'), (js, "tr('", '\'')];
+        let relay = include_str!("together/relay.rs").split("#[cfg(test)]").next().unwrap_or("");
+        let sources = [(own, "tr(\"", '"'), (include_str!("together/host.rs"), "tr(\"", '"'), (include_str!("together/join.rs"), "tr(\"", '"'), (relay, "tr(\"", '"'), (js, "tr('", '\''), (mp, "tr('", '\'')];
         for (src, lead, end) in sources {
             for lead in [lead.to_string(), lead.replacen("tr(", "trf(", 1)] {
                 let mut rest = src;
@@ -140,10 +171,16 @@ mod tests {
         }
     }
 
-    /// Blocked for now: without `OMSI_TOGETHER` every command is refused - no server starts,
-    /// nobody joins - and the gate says so.
+    /// On for the company mode, unless the kill switch is set; switched off, every command is
+    /// refused - no server starts, nobody joins - and the gate says so.
     #[test]
-    fn playing_together_is_blocked_without_its_switch() {
+    fn playing_together_is_on_unless_switched_off() {
+        let p = NoPlatform;
+        let gate = super::call("tg_gate", &serde_json::json!({}), &p).unwrap().unwrap();
+        assert_eq!(gate["on"], super::enabled());
+        if !super::KILLED && !omsi_cfg::flags::OMSI_TOGETHER_OFF.is_set() {
+            assert!(super::enabled(), "on without a switch");
+        }
         if super::enabled() {
             return;
         }

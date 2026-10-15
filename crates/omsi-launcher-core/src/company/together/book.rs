@@ -1,16 +1,21 @@
-//! What the company keeps of "Play together" (`Company::together`): the players who came, the
-//! duties of the company's day they took (or the boss gave them, or they asked for), and the
-//! trips they drove for it as their games judged them. The plan puts a player on his duty before
-//! the roster (`plan::day_plan`, `Who::Guest`); the day's close books his trips as the boss's own
-//! are booked (`day::close_day`: measured, with his punctuality, passengers and score) and the
-//! tour counts as run. Money, the planning and the staff stay the boss's: a player only takes,
-//! gives back and drives, and every claim and report is checked against the plan.
+//! What the company keeps of "Play together" (`Company::together`): the players who came, with
+//! their roles and permissions (`roles`) and what they drove for the company, the duties of the
+//! company's day they took (or were given, or asked for), and the trips they drove for it as
+//! their games judged them. The plan puts a player on his duty before the roster
+//! (`plan::day_plan`, `Who::Guest`); the day's close books his trips as the boss's own are booked
+//! (`day::close_day`: measured, with his punctuality, passengers, fines and score) and the duty -
+//! that duty alone, the rest of its tour runs as planned - counts as run. Every claim and report
+//! is checked against the plan, or against the duty's trips as they were when it became his
+//! (`Claim::sheet`) once its day has closed.
 
 use super::super::clock;
+use super::super::dates;
 use super::super::duty_launch::DutyRef;
-use super::super::model::Company;
+use super::super::model::{Cents, Company};
 use super::super::network::PlannedTrip;
 use super::super::plan::{BusOf, DayPlan, DayTour};
+use super::roles::{self, Perm, Role};
+use super::wire::DriveStart;
 use crate::TripRun;
 use serde::{Deserialize, Serialize};
 
@@ -29,10 +34,14 @@ pub const OVERLAP: &str = "You have another duty at that time.";
 pub const UNDER_WAY: &str = "You are driving this duty: it stays yours until you have finished.";
 pub const DONE: &str = "This duty is finished: what was driven stays.";
 pub const TOO_MANY: &str = "The company has as many players as it can take.";
+pub const CLOSED_DAY: &str = "The company's day closed before this duty could be driven.";
+
+/// How many days a duty whose day closed before it was driven stays its player's.
+pub const LATE_DAYS: i64 = 3;
 
 /// Every English text of this file (for the translations' check).
-pub fn texts() -> [&'static str; 11] {
-    [NO_DUTY, NOT_TODAY, NOT_OPEN, NO_BUS, BEGUN, DRIVEN, NOT_YOURS, OVERLAP, UNDER_WAY, DONE, TOO_MANY]
+pub fn texts() -> [&'static str; 12] {
+    [NO_DUTY, NOT_TODAY, NOT_OPEN, NO_BUS, BEGUN, DRIVEN, NOT_YOURS, OVERLAP, UNDER_WAY, DONE, TOO_MANY, CLOSED_DAY]
 }
 
 /// A player who came to the company: known by the id his launcher keeps, numbered by the
@@ -43,6 +52,68 @@ pub struct Guest {
     pub no: u32,
     pub id: String,
     pub name: String,
+    /// His role, and the permissions the boss gave (`grant`) and took (`deny`) on top of it.
+    pub role: Role,
+    pub grant: Vec<Perm>,
+    pub deny: Vec<Perm>,
+    /// Sent away for good: his launcher's messages are refused.
+    pub banned: bool,
+    /// What he drove for the company.
+    pub stats: GuestStats,
+}
+
+impl Guest {
+    /// What he may do.
+    pub fn perms(&self) -> Vec<Perm> {
+        roles::effective(self.role, &self.grant, &self.deny)
+    }
+
+    pub fn can(&self, p: Perm) -> bool {
+        self.perms().contains(&p)
+    }
+
+    /// He keeps his place among the players when the company has too many (`guest_of`).
+    fn kept(&self) -> bool {
+        self.role != Role::Driver || self.banned || !self.grant.is_empty() || self.stats.trips > 0
+    }
+}
+
+/// What a player drove for the company, as its books took it (`report`).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct GuestStats {
+    /// Duties finished, trips taken.
+    pub duties: u32,
+    pub trips: u32,
+    pub passengers: i64,
+    pub km: f64,
+    /// The stops served, and those on time.
+    pub stops: u32,
+    pub on_time: u32,
+    /// The trips' scores added up (their average: `score`).
+    pub scores: u64,
+    /// What his trips brought in (fares and the authority's payment) and cost in fines (cents).
+    pub fares: Cents,
+    pub fines: Cents,
+    pub crashes: u32,
+    /// The trips that came after their day had closed.
+    pub late: u32,
+}
+
+impl GuestStats {
+    /// The trips' average score (0 - 100).
+    pub fn score(&self) -> u32 {
+        if self.trips == 0 {
+            0
+        } else {
+            (self.scores / self.trips as u64) as u32
+        }
+    }
+
+    /// The share of the stops served on time (None: none served yet).
+    pub fn punctuality(&self) -> Option<f64> {
+        (self.stops > 0).then(|| 100.0 * self.on_time as f64 / self.stops as f64)
+    }
 }
 
 /// Where a player's duty stands.
@@ -69,6 +140,18 @@ pub struct Claim {
     pub state: ClaimState,
     /// The boss gave it him (he did not ask).
     pub given: bool,
+    /// The duty as it was when it became his: its tour's number, its times, its trips and its
+    /// bus's file (a report of a day closed since is checked against them: `report`).
+    pub number: String,
+    pub from: i32,
+    pub to: i32,
+    pub sheet: Vec<PlannedTrip>,
+    pub bus: String,
+    /// How his game starts on it (worked out by the boss's launcher: `host`).
+    pub start: Option<DriveStart>,
+    /// Its day closed before he drove it (`after_close`): the company had it covered, what he
+    /// drives of it still counts for him and its fines and bonus for the company.
+    pub late: bool,
 }
 
 /// A trip a player drove for the company, kept for the day's close.
@@ -129,12 +212,30 @@ impl Together {
         }
         if self.guests.len() >= MAX_GUESTS {
             let busy: Vec<u32> = self.claims.iter().map(|c| c.guest).chain(self.trips.iter().map(|t| t.guest)).collect();
-            let k = self.guests.iter().position(|g| !busy.contains(&g.no))?;
+            let k = self.guests.iter().position(|g| !busy.contains(&g.no) && !g.kept())?;
             self.guests.remove(k);
         }
         let no = self.guests.iter().map(|g| g.no).max().unwrap_or(0) + 1;
-        self.guests.push(Guest { no, id: id.to_string(), name });
+        self.guests.push(Guest { no, id: id.to_string(), name, ..Default::default() });
         Some(no)
+    }
+
+    pub fn guest_mut(&mut self, no: u32) -> Option<&mut Guest> {
+        self.guests.iter_mut().find(|g| g.no == no)
+    }
+
+    /// What player `no` may do (nothing: no such player, or sent away).
+    pub fn perms_of(&self, no: u32) -> Vec<Perm> {
+        self.guest(no).filter(|g| !g.banned).map(Guest::perms).unwrap_or_default()
+    }
+
+    /// Player `no` gets `role` with the permissions `want` (what the role does not bring given,
+    /// what it brings and he should not have taken).
+    pub fn set_role(&mut self, no: u32, role: Role, want: &[Perm]) -> bool {
+        let Some(g) = self.guest_mut(no) else { return false };
+        let (grant, deny) = roles::overrides(role, want);
+        (g.role, g.grant, g.deny) = (role, grant, deny);
+        true
     }
 }
 
@@ -186,9 +287,24 @@ fn overlapping(c: &Company, p: &DayPlan, r: &DutyRef, guest: u32) -> bool {
     c.together.claims.iter().filter(|x| x.guest == guest && !same_duty(&x.duty, r) && x.duty.date == r.date).any(|x| overlaps(p, &x.duty, r))
 }
 
+/// The bus file of a tour of the plan (empty: none of the fleet).
+fn bus_file(c: &Company, t: &DayTour) -> String {
+    match t.bus {
+        Some(BusOf::Own(id)) => c.vehicle(id).map(|v| v.bus.clone()).unwrap_or_default(),
+        _ => String::new(),
+    }
+}
+
+/// A claim of duty `k` of `t` (its sheet as the plan has it now).
+fn claim_of_plan(c: &Company, t: &DayTour, k: usize, r: &DutyRef, guest: u32, state: ClaimState, given: bool) -> Claim {
+    let d = &t.duties[k];
+    Claim { duty: r.clone(), guest, state, given, number: t.tour.number.clone(), from: d.from, to: d.to, sheet: t.tour.trips[d.start..d.end].to_vec(), bus: bus_file(c, t), start: None, late: false }
+}
+
 /// A player takes duty `r` of the company's day (`p`, at `now` on the company's clock): his at
-/// once when the boss lets players take open duties, else asked for. What it is now.
-pub fn take(c: &mut Company, p: &DayPlan, r: &DutyRef, guest: u32, now: i64) -> Result<ClaimState, &'static str> {
+/// once when the boss lets players take open duties or he may approve requests himself
+/// (`direct`), else asked for. What it is now.
+pub fn take(c: &mut Company, p: &DayPlan, r: &DutyRef, guest: u32, now: i64, direct: bool) -> Result<ClaimState, &'static str> {
     if !p.today || r.date != c.date {
         return Err(NOT_TODAY);
     }
@@ -211,13 +327,14 @@ pub fn take(c: &mut Company, p: &DayPlan, r: &DutyRef, guest: u32, now: i64) -> 
     if overlapping(c, p, r, guest) {
         return Err(OVERLAP);
     }
-    let state = if c.together.open_claims { ClaimState::Planned } else { ClaimState::Asked };
-    c.together.claims.push(Claim { duty: r.clone(), guest, state, given: false });
+    let state = if c.together.open_claims || direct { ClaimState::Planned } else { ClaimState::Asked };
+    let claim = claim_of_plan(c, t, k, r, guest, state, false);
+    c.together.claims.push(claim);
     Ok(state)
 }
 
-/// The boss gives duty `r` to a player (whoever had it today gives it up: the player drives it
-/// in the boss's world).
+/// The boss (or a player who may) gives duty `r` to a player (whoever had it today gives it
+/// up: the player drives it in his own game, at his own pace).
 pub fn give(c: &mut Company, p: &DayPlan, r: &DutyRef, guest: u32, now: i64) -> Result<(), &'static str> {
     if !p.today || r.date != c.date {
         return Err(NOT_TODAY);
@@ -242,8 +359,9 @@ pub fn give(c: &mut Company, p: &DayPlan, r: &DutyRef, guest: u32, now: i64) -> 
     if overlapping(c, p, r, guest) {
         return Err(OVERLAP);
     }
+    let claim = claim_of_plan(c, t, k, r, guest, ClaimState::Planned, true);
     c.together.claims.retain(|x| !same_duty(&x.duty, r));
-    c.together.claims.push(Claim { duty: r.clone(), guest, state: ClaimState::Planned, given: true });
+    c.together.claims.push(claim);
     Ok(())
 }
 
@@ -282,22 +400,46 @@ pub fn set_state(c: &mut Company, r: &DutyRef, guest: u32, state: ClaimState) ->
     if x.state == ClaimState::Asked {
         return Err(NOT_YOURS);
     }
-    x.state = state;
+    if state == ClaimState::Done && x.state != ClaimState::Done {
+        let g = x.guest;
+        if let Some(g) = c.together.guest_mut(g) {
+            g.stats.duties += 1;
+        }
+    }
+    if let Some(x) = c.together.claim_mut(r) {
+        x.state = state;
+    }
     Ok(())
 }
 
-/// The planned trip of `t` a trip report is of: a trip with passengers of the duty (`planned`)
-/// that leaves at the report's minute, of its tour as the game knows it, on a line the trip
-/// shows or the tour's.
-fn trip_of<'a>(t: &DayTour, planned: &'a [PlannedTrip], run: &TripRun) -> Option<&'a PlannedTrip> {
+/// How a player's game starts on his duty `r`, kept with his claim (a duty whose day closed
+/// starts with what was kept).
+pub fn keep_start(c: &mut Company, r: &DutyRef, start: &DriveStart) {
+    if let Some(x) = c.together.claim_mut(r) {
+        x.start = Some(start.clone());
+    }
+}
+
+/// What a report is checked against: the tour as the timetable names it, its line's number,
+/// the bus it is driven with and the duty's planned trips.
+struct Sheet<'a> {
+    tour: &'a str,
+    number: &'a str,
+    bus: String,
+    planned: &'a [PlannedTrip],
+}
+
+/// The planned trip of the duty a trip report is of: a trip with passengers that leaves at the
+/// report's minute, of its tour as the game knows it, on a line the trip shows or the tour's.
+fn trip_of<'a>(s: &Sheet<'a>, run: &TripRun) -> Option<&'a PlannedTrip> {
     if !run.departure.is_finite() {
         return None;
     }
     let dep = (run.departure / 60.0).round() as i32;
     let line = run.line.trim();
-    planned.iter().find(|x| {
-        let tour = if x.origin.trim().is_empty() { t.tour.tour.trim() } else { x.origin.trim() };
-        x.counts() && !x.is_second() && x.whole_dep() == dep && tour == run.tour.trim() && (line.eq_ignore_ascii_case(x.line.trim()) || line.eq_ignore_ascii_case(t.tour.number.trim()))
+    s.planned.iter().find(|x| {
+        let tour = if x.origin.trim().is_empty() { s.tour.trim() } else { x.origin.trim() };
+        x.counts() && !x.is_second() && x.whole_dep() == dep && tour == run.tour.trim() && (line.eq_ignore_ascii_case(x.line.trim()) || line.eq_ignore_ascii_case(s.number.trim()))
     })
 }
 
@@ -312,19 +454,15 @@ fn finite(v: Option<f64>, max: f64) -> Option<f64> {
 
 /// A player's trip made safe for the books: what the plan says of it (the company's map, its
 /// line, the tour's bus) and his figures within what the trip can have had.
-fn safe_trip(c: &Company, t: &DayTour, x: &PlannedTrip, run: &TripRun, name: &str, time: u64) -> TripRun {
+fn safe_trip(c: &Company, s: &Sheet, x: &PlannedTrip, run: &TripRun, name: &str, time: u64) -> TripRun {
     let stops = x.part.as_ref().map_or(x.stops, |p| p.stops) as i32;
     let km = x.part.as_ref().map_or(x.km, |p| p.km).max(0.0);
-    let bus = match t.bus {
-        Some(BusOf::Own(id)) => c.vehicle(id).map(|v| v.bus.clone()).unwrap_or_default(),
-        _ => String::new(),
-    };
     let mut r = run.clone();
     r.time = time;
     r.driver = name.to_string();
     r.map = c.map.clone();
-    r.bus = bus;
-    r.line = if x.line.trim().is_empty() { t.tour.number.clone() } else { x.line.clone() };
+    r.bus = s.bus.clone();
+    r.line = if x.line.trim().is_empty() { s.number.to_string() } else { x.line.clone() };
     r.free = false;
     r.planned = within(r.planned, stops);
     r.stops = within(r.stops, stops);
@@ -348,33 +486,80 @@ fn safe_trip(c: &Company, t: &DayTour, x: &PlannedTrip, run: &TripRun, name: &st
     r
 }
 
+/// What a trip of a player brings the company in fares and the authority's payment (cents), as
+/// the day's close books it (`day::close_day_with`).
+pub fn trip_money(c: &Company, t: &TripRun) -> Cents {
+    let Some(l) = super::super::network::line_of_number(c, &t.line) else { return 0 };
+    let r = super::super::economy::rules_for(c);
+    let per_km = super::super::economy::compensation_per_km(&r, c.reputation, c.contract_index);
+    let km = super::super::career::believable_km(t);
+    let (fares, comp) = super::super::ownline::trip_income(super::super::ownline::kind_of(l), t.passengers.max(0) as f64, km, super::super::fares::per_passenger(c, l), per_km, super::super::ownline::school_trip_pay(c, km));
+    fares + comp
+}
+
+/// A trip taken into a player's figures (`late`: after its day closed, when its fares were not
+/// the company's).
+fn count_trip(c: &mut Company, guest: u32, t: &TripRun, late: bool) {
+    let money = if late { 0 } else { trip_money(c, t) };
+    let score = super::super::career::evaluate(t).score;
+    let km = super::super::career::believable_km(t);
+    let Some(g) = c.together.guest_mut(guest) else { return };
+    let s = &mut g.stats;
+    s.trips += 1;
+    s.passengers += t.passengers.max(0) as i64;
+    s.km += km;
+    s.stops += t.stops.max(0) as u32;
+    s.on_time += t.on_time().max(0) as u32;
+    s.scores += score as u64;
+    s.fares += money;
+    s.fines += t.fines.max(0);
+    s.crashes += t.crashes.max(0) as u32;
+    if late {
+        s.late += 1;
+    }
+}
+
 /// A player's trip reports of his duty `r`: those of its planned trips not reported yet are
-/// kept for the day's close (made safe: `safe_trip`), the others refused. `now_unix`: when they
-/// came (the close books trips that ended after its last one). How many were taken and refused.
-pub fn report(c: &mut Company, p: &DayPlan, r: &DutyRef, guest: u32, runs: &[TripRun], now_unix: u64) -> Result<(usize, usize), &'static str> {
-    if !p.today || r.date != c.date {
+/// kept for the day's close (made safe: `safe_trip`), the others refused. A duty whose day has
+/// closed since (`Claim::late`) is checked against its sheet, and its trips are booked at once:
+/// the company had the duty covered, so their fines, quality bonus and experience
+/// (`levels::book_trip`) and the player's figures, not their fares. `now_unix`: when they came
+/// (the close books trips that ended after its last one). How many were taken and refused.
+pub fn report(c: &mut Company, p: Option<&DayPlan>, r: &DutyRef, guest: u32, runs: &[TripRun], now_unix: u64) -> Result<(usize, usize), &'static str> {
+    let x = c.together.claim_of(r).filter(|x| x.guest == guest && x.state != ClaimState::Asked).ok_or(NOT_YOURS)?.clone();
+    let today = r.date == c.date && p.is_some_and(|p| p.today);
+    if !today && !x.late {
         return Err(NOT_TODAY);
     }
-    let x = c.together.claim_of(r).filter(|x| x.guest == guest && x.state != ClaimState::Asked).ok_or(NOT_YOURS)?;
-    let _ = x;
-    let (_, k, t) = find(p, r)?;
-    let d = &t.duties[k];
-    let planned = &t.tour.trips[d.start..d.end];
+    // (today: the plan as it is now; a closed day: the duty as it was)
+    let (tour, planned, number, bus) = match p.filter(|_| today) {
+        Some(p) => {
+            let (_, k, t) = find(p, r)?;
+            let d = &t.duties[k];
+            (t.tour.tour.clone(), t.tour.trips[d.start..d.end].to_vec(), t.tour.number.clone(), bus_file(c, t))
+        }
+        None => (r.tour.clone(), x.sheet.clone(), x.number.clone(), x.bus.clone()),
+    };
+    let sheet = Sheet { tour: &tour, number: &number, bus, planned: &planned };
     let name = c.together.name_of(guest);
     let time = now_unix.max(c.trips_seen + 1);
     let (mut taken, mut refused) = (0, 0);
     for run in runs.iter().take(64) {
-        let Some(x) = trip_of(t, planned, run) else {
+        let Some(px) = trip_of(&sheet, run) else {
             refused += 1;
             continue;
         };
-        let dep = x.whole_dep();
+        let dep = px.whole_dep();
         let again = c.together.trips.iter().any(|g| same_duty(&g.duty, r) && (g.trip.departure / 60.0).round() as i32 == dep);
         if again {
             refused += 1;
             continue;
         }
-        let safe = safe_trip(c, t, x, run, &name, time);
+        let safe = safe_trip(c, &sheet, px, run, &name, time);
+        if !today {
+            super::super::levels::book_trip(c, &safe, &number);
+        }
+        count_trip(c, guest, &safe, !today);
         c.together.trips.push(GuestTrip { guest, duty: r.clone(), trip: safe });
         taken += 1;
     }
@@ -386,9 +571,30 @@ pub fn trips_for_close(c: &Company) -> Vec<TripRun> {
     c.together.trips.iter().filter(|t| t.duty.date == c.date).map(|t| t.trip.clone()).collect()
 }
 
-/// After the close of `closed`: its claims and trips go (booked, or the day is over).
+/// A trip of the close's is one a player of "Play together" drove (`day::close_day_with`: it is
+/// booked as measured, and his duty alone counts as driven - not the whole tour).
+pub fn is_guest_trip(c: &Company, t: &TripRun) -> bool {
+    c.together.trips.iter().any(|g| g.duty.date == c.date && g.trip == *t)
+}
+
+/// A player drove duty `k` of `line`/`tour` on `date`: his trips of it are in (the day's close
+/// models the rest of the tour, not that duty).
+pub fn drove(c: &Company, date: &str, line: &str, tour: &str, k: usize) -> bool {
+    c.together.trips.iter().any(|g| g.duty.date == date && g.duty.duty == k && g.duty.line.eq_ignore_ascii_case(line) && g.duty.tour.trim() == tour.trim())
+}
+
+/// After the close of `closed`: its trips go (booked), and so do its claims - but a duty given
+/// or taken that was not driven yet stays its player's for a few days (`Claim::late`: he drives
+/// it at his own pace, the company had it covered); those older than that go.
 pub fn after_close(c: &mut Company, closed: &str) {
-    c.together.claims.retain(|x| x.duty.date.as_str() > closed);
+    let driven: Vec<DutyRef> = c.together.trips.iter().filter(|t| t.duty.date.as_str() <= closed).map(|t| t.duty.clone()).collect();
+    for x in c.together.claims.iter_mut().filter(|x| x.duty.date.as_str() <= closed) {
+        if matches!(x.state, ClaimState::Planned | ClaimState::Driving) && !driven.iter().any(|d| same_duty(d, &x.duty)) {
+            x.late = true;
+        }
+    }
+    let today = c.date.clone();
+    c.together.claims.retain(|x| x.duty.date.as_str() > closed || (x.late && x.state != ClaimState::Done && dates::between(&x.duty.date, &today) <= LATE_DAYS));
     c.together.trips.retain(|x| x.duty.date.as_str() > closed);
 }
 

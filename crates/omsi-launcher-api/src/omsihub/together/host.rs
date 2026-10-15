@@ -1,15 +1,17 @@
 //! The boss's side of "Play together": the session of his open company - its company server
 //! (`together::server`, answered on the company itself under the session's lock, so it answers
-//! whatever page the launcher shows and while the game runs), its code, the players online and
-//! what each drives, the duties asked for, the notices - and his world: his own duties and
-//! "Open the world" start his game as the host of a game session on the company's map, whose
-//! code a friend's game joins.
+//! whatever page the launcher shows and while the game runs), its code, the players online with
+//! their roles and permissions and what each drives, the duties asked for, the activity - and the
+//! company's pages relayed for the players whose roles allow them (`relay`). The boss opens no
+//! world: each player drives his duties in his own game. The company's "Multiplayer" page
+//! (`multiplayer.js`) is this part's.
 
 use super::super::company::kit::Popup;
-use super::super::company::words::{self, tr, trf};
-use super::super::company::{self, Session};
-use super::{duty_arg, duty_words, notice_json, notice_text, unix_now};
-use crate::{Answer, Platform};
+use super::super::company::words::{self, eur, num, tr, trf};
+use super::super::company::{self, Session, Viewer};
+use super::relay;
+use super::{duty_arg, duty_words, notice_json, notice_text, perms_arg, role_json, roles_json, unix_now};
+use crate::Answer;
 use omsi_launcher_lib as core;
 use omsi_launcher_lib::company::duty_launch::DutyRef;
 use omsi_launcher_lib::company::plan::DayPlan;
@@ -17,8 +19,11 @@ use omsi_launcher_lib::company::together::book::{self, ClaimState};
 use omsi_launcher_lib::company::together::code::{self, CompanyCode};
 use omsi_launcher_lib::company::together::host::{self as th, Here, HostState};
 use omsi_launcher_lib::company::together::server::{Server, TunnelState};
+use omsi_launcher_lib::company::together::wire::{DutyState, Request};
+use omsi_launcher_lib::company::together::{Perm, Role};
 use omsi_launcher_lib::company::{self as co, Company};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 /// The session running: for which company, its code, the server, the session's state.
@@ -32,8 +37,8 @@ struct Hosting {
     plan: Option<(u64, u64, String, DayPlan)>,
     /// The last notice told in the company's corner.
     told: u64,
-    /// The boss's world was open when last looked at.
-    world_open: bool,
+    /// The pages' own state of each player looking at the company's pages (`company::Viewer`).
+    viewers: HashMap<u32, Viewer>,
 }
 
 static HOSTING: Mutex<Option<Hosting>> = Mutex::new(None);
@@ -53,14 +58,6 @@ pub(super) fn hosting_none() -> bool {
 /// The page's language kept for the server's threads.
 pub(super) fn remember_language() {
     *LANG.lock().unwrap_or_else(|e| e.into_inner()) = words::language();
-}
-
-/// The boss's game hosting a session: its code and its map.
-fn world() -> Option<(String, String)> {
-    core::instances::local_hosts().into_iter().find_map(|v| {
-        let code = v.get("code")?.as_str()?.to_string();
-        Some((code, v.get("map").and_then(Value::as_str).unwrap_or("").to_string()))
-    })
 }
 
 fn lead() -> i64 {
@@ -83,17 +80,13 @@ fn plan_of(s: &Session, h: &mut Hosting) -> Option<DayPlan> {
     Some(p)
 }
 
-/// The boss's world opened since it was last looked at: told to everyone.
-fn see_world(h: &mut Hosting, c: &Company, world: &Option<(String, String)>) {
-    let open = world.as_ref().is_some_and(|(_, m)| th::same_map(m, &c.map));
-    if open && !h.world_open {
-        h.st.tell(unix_now(), th::WORLD_OPEN, Vec::new());
-    }
-    h.world_open = open;
+/// The day's timetable as the session has it (empty: not read yet).
+fn lines_of(s: &Session) -> Vec<core::LineInfo> {
+    s.map_lines().map(<[core::LineInfo]>::to_vec).unwrap_or_default()
 }
 
-/// The notices the boss is told in the company's corner (the rest are in his panel).
-const TOLD: [&str; 6] = [th::JOINED, th::LEFT, th::ASKS, th::WAITS, th::FINISHED, th::SAYS];
+/// The notices the boss is told in the company's corner (the rest are on his Multiplayer page).
+const TOLD: [&str; 5] = [th::JOINED, th::LEFT, th::ASKS, th::FINISHED, th::SAYS];
 
 /// Tell the boss what came since he was last told (in his page's language).
 fn tell_boss(s: &mut Session, h: &mut Hosting) {
@@ -113,9 +106,10 @@ fn handle(body: &str) -> String {
         words::set_language(&lang);
         let mut g = hosting();
         let Some(h) = g.as_mut() else { return th::refusal(th::BAD_SECRET).to_string() };
-        if let Err(v) = h.st.admits(body) {
-            return v.to_string();
-        }
+        let req = match h.st.admits(body) {
+            Ok(r) => r,
+            Err(v) => return v.to_string(),
+        };
         if s.company.as_ref().map(|c| c.id.as_str()) != Some(h.company.as_str()) {
             return th::refusal(th::NOT_OPEN_COMPANY).to_string();
         }
@@ -124,20 +118,24 @@ fn handle(body: &str) -> String {
         if s.closing {
             return th::refusal(th::BUSY).to_string();
         }
-        let plan = plan_of(s, h);
-        let world = world();
-        if let Some(c) = s.company.as_ref() {
-            see_world(h, c, &world);
+        if req.what == "page" {
+            drop(g);
+            return relay_page(s, &req).to_string();
         }
+        let plan = plan_of(s, h);
+        let lines = lines_of(s);
         let (now, lead) = (unix_now(), lead());
         let answered = {
             let Some(c) = s.company.as_mut() else { return th::refusal(th::NOT_OPEN_COMPANY).to_string() };
-            let lines: &[core::LineInfo] = match s.today.as_ref() {
-                Some(t) if t.map == c.map && t.date == c.date && t.error.is_none() => &t.lines,
-                _ => &[],
-            };
-            let here = Here { plan: plan.as_ref(), lines, world, now, lead };
-            h.st.answer(c, &here, body)
+            let here = Here { plan: plan.as_ref(), lines: &lines, now, lead };
+            let mut a = h.st.answer(c, &here, body);
+            // (the company's logo, once the player's page asks for it)
+            if req.logo {
+                if let Some(card) = a.body.get_mut("snapshot").and_then(|x| x.get_mut("card")) {
+                    card["logo"] = json!(c.logo.as_deref().and_then(company::logo_picture));
+                }
+            }
+            a
         };
         if answered.changed {
             company::changed(s);
@@ -147,6 +145,38 @@ fn handle(body: &str) -> String {
     })
 }
 
+/// A page of the company relayed by a player's launcher (`relay`): run for him when his role
+/// allows it, with the pages' state of his own. The session is held, the hosting is not (the
+/// pages may ask it: the Multiplayer tile).
+fn relay_page(s: &mut Session, req: &Request) -> Value {
+    let now = unix_now();
+    let member = {
+        let mut g = hosting();
+        let Some(h) = g.as_mut() else { return th::refusal(th::BAD_SECRET) };
+        let Some(c) = s.company.as_mut() else { return th::refusal(th::NOT_OPEN_COMPANY) };
+        h.st.member(c, req, now).map(|(guest, perms)| (guest, perms, h.viewers.remove(&guest).unwrap_or_default()))
+    };
+    let (guest, perms, mut viewer) = match member {
+        Ok(x) => x,
+        Err(v) => return v,
+    };
+    let cmd = req.page.get("cmd").and_then(Value::as_str).unwrap_or("");
+    let args = req.page.get("args").cloned().unwrap_or(json!({}));
+    let need = relay::need(cmd, &args);
+    let out = if !need.met(&perms) {
+        need.refusal()
+    } else {
+        match company::relayed(s, &mut viewer, cmd, &args, &perms) {
+            Ok(v) => json!({ "ok": true, "answer": v }),
+            Err(e) => json!({ "ok": false, "error": e }),
+        }
+    };
+    if let Some(h) = hosting().as_mut() {
+        h.viewers.insert(guest, viewer);
+    }
+    out
+}
+
 /// The players online now in the open company's session: (number, name, what he drives).
 pub fn online_guests(c: &Company) -> Vec<(u32, String, Option<DutyRef>)> {
     let g = hosting();
@@ -154,45 +184,91 @@ pub fn online_guests(c: &Company) -> Vec<(u32, String, Option<DutyRef>)> {
     h.st.online_now(unix_now()).map(|o| (o.guest, o.name.clone(), o.driving.clone())).collect()
 }
 
-/// The boss's own duty while his session runs: his game hosts, so that friends join his world.
-pub fn boss_duty(c: &Company, d: &mut core::Duty) {
-    if hosting().as_ref().is_some_and(|h| h.company == c.id) {
-        d.lan = Some("host".into());
-        d.lan_name = Some(c.profile.clone()).filter(|n| !n.trim().is_empty());
+/// The Multiplayer page's badge in the strip: the duties asked for, else the players online.
+pub fn rail_badge(c: &Company) -> (Value, String) {
+    let g = hosting();
+    let tip = tr("Multiplayer");
+    let Some(h) = g.as_ref().filter(|h| h.company == c.id) else { return (Value::Null, format!("{tip}\n{}", tr("Not shared: start sharing to let friends join"))) };
+    let online = h.st.online_now(unix_now()).count();
+    let asked = c.together.claims.iter().filter(|x| x.state == ClaimState::Asked && x.duty.date == c.date).count();
+    let badge = if asked > 0 {
+        json!({ "n": asked.to_string(), "tone": "warn" })
+    } else if online > 0 {
+        json!({ "n": online.to_string(), "tone": "ok" })
+    } else {
+        Value::Null
+    };
+    (badge, format!("{tip}\n{}", trf("Shared · %{n} online", &[("n", &online.to_string())])))
+}
+
+/// The Multiplayer tile on the start screen: whether the company is shared, who is online.
+pub fn tile_line(c: &Company) -> (String, &'static str) {
+    let g = hosting();
+    match g.as_ref().filter(|h| h.company == c.id) {
+        Some(h) => (trf("Shared · %{n} online", &[("n", &h.st.online_now(unix_now()).count().to_string())]), "ok"),
+        None if c.together.guests.is_empty() => (tr("Not shared"), "soft"),
+        None => (trf("Not shared · %{n} players", &[("n", &c.together.guests.len().to_string())]), "soft"),
     }
 }
 
 /// Give duty `k` of tour `ti` of the day `p` to player `guest` (RosterFlow's "Who drives it").
 pub fn give_to_guest(s: &mut Session, p: &DayPlan, ti: usize, k: usize, guest: u32) -> Value {
     let Some(r) = DutyRef::of(p, ti, k) else { return json!({}) };
+    give(s, p, &r, guest)
+}
+
+/// Give duty `r` of the day `p` to player `guest`, told to everyone.
+fn give(s: &mut Session, p: &DayPlan, r: &DutyRef, guest: u32) -> Value {
     let now = s.company.as_ref().map(co::clock::now).unwrap_or(0);
-    let r2 = r.clone();
-    let p2 = p.clone();
+    let (r2, p2) = (r.clone(), p.clone());
     match company::act(s, |c| book::give(c, &p2, &r2, guest, now)) {
         Ok(()) => {
             let name = s.company.as_ref().map(|c| book::guest_name(c, guest)).unwrap_or_default();
             if let Some(h) = hosting().as_mut() {
-                h.st.tell_duty(unix_now(), th::GAVE, &name, Some(p), &r);
+                h.st.tell_duty(unix_now(), th::GAVE, &name, Some(p), r);
             }
+            prepare(s);
             json!({})
         }
         Err(p) => json!({ "popup": p }),
     }
 }
 
-/// The commands of the boss's panel.
-pub(super) fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
+/// How the players' duties start, worked out for those that became theirs (`HostState::prepare_starts`).
+fn prepare(s: &mut Session) {
+    let mut g = hosting();
+    let Some(h) = g.as_mut() else { return };
+    let plan = plan_of(s, h);
+    let lines = lines_of(s);
+    let Some(c) = s.company.as_mut() else { return };
+    let before = c.together.clone();
+    let here = Here { plan: plan.as_ref(), lines: &lines, now: unix_now(), lead: lead() };
+    h.st.prepare_starts(c, &here);
+    let changed = c.together != before;
+    drop(g);
+    if changed {
+        company::changed(s);
+    }
+}
+
+/// A number argument.
+fn u32_arg(args: &Value, name: &str) -> u32 {
+    args.get(name).and_then(Value::as_u64).unwrap_or(0) as u32
+}
+
+/// The commands of the boss's Multiplayer page.
+pub(super) fn call(cmd: &str, args: &Value) -> Option<Answer> {
     Some(match cmd {
         "tg_host_view" => company::with(|s| Ok(view(s))),
         "tg_host_badge" => company::with(|s| Ok(badge(s))),
         "tg_host_start" => company::with(start),
         "tg_host_stop" => company::with(|s| {
-            // (the players' duties not driven go back to the company: nobody can drive them now)
+            // (the players' duties not under way go back to the company: nobody can be told now)
             let mine = s.company.as_ref().is_some_and(|c| hosting().as_ref().is_some_and(|h| h.company == c.id));
             stop(s);
             if mine {
                 let _ = company::act(s, |c| {
-                    c.together.claims.retain(|x| x.state == ClaimState::Done);
+                    c.together.claims.retain(|x| matches!(x.state, ClaimState::Driving | ClaimState::Done) || x.late);
                     Ok(())
                 });
             }
@@ -208,6 +284,30 @@ pub(super) fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> 
         }),
         "tg_host_answer" => company::with(|s| Ok(answer(s, args))),
         "tg_host_off" => company::with(|s| Ok(take_off(s, args))),
+        "tg_host_give" => company::with(|s| {
+            let Some(r) = duty_arg(args) else { return Ok(json!({})) };
+            let plan = {
+                let mut g = hosting();
+                g.as_mut().and_then(|h| plan_of(s, h))
+            };
+            Ok(match plan {
+                Some(p) => give(s, &p, &r, u32_arg(args, "guest")),
+                None => json!({ "error": tr(th::READING) }),
+            })
+        }),
+        "tg_host_role" => company::with(|s| {
+            let role = args.get("role").and_then(Value::as_str).and_then(Role::of).unwrap_or_default();
+            // (no ticks sent: the role's own)
+            let perms = if args.get("perms").is_some() { perms_arg(args) } else { role.preset().to_vec() };
+            Ok(with_players(s, |st, c| {
+                st.set_role(c, unix_now(), u32_arg(args, "guest"), role, &perms);
+            }))
+        }),
+        "tg_host_kick" => company::with(|s| {
+            let ban = args.get("ban").and_then(Value::as_bool).unwrap_or(false);
+            Ok(with_players(s, |st, c| st.send_away(c, unix_now(), u32_arg(args, "guest"), ban)))
+        }),
+        "tg_host_back" => company::with(|s| Ok(with_players(s, |st, c| st.let_back(c, unix_now(), u32_arg(args, "guest"))))),
         "tg_host_say" => company::with(|s| {
             let text = book::clean(args.get("text").and_then(Value::as_str).unwrap_or(""), 160);
             let boss = s.company.as_ref().map(|c| c.profile.clone()).unwrap_or_default();
@@ -216,9 +316,30 @@ pub(super) fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> 
             }
             Ok(json!({}))
         }),
-        "tg_host_world" => company::with(|s| open_world(s, args, p)),
         _ => return None,
     })
+}
+
+/// Something the boss does to his players (their roles, sending one away): on the company, with
+/// the session's state (a session must run for the players to be told; their roles are kept
+/// with the company either way).
+fn with_players(s: &mut Session, f: impl FnOnce(&mut HostState, &mut Company)) -> Value {
+    let Some(id) = s.company.as_ref().map(|c| c.id.clone()) else { return json!({}) };
+    let mut g = hosting();
+    let mut spare = HostState::new(&id, "", [0; 8]);
+    let st = match g.as_mut().filter(|h| h.company == id) {
+        Some(h) => &mut h.st,
+        None => &mut spare,
+    };
+    let Some(c) = s.company.as_mut() else { return json!({}) };
+    let before = c.together.clone();
+    f(st, c);
+    let changed = c.together != before;
+    drop(g);
+    if changed {
+        company::changed(s);
+    }
+    json!({})
 }
 
 /// Start the session of the open company: its server, its code, the tunnel.
@@ -243,7 +364,7 @@ fn start(s: &mut Session) -> Answer {
     server.open_tunnel(key.clone());
     let text = code.encode();
     core::log_to_file(&format!("company: Play together for {} on port {}", c.id, server.port()));
-    *hosting() = Some(Hosting { company: c.id.clone(), text, server, st: HostState::new(&c.id, &c.profile, secret), plan: None, told: 0, world_open: false });
+    *hosting() = Some(Hosting { company: c.id.clone(), text, server, st: HostState::new(&c.id, &c.profile, secret), plan: None, told: 0, viewers: HashMap::new() });
     Ok(json!({}))
 }
 
@@ -260,10 +381,10 @@ fn stop(_s: &mut Session) {
 fn badge(s: &mut Session) -> Value {
     let Some(c) = s.company.as_ref() else { return json!({ "on": false }) };
     let g = hosting();
-    let Some(h) = g.as_ref().filter(|h| h.company == c.id) else { return json!({ "on": false, "tip": tr("Play together: friends drive duties of your company in your world") }) };
+    let Some(h) = g.as_ref().filter(|h| h.company == c.id) else { return json!({ "on": false, "tip": tr("Multiplayer: share your company with friends") }) };
     let online = h.st.online_now(unix_now()).count();
     let asked = c.together.claims.iter().filter(|x| x.state == ClaimState::Asked && x.duty.date == c.date).count();
-    json!({ "on": true, "online": online, "asked": asked, "tip": trf("Play together: %{n} online", &[("n", &online.to_string())]) })
+    json!({ "on": true, "online": online, "asked": asked, "tip": trf("Shared · %{n} online", &[("n", &online.to_string())]) })
 }
 
 /// Yes or no to a duty asked for.
@@ -281,6 +402,9 @@ fn answer(s: &mut Session, args: &Value) -> Value {
             let name = s.company.as_ref().map(|c| book::guest_name(c, guest)).unwrap_or_default();
             if let Some(h) = hosting().as_mut() {
                 h.st.tell_duty(unix_now(), if yes { th::GAVE } else { th::REFUSED }, &name, plan.as_ref(), &r);
+            }
+            if yes {
+                prepare(s);
             }
             json!({})
         }
@@ -309,128 +433,115 @@ fn take_off(s: &mut Session, args: &Value) -> Value {
     }
 }
 
-/// "Open the world": the boss's game started as the host of a game session on the company's
-/// map, at the company's day and time, with its service (its buses on their tours, its
-/// passengers), the boss on foot by a bus of the fleet - friends' games join it.
-fn open_world(s: &mut Session, args: &Value, p: &dyn Platform) -> Answer {
-    let Some(c) = s.company.clone() else { return Ok(json!({})) };
-    if s.in_game() {
-        return Ok(json!({ "popup": company::popup(s, Popup::new("sports_esports", "A game is running", tr("Your world is open while it runs."), tr("Friends join it when it hosts a session; close it to open another."), None)) }));
-    }
-    let root = core::load_config().root;
-    if !omsi_cfg::missing_original_essentials(std::path::Path::new(&root)).is_empty() {
-        return Ok(json!({ "popup": company::popup(s, Popup::new("folder_open", "The original OMSI 2 is missing", tr("A session needs the original OMSI 2."), tr("Choose its folder under Setup first."), None)) }));
-    }
-    let Some(v) = c.fleet.iter().find(|v| v.held_on(&c.date) && !v.bus.trim().is_empty()) else {
-        return Ok(json!({ "popup": company::popup(s, Popup::new("directions_bus", "No bus to start with", tr("The world opens with you on foot beside a bus of the fleet."), tr("Buy or lease a bus first."), None)) }));
-    };
-    let mut d: core::Duty = serde_json::from_value(args.get("base").cloned().unwrap_or(Value::Null)).map_err(|e| format!("base: {e}"))?;
-    d.map = c.map.clone();
-    d.bus = v.bus.clone();
-    d.paint = v.house_livery.clone().filter(|h| !h.trim().is_empty()).or_else(|| Some(v.livery.clone())).filter(|x| !x.trim().is_empty());
-    d.number = Some(v.number.clone()).filter(|x| !x.trim().is_empty());
-    d.plate = Some(v.plate.clone()).filter(|x| !x.trim().is_empty());
-    d.hof = Some(c.depot.clone()).filter(|x| !x.trim().is_empty());
-    d.set_vars = super::super::hub_more::setvars(&d.bus, d.paint.as_deref().unwrap_or(""));
-    d.display_font = core::busfonts::BusFonts::load().font_for(&d.bus);
-    (d.entry, d.line, d.tour, d.trip, d.whole_tour, d.legs, d.free_line) = (None, None, None, None, false, Vec::new(), None);
-    d.time = co::clock::hhmm(c.clock.minute as i64);
-    d.date = Some(c.date.clone());
-    (d.passengers, d.schedule, d.on_foot) = (Some(true), Some(true), Some(true));
-    (d.season, d.tutorial, d.situation, d.editor) = (None, None, None, false);
-    d.company = Some(c.id.clone());
-    d.lan = Some("host".into());
-    d.lan_name = Some(c.profile.clone()).filter(|n| !n.trim().is_empty());
-    core::log_to_file(&format!("company: Play together opens the world of {} on {} at {}", c.id, c.date, d.time));
-    let launched = core::launch(&d).map_err(|e| format!("{e:#}"))?;
-    core::log_to_file(&format!("game {}: {}", launched.pid, launched.command));
-    p.launched();
-    s.say(tr("Opening your company's world…"), false);
-    Ok(json!({ "launched": serde_json::to_value(launched).unwrap_or(Value::Null) }))
+/// A duty's times ("06:00 – 08:10").
+fn times(from: i32, to: i32) -> String {
+    format!("{} – {}", co::clock::hhmm(from as i64), co::clock::hhmm(to as i64))
 }
 
-/// A player's line in the panel: his name, and what he does now.
-fn player_rows(c: &Company, h: &Hosting, p: Option<&DayPlan>) -> Vec<Value> {
+/// A player's figures for the page: his trips, his punctuality and score, what he brought the
+/// company and cost it in fines.
+pub fn stats_json(st: &book::GuestStats) -> Value {
+    json!({
+        "duties": st.duties, "trips": st.trips, "passengers": st.passengers,
+        "km": num(st.km, 0),
+        "punctuality": st.punctuality().map(|p| format!("{} %", num(p, 0))),
+        "score": (st.trips > 0).then(|| st.score()),
+        "fares": eur(st.fares), "fines": eur(st.fines), "fined": st.fines > 0,
+        "late": st.late,
+    })
+}
+
+/// A duty of the day in the page's words: its line on its colour, times, route and who has it.
+fn duty_row(c: &Company, d: &omsi_launcher_lib::company::together::wire::SnapDuty) -> Value {
+    let colour = d.colour.clone();
+    json!({
+        "duty": d.duty, "number": d.number, "colour": colour, "times": times(d.from, d.to),
+        "title": duty_words(&d.number, &d.duty), "route": format!("{} → {}", d.first, d.last),
+        "who": d.who, "guest": d.guest, "state": format!("{:?}", d.state).to_lowercase(),
+        "open": d.state == DutyState::Open || d.state == DutyState::Company,
+        "facts": format!("{}  ·  {} km", trf("%{n} trips", &[("n", &d.trips.to_string())]), d.km),
+        "late": c.together.claim_of(&d.duty).is_some_and(|x| x.late),
+    })
+}
+
+/// A player's line on the page: online, role and permissions, what he does now, his duties of
+/// the day and his figures.
+fn player_row(c: &Company, st: Option<&HostState>, g: &book::Guest, p: Option<&DayPlan>) -> Value {
     let now = unix_now();
+    let online = st.and_then(|st| st.online_now(now).find(|o| o.guest == g.no));
+    let kicked = st.is_some_and(|st| st.kicked.contains(&g.no));
     let number = |r: &DutyRef| th::duty_args(p, r)[0].1.clone();
-    let mut rows: Vec<Value> = Vec::new();
-    for o in h.st.online_now(now) {
-        let (text, tone) = match (&o.driving, &o.waiting) {
-            (Some(r), _) => (trf("Drives %{duty}", &[("duty", &duty_words(&number(r), r))]), "ok"),
-            (None, Some(r)) => (trf("Waits for your world to drive %{duty}", &[("duty", &duty_words(&number(r), r))]), "warn"),
-            _ => {
-                let n = c.together.claims.iter().filter(|x| x.guest == o.guest && x.duty.date == c.date && x.state != ClaimState::Asked).count();
-                (if n == 0 { tr("Online") } else { trf("Online · %{n} duties today", &[("n", &n.to_string())]) }, "soft")
-            }
-        };
-        rows.push(json!({ "name": o.name, "online": true, "text": text, "tone": tone }));
-    }
-    for g in &c.together.guests {
-        if h.st.is_online(g.no, now) {
-            continue;
-        }
-        let n = c.together.claims.iter().filter(|x| x.guest == g.no && x.duty.date == c.date && x.state != ClaimState::Asked).count();
-        if n > 0 {
-            rows.push(json!({ "name": g.name, "online": false, "text": trf("Offline · %{n} duties today", &[("n", &n.to_string())]), "tone": "dim" }));
-        }
-    }
-    rows
+    let mine: Vec<&book::Claim> = c.together.claims.iter().filter(|x| x.guest == g.no && (x.duty.date == c.date || x.late)).collect();
+    let (text, tone) = match (online, &online.and_then(|o| o.driving.clone())) {
+        _ if g.banned => (tr("Removed from the company"), "danger"),
+        _ if kicked => (tr("Sent away from this session"), "warn"),
+        (Some(_), Some(r)) => (trf("Drives %{duty}", &[("duty", &duty_words(&number(r), r))]), "ok"),
+        (Some(_), None) => (tr("Online"), "ok"),
+        (None, _) => (tr("Offline"), "dim"),
+    };
+    let duties: Vec<Value> = mine
+        .iter()
+        .map(|x| {
+            let num = if x.number.is_empty() { number(&x.duty) } else { x.number.clone() };
+            let state = match x.state {
+                ClaimState::Asked => tr("Asked for"),
+                ClaimState::Driving => tr("Driving it now"),
+                ClaimState::Done => tr("Driven"),
+                ClaimState::Planned if x.late => tr("Day closed: drives it later"),
+                ClaimState::Planned => tr("Planned"),
+            };
+            let r = th::result_of(c, p, &x.duty);
+            json!({
+                "duty": x.duty, "what": duty_words(&num, &x.duty), "times": times(x.from, x.to), "state": state,
+                "off": matches!(x.state, ClaimState::Planned), "asked": x.state == ClaimState::Asked,
+                "result": (r.trips > 0).then(|| trf("%{trips} trips · %{passengers} passengers · score %{score}", &[("trips", &r.trips.to_string()), ("passengers", &r.passengers.to_string()), ("score", &r.score.to_string())])),
+            })
+        })
+        .collect();
+    let perms = g.perms();
+    json!({
+        "no": g.no, "name": g.name, "online": online.is_some(), "banned": g.banned, "kicked": kicked,
+        "text": text, "tone": tone, "role": role_json(g.role),
+        "perms": perms.iter().map(|p| p.key()).collect::<Vec<_>>(),
+        "custom": !g.grant.is_empty() || !g.deny.is_empty(),
+        "duties": duties, "stats": stats_json(&g.stats),
+        "initial": g.name.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default(),
+    })
 }
 
-/// The players' duties of the day (to take them off), and those asked for (to say yes or no).
-fn duty_rows(c: &Company, p: Option<&DayPlan>) -> (Vec<Value>, Vec<Value>) {
-    let (mut theirs, mut asked) = (Vec::new(), Vec::new());
-    for x in c.together.claims.iter().filter(|x| x.duty.date == c.date) {
-        let number = th::duty_args(p, &x.duty)[0].1.clone();
-        let times = p.and_then(|p| x.duty.find(p).map(|(ti, k)| p.tours[ti].duties[k].clone())).map(|d| format!("{} – {}", co::clock::hhmm(d.from as i64), co::clock::hhmm(d.to as i64))).unwrap_or_default();
-        let name = book::guest_name(c, x.guest);
-        let base = json!({ "duty": x.duty, "name": name, "what": duty_words(&number, &x.duty), "times": times });
-        match x.state {
-            ClaimState::Asked => asked.push(base),
-            st => {
-                let mut v = base;
-                v["state"] = json!(tr(match st {
-                    ClaimState::Driving => "Driving it now",
-                    ClaimState::Done => "Driven",
-                    _ => "Planned",
-                }));
-                v["off"] = json!(st == ClaimState::Planned);
-                // (what his trips came to so far)
-                let r = th::result_of(c, p, &x.duty);
-                if r.trips > 0 {
-                    v["result"] = json!(trf("%{trips} trips · %{passengers} passengers · score %{score} · for the company %{amount}", &[("trips", &r.trips.to_string()), ("passengers", &r.passengers.to_string()), ("score", &r.score.to_string()), ("amount", &super::super::company::words::eur(r.fares))]));
-                }
-                theirs.push(v);
-            }
-        }
-    }
-    (theirs, asked)
-}
-
-/// The panel (`together.js`'s `TogetherDialog`).
+/// The Multiplayer page (`multiplayer.js`).
 fn view(s: &mut Session) -> Value {
     let Some(c) = s.company.clone() else { return json!({ "none": true }) };
-    let mut g = hosting();
     let words = json!({
-        "title": tr("Play together"), "close": tr("Close"), "copy": tr("Copy"), "copied": tr("Copied"),
-        "start": tr("Start a session"), "stop": tr("End the session"),
-        "intro": tr("Friends join your company with a session code and drive duties of its day for it, in your world. Money, planning and staff stay yours: their trips are booked as your drivers' are."),
-        "how": [tr("Start a session: you get a code to send your friends."), tr("They choose \"Join a company\" in Omsi-Hub and paste it."), tr("They take open duties (or you give them one in RosterFlow's Roster), and drive them in your world: open it here, or drive a duty of your own.")],
-        "code_caps": tr("Session code").to_uppercase(),
-        "players_caps": tr("Players").to_uppercase(), "no_players": tr("Nobody has joined yet."),
-        "asked_caps": tr("Asked for").to_uppercase(), "yes": tr("Yes"), "no": tr("No"),
-        "duties_caps": tr("Their duties today").to_uppercase(), "off": tr("Take off"),
-        "notices_caps": tr("What happened").to_uppercase(),
+        "title": tr("Multiplayer"), "copy": tr("Copy"), "copied": tr("Copied"),
+        "start": tr("Start sharing"), "stop": tr("Stop sharing"),
+        "intro": tr("Share your company with friends: they join with a session code, you give each a role, and they drive the duties you give them - or ask for - in their own game, at their own pace. Everything they drive is your company's: its fares, its fines, its figures."),
+        "how": [tr("Start sharing: you get a session code to send your friends."), tr("They choose \"Join a company\" in Omsi-Hub and paste it."), tr("Give each player a role here, and duties: they drive them in their own game, no world of yours needed.")],
+        "code_caps": tr("Session code").to_uppercase(), "ways_caps": tr("How they reach you").to_uppercase(),
+        "players_caps": tr("Players").to_uppercase(), "no_players": tr("Nobody has joined yet: send them the session code."),
+        "asked_caps": tr("Duty requests").to_uppercase(), "no_asked": tr("No duty requests."), "yes": tr("Approve"), "no": tr("Decline"),
+        "give_caps": tr("Give a duty").to_uppercase(), "give": tr("Give"), "pick_player": tr("Choose a player"), "no_open": tr("No duty to give right now."),
+        "activity_caps": tr("Activity").to_uppercase(), "everyone": tr("Everyone"),
         "say": tr("Say something to everyone"), "send": tr("Send"),
-        "open_label": tr("Players may take open duties themselves"), "open_note": tr("Off: they ask for a duty, and you say yes or no here."),
+        "open_label": tr("Players may take open duties themselves"), "open_note": tr("Off: they ask for a duty, and you (or a player who may approve) say yes or no."),
+        "role": tr("Role"), "perms_caps": tr("Permissions").to_uppercase(), "custom": tr("Custom"), "reset": tr("Back to the role's"),
+        "kick": tr("Send away"), "ban": tr("Remove"), "back": tr("Let back in"), "off": tr("Take off"),
+        "duties_caps": tr("Duties").to_uppercase(), "no_duties": tr("No duties today."),
+        "stats_caps": tr("For the company").to_uppercase(),
+        "trips": tr("Trips"), "punctuality": tr("On time"), "score": tr("Score"), "fares": tr("Fares"), "fines": tr("Fines"),
+        "online": tr("online"), "kick_tip": tr("Send away from this session: they can join again with a new code."), "ban_tip": tr("Remove from the company: they cannot join again until you let them back in."),
+        "not_shared": tr("Not shared: the players keep their roles, but cannot reach you."),
     });
+    let mut g = hosting();
+    let roles = roles_json();
     let Some(h) = g.as_mut().filter(|h| h.company == c.id) else {
         let other = g.as_ref().map(|h| h.company.clone());
-        return json!({ "on": false, "words": words, "other": other.map(|_| tr("A session of another of your companies runs: starting one here ends it.")) });
+        drop(g);
+        // (the players the company keeps, with their roles, also while it is not shared)
+        let players: Vec<Value> = c.together.guests.iter().map(|g| player_row(&c, None, g, None)).collect();
+        return json!({ "on": false, "words": words, "roles": roles, "players": players, "other": other.map(|_| tr("A session of another of your companies runs: starting one here ends it.")) });
     };
     let plan = plan_of(s, h);
-    let world = world();
-    see_world(h, &c, &world);
     let port = h.server.port();
     let mut ways: Vec<Value> = omsi_net::addrs::joinable_addresses().iter().take(4).map(|a| json!([tr(a.label()), format!("{}:{port}", a.ip), if a.kind.is_vpn() { "ok" } else { "soft" }])).collect();
     ways.push(match h.server.tunnel() {
@@ -439,18 +550,42 @@ fn view(s: &mut Session) -> Value {
         TunnelState::Failed => json!([tr("Internet"), tr("no tunnel: friends over the internet need the same VPN"), "warn"]),
         TunnelState::Off => json!([tr("Internet"), tr("no tunnel (switched off): friends over the internet need the same VPN"), "dim"]),
     });
-    let world_json = match &world {
-        Some((_, m)) if th::same_map(m, &c.map) => json!({ "open": true, "text": tr("Your world is open: friends drive their duties in it.") }),
-        Some(_) => json!({ "open": false, "text": tr("Your game runs another map: friends can only drive in the company's world."), "button": null }),
-        None => json!({ "open": false, "text": tr("Your world isn't open yet: friends cannot drive until it is. Drive a duty of your own, or open the world with you on foot at the depot."), "button": tr("Open the world") }),
-    };
-    let (theirs, asked) = duty_rows(&c, plan.as_ref());
-    let notices: Vec<Value> = h.st.notices.iter().rev().take(30).map(notice_json).collect();
-    let players = player_rows(&c, h, plan.as_ref());
+    // (the boss's own view of the day: every duty, who has it)
+    let lines = lines_of(s);
+    let here = Here { plan: plan.as_ref(), lines: &lines, now: unix_now(), lead: 0 };
+    let snap = th::snapshot(&c, &here, &h.st, None, 0);
+    let giveable: Vec<Value> = snap.duties.iter().filter(|d| matches!(d.state, DutyState::Open | DutyState::Company | DutyState::Player)).map(|d| duty_row(&c, d)).collect();
+    let asked: Vec<Value> = c
+        .together
+        .claims
+        .iter()
+        .filter(|x| x.state == ClaimState::Asked && x.duty.date == c.date)
+        .map(|x| json!({ "duty": x.duty, "no": x.guest, "name": book::guest_name(&c, x.guest), "what": duty_words(&x.number, &x.duty), "times": times(x.from, x.to) }))
+        .collect();
+    // (the players online first, then by name)
+    let now = unix_now();
+    let mut guests: Vec<&book::Guest> = c.together.guests.iter().collect();
+    guests.sort_by_key(|g| (!h.st.is_online(g.no, now), g.banned, g.name.to_lowercase()));
+    let players: Vec<Value> = guests.iter().map(|g| player_row(&c, Some(&h.st), g, plan.as_ref())).collect();
+    let notices: Vec<Value> = h
+        .st
+        .notices
+        .iter()
+        .rev()
+        .take(80)
+        .map(|n| {
+            let mut v = notice_json(n);
+            v["who"] = json!(n.args.iter().find(|(k, _)| k == "name").map(|(_, v)| v.clone()));
+            v
+        })
+        .collect();
+    let online = h.st.online_now(now).count();
     tell_boss(s, h);
     json!({
-        "on": true, "words": words, "code": h.text, "ways": ways, "world": world_json,
-        "open_claims": c.together.open_claims, "players": players, "asked": asked, "theirs": theirs, "notices": notices,
+        "on": true, "words": words, "roles": roles, "code": h.text, "ways": ways,
+        "open_claims": c.together.open_claims, "players": players, "asked": asked, "giveable": giveable, "notices": notices,
+        "online": trf("%{n} online", &[("n", &online.to_string())]),
         "note": tr("Over the internet: both need the same VPN (Hamachi, Radmin VPN, ZeroTier, Tailscale), or a friend comes in through your tunnel. Everybody needs the same version of Omsi-Hub."),
+        "perm_keys": Perm::ALL.iter().map(|p| p.key()).collect::<Vec<_>>(),
     })
 }

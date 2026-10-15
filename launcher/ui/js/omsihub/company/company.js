@@ -38,8 +38,10 @@ import { RosterFlowPage } from '../rosterflow/index.js';
 import { MorePage, MORE_TABS } from './pages.js';
 // Omsi-Hub 6/6: the company's own guided tour
 import { startCompanyTour } from '../tour.js';
-// (Beta 58: "Play together")
-import { TogetherButton } from './together.js';
+// (Beta 58: "Play together"; Beta 61: the Multiplayer page, and the company's pages of a friend
+// who joined one - `S.co.remote`, its commands relayed to the boss's launcher)
+import { TogetherButton, TOGETHER_TAB, backToMenu } from './together.js';
+import { MultiplayerPage } from './multiplayer.js';
 
 // (the company's own look, loaded with its first page)
 const sheet = document.createElement('link');
@@ -95,6 +97,9 @@ export function companyPage(part, id) {
 }
 
 let stopTick = null;
+/** When the boss's launcher was last asked for the shell (a relayed tick goes over the network:
+ * not four times a second). */
+let remoteAt = 0;
 /** For which driver (and with a company or not) the company's tour was looked at this session
  * (`CompanyView::tutorial_for`). */
 let tourAsked = null;
@@ -113,6 +118,10 @@ function startTick() {
   let busy = false;
   const t = setInterval(async () => {
     if (busy || S.page !== 'company') return;
+    if (S.co.remote) {
+      if (Date.now() - remoteAt < 1500) return;
+      remoteAt = Date.now();
+    }
     busy = true;
     try {
       // (the self-check holds the clock: nothing is simulated while it looks)
@@ -129,6 +138,15 @@ function startTick() {
 /** Into the bus company: the companies read, the one wanted opened (or the first, as our
  * game-drawn launcher opens one when it is started on a page of the company). */
 async function boot() {
+  // (a friend's look at the boss's company: its shell from the boss's launcher, nothing opened here)
+  if (S.co.remote) {
+    try {
+      takeShell(await cmd('co_tick', { modal: true, still: true }));
+    } catch (e) {
+      setCo({ failed: e.message });
+    }
+    return;
+  }
   try {
     const b = await cmd('co_boot');
     const list = b.chooser?.companies?.tiles || [];
@@ -145,6 +163,10 @@ async function boot() {
 /** Leave the company's pages: the clock stops and what it left unsaved is saved
  * (`company::leave`); back to the start. */
 export async function leaveCompany(to = 'drive') {
+  if (S.co.remote) {
+    backToMenu();
+    return;
+  }
   try {
     await cmd('co_leave');
   } catch {
@@ -189,6 +211,15 @@ export function CompanyScreen() {
   const choosing = read && c.chooser && !c.wizard;
   const founding = read && !choosing && (c.wizard || !sh.open);
   const open = read && !choosing && !founding && sh.open;
+  // (a friend on the boss's company: only the pages his role allows, the first of them when the
+  // one shown is not - the start screen shows the money)
+  const remote = open && c.remote && sh.remote;
+  useEffect(() => {
+    if (!remote) return;
+    const pages = sh.pages || [];
+    const home = c.tab === HOME && (sh.remote.perms || []).includes('finances');
+    if (!home && !pages.includes(c.tab) && pages.length) setCo({ tab: pages[0] });
+  }, [remote, c.tab, (sh?.pages || []).join(',')]);
   // (Omsi-Hub 4/6: the Planning page asked for at the start, once the company is open)
   useEffect(() => {
     if (!open || !c.rfWant) return;
@@ -205,7 +236,7 @@ export function CompanyScreen() {
   // (Omsi-Hub 6/6: the company's tour by itself the first time a driver comes - the welcome and
   // the founding without a company, its pages once one runs - not over a dialog nor another
   // tour, not in the self-check: `tutorial::frame`; asked for at the start, from the "?"'s place)
-  const tourKey = read && !choosing && !c.dialog && !s.hubTour && !s.boot?.selftest ? `${s.config?.profile || ''}|${open ? 1 : 0}` : null;
+  const tourKey = read && !choosing && !c.dialog && !s.hubTour && !s.boot?.selftest && !c.remote ? `${s.config?.profile || ''}|${open ? 1 : 0}` : null;
   useEffect(() => {
     if (!tourKey) return;
     if (c.tourWant && open) {
@@ -249,6 +280,8 @@ function Page() {
   const sh = c.shell;
   // (a sandbox's own page, in Casual too: `company::SANDBOX_TAB`)
   if (sh.sandbox && c.tab === sh.sandbox.tab) return html`<${SandboxPage} />`;
+  // (Beta 61: the players of "Play together", in Casual too: `company::TOGETHER_TAB`)
+  if (c.tab === TOGETHER_TAB && !c.remote) return html`<${MultiplayerPage} />`;
   if (sh.casual) return html`<${CasualPage} tab=${c.tab} />`;
   switch (c.tab) {
     case 0:
@@ -285,6 +318,10 @@ function Bar({ open, choosing, read }) {
   const sh = c.shell;
   const isDark = dark();
   const settings = () => setCo({ dialog: { kind: 'settings' } });
+  // (Beta 61: a friend on the boss's company - no clock to run, the settings only when his role
+  // may change them)
+  const remote = open && !!c.remote;
+  const mayChange = !remote || (sh?.remote?.perms || []).includes('settings');
   // (Omsi-Hub 6/6: on a narrow bar - a small window, a large "Launcher size" - the company's
   // day and time go first, then the status's figures from the right, as `clock::head` and
   // `company::status` leave out what has no room; all back when the window changes)
@@ -305,15 +342,18 @@ function Bar({ open, choosing, read }) {
     ${open
       ? html`<span title=${sh.home} style="display:contents"><${Mark} mark=${sh.mark} size=${44} /><span class="name cut" title=${sh.home}>${sh.name}</span></span>
         <${SandboxBadge} b=${sh.sandbox} onClick=${() => goTab(sh.sandbox.tab)} />
-        <${ModePill} mode=${sh.mode} onClick=${settings} title=${tr("The company's game mode: change it in the company's settings")} />
+        <${ModePill} mode=${sh.mode} onClick=${mayChange ? settings : null} title=${tr("The company's game mode: change it in the company's settings")} />
+        ${remote && html`<span class="tg-remote" title=${tr('The boss\'s company, as your role allows')}><${Icon} name="wifi_tethering" size=${14} />${tr('Multiplayer')}</span>`}
         <${Status} n=${fit.n} />`
       : html`<span class="lone"><${Icon} name="garage" size=${26} class="t-accent2" /><span><b>${tr('Bus company')}</b><span>${tr('Your own transport company: buses, people and lines, in a time of its own.')}</span></span></span>`}
     <span class="tools">
-      ${open && html`${sh.casual ? html`<${CasualClock} />` : html`<${Clock} now=${fit.now} />`}<span class="gap16"></span>
+      ${open && remote && html`<${RemoteClock} /><span class="gap16"></span>
+        ${mayChange && html`<${Btn} class="sq" icon="settings" title=${tr("The company's settings: its name, its date, how it buys")} onClick=${settings} /><span class="gap8"></span>`}`}
+      ${open && !remote && html`${sh.casual ? html`<${CasualClock} />` : html`<${Clock} now=${fit.now} />`}<span class="gap16"></span>
         <${TogetherButton} />
         <${Btn} class="sq" icon="settings" title=${tr("The company's settings: its name, its date, how it buys")} onClick=${settings} /><span class="gap8"></span>`}
       <${Btn} class="sq" icon=${isDark ? 'dark_mode' : 'light_mode'} title=${tr(isDark ? 'Switch to the light mode' : 'Switch to the dark mode')} onClick=${(e) => flipLook(e)} /><span class="gap8"></span>
-      ${read && !choosing && html`<${Btn} class="sq co-help" icon="help" title=${tr('A tour of the bus company')} onClick=${askTour} /><span class="gap12"></span>`}
+      ${read && !choosing && !c.remote && html`<${Btn} class="sq co-help" icon="help" title=${tr('A tour of the bus company')} onClick=${askTour} /><span class="gap12"></span>`}
       <${Btn} class="co-back" icon="chevron_left" label=${tr('Back')} title=${tr('Back')} style="width:112px" onClick=${() => leaveCompany()} />
     </span>
   </header>`;
@@ -361,6 +401,14 @@ function Clock({ now = true }) {
     <${Btn} label="+1 h" style="width:70px;padding:0" title=${tr("Simulate one hour of the company's time")} onClick=${() => act('hour')} />
     <${Btn} kind="primary" class="co-tomorrow" icon="nights_stay" label=${tr('Simulate to tomorrow')} title=${tr(k.in_game ? "The game leads the company's clock while it runs" : 'Simulate the rest of the day: the tours run, what happens is told, and the day is closed at midnight')} onClick=${() => act('tomorrow')} />
     <${Btn} class="sq" icon="schedule" style="width:42px" title=${tr("More steps, the clock's speed and the dispatcher")} onClick=${() => !sh.cover && setCo({ dialog: { kind: 'time' } })} />
+  </span>`;
+}
+
+/** The boss's company's clock as a friend sees it: its day and time, nothing to run. */
+function RemoteClock() {
+  const k = S.co.shell.clock;
+  return html`<span class="co-clock">
+    <span class="now"><span class="label">${k.label}</span><span class="date">${k.date}</span><span class="time">${k.time}</span></span>
   </span>`;
 }
 

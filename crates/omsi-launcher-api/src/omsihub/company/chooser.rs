@@ -33,7 +33,7 @@ pub fn view(s: &mut Session) -> Value {
             "title": tr("How do you want to play?"), "text": tr("Your own company in a time of its own, or one run together with others."),
             "single": { "title": tr("Singleplayer"), "text": tr("Found and run your own companies, in a time of their own that runs while you play."), "foot": if n == 1 { tr("1 company on this computer") } else { trf("%{n} companies on this computer", &[("n", &n.to_string())]) } },
             // (Beta 58: a friend's company joined with its session code - "Play together")
-            "multi": { "title": tr("Join a company"), "text": tr("A friend runs a bus company: join it with his session code and drive duties of its day for it, in his world."), "foot": tr("With a session code"), "tip": tr("The boss starts \"Play together\" in his company and sends you the code."), "off": (!super::super::together::enabled()).then(|| tr(super::super::together::BLOCKED)) },
+            "multi": { "title": tr("Join a company"), "text": tr("A friend runs a bus company: join it with their session code, get a role, and drive its duties in your own game."), "foot": tr("With a session code"), "tip": tr("The boss shares the company on its Multiplayer page and sends you the code."), "off": (!super::super::together::enabled()).then(|| tr(super::super::together::BLOCKED)) },
         },
         "companies": {
             "back": tr("Play mode"),

@@ -68,7 +68,7 @@ use words::{day_label, eur, grouped, num, tr, trf};
 
 /// The company's pages, as the game-drawn launcher numbers them (`company::TABS`): the
 /// `OMSI_LAUNCHER_PAGE` it reads is "bus company:<number>".
-pub const TABS: [&str; 18] = ["Overview", "Fleet", "Staff", "Lines", "Finances", "Planning", "Career", "Depot", "Concessions", "Map", "Research", "Workshop", "Contracts", "Inbox", "Agenda", "Operations", "Reputation", "Sandbox"];
+pub const TABS: [&str; 19] = ["Overview", "Fleet", "Staff", "Lines", "Finances", "Planning", "Career", "Depot", "Concessions", "Map", "Research", "Workshop", "Contracts", "Inbox", "Agenda", "Operations", "Reputation", "Sandbox", "Multiplayer"];
 pub const DEPOT_TAB: usize = 7;
 pub const CONCESSIONS_TAB: usize = 8;
 pub const MAP_TAB: usize = 9;
@@ -83,19 +83,23 @@ pub const OPS_TAB: usize = ops::OPS_TAB;
 pub const REPUTATION_TAB: usize = 16;
 /// A sandbox company's rules (`sandbox`; only a sandbox has the page: `pages_for`).
 pub const SANDBOX_TAB: usize = sandbox::SANDBOX_TAB;
+/// Playing together with friends: the boss's players, their roles and duties (Beta 61; only
+/// while "Play together" is on: `pages_for`).
+pub const TOGETHER_TAB: usize = 18;
 /// The company's start screen (no page of `TABS`).
 pub const HOME_TAB: usize = 100;
 /// The pages' icons, in the order of `TABS`.
-pub const ICONS: [&str; 18] = ["signal_cellular_alt", "directions_bus", "groups", "route", "payments", "calendar_month", "military_tech", "garage", "public", "map", "search", "construction", "description", "chat", "event", "traffic", "star", "sports_esports"];
+pub const ICONS: [&str; 19] = ["signal_cellular_alt", "directions_bus", "groups", "route", "payments", "calendar_month", "military_tech", "garage", "public", "map", "search", "construction", "description", "chat", "event", "traffic", "star", "sports_esports", "wifi_tethering"];
 /// The pages in the strip under the bar, grouped as the start screen groups them.
-/// (the Sandbox page last, a group of its own: only a sandbox company shows it)
-pub const RAIL: [&[usize]; 6] = [&[0, AGENDA_TAB, INBOX_TAB], &[5, OPS_TAB, 3, MAP_TAB, 1], &[2], &[4, CONCESSIONS_TAB, CONTRACTS_TAB, REPUTATION_TAB, 6], &[DEPOT_TAB, WORKSHOP_TAB, RESEARCH_TAB], &[SANDBOX_TAB]];
+/// (the Multiplayer page and the Sandbox page last, each a group of its own: only a company
+/// shared with friends, a sandbox company shows it)
+pub const RAIL: [&[usize]; 7] = [&[0, AGENDA_TAB, INBOX_TAB], &[5, OPS_TAB, 3, MAP_TAB, 1], &[2], &[4, CONCESSIONS_TAB, CONTRACTS_TAB, REPUTATION_TAB, 6], &[DEPOT_TAB, WORKSHOP_TAB, RESEARCH_TAB], &[TOGETHER_TAB], &[SANDBOX_TAB]];
 
 /// The pages this page draws itself (the planning, the depot, the concessions, the fleet map,
 /// the research, the workshop and the contracts since phase 3: `company_more.rs`): every page
 /// (`HANDED_OVER` is empty since the game-drawn launcher it opened them in is gone). RosterFlow -
 /// the planning with its add-on on - is handed over by the planning's page itself.
-pub const DRAWN: [usize; 18] = [0, 1, 2, 3, 4, 5, 6, DEPOT_TAB, CONCESSIONS_TAB, MAP_TAB, RESEARCH_TAB, WORKSHOP_TAB, CONTRACTS_TAB, INBOX_TAB, AGENDA_TAB, OPS_TAB, REPUTATION_TAB, SANDBOX_TAB];
+pub const DRAWN: [usize; 19] = [0, 1, 2, 3, 4, 5, 6, DEPOT_TAB, CONCESSIONS_TAB, MAP_TAB, RESEARCH_TAB, WORKSHOP_TAB, CONTRACTS_TAB, INBOX_TAB, AGENDA_TAB, OPS_TAB, REPUTATION_TAB, SANDBOX_TAB, TOGETHER_TAB];
 pub const HANDED_OVER: [usize; 0] = [];
 
 /// The pages a game mode shows, in the strip's order (`company::pages_of`; the Sandbox page is
@@ -104,12 +108,16 @@ pub fn pages_of(mode: co::GameMode) -> Vec<usize> {
     if mode.casual() {
         return casual::PAGES.to_vec();
     }
-    RAIL.iter().flat_map(|g| g.iter().copied()).filter(|t| *t != SANDBOX_TAB).collect()
+    RAIL.iter().flat_map(|g| g.iter().copied()).filter(|t| *t != SANDBOX_TAB && *t != TOGETHER_TAB).collect()
 }
 
-/// The pages a company shows: its game mode's, and a sandbox's own page.
+/// The pages a company shows: its game mode's, playing together with friends while it is on,
+/// and a sandbox's own page.
 pub fn pages_for(c: &Company) -> Vec<usize> {
     let mut out = pages_of(c.game_mode);
+    if super::together::enabled() {
+        out.push(TOGETHER_TAB);
+    }
     if co::sandbox::is_sandbox(c) {
         out.push(SANDBOX_TAB);
     }
@@ -1157,13 +1165,18 @@ fn shell(s: &mut Session) -> Value {
     // the strip: the pages with their badges
     let marks = home::Marks::of(&c, s.plan.as_ref());
     let sandbox_item = || json!({ "tab": SANDBOX_TAB, "icon": ICONS[SANDBOX_TAB], "name": tr(TABS[SANDBOX_TAB]), "badge": null, "tip": tr(TABS[SANDBOX_TAB]), "away": false });
+    // (Beta 61: the players online, the duties they asked for)
+    let together_item = || {
+        let (badge, tip) = super::together::rail_badge(&c);
+        json!({ "tab": TOGETHER_TAB, "icon": ICONS[TOGETHER_TAB], "name": tr(TABS[TOGETHER_TAB]), "badge": badge, "tip": tip, "away": false })
+    };
     let mut rail: Vec<Vec<Value>> = if casual {
         vec![casual::PAGES.iter().map(|t| casual::rail_item(*t)).collect()]
     } else {
         RAIL.iter()
             .map(|g| {
                 g.iter()
-                    .filter(|t| **t != SANDBOX_TAB)
+                    .filter(|t| **t != SANDBOX_TAB && **t != TOGETHER_TAB)
                     .map(|&tab| {
                         let mut tip = tr(TABS[tab]);
                         let badge = marks.badge(tab).map(|(n, tone, why)| {
@@ -1177,7 +1190,10 @@ fn shell(s: &mut Session) -> Value {
             .filter(|g| !g.is_empty())
             .collect()
     };
-    // (a sandbox's own page last, a group of its own - in Casual too)
+    // (playing together, then a sandbox's own page last, each a group of its own - in Casual too)
+    if super::together::enabled() {
+        rail.push(vec![together_item()]);
+    }
     if co::sandbox::is_sandbox(&c) {
         rail.push(vec![sandbox_item()]);
     }
@@ -1199,9 +1215,82 @@ fn shell(s: &mut Session) -> Value {
         "reports": s.reports.is_some(), "away": s.clock.away.is_some(),
         "launch": s.launch.is_some(),
         "sheet": s.dealer.sheet.is_some(),
-        "casual_pages": if casual { sandbox::casual_pages(&c, casual::pages_json(&c.name)) } else { Value::Null },
+        "casual_pages": if casual { together_page(sandbox::casual_pages(&c, casual::pages_json(&c.name))) } else { Value::Null },
         "today_read": s.map_lines().is_some(),
     })
+}
+
+/// Casual's pages with the Multiplayer page while "Play together" is on (its crumbs and its name).
+fn together_page(mut pages: Value) -> Value {
+    if super::together::enabled() {
+        if let Some(m) = pages.get_mut("pages").and_then(Value::as_object_mut) {
+            m.insert(TOGETHER_TAB.to_string(), json!({ "name": tr(TABS[TOGETHER_TAB]), "icon": ICONS[TOGETHER_TAB], "parent": HOME_TAB }));
+        }
+    }
+    pages
+}
+
+// --- Beta 61: the pages of a player of "Play together" -----------------------------------------
+
+/// What the pages keep of the one looking at them, besides the company: the dealer's sheet, what
+/// is said in the corner, the popup, the day's reports and the planning's sheet of a line. A
+/// player of "Play together" looking at the boss's company from afar has his own, swapped in
+/// while his command runs (`relayed`), so that nothing of his comes up on the boss's pages.
+#[derive(Default)]
+pub struct Viewer {
+    dealer: dealer::DealerState,
+    notices: Vec<(String, bool)>,
+    popup: Option<Value>,
+    reports: Option<Vec<DayReport>>,
+    report_line: Option<String>,
+    feed_minor: bool,
+    more: more::Kept,
+}
+
+impl Viewer {
+    fn swap(&mut self, s: &mut Session) {
+        std::mem::swap(&mut self.dealer, &mut s.dealer);
+        std::mem::swap(&mut self.notices, &mut s.notices);
+        std::mem::swap(&mut self.popup, &mut s.popup);
+        std::mem::swap(&mut self.reports, &mut s.reports);
+        std::mem::swap(&mut self.report_line, &mut s.report_line);
+        std::mem::swap(&mut self.feed_minor, &mut s.feed_minor);
+        more::swap_kept(s, &mut self.more);
+    }
+}
+
+/// The platform of a relayed command: no game is started, nothing is drawn (what would start one
+/// is refused before: `together::relay`).
+struct FromAfar;
+
+impl Platform for FromAfar {
+    fn renderer(&self, _req: Value, _wait: std::time::Duration) -> Result<(Value, Vec<u8>), String> {
+        Err(tr(super::together::relay::FROM_AFAR))
+    }
+}
+
+/// A command of the company's pages (`together::relay::RELAYED`) run for a player of "Play
+/// together" whose launcher relayed it (the caller checked his permissions: `relay::need`), with
+/// his own pages' state (`v`), in his page's language. The clock is never ticked.
+pub fn relayed(s: &mut Session, v: &mut Viewer, cmd: &str, args: &Value, perms: &[omsi_launcher_lib::company::together::Perm]) -> Answer {
+    words::set_language(args.get("lang").and_then(Value::as_str).unwrap_or(""));
+    if s.company.is_none() {
+        return Ok(json!({ "none": true }));
+    }
+    v.swap(s);
+    let r = match cmd {
+        "co_tick" => Ok(super::together::relay::shell_for(shell(s), perms)),
+        "co_view" => view(s, args),
+        "co_act" => do_act(s, args, &FromAfar),
+        "co_line_of" => {
+            let id = args.get("id").and_then(Value::as_u64).unwrap_or(0);
+            Ok(json!({ "name": s.company.as_ref().and_then(|c| co::ownline::line_of(c, id)).map(|x| x.name.clone()) }))
+        }
+        c if c.starts_with("co_more_") => more::relayed(s, c, args),
+        other => Err(format!("no command {other}")),
+    };
+    v.swap(s);
+    r
 }
 
 // --- opening, founding and leaving -----------------------------------------------------------------

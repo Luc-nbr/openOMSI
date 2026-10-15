@@ -143,7 +143,7 @@ The latest public release is **v0.2.48.397**, which equals Beta 57. Beta 58–60
 - tenders at 70 % price / 30 % quality;
 - milder reputation with daily/weekly caps and recovery, plus a reputation page;
 - passenger complaints with scripted dialogue;
-- company multiplayer, gated.
+- company multiplayer: roles and permissions, a Multiplayer page for the host, a menu for joining players.
 
 **Open points and known doubts:**
 - **Balancing:** the lateness weights (peak, driver, bus), the reputation numbers, the accident rate and the holiday morale effects are builders' guesses. Tune them only on Luc's feedback.
@@ -153,10 +153,10 @@ The latest public release is **v0.2.48.397**, which equals Beta 57. Beta 58–60
 - **Copying a plan:** only the switcher's 7 days can be targets, and mid-trip reliefs are not carried into copies.
 - **Timetables:** saving them per school day, holiday or single date is not built (Trello #100, partly done).
 - **Agency undo:** Roster-tab undo doesn't cover agency bookings made on the staff page.
-- **Multiplayer:**
+- **Multiplayer (Beta 61: on for the company mode, roles and permissions, no shared world):**
   - never tested between two real players;
-  - booking is per tour (a player driving part of a tour gets the whole tour);
-  - re-enable it with `OMSI_TOGETHER=1` for testing.
+  - kill switch: `together::KILLED` in the launcher, or `OMSI_TOGETHER_OFF=1`; `OMSI_TOGETHER=1` forces it on;
+  - a player's trips also land in his own trip records: a company of his own on the same map with the same tours could book them too.
 - **Luc's platform idea, not started:** later, Omsi-Hub becomes a separate platform or add-on outside openOMSI's code. Users would switch it on as an add-on in the official openOMSI launcher, and it would launch openOMSI and provide the navigator and overlay via a Lua plugin. This needs an add-on extension point upstream. Don't start without Luc.
 
 ## 8. How to take a request from Luc

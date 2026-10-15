@@ -67,6 +67,32 @@ pub fn more(s: &Session) -> MutexGuard<'static, More> {
     m
 }
 
+/// This part's own state of a viewer of the pages (`company::Viewer`): the planning's sheet of a
+/// line, the tenders and the fleet map.
+#[derive(Default)]
+pub struct Kept {
+    tenders: concessions::TendersState,
+    map: fleetmap::MapState,
+    edit: Option<plan_edit::PlanEdit>,
+}
+
+/// Swap a viewer's own state of this part with the session's (`company::Viewer`).
+pub fn swap_kept(s: &Session, k: &mut Kept) {
+    let mut m = more(s);
+    std::mem::swap(&mut m.tenders, &mut k.tenders);
+    std::mem::swap(&mut m.map, &mut k.map);
+    std::mem::swap(&mut m.edit, &mut k.edit);
+}
+
+/// A command of this part run for a player of "Play together" (`company::relayed`).
+pub fn relayed(s: &mut Session, cmd: &str, args: &Value) -> Answer {
+    match cmd {
+        "co_more_view" => view(s, args),
+        "co_more_act" => act(s, args),
+        other => Err(format!("no command {other}")),
+    }
+}
+
 fn str_arg(args: &Value, name: &str) -> String {
     args.get(name).and_then(Value::as_str).unwrap_or("").to_string()
 }
