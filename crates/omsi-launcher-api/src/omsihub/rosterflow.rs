@@ -348,8 +348,12 @@ fn board_json(c: &Company, board: &Board) -> Value {
                 .collect();
             let km: f64 = s.spans.iter().map(|sp| piece_trips(board, sp.tour, sp.duty).iter().map(|t| t.km).sum::<f64>()).sum();
             let trips: usize = s.spans.iter().map(|sp| piece_trips(board, sp.tour, sp.duty).iter().filter(|t| t.counts()).count()).sum();
+            // (a spare duty: its name beside its number)
+            let spare = s.spare.and_then(|id| c.planning.flow.sheet.spares.iter().find(|x| x.weekday == wd && x.id == id));
+            let name = spare.map(|x| x.name.trim().to_string()).unwrap_or_default();
+            let label = if name.is_empty() { s.label(row) } else { format!("{} {name}", s.label(row)) };
             json!({
-                "id": duty_id(s), "label": s.label(row), "spare": s.spare, "locked": s.locked,
+                "id": duty_id(s), "label": label, "name": name, "spare": s.spare, "locked": s.locked,
                 "kind": tr(s.kind_name(p)), "kind_rank": s.kind.map(|k| k as i64).unwrap_or(99), "kind_set": s.kind_set,
                 "start": s.start, "end": s.end, "spread": s.spread(), "work": s.work, "paid": s.paid, "driving": s.driving, "platform": s.platform,
                 "changeovers": s.changeovers, "km": (km * 10.0).round() / 10.0, "trips": trips,
@@ -633,7 +637,12 @@ fn view(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
         "zones" => json!(zones_for(&k, board, &hand_of(args))),
         // (no zone for a duty's trips: why, said in the corner - Luc's line 880 offered none)
         "why" => match hand_of(args) {
-            Hand::DutyTrips { duty, trips } => json!({ "text": driver_drag::why(c, board, duty, &trips) }),
+            Hand::DutyTrips { duty, trips, rows } => {
+                // (and why not to row `to`: a drop there refused)
+                let to = args.get("to").and_then(Value::as_u64).map(|x| x as usize);
+                let again = |v: &Company| co::network::tours_of_day(v, &k.lines, &k.date);
+                json!({ "text": driver_drag::why(c, board, duty, &trips, &rows, to, &again) })
+            }
             _ => json!({}),
         },
         "duty" => duty_view(c, board, usize_arg(args, "row"), &k.lines),
@@ -659,8 +668,10 @@ enum Hand {
     /// taken up one by one, as (block, trip) pairs on one bus or several, to go to another duty
     /// or a new one (Luc's change on `rf-driver-drag`, the game-drawn launcher's `Hand::Duty`:
     /// the core's `studio::plan_move_to_duty` checks them and `studio::move_to_duty` makes it;
-    /// until it is here, the Drivers tab takes up whole pieces, `TRIPS_TO_DUTIES`).
-    DutyTrips { duty: usize, trips: Vec<(usize, usize)> },
+    /// until it is here, the Drivers tab takes up whole pieces, `TRIPS_TO_DUTIES`). Trips of
+    /// several duties go together, each duty's as many rows on: `rows` the duties' rows as the
+    /// page shows them (`driver_drag::targets`).
+    DutyTrips { duty: usize, trips: Vec<(usize, usize)>, rows: Vec<usize> },
     None,
 }
 
@@ -670,7 +681,7 @@ fn hand_of(args: &Value) -> Hand {
         "trips" => Hand::Trips { tour: usize_arg(&h, "tour"), trips: usizes(&h, "trips") },
         "stack" => Hand::Stack(usize_arg(&h, "k")),
         "piece" => Hand::Piece { tour: usize_arg(&h, "tour"), duty: usize_arg(&h, "duty") },
-        "duty_trips" => Hand::DutyTrips { duty: usize_arg(&h, "duty"), trips: pairs(&h, "trips") },
+        "duty_trips" => Hand::DutyTrips { duty: usize_arg(&h, "duty"), trips: pairs(&h, "trips"), rows: usizes(&h, "rows") },
         _ => Hand::None,
     }
 }
@@ -739,7 +750,10 @@ fn zones_for(k: &Cached, board: &Board, h: &Hand) -> Vec<Value> {
             }
         }
         // (Luc's driver drag: `driver_drag`)
-        Hand::DutyTrips { duty, trips } => driver_drag::zones(c, board, *duty, trips, &mut probe_with),
+        Hand::DutyTrips { duty, trips, rows } => {
+            let again = |v: &Company| co::network::tours_of_day(v, &k.lines, &k.date);
+            driver_drag::zones(c, board, *duty, trips, rows, &again, &mut probe_with)
+        }
         Hand::None => {}
     }
     let stars = rate(&out.iter().map(|z| (z.1, z.2)).collect::<Vec<_>>());
@@ -852,6 +866,11 @@ fn duty_view(c: &Company, board: &Board, row: usize, lines: &[LineInfo]) -> Valu
     }
     json!({
         "label": s.label(row), "id": duty_id(s), "kind": tr(s.kind_name(prefs)), "locked": s.locked, "spare": s.spare.is_some(),
+        // (a spare duty: its name, where its driver stands by - null as the company signs on,
+        // else the depot - and that in words)
+        "name": spare.as_ref().map(|x| x.name.clone()).unwrap_or_default(),
+        "spare_at": spare.as_ref().and_then(|x| x.sign_on_at.clone()),
+        "spare_company": point_name(prefs.sign_on_at.as_deref().filter(|x| !x.trim().is_empty()).unwrap_or(rf::DEPOT_POINT)),
         "types": names, "type_at": at,
         "times": times.iter().map(|(a, b)| json!([a, b])).collect::<Vec<_>>(),
         "paid": s.paid, "paid_text": rf::hm(s.paid), "paid_set": paid_set.is_some(),
@@ -908,6 +927,11 @@ fn said(text: impl Into<String>, error: bool) -> Value {
 /// An edit of the draft (`f` on the company as the studio sees it): what was before kept for
 /// Undo and for the figures' differences; a refusal said with its reason (`rosterflow::edit`).
 fn edit(s: &mut Session, r: &mut Rf, label: String, f: impl FnOnce(&mut Company) -> Result<(), &'static str>) -> Value {
+    edit_with(s, r, label, |c| f(c).map_err(tr))
+}
+
+/// `edit` whose refusal is said in words already translated.
+fn edit_with(s: &mut Session, r: &mut Rf, label: String, f: impl FnOnce(&mut Company) -> Result<(), String>) -> Value {
     let Some(c) = s.company.as_ref() else { return json!({}) };
     let mut v = rf::view(c);
     let snapshot = rf::draft_of(c);
@@ -927,7 +951,7 @@ fn edit(s: &mut Session, r: &mut Rf, label: String, f: impl FnOnce(&mut Company)
             r.before = before;
             json!({ "edited": true })
         }
-        Err(why) => said(tr(why), true),
+        Err(why) => said(why, true),
     }
 }
 
@@ -1092,12 +1116,14 @@ fn set_note(c: &mut Company, board: &Board, row: usize, f: &dyn Fn(&mut rf::Duty
         }
         (None, Some(id)) => {
             if let Some(sp) = c.planning.flow.sheet.spares.iter_mut().find(|x| x.weekday == wd && x.id == id) {
-                let mut n = rf::DutyNote { kind: sp.kind.clone(), paid: sp.paid, custom: sp.custom.clone(), locked: sp.locked, ..Default::default() };
+                let mut n = rf::DutyNote { kind: sp.kind.clone(), paid: sp.paid, custom: sp.custom.clone(), locked: sp.locked, sign_on_at: sp.sign_on_at.clone(), ..Default::default() };
                 f(&mut n);
                 sp.kind = n.kind;
                 sp.paid = n.paid;
                 sp.custom = n.custom;
                 sp.locked = n.locked;
+                // (where its driver stands by: `rf::spare_lines`)
+                sp.sign_on_at = n.sign_on_at;
             }
         }
         _ => {}
@@ -1386,10 +1412,29 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
                 Ok(())
             })
         }
-        "spare" => edit(s, r, tr("Spare duty added"), |c| {
-            rf::add_spare(c, wd, rf::CUSTOM_KINDS[0], 810, 1290);
-            Ok(())
-        }),
+        "spare" => {
+            // (a click on the new row: 13:30-21:30; "Add spare line" on a spare line's card: its
+            // times - a day has as many as the player adds)
+            let at = |name: &str, or: i32| args.get(name).and_then(Value::as_i64).map_or(or, |m| m as i32);
+            let mut cw = rf::Custom { kind: rf::CUSTOM_KINDS[0].into(), ..Default::default() };
+            cw.set_times(at("from", 810), at("to", 1290));
+            edit(s, r, tr("Spare duty added"), |c| {
+                rf::add_spare(c, wd, &cw.kind, cw.from, cw.to);
+                Ok(())
+            })
+        }
+        "spare_name" => {
+            let row = usize_arg(args, "row");
+            let Some(id) = board.shaped.get(row).and_then(|x| x.spare) else { return Ok(json!({})) };
+            let name: String = str_arg(args, "value").trim().chars().take(40).collect();
+            let words = trf("Spare duty %{d} named %{name}", &[("d", &board.shaped[row].label(row)), ("name", &name)]);
+            edit(s, r, words, |c| {
+                if let Some(sp) = rf::spare_mut(c, wd, id) {
+                    sp.name = name.clone();
+                }
+                Ok(())
+            })
+        }
         "spare_remove" => {
             let row = usize_arg(args, "row");
             let Some(id) = board.shaped.get(row).and_then(|x| x.spare) else { return Ok(json!({})) };
@@ -1465,6 +1510,19 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
                     let kind = rf::CUSTOM_KINDS[(usize_arg(args, "kind")).min(rf::CUSTOM_KINDS.len() - 1)].to_string();
                     let (from, to) = (args.get("from").and_then(Value::as_i64).unwrap_or(810) as i32, args.get("to").and_then(Value::as_i64).unwrap_or(900) as i32);
                     (trf("Custom work added to duty %{d}", &[("d", &label)]), Box::new(move |n: &mut rf::DutyNote| n.custom.push(rf::Custom { kind: kind.clone(), from, to, place: String::new() })))
+                }
+                "custom_time" => {
+                    // (its times typed on its card, or its edges or itself dragged in the Gantt)
+                    let ci = usize_arg(args, "ci");
+                    let mut cw = x.custom.get(ci).cloned().ok_or_else(|| "no custom work".to_string())?;
+                    cw.set_times(args.get("from").and_then(Value::as_i64).unwrap_or(cw.from as i64) as i32, args.get("to").and_then(Value::as_i64).unwrap_or(cw.to as i64) as i32);
+                    let (from, to) = (cw.from, cw.to);
+                    let words = trf("%{kind} of duty %{d} set to %{from}–%{to}", &[("kind", &tr(&cw.kind)), ("d", &label), ("from", &rf::clock(from)), ("to", &rf::clock(to))]);
+                    (words, Box::new(move |n: &mut rf::DutyNote| {
+                        if let Some(c) = n.custom.get_mut(ci) {
+                            c.set_times(from, to);
+                        }
+                    }))
                 }
                 other => return Err(format!("no field {other}")),
             };
@@ -1545,7 +1603,11 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
                     edit(s, r, words, |c| st::detach(c, wd, &tours, (tour, duty)))
                 }
                 // (Luc's driver drag: `driver_drag`)
-                (Hand::DutyTrips { duty, trips }, "duty" | "new_duty") => driver_drag::drop(s, r, &board, duty, trips, kind, usize_arg(&zone, "d")),
+                (Hand::DutyTrips { duty, trips, rows }, "duty" | "new_duty") => {
+                    let (lines, day) = (k.lines.clone(), k.date.clone());
+                    let again = move |v: &Company| co::network::tours_of_day(v, &lines, &day);
+                    driver_drag::drop(s, r, &board, duty, trips, &rows, kind, usize_arg(&zone, "d"), &again)
+                }
                 _ => json!({}),
             }
         }
@@ -1555,8 +1617,10 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
             let refused = match hand_of(args) {
                 Hand::Trips { tour, .. } => tours.get(tour).is_some_and(|t| rf::block_locked(c, wd, &t.line, &t.tour)).then_some(st::LOCKED),
                 // (the duty locked, or one of the trips' buses: `rf_gantt::pick`'s `Hand::Duty`)
-                Hand::DutyTrips { duty, trips } => {
-                    if board.shaped.get(duty).is_some_and(|x| x.locked) {
+                Hand::DutyTrips { duty, trips, .. } => {
+                    // (trips of several duties: any of their duties locked)
+                    let locked = |&(i, j): &(usize, usize)| st::duty_of_trip(&board.duties, &tours, i, j).and_then(|di| board.shaped.iter().find(|x| x.duty == Some(di))).is_some_and(|x| x.locked);
+                    if board.shaped.get(duty).is_some_and(|x| x.locked) || trips.iter().any(locked) {
                         Some(st::DUTY_LOCKED)
                     } else {
                         trips.iter().any(|&(i, _)| tours.get(i).is_some_and(|t| rf::block_locked(c, wd, &t.line, &t.tour))).then_some(st::LOCKED)

@@ -436,7 +436,7 @@ pub const LOCKED: &str = "This vehicle is locked: unlock it first.";
 pub const SWAP_FAILS: &str = "Trips could not be swapped: they do not fit on the other bus.";
 pub const DUTY_LOCKED: &str = "This duty is locked: unlock it first.";
 
-const REFUSALS: [&str; 26] = [OVERLAP, NO_TIME, IN_DEPOT, BACK_IN_DEPOT, OTHER_LINE, NOT_MOVABLE, SAME_BUS, ALONE, BETWEEN, CUT_ALREADY, ON_THE_MOVE, NOT_RELIEF, NO_PASSENGERS, NO_CUT, TOO_LONG, SAME_DUTY, NOT_JOINED, NOT_FOUND, LOCKED, SWAP_FAILS, DUTY_LOCKED, ONE_DUTY, DUTY_ALONE, DRIVER_NO_TIME, NOT_ON_THE_WAY, MID_ALREADY];
+const REFUSALS: [&str; 28] = [OVERLAP, NO_TIME, IN_DEPOT, BACK_IN_DEPOT, OTHER_LINE, NOT_MOVABLE, SAME_BUS, ALONE, BETWEEN, CUT_ALREADY, ON_THE_MOVE, NOT_RELIEF, NO_PASSENGERS, NO_CUT, TOO_LONG, SAME_DUTY, NOT_JOINED, NOT_FOUND, LOCKED, SWAP_FAILS, DUTY_LOCKED, ONE_DUTY, DUTY_ALONE, DRIVER_NO_TIME, NOT_ON_THE_WAY, MID_ALREADY, PAST_THE_ROWS, NOT_A_DUTY];
 
 /// Where a trip is moved to: a bus of the day (a block's index), or a new one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1093,6 +1093,113 @@ pub fn move_to_duty(c: &mut Company, weekday: u8, tours: &[TourOfDay], from: usi
     apply_duty_move(c, m);
     Ok(())
 }
+
+// --- trips of several duties moved at once ------------------------------------------------------
+//
+// Testers: "Multi-selected duties in the driver tab can be selected all together, but not dragged
+// up or down". Trips chosen on several rows of the Drivers tab are dragged together: each duty's
+// trips go to the duty as many rows up or down as the one taken hold of goes.
+
+/// Why trips of several duties are not moved together (English, translated when shown).
+pub const PAST_THE_ROWS: &str = "Not every duty chosen has a duty that many rows up or down.";
+pub const NOT_A_DUTY: &str = "A spare duty of custom work takes no trips.";
+
+/// One duty's trips in a move of several duties' trips at once (`move_to_duties`): its trips
+/// (block, trip) and where they go.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DutyGroup {
+    pub trips: Vec<(usize, usize)>,
+    pub to: DutyTarget,
+}
+
+/// A trip of the day by what it is - its line, its block and itself - not by its place: a move
+/// cuts blocks anew and may make a trip cut on the way whole again.
+type TripKey = (String, String, TripRef);
+
+fn key_of(tours: &[TourOfDay], (i, j): (usize, usize)) -> Option<TripKey> {
+    let t = tours.get(i)?;
+    Some((t.line.clone(), t.tour.clone(), TripRef::of(t.trips.get(j)?)))
+}
+
+/// Where trip `k` is in `tours` now (a part of a trip made whole again: the whole trip).
+fn place_of(tours: &[TourOfDay], k: &TripKey) -> Option<(usize, usize)> {
+    let i = tours.iter().position(|t| same(&t.line, &k.0) && same(&t.tour, &k.1))?;
+    let t = &tours[i];
+    let j = t.trips.iter().position(|x| k.2.is(x)).or_else(|| t.trips.iter().position(|x| x.name == k.2.name && x.origin.trim() == k.2.tour.trim() && x.dep <= k.2.dep && k.2.dep < x.arr))?;
+    Some((i, j))
+}
+
+/// Move the trips of several duties at once, each duty's to its own target (`DutyGroup`; the
+/// targets' `DutyTarget::Duty` indices into the day's duties as `c` and `tours` have them). Each
+/// group is moved in turn on a copy, as `plan_move_to_duty` checks and makes it; `again` gives the
+/// day's blocks of the copy as it is then (`network::tours_of_day`), and every trip and target is
+/// found anew by what it is. A target is the duty that works its trips not moved themselves (all
+/// moved away: a duty of their own); a group whose duty is another's target goes first, so a duty
+/// gives its trips away before it takes others'. The first group refused refuses them all: its
+/// index and why. Nothing is changed then.
+pub fn move_to_duties(c: &mut Company, weekday: u8, tours: &[TourOfDay], again: &dyn Fn(&Company) -> Vec<TourOfDay>, groups: &[DutyGroup]) -> Result<(), (usize, &'static str)> {
+    let ds = duties(&c.planning.joined, weekday, tours);
+    let all_moved: Vec<(usize, usize)> = groups.iter().flat_map(|g| g.trips.iter().copied()).collect();
+    // each group's duty, target, trips and the target's trips that stay with it, by what they are
+    let mut plans: Vec<(usize, Option<usize>, Vec<TripKey>, Vec<TripKey>)> = Vec::new();
+    for (gi, g) in groups.iter().enumerate() {
+        let &(i, j) = g.trips.first().ok_or((gi, NOT_FOUND))?;
+        let from = duty_of_trip(&ds, tours, i, j).ok_or((gi, NOT_FOUND))?;
+        let keys: Vec<TripKey> = g.trips.iter().filter_map(|&p| key_of(tours, p)).collect();
+        if keys.len() != g.trips.len() {
+            return Err((gi, NOT_FOUND));
+        }
+        let (to, stays) = match g.to {
+            DutyTarget::Duty(d) => {
+                let duty = ds.get(d).ok_or((gi, NOT_FOUND))?;
+                let mut stays = Vec::new();
+                for p in &duty.pieces {
+                    for j in network::duties_of(&tours[p.tour]).get(p.duty).cloned().unwrap_or(0..0) {
+                        if tours[p.tour].trips[j].counts() && !all_moved.contains(&(p.tour, j)) {
+                            stays.extend(key_of(tours, (p.tour, j)));
+                        }
+                    }
+                }
+                (Some(d), stays)
+            }
+            DutyTarget::New => (None, Vec::new()),
+        };
+        plans.push((from, to, keys, stays));
+    }
+    // the order: a duty's own trips away before others' come to it
+    let mut order: Vec<usize> = Vec::new();
+    while order.len() < plans.len() {
+        let left: Vec<usize> = (0..plans.len()).filter(|g| !order.contains(g)).collect();
+        let ready = left.iter().copied().find(|&g| !left.iter().any(|&h| h != g && Some(plans[h].0) == plans[g].1)).unwrap_or(left[0]);
+        order.push(ready);
+    }
+    let mut work = c.clone();
+    let mut cur = tours.to_vec();
+    for gi in order {
+        let (_, to, keys, stays) = &plans[gi];
+        let ds_now = duties(&work.planning.joined, weekday, &cur);
+        let picked: Vec<(usize, usize)> = keys.iter().filter_map(|k| place_of(&cur, k)).collect();
+        let Some(&(i, j)) = picked.first() else { return Err((gi, NOT_FOUND)) };
+        let from = duty_of_trip(&ds_now, &cur, i, j).ok_or((gi, NOT_FOUND))?;
+        let target = match to {
+            Some(_) => match stays.iter().filter_map(|k| place_of(&cur, k)).find_map(|(a, b)| duty_of_trip(&ds_now, &cur, a, b)) {
+                Some(d) => DutyTarget::Duty(d),
+                None => DutyTarget::New,
+            },
+            None => DutyTarget::New,
+        };
+        match plan_move_to_duty(&work, weekday, &cur, from, &picked, target) {
+            Ok(m) => apply_duty_move(&mut work, m),
+            // (its target gone with all its trips, and these all of their duty: where they are)
+            Err(DUTY_ALONE) if to.is_some() => continue,
+            Err(e) => return Err((gi, e)),
+        }
+        cur = again(&work);
+    }
+    *c = work;
+    Ok(())
+}
+
 /// Whether drivers may change at `place` (of a block of line `_line`): a relief point - a
 /// terminus of the day's lines, the depot or a stop the player added (`rosterflow::uses_at`)
 /// - that allows relief.
@@ -1997,6 +2104,43 @@ mod tests {
         assert_eq!(plan_move_to_duty(&c, wd, &tours, n, &[(one, 3), (one, 2)], DutyTarget::New), Err(ONE_DUTY));
         let other = duty_of_trip(&ds, &tours, one, 0).unwrap();
         assert_eq!(plan_move_to_duty(&c, wd, &tours, other, &[(one, 3)], DutyTarget::New), Err(ONE_DUTY));
+    }
+
+    #[test]
+    fn trips_of_several_duties_move_down_a_row_together() {
+        // (testers: "Multi-selected duties ... can be selected all together, but not dragged up
+        // or down") three buses, a driver each: tour 1 06:00-09:50, 2 12:00-15:50, 3 18:00-21:50
+        let mut c = company();
+        let l = line_of(&[("1", 360, 4), ("2", 720, 4), ("3", 1080, 4)]);
+        let wd = super::super::plan::weekday_of(&c.date);
+        let again = |c: &Company| day(c, &l);
+        let tours = day(&c, &l);
+        let ds = duties(&c.planning.joined, wd, &tours);
+        let ((one, _), (two, _), (three, _)) = (block(&tours, "1"), block(&tours, "2"), block(&tours, "3"));
+        let duty = |i: usize| duty_of_trip(&ds, &tours, i, 0).unwrap();
+        // the last trip of duties 1 and 2, each a row down: to the driver of 2 and of 3
+        let groups = vec![DutyGroup { trips: vec![(one, 3)], to: DutyTarget::Duty(duty(two)) }, DutyGroup { trips: vec![(two, 3)], to: DutyTarget::Duty(duty(three)) }];
+        // (refused as a whole when one of them is: its index and why, nothing changed)
+        let bad = vec![groups[0].clone(), DutyGroup { trips: vec![(two, 3), (one, 2)], to: DutyTarget::Duty(duty(three)) }];
+        let was = c.planning.clone();
+        assert_eq!(move_to_duties(&mut c, wd, &tours, &again, &bad), Err((1, ONE_DUTY)));
+        assert_eq!(c.planning, was);
+        move_to_duties(&mut c, wd, &tours, &again, &groups).unwrap();
+        let tours = day(&c, &l);
+        let ds = duties(&c.planning.joined, wd, &tours);
+        let ((one, _), (two, _), (three, _)) = (block(&tours, "1"), block(&tours, "2"), block(&tours, "3"));
+        let of = |i: usize, j: usize| duty_of_trip(&ds, &tours, i, j).unwrap();
+        assert_eq!(ds.len(), 3);
+        assert_eq!(of(one, 3), of(two, 0));
+        assert_eq!(of(two, 3), of(three, 0));
+        assert_ne!(of(one, 0), of(one, 3));
+        assert_ne!(of(two, 0), of(two, 3));
+        // the same up again, the groups the other way round: back as it was
+        let groups = vec![DutyGroup { trips: vec![(two, 3)], to: DutyTarget::Duty(of(two, 0)) }, DutyGroup { trips: vec![(one, 3)], to: DutyTarget::Duty(of(one, 0)) }];
+        move_to_duties(&mut c, wd, &tours, &again, &groups).unwrap();
+        let tours = day(&c, &l);
+        assert!(tours.iter().all(|t| network::duties_of(t).len() == 1));
+        assert!(c.planning.joined.is_empty());
     }
 
     #[test]

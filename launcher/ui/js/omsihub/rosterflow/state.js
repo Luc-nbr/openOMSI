@@ -173,6 +173,13 @@ export async function dropAt(zi) {
   settle();
 }
 
+/** Drop `hand` at `zone` whether a drop zone is offered there or not (a duty's trips let go on a
+ * row: `rf_gantt`'s `dropOnRow`): moved, or why not said in the corner. */
+export async function dropTo(hand, zone) {
+  await rfAct('drop', { hand, zone });
+  settle();
+}
+
 /** Toggle a panel (`rosterflow::toggle`): the same kind closes it. */
 export function toggle(panel) {
   const now = S.rf.panel;

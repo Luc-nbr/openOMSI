@@ -116,6 +116,8 @@ fn first_name(c: &Company, id: u32) -> String {
 
 fn who_name(c: &Company, w: Option<Who>) -> String {
     match w {
+        // (a late driver's first trips driven by a spare line: `plan::SPARE_COVER`)
+        Some(Who::Staff(id)) if co::plan::spare_of_cover(id).is_some() => trf("Spare line %{d}", &[("d", &co::rosterflow::spare_label(c, id - co::plan::SPARE_COVER))]),
         Some(Who::Staff(id)) => c.employee(id).map(|e| e.name.clone()).unwrap_or_else(|| "?".into()),
         Some(Who::Player) => tr("You"),
         Some(Who::Agency) => tr("Agency driver"),

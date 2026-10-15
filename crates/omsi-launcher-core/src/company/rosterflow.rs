@@ -674,6 +674,82 @@ pub struct Spare {
     pub kind: Option<String>,
     #[serde(default)]
     pub paid: Option<i32>,
+    /// Its name, the player's ("Early spare"), shown beside its number.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    /// Where its driver signs on and stands by: a relief point's key (None: where the company
+    /// signs on, else the depot) - `spare_lines`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sign_on_at: Option<String>,
+}
+
+impl Custom {
+    /// Its times set (minutes of the day, past midnight on): five minutes long at least.
+    pub fn set_times(&mut self, from: i32, to: i32) {
+        self.from = from.clamp(0, LAST_MINUTE - 5);
+        self.to = to.clamp(self.from + 5, LAST_MINUTE);
+    }
+}
+
+/// The last minute custom work may end (06:00 the next morning, as the steppers go).
+pub const LAST_MINUTE: i32 = 1800;
+
+/// Spare duty `id` of `weekday` (`Sheet::spares`), to change.
+pub fn spare_mut(c: &mut Company, weekday: u8, id: u32) -> Option<&mut Spare> {
+    c.planning.flow.sheet.spares.iter_mut().find(|s| s.weekday == weekday && s.id == id)
+}
+
+/// A spare line of a day the company runs (`spare_lines`): spare duty `id`'s spare work `ci`,
+/// its driver standing by at `at` (a relief point's key) from `from` to `to`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SpareLine {
+    pub id: u32,
+    pub ci: usize,
+    /// "9001" and its name.
+    pub label: String,
+    pub from: i32,
+    pub to: i32,
+    pub at: String,
+}
+
+impl SpareLine {
+    /// Whether its driver stands by all the time from `from` to `to`: a spare line covers only
+    /// within its own hours.
+    pub fn covers(&self, from: i32, to: i32) -> bool {
+        self.from <= from && to <= self.to
+    }
+
+    /// Whether it stands by at the depot (where the spare buses are).
+    pub fn at_depot(&self) -> bool {
+        same(&self.at, DEPOT_POINT)
+    }
+}
+
+/// Spare duty `id`'s number and name ("9001 Early"): its driver as service control names him.
+pub fn spare_label(c: &Company, id: u32) -> String {
+    match c.planning.flow.sheet.spares.iter().find(|s| s.id == id).map(|s| s.name.trim()).filter(|n| !n.is_empty()) {
+        Some(name) => format!("{} {name}", 9000 + id),
+        None => (9000 + id).to_string(),
+    }
+}
+
+/// The spare lines of `date` as saved (the drafts the studio has not saved are not run): the
+/// spare work ("Spare" custom work) of the spare duties of the day's plan (`plandays::slot_of`),
+/// each with its times as the player set them, by its start.
+pub fn spare_lines(c: &Company, date: &str) -> Vec<SpareLine> {
+    let slot = super::plandays::slot_of(c, date);
+    let company_at = c.planning.flow.prefs.sign_on_at.clone().filter(|x| !x.trim().is_empty());
+    let mut out: Vec<SpareLine> = Vec::new();
+    for sp in c.planning.flow.sheet.spares.iter().filter(|s| s.weekday == slot) {
+        let at = sp.sign_on_at.clone().filter(|x| !x.trim().is_empty()).or_else(|| company_at.clone()).unwrap_or_else(|| DEPOT_POINT.to_string());
+        let number = 9000 + sp.id;
+        let label = if sp.name.trim().is_empty() { number.to_string() } else { format!("{number} {}", sp.name.trim()) };
+        for (ci, cw) in sp.custom.iter().enumerate().filter(|(_, cw)| same(&cw.kind, CUSTOM_KINDS[0]) && cw.to > cw.from) {
+            out.push(SpareLine { id: sp.id, ci, label: label.clone(), from: cw.from, to: cw.to, at: at.clone() });
+        }
+    }
+    out.sort_by_key(|x| (x.from, x.id));
+    out
 }
 
 /// The studio's own of each weekday besides the blocks and joined duties.
