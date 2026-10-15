@@ -110,6 +110,9 @@ pub struct Message {
     /// The event of the world it tells (`Event::id`).
     #[serde(default)]
     pub event: Option<u64>,
+    /// The holiday request it is about (`holidays::Request::no`): answered from the inbox.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub leave: Option<u32>,
 }
 
 fn info() -> Level {
