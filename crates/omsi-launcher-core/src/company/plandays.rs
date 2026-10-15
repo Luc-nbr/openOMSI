@@ -274,6 +274,43 @@ fn put_part(d: &mut Draft, slot: u8, part: Draft) {
     d.sheet.dismissed.extend(s.dismissed.into_iter().map(|x| (slot, x.1)));
 }
 
+/// The spare duties of `slot` whose number another day's spare duty has too - a copy of that
+/// day's - numbered anew, saved and in the draft alike, their dismissed issues with them: a
+/// spare line's number is the company's (`rosterflow::add_spare`), and what looks one up by it
+/// alone (`rosterflow::spare_label`, service control) would find the other day's.
+fn renumber_spares(c: &mut Company, slot: u8) {
+    let p = &mut c.planning;
+    let all: Vec<(u8, u32)> = p.flow.sheet.spares.iter().chain(p.flow.draft.iter().flat_map(|d| d.sheet.spares.iter())).map(|s| (s.weekday, s.id)).collect();
+    let mut next = all.iter().map(|x| x.1).max().unwrap_or(0);
+    let mut new: HashMap<u32, u32> = HashMap::new();
+    for &(w, id) in &all {
+        if w == slot && !new.contains_key(&id) && all.iter().any(|x| x.0 != slot && x.1 == id) {
+            next += 1;
+            new.insert(id, next);
+        }
+    }
+    if new.is_empty() {
+        return;
+    }
+    let fix = |sheet: &mut Sheet| {
+        for s in sheet.spares.iter_mut().filter(|s| s.weekday == slot) {
+            if let Some(&n) = new.get(&s.id) {
+                s.id = n;
+            }
+        }
+        for d in sheet.dismissed.iter_mut().filter(|d| d.0 == slot) {
+            let renamed = d.1.rsplit_once("|spare/").and_then(|(head, id)| id.parse::<u32>().ok().and_then(|x| new.get(&x)).map(|n| format!("{head}|spare/{n}")));
+            if let Some(k) = renamed {
+                d.1 = k;
+            }
+        }
+    };
+    fix(&mut p.flow.sheet);
+    if let Some(d) = p.flow.draft.as_mut() {
+        fix(&mut d.sheet);
+    }
+}
+
 /// "Save for this date only": the draft's change of the plan `date` runs becomes a plan of the
 /// date's own - the plan it ran before (its weekday's, or one it shares) stays as it was saved.
 /// Returns the date's slot. (A date with a plan of its own already keeps it.)
@@ -290,6 +327,7 @@ pub fn fork_draft(c: &mut Company, date: &str) -> u8 {
     put_part(&mut d, f, mine);
     set_date(c, date, f);
     rf::set_draft(c, d);
+    renumber_spares(c, f);
     let days = &mut c.planning.flow.days;
     days.follows.retain(|x| x.day != f);
     days.follows.push(Follow { day: f, pattern: s, vehicles: true, drivers: true, ..Default::default() });
@@ -692,6 +730,8 @@ pub fn copy(c: &mut Company, from_slot: u8, src: Day, to_slot: u8, dst: Day, w: 
         p.flow.sheet.notes.extend(notes);
         p.flow.sheet.spares.retain(|s| s.weekday != to_slot);
         p.flow.sheet.spares.extend(spares);
+        // (the copies of the source's spare duties under numbers of their own)
+        renumber_spares(c, to_slot);
         if !w.vehicles {
             // (the day's own buses: its trips no source duty has)
             for t in &tours {

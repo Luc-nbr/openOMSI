@@ -276,3 +276,30 @@ fn the_days_close_runs_the_copied_plan() {
     plain.planning.layouts.retain(|l| l.weekday != 1);
     assert_eq!(tours_of_day(&plain, &lines, TUE).len(), 2);
 }
+
+#[test]
+fn a_spare_line_copied_to_another_day_gets_a_number_of_its_own() {
+    let mut c = company();
+    let lines = line5();
+    monday(&mut c, &lines);
+    let id = rf::add_spare(&mut c, 0, "Spare", 5 * 60, 13 * 60);
+    rf::spare_mut(&mut c, 0, id).unwrap().name = "Early".into();
+    rf::set_dismissed(&mut c, 0, &format!("Some issue|spare/{id}"), true);
+    apply(&mut c, day(MON, &lines), day(TUE, &lines), true, What::ALL);
+    let tue: Vec<&rf::Spare> = c.planning.flow.sheet.spares.iter().filter(|s| s.weekday == 1).collect();
+    assert_eq!(tue.len(), 1);
+    let copy = tue[0].id;
+    assert_ne!(copy, id, "two days never share a spare line's number");
+    assert_eq!(tue[0].name, "Early");
+    assert!(rf::dismissed(&c, 1, &format!("Some issue|spare/{copy}")), "its dismissed issues with it");
+    // renamed on Tuesday: each day's spare line is called as it is there
+    rf::spare_mut(&mut c, 1, copy).unwrap().name = "Late".into();
+    assert!(rf::spare_label(&c, id).ends_with("Early") && rf::spare_label(&c, copy).ends_with("Late"));
+    // (a plan of one date's own, begun as its weekday's: its spare lines numbered anew too)
+    let f = fork_draft(&mut c, TUE);
+    let mut ids: Vec<u32> = rf::draft_of(&c).sheet.spares.iter().map(|s| s.id).collect();
+    assert!(rf::draft_of(&c).sheet.spares.iter().any(|s| s.weekday == f && s.name == "Late"));
+    ids.sort_unstable();
+    ids.dedup();
+    assert_eq!(ids.len(), 3, "Monday's, Tuesday's and the date's: {ids:?}");
+}

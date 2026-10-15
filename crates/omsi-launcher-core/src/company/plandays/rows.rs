@@ -49,6 +49,7 @@ pub fn rows_slot(c: &mut Company, date: &str, every_week: bool) -> u8 {
         let part = part_of(&d.layouts, &d.joined, &d.sheet, s);
         put_part(d, f, part);
     }
+    renumber_spares(c, f);
     set_date(c, date, f);
     let fs = &mut c.planning.flow.days.follows;
     fs.retain(|x| x.day != f);
