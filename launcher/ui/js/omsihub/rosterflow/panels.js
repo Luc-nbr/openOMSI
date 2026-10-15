@@ -253,19 +253,97 @@ function VehicleCard({ data, c, size }) {
 
 const TRAVEL = ['Walk', 'Public transport', 'Staff car'];
 
+/** "13:30" typed (or "1330", "13.30"): its minute of the day, null where it is none. */
+export function parseClock(text) {
+  const m = /^\s*(\d{1,2})\s*[:.h]?\s*(\d{2})\s*$/.exec(String(text || ''));
+  if (!m || Number(m[2]) > 59 || Number(m[1]) > 29) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+/** A time typed into a card: "13:30", Enter or leaving it keeps it (`onKeep`), Escape puts it
+ * back; red while it is no time. */
+function TimeBox({ value, text, onText, onKeep }) {
+  const bad = parseClock(text ?? clock(value)) == null;
+  return html`<input class=${'rf-timebox' + (bad ? ' bad' : '')} value=${text ?? clock(value)} maxlength="5" spellcheck="false"
+    onInput=${(ev) => onText(ev.target.value)} onBlur=${onKeep}
+    onKeyDown=${(ev) => {
+      ev.stopPropagation();
+      if (ev.key === 'Enter') onKeep();
+      if (ev.key === 'Escape') onText(null);
+    }} />`;
+}
+
+/** A spare line's own (`rf::spare_lines`): its name, and where its driver signs on and stands
+ * by - service control sends him from there. `v` the duty's view (`rf_view` duty), `cls` its
+ * lines' look (the card's, the duty panel's). */
+function SpareFields({ row, v, cls, onChanged }) {
+  const [name, setName] = useState(null);
+  useEffect(() => setName(null), [v?.name]);
+  const keepName = () => {
+    if (name == null || name.trim() === (v?.name || '')) return;
+    rfAct('spare_name', { row, value: name.trim() }).then(onChanged);
+  };
+  const points = v?.sign_points || [];
+  const keys = points.map((x) => x.key);
+  const at = v?.spare_at == null ? 0 : keys.includes(v.spare_at) ? keys.indexOf(v.spare_at) + 1 : 0;
+  return html`<div class=${cls}><span>${tr('Name')}</span><input class="rf-namebox" value=${name ?? v?.name ?? ''} maxlength="40" placeholder=${tr('A name for this spare line')} spellcheck="false"
+      onInput=${(ev) => setName(ev.target.value)} onBlur=${keepName} onKeyDown=${(ev) => {
+        ev.stopPropagation();
+        if (ev.key === 'Enter') keepName();
+      }} /></div>
+    <div class=${cls} title=${tr('Where the spare driver signs on and stands by: service control sends him from there')}><span>${tr('Stands by at')}</span>
+      <${Select} value=${at} options=${[`${tr('As the company has it')}: ${v?.spare_company || tr('Depot')}`, ...points.map((x) => x.name)]} style="flex:1;min-width:0;height:26px" onChange=${(k) => rfAct('note', { row, field: 'sign_on_at', value: k === 0 ? null : keys[k - 1] }).then(onChanged)} /></div>`;
+}
+
+/** An event of a duty clicked in the Drivers Gantt: sign-on, sign-off, travel (its way chosen),
+ * or custom work - its start and end typed, the length told as they are typed, deleted. Of a
+ * spare duty's (a spare line: `rf::spare_lines`) also its name, where its driver stands by, and
+ * another spare line added. The duty by its id and the custom work by its index, so the card
+ * stays on it when its times move it among the rows. */
 function EventCard({ data, c, size }) {
-  const s = data.board.duties[c.row];
-  const e = s?.events[c.ev];
+  const b = data.board;
+  const row = c.id ? b.duties.findIndex((x) => x.id === c.id) : c.row;
+  const s = b.duties[row];
+  const e = c.ci != null ? s?.events.find((x) => x.kind === 'custom' && x.ci === c.ci) : s?.events[c.ev];
+  const custom = e?.kind === 'custom';
+  const spare = custom && s?.spare != null;
+  // (the times as typed, not kept yet; the spare duty's own: its name, where it stands by)
+  const [typed, setTyped] = useState([null, null]);
+  const [v, setV] = useState(null);
+  const [asked, setAsked] = useState(0);
+  useEffect(() => setTyped([null, null]), [e?.from, e?.to]);
+  useEffect(() => {
+    if (!spare || row < 0) return;
+    let gone = false;
+    rfCmd('rf_view', { view: 'duty', day: S.rf.day, row }).then((x) => !gone && setV(x)).catch(() => {});
+    return () => {
+      gone = true;
+    };
+  }, [spare, row, S.rf.rev, asked]);
   if (!e) return null;
   const kind = e.kind === 'on' ? tr('Sign-on') : e.kind === 'off' ? tr('Sign-off') : e.kind === 'travel' ? `${tr('Travel')} (${e.label})` : e.label;
-  return html`<div class="rf-over rf-card" style=${place(c.at, 330, e.at ? 220 : 190, size)}>
+  // (what is typed as it would be: an end before the start is the next day's)
+  const from = typed[0] == null ? e.from : parseClock(typed[0]);
+  let to = typed[1] == null ? e.to : parseClock(typed[1]);
+  if (from != null && to != null && to <= from && to < 1440 && typed[1] != null) to += 1440;
+  const ok = from != null && to != null && to - from >= 5;
+  const keep = () => {
+    if (!ok || (from === e.from && to === e.to)) return;
+    rfAct('note', { row, field: 'custom_time', ci: e.ci, from, to });
+  };
+  const h = 190 + (e.at ? 30 : 0) + (custom ? 44 : 0) + (spare ? 76 : 0);
+  return html`<div class="rf-over rf-card rf-eventcard" style=${place(c.at, 360, h, size)}>
     <div class="head"><${Icon} name="person" size=${17} /><b>${s.label}  ·  ${kind}</b></div>
     <div class="body">
       <${Field} cap="Type" value=${kind} />
+      ${spare && html`<${SpareFields} row=${row} v=${v} cls="rf-evline" onChanged=${() => setAsked((n) => n + 1)} />`}
       ${e.at && html`<${Field} cap="Where" value=${e.at} />`}
-      <div class="tl wide"><${TimeLine} from=${e.from} to=${e.to} mid=${`${e.to - e.from} min`} /></div>
-      ${e.kind === 'travel' && html`<${Seg} at=${e.mode} labels=${TRAVEL} onPick=${(k) => edit('travel_event', { row: c.row, mode: k, from: e.from })} />`}
-      ${e.kind === 'custom' && html`<${RfButton} label="Delete" style="width:120px;height:28px" onClick=${() => edit('custom_delete', { row: c.row, ci: e.ci })} />`}
+      <div class="tl wide"><${TimeLine} from=${ok ? from : e.from} to=${ok ? to : e.to} mid=${ok ? `${to - from} min  ·  ${hm(to - from)}` : from != null && to != null ? tr('The end comes before the start') : tr('Not a time')} /></div>
+      ${custom && html`<div class="rf-evline rf-evtimes"><span>${tr('Start')}</span><${TimeBox} value=${e.from} text=${typed[0]} onText=${(t) => setTyped([t, typed[1]])} onKeep=${keep} />
+        <span class="end">${tr('End')}</span><${TimeBox} value=${e.to} text=${typed[1]} onText=${(t) => setTyped([typed[0], t])} onKeep=${keep} /></div>`}
+      ${e.kind === 'travel' && html`<${Seg} at=${e.mode} labels=${TRAVEL} onPick=${(k) => edit('travel_event', { row, mode: k, from: e.from })} />`}
+      ${custom && html`<div class="rf-evbtns"><${RfButton} label="Delete" style="width:120px;height:28px" onClick=${() => edit('custom_delete', { row, ci: e.ci })} />
+        ${spare && html`<${RfButton} label="Add spare line" title="Another spare line for the day, at these times: change them on its card" style="width:150px;height:28px" onClick=${() => edit('spare', { from: e.from, to: e.to })} />`}</div>`}
     </div>
   </div>`;
 }
@@ -591,6 +669,7 @@ function DutyPanel({ data, id, gTop }) {
         <div class="line"><span>${tr('Sign-off')}</span><${Stepper} value=${v.sign_off} step=${1} min=${0} max=${60} fmt=${(x) => `${x} min`} style="width:110px" onChange=${(x) => note('sign_off', x)} /></div>
         <${SignAt} label="Sign on at" value=${v.sign_on_at} company=${v.sign_company?.on} now=${v.sign_places?.on} list=${v.sign_points || []} onPick=${(x) => note('sign_on_at', x)} />
         <${SignAt} label="Sign off at" value=${v.sign_off_at} company=${v.sign_company?.off} now=${v.sign_places?.off} list=${v.sign_points || []} onPick=${(x) => note('sign_off_at', x)} />`}
+      ${v.spare && html`<${SpareFields} row=${row} v=${v} cls="line rf-spareline" onChanged=${() => {}} />`}
       <${Caps} text="Pieces of work" style="margin-top:6px" />
       ${v.pieces.map((pc, n) => html`<div class="piece"><span class="plate" style=${`background:${pc.colour}`}>${pc.number}</span><span class="cut">${pc.words}</span>
           ${v.pieces.length > 1 && html`<button type="button" title=${tr('Take the piece out: a duty of its own')} onClick=${() => rfAct('detach', { tour: pc.tour, duty: pc.duty })}><${Icon} name="close" size=${15} /></button>`}</div>

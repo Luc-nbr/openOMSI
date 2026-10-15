@@ -348,8 +348,13 @@ fn board_json(c: &Company, board: &Board) -> Value {
                 .collect();
             let km: f64 = s.spans.iter().map(|sp| piece_trips(board, sp.tour, sp.duty).iter().map(|t| t.km).sum::<f64>()).sum();
             let trips: usize = s.spans.iter().map(|sp| piece_trips(board, sp.tour, sp.duty).iter().filter(|t| t.counts()).count()).sum();
+            // (a spare duty: its name beside its number, where its driver stands by)
+            let spare = s.spare.and_then(|id| c.planning.flow.sheet.spares.iter().find(|x| x.weekday == wd && x.id == id));
+            let name = spare.map(|x| x.name.trim().to_string()).unwrap_or_default();
+            let label = if name.is_empty() { s.label(row) } else { format!("{} {name}", s.label(row)) };
             json!({
-                "id": duty_id(s), "label": s.label(row), "spare": s.spare, "locked": s.locked,
+                "id": duty_id(s), "label": label, "name": name, "spare": s.spare, "locked": s.locked,
+                "spare_at": spare.map(|x| spare_point(c, x)),
                 "kind": tr(s.kind_name(p)), "kind_rank": s.kind.map(|k| k as i64).unwrap_or(99), "kind_set": s.kind_set,
                 "start": s.start, "end": s.end, "spread": s.spread(), "work": s.work, "paid": s.paid, "driving": s.driving, "platform": s.platform,
                 "changeovers": s.changeovers, "km": (km * 10.0).round() / 10.0, "trips": trips,
@@ -792,6 +797,13 @@ fn point_name(key: &str) -> String {
     }
 }
 
+/// Where spare duty `sp`'s driver stands by, in words (`rf::spare_lines`): its point, the
+/// company's sign-on point, else the depot.
+fn spare_point(c: &Company, sp: &rf::Spare) -> String {
+    let company = c.planning.flow.prefs.sign_on_at.as_deref().filter(|x| !x.trim().is_empty());
+    point_name(sp.sign_on_at.as_deref().filter(|x| !x.trim().is_empty()).or(company).unwrap_or(rf::DEPOT_POINT))
+}
+
 /// Where duty `s` signs on and off, in words: the point it (or the company) chose, else where its
 /// first bus is taken over and its last left.
 fn sign_places(board: &Board, s: &rf::Shaped) -> (String, String) {
@@ -862,6 +874,11 @@ fn duty_view(c: &Company, board: &Board, row: usize, lines: &[LineInfo]) -> Valu
     }
     json!({
         "label": s.label(row), "id": duty_id(s), "kind": tr(s.kind_name(prefs)), "locked": s.locked, "spare": s.spare.is_some(),
+        // (a spare duty: its name, where its driver stands by - null as the company signs on,
+        // else the depot - and that in words)
+        "name": spare.as_ref().map(|x| x.name.clone()).unwrap_or_default(),
+        "spare_at": spare.as_ref().and_then(|x| x.sign_on_at.clone()),
+        "spare_company": point_name(prefs.sign_on_at.as_deref().filter(|x| !x.trim().is_empty()).unwrap_or(rf::DEPOT_POINT)),
         "types": names, "type_at": at,
         "times": times.iter().map(|(a, b)| json!([a, b])).collect::<Vec<_>>(),
         "paid": s.paid, "paid_text": rf::hm(s.paid), "paid_set": paid_set.is_some(),
@@ -1107,12 +1124,14 @@ fn set_note(c: &mut Company, board: &Board, row: usize, f: &dyn Fn(&mut rf::Duty
         }
         (None, Some(id)) => {
             if let Some(sp) = c.planning.flow.sheet.spares.iter_mut().find(|x| x.weekday == wd && x.id == id) {
-                let mut n = rf::DutyNote { kind: sp.kind.clone(), paid: sp.paid, custom: sp.custom.clone(), locked: sp.locked, ..Default::default() };
+                let mut n = rf::DutyNote { kind: sp.kind.clone(), paid: sp.paid, custom: sp.custom.clone(), locked: sp.locked, sign_on_at: sp.sign_on_at.clone(), ..Default::default() };
                 f(&mut n);
                 sp.kind = n.kind;
                 sp.paid = n.paid;
                 sp.custom = n.custom;
                 sp.locked = n.locked;
+                // (where its driver stands by: `rf::spare_lines`)
+                sp.sign_on_at = n.sign_on_at;
             }
         }
         _ => {}
@@ -1401,10 +1420,29 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
                 Ok(())
             })
         }
-        "spare" => edit(s, r, tr("Spare duty added"), |c| {
-            rf::add_spare(c, wd, rf::CUSTOM_KINDS[0], 810, 1290);
-            Ok(())
-        }),
+        "spare" => {
+            // (a click on the new row: 13:30-21:30; "Add spare line" on a spare line's card: its
+            // times - a day has as many as the player adds)
+            let at = |name: &str, or: i32| args.get(name).and_then(Value::as_i64).map_or(or, |m| m as i32);
+            let mut cw = rf::Custom { kind: rf::CUSTOM_KINDS[0].into(), ..Default::default() };
+            cw.set_times(at("from", 810), at("to", 1290));
+            edit(s, r, tr("Spare duty added"), |c| {
+                rf::add_spare(c, wd, &cw.kind, cw.from, cw.to);
+                Ok(())
+            })
+        }
+        "spare_name" => {
+            let row = usize_arg(args, "row");
+            let Some(id) = board.shaped.get(row).and_then(|x| x.spare) else { return Ok(json!({})) };
+            let name: String = str_arg(args, "value").trim().chars().take(40).collect();
+            let words = trf("Spare duty %{d} named %{name}", &[("d", &board.shaped[row].label(row)), ("name", &name)]);
+            edit(s, r, words, |c| {
+                if let Some(sp) = rf::spare_mut(c, wd, id) {
+                    sp.name = name.clone();
+                }
+                Ok(())
+            })
+        }
         "spare_remove" => {
             let row = usize_arg(args, "row");
             let Some(id) = board.shaped.get(row).and_then(|x| x.spare) else { return Ok(json!({})) };
@@ -1480,6 +1518,19 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
                     let kind = rf::CUSTOM_KINDS[(usize_arg(args, "kind")).min(rf::CUSTOM_KINDS.len() - 1)].to_string();
                     let (from, to) = (args.get("from").and_then(Value::as_i64).unwrap_or(810) as i32, args.get("to").and_then(Value::as_i64).unwrap_or(900) as i32);
                     (trf("Custom work added to duty %{d}", &[("d", &label)]), Box::new(move |n: &mut rf::DutyNote| n.custom.push(rf::Custom { kind: kind.clone(), from, to, place: String::new() })))
+                }
+                "custom_time" => {
+                    // (its times typed on its card, or its edges or itself dragged in the Gantt)
+                    let ci = usize_arg(args, "ci");
+                    let mut cw = x.custom.get(ci).cloned().ok_or_else(|| "no custom work".to_string())?;
+                    cw.set_times(args.get("from").and_then(Value::as_i64).unwrap_or(cw.from as i64) as i32, args.get("to").and_then(Value::as_i64).unwrap_or(cw.to as i64) as i32);
+                    let (from, to) = (cw.from, cw.to);
+                    let words = trf("%{kind} of duty %{d} set to %{from}–%{to}", &[("kind", &tr(&cw.kind)), ("d", &label), ("from", &rf::clock(from)), ("to", &rf::clock(to))]);
+                    (words, Box::new(move |n: &mut rf::DutyNote| {
+                        if let Some(c) = n.custom.get_mut(ci) {
+                            c.set_times(from, to);
+                        }
+                    }))
                 }
                 other => return Err(format!("no field {other}")),
             };

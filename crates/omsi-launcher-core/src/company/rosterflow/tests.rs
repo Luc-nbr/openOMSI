@@ -365,6 +365,40 @@ fn spare_duties_and_custom_work_count_as_work() {
 }
 
 #[test]
+fn spare_lines_run_with_the_times_name_and_point_the_player_gave_them() {
+    let mut c = company();
+    let w = wd(&c);
+    let date = c.date.clone();
+    // two spare lines a day, one of office work: only the spare work stands by
+    let early = add_spare(&mut c, w, "Spare", 810, 1290);
+    let late = add_spare(&mut c, w, "Spare", 960, 1380);
+    add_spare(&mut c, w, "Office", 480, 720);
+    // the first moved to 06:00-14:00, named, standing by at a terminus
+    let sp = spare_mut(&mut c, w, early).unwrap();
+    sp.custom[0].set_times(360, 840);
+    sp.name = "Early".into();
+    sp.sign_on_at = Some("A".into());
+    let lines = spare_lines(&c, &date);
+    assert_eq!(lines.len(), 2);
+    assert_eq!((lines[0].id, lines[0].label.as_str(), lines[0].from, lines[0].to, lines[0].at.as_str()), (early, "9001 Early", 360, 840, "A"));
+    assert_eq!((lines[1].id, lines[1].from, lines[1].to, lines[1].at.as_str()), (late, 960, 1380, DEPOT_POINT));
+    assert!(!lines[0].at_depot() && lines[1].at_depot());
+    // it covers only within its own hours
+    assert!(lines[0].covers(420, 600) && !lines[0].covers(300, 420) && !lines[0].covers(800, 900));
+    // times are kept in the day, five minutes long at least
+    let mut cw = Custom::default();
+    cw.set_times(700, 690);
+    assert_eq!((cw.from, cw.to), (700, 705));
+    cw.set_times(-30, 5000);
+    assert_eq!((cw.from, cw.to), (0, LAST_MINUTE));
+    // another day's plan has none; an old save's spare duty loads without the new fields
+    let old: Spare = serde_json::from_str(r#"{"weekday":0,"id":1,"custom":[{"kind":"Spare","from":810,"to":1290}]}"#).unwrap();
+    assert!(old.name.is_empty() && old.sign_on_at.is_none());
+    c.planning.flow.sheet.spares.retain(|s| s.weekday != w);
+    assert!(spare_lines(&c, &date).is_empty());
+}
+
+#[test]
 fn the_validation_lists_vehicle_and_duty_issues_and_dismissed_ones_stay_dismissed() {
     let mut c = company();
     // a layover of five minutes against the least of ten

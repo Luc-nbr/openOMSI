@@ -26,7 +26,7 @@ import { tr } from '../bits.js';
 import { alpha, mix, hex, inkOn } from './pal.js';
 import * as D from './draw.js';
 import { ROW, CHIP, ID_W, STAT_W, AXIS } from './draw.js';
-import { setRf, pick, dropAt, dropTo, edit, clock, hm } from './state.js';
+import { setRf, rfAct, pick, dropAt, dropTo, edit, clock, hm } from './state.js';
 import { anchor, begin, forget } from './anchors.js';
 import { colourBy, colourOf, tripColour, stackColour } from './colourby.js';
 // (the day's trips that ran late or were dropped, marked on their chips)
@@ -38,6 +38,10 @@ export const STAT_LABEL = { start: 'Start time', end: 'End time', spread: 'Sprea
 /** A scrollbar's thickness, the track's room included (`rf_scroll::BAR`). */
 export const BAR = 12;
 const DEADHEAD_MIN = 5;
+/** Custom work dragged in steps of five minutes (as its card's and the duty panel's times go),
+ * until 06:00 the next morning (`rosterflow::LAST_MINUTE`). */
+const SNAP = 5;
+const LAST_MINUTE = 1800;
 /** The band of a duty's driving periods under its row (the Layers' "Driving periods"). */
 const BAND = 12;
 
@@ -325,6 +329,8 @@ function draw(ctx, w, h, g) {
   const prefs = data.prefs;
   // (the trips' colours as the Layers ask: by the line, the trip ID, the block or the duty)
   g.by = colourBy(data);
+  // (custom work dragged, or let go and not drawn anew yet: where it goes)
+  g.evShow = g.evDrag || (g.evHold?.data === data ? g.evHold : null);
   g.svc = SV.indexOf(SV.serviceOf(data));
   D.rect(ctx, 0, 0, w, h, p.grid);
   // the columns: the IDs, the stats, the hours
@@ -706,8 +712,11 @@ function dutyRow(ctx, g, row, cy, xOf, hit, an) {
   }
   // the events: sign-on and sign-off, travel, custom work
   s.events.forEach((e, k) => {
-    const a = xOf(e.from);
-    const z = xOf(e.to);
+    // (custom work dragged, by an edge or whole: where it goes, as `evDrag` has it)
+    const moving = e.kind === 'custom' && g.evShow?.cur && g.evShow.row === d && g.evShow.ci === e.ci;
+    const [ef, et] = moving ? g.evShow.cur : [e.from, e.to];
+    const a = xOf(ef);
+    const z = xOf(et);
     const er = { x: a, y: cy - CHIP / 2, w: Math.max(8, z - a), h: CHIP };
     const box = joined.get(k);
     if (box) Object.assign(er, { x: box[0], w: Math.max(8, box[1] - box[0]) });
@@ -720,11 +729,14 @@ function dutyRow(ctx, g, row, cy, xOf, hit, an) {
       D.textAt(ctx, e.letter, a + 1 + bw / 2, cy + 4, 10.5, 700, p.warn, 'center');
     } else {
       const bw = Math.max(10, z - a - 2);
+      // (dragged: lifted as a chip carried is, its edge lit)
+      if (moving) D.shadow(ctx, a + 1, cy - CHIP / 2, bw, CHIP, 4, 10, [0, 0, 0, 0.45]);
       D.rounded(ctx, a + 1, cy - CHIP / 2, bw, CHIP, 4, [238, 240, 244, 1]);
-      if (p.light) D.roundedBorder(ctx, a + 1, cy - CHIP / 2, bw, CHIP, 4, 1, p.dim);
+      if (moving) D.roundedBorder(ctx, a + 1, cy - CHIP / 2, bw, CHIP, 4, 1.6, p.accent);
+      else if (p.light) D.roundedBorder(ctx, a + 1, cy - CHIP / 2, bw, CHIP, 4, 1, p.dim);
       if (D.width(ctx, e.label, 10.5, 700) < bw - 4) D.textAt(ctx, e.label, a + 1 + bw / 2, cy + 4, 10.5, 700, [30, 36, 46, 1], 'center');
     }
-    if (!readOnly && !hand) hit(er.x, er.y, er.w, er.h, { kind: 'event', row: d, ev: k, custom: e.kind === 'custom' ? e.ci : null });
+    if (!readOnly && !hand) hit(er.x, er.y, er.w, er.h, { kind: 'event', row: d, ev: k, custom: e.kind === 'custom' ? e.ci : null, from: e.from, to: e.to, ...(e.kind === 'custom' ? { tip: CUSTOM_TIP } : {}) });
   });
   // the pieces' trips
   for (const sp of s.spans) {
@@ -843,6 +855,9 @@ function dutyRest(ctx, g, s, d, cy, xOf, hit, lineCol) {
 
 /** A Drivers chip's tooltip once single trips go to another duty (`rf_gantt::duty_row_draw`). */
 const TRIP_TIP = 'Drag or double-click to move this trip to another duty or a new one: the bus stays the same. Shift or Ctrl and a click choose more trips. Alt and a drag takes the whole piece of work on this bus.';
+
+/** Custom work's tooltip in a duty's row (a spare line's spare work): its times dragged. */
+const CUSTOM_TIP = 'Drag an edge to change its start or end, or drag it whole to move it. A click opens it: the times can be typed there.';
 
 /** The chips of a duty's row in order of departure: (block, trip) of every trip with passengers
  * (`rf_gantt::chips_of`). */
@@ -986,6 +1001,10 @@ export function Gantt({ data, drivers, readOnly, p, onTip, page }) {
       again();
       return;
     }
+    if (g.evDrag) {
+      evMove(m);
+      return;
+    }
     if (r.press && e.buttons & 1) {
       if (Math.hypot(m.x - r.press.x, m.y - r.press.y) > 7) {
         const hand = r.press.hand;
@@ -1001,7 +1020,54 @@ export function Gantt({ data, drivers, readOnly, p, onTip, page }) {
     if (zi !== S.rf.zoneHover) setRf({ zoneHover: zi, zoneAt: zi != null ? at(m) : null });
     else if (zi != null) S.rf.zoneAt = at(m);
     showTip(hit, m);
-    cv.current.style.cursor = hit && hit.kind !== 'none' ? 'pointer' : 'default';
+    cv.current.style.cursor = hit?.kind === 'event' && hit.custom != null ? (evMode(hit, m) === 'move' ? 'grab' : 'ew-resize') : hit && hit.kind !== 'none' ? 'pointer' : 'default';
+    again();
+  };
+
+  // --- custom work dragged (a spare line's hours): an edge its start or end, the whole of it
+  // along the day; in steps of `SNAP` minutes, its new times told at the mouse; let go, kept
+  // as typed on its card is (`custom_time`, undone with Undo)
+
+  /** What a press on custom work's box drags: its start (left edge), its end (right edge) or
+   * all of it. */
+  const evMode = (hit, m) => {
+    const edge = hit.w >= 24 ? 7 : 0;
+    return m.x <= hit.x + edge ? 'from' : m.x >= hit.x + hit.w - edge ? 'to' : 'move';
+  };
+  const evMove = (m) => {
+    const d = g.evDrag;
+    const L = g.layout;
+    if (!L || (!d.cur && Math.abs(m.x - d.x0) < 4)) return;
+    const snap = (v) => Math.round(v / SNAP) * SNAP;
+    const dm = (m.x - d.x0) / L.ppm;
+    const len = d.to - d.from;
+    let from = d.from;
+    let to = d.to;
+    if (d.mode === 'move') {
+      from = Math.max(0, Math.min(LAST_MINUTE - len, snap(d.from + dm)));
+      to = from + len;
+    } else if (d.mode === 'from') from = Math.max(0, Math.min(to - SNAP, snap(d.from + dm)));
+    else to = Math.min(LAST_MINUTE, Math.max(from + SNAP, snap(d.to + dm)));
+    d.cur = [from, to];
+    if (onTip) onTip({ text: `${clock(from)}–${clock(to)}  (${hm(to - from)})`, pre: false, ...at(m) });
+    cv.current.style.cursor = d.mode === 'move' ? 'grabbing' : 'ew-resize';
+    again();
+  };
+  const evUp = () => {
+    const d = g.evDrag;
+    g.evDrag = null;
+    if (onTip) onTip(null);
+    const b = g.data.board;
+    if (!d.cur) setRf({ menu: null, card: { kind: 'event', row: d.row, ev: d.ev, id: b.duties[d.row]?.id, ci: d.ci, at: d.at } });
+    else if (d.cur[0] !== d.from || d.cur[1] !== d.to) {
+      // (drawn where it went until the day comes back with it)
+      g.evHold = { ...d, data: g.data };
+      rfAct('note', { row: d.row, field: 'custom_time', ci: d.ci, from: d.cur[0], to: d.cur[1] }).then((x) => {
+        if (x?.edited) return;
+        g.evHold = null;
+        again();
+      });
+    }
     again();
   };
 
@@ -1094,8 +1160,14 @@ export function Gantt({ data, drivers, readOnly, p, onTip, page }) {
       pick(hand, false).then(() => setRf({ card: { kind: 'stack', k: hit.k, at: at(m) }, sel: [] }));
       return;
     }
+    if (hit.kind === 'event' && hit.custom != null && !readOnly) {
+      // (custom work: dragged, or its card opened when let go where it was taken)
+      g.evDrag = { row: hit.row, ev: hit.ev, ci: hit.custom, mode: evMode(hit, m), x0: m.x, from: hit.from, to: hit.to, cur: null, at: at(m) };
+      if (r.card || r.menu) setRf({ card: null, menu: null });
+      return;
+    }
     if (hit.kind === 'event') {
-      setRf({ menu: null, card: { kind: 'event', row: hit.row, ev: hit.ev, at: at(m) } });
+      setRf({ menu: null, card: { kind: 'event', row: hit.row, ev: hit.ev, id: b.duties[hit.row]?.id, at: at(m) } });
     }
   };
 
@@ -1105,6 +1177,11 @@ export function Gantt({ data, drivers, readOnly, p, onTip, page }) {
     if (g.barDrag) {
       g.barDrag = null;
       setRf({ scroll: S.rf.scroll, pan: S.rf.pan });
+      return;
+    }
+    if (g.evDrag) {
+      g.down = null;
+      evUp();
       return;
     }
     const r = S.rf;
@@ -1230,13 +1307,15 @@ export function Gantt({ data, drivers, readOnly, p, onTip, page }) {
   useEffect(() => {
     const u = (e) => {
       if (S.rf.dragging && e.target !== cv.current) setRf({ hand: null, zones: null, dragging: false });
+      // (custom work dragged and let go outside: kept where it went)
+      if (g.evDrag && e.target !== cv.current) evUp();
       if (g.barDrag) {
         g.barDrag = null;
         setRf({ scroll: S.rf.scroll, pan: S.rf.pan });
       }
     };
     const mv = (e) => {
-      if (g.barDrag || S.rf.dragging) move(e);
+      if (g.barDrag || S.rf.dragging || g.evDrag) move(e);
     };
     addEventListener('mouseup', u);
     addEventListener('mousemove', mv);
