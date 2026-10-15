@@ -1026,6 +1026,30 @@ mod tests {
     }
 
     #[test]
+    fn the_way_back_texts_are_translated() {
+        let keys = [
+            "Press Automatic again: the way back you made goes, and the program makes it from the outbound",
+            "The way back follows the outbound: give the outbound its stops, and it is made from them",
+            "The program makes the way back from the outbound now, and makes it again whenever the outbound's stops change",
+            "The way back is yours now: click stops on the map to put them in or take them out",
+            "Click the stops of the way back on the map, in the order the bus calls at them",
+            "The way back is set by hand now: it no longer follows the outbound",
+            "Give the outbound its stops: the way back is made from them",
+            "Across the road from %{name}: a name like it",
+            "No stop across the road: the bus calls at this one both ways",
+            "No stop across the road for %{n} stop(s): the bus calls at the outbound's own (%{names})",
+            "%{n} leg(s) have no way over the roads (red): drag them, or set the way back by hand",
+            "%{n} stop(s) taken by a name like the outbound's (marked): check them on the map",
+            "Every stop has its stop across the road, and every leg a way over the roads",
+        ];
+        for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
+            for k in keys {
+                assert!(crate::_rust_i18n_try_translate(lang, k).is_some(), "{lang}: {k}");
+            }
+        }
+    }
+
+    #[test]
     fn a_manual_way_back_is_clicked_or_kept_as_it_was_made() {
         let mut s = session();
         clicks(&mut s, &[0, 2]);
