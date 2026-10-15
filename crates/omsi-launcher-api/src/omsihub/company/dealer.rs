@@ -1292,17 +1292,19 @@ fn sheet_act(s: &mut Session, c: &Company, what: &str, args: &Value) -> Result<V
                         quick = v;
                     }
                     // (the age the player sets himself: its price follows; empty, the offer's own)
+                    // (kept with the company: the offer is priced by it wherever it is shown,
+                    // reopened or bought - `dl::set_offer_age`)
                     let mut offer = offer;
                     if let Some(y) = args.get("age").and_then(Value::as_str) {
-                        let now = dl::now_of(c);
+                        let typed = (!y.trim().is_empty()).then(|| y.trim().to_string());
+                        let id = offer.id.clone();
+                        if let Err(p) = apply(s, |c| dl::set_offer_age(c, &id, typed.as_deref())) {
+                            return popup_of(p);
+                        }
                         let all = listings(s).map(|l| l.to_vec()).unwrap_or_default();
-                        let own = dl::offer(c, &all, &offer.id, &now).unwrap_or_else(|| offer.clone());
-                        if y.trim().is_empty() {
-                            offer = own;
-                        } else {
-                            match dl::with_age(c, &own, y) {
-                                Some(o) => offer = o,
-                                None => return popup_of(refuse(s, "Type a year of first registration, as 2015.")),
+                        if let Some(c) = s.company.clone() {
+                            if let Some(o) = dl::offer(&c, &all, &id, &dl::now_of(&c)) {
+                                offer = o;
                             }
                         }
                     }

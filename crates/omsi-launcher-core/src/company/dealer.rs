@@ -393,6 +393,20 @@ pub fn with_age(c: &Company, o: &Offer, typed: &str) -> Option<Offer> {
     Some(Offer { built, price, reference: value, age_from: AgeFrom::Manual, ..o.clone() })
 }
 
+/// Set (or with None, take back) the year of first registration the player knows for a used
+/// offer: from then on the offer is that old and priced so, also when it is bought (Luc, Beta
+/// 59: "the registration file ... should be ignored").
+pub fn set_offer_age(c: &mut Company, id: &str, typed: Option<&str>) -> Result<(), &'static str> {
+    if typed.is_some_and(|t| registrations::typed_date(t, &c.date).is_none()) {
+        return Err("Type a year of first registration, as 2015.");
+    }
+    c.dealer.typed_ages.retain(|(x, _)| x != id);
+    if let Some(t) = typed {
+        c.dealer.typed_ages.push((id.to_string(), t.trim().to_string()));
+    }
+    Ok(())
+}
+
 /// A used bus `ages` years old (the least, the most). None: no such bus.
 fn used_build(today: i64, rng: &mut Rng, ages: (f64, f64)) -> Option<(String, f64)> {
     let year = dates::civil_from_days(today).0;
@@ -528,6 +542,10 @@ fn gather(c: &Company, listings: &[Listing], now: &str, back: i64, of_day: fn(&C
     let mut out = Vec::new();
     for day in (today - back..=today).rev() {
         for mut o in of_day(c, listings, day) {
+            // (the player's own year wins over the plate's and the market's)
+            if let Some((_, typed)) = c.dealer.typed_ages.iter().find(|(id, _)| *id == o.id) {
+                o = with_age(c, &o, typed).unwrap_or(o);
+            }
             o.count = o.count.saturating_sub(taken_of(c, &o.id));
             if o.count > 0 && open_at(&o, now) {
                 out.push(o);
@@ -1330,6 +1348,7 @@ pub fn tick(c: &mut Company, now: &str) -> Vec<Delivered> {
     let today = dates::parse(&day_of(now)).unwrap_or(0);
     let date = day_of(now);
     c.dealer.taken.retain(|t| t.day >= today - 14);
+    c.dealer.typed_ages.retain(|(id, _)| id.get(1..).and_then(|s| s.split('-').next()).and_then(|d| d.parse::<i64>().ok()).is_some_and(|d| d >= today - 14));
     c.dealer.talks.retain(|t| t.day == date);
     c.dealer.breaks.retain(|b| !not_after(&b.1, now));
     c.dealer.warranties.retain(|w| dates::between(&date, &w.until) >= 0 && c.fleet.iter().any(|v| v.id == w.vehicle));
@@ -1492,6 +1511,10 @@ pub struct DealerState {
     /// The loan contracts the company signed with the bank (the last sixty; see `finance`).
     #[serde(default)]
     pub loan_contracts: Vec<super::finance::LoanContract>,
+    /// The year of first registration the player set himself on a used offer (its id, what he
+    /// typed): the offer is priced by it wherever it is shown or bought (`with_age`).
+    #[serde(default)]
+    pub typed_ages: Vec<(String, String)>,
 }
 
 #[cfg(test)]
@@ -1551,6 +1574,50 @@ mod tests {
             seats: Some(32),
             standing: Some(60),
         }
+    }
+
+    /// Luc, Beta 59: with the age set by the player the plate is ignored - a UK offer with a
+    /// 2017 plate set to 2005 is priced as a bus of 2005, also when it is reopened and bought,
+    /// and its value and sale follow 2005.
+    #[test]
+    fn the_typed_age_wins_over_the_plate() {
+        let mut c = company(GameMode::Normal, "2026-10-15");
+        let mut l = listing("E400", "ADL", BusSize::Solo, Drive::Diesel);
+        l.bus.region = super::super::vehicles::Region::Uk;
+        let ls = vec![l];
+        let now = now_of(&c);
+        let listed = used_market(&c, &ls, &now).into_iter().next().expect("a used offer");
+        // (as the model's list gives it: a plate of 2017)
+        let plated = Offer { registration: "AD17 SUL".into(), built: "2017-05-01".into(), age_from: AgeFrom::Plate, ..listed.clone() };
+        let a2005 = with_age(&c, &plated, "2005").unwrap();
+        let (price_2005, _) = used_price(&c, plated.listing.bus.kind, dates::years_between("2005-07-01", &c.date), plated.km, plated.condition);
+        assert_eq!((a2005.built.as_str(), a2005.price, a2005.age_from), ("2005-07-01", price_2005, AgeFrom::Manual));
+        assert_eq!(a2005.registration, "AD17 SUL");
+        let (price_2017, _) = used_price(&c, plated.listing.bus.kind, dates::years_between("2017-05-01", &c.date), plated.km, plated.condition);
+        assert!(price_2005 < price_2017 / 2, "{price_2005} {price_2017}");
+        // kept with the company: the offer reopened is still of 2005
+        set_offer_age(&mut c, &listed.id, Some("2005")).unwrap();
+        let again = offer(&c, &ls, &listed.id, &now).unwrap();
+        assert_eq!((again.built.as_str(), again.price, again.age_from), ("2005-07-01", price_2005, AgeFrom::Manual));
+        assert!(set_offer_age(&mut c, &listed.id, Some("soon")).is_err());
+        assert_eq!(offer(&c, &ls, &listed.id, &now).unwrap().price, price_2005);
+        // bought: a bus of 2005, at the 2005 price, worth and sold as one
+        let cash = c.cash;
+        let ids = quick_buy_offer(&mut c, &again, 1, Payment::Cash, "", &ls).unwrap();
+        assert_eq!(cash - c.cash, price_2005);
+        let v = c.vehicle(ids[0]).unwrap().clone();
+        assert_eq!((v.built.as_str(), v.age_from), ("2005-07-01", AgeFrom::Manual));
+        let new_value = economy::new_price(v.kind, &economy::rules(c.game_mode), c.price_index);
+        let market_2005 = economy::book_value(new_value, dates::years_between("2005-07-01", &c.date), v.km, v.condition);
+        let value = market::value_of(&c, &v);
+        assert_eq!(value, market_2005.min(economy::bought_value(price_2005, v.age_years(&c.date), v.age_years(&c.date))));
+        assert!(value <= price_2005);
+        assert_eq!(market::sale_offer(&c, &v), economy::sale_price(value, &economy::rules(c.game_mode)));
+        // its plate, kept as text, says nothing to the age any more
+        let mut plated_bus = v.clone();
+        plated_bus.plate = "AD17 SUL".into();
+        assert_eq!(registrations::period_of(&plated_bus.plate, plated_bus.region, plated_bus.age_from), None);
+        assert_eq!(market::value_of(&c, &plated_bus), value);
     }
 
     #[test]
