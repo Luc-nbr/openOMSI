@@ -163,6 +163,23 @@ pub fn coming(s: &mut Session, n: usize, casual: bool) -> (Vec<Value>, usize) {
     (list, needs)
 }
 
+//// RosterFlow's day switcher (Beta 57): each day of its week (`marks`: the day's own marks,
+/// `rosterflow::days::marks`) with a mark of how many entries the agenda has then, in the
+/// warning's tone when one of them needs the player.
+pub fn rf_marks(c: &Company, mut marks: Vec<Value>) -> Vec<Value> {
+    let (from, until) = (c.date.clone(), co::dates::add(&c.date, 6));
+    let cal = calendar(c, &from, &until);
+    let all = ag::agenda(c, &from, &until, &Known { calendar: Some(&cal), ..Default::default() });
+    for (k, m) in marks.iter_mut().enumerate() {
+        let date = co::dates::add(&c.date, k as i64);
+        let day: Vec<&Entry> = all.iter().filter(|e| e.date == date).collect();
+        let Some(tags) = m.as_array_mut().filter(|_| !day.is_empty()) else { continue };
+        let tone = if day.iter().any(|e| e.needs_me) { "warn" } else { "dim" };
+        tags.push(json!({ "text": trf("%{n} in the agenda", &[("n", &day.len().to_string())]), "tone": tone, "kind": "agenda" }));
+    }
+    marks
+}
+
 /// How many need the player, in words.
 pub fn needs_text(n: usize) -> String {
     match n {

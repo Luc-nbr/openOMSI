@@ -16,7 +16,7 @@
 //!   Timeplan) stops the clock and saves the company first (`hand_over`).
 
 // (what is coming: the Agenda page, the start's "Coming up", Casual's list - Beta 57)
-mod agenda;
+pub(crate) mod agenda;
 mod career;
 pub mod casual;
 mod chooser;

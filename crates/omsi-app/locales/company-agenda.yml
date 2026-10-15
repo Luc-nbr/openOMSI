@@ -647,3 +647,10 @@ _version: 2
   pl: "Nic w tych dniach"
   ru: "В эти дни ничего"
   uk: "У ці дні нічого"
+"%{n} in the agenda":
+  de: "%{n} in der Agenda"
+  fr: "%{n} dans l'agenda"
+  nl: "%{n} in de agenda"
+  pl: "%{n} w terminarzu"
+  ru: "%{n} в календаре"
+  uk: "%{n} у календарі"

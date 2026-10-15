@@ -541,7 +541,8 @@ fn board_answer(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
         "edits": r.edits,
         "gen": s.generation,
         // (what each day of the week runs, and the day shown: `days`)
-        "days": days::marks(&shown_view),
+        // (and how many entries the company's agenda has then: Beta 57)
+        "days": company::agenda::rf_marks(&c, days::marks(&shown_view)),
         "day": days::shown(&shown_view, &date),
         "unsynced": timeplan::unsynced_on(r, &c, days::group_of(wd)),
         // (how the Gantt colours the trips: the company's choice, Layers › Colour by)
