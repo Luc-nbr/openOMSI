@@ -548,3 +548,10 @@ _version: 2
   pl: "Dyspozytornia: przywróć punktualność opóźnionym autobusom"
   ru: "Диспетчерская: вернуть опаздывающие автобусы в график"
   uk: "Диспетчерська: повернути автобуси, що запізнюються, у графік"
+"%{what} at %{time}":
+  de: "%{what} um %{time}"
+  fr: "%{what} à %{time}"
+  nl: "%{what} om %{time}"
+  pl: "%{what} o %{time}"
+  ru: "%{what} в %{time}"
+  uk: "%{what} о %{time}"

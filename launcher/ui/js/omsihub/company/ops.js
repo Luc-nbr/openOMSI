@@ -6,7 +6,7 @@
 // saying what it comes to before it is chosen. The view and the words come from
 // `omsi-launcher-api`'s `company/ops.rs` (`co_view` "ops"), translated.
 
-import { html, act, useView, Icon, Btn, Section, Seg } from './kit.js';
+import { html, act, useView, useState, Icon, Btn, Section, Seg } from './kit.js';
 // (the advice against late running, of the last day closed: `late::advice_view`)
 import { LateAdvice } from './late.js';
 
@@ -19,8 +19,18 @@ if (!document.querySelector('link[data-co-ops-css]')) {
   document.head.append(sheet);
 }
 
-/** A way out: its icon, its words and what it comes to, the controller's suggestion marked. */
+/** A way out: its icon, its words and what it comes to, the controller's suggestion marked. Its
+ * button is held while the action runs (what it did, or why not, is said in the page's corner). */
 function Option({ o, what, v }) {
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    setBusy(true);
+    try {
+      await act(what, o.args);
+    } finally {
+      setBusy(false);
+    }
+  };
   return html`<div class=${'co-ops-opt' + (o.best ? ' best' : '') + (o.good ? '' : ' bad')}>
     <span class="ic"><${Icon} name=${o.icon} size=${16} /></span>
     <span class="words">
@@ -28,7 +38,7 @@ function Option({ o, what, v }) {
       <span>${o.label}</span>
       <span class="effect">${o.effect}</span>
     </span>
-    <${Btn} label=${v.choose} kind=${o.best ? 'primary' : ''} small onClick=${() => act(what, o.args)} />
+    <${Btn} label=${v.choose} kind=${o.best ? 'primary' : ''} small disabled=${busy} onClick=${go} />
   </div>`;
 }
 
@@ -37,8 +47,9 @@ function Option({ o, what, v }) {
 function Card({ x, what, v }) {
   return html`<div class="co-ops-card">
     <div class="top"><b class="grow cut">${x.title}</b><span class=${'min t-' + x.tone}>${x.minutes}</span></div>
-    <div class="where">${x.where}</div>
-    <div class="nothing">${x.nothing}</div>
+    ${x.done && html`<div class="done t-ok"><${Icon} name="check" size=${14} /> ${x.done}</div>`}
+    ${x.where && html`<div class="where">${x.where}</div>`}
+    ${x.nothing && html`<div class="nothing">${x.nothing}</div>`}
     ${x.options.map((o) => html`<${Option} o=${o} what=${what} v=${v} />`)}
     ${x.none && html`<div class="none">${x.none}</div>`}
   </div>`;

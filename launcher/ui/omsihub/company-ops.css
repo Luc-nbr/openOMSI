@@ -35,3 +35,4 @@
 /* what was done today */
 .co-ops-done { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 8px; font-size: var(--co-rows); line-height: 22px; }
 .co-ops-done .time { color: var(--hub-text-dim); font-variant-numeric: tabular-nums; }
+.co-ops-card .done { display: flex; align-items: center; gap: 6px; font-size: var(--co-rows); font-weight: 600; line-height: 18px; margin-top: 2px; }

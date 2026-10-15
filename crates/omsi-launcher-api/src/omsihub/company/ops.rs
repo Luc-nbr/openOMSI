@@ -140,7 +140,15 @@ pub fn view(s: &mut Session) -> Value {
         out["idle"] = json!(tr("The company's day has not begun yet: run the clock and the buses go out."));
     }
     let lv = ctl::live(&c, &dp);
-    out["buses"] = json!(lv.buses.iter().map(|b| bus_json(&c, &dp, b)).collect::<Vec<_>>());
+    let mut buses: Vec<Value> = lv.buses.iter().map(|b| bus_json(&c, &dp, b)).collect();
+    // (a bus the controller saw to and that runs on time again keeps its row: what was done)
+    for (ti, t) in dp.tours.iter().enumerate() {
+        let seen = ctl::of_day(&c, &dp.date).iter().any(|x| x.line == t.tour.line && x.tour == t.tour.tour && !matches!(x.act, Act::Cover { .. }));
+        if seen && !lv.buses.iter().any(|b| b.ti == ti) {
+            buses.push(mended_json(&c, &dp, ti));
+        }
+    }
+    out["buses"] = json!(buses);
     out["drivers"] = json!(lv.drivers.iter().map(|d| driver_json(&c, &dp, d)).collect::<Vec<_>>());
     out["breaks"] = json!(breaks_json(&c, &dp));
     out["done"] = json!(done_json(&c));
@@ -162,7 +170,7 @@ fn bus_json(c: &Company, dp: &DayPlan, b: &ctl::LateBus) -> Value {
         .map(|o| {
             let (label, icon) = act_label(c, dp, &o.act, o.dep);
             json!({ "label": label, "icon": icon, "effect": option_words(&dp.date, &o.effect, &b.nothing), "best": o.best, "good": o.gain > 0.0,
-                "args": { "line": t.tour.line, "tour": t.tour.tour, "dep": o.dep, "act": serde_json::to_value(o.act).unwrap_or(Value::Null) } })
+                "args": apply_args(&t.tour.line, &t.tour.tour, o.dep, &o.act) })
         })
         .collect();
     json!({
@@ -171,7 +179,51 @@ fn bus_json(c: &Company, dp: &DayPlan, b: &ctl::LateBus) -> Value {
         "minutes": trf("+%{n} min", &[("n", &b.minutes.to_string())]), "tone": tone, "where": where_,
         "nothing": nothing_words(&dp.date, &b.nothing), "options": options,
         "none": options.is_empty().then(|| tr("No way to bring it back sooner now: no slack, no spare bus free.")),
+        "done": done_of(c, &dp.date, &t.tour.line, &t.tour.tour, b.nothing.on_time_from.filter(|_| b.nothing.late_trips == 0)),
     })
+}
+
+/// What "Do it" sends for a way out of a late bus (`ops_apply`): the act under "how", never "act" -
+/// that is the action's own name, which `kit.js`'s `act` would lose to it (Beta 59: "Do it" did
+/// nothing).
+fn apply_args(line: &str, tour: &str, dep: i32, act: &Act) -> Value {
+    json!({ "line": line, "tour": tour, "dep": dep, "how": serde_json::to_value(act).unwrap_or(Value::Null) })
+}
+
+/// What service control did to a tour today, the last first ("Short-turn at 14:05 · back on time
+/// from the 14:20 trip"; None: nothing).
+fn done_of(c: &Company, date: &str, line: &str, tour: &str, back: Option<i32>) -> Option<String> {
+    let x = ctl::of_day(c, date).into_iter().rev().find(|x| x.line == line && x.tour == tour && !matches!(x.act, Act::Cover { .. }))?;
+    let mut s = trf("%{what} at %{time}", &[("what", &what_of(c, &x.act)), ("time", &hm(date, x.at))]);
+    if let Some(m) = back {
+        s = format!("{s} · {}", trf("back on time from the %{time} trip", &[("time", &hm(date, m))]));
+    }
+    Some(s)
+}
+
+/// A tour the controller saw to today and that runs on time now: its row stays, saying so.
+fn mended_json(c: &Company, dp: &DayPlan, ti: usize) -> Value {
+    let t = &dp.tours[ti];
+    let bus = match t.bus {
+        Some(BusOf::Own(id)) => Some(id),
+        _ => None,
+    };
+    json!({
+        "key": pl::tour_key(&t.tour.line, &t.tour.tour),
+        "title": trf("Bus %{bus} · line %{n} tour %{tour}", &[("bus", &bus_number(c, bus)), ("n", &t.tour.number), ("tour", &t.tour.tour)]),
+        "minutes": tr("On time"), "tone": "ok", "where": "", "nothing": "", "options": [],
+        "done": done_of(c, &dp.date, &t.tour.line, &t.tour.tour, None),
+    })
+}
+
+fn what_of(c: &Company, act: &Act) -> String {
+    match *act {
+        Act::ShortTurn { .. } => tr("Short-turn"),
+        Act::Express { .. } => tr("Out of service to the terminus"),
+        Act::Layover { .. } => tr("Shorter layover"),
+        Act::Swap { vehicle, .. } => trf("Spare bus %{bus} swapped in", &[("bus", &bus_number(c, Some(vehicle)))]),
+        Act::Cover { .. } => tr("Late driver covered"),
+    }
 }
 
 fn driver_json(c: &Company, dp: &DayPlan, d: &ctl::LateDriver) -> Value {
@@ -291,13 +343,7 @@ fn done_json(c: &Company) -> Vec<Value> {
         .iter()
         .rev()
         .map(|x| {
-            let what = match x.act {
-                Act::ShortTurn { .. } => tr("Short-turn"),
-                Act::Express { .. } => tr("Out of service to the terminus"),
-                Act::Layover { .. } => tr("Shorter layover"),
-                Act::Swap { vehicle, .. } => trf("Spare bus %{bus} swapped in", &[("bus", &bus_number(c, Some(vehicle)))]),
-                Act::Cover { .. } => tr("Late driver covered"),
-            };
+            let what = what_of(c, &x.act);
             let who = if x.auto { tr("by the controller") } else { tr("by you") };
             json!({ "time": hm(&s.date, x.at), "text": format!("{what} · {} {} · {}", x.line, x.tour, who) })
         })
@@ -315,26 +361,53 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Result<Value, St
             super::changed(s);
             Ok(json!({}))
         }
-        "ops_apply" | "ops_cover" => with_plan(s, args, what == "ops_cover"),
-        "ops_break" => {
-            let index = args.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
-            let choice = match args.get("choice").and_then(Value::as_str).unwrap_or("") {
-                "spare" => Choice::Spare { vehicle: args.get("vehicle").and_then(Value::as_u64).unwrap_or(0) as u32 },
-                "rental" => Choice::Rental,
-                _ => Choice::Drop,
-            };
-            super::choose_break(s, index, choice);
-            Ok(json!({}))
-        }
+        "ops_apply" | "ops_cover" | "ops_break" => match take(s, what, args) {
+            Ok((said, to)) => {
+                super::changed(s);
+                s.say(said.clone(), false);
+                // (a breakdown's question answered: the simulation goes on where it was going)
+                if let Some(to) = to.filter(|_| s.clock.speed == 0.0) {
+                    super::simulate(s, to, false);
+                }
+                Ok(json!({ "said": said }))
+            }
+            Err(e) => {
+                // (never silent: the reason in the page's corner)
+                s.say(e.clone(), true);
+                Ok(json!({ "error": e }))
+            }
+        },
         _ => return None,
     };
     Some(r)
 }
 
-/// A way out for a late bus (`ops_apply`) or a late driver (`ops_cover`) taken, on today's plan as
-/// it is now.
-fn with_plan(s: &mut Session, args: &Value, cover: bool) -> Result<Value, String> {
-    let Some(date) = s.company.as_ref().map(|c| c.date.clone()) else { return Ok(json!({})) };
+/// A way out taken - for a late bus (`ops_apply`), a late driver (`ops_cover`) or a breakdown
+/// (`ops_break`) - on today's plan as it is now, not saved yet: what to say, and where a
+/// simulation waiting for a breakdown's answer was going. Err: why it cannot be done.
+fn take(s: &mut Session, what: &str, args: &Value) -> Result<(String, Option<i64>), String> {
+    if what == "ops_break" {
+        let index = args.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+        let choice = match args.get("choice").and_then(Value::as_str).unwrap_or("") {
+            "spare" => Choice::Spare { vehicle: args.get("vehicle").and_then(Value::as_u64).unwrap_or(0) as u32 },
+            "rental" => Choice::Rental,
+            _ => Choice::Drop,
+        };
+        let Some(c) = s.company.as_mut() else { return Err(tr("That cannot be done now.")) };
+        let before = c.clock.today.as_ref().and_then(|x| x.breaks.get(index)).map(|b| b.choice);
+        let Some(before) = before else { return Err(tr("That cannot be done now.")) };
+        let to = ck::choose(c, index, choice);
+        let after = c.clock.today.as_ref().and_then(|x| x.breaks.get(index)).and_then(|b| b.choice);
+        if after == before {
+            return Err(tr("That cannot be done now."));
+        }
+        let said = ck::break_message(c, index).map(|m| super::message_words(&m)).map(|(t, x)| format!("{t}: {x}")).unwrap_or_default();
+        s.plan = None;
+        s.plan_gen += 1;
+        return Ok((said, to));
+    }
+    let cover = what == "ops_cover";
+    let Some(date) = s.company.as_ref().map(|c| c.date.clone()) else { return Err(tr("That cannot be done now.")) };
     let dp = match super::plan_of(s, &date) {
         Some(Ok(p)) => p,
         Some(Err(e)) => return Err(e),
@@ -343,7 +416,7 @@ fn with_plan(s: &mut Session, args: &Value, cover: bool) -> Result<Value, String
     let line = args.get("line").and_then(Value::as_str).unwrap_or("");
     let tour = args.get("tour").and_then(Value::as_str).unwrap_or("");
     let Some(ti) = dp.tours.iter().position(|t| t.tour.line == line && t.tour.tour == tour) else { return Err(tr("That tour is not on today's plan any more.")) };
-    let Some(c) = s.company.as_mut() else { return Ok(json!({})) };
+    let Some(c) = s.company.as_mut() else { return Err(tr("That cannot be done now.")) };
     let mut run = Run::default();
     let done = if cover {
         let duty = args.get("duty").and_then(Value::as_u64).unwrap_or(0) as usize;
@@ -355,16 +428,16 @@ fn with_plan(s: &mut Session, args: &Value, cover: bool) -> Result<Value, String
         ctl::cover(c, &dp, ti, duty, fill, from, false, &mut run)
     } else {
         let dep = args.get("dep").and_then(Value::as_i64).unwrap_or(0) as i32;
-        let act: Act = serde_json::from_value(args.get("act").cloned().unwrap_or(Value::Null)).map_err(|e| e.to_string())?;
+        // (the act under "how": "act" is the action's own name, `co_act`)
+        let act: Act = serde_json::from_value(args.get("how").cloned().unwrap_or(Value::Null)).map_err(|_| tr("That cannot be done now."))?;
         ctl::apply(c, &dp, ti, dep, act, false, &mut run)
     };
     let Some((text, a)) = done else { return Err(tr("That cannot be done now.")) };
     let said = super::words::filled(&text, &a);
     // (the plan changes with it: a cover is the planning's choice)
     s.plan = None;
-    super::changed(s);
-    s.say(said, false);
-    Ok(json!({}))
+    s.plan_gen += 1;
+    Ok((said, None))
 }
 
 #[cfg(test)]
@@ -403,6 +476,112 @@ mod tests {
         assert!(missing.is_empty(), "{} missing (crates/omsi-app/locales/company-ops.yml):
 {}", missing.len(), missing.join("
 "));
+    }
+
+    /// A company running line 5 (two tours of eight 50-minute trips from 06:00 and 06:30, the
+    /// dispatcher filling the roster) with three buses and four drivers, its day begun at 07:00.
+    fn running_day() -> (Session, DayPlan) {
+        use omsi_launcher_lib::{LineInfo, StopInfo, TourInfo, TripInfo};
+        let trip = |no: &str, k: i32, from: i32| {
+            let (a, b) = if k % 2 == 0 { ("A", "B") } else { ("B", "A") };
+            let dep = from + k * 60;
+            TripInfo { name: format!("5 {no}-{k}"), index: 0, line: "5".into(), from: a.into(), terminus: b.into(), departure: dep as f64 * 60.0, arrival: (dep + 50) as f64 * 60.0, stops: (0..6).map(|s| StopInfo { name: format!("S{s}"), id: s, arr: 0.0, dep: 0.0 }).collect(), km: 20.0 }
+        };
+        let tour = |no: &str, from: i32| TourInfo { number: no.into(), ai_group: String::new(), first: 0.0, last: 0.0, days: "daily".into(), runs: true, next_run: None, trips: (0..8).map(|k| trip(no, k, from)).collect() };
+        let l = LineInfo { name: "Linie5".into(), user_allowed: true, termini: vec!["A".into(), "B".into()], tours: vec![tour("1", 360), tour("2", 390)] };
+        let mut c = co::found(&co::Founding { name: "Ops".into(), game_mode: GameMode::Normal, date: "2024-03-04".into(), ..Default::default() }, "Luc");
+        c.cash += 5_000_000_00;
+        c.lines.push(co::model::CompanyLine { name: "Linie5".into(), number: "5".into(), numbers: vec!["5".into()], added: c.date.clone(), service_from: Some(0), ..Default::default() });
+        let bus = co::market::MarketBus { file: "Vehicles/Citaro/Citaro.bus".into(), name: "Citaro".into(), ..Default::default() };
+        for _ in 0..3 {
+            co::market::buy_new(&mut c, &bus, co::market::Payment::Cash, "").unwrap();
+        }
+        let drivers = |c: &Company| c.staff.iter().filter(|e| co::staff::drives(e)).count();
+        let id = c.id.clone();
+        while drivers(&c) < 4 {
+            for a in co::staff::applicants(&c) {
+                if drivers(&c) < 4 && a.licence == co::model::Licence::D {
+                    let _ = co::staff::hire(&mut c, &a);
+                }
+            }
+            c.id.push('x');
+            c.taken = Default::default();
+        }
+        c.id = id;
+        for e in c.staff.iter_mut() {
+            e.sick_until = None;
+            e.holiday_until = None;
+        }
+        c.planning.auto = true;
+        let mut s = Session { company: Some(c), ..Default::default() };
+        super::super::test_week(&mut s, vec![l]);
+        let date = s.company.as_ref().unwrap().date.clone();
+        let dp = super::super::plan_of(&mut s, &date).unwrap().unwrap();
+        let c = s.company.as_mut().unwrap();
+        c.clock.today = Some(ck::script(c, &dp));
+        c.clock.minute = 7 * 60;
+        s.plan_gen += 1;
+        (s, dp)
+    }
+
+    #[test]
+    fn do_it_changes_the_next_view_for_every_way_out() {
+        super::super::words::set_language("en");
+        let (mut s, dp) = running_day();
+        assert!(dp.tours.len() == 2 && dp.tours.iter().all(|x| x.bus.is_some()), "both tours run");
+        let bus_of = |k: usize| match dp.tours[k].bus {
+            Some(BusOf::Own(id)) => id,
+            _ => 0,
+        };
+        let spare = s.company.as_ref().unwrap().fleet.iter().map(|v| v.id).find(|id| *id != bus_of(0) && *id != bus_of(1)).unwrap();
+        let (a, b) = (&dp.tours[0].tour, &dp.tours[1].tour);
+        let ways = [
+            (a, a.trips[1].dep, Act::ShortTurn { part: 0.2, saved: 15 }),
+            (a, a.trips[2].dep, Act::Express { part: 0.5, saved: 6 }),
+            (b, b.trips[2].dep, Act::Layover { saved: 3 }),
+            (b, b.trips[3].dep, Act::Swap { vehicle: spare, from_bus: bus_of(1) }),
+        ];
+        let mut done = 0;
+        for (t, dep, act) in ways {
+            let args = apply_args(&t.line, &t.tour, dep, &act);
+            // (the action's own name is never overwritten by the act: Beta 59's "Do it" did nothing)
+            assert!(args.get("act").is_none());
+            let before = view(&mut s);
+            let (said, _) = take(&mut s, "ops_apply", &args).unwrap_or_else(|e| panic!("{act:?}: {e}"));
+            assert!(!said.is_empty(), "{act:?} says what it did");
+            let after = view(&mut s);
+            done += 1;
+            assert_eq!(after["done"].as_array().map(Vec::len), Some(done), "{act:?} is in Done today");
+            assert_ne!(before["buses"], after["buses"], "{act:?} changes the bus's row");
+            let key = pl::tour_key(&t.line, &t.tour);
+            let row = after["buses"].as_array().unwrap().iter().find(|x| x["key"] == key.as_str()).expect("the bus keeps its row");
+            assert!(row["done"].as_str().is_some_and(|d| d.contains(" at 07:00")), "{act:?}: {}", row["done"]);
+        }
+        // the controls are kept with the day, and the lateness model reads them
+        let c = s.company.as_ref().unwrap();
+        assert_eq!(ctl::of_day(c, &c.date).len(), 4);
+        let d = ctl::delays(c, &dp, Some(7 * 60), None);
+        assert!(d[0][1].lost > 0.0, "the short-turn's part lost");
+        assert_eq!(d[1][3].bus, Some(spare), "the spare runs the trips from the swap");
+        // a cover for a driver nobody is late for: a clear reason
+        let no = take(&mut s, "ops_cover", &json!({ "line": a.line, "tour": a.tour, "duty": 0, "fill": { "kind": "agency" }, "from": 420 }));
+        assert_eq!(no, Err("That cannot be done now.".to_string()));
+        // a breakdown: a rental bus sent, said, and its card says so
+        {
+            let c = s.company.as_mut().unwrap();
+            let v = bus_of(0);
+            let number = c.vehicle(v).unwrap().number.clone();
+            // (the day's own draws aside: this one alone)
+            c.clock.today.as_mut().unwrap().breaks.clear();
+            c.clock.today.as_mut().unwrap().breaks.push(ck::Broken { vehicle: v, bus: number, line: "5".into(), at: 6 * 60 + 50, until: 14 * 60, line_name: "Linie5".into(), choice: None, cost: 0, accident: false, back: None, spare_until: None });
+        }
+        let before = view(&mut s);
+        let (said, _) = take(&mut s, "ops_break", &json!({ "index": 0, "choice": "rental" })).unwrap();
+        assert!(said.to_lowercase().contains("rental"), "{said}");
+        let after = view(&mut s);
+        assert_ne!(before["breaks"][0]["where"], after["breaks"][0]["where"]);
+        // and the same again: refused, with the reason
+        assert!(take(&mut s, "ops_break", &json!({ "index": 0, "choice": "rental" })).is_err());
     }
 
     #[test]
