@@ -133,7 +133,8 @@ pub fn best_fare(c: &Company, l: &CompanyLine) -> Cents {
 
 /// The reputation a day of this fare costs (points).
 pub fn reputation_cost(x: f64) -> f64 {
-    (x - FAIR).max(0.0) * 0.3
+    // (was 0.3)
+    (x - FAIR).max(0.0) * 0.15
 }
 
 /// Set a line's single ticket (clamped to its band). Returns the fare set.
@@ -155,7 +156,8 @@ pub fn day(c: &mut Company) {
         settle(&mut l.demand, x);
         cost += reputation_cost(x);
     }
-    c.reputation = (c.reputation - cost).clamp(0.0, 100.0);
+    let date = c.date.clone();
+    super::reputation::change(c, &date, super::reputation::Cause::Fares, -cost, 0);
 }
 
 /// What a line would bring at a fare in the long run, from its passengers a day at the

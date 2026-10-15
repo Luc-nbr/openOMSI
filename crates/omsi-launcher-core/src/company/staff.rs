@@ -808,7 +808,7 @@ pub fn roles_day(c: &mut Company, date: &str, report: &mut super::day::DayReport
     let held: Vec<f64> = c.fleet.iter().filter(|v| v.held_on(date)).map(|v| v.clean).collect();
     out.clean = if held.is_empty() { 0.0 } else { round1(held.iter().sum::<f64>() / held.len() as f64) };
     // (clean buses please the passengers, dirty ones are talked about)
-    let mut lift = if held.is_empty() { 0.0 } else { (out.clean - 70.0) / 30.0 * 0.03 };
+    let lift = if held.is_empty() { 0.0 } else { (out.clean - 70.0) / 30.0 * 0.03 };
 
     // 3. the service centre: the day's complaints answered, and the passengers' trust
     let (want, got) = workload(c, date, Role::Service, &all);
@@ -819,11 +819,15 @@ pub fn roles_day(c: &mut Company, date: &str, report: &mut super::day::DayReport
         out.handled = ((got * 1.5 * kind).floor() as u32).min(out.complaints);
         let open = if want > 0.0 { (got / want).min(1.0) } else { 0.0 };
         out.service_reputation = 0.03 * out.handled as f64 + 0.05 * open * kind.min(1.2);
-        lift += out.service_reputation;
     }
+    let before = c.reputation;
     if lift != 0.0 {
-        let before = c.reputation;
-        c.reputation = (c.reputation + lift).clamp(0.0, 100.0);
+        super::reputation::change(c, date, super::reputation::Cause::BusesClean, lift, 0);
+    }
+    if out.service_reputation != 0.0 {
+        super::reputation::change(c, date, super::reputation::Cause::ServiceCentre, out.service_reputation, out.handled);
+    }
+    if c.reputation != before {
         report.reputation = c.reputation;
         report.reputation_change += c.reputation - before;
     }

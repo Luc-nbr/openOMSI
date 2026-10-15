@@ -372,7 +372,8 @@ pub fn passengers_for(km: f64, minute: i32, r: &Rules) -> f64 {
 
 /// The authority's payment per km at a reputation (0-100): ±10 % around 50, as Omsi-Hub's.
 pub fn compensation_per_km(r: &Rules, reputation: f64, contract_index: f64) -> f64 {
-    r.compensation_per_km as f64 * (0.9 + 0.2 * reputation.clamp(0.0, 100.0) / 100.0) * contract_index
+    // (below 40 softened: `reputation::effective`)
+    r.compensation_per_km as f64 * (0.9 + 0.2 * super::reputation::effective(reputation) / 100.0) * contract_index
 }
 
 #[cfg(test)]

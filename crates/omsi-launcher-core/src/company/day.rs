@@ -707,7 +707,7 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                 // (an own line: its passengers by the hour, and what its bus can take)
                 let own = c.lines.get(li).filter(|cl| cl.plan.is_some());
                 let base = booked.or_else(|| own.and_then(|cl| super::ownline::trip_boardings(cl, &date, trip.dep))).unwrap_or_else(|| economy::passengers_for(trip.km, trip.dep, &r));
-                let mut pax = base * rng.range(0.8, 1.2) * (0.85 + 0.3 * c.reputation / 100.0) * (0.95 + 0.1 * e.skills.service / 100.0) * c.lines.get(li).map(|l| l.demand.share()).unwrap_or(1.0) * demand_factor * line_effects.get(li).map_or(1.0, |x| x.1);
+                let mut pax = base * rng.range(0.8, 1.2) * super::reputation::demand_factor(c.reputation) * (0.95 + 0.1 * e.skills.service / 100.0) * c.lines.get(li).map(|l| l.demand.share()).unwrap_or(1.0) * demand_factor * line_effects.get(li).map_or(1.0, |x| x.1);
                 // (a friendly driver and a clean bus: the passengers notice, `staff`)
                 pax *= staff::friendly_factor(e.friendliness) * staff::clean_factor(v.clean);
                 match kind {
@@ -957,20 +957,12 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
     // 9. reputation and punctuality
     let punctuality = (timed > 0).then(|| on_time as f64 / timed as f64 * 100.0);
     let rep0 = c.reputation;
-    let mut change = -(0.25 * report.dropped as f64).min(5.0);
-    // (full buses on the own lines, and people left at the stop)
-    change -= (0.01 * report.crowded as f64 + 0.002 * report.left_behind as f64).min(1.5);
     if let Some(p) = punctuality {
-        if report.dropped == 0 && p >= 90.0 {
-            change += 0.3;
-        } else if p < 75.0 {
-            change -= 0.3;
-        }
         c.punctuality = c.punctuality * 0.85 + p * 0.15;
     }
-    change += tally.reputation();
+    // (the numbers, caps and recovery: `reputation::close_day`)
+    super::reputation::close_day(c, &date, &report, punctuality, &tally);
     report.incidents = tally;
-    c.reputation = (c.reputation + change).clamp(0.0, 100.0);
     report.punctuality = punctuality;
     report.reputation = c.reputation;
     report.reputation_change = c.reputation - rep0;

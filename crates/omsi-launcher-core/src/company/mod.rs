@@ -48,6 +48,7 @@ pub mod plan;
 pub mod plandays;
 pub mod rankings;
 pub mod remote;
+pub mod reputation;
 pub mod research;
 pub mod rng;
 pub mod specials;
@@ -171,6 +172,7 @@ pub fn found(f: &Founding, profile: &str) -> Company {
         autopilot: Default::default(),
         vehicles: f.vehicles.clone(),
         together: Default::default(),
+        reputation_log: Default::default(),
     };
     // (Casual buys quickly; the buying chosen is kept for the other modes)
     autopilot::set_game_mode(&mut c, f.game_mode);

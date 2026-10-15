@@ -82,10 +82,11 @@ pub struct Tally {
 }
 
 impl Tally {
-    /// What the day does to the reputation (at most two points down).
+    /// What the day does to the reputation (at most one point down; was 0.4 an accident, 0.04
+    /// a complaint, 0.3 a passenger taken ill, at most two).
     pub fn reputation(&self) -> f64 {
-        let hurt = 0.4 * self.accidents.len() as f64 + 0.04 * self.complaints as f64 + 0.3 * (self.taken_ill - self.helped) as f64 + 0.05 * self.helped as f64;
-        -hurt.min(2.0)
+        let hurt = 0.25 * self.accidents.len() as f64 + 0.02 * self.complaints as f64 + 0.15 * self.taken_ill.saturating_sub(self.helped) as f64 + 0.03 * self.helped as f64;
+        -hurt.min(1.0)
     }
 }
 
@@ -150,7 +151,7 @@ mod tests {
         let helped = Tally { taken_ill: 2, helped: 2, ..Default::default() };
         assert!(helped.reputation() > ill.reputation());
         let bad = Tally { accidents: vec![("101".into(), 1_000_00); 9], complaints: 50, ..Default::default() };
-        assert_eq!(bad.reputation(), -2.0);
+        assert_eq!(bad.reputation(), -1.0);
         // many trips: the trained driver has fewer complaints and fines
         let e = driver(40.0, 40.0);
         let (mut plain, mut trained) = (Tally::default(), Tally::default());

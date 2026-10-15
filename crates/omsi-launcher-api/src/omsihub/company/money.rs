@@ -136,7 +136,7 @@ pub fn view(s: &mut Session, ui: &Value) -> Value {
 fn base_passengers(s: &Session, c: &Company, line: &CompanyLine) -> Option<f64> {
     let plan = s.plan.as_ref()?;
     let r = co::economy::rules(c.game_mode);
-    let mood = 0.85 + 0.3 * c.reputation / 100.0;
+    let mood = co::reputation::demand_factor(c.reputation);
     let mut sum = 0.0;
     let mut any = false;
     for t in plan.tours.iter().filter(|t| t.tour.line.eq_ignore_ascii_case(&line.name)) {

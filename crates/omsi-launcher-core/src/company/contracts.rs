@@ -699,10 +699,10 @@ fn goals_day(c: &mut Company, date: &str, report: &DayReport) {
 
 // --- the day ------------------------------------------------------------------------------------
 
-/// The reputation moved by `change` (the day's report with it).
-fn move_reputation(c: &mut Company, report: &mut DayReport, change: f64) {
+/// The reputation moved by `change` for `cause` (the day's report with it).
+fn move_reputation(c: &mut Company, report: &mut DayReport, date: &str, cause: super::reputation::Cause, change: f64) {
     let before = c.reputation;
-    c.reputation = (c.reputation + change).clamp(0.0, 100.0);
+    super::reputation::change(c, date, cause, change, 0);
     report.reputation = c.reputation;
     report.reputation_change += c.reputation - before;
 }
@@ -723,7 +723,7 @@ fn services_day(c: &mut Company, date: &str, report: &mut DayReport) {
         // them)
         if report.passengers > 0 {
             let change = 0.25 * (p.satisfaction as f64 / 100.0 - 0.35) * (1.0 - missed) - 0.6 * missed;
-            move_reputation(c, report, change);
+            move_reputation(c, report, date, super::reputation::Cause::Internet, change);
         }
         c.contracts.data = Data { date: date.to_string(), topped, used, short };
         if short >= 0.5 {
@@ -737,7 +737,7 @@ fn services_day(c: &mut Company, date: &str, report: &mut DayReport) {
         let buses = c.fleet.iter().filter(|v| v.held_on(date)).count();
         c.book(BookingKind::Services, -price, format!("Cleaning company ({buses} buses)"), false);
         if report.tours > 0 {
-            move_reputation(c, report, 0.06);
+            move_reputation(c, report, date, super::reputation::Cause::Cleaning, 0.06);
         }
         if c.contracts.cleaning.as_ref().and_then(|k| k.until.as_deref()) == Some(date) {
             c.contracts.cleaning = None;

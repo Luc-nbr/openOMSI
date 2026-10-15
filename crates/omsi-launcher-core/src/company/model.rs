@@ -865,6 +865,9 @@ pub struct Company {
     /// drove for the company (`together`).
     #[serde(default)]
     pub together: super::together::Together,
+    /// What raised or lowered the reputation lately (`reputation`).
+    #[serde(default)]
+    pub reputation_log: super::reputation::Log,
 }
 
 fn one() -> f64 {

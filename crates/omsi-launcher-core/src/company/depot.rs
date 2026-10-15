@@ -653,7 +653,7 @@ pub fn after_day(c: &mut Company, date: &str) -> Night {
         // (without a washing bay the cleaners' buckets keep it from going below this)
         let floor = super::research::clean_floor(c);
         c.site.clean = ((c.site.clean - dirt).max(floor) * (1.0 - w) + 100.0 * w).clamp(0.0, 100.0);
-        c.reputation = (c.reputation + (c.site.clean - 60.0) / 40.0 * 0.08).clamp(0.0, 100.0);
+        super::reputation::change(c, date, super::reputation::Cause::Depot, (c.site.clean - 60.0) / 40.0 * 0.08, 0);
     }
 
     // the staff's rooms: room enough lifts them a little, too few is felt

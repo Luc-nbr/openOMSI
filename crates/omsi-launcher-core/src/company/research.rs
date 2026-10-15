@@ -379,7 +379,7 @@ pub fn day(c: &mut Company, date: &str, _report: &mut DayReport) {
     // what the passengers feel every day: a little goodwill
     let comfort = n(c, "air_conditioning") + n(c, "stops");
     if comfort > 0 {
-        c.reputation = (c.reputation + 0.01 * comfort as f64).clamp(0.0, 100.0);
+        super::reputation::change(c, date, super::reputation::Cause::Comfort, 0.01 * comfort as f64, 0);
     }
     // the work on what runs
     let Some(mut run) = c.research.running.clone() else { return };
