@@ -13,6 +13,7 @@ import { go } from './hub.js';
 import { openEditor, openTimetable } from './editors/index.js';
 import { goStep } from './flow.js';
 import { enterCompany } from './company/company.js';
+import { togetherOn, blockedLabel } from './company/gate.js';
 
 /** The ways to drive (kinds: 0 a tour, 1 a shift, 2 free, 4 the bus company), as the tiles
  * say them. */
@@ -57,7 +58,8 @@ export function Home() {
     [tr('Controls'), 'keyboard', () => go('controls')],
     [tr('Timetable'), 'schedule', openTimetable],
     [tr('Multiplayer'), 'groups', () => go('multiplayer')],
-    [tr('Join a company'), 'garage', () => enterCompany({ chooser: 'join' })],
+    // (blocked for now: `company/gate.js`)
+    togetherOn() ? [tr('Join a company'), 'garage', () => enterCompany({ chooser: 'join' })] : [`${tr('Join a company')} · ${blockedLabel()}`, 'lock', () => {}],
     [tr('Sessions'), 'sports_esports', () => go('games')],
     [tr('Tutorials'), 'help', () => go('tutorials')],
     [tr('Setup'), 'folder_open', () => go('setup')],

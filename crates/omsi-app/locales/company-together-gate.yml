@@ -1,0 +1,9 @@
+_version: 2
+# "Play together" blocked for now (Luc 2026-10-15): its buttons say it is coming.
+"Multiplayer - coming soon (beta)":
+  de: "Mehrspieler - bald verfügbar (Beta)"
+  fr: "Multijoueur - bientôt disponible (bêta)"
+  nl: "Multiplayer - binnenkort (bèta)"
+  pl: "Tryb wieloosobowy - wkrótce (beta)"
+  ru: "Мультиплеер - скоро (бета)"
+  uk: "Мультиплеєр - незабаром (бета)"

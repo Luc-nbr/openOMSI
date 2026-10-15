@@ -1165,7 +1165,7 @@ fn shell(s: &mut Session) -> Value {
         "popup": base["popup"],
         "companies": base["companies"],
         "id": c.id, "name": c.name, "mark": mark_json(&c), "mode": mode_json(c.game_mode), "home": home_of(&c),
-        "status": status, "clock": head, "rail": rail, "pages": pages,
+        "status": status, "clock": head, "rail": rail, "pages": pages, "together": super::together::gate(),
         "names": TABS.iter().map(|t| tr(t)).collect::<Vec<_>>(),
         "casual": casual, "cover": cover,
         "asking": c.clock.ask.is_some(),

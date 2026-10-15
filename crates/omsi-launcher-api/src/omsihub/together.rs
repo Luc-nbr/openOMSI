@@ -21,9 +21,31 @@ pub use host::{boss_duty, give_to_guest, online_guests};
 /// The colour a player of "Play together" has on the rosters.
 pub const GUEST_COLOUR: &str = "#e58fd8";
 
+/// "Play together" is open (Luc 2026-10-15: "block the multiplayer buttons for now because
+/// that's still in beta"): only with `OMSI_TOGETHER` set. Its code stays; without the switch
+/// the pages show it as coming soon and every command is refused, so no server starts.
+pub fn enabled() -> bool {
+    omsi_cfg::flags::OMSI_TOGETHER.is_set()
+}
+
+/// What the pages say while it is blocked.
+pub const BLOCKED: &str = "Multiplayer - coming soon (beta)";
+
+/// The gate's answer to a command: whether it is open, and what is said while it is not.
+pub fn gate() -> Value {
+    json!({ "on": enabled(), "label": tr(BLOCKED) })
+}
+
 /// A command of "Play together", or None when `cmd` is not one.
 pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
     words::set_language(args.get("lang").and_then(Value::as_str).unwrap_or(""));
+    if cmd == "tg_gate" {
+        return Some(Ok(gate()));
+    }
+    // (blocked: nothing runs - no server, no joining - and the badge is off)
+    if !enabled() {
+        return Some(Ok(json!({ "off": true, "on": false, "tip": tr(BLOCKED) })));
+    }
     if cmd.starts_with("tg_host") {
         host::remember_language();
         return host::call(cmd, args, p);
@@ -109,5 +131,29 @@ mod tests {
             }
         }
         assert!(missing.is_empty(), "{} missing (crates/omsi-app/locales/company-together.yml):\n{}", missing.len(), missing.join("\n"));
+    }
+
+    struct NoPlatform;
+    impl crate::Platform for NoPlatform {
+        fn renderer(&self, _req: serde_json::Value, _wait: std::time::Duration) -> Result<(serde_json::Value, Vec<u8>), String> {
+            Err(String::new())
+        }
+    }
+
+    /// Blocked for now: without `OMSI_TOGETHER` every command is refused - no server starts,
+    /// nobody joins - and the gate says so.
+    #[test]
+    fn playing_together_is_blocked_without_its_switch() {
+        if super::enabled() {
+            return;
+        }
+        let p = NoPlatform;
+        let gate = super::call("tg_gate", &serde_json::json!({}), &p).unwrap().unwrap();
+        assert_eq!(gate["on"], false);
+        for cmd in ["tg_host_start", "tg_host_badge", "tg_join", "tg_view"] {
+            let v = super::call(cmd, &serde_json::json!({ "code": "ABC" }), &p).unwrap().unwrap();
+            assert_eq!(v["off"], true, "{cmd}");
+        }
+        assert!(super::host::hosting_none(), "no session was started");
     }
 }

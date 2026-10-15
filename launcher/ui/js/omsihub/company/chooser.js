@@ -67,9 +67,9 @@ function Modes({ v }) {
         <span class="mark"><${Icon} name="person" size=${30} /></span>
         <h3>${v.single.title}</h3><p>${v.single.text}</p><span class="foot">${v.single.foot}</span>
       </button>
-      <button type="button" class="co-tile co-mode" data-mode="join" title=${v.multi.tip} onClick=${() => setCo({ chooser: 'join' })}>
-        <span class="mark"><${Icon} name="groups" size=${30} /></span>
-        <h3>${v.multi.title}</h3><p>${v.multi.text}</p><span class="foot">${v.multi.foot}</span>
+      <button type="button" class="co-tile co-mode" data-mode="join" disabled=${!!v.multi.off} style=${v.multi.off ? 'opacity:0.55;cursor:default' : ''} title=${v.multi.off || v.multi.tip} onClick=${() => !v.multi.off && setCo({ chooser: 'join' })}>
+        <span class="mark"><${Icon} name=${v.multi.off ? 'lock' : 'groups'} size=${30} /></span>
+        <h3>${v.multi.title}</h3><p>${v.multi.text}</p><span class="foot">${v.multi.off || v.multi.foot}</span>
       </button>
     </div>
     <span style="flex:0.6 1 0"></span>

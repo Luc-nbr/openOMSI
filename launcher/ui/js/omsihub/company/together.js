@@ -8,6 +8,7 @@
 import { toast } from '../../store.js';
 import { duty } from '../../data.js';
 import { html, useEffect, useRef, useState, tr, setCo, cmd, refresh, Icon, Mark, Btn, Switch, Dialog, inkOn, rgbOf } from './kit.js';
+import { togetherOn, blockedLabel } from './gate.js';
 
 // (the page's own look, loaded with it)
 const sheet = document.createElement('link');
@@ -62,6 +63,12 @@ function toastNew(notices, last) {
 
 /** The company bar's button: the session's players online (the duties asked for in orange). */
 export function TogetherButton() {
+  // (blocked for now: shown, disabled, as coming soon - `gate.js`)
+  if (!togetherOn()) return html`<span class="tg-btn" title=${blockedLabel()}><${Btn} class="sq" icon="groups" disabled=${true} title=${blockedLabel()} /></span><span class="gap8"></span>`;
+  return html`<${LiveTogetherButton} />`;
+}
+
+function LiveTogetherButton() {
   const [b] = usePoll('tg_host_badge', 3000);
   const n = b?.on ? b.asked || b.online : 0;
   return html`<span class="tg-btn"><${Btn} class="sq" kind=${b?.on ? 'primary' : ''} icon="groups" title=${b?.tip || tr('Play together')} onClick=${() => setCo({ dialog: { kind: 'together' } })} />

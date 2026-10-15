@@ -44,6 +44,12 @@ fn hosting() -> MutexGuard<'static, Option<Hosting>> {
     HOSTING.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// No session is hosted (the gate's test).
+#[cfg(test)]
+pub(super) fn hosting_none() -> bool {
+    hosting().is_none()
+}
+
 /// The page's language kept for the server's threads.
 pub(super) fn remember_language() {
     *LANG.lock().unwrap_or_else(|e| e.into_inner()) = words::language();

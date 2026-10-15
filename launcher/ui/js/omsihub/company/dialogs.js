@@ -15,6 +15,7 @@ import { FareDialog } from './money.js';
 import { VehiclesDialog } from './vehicles.js';
 // (Beta 58: the boss's "Play together" panel)
 import { TogetherDialog } from './together.js';
+import { togetherOn } from './gate.js';
 
 /** Something lies over the pages: the clock holds what waits for it (`company::modal`). */
 export function modalOpen() {
@@ -57,7 +58,7 @@ function OpenDialog({ d }) {
     case 'vehicles':
       return html`<${VehiclesDialog} />`;
     case 'together':
-      return html`<${TogetherDialog} />`;
+      return togetherOn() ? html`<${TogetherDialog} />` : null;
     default:
       return null;
   }
