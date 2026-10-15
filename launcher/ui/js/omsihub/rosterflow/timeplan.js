@@ -152,9 +152,11 @@ export function TimeplanTab() {
     const line = r.tpLine;
     const hint = r.tpHint;
     const reload = !!r.tpReload;
-    setRf({ tpLine: null, tpHint: null, tpReload: false });
-    rfCmd('rf_tp_guide', { line, hint, reload }).then((x) => {
-      tpSet({ cell: null, text: '', sel: null, picked: [], adding: null, ...(x?.screen != null ? { tab: x.screen } : {}), rev: (S.rf.tp.rev || 0) + 1 });
+    // (from a day of Vehicles or Drivers: the day group that day runs, `tpDay`)
+    const day = r.tpDay;
+    setRf({ tpLine: null, tpHint: null, tpReload: false, tpDay: null });
+    rfCmd('rf_tp_guide', { line, hint, reload, ...(day != null ? { day } : {}) }).then((x) => {
+      tpSet({ cell: null, text: '', sel: null, picked: [], anchor: null, adding: null, ...(x?.screen != null ? { tab: x.screen } : {}), ...(x?.group != null ? { day: x.group, chart: null, issuesOpen: false, scroll: 0 } : {}), rev: (S.rf.tp.rev || 0) + 1 });
     });
   }, [r.tpLine]);
   // (what the lessons look at: the line read, changed, saved, refreshed)
@@ -251,7 +253,12 @@ function ContextBar({ v }) {
     ${[[RUNNING, 'schedule', 'Running times'], [TIMETABLE, 'grid_view', 'Timetable']].map(([tab, icon, tip]) => html`<button type="button" class=${'tp-screen' + (t.tab === tab ? ' on' : '')} title=${tr(tip)} onClick=${() => t.tab !== tab && tpSet({ tab, cell: null, text: '' })}><${Icon} name=${icon} size=${20} /></button>`)}
     <i class="tp-sep"></i>
     ${v.runs && html`<span class="tp-from">${v.from?.show && html`<button type="button" class="tp-ib small" title=${tr('A day earlier')} onClick=${() => tpAct('from', { by: -1 })}><${Icon} name="chevron_left" size=${13} /></button><b>${v.from.label}</b><button type="button" class="tp-ib small" title=${tr('A day later')} onClick=${() => tpAct('from', { by: 1 })}><${Icon} name="chevron_right" size=${13} /></button>`}</span>`}
-    <button type="button" class=${'tp-save' + (v.dirty ? ' dirty' : '')} data-rf="rf-tp-save" onClick=${() => v.dirty && tpAct('save').then((x) => x?.day != null && tpSet({ day: x.day, issuesOpen: !!x.issues_open }))}><${Icon} name="save" size=${18} /><span>${v.save || tr('Saved')}</span></button>
+    <button type="button" class=${'tp-save' + (v.dirty ? ' dirty' : '')} data-rf="rf-tp-save" onClick=${() => v.dirty && tpAct('save').then((x) => {
+      // (the trips chosen are places in the table: read again, or on the day group of an
+      // error, they would be other trips - Delete would take those out)
+      const off = { cell: null, text: '', sel: null, picked: [], anchor: null };
+      tpSet(x?.day != null ? { ...off, day: x.day, issuesOpen: !!x.issues_open, adding: null, scroll: 0 } : off);
+    })}><${Icon} name="save" size=${18} /><span>${v.save || tr('Saved')}</span></button>
   </div>`;
 }
 
@@ -424,7 +431,8 @@ function pickRow(e, rows, row, keep = false) {
   const now = chosenTrips(t);
   const add = e.ctrlKey || e.metaKey;
   if (e.shiftKey) {
-    const at = rows.findIndex((x) => x.i === (t.anchor ?? t.sel));
+    // (nothing chosen: no range - the anchor may be of another line or day, or undone)
+    const at = now.length ? rows.findIndex((x) => x.i === (t.anchor ?? t.sel)) : -1;
     const k = rows.findIndex((x) => x.i === row.i);
     if (at < 0 || k < 0) return tpSet({ ...only(row.i), cell: null });
     const range = rows.slice(Math.min(at, k), Math.max(at, k) + 1).map((x) => x.i);
@@ -559,7 +567,9 @@ function AddForm({ v, top }) {
   const pattern = Math.min(a.pattern, Math.max(0, v.patterns.length - 1));
   const stops = v.patterns[pattern]?.stops || [];
   const first = parseTime(a.first);
-  const last = parseTime(a.last);
+  // (an end before the start, "22:00" until "00:30": after midnight, `timeplan::end_after`)
+  const typed = parseTime(a.last);
+  const last = typed != null && first != null && typed < first && typed + 1440 <= 2160 ? typed + 1440 : typed;
   const heads = parseHeadways(a.headway);
   const ok = first != null && last != null && heads && last >= first;
   const note = ok ? tr('%{n} trips', { n: generated(first, last, heads) }) : tr('Type the times as 06:00 and the headway in minutes');
@@ -663,10 +673,13 @@ function nextCell(v, c) {
     if (c.band + 1 < bands) return { kind: 'run', band: c.band + 1, seg: 0 };
     return null;
   }
-  if (c.kind === 'start') return { kind: 'headway', i: c.i };
+  // (the first trip has no headway to type)
+  if (c.kind === 'start') return v.tt?.rows[0]?.i === c.i ? null : { kind: 'headway', i: c.i };
   if (c.kind === 'time') {
+    // (the next stop shown: with timepoints only, not one left out)
     const row = v.tt?.rows.find((r) => r.i === c.i);
-    return row && c.s + 1 < row.n ? { ...c, s: c.s + 1 } : null;
+    const next = row?.cells.find((x) => x && x.s > c.s);
+    return next ? { ...c, s: next.s } : null;
   }
   return null;
 }

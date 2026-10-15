@@ -151,7 +151,7 @@ export function ApplyWindow({ size }) {
 /** A trip a copy left to plan by hand shown on its day: the day, the Vehicles tab, its bus and
  * the trip chosen once the day is drawn (`useRevealTrip`). */
 function goTo(k, date, m) {
-  setRf({ day: k, view: VEHICLES, hand: null, zones: null, card: null, menu: null, sel: [], reveal: m.id, selRow: m.id, revealTrip: { id: m.id, dep: m.dep, date } });
+  setRf({ day: k, view: VEHICLES, hand: null, zones: null, card: null, menu: null, sel: [], ticked: [], reveal: m.id, selRow: m.id, revealTrip: { id: m.id, dep: m.dep, date } });
 }
 
 /** The trip `goTo` asked for chosen, once its day's board is there. */

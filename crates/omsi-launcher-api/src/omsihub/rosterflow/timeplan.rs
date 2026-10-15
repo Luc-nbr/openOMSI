@@ -436,7 +436,22 @@ pub fn call(cmd: &str, args: &Value) -> Option<Answer> {
                 company::reload_timetable(s);
                 r.cache = None;
             }
-            Ok(json!({ "screen": screen }))
+            // (from a day of the studio, `day`: the day group the line runs on that date, so that
+            // its timetable shown is the one of the trip looked at)
+            let group = match (args.get("day").and_then(Value::as_u64), s.company.clone()) {
+                (Some(k), Some(c)) => {
+                    let date = co::dates::add(&c.date, k.min(6) as i64);
+                    let natural = super::days::group_of(co::plan::weekday_of(&date));
+                    load_shown(&mut r.tp, &c);
+                    let run = match (r.tp.work.as_ref(), company::lines_of(s, &date)) {
+                        (Some(w), Some(lines)) => group_run(&w.own.live, &lines, &r.tp.line, natural),
+                        _ => None,
+                    };
+                    Some(run.unwrap_or(natural))
+                }
+                _ => None,
+            };
+            Ok(json!({ "screen": screen, "group": group }))
         }),
         _ => return None,
     })
@@ -962,7 +977,10 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
             let side = tp::sides(&line)[sh.side].clone();
             let pattern = usize_arg(args, "pattern").min(side.patterns.len().saturating_sub(1));
             let Some(&dir) = side.patterns.get(pattern) else { return Ok(json!({})) };
-            let (first, last, heads) = (tp::parse_time(&str_arg(args, "first")), tp::parse_time(&str_arg(args, "last")), tp::parse_headways(&str_arg(args, "headway")));
+            let first = tp::parse_time(&str_arg(args, "first"));
+            // (an end before the start: after midnight)
+            let last = tp::parse_time(&str_arg(args, "last")).map(|t| first.map_or(t, |f| tp::end_after(f, t)));
+            let heads = tp::parse_headways(&str_arg(args, "headway"));
             let set = tp::run_set(&line, day, dir);
             let n = line.directions[dir].stops.len();
             let control = usize_arg(args, "control").min(n.saturating_sub(1));

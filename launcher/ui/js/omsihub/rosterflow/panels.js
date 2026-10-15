@@ -206,7 +206,7 @@ function TripCard({ data, c, drivers, size }) {
       <${CardIcon} icon="inventory_2" title="Unassign: the trip waits on the stack" disabled=${drivers} onClick=${() => !drivers && edit('unassign', { tour: c.tour, trips: [c.trip] })} />
       <${CardIcon} icon="link" title=${x.linked ? 'Unlink: the trips need no longer stay together' : 'Link it with the trips chosen (Shift and a click)'} on=${x.linked} onClick=${() => linkOrUnlink(c.tour, c.trip, x.linked)} />
       <span class="grow"></span>
-      <${RfButton} label="Timeplan" style="width:110px;height:30px" onClick=${() => setRf({ view: TIMEPLAN, tpLine: t.line, hand: null, zones: null, sel: [], card: null, menu: null, panel: null })} />
+      <${RfButton} label="Timeplan" style="width:110px;height:30px" onClick=${() => setRf({ view: TIMEPLAN, tpLine: t.line, tpDay: S.rf.day, hand: null, zones: null, sel: [], card: null, menu: null, panel: null })} />
       <${RfButton} label="Move" solid style="width:104px;height:30px" onClick=${move} />
     </div>
   </div>`;
@@ -530,7 +530,7 @@ function Menu({ data, m, drivers, size }) {
         break;
       case 7: {
         const line = m.tour != null ? b.blocks[m.tour]?.line : null;
-        setRf({ view: TIMEPLAN, tpLine: line, hand: null, zones: null, sel: [], card: null, panel: null });
+        setRf({ view: TIMEPLAN, tpLine: line, tpDay: line ? S.rf.day : null, hand: null, zones: null, sel: [], card: null, panel: null });
         break;
       }
       case 9:
@@ -825,7 +825,7 @@ function DayMenu({ size }) {
   const marks = r.data?.head?.days || [];
   return html`<div class="rf-over rf-menu" style=${`left:${size.w - 560}px;top:4px;width:270px;height:${dayMenuHeight(days, marks)}px`}>
     ${days.map((d, k) => html`<${DayItem} label=${d.label} tags=${marks[k]} on=${r.day === k} onPick=${() => {
-      setRf({ day: k, panel: null });
+      setRf({ day: k, panel: null, ticked: [] });
       settle();
     }} />`)}
   </div>`;
