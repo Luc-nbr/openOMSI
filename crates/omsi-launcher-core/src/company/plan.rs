@@ -798,7 +798,7 @@ pub enum Disruption {
 }
 
 pub fn disruptions(c: &Company, date: &str) -> Vec<Disruption> {
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     let day = dates::parse(date).unwrap_or(0);
     // (the game mode's disruptions: Casual rare, Normal calmer, Realistic as they always were)
     let m = c.game_mode.rules();
@@ -806,7 +806,7 @@ pub fn disruptions(c: &Company, date: &str) -> Vec<Disruption> {
         GameMode::Casual => 0.5,
         GameMode::Normal => 1.0,
         GameMode::Realistic => 1.4,
-    } * m.lateness;
+    } * m.lateness * super::sandbox::of(c).lateness;
     let mut out = Vec::new();
     for e in c.staff.iter().filter(|e| staff::drives(e) && e.employed_on(date) && !e.absent(date)) {
         let mut rng = Rng::of(&[&c.id, "late", &e.id.to_string()], day);
@@ -1422,7 +1422,7 @@ pub fn late_covers(c: &Company, dp: &DayPlan, ti: usize, k: usize) -> Vec<(u32, 
 /// What the trips of a duty (or a whole tour: `0..trips`) dropped cost in the contract's
 /// penalty.
 pub fn drop_penalty(c: &Company, t: &TourOfDay, start: usize, end: usize) -> Cents {
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     t.trips[start.min(t.trips.len())..end.min(t.trips.len())].iter().filter(|x| x.counts()).map(|x| r.drop_per_trip + (x.km * r.drop_per_km as f64).round() as Cents).sum()
 }
 

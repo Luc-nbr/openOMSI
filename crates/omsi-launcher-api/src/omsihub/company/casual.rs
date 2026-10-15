@@ -501,7 +501,7 @@ fn money(c: &Company) -> Value {
         json!({ "text": tr(text), "label": tr(label), "icon": icon, "act": act_json(&a) })
     });
     json!({
-        "page": "money", "head": head(MONEY, trf("In the bank: %{cash}", &[("cash", &super::sandbox::cash(&c))]), None),
+        "page": "money", "head": head(MONEY, trf("In the bank: %{cash}", &[("cash", &super::sandbox::cash(c))]), None),
         "weeks_caps": tr("Week by week").to_uppercase(), "in": tr("In"), "out": tr("Out"),
         "weeks": weeks.iter().map(|w| { let res = w.income - w.expenses; let (t, tone) = signed(res); let label = short_date(&w.from); json!({ "label": label, "income": w.income, "expenses": w.expenses, "short": short_money(res), "tone": tone, "tip": format!("{}: {}  ·  {} {}  ·  {} {}", label, t, tr("In"), eur(w.income), tr("Out"), eur(w.expenses)) }) }).collect::<Vec<_>>(),
         "no_weeks": tr("No day closed yet: press Next day, and the first week's money shows here."),

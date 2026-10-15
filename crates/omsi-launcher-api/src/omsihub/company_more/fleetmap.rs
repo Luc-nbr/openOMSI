@@ -372,7 +372,7 @@ fn bus_card(c: &Company, plan: Option<&co::day::Plan>, m: &MapState, markers: &[
     let late = mk.delay > 180.0;
     let pax = match (trip, t.km.get(mk.place.trip)) {
         (Some(x), Some(k)) if !x.empty => {
-            let r = co::economy::rules(c.game_mode);
+            let r = co::economy::rules_for(c);
             format!("≈ {:.0}", co::economy::passengers_for(*k, (x.dep / 60.0) as i32, &r))
         }
         _ => "—".into(),

@@ -137,7 +137,7 @@ pub fn view(s: &mut Session, ui: &Value) -> Value {
 /// A line's passengers a day at the association's fare, from today's tours (`fares::base_passengers`).
 fn base_passengers(s: &Session, c: &Company, line: &CompanyLine) -> Option<f64> {
     let plan = s.plan.as_ref()?;
-    let r = co::economy::rules(c.game_mode);
+    let r = co::economy::rules_for(c);
     let mood = co::reputation::demand_factor(c.reputation);
     let mut sum = 0.0;
     let mut any = false;

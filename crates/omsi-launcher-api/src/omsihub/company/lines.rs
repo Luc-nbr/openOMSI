@@ -342,7 +342,7 @@ fn to_add(s: &mut Session, c: &Company, mine_chosen: bool) -> Value {
 /// to add; what a line earns under both.
 pub fn view(s: &mut Session, ui: &Value) -> Value {
     let Some(c) = s.company.clone() else { return Value::Null };
-    let r = co::economy::rules(c.game_mode);
+    let r = co::economy::rules_for(&c);
     let pay = co::economy::compensation_per_km(&r, c.reputation, c.contract_index);
     let foot = trf("A single ticket of the fare association costs %{single} (a passenger pays %{fare} on average, with day and season tickets); the authority pays %{km} for every kilometre run, more the better your reputation.", &[("single", &eur_cents(co::fares::association_fare(&c) as f64)), ("fare", &eur_cents(r.fare as f64)), ("km", &eur_cents(pay))]);
     let selected = ui.get("selected").and_then(Value::as_str).filter(|n| c.lines.iter().any(|x| x.name == *n)).map(str::to_string);

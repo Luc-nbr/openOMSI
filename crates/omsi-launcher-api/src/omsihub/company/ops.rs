@@ -264,7 +264,7 @@ fn driver_json(c: &Company, dp: &DayPlan, d: &ctl::LateDriver) -> Value {
 fn breaks_json(c: &Company, dp: &DayPlan) -> Vec<Value> {
     let Some(s) = c.clock.today.as_ref().filter(|s| s.date == c.date) else { return Vec::new() };
     let now = c.clock.minute as i32;
-    let r = co::economy::rules(c.game_mode);
+    let r = co::economy::rules_for(c);
     let mut out = Vec::new();
     for (index, b) in s.breaks.iter().enumerate() {
         // (told when it comes, not before)

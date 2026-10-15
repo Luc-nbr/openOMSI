@@ -178,7 +178,7 @@ fn confirm(s: &mut Session, args: &Value) -> Value {
         }
         "dismiss" => {
             let Some(e) = c.employee(id) else { return json!({ "gone": true }) };
-            let r = co::economy::rules(c.game_mode);
+            let r = co::economy::rules_for(&c);
             let mut text = trf("%{name} works %{days} more days (the notice) and then leaves.", &[("name", &e.name), ("days", &r.notice_days.to_string())]);
             if r.severance_months_per_year > 0.0 {
                 text.push(' ');

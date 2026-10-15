@@ -611,7 +611,7 @@ pub fn sheet_view(s: &mut Session, _ui: &Value) -> Value {
     let armed = s.dealer.discard_armed;
     match sheet {
         Sheet::Model { listing, livery, count, pay, quick } => {
-            let r = co::economy::rules(c.game_mode);
+            let r = co::economy::rules_for(&c);
             let list = dl::list_price(&c, listing.bus.kind);
             let grant = co::economy::grant(listing.bus.kind, list, &r, c.price_index);
             let days = dl::delivery_days(&c, &format!("new:{}", listing.bus.file), false, false);
@@ -695,7 +695,7 @@ pub fn sheet_view(s: &mut Session, _ui: &Value) -> Value {
             if quick {
                 let n = count as i64;
                 let painting = if livery.is_empty() { 0 } else { dl::painting_cost(&c) };
-                let r = co::economy::rules(c.game_mode);
+                let r = co::economy::rules_for(&c);
                 let grant = if offer.is_new() { co::economy::grant(offer.listing.bus.kind, offer.price, &r, c.price_index) } else { 0 };
                 let total = n * (offer.price + painting - grant);
                 let (pl, _) = pay_line(&c, total, pay);
@@ -1227,7 +1227,7 @@ fn sheet_act(s: &mut Session, c: &Company, what: &str, args: &Value) -> Result<V
                 "main" if quick => {
                     let n = count as i64;
                     let painting = if livery.is_empty() { 0 } else { dl::painting_cost(c) };
-                    let r = co::economy::rules(c.game_mode);
+                    let r = co::economy::rules_for(c);
                     let grant = co::economy::grant(listing.bus.kind, dl::list_price(c, listing.bus.kind), &r, c.price_index);
                     let total = n * (dl::quick_price(c, &listing, count) + painting - grant);
                     let (_, ok) = pay_line(c, total, pay);
@@ -1316,7 +1316,7 @@ fn sheet_act(s: &mut Session, c: &Company, what: &str, args: &Value) -> Result<V
                 "main" if quick => {
                     let n = count as i64;
                     let painting = if livery.is_empty() { 0 } else { dl::painting_cost(c) };
-                    let r = co::economy::rules(c.game_mode);
+                    let r = co::economy::rules_for(c);
                     let grant = if offer.is_new() { co::economy::grant(offer.listing.bus.kind, offer.price, &r, c.price_index) } else { 0 };
                     let total = n * (offer.price + painting - grant);
                     let (_, ok) = pay_line(c, total, pay);
