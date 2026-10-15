@@ -424,7 +424,7 @@ fn drive(args: &Value, p: &dyn Platform) -> Answer {
 }
 
 /// A duty's line in the friend's view: what it is, who drives it, what he can do with it.
-fn duty_row(d: &SnapDuty, open_claims: bool, world: bool) -> Value {
+fn duty_row(d: &SnapDuty, open_claims: bool) -> Value {
     let hhmm = |m: i32| format!("{:02}:{:02}", (m / 60).rem_euclid(24), m.rem_euclid(60));
     let mut facts = vec![trf("%{n} trips", &[("n", &d.trips.to_string())]), format!("{} km", d.km)];
     if !d.bus.is_empty() {
@@ -433,7 +433,8 @@ fn duty_row(d: &SnapDuty, open_claims: bool, world: bool) -> Value {
     let take = if open_claims { tr("Take this duty") } else { tr("Ask for this duty") };
     let (state, tone, acts): (String, &str, Vec<Value>) = match d.state {
         DutyState::Open => (tr("Open"), "accent", vec![json!({ "label": take, "act": "take", "kind": "primary" })]),
-        DutyState::Mine => (tr("Yours"), "ok", vec![json!({ "label": tr("Drive"), "act": "drive", "kind": "primary", "off": !world }), json!({ "label": tr("Give back"), "act": "release", "kind": "" })]),
+        // (Drive asks even while the boss's world is not open: he is told that his friend waits)
+        DutyState::Mine => (tr("Yours"), "ok", vec![json!({ "label": tr("Drive"), "act": "drive", "kind": "primary" }), json!({ "label": tr("Give back"), "act": "release", "kind": "" })]),
         DutyState::Asked => (tr("Asked for: the boss says yes or no"), "warn", vec![json!({ "label": tr("Withdraw"), "act": "release", "kind": "" })]),
         DutyState::Driving => (tr("You are driving it"), "ok", Vec::new()),
         DutyState::Done => (tr("Driven"), "dim", Vec::new()),
@@ -472,7 +473,7 @@ fn view() -> Value {
         return json!({ "joined": true, "connecting": true, "words": words, "code": j.text, "lost": lost });
     };
     let world = s.world;
-    let rows = |pick: &dyn Fn(&SnapDuty) -> bool| -> Vec<Value> { s.duties.iter().filter(|d| pick(d)).map(|d| duty_row(d, s.open_claims, world)).collect() };
+    let rows = |pick: &dyn Fn(&SnapDuty) -> bool| -> Vec<Value> { s.duties.iter().filter(|d| pick(d)).map(|d| duty_row(d, s.open_claims)).collect() };
     let open = rows(&|d| d.state == DutyState::Open);
     let mine = rows(&|d| matches!(d.state, DutyState::Mine | DutyState::Asked | DutyState::Driving | DutyState::Done));
     let rest = rows(&|d| matches!(d.state, DutyState::Player | DutyState::Company | DutyState::Closed));

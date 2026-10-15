@@ -161,7 +161,15 @@ pub(super) fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> 
         "tg_host_badge" => company::with(|s| Ok(badge(s))),
         "tg_host_start" => company::with(start),
         "tg_host_stop" => company::with(|s| {
+            // (the players' duties not driven go back to the company: nobody can drive them now)
+            let mine = s.company.as_ref().is_some_and(|c| hosting().as_ref().is_some_and(|h| h.company == c.id));
             stop(s);
+            if mine {
+                let _ = company::act(s, |c| {
+                    c.together.claims.retain(|x| x.state == ClaimState::Done);
+                    Ok(())
+                });
+            }
             Ok(json!({}))
         }),
         "tg_host_open" => company::with(|s| {
