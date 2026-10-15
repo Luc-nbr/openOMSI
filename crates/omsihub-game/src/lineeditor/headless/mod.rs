@@ -264,6 +264,11 @@ fn take(s: &mut Session, m: Arc<MapRead>) {
             v.dirty = true;
         }
     }
+    // (a way back the line editor makes, its outbound changed before the map's stops were
+    // read: made now)
+    if v.line().is_some_and(|l| l.back_route == BackRoute::Auto && !l.is_map_line()) {
+        make_back(v, true);
+    }
     s.map = Some(m);
 }
 

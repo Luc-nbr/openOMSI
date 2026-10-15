@@ -171,7 +171,9 @@ fn stops_tab(v: &mut LineEditorView) -> Value {
     let dest = dest_field(v, v.dir);
     let Some(line) = v.line() else { return Value::Null };
     let two = line.directions.len() > 1;
-    let Some(d) = line.directions.get(v.dir) else { return json!({ "two": two, "none": true }) };
+    // (how the way back is made: a line of the map's keeps the map's)
+    let back = (!line.is_map_line() && v.dir == 1).then(|| back_view(v, line));
+    let Some(d) = line.directions.get(v.dir) else { return json!({ "two": two, "none": true, "back": back }) };
     let legs: Vec<Value> = d
         .legs
         .iter()
@@ -192,7 +194,57 @@ fn stops_tab(v: &mut LineEditorView) -> Value {
         "total": omsi_ui::tr("%{n} min from the first stop to the last").replace("%{n}", &format!("{:.0}", d.minutes())),
         "is_loop": d.is_loop(),
         "dest": dest,
+        "back": back,
     })
+}
+
+/// The way back's choice on the Stops tab (`back_mode`): whether the line editor makes it
+/// (`auto`), "Automatic" pressed once (`armed`) - and, while its stops are the ones made from
+/// the outbound, each one's mark (a stop of a name like the outbound's across the road, or none
+/// there: the outbound's own) and what the tab says of them and of its legs without a way.
+pub(super) fn back_view(v: &LineEditorView, line: &LineDesign) -> Value {
+    use reg::Across;
+    let tr = |s: &str| omsi_ui::tr(s).into_owned();
+    let auto = line.back_route == BackRoute::Auto;
+    let mut j = json!({ "auto": auto, "armed": v.back_armed, "marks": [], "notes": [] });
+    let (Some(out), Some(back)) = (line.directions.first(), line.directions.get(1)) else { return j };
+    let note = |tone: &str, text: String| json!({ "tone": tone, "text": text });
+    if auto && out.stops.len() < 2 {
+        j["notes"] = json!([note("soft", tr("Give the outbound its stops: the way back is made from them"))]);
+        return j;
+    }
+    let made = reg::across_the_road(&out.stops, &v.stops, ACROSS);
+    if v.stops.is_empty() || !same_stops(&back.stops, &made.iter().map(|m| m.0.clone()).collect::<Vec<_>>()) {
+        return j;
+    }
+    let from: Vec<&StopRef> = out.stops.iter().rev().collect();
+    j["marks"] = made
+        .iter()
+        .zip(&from)
+        .map(|((_, k), o)| match k {
+            Across::Named => Value::Null,
+            Across::Alike => json!({ "kind": "alike", "text": tr("Across the road from %{name}: a name like it").replace("%{name}", o.name.trim()) }),
+            Across::Missing => json!({ "kind": "missing", "text": tr("No stop across the road: the bus calls at this one both ways") }),
+        })
+        .collect();
+    let missing: Vec<&str> = made.iter().filter(|m| m.1 == Across::Missing).map(|m| m.0.name.trim()).collect();
+    let alike = made.iter().filter(|m| m.1 == Across::Alike).count();
+    let bad = back.legs.iter().filter(|g| !g.ok).count();
+    let mut notes = Vec::new();
+    if !missing.is_empty() {
+        notes.push(note("warn", tr("No stop across the road for %{n} stop(s): the bus calls at the outbound's own (%{names})").replace("%{n}", &missing.len().to_string()).replace("%{names}", &missing.join(", "))));
+    }
+    if bad > 0 {
+        notes.push(note("warn", tr("%{n} leg(s) have no way over the roads (red): drag them, or set the way back by hand").replace("%{n}", &bad.to_string())));
+    }
+    if alike > 0 {
+        notes.push(note("soft", tr("%{n} stop(s) taken by a name like the outbound's (marked): check them on the map").replace("%{n}", &alike.to_string())));
+    }
+    if notes.is_empty() && v.router.is_some() {
+        notes.push(note("ok", tr("Every stop has its stop across the road, and every leg a way over the roads")));
+    }
+    j["notes"] = json!(notes);
+    j
 }
 
 /// The destination's field (`destination_field`): what is typed, the placeholder - the last stop
