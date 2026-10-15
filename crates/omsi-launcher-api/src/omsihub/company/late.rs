@@ -94,13 +94,15 @@ pub fn cause_kind(key: &str) -> String {
     })
 }
 
-/// The tiers in words.
+/// The tiers in words, each its own whole minutes (`economy::late_tier`: none in two).
 pub fn tier_text(t: usize) -> String {
-    tr(match t {
-        1 => "Up to 5 min late: 10 %",
-        2 => "5 to 30 min late: 10 to 100 %",
-        _ => "30 min or more: the whole trip",
-    })
+    let pc = |m: i32| format!("{:.0}", economy::late_share(m) * 100.0);
+    let (from, five, full) = (economy::LATE_FROM, 5, economy::LATE_FULL);
+    match t {
+        1 => trf("%{from} to %{to} min late: %{share} %", &[("from", &from.to_string()), ("to", &five.to_string()), ("share", &pc(five))]),
+        2 => trf("%{from} to %{to} min late: %{low} to %{high} %", &[("from", &(five + 1).to_string()), ("to", &(full - 1).to_string()), ("low", &pc(five + 1)), ("high", &pc(full - 1))]),
+        _ => trf("%{from} min or more: the whole trip", &[("from", &full.to_string())]),
+    }
 }
 
 /// The tone of a tier (on time: none).
@@ -241,7 +243,7 @@ pub fn advice_view(s: &mut Session) -> Value {
     json!({ "caps": tr("Against late running").to_uppercase(), "list": lt::advice(c, &r.lateness).iter().map(|a| advice_json(c, a)).collect::<Vec<_>>() })
 }
 
-/// Punctuality as a share in words ("94 %").
+/// Punctuality as a share in words ("94 %"; no trip: "–").
 fn pct(timed: u32, late: u32) -> String {
     if timed == 0 {
         "–".into()
@@ -249,6 +251,68 @@ fn pct(timed: u32, late: u32) -> String {
         format!("{:.0} %", 100.0 * (timed - late) as f64 / timed as f64)
     }
 }
+
+/// A share of trips on time from which it is good (green), and fair (amber); red under.
+pub const ON_TIME_GOOD: f64 = 0.90;
+pub const ON_TIME_FAIR: f64 = 0.75;
+
+/// The tone of a punctuality: green from `ON_TIME_GOOD` on time, amber from `ON_TIME_FAIR`, red
+/// under; no trip timed: none.
+pub fn on_time_tone(timed: u32, late: u32) -> &'static str {
+    if timed == 0 {
+        return "dim";
+    }
+    let on_time = (timed - late.min(timed)) as f64 / timed as f64;
+    if on_time >= ON_TIME_GOOD - 1e-9 {
+        "ok"
+    } else if on_time >= ON_TIME_FAIR - 1e-9 {
+        "warn"
+    } else {
+        "danger"
+    }
+}
+
+/// The share of a punctuality's trips late (0 to 1; none timed: 0).
+fn late_share_of(p: &lt::Punct) -> f64 {
+    if p.timed == 0 {
+        0.0
+    } else {
+        p.late as f64 / p.timed as f64
+    }
+}
+
+/// The minutes a punctuality's late trips ran late on average.
+fn late_avg(p: &lt::Punct) -> f64 {
+    if p.late == 0 {
+        0.0
+    } else {
+        p.minutes as f64 / p.late as f64
+    }
+}
+
+/// The punctualities by line, hour and duty as the report shows them (`report_part`): every
+/// line; every hour from the first trip's to the last one's, an hour without trips "–"; the duties
+/// with a trip late, the latest first - the share of their trips late, then how late they ran
+/// on average -, at the most `DUTIES_SHOWN`.
+pub fn punct_rows(all: &Lateness) -> (Vec<lt::Punct>, Vec<lt::Punct>, Vec<lt::Punct>) {
+    let mut lines: Vec<lt::Punct> = all.lines.iter().filter(|p| p.timed > 0).cloned().collect();
+    lines.sort_by(|a, b| a.key.cmp(&b.key));
+    let timed: Vec<&lt::Punct> = all.hours.iter().filter(|p| p.timed > 0).collect();
+    let hour = |p: &lt::Punct| p.key.parse::<i32>().unwrap_or(0);
+    let mut hours: Vec<lt::Punct> = Vec::new();
+    if let (Some(a), Some(z)) = (timed.iter().map(|p| hour(p)).min(), timed.iter().map(|p| hour(p)).max()) {
+        for h in a..=z {
+            hours.push(timed.iter().find(|p| hour(p) == h).map(|p| (*p).clone()).unwrap_or_else(|| lt::Punct { key: format!("{h:02}"), ..Default::default() }));
+        }
+    }
+    let mut duties: Vec<lt::Punct> = all.duties.iter().filter(|p| p.late > 0).cloned().collect();
+    duties.sort_by(|a, b| late_share_of(b).total_cmp(&late_share_of(a)).then(late_avg(b).total_cmp(&late_avg(a))).then(b.worst.cmp(&a.worst)).then(a.key.cmp(&b.key)));
+    duties.truncate(DUTIES_SHOWN);
+    (lines, hours, duties)
+}
+
+/// The duties the report lists at the most.
+const DUTIES_SHOWN: usize = 8;
 
 /// The day report's late running (`reports`: the days just closed): the late trips worst first
 /// with their causes, punctuality by line, hour and duty, the deductions, and the advice.
@@ -273,7 +337,10 @@ pub fn report_part(c: &Company, reports: &[DayReport]) -> Value {
                 }
             }
         }
+        let cy = &mut all.carried;
+        (cy.trips, cy.minutes, cy.amount) = (cy.trips + l.carried.trips, cy.minutes + l.carried.minutes, cy.amount + l.carried.amount);
     }
+    all.causes.sort_by_key(|s| (std::cmp::Reverse(s.amount), std::cmp::Reverse(s.trips)));
     if all.lines.iter().all(|p| p.timed == 0) {
         return Value::Null;
     }
@@ -281,13 +348,21 @@ pub fn report_part(c: &Company, reports: &[DayReport]) -> Value {
     worst.sort_by_key(|o| std::cmp::Reverse(o.minutes));
     let shown: Vec<Value> = worst.iter().take(LATE_SHOWN).map(|o| outcome_json(c, o)).collect();
     let more = worst.len().saturating_sub(LATE_SHOWN);
-    let row = |label: String, p: &lt::Punct| json!({ "label": label, "value": pct(p.timed, p.late), "under": trf("%{n} of %{t} late", &[("n", &p.late.to_string()), ("t", &p.timed.to_string())]), "tone": if p.late == 0 { "ok" } else if p.late * 10 <= p.timed { "warn" } else { "danger" } });
-    let mut lines: Vec<&lt::Punct> = all.lines.iter().collect();
-    lines.sort_by(|a, b| a.key.cmp(&b.key));
-    let mut hours: Vec<&lt::Punct> = all.hours.iter().filter(|p| p.timed > 0).collect();
-    hours.sort_by(|a, b| a.key.cmp(&b.key));
-    let mut duties: Vec<&lt::Punct> = all.duties.iter().filter(|p| p.late > 0).collect();
-    duties.sort_by_key(|p| (std::cmp::Reverse(p.late), std::cmp::Reverse(p.minutes)));
+    // (by line and by hour: the share on time, as every trip timed counts in both; by duty the
+    // share late, as the list is of the duties late most)
+    let row = |label: String, p: &lt::Punct| {
+        let under = if p.timed == 0 { tr("No trips in this hour") } else { trf("%{n} of %{t} late", &[("n", &p.late.to_string()), ("t", &p.timed.to_string())]) };
+        json!({ "label": label, "value": pct(p.timed, p.late), "under": under, "tone": on_time_tone(p.timed, p.late) })
+    };
+    let duty_row = |label: String, p: &lt::Punct| {
+        json!({
+            "label": label,
+            "value": trf("%{p} % late", &[("p", &format!("{:.0}", late_share_of(p) * 100.0))]),
+            "under": trf("%{n} of %{t} trips late, %{m} min late on average", &[("n", &p.late.to_string()), ("t", &p.timed.to_string()), ("m", &format!("{:.0}", late_avg(p)))]),
+            "tone": on_time_tone(p.timed, p.late),
+        })
+    };
+    let (lines, hours, duties) = punct_rows(&all);
     let duty_label = |p: &lt::Punct| {
         let mut parts = p.key.splitn(3, '/');
         let (n, t) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
@@ -302,7 +377,7 @@ pub fn report_part(c: &Company, reports: &[DayReport]) -> Value {
         "none": all.trips.is_empty().then(|| tr("No trip ran late.")),
         "by_line_caps": tr("On time by line"), "by_line": lines.iter().map(|p| row(trf("Line %{n}", &[("n", &p.key)]), p)).collect::<Vec<_>>(),
         "by_hour_caps": tr("On time by hour"), "by_hour": hours.iter().map(|p| row(format!("{}:00", p.key), p)).collect::<Vec<_>>(),
-        "by_duty_caps": tr("Duties late most"), "by_duty": duties.iter().take(8).map(|p| row(duty_label(p), p)).collect::<Vec<_>>(),
+        "by_duty_caps": tr("Duties late most"), "by_duty": duties.iter().map(|p| duty_row(duty_label(p), p)).collect::<Vec<_>>(),
         "money": deductions_json(&all),
         "advice_caps": tr("Against late running").to_uppercase(), "advice": advice,
     })
@@ -311,16 +386,19 @@ pub fn report_part(c: &Company, reports: &[DayReport]) -> Value {
 /// The late trips the report lists at the most (the worst; the rest: "and n more").
 const LATE_SHOWN: usize = 30;
 
-/// The deductions by tier and cause, with how they were worked out.
-fn deductions_json(l: &Lateness) -> Value {
+/// The deductions by tier and cause, with how they were worked out: the same late trips, each
+/// once in each column (`Lateness::finish`), so the two add up to the same.
+pub fn deductions_json(l: &Lateness) -> Value {
     let total: i64 = l.tiers.iter().map(|t| t.amount).sum();
     json!({
         "caps": tr("Deductions for late running"), "total": eur(total),
         "tiers": l.tiers.iter().map(|t| { let k: usize = t.key.parse().unwrap_or(1); json!({ "label": tier_text(k), "trips": trf("%{n} trips", &[("n", &t.trips.to_string())]), "amount": eur(t.amount), "tone": tier_tone(k) }) }).collect::<Vec<_>>(),
         "causes": l.causes.iter().map(|s| json!({ "label": cause_kind(&s.key), "trips": trf("%{n} trips", &[("n", &s.trips.to_string())]), "amount": eur(s.amount) })).collect::<Vec<_>>(),
+        "carried": (l.carried.trips > 0).then(|| trf("%{n} of these trips carried a delay on from the trip before: the layover was too short to take it up.", &[("n", &l.carried.trips.to_string())])),
         "how_label": tr("How was this worked out?"),
         "how": [
-            trf("A trip counts as late from %{m} minutes behind the timetable, at its start or its end.", &[("m", &economy::LATE_FROM.to_string())]),
+            trf("A trip counts as late from %{m} whole minutes behind the timetable, at its start or its end: %{under} min 59 s behind is still on time.", &[("m", &economy::LATE_FROM.to_string()), ("under", &(economy::LATE_FROM - 1).to_string())]),
+            tr("Each late trip counts once in each column: in its tier, and under the cause that brought it the most minutes. A delay carried on from the trip before counts under the cause it began with (the traffic, a driver, a bus), less what the layovers took up on the way."),
             tr("Each late trip pays a share of its value under the contract (what dropping it would cost): 10 % up to 5 minutes, rising evenly to 100 % at 30 minutes; from 30 minutes the whole trip is deducted, as for a trip lost."),
             tr("A trip leaves when its bus is back from the trip before and its driver is there: a delay carries on along the block until a layover absorbs it. On the way the hour's traffic, the driver, the bus's condition and the day's events add minutes."),
             tr("Casual deducts nothing; school transport counts twice."),
@@ -345,6 +423,8 @@ pub fn finance_view(s: &mut Session) -> Value {
                 }
             }
         }
+        let cy = &mut l.carried;
+        (cy.trips, cy.minutes, cy.amount) = (cy.trips + x.carried.trips, cy.minutes + x.carried.minutes, cy.amount + x.carried.amount);
         trips.extend(d.trips.iter().filter(|o| o.deduction > 0).map(|o| (d.date.clone(), o)));
     }
     l.causes.sort_by_key(|s| std::cmp::Reverse(s.amount));
@@ -402,4 +482,124 @@ pub fn rf_marks(s: &Session, c: &Company, mut marks: Vec<Value>) -> Vec<Value> {
         tags.push(json!({ "text": trf("%{n} dropped", &[("n", &failed.to_string())]), "tone": "danger", "kind": "service" }));
     }
     marks
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use omsi_launcher_lib::company::model::Cents;
+    use omsi_launcher_lib::company::{found, Founding, GameMode};
+
+    /// Every text of this file in the six languages (`company-lateness.yml`).
+    #[test]
+    fn every_late_text_is_translated() {
+        let src = include_str!("late.rs");
+        let mut texts: Vec<String> = Vec::new();
+        for lead in ["tr(\"", "trf(\""] {
+            let mut rest = src;
+            while let Some(k) = rest.find(lead) {
+                let after = &rest[k + lead.len()..];
+                rest = after;
+                let t: String = after.chars().take_while(|c| *c != '"').collect();
+                if t.chars().any(char::is_alphabetic) {
+                    texts.push(t);
+                }
+            }
+        }
+        assert!(texts.len() > 60, "only {} texts found", texts.len());
+        let mut missing = Vec::new();
+        for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
+            let table = crate::i18n::table(lang);
+            for t in &texts {
+                if !table.contains_key(t) {
+                    missing.push(format!("{lang}: {t:?}"));
+                }
+            }
+        }
+        assert!(missing.is_empty(), "{} missing (crates/omsi-app/locales/company-lateness.yml):\n{}", missing.len(), missing.join("\n"));
+    }
+
+    #[test]
+    fn on_time_is_green_from_ninety_percent_and_amber_from_seventy_five() {
+        assert_eq!([on_time_tone(100, 0), on_time_tone(100, 10), on_time_tone(100, 11), on_time_tone(100, 25), on_time_tone(100, 26), on_time_tone(0, 0)], ["ok", "ok", "warn", "warn", "danger", "dim"]);
+    }
+
+    /// A day of line C1, blocks 02 and 03, two duties each (Luc's screenshot, smaller): each
+    /// trip's block, duty, departure and minutes late; the late ones with their deductions (100
+    /// EUR a trip), the cause each began with, and whether it carried a delay on.
+    fn day() -> Lateness {
+        let trips: [(&str, usize, i32, i32); 13] = [
+            ("02", 0, 8 * 60, 0),
+            ("02", 0, 8 * 60 + 30, 4),
+            ("02", 0, 9 * 60, 7),
+            ("02", 0, 9 * 60 + 30, 2),
+            ("02", 1, 13 * 60, 0),
+            ("02", 1, 13 * 60 + 30, 1),
+            ("03", 0, 8 * 60 + 15, 3),
+            ("03", 0, 8 * 60 + 45, 12),
+            ("03", 0, 9 * 60 + 15, 31),
+            ("03", 1, 13 * 60 + 15, 0),
+            ("03", 1, 13 * 60 + 45, 5),
+            ("03", 1, 14 * 60 + 15, 0),
+            ("03", 1, 14 * 60 + 45, 0),
+        ];
+        let mut l = Lateness::default();
+        let mut out = Vec::new();
+        for (k, &(tour, duty, dep, minutes)) in trips.iter().enumerate() {
+            l.count("C1", tour, duty, 7, dep, minutes);
+            if minutes >= economy::LATE_FROM {
+                let share = economy::late_share(minutes);
+                let carried = k == 2 || k == 7;
+                let causes = if carried { vec![Cause::Carried { dep: dep - 30, arr: dep - 5, stop: "Totnes Castle".into(), late: minutes + 2, layover: 5, deadhead: false, minutes }] } else { vec![Cause::Traffic { peak: true, minutes }] };
+                out.push(Outcome { line: "C1".into(), number: "C1".into(), tour: tour.into(), duty: Some(duty), dep, arr: dep + 25, minutes, causes, value: 100_00, share, deduction: (100_00 as f64 * share).round() as Cents, root: if k == 8 { "relief".into() } else { "peak".into() }, ..Default::default() });
+            }
+        }
+        l.finish(&out)
+    }
+
+    #[test]
+    fn the_report_counts_each_trip_alike_by_line_hour_and_duty() {
+        super::super::words::set_language("en");
+        let c = found(&Founding { name: "Late".into(), game_mode: GameMode::Realistic, date: "2026-10-15".into(), ..Default::default() }, "Luc");
+        let l = day();
+        // by line, hour and duty: the same 13 trips timed, the same 6 late
+        let (lines, hours, duties) = punct_rows(&l);
+        let total = |v: &[lt::Punct]| (v.iter().map(|p| p.timed).sum::<u32>(), v.iter().map(|p| p.late).sum::<u32>());
+        assert_eq!(total(&lines), (13, 6));
+        assert_eq!(total(&hours), total(&lines));
+        assert_eq!(total(&l.duties), total(&lines));
+        assert_eq!(duties.iter().map(|p| p.key.as_str()).collect::<Vec<_>>(), ["C1/03/0", "C1/02/0", "C1/03/1"]);
+        let r = DayReport { lateness: l.clone(), ..Default::default() };
+        let v = report_part(&c, &[r]);
+        let col = |list: &str, field: &str| v[list].as_array().unwrap().iter().map(|r| r[field].as_str().unwrap().to_string()).collect::<Vec<_>>();
+        // the line: 7 of 13 on time, red
+        assert_eq!((col("by_line", "value"), col("by_line", "tone")), (vec!["54 %".to_string()], vec!["danger".to_string()]));
+        // every hour from the first trip's to the last one's; those without trips "–", not a red 0 %
+        assert_eq!(col("by_hour", "label"), ["08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00"]);
+        assert_eq!(col("by_hour", "value"), ["25 %", "33 %", "–", "–", "–", "75 %", "100 %"]);
+        assert_eq!(col("by_hour", "tone"), ["danger", "danger", "dim", "dim", "dim", "warn", "ok"]);
+        // the duties late most: the share of their trips late, the latest first; one with nothing
+        // late is not listed
+        let labels = col("by_duty", "label");
+        assert_eq!(labels.len(), 3);
+        for (label, block) in labels.iter().zip(["C1/03 Duty 1", "C1/02 Duty 1", "C1/03 Duty 2"]) {
+            assert!(label.starts_with(block), "{label} for {block}");
+        }
+        assert_eq!(col("by_duty", "value"), ["100 % late", "50 % late", "25 % late"]);
+        assert_eq!(col("by_duty", "tone"), ["danger", "danger", "warn"]);
+        // the money: the tiers and the causes the same trips, each once, the same total
+        let sum = |s: &[lt::Sum]| (s.iter().map(|x| x.trips).sum::<u32>(), s.iter().map(|x| x.amount).sum::<Cents>());
+        assert_eq!(l.tiers.iter().map(|t| t.trips).collect::<Vec<_>>(), [3, 2, 1]);
+        assert_eq!(sum(&l.tiers), (6, 3 * 10_00 + 17_20 + 35_20 + 100_00));
+        assert_eq!(sum(&l.causes), sum(&l.tiers));
+        assert_eq!(l.causes.iter().map(|s| (s.key.as_str(), s.trips)).collect::<Vec<_>>(), [("relief", 1), ("peak", 5)]);
+        assert_eq!(v["money"]["total"], json!(eur(sum(&l.tiers).1)));
+        let tiers: Vec<String> = v["money"]["tiers"].as_array().unwrap().iter().map(|t| t["label"].as_str().unwrap().to_string()).collect();
+        assert_eq!(tiers, ["3 to 5 min late: 10 %", "6 to 29 min late: 14 to 96 %", "30 min or more: the whole trip"]);
+        // the trips that carried a delay on, as the advice for more layover counts them
+        assert_eq!(l.carried.trips, 2);
+        assert!(v["money"]["carried"].as_str().unwrap().starts_with("2 of these trips"));
+        let advised: u32 = lt::advice(&c, &l).iter().map(|a| if let Advice::Layover { trips, .. } = a { *trips } else { 0 }).sum();
+        assert_eq!(advised, l.carried.trips);
+    }
 }

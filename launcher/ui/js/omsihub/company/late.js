@@ -87,14 +87,16 @@ export function Deductions({ m }) {
     <div class="co-caps" style="display:flex"><span class="grow">${m.caps}</span><b>${m.total}</b></div>
     <div class="late-cols">
       <div>${m.tiers.map((t) => html`<div class="co-monthrow"><span class="cut"><i class=${'late-dot t-bg-' + t.tone}></i>${t.label}</span><span class="t-dim">${t.trips}</span><b>${t.amount}</b></div>`)}</div>
-      <div>${m.causes.map((t) => html`<div class="co-monthrow"><span class="cut">${t.label}</span><span class="t-dim">${t.trips}</span><b>${t.amount}</b></div>`)}</div>
+      <div>${m.causes.map((t) => html`<div class="co-monthrow"><span class="cut">${t.label}</span><span class="t-dim">${t.trips}</span><b>${t.amount}</b></div>`)}
+        ${m.carried && html`<p class="t-soft" style="margin:6px 0 0;font-size:var(--co-note)">${m.carried}</p>`}</div>
     </div>
     <button type="button" class="late-how" onClick=${() => setHow(!how)}><${Icon} name="help" size=${15} />${m.how_label}</button>
     ${how && html`<div class="late-why">${m.how.map((t) => html`<p>${t}</p>`)}</div>`}
   </div>`;
 }
 
-/** Punctuality rows (by line, hour, duty) as small figures. */
+/** Punctuality rows (by line, hour, duty) as small figures, each coloured by its share on time
+ * (`late::on_time_tone`); an hour without trips shows "–", dim. */
 function Puncts({ caps, rows }) {
   if (!rows?.length) return null;
   return html`<div class="late-puncts"><div class="co-caps">${caps}</div>
