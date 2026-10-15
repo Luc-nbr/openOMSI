@@ -46,7 +46,7 @@ export function Studio({ p, drivers }) {
   return html`<div class="rf-studio" ref=${ref}>
     ${!r.fullscreen && html`<${Kpis} k=${data.kpis} />`}
     <${Toolbar} data=${data} drivers=${drivers} proposal=${proposal} />
-    ${proposal && html`<${Proposal} />`}
+    ${proposal && html`<${Proposal} data=${data} />`}
     ${!proposal && offerOpen(r.ruleOffer, data) && html`<${RuleOffer} o=${r.ruleOffer} />`}
     <${Gantt} data=${data} drivers=${drivers} readOnly=${proposal} p=${p} onTip=${onTip} />
     <${StatusBar} data=${data} drivers=${drivers} />
@@ -132,13 +132,16 @@ function Toolbar({ data, drivers, proposal }) {
   </div>`;
 }
 
-/** "Optimise"'s proposal over the Gantt: accept it, or keep the day as it is. */
-function Proposal() {
+/** "Optimise"'s proposal over the Gantt: what it did in words (all of it on hover), and accept it
+ * or keep the day as it is. Where it found nothing better the day as it is, and why: only Close. */
+function Proposal({ data }) {
+  const better = data.proposal_better !== false;
+  const note = data.proposal_note || tr('Optimised proposal: the KPIs show it against your planning. Locked vehicles and duties are kept.');
   return html`<div class="rf-proposal" data-rf="rf-proposal">
-    <${Icon} name="bolt" size=${18} />
-    <span class="grow">${tr('Optimised proposal: the KPIs show it against your planning. Locked vehicles and duties are kept.')}</span>
-    <${RfButton} label="Accept" solid style="width:140px" onClick=${() => rfAct('accept')} />
-    <${RfButton} label="Keep mine" style="width:140px" onClick=${() => rfAct('keep_mine')} />
+    <${Icon} name=${better ? 'bolt' : 'info'} size=${18} />
+    <span class="grow" title=${note}>${note}</span>
+    ${better && html`<${RfButton} label="Accept" solid style="width:140px" onClick=${() => rfAct('accept')} />`}
+    <${RfButton} label=${better ? 'Keep mine' : 'Close'} style="width:140px" onClick=${() => rfAct('keep_mine')} />
   </div>`;
 }
 

@@ -49,7 +49,7 @@ const INFO = {
   travel: 'How a driver gets to a relief point at another place, and how long it takes.',
   breaks: 'A duty working longer than this needs a meal break of at least this long.',
   continuous: 'The longest a driver works without a break of at least this long.',
-  limits: 'The spread of a duty (sign-on to sign-off) at most.',
+  limits: 'The spread of a duty (sign-on to sign-off) at most, and the least length of a duty.',
   pieces: 'Pieces of work at least this long: short pieces are costly.',
   changeover: 'How many times a driver may change buses in a duty.',
   split: 'A break between two pieces this long or longer is a split: unpaid.',
@@ -69,7 +69,7 @@ function inUse(it, p) {
     case 'continuous':
       return p.continuous.on;
     case 'limits':
-      return p.max_spread.on;
+      return p.max_spread.on || !!p.min_duty?.on;
     case 'pieces':
       return p.min_piece.on;
     case 'changeover':
@@ -265,11 +265,12 @@ function DutyTypes({ types, set, v }) {
         <span class="cap">${tr('Start').toUpperCase()}</span><span class="two"><${Stepper} value=${t.start_from} step=${15} min=${0} max=${1439} fmt=${clock} style="width:110px" onChange=${(x) => put(n, { start_from: x })} /><${Stepper} value=${t.start_to} step=${15} min=${0} max=${1439} fmt=${clock} style="width:110px" onChange=${(x) => put(n, { start_to: x })} /></span>
         <span class="cap">${tr('End by').toUpperCase()}</span><${Stepper} value=${t.end_by} step=${15} min=${0} max=${2879} fmt=${clock} style="width:110px" onChange=${(x) => put(n, { end_by: x })} />
         <span class="cap">${tr('Length at most').toUpperCase()}</span><${Stepper} value=${t.max_length} step=${15} min=${60} max=${1440} fmt=${hm} style="width:110px" onChange=${(x) => put(n, { max_length: x })} />
+        <span class="cap" title=${tr('A shorter duty is not of this type (0:00: no least length).')}>${tr('Length at least').toUpperCase()}</span><${Stepper} value=${t.min_length || 0} step=${15} min=${0} max=${1440} fmt=${hm} style="width:110px" onChange=${(x) => put(n, { min_length: x })} />
         <span class="cap">${tr('Split').toUpperCase()}</span><${Seg} at=${Math.max(0, TRI.indexOf(t.split))} labels=${v.tri_labels} raw style="width:220px" onPick=${(k) => put(n, { split: TRI[k] })} />
         <span class="cap">${tr('Penalty').toUpperCase()}</span><${Stepper} value=${Math.round(t.penalty / 100)} step=${5} min=${0} max=${10000} fmt=${(e) => eur(e * 100)} style="width:130px" onChange=${(x) => put(n, { penalty: x * 100 })} />
       </div>
     </div>`)}
-    <button type="button" class="pf-add" onClick=${() => set([...types, { name: tr('New type'), start_from: 0, start_to: 1439, end_by: 1800, max_length: 600, split: 'Either', allowed: true, penalty: 0 }])}><${Icon} name="add" size=${16} />${tr('Add preference')}</button>
+    <button type="button" class="pf-add" onClick=${() => set([...types, { name: tr('New type'), start_from: 0, start_to: 1439, end_by: 1800, max_length: 600, min_length: 0, split: 'Either', allowed: true, penalty: 0 }])}><${Icon} name="add" size=${16} />${tr('Add preference')}</button>
   </div>`;
 }
 
@@ -345,9 +346,18 @@ export function PrefsWindow() {
         <p class="pf-note">${tr('Gaps shorter than %{t} are standing time (Duty Breaks: show a gap as a break from).', { t: hm(pr.break_from ?? 15) })}</p>
         <${Live} live=${live} item="continuous" />`;
       break;
-    case 'limits':
-      body = html`<${Limit} lim=${pr.max_spread} label="Spread at most" step=${15} max=${1440} fmt=${hm} set=${(x) => put({ max_spread: x })} /><${Live} live=${live} item="limits" />`;
+    case 'limits': {
+      // (the least length of a duty, a tester's wish of 2026-10-15: "the shortest a duty can be";
+      // an old save has none)
+      const least = pr.min_duty || { on: false, value: v.min_paid || 240, hard: false, penalty: 0 };
+      body = html`<b class="pf-sub">${tr('Spread at most').toUpperCase()}</b>
+        <${Limit} lim=${pr.max_spread} label="Spread at most" step=${15} max=${1440} fmt=${hm} set=${(x) => put({ max_spread: x })} /><${Live} live=${live} item="limits" />
+        <b class="pf-sub">${tr('Duty length at least').toUpperCase()}</b>
+        <${Limit} lim=${least} label="Duty length at least" step=${15} max=${720} fmt=${hm} set=${(x) => put({ min_duty: x })} />
+        ${least.on && html`<p class="pf-note">${tr('Sign-on to sign-off. A shorter duty is an issue and is paid up to this length (a duty is paid %{t} at least anyway).', { t: hm(v.min_paid || 240) })}</p>`}
+        <${Live} live=${live} item="length" />`;
       break;
+    }
     case 'pieces':
       body = html`<${Limit} lim=${pr.min_piece} label="Pieces at least" step=${5} max=${600} fmt=${hm} set=${(x) => put({ min_piece: x })} /><${Live} live=${live} item="pieces" />`;
       break;

@@ -126,10 +126,12 @@ enum Of {
 }
 
 /// The Preferences' items with a rule the day can break, the issues of each and what they are of.
-const RULES: [(&str, &[&str], Of); 9] = [
+const RULES: [(&str, &[&str], Of); 10] = [
     ("breaks", &[rf::I_MEAL, rf::I_MEAL_LATE], Of::Duties),
     ("continuous", &[rf::I_CONTINUOUS], Of::Duties),
     ("limits", &[rf::I_SPREAD], Of::Duties),
+    // (Time Limitations' least length of a duty, counted apart from the spread at most)
+    ("length", &[rf::I_SHORT_DUTY], Of::Duties),
     ("pieces", &[rf::I_SHORT_PIECE], Of::Duties),
     ("changeover", &[rf::I_CHANGEOVERS], Of::Duties),
     ("types", &[rf::I_TYPE], Of::Duties),
@@ -144,6 +146,7 @@ fn rule_name(item: &str) -> &'static str {
         "breaks" => "Duty Breaks",
         "continuous" => "Continuous Break",
         "limits" => "Time Limitations",
+        "length" => "Duty length at least",
         "pieces" => "Piece Length",
         "changeover" => "Driver Changeover Vehicle",
         "types" => "Duty Types",
@@ -154,10 +157,11 @@ fn rule_name(item: &str) -> &'static str {
 }
 
 /// The fields of the preferences each item's rule hangs on.
-const FIELDS: [(&str, &[&str]); 9] = [
+const FIELDS: [(&str, &[&str]); 10] = [
     ("breaks", &["meal", "meal_after", "break_from"]),
     ("continuous", &["continuous", "break_min", "break_from", "layover_breaks"]),
     ("limits", &["max_spread"]),
+    ("length", &["min_duty"]),
     ("pieces", &["min_piece"]),
     ("changeover", &["changeovers"]),
     ("types", &["duty_types", "split_min"]),

@@ -69,6 +69,8 @@ pub(crate) struct Cached {
 /// Optimise's proposal for a date and generation: the board and what to keep. `base` is the
 /// revision of the day it was made from: a change of the company that leaves the day as it was
 /// (the week's timetables read, the clock's minutes) keeps it, as the game-drawn launcher keeps it.
+/// `better`: it weighs less than the day as it is (else it is the day as it is, nothing to
+/// accept); `note` what Optimise did in words, or why it could not.
 #[derive(Clone)]
 struct Proposal {
     date: String,
@@ -78,6 +80,8 @@ struct Proposal {
     view: Arc<Company>,
     layouts: Vec<LineLayout>,
     joined: Vec<JoinedDuty>,
+    better: bool,
+    note: String,
 }
 
 /// RosterFlow's state beside the company's session.
@@ -570,6 +574,8 @@ fn board_answer(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
         "board": board,
         "kpis": kpis_json(figures_of, against.as_ref()),
         "proposal": proposal.is_some(),
+        "proposal_better": proposal.as_ref().map(|p| p.better),
+        "proposal_note": proposal.as_ref().map(|p| p.note.clone()),
         "lines": lines,
         "prefs": {
             "relief": rf::ReliefTiming::ALL.iter().position(|x| *x == prefs.relief).unwrap_or(0),
@@ -884,6 +890,8 @@ fn prefs_view(s: &mut Session, r: &mut Rf, date: &str) -> Value {
         "travel_labels": Travel::LABELS.iter().map(|x| tr(x)).collect::<Vec<_>>(),
         "tri_labels": rf::Tri::LABELS.iter().map(|x| tr(x)).collect::<Vec<_>>(),
         "type_names": c.planning.flow.prefs.duty_types.iter().map(|t| tr(&t.name)).collect::<Vec<_>>(),
+        // (the least a duty is paid always: Time Limitations' least length of a duty says so)
+        "min_paid": co::staff::MIN_PAID,
     })
 }
 
@@ -937,6 +945,87 @@ fn rules_applied(s: &mut Session, r: &mut Rf, date: &str, was: &rf::Prefs, befor
         out["offer"] = offer;
     }
     out
+}
+
+/// Optimise the day shown (`k`): its proposal over the Gantt - where nothing better was found the
+/// day as it is, with nothing to accept - and what it did said in words, or why it could not
+/// (testers, 2026-10-15: "optimise feature do not work in rosterflow": a day it found nothing
+/// better for came back unchanged and unsaid, and Accept kept it as it was).
+fn optimise(r: &mut Rf, k: &Cached) -> Value {
+    let p = &k.view.planning.flow.prefs;
+    if !p.optimise_vehicles && !p.optimise_duties {
+        return said(tr("Optimise makes neither the vehicles nor the duties now: switch one on in the Optimisation settings (the gear beside OPTIMIZE)."), true);
+    }
+    if k.board.tours.is_empty() && k.board.stack.is_empty() {
+        return said(tr("Nothing to optimise: no trips run on this day."), true);
+    }
+    let mut o = rf::optimise_day(&k.view, &k.lines, &k.date);
+    // (a duty's own sign-on, sign-off and break points stay its own)
+    rf::signing::keep_points(&k.view, &mut o.view, &k.lines, &k.date);
+    o.board = rf::board(&o.view, &k.lines, &k.date);
+    let note = outcome_words(&k.board, &o);
+    r.proposal = Some(Proposal { date: k.date.clone(), generation: k.generation, base: k.rev.clone(), better: o.better, note: note.clone(), board: Arc::new(o.board), view: Arc::new(o.view), layouts: o.layouts, joined: o.joined });
+    let mut out = said(note, false);
+    out["proposal"] = json!(true);
+    out
+}
+
+/// The hard rules day `b` (of company `c`) breaks that are Optimise's to keep: not the day's roster
+/// (an ill driver, a bus in the workshop) nor a line without a timetable; the dismissed left out.
+fn unmet<'a>(c: &Company, b: &'a Board) -> Vec<&'a rf::Issue> {
+    b.issues.iter().filter(|i| i.hard && rf::of_the_plan(i) && !rf::dismissed(c, b.weekday, &i.key)).collect()
+}
+
+/// Issues by their titles, each with how many: "Duty type unsatisfied (2), No meal break (1)".
+fn grouped(list: &[&rf::Issue]) -> String {
+    let mut groups: Vec<(&'static str, usize)> = Vec::new();
+    for i in list {
+        let t = rf::issue_title(i.text);
+        match groups.iter_mut().find(|g| g.0 == t) {
+            Some(g) => g.1 += 1,
+            None => groups.push((t, 1)),
+        }
+    }
+    groups.iter().map(|(t, n)| format!("{} ({n})", tr(t))).collect::<Vec<_>>().join(", ")
+}
+
+/// What Optimise could not keep on day `b` (of company `c`), in words: the duties that still break
+/// a hard rule and which, the vehicles drivers may change on nowhere, and the rest it breaks.
+fn unmet_words(c: &Company, b: &Board) -> Vec<String> {
+    let open = unmet(c, b);
+    let mut out = Vec::new();
+    let duty: Vec<&rf::Issue> = open.iter().filter(|i| i.scope == Scope::Duty).copied().collect();
+    if !duty.is_empty() {
+        let mut rows: Vec<usize> = duty.iter().filter_map(|i| i.row).collect();
+        rows.sort_unstable();
+        rows.dedup();
+        out.push(trf("%{n} duties can't keep every hard rule, because of: %{why}.", &[("n", &rows.len().to_string()), ("why", &grouped(&duty))]));
+    }
+    let n = rf::uncuttable(c, b);
+    if n > 0 {
+        out.push(trf("%{n} vehicles have no relief point where drivers may change (Preferences › Relief Points).", &[("n", &n.to_string())]));
+    }
+    let rest: Vec<&rf::Issue> = open.iter().filter(|i| i.scope != Scope::Duty).copied().collect();
+    if !rest.is_empty() {
+        out.push(trf("Also broken: %{why}.", &[("why", &grouped(&rest))]));
+    }
+    out
+}
+
+/// What Optimise did (`o`, against the day as it was, `was`), in words.
+fn outcome_words(was: &Board, o: &rf::Outcome) -> String {
+    let (f, w) = (&o.board.figures, &was.figures);
+    let mut out = vec![if o.better {
+        trf("Optimised: %{duties} duties on %{blocks} vehicles, %{cost} a day (your planning: %{was}).", &[("duties", &f.duties.to_string()), ("blocks", &f.blocks.to_string()), ("cost", &eur(f.total())), ("was", &eur(w.total()))])
+    } else {
+        tr("No better plan found: your planning already costs the least by the preferences.")
+    }];
+    let (now, before) = (unmet(&o.view, &o.board).len(), unmet(&o.view, was).len());
+    if o.better && now < before {
+        out.push(trf("Hard rules broken: %{n}, against %{m} in your planning.", &[("n", &now.to_string()), ("m", &before.to_string())]));
+    }
+    out.extend(unmet_words(&o.view, &o.board));
+    out.join(" ")
 }
 
 /// Undo the last edit (`back`), or redo the last undone (`rosterflow::undo`).
@@ -1141,18 +1230,10 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
     let trips = usizes(args, "trips");
     let label_of = |i: usize| tours.get(i).map(block_label).unwrap_or_default();
     Ok(match what.as_str() {
-        "optimise" => {
-            let (lays, joined) = rf::optimise(&k.view, &k.lines, &k.date);
-            let mut probe = (*k.view).clone();
-            rf::apply(&mut probe, wd, lays.clone(), joined.clone());
-            // (a duty's own sign-on, sign-off and break points stay its own)
-            rf::signing::keep_points(&k.view, &mut probe, &k.lines, &k.date);
-            let pb = rf::board(&probe, &k.lines, &k.date);
-            r.proposal = Some(Proposal { date: k.date.clone(), generation: k.generation, base: k.rev.clone(), board: Arc::new(pb), view: Arc::new(probe), layouts: lays, joined });
-            json!({ "proposal": true })
-        }
+        "optimise" => optimise(r, &k),
         "accept" => match r.proposal.take() {
-            Some(pr) => {
+            // (nothing better was found: the day as it is, nothing to accept)
+            Some(pr) if pr.better => {
                 let (lines, date) = (k.lines.clone(), k.date.clone());
                 let out = edit(s, r, tr("Optimised"), |c| {
                     let before = c.clone();
@@ -1166,7 +1247,7 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
                     out
                 }
             }
-            None => json!({}),
+            _ => json!({}),
         },
         "move" => {
             let to = args.get("to").cloned().unwrap_or(Value::Null);
@@ -1579,7 +1660,7 @@ mod tests {
         assert_eq!(duty["periods"][0]["over"], true);
         assert!(duty["meal"]["tip"].as_str().is_some_and(|t| t.contains("No meal break by")));
         // Optimise's proposal, made to these rules
-        r.proposal = Some(Proposal { date: date.clone(), generation: k.generation, base: k.rev.clone(), board: k.board.clone(), view: k.view.clone(), layouts: Vec::new(), joined: Vec::new() });
+        r.proposal = Some(Proposal { date: date.clone(), generation: k.generation, base: k.rev.clone(), board: k.board.clone(), view: k.view.clone(), layouts: Vec::new(), joined: Vec::new(), better: true, note: String::new() });
         // the rules edited, not saved: what each breaks then, next to its fields
         let mut edited = (*k.view).clone();
         edited.planning.flow.prefs.break_from = 10;
@@ -1609,6 +1690,49 @@ mod tests {
         assert_eq!(out["offer"]["text"], "Broken now by the changed rules: Duty Breaks (2 duties)");
         assert_eq!(out["say"]["text"], out["offer"]["text"]);
         assert!(out["offer"]["groups"].as_array().is_some_and(|g| g.iter().any(|x| x == rf::I_MEAL)));
+    }
+
+    #[test]
+    fn optimise_says_what_it_did_and_a_day_it_cannot_better_has_nothing_to_accept() {
+        // (testers, 2026-10-15: "optimise feature do not work in rosterflow")
+        company::words::set_language("en");
+        let (c, l) = line5_company();
+        let date = c.date.clone();
+        let mut s = Session::default();
+        s.company = Some(c);
+        company::test_week(&mut s, vec![l]);
+        let mut r = Rf::default();
+        let k = ensure(&mut s, &mut r, &date).unwrap().unwrap();
+        let out = optimise(&mut r, &k);
+        let text = out["say"]["text"].as_str().unwrap_or_default().to_string();
+        assert!(text.starts_with("Optimised: ") && out["proposal"] == true, "{text}");
+        let pr = r.proposal.clone().expect("a proposal");
+        assert!(pr.better && pr.note == text);
+        assert!(pr.board.figures.duties != k.board.figures.duties || pr.board.tours != k.board.tours);
+        // the proposal kept (as Accept keeps it; `company::act` writes the company to the data
+        // folder, so here it is put in the session): Optimise again finds nothing better, says so,
+        // and has nothing to accept
+        rf::apply(s.company.as_mut().unwrap(), pr.board.weekday, pr.layouts.clone(), pr.joined.clone());
+        r.cache = None;
+        r.proposal = None;
+        let k = ensure(&mut s, &mut r, &date).unwrap().unwrap();
+        let out = optimise(&mut r, &k);
+        assert!(out["say"]["text"].as_str().is_some_and(|t| t.starts_with("No better plan found")), "{}", out["say"]["text"]);
+        assert!(r.proposal.as_ref().is_some_and(|p| !p.better && p.layouts.len() == k.view.planning.layouts.iter().filter(|x| x.weekday == k.board.weekday).count()));
+        // neither the vehicles nor the duties to make: said, no proposal
+        r.proposal = None;
+        let mut v = (*k.view).clone();
+        v.planning.flow.prefs.optimise_vehicles = false;
+        v.planning.flow.prefs.optimise_duties = false;
+        let k2 = Cached { view: Arc::new(v), ..k.clone() };
+        let out = optimise(&mut r, &k2);
+        assert_eq!(out["say"]["error"], true);
+        assert!(r.proposal.is_none());
+        // what a day it cannot keep the hard rules on says why
+        let mut b = (*k.board).clone();
+        b.issues.push(rf::Issue { scope: Scope::Duty, row: Some(0), text: rf::I_TYPE, args: vec![("type", rf::OTHER.into())], hard: true, penalty: 0, key: "x".into() });
+        let words = unmet_words(&k.view, &b).join(" ");
+        assert!(words.contains("1 duties can't keep every hard rule, because of: Duty type unsatisfied (1)."), "{words}");
     }
 
     /// The English texts the commands hand to `tr`/`trf` (the first literal of each call).
