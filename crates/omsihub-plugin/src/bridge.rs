@@ -118,6 +118,16 @@ pub struct Report {
     /// The trip's number in the duty (from 1) and the timetable's name of it.
     pub trip: u32,
     pub trip_name: String,
+    /// The duty's trips, and the trip's line as its displays show it, its terminus and when it
+    /// was to leave its first stop and reach its last (seconds of the day): `duty.trips`.
+    pub trips: u32,
+    pub number: String,
+    pub terminus: String,
+    pub departure: Option<f64>,
+    pub arrival: Option<f64>,
+    /// The bus driven, its `.bus` file (`bus.file`) and the map's `global.cfg` (`map.info`).
+    pub bus: String,
+    pub map: String,
     /// How the trip ended: `"arrived"`, `"skipped"`, `"given_up"`.
     pub how: String,
     /// The trip's ratings in per cent, where the game gives them.

@@ -67,10 +67,59 @@ fn is_omsi_root(p: &Path) -> bool {
     omsi_cfg::missing_original_essentials(p).is_empty()
 }
 
-/// Where the game binary is: the configured path, next to the launcher, or the
-/// development build in the source tree.
+/// Another openOMSI the launcher starts instead of its own (Omsi-Hub's add-on mode: the
+/// player's chosen folder, `omsi-launcher-api`'s `omsihub/addon.rs`): its program, and whether it
+/// takes this launcher's own arguments (`OWN_ARGS`: a game of the same build does, openOMSI's
+/// own release does not and would refuse to start).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChosenGame {
+    pub exe: PathBuf,
+    pub own_args: bool,
+}
+
+static CHOSEN_GAME: std::sync::Mutex<Option<ChosenGame>> = std::sync::Mutex::new(None);
+
+/// Start `game` from now on (None: the launcher's own game again).
+pub fn choose_game(game: Option<ChosenGame>) {
+    *CHOSEN_GAME.lock().unwrap_or_else(|e| e.into_inner()) = game;
+}
+
+/// The game chosen in place of the launcher's own, if any.
+pub fn chosen_game() -> Option<ChosenGame> {
+    CHOSEN_GAME.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// The arguments this launcher's game knows and openOMSI's own release does not, and whether
+/// each takes a value.
+pub const OWN_ARGS: &[(&str, bool)] = &[("--company", true), ("--duty-leg", true), ("--free-line", true), ("--display-font", true), ("--editor", false)];
+
+/// A command line without `OWN_ARGS`, for openOMSI's own release. A free drive along a line
+/// (`--free-line`) goes with its `--line` too: the line alone would be a duty of its first tour.
+pub fn without_own_args(args: &[String]) -> Vec<String> {
+    let free = args.iter().any(|a| a == "--free-line");
+    let mut out = Vec::with_capacity(args.len());
+    let mut i = 0;
+    while i < args.len() {
+        let a = args[i].as_str();
+        match OWN_ARGS.iter().find(|(n, _)| *n == a) {
+            Some((_, value)) => i += 1 + *value as usize,
+            None if free && a == "--line" => i += 2,
+            None => {
+                out.push(args[i].clone());
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
+/// Where the game binary is: the game chosen in its place (`choose_game`), the configured
+/// path, next to the launcher, or the development build in the source tree.
 fn find_game(configured: &str) -> Option<PathBuf> {
     let mut cands: Vec<PathBuf> = Vec::new();
+    if let Some(g) = chosen_game() {
+        cands.push(g.exe);
+    }
     // the game that came with this launcher first: a path remembered from an older
     // installation (`target/release/omsi` of the days before the rename) kept starting an
     // old build after every update - the new pause menu "was not there" on macOS
@@ -3710,6 +3759,23 @@ fn save_slots(dir: &Path) -> Vec<SavedSituation> {
 }
 
 #[cfg(test)]
+mod chosen_game_tests {
+    use super::*;
+
+    #[test]
+    fn openomsi_s_own_release_gets_none_of_the_launcher_s_own_arguments() {
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<String>>();
+        let duty = s(&["--root", "C:/OMSI 2", "--display-font", "Annax", "--line", "5", "--tour", "1", "--duty-leg", "5|2|1|3", "--company", "abc", "--editor", "--driver", "Drivers/Luc.odr"]);
+        assert_eq!(without_own_args(&duty), s(&["--root", "C:/OMSI 2", "--line", "5", "--tour", "1", "--driver", "Drivers/Luc.odr"]));
+        // (a free drive along a line: a drive of the player's own, no duty of the line)
+        let free = s(&["--map", "maps/Grundorf/global.cfg", "--schedule", "--line", "14", "--free-line", "14_Hbf-Zoo", "--traffic", "30"]);
+        assert_eq!(without_own_args(&free), s(&["--map", "maps/Grundorf/global.cfg", "--schedule", "--traffic", "30"]));
+        let plain = s(&["--map", "m", "--line", "5", "--tour", "1"]);
+        assert_eq!(without_own_args(&plain), plain);
+    }
+}
+
+#[cfg(test)]
 mod save_slot_tests {
     use super::*;
 
@@ -3745,10 +3811,15 @@ mod save_slot_tests {
     }
 }
 
-/// The command line a duty becomes.
+/// The command line a duty becomes (for the game chosen in the launcher's place, without the
+/// arguments it does not know: `without_own_args`).
 pub fn duty_args(d: &Duty) -> Result<Vec<String>> {
     let root = root()?;
-    duty_args_for_root(d, &root)
+    let args = duty_args_for_root(d, &root)?;
+    Ok(match chosen_game() {
+        Some(g) if !g.own_args => without_own_args(&args),
+        _ => args,
+    })
 }
 
 // The installation is validated by duty_args; argument tests supply their own path.

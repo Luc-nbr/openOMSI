@@ -398,6 +398,8 @@ fn game_log(pid: u32, lines: Option<usize>) -> Answer {
 /// Start a game for the duty (the window may step aside while it runs: `Platform::launched`).
 fn launch(p: &dyn Platform, duty: Value) -> Answer {
     let d: core::Duty = serde_json::from_value(duty).map_err(err)?;
+    // Omsi-Hub: its plugin told of the drive (`omsihub/addon.rs`)
+    omsihub::addon::assign_duty(&d, None);
     let launched = core::launch(&d).map_err(err)?;
     core::log_to_file(&format!("game {}: {}", launched.pid, launched.command));
     p.launched();
@@ -601,6 +603,8 @@ fn arg<T: serde::de::DeserializeOwned>(args: &Value, name: &str) -> Result<T, St
 
 /// Run a command of the page (on the caller's thread: a window runs it on a worker).
 pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Answer {
+    // Omsi-Hub: the game of its add-on mode, chosen at an earlier start (`omsihub/addon.rs`)
+    omsihub::addon::apply_saved();
     match cmd {
         "bootstrap" => bootstrap(p),
         "translations" => translations(arg::<String>(args, "lang")?),
@@ -657,7 +661,11 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Answer {
             core::install::clear_finished();
             Ok(json!(true))
         }
-        "poll" => poll(),
+        "poll" => {
+            // Omsi-Hub: what its plugin reported, booked (`omsihub/addon.rs`)
+            omsihub::addon::book();
+            poll()
+        }
         "stop_game" => stop_game(arg::<u32>(args, "pid")?),
         "game_log" => game_log(arg::<u32>(args, "pid")?, arg::<Option<usize>>(args, "lines")?),
         "model_check" => model_check(arg::<String>(args, "bus")?),

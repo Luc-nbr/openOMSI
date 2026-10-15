@@ -127,6 +127,7 @@ fn the_duty_is_taken_its_trips_reported_and_the_notices_shown() {
     let trip = &reports[1];
     assert_eq!((trip.issued, trip.duty.as_str(), trip.line.as_str(), trip.tour.as_str()), (1_760_000_000, "D-12", "10", "2"));
     assert_eq!((trip.trip, trip.trip_name.as_str(), trip.how.as_str()), (1, "Zoo - Hbf", "arrived"));
+    assert_eq!((trip.trips, trip.number.as_str()), (2, "10"));
     assert_eq!((trip.driving, trip.comfort, trip.tickets, trip.delay), (Some(95.0), Some(88.0), Some(100.0), Some(42.0)));
     assert_eq!(trip.clock, Some(28_800.0));
 

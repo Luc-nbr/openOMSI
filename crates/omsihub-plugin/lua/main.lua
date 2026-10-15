@@ -147,8 +147,13 @@ end
 
 local state = { line = nil, tour = nil, last_trip = nil, started = false }
 
+-- (a company's duty: a drive of the player's own has an assignment only for its driver)
+local function company_duty()
+  return assignment and (assignment.duty or "") ~= ""
+end
+
 local function panel()
-  if not (assignment and has["ui.set"]) then return end
+  if not (company_duty() and has["ui.set"]) then return end
   local d = duty_now()
   local status
   if d then
@@ -184,10 +189,31 @@ end
 
 -- --- the duty and its trips -------------------------------------------------------------------
 
-local function trip_name(n)
-  if not has["duty.trips"] then return "" end
-  local t = omsi.duty.trips()[n]
-  return t and t.name or ""
+-- what the duty's timetable says of trip `n` (from 1), and the bus and the map it is driven on
+local function trip_facts(n)
+  local f = { trip = n, trip_name = "", trips = 0, number = "", terminus = "", bus = "", map = "" }
+  if has["duty.trips"] then
+    local all = omsi.duty.trips()
+    local t = all[n]
+    f.trips = #all
+    if t then
+      f.trip_name, f.number, f.terminus = t.name or "", t.line or "", t.terminus or ""
+      f.departure, f.arrival = t.departure, t.arrival
+    end
+  end
+  if fn("bus.file") then f.bus = omsi.bus.file() or "" end
+  if fn("map.info") then
+    local m = omsi.map.info()
+    if type(m) == "table" and type(m.path) == "string" then f.map = m.path end
+  end
+  return f
+end
+
+local function trip_report(line, tour, n, fields)
+  local r = trip_facts(n)
+  r.line, r.tour = line or "", tour or ""
+  for k, v in pairs(fields) do r[k] = v end
+  report("trip", r)
 end
 
 local function delay()
@@ -206,10 +232,7 @@ omsi.on("duty", function(line, tour)
 end)
 
 omsi.on("trip_done", function(trip, how, driving, comfort, tickets)
-  report("trip", {
-    line = state.line or "", tour = state.tour or "", trip = trip, trip_name = trip_name(trip),
-    how = how, driving = driving, comfort = comfort, tickets = tickets, delay = delay(),
-  })
+  trip_report(state.line, state.tour, trip, { how = how, driving = driving, comfort = comfort, tickets = tickets, delay = delay() })
   panel()
 end)
 
@@ -218,7 +241,7 @@ local function watch_trips()
   local d = duty_now()
   if not d then return end
   if state.last_trip and d.trip > state.last_trip then
-    report("trip", { line = d.line, tour = d.tour, trip = state.last_trip, trip_name = trip_name(state.last_trip), how = "arrived", delay = d.delay })
+    trip_report(d.line, d.tour, state.last_trip, { how = "arrived", delay = d.delay })
   end
   state.last_trip = d.trip
 end
@@ -238,7 +261,7 @@ omsi.on("ui_click", function(p, element)
 end)
 
 omsi.on("key", function(key, down)
-  if key == "F10" and down and assignment and fn("ui.focus") then omsi.ui.focus(not omsi.ui.focused()) end
+  if key == "F10" and down and company_duty() and fn("ui.focus") then omsi.ui.focus(not omsi.ui.focused()) end
 end)
 
 omsi.on("stop", function()
