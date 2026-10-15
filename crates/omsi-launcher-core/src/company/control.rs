@@ -16,8 +16,9 @@
 //! - a shorter layover before the next trip, where the plan has one;
 //! - a spare bus swapped in at the terminus for the next trip: it runs the rest of the block on
 //!   time, the late bus goes back to the depot and is the spare (`busy`);
-//! - for a late driver, someone covering his first trips (a free colleague, an agency driver booked
-//!   for the day, or one the agency sends now: `plan::late_covers`);
+//! - for a late driver, someone covering his first trips (a spare line standing by within its
+//!   hours, from where it stands by: `rosterflow::spare_lines`; a free colleague, an agency
+//!   driver booked for the day, or one the agency sends now: `plan::late_covers`);
 //! - for a breakdown, the clock's own choices (`clock::choose`: a spare bus, a rental bus, dropping).
 //!
 //! What is done is kept with the day (`Control` in `DayScript::controls`) and the day's close
@@ -455,7 +456,7 @@ pub fn live(c: &Company, dp: &DayPlan) -> Live {
         }
         // a spare bus at the terminus, for the first trip it can be there for
         if let Some(late_bus) = bus {
-            let sw = (cur + 1..base.len()).find(|&j| base[j].runs && !base[j].known && t.tour.trips[j].dep >= now + ck::SPARE_MINUTES);
+            let sw = (cur + 1..base.len()).find(|&j| base[j].runs && !base[j].known && t.tour.trips[j].dep >= now + ck::spare_minutes(c, &dp.date, now));
             if let Some(j) = sw.filter(|&j| base[j].start > LATE_AT) {
                 let end = t.tour.to();
                 if let Some(sp) = ck::free_buses(c, s, late_bus, &t.tour.line, now, end, None).into_iter().find(|x| x.until.is_none()) {
@@ -474,6 +475,18 @@ pub fn live(c: &Company, dp: &DayPlan) -> Live {
     // the late drivers nobody covers yet
     let r = economy::rules(c.game_mode);
     let hour = plan::AGENCY_HOUR as f64 * c.price_index;
+    // (the day's spare lines, and when each drives a late driver's first trips already)
+    let spares = super::rosterflow::spare_lines(c, &dp.date);
+    let tours: Vec<TourOfDay> = if spares.is_empty() { Vec::new() } else { dp.tours.iter().map(|t| t.tour.clone()).collect() };
+    let spare_busy: Vec<(u32, i32, i32)> = dp
+        .tours
+        .iter()
+        .flat_map(|t| t.duties.iter())
+        .filter_map(|d| {
+            let l = d.late?;
+            Some((plan::spare_of_cover(l.cover?)?, l.cover_from.unwrap_or(d.from).max(d.from), l.until.min(d.to)))
+        })
+        .collect();
     for (ti, t) in dp.tours.iter().enumerate() {
         if t.by_player || t.live {
             continue;
@@ -501,11 +514,26 @@ pub fn live(c: &Company, dp: &DayPlan) -> Live {
             if nothing.lost_trips == 0 {
                 continue;
             }
-            let mut covers: Vec<DriverCover> = plan::late_covers(c, dp, ti, k)
-                .into_iter()
-                .take(4)
-                .map(|(id, standby)| DriverCover { fill: Fill::Colleague { id }, booked: super::agency::is_booked(id), standby, from: now, effect: lost(now), best: false })
-                .collect();
+            // (first the spare lines standing by now and until he comes - a spare line covers only
+            // within its hours -, not covering another then: there once they come from where they
+            // stand by to the duty's first stop)
+            let end = l.until.min(d.to);
+            let first = t.tour.trips.get(d.start).map(|x| x.from.trim().to_string()).unwrap_or_default();
+            let mut covers: Vec<DriverCover> = Vec::new();
+            for x in spares.iter().filter(|x| x.covers(now.max(d.from), end) && !spare_busy.iter().any(|b| b.0 == x.id && b.1 < end && now < b.2)) {
+                if covers.iter().any(|y| y.fill == Fill::Spare { id: x.id }) {
+                    continue;
+                }
+                let way = if same(&x.at, &first) { 0 } else { super::rosterflow::travel_between(c, &tours, &x.at, &first, None).1 };
+                let from = (now + way).max(d.from);
+                covers.push(DriverCover { fill: Fill::Spare { id: x.id }, booked: false, standby: true, from, effect: lost(from), best: false });
+            }
+            covers.extend(
+                plan::late_covers(c, dp, ti, k)
+                    .into_iter()
+                    .take(4)
+                    .map(|(id, standby)| DriverCover { fill: Fill::Colleague { id }, booked: super::agency::is_booked(id), standby, from: now, effect: lost(now), best: false }),
+            );
             let from = now + AGENCY_MINUTES;
             let mut agency = lost(from);
             agency.cost = ((l.until.min(d.to) - from.max(d.from)).max(0) as f64 / 60.0 * hour).round() as Cents;
@@ -536,6 +564,7 @@ const LAYOVER_CUT: &str = "Bus %{bus} on line %{n} takes a shorter layover befor
 const SWAPPED: &str = "Bus %{spare} takes over from bus %{bus} on line %{n} from the %{time} trip";
 const COVERED: &str = "%{name} drives the first trips of line %{n} tour %{tour} from %{time}";
 const AGENCY_COVERS: &str = "An agency driver drives the first trips of line %{n} tour %{tour} from %{time}";
+const SPARE_COVERS: &str = "The driver of spare line %{spare} drives the first trips of line %{n} tour %{tour} from %{time}";
 const BACK_ON_TIME: &str = "Bus %{bus} on line %{n} is back on time from the %{time} trip";
 const BY_CONTROLLER: &str = "The controller stepped in";
 pub const LATE_FEED: &str = "Bus %{bus} on line %{n} tour %{tour} runs %{min} minutes late";
@@ -544,7 +573,7 @@ pub const LATE_TEXT: &str = "Line %{n} tour %{tour}: %{min} minutes behind. Left
 
 /// The words service control tells (for their translations).
 pub fn texts() -> Vec<&'static str> {
-    vec![SHORT_TURNED, EXPRESSED, LAYOVER_CUT, SWAPPED, COVERED, AGENCY_COVERS, BACK_ON_TIME, BY_CONTROLLER, LATE_FEED, LATE_TITLE, LATE_TEXT]
+    vec![SHORT_TURNED, EXPRESSED, LAYOVER_CUT, SWAPPED, COVERED, AGENCY_COVERS, SPARE_COVERS, BACK_ON_TIME, BY_CONTROLLER, LATE_FEED, LATE_TITLE, LATE_TEXT]
 }
 
 fn number(c: &Company, id: Option<u32>) -> String {
@@ -589,13 +618,13 @@ pub fn apply(c: &mut Company, dp: &DayPlan, ti: usize, dep: i32, act: Act, auto:
     Some((text.to_string(), args))
 }
 
-/// Have `fill` (a colleague, a booked agency driver, or one the agency sends now) cover the first
-/// trips of duty `duty` of tour `ti`, its driver being late, from minute `from`. Returns the feed's
-/// line said.
+/// Have `fill` (a spare line's driver, a colleague, a booked agency driver, or one the agency
+/// sends now) cover the first trips of duty `duty` of tour `ti`, its driver being late, from
+/// minute `from`. Returns the feed's line said.
 pub fn cover(c: &mut Company, dp: &DayPlan, ti: usize, duty: usize, fill: Fill, from: i32, auto: bool, run: &mut Run) -> Option<(String, Vec<(String, String)>)> {
     let t = dp.tours.get(ti)?;
     t.duties.get(duty)?.late?;
-    if !dp.today || script(c, &dp.date).is_none() || !matches!(fill, Fill::Colleague { .. } | Fill::Agency) {
+    if !dp.today || script(c, &dp.date).is_none() || !matches!(fill, Fill::Colleague { .. } | Fill::Agency | Fill::Spare { .. }) {
         return None;
     }
     let now = c.clock.minute as i32;
@@ -609,6 +638,7 @@ pub fn cover(c: &mut Company, dp: &DayPlan, ti: usize, duty: usize, fill: Fill, 
             let name = c.employee(id).map(|e| e.name.clone()).unwrap_or_default();
             (COVERED, vec![ck::arg("name", name), ck::arg("n", &t.tour.number), ck::arg("tour", &t.tour.tour), ck::arg("time", time)])
         }
+        Fill::Spare { id } => (SPARE_COVERS, vec![ck::arg("spare", super::rosterflow::spare_label(c, id)), ck::arg("n", &t.tour.number), ck::arg("tour", &t.tour.tour), ck::arg("time", time)]),
         _ => (AGENCY_COVERS, vec![ck::arg("n", &t.tour.number), ck::arg("tour", &t.tour.tour), ck::arg("time", time)]),
     };
     ck::tell(c, run, at, text, args.clone(), Level::Info);
@@ -826,6 +856,45 @@ mod tests {
         // covered from the morning: nothing dropped
         dp.tours[0].duties[0].late = Some(plan::LatePiece { until: 8 * 60, cover: Some(8), from_: plan::Source::Dispatcher, cover_from: None });
         assert_eq!(dp.tours[0].duties[0].dropped_before(), None);
+    }
+
+    #[test]
+    fn a_spare_line_covers_a_late_driver_and_brings_a_spare_bus_sooner_within_its_hours() {
+        use super::super::rosterflow::{add_spare, spare_mut};
+        let (mut c, p, bus, driver) = day();
+        let t = p.tours[0].tour.clone();
+        let duty = plan::DayDuty { start: 0, end: 4, from: t.from(), to: t.to(), who: Some(Who::Staff(driver)), late: Some(plan::LatePiece { until: 8 * 60, cover: None, from_: plan::Source::None, cover_from: None }), ..Default::default() };
+        let dp = DayPlan { date: c.date.clone(), today: true, tours: vec![DayTour { tour: t.clone(), bus: Some(BusOf::Own(bus)), duties: vec![duty], ..Default::default() }], ..Default::default() };
+        let now = 6 * 60 + 10;
+        c.clock.minute = now as u32;
+        let slot = super::super::plandays::slot_of(&c, &c.date);
+        // a spare line from 09:00, standing by where the duty begins: not on duty yet
+        let id = add_spare(&mut c, slot, "Spare", 9 * 60, 17 * 60);
+        spare_mut(&mut c, slot, id).unwrap().sign_on_at = Some(t.trips[0].from.clone());
+        let first = |c: &Company| live(c, &dp).drivers[0].covers[0].clone();
+        assert_ne!(first(&c).fill, Fill::Spare { id });
+        // its hours moved to 06:00-14:00: the first cover offered, there at once, the best
+        spare_mut(&mut c, slot, id).unwrap().custom[0].set_times(6 * 60, 14 * 60);
+        let x = first(&c);
+        assert_eq!((x.fill, x.from, x.standby), (Fill::Spare { id }, now, true));
+        assert_eq!(x.effect.lost_trips, 0);
+        assert!(c.game_mode == GameMode::Realistic || x.best);
+        // ending before the late driver comes (08:00): not within its hours
+        spare_mut(&mut c, slot, id).unwrap().custom[0].set_times(6 * 60, 7 * 60 + 30);
+        assert_ne!(first(&c).fill, Fill::Spare { id });
+        // sent: kept as the dispatcher's choice, told with its number
+        spare_mut(&mut c, slot, id).unwrap().custom[0].set_times(6 * 60, 14 * 60);
+        let (text, args) = cover(&mut c, &dp, 0, 0, Fill::Spare { id }, now, false, &mut Run::default()).unwrap();
+        assert_eq!(text, SPARE_COVERS);
+        assert!(args.iter().any(|(k, v)| k == "spare" && v == "9001"));
+        assert_eq!(cover_from(&c, &c.date, &t.line, &t.tour, 0), Some(now));
+        // a spare bus comes sooner only while a spare line stands by at the depot
+        let date = c.date.clone();
+        assert_eq!(ck::spare_minutes(&c, &date, 7 * 60), ck::SPARE_MINUTES);
+        add_spare(&mut c, slot, "Spare", 6 * 60, 12 * 60);
+        assert_eq!(ck::spare_minutes(&c, &date, 7 * 60), ck::SPARE_LINE_MINUTES);
+        assert_eq!(ck::spare_minutes(&c, &date, 11 * 60 + 50), ck::SPARE_MINUTES);
+        assert_eq!(ck::spare_minutes(&c, &date, 5 * 60), ck::SPARE_MINUTES);
     }
 
     #[test]

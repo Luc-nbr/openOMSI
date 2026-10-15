@@ -242,10 +242,13 @@ fn driver_json(c: &Company, dp: &DayPlan, d: &ctl::LateDriver) -> Value {
                         trf("%{name} covers them now", &[("name", &who)])
                     }
                 }
+                // (a spare line standing by: there once he comes from where it stands by)
+                Fill::Spare { id } => trf("The driver of spare line %{spare} covers them (there at %{time})", &[("spare", &co::rosterflow::spare_label(c, id)), ("time", &hm(&dp.date, x.from))]),
                 _ => trf("The agency sends a driver (there at %{time})", &[("time", &hm(&dp.date, x.from))]),
             };
             let fill = match x.fill {
                 Fill::Colleague { id } => json!({ "kind": "colleague", "id": id }),
+                Fill::Spare { id } => json!({ "kind": "spare", "id": id }),
                 _ => json!({ "kind": "agency" }),
             };
             json!({ "label": label, "icon": if matches!(x.fill, Fill::Agency) { "badge" } else { "person" }, "effect": option_words(&dp.date, &x.effect, &d.nothing), "best": x.best, "good": true,
@@ -423,6 +426,7 @@ fn take(s: &mut Session, what: &str, args: &Value) -> Result<(String, Option<i64
         let from = args.get("from").and_then(Value::as_i64).unwrap_or(c.clock.minute as i64) as i32;
         let fill = match args.get("fill").and_then(|f| f.get("kind")).and_then(Value::as_str) {
             Some("colleague") => Fill::Colleague { id: args["fill"].get("id").and_then(Value::as_u64).unwrap_or(0) as u32 },
+            Some("spare") => Fill::Spare { id: args["fill"].get("id").and_then(Value::as_u64).unwrap_or(0) as u32 },
             _ => Fill::Agency,
         };
         ctl::cover(c, &dp, ti, duty, fill, from, false, &mut run)

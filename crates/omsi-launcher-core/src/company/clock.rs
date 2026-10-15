@@ -57,6 +57,9 @@ pub const RENTAL_MINUTES: i32 = 45;
 /// Minutes until a spare bus of the fleet sent from the depot takes over a broken-down one's
 /// trips.
 pub const SPARE_MINUTES: i32 = 30;
+/// The same while a spare line stands by at the depot (`rosterflow::spare_lines`): its driver
+/// brings the spare bus out at once (`spare_minutes`).
+pub const SPARE_LINE_MINUTES: i32 = 20;
 /// When building work and workshop jobs are finished on their last day, and someone leaving
 /// has their last hour.
 pub const BUILT_AT: i64 = 16 * 60;
@@ -726,7 +729,18 @@ pub fn arrivals(c: &Company, index: usize) -> (i32, i32) {
     let Some(s) = c.clock.today.as_ref() else { return (0, 0) };
     let Some(b) = s.breaks.get(index) else { return (0, 0) };
     let start = decided_at(c, s, b);
-    (start + SPARE_MINUTES, start + RENTAL_MINUTES)
+    (start + spare_minutes(c, &s.date, start), start + RENTAL_MINUTES)
+}
+
+/// Minutes until a spare bus sent from the depot at minute `at` of `date` takes over:
+/// `SPARE_LINE_MINUTES` while a spare line stands by at the depot then and until it is out (a
+/// spare line covers only within its own hours), else `SPARE_MINUTES`.
+pub fn spare_minutes(c: &Company, date: &str, at: i32) -> i32 {
+    if super::rosterflow::spare_lines(c, date).iter().any(|x| x.at_depot() && x.covers(at, at + SPARE_LINE_MINUTES)) {
+        SPARE_LINE_MINUTES
+    } else {
+        SPARE_MINUTES
+    }
 }
 
 /// How long a spare bus has to be able to run at least to be worth sending (minutes).
@@ -747,12 +761,12 @@ pub fn spare_offers(c: &Company, index: usize) -> Vec<SpareBus> {
 }
 
 /// The fleet's buses free to take over bus `not`'s work today from `start` (sent from the depot,
-/// they are there `SPARE_MINUTES` later) until `until`, on the line of timetable name `line_name`
+/// they are there `spare_minutes` later) until `until`, on the line of timetable name `line_name`
 /// (`spare_offers`; service control's swap at the terminus, `control`): fit to drive, one of the
 /// line's buses, not out on a tour then (as the controller changed them: `control::busy`), not
 /// sent for another breakdown than `skip`. In `spare_offers`' order.
 pub fn free_buses(c: &Company, s: &DayScript, not: u32, line_name: &str, start: i32, until: i32, skip: Option<usize>) -> Vec<SpareBus> {
-    let arrive = start + SPARE_MINUTES;
+    let arrive = start + spare_minutes(c, &s.date, start);
     let end = until.max(arrive);
     let morning: Vec<u32> = plan::disruptions(c, &s.date).iter().filter_map(|d| if let Disruption::Breakdown { vehicle, .. } = d { Some(*vehicle) } else { None }).collect();
     let kind = c.vehicle(not).map(|v| v.kind.size);
@@ -864,10 +878,12 @@ pub fn decide(c: &mut Company, index: usize, choice: Choice, run: &mut Run) {
                 }
                 return;
             };
-            back = Some(start + SPARE_MINUTES);
+            // (sooner with a spare line standing by at the depot: `spare_minutes`)
+            let arrive = start + spare_minutes(c, &c.clock.today.as_ref().map(|s| s.date.clone()).unwrap_or_default(), start);
+            back = Some(arrive);
             until = offer.until;
             let spare = c.vehicle(vehicle).map(|v| v.number.clone()).unwrap_or_default();
-            let from = hhmm(moment(&c.date, (start + SPARE_MINUTES) as i64));
+            let from = hhmm(moment(&c.date, arrive as i64));
             match until {
                 Some(u) => tell(c, run, at, "Spare bus %{spare} takes over the trips of bus %{bus} on line %{n} from %{time} until %{until}", vec![arg("spare", spare), arg("bus", &b.bus), arg("n", &b.line), arg("time", from), arg("until", hhmm(moment(&c.date, u as i64)))], Level::Info),
                 None => tell(c, run, at, "Spare bus %{spare} takes over the trips of bus %{bus} on line %{n} from %{time}", vec![arg("spare", spare), arg("bus", &b.bus), arg("n", &b.line), arg("time", from)], Level::Info),

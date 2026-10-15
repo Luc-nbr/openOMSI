@@ -725,6 +725,14 @@ impl SpareLine {
     }
 }
 
+/// Spare duty `id`'s number and name ("9001 Early"): its driver as service control names him.
+pub fn spare_label(c: &Company, id: u32) -> String {
+    match c.planning.flow.sheet.spares.iter().find(|s| s.id == id).map(|s| s.name.trim()).filter(|n| !n.is_empty()) {
+        Some(name) => format!("{} {name}", 9000 + id),
+        None => (9000 + id).to_string(),
+    }
+}
+
 /// The spare lines of `date` as saved (the drafts the studio has not saved are not run): the
 /// spare work ("Spare" custom work) of the spare duties of the day's plan (`plandays::slot_of`),
 /// each with its times as the player set them, by its start.

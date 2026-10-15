@@ -36,6 +36,16 @@ pub const AGENCY: u32 = u32::MAX;
 /// The driver id the player stands under in a plan that is not being closed (his duty is
 /// covered: he drives it).
 pub const PLAYER: u32 = u32::MAX - 1;
+/// The driver id a spare line's driver stands under as a late driver's cover (`LatePiece::cover`):
+/// this and the spare duty's id (`rosterflow::Spare`, `spare_lines`) - under the agency's booked
+/// drivers, over any employee.
+pub const SPARE_COVER: u32 = 0x9000_0000;
+
+/// The spare duty (its id) a late driver's cover `id` is, if it is a spare line's driver.
+pub fn spare_of_cover(id: u32) -> Option<u32> {
+    (SPARE_COVER..super::agency::BOOKED_BASE).contains(&id).then(|| id - SPARE_COVER)
+}
+
 /// An agency driver's hour, the agency's margin included (founding day's prices).
 pub const AGENCY_HOUR: Cents = 42_00;
 
@@ -156,6 +166,9 @@ pub enum Fill {
     Drop,
     /// The player drives it himself, today only.
     Player,
+    /// The driver of spare line `id` (`rosterflow::spare_lines`) drives a late driver's first
+    /// trips, within its hours.
+    Spare { id: u32 },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -1812,6 +1825,9 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
         }
         // late in the morning: the first duty of the day begins without them, until they arrive
         // (kept when first planned: moved to a duty that begins after it, they are not late)
+        // (the day's spare lines, each driving one late driver's first trips at a time)
+        let spares = super::rosterflow::spare_lines(c, date);
+        let mut spare_busy: Vec<(u32, i32, i32)> = Vec::new();
         for dz in &dis {
             let Disruption::Late { employee, minutes } = *dz else { continue };
             let mine: Vec<(usize, usize)> = order.iter().copied().filter(|&(i, k)| out[i].duties[k].who == Some(Who::Staff(employee))).collect();
@@ -1825,18 +1841,30 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
             let key = late_key(&t.tour.line, &t.tour.tour, k);
             let piece = Block { key: key.clone(), from: d.from, to: until.min(d.to), from_stop: t.tour.trips[d.start].from.clone(), to_stop: String::new() };
             let bus = t.bus_of(c);
+            // (a spare line standing by all the time from when its driver takes over - the duty's
+            // start, or when service control sent him - until the late driver comes: the one
+            // chosen, else the central's first choice; a spare line covers only within its hours)
+            let (start, end) = (super::control::cover_from(c, date, &t.tour.line, &t.tour.tour, k).unwrap_or(d.from).max(d.from), until.min(d.to));
+            let spare_free = |want: Option<u32>, busy: &[(u32, i32, i32)]| spares.iter().find(|x| want.is_none_or(|w| w == x.id) && x.covers(start, end) && !busy.iter().any(|b| b.0 == x.id && b.1 < end && start < b.2)).map(|x| x.id);
             let (cover, from_) = match fill_of(c, date, &key) {
+                Some(Fill::Spare { id }) => (spare_free(Some(id), &spare_busy).map(|id| SPARE_COVER + id), Source::Dispatcher),
                 Some(Fill::Colleague { id }) if c.employee(id).is_some_and(|e| id != employee && unavailable(e, date, today).is_none() && fits_bus(e, &bus, work.of(id), &piece, today).is_ok()) => (Some(id), Source::Dispatcher),
                 // (an agency driver sent for the late driver's first trips: service control)
                 Some(Fill::Agency) => (Some(AGENCY), Source::Dispatcher),
                 Some(_) => (None, Source::Dispatcher),
-                None => match pick(&work, &bus, &piece) {
-                    Some((id, _)) if id != employee => (Some(id), Source::Central),
+                None => match (spare_free(None, &spare_busy), pick(&work, &bus, &piece)) {
+                    (Some(id), _) => (Some(SPARE_COVER + id), Source::Central),
+                    (None, Some((id, _))) if id != employee => (Some(id), Source::Central),
                     _ => (None, Source::None),
                 },
             };
-            if let Some(id) = cover {
-                work.push(id, piece);
+            match cover.and_then(spare_of_cover) {
+                Some(id) => spare_busy.push((id, start, end)),
+                None => {
+                    if let Some(id) = cover {
+                        work.push(id, piece);
+                    }
+                }
             }
             // (sent during the day by service control: from then on)
             let cover_from = cover.and_then(|_| super::control::cover_from(c, date, &t.tour.line, &t.tour.tour, k));
@@ -3113,6 +3141,48 @@ mod tests {
         set_driver(&mut c, wd, "Linie5", "2", 0, None);
         let p = day_plan(&c, &c.date, early, &[], &[], false);
         assert_eq!(p.tours[0].duties[0].late.map(|l| l.until), Some(6 * 60 + minutes));
+    }
+
+    #[test]
+    fn a_spare_line_drives_a_late_drivers_first_trips_within_its_own_hours() {
+        // (RosterFlow's spare lines as the player set their times: the dispatcher sends one)
+        let mut c = company(2, 3);
+        c.planning.auto = false;
+        c.game_mode = GameMode::Realistic;
+        for e in c.staff.iter_mut() {
+            (e.satisfaction, e.reliability) = (10.0, 0.0);
+        }
+        let base = c.id.clone();
+        let late = (0..4000).find_map(|n| {
+            c.id = format!("{base}{n}");
+            let d = disruptions(&c, &c.date);
+            let late = d.iter().find_map(|x| if let Disruption::Late { employee, minutes } = *x { Some((employee, minutes)) } else { None });
+            late.filter(|_| !d.iter().any(|x| matches!(x, Disruption::Breakdown { .. })))
+        });
+        let Some((e, minutes)) = late else { panic!("no late morning found") };
+        let wd = weekday_of(&c.date);
+        let b = c.fleet[0].id;
+        set_bus(&mut c, wd, "Linie5", "1", Some(b));
+        set_driver(&mut c, wd, "Linie5", "1", 0, Some(Who::Staff(e)));
+        let tours = vec![tour("1", 6 * 60, 3)];
+        let slot = super::super::plandays::slot_of(&c, &c.date);
+        let id = super::super::rosterflow::add_spare(&mut c, slot, "Spare", 5 * 60 + 30, 14 * 60);
+        let late_of = |c: &Company| day_plan(c, &c.date, tours.clone(), &[], &[], false).tours[0].duties[0].late.unwrap();
+        // standing by from 05:30: the central sends it, nothing is dropped
+        let l = late_of(&c);
+        assert_eq!((l.until, l.cover, l.from_), (6 * 60 + minutes, Some(SPARE_COVER + id), Source::Central));
+        assert_eq!(spare_of_cover(l.cover.unwrap()), Some(id));
+        assert_eq!(spare_of_cover(e), None);
+        assert!(day_plan(&c, &c.date, tours.clone(), &[], &[], false).to_plan().tours[0].duties[0].dropped_before.is_none());
+        // its hours moved to begin after the duty: not this spare line (a colleague, or nobody)
+        super::super::rosterflow::spare_mut(&mut c, slot, id).unwrap().custom[0].set_times(6 * 60 + 15, 14 * 60);
+        assert_ne!(late_of(&c).cover, Some(SPARE_COVER + id));
+        // chosen by the player all the same: not within its hours, so nobody
+        set_fill(&mut c, &late_key("Linie5", "1", 0), Some(Fill::Spare { id }));
+        assert_eq!(late_of(&c).cover, None);
+        // within them again: the one chosen
+        super::super::rosterflow::spare_mut(&mut c, slot, id).unwrap().custom[0].set_times(5 * 60, 9 * 60);
+        assert_eq!((late_of(&c).cover, late_of(&c).from_), (Some(SPARE_COVER + id), Source::Dispatcher));
     }
 
     #[test]
