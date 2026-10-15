@@ -16,6 +16,7 @@ use super::super::company::{self, Session};
 use super::{str_arg, usize_arg, with_rf, Rf};
 use crate::Answer;
 use omsi_launcher_lib as core;
+use omsi_launcher_lib::company::plandays::{self as pd, DayCopied, How, Template};
 use omsi_launcher_lib::company::timeplan::{self as tp, Level, RunSet, Side};
 use omsi_launcher_lib::company::{self as co, ownline, Company, CompanyLine};
 use omsi_launcher_lib::lines::{self as reg, LineDesign, StopRef, DAY_GROUPS};
@@ -500,6 +501,7 @@ fn view(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
         "code": tp::pattern_code(k), "label": format!("{}  ·  {}", tp::pattern_code(k), line.directions[side.patterns[k]].destination()),
         "stops": line.directions[side.patterns[k]].stops.iter().map(|s| s.name.trim().to_string()).collect::<Vec<_>>(),
     })).collect::<Vec<_>>()));
+    o.insert("copy".into(), copy_view(&c, &v.line, &line));
     if side.patterns.is_empty() {
         o.insert("no_side".into(), json!(tr("The line has no inbound direction.")));
         return Ok(out);
@@ -558,6 +560,166 @@ fn view(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
         }));
     }
     Ok(out)
+}
+
+// --- "Copy to…" and the templates (`co::plandays::timetable`) ----------------------------------------
+
+/// What the timetable's "Copy to…" offers: each day group - the trips it has, and whether the
+/// line runs then - and the line's templates kept.
+fn copy_view(c: &Company, name: &str, line: &LineDesign) -> Value {
+    json!({
+        "days": (0..DAY_GROUPS.len()).map(|d| json!({ "k": d, "label": day_name(d), "trips": pd::trips_on(line, d), "closed": !line.service.allows(d) })).collect::<Vec<_>>(),
+        "templates": pd::templates_of(c, name).iter().map(|t| json!({ "id": t.id, "name": t.name, "day": t.day, "day_label": day_name(t.day), "trips": t.trips.len() })).collect::<Vec<_>>(),
+    })
+}
+
+/// The places in the table the page names (`trips`).
+fn trips_arg(args: &Value) -> Vec<usize> {
+    args.get("trips").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_u64).map(|x| x as usize).collect()).unwrap_or_default()
+}
+
+/// The source of a copy the page names (`source`): the day shown ("day"), the trips chosen there
+/// ("trips"), or a template of the line ("template", by its `id`).
+fn source_of(c: &Company, name: &str, line: &LineDesign, day: usize, args: &Value) -> Option<Template> {
+    let s = args.get("source").cloned().unwrap_or(Value::Null);
+    match s.get("kind").and_then(Value::as_str).unwrap_or("day") {
+        "trips" => Some(Template::of_trips(line, name, day, &trips_arg(&s))),
+        "template" => pd::template(c, s.get("id").and_then(Value::as_u64).unwrap_or(0) as u32).filter(|t| t.line.trim().eq_ignore_ascii_case(name.trim())).cloned(),
+        _ => Some(Template::of_day(line, name, day)),
+    }
+}
+
+/// What a copy did, in words: the trips copied and where, those there already, those of a
+/// pattern gone, the days the line does not run.
+fn copied_words(made: &[DayCopied]) -> (String, bool) {
+    let names = |f: &dyn Fn(&DayCopied) -> bool| made.iter().filter(|m| f(m)).map(|m| day_name(m.day)).collect::<Vec<_>>().join(", ");
+    let added: usize = made.iter().map(|m| m.added).sum();
+    let removed: usize = made.iter().map(|m| m.removed).sum();
+    let twins: usize = made.iter().map(|m| m.twins).sum();
+    let lost: usize = made.iter().map(|m| m.lost).sum();
+    let open = names(&|m| !m.closed);
+    let mut text = if open.is_empty() {
+        String::new()
+    } else if added == 0 && removed == 0 {
+        tr("Nothing was copied: those days have every one of these trips already.")
+    } else {
+        trf("%{n} trips copied to %{days}: Save keeps them, Undo takes them back.", &[("n", &added.to_string()), ("days", &open)])
+    };
+    if twins > 0 && added > 0 {
+        text = format!("{text} {}", trf("%{n} were there already.", &[("n", &twins.to_string())]));
+    }
+    if lost > 0 {
+        text = format!("{text} {}", trf("%{n} of a pattern the line no longer has were left out.", &[("n", &lost.to_string())]));
+    }
+    let closed = names(&|m| m.closed);
+    if !closed.is_empty() {
+        text = format!("{text} {}", trf("Not copied to %{days}: the line does not run then.", &[("days", &closed)]));
+    }
+    (text.trim().to_string(), added == 0 && removed == 0)
+}
+
+/// "Copy to…", and the templates kept, renamed and thrown away (`rf_tp_act` "copy_to",
+/// "template_save", "template_rename", "template_drop"). A copy goes into the line's draft, as
+/// every change of the Timeplan does: Save keeps it, Undo takes it back.
+fn copy_act(s: &mut Session, r: &mut Rf, c: &Company, what: &str, day: usize, args: &Value) -> Value {
+    let v = &mut r.tp;
+    let Some(line) = v.draft().cloned() else { return json!({}) };
+    let name = v.line.clone();
+    let id = args.get("id").and_then(Value::as_u64).unwrap_or(0) as u32;
+    match what {
+        "copy_to" => {
+            let Some(src) = source_of(c, &name, &line, day, args) else { return said(tr("The template is no longer there."), true) };
+            let days: Vec<usize> = args.get("days").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_u64).map(|x| x as usize).collect()).unwrap_or_default();
+            if days.is_empty() {
+                return said(tr("Choose the days to copy to."), true);
+            }
+            if src.trips.is_empty() {
+                return said(tr("There are no trips to copy."), true);
+            }
+            let how = if str_arg(args, "how") == "add" { How::Add } else { How::Replace };
+            let mut made = Vec::new();
+            v.change(|l| made = pd::copy_table(l, &src, &days, how));
+            let (text, idle) = copied_words(&made);
+            let mut out = said(text, idle);
+            out["copied"] = json!(!idle);
+            out
+        }
+        "template_save" => {
+            let src = source_of(c, &name, &line, day, args).unwrap_or_default();
+            let words = str_arg(args, "name");
+            if words.trim().is_empty() {
+                return said(tr("Give the template a name."), true);
+            }
+            if src.trips.is_empty() {
+                return said(tr("There are no trips to copy."), true);
+            }
+            let n = src.trips.len();
+            match company::act(s, |c| Ok(pd::save_template(c, src, &words))) {
+                Ok(Some(id)) => {
+                    let mut out = said(trf("Template “%{name}” kept: %{n} trips, to copy onto any day.", &[("name", words.trim()), ("n", &n.to_string())]), false);
+                    out["id"] = json!(id);
+                    out
+                }
+                _ => json!({}),
+            }
+        }
+        "template_rename" => {
+            let words = str_arg(args, "name");
+            match company::act(s, |c| Ok(pd::rename_template(c, id, &words))) {
+                Ok(true) => json!({}),
+                _ => said(tr("Give the template a name."), true),
+            }
+        }
+        "template_drop" => {
+            let gone = pd::template(c, id).map(|t| t.name.clone()).unwrap_or_default();
+            match company::act(s, |c| Ok(pd::drop_template(c, id))) {
+                Ok(true) => said(trf("Template “%{name}” thrown away.", &[("name", &gone)]), false),
+                _ => json!({}),
+            }
+        }
+        _ => json!({}),
+    }
+}
+
+/// The trips chosen together (`trips`): taken out, moved, given another pattern, their times
+/// from the running times again (`rf_tp_act` "bulk_*") - one change, one Undo.
+fn bulk_act(v: &mut Tp, line: &LineDesign, sh: &Shown, what: &str, args: &Value) -> Value {
+    let trips = trips_arg(args);
+    if trips.is_empty() {
+        return said(tr("Choose a trip first: click its number."), true);
+    }
+    let day = sh.day;
+    match what {
+        "bulk_delete" => {
+            let mut n = 0;
+            v.change(|l| n = tp::delete_trips(l, &trips));
+            said(trf("%{n} trips taken out.", &[("n", &n.to_string())]), false)
+        }
+        "bulk_shift" => {
+            let by = args.get("by").and_then(Value::as_f64).unwrap_or(0.0) as f32;
+            v.change(|l| tp::shift_trips(l, &trips, by.clamp(-1440.0, 1440.0)));
+            json!({})
+        }
+        "bulk_pattern" => {
+            let side = tp::sides(line)[sh.side].clone();
+            let Some(&dir) = side.patterns.get(usize_arg(args, "pattern")) else { return json!({}) };
+            let mine: Vec<usize> = trips.into_iter().filter(|&i| line.table.get(i).is_some_and(|t| side.patterns.contains(&t.dir))).collect();
+            let set = tp::run_set(line, day, dir);
+            let mut n = 0;
+            v.change(|l| n = tp::set_pattern(l, &mine, dir, &set));
+            said(trf("%{n} trips run pattern %{code} now.", &[("n", &n.to_string()), ("code", &tp::pattern_code(side.pattern(dir).unwrap_or(0)))]), false)
+        }
+        "bulk_revert" => {
+            let sets: Vec<(usize, RunSet)> = trips.iter().filter_map(|&i| line.table.get(i).map(|t| (i, tp::run_set(line, day, t.dir)))).collect();
+            v.change(|l| {
+                for (i, set) in &sets {
+                    tp::revert(l, *i, set);
+                }
+            });
+            json!({})
+        }
+        _ => json!({}),
+    }
 }
 
 // --- what the page does ------------------------------------------------------------------------------
@@ -622,6 +784,7 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
             return Ok(json!({}));
         }
         "save" => return Ok(save(s, r, sh.day)),
+        "copy_to" | "template_save" | "template_rename" | "template_drop" => return Ok(copy_act(s, r, &c, &what, sh.day, args)),
         "refresh" => {
             // (a day's planning refreshes a line of its own: `line`)
             let line = Some(str_arg(args, "line")).filter(|l| !l.trim().is_empty());
@@ -822,6 +985,7 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
             });
             json!({})
         }
+        "bulk_delete" | "bulk_shift" | "bulk_pattern" | "bulk_revert" => bulk_act(v, &line, &sh, &what, args),
         "revert" => {
             let i = usize_arg(args, "i");
             if let Some((side, _)) = rows_of_trip(&line, day, i) {
@@ -927,12 +1091,19 @@ fn save(s: &mut Session, r: &mut Rf, day_shown: usize) -> Value {
         }
     };
     if saved {
-        let v = &mut r.tp;
-        // (the line under its new name, if its number changed it)
+        // (the line under its new name, if its number changed it: its templates with it)
         let id = w.own.id;
         if let Some(name) = s.company.as_ref().and_then(|c| c.lines.iter().find(|x| x.own && x.plan.as_ref().is_some_and(|p| p.line_id == id)).map(|x| x.name.clone())) {
-            v.line = name;
+            let was = r.tp.line.clone();
+            if !was.eq_ignore_ascii_case(&name) {
+                let _ = company::act(s, |c| {
+                    pd::move_templates(c, &was, &name);
+                    Ok(())
+                });
+            }
+            r.tp.line = name;
         }
+        let v = &mut r.tp;
         for d in changed {
             if !v.unsynced.iter().any(|u| u.0.eq_ignore_ascii_case(&v.line) && u.1 == d) {
                 v.unsynced.push((v.line.clone(), d));
