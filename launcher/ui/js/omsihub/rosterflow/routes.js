@@ -224,6 +224,19 @@ function lookAt(i) {
 // --- the tab ---------------------------------------------------------------------------------------
 
 export function RoutesTab() {
+  // (company multiplayer: the routes are drawn by the boss's line editor, on his map's roads -
+  // the Timeplan's trips and times are a player's to change too)
+  if (S.co?.remote) return html`<${RemoteRoutes} />`;
+  return html`<${OwnRoutes} />`;
+}
+
+/** The Routes tab of a company joined: why the routes are the boss's, the way to the Timeplan. */
+function RemoteRoutes() {
+  return html`<div class="rf-tp rt"><div class="tp-why rt-failed"><p>${tr("The routes are drawn on the boss's map with his line editor: he changes them on his own launcher. The trips and their times you change in the Timeplan, as your role allows.")}</p>
+    <button type="button" class="rt-act" onClick=${() => setRf({ view: TIMEPLAN, hand: null, zones: null, sel: [], card: null, menu: null, panel: null })}><${Icon} name="departure_board" size=${17} /><span>${tr('Timeplan')}</span></button></div></div>`;
+}
+
+function OwnRoutes() {
   const company = S.co.shell?.id;
   const [opened, setOpened] = useState(null);
   const [tries, setTries] = useState(0);

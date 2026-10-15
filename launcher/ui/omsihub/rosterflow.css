@@ -238,6 +238,13 @@
 .rf-title.fit4 .rf-brand .names { display: none; }
 .rf-title.fit4 .rf-day { width: 132px; }
 .rf-title .undo { display: flex; align-items: center; gap: 4px; margin-right: 11px; flex: none; }
+/* (company multiplayer: who else is in RosterFlow, and a player's planning seen read-only) */
+.rf-title .rf-here { display: flex; align-items: center; margin-right: 10px; flex: none; }
+.rf-title .rf-here i { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-style: normal; font-size: 11px; font-weight: 700; color: #0e121c; background: var(--rf-ok); box-shadow: 0 0 0 2px var(--rf-bar); margin-left: -5px; cursor: default; }
+.rf-title .rf-here i:first-child { margin-left: 0; }
+.rf-title .rf-here i.boss { background: var(--rf-warn); }
+.rf-title .rf-here i.more { background: var(--rf-tool); color: var(--rf-text); }
+.rf-title .rf-readonly { display: flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px; margin-right: 10px; flex: none; border-radius: 12px; font-size: 11px; font-weight: 700; color: var(--rf-warn); background: rgba(255, 166, 38, 0.12); cursor: default; }
 .rf-day { width: 176px; height: 32px; flex: none; display: flex; align-items: center; gap: 9px; padding: 0 5px 0 9px; color: var(--rf-dim); box-shadow: -1px 0 0 var(--rf-line); margin-right: 10px; }
 .rf-day b { flex: 1; min-width: 0; font-size: 10px; font-weight: 700; color: var(--rf-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
 .rf-day:hover { color: var(--rf-text); }

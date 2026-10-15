@@ -77,8 +77,18 @@ export function setPart(part, patch) {
   setRf((r) => ({ [part]: { ...r[part], ...(typeof patch === 'function' ? patch(r[part]) : patch) } }));
 }
 
-/** A command of RosterFlow's in the page's language. */
-export const rfCmd = (name, args = {}) => call(name, { ...args, lang: language() });
+/** A command of RosterFlow's in the page's language (company multiplayer: on the company of a
+ * session joined, `S.co.remote`, relayed to the boss's launcher - all but the tutorial's, which
+ * is this launcher's own: `together::relay::relayed_rf`). */
+export const rfCmd = (name, args = {}) => {
+  const lang = language();
+  if (S.co?.remote && !name.startsWith('rf_tut')) return call('tg_relay', { cmd: name, args: { ...args, lang }, lang });
+  return call(name, { ...args, lang });
+};
+
+/** RosterFlow on the company of a session joined, and what the player's role lets him do there
+ * (`rosterflow::relayed`'s `remote`: plans, lines, assign, why not). */
+export const rfRemote = () => (S.co?.remote ? S.rf.remote || { plans: false, lines: false, assign: false, why: null } : null);
 
 /** Something said in the company's corner (`set_status`). */
 export function say(text, error = false) {
@@ -90,8 +100,18 @@ export function say(text, error = false) {
 export function after(r) {
   if (!r) return r;
   if (r.say) say(r.say.text, r.say.error);
+  told(r.told);
   if (r.popup) setCo({ popup: r.popup });
   return r;
+}
+
+/** What the other planners changed meanwhile (`live::told`), said in the corner - after what
+ * the command itself says. */
+export function told(list) {
+  if (!Array.isArray(list) || !list.length) return;
+  const was = S.co.notice;
+  const text = list.join(' ');
+  say(was && Date.now() - was.at < 2000 ? `${was.text} ${text}` : text, false);
 }
 
 /** The day's board asked again (and the company's shell with it). */
@@ -104,12 +124,15 @@ export function bump() {
 export async function rfAct(act, args = {}) {
   let r;
   try {
-    r = await rfCmd('rf_act', { act, day: S.rf.day, ...args });
+    // (the day as the page shows it: an edit of a day somebody else changed meanwhile is refused,
+    // not made on the wrong trips - `rosterflow::act`'s `stale`)
+    r = await rfCmd('rf_act', { act, day: S.rf.day, rev: S.rf.rev || '', ...args });
   } catch (e) {
     say(e.message, true);
     return null;
   }
   after(r);
+  if (r?.stale) settle();
   if (r?.edited) setRf((x) => ({ edits: x.edits + 1 }));
   // (undone or redone: the day's blocks and trips are numbered anew, as after an edit - what is
   // chosen, held or carded by its numbers let go)
@@ -150,9 +173,10 @@ export function letGo() {
 /** Take something up (`rf_gantt::pick`): a locked vehicle or duty is refused at once; its drop
  * zones are worked out (each rated by what it costs). */
 export async function pick(hand, dragging = false) {
-  const r = await rfCmd('rf_act', { act: 'pick', day: S.rf.day, hand }).catch(() => null);
-  if (r?.refused) {
+  const r = await rfCmd('rf_act', { act: 'pick', day: S.rf.day, rev: S.rf.rev || '', hand }).catch(() => null);
+  if (r?.refused || r?.stale) {
     after(r);
+    if (r.stale) bump();
     return;
   }
   setRf({ press: null, hand, zones: null, dragging, menu: null, card: null });
