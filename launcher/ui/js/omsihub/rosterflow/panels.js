@@ -323,7 +323,9 @@ function EventCard({ data, c, size }) {
   if (!e) return null;
   const kind = e.kind === 'on' ? tr('Sign-on') : e.kind === 'off' ? tr('Sign-off') : e.kind === 'travel' ? `${tr('Travel')} (${e.label})` : e.label;
   // (what is typed as it would be: an end before the start is the next day's)
-  const from = typed[0] == null ? e.from : parseClock(typed[0]);
+  let from = typed[0] == null ? e.from : parseClock(typed[0]);
+  // (work past midnight, "00:30" on the card: a start typed so is that night's too)
+  if (typed[0] != null && from != null && e.from >= 1440 && from < 1440 && from + 1440 <= 1800) from += 1440;
   let to = typed[1] == null ? e.to : parseClock(typed[1]);
   if (from != null && to != null && to <= from && to < 1440 && typed[1] != null) to += 1440;
   const ok = from != null && to != null && to - from >= 5;
