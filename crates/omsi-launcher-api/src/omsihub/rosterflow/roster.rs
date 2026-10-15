@@ -9,8 +9,8 @@
 use super::super::company::kit::{Go, Popup};
 use super::super::company::words::{day_label, eur, share_tone, tr, trf, MONTHS, WEEKDAYS};
 use super::super::company::{self, Session};
-use super::{str_arg, usize_arg, with_rf, Rf};
-use crate::{Answer, Platform};
+use super::{str_arg, usize_arg, Rf};
+use crate::Answer;
 use omsi_launcher_lib as core;
 use omsi_launcher_lib::company::clock::{self as ck, Choice, Level, What};
 use omsi_launcher_lib::company::licences::{self, Lack};
@@ -310,13 +310,19 @@ fn open_text(f: &pl::Filled) -> String {
 
 // --- the commands -----------------------------------------------------------------------------------
 
-pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Option<Answer> {
+/// A command of the Roster tab on the session and an editor's RosterFlow state (`super::run`).
+pub(super) fn run(s: &mut Session, r: &mut Rf, cmd: &str, args: &Value) -> Option<Answer> {
     Some(match cmd {
-        "rf_roster" => with_rf(|s, r| view(s, r, args)),
-        "rf_roster_act" => with_rf(|s, r| act(s, r, args)),
-        "rf_roster_service" => with_rf(|s, r| service_view(s, r, args)),
+        "rf_roster" => view(s, r, args),
+        "rf_roster_act" => act(s, r, args),
+        "rf_roster_service" => service_view(s, r, args),
         _ => return None,
     })
+}
+
+/// The roster and the day's choices as a fingerprint's text (`live`: changed under a planner).
+pub(super) fn mark(c: &Company) -> String {
+    serde_json::to_string(&(&c.planning.week, &c.planning.date, &c.planning.fills, given_of(c))).unwrap_or_default()
 }
 
 /// A plan of the week (`plan_of`), or of a day besides it (the service dialog's, read here once).

@@ -13,7 +13,7 @@
 use super::super::company::kit::Popup;
 use super::super::company::words::{day_label, eur, tr, trf};
 use super::super::company::{self, Session};
-use super::{str_arg, usize_arg, with_rf, Rf};
+use super::{str_arg, usize_arg, Rf};
 use crate::Answer;
 use omsi_launcher_lib as core;
 use omsi_launcher_lib::company::plandays::{self as pd, DayCopied, How, Template};
@@ -417,11 +417,12 @@ fn shown_of(args: &Value) -> Shown {
     Shown { day: usize_arg(args, "day").min(DAY_GROUPS.len() - 1), side: usize_arg(args, "side").min(1), pattern: usize_arg(args, "pattern"), tab: usize_arg(args, "tab").min(1), points_only: args.get("points_only").and_then(Value::as_bool).unwrap_or(false) }
 }
 
-pub fn call(cmd: &str, args: &Value) -> Option<Answer> {
+/// A command of the Timeplan on the session and an editor's RosterFlow state (`super::run`).
+pub(super) fn run(s: &mut Session, r: &mut Rf, cmd: &str, args: &Value) -> Option<Answer> {
     Some(match cmd {
-        "rf_tp" => with_rf(|s, r| view(s, r, args)),
-        "rf_tp_act" => with_rf(|s, r| act(s, r, args)),
-        "rf_tp_guide" => with_rf(|s, r| {
+        "rf_tp" => view(s, r, args),
+        "rf_tp_act" => act(s, r, args),
+        "rf_tp_guide" => (|| {
             let Some(c) = s.company.as_ref() else { return Ok(json!({})) };
             let line = str_arg(args, "line");
             let hint = match str_arg(args, "hint").as_str() {
@@ -452,7 +453,7 @@ pub fn call(cmd: &str, args: &Value) -> Option<Answer> {
                 _ => None,
             };
             Ok(json!({ "screen": screen, "group": group }))
-        }),
+        })(),
         _ => return None,
     })
 }

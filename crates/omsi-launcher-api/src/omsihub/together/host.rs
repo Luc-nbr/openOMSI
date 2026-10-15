@@ -162,17 +162,30 @@ fn relay_page(s: &mut Session, req: &Request) -> Value {
     };
     let cmd = req.page.get("cmd").and_then(Value::as_str).unwrap_or("");
     let args = req.page.get("args").cloned().unwrap_or(json!({}));
-    let need = relay::need(cmd, &args);
-    let out = if !need.met(&perms) {
-        need.refusal()
-    } else {
-        match company::relayed(s, &mut viewer, cmd, &args, &perms) {
-            Ok(v) => json!({ "ok": true, "answer": v }),
-            Err(e) => json!({ "ok": false, "error": e }),
-        }
-    };
+    viewer.guest = guest;
+    let out = page_for(s, &mut viewer, &perms, cmd, &args);
     if let Some(h) = hosting().as_mut() {
         h.viewers.insert(guest, viewer);
+    }
+    out
+}
+
+/// A page's command of a player (`viewer`'s, with `perms`) run on the company when they allow
+/// it: its answer, or the refusal. A change of the planning made on its own pages is told to the
+/// planners in RosterFlow (theirs is told by RosterFlow itself).
+pub(super) fn page_for(s: &mut Session, viewer: &mut Viewer, perms: &[Perm], cmd: &str, args: &Value) -> Value {
+    let need = relay::need(cmd, args);
+    if !need.met(perms) {
+        return need.refusal();
+    }
+    let gen = s.generation;
+    let out = match company::relayed(s, viewer, cmd, args, perms) {
+        Ok(v) => json!({ "ok": true, "answer": v }),
+        Err(e) => json!({ "ok": false, "error": e }),
+    };
+    let act = args.get("act").and_then(Value::as_str).unwrap_or("");
+    if cmd == "co_more_act" && (act.starts_with("plan_") || act.starts_with("pe_")) && s.generation != gen {
+        super::super::rosterflow::planning_changed(s, viewer.guest);
     }
     out
 }

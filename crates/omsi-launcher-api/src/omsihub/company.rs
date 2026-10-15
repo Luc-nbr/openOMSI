@@ -493,11 +493,29 @@ pub fn changed(s: &mut Session) {
                 None => list.push(c.clone()),
             }
         }
+        if dry() {
+            return;
+        }
         if let Err(e) = co::store::save(&data(), c) {
             let t = format!("{e:#}");
             s.say(t, true);
         }
     }
+}
+
+thread_local! {
+    /// A test's company is changed in its session only, not written to the data folder.
+    static DRY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn dry() -> bool {
+    DRY.with(|d| d.get())
+}
+
+/// This thread's changes of the company stay in its session (a test's: `changed` writes no file).
+#[cfg(test)]
+pub(crate) fn test_dry() {
+    DRY.with(|d| d.set(true));
 }
 
 /// Do something to the company; its refusal comes back as the popup that says why and what
@@ -1245,6 +1263,10 @@ pub struct Viewer {
     report_line: Option<String>,
     feed_minor: bool,
     more: more::Kept,
+    /// His RosterFlow (the day made, undo and redo, the Timeplan's line: `rosterflow::relayed`),
+    /// and his number in the company's session.
+    rf: super::rosterflow::Rf,
+    pub guest: u32,
 }
 
 impl Viewer {
@@ -1287,6 +1309,8 @@ pub fn relayed(s: &mut Session, v: &mut Viewer, cmd: &str, args: &Value, perms: 
             Ok(json!({ "name": s.company.as_ref().and_then(|c| co::ownline::line_of(c, id)).map(|x| x.name.clone()) }))
         }
         c if c.starts_with("co_more_") => more::relayed(s, c, args),
+        // (RosterFlow, on the boss's company with the player's own RosterFlow state)
+        c if c.starts_with("rf_") => super::rosterflow::relayed(s, &mut v.rf, v.guest, c, args, perms),
         other => Err(format!("no command {other}")),
     };
     v.swap(s);

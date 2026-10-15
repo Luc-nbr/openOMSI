@@ -123,20 +123,36 @@ pub(crate) fn print(args: &Value) -> Answer {
         let date = date_of(s, args).ok_or("no day")?;
         Ok::<_, String>(made(s, r, &date, bus))
     })?;
-    let (name, bytes) = match made {
-        Ok(x) => x,
-        Err(said) => return Ok(said),
-    };
+    match made {
+        Ok((name, bytes)) => Ok(save(&name, &bytes)),
+        Err(said) => Ok(said),
+    }
+}
+
+/// The day shown as a PDF file for a player of the company's session (`rf_print` relayed): its
+/// file name and its bytes (base64), saved on his own launcher (`save`).
+pub(super) fn for_afar(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
+    let bus = args.get("bus").and_then(Value::as_bool).unwrap_or(true);
+    let date = date_of(s, args).ok_or("no day")?;
+    Ok(match made(s, r, &date, bus) {
+        Ok((name, bytes)) => json!({ "pdf": crate::base64(&bytes), "name": name }),
+        Err(said) => said,
+    })
+}
+
+/// A graph's PDF file saved where the player chooses (or in `OMSI_ROSTERFLOW_PDF`): what the
+/// page shows then.
+pub(crate) fn save(name: &str, bytes: &[u8]) -> Value {
     let given = std::env::var("OMSI_ROSTERFLOW_PDF").ok().filter(|d| !d.trim().is_empty());
     let path = match &given {
-        Some(dir) => PathBuf::from(dir).join(&name),
-        None => match core::save_file_as(&tr("Save the graph as a PDF file"), &name, "PDF", &["pdf"]) {
+        Some(dir) => PathBuf::from(dir).join(name),
+        None => match core::save_file_as(&tr("Save the graph as a PDF file"), name, "PDF", &["pdf"]) {
             Some(p) => p,
-            None => return Ok(json!({})),
+            None => return json!({}),
         },
     };
-    let written = path.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| std::fs::write(&path, &bytes));
-    Ok(match written {
+    let written = path.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| std::fs::write(&path, bytes));
+    match written {
         Ok(()) => json!({
             "printed": path.to_string_lossy(),
             "folder": path.parent().map(|d| d.to_string_lossy().to_string()).unwrap_or_default(),
@@ -144,7 +160,7 @@ pub(crate) fn print(args: &Value) -> Answer {
             "say": { "text": tr("Saved: %{file}").replace("%{file}", &path.display().to_string()), "error": false },
         }),
         Err(e) => json!({ "say": { "text": format!("{}: {e}", tr("Could not save the file")), "error": true } }),
-    })
+    }
 }
 
 #[cfg(test)]

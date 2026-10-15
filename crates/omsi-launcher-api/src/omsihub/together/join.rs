@@ -389,11 +389,12 @@ fn answer_of(r: Result<Value, String>) -> Value {
     }
 }
 
-/// A command of the company's pages (`relay::RELAYED`), relayed to the boss's launcher: its
-/// answer, or why not (the page says it as any command's error).
+/// A command of the company's pages (`relay::RELAYED`) or of RosterFlow (`relay::relayed_rf`),
+/// relayed to the boss's launcher: its answer, or why not (the page says it as any command's
+/// error). RosterFlow's print comes back as the file, saved here.
 fn relayed(args: &Value) -> Answer {
     let cmd = args.get("cmd").and_then(Value::as_str).unwrap_or("").to_string();
-    if !relay::RELAYED.contains(&cmd.as_str()) {
+    if !relay::RELAYED.contains(&cmd.as_str()) && !relay::relayed_rf(&cmd) {
         return Err(tr(relay::FROM_AFAR));
     }
     let mut inner = args.get("args").cloned().unwrap_or(json!({}));
@@ -401,11 +402,18 @@ fn relayed(args: &Value) -> Answer {
         inner["lang"] = args.get("lang").cloned().unwrap_or(Value::Null);
     }
     let v = send_page(json!({ "cmd": cmd, "args": inner }))?;
-    if v.get("ok").and_then(Value::as_bool) == Some(true) {
-        Ok(v.get("answer").cloned().unwrap_or(Value::Null))
-    } else {
-        Err(refusal_words(&v))
+    if v.get("ok").and_then(Value::as_bool) != Some(true) {
+        return Err(refusal_words(&v));
     }
+    let answer = v.get("answer").cloned().unwrap_or(Value::Null);
+    if cmd == "rf_print" {
+        if let Some(pdf) = answer.get("pdf").and_then(Value::as_str) {
+            let bytes = super::super::bus3d::photo::base64(pdf)?;
+            let name = answer.get("name").and_then(Value::as_str).unwrap_or("graph.pdf");
+            return Ok(super::super::rosterflow::save_pdf(name, &bytes));
+        }
+    }
+    Ok(answer)
 }
 
 /// A page's command sent to the boss's launcher now (its answer carries no day: the thread keeps
