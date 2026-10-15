@@ -901,6 +901,32 @@ fn give_driver(s: &mut Session, p: &DayPlan, ti: usize, k: usize, who: Option<Wh
         return Ok(json!({}));
     }
     let (line, tour) = (t.tour.line.clone(), t.tour.tour.clone());
+    // (an agency driver booked ahead for the day: the duty, and those joined with it, given him
+    // for his day only; given to anyone else, or to nobody, he gives it back - `co::agency`)
+    let blocks: Vec<co::network::TourOfDay> = p.tours.iter().map(|t| t.tour.clone()).collect();
+    let pieces: Vec<co::studio::PieceRef> = std::iter::once((ti, k)).chain(co::studio::partners(c, co::plandays::slot_of(c, &p.date), &blocks, ti, k)).filter_map(|(i, m)| co::studio::piece_ref(&blocks, i, m)).collect();
+    let date = p.date.clone();
+    let booked = matches!(who, Some(Who::Staff(id)) if co::agency::is_booked(id));
+    let had = matches!(t.duties[k].who, Some(Who::Staff(id)) if co::agency::is_booked(id));
+    if booked || had {
+        let r = apply(s, |c| {
+            for piece in &pieces {
+                match who {
+                    Some(Who::Staff(id)) if booked => {
+                        co::agency::give(c, id, piece.clone());
+                    }
+                    _ => {
+                        co::agency::release(c, &date, piece);
+                    }
+                }
+            }
+            Ok(())
+        });
+        if booked || who.is_none() {
+            return Ok(r.err().map(|p| json!({ "popup": p })).unwrap_or(json!({})));
+        }
+    }
+    let Some(c) = s.company.as_ref() else { return Ok(json!({})) };
     let rostered = pl::roster(c, p.weekday, &line, &tour).and_then(|r| r.duties.get(k).copied().flatten());
     let today_only = p.today && t.duties[k].problem.is_some_and(|x| x != Problem::Unassigned) && rostered.is_some() && who != Some(Who::Player);
     let wd = p.weekday;
