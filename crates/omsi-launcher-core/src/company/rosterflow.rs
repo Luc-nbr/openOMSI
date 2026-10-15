@@ -1041,13 +1041,31 @@ pub fn dismissed(c: &Company, weekday: u8, key: &str) -> bool {
     c.planning.flow.sheet.dismissed.iter().any(|(w, k)| *w == weekday && k == key)
 }
 
-/// A line renamed: its locks and links follow it.
+/// A line renamed: its locks, links and duties' notes follow it - and the draft not saved yet,
+/// its blocks and joined duties too (`studio::rename_line` renames the saved ones): else Save
+/// put them back under the old name, and the line's blocks, locks and duty notes were lost.
 pub fn rename_line(c: &mut Company, old: &str, new: &str) {
-    for l in c.planning.flow.sheet.locks.iter_mut().filter(|l| same(&l.line, old)) {
+    rename_in_sheet(&mut c.planning.flow.sheet, old, new);
+    if let Some(d) = c.planning.flow.draft.as_mut() {
+        rename_in_sheet(&mut d.sheet, old, new);
+        for l in d.layouts.iter_mut().filter(|l| same(&l.line, old)) {
+            l.line = new.to_string();
+        }
+        for p in d.joined.iter_mut().flat_map(|j| j.pieces.iter_mut()).filter(|p| same(&p.line, old)) {
+            p.line = new.to_string();
+        }
+    }
+}
+
+fn rename_in_sheet(s: &mut Sheet, old: &str, new: &str) {
+    for l in s.locks.iter_mut().filter(|l| same(&l.line, old)) {
         l.line = new.to_string();
     }
-    for l in c.planning.flow.sheet.links.iter_mut().filter(|l| same(&l.line, old)) {
+    for l in s.links.iter_mut().filter(|l| same(&l.line, old)) {
         l.line = new.to_string();
+    }
+    for n in s.notes.iter_mut().filter(|n| same(&n.key.line, old)) {
+        n.key.line = new.to_string();
     }
 }
 
