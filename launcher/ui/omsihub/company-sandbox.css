@@ -7,10 +7,11 @@
 .co-sb-top > .grow { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .co-sb-top .title { font-size: 20px; }
 .co-sb-top .changed { flex: none; font-size: var(--co-rows); }
-.co-sb-grid { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; align-content: start; padding-bottom: 8px; }
+.co-sb-grid { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); grid-auto-rows: max-content; gap: 16px; align-content: start; padding-bottom: 8px; }
 /* (a section's own min-height 0 let the grid squeeze the rows to the page's height, the knobs
-   running out under the card: a group is as tall as its knobs) */
-.co-sb-group { min-width: 0; min-height: auto; }
+   running out under the card: a group is as tall as its knobs. Two classes: company.css is
+   loaded after this sheet, and its `.co-section` would win a tie) */
+.co-sb-grid > .co-sb-group { min-width: 0; min-height: auto; }
 .co-sb-caps { display: inline-flex; align-items: center; gap: 6px; }
 .co-sb-knob { padding: 10px 0 10px 10px; border-left: 3px solid transparent; border-bottom: 1px solid var(--hub-hairline); }
 .co-sb-knob:last-child { border-bottom: 0; }
@@ -34,6 +35,8 @@
 .co-sandbox-badge.go { cursor: pointer; }
 .co-sandbox-badge.go:hover { background: color-mix(in srgb, var(--hub-accent) 26%, transparent); }
 .co-sandbox-badge.small { height: 20px; padding: 0 7px; }
+/* (in the bar, clear of the company's name before it) */
+.co-bar > .co-sandbox-badge { margin-left: 10px; }
 
 /* the founding's choice and the settings' block */
 .co-found .company-mode { margin-top: 10px; }
