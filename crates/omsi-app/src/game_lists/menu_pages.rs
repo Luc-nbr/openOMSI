@@ -271,6 +271,11 @@ pub(super) fn options_pages(app: &App) -> Vec<Page> {
         .flatten()
         .collect();
     let mut pages = vec![("Gameplay", game), ("Graphics", graphics), ("Display and memory", display), ("Sound", sound), ("Camera", camera), ("Controls", controls), ("Interface", interface)];
+    // (the add-ons of the game's catalogue, when it lists any: `crate::addons`)
+    let addons = crate::addons::rows(app);
+    if !addons.is_empty() {
+        pages.push(("Add-ons", addons));
+    }
     if app.vr_active() && app.player.is_some() {
         let desc = "Navigator position (this bus)";
         let mut rows = vec![

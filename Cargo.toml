@@ -28,6 +28,8 @@ members = [
     "crates/omsihub-game",
     # (its livery studio's core, shared with the desktop launcher's page studio)
     "crates/omsihub-livery",
+    # (Omsi-Hub as an add-on: its in-game plugin on openOMSI's plugin API, docs/omsihub/ADDON_PLAN.md)
+    "crates/omsihub-plugin",
     "crates/omsi-lan",
     "crates/omsi-platform",
     "crates/omsi-guard",

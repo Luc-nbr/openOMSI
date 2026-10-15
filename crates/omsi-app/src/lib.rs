@@ -38,6 +38,7 @@ mod placing;
 mod mt;
 use omsi_platform::updater;
 mod update_watch;
+mod addons;
 use omsi_platform::presence;
 // Omsi-Hub: the player's accent colour (the interface kit's, `omsi_ui::accent`)
 pub(crate) use omsi_ui::accent;

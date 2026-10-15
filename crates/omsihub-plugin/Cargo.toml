@@ -1,0 +1,16 @@
+[package]
+name = "omsihub-plugin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Omsi-Hub as an openOMSI add-on: its in-game plugin (Lua, on openOMSI's own plugin API), the files between the plugin and Omsi-Hub, the plugin API's version negotiated, and an openOMSI folder checked and its version read"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+# (the tests run the plugin's Lua in openOMSI's own plugin runtime, as the game does)
+omsi-plugin = { path = "../omsi-plugin" }
+# (the plugin's lines in the game's log, caught for the fallback's test)
+log.workspace = true

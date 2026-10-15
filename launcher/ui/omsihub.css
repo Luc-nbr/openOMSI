@@ -801,3 +801,8 @@
 .hub-scalebar::before { left: -0.75px; }
 .hub-scalebar::after { right: -0.75px; }
 .hub-scalebar span { position: absolute; left: calc(100% + 6px); top: -9.75px; height: 18px; line-height: 18px; font-size: 8.45px; font-weight: 500; color: var(--hub-text-dim); white-space: nowrap; }
+
+/* Your openOMSI (the add-on, `js/omsihub/addon.js`): the compatibility's colour */
+.hub-addon .ok { color: var(--hub-ok); }
+.hub-addon .warn { color: var(--hub-warn); }
+.hub-addon .bad { color: var(--hub-danger); }

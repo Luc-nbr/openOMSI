@@ -54,6 +54,10 @@ Edit the file while the game runs and save it - the plugin is loaded again withi
 
 Other `.lua` files are not started on their own, so a folder plugin's modules stay modules.
 `OMSI_NO_PLUGINS=1` leaves every plugin out, Lua ones included.
+A plugin can be switched off without removing it: `plugins/disabled.txt` lists the plugins
+of that folder the game leaves out, one name a line (a `.lua` or `.oop` file's name, a folder
+plugin's folder, an `.opl` file's name; `#` starts a comment). Taking it off the list switches
+it on again at the next start.
 
 ### How a plugin runs
 

@@ -95,6 +95,17 @@ if (HUB && !SETTINGS_TABS.omsihub) {
   // (Beta 54) the bus models' categories and regions, for every company: what the dealer, the
   // market and the shop of the bus company go by (`company/vehicles.js`)
   SETTINGS_TABS.push({ id: 'vehicles', label: 'Vehicles', cols: [{ title: 'Bus categories and regions', rows: [{ type: 'custom', id: 'hub-vehicles', view: () => html`<${Vehicles} />` }] }] });
+  // (the add-on, phase 1) Omsi-Hub beside the player's own openOMSI: its folder and the plugin there
+  SETTINGS_TABS.push({ id: 'addon', label: 'Your openOMSI', cols: [{ title: 'Play with your own openOMSI', rows: [{ type: 'custom', id: 'hub-addon', view: () => html`<${Addon} />` }] }] });
+}
+
+/** Your openOMSI (loaded with the tab: `addon.js`). */
+function Addon() {
+  const [m, setM] = useState(null);
+  useEffect(() => {
+    import('./addon.js').then(setM).catch(() => {});
+  }, []);
+  return m ? html`<${m.AddonPanel} />` : null;
 }
 
 /** The models' categories and regions (loaded with the tab: the company's list). */

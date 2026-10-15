@@ -34,6 +34,8 @@ pub mod lak;
 pub mod update;
 // Beta 58: "Play together" in the bus company (`together.rs`)
 pub mod together;
+// Omsi-Hub as an add-on of the player's own openOMSI (`addon.rs`, docs/omsihub/ADDON_PLAN.md)
+pub mod addon;
 
 use crate::{Answer, Platform};
 use omsi_launcher_lib as core;
@@ -130,6 +132,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("vertalingen.yml", include_str!("../../../omsi-app/locales/vertalingen.yml")),
     ("verwijderen.yml", include_str!("../../../omsi-app/locales/verwijderen.yml")),
     ("sandbox.yml", include_str!("../../../omsi-app/locales/sandbox.yml")),
+    ("tauri-addon.yml", include_str!("../../../omsi-app/locales/tauri-addon.yml")),
 ];
 
 /// Upstream's tables with ours taken in: a text upstream's `app.yml` has keeps its
@@ -176,6 +179,7 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
         c if c.starts_with("co_") => return company::call(c, args, p),
         c if c.starts_with("rf_") => return rosterflow::call(c, args, p),
         c if c.starts_with("tg_") => return together::call(c, args, p),
+        c if c.starts_with("addon_") => return addon::call(c, args),
         // (the editors' commands: `editors.rs`)
         _ => return editors::call(cmd, args, p),
     })

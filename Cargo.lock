@@ -3679,6 +3679,7 @@ dependencies = [
  "omsi-vehicle",
  "omsi-weather",
  "omsihub-livery",
+ "omsihub-plugin",
  "serde",
  "serde_json",
  "sha2",
@@ -3805,7 +3806,9 @@ dependencies = [
  "mlua",
  "omsi-cfg",
  "oop-format",
+ "sha2",
  "wasmi",
+ "zip",
 ]
 
 [[package]]
@@ -4096,6 +4099,16 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "omsihub-plugin"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "omsi-plugin",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

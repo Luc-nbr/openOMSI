@@ -32,6 +32,8 @@ omsi-o3d = { path = "../omsi-o3d" }
 # Omsi-Hub: the livery studio's core (`src/omsihub/lak`: the projects, the zones, the save into
 # the game), shared with the game program's studio
 omsihub-livery = { path = "../omsihub-livery" }
+# Omsi-Hub as an add-on: the openOMSI folder checked, the plugin installed (`src/omsihub/addon.rs`)
+omsihub-plugin = { path = "../omsihub-plugin" }
 glam.workspace = true
 sha2.workspace = true
 anyhow.workspace = true
