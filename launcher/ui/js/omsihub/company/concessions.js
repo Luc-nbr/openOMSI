@@ -1,8 +1,8 @@
 // The concession market, as our game-drawn launcher's (`company/concessions.rs`): the map's
 // lines the authority puts out to tender with their week, the concessions the company holds
 // with their terms, and the auction of the tender picked beside them as it runs with the
-// company's clock - the rivals with their character and their bids, the least bid that leads now
-// and its chance, buying the line outright, the clock stepped on for it - and how it ended.
+// company's clock - the rivals with their character and their bids, scored 70 % price and 30 %
+// quality, the most the company may ask to lead now, its chance and (Normal) the recommended ask, buying the line outright, the clock stepped on for it - and how it ended.
 
 import { html, ui, setUi, useSize, textW, Icon, Btn, Section, Plate, Slider } from './kit.js';
 import { useMore, actMore, TextIn, box, eur, useListSize } from './more.js';
@@ -123,7 +123,8 @@ function Auction({ a, st }) {
     }
     y += 8;
     const act = a.actions;
-    const actionsH = act.kind === 'running' ? 168 : 52;
+    const recH = act.kind === 'running' && act.recommend ? 26 : 0;
+    const actionsH = act.kind === 'running' ? 168 + recH : 52;
     const logH = Math.max(0, ih - actionsH - y);
     if (logH > 40) {
       parts.push(html`<${TextIn} x=${0} y=${y} w=${iw} h=${14} px=${12.5} weight=${700} tone="dim">${a.log_title}</${TextIn}>`);
@@ -142,10 +143,11 @@ function Auction({ a, st }) {
       const bw = (iw - 8) / 2;
       parts.push(html`<div style=${box(0, ay, iw, 36)}><${Slider} value=${amount} min=${act.lo} max=${act.hi} step=${100} label=${act.label} format=${(x) => eur(Math.round(x * 100))} onChange=${(x) => setUi('concessions', { amount: x, amount_for: act.id })} /></div>
         <${TextIn} x=${0} y=${ay + 42} w=${iw} h=${22} px=${13.5} weight=${500} tone=${act.chance_tone}>${act.chance}</${TextIn}>
-        <${Btn} kind="primary" icon="payments" label=${act.bid} style=${box(0, ay + 72, bw, 40) + ';height:40px;padding:0 8px'} onClick=${() => actMore('tender_bid', { id: act.id, amount: Math.round(amount * 100) })} />
-        <${Btn} icon="check_circle" label=${act.buy} title=${act.buy_tip} style=${box(bw + 8, ay + 72, bw, 40) + ';height:40px;padding:0 8px'} onClick=${() => actMore('tender_buy', { id: act.id })} />
-        <${Btn} kind="ghost" icon="timer" label=${act.plus15} style=${box(0, ay + 122, bw, 36) + ';height:36px'} onClick=${() => actMore('tender_step', { id: act.id, to: '15' })} />
-        <${Btn} kind="ghost" icon="sports_score" label=${act.to_close} style=${box(bw + 8, ay + 122, bw, 36) + ';height:36px'} onClick=${() => actMore('tender_step', { id: act.id, to: 'close' })} />`);
+        ${act.recommend && html`<button type="button" class="cm-link" style=${box(0, ay + 66, iw, 22) + ';background:none;border:0;padding:0;cursor:pointer;text-align:left'} onClick=${() => setUi('concessions', { amount: act.recommend_amount, amount_for: act.id })}><${TextIn} x=${0} y=${0} w=${iw} h=${22} px=${13.5} weight=${500} tone="accent2">${act.recommend}</${TextIn}></button>`}
+        <${Btn} kind="primary" icon="payments" label=${act.bid} style=${box(0, ay + 72 + recH, bw, 40) + ';height:40px;padding:0 8px'} onClick=${() => actMore('tender_bid', { id: act.id, amount: Math.round(amount * 100) })} />
+        <${Btn} icon="check_circle" label=${act.buy} title=${act.buy_tip} style=${box(bw + 8, ay + 72 + recH, bw, 40) + ';height:40px;padding:0 8px'} onClick=${() => actMore('tender_buy', { id: act.id })} />
+        <${Btn} kind="ghost" icon="timer" label=${act.plus15} style=${box(0, ay + 122 + recH, bw, 36) + ';height:36px'} onClick=${() => actMore('tender_step', { id: act.id, to: '15' })} />
+        <${Btn} kind="ghost" icon="sports_score" label=${act.to_close} style=${box(bw + 8, ay + 122 + recH, bw, 36) + ';height:36px'} onClick=${() => actMore('tender_step', { id: act.id, to: 'close' })} />`);
     } else if (act.kind === 'wait') {
       parts.push(html`<${Btn} icon="schedule" label=${act.label} style=${box(0, ay + 4, iw, 40) + ';height:40px'} onClick=${() => actMore('tender_step', { id: act.id, to: 'open' })} />`);
     } else if (act.kind === 'said' && act.text) {

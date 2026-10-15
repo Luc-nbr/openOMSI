@@ -6,10 +6,12 @@
 //! other on the days of the round's first week; a line of the map can also be applied for on
 //! the Lines page (its tender opens at once). A tender is an auction of a few hours of the
 //! company's time (`auction`): the map's other operators - made up, each with a character,
-//! the same ones every time (`Rival`) - and the player offer a sum for the concession, the
-//! authority weighs it with their quality (reputation and punctuality; the incumbent knows
-//! the line), and the best weighed offer when it closes wins and pays it. The player may
-//! also buy the line at once for the buy-out price. A won line is run from the next day for
+//! the same ones every time (`Rival`) - and the player ask a sum for running the line over the
+//! term (at most the authority's reference); the authority scores it 70 % on price (the lowest
+//! ask the full points) and 30 % on quality (reputation, punctuality and fleet; the incumbent
+//! knows the line), and the best total when it closes wins: the concession runs at its ask
+//! (`Concession::price`, its share of the reference). The player may also buy the line at once
+//! for the buy-out price (run at the reference). A won line is run from the next day for
 //! the term; towards its end the line is put out again (the renewal), and a concession not
 //! won again ends: the line goes to the winner. On an easy economy map lines are taken on
 //! directly and renewed by themselves; on Realistic and Hard adding a map line is applying
@@ -51,6 +53,12 @@ pub const VALUE_SHARE: f64 = 0.05;
 pub const RESERVE: f64 = 0.4;
 pub const BUY_OUT: f64 = 1.4;
 pub const STEP: f64 = 0.03;
+/// The step a rival may go lower by, as a share of the reference.
+pub const ASK_STEP: f64 = 0.01;
+/// The share of the reference the recommended ask wins with, at least (Normal).
+pub const RECOMMEND_CHANCE: f64 = 0.6;
+/// The recommended ask goes no lower than this share of the reference.
+pub const RECOMMEND_FLOOR: f64 = 0.8;
 
 /// A concession the company holds.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -90,6 +98,17 @@ pub struct RivalBid {
     pub score: f64,
     #[serde(default)]
     pub amount: Cents,
+}
+
+/// A bidder's points when a tender closed (the 70/30 score): its ask, price points, quality
+/// points and total. `name` empty: the company.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Standing {
+    pub name: String,
+    pub amount: Cents,
+    pub price: f64,
+    pub quality: f64,
+    pub total: f64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -167,6 +186,13 @@ pub struct Tender {
     pub opened: bool,
     #[serde(default)]
     pub told: usize,
+    /// The term's compensation at the reference: the most the authority pays, the ceiling of
+    /// the asks (0: a tender of an older file, bid as a sum paid for the concession).
+    #[serde(default)]
+    pub reference: Cents,
+    /// Every bidder's points at the close, best first.
+    #[serde(default)]
+    pub standings: Vec<Standing>,
 }
 
 impl Tender {
@@ -181,7 +207,21 @@ impl Tender {
     }
 
     pub fn lot(&self) -> Lot {
-        Lot { opens: self.opens_at, closes: self.closes_at, reserve: reserve(self.value), step: step(self.value) }
+        Lot { opens: self.opens_at, closes: self.closes_at, ceiling: self.reference, step: round(self.reference as f64 * ASK_STEP) }
+    }
+
+    /// Asked as the 70/30 score has it (not a tender of an older file).
+    pub fn scored(&self) -> bool {
+        self.reference > 0
+    }
+
+    /// The share of the reference an ask is.
+    pub fn share(&self, amount: Cents) -> f64 {
+        if self.reference > 0 {
+            amount as f64 / self.reference as f64
+        } else {
+            1.0
+        }
     }
 
     pub fn buy_out(&self) -> Cents {
@@ -284,14 +324,23 @@ pub fn rival(c: &Company, id: u32) -> Option<&Rival> {
     c.concessions.rivals.iter().find(|r| r.id == id)
 }
 
-/// How the authority sees the company's quality for a tender (the incumbent knows the line).
-pub fn quality(c: &Company, renewal: bool) -> f64 {
-    (0.7 * c.reputation + 0.3 * c.punctuality + if renewal { 8.0 } else { 0.0 }).clamp(0.0, 100.0)
+/// The fleet's condition the authority sees (0-100; no bus yet: an average 60).
+pub fn fleet_quality(c: &Company) -> f64 {
+    if c.fleet.is_empty() {
+        return 60.0;
+    }
+    c.fleet.iter().map(|v| v.condition.clamp(0.0, 100.0)).sum::<f64>() / c.fleet.len() as f64
 }
 
-/// What the company's bids count for in a tender (`auction::weight`).
-pub fn weight(c: &Company, t: &Tender) -> f64 {
-    auction::weight(quality(c, t.renewal))
+/// How the authority sees the company's quality for a tender: its reputation, punctuality and
+/// fleet (the incumbent knows the line).
+pub fn quality(c: &Company, renewal: bool) -> f64 {
+    (0.6 * c.reputation + 0.25 * c.punctuality + 0.15 * fleet_quality(c) + if renewal { 8.0 } else { 0.0 }).clamp(0.0, 100.0)
+}
+
+/// The company's quality in a tender.
+pub fn quality_in(c: &Company, t: &Tender) -> f64 {
+    quality(c, t.renewal)
 }
 
 /// The fee for taking part in a tender (a tenth of the line's worth at most).
@@ -330,6 +379,11 @@ pub fn value_of(c: &Company, day_km: f64, weeks: u32) -> Cents {
 
 fn value_at(day_km: f64, weeks: u32, per_km: f64) -> Cents {
     round(day_km.max(20.0) * 6.0 * weeks as f64 * per_km * VALUE_SHARE).max(2_000_00)
+}
+
+/// The term's compensation at the reference (the ceiling of the asks), at least 40 000 €.
+fn reference_at(day_km: f64, weeks: u32, per_km: f64) -> Cents {
+    round(day_km.max(20.0) * 6.0 * weeks as f64 * per_km).max(40_000_00)
 }
 
 /// The authority's reference compensation per kilometre now (cents).
@@ -407,6 +461,15 @@ pub fn ensure(c: &mut Company) -> bool {
     let now = clock::now(c);
     let per_km = reference_per_km(c);
     let pool: Vec<u32> = c.concessions.rivals.iter().map(|r| r.id).collect();
+    // (an open tender of an older file, bid as a sum paid: asked again from its reference, its
+    // old bids dropped - the fee stays paid)
+    let mut asked_again = Vec::new();
+    for t in c.concessions.tenders.iter_mut().filter(|t| t.open() && t.reference == 0) {
+        t.reference = reference_at(t.day_km, t.weeks, per_km);
+        t.offers.clear();
+        asked_again.push(t.id);
+        changed = true;
+    }
     for t in c.concessions.tenders.iter_mut().filter(|t| t.open() && t.closes_at == 0) {
         t.value = value_at(t.day_km, t.weeks, per_km);
         t.opens_at = now;
@@ -414,6 +477,14 @@ pub fn ensure(c: &mut Company) -> bool {
         t.closes = clock::date_of(t.closes_at);
         t.bidders = pool.iter().copied().take(r.rivals.1 as usize).collect();
         changed = true;
+    }
+    // (their bids so far told already: not again)
+    for id in asked_again {
+        let Some(t) = c.concessions.tenders.iter().find(|t| t.id == id).cloned() else { continue };
+        let n = bids(c, &t, now).len();
+        if let Some(x) = c.concessions.tenders.iter_mut().find(|x| x.id == id) {
+            x.told = n;
+        }
     }
     changed
 }
@@ -434,6 +505,7 @@ fn new_tender(c: &mut Company, l: &LineInfo, opens_at: i64, renewal: bool) -> u3
         bidders.push(pool.remove(rng.int(0, pool.len() as i64 - 1) as usize));
     }
     let value = value_of(c, day_km, r.term_weeks);
+    let reference = reference_at(day_km, r.term_weeks, reference_per_km(c));
     c.concessions.tenders.push(Tender {
         id,
         line: l.name.clone(),
@@ -456,6 +528,8 @@ fn new_tender(c: &mut Company, l: &LineInfo, opens_at: i64, renewal: bool) -> u3
         offers: Vec::new(),
         opened: false,
         told: 0,
+        reference,
+        standings: Vec::new(),
     });
     id
 }
@@ -627,7 +701,7 @@ pub fn apply(c: &mut Company, l: &LineInfo) -> Result<u32, &'static str> {
     Ok(id)
 }
 
-/// The rivals of a tender as its auction knows them: their limits drawn per tender (secret),
+/// The rivals of a tender as its auction knows them: their floors drawn per tender (secret),
 /// when they open, who keeps quiet until the end.
 pub fn bidders(c: &Company, t: &Tender) -> Vec<Bidder> {
     let r = rules(c.game_mode);
@@ -636,9 +710,9 @@ pub fn bidders(c: &Company, t: &Tender) -> Vec<Bidder> {
     for (k, id) in t.bidders.iter().enumerate() {
         let Some(rv) = rival(c, *id) else { continue };
         let mut rng = Rng::of(&[&c.id, "bidder", &rv.name], t.id as i64);
-        let (lo, hi) = rv.character.limit();
+        let (lo, hi) = rv.character.floor();
         // (in whole hundreds, as the bids go)
-        let limit = (t.value as f64 * rng.range(lo, hi) * r.factor / auction::ROUND as f64).floor() as Cents * auction::ROUND;
+        let floor = (t.reference as f64 * auction::floor_share(rng.range(lo, hi), r.factor) / auction::ROUND as f64).ceil() as Cents * auction::ROUND;
         let quiet = rng.chance(rv.character.quiet());
         let len = (t.closes_at - t.opens_at).max(30);
         let quiet_until = quiet.then(|| t.closes_at - rng.int(2, 12));
@@ -648,17 +722,17 @@ pub fn bidders(c: &Company, t: &Tender) -> Vec<Bidder> {
             nobody_opened = false;
         }
         let opening = opens.then(|| t.opens_at + rng.int(3, (len / 4).max(4)));
-        out.push(Bidder { character: rv.character, limit, weight: auction::weight(rv.quality), seed: rng.next_u64() ^ k as u64, opening, quiet_until });
+        out.push(Bidder { character: rv.character, floor, quality: rv.quality, seed: rng.next_u64() ^ k as u64, opening, quiet_until });
     }
     out
 }
 
 /// The tender's bids from its opening until `until` (minutes).
 pub fn bids(c: &Company, t: &Tender, until: i64) -> Vec<Placed> {
-    if t.value <= 0 || until < t.opens_at {
+    if t.reference <= 0 || until < t.opens_at {
         return Vec::new();
     }
-    auction::replay(&t.lot(), &bidders(c, t), &t.offers, weight(c, t), until)
+    auction::replay(&t.lot(), &bidders(c, t), &t.offers, quality_in(c, t), until)
 }
 
 /// The name a bid was placed under (the player's: empty).
@@ -669,18 +743,39 @@ pub fn bidder_name(c: &Company, t: &Tender, who: Who) -> String {
     }
 }
 
-/// The least the company has to bid now to lead.
+/// The bid that leads now: the most the company may ask (its 70/30 score leading every other
+/// by a margin).
 pub fn min_bid(c: &Company, t: &Tender) -> Cents {
     let placed = bids(c, t, clock::now(c));
     let rivals = bidders(c, t);
-    auction::to_lead(auction::best_score(&placed, &rivals, weight(c, t)), weight(c, t), &t.lot())
+    auction::player_to_lead(&placed, &rivals, quality_in(c, t), &t.lot())
 }
 
-/// The company's chance to win with a bid of `amount` now, as the player can reckon it.
-pub fn chance(c: &Company, t: &Tender, amount: Cents) -> f64 {
-    if amount >= t.buy_out() {
-        return 1.0;
+/// The ask recommended now (Normal): the most that leads and wins with `RECOMMEND_CHANCE` as
+/// it looks now, not below `RECOMMEND_FLOOR` of the reference; and its chance.
+pub fn recommended(c: &Company, t: &Tender) -> (Cents, f64) {
+    let top = min_bid(c, t);
+    let bottom = round(t.reference as f64 * RECOMMEND_FLOOR).min(top);
+    // (the lower the ask, the better the chance: the most that is good enough)
+    let (mut lo, mut hi) = (bottom / auction::ROUND, top / auction::ROUND);
+    if chance(c, t, hi * auction::ROUND) < RECOMMEND_CHANCE {
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2;
+            if chance(c, t, mid * auction::ROUND) >= RECOMMEND_CHANCE {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+    } else {
+        lo = hi;
     }
+    let amount = lo * auction::ROUND;
+    (amount, chance(c, t, amount))
+}
+
+/// The company's chance to win with an ask of `amount` now, as the player can reckon it.
+pub fn chance(c: &Company, t: &Tender, amount: Cents) -> f64 {
     let placed = bids(c, t, clock::now(c));
     let seen: Vec<Seen> = t
         .bidders
@@ -689,10 +784,10 @@ pub fn chance(c: &Company, t: &Tender, amount: Cents) -> f64 {
         .filter_map(|(i, id)| {
             let r = rival(c, *id)?;
             let last = placed.iter().rev().find(|p| p.who == Who::Rival(i)).map(|p| p.amount);
-            Some(Seen { character: r.character, weight: auction::weight(r.quality), last })
+            Some(Seen { character: r.character, quality: r.quality, last })
         })
         .collect();
-    auction::chance(amount, weight(c, t), &seen, t.value, rules(c.game_mode).factor, &t.lot())
+    auction::chance(amount, quality_in(c, t), &seen, rules(c.game_mode).factor, &t.lot())
 }
 
 /// The fee with the first bid.
@@ -711,8 +806,8 @@ fn pay_fee(c: &mut Company, id: u32) -> Result<(), &'static str> {
     Ok(())
 }
 
-/// Bid a sum on a running tender, now: it has to lead (`min_bid`), and the fee is paid with
-/// the first bid. (The sum is paid when the tender is won.)
+/// Ask a sum on a running tender, now: it has to lead (at most `min_bid`), and the fee is paid
+/// with the first bid. (Won, the line runs at that ask: nothing is paid for it.)
 pub fn bid(c: &mut Company, id: u32, amount: Cents) -> Result<(), &'static str> {
     let now = clock::now(c);
     let Some(t) = c.concessions.tenders.iter().find(|t| t.id == id).cloned() else { return Err("There is no such tender.") };
@@ -723,14 +818,11 @@ pub fn bid(c: &mut Company, id: u32, amount: Cents) -> Result<(), &'static str> 
         return Err("This tender is closed.");
     }
     level_allows(c, id)?;
-    if amount < min_bid(c, &t) {
-        return Err("Another bid leads with more: bid at least the least shown.");
+    if amount < auction::ROUND {
+        return Err("Ask at least 100 €.");
     }
-    if amount >= t.buy_out() {
-        return Err("That is the buy-out price: buy the line instead.");
-    }
-    if c.cash < amount + if t.fee_paid { 0 } else { fee(c, &t) } {
-        return Err("Not enough cash.");
+    if amount > min_bid(c, &t) {
+        return Err("Another bid scores better: ask at most the bid that leads.");
     }
     pay_fee(c, id)?;
     if let Some(x) = c.concessions.tenders.iter_mut().find(|x| x.id == id) {
@@ -783,8 +875,8 @@ pub fn buy_out(c: &mut Company, id: u32) -> Result<Event, &'static str> {
     pay_fee(c, id)?;
     c.book(BookingKind::Concession, -price, format!("Concession line {} (bought)", t.number), false);
     let rivals = last_bids(c, &t, &bids(c, &t, now));
-    let ev = take(c, &t);
-    let score = price as f64 * weight(c, &t);
+    let ev = take(c, &t, 1.0);
+    let score = auction::PRICE_POINTS + auction::quality_points(quality_in(c, &t));
     let today = c.date.clone();
     if let Some(x) = c.concessions.tenders.iter_mut().find(|x| x.id == id) {
         x.outcome = Some(Outcome::Won { score, rivals, amount: price, bought: true });
@@ -827,9 +919,9 @@ pub fn take_at_asking(c: &mut Company, id: u32) -> Result<(Event, Cents), &'stat
     }
     pay_fee(c, id)?;
     c.book(BookingKind::Concession, -t.value, format!("Concession line {} (asking price)", t.number), false);
-    let ev = take(c, &t);
+    let ev = take(c, &t, 1.0);
     let now = clock::now(c);
-    let score = t.value as f64 * weight(c, &t);
+    let score = auction::PRICE_POINTS + auction::quality_points(quality_in(c, &t));
     let today = c.date.clone();
     if let Some(x) = c.concessions.tenders.iter_mut().find(|x| x.id == id) {
         x.outcome = Some(Outcome::Won { score, rivals: Vec::new(), amount: t.value, bought: true });
@@ -854,48 +946,50 @@ pub fn take_line(c: &mut Company, l: &LineInfo) -> Result<(Event, Cents), &'stat
     out
 }
 
-/// The bidders' last bids, best first.
-fn last_bids(c: &Company, t: &Tender, placed: &[Placed]) -> Vec<RivalBid> {
-    let mut out: Vec<RivalBid> = t
-        .bidders
-        .iter()
-        .enumerate()
-        .filter_map(|(i, id)| {
-            let r = rival(c, *id)?;
-            let amount = placed.iter().rev().find(|p| p.who == Who::Rival(i))?.amount;
-            Some(RivalBid { name: r.name.clone(), price: 0.0, quality: r.quality, score: amount as f64 * auction::weight(r.quality), amount })
-        })
-        .collect();
-    out.sort_by(|a, b| b.score.total_cmp(&a.score));
-    out
+/// Every bidder's points from its last bid, best first (the company's name empty).
+pub fn standings(c: &Company, t: &Tender, placed: &[Placed]) -> Vec<Standing> {
+    auction::points(placed, &bidders(c, t), quality_in(c, t)).into_iter().map(|p| Standing { name: bidder_name(c, t, p.who), amount: p.amount, price: p.price, quality: p.quality, total: p.total }).collect()
 }
 
-/// A tender won: the concession from tomorrow (its line taken on at once: `take_on`), or a renewal
-/// added to the old term.
-fn take(c: &mut Company, t: &Tender) -> Event {
+/// The rivals' last bids, best first.
+fn last_bids(c: &Company, t: &Tender, placed: &[Placed]) -> Vec<RivalBid> {
+    standings(c, t, placed)
+        .into_iter()
+        .filter(|s| !s.name.is_empty())
+        .map(|s| {
+            let quality = c.concessions.rivals.iter().find(|r| r.name == s.name).map_or(0.0, |r| r.quality);
+            RivalBid { name: s.name, price: t.share(s.amount), quality, score: s.total, amount: s.amount }
+        })
+        .collect()
+}
+
+/// A tender won at `price` (the ask's share of the reference): the concession from tomorrow
+/// (its line taken on at once: `take_on`), or a renewal added to the old term.
+fn take(c: &mut Company, t: &Tender, price: f64) -> Event {
     let tomorrow = dates::add(&c.date, 1);
+    let price = (price * 1000.0).round() / 1000.0;
     if let Some(h) = c.concessions.held.iter_mut().find(|h| h.line.eq_ignore_ascii_case(&t.line)) {
         h.until = dates::add(&h.until, t.weeks as i64 * 7);
-        h.price = 1.0;
+        h.price = price;
         h.direct = false;
         return Event::Won { number: t.number.clone(), until: h.until.clone() };
     }
     let until = dates::add(&tomorrow, t.weeks as i64 * 7 - 1);
-    c.concessions.held.push(Concession { line: t.line.clone(), number: t.number.clone(), from: tomorrow, until: until.clone(), price: 1.0, direct: false });
+    c.concessions.held.push(Concession { line: t.line.clone(), number: t.number.clone(), from: tomorrow, until: until.clone(), price, direct: false });
     Event::Won { number: t.number.clone(), until }
 }
 
-/// Close a tender at its minute: the best weighed bid wins; the company pays its bid when it
-/// is the winner. Returns what came of it and for how much (None: closed already).
+/// Close a tender at its minute: the best 70/30 score wins; won by the company, the line runs
+/// at its ask. Returns what came of it and the winning ask (None: closed already).
 pub fn close(c: &mut Company, id: u32) -> Option<(Event, Cents)> {
     let t = c.concessions.tenders.iter().find(|t| t.id == id && t.open())?.clone();
     let placed = bids(c, &t, t.closes_at);
     let rivals = last_bids(c, &t, &placed);
-    let mine = placed.iter().rev().find(|p| p.who == Who::Player).map(|p| p.amount as f64 * weight(c, &t)).unwrap_or(0.0);
+    let board = standings(c, &t, &placed);
+    let mine = board.iter().find(|s| s.name.is_empty()).map_or(0.0, |s| s.total);
     let (outcome, event, amount) = match placed.last() {
         Some(p) if p.who == Who::Player => {
-            c.book(BookingKind::Concession, -p.amount, format!("Concession line {}", t.number), false);
-            let ev = take(c, &t);
+            let ev = take(c, &t, t.share(p.amount));
             (Outcome::Won { score: mine, rivals, amount: p.amount, bought: false }, ev, p.amount)
         }
         Some(p) => {
@@ -908,6 +1002,7 @@ pub fn close(c: &mut Company, id: u32) -> Option<(Event, Cents)> {
     };
     if let Some(x) = c.concessions.tenders.iter_mut().find(|x| x.id == id) {
         x.outcome = Some(outcome);
+        x.standings = board;
     }
     Some((event, amount))
 }
@@ -1044,6 +1139,7 @@ pub(crate) mod tests {
             assert_eq!(clock::date_of(t.opens_at), dates::add(&c.date, k as i64));
             assert!(!t.bidders.is_empty() && t.bidders.iter().all(|id| rival(&c, *id).is_some()));
             assert!(t.value >= 2_000_00 && t.buy_out() > t.value && reserve(t.value) < t.value);
+            assert!(t.scored() && t.reference > t.buy_out());
         }
         assert_eq!(c.concessions.rivals.len(), 6);
         assert!(!refresh(&mut c, &lines), "the same round again changes nothing");
@@ -1065,10 +1161,10 @@ pub(crate) mod tests {
         assert_eq!(apply(&mut c, &lines[0]), Ok(id), "one tender a line");
         let t = c.concessions.tenders[0].clone();
         assert!(t.running(clock::now(&c)) && t.applied);
-        assert_eq!(bid(&mut c, id, reserve(t.value) - auction::ROUND), Err("Another bid leads with more: bid at least the least shown."));
+        assert_eq!(bid(&mut c, id, t.reference + auction::ROUND), Err("Another bid scores better: ask at most the bid that leads."));
         let cash = c.cash;
-        // a bid past every rival's limit (below the buy-out)
-        let high = t.buy_out() - auction::ROUND;
+        // an ask below every rival's floor
+        let high = round(t.reference as f64 * 0.6);
         bid(&mut c, id, high).unwrap();
         assert_eq!(cash - c.cash, fee(&c, &c.concessions.tenders[0]), "the fee with the first bid");
         assert!(fee(&c, &t) > 0 && fee(&c, &t) <= t.value / 10 + auction::ROUND, "a tenth of the worth at most");
@@ -1085,6 +1181,11 @@ pub(crate) mod tests {
         assert!(matches!(&ev, Event::Won { number, .. } if number == "7"));
         assert_eq!(paid, high);
         assert!(matches!(c.concessions.tenders[0].outcome, Some(Outcome::Won { amount, bought: false, .. }) if amount == high));
+        assert_eq!(cash - c.cash, fee(&c, &c.concessions.tenders[0]), "nothing paid for a line won on its ask");
+        // the points of every bidder are kept, the company's (its name empty) first
+        let board = &c.concessions.tenders[0].standings;
+        assert!(board[0].name.is_empty() && board[0].price == auction::PRICE_POINTS);
+        assert!(board.windows(2).all(|w| w[0].total >= w[1].total));
         // the line comes with the market's next look (or the night), in service from tomorrow on
         assert!(!c.lines.iter().any(|l| l.name == "Linie7"));
         ensure(&mut c);
@@ -1093,7 +1194,8 @@ pub(crate) mod tests {
         nights_until(&mut c, &today, &lines);
         assert!(c.lines.iter().any(|l| l.name == "Linie7"));
         let h = of_line(&c, "Linie7").unwrap().clone();
-        assert_eq!((h.from.as_str(), h.price), (c.date.as_str(), 1.0));
+        assert_eq!(h.from.as_str(), c.date.as_str());
+        assert!((h.price - t.share(high)).abs() < 0.001, "run at its ask: {}", h.price);
         assert_eq!(dates::between(&h.from, &h.until), 52 * 7 - 1);
         // the renewal comes up; without a bid the line ends with the term
         c.date = dates::add(&h.until, -RENEW_BEFORE);
@@ -1199,28 +1301,58 @@ pub(crate) mod tests {
         assert!(matches!(t.outcome, Some(Outcome::Won { bought: true, amount, .. }) if amount == price));
         assert_eq!(cash - c.cash, price + fee(&c, t));
         assert_eq!(buy_out(&mut c, id).err(), Some("This tender is closed."));
-        // the least bid against the rivals: lost more often than a high one, and a lost one
-        // says who won and for how much
+        // an ask near the reference against the rivals: lost more often than a low one, and a
+        // lost one says who won
         let mut won = [0; 2];
         for n in 0..60 {
-            for (k, share) in [0.45, 1.25].into_iter().enumerate() {
+            for (k, share) in [0.98, 0.75].into_iter().enumerate() {
                 let mut c = company(GameMode::Normal);
                 c.id = format!("c{n}");
                 c.cash = 1_000_000_00;
                 c.clock.minute = 9 * 60;
                 let id = apply(&mut c, &lines[0]).unwrap();
                 let t = c.concessions.tenders[0].clone();
-                let amount = round(t.value as f64 * share).max(min_bid(&c, &t));
+                let amount = round(t.reference as f64 * share).min(min_bid(&c, &t));
                 bid(&mut c, id, amount).unwrap();
                 close(&mut c, id).unwrap();
                 match &c.concessions.tenders[0].outcome {
                     Some(Outcome::Won { .. }) => won[k] += 1,
-                    Some(Outcome::Lost { winner, amount: a, .. }) => assert!(!winner.is_empty() && *a > amount),
+                    Some(Outcome::Lost { winner, .. }) => assert!(!winner.is_empty()),
                     o => panic!("{o:?}"),
                 }
             }
         }
         assert!(won[0] < won[1] && won[0] < 50 && won[1] > 30, "{won:?}");
+    }
+
+    #[test]
+    fn a_cheaper_ask_of_lower_quality_can_win_and_a_far_worse_one_loses() {
+        let lines = vec![line("Linie7", "7", 2, true)];
+        let mut c = company(GameMode::Normal);
+        c.clock.minute = 9 * 60;
+        let id = apply(&mut c, &lines[0]).unwrap();
+        let t = c.concessions.tenders[0].clone();
+        // the company's quality: reputation, punctuality and fleet
+        c.reputation = 40.0;
+        let q = quality_in(&c, &t);
+        let lot = t.lot();
+        // a rival of quality 65 asks 90 %: 5 % below it wins for the company all the same
+        let rival_ask = round(t.reference as f64 * 0.9);
+        let mine = round(t.reference as f64 * 0.85);
+        assert!(auction::score(mine, q, mine) > auction::score(rival_ask, 65.0, mine), "q {q}");
+        // ... but with a reputation run down to nothing, 2 % below it is not enough
+        c.reputation = 0.0;
+        c.punctuality = 20.0;
+        let q = quality_in(&c, &t);
+        let mine = round(t.reference as f64 * 0.88);
+        assert!(auction::score(mine, q, mine) < auction::score(rival_ask, 95.0, mine), "q {q}");
+        // the recommended ask leads and wins with the chance it says
+        c.reputation = 50.0;
+        let (ask, p) = recommended(&c, &t);
+        assert!(ask <= min_bid(&c, &t) && ask >= round(t.reference as f64 * RECOMMEND_FLOOR).min(min_bid(&c, &t)));
+        assert!((0.0..=1.0).contains(&p));
+        assert!(bid(&mut c, id, ask).is_ok());
+        assert!(lot.ceiling == t.reference);
     }
 
     #[test]

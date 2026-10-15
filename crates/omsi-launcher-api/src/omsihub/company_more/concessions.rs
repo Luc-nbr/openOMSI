@@ -117,8 +117,8 @@ pub fn state_of(c: &Company, t: &Tender) -> (String, &'static str) {
             };
             (format!("{}  ·  {}", trf("Running until %{time}", &[("time", &ck::hhmm(t.closes_at))]), lead), tone)
         }
-        Some(Outcome::Won { amount, bought, .. }) => (trf(if *bought { "Bought for %{amount}" } else { "Won for %{amount}" }, &[("amount", &eur(*amount))]), "ok"),
-        Some(Outcome::Lost { winner, amount, .. }) => (trf("Lost to %{who} for %{amount}", &[("who", winner), ("amount", &eur(*amount))]), "warn"),
+        Some(Outcome::Won { amount, bought, .. }) => (trf(if *bought { "Bought for %{amount}" } else if t.scored() { "Won with an ask of %{amount}" } else { "Won for %{amount}" }, &[("amount", &eur(*amount))]), "ok"),
+        Some(Outcome::Lost { winner, amount, .. }) => (trf(if t.scored() { "Lost to %{who}, who asked %{amount}" } else { "Lost to %{who} for %{amount}" }, &[("who", winner), ("amount", &eur(*amount))]), "warn"),
         Some(Outcome::NoBid { winner, amount }) if !winner.is_empty() => (trf("Went to %{who} for %{amount}", &[("who", winner), ("amount", &eur(*amount))]), "faint"),
         Some(Outcome::NoBid { .. }) => (tr("Nobody bid"), "faint"),
     }
@@ -155,7 +155,7 @@ pub fn view(s: &mut Session, args: &Value) -> Value {
     weeks(s);
     let Some(c) = s.company.clone() else { return Value::Null };
     let q = cn::quality(&c, false);
-    let foot = trf("An auction runs a few hours of the company's time; the best offer when it closes wins, weighed with the bidder's name - yours is %{q} of 100, from your reputation and punctuality.", &[("q", &format!("{q:.0}"))]);
+    let foot = trf("Scored 70 % price, 30 % quality: the lowest ask gets all 70 price points, others lowest ÷ ask of them. Your quality %{q} of 100 (reputation, punctuality, fleet) is worth %{p} points. The best total wins.", &[("q", &format!("{q:.0}")), ("p", &format!("{:.1}", omsi_launcher_lib::company::auction::quality_points(q)))]);
     let mut list: Vec<Tender> = c.concessions.tenders.clone();
     list.sort_by(|a, b| b.open().cmp(&a.open()).then(if a.open() { a.opens_at.cmp(&b.opens_at) } else { b.closes_at.cmp(&a.closes_at) }));
     // (the panel shows the one picked, else the first running or announced)
@@ -246,8 +246,8 @@ fn auction(c: &Company, selected: Option<u32>, args: &Value) -> Value {
     let mine = my_bid_text(c, t);
     let least = cn::min_bid(c, t);
     let figures = json!([
-        { "label": tr("The line's worth").to_uppercase(), "value": eur(t.value), "tone": "text" },
-        if t.open() { json!({ "label": tr("Least bid now").to_uppercase(), "value": eur(least), "tone": "text" }) } else { json!({ "label": tr("Term").to_uppercase(), "value": trf("%{n} weeks", &[("n", &t.weeks.to_string())]), "tone": "text" }) },
+        { "label": tr("The reference").to_uppercase(), "value": eur(t.reference), "tone": "text" },
+        if t.open() { json!({ "label": tr("Ask at most now").to_uppercase(), "value": eur(least), "tone": "text" }) } else { json!({ "label": tr("Term").to_uppercase(), "value": trf("%{n} weeks", &[("n", &t.weeks.to_string())]), "tone": "text" }) },
         { "label": tr("Buy outright").to_uppercase(), "value": eur(t.buy_out()), "tone": "accent2" },
     ]);
     let len = (t.closes_at - t.opens_at).max(1);
@@ -262,6 +262,9 @@ fn auction(c: &Company, selected: Option<u32>, args: &Value) -> Value {
     // the bidders
     let placed = cn::bids(c, t, if t.open() { now } else { t.closes_at });
     let leader = placed.last().map(|p| p.who);
+    // (the points: kept at the close, else as they stand now)
+    let board = if t.open() { cn::standings(c, t, &placed) } else { t.standings.clone() };
+    let points_of = |name: &str| board.iter().find(|s| s.name == name).map(|s| trf("%{p} price + %{q} quality = %{t} points", &[("p", &format!("{:.1}", s.price)), ("q", &format!("{:.1}", s.quality)), ("t", &format!("{:.1}", s.total))]));
     let mut bidders: Vec<Value> = t
         .bidders
         .iter()
@@ -269,31 +272,40 @@ fn auction(c: &Company, selected: Option<u32>, args: &Value) -> Value {
         .filter_map(|(i, id)| {
             let r = cn::rival(c, *id)?;
             let last = placed.iter().rev().find(|p| p.who == Who::Rival(i)).map(|p| p.amount);
-            Some(json!({ "name": r.name, "kind": tr(r.character.label()), "value": last.map(eur).unwrap_or_else(|| tr("no bid")), "has": last.is_some(), "leads": leader == Some(Who::Rival(i)) }))
+            let kind = points_of(&r.name).unwrap_or_else(|| format!("{}  ·  {}", tr(r.character.label()), trf("quality %{q}", &[("q", &format!("{:.0}", r.quality))])));
+            Some(json!({ "name": r.name, "kind": kind, "value": last.map(eur).unwrap_or_else(|| tr("no bid")), "has": last.is_some(), "leads": leader == Some(Who::Rival(i)) }))
         })
         .collect();
     let mine_last = placed.iter().rev().find(|p| p.who == Who::Player).map(|p| p.amount);
-    bidders.push(json!({ "name": tr("You"), "kind": trf("your name counts ×%{w}", &[("w", &format!("{:.2}", cn::weight(c, t)))]), "value": mine_last.map(eur).unwrap_or_else(|| tr("no bid")), "has": mine_last.is_some(), "leads": leader == Some(Who::Player) }));
+    let kind = points_of("").unwrap_or_else(|| trf("your quality %{q}", &[("q", &format!("{:.0}", cn::quality_in(c, t)))]));
+    bidders.push(json!({ "name": tr("You"), "kind": kind, "value": mine_last.map(eur).unwrap_or_else(|| tr("no bid")), "has": mine_last.is_some(), "leads": leader == Some(Who::Player) }));
     let log: Vec<Value> = placed.iter().rev().take(30).map(|p| json!({ "at": ck::hhmm(p.at), "who": if p.who == Who::Player { tr("You") } else { cn::bidder_name(c, t, p.who) }, "amount": eur(p.amount), "me": p.who == Who::Player })).collect();
     // what to do
     let actions = if t.running(now) {
-        let hi = (t.buy_out() - omsi_launcher_lib::company::auction::ROUND) as f64 / 100.0;
-        let lo = (least as f64 / 100.0).min(hi);
-        // (the slider's sum when it is this tender's and not under the least bid now)
+        // (an ask: from half the reference up to the most that leads now)
+        let hi = (least as f64 / 100.0).max(100.0);
+        let lo = ((t.reference as f64 * 0.5 / 100.0 / 100.0).round() * 100.0).min(hi - 100.0).max(100.0);
+        let normal = c.game_mode == omsi_launcher_lib::company::GameMode::Normal;
+        let (rec, rec_chance) = cn::recommended(c, t);
+        // (the slider's sum when it is this tender's and not above the bid that leads now;
+        // else the recommended ask in Normal, the most that leads otherwise)
         let mine = args.get("amount_for").and_then(Value::as_u64) == Some(t.id as u64);
-        let want = args.get("amount").and_then(Value::as_f64).filter(|a| mine && *a >= lo).unwrap_or(lo);
-        let a = want.clamp(lo, hi.max(lo + 100.0));
+        let start = if normal { rec as f64 / 100.0 } else { hi };
+        let want = args.get("amount").and_then(Value::as_f64).filter(|a| mine && *a <= hi).unwrap_or(start);
+        let a = want.clamp(lo, hi);
         let amount = (a * 100.0).round() as i64;
         let chance = cn::chance(c, t, amount);
         let ctone = if chance >= 0.7 { "ok" } else if chance >= 0.35 { "warn" } else { "danger" };
-        let mut said = trf("Chance to win, as it looks now: about %{p} %", &[("p", &format!("{:.0}", chance * 100.0))]);
+        let mut said = trf("%{s} % of the reference  ·  chance to win, as it looks now: about %{p} %", &[("s", &format!("{:.0}", t.share(amount) * 100.0)), ("p", &format!("{:.0}", chance * 100.0))]);
         if !t.fee_paid && cn::fee(c, t) > 0 {
             said = format!("{said}  ·  {}", trf("taking part costs %{amount}", &[("amount", &eur(cn::fee(c, t)))]));
         }
         json!({
-            "kind": "running", "id": t.id, "lo": lo, "hi": hi.max(lo + 100.0), "amount": a, "label": tr("Your bid"),
+            "kind": "running", "id": t.id, "lo": lo, "hi": hi, "amount": a, "label": tr("Your ask"),
             "chance": said, "chance_tone": ctone,
-            "bid": trf("Bid %{amount}", &[("amount", &eur(amount))]),
+            "recommend": normal.then(|| trf("Recommended: %{amount} (%{s} % of the reference), about %{p} % to win", &[("amount", &eur(rec)), ("s", &format!("{:.0}", t.share(rec) * 100.0)), ("p", &format!("{:.0}", rec_chance * 100.0))])),
+            "recommend_amount": rec as f64 / 100.0,
+            "bid": trf("Ask %{amount}", &[("amount", &eur(amount))]),
             "buy": trf("Buy outright, %{amount}", &[("amount", &eur(t.buy_out()))]), "buy_tip": tr("Certain: the auction ends at once in your favour"),
             "plus15": tr("+15 min"), "to_close": tr("To its close"),
         })
@@ -301,11 +313,11 @@ fn auction(c: &Company, selected: Option<u32>, args: &Value) -> Value {
         json!({ "kind": "wait", "id": t.id, "label": tr("Simulate until it opens") })
     } else {
         match &t.outcome {
-            Some(Outcome::Lost { winner, amount, .. } | Outcome::NoBid { winner, amount }) if !winner.is_empty() => json!({ "kind": "said", "text": trf("%{who} won the line for %{amount}.", &[("who", winner), ("amount", &eur(*amount))]), "tone": "soft" }),
+            Some(Outcome::Lost { winner, amount, .. } | Outcome::NoBid { winner, amount }) if !winner.is_empty() => json!({ "kind": "said", "text": trf(if t.scored() { "%{who} won the line with an ask of %{amount}." } else { "%{who} won the line for %{amount}." }, &[("who", winner), ("amount", &eur(*amount))]), "tone": "soft" }),
             Some(Outcome::Won { .. }) => {
                 let text = match cn::of_line(c, &t.line) {
                     Some(h) if dates::between(&c.date, &h.from) > 0 => trf("The company runs the line from %{date}.", &[("date", &day_label(&h.from))]),
-                    Some(h) => trf("The concession runs until %{date}.", &[("date", &day_label(&h.until))]),
+                    Some(h) => trf("The concession runs until %{date}, at %{p} % of the reference.", &[("date", &day_label(&h.until)), ("p", &format!("{:.0}", h.price * 100.0))]),
                     None => String::new(),
                 };
                 json!({ "kind": "said", "text": text, "tone": "ok" })

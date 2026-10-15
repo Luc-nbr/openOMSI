@@ -721,7 +721,7 @@ fn ask(s: &mut Session) -> Value {
         Ask::Tender { id, outbid } => {
             let Some(t) = c.concessions.tenders.iter().find(|t| t.id == *id).cloned() else { return json!({ "kind": "gone" }) };
             let left = (t.closes_at - ck::now(&c)).max(0);
-            let mut text = trf("Bids until %{time} (%{left} from now). The least bid now: %{amount}; buying it outright: %{buy}.", &[("time", &ck::hhmm(t.closes_at)), ("left", &format!("{}:{:02} h", left / 60, left % 60)), ("amount", &eur(co::concessions::min_bid(&c, &t))), ("buy", &eur(t.buy_out()))]);
+            let mut text = trf("Bids until %{time} (%{left} from now), scored 70 % price and 30 % quality. Ask at most %{amount} to lead now; buying it outright: %{buy}.", &[("time", &ck::hhmm(t.closes_at)), ("left", &format!("{}:{:02} h", left / 60, left % 60)), ("amount", &eur(co::concessions::min_bid(&c, &t))), ("buy", &eur(t.buy_out()))]);
             if *outbid {
                 if let Some(p) = co::concessions::bids(&c, &t, ck::now(&c)).last() {
                     text = format!("{}  {}", trf("%{who} bids %{amount}.", &[("who", &co::concessions::bidder_name(&c, &t, p.who)), ("amount", &eur(p.amount))]), text);
