@@ -1,0 +1,17 @@
+/* RosterFlow's Vehicles and Drivers tabs, Beta 57 (testers, 2026-10-15): the legend of the
+   trips' colours (`colourby.js`), the selection bar's "Copy to…" picker (`copyto.js`) and a
+   duty's sign-on, sign-off and break points in its panel. In the page's tokens
+   (`rosterflow.css`), so light and dark alike. */
+
+/* --- the legend ----------------------------------------------------------------------------------- */
+
+.rf-legend { right: 18px; bottom: 52px; width: 230px; max-height: 46%; display: flex; flex-direction: column; border-radius: 4px; background: var(--rf-sheet); color: var(--rf-text); box-shadow: var(--rf-shadow); z-index: 24; overflow: hidden; }
+.rf-legend .head { flex: none; height: 28px; display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 4px 0 10px; font-size: 9.6px; box-shadow: inset 0 -1px 0 var(--rf-line); }
+.rf-legend .head b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rf-legend .head button { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 3px; color: var(--rf-dim); }
+.rf-legend .head button:hover { color: var(--rf-text); background: var(--rf-hover); }
+.rf-legend .items { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 10px; padding: 7px 10px; overflow: auto; }
+.rf-legend .item { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 9.6px; color: var(--rf-soft); }
+.rf-legend .item i { flex: none; width: 12px; height: 9px; border-radius: 2px; }
+.rf-legend .item .cut { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rf-legend .more { padding: 0 10px 7px; font-size: 9px; color: var(--rf-dim); }

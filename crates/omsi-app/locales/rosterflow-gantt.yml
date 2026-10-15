@@ -1,0 +1,39 @@
+_version: 2
+# RosterFlow's Vehicles and Drivers tabs, Beta 57 (testers, 2026-10-15): the trips coloured by
+# their line, trip ID, block or duty with a legend (Layers › Colour by); the selection bar's
+# "Copy to…" of the rows ticked; a duty's sign-on, sign-off and break points.
+"Colour by":
+  de: "Farbe nach"
+  fr: "Couleur par"
+  nl: "Kleur op"
+  pl: "Kolor według"
+  ru: "Цвет по"
+  uk: "Колір за"
+"Line (route)":
+  de: "Linie (Route)"
+  fr: "Ligne (itinéraire)"
+  nl: "Lijn (route)"
+  pl: "Linia (trasa)"
+  ru: "Линия (маршрут)"
+  uk: "Лінія (маршрут)"
+"Block (vehicle)":
+  de: "Umlauf (Fahrzeug)"
+  fr: "Bloc (véhicule)"
+  nl: "Omloop (voertuig)"
+  pl: "Obieg (pojazd)"
+  ru: "Выпуск (машина)"
+  uk: "Випуск (машина)"
+"Show the legend":
+  de: "Die Legende zeigen"
+  fr: "Afficher la légende"
+  nl: "De legenda tonen"
+  pl: "Pokaż legendę"
+  ru: "Показать легенду"
+  uk: "Показати легенду"
+"Hide the legend":
+  de: "Die Legende ausblenden"
+  fr: "Masquer la légende"
+  nl: "De legenda verbergen"
+  pl: "Ukryj legendę"
+  ru: "Скрыть легенду"
+  uk: "Сховати легенду"

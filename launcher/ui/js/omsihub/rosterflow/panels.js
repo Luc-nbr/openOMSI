@@ -18,6 +18,7 @@ import { STATS, STAT_LABEL, handSpan, pieceOf, pieceTrips, tripHand } from './ga
 import { Icon, RfButton, IconBtn, Caps, Switch, CheckRow, Seg, Stepper, MenuItem, Select } from './ui.js';
 import { AXIS } from './draw.js';
 import { DayItem, dayMenuHeight } from './days.js';
+import { BY, BY_LABEL, colourBy, setColourBy, legendOn, Legend } from './colourby.js';
 
 const eq = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
 
@@ -81,10 +82,11 @@ export function Overlays({ data, drivers, p, size, gTop }) {
   const kind = panel?.kind || panel;
   return html`<div class="rf-layer">
     ${r.ticked.length > 0 && html`<${Batch} b=${b} drivers=${drivers} gTop=${gTop} />`}
+    <${Legend} data=${data} drivers=${drivers} p=${p} />
     ${kind === 'issues' && html`<${Issues} data=${data} drivers=${drivers} scope=${panel.scope} size=${size} />`}
     ${kind === 'duty' && html`<${DutyPanel} data=${data} id=${panel.id} gTop=${gTop} />`}
     ${kind === 'stats' && html`<${StatsWindow} drivers=${drivers} gTop=${gTop} />`}
-    ${kind === 'layers' && html`<${LayersWindow} gTop=${gTop} />`}
+    ${kind === 'layers' && html`<${LayersWindow} data=${data} gTop=${gTop} />`}
     ${kind === 'filter' && html`<${FilterWindow} data=${data} size=${size} />`}
     ${kind === 'zoom' && html`<${ZoomMenu} />`}
     ${kind === 'histogram' && html`<${HistogramWindow} k=${data.kpis} which=${panel.which} size=${size} />`}
@@ -621,12 +623,17 @@ function StatsWindow({ drivers, gTop }) {
   </div>`;
 }
 
-/** Layers: what the trips' chips say, and the layovers' minutes. */
-function LayersWindow({ gTop }) {
+/** Layers: what the trips' chips say and how they are coloured (the company's choice, with its
+ * legend), and the layovers' minutes. */
+function LayersWindow({ data, gTop }) {
   const ly = S.rf.layers;
   const set = (patch) => setRf({ layers: { ...ly, ...patch } });
   const periods = ly.periods !== false;
-  return html`<div class="rf-over rf-menu rf-small" style=${`left:330px;top:${gTop - 2}px;width:330px;height:286px`}>
+  const by = colourBy(data);
+  return html`<div class="rf-over rf-menu rf-small" style=${`left:330px;top:${gTop - 2}px;width:330px;height:460px`}>
+    <${Caps} text="Colour by" class="menu-caps" />
+    ${BY.map((k, n) => html`<${CheckRow} on=${by === k} label=${BY_LABEL[n]} onChange=${() => by !== k && setColourBy(k)} />`)}
+    <${CheckRow} on=${legendOn(data)} label="Show the legend" onChange=${() => set({ legend: !legendOn(data) })} />
     <${Caps} text="Trips" class="menu-caps" />
     ${['Route', 'Start and end time', 'Start and end stops'].map((w, k) => html`<${CheckRow} on=${ly.label === k} label=${w} onChange=${() => set({ label: k })} />`)}
     <${Caps} text="Between trips" class="menu-caps" />

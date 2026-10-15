@@ -695,12 +695,16 @@ pub struct Flow {
     /// (`plandays`). Kept outside the draft: a copy is made as it is saved.
     #[serde(skip_serializing_if = "super::plandays::Days::is_empty")]
     pub days: super::plandays::Days,
+    /// How the Gantt colours the trips (Layers › Colour by, testers 2026-10-15): "trip" by the
+    /// timetable's trip, "block" by the bus, "duty" by the duty; empty by the line.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub colour_by: String,
 }
 
 impl Flow {
     /// Nothing but the defaults (left out of the saved company).
     pub fn is_empty(&self) -> bool {
-        self.prefs == Prefs::default() && self.sheet.is_empty() && self.draft.is_none() && self.days.is_empty()
+        self.prefs == Prefs::default() && self.sheet.is_empty() && self.draft.is_none() && self.days.is_empty() && self.colour_by.is_empty()
     }
 }
 

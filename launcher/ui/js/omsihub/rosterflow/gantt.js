@@ -25,6 +25,7 @@ import * as D from './draw.js';
 import { ROW, CHIP, ID_W, STAT_W, AXIS } from './draw.js';
 import { setRf, pick, dropAt, edit, clock, hm } from './state.js';
 import { anchor, begin, forget } from './anchors.js';
+import { colourBy, colourOf, tripColour, stackColour } from './colourby.js';
 
 /** The stats columns beside the IDs (`rosterflow::Stat`). */
 export const STATS = ['start', 'end', 'spread', 'paid', 'driving', 'km', 'trips', 'type'];
@@ -306,6 +307,8 @@ function draw(ctx, w, h, g) {
   const zones = r.zones;
   const layers = r.layers;
   const prefs = data.prefs;
+  // (the trips' colours as the Layers ask: by the line, the trip ID, the block or the duty)
+  g.by = colourBy(data);
   D.rect(ctx, 0, 0, w, h, p.grid);
   // the columns: the IDs, the stats, the hours
   const lw = ID_W + stats.length * STAT_W;
@@ -386,7 +389,7 @@ function draw(ctx, w, h, g) {
       const cr = { x: a + 1, y: cy - CHIP / 2, w: Math.max(6, xOf(x.arr) - a - 2), h: CHIP };
       const taken = hand?.kind === 'stack' && hand.k === k;
       const hov = inside(cr, m);
-      D.chip(ctx, cr.x, cr.y, cr.w, cr.h, hex(x.colour), x.out, x.num, hov || taken ? [255, 255, 255, 1] : null, false, false, taken ? 0.45 : 1);
+      D.chip(ctx, cr.x, cr.y, cr.w, cr.h, stackColour(p, g.by, x), x.out, x.num, hov || taken ? [255, 255, 255, 1] : null, false, false, taken ? 0.45 : 1);
       if (!readOnly && !hand) hit(cr.x, cr.y, cr.w, cr.h, { kind: 'stack', k });
     });
     // (where trips taken up go back onto the stack)
@@ -436,7 +439,8 @@ function draw(ctx, w, h, g) {
     const idr = { x: 36, y: rr.y, w: ID_W - 60, h: rr.h };
     const idh = inside(idr, m);
     const idCol = rowOn ? p.accent : idh ? p.text : alpha(p.text, 0.88);
-    if (isBlock) D.rect(ctx, 36, cy - 6, 3, 12, hex(it.colour));
+    if (isBlock) D.rect(ctx, 36, cy - 6, 3, 12, g.by === 'block' ? colourOf(p, it.id) : hex(it.colour));
+    else if (g.by === 'duty') D.rect(ctx, 36, cy - 6, 3, 12, colourOf(p, it.id));
     D.textAt(ctx, D.fit(ctx, it.label, ID_W - 43 - 42, 12.5, 700), 43, cy + 4.5, 12.5, 700, idCol);
     if (!readOnly) hit(idr.x, idr.y, idr.w, idr.h, { kind: 'id', row, cy });
     // (the lock: shown when locked, else on hover; the pin on hover)
@@ -548,7 +552,6 @@ function blockRow(ctx, g, row, cy, xOf, hit, an) {
   const b = data.board;
   const i = row.i;
   const t = b.blocks[i];
-  const colour = hex(t.colour);
   const n = t.trips.length;
   if (!n) return null;
   const prefs = data.prefs;
@@ -576,6 +579,7 @@ function blockRow(ctx, g, row, cy, xOf, hit, an) {
       return;
     }
     const cr = { x: a + 1, y: cy - CHIP / 2, w: Math.max(5, bb - a - 2), h: CHIP };
+    const colour = tripColour(p, b, g.by, i, j);
     const chosen = r.sel.some(([s0, s1]) => s0 === i && s1 === j);
     const taken = (hand?.kind === 'trips' || hand?.kind === 'swap') && hand.tour === i && hand.trips.includes(j);
     const hov = inside(cr, m) && !hand;
@@ -706,7 +710,6 @@ function dutyRow(ctx, g, row, cy, xOf, hit, an) {
   // the pieces' trips
   for (const sp of s.spans) {
     const t = b.blocks[sp.tour];
-    const colour = hex(t.colour);
     const [rs, re] = t.pieces[sp.duty] || [0, 0];
     const n = t.trips.length;
     const takenPiece = hand?.kind === 'piece' && hand.tour === sp.tour && hand.duty === sp.duty;
@@ -735,6 +738,7 @@ function dutyRow(ctx, g, row, cy, xOf, hit, an) {
         continue;
       }
       const cr = { x: a + 1, y: cy - CHIP / 2, w: Math.max(5, bb - a - 2), h: CHIP };
+      const colour = tripColour(p, b, g.by, sp.tour, j, d);
       const chosen = r.sel.some(([s0, s1]) => s0 === sp.tour && s1 === j);
       const takenTrip = hand?.kind === 'duty_trips' && hand.trips.some(([i, k]) => i === sp.tour && k === j);
       const hov = inside(cr, m) && !hand;

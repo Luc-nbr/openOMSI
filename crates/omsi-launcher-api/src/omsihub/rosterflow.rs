@@ -367,7 +367,7 @@ fn board_json(c: &Company, board: &Board) -> Value {
         .iter()
         .map(|(line, x)| {
             let number = c.lines.iter().find(|l2| l2.name.eq_ignore_ascii_case(line)).map(|l2| l2.number.clone()).unwrap_or_default();
-            json!({ "line": line, "number": number, "colour": colour_of(c, line), "dep": x.dep, "arr": x.arr, "from": x.from.trim(), "to": x.end().trim(), "num": x.line.trim(), "out": outbound(tours, line, x) })
+            json!({ "line": line, "number": number, "colour": colour_of(c, line), "dep": x.dep, "arr": x.arr, "from": x.from.trim(), "to": x.end().trim(), "num": x.line.trim(), "name": x.name, "out": outbound(tours, line, x) })
         })
         .collect();
     let (t0, t1) = day_span(board);
@@ -538,6 +538,8 @@ fn board_answer(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
         "days": days::marks(&shown_view),
         "day": days::shown(&shown_view, &date),
         "unsynced": timeplan::unsynced_on(r, &c, days::group_of(wd)),
+        // (how the Gantt colours the trips: the company's choice, Layers › Colour by)
+        "colour_by": c.planning.flow.colour_by,
     });
     let k = match ensure(s, r, &date) {
         None => return Ok(json!({ "head": head, "reading": tr("Reading the timetable…") })),
@@ -575,6 +577,9 @@ fn board_answer(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
 }
 
 pub(crate) const DAY_NAMES: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+/// How the Gantt may colour the trips besides by their line (`Flow::colour_by`).
+const COLOUR_BY: [&str; 3] = ["trip", "block", "duty"];
 
 /// Whether the Drivers tab takes up single trips to move them to another duty (the core's
 /// `studio::plan_move_to_duty`, Luc's driver drag), the whole piece of work by Alt and a drag
@@ -1054,6 +1059,16 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
                     f.optimise_vehicles = true;
                     f.optimise_duties = true;
                 }
+                Ok(())
+            });
+            return Ok(json!({}));
+        }
+        "colour_by" => {
+            // (Layers › Colour by: kept for the company, not in the draft - no edit of the plan)
+            let by = str_arg(args, "by");
+            let by = if COLOUR_BY.contains(&by.as_str()) { by } else { String::new() };
+            let _ = company::act(s, |c| {
+                c.planning.flow.colour_by = by;
                 Ok(())
             });
             return Ok(json!({}));
