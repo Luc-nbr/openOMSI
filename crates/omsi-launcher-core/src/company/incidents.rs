@@ -91,10 +91,11 @@ impl Tally {
 }
 
 /// One trip of `e` on the bus `number` of `size` with `pax` aboard: what happened, into
-/// `tally`.
-pub fn trip(rng: &mut Rng, e: &Employee, t: &Trained, number: &str, size: BusSize, pax: u32, price_index: f64, tally: &mut Tally) {
+/// `tally` (`accidents`: a sandbox's factor on the chance of an accident, 1 as the game is).
+#[allow(clippy::too_many_arguments)]
+pub fn trip(rng: &mut Rng, e: &Employee, t: &Trained, number: &str, size: BusSize, pax: u32, price_index: f64, accidents: f64, tally: &mut Tally) {
     let (accident, fine, complaint, ill) = chances(e, t, pax);
-    if rng.chance(accident) {
+    if rng.chance(accident * accidents) {
         let size = match size {
             BusSize::Midi => 0.8,
             BusSize::Solo => 1.0,
@@ -157,11 +158,11 @@ mod tests {
         let (mut plain, mut trained) = (Tally::default(), Tally::default());
         let mut rng = Rng::new(7);
         for _ in 0..20_000 {
-            trip(&mut rng, &e, &Trained::default(), "101", BusSize::Solo, 30, 1.0, &mut plain);
+            trip(&mut rng, &e, &Trained::default(), "101", BusSize::Solo, 30, 1.0, 1.0, &mut plain);
         }
         let mut rng = Rng::new(7);
         for _ in 0..20_000 {
-            trip(&mut rng, &e, &Trained { safety: true, service: true, first_aid: true, ticketing: true }, "101", BusSize::Solo, 30, 1.0, &mut trained);
+            trip(&mut rng, &e, &Trained { safety: true, service: true, first_aid: true, ticketing: true }, "101", BusSize::Solo, 30, 1.0, 1.0, &mut trained);
         }
         assert!(trained.complaints < plain.complaints && trained.fines < plain.fines, "{plain:?} {trained:?}");
         assert!(trained.accidents.len() <= plain.accidents.len());

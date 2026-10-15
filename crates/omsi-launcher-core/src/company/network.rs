@@ -267,7 +267,7 @@ pub fn late_start(c: &Company, l: &CompanyLine, date: &str) -> Option<(i64, Cent
     if days < grace {
         return None;
     }
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     let charge = (economy::compensation_per_km(&r, c.reputation, c.contract_index) * l.km * share).round() as Cents;
     (charge > 0).then_some((days, charge))
 }

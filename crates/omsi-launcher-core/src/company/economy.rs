@@ -36,7 +36,7 @@
 //! inflation while the contract does not keep up, loans cost interest and buses break down
 //! more often.
 
-use super::model::{BusKind, BusSize, Cents, GameMode, Drive};
+use super::model::{BusKind, BusSize, Cents, Company, GameMode, Drive};
 
 /// The numbers of one difficulty.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -211,6 +211,12 @@ pub fn rules(d: GameMode) -> Rules {
             used_offers: 4,
         },
     }
+}
+
+/// The rules the company plays by: its game mode's, as its sandbox sets them (`sandbox::rules`;
+/// a Career company's are its game mode's).
+pub fn rules_for(c: &Company) -> Rules {
+    super::sandbox::rules(c, rules(c.game_mode))
 }
 
 /// A new bus's reference price (Realistic, at founding).

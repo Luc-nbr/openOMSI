@@ -365,7 +365,7 @@ pub fn data_today(c: &Company) -> Option<DataToday> {
 
 /// Take an internet contract (or change it) from tomorrow: `gb` a day from `provider`.
 pub fn take_internet(c: &mut Company, provider: usize, gb: u32) -> Result<(), &'static str> {
-    if !c.research.has(research::keys::WLAN) {
+    if !research::has(c, research::keys::WLAN) {
         return Err("Research WLAN on the buses first.");
     }
     if provider >= PROVIDERS.len() || !(GB_MIN..=GB_MAX).contains(&gb) {
@@ -385,7 +385,7 @@ pub fn cancel_internet(c: &mut Company) {
 pub fn top_up(c: &mut Company, gb: u32) -> Result<Cents, &'static str> {
     let Some(net) = internet_today(c).cloned() else { return Err("The buses have no internet contract today.") };
     let price = top_up_price(c, net.provider, gb);
-    if c.cash < price {
+    if !c.can_pay(price) {
         return Err("Not enough cash.");
     }
     if c.contracts.data.date != c.date {

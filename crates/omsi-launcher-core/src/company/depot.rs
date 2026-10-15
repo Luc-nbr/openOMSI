@@ -380,7 +380,7 @@ pub fn build(c: &mut Company, area: Area) -> Result<(), &'static str> {
         return Err("This is being built already.");
     }
     let Some((cost, days)) = next_cost(c, area) else { return Err("This is as big as it gets.") };
-    if c.cash < cost {
+    if !c.can_pay(cost) {
         return Err("Not enough cash.");
     }
     let level = c.site.level(area) + 1;
@@ -464,7 +464,7 @@ pub fn order(c: &mut Company, vehicle: u32, kind: JobKind) -> Result<u32, &'stat
         return Err("The workshop has a job for this bus already.");
     }
     let cost = job_cost(c, vehicle, kind);
-    if cost > 0 && c.cash < cost {
+    if cost > 0 && !c.can_pay(cost) {
         return Err("Not enough cash.");
     }
     c.site.job_counter += 1;
@@ -483,7 +483,7 @@ pub fn order_paint(c: &mut Company, vehicle: u32, livery: &str, cost: Cents) -> 
     if c.site.job_of(vehicle).is_some() {
         return Err("The workshop has a job for this bus already.");
     }
-    if c.cash < cost {
+    if !c.can_pay(cost) {
         return Err("Not enough cash.");
     }
     c.site.job_counter += 1;

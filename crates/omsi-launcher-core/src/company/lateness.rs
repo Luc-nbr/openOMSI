@@ -180,7 +180,8 @@ pub type Own<'a> = &'a dyn Fn(usize, usize) -> f64;
 pub fn model_with(c: &Company, plan: &Plan, date: &str, cut: &[Cut], controls: &[&Control], now: Option<i32>, own: Option<Own>) -> Model {
     let day = dates::parse(date).unwrap_or(0);
     let wd = dates::weekday(day);
-    let factor = super::research::late_factor(c) * c.game_mode.rules().lateness;
+    // (a sandbox's delays by its factor: `sandbox::Sandbox::lateness`)
+    let factor = super::research::late_factor(c) * c.game_mode.rules().lateness * super::sandbox::of(c).lateness;
     let mut out: Model = plan.tours.iter().map(|t| vec![None; t.tour.trips.len()]).collect();
     let mut order: Vec<(usize, usize)> = plan.tours.iter().enumerate().filter(|(_, t)| !t.by_player).flat_map(|(i, t)| (0..t.duties.len()).map(move |k| (i, k))).collect();
     order.sort_by_key(|&(i, k)| (plan.tours[i].duties[k].from, i, k));
@@ -658,7 +659,7 @@ pub fn feed_live(c: &mut Company, o: Outcome) {
 /// reported over them.
 pub fn today(c: &Company, plan: &Plan, now: i32) -> Vec<Outcome> {
     let date = c.date.clone();
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     let cut = clock::breakdowns(c, plan, &date, &[]);
     let controls = control::of_day(c, &date);
     let m = model_with(c, plan, &date, &cut, &controls, Some(now), None);

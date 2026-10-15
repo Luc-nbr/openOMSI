@@ -301,7 +301,7 @@ pub fn order(c: &mut Company, parts: &[(Part, u32)], express: bool) -> Result<Ce
         return Err("Choose the parts to order first.");
     }
     let cost = order_cost(c, &parts, express);
-    if c.cash < cost {
+    if !c.can_pay(cost) {
         return Err("Not enough cash.");
     }
     let n: u32 = parts.iter().map(|x| x.1).sum();
@@ -386,7 +386,7 @@ fn reorder(c: &mut Company, date: &str) {
         return;
     }
     let cost = order_cost(c, &want, false);
-    if c.cash < cost {
+    if !c.can_pay(cost) {
         return;
     }
     let n: u32 = want.iter().map(|x| x.1).sum();

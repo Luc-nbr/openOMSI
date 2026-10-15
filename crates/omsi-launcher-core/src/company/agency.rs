@@ -260,7 +260,7 @@ pub fn book(c: &mut Company, date: &str, count: u32, hours: Option<(i32, i32)>, 
     };
     let rate = rate(c);
     let cost: Cents = given.iter().map(|g| cost_of(rate, minutes(g))).sum();
-    if c.cash < cost {
+    if !c.can_pay(cost) {
         return Err(NO_CASH);
     }
     prune(c);

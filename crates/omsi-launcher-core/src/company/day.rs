@@ -497,7 +497,7 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
     let tours = network::in_service_only(tours);
     // (the passengers answer the fares: `fares`)
     super::fares::day(c);
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     let date = c.date.clone();
     let month = dates::month_of(&date);
     let before = c.month(&month);
@@ -507,7 +507,10 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
     // (the diesel's price moves the diesel buses' energy only; an event on a line - roadworks,
     // a diversion - or the weather holds trips up and keeps riders away: `inbox::line_effect`)
     let power_factor = super::research::fuel_factor(c);
-    let energy_factor = move |kind: BusKind| if kind.drive == Drive::Diesel { fuel_factor } else { power_factor };
+    // (a sandbox's knobs: its running costs - energy, maintenance, repairs - and its accidents)
+    let knobs = *super::sandbox::of(c);
+    let run = knobs.running;
+    let energy_factor = move |kind: BusKind| if kind.drive == Drive::Diesel { fuel_factor * run } else { power_factor * run };
     let line_effects: Vec<(f64, f64)> = c.lines.iter().map(|l| super::inbox::line_effect(c, &date, &l.number)).collect();
     let mut rng = Rng::of(&[&c.id, "day"], dates::parse(&date).unwrap_or(0));
     let mut report = DayReport { date: date.clone(), ..Default::default() };
@@ -530,6 +533,7 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
     // (what research does to a kilometre's wear and maintenance; the late trips: `lateness`)
     let upkeep = super::research::wear_factor(c);
     let wear_km = wear_per_km(&r) * upkeep;
+    let maint = upkeep * run;
     let mut on_time = 0u32;
     let mut timed = 0u32;
 
@@ -554,7 +558,7 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
         };
         let s = &mut sums[li];
         s.energy += km * economy::energy_per_km(kind, c.price_index) * energy_factor(kind);
-        s.maintenance += km * economy::maintenance_per_km(kind, age, c.price_index) * upkeep;
+        s.maintenance += km * economy::maintenance_per_km(kind, age, c.price_index) * maint;
         let late = t.average.is_some_and(|a| a > 180.0) || (t.stops > 0 && t.late * 4 > t.stops);
         if t.timed() {
             timed += 1;
@@ -594,7 +598,7 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                     v.condition = (v.condition - km.max(0.0) * wear_km).max(0.0);
                     let age = dates::years_between(&v.built, &date);
                     sums[li].energy += km.max(0.0) * economy::energy_per_km(v.kind, c.price_index) * energy_factor(v.kind);
-                    sums[li].maintenance += km.max(0.0) * economy::maintenance_per_km(v.kind, age, c.price_index) * upkeep;
+                    sums[li].maintenance += km.max(0.0) * economy::maintenance_per_km(v.kind, age, c.price_index) * maint;
                 }
                 timed += 1;
                 if delay <= 180.0 {
@@ -743,7 +747,7 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                     None => bus_km.push((v.id, trip.km)),
                 }
                 sums[li].energy += trip.km * economy::energy_per_km(v.kind, c.price_index) * energy_factor(v.kind);
-                sums[li].maintenance += trip.km * economy::maintenance_per_km(v.kind, age, c.price_index) * upkeep;
+                sums[li].maintenance += trip.km * economy::maintenance_per_km(v.kind, age, c.price_index) * maint;
                 if !counts {
                     continue;
                 }
@@ -779,7 +783,7 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                 let (fares, comp) = super::ownline::trip_income(kind, pax as f64, trip.km, per_passenger[li], comp_km, super::ownline::school_trip_pay(c, trip.km));
                 let skilled = trained.get(&e.id).copied().unwrap_or_default();
                 let fares = (fares as f64 * super::incidents::fare_factor(&skilled) * checked.get(li).copied().unwrap_or(1.0)).round() as Cents;
-                super::incidents::trip(&mut befalls, e, &skilled, &v.number, v.kind.size, pax, c.price_index, &mut tally);
+                super::incidents::trip(&mut befalls, e, &skilled, &v.number, v.kind.size, pax, c.price_index, knobs.accidents, &mut tally);
                 sums[li].fares += fares;
                 sums[li].compensation += comp;
                 lines[li].passengers += pax;
@@ -869,6 +873,9 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
         let mut crash = Rng::of(&[&c.id, "crash-damage", &v.id.to_string()], dates::parse(&date).unwrap_or(0));
         tally.accidents.push((v.number.clone(), ((crash.range(2_500.0, 9_000.0) * size * c.price_index).round() as Cents) * 100));
     }
+    for (_, cost) in tally.accidents.iter_mut() {
+        *cost = (*cost as f64 * run).round() as Cents;
+    }
     for (number, cost) in &tally.accidents {
         c.book(BookingKind::Repair, -cost, format!("Accident damage, bus {number}"), false);
         report.notes.push(Note::Accident { number: number.clone(), cost: *cost });
@@ -925,7 +932,7 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                 BusSize::Solo => 1.0,
                 _ => 1.35,
             };
-            let cost = ((rng.range(800.0, 5_000.0) * size * price_index).round() as Cents) * 100;
+            let cost = ((rng.range(800.0, 5_000.0) * size * price_index * run).round() as Cents) * 100;
             v.workshop_until = Some(until.clone());
             v.breakdowns += 1;
             v.condition = (v.condition - 5.0).max(0.0);

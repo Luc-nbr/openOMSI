@@ -881,6 +881,12 @@ pub struct Company {
     /// weeks kept), and what the live day reported of today's.
     #[serde(default)]
     pub lateness: super::lateness::Store,
+    /// Career or Sandbox (`sandbox`; a file of before: a Career).
+    #[serde(default)]
+    pub company_mode: super::sandbox::CompanyMode,
+    /// A sandbox's knobs (a Career company reads the Career's whatever these say: `sandbox::of`).
+    #[serde(default)]
+    pub sandbox: super::sandbox::Sandbox,
 }
 
 fn one() -> f64 {
@@ -895,6 +901,8 @@ pub const HISTORY_KEPT: usize = 400;
 impl Company {
     /// Book an amount: the cash, the ledger and the month's sums.
     pub fn book(&mut self, kind: BookingKind, amount: Cents, text: impl Into<String>, measured: bool) {
+        // (a sandbox's wages by its factor: `sandbox::booked`)
+        let amount = super::sandbox::booked(self, kind, amount);
         if amount == 0 {
             return;
         }
@@ -927,6 +935,12 @@ impl Company {
     pub fn employee(&self, id: u32) -> Option<&Employee> {
         // (an agency driver booked for a day is one of its drivers that day: `agency`)
         self.staff.iter().find(|e| e.id == id).or_else(|| super::agency::driver(self, id))
+    }
+
+    /// Whether the company can pay `amount` now: its cash holds it, or its sandbox lets spending
+    /// go on whatever the cash (`sandbox::can_pay`).
+    pub fn can_pay(&self, amount: Cents) -> bool {
+        super::sandbox::can_pay(self, amount)
     }
 
     /// What is still owed on all loans.

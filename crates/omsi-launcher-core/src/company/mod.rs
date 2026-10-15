@@ -60,6 +60,8 @@ pub mod staff;
 pub mod store;
 pub mod rosterflow;
 pub mod rosterpdf;
+// (Beta 61: a company played as a sandbox, its rules set by the player)
+pub mod sandbox;
 pub mod studio;
 pub mod timeplan;
 // (Beta 58: friends drive duties of the company's day in the boss's world)
@@ -89,6 +91,8 @@ pub struct Founding {
     pub buying: dealer::BuyingMode,
     /// The buses it works with (`vehicles`; the founding wizard proposes the map's region).
     pub vehicles: vehicles::VehicleChoice,
+    /// Career or Sandbox (`sandbox`).
+    pub company_mode: sandbox::CompanyMode,
 }
 
 /// A name as a file name: lower case, letters and digits, dashes between.
@@ -179,6 +183,8 @@ pub fn found(f: &Founding, profile: &str) -> Company {
         reputation_log: Default::default(),
         complaints: Default::default(),
         lateness: Default::default(),
+        company_mode: f.company_mode,
+        sandbox: sandbox::CAREER,
     };
     // (Casual buys quickly; the buying chosen is kept for the other modes)
     autopilot::set_game_mode(&mut c, f.game_mode);
@@ -240,7 +246,8 @@ pub fn alerts(c: &Company, plan: Option<&day::Plan>) -> Vec<Alert> {
         }
     }
     let wages: Cents = c.staff.iter().map(staff::monthly_cost).sum();
-    if c.cash < wages || c.cash < 0 {
+    // (a sandbox with unlimited money, or that never goes broke, is not warned)
+    if !sandbox::quiet_cash(c) && (c.cash < wages || c.cash < 0) {
         out.push(Alert::LowCash);
     }
     // (a bus with a job waiting for the workshop is seen to already)

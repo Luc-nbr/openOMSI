@@ -182,6 +182,10 @@ pub fn day_pass(c: &Company) -> Cents {
 /// run out unanswered. Casual answers its own.
 pub fn day(c: &mut Company, date: &str, report: &DayReport) {
     expire(c, date);
+    // (a sandbox without passenger complaints: none come)
+    if !super::sandbox::of(c).complaints {
+        return;
+    }
     let mut rng = Rng::of(&[&c.id, "complaints", date], 0);
     let mut cand: Vec<(Kind, String, i32, Option<DropWhy>, u8, f64, Late)> = Vec::new();
     // (what went wrong, with how likely it brings a complaint)

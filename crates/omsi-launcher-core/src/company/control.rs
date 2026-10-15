@@ -282,7 +282,7 @@ fn drop_cost(c: &Company, r: &Rules, t: &TourOfDay, trip: &PlannedTrip) -> Cents
 /// The rest of a block's day from trip `cur` on: its trips not begun yet that run late, the parts
 /// cut short.
 fn effect(c: &Company, t: &TourOfDay, d: &[TripDelay], cur: usize) -> Effect {
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     let line = line_of(c, t);
     let strict = if line.is_some_and(|l| super::ownline::kind_of(l) == ServiceKind::School) { super::ownline::SCHOOL_DROP } else { 1 };
     let fare = line.map_or(0.0, |l| super::fares::per_passenger(c, l));
@@ -472,7 +472,7 @@ pub fn live(c: &Company, dp: &DayPlan) -> Live {
     }
     out.buses.sort_by_key(|x| std::cmp::Reverse(x.minutes));
     // the late drivers nobody covers yet
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     let hour = plan::AGENCY_HOUR as f64 * c.price_index;
     for (ti, t) in dp.tours.iter().enumerate() {
         if t.by_player || t.live {
@@ -772,7 +772,7 @@ mod tests {
         // the end of the trip and the start of the next are lost, nothing else
         assert_eq!((d[0].lost, d[1].lost, d[2].lost), (0.2, 0.2, 0.0));
         // what it costs: a part of a trip's penalty for each part lost
-        let r = economy::rules(c.game_mode);
+        let r = economy::rules_for(&c);
         assert_eq!(part_penalty(&r, &t.trips[0], 0.2), ((r.drop_per_trip as f64 + t.trips[0].km * r.drop_per_km as f64) * PART_SHARE * 0.2).round() as Cents);
         assert_eq!(part_penalty(&r, &t.trips[0], 0.0), 0);
         // against doing nothing: two late trips ahead avoided, a part-trip's cost instead; the

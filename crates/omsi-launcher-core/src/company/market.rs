@@ -189,7 +189,7 @@ pub fn used_offers(c: &Company, market: &[MarketBus]) -> Vec<UsedOffer> {
     if market.is_empty() {
         return Vec::new();
     }
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     let week = dates::week_of(&c.date);
     let mut rng = Rng::of(&[&c.id, "used"], week);
     let mut out = Vec::new();
@@ -319,7 +319,7 @@ pub fn by_age_band(c: &Company) -> Vec<(usize, Vec<u32>, Cents, Cents)> {
 /// Pay `amount` for something: from the cash, or with a loan of it.
 fn pay(c: &mut Company, amount: Cents, pay: Payment, what: &str) -> Result<(), &'static str> {
     match pay {
-        Payment::Cash if c.cash < amount => Err("Not enough cash."),
+        Payment::Cash if !c.can_pay(amount) => Err("Not enough cash."),
         Payment::Cash => Ok(()),
         // (the bus itself is the bank's security)
         Payment::Loan => finance::take_loan(c, amount, what, amount).map(|_| ()),
@@ -328,7 +328,7 @@ fn pay(c: &mut Company, amount: Cents, pay: Payment, what: &str) -> Result<(), &
 
 /// What a new bus costs today, and the grant on it.
 pub fn new_offer(c: &Company, bus: &MarketBus) -> (Cents, Cents) {
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     let price = economy::new_price(bus.kind, &r, c.price_index);
     (price, economy::grant(bus.kind, price, &r, c.price_index))
 }
@@ -388,14 +388,14 @@ pub fn buy_used(c: &mut Company, offer: &UsedOffer, how: Payment, livery: &str) 
     }
     c.taken.used.push(offer.no);
     c.book(BookingKind::Purchase, -offer.price, format!("{} (used, {:.0} km)", offer.bus.name, offer.km), false);
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     let new_value = economy::new_price(offer.bus.kind, &r, c.price_index);
     Ok(add_vehicle(c, &offer.bus, offer.built.clone(), offer.km, offer.condition, Tenure::Owned { paid: offer.price, new_value }, livery))
 }
 
 /// What leasing a new bus costs: the monthly rate, the term in months and the residual.
 pub fn lease_offer(c: &Company, bus: &MarketBus) -> (Cents, u32, Cents) {
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     let price = economy::new_price(bus.kind, &r, c.price_index);
     (economy::lease_monthly(price, &r), r.lease_months, (price as f64 * r.lease_residual).round() as Cents)
 }
@@ -406,7 +406,7 @@ pub fn lease(c: &mut Company, bus: &MarketBus, livery: &str) -> Result<u32, &'st
     kind_allowed(c, bus.kind)?;
     let (monthly, months, residual) = lease_offer(c, bus);
     // (the leasing company wants to see a month's rate in the bank)
-    if c.cash < monthly {
+    if !c.can_pay(monthly) {
         return Err("Not enough cash.");
     }
     let until = dates::add(&c.date, (months as f64 * 30.44).round() as i64);
@@ -420,12 +420,12 @@ pub fn rent(c: &mut Company, bus: &MarketBus, days: u32, livery: &str) -> Result
     // (the buses ordered from a dealer that come before it goes back need their places)
     super::depot::room_until(c, Some(until.as_str()))?;
     kind_allowed(c, bus.kind)?;
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     let daily = economy::rent_per_day(bus.kind, &r, c.price_index);
     if days == 0 {
         return Err("Rent it for a day at least.");
     }
-    if c.cash < daily * days as Cents {
+    if !c.can_pay(daily * days as Cents) {
         return Err("Not enough cash.");
     }
     // (a rented bus is a few years old and kept well)
@@ -444,7 +444,7 @@ pub fn value_of(c: &Company, v: &Vehicle) -> Cents {
 
 /// What selling or giving back a bus brings (negative: what it costs).
 pub fn sale_offer(c: &Company, v: &Vehicle) -> Cents {
-    let r = economy::rules(c.game_mode);
+    let r = economy::rules_for(c);
     match &v.tenure {
         Tenure::Owned { .. } => economy::sale_price(value_of(c, v), &r),
         // giving a lease back early costs three months' rates
@@ -486,7 +486,7 @@ pub fn sell(c: &mut Company, id: u32) -> Result<Cents, &'static str> {
     let amount = sale_offer(c, &v);
     let today = c.date.clone();
     let owed = -part_month(c, &v, &today).iter().map(|p| p.1).sum::<Cents>();
-    if amount < 0 && c.cash < owed - amount {
+    if amount < 0 && !c.can_pay(owed - amount) {
         return Err("Not enough cash.");
     }
     let text = format!("{} {}", v.number, v.name);
@@ -522,7 +522,7 @@ pub fn set_livery(c: &mut Company, id: u32, livery: &str) {
 
 /// The rules of the company's difficulty (a shorthand for the pages).
 pub fn rules_of(c: &Company) -> Rules {
-    economy::rules(c.game_mode)
+    economy::rules_for(c)
 }
 
 #[cfg(test)]

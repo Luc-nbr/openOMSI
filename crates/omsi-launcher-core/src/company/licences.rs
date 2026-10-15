@@ -217,7 +217,7 @@ pub fn enrol(c: &mut Company, employee: u32, kind: CourseKind, subject: &str) ->
         return Err("They are away today.");
     }
     let cost = course_cost(c, kind);
-    if c.cash < cost {
+    if !c.can_pay(cost) {
         return Err("Not enough money for the course.");
     }
     let what = if kind == CourseKind::TypeTraining { format!("{} {} ({})", kind.label(), type_name(c, subject), e.name) } else { format!("{} ({})", kind.label(), e.name) };

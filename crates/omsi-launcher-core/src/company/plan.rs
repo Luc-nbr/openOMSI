@@ -1495,7 +1495,7 @@ pub fn spare_buses(c: &Company, dp: &DayPlan, ti: usize) -> Vec<u32> {
 pub fn rental_for(c: &Company, dp: &DayPlan, ti: usize) -> (Cents, bool) {
     let wants = super::ownline::wanted(c, &dp.tours[ti].tour);
     let rent = economy::rent_per_day(BusKind { size: wants.unwrap_or_default(), drive: Drive::Diesel }, &economy::rules(c.game_mode), c.price_index);
-    (rent, places_left(c) > 0 && c.cash >= rent)
+    (rent, places_left(c) > 0 && c.can_pay(rent))
 }
 
 /// The places the depot has left today for another bus (`depot::room`'s rule: the yard's
@@ -1596,7 +1596,7 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
                     t.bus = Some(BusOf::Own(id));
                     t.bus_from = Source::Dispatcher;
                 }
-                Some(Fill::Rental) if places > 0 && c.cash >= rent => {
+                Some(Fill::Rental) if places > 0 && c.can_pay(rent) => {
                     places -= 1;
                     t.bus = Some(BusOf::Rental);
                     t.bus_from = Source::Dispatcher;
@@ -1610,7 +1610,7 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
                         buses.take(v.id, from, to);
                         t.bus = Some(BusOf::Own(v.id));
                         t.bus_from = Source::Central;
-                    } else if c.cash >= rent && places > 0 {
+                    } else if c.can_pay(rent) && places > 0 {
                         places -= 1;
                         t.bus = Some(BusOf::Rental);
                         t.bus_from = Source::Central;

@@ -369,6 +369,7 @@ pub fn answer(c: &mut Company, no: u32, approve: bool, by: By) -> Result<(), &'s
     if approve && c.employee(id).is_some_and(|e| r.working_days() > free_days(e, Some(no))) {
         return Err("They have not enough holiday days left for it.");
     }
+    let knobs = *super::sandbox::of(c);
     let Some(e) = c.staff.iter_mut().find(|e| e.id == id) else { return Err("That request is no longer there.") };
     let before = e.leave.refused(&today);
     if let Some(q) = e.leave.requests.iter_mut().find(|x| x.no == no) {
@@ -383,6 +384,8 @@ pub fn answer(c: &mut Company, no: u32, approve: bool, by: By) -> Result<(), &'s
         e.satisfaction = (e.satisfaction - refusal_cost(n)).max(0.0);
         e.stress = (e.stress + 3.0 * n.min(4) as f64).min(100.0);
     }
+    // (a sandbox without staff morale: a refusal costs nothing)
+    super::sandbox::content(&knobs, e);
     for m in c.inbox.messages.iter_mut().filter(|m| m.leave == Some(no)) {
         m.read = true;
     }
@@ -597,7 +600,10 @@ pub fn night(c: &mut Company, today: &str) -> Vec<StaffNote> {
         }
         e.holiday_left = e.holiday_left.saturating_sub(took);
     }
-    ask(c, today);
+    // (a sandbox without holiday requests: nobody asks)
+    if super::sandbox::of(c).holidays {
+        ask(c, today);
+    }
     for e in c.staff.iter_mut() {
         e.leave.requests.retain(|r| keep(r, today));
     }
