@@ -2467,15 +2467,17 @@ pub fn optimise_with(c: &Company, lines: &[LineInfo], date: &str, vehicles: bool
     probe.planning.joined.extend(locked_joins.iter().cloned());
     let tours = network::tours_of_day(&probe, lines, date);
     let kept = |t: &TourOfDay| keep.iter().any(|(l, b)| same(l, &t.line) && same(b, &t.tour));
+    // (the locked duties' pieces stay in them: not paired anew)
+    let locked_refs: Vec<PieceRef> = locked.iter().flat_map(|&d| duties[d].pieces.iter().filter_map(|pc| st::piece_ref(&current, pc.tour, pc.duty))).collect();
     let mut cuts: Vec<Cut> = Vec::new();
-    let mut fixed_cuts: Vec<(usize, Vec<Range<usize>>)> = Vec::new();
     for (i, t) in tours.iter().enumerate() {
+        // (a block kept as it is keeps its cuts, and its other pieces still go into duties: left
+        // out, a locked bus broke the duties it shared with other buses into pieces of their own)
         let ranges = if kept(t) { network::duties_of(t) } else { cut_block(&probe, &tours, i, &p) };
-        if kept(t) {
-            fixed_cuts.push((i, ranges.clone()));
-            continue;
-        }
         for r in ranges {
+            if kept(t) && t.trips.get(r.start).is_some_and(|x| locked_refs.iter().any(|l| l.is(&PieceRef { line: t.line.clone(), tour: t.tour.clone(), first: TripRef::of(x) }))) {
+                continue;
+            }
             let (from, to) = span_of(&p, t, &r);
             let (at, till) = piece_places(t, &r);
             cuts.push(Cut { tour: i, range: r, from, to, at, till });
@@ -2561,7 +2563,6 @@ pub fn optimise_with(c: &Company, lines: &[LineInfo], date: &str, vehicles: bool
         }
         starts.push((i, s));
     }
-    let _ = fixed_cuts;
     for lay in layouts.iter_mut() {
         for b in lay.blocks.iter_mut() {
             let Some(i) = tours.iter().position(|t| same(&t.line, &lay.line) && same(&t.tour, &b.tour)) else { continue };
@@ -2578,8 +2579,9 @@ pub fn optimise_with(c: &Company, lines: &[LineInfo], date: &str, vehicles: bool
         let mut refs: Vec<PieceRef> = Vec::new();
         for &k in g {
             let x = &cuts[k];
-            let run_start = g.iter().any(|&j| cuts[j].tour == x.tour && cuts[j].range.end == x.range.start);
-            if !run_start {
+            // (a kept block's cuts stay: each of its pieces is one of the duty's)
+            let run_on = !kept(&tours[x.tour]) && g.iter().any(|&j| cuts[j].tour == x.tour && cuts[j].range.end == x.range.start);
+            if !run_on {
                 let t = &tours[x.tour];
                 refs.push(PieceRef { line: t.line.clone(), tour: t.tour.clone(), first: TripRef::of(&t.trips[x.range.start]) });
             }

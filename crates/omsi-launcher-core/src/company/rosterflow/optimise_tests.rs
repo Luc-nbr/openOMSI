@@ -157,6 +157,40 @@ fn a_duty_shorter_than_the_least_length_is_an_issue_and_paid_up_to_it() {
 }
 
 #[test]
+fn a_locked_bus_keeps_its_pieces_in_the_duties_optimise_makes() {
+    // tour 1 from 06:00 to 09:50, tour 2 from 12:00 on their own buses: one driver, with a split
+    let l = back_and_forth(&[("1", 360, 4), ("2", 720, 4)]);
+    let c = company();
+    let date = c.date.clone();
+    let wd = super::super::plandays::slot_of(&c, &date);
+    let made = |c: &Company| {
+        let (layouts, joined) = optimise_with(c, std::slice::from_ref(&l), &date, false, true);
+        let mut v = c.clone();
+        apply(&mut v, wd, layouts, joined);
+        board(&v, std::slice::from_ref(&l), &date)
+    };
+    let b = made(&c);
+    assert_eq!(b.shaped.len(), 1, "one split duty");
+    // bus 1 locked: its piece stays as it is, and still goes into a duty with bus 2's
+    let mut c = c.clone();
+    set_block_lock(&mut c, wd, "Linie5", "1", true);
+    let b = made(&c);
+    assert_eq!(b.shaped.len(), 1, "one split duty still");
+    // the duty itself locked: kept as it is, its pieces in no other duty
+    let mut v = c.clone();
+    set_block_lock(&mut v, wd, "Linie5", "1", false);
+    let (layouts, joined) = optimise_with(&v, std::slice::from_ref(&l), &date, false, true);
+    apply(&mut v, wd, layouts, joined);
+    let now = board(&v, std::slice::from_ref(&l), &date);
+    let key = now.shaped[0].key.clone().expect("its key");
+    set_duty_lock(&mut v, wd, &key, true);
+    let b = made(&v);
+    assert_eq!(b.shaped.len(), 1, "the locked duty alone");
+    let (_, joined) = optimise_with(&v, std::slice::from_ref(&l), &date, false, true);
+    assert_eq!(joined.len(), 1, "joined once: {joined:?}");
+}
+
+#[test]
 fn optimise_weighs_a_duty_as_a_whole_by_its_type_and_length() {
     let p = Prefs { min_duty: Limit { on: true, value: 360, hard: true, penalty: 0 }, ..Default::default() };
     let cut = |from: i32, to: i32, tour: usize| Cut { tour, range: 0..1, from, to, at: "A".into(), till: "A".into() };
