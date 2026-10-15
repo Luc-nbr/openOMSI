@@ -152,9 +152,11 @@ export function TimeplanTab() {
     const line = r.tpLine;
     const hint = r.tpHint;
     const reload = !!r.tpReload;
-    setRf({ tpLine: null, tpHint: null, tpReload: false });
-    rfCmd('rf_tp_guide', { line, hint, reload }).then((x) => {
-      tpSet({ cell: null, text: '', sel: null, picked: [], adding: null, ...(x?.screen != null ? { tab: x.screen } : {}), rev: (S.rf.tp.rev || 0) + 1 });
+    // (from a day of Vehicles or Drivers: the day group that day runs, `tpDay`)
+    const day = r.tpDay;
+    setRf({ tpLine: null, tpHint: null, tpReload: false, tpDay: null });
+    rfCmd('rf_tp_guide', { line, hint, reload, ...(day != null ? { day } : {}) }).then((x) => {
+      tpSet({ cell: null, text: '', sel: null, picked: [], anchor: null, adding: null, ...(x?.screen != null ? { tab: x.screen } : {}), ...(x?.group != null ? { day: x.group, chart: null, issuesOpen: false, scroll: 0 } : {}), rev: (S.rf.tp.rev || 0) + 1 });
     });
   }, [r.tpLine]);
   // (what the lessons look at: the line read, changed, saved, refreshed)
