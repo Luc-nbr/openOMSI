@@ -429,7 +429,8 @@ function pickRow(e, rows, row, keep = false) {
   const now = chosenTrips(t);
   const add = e.ctrlKey || e.metaKey;
   if (e.shiftKey) {
-    const at = rows.findIndex((x) => x.i === (t.anchor ?? t.sel));
+    // (nothing chosen: no range - the anchor may be of another line or day, or undone)
+    const at = now.length ? rows.findIndex((x) => x.i === (t.anchor ?? t.sel)) : -1;
     const k = rows.findIndex((x) => x.i === row.i);
     if (at < 0 || k < 0) return tpSet({ ...only(row.i), cell: null });
     const range = rows.slice(Math.min(at, k), Math.max(at, k) + 1).map((x) => x.i);
