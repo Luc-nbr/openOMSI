@@ -865,6 +865,10 @@ pub struct Company {
     /// drove for the company (`together`).
     #[serde(default)]
     pub together: super::together::Together,
+    /// The trips of the days closed that ran late or were dropped, and why (`lateness`; a few
+    /// weeks kept), and what the live day reported of today's.
+    #[serde(default)]
+    pub lateness: super::lateness::Store,
 }
 
 fn one() -> f64 {

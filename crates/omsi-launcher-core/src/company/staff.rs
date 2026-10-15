@@ -316,6 +316,23 @@ pub fn friendliness_of(experience: f64, service: f64) -> f64 {
     ((28.0 + 0.25 * experience + 0.4 * service).clamp(5.0, 98.0) * 10.0).round() / 10.0
 }
 
+/// The minutes `e` signs on late on `date`, mostly none: a few minutes that hold up the duty's
+/// first trip (`lateness`; coming much later is the morning's `plan::Disruption::Late`). Drawn
+/// from the company, the person and the day: more often for the unpunctual, the unhappy and
+/// the stressed, less in the gentler game modes and with the research against delays.
+pub fn signs_on_late(c: &Company, e: &Employee, date: &str) -> i32 {
+    let day = dates::parse(date).unwrap_or(0);
+    let mut rng = Rng::of(&[&c.id, "sign-on", &e.id.to_string()], day);
+    let mode = c.game_mode.rules().lateness * super::research::late_factor(c);
+    let unhappy = if e.satisfaction < 50.0 { 0.02 } else { 0.0 };
+    let stressed = if e.stress > 70.0 { 0.02 } else { 0.0 };
+    let p = (0.015 + 0.08 * (1.0 - e.skills.punctuality / 100.0) + unhappy + stressed) * mode;
+    if !rng.chance(p) {
+        return 0;
+    }
+    rng.int(2, 3 + ((100.0 - e.skills.punctuality).max(0.0) / 20.0) as i64) as i32
+}
+
 /// What the passengers make of a driver's friendliness (on how many ride: ±3 %).
 pub fn friendly_factor(friendliness: f64) -> f64 {
     0.97 + 0.06 * friendliness.clamp(0.0, 100.0) / 100.0

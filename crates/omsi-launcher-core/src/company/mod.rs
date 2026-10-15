@@ -34,6 +34,7 @@ pub mod fares;
 pub mod finance;
 pub mod holidays;
 pub mod inbox;
+pub mod lateness;
 pub mod fleetmap;
 pub mod incidents;
 pub mod levels;
@@ -171,6 +172,7 @@ pub fn found(f: &Founding, profile: &str) -> Company {
         autopilot: Default::default(),
         vehicles: f.vehicles.clone(),
         together: Default::default(),
+        lateness: Default::default(),
     };
     // (Casual buys quickly; the buying chosen is kept for the other modes)
     autopilot::set_game_mode(&mut c, f.game_mode);

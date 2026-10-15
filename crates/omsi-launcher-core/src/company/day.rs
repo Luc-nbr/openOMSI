@@ -253,6 +253,9 @@ pub struct LineDay {
     pub crowded: u32,
     #[serde(default)]
     pub crowded_morning: u32,
+    /// Its trips `economy::LATE_FULL` minutes late or more: paid as trips lost.
+    #[serde(default)]
+    pub late_lost: u32,
 }
 
 /// Something the day's report tells besides the figures.
@@ -336,6 +339,14 @@ pub struct Dropped {
     /// trips - those dropped are the ones before it came, or after it had to go.
     #[serde(default)]
     pub sent: Option<(i32, Option<i32>)>,
+    /// The bus and the driver it had - or, the one missing, the roster's that could not come
+    /// (`problem` says why) - and the first trip's name (its ID in the timetable).
+    #[serde(default)]
+    pub bus: Option<u32>,
+    #[serde(default)]
+    pub driver: Option<u32>,
+    #[serde(default)]
+    pub trip: String,
 }
 
 /// A trip with passengers dropped, into the report's list: with the one before when it is of
@@ -347,7 +358,7 @@ fn note_drop(list: &mut Vec<Dropped>, line: &str, number: &str, tour: &str, duty
         d.trips += 1;
         return;
     }
-    list.push(Dropped { line: line.to_string(), number: number.to_string(), tour: tour.to_string(), duty, from: trip.dep, to: trip.arr, trips: 1, why, problem, sent });
+    list.push(Dropped { line: line.to_string(), number: number.to_string(), tour: tour.to_string(), duty, from: trip.dep, to: trip.arr, trips: 1, why, problem, sent, bus: None, driver: None, trip: String::new() });
 }
 
 /// What a closed day came to.
@@ -397,6 +408,13 @@ pub struct DayReport {
     /// The trips dropped, and why (#96).
     #[serde(default)]
     pub drops: Vec<Dropped>,
+    /// The late trips `economy::LATE_FULL` minutes late or more (paid as trips lost), and the
+    /// day's late running: the late trips with their minutes and causes, punctuality by line,
+    /// hour and duty, the deductions by tier and cause (`lateness`).
+    #[serde(default)]
+    pub late_lost: u32,
+    #[serde(default)]
+    pub lateness: super::lateness::Lateness,
 }
 
 /// Maps named alike (`maps/Grundorf/global.cfg`, with either slash and any case).
@@ -434,6 +452,36 @@ fn whole_trip(tp: &TourPlan, j: usize) -> Option<(network::PlannedTrip, Option<(
     match tp.tour.trips.get(j + 1).filter(|n| x.part.is_some() && n.is_second()) {
         Some(n) => Some((x.joined(n), tp.duties.iter().find(|d| d.start <= j + 1 && j + 1 < d.end).map(|d| (d, n.dep)))),
         None => Some((x.clone(), None)),
+    }
+}
+
+/// Why trip `j` of duty `k` of a tour is not run (None: it runs), and the duty to name: the bus
+/// first, then the driver, then the other half of a trip cut at a relief point on the way, then
+/// the day's events (the close's, and the late-running model's: `lateness`).
+pub(super) fn why_not(c: &Company, tp: &TourPlan, k: usize, j: usize, broken_at: Option<super::clock::Cut>) -> Option<(DropWhy, Option<super::plan::Problem>, Option<usize>)> {
+    use super::plan::Problem;
+    let d = tp.duties.get(k)?;
+    let (trip, rest) = whole_trip(tp, j)?;
+    let has_bus = tp.bus.and_then(|b| c.vehicle(b)).is_some();
+    let has_driver = d.driver.is_some_and(|id| id == super::plan::AGENCY || c.employee(id).is_some());
+    let broke = broken_at.is_some_and(|x| x.lost(trip.dep));
+    let late = d.dropped_before.is_some_and(|t| trip.dep < t);
+    let rest_runs = rest.is_none_or(|(d2, at)| d2.driver.is_some() && d2.dropped_before.is_none_or(|t| at >= t));
+    if !has_bus {
+        Some((DropWhy::NoBus, tp.bus_problem.or(Some(Problem::Unassigned)), None))
+    } else if !has_driver {
+        Some((DropWhy::NoDriver, d.problem.or(Some(Problem::Unassigned)), Some(k)))
+    } else if !rest_runs {
+        match rest {
+            Some((d2, _)) if d2.driver.is_none() => Some((DropWhy::NoDriver, d2.problem.or(Some(Problem::Unassigned)), None)),
+            _ => Some((DropWhy::Late, None, None)),
+        }
+    } else if broke {
+        Some((if broken_at.is_some_and(|x| x.accident) { DropWhy::Crashed } else { DropWhy::BrokeDown }, None, None))
+    } else if late {
+        Some((DropWhy::Late, None, Some(k)))
+    } else {
+        None
     }
 }
 
@@ -479,11 +527,9 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
     let mut sums: Vec<Sums> = lines.iter().map(|_| Sums::default()).collect();
     let line_index = |c: &Company, number: &str| line_of_number(c, number).and_then(|l| c.lines.iter().position(|x| x.name == l.name));
     let comp_km = economy::compensation_per_km(&r, c.reputation, c.contract_index);
-    // (what research does to a kilometre's wear and maintenance, and to the late trips)
+    // (what research does to a kilometre's wear and maintenance; the late trips: `lateness`)
     let upkeep = super::research::wear_factor(c);
     let wear_km = wear_per_km(&r) * upkeep;
-    // (and the game mode's: Casual and Normal run late less often)
-    let late_factor = super::research::late_factor(c) * c.game_mode.rules().lateness;
     let mut on_time = 0u32;
     let mut timed = 0u32;
 
@@ -600,7 +646,12 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
     let mut worked: Vec<(u32, i32, i32, i32)> = Vec::new();
     // (the ticket inspectors' lines bring in what dodgers would not pay: `staff::fare_gain`)
     let checked: Vec<f64> = c.lines.iter().map(|l| 1.0 + staff::fare_gain(c, &date, &l.name)).collect();
-    for tp in &plan.tours {
+    // (the minutes each trip runs late, and why: `lateness`)
+    let late_model = super::lateness::model(c, &plan, &date, &cut);
+    let mut lat = super::lateness::Lateness::default();
+    let mut outcomes: Vec<super::lateness::Outcome> = Vec::new();
+    let mut deductions: Vec<(Cents, String)> = Vec::new();
+    for (ti, tp) in plan.tours.iter().enumerate() {
         let Some(li) = lines.iter().position(|l| l.line.eq_ignore_ascii_case(&tp.tour.line)) else { continue };
         lines[li].tours += 1;
         report.tours += 1;
@@ -658,36 +709,26 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                 if reported(trip) {
                     continue;
                 }
-                let broke = broken_at.is_some_and(|x| x.lost(trip.dep));
-                let late = d.dropped_before.is_some_and(|t| trip.dep < t);
-                // (a trip shared with another duty at a relief point on the way runs only when
-                // that duty runs too)
-                let rest_runs = rest.is_none_or(|(d2, at)| d2.driver.is_some() && d2.dropped_before.is_none_or(|t| at >= t));
-                let run = rest_runs && v.is_some() && driver.is_some() && !broke && !late;
-                if !run {
+                let fate = why_not(c, tp, k, j, broken_at);
+                if let Some((why, problem, duty)) = fate {
                     if counts {
                         lines[li].dropped += 1;
                         report.dropped += 1;
                         let strict = if kind == ServiceKind::School { super::ownline::SCHOOL_DROP } else { 1 };
                         sums[li].penalty += (r.drop_per_trip + (trip.km * r.drop_per_km as f64).round() as Cents) * strict;
-                        // (why, for the report: the bus first, then the driver, then the day's events)
-                        let (why, problem, duty) = if v.is_none() {
-                            (DropWhy::NoBus, tp.bus_problem.or(Some(super::plan::Problem::Unassigned)), None)
-                        } else if driver.is_none() {
-                            (DropWhy::NoDriver, d.problem.or(Some(super::plan::Problem::Unassigned)), Some(k))
-                        } else if !rest_runs {
-                            // (the other half of a trip shared at a relief point on the way)
-                            match rest {
-                                Some((d2, _)) if d2.driver.is_none() => (DropWhy::NoDriver, d2.problem.or(Some(super::plan::Problem::Unassigned)), None),
-                                _ => (DropWhy::Late, None, None),
-                            }
-                        } else if broke {
-                            (if broken_at.is_some_and(|x| x.accident) { DropWhy::Crashed } else { DropWhy::BrokeDown }, None, None)
-                        } else {
-                            (DropWhy::Late, None, Some(k))
-                        };
+                        let broke = broken_at.is_some_and(|x| x.lost(trip.dep));
                         let sent = broken_at.filter(|_| broke).and_then(|x| x.back.map(|b| (b, x.until)));
+                        // (the bus and the driver it had, or the roster's that could not come)
+                        let o = super::lateness::dropped(c, &date, tp, k, trip, why, problem);
+                        let (bus, who) = (o.bus, o.driver);
+                        outcomes.push(o);
                         note_drop(&mut report.drops, &tp.tour.line, &tp.tour.number, &tp.tour.tour, duty, trip, why, problem, sent);
+                        if let Some(x) = report.drops.last_mut() {
+                            (x.bus, x.driver) = (x.bus.or(bus), x.driver.or(who));
+                            if x.trip.is_empty() {
+                                x.trip = trip.name.clone();
+                            }
+                        }
                     }
                     continue;
                 }
@@ -736,14 +777,29 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                 sums[li].compensation += comp;
                 lines[li].passengers += pax;
                 lines[li].revenue += fares + comp;
-                let p_late = (0.04 + 0.12 * (1.0 - e.skills.punctuality / 100.0) + 0.10 * (1.0 - v.condition / 100.0)) * late_factor + line_effects.get(li).map_or(0.0, |x| x.0);
+                // (its minutes late, worked out from the plan: `lateness::model`; a late trip pays
+                // its share of its value, `economy::late_share`)
                 timed += 1;
-                if rng.chance(p_late) {
-                    lines[li].late += 1;
-                    report.late += 1;
-                    sums[li].penalty += r.late_per_trip * if kind == ServiceKind::School { super::ownline::SCHOOL_LATE } else { 1 };
-                } else {
-                    on_time += 1;
+                let t = super::lateness::whole(&late_model, ti, j, rest.is_some());
+                let minutes = t.as_ref().map_or(0, |t| t.minutes());
+                lat.count(&tp.tour.number, &tp.tour.tour, k, e.id, trip.dep, minutes);
+                match t.filter(|_| minutes >= economy::LATE_FROM) {
+                    Some(t) => {
+                        lines[li].late += 1;
+                        report.late += 1;
+                        let strict = if kind == ServiceKind::School { super::ownline::SCHOOL_DROP } else { 1 };
+                        let value = economy::trip_value(&r, trip.km) * strict;
+                        let o = super::lateness::late(tp, k, trip, v.id, e.id, t, value);
+                        lines[li].penalty += o.deduction;
+                        report.penalties += o.deduction;
+                        if minutes >= economy::LATE_FULL {
+                            lines[li].late_lost += 1;
+                            report.late_lost += 1;
+                        }
+                        deductions.push((o.deduction, super::lateness::booking_text(&o)));
+                        outcomes.push(o);
+                    }
+                    None => on_time += 1,
                 }
             }
         }
@@ -788,6 +844,13 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
         l.running += (s.energy + s.maintenance).round() as Cents;
         l.penalty += s.penalty;
     }
+    // (each late trip's deduction its own booking: the trip, its minutes, why)
+    for (amount, text) in deductions {
+        c.book(BookingKind::Penalty, -amount, text, false);
+    }
+    // (the day's late and dropped trips kept for the planning and the advice: `lateness`)
+    report.lateness = lat.finish(&outcomes);
+    super::lateness::keep(c, &date, outcomes);
     // (an accident that took a bus off the road: its damage, a bigger one than a scrape's)
     for x in cut.iter().filter(|x| x.accident) {
         let Some(v) = c.vehicle(x.vehicle) else { continue };
@@ -1100,8 +1163,8 @@ mod tests {
         assert_eq!(of(BookingKind::Fares), 0);
         assert_eq!(of(BookingKind::Compensation), 20 * (45_00 + (15.0 * 3_00 as f64) as Cents));
         assert!(r.passengers > 0);
-        // a dropped trip costs twice the contract's penalty, a late one three times
-        assert_eq!(r.penalties - r.late as Cents * 15_00 * 3, 2 * (6 * 80_00 + (6.0 * 15.0 * 2_00 as f64).round() as Cents));
+        // a dropped trip costs twice the contract's penalty, a late one its share of twice it
+        assert_eq!(r.penalties - r.lateness.deductions(), 2 * (6 * 80_00 + (6.0 * 15.0 * 2_00 as f64).round() as Cents));
     }
 
     #[test]
@@ -1222,7 +1285,7 @@ mod tests {
         assert_eq!((r.tours, r.covered), (3, 2));
         // the tour without a bus was dropped, with its penalty
         assert_eq!(r.dropped, 6);
-        assert_eq!(r.penalties - r.late as Cents * 15_00, 6 * 80_00 + (6.0 * 15.0 * 2_00 as f64).round() as Cents);
+        assert_eq!(r.penalties - r.lateness.deductions(), 6 * 80_00 + (6.0 * 15.0 * 2_00 as f64).round() as Cents);
         assert!(r.passengers > 0 && r.km > 0.0 && r.income > 0 && r.expenses > 0);
         assert_eq!(c.cash - cash, r.result);
         assert_eq!(c.history.len(), 1);

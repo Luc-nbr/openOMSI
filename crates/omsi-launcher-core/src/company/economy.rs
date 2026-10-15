@@ -26,7 +26,8 @@
 //!   pays the rest of the cost per timetable kilometre under the public service contract:
 //!   farebox recovery in German cities is 40-50 %. Passengers per bus-km about 2 on average,
 //!   more at the peaks.
-//! - **Penalties**: contracts (Bonus/Malus) charge per trip dropped and per trip late.
+//! - **Penalties**: contracts (Bonus/Malus) charge per trip dropped, and a share of that for a
+//!   trip late by its minutes (`late_share`: Luc's tiers, 2026-10-15).
 //!
 //! "Easy" pays generously (more compensation and passengers, grants on new buses, cheaper
 //! buses, fewer breakdowns, interest-free loans); "Hard" pays tightly, prices rise with
@@ -65,10 +66,10 @@ pub struct Rules {
     pub fare: Cents,
     pub passengers_per_km: f64,
     pub compensation_per_km: Cents,
-    /// Penalties: per trip dropped, per km dropped, per trip late.
+    /// Penalties: per trip dropped, per km dropped (a trip's value; a late one pays its share of
+    /// that, `late_share`).
     pub drop_per_trip: Cents,
     pub drop_per_km: Cents,
-    pub late_per_trip: Cents,
     /// Breakdowns and wear against the reference.
     pub breakdown_factor: f64,
     /// Yearly rise of costs, and of the contract's payment.
@@ -82,6 +83,39 @@ pub struct Rules {
     /// Applicants and used buses on offer each week.
     pub applicants: usize,
     pub used_offers: usize,
+}
+
+/// From this many minutes a trip counts as late (OMSI's 180 s: up to two minutes is on time).
+pub const LATE_FROM: i32 = 3;
+/// From this many minutes a late trip costs its whole value, as a trip dropped does.
+pub const LATE_FULL: i32 = 30;
+
+/// A trip's value under the contract: what dropping it costs (a late one pays a share of it).
+pub fn trip_value(r: &Rules, km: f64) -> Cents {
+    r.drop_per_trip + (km * r.drop_per_km as f64).round() as Cents
+}
+
+/// The share of its value a trip `minutes` late pays (Luc, 2026-10-15): nothing under
+/// `LATE_FROM`, 10 % up to five minutes, then rising linearly to the whole at `LATE_FULL`
+/// minutes and over (whole minutes: 10 % at 5, 28 % at 10, 64 % at 20, 100 % at 30).
+pub fn late_share(minutes: i32) -> f64 {
+    match minutes {
+        m if m < LATE_FROM => 0.0,
+        m if m <= 5 => 0.10,
+        m if m >= LATE_FULL => 1.0,
+        m => 0.10 + 0.90 * (m - 5) as f64 / (LATE_FULL - 5) as f64,
+    }
+}
+
+/// The tier of a trip `minutes` late: 0 on time, 1 up to five minutes, 2 under `LATE_FULL`,
+/// 3 from it (counted as a trip lost).
+pub fn late_tier(minutes: i32) -> usize {
+    match minutes {
+        m if m < LATE_FROM => 0,
+        m if m <= 5 => 1,
+        m if m < LATE_FULL => 2,
+        _ => 3,
+    }
 }
 
 /// The rules of a difficulty.
@@ -107,7 +141,6 @@ pub fn rules(d: GameMode) -> Rules {
             compensation_per_km: 1_80,
             drop_per_trip: 0,
             drop_per_km: 0,
-            late_per_trip: 0,
             breakdown_factor: 0.3,
             inflation: 0.0,
             indexation: 0.0,
@@ -137,7 +170,6 @@ pub fn rules(d: GameMode) -> Rules {
             compensation_per_km: 1_20,
             drop_per_trip: 80_00,
             drop_per_km: 2_00,
-            late_per_trip: 15_00,
             breakdown_factor: 1.0,
             inflation: 0.025,
             indexation: 0.025,
@@ -167,7 +199,6 @@ pub fn rules(d: GameMode) -> Rules {
             compensation_per_km: 1_00,
             drop_per_trip: 150_00,
             drop_per_km: 3_00,
-            late_per_trip: 30_00,
             breakdown_factor: 1.7,
             inflation: 0.045,
             indexation: 0.015,
@@ -381,6 +412,21 @@ mod tests {
 
     const SOLO: BusKind = BusKind { size: BusSize::Solo, drive: Drive::Diesel };
     const E_ART: BusKind = BusKind { size: BusSize::Articulated, drive: Drive::Electric };
+
+    #[test]
+    fn late_trips_pay_their_tier() {
+        // (Luc: 10 % up to five minutes, the whole trip from thirty)
+        assert_eq!(late_share(2), 0.0);
+        assert_eq!(late_share(4), 0.10);
+        assert_eq!(late_share(5), 0.10);
+        assert!((late_share(10) - 0.28).abs() < 1e-9);
+        assert!(late_share(29) < 1.0 && late_share(29) > late_share(28));
+        assert_eq!((late_share(30), late_share(75)), (1.0, 1.0));
+        assert_eq!([2, 4, 6, 29, 30].map(late_tier), [0, 1, 2, 2, 3]);
+        // (a trip's value is what dropping it costs; Casual's is nothing)
+        assert_eq!(trip_value(&rules(GameMode::Normal), 15.0), 80_00 + 30_00);
+        assert_eq!(trip_value(&rules(GameMode::Casual), 15.0), 0);
+    }
 
     #[test]
     fn prices_follow_the_difficulty() {
