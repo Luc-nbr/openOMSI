@@ -103,7 +103,8 @@ function List({ l }) {
     <div class="range co-note t-dim">${l.range}  ·  ${l.count}</div>
     ${l.days.length
       ? l.days.map((d) => html`<section class=${'day' + (d.today ? ' today' : '') + (d.past ? ' past' : '')}>
-          <div class="dayhead"><b>${d.label}</b><span>${d.label !== d.sub ? d.sub : ''}</span></div>
+          <div class="dayhead"><b>${d.label}</b><span>${d.label !== d.sub ? d.sub : ''}</span>
+            ${d.ops && html`<button type="button" class="co-btn small ghost t-warn" style="margin-left:auto" onClick=${() => goTab(d.ops.tab)}>${d.ops.label}</button>`}</div>
           ${d.items.map((it) => html`<${Row} it=${it} />`)}
         </section>`)
       : html`<div class="co-empty" style="padding:24px 4px">${l.empty}</div>`}

@@ -275,7 +275,10 @@ pub fn view(s: &mut Session, ui: &Value) -> Value {
             .iter()
             .map(|d| {
                 let n = co::dates::between(&c.date, d);
-                json!({ "date": d, "label": day_head(&c, d), "sub": super::words::day_label(d), "today": n == 0, "past": n < 0, "items": items(d) })
+                // (today: what service control has for the player, a click from the Operations page)
+                let waiting = if n == 0 { co::control::waiting(&c) } else { 0 };
+                let ops = (waiting > 0).then(|| json!({ "tab": super::OPS_TAB, "label": super::words::count_text(waiting, "1 thing for service control", "%{n} things for service control") }));
+                json!({ "date": d, "label": day_head(&c, d), "sub": super::words::day_label(d), "today": n == 0, "past": n < 0, "items": items(d), "ops": ops })
             })
             .collect();
         out["list"] = json!({ "days": days, "empty": tr("Nothing in these days"), "range": format!("{} – {}", short_day(&from), short_day(&until)), "count": trf("%{n} entries", &[("n", &shown.len().to_string())]) });
