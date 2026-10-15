@@ -460,7 +460,7 @@ function Menu({ data, m, drivers, size }) {
           ['Move to new row', 2, !pieceLocked && (s?.spans.length || 0) > 1, 'The piece a duty of its own'],
         ];
     items.push(
-      ['Lock duty', 9, true, ''],
+      [pieceLocked ? 'Unlock duty' : 'Lock duty', 9, true, ''],
       ['Add custom work', 22, true, 'Spare, office, union or training time in the duty'],
       ['—'],
       ['View in vehicle schedule', 23, true, ''],

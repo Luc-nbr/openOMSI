@@ -991,6 +991,13 @@ _version: 2
   pl: "Zablokuj służbę"
   ru: "Заблокировать смену"
   uk: "Заблокувати зміну"
+"Unlock duty":
+  de: "Dienst entsperren"
+  fr: "Déverrouiller le service"
+  nl: "Dienst ontgrendelen"
+  pl: "Odblokuj służbę"
+  ru: "Разблокировать смену"
+  uk: "Розблокувати зміну"
 "Add custom work":
   de: "Eigene Arbeit hinzufügen"
   fr: "Ajouter un travail libre"
