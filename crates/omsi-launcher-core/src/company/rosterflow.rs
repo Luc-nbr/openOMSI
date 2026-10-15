@@ -1041,13 +1041,31 @@ pub fn dismissed(c: &Company, weekday: u8, key: &str) -> bool {
     c.planning.flow.sheet.dismissed.iter().any(|(w, k)| *w == weekday && k == key)
 }
 
-/// A line renamed: its locks and links follow it.
+/// A line renamed: its locks, links and duties' notes follow it - and the draft not saved yet,
+/// its blocks and joined duties too (`studio::rename_line` renames the saved ones): else Save
+/// put them back under the old name, and the line's blocks, locks and duty notes were lost.
 pub fn rename_line(c: &mut Company, old: &str, new: &str) {
-    for l in c.planning.flow.sheet.locks.iter_mut().filter(|l| same(&l.line, old)) {
+    rename_in_sheet(&mut c.planning.flow.sheet, old, new);
+    if let Some(d) = c.planning.flow.draft.as_mut() {
+        rename_in_sheet(&mut d.sheet, old, new);
+        for l in d.layouts.iter_mut().filter(|l| same(&l.line, old)) {
+            l.line = new.to_string();
+        }
+        for p in d.joined.iter_mut().flat_map(|j| j.pieces.iter_mut()).filter(|p| same(&p.line, old)) {
+            p.line = new.to_string();
+        }
+    }
+}
+
+fn rename_in_sheet(s: &mut Sheet, old: &str, new: &str) {
+    for l in s.locks.iter_mut().filter(|l| same(&l.line, old)) {
         l.line = new.to_string();
     }
-    for l in c.planning.flow.sheet.links.iter_mut().filter(|l| same(&l.line, old)) {
+    for l in s.links.iter_mut().filter(|l| same(&l.line, old)) {
         l.line = new.to_string();
+    }
+    for n in s.notes.iter_mut().filter(|n| same(&n.key.line, old)) {
+        n.key.line = new.to_string();
     }
 }
 
@@ -2467,15 +2485,17 @@ pub fn optimise_with(c: &Company, lines: &[LineInfo], date: &str, vehicles: bool
     probe.planning.joined.extend(locked_joins.iter().cloned());
     let tours = network::tours_of_day(&probe, lines, date);
     let kept = |t: &TourOfDay| keep.iter().any(|(l, b)| same(l, &t.line) && same(b, &t.tour));
+    // (the locked duties' pieces stay in them: not paired anew)
+    let locked_refs: Vec<PieceRef> = locked.iter().flat_map(|&d| duties[d].pieces.iter().filter_map(|pc| st::piece_ref(&current, pc.tour, pc.duty))).collect();
     let mut cuts: Vec<Cut> = Vec::new();
-    let mut fixed_cuts: Vec<(usize, Vec<Range<usize>>)> = Vec::new();
     for (i, t) in tours.iter().enumerate() {
+        // (a block kept as it is keeps its cuts, and its other pieces still go into duties: left
+        // out, a locked bus broke the duties it shared with other buses into pieces of their own)
         let ranges = if kept(t) { network::duties_of(t) } else { cut_block(&probe, &tours, i, &p) };
-        if kept(t) {
-            fixed_cuts.push((i, ranges.clone()));
-            continue;
-        }
         for r in ranges {
+            if kept(t) && t.trips.get(r.start).is_some_and(|x| locked_refs.iter().any(|l| l.is(&PieceRef { line: t.line.clone(), tour: t.tour.clone(), first: TripRef::of(x) }))) {
+                continue;
+            }
             let (from, to) = span_of(&p, t, &r);
             let (at, till) = piece_places(t, &r);
             cuts.push(Cut { tour: i, range: r, from, to, at, till });
@@ -2561,7 +2581,6 @@ pub fn optimise_with(c: &Company, lines: &[LineInfo], date: &str, vehicles: bool
         }
         starts.push((i, s));
     }
-    let _ = fixed_cuts;
     for lay in layouts.iter_mut() {
         for b in lay.blocks.iter_mut() {
             let Some(i) = tours.iter().position(|t| same(&t.line, &lay.line) && same(&t.tour, &b.tour)) else { continue };
@@ -2578,8 +2597,9 @@ pub fn optimise_with(c: &Company, lines: &[LineInfo], date: &str, vehicles: bool
         let mut refs: Vec<PieceRef> = Vec::new();
         for &k in g {
             let x = &cuts[k];
-            let run_start = g.iter().any(|&j| cuts[j].tour == x.tour && cuts[j].range.end == x.range.start);
-            if !run_start {
+            // (a kept block's cuts stay: each of its pieces is one of the duty's)
+            let run_on = !kept(&tours[x.tour]) && g.iter().any(|&j| cuts[j].tour == x.tour && cuts[j].range.end == x.range.start);
+            if !run_on {
                 let t = &tours[x.tour];
                 refs.push(PieceRef { line: t.line.clone(), tour: t.tour.clone(), first: TripRef::of(&t.trips[x.range.start]) });
             }

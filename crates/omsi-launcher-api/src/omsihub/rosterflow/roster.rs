@@ -1360,6 +1360,12 @@ fn act_on(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
                 return Ok(json!({}));
             }
             let bus = args.get("bus").and_then(Value::as_u64).map(|x| x as u32);
+            // ("No bus" for a tour that has one: taken off as the cross takes it off - the day's
+            // choice of a spare or rental bus taken back too, which the roster alone did not)
+            if bus.is_none() && p.tours[ti].bus.is_some() {
+                let t = &p.tours[ti].tour;
+                return Ok(off(s, &p, "off_bus", &json!({ "line": t.line, "tour": t.tour }), &day_name));
+            }
             give_bus(s, &p, ti, bus)
         }
         other => return Err(format!("no action {other}")),

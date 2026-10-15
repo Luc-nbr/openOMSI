@@ -243,7 +243,7 @@ function TitleBar() {
   const [ref, fit] = useTitleFit([full, company, r.view, language()]);
   const tab = (v, icon, label, anchor) => html`<button type="button" class=${'rf-tab' + (r.view === v ? ' on' : '')} data-rf=${anchor} title=${fit >= 3 ? tr(label) : undefined} onClick=${() => r.view !== v && !holdChanges() && setRf({ view: v, hand: null, zones: null, sel: [], card: null, menu: null, panel: null, press: null, dragging: false, selRow: null })}><${Icon} name=${icon} size=${18} /><span>${tr(label)}</span></button>`;
   return html`<header class=${`rf-title fit${fit}`} ref=${ref}>
-    <${IconBtn} icon="chevron_left" title="Back to the company's start screen (Esc)" onClick=${leaveRosterFlow} />
+    <${IconBtn} icon="chevron_left" title="Back to the company's start screen (Esc)" onClick=${() => !holdChanges() && leaveRosterFlow()} />
     <i class="sep"></i>
     <span class="rf-brand"><${Mark} size=${30} /><span class="names"><${Wordmark} size=${17} /><small>${tr(SUBTITLE)}</small></span></span>
     <i class="sep"></i>

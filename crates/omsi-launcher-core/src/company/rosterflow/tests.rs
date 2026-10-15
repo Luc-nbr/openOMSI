@@ -726,3 +726,29 @@ fn optimise_pairs_pieces_only_across_a_break_the_rules_count() {
     assert!(!b.issues.iter().any(|i| i.text == I_CONTINUOUS), "{:?}", b.issues.iter().map(|i| issue_text(i, &|t| t.to_string())).collect::<Vec<_>>());
     assert_eq!(b.figures.assigned, 16);
 }
+
+#[test]
+fn a_renamed_line_keeps_its_duty_notes_and_the_draft_its_blocks() {
+    // (an own line's new number is a new timetable name: `plan::rename_line`)
+    let mut c = company();
+    let w = wd(&c);
+    let piece = |line: &str| PieceRef { line: line.into(), tour: "1".into(), first: TripRef { tour: "1".into(), name: "5 1-0".into(), dep: 360 } };
+    set_duty_lock(&mut c, w, &piece("Linie5"), true);
+    set_block_lock(&mut c, w, "Linie5", "2", true);
+    // a draft not saved yet: its own blocks, joined duty and lock
+    let mut v = view(&c);
+    v.planning.layouts.push(LineLayout { weekday: w, line: "Linie5".into(), ..Default::default() });
+    v.planning.joined.push(JoinedDuty { weekday: w, pieces: vec![piece("Linie5")] });
+    set_block_lock(&mut v, w, "Linie5", "1", true);
+    keep_draft(&mut c, &v);
+    super::super::plan::rename_line(&mut c, "Linie5", "Linie7");
+    assert!(duty_locked(&c, w, &piece("Linie7")), "the duty's note follows the line");
+    assert!(block_locked(&c, w, "Linie7", "2"));
+    let d = view(&c);
+    assert!(block_locked(&d, w, "Linie7", "1") && duty_locked(&d, w, &piece("Linie7")));
+    assert!(d.planning.layouts.iter().all(|l| l.line == "Linie7") && !d.planning.layouts.is_empty());
+    assert!(d.planning.joined.iter().flat_map(|j| &j.pieces).all(|p| p.line == "Linie7"));
+    // saved: still under its new name
+    assert!(save_draft(&mut c));
+    assert!(c.planning.layouts.iter().all(|l| l.line == "Linie7") && block_locked(&c, w, "Linie7", "1"));
+}
