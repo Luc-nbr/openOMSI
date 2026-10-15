@@ -355,7 +355,11 @@ fn view(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
     // the toolbar's words: what the fleet lacks at the busiest, else what the roster is
     let wd = pl::weekday_of(&date);
     let lack = company::lines_of(s, &date).map(|lines| co::ownline::shortfall(&c, &co::network::tours_of_day(&c, &lines, &date))).unwrap_or_default();
+    // (the duties drawn here are the saved ones, as the day runs them: RosterFlow's draft may cut
+    // and join them otherwise, so a duty given here is not what the Drivers tab shows - said)
+    let unsaved = co::rosterflow::draft_differs(&c, co::plandays::slot_of(&c, &date));
     let tools = match lack.first() {
+        _ if unsaved => json!({ "text": tr("RosterFlow has changes of this day not saved: this tab and the day run the saved duties. Save them to plan with them here."), "tone": "warn", "icon": "warning" }),
         Some(sf) => json!({ "text": trf("At the busiest the tours ask for %{n} × %{bus} (or bigger); the fleet has %{have}.", &[("n", &sf.needed.to_string()), ("bus", &tr(co::BusKind { size: sf.size, drive: co::Drive::Diesel }.label())), ("have", &sf.have.to_string())]), "tone": "warn", "icon": "warning" }),
         None => json!({ "text": trf("%{day}: the roster of this weekday repeats every week.", &[("day", &day_label(&date))]), "tone": "soft", "icon": "event" }),
     };

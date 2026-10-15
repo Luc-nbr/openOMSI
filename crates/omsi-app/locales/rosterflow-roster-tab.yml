@@ -58,3 +58,10 @@ _version: 2
   pl: "Przydziel kierowcy z agencji"
   ru: "Отдать водителю из агентства"
   uk: "Віддати водію з агентства"
+"RosterFlow has changes of this day not saved: this tab and the day run the saved duties. Save them to plan with them here.":
+  de: "RosterFlow hat nicht gespeicherte Änderungen an diesem Tag: dieser Reiter und der Tag selbst laufen mit den gespeicherten Diensten. Speichern Sie sie, um hier mit ihnen zu planen."
+  fr: "RosterFlow a des modifications de ce jour non enregistrées : cet onglet et la journée utilisent les services enregistrés. Enregistrez-les pour planifier avec elles ici."
+  nl: "RosterFlow heeft niet-opgeslagen wijzigingen van deze dag: dit tabblad en de dag zelf draaien de opgeslagen diensten. Sla ze op om er hier mee te plannen."
+  pl: "RosterFlow ma niezapisane zmiany tego dnia: ta karta i sam dzień korzystają z zapisanych służb. Zapisz je, aby planować z nimi tutaj."
+  ru: "В RosterFlow есть несохранённые изменения этого дня: эта вкладка и сам день идут по сохранённым сменам. Сохраните их, чтобы планировать с ними здесь."
+  uk: "У RosterFlow є незбережені правки цього дня: ця вкладка і сам день ідуть за збереженими змінами. Збережіть їх, щоб планувати з ними тут."
