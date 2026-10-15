@@ -264,6 +264,50 @@ pub struct Broken {
     /// What the rental bus ordered for it costs (paid with the day, at its close).
     #[serde(default)]
     pub cost: Cents,
+    /// It had an accident (damage to repair), not a breakdown.
+    #[serde(default)]
+    pub accident: bool,
+    /// When the bus sent for it takes over its trips (a spare or a rental bus; None in an older
+    /// save: `at` and the choice's minutes).
+    #[serde(default)]
+    pub back: Option<i32>,
+    /// Until when the spare bus sent can run them: it goes out on its own tour then (None: for
+    /// the rest of the day).
+    #[serde(default)]
+    pub spare_until: Option<i32>,
+}
+
+/// A spare bus of the fleet free to take over a broken-down bus's trips, and until when (its
+/// own tour after; None: for the rest of the broken bus's day).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SpareBus {
+    pub vehicle: u32,
+    pub until: Option<i32>,
+}
+
+/// A bus cut short today, as the day's close counts its trips (`breakdowns`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Cut {
+    pub vehicle: u32,
+    /// When it broke down or crashed.
+    pub at: i32,
+    /// From when the bus sent runs its trips, and until when (a spare bus going out on its own
+    /// tour; None: the rest of the day).
+    pub back: Option<i32>,
+    pub until: Option<i32>,
+    pub accident: bool,
+}
+
+impl Cut {
+    /// A trip leaving at `dep` is run by the bus sent for it.
+    pub fn covered(&self, dep: i32) -> bool {
+        self.back.is_some_and(|b| dep >= b) && self.until.is_none_or(|u| dep < u)
+    }
+
+    /// A trip leaving at `dep` is lost: after the breakdown, and no bus sent ran it.
+    pub fn lost(&self, dep: i32) -> bool {
+        dep >= self.at && !self.covered(dep)
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -301,6 +345,9 @@ pub struct Run {
     pub stopped: bool,
     /// Lines added to the feed.
     pub told: usize,
+    /// Today's breakdowns and accidents that came on the way (`DayScript::breaks` indices): the
+    /// pages say them where the player is.
+    pub breaks: Vec<usize>,
 }
 
 /// What the simulation needs from outside: the timetable and the night.
@@ -360,34 +407,73 @@ pub fn roll_breakdowns(c: &Company, date: &str, spans: &[(u32, i32, i32)]) -> Ve
     out
 }
 
-/// The breakdowns the day's close counts (vehicle, minute, and from when a rental bus runs its
-/// trips): today's script's when the clock went through the day, else drawn as it would have;
-/// and the buses the game reported broken down.
-pub fn breakdowns(c: &Company, plan: &Plan, date: &str, live_broken: &[u32]) -> Vec<(u32, i32, Option<i32>)> {
+/// Of a day's accidents, the share serious enough to take the bus off the road (the rest are
+/// the scrapes `incidents` books at the day's close).
+const SERIOUS: f64 = 0.25;
+
+/// The buses that have an accident bad enough to take them off the road on their way (drawn
+/// as the breakdowns are; testers: "when a bus has a breakdown or accident ... it does not
+/// inform me that I can allocate" a spare bus): more often with drivers who drive worse,
+/// half as often after the defensive driving course (`incidents::chances`). Not the buses in
+/// `skip` (they break down today).
+fn roll_accidents(c: &Company, dp: &DayPlan, spans: &[(u32, i32, i32)], skip: &[u32]) -> Vec<(u32, i32)> {
+    let day = dates::parse(&dp.date).unwrap_or(0);
+    let trained = super::incidents::trained(c);
+    let mut out = Vec::new();
+    for &(id, a, b) in spans.iter().filter(|s| !skip.contains(&s.0)) {
+        // (the chance of its day: each trip by the driver who drives it)
+        let mut p = 0.0;
+        for t in dp.tours.iter().filter(|t| t.bus == Some(BusOf::Own(id))) {
+            for d in &t.duties {
+                let e = match d.who {
+                    Some(Who::Staff(e)) => c.employee(e).cloned(),
+                    Some(Who::Agency) => Some(plan::agency_driver()),
+                    _ => None,
+                };
+                let Some(e) = e else { continue };
+                let trips = t.tour.trips[d.start..d.end].iter().filter(|x| x.counts()).count() as f64;
+                p += trips * super::incidents::chances(&e, &trained.get(&e.id).copied().unwrap_or_default(), 30).0;
+            }
+        }
+        let p = p * SERIOUS * c.game_mode.rules().breakdowns;
+        let mut rng = Rng::of(&[&c.id, "crash", &id.to_string()], day);
+        if rng.chance(p) {
+            out.push((id, rng.int(a as i64, b.max(a) as i64) as i32));
+        }
+    }
+    out
+}
+
+/// The breakdowns and accidents the day's close counts, and what took over their trips:
+/// today's script's when the clock went through the day, else drawn as it would have; and the
+/// buses the game reported broken down.
+pub fn breakdowns(c: &Company, plan: &Plan, date: &str, live_broken: &[u32]) -> Vec<Cut> {
     let sp = spans(plan.tours.iter().filter_map(|t| Some((t.bus?, t.tour.from(), t.tour.to()))));
-    let mut out: Vec<(u32, i32, Option<i32>)> = match c.clock.today.as_ref().filter(|s| s.date == date) {
+    let mut out: Vec<Cut> = match c.clock.today.as_ref().filter(|s| s.date == date) {
         Some(s) => s
             .breaks
             .iter()
             .map(|b| {
+                // (an older save has no `back`: from the breakdown, as the choice came then)
                 let back = match b.choice {
-                    Some(Choice::Rental) => Some(b.at + RENTAL_MINUTES),
-                    Some(Choice::Spare { .. }) => Some(b.at + SPARE_MINUTES),
+                    Some(Choice::Rental) => Some(b.back.unwrap_or(b.at + RENTAL_MINUTES)),
+                    Some(Choice::Spare { .. }) => Some(b.back.unwrap_or(b.at + SPARE_MINUTES)),
                     _ => None,
                 };
-                (b.vehicle, b.at, back)
+                let until = if matches!(b.choice, Some(Choice::Spare { .. })) { b.spare_until } else { None };
+                Cut { vehicle: b.vehicle, at: b.at, back, until, accident: b.accident }
             })
             .collect(),
-        None => roll_breakdowns(c, date, &sp).into_iter().map(|(v, at)| (v, at, None)).collect(),
+        None => roll_breakdowns(c, date, &sp).into_iter().map(|(vehicle, at)| Cut { vehicle, at, back: None, until: None, accident: false }).collect(),
     };
     let day = dates::parse(date).unwrap_or(0);
     for id in live_broken {
-        if out.iter().any(|x| x.0 == *id) {
+        if out.iter().any(|x| x.vehicle == *id) {
             continue;
         }
         let (a, b) = sp.iter().find(|s| s.0 == *id).map(|s| (s.1, s.2)).unwrap_or((6 * 60, 18 * 60));
         let mut rng = Rng::of(&[&c.id, "live-breakdown", &id.to_string()], day);
-        out.push((*id, rng.int(a as i64, b.max(a) as i64) as i32, None));
+        out.push(Cut { vehicle: *id, at: rng.int(a as i64, b.max(a) as i64) as i32, back: None, until: None, accident: false });
     }
     out
 }
@@ -503,13 +589,17 @@ pub fn script(c: &Company, dp: &DayPlan) -> DayScript {
         _ => None,
     }));
     let mut breaks = Vec::new();
-    for (vehicle, at) in roll_breakdowns(c, &date, &sp) {
+    // (and the accidents bad enough to take a bus off the road: the same choices)
+    let broken = roll_breakdowns(c, &date, &sp);
+    let skip: Vec<u32> = broken.iter().map(|x| x.0).collect();
+    let crashed = roll_accidents(c, dp, &sp, &skip);
+    for (accident, (vehicle, at)) in broken.into_iter().map(|x| (false, x)).chain(crashed.into_iter().map(|x| (true, x))) {
         let line = dp.tours.iter().filter(|t| t.bus == Some(BusOf::Own(vehicle))).find(|t| t.tour.from() <= at && at <= t.tour.to()).or_else(|| dp.tours.iter().find(|t| t.bus == Some(BusOf::Own(vehicle)))).map(|t| t.tour.number.clone()).unwrap_or_default();
         let bus = c.vehicle(vehicle).map(|v| v.number.clone()).unwrap_or_default();
         let mine = dp.tours.iter().filter(|t| t.bus == Some(BusOf::Own(vehicle)));
         let until = mine.clone().map(|t| t.tour.to()).max().unwrap_or(at).max(at);
         let line_name = mine.clone().find(|t| t.tour.from() <= at && at <= t.tour.to()).or_else(|| mine.clone().next()).map(|t| t.tour.line.clone()).unwrap_or_default();
-        breaks.push(Broken { vehicle, bus, line, at, until, line_name, choice: None, cost: 0 });
+        breaks.push(Broken { vehicle, bus, line, at, until, line_name, choice: None, cost: 0, accident, back: None, spare_until: None });
         let index = breaks.len() - 1;
         push(at as i64, What::Breakdown { index });
     }
@@ -605,42 +695,108 @@ pub fn spare_of(c: &Company, date: &str, vehicle: u32) -> Option<u32> {
     })
 }
 
+/// The minute a decision for today's `b` takes effect from: the breakdown's, or the clock's
+/// now when it is decided later the same day (a spare bus sent for trips dropped).
+fn decided_at(c: &Company, s: &DayScript, b: &Broken) -> i32 {
+    if s.date == c.date {
+        b.at.max(c.clock.minute as i32)
+    } else {
+        b.at
+    }
+}
+
+/// When a spare bus and a rental bus sent now for today's `breaks[index]` take over its trips.
+pub fn arrivals(c: &Company, index: usize) -> (i32, i32) {
+    let Some(s) = c.clock.today.as_ref() else { return (0, 0) };
+    let Some(b) = s.breaks.get(index) else { return (0, 0) };
+    let start = decided_at(c, s, b);
+    (start + SPARE_MINUTES, start + RENTAL_MINUTES)
+}
+
+/// How long a spare bus has to be able to run at least to be worth sending (minutes).
+const SPARE_LEAST: i32 = 30;
+
 /// The fleet's buses free to take over today's `breaks[index]` (a spare bus): fit to drive -
 /// not in the workshop, not broken down today -, one of the line's buses, not out on a tour
-/// from the breakdown to the end of its day and not sent for another breakdown then; the same
-/// size first, then the best kept.
-pub fn spare_buses(c: &Company, index: usize) -> Vec<u32> {
+/// now nor going out before it could be of use, and not sent for another breakdown then. A bus
+/// out on its own tour later takes the trips over until it has to go (testers: "I have spare
+/// vehicles that it does not inform me that I can allocate" - a bus free all morning was no
+/// spare when it drove in the evening). Those free for the rest of the day first, the same size
+/// first, then the longest free, then the best kept.
+pub fn spare_offers(c: &Company, index: usize) -> Vec<SpareBus> {
     let Some(s) = c.clock.today.as_ref() else { return Vec::new() };
     let Some(b) = s.breaks.get(index) else { return Vec::new() };
-    let (from, to) = (b.at, b.until.max(b.at + SPARE_MINUTES));
+    let start = decided_at(c, s, b);
+    let arrive = start + SPARE_MINUTES;
+    let end = b.until.max(arrive);
     let morning: Vec<u32> = plan::disruptions(c, &s.date).iter().filter_map(|d| if let Disruption::Breakdown { vehicle, .. } = d { Some(*vehicle) } else { None }).collect();
     let kind = c.vehicle(b.vehicle).map(|v| v.kind.size);
     let margin = super::staff::BUS_MARGIN;
-    let mut out: Vec<&super::model::Vehicle> = c
-        .fleet
+    // (the spare buses sent for the other breakdowns, and when they run for them)
+    let sent: Vec<(u32, i32, i32)> = s
+        .breaks
         .iter()
-        .filter(|v| v.id != b.vehicle && v.held_on(&s.date) && !v.in_workshop(&s.date) && v.condition >= 20.0 && !morning.contains(&v.id))
-        .filter(|v| !s.breaks.iter().any(|x| x.vehicle == v.id && x.at <= to))
-        .filter(|v| b.line_name.is_empty() || super::ownline::line_allows(c, &b.line_name, v))
-        .filter(|v| super::vehicles::vehicle_allowed(c, v))
-        .filter(|v| !s.busy.iter().any(|&(id, a, z)| id == v.id && a < to + margin && from < z + margin))
-        .filter(|v| !s.breaks.iter().any(|x| x.choice == Some(Choice::Spare { vehicle: v.id }) && x.at < to && from < x.until.max(x.at + SPARE_MINUTES)))
+        .enumerate()
+        .filter(|(i, _)| *i != index)
+        .filter_map(|(_, x)| match x.choice {
+            Some(Choice::Spare { vehicle }) => Some((vehicle, x.back.unwrap_or(x.at + SPARE_MINUTES), x.spare_until.unwrap_or(x.until.max(x.at + SPARE_MINUTES)))),
+            _ => None,
+        })
         .collect();
-    out.sort_by(|x, y| (Some(y.kind.size) == kind).cmp(&(Some(x.kind.size) == kind)).then(y.condition.partial_cmp(&x.condition).unwrap_or(std::cmp::Ordering::Equal)).then(x.id.cmp(&y.id)));
-    out.into_iter().map(|v| v.id).collect()
+    let mut out: Vec<(SpareBus, &super::model::Vehicle)> = Vec::new();
+    for v in c.fleet.iter() {
+        if v.id == b.vehicle || !v.held_on(&s.date) || v.in_workshop(&s.date) || v.condition < 20.0 || morning.contains(&v.id) {
+            continue;
+        }
+        if s.breaks.iter().any(|x| x.vehicle == v.id && x.at <= end) {
+            continue;
+        }
+        if !(b.line_name.is_empty() || super::ownline::line_allows(c, &b.line_name, v)) || !super::vehicles::vehicle_allowed(c, v) {
+            continue;
+        }
+        let tours: Vec<(i32, i32)> = s.busy.iter().filter(|x| x.0 == v.id).map(|x| (x.1, x.2)).collect();
+        // (out on a tour now, or going out before it could run a trip of it)
+        if tours.iter().any(|&(a, z)| a < arrive + SPARE_LEAST + margin && start < z + margin) {
+            continue;
+        }
+        let until = tours.iter().map(|x| x.0).filter(|&a| a < end + margin).min().map(|a| a - margin);
+        let last = until.unwrap_or(end);
+        if sent.iter().any(|&(id, from, to)| id == v.id && from < last && arrive < to) {
+            continue;
+        }
+        out.push((SpareBus { vehicle: v.id, until }, v));
+    }
+    out.sort_by(|(x, xv), (y, yv)| {
+        x.until
+            .is_some()
+            .cmp(&y.until.is_some())
+            .then((Some(yv.kind.size) == kind).cmp(&(Some(xv.kind.size) == kind)))
+            .then(y.until.unwrap_or(i32::MAX).cmp(&x.until.unwrap_or(i32::MAX)))
+            .then(yv.condition.partial_cmp(&xv.condition).unwrap_or(std::cmp::Ordering::Equal))
+            .then(xv.id.cmp(&yv.id))
+    });
+    out.into_iter().map(|x| x.0).collect()
 }
 
-/// The dispatcher's choice for a breakdown: a spare bus of the fleet when one is free, else a
-/// rental bus while the cash allows.
+/// The buses of `spare_offers`.
+pub fn spare_buses(c: &Company, index: usize) -> Vec<u32> {
+    spare_offers(c, index).into_iter().map(|x| x.vehicle).collect()
+}
+
+/// The dispatcher's choice for a breakdown: a spare bus of the fleet free for the rest of the
+/// day, else a rental bus while the cash allows, else a spare bus for as long as it is free.
 fn dispatcher_choice(c: &Company, index: usize) -> Choice {
-    if let Some(&vehicle) = spare_buses(c, index).first() {
-        return Choice::Spare { vehicle };
+    let offers = spare_offers(c, index);
+    if let Some(x) = offers.iter().find(|x| x.until.is_none()) {
+        return Choice::Spare { vehicle: x.vehicle };
     }
     let cost = rental_cost(c, index);
     if c.cash >= cost * 5 {
-        Choice::Rental
-    } else {
-        Choice::Drop
+        return Choice::Rental;
+    }
+    match offers.first() {
+        Some(x) => Choice::Spare { vehicle: x.vehicle },
+        None => Choice::Drop,
     }
 }
 
@@ -651,29 +807,115 @@ pub fn rental_cost(c: &Company, index: usize) -> Cents {
     economy::rent_per_day(kind, &r, c.price_index)
 }
 
-/// Decide a breakdown: the rental bus ordered (paid with the day, `day::close_day`), or its
-/// trips dropped.
+/// Decide a breakdown: a spare bus of the fleet sent, a rental bus ordered (paid with the day,
+/// `day::close_day`), or its trips dropped. Trips dropped can still get a spare or a rental bus
+/// later the same day, from then on (the Roster tab). The bus sent takes over from
+/// `Broken::back`, which the day's close keeps to.
 pub fn decide(c: &mut Company, index: usize, choice: Choice, run: &mut Run) {
     let at = now(c);
-    let Some(b) = c.clock.today.as_ref().and_then(|s| s.breaks.get(index)).cloned() else { return };
-    if b.choice.is_some() {
-        return;
+    let Some(s) = c.clock.today.as_ref() else { return };
+    let Some(b) = s.breaks.get(index).cloned() else { return };
+    match b.choice {
+        None => {}
+        Some(Choice::Drop) if choice != Choice::Drop => {}
+        _ => return,
     }
-    let mut cost = 0;
+    let start = decided_at(c, s, &b);
+    let (mut cost, mut back, mut until) = (0, None, None);
     match choice {
         Choice::Rental => {
             cost = rental_cost(c, index);
-            tell(c, run, at, "A rental bus takes over the trips of bus %{bus} on line %{n} from %{time}", vec![arg("bus", &b.bus), arg("n", &b.line), arg("time", hhmm(moment(&c.date, (b.at + RENTAL_MINUTES) as i64))), arg("amount", cost)], Level::Info);
+            back = Some(start + RENTAL_MINUTES);
+            tell(c, run, at, "A rental bus takes over the trips of bus %{bus} on line %{n} from %{time}", vec![arg("bus", &b.bus), arg("n", &b.line), arg("time", hhmm(moment(&c.date, (start + RENTAL_MINUTES) as i64))), arg("amount", cost)], Level::Info);
         }
         Choice::Drop => tell(c, run, at, "The trips of bus %{bus} on line %{n} are dropped for the rest of the day", vec![arg("bus", &b.bus), arg("n", &b.line)], Level::Warn),
         Choice::Spare { vehicle } => {
+            // (a bus no longer free is not sent: the dispatcher chooses then)
+            let Some(offer) = spare_offers(c, index).into_iter().find(|x| x.vehicle == vehicle) else {
+                let other = dispatcher_choice(c, index);
+                if other != choice {
+                    decide(c, index, other, run);
+                }
+                return;
+            };
+            back = Some(start + SPARE_MINUTES);
+            until = offer.until;
             let spare = c.vehicle(vehicle).map(|v| v.number.clone()).unwrap_or_default();
-            tell(c, run, at, "Spare bus %{spare} takes over the trips of bus %{bus} on line %{n} from %{time}", vec![arg("spare", spare), arg("bus", &b.bus), arg("n", &b.line), arg("time", hhmm(moment(&c.date, (b.at + SPARE_MINUTES) as i64)))], Level::Info);
+            let from = hhmm(moment(&c.date, (start + SPARE_MINUTES) as i64));
+            match until {
+                Some(u) => tell(c, run, at, "Spare bus %{spare} takes over the trips of bus %{bus} on line %{n} from %{time} until %{until}", vec![arg("spare", spare), arg("bus", &b.bus), arg("n", &b.line), arg("time", from), arg("until", hhmm(moment(&c.date, u as i64)))], Level::Info),
+                None => tell(c, run, at, "Spare bus %{spare} takes over the trips of bus %{bus} on line %{n} from %{time}", vec![arg("spare", spare), arg("bus", &b.bus), arg("n", &b.line), arg("time", from)], Level::Info),
+            }
         }
     }
     if let Some(x) = c.clock.today.as_mut().and_then(|s| s.breaks.get_mut(index)) {
         x.choice = Some(choice);
         x.cost = cost;
+        x.back = back;
+        x.spare_until = until;
+    }
+    post_break(c, index);
+}
+
+// --- what is told of a breakdown ----------------------------------------------------------------
+
+const BROKE_TITLE: &str = "Bus %{bus} broke down";
+const CRASH_TITLE: &str = "Bus %{bus} had an accident";
+const SPARES_FREE: &str = "On line %{n} at %{time}. Spare buses free now: %{spares}.";
+const NO_SPARE: &str = "On line %{n} at %{time}. No spare bus is free now: a rental bus can take over its trips from %{arrive} for %{amount}, or they are dropped.";
+const BY_SPARE: &str = "On line %{n} at %{time}. Spare bus %{spare} takes over its trips from %{arrive}.";
+const BY_SPARE_UNTIL: &str = "On line %{n} at %{time}. Spare bus %{spare} takes over its trips from %{arrive} until %{leaves}, when it goes out on its own tour.";
+const BY_RENTAL: &str = "On line %{n} at %{time}. A rental bus takes over its trips from %{arrive} for %{amount}.";
+const DROPPED: &str = "On line %{n} at %{time}. Its trips are dropped for the rest of the day.";
+
+/// Today's `breaks[index]` as the inbox tells it (and the pages' notices): what happened, and
+/// the spare buses free or what was decided.
+pub fn break_message(c: &Company, index: usize) -> Option<super::inbox::Message> {
+    use super::inbox::{Kind, Message};
+    let s = c.clock.today.as_ref()?;
+    let b = s.breaks.get(index)?;
+    let m = |t: i32| hhmm(moment(&s.date, t as i64));
+    let number = |id: u32| c.vehicle(id).map(|v| v.number.clone()).unwrap_or_default();
+    let offers = if b.choice.is_none() { spare_offers(c, index) } else { Vec::new() };
+    let (text, level) = match b.choice {
+        None if offers.is_empty() => (NO_SPARE, Level::Bad),
+        None => (SPARES_FREE, Level::Bad),
+        Some(Choice::Spare { .. }) if b.spare_until.is_some() => (BY_SPARE_UNTIL, Level::Warn),
+        Some(Choice::Spare { .. }) => (BY_SPARE, Level::Warn),
+        Some(Choice::Rental) => (BY_RENTAL, Level::Warn),
+        Some(Choice::Drop) => (DROPPED, Level::Bad),
+    };
+    let (spare_at, rental_at) = arrivals(c, index);
+    let spares: Vec<String> = offers
+        .iter()
+        .take(6)
+        .map(|x| match x.until {
+            Some(u) => format!("{} (–{})", number(x.vehicle), m(u)),
+            None => number(x.vehicle),
+        })
+        .collect();
+    let arrive = match b.choice {
+        Some(Choice::Spare { .. } | Choice::Rental) => b.back.unwrap_or(b.at),
+        _ if offers.is_empty() => rental_at,
+        _ => spare_at,
+    };
+    let mut msg = Message::new(Kind::Fleet, if b.accident { CRASH_TITLE } else { BROKE_TITLE }, text).level(level).dated(&s.date).key(&format!("breakdown-{}-{}", s.date, b.vehicle));
+    msg = msg.arg("bus", b.bus.clone()).arg("n", b.line.clone()).arg("time", m(b.at)).arg("arrive", m(arrive)).arg("spares", spares.join(", "));
+    if let Some(Choice::Spare { vehicle }) = b.choice {
+        msg = msg.arg("spare", number(vehicle));
+    }
+    if let Some(u) = b.spare_until {
+        msg = msg.arg("leaves", m(u));
+    }
+    let cost = if b.choice == Some(Choice::Rental) { b.cost } else { rental_cost(c, index) };
+    Some(msg.arg("amount", cost.to_string()))
+}
+
+/// Put today's `breaks[index]` in the inbox, or bring its message up to date (an unread one is
+/// replaced).
+fn post_break(c: &mut Company, index: usize) {
+    if let Some(m) = break_message(c, index) {
+        super::inbox::post(c, m);
     }
 }
 
@@ -709,7 +951,11 @@ fn apply(c: &mut Company, due: Due, quick: bool, run: &mut Run) {
                 }
                 What::Breakdown { index } => {
                     let Some(b) = c.clock.today.as_ref().and_then(|s| s.breaks.get(index)).cloned() else { return };
-                    tell(c, run, when, "Bus %{bus} broke down on line %{n}", vec![arg("bus", &b.bus), arg("n", &b.line)], Level::Bad);
+                    let text = if b.accident { "Bus %{bus} had an accident on line %{n}" } else { "Bus %{bus} broke down on line %{n}" };
+                    tell(c, run, when, text, vec![arg("bus", &b.bus), arg("n", &b.line)], Level::Bad);
+                    run.breaks.push(index);
+                    // (the inbox says it at once, with the spare buses free: wherever the player is)
+                    post_break(c, index);
                     if asks && !c.clock.dispatcher {
                         c.clock.ask = Some(Ask::Breakdown { index });
                     } else {
@@ -896,6 +1142,18 @@ pub fn answer(c: &mut Company, choice: Option<Choice>, run: &mut Run) -> Option<
     c.clock.target.take()
 }
 
+/// A choice for today's `breaks[index]` made on the planning (the Roster tab): the question
+/// answered when it waits for it, else trips dropped get a spare or a rental bus from now on.
+/// Returns where a simulation waiting for the answer was going.
+pub fn choose(c: &mut Company, index: usize, choice: Choice) -> Option<i64> {
+    let mut run = Run::default();
+    if c.clock.ask == Some(Ask::Breakdown { index }) {
+        return answer(c, Some(choice), &mut run);
+    }
+    decide(c, index, choice, &mut run);
+    None
+}
+
 /// The game's clock leads while it runs on the company's map: the company's day moves along to
 /// the game's minute of the day (forward only, not past the day; quick).
 pub fn follow(c: &mut Company, game_minute: i64, w: &mut dyn World) -> Result<Run, String> {
@@ -1078,7 +1336,7 @@ const SKIPPED: (&str, &str) = ("Not all caught up", "You were away for longer th
 
 /// Every English text the real clock writes into the inbox, for the translations' check.
 pub fn texts() -> Vec<&'static str> {
-    vec![AWAY.0, AWAY.1, AWAY_SHORT, SKIPPED.0, SKIPPED.1]
+    vec![AWAY.0, AWAY.1, AWAY_SHORT, SKIPPED.0, SKIPPED.1, BROKE_TITLE, CRASH_TITLE, SPARES_FREE, NO_SPARE, BY_SPARE, BY_SPARE_UNTIL, BY_RENTAL, DROPPED]
 }
 
 /// The company is opened again: the real time since it was last in step is added to its time
@@ -1154,6 +1412,7 @@ mod tests {
     use super::super::market::{self, MarketBus, Payment};
     use super::super::staff::{applicants, hire};
     use super::super::{day, depot, found, Founding};
+    use super::super::day::DropWhy;
     use super::*;
     use crate::company::model::{BookingKind, GameMode, Licence};
 
@@ -1286,7 +1545,7 @@ mod tests {
         let number = s.events.iter().find_map(|e| if let What::Out { bus, .. } = &e.what { Some(bus.clone()) } else { None }).unwrap();
         let bus = c.fleet.iter().find(|v| v.number == number).unwrap().clone();
         let s = c.clock.today.as_mut().unwrap();
-        s.breaks.push(Broken { vehicle: bus.id, bus: bus.number.clone(), line: "5".into(), at: 8 * 60, until: 0, line_name: String::new(), choice: None, cost: 0 });
+        s.breaks.push(Broken { vehicle: bus.id, bus: bus.number.clone(), line: "5".into(), at: 8 * 60, until: 0, line_name: String::new(), choice: None, cost: 0, accident: false, back: None, spare_until: None });
         s.events.push(Timed { at: 8 * 60, what: What::Breakdown { index: 0 }, done: false });
         s.events.sort_by_key(|e| e.at);
         let mut rental = c.clone();
@@ -1585,7 +1844,7 @@ mod tests {
         let busy: Vec<u32> = s.busy.iter().map(|x| x.0).collect();
         let bus = c.fleet.iter().find(|v| v.number == number).unwrap().clone();
         let s = c.clock.today.as_mut().unwrap();
-        s.breaks.push(Broken { vehicle: bus.id, bus: bus.number.clone(), line: "5".into(), at: 8 * 60, until: 20 * 60, line_name: "Linie5".into(), choice: None, cost: 0 });
+        s.breaks.push(Broken { vehicle: bus.id, bus: bus.number.clone(), line: "5".into(), at: 8 * 60, until: 20 * 60, line_name: "Linie5".into(), choice: None, cost: 0, accident: false, back: None, spare_until: None });
         s.events.push(Timed { at: 8 * 60, what: What::Breakdown { index: 0 }, done: false });
         s.events.sort_by_key(|e| e.at);
         // the buses not out on a tour then are offered, the broken one and those out are not
@@ -1606,7 +1865,7 @@ mod tests {
         // (sent once: not offered for another breakdown then)
         let mut again = c.clone();
         let s = again.clock.today.as_mut().unwrap();
-        s.breaks.push(Broken { vehicle: busy.iter().copied().find(|id| *id != bus.id).unwrap_or(bus.id), bus: "x".into(), line: "5".into(), at: 9 * 60, until: 12 * 60, line_name: "Linie5".into(), choice: None, cost: 0 });
+        s.breaks.push(Broken { vehicle: busy.iter().copied().find(|id| *id != bus.id).unwrap_or(bus.id), bus: "x".into(), line: "5".into(), at: 9 * 60, until: 12 * 60, line_name: "Linie5".into(), choice: None, cost: 0, accident: false, back: None, spare_until: None });
         assert!(!spare_buses(&again, 1).contains(&spares[0]));
         answer(&mut dropped, Some(Choice::Drop), &mut r);
         let km = c.vehicle(spares[0]).unwrap().km;
@@ -1620,5 +1879,122 @@ mod tests {
         // an older day's script reads without the new fields
         let old: DayScript = serde_json::from_str(r#"{"date":"2024-03-04","events":[],"breaks":[{"vehicle":1,"bus":"101","line":"5","at":480,"choice":"rental"}]}"#).unwrap();
         assert_eq!((old.breaks[0].choice, old.breaks[0].until, old.busy.len()), (Some(Choice::Rental), 0, 0));
+    }
+
+    /// A company at 05:00 of its day whose first bus out breaks down (or crashes) at `at` - the
+    /// only thing that stops the day - with `until` the end of its day; and that bus.
+    fn broken_at(at: i32, until: i32, accident: bool) -> (Company, Fake, super::super::model::Vehicle) {
+        let (mut c, mut w) = company(6, 8);
+        advance(&mut c, moment("2024-03-04", 5 * 60), &mut w, false).unwrap();
+        let s = c.clock.today.as_mut().unwrap();
+        s.breaks.clear();
+        s.events.retain(|e| !matches!(e.what, What::Breakdown { .. } | What::Morning { .. }));
+        let number = s.events.iter().find_map(|e| if let What::Out { bus, .. } = &e.what { Some(bus.clone()) } else { None }).unwrap();
+        let bus = c.fleet.iter().find(|v| v.number == number).unwrap().clone();
+        let s = c.clock.today.as_mut().unwrap();
+        s.breaks.push(Broken { vehicle: bus.id, bus: bus.number.clone(), line: "5".into(), at, until, line_name: "Linie5".into(), choice: None, cost: 0, accident, back: None, spare_until: None });
+        s.events.push(Timed { at: at as i64, what: What::Breakdown { index: 0 }, done: false });
+        s.events.sort_by_key(|e| e.at);
+        (c, w, bus)
+    }
+
+    #[test]
+    fn a_spare_bus_sent_loses_only_the_trips_before_it_comes() {
+        // (testers: "Bus broke down, it told me to allocate a different vehicle and then still
+        // classed it as lost mileage"; its tour runs hourly from 06:00, half an hour a trip)
+        let (mut c, mut w, bus) = broken_at(7 * 60 + 50, 9 * 60 + 30, false);
+        let run = advance(&mut c, moment("2024-03-04", 12 * 60), &mut w, false).unwrap();
+        assert!(run.stopped && run.breaks == vec![0]);
+        // (the inbox says it at once, with the spare buses free)
+        let m = c.inbox.messages.iter().find(|m| m.title == BROKE_TITLE).unwrap();
+        assert_eq!((m.text.as_str(), m.value("bus")), (SPARES_FREE, Some(bus.number.as_str())));
+        let spare = spare_buses(&c, 0)[0];
+        let km = c.vehicle(spare).unwrap().km;
+        answer(&mut c, Some(Choice::Spare { vehicle: spare }), &mut Run::default());
+        // (the message says what was sent now, and it comes at 08:20)
+        let m = c.inbox.messages.iter().find(|m| m.title == BROKE_TITLE).unwrap();
+        assert_eq!((m.text.as_str(), m.value("arrive")), (BY_SPARE, Some("08:20")));
+        assert_eq!(c.inbox.messages.iter().filter(|m| m.title == BROKE_TITLE).count(), 1);
+        let r = advance(&mut c, moment("2024-03-05", 0), &mut w, true).unwrap().reports.remove(0);
+        // only the 08:00 trip is lost, as broken down; the 09:00 one ran with the spare bus
+        assert_eq!(r.dropped, 1, "{:?}", r.drops);
+        let d = &r.drops[0];
+        assert_eq!((d.why, d.from, d.trips, d.sent), (DropWhy::BrokeDown, 8 * 60, 1, Some((8 * 60 + 20, None))));
+        assert_eq!(c.vehicle(spare).unwrap().km - km, 10.0);
+        assert!(r.notes.iter().any(|n| matches!(n, Note::Breakdown { number, .. } if *number == bus.number)));
+    }
+
+    #[test]
+    fn without_a_spare_bus_every_trip_after_the_breakdown_is_lost() {
+        let (mut c, mut w, bus) = broken_at(7 * 60 + 50, 9 * 60 + 30, false);
+        advance(&mut c, moment("2024-03-04", 12 * 60), &mut w, false).unwrap();
+        answer(&mut c, Some(Choice::Drop), &mut Run::default());
+        assert_eq!(c.inbox.messages.iter().find(|m| m.title == BROKE_TITLE).map(|m| m.text.as_str()), Some(DROPPED));
+        let r = advance(&mut c, moment("2024-03-05", 0), &mut w, true).unwrap().reports.remove(0);
+        assert_eq!(r.dropped, 2, "{:?}", r.drops);
+        let d = &r.drops[0];
+        assert_eq!((d.why, d.from, d.to, d.trips, d.sent), (DropWhy::BrokeDown, 8 * 60, 9 * 60 + 30, 2, None));
+        assert_eq!(c.vehicle(bus.id).unwrap().breakdowns, bus.breakdowns + 1);
+    }
+
+    #[test]
+    fn a_bus_out_later_is_a_spare_until_its_own_tour_and_trips_dropped_still_get_one() {
+        let (mut c, mut w, bus) = broken_at(7 * 60 + 50, 20 * 60, false);
+        let free = spare_buses(&c, 0);
+        // (one of them goes out on a tour of its own at 13:00: a spare until ten minutes before)
+        let later = free[0];
+        c.clock.today.as_mut().unwrap().busy.push((later, 13 * 60, 15 * 60));
+        let offers = spare_offers(&c, 0);
+        let x = offers.iter().find(|x| x.vehicle == later).unwrap();
+        assert_eq!(x.until, Some(13 * 60 - super::super::staff::BUS_MARGIN));
+        // (those free all day come first)
+        assert!(offers[0].until.is_none());
+        // the trips dropped at first get a spare bus later the same day, from then on
+        advance(&mut c, moment("2024-03-04", 12 * 60), &mut w, false).unwrap();
+        answer(&mut c, Some(Choice::Drop), &mut Run::default());
+        advance(&mut c, moment("2024-03-04", 11 * 60), &mut w, false).unwrap();
+        assert_eq!(choose(&mut c, 0, Choice::Spare { vehicle: later }), None);
+        let b = &c.clock.today.as_ref().unwrap().breaks[0];
+        assert_eq!((b.choice, b.back, b.spare_until), (Some(Choice::Spare { vehicle: later }), Some(11 * 60 + 30), Some(12 * 60 + 50)));
+        let date = c.date.clone();
+        let cut = breakdowns(&c, &Plan::default(), &date, &[]);
+        assert_eq!(cut, vec![Cut { vehicle: bus.id, at: 7 * 60 + 50, back: Some(11 * 60 + 30), until: Some(12 * 60 + 50), accident: false }]);
+        assert!(cut[0].lost(9 * 60) && !cut[0].lost(12 * 60) && cut[0].lost(13 * 60) && !cut[0].lost(7 * 60));
+        // (once sent, it is not sent again)
+        assert_eq!(choose(&mut c, 0, Choice::Rental), None);
+        assert_eq!(c.clock.today.as_ref().unwrap().breaks[0].choice, Some(Choice::Spare { vehicle: later }));
+    }
+
+    #[test]
+    fn an_accident_takes_the_bus_off_the_road_as_a_breakdown_does() {
+        let (mut c, mut w, bus) = broken_at(7 * 60 + 50, 9 * 60 + 30, true);
+        let run = advance(&mut c, moment("2024-03-04", 12 * 60), &mut w, false).unwrap();
+        assert!(run.stopped && c.clock.ask == Some(Ask::Breakdown { index: 0 }));
+        assert!(c.clock.feed.iter().any(|f| f.text == "Bus %{bus} had an accident on line %{n}"));
+        assert!(c.inbox.messages.iter().any(|m| m.title == CRASH_TITLE));
+        answer(&mut c, Some(Choice::Drop), &mut Run::default());
+        let r = advance(&mut c, moment("2024-03-05", 0), &mut w, true).unwrap().reports.remove(0);
+        assert_eq!((r.dropped, r.drops[0].why), (2, DropWhy::Crashed));
+        // (its damage booked with the day's accidents, in the workshop for it - no breakdown)
+        assert!(r.notes.iter().any(|n| matches!(n, Note::Accident { number, cost } if *number == bus.number && *cost > 0)));
+        assert!(!r.notes.iter().any(|n| matches!(n, Note::Breakdown { number, .. } if *number == bus.number)));
+        let v = c.vehicle(bus.id).unwrap();
+        assert!(v.in_workshop("2024-03-05") && v.breakdowns == bus.breakdowns);
+    }
+
+    #[test]
+    fn the_dispatcher_says_what_he_sent_and_an_older_breakdown_reads() {
+        let (mut c, mut w, _) = broken_at(7 * 60 + 50, 9 * 60 + 30, false);
+        let run = advance(&mut c, moment("2024-03-04", 12 * 60), &mut w, true).unwrap();
+        assert!(!run.stopped && run.breaks == vec![0]);
+        assert!(matches!(c.clock.today.as_ref().unwrap().breaks[0].choice, Some(Choice::Spare { .. })));
+        assert_eq!(c.inbox.messages.iter().find(|m| m.title == BROKE_TITLE).map(|m| m.text.as_str()), Some(BY_SPARE));
+        let old: Broken = serde_json::from_str(r#"{"vehicle":1,"bus":"101","line":"5","at":480,"choice":{"spare":{"vehicle":2}}}"#).unwrap();
+        assert_eq!((old.accident, old.back, old.spare_until), (false, None, None));
+        let mut s = DayScript { date: c.date.clone(), breaks: vec![old], ..Default::default() };
+        s.breaks[0].until = 600;
+        c.clock.today = Some(s);
+        let date = c.date.clone();
+        assert_eq!(breakdowns(&c, &Plan::default(), &date, &[])[0].back, Some(480 + SPARE_MINUTES));
     }
 }
