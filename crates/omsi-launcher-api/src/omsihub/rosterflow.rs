@@ -348,13 +348,12 @@ fn board_json(c: &Company, board: &Board) -> Value {
                 .collect();
             let km: f64 = s.spans.iter().map(|sp| piece_trips(board, sp.tour, sp.duty).iter().map(|t| t.km).sum::<f64>()).sum();
             let trips: usize = s.spans.iter().map(|sp| piece_trips(board, sp.tour, sp.duty).iter().filter(|t| t.counts()).count()).sum();
-            // (a spare duty: its name beside its number, where its driver stands by)
+            // (a spare duty: its name beside its number)
             let spare = s.spare.and_then(|id| c.planning.flow.sheet.spares.iter().find(|x| x.weekday == wd && x.id == id));
             let name = spare.map(|x| x.name.trim().to_string()).unwrap_or_default();
             let label = if name.is_empty() { s.label(row) } else { format!("{} {name}", s.label(row)) };
             json!({
                 "id": duty_id(s), "label": label, "name": name, "spare": s.spare, "locked": s.locked,
-                "spare_at": spare.map(|x| spare_point(c, x)),
                 "kind": tr(s.kind_name(p)), "kind_rank": s.kind.map(|k| k as i64).unwrap_or(99), "kind_set": s.kind_set,
                 "start": s.start, "end": s.end, "spread": s.spread(), "work": s.work, "paid": s.paid, "driving": s.driving, "platform": s.platform,
                 "changeovers": s.changeovers, "km": (km * 10.0).round() / 10.0, "trips": trips,
@@ -795,13 +794,6 @@ fn point_name(key: &str) -> String {
     } else {
         key.to_string()
     }
-}
-
-/// Where spare duty `sp`'s driver stands by, in words (`rf::spare_lines`): its point, the
-/// company's sign-on point, else the depot.
-fn spare_point(c: &Company, sp: &rf::Spare) -> String {
-    let company = c.planning.flow.prefs.sign_on_at.as_deref().filter(|x| !x.trim().is_empty());
-    point_name(sp.sign_on_at.as_deref().filter(|x| !x.trim().is_empty()).or(company).unwrap_or(rf::DEPOT_POINT))
 }
 
 /// Where duty `s` signs on and off, in words: the point it (or the company) chose, else where its
