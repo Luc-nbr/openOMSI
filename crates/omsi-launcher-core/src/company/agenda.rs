@@ -6,7 +6,7 @@
 //!
 //! * The staff: holidays approved and asked for (`holidays`) and the requests due for an
 //!   answer, who is back after an illness, courses ending (`Progress::courses`), new hires,
-//!   last days, requests for a raise to answer.
+//!   last days, requests for a raise to answer, agency drivers booked ahead (`agency`).
 //! * The fleet: today's breakdowns and accidents (`clock::DayScript::breaks`) and those of the
 //!   last days (their inbox messages, `clock::break_message`), a bus back from the workshop
 //!   (`Vehicle::workshop_until`), workshop jobs and spare parts waiting or on their way, a
@@ -30,7 +30,7 @@ use super::day::Plan;
 use super::depot::{self, JobKind};
 use super::holidays::State as Asked;
 use super::model::{Company, GameMode, Tenure, LEGACY_SERVICE};
-use super::{dealer, research};
+use super::{agency, dealer, research};
 use crate::service::{self, HolidayPeriod};
 use std::collections::HashSet;
 
@@ -98,6 +98,7 @@ pub enum Kind {
     Hired,
     Leaving,
     Raise,
+    Agency,
     // the fleet
     Breakdown,
     Accident,
@@ -135,7 +136,7 @@ impl Kind {
     pub fn group(self) -> Group {
         use Kind::*;
         match self {
-            Holiday | HolidayBack | HolidayAsked | HolidayDue | Recovered | Course | Hired | Leaving | Raise => Group::Staff,
+            Holiday | HolidayBack | HolidayAsked | HolidayDue | Recovered | Course | Hired | Leaving | Raise | Agency => Group::Staff,
             Breakdown | Accident | WorkshopBack | WorkshopJob | PartsWait | PartsArrive | ServiceDue | GoesBack | Delivery | Warranty | Building => Group::Fleet,
             Uncovered | NotInService | TenderOpens | TenderCloses | ConcessionBegins | ConcessionEnds | LineChange | LineStarts | Goal | Contract | Advert => Group::Lines,
             MonthClose | LoanEnds | Research | PublicHoliday | SchoolHoliday | WorldEvent => Group::Money,
@@ -155,6 +156,7 @@ impl Kind {
             Hired => "person",
             Leaving => "logout",
             Raise => "payments",
+            Agency => "group",
             Breakdown => "error",
             Accident => "warning",
             WorkshopBack => "construction",
@@ -206,6 +208,8 @@ pub enum About {
     Line(String),
     Goal(u32),
     Tender(u32),
+    /// Agency drivers booked ahead (the booking's number).
+    Booking(u32),
 }
 
 /// Where an entry is handled.
@@ -216,6 +220,8 @@ pub enum Go {
     Holidays(String),
     /// The player's own courses (the career).
     Courses,
+    /// The Staff page's Agencies tab, on a day.
+    Agencies(String),
     Bus(u32),
     /// The workshop's stores.
     Workshop,
@@ -324,6 +330,11 @@ const RESIGNED: &str = "Resigned";
 const DISMISSED: &str = "Dismissed";
 const ANSWER_RAISE: &str = "Answer %{name}'s request for a raise";
 const RAISE_NOTE: &str = "%{pct} % more: no answer by then is a no";
+const AGENCY_ONE: &str = "An agency driver booked (%{h} h)";
+const AGENCY_MANY: &str = "%{count} agency drivers booked (%{h} h)";
+const AGENCY_HOURS: &str = "%{start}–%{end}, %{duties} duties given";
+const AGENCY_DAY: &str = "When the day needs them, %{duties} duties given";
+const AGENCY_IDLE: &str = "%{idle} of them have no duty yet";
 
 const BROKE_DOWN: &str = "Bus %{bus} broke down on line %{n}";
 const CRASHED: &str = "Bus %{bus} had an accident on line %{n}";
@@ -401,7 +412,7 @@ const SECOND_CHRISTMAS: &str = "Second Day of Christmas";
 /// Every English text the agenda says, for the translations.
 pub fn texts() -> Vec<&'static str> {
     let mut v = vec![
-        ON_HOLIDAY, BACK_FROM_HOLIDAY, ASKED, NOT_ANSWERED, ANSWER_HOLIDAY, PLANNER_ANSWERS, SILENCE_IS_NO, BACK_AFTER_ILLNESS, COURSE_ENDS, COURSE_ENDS_PLAIN, YOUR_COURSE_ENDS, STARTS, LAST_DAY, RESIGNED, DISMISSED, ANSWER_RAISE, RAISE_NOTE,
+        ON_HOLIDAY, BACK_FROM_HOLIDAY, ASKED, NOT_ANSWERED, ANSWER_HOLIDAY, PLANNER_ANSWERS, SILENCE_IS_NO, BACK_AFTER_ILLNESS, COURSE_ENDS, COURSE_ENDS_PLAIN, YOUR_COURSE_ENDS, STARTS, LAST_DAY, RESIGNED, DISMISSED, ANSWER_RAISE, RAISE_NOTE, AGENCY_ONE, AGENCY_MANY, AGENCY_HOURS, AGENCY_DAY, AGENCY_IDLE,
         BROKE_DOWN, CRASHED, WAITING, SPARE_SENT, RENTAL_SENT, TRIPS_DROPPED, BACK_FROM_WORKSHOP, JOB_DONE, AFTER_BREAKDOWN, AFTER_ACCIDENT, INTO_WORKSHOP, WAITS_BAY, WAITS_PARTS, SINCE, PARTS_ARRIVE, PARTS_COUNT, SERVICE_DUE, ESTIMATED, LEASE_ENDS, RENTAL_ENDS, LEAVES_FLEET, DELIVERY, WARRANTY_ENDS, BUILDING_DONE,
         NOT_COVERED, SHORT_OF, NOT_IN_SERVICE, PLAN_IT, PLAN_NAMED, LINE_STARTS, LINE_CHANGES, TENDER_OPENS, RENEWAL_OPENS, TENDER_CLOSES, KEEP_IT, CONCESSION_BEGINS, CONCESSION_ENDS, RENEWAL_OUT, GOAL_LAST_DAY, FUEL_BEGINS, FUEL_ENDS, CLEANING_BEGINS, CLEANING_ENDS, INTERNET_BEGINS, INTERNET_CHANGES, INTERNET_ENDS, ADVERT_ENDS,
         MONTH_CLOSE, LOAN_RATES, LOAN_LAST, RESEARCH_DONE, AT_PACE, RESEARCH_IDLE, PUBLIC_HOLIDAY, SCHOOL_BEGINS, UNTIL, SCHOOL_ENDS, FROM_UNTIL, LOAN,
@@ -483,6 +494,27 @@ fn staff(c: &Company, out: &mut Vec<Entry>) {
         out.push(match k.employee {
             Some(id) => Entry::new(&k.until, Kind::Course, COURSE_ENDS, Go::Person(id)).arg("name", c.employee(id).map(|e| e.name.as_str()).unwrap_or(&k.name)).arg("what", k.kind.label()).about(About::Person(id)),
             None => Entry::new(&k.until, Kind::Course, YOUR_COURSE_ENDS, Go::Courses).arg("what", k.kind.label()).about(About::Player),
+        });
+    }
+    // agency drivers booked ahead: wanted when one of the coming week's has no duty yet
+    let week = dates::add(&c.date, 6);
+    for b in agency::bookings(c) {
+        let idle = b.drivers.iter().filter(|id| agency::duties_of(c, **id).is_empty()).count();
+        let soon = !b.settled && c.date <= b.date && b.date <= week && idle > 0;
+        let hhmm = |m: i32| format!("{:02}:{:02}", m.div_euclid(60).rem_euclid(24), m.rem_euclid(60));
+        let mut x = Entry::new(&b.date, Kind::Agency, if b.count == 1 { AGENCY_ONE } else { AGENCY_MANY }, Go::Agencies(b.date.clone()))
+            .arg("count", b.count)
+            .arg("h", format!("{}", agency::minutes_of(b.hours) as f64 / 60.0))
+            .arg("duties", b.duties)
+            .arg("idle", idle)
+            .about(About::Booking(b.no));
+        if let Some((from, to)) = b.hours {
+            x = x.at(from as i64).arg("start", hhmm(from)).arg("end", hhmm(to));
+        }
+        out.push(match (soon, b.hours) {
+            (true, _) => x.note(AGENCY_IDLE).sev(Severity::Warn).mine(true),
+            (false, Some(_)) => x.note(AGENCY_HOURS),
+            (false, None) => x.note(AGENCY_DAY),
         });
     }
     for a in &c.staff_rules.asks {
@@ -992,6 +1024,14 @@ mod tests {
         let v = agenda(&c, &from, &until, &Known::default());
         let broke = v.iter().find(|e| e.kind == Kind::Breakdown).unwrap();
         assert!(!broke.needs_me && broke.note == Some(RENTAL_SENT) && broke.value("arrive") == Some("09:00"));
+        // two agency drivers booked for tomorrow morning, no duty given yet: wanted
+        let tomorrow = dates::add(&c.date, 1);
+        agency::book(&mut c, &tomorrow, 2, Some((6 * 60, 14 * 60)), &[]).expect("booked");
+        let v = agenda(&c, &from, &until, &Known::default());
+        let a = v.iter().find(|e| e.kind == Kind::Agency).expect("the booking");
+        assert!(a.needs_me && a.text == AGENCY_MANY && a.note == Some(AGENCY_IDLE) && a.minute == Some(6 * 60));
+        assert_eq!((a.value("count"), a.value("h"), a.value("idle")), (Some("2"), Some("8"), Some("2")));
+        assert_eq!(a.go, Go::Agencies(tomorrow));
     }
 
     #[test]

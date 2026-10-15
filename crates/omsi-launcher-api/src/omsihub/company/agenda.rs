@@ -67,7 +67,7 @@ fn go_json(c: &Company, go: &Go, casual: bool) -> Value {
     if casual {
         let tab = match go {
             Go::Bus(id) => return json!({ "dialog": { "kind": "vehicle", "id": id } }),
-            Go::Person(_) | Go::Holidays(_) => casual::page_for(2),
+            Go::Person(_) | Go::Holidays(_) | Go::Agencies(_) => casual::page_for(2),
             Go::Line(_) => casual::page_for(3),
             Go::Finances => casual::page_for(4),
             Go::Workshop | Go::Depot => casual::page_for(DEPOT_TAB),
@@ -81,6 +81,7 @@ fn go_json(c: &Company, go: &Go, casual: bool) -> Value {
         Go::Person(id) => json!({ "tab": 2, "ui": { "people": { "tab": 0, "open": id } } }),
         Go::Holidays(d) => json!({ "tab": 2, "ui": { "people": { "tab": 4, "open": null, "hday": d } } }),
         Go::Courses => json!({ "tab": 6, "ui": { "career": { "part": 2 } } }),
+        Go::Agencies(d) => json!({ "tab": 2, "ui": { "people": { "tab": 5, "open": null, "aday": d } } }),
         Go::Bus(id) => json!({ "dialog": { "kind": "vehicle", "id": id } }),
         Go::Workshop => json!({ "tab": WORKSHOP_TAB }),
         Go::Depot => json!({ "tab": DEPOT_TAB }),
