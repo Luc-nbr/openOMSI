@@ -2038,22 +2038,40 @@ struct Cut {
     till: String,
 }
 
-/// Where block `t` can be cut (a relief point where the bus stands, before a trip with
-/// passengers), and the pieces Optimise cuts it into: as long as a driver may work without a
-/// break, not shorter than the least piece where it can help.
+/// Where drivers may change on block `i` (`tours` the day's): before a trip with passengers that
+/// has one before it, by the rule a cut by hand keeps (`studio::may_change`) - the bus standing
+/// at a relief point that allows it, or running empty from where one trip ends to where the next
+/// begins (a line run one way only, a terminus whose stops for arriving and leaving differ).
+/// (Optimise asked the bus to stand at one stop: it never cut such a block, and its duties broke
+/// the hard rules - testers, 2026-10-15: "optimise feature do not work".)
+fn change_points(c: &Company, tours: &[TourOfDay], i: usize) -> Vec<usize> {
+    let t = &tours[i];
+    (1..t.trips.len()).filter(|&k| t.trips[k].counts() && t.trips[..k].iter().any(|x| x.counts()) && st::may_change(c, tours, &t.line, &t.trips[k - 1], &t.trips[k])).collect()
+}
+
+/// The longest piece Optimise cuts: as long as a driver may work without a break.
+fn longest_piece(p: &Prefs) -> i32 {
+    if p.continuous.on { p.continuous.value } else { staff::DUTY_MAX }.min(staff::DAY_MAX)
+}
+
+/// Where block `t` can be cut (`change_points`), and the pieces Optimise cuts it into: as long as
+/// a driver may work without a break, not shorter than the least piece where it can help.
 fn cut_block(c: &Company, tours: &[TourOfDay], i: usize, p: &Prefs) -> Vec<Range<usize>> {
     let t = &tours[i];
     let n = t.trips.len();
     if n == 0 {
         return Vec::new();
     }
-    let longest = if p.continuous.on { p.continuous.value } else { staff::DUTY_MAX }.min(staff::DAY_MAX);
-    let can: Vec<usize> = (1..n).filter(|&k| t.trips[k].counts() && same(t.trips[k - 1].end(), &t.trips[k].from) && st::is_relief(c, tours, &t.line, &t.trips[k].from) && t.trips[..k].iter().any(|x| x.counts())).collect();
+    let longest = longest_piece(p);
+    let can = change_points(c, tours, i);
     let span = |a: usize, b: usize| t.trips[a..b].iter().map(|x| x.arr).max().unwrap_or(0) - t.trips[a].dep;
+    // (the trips of a piece from `a` to `b` may run as long as the driver's work then stays within
+    // the limit: his signing, and the bus's check where it leaves or comes back to the depot, in)
+    let room = |a: usize, b: usize| longest - p.sign_on - p.sign_off - if a == 0 { p.pre_trip } else { 0 } - if b >= n { p.post_trip } else { 0 };
     let mut cuts: Vec<usize> = Vec::new();
     let mut s = 0;
-    while span(s, n) > longest {
-        let fit: Vec<usize> = can.iter().copied().filter(|&k| k > s && span(s, k) <= longest).collect();
+    while span(s, n) > room(s, n) {
+        let fit: Vec<usize> = can.iter().copied().filter(|&k| k > s && span(s, k) <= room(s, k)).collect();
         let next = fit.last().copied().or_else(|| can.iter().copied().find(|&k| k > s));
         match next {
             Some(k) => {
@@ -2063,11 +2081,13 @@ fn cut_block(c: &Company, tours: &[TourOfDay], i: usize, p: &Prefs) -> Vec<Range
             None => break,
         }
     }
-    // (a last piece too short goes into the one before, where that stays within reach)
+    // (a last piece too short goes into the one before, where that stays within reach - within
+    // the continuous limit where that is a hard rule: a soft rule is not kept by breaking one)
     if p.min_piece.on {
         if let Some(&k) = cuts.last() {
             let prev = cuts.len().checked_sub(2).map(|j| cuts[j]).unwrap_or(0);
-            if span(k, n) < p.min_piece.value && span(prev, n) <= longest + longest / 4 {
+            let reach = if p.continuous.on && p.continuous.hard { room(prev, n) } else { longest + longest / 4 };
+            if span(k, n) < p.min_piece.value && span(prev, n) <= reach {
                 cuts.pop();
             }
         }
@@ -2079,6 +2099,42 @@ fn cut_block(c: &Company, tours: &[TourOfDay], i: usize, p: &Prefs) -> Vec<Range
         from = k;
     }
     out
+}
+
+/// What Optimise weighs a hard rule broken as: a bus a day more (`weighed`).
+const HARD: f64 = 500_00.0;
+
+/// The rules of a duty as a whole Optimise weighs for pieces `ps` (in order) as one duty: its
+/// type (one the duty types allow, at its penalty), its length (Time Limitations: the spread at
+/// most) and its changes of bus - the soft ones' penalties, and how many hard ones
+/// it breaks. (The duty's sign-on and sign-off as `shape` has them; a gap of a split's length a
+/// split.)
+fn whole_rules(p: &Prefs, ps: &[&Cut]) -> (f64, usize) {
+    let start = ps.first().map(|x| x.from).unwrap_or(0) - p.sign_on;
+    let end = ps.iter().map(|x| x.to).max().unwrap_or(0) + p.sign_off;
+    let split = ps.windows(2).any(|w| w[1].from - w[0].to >= p.split_min);
+    let changes = ps.windows(2).filter(|w| w[0].tour != w[1].tour).count() as i32;
+    let (mut penalty, mut hard) = (0.0, 0);
+    let mut rule = |broken: bool, lim: &Limit| {
+        if broken && lim.on {
+            if lim.hard {
+                hard += 1;
+            } else {
+                penalty += lim.penalty as f64;
+            }
+        }
+    };
+    rule(end - start > p.max_spread.value, &p.max_spread);
+    rule(changes > p.changeovers.value, &p.changeovers);
+    // (never longer than a day leaves the night's rest for: no duty across two service days)
+    if end - start > 1440 - staff::NIGHT_REST {
+        hard += 1;
+    }
+    match p.duty_types.iter().find(|t| t.fits(start, end, split)) {
+        Some(t) if t.allowed => penalty += t.penalty as f64,
+        _ => hard += 1,
+    }
+    (penalty, hard)
 }
 
 /// Whether pieces `ps` (in order) may be one duty by the meal and continuous rules as far as the
@@ -2133,9 +2189,17 @@ fn pair_breaks(p: &Prefs, ps: &[&Cut]) -> Option<f64> {
 }
 
 /// What a planning costs Optimise: the day's cost, the soft rules' penalties, and every hard
-/// rule broken as dear as a bus a day more (so a planning that breaks none is chosen first).
+/// rule broken as dear as a bus a day more (so a planning that breaks none is chosen first) -
+/// of the planning's own (`of_the_plan`).
 pub fn weighed(b: &Board) -> Cents {
-    b.figures.total() + b.figures.penalties + 500_00 * b.issues.iter().filter(|i| i.hard).count() as Cents
+    b.figures.total() + b.figures.penalties + 500_00 * b.issues.iter().filter(|i| i.hard && of_the_plan(i)).count() as Cents
+}
+
+/// Whether an issue is the planning's own, Optimise's to keep: not the day's roster (an ill
+/// driver, a bus in the workshop, a tour nobody is planned for - the roster follows the blocks
+/// and duties as they are saved, `plan::follow`) nor a line without a timetable.
+pub fn of_the_plan(i: &Issue) -> bool {
+    ![I_DAY, I_DAY_FILLED, I_DAY_UNPLANNED, I_NO_TIMETABLE].contains(&i.text)
 }
 
 /// What Optimise makes of `date` (`lines` the timetable read for it), from the company as the
@@ -2143,24 +2207,65 @@ pub fn weighed(b: &Board) -> Cents {
 /// (`weighed`) of what the preferences ask for, the duties alone made anew on the blocks as
 /// they are, and the day as it is. Nothing is kept; `apply` keeps it.
 pub fn optimise(c: &Company, lines: &[LineInfo], date: &str) -> (Vec<LineLayout>, Vec<JoinedDuty>) {
+    let o = optimise_day(c, lines, date);
+    (o.layouts, o.joined)
+}
+
+/// What Optimise made of a day (`optimise_day`): the blocks and joined duties, the company with
+/// them and the day as they make it, and how it weighs against the day as it is.
+#[derive(Clone, Debug)]
+pub struct Outcome {
+    pub layouts: Vec<LineLayout>,
+    pub joined: Vec<JoinedDuty>,
+    pub view: Company,
+    pub board: Board,
+    /// It weighs less than the day as it is (`weighed`); else no better plan was found, and it is
+    /// the day as it is.
+    pub better: bool,
+    /// What the day weighs as it is, and as made.
+    pub was: Cents,
+    pub cost: Cents,
+}
+
+/// Optimise (`optimise`) with what it made and how it weighs: the day as it is first, a plan made
+/// only where it weighs less (a tie keeps the day as it is).
+pub fn optimise_day(c: &Company, lines: &[LineInfo], date: &str) -> Outcome {
     let wd = super::plandays::slot_of(c, date);
     let p = &c.planning.flow.prefs;
     let now = (c.planning.layouts.iter().filter(|l| l.weekday == wd).cloned().collect::<Vec<_>>(), c.planning.joined.iter().filter(|j| j.weekday == wd).cloned().collect::<Vec<_>>());
-    let mut cands = vec![optimise_with(c, lines, date, p.optimise_vehicles, p.optimise_duties)];
+    let mut cands = vec![now];
+    if p.optimise_vehicles || p.optimise_duties {
+        cands.push(optimise_with(c, lines, date, p.optimise_vehicles, p.optimise_duties));
+    }
     if p.optimise_vehicles && p.optimise_duties {
         cands.push(optimise_with(c, lines, date, false, true));
     }
-    cands.push(now.clone());
-    let mut best: Option<(Cents, (Vec<LineLayout>, Vec<JoinedDuty>))> = None;
-    for made in cands {
-        let mut probe = c.clone();
-        apply(&mut probe, wd, made.0.clone(), made.1.clone());
-        let cost = weighed(&board(&probe, lines, date));
-        if best.as_ref().is_none_or(|b| cost < b.0) {
-            best = Some((cost, made));
+    let mut best: Option<Outcome> = None;
+    let mut was = 0;
+    for (k, (layouts, joined)) in cands.into_iter().enumerate() {
+        let mut view = c.clone();
+        apply(&mut view, wd, layouts.clone(), joined.clone());
+        let board = board(&view, lines, date);
+        let cost = weighed(&board);
+        if k == 0 {
+            was = cost;
+        }
+        if best.as_ref().is_none_or(|b| cost < b.cost) {
+            best = Some(Outcome { layouts, joined, view, board, better: k > 0, was, cost });
         }
     }
-    best.map(|b| b.1).unwrap_or(now)
+    let mut o = best.expect("the day as it is");
+    o.was = was;
+    o
+}
+
+/// The blocks of day `b` drivers may change on nowhere (`change_points`) whose duty breaks a hard
+/// rule: what Optimise cannot cut, for want of a relief point (`c` the company `b` is of).
+pub fn uncuttable(c: &Company, b: &Board) -> usize {
+    (0..b.tours.len())
+        .filter(|&i| network::duties_of(&b.tours[i]).len() == 1 && change_points(c, &b.tours, i).is_empty())
+        .filter(|&i| b.shaped.iter().any(|s| s.spans.iter().any(|sp| sp.tour == i) && s.issues.iter().any(|&k| b.issues[k].hard)))
+        .count()
 }
 
 /// Optimise with the vehicles (`vehicles`) and the duties (`duties`) made anew or kept.
@@ -2242,7 +2347,9 @@ pub fn optimise_with(c: &Company, lines: &[LineInfo], date: &str, vehicles: bool
     let unsigned = |place: &str| set && uses_at(c, &tours, place).is_some_and(|u| !u.sign);
     let no_rest = |place: &str| set && uses_at(c, &tours, place).is_some_and(|u| !u.breaks);
     for (ci, x) in cuts.iter().enumerate() {
-        let alone = fixed as f64 + paid_of(&[x]) as f64 * rate + if unsigned(&x.at) { 500_00 as f64 } else { 0.0 };
+        // (a duty of its own: its hours, and the rules of a duty as a whole it breaks alone)
+        let (pen_x, hard_x) = whole_rules(&p, &[x]);
+        let alone = fixed as f64 + paid_of(&[x]) as f64 * rate + pen_x + HARD * hard_x as f64 + if unsigned(&x.at) { HARD } else { 0.0 };
         let mut best: Option<(usize, f64)> = None;
         for (gi, g) in groups.iter().enumerate() {
             let last = &cuts[*g.last().unwrap()];
@@ -2254,6 +2361,7 @@ pub fn optimise_with(c: &Company, lines: &[LineInfo], date: &str, vehicles: bool
             }
             let mut ps: Vec<&Cut> = g.iter().map(|&k| &cuts[k]).collect();
             let before = paid_of(&ps);
+            let (pen_b, hard_b) = whole_rules(&p, &ps);
             ps.push(x);
             if ps.windows(2).filter(|w| w[1].from - w[0].to >= p.split_min).count() > 1 {
                 continue;
@@ -2262,23 +2370,15 @@ pub fn optimise_with(c: &Company, lines: &[LineInfo], date: &str, vehicles: bool
             if st::rules_of(&blocks).iter().any(|r| r.hard()) {
                 continue;
             }
-            let spread = ps.last().unwrap().to + p.sign_off - (ps[0].from - p.sign_on);
-            let mut penalty = 0.0;
-            if p.max_spread.on && spread > p.max_spread.value {
-                if p.max_spread.hard {
-                    continue;
-                }
-                penalty += p.max_spread.penalty as f64;
+            // (the duty as a whole - its type, its length, its spread, its changes of bus - never
+            // made to break a hard rule it kept; one it breaks less of is worth that much)
+            let (pen_a, hard_a) = whole_rules(&p, &ps);
+            if hard_a > hard_b {
+                continue;
             }
+            let mut penalty = pen_a - pen_b - HARD * (hard_b - hard_a) as f64;
             if gap >= p.split_min && no_rest(&last.till) && no_rest(&x.at) {
-                penalty += 500_00 as f64;
-            }
-            let changes = ps.windows(2).filter(|w| w[0].tour != w[1].tour).count() as i32;
-            if p.changeovers.on && changes > p.changeovers.value {
-                if p.changeovers.hard {
-                    continue;
-                }
-                penalty += p.changeovers.penalty as f64;
+                penalty += HARD;
             }
             match pair_breaks(&p, &ps) {
                 Some(more) => penalty += more,
@@ -2370,3 +2470,5 @@ pub fn texts() -> Vec<&'static str> {
 mod tests;
 #[cfg(test)]
 mod relief_tests;
+#[cfg(test)]
+mod optimise_tests;
