@@ -621,6 +621,11 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
         let broken_at = tp.bus.and_then(|b| cut.iter().find(|x| x.vehicle == b)).copied();
         // (a spare bus sent for it runs the trips after it came: its kilometres, its wear)
         let spare = tp.bus.and_then(|b| super::clock::spare_of(c, &date, b)).and_then(|id| c.vehicle(id)).cloned();
+        // --- service control (`control`): the trips' delays as the company's clock ran the day,
+        // with what its controller did - a trip turned back early or run out of service, a bus
+        // swapped in at the terminus (empty when the clock did not run the day)
+        let ctl = super::control::close_delays(c, &date, tp, broken_at);
+        // --- end of service control
         for (k, d) in tp.duties.iter().enumerate() {
             let driver = d.driver.and_then(|id| if id == super::plan::AGENCY { Some(super::plan::agency_driver()) } else { c.employee(id).cloned() });
             if let Some(e) = driver.as_ref().filter(|e| e.id != super::plan::AGENCY && !super::agency::is_booked(e.id)) {
@@ -692,7 +697,9 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                     continue;
                 }
                 let by_spare = spare.is_some() && broken_at.is_some_and(|x| trip.dep >= x.at && x.covered(trip.dep));
-                let (Some(v), Some(e)) = (if by_spare { &spare } else { &v }, &driver) else { continue };
+                // (service control: a bus swapped in runs the trip)
+                let swapped = ctl.get(j).and_then(|x| x.bus).filter(|_| !by_spare).and_then(|id| c.vehicle(id)).cloned();
+                let (Some(v), Some(e)) = (if by_spare { &spare } else if swapped.is_some() { &swapped } else { &v }, &driver) else { continue };
                 let age = dates::years_between(&v.built, &date);
                 lines[li].km += trip.km;
                 match bus_km.iter_mut().find(|b| b.0 == v.id) {
@@ -727,6 +734,11 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                         }
                     }
                 }
+                // (service control: the part of a trip cut short carries nobody, and costs a part of
+                // its penalty)
+                let cut_short = ctl.get(j).map_or(0.0, |x| x.lost);
+                pax *= 1.0 - cut_short;
+                sums[li].penalty += super::control::part_penalty(&r, trip, cut_short);
                 let pax = pax.round().max(0.0) as u32;
                 let (fares, comp) = super::ownline::trip_income(kind, pax as f64, trip.km, per_passenger[li], comp_km, super::ownline::school_trip_pay(c, trip.km));
                 let skilled = trained.get(&e.id).copied().unwrap_or_default();
@@ -738,7 +750,9 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                 lines[li].revenue += fares + comp;
                 let p_late = (0.04 + 0.12 * (1.0 - e.skills.punctuality / 100.0) + 0.10 * (1.0 - v.condition / 100.0)) * late_factor + line_effects.get(li).map_or(0.0, |x| x.0);
                 timed += 1;
-                if rng.chance(p_late) {
+                // (service control: late as the clock's delays say when it ran the day)
+                let rolled = rng.chance(p_late);
+                if ctl.get(j).map_or(rolled, |x| x.late > super::control::LATE_AT) {
                     lines[li].late += 1;
                     report.late += 1;
                     sums[li].penalty += r.late_per_trip * if kind == ServiceKind::School { super::ownline::SCHOOL_LATE } else { 1 };

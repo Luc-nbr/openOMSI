@@ -1012,6 +1012,7 @@ mod tests {
             events: vec![clock::Timed { at: 8 * 60, what: What::Breakdown { index: 0 }, done: true }],
             breaks: vec![clock::Broken { vehicle: 1, bus: "101".into(), line: "5".into(), at: 8 * 60, until: 18 * 60, line_name: "5".into(), choice: None, cost: 0, accident: false, back: None, spare_until: None }],
             busy: Vec::new(),
+            ..Default::default()
         });
         let (from, until) = window(&c);
         let v = agenda(&c, &from, &until, &Known::default());
