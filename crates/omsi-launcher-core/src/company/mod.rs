@@ -15,6 +15,8 @@
 //! call them, and the rules are tested on their own.
 
 pub mod adverts;
+// (what is coming: Beta 57's agenda)
+pub mod agenda;
 pub mod auction;
 pub mod autopilot;
 pub mod career;

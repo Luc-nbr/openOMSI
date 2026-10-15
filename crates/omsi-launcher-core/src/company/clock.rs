@@ -863,14 +863,15 @@ pub fn decide(c: &mut Company, index: usize, choice: Choice, run: &mut Run) {
 
 // --- what is told of a breakdown ----------------------------------------------------------------
 
-const BROKE_TITLE: &str = "Bus %{bus} broke down";
-const CRASH_TITLE: &str = "Bus %{bus} had an accident";
+// (read back by the agenda, `agenda::breakdowns`)
+pub(super) const BROKE_TITLE: &str = "Bus %{bus} broke down";
+pub(super) const CRASH_TITLE: &str = "Bus %{bus} had an accident";
 const SPARES_FREE: &str = "On line %{n} at %{time}. Spare buses free now: %{spares}.";
 const NO_SPARE: &str = "On line %{n} at %{time}. No spare bus is free now: a rental bus can take over its trips from %{arrive} for %{amount}, or they are dropped.";
-const BY_SPARE: &str = "On line %{n} at %{time}. Spare bus %{spare} takes over its trips from %{arrive}.";
-const BY_SPARE_UNTIL: &str = "On line %{n} at %{time}. Spare bus %{spare} takes over its trips from %{arrive} until %{leaves}, when it goes out on its own tour.";
-const BY_RENTAL: &str = "On line %{n} at %{time}. A rental bus takes over its trips from %{arrive} for %{amount}.";
-const DROPPED: &str = "On line %{n} at %{time}. Its trips are dropped for the rest of the day.";
+pub(super) const BY_SPARE: &str = "On line %{n} at %{time}. Spare bus %{spare} takes over its trips from %{arrive}.";
+pub(super) const BY_SPARE_UNTIL: &str = "On line %{n} at %{time}. Spare bus %{spare} takes over its trips from %{arrive} until %{leaves}, when it goes out on its own tour.";
+pub(super) const BY_RENTAL: &str = "On line %{n} at %{time}. A rental bus takes over its trips from %{arrive} for %{amount}.";
+pub(super) const DROPPED: &str = "On line %{n} at %{time}. Its trips are dropped for the rest of the day.";
 
 /// Today's `breaks[index]` as the inbox tells it (and the pages' notices): what happened, and
 /// the spare buses free or what was decided.
