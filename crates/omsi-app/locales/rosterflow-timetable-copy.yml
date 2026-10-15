@@ -296,3 +296,17 @@ _version: 2
   pl: "Kursy (%{n}) jadą teraz wariantem %{code}."
   ru: "Рейсы (%{n}) теперь идут по варианту %{code}."
   uk: "Рейси (%{n}) тепер ідуть за варіантом %{code}."
+"%{days} run the timetable of another day type: copy the line's timetable there first (Timeplan, Timetable, Copy to…), save and Refresh - then the plan finds the same trips there.":
+  nl: "%{days} rijden de dienstregeling van een ander dagtype: kopieer eerst de dienstregeling van de lijn daarheen (Dienstregelingsplan, Dienstregeling, Kopiëren naar…), sla op en ververs - dan vindt de planning daar dezelfde ritten."
+  de: "%{days} fahren den Fahrplan eines anderen Tagestyps: Kopieren Sie zuerst den Fahrplan der Linie dorthin (Fahrplanentwurf, Fahrplan, Kopieren nach…), speichern und aktualisieren - dann findet die Planung dort dieselben Fahrten."
+  fr: "%{days} suivent l'horaire d'un autre type de jour : copiez d'abord l'horaire de la ligne vers ces jours (Plan horaire, Horaire, Copier vers…), enregistrez et actualisez - la planification y trouvera alors les mêmes trajets."
+  pl: "%{days} jeżdżą według rozkładu innego typu dnia: najpierw skopiuj tam rozkład linii (Plan rozkładu, Rozkład, Kopiuj do…), zapisz i odśwież - wtedy plan znajdzie tam te same kursy."
+  ru: "%{days} работают по расписанию другого типа дня: сначала скопируйте туда расписание линии (План расписания, Расписание, Копировать в…), сохраните и обновите - тогда план найдёт там те же рейсы."
+  uk: "%{days} працюють за розкладом іншого типу дня: спершу скопіюйте туди розклад лінії (План розкладу, Розклад, Копіювати в…), збережіть і оновіть - тоді план знайде там ті самі рейси."
+"A day of another day type gets the same trips once the line's timetable is copied there first (Timeplan, Timetable, Copy to…).":
+  nl: "Een dag van een ander dagtype krijgt dezelfde ritten zodra de dienstregeling van de lijn er eerst heen is gekopieerd (Dienstregelingsplan, Dienstregeling, Kopiëren naar…)."
+  de: "Ein Tag eines anderen Tagestyps bekommt dieselben Fahrten, sobald der Fahrplan der Linie zuerst dorthin kopiert ist (Fahrplanentwurf, Fahrplan, Kopieren nach…)."
+  fr: "Un jour d'un autre type reçoit les mêmes trajets une fois l'horaire de la ligne copié d'abord vers lui (Plan horaire, Horaire, Copier vers…)."
+  pl: "Dzień innego typu dostaje te same kursy, gdy najpierw skopiujesz tam rozkład linii (Plan rozkładu, Rozkład, Kopiuj do…)."
+  ru: "День другого типа получает те же рейсы, когда туда сначала скопировано расписание линии (План расписания, Расписание, Копировать в…)."
+  uk: "День іншого типу отримує ті самі рейси, коли туди спершу скопійовано розклад лінії (План розкладу, Розклад, Копіювати в…)."
