@@ -102,8 +102,6 @@ pub(crate) struct DutyPart<'p> {
     pub(crate) duty_places: &'p mut bool,
     pub(crate) career: &'p mut career::Career,
     pub(crate) journey: &'p mut Option<crate::journey::Journey>,
-    /// Omsi-Hub: what the drive is watched for.
-    pub(crate) drive_watch: &'p mut crate::drive_watch::DriveWatch,
 }
 
 /// `Group::Net`.
@@ -177,7 +175,7 @@ impl App {
             cabin_air, spray, lamps_on, populate_t, humans_populate_t, traffic_heavy_frame,
             first_populate, envir, weather, clock_jump, seat_bus, on_foot, safe_pose, safe_age,
             pending_time, autosave_t, pumping, career, journey, wetness, cloud_drift, weather_blend,
-            weather_cycle, metar_rx, metar_once, metar_next, sky, scenery, drive_watch,
+            weather_cycle, metar_rx, metar_once, metar_next, sky, scenery,
         } = session;
         Parts {
             common: Common { args, settings, started: *started, last: *last, exiting: *exiting },
@@ -192,7 +190,7 @@ impl App {
             traffic: TrafficPart { traffic, schedule, timetable_book, populate_t, traffic_heavy_frame, first_populate, pipeline },
             player: PlayerPart { player, placed, seat_bus, safe_pose, safe_age, pumping },
             people: PeoplePart { humans, humans_populate_t, on_foot },
-            duty: DutyPart { duty, duty_places, career, journey, drive_watch },
+            duty: DutyPart { duty, duty_places, career, journey },
             net,
             integrations,
             sound,

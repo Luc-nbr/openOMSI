@@ -67,12 +67,6 @@ impl App {
                 steps::push_mirror_hud(&self.gfx.mirror_hud, scene, w, hud, (self.input.cursor.0 - hud[0], self.input.cursor.1));
             }
         }
-        // a red light or a speed camera: its notice, over the navigator, under the menus; its
-        // time runs with the game
-        if let (Some(r), Some(scene)) = (self.renderer.as_ref(), self.scene.as_mut()) {
-            let running = !self.paused && self.menus.game_menu.is_none();
-            self.session.drive_watch.frame(r, scene, hud, self.settings.ui_scale, None, dt, running);
-        }
         self.frame_ui_draw(dt, hud, vr_active, plugin_focus, &notes, tooltip, menu_lines, menu_tabs);
         // the loading screen fading over the first pictures, over all of the interface
         self.frame_loading_fade();

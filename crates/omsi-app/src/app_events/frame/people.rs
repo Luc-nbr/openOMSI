@@ -39,11 +39,6 @@ impl App {
             // (a frame after the session was written must not start another one)
             let tick = !self.exiting && !self.paused;
             let crash = steps::career_step(&mut self.session.career, p, riders, self.session.duty.is_some(), dt, tick);
-            // red lights, speed cameras, comfort (`drive_watch`), on the career's clock
-            if tick {
-                let outline = crate::traffic_link::player_outline(p);
-                self.session.drive_watch.tick(self.session.career.seconds, dt, outline, self.session.traffic.as_ref());
-            }
             if crash > 0.0 {
                 self.service_msg = Some((format!("Crash: {:.0} kJ", crash / 1000.0), 6.0));
                 use omsi_plugin::InfoValue::Num;
