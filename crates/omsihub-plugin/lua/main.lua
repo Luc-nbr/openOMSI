@@ -282,7 +282,8 @@ watch.setup(tr, function(icon, title, text)
 end)
 if fn("game.settings") then
   local s = omsi.game.settings()
-  if type(s) == "table" then watch.units = s.units end
+  -- (the units the player reads; an openOMSI without them says the API's own)
+  if type(s) == "table" then watch.units = s.display_units or s.units end
 end
 
 local function standing()
@@ -424,8 +425,11 @@ omsi.on("ui_change", function(p, element, value)
   if p == PANEL and signon.change(element, value) then panel() end
 end)
 
+-- (Ctrl, Alt and Shift held: a key with them is another one's - Ctrl+Enter the IBIS's)
+local modifiers = {}
 omsi.on("key", function(key, down)
-  if card.key(key, down) then return end
+  if type(key) == "string" and (key:match("^Control") or key:match("^Alt") or key:match("^Shift")) then modifiers[key] = down or nil end
+  if card.key(key, down, next(modifiers) ~= nil) then return end
   if key == "F10" and down and (company_duty() or duty_now()) and fn("ui.focus") then
     omsi.ui.focus(not omsi.ui.focused())
     panel()
@@ -460,7 +464,7 @@ end
 
 -- (the duty board: wanted unless Omsi-Hub says not, and not before the driver signed on)
 omsi.every(1, function()
-  board.update((not assignment or assignment.board ~= false) and signon.at_work(), company_duty() and parts() or {}, assignment, { trip.boarded_on_trip(), trip.boarded_total() })
+  board.update((not assignment or assignment.board ~= false) and signon.at_work(), company_duty() and parts() or {}, assignment, { trip.boarded_on_trip(), trip.boarded_total(), fn("bus.passengers") and omsi.bus.passengers() or nil })
   dispatch()
 end)
 

@@ -325,6 +325,27 @@ fn a_trip_is_recorded_stop_by_stop_and_its_card_shown() {
     let card = ui.panels().iter().find(|p| p.id == "omsihub_trip").expect("the trip's card");
     let text = format!("{:?}", card.panel);
     assert!(text.contains("Hauptbahnhof") && text.contains("Größte Verspätung"), "{text}");
+    // (clicked without F10, as the game's own card was)
+    assert!(card.panel.grab);
+    drop(ui);
+    let key = |k: &str, down: bool| GameEvent { name: "key", args: vec![InfoValue::Text(k.into()), InfoValue::Bool(down)] };
+    let card_text = |ps: &Plugins| ps.ui.borrow().panels().iter().find(|p| p.id == "omsihub_trip").map(|p| format!("{:?}", p.panel));
+    // the stops' tab: the times right-aligned, the late stop's ± in red
+    game.events = vec![GameEvent { name: "ui_change", args: vec![InfoValue::Text("omsihub_trip".into()), InfoValue::Text("tab".into()), InfoValue::Num(2.0)] }];
+    ps.frame(&mut game);
+    game.events.clear();
+    let text = card_text(&ps).expect("the card, pinned");
+    assert!(text.contains("aligns: [Left, Right, Right, Right, Right]") && text.contains("Some(Rgba([255, 95, 87, 255]))"), "{text}");
+    // Ctrl+Enter is the IBIS's: the card stays; Enter alone puts it away
+    game.events = vec![key("ControlLeft", true), key("NumpadEnter", true)];
+    ps.frame(&mut game);
+    game.events = vec![key("NumpadEnter", false), key("ControlLeft", false)];
+    ps.frame(&mut game);
+    assert!(card_text(&ps).is_some());
+    game.events = vec![key("Enter", true)];
+    ps.frame(&mut game);
+    game.events.clear();
+    assert!(card_text(&ps).is_none());
 }
 
 #[test]

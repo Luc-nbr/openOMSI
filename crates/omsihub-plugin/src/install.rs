@@ -132,6 +132,7 @@ pub const TEXTS: &[&str] = &[
     "Your break at %{place}: %{from}–%{to}",
     "You are relieved at %{place} at %{time}",
     "Fare box %{amount} · %{n} boarded this trip · %{total} today",
+    "%{n} aboard",
     "Gross cost contract",
     "Net cost contract",
     "Hire contract",

@@ -42,7 +42,7 @@ end
 local function ink_of(d)
   if not d then return DIM end
   if d > career.LATE_ARRIVAL then return RED end
-  if d < career.EARLY_DEPARTURE then return AMBER end
+  if d < career.EARLY_DEPARTURE then return BLUE end
   return GREEN
 end
 
@@ -68,8 +68,9 @@ local function tile(value, color, label)
   } }
 end
 
--- the stops as the card's second tab lists them
-local function stop_rows(run)
+-- the stops as the card's second tab lists them (`ink`: each one's ± in the colour of how it
+-- is judged)
+local function stop_rows(run, ink)
   local rows = {}
   local visits = run.visits or {}
   for k, v in ipairs(visits) do
@@ -83,7 +84,7 @@ local function stop_rows(run)
     end
     rows[#rows + 1] = {
       v.name, hhmm(last and v.arr or v.dep), v.arrived and hhmm(v.arrived) or "–",
-      last and "" or (v.left and hhmm(v.left) or "–"), offset(decides),
+      last and "" or (v.left and hhmm(v.left) or "–"), ink and { text = offset(decides), color = ink_of(decides) } or offset(decides),
     }
   end
   return rows
@@ -125,7 +126,9 @@ local function panel(s)
   }
   local function add(x) children[#children + 1] = x end
   if s.tab == 2 and timed then
-    add({ type = "table", columns = { tr("Bus stop"), tr("Due"), tr("Arr."), tr("Dep."), "±" }, widths = { 0.4, 0.15, 0.15, 0.15, 0.15 }, rows = stop_rows(run), size = 12 })
+    -- (the times right-aligned in their columns, the ± in its colour, where the table can)
+    add({ type = "table", columns = { tr("Bus stop"), tr("Due"), tr("Arr."), tr("Dep."), "±" }, widths = { 0.4, 0.15, 0.15, 0.15, 0.15 }, rows = stop_rows(run, new), size = 12,
+      aligns = new and { "left", "right", "right", "right", "right" } or nil })
   else
     if timed then
       local on = math.max(run.stops - run.early - run.late, 0)
@@ -173,7 +176,9 @@ local function panel(s)
       local what = {}
       if (run.red_lights or 0) > 0 then what[#what + 1] = tr(run.red_lights == 1 and "%{n} red light" or "%{n} red lights", { n = run.red_lights }) end
       if (run.speeding or 0) > 0 then what[#what + 1] = tr(run.speeding == 1 and "%{n} speed camera" or "%{n} speed cameras", { n = run.speeding }) end
-      add({ type = "text", size = 12, color = RED, text = tr("Fines %{amount}", { amount = euros(fines) }) .. "  ·  " .. table.concat(what, ", ") })
+      local text = tr("Fines %{amount}", { amount = euros(fines) })
+      if #what > 0 then text = text .. "  ·  " .. table.concat(what, ", ") end
+      add({ type = "text", size = 12, color = RED, text = text })
     else
       add({ type = "text", size = 12, color = DIM, text = tr("No fines") })
     end
@@ -182,7 +187,7 @@ local function panel(s)
   add({ type = "text", size = 11, color = FAINT, text = (s.saved and tr("Saved to your service record") or tr("The trip could not be saved")) .. "  ·  " .. (s.pinned and tr("Enter or × to close") or tr("Click to keep it open")) })
   -- (the time it has left, as a line along its foot)
   if not s.pinned then add({ type = "bar", id = "left", height = 2, value = math.max(s.left / SHOW_FOR, 0), color = ink, background = "#00000000" }) end
-  omsi.ui.set(PANEL, { anchor = "top", x = 0, y = 70, width = 400, padding = 18, gap = 7, radius = 12, background = SHEET, font = "launcher", clickable = not s.pinned, children = children })
+  omsi.ui.set(PANEL, { anchor = "top", x = 0, y = 70, width = 400, padding = 18, gap = 7, radius = 12, background = SHEET, font = "launcher", clickable = not s.pinned, grab = true, children = children })
 end
 
 local function show(run, saved)
@@ -242,8 +247,9 @@ function M.change(panel_id, element, value)
   return true
 end
 
-function M.key(key, down)
-  if not (shown and down) then return false end
+-- a key (`held`: Ctrl, Alt or Shift is held - Ctrl+Enter is the IBIS's, not the card's)
+function M.key(key, down, held)
+  if not (shown and down) or held then return false end
   if key == "Enter" or key == "NumpadEnter" or (key == "Escape" and shown.pinned) then return M.close() end
   return false
 end

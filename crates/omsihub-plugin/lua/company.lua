@@ -11,8 +11,9 @@
 -- * dispatch  - service control's messages: its decisions for the tour (a short-turn, a trip
 --               out of service, a layover cut, another bus) and the reliefs and breaks coming,
 --               each once, a few minutes before;
--- * fares     - the fare box: the passengers boarded on this trip and on the duty, and what
---               they bring the company (none where the fares go to the authority);
+-- * fares     - the fare box: the passengers boarded on this trip and on the duty, what they
+--               bring the company (none where the fares go to the authority), and the load
+--               aboard now;
 -- * contract  - the line's contract with the authority: how it rates the company, and the
 --               on-time window it counts.
 --
@@ -191,14 +192,17 @@ function M.money(amount, fare)
   return (fare.symbol or "") .. n
 end
 
--- the fare box's line: the passengers of this trip and of the duty and what they bring
-function M.fares(fare, trip_n, duty_n)
+-- the fare box's line: the passengers of this trip and of the duty and what they bring, and
+-- the load aboard now (`aboard`, where the game says it)
+function M.fares(fare, trip_n, duty_n, aboard)
   if type(fare) ~= "table" or not fare.per_boarding then return nil end
   trip_n, duty_n = math.max(trip_n or 0, 0), math.max(duty_n or 0, 0)
-  return tr("Fare box %{amount} · %{n} boarded this trip · %{total} today", {
+  local text = tr("Fare box %{amount} · %{n} boarded this trip · %{total} today", {
     amount = M.money(trip_n * fare.per_boarding, fare), n = math.tointeger(trip_n) or trip_n,
     total = M.money(duty_n * fare.per_boarding, fare),
   })
+  if tonumber(aboard) then text = text .. "  ·  " .. tr("%{n} aboard", { n = math.tointeger(aboard) or aboard }) end
+  return text
 end
 
 -- --- the contract --------------------------------------------------------------------------------
@@ -246,7 +250,7 @@ function M.elements(on, assignment, d, trips, clock, boarded, room)
     end
   end
   if on.fares then
-    local text = M.fares(a.fare, boarded and boarded[1], boarded and boarded[2])
+    local text = M.fares(a.fare, boarded and boarded[1], boarded and boarded[2], boarded and boarded[3])
     if text then
       out[#out + 1] = { type = "row", gap = 8, children = {
         { type = "icon", name = "payments", size = 15, color = ORANGE },
