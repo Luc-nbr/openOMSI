@@ -1310,6 +1310,35 @@ fn unassign_blocks(c: &mut Company, wd: u8, ids: &[String], again: &dyn Fn(&Comp
     }
 }
 
+/// The trips `want` (whole trips, `studio::whole_ref`) taken off their buses onto the stack, one
+/// bus at a time, each on the day as it then is (`again`, as `unassign_blocks`); a bus that may
+/// not change keeps them. Returns how many are still on a bus.
+fn unassign_trips(c: &mut Company, wd: u8, want: &[st::TripRef], again: &dyn Fn(&Company) -> Vec<TourOfDay>) -> usize {
+    let wanted = |x: &PlannedTrip| x.counts() && want.contains(&st::whole_ref(x));
+    let mut refused: Vec<String> = Vec::new();
+    for _ in 0..1000 {
+        let tours = again(c);
+        let next = tours.iter().enumerate().filter(|(_, t)| !refused.contains(&block_id(t))).find_map(|(i, t)| {
+            let picked: Vec<usize> = (0..t.trips.len()).filter(|&j| wanted(&t.trips[j])).collect();
+            (!picked.is_empty()).then_some((i, picked))
+        });
+        let Some((i, picked)) = next else { break };
+        let mut lay = c.clone();
+        match st::unassign(&mut lay, wd, &tours, i, &picked) {
+            Ok(()) => *c = lay,
+            Err(_) => refused.push(block_id(&tours[i])),
+        }
+    }
+    let mut left: Vec<st::TripRef> = Vec::new();
+    for x in again(c).iter().flat_map(|t| t.trips.iter()).filter(|x| wanted(x)) {
+        let w = st::whole_ref(x);
+        if !left.contains(&w) {
+            left.push(w);
+        }
+    }
+    left.len()
+}
+
 /// What a click, a drop or a menu's line does (`rf_act`: `act` and what it needs, `day` the day).
 fn act(s: &mut Session, r: &mut Rf, by: live::Editor, args: &Value) -> Answer {
     let what = str_arg(args, "act");
@@ -1577,6 +1606,47 @@ fn act(s: &mut Session, r: &mut Rf, by: live::Editor, args: &Value) -> Answer {
                 unassign_blocks(c, wd, &ids, &|v: &Company| co::network::tours_of_day(v, &lines, &day));
                 Ok(())
             })
+        }
+        "unassign_duties" => {
+            // (the Drivers tab's batch toolbar, "Unassign all trips": every trip of the duties
+            // ticked to the stack, to plan them anew - Luc, Beta 65; asked first on the page)
+            let ids: Vec<String> = arg::<Vec<String>>(args, "ids").unwrap_or_default();
+            let mut want: Vec<st::TripRef> = Vec::new();
+            for x in board.shaped.iter().filter(|x| ids.contains(&duty_id(x))) {
+                for sp in &x.spans {
+                    want.extend(piece_trips(&board, sp.tour, sp.duty).iter().filter(|t| t.counts() && !t.origin.trim().is_empty()).map(st::whole_ref));
+                }
+            }
+            let mut seen: Vec<st::TripRef> = Vec::new();
+            want.retain(|x| !seen.contains(x) && {
+                seen.push(x.clone());
+                true
+            });
+            if want.is_empty() {
+                return Ok(said(tr("The duties ticked run no trips."), true));
+            }
+            let n = ids.len().to_string();
+            let words = trf("Trips of %{n} duties unassigned to the stack", &[("n", &n)]);
+            let (lines, day) = (k.lines.clone(), k.date.clone());
+            let mut left = 0;
+            let out = edit_with(s, r, words, |c| {
+                left = unassign_trips(c, wd, &want, &|v: &Company| co::network::tours_of_day(v, &lines, &day));
+                if left == want.len() {
+                    return Err(tr("None of the duties ticked could be unassigned: their vehicles or duties are locked."));
+                }
+                Ok(())
+            });
+            if out.get("edited").is_none() {
+                return Ok(out);
+            }
+            let text = if left > 0 {
+                trf("Trips of %{n} duties unassigned to the stack; %{k} trips stay, their vehicle or duty is locked. Undo (Ctrl+Z) puts them back.", &[("n", &n), ("k", &left.to_string())])
+            } else {
+                trf("Trips of %{n} duties unassigned to the stack: Undo (Ctrl+Z) puts them back.", &[("n", &n)])
+            };
+            let mut out = said(text, left > 0);
+            out["edited"] = json!(true);
+            out
         }
         "spare" => {
             // (a click on the new row: 13:30-21:30; "Add spare line" on a spare line's card: its

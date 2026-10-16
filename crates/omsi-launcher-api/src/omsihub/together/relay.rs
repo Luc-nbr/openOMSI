@@ -185,7 +185,7 @@ fn rf_act_need(act: &str) -> Need {
         "colour" => LINES,
         "undo" | "redo" | "back_to" | "save" | "day_reset" | "day_unfollow" | "copy_rows" | "discard" | "prefs" | "opt_flags" | "colour_by" => PLANS,
         "optimise" | "accept" | "move" | "unassign" | "unassign_key" | "assign" | "swap" | "cut" | "uncut" | "cut_mid" | "join_piece" | "detach" | "link" | "unlink" => PLANS,
-        "lock_block" | "lock_duty" | "lock_rows" | "unassign_rows" | "spare" | "spare_name" | "spare_remove" | "custom_delete" | "note" | "travel_event" | "dismiss" | "drop" => PLANS,
+        "lock_block" | "lock_duty" | "lock_rows" | "unassign_rows" | "unassign_duties" | "spare" | "spare_name" | "spare_remove" | "custom_delete" | "note" | "travel_event" | "dismiss" | "drop" => PLANS,
         _ => Never,
     }
 }

@@ -117,18 +117,31 @@ export function TitleWindows({ data, drivers, size }) {
 
 // --- the batch toolbar -------------------------------------------------------------------------------
 
-/** The ticked rows' tools over the Gantt's header: lock, unlock, unassign to the stack, and copy
- * them to other days (`copyto.js`). */
+/** The ticked rows' tools over the Gantt's header: lock, unlock, unassign to the stack (the
+ * vehicles' trips; the duties' with "Unassign all trips", asked first - Luc, Beta 65: to plan
+ * them anew from scratch, Undo puts them back), and copy them to other days (`copyto.js`). */
 function Batch({ drivers, gTop }) {
   const r = S.rf;
   const ids = r.ticked;
-  return html`<div class="rf-over rf-batch" style=${`top:${gTop + 2}px;height:${AXIS - 4}px`}>
+  const style = `top:${gTop + 2}px;height:${AXIS - 4}px`;
+  // (asked for the rows ticked then: ticked anew, asked anew)
+  if (drivers && r.batchAsk === ids.join('|')) {
+    return html`<div class="rf-over rf-batch" style=${style} data-rf="rf-batch-ask">
+      <${Icon} name="inventory_2" size=${16} />
+      <b>${tr('Unassign every trip of %{n} duties to the stack?', { n: ids.length })}</b>
+      <button type="button" class="copy rf-batch-yes" onClick=${() => edit('unassign_duties', { ids }).then((x) => setRf({ batchAsk: false, ...(x?.edited ? { ticked: [] } : {}) }))}><span>${tr('Unassign all trips')}</span></button>
+      <button type="button" class="copy" onClick=${() => setRf({ batchAsk: false })}><span>${tr('Cancel')}</span></button>
+    </div>`;
+  }
+  return html`<div class="rf-over rf-batch" style=${style}>
     <${IconBtn} icon="lock" title="Lock the rows ticked" onClick=${() => edit('lock_rows', { ids, on: true }).then(() => setRf({ ticked: ids }))} />
     <${IconBtn} icon="livery_unlock" title="Unlock the rows ticked" onClick=${() => edit('lock_rows', { ids, on: false }).then(() => setRf({ ticked: ids }))} />
-    <${IconBtn} icon="inventory_2" title="Unassign the ticked vehicles' trips to the stack" disabled=${drivers} onClick=${() => edit('unassign_rows', { ids }).then(() => setRf({ ticked: [] }))} />
+    ${drivers
+      ? html`<button type="button" class="copy" data-rf="rf-batch-unassign" title=${tr('Every trip of the duties ticked back to the stack, to plan them anew (asked first; Undo puts them back)')} onClick=${() => setRf({ batchAsk: ids.join('|'), panel: r.panel?.kind === 'copyto' ? null : r.panel })}><${Icon} name="inventory_2" size=${15} /><span>${tr('Unassign all trips')}</span></button>`
+      : html`<${IconBtn} icon="inventory_2" title="Unassign the ticked vehicles' trips to the stack" onClick=${() => edit('unassign_rows', { ids }).then(() => setRf({ ticked: [] }))} />`}
     <button type="button" class=${'copy' + (r.panel?.kind === 'copyto' ? ' on' : '')} data-rf="rf-copyto-open" title=${tr('Copy the rows ticked to other days: only the trips that match there go along (Ctrl+C, then Ctrl+V on another day)')} onClick=${() => (r.panel?.kind === 'copyto' ? setRf({ panel: null }) : openCopyTo())}><${Icon} name="content_copy" size=${15} /><span>${tr('Copy to…')}</span></button>
     <b>${tr('%{n} rows selected', { n: ids.length })}</b>
-    <button type="button" class="x" onClick=${() => setRf({ ticked: [], ...(r.panel?.kind === 'copyto' ? { panel: null } : {}) })}><${Icon} name="close" size=${15} /></button>
+    <button type="button" class="x" onClick=${() => setRf({ ticked: [], batchAsk: false, ...(r.panel?.kind === 'copyto' ? { panel: null } : {}) })}><${Icon} name="close" size=${15} /></button>
   </div>`;
 }
 
