@@ -22,6 +22,11 @@ use serde_json::{json, Value};
 
 pub use host::{give_to_guest, online_guests, rail_badge, tile_line};
 
+/// The code of the company session hosted now (None: none, or "Play together" switched off).
+pub fn session_code() -> Option<String> {
+    host::session_code().filter(|_| enabled())
+}
+
 /// The colour a player of "Play together" has on the rosters.
 pub const GUEST_COLOUR: &str = "#e58fd8";
 

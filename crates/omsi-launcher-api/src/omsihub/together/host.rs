@@ -55,6 +55,12 @@ pub(super) fn hosting_none() -> bool {
     hosting().is_none()
 }
 
+/// The code of the session hosted now, if any (Omsi-Hub online tells it to the friends and
+/// sends it with an invite: `online.rs`).
+pub fn session_code() -> Option<String> {
+    hosting().as_ref().map(|h| h.text.clone())
+}
+
 /// The page's language kept for the server's threads.
 pub(super) fn remember_language() {
     *LANG.lock().unwrap_or_else(|e| e.into_inner()) = words::language();

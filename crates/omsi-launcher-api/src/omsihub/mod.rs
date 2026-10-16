@@ -36,6 +36,8 @@ pub mod update;
 pub mod together;
 // Omsi-Hub as an add-on of the player's own openOMSI (`addon.rs`, docs/omsihub/ADDON_PLAN.md)
 pub mod addon;
+// Omsi-Hub online: the optional account and the friends (`online.rs`, docs/omsihub/ONLINE.md)
+pub mod online;
 
 use crate::{Answer, Platform};
 use omsi_launcher_lib as core;
@@ -133,6 +135,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("verwijderen.yml", include_str!("../../../omsi-app/locales/verwijderen.yml")),
     ("sandbox.yml", include_str!("../../../omsi-app/locales/sandbox.yml")),
     ("tauri-addon.yml", include_str!("../../../omsi-app/locales/tauri-addon.yml")),
+    ("online.yml", include_str!("../../../omsi-app/locales/online.yml")),
 ];
 
 /// Upstream's tables with ours taken in: a text upstream's `app.yml` has keeps its
@@ -180,6 +183,7 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
         c if c.starts_with("rf_") => return rosterflow::call(c, args, p),
         c if c.starts_with("tg_") => return together::call(c, args, p),
         c if c.starts_with("addon_") => return addon::call(c, args),
+        c if c.starts_with("ol_") => return online::call(c, args),
         // (the editors' commands: `editors.rs`)
         _ => return editors::call(cmd, args, p),
     })
