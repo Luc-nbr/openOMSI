@@ -19,7 +19,7 @@ import { IconBtn } from '../editors/kit.js';
 import { openLivery } from '../editors/index.js';
 // (the tiles' photos and the bus that fits the duty best: Trello "Tauri 3/6")
 import { useBest, bestWord, bestFoot, BestLine, TilePhoto } from './bus-more.js';
-import { BusOptions } from './busoptions.js';
+import { BusOptions, useOptionsRev } from './busoptions.js';
 import { DisplayFont, sampleOf } from './displayfont.js';
 
 const favKey = (file) => file.replace(/\\/g, '/').toLowerCase();
@@ -173,8 +173,10 @@ function Chosen({ onBack, onDepots }) {
   const at = Math.max(0, paints.findIndex(([p]) => p === c.paint));
   const step = (d) => choose({ paint: paints[(at + d + paints.length) % paints.length][0] });
   const star = s.favourites.includes(favKey(v.file));
+  // (the bus options chosen below: the preview asks for its look again, as the game gets them)
+  const optionsRev = useOptionsRev(v.file);
   return html`
-    <div class="hub-bus-stage"><${Bus3D} bus=${v.file} paint=${c.paint} /></div>
+    <div class="hub-bus-stage"><${Bus3D} bus=${v.file} paint=${c.paint} optionsRev=${optionsRev} /></div>
     <section class="hub-sheet narrow">
       <div class="hub-pad" style="padding-top:18px;display:flex;align-items:center;gap:6px">
         <nav style="display:flex;align-items:center;gap:4px;font-size:9.6px;font-weight:700;color:var(--hub-text-dim);min-width:0;flex:1;flex-wrap:wrap">
