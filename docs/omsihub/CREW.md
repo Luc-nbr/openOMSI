@@ -26,11 +26,17 @@ duties and the day's plan, the staff and holiday model, the workshop's jobs.
 * **Players of a session**: their launcher relays `co_crew` (`together/relay.rs`: a driver's
   permission; `company/crew.rs` checks that he acts on his own duty and bus).
 
-## The strip is switchable
+## The strip is switchable - and the only one
 
 `duty_strip.lua` draws one panel of its own (`omsihub_strip`). It stays away when the assignment
 says `crew.strip = false` (the setting `nav_strip`) or when another module calls
 `strip.set_enabled(false)` - there is only ever one duty strip on the screen.
+
+The overlay restoration (`r67-overlay-cloud`) has a "strip" part of its own in `company.lua` (the
+next break or relief and the duty's end, switched by the driver on the company's panel). When the
+two branches meet, keep this one as the duty strip: `company.lua` leaves its "strip" part out while
+`require("duty_strip").enabled()` is true, and its panel's "Duty strip" switch calls
+`strip.set_enabled(on)` instead of drawing a strip itself. Nothing else of either needs to change.
 
 ## Notifications: where to switch over to the message system
 
@@ -41,6 +47,15 @@ there, it queues them in the company (`Crew::outbox`), and the launcher shows ea
 toast and as a card in the game (`omsihub/company.rs`, `crew_notices`; `addon::notify_game`).
 
 When r67-messages lands, replace the body of `crew::notify` with its
-`post(company, to, priority, template, args, action)` - the arguments are the same - and drop
-`crew_notices`. The in-game "relief due" and "fuel low" cards are the strip's own (the game's clock
+`messages::post(c, to, priority, template, args, action)` and drop `crew_notices` (or let it only
+mirror to the corner). The arguments map as follows (r67-messages as of 2026-10-16):
+
+| `crew::notify` | `messages::post` |
+|---|---|
+| `to`: `None`, `Some(Who::Player)` | `To::All` (the player is the company's driver) |
+| `to`: `Some(Who::Staff(id))` | `To::Driver { employee: id }` |
+| `to`: `Some(Who::Guest(_))` | `To::All` (or leave it to the player's own launcher) |
+| `priority`: `Low`, `Normal` / `High` | `Priority::Info` / `Priority::Urgent` |
+| `template`, `args` | the same (`args.into_iter().map(...).collect()` into its `Vec<(String, String)>`) |
+| `action` (`"phone"`, `"fleet"`, `"workshop"`, `"ops"`: a page) | `None` - its `Action` is service control's way out, not a page | The in-game "relief due" and "fuel low" cards are the strip's own (the game's clock
 and the bus): they stay the plugin's toasts (`duty_strip.lua`'s `notify`).

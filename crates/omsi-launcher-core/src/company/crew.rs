@@ -81,8 +81,8 @@ pub struct Notification {
 /// (`Crew::outbox`, at most a few dozen), from where the launcher shows each as its corner's
 /// toast and hands it to the game's plugin as a live notice (`omsihub/company.rs`'s
 /// `depot_tick`, `addon::notify_game`). Once the message system is there (the r67-messages
-/// branch: `post(company, to, priority, template, args, action)`), its body becomes that call -
-/// nothing else changes.
+/// branch: `messages::post(company, to, priority, template, args, action)`), its body becomes
+/// that call - nothing else changes (how the arguments map: docs/omsihub/CREW.md).
 pub fn notify(c: &mut Company, to: Option<Who>, priority: Priority, template: &str, args: &[(&str, String)], action: Option<&str>) {
     c.crew.last_note += 1;
     let n = Notification { id: c.crew.last_note, to, priority, template: template.to_string(), args: args.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(), action: action.map(str::to_string) };
