@@ -121,7 +121,7 @@ fn who_name(c: &Company, w: Option<Who>) -> String {
         Some(Who::Staff(id)) => c.employee(id).map(|e| e.name.clone()).unwrap_or_else(|| "?".into()),
         Some(Who::Player) => tr("You"),
         Some(Who::Agency) => tr("Agency driver"),
-        Some(Who::Guest(g)) => omsi_launcher_lib::company::together::guest_name(c, g),
+        Some(Who::Guest(g)) => crate::omsihub::together::guest_label(c, g),
         None => tr("Nobody"),
     }
 }
@@ -548,7 +548,7 @@ fn duty_chip(c: &Company, p: &DayPlan, ti: usize, k: usize, sel: Option<&Sel>) -
                 Some(Who::Player) => ("accent".to_string(), 1.0, "white", tr("You"), String::new()),
                 Some(Who::Agency) => ("grey".to_string(), 1.0, "white", tr("Agency"), String::new()),
                 // (Beta 58: a player of "Play together")
-                Some(Who::Guest(g)) => (crate::omsihub::together::GUEST_COLOUR.to_string(), 1.0, "dark", omsi_launcher_lib::company::together::guest_name(c, g), String::new()),
+                Some(Who::Guest(g)) => (crate::omsihub::together::GUEST_COLOUR.to_string(), 1.0, "dark", crate::omsihub::together::guest_label(c, g), String::new()),
                 None => ("grey".to_string(), 1.0, "white", String::new(), String::new()),
             }
         };

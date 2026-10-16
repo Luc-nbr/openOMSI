@@ -23,7 +23,7 @@ use omsi_launcher_lib::company::together::wire::Notice;
 use omsi_launcher_lib::company::together::{Perm, Role};
 use serde_json::{json, Value};
 
-pub use host::{give_to_guest, online_guests, rail_badge, tile_line};
+pub use host::{closing_company, give_to_guest, online_guests, quit, rail_badge, tile_line};
 
 /// The code of the company session hosted now (None: none, or "Play together" switched off).
 pub fn session_code() -> Option<String> {
@@ -84,6 +84,22 @@ fn clock_of(at: u64) -> String {
 /// A notice for the page: its time and its words.
 pub fn notice_json(n: &Notice) -> Value {
     json!({ "n": n.n, "at": clock_of(n.at), "text": notice_text(n) })
+}
+
+/// Who drives a duty of a player who left it: "AI (Jan left)" (Beta 63).
+pub fn ai_label(name: &str) -> String {
+    trf("AI (%{name} left)", &[("name", name)])
+}
+
+/// A player of "Play together" as the company's pages name him on his duties: his name, or "AI
+/// (his name left)" while the AI drives a duty he left (`book::guest_left`).
+pub fn guest_label(c: &omsi_launcher_lib::company::Company, g: u32) -> String {
+    let name = omsi_launcher_lib::company::together::guest_name(c, g);
+    if omsi_launcher_lib::company::together::book::guest_left(c, g) {
+        ai_label(&name)
+    } else {
+        name
+    }
 }
 
 /// A duty in short: "Line 5 · Tour 2 · Duty 1".

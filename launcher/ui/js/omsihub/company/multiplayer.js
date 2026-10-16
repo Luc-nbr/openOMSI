@@ -226,7 +226,9 @@ export function MultiplayerPage({ inDialog }) {
           ${v.ways.map(([a, b, tone]) => html`<div class="way"><span class="dim">${a}</span><span class=${'cut t-' + tone}>${b}</span></div>`)}
           <p class="note">${v.note}</p></section>
         <section class="co-section"><${Switch} checked=${v.open_claims} label=${w.open_label} title=${w.open_note} onChange=${(on) => go('tg_host_open', { on })} />
-          <p class="note">${w.open_note}</p></section>
+          <p class="note">${w.open_note}</p>
+          <${Switch} checked=${v.left_open} label=${w.left_label} title=${w.left_note} onChange=${(on) => go('tg_host_left_open', { on })} />
+          <p class="note">${w.left_note}</p></section>
         <section class="co-section"><div class="co-caps">${w.asked_caps}${v.asked.length > 0 && html` <span class="tg-count">${v.asked.length}</span>`}</div>
           ${v.asked.length
             ? v.asked.map((a) => html`<div class="tg-ask"><${Face} name=${a.name} size=${28} /><div class="what"><b class="cut">${a.name}</b><span class="cut">${a.what}</span><span class="dim">${a.times}</span></div>

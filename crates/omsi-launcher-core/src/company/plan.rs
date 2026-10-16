@@ -1641,7 +1641,8 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
         for t in out.iter_mut().filter(|t| !t.by_player) {
             for (k, d) in t.duties.iter_mut().enumerate() {
                 if let Some(g) = super::together::guest_on(c, date, &t.tour.line, &t.tour.tour, k) {
-                    if closing && !super::together::book::drove(c, date, &t.tour.line, &t.tour.tour, k) {
+                    // (Beta 63: one he left mid-duty is the AI's to finish: `together::book::ai_on`)
+                    if closing && !super::together::book::drove(c, date, &t.tour.line, &t.tour.tour, k) && !super::together::book::ai_on(c, date, &t.tour.line, &t.tour.tour, k) {
                         d.problem = Some(Problem::Player);
                         continue;
                     }

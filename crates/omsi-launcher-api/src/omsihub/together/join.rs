@@ -9,6 +9,12 @@
 //! What he drove for a company is kept in his own history
 //! (`~/.openomsi/together/<driver>-history.json`); his career counts the trips from his own trip
 //! records, as every drive's.
+//!
+//! Beta 63: the session ends for him when the boss closes it (said to every message), when the
+//! boss's launcher is lost (`client::Link`), or when he is sent away: his launcher stops asking -
+//! and stops sending what his game drives -, and every page of the boss's company says so
+//! (`tg_status`, `session.js`) with the way back to the menu. A duty the AI drives since he left it
+//! is taken back from its next trip (`tg_take_back`).
 
 use super::super::company::words::{day_label, eur, tr, trf};
 use super::super::company::{self, TABS};
@@ -16,7 +22,7 @@ use super::{duty_arg, duty_words, notice_json, perm_json, perms_arg, relay, role
 use crate::{Answer, Platform};
 use omsi_launcher_lib as core;
 use omsi_launcher_lib::company::duty_launch::DutyRef;
-use omsi_launcher_lib::company::together::client;
+use omsi_launcher_lib::company::together::client::{self, Ended, Link};
 use omsi_launcher_lib::company::together::code::{self, CompanyCode};
 use omsi_launcher_lib::company::together::host as th;
 use omsi_launcher_lib::company::together::wire::{DriveStart, DutyState, Notice, Request, SnapDuty, SnapResult, Snapshot};
@@ -79,8 +85,12 @@ struct Joined {
     /// The company's logo as the boss's launcher sent it (asked for once).
     logo: Option<String>,
     logo_asked: bool,
-    /// The session ended for him (sent away, removed, the code no longer valid): no more asking.
-    ended: Option<String>,
+    /// How the session stands (when the boss's launcher last answered), and how it ended for
+    /// him (closed, lost, sent away): no more asking then.
+    link: Link,
+    ended: Option<Ended>,
+    /// The duty his game drove when the session ended: its results can no longer reach the boss.
+    cut_off: Option<Drive>,
 }
 
 static JOINED: Mutex<Option<Joined>> = Mutex::new(None);
@@ -153,13 +163,33 @@ fn take_answer(j: &mut Joined, v: &Value) {
         }
         j.snap = Some(s);
     }
-    // (the session ended, or another began: the code is no good now; sent away: no more asking)
+    // (the session ended, or another began: the code is no good now; closed or sent away: no
+    // more asking)
     let error = v.get("error").and_then(Value::as_str).unwrap_or("");
     j.lost = [th::BAD_SECRET, th::NOT_OPEN_COMPANY, code::NEWER].contains(&error).then(|| error.to_string());
-    if th::ending(error) && error != th::BAD_SECRET {
-        j.ended = Some(error.to_string());
+    if let Some(e) = j.link.answer(v, unix_now()) {
+        end(j, e);
     }
     j.failures = 0;
+}
+
+/// The session ended for him (`e`): his launcher stops asking, and what his game drives is no
+/// longer sent (said on his page).
+fn end(j: &mut Joined, e: Ended) {
+    if j.ended.is_none() {
+        core::log_to_file(&format!("company session: ended for {} ({e:?})", j.me.name));
+    }
+    j.ended = Some(e);
+    if let Some(d) = j.drive.take() {
+        j.cut_off = Some(d);
+    }
+}
+
+/// No answer of the boss's launcher (now): lost after a while (`client::HOST_LOST`).
+fn unanswered(j: &mut Joined) {
+    if let Some(e) = j.link.failed(unix_now()) {
+        end(j, e);
+    }
 }
 
 /// Send a message of the player now (from a page's action): the answer, the day taken in.
@@ -223,6 +253,7 @@ fn run(stop: Arc<AtomicBool>) {
                 Err(e) => {
                     if let Some(j) = joined().as_mut() {
                         j.lost = Some(e);
+                        unanswered(j);
                     }
                 }
             }
@@ -245,9 +276,10 @@ fn run(stop: Arc<AtomicBool>) {
                 let mut g = joined();
                 let Some(j) = g.as_mut() else { return };
                 take_answer(j, &v);
-                // (a report the boss's launcher could not take now is sent again)
+                // (a report the boss's launcher could not take now is sent again; the session
+                // closed: nothing is sent any more)
                 let error = v.get("error").and_then(Value::as_str).unwrap_or("");
-                if req.what == "report" && !th::passing(error) {
+                if req.what == "report" && !th::passing(error) && j.ended.is_none() {
                     if let Some(d) = j.drive.as_mut() {
                         d.sent.extend(req.trips.iter().map(|t| (t.departure / 60.0).round() as i32));
                     }
@@ -266,6 +298,7 @@ fn run(stop: Arc<AtomicBool>) {
                     j.base = None;
                     j.lost = Some(client::UNREACHED.to_string());
                 }
+                unanswered(j);
             }
         }
     }
@@ -335,7 +368,11 @@ pub(super) fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> 
         "tg_check" => Ok(check(args.get("code").and_then(Value::as_str).unwrap_or(""))),
         "tg_view" => Ok(view()),
         "tg_take" | "tg_release" => Ok(duty_act(if cmd == "tg_take" { "take" } else { "release" }, args, |_| {})),
-        "tg_drive" => drive(args, p),
+        "tg_drive" => drive(args, p, "start"),
+        // (Beta 63: a duty the AI drives since he left it, back from its next trip)
+        "tg_take_back" => drive(args, p, "take_back"),
+        "tg_status" => Ok(status()),
+        "tg_rejoin" => Ok(rejoin()),
         // (what his role lets him do for the company: checked again by the boss's launcher)
         "tg_assign" => Ok(duty_act("assign", args, |r| r.target = guest)),
         "tg_unassign" => Ok(duty_act("unassign", args, |_| {})),
@@ -449,17 +486,27 @@ fn join(text: &str) -> Value {
     };
     leave();
     let stop = Arc::new(AtomicBool::new(false));
-    *joined() = Some(Joined { text: text.trim().to_string(), code, me: me(), base: None, snap: None, since: 0, notices: Vec::new(), lost: None, failures: 0, drive: None, stop: stop.clone(), wake: true, said: None, logo: None, logo_asked: false, ended: None });
+    *joined() = Some(Joined { text: text.trim().to_string(), code, me: me(), base: None, snap: None, since: 0, notices: Vec::new(), lost: None, failures: 0, drive: None, stop: stop.clone(), wake: true, said: None, logo: None, logo_asked: false, link: Link::new(unix_now()), ended: None, cut_off: None });
     let _ = std::thread::Builder::new().name("company session".into()).spawn(move || run(stop));
     view()
 }
 
-/// Leave the session (the boss's launcher told, best effort).
+/// Join the same session again, with the code it was joined with (the boss's launcher was lost).
+fn rejoin() -> Value {
+    let text = joined().as_ref().map(|j| j.text.clone());
+    match text {
+        Some(t) => join(&t),
+        None => view(),
+    }
+}
+
+/// Leave the session (the boss's launcher told, best effort; not when it ended): nothing of it is
+/// kept - its day, its pages, its notices go with it.
 fn leave() {
     let gone = joined().take();
     let Some(j) = gone else { return };
     j.stop.store(true, Ordering::Relaxed);
-    if let Some(base) = j.base.clone() {
+    if let Some(base) = j.base.clone().filter(|_| j.ended.is_none()) {
         let req = request(&j, "leave");
         let _ = std::thread::Builder::new().name("company leave".into()).spawn(move || {
             let _ = client::send(&base, &req, Duration::from_secs(4));
@@ -476,9 +523,9 @@ fn duty_act(what: &str, args: &Value, fill: impl FnOnce(&mut Request)) -> Value 
     }))
 }
 
-/// Drive a duty: its start asked of the boss's launcher, the game started on it - alone, at the
-/// duty's day and time.
-fn drive(args: &Value, p: &dyn Platform) -> Answer {
+/// Drive a duty: its start asked of the boss's launcher (`what`: `start`, or `take_back` from the
+/// AI at its next trip), the game started on it - alone, at the duty's day and time.
+fn drive(args: &Value, p: &dyn Platform, what: &str) -> Answer {
     let Some(r) = duty_arg(args) else { return Ok(json!({})) };
     // (one game at a time; the bus planned must be here)
     let (running, installed) = company::with(|s| {
@@ -498,7 +545,7 @@ fn drive(args: &Value, p: &dyn Platform) -> Answer {
     if !omsi_cfg::missing_original_essentials(std::path::Path::new(&root)).is_empty() {
         return Ok(json!({ "error": tr("A session needs the original OMSI 2.") }));
     }
-    let v = match send_now("start", |q| q.duty = Some(r.clone())) {
+    let v = match send_now(what, |q| q.duty = Some(r.clone())) {
         Ok(v) => v,
         Err(e) => return Ok(json!({ "error": e })),
     };
@@ -540,6 +587,9 @@ fn duty_row(d: &SnapDuty, open_claims: bool, ask: bool) -> Value {
         DutyState::Asked => (tr("Asked for: waiting for a yes"), "warn", vec![json!({ "label": tr("Withdraw"), "act": "release", "kind": "" })]),
         DutyState::Driving => (tr("You are driving it"), "ok", vec![json!({ "label": tr("Drive again"), "act": "drive", "kind": "", "icon": "replay" })]),
         DutyState::Done => (tr("Driven"), "dim", Vec::new()),
+        DutyState::Ai if d.back => (tr("You left it: the AI drives it"), "warn", vec![json!({ "label": tr("Take the duty back from the next trip"), "act": "take_back", "kind": "primary", "icon": "play_arrow" })]),
+        DutyState::Ai => (tr("You left it: the AI drives the rest of it"), "warn", Vec::new()),
+        DutyState::Player if d.ai => (super::ai_label(&d.who), "soft", Vec::new()),
         DutyState::Player => (trf("%{name} has it", &[("name", &d.who)]), "soft", Vec::new()),
         DutyState::Company => (trf("Driven by %{name}", &[("name", &tr(&d.who))]), "dim", Vec::new()),
         DutyState::Closed => (tr(&d.why), "dim", Vec::new()),
@@ -583,8 +633,8 @@ fn view() -> Value {
     let Some(j) = g.as_ref() else {
         return json!({ "joined": false, "words": words, "history": history_rows() });
     };
-    if let Some(e) = &j.ended {
-        return json!({ "joined": true, "ended": tr(e), "words": words, "code": j.text });
+    if let Some(e) = j.ended {
+        return json!({ "joined": true, "ended": ended_json(j, e), "words": words, "code": j.text });
     }
     let lost = j.lost.as_deref().map(tr);
     let said = j.said.as_ref().filter(|(_, at)| at.elapsed().as_secs() < 12).map(|(e, _)| tr(e));
@@ -595,14 +645,14 @@ fn view() -> Value {
     let can = |p: Perm| you.perms.contains(&p);
     let ask = can(Perm::Drive);
     let rows = |pick: &dyn Fn(&SnapDuty) -> bool| -> Vec<Value> { s.duties.iter().filter(|d| pick(d)).map(|d| duty_row(d, s.open_claims || can(Perm::Approve), ask)).collect() };
-    let mine = rows(&|d| matches!(d.state, DutyState::Mine | DutyState::Asked | DutyState::Driving | DutyState::Done | DutyState::Late));
+    let mine = rows(&|d| matches!(d.state, DutyState::Mine | DutyState::Asked | DutyState::Driving | DutyState::Done | DutyState::Late | DutyState::Ai));
     let open = rows(&|d| d.state == DutyState::Open);
     let rest = rows(&|d| matches!(d.state, DutyState::Player | DutyState::Company | DutyState::Closed));
     // (what comes next: the duty being driven, else the first of his still to drive)
     let next = s
         .duties
         .iter()
-        .filter(|d| matches!(d.state, DutyState::Driving | DutyState::Mine | DutyState::Late))
+        .filter(|d| matches!(d.state, DutyState::Driving | DutyState::Mine | DutyState::Late) || (d.state == DutyState::Ai && d.back))
         .min_by_key(|d| (d.state != DutyState::Driving, d.state != DutyState::Late, d.from))
         .map(|d| duty_row(d, s.open_claims, ask));
     let players: Vec<Value> = s
@@ -625,7 +675,9 @@ fn view() -> Value {
         .map(|r| {
             let on_time = if r.stops > 0 { (100 * r.on_time / r.stops).to_string() + " %" } else { "-".into() };
             let text = trf("%{trips} trips · %{passengers} passengers · %{km} km · on time %{p} · score %{score} · +%{xp} XP", &[("trips", &r.trips.to_string()), ("passengers", &r.passengers.to_string()), ("km", &format!("{:.0}", r.km)), ("p", &on_time), ("score", &r.score.to_string()), ("xp", &r.xp.to_string())]);
-            json!({ "title": duty_words(&r.number, &r.duty), "text": format!("{text}  ·  {}", trf("for the company %{amount}", &[("amount", &eur(r.fares))])), "done": r.done })
+            // (Beta 63: the rest of it the AI drove, since he left it)
+            let ai = (r.ai_trips > 0).then(|| format!("  ·  {}", trf("The AI drove the rest of it: %{n} trips", &[("n", &r.ai_trips.to_string())]))).unwrap_or_default();
+            json!({ "title": duty_words(&r.number, &r.duty), "text": format!("{text}  ·  {}{ai}", trf("for the company %{amount}", &[("amount", &eur(r.fares))])), "done": r.done, "ai": r.ai_trips > 0 })
         })
         .collect();
     let driving = j.drive.as_ref().map(|d| trf("Your game drives %{duty}: its trips go to the company as they end.", &[("duty", &duty_words(&d.number, &d.duty))]));
@@ -660,6 +712,28 @@ fn view() -> Value {
         "online": s.players.iter().filter(|p| p.online).count(),
         "take_note": if !ask { tr("Your role does not drive: the boss can change it.") } else if s.open_claims || can(Perm::Approve) { tr("Take an open duty: it is yours at once.") } else { tr("Ask for an open duty: the boss, or a player who may, says yes or no.") },
     })
+}
+
+/// How the session ended for him, as every page of it says (`session.js`): the boss closed it,
+/// his launcher was lost, or he was sent away - and the duty his game drives, whose results no
+/// longer reach the boss.
+fn ended_json(j: &Joined, e: Ended) -> Value {
+    let company = if j.link.company.is_empty() { j.snap.as_ref().map(|s| s.card.name.clone()).unwrap_or_default() } else { j.link.company.clone() };
+    let (title, text, icon) = match e {
+        Ended::Closed => (trf("%{company} - the host closed this session", &[("company", &company)]), tr("The host stopped sharing the company, closed it or quit Omsi-Hub."), "power_settings_new"),
+        Ended::Lost => (tr("Lost the connection to the host"), tr("The host's launcher has not answered for a while: it may have closed, or the network dropped."), "wifi_off"),
+        Ended::Removed => (tr("The host removed you from this session"), tr("Ask the host if you want to join again."), "person_remove"),
+    };
+    let driving = j.cut_off.as_ref().map(|d| trf("Your game still drives %{duty}, but its results can no longer reach the host.", &[("duty", &duty_words(&d.number, &d.duty))]));
+    json!({ "kind": e, "title": title, "text": text, "icon": icon, "driving": driving, "retry": e == Ended::Lost, "back": tr("Back to the menu"), "again": tr("Try again"), "company": company })
+}
+
+/// Whether he is in a session, and how it ended (every page of the boss's company asks:
+/// `session.js`).
+fn status() -> Value {
+    let g = joined();
+    let Some(j) = g.as_ref() else { return json!({ "joined": false }) };
+    json!({ "joined": true, "ended": j.ended.map(|e| ended_json(j, e)) })
 }
 
 /// The player's history in words: "Drove duty 3 of line 5 for Connexion".

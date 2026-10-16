@@ -61,7 +61,7 @@ fn who_name(c: &Company, w: Option<Who>) -> String {
         Some(Who::Staff(id)) => name_of(c, id),
         Some(Who::Player) => tr("You"),
         Some(Who::Agency) => tr("Agency driver"),
-        Some(Who::Guest(g)) => co::together::guest_name(c, g),
+        Some(Who::Guest(g)) => super::super::together::guest_label(c, g),
         None => tr("Nobody"),
     }
 }
@@ -557,7 +557,7 @@ fn tour_json(c: &Company, p: &DayPlan, ti: usize, t: &DayTour, rf_id: &dyn Fn(us
                         Some(Who::Player) => ("accent".to_string(), "#ffffff", tr("You"), String::new(), 1.0),
                         Some(Who::Agency) => ("grey".to_string(), "#ffffff", tr("Agency"), String::new(), 1.0),
                         // (Beta 58: a player of "Play together")
-                        Some(Who::Guest(g)) => (super::super::together::GUEST_COLOUR.to_string(), "#0e121c", co::together::guest_name(c, g), String::new(), 1.0),
+                        Some(Who::Guest(g)) => (super::super::together::GUEST_COLOUR.to_string(), "#0e121c", super::super::together::guest_label(c, g), String::new(), 1.0),
                         None => ("grey".to_string(), "#ffffff", String::new(), String::new(), 1.0),
                     }
                 };

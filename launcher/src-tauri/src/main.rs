@@ -164,6 +164,8 @@ fn main() {
             app.run(|_, e| match e {
                 tauri::RunEvent::ExitRequested { api, .. } if omsi_launcher_api::installing() => api.prevent_exit(),
                 tauri::RunEvent::Exit => {
+                    // (a company session shared: its players are told it closed - Beta 63)
+                    omsi_launcher_api::omsihub::together::quit();
                     // (Omsi-Hub online: "offline" told to the friends, best effort, a few seconds at most)
                     omsi_launcher_api::omsihub::online::goodbye();
                     service::stop()

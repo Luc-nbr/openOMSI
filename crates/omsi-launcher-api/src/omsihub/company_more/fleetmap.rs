@@ -671,7 +671,10 @@ fn bus_card(c: &Company, plan: &Plan, d: &Day, m: &MapState, mk: &Marker, clock:
     // the line, trip, block, duty and driver
     let duty = duty_of(tp, j);
     let driver = duty.and_then(|k| tp.duties.get(k)).and_then(|x| x.driver);
+    // (Beta 63: a player of "Play together" on it, or the AI for one who left it)
+    let guest = duty.and_then(|k| co::together::guest_on(c, &c.date, &tp.tour.line, &tp.tour.tour, k));
     let driver_text = match driver {
+        Some(PLAYER) if guest.is_some() => guest.map(|g| crate::omsihub::together::guest_label(c, g)).unwrap_or_default(),
         Some(PLAYER) => tr("You"),
         Some(AGENCY) => tr("Agency driver"),
         Some(id) => c.employee(id).map(|e| e.name.clone()).unwrap_or_else(|| "—".into()),

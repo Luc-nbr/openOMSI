@@ -1331,6 +1331,8 @@ pub fn relayed(s: &mut Session, v: &mut Viewer, cmd: &str, args: &Value, perms: 
 /// Another of the driver's companies opened (None: none is left): a playing clock stops and saves
 /// the one open first, and what the pages kept of it is let go (`company::switch_company`).
 fn switch_company(s: &mut Session, to: Option<Company>) {
+    // (Beta 63: the session of the company shared ends with it, its players told)
+    super::together::closing_company(s, to.as_ref().map(|c| c.id.as_str()));
     play(s, 0.0);
     s.company = to;
     words::set_currency(s.company.as_ref().map(|c| c.currency).unwrap_or_default());

@@ -238,7 +238,11 @@ pub fn model_with(c: &Company, plan: &Plan, date: &str, cut: &[Cut], controls: &
         let tp = &plan.tours[ti];
         let d = &tp.duties[k];
         let Some(id) = d.driver else { continue };
-        let Some(e) = (if id == AGENCY { Some(plan::agency_driver()) } else { c.employee(id).cloned() }) else { continue };
+        // (Beta 63: the AI on what a player of "Play together" left of his duty)
+        // (each duty afresh, as an agency driver's: the AI is nobody's employee)
+        let ai = id == PLAYER && super::together::book::ai_on(c, date, &tp.tour.line, &tp.tour.tour, k);
+        let id = if ai { AGENCY } else { id };
+        let Some(e) = (if ai { Some(super::together::book::ai_driver()) } else if id == AGENCY { Some(plan::agency_driver()) } else { c.employee(id).cloned() }) else { continue };
         let broken_at = tp.bus.and_then(|b| cut.iter().find(|x| x.vehicle == b)).copied();
         let spare = tp.bus.and_then(|b| clock::spare_of(c, date, b));
         let event = super::inbox::line_effect(c, date, &tp.tour.number).0;

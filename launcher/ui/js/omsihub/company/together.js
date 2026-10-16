@@ -13,6 +13,7 @@ import { duty } from '../../data.js';
 import { html, useEffect, useState, tr, setCo, cmd, freshCo, goTab, Icon, Mark, Btn } from './kit.js';
 import { togetherOn, blockedLabel } from './gate.js';
 import { usePoll, run, Chip, Face, RoleBadge, Stats, RoleEditor, MultiplayerDialog } from './multiplayer.js';
+import { SessionEnded } from './session.js';
 
 /** The Multiplayer page's tab (`company::TOGETHER_TAB`). */
 export const TOGETHER_TAB = 18;
@@ -65,8 +66,9 @@ export function backToMenu() {
   set({ co: freshCo({ chooser: 'join' }), page: 'company' });
 }
 
-/** Drive a duty: the player's game options, then the boss's launcher's start (`tg_drive`). */
-async function driveDuty(d) {
+/** Drive a duty: the player's game options, then the boss's launcher's start (`tg_drive`; one the
+ * AI drives since he left it, from its next trip: `tg_take_back`). */
+async function driveDuty(d, name = 'tg_drive') {
   let base;
   try {
     base = await duty();
@@ -74,13 +76,14 @@ async function driveDuty(d) {
     toast(e.message, 'error');
     return;
   }
-  await run('tg_drive', { duty: d.duty, base });
+  await run(name, { duty: d.duty, base });
 }
 
 /** A duty of the boss's day: what it is, who has it, what can be done with it. */
 function DutyRow({ d, again }) {
   const act = async (a) => {
     if (a.act === 'drive') await driveDuty(d);
+    else if (a.act === 'take_back') await driveDuty(d, 'tg_take_back');
     else await run(a.act === 'take' ? 'tg_take' : 'tg_release', { duty: d.duty });
     again();
   };
@@ -97,6 +100,7 @@ function NextUp({ d, w, again }) {
   if (!d) return html`<div class="tg-next empty"><${Icon} name="schedule" size=${28} /><span>${w.nothing_next}</span></div>`;
   const act = async (a) => {
     if (a.act === 'drive') await driveDuty(d);
+    else if (a.act === 'take_back') await driveDuty(d, 'tg_take_back');
     else await run('tg_release', { duty: d.duty });
     again();
   };
@@ -329,12 +333,14 @@ export function JoinPage() {
     seenNotice = null;
     ask();
   };
-  if (v.ended || v.connecting) {
+  // (Beta 63: the session ended - closed by the boss, his launcher lost, sent away: `session.js`)
+  if (v.ended) return html`<div class="co-choose tg-join"><${SessionEnded} e=${v.ended} /></div>`;
+  if (v.connecting) {
     return html`<div class="co-choose tg-join"><div style="flex:none"><${Btn} icon="chevron_left" label=${w.back} style="width:180px;height:38px" onClick=${back} /></div>
       <span style="flex:0.4 1 0"></span>
       <div class="tg-joincard">
-        <span class=${'tg-hero-icon big' + (v.ended ? ' warn' : ' pulse')}><${Icon} name=${v.ended ? 'warning' : 'wifi_tethering'} size=${34} /></span>
-        <div class="head"><h1>${v.ended ? w.ended_title : w.connecting}</h1><p>${v.ended ? v.ended + ' ' + w.ended_text : html`<code>${v.code}</code>`}</p>${v.lost && html`<p class="t-warn">${v.lost}</p>`}</div>
+        <span class="tg-hero-icon big pulse"><${Icon} name="wifi_tethering" size=${34} /></span>
+        <div class="head"><h1>${w.connecting}</h1><p><code>${v.code}</code></p>${v.lost && html`<p class="t-warn">${v.lost}</p>`}</div>
         <div style="display:flex;justify-content:center"><${Btn} icon="logout" label=${w.leave} onClick=${leave} /></div>
       </div>
       <span style="flex:0.6 1 0"></span></div>`;

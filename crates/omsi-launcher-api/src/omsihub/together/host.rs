@@ -25,6 +25,15 @@ use omsi_launcher_lib::company::{self as co, Company};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
+
+/// How long a closed session's server still answers "the host closed this session": a player's
+/// launcher asks every few seconds, so each is told (Beta 63).
+const CLOSE_GRACE: Duration = Duration::from_secs(12);
+/// How long quitting the launcher waits for the players to be told (they ask every 2.5 s).
+const QUIT_WAIT: Duration = Duration::from_secs(3);
+/// How often the session keeps watch over the players' duties (`HostState::watch`).
+const WATCH_EVERY: Duration = Duration::from_secs(5);
 
 /// The session running: for which company, its code, the server, the session's state.
 struct Hosting {
@@ -41,7 +50,36 @@ struct Hosting {
     viewers: HashMap<u32, Viewer>,
 }
 
+/// A session the boss closed, its server still answering for a moment (`CLOSE_GRACE`): the
+/// company's name, until when, the players (their ids) still to be told and those told.
+struct Closing {
+    h: Hosting,
+    name: String,
+    until: Instant,
+    expect: Vec<String>,
+    told: Vec<String>,
+}
+
 static HOSTING: Mutex<Option<Hosting>> = Mutex::new(None);
+static CLOSING: Mutex<Vec<Closing>> = Mutex::new(Vec::new());
+
+fn closing() -> MutexGuard<'static, Vec<Closing>> {
+    CLOSING.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The answer of a closed session to a message of its own: "the host closed this session", with
+/// the company's name (None: not one of a closed session's).
+fn closed_answer(body: &str) -> Option<String> {
+    let mut g = closing();
+    g.retain(|x| x.until > Instant::now());
+    let x = g.iter_mut().find(|x| x.h.st.admits(body).is_ok())?;
+    if let Ok(req) = serde_json::from_str::<Request>(body) {
+        if !x.told.contains(&req.player) {
+            x.told.push(req.player);
+        }
+    }
+    Some(th::closed_answer(&x.name).to_string())
+}
 /// The boss's page's language: the server's threads tell in it.
 static LANG: Mutex<String> = Mutex::new(String::new());
 
@@ -92,7 +130,7 @@ fn lines_of(s: &Session) -> Vec<core::LineInfo> {
 }
 
 /// The notices the boss is told in the company's corner (the rest are on his Multiplayer page).
-const TOLD: [&str; 5] = [th::JOINED, th::LEFT, th::ASKS, th::FINISHED, th::SAYS];
+const TOLD: [&str; 9] = [th::JOINED, th::LEFT, th::ASKS, th::FINISHED, th::SAYS, th::AI_REST, th::AI_ALL, th::LEFT_OPEN, th::TOOK_BACK];
 
 /// Tell the boss what came since he was last told (in his page's language).
 fn tell_boss(s: &mut Session, h: &mut Hosting) {
@@ -107,6 +145,9 @@ fn tell_boss(s: &mut Session, h: &mut Hosting) {
 
 /// A message of a friend's launcher (the server's thread): answered on the company.
 fn handle(body: &str) -> String {
+    if let Some(closed) = closed_answer(body) {
+        return closed;
+    }
     company::with(|s| {
         let lang = LANG.lock().map(|l| l.clone()).unwrap_or_default();
         words::set_language(&lang);
@@ -117,6 +158,13 @@ fn handle(body: &str) -> String {
             Err(v) => return v.to_string(),
         };
         if s.company.as_ref().map(|c| c.id.as_str()) != Some(h.company.as_str()) {
+            // (another company opened: this one's session is over - `closing_company`)
+            if s.company.is_some() {
+                let name = s.companies.as_ref().and_then(|l| l.iter().find(|c| c.id == h.company)).map(|c| c.name.clone()).unwrap_or_default();
+                drop(g);
+                end(s);
+                return th::closed_answer(&name).to_string();
+            }
             return th::refusal(th::NOT_OPEN_COMPANY).to_string();
         }
         // (the company's day simulated on a thread, which hands its own copy back: nothing is
@@ -135,6 +183,7 @@ fn handle(body: &str) -> String {
             let Some(c) = s.company.as_mut() else { return th::refusal(th::NOT_OPEN_COMPANY).to_string() };
             let here = Here { plan: plan.as_ref(), lines: &lines, now, lead };
             let mut a = h.st.answer(c, &here, body);
+            a.changed |= h.st.watch(c, &here);
             // (the company's logo, once the player's page asks for it)
             if req.logo {
                 if let Some(card) = a.body.get_mut("snapshot").and_then(|x| x.get_mut("card")) {
@@ -282,21 +331,24 @@ pub(super) fn call(cmd: &str, args: &Value) -> Option<Answer> {
         "tg_host_badge" => company::with(|s| Ok(badge(s))),
         "tg_host_start" => company::with(start),
         "tg_host_stop" => company::with(|s| {
-            // (the players' duties not under way go back to the company: nobody can be told now)
-            let mine = s.company.as_ref().is_some_and(|c| hosting().as_ref().is_some_and(|h| h.company == c.id));
-            stop(s);
-            if mine {
-                let _ = company::act(s, |c| {
-                    c.together.claims.retain(|x| matches!(x.state, ClaimState::Driving | ClaimState::Done) || x.late);
-                    Ok(())
-                });
-            }
+            // (every player is told; the players' duties not under way go back to the company,
+            // those their games drive the AI finishes: `HostState::close`)
+            end(s);
             Ok(json!({}))
         }),
         "tg_host_open" => company::with(|s| {
             let on = args.get("on").and_then(Value::as_bool).unwrap_or(true);
             let r = company::act(s, |c| {
                 c.together.open_claims = on;
+                Ok(())
+            });
+            Ok(r.err().map(|p| json!({ "popup": p })).unwrap_or(json!({})))
+        }),
+        // (Beta 63: a duty its player left before its first trip: open for another, else the AI's)
+        "tg_host_left_open" => company::with(|s| {
+            let on = args.get("on").and_then(Value::as_bool).unwrap_or(false);
+            let r = company::act(s, |c| {
+                c.together.left_open = on;
                 Ok(())
             });
             Ok(r.err().map(|p| json!({ "popup": p })).unwrap_or(json!({})))
@@ -384,15 +436,110 @@ fn start(s: &mut Session) -> Answer {
     let text = code.encode();
     core::log_to_file(&format!("company: Play together for {} on port {}", c.id, server.port()));
     *hosting() = Some(Hosting { company: c.id.clone(), text, server, st: HostState::new(&c.id, &c.profile, secret), plan: None, told: 0, viewers: HashMap::new() });
+    keep_watch(secret);
     Ok(json!({}))
 }
 
-/// End the session (the server and the tunnel go; what the players drove stays with the company).
-fn stop(_s: &mut Session) {
+/// End the session of the open company, if one runs (`end`).
+fn stop(s: &mut Session) {
+    end(s);
+}
+
+/// End the session (Beta 63): every player is told - its server answers "the host closed this
+/// session" for a moment (`CLOSE_GRACE`), then it goes with its tunnel. What the players drove
+/// stays with the company; what their games drive the AI finishes (`HostState::close`).
+fn end(s: &mut Session) {
     let gone = hosting().take();
-    if let Some(h) = gone {
-        core::log_to_file(&format!("company: Play together for {} ended", h.company));
-        drop(h);
+    let Some(mut h) = gone else { return };
+    core::log_to_file(&format!("company: Play together for {} ended", h.company));
+    let now = unix_now();
+    let expect: Vec<String> = s.company.as_ref().map(|c| h.st.online_now(now).filter_map(|o| c.together.guest(o.guest).map(|g| g.id.clone())).collect()).unwrap_or_default();
+    let name = s.companies.as_ref().and_then(|l| l.iter().find(|c| c.id == h.company)).or(s.company.as_ref().filter(|c| c.id == h.company)).map(|c| c.name.clone()).unwrap_or_default();
+    if s.company.as_ref().is_some_and(|c| c.id == h.company) {
+        let plan = plan_of(s, &mut h);
+        let lines = lines_of(s);
+        let changed = match s.company.as_mut() {
+            Some(c) => {
+                let here = Here { plan: plan.as_ref(), lines: &lines, now, lead: 0 };
+                h.st.close(c, &here)
+            }
+            None => false,
+        };
+        if changed {
+            company::changed(s);
+        }
+    }
+    h.st.closed = true;
+    closing().push(Closing { h, name, until: Instant::now() + CLOSE_GRACE, expect, told: Vec::new() });
+    // (its server goes when the moment is over)
+    let _ = std::thread::Builder::new().name("company session closing".into()).spawn(|| {
+        std::thread::sleep(CLOSE_GRACE + Duration::from_millis(200));
+        let old: Vec<Closing> = {
+            let mut g = closing();
+            let (old, keep): (Vec<Closing>, Vec<Closing>) = std::mem::take(&mut *g).into_iter().partition(|x| x.until <= Instant::now());
+            *g = keep;
+            old
+        };
+        drop(old);
+    });
+}
+
+/// The company `to` is opened instead of the one shared (or none: it was deleted): its session
+/// ends, every player told (`company::switch_company`).
+pub fn closing_company(s: &mut Session, to: Option<&str>) {
+    let shared = hosting().as_ref().map(|h| h.company.clone());
+    if shared.is_some_and(|id| s.company.as_ref().is_some_and(|c| c.id == id) && to != Some(id.as_str())) {
+        end(s);
+    }
+}
+
+/// The launcher quits: the session ends, and the players are told before it goes (as long as
+/// `QUIT_WAIT` at most).
+pub fn quit() {
+    if hosting().is_none() {
+        return;
+    }
+    company::with(end);
+    let t = Instant::now();
+    while t.elapsed() < QUIT_WAIT && closing().iter().any(|x| x.expect.iter().any(|p| !x.told.contains(p))) {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Keep watch over the players' duties while the session of `secret` runs: what runs of the
+/// duties of a player who left the AI drives (`HostState::watch`), every `WATCH_EVERY`.
+fn keep_watch(secret: [u8; 8]) {
+    let _ = std::thread::Builder::new().name("company session watch".into()).spawn(move || loop {
+        std::thread::sleep(WATCH_EVERY);
+        let on = company::with(|s| {
+            if !hosting().as_ref().is_some_and(|h| h.st.secret == secret) {
+                return false;
+            }
+            watch(s);
+            true
+        });
+        if !on {
+            return;
+        }
+    });
+}
+
+/// `HostState::watch` on the open company (the session's own), saved when it changed.
+fn watch(s: &mut Session) {
+    if s.closing {
+        return;
+    }
+    let mut g = hosting();
+    let Some(h) = g.as_mut().filter(|h| s.company.as_ref().is_some_and(|c| c.id == h.company)) else { return };
+    let plan = plan_of(s, h);
+    let lines = lines_of(s);
+    let Some(c) = s.company.as_mut() else { return };
+    let here = Here { plan: plan.as_ref(), lines: &lines, now: unix_now(), lead: lead() };
+    let changed = h.st.watch(c, &here);
+    tell_boss(s, h);
+    drop(g);
+    if changed {
+        company::changed(s);
     }
 }
 
@@ -480,6 +627,7 @@ fn duty_row(c: &Company, d: &omsi_launcher_lib::company::together::wire::SnapDut
         "open": d.state == DutyState::Open || d.state == DutyState::Company,
         "facts": format!("{}  ·  {} km", trf("%{n} trips", &[("n", &d.trips.to_string())]), d.km),
         "late": c.together.claim_of(&d.duty).is_some_and(|x| x.late),
+        "ai": d.ai, "ai_who": d.ai.then(|| super::ai_label(&d.who)),
     })
 }
 
@@ -503,6 +651,7 @@ fn player_row(c: &Company, st: Option<&HostState>, g: &book::Guest, p: Option<&D
         .map(|x| {
             let num = if x.number.is_empty() { number(&x.duty) } else { x.number.clone() };
             let state = match x.state {
+                _ if x.ai_now().is_some() => tr("Left it: the AI drives the rest"),
                 ClaimState::Asked => tr("Asked for"),
                 ClaimState::Driving => tr("Driving it now"),
                 ClaimState::Done => tr("Driven"),
@@ -549,6 +698,7 @@ fn view(s: &mut Session) -> Value {
         "stats_caps": tr("For the company").to_uppercase(),
         "trips": tr("Trips"), "punctuality": tr("On time"), "score": tr("Score"), "fares": tr("Fares"), "fines": tr("Fines"),
         "online": tr("online"), "kick_tip": tr("Send away from this session: they can join again with a new code."), "ban_tip": tr("Remove from the company: they cannot join again until you let them back in."),
+        "left_label": tr("Open a duty its player left before its first trip"), "left_note": tr("Off: the AI drives a duty its player left, all of it or from where they got to. The route carries on either way."),
         "not_shared": tr("Not shared: the players keep their roles, but cannot reach you."),
     });
     let mut g = hosting();
@@ -602,7 +752,7 @@ fn view(s: &mut Session) -> Value {
     tell_boss(s, h);
     json!({
         "on": true, "words": words, "roles": roles, "code": h.text, "ways": ways,
-        "open_claims": c.together.open_claims, "players": players, "asked": asked, "giveable": giveable, "notices": notices,
+        "open_claims": c.together.open_claims, "left_open": c.together.left_open, "players": players, "asked": asked, "giveable": giveable, "notices": notices,
         "online": trf("%{n} online", &[("n", &online.to_string())]),
         "note": tr("Over the internet: both need the same VPN (Hamachi, Radmin VPN, ZeroTier, Tailscale), or a friend comes in through your tunnel. Everybody needs the same version of Omsi-Hub."),
         "perm_keys": Perm::ALL.iter().map(|p| p.key()).collect::<Vec<_>>(),
