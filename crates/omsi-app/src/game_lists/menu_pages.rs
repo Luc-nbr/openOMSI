@@ -18,7 +18,6 @@ pub(super) fn options_pages(app: &App) -> Vec<Page> {
         pick("navigator_corner", "Corner", later),
         Some(button("Reset navigator", "Reset", "Back to its corner and its own size (drag its edges and corners to size it)", "nav_reset")),
         switch_row(app, "get_up", "Ability to get up (Ctrl+Shift+G)", "Allows you to get out of the car and explore the world"),
-        switch_row(app, "ibis_auto", "Fill in the IBIS automatically", "The game types the duty's line, route and destination into the IBIS; off, you type them yourself"),
         switch_row(app, "coll_objects", "Collisions with objects", "Enables/disables collisions with objects such as buildings, streetlights, etc."),
         switch_row(app, "coll_vehicles", "Collisions with vehicles", "Enables/Disables Collisions with Other Vehicles"),
         switch_row(app, "collision_pedestrians", "Collisions with people", "Enables/disables knocking down people"),

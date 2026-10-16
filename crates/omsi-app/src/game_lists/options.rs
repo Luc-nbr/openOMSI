@@ -395,7 +395,6 @@ pub(super) fn toggle_now(app: &App, id: &str) -> Option<bool> {
         "blinker_cancel" => s.blinker_cancel,
         "fps" => s.show_fps,
         "get_up" => s.get_up,
-        "ibis_auto" => s.ibis_auto,
         "trip_summary" => s.trip_summary,
         "time_sync" => s.time_sync,
         "metar_sync" => s.metar_sync,
@@ -556,13 +555,6 @@ pub(super) fn toggle_set(app: &mut App, id: &str, on: bool) -> Option<(&'static 
         "get_up" => {
             app.settings.get_up = on;
             Some(("get_up", bit))
-        }
-        "ibis_auto" => {
-            app.settings.ibis_auto = on;
-            if let Some(p) = app.player.as_mut() {
-                p.ibis_auto = on;
-            }
-            Some(("ibis_auto", bit))
         }
         "trip_summary" => { app.settings.trip_summary = on; Some(("trip_summary", bit)) }
         // the real-time sync: the clock takes the device's date and time at once (a host's
