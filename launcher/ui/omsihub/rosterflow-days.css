@@ -85,7 +85,7 @@
 .tp-days .d.on { background: var(--tp-sky-on); box-shadow: inset 0 0 0 1.5px var(--tp-sky); color: var(--tp-text); }
 .tp-days .d.odd { box-shadow: inset 0 -3px 0 var(--tp-orange), inset 0 0 0 1px var(--tp-border); }
 .tp-days .d.on.odd { box-shadow: inset 0 -3px 0 var(--tp-orange), inset 0 0 0 1.5px var(--tp-sky); }
-.tp-days .d.none { opacity: 0.45; cursor: default; }
+.tp-days .d.none { opacity: 0.45; }
 .tp-days .d.wait { opacity: 0.6; cursor: progress; }
 
 /* (the presets' words in full, on two rows where they need them; the cross in a tag) */

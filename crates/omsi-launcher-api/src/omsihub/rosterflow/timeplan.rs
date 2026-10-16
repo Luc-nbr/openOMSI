@@ -386,7 +386,7 @@ fn calendar(s: &Session, c: &Company, l: &LineDesign, name: &str, shown: usize) 
                 Some(Some(g)) if g == natural => trf("Runs the %{days} timetable", &[("days", &day_name(g))]),
                 Some(Some(g)) => trf("Runs the %{days} timetable, not its weekday's: a holiday or another day", &[("days", &day_name(g))]),
             };
-            json!({ "k": k, "date": date, "label": super::days::short(&date), "group": group.flatten(), "read": group.is_some(), "on": group.flatten() == Some(shown), "odd": group.flatten().is_some_and(|g| g != natural), "tip": tip })
+            json!({ "k": k, "date": date, "label": super::days::short(&date), "group": group.flatten(), "natural": natural, "read": group.is_some(), "on": group.flatten() == Some(shown), "odd": group.flatten().is_some_and(|g| g != natural), "tip": tip })
         })
         .collect()
 }
