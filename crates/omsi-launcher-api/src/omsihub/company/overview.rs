@@ -2,9 +2,10 @@
 //! last thirty days as a chart, today's tours and what wants attention, the company's day as it
 //! went (the clock's feed), the last day closed and the way to another company.
 
-use super::words::{day_label, eur, grouped, month_label, num, short_date, signed, share_tone, tr, trf, grade};
+use super::words::{count_text, day_label, eur, grouped, month_label, num, short_date, signed, share_tone, tr, trf, grade};
 use super::{career, feed_text, feed_tone, Session};
 use omsi_launcher_lib::company::clock::{self as ck, Level};
+use omsi_launcher_lib::company::bus_contracts::Rag;
 use omsi_launcher_lib::company::{self as co, Alert, Company, DayRecord};
 use serde_json::{json, Value};
 
@@ -123,6 +124,57 @@ pub fn feed(c: &Company, minor: bool) -> Value {
     json!({ "title": tr("The company's day"), "minor": minor, "toggle": tr("All tours"), "tip": tr("Show every tour leaving and coming back too"), "empty": empty, "rows": rows })
 }
 
+/// What needs the player, each with the button that leads to where it is done (the dashboard's
+/// "Needs you"): the alerts - no line, bus or driver yet, tours not covered, lines not planned,
+/// low cash, buses due, people unhappy -, the bus contracts rated orange or red, what service
+/// control has waiting (the breakdowns among it), the complaints to answer and the agenda's
+/// entries of the coming week that need the player.
+fn needs_you(s: &mut Session, c: &Company, alerts: &[Alert], easy: bool) -> Vec<Value> {
+    let row = |icon: &str, text: String, tone: &str, button: String, go: Value| json!({ "icon": icon, "text": text, "tone": tone, "button": button, "go": go });
+    let mut out: Vec<Value> = alerts
+        .iter()
+        .filter_map(|a| alert_for(a, easy).map(|x| (a, x)))
+        // (a bus going back is said, but is nothing to do)
+        .filter(|(_, (_, _, tone, _))| *tone != "soft")
+        .map(|(a, (icon, text, tone, tab))| {
+            let (button, go) = match a {
+                Alert::NoDrivers => (tr("Hire staff"), json!({ "tab": 2, "ui": { "people": { "tab": 1, "hire_role": 0 } } })),
+                Alert::NoBuses => (tr("Dealer"), json!({ "tab": 1, "ui": { "fleet": { "tab": 1 } } })),
+                _ => (tr(super::page_name(tab)), json!({ "tab": tab })),
+            };
+            row(icon, text, tone, button, go)
+        })
+        .collect();
+    if !easy {
+        for k in co::bus_contracts::all(c).iter().filter(|k| k.live()) {
+            let rag = k.rag(&c.date);
+            if rag == Rag::Green {
+                continue;
+            }
+            let text = trf("Bus contract of line %{n}: %{rag}", &[("n", &k.number), ("rag", &tr(rag.label()))]);
+            let go = json!({ "tab": super::CONTRACTS_TAB, "ui": { "contracts": { "part": 3 } } });
+            out.push(row("description", text, if rag == Rag::Red { "danger" } else { "warn" }, tr("Contracts"), go));
+        }
+    }
+    let waiting = co::control::waiting(c);
+    if waiting > 0 {
+        let text = count_text(waiting, "1 thing for service control", "%{n} things for service control");
+        out.push(row(super::ICONS[super::OPS_TAB], text, "warn", tr(super::page_name(super::OPS_TAB)), json!({ "tab": super::OPS_TAB })));
+    }
+    let complaints = co::complaints::open_count(c);
+    if complaints > 0 {
+        let text = trf("%{n} complaints to answer", &[("n", &complaints.to_string())]);
+        out.push(row(super::ICONS[super::REPUTATION_TAB], text, "warn", tr(super::page_name(super::REPUTATION_TAB)), json!({ "tab": super::REPUTATION_TAB })));
+    }
+    // (the agenda's: requests to answer, what has no cover - with the day it is on)
+    let (coming, _) = super::agenda::needing(s, 6);
+    for e in coming {
+        let text = format!("{}  ·  {}", e["when"].as_str().unwrap_or(""), e["text"].as_str().unwrap_or(""));
+        out.push(row(e["icon"].as_str().unwrap_or("event"), text, e["tone"].as_str().unwrap_or("warn"), tr("Open"), e["go"].clone()));
+    }
+    out
+}
+
 pub fn view(s: &mut Session) -> Value {
     let Some(c) = s.company.clone() else { return Value::Null };
     let month = c.month(&co::dates::month_of(&c.date));
@@ -180,6 +232,7 @@ pub fn view(s: &mut Session) -> Value {
             alerts.push(a);
         }
     }
+    let needs = needs_you(s, &c, &alerts, easy);
     let alerts: Vec<Value> = alerts.iter().filter_map(|a| alert_for(a, easy)).map(|(icon, text, tone, tab)| json!({ "icon": icon, "text": text, "tone": tone, "tab": tab })).collect();
     // the last day closed
     let last = c.last_report.as_ref().map(|rep| {
@@ -200,6 +253,7 @@ pub fn view(s: &mut Session) -> Value {
         "chart_title": trf("The last %{n} days", &[("n", &span.to_string())]),
         "chart": chart(&c),
         "today": { "title": tr("Today"), "covered": covered, "next": next, "alerts": alerts, "calm": tr("Nothing wants your attention.") },
+        "needs": { "title": tr("Needs you"), "none": tr("Nothing needs you"), "list": needs },
         "feed": feed(&c, s.feed_minor),
         "last": { "title": tr("The last day closed"), "report": last, "none": tr("\"Simulate to tomorrow\" at the top runs the rest of the day and closes it at midnight: the tours are run, the money booked, and the next day begins. What you drove yourself on the company's lines counts as measured."), "button": tr("Show the report") },
         "companies": { "title": tr("Your companies"), "text": trf("Founded on %{date}.", &[("date", &day_label(&c.founded))]), "button": tr("Other company") },

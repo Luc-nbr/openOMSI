@@ -53,7 +53,8 @@ export async function selftest(check, errors) {
   await cmd('co_open', { id: list[0].id });
   e = await shown('the company', { chooser: null, tab: HOME }, 1500);
   const sh = S.co.shell;
-  check('company: its bar', !e && !!$('.co-bar .name') && !!$('.co-status') && !!$('.co-clock'), e || `${sh?.name} (${sh?.mode?.label}) ${sh?.clock?.date} ${sh?.clock?.time}`);
+  // (Beta 65: its shell - the sidebar or the palette layout's bar - with the cash and the clock)
+  check('company: its bar', !e && !!$('.co-top .co-top-where') && !!$('.co-top .co-status') && !!$('.co-top .co-clock') && !!($('.co-side') || $('.co-top-quick') || $('.co-top-handle')), e || `${sh?.name} (${sh?.mode?.label}) ${sh?.clock?.date} ${sh?.clock?.time}`);
   const tabs = sh?.casual ? [HOME, CASUAL.BUSES, CASUAL.SHOP, CASUAL.LINES, CASUAL.NEW_LINE, CASUAL.DRIVERS, CASUAL.MONEY, CASUAL.COMPANY, CASUAL.SHIFTS] : [HOME, 0, 1, 2, 3, 4, 6, 13];
   // (its start screen at every Launcher size)
   await globalThis.hubProbeScales?.('company, the start screen');

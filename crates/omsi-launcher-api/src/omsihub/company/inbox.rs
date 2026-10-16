@@ -276,6 +276,28 @@ fn kinds_of(filter: &str) -> Vec<Kind> {
     Kind::ALL.iter().copied().filter(|k| format!("{k:?}") == filter).collect()
 }
 
+/// The bell over the company's pages (`co_view` "bell"): the unread messages, the newest first,
+/// and what of the coming week needs the player (`agenda::needing`), each a click from its page.
+pub fn bell(s: &mut Session) -> Value {
+    ensure(s);
+    let Some(c) = s.company.clone() else { return Value::Null };
+    let unread: Vec<Value> = c
+        .inbox
+        .messages
+        .iter()
+        .rev()
+        .filter(|m| !m.read)
+        .take(6)
+        .map(|m| json!({ "id": m.id, "icon": icon_of(&c, m), "tone": tone_of(m.level), "title": words(&m.title, &m.args), "date": short_day(&m.date) }))
+        .collect();
+    let (needs, n) = super::agenda::needing(s, 6);
+    json!({
+        "inbox": { "title": tr("Inbox"), "list": unread, "n": c.inbox.unread(), "none": tr("Everything is read.") },
+        "agenda": { "title": tr("Agenda"), "list": needs, "n": n, "none": tr("Nothing needs you") },
+        "all": tr("All"),
+    })
+}
+
 pub fn view(s: &mut Session, args: &Value) -> Value {
     ensure(s);
     let Some(c) = s.company.clone() else { return Value::Null };

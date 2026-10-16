@@ -78,14 +78,14 @@ const COMPANY_STOPS = [
   ['coCasTips', 'Home', 'Tips', 'Your company says what would help now, in plain words: a bus more, a fare too high, a full depot. The button beside a tip does it.', 'company-casual-tips', ['co', HOME]],
   ['coCasNext', 'Home', 'Next day', 'Your company runs the rest of the day by itself: the buses drive, the money comes in. Next day takes you to the next morning.', 'company-casual-next', ['co', HOME]],
   ['coCasMode', 'Home', 'Casual', 'The company sees to its routine by itself: planning, workshop, staff and research. A click here opens the settings, where Normal shows every page with nothing lost.', 'company-mode', ['co', HOME]],
-  ['coStatus', 'Its start screen', 'Cash, trophies, reputation', "Under the company's name, always in view: its cash, the trophies earned with goals and contracts, and its reputation. A click opens the page about it.", 'company-status', ['co', HOME]],
-  ['coCasStatus', 'Home', 'Cash, trophies, reputation', "Under the company's name, always in view: its cash, the trophies earned with goals, and its reputation. A click on the cash opens the money.", 'company-status', ['co', HOME]],
-  ['coClock', 'Its time', "The company's own clock", 'The company runs in a time of its own: let it run here, or jump on to the morning, to tomorrow or by days. At midnight the day is closed: the tours are run and the money is booked.', 'company-clock', ['co', HOME]],
-  ['coNav', 'Its pages', 'Back and across', 'This button takes you back to the start screen from every page, as Escape does. The icons on the right open any other page at once.', 'company-nav', ['co', 0]],
+  ['coStatus', 'Its start screen', 'Cash and reputation', "Always in view up here: the company's cash and its reputation; the trophies earned with goals and contracts are in their tooltips. A click opens the page about it.", 'company-status', ['co', HOME]],
+  ['coCasStatus', 'Home', 'Cash and reputation', 'Always in view up here: your cash and your reputation. A click on the cash opens the money.', 'company-status', ['co', HOME]],
+  ['coClock', 'Its time', "The company's own clock", 'The company runs in a time of its own. Simulate to tomorrow runs the rest of the day; the arrow beside it lets the clock run, adds an hour or opens the clock with its other steps. At midnight the day is closed: the tours are run and the money is booked.', 'company-clock', ['co', HOME]],
+  ['coNav', 'Its pages', 'Every page at hand', 'Every page is in the sidebar, grouped as the start screen groups them, a badge where something waits. A star pins a page to the top; the arrow folds the sidebar to its icons and Ctrl+B slides it away. Ctrl+K finds any page or action, and Escape takes you back to the start screen.', 'company-nav', ['co', 0]],
   ['coOverview', 'Overview', 'The figures', "The cash, this month's result, the fleet, the staff, punctuality and reputation at a glance.", 'company-figures', ['co', 0]],
-  ['coToday', 'Overview', 'What wants your attention', "Today's tours and how many are covered, your own next duty, and what needs doing. A click takes you to the page that helps.", 'company-today', ['co', 0]],
+  ['coToday', 'Overview', 'Needs you', 'What needs you now, each with the button that does it: tours without a bus or a driver, lines not planned, bus contracts at risk, breakdowns, complaints and the coming week.', 'company-today', ['co', 0]],
   ['coFleet', 'Fleet', 'Buses and the dealer', 'Your buses with their condition and their livery. At the dealer you buy new or used ones, haggle, lease or rent, and sign the contract.', 'company-page', ['co', 1]],
-  ['coCasBuses', 'My buses', 'Your buses', 'Every bus as a card, with its age and its condition. Repairs happen by themselves; Buy a bus opens the shop, the buses that fit your lines first. The icons up here open every page.', 'company-page', ['co', CASUAL.BUSES]],
+  ['coCasBuses', 'My buses', 'Your buses', 'Every bus as a card, with its age and its condition. Repairs happen by themselves; Buy a bus opens the shop, the buses that fit your lines first. The sidebar opens every page.', 'company-page', ['co', CASUAL.BUSES]],
   ['coCasHelp', 'My buses', 'A question mark on every page', 'Not sure what a page is for? Its question mark says it in a few words.', 'company-casual-help', ['co', CASUAL.BUSES]],
   ['coStaff', 'Staff', 'Drivers and the others', 'Hire drivers on the labour market and keep them content. Their wages, licences, holidays and days ill all count.', 'company-page', ['co', 2]],
   ['coLines', 'Lines', 'What the company runs', "Take on the map's lines or make your own in the line editor: its kind, its buses, its timetable. A line runs once it is planned.", 'company-page', ['co', 3]],
@@ -96,7 +96,7 @@ const COMPANY_STOPS = [
   ['coCasMoney', 'Money', 'Where the money goes', 'Week by week what came in and went out, and the biggest costs in plain words, with a tip when something costs too much.', 'company-page', ['co', CASUAL.MONEY]],
   ['coCasCompany', 'My company', 'Livery and depot', "Paint your buses in your company's livery, and buy a bigger depot when the buses no longer fit.", 'company-page', ['co', CASUAL.COMPANY]],
   ['coCareer', 'Career', 'Your duties and your progress', "My duties lists the duties planned for you, each a click from driving it. Here too: the company's level, the training courses and the rankings.", 'company-career-parts', ['co', 6]],
-  ['coDone', 'Bus company', 'Off to work', 'This question mark shows the tour again. Good luck with your company!', 'company-help', 'home'],
+  ['coDone', 'Bus company', 'Off to work', 'Your round menu up here has the account, multiplayer, the settings, the light or dark look and this tour again. Good luck with your company!', 'company-help', 'home'],
 ];
 /** The stops only Casual makes, and those only Normal and Realistic make (`CASUAL_ONLY`,
  * `ADVANCED_ONLY`). */
@@ -210,23 +210,24 @@ function part(name) {
     case 'company-wizard':
       return visible($('.co-found .inner'));
     case 'company-clock':
-      return visible($('.co-bar .co-clock'));
+      return visible($('.co-top .co-clock'));
     case 'company-tiles':
       return visible($('.co-home > div'));
     case 'company-status':
-      return visible($('.co-bar .co-status'));
+      return visible($('.co-top .co-status'));
     case 'company-nav':
-      return visible($('.co-nav'));
+      // (the sidebar - its rail too -, or the palette layout's search and its shortcuts)
+      return visible($('.co-side')) || union(visible($('.co-top-search')), visible($('.co-top-quick')));
     case 'company-figures':
       return [...document.querySelectorAll('.co-overview .co-figure')].map(visible).reduce(union, null);
     case 'company-today':
-      return visible($('.co-overview .co-today'));
+      return visible($('.co-overview .co-dash-needs')) || visible($('.co-overview .co-today'));
     case 'company-page':
       return visible($('.co-body') || $('.co .rf'));
     case 'company-career-parts':
       return visible($('.co-body .co-seg'));
     case 'company-help':
-      return visible($('.co-bar .co-help'));
+      return visible($('.co-top .co-top-me')) || visible($('.co-bar .co-help'));
     case 'company-casual-today':
       return visible($('.co-casual-home section.today'));
     case 'company-casual-drive':
@@ -236,9 +237,9 @@ function part(name) {
     case 'company-casual-tips':
       return [...document.querySelectorAll('.co-casual-home .tip')].map(visible).reduce(union, null);
     case 'company-casual-next':
-      return visible($('.co-bar .co-next'));
+      return visible($('.co-top .co-next'));
     case 'company-mode':
-      return visible($('.co-bar .co-pill'));
+      return visible($('.co .co-mode-chip')) || visible($('.co-side .co-side-co'));
     case 'company-casual-help':
       return visible($('.co-casual-head .co-iconbtn'));
     default:

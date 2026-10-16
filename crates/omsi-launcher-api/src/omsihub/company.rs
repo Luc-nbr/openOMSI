@@ -98,6 +98,9 @@ pub const ICONS: [&str; 19] = ["signal_cellular_alt", "directions_bus", "groups"
 /// (the Multiplayer page and the Sandbox page last, each a group of its own: only a company
 /// shared with friends, a sandbox company shows it)
 pub const RAIL: [&[usize]; 7] = [&[0, AGENDA_TAB, INBOX_TAB], &[5, OPS_TAB, 3, MAP_TAB, 1], &[2], &[4, CONCESSIONS_TAB, CONTRACTS_TAB, REPUTATION_TAB, 6], &[DEPOT_TAB, WORKSHOP_TAB, RESEARCH_TAB], &[TOGETHER_TAB], &[SANDBOX_TAB]];
+/// The heading of each group of `RAIL` in the company's sidebar (the start screen's sections:
+/// the Multiplayer page and the Sandbox page are the company's too).
+pub const RAIL_HEADS: [&str; 7] = ["Overview", "Operations", "People", "Business", "Company", "Company", "Company"];
 
 /// The pages this page draws itself (the planning, the depot, the concessions, the fleet map,
 /// the research, the workshop and the contracts since phase 3: `company_more.rs`): every page
@@ -287,6 +290,9 @@ pub struct Session {
     /// the game-drawn launcher does not count as a change: RosterFlow's day and its proposal
     /// stay through them (`generation - quiet`).
     pub quiet: u64,
+    /// How many of the coming week's agenda entries need the player, for the bell over the pages
+    /// (`agenda::needs_count`): at which generation and when it was worked out.
+    pub needs_kept: Option<(u64, Instant, usize)>,
     /// What the page says in its corner, as the game-drawn launcher says it in its status line.
     pub notices: Vec<(String, bool)>,
     /// A popup the session raised itself (the clock's "busy").
@@ -1189,17 +1195,18 @@ fn shell(s: &mut Session) -> Value {
     });
     // the strip: the pages with their badges
     let marks = home::Marks::of(&c, s.plan.as_ref());
-    let sandbox_item = || json!({ "tab": SANDBOX_TAB, "icon": ICONS[SANDBOX_TAB], "name": tr(TABS[SANDBOX_TAB]), "badge": null, "tip": tr(TABS[SANDBOX_TAB]), "away": false });
+    let sandbox_item = || json!({ "tab": SANDBOX_TAB, "icon": ICONS[SANDBOX_TAB], "name": tr(TABS[SANDBOX_TAB]), "badge": null, "tip": tr(TABS[SANDBOX_TAB]), "away": false, "group": tr(RAIL_HEADS[6]) });
     // (Beta 61: the players online, the duties they asked for)
     let together_item = || {
         let (badge, tip) = super::together::rail_badge(&c);
-        json!({ "tab": TOGETHER_TAB, "icon": ICONS[TOGETHER_TAB], "name": tr(TABS[TOGETHER_TAB]), "badge": badge, "tip": tip, "away": false })
+        json!({ "tab": TOGETHER_TAB, "icon": ICONS[TOGETHER_TAB], "name": tr(TABS[TOGETHER_TAB]), "badge": badge, "tip": tip, "away": false, "group": tr(RAIL_HEADS[5]) })
     };
     let mut rail: Vec<Vec<Value>> = if casual {
         vec![casual::PAGES.iter().map(|t| casual::rail_item(*t)).collect()]
     } else {
         RAIL.iter()
-            .map(|g| {
+            .zip(RAIL_HEADS)
+            .map(|(g, head)| {
                 g.iter()
                     .filter(|t| **t != SANDBOX_TAB && **t != TOGETHER_TAB)
                     .map(|&tab| {
@@ -1208,7 +1215,7 @@ fn shell(s: &mut Session) -> Value {
                             tip = format!("{tip}\n{why}");
                             json!({ "n": n, "tone": tone })
                         });
-                        json!({ "tab": tab, "icon": ICONS[tab], "name": tr(TABS[tab]), "badge": badge, "tip": tip, "away": HANDED_OVER.contains(&tab) })
+                        json!({ "tab": tab, "icon": ICONS[tab], "name": tr(TABS[tab]), "badge": badge, "tip": tip, "away": HANDED_OVER.contains(&tab), "group": tr(head) })
                     })
                     .collect::<Vec<Value>>()
             })
@@ -1222,6 +1229,8 @@ fn shell(s: &mut Session) -> Value {
     if co::sandbox::is_sandbox(&c) {
         rail.push(vec![sandbox_item()]);
     }
+    // (the bell over the pages: the unread messages and what of the coming week needs the player)
+    let bell = marks.unread + if casual { 0 } else { agenda::needs_count(s) };
     let cover = s.closing.then(|| match s.clock.catching {
         Some(m) => trf("Catching up %{span} of the company's time…", &[("span", &words::span_text(m))]),
         None => tr("Simulating the company's time…"),
@@ -1233,7 +1242,7 @@ fn shell(s: &mut Session) -> Value {
         "popup": base["popup"],
         "companies": base["companies"],
         "id": c.id, "name": c.name, "mark": mark_json(&c), "mode": mode_json(c.game_mode), "home": home_of(&c), "sandbox": sandbox::badge(&c),
-        "status": status, "clock": head, "rail": rail, "pages": pages, "together": super::together::gate(),
+        "status": status, "clock": head, "rail": rail, "pages": pages, "together": super::together::gate(), "bell": bell,
         "names": TABS.iter().map(|t| tr(t)).collect::<Vec<_>>(),
         "casual": casual, "cover": cover,
         "asking": c.clock.ask.is_some(),
@@ -1521,6 +1530,7 @@ fn view(s: &mut Session, args: &Value) -> Answer {
     }
     Ok(match what.as_str() {
         "home" => home::view(s),
+        "bell" => inbox::bell(s),
         "overview" => overview::view(s),
         "fleet" => fleet::view(s, args),
         "dealer" => dealer::view(s, args),
@@ -1720,6 +1730,7 @@ mod tests {
     #[test]
     fn the_pages_are_the_game_drawn_launchers() {
         assert_eq!(TABS.len(), ICONS.len());
+        assert_eq!(RAIL.len(), RAIL_HEADS.len());
         let mut all: Vec<usize> = RAIL.iter().flat_map(|g| g.iter().copied()).collect();
         all.sort_unstable();
         assert_eq!(all, (0..TABS.len()).collect::<Vec<_>>());

@@ -181,6 +181,44 @@ pub fn rf_marks(c: &Company, mut marks: Vec<Value>) -> Vec<Value> {
     marks
 }
 
+/// The entries of the coming week that need the player: the first `n` as the page draws them,
+/// and how many there are (the dashboard's "Needs you", the bell over the pages).
+pub fn needing(s: &mut Session, n: usize) -> (Vec<Value>, usize) {
+    let Some(c) = s.company.clone() else { return (Vec::new(), 0) };
+    let casual = c.game_mode.casual();
+    let all: Vec<Entry> = entries(s, &c.date, &co::dates::add(&c.date, 6)).into_iter().filter(|e| e.needs_me).collect();
+    let list = all
+        .iter()
+        .take(n)
+        .map(|e| {
+            let mut v = item(&c, e, casual);
+            let when = match &e.minute {
+                Some(_) if e.date == c.date => v["time"].as_str().unwrap_or("").to_string(),
+                _ => day_head(&c, &e.date),
+            };
+            v["when"] = json!(when);
+            v
+        })
+        .collect();
+    s.needs_kept = Some((s.generation, Instant::now(), all.len()));
+    (list, all.len())
+}
+
+/// How many entries of the coming week need the player (the bell's badge, at every tick): worked
+/// out again once the company changed, at most every five seconds - and not while the clock
+/// simulates on its thread.
+pub fn needs_count(s: &mut Session) -> usize {
+    if let Some((generation, at, n)) = s.needs_kept {
+        if generation == s.generation || at.elapsed().as_secs() < 5 || s.closing {
+            return n;
+        }
+    }
+    if s.closing {
+        return 0;
+    }
+    needing(s, 0).1
+}
+
 /// How many need the player, in words.
 pub fn needs_text(n: usize) -> String {
     match n {
