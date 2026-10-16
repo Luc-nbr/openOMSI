@@ -15,6 +15,8 @@ import { FareDialog, FleetValueDialog } from './money.js';
 import { VehiclesDialog } from './vehicles.js';
 // (Beta 58: the boss's "Play together" panel)
 import { TogetherDialog } from './together.js';
+// (Beta 62: the country the company plays in, its people's names)
+import { CountryPick } from './country.js';
 import { togetherOn } from './gate.js';
 // (late running: the report's part, the finances' deductions)
 import { LateSection, LateDialog, WhoLink } from './late.js';
@@ -92,7 +94,7 @@ function SettingsDialog({ d }) {
     <span class="rest"></span>
     <${Btn} kind=${v.move ? '' : 'primary'} label=${v.close} onClick=${close} />
     ${v.move && html`<${Btn} kind="primary" icon="calendar_month" label=${v.move} onClick=${moveTo} />`}`;
-  const h = (v.buying ? 786 : 722) + (v.addons ? 40 : 0) + (v.vehicles ? 132 : 0) + (v.company_mode ? 112 : 0);
+  const h = (v.buying ? 786 : 722) + (v.addons ? 40 : 0) + (v.vehicles ? 132 : 0) + (v.company_mode ? 112 : 0) + (v.country ? 96 : 0);
   // (Beta 61: a career or a sandbox - turned into a sandbox once, after a confirmation)
   const cm = v.company_mode;
   const vh = v.vehicles;
@@ -104,6 +106,9 @@ function SettingsDialog({ d }) {
         <div class="what"><p class="cut">${v.logo_text}</p>
           <div style="display:flex;gap:10px;margin-top:8px"><${Btn} icon="photo_camera" label=${v.choose_logo} onClick=${pick} />
             ${v.remove_logo && html`<${Btn} icon="close" label=${v.remove_logo} onClick=${() => act('logo_remove')} />`}</div></div></div>
+      ${v.country && html`<div class="co-caps">${v.country.caps}</div>
+        <div class="pair"><${CountryPick} c=${v.country} value=${v.country.key} onChange=${(k) => act('country', { key: k })} style="width:320px;flex:none" />
+          <p class="co-note">${v.country.note}</p></div>`}
       <div class="co-caps">${v.mode_caps}</div>
       <div class="pair"><${Seg} value=${k} options=${v.modes.map((m, i) => [i, m.label])} onChange=${(i) => setCo({ dialog: { kind: 'confirm', what: 'game_mode', name: v.modes[i].key, settings: v.date } })} style="width:320px;height:40px" />
         <p class="co-note">${v.mode_info}</p></div>

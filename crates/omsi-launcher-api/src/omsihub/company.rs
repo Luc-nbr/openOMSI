@@ -21,6 +21,8 @@ mod age;
 mod career;
 pub mod casual;
 mod chooser;
+// (Beta 62: the country the company plays in - its people's names)
+mod country;
 mod dealer;
 mod dialogs;
 // (an own line's change taking effect on its day, Trello "Tauri 6/6")
@@ -1583,6 +1585,7 @@ fn do_act(s: &mut Session, args: &Value, p: &dyn Platform) -> Answer {
             .or_else(|| launch::act(s, &what, args, p))
             .or_else(|| ops::act(s, &what, args))
             .or_else(|| sandbox::act(s, &what, args))
+            .or_else(|| country::act(s, &what, args))
             .unwrap_or_else(|| Err(format!("no action {what}"))),
     };
     r.map(|mut v| {
