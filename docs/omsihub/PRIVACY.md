@@ -55,7 +55,7 @@ Creating an account is optional. It is required only for the friends list, invit
 | Category of data | Purpose of processing | Legal basis |
 | --- | --- | --- |
 | Email address and password (the password is stored only in hashed form) | Authentication, verification of the email address, password recovery | Performance of a contract (Art. 6(1)(b) GDPR) |
-| Identifier and, where provided, the email address received from Google, Discord or Valve (Steam), if the user chooses to sign in through such a provider | Authentication | Performance of a contract (Art. 6(1)(b) GDPR) |
+| Identifier and email address received from Google, if the user chooses to sign in with a Google account | Authentication | Performance of a contract (Art. 6(1)(b) GDPR) |
 | Display name and friend code | Enabling other users to find and identify the account holder | Performance of a contract (Art. 6(1)(b) GDPR) |
 | Friends, friend requests and blocked users | Providing the friends list | Performance of a contract (Art. 6(1)(b) GDPR) |
 | Online status, time of last activity, and the session code while hosting a session | Informing friends of availability and allowing them to join; visible to friends only | Performance of a contract (Art. 6(1)(b) GDPR) |
@@ -76,7 +76,7 @@ Omsi-Hub engages the following parties in the processing of personal data.
 | Supabase, Inc. | Processor: hosting of accounts, the database and cloud saves | Frankfurt, Germany (European Union) |
 | Omsi-Hub's email service provider | Processor: sending verification and password-recovery emails | Under a data processing agreement |
 | The hosting provider of omsihub.com | Processor: serving the Website; server logs may briefly contain IP addresses | Under a data processing agreement |
-| Google LLC, Discord Inc. and Valve Corporation | Independent controllers, only where the user chooses to sign in through them; their own privacy policies apply | United States |
+| Google LLC | Independent controller, only where the user chooses to sign in with a Google account; Google's own privacy policy applies | United States |
 | GitHub, Inc. | Independent controller for update checks and downloads | United States |
 
 Where personal data is transferred to a country outside the European Economic Area, this takes place on the basis of an adequacy decision of the European Commission, including the EU–U.S. Data Privacy Framework, or the Standard Contractual Clauses adopted by the European Commission.
