@@ -354,6 +354,29 @@ plain HTML and JS) is on Supabase (see "Moving to Supabase"); `assets/auth.js` m
   under `hub-session`; the access token stays in memory. No cookie is used.
 - The leaderboard pages call `hub_leaderboard` and `hub_board_counts` with only the publishable key.
 
+## The website's side
+
+The website (its own repository, [Luc-nbr/Omsi-Hub-Website](https://github.com/Luc-nbr/Omsi-Hub-Website),
+plain HTML and JS) uses the same account, with the same calls as the app (its `assets/auth.js`
+mirrors `crates/omsihub-online/src/client.rs`):
+
+- `account.html#sign-up` makes an account: `/sign-up/email`, then the email's code
+  (`/email-otp/verify-email`) when verification is on, then `create_profile` with the display name.
+  The app's "Create an account" is to open this page.
+- `account.html#sign-in`, `#forgot` and `#reset` sign in and reset the password by code;
+  `account.html#me` (My Omsi-Hub) shows the profile and the service record, switches the
+  leaderboard (`set_leaderboard`), changes the display name (`set_display_name`) and the password
+  (`/change-password`), lists the sessions (`/list-sessions`) and signs out elsewhere
+  (`/revoke-other-sessions`).
+- Deleting the account stays in the app: only the app can reach the `saves` function, which has no
+  CORS on purpose, so only the app removes the cloud saves with the account.
+- The session token is kept in the browser's `localStorage` ("keep me signed in") or
+  `sessionStorage`, under `hub-session`; the JWT in memory only. No cookie is used.
+- Better Auth only answers a browser whose page origin it trusts. Localhost is allowed
+  (`allow_localhost`); **the site's own address has to be added as a trusted domain** (Neon Auth's
+  trusted domains, or the MCP `add_auth_trusted_domain`) before the live site can sign in. Until
+  then sign-in on the live site fails with "This website is not allowed to sign in yet".
+
 ## To do in the Neon console (not available through the API)
 
 - Auth › Email & password: turn on **verify email on sign-up** / **require email verification**.

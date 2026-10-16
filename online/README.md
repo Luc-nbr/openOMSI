@@ -9,6 +9,9 @@ Server-side code for Omsi-Hub's optional online features. Everything runs in the
 |---|---|
 | `functions/saves/index.mjs` | the `saves` Neon Function: cloud saves (presigned S3 URLs, no dependencies) |
 | `functions/saves/test.mjs` | its unit tests |
+| `functions/board/index.mjs` | the `board` Neon Function: the public, opt-in leaderboard for the website (`GET /?limit=1-100`, CORS open, cached 30 s, no dependencies) |
+| `functions/board/test.mjs` | its unit tests |
+| `leaderboard.sql` | the leaderboard's columns and functions (`set_leaderboard`, `report_stats`, `hub_leaderboard`, `hub_board_counts`), applied 2026-10-16 |
 
 No secret belongs in this folder. The function gets everything it needs from the variables Neon
 injects at runtime: `NEON_AUTH_JWKS_URL`, `NEON_AUTH_BASE_URL`, `AWS_ACCESS_KEY_ID`,
@@ -66,3 +69,11 @@ Then check it:
    credentials work. Any other `storage` value means the S3 side is broken.
 
 The slug `saves` is permanent and is part of the URL, so a redeploy keeps the URL.
+
+## The `board` function
+
+Deployed like `saves` (slug `board`, runtime `nodejs24`, only `index.mjs` in the zip). It reads the
+database through Neon's SQL-over-HTTP endpoint with the `DATABASE_URL` Neon injects, and only ever
+calls `hub_leaderboard` and `hub_board_counts`. URL:
+`https://br-shy-water-b9vx3gyb-board.compute.c-7.eu-central-1.aws.neon.tech/`. Smoke test: `GET /`
+answers `200 {"ok":true,...}` with `access-control-allow-origin: *`; `POST /` answers 405.
