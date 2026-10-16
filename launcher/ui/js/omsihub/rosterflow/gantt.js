@@ -125,8 +125,12 @@ export function statOf(b, row, stat) {
   }
 }
 
-/** The rows as shown (`rf_gantt::rows`): pinned first, then (filtered) by line and start, or as
- * a stats column sorts them. */
+/** Buses' numbers in their natural order ("2" before "10"). */
+const BUS_ORDER = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
+
+/** The rows as shown (`rf_gantt::rows`): pinned first, then (filtered) the buses by line and
+ * number and the duties in the order of their rows (`rosterflow::RowOrder`), or as a stats
+ * column sorts them. */
 export function rowsOf(data, drivers) {
   const r = S.rf;
   const f = r.filter;
@@ -146,7 +150,9 @@ export function rowsOf(data, drivers) {
       const k = data.lines.findIndex((x) => eq(x.name, l));
       return k < 0 ? 1e9 : k;
     };
-    const idx = b.blocks.map((_, i) => i).sort((a, c) => lineAt(b.blocks[a].line) - lineAt(b.blocks[c].line) || b.blocks[a].from - b.blocks[c].from || a - c);
+    // (by line, then by the bus's number: a bus split off or added has the next number, so it is a
+    // new row at the bottom of its line and every other row stays where it was - Luc, Beta 65)
+    const idx = b.blocks.map((_, i) => i).sort((a, c) => lineAt(b.blocks[a].line) - lineAt(b.blocks[c].line) || BUS_ORDER.compare(b.blocks[a].tour, b.blocks[c].tour) || b.blocks[a].from - b.blocks[c].from || a - c);
     for (const i of idx) {
       const t = b.blocks[i];
       if (issueRows && !issueRows.includes(`vehicle|${i}`)) continue;

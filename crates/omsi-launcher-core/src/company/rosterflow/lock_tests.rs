@@ -129,6 +129,43 @@ fn a_split_leaves_every_other_duty_as_it_is() {
 }
 
 #[test]
+fn a_split_keeps_its_row_and_the_half_cut_off_gets_a_new_row_at_the_bottom() {
+    let l = line5();
+    let mut c = two_buses_one_joined(&l);
+    let w = wd(&c);
+    let b = board_of_day(&c, &l);
+    let rows = row_duties(&b);
+    let keys: Vec<PieceRef> = rows.iter().map(|r| r.0.clone()).collect();
+    let first = joined_key(&c, &l);
+    assert_eq!(keys[0], first, "the duty from 06:00 is the first row");
+    // the first duty cut after bus 1's second trip: its second half (08:00) starts before the
+    // other rows - by their start it would be the second row, every later one a row down
+    let tours = day(&c, &l);
+    let one = at(&tours, "1");
+    let moved: Vec<TripRef> = tours[one].trips[2..4].iter().map(TripRef::of).collect();
+    st::cut(&mut c, w, &tours, one, 2).unwrap();
+    let tours = day(&c, &l);
+    keep_rows(&mut c, w, &tours, &rows, &moved);
+    let after = board_of_day(&c, &l);
+    let now: Vec<PieceRef> = row_duties(&after).into_iter().map(|r| r.0).collect();
+    assert_eq!(now.len(), keys.len() + 1);
+    assert_eq!(&now[..keys.len()], &keys[..], "every duty keeps its row");
+    let last = &after.shaped[keys.len()];
+    assert_eq!(last.label(keys.len()), format!("{}", 1001 + keys.len()));
+    assert_eq!(now[keys.len()].first.name, "5 1-2", "the half cut off is the last row");
+    // the first duty keeps its number and its first half
+    assert_eq!(after.shaped[0].key.as_ref(), Some(&first));
+    // the rows are the sheet's: undone with the draft, renamed with the line
+    assert_eq!(c.planning.flow.sheet.rows.len(), 1);
+    rename_line(&mut c, "Linie5", "Linie5a");
+    assert!(c.planning.flow.sheet.rows[0].keys.iter().all(|k| k.line == "Linie5a"));
+    // in the order of the start once Optimise made the duties anew
+    let mut v = c.clone();
+    apply(&mut v, w, c.planning.layouts.clone(), c.planning.joined.clone());
+    assert!(v.planning.flow.sheet.rows.is_empty());
+}
+
+#[test]
 fn a_locked_duty_keeps_its_own_pieces_and_the_rest_of_its_bus_can_be_cut() {
     let l = line5();
     let mut c = two_buses_one_joined(&l);
