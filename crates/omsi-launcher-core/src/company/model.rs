@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 pub type Cents = i64;
 
 /// The version of the saved file; raised when a field changes meaning (see `store::migrate`).
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 /// The company's game mode (Trello "Game modes 1/4"): one choice that sets both how much of
 /// the company the player runs himself and how hard its economy and its days are. It can be
@@ -246,10 +246,16 @@ pub enum BookingKind {
     Rewards,
     /// Agency drivers: sent on the day, or booked ahead (`agency`).
     Agency,
+    /// What the owned buses lose a month (`economy::depreciation_per_month`): a cost of the
+    /// result, not money paid (`is_cash`).
+    Depreciation,
+    /// The central overhead per bus (depot rent, management, admin, control, IT) and the buses'
+    /// ticket machines (`economy::bus_month`).
+    Overheads,
 }
 
 impl BookingKind {
-    pub const ALL: [BookingKind; 32] = [
+    pub const ALL: [BookingKind; 34] = [
         BookingKind::Capital,
         BookingKind::Loan,
         BookingKind::Repayment,
@@ -282,6 +288,8 @@ impl BookingKind {
         BookingKind::Services,
         BookingKind::Rewards,
         BookingKind::Agency,
+        BookingKind::Depreciation,
+        BookingKind::Overheads,
     ];
 
     pub fn label(self) -> &'static str {
@@ -297,12 +305,12 @@ impl BookingKind {
             BookingKind::Sale => "Bus sold",
             BookingKind::Lease => "Leasing",
             BookingKind::Rent => "Rental",
-            BookingKind::Energy => "Fuel and power",
-            BookingKind::Maintenance => "Maintenance",
+            BookingKind::Energy => "Fuel and energy",
+            BookingKind::Maintenance => "Workshop",
             BookingKind::Repair => "Repairs",
-            BookingKind::Insurance => "Insurance",
+            BookingKind::Insurance => "Insurance and tax",
             BookingKind::Depot => "Depot",
-            BookingKind::Wages => "Wages",
+            BookingKind::Wages => "Wages (paid hours)",
             BookingKind::Severance => "Severance",
             BookingKind::Recruitment => "Job adverts",
             BookingKind::Penalty => "Penalties",
@@ -318,6 +326,8 @@ impl BookingKind {
             BookingKind::Services => "Service contracts",
             BookingKind::Rewards => "Goal rewards",
             BookingKind::Agency => "Agency drivers",
+            BookingKind::Depreciation => "Depreciation",
+            BookingKind::Overheads => "Overheads",
         }
     }
 
@@ -325,6 +335,12 @@ impl BookingKind {
     /// selling buses): not part of what running the lines earns. A purchase is no bad day.
     pub fn is_capital(self) -> bool {
         matches!(self, BookingKind::Capital | BookingKind::Loan | BookingKind::Repayment | BookingKind::Purchase | BookingKind::Sale | BookingKind::Subsidy | BookingKind::Construction)
+    }
+
+    /// Money that moves the cash: everything but the depreciation (what a bus bought loses is a
+    /// cost of the month's result; its price was paid when it was bought).
+    pub fn is_cash(self) -> bool {
+        self != BookingKind::Depreciation
     }
 }
 
@@ -477,8 +493,10 @@ pub struct Employee {
     /// bus is a warning, see `staff::qualified`).
     pub experience: f64,
     pub licence: Licence,
-    /// Monthly gross wage; the company pays the employer's share on top
-    /// (`economy::employer_cost`).
+    /// Monthly gross wage for the contracted hours (`econ_uk::CONTRACT_WEEK_HOURS`; an hour is
+    /// `staff::hourly`): the company pays the hours worked and the employer's share on top
+    /// (`economy::employer_cost`, `pay`). A file of version 1 had a flat monthly wage of the old
+    /// German reference: `store::migrate` brings it to the UK model's.
     pub wage: Cents,
     /// 0 to 1: how seldom they are ill or miss a duty.
     pub reliability: f64,
@@ -534,6 +552,12 @@ pub struct Employee {
     /// file's, whose name says it).
     #[serde(default)]
     pub agency_no: u32,
+    /// A driver's week so far (`pay`): the minutes of duty paid, and the minutes the weekly
+    /// guarantee owes for the days they were there.
+    #[serde(default)]
+    pub week_paid: f64,
+    #[serde(default)]
+    pub week_due: f64,
 }
 
 /// What an employee does.
@@ -918,7 +942,9 @@ impl Company {
         if amount == 0 {
             return;
         }
-        self.cash += amount;
+        if kind.is_cash() {
+            self.cash += amount;
+        }
         let date = self.date.clone();
         let month = dates::month_of(&date);
         match self.months.iter_mut().find(|m| m.month == month) {

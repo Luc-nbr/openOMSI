@@ -34,6 +34,8 @@ pub mod dealer;
 pub mod duty_launch;
 pub mod depot;
 pub mod economy;
+// (the economy's parameters, from UK operator data: Realistic at factor 1.0)
+pub mod econ_uk;
 pub mod fares;
 pub mod finance;
 pub mod holidays;
@@ -51,6 +53,8 @@ pub mod names;
 pub mod network;
 pub mod ownline;
 pub mod parts;
+// (drivers paid by the hour of duty)
+pub mod pay;
 pub mod plan;
 pub mod plandays;
 pub mod rankings;

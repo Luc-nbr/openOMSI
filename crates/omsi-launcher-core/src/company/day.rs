@@ -269,7 +269,8 @@ pub enum Note {
     /// A leased or rented bus went back.
     Returned { number: String, name: String },
     LoanPaid { purpose: String },
-    /// The month was closed: wages, leases, insurance, depot and loan rates were booked.
+    /// The month was closed: leases, depreciation, insurance and tax, overheads and loan rates
+    /// were booked.
     Month { month: String, result: Cents },
     /// Building work at the depot was finished (the area's label).
     Built { area: String },
@@ -415,6 +416,16 @@ pub struct DayReport {
     pub late_lost: u32,
     #[serde(default)]
     pub lateness: super::lateness::Lateness,
+    /// The drivers' pay of the day (`pay`): hours of duty paid, of them overtime, hours paid by
+    /// the week's guarantee (on its last day), and what it all cost.
+    #[serde(default)]
+    pub paid_hours: f64,
+    #[serde(default)]
+    pub overtime_hours: f64,
+    #[serde(default)]
+    pub guaranteed_hours: f64,
+    #[serde(default)]
+    pub driver_wages: Cents,
 }
 
 /// Maps named alike (`maps/Grundorf/global.cfg`, with either slash and any case).
@@ -508,10 +519,12 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
     // (the diesel's price moves the diesel buses' energy only; an event on a line - roadworks,
     // a diversion - or the weather holds trips up and keeps riders away: `inbox::line_effect`)
     let power_factor = super::research::fuel_factor(c);
-    // (a sandbox's knobs: its running costs - energy, maintenance, repairs - and its accidents)
+    // (a sandbox's knobs: its running costs - energy and maintenance are in the company's level,
+    // `econ_uk::Level`; repairs here - and its accidents)
     let knobs = *super::sandbox::of(c);
     let run = knobs.running;
-    let energy_factor = move |kind: BusKind| if kind.drive == Drive::Diesel { fuel_factor * run } else { power_factor * run };
+    let level = super::econ_uk::Level::of(c);
+    let energy_factor = move |kind: BusKind| if kind.drive == Drive::Diesel { fuel_factor } else { power_factor };
     let line_effects: Vec<(f64, f64)> = c.lines.iter().map(|l| super::inbox::line_effect(c, &date, &l.number)).collect();
     let mut rng = Rng::of(&[&c.id, "day"], dates::parse(&date).unwrap_or(0));
     let mut report = DayReport { date: date.clone(), ..Default::default() };
@@ -534,7 +547,7 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
     // (what research does to a kilometre's wear and maintenance; the late trips: `lateness`)
     let upkeep = super::research::wear_factor(c);
     let wear_km = wear_per_km(&r) * upkeep;
-    let maint = upkeep * run;
+    let maint = upkeep;
     let mut on_time = 0u32;
     let mut timed = 0u32;
 
@@ -558,8 +571,8 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
             None => (BusKind { size: BusSize::Solo, drive: Drive::Diesel }, 5.0),
         };
         let s = &mut sums[li];
-        s.energy += km * economy::energy_per_km(kind, c.price_index) * energy_factor(kind);
-        s.maintenance += km * economy::maintenance_per_km(kind, age, c.price_index) * maint;
+        s.energy += km * economy::energy_per_km(kind, &level) * energy_factor(kind);
+        s.maintenance += km * economy::maintenance_per_km(kind, age, &level) * maint;
         let late = t.average.is_some_and(|a| a > 180.0) || (t.stops > 0 && t.late * 4 > t.stops);
         if t.timed() {
             timed += 1;
@@ -599,8 +612,8 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                     v.km += km.max(0.0);
                     v.condition = (v.condition - km.max(0.0) * wear_km).max(0.0);
                     let age = dates::years_between(&v.built, &date);
-                    sums[li].energy += km.max(0.0) * economy::energy_per_km(v.kind, c.price_index) * energy_factor(v.kind);
-                    sums[li].maintenance += km.max(0.0) * economy::maintenance_per_km(v.kind, age, c.price_index) * maint;
+                    sums[li].energy += km.max(0.0) * economy::energy_per_km(v.kind, &level) * energy_factor(v.kind);
+                    sums[li].maintenance += km.max(0.0) * economy::maintenance_per_km(v.kind, age, &level) * maint;
                 }
                 timed += 1;
                 if delay <= 180.0 {
@@ -650,6 +663,10 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
     let mut tally = super::incidents::Tally::default();
     let mut bus_km: Vec<(u32, f64)> = Vec::new();
     let mut worked: Vec<(u32, i32, i32, i32)> = Vec::new();
+    // (each driver's pieces of work, the bus's checks before and after included: what they are
+    // paid for, `pay`)
+    let mut pieces: Vec<(u32, i32, i32)> = Vec::new();
+    let (pre_trip, post_trip) = (c.planning.flow.prefs.pre_trip, c.planning.flow.prefs.post_trip);
     // (the ticket inspectors' lines bring in what dodgers would not pay: `staff::fare_gain`)
     let checked: Vec<f64> = c.lines.iter().map(|l| 1.0 + staff::fare_gain(c, &date, &l.name)).collect();
     // (the minutes each trip runs late, and why: `lateness`)
@@ -695,6 +712,9 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                     }
                     None => worked.push((e.id, d.to - d.from, d.to, d.from)),
                 }
+                let from = if d.start == 0 { d.from - pre_trip } else { d.from };
+                let to = if d.end >= tp.tour.trips.len() { d.to + post_trip } else { d.to };
+                pieces.push((e.id, from, to));
             }
             for j in d.start..d.end {
                 // (the player's own trips of a duty the AI finished: booked as measured)
@@ -758,8 +778,8 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                     Some(b) => b.1 += trip.km,
                     None => bus_km.push((v.id, trip.km)),
                 }
-                sums[li].energy += trip.km * economy::energy_per_km(v.kind, c.price_index) * energy_factor(v.kind);
-                sums[li].maintenance += trip.km * economy::maintenance_per_km(v.kind, age, c.price_index) * maint;
+                sums[li].energy += trip.km * economy::energy_per_km(v.kind, &level) * energy_factor(v.kind);
+                sums[li].maintenance += trip.km * economy::maintenance_per_km(v.kind, age, &level) * maint;
                 if !counts {
                     continue;
                 }
@@ -967,16 +987,15 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
         super::dealer::credit_free_service(c, id);
     }
 
-    // 7. the people tonight
+    // 7. the people tonight: the drivers paid their hours of duty (`pay`), then their night
+    let paid = super::pay::day(c, &date, &pieces);
+    (report.paid_hours, report.overtime_hours, report.guaranteed_hours, report.driver_wages) = (paid.hours, paid.overtime, paid.guaranteed, paid.cost);
     report.staff = staff::after_day(c, &worked, &mut rng);
 
     // 8. the month's end
     if dates::last_of_month(&date) {
-        // (the drivers' wages by the month; the others are paid their hours day by day,
-        // `staff::roles_day`)
-        for e in c.staff.clone().into_iter().filter(staff::paid_monthly) {
-            c.book(BookingKind::Wages, -staff::wage_for_month(&e, &month), e.name.clone(), false);
-        }
+        // (the wages are booked day by day: the drivers' hours of duty, `pay`, the others' hours,
+        // `staff::roles_day`; the month books each bus's fixed costs, `economy::bus_month`)
         let first = dates::parse(&format!("{month}-01")).unwrap_or(0);
         let last = dates::parse(&date).unwrap_or(first);
         let len = (last - first + 1).max(1) as f64;
@@ -985,26 +1004,19 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
             let b = until.and_then(dates::parse).unwrap_or(last).min(last);
             (b - a + 1).max(0) as f64
         };
+        let level = super::econ_uk::Level::of(c);
         let mut monthly: Vec<(BookingKind, Cents, String)> = Vec::new();
-        let mut depot_buses = 0;
         for v in &c.fleet {
             let text = format!("{} {}", v.number, v.name);
-            match &v.tenure {
-                Tenure::Leased { monthly: m, until, .. } => {
-                    let days = held_days(&v.acquired, Some(until));
-                    monthly.push((BookingKind::Lease, -(*m as f64 * days / len).round() as Cents, text.clone()));
-                    monthly.push((BookingKind::Insurance, -(economy::insurance_per_month(v.kind, c.price_index) as f64 * days / len).round() as Cents, text));
-                    depot_buses += 1;
-                }
-                Tenure::Owned { .. } => {
-                    let days = held_days(&v.acquired, None);
-                    monthly.push((BookingKind::Insurance, -(economy::insurance_per_month(v.kind, c.price_index) as f64 * days / len).round() as Cents, text));
-                    depot_buses += 1;
-                }
-                Tenure::Rented { .. } => {}
+            let days = match &v.tenure {
+                Tenure::Leased { until, .. } => held_days(&v.acquired, Some(until)),
+                Tenure::Owned { .. } => held_days(&v.acquired, None),
+                Tenure::Rented { .. } => continue,
+            };
+            for (kind, amount) in economy::bus_month(v, &level, &date) {
+                monthly.push((kind, -(amount as f64 * days / len).round() as Cents, text.clone()));
             }
         }
-        monthly.push((BookingKind::Depot, -economy::depot_per_month(depot_buses, c.price_index), c.depot.clone()));
         super::ownline::month_end(c);
         super::adverts::month_end(c);
         for (k, a, t) in monthly {
@@ -1029,14 +1041,16 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
         let len = dates::days_in_month(y, m) as f64;
         let last = dates::parse(&date).unwrap_or(first);
         let mut back: Vec<(BookingKind, Cents, String)> = Vec::new();
+        let level = super::econ_uk::Level::of(c);
         for v in c.fleet.iter().filter(|v| !v.held_on(&tomorrow)) {
-            let Tenure::Leased { monthly, until, .. } = &v.tenure else { continue };
+            let Tenure::Leased { until, .. } = &v.tenure else { continue };
             let a = dates::parse(&v.acquired).unwrap_or(first).max(first);
             let b = dates::parse(until).unwrap_or(last).min(last);
             let days = (b - a + 1).max(0) as f64;
             let text = format!("{} {}", v.number, v.name);
-            back.push((BookingKind::Lease, -(*monthly as f64 * days / len).round() as Cents, text.clone()));
-            back.push((BookingKind::Insurance, -(economy::insurance_per_month(v.kind, c.price_index) as f64 * days / len).round() as Cents, text));
+            for (kind, amount) in economy::bus_month(v, &level, &date) {
+                back.push((kind, -(amount as f64 * days / len).round() as Cents, text.clone()));
+            }
         }
         for (k, a, t) in back {
             c.book(k, a, t, false);
@@ -1367,7 +1381,10 @@ mod tests {
         c.date = "2024-03-31".into();
         let r = close_day(&mut c, vec![], &[]);
         let m = c.month("2024-03");
-        assert!(m.get(BookingKind::Wages) < 0 && m.get(BookingKind::Insurance) < 0 && m.get(BookingKind::Depot) < 0);
+        // (a Sunday: the week's guarantee pays the drivers who drove nothing; the bus its
+        // depreciation, insurance and tax, the overhead and the ticket machine)
+        assert!(m.get(BookingKind::Wages) < 0 && m.get(BookingKind::Insurance) < 0 && m.get(BookingKind::Overheads) < 0 && m.get(BookingKind::Depreciation) < 0);
+        assert!(c.ledger.iter().any(|b| b.kind == BookingKind::Wages && b.text.starts_with("Drivers: guaranteed hours of the week")));
         assert!(r.notes.iter().any(|n| matches!(n, Note::Month { .. })));
         assert!(c.price_index > 1.0);
         assert_eq!(c.date, "2024-04-01");
@@ -1432,10 +1449,12 @@ mod tests {
         let r = close_day(&mut c, tours, &[]);
         assert!(r.covered > 0);
         assert!(c.staff.iter().filter(|e| others.contains(&e.id)).all(|e| e.days_worked <= 1 && e.endorsements.is_empty()));
-        // the month's end booked the drivers' monthly wages by name; the others' hours by the day
+        // the drivers' hours of duty and the others' hours booked with the day, nobody's by the
+        // month
         let wages: Vec<&super::super::model::Booking> = c.ledger.iter().filter(|b| b.kind == BookingKind::Wages).collect();
-        assert!(c.staff.iter().filter(|e| drivers.contains(&e.id)).all(|e| wages.iter().any(|b| b.text == e.name)));
-        assert!(c.staff.iter().filter(|e| others.contains(&e.id)).all(|e| !wages.iter().any(|b| b.text == e.name)));
+        assert!(wages.iter().any(|b| b.text.starts_with("Drivers: paid hours of the day")) && r.paid_hours > 0.0);
+        assert!(wages.iter().any(|b| b.text.starts_with("Mechanics: hours of the day")));
+        assert!(c.staff.iter().all(|e| !wages.iter().any(|b| b.text == e.name)));
     }
 
     #[test]

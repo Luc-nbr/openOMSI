@@ -361,7 +361,7 @@ fn template(key: &str) -> Option<&'static Template> {
 
 /// The diesel's usual price a litre today (cents), before the events.
 pub fn usual_diesel(c: &Company) -> f64 {
-    economy::DIESEL_PER_L * c.price_index
+    economy::diesel_per_litre(&super::econ_uk::Level::of(c))
 }
 
 /// The event (if any) that starts on the day `start` (a day number), and how many days before

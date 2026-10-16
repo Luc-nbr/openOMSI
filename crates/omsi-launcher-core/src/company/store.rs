@@ -76,6 +76,12 @@ pub fn migrate(mut c: Company) -> Company {
     }
     // (everyone a face of their own, the wages' price index)
     super::staff::migrate(&mut c);
+    // (version 1: a flat monthly wage of the old German reference; version 2 pays drivers by the
+    // hour of duty at the UK model's rates, `pay` - every wage moved to the new market, each
+    // person as far above or below it as before)
+    if c.version < 2 {
+        super::staff::rebase_wages(&mut c);
+    }
     c.version = VERSION;
     c
 }

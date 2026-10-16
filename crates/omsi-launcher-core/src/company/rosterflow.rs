@@ -1414,12 +1414,13 @@ impl Figures {
 pub fn rates(c: &Company) -> (f64, Cents, Cents, f64) {
     let p = &c.planning.flow.prefs;
     let drivers: Vec<Cents> = c.staff.iter().filter(|e| staff::drives(e)).map(|e| e.wage).collect();
-    let wage = if drivers.is_empty() { economy::market_wage(45.0, c.price_index) } else { drivers.iter().sum::<Cents>() / drivers.len() as Cents };
+    let level = super::econ_uk::Level::of(c);
+    let wage = if drivers.is_empty() { economy::market_wage(45.0, &level) } else { drivers.iter().sum::<Cents>() / drivers.len() as Cents };
     let hour = p.wage.map(|w| w as f64).unwrap_or_else(|| staff::hourly(economy::employer_cost(wage)));
     let fixed = p.driver_fixed.unwrap_or((hour * 3.0).round() as Cents);
     let bus = BusKind { size: BusSize::Solo, drive: Drive::Diesel };
-    let per_km = p.per_km.map(|k| k as f64).unwrap_or_else(|| economy::energy_per_km(bus, c.price_index) + economy::maintenance_per_km(bus, 5.0, c.price_index));
-    let day = p.vehicle_fixed.unwrap_or(economy::insurance_per_month(bus, c.price_index) / 30);
+    let per_km = p.per_km.map(|k| k as f64).unwrap_or_else(|| economy::energy_per_km(bus, &level) + economy::maintenance_per_km(bus, 5.0, &level));
+    let day = p.vehicle_fixed.unwrap_or(economy::insurance_per_month(bus, &level) / 30);
     (hour, fixed, day, per_km)
 }
 

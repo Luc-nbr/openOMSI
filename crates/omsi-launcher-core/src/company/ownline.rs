@@ -681,9 +681,6 @@ impl Estimate {
     }
 }
 
-/// Productive hours of a full-time driver a month (39 hours a week, less holidays, sickness
-/// and training: about 1,680 hours a year at the wheel).
-pub const DRIVER_HOURS: f64 = 140.0;
 /// The depot run (Betriebsfahrt) before a tour's first trip and after its last: empty, no
 /// line, no passengers - kilometres and driver time that earn nothing. Where the depot lies
 /// on the map is not known: 3 km each way, 8 minutes.
@@ -714,6 +711,7 @@ pub fn estimate(c: &Company, l: &LineDesign, shape: &Shape) -> Estimate {
     let k = costs(c.game_mode);
     let r = economy::rules(c.game_mode);
     let pi = c.price_index;
+    let level = super::econ_uk::Level::of(c);
     let kind = l.service;
     let mut e = Estimate::default();
     let f = forecast(l, potential_of(kind, shape, &k, r.fare, l.live_displays));
@@ -840,21 +838,25 @@ pub fn estimate(c: &Company, l: &LineDesign, shape: &Shape) -> Estimate {
         let days = month_days(kind, t.day);
         // (with the depot runs: empty kilometres, and the driver's time on them)
         let km = (t.km + 2.0 * DEPOT_RUN_KM) * booked[t.day];
-        energy += km * economy::energy_per_km(bus, pi) * days;
-        upkeep += km * economy::maintenance_per_km(bus, 3.0, pi) * days;
+        energy += km * economy::energy_per_km(bus, &level) * days;
+        upkeep += km * economy::maintenance_per_km(bus, 3.0, &level) * days;
         hours += ((t.to - t.from) as f64 + 2.0 * DEPOT_RUN_MIN as f64 + TOUR_EXTRA) / 60.0 * days;
     }
     e.monthly.push(("Fuel", -energy.round() as Cents));
     e.monthly.push(("Maintenance", -upkeep.round() as Cents));
-    let per_hour = economy::employer_cost(economy::market_wage(45.0, pi)) as f64 / DRIVER_HOURS;
+    // (a driver's paid hour all in, and the paid hours a timetabled hour takes: signing on and
+    // off, breaks, the week's guarantee - `econ_uk::PAID_PER_TIMETABLED_HOUR`)
+    let per_hour = super::pay::driver_hour(c) * super::econ_uk::PAID_PER_TIMETABLED_HOUR;
     e.monthly.push(("Drivers", -(hours * per_hour).round() as Cents));
     let buses: f64 = e
         .fleet
         .iter()
         .map(|(s, n)| {
             let kind = BusKind { size: *s, drive: Drive::Diesel };
-            let lease = economy::lease_monthly(economy::new_price(kind, &r, pi), &r);
-            *n as f64 * (lease + economy::insurance_per_month(kind, pi)) as f64 + *n as f64 * 150_00 as f64 * pi
+            let bought = economy::rules_for(c);
+            let lease = economy::lease_monthly(economy::new_price(kind, &bought, pi), &bought);
+            let fixed = economy::insurance_per_month(kind, &level) + economy::ticket_machine_per_month(&level) + economy::overhead_per_month(&level);
+            *n as f64 * (lease + fixed) as f64
         })
         .sum();
     e.monthly.push(("Buses", -buses.round() as Cents));

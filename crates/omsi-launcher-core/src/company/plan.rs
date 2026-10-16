@@ -46,8 +46,11 @@ pub fn spare_of_cover(id: u32) -> Option<u32> {
     (SPARE_COVER..super::agency::BOOKED_BASE).contains(&id).then(|| id - SPARE_COVER)
 }
 
-/// An agency driver's hour, the agency's margin included (founding day's prices).
-pub const AGENCY_HOUR: Cents = 42_00;
+/// An agency driver's hour sent on the day itself, the agency's margin included: a premium on a
+/// driver's paid hour (`pay::agency_hour`, `econ_uk::AGENCY_SAME_DAY`).
+pub fn agency_hour(c: &Company) -> f64 {
+    super::pay::agency_hour(c, false)
+}
 
 /// The agency drivers a day's plan takes for what fell out or stayed free (not those fixed in the
 /// roster, nor those booked ahead: `agency`).
@@ -89,7 +92,7 @@ pub fn agency_room(_c: &Company, _dp: &DayPlan, _ti: usize, _k: usize) -> bool {
 /// joined with it (`settle_morning` pays each piece by its hours).
 pub fn agency_cost(c: &Company, dp: &DayPlan, ti: usize, k: usize) -> Cents {
     let slot = super::plandays::slot_of(c, &dp.date);
-    let hour = AGENCY_HOUR as f64 * c.price_index;
+    let hour = agency_hour(c);
     std::iter::once((ti, k))
         .chain(joined_pieces(c, slot, &dp.tours, ti, k))
         .filter_map(|(i, m)| dp.tours.get(i).and_then(|t| t.duties.get(m)))
@@ -1980,6 +1983,8 @@ pub fn agency_driver() -> Employee {
         portrait: 0,
         leave: Default::default(),
         agency_no: 0,
+        week_paid: 0.0,
+        week_due: 0.0,
     }
 }
 
@@ -2015,7 +2020,7 @@ pub fn settle_morning(c: &mut Company, dp: &DayPlan) -> (Plan, Vec<Note>) {
             plan.tours[ti].bus = Some(id);
         }
     }
-    let hour = AGENCY_HOUR as f64 * c.price_index;
+    let hour = agency_hour(c);
     for t in &dp.tours {
         for d in t.duties.iter().filter(|d| d.who == Some(Who::Agency)) {
             let cost = ((d.to - d.from).max(0) as f64 / 60.0 * hour).round() as Cents;
@@ -3046,7 +3051,7 @@ mod tests {
         assert_eq!((p.tours[0].duties[1].who, p.tours[1].duties[0].who), (Some(Who::Agency), Some(Who::Agency)));
         assert_eq!((agency_used(&p), agency_sent(&c, &p)), (2, 1));
         assert!(agency_room(&c, &p, 1, 0));
-        let hour = AGENCY_HOUR as f64 * c.price_index;
+        let hour = agency_hour(&c);
         let hours = |t: usize, k: usize| ((p.tours[t].duties[k].to - p.tours[t].duties[k].from) as f64 / 60.0 * hour).round() as Cents;
         assert_eq!(agency_cost(&c, &p, 1, 0), hours(0, 1) + hours(1, 0));
         // nothing open, and the close runs every trip

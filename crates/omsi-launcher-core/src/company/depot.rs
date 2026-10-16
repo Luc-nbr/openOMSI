@@ -6,7 +6,7 @@
 //! a diesel station and charging points (what is not filled or charged at the depot is
 //! bought dearer outside), and offices with rest rooms (the staff's satisfaction). Every level
 //! of an area costs money and days to build and something every month to keep; what the
-//! company was founded with is the rented yard `economy::depot_per_month` already pays for.
+//! company was founded with is the rented yard the overhead per bus already pays for (`economy::bus_month`).
 //!
 //! The workshop takes jobs - a service, a repair, an overhaul - one bus a bay; a job waits
 //! until a bay is free, and the bus is out of service only while it is worked on. The nightly
@@ -620,7 +620,7 @@ pub fn after_day(c: &mut Company, date: &str) -> Night {
     let fleet: Vec<_> = c.fleet.iter().filter(|v| v.held_on(date)).cloned().collect();
     let energy_today: Cents = -c.ledger.iter().filter(|b| b.date == date && b.kind == BookingKind::Energy).map(|b| b.amount).sum::<Cents>();
     if energy_today > 0 && !fleet.is_empty() {
-        let weight = |d: Drive| fleet.iter().filter(|v| v.kind.drive == d).map(|v| economy::energy_per_km(v.kind, 1.0)).sum::<f64>();
+        let weight = |d: Drive| fleet.iter().filter(|v| v.kind.drive == d).map(|v| economy::energy_per_km(v.kind, &super::econ_uk::Level::uk(1.0))).sum::<f64>();
         let (wd, we) = (weight(Drive::Diesel), weight(Drive::Electric));
         let all = (wd + we).max(1e-9);
         let n = |d: Drive| fleet.iter().filter(|v| v.kind.drive == d).count();

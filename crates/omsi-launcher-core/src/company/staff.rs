@@ -24,6 +24,7 @@
 //! (`free_portraits`, `migrate`).
 
 use super::dates;
+use super::econ_uk::{self, Level};
 use super::economy;
 use super::inbox::{self, Kind, Message};
 use super::licences::Endorsement;
@@ -242,26 +243,24 @@ impl Grade {
     }
 }
 
-/// What a role earns on the market a month (gross) with `experience`, at the prices of
-/// `price_index`. At founding: a driver €2,900 to €3,800 (`economy::market_wage`), a mechanic
-/// €3,000 to €4,000, a researcher €4,000 to €5,800, a cleaner €2,250 to €2,600, a service
-/// employee €2,550 to €3,200, a ticket inspector €2,600 to €3,200 (German tariffs of the
-/// mid-2020s, rounded).
-pub fn market_wage(role: Role, experience: f64, price_index: f64) -> Cents {
-    let (base, top): (f64, f64) = match role {
-        Role::Driver => return economy::market_wage(experience, price_index),
-        Role::Mechanic => (3_000_00.0, 1_000_00.0),
-        Role::Researcher => (4_000_00.0, 1_800_00.0),
-        Role::Cleaner => (2_250_00.0, 350_00.0),
-        Role::Service => (2_550_00.0, 650_00.0),
-        Role::Inspector => (2_600_00.0, 600_00.0),
-    };
+/// What a role earns on the market a month (gross, for the contracted hours) with `experience`,
+/// at the company's level (`econ_uk::Level`: its mode, its country, its prices): the UK's hourly
+/// rates of 2022 (`econ_uk::role_hour`; a driver `economy::market_wage`), from a beginner's to
+/// the most experienced's, to the ten euros.
+pub fn market_wage(role: Role, experience: f64, lv: &Level) -> Cents {
+    if role == Role::Driver {
+        return economy::market_wage(experience, lv);
+    }
+    let (base, top) = econ_uk::role_hour(role);
     let x = experience.clamp(0.0, 100.0) / 100.0;
-    (((base + top * x) * price_index / 10_00.0).round() as Cents) * 10_00
+    let month = econ_uk::gbp(base * (1.0 + top * x)) * econ_uk::contract_month_hours() * lv.wages * lv.price_index;
+    ((month / 10_00.0).round() as Cents) * 10_00
 }
 
-/// The hours a month's wage pays: forty a week.
-pub const MONTH_HOURS: f64 = 40.0 * 52.0 / 12.0;
+/// The hours a month's wage pays: the contracted week's (`econ_uk::CONTRACT_WEEK_HOURS`).
+pub fn month_hours() -> f64 {
+    econ_uk::contract_month_hours()
+}
 /// The night (20:00 to 06:00) is paid half as much again.
 pub const NIGHT_FROM: i32 = 20 * 60;
 pub const NIGHT_TO: i32 = 6 * 60;
@@ -275,7 +274,7 @@ pub const STANDARD_DAY: i32 = 480;
 
 /// An hour of a monthly wage (cents, gross).
 pub fn hourly(wage: Cents) -> f64 {
-    wage as f64 / MONTH_HOURS
+    wage as f64 / month_hours()
 }
 
 /// The minutes of `from..to` (minutes of a day; `to` may pass midnight) that fall in the
@@ -897,13 +896,13 @@ pub fn roles_day(c: &mut Company, date: &str, report: &mut super::day::DayReport
         let name = e.name.clone();
         inbox::post(c, Message::new(Kind::Staff, "No answer for %{name}", "%{name} asked for a raise and heard nothing back: they take it as a no, and are less satisfied.").arg("name", name));
     }
-    let price_index = c.price_index;
+    let level = Level::of(c);
     let mut asking: Vec<(u32, f64)> = Vec::new();
     for e in c.staff.iter().filter(|e| e.employed_on(&tomorrow) && e.notice_until.is_none() && dates::between(&e.hired, date) >= 60) {
         if c.staff_rules.ask_of(e.id).is_some() {
             continue;
         }
-        let market = market_wage(e.role, e.experience, price_index) as f64;
+        let market = market_wage(e.role, e.experience, &level) as f64;
         let draw = rng.f64();
         if (e.wage as f64) < market * 0.99 && e.satisfaction < 60.0 && draw < 1.0 / 45.0 {
             let share = ((market / e.wage.max(1) as f64 - 1.0 + 0.02).clamp(0.03, 0.12) * 100.0).round() / 100.0;
@@ -980,9 +979,9 @@ pub fn staying(c: &Company, role: Role, day: &str) -> usize {
 /// ask against the market (None: nobody, or a role the company may not hire yet).
 pub fn best_applicant(c: &Company, role: Role) -> Option<Applicant> {
     hireable(c, role).ok()?;
-    let pi = c.price_index;
+    let level = Level::of(c);
     applicants_of(c, role).into_iter().filter(|a| a.licence == Licence::D).max_by(|a, b| {
-        let score = |x: &Applicant| x.experience - 100.0 * (x.wage as f64 / market_wage(role, x.experience, pi) as f64 - 1.0);
+        let score = |x: &Applicant| x.experience - 100.0 * (x.wage as f64 / market_wage(role, x.experience, &level) as f64 - 1.0);
         score(a).total_cmp(&score(b))
     })
 }
@@ -1144,6 +1143,36 @@ pub fn migrate(c: &mut Company) {
             note_portrait(c, p);
         }
     }
+}
+
+/// What the market paid a month before the UK model (a file of version 1): the German tariffs of
+/// the mid-2020s, a flat monthly wage.
+fn legacy_market_wage(role: Role, experience: f64, price_index: f64) -> Cents {
+    let (base, top): (f64, f64) = match role {
+        Role::Driver => (2_900_00.0, 900_00.0),
+        Role::Mechanic => (3_000_00.0, 1_000_00.0),
+        Role::Researcher => (4_000_00.0, 1_800_00.0),
+        Role::Cleaner => (2_250_00.0, 350_00.0),
+        Role::Service => (2_550_00.0, 650_00.0),
+        Role::Inspector => (2_600_00.0, 600_00.0),
+    };
+    let x = experience.clamp(0.0, 100.0) / 100.0;
+    (((base + top * x) * price_index / 10_00.0).round() as Cents) * 10_00
+}
+
+/// A file of version 1 (`store::migrate`): every wage moved from the old flat monthly wage to the
+/// UK model's wage for the contracted hours (`pay`), each person as far above or below the market
+/// as they were.
+pub fn rebase_wages(c: &mut Company) {
+    let level = Level::of(c);
+    let price_index = c.price_index;
+    for e in c.staff.iter_mut() {
+        let old = legacy_market_wage(e.role, e.experience, price_index).max(1) as f64;
+        let own = (e.wage as f64 / old).clamp(0.5, 2.0);
+        e.wage = ((market_wage(e.role, e.experience, &level) as f64 * own / 10_00.0).round() as Cents) * 10_00;
+        (e.week_paid, e.week_due) = (0.0, 0.0);
+    }
+    c.staff_rules.wage_index = price_index;
 }
 
 // --- the labour market ---------------------------------------------------------------------
@@ -1350,7 +1379,7 @@ fn drivers_market(c: &Company, used: &mut HashSet<String>) -> Vec<Applicant> {
                 endorsements.push(x);
             }
         }
-        let wage = ((economy::market_wage(experience, c.price_index) as f64 * rng.range(0.94, 1.10) * (1.0 + 0.03 * endorsements.len() as f64) / 10_00 as f64).round() as Cents) * 10_00;
+        let wage = ((economy::market_wage(experience, &Level::of(c)) as f64 * rng.range(0.94, 1.10) * (1.0 + 0.03 * endorsements.len() as f64) / 10_00 as f64).round() as Cents) * 10_00;
         if !taken(c, week, no) {
             out.push(Applicant { no, name, age, experience, licence, wage, reliability, skills, endorsements, role: Role::Driver, portrait: 0 });
         }
@@ -1375,7 +1404,7 @@ fn role_market(c: &Company, role: Role, used: &mut HashSet<String>) -> Vec<Appli
         let service = skill(&mut rng, if matches!(role, Role::Service | Role::Inspector) { 45.0 } else { 32.0 });
         let punctuality = skill(&mut rng, 38.0);
         let reliability = (rng.range(0.74, 0.99) * 100.0).round() / 100.0;
-        let wage = ((market_wage(role, experience, c.price_index) as f64 * rng.range(0.94, 1.10) / 10_00 as f64).round() as Cents) * 10_00;
+        let wage = ((market_wage(role, experience, &Level::of(c)) as f64 * rng.range(0.94, 1.10) / 10_00 as f64).round() as Cents) * 10_00;
         if !taken(c, week, no) {
             out.push(Applicant { no, name, age, experience, licence: Licence::D, wage, reliability, skills: Skills { driving: 0.0, punctuality, service }, endorsements: Vec::new(), role, portrait: 0 });
         }
@@ -1438,6 +1467,8 @@ pub fn hire(c: &mut Company, a: &Applicant) -> Result<u32, &'static str> {
         portrait,
         leave: Default::default(),
         agency_no: 0,
+        week_paid: 0.0,
+        week_due: 0.0,
     });
     // (the induction: the fleet's models)
     if a.role == Role::Driver {
@@ -1521,15 +1552,10 @@ pub fn bonus(c: &mut Company, id: u32) -> Result<Cents, &'static str> {
     Ok(cost)
 }
 
-/// What someone costs a month (gross and the employer's share).
+/// What someone costs a month at their contracted hours (gross and the employer's share; a
+/// driver's overtime comes on top, `pay`).
 pub fn monthly_cost(e: &Employee) -> Cents {
     economy::employer_cost(e.wage)
-}
-
-/// Whether someone's wage is booked by the month (the drivers); the others are paid their hours
-/// day by day (`roles_day`).
-pub fn paid_monthly(e: &Employee) -> bool {
-    drives(e)
 }
 
 /// What happened to someone tonight (for the day's report).
@@ -1541,18 +1567,6 @@ pub enum StaffNote {
     Resigned { name: String, until: String },
     Unhappy { name: String },
     Left { name: String },
-}
-
-/// The wage for the days of `month` someone was employed (pro rata).
-pub fn wage_for_month(e: &Employee, month: &str) -> Cents {
-    let Some(first) = dates::parse(&format!("{month}-01")) else { return 0 };
-    let (y, m, _) = dates::civil_from_days(first);
-    let len = dates::days_in_month(y, m) as i64;
-    let last = first + len - 1;
-    let from = dates::parse(&e.hired).unwrap_or(first).max(first);
-    let to = e.notice_until.as_deref().and_then(dates::parse).unwrap_or(last).min(last);
-    let days = (to - from + 1).max(0);
-    (economy::employer_cost(e.wage) as f64 * days as f64 / len as f64).round() as Cents
 }
 
 /// Whether the inbox told about `name` under `title` in the last `days` days.
@@ -1578,7 +1592,7 @@ pub fn after_day(c: &mut Company, worked: &[(u32, i32, i32, i32)], rng: &mut Rng
     // (how many of the drivers who could drive did: no one in reserve is felt)
     let available = c.staff.iter().filter(|e| drives(e) && e.employed_on(&today) && !e.absent(&today)).count();
     let pressure = if available > 0 { ((worked.len() as f64 / available as f64 - 0.75) * 4.0).clamp(0.0, 1.0) } else { 0.0 };
-    let price_index = c.price_index;
+    let level = Level::of(c);
     for e in c.staff.iter_mut() {
         let w = if drives(e) { worked.iter().find(|w| w.0 == e.id) } else { None };
         if drives(e) {
@@ -1598,7 +1612,7 @@ pub fn after_day(c: &mut Company, worked: &[(u32, i32, i32, i32)], rng: &mut Rng
                 }
             }
         }
-        let market = market_wage(e.role, e.experience, price_index) as f64;
+        let market = market_wage(e.role, e.experience, &level) as f64;
         let overtime = w.is_some_and(|w| w.1 > DAY_TARGET);
         let holiday = e.on_holiday(&today).is_some();
         // (holidays refused lately weigh on them: `holidays::grudge`)
@@ -1649,8 +1663,9 @@ pub fn after_day(c: &mut Company, worked: &[(u32, i32, i32, i32)], rng: &mut Rng
     notes.extend(super::holidays::night(c, &today));
     for id in leaving {
         let Some(e) = c.staff.iter().find(|e| e.id == id).cloned() else { continue };
-        if paid_monthly(&e) {
-            c.book(BookingKind::Wages, -wage_for_month(&e, &dates::month_of(&today)), e.name.clone(), false);
+        if drives(&e) {
+            // (paid by the hour of duty: the guarantee of their last week, `pay`)
+            super::pay::settle(c, e.id);
         } else {
             // (paid by the hour: their last day)
             let last = (hourly(e.wage) * STANDARD_DAY as f64 / 60.0 * (1.0 + economy::EMPLOYER_SHARE)).round() as Cents;
@@ -1802,16 +1817,16 @@ mod tests {
         let mut c = found(&Founding { name: "Leute".into(), game_mode: GameMode::Normal, date: "2024-03-04".into(), ..Default::default() }, "Luc");
         let market = applicants(&c);
         assert_eq!(market.len(), 6);
-        assert!(market.iter().all(|a| (2_500_00..4_500_00).contains(&a.wage) && (21..=63).contains(&a.age)));
+        assert!(market.iter().all(|a| (1_800_00..3_000_00).contains(&a.wage) && (21..=63).contains(&a.age)), "{:?}", market.iter().map(|a| a.wage).collect::<Vec<_>>());
         let a = market[0].clone();
         let id = hire(&mut c, &a).unwrap();
         assert_eq!(applicants(&c).len(), 5);
         assert!(hire(&mut c, &a).is_err());
         let e = c.employee(id).unwrap().clone();
-        // hired on the 4th of March: the wage for 28 of 31 days
-        assert_eq!(wage_for_month(&e, "2024-03"), (economy::employer_cost(e.wage) as f64 * 28.0 / 31.0).round() as Cents);
-        assert_eq!(wage_for_month(&e, "2024-04"), economy::employer_cost(e.wage));
-        assert_eq!(wage_for_month(&e, "2024-02"), 0);
+        // a month at the contracted hours costs the wage and the employer's share (the hours of
+        // duty are paid with the days: `pay`)
+        assert_eq!(monthly_cost(&e), economy::employer_cost(e.wage));
+        assert!((hourly(e.wage) * month_hours() - e.wage as f64).abs() < 1e-6);
         // dismissed: four weeks' notice on Realistic
         let until = dismiss(&mut c, id).unwrap();
         assert_eq!(until, "2024-04-01");
@@ -1838,13 +1853,16 @@ mod tests {
         c.staff[0].hired = "2022-03-04".into();
         dismiss(&mut c, id).unwrap();
         c.date = c.staff[0].notice_until.clone().unwrap();
+        // (eight hours of the week's guarantee not driven yet)
+        c.staff[0].week_due = 8.0 * 60.0;
         let cash = c.cash;
         let notes = after_day(&mut c, &[], &mut Rng::new(1));
         assert!(c.staff.is_empty());
         assert!(notes.contains(&StaffNote::Left { name: a.name.clone() }));
-        // the wage of April's first day, and on Hard half a month's wage per year employed
+        // the guaranteed hours of their last week, and on Realistic half a month's wage per year
+        // employed
         let severance = (a.wage as f64 * 0.5 * dates::years_between("2022-03-04", "2024-04-01")).round() as Cents;
-        let wage = (economy::employer_cost(a.wage) as f64 / 30.0).round() as Cents;
+        let wage = (hourly(a.wage) * 8.0 * (1.0 + economy::EMPLOYER_SHARE)).round() as Cents;
         assert_eq!(cash - c.cash, severance + wage);
     }
 
@@ -1884,7 +1902,7 @@ mod tests {
             assert_eq!(mine.len(), if role == Role::Driver { 6 } else { 3 }, "{role:?}");
             // (wages around the role's market)
             for a in mine {
-                let m = market_wage(role, a.experience, 1.0) as f64;
+                let m = market_wage(role, a.experience, &Level::of(&c)) as f64;
                 assert!((a.wage as f64) > m * 0.9 && (a.wage as f64) < m * 1.15, "{role:?} {}", a.wage);
             }
         }
@@ -2061,8 +2079,6 @@ mod tests {
         assert_eq!(paid, want.round() as Cents);
         let last = c.staff_rules.last.clone().unwrap();
         assert_eq!(last.roles.iter().find(|r| r.role == Role::Cleaner).unwrap().at_work as usize, sh.len());
-        // the month's end books no monthly wage for them (`paid_monthly`)
-        assert!(c.staff.iter().all(|e| !paid_monthly(e)));
         // a short core is paid four hours; the night half as much again
         let s = Shift { id: 1, role: Role::Cleaner, from: 22 * 60, to: 24 * 60, extra: None };
         assert_eq!((s.paid(), s.night()), (MIN_PAID, 120));

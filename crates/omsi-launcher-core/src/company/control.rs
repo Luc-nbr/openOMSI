@@ -474,7 +474,7 @@ pub fn live(c: &Company, dp: &DayPlan) -> Live {
     out.buses.sort_by_key(|x| std::cmp::Reverse(x.minutes));
     // the late drivers nobody covers yet
     let r = economy::rules_for(c);
-    let hour = plan::AGENCY_HOUR as f64 * c.price_index;
+    let hour = plan::agency_hour(c);
     // (the day's spare lines, and when each drives a late driver's first trips already)
     let spares = super::rosterflow::spare_lines(c, &dp.date);
     let tours: Vec<TourOfDay> = if spares.is_empty() { Vec::new() } else { dp.tours.iter().map(|t| t.tour.clone()).collect() };
@@ -553,7 +553,8 @@ pub fn live(c: &Company, dp: &DayPlan) -> Live {
 fn swap_cost(c: &Company, vehicle: u32) -> Cents {
     let Some(v) = c.vehicle(vehicle) else { return 0 };
     let age = dates::years_between(&v.built, &c.date);
-    (SWAP_KM * (economy::energy_per_km(v.kind, c.price_index) + economy::maintenance_per_km(v.kind, age, c.price_index))).round() as Cents
+    let level = super::econ_uk::Level::of(c);
+    (SWAP_KM * (economy::energy_per_km(v.kind, &level) + economy::maintenance_per_km(v.kind, age, &level))).round() as Cents
 }
 
 // --- doing it ------------------------------------------------------------------------------------
