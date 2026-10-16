@@ -48,7 +48,9 @@
 //!   extension year (`extend_due`). The average net points over the company's contracts are its
 //!   track record: its quality score in the next tenders (`quality`).
 //!
-//! Handing a contract back early costs a month's average payment (`hand_back`).
+//! Handing a contract back early costs a month's average payment (`hand_back`). A gross-cost or
+//! net-subsidy contract's line may be changed by agreement with the authority, for a fee or a
+//! penalty by the size of the change (`variations`).
 //!
 //! **Commercial lines** - the company's own lines and the map lines taken on without a tender -
 //! have no contract: no deductions, no points; late running costs them passengers and reputation
@@ -226,6 +228,22 @@ pub struct Contract {
     /// What the last months paid (month, net), the latest last: a month's average for leaving.
     #[serde(default)]
     pub paid: Vec<(String, Cents)>,
+    /// The work it was agreed for: the tender's, changed by its variations (None: an older
+    /// file's, `variations::work_of`).
+    #[serde(default)]
+    pub work: Option<Work>,
+    /// The type of bus a variation agreed (None: as tendered, the standard bus).
+    #[serde(default)]
+    pub vehicle: Option<BusSize>,
+    /// Its variations, the latest last (`variations`).
+    #[serde(default)]
+    pub variations: Vec<super::variations::Variation>,
+    /// A change agreed that the line does not run yet (`variations::Agreed`).
+    #[serde(default)]
+    pub agreed: Option<super::variations::Agreed>,
+    /// The day of the company's last offer for a change (`variations::offer`).
+    #[serde(default)]
+    pub offered: String,
 }
 
 impl Contract {
@@ -357,7 +375,7 @@ pub fn payment(c: &Company, k: &Contract) -> Cents {
 
 /// Deductions and default points apply in the company's game (not Casual's, nor a sandbox
 /// without penalties).
-fn strictness(c: &Company) -> f64 {
+pub(crate) fn strictness(c: &Company) -> f64 {
     econ_uk::mode(c.game_mode).default_points * super::sandbox::of(c).penalties
 }
 
@@ -624,6 +642,11 @@ pub fn make(c: &mut Company, line: &str, number: &str, kind: Kind, period: Perio
         record: Vec::new(),
         month: Tally::default(),
         paid: Vec::new(),
+        work: Some(*w),
+        vehicle: None,
+        variations: Vec::new(),
+        agreed: None,
+        offered: String::new(),
     }
 }
 

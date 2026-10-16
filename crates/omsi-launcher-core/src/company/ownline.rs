@@ -1114,7 +1114,10 @@ pub fn map_change_fee(c: &Company, old: &LineDesign, new: &LineDesign) -> Option
 /// editor from `old` to `new` and saved - or put back as the map has it (`new` the map's own,
 /// `restored`, nothing to pay): the route's approval paid (`map_change_fee`), the company's line
 /// numbered, coloured and captioned as the line is now, and the tours the change touches taken
-/// off the roster (their buses and drivers are given anew). Returns what was paid.
+/// off the roster (their buses and drivers are given anew); a line under a tendered contract has
+/// its change agreed as a variation of it (`variations::edit_quote`: its fee booked, a change the
+/// authority refuses not saved; put back, the contract follows). Returns what was paid for the
+/// route.
 pub fn apply_map_change(c: &mut Company, name: &str, old: &LineDesign, new: &LineDesign, restored: bool) -> Result<Cents, &'static str> {
     if !c.lines.iter().any(|x| !x.own && x.name.eq_ignore_ascii_case(name)) {
         return Err("The company does not run this line.");
@@ -1123,12 +1126,22 @@ pub fn apply_map_change(c: &mut Company, name: &str, old: &LineDesign, new: &Lin
         sizes_allowed(c, new)?;
     }
     let fee = if restored { 0 } else { map_change_fee(c, old, new).unwrap_or(0) };
-    if !c.can_pay(fee) {
+    // (a line under a tendered contract: the change is a variation of it, priced by its size)
+    let variation = if restored { None } else { super::variations::edit_quote(c, name, old, new) };
+    if let Some(r) = variation.as_ref().and_then(|q| q.refused) {
+        return Err(r);
+    }
+    if !c.can_pay(fee + variation.as_ref().map_or(0, |q| if q.covered { 0 } else { q.price() })) {
         return Err("The company cannot pay for the change: take a loan on the Finances page.");
     }
     let number = new.number.trim().to_string();
     if fee > 0 {
         c.book(BookingKind::Concession, -fee, format!("Line {number}: route approved anew"), false);
+    }
+    if restored {
+        super::variations::restore(c, name, old, new);
+    } else if let Some(q) = variation.as_ref() {
+        super::variations::settle_edit(c, name, q)?;
     }
     let replan = lines::tour_diff(old, new).replan();
     if let Some(cl) = c.lines.iter_mut().find(|x| !x.own && x.name.eq_ignore_ascii_case(name)) {

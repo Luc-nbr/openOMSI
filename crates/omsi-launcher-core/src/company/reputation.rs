@@ -53,6 +53,8 @@ pub enum Cause {
     Recovery,
     Streak,
     Complaint,
+    /// A bus contract's line changed a great deal (`variations`).
+    Variation,
     #[serde(other)]
     Other,
 }
@@ -77,6 +79,7 @@ impl Cause {
             Cause::Recovery => "A decent day: back towards normal",
             Cause::Streak => "%{n} days without a dropped trip",
             Cause::Complaint => "Passenger complaints answered",
+            Cause::Variation => "A contracted line changed a great deal",
             Cause::Other => "Other",
         }
     }
