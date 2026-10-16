@@ -2,6 +2,9 @@
 
 **Phase 1:** inventory, design and the additive foundation. Branch `r61-addon`, based on `r61-base`.
 
+**Phase 2:** the migration (§8), done as far as openOMSI's plugin API allows today. Branch
+`r62-addon2`, based on `r62-base`. What moved, what stays bundled and why: §10.
+
 ## 0. The goal
 
 Luc's words:
@@ -498,8 +501,11 @@ panel only once Omsi-Hub has written an assignment.
 
 ### During the transition
 
-The bundled build stays the default until phase 2 is done: `omsihub-release.yml` keeps
-shipping the fork's game. The add-on mode is opt-in from Settings ▸ Your openOMSI.
+The bundled build stays the default until the items §10 still lists as bundled have moved:
+`omsihub-release.yml` keeps shipping the fork's game. The add-on mode is opt-in from Settings ▸
+Your openOMSI ("Start this openOMSI for my drives"). Since phase 2 the plugin runs in both: the
+launcher installs it into its own copy of the game too, so the features that moved to the
+plugin left the game's code for both modes.
 
 ---
 
@@ -644,3 +650,151 @@ All of it is additive. No existing game code was moved or deleted.
 - `crates/omsi-app/src/lib.rs` (+1), `crates/omsi-app/src/game_lists/options.rs` (+7),
   `crates/omsi-app/src/game_lists/menu_pages.rs` (+5): PR 3.
 - New: `assets/addons.json`, `crates/omsi-app/locales/tauri-addon.yml`.
+
+---
+
+## 10. What phase 2 did
+
+Branch `r62-addon2`, based on `r62-base`. Every commit keeps every build working; the full
+tests (`cargo test --release -p omsi-launcher-core -p omsi-launcher-api -p omsi-plugin -p
+omsihub-plugin`, `cargo test -p omsi-app`) passed at each step. No pull request was opened.
+
+### How Omsi-Hub reaches the game now
+
+- **The plugin is in every game Omsi-Hub starts.** In the add-on mode (Settings ▸ Your
+  openOMSI ▸ "Start this openOMSI for my drives") that is the chosen openOMSI; otherwise it is
+  Omsi-Hub's own copy, into which the launcher puts the plugin (and keeps it up to date) by
+  itself. So the features that moved to the plugin moved for both, and the game's own hooks
+  could go.
+- **Every start gives the plugin an assignment** (`addon::assign_duty`): the company's duty or
+  the player's own drive, the driver, the map and bus, the driver's pass when signing on is
+  asked, the duty board and IBIS settings, the display font, the editor hub's "open the map
+  editor". Its texts are written beside it in the player's language (`texts.lua`). An
+  assignment older than half a day is not taken (a game started on its own later).
+- **What the plugin reports is booked by the page's poll** (`addon::book`): each trip's record
+  (Omsi-Hub's `TripRun`) goes into the driver's record (`trips/<driver>.jsonl`), which the
+  company's day takes in as before.
+- **A plain openOMSI gets only upstream's arguments:** `duty_args` leaves out the launcher's
+  own (`OWN_ARGS`: `--company`, `--duty-leg`, `--free-line`) for a game that is not an
+  Omsi-Hub build.
+
+### The plugin (crates/omsihub-plugin/lua)
+
+| File | What it does | On openOMSI's API |
+| --- | --- | --- |
+| `main.lua` | assignment, handshake, reports, notices, the company's panel | `duty.*`, `files.*`, `ui.*`, events |
+| `trip.lua` | each trip followed stop by stop into the driver's record | `stop_arrive`/`stop_depart`, `duty.trip_stops`, `jolt`, `crash`, `passenger_board`, `bus.odometer` |
+| `career.lua` | the trip judged and the fines, as the company does (a test runs it against `company::career`) | - |
+| `card.lua` | the end-of-trip card | `ui.set` (tabs, table, bar) |
+| `watch.lua` | red lights, speed cameras, comfort | `red_light`, `light_ahead`, `map.lane`, `speed` |
+| `board.lua` | the duty board | `duty.get`, `duty.stops`, `duty.trips`, `info().clock` |
+| `signon.lua` | personnel number and code, the duty order | `ui.set` inputs |
+
+Every feature is detected; a game without it keeps working with less, and the compatibility
+page lists it (`compat::FEATURES`: now also `ibis`, `display_font`, `editor`).
+
+### Status of every inventory item (§1)
+
+| # | Item | Status |
+| --- | --- | --- |
+| 1 | Branding | **Reverted in the game:** window title, title bar and the executable's ProductName are openOMSI's (`1d23db4b`). Omsi-Hub's name stays in its app. |
+| 2 | Launch of a duty | **Moved:** the chosen folder in the add-on mode; upstream's arguments only for a plain openOMSI (`414c9233`). |
+| 3 | `--company`, the company live day | **Still bundled.** It needs E6 (a timetable provider: keep a tour off the map, give a tour its bus, report the AI's trips), which reaches into `Schedule::choose` and the AI's dispatch - a deeper change than one extension point commit could carry safely untested in a running game. In the add-on mode the map's timetable runs and the company books only the player's trips. |
+| 4 | Composed duties, relief starts, free drive along a line | **Still bundled.** The game picks the entry point from the legs before the world opens (`place_on_duty`), before any plugin runs; E7 alone (a plan started by a plugin) would start a relief duty from the wrong place. Needs E7 plus a "where to start" hint in the launch. |
+| 5 | Own lines (`oo_*`, `oo_vehicles.json`) | **Still bundled** (E8 not built). The line editor's files work in any openOMSI as TTData; only the buses chosen for the line need E8. |
+| 6 | Bus options | **Works with upstream:** `--setvar` is upstream's argument. |
+| 7 | Display font | **Moved:** extension point `bus.set_display_font` (`e01f710d`), the plugin puts it on (`ba603547`), `--display-font` gone (`5cb4d96d`). The font support itself (`omsi-content` `dotfont`, `omsi-sim` `texttex`) is the fork's game code the upstream PR has to bring along. |
+| 8 | Player's own depot files | **Still bundled** (E10 is a rule of the game, `omsi-vehicle` `depot_dir`/`is_players`): offered upstream as a game fix. |
+| 9 | `--editor` | **Moved:** `game.action("object_editor")` (`84ddf492`), the plugin opens it (`ba603547`), `--editor` gone (`5cb4d96d`). |
+| 10 | Trip report card and driver's record | **Moved** (`e2872daa`, `7992ba38`); `omsi-career::write_trip` and its dependency on `omsi-launcher-core` gone (`fbbd18c6`). |
+| 11 | Drive watch | **Moved** (`43ad9c08`, `33d6e1b5`). The plugin's cameras sit by the lane's index (`map.lane`) rather than its map identity, so they are not in the same places as the game's were. |
+| 12 | Navigator duty board | **Moved** (`233f454e`, `514a8fee`): the plugin's board panel; the small navigator has upstream's schedule again, the city map's duty sheet is gone. |
+| 13 | Navigator restyle, bus stop signs | **Still bundled** (E12 not built). |
+| 14 | Navigator size, place, handle | **Still bundled**, offered upstream as a game fix. |
+| 15 | Navigator pins | **Still bundled** (E12 not built). |
+| 16 | Signing on | **Moved** (`233f454e`, `514a8fee`): the plugin's company panel; the game never asks any more. `nav_signon.rs` stays as the city map's page of the companion (phones and tablets, the duty menu, the break) until #17 moves. |
+| 17 | Companion server and pages | **Still bundled.** Its pages show the bus's devices (#18) and its duty menu works the game's own duty; split from the game they need E13 and a live link the plugin API does not have yet (E14). The companion's page in the navigator stays with it. |
+| 18 | Companion's cab devices | **Still bundled** (E13 not built). |
+| 19 | IBIS filled in automatically | **Moved:** extension point `duty.set_auto_ibis` / `duty.type_ibis` (`69e67d6a`, called E16 here), the plugin uses it (`1d562025`), the game's switch gone (`95cd2225`). The player's `ibis_auto` stays as the API's state: the upstream PR adds that field and its check in `set_duty_destination`. |
+| 20 | Head tracking, force feedback | **Still in the game**, offered upstream as a game fix. |
+| 21 | Accent colour, menu restyle, loading screen | **Still bundled.** `omsi-ui`'s accent and kit are what the fork's navigator, pins and companion page draw with; reverting them comes with E12 and #17. |
+| 22 | Translated service messages | **Still in the game**, offered upstream as a game fix. |
+| 23 | Omsi-Hub keys in `settings.rs` | **Partly reverted:** `nav_signon`, `nav_board`, `ibis_auto` are gone from the game (Omsi-Hub keeps them and gives them to the plugin). `accent`, `stop_style` (#13, #21), `nav_scale`/`nav_rect` (#14), head tracking (#20) and the companion's (#17) stay with their features. |
+| 24 | LAN date and host's duty | **Still in the game**, offered upstream as a game fix. |
+| 25 | Duplicate object ids | **Still in the game**, offered upstream as a game fix. |
+| 26 | Host bridge for the editors (`launcher/omsihub.rs`) | **Still bundled.** `omsihub-service` needs the showroom (`launcher/showroom.rs`), the navigator's road builder (`navigator/roads.rs`), the weather setup and the spawn helpers, which live in the game program, not in a library crate. Moving them to library crates is an upstream refactor of its own. |
+| 27 | The launcher service's Omsi-Hub commands | **Still bundled**, as #26. |
+| 28 | Showroom and studio rendering | **Still bundled**, as #26. |
+| 29 | Offline file writers | Library crates; stay where they are (Omsi-Hub uses them). |
+| 30 | `omsihub-livery` | Omsi-Hub's crate; only the game's studio (#27) uses it from the game side. |
+| 31 | Company, RosterFlow, Play together | Omsi-Hub's code in the launcher crates; untouched (other builders work there). |
+| 32 | The Tauri launcher's page | Omsi-Hub's; untouched apart from the add-on page. |
+| 33 | Updater pointed at the fork | **Still bundled:** the fork's own game updates from the fork's releases until the bundled build is retired (§8 step 11). |
+| 34 | `omsi-net` `http`, `Tunnel::start_with` | Used by the companion (#17) and Play together; stay. |
+| 35 | `OMSI_*` flags | **Still bundled** with the features they switch. |
+| 36 | Locales | **Moved in part:** 60 of the fork's 80 tables are the launcher page's only and are in `crates/omsihub-locales` now (`3101232e`); the game is built without them. The 20 left are used by features still in the game (the companion, the editors' studio, the navigator), and `app.yml` still holds Omsi-Hub texts the game shows. |
+| 37 | Release workflows | Untouched (the bundled build still ships). |
+| 38 | Game status for the launcher | Upstream's files; unchanged. |
+| 39 | Live position and duty | Upstream's `telemetry.json`; unchanged. |
+| 40 | Opening Omsi-Hub from a bare start | Unchanged (upstream's `OMSI_LAUNCHER`). |
+
+### The extension points (the future upstream pull requests)
+
+Each is one commit, generic (no Omsi-Hub in it), with the plugin API's tests and the
+regenerated docs:
+
+| Commit | API | Plan's name | Note for the upstream PR |
+| --- | --- | --- | --- |
+| `69e67d6a` | `duty.set_auto_ibis(on)`, `duty.type_ibis()` | E16 (new) | brings `Player::ibis_auto` and its check in `set_duty_destination` (3 lines) |
+| `84ddf492` | `game.action("object_editor")` | E11 | applies as it is |
+| `e01f710d` | `bus.set_display_font(font)` | E9 (the display font part) | needs the fork's display font support (`omsi-content` `dotfont`, `omsi-sim` `texttex::apply_display_font`) |
+| (phase 1) | `Plugins: switch a plugin off without removing it` | PR 1 | |
+| (phase 1) | `Plugins: add-ons from a catalogue, checked and unpacked` | PR 2 | |
+| (phase 1) | `Options: an Add-ons page that downloads and switches add-ons` | PR 3 | |
+
+Not built: E6 (timetable provider), E7 (duty plan), E8 (line vehicles), E10 (depot rule), E12
+(navigator layer), E13 (cab device pictures), and the bus-option event of E9 (`--setvar` is
+upstream's, so nothing waits on it).
+
+### The direction of the dependencies
+
+`crates/omsihub-plugin/tests/deps.rs` reads every crate's `Cargo.toml` and fails when a crate
+of the game (`omsi-*` outside the launcher crates) depends on an Omsi-Hub crate (`omsihub-*`)
+or on the launcher crates beyond the edges upstream has itself (`omsi-app` →
+`omsi-launcher-core/-api/-model`, `omsi-platform` → `omsi-launcher-core`), and when an
+Omsi-Hub crate depends on the game program. What is left is listed with its reason
+(`STILL_BUNDLED`): `omsi-app` → `omsihub-game` (the navigator's palette and duty state for the
+companion's page, the stop signs, the loading screen, the launcher service's editors). The
+dependency `omsi-career` → `omsi-launcher-core` is gone.
+
+The launcher crates (`omsi-launcher-core`, `-api`, `-model`) are openOMSI's own launcher, which
+upstream's game links too; Omsi-Hub's code inside them (`company/`, `omsihub/`) is the fork's
+and has to move to Omsi-Hub crates of its own before Omsi-Hub can leave (below).
+
+### Touches in the other builders' areas
+
+Company's and Omsi-Hub's Play together, the RosterFlow relay, `plandays.rs` and RosterFlow's
+copy UI were left alone, with two exceptions forced by the move of the locales (step 11):
+
+- Their translation tables (`company-together*.yml`, `rosterflow*.yml`, `tauri-rosterflow.yml`)
+  moved unchanged from `crates/omsi-app/locales` to `crates/omsihub-locales/locales`.
+- `crates/omsi-launcher-api/src/omsihub/together.rs`: one line in a test's failure message
+  names the table's new path.
+
+### What is left before Omsi-Hub moves to its own repository
+
+1. **E6, E7, E8, E12, E13** built and in openOMSI, then #3, #4, #5, #13, #15 and #18 to the
+   plugin and their hooks out of the game.
+2. **The companion (#17) into the Omsi-Hub app**, fed by `telemetry.json` and a live link from
+   the plugin (E14), with E13 for the cab's devices; then `companion/` and `nav_signon.rs` out
+   of the game.
+3. **`omsihub-service` (#26-28):** upstream moves the showroom, the road builder and the spawn
+   helpers into library crates (or Omsi-Hub keeps its own copies); then `launcher/omsihub.rs`,
+   the service's Omsi-Hub commands and the `omsi-app` → `omsihub-game` dependency go.
+4. **The look (#21) and the settings left (#23)** reverted once nothing of Omsi-Hub draws in the
+   game; the Omsi-Hub texts in `app.yml` and the 20 tables left move to `omsihub-locales`.
+5. **Omsi-Hub's code out of the launcher crates:** `omsi-launcher-core`'s `company/` (and the
+   other Omsi-Hub modules there) and `omsi-launcher-api`'s `src/omsihub/` into Omsi-Hub crates
+   that depend on openOMSI's library crates and on the launcher crates' public API only.
+6. **Releases (§8 step 11):** the app and the plugin only; `omsihub-sync.yml` and the fork's
+   copy of the game retired.
