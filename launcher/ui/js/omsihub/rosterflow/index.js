@@ -103,6 +103,12 @@ if (!handOverHooks.includes(rfTakes)) handOverHooks.push(rfTakes);
 
 // --- the page ------------------------------------------------------------------------------------------
 
+/** The days of the switcher read again (`rf_on`), as they are now. */
+async function rereadDays() {
+  const on = await rfCmd('rf_on').catch(() => null);
+  if (on?.days && on.company === S.rf.company) setRf({ days: on.days });
+}
+
 /** The day's board (`rf_board`), asked again when the day, the company or the language changed
  * or an action was taken; kept as it was when the Rust side says it is the same. */
 function useBoard() {
@@ -114,6 +120,9 @@ function useBoard() {
     rfCmd('rf_board', { day: r.day, have: S.rf.rev })
       .then((v) => {
         if (gone) return;
+        // (the company's day moved on since the switcher's days were read: read again, or every
+        // day of the switcher - and every copy to one - is the day after the one it says)
+        if (v.head?.date && S.rf.days?.[r.day] && S.rf.days[r.day].date !== v.head.date) rereadDays();
         if (v.same) setRf({ data: { ...S.rf.data, head: v.head } });
         else if (v.board) setRf({ data: v, rev: v.rev });
         else setRf({ data: { head: v.head, reading: v.reading }, rev: '' });

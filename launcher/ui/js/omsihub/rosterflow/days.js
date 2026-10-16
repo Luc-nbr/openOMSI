@@ -98,6 +98,9 @@ export function ApplyWindow({ size }) {
   const label = ticked.length ? 'Save and apply' : a.sourceAs === 'date' && !v.date_only ? 'Save for this date' : 'Save';
   const idle = !v.dirty && !ticked.length && (a.sourceAs === 'week' || v.date_only);
   const go = async () => {
+    // (once: a second click would copy again onto what the first copied)
+    if (a.busy) return;
+    put({ busy: true });
     const targets = ticked.map((d) => ({ k: d.k, as: a.as[d.k] || (d.in_type ? 'week' : 'date') }));
     const r = await rfAct('save', { apply: { source_as: a.sourceAs, targets, vehicles: a.vehicles, drivers: a.drivers } });
     settle();
@@ -144,7 +147,7 @@ export function ApplyWindow({ size }) {
     ${v.others?.length > 0 && html`<p class="rf-apply-note">${tr('Your changes on %{days} are saved too.', { days: v.others.join(', ') })}</p>`}`;
   const foot = html`<span class="grow"></span>
     <${RfButton} label="Cancel" style="width:116px;height:32px" onClick=${() => setRf({ panel: null, apply: null })} />
-    <${RfButton} label=${label} solid disabled=${idle || (ticked.length > 0 && nothing)} data="rf-apply-go" style="width:170px;height:32px" onClick=${go} />`;
+    <${RfButton} label=${label} solid disabled=${idle || a.busy || (ticked.length > 0 && nothing)} data="rf-apply-go" style="width:170px;height:32px" onClick=${go} />`;
   return shell(body, foot);
 }
 
