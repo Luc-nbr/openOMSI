@@ -1806,7 +1806,7 @@ mod tests {
 
     /// Line 5 between A and B with tours 1 (06:00) and 2 (06:30) of eight trips of 50 minutes,
     /// ten minutes at each end, and a company that runs it.
-    fn line5_company() -> (Company, omsi_launcher_lib::LineInfo) {
+    pub(super) fn line5_company() -> (Company, omsi_launcher_lib::LineInfo) {
         use omsi_launcher_lib::{LineInfo, StopInfo, TourInfo, TripInfo};
         let trip = |no: &str, k: i32, from: i32| {
             let (a, b) = if k % 2 == 0 { ("A", "B") } else { ("B", "A") };

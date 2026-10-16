@@ -1,7 +1,7 @@
 use super::super::model::{CompanyLine, GameMode};
 use super::super::network::tours_of_day;
 use super::super::studio::{self as st, Target};
-use super::super::{found, Founding};
+use super::super::{dates, found, Founding};
 use super::*;
 use crate::{StopInfo, TourInfo, TripInfo};
 
@@ -302,4 +302,135 @@ fn a_spare_line_copied_to_another_day_gets_a_number_of_its_own() {
     ids.sort_unstable();
     ids.dedup();
     assert_eq!(ids.len(), 3, "Monday's, Tuesday's and the date's: {ids:?}");
+}
+
+/// The week of `MON`, Monday first.
+const WEEK: [&str; 7] = [MON, TUE, WED, "2024-03-07", "2024-03-08", "2024-03-09", "2024-03-10"];
+
+/// `monday`'s plan made on `date`, on the plan it runs (its weekday's): a bus of its own, a cut,
+/// a split duty, a lock.
+fn planned_on(c: &mut Company, lines: &[LineInfo], date: &str) {
+    let s = slot_of(c, date);
+    let day = |c: &Company| tours_of_day(c, lines, date);
+    let tours = day(c);
+    st::move_trip(c, s, &tours, at(&tours, "2").0, 7, Target::New).unwrap();
+    let tours = day(c);
+    st::cut(c, s, &tours, at(&tours, "1").0, 4).unwrap();
+    let tours = day(c);
+    st::cut(c, s, &tours, at(&tours, "2").0, 6).unwrap();
+    let tours = day(c);
+    st::join(c, s, &tours, (at(&tours, "1").0, 0), (at(&tours, "2").0, 1)).unwrap();
+    rf::set_block_lock(c, s, "Linie5", "3", true);
+}
+
+/// Whether the day `b` runs what `a` runs: its buses, trips and duties, its joins and its lock.
+fn same_plan(c: &Company, lines: &[LineInfo], a: &str, b: &str) -> bool {
+    let (sa, sb) = (slot_of(c, a), slot_of(c, b));
+    shape(&tours_of_day(c, lines, a)) == shape(&tours_of_day(c, lines, b)) && print(c, sa, What::ALL) == print(c, sb, What::ALL) && rf::block_locked(c, sb, "Linie5", "3")
+}
+
+#[test]
+fn every_weekday_copies_onto_every_other_weekday_tuesday_too() {
+    // (testers: "it seems you can't copy the Tuesday")
+    let lines = line5();
+    for (i, a) in WEEK.iter().enumerate() {
+        for (j, b) in WEEK.iter().enumerate().filter(|(j, _)| *j != i) {
+            let mut c = company();
+            planned_on(&mut c, &lines, a);
+            let made = apply(&mut c, day(a, &lines), day(b, &lines), true, What::ALL);
+            assert!(made.exact() && !made.same_plan && made.slot == j as u8, "{a} onto {b}: {made:?}");
+            assert!(same_plan(&c, &lines, a, b), "{a} onto {b}");
+            assert_eq!(state(&c, j as u8).pattern, Some(i as u8), "{b} follows {a}");
+            // (and every week: the same weekday a week later)
+            assert_eq!(slot_of(&c, &dates::add(b, 7)), j as u8);
+        }
+    }
+    // Tuesday by name: onto it from Monday, and from it onto Wednesday, each the weekday's plan
+    let mut c = company();
+    planned_on(&mut c, &lines, MON);
+    assert_eq!(apply(&mut c, day(MON, &lines), day(TUE, &lines), true, What::ALL).slot, 1);
+    assert!(same_plan(&c, &lines, MON, TUE));
+    let made = apply(&mut c, day(TUE, &lines), day(WED, &lines), true, What::ALL);
+    assert!(made.exact() && made.slot == 2);
+    assert!(same_plan(&c, &lines, TUE, WED));
+    assert_eq!(state(&c, 2).pattern, Some(1));
+}
+
+#[test]
+fn a_copy_takes_the_draft_once_it_is_saved_and_the_saved_plan_alike() {
+    let lines = line5();
+    // from the saved plan
+    let mut c = company();
+    planned_on(&mut c, &lines, TUE);
+    assert!(apply(&mut c, day(TUE, &lines), day(WED, &lines), true, What::ALL).exact());
+    assert!(same_plan(&c, &lines, TUE, WED));
+    // from the draft: Tuesday changed in the studio and not saved - SAVE's Apply to saves it,
+    // then copies what was shown
+    let mut c = company();
+    let mut v = rf::view(&c);
+    planned_on(&mut v, &lines, TUE);
+    rf::keep_draft(&mut c, &v);
+    assert!(changed_slots(&c).contains(&1));
+    assert!(rf::save_draft(&mut c));
+    assert!(apply(&mut c, day(TUE, &lines), day(WED, &lines), true, What::ALL).exact());
+    assert!(same_plan(&c, &lines, TUE, WED));
+    assert_eq!(tours_of_day(&c, &lines, WED).len(), 3, "the draft's third bus along");
+    // a draft of another day stays as it is
+    let mut v = rf::view(&c);
+    planned_on(&mut v, &lines, "2024-03-08");
+    rf::keep_draft(&mut c, &v);
+    assert_eq!(changed_slots(&c), vec![4]);
+}
+
+#[test]
+fn a_copy_made_twice_in_a_row_is_the_same_copy() {
+    let lines = line5();
+    let mut c = company();
+    planned_on(&mut c, &lines, MON);
+    let id = rf::add_spare(&mut c, 0, "Spare", 5 * 60, 13 * 60);
+    let first = apply(&mut c, day(MON, &lines), day(TUE, &lines), true, What::ALL);
+    let print1 = print(&c, 1, What::ALL);
+    let second = apply(&mut c, day(MON, &lines), day(TUE, &lines), true, What::ALL);
+    assert!(first.exact() && second.exact(), "{second:?}");
+    assert_eq!((second.matched, second.total), (first.matched, first.total));
+    assert_eq!(print(&c, 1, What::ALL), print1);
+    // (the same buses and duties - the spare line under a number of its own)
+    assert_eq!(shape(&tours_of_day(&c, &lines, MON)), shape(&tours_of_day(&c, &lines, TUE)));
+    // one spare line on Tuesday, of a number of its own
+    let tue: Vec<u32> = c.planning.flow.sheet.spares.iter().filter(|s| s.weekday == 1).map(|s| s.id).collect();
+    assert!(tue.len() == 1 && tue[0] != id, "{tue:?}");
+    let s = state(&c, 1);
+    assert!(s.is_in_step(), "{s:?}");
+    // Refresh twice: the same again
+    assert!(recopy(&mut c, 1, day(MON, &lines), day(TUE, &lines)).unwrap().exact());
+    assert!(recopy(&mut c, 1, day(MON, &lines), day(TUE, &lines)).unwrap().exact());
+    assert_eq!(shape(&tours_of_day(&c, &lines, MON)), shape(&tours_of_day(&c, &lines, TUE)));
+    assert!(state(&c, 1).is_in_step());
+}
+
+#[test]
+fn copies_after_switching_days_and_across_the_week_boundary() {
+    let lines = line5();
+    let mut c = company();
+    // the company's day a Thursday: the switcher's week runs Thursday to Wednesday, its Tuesday
+    // the week after's
+    c.date = "2024-03-07".into();
+    let week: Vec<String> = (0..7).map(|k| dates::add(&c.date, k)).collect();
+    let (mon, tue, wed) = (week[4].as_str(), week[5].as_str(), week[6].as_str());
+    assert_eq!((slot_of(&c, mon), slot_of(&c, tue), slot_of(&c, wed)), (0, 1, 2));
+    planned_on(&mut c, &lines, mon);
+    // Monday onto Tuesday, then - the day switched to - Tuesday onto Wednesday
+    assert!(apply(&mut c, day(mon, &lines), day(tue, &lines), true, What::ALL).exact());
+    assert!(apply(&mut c, day(tue, &lines), day(wed, &lines), true, What::ALL).exact());
+    assert!(same_plan(&c, &lines, mon, wed));
+    assert!(same_plan(&c, &lines, TUE, wed), "every Tuesday, this week's too");
+    // a date of its own (this date only), then every week again onto it: the weekday's plan
+    let made = apply(&mut c, day(mon, &lines), day(&week[0], &lines), false, What::ALL);
+    assert!(made.exact() && made.slot >= FIRST_DATE_SLOT);
+    let made = apply(&mut c, day(mon, &lines), day(&week[0], &lines), true, What::ALL);
+    assert_eq!((made.slot, slot_of(&c, &week[0])), (3, 3));
+    assert!(same_plan(&c, &lines, mon, &week[0]));
+    // a day onto one that runs its plan already: nothing to copy, and said so
+    let made = apply(&mut c, day(mon, &lines), day("2024-03-18", &lines), true, What::ALL);
+    assert!(made.same_plan);
 }
