@@ -700,6 +700,12 @@ fn view(s: &mut Session) -> Value {
         "online": tr("online"), "kick_tip": tr("Send away from this session: they can join again with a new code."), "ban_tip": tr("Remove from the company: they cannot join again until you let them back in."),
         "left_label": tr("Open a duty its player left before its first trip"), "left_note": tr("Off: the AI drives a duty its player left, all of it or from where they got to. The route carries on either way."),
         "not_shared": tr("Not shared: the players keep their roles, but cannot reach you."),
+        // (the page not shared as Beta 65 draws it: the hero, the steps, the friends online, the roles)
+        "hero": tr("Run your company together"), "step": tr("Step %{n}"),
+        "friends_caps": tr("Your friends online"), "invite": tr("Invite"), "invite_tip": tr("Starts sharing if it is not on yet, then sends them the session code."),
+        "no_friends": tr("None of your friends is online right now."), "friends_off": tr("Omsi-Hub online cannot be reached now: send the session code yourself."),
+        "sign_in_text": tr("Sign in or make an account to see your friends here and invite them. Without one, send the session code yourself."), "sign_in": tr("Sign in"),
+        "roles_caps": tr("Roles"), "roles_note": tr("You choose each player's role once they have joined, and can tick more or fewer permissions on top of it."),
     });
     let mut g = hosting();
     let roles = roles_json();

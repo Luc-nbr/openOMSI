@@ -89,16 +89,16 @@ pub struct Sandbox {
     /// wanted, the map's lines without a tender, every driver qualified for every bus.
     pub unlock_all: bool,
     // the economy (factors: 1 is the game mode's)
-    /// Fares and the authority's compensation.
+    /// The income: fares, concession reimbursement, contract payments and BSOG (`econ_uk::factor`).
     pub income: f64,
     pub wages: f64,
     /// Fuel and power, maintenance and repairs.
     pub running: f64,
     /// New and used buses (and so their leasing).
     pub prices: f64,
-    /// What dropped and late trips cost under the contracts.
+    /// The bus contracts' deductions and default points (`bus_contracts::strictness`).
     pub penalties: f64,
-    /// Prices (and the contract's payment) rise over the years.
+    /// Prices rise over the years, and the contracts' payments are indexed with them.
     pub inflation: bool,
     // the operations (factors: 1 is the game mode's)
     pub breakdowns: f64,
@@ -146,6 +146,79 @@ impl Default for Sandbox {
     fn default() -> Self {
         CAREER
     }
+}
+
+/// The Sandbox page's "Relaxed" preset (Beta 65): the company cannot go broke and borrows free,
+/// earns half as much again, pays less for its people, its running and its buses, is fined half,
+/// meets half the breakdowns, accidents and illness and fewer delays, gains its reputation faster
+/// and loses it slower, and hires without limits. Nothing unlocked, no unlimited money: the game
+/// still asks something.
+pub const RELAXED: Sandbox = Sandbox {
+    unlimited_money: false,
+    no_bankruptcy: true,
+    free_loans: true,
+    unlock_all: false,
+    income: 1.5,
+    wages: 0.8,
+    running: 0.8,
+    prices: 0.75,
+    penalties: 0.5,
+    inflation: true,
+    breakdowns: 0.5,
+    accidents: 0.5,
+    lateness: 0.6,
+    sickness: 0.5,
+    reputation_gain: 1.5,
+    reputation_loss: 0.5,
+    complaints: true,
+    morale: true,
+    holidays: true,
+    free_hiring: true,
+};
+
+/// The "Hard" preset: less income, dearer people, running and buses, heavier contract penalties,
+/// more breakdowns, accidents, delays and illness, reputation slower won and faster lost.
+pub const HARD: Sandbox = Sandbox {
+    unlimited_money: false,
+    no_bankruptcy: false,
+    free_loans: false,
+    unlock_all: false,
+    income: 0.85,
+    wages: 1.2,
+    running: 1.25,
+    prices: 1.25,
+    penalties: 1.5,
+    inflation: true,
+    breakdowns: 1.5,
+    accidents: 1.5,
+    lateness: 1.3,
+    sickness: 1.5,
+    reputation_gain: 0.75,
+    reputation_loss: 1.5,
+    complaints: true,
+    morale: true,
+    holidays: true,
+    free_hiring: false,
+};
+
+/// The Sandbox page's presets: their key, their name and their knobs (any other mix is "Custom").
+pub const PRESETS: [(&str, &str, Sandbox); 3] = [("relaxed", "Relaxed", RELAXED), ("career", "Career", CAREER), ("hard", "Hard", HARD)];
+
+/// The preset the company's knobs are now (None: a mix of its own, "Custom").
+pub fn preset_of(c: &Company) -> Option<&'static str> {
+    let s = of(c);
+    PRESETS.iter().find(|p| KNOBS.iter().all(|k| s.get(k.key) == p.2.get(k.key))).map(|p| p.0)
+}
+
+/// Every knob as a preset has it (`set_knob`, each with what it does at once).
+pub fn set_preset(c: &mut Company, key: &str) -> Result<(), &'static str> {
+    let Some(p) = PRESETS.iter().find(|p| p.0 == key) else { return Err("There is no such setting.") };
+    for k in KNOBS {
+        if let Some(v) = p.2.get(k.key) {
+            set_knob(c, k.key, v)?;
+        }
+    }
+    Ok(())
 }
 
 /// The groups of the Sandbox page.
@@ -210,16 +283,16 @@ const fn factor(key: &'static str, group: Group, least: f64, most: f64, label: &
 
 /// The knobs, group by group.
 pub const KNOBS: [Knob; 20] = [
-    switch("unlimited_money", Group::Money, "Unlimited money", "Spending never fails and the balance shows ∞. The books still count every euro."),
+    switch("unlimited_money", Group::Money, "Unlimited money", "Spending never fails and the balance shows ∞. The books still count every amount."),
     switch("no_bankruptcy", Group::Money, "Never go broke", "Spending may take the balance below zero, and nothing warns of the company being in the red."),
     switch("free_loans", Group::Money, "Loans without interest", "The bank charges no interest and no fee for paying back early, on new loans and on those running."),
     switch("unlock_all", Group::Unlocks, "Everything unlocked", "Every company level's features and courses, all research, every bus size at the dealers, as many concessions as you like, the map's lines without a tender, and every driver qualified for every bus."),
-    factor("income", Group::Economy, 0.0, 10.0, "Fares and compensation", "What the passengers pay, and what the authority pays per kilometre."),
+    factor("income", Group::Economy, 0.0, 10.0, "Income", "Fares, concession reimbursement, contract payments and the BSOG fuel grant."),
     factor("wages", Group::Economy, 0.0, 5.0, "Wages", "Every wage the company pays its people."),
     factor("running", Group::Economy, 0.0, 5.0, "Running costs", "Fuel and power, maintenance and repairs."),
     factor("prices", Group::Economy, 0.1, 5.0, "Bus prices", "New and used buses at the dealers, and so their leasing rates."),
-    factor("penalties", Group::Economy, 0.0, 5.0, "Contract penalties", "What dropped and late trips cost under the contracts."),
-    switch("inflation", Group::Economy, "Inflation", "Prices rise over the years, and the contract's payment with them. Off: prices stand still."),
+    factor("penalties", Group::Economy, 0.0, 5.0, "Contract penalties", "Deductions for dropped and late journeys under the bus contracts, and their default points."),
+    switch("inflation", Group::Economy, "Inflation", "Prices rise over the years, and the contracts' payments are indexed with them. Off: prices stand still."),
     factor("breakdowns", Group::Operations, 0.0, 5.0, "Breakdowns", "How often buses break down on their way."),
     factor("accidents", Group::Operations, 0.0, 5.0, "Accidents", "How often buses have accidents: the scrapes and the serious ones."),
     factor("lateness", Group::Operations, 0.0, 3.0, "Delays", "How late the buses run: the traffic, the drivers and the buses."),
@@ -364,12 +437,7 @@ pub fn set_knob(c: &mut Company, key: &str, value: f64) -> Result<(), &'static s
 
 /// Every knob back to the Career's (the company stays a sandbox).
 pub fn reset(c: &mut Company) -> Result<(), &'static str> {
-    for k in KNOBS {
-        if let Some(v) = CAREER.get(k.key) {
-            set_knob(c, k.key, v)?;
-        }
-    }
-    Ok(())
+    set_preset(c, "career")
 }
 
 // --- the money ---------------------------------------------------------------------------------
@@ -510,6 +578,29 @@ mod tests {
     use super::super::model::{BusKind, BusSize, Drive, GameMode};
     use super::super::{economy, found, levels, market, research, staff, Founding};
     use super::*;
+
+    /// (from the cloud session's version of the presets, Beta 65)
+    #[test]
+    fn a_preset_sets_every_knob_and_is_recognised() {
+        let mut c = found(&Founding { name: "P".into(), date: "2024-03-04".into(), company_mode: CompanyMode::Sandbox, ..Default::default() }, "Luc");
+        assert_eq!(preset_of(&c), Some("career"));
+        set_preset(&mut c, "relaxed").unwrap();
+        assert_eq!(c.sandbox, RELAXED);
+        assert_eq!(preset_of(&c), Some("relaxed"));
+        set_knob(&mut c, "wages", 2.0).unwrap();
+        assert_eq!(preset_of(&c), None, "custom");
+        set_preset(&mut c, "hard").unwrap();
+        assert_eq!(preset_of(&c), Some("hard"));
+        // (every preset's values are ones the knobs can hold)
+        for (_, _, p) in PRESETS {
+            let mut x = CAREER;
+            for k in KNOBS {
+                x.set(k.key, p.get(k.key).unwrap()).unwrap();
+            }
+            assert_eq!(x, p);
+        }
+        assert!(set_preset(&mut c, "nope").is_err());
+    }
 
     fn company(mode: CompanyMode) -> Company {
         found(&Founding { name: "Sandbus".into(), game_mode: GameMode::Normal, date: "2024-03-04".into(), company_mode: mode, ..Default::default() }, "Luc")

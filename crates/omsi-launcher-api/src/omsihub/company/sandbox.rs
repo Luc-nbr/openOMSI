@@ -151,10 +151,16 @@ pub fn view(s: &mut Session) -> Value {
         .iter()
         .map(|g| {
             let knobs: Vec<Value> = KNOBS.iter().filter(|k| k.group == *g).map(|k| knob_json(&c, k)).collect();
-            json!({ "label": tr(g.label()), "caps": tr(g.label()).to_uppercase(), "icon": g.icon(), "knobs": knobs })
+            json!({ "key": g.label().to_lowercase(), "label": tr(g.label()), "caps": tr(g.label()).to_uppercase(), "icon": g.icon(), "sub": tr(group_sub(*g)), "info": tr(group_info(*g)), "changed": knobs.iter().filter(|k| k["changed"] == true).count(), "knobs": knobs })
         })
         .collect();
     let changed = KNOBS.iter().filter(|k| !sb::of(&c).is_career(k.key)).count();
+    let now = sb::preset_of(&c);
+    let presets: Vec<Value> = sb::PRESETS
+        .iter()
+        .map(|p| json!({ "key": p.0, "label": tr(p.1), "on": now == Some(p.0), "tip": tr(preset_tip(p.0)) }))
+        .chain(std::iter::once(json!({ "key": "custom", "label": tr("Custom"), "on": now.is_none(), "tip": tr("Your own mix: set each knob below.") })))
+        .collect();
     json!({
         "title": tr("Sandbox"),
         "intro": tr("Set the company's rules the way you like them. Every setting starts as a career company has it; change it here at any time."),
@@ -169,7 +175,43 @@ pub fn view(s: &mut Session) -> Value {
         "reputation": { "label": tr("Reputation"), "value": format!("{} %", num(c.reputation.clamp(0.0, 100.0), 1)), "points": (c.reputation * 10.0).round() / 10.0, "set": tr("Set the reputation") },
         "reset_all": (changed > 0).then(|| tr("Every setting back to the career's")),
         "on": tr("On"), "off": tr("Off"),
+        // (the page as Beta 65 draws it: the head, the presets, the groups as tabs)
+        "sub": tr("Adjust the game settings to create your own bus company experience."),
+        "reset": tr("Reset to career"), "changed_n": changed,
+        "presets_caps": tr("Quick presets"), "presets": presets,
+        "set_by_hand": { "label": tr("Set by hand"), "sub": tr("Balance and reputation"), "info": tr("The company's balance and its reputation, set to the figure you type.") },
     })
+}
+
+/// A group's subtitle in the list of groups: what its knobs are.
+fn group_sub(g: Group) -> &'static str {
+    match g {
+        Group::Money => "Unlimited money, going broke, loans",
+        Group::Unlocks => "Levels, research, buses, concessions",
+        Group::Economy => "Income, wages, costs, prices",
+        Group::Operations => "Breakdowns, delays, reputation, staff",
+        Group::Staff => "Hiring",
+    }
+}
+
+/// A group's line on its card.
+fn group_info(g: Group) -> &'static str {
+    match g {
+        Group::Money => "How the company's money behaves: whether it runs out, and what the bank asks.",
+        Group::Unlocks => "What the company may use without earning it first.",
+        Group::Economy => "What the company earns and what it pays, each against a career's.",
+        Group::Operations => "What happens on the road and in the depot, and how the reputation moves.",
+        Group::Staff => "How easily the company finds its people.",
+    }
+}
+
+/// What a preset does, in a line (its button's tooltip).
+fn preset_tip(key: &str) -> &'static str {
+    match key {
+        "relaxed" => "No going broke, free loans, more income and lower costs, fewer mishaps.",
+        "hard" => "Less income, higher costs and penalties, more breakdowns and delays.",
+        _ => "Every setting as a career company has it.",
+    }
 }
 
 /// What a click on the page does.
@@ -203,6 +245,12 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Answer> {
             let value = number("value").unwrap_or(50.0);
             done(apply(s, |c| sb::set_reputation(c, value)))
         }
+        "sandbox_preset" => {
+            let key = args.get("key").and_then(Value::as_str).unwrap_or("").to_string();
+            let r = done(apply(s, |c| sb::set_preset(c, &key)));
+            s.plan = None;
+            r
+        }
         "sandbox_reset" => {
             let r = done(apply(s, sb::reset));
             s.say(tr("Every setting is back to the career's."), false);
@@ -222,6 +270,12 @@ pub fn texts() -> Vec<String> {
     }
     for g in Group::ALL {
         out.push(g.label().into());
+        out.push(group_sub(g).into());
+        out.push(group_info(g).into());
+    }
+    for p in sb::PRESETS {
+        out.push(p.1.into());
+        out.push(preset_tip(p.0).into());
     }
     for m in sb::CompanyMode::ALL {
         out.push(m.label().into());
@@ -280,6 +334,22 @@ mod tests {
         let r = act(&mut k, "sandbox_knob", &json!({ "key": "income", "value": 3.0 })).unwrap().unwrap();
         assert!(r["popup"].is_object());
         assert_eq!(k.company.as_ref().unwrap().sandbox, sb::CAREER);
+    }
+
+    #[test]
+    fn a_preset_sets_every_knob_and_a_change_makes_it_custom() {
+        let mut s = session(sb::CompanyMode::Sandbox);
+        let on = |v: &Value| v["presets"].as_array().unwrap().iter().find(|p| p["on"] == true).map(|p| p["key"].as_str().unwrap().to_string());
+        assert_eq!(on(&view(&mut s)).as_deref(), Some("career"));
+        act(&mut s, "sandbox_preset", &json!({ "key": "relaxed" })).unwrap().unwrap();
+        assert_eq!(s.company.as_ref().unwrap().sandbox, sb::RELAXED);
+        assert_eq!(on(&view(&mut s)).as_deref(), Some("relaxed"));
+        act(&mut s, "sandbox_knob", &json!({ "key": "income", "value": 3.0 })).unwrap().unwrap();
+        assert_eq!(on(&view(&mut s)).as_deref(), Some("custom"));
+        act(&mut s, "sandbox_preset", &json!({ "key": "hard" })).unwrap().unwrap();
+        assert_eq!(s.company.as_ref().unwrap().sandbox, sb::HARD);
+        act(&mut s, "sandbox_reset", &json!({})).unwrap().unwrap();
+        assert_eq!(s.company.as_ref().unwrap().sandbox, sb::CAREER);
     }
 
     #[test]

@@ -1,122 +1,131 @@
-// The workshop's stores, as our game-drawn launcher's (`company/workshop.rs`), City Bus
-// Manager's spare parts shop: four figures; a card a part - its name and picture, its price
-// (the list price struck through when the research takes some off), a slider of how many to
-// order, its stock and what the ones chosen cost -; under them the delivery (free at 16:00 or
-// at once for a fee), the sum and Buy; beside them (under them on a narrow page) the buses
-// waiting for parts, what is on order, the stores' own ordering and the mechanics.
+// The workshop's stores (`company_more/workshop.rs`; the rules are `company::parts`'), City Bus
+// Manager's spare parts shop. Beta 65, after Luc's reference: the head and three KPI cards (the
+// mechanics at work, the buses in the workshop, the parts on order); the spare parts as a table -
+// a row a part with its icon and name, its stock against what the stores keep with a level bar and
+// its minimum, its price (the list price struck through when the research takes some off), a
+// stepper of how many to order and the line's total -; beside it (under it on a narrow page) a
+// sticky column: the order's summary (the delivery, the sum and Order), the buses in repair, the
+// stores' own ordering and the mechanics.
 
-import { html, ui, setUi, useSize, textW, Icon, Btn, Section, Figure, Tag, Seg, Slider, Switch, IconBtn } from './kit.js';
-import { useMore, actMore, TextIn, box } from './more.js';
+import { html, ui, setUi, goTab, Icon, Btn, Seg, Switch } from './kit.js';
+import { useMore, actMore } from './more.js';
+import { Kpi, Card, Bar } from './pagesb.js';
 
-const CARD_W = 168;
-const CARD_H = 198;
-const GAP = 14;
+const MOST = 30;
 
 export function WorkshopPage() {
   const st = ui('workshop', { counts: Array(10).fill(0), express: 0 });
   const v = useMore('workshop', { counts: st.counts, express: st.express });
-  const [ref, size] = useSize();
-  let body = null;
-  if (v?.figures && size.w > 0) {
-    const W = size.w;
-    const H = size.h;
-    const wide = W >= 980;
-    const sideW = wide ? Math.max(300, Math.min(420, W * 0.3)) : 0;
-    const mw = W - (wide ? sideW + 16 : 0);
-    const cols = mw >= 760 ? 4 : 2;
-    const fw = (mw - (cols - 1) * 12) / cols;
-    const fh = 100;
-    const fy = Math.ceil(v.figures.length / cols) * (fh + 12) + 4;
-    body = html`
-      ${v.figures.map((f, k) => html`<div style=${box((k % cols) * (fw + 12), Math.floor(k / cols) * (fh + 12), fw, fh)}><${Figure} f=${f} small=${fw < 170} /></div>`)}
-      <div class="co-scroll" style=${box(0, fy, mw, Math.max(0, H - fy))}>
-        <${Shop} v=${v} st=${st} w=${mw - 12} wide=${wide} />
-      </div>
-      ${wide && html`<div class="co-scroll" style=${box(mw + 16, 0, sideW, H)}><div style=${`width:${sideW - 10}px`}><${Side} s=${v.side} /></div></div>`}`;
-  }
-  return html`<div class="cm-page" ref=${ref}>${body}</div>`;
-}
-
-/** The parts' cards, the delivery, the sum and Buy (and on a narrow page the rest under them). */
-function Shop({ v, st, w, wide }) {
-  const cols = Math.max(1, Math.min(5, Math.floor((w + GAP) / (CARD_W + GAP))));
-  const cw = (w - (cols - 1) * GAP) / cols;
-  const y = Math.ceil(v.cards.length / cols) * (CARD_H + GAP) + 6;
+  if (!v?.table) return html`<div class="co-pgb"></div>`;
   const set = (k, n) => {
     const counts = [...st.counts];
-    counts[k] = n;
+    counts[k] = Math.max(0, Math.min(v.most || MOST, n));
     setUi('workshop', { counts });
   };
+  return html`<div class="co-pgb co-pgb-workshop">
+    <div class="co-pgb-stack">
+      <div class="co-pgb-head">
+        <span class="co-pgb-ws-hic"><${Icon} name="construction" size=${26} /></span>
+        <span class="co-pgb-names"><h2 class="co-pgb-h1">${v.head.title}</h2><span class="co-pgb-sub">${v.head.sub}</span></span>
+      </div>
+      <div class="co-pgb-kpis co-pgb-ws-kpis">${v.kpis.map((k) => html`<${Kpi} icon=${k.icon} tone=${k.tone} label=${k.label} value=${k.value} under=${k.under} />`)}</div>
+      <div class="co-pgb-ws-body">
+        <${Parts} t=${v.table} counts=${st.counts} onCount=${set} />
+        <aside class="co-pgb-ws-side">
+          <${Summary} v=${v} st=${st} />
+          <${Repair} s=${v.side} />
+          <${Auto} a=${v.side.auto} />
+          <${Mechanics} m=${v.side.mechanics} />
+        </aside>
+      </div>
+    </div>
+  </div>`;
+}
+
+/** The spare parts' table: a row a part. */
+function Parts({ t, counts, onCount }) {
+  return html`<${Card} class="co-pgb-ws-parts" icon="inventory_2" title=${t.title}>
+    <p class="co-pgb-note co-pgb-ws-sub">${t.sub}</p>
+    <div class="co-pgb-ws-table">
+      <div class="co-pgb-ws-row head">${t.cols.map((c) => html`<span>${c}</span>`)}</div>
+      ${t.rows.map((r, k) => {
+        const n = counts[k] || 0;
+        return html`<div class=${'co-pgb-ws-row' + (n > 0 ? ' on' : '')}>
+          <span class="co-pgb-ws-part"><span class="co-pgb-ws-pic"><${Icon} name=${r.icon} size=${18} /></span><b class="co-pgb-cut" title=${r.label}>${r.label}</b></span>
+          <span class="co-pgb-ws-stock">
+            <span class="co-pgb-row"><b class=${'co-pgb-num co-pgb-t-' + (r.tone === 'ok' ? 'ink' : r.tone)}>${r.level}</b><span class="co-pgb-note">${r.min}</span></span>
+            <${Bar} frac=${r.keep ? r.stock / r.keep : 0} tone=${r.tone} thin mark=${r.keep ? r.low / r.keep : null} />
+            ${r.coming && html`<span class="co-pgb-note co-pgb-t-info">${r.coming}</span>`}
+          </span>
+          <span class="co-pgb-ws-price"><b class="co-pgb-num">${r.price}</b>${r.was && html`<s class="co-pgb-num">${r.was}</s>`}</span>
+          <span class="co-pgb-ws-step">
+            <button type="button" title=${t.less} disabled=${n <= 0} onClick=${() => onCount(k, n - 1)}><${Icon} name="remove" size=${15} /></button>
+            <input type="number" min="0" max=${MOST} value=${n} onChange=${(e) => onCount(k, Math.round(Number(e.currentTarget.value) || 0))} />
+            <button type="button" title=${t.more} disabled=${n >= MOST} onClick=${() => onCount(k, n + 1)}><${Icon} name="add" size=${15} /></button>
+          </span>
+          <span class=${'co-pgb-ws-line co-pgb-num' + (r.line_on ? '' : ' off')}>${r.line}</span>
+        </div>`;
+      })}
+    </div>
+  </${Card}>`;
+}
+
+/** The order's summary: the delivery, the sum and Order (what is in the way said first). */
+function Summary({ v, st }) {
   const f = v.foot;
-  const fw = Math.min(w, 560);
-  const fx = (w - fw) / 2;
+  const s = v.summary;
   const buy = async () => {
     const r = await actMore('parts_buy', { counts: st.counts, express: st.express });
     if (r?.bought) setUi('workshop', { counts: Array(10).fill(0) });
   };
-  return html`<div style=${`position:relative;width:${w}px;height:${y + 166}px`}>
-      ${v.cards.map((c, k) => html`<${Card} c=${c} most=${v.most} store=${v.in_store} r=${{ x: (k % cols) * (cw + GAP), y: Math.floor(k / cols) * (CARD_H + GAP), w: cw, h: CARD_H }} count=${st.counts[k] || 0} onCount=${(n) => set(k, n)} />`)}
-      <${Seg} value=${st.express} options=${f.ways.map((t, k) => [k, t])} onChange=${(k) => setUi('workshop', { express: k })} style=${box(fx, y, fw, 42) + ';height:42px'} />
-      <${TextIn} x=${fx} y=${y + 48} w=${fw} h=${20} px=${13.5} tone="soft" align="center">${f.note}</${TextIn}>
-      <${TextIn} x=${fx} y=${y + 76} w=${fw} h=${34} px=${24} weight=${700} tone=${f.sum_tone} align="center">${f.sum}</${TextIn}>
-      <${Btn} kind=${f.chosen > 0 ? 'primary' : ''} icon="inventory_2" label=${f.buy} style=${box(w / 2 - 110, y + 120, 220, 46) + ';height:46px'} onClick=${buy} />
-      ${f.chosen > 0 && html`<${IconBtn} icon="close" size=${20} title=${f.clear} style=${box(w / 2 + 110 + 12 + 2, y + 123 + 2, 36, 36)} onClick=${() => setUi('workshop', { counts: Array(10).fill(0) })} />`}
+  const ways = s.ways.map(([a, b], k) => [k, html`<span class="co-pgb-ws-way"><b>${a}</b><span>${b}</span></span>`]);
+  return html`<${Card} class="co-pgb-ws-sum" icon="receipt_long" title=${s.title}>
+    <p class="co-pgb-note">${s.sub}</p>
+    <div class="co-pgb-ws-ways"><${Seg} value=${st.express} options=${ways} onChange=${(k) => setUi('workshop', { express: k })} /></div>
+    <p class="co-pgb-note">${f.note}</p>
+    <div class="co-pgb-ws-total"><span>${s.total}</span><b class=${'co-pgb-num' + (f.sum_tone === 'danger' ? ' co-pgb-t-danger' : '')}>${s.amount}</b></div>
+    <div class="co-pgb-row">
+      <${Btn} kind="primary" icon="inventory_2" label=${s.order} class="co-pgb-big co-pgb-grow" disabled=${!(f.chosen > 0)} onClick=${buy} />
+      ${f.chosen > 0 && html`<button type="button" class="co-pgb-round" title=${f.clear} onClick=${() => setUi('workshop', { counts: Array(10).fill(0) })}><${Icon} name="close" size=${16} /></button>`}
     </div>
-    ${!wide && html`<div style="margin-top:18px;width:${w}px"><${Side} s=${v.side} /></div>`}`;
+    ${v.side.orders.rows.length > 0 && html`<div class="co-pgb-ws-orders">
+      <span class="co-pgb-caps">${v.side.orders.title}</span>
+      ${v.side.orders.rows.map((o) => html`<div class="co-pgb-ws-order"><${Icon} name="schedule" size=${14} /><span class="co-pgb-grow"><b class="co-pgb-cut">${o.what}</b><span class="co-pgb-note co-pgb-cut" title=${o.parts}>${o.parts}</span></span></div>`)}
+    </div>`}
+  </${Card}>`;
 }
 
-/** A part's card (`workshop::part_card`). */
-function Card({ c, r, most, store, count, onCount }) {
-  const pw = textW(c.price, 16, 700);
-  const ww = c.was ? textW(c.was, 11.5, 400) : 0;
-  const px0 = r.w / 2 - (ww + 8 + pw) / 2;
-  return html`<div class=${'cm-part' + (count > 0 ? ' on' : '')} style=${box(r.x, r.y, r.w, r.h)}>
-    <${TextIn} x=${10} y=${10} w=${r.w - 20} h=${26} px=${17} weight=${700} align="center">${c.label}</${TextIn}>
-    <span class="cm-part-pic" style=${`left:${r.w / 2 - 24}px;top:38px`}><${Icon} name=${c.icon} size=${28} /></span>
-    ${c.was
-      ? html`<${TextIn} x=${px0} y=${98} w=${ww + 2} h=${22} px=${11.5} tone="dim" cls="cm-struck">${c.was}</${TextIn}>
-          <${TextIn} x=${px0 + ww + 8} y=${98} w=${pw + 4} h=${22} px=${16} weight=${700} tone="ok">${c.price}</${TextIn}>`
-      : html`<${TextIn} x=${10} y=${98} w=${r.w - 20} h=${22} px=${16} weight=${700} align="center">${c.price}</${TextIn}>`}
-    <div style=${box(12, 126, r.w - 24, 30)}><${Slider} value=${count} min=${0} max=${most} step=${1} onChange=${onCount} format=${(x) => String(Math.round(x))} /></div>
-    <span class=${'cm-icon ' + (c.stock === 0 ? 't-danger' : 't-soft')} style="left:16px;top:167px" title=${store}><${Icon} name="inventory_2" size=${16} /></span>
-    <${TextIn} x=${38} y=${164} w=${60} h=${22} px=${15.5} weight=${700} tone=${c.stock === 0 ? 'danger' : 'text'} title=${store}>${String(c.stock)}</${TextIn}>
-    <${TextIn} x=${r.w * 0.4} y=${164} w=${r.w * 0.6 - 14} h=${22} px=${15.5} weight=${700} tone=${c.line_on ? 'text' : 'dim'} align="right">${c.line}</${TextIn}>
-  </div>`;
+/** The buses in the workshop (and those waiting for parts). */
+function Repair({ s }) {
+  const r = s.repair;
+  return html`<${Card} icon="directions_bus" title=${r.title}>
+    ${r.rows.length
+      ? r.rows.map((b) => html`<div class="co-pgb-ws-bus">
+          <span class="co-pgb-ws-tag co-pgb-num">${b.number}</span>
+          <span class="co-pgb-grow"><b class="co-pgb-cut">${b.what}</b><span class="co-pgb-note co-pgb-cut">${b.until}</span>${b.parts && html`<span class="co-pgb-note co-pgb-t-warn co-pgb-cut" title=${b.parts}>${b.parts}</span>`}</span>
+        </div>`)
+      : html`<div class="co-pgb-ws-none"><span class="co-pgb-ws-none-ic"><${Icon} name="directions_bus" size=${30} /></span><b>${r.none}</b><span class="co-pgb-note">${r.none_sub}</span></div>`}
+    ${s.waiting.rows
+      .filter((w) => !r.rows.some((b) => b.number === w.number))
+      .map((w) => html`<div class="co-pgb-ws-bus">
+        <span class="co-pgb-ws-tag co-pgb-num">${w.number}</span>
+        <span class="co-pgb-grow"><b class="co-pgb-cut co-pgb-t-warn" title=${w.parts}>${w.parts}</b><span class="co-pgb-note">${w.since}</span></span>
+      </div>`)}
+  </${Card}>`;
 }
 
-/** The rest of the stores (`workshop::side`): the buses waiting for parts, what is on order, the
- * stores' own ordering, the mechanics. */
-function Side({ s }) {
-  const tagW = (t) => textW(t, 12, 700) + 16;
-  return html`<div class="cm-side">
-    <${Section} title=${s.waiting.title}>
-      <div style=${`position:relative;height:${Math.max(1, s.waiting.rows.length) * 44}px`}>
-        ${!s.waiting.rows.length && html`<${TextIn} x=${0} y=${0} w=${400} h=${24} px=${14.5} tone="soft">${s.waiting.none}</${TextIn}>`}
-        ${s.waiting.rows.map((w, k) => {
-          const pw = 26 + tagW(w.number) + 10;
-          return html`<span class="cm-icon t-soft" style=${`left:2px;top:${k * 44 + 3}px`}><${Icon} name="directions_bus" size=${16} /></span>
-            <span class="cm-icon" style=${`left:24px;top:${k * 44}px`}><${Tag} text=${w.number} tone="soft" /></span>
-            <div class="cm-txt t-warn" style=${`left:${pw}px;right:0;top:${k * 44}px;height:22px;font-size:var(--co-rows);font-weight:700`}><span class="cut">${w.parts}</span></div>
-            <div class="cm-txt t-dim" style=${`left:${pw}px;right:0;top:${k * 44 + 20}px;height:18px;font-size:var(--co-note)`}><span class="cut">${w.since}</span></div>`;
-        })}
-      </div>
-    </${Section}>
-    <${Section} title=${s.orders.title}>
-      <div style=${`position:relative;height:${Math.max(1, s.orders.rows.length) * 44}px`}>
-        ${!s.orders.rows.length && html`<${TextIn} x=${0} y=${0} w=${400} h=${24} px=${14.5} tone="soft">${s.orders.none}</${TextIn}>`}
-        ${s.orders.rows.map(
-          (o, k) => html`<span class="cm-icon t-accent2" style=${`left:2px;top:${k * 44 + 3}px`}><${Icon} name="schedule" size=${16} /></span>
-            <div class="cm-txt" style=${`left:28px;right:0;top:${k * 44}px;height:22px;font-size:var(--co-rows);font-weight:700`}><span class="cut">${o.what}</span></div>
-            <div class="cm-txt t-dim" style=${`left:28px;right:0;top:${k * 44 + 20}px;height:18px;font-size:var(--co-note)`}><span class="cut">${o.parts}</span></div>`,
-        )}
-      </div>
-    </${Section}>
-    <${Section} title=${s.auto.title}>
-      <${Switch} checked=${s.auto.on} label=${s.auto.label} onChange=${(on) => actMore('parts_auto', { on })} style="height:30px" />
-      <p class="co-note" style="margin-top:6px">${s.auto.text}</p>
-    </${Section}>
-    <${Section} title=${s.mechanics.title}>
-      <p class=${'co-note t-' + s.mechanics.tone}>${s.mechanics.text}</p>
-    </${Section}>
-  </div>`;
+/** The stores' own ordering. */
+function Auto({ a }) {
+  return html`<${Card} icon="autorenew" title=${a.title} aside=${html`<${Switch} checked=${a.on} onChange=${(on) => actMore('parts_auto', { on })} title=${a.label} />`}>
+    <p class="co-pgb-note">${a.label}. ${a.text}</p>
+    <div class=${'co-pgb-ws-autorow co-pgb-t-' + a.row_tone}><${Icon} name="inventory_2" size=${15} /><span>${a.row}</span></div>
+  </${Card}>`;
+}
+
+/** The mechanics, the Staff page a click away. */
+function Mechanics({ m }) {
+  return html`<${Card} icon="users" title=${m.title}>
+    <p class=${'co-pgb-text' + (m.tone === 'warn' ? ' co-pgb-t-warn' : '')}>${m.text}</p>
+    <button type="button" class="co-pgb-ws-link" onClick=${() => goTab(m.tab)}>${m.link}<${Icon} name="chevron_right" size=${15} /></button>
+  </${Card}>`;
 }
