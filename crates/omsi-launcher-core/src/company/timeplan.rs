@@ -611,6 +611,30 @@ pub fn retime(l: &mut LineDesign, day: usize, dir: usize, old: &RunSet, new: &Ru
     }
 }
 
+/// The running times of day group `from` copied to day groups `to` (another day group's are its
+/// own; Luc, Beta 65: "Copy timings to…"), for directions `dirs`: every trip of theirs retimed as a
+/// change of their running times retimes it (`retime`, its typed times kept as their offsets).
+/// Returns how many running times (day group and direction) were copied.
+pub fn copy_runs(l: &mut LineDesign, from: usize, to: &[usize], dirs: &[usize]) -> usize {
+    let mut plan = plan_of(l);
+    let mut n = 0;
+    let n_dirs = l.directions.len();
+    for &dir in dirs.iter().filter(|&&d| d < n_dirs) {
+        let src = plan.set(l, from, dir);
+        for &day in to.iter().filter(|&&d| d != from && d < reg::DAY_GROUPS.len()) {
+            let old = plan.set(l, day, dir);
+            let new = RunSet { day, dir, bands: src.bands.clone() };
+            retime(l, day, dir, &old, &new);
+            plan.put(new);
+            n += 1;
+        }
+    }
+    if n > 0 {
+        l.timeplan = Some(plan);
+    }
+    n
+}
+
 // --- figures --------------------------------------------------------------------------------------
 
 /// Departures in each hour from 00 to 35.
@@ -853,6 +877,35 @@ mod tests {
         let mut s2 = s.clone();
         s2.fit(&l2.directions[0]);
         assert_eq!(s2.bands[0].run, vec![2.0, 2.0, 2.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn running_times_are_copied_to_other_day_groups_and_their_trips_follow() {
+        let mut l = line();
+        // Monday to Friday's outbound with the peak; a Saturday trip at 07:30 and a Sunday one
+        let mut plan = plan_of(&l);
+        plan.put(peak_set());
+        l.timeplan = Some(plan);
+        let s = peak_set();
+        for (day, dir) in [(1, 0), (2, 0), (2, 1)] {
+            let trips = generate(&run_set(&l, day, dir), 5, 0, 450.0, 450.0, &[30.0]);
+            add_generated(&mut l, day, dir, trips);
+        }
+        let sat = l.table.iter().position(|t| t.day == 1).unwrap();
+        assert_eq!(trip(&l, sat)[4] - trip(&l, sat)[0], 8.0, "Saturday's own times");
+        // to Saturday only, this direction only
+        assert_eq!(copy_runs(&mut l, 0, &[1], &[0]), 1);
+        assert_eq!(run_set(&l, 1, 0).bands, s.bands);
+        assert_eq!(trip(&l, sat)[4] - trip(&l, sat)[0], 16.0, "the trip takes the peak's times");
+        assert_eq!(run_set(&l, 2, 0).bands.len(), 1, "Sunday as it was");
+        // to Saturday and Sunday, both directions (Monday to Friday's inbound its own times)
+        assert_eq!(copy_runs(&mut l, 0, &[1, 2, 0], &[0, 1]), 4);
+        assert_eq!(run_set(&l, 2, 0).bands, s.bands);
+        assert_eq!(run_set(&l, 2, 1).bands, run_set(&l, 0, 1).bands);
+        let sun = l.table.iter().position(|t| t.day == 2 && t.dir == 0).unwrap();
+        assert_eq!(trip(&l, sun)[4] - trip(&l, sun)[0], 16.0);
+        // nothing to copy to
+        assert_eq!(copy_runs(&mut l, 0, &[0, 7], &[0]), 0);
     }
 
     #[test]

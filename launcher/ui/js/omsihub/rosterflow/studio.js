@@ -125,7 +125,11 @@ function Toolbar({ data, drivers, proposal }) {
     <span class="grow"></span>
     ${stack > 0 && !drivers && html`<span class="rf-stackpill">${tr('Stack: %{n} unassigned', { n: stack })}</span>`}
     <span class="opt" data-rf="rf-optimise">
-      <${RfButton} label="Optimize" solid disabled=${proposal} data="rf-optimise-btn" title="Optimise the day by the preferences: the vehicles' blocks and the duties, the locked ones kept. Shown as a proposal to accept or not" style="width:140px" onClick=${() => rfAct('optimise')} />
+      ${(() => {
+        // (neither the vehicles nor the duties to make: the Optimisation settings say so)
+        const none = data.prefs && !data.prefs.optimise_vehicles && !data.prefs.optimise_duties;
+        return html`<${RfButton} label="Optimize" solid disabled=${proposal || none} data="rf-optimise-btn" title=${none ? 'Switch on the vehicles, the duties or both: Optimise has nothing to make.' : "Optimise the day by the preferences: the vehicles' blocks and the duties, the locked ones kept. Shown as a proposal to accept or not"} style="width:140px" onClick=${() => rfAct('optimise')} />`;
+      })()}
       <button type="button" class="rf-gear" title=${tr('Optimisation settings')} onClick=${() => toggle('optimise')}><${Icon} name="settings" size=${18} /></button>
     </span>
     <${IconBtn} icon="fullscreen" title="Full screen: the KPIs folded away" on=${r.fullscreen} onClick=${() => setRf({ fullscreen: !r.fullscreen })} />

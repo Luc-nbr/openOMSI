@@ -11,7 +11,7 @@
 
 use super::super::company::words::{tr, trf};
 use super::super::company::Session;
-use super::{edit, edit_with, said, Rf};
+use super::{edit_moving, edit_with_moving, refs_of, said, Rf};
 use omsi_launcher_lib::company::network::TourOfDay;
 use omsi_launcher_lib::company::rosterflow::Board;
 use omsi_launcher_lib::company::studio::{self as st, DutyGroup, DutyTarget};
@@ -172,6 +172,8 @@ pub(super) fn drop(s: &mut Session, r: &mut Rf, board: &Board, row: usize, trips
     let tours = board.tours.clone();
     let n = trips.len().to_string();
     let groups = groups_of(board, &trips);
+    // (the trips leave their duties: a duty left keeps its row, a new one gets one at the bottom)
+    let moved = refs_of(&tours, trips.iter().copied());
     if groups.len() > 1 {
         let gs = match kind {
             "duty" => match targets(board, &groups, row, to, rows) {
@@ -183,7 +185,7 @@ pub(super) fn drop(s: &mut Session, r: &mut Rf, board: &Board, row: usize, trips
         };
         let m = groups.len().to_string();
         let words = if kind == "duty" { trf("%{n} trips of %{m} duties moved to other duties", &[("n", &n), ("m", &m)]) } else { trf("%{n} trips of %{m} duties moved to new duties", &[("n", &n), ("m", &m)]) };
-        return edit_with(s, r, words, |c| st::move_to_duties(c, wd, &tours, again, &gs).map_err(|e| refusal(board, &groups, e)));
+        return edit_with_moving(s, r, words, &moved, |c| st::move_to_duties(c, wd, &tours, again, &gs).map_err(|e| refusal(board, &groups, e)));
     }
     let Some(from) = one_from(board, &groups, row) else { return json!({}) };
     let a = duty_label(board, from);
@@ -191,11 +193,11 @@ pub(super) fn drop(s: &mut Session, r: &mut Rf, board: &Board, row: usize, trips
         "duty" => {
             let Some(di) = duty_of_row(board, to) else { return said(tr(st::NOT_A_DUTY), true) };
             let words = trf("%{n} trips moved from duty %{a} to duty %{b}", &[("n", &n), ("a", &a), ("b", &board.shaped[to].label(to))]);
-            edit(s, r, words, |c| st::move_to_duty(c, wd, &tours, from, &trips, DutyTarget::Duty(di)))
+            edit_moving(s, r, words, &moved, |c| st::move_to_duty(c, wd, &tours, from, &trips, DutyTarget::Duty(di)))
         }
         "new_duty" => {
             let words = trf("%{n} trips moved from duty %{a} to a new duty", &[("n", &n), ("a", &a)]);
-            edit(s, r, words, |c| st::move_to_duty(c, wd, &tours, from, &trips, DutyTarget::New))
+            edit_moving(s, r, words, &moved, |c| st::move_to_duty(c, wd, &tours, from, &trips, DutyTarget::New))
         }
         _ => json!({}),
     }

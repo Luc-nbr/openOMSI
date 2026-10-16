@@ -762,12 +762,26 @@ pub struct Sheet {
     pub spares: Vec<Spare>,
     /// Issues dismissed: (weekday, the issue's key).
     pub dismissed: Vec<(u8, String)>,
+    /// The order the Drivers tab shows a weekday's duties in, where it is not by their start
+    /// (`RowOrder`, `keep_rows`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub rows: Vec<RowOrder>,
 }
 
 impl Sheet {
     pub fn is_empty(&self) -> bool {
-        self.locks.is_empty() && self.links.is_empty() && self.notes.is_empty() && self.spares.is_empty() && self.dismissed.is_empty()
+        self.locks.is_empty() && self.links.is_empty() && self.notes.is_empty() && self.spares.is_empty() && self.dismissed.is_empty() && self.rows.is_empty()
     }
+}
+
+/// The duties of a weekday in the order the Drivers tab shows them, by their keys (`duty_key`),
+/// top down - their numbers (1001 on) go by it. Luc (Beta 65): a duty split keeps its row and
+/// its number, the half split off gets a row of its own at the bottom; an edit never shuffles
+/// the other rows (in the order of their start, a new duty pushed every later one a row down).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct RowOrder {
+    pub weekday: u8,
+    pub keys: Vec<PieceRef>,
 }
 
 /// What the player changed and has not saved yet: the blocks, the joined duties and the sheet
@@ -896,9 +910,119 @@ pub fn draft_differs(c: &Company, weekday: u8) -> bool {
     lay(&d.layouts) != lay(&c.planning.layouts) || joined(&d.joined) != joined(&c.planning.joined)
 }
 
-/// "Discard": the draft forgotten, back to what was saved.
+/// "Discard": the draft forgotten, back to what was saved - but what the draft locks stays as the
+/// draft has it (Luc, Beta 65: "a locked duty can still be changed by Discard"): the locks, the
+/// locked buses' blocks and those with a piece of a locked duty, the locked duties' joins and
+/// notes, the locked spare duties (`keep_locked`). Returns whether there was a draft; the draft
+/// left is what was kept that the saved planning has otherwise.
 pub fn discard_draft(c: &mut Company) -> bool {
-    c.planning.flow.draft.take().is_some()
+    let Some(d) = c.planning.flow.draft.take() else { return false };
+    let mut v = view(c);
+    keep_locked(&mut v, &d);
+    keep_draft(c, &v);
+    true
+}
+
+/// What draft `d` locks put into `v` (the saved planning) as `d` has it (`discard_draft`).
+fn keep_locked(v: &mut Company, d: &Draft) {
+    // the draft's locked duties: their notes and their pieces
+    let locked: Vec<(&DutyNote, Vec<PieceRef>)> = d
+        .sheet
+        .notes
+        .iter()
+        .filter(|n| n.locked)
+        .map(|n| {
+            let group = d.joined.iter().find(|j| j.weekday == n.weekday && j.pieces.iter().any(|p| p.is(&n.key)));
+            (n, group.map(|j| j.pieces.clone()).unwrap_or_else(|| vec![n.key.clone()]))
+        })
+        .collect();
+    // the buses kept as the draft has them: those locked, those with a piece of a locked duty
+    let mut buses: Vec<(u8, String, String)> = d.sheet.locks.iter().map(|l| (l.weekday, l.line.clone(), l.tour.clone())).collect();
+    for (n, pieces) in &locked {
+        buses.extend(pieces.iter().map(|p| (n.weekday, p.line.clone(), p.tour.clone())));
+    }
+    let mut lines: Vec<(u8, String)> = Vec::new();
+    for (w, line, _) in &buses {
+        if !lines.iter().any(|(w2, l2)| w2 == w && same(l2, line)) {
+            lines.push((*w, line.clone()));
+        }
+    }
+    let p = &mut v.planning;
+    for (w, line) in lines {
+        let names: Vec<&str> = buses.iter().filter(|b| b.0 == w && same(&b.1, &line)).map(|b| b.2.as_str()).collect();
+        let draft = d.layouts.iter().find(|l| l.weekday == w && same(&l.line, &line));
+        let saved = p.layouts.iter().position(|l| l.weekday == w && same(&l.line, &line));
+        match (draft, saved) {
+            (None, None) => {}
+            // (one of them the automatic blocks, which are not known here: the draft's line)
+            (Some(dl), None) => p.layouts.push(dl.clone()),
+            (None, Some(k)) => {
+                p.layouts.remove(k);
+            }
+            (Some(dl), Some(k)) => {
+                let mixed = mix_line(&p.layouts[k], dl, &names);
+                p.layouts[k] = mixed;
+            }
+        }
+    }
+    p.joined.retain(|j| !locked.iter().any(|(n, ps)| n.weekday == j.weekday && j.pieces.iter().any(|x| ps.iter().any(|y| y.is(x)))));
+    p.joined.extend(locked.iter().filter(|(_, ps)| ps.len() > 1).map(|(n, ps)| JoinedDuty { weekday: n.weekday, pieces: ps.clone() }));
+    let sh = &mut p.flow.sheet;
+    for l in &d.sheet.locks {
+        if !sh.locks.iter().any(|x| x.weekday == l.weekday && same(&x.line, &l.line) && same(&x.tour, &l.tour)) {
+            sh.locks.push(l.clone());
+        }
+    }
+    for (n, _) in &locked {
+        sh.notes.retain(|x| !(x.weekday == n.weekday && x.key.is(&n.key)));
+        sh.notes.push((*n).clone());
+    }
+    for sp in d.sheet.spares.iter().filter(|x| x.locked) {
+        sh.spares.retain(|x| !(x.weekday == sp.weekday && x.id == sp.id));
+        sh.spares.push(sp.clone());
+    }
+}
+
+/// Line layout `saved` with its buses `names` as `draft` has them: their trips taken off the
+/// other buses and the stack, and a trip one of them ran as saved but not in the draft put where
+/// the draft has it - on a bus the saved layout has too, on the stack, or on a bus of the
+/// draft's own.
+fn mix_line(saved: &LineLayout, draft: &LineLayout, names: &[&str]) -> LineLayout {
+    let mut out = saved.clone();
+    for n in names {
+        let Some(db) = draft.blocks.iter().find(|b| same(&b.tour, n)) else { continue };
+        let was: Vec<TripRef> = out.blocks.iter().find(|b| same(&b.tour, n)).map(|b| b.trips.clone()).unwrap_or_default();
+        for b in out.blocks.iter_mut().filter(|b| !same(&b.tour, n)) {
+            b.trips.retain(|r| !db.trips.contains(r));
+            if let Some(cuts) = b.cuts.as_mut() {
+                cuts.retain(|r| !db.trips.contains(r));
+            }
+            b.reliefs.retain(|x| !db.trips.contains(&x.trip));
+        }
+        out.stack.retain(|r| !db.trips.contains(r));
+        match out.blocks.iter_mut().find(|b| same(&b.tour, n)) {
+            Some(b) => *b = db.clone(),
+            None => out.blocks.push(db.clone()),
+        }
+        for r in was.iter().filter(|r| !db.trips.contains(r)) {
+            if out.blocks.iter().any(|b| b.trips.contains(r)) || out.stack.contains(r) {
+                continue;
+            }
+            if draft.stack.contains(r) {
+                out.stack.push(r.clone());
+                continue;
+            }
+            let Some(home) = draft.blocks.iter().find(|b| b.trips.contains(r)).map(|b| b.tour.clone()) else { continue };
+            match out.blocks.iter_mut().find(|b| same(&b.tour, &home)) {
+                Some(b) => {
+                    b.trips.push(r.clone());
+                    b.trips.sort_by_key(|t| t.dep);
+                }
+                None => out.blocks.push(st::BlockLayout { tour: home, trips: vec![r.clone()], cuts: None, reliefs: Vec::new() }),
+            }
+        }
+    }
+    out
 }
 
 // --- locks, links and notes ---------------------------------------------------------------------
@@ -1066,6 +1190,121 @@ fn rename_in_sheet(s: &mut Sheet, old: &str, new: &str) {
     }
     for n in s.notes.iter_mut().filter(|n| same(&n.key.line, old)) {
         n.key.line = new.to_string();
+    }
+    for k in s.rows.iter_mut().flat_map(|r| r.keys.iter_mut()).filter(|k| same(&k.line, old)) {
+        k.line = new.to_string();
+    }
+}
+
+// --- the rows of the Drivers tab ---------------------------------------------------------------------
+
+/// A duty as the rows know it (`RowOrder`): its key, and the trips with passengers it works.
+pub type RowDuty = (PieceRef, Vec<TripRef>);
+
+/// `shaped` (in the order of their start, the spare duties last) in the order of the weekday's
+/// rows (`RowOrder`): the duties kept there in that order, one not among them (the timetable
+/// changed, a day copied) where its start puts it among them.
+fn in_rows(c: &Company, wd: u8, shaped: &mut Vec<Shaped>) {
+    let Some(rows) = c.planning.flow.sheet.rows.iter().find(|r| r.weekday == wd) else { return };
+    let at = |s: &Shaped| s.key.as_ref().and_then(|k| rows.keys.iter().position(|x| x.is(k)));
+    let (mut known, mut others, mut spares) = (Vec::new(), Vec::new(), Vec::new());
+    for s in shaped.drain(..) {
+        match (s.spare, at(&s)) {
+            (Some(_), _) => spares.push(s),
+            (None, Some(k)) => known.push((k, s)),
+            (None, None) => others.push(s),
+        }
+    }
+    known.sort_by_key(|x| x.0);
+    let mut out: Vec<Shaped> = known.into_iter().map(|x| x.1).collect();
+    for s in others {
+        let k = out.iter().position(|o| o.start > s.start).unwrap_or(out.len());
+        out.insert(k, s);
+    }
+    out.extend(spares);
+    *shaped = out;
+}
+
+/// The trips with passengers duty `d` works (`tours` the day's).
+fn duty_trips(tours: &[TourOfDay], d: &Duty) -> Vec<TripRef> {
+    let mut out = Vec::new();
+    for p in &d.pieces {
+        let Some(t) = tours.get(p.tour) else { continue };
+        let r = network::duties_of(t).get(p.duty).cloned().unwrap_or(0..0);
+        out.extend(t.trips.get(r).unwrap_or(&[]).iter().filter(|x| x.counts()).map(TripRef::of));
+    }
+    out
+}
+
+/// The duties of day `b` as its rows show them, top down (the spare duties left out).
+pub fn row_duties(b: &Board) -> Vec<RowDuty> {
+    b.shaped.iter().filter_map(|s| Some((s.key.clone()?, duty_trips(&b.tours, b.duties.get(s.duty?)?)))).collect()
+}
+
+/// The rows of `weekday` after an edit of `c` (`tours` its day now) made on the rows `before`
+/// (`row_duties`): each duty keeps the row of the duty it was - the same key, else the one it
+/// shares the most trips with - and a duty the edit made gets a new row at the bottom. `moved`:
+/// the trips the edit took off their duty (the half a split cuts off, the trips moved to a duty
+/// of their own), which make no duty the one it was. Kept only where they are not the order of
+/// the duties' start.
+pub fn keep_rows(c: &mut Company, weekday: u8, tours: &[TourOfDay], before: &[RowDuty], moved: &[TripRef]) {
+    let duties = st::duties(&c.planning.joined, weekday, tours);
+    let now: Vec<RowDuty> = duties.iter().filter_map(|d| Some((duty_key(tours, d)?, duty_trips(tours, d)))).collect();
+    // (each duty now with each one before, by how sure it is that duty: its key, else the trips
+    // they share)
+    let mut pairs: Vec<(usize, usize, usize)> = Vec::new();
+    for (a, (ka, ta)) in now.iter().enumerate() {
+        for (b, (kb, tb)) in before.iter().enumerate() {
+            let score = if ka.is(kb) && !moved.contains(&ka.first) { usize::MAX } else { ta.iter().filter(|x| !moved.contains(x) && tb.contains(x)).count() };
+            if score > 0 {
+                pairs.push((score, a, b));
+            }
+        }
+    }
+    pairs.sort_by(|x, y| y.0.cmp(&x.0).then(x.2.cmp(&y.2)).then(x.1.cmp(&y.1)));
+    let mut row: Vec<Option<usize>> = vec![None; now.len()];
+    let mut taken = vec![false; before.len()];
+    for (_, a, b) in pairs {
+        if row[a].is_none() && !taken[b] {
+            row[a] = Some(b);
+            taken[b] = true;
+        }
+    }
+    // (the rows kept in their order, then the new duties by their start: `now` is in that order)
+    let mut order: Vec<usize> = (0..now.len()).collect();
+    order.sort_by_key(|&a| (row[a].is_none(), row[a].unwrap_or(0), a));
+    let keys: Vec<PieceRef> = order.iter().map(|&a| now[a].0.clone()).collect();
+    let by_start: Vec<PieceRef> = now.into_iter().map(|x| x.0).collect();
+    set_rows(c, weekday, keys, &by_start);
+}
+
+/// The rows of `weekday` after Optimise made its duties anew (`c` with them, `tours` its day now)
+/// on the rows `before` (`row_duties`): a locked duty keeps its row - and its number with it -
+/// and the other duties fill the rows left in the order of their start.
+pub fn pin_rows(c: &mut Company, weekday: u8, tours: &[TourOfDay], before: &[RowDuty]) {
+    let duties = st::duties(&c.planning.joined, weekday, tours);
+    let now: Vec<PieceRef> = duties.iter().filter_map(|d| duty_key(tours, d)).collect();
+    let mut slots: Vec<Option<PieceRef>> = vec![None; now.len()];
+    let mut rest: Vec<PieceRef> = Vec::new();
+    for k in &now {
+        match before.iter().position(|(b, _)| b.is(k)).filter(|_| duty_locked(c, weekday, k)) {
+            Some(i) if i < slots.len() && slots[i].is_none() => slots[i] = Some(k.clone()),
+            _ => rest.push(k.clone()),
+        }
+    }
+    let mut rest = rest.into_iter();
+    let mut keys: Vec<PieceRef> = slots.into_iter().filter_map(|s| s.or_else(|| rest.next())).collect();
+    keys.extend(rest);
+    set_rows(c, weekday, keys, &now);
+}
+
+/// The rows of `weekday` kept as `keys`, unless they are the order of the duties' start
+/// (`by_start`).
+fn set_rows(c: &mut Company, weekday: u8, keys: Vec<PieceRef>, by_start: &[PieceRef]) {
+    let rows = &mut c.planning.flow.sheet.rows;
+    rows.retain(|r| r.weekday != weekday);
+    if keys.len() != by_start.len() || keys.iter().zip(by_start).any(|(k, n)| !k.is(n)) {
+        rows.push(RowOrder { weekday, keys });
     }
 }
 
@@ -1533,6 +1772,7 @@ pub fn board_of(c: &Company, wd: u8, tours: Vec<TourOfDay>, stack: Vec<(String, 
         shaped.push(s);
     }
     shaped.sort_by_key(|s| (s.spare.is_some(), s.start));
+    in_rows(c, wd, &mut shaped);
     // the duties' issues
     for (row, s) in shaped.iter_mut().enumerate() {
         let rk = match (&s.key, s.spare) {
@@ -2612,12 +2852,14 @@ pub fn optimise_with(c: &Company, lines: &[LineInfo], date: &str, vehicles: bool
     (layouts, joined)
 }
 
-/// Keep what Optimise made (`optimise`) for `weekday`: the blocks and joined duties replaced.
+/// Keep what Optimise made (`optimise`) for `weekday`: the blocks and joined duties replaced, the
+/// duties shown in the order of their start again (`RowOrder`).
 pub fn apply(c: &mut Company, weekday: u8, layouts: Vec<LineLayout>, joined: Vec<JoinedDuty>) {
     c.planning.layouts.retain(|l| l.weekday != weekday);
     c.planning.layouts.extend(layouts);
     c.planning.joined.retain(|j| j.weekday != weekday);
     c.planning.joined.extend(joined);
+    c.planning.flow.sheet.rows.retain(|r| r.weekday != weekday);
 }
 
 /// Every English text the core gives RosterFlow's pages (for the translations' check).
@@ -2649,3 +2891,5 @@ mod tests;
 mod relief_tests;
 #[cfg(test)]
 mod optimise_tests;
+#[cfg(test)]
+mod lock_tests;

@@ -32,7 +32,7 @@
 use super::model::Company;
 use super::network::{self, PlannedTrip, TourOfDay};
 use super::plan;
-use super::rosterflow::{self as rf, BlockLock, Draft, DutyNote, Link, Sheet, Spare};
+use super::rosterflow::{self as rf, BlockLock, Draft, DutyNote, Link, RowOrder, Sheet, Spare};
 use super::studio::{self as st, BlockLayout, JoinedDuty, LineLayout, MidRelief, TripRef};
 use crate::LineInfo;
 use serde::{Deserialize, Serialize};
@@ -246,6 +246,7 @@ fn keep_sheet(s: &mut Sheet, keep: &dyn Fn(u8) -> bool) {
     s.notes.retain(|x| keep(x.weekday));
     s.spares.retain(|x| keep(x.weekday));
     s.dismissed.retain(|x| keep(x.0));
+    s.rows.retain(|x| keep(x.weekday));
 }
 
 /// The plan of `slot` in these blocks, duties and sheet.
@@ -259,6 +260,7 @@ fn part_of(layouts: &[LineLayout], joined: &[JoinedDuty], sheet: &Sheet, slot: u
             notes: sheet.notes.iter().filter(|x| x.weekday == slot).cloned().collect(),
             spares: sheet.spares.iter().filter(|x| x.weekday == slot).cloned().collect(),
             dismissed: sheet.dismissed.iter().filter(|x| x.0 == slot).cloned().collect(),
+            rows: sheet.rows.iter().filter(|x| x.weekday == slot).cloned().collect(),
         },
     }
 }
@@ -276,6 +278,7 @@ fn put_part(d: &mut Draft, slot: u8, part: Draft) {
     d.sheet.notes.extend(s.notes.into_iter().map(|x| DutyNote { weekday: slot, ..x }));
     d.sheet.spares.extend(s.spares.into_iter().map(|x| Spare { weekday: slot, ..x }));
     d.sheet.dismissed.extend(s.dismissed.into_iter().map(|x| (slot, x.1)));
+    d.sheet.rows.extend(s.rows.into_iter().map(|x| RowOrder { weekday: slot, ..x }));
 }
 
 /// The spare duties of `slot` whose number another day's spare duty has too - a copy of that

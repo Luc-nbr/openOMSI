@@ -18,7 +18,7 @@
 // The line being changed lives on the Rust side (`rf_tp*`); the page keeps what it shows (the day
 // group, the side, the pattern, the screen, the cell typed into, the trips chosen) in `S.rf.tp`.
 
-import { html, useEffect, useRef, useState } from '../../../vendor/preact-htm.js';
+import { html, useEffect, useLayoutEffect, useRef, useState } from '../../../vendor/preact-htm.js';
 import { S, set } from '../../store.js';
 import { language } from '../../i18n.js';
 import { tr } from '../bits.js';
@@ -106,6 +106,8 @@ const refreshTp = () => tpSet((t) => ({ rev: (t.rev || 0) + 1 }));
 async function tpAct(act, args = {}) {
   const t = S.rf.tp;
   let r;
+  // (the Undo offered after trips were taken out goes with the next action)
+  if (t.undoable && act !== 'delete' && act !== 'bulk_delete') tpSet({ undoable: null });
   try {
     r = await rfCmd('rf_tp_act', { act, day: t.day, side: t.side, pattern: t.pattern, tab: t.tab, ...args });
   } catch (e) {
@@ -126,8 +128,8 @@ export function tpEscape() {
     tpSet({ cell: null, text: '' });
     return true;
   }
-  if (t.copying) {
-    tpSet({ copying: null });
+  if (t.copying || t.runCopy) {
+    tpSet({ copying: null, runCopy: null });
     return true;
   }
   if (t.adding || t.chart != null || t.issuesOpen || t.sel != null || t.picked?.length) {
@@ -166,18 +168,21 @@ export function TimeplanTab() {
     setRf({ tpProbe: v.probe || { ready: false, why: v.error || null } });
   }, [v]);
   useTpKeys(v);
+  // (the context bar's height: two rows where one is too narrow, `useBarFit`)
+  const [barH, setBarH] = useState(BAR_H);
   if (!v) return html`<div class="rf-tp"></div>`;
   if (v.error) return html`<div class="rf-tp"><p class="tp-why">${v.error}</p></div>`;
   return html`<div class="rf-tp" data-rf="rf-tp">
-    <${ContextBar} v=${v} />
-    ${t.tab === TIMETABLE && v.ready && html`<${Kpis} v=${v} />`}
-    <div class=${"tp-body" + (v.ready && !v.no_side ? "" : " empty")} style=${`top:${BAR_H + 6 + (t.tab === TIMETABLE && v.ready ? KPI_H + 6 : 0)}px`} data-rf=${v.ready ? 'rf-tp-body' : undefined}>
+    <${ContextBar} v=${v} onHeight=${setBarH} />
+    ${t.tab === TIMETABLE && v.ready && html`<${Kpis} v=${v} top=${barH + 6} />`}
+    <div class=${"tp-body" + (v.ready && !v.no_side ? "" : " empty")} style=${`top:${barH + 6 + (t.tab === TIMETABLE && v.ready ? KPI_H + 6 : 0)}px`} data-rf=${v.ready ? 'rf-tp-body' : undefined}>
       ${!v.ready ? html`<p class="tp-why">${v.why || tr('The company runs no line yet: add one on the Lines page first.')}</p>` : v.no_side ? html`<p class="tp-why">${v.no_side}</p>` : t.tab === RUNNING ? html`<${Running} v=${v} />` : html`<${Timetable} v=${v} />`}
     </div>
     ${v.ready && html`<${StatusBar} v=${v} />`}
     ${t.issuesOpen && v.ready && html`<${IssuesPanel} v=${v} />`}
     ${t.chart != null && v.tt && html`<${ChartCard} v=${v} />`}
     ${t.copying && v.ready && v.copy && html`<${CopyPanel} v=${v} act=${tpAct} />`}
+    ${t.runCopy && v.ready && !v.no_side && html`<${RunCopy} v=${v} top=${barH + 18} />`}
   </div>`;
 }
 
@@ -223,11 +228,47 @@ async function newLine() {
   });
 }
 
-function ContextBar({ v }) {
+/** How much of the context bar gives way so that nothing is cut off at its right end (Luc, Beta
+ * 65: the screens' switch and Save were cut off in a narrow window or at a large Launcher size),
+ * measured whenever its width or what it shows changes: 0 nothing, 1 New line, Copy timings and
+ * Save as icons and the week's days narrower, 2 the week's days left out (the day group stays),
+ * 3 the bar in two rows (`onHeight` its height). */
+function useBarFit(deps, onHeight) {
+  const ref = useRef(null);
+  const [fit, setFit] = useState(0);
+  // (the width each level needed when it gave way: back to it once there is that much)
+  const need = useRef([]);
+  useLayoutEffect(() => {
+    need.current = [];
+    setFit(0);
+  }, deps);
+  useLayoutEffect(() => {
+    const bar = ref.current;
+    if (!bar) return undefined;
+    const run = () => {
+      setFit((f) => {
+        if (f < 3 && bar.scrollWidth > bar.clientWidth + 1) {
+          need.current[f] = bar.scrollWidth;
+          return f + 1;
+        }
+        if (f > 0 && bar.clientWidth >= (need.current[f - 1] ?? Infinity)) return f - 1;
+        return f;
+      });
+      onHeight?.(fit === 3 ? bar.offsetHeight : BAR_H);
+    };
+    run();
+    const ro = new ResizeObserver(() => requestAnimationFrame(run));
+    ro.observe(bar);
+    return () => ro.disconnect();
+  }, [...deps, fit]);
+  return [ref, fit];
+}
+
+function ContextBar({ v, onHeight }) {
   const t = S.rf.tp;
   const lineAt = Math.max(0, v.lines.findIndex((l) => l.name.toLowerCase() === String(v.line).toLowerCase()));
-  const [bar, box] = useBox();
-  const wide = (box.w || 1400) >= 1240;
+  const [bar, fit] = useBarFit([v.lines.length, v.line, v.calendar?.length, v.runs, v.from?.label, v.save, v.dirty, v.has_inbound, language()], onHeight);
+  const wide = fit < 1;
   const pickLine = (k) => {
     const l = v.lines[k];
     if (!l || l.name === v.line) return;
@@ -239,15 +280,16 @@ function ContextBar({ v }) {
     tpSet({ leaving: false, sel: null, picked: [], cell: null, adding: null, scroll: 0, hscroll: 0, pattern: 0 });
     tpAct('line', { line: l.name });
   };
-  return html`<div class="tp-bar" data-rf="rf-tp-bar" ref=${bar}>
+  return html`<div class=${'tp-bar' + (fit ? ` fit${Math.min(fit, 2)}` : '') + (fit >= 3 ? ' wrap' : '')} data-rf="rf-tp-bar" ref=${bar}>
     ${v.lines.length > 0 && html`<span class="tp-select" style="flex:0 1 220px;min-width:110px"><select value=${String(lineAt)} onChange=${(e) => pickLine(Number(e.currentTarget.value))}>${v.lines.map((l, k) => html`<option value=${String(k)}>${l.label}</option>`)}</select><${Icon} name="expand_more" size=${18} /></span>`}
     <button type="button" class=${'tp-new' + (wide ? '' : ' narrow')} data-rf="rf-tp-new-line" title=${tr('New line: draw its route in the line editor, then make its timetable here')} onClick=${() => {
       if (v.dirty && !t.leaving) return tpSet({ leaving: true });
       tpSet({ leaving: false });
       newLine();
     }}><${Icon} name="add" size=${wide ? 18 : 20} />${wide && html`<span>${tr('New line')}</span>`}</button>
-    <span class="tp-select" style="flex:0 1 150px;min-width:96px"><select value=${String(t.day)} onChange=${(e) => tpSet({ day: Number(e.currentTarget.value), cell: null, text: '', adding: null, chart: null, issuesOpen: false, sel: null, picked: [], scroll: 0 })}>${v.days.map((d, k) => html`<option value=${String(k)}>${d}</option>`)}</select><${Icon} name="expand_more" size=${18} /></span>
-    ${v.calendar?.length > 0 && html`<${DayStrip} v=${v} />`}
+    <span class="tp-select" style="flex:0 1 150px;min-width:96px"><select value=${String(t.day)} onChange=${(e) => tpSet({ day: Number(e.currentTarget.value), cell: null, text: '', adding: null, chart: null, issuesOpen: false, sel: null, picked: [], scroll: 0, runCopy: null })}>${v.days.map((d, k) => html`<option value=${String(k)}>${d}</option>`)}</select><${Icon} name="expand_more" size=${18} /></span>
+    <button type="button" class=${'tp-runcopy' + (t.runCopy ? ' on' : '') + (wide ? '' : ' narrow')} data-rf="rf-tp-runcopy" title=${tr('Copy timings to… other day groups: the running times of this one, for both directions or the one shown')} onClick=${(e) => tpSet({ copying: null, runCopy: t.runCopy ? null : { x: e.currentTarget.offsetLeft, to: [], both: true } })}><${Icon} name="content_copy" size=${16} />${wide && html`<span>${tr('Copy timings to…')}</span>`}</button>
+    ${v.calendar?.length > 0 && fit < 2 && html`<${DayStrip} v=${v} />`}
     <button type="button" class="tp-ib" title=${tr('Undo')} onClick=${() => tpAct('undo').then(() => tpSet({ cell: null, sel: null, picked: [] }))}><${Icon} name="turn_left" size=${15} /></button>
     <button type="button" class="tp-ib" title=${tr('Redo')} onClick=${() => tpAct('redo').then(() => tpSet({ cell: null, sel: null, picked: [] }))}><${Icon} name="turn_right" size=${15} /></button>
     <i class="tp-sep"></i>
@@ -263,7 +305,32 @@ function ContextBar({ v }) {
       // error, they would be other trips - Delete would take those out)
       const off = { cell: null, text: '', sel: null, picked: [], anchor: null };
       tpSet(x?.day != null ? { ...off, day: x.day, issuesOpen: !!x.issues_open, adding: null, scroll: 0 } : off);
-    })}><${Icon} name="save" size=${18} /><span>${v.save || tr('Saved')}</span></button>
+    })} title=${wide ? undefined : v.save || tr('Saved')}><${Icon} name="save" size=${18} />${wide && html`<span>${v.save || tr('Saved')}</span>`}</button>
+  </div>`;
+}
+
+/** "Copy timings to…" beside the day group (Luc, Beta 65): the running times of the day group
+ * shown copied to the other day groups ticked, for both directions or the one shown - their trips
+ * following them, as a change of the running times moves them (`timeplan::copy_runs`). */
+function RunCopy({ v, top }) {
+  const t = S.rf.tp;
+  const c = t.runCopy;
+  const put = (patch) => tpSet({ runCopy: { ...c, ...patch } });
+  const others = v.days.map((label, k) => [label, k]).filter(([, k]) => k !== t.day);
+  const shown = v.patterns?.length > 1 ? v.patterns[Math.min(t.pattern, v.patterns.length - 1)]?.label : '';
+  const side = tr(t.side ? 'Inbound' : 'Outbound');
+  const go = () => tpAct('copy_run', { to: c.to, both: c.both }).then((x) => x && !x.say?.error && tpSet({ runCopy: null }));
+  return html`<div class="tp-runcopy-card" style=${`left:${Math.max(14, 14 + c.x - 40)}px;top:${top}px`} data-rf="rf-tp-runcopy-card">
+    <b class="title">${tr('Copy timings to…')}</b>
+    <p class="from">${tr('The running times of %{day}, to:', { day: v.days[t.day] })}</p>
+    ${others.map(([label, k]) => html`<label class="row"><input type="checkbox" checked=${c.to.includes(k)} onChange=${(e) => put({ to: e.currentTarget.checked ? [...c.to, k] : c.to.filter((x) => x !== k) })} /><span>${label}</span></label>`)}
+    <hr />
+    <label class="row"><input type="radio" name="tp-runcopy-dirs" checked=${c.both} onChange=${() => put({ both: true })} /><span>${tr('Both directions')}</span></label>
+    <label class="row"><input type="radio" name="tp-runcopy-dirs" checked=${!c.both} onChange=${() => put({ both: false })} /><span>${tr('Only the direction shown')} (${side}${shown ? ` · ${shown}` : ''})</span></label>
+    <div class="foot">
+      <button type="button" class="tp-runcopy-btn" onClick=${() => tpSet({ runCopy: null })}>${tr('Cancel')}</button>
+      <button type="button" class="tp-runcopy-btn solid" disabled=${!c.to.length} title=${c.to.length ? undefined : tr('Choose the days to copy to.')} onClick=${go}>${tr('Copy')}</button>
+    </div>
   </div>`;
 }
 
@@ -454,9 +521,10 @@ function pickRow(e, rows, row, keep = false) {
   tpSet({ ...only(alone ? null : row.i), cell: null });
 }
 
-/** The trips chosen taken out (one: as the trip's own Delete). */
+/** The trips chosen taken out (one: as the trip's own Delete) - Undo offered in the status bar
+ * (Ctrl+Z too). */
 function deleteChosen(chosen) {
-  const done = () => tpSet({ ...only(null), cell: null });
+  const done = (r) => tpSet({ ...only(null), cell: null, ...(r ? { undoable: { n: chosen.length, at: Date.now() } } : {}) });
   if (chosen.length === 1) return tpAct('delete', { i: chosen[0] }).then(done);
   return tpAct('bulk_delete', { trips: chosen }).then(done);
 }
@@ -519,6 +587,7 @@ function Timetable({ v }) {
   const tool = (anchor, icon, tip, on, click) => html`<button type="button" class=${'tp-tool' + (on ? ' on' : '')} data-rf=${anchor} title=${tr(tip)} onClick=${click}><${Icon} name=${icon} size=${18} /></button>`;
   const sel = t.sel;
   const chosen = chosenTrips(t);
+  const every = rows.length > 0 && rows.every((x) => chosen.includes(x.i));
   const needSel = () => say(tr('Choose a trip first: click its number.'));
   return html`<div class="tp-pane" ref=${ref} onWheel=${wheel}>
     <${Strip} dots=${tt.dots} cols=${cols} room=${room} railY=${railY} colour=${v.colour} />
@@ -533,7 +602,9 @@ function Timetable({ v }) {
       ${tool(null, 'flag', 'Timepoints only', t.pointsOnly, () => tpSet({ pointsOnly: !t.pointsOnly }))}
       ${tool('rf-tp-copy', 'content_copy', 'Copy to… other days: this day, the trips chosen or a template', !!t.copying, () => (t.copying ? tpSet({ copying: null }) : openCopy(chosen)))}
     </span>
-    <div class="tp-heads" style=${`top:${hy}px`}>${['#', 'Pattern', 'Vehicle type', 'Start', 'Headway'].map((h, k) => html`<span style=${`width:${FROZEN[k]}px`} class=${k === 0 ? 'c' : ''}>${k === 0 ? '#' : tr(h).toUpperCase()}</span>`)}</div>
+    <div class="tp-heads" style=${`top:${hy}px`}>${['#', 'Pattern', 'Vehicle type', 'Start', 'Headway'].map((h, k) => (k === 0
+      ? html`<button type="button" class="tp-checkall" style=${`width:${FROZEN[0]}px`} data-rf="rf-tp-checkall" title=${tr(every ? 'Choose none (Escape)' : 'Choose every trip of the day (Ctrl+A)')} disabled=${!rows.length} onClick=${() => tpSet(every ? { ...only(null), cell: null } : { picked: rows.map((x) => x.i), sel: rows[0].i, anchor: rows[0].i, cell: null })}><i class=${'tp-box' + (every ? ' on' : chosen.length ? ' some' : '')}></i></button>`
+      : html`<span style=${`width:${FROZEN[k]}px`}>${tr(h).toUpperCase()}</span>`))}</div>
     ${t.adding && html`<${AddForm} v=${v} top=${hy + 34} />`}
     ${!rows.length && html`<p class="tp-none" style=${`top:${y0 + 8}px`}>${tr('No trips on this day: add them by headway with the clock above, or one at a time with +.')}</p>`}
     <div class="tp-grid" style=${`top:${y0}px;height:${gridH}px`}>
@@ -542,7 +613,7 @@ function Timetable({ v }) {
         const y = kk * TT_ROW;
         const chosenRow = chosen.includes(row.i);
         return html`<div class=${'tp-row' + (chosenRow ? ' on' : '')} style=${`top:${y}px`}>
-          <button type="button" class="num" style=${`width:${FROZEN[0]}px`} title=${tr('Click to choose the trip: Shift+click a range, Ctrl+click one more, Ctrl+A all')} onMouseDown=${(e) => e.shiftKey && e.preventDefault()} onClick=${(e) => pickRow(e, rows, row)}>${k + 1}</button>
+          <button type="button" class="num" style=${`width:${FROZEN[0]}px`} title=${tr('Click to choose the trip: Shift+click a range, Ctrl+click one more, Ctrl+A all')} onMouseDown=${(e) => e.shiftKey && e.preventDefault()} onClick=${(e) => pickRow(e, rows, row)}><i class=${'tp-box' + (chosenRow ? ' on' : '')}></i><span>${k + 1}</span></button>
           <button type="button" class="pat" style=${`width:${FROZEN[1]}px`} onMouseDown=${(e) => e.shiftKey && e.preventDefault()} onClick=${(e) => pickRow(e, rows, row, true)}>${row.code}</button>
           <span class="vt" style=${`width:${FROZEN[2]}px`}>${tt.vt}</span>
           <button type="button" class=${'tp-cell rel' + (isCell({ kind: 'start', i: row.i }) ? ' on' : '')} style=${`width:${FROZEN[3]}px`} onClick=${() => choose({ kind: 'start', i: row.i }, row.i)}>${isCell({ kind: 'start', i: row.i }) && t.text ? html`<${Typed} text=${t.text} />` : row.start}</button>
@@ -602,10 +673,10 @@ function MiniBars({ values }) {
   return html`<span class="tp-mini">${values.map((x) => html`<i style=${`height:${(x / most) * 100}%`}></i>`)}</span>`;
 }
 
-function Kpis({ v }) {
+function Kpis({ v, top }) {
   const k = v.tt?.kpis;
   if (!k) return null;
-  return html`<div class="tp-kpis" style=${`top:${BAR_H + 6}px;height:${KPI_H}px`}>
+  return html`<div class="tp-kpis" style=${`top:${top}px;height:${KPI_H}px`}>
     ${[0, 1, 2].map((n) => html`<button type="button" class="tp-kpi" title=${tr('Click to open the chart')} onClick=${() => tpSet({ chart: n })}>
       ${n === 0 ? html`<span class="count"><${Icon} name="location_on" size=${20} /><${Icon} name="directions_bus" size=${20} /><b>${k.count}</b></span>` : html`<${MiniBars} values=${n === 1 ? k.by_pattern : k.by_hour} />`}
       <span class="cap">${tr(CHARTS[n]).toUpperCase()}</span>
@@ -640,7 +711,9 @@ function StatusBar({ v }) {
   const t = S.rf.tp;
   const tone = v.errors > 0 ? 'err' : v.warnings > 0 ? 'warn' : 'dim';
   let note;
+  const undo = t.undoable && Date.now() - t.undoable.at < 20000 ? t.undoable : null;
   if (t.leaving) note = [tr('Changes not saved: press again to leave without them.'), 'warn'];
+  else if (undo) note = [tr('%{n} trips taken out.', { n: undo.n }), 'sky'];
   else if (v.pending) note = [v.pending, 'dim'];
   else if (t.cell) note = [tr('Type and press Enter (Tab: the next cell, Escape: leave it). Up and Down change it by a minute.'), 'dim'];
   else if (t.tab === TIMETABLE && chosenTrips(t).length > 1) note = [tr('%{n} trips chosen: Shift+click a range, Ctrl+click one more or one less, Ctrl+A all, Escape none.', { n: chosenTrips(t).length }), 'sky'];
@@ -648,7 +721,7 @@ function StatusBar({ v }) {
   else if (v.dirty) note = [tr('Changes not saved yet.'), 'dim'];
   else note = [tr('Click a cell to type into it.'), 'dim'];
   return html`<div class="tp-status">
-    <span class=${'note ' + note[1]}>${note[1] === 'sky' && html`<${Icon} name="info" size=${16} />`}<span class="cut">${note[0]}</span></span>
+    <span class=${'note ' + note[1]}>${note[1] === 'sky' && html`<${Icon} name="info" size=${16} />`}<span class="cut">${note[0]}</span>${undo && !t.leaving && html`<button type="button" class="tp-undo" data-rf="rf-tp-undo" title=${tr('Undo (Ctrl+Z)')} onClick=${() => tpAct('undo').then(() => tpSet({ undoable: null, ...only(null), cell: null }))}><${Icon} name="undo" size=${15} /><span>${tr('Undo')}</span></button>`}</span>
     ${v.unsynced && html`<button type="button" class="tp-unsynced" data-rf="rf-tp-refresh" title=${tr('The timetable changed since the scheduling studio made the blocks of this line: make its blocks and duties anew')} onClick=${() => tpAct('refresh')}><${Icon} name="refresh" size=${16} />${tr('UNSYNCED')} – ${tr('Refresh')}</button>`}
     <button type="button" class=${'tp-issues ' + tone + (t.issuesOpen ? ' on' : '')} title=${tr('The issues of this day group')} onClick=${() => tpSet({ issuesOpen: !t.issuesOpen })}><${Icon} name=${v.errors > 0 ? 'error' : v.warnings > 0 ? 'warning' : 'check_circle'} size=${16} />${v.issues_label}</button>
   </div>`;
@@ -723,6 +796,13 @@ function useTpKeys(v) {
           tpSet({ text: '' });
           tpAct('nudge', { cell: t.cell, by: e.key === 'ArrowUp' ? 1 : -1 });
         }
+        return;
+      }
+      // (Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z: the context bar's undo and redo)
+      const key = e.key.toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && (key === 'z' || key === 'y') && !t.copying && !t.runCopy) {
+        e.preventDefault();
+        tpAct(key === 'z' && !e.shiftKey ? 'undo' : 'redo').then(() => tpSet({ cell: null, sel: null, picked: [], anchor: null, undoable: null }));
         return;
       }
       if (t.tab !== TIMETABLE || t.copying) return;

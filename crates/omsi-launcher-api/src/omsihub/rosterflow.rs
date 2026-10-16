@@ -656,9 +656,12 @@ fn board_answer(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
         Some(Ok(k)) => k,
     };
     let v = &k.view;
-    let prefs = &v.planning.flow.prefs;
+    // (the company's as they are now: they are not the draft's)
+    let prefs = &c.planning.flow.prefs;
     let proposal = r.proposal.clone();
-    let rev = format!("{}|{}|{}|{}|{}", k.rev, proposal.is_some(), r.undo.len(), r.redo.len(), rf::has_draft(&c));
+    // (and the preferences, which the board does not show all of: Optimise's switches set off came
+    // back on, the page keeping the answer it had - Luc, Beta 65)
+    let rev = format!("{}|{}|{}|{}|{}|{:x}", k.rev, proposal.is_some(), r.undo.len(), r.redo.len(), rf::has_draft(&c), hash_of(&serde_json::to_string(prefs).unwrap_or_default()));
     // (the day as his page shows it from now: an edit made on it after somebody else changed it
     // is refused - `live::stale`)
     live::shown(&c, r, &k.rev);
@@ -1025,14 +1028,59 @@ fn edit(s: &mut Session, r: &mut Rf, label: String, f: impl FnOnce(&mut Company)
     edit_with(s, r, label, |c| f(c).map_err(tr))
 }
 
+/// `edit` taking trips `moved` off their duty (`Rows::Keep`).
+pub(crate) fn edit_moving(s: &mut Session, r: &mut Rf, label: String, moved: &[st::TripRef], f: impl FnOnce(&mut Company) -> Result<(), &'static str>) -> Value {
+    edit_rows(s, r, label, Rows::Keep(moved), |c| f(c).map_err(tr))
+}
+
+/// `edit_with` taking trips `moved` off their duty (`Rows::Keep`).
+pub(crate) fn edit_with_moving(s: &mut Session, r: &mut Rf, label: String, moved: &[st::TripRef], f: impl FnOnce(&mut Company) -> Result<(), String>) -> Value {
+    edit_rows(s, r, label, Rows::Keep(moved), f)
+}
+
+/// The trips with passengers among `trips` (block, trip) of `tours`, as the rows know them.
+pub(crate) fn refs_of(tours: &[TourOfDay], trips: impl IntoIterator<Item = (usize, usize)>) -> Vec<st::TripRef> {
+    trips.into_iter().filter_map(|(i, j)| tours.get(i)?.trips.get(j)).filter(|x| x.counts()).map(st::TripRef::of).collect()
+}
+
+/// The trips of piece `duty` of block `tour` from its trip `from` on (`refs_of`).
+fn piece_rest(tours: &[TourOfDay], tour: usize, duty: usize, from: usize) -> Vec<st::TripRef> {
+    let end = tours.get(tour).and_then(|t| co::network::duties_of(t).get(duty).map(|r| r.end)).unwrap_or(0);
+    refs_of(tours, (from..end).map(|j| (tour, j)))
+}
+
 /// `edit` whose refusal is said in words already translated.
 fn edit_with(s: &mut Session, r: &mut Rf, label: String, f: impl FnOnce(&mut Company) -> Result<(), String>) -> Value {
+    edit_rows(s, r, label, Rows::Keep(&[]), f)
+}
+
+/// What an edit does to the Drivers tab's rows (`rf::RowOrder`).
+enum Rows<'a> {
+    /// Every duty keeps its row, a new one gets a row at the bottom (`rf::keep_rows`): the trips
+    /// the edit takes off their duty (the half a split cuts off, the trips that become a duty of
+    /// their own) make no duty the one it was.
+    Keep(&'a [st::TripRef]),
+    /// The duties made anew (Optimise's): the locked ones keep their rows (`rf::pin_rows`).
+    Anew,
+}
+
+/// `edit_with`, the Drivers tab's rows kept as `rows` says, on the day shown (the board the edit
+/// is made on: `ensure`'s).
+fn edit_rows(s: &mut Session, r: &mut Rf, label: String, rows: Rows, f: impl FnOnce(&mut Company) -> Result<(), String>) -> Value {
     let Some(c) = s.company.as_ref() else { return json!({}) };
     let mut v = rf::view(c);
     let snapshot = rf::draft_of(c);
     let before = r.cache.as_ref().map(|k| (k.date.clone(), k.board.figures.clone()));
     match f(&mut v) {
         Ok(()) => {
+            if let Some(k) = r.cache.as_ref().filter(|k| k.generation == rf_generation(s)) {
+                let tours = co::network::tours_of_day(&v, &k.lines, &k.date);
+                let was = rf::row_duties(&k.board);
+                match rows {
+                    Rows::Keep(moved) => rf::keep_rows(&mut v, k.board.weekday, &tours, &was, moved),
+                    Rows::Anew => rf::pin_rows(&mut v, k.board.weekday, &tours, &was),
+                }
+            }
             let _ = company::act(s, |c| {
                 rf::keep_draft(c, &v);
                 Ok(())
@@ -1265,6 +1313,35 @@ fn unassign_blocks(c: &mut Company, wd: u8, ids: &[String], again: &dyn Fn(&Comp
     }
 }
 
+/// The trips `want` (whole trips, `studio::whole_ref`) taken off their buses onto the stack, one
+/// bus at a time, each on the day as it then is (`again`, as `unassign_blocks`); a bus that may
+/// not change keeps them. Returns how many are still on a bus.
+fn unassign_trips(c: &mut Company, wd: u8, want: &[st::TripRef], again: &dyn Fn(&Company) -> Vec<TourOfDay>) -> usize {
+    let wanted = |x: &PlannedTrip| x.counts() && want.contains(&st::whole_ref(x));
+    let mut refused: Vec<String> = Vec::new();
+    for _ in 0..1000 {
+        let tours = again(c);
+        let next = tours.iter().enumerate().filter(|(_, t)| !refused.contains(&block_id(t))).find_map(|(i, t)| {
+            let picked: Vec<usize> = (0..t.trips.len()).filter(|&j| wanted(&t.trips[j])).collect();
+            (!picked.is_empty()).then_some((i, picked))
+        });
+        let Some((i, picked)) = next else { break };
+        let mut lay = c.clone();
+        match st::unassign(&mut lay, wd, &tours, i, &picked) {
+            Ok(()) => *c = lay,
+            Err(_) => refused.push(block_id(&tours[i])),
+        }
+    }
+    let mut left: Vec<st::TripRef> = Vec::new();
+    for x in again(c).iter().flat_map(|t| t.trips.iter()).filter(|x| wanted(x)) {
+        let w = st::whole_ref(x);
+        if !left.contains(&w) {
+            left.push(w);
+        }
+    }
+    left.len()
+}
+
 /// What a click, a drop or a menu's line does (`rf_act`: `act` and what it needs, `day` the day).
 fn act(s: &mut Session, r: &mut Rf, by: live::Editor, args: &Value) -> Answer {
     let what = str_arg(args, "act");
@@ -1289,11 +1366,13 @@ fn act(s: &mut Session, r: &mut Rf, by: live::Editor, args: &Value) -> Answer {
         // (the selection bar's "Copy to…", Ctrl+C and Ctrl+V: `days`)
         "copy_rows" => return Ok(days::copy_rows(s, r, &date, args)),
         "discard" => {
-            return Ok(match company::act(s, |c| Ok(rf::discard_draft(c))) {
-                Ok(true) => {
+            // (what the draft locks stays as the draft has it: `rf::discard_draft`)
+            return Ok(match company::act(s, |c| Ok(rf::discard_draft(c).then(|| rf::has_draft(c)))) {
+                Ok(Some(kept)) => {
                     r.undo.clear();
                     r.redo.clear();
-                    said(tr("Discarded: back to the saved planning."), false)
+                    let words = if kept { tr("Discarded: back to the saved planning - the locked vehicles and duties stay as they are.") } else { tr("Discarded: back to the saved planning.") };
+                    said(words, false)
                 }
                 _ => json!({}),
             });
@@ -1384,7 +1463,8 @@ fn act(s: &mut Session, r: &mut Rf, by: live::Editor, args: &Value) -> Answer {
             // (nothing better was found: the day as it is, nothing to accept)
             Some(pr) if pr.better => {
                 let (lines, date) = (k.lines.clone(), k.date.clone());
-                let out = edit(s, r, tr("Optimised"), |c| {
+                // (the locked duties keep their rows and numbers: `Rows::Anew`)
+                let out = edit_rows(s, r, tr("Optimised"), Rows::Anew, |c| {
                     let before = c.clone();
                     rf::apply(c, wd, pr.layouts, pr.joined);
                     rf::signing::keep_points(&before, c, &lines, &date);
@@ -1408,7 +1488,9 @@ fn act(s: &mut Session, r: &mut Rf, by: live::Editor, args: &Value) -> Answer {
                 Target::Block(i) => trf("%{n} trips moved from %{a} to %{b}", &[("n", &trips.len().to_string()), ("a", &label_of(tour)), ("b", &label_of(i))]),
                 Target::New => trf("%{n} trips moved from %{a} to a new vehicle", &[("n", &trips.len().to_string()), ("a", &label_of(tour))]),
             };
-            edit(s, r, words, |c| st::move_trips(c, wd, &tours, tour, &trips, target))
+            // (to a new vehicle: their duty a new row at the bottom of the Drivers tab)
+            let moved = if target == Target::New { refs_of(&tours, trips.iter().map(|&j| (tour, j))) } else { Vec::new() };
+            edit_moving(s, r, words, &moved, |c| st::move_trips(c, wd, &tours, tour, &trips, target))
         }
         "unassign" => {
             let words = trf("%{n} trips of %{a} unassigned to the stack", &[("n", &trips.len().to_string()), ("a", &label_of(tour))]);
@@ -1439,7 +1521,9 @@ fn act(s: &mut Session, r: &mut Rf, by: live::Editor, args: &Value) -> Answer {
             let time = tours.get(tour).and_then(|t| t.trips.get(at)).map(|x| rf::clock(x.dep)).unwrap_or_default();
             if what == "cut" {
                 let words = trf("Duty cut on %{v} at %{time}", &[("v", &label_of(tour)), ("time", &time)]);
-                edit(s, r, words, |c| st::cut(c, wd, &tours, tour, at))
+                // (the first half keeps the duty's row, the second half gets a new row at the bottom)
+                let piece = tours.get(tour).and_then(|t| co::network::duties_of(t).iter().position(|p| p.contains(&at))).unwrap_or(0);
+                edit_moving(s, r, words, &piece_rest(&tours, tour, piece, at), |c| st::cut(c, wd, &tours, tour, at))
             } else {
                 let words = trf("Duties joined on %{v} at %{time}", &[("v", &label_of(tour)), ("time", &time)]);
                 edit(s, r, words, |c| st::uncut(c, wd, &tours, tour, at))
@@ -1452,7 +1536,8 @@ fn act(s: &mut Session, r: &mut Rf, by: live::Editor, args: &Value) -> Answer {
             let time = args.get("time").and_then(Value::as_i64).map(|m| rf::clock(m as i32)).unwrap_or_default();
             let words = trf("Duty cut on %{v} on the way, at %{stop} (%{time})", &[("v", &label_of(tour)), ("stop", &name), ("time", &time)]);
             let lines = k.lines.clone();
-            edit(s, r, words, |c| st::cut_mid(c, wd, &tours, &lines, tour, trip, stop))
+            let piece = tours.get(tour).and_then(|t| co::network::duties_of(t).iter().position(|p| p.contains(&trip))).unwrap_or(0);
+            edit_moving(s, r, words, &piece_rest(&tours, tour, piece, trip + 1), |c| st::cut_mid(c, wd, &tours, &lines, tour, trip, stop))
         }
         "join_piece" => {
             let (duty, d) = (usize_arg(args, "duty"), usize_arg(args, "into"));
@@ -1466,7 +1551,7 @@ fn act(s: &mut Session, r: &mut Rf, by: live::Editor, args: &Value) -> Answer {
         "detach" => {
             let duty = usize_arg(args, "duty");
             let words = trf("Piece of %{v} made a duty of its own", &[("v", &label_of(tour))]);
-            edit(s, r, words, |c| st::detach(c, wd, &tours, (tour, duty)))
+            edit_moving(s, r, words, &piece_rest(&tours, tour, duty, 0), |c| st::detach(c, wd, &tours, (tour, duty)))
         }
         "link" => {
             let words = trf("%{n} trips linked on %{v}", &[("n", &trips.len().to_string()), ("v", &label_of(tour))]);
@@ -1524,6 +1609,47 @@ fn act(s: &mut Session, r: &mut Rf, by: live::Editor, args: &Value) -> Answer {
                 unassign_blocks(c, wd, &ids, &|v: &Company| co::network::tours_of_day(v, &lines, &day));
                 Ok(())
             })
+        }
+        "unassign_duties" => {
+            // (the Drivers tab's batch toolbar, "Unassign all trips": every trip of the duties
+            // ticked to the stack, to plan them anew - Luc, Beta 65; asked first on the page)
+            let ids: Vec<String> = arg::<Vec<String>>(args, "ids").unwrap_or_default();
+            let mut want: Vec<st::TripRef> = Vec::new();
+            for x in board.shaped.iter().filter(|x| ids.contains(&duty_id(x))) {
+                for sp in &x.spans {
+                    want.extend(piece_trips(&board, sp.tour, sp.duty).iter().filter(|t| t.counts() && !t.origin.trim().is_empty()).map(st::whole_ref));
+                }
+            }
+            let mut seen: Vec<st::TripRef> = Vec::new();
+            want.retain(|x| !seen.contains(x) && {
+                seen.push(x.clone());
+                true
+            });
+            if want.is_empty() {
+                return Ok(said(tr("The duties ticked run no trips."), true));
+            }
+            let n = ids.len().to_string();
+            let words = trf("Trips of %{n} duties unassigned to the stack", &[("n", &n)]);
+            let (lines, day) = (k.lines.clone(), k.date.clone());
+            let mut left = 0;
+            let out = edit_with(s, r, words, |c| {
+                left = unassign_trips(c, wd, &want, &|v: &Company| co::network::tours_of_day(v, &lines, &day));
+                if left == want.len() {
+                    return Err(tr("None of the duties ticked could be unassigned: their vehicles or duties are locked."));
+                }
+                Ok(())
+            });
+            if out.get("edited").is_none() {
+                return Ok(out);
+            }
+            let text = if left > 0 {
+                trf("Trips of %{n} duties unassigned to the stack; %{k} trips stay, their vehicle or duty is locked. Undo (Ctrl+Z) puts them back.", &[("n", &n), ("k", &left.to_string())])
+            } else {
+                trf("Trips of %{n} duties unassigned to the stack: Undo (Ctrl+Z) puts them back.", &[("n", &n)])
+            };
+            let mut out = said(text, left > 0);
+            out["edited"] = json!(true);
+            out
         }
         "spare" => {
             // (a click on the new row: 13:30-21:30; "Add spare line" on a spare line's card: its
@@ -1690,7 +1816,8 @@ fn act(s: &mut Session, r: &mut Rf, by: live::Editor, args: &Value) -> Answer {
                 }
                 (Hand::Trips { tour, trips }, "new") => {
                     let words = trf("%{n} trips moved from %{a} to a new vehicle", &[("n", &trips.len().to_string()), ("a", &label_of(tour))]);
-                    edit(s, r, words, |c| st::move_trips(c, wd, &tours, tour, &trips, Target::New))
+                    let moved = refs_of(&tours, trips.iter().map(|&j| (tour, j)));
+                    edit_moving(s, r, words, &moved, |c| st::move_trips(c, wd, &tours, tour, &trips, Target::New))
                 }
                 (Hand::Trips { tour, trips }, "stack") => {
                     let words = trf("%{n} trips of %{a} unassigned to the stack", &[("n", &trips.len().to_string()), ("a", &label_of(tour))]);
@@ -1713,7 +1840,7 @@ fn act(s: &mut Session, r: &mut Rf, by: live::Editor, args: &Value) -> Answer {
                 }
                 (Hand::Piece { tour, duty }, "new_duty") => {
                     let words = trf("Piece of %{v} made a duty of its own", &[("v", &label_of(tour))]);
-                    edit(s, r, words, |c| st::detach(c, wd, &tours, (tour, duty)))
+                    edit_moving(s, r, words, &piece_rest(&tours, tour, duty, 0), |c| st::detach(c, wd, &tours, (tour, duty)))
                 }
                 // (Luc's driver drag: `driver_drag`)
                 (Hand::DutyTrips { duty, trips, rows }, "duty" | "new_duty") => {

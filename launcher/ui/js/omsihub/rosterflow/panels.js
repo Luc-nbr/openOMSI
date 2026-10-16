@@ -117,18 +117,31 @@ export function TitleWindows({ data, drivers, size }) {
 
 // --- the batch toolbar -------------------------------------------------------------------------------
 
-/** The ticked rows' tools over the Gantt's header: lock, unlock, unassign to the stack, and copy
- * them to other days (`copyto.js`). */
+/** The ticked rows' tools over the Gantt's header: lock, unlock, unassign to the stack (the
+ * vehicles' trips; the duties' with "Unassign all trips", asked first - Luc, Beta 65: to plan
+ * them anew from scratch, Undo puts them back), and copy them to other days (`copyto.js`). */
 function Batch({ drivers, gTop }) {
   const r = S.rf;
   const ids = r.ticked;
-  return html`<div class="rf-over rf-batch" style=${`top:${gTop + 2}px;height:${AXIS - 4}px`}>
+  const style = `top:${gTop + 2}px;height:${AXIS - 4}px`;
+  // (asked for the rows ticked then: ticked anew, asked anew)
+  if (drivers && r.batchAsk === ids.join('|')) {
+    return html`<div class="rf-over rf-batch" style=${style} data-rf="rf-batch-ask">
+      <${Icon} name="inventory_2" size=${16} />
+      <b>${tr('Unassign every trip of %{n} duties to the stack?', { n: ids.length })}</b>
+      <button type="button" class="copy rf-batch-yes" onClick=${() => edit('unassign_duties', { ids }).then((x) => setRf({ batchAsk: false, ...(x?.edited ? { ticked: [] } : {}) }))}><span>${tr('Unassign all trips')}</span></button>
+      <button type="button" class="copy" onClick=${() => setRf({ batchAsk: false })}><span>${tr('Cancel')}</span></button>
+    </div>`;
+  }
+  return html`<div class="rf-over rf-batch" style=${style}>
     <${IconBtn} icon="lock" title="Lock the rows ticked" onClick=${() => edit('lock_rows', { ids, on: true }).then(() => setRf({ ticked: ids }))} />
     <${IconBtn} icon="livery_unlock" title="Unlock the rows ticked" onClick=${() => edit('lock_rows', { ids, on: false }).then(() => setRf({ ticked: ids }))} />
-    <${IconBtn} icon="inventory_2" title="Unassign the ticked vehicles' trips to the stack" disabled=${drivers} onClick=${() => edit('unassign_rows', { ids }).then(() => setRf({ ticked: [] }))} />
+    ${drivers
+      ? html`<button type="button" class="copy" data-rf="rf-batch-unassign" title=${tr('Every trip of the duties ticked back to the stack, to plan them anew (asked first; Undo puts them back)')} onClick=${() => setRf({ batchAsk: ids.join('|'), panel: r.panel?.kind === 'copyto' ? null : r.panel })}><${Icon} name="inventory_2" size=${15} /><span>${tr('Unassign all trips')}</span></button>`
+      : html`<${IconBtn} icon="inventory_2" title="Unassign the ticked vehicles' trips to the stack" onClick=${() => edit('unassign_rows', { ids }).then(() => setRf({ ticked: [] }))} />`}
     <button type="button" class=${'copy' + (r.panel?.kind === 'copyto' ? ' on' : '')} data-rf="rf-copyto-open" title=${tr('Copy the rows ticked to other days: only the trips that match there go along (Ctrl+C, then Ctrl+V on another day)')} onClick=${() => (r.panel?.kind === 'copyto' ? setRf({ panel: null }) : openCopyTo())}><${Icon} name="content_copy" size=${15} /><span>${tr('Copy to…')}</span></button>
     <b>${tr('%{n} rows selected', { n: ids.length })}</b>
-    <button type="button" class="x" onClick=${() => setRf({ ticked: [], ...(r.panel?.kind === 'copyto' ? { panel: null } : {}) })}><${Icon} name="close" size=${15} /></button>
+    <button type="button" class="x" onClick=${() => setRf({ ticked: [], batchAsk: false, ...(r.panel?.kind === 'copyto' ? { panel: null } : {}) })}><${Icon} name="close" size=${15} /></button>
   </div>`;
 }
 
@@ -210,6 +223,16 @@ function TripCard({ data, c, drivers, size }) {
       <${RfButton} label="Move" solid style="width:104px;height:30px" onClick=${move} />
     </div>
   </div>`;
+}
+
+/** Why the trips chosen (`sel`, (block, trip) pairs) cannot be linked, as `rosterflow::link`
+ * refuses it - or null: two trips or more with passengers, all of one bus. A trip cut on the way
+ * counts once. (The Link button of the Drivers tab was always off: Luc, Beta 65.) */
+export function linkWhy(b, sel) {
+  if (new Set(sel.map(([i]) => i)).size > 1) return 'Only trips of one bus can be linked.';
+  const xs = sel.map(([i, j]) => b.blocks[i]?.trips[j]).filter((x) => x?.counts);
+  if (new Set(xs.map((x) => `${x.origin}|${x.name}`)).size < 2) return 'Pick two trips or more to link.';
+  return null;
 }
 
 /** Link the trip with the trips chosen, or take its link apart. */
@@ -408,6 +431,7 @@ function SelectionCard({ data, c, drivers, size }) {
   const duty = drivers && S.rf.tripsToDuties ? dutyOfPiece(b, tour, pieceOf(b, tour, sel[0][1])) : null;
   // (trips of several duties: how many, dragged up or down together)
   const many = duty ? new Set(sel.map(([i, j]) => dutyOfPiece(b, i, pieceOf(b, i, j))?.[0])).size : 1;
+  const why = linkWhy(b, sel);
   return html`<div class="rf-over rf-card" style=${place(c.at, 380, 196, size)}>
     <div class="head"><${Icon} name=${duty ? 'person' : 'directions_bus'} size=${17} /><b>${many > 1 ? tr('%{n} duties', { n: many }) : duty ? duty[1] : t.label}  ·  ${tr('%{n} trips chosen', { n: xs.length })}</b></div>
     <div class="body">
@@ -415,7 +439,7 @@ function SelectionCard({ data, c, drivers, size }) {
       <div class="tl wide"><${TimeLine} from=${from} to=${to} mid=${`${tr('span')} ${hm(to - from)}`} /></div>
     </div>
     <div class="foot">
-      <${RfButton} label="Link" disabled=${drivers || xs.length < 2} style="width:100px;height:30px" onClick=${() => edit('link', { tour, trips })} />
+      <${RfButton} label="Link" disabled=${!!why} title=${why || 'Link the trips chosen: they stay together on one bus, and Optimise keeps them so'} style="width:100px;height:30px" onClick=${() => edit('link', { tour, trips })} />
       <span class="grow"></span>
       <${RfButton} label=${`${tr('Move')} ${xs.length}`} raw solid disabled=${drivers && !S.rf.tripsToDuties} style="width:124px;height:30px" onClick=${() => pick(tripHand(b, drivers, tour, trips, trips[0], duty?.[0] ?? null, sel), false)} />
     </div>
@@ -926,21 +950,24 @@ function GoTo({ data, drivers, text, size }) {
   </div>`;
 }
 
-/** The optimisation settings: what Optimise makes, and Optimise itself. */
+/** The optimisation settings: what Optimise makes, and Optimise itself - not while it is to make
+ * neither the vehicles nor the duties. */
 function OptSettings({ data, size }) {
   const pr = data.prefs;
+  const none = !pr.optimise_vehicles && !pr.optimise_duties;
   return html`<div class="rf-over rf-sheetwin rf-opt" style=${`left:${size.w - 440}px;top:60px;width:420px;height:250px`}>
     <div class="head"><b>${tr('Optimisation settings')}</b></div>
     <div class="body">
       <${Switch} on=${pr.optimise_vehicles} label="Optimise vehicles (the blocks)" onChange=${(v) => rfAct('opt_flags', { vehicles: v })} />
       <${Switch} on=${pr.optimise_duties} label="Optimise duties (cut and paired)" onChange=${(v) => rfAct('opt_flags', { duties: v })} />
       <p>${tr('Locked vehicles and duties are kept; the preferences say what may be and what it costs.')}</p>
+      ${none && html`<p class="rf-opt-none">${tr('Switch on the vehicles, the duties or both: Optimise has nothing to make.')}</p>`}
     </div>
     <div class="foot">
       <${RfButton} label="Restore defaults" style="width:150px;height:32px" onClick=${() => rfAct('opt_flags', { restore: true })} />
       <span class="grow"></span>
       <${RfButton} label="Close" style="width:110px;height:32px" onClick=${() => setRf({ panel: null })} />
-      <${RfButton} label="Optimize" solid style="width:118px;height:32px" onClick=${() => {
+      <${RfButton} label="Optimize" solid disabled=${none} title=${none ? 'Switch on the vehicles, the duties or both: Optimise has nothing to make.' : undefined} style="width:118px;height:32px" onClick=${() => {
         setRf({ panel: null });
         if (S.rf.view === VEHICLES || S.rf.view === DRIVERS) rfAct('optimise');
         else {
