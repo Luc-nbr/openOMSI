@@ -30,6 +30,8 @@ members = [
     "crates/omsihub-livery",
     # (Omsi-Hub as an add-on: its in-game plugin on openOMSI's plugin API, docs/omsihub/ADDON_PLAN.md)
     "crates/omsihub-plugin",
+    # (its page's own translations, apart from the game's: docs/omsihub/ADDON_PLAN.md)
+    "crates/omsihub-locales",
     "crates/omsi-lan",
     "crates/omsi-platform",
     "crates/omsi-guard",

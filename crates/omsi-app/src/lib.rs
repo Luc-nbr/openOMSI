@@ -159,45 +159,17 @@ const _LOCALES_FONTS: &str = include_str!("../locales/fonts.yml");
 const _LOCALES_COMPANY: &str = include_str!("../locales/bedrijf2.yml");
 const _LOCALES_MORE: &str = include_str!("../locales/vertalingen.yml");
 const _LOCALES_TOBII: &str = include_str!("../locales/tobii.yml");
-const _LOCALES_SESSION: &str = include_str!("../locales/sessie.yml");
-const _LOCALES_COMPANY_DUTY: &str = include_str!("../locales/bedrijfsdienst.yml");
 const _LOCALES_UPSTREAM_0227: &str = include_str!("../locales/openomsi-0227.yml");
-const _LOCALES_UPSTREAM_0230: &str = include_str!("../locales/openomsi-0230.yml");
-const _LOCALES_COMPANY_PAGES: &str = include_str!("../locales/company-pages.yml");
-const _LOCALES_COMPANY_RESEARCH: &str = include_str!("../locales/company-research.yml");
-const _LOCALES_COMPANY_STAFF: &str = include_str!("../locales/company-staff.yml");
-const _LOCALES_COMPANY_CONTRACTS: &str = include_str!("../locales/company-contracts.yml");
-const _LOCALES_COMPANY_HOLIDAYS: &str = include_str!("../locales/company-holidays.yml");
-const _LOCALES_COMPANY_HOME: &str = include_str!("../locales/company-home.yml");
-const _LOCALES_COMPANY_CHOOSER: &str = include_str!("../locales/company-chooser.yml");
-const _LOCALES_DEALER_DELIVERY: &str = include_str!("../locales/dealer-delivery.yml");
-const _LOCALES_COMPANY_EASY: &str = include_str!("../locales/company-easy.yml");
-const _LOCALES_TRIP_CARD: &str = include_str!("../locales/ritkaart.yml");
 const _LOCALES_DESTINATION: &str = include_str!("../locales/bestemming.yml");
-const _LOCALES_APP_THEME: &str = include_str!("../locales/app-theme.yml");
 const _LOCALES_FONT_FIT: &str = include_str!("../locales/fontfit.yml");
 const _LOCALES_LIVERY_LAYERS: &str = include_str!("../locales/livery-layers.yml");
-const _LOCALES_COMPANY_REALTIME: &str = include_str!("../locales/company-realtime.yml");
-const _LOCALES_EASY_POLISH: &str = include_str!("../locales/easy-polish.yml");
 const _LOCALES_LINE_EXISTING: &str = include_str!("../locales/line-existing.yml");
-const _LOCALES_COMPANY_PLANNING: &str = include_str!("../locales/company-planning.yml");
-const _LOCALES_PLANNING_STUDIO: &str = include_str!("../locales/planning-studio.yml");
-const _LOCALES_ROSTERFLOW: &str = include_str!("../locales/rosterflow.yml");
-const _LOCALES_ROSTERFLOW_TIMEPLAN: &str = include_str!("../locales/rosterflow-timeplan.yml");
-const _LOCALES_ROSTERFLOW_TUTORIAL: &str = include_str!("../locales/rosterflow-tutorial.yml");
 const _LOCALES_ROSTERFLOW_LINES: &str = include_str!("../locales/rosterflow-lines.yml");
-const _LOCALES_ROSTERFLOW_RELIEF: &str = include_str!("../locales/rosterflow-relief.yml");
-const _LOCALES_COMPANY_DRIVE: &str = include_str!("../locales/company-drive.yml");
 const _LOCALES_BUGS_TIMETABLE: &str = include_str!("../locales/bugs-timetable.yml");
-const _LOCALES_BUGS_COMPANY: &str = include_str!("../locales/bugs-company.yml");
 const _LOCALES_GAME_MODES: &str = include_str!("../locales/game-modes.yml");
-const _LOCALES_CASUAL: &str = include_str!("../locales/casual.yml");
 // (the texts only the desktop launcher's page in Omsi-Hub's look shows: launcher/ui/js/omsihub)
-const _LOCALES_TAURI_OMSIHUB: &str = include_str!("../locales/tauri-omsihub.yml");
 // (and its bus company's: launcher/ui/js/omsihub/company)
-const _LOCALES_TAURI_COMPANY: &str = include_str!("../locales/tauri-company.yml");
 // (and its RosterFlow's: launcher/ui/js/omsihub/rosterflow)
-const _LOCALES_TAURI_ROSTERFLOW: &str = include_str!("../locales/tauri-rosterflow.yml");
 
 /// Show the interface in `code` (the settings' ENG / DEU / FRA / RUS).
 pub(crate) fn ui_language(code: &str) {

@@ -34,6 +34,8 @@ omsi-o3d = { path = "../omsi-o3d" }
 omsihub-livery = { path = "../omsihub-livery" }
 # Omsi-Hub as an add-on: the openOMSI folder checked, the plugin installed (`src/omsihub/addon.rs`)
 omsihub-plugin = { path = "../omsihub-plugin" }
+# Omsi-Hub: the page's own translations, kept out of the game's tables (`src/omsihub/mod.rs`)
+omsihub-locales = { path = "../omsihub-locales" }
 glam.workspace = true
 sha2.workspace = true
 anyhow.workspace = true
