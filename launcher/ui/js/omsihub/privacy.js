@@ -53,42 +53,53 @@ export function Statement() {
   </div>`;
 }
 
-function Dialog({ close }) {
+/** The statement in a dialog; `ask`: before an account is made or Google signs in (Luc, Beta 67:
+ * the statement pops up first), with the agreement's sentence, "Cancel" and "Accept and continue". */
+function Dialog({ close, ask }) {
   useEffect(() => {
-    const k = (e) => e.key === 'Escape' && (e.stopPropagation(), close());
+    const k = (e) => e.key === 'Escape' && (e.stopPropagation(), close(false));
     addEventListener('keydown', k, true);
     return () => removeEventListener('keydown', k, true);
   }, []);
-  return html`<div class="overlay ol-pv-overlay top" onMouseDown=${(e) => e.target === e.currentTarget && close()}>
-    <div class="ol-pv-box" role="dialog" aria-label=${tr('Privacy Statement')}>
+  return html`<div class="overlay ol-pv-overlay top" onMouseDown=${(e) => e.target === e.currentTarget && close(false)}>
+    <div class="ol-pv-box" role="dialog" aria-modal="true" aria-label=${tr('Privacy Statement')}>
       <header class="ol-pv-head"><${Icon} name="lock" size=${20} /><h2>${tr('Privacy Statement')}</h2><span class="ol-fill"></span>
-        <button type="button" class="hub-bar-btn" title=${tr('Close')} onClick=${close}><${Icon} name="close" size=${17} /></button></header>
+        <button type="button" class="hub-bar-btn" title=${tr('Close')} onClick=${() => close(false)}><${Icon} name="close" size=${17} /></button></header>
+      ${ask && html`<p class="ol-pv-lead">${tr('Before an account is created or used, the Privacy Statement must be accepted.')}</p>`}
       <div class="ol-pv-scroll"><${Statement} /></div>
-      <div class="ol-pv-acts"><span class="ol-fill"></span><button type="button" class="hub-btn small primary" onClick=${close}>${tr('Close')}</button></div>
+      ${ask
+        ? html`<p class="ol-pv-consent">${tr('I have read the Privacy Statement and agree to the processing of my personal data as described therein.')}</p>
+            <div class="ol-pv-acts"><span class="ol-fill"></span><button type="button" class="hub-btn small" onClick=${() => close(false)}>${tr('Cancel')}</button>
+            <button type="button" class="hub-btn small primary" autofocus onClick=${() => close(true)}>${tr('Accept and continue')}</button></div>`
+        : html`<div class="ol-pv-acts"><span class="ol-fill"></span><button type="button" class="hub-btn small primary" onClick=${() => close(false)}>${tr('Close')}</button></div>`}
     </div>
   </div>`;
 }
 
+function open(ask) {
+  return new Promise((done) => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const close = (yes) => {
+      render(null, root);
+      root.remove();
+      done(!!yes);
+    };
+    render(html`<${Dialog} close=${close} ask=${ask} />`, root);
+  });
+}
+
 /** The statement in a dialog of its own, over everything (the panel, the questions, Settings). */
 export function showPrivacy() {
-  const root = document.createElement('div');
-  document.body.append(root);
-  const close = () => {
-    render(null, root);
-    root.remove();
-  };
-  render(html`<${Dialog} close=${close} />`, root);
+  open(false);
+}
+
+/** The statement with the question: true once the player accepted it, false when cancelled. */
+export function askPrivacy() {
+  return open(true);
 }
 
 /** A link to the statement. */
 export function PrivacyLink({ label }) {
   return html`<button type="button" class="ol-pv-link" onClick=${(e) => (e.preventDefault(), e.stopPropagation(), showPrivacy())}><${Icon} name="lock" size=${13} />${label || tr('Privacy Statement')}</button>`;
-}
-
-/** The tick before an account is made or signed in to. */
-export function AgreeBox({ on, set }) {
-  return html`<div class="ol-pv-agree">
-    <label><input type="checkbox" checked=${on} onChange=${(e) => set(e.currentTarget.checked)} /><span>${tr('I have read the Privacy Statement and agree to the processing of my personal data as described therein.')}</span></label>
-    <${PrivacyLink} label=${tr('Read the Privacy Statement')} />
-  </div>`;
 }

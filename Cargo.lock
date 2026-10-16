@@ -4147,6 +4147,7 @@ name = "omsihub-online"
 version = "0.1.0"
 dependencies = [
  "keyring",
+ "ring",
  "serde",
  "serde_json",
  "sha2",

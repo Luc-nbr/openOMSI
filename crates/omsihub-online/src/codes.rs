@@ -65,6 +65,10 @@ pub const TEXTS: &[(&str, &str)] = &[
     ("code_expired", "That code has expired. Ask for a new one."),
     ("too_many_attempts", "Too many wrong codes. Ask for a new one."),
     ("reauth", "Sign in again first, then try once more."),
+    // (Google, through the browser: `oauth.rs`)
+    ("oauth_cancelled", "The sign-in was cancelled."),
+    ("oauth_timeout", "The sign-in in the browser took too long. Please try again."),
+    ("oauth_failed", "The sign-in could not be completed. Please try again."),
     // (the profile's and the friends')
     ("name_taken", "Another player has that display name already."),
     ("bad_name", "A display name has 3 to 24 characters: letters A to Z, digits, spaces, _ . and -."),
@@ -124,7 +128,7 @@ pub(crate) fn of_auth(status: u16, body: &Value) -> Error {
         "otp_expired" => "invalid_code",
         "validation_failed" | "email_address_invalid" => "invalid_email",
         "over_email_send_rate_limit" | "over_request_rate_limit" => "too_many",
-        "otp_disabled" | "signup_disabled" | "email_provider_disabled" => "unavailable",
+        "otp_disabled" | "signup_disabled" | "email_provider_disabled" | "provider_disabled" => "unavailable",
         "reauthentication_needed" | "reauthentication_not_valid" => "reauth",
         "session_not_found" | "session_expired" | "refresh_token_not_found" | "refresh_token_already_used" | "bad_jwt" | "user_not_found" | "user_banned" => return Error::SignedOut,
         _ if status == 429 => "too_many",
