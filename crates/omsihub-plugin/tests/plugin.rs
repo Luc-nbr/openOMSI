@@ -21,6 +21,8 @@ struct Game {
     speed: f32,
     /// What the plugin asked of the IBIS: `auto on`, `auto off`, `typed`.
     ibis: Vec<String>,
+    /// The display fonts and game actions asked for.
+    asked: Vec<String>,
 }
 
 impl PluginIo for Game {
@@ -68,6 +70,17 @@ impl PluginIo for Game {
             return self.trips.clone();
         }
         ["Zoo - Hbf", "Hbf - Zoo"].iter().map(|n| io::Trip { name: n.to_string(), line: "10".into(), ..io::Trip::default() }).collect()
+    }
+    fn bus_ident(&self) -> Option<(String, String)> {
+        Some(("2711".into(), "Vehicles/MAN_SD202/SD202.bus".into()))
+    }
+    fn bus_set_display_font(&mut self, font: &str) -> usize {
+        self.asked.push(format!("font {font}"));
+        1
+    }
+    fn game_action(&mut self, name: &str) -> bool {
+        self.asked.push(format!("action {name}"));
+        true
     }
     fn duty_set_auto_ibis(&mut self, on: bool) -> bool {
         self.ibis.push(if on { "auto on" } else { "auto off" }.into());
@@ -401,4 +414,23 @@ fn the_driver_signs_on_accepts_the_duty_and_has_the_board() {
     let board = panel_text(&ps, "omsihub_board").expect("the duty board");
     // (the stop it heads for marked, four minutes late: when it will be there)
     assert!(board.contains("▶ Markt") && board.contains("+4:00") && board.contains("08:09"), "{board}");
+}
+
+#[test]
+fn the_display_font_goes_on_the_drive_s_bus_and_the_editor_opens() {
+    let plugins = plugins_dir("font");
+    install::install(&plugins).unwrap();
+    let dir = install::plugin_dir(&plugins);
+    bridge::write_assignment(&dir, &Assignment { auto_start: false, bus: "Vehicles\\MAN_SD202\\SD202.bus".into(), display_font: "Annax Small".into(), editor: true, ..assignment() }).unwrap();
+    let mut ps = Plugins::load(&[plugins.clone()], &HostConfig::default());
+    let mut game = Game::default();
+    ps.frame(&mut game);
+    ps.frame(&mut game);
+    assert_eq!(game.asked, ["font Annax Small", "action object_editor"]);
+    // (another bus: its own font)
+    bridge::write_assignment(&dir, &Assignment { auto_start: false, bus: "Vehicles/NG272/NG272.bus".into(), display_font: "Annax Small".into(), ..assignment() }).unwrap();
+    let mut ps = Plugins::load(&[plugins.clone()], &HostConfig::default());
+    let mut other = Game::default();
+    ps.frame(&mut other);
+    assert!(other.asked.is_empty(), "{:?}", other.asked);
 }

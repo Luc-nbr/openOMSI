@@ -97,6 +97,12 @@ pub struct Assignment {
     /// The game types the duty's trips into the IBIS (None: as the game does; false: the
     /// driver types them). With a sign-on they wait for the duty order in any case.
     pub ibis: Option<bool>,
+    /// The bus of the drive (its `.bus` file), and the font its destination displays are drawn
+    /// in ("": its own; `bus.set_display_font`).
+    pub bus: String,
+    pub display_font: String,
+    /// The map's object editor on once the world is there (the editors' "edit this map").
+    pub editor: bool,
     /// The plugin's texts in the player's language: English text -> translation.
     pub texts: BTreeMap<String, String>,
 }

@@ -320,6 +320,9 @@ pub fn assign_duty(d: &core::Duty, company: Option<(&str, &str)>) {
         personnel,
         board: Some(on("nav_board", true)),
         ibis: Some(on("ibis_auto", true)),
+        bus: d.bus.clone(),
+        display_font: d.display_font.clone().unwrap_or_default(),
+        editor: d.editor,
         ..Assignment::default()
     };
     write_texts(&install::plugin_dir(&dir));

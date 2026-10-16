@@ -10,7 +10,7 @@
 --   data/reports.jsonl    plugin -> Omsi-Hub: the duty taken, each trip done, the duty ended
 -- A game without the file functions gets the handshake and the reports in its log instead.
 
-local VERSION = "1.4.0"
+local VERSION = "1.5.0"
 local BRIDGE = 1
 local PANEL = "omsihub"
 
@@ -21,7 +21,7 @@ local json = require("hubjson")
 local NEEDS = {
   "duty.get", "duty.trips", "files.append", "files.write", "duty.start",
   "ui.set", "ui.toast", "ui.remove", "files.read", "json.decode", "send",
-  "duty.set_auto_ibis", "duty.type_ibis",
+  "duty.set_auto_ibis", "duty.type_ibis", "bus.set_display_font", "game.action",
 }
 
 local function fn(name)
@@ -328,7 +328,14 @@ omsi.on("passenger_board", function(count) trip.boarded(count) end)
 omsi.on("light_ahead", function(aspect) watch.light_ahead(aspect) end)
 omsi.on("red_light", function(kmh) watch.red_light(kmh) end)
 
+-- (the object editor once, as soon as the world is there: the frames come with it)
+local editor_opened = false
+
 omsi.on("frame", function(dt)
+  if assignment and assignment.editor and not editor_opened then
+    editor_opened = true
+    if has["game.action"] then omsi.game.action("object_editor") end
+  end
   if fn("has_vehicle") and not omsi.has_vehicle() then return end
   trip.frame(dt)
   watch.frame(dt)
@@ -349,7 +356,18 @@ local function watch_trips()
   state.last_trip = d.trip
 end
 
+-- the display font chosen for the drive's bus, on that bus
+local function display_font()
+  local font = assignment and assignment.display_font or ""
+  if font == "" or not has["bus.set_display_font"] then return end
+  local file = fn("bus.file") and omsi.bus.file() or ""
+  local want = (assignment.bus or ""):gsub("\\", "/"):lower()
+  if want ~= "" and file:gsub("\\", "/"):lower() ~= want then return end
+  omsi.bus.set_display_font(font)
+end
+
 omsi.on("vehicle", function(name)
+  if name then display_font() end
   -- (the notices once the player is in the bus and sees them)
   if name and assignment then show_notices(assignment.notices) end
   if name then ibis_rule() end

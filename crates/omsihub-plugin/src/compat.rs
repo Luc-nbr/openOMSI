@@ -48,6 +48,8 @@ pub static FEATURES: &[Feature] = &[
     Feature { id: "overlay", label: "Company notices on the screen", needs: &["ui.set", "ui.toast", "ui.remove"], essential: false, fallback: "Notices are shown as plain lines of text" },
     Feature { id: "live_notices", label: "New notices while you drive", needs: &["files.read", "json.decode"], essential: false, fallback: "Notices are read when the game starts" },
     Feature { id: "live_link", label: "Live link to Omsi-Hub", needs: &["send"], essential: false, fallback: "Omsi-Hub reads the results when the drive ends" },
+    Feature { id: "display_font", label: "The display font chosen for the bus", needs: &["bus.set_display_font"], essential: false, fallback: "The bus's own display font" },
+    Feature { id: "editor", label: "The map editor opened from the editors", needs: &["game.action"], essential: false, fallback: "Open the object editor in the game with Ctrl+Shift+E" },
     Feature { id: "ibis", label: "The IBIS typed as Omsi-Hub says (after the duty order, or by you)", needs: &["duty.set_auto_ibis", "duty.type_ibis"], essential: false, fallback: "The game types the IBIS as each trip begins" },
 ];
 
