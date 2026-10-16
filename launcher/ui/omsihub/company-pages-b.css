@@ -307,3 +307,26 @@
 .co .co-pgb .co-pgb-ws-item:first-of-type { border-top: 0; padding-top: 0; }
 .co .co-pgb .co-pgb-ws-item .co-pgb-grow { display: flex; flex-direction: column; gap: 1px; }
 .co .co-pgb .co-pgb-ws-item b { font-size: 11px; font-weight: 700; color: var(--pgb-ink); }
+
+/* --- Multiplayer, not shared (js/omsihub/company/multiplayer.js) ------------------------------------ */
+
+.co .co-pgb.co-pgb-mp.in-dialog { border-radius: 0; padding: 4px 2px 8px; }
+.co .co-pgb .co-pgb-mp-hero { display: flex; align-items: center; flex-wrap: wrap; gap: 16px 22px; padding: 22px 24px; background-image: linear-gradient(120deg, rgba(var(--hub-accent-rgb), 0.14), transparent 60%); }
+.co .co-pgb .co-pgb-mp-hero > .co-pgb-grow { flex: 1 1 320px; display: flex; flex-direction: column; gap: 6px; }
+.co .co-pgb .co-pgb-mp-hero .co-pgb-h1 { font-size: 19px; }
+.co .co-pgb .co-pgb-mp-hero-ic { flex: none; width: 62px; height: 62px; border-radius: 18px; display: inline-flex; align-items: center; justify-content: center; color: var(--pgb-accent-ink); background-color: var(--pgb-accent); }
+.co .co-pgb .co-pgb-mp-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.co .co-pgb .co-pgb-mp-step { display: flex; align-items: flex-start; gap: 12px; }
+.co .co-pgb .co-pgb-mp-num { flex: none; width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; color: var(--pgb-accent-text); background-color: var(--pgb-accent-tint); }
+.co .co-pgb .co-pgb-mp-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; align-items: start; }
+.co .co-pgb .co-pgb-mp-friend, .co .co-pgb .co-pgb-mp-role { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--pgb-line); }
+.co .co-pgb .co-pgb-mp-friend:first-of-type, .co .co-pgb .co-pgb-mp-role:first-of-type { border-top: 0; padding-top: 0; }
+.co .co-pgb .co-pgb-mp-friend .co-pgb-grow, .co .co-pgb .co-pgb-mp-role .co-pgb-grow { display: flex; flex-direction: column; gap: 1px; }
+.co .co-pgb .co-pgb-mp-friend b, .co .co-pgb .co-pgb-mp-role b { font-size: 11.2px; font-weight: 700; color: var(--pgb-ink); }
+.co .co-pgb .co-pgb-mp-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background-color: var(--pgb-faint); }
+.co .co-pgb .co-pgb-mp-dot.online { background-color: var(--pgb-ok); }
+.co .co-pgb .co-pgb-mp-dot.away { background-color: var(--pgb-warn); }
+.co .co-pgb .co-pgb-mp-dot.busy { background-color: var(--pgb-accent); }
+.co .co-pgb .co-pgb-mp-role { align-items: flex-start; }
+.co .co-pgb .co-pgb-mp-role-ic { flex: none; width: 28px; height: 28px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; color: var(--pgb-accent); background-color: var(--pgb-accent-tint); }
+.co .co-pgb.co-pgb-mp .co-section { background-color: var(--pgb-card); border-radius: var(--pgb-r); box-shadow: var(--pgb-shadow); padding: 14px 16px; }

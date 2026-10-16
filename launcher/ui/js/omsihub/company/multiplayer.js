@@ -5,7 +5,10 @@
 // player away, and the activity of the session. Every text comes from Rust, translated; the few
 // of this page's own are `tr`'s.
 
-import { toast } from '../../store.js';
+import { toast, S, set } from '../../store.js';
+import { language } from '../../i18n.js';
+// (the not-shared state's look: the set-B pages' cards)
+import { Card, Empty } from './pagesb.js';
 import { html, useEffect, useRef, useState, tr, setCo, cmd, refresh, Icon, Btn, Switch, Dialog, inkOn, rgbOf } from './kit.js';
 
 // (the page's own look, loaded with it)
@@ -182,6 +185,57 @@ function Activity({ v, go }) {
   </div>`;
 }
 
+/** The friends online (Omsi-Hub online's `ol_state`, asked every few seconds while shown), each
+ * with Invite - sharing started first when it is not -; signed out, the way to sign in. */
+function Friends({ go }) {
+  const [o] = usePoll('ol_state', 5000, { lang: language() });
+  const signIn = () => set({ hub: { ...S.hub, online: 'account' } });
+  if (!o || o.error) return null;
+  if (o.mode !== 'in' || o.need_profile) {
+    return html`<${Card} icon="group" title=${tr('Your friends online')}>
+      <p class="co-pgb-text">${tr('Sign in or make an account to see which friends are online and invite them.')}</p>
+      <div style="margin-top:10px"><${Btn} kind="primary" icon="person" label=${tr('Sign in')} onClick=${signIn} /></div>
+    </${Card}>`;
+  }
+  const online = (o.friends || []).filter((f) => f.state !== 'offline');
+  const invite = async (f) => {
+    if (!o.hosting) await go('tg_host_start');
+    const r = await run('ol_invite', { id: f.id, lang: language() });
+    if (r?.message) toast(r.message, 'ok');
+  };
+  return html`<${Card} icon="group" title=${tr('Your friends online')} aside=${String(online.length)}>
+    ${online.length
+      ? online.map((f) => html`<div class="co-pgb-mp-friend"><span class=${'co-pgb-mp-dot ' + f.state}></span><span class="co-pgb-grow"><b class="co-pgb-cut">${f.name}</b><span class="co-pgb-note">${f.state_label}</span></span>
+          <${Btn} small=${true} kind="primary" icon="wifi_tethering" label=${tr('Invite')} onClick=${() => invite(f)} /></div>`)
+      : html`<${Empty} icon="group" text=${tr('No friend is online right now.')} />`}
+  </${Card}>`;
+}
+
+/** The page before sharing: the hero with Start sharing, the three steps, the friends online and
+ * the roles. */
+function NotShared({ v, go, inDialog, players }) {
+  const w = v.words || {};
+  return html`<div class=${'co-pgb co-pgb-mp' + (inDialog ? ' in-dialog' : '')}>
+    <div class="co-pgb-stack">
+      <section class="co-pgb-card co-pgb-mp-hero">
+        <span class="co-pgb-mp-hero-ic"><${Icon} name="wifi_tethering" size=${34} /></span>
+        <span class="co-pgb-grow"><h2 class="co-pgb-h1">${tr('Run your company together')}</h2><p class="co-pgb-text">${w.intro}</p>
+          ${v.other && html`<p class="co-pgb-note co-pgb-t-warn">${v.other}</p>`}</span>
+        <${Btn} kind="primary" class="co-pgb-big" icon="wifi_tethering" label=${w.start} onClick=${() => go('tg_host_start')} />
+      </section>
+      <div class="co-pgb-mp-steps">${(w.how || []).map((t, k) => html`<section class="co-pgb-card co-pgb-mp-step"><span class="co-pgb-mp-num">${k + 1}</span><p class="co-pgb-text">${t}</p></section>`)}</div>
+      <div class="co-pgb-mp-cols">
+        <${Friends} go=${go} />
+        <${Card} icon="badge" title=${tr('Roles')}>
+          ${(v.roles?.roles || []).map((r) => html`<div class="co-pgb-mp-role"><span class="co-pgb-mp-role-ic"><${Icon} name=${r.icon} size=${16} /></span><span class="co-pgb-grow"><b>${r.label}</b><span class="co-pgb-note">${r.about}</span></span></div>`)}
+        </${Card}>
+      </div>
+      ${v.players.length > 0 && players}
+      <p class="co-pgb-note">${w.not_shared}</p>
+    </div>
+  </div>`;
+}
+
 /** The Multiplayer page (`together::host::view`); `inDialog`: shown in a dialog over another
  * page (RosterFlow's button). */
 export function MultiplayerPage({ inDialog }) {
@@ -204,17 +258,7 @@ export function MultiplayerPage({ inDialog }) {
   const players = html`<section class="co-section"><div class="co-caps">${w.players_caps}</div>
     ${v.players.length ? html`<div class="tg-players">${v.players.map((p) => html`<${PlayerCard} key=${p.no} p=${p} v=${v} go=${go} />`)}</div>` : html`<p class="dim">${w.no_players}</p>`}
   </section>`;
-  if (!v.on) {
-    return html`<div class=${'tg-page' + (inDialog ? ' in-dialog' : '')}>
-      ${head}
-      <div class="co-scroll tg-scroll">
-        <section class="co-section tg-intro"><p class="co-para">${w.intro}</p>
-          <ol class="tg-how">${(w.how || []).map((t) => html`<li>${t}</li>`)}</ol>
-          ${v.other && html`<p class="co-para t-warn">${v.other}</p>`}</section>
-        ${v.players.length > 0 && players}
-      </div>
-    </div>`;
-  }
+  if (!v.on) return html`<${NotShared} v=${v} go=${go} inDialog=${inDialog} players=${players} />`;
   return html`<div class=${'tg-page' + (inDialog ? ' in-dialog' : '')}>
     ${head}
     <div class="tg-grid">
