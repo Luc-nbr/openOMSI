@@ -1,117 +1,137 @@
-// The company's finances, as our game-drawn launcher's (`company/money.rs`, `bank.rs`,
-// `fares.rs`): five figures, the month by kind of booking, the loans with the credit room, the
-// ledger, the ticket prices - and the fare dialog with what each price does to passengers and
-// fares.
+// The company's finances (`company/money.rs`, `bank.rs`, `fares.rs`; Luc 2026-10-16, after the
+// approved concept): five KPI cards - cash, this month, the gross margin, debt, the fleet's value
+// -, the month chosen as a profit and loss (the waterfall from its income to its result, its
+// income and costs by kind of booking with their shares), the loans with the credit room, the
+// ticket prices, and the ledger with its filters and search - and the fare dialog with what each
+// price does to passengers and fares.
 
-import { html, useState, setCo, setUi, ui, act, useView, useSize, textW, Icon, Btn, Section, Figure, Select, Dialog, Plate, Slider, seen } from './kit.js';
-import { Bar } from './overview.js';
+import { html, useState, setCo, setUi, ui, act, useView, textW, Icon, Btn, Select, Dialog, Plate, Slider, seen } from './kit.js';
+import { Card, Kpi, Kpis, Empty, HBars, Track, Tabs, Chip } from './pages-a.js';
 
 export function MoneyPage() {
   const st = ui('money', { month: null });
   const v = useView('money', st);
-  const [ref, size] = useSize();
-  if (!v?.figures) return html`<div ref=${ref}></div>`;
-  const gap = 14;
-  const box = (x, y, w, h) => `position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
-  let body = null;
-  let tall = 0;
-  if (size.w > 0) {
-    const n = v.figures.length;
-    const fw = (size.w - (n - 1) * gap) / n;
-    const y = 100 + gap;
-    if (v.easy) {
-      const h = Math.max(260, size.h - y);
-      tall = y + h;
-      const cw = (size.w - gap) / 2;
-      body = html`${v.figures.map((f, k) => html`<div style=${box(k * (fw + gap), 0, fw, 100)}><${Figure} f=${f} /></div>`)}
-        <${Month} m=${v.month} style=${box(0, y, cw, h)} />
-        <${Loans} l=${v.loans} style=${box(cw + gap, y, cw, h)} w=${cw - 36} />`;
-    } else {
-      const h1 = Math.max(260, (size.h - y - gap) * 0.58);
-      const wide = size.w >= 1500;
-      const cols = wide ? 3 : 2;
-      const cw = (size.w - (cols - 1) * gap) / cols;
-      const y2 = y + h1 + gap;
-      const h2 = Math.max(100, size.h - y2);
-      tall = y2 + h2;
-      const lw = (size.w - gap) * 0.62;
-      body = html`${v.figures.map((f, k) => html`<div style=${box(k * (fw + gap), 0, fw, 100) + (f.open ? ';cursor:pointer' : '')} title=${f.tip} onClick=${f.open ? () => setCo({ dialog: { kind: f.open } }) : undefined}><${Figure} f=${f} small=${fw < 170} /></div>`)}
-        <${Month} m=${v.month} style=${box(0, y, cw, h1)} />
-        <${Loans} l=${v.loans} style=${box(cw + gap, y, cw, h1)} w=${cw - 36} />
-        ${wide
-          ? html`<${Fares} f=${v.fares} style=${box(2 * (cw + gap), y, cw, h1)} /><${Ledger} l=${v.ledger} style=${box(0, y2, size.w, h2)} />`
-          : html`<${Ledger} l=${v.ledger} style=${box(0, y2, lw, h2)} /><${Fares} f=${v.fares} style=${box(lw + gap, y2, size.w - lw - gap, h2)} />`}`;
-    }
-  }
-  // (the cards keep their least heights: on a low window the page scrolls to them - Beta 53's
-  // layout check)
-  return html`<div ref=${ref} style="position:relative;height:100%;overflow-x:hidden;overflow-y:auto"><div style=${`position:relative;height:${Math.max(tall, 1)}px`}>${body}</div></div>`;
+  if (!v?.figures) return html`<div class="co-pg"></div>`;
+  return html`<div class="co-pg co-pg-money">
+    <div class="co-pg-stack">
+      <${Kpis} n=${v.figures.length}>${v.figures.map(
+        (f) => html`<${Kpi} f=${f} icon=${f.icon} onClick=${f.open ? () => setCo({ dialog: { kind: f.open } }) : undefined} />`,
+      )}</${Kpis}>
+      <div class=${'co-pg-moneygrid' + (v.easy ? ' easy' : '')}>
+        <${Month} m=${v.month} />
+        <div class="co-pg-stack">
+          <${Loans} l=${v.loans} />
+          ${v.fares && html`<${Fares} f=${v.fares} />`}
+        </div>
+      </div>
+      ${v.ledger && html`<${Ledger} l=${v.ledger} />`}
+    </div>
+  </div>`;
 }
 
-/** The month by kind of booking, and its result (`money::month_overview`). */
-function Month({ m, style }) {
+/** The month as a profit and loss (`money::month_part`): the waterfall, its income and costs by
+ * kind, the passengers, the investments and the deductions for late running. */
+function Month({ m }) {
   const k = Math.max(0, m.months.findIndex(([x]) => x === m.month));
-  return html`<${Section} title=${m.title} style=${style}
-    tools=${html`<span style="width:200px;margin:-7px 0 -9px;text-transform:none;font-weight:400"><${Select} value=${k} h=${32} options=${m.months.map(([, l]) => l)} onChange=${(i) => setUi('money', { month: i > 0 ? m.months[i][0] : null })} /></span>`}>
+  const pick = html`<span class="co-pg-monthpick"><${Select} value=${k} h=${32} options=${m.months.map(([, l]) => l)} onChange=${(i) => setUi('money', { month: i > 0 ? m.months[i][0] : null })} /></span>`;
+  return html`<${Card} title=${m.pl_title} sub=${m.pl_sub} icon="receipt_long" tools=${pick} class="co-pg-pl">
     ${m.empty
-      ? html`<p class="co-para">${m.empty}</p>`
-      : html`<div class="co-scroll" style="flex:1;min-height:0">
-          ${m.rows.map(([label, t, tone]) => html`<div class="co-monthrow"><span class="cut">${label}</span><b class=${'t-' + tone}>${t}</b></div>`)}
-          <div class="co-monthrow result"><span>${m.result_label}</span><b class=${'t-' + m.result_tone}>${m.result}</b></div>
-          ${m.pax && html`<p class="co-note" style="margin-top:8px">${m.pax}</p>`}
-          ${m.capital && html`<p class="co-note" style="margin-top:12px">${m.capital}</p>`}
-          ${m.late && html`<button type="button" class="late-how" style="margin-top:10px" onClick=${() => setCo({ dialog: { kind: 'late' } })}><${Icon} name="schedule" size=${15} />${m.late}</button>`}
-        </div>`}
-  </${Section}>`;
+      ? html`<${Empty} icon="receipt_long" text=${m.empty} />`
+      : html`<${Waterfall} steps=${m.waterfall} />
+        <div class="co-pg-plsplit">
+          <div>
+            <div class="co-pg-plhead"><span class="co-pg-caps">${m.income_title}</span><b class="t-ok">${m.income_total}</b></div>
+            ${m.income.length ? html`<${HBars} rows=${m.income} />` : html`<p class="co-pg-note">${m.no_income}</p>`}
+          </div>
+          <div>
+            <div class="co-pg-plhead"><span class="co-pg-caps">${m.costs_title}</span><b class="t-danger">${m.costs_total}</b></div>
+            ${m.costs.length ? html`<${HBars} rows=${m.costs} />` : html`<p class="co-pg-note">${m.no_costs}</p>`}
+          </div>
+        </div>
+        <div class="co-pg-plresult"><span>${m.result_label}</span><b class=${'t-' + m.result_tone}>${m.result}</b></div>
+        ${m.pax && html`<p class="co-pg-note"><${Icon} name="groups" size=${14} /> ${m.pax}</p>`}
+        ${m.capital && html`<p class="co-pg-note">${m.capital}</p>`}
+        ${m.late && html`<button type="button" class="late-how" style="margin-top:4px;align-self:flex-start" onClick=${() => setCo({ dialog: { kind: 'late' } })}><${Icon} name="schedule" size=${15} />${m.late}</button>`}`}
+  </${Card}>`;
+}
+
+/** The waterfall from the month's income to its result: each cost a step down. */
+function Waterfall({ steps }) {
+  const ends = steps.flatMap((s) => [s.from, s.to]);
+  const hi = Math.max(1, ...ends);
+  const lo = Math.min(0, ...ends);
+  const span = hi - lo || 1;
+  const pct = (x) => ((x - lo) / span) * 100;
+  return html`<div class="co-pg-fall" style=${`--n:${steps.length}`}>
+    ${lo < 0 && html`<i class="co-pg-fallzero" style=${`bottom:${pct(0)}%`}></i>`}
+    ${steps.map((s) => {
+      const bottom = pct(Math.min(s.from, s.to));
+      const height = Math.max(1.5, pct(Math.max(s.from, s.to)) - bottom);
+      return html`<div class=${'co-pg-fallstep' + (s.total ? ' total' : '')} title=${`${s.label}: ${s.amount}`}>
+        <div class="co-pg-fallplot">
+          <span class="co-pg-fallbar" style=${`bottom:${bottom}%;height:${height}%;background-color:${s.tone === 'ok' ? 'rgb(var(--co-ok-fill))' : 'rgb(var(--co-danger-fill))'}`}></span>
+          <b class=${'co-pg-fallvalue t-' + s.tone} style=${`bottom:calc(${bottom + height}% + 3px)`}>${s.amount}</b>
+        </div>
+        <span class="co-pg-falllabel">${s.label}</span>
+      </div>`;
+    })}
+  </div>`;
 }
 
 /** The loans and the credit room (`money::loans`, `bank::credit_figure`). */
-function Loans({ l, style, w }) {
+function Loans({ l }) {
   const cr = l.credit;
-  const narrow = w < 520;
-  return html`<${Section} title=${l.title} style=${style}>
-    <div class="co-credit" style=${narrow ? 'grid-template-columns:1fr' : ''}>
-      <div>
-        <div class="co-caps">${cr.caps}</div>
-        <div class=${'value t-' + cr.tone}>${cr.value}</div>
-        <div class=${'say t-' + cr.tone}>${cr.say}</div>
-        <div style="margin-top:6px;padding-right:10px"><${Bar} b=${{ ...cr.bar, tone: cr.tone }} /></div>
-      </div>
-      ${!narrow && html`<div class="lines">${cr.lines.map(([a, b]) => html`<div><span class="cut">${a}</span><b>${b}</b></div>`)}<p>${cr.rate}</p></div>`}
+  return html`<${Card} title=${l.title} icon="description" tools=${html`<${Btn} kind="primary" icon="payments" label=${l.take} style="height:32px" onClick=${() => act('open_loan')} />`}>
+    <div class="co-pg-credit">
+      <div class="co-pg-line"><span class="co-pg-caps grow">${cr.caps}</span><b class=${'t-' + cr.tone}>${cr.value}</b></div>
+      <div title=${cr.bar.tip}><${Track} frac=${cr.bar.frac} tone=${cr.tone} h=${10} /></div>
+      <div class="co-pg-line co-pg-note"><span class="grow co-pg-cut">${cr.bar.label}</span><span>${cr.bar.right}</span></div>
+      <p class=${'co-pg-note t-' + cr.tone}>${cr.say}</p>
+      <details class="co-pg-creditlines"><summary>${cr.rate}</summary>${cr.lines.map(([a, b]) => html`<div class="co-pg-line"><span class="grow co-pg-cut">${a}</span><b>${b}</b></div>`)}</details>
     </div>
-    <div class="co-scroll" style="flex:1;min-height:0;border-top:1px solid var(--hub-hairline);margin-top:17px;padding-top:6px">
+    <div class="co-pg-list" style="margin-top:12px">
       ${l.list.length
-        ? l.list.map((x) => html`<div class="co-loanrow"><div class="grow"><b class="cut">${x.what}</b><span class="cut">${x.sub}</span></div>
-            ${x.paper && html`<${Btn} icon="description" label=${l.contract} style="height:34px" onClick=${() => act('open_loan_contract', { no: x.id })} />`}
-            <${Btn} label=${l.repay} style="height:34px" onClick=${() => act('open_repay', { id: x.id })} /></div>`)
-        : html`<p class="co-para" style="margin-top:4px">${l.none}</p>`}
+        ? l.list.map((x) => html`<div class="co-pg-item"><div class="co-pg-line"><b class="co-pg-itemtitle grow co-pg-cut">${x.what}</b>
+            ${x.paper && html`<${Btn} icon="description" label=${l.contract} style="height:30px" onClick=${() => act('open_loan_contract', { no: x.id })} />`}
+            <${Btn} label=${l.repay} style="height:30px" onClick=${() => act('open_repay', { id: x.id })} /></div><span class="co-pg-itemsub">${x.sub}</span></div>`)
+        : html`<p class="co-pg-note">${l.none}</p>`}
     </div>
-    <div style="display:flex;justify-content:flex-end;flex:none;margin-top:12px"><${Btn} kind="primary" icon="payments" label=${l.take} style="height:38px" onClick=${() => act('open_loan')} /></div>
-  </${Section}>`;
-}
-
-/** The ledger, the newest first (`money::ledger`). */
-function Ledger({ l, style }) {
-  if (!l) return null;
-  return html`<${Section} title=${l.title} style=${style}>
-    <div class="co-scroll" style="flex:1;min-height:0;margin:-4px -4px -12px">
-      ${l.rows.map((b) => html`<div class="co-ledgerrow"><span class="cut">${b.date}</span><span class="cut kind">${b.kind}</span><span class="cut text">${b.text}</span>
-        <span class=${'mark cut' + (b.mark ? ' t-' + b.mark[1] : '')} title=${b.mark?.[2]}>${b.mark?.[0] || ''}</span><b class=${'t-' + b.tone}>${b.amount}</b></div>`)}
-    </div>
-  </${Section}>`;
+  </${Card}>`;
 }
 
 /** The ticket prices of the company's lines (`fares::card`). */
-function Fares({ f, style }) {
-  if (!f) return null;
-  return html`<${Section} title=${f.title} style=${style}>
+function Fares({ f }) {
+  return html`<${Card} title=${f.title} icon="confirmation_number">
     ${f.empty
-      ? html`<p class="co-para">${f.empty}</p>`
-      : html`<div class="co-scroll" style="flex:1;min-height:0">${f.rows.map(
-          (r) => html`<button type="button" class="co-row co-farerow" title=${f.tip} onClick=${() => setCo({ dialog: { kind: 'fare', line: r.name } })}>
-            <${Plate} p=${r.plate} h=${22} style="margin-left:6px" /><b>${r.fare}</b><span class="vs">${r.vs}</span><span class=${'pax t-' + r.tone}>${r.pax}</span><${Icon} name="chevron_right" size=${18} class="t-dim" /></button>`,
+      ? html`<${Empty} small icon="confirmation_number" text=${f.empty} />`
+      : html`<div class="co-pg-fares">${f.rows.map(
+          (r) => html`<button type="button" class="co-pg-farerow" title=${f.tip} onClick=${() => setCo({ dialog: { kind: 'fare', line: r.name } })}>
+            <${Plate} p=${r.plate} h=${22} /><b>${r.fare}</b><span class="co-pg-muted co-pg-cut">${r.vs}</span><span class=${'co-pg-cut t-' + r.tone}>${r.pax}</span><${Icon} name="chevron_right" size=${18} class="t-dim" /></button>`,
         )}</div>`}
-  </${Section}>`;
+  </${Card}>`;
+}
+
+/** The ledger, the newest first (`money::ledger`): all, income, costs or investments, and what
+ * is searched for. */
+function Ledger({ l }) {
+  const [cat, setCat] = useState('all');
+  const [q, setQ] = useState('');
+  const want = q.trim().toLowerCase();
+  const rows = l.rows.filter((b) => (cat === 'all' || b.cat === cat) && (!want || `${b.date} ${b.kind} ${b.text} ${b.amount}`.toLowerCase().includes(want)));
+  const tools = html`<${Tabs} value=${cat} options=${l.filters} onChange=${setCat} />
+    <label class="co-pg-search"><${Icon} name="search" size=${16} /><input type="search" value=${q} placeholder=${l.search} onInput=${(e) => setQ(e.currentTarget.value)} /></label>`;
+  return html`<${Card} title=${l.title} icon="view_list" tools=${tools} class="co-pg-ledger">
+    ${rows.length
+      ? html`<div class="co-pg-tablewrap"><table class="co-pg-table">
+          <colgroup><col style="width:17%" /><col style="width:18%" /><col /><col style="width:96px" /><col style="width:16%" /></colgroup>
+          <thead><tr>${l.heads.map((h, k) => html`<th class=${k === 4 ? 'num' : ''}>${h}</th>`)}</tr></thead>
+          <tbody>${rows.map(
+            (b) => html`<tr><td class="co-pg-muted">${b.date}</td><td>${b.kind}</td><td title=${b.text}>${b.text}</td>
+              <td>${b.mark && html`<${Chip} text=${b.mark[0]} tone=${b.mark[1]} title=${b.mark[2]} />`}</td><td class=${'num t-' + b.tone}><b>${b.amount}</b></td></tr>`,
+          )}</tbody>
+        </table></div>`
+      : html`<${Empty} small icon="search" text=${l.none} />`}
+  </${Card}>`;
 }
 
 /** A line's fare (`fares::dialog`): the band, the slider, what each price does, what the fare

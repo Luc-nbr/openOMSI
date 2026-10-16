@@ -28,9 +28,9 @@ export async function selftest(check, errors) {
   check('company: the start', !e && $$('.co-mode').length === 2, e || `${$$('.co-mode').length} ways to play`);
   const list = S.co.list?.companies?.tiles || [];
   e = await shown('companies', { chooser: 'companies' });
-  check('company: the companies', !e && $$('.co-company').length === list.length + 1, e || `${list.length} companies and the new one`);
+  check('company: the companies', !e && $$('.co-pg-company').length === list.length + 1, e || `${list.length} companies and the new one`);
   // the founding wizard, looked at and left (nothing founded)
-  $('.co-company.new')?.click();
+  $('.co-pg-company.new')?.click();
   e = await shown('the founding wizard', null, 1200);
   check('company: the founding wizard', !e && !!S.co.wizard, e || 'drawn');
   // (Beta 54: the buses it will work with - the map's region proposed, the models' list)

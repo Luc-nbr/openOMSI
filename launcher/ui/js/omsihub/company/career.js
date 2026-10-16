@@ -1,11 +1,14 @@
-// The driver's career in the company, as our game-drawn launcher's (`company/career.rs`): the
-// driver's own duties (in Casual the duties to take beside them), the progress of the driver and
-// the company with the licences and what the levels open, the courses, the workshop's jobs, the
-// rankings of the map, and the statistics of the trips driven.
+// The driver's career in the company, as our game-drawn launcher's (`company/career.rs`; Luc
+// 2026-10-16, after the approved concept): the driver's card over every part - who, the level
+// with its bar of points, four figures -, then the driver's own duties (the coming week as a
+// strip, in Casual the duties to take beside them, how it works in three steps), the progress of
+// the driver and the company with the licences and what the levels open, the courses, the
+// workshop's jobs, the rankings of the map, and the statistics of the trips driven.
 
-import { html, setUi, ui, act, useView, goTab, Icon, Btn, Seg, Section, Figure, Plate, IconBtn, Tag, T, fill } from './kit.js';
+import { html, setUi, ui, act, useView, goTab, Icon, Btn, Section, Figure, Plate, IconBtn, Tag, T, fill } from './kit.js';
 import { RepairGame } from './repair.js';
 import { Bar } from './overview.js';
+import { Card, Empty, Tabs, Track } from './pages-a.js';
 
 export function CareerPage() {
   const st = ui('career', { part: 0 });
@@ -13,52 +16,75 @@ export function CareerPage() {
   if (!v?.parts) return null;
   const b = v.body;
   const Part = [Duties, Progress, Training, Workshop, Rankings, Statistics][v.part] || Duties;
-  return html`<div style="height:100%;display:flex;flex-direction:column">
-    <div style="display:flex;align-items:center;gap:20px;flex:none">
-      <${Seg} value=${v.part} options=${v.parts.map((p, k) => [k, p])} onChange=${(k) => setUi('career', { part: k })} style="width:min(740px,100%);height:36px" />
-      <span class="co-para grow cut" style="text-align:right;font-size:var(--co-rows);font-weight:500;color:var(--hub-text-dim)">${v.level}</span>
-    </div>
-    <div style="flex:1;min-height:0;margin-top:16px"><${Part} b=${b} /></div>
+  return html`<div class="co-pg co-pg-career">
+    <${Profile} p=${v.profile} level=${v.level} />
+    <div class="co-pg-careertabs"><${Tabs} value=${v.part} options=${v.parts.map((p, k) => [k, p])} onChange=${(k) => setUi('career', { part: k })} /></div>
+    <div class="co-pg-careerbody"><${Part} b=${b} /></div>
   </div>`;
 }
 
-/** An empty part's icon, title and words placed from its middle as `career::duties_part`
- * places them (`at`: the icon's centre, the title's top and the words' top). */
-const EmptyAt = ({ e, at: [icon, title, text] }) => html`
-  <span style=${`position:absolute;left:0;right:0;top:calc(50% + ${icon - 17}px);display:flex;justify-content:center`}><${Icon} name=${e.icon} size=${34} class="t-dim" /></span>
-  <b style=${`position:absolute;left:0;right:0;top:calc(50% + ${title}px);height:26px;line-height:26px;text-align:center;font-size:var(--co-head);color:var(--hub-text-soft)`}>${e.title}</b>
-  <p class="co-note t-dim" style=${`position:absolute;left:50%;top:calc(50% + ${text}px);transform:translateX(-50%);width:min(520px, 100%)`}>${e.text}</p>`;
+/** The driver's card: the initials in a ring, the name and rank, the level and its bar, four
+ * figures; the company's level on the right. */
+function Profile({ p, level }) {
+  if (!p) return null;
+  if (p.none) {
+    return html`<section class="co-pg-card co-pg-profile"><span class="co-pg-avatar"><${Icon} name="person" size=${30} /></span>
+      <div class="grow"><b class="co-pg-profilename">${p.none}</b><span class="co-pg-small co-pg-muted">${p.company}</span></div></section>`;
+  }
+  return html`<section class="co-pg-card co-pg-profile">
+    <span class="co-pg-avatar">${p.initials}</span>
+    <div class="co-pg-profilemain">
+      <div class="co-pg-line"><b class="co-pg-profilename co-pg-cut">${p.name}</b><span class="co-pg-levelchip">${p.level}</span></div>
+      <span class="co-pg-small co-pg-muted co-pg-cut">${p.rank}  ·  ${p.company || level}</span>
+      <div title=${p.bar.tip}><${Track} frac=${p.bar.frac} tone="accent" h=${8} /></div>
+      <span class="co-pg-small co-pg-muted co-pg-cut">${p.bar.label}</span>
+    </div>
+    <div class="co-pg-profilestats">${p.stats.map(
+      (s) => html`<div><span class="co-pg-ministaticon"><${Icon} name=${s.icon} size=${18} /></span><b>${s.value}</b><span>${s.label}</span></div>`,
+    )}</div>
+  </section>`;
+}
 
-/** The driver's duties (`career::duties_part`), and in Casual the duties to take. */
+/** The driver's duties (`career::duties_part`): the coming week as a strip, the duties to drive,
+ * and beside them in Casual the duties to take, else how it works. */
 function Duties({ b }) {
   const e = b.empty;
-  return html`<div style=${`display:grid;grid-template-columns:minmax(0,1fr) ${b.easy ? 'clamp(340px, 42%, 560px)' : 'clamp(260px, 30%, 380px)'};gap:12px;grid-template-rows:minmax(0,1fr);height:100%`}>
-    <${Section} title=${b.title}>
-      ${e
-        ? e.reading
-          ? html`<p class="co-para">${e.reading}</p>`
-          : html`<div style="position:relative;flex:1"><${EmptyAt} e=${e} at=${e.button ? [-70, -40, -6] : [-50, -20, 14]} />
-              ${e.button && html`<div style="position:absolute;left:0;right:0;top:calc(50% + 50px);display:flex;justify-content:center"><${Btn} kind="primary" icon="event" label=${e.button} style="height:38px" onClick=${() => goTab(5)} /></div>`}</div>`
-        : html`<div class="co-scroll" style="flex:1;min-height:0">${b.rows.map(
-            (d, k) => html`<div class=${'co-myduty' + (k === 0 ? ' next' : '')}>
-              <div class="when"><b class="cut">${d.date}</b><span class=${k === 0 ? 't-accent' : 't-soft'}>${d.time}</span></div>
-              <div class="what"><div><${Plate} p=${d.plate} h=${24} /><span class="cut">${d.words}</span>${k === 0 && html`<${Tag} text=${b.up} tone="accent" />`}</div>
-                <span class=${'cut t-' + d.bus_tone}><${Icon} name="directions_bus" size=${16} />${d.bus}</span></div>
-              ${b.easy && html`<${IconBtn} icon="close" size=${15} title=${b.back_tip} onClick=${() => act('give_back', { duty: d.duty })} />`}
-              <${Btn} kind=${k === 0 ? 'primary' : ''} icon="play_arrow" label=${b.drive} title=${b.drive_tip} style="width:120px;height:38px;padding:0" onClick=${() => act('drive_duty', { duty: d.duty, from: 6 })} />
-            </div>`,
-          )}</div>`}
-    </${Section}>
-    <${Section} title=${b.side.title}>
-      ${b.side.text
-        ? html`<p class="co-note" style="font-size:10.75px">${b.side.text}</p>`
-        : b.side.none
-          ? html`<p class="co-note" style="font-size:10.75px">${b.side.none}</p>`
-          : html`<div class="co-scroll" style="flex:1;min-height:0">${b.side.rows.map(
-              (d) => html`<div class="co-takerow"><div><span class="top"><${Plate} p=${d.plate} h=${22} /><b class="cut">${d.short}  ·  ${d.time}</b></span><span class="cut t-soft">${d.words}</span></div>
-                <${Btn} icon="add" label=${b.side.take} title=${b.side.take_tip} style="height:34px" onClick=${() => act('take_duty', { duty: d.duty })} /></div>`,
+  return html`<div class=${'co-pg-duties' + (b.easy ? ' easy' : '')}>
+    <div class="co-pg-stack">
+      <${Card} title=${b.week_title} icon="calendar_month">
+        <div class="co-pg-weekstrip">${b.week.map(
+          (d) => html`<div class=${'co-pg-weekday' + (d.today ? ' today' : '') + (d.weekend ? ' weekend' : '')}>
+            <span class="co-pg-weekname">${d.day}</span><span class="co-pg-weekdate">${d.date}</span>
+            <div class="co-pg-weekchips">${d.duties.map((c) => html`<span class="co-pg-dutychip" title=${c.tip}><${Plate} p=${c.plate} h=${18} />${c.time}</span>`)}</div>
+          </div>`,
+        )}</div>
+      </${Card}>
+      <${Card} title=${b.title} icon="badge">
+        ${e
+          ? e.reading
+            ? html`<p class="co-pg-note">${e.reading}</p>`
+            : html`<${Empty} icon=${e.icon} title=${e.title} text=${e.text}>${e.button && html`<${Btn} kind="primary" icon="event" label=${e.button} style="height:38px" onClick=${() => goTab(5)} />`}</${Empty}>`
+          : html`<div class="co-pg-list">${b.rows.map(
+              (d, k) => html`<div class=${'co-myduty co-pg-myduty' + (k === 0 ? ' next' : '')}>
+                <div class="when"><b class="co-pg-cut">${d.date}</b><span class=${k === 0 ? 't-accent' : 't-soft'}>${d.time}</span></div>
+                <div class="what"><div><${Plate} p=${d.plate} h=${24} /><span class="co-pg-cut">${d.words}</span>${k === 0 && html`<${Tag} text=${b.up} tone="accent" />`}</div>
+                  <span class=${'co-pg-cut t-' + d.bus_tone}><${Icon} name="directions_bus" size=${16} />${d.bus}</span></div>
+                ${b.easy && html`<${IconBtn} icon="close" size=${15} title=${b.back_tip} onClick=${() => act('give_back', { duty: d.duty })} />`}
+                <${Btn} kind=${k === 0 ? 'primary' : ''} icon="play_arrow" label=${b.drive} title=${b.drive_tip} style="width:120px;height:38px;padding:0" onClick=${() => act('drive_duty', { duty: d.duty, from: 6 })} />
+              </div>`,
             )}</div>`}
-    </${Section}>
+      </${Card}>
+    </div>
+    <${Card} title=${b.side.title} icon=${b.side.steps ? 'help' : 'add'}>
+      ${b.side.steps
+        ? html`<ol class="co-pg-steplist">${b.side.steps.map((s, k) => html`<li><span class="co-pg-stepno">${k + 1}</span><div><b>${s.title}</b><p>${s.text}</p></div></li>`)}</ol>`
+        : b.side.none
+          ? html`<${Empty} small icon="event" text=${b.side.none} />`
+          : html`<div class="co-pg-list">${b.side.rows.map(
+              (d) => html`<div class="co-takerow co-pg-item" style="flex-direction:row;align-items:center"><div class="grow" style="min-width:0"><span class="co-pg-line"><${Plate} p=${d.plate} h=${22} /><b class="co-pg-cut">${d.short}  ·  ${d.time}</b></span><span class="co-pg-itemsub co-pg-cut">${d.words}</span></div>
+                <${Btn} icon="add" label=${b.side.take} title=${b.side.take_tip} style="height:32px" onClick=${() => act('take_duty', { duty: d.duty })} /></div>`,
+            )}</div>`}
+    </${Card}>
   </div>`;
 }
 

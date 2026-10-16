@@ -33,6 +33,21 @@ fn ensure(s: &mut Session) {
     });
 }
 
+/// A goal's icon and its tint, by what it counts (Luc 2026-10-16: people, a leaf, a clock, a
+/// bus, a star).
+fn goal_icon(g: &Goal) -> (&'static str, &'static str) {
+    match g.aim {
+        ct::Aim::Trips { .. } => ("directions_bus", "accent"),
+        ct::Aim::Passengers { .. } => ("groups", "early"),
+        ct::Aim::Km { .. } => ("route", "early"),
+        ct::Aim::Rating { .. } => ("star", "warn"),
+        ct::Aim::NoDrops { .. } => ("check_circle", "ok"),
+        ct::Aim::OnTime { .. } => ("schedule", "ok"),
+        ct::Aim::Line { .. } => ("alt_route", "accent"),
+        ct::Aim::Profit { .. } => ("payments", "ok"),
+    }
+}
+
 /// A goal's title in the page's language.
 fn goal_title(g: &Goal) -> String {
     let (t, args) = g.aim.title();
@@ -49,16 +64,20 @@ pub fn view(s: &mut Session, args: &Value) -> Value {
         "trophies": { "label": tr("Trophies"), "value": grouped(c.trophies as f64), "under": tr("to spend on research"), "tone": "warn", "tip": tr("Trophies are earned with goals; research costs trophies as well as money.") },
         "rating": { "label": tr("Rating"), "value": format!("{} / 5", num(rating, 1)), "under": "", "tone": grade(c.reputation + 15.0), "stars": rating, "tip": tr("The company's rating is its reputation in stars: trips on time and happy passengers raise it.") },
         "running": { "label": tr("Goals running"), "value": format!("{running} / {}", ct::RUNNING_MAX), "under": tr("at most three at once"), "tone": "text" },
-        "milestone": { "label": tr("Trophy milestone"), "bar": trophy_bar(&c) },
+        "milestone": { "label": tr("Next milestone"), "bar": trophy_bar(&c) },
     });
     let parts = [tr("Goals"), tr("Service contracts"), tr("Tender bids"), tr("Bus contracts")];
+    let icons = ["flag", "tune", "campaign", "directions_bus"];
     let body = match part {
         0 => goals(&c),
         1 => services(&c, args),
         2 => concessions::bids(&c),
         _ => bus_contracts(&c),
     };
-    json!({ "figures": figures, "parts": parts, "part": part, "body": body })
+    json!({
+        "figures": figures, "parts": parts, "icons": icons, "part": part, "body": body,
+        "title": tr("Goals & contracts"), "lead": tr("Take on goals and contracts to earn rewards, improve your company and grow your fleet."),
+    })
 }
 
 /// The goals: on offer, running, finished (`contracts::goals`).
@@ -71,8 +90,9 @@ fn goals(c: &Company) -> Value {
     let offer_cards: Vec<Value> = offered
         .iter()
         .map(|g| {
+            let (icon, tone) = goal_icon(g);
             json!({
-                "id": g.id, "title": goal_title(g), "rule": tr(g.aim.rule()),
+                "id": g.id, "title": goal_title(g), "rule": tr(g.aim.rule()), "icon": icon, "tone": tone,
                 "trophies": g.trophies.to_string(), "reward": eur(g.reward),
                 "days": trf("%{n} days to reach it", &[("n", &g.days.to_string())]),
                 "take": tr("Take it on"), "primary": !full,
@@ -90,8 +110,9 @@ fn goals(c: &Company) -> Value {
                 1 => tr("Until tomorrow"),
                 n => trf("Until %{date}: %{n} days left", &[("date", &day_label(g.deadline.as_deref().unwrap_or(""))), ("n", &n.to_string())]),
             };
+            let (icon, icon_tone) = goal_icon(g);
             json!({
-                "id": g.id, "title": goal_title(g),
+                "id": g.id, "title": goal_title(g), "icon": icon, "tone": icon_tone,
                 "bar": { "frac": g.share(), "tone": tone, "label": goal_progress(g) },
                 "trophies": g.trophies.to_string(), "reward": eur(g.reward),
                 "when": when, "when_tone": if left <= 2 { "warn" } else { "soft" },
@@ -111,14 +132,20 @@ fn goals(c: &Company) -> Value {
             } else {
                 trf("Missed on %{date}", &[("date", &ended)])
             };
-            json!({ "title": goal_title(g), "done": done, "what": what })
+            let (icon, tone) = goal_icon(g);
+            let ago = g.ended.as_deref().map(|d| co::dates::between(d, &today)).filter(|_| done).map(|n| match n {
+                0 => tr("Completed today"),
+                1 => tr("Completed yesterday"),
+                n => trf("Completed %{n} days ago", &[("n", &n.to_string())]),
+            });
+            json!({ "title": goal_title(g), "done": done, "what": what, "icon": icon, "tone": tone, "ago": ago, "trophies": done.then(|| g.trophies.to_string()), "reward": done.then(|| eur(g.reward)) })
         })
         .collect();
     json!({
         "kind": "goals",
         "offered": { "title": tr("On offer this week"), "until": offered.first().map(|g| trf("until %{date}", &[("date", &day_label(&g.offered_until))])), "empty": tr("Every goal of this week is taken. New ones come on Monday."), "cards": offer_cards },
         "running": { "title": tr("Running"), "empty": tr("No goal runs now. Take on up to three of those on offer: each counts your company's days from today until it is reached or its time runs out."), "cards": run_cards },
-        "finished": { "title": tr("Finished"), "empty": tr("The goals you reach or miss are listed here."), "rows": done_rows },
+        "finished": { "title": tr("Finished"), "empty": tr("No more finished goals for now. Keep up the great work!"), "rows": done_rows },
     })
 }
 
