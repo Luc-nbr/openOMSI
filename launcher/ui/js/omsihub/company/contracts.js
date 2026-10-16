@@ -11,6 +11,7 @@ import { html, ui, setUi, Icon, Btn, Plate, Slider, goTab, fill } from './kit.js
 import { useMore, actMore } from './more.js';
 import { Card, Empty, Chip, Dot, Track, Stars } from './pages-a.js';
 import { Badge } from './concessions.js';
+import { VaryDialog, openVary } from './variations.js';
 
 export function ContractsPage() {
   const st = ui('contracts', { part: 0, gb: null });
@@ -42,6 +43,7 @@ export function ContractsPage() {
             ? html`<${BusContracts} b=${b} />`
             : html`<${Bids} b=${b} />`}
     </div>
+    <${VaryDialog} />
   </div>`;
 }
 
@@ -201,7 +203,8 @@ function Bids({ b }) {
 
 /** The company's bus contracts (`contracts::bus_contracts`): the track record, each contract with
  * its kind, payment and days, term and extensions, its rating and points, its journeys not paid
- * and its month, and the way to hand it back; those ended in the last twelve months below. */
+ * and its month, its latest variations, a change to request (`variations.js`) and the way to hand
+ * it back; those ended in the last twelve months below. */
 function BusContracts({ b }) {
   return html`<${Card} title=${b.title} icon="directions_bus">
     <div class="co-pg-banner2" style="margin-bottom:14px"><${Icon} name="military_tech" size=${18} /><span>${b.record}</span></div>
@@ -217,7 +220,11 @@ function BusContracts({ b }) {
             <span class=${'co-pg-small t-' + r.rag.tone} style="font-weight:700"><${Icon} name="flag" size=${13} /> ${r.points}</span>
             <span class="co-pg-itemsub">${r.unpaid}</span>
             <span class="co-pg-itemsub">${r.month}</span>
-            <div><${Btn} kind="danger" icon="restart_alt" label=${r.back} title=${r.back_tip} style="height:30px;padding:0 10px" onClick=${() => actMore('contract_hand_back', { line: r.line })} /></div>
+            ${r.history.map((h) => html`<span class="co-pg-itemsub"><${Icon} name="edit_road" size=${13} /> ${h}</span>`)}
+            <div class="co-pg-line" style="flex-wrap:wrap">
+              ${r.change && html`<${Btn} icon="edit_road" label=${r.change} title=${r.change_tip} style="height:30px;padding:0 10px" onClick=${() => openVary(r.line)} />`}
+              <${Btn} kind="danger" icon="restart_alt" label=${r.back} title=${r.back_tip} style="height:30px;padding:0 10px" onClick=${() => actMore('contract_hand_back', { line: r.line })} />
+            </div>
           </div>`,
         )}</div>
         ${b.ended.length > 0 &&

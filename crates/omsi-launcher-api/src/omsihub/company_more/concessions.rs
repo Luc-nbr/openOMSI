@@ -252,7 +252,8 @@ fn held(c: &Company) -> Value {
             };
             let more = k.map(|k| format!("{}  ·  {}", kc::points_text(c, k), kc::unpaid_text(c, k)));
             let caption = c.lines.iter().find(|l| l.name.eq_ignore_ascii_case(&h.line)).map(|l| l.caption.clone()).filter(|x| !x.is_empty()).unwrap_or_else(|| h.line.clone());
-            json!({ "number": h.number, "caption": caption, "until": until, "tone": if left <= cn::RENEW_BEFORE { "warn" } else { "text" }, "price": price, "more": more, "points": k.map(|k| kc::points_text(c, k)), "unpaid": k.map(|k| kc::unpaid_text(c, k)), "rag": k.map(|k| kc::rag_json(k.rag(&today))), "direct": (h.direct && k.is_none()).then(|| tr("commercial").to_uppercase()) })
+            let change = k.filter(|k| matches!(k.kind, bc::Kind::Gross | bc::Kind::Net) && k.live()).map(|_| tr("Request a change"));
+            json!({ "line": h.line, "change": change, "number": h.number, "caption": caption, "until": until, "tone": if left <= cn::RENEW_BEFORE { "warn" } else { "text" }, "price": price, "more": more, "points": k.map(|k| kc::points_text(c, k)), "unpaid": k.map(|k| kc::unpaid_text(c, k)), "rag": k.map(|k| kc::rag_json(k.rag(&today))), "direct": (h.direct && k.is_none()).then(|| tr("commercial").to_uppercase()) })
         })
         .collect();
     let lic = eur((cn::LICENCE as f64 * c.price_index).round() as i64);

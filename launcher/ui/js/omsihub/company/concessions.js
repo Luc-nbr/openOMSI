@@ -10,6 +10,7 @@ import { html, ui, setUi, Icon, Btn, Plate, Slider } from './kit.js';
 import { useMore, actMore, eur } from './more.js';
 import { units, cents } from '../money.js';
 import { Card, Empty, Chip, Dot, Track } from './pages-a.js';
+import { VaryDialog, openVary } from './variations.js';
 
 /** A small badge (`Ui::badge`): its words in capitals on a tint of its tone. */
 export const Badge = ({ b }) => b && html`<${Chip} text=${b.text} tone=${b.tone} />`;
@@ -32,6 +33,7 @@ export function ConcessionsPage() {
       </div>
       <${Held} h=${v.held} />
     </div>
+    <${VaryDialog} />
   </div>`;
 }
 
@@ -129,7 +131,8 @@ function Score({ s }) {
 }
 
 /** The company's contracts: its concessions and own lines, each with its rating's dot, its
- * payment and its default points (`concessions::held`). */
+ * payment and its default points (`concessions::held`), and a change to request of a tendered
+ * one (`variations.js`). */
 function Held({ h }) {
   const rows = [...h.rows.map((r) => ({ ...r, own: false })), ...h.own.map((r) => ({ ...r, own: true }))];
   return html`<${Card} title=${h.title} sub=${h.sub} icon="description">
@@ -146,6 +149,7 @@ function Held({ h }) {
             <span class="co-pg-itemsub">${r.own ? r.text : r.price}</span>
             ${r.points && html`<span class="co-pg-itemsub"><${Icon} name="flag" size=${13} /> ${r.points}</span>`}
             ${r.unpaid && html`<span class="co-pg-itemsub">${r.unpaid}</span>`}
+            ${r.change && html`<div><${Btn} icon="edit_road" label=${r.change} style="height:30px;padding:0 10px" onClick=${() => openVary(r.line)} /></div>`}
           </div>`;
         })}</div>`}
   </${Card}>`;

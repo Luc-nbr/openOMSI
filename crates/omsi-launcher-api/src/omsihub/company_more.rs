@@ -33,6 +33,9 @@ pub(super) use planning::open_text;
 mod plan_edit;
 #[path = "company_more/research.rs"]
 mod research;
+// (Beta 66: "Request a change" of a tendered line's contract)
+#[path = "company_more/variations.rs"]
+pub(super) mod variations;
 #[path = "company_more/workshop.rs"]
 mod workshop;
 
@@ -129,6 +132,7 @@ fn view(s: &mut Session, args: &Value) -> Answer {
         "research" => research::view(s, args),
         "concessions" => concessions::view(s, args),
         "contracts" => contracts::view(s, args),
+        "variation" => variations::view(s, args),
         "fleetmap" => fleetmap::view(s, args),
         "planning" => planning::view(s, args),
         "service" => planning::service_view(s, args),
@@ -167,6 +171,7 @@ fn act(s: &mut Session, args: &Value) -> Answer {
         .or_else(|| research::act(s, &what, args))
         .or_else(|| concessions::act(s, &what, args))
         .or_else(|| contracts::act(s, &what, args))
+        .or_else(|| variations::act(s, &what, args))
         .or_else(|| fleetmap::act(s, &what, args))
         .or_else(|| planning::act(s, &what, args))
         .unwrap_or_else(|| Err(format!("no action {what}")));
