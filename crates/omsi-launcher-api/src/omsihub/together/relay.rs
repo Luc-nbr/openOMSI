@@ -289,6 +289,8 @@ pub fn shell_for(mut sh: Value, perms: &[Perm]) -> Value {
         sh[key] = json!(false);
     }
     sh["casual_pages"] = Value::Null;
+    // (the bell is the boss's: his messages, his agenda)
+    sh["bell"] = json!(0);
     sh["together"] = json!({ "on": false });
     sh["remote"] = json!({ "perms": perms.iter().map(|p| p.key()).collect::<Vec<_>>() });
     sh
