@@ -3,7 +3,8 @@
 //! blocks or the drivers' duties ticked - matched to the other day's trips as SAVE › Apply to
 //! matches them (`matching`), the rest of that day's plan left as it is. Only the trips that
 //! match go along; the rows' others are listed, and so are those a vehicle or a duty locked
-//! there holds.
+//! there holds - unless that is the row itself, copied there before (with its lock): a second
+//! copy goes over the first.
 //!
 //! A bus's block takes its matched trips off the buses that run them there, under its own name
 //! (a bus of that name there is named anew), with its lock and its links. A duty becomes a duty
@@ -62,10 +63,20 @@ fn placed(now: &[TourOfDay], line: &str, r: &TripRef) -> Option<(usize, usize)> 
     now.iter().enumerate().filter(|(_, u)| same(&u.line, line)).find_map(|(i, u)| u.trips.iter().position(|x| r.is(x)).map(|j| (i, j)))
 }
 
-/// Whether the bus or the duty trip `j` of bus `i` is in is locked on `slot`.
-fn locked(c: &Company, slot: u8, now: &[TourOfDay], (i, j): (usize, usize)) -> bool {
-    let u = &now[i];
-    rf::block_locked(c, slot, &u.line, &u.tour) || network::duties_of(u).iter().position(|r| r.contains(&j)).is_some_and(|k| rf::piece_locked(c, slot, now, i, k))
+/// Whether bus `i` is locked on `slot`.
+fn bus_locked(c: &Company, slot: u8, now: &[TourOfDay], i: usize) -> bool {
+    rf::block_locked(c, slot, &now[i].line, &now[i].tour)
+}
+
+/// Whether the duty trip `j` of bus `i` is in is locked on `slot`.
+fn duty_locked(c: &Company, slot: u8, now: &[TourOfDay], (i, j): (usize, usize)) -> bool {
+    network::duties_of(&now[i]).iter().position(|r| r.contains(&j)).is_some_and(|k| rf::piece_locked(c, slot, now, i, k))
+}
+
+/// The trips of the duty trip `j` of bus `i` is in, on the day `now` (`there` its duties).
+fn duty_trips(there: &[st::Duty], now: &[TourOfDay], (i, j): (usize, usize)) -> Vec<TripRef> {
+    let Some(d) = st::duty_of_trip(there, now, i, j) else { return Vec::new() };
+    there[d].pieces.iter().flat_map(|p| network::duties_of(&now[p.tour]).get(p.duty).cloned().into_iter().flat_map(move |r| now[p.tour].trips[r].iter())).filter(|x| !x.origin.trim().is_empty()).map(TripRef::of).collect()
 }
 
 /// A line's blocks as the day runs them now (`now`), to change: its stack kept.
@@ -89,7 +100,7 @@ fn counted(x: &PlannedTrip) -> bool {
 /// The rows `rows` of the plan of slot `from_slot` (as it runs on `src`) copied onto the day
 /// `dst` into the plan of slot `to_slot`; the rest of that plan stays. See the module.
 pub fn copy_rows(c: &mut Company, from_slot: u8, src: Day, to_slot: u8, dst: Day, rows: &Rows) -> Copied {
-    let mut made = Copied { slot: to_slot, ..Default::default() };
+    let mut made = Copied { slot: to_slot, same_plan: from_slot == to_slot, ..Default::default() };
     if from_slot == to_slot || rows.is_empty() {
         return made;
     }
@@ -154,9 +165,14 @@ fn copy_block(c: &mut Company, m: &Match, from_slot: u8, bi: usize, to_slot: u8,
         let Some((_, k)) = s.at.filter(|a| a.0 == bi) else { continue };
         let x = &t.trips[k];
         made.total += u32::from(counted(x));
+        // (a locked bus there of this one's name is this bus, copied there before: copied over)
+        let held = f.and_then(|id| placed(&now, &line, &m.of(id))).is_some_and(|at| (bus_locked(c, to_slot, &now, at.0) && !same(&now[at.0].tour, &t.tour)) || duty_locked(c, to_slot, &now, at));
         match f {
-            Some(id) if !placed(&now, &line, &m.of(*id)).is_some_and(|at| locked(c, to_slot, &now, at)) => got.push(*id),
-            _ if counted(x) => made.missing.push(missed(t, x, &t.tour)),
+            Some(id) if !held => got.push(*id),
+            _ if counted(x) => {
+                made.locked += u32::from(held);
+                made.missing.push(missed(t, x, &t.tour));
+            }
             _ => {}
         }
     }
@@ -249,7 +265,18 @@ fn copy_duties(c: &mut Company, m: &Match, from_slot: u8, keys: &[PieceRef], to_
         return;
     }
     let now = network::tours_of_slot(c, dst.lines, dst.date, to_slot);
-    // each of the day's trips a chosen duty's trip is: that duty - on a bus there, not locked
+    // (the source's trips of each chosen duty, as the day has them)
+    let mut wanted: HashMap<usize, HashSet<TripRef>> = HashMap::new();
+    for (s, f) in m.srcs.iter().zip(m.found) {
+        let (Some((bi, k)), Some(id)) = (s.at, f) else { continue };
+        let Some(pc) = network::duties_of(&m.from[bi]).iter().position(|r| r.contains(&k)) else { continue };
+        if let Some(d) = st::duty_of(&duties, bi, pc).filter(|d| chosen.contains(d)) {
+            wanted.entry(d).or_default().insert(m.of(*id));
+        }
+    }
+    let there = st::duties(&c.planning.joined, to_slot, &now);
+    // each of the day's trips a chosen duty's trip is: that duty - on a bus there, not locked (a
+    // locked duty there of nothing but its trips is this duty, copied there before: copied over)
     let mut label: HashMap<TripRef, usize> = HashMap::new();
     for (s, f) in m.srcs.iter().zip(m.found) {
         let Some((bi, k)) = s.at else { continue };
@@ -257,13 +284,17 @@ fn copy_duties(c: &mut Company, m: &Match, from_slot: u8, keys: &[PieceRef], to_
         let Some(d) = st::duty_of(&duties, bi, pc).filter(|d| chosen.contains(d)) else { continue };
         let x = &m.from[bi].trips[k];
         made.total += u32::from(counted(x));
-        let free = f.and_then(|id| placed(&now, &s.line, &m.of(id)).filter(|at| !locked(c, to_slot, &now, *at)).map(|_| id));
-        match free {
+        let at = f.and_then(|id| placed(&now, &s.line, &m.of(id)));
+        let held = at.is_some_and(|at| bus_locked(c, to_slot, &now, at.0) || (duty_locked(c, to_slot, &now, at) && !wanted.get(&d).is_some_and(|w| duty_trips(&there, &now, at).iter().all(|r| w.contains(r)))));
+        match f.filter(|_| at.is_some() && !held) {
             Some(id) => {
                 made.matched += u32::from(counted(x));
                 label.insert(m.of(id), d);
             }
-            None if counted(x) => made.missing.push(missed(&m.from[bi], x, &m.from[bi].tour)),
+            None if counted(x) => {
+                made.locked += u32::from(held);
+                made.missing.push(missed(&m.from[bi], x, &m.from[bi].tour));
+            }
             None => {}
         }
     }

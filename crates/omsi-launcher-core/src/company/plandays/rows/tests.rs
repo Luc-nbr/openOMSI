@@ -93,10 +93,20 @@ fn a_bus_copied_by_itself_takes_its_trips_off_the_buses_there_and_its_lock_along
     assert!(rf::block_locked(&c, 1, "Linie5", "3"));
     // (Tuesday's duties as they were: only the bus copied)
     assert!(!c.planning.joined.iter().any(|j| j.weekday == 1));
-    // again: bus 3 is locked there now and holds the trip - nothing taken, the trip listed
+    // again: bus 3 is locked there now and holds the trip - it is this bus, copied there before,
+    // so it is copied over (testers: "sometimes it works, sometimes it doesn't")
     let made = copy_rows(&mut c, 0, Day { date: MON, lines: &lines }, 1, Day { date: TUE, lines: &lines }, &rows_of_block("3"));
-    assert_eq!((made.matched, made.total, made.missing.len()), (0, 1, 1));
+    assert_eq!((made.matched, made.total, made.missing.len(), made.locked), (1, 1, 0, 0));
     assert_eq!(tours_of_day(&c, &lines, TUE).len(), 3);
+    assert!(rf::block_locked(&c, 1, "Linie5", "3"));
+    // a locked bus there of another name holding the trip: nothing taken, the trip listed as held
+    rf::set_block_lock(&mut c, 1, "Linie5", "3", false);
+    let tue = tours_of_day(&c, &lines, TUE);
+    st::move_trip(&mut c, 1, &tue, at(&tue, "3"), 0, Target::Block(at(&tue, "2"))).unwrap();
+    rf::set_block_lock(&mut c, 1, "Linie5", "2", true);
+    let made = copy_rows(&mut c, 0, Day { date: MON, lines: &lines }, 1, Day { date: TUE, lines: &lines }, &rows_of_block("3"));
+    assert_eq!((made.matched, made.total, made.missing.len(), made.locked), (0, 1, 1, 1));
+    rf::set_block_lock(&mut c, 1, "Linie5", "2", false);
     // a day whose tour 2 runs five minutes later: the trip matches nothing there
     let other = line_of(&[("1", 360, 8), ("2", 395, 8)]);
     let made = copy_rows(&mut c, 0, Day { date: MON, lines: &lines }, 2, Day { date: WED, lines: &other }, &rows_of_block("3"));
@@ -143,4 +153,55 @@ fn rows_copied_for_one_date_only_leave_its_weekday_as_it_was() {
     assert!(s.date_only && s.forked && s.pattern == Some(2));
     // (the weekday for every week)
     assert_eq!(rows_slot(&mut c, TUE, true), 1);
+}
+
+#[test]
+fn a_bus_copied_by_itself_onto_every_other_weekday_twice_is_there_each_time() {
+    // (testers: "sometimes it works, sometimes it doesn't. Also, it seems you can't copy the
+    // Tuesday": a locked bus copied once took its lock along, and a second copy found it locked)
+    let week = [MON, TUE, WED, "2024-03-07", "2024-03-08", "2024-03-09", "2024-03-10"];
+    let lines = line_of(&[("1", 360, 8), ("2", 390, 8)]);
+    for i in 0..7 {
+        for j in (0..7).filter(|&j| j != i) {
+            let mut c = company();
+            let s = i as u8;
+            let tours = tours_of_day(&c, &lines, week[i]);
+            st::move_trip(&mut c, s, &tours, at(&tours, "2"), 7, Target::New).unwrap();
+            rf::set_block_lock(&mut c, s, "Linie5", "3", true);
+            for round in 0..2 {
+                let made = copy_rows(&mut c, s, Day { date: week[i], lines: &lines }, j as u8, Day { date: week[j], lines: &lines }, &rows_of_block("3"));
+                assert_eq!((made.matched, made.total, made.missing.len(), made.locked), (1, 1, 0, 0), "{} onto {}, copy {round}", week[i], week[j]);
+                let there = tours_of_day(&c, &lines, week[j]);
+                assert_eq!(there.iter().map(|t| (t.tour.as_str(), t.trips.len())).collect::<Vec<_>>(), vec![("1", 8), ("2", 7), ("3", 1)]);
+                assert!(rf::block_locked(&c, j as u8, "Linie5", "3"));
+            }
+        }
+    }
+}
+
+#[test]
+fn a_locked_duty_copied_twice_is_copied_over_the_second_time() {
+    let lines = line_of(&[("1", 360, 8), ("2", 390, 8)]);
+    let mut c = company();
+    let key = monday(&mut c, &lines);
+    rf::set_duty_lock(&mut c, 0, &key, true);
+    let rows = Rows { duties: vec![key], ..Default::default() };
+    for _ in 0..2 {
+        let made = copy_rows(&mut c, 0, Day { date: MON, lines: &lines }, 1, Day { date: TUE, lines: &lines }, &rows);
+        assert_eq!((made.matched, made.total, made.missing.len(), made.locked), (5, 5, 0, 0));
+        let tue = tours_of_day(&c, &lines, TUE);
+        assert_eq!(st::duties(&c.planning.joined, 1, &tue).iter().filter(|d| d.pieces.len() == 2).count(), 1);
+    }
+    // from the draft, after switching days: the copy on Tuesday copied on to Wednesday
+    let mut v = rf::view(&c);
+    let tue = tours_of_day(&v, &lines, TUE);
+    let d = st::duties(&v.planning.joined, 1, &tue);
+    let k = rf::duty_key(&tue, d.iter().find(|d| d.pieces.len() == 2).unwrap()).unwrap();
+    let made = copy_rows(&mut v, 1, Day { date: TUE, lines: &lines }, 2, Day { date: WED, lines: &lines }, &Rows { duties: vec![k], ..Default::default() });
+    assert_eq!((made.matched, made.missing.len()), (5, 0));
+    rf::keep_draft(&mut c, &v);
+    assert_eq!(changed_slots(&c), vec![2]);
+    // the plan copied onto the day it is: nothing to copy, and said so
+    let made = copy_rows(&mut c, 1, Day { date: TUE, lines: &lines }, 1, Day { date: TUE, lines: &lines }, &rows_of_block("1"));
+    assert!(made.same_plan && made.matched == 0);
 }

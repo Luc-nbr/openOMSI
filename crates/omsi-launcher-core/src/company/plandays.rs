@@ -123,6 +123,10 @@ pub struct Copied {
     /// The pattern's trips with passengers the day does not run.
     pub gone: u32,
     pub missing: Vec<Missed>,
+    /// Of the trips missing, those a vehicle or a duty locked there holds (`copy_rows`).
+    pub locked: u32,
+    /// The day runs the source's plan itself: nothing to copy.
+    pub same_plan: bool,
 }
 
 impl Copied {
@@ -550,6 +554,7 @@ fn layout_of(slot: u8, line: &str, tours: &[&TourOfDay]) -> LineLayout {
 pub fn copy(c: &mut Company, from_slot: u8, src: Day, to_slot: u8, dst: Day, w: What) -> Copied {
     let mut made = Copied { slot: to_slot, ..Default::default() };
     if from_slot == to_slot {
+        made.same_plan = true;
         return made;
     }
     let from = network::tours_of_slot(c, src.lines, src.date, from_slot);
@@ -771,7 +776,7 @@ pub fn apply(c: &mut Company, src: Day, dst: Day, every_week: bool, w: What) -> 
         own_slot(c, dst.date)
     };
     if to_slot == from_slot {
-        return Copied { slot: to_slot, ..Default::default() };
+        return Copied { slot: to_slot, same_plan: true, ..Default::default() };
     }
     let made = copy(c, from_slot, src, to_slot, dst, w);
     remember(c, to_slot, from_slot, w, &made);
