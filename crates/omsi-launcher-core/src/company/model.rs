@@ -887,6 +887,10 @@ pub struct Company {
     /// A sandbox's knobs (a Career company reads the Career's whatever these say: `sandbox::of`).
     #[serde(default)]
     pub sandbox: super::sandbox::Sandbox,
+    /// The currency its money is shown and typed in; kept in euro cents all the same (`currency`;
+    /// a file of before: the euro).
+    #[serde(default)]
+    pub currency: super::currency::Currency,
 }
 
 fn one() -> f64 {

@@ -25,6 +25,8 @@ pub mod clock;
 pub mod concessions;
 pub mod complaints;
 pub mod contracts;
+// (Beta 62: the money shown and typed in the company's own currency)
+pub mod currency;
 pub mod control;
 pub mod dates;
 pub mod day;
@@ -93,6 +95,8 @@ pub struct Founding {
     pub vehicles: vehicles::VehicleChoice,
     /// Career or Sandbox (`sandbox`).
     pub company_mode: sandbox::CompanyMode,
+    /// The currency its money is shown and typed in (`currency`).
+    pub currency: currency::Currency,
 }
 
 /// A name as a file name: lower case, letters and digits, dashes between.
@@ -185,6 +189,7 @@ pub fn found(f: &Founding, profile: &str) -> Company {
         lateness: Default::default(),
         company_mode: f.company_mode,
         sandbox: sandbox::CAREER,
+        currency: f.currency,
     };
     // (Casual buys quickly; the buying chosen is kept for the other modes)
     autopilot::set_game_mode(&mut c, f.game_mode);

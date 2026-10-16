@@ -4,6 +4,7 @@
 //! The page hands its language with every command (`lang`); the views say their texts whole,
 //! so that the page draws them as they come.
 
+use omsi_launcher_lib::company::currency::{self as cur, Currency, Look, SymbolAt};
 use omsi_launcher_lib::company::{self as co, Cents};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -81,81 +82,105 @@ pub fn filled(text: &str, args: &[(String, String)]) -> String {
 
 // --- money and numbers ----------------------------------------------------------------------
 
+thread_local! {
+    /// The currency of the company the command is answered on (`set_currency`).
+    static CURRENCY: std::cell::Cell<Currency> = const { std::cell::Cell::new(Currency::Eur) };
+}
+
+/// Write and read money in `c` on this thread (the open company's: `company::with`).
+pub fn set_currency(c: Currency) {
+    CURRENCY.with(|x| x.set(c));
+}
+
+/// The currency money is written in.
+pub fn currency() -> Currency {
+    CURRENCY.with(|x| x.get())
+}
+
 /// How a language writes a number: its thousands separator, its decimal mark, and where the
 /// euro sign goes (`company::NumberStyle` of the game-drawn launcher).
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct NumberStyle {
     thousands: char,
     decimal: char,
-    euro: EuroAt,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum EuroAt {
-    Before,
-    BeforeSpaced,
-    After,
+    euro: SymbolAt,
 }
 
 /// The narrow no-break space French, Russian, Ukrainian and Polish group thousands with.
-const NARROW: char = '\u{202F}';
+const NARROW: char = cur::NARROW;
 
 fn style(lang: &str) -> NumberStyle {
     let (thousands, decimal, euro) = match lang {
-        "" | "en" => (',', '.', EuroAt::Before),
-        "nl" => ('.', ',', EuroAt::BeforeSpaced),
-        "de" | "it" | "es" | "pt" | "pt-pt" | "tr" | "da" | "id" => ('.', ',', EuroAt::After),
-        _ => (NARROW, ',', EuroAt::After),
+        "" | "en" => (',', '.', SymbolAt::Before),
+        "nl" => ('.', ',', SymbolAt::BeforeSpaced),
+        "de" | "it" | "es" | "pt" | "pt-pt" | "tr" | "da" | "id" => ('.', ',', SymbolAt::After),
+        _ => (NARROW, ',', SymbolAt::After),
     };
     NumberStyle { thousands, decimal, euro }
 }
 
 fn num_in(x: f64, places: usize, lang: &str) -> String {
     let st = style(lang);
-    let x = if x.is_finite() { x } else { 0.0 };
-    let text = format!("{:.*}", places, x.abs());
-    let (whole, frac) = text.split_once('.').unwrap_or((text.as_str(), ""));
-    let mut out = String::new();
-    if x < 0.0 && text.chars().any(|c| c.is_ascii_digit() && c != '0') {
-        out.push('-');
-    }
-    for (i, ch) in whole.chars().enumerate() {
-        if i > 0 && (whole.len() - i) % 3 == 0 {
-            out.push(st.thousands);
-        }
-        out.push(ch);
-    }
-    if !frac.is_empty() {
-        out.push(st.decimal);
-        out.push_str(frac);
-    }
-    out
+    cur::number(x, places, &Look { thousands: st.thousands, decimal: st.decimal, ..Currency::Eur.look() })
 }
 
-fn with_euro(n: String, lang: &str) -> String {
-    let (sign, n) = match n.strip_prefix('-') {
-        Some(rest) => ("-", rest.to_string()),
-        None => ("", n),
-    };
-    match style(lang).euro {
-        EuroAt::Before => format!("{sign}€{n}"),
-        EuroAt::BeforeSpaced => format!("{sign}€ {n}"),
-        EuroAt::After => format!("{sign}{n} €"),
+/// How money is written in `c` on a page in `lang`: the euro as the language writes it (it is
+/// at home in many), every other currency as its country does.
+fn look_in(c: Currency, lang: &str) -> Look {
+    let look = c.look();
+    if c != Currency::Eur {
+        return look;
     }
+    let st = style(lang);
+    Look { at: st.euro, thousands: st.thousands, decimal: st.decimal, ..look }
+}
+
+fn money_in(cents: f64, fine: bool, c: Currency, lang: &str) -> String {
+    cur::write(c.units(cents), fine, &look_in(c, lang))
 }
 
 fn eur_in(c: Cents, lang: &str) -> String {
-    with_euro(num_in((c as f64 / 100.0).round(), 0, lang), lang)
+    money_in(c as f64, false, Currency::Eur, lang)
 }
 
-/// Whole euros, grouped as the language groups them.
+/// Money in whole units of the company's currency, grouped as it is written ("€1,234",
+/// "£1,061", "453 125 Ft"; the name is of before the currencies).
 pub fn eur(c: Cents) -> String {
-    eur_in(c, &language())
+    money_in(c as f64, false, currency(), &language())
 }
 
-/// Euros with their cents (a fare, a price per kilometre).
+/// Money with its decimals (a fare, a price per kilometre; none in a currency without them).
 pub fn eur_cents(c: f64) -> String {
-    with_euro(num_in(c / 100.0, 2, &language()), &language())
+    money_in(c, true, currency(), &language())
+}
+
+/// Euro cents in units of the company's currency (a chart's scale, "+12k").
+pub fn units(c: Cents) -> f64 {
+    currency().units(c as f64)
+}
+
+/// An amount typed in the company's currency ("245000", "£ 245,000", "1 234,50 zł") as euro
+/// cents; None without a digit.
+pub fn typed_money(s: &str) -> Option<Cents> {
+    cur::parse(s).map(|x| currency().cents(x))
+}
+
+/// An amount in units of the company's currency (a number field's) as euro cents.
+pub fn money_cents(units: f64) -> Cents {
+    currency().cents(units)
+}
+
+/// How the pages write the company's money themselves (`omsihub/money.js`): its code, its rate
+/// to the euro, its symbol and where it goes, its marks, a fine amount's decimals.
+pub fn money_json() -> serde_json::Value {
+    let c = currency();
+    let l = look_in(c, &language());
+    let at = match l.at {
+        SymbolAt::Before => "before",
+        SymbolAt::BeforeSpaced => "spaced",
+        SymbolAt::After => "after",
+    };
+    serde_json::json!({ "code": c.code(), "rate": c.rate(), "symbol": l.symbol, "at": at, "thousands": l.thousands.to_string(), "decimal": l.decimal.to_string(), "places": l.places })
 }
 
 /// A whole number grouped like money (kilometres, passengers).
@@ -286,5 +311,76 @@ mod tests {
         assert_eq!(day_label("1989-05-30"), "Tue 30 May 1989");
         assert_eq!(span_text(2 * 1440 + 4 * 60 + 7), "2 d 4 h");
         assert_eq!(short_map("maps/Bad_Huegelsdorf_2020/global.cfg"), "Bad_Huegelsdorf_2020");
+    }
+
+    #[test]
+    fn money_is_written_in_the_companys_currency_whatever_the_language() {
+        set_language("de");
+        set_currency(Currency::Gbp);
+        assert_eq!(eur(1_000_000_00), "£859,730");
+        assert_eq!(eur_cents(2_50.0), "£2.15");
+        assert_eq!(signed(-1_000_00).0, "−£860");
+        set_currency(Currency::Huf);
+        assert_eq!(eur(1_000_00), "367\u{202F}180 Ft");
+        assert_eq!(eur_cents(2_50.0), "918 Ft");
+        // (typed in forints, kept in euro cents)
+        assert_eq!(typed_money("367 180 Ft"), Some(1_000_00));
+        assert_eq!(money_cents(36_718.0), 100_00);
+        assert_eq!(money_json()["symbol"], "Ft");
+        // the euro as the language writes it
+        set_currency(Currency::Eur);
+        assert_eq!(eur(1_234_00), "1.234 €");
+        assert_eq!(typed_money("1.234 €"), Some(1_234_00));
+        set_language("en");
+        assert_eq!(eur(1_234_00), "€1,234");
+    }
+
+    /// Every amount the pages show goes through `eur`, `eur_cents` and `money.js`: no euro sign
+    /// of its own in the API's page code, nor in the pages' scripts (the tests and comments
+    /// aside).
+    #[test]
+    fn no_page_writes_a_euro_sign_of_its_own() {
+        fn files(dir: &std::path::Path, ext: &str, out: &mut Vec<std::path::PathBuf>) {
+            for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    files(&p, ext, out);
+                } else if p.extension().is_some_and(|x| x.eq_ignore_ascii_case(ext)) {
+                    out.push(p);
+                }
+            }
+        }
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut found = Vec::new();
+        let mut rs = Vec::new();
+        files(&root.join("src"), "rs", &mut rs);
+        assert!(rs.len() > 20, "no sources read");
+        for p in rs {
+            let text = std::fs::read_to_string(&p).unwrap_or_default().replace("\r\n", "\n");
+            // (a file's tests are at its end)
+            let code = text.split("#[cfg(test)]").next().unwrap_or("");
+            for (i, line) in code.lines().enumerate() {
+                let t = line.trim_start();
+                if !t.starts_with("//") && t.contains('€') {
+                    found.push(format!("{}:{}", p.display(), i + 1));
+                }
+            }
+        }
+        let mut js = Vec::new();
+        files(&root.join("../../launcher/ui/js/omsihub"), "js", &mut js);
+        for p in js {
+            // (the euro's look before the company's is known: `money.js` itself)
+            if p.file_name().is_some_and(|n| n.eq_ignore_ascii_case("money.js")) {
+                continue;
+            }
+            let text = std::fs::read_to_string(&p).unwrap_or_default().replace("\r\n", "\n");
+            for (i, line) in text.lines().enumerate() {
+                let t = line.trim_start();
+                if !(t.starts_with("//") || t.starts_with('*') || t.starts_with("/*")) && t.contains('€') {
+                    found.push(format!("{}:{}", p.display(), i + 1));
+                }
+            }
+        }
+        assert!(found.is_empty(), "a euro sign of its own (write money with `eur`, `eur_cents` or `money.js`): {found:?}");
     }
 }
