@@ -310,8 +310,8 @@ function RouteBar({ v }) {
       ${options.map(([k, label]) => html`<option value=${k}>${label}</option>`)}
     </select><${Icon} name="expand_more" size=${18} /></span>
     <button type="button" class="tp-new narrow" title=${tr('New route: click its stops on the map')} onClick=${fresh}><${Icon} name="add" size=${20} /></button>
-    <span class="tp-select" style="flex:0 1 200px;min-width:110px" title=${tr('The days the route runs, as its kind of service has them: the Timeplan makes its trips on these days')}>
-      <select value=${line?.service || 'regular'} disabled=${!line || !!line.map} onChange=${(e) => le('kind', { kind: e.currentTarget.value })}>
+    <span class="tp-select rt-days" style="flex:0 1 200px;min-width:110px" title=${tr('The days the route runs, as its kind of service has them: the Timeplan makes its trips on these days')}>
+      <select value=${line?.service || 'regular'} disabled=${!line} onChange=${(e) => le('kind', { kind: e.currentTarget.value })}>
         ${KINDS.map(([k, label]) => html`<option value=${k}>${tr(label)}</option>`)}
       </select><${Icon} name="expand_more" size=${18} /></span>
     ${line && html`<span class="rt-colour-wrap">
