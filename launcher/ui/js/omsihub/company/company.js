@@ -47,6 +47,7 @@ import { OnlineButton } from '../online.js';
 import { cloudBeforeOpen } from '../cloud.js';
 import { MultiplayerPage } from './multiplayer.js';
 import { togetherOn, blockedLabel } from './gate.js';
+import { CommandPalette, noteVisit } from './cmdk.js';
 
 // (the company's own look, loaded with its first page)
 const sheet = document.createElement('link');
@@ -208,10 +209,12 @@ export function CompanyScreen() {
     if (!S.co.nav) setCo({ nav: navStart() });
     const narrow = () => S.co.nav === 'full' && stageW() < 1000 && setCo({ nav: 'rail' });
     const k = (e) => {
-      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.key.toLowerCase() !== 'b') return;
+      const key = e.key.toLowerCase();
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || (key !== 'b' && key !== 'k')) return;
       if (modalOpen() || !S.co.shell?.open || S.co.chooser || S.co.wizard || S.co.shell.launch || (S.rf?.open && S.co.tab === 5)) return;
       e.preventDefault();
-      toggleSide();
+      if (key === 'b') toggleSide();
+      else setCo({ cmdk: !S.co.cmdk });
     };
     addEventListener('resize', narrow);
     addEventListener('keydown', k);
@@ -224,7 +227,7 @@ export function CompanyScreen() {
   // the page or a field is being typed in (`escape_home`)
   useEffect(() => {
     const k = (e) => {
-      if (e.key !== 'Escape' || modalOpen() || !S.co.shell?.open || S.co.chooser || S.co.wizard || S.co.shell.launch) return;
+      if (e.key !== 'Escape' || S.co.cmdk || modalOpen() || !S.co.shell?.open || S.co.chooser || S.co.wizard || S.co.shell.launch) return;
       // (RosterFlow has its own Escape: Omsi-Hub 4/6)
       if (S.rf?.open && S.co.tab === 5) return;
       const el = document.activeElement;
@@ -247,6 +250,10 @@ export function CompanyScreen() {
     const home = c.tab === HOME && (sh.remote.perms || []).includes('finances');
     if (!home && !pages.includes(c.tab) && pages.length) setCo({ tab: pages[0] });
   }, [remote, c.tab, (sh?.pages || []).join(',')]);
+  // (the places visited, for the palette's Recent)
+  useEffect(() => {
+    if (open && !c.remote) noteVisit(sh.id, c.tab);
+  }, [open, c.tab, sh?.id]);
   // (Omsi-Hub 4/6: the Planning page asked for at the start, once the company is open)
   useEffect(() => {
     if (!open || !c.rfWant) return;
@@ -303,6 +310,7 @@ export function CompanyScreen() {
       ? html`<${Guard}><${Side} mayChange=${mayChange} /></${Guard}><${Guard}><${Top} mayChange=${mayChange} /></${Guard}>`
       : html`<${Guard}><${Bar} open=${open} choosing=${choosing} read=${read} /></${Guard}>`}
     <${Guard}>${body}</${Guard}>
+    ${shell && c.cmdk && html`<${Guard}><${CommandPalette} toggleSide=${toggleSide} setNav=${setNav} askTour=${askTour} /></${Guard}>`}
     ${read && html`<${Guard}><${Overlays} founding=${founding || choosing} /></${Guard}>`}
     ${c.remote && html`<${SessionWatch} />`}
     ${c.notice && Date.now() - c.notice.at < 9000 && html`<div class=${'co-notice' + (c.notice.error ? ' error' : '')} key=${c.notice.at}>${c.notice.text}</div>`}
@@ -493,6 +501,7 @@ function Top({ mayChange }) {
   return html`<header class="co-bar co-top">
     ${(c.nav || 'full') === 'gone' && html`<button type="button" class="co-top-side" title=${tr('Show the sidebar (Ctrl+B)')} onClick=${toggleSide}><${Icon} name="menu" size=${20} /></button>`}
     <${Where} />
+    <button type="button" class="co-top-search" title=${tr('Search pages and actions (Ctrl+K)')} onClick=${() => setCo({ cmdk: true })}><${Icon} name="search" size=${18} /><span class="co-top-kbd">Ctrl K</span></button>
     <span class="co-top-fill"></span>
     <${Status} />
     ${remote ? html`<${RemoteClock} />` : sh.casual ? html`<${CasualClock} />` : html`<${Clock} />`}
