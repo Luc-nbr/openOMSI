@@ -1206,6 +1206,54 @@ fn approved(paid: co::Cents) -> String {
     }
 }
 
+/// The line `o` was opened as (`o.saved`), found otherwise in the registry when it is saved
+/// (`on_disk`): the draft made on it rebased onto what is there now - or None, when what was
+/// written there meanwhile changed what the draft changed too (the line editor's change: "Changed
+/// meanwhile").
+///
+/// Luc (Beta 65) was told "changed meanwhile" after his own save and after a day's switch: every
+/// save of any line gives every line of the registry its depot codes again and its time of change,
+/// and a waiting change that begins its day is written as the line - each made the line on disk
+/// differ from the one opened, though nothing he changed was touched. Now only a change of the same
+/// part is one (`merge3`); the rest is taken from the registry, the line as it runs now with it.
+pub(crate) fn rebase(o: &Own, on_disk: LineDesign) -> Option<Own> {
+    let mut now = own_of(o.id, o.path.clone(), o.stem.clone(), on_disk);
+    tp::as_table(&mut now.base);
+    let plain = |l: &LineDesign| serde_json::to_value(LineDesign { modified: 0, ..l.clone() }).ok();
+    let merged = merge3(&plain(&o.base)?, &plain(&now.base)?, &plain(&o.draft)?)?;
+    now.draft = LineDesign { modified: o.draft.modified, ..serde_json::from_value(merged).ok()? };
+    Some(now)
+}
+
+/// `mine` and `theirs`, both changed from `base`, as one: each part as the side that changed it
+/// has it - parts of objects and of lists as long on every side looked at one by one. None: a part
+/// both changed, each otherwise.
+fn merge3(base: &Value, theirs: &Value, mine: &Value) -> Option<Value> {
+    if theirs == base || theirs == mine {
+        return Some(mine.clone());
+    }
+    if mine == base {
+        return Some(theirs.clone());
+    }
+    match (base, theirs, mine) {
+        (Value::Object(b), Value::Object(t), Value::Object(m)) => {
+            let mut keys: Vec<&String> = b.keys().chain(t.keys()).chain(m.keys()).collect();
+            keys.sort();
+            keys.dedup();
+            let mut out = serde_json::Map::new();
+            for k in keys {
+                let v = merge3(b.get(k).unwrap_or(&Value::Null), t.get(k).unwrap_or(&Value::Null), m.get(k).unwrap_or(&Value::Null))?;
+                if !v.is_null() || t.contains_key(k) || m.contains_key(k) {
+                    out.insert(k.clone(), v);
+                }
+            }
+            Some(Value::Object(out))
+        }
+        (Value::Array(b), Value::Array(t), Value::Array(m)) if b.len() == t.len() && t.len() == m.len() => b.iter().zip(t).zip(m).map(|((b, t), m)| merge3(b, t, m)).collect::<Option<Vec<_>>>().map(Value::Array),
+        _ => None,
+    }
+}
+
 /// What came of saving an own line's timetable (`plan_edit::Commit`).
 pub(crate) enum Commit {
     Saved,
@@ -1285,16 +1333,28 @@ pub(crate) fn commit(s: &mut Session, company_id: &str, line: &str, o: &Own, fro
         say_into(out, tr(p.text).replace("%{n}", &p.n.to_string()), true);
         return Commit::Kept;
     }
-    // (the line as the registry has it now: changed meanwhile, it is shown as it is)
+    // (the line as the registry has it now: changed meanwhile where the draft changed it too, it
+    // is shown as it is - else the draft goes onto it, `rebase`)
     let r = reg::load_registry(&o.path);
     let Some(on_disk) = r.line(o.id).cloned() else {
         say_into(out, tr(NOT_FOUND), true);
         return Commit::Gone;
     };
-    if on_disk != o.saved {
-        out["popup"] = company::popup(s, Popup::new("departure_board", "Changed meanwhile", tr("The line's timetable was changed meanwhile - in the line editor, or its new timetable began: it is shown as it is now."), "", None));
-        return Commit::Stale;
-    }
+    let rebased;
+    let o = if on_disk == o.saved {
+        o
+    } else {
+        match rebase(o, on_disk) {
+            Some(x) => {
+                rebased = x;
+                &rebased
+            }
+            None => {
+                out["popup"] = company::popup(s, Popup::new("departure_board", "Changed meanwhile", tr("The line's timetable was changed meanwhile - in the line editor, or its new timetable began: it is shown as it is now."), "", None));
+                return Commit::Stale;
+            }
+        }
+    };
     let Some(lines) = s.map_lines().map(|x| x.to_vec()) else {
         out["popup"] = company::popup(s, Popup::new("timer", "Not yet", tr("The timetable of the day is still being read."), tr("Try again in a moment."), None));
         return Commit::Kept;
@@ -1366,18 +1426,25 @@ fn save_map(s: &mut Session, w: &Work, out: &mut Value) -> bool {
     }
     let Some(ttl) = o.draft.map.as_ref().map(|m| m.ttl.clone()) else { return false };
     let mut r = reg::load_registry(&o.path);
-    // (imported for the Timeplan: still none in the registry, else as the registry has it)
+    // (imported for the Timeplan: still none in the registry, else as the registry has it - the
+    // draft onto what is there now where it changed nothing the draft changed, `rebase`)
+    let mut rebased = None;
     let changed_meanwhile = if w.fresh {
         r.map_line(&ttl).is_some()
     } else {
         match r.line(o.id) {
-            Some(on_disk) => *on_disk != o.saved,
+            Some(on_disk) if *on_disk == o.saved => false,
+            Some(on_disk) => {
+                rebased = rebase(o, on_disk.clone());
+                rebased.is_none()
+            }
             None => {
                 say_into(out, tr(NOT_FOUND), true);
                 return false;
             }
         }
     };
+    let o = rebased.as_ref().unwrap_or(o);
     if changed_meanwhile {
         out["popup"] = company::popup(s, Popup::new("departure_board", "Changed meanwhile", tr("The line's timetable was changed meanwhile - in the line editor, or its new timetable began: it is shown as it is now."), "", None));
         return false;
@@ -1509,6 +1576,55 @@ pub fn texts() -> Vec<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Line 880 with two trips, its first direction's IBIS code 3.
+    fn line880() -> LineDesign {
+        serde_json::from_value(json!({
+            "id": 7, "number": "880", "table_on": true, "modified": 10,
+            "directions": [{ "terminus": "B", "ibis_route": 3 }],
+            "table": [{ "dir": 0, "day": 0, "times": [360.0, 380.0] }, { "dir": 0, "day": 0, "times": [420.0, 440.0] }],
+        }))
+        .unwrap()
+    }
+
+    /// The line opened as `saved`, its second trip taken out in the Timeplan.
+    fn opened(saved: LineDesign) -> Own {
+        let mut o = own_of(7, PathBuf::from("registry.json"), "880".into(), saved);
+        tp::as_table(&mut o.base);
+        o.draft = o.base.clone();
+        o.draft.table.remove(1);
+        o
+    }
+
+    #[test]
+    fn a_line_changed_meanwhile_only_where_the_draft_is_not_takes_the_draft() {
+        let line = line880();
+        let o = opened(line.clone());
+        // another line saved meanwhile: every line's depot codes and time of change written again
+        // (Luc, Beta 65: "changed meanwhile" after his own save)
+        let mut disk = line.clone();
+        disk.modified = 99;
+        disk.directions[0].ibis_route = 5;
+        let r = rebase(&o, disk.clone()).expect("nothing the draft changed was changed");
+        assert_eq!(r.saved, disk);
+        assert_eq!(r.draft.table.len(), 1, "the trip taken out stays out");
+        assert_eq!(r.draft.directions[0].ibis_route, 5);
+        // a waiting change began its day (the day switched): the line runs it now
+        let waiting = LineDesign { live: Some(Box::new(LineDesign { number: "88".into(), ..line.clone() })), pending_from: "2024-03-05".into(), ..line.clone() };
+        let r = rebase(&opened(waiting), line.clone()).expect("the change began, nothing else");
+        assert!(r.live.live.is_none() && r.live.pending_from.is_empty());
+        assert_eq!(r.live.number, "880");
+        assert_eq!(r.draft.table.len(), 1);
+        // the line editor changed the trips too: a change from outside, said
+        let mut edited = line.clone();
+        edited.table[1].times = vec![430.0, 450.0];
+        assert!(rebase(&o, edited).is_none());
+        let mut renumbered = line.clone();
+        renumbered.number = "881".into();
+        let mut o2 = opened(line);
+        o2.draft.number = "882".into();
+        assert!(rebase(&o2, renumbered).is_none());
+    }
 
     #[test]
     fn a_time_typed_for_a_late_trip_is_after_midnight() {
