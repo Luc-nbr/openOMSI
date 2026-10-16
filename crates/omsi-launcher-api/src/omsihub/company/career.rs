@@ -178,7 +178,7 @@ fn duties_part(s: &mut Session, c: &Company) -> Value {
     };
     json!({
         "title": tr("My duties"), "rows": rows, "empty": empty, "easy": easy, "side": side, "week": week, "week_title": tr("Your week"),
-        "drive": tr("Drive"), "up": tr("Up next"),
+        "drive": tr("Drive"), "up": tr("Up next"), "print": tr("Print duty card"),
         "drive_tip": tr("Sets the drive to this duty - the map, the line and tour, the company's bus in its livery, the day and the time - and opens its start: you start it there."),
         "back_tip": tr("Give the duty back: the company's drivers drive it again"),
     })

@@ -27,6 +27,7 @@ mod country;
 mod currency;
 mod dealer;
 mod dialogs;
+mod dutycard;
 // (an own line's change taking effect on its day, Trello "Tauri 6/6")
 mod due;
 mod fleet;
@@ -1320,6 +1321,8 @@ pub fn relayed(s: &mut Session, v: &mut Viewer, cmd: &str, args: &Value, perms: 
     v.swap(s);
     let r = match cmd {
         "co_tick" => Ok(super::together::relay::shell_for(shell(s), perms)),
+        // (a duty card: the player's own duty's, or as his role allows - `dutycard::relayed`)
+        "co_view" if args.get("view").and_then(Value::as_str) == Some("dutycard") => dutycard::relayed(s, args, v.guest, perms),
         "co_view" => view(s, args),
         "co_act" => do_act(s, args, &FromAfar),
         "co_line_of" => {
@@ -1494,6 +1497,8 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
         "co_hand_over" => with(|s| hand_over(s, args)),
         "co_tour" => Ok(tour::answer(args)),
         "co_duty_map" => duty_map(args, p),
+        // (a duty card saved as a picture: on this computer, never relayed)
+        "co_dutycard_save" => Ok(dutycard::save_image(args)),
         // (Omsi-Hub 6/6: the company's line of the line editor's line `id`, for RosterFlow's
         // Timeplan once the line editor confirmed it)
         "co_line_of" => with(|s| {
@@ -1546,6 +1551,7 @@ fn view(s: &mut Session, args: &Value) -> Answer {
         "career" => career::view(s, args),
         "casual" => casual::view(s, args),
         "launch" => launch::view(s, args),
+        "dutycard" => dutycard::view(s, args),
         // (late running: the finances' deductions, the advice of the last day closed)
         "late" => late::finance_view(s),
         "late_advice" => late::advice_view(s),

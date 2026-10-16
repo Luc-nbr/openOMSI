@@ -14,6 +14,7 @@ import { S } from '../../store.js';
 import { language } from '../../i18n.js';
 import { tr } from '../bits.js';
 import { act as coAct, setCo } from '../company/kit.js';
+import { openDutyCard } from '../company/dutycard.js';
 import { alpha, mix, hex, tone, css, lighten } from './pal.js';
 import * as D from './draw.js';
 import { AXIS } from './draw.js';
@@ -130,6 +131,8 @@ function RosterMenu({ v, m }) {
         // (the whole duty to an agency driver at once; the panel says what it costs)
         ['Give to an agency driver', !t.by_player && d?.who !== 'agency', () => rAct('give_driver', { ti: m.ti, k: m.k, who: 'agency' })],
         ['Show in Drivers', !!d?.rf, () => setRf({ view: DRIVERS, panel: { kind: 'duty', id: d.rf }, reveal: d.rf, selRow: d.rf, hand: null, zones: null, sel: [], card: null })],
+        // (its duty card, as the driver gets it: `company/dutycard.js`)
+        ['Print duty card', !!d && !!v.date, () => openDutyCard({ date: v.date, line: t.line, tour: t.tour, duty: m.k })],
       ];
     } else {
       items = [
