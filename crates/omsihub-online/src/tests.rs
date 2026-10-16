@@ -264,14 +264,15 @@ fn without_a_network_every_call_is_offline_and_the_session_stays() {
 
 #[test]
 fn plain_http_is_refused_outside_the_tests() {
-    assert!(Endpoints::new("http://example.com/auth", "https://example.com/rest").is_err());
-    assert!(Endpoints::new("https://example.com/auth/", "https://example.com/rest").is_ok());
+    assert!(Endpoints::new("http://example.com/auth", "https://example.com/rest", "https://example.com/saves").is_err());
+    assert!(Endpoints::new("https://example.com/auth", "https://example.com/rest", "http://example.com/saves").is_err());
+    assert!(Endpoints::new("https://example.com/auth/", "https://example.com/rest", "https://example.com/saves/").is_ok());
     let e = Endpoints::neon();
-    assert!(e.auth.starts_with("https://") && e.data.starts_with("https://") && !e.plain);
+    assert!(e.auth.starts_with("https://") && e.data.starts_with("https://") && e.saves.starts_with("https://") && !e.saves.ends_with('/') && !e.plain);
 }
 
 #[test]
-fn deleting_the_account_checks_the_password_then_deletes_the_data_then_the_user() {
+fn deleting_the_account_checks_the_password_then_deletes_the_data_and_the_cloud_saves_then_the_user() {
     let m = Mock::start(|r| {
         if r.path == "/auth/token" {
             return ok(json!({ "token": test_jwt("me", test_now() + 3600) }));
@@ -281,6 +282,7 @@ fn deleting_the_account_checks_the_password_then_deletes_the_data_then_the_user(
             "/auth/sign-in/email" if r.body["password"] == "my password" => (200, vec![("set-auth-token", "fresh.sig".into())], json!({ "token": "fresh" })),
             "/auth/sign-in/email" => (401, vec![], json!({ "code": "INVALID_EMAIL_OR_PASSWORD" })),
             "/rest/v1/rpc/delete_my_data" => ok(Value::Null),
+            "/saves/delete_all" => ok(json!({ "ok": true, "deleted": 4 })),
             "/auth/delete-user" => ok(json!({ "success": true, "message": "User deleted" })),
             _ => (404, vec![], Value::Null),
         }
@@ -292,7 +294,7 @@ fn deleting_the_account_checks_the_password_then_deletes_the_data_then_the_user(
     c.delete_account("my password").unwrap();
     let calls = m.calls();
     let at = |p: &str| calls.iter().rposition(|c| c.ends_with(p)).unwrap();
-    assert!(at("/rpc/delete_my_data") < at("/auth/delete-user"));
+    assert!(at("/rpc/delete_my_data") < at("/saves/delete_all") && at("/saves/delete_all") < at("/auth/delete-user"), "the cloud saves go before the account: {calls:?}");
     let del = m.requests().into_iter().find(|r| r.path == "/auth/delete-user").unwrap();
     assert_eq!(del.bearer(), Some("fresh.sig"));
     assert_eq!(del.body["password"], "my password");

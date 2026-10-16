@@ -69,18 +69,18 @@ impl Invite {
     }
 }
 
-struct Jwt {
+pub(crate) struct Jwt {
     token: String,
     exp: u64,
     sub: String,
 }
 
 pub struct Client {
-    ep: Endpoints,
-    http: Http,
+    pub(crate) ep: Endpoints,
+    pub(crate) http: Http,
     store: Box<dyn SecretStore>,
     session: Option<String>,
-    jwt: Option<Jwt>,
+    pub(crate) jwt: Option<Jwt>,
     /// The goodbye's short timeouts.
     quick: bool,
 }
@@ -125,7 +125,7 @@ impl Client {
         self.jwt.as_ref().map(|j| j.sub.as_str()).filter(|s| !s.is_empty())
     }
 
-    fn send(&self, method: &str, url: &str, bearer: Option<&str>, body: Option<&Value>) -> Result<Reply, Error> {
+    pub(crate) fn send(&self, method: &str, url: &str, bearer: Option<&str>, body: Option<&Value>) -> Result<Reply, Error> {
         // (Better Auth refuses a sign-up without an Origin it trusts - "MISSING_ORIGIN": its own
         // origin is one, and the auth's calls carry it; the Data API and the saves need none)
         let origin = url.starts_with(&self.ep.auth).then(|| origin_of(&self.ep.auth));
@@ -219,8 +219,10 @@ impl Client {
     }
 
     /// The account deleted, after the password typed again: signed in afresh with it (which
-    /// checks it, and makes the session fresh enough to delete), `delete_my_data()`, then the
-    /// auth's user (`POST /delete-user`), then signed out here.
+    /// checks it, and makes the session fresh enough to delete), `delete_my_data()`, the cloud
+    /// saves (`delete_all`: nothing of the player's is left in the storage), then the auth's
+    /// user (`POST /delete-user`), then signed out here. A step that fails stops it before the
+    /// user is deleted: tried again, the steps done already do nothing.
     pub fn delete_account(&mut self, password: &str) -> Result<(), Error> {
         let session = self.session.clone().ok_or(Error::Code("not_signed_in"))?;
         let r = self.send("GET", &format!("{}/get-session", self.ep.auth), Some(&session), None)?;
@@ -235,6 +237,7 @@ impl Client {
         let email = r.body.pointer("/user/email").and_then(Value::as_str).ok_or(Error::Code("server"))?.to_string();
         self.sign_in(&email, password).map_err(|e| if e == Error::Code("invalid_credentials") { Error::Code("wrong_password") } else { e })?;
         self.rpc("delete_my_data", json!({}))?;
+        self.saves_delete_all()?;
         let fresh = self.session.clone().ok_or(Error::Code("server"))?;
         self.auth_post("/delete-user", json!({ "password": password }), Some(&fresh))?;
         self.forget();

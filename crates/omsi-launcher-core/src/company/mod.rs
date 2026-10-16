@@ -23,6 +23,8 @@ pub mod autopilot;
 pub mod bus_contracts;
 pub mod career;
 pub mod clock;
+// (Omsi-Hub: a company as one cloud save, docs/omsihub/ONLINE.md)
+pub mod cloud;
 pub mod concessions;
 pub mod complaints;
 pub mod contracts;

@@ -15,6 +15,8 @@ import { SandboxBadge } from './sandbox.js';
 import { JoinPage } from './together.js';
 // (Beta 62: the country the company plays in, its people's names)
 import { CountryPick } from './country.js';
+// (Beta 63: a company's cloud save - its badge, the question before it opens)
+import { CloudBadge, cloudBeforeOpen, useCloud } from '../cloud.js';
 
 /** The companies as the chooser's view lists them (boot keeps one too). */
 export const readCompanies = () => S.co.list?.companies?.tiles || [];
@@ -22,12 +24,15 @@ export const readCompanies = () => S.co.list?.companies?.tiles || [];
 export function Chooser() {
   const v = useView('chooser');
   const [asking, setAsking] = useState(null);
+  const cloud = useCloud();
   if (!v) return null;
   const step = S.co.chooser;
   if (step === 'mode') return html`<${Modes} v=${v.modes} n=${v.companies.tiles.length} />`;
   if (step === 'join') return html`<${JoinPage} />`;
   const cv = v.companies;
   const open = async (id) => {
+    // (a cloud company: a newer version or a conflict is asked first)
+    await cloudBeforeOpen(id);
     await cmd('co_open', { id });
     // (the shell of the company opened first: the founding is not shown on the way)
     takeShell(await cmd('co_tick', { modal: true, still: true }));
@@ -46,7 +51,7 @@ export function Chooser() {
       <span style="flex:0.35 1 0"></span>
       <div class="head"><h1>${cv.title}</h1><p>${cv.text}</p></div>
       <div class="co-companies">
-        ${cv.tiles.map((t) => html`<${CompanyTile} t=${t} tip=${cv.delete_tip} onOpen=${() => open(t.id)} onDelete=${() => setAsking(t.id)} />`)}
+        ${cv.tiles.map((t) => html`<${CompanyTile} t=${t} cloud=${cloud} tip=${cv.delete_tip} onOpen=${() => open(t.id)} onDelete=${() => setAsking(t.id)} />`)}
         <button type="button" class="co-tile co-company new" onClick=${() => setCo({ wizard: newWizard() })}>
           <span class="plus"><${Icon} name="add" size=${28} /></span>
           <b>${cv.new}</b><div class="home">${cv.new_sub}</div>
@@ -81,8 +86,8 @@ function Modes({ v }) {
 }
 
 /** A company's tile: its mark, mode and clock, its name, where it is at home, its day and
- * cash; the bin under the mouse. */
-function CompanyTile({ t, tip, onOpen, onDelete }) {
+ * cash, a cloud or local save; the bin under the mouse. */
+function CompanyTile({ t, cloud, tip, onOpen, onDelete }) {
   return html`<button type="button" class="co-tile co-company" data-company=${t.id} onClick=${onOpen}>
     <div class="top"><${Mark} mark=${t.mark} size=${56} />
       <span class="side"><${ModePill} mode=${t.mode} />
@@ -92,6 +97,7 @@ function CompanyTile({ t, tip, onOpen, onDelete }) {
     <b class="cut">${t.name}</b>
     <div class="home cut">${t.home}</div>
     <div class=${'day cut' + (t.negative ? ' negative' : '')}>${t.day}</div>
+    <${CloudBadge} cloud=${cloud} id=${t.id} />
     <span class="bin" onClick=${(e) => (e.stopPropagation(), onDelete())}><${IconBtn} icon="delete" size=${16} title=${tip} style="width:28px;height:28px" /></span>
   </button>`;
 }

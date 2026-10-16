@@ -220,6 +220,38 @@ Better Auth's errors (`{code, message}`) are read for their `code` only.
   few seconds, on the worker's thread or the command's), the session stays, and the panel says
   "Offline" quietly; nothing else of the launcher changes.
 
+### Cloud saves in the app
+
+The client's half is `crates/omsihub-online/src/saves.rs` (the six routes, zstd, the presigned
+transfers), a company's archive `crates/omsi-launcher-core/src/company/cloud.rs`, the sync
+`crates/omsi-launcher-api/src/omsihub/cloud.rs` (`cs_…`), the page's parts
+`launcher/ui/js/omsihub/cloud.js` with `launcher/ui/omsihub/cloud.css`, the texts
+`crates/omsihub-locales/locales/cloud-saves.yml`.
+
+- **One cloud save** is one archive (`OMSIHUB-SAVE 1`, the files in their names' order, so the
+  same company always packs the same): `company.json` (the company's file), `orders.jsonl` (the
+  phone's orders still waiting) and `live.jsonl` / `live-<date>.taken` (what the game reported
+  since the day's last close). The game's plans of the day (`<id>.liveplan.json`,
+  `<id>.drive.liveplan.json`) stay out: the launcher writes them from the company, and a stale one
+  goes when a save comes in. The archive is compressed with zstd (level 12) before the upload.
+- **The sync metadata** of each company (`#[serde(default)]`: a company without any is local)
+  lives in the launcher's own `~/.openomsi/omsihub-cloud.json`: the place (`cloud`/`local`), the
+  account's user id, the slot, the version last synced, its sha256 in the cloud and the sha256
+  of the archive as it was then (another one now is a change of this computer's).
+- **Opening** a cloud company asks `list` first (at most a few seconds; offline it opens as it
+  is): a newer version only in the cloud is offered (download, or not now); changes on both sides
+  are asked with both dates and computers - keep the cloud's, keep this PC's (uploaded on top;
+  the cloud keeps the older versions), or keep both (this PC's as "<name> (this PC)", a local
+  save). A slot emptied or taken by another company elsewhere leaves the company here local.
+- **Uploading**: a changed cloud company goes up when its pages are left, every ten minutes
+  while it changes, and after a start; always on top of the version last synced, so another
+  computer's newer version is a conflict, never overwritten.
+- **The limit**: "Put this company in the cloud" with both slots taken offers "Keep it local" or
+  "Replace <name>" (armed by a second click); the replaced company stays on this PC as a local
+  save. Local companies are never blocked and can host company multiplayer.
+- Deleting the account calls `delete_all` after `delete_my_data()` and before `/delete-user`; a
+  failure stops it before the user is deleted. Every company here is local afterwards.
+
 ### Security checklist
 
 | | Done |

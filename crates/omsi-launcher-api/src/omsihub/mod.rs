@@ -38,6 +38,8 @@ pub mod together;
 pub mod addon;
 // Omsi-Hub online: the optional account and the friends (`online.rs`, docs/omsihub/ONLINE.md)
 pub mod online;
+// Omsi-Hub's cloud saves: a company kept in the account's cloud, synced (`cloud.rs`)
+pub mod cloud;
 
 use crate::{Answer, Platform};
 use omsi_launcher_lib as core;
@@ -125,6 +127,7 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
         c if c.starts_with("tg_") => return together::call(c, args, p),
         c if c.starts_with("addon_") => return addon::call(c, args),
         c if c.starts_with("ol_") => return online::call(c, args),
+        c if c.starts_with("cs_") => return cloud::call(c, args),
         // (the editors' commands: `editors.rs`)
         _ => return editors::call(cmd, args, p),
     })

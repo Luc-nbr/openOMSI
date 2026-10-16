@@ -69,6 +69,16 @@ pub const TEXTS: &[(&str, &str)] = &[
     ("bad_input", "Something in it is too long or not allowed."),
     ("not_allowed", "That is not allowed."),
     ("no_session", "Share your company first (Multiplayer): then there is a session to invite to."),
+    // (the cloud saves': the function's own codes, then the app's)
+    ("limit", "Both cloud slots are taken: keep this company local, or replace one of your 2 cloud companies."),
+    ("conflict", "This company changed on this PC and in the cloud since it was last synced."),
+    ("mismatch", "The upload arrived damaged and was not kept. Try again."),
+    ("too_large", "This company is too large for the cloud (at most 25 MB compressed). It stays local."),
+    ("rate_limited", "Too many cloud save requests in a short time. Try again in a minute."),
+    ("no_cloud_save", "This cloud save is not there any more."),
+    ("not_uploaded", "The upload did not arrive. Try again."),
+    ("upload_failed", "The cloud storage refused the upload. Try again."),
+    ("bad_save", "The cloud save is damaged: its checksum is wrong. Nothing was changed."),
     // (the state)
     ("not_signed_in", "Sign in first."),
     ("offline", "Offline: the online features are back as soon as the network is."),
@@ -138,6 +148,21 @@ pub(crate) fn of_data(status: u16, body: &Value) -> Error {
         "42501" => "not_allowed",
         "PGRST202" | "42883" => "unavailable",
         _ if status == 429 => "too_many",
+        _ if status == 404 => "unavailable",
+        _ => "server",
+    })
+}
+
+/// The cloud saves' error (`{ok:false, error:'<code>'}`, docs/omsihub/ONLINE.md "Routes") as
+/// ours; its `not_found` (an empty slot) is not the friend code's.
+pub(crate) fn of_saves(status: u16, body: &Value) -> Error {
+    let code = body.get("error").and_then(Value::as_str).unwrap_or("");
+    Error::Code(match code {
+        "limit" | "conflict" | "mismatch" | "too_large" | "rate_limited" | "not_uploaded" => known(code).unwrap_or("server"),
+        "not_found" => "no_cloud_save",
+        "bad_request" => "bad_input",
+        _ if status == 429 => "rate_limited",
+        _ if status == 413 => "too_large",
         _ if status == 404 => "unavailable",
         _ => "server",
     })

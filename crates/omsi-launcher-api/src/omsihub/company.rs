@@ -1334,6 +1334,10 @@ fn switch_company(s: &mut Session, to: Option<Company>) {
     // (Beta 63: the session of the company shared ends with it, its players told)
     super::together::closing_company(s, to.as_ref().map(|c| c.id.as_str()));
     play(s, 0.0);
+    // (a cloud company closed: its change goes up - `cloud.rs`)
+    if let Some(c) = &s.company {
+        super::cloud::closed(&c.id);
+    }
     s.company = to;
     words::set_currency(s.company.as_ref().map(|c| c.currency).unwrap_or_default());
     s.plan = None;
@@ -1414,6 +1418,10 @@ fn delete(s: &mut Session, id: &str) -> Answer {
 fn leave(s: &mut Session) -> Answer {
     play(s, 0.0);
     s.launch = None;
+    // (a cloud company's change goes up - `cloud.rs`)
+    if let Some(c) = &s.company {
+        super::cloud::closed(&c.id);
+    }
     Ok(json!({}))
 }
 
