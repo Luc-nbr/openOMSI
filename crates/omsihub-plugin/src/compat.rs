@@ -51,6 +51,7 @@ pub static FEATURES: &[Feature] = &[
     Feature { id: "display_font", label: "The display font chosen for the bus", needs: &["bus.set_display_font"], essential: false, fallback: "The bus's own display font" },
     Feature { id: "editor", label: "The map editor opened from the editors", needs: &["game.action"], essential: false, fallback: "Open the object editor in the game with Ctrl+Shift+E" },
     Feature { id: "ibis", label: "The IBIS typed as Omsi-Hub says (after the duty order, or by you)", needs: &["duty.set_auto_ibis", "duty.type_ibis"], essential: false, fallback: "The game types the IBIS as each trip begins" },
+    Feature { id: "closed_stops", label: "Closed stops struck through on the navigator", needs: &["duty.set_closed_stops"], essential: false, fallback: "The on-time card lists the stops closed" },
 ];
 
 /// The notes [`Compat`] gives, for the player (English: the launcher translates them).

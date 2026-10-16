@@ -231,7 +231,7 @@ impl App {
                     d.learn_places(places);
                 }
             }
-            let (line, terminus, stops, trip) = navigator::duty_parts(self.session.duty.as_ref());
+            let (line, terminus, stops, trip) = navigator::duty_parts(self.session.duty.as_ref(), &self.session.duty_closed);
             match (trip, self.session.schedule.as_ref(), self.session.traffic.as_ref(), self.world.as_ref()) {
                 (Some((key, name)), Some(sch), _, _) if nav.map_net().is_some() => {
                     if nav.wants_route(&key, 0) {

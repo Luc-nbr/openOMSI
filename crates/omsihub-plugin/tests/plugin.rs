@@ -23,6 +23,8 @@ struct Game {
     ibis: Vec<String>,
     /// The display fonts and game actions asked for.
     asked: Vec<String>,
+    /// The stops closed the navigator was told, and the way round (`duty.set_closed_stops`).
+    closed: Vec<(Vec<String>, String)>,
 }
 
 impl PluginIo for Game {
@@ -88,6 +90,10 @@ impl PluginIo for Game {
     }
     fn duty_type_ibis(&mut self) -> bool {
         self.ibis.push("typed".into());
+        true
+    }
+    fn duty_set_closed_stops(&mut self, stops: Vec<String>, via: &str) -> bool {
+        self.closed.push((stops, via.to_string()));
         true
     }
     fn duty_start(&mut self, line: &str, tour: &str, trip: usize, stop: usize) -> Result<(), String> {
@@ -433,4 +439,66 @@ fn the_display_font_goes_on_the_drive_s_bus_and_the_editor_opens() {
     let mut other = Game::default();
     ps.frame(&mut other);
     assert!(other.asked.is_empty(), "{:?}", other.asked);
+}
+
+/// The on-time card: where the bus is goes to Omsi-Hub, Omsi-Hub's brief comes back - the
+/// company's view of the delay, the headway, the connection to wait for, the closed stop ahead -
+/// its alerts are shown once, the closed stops go to the navigator, and the card can be closed
+/// (or switched off by the assignment).
+#[test]
+fn the_on_time_card_shows_the_brief_and_tells_its_alerts_once() {
+    let plugins = plugins_dir("ontime");
+    install::install(&plugins).unwrap();
+    let dir = install::plugin_dir(&plugins);
+    bridge::write_assignment(&dir, &assignment()).unwrap();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let brief = serde_json::json!({
+        "issued": issued(), "at": now, "trip": 1, "early_from": 60.0, "late_from": 360.0,
+        "headway": { "ahead": { "bus": "101", "secs": 120.0 }, "behind": { "bus": "103", "secs": 540.0 }, "planned": 480.0, "advice": { "kind": "hold", "secs": 210.0 } },
+        "connections": [{ "stop": "Bahnhof", "what": "Train from Erfurt", "time": "07:44", "late": 3, "max_hold": 2, "onward": false, "status": { "kind": "wait", "until": "07:48", "secs": 120 } }],
+        "ahead": { "stop": "Rathaus", "via": "Bahnhofstraße" }, "closed": ["Rathaus"], "via": "Bahnhofstraße",
+        "alerts": [{ "id": "conn|1|Bahnhof|464", "priority": "high", "template": "Connection at %{stop}: wait max %{m} min", "args": { "stop": "Bahnhof", "m": 2 } }],
+    });
+    std::fs::create_dir_all(dir.join(bridge::DATA_DIR)).unwrap();
+    std::fs::write(dir.join(bridge::DATA_DIR).join("ontime.json"), brief.to_string()).unwrap();
+    let mut ps = Plugins::load(&[plugins.clone()], &HostConfig::default());
+    let mut game = Game { trips: vec![three_stops()], ..Game::default() };
+    for _ in 0..4 {
+        ps.frame(&mut game);
+    }
+    // where the bus is, for Omsi-Hub (the duty taken by itself: trip 1, 42 s late)
+    let live: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join(bridge::DATA_DIR).join("live.json")).expect("data/live.json")).unwrap();
+    assert_eq!((live["line"].as_str(), live["tour"].as_str(), live["trip"].as_u64(), live["delay"].as_f64(), live["issued"].as_u64()), (Some("10"), Some("2"), Some(1), Some(42.0), Some(issued())));
+    // the card: the company's view of the 42 s, the headway, the connection, the closed stop
+    {
+        let ui = ps.ui.borrow();
+        let card = ui.panels().iter().find(|p| p.id == "omsihub_ontime").expect("the on-time card");
+        let text = format!("{:?}", card.panel);
+        for want in ["+0:42 on time", "Ahead 101: 2:00", "Behind 103: 9:00", "every 8 min", "Hold 210 s at the next stop", "Connection at Bahnhof: wait max 2 min", "Hold until 07:48", "Diversion ahead: Rathaus closed", "Via Bahnhofstraße"] {
+            assert!(text.contains(want), "{want}: {text}");
+        }
+        // the alert once, however often the brief is read
+        let toasts: Vec<&str> = ui.toasts().iter().map(|t| t.text.as_str()).filter(|t| t.starts_with("Connection")).collect();
+        assert_eq!(toasts, ["Connection at Bahnhof: wait max 2 min"]);
+    }
+    assert_eq!(game.closed, vec![(vec!["Rathaus".to_string()], "Bahnhofstraße".to_string())], "once to the navigator");
+    // its close button: off for the drive, the navigator's stops taken back
+    let owner = ps.ui.borrow().panels().iter().find(|p| p.id == "omsihub_ontime").unwrap().owner;
+    ps.ui.borrow_mut().click(owner, "omsihub_ontime", Some("close"));
+    ps.frame(&mut game);
+    assert!(!ps.ui.borrow().panels().iter().any(|p| p.id == "omsihub_ontime"));
+    assert_eq!(game.closed.last(), Some(&(Vec::new(), String::new())));
+
+    // switched off by the assignment: no card
+    let plugins = plugins_dir("ontime-off");
+    install::install(&plugins).unwrap();
+    let dir = install::plugin_dir(&plugins);
+    bridge::write_assignment(&dir, &Assignment { ontime: Some(false), ..assignment() }).unwrap();
+    let mut ps = Plugins::load(&[plugins.clone()], &HostConfig::default());
+    let mut game = Game::default();
+    for _ in 0..3 {
+        ps.frame(&mut game);
+    }
+    assert!(!ps.ui.borrow().panels().iter().any(|p| p.id == "omsihub_ontime"));
+    assert!(!dir.join(bridge::DATA_DIR).join("live.json").exists());
 }

@@ -10,7 +10,7 @@
 --   data/reports.jsonl    plugin -> Omsi-Hub: the duty taken, each trip done, the duty ended
 -- A game without the file functions gets the handshake and the reports in its log instead.
 
-local VERSION = "1.5.0"
+local VERSION = "1.6.0"
 local BRIDGE = 1
 local PANEL = "omsihub"
 
@@ -22,6 +22,7 @@ local NEEDS = {
   "duty.get", "duty.trips", "files.append", "files.write", "duty.start",
   "ui.set", "ui.toast", "ui.remove", "files.read", "json.decode", "send",
   "duty.set_auto_ibis", "duty.type_ibis", "bus.set_display_font", "game.action",
+  "duty.set_closed_stops",
 }
 
 local function fn(name)
@@ -169,6 +170,9 @@ local signon = require("signon")
 local board = require("board")
 board.setup(tr)
 if company_duty() then signon.setup(tr, assignment) end
+-- (the on-time card: punctuality, headway, connections, diversions - `ontime.lua`, its own)
+local ontime = require("ontime")
+ontime.setup(tr, assignment, has)
 
 local function panel()
   if not (company_duty() and has["ui.set"]) then return end
@@ -380,6 +384,7 @@ end)
 
 omsi.on("ui_click", function(p, element)
   if card.click(p, element) then return end
+  if ontime.click(p, element) then return end
   if p == PANEL and element == "start" then start_duty() end
   -- (signed on and the duty accepted: taken now where it was to start by itself)
   if p == PANEL and signon.click(element, function()
@@ -408,11 +413,13 @@ end)
 
 omsi.on("stop", function()
   if has["ui.remove"] then omsi.ui.remove(PANEL) end
+  ontime.stop()
 end)
 
 -- (the duty board: wanted unless Omsi-Hub says not, and not before the driver signed on)
 omsi.every(1, function()
   board.update((not assignment or assignment.board ~= false) and signon.at_work())
+  if signon.at_work() then ontime.tick(1) end
 end)
 
 omsi.every(2, function()

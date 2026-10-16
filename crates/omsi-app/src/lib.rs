@@ -625,6 +625,7 @@ fn assemble_app(args: Args, settings: settings::Settings) -> App {
             humans: None,
             duty: None,
             duty_places: false,
+            duty_closed: Default::default(),
             rain,
             cabin_air,
             spray,

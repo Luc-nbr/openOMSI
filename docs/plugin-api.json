@@ -1107,6 +1107,27 @@
       "permission": "vehicle_write"
     },
     {
+      "name": "duty.set_closed_stops",
+      "group": "duty",
+      "since": "0.2.22",
+      "doc": "The stops closed today on the duty's route (a list of names) - a diversion, roadworks - and the way round (`via`): the navigator strikes them through and says the way round; an empty list takes them away. `true` when the game shows them.",
+      "params": [
+        {
+          "name": "stops",
+          "type": "table",
+          "optional": false
+        },
+        {
+          "name": "via",
+          "type": "string",
+          "optional": true
+        }
+      ],
+      "returns": "boolean",
+      "multi": false,
+      "permission": "ui"
+    },
+    {
       "name": "duty.skip_stop",
       "group": "duty",
       "since": "0.2.22",

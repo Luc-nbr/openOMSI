@@ -162,6 +162,8 @@ pub struct NavStop {
     pub name: String,
     /// Planned arrival (s of the day).
     pub arrival: f64,
+    /// Closed today (a diversion, `duty.set_closed_stops`): the way round ("" when not said).
+    pub closed: Option<String>,
 }
 
 /// Another player of the session as the maps show them (the session's, see `lan`).
@@ -425,10 +427,11 @@ const SIZE_STEP: f32 = 0.05;
 /// How long the new size shows after it changed (s).
 const SIZE_NOTE: f32 = 1.4;
 
-/// The duty as the navigator shows it: line, terminus, the stops from the next one on,
-/// and the current trip (a key that changes with it, and its name).
+/// The duty as the navigator shows it: line, terminus, the stops from the next one on (those
+/// `closed` today - their names, and the way round - marked), and the current trip (a key that
+/// changes with it, and its name).
 #[allow(clippy::type_complexity)]
-pub fn duty_parts(duty: Option<&crate::schedule::PlayerDuty>) -> (Option<String>, Option<String>, Vec<NavStop>, Option<(String, String)>) {
+pub fn duty_parts(duty: Option<&crate::schedule::PlayerDuty>, closed: &(Vec<String>, String)) -> (Option<String>, Option<String>, Vec<NavStop>, Option<(String, String)>) {
     let Some(d) = duty else { return (None, None, Vec::new(), None) };
     let Some(trip) = d.trips.get(d.trip_index) else { return (None, None, Vec::new(), None) };
     let line = if trip.line.trim().is_empty() { d.line.trim() } else { trip.line.trim() };
@@ -437,7 +440,7 @@ pub fn duty_parts(duty: Option<&crate::schedule::PlayerDuty>) -> (Option<String>
         .iter()
         .skip(d.next_stop)
         .filter(|s| s.stops)
-        .map(|s| NavStop { object_id: s.object_id, position: s.position.unwrap_or(DVec3::ZERO), name: s.name.clone(), arrival: s.arr })
+        .map(|s| NavStop { object_id: s.object_id, position: s.position.unwrap_or(DVec3::ZERO), name: s.name.clone(), arrival: s.arr, closed: closed.0.iter().any(|c| c.trim().eq_ignore_ascii_case(s.name.trim())).then(|| closed.1.clone()) })
         .collect();
     (Some(line.to_string()), Some(trip.terminus.clone()), stops, Some((format!("{}/{}", d.trip_index, trip.name), trip.name.clone())))
 }
@@ -1957,12 +1960,21 @@ impl Navigator {
         match (f.stops.first(), dest) {
             (Some(st), _) => {
                 let name = if f.stops.len() == 1 { format!("{} | {}", st.name.trim(), wd.last_stop) } else { st.name.trim().to_string() };
-                ui.text_in(&mut self.atlas, &self.fonts, &name, 13.5 * s, Weight::Bold, stop_row, Align::Left, TEXT);
+                let nw = ui.text_in(&mut self.atlas, &self.fonts, &name, 13.5 * s, Weight::Bold, stop_row, Align::Left, if st.closed.is_some() { TEXT_DIM } else { TEXT });
+                if st.closed.is_some() {
+                    strike(ui, stop_row.x, nw, stop_row, s, crate::nav_duty::NOW);
+                }
                 let mut parts = Vec::new();
                 // (a diversion of the player's own: where it goes first; the timetable's next
-                // stop stays the next stop)
-                let diverted = via.is_some() && self.pins.diversion();
-                if let Some(v) = via.clone().filter(|_| diverted) {
+                // stop stays the next stop - and one of the company's, the next stop closed:
+                // the way round)
+                let diverted = (via.is_some() && self.pins.diversion()) || st.closed.is_some();
+                if let Some(round) = st.closed.clone() {
+                    parts.push(omsi_ui::tr("Diversion").into_owned());
+                    if !round.trim().is_empty() {
+                        parts.push(round);
+                    }
+                } else if let Some(v) = via.clone().filter(|_| diverted) {
                     parts.push(omsi_ui::tr("Diversion").into_owned());
                     parts.push(v);
                 } else if let Some(d) = self.next_dist {
@@ -2046,7 +2058,13 @@ impl Navigator {
             let r = Rect::new(area.x + pad, y, area.w - 2.0 * pad, 22.0 * s);
             let planned = format!("{:02}:{:02}", (st.arrival / 3600.0) as i32 % 24, ((st.arrival % 3600.0) / 60.0) as i32);
             ui.text_in(&mut self.atlas, &self.fonts, &planned, 12.5 * s, Weight::Bold, r, Align::Left, TEXT_DIM);
-            ui.text_in(&mut self.atlas, &self.fonts, st.name.trim(), 13.0 * s, Weight::Medium, Rect::new(r.x + 46.0 * s, r.y, r.w - 100.0 * s, r.h), Align::Left, TEXT);
+            let w = ui.text_in(&mut self.atlas, &self.fonts, st.name.trim(), 13.0 * s, Weight::Medium, Rect::new(r.x + 46.0 * s, r.y, r.w - 100.0 * s, r.h), Align::Left, if st.closed.is_some() { TEXT_DIM } else { TEXT });
+            // (closed today: struck through, and the bus does not stop there)
+            if st.closed.is_some() {
+                strike(ui, r.x + 46.0 * s, w, r, s, crate::nav_duty::NOW);
+                y += 22.0 * s;
+                continue;
+            }
             // when the bus will be there at this lateness
             let exp = st.arrival + late;
             let e = format!("{:02}:{:02}", (exp / 3600.0).rem_euclid(24.0) as i32, ((exp.rem_euclid(3600.0)) / 60.0) as i32);
@@ -2054,6 +2072,11 @@ impl Navigator {
             y += 22.0 * s;
         }
     }
+}
+
+/// A line through a stop's name `w` wide from `x`, at the middle of `r` (a stop closed today).
+pub(crate) fn strike(ui: &mut Painter, x: f32, w: f32, r: Rect, s: f32, c: Color) {
+    ui.rect(Rect::new(x, (r.center().y - 0.75 * s).round(), w.max(0.0), (1.5 * s).max(1.0)), c);
 }
 
 /// How many of `stops` the schedule shows in `room` points at scale `s` (five at most), and
