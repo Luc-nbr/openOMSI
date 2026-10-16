@@ -334,6 +334,28 @@ then stays in memory), and the example drives `ol_…` and `cs_…` as the page 
 its own: the limit, a replace, a change going up, another computer's newer version, a conflict with
 both kept, a download, a removal and the account deleted.
 
+## The privacy statement
+
+[PRIVACY.md](PRIVACY.md) is the statement, for the app and the website alike; its version is the
+`<!-- privacy-version: N -->` marker, and nowhere else (`omsihub_online::privacy::VERSION` reads it
+while the program is built; a test fails when the two disagree). The server keeps who agreed to
+which version (`privacy_consents`, `accept_privacy(p_version)`, `my_privacy()`; schema.sql).
+
+- Playing without an account asks nothing.
+- The account panel's Sign in (and the email's code, and the password reset) and its "Create an
+  account" wait for the tick "I have read and agree to the privacy statement"; once signed in,
+  `accept_privacy` is sent.
+- Every sign-in and every restored session asks `my_privacy()`. Below the current version (a new
+  one, or an account made before there was one) the page asks over everything - a short summary,
+  the whole text, Agree or Sign out - and the account does nothing meanwhile: the client refuses
+  every request but those two functions (and deleting the account) with the code `privacy`, so the
+  heartbeat, the friends, the invites, the leaderboard and the cloud saves wait.
+- The statement opens in the app from the tick, the Account panel, Settings > General and the
+  cloud saves (their question and their slots). It stays English, the binding text; the dialog
+  says so in the player's language.
+- A new version: raise the marker in PRIVACY.md (and the website's copy); every player is asked
+  again at their next sign-in or start.
+
 ## The website's side
 
 The website (its own repository, [Luc-nbr/Omsi-Hub-Website](https://github.com/Luc-nbr/Omsi-Hub-Website),
