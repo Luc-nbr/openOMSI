@@ -41,6 +41,7 @@ import { startCompanyTour } from '../tour.js';
 // (Beta 58: "Play together"; Beta 61: the Multiplayer page, and the company's pages of a friend
 // who joined one - `S.co.remote`, its commands relayed to the boss's launcher)
 import { TogetherButton, TOGETHER_TAB, backToMenu } from './together.js';
+import { OnlineButton } from '../online.js';
 import { MultiplayerPage } from './multiplayer.js';
 
 // (the company's own look, loaded with its first page)
@@ -350,6 +351,7 @@ function Bar({ open, choosing, read }) {
       ${open && remote && html`<${RemoteClock} /><span class="gap16"></span>
         ${mayChange && html`<${Btn} class="sq" icon="settings" title=${tr("The company's settings: its name, its date, how it buys")} onClick=${settings} /><span class="gap8"></span>`}`}
       ${open && !remote && html`${sh.casual ? html`<${CasualClock} />` : html`<${Clock} now=${fit.now} />`}<span class="gap16"></span>
+        <${OnlineButton} company=${true} />
         <${TogetherButton} />
         <${Btn} class="sq" icon="settings" title=${tr("The company's settings: its name, its date, how it buys")} onClick=${settings} /><span class="gap8"></span>`}
       <${Btn} class="sq" icon=${isDark ? 'dark_mode' : 'light_mode'} title=${tr(isDark ? 'Switch to the light mode' : 'Switch to the dark mode')} onClick=${(e) => flipLook(e)} /><span class="gap8"></span>

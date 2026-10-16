@@ -18,6 +18,8 @@ import { EDITORS, EditorPage, editorOf, openLineEditor, openLivery } from './edi
 import { StatusLine } from './editors/kit.js';
 import { Welcome, welcomeAtStart } from './welcome.js';
 import { TourOverlay } from './tour.js';
+// (Omsi-Hub online: the invites' notices and the account's panel over every page)
+import { OnlineLayer } from './online.js';
 // (Omsi-Hub 6/6: the updates, as the game-drawn launcher offers them)
 import { useUpdates, UpdateDialog, UpdatedNotice } from './update.js';
 import { GameEndDialogs } from '../crash.js';
@@ -176,7 +178,7 @@ export function HubShell({ pages, Toasts }) {
   // the bus company: the whole window its own (its own bar)
   if (s.page === 'company') {
     // (Omsi-Hub 6/6: the company's tour over it)
-    return html`<div class="hub-stage" style=${`--hub-scale:${scale()}`}><${CompanyScreen} /><${TourOverlay} />${updates}<${Toasts} /></div>`;
+    return html`<div class="hub-stage" style=${`--hub-scale:${scale()}`}><${CompanyScreen} /><${TourOverlay} /><${OnlineLayer} />${updates}<${Toasts} /></div>`;
   }
   // (an editor's page: ours, `editors/index.js`)
   const editor = EDITORS[s.page] ? s.page : null;
@@ -187,6 +189,7 @@ export function HubShell({ pages, Toasts }) {
     ${s.hub.palette && html`<${Palette} />`}
     <${StatusLine} />
     <${TourOverlay} />
+    <${OnlineLayer} />
     ${updates}
     <${Toasts} />
   </div>`;
