@@ -1,6 +1,6 @@
 # r65-rename: status
 
-The work stopped early because the cloud credit was running out. **The branch has not been built or tested yet.**
+The work stopped early because the cloud credit was running out. **Tests have not been run.** `cargo check --locked` of the Tauri shell (`launcher/src-tauri`) passes on Linux. It compiles the non-test code of `omsi-cfg`, `omsi-platform`, `omsi-launcher-core`, `omsi-launcher-api` and `omsihub-plugin`, and the shell's hand-over code. The game crate (`omsi-app`) and `omsi-guard` were not compiled, and none of the tests were.
 
 ## New names
 
@@ -63,7 +63,6 @@ Every lookup tries the new name first and then the old one:
 
 ### 1. Compile and run the tests
 - `cargo test --release -p omsi-launcher-core -p omsi-launcher-api -p omsihub-plugin`, plus `-p omsi-cfg -p omsi-platform`.
-- `cargo check` in `launcher/src-tauri`.
 - `cargo check --target x86_64-pc-windows-msvc -p omsi-platform`: the `rename::shortcuts` COM code has never been compiled. Check the `windows` 0.62 signatures of `GetPath`, `GetIconLocation`, `Save` and `CoTaskMemFree`.
 
 ### 2. Scripts
