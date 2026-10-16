@@ -9,12 +9,12 @@
 // (`co_tick`), which answers with the bar's and the strip's shell.
 
 import { useRef, useState } from '../../../vendor/preact-htm.js';
-import { S, useStore, set } from '../../store.js';
+import { S, useStore, set, remembered, remember } from '../../store.js';
 import { call } from '../../api.js';
 import { contrast } from '../theme.js';
 import { dark } from '../theme.js';
 import { flipLook } from '../bar.js';
-import { html, useEffect, tr, HOME, HANDED, CASUAL, setCo, freshCo, cmd, act, takeShell, goTab, handOver, Icon, Mark, ModePill, Btn, Guard } from './kit.js';
+import { html, useEffect, tr, HOME, HANDED, CASUAL, setCo, setUi, freshCo, cmd, act, takeShell, goTab, handOver, useView, Icon, Mark, ModePill, Btn, Guard } from './kit.js';
 import { Chooser, Wizard, readCompanies } from './chooser.js';
 import { Overlays, modalOpen } from './dialogs.js';
 import { HomePage } from './home.js';
@@ -25,7 +25,7 @@ import { LinesPage } from './lines.js';
 import { MoneyPage } from './money.js';
 import { InboxPage } from './inbox.js';
 // (Beta 57: what is coming)
-import { AgendaPage } from './agenda.js';
+import { AgendaPage, follow } from './agenda.js';
 import { ReputationPage } from './reputation.js';
 import { OpsPage } from './ops.js';
 import { CareerPage } from './career.js';
@@ -46,6 +46,7 @@ import { OnlineButton } from '../online.js';
 // (Beta 63: a cloud company's newer version or conflict, asked before it opens)
 import { cloudBeforeOpen } from '../cloud.js';
 import { MultiplayerPage } from './multiplayer.js';
+import { togetherOn, blockedLabel } from './gate.js';
 
 // (the company's own look, loaded with its first page)
 const sheet = document.createElement('link');
@@ -201,6 +202,24 @@ export function CompanyScreen() {
       stopTick = null;
     };
   }, []);
+  // (the sidebar as it was left - as its icons on a narrow stage - and folded to them when the
+  // window gets narrow; Ctrl+B slides it away and back)
+  useEffect(() => {
+    if (!S.co.nav) setCo({ nav: navStart() });
+    const narrow = () => S.co.nav === 'full' && stageW() < 1000 && setCo({ nav: 'rail' });
+    const k = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.key.toLowerCase() !== 'b') return;
+      if (modalOpen() || !S.co.shell?.open || S.co.chooser || S.co.wizard || S.co.shell.launch || (S.rf?.open && S.co.tab === 5)) return;
+      e.preventDefault();
+      toggleSide();
+    };
+    addEventListener('resize', narrow);
+    addEventListener('keydown', k);
+    return () => {
+      removeEventListener('resize', narrow);
+      removeEventListener('keydown', k);
+    };
+  }, []);
   // Escape: back to the start screen (in Casual to the page above), unless something lies over
   // the page or a field is being typed in (`escape_home`)
   useEffect(() => {
@@ -263,7 +282,7 @@ export function CompanyScreen() {
   else if (choosing) body = html`<div class="co-body found"><${Chooser} /></div>`;
   else if (founding) body = html`<div class="co-body found"><${Wizard} /></div>`;
   else if (sh.launch) body = html`<div class="co-body full"><${LaunchPage} /></div>`;
-  else body = html`${sh.casual ? html`<${CasualNav} />` : html`<${Nav} />`}<div class="co-body" key=${'tab' + c.tab}><${Page} /></div>`;
+  else body = html`<div class="co-body" key=${'tab' + c.tab}><${Page} /></div>`;
   // (Omsi-Hub 4/6: RosterFlow an application of its own over the whole window, no company bar;
   // its dialogs and the popup still over it)
   const rosterflow = open && !sh.casual && !sh.launch && c.tab === 5 && s.rf?.open;
@@ -275,8 +294,14 @@ export function CompanyScreen() {
       ${c.notice && Date.now() - c.notice.at < 9000 && html`<div class=${'co-notice' + (c.notice.error ? ' error' : '')} key=${c.notice.at}>${c.notice.text}</div>`}
     </div>`;
   }
-  return html`<div class="co" data-tab=${open ? c.tab : ''}>
-    <${Guard}><${Bar} open=${open} choosing=${choosing} read=${read} /></${Guard}>
+  // (the company's shell: its sidebar, the slim bar over the page - the start, the founding and
+  // a game's launch keep the bar across the whole window)
+  const shell = open && !sh.launch;
+  const mayChange = !c.remote || (sh?.remote?.perms || []).includes('settings');
+  return html`<div class=${'co' + (shell ? ' co-shell' : '')} data-tab=${open ? c.tab : ''} data-nav=${shell ? c.nav || 'full' : undefined}>
+    ${shell
+      ? html`<${Guard}><${Side} mayChange=${mayChange} /></${Guard}><${Guard}><${Top} mayChange=${mayChange} /></${Guard}>`
+      : html`<${Guard}><${Bar} open=${open} choosing=${choosing} read=${read} /></${Guard}>`}
     <${Guard}>${body}</${Guard}>
     ${read && html`<${Guard}><${Overlays} founding=${founding || choosing} /></${Guard}>`}
     ${c.remote && html`<${SessionWatch} />`}
@@ -370,28 +395,48 @@ function Bar({ open, choosing, read }) {
   </header>`;
 }
 
-/** What the company has: its cash, its trophies and its reputation, each a click from the page
- * about it (`company::status`). */
-function Status({ n = 3 }) {
+/** What the company has in the top bar: its cash and its reputation, each a click from the page
+ * about it (`company::status`); the trophies are told under the cash's tooltip (and on the
+ * Career, Research and Contracts pages). */
+function Status() {
   const sh = S.co.shell;
-  if (!n) return null;
+  const trophies = sh.status.find((it) => it.icon === 'emoji_events');
+  const shown = sh.status.filter((it) => it !== trophies);
+  const tip = (it) => (it.icon === 'payments' && trophies ? `${it.tip}\n\n${tr('Trophies')}: ${trophies.value}\n${trophies.tip}` : it.tip);
+  if (!shown.length) return null;
   return html`<span class="co-status">
-    ${sh.status.slice(0, n).map((it) => html`<button type="button" class=${it.tab != null ? 'go' : ''} title=${it.tip} onClick=${() => it.tab != null && goTab(it.tab)}>
-      <span class=${'dot ' + it.tone}><${Icon} name=${it.icon} size=${16} /></span><span class=${'t-' + it.text}>${it.value}</span>
+    ${shown.map((it) => html`<button type="button" class=${it.tab != null ? 'go' : ''} title=${tip(it)} onClick=${() => it.tab != null && goTab(it.tab)}>
+      <span class=${'dot ' + it.tone}><${Icon} name=${it.icon} size=${15} /></span><span class=${'t-' + it.text}>${it.value}</span>
     </button>`)}
   </span>`;
 }
 
-/** The company's clock in the bar (`clock::head`): the day and the time - with the real clock
- * its live dot and how far it was fast-forwarded - the play speeds where there is room, +1 h,
- * Simulate to tomorrow and the time dialog. */
-function Clock({ now = true }) {
+/** A menu that drops from a button of the top bar: open while `open`, closed by a click
+ * outside it or Escape. */
+function useMenu() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef();
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => ref.current && !ref.current.contains(e.target) && setOpen(false);
+    const key = (e) => e.key === 'Escape' && (e.stopPropagation(), setOpen(false));
+    addEventListener('mousedown', away, true);
+    addEventListener('keydown', key, true);
+    return () => {
+      removeEventListener('mousedown', away, true);
+      removeEventListener('keydown', key, true);
+    };
+  }, [open]);
+  return [open, setOpen, ref];
+}
+
+/** The company's clock in the top bar (`clock::head`): the day and the time - with the real
+ * clock its live dot, and how far it was fast-forwarded as a small hint - and one split button:
+ * Simulate to tomorrow, its menu the play speeds, +1 h and the time dialog. */
+function Clock() {
   const sh = S.co.shell;
   const k = sh.clock;
-  const speeds = [
-    ['×60', 1, 62],
-    ['×600', 10, 70],
-  ];
+  const [open, setOpen, ref] = useMenu();
   const play = (speed) => {
     const on = Math.abs(k.speed - speed) < 1e-6;
     act('play', { speed: on ? 0 : speed });
@@ -401,17 +446,22 @@ function Clock({ now = true }) {
     if (on) return tr(k.real ? "Back to the real clock's pace" : 'Stop the clock');
     return tr(i === 1 ? "Run the company's clock at ten minutes a second while this page is open" : "Run the company's clock at a minute a second while this page is open");
   };
+  const pick = (f) => () => (setOpen(false), f());
   return html`<span class="co-clock">
-    ${now && html`<span class="now" title=${k.tip || undefined}>
-      <span class=${'label' + (k.in_game ? ' game' : '')}>${k.lead && html`<span class="lead">${k.lead}</span>`}${k.live && html`<i class="live"></i>`}${k.label}</span>
-      <span class="date">${k.date}</span><span class=${'time' + (k.speed > 0 ? ' playing' : '')}>${k.time}</span>
-    </span>`}
-    <span class="play" style="gap:8px">
-      ${speeds.map(([label, speed, w], i) => html`<${Btn} kind=${Math.abs(k.speed - speed) < 1e-6 ? 'primary' : 'ghost'} label=${label} style=${`width:${w}px;padding:0`} title=${playTip(speed, i)} onClick=${() => play(speed)} />`)}
+    <span class="co-top-now" title=${k.tip || undefined}>
+      <span class="co-top-day"><span class="date">${k.date}</span><span class=${'time' + (k.speed > 0 ? ' playing' : '')}>${k.time}</span></span>
+      <span class=${'co-top-hint' + (k.in_game ? ' game' : '')}>${k.live && html`<i class="live"></i>`}${k.lead || k.label}</span>
     </span>
-    <${Btn} label="+1 h" style="width:70px;padding:0" title=${tr("Simulate one hour of the company's time")} onClick=${() => act('hour')} />
-    <${Btn} kind="primary" class="co-tomorrow" icon="nights_stay" label=${tr('Simulate to tomorrow')} title=${tr(k.in_game ? "The game leads the company's clock while it runs" : 'Simulate the rest of the day: the tours run, what happens is told, and the day is closed at midnight')} onClick=${() => act('tomorrow')} />
-    <${Btn} class="sq" icon="schedule" style="width:42px" title=${tr("More steps, the clock's speed and the dispatcher")} onClick=${() => !sh.cover && setCo({ dialog: { kind: 'time' } })} />
+    <span class="co-split" ref=${ref}>
+      <${Btn} kind="primary" class="co-tomorrow" icon="nights_stay" label=${tr('Simulate to tomorrow')} title=${tr(k.in_game ? "The game leads the company's clock while it runs" : 'Simulate the rest of the day: the tours run, what happens is told, and the day is closed at midnight')} onClick=${() => act('tomorrow')} />
+      <button type="button" class=${'co-split-more' + (open ? ' on' : '')} title=${tr('More steps and the clock')} onClick=${() => setOpen(!open)}><${Icon} name="expand_more" size=${18} /></button>
+      ${open && html`<div class="co-top-menu co-split-menu">
+        ${[['×60', 1], ['×600', 10]].map(([label, speed], i) => html`<button type="button" class=${Math.abs(k.speed - speed) < 1e-6 ? 'on' : ''} title=${playTip(speed, i)} onClick=${pick(() => play(speed))}><${Icon} name="play_arrow" size=${17} /><span class="grow">${label}</span></button>`)}
+        <button type="button" title=${tr("Simulate one hour of the company's time")} onClick=${pick(() => act('hour'))}><${Icon} name="schedule" size=${17} /><span class="grow">${tr('+1 h')}</span></button>
+        <i class="co-top-sep"></i>
+        <button type="button" onClick=${pick(() => !sh.cover && setCo({ dialog: { kind: 'time' } }))}><${Icon} name="tune" size=${17} /><span class="grow">${tr('More steps and the clock')}</span></button>
+      </div>`}
+    </span>
   </span>`;
 }
 
@@ -419,7 +469,7 @@ function Clock({ now = true }) {
 function RemoteClock() {
   const k = S.co.shell.clock;
   return html`<span class="co-clock">
-    <span class="now"><span class="label">${k.label}</span><span class="date">${k.date}</span><span class="time">${k.time}</span></span>
+    <span class="co-top-now"><span class="co-top-day"><span class="date">${k.date}</span><span class="time">${k.time}</span></span><span class="co-top-hint">${k.label}</span></span>
   </span>`;
 }
 
@@ -427,64 +477,210 @@ function RemoteClock() {
 function CasualClock() {
   const k = S.co.shell.clock;
   return html`<span class="co-clock">
-    <span class="casual-now"><span class="date">${k.date}</span><span class="time">${k.time}</span></span>
-    <${Btn} kind="primary" class="co-next" icon="wb_sunny" label=${tr('Next day')} style="min-width:150px" title=${tr('Run the rest of the day: the buses drive, the money comes in, and you start the next morning')} onClick=${() => act('next_day')} />
+    <span class="co-top-now"><span class="co-top-day"><span class="date">${k.date}</span><span class="time">${k.time}</span></span></span>
+    <${Btn} kind="primary" class="co-next" icon="wb_sunny" label=${tr('Next day')} title=${tr('Run the rest of the day: the buses drive, the money comes in, and you start the next morning')} onClick=${() => act('next_day')} />
   </span>`;
 }
 
-// --- the way round --------------------------------------------------------------------------
+// --- the top bar ----------------------------------------------------------------------------
 
-/** The way round the company's pages under its bar (`company::nav`): the start screen's button
- * with the page one is on after it, and every page as an icon on the right, grouped as the
- * start screen groups them, a badge where something waits. */
-function Nav() {
+/** The slim bar over the pages: the page's title (Casual: its crumbs), the cash and the
+ * reputation, the clock with its split button, the bell, the player's menu and Back. */
+function Top({ mayChange }) {
   const c = S.co;
   const sh = c.shell;
-  const home = c.tab === HOME;
-  return html`<nav class="co-nav">
-    <${Btn} kind=${home ? 'primary' : ''} class="co-start" icon="apps" label=${tr('Start screen')} title=${tr('Every part of the company as a tile (Escape)')} onClick=${() => !home && setCo({ tab: HOME })} />
-    <span class="where">
-      ${home
-        ? html`<span class="home cut">${sh.home}</span>`
-        : html`<${Icon} name="chevron_right" size=${18} /><span class="page cut"><${Icon} name=${ICON_OF(sh, c.tab)} size=${20} />${sh.names?.[c.tab] || ''}</span>`}
-    </span>
-    <${Rail} groups=${sh.rail} on=${(t) => t === c.tab} />
-  </nav>`;
+  const remote = !!c.remote;
+  return html`<header class="co-bar co-top">
+    ${(c.nav || 'full') === 'gone' && html`<button type="button" class="co-top-side" title=${tr('Show the sidebar (Ctrl+B)')} onClick=${toggleSide}><${Icon} name="menu" size=${20} /></button>`}
+    <${Where} />
+    <span class="co-top-fill"></span>
+    <${Status} />
+    ${remote ? html`<${RemoteClock} />` : sh.casual ? html`<${CasualClock} />` : html`<${Clock} />`}
+    ${!remote && !sh.casual && html`<${Bell} />`}
+    <${Me} mayChange=${mayChange} />
+    <${Btn} class="co-back" icon="chevron_left" label=${tr('Back')} title=${tr('Back')} onClick=${() => leaveCompany()} />
+  </header>`;
 }
 
-const ICON_OF = (sh, tab) => sh.rail.flat().find((x) => x.tab === tab)?.icon || 'apps';
-
-/** The pages as icons, grouped, a badge where something waits. */
-function Rail({ groups, on, casual }) {
-  return html`<span class=${'co-rail' + (casual ? ' casual' : '')}>
-    ${groups.map((g, k) => html`${k > 0 && html`<span class="sep"></span>`}<span class="group">
-      ${g.map((it) => html`<button type="button" class=${on(it.tab) ? 'on' : ''} title=${it.tip} onClick=${() => goTab(it.tab)}>
-        <${Icon} name=${it.icon} size=${casual ? 20 : 19} />
-        ${it.badge && html`<span class=${'badge ' + it.badge.tone}>${it.badge.n}</span>`}
-      </button>`)}
-    </span>`)}
-  </span>`;
-}
-
-/** Casual's way round (`casual::nav`): Home, the page one is on (the page above it a click
- * away), and the pages as icons. */
-function CasualNav() {
+/** Where one is: the page's icon and name (the start screen: the company's home), in Casual the
+ * page above it a click away. */
+function Where() {
   const c = S.co;
   const sh = c.shell;
   const tab = c.tab;
-  const home = tab === HOME;
-  const pages = sh.casual_pages?.pages || {};
-  const parent = parentOf(sh, tab);
-  const crumbs = [parent, tab].filter((t) => t !== HOME);
-  return html`<nav class="co-nav">
-    <${Btn} kind=${home ? 'primary' : ''} class="co-start" icon="home" label=${tr('Home')} style="min-width:110px" title=${tr("Back to your company's home (Escape)")} onClick=${() => !home && setCo({ tab: HOME })} />
-    <span class="where">
-      ${home
-        ? html`<span class="home cut">${sh.casual_pages?.home}</span>`
-        : crumbs.map((t) => html`<${Icon} name="chevron_right" size=${18} /><button type="button" class=${'crumb' + (t === tab ? ' last' : '')} onClick=${() => t !== tab && setCo({ tab: t })}>${pages[t]?.name}</button>`)}
-    </span>
-    <${Rail} casual groups=${sh.rail} on=${(t) => t === tab || parent === t} />
-  </nav>`;
+  if (sh.casual) {
+    const pages = sh.casual_pages?.pages || {};
+    if (tab === HOME) return html`<span class="co-top-where"><span class="co-top-title cut">${sh.casual_pages?.home}</span></span>`;
+    const crumbs = [parentOf(sh, tab), tab].filter((t) => t !== HOME);
+    return html`<span class="co-top-where">${crumbs.map((t, k) => html`${k > 0 && html`<${Icon} name="chevron_right" size=${16} class="t-dim" />`}<button type="button" class=${'co-top-crumb cut' + (t === tab ? ' last' : '')} onClick=${() => t !== tab && setCo({ tab: t })}>${pages[t]?.name}</button>`)}</span>`;
+  }
+  if (tab === HOME) return html`<span class="co-top-where"><span class="co-top-title cut">${sh.home}</span></span>`;
+  const it = sh.rail.flat().find((x) => x.tab === tab);
+  return html`<span class="co-top-where"><${Icon} name=${it?.icon || 'apps'} size=${20} class="t-accent2" /><span class="co-top-title cut">${nameOf(it) || sh.names?.[tab] || ''}</span></span>`;
 }
 
+/** The bell: the unread messages and what of the coming week needs the player (`co_view`
+ * "bell"), its badge how many; each a click from its page. */
+function Bell() {
+  const sh = S.co.shell;
+  const [open, setOpen, ref] = useMenu();
+  const v = useView('bell', {}, open);
+  const n = sh.bell || 0;
+  const go = (f) => () => (setOpen(false), f());
+  return html`<span class="co-top-bell" ref=${ref}>
+    <button type="button" class=${'co-top-round' + (open ? ' on' : '')} title=${tr('Notifications')} onClick=${() => setOpen(!open)}>
+      <${Icon} name="notifications" size=${20} />${n > 0 && html`<span class="co-top-badge">${n > 9 ? '9+' : n}</span>`}
+    </button>
+    ${open && html`<div class="co-top-menu co-bell-menu">
+      ${!v ? html`<div class="co-bell-none">…</div>` : v.error ? html`<div class="co-bell-none">${v.error}</div>` : html`
+        <div class="co-bell-head"><b>${v.inbox.title}</b><button type="button" onClick=${go(() => goTab(13))}>${v.all}</button></div>
+        ${v.inbox.list.length ? v.inbox.list.map((m) => html`<button type="button" class="co-bell-row" title=${m.title} onClick=${go(() => (setUi('inbox', { open: m.id }), goTab(13)))}>
+          <${Icon} name=${m.icon} size=${17} class=${'t-' + m.tone} /><span class="cut grow">${m.title}</span><span class="co-bell-when">${m.date}</span></button>`) : html`<div class="co-bell-none">${v.inbox.none}</div>`}
+        <div class="co-bell-head"><b>${v.agenda.title}</b><button type="button" onClick=${go(() => goTab(14))}>${v.all}</button></div>
+        ${v.agenda.list.length ? v.agenda.list.map((e) => html`<button type="button" class="co-bell-row" title=${e.note ? `${e.text}\n${e.note}` : e.text} onClick=${go(() => follow(e.go))}>
+          <${Icon} name=${e.icon} size=${17} class=${'t-' + e.tone} /><span class="cut grow">${e.text}</span><span class="co-bell-when">${e.when}</span></button>`) : html`<div class="co-bell-none">${v.agenda.none}</div>`}`}
+    </div>`}
+  </span>`;
+}
 
+/** The player's round menu: the online account, Multiplayer, the company's settings, the
+ * light or dark look and the company's tour. (The account keeps its own button, the online
+ * panel's: `online.js`.) */
+function Me({ mayChange }) {
+  const c = S.co;
+  const sh = c.shell;
+  const remote = !!c.remote;
+  const [open, setOpen, ref] = useMenu();
+  const isDark = dark();
+  const who = String(S.config?.profile || sh.name || '?').trim();
+  const go = (f) => (e) => (setOpen(false), f(e));
+  const together = () => (sh.pages?.includes(TOGETHER_TAB) ? goTab(TOGETHER_TAB) : setCo({ dialog: { kind: 'together' } }));
+  // (the account's row clicks the online panel's own button in it)
+  const account = (e) => {
+    if (!e.target.closest('.ol-btn')) e.currentTarget.querySelector('.ol-btn button')?.click();
+    setOpen(false);
+  };
+  return html`<span class="co-top-me" ref=${ref}>
+    <button type="button" class=${'co-top-round co-top-avatar' + (open ? ' on' : '')} title=${who} onClick=${() => setOpen(!open)}>${(who[0] || '?').toUpperCase()}</button>
+    ${open && html`<div class="co-top-menu co-me-menu">
+      <div class="co-me-who cut">${who}</div>
+      ${!remote && html`<div class="co-me-account" role="button" onClick=${account}><span class="grow">${tr('Account')}</span><${OnlineButton} company=${true} /></div>`}
+      ${!remote && html`<button type="button" disabled=${!togetherOn()} title=${togetherOn() ? tr('Multiplayer') : blockedLabel()} onClick=${go(together)}><${Icon} name="wifi_tethering" size=${17} /><span class="grow">${tr('Multiplayer')}</span></button>`}
+      ${mayChange && html`<button type="button" onClick=${go(() => setCo({ dialog: { kind: 'settings' } }))}><${Icon} name="settings" size=${17} /><span class="grow">${tr('Company settings')}</span></button>`}
+      <button type="button" onClick=${go((e) => flipLook(e))}><${Icon} name=${isDark ? 'light_mode' : 'dark_mode'} size=${17} /><span class="grow">${tr(isDark ? 'Light mode' : 'Dark mode')}</span></button>
+      ${!remote && html`<button type="button" class="co-help" title=${tr('A tour of the bus company')} onClick=${go(askTour)}><${Icon} name="help" size=${17} /><span class="grow">${tr('Help')}</span></button>`}
+    </div>`}
+  </span>`;
+}
+
+// --- the sidebar ----------------------------------------------------------------------------
+
+/** How the sidebar is shown: "full" (icons and names), "rail" (icons only) or "gone" (slid
+ * away), remembered in the launcher; on a narrow stage - a small window, a large Launcher size
+ * - it starts as its icons. */
+const NAV_KEY = 'co-nav';
+const NAV_BACK = 'co-nav-back';
+const NAVS = ['full', 'rail', 'gone'];
+const stageW = () => document.querySelector('.hub-stage')?.clientWidth || innerWidth;
+function navStart() {
+  let m = remembered(NAV_KEY, 'full');
+  if (!NAVS.includes(m)) m = 'full';
+  if (m === 'full' && stageW() < 1200) m = 'rail';
+  return m;
+}
+export function setNav(mode) {
+  remember(NAV_KEY, mode);
+  if (mode !== 'gone') remember(NAV_BACK, mode);
+  setCo({ nav: mode });
+}
+/** Slide the sidebar away, or bring it back as it was (Ctrl+B). */
+export function toggleSide() {
+  if ((S.co.nav || 'full') !== 'gone') return setNav('gone');
+  const back = remembered(NAV_BACK, 'full');
+  setNav(back === 'rail' ? 'rail' : 'full');
+}
+
+/** The pages pinned on top of the sidebar, per company (the launcher's own store). */
+const pinKey = (id) => 'co-pins:' + (id || '');
+function pinsOf(id) {
+  try {
+    const v = JSON.parse(remembered(pinKey(id), '[]'));
+    return Array.isArray(v) ? v.filter((t) => Number.isInteger(t)) : [];
+  } catch {
+    return [];
+  }
+}
+function flipPin(id, tab) {
+  const p = pinsOf(id);
+  remember(pinKey(id), JSON.stringify(p.includes(tab) ? p.filter((t) => t !== tab) : [...p, tab]));
+  setCo((c) => ({ pinned: (c.pinned || 0) + 1 }));
+}
+
+/** A page's name as the sidebar says it (the overview is the dashboard). */
+const nameOf = (it) => (it && it.tab === 0 && !S.co.shell?.casual ? tr('Dashboard') : it?.name);
+
+/** The company's sidebar: its mark, name and game mode on top, the pages pinned, then every
+ * page grouped as the start screen groups them, each with its icon, name and badge; at its foot
+ * the way to fold it to its icons or slide it away. */
+function Side({ mayChange }) {
+  const c = S.co;
+  const sh = c.shell;
+  const nav = c.nav || 'full';
+  const rail = nav === 'rail';
+  const items = sh.rail.flat();
+  const casual = !!sh.casual;
+  const remote = !!c.remote;
+  const pinnable = !casual && !remote;
+  const pins = pinnable ? pinsOf(sh.id) : [];
+  const on = (t) => t === c.tab || (casual && t !== HOME && parentOf(sh, c.tab) === t);
+  const groups = [];
+  for (const it of items) {
+    const last = groups[groups.length - 1];
+    const head = it.group ?? null;
+    if (last && last.head === head) last.items.push(it);
+    else groups.push({ head, items: [it] });
+  }
+  // (the company's settings with the company's own pages)
+  if (mayChange) {
+    const settings = { tab: 'settings', icon: 'settings', name: tr('Settings'), tip: tr("The company's settings: its name, its date, how it buys") };
+    const company = groups.find((g) => g.head === tr('Company'));
+    if (company) company.items.push(settings);
+    else groups.push({ head: tr('Company'), items: [settings] });
+  }
+  const homeOk = !remote || (sh.remote?.perms || []).includes('finances');
+  const start = homeOk && { tab: HOME, icon: casual ? 'home' : 'apps', name: tr(casual ? 'Home' : 'Start screen'), tip: tr(casual ? "Back to your company's home (Escape)" : 'Every part of the company as a tile (Escape)') };
+  const open = (it) => (it.tab === 'settings' ? setCo({ dialog: { kind: 'settings' } }) : it.tab === HOME ? setCo({ tab: HOME }) : goTab(it.tab));
+  const Item = ({ it, pin }) => {
+    const pinned = pins.includes(it.tab);
+    return html`<div class=${'co-nav-item' + (on(it.tab) ? ' on' : '')}>
+      <button type="button" class="co-nav-go" title=${rail ? `${nameOf(it)}${it.badge ? ` (${it.badge.n})` : ''}` : it.tip} onClick=${() => open(it)}>
+        <${Icon} name=${it.icon} size=${19} />
+        <span class="co-nav-name cut">${nameOf(it)}</span>
+        ${it.badge && html`<span class=${'co-nav-badge ' + it.badge.tone}>${it.badge.n}</span>`}
+      </button>
+      ${pinnable && !rail && Number.isInteger(it.tab) && it.tab !== HOME && html`<button type="button" class=${'co-nav-star' + (pinned ? ' on' : '')} title=${pinned ? tr('Unpin') : tr('Pin to the top')} onClick=${() => flipPin(sh.id, it.tab)}><${Icon} name="star" size=${14} /></button>`}
+    </div>`;
+  };
+  const pinnedItems = pins.map((t) => items.find((x) => x.tab === t)).filter(Boolean);
+  const chip = [sh.sandbox?.label, sh.mode?.label].filter(Boolean).join(' · ');
+  return html`<nav class="co-nav-side" aria-hidden=${nav === 'gone' ? 'true' : undefined}>
+    <div class="co-nav-head">
+      <button type="button" class="co-nav-brand" title=${sh.home} onClick=${() => homeOk && setCo({ tab: HOME })}><${Mark} mark=${sh.mark} size=${rail ? 38 : 40} /></button>
+      ${!rail && html`<div class="co-nav-who">
+        <b class="cut" title=${sh.home}>${sh.name}</b>
+        ${remote
+          ? html`<span class="co-nav-chip tg-remote" title=${tr("The boss's company, as your role allows")}><${Icon} name="wifi_tethering" size=${12} />${tr('Multiplayer')}</span>`
+          : html`<button type="button" class=${'co-nav-chip co-pill' + (sh.mode?.casual ? ' casual' : '')} title=${tr("The company's game mode: change it in the company's settings")} onClick=${() => mayChange && setCo({ dialog: { kind: 'settings' } })}><${Icon} name=${sh.sandbox ? sh.sandbox.icon : sh.mode?.icon} size=${12} /><span class="cut">${chip}</span></button>`}
+      </div>`}
+    </div>
+    <div class="co-nav-list">
+      ${start && html`<${Item} it=${start} />`}
+      ${pinnedItems.length > 0 && html`<div class="co-nav-group"><div class="co-nav-heading">${tr('Pinned')}</div>${pinnedItems.map((it) => html`<${Item} it=${it} pin />`)}</div>`}
+      ${groups.map((g) => html`<div class="co-nav-group">${g.head && html`<div class="co-nav-heading">${g.head}</div>`}${g.items.map((it) => html`<${Item} it=${it} />`)}</div>`)}
+    </div>
+    <div class="co-nav-foot">
+      <button type="button" class="co-nav-fold" title=${rail ? tr('Expand the sidebar') : tr('Collapse the sidebar')} onClick=${() => setNav(rail ? 'full' : 'rail')}><${Icon} name=${rail ? 'chevron_right' : 'chevron_left'} size=${18} />${!rail && html`<span class="cut">${tr('Collapse the sidebar')}</span>`}</button>
+      ${!rail && html`<button type="button" class="co-nav-hide" title=${tr('Hide the sidebar (Ctrl+B)')} onClick=${() => setNav('gone')}><${Icon} name="close" size=${16} /></button>`}
+    </div>
+  </nav>`;
+}
