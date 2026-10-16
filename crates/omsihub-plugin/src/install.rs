@@ -19,9 +19,15 @@ use std::path::{Path, PathBuf};
 /// The plugin's name: its folder in the plugins folder.
 pub const NAME: &str = "omsihub";
 /// The plugin's version; `lua/main.lua` says the same (a test keeps the two the same).
-pub const VERSION: &str = "1.0.0";
+pub const VERSION: &str = "1.1.0";
 /// The plugin's files.
-pub const FILES: &[(&str, &str)] = &[("main.lua", include_str!("../lua/main.lua")), ("hubjson.lua", include_str!("../lua/hubjson.lua"))];
+pub const FILES: &[(&str, &str)] = &[
+    ("main.lua", include_str!("../lua/main.lua")),
+    ("hubjson.lua", include_str!("../lua/hubjson.lua")),
+    ("career.lua", include_str!("../lua/career.lua")),
+    ("trip.lua", include_str!("../lua/trip.lua")),
+    ("card.lua", include_str!("../lua/card.lua")),
+];
 /// The texts the plugin shows (`tr` in `lua/main.lua`), in English: Omsi-Hub puts their
 /// translations into the assignment (`bridge::Assignment::texts`).
 pub const TEXTS: &[&str] = &[
@@ -31,6 +37,51 @@ pub const TEXTS: &[&str] = &[
     "Start duty",
     "F10: use the panel with the mouse",
     "The duty could not be started: %{reason}",
+    // the trip's card (`lua/card.lua`), as Omsi-Hub's own game says it
+    "%{m} min",
+    "%{h}h %{m}m",
+    "Free drive",
+    "trip %{k} of %{n}",
+    "Trip completed",
+    "Trip ended",
+    "Overview",
+    "Stops",
+    "Bus stop",
+    "Due",
+    "Arr.",
+    "Dep.",
+    "Punctuality",
+    "%{good} of %{all} stops on time",
+    "Early",
+    "Late",
+    "Worst delay",
+    "Average delay",
+    "Driving time",
+    "Distance",
+    "No timetable: nothing to be early or late for",
+    "No stop of this trip was served",
+    "Stops served",
+    "Jolts",
+    "Collisions",
+    "Passengers",
+    "Excellent",
+    "Good",
+    "Fair",
+    "Poor",
+    "Bad",
+    "+%{n} XP",
+    "Comfort",
+    "Safety",
+    "%{n} red light",
+    "%{n} red lights",
+    "%{n} speed camera",
+    "%{n} speed cameras",
+    "Fines %{amount}",
+    "No fines",
+    "Saved to your service record",
+    "The trip could not be saved",
+    "Enter or × to close",
+    "Click to keep it open",
 ];
 /// What Omsi-Hub put there, beside the plugin's files.
 pub const STAMP: &str = "omsihub-plugin.json";
@@ -236,15 +287,51 @@ mod tests {
         assert_eq!(std::fs::read_to_string(plugins.join(DISABLED_LIST)).unwrap(), "# switched off in the game\nother\n");
     }
 
+    /// The quoted texts in a piece of Lua.
+    fn literals(lua: &str) -> Vec<&str> {
+        lua.split('"').skip(1).step_by(2).collect()
+    }
+
+    /// The texts of the first argument of each `tr(...)` of the plugin's files (also those of
+    /// `tr(cond and "a" or "b")`).
+    fn translated() -> Vec<&'static str> {
+        let mut out = Vec::new();
+        for (_, lua) in FILES {
+            for (at, _) in lua.match_indices("tr(") {
+                if lua[..at].chars().last().is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.') {
+                    continue;
+                }
+                let rest = &lua[at + 3..];
+                let (mut depth, mut quoted, mut end) = (0, false, rest.len());
+                for (i, c) in rest.char_indices() {
+                    match c {
+                        '"' => quoted = !quoted,
+                        '(' | '{' if !quoted => depth += 1,
+                        ')' | '}' if !quoted && depth > 0 => depth -= 1,
+                        ')' | ',' if !quoted && depth == 0 => {
+                            end = i;
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+                out.extend(literals(&rest[..end]));
+            }
+        }
+        out.sort();
+        out.dedup();
+        out
+    }
+
     #[test]
     fn every_text_of_the_plugin_is_listed() {
-        let main = FILES[0].1;
-        let mut shown: Vec<&str> = main.split("tr(\"").skip(1).map(|r| &r[..r.find('"').unwrap()]).collect();
-        shown.sort();
-        shown.dedup();
-        let mut listed = TEXTS.to_vec();
-        listed.sort();
-        assert_eq!(shown, listed);
+        // what `tr` is given as it is, listed; what is listed, in the plugin (a label handed
+        // to `tr` through a variable is found as it is written)
+        let missing: Vec<&str> = translated().into_iter().filter(|t| !TEXTS.contains(t)).collect();
+        assert!(missing.is_empty(), "translated but not in TEXTS: {missing:?}");
+        let all: Vec<&str> = FILES.iter().flat_map(|(_, lua)| literals(lua)).collect();
+        let unused: Vec<&&str> = TEXTS.iter().filter(|t| !all.contains(t)).collect();
+        assert!(unused.is_empty(), "in TEXTS but not in the plugin: {unused:?}");
     }
 
     #[test]

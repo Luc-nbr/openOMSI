@@ -41,3 +41,6 @@ anyhow.workspace = true
 [dev-dependencies]
 # (the livery studio's tests write a picture)
 image.workspace = true
+# (the add-on plugin's Lua judgement of a trip held against the company's: `omsihub/addon.rs`;
+# the same Lua as openOMSI's plugin runtime)
+mlua = { version = "0.10", features = ["lua54", "vendored"] }

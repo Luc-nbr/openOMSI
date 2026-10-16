@@ -209,7 +209,23 @@ fn plugins_dir() -> Result<PathBuf, String> {
 fn enable(on: bool) -> Answer {
     let dir = plugins_dir()?;
     if on { install::install(&dir) } else { install::disable(&dir) }.map_err(|e| e.to_string())?;
+    if on {
+        write_texts(&install::plugin_dir(&dir));
+    }
     state()
+}
+
+/// The launcher's language, as the translation tables name it.
+fn language() -> String {
+    let code = core::get_settings().ok().and_then(|s| s.get("language").and_then(Value::as_str).map(str::to_string)).unwrap_or_default();
+    omsi_cfg::lang::language_iso(&code).to_string()
+}
+
+/// The plugin's texts in the launcher's language beside it (`bridge::write_texts`).
+fn write_texts(plugin_dir: &Path) {
+    if let Err(e) = bridge::write_texts(plugin_dir, &plugin_texts(&language())) {
+        core::log_to_file(&format!("add-on: the plugin's texts not written: {e}"));
+    }
 }
 
 /// The plugin's texts in `lang` (English where a text has no translation).
@@ -244,7 +260,6 @@ pub fn assign_duty(d: &core::Duty, company: Option<(&str, &str)>) {
     }
     let config = core::load_config();
     let driver = d.profile.clone().filter(|p| !p.trim().is_empty()).unwrap_or(config.profile);
-    let lang = core::get_settings().ok().and_then(|s| s.get("language").and_then(Value::as_str).map(str::to_string)).unwrap_or_default();
     let (name, duty) = company.unwrap_or_default();
     let a = Assignment {
         company: name.to_string(),
@@ -256,13 +271,18 @@ pub fn assign_duty(d: &core::Duty, company: Option<(&str, &str)>) {
         trip: d.trip.as_deref().and_then(|t| t.trim().parse().ok()).unwrap_or(0),
         ..Assignment::default()
     };
-    match assign(a, omsi_cfg::lang::language_iso(&lang)) {
+    write_texts(&install::plugin_dir(&dir));
+    match assign(a, &language()) {
         Ok(v) => {
             c.assigned = Some(Assigned { issued: v["issued"].as_u64().unwrap_or(0), driver: driver.trim().to_string(), map: d.map.clone(), bus: d.bus.clone() });
             let _ = save(&c);
         }
         Err(e) => core::log_to_file(&format!("add-on: no assignment for the plugin: {e}")),
     }
+}
+
+fn now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
 /// A trip the plugin reported, as the driver's record keeps it (`core::TripRun`), booked for
@@ -273,12 +293,18 @@ fn trip_run(r: &bridge::Report, a: Option<&Assigned>) -> Option<core::TripRun> {
     }
     let driver = a.map(|a| a.driver.clone()).filter(|d| !d.is_empty()).unwrap_or_else(|| core::load_config().profile);
     let pick = |ours: &str, theirs: Option<&str>| if ours.is_empty() { theirs.unwrap_or_default().to_string() } else { ours.to_string() };
+    // (the plugin's own record of the trip, where it followed it from its start: Omsi-Hub's
+    // record as its own game writes it)
+    if let Some(run) = r.record.clone().and_then(|v| serde_json::from_value::<core::TripRun>(v).ok()) {
+        let at = if r.at > 0.0 { r.at as u64 } else { now() };
+        return Some(core::TripRun { time: at, driver, map: pick(&r.map, a.map(|a| a.map.as_str())), bus: pick(&r.bus, a.map(|a| a.bus.as_str())), ..run });
+    }
     let line = if r.number.trim().is_empty() { r.line.trim() } else { r.number.trim() };
     // (as the game's own report writes it: "5 Rathaus" is the line's terminus Rathaus)
     let terminus = r.terminus.trim();
     let terminus = if line.is_empty() { terminus } else { terminus.strip_prefix(&format!("{line} ")).unwrap_or(terminus) };
     Some(core::TripRun {
-        time: if r.at > 0.0 { r.at as u64 } else { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) },
+        time: if r.at > 0.0 { r.at as u64 } else { now() },
         driver,
         map: pick(&r.map, a.map(|a| a.map.as_str())),
         bus: pick(&r.bus, a.map(|a| a.bus.as_str())),
@@ -371,6 +397,75 @@ mod tests {
         let t = trip_run(&given_up, Some(&a)).unwrap();
         assert_eq!((t.bus.as_str(), t.completed), ("Vehicles/X/x.bus", false));
         assert!(trip_run(&bridge::Report { kind: "duty_start".into(), ..r }, Some(&a)).is_none());
+    }
+
+    /// A JSON value as a Lua value (the plugin's tables).
+    fn lua_of(lua: &mlua::Lua, v: &Value) -> mlua::Value {
+        match v {
+            Value::Null => mlua::Value::Nil,
+            Value::Bool(b) => mlua::Value::Boolean(*b),
+            Value::Number(n) => n.as_i64().map(mlua::Value::Integer).unwrap_or_else(|| mlua::Value::Number(n.as_f64().unwrap_or(0.0))),
+            Value::String(s) => mlua::Value::String(lua.create_string(s).unwrap()),
+            Value::Array(a) => {
+                let t = lua.create_table().unwrap();
+                for (i, x) in a.iter().enumerate() {
+                    t.set(i + 1, lua_of(lua, x)).unwrap();
+                }
+                mlua::Value::Table(t)
+            }
+            Value::Object(m) => {
+                let t = lua.create_table().unwrap();
+                for (k, x) in m {
+                    t.set(k.as_str(), lua_of(lua, x)).unwrap();
+                }
+                mlua::Value::Table(t)
+            }
+        }
+    }
+
+    #[test]
+    fn the_plugin_judges_a_trip_as_the_company_does() {
+        use omsi_launcher_lib::company::career;
+        use omsi_launcher_lib::{StopVisit, TripRun};
+        let lua = mlua::Lua::new();
+        let m: mlua::Table = lua.load(include_str!("../../../omsihub-plugin/lua/career.lua")).eval().unwrap();
+        let evaluate: mlua::Function = m.get("evaluate").unwrap();
+        let visit = |i: usize, arr: f64, came: Option<f64>, left: Option<f64>| StopVisit { index: i, name: format!("Stop {i}"), arr, dep: arr + 30.0, arrived: came.map(|d| arr + d), left: left.map(|d| arr + 30.0 + d) };
+        let base = TripRun { line: "5".into(), stops: 4, planned: 4, completed: true, seconds: 1500.0, metres: 7300.0, passengers: 37, ..Default::default() };
+        let trips = vec![
+            // on time all the way, with the stops' times
+            TripRun { visits: vec![visit(0, 600.0, Some(0.0), Some(10.0)), visit(1, 900.0, Some(60.0), Some(70.0)), visit(2, 1200.0, Some(200.0), Some(150.0)), visit(3, 1500.0, Some(400.0), None)], late: 1, ..base.clone() },
+            // early, rough, fined, not to its end
+            TripRun { visits: vec![visit(0, 600.0, Some(-200.0), Some(-260.0)), visit(1, 900.0, Some(0.0), Some(-400.0))], stops: 2, early: 2, completed: false, hard_brakes: 3, hard_starts: 2, rough_stops: 1, jolts: 4, red_lights: 1, speeding: 2, crashes: 1, ..base.clone() },
+            // a trip of an older game: the counts only
+            TripRun { stops: 12, early: 1, late: 3, jolts: 1, passengers: 250, metres: 18_000.0, ..base.clone() },
+            // a free drive; and one that cannot have driven its kilometres
+            TripRun { free: true, stops: 9, ..base.clone() },
+            TripRun { stops: 0, metres: 90_000.0, seconds: 60.0, crashes: 5, ..base.clone() },
+            // excellent
+            TripRun { stops: 20, planned: 20, metres: 12_000.0, seconds: 2400.0, ..base.clone() },
+        ];
+        for t in &trips {
+            let e = career::evaluate(t);
+            let r: mlua::Table = evaluate.call(lua_of(&lua, &serde_json::to_value(t).unwrap())).unwrap();
+            let got = (r.get::<Option<u32>>("punctuality").unwrap(), r.get::<u32>("comfort").unwrap(), r.get::<u32>("safety").unwrap(), r.get::<u32>("score").unwrap(), r.get::<String>("grade").unwrap(), r.get::<i64>("xp").unwrap());
+            assert_eq!(got, (e.punctuality, e.comfort, e.safety, e.score, e.grade.label().to_string(), e.xp), "{t:?}");
+        }
+        // the fines alike
+        let fine: mlua::Function = m.get("speeding_fine").unwrap();
+        let over: mlua::Function = m.get("over_limit").unwrap();
+        for (kmh, limit) in [(54.0f32, 50.0f32), (58.0, 50.0), (75.0, 50.0), (140.0, 100.0), (180.0, 80.0), (52.0, 50.0)] {
+            let o: Option<f64> = over.call((kmh as f64, limit as f64)).unwrap();
+            assert_eq!(o.map(|x| x as f32), career::over_limit(kmh, limit), "{kmh} in {limit}");
+            if let Some(o) = o {
+                let f: i64 = fine.call((o, limit <= 50.0)).unwrap();
+                assert_eq!(f, career::speeding_fine(o as f32, limit <= 50.0), "{kmh} in {limit}");
+            }
+        }
+        let red: mlua::Function = m.get("red_light_fine").unwrap();
+        for s in [0.6, 1.0, 1.4] {
+            assert_eq!(red.call::<i64>(s).unwrap(), career::red_light_fine(s as f32));
+        }
     }
 
     #[test]

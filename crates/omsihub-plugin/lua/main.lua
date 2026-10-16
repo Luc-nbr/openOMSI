@@ -10,7 +10,7 @@
 --   data/reports.jsonl    plugin -> Omsi-Hub: the duty taken, each trip done, the duty ended
 -- A game without the file functions gets the handshake and the reports in its log instead.
 
-local VERSION = "1.0.0"
+local VERSION = "1.1.0"
 local BRIDGE = 1
 local PANEL = "omsihub"
 
@@ -36,17 +36,28 @@ end
 local has = {}
 for _, n in ipairs(NEEDS) do has[n] = fn(n) ~= nil end
 
--- the assignment Omsi-Hub wrote beside this file (none: the player drives on their own)
+-- the assignment Omsi-Hub wrote beside this file (none: the player drives on their own); one
+-- older than half a day is of a game Omsi-Hub started before, not of this one
 local assignment
 do
   local ok, a = pcall(require, "assignment")
   if ok and type(a) == "table" then assignment = a end
+  local now = fn("util.now") and omsi.util.now() or 0
+  if assignment and now > 0 and (tonumber(assignment.issued) or 0) > 0 and now - assignment.issued > 12 * 3600 then assignment = nil end
 end
 
--- a text in the player's language (Omsi-Hub puts them into the assignment), with %{name}
--- filled from `vars`
+-- the plugin's texts in the player's language: Omsi-Hub writes them beside the plugin
+-- (`texts.lua`), and an older Omsi-Hub put them into the assignment
+local texts = {}
+do
+  local ok, t = pcall(require, "texts")
+  if ok and type(t) == "table" then texts = t end
+end
+local old_texts = assignment and type(assignment.texts) == "table" and assignment.texts or {}
+
+-- a text in the player's language, with %{name} filled from `vars`
 local function tr(text, vars)
-  local t = assignment and type(assignment.texts) == "table" and assignment.texts[text] or text
+  local t = texts[text] or old_texts[text] or text
   if vars then
     t = t:gsub("%%{(%w+)}", function(k)
       local v = vars[k]
@@ -73,6 +84,7 @@ local function send_out(file, tag, value, append)
   if not done then omsi.log(tag .. text) end
   local port = assignment and tonumber(assignment.udp_port) or 0
   if append and port > 0 and has["send"] then omsi.send(port, text) end
+  return done
 end
 
 local function hello()
@@ -112,7 +124,7 @@ local function report(kind, fields)
     at = now(), clock = clock(),
   }
   for k, v in pairs(fields) do r[k] = v end
-  send_out("reports.jsonl", "OMSIHUB-REPORT ", r, true)
+  return send_out("reports.jsonl", "OMSIHUB-REPORT ", r, true)
 end
 
 -- --- notices ----------------------------------------------------------------------------
@@ -213,7 +225,47 @@ local function trip_report(line, tour, n, fields)
   local r = trip_facts(n)
   r.line, r.tour = line or "", tour or ""
   for k, v in pairs(fields) do r[k] = v end
-  report("trip", r)
+  return report("trip", r)
+end
+
+-- --- the trip's card and the driver's record -----------------------------------------------
+
+-- (an openOMSI with game.has also has trip_done; an older one is watched trip by trip)
+local trip_events = fn("game.has") ~= nil
+
+local trip = require("trip")
+local card = require("card")
+card.setup(tr)
+
+local function standing()
+  return not omsi.speed or omsi.speed() < 1
+end
+
+-- a trip that ended: its record into the report (Omsi-Hub books it), its card on the screen
+local function trip_ended(run, fields)
+  local c = trip.current()
+  fields = fields or {}
+  if run then fields.record = run end
+  local saved = trip_report(state.line or (c and c.line_name), state.tour or (c and c.tour), fields.trip or (c and c.n), fields)
+  if run then card.hold(run, saved, standing()) end
+end
+
+-- the trip under way, looked at a few times a second: another one began
+local look = 0
+local function follow_trip(dt)
+  look = look - dt
+  if look > 0 then return end
+  look = 0.25
+  local d = duty_now()
+  if not d then
+    trip.forget()
+    return
+  end
+  local c = trip.current()
+  if c and c.n == d.trip and c.line_name == d.line then return end
+  -- (an older openOMSI without `trip_done`: `watch_trips` ends the trip and begins the next)
+  if c and not c.done and not trip_events then return end
+  trip.begin(d.trip, d.line, d.tour)
 end
 
 local function delay()
@@ -221,8 +273,6 @@ local function delay()
   return d and d.delay or nil
 end
 
--- (an openOMSI with game.has also has trip_done; an older one is watched trip by trip)
-local trip_events = fn("game.has") ~= nil
 
 omsi.on("duty", function(line, tour)
   if state.line then report("duty_end", { line = state.line, tour = state.tour }) end
@@ -231,9 +281,25 @@ omsi.on("duty", function(line, tour)
   panel()
 end)
 
-omsi.on("trip_done", function(trip, how, driving, comfort, tickets)
-  trip_report(state.line, state.tour, trip, { how = how, driving = driving, comfort = comfort, tickets = tickets, delay = delay() })
+omsi.on("trip_done", function(n, how, driving, comfort, tickets)
+  local fields = { trip = n, how = how, driving = driving, comfort = comfort, tickets = tickets, delay = delay() }
+  local c = trip.current()
+  local run = c and c.n == n and trip.finish(how == "arrived", delay()) or nil
+  trip_ended(run, fields)
   panel()
+end)
+
+omsi.on("stop_arrive", function(_, _, number, d) trip.arrive(number, d) end)
+omsi.on("stop_depart", function(_, _, number, d) trip.depart(number, d) end)
+omsi.on("jolt", function() trip.jolt() end)
+omsi.on("crash", function() trip.crash() end)
+omsi.on("passenger_board", function(count) trip.boarded(count) end)
+
+omsi.on("frame", function(dt)
+  if fn("has_vehicle") and not omsi.has_vehicle() then return end
+  trip.frame(dt)
+  follow_trip(dt)
+  card.frame(dt, standing())
 end)
 
 local function watch_trips()
@@ -241,7 +307,10 @@ local function watch_trips()
   local d = duty_now()
   if not d then return end
   if state.last_trip and d.trip > state.last_trip then
-    trip_report(d.line, d.tour, state.last_trip, { how = "arrived", delay = d.delay })
+    local c = trip.current()
+    local run = c and c.n == state.last_trip and trip.moved_on() or nil
+    trip_ended(run, { trip = state.last_trip, how = "arrived", delay = d.delay })
+    trip.begin(d.trip, d.line, d.tour)
   end
   state.last_trip = d.trip
 end
@@ -257,10 +326,14 @@ omsi.on("vehicle", function(name)
 end)
 
 omsi.on("ui_click", function(p, element)
+  if card.click(p, element) then return end
   if p == PANEL and element == "start" then start_duty() end
 end)
 
+omsi.on("ui_change", function(p, element, value) card.change(p, element, value) end)
+
 omsi.on("key", function(key, down)
+  if card.key(key, down) then return end
   if key == "F10" and down and company_duty() and fn("ui.focus") then omsi.ui.focus(not omsi.ui.focused()) end
 end)
 

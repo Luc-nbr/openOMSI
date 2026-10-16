@@ -3665,6 +3665,7 @@ dependencies = [
  "anyhow",
  "glam",
  "image",
+ "mlua",
  "omsi-cfg",
  "omsi-content",
  "omsi-launcher-core",
