@@ -18,7 +18,7 @@
 // The line being changed lives on the Rust side (`rf_tp*`); the page keeps what it shows (the day
 // group, the side, the pattern, the screen, the cell typed into, the trips chosen) in `S.rf.tp`.
 
-import { html, useEffect, useRef, useState } from '../../../vendor/preact-htm.js';
+import { html, useEffect, useLayoutEffect, useRef, useState } from '../../../vendor/preact-htm.js';
 import { S, set } from '../../store.js';
 import { language } from '../../i18n.js';
 import { tr } from '../bits.js';
@@ -168,12 +168,14 @@ export function TimeplanTab() {
     setRf({ tpProbe: v.probe || { ready: false, why: v.error || null } });
   }, [v]);
   useTpKeys(v);
+  // (the context bar's height: two rows where one is too narrow, `useBarFit`)
+  const [barH, setBarH] = useState(BAR_H);
   if (!v) return html`<div class="rf-tp"></div>`;
   if (v.error) return html`<div class="rf-tp"><p class="tp-why">${v.error}</p></div>`;
   return html`<div class="rf-tp" data-rf="rf-tp">
-    <${ContextBar} v=${v} />
-    ${t.tab === TIMETABLE && v.ready && html`<${Kpis} v=${v} />`}
-    <div class=${"tp-body" + (v.ready && !v.no_side ? "" : " empty")} style=${`top:${BAR_H + 6 + (t.tab === TIMETABLE && v.ready ? KPI_H + 6 : 0)}px`} data-rf=${v.ready ? 'rf-tp-body' : undefined}>
+    <${ContextBar} v=${v} onHeight=${setBarH} />
+    ${t.tab === TIMETABLE && v.ready && html`<${Kpis} v=${v} top=${barH + 6} />`}
+    <div class=${"tp-body" + (v.ready && !v.no_side ? "" : " empty")} style=${`top:${barH + 6 + (t.tab === TIMETABLE && v.ready ? KPI_H + 6 : 0)}px`} data-rf=${v.ready ? 'rf-tp-body' : undefined}>
       ${!v.ready ? html`<p class="tp-why">${v.why || tr('The company runs no line yet: add one on the Lines page first.')}</p>` : v.no_side ? html`<p class="tp-why">${v.no_side}</p>` : t.tab === RUNNING ? html`<${Running} v=${v} />` : html`<${Timetable} v=${v} />`}
     </div>
     ${v.ready && html`<${StatusBar} v=${v} />`}
@@ -225,11 +227,47 @@ async function newLine() {
   });
 }
 
-function ContextBar({ v }) {
+/** How much of the context bar gives way so that nothing is cut off at its right end (Luc, Beta
+ * 65: the screens' switch and Save were cut off in a narrow window or at a large Launcher size),
+ * measured whenever its width or what it shows changes: 0 nothing, 1 New line, Copy timings and
+ * Save as icons and the week's days narrower, 2 the week's days left out (the day group stays),
+ * 3 the bar in two rows (`onHeight` its height). */
+function useBarFit(deps, onHeight) {
+  const ref = useRef(null);
+  const [fit, setFit] = useState(0);
+  // (the width each level needed when it gave way: back to it once there is that much)
+  const need = useRef([]);
+  useLayoutEffect(() => {
+    need.current = [];
+    setFit(0);
+  }, deps);
+  useLayoutEffect(() => {
+    const bar = ref.current;
+    if (!bar) return undefined;
+    const run = () => {
+      setFit((f) => {
+        if (f < 3 && bar.scrollWidth > bar.clientWidth + 1) {
+          need.current[f] = bar.scrollWidth;
+          return f + 1;
+        }
+        if (f > 0 && bar.clientWidth >= (need.current[f - 1] ?? Infinity)) return f - 1;
+        return f;
+      });
+      onHeight?.(fit === 3 ? bar.offsetHeight : BAR_H);
+    };
+    run();
+    const ro = new ResizeObserver(() => requestAnimationFrame(run));
+    ro.observe(bar);
+    return () => ro.disconnect();
+  }, [...deps, fit]);
+  return [ref, fit];
+}
+
+function ContextBar({ v, onHeight }) {
   const t = S.rf.tp;
   const lineAt = Math.max(0, v.lines.findIndex((l) => l.name.toLowerCase() === String(v.line).toLowerCase()));
-  const [bar, box] = useBox();
-  const wide = (box.w || 1400) >= 1240;
+  const [bar, fit] = useBarFit([v.lines.length, v.line, v.calendar?.length, v.runs, v.from?.label, v.save, v.dirty, v.has_inbound, language()], onHeight);
+  const wide = fit < 1;
   const pickLine = (k) => {
     const l = v.lines[k];
     if (!l || l.name === v.line) return;
@@ -241,7 +279,7 @@ function ContextBar({ v }) {
     tpSet({ leaving: false, sel: null, picked: [], cell: null, adding: null, scroll: 0, hscroll: 0, pattern: 0 });
     tpAct('line', { line: l.name });
   };
-  return html`<div class="tp-bar" data-rf="rf-tp-bar" ref=${bar}>
+  return html`<div class=${'tp-bar' + (fit ? ` fit${Math.min(fit, 2)}` : '') + (fit >= 3 ? ' wrap' : '')} data-rf="rf-tp-bar" ref=${bar}>
     ${v.lines.length > 0 && html`<span class="tp-select" style="flex:0 1 220px;min-width:110px"><select value=${String(lineAt)} onChange=${(e) => pickLine(Number(e.currentTarget.value))}>${v.lines.map((l, k) => html`<option value=${String(k)}>${l.label}</option>`)}</select><${Icon} name="expand_more" size=${18} /></span>`}
     <button type="button" class=${'tp-new' + (wide ? '' : ' narrow')} data-rf="rf-tp-new-line" title=${tr('New line: draw its route in the line editor, then make its timetable here')} onClick=${() => {
       if (v.dirty && !t.leaving) return tpSet({ leaving: true });
@@ -249,7 +287,7 @@ function ContextBar({ v }) {
       newLine();
     }}><${Icon} name="add" size=${wide ? 18 : 20} />${wide && html`<span>${tr('New line')}</span>`}</button>
     <span class="tp-select" style="flex:0 1 150px;min-width:96px"><select value=${String(t.day)} onChange=${(e) => tpSet({ day: Number(e.currentTarget.value), cell: null, text: '', adding: null, chart: null, issuesOpen: false, sel: null, picked: [], scroll: 0 })}>${v.days.map((d, k) => html`<option value=${String(k)}>${d}</option>`)}</select><${Icon} name="expand_more" size=${18} /></span>
-    ${v.calendar?.length > 0 && html`<${DayStrip} v=${v} />`}
+    ${v.calendar?.length > 0 && fit < 2 && html`<${DayStrip} v=${v} />`}
     <button type="button" class="tp-ib" title=${tr('Undo')} onClick=${() => tpAct('undo').then(() => tpSet({ cell: null, sel: null, picked: [] }))}><${Icon} name="turn_left" size=${15} /></button>
     <button type="button" class="tp-ib" title=${tr('Redo')} onClick=${() => tpAct('redo').then(() => tpSet({ cell: null, sel: null, picked: [] }))}><${Icon} name="turn_right" size=${15} /></button>
     <i class="tp-sep"></i>
@@ -265,9 +303,10 @@ function ContextBar({ v }) {
       // error, they would be other trips - Delete would take those out)
       const off = { cell: null, text: '', sel: null, picked: [], anchor: null };
       tpSet(x?.day != null ? { ...off, day: x.day, issuesOpen: !!x.issues_open, adding: null, scroll: 0 } : off);
-    })}><${Icon} name="save" size=${18} /><span>${v.save || tr('Saved')}</span></button>
+    })} title=${wide ? undefined : v.save || tr('Saved')}><${Icon} name="save" size=${18} />${wide && html`<span>${v.save || tr('Saved')}</span>`}</button>
   </div>`;
 }
+
 
 /** The days of the coming week that use the timetable shown (Trello #100): each day lit when it
  * runs this day group's timetable, marked when it runs another than its weekday's (a holiday's);
@@ -608,10 +647,10 @@ function MiniBars({ values }) {
   return html`<span class="tp-mini">${values.map((x) => html`<i style=${`height:${(x / most) * 100}%`}></i>`)}</span>`;
 }
 
-function Kpis({ v }) {
+function Kpis({ v, top }) {
   const k = v.tt?.kpis;
   if (!k) return null;
-  return html`<div class="tp-kpis" style=${`top:${BAR_H + 6}px;height:${KPI_H}px`}>
+  return html`<div class="tp-kpis" style=${`top:${top}px;height:${KPI_H}px`}>
     ${[0, 1, 2].map((n) => html`<button type="button" class="tp-kpi" title=${tr('Click to open the chart')} onClick=${() => tpSet({ chart: n })}>
       ${n === 0 ? html`<span class="count"><${Icon} name="location_on" size=${20} /><${Icon} name="directions_bus" size=${20} /><b>${k.count}</b></span>` : html`<${MiniBars} values=${n === 1 ? k.by_pattern : k.by_hour} />`}
       <span class="cap">${tr(CHARTS[n]).toUpperCase()}</span>

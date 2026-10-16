@@ -69,6 +69,17 @@
 .tp-copy .keep input:focus { box-shadow: inset 0 0 0 1.5px var(--tp-sky); }
 .tp-selbar .cut { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Beta 66 (Luc's Beta 65 reports): the context bar giving way so nothing is cut off at its right
+   end (`useBarFit`: fit1 icons and narrower days, fit2 no days, wrap two rows) */
+.tp-bar.fit1 .tp-save, .tp-bar.fit2 .tp-save, .tp-bar.wrap .tp-save { width: 40px; }
+.tp-bar.fit1 .tp-days .d { width: 21px; }
+.tp-bar.wrap { height: auto; min-height: 48px; flex-wrap: wrap; row-gap: 6px; padding: 7px 8px; }
+.tp-bar.wrap .tp-sides { height: 34px; }
+.tp-runcopy { height: 34px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 12px 0 10px; border-radius: 6px; background: var(--tp-cell); box-shadow: inset 0 0 0 1px var(--tp-border); font-size: 9.2px; font-weight: 700; color: var(--tp-text); white-space: nowrap; }
+.tp-runcopy.narrow { width: 34px; padding: 0; justify-content: center; }
+.tp-runcopy:hover, .tp-runcopy.on { background: var(--tp-cell-hover); }
+.tp-runcopy.on { box-shadow: inset 0 0 0 1.5px var(--tp-sky); }
+
 /* the trips chosen as ticks: every one of the day in the head, each by its number */
 .tp-checkall { height: 34px; flex: none; display: flex; align-items: center; justify-content: center; background: var(--tp-cell); box-shadow: inset -1px 0 0 var(--tp-border); }
 .tp-checkall:hover:not(:disabled) { background: var(--tp-cell-hover); }
