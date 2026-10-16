@@ -54,7 +54,7 @@ fn reference_from(mode: GameMode, country: &str, date: &str) -> Company {
     c.site.set_level(depot::Area::Fuel, 2);
     c.lines.push(CompanyLine { name: LINE.into(), number: "5".into(), numbers: vec!["5".into()], added: c.date.clone(), service_from: Some(0), ..Default::default() });
     c.planning.auto = true;
-    let bus = MarketBus { file: "Vehicles/E200/E200.bus".into(), name: "Single-deck".into(), ..Default::default() };
+    let bus = MarketBus { file: "Vehicles/SingleDeck/SingleDeck.bus".into(), name: "Single-deck".into(), ..Default::default() };
     for _ in 0..12 {
         market::lease(&mut c, &bus, "").unwrap();
     }

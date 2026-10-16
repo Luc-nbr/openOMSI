@@ -1510,7 +1510,7 @@ pub fn spare_buses(c: &Company, dp: &DayPlan, ti: usize) -> Vec<u32> {
 /// and the cash).
 pub fn rental_for(c: &Company, dp: &DayPlan, ti: usize) -> (Cents, bool) {
     let wants = super::ownline::wanted(c, &dp.tours[ti].tour);
-    let rent = economy::rent_per_day(BusKind { size: wants.unwrap_or_default(), drive: Drive::Diesel }, &economy::rules(c.game_mode), c.price_index);
+    let rent = economy::rent_per_day(BusKind { size: wants.unwrap_or_default(), drive: Drive::Diesel }, &economy::rules_for(c), c.price_index);
     (rent, places_left(c) > 0 && c.can_pay(rent))
 }
 
@@ -1605,7 +1605,7 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
         let mut places = places_left(c);
         for t in out.iter_mut().filter(|t| !t.by_player && t.bus.is_none()) {
             let (from, to, wants) = (t.tour.from(), t.tour.to(), super::ownline::wanted(c, &t.tour));
-            let rent = economy::rent_per_day(BusKind { size: wants.unwrap_or_default(), drive: Drive::Diesel }, &economy::rules(c.game_mode), c.price_index);
+            let rent = economy::rent_per_day(BusKind { size: wants.unwrap_or_default(), drive: Drive::Diesel }, &economy::rules_for(c), c.price_index);
             match fill_of(c, date, &t.key()) {
                 Some(Fill::Bus { id }) if usable(id) && buses.free(id, from, to) => {
                     buses.take(id, from, to);
