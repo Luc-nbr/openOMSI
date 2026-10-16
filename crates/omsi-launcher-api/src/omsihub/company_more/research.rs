@@ -41,6 +41,54 @@ fn motif(s: Section) -> &'static str {
     }
 }
 
+/// What a topic does, in a few words for its tile (the whole of it is its `info`).
+fn effect(key: &str) -> &'static str {
+    match key {
+        "articulated" => "Articulated buses at the dealers",
+        "double_deckers" => "Double-deckers at the dealers",
+        "fuel" => "−2 % fuel a stage",
+        "dirt" => "−10 % dirt a stage",
+        "wear" => "−5 % wear a stage",
+        "air_conditioning" | "passenger_info" | "park_and_ride" => "+2 % passengers",
+        "wlan" => "+2 % passengers, internet contracts",
+        "usb" => "+1.5 % passengers",
+        "premium_seats" => "+3 % passengers",
+        "stops" => "+1.5 % passengers a stage",
+        "app" => "+1 % passengers a stage",
+        "ticket_machines" => "+1 % passengers, −3 % late trips a stage",
+        "priority" => "−10 % late trips a stage",
+        "premises" => "+6 bus places a stage",
+        "external_depots" => "+10 bus places, repairs out there",
+        "auto_cleaning" => "The fleet stays at least 55 % clean",
+        "auto_washing" => "+50 % buses washed a night",
+        "auto_refuelling" => "+50 % buses refuelled a night",
+        "auto_repair" => "Broken buses back a day sooner",
+        "ticket_inspectors" => "Ticket inspectors can be hired",
+        "inspection" => "+15 % passengers checked a stage",
+        "food" => "Happier, calmer staff",
+        "parts" => "−10 % spare part prices a stage",
+        "repairs" => "−10 % repair time a stage",
+        "area" => "+1 concession a stage",
+        "shift_schedule" => "Core hours for the staff",
+        _ => "",
+    }
+}
+
+/// How long a stage's work takes, in words: days at today's pace, else researcher-days.
+fn work_text(c: &Company, work: f64) -> String {
+    let pace = rs::daily_work(c, &c.date);
+    if pace > 0.0 {
+        let days = (work / pace).ceil().max(1.0);
+        if days == 1.0 {
+            tr("1 day")
+        } else {
+            trf("%{n} days", &[("n", &num(days, 0))])
+        }
+    } else {
+        trf("%{n} researcher-days", &[("n", &num(work, 0))])
+    }
+}
+
 /// What a need asks, in words.
 fn need_text(n: Need) -> String {
     match n {
@@ -67,11 +115,19 @@ pub fn view(s: &mut Session, _args: &Value) -> Value {
     let sections: Vec<Value> = Section::ALL
         .iter()
         .map(|sec| {
-            let cards: Vec<Value> = rs::TOPICS.iter().filter(|t| t.section == *sec).map(|t| card(&c, t)).collect();
-            json!({ "title": tr(sec.label()), "colour": colour(*sec), "motif": motif(*sec), "cards": cards })
+            let topics: Vec<&Topic> = rs::TOPICS.iter().filter(|t| t.section == *sec).collect();
+            let cards: Vec<Value> = topics.iter().map(|t| card(&c, t)).collect();
+            let done = topics.iter().filter(|t| rs::state(&c, t) == State::Done).count();
+            json!({ "title": tr(sec.label()), "colour": colour(*sec), "motif": motif(*sec), "cards": cards,
+                "count": trf("%{done} of %{n} researched", &[("done", &done.to_string()), ("n", &topics.len().to_string())]) })
         })
         .collect();
-    json!({ "strip": strip, "banner": banner(&c), "sections": sections, "info_tip": tr("What it does") })
+    json!({
+        "strip": strip, "banner": banner(&c), "sections": sections, "info_tip": tr("What it does"),
+        "title": tr("Research"), "detail_caps": tr("Details").to_uppercase(), "pick": tr("Choose a research to see what it does."),
+        "cost_caps": tr("Next stage").to_uppercase(), "needs_caps": tr("Needs first").to_uppercase(),
+        "words": { "money": tr("Money"), "trophies": tr("Trophies"), "work": tr("Work"), "done": tr("Researched"), "locked": tr("Locked") },
+    })
 }
 
 /// The research under way, or none, and who works on it (`research::banner`).
@@ -84,8 +140,13 @@ fn banner(c: &Company) -> Value {
         trf("Researchers at work: %{n}, %{work} researcher-days of work a day.", &[("n", &people.to_string()), ("work", &num(pace, 1))])
     };
     let staff_tone = if people == 0 { "warn" } else { "soft" };
+    let crew = match people {
+        0 => tr("No researchers"),
+        1 => tr("1 researcher"),
+        n => trf("%{n} researchers", &[("n", &n.to_string())]),
+    };
     let Some(run) = c.research.running.clone() else {
-        return json!({ "none": tr("No research is running: choose one below and start it."), "staff": staff, "staff_tone": staff_tone });
+        return json!({ "none": tr("No research is running: choose one below and start it."), "staff": staff, "staff_tone": staff_tone, "crew": crew });
     };
     let Some(t) = rs::topic(&run.topic) else { return Value::Null };
     let what = if t.stages > 1 {
@@ -97,8 +158,22 @@ fn banner(c: &Company) -> Value {
         Some(d) => trf("%{share} % done, about %{n} days to go at today's pace", &[("share", &num(run.share() * 100.0, 0)), ("n", &num(d, 0))]),
         None => trf("%{share} % done: nobody works on it", &[("share", &num(run.share() * 100.0, 0))]),
     };
+    let days = if run.paused {
+        tr("Paused")
+    } else {
+        match rs::days_left(c) {
+            Some(d) if d <= 1.0 => tr("1 day left"),
+            Some(d) => trf("%{n} days left", &[("n", &num(d, 0))]),
+            None => tr("Stands still"),
+        }
+    };
     json!({
-        "what": what, "share": run.share(), "tone": if people == 0 { "warn" } else { "accent" },
+        "name": tr(t.title), "key": t.key,
+        "stage": (t.stages > 1).then(|| trf("Stage %{stage} of %{stages}", &[("stage", &run.stage.to_string()), ("stages", &t.stages.to_string())])),
+        "pct": format!("{} %", num(run.share() * 100.0, 0)), "days": days, "crew": crew, "effect": tr(effect(t.key)),
+        "paused": run.paused, "pause": tr("Pause"), "resume": tr("Resume"),
+        "pause_tip": tr("Pausing keeps the work done: nobody works on it until you resume it."),
+        "what": what, "share": run.share(), "tone": if run.paused || people == 0 { "warn" } else { "accent" },
         "line": format!("{left}  ·  {staff}"), "staff_tone": staff_tone,
         "icon": t.icon, "colour": colour(t.section), "motif": motif(t.section),
         "stop": tr("Stop the research"), "again": tr("Click again to stop"),
@@ -117,6 +192,8 @@ fn card(c: &Company, t: &Topic) -> Value {
         "state": match state { State::Done => "done", State::Running => "running", State::Locked => "locked", State::Open => "open" },
         "done": done, "stages": t.stages,
         "frac": ((done as f64 + part) / t.stages as f64).clamp(0.0, 1.0),
+        "effect": tr(effect(t.key)), "info": tr(t.info), "section": tr(t.section.label()), "colour": colour(t.section),
+        "stage": (t.stages > 1 && done < t.stages).then(|| trf("Stage %{stage} of %{stages}", &[("stage", &(done + 1).to_string()), ("stages", &t.stages.to_string())])),
     });
     match state {
         State::Done => out["said"] = json!(tr("Researched")),
@@ -131,6 +208,8 @@ fn card(c: &Company, t: &Topic) -> Value {
         State::Locked | State::Open => {
             let k = rs::cost(c, t, done + 1);
             let short = k.trophies - c.trophies;
+            out["work"] = json!(work_text(c, (k.work - part * k.work).max(0.0)));
+            out["work_all"] = json!(trf("%{n} researcher-days of work", &[("n", &num(k.work, 0))]));
             out["money"] = json!(eur(k.money));
             out["money_tone"] = json!(if !c.can_pay(k.money) { "danger" } else { "text" });
             out["trophies"] = json!(if short > 0 { trf("%{n} (%{short} missing)", &[("n", &grouped(k.trophies as f64)), ("short", &grouped(short as f64))]) } else { grouped(k.trophies as f64) });
@@ -141,6 +220,7 @@ fn card(c: &Company, t: &Topic) -> Value {
             } else {
                 let needs: Vec<String> = rs::unmet(c, t).into_iter().map(need_text).collect();
                 out["needs"] = json!(trf("Needs: %{what}", &[("what", &needs.join(", "))]));
+                out["needs_list"] = json!(needs);
             }
         }
     }
@@ -197,6 +277,16 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Answer> {
                         trf("The research has begun: %{name}.", &[("name", &tr(t.title))])
                     };
                     s.say(text, false);
+                    Ok(json!({}))
+                }
+                Err(p) => popup_answer(p),
+            }
+        }
+        "research_pause" => {
+            let on = args.get("on").and_then(Value::as_bool).unwrap_or(true);
+            match apply(s, |c| rs::pause(c, on)) {
+                Ok(()) => {
+                    s.say(tr(if on { "The research is paused: the work done is kept." } else { "The research goes on." }), false);
                     Ok(json!({}))
                 }
                 Err(p) => popup_answer(p),

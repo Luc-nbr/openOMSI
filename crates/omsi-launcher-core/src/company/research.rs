@@ -71,6 +71,9 @@ pub struct Running {
     /// The inbox was told that nobody works on it (said once, until work is done again).
     #[serde(default)]
     pub idle_told: bool,
+    /// Paused by the player: nobody works on it until it is resumed (nothing is lost).
+    #[serde(default)]
+    pub paused: bool,
 }
 
 impl Running {
@@ -337,7 +340,7 @@ pub fn start(c: &mut Company, key: &str) -> Result<u32, &'static str> {
     }
     c.book(BookingKind::Research, -k.money, format!("{} {}/{}", t.title, stage, t.stages), false);
     c.trophies -= k.trophies;
-    c.research.running = Some(Running { topic: t.key.to_string(), stage, work: k.work, done: 0.0, started: c.date.clone(), money: k.money, trophies: k.trophies, idle_told: false });
+    c.research.running = Some(Running { topic: t.key.to_string(), stage, work: k.work, done: 0.0, started: c.date.clone(), money: k.money, trophies: k.trophies, idle_told: false, paused: false });
     c.research.checked = true;
     Ok(stage)
 }
@@ -350,6 +353,14 @@ pub fn stop(c: &mut Company) -> Result<String, &'static str> {
     c.book(BookingKind::Research, r.money / 2, format!("{title}: stopped"), false);
     c.trophies += r.trophies;
     Ok(r.topic)
+}
+
+/// Pause the research under way (`on`), or resume it: while paused nobody works on it, and
+/// nothing of it is lost.
+pub fn pause(c: &mut Company, on: bool) -> Result<(), &'static str> {
+    let Some(r) = c.research.running.as_mut() else { return Err("No research is running.") };
+    r.paused = on;
+    Ok(())
 }
 
 // --- the researchers ---------------------------------------------------------------------------
@@ -371,10 +382,10 @@ pub fn daily_work(c: &Company, date: &str) -> f64 {
     researchers(c, date).map(output).sum()
 }
 
-/// Days the research under way still takes at today's pace (None: nothing runs, or nobody
-/// works on it).
+/// Days the research under way still takes at today's pace (None: nothing runs, it is paused,
+/// or nobody works on it).
 pub fn days_left(c: &Company) -> Option<f64> {
-    let r = c.research.running.as_ref()?;
+    let r = c.research.running.as_ref().filter(|r| !r.paused)?;
     let pace = daily_work(c, &c.date);
     (pace > 0.0).then(|| ((r.work - r.done).max(0.0) / pace).ceil())
 }
@@ -403,6 +414,10 @@ pub fn day(c: &mut Company, date: &str, _report: &mut DayReport) {
         c.research.running = None;
         return;
     };
+    // (paused: it waits, nothing lost and nothing told)
+    if run.paused {
+        return;
+    }
     let work = daily_work(c, date);
     if work <= 0.0 {
         if !run.idle_told {
@@ -639,6 +654,32 @@ mod tests {
         // it opens what needs it
         assert_eq!(state(&c, topic(keys::WLAN).unwrap()), State::Open);
         assert_eq!(start(&mut c, "passenger_info"), Err("This research is done."));
+    }
+
+    #[test]
+    fn a_paused_research_waits_and_goes_on_where_it_was() {
+        let mut c = company();
+        researcher(&mut c, 40.0, 20.0);
+        start(&mut c, "fuel").unwrap();
+        close(&mut c);
+        let done = c.research.running.as_ref().unwrap().done;
+        assert_eq!(pause(&mut c, true), Ok(()));
+        assert_eq!(days_left(&c), None);
+        close(&mut c);
+        close(&mut c);
+        assert_eq!(c.research.running.as_ref().map(|r| r.done), Some(done), "nobody works on it");
+        // (and an older file without the flag reads as running)
+        let old: Running = serde_json::from_str(r#"{"topic":"fuel","stage":1,"work":4.0,"started":"2024-03-04"}"#).unwrap();
+        assert!(!old.paused);
+        assert_eq!(pause(&mut c, false), Ok(()));
+        let mut days = 0;
+        while c.research.running.as_ref().is_some_and(|r| r.done <= done) && days < 7 {
+            close(&mut c);
+            days += 1;
+        }
+        assert!(days < 7, "resumed, the work goes on");
+        c.research.running = None;
+        assert_eq!(pause(&mut c, true), Err("No research is running."));
     }
 
     #[test]

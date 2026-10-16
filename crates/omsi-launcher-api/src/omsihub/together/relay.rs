@@ -163,7 +163,7 @@ fn more_act_need(act: &str) -> Need {
         // the lines' or the planners')
         "pe_day" | "pe_sel" | "pe_pdir" | "pe_from" | "pe_close" => RF_VIEW,
         a if a.starts_with("pe_") => Any(&[Perm::Lines, Perm::Plans]),
-        "depot_build" | "depot_cancel" | "depot_order" | "parts_auto" | "parts_buy" | "research_info" | "research_start" | "research_stop" => SPEND,
+        "depot_build" | "depot_cancel" | "depot_order" | "parts_auto" | "parts_buy" | "research_info" | "research_start" | "research_pause" | "research_stop" => SPEND,
         "tender_pick" | "tender_bid" | "tender_buy" | "tender_step" => SPEND,
         "goal_take" | "goal_give_up" | "net_take" | "net_cancel" | "net_top_up" | "fuel_sign" | "cleaning_sign" | "cleaning_end" | "contract_hand_back" => SPEND,
         "map_play" | "map_speed" | "map_now" | "map_pick" => Member,
