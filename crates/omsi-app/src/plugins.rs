@@ -642,6 +642,9 @@ impl PluginIo for Io<'_> {
         crate::game_lists::set_route_by_hand(app, line);
         true
     }
+    fn bus_set_display_font(&mut self, font: &str) -> usize {
+        self.app_mut().map_or(0, |a| pbus::set_display_font(a, font))
+    }
     fn bus_ident(&self) -> Option<(String, String)> {
         let app = self.app()?;
         let v = pbus::veh(app)?;

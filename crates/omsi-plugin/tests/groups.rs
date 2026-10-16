@@ -47,6 +47,7 @@ fn the_bus() {
         local name, i = omsi.bus.destination(); assert(name == "Rathaus" and i == 1)
         assert(omsi.bus.set_destination(2) and not omsi.bus.set_destination(0))
         assert(omsi.bus.set_line("136"))
+        assert(omsi.bus.set_display_font("Annax Small") == 2)
         assert(omsi.bus.number() == "2711" and omsi.bus.file():find("SD202"))
         local all, seated, standing = omsi.bus.passengers(); assert(all == 3 and seated == 2 and standing == 1)
         assert(omsi.bus.tickets()[1].price == 2.1)

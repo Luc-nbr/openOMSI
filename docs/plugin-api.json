@@ -519,6 +519,22 @@
       "permission": "vehicle_write"
     },
     {
+      "name": "bus.set_display_font",
+      "group": "vehicle",
+      "since": "0.2.22",
+      "doc": "Draws the bus's destination displays (and the matrices its scripts draw) in another font: a `[newfont]` name from a `Fonts/*.oft` of the game, or a TrueType/OpenType font with its settings after it (`\"Arial Bold|file=C:/Windows/Fonts/arialbd.ttf|rows=16|bold\"`), in the displays' grid of dots, from the next text they show. How many displays took it (0: the font is not there).",
+      "params": [
+        {
+          "name": "font",
+          "type": "string",
+          "optional": false
+        }
+      ],
+      "returns": "integer",
+      "multi": false,
+      "permission": "vehicle_write"
+    },
+    {
       "name": "bus.set_indicator",
       "group": "vehicle",
       "since": "0.2.22",

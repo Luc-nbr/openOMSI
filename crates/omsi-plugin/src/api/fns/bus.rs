@@ -177,6 +177,10 @@ pub static FNS: &[ApiFn] = &[
         let l = a.str(0)?;
         Ok::<_, ApiError>(c.io().bus_set_line(&l))
     }),
+    def!("bus.set_display_font", "vehicle", [p("font", "string")], "integer", "Draws the bus's destination displays (and the matrices its scripts draw) in another font: a `[newfont]` name from a `Fonts/*.oft` of the game, or a TrueType/OpenType font with its settings after it (`\"Arial Bold|file=C:/Windows/Fonts/arialbd.ttf|rows=16|bold\"`), in the displays' grid of dots, from the next text they show. How many displays took it (0: the font is not there).", NEW, VehicleWrite, false, |c, a| {
+        let f = a.str(0)?;
+        Ok::<_, ApiError>(c.io().bus_set_display_font(&f) as i64)
+    }),
     def!("bus.number", "vehicle", [], "string or nil", "The bus's fleet number.", NEW, None, false, |c, a| c.io().bus_ident().map(|i| i.0)),
     def!("bus.file", "vehicle", [], "string or nil", "The bus's `.bus` file, relative to the game folder.", NEW, None, false, |c, a| c.io().bus_ident().map(|i| i.1)),
     def!("bus.passengers", "vehicle", [], "total, seated, standing", "The people aboard the bus: all, sitting, standing.", NEW, None, true, |c, a| multi(c.io().bus_passengers().map(|(t, s, st)| [Value::from(t), s.into(), st.into()]))),

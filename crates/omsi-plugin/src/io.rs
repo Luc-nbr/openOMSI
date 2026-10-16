@@ -207,6 +207,12 @@ pub trait PluginIo {
     fn bus_set_line(&mut self, _line: &str) -> bool {
         false
     }
+    /// Draw the bus's destination displays in another font: a `[newfont]` name of the
+    /// game's fonts, or a TrueType/OpenType font with its settings. How many displays (and
+    /// script-drawn matrices) took it.
+    fn bus_set_display_font(&mut self, _font: &str) -> usize {
+        0
+    }
     /// The fleet number and the `.bus` file (relative to the game folder).
     fn bus_ident(&self) -> Option<(String, String)> {
         None

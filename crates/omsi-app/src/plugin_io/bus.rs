@@ -11,6 +11,21 @@ pub(crate) fn veh(app: &App) -> Option<&VehicleInstance> {
 }
 
 /// The bus's velocity in the world (m/s): the rigid body's, else along its heading.
+/// The player's bus's destination displays (and the matrices its scripts draw) in the font
+/// `font` (`omsi_content::dotfont::DisplayFontSpec`), as `--display-font` puts it on a bus
+/// that spawns: how many took it.
+pub(crate) fn set_display_font(app: &mut App, font: &str) -> usize {
+    let (Some(w), Some(p)) = (app.world.as_ref(), app.player.as_mut()) else { return 0 };
+    let font = font.trim();
+    if font.is_empty() {
+        return 0;
+    }
+    let n = p.vehicle.apply_display_font(font, &mut w.fonts.lock(), &|path| omsi_texture::decode_file(path).ok().map(|i| (i.width, i.height, i.rgba)));
+    let m: usize = p.vehicle.apply_script_display_font(Some(font)).iter().map(|x| x.1).sum();
+    log::info!("display font \"{font}\" from a plugin: {n} destination display(s), {m} script font(s)");
+    n + m
+}
+
 pub(crate) fn velocity(app: &App) -> Option<[f64; 3]> {
     let v = veh(app)?;
     Some(match v.rigid.as_ref() {

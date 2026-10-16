@@ -428,6 +428,7 @@ declared to call the function (a plain `.lua` file has them all).
 | `omsi.bus.rpm()` | number or nil | The engine's revolutions per minute. | 0.2.22 |
 | `omsi.bus.sales()` | tickets, money | Tickets sold this session and the money taken (the game knows no currency). | 0.2.22 |
 | `omsi.bus.set_destination(index)` | boolean | Shows destination `index` (from 1, as `destinations` lists them). *Permission: `vehicle_write`.* | 0.2.22 |
+| `omsi.bus.set_display_font(font)` | integer | Draws the bus's destination displays (and the matrices its scripts draw) in another font: a `[newfont]` name from a `Fonts/*.oft` of the game, or a TrueType/OpenType font with its settings after it (`"Arial Bold\|file=C:/Windows/Fonts/arialbd.ttf\|rows=16\|bold"`), in the displays' grid of dots, from the next text they show. How many displays took it (0: the font is not there). *Permission: `vehicle_write`.* | 0.2.22 |
 | `omsi.bus.set_indicator(state)` | boolean | Sets the indicators: `"off"`, `"left"`, `"right"` or `"hazard"`. *Permission: `vehicle_write`.* | 0.2.22 |
 | `omsi.bus.set_interior_light(on)` | boolean | Switches the passenger room's light on or off. *Permission: `vehicle_write`.* | 0.2.22 |
 | `omsi.bus.set_line(line)` | boolean | Types a line (route) into the bus's IBIS, as the player would. *Permission: `vehicle_write`.* | 0.2.22 |

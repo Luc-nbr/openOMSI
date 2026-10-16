@@ -479,6 +479,10 @@ impl PluginIo for Game {
         self.did(format!("notify {kind} {text}"));
         true
     }
+    fn bus_set_display_font(&mut self, font: &str) -> usize {
+        self.did(format!("display font {font}"));
+        2
+    }
     fn game_action(&mut self, name: &str) -> bool {
         self.did(format!("game action {name}"));
         true
