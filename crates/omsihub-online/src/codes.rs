@@ -1,7 +1,7 @@
 //! Every answer the client gives as one of our codes, each with its English text (the launcher
 //! translates it: `TEXTS` is in every locale, `omsi-launcher-api`'s test keeps it so). What the
-//! server says in its own words - Better Auth's messages, PostgreSQL's errors - is read for its
-//! code only and never shown, so no internals reach the player.
+//! server says in its own words - Supabase Auth's messages, PostgreSQL's and Storage's errors - is
+//! read for its code only and never shown, so no internals reach the player.
 
 use serde_json::Value;
 
@@ -10,7 +10,8 @@ use serde_json::Value;
 pub enum Error {
     /// No network, the server not reached or too slow: Omsi-Hub plays on locally.
     Offline,
-    /// The session is over (a 401 a fresh JWT did not cure): the token is gone from the store.
+    /// The session is over (a 401 a fresh access token did not cure, or the refresh token refused):
+    /// the token is gone from the store.
     SignedOut,
     /// One of `TEXTS`' codes.
     Code(&'static str),
@@ -57,26 +58,25 @@ pub const TEXTS: &[(&str, &str)] = &[
     ("email_taken", "There is an account with this email address already. Sign in, or reset its password."),
     ("invalid_email", "That is not an email address."),
     ("password_too_short", "The password is too short: at least 8 characters."),
-    ("password_too_long", "The password is too long: at most 128 characters."),
+    ("password_too_long", "The password is too long: at most 72 characters."),
+    ("weak_password", "The password is too weak: choose a longer one, with letters, digits and symbols."),
+    ("same_password", "The new password is the one you have now: choose another."),
     ("invalid_code", "That code is not right."),
     ("code_expired", "That code has expired. Ask for a new one."),
     ("too_many_attempts", "Too many wrong codes. Ask for a new one."),
     ("reauth", "Sign in again first, then try once more."),
     // (the profile's and the friends')
     ("name_taken", "Another player has that display name already."),
-    ("bad_name", "A display name has 3 to 24 characters."),
+    ("bad_name", "A display name has 3 to 24 characters: letters A to Z, digits, spaces, _ . and -."),
     ("bad_friend_code", "A friend code has 8 letters and digits."),
     ("bad_input", "Something in it is too long or not allowed."),
     ("not_allowed", "That is not allowed."),
     ("no_session", "Share your company first (Multiplayer): then there is a session to invite to."),
-    // (the cloud saves': the function's own codes, then the app's)
+    // (the cloud saves': their texts are in cloud-saves.yml)
     ("limit", "Both cloud slots are taken: keep this company local, or replace one of your 2 cloud companies."),
     ("conflict", "This company changed on this PC and in the cloud since it was last synced."),
-    ("mismatch", "The upload arrived damaged and was not kept. Try again."),
     ("too_large", "This company is too large for the cloud (at most 25 MB compressed). It stays local."),
-    ("rate_limited", "Too many cloud save requests in a short time. Try again in a minute."),
     ("no_cloud_save", "This cloud save is not there any more."),
-    ("not_uploaded", "The upload did not arrive. Try again."),
     ("upload_failed", "The cloud storage refused the upload. Try again."),
     ("bad_save", "The cloud save is damaged: its checksum is wrong. Nothing was changed."),
     // (the state)
@@ -109,22 +109,23 @@ pub(crate) fn word_of(v: &Value) -> Option<String> {
     }
 }
 
-/// Better Auth's error (`{code, message}`, its `BASE_ERROR_CODES` and the email-OTP plugin's)
-/// as ours.
+/// Supabase Auth's error as ours: its `error_code` (`{code, error_code, msg}`), or an older
+/// GoTrue's `error` (`{error, error_description}`). A session it no longer knows is `SignedOut`.
 pub(crate) fn of_auth(status: u16, body: &Value) -> Error {
-    let code = body.get("code").and_then(Value::as_str).unwrap_or("");
+    let code = body.get("error_code").and_then(Value::as_str).or_else(|| body.get("error").and_then(Value::as_str)).unwrap_or("");
     Error::Code(match code {
-        "INVALID_EMAIL_OR_PASSWORD" | "CREDENTIAL_ACCOUNT_NOT_FOUND" | "USER_NOT_FOUND" => "invalid_credentials",
-        "INVALID_PASSWORD" => "wrong_password",
-        "EMAIL_NOT_VERIFIED" => "email_not_verified",
-        "USER_ALREADY_EXISTS" | "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL" => "email_taken",
-        "INVALID_EMAIL" => "invalid_email",
-        "PASSWORD_TOO_SHORT" => "password_too_short",
-        "PASSWORD_TOO_LONG" => "password_too_long",
-        "INVALID_OTP" | "INVALID_TOKEN" => "invalid_code",
-        "OTP_EXPIRED" | "TOKEN_EXPIRED" => "code_expired",
-        "TOO_MANY_ATTEMPTS" => "too_many_attempts",
-        "SESSION_EXPIRED" | "SESSION_NOT_FRESH" => "reauth",
+        "invalid_credentials" | "invalid_grant" => "invalid_credentials",
+        "email_not_confirmed" => "email_not_verified",
+        "user_already_exists" | "email_exists" => "email_taken",
+        "weak_password" => "weak_password",
+        "same_password" => "same_password",
+        // (Supabase says the same of a wrong code and an expired one)
+        "otp_expired" => "invalid_code",
+        "validation_failed" | "email_address_invalid" => "invalid_email",
+        "over_email_send_rate_limit" | "over_request_rate_limit" => "too_many",
+        "otp_disabled" | "signup_disabled" | "email_provider_disabled" => "unavailable",
+        "reauthentication_needed" | "reauthentication_not_valid" => "reauth",
+        "session_not_found" | "session_expired" | "refresh_token_not_found" | "refresh_token_already_used" | "bad_jwt" | "user_not_found" | "user_banned" => return Error::SignedOut,
         _ if status == 429 => "too_many",
         _ if status == 404 => "unavailable",
         _ if status == 422 => "bad_input",
@@ -132,8 +133,14 @@ pub(crate) fn of_auth(status: u16, body: &Value) -> Error {
     })
 }
 
-/// The Data API's error (PostgREST's `{code, message, details, hint}`) as ours: a function's
-/// own code raised as its message (`RAISE EXCEPTION 'too_many'`), else by the SQLSTATE.
+/// PostgREST's error codes that mean the access token is not taken (expired, invalid), the
+/// SQLSTATE `hub_me()` raises without a player, and Storage's `InvalidJWT` (a 400 with a 403 in it).
+pub(crate) fn is_unauthorized(status: u16, body: &Value) -> bool {
+    status == 401 || matches!(body.get("code").and_then(Value::as_str), Some("PGRST301" | "PGRST302" | "PGRST303" | "28000")) || body.get("error").and_then(Value::as_str) == Some("InvalidJWT")
+}
+
+/// PostgREST's error (`{code, message, details, hint}`) as ours: a function's own code raised as
+/// its message (`RAISE EXCEPTION 'too_many'`), else by the SQLSTATE.
 pub(crate) fn of_data(status: u16, body: &Value) -> Error {
     let message = body.get("message").and_then(Value::as_str).unwrap_or("");
     if let Some(c) = known(message).or_else(|| message.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).find_map(known)) {
@@ -153,17 +160,25 @@ pub(crate) fn of_data(status: u16, body: &Value) -> Error {
     })
 }
 
-/// The cloud saves' error (`{ok:false, error:'<code>'}`, docs/omsihub/ONLINE.md "Routes") as
-/// ours; its `not_found` (an empty slot) is not the friend code's.
-pub(crate) fn of_saves(status: u16, body: &Value) -> Error {
-    let code = body.get("error").and_then(Value::as_str).unwrap_or("");
-    Error::Code(match code {
-        "limit" | "conflict" | "mismatch" | "too_large" | "rate_limited" | "not_uploaded" => known(code).unwrap_or("server"),
-        "not_found" => "no_cloud_save",
-        "bad_request" => "bad_input",
-        _ if status == 429 => "rate_limited",
-        _ if status == 413 => "too_large",
-        _ if status == 404 => "unavailable",
+/// The status Storage means: its body's `statusCode` (it answers many errors as a 400 with the
+/// real one inside), else the HTTP status.
+pub(crate) fn storage_status(status: u16, body: &Value) -> u16 {
+    match body.get("statusCode") {
+        Some(Value::String(s)) => s.parse().unwrap_or(status),
+        Some(Value::Number(n)) => n.as_u64().and_then(|n| u16::try_from(n).ok()).unwrap_or(status),
+        _ => status,
+    }
+}
+
+/// Storage's error (`{statusCode, error, message}`) as ours.
+pub(crate) fn of_storage(status: u16, body: &Value) -> Error {
+    Error::Code(match storage_status(status, body) {
+        404 => "not_found",
+        413 => "too_large",
+        403 => "not_allowed",
+        409 => "conflict",
+        429 => "too_many",
+        400 | 422 => "bad_input",
         _ => "server",
     })
 }

@@ -353,13 +353,6 @@ _version: 2
   pl: "Ta firma zmieniła się na tym PC i w chmurze od ostatniej synchronizacji."
   ru: "Эта компания изменилась и на этом ПК, и в облаке с последней синхронизации."
   uk: "Ця компанія змінилася і на цьому ПК, і в хмарі з останньої синхронізації."
-"The upload arrived damaged and was not kept. Try again.":
-  de: "Der Upload kam beschädigt an und wurde nicht behalten. Versuch es noch einmal."
-  fr: "L'envoi est arrivé endommagé et n'a pas été gardé. Réessayez."
-  nl: "De upload kwam beschadigd aan en is niet bewaard. Probeer het opnieuw."
-  pl: "Wysłany plik dotarł uszkodzony i nie został zachowany. Spróbuj ponownie."
-  ru: "Загрузка пришла повреждённой и не сохранена. Попробуйте ещё раз."
-  uk: "Вивантаження надійшло пошкодженим і не збережене. Спробуйте ще раз."
 "This company is too large for the cloud (at most 25 MB compressed). It stays local.":
   de: "Dieser Betrieb ist zu groß für die Cloud (höchstens 25 MB komprimiert). Er bleibt lokal."
   fr: "Cette entreprise est trop grande pour le cloud (25 Mo compressés au plus). Elle reste en local."
@@ -367,13 +360,6 @@ _version: 2
   pl: "Ta firma jest za duża na chmurę (najwyżej 25 MB po kompresji). Zostaje lokalnie."
   ru: "Эта компания слишком велика для облака (не больше 25 МБ в сжатом виде). Она остаётся локальной."
   uk: "Ця компанія завелика для хмари (не більше 25 МБ у стиснутому вигляді). Вона залишається локальною."
-"Too many cloud save requests in a short time. Try again in a minute.":
-  de: "Zu viele Cloud-Anfragen in kurzer Zeit. Versuch es in einer Minute noch einmal."
-  fr: "Trop de requêtes de sauvegarde cloud en peu de temps. Réessayez dans une minute."
-  nl: "Te veel cloudverzoeken in korte tijd. Probeer het over een minuut opnieuw."
-  pl: "Zbyt wiele żądań zapisu w chmurze w krótkim czasie. Spróbuj ponownie za minutę."
-  ru: "Слишком много запросов к облачным сохранениям за короткое время. Попробуйте через минуту."
-  uk: "Забагато запитів до хмарних збережень за короткий час. Спробуйте за хвилину."
 "This cloud save is not there any more.":
   de: "Dieser Cloud-Spielstand ist nicht mehr da."
   fr: "Cette sauvegarde cloud n'existe plus."
@@ -381,13 +367,6 @@ _version: 2
   pl: "Tego zapisu w chmurze już nie ma."
   ru: "Этого облачного сохранения больше нет."
   uk: "Цього хмарного збереження більше немає."
-"The upload did not arrive. Try again.":
-  de: "Der Upload ist nicht angekommen. Versuch es noch einmal."
-  fr: "L'envoi n'est pas arrivé. Réessayez."
-  nl: "De upload is niet aangekomen. Probeer het opnieuw."
-  pl: "Wysyłany plik nie dotarł. Spróbuj ponownie."
-  ru: "Загрузка не дошла. Попробуйте ещё раз."
-  uk: "Вивантаження не дійшло. Спробуйте ще раз."
 "The cloud storage refused the upload. Try again.":
   de: "Der Cloud-Speicher hat den Upload abgelehnt. Versuch es noch einmal."
   fr: "Le stockage cloud a refusé l'envoi. Réessayez."

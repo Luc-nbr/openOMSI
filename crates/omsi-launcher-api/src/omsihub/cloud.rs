@@ -138,7 +138,7 @@ pub trait Remote {
     fn delete(&mut self, slot: u8) -> Result<(), Error>;
 }
 
-/// The client of `online.rs`: each route under its lock, the presigned transfers without it
+/// The client of `online.rs`: each step under its lock, the file's transfer without it
 /// (the friends' calls go on meanwhile).
 pub struct Online;
 
@@ -148,7 +148,7 @@ impl Remote for Online {
             if !c.signed_in() {
                 return Err(Error::Code("not_signed_in"));
             }
-            c.jwt()?;
+            c.access_token()?;
             c.user_id().map(str::to_string).ok_or(Error::Code("server"))
         })
     }
@@ -162,8 +162,8 @@ impl Remote for Online {
         let device = saves::device_name();
         let (begun, transfer) = online::with(|c| c.saves_upload_begin(slot, name, &packed, base, &device).map(|b| (b, c.transfer())))?;
         transfer.put(&begun, &packed)?;
-        online::with(|c| match c.saves_upload_commit(begun.slot, begun.version, &packed.sha256) {
-            Err(SaveError::Failed(Error::Offline)) => c.saves_upload_commit(begun.slot, begun.version, &packed.sha256),
+        online::with(|c| match c.saves_upload_commit(&begun) {
+            Err(SaveError::Failed(Error::Offline)) => c.saves_upload_commit(&begun),
             r => r,
         })
     }

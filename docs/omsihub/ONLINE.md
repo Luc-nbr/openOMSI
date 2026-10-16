@@ -4,7 +4,34 @@ An account is optional. Without one, Omsi-Hub plays fully local and only the onl
 missing (friends, online state, invites). The account uses email and a password only, with no
 Google, Discord or other OAuth sign-in.
 
-## Where it runs
+## Moving to Supabase
+
+The online side moves from Neon to Supabase. The **website runs on Supabase**, and so does the app's
+client (`crates/omsihub-online`) from this repository; the Betas built from the fork's `beta` still use
+the Neon endpoints below until the client lands there too. Accounts made on one are not on the other.
+
+| What | Value |
+|---|---|
+| Supabase project | `omsi-hub-online` (`mlatjtjjdfifbgddcxzu`), region `eu-central-1` |
+| URL (Auth `/auth/v1`, REST `/rest/v1`, Storage `/storage/v1`) | `https://mlatjtjjdfifbgddcxzu.supabase.co` |
+| Publishable key (the `apikey` header) | `sb_publishable_LF17d5vnctmpyH1h6dRprw_s3CGcD-P` |
+| Schema, policies and the `saves` bucket | `online/supabase/schema.sql` |
+
+The publishable key is public by design. What a request may do is decided by row-level security and
+the functions' grants: the anonymous role may only call `hub_leaderboard` and `hub_board_counts`;
+everything else needs a signed-in player, and every write goes through a function that takes the
+player from the JWT. The shared helpers live in the `private` schema, which the REST API does not show.
+
+What changed for the app's client ("The app's side" below):
+
+- auth: Supabase Auth instead of Better Auth (`/signup`, `/token?grant_type=password|refresh_token`,
+  `/verify` with `type=email|recovery`, `/resend`, `/recover`, `PUT /user`, `/logout?scope=...`),
+  the access token renewed with the refresh token;
+- the functions: the same names and arguments at `/rest/v1/rpc/<name>`, plus `report_stats`;
+- cloud saves: Storage objects under `saves/users/<user id>/slot1|slot2/` instead of the `saves`
+  function; deleting the account removes them first, then calls `delete_my_account`.
+
+## Where it runs (Neon, until the app moves)
 
 | What | Value |
 |---|---|
@@ -165,65 +192,74 @@ Every route is `POST <function URL><route>` with a JSON body (`{}` when it takes
 The client is the crate `crates/omsihub-online` (Rust, `ureq` with rustls); the launcher's commands
 are `crates/omsi-launcher-api/src/omsihub/online.rs` (`ol_…`), the page's panel
 `launcher/ui/js/omsihub/online.js` with `launcher/ui/omsihub/online.css`, the texts
-`crates/omsi-app/locales/online.yml`. The page's JS never talks to Neon: it calls Rust, and Rust
-makes every request.
+`crates/omsi-app/locales/online.yml`. The page's JS never talks to Supabase: it calls Rust, and Rust makes
+every request.
 
-### The auth routes used (Better Auth 1.7, as `@neondatabase/auth` 0.6 pins it)
+### The auth routes used (Supabase Auth)
 
-Neon Auth runs Better Auth with its **bearer**, **JWT** and **email-OTP** plugins (the ones the
-Neon client turns on). All are `POST` with a JSON body unless said; the base is the auth URL above.
+The base is `<URL>/auth/v1`. Every request carries the publishable key as `apikey`; the calls after
+signing in carry the access token as `Authorization: Bearer`. All are `POST` with a JSON body unless
+said. **An account is made on the website** (`account.html#sign-up`, `omsihub_online::sign_up_page`):
+the app's "Create an account" opens it, and has no form of its own. The display name chosen there
+(the user's `user_metadata.display_name`) becomes the profile (`create_profile`) at the first sign-in
+in the app, when the website has not made it yet.
 
 | Route | Body | Used for |
 |---|---|---|
-| `/sign-up/email` | `email`, `password`, `name` | a new account; `token` is null while the email waits for its code |
-| `/sign-in/email` | `email`, `password`, `rememberMe: true` | signing in; the session token comes as the `set-auth-token` header (signed), else the session cookie, else the body's `token` |
-| `/email-otp/send-verification-otp` | `email`, `type: "email-verification"` | "Send a new code" |
-| `/email-otp/verify-email` | `email`, `otp` | the email confirmed; with "sign in after verification" it signs in too, else the app signs in with the password the form still has |
-| `/email-otp/request-password-reset` | `email` | "Forgot your password?" (the older `/forget-password/email-otp` is tried where this one answers 404) |
-| `/email-otp/reset-password` | `email`, `otp`, `password` | the new password; the app signs in with it at once |
-| `GET /token` | - (`Authorization: Bearer <session>`) | the JWT for the Data API (15 minutes by default) |
-| `GET /get-session` | - (bearer) | only before deleting the account: the address to check the password against |
-| `/sign-out` | `{}` (bearer) | signing out (best effort: the token goes from the store whatever the answer) |
-| `/delete-user` | `password` (bearer) | the auth's user deleted, after `delete_my_data()` |
+| `/token?grant_type=password` | `email`, `password` | signing in: `access_token`, `refresh_token`, `user` |
+| `/token?grant_type=refresh_token` | `refresh_token` | a new access token (and a new refresh token, which replaces the stored one) |
+| `/resend` | `type: "signup"`, `email` | "Send a new code" (an address not confirmed yet: the sign-in answers `email_not_confirmed`) |
+| `/verify` | `type: "email"` (else `"signup"`), `email`, `token` | the email confirmed by its code; it signs in |
+| `/recover` | `email` | "Forgot your password?" (the same answer whether the address has an account or not) |
+| `/verify` | `type: "recovery"`, `email`, `token` | the reset's code; it signs in, then `PUT /user` `{password}` sets the new password |
+| `GET /user` | - (bearer) | only before deleting the account: the address to check the password against |
+| `/logout?scope=local` | - (bearer) | signing out (best effort: the token goes from the store whatever the answer) |
 
-No cookie and no `Origin` header is sent: Better Auth checks the origin only for requests that
-carry cookies (or a browser's `Sec-Fetch-*` headers), so a native client needs no trusted domain.
-Better Auth's errors (`{code, message}`) are read for their `code` only.
+The account is deleted with the database's `delete_my_account()` (it deletes the auth's user, and with
+it the profile, friendships and invites), after the password was checked by signing in with it and
+the player's cloud saves were deleted through Storage. Supabase Auth's errors (`{code, error_code,
+msg}`, or an older `{error, error_description}`) are read for their code only. No cookie and no
+`Origin` header is sent.
 
-### The session token, the JWT
+### The refresh token, the access token
 
-- The session token is kept in the OS's credential store only (the `keyring` crate: Windows'
+- The refresh token is kept in the OS's credential store only (the `keyring` crate: Windows'
   Credential Manager, macOS's Keychain, Linux's kernel keyring), under "Omsi-Hub online" /
   "session". Where there is none (Android, iOS) it lives in memory, and the player signs in again
-  at the next start. It is never written to a file, a log or the company's save.
-- The JWT lives in memory only. It is fetched again a minute before its `exp`, and once more when
-  the Data API answers 401; a second 401, or `/token` refusing the session (401/403), signs out:
-  the token is deleted from the store and the page shows the sign-in again. A session the auth
-  renews (`set-auth-token` on `/token`) replaces the stored one.
+  at the next start. It is never written to a file, a log or the company's save. A Better Auth
+  session kept there from before the move is refused at the first renewal, which signs out.
+- The access token (a JWT, about an hour) lives in memory only. It is renewed a minute before its
+  `exp`, and once more when the database or Storage answers 401 (PostgREST's `PGRST301`/`PGRST303`,
+  Storage's `InvalidJWT`); a second 401, or the auth refusing the refresh token (used, revoked, the
+  user gone), signs out: the token is deleted from the store and the page shows the sign-in again.
+  The auth being down or busy (5xx, 429) does not sign out.
 - The email address and the password are passed through and kept nowhere (the form clears them
   once signed in).
 
-### Online state and invites
+### The cloud saves (Supabase Storage)
 
-- The launcher's worker calls `heartbeat` about once a minute while signed in, and within five
-  seconds of a change: `busy` with the session's code while the player hosts a company session
-  ("Play together"), `away` after five minutes with the window in the background, else `online`.
-  As the launcher closes it sends `offline` (best effort, three seconds at most).
-- `my_friends()` and the `invites` table (`GET /invites?select=*`, newest first; only those sent to
-  the player, at most 15 minutes old) are fetched with each beat, and when the panel opens (at
-  most every ten seconds). The page asks Rust every five seconds, and Rust answers from what it
-  fetched: the page never waits on the network.
-- "Invite to my company" sends the session hosted now (`send_invite`); a friend's "Join" (on the
-  invite's notice, or on a friend in a session) joins with that code through "Play together"'s own
-  join (`tg_join`), as a typed code would.
-- Without a network every call answers "offline" at once (the connection's own timeouts, at most a
-  few seconds, on the worker's thread or the command's), the session stays, and the panel says
-  "Offline" quietly; nothing else of the launcher changes.
+`crates/omsihub-online/src/saves.rs`: the bucket `saves`, the player's folder `users/<user id>/`, two
+slots. A slot holds `v<version>.omsave` (the company's archive compressed with zstd, level 12; the
+last 3 versions) and `meta.json` (the company's name, the device, and each kept version's size,
+sha256 and time). An upload is three steps: `saves_upload_begin` reads `meta.json` and holds the
+version it was made from (`base_version`, 0 for a company not in the cloud yet) against it, another
+one answering `conflict` with the slot as it is now, and with both slots taken an upload without a
+slot answers `limit`; `Transfer::put` sends the file (`POST /storage/v1/object/saves/<path>`,
+`x-upsert: true`) with the access token the begin fetched, outside the client's lock; then
+`saves_upload_commit` writes `meta.json` (unless another computer committed since: `conflict`) and
+deletes the versions past the last 3. The file goes first and `meta.json` after it, so a
+half-finished upload never replaces a good save (the next upload goes over the stray file). Two
+computers sending the same version in the same seconds is not caught before the commit: the
+second's file may stand under the first's `meta.json`, which a download then refuses (`bad_save`).
+A download (`GET /storage/v1/object/authenticated/saves/<path>`) is checked against `meta.json`'s
+size and sha256 before it is decompressed (`bad_save`). A slot is emptied by listing it
+(`POST /storage/v1/object/list/saves`) and deleting its files (`DELETE /storage/v1/object/saves`,
+`{prefixes}`).
 
 ### Cloud saves in the app
 
-The client's half is `crates/omsihub-online/src/saves.rs` (the six routes, zstd, the presigned
-transfers), a company's archive `crates/omsi-launcher-core/src/company/cloud.rs`, the sync
+The client's half is `crates/omsihub-online/src/saves.rs` (Storage, zstd, the transfer outside
+the client's lock), a company's archive `crates/omsi-launcher-core/src/company/cloud.rs`, the sync
 `crates/omsi-launcher-api/src/omsihub/cloud.rs` (`cs_…`), the page's parts
 `launcher/ui/js/omsihub/cloud.js` with `launcher/ui/omsihub/cloud.css`, the texts
 `crates/omsihub-locales/locales/cloud-saves.yml`.
@@ -249,26 +285,74 @@ transfers), a company's archive `crates/omsi-launcher-core/src/company/cloud.rs`
 - **The limit**: "Put this company in the cloud" with both slots taken offers "Keep it local" or
   "Replace <name>" (armed by a second click); the replaced company stays on this PC as a local
   save. Local companies are never blocked and can host company multiplayer.
-- Deleting the account calls `delete_all` after `delete_my_data()` and before `/delete-user`; a
-  failure stops it before the user is deleted. Every company here is local afterwards.
+- Deleting the account deletes the cloud saves (every file of both slots) after the password is
+  checked and before `delete_my_account()`; a failure stops it before the account is deleted.
+  Every company here is local afterwards.
+
+### Online state and invites
+
+- The launcher's worker calls `heartbeat` about once a minute while signed in, and within five
+  seconds of a change: `busy` with the session's code while the player hosts a company session
+  ("Play together"), `away` after five minutes with the window in the background, else `online`.
+  As the launcher closes it sends `offline` (best effort, three seconds at most).
+- `my_friends()` and the `invites` table (`GET /invites?select=*`, newest first; only those sent to
+  the player, at most 15 minutes old) are fetched with each beat, and when the panel opens (at
+  most every ten seconds). The page asks Rust every five seconds, and Rust answers from what it
+  fetched: the page never waits on the network.
+- "Invite to my company" sends the session hosted now (`send_invite`); a friend's "Join" (on the
+  invite's notice, or on a friend in a session) joins with that code through "Play together"'s own
+  join (`tg_join`), as a typed code would.
+- Without a network every call answers "offline" at once (the connection's own timeouts, at most a
+  few seconds, on the worker's thread or the command's), the session stays, and the panel says
+  "Offline" quietly; nothing else of the launcher changes.
 
 ### Security checklist
 
 | | Done |
 |---|---|
 | HTTPS only, the certificates checked (rustls, the Mozilla roots; `https_only` on the agent; an `http://` endpoint is refused; no redirects followed) | done |
-| No secrets in the repository or the app (the two URLs are public; no database password, no service key) | done |
-| The session token only in the OS's credential store; the JWT in memory only; nothing logged | done (Android/iOS: memory only, by design) |
-| The lengths checked on the computer too (email ≤ 254, password 8–128, display name 3–24, friend code 8, email code 4–10 digits, ids, session code ≤ 1024; the page's fields have the same `maxLength`) | done |
+| No secrets in the repository or the app (the URL and the publishable key are public; no database password, no service or secret key) | done |
+| The refresh token only in the OS's credential store; the access token in memory only; nothing logged | done (Android/iOS: memory only, by design) |
+| The lengths checked on the computer too (email ≤ 254, password 8–72 (bcrypt's bytes), display name 3–24 of `A-Za-z0-9_. -`, friend code 8, email code 6–10 digits, ids, session code ≤ 1024, a cloud save ≤ 25 MB; the page's fields have the same `maxLength`) | done |
 | The server's error texts never shown: every answer is one of our codes, with a translated text (`codes::TEXTS`) | done |
-| Every function's result code (`sent`, `accepted`, `already`, `self`, `not_found`, `no_profile`, `too_many`, `full`) has a translated message, as have Better Auth's codes and the SQLSTATEs met (`23505` the name taken, ...) | done |
+| Every function's result code (`sent`, `accepted`, `already`, `self`, `not_found`, `no_profile`, `too_many`, `full`) has a translated message, as have Supabase Auth's codes, Storage's and the SQLSTATEs met (`23505` the name taken, ...) | done |
 | Deleting the account asks for the password again; nothing is deleted when it is wrong | done |
-| A token goes only where it belongs: the session token to the auth, the JWT to the Data API | done |
+| A token goes only where it belongs: the refresh token in the auth's body only, the access token as the bearer | done |
 | Certificate pinning | not done (the Mozilla roots are trusted, as browsers do) |
 | A proxy from the environment (`HTTPS_PROXY`) | not used: behind a proxy-only network the app is "offline" |
 
 The tests (`cargo test -p omsihub-online`) run the client against a mock server on 127.0.0.1;
-none reaches the real project.
+none reaches the real project. To try every flow end to end without it, `online/standin/standin.mjs`
+is a stand-in for the Supabase project on this computer (Auth, the schema's functions and its
+row-level rules, Storage; in memory, the mails' codes printed), and
+`cargo run -p omsihub-online --example standin` drives the app's flows against it: two players made
+as the website makes them, then signing in, the email's code, friends, the heartbeat, invites, the
+leaderboard, cloud saves, the token renewal, the password reset and deleting the account. The
+launcher's own path is `crates/omsi-launcher-api/examples/cloud_standin.rs`: a debug build reads
+`OMSIHUB_STANDIN` (a stand-in on this computer only; a release build never does, and the session
+then stays in memory), and the example drives `ol_…` and `cs_…` as the page does, with a home of
+its own: the limit, a replace, a change going up, another computer's newer version, a conflict with
+both kept, a download, a removal and the account deleted.
+
+## The website's side
+
+The website (its own repository, [Luc-nbr/Omsi-Hub-Website](https://github.com/Luc-nbr/Omsi-Hub-Website),
+plain HTML and JS) is on Supabase (see "Moving to Supabase"); `assets/auth.js` makes every call:
+
+- `account.html#sign-up` makes an account (`/auth/v1/signup`, the display name in the user's
+  metadata), then the email's code (`/auth/v1/verify`), then `create_profile` with the display name.
+  The app's "Create an account" is to open this page.
+- `account.html#sign-in`, `#forgot` and `#reset` sign in and reset the password by code;
+  `account.html#me` (My Omsi-Hub) shows the profile and the service record, switches the
+  leaderboard (`set_leaderboard`), changes the display name (`set_display_name`) and the password
+  (the current one checked by signing in with it, then `PUT /auth/v1/user`), signs out elsewhere
+  (`/logout?scope=others`) and deletes the account (the password again, the cloud saves through
+  Storage, then `delete_my_account`).
+- A link from a mail (`#access_token=...`) is taken as a session too, so a template with a link
+  works as well as one with a code.
+- Only the refresh token is kept, in `localStorage` ("keep me signed in") or `sessionStorage`,
+  under `hub-session`; the access token stays in memory. No cookie is used.
+- The leaderboard pages call `hub_leaderboard` and `hub_board_counts` with only the publishable key.
 
 ## To do in the Neon console (not available through the API)
 

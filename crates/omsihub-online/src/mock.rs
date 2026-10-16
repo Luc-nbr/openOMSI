@@ -1,6 +1,6 @@
 //! The tests' server: plain HTTP on 127.0.0.1, one answer per request from a function of the
 //! request, every request kept for the tests to look at. Nothing here reaches the real project.
-//! (The cloud saves' storage answers bytes: `start_raw`.)
+//! (Storage answers files: `start_raw`, or `start` with a `content-type` and a text.)
 
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -13,8 +13,8 @@ pub struct Req {
     pub path: String,
     /// The header names in lower case.
     pub headers: Vec<(String, String)>,
+    /// The body as JSON (Null when it is not), and as it came (a save's bytes).
     pub body: Value,
-    /// The body as it came (a save's bytes).
     pub raw: Vec<u8>,
 }
 
@@ -27,7 +27,8 @@ impl Req {
     }
 }
 
-/// An answer: status, extra headers, JSON body.
+/// An answer: status, extra headers, JSON body (with a `content-type` among the extra headers, a
+/// text body goes as it is: a file).
 pub type Answer = (u16, Vec<(&'static str, String)>, Value);
 
 /// An answer's body: JSON, or bytes as they are.
@@ -45,7 +46,11 @@ impl Mock {
     pub fn start(answer: impl Fn(&Req) -> Answer + Send + Sync + 'static) -> Mock {
         Self::start_raw(move |r| {
             let (status, extra, out) = answer(r);
-            (status, extra, Body::Json(out))
+            let file = extra.iter().any(|(k, _)| k.eq_ignore_ascii_case("content-type"));
+            match out {
+                Value::String(t) if file => (status, extra, Body::Raw(t.into_bytes())),
+                v => (status, extra, Body::Json(v)),
+            }
         })
     }
 
@@ -86,7 +91,8 @@ impl Mock {
                     Body::Json(v) => ("application/json", v.to_string().into_bytes()),
                     Body::Raw(b) => ("application/octet-stream", b),
                 };
-                let mut head = format!("HTTP/1.1 {status} X\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n", bytes.len());
+                let kind = if extra.iter().any(|(k, _)| k.eq_ignore_ascii_case("content-type")) { String::new() } else { format!("Content-Type: {kind}\r\n") };
+                let mut head = format!("HTTP/1.1 {status} X\r\n{kind}Content-Length: {}\r\nConnection: close\r\n", bytes.len());
                 for (k, v) in extra {
                     head.push_str(&format!("{k}: {v}\r\n"));
                 }
@@ -96,7 +102,7 @@ impl Mock {
         Mock { base, seen }
     }
 
-    /// The paths asked for, in order (`POST /auth/sign-in/email`).
+    /// The paths asked for, in order (`POST /auth/v1/token?grant_type=password`).
     pub fn calls(&self) -> Vec<String> {
         self.seen.lock().unwrap().iter().map(|r| format!("{} {}", r.method, r.path)).collect()
     }

@@ -6,8 +6,9 @@
 //! * `ol_state` - what the page shows, at once from what the worker last fetched (no network);
 //!   the first call starts the worker: the heartbeat about once a minute and whenever the state
 //!   changes (online, away, hosting a session), the friends and the invites with it;
-//! * `ol_sign_up {email, password, name}`, `ol_verify {email, code, password, name}`,
-//!   `ol_resend {email}`, `ol_sign_in {email, password}`, `ol_sign_out`;
+//! * `ol_sign_in {email, password}`, `ol_verify {email, code, password}`, `ol_resend {email}`,
+//!   `ol_sign_out`; an account is made on the website (`sign_up_url` in the state, which the page
+//!   opens), and its display name becomes the profile at the first sign-in here;
 //! * `ol_forgot {email}`, `ol_reset {email, code, password}` - the password reset by a code;
 //! * `ol_local {on}` - "Play without an account" (only that choice is kept, in
 //!   `~/.openomsi/omsihub-online.json`);
@@ -20,14 +21,14 @@
 //!
 //! Every answer is JSON with the texts in the page's language (`lang`): `{ok, message}` or
 //! `{error, code}`, the error one of `omsihub_online::codes`' never the server's own words. The
-//! email address and the password pass through and are kept nowhere; the session token is in
+//! email address and the password pass through and are kept nowhere; the refresh token is in
 //! the OS's credential store only (`omsihub_online::store`). Nothing here is logged.
 
 use super::company::words::{self, tr, trf};
 use super::together;
 use crate::Answer;
 use omsi_launcher_lib as core;
-use omsihub_online::{codes, store, Client, Endpoints, Error, Friend, Invite, Profile, SignUp};
+use omsihub_online::{codes, store, Client, Endpoints, Error, Friend, Invite, Profile};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::sync::{LazyLock, Mutex, MutexGuard};
@@ -72,16 +73,29 @@ fn client() -> MutexGuard<'static, Option<Client>> {
 fn endpoints() -> Endpoints {
     // (the tests reach nothing: an HTTPS address nobody answers on)
     #[cfg(test)]
-    return Endpoints::new("https://127.0.0.1:9/auth", "https://127.0.0.1:9/rest/v1", "https://127.0.0.1:9/saves").unwrap();
+    return Endpoints::new("https://127.0.0.1:9", "sb_publishable_test").unwrap();
     #[cfg(not(test))]
-    return Endpoints::neon();
+    return standin().unwrap_or_else(Endpoints::supabase);
+}
+
+/// A debug build's stand-in on this computer (`OMSIHUB_STANDIN=http://127.0.0.1:54321`, the key
+/// `OMSIHUB_STANDIN_KEY`; online/standin/standin.mjs): the flows tried without the real project.
+/// A release build never reads it.
+#[cfg(not(test))]
+fn standin() -> Option<Endpoints> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    let base = std::env::var("OMSIHUB_STANDIN").ok().filter(|b| !b.is_empty())?;
+    Endpoints::local(&base, &std::env::var("OMSIHUB_STANDIN_KEY").unwrap_or_else(|_| "sb_publishable_standin".into())).ok()
 }
 
 fn new_store() -> Box<dyn store::SecretStore> {
     #[cfg(test)]
     return Box::new(store::MemoryStore::new());
+    // (a stand-in's session is not the player's: it stays out of the OS's store)
     #[cfg(not(test))]
-    return store::os_store();
+    return if standin().is_some() { Box::new(store::MemoryStore::new()) } else { store::os_store() };
 }
 
 /// `f` with the client, made (and the stored session read) on the first call.
@@ -357,14 +371,15 @@ fn state() -> Value {
         "badge": new_requests + new_invites,
         "hosting": hosting,
         "together": together::enabled(),
+        "sign_up_url": omsihub_online::sign_up_page(),
     })
 }
 
 // --- the account ------------------------------------------------------------------------------
 
-/// Signed in: the profile (made with `name` when there is none and a name came), the friends,
-/// the heartbeat.
-fn after_sign_in(name: Option<&str>) -> Value {
+/// Signed in: the profile (made, when there is none, with the display name chosen on the
+/// website's sign-up), the friends, the heartbeat.
+fn after_sign_in() -> Value {
     set_local(false);
     {
         let mut v = view();
@@ -372,9 +387,12 @@ fn after_sign_in(name: Option<&str>) -> Value {
         v.seen.clear();
     }
     let made = with(|c| -> Result<(), Error> {
-        if let Some(n) = name.filter(|n| !n.trim().is_empty()) {
+        if let Some(n) = c.signed_up_name().map(str::to_string) {
             if c.profile()?.is_none() {
-                c.create_profile(n)?;
+                // (a name the profiles table will not take, or taken since, is chosen again here)
+                if let Err(e @ (Error::Offline | Error::SignedOut)) = c.create_profile(&n) {
+                    return Err(e);
+                }
             }
         }
         Ok(())
@@ -391,23 +409,11 @@ fn after_sign_in(name: Option<&str>) -> Value {
     done(&message)
 }
 
-fn sign_up(args: &Value) -> Value {
-    match with(|c| c.sign_up(str_arg(args, "email"), str_arg(args, "password"), str_arg(args, "name"))) {
-        Ok(SignUp::SignedIn) => after_sign_in(Some(str_arg(args, "name"))),
-        Ok(SignUp::Verify) => {
-            let mut a = done(&tr("We sent a code to your email address. Enter it here."));
-            a["step"] = json!("verify");
-            a
-        }
-        Err(e) => fail(e),
-    }
-}
-
 fn verify(args: &Value) -> Value {
     let (email, password) = (str_arg(args, "email"), str_arg(args, "password"));
     let signed = with(|c| c.verify_email(email, str_arg(args, "code")).and_then(|in_| if in_ || password.is_empty() { Ok(in_) } else { c.sign_in(email, password).map(|_| true) }));
     match signed {
-        Ok(true) => after_sign_in(Some(str_arg(args, "name"))),
+        Ok(true) => after_sign_in(),
         Ok(false) => {
             let mut a = done(&tr("Email address confirmed. Sign in now."));
             a["step"] = json!("sign_in");
@@ -419,7 +425,7 @@ fn verify(args: &Value) -> Value {
 
 fn sign_in(args: &Value) -> Value {
     match with(|c| c.sign_in(str_arg(args, "email"), str_arg(args, "password"))) {
-        Ok(()) => after_sign_in(None),
+        Ok(()) => after_sign_in(),
         Err(e) => {
             let mut a = fail(e);
             if e == Error::Code("email_not_verified") {
@@ -432,9 +438,10 @@ fn sign_in(args: &Value) -> Value {
 
 fn reset(args: &Value) -> Value {
     let (email, password) = (str_arg(args, "email"), str_arg(args, "password"));
-    match with(|c| c.reset_password(email, str_arg(args, "code"), password).and_then(|_| c.sign_in(email, password))) {
+    // (the code signs in, and the new password is set with it)
+    match with(|c| c.reset_password(email, str_arg(args, "code"), password)) {
         Ok(()) => {
-            let mut a = after_sign_in(None);
+            let mut a = after_sign_in();
             if a.get("ok").is_some() {
                 a["message"] = json!(tr("Password changed. You are signed in."));
             }
@@ -459,7 +466,7 @@ fn delete(args: &Value) -> Value {
             signed_out(&mut view());
             // (its cloud saves went with it: the companies here are local saves now)
             super::cloud::forget_account();
-            done(&tr("Your account and everything of it are deleted."))
+            done(&tr("Your account, your cloud saves and everything of it are deleted."))
         }
         Err(e) => fail(e),
     }
@@ -521,7 +528,6 @@ pub fn call(cmd: &str, args: &Value) -> Option<Answer> {
             set_local(args.get("on").and_then(Value::as_bool).unwrap_or(true));
             state()
         }
-        "ol_sign_up" => sign_up(args),
         "ol_verify" => verify(args),
         "ol_resend" => answer(with(|c| c.send_verification(str_arg(args, "email"))).map(|_| done(&tr("A new code is on its way.")))),
         "ol_sign_in" => sign_in(args),

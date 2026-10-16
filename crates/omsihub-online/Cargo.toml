@@ -3,7 +3,7 @@ name = "omsihub-online"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Omsi-Hub online, the client: the optional account (email and password on Neon Auth), the friends (Neon's Data API) and the cloud saves (the Neon Function `saves`), the session token in the OS's credential store (docs/omsihub/ONLINE.md)"
+description = "Omsi-Hub online, the client: the optional account (email and password on Supabase Auth), the friends and the leaderboard (the database's functions) and the cloud saves (Supabase Storage), the refresh token in the OS's credential store (docs/omsihub/ONLINE.md)"
 
 [dependencies]
 serde.workspace = true
@@ -15,7 +15,7 @@ ureq.workspace = true
 sha2.workspace = true
 zstd = { version = "0.13", default-features = false }
 
-# The session token lives in the OS's own store only: Windows' Credential Manager, macOS's
+# The refresh token lives in the OS's own store only: Windows' Credential Manager, macOS's
 # Keychain, Linux's kernel keyring. Elsewhere (Android, iOS) nothing is kept between runs.
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3.6", features = ["windows-native"] }

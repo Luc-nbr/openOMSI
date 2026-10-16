@@ -1,6 +1,7 @@
 //! What the player types, checked before it is sent (the server checks it again): the same
-//! limits as Neon Auth's (a password of 8 to 128 characters) and the tables' (a display name of
-//! 3 to 24, a friend code of 8). Each answers the text as it is sent, or the code saying why not.
+//! limits as Supabase Auth's (a password of at most 72 characters, bcrypt's; at least 8 is ours)
+//! and the tables' (a display name of 3 to 24 letters A to Z, digits, spaces, `_`, `.` and `-`, a
+//! friend code of 8). Each answers the text as it is sent, or the code saying why not.
 
 use crate::codes::Error;
 
@@ -14,20 +15,21 @@ pub fn email(s: &str) -> Result<String, Error> {
     ok.then(|| s.to_string()).ok_or(Error::Code("invalid_email"))
 }
 
-/// A password: 8 to 128 characters, as it was typed.
+/// A password: 8 to 72 characters, as it was typed.
 pub fn password(s: &str) -> Result<String, Error> {
     match s.chars().count() {
         0..=7 => Err(Error::Code("password_too_short")),
-        129.. => Err(Error::Code("password_too_long")),
+        // (bcrypt reads 72 bytes: a longer one would not be all of it; the website says the same)
+        _ if s.len() > 72 => Err(Error::Code("password_too_long")),
         _ => Ok(s.to_string()),
     }
 }
 
-/// A display name: trimmed, 3 to 24 characters, no control characters.
+/// A display name: trimmed, 3 to 24 letters A to Z, digits, spaces, `_`, `.` and `-` (the
+/// profiles table's own rule).
 pub fn display_name(s: &str) -> Result<String, Error> {
     let s = s.trim();
-    let n = s.chars().count();
-    ((3..=24).contains(&n) && !s.chars().any(char::is_control)).then(|| s.to_string()).ok_or(Error::Code("bad_name"))
+    ((3..=24).contains(&s.len()) && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | ' ' | '-'))).then(|| s.to_string()).ok_or(Error::Code("bad_name"))
 }
 
 /// A friend code: 8 letters and digits (the spaces and dashes of one read out dropped).
@@ -36,10 +38,11 @@ pub fn friend_code(s: &str) -> Result<String, Error> {
     (s.len() == 8 && s.chars().all(|c| c.is_ascii_alphanumeric())).then_some(s).ok_or(Error::Code("bad_friend_code"))
 }
 
-/// A code from an email: 4 to 10 digits (Neon Auth sends 6), the spaces dropped.
+/// A code from an email: 6 to 10 digits (Supabase sends 6 unless set otherwise), the spaces
+/// dropped.
 pub fn email_code(s: &str) -> Result<String, Error> {
     let s: String = s.chars().filter(|c| !c.is_whitespace()).collect();
-    ((4..=10).contains(&s.len()) && s.chars().all(|c| c.is_ascii_digit())).then_some(s).ok_or(Error::Code("invalid_code"))
+    ((6..=10).contains(&s.len()) && s.chars().all(|c| c.is_ascii_digit())).then_some(s).ok_or(Error::Code("invalid_code"))
 }
 
 /// A company session's code to pass on (`together`'s, at most a few hundred characters).
@@ -53,7 +56,7 @@ pub fn status(s: &str) -> Result<&'static str, Error> {
     ["online", "away", "busy", "offline"].into_iter().find(|x| *x == s).ok_or(Error::Code("bad_input"))
 }
 
-/// An id the server gave (a user's, an invite's): short, no spaces.
+/// An id the server gave (a user's uuid, an invite's number): short, no spaces.
 pub fn id(s: &str) -> Result<String, Error> {
     let s = s.trim();
     (!s.is_empty() && s.len() <= 64 && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))).then(|| s.to_string()).ok_or(Error::Code("bad_input"))

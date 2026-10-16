@@ -1,7 +1,7 @@
 // Omsi-Hub online (docs/omsihub/ONLINE.md; the Rust side is `omsihub/online.rs`, its client the
 // crate `omsihub-online`): the bar's Account button with the new requests and invites on it, the
-// panel - signing up, in and out, the email confirmed and the password reset by a code, the
-// profile with the friend code, the account deleted; the friends with their online state, the
+// panel - signing in and out (an account is made on the website), the email confirmed and the
+// password reset by a code, the profile with the friend code, the account deleted; the friends with their online state, the
 // requests, the invites to a company session - and the invites' notices over every page. An
 // account is optional: "Play without an account" is always there, and offline the panel says so
 // quietly. The email address and the password go to Rust and are kept nowhere on the page.
@@ -154,10 +154,11 @@ function Note({ icon = 'info', text, kind = '' }) {
 
 // --- the account --------------------------------------------------------------------------------
 
-/** Signed out: sign in, sign up, the code, the password forgotten; and playing without. */
+/** Signed out: sign in, the code, the password forgotten; a new account on the website; and
+ * playing without. */
 function SignedOut({ v }) {
   const [step, setStep] = useState('sign_in');
-  const [f, setF] = useState({ email: '', password: '', name: '', code: '' });
+  const [f, setF] = useState({ email: '', password: '', code: '' });
   const [err, setErr] = useState('');
   const [info, setInfo] = useState('');
   const [busy, setBusy] = useState(false);
@@ -175,15 +176,20 @@ function SignedOut({ v }) {
     if (r.error) setErr(r.error);
     else setInfo(r.message || '');
     if (r.step === 'verify' || r.step === 'sign_in') setStep(r.step);
-    if (r.ok && !r.step && (name === 'ol_sign_in' || name === 'ol_sign_up' || name === 'ol_verify' || name === 'ol_reset')) {
+    if (r.ok && !r.step && (name === 'ol_sign_in' || name === 'ol_verify' || name === 'ol_reset')) {
       if (r.message) toast(r.message, 'ok');
-      setF({ email: '', password: '', name: '', code: '' });
+      setF({ email: '', password: '', code: '' });
     }
     return r;
   };
   const signIn = () => send('ol_sign_in', { email: f.email, password: f.password });
-  const signUp = () => send('ol_sign_up', { email: f.email, password: f.password, name: f.name });
-  const verify = () => send('ol_verify', { email: f.email, code: f.code, password: f.password, name: f.name });
+  // (an account is made on the website; its display name comes along at the first sign-in here)
+  const create = () => {
+    call('open_url', { url: v?.sign_up_url }).catch((e) => toast(String(e?.message || e), 'error'));
+    setErr('');
+    setInfo(tr('Create your account on the Omsi-Hub website, confirm your email address, then sign in here.'));
+  };
+  const verify = () => send('ol_verify', { email: f.email, code: f.code, password: f.password });
   const forgot = async () => {
     const r = await send('ol_forgot', { email: f.email });
     if (r.ok) setStep('reset');
@@ -195,19 +201,12 @@ function SignedOut({ v }) {
   };
   const email = html`<${Field} label=${tr('Email address')} type="email" value=${f.email} onInput=${put('email')} max=${254} auto="email" />`;
   let body;
-  if (step === 'sign_up') {
-    body = html`<h3>${tr('Create an account')}</h3>
-      <${Field} label=${tr('Display name')} value=${f.name} onInput=${put('name')} max=${24} auto="nickname" hint=${html`<em class="ol-hint">${tr('3 to 24 characters. Your friends see it.')}</em>`} />
-      ${email}
-      <${Field} label=${tr('Password')} type="password" value=${f.password} onInput=${put('password')} max=${128} auto="new-password" onEnter=${signUp} hint=${html`<${Strength} p=${f.password} />`} />
-      <div class="ol-row"><${Btn} kind="primary" icon="person" label=${tr('Create account')} busy=${busy} onClick=${signUp} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('I have an account')} onClick=${() => go('sign_in')} /></div>
-      <${Note} icon="lock" text=${tr('Only your email address and a hash of your password are kept, to sign you in and to reset the password. Your friends see your display name only.')} />`;
-  } else if (step === 'verify') {
+  if (step === 'verify') {
     body = html`<h3>${tr('Confirm your email address')}</h3>
       <p class="ol-text">${tr('Enter the code we sent to %{email}.', { email: f.email || tr('your email address') })}</p>
       ${!f.email && email}
       <${Field} label=${tr('Code')} value=${f.code} onInput=${put('code')} max=${10} auto="one-time-code" onEnter=${verify} />
-      ${!f.password && html`<${Field} label=${tr('Password')} type="password" value=${f.password} onInput=${put('password')} max=${128} auto="current-password" />`}
+      ${!f.password && html`<${Field} label=${tr('Password')} type="password" value=${f.password} onInput=${put('password')} max=${72} auto="current-password" />`}
       <div class="ol-row"><${Btn} kind="primary" icon="check" label=${tr('Confirm')} busy=${busy} onClick=${verify} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Send a new code')} onClick=${() => send('ol_resend', { email: f.email })} /></div>`;
   } else if (step === 'forgot') {
     body = html`<h3>${tr('Forgot your password?')}</h3>
@@ -218,14 +217,14 @@ function SignedOut({ v }) {
     body = html`<h3>${tr('Choose a new password')}</h3>
       <p class="ol-text">${tr('Enter the code we sent to %{email}.', { email: f.email })}</p>
       <${Field} label=${tr('Code')} value=${f.code} onInput=${put('code')} max=${10} auto="one-time-code" />
-      <${Field} label=${tr('New password')} type="password" value=${f.password} onInput=${put('password')} max=${128} auto="new-password" onEnter=${reset} hint=${html`<${Strength} p=${f.password} />`} />
+      <${Field} label=${tr('New password')} type="password" value=${f.password} onInput=${put('password')} max=${72} auto="new-password" onEnter=${reset} hint=${html`<${Strength} p=${f.password} />`} />
       <div class="ol-row"><${Btn} kind="primary" icon="key" label=${tr('Change password')} busy=${busy} onClick=${reset} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Send a new code')} onClick=${forgot} /></div>`;
   } else {
     body = html`<h3>${tr('Sign in')}</h3>
       ${email}
-      <${Field} label=${tr('Password')} type="password" value=${f.password} onInput=${put('password')} max=${128} auto="current-password" onEnter=${signIn} />
+      <${Field} label=${tr('Password')} type="password" value=${f.password} onInput=${put('password')} max=${72} auto="current-password" onEnter=${signIn} />
       <div class="ol-row"><${Btn} kind="primary" icon="person" label=${tr('Sign in')} busy=${busy} onClick=${signIn} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Forgot your password?')} onClick=${() => go('forgot')} /></div>
-      <div class="ol-row"><span class="ol-text">${tr('New here?')}</span><${Btn} kind="ghost" label=${tr('Create an account')} onClick=${() => go('sign_up')} /></div>`;
+      <div class="ol-row"><span class="ol-text">${tr('New here?')}</span><${Btn} kind="ghost" icon="open_in_new" label=${tr('Create an account')} disabled=${!v?.sign_up_url} onClick=${create} /></div>`;
   }
   return html`<div class="ol-account">
     <p class="ol-lead">${tr('An account is optional. With one you add friends, see who is online and invite them to your company. Without one, everything else works as before.')}</p>
@@ -306,7 +305,7 @@ function Profile({ v }) {
         ? html`<${Btn} kind="ghost" icon="delete" label=${tr('Delete my account')} onClick=${() => setDel(true)} />`
         : html`<h3>${tr('Delete my account')}</h3>
           <p class="ol-text">${tr('This deletes your profile, your friends, your invites, your cloud saves and then the account itself. Your companies on this PC stay, as local saves. It cannot be undone.')}</p>
-          <${Field} label=${tr('Your password, to confirm')} type="password" value=${password} onInput=${setPassword} max=${128} auto="current-password" />
+          <${Field} label=${tr('Your password, to confirm')} type="password" value=${password} onInput=${setPassword} max=${72} auto="current-password" />
           <div class="ol-row"><${Btn} kind="danger" icon="delete" label=${tr('Delete for good')} busy=${busy} disabled=${!password} onClick=${remove} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Cancel')} onClick=${() => (setDel(false), setPassword(''))} /></div>`}
     </div>
   </div>`;

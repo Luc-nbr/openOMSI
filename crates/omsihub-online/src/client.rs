@@ -1,25 +1,18 @@
-//! The client: Neon Auth's routes (Better Auth 1.7, with its bearer, JWT and email-OTP plugins:
-//! docs/omsihub/ONLINE.md says which) and the Data API's functions.
+//! The client: Supabase Auth's routes (`/auth/v1`), the database's functions through PostgREST
+//! (`/rest/v1/rpc/<name>`) and its tables the player may read; the cloud saves are `saves.rs`.
 //!
-//! The session token (Better Auth's, from `set-auth-token`) is the one thing kept, in the OS's
-//! store; it goes as `Authorization: Bearer` to the auth only. The Data API gets the JWT
-//! (`GET /token`), kept in memory, fetched again a minute before it expires and once more on a
-//! 401; a second 401, or the auth refusing the session, signs out (the token taken from the
-//! store). No cookie is sent; the auth's calls carry its own origin as `Origin`, which Better
-//! Auth trusts (a sign-up without one is refused: `MISSING_ORIGIN`).
+//! The refresh token is the one thing kept, in the OS's store. The access token (a JWT, about an
+//! hour) lives in memory and goes as `Authorization: Bearer` to every call; it is renewed with the
+//! refresh token a minute before it expires, and once more when the database answers 401. A second
+//! 401, or the auth refusing the refresh token, signs out (the token taken from the store). Supabase
+//! hands out a new refresh token with every renewal, and the new one replaces the old one in the
+//! store at once. Every request carries the project's publishable key (`apikey`); no cookie is sent.
 
 use crate::codes::{self, Error};
-use crate::http::{encode, Http, Reply};
+use crate::http::{encode, Body, Http, Reply};
 use crate::store::SecretStore;
 use crate::{check, Endpoints};
 use serde_json::{json, Value};
-
-/// After signing up: signed in already, or the email to confirm by its code first.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SignUp {
-    SignedIn,
-    Verify,
-}
 
 /// The player's own profile.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -27,6 +20,8 @@ pub struct Profile {
     pub user_id: String,
     pub display_name: String,
     pub friend_code: String,
+    /// Standing on the public leaderboard (the player's choice, off until switched on).
+    pub on_board: bool,
 }
 
 /// A row of `my_friends()`: a friend, or a request either way.
@@ -69,23 +64,38 @@ impl Invite {
     }
 }
 
-pub(crate) struct Jwt {
+/// The player's service record for the leaderboard (`report_stats`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Stats {
+    pub points: u64,
+    pub level: u32,
+    pub duties: u32,
+    pub minutes_driven: u32,
+    pub km: u32,
+}
+
+/// The access token and what it says.
+struct Access {
     token: String,
     exp: u64,
     sub: String,
+    email: String,
 }
 
 pub struct Client {
     pub(crate) ep: Endpoints,
     pub(crate) http: Http,
     store: Box<dyn SecretStore>,
-    session: Option<String>,
-    pub(crate) jwt: Option<Jwt>,
+    refresh: Option<String>,
+    access: Option<Access>,
+    /// The display name the website's sign-up put in the account (`user_metadata`), for the
+    /// profile made on the first sign-in here.
+    signed_up_name: Option<String>,
     /// The goodbye's short timeouts.
     quick: bool,
 }
 
-/// The JWT is fetched again this long before it expires.
+/// The access token is renewed this long before it expires.
 const MARGIN: u64 = 60;
 
 fn now() -> u64 {
@@ -107,12 +117,12 @@ fn text(row: &Value, names: &[&str]) -> Option<String> {
 impl Client {
     /// The client, with the session the store kept (if any).
     pub fn new(ep: Endpoints, store: Box<dyn SecretStore>) -> Self {
-        let session = store.load();
-        Self { http: Http::new(!ep.plain), ep, store, session, jwt: None, quick: false }
+        let refresh = store.load();
+        Self { http: Http::new(!ep.plain), ep, store, refresh, access: None, signed_up_name: None, quick: false }
     }
 
     pub fn signed_in(&self) -> bool {
-        self.session.is_some()
+        self.refresh.is_some()
     }
 
     /// Whether the session outlives the program (kept in the OS's store).
@@ -120,141 +130,122 @@ impl Client {
         self.store.lasting()
     }
 
-    /// The player's user id (the JWT's subject), once a JWT was fetched.
+    /// The player's user id (the access token's subject), once there is one.
     pub fn user_id(&self) -> Option<&str> {
-        self.jwt.as_ref().map(|j| j.sub.as_str()).filter(|s| !s.is_empty())
+        self.access.as_ref().map(|a| a.sub.as_str()).filter(|s| !s.is_empty())
     }
 
-    pub(crate) fn send(&self, method: &str, url: &str, bearer: Option<&str>, body: Option<&Value>) -> Result<Reply, Error> {
-        // (Better Auth refuses a sign-up without an Origin it trusts - "MISSING_ORIGIN": its own
-        // origin is one, and the auth's calls carry it; the Data API and the saves need none)
-        let origin = url.starts_with(&self.ep.auth).then(|| origin_of(&self.ep.auth));
-        self.http.send(method, url, bearer, body, origin.as_deref(), self.quick)
+    /// The display name chosen on the website's sign-up, while the profile is still to be made.
+    pub fn signed_up_name(&self) -> Option<&str> {
+        self.signed_up_name.as_deref()
     }
 
-    /// A POST to the auth, its error as ours.
-    fn auth_post(&self, path: &str, body: Value, bearer: Option<&str>) -> Result<Reply, Error> {
-        let r = self.send("POST", &format!("{}{path}", self.ep.auth), bearer, Some(&body))?;
+    pub(crate) fn send(&self, method: &str, url: &str, bearer: Option<&str>, body: Body, headers: &[(&str, &str)], file: bool) -> Result<Reply, Error> {
+        self.http.send(method, url, &self.ep.key, bearer, body, headers, file, self.quick)
+    }
+
+    /// A call to the auth (`/auth/v1<path>`), its error as ours.
+    fn auth(&self, method: &str, path: &str, body: Option<Value>, bearer: Option<&str>) -> Result<Value, Error> {
+        let r = self.send(method, &self.ep.auth(path), bearer, body.as_ref().map_or(Body::None, Body::Json), &[], false)?;
         if r.ok() {
-            Ok(r)
+            Ok(r.body)
         } else {
             Err(codes::of_auth(r.status, &r.body))
         }
     }
 
-    /// The session an answer brought (the bearer plugin's header, else the cookie, else the
-    /// body's `token`), kept.
-    fn keep(&mut self, r: &Reply) -> bool {
-        let token = r.auth_token.clone().or_else(|| r.cookie_token.clone()).or_else(|| r.body.get("token").and_then(Value::as_str).map(str::to_string)).filter(|t| !t.is_empty());
-        let Some(t) = token else { return false };
-        self.store.save(&t);
-        self.session = Some(t);
-        self.jwt = None;
+    /// The session an answer brought (`access_token`, `refresh_token`), kept: the refresh token in
+    /// the store, the access token in memory. Whether there was one.
+    fn keep(&mut self, s: &Value) -> bool {
+        let (Some(token), Some(refresh)) = (s.get("access_token").and_then(Value::as_str), s.get("refresh_token").and_then(Value::as_str).filter(|t| !t.is_empty())) else { return false };
+        let Some((exp, sub, email)) = claims(token) else { return false };
+        self.store.save(refresh);
+        self.refresh = Some(refresh.to_string());
+        self.access = Some(Access { token: token.to_string(), exp, sub, email });
+        if let Some(n) = s.pointer("/user/user_metadata/display_name").and_then(Value::as_str).filter(|n| !n.trim().is_empty()) {
+            self.signed_up_name = Some(n.trim().to_string());
+        }
         true
     }
 
-    /// Signed out here: the token out of the store, the JWT forgotten.
+    /// Signed out here: the refresh token out of the store, the access token forgotten.
     pub fn forget(&mut self) {
-        self.session = None;
-        self.jwt = None;
+        self.refresh = None;
+        self.access = None;
+        self.signed_up_name = None;
         self.store.clear();
     }
 
     // --- the account ----------------------------------------------------------------------------
+    // (an account is made on the website: `crate::sign_up_page`)
 
-    /// A new account (`POST /sign-up/email`). With the email to be confirmed first (the project's
-    /// setting), Neon Auth sends the code and the session comes with `verify_email`.
-    pub fn sign_up(&mut self, email: &str, password: &str, name: &str) -> Result<SignUp, Error> {
-        let (email, password, name) = (check::email(email)?, check::password(password)?, check::display_name(name)?);
-        let r = self.auth_post("/sign-up/email", json!({ "email": email, "password": password, "name": name }), None)?;
-        Ok(if self.keep(&r) { SignUp::SignedIn } else { SignUp::Verify })
-    }
-
-    /// Signing in (`POST /sign-in/email`).
+    /// Signing in (`POST /token?grant_type=password`).
     pub fn sign_in(&mut self, email: &str, password: &str) -> Result<(), Error> {
         let (email, password) = (check::email(email)?, check::password(password).map_err(|_| Error::Code("invalid_credentials"))?);
-        let r = self.auth_post("/sign-in/email", json!({ "email": email, "password": password, "rememberMe": true }), None)?;
-        if self.keep(&r) {
+        let s = self.auth("POST", "/token?grant_type=password", Some(json!({ "email": email, "password": password })), None)?;
+        if self.keep(&s) {
             Ok(())
         } else {
             Err(Error::Code("server"))
         }
     }
 
-    /// A new code to confirm the email (`POST /email-otp/send-verification-otp`).
+    /// A new code to confirm the email (`POST /resend`, the sign-up's mail).
     pub fn send_verification(&self, email: &str) -> Result<(), Error> {
-        self.auth_post("/email-otp/send-verification-otp", json!({ "email": check::email(email)?, "type": "email-verification" }), None).map(|_| ())
+        self.auth("POST", "/resend", Some(json!({ "type": "signup", "email": check::email(email)? })), None).map(|_| ())
     }
 
-    /// The email confirmed by its code (`POST /email-otp/verify-email`); whether that signed in
-    /// too (the project's "sign in after verification").
+    /// The email confirmed by its code (`POST /verify`, `type: email`; a code from an older
+    /// sign-up mail is `type: signup`); whether that signed in (it does on Supabase).
     pub fn verify_email(&mut self, email: &str, code: &str) -> Result<bool, Error> {
-        let r = self.auth_post("/email-otp/verify-email", json!({ "email": check::email(email)?, "otp": check::email_code(code)? }), None)?;
-        Ok(self.keep(&r))
+        let (email, code) = (check::email(email)?, check::email_code(code)?);
+        let s = match self.auth("POST", "/verify", Some(json!({ "type": "email", "email": email, "token": code })), None) {
+            Err(Error::Code("invalid_code")) => self.auth("POST", "/verify", Some(json!({ "type": "signup", "email": email, "token": code })), None)?,
+            r => r?,
+        };
+        Ok(self.keep(&s))
     }
 
-    /// A code to reset the password, by email (`POST /email-otp/request-password-reset`; an
-    /// older Better Auth's `/forget-password/email-otp` where that one is not there). The answer
-    /// is the same whether the address has an account or not.
+    /// A code to reset the password, by email (`POST /recover`). The answer is the same whether
+    /// the address has an account or not.
     pub fn request_reset(&self, email: &str) -> Result<(), Error> {
-        let body = json!({ "email": check::email(email)? });
-        match self.auth_post("/email-otp/request-password-reset", body.clone(), None) {
-            Err(Error::Code("unavailable")) => self.auth_post("/forget-password/email-otp", body, None).map(|_| ()),
-            r => r.map(|_| ()),
+        self.auth("POST", "/recover", Some(json!({ "email": check::email(email)? })), None).map(|_| ())
+    }
+
+    /// The new password with the code: the code signs in (`POST /verify`, `type: recovery`), then
+    /// the password is set (`PUT /user`). Signed in afterwards.
+    pub fn reset_password(&mut self, email: &str, code: &str, password: &str) -> Result<(), Error> {
+        let (email, code, password) = (check::email(email)?, check::email_code(code)?, check::password(password)?);
+        let s = self.auth("POST", "/verify", Some(json!({ "type": "recovery", "email": email, "token": code })), None)?;
+        if !self.keep(&s) {
+            return Err(Error::Code("server"));
+        }
+        let t = self.access_token()?;
+        match self.auth("PUT", "/user", Some(json!({ "password": password })), Some(&t)) {
+            // (the password is the one asked for already)
+            Ok(_) | Err(Error::Code("same_password")) => Ok(()),
+            Err(e) => Err(e),
         }
     }
 
-    /// The new password with the code (`POST /email-otp/reset-password`). The player signs in
-    /// with it afterwards.
-    pub fn reset_password(&self, email: &str, code: &str, password: &str) -> Result<(), Error> {
-        self.auth_post("/email-otp/reset-password", json!({ "email": check::email(email)?, "otp": check::email_code(code)?, "password": check::password(password)? }), None).map(|_| ())
-    }
-
-    /// Signing out (`POST /sign-out`, best effort: the token goes here whatever the server says).
+    /// Signing out (`POST /logout?scope=local`, best effort: the token goes here whatever the
+    /// server says).
     pub fn sign_out(&mut self) {
-        if let Some(s) = self.session.clone() {
-            let _ = self.auth_post("/sign-out", json!({}), Some(&s));
-        }
-        self.forget();
-    }
-
-    /// The account deleted, after the password typed again: signed in afresh with it (which
-    /// checks it, and makes the session fresh enough to delete), `delete_my_data()`, the cloud
-    /// saves (`delete_all`: nothing of the player's is left in the storage), then the auth's
-    /// user (`POST /delete-user`), then signed out here. A step that fails stops it before the
-    /// user is deleted: tried again, the steps done already do nothing.
-    pub fn delete_account(&mut self, password: &str) -> Result<(), Error> {
-        let session = self.session.clone().ok_or(Error::Code("not_signed_in"))?;
-        let r = self.send("GET", &format!("{}/get-session", self.ep.auth), Some(&session), None)?;
-        if r.status == 401 || (r.ok() && r.body.is_null()) {
-            self.forget();
-            return Err(Error::SignedOut);
-        }
-        if !r.ok() {
-            return Err(codes::of_auth(r.status, &r.body));
-        }
-        // (the address only for this, in memory)
-        let email = r.body.pointer("/user/email").and_then(Value::as_str).ok_or(Error::Code("server"))?.to_string();
-        self.sign_in(&email, password).map_err(|e| if e == Error::Code("invalid_credentials") { Error::Code("wrong_password") } else { e })?;
-        self.rpc("delete_my_data", json!({}))?;
-        self.saves_delete_all()?;
-        let fresh = self.session.clone().ok_or(Error::Code("server"))?;
-        self.auth_post("/delete-user", json!({ "password": password }), Some(&fresh))?;
-        self.forget();
-        Ok(())
-    }
-
-    // --- the JWT and the Data API ---------------------------------------------------------------
-
-    /// A JWT good for a minute at least (`GET /token` with the session).
-    pub fn jwt(&mut self) -> Result<String, Error> {
-        if let Some(j) = &self.jwt {
-            if j.exp > now() + MARGIN {
-                return Ok(j.token.clone());
+        if self.signed_in() {
+            if let Ok(t) = self.access_token() {
+                let _ = self.auth("POST", "/logout?scope=local", None, Some(&t));
             }
         }
-        let session = self.session.clone().ok_or(Error::Code("not_signed_in"))?;
-        let r = self.send("GET", &format!("{}/token", self.ep.auth), Some(&session), None)?;
+        self.forget();
+    }
+
+    /// The account deleted, after the password typed again: signed in afresh with it (which checks
+    /// it), the cloud saves deleted through Storage, then `delete_my_account()` (the user, and with
+    /// it the profile, the friendships and the invites), then signed out here. Nothing is deleted
+    /// when the password is wrong; a cloud save that will not go keeps the account.
+    pub fn delete_account(&mut self, password: &str) -> Result<(), Error> {
+        let t = self.access_token()?;
+        let r = self.send("GET", &self.ep.auth("/user"), Some(&t), Body::None, &[], false)?;
         if r.status == 401 || r.status == 403 {
             self.forget();
             return Err(Error::SignedOut);
@@ -262,36 +253,74 @@ impl Client {
         if !r.ok() {
             return Err(codes::of_auth(r.status, &r.body));
         }
-        // (a session the auth renewed comes back with it)
-        if r.auth_token.as_ref().is_some_and(|t| Some(t) != self.session.as_ref()) {
-            self.keep(&r);
-        }
-        let token = r.body.get("token").and_then(Value::as_str).map(str::to_string).or(r.auth_jwt).ok_or(Error::Code("server"))?;
-        let (exp, sub) = claims(&token).ok_or(Error::Code("server"))?;
-        self.jwt = Some(Jwt { token: token.clone(), exp, sub });
-        Ok(token)
+        // (the address only for this, in memory)
+        let email = r.body.get("email").and_then(Value::as_str).map(str::to_string).or_else(|| self.access.as_ref().map(|a| a.email.clone())).filter(|e| !e.is_empty()).ok_or(Error::Code("server"))?;
+        self.sign_in(&email, password).map_err(|e| if e == Error::Code("invalid_credentials") { Error::Code("wrong_password") } else { e })?;
+        self.saves_delete_all()?;
+        self.rpc("delete_my_account", json!({}))?;
+        self.forget();
+        Ok(())
     }
 
-    /// A Data API request with the JWT; a 401 fetches a new one and tries once more.
-    fn data(&mut self, method: &str, path: &str, body: Option<&Value>) -> Result<Value, Error> {
-        let url = format!("{}{path}", self.ep.data);
+    // --- the access token and the database ---------------------------------------------------------
+
+    /// An access token good for a minute at least: the one in memory, or a new one for the refresh
+    /// token (`POST /token?grant_type=refresh_token`).
+    pub fn access_token(&mut self) -> Result<String, Error> {
+        if let Some(a) = &self.access {
+            if a.exp > now() + MARGIN {
+                return Ok(a.token.clone());
+            }
+        }
+        let refresh = self.refresh.clone().ok_or(Error::Code("not_signed_in"))?;
+        let r = self.send("POST", &self.ep.auth("/token?grant_type=refresh_token"), None, Body::Json(&json!({ "refresh_token": refresh })), &[], false)?;
+        if !r.ok() {
+            let e = codes::of_auth(r.status, &r.body);
+            // (a refresh token the auth does not take - used, revoked, its user gone - ends the
+            // session; the auth being busy or down does not)
+            if e == Error::SignedOut || matches!(r.status, 400 | 401 | 403) {
+                self.forget();
+                return Err(Error::SignedOut);
+            }
+            return Err(e);
+        }
+        if !self.keep(&r.body) {
+            return Err(Error::Code("server"));
+        }
+        Ok(self.access.as_ref().map(|a| a.token.clone()).unwrap_or_default())
+    }
+
+    /// A request with the access token (to the database or Storage); refused as unauthorized, the
+    /// token is renewed and it is tried once more, and refused again it signs out. Any other answer
+    /// comes back as it is.
+    pub(crate) fn authed(&mut self, method: &str, url: &str, body: Body, headers: &[(&str, &str)], file: bool) -> Result<Reply, Error> {
         for again in [false, true] {
-            let jwt = self.jwt()?;
-            let r = self.send(method, &url, Some(&jwt), body)?;
-            if r.status == 401 {
-                self.jwt = None;
+            let t = self.access_token()?;
+            let r = self.send(method, url, Some(&t), body, headers, file)?;
+            if !r.ok() && codes::is_unauthorized(r.status, &r.body) {
+                self.access = None;
                 if again {
                     self.forget();
                     return Err(Error::SignedOut);
                 }
                 continue;
             }
-            return if r.ok() { Ok(r.body) } else { Err(codes::of_data(r.status, &r.body)) };
+            return Ok(r);
         }
         Err(Error::SignedOut)
     }
 
-    /// A function of the Data API (`POST /rpc/<name>`).
+    /// A request to the database (`/rest/v1<path>`).
+    fn data(&mut self, method: &str, path: &str, body: Option<&Value>) -> Result<Value, Error> {
+        let r = self.authed(method, &self.ep.rest(path), body.map_or(Body::None, Body::Json), &[], false)?;
+        if r.ok() {
+            Ok(r.body)
+        } else {
+            Err(codes::of_data(r.status, &r.body))
+        }
+    }
+
+    /// A function of the database (`POST /rest/v1/rpc/<name>`).
     pub fn rpc(&mut self, name: &str, args: Value) -> Result<Value, Error> {
         self.data("POST", &format!("/rpc/{name}"), Some(&args))
     }
@@ -320,10 +349,15 @@ impl Client {
 
     /// The player's own profile, or None before `create_profile`.
     pub fn profile(&mut self) -> Result<Option<Profile>, Error> {
-        self.jwt()?;
+        self.access_token()?;
         let me = self.user_id().ok_or(Error::Code("server"))?.to_string();
-        let v = self.data("GET", &format!("/profiles?select=user_id,display_name,friend_code&user_id=eq.{}&limit=1", encode(&me)), None)?;
-        Ok(v.as_array().and_then(|a| a.first()).map(|row| Profile { user_id: me, display_name: text(row, &["display_name"]).unwrap_or_default(), friend_code: text(row, &["friend_code"]).unwrap_or_default() }))
+        let v = self.data("GET", &format!("/profiles?select=user_id,display_name,friend_code,on_board&user_id=eq.{}&limit=1", encode(&me)), None)?;
+        Ok(v.as_array().and_then(|a| a.first()).map(|row| Profile {
+            user_id: me,
+            display_name: text(row, &["display_name"]).unwrap_or_default(),
+            friend_code: text(row, &["friend_code"]).unwrap_or_default(),
+            on_board: field(row, &["on_board"]).and_then(Value::as_bool).unwrap_or(false),
+        }))
     }
 
     /// The online state and the company session hosted now (None: none).
@@ -359,9 +393,17 @@ impl Client {
         self.rpc_code("block_player", json!({ "p_other": check::id(other)? }), &["ok"]).map(|_| ())
     }
 
-    /// An invite to the company session hosted now.
+    /// An invite to the company session hosted now (`not_friends` is `not_allowed`).
     pub fn send_invite(&mut self, to: &str, session: &str) -> Result<(), Error> {
-        self.rpc_code("send_invite", json!({ "p_to": check::id(to)?, "p_session": check::session_code(session)? }), &["ok", "sent"]).map(|_| ())
+        let v = self.rpc("send_invite", json!({ "p_to": check::id(to)?, "p_session": check::session_code(session)? }))?;
+        match codes::word_of(&v).as_deref() {
+            Some("not_friends") => Err(Error::Code("not_allowed")),
+            Some(w) => match codes::known(w) {
+                Some(c) if c != "sent" && c != "ok" => Err(Error::Code(c)),
+                _ => Ok(()),
+            },
+            None => Ok(()),
+        }
     }
 
     pub fn dismiss_invite(&mut self, id: &Value) -> Result<(), Error> {
@@ -376,13 +418,37 @@ impl Client {
 
     /// The invites the player was sent, newest first (the table: its rows are the player's own).
     pub fn invites(&mut self) -> Result<Vec<Invite>, Error> {
-        self.jwt()?;
+        self.access_token()?;
         let me = self.user_id().unwrap_or_default().to_string();
         let v = self.data("GET", "/invites?select=*&limit=50", None)?;
         let mut all: Vec<Invite> = v.as_array().map(|rows| rows.iter().filter_map(invite_of).collect()).unwrap_or_default();
         all.retain(|i| if i.to.is_empty() { i.from != me } else { i.to == me });
         all.sort_by(|a, b| b.created_at.cmp(&a.created_at));
         Ok(all)
+    }
+
+    // --- the leaderboard --------------------------------------------------------------------------
+
+    /// Standing on the public leaderboard, or not (`set_leaderboard`); `no_profile` before the
+    /// display name is chosen.
+    pub fn set_leaderboard(&mut self, on: bool) -> Result<(), Error> {
+        match self.rpc("set_leaderboard", json!({ "p_on": on }))? {
+            Value::Bool(false) => Err(Error::Code("no_profile")),
+            _ => Ok(()),
+        }
+    }
+
+    /// The service record for the leaderboard (`report_stats`): `ok`, or `too_soon` (one report
+    /// in 30 seconds is kept); `no_profile` and a record out of range (`bad_input`) are errors.
+    pub fn report_stats(&mut self, s: &Stats) -> Result<&'static str, Error> {
+        let v = self.rpc("report_stats", json!({ "p_points": s.points, "p_level": s.level.max(1), "p_duties": s.duties, "p_minutes": s.minutes_driven, "p_km": s.km }))?;
+        match codes::word_of(&v).as_deref() {
+            Some("ok") => Ok("ok"),
+            Some("too_soon") => Ok("too_soon"),
+            Some("no_profile") => Err(Error::Code("no_profile")),
+            Some("bad") => Err(Error::Code("bad_input")),
+            _ => Err(Error::Code("server")),
+        }
     }
 }
 
@@ -410,11 +476,12 @@ fn invite_of(row: &Value) -> Option<Invite> {
     })
 }
 
-/// A JWT's expiry and subject (read, not checked: the Data API checks it against the JWKS).
-fn claims(jwt: &str) -> Option<(u64, String)> {
+/// An access token's expiry, subject and email (read, not checked: the server checks it).
+fn claims(jwt: &str) -> Option<(u64, String, String)> {
     let payload = jwt.split('.').nth(1)?;
     let v: Value = serde_json::from_slice(&base64url(payload)?).ok()?;
-    Some((v.get("exp")?.as_u64()?, v.get("sub").and_then(Value::as_str).unwrap_or("").to_string()))
+    let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+    Some((v.get("exp")?.as_u64()?, s("sub"), s("email")))
 }
 
 fn base64url(s: &str) -> Option<Vec<u8>> {
@@ -440,6 +507,7 @@ fn base64url(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
+/// An access token as Supabase's look (the tests'; the signature is not read here).
 #[cfg(test)]
 pub(crate) fn test_jwt(sub: &str, exp: u64) -> String {
     fn b64(b: &[u8]) -> String {
@@ -453,16 +521,11 @@ pub(crate) fn test_jwt(sub: &str, exp: u64) -> String {
         }
         s
     }
-    format!("{}.{}.sig", b64(br#"{"alg":"EdDSA"}"#), b64(json!({ "sub": sub, "exp": exp }).to_string().as_bytes()))
+    let claims = json!({ "sub": sub, "exp": exp, "email": "a@b.example", "role": "authenticated", "aud": "authenticated" });
+    format!("{}.{}.sig", b64(br#"{"alg":"ES256","typ":"JWT"}"#), b64(claims.to_string().as_bytes()))
 }
 
 #[cfg(test)]
 pub(crate) fn test_now() -> u64 {
     now()
-}
-
-/// The origin of a URL: its scheme and host (`https://a.example/b/c` → `https://a.example`).
-fn origin_of(url: &str) -> String {
-    let rest = url.find("://").map_or(0, |i| i + 3);
-    url[..url[rest..].find('/').map_or(url.len(), |j| rest + j)].to_string()
 }
