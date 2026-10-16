@@ -99,6 +99,8 @@ fn plain(label: &str) -> (&str, bool) {
     }
 }
 
+// (Omsi-Hub: its own menu draws in its place, `shell::hub`)
+#[allow(dead_code)]
 pub(crate) fn draw(sh: &mut Shell, v: &PauseView) {
     let size = sh.ui.size;
     // the launcher's window: its sidebar and a page beside it - the home page with the
@@ -233,11 +235,12 @@ fn tabs(ui: &mut Ui, at: Vec2, titles: &[String], chosen: usize, max_w: f32) -> 
     out
 }
 
-/// An open list or settings window as a launcher page right of the rail.
-fn list_page(sh: &mut Shell, v: &PauseView, list: &ListView, page: Rect) {
+/// An open list or settings window as a launcher page right of the rail (Omsi-Hub: in the
+/// sheet beside its panel, `shell::hub`).
+pub(crate) fn list_page(sh: &mut Shell, v: &PauseView, list: &ListView, page: Rect) {
     let margin = 32.0;
     let w = (page.w - margin * 2.0).min(1400.0);
-    let area = Rect::new(page.x + margin + ((page.w - margin * 2.0) - w).max(0.0) * 0.5, 28.0, w, page.h - 28.0 - 24.0);
+    let area = Rect::new(page.x + margin + ((page.w - margin * 2.0) - w).max(0.0) * 0.5, page.y + 28.0, w, page.h - 28.0 - 24.0);
     // the title, with the way back before it
     let (title, sub) = list.head.clone().unwrap_or_else(|| (omsi_ui::tr("Options").into_owned(), String::new()));
     let back_k = list.items.iter().position(|(id, label)| *id == "back" && plain(label).0 == omsi_ui::tr("Back").as_ref());

@@ -90,8 +90,10 @@ impl App {
             keys: !crate::platform::touch_controls(),
             summary: self.pause_summary(),
         };
+        // Omsi-Hub: its own pause menu in place of openOMSI's rail (`shell::hub`)
+        let hub = crate::shell::hub::Hub::of(self, &rail, scale, dt);
         self.shell.begin(w, h, scale, dt);
-        crate::shell::pause::draw(&mut self.shell, &view);
+        crate::shell::hub::draw(&mut self.shell, &view, &hub);
         self.shell.finish();
     }
 
@@ -104,6 +106,12 @@ impl App {
     /// What the clicks on the screens asked for, done (at the start of a frame, with the
     /// event loop at hand).
     pub(crate) fn apply_shell_actions(&mut self, event_loop: &ActiveEventLoop) {
+        // Omsi-Hub: a gamepad in its pause menu presses the menu's keys (`shell::hub`)
+        for code in crate::shell::hub::pad_keys() {
+            if self.menus.game_menu.is_some() {
+                self.menu_key(event_loop, code);
+            }
+        }
         let actions = std::mem::take(&mut self.shell.actions);
         for a in actions {
             log::info!("screens: {a:?}");

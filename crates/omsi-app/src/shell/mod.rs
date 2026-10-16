@@ -16,6 +16,7 @@ use omsi_ui::{Draw, Gpu, Layer, Vertex};
 
 use omsi_ui::kit::Ui;
 
+pub(crate) mod hub;
 pub(crate) mod pause;
 
 /// What a click on one of the screens asks of the game.
@@ -55,9 +56,12 @@ pub(crate) struct Shell {
     /// The picture's texture once it is on the card.
     pub(crate) picture_tex: Option<usize>,
     /// The openOMSI logo (the launcher's sidebar has it) on the card, and in the graphics of
-    /// the `shot` pictures.
+    /// the `shot` pictures. Omsi-Hub: its wordmark (`omsihub_game::pause_menu`), and the size
+    /// and accent it was drawn for.
     pub(crate) logo_tex: Option<usize>,
     shot_logo: Option<usize>,
+    logo_key: Option<(u32, u32)>,
+    shot_logo_key: Option<(u32, u32)>,
     /// Physical pixels per point of the last frame.
     pub(crate) scale: f32,
     /// The mouse was over a panel of the screens in the last frame.
@@ -81,7 +85,7 @@ impl Shell {
         // (the desktop launcher's calm look: graphite surfaces, no edges)
         let mut ui = Ui::new();
         ui.flat = true;
-        Shell { ui, gpu: None, shot_gpu: None, drawn: None, actions: Vec::new(), picture: None, picture_tex: None, logo_tex: None, shot_logo: None, scale: 1.0, over_ui: false, last_sel: None, dd_anchor: None, opaque: false }
+        Shell { ui, gpu: None, shot_gpu: None, drawn: None, actions: Vec::new(), picture: None, picture_tex: None, logo_tex: None, shot_logo: None, logo_key: None, shot_logo_key: None, scale: 1.0, over_ui: false, last_sel: None, dd_anchor: None, opaque: false }
     }
 
     /// A frame of the screens begins: the window's size in physical pixels and how many of
@@ -167,9 +171,7 @@ impl Shell {
             self.logo_tex = None;
         }
         let Some((gpu, _)) = self.gpu.as_mut() else { return };
-        if self.logo_tex.is_none() {
-            self.logo_tex = logo_pixels().map(|px| gpu.add_image(&r.device, &r.queue, LOGO_PX, LOGO_PX, &px));
-        }
+        put_logo(gpu, r, &mut self.logo_tex, &mut self.logo_key, self.scale);
         if let Some((pw, ph, px)) = self.picture.take() {
             match self.picture_tex {
                 Some(id) => gpu.update_image(&r.device, &r.queue, id, pw, ph, &px),
@@ -190,11 +192,11 @@ impl Shell {
         let format = wgpu::TextureFormat::Rgba8UnormSrgb;
         let size = self.ui.atlas.size;
         if self.shot_gpu.is_none() {
-            let mut g = Gpu::new(&r.device, format, 1, size);
-            self.shot_logo = logo_pixels().map(|px| g.add_image(&r.device, &r.queue, LOGO_PX, LOGO_PX, &px));
-            self.shot_gpu = Some(g);
+            self.shot_gpu = Some(Gpu::new(&r.device, format, 1, size));
+            self.shot_logo = None;
         }
         let gpu = self.shot_gpu.as_mut().unwrap();
+        put_logo(gpu, r, &mut self.shot_logo, &mut self.shot_logo_key, self.scale);
         self.ui.atlas.mark_all_dirty();
         Self::upload(gpu, r, &mut self.ui, d);
         self.ui.atlas.mark_all_dirty();
@@ -212,14 +214,19 @@ impl Shell {
     }
 }
 
-/// The launcher's logo (`launcher/ui/logo.svg`), as the pixels of a texture of `LOGO_PX`.
-const LOGO: &str = include_str!("../../../../launcher/ui/logo.svg");
-// (drawn 32 interface pixels wide, twice that on a Retina screen: a texture of about that
-// size, since a much larger one squeezed without mipmaps came out blurred and jagged)
-const LOGO_PX: u32 = 64;
-
-fn logo_pixels() -> Option<Vec<u8>> {
-    omsi_ui::icons::rasterize_rgba(LOGO, LOGO_PX, LOGO_PX)
+/// Omsi-Hub: its wordmark for the logo (`omsihub_game::pause_menu`) on the card `gpu` in
+/// `tex`, drawn again when the interface's size or the accent changed (`drawn`).
+fn put_logo(gpu: &mut Gpu, r: &Renderer, tex: &mut Option<usize>, drawn: &mut Option<(u32, u32)>, scale: f32) {
+    let key = omsihub_game::pause_menu::wordmark_key(scale);
+    if tex.is_some() && *drawn == Some(key) {
+        return;
+    }
+    let Some((w, h, px)) = omsihub_game::pause_menu::wordmark_pixels(key) else { return };
+    match *tex {
+        Some(id) => gpu.update_image(&r.device, &r.queue, id, w, h, &px),
+        None => *tex = Some(gpu.add_image(&r.device, &r.queue, w, h, &px)),
+    }
+    *drawn = Some(key);
 }
 
 /// `tex` (RGBA8, `w` x `h`) copied out after the commands of `enc`.

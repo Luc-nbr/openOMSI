@@ -426,6 +426,8 @@ impl crate::App {
             let before_quit = v.iter().position(|x| x.0 == "quit").unwrap_or(v.len()).max(at);
             v.insert(before_quit, ("admin", "Administration..."));
         }
+        // Omsi-Hub: in the order of its pause menu's groups (`omsihub_game::pause_menu`)
+        omsihub_game::pause_menu::arrange(&mut v);
         v
     }
 

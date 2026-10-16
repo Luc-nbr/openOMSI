@@ -3,7 +3,8 @@
 //! its own any more; what is left of Omsi-Hub's game-drawn launcher is here, without a window:
 //!
 //! * in the game: the duty in the navigator (`nav_duty`), the bus stop signs on its maps
-//!   (`stop_signs`) and the loading screen with Omsi-Hub's mark (`splash`, `intro`);
+//!   (`stop_signs`), the loading screen with Omsi-Hub's mark (`splash`, `intro`) and the pause
+//!   menu over openOMSI's (`pause_menu`);
 //! * for the desktop launcher's editors, through the launcher service (`openomsi
 //!   --launcher-service`, the game's `launcher::service`, which hands what it does not know to
 //!   `service::serve`): the line editor kept here while its page draws it (`lineeditor`), the
@@ -27,6 +28,7 @@ mod lineroute;
 mod words;
 pub mod livery;
 pub mod nav_duty;
+pub mod pause_menu;
 pub mod service;
 pub mod showroom;
 pub mod spawn;
