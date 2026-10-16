@@ -950,21 +950,24 @@ function GoTo({ data, drivers, text, size }) {
   </div>`;
 }
 
-/** The optimisation settings: what Optimise makes, and Optimise itself. */
+/** The optimisation settings: what Optimise makes, and Optimise itself - not while it is to make
+ * neither the vehicles nor the duties. */
 function OptSettings({ data, size }) {
   const pr = data.prefs;
+  const none = !pr.optimise_vehicles && !pr.optimise_duties;
   return html`<div class="rf-over rf-sheetwin rf-opt" style=${`left:${size.w - 440}px;top:60px;width:420px;height:250px`}>
     <div class="head"><b>${tr('Optimisation settings')}</b></div>
     <div class="body">
       <${Switch} on=${pr.optimise_vehicles} label="Optimise vehicles (the blocks)" onChange=${(v) => rfAct('opt_flags', { vehicles: v })} />
       <${Switch} on=${pr.optimise_duties} label="Optimise duties (cut and paired)" onChange=${(v) => rfAct('opt_flags', { duties: v })} />
       <p>${tr('Locked vehicles and duties are kept; the preferences say what may be and what it costs.')}</p>
+      ${none && html`<p class="rf-opt-none">${tr('Switch on the vehicles, the duties or both: Optimise has nothing to make.')}</p>`}
     </div>
     <div class="foot">
       <${RfButton} label="Restore defaults" style="width:150px;height:32px" onClick=${() => rfAct('opt_flags', { restore: true })} />
       <span class="grow"></span>
       <${RfButton} label="Close" style="width:110px;height:32px" onClick=${() => setRf({ panel: null })} />
-      <${RfButton} label="Optimize" solid style="width:118px;height:32px" onClick=${() => {
+      <${RfButton} label="Optimize" solid disabled=${none} title=${none ? 'Switch on the vehicles, the duties or both: Optimise has nothing to make.' : undefined} style="width:118px;height:32px" onClick=${() => {
         setRf({ panel: null });
         if (S.rf.view === VEHICLES || S.rf.view === DRIVERS) rfAct('optimise');
         else {

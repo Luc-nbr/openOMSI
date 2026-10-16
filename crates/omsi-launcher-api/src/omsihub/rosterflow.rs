@@ -656,9 +656,12 @@ fn board_answer(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
         Some(Ok(k)) => k,
     };
     let v = &k.view;
-    let prefs = &v.planning.flow.prefs;
+    // (the company's as they are now: they are not the draft's)
+    let prefs = &c.planning.flow.prefs;
     let proposal = r.proposal.clone();
-    let rev = format!("{}|{}|{}|{}|{}", k.rev, proposal.is_some(), r.undo.len(), r.redo.len(), rf::has_draft(&c));
+    // (and the preferences, which the board does not show all of: Optimise's switches set off came
+    // back on, the page keeping the answer it had - Luc, Beta 65)
+    let rev = format!("{}|{}|{}|{}|{}|{:x}", k.rev, proposal.is_some(), r.undo.len(), r.redo.len(), rf::has_draft(&c), hash_of(&serde_json::to_string(prefs).unwrap_or_default()));
     // (the day as his page shows it from now: an edit made on it after somebody else changed it
     // is refused - `live::stale`)
     live::shown(&c, r, &k.rev);

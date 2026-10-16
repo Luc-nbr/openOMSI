@@ -72,3 +72,10 @@ _version: 2
   pl: "Żadnej z zaznaczonych służb nie udało się odpiąć: ich pojazdy lub służby są zablokowane."
   ru: "Ни одну из отмеченных смен не удалось снять: их машины или смены заблокированы."
   uk: "Жодну з позначених змін не вдалося зняти: їхні машини або зміни заблоковані."
+"Switch on the vehicles, the duties or both: Optimise has nothing to make.":
+  de: "Schalte die Fahrzeuge, die Dienste oder beides ein: Optimieren hat sonst nichts zu tun."
+  fr: "Activez les véhicules, les services ou les deux : l'optimisation n'a rien à faire."
+  nl: "Zet de voertuigen, de diensten of beide aan: Optimaliseren heeft niets te doen."
+  pl: "Włącz pojazdy, służby albo oba: optymalizacja nie ma nic do zrobienia."
+  ru: "Включите машины, смены или и то, и другое: оптимизации нечего делать."
+  uk: "Увімкніть машини, зміни або обидва: оптимізації нічого робити."

@@ -418,6 +418,7 @@
 .rf-goto { padding: 12px 16px; gap: 8px; }
 .rf-goto .rf-caps { color: var(--rf-dim); }
 .rf-opt .body p { margin: 4px 0 0; font-size: 9.6px; color: var(--rf-dim); line-height: 1.4; }
+.rf-opt .body p.rf-opt-none { color: var(--rf-warn); }
 .rf-colour .swatches { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; padding: 12px 18px 10px; }
 .rf-colour .swatches button { height: 24px; border-radius: 3px; }
 .rf-colour .swatches button.on { box-shadow: 0 0 0 2px var(--rf-sheet), 0 0 0 4px var(--rf-text); }
