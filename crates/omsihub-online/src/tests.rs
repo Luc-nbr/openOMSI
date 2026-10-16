@@ -34,7 +34,13 @@ impl SecretStore for Shared {
 }
 
 pub(crate) fn client(m: &Mock, store: &Shared) -> Client {
-    Client::new(Endpoints::local(&m.base, KEY).unwrap(), Box::new(store.clone()))
+    agreed(Client::new(Endpoints::local(&m.base, KEY).unwrap(), Box::new(store.clone())))
+}
+
+/// A client whose player (`me`) agreed to the privacy statement already.
+pub(crate) fn agreed(mut c: Client) -> Client {
+    c.privacy = Some(("me".into(), crate::privacy::VERSION));
+    c
 }
 
 pub(crate) fn signed_in(refresh: &str) -> Shared {
@@ -324,6 +330,52 @@ fn the_leaderboard_is_switched_and_the_record_reported() {
     assert_eq!(m.requests().last().unwrap().body["p_level"], 1, "the lowest level is 1");
 }
 
+/// Until the player agreed to the current privacy statement nothing of the account's goes out:
+/// only `my_privacy` and `accept_privacy` (and deleting the account) do.
+#[test]
+fn the_account_waits_for_the_privacy_statement() {
+    use crate::privacy::VERSION;
+    let agreed = Arc::new(AtomicUsize::new(0));
+    let seen = agreed.clone();
+    let m = Mock::start(move |r| {
+        if let Some(a) = refresh_route(r) {
+            return a;
+        }
+        match r.path.as_str() {
+            "/rest/v1/rpc/my_privacy" => ok(json!(seen.load(Ordering::SeqCst))),
+            "/rest/v1/rpc/accept_privacy" => {
+                seen.fetch_max(r.body["p_version"].as_u64().unwrap_or(0) as usize, Ordering::SeqCst);
+                ok(json!(seen.load(Ordering::SeqCst)))
+            }
+            "/rest/v1/rpc/heartbeat" | "/rest/v1/rpc/my_friends" => ok(json!([])),
+            _ => (404, vec![], Value::Null),
+        }
+    });
+    let mut c = Client::new(Endpoints::local(&m.base, KEY).unwrap(), Box::new(signed_in("r1")));
+    assert!(c.privacy_needed(), "a restored session has not been asked yet");
+    assert_eq!(c.heartbeat("online", None), Err(Error::Code("privacy")));
+    assert_eq!(c.friends(), Err(Error::Code("privacy")));
+    assert!(m.calls().iter().all(|p| p.contains("/auth/v1/")), "nothing but the token's renewal went out: {:?}", m.calls());
+    assert_eq!(c.check_privacy(), Ok(0));
+    assert!(c.privacy_needed());
+    assert_eq!(c.accept_privacy(), Ok(VERSION));
+    assert_eq!(m.requests().last().unwrap().body, json!({ "p_version": VERSION }));
+    assert!(!c.privacy_needed());
+    c.heartbeat("online", None).unwrap();
+    assert_eq!(c.friends(), Ok(vec![]));
+    // (an agreement to an older version holds nothing: asked again)
+    c.privacy = Some(("me".into(), VERSION - 1));
+    assert_eq!(c.friends(), Err(Error::Code("privacy")));
+    assert_eq!(c.check_privacy(), Ok(VERSION));
+    c.friends().unwrap();
+    // (another player's agreement is not this one's; signing out forgets it)
+    c.privacy = Some(("someone else".into(), VERSION));
+    assert!(c.privacy_needed());
+    c.forget();
+    assert!(!c.privacy_needed());
+    assert_eq!(c.privacy, None);
+}
+
 #[test]
 fn every_code_has_a_text_and_every_function_answer_is_a_code() {
     for (code, text) in codes::TEXTS {
@@ -385,7 +437,9 @@ fn deleting_the_account_checks_the_password_then_deletes_the_cloud_saves_then_th
         })
     });
     let store = signed_in("r1");
-    let mut c = client(&m, &store);
+    // (deleting is open without the privacy statement agreed to)
+    let mut c = Client::new(Endpoints::local(&m.base, KEY).unwrap(), Box::new(store.clone()));
+    assert!(c.privacy_needed());
     assert_eq!(c.delete_account("not it!!"), Err(Error::Code("wrong_password")));
     assert!(!m.calls().iter().any(|p| p.contains("delete") || p.starts_with("DELETE")), "nothing deleted on a wrong password");
     assert_eq!(files.lock().unwrap().files.len(), 4);

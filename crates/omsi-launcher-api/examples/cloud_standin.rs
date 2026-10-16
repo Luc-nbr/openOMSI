@@ -5,7 +5,8 @@
 //!   node online/standin/standin.mjs
 //!   OMSIHUB_STANDIN=http://127.0.0.1:54321 cargo run -p omsi-launcher-api --example cloud_standin
 //!
-//! An account made on "the website", signed in through `ol_verify`; three companies; two put in the
+//! An account made on "the website", signed in through `ol_verify` without the privacy statement
+//! agreed to (the account and the cloud wait), then agreed to (`ol_privacy_accept`); three companies; two put in the
 //! cloud and the third meeting the limit, then replacing one; a change going up; another computer's
 //! newer version offered and taken; changes on both sides asked and both kept; a slot downloaded;
 //! one removed; the account deleted with its cloud saves.
@@ -104,7 +105,16 @@ fn main() {
     let st = call("ol_state", json!({}));
     assert!(st["sign_up_url"].as_str().is_some_and(|u| u.ends_with("/account.html#sign-up")), "{st}");
     step("signed in through ol_verify; the website's sign-up page is in the state");
+    assert_eq!(st["privacy"]["needed"], true, "{st}");
     assert_eq!(call("cs_state", json!({}))["companies"], json!({}));
+    assert_eq!(call("ol_profile", json!({ "name": "Not yet" }))["code"], "privacy");
+    assert_eq!(call("cs_state", json!({}))["signed_in"], false);
+    let doc = call("ol_privacy", json!({}));
+    assert!(doc["version"].as_u64().is_some_and(|v| v >= 1) && doc["blocks"].as_array().is_some_and(|b| b.len() > 10), "{doc}");
+    let r = call("ol_privacy_accept", json!({}));
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(call("ol_state", json!({}))["privacy"]["needed"], false);
+    step("the account and the cloud waited for the privacy statement; agreed to, they work");
 
     // --- two companies into the cloud, the third meets the limit --------------------------------
     let (a, b, c) = (company(&data, "Stadtbus Nord"), company(&data, "Regio Süd"), company(&data, "Dritter Betrieb"));
@@ -131,6 +141,7 @@ fn main() {
     assert_eq!(badge(&a, "synced")["state"], "synced");
     let mut other = Client::new(Endpoints::local(&base, &key).unwrap(), Box::new(MemoryStore::new()));
     other.sign_in(&email, password).unwrap();
+    assert_eq!(other.check_privacy(), Ok(omsihub_online::privacy::VERSION), "agreed once, for the account");
     let cloud = other.saves_list().unwrap();
     assert_eq!(cloud.slot(1).unwrap().version, 2, "{cloud:?}");
     step("a changed cloud company goes up when its pages are left");

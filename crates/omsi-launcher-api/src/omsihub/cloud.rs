@@ -148,6 +148,10 @@ impl Remote for Online {
             if !c.signed_in() {
                 return Err(Error::Code("not_signed_in"));
             }
+            // (the cloud waits for the privacy statement agreed to: everything is local meanwhile)
+            if c.privacy_needed() {
+                return Err(Error::Code("privacy"));
+            }
             c.access_token()?;
             c.user_id().map(str::to_string).ok_or(Error::Code("server"))
         })
@@ -483,7 +487,7 @@ fn note(r: &Result<impl Sized, Error>) {
     let mut st = state();
     match r {
         Err(Error::Offline) => st.offline = true,
-        Err(Error::Code("not_signed_in") | Error::SignedOut) => {
+        Err(Error::Code("not_signed_in" | "privacy") | Error::SignedOut) => {
             st.signed_in = false;
             st.cloud = None;
         }
@@ -531,7 +535,7 @@ fn sync_now(id: &str) {
             // (the slot's new version: listed again soon)
             st.listed_at = 0;
         }
-        Err(Error::Offline | Error::Code("not_signed_in") | Error::SignedOut) => {}
+        Err(Error::Offline | Error::Code("not_signed_in" | "privacy") | Error::SignedOut) => {}
         Err(e) => {
             st.failed.insert(id.to_string(), e);
         }
@@ -546,7 +550,8 @@ fn name_of(id: &str) -> String {
 /// pages were left and every ten minutes, never under the view's lock during a request.
 fn worker() {
     loop {
-        let signed = online::with(|c| c.signed_in());
+        // (signed in with the privacy statement agreed to: before, the cloud is not asked)
+        let signed = online::with(|c| c.signed_in() && !c.privacy_needed());
         if signed {
             let stale = { now().saturating_sub(state().listed_at) >= LIST_EVERY };
             if stale {

@@ -55,6 +55,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("logo.yml", include_str!("../locales/logo.yml")),
     ("openomsi-0230.yml", include_str!("../locales/openomsi-0230.yml")),
     ("planning-studio.yml", include_str!("../locales/planning-studio.yml")),
+    ("privacy.yml", include_str!("../locales/privacy.yml")),
     ("rename.yml", include_str!("../locales/rename.yml")),
     ("ritkaart.yml", include_str!("../locales/ritkaart.yml")),
     ("rosterflow-breaks.yml", include_str!("../locales/rosterflow-breaks.yml")),

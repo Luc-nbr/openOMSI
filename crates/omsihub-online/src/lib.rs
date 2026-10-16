@@ -12,7 +12,9 @@
 //! * `store` - the refresh token in the OS's credential store, nowhere else;
 //! * `codes` - every answer as one of our codes (`too_many`, `not_found` ...), with its English
 //!   text for the launcher to translate: nothing the server says is shown as it is;
-//! * `check` - the lengths and shapes checked before anything is sent.
+//! * `check` - the lengths and shapes checked before anything is sent;
+//! * `privacy` - the privacy statement and its version: the account's features wait until the
+//!   player agreed to it.
 //!
 //! No network is no error of the player's: every call then answers `Error::Offline` at once
 //! (the connection's own timeouts), and the launcher plays on locally. Nothing here logs.
@@ -21,6 +23,7 @@ pub mod check;
 mod client;
 pub mod codes;
 mod http;
+pub mod privacy;
 pub mod saves;
 pub mod store;
 #[cfg(test)]

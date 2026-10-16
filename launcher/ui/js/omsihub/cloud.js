@@ -11,6 +11,8 @@ import { call } from '../api.js';
 import { toast } from '../store.js';
 import { language } from '../i18n.js';
 import { Icon, tr } from './bits.js';
+// (the privacy statement, linked from the question and the slots: what a cloud save keeps)
+import { PrivacyLink } from './privacy.js';
 
 // (the cloud saves' own look, loaded with them)
 const sheet = document.createElement('link');
@@ -126,6 +128,7 @@ function Ask({ v, done }) {
       ${conflict && html`<span class="hubcs-fill"></span><button type="button" class="hub-btn small ghost" disabled=${busy} onClick=${() => pick(null)}>${tr('Decide later')}</button>`}
     </div>
     ${conflict && html`<p class="hubcs-note">${tr('Keep both: this PC\'s copy stays as %{copy}, a local save; the cloud\'s opens.', { copy: v.copy })}</p>`}
+    <p class="hubcs-note">${tr('Cloud saves stay private to your account.')} <${PrivacyLink} /></p>
   </div></div>`;
 }
 
@@ -225,6 +228,6 @@ export function CloudSaves() {
       </div>
       <p class="hubcs-note">${tr('Replacing removes that company from the cloud. Its copy on this PC, if any, stays as a local save.')}</p>
     </div>`}
-    <p class="hubcs-note">${tr('At most 2 companies in the cloud. Every other company is a local save on this PC: unlimited, and it can still host company multiplayer.')}</p>
+    <p class="hubcs-note">${tr('At most 2 companies in the cloud. Every other company is a local save on this PC: unlimited, and it can still host company multiplayer.')} <${PrivacyLink} /></p>
   </section>`;
 }
