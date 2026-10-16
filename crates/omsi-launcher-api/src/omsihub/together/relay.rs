@@ -150,7 +150,7 @@ fn act_need(act: &str, what: &str) -> Need {
         "set_fare" | "set_cap" => Any(&[Perm::Lines, Perm::Spend]),
         "inbox_read" | "inbox_unread" | "inbox_delete" | "inbox_mark_all" | "inbox_delete_read" => SETTINGS,
         "complaint_reply" | "ops_notice" | "ops_apply" | "ops_cover" | "ops_break" => SERVICE,
-        "sandbox_knob" | "sandbox_balance" | "sandbox_reputation" | "sandbox_reset" => SETTINGS,
+        "sandbox_knob" | "sandbox_preset" | "sandbox_balance" | "sandbox_reputation" | "sandbox_reset" => SETTINGS,
         // (the boss's clock, his logo file, his game, his liveries' editor and his career)
         _ => Never,
     }
