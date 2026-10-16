@@ -545,6 +545,8 @@ pub fn view(s: &mut Session, _args: &Value) -> Value {
             json!({
                 "key": mk.key, "at": [(at[0] * 10.0).round() / 10.0, (at[1] * 10.0).round() / 10.0], "h": (mk.live.heading * 10.0).round() / 10.0,
                 "colour": colour, "tag": tag, "state": doing_key(mk.live.doing), "tone": delay_tone(mk.live.delay),
+                // (its minutes late, for the Operations page's map: coloured against the notice's threshold)
+                "m": (mk.live.delay / 60.0).round(),
                 "player": mk.player, "on": picked.as_deref() == Some(mk.key.as_str()),
             })
         })
