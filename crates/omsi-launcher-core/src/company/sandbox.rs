@@ -579,6 +579,29 @@ mod tests {
     use super::super::{economy, found, levels, market, research, staff, Founding};
     use super::*;
 
+    /// (from the cloud session's version of the presets, Beta 65)
+    #[test]
+    fn a_preset_sets_every_knob_and_is_recognised() {
+        let mut c = found(&Founding { name: "P".into(), date: "2024-03-04".into(), company_mode: CompanyMode::Sandbox, ..Default::default() }, "Luc");
+        assert_eq!(preset_of(&c), Some("career"));
+        set_preset(&mut c, "relaxed").unwrap();
+        assert_eq!(c.sandbox, RELAXED);
+        assert_eq!(preset_of(&c), Some("relaxed"));
+        set_knob(&mut c, "wages", 2.0).unwrap();
+        assert_eq!(preset_of(&c), None, "custom");
+        set_preset(&mut c, "hard").unwrap();
+        assert_eq!(preset_of(&c), Some("hard"));
+        // (every preset's values are ones the knobs can hold)
+        for (_, _, p) in PRESETS {
+            let mut x = CAREER;
+            for k in KNOBS {
+                x.set(k.key, p.get(k.key).unwrap()).unwrap();
+            }
+            assert_eq!(x, p);
+        }
+        assert!(set_preset(&mut c, "nope").is_err());
+    }
+
     fn company(mode: CompanyMode) -> Company {
         found(&Founding { name: "Sandbus".into(), game_mode: GameMode::Normal, date: "2024-03-04".into(), company_mode: mode, ..Default::default() }, "Luc")
     }
