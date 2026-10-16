@@ -42,7 +42,7 @@ were tried the same day and dropped: Google or email only, on the website and in
 - An account made this way has no password: the website hides changing it, and deleting the account
   needs only the tick box.
 - The app signs in through the system browser with PKCE and a loopback address on 127.0.0.1
-  (branch r67-oauth).
+  ("Google in the app" below).
 - The Edge Function `steam-auth` that was deployed for Steam is not used. Remove it from the
   project with Luc's OK.
 
@@ -227,7 +227,8 @@ in the app, when the website has not made it yet.
 | `/verify` | `type: "email"` (else `"signup"`), `email`, `token` | the email confirmed by its code; it signs in |
 | `/recover` | `email` | "Forgot your password?" (the same answer whether the address has an account or not) |
 | `/verify` | `type: "recovery"`, `email`, `token` | the reset's code; it signs in, then `PUT /user` `{password}` sets the new password |
-| `GET /user` | - (bearer) | only before deleting the account: the address to check the password against |
+| `/token?grant_type=pkce` | `auth_code`, `code_verifier` | Google: the browser's code exchanged ("Google in the app") |
+| `GET /user` | - (bearer) | only before deleting the account: the address to check the password against (none for an account without a password) |
 | `/logout?scope=local` | - (bearer) | signing out (best effort: the token goes from the store whatever the answer) |
 
 The account is deleted with the database's `delete_my_account()` (it deletes the auth's user, and with
@@ -235,6 +236,59 @@ it the profile, friendships and invites), after the password was checked by sign
 the player's cloud saves were deleted through Storage. Supabase Auth's errors (`{code, error_code,
 msg}`, or an older `{error, error_description}`) are read for their code only. No cookie and no
 `Origin` header is sent.
+
+### Google in the app
+
+`crates/omsihub-online/src/oauth.rs`, the commands `ol_oauth`, `ol_oauth_wait`, `ol_oauth_cancel`.
+The button "Sign in with Google" (under the email sign-in, after "or") is disabled until the privacy
+tick is checked, as the email sign-in is.
+
+1. `ol_oauth {agree}` starts a listener on `127.0.0.1` with a free port chosen by the system
+   (`http://127.0.0.1:<port>/callback`), a random `state` (16 bytes) and a PKCE verifier (32 bytes,
+   `ring`'s system generator; the challenge is S256). The page opens the answered address in the
+   system's browser (`open_url`) and calls `ol_oauth_wait {id, agree}`, which waits on its own worker
+   for five minutes at most; "Cancel" (`ol_oauth_cancel`) ends the wait at once.
+2. The browser goes to
+   `<URL>/auth/v1/authorize?provider=google&redirect_to=http://127.0.0.1:<port>/callback?state=<state>&code_challenge=<S256>&code_challenge_method=s256`
+   and comes back with `?code=…&state=…`. A request with another `state` (or none) is turned away and
+   the listener waits on. The code is exchanged with `POST /auth/v1/token?grant_type=pkce`
+   `{auth_code, code_verifier}` (the `apikey` header), and the session kept as a password's is.
+3. The browser tab shows a small Omsi-Hub page in the launcher's language, without any script:
+   signed in ("you may close this tab"), cancelled, or failed. Google's own error text is never
+   shown, here or there.
+4. Then as after a password: `my_privacy` / `accept_privacy` with the tick, and an account without a
+   profile gets "Choose your display name" (Google's name is not taken over).
+
+The listener answers only `GET` with `Host: 127.0.0.1:<its port>` (a name rebound to 127.0.0.1 is
+turned away), with no-store, no-referrer and a strict CSP; it stops at the first answer. Nothing of it
+is logged. The codes: `oauth_cancelled` (the player said no, or cancelled), `oauth_timeout`,
+`oauth_failed`.
+
+An account made with Google has no password (`app_metadata.providers` without `email`): "Delete
+account" asks for a tick instead of the password, as the website does. A Google account joined to an
+email account keeps its password.
+
+**To set in Supabase (Luc):**
+
+- Auth > Sign In / Providers: **Google** switched on, with the client id and client secret of an OAuth
+  client from the Google Cloud console. Its authorised redirect URI at Google is Supabase's own,
+  `https://mlatjtjjdfifbgddcxzu.supabase.co/auth/v1/callback`. (The website needs this too.)
+- Auth > URL Configuration > Redirect URLs: add **`http://127.0.0.1:*/callback*`**. Supabase matches
+  the whole address with globs whose separators are `.` and `/`: the first `*` takes any port, the
+  last one the `?state=…` (base64url: no `.` or `/`), so `…/callback?state=…` matches and no other
+  path does. Without it Supabase sends the browser to the Site URL instead and the app waits until it
+  times out. (`http://127.0.0.1/**` would not do: the port stands between the host and the `/`.) A
+  stricter form, if the dashboard takes character classes:
+  `http://127.0.0.1:[0-9][0-9][0-9][0-9][0-9]/callback*` (the systems' free ports have five digits).
+  The plain `*` also lets through a dot-less name after an `@` (`127.0.0.1:1@intranet/callback`): the
+  app's PKCE code is worthless there without its verifier, but a crafted sign-in link without PKCE
+  could hand a session to such a name on the player's own network. Prefer the stricter form when
+  Supabase accepts it.
+
+The stand-in (`online/standin/standin.mjs`) answers `authorize` (no Google page:
+`google-player@google.standin` signs in at once; `&standin_answer=deny` says no) and the `pkce`
+exchange, with the same redirect globs (`STANDIN_REDIRECTS`); the example
+`cargo run -p omsihub-online --example standin` runs it through a scripted browser.
 
 ### The refresh token, the access token
 

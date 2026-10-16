@@ -111,3 +111,18 @@
 .ol-pv-agree label { display: flex; align-items: flex-start; gap: 8px; font-size: 10px; line-height: 1.4; cursor: pointer; }
 .ol-pv-agree input { flex: none; margin: 1px 0 0; accent-color: var(--hub-accent); }
 .ol-pv-agree .ol-pv-link { align-self: flex-start; margin-left: 21px; }
+
+/* Google (online.js' GoogleSignIn): the button with its mark, the "or" between the ways to sign
+   in, the wait while the browser has the sign-in, the tick that deletes an account without a
+   password */
+.ol-oa-btn { display: flex; align-items: center; justify-content: center; gap: 9px; width: 100%; height: 34px; padding: 0 12px; font-size: 10.4px; font-weight: 700; background: var(--hub-field); color: var(--hub-text); border: 1px solid var(--hub-hairline); }
+.ol-oa-btn:hover:not(:disabled) { border-color: rgba(var(--hub-accent-rgb), 0.6); background: var(--hub-lift); }
+.ol-oa-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.ol-oa-mark { width: 16px; height: 16px; flex: none; }
+.ol-oa-or { display: flex; align-items: center; gap: 10px; font-size: 8.4px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--hub-text-dim); }
+.ol-oa-or::before, .ol-oa-or::after { content: ""; flex: 1; height: 1px; background: var(--hub-hairline); }
+.ol-oa-wait { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: var(--hub-r); background: rgba(var(--hub-accent-rgb), 0.1); border: 1px solid rgba(var(--hub-accent-rgb), 0.35); }
+.ol-oa-wait b { font-size: 10.4px; }
+.ol-oa-wait .hub-icon { color: var(--hub-accent); }
+.ol-oa-sure { display: flex; align-items: flex-start; gap: 8px; font-size: 10px; line-height: 1.4; cursor: pointer; }
+.ol-oa-sure input { flex: none; margin: 1px 0 0; accent-color: var(--hub-accent); }

@@ -9,6 +9,9 @@
 // asked of a signed-in player who has not agreed to its current version - agree, or sign out and
 // play on locally -, the account's features waiting meanwhile. Playing without an account asks
 // nothing.
+// Google signs in through the system's browser (`ol_oauth`: Rust's listener on 127.0.0.1 takes the
+// answer back), with the same tick; the panel waits meanwhile, and the player may cancel. Such an
+// account has no password: deleting it asks for a tick instead.
 
 import { html, useEffect, useState } from '../../vendor/preact-htm.js';
 import { call } from '../api.js';
@@ -161,6 +164,41 @@ function Note({ icon = 'info', text, kind = '' }) {
   return html`<p class=${'ol-note ' + kind}><${Icon} name=${icon} size=${14} /><span>${text}</span></p>`;
 }
 
+// --- Google ----------------------------------------------------------------------------------------
+
+/** Google's mark, in the button's own colour. */
+const GoogleMark = () =>
+  html`<svg class="ol-oa-mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21.6 10.2H12v3.9h5.5c-.5 2.5-2.7 4.3-5.5 4.3a6.4 6.4 0 1 1 4.2-11.2l2.8-2.8A10.3 10.3 0 0 0 12 1.7a10.3 10.3 0 1 0 0 20.6c5.6 0 10-3.9 10-10.3 0-.6-.1-1.2-.4-1.8z" /></svg>`;
+
+/** The Google button, or, while the browser has the sign-in, the wait with a cancel. */
+function GoogleSignIn({ agreed, onDone, onError, disabled }) {
+  const [wait, setWait] = useState(null);
+  const name = 'Google';
+  const go = async () => {
+    if (!agreed) return;
+    onError('');
+    const r = await act('ol_oauth', { agree: true }, true);
+    if (r.error) return onError(r.error);
+    call('open_url', { url: r.url }).catch((e) => toast(String(e?.message || e), 'error'));
+    setWait({ url: r.url });
+    const a = await act('ol_oauth_wait', { id: r.id, agree: true }, true);
+    setWait(null);
+    if (a.error) {
+      if (a.code !== 'oauth_cancelled') onError(a.error);
+    } else onDone(a);
+  };
+  if (wait)
+    return html`<div class="ol-oa-wait" role="status">
+      <div class="ol-row"><${Icon} name="refresh" size=${16} class="ol-spin" /><b>${tr('Continue in your browser')}</b></div>
+      <p class="ol-text">${tr('Please sign in with %{name} in the browser window that has opened. Omsi-Hub continues automatically afterwards.', { name })}</p>
+      <div class="ol-row"><${Btn} kind="ghost" icon="open_in_new" label=${tr('Open the page again')} onClick=${() => call('open_url', { url: wait.url }).catch(() => {})} /><span class="ol-fill"></span><${Btn} kind="ghost" icon="close" label=${tr('Cancel')} onClick=${() => act('ol_oauth_cancel', {}, true)} /></div>
+    </div>`;
+  const hint = agreed ? '' : tr('Please confirm above that you accept the Privacy Statement.');
+  return html`<button type="button" class="hub-btn ol-oa-btn" disabled=${!agreed || disabled} title=${hint} onClick=${go}>
+    <${GoogleMark} /><span>${tr('Sign in with %{name}', { name })}</span>
+  </button>`;
+}
+
 // --- the account --------------------------------------------------------------------------------
 
 /** Signed out: sign in, the code, the password forgotten; a new account on the website; and
@@ -240,6 +278,9 @@ function SignedOut({ v }) {
       <${Field} label=${tr('Password')} type="password" value=${f.password} onInput=${put('password')} max=${72} auto="current-password" onEnter=${signIn} />
       ${agree}
       <div class="ol-row"><${Btn} kind="primary" icon="person" label=${tr('Sign in')} busy=${busy} disabled=${!agreed} onClick=${signIn} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Forgot your password?')} onClick=${() => go('forgot')} /></div>
+      <div class="ol-oa-or"><span>${tr('or')}</span></div>
+      <${GoogleSignIn} agreed=${agreed} disabled=${busy} onError=${(e) => (setErr(e), setInfo(''))} onDone=${(r) => (setErr(''), setInfo(r.message || ''), r.message && toast(r.message, 'ok'))} />
+      <div class="ol-oa-or"><span>${tr('or')}</span></div>
       <div class="ol-row"><span class="ol-text">${tr('New here?')}</span><${Btn} kind="ghost" icon="open_in_new" label=${tr('Create an account')} disabled=${!v?.sign_up_url || !agreed} title=${agreed ? '' : tr('Please confirm above that you accept the Privacy Statement.')} onClick=${create} /></div>`;
   }
   return html`<div class="ol-account">
@@ -276,6 +317,8 @@ function Profile({ v }) {
   const [err, setErr] = useState('');
   const [del, setDel] = useState(false);
   const [password, setPassword] = useState('');
+  // (an account without a password - made with Google - is deleted after a tick)
+  const [sure, setSure] = useState(false);
   const [busy, setBusy] = useState(false);
   useEffect(() => setName(me.name || ''), [me.name]);
   const save = async () => {
@@ -285,13 +328,14 @@ function Profile({ v }) {
   };
   const remove = async () => {
     setBusy(true);
-    const r = await act('ol_delete', { password }, true);
+    const r = await act('ol_delete', { password: v.no_password ? '' : password }, true);
     setBusy(false);
     setErr(r.error || '');
     if (r.ok) {
       toast(r.message, 'ok');
       setDel(false);
       setPassword('');
+      setSure(false);
     }
   };
   if (v.need_profile) {
@@ -321,8 +365,10 @@ function Profile({ v }) {
         ? html`<${Btn} kind="ghost" icon="delete" label=${tr('Delete account')} onClick=${() => setDel(true)} />`
         : html`<h3>${tr('Delete my account')}</h3>
           <p class="ol-text">${tr('This deletes your profile, your friends, your invites, your cloud saves and then the account itself. Your companies on this PC stay, as local saves. It cannot be undone.')}</p>
-          <${Field} label=${tr('Your password, to confirm')} type="password" value=${password} onInput=${setPassword} max=${72} auto="current-password" />
-          <div class="ol-row"><${Btn} kind="danger" icon="delete" label=${tr('Delete for good')} busy=${busy} disabled=${!password} onClick=${remove} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Cancel')} onClick=${() => (setDel(false), setPassword(''))} /></div>`}
+          ${v.no_password
+            ? html`<label class="ol-oa-sure"><input type="checkbox" checked=${sure} onChange=${(e) => setSure(e.currentTarget.checked)} /><span>${tr('I understand that deleting my account cannot be undone.')}</span></label>`
+            : html`<${Field} label=${tr('Your password, to confirm')} type="password" value=${password} onInput=${setPassword} max=${72} auto="current-password" />`}
+          <div class="ol-row"><${Btn} kind="danger" icon="delete" label=${tr('Delete for good')} busy=${busy} disabled=${v.no_password ? !sure : !password} onClick=${remove} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Cancel')} onClick=${() => (setDel(false), setPassword(''), setSure(false))} /></div>`}
     </div>
   </div>`;
 }

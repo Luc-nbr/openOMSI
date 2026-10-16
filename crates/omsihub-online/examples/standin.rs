@@ -5,9 +5,12 @@
 //!   cargo run -p omsihub-online --example standin [http://127.0.0.1:54321]
 
 use omsihub_online::store::{MemoryStore, SecretStore};
-use omsihub_online::{Client, Endpoints, Error, SaveError, Stats};
+use omsihub_online::oauth::Texts;
+use omsihub_online::{Client, Endpoints, Error, Flow, SaveError, Stats};
 use serde_json::{json, Value};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// A store the example still sees into after the client took it.
 #[derive(Clone, Default)]
@@ -194,5 +197,51 @@ fn main() {
     step("the account deleted with its cloud saves; gone for its friends too");
     bo.goodbye();
     bo.sign_out();
+
+    // --- Google, through "the browser" ----------------------------------------------------------------------
+    let mut c = Client::new(ep.clone(), Box::new(Shared::default()));
+    let flow = Flow::start(&ep, Texts::default()).unwrap();
+    let url = flow.url().to_string();
+    let waiting = std::thread::spawn(move || flow.wait(Duration::from_secs(30), &AtomicBool::new(false)));
+    browser(&url);
+    let handoff = waiting.join().unwrap().expect("the browser handed the sign-in back");
+    c.sign_in_with(&handoff).unwrap();
+    assert!(c.signed_in() && !c.has_password());
+    if c.check_privacy().unwrap() < v {
+        c.accept_privacy().unwrap();
+    }
+    if c.profile().unwrap().is_none() {
+        c.create_profile(&format!("Google {}", run % 10000)).unwrap();
+    }
+    assert!(c.profile().unwrap().is_some());
+    c.delete_account("").unwrap();
+    assert!(!c.signed_in());
+    step("signed in with Google through the browser, the profile made, deleted without a password");
+    // (a player who says no at Google)
+    let flow = Flow::start(&ep, Texts::default()).unwrap();
+    let url = format!("{}&standin_answer=deny", flow.url());
+    let waiting = std::thread::spawn(move || flow.wait(Duration::from_secs(30), &AtomicBool::new(false)));
+    browser(&url);
+    assert_eq!(waiting.join().unwrap(), Err(Error::Code("oauth_cancelled")));
+    step("a player who says no at Google: cancelled");
     println!("All flows work against the stand-in.");
+}
+
+/// What the system's browser does with the sign-in's address: the redirects followed to the app's
+/// listener.
+fn browser(start: &str) {
+    let agent = ureq::AgentBuilder::new().redirects(0).build();
+    let mut url = start.to_string();
+    for _ in 0..5 {
+        let r = match agent.get(&url).call() {
+            Ok(r) => r,
+            Err(ureq::Error::Status(_, r)) => r,
+            Err(e) => panic!("{e}"),
+        };
+        match r.header("location") {
+            Some(next) => url = next.to_string(),
+            None => return,
+        }
+    }
+    panic!("too many redirects");
 }

@@ -7,7 +7,13 @@
 // - Auth (`/auth/v1`): signup, token (password, refresh_token, refresh tokens rotated and a reused
 //   one refused), resend, verify (email, signup, recovery), recover, GET/PUT user, logout. Email
 //   confirmation is on; the codes it would mail are printed here and read back by tests at
-//   `GET /__mail?email=<address>`.
+//   `GET /__mail?email=<address>`. Token also takes `grant_type=pkce`.
+// - Google (`GET /auth/v1/authorize?provider=google&redirect_to=…&code_challenge=…`): no Google
+//   page; the player "signs in" at once as google-player@google.standin and is sent to redirect_to
+//   with `?code=`, exchanged at `POST /token?grant_type=pkce` with the verifier (S256 checked, the
+//   code good once, for five minutes). redirect_to must match STANDIN_REDIRECTS (Supabase's globs,
+//   comma-separated; default `http://127.0.0.1:*/callback*`), as Supabase's allow-list.
+//   `&standin_answer=deny` plays a player who says no (`?error=access_denied`).
 // - The database (`/rest/v1`): the functions of online/supabase/schema.sql with the same checks and
 //   answers (the privacy statement's `accept_privacy` and `my_privacy` among them), and the tables' reads with the same row-level rules (profiles, invites).
 // - Storage (`/storage/v1`): the private bucket `saves`, each player only in users/<own id>/, only
@@ -27,10 +33,12 @@ const SECRET = crypto.randomBytes(32);
 const MAX_FILE = 26214400;
 // (as the schema has them: profiles.session_code and invites.session_code)
 const SESSION_MAX = Number(process.env.STANDIN_SESSION_MAX || 32);
+const REDIRECTS = (process.env.STANDIN_REDIRECTS || 'http://127.0.0.1:*/callback*').split(',').map((g) => g.trim()).filter(Boolean);
 
 // --- the data -------------------------------------------------------------------------------------
 
-const users = new Map(); // id -> { id, email, password, confirmed, meta, created_at }
+const users = new Map(); // id -> { id, email, password, confirmed, meta, app, created_at }
+const flows = new Map(); // PKCE code -> { user, challenge, until }
 const codes = new Map(); // email -> { code, kind }
 const refreshes = new Map(); // token -> { user, session, used }
 const profiles = new Map(); // user id -> row
@@ -50,7 +58,7 @@ const b64 = (b) => Buffer.from(b).toString('base64url');
 function sign(user, session) {
   const exp = Math.floor(now() / 1000) + TTL;
   const head = b64(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
-  const body = b64(JSON.stringify({ sub: user.id, email: user.email, role: 'authenticated', aud: 'authenticated', exp, session_id: session }));
+  const body = b64(JSON.stringify({ sub: user.id, email: user.email, role: 'authenticated', aud: 'authenticated', exp, session_id: session, app_metadata: appOf(user) }));
   const sig = b64(crypto.createHmac('sha256', SECRET).update(`${head}.${body}`).digest());
   return { token: `${head}.${body}.${sig}`, exp };
 }
@@ -72,7 +80,8 @@ function session(user, sessionId = crypto.randomUUID()) {
   const a = sign(user, sessionId);
   return { access_token: a.token, token_type: 'bearer', expires_in: TTL, expires_at: a.exp, refresh_token: refresh, user: userJson(user) };
 }
-const userJson = (u) => ({ id: u.id, aud: 'authenticated', role: 'authenticated', email: u.email, email_confirmed_at: u.confirmed ? u.created_at : null, user_metadata: u.meta, identities: [{ provider: 'email' }], created_at: u.created_at });
+const appOf = (u) => u.app || { provider: 'email', providers: ['email'] };
+const userJson = (u) => ({ id: u.id, aud: 'authenticated', role: 'authenticated', email: u.email, email_confirmed_at: u.confirmed ? u.created_at : null, app_metadata: appOf(u), user_metadata: u.meta, identities: appOf(u).providers.map((provider) => ({ provider })), created_at: u.created_at });
 function mail(email, kind) {
   const code = String(crypto.randomInt(0, 1e6)).padStart(6, '0');
   codes.set(email, { code, kind });
@@ -284,6 +293,53 @@ const FUNCTIONS = {
 };
 const ANON = new Set(['hub_leaderboard', 'hub_board_counts']);
 
+// --- Google ----------------------------------------------------------------------------------------
+
+/** Supabase's redirect globs (separators `.` and `/`): `**` anything, `*` and `?` no separator,
+ * `[0-9]` / `[!a-z]` one character of (not of) a class. */
+function glob(g) {
+  let re = '';
+  for (let i = 0; i < g.length; i++) {
+    const end = g[i] === '[' ? g.indexOf(']', i + 2) : -1;
+    if (end > 0) {
+      const set = g.slice(i + 1, end);
+      re += set.startsWith('!') ? `[^${set.slice(1).replace(/[\\\]^]/g, '\\$&')}]` : `[${set.replace(/[\\\]^]/g, '\\$&')}]`;
+      i = end;
+    } else if (g.startsWith('**', i)) (re += '.*'), i++;
+    else if (g[i] === '*') re += '[^./]*';
+    else if (g[i] === '?') re += '[^./]';
+    else re += g[i].replace(/[\\^$.|+()[\]{}]/g, '\\$&');
+  }
+  return new RegExp(`^${re}$`);
+}
+const redirectAllowed = (url) => REDIRECTS.some((g) => glob(g).test(url));
+
+/** The user Google signs in (made the first time, confirmed, without a password). */
+function providerUser(email, app, meta = {}) {
+  let u = userByEmail(email);
+  if (!u) {
+    u = { id: crypto.randomUUID(), email, password: null, confirmed: true, meta, app, created_at: iso() };
+    users.set(u.id, u);
+  }
+  return u;
+}
+const go = (res, location) => send(res, 302, undefined, { location, 'cache-control': 'no-store' });
+const withQuery = (url, q) => `${url}${url.includes('?') ? '&' : '?'}${q}`;
+
+function authorize(res, q) {
+  const provider = q.get('provider');
+  if (provider !== 'google') return authError(res, 400, 'validation_failed', 'Unsupported provider: provider is not enabled');
+  const to = q.get('redirect_to') || '';
+  if (!redirectAllowed(to)) return authError(res, 400, 'validation_failed', `redirect_to is not on the allow-list: ${to}`);
+  if (q.get('standin_answer') === 'deny') return go(res, withQuery(to, 'error=access_denied&error_code=provider_error&error_description=The+user+denied+access'));
+  const challenge = q.get('code_challenge');
+  if (!challenge || String(q.get('code_challenge_method')).toLowerCase() !== 's256') return authError(res, 400, 'validation_failed', 'the stand-in takes PKCE with S256 only');
+  const u = providerUser('google-player@google.standin', { provider: 'google', providers: ['google'] }, { full_name: 'Google Player' });
+  const code = crypto.randomUUID();
+  flows.set(code, { user: u.id, challenge, until: now() + 5 * 60e3 });
+  return go(res, withQuery(to, `code=${code}`));
+}
+
 // --- the routes -------------------------------------------------------------------------------------
 
 async function auth(req, res, path, q, body) {
@@ -304,6 +360,14 @@ async function auth(req, res, path, q, body) {
     if (!u || u.password !== body.password) return authError(res, 400, 'invalid_credentials', 'Invalid login credentials');
     if (!u.confirmed) return authError(res, 400, 'email_not_confirmed', 'Email not confirmed');
     return send(res, 200, session(u));
+  }
+  if (route === 'POST /token' && q.get('grant_type') === 'pkce') {
+    const f = flows.get(String(body.auth_code || ''));
+    if (!f || f.until <= now()) return authError(res, 404, 'flow_state_not_found', 'invalid flow state, no valid flow state found');
+    if (crypto.createHash('sha256').update(String(body.code_verifier || '')).digest('base64url') !== f.challenge) return authError(res, 400, 'bad_code_verifier', 'code challenge does not match previously saved code verifier');
+    flows.delete(body.auth_code);
+    const u = users.get(f.user);
+    return u ? send(res, 200, session(u)) : authError(res, 404, 'user_not_found', 'User not found');
   }
   if (route === 'POST /token' && q.get('grant_type') === 'refresh_token') {
     const r = refreshes.get(body.refresh_token);
@@ -438,6 +502,8 @@ http
     const path = url.pathname;
     try {
       if (path === '/__mail') return send(res, 200, codes.get(String(url.searchParams.get('email')).toLowerCase()) || {});
+      // (the browser's: no apikey, as on Supabase)
+      if (req.method === 'GET' && path === '/auth/v1/authorize') return authorize(res, url.searchParams);
       if (req.headers.apikey !== KEY) return send(res, 401, { message: 'No API key found in request', hint: 'No `apikey` request header or url param was found.' });
       let body = {};
       if (raw.length && String(req.headers['content-type'] || '').includes('json')) body = JSON.parse(raw.toString());
