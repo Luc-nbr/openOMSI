@@ -173,7 +173,7 @@ impl Updater {
             let result = download_and_install(&r, &status);
             if let Err(e) = result {
                 log::warn!("update to {}: {e:#}", r.version);
-                *lock(&status) = Status::Failed(format!("openOMSI was not updated to {}: {e}", r.version));
+                *lock(&status) = Status::Failed(format!("{} was not updated to {}: {e}", omsi_cfg::product::NAME, r.version));
             }
         });
     }
@@ -195,7 +195,7 @@ impl Updater {
                 }
                 Err(e) => {
                     log::warn!("update {}: background download: {e:#}", r.version);
-                    *lock(&status) = Status::Failed(format!("openOMSI {} could not be downloaded: {e}", r.version));
+                    *lock(&status) = Status::Failed(format!("{} {} could not be downloaded: {e}", omsi_cfg::product::NAME, r.version));
                 }
             }
         });
@@ -592,7 +592,7 @@ fn download(r: &Release, to: &Path, status: &Mutex<Status>) -> anyhow::Result<()
     }
     let part = to.with_extension("part");
     if std::fs::metadata(&part).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age < std::time::Duration::from_secs(15)) {
-        anyhow::bail!("another download of openOMSI {} is under way; try again in a moment", r.version);
+        anyhow::bail!("another download of {} {} is under way; try again in a moment", omsi_cfg::product::NAME, r.version);
     }
     let _ = std::fs::remove_file(checked_note(to));
     let mut hasher = sha2::Sha256::new();
@@ -687,7 +687,7 @@ fn download_and_install(r: &Release, status: &Mutex<Status>) -> anyhow::Result<(
         let place = install_place()?;
         if !writable(&place.dir) {
             let admin = if cfg!(windows) { " (or start it once as administrator)" } else { "" };
-            anyhow::bail!("the folder {} cannot be written. Put openOMSI in a folder of yours{admin} and update again", short_path(&place.dir));
+            anyhow::bail!("the folder {} cannot be written. Put {} in a folder of yours{admin} and update again", short_path(&place.dir), omsi_cfg::product::NAME);
         }
     }
     let file = download_dir().join(&r.asset_name);
@@ -752,7 +752,7 @@ pub fn install_place() -> anyhow::Result<Place> {
     let exe = if exe.exists() { exe } else { renamed_program(&exe).unwrap_or(exe) };
     // (macOS runs an app opened straight from Downloads from a read-only copy elsewhere)
     if exe.to_string_lossy().contains("/AppTranslocation/") {
-        anyhow::bail!("macOS runs openOMSI from a temporary read-only copy. Move openOMSI.app into your Applications folder (or any folder), start it from there and update again");
+        anyhow::bail!("macOS runs {} from a temporary read-only copy. Move the app into your Applications folder (or any folder), start it from there and update again", omsi_cfg::product::NAME);
     }
     let bundle = exe.ancestors().find(|p| p.extension().map(|e| e.eq_ignore_ascii_case("app")).unwrap_or(false)).map(Path::to_path_buf);
     let dir = bundle.as_deref().unwrap_or(&exe).parent().ok_or_else(|| anyhow::anyhow!("no folder around {}", exe.display()))?.to_path_buf();
@@ -954,7 +954,7 @@ pub(crate) fn install_archive_with(zip: &Path, place: &Place, self_test: bool) -
         omsi_cfg::product::is_game_stem(l.strip_suffix(".exe").unwrap_or(&l)) || l.ends_with(".app")
     });
     if !has_program {
-        anyhow::bail!("the update archive holds no openOMSI program");
+        anyhow::bail!("the update archive holds no {} program", omsi_cfg::product::NAME);
     }
     // the new program must start before it replaces the old one: a build that cannot even
     // be loaded here (a library missing, a broken file) stops now, with nothing replaced

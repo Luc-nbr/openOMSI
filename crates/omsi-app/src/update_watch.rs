@@ -70,7 +70,7 @@ impl UpdateWatch {
                     self.told_found = Some(r.version.clone());
                     log::info!("update: {} is out - downloading it in the background", r.version);
                     if self.notify {
-                        let text = format!("openOMSI {} is out: it is downloaded in the background and installed when this session ends", r.version);
+                        let text = format!("{} {} is out: it is downloaded in the background and installed when this session ends", omsi_cfg::product::NAME, r.version);
                         push_notice(notices, Notice { kind: NoticeKind::Update, text, left: 10.0, total: 10.0 });
                     }
                 }
@@ -80,12 +80,12 @@ impl UpdateWatch {
                 self.told_ready = Some(r.version.clone());
                 if self.notify {
                     // (a quick download: this card takes the place of "is out" still showing)
-                    let found = format!("openOMSI {} is out", r.version);
+                    let found = format!("{} {} is out", omsi_cfg::product::NAME, r.version);
                     notices.retain(|n| !(n.kind == NoticeKind::Update && n.text.starts_with(&found)));
                     let text = if cfg!(target_os = "android") || !self.auto {
-                        format!("openOMSI {} is downloaded: the launcher offers it when this session ends", r.version)
+                        format!("{} {} is downloaded: the launcher offers it when this session ends", omsi_cfg::product::NAME, r.version)
                     } else {
-                        format!("openOMSI {} is downloaded: it is installed when this session ends", r.version)
+                        format!("{} {} is downloaded: it is installed when this session ends", omsi_cfg::product::NAME, r.version)
                     };
                     push_notice(notices, Notice { kind: NoticeKind::Update, text, left: 8.0, total: 8.0 });
                 }

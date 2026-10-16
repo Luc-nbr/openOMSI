@@ -910,7 +910,7 @@ pub(crate) fn report_missing_content(w: &World, msg: &mut Option<(String, f32)>)
     for (f, what) in &files {
         by_addon.entry(addon(f)).or_default().push(format!("{what}: {f}"));
     }
-    let mut text = format!("openOMSI: content this map uses that is not installed\nmap: {}\n\n", w.map_dir.display());
+    let mut text = format!("{}: content this map uses that is not installed\nmap: {}\n\n", omsi_cfg::product::NAME, w.map_dir.display());
     for (a, list) in &by_addon {
         text.push_str(&format!("{a} ({} files)\n", list.len()));
         for l in list {

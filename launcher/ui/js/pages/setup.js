@@ -38,7 +38,7 @@ export function SetupPage() {
     if (p) to(p);
   };
   return html`
-    <${PageHead} title="Setup" text="openOMSI plays the content of an OMSI 2 installation: the original game must be installed (Steam or another copy)." />
+    <${PageHead} title="Setup" text="Omsi-Hub plays the content of an OMSI 2 installation: the original game must be installed (Steam or another copy)." />
     <div class="stack" style="max-width:860px">
       ${!b.root && html`<${Notice} kind="warn">${b.root_error || t('OMSI 2 was not found. Choose its folder below.')}</${Notice}>`}
       <${Card} title="Folders">

@@ -1302,11 +1302,11 @@ pub fn root_problem(root: &str) -> String {
     } else if !p.exists() {
         format!("{root} does not exist: choose the folder of the original OMSI 2 (with Omsi.exe, maps and Vehicles in it) under Setup.")
     } else if missing.iter().any(|m| m.contains("content folder")) || omsi_cfg::product::holds_game(p) {
-        format!("{root} is openOMSI's own folder, not OMSI 2's: choose the folder of the original game (with Omsi.exe in it) under Setup.")
+        format!("{root} is {}'s own folder, not OMSI 2's: choose the folder of the original game (with Omsi.exe in it) under Setup.", omsi_cfg::product::NAME)
     } else if missing.is_empty() {
         String::new()
     } else {
-        format!("{root} is not a complete OMSI 2 - it lacks {}. openOMSI plays on the original's stock content: choose the folder of a complete installation under Setup.", missing.iter().take(3).cloned().collect::<Vec<_>>().join(", "))
+        format!("{root} is not a complete OMSI 2 - it lacks {}. {} plays on the original's stock content: choose the folder of a complete installation under Setup.", missing.iter().take(3).cloned().collect::<Vec<_>>().join(", "), omsi_cfg::product::NAME)
     }
 }
 

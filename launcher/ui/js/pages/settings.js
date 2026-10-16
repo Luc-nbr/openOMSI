@@ -350,7 +350,7 @@ function VersionRow() {
   const [open, setOpen] = useState(false);
   return html`<${UpdateRow} /><div class="setting-row full">
     <div class="row wrap">
-      <span class="muted small grow">${t('This is openOMSI {version}', { version: S.boot?.version || '' })}</span>
+      <span class="muted small grow">${t('This is Omsi-Hub {version}', { version: S.boot?.version || '' })}</span>
       ${S.boot?.versions && html`<${Button} small icon="history" label="Choose a version…" onClick=${() => setOpen(true)} />`}
       <${Button} small kind="ghost" icon="external" onClick=${() => call('open_url', { url: REPO_URL }).catch((e) => toast(e.message, 'error'))}>github.com/openOmsi-project/openOMSI</${Button}>
     </div>

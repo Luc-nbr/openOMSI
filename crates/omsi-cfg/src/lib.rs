@@ -943,7 +943,7 @@ pub fn missing_original_essentials(root: &Path) -> Vec<String> {
     // that said the game was not there)
     let marked = root.join(CONTENT_MARKER).exists() || root.join(LEGACY_CONTENT_MARKER).exists();
     if marked && resolve_existing(root, &["Omsi.exe"]).is_none() {
-        return vec![format!("{} (this is the openOMSI content folder, not the original game)", root.display())];
+        return vec![format!("{} (this is the {} content folder, not the original game)", root.display(), crate::product::NAME)];
     }
     ORIGINAL_ESSENTIALS
         .iter()

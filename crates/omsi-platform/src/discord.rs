@@ -62,8 +62,8 @@ impl Presence {
             state.push_str(" | Multiplayer");
         }
         let large_text = match bus {
-            Some((_, full)) => format!("openOMSI | {map} | {full}"),
-            None => format!("openOMSI | {map}"),
+            Some((_, full)) => format!("{} | {map} | {full}", omsi_cfg::product::NAME),
+            None => format!("{} | {map}", omsi_cfg::product::NAME),
         };
         Some(Self {
             details,
@@ -76,7 +76,7 @@ impl Presence {
         (enabled && !launching && !game_running).then(|| Self {
             details: "In launcher".into(),
             state: "Preparing a drive".into(),
-            large_text: "openOMSI".into(),
+            large_text: omsi_cfg::product::NAME.into(),
         })
     }
 }
@@ -656,7 +656,7 @@ mod tests {
             Some(Presence {
                 details: "Map | Line 5".into(),
                 state: "Bus | Tour 2 | Multiplayer".into(),
-                large_text: "openOMSI | Map | Full bus name".into(),
+                large_text: "Omsi-Hub | Map | Full bus name".into(),
             })
         );
         assert_eq!(
