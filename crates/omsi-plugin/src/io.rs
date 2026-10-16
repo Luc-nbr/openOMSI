@@ -309,6 +309,17 @@ pub trait PluginIo {
     fn duty_end(&mut self) -> bool {
         false
     }
+    /// Whether the game types each trip of the duty into the player's bus's IBIS as it begins
+    /// (line, route and destination); off, the driver types them. Whether the game has a bus
+    /// to keep it for.
+    fn duty_set_auto_ibis(&mut self, _on: bool) -> bool {
+        false
+    }
+    /// Type the trip under way into the player's bus's IBIS now, as the game does when a trip
+    /// begins. Whether there was one to type.
+    fn duty_type_ibis(&mut self) -> bool {
+        false
+    }
     fn timetable_lines(&self) -> Vec<Line> {
         Vec::new()
     }

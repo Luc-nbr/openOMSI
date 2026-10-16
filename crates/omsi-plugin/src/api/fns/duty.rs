@@ -70,6 +70,11 @@ pub static FNS: &[ApiFn] = &[
         Ok::<_, ApiError>(super::core::ok_or_reason(c.io().duty_start(&line, &tour, trip, stop)))
     }),
     def!("duty.finish", "duty", [], "boolean", "Gives the duty up (the bus drives on without a timetable); `true` when there was one.", NEW, WorldWrite, false, |c, a| c.io().duty_end()),
+    def!("duty.set_auto_ibis", "duty", [p("on", "bool")], "boolean", "Whether the game types each trip of the duty into the bus's IBIS as it begins (line, route and destination) - on as the game starts; off, the driver types them (or the plugin, with `duty.type_ibis`). For the bus the player drives now; `true` when there is one.", NEW, VehicleWrite, false, |c, a| {
+        let on = a.flag(0, true);
+        c.io().duty_set_auto_ibis(on)
+    }),
+    def!("duty.type_ibis", "duty", [], "boolean", "Types the trip under way into the bus's IBIS now (line, route and destination), as the game does when a trip begins; `true` when there was a duty and a bus.", NEW, VehicleWrite, false, |c, a| c.io().duty_type_ibis()),
     def!("timetable.lines", "duty", [], "list of tables", "The map's lines: `{name, user_allowed, tours}`, each tour `{number, today, trips}` (`today`: it runs on the game's date).", NEW, None, false, |c, a| {
         Value::List(c.io().timetable_lines().into_iter().map(|l| rec(vec![("name", l.name.into()), ("user_allowed", l.user_allowed.into()), ("tours", Value::List(l.tours.into_iter().map(|t| rec(vec![("number", t.number.into()), ("today", t.today.into()), ("trips", t.trips.into())])).collect()))])).collect())
     }),
