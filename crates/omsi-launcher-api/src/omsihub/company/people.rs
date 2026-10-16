@@ -214,7 +214,12 @@ fn person(c: &Company, plan: Option<&Plan>, e: &Employee) -> Value {
         json!({ "label": tr("Friendliness"), "value": num(e.friendliness, 0), "frac": e.friendliness / 100.0, "tone": grade(e.friendliness), "note": tr("Grows with experience and the customer service course, falls with stress. The passengers feel it.") }),
     ];
     let market = staff::market_wage(e.role, e.experience, &co::econ_uk::Level::of(c));
-    let pay = vec![json!([tr("A month"), eur(e.wage)]), json!([tr("By the hour"), per_hour(e.wage)]), json!([tr("The market pays"), eur(market)]), json!([tr("Costs a month"), eur(staff::monthly_cost(e))])];
+    let mut pay = vec![json!([tr("A month"), eur(e.wage)]), json!([tr("By the hour"), per_hour(e.wage)]), json!([tr("The market pays"), eur(market)]), json!([tr("Costs a month"), eur(staff::monthly_cost(e))])];
+    // (a driver is paid the hours of duty, the week's contract at least: `pay`)
+    if staff::drives(e) {
+        let contract = co::econ_uk::CONTRACT_WEEK_HOURS;
+        pay.push(json!([tr("This week"), trf("%{paid} of %{contract} hours paid", &[("paid", &num(e.week_paid / 60.0, 1)), ("contract", &num(contract, 0))])]));
+    }
     let ask = c.staff_rules.ask_of(e.id).cloned().map(|ask| trf("Asks for %{n} % more, until %{date}", &[("n", &format!("{:.0}", ask.share * 100.0)), ("date", &day_label(&ask.until))]));
     let mut facts: Vec<Value> = vec![json!([tr("Reliable"), format!("{:.0} %", e.reliability * 100.0)]), json!([tr("Days worked"), e.days_worked.to_string()]), json!([tr("Holiday days left"), e.holiday_left.to_string()])];
     // (their holidays asked for: the days not planned yet, the rejections of the year)

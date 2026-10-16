@@ -229,7 +229,7 @@ fn note_text(n: &Note, easy: bool) -> (String, &'static str, Option<Go>) {
         Note::Service { number } => (trf("Bus %{n} is due for its service: in the workshop tomorrow.", &[("n", number)]), "soft", None),
         Note::Returned { number, name } => (trf("Bus %{n} (%{name}) went back: its lease or rental ended.", &[("n", number), ("name", name)]), "soft", Some(Go::Dealer)),
         Note::LoanPaid { purpose } => (trf("A loan is paid off: %{what}.", &[("what", purpose)]), "ok", None),
-        Note::Month { month, result } => (trf("%{month} is closed: wages, leases, insurance, the depot and loan rates are booked. The month's result: %{amount}.", &[("month", &month_label(month)), ("amount", &eur(*result))]), if *result >= 0 { "ok" } else { "warn" }, None),
+        Note::Month { month, result } => (trf("%{month} is closed: leases, depreciation, insurance and tax, overheads and loan rates are booked. The month's result: %{amount}.", &[("month", &month_label(month)), ("amount", &eur(*result))]), if *result >= 0 { "ok" } else { "warn" }, None),
         Note::Built { area } => (trf("The depot's building work is done: %{what}.", &[("what", &tr(area))]), "ok", None),
         Note::BayWait { number } => (trf("Bus %{n} waits for a free workshop bay.", &[("n", number)]), "warn", Some(Go::Depot)),
         Note::Won { number, until } => (trf("The concession for line %{n} is yours until %{date}. Plan its tours and start its service.", &[("n", number), ("date", &day_label(until))]), "ok", Some(Go::Planning)),
@@ -313,6 +313,14 @@ fn report(s: &mut Session) -> Value {
     }
     if penalties > 0 {
         facts.push((trf("Contract penalties %{amount}: the authority charges for every trip dropped or late, and for a concession not started.", &[("amount", &signed(-penalties).0)]), "warn", vec![Go::Planning]));
+    }
+    // (the drivers paid by the hour of duty, overtime and the week's guarantee: `pay`)
+    let paid_hours: f64 = reports.iter().map(|r| r.paid_hours).sum();
+    let guaranteed: f64 = reports.iter().map(|r| r.guaranteed_hours).sum();
+    if paid_hours > 0.0 || guaranteed > 0.0 {
+        let over: f64 = reports.iter().map(|r| r.overtime_hours).sum();
+        let cost = sum(&|r| r.driver_wages);
+        facts.push((trf("Drivers' wages %{amount}: %{hours} hours of duty paid (%{over} overtime) and %{guaranteed} hours of the week's guarantee.", &[("amount", &eur(cost)), ("hours", &num(paid_hours, 0)), ("over", &num(over, 0)), ("guaranteed", &num(guaranteed, 0))]), "soft", vec![Go::Planning]));
     }
     if measured > 0 {
         facts.push((trf("You drove %{n} trips yourself: booked as measured.", &[("n", &measured.to_string())]), "accent2", Vec::new()));

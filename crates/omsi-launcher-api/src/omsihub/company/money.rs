@@ -222,3 +222,30 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Result<Value, St
         _ => return None,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use omsi_launcher_lib::company::BookingKind;
+
+    /// Every line of the books is named in every language, and so are the cost texts of the UK
+    /// model (crates/omsihub-locales/locales/company-costs.yml).
+    #[test]
+    fn every_cost_line_is_translated() {
+        let mut texts: Vec<String> = BookingKind::ALL.iter().map(|k| k.label().to_string()).collect();
+        let src = [include_str!("dialogs.rs"), include_str!("people.rs")].concat();
+        for t in ["Drivers' wages %{amount}", "%{month} is closed: leases", "%{paid} of %{contract} hours paid", "This week"] {
+            let start = src.find(t).expect(t);
+            texts.push(src[start..].chars().take_while(|c| *c != '"').collect());
+        }
+        let mut missing = Vec::new();
+        for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
+            let table = crate::i18n::table(lang);
+            for t in &texts {
+                if !table.contains_key(t) {
+                    missing.push(format!("{lang}: {t:?}"));
+                }
+            }
+        }
+        assert!(missing.is_empty(), "{} missing:\n{}", missing.len(), missing.join("\n"));
+    }
+}
