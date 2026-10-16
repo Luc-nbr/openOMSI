@@ -163,7 +163,11 @@ fn main() {
         .map(|app| {
             app.run(|_, e| match e {
                 tauri::RunEvent::ExitRequested { api, .. } if omsi_launcher_api::installing() => api.prevent_exit(),
-                tauri::RunEvent::Exit => service::stop(),
+                tauri::RunEvent::Exit => {
+                    // (Omsi-Hub online: "offline" told to the friends, best effort, a few seconds at most)
+                    omsi_launcher_api::omsihub::online::goodbye();
+                    service::stop()
+                }
                 _ => {}
             })
         });
