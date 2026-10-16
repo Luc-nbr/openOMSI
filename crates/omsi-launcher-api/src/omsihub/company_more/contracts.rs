@@ -451,3 +451,43 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Answer> {
         _ => return None,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    /// Every text of the contracts' and the concessions' pages is named in every language (the
+    /// bus contracts' in crates/omsihub-locales/locales/company-bus-contracts.yml), and so are the
+    /// contracts' kinds and ratings and the core's refusals the pages show.
+    #[test]
+    fn every_contract_text_is_translated() {
+        use omsi_launcher_lib::company::bus_contracts::{Kind, Rag};
+        let mut texts: Vec<String> = Vec::new();
+        for src in [include_str!("contracts.rs"), include_str!("concessions.rs")] {
+            for lead in ["tr(\"", "trf(\""] {
+                let mut rest = src;
+                while let Some(k) = rest.find(lead) {
+                    let after = &rest[k + lead.len()..];
+                    rest = after;
+                    let t: String = after.chars().take_while(|c| *c != '"').collect();
+                    if t.chars().any(char::is_alphabetic) && !t.contains('\\') {
+                        texts.push(t);
+                    }
+                }
+            }
+        }
+        texts.extend(Kind::ALL.iter().map(|k| k.label().to_string()));
+        texts.extend([Rag::Green, Rag::Orange, Rag::Red].iter().map(|r| r.label().to_string()));
+        texts.extend(["Above the authority's cap: a bid above it does not count.".to_string(), "There is no such contract.".to_string()]);
+        let mut missing = Vec::new();
+        for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
+            let table = crate::i18n::table(lang);
+            for t in &texts {
+                if !table.contains_key(t) {
+                    missing.push(format!("{lang}: {t:?}"));
+                }
+            }
+        }
+        missing.sort();
+        missing.dedup();
+        assert!(missing.is_empty(), "{} missing:\n{}", missing.len(), missing.join("\n"));
+    }
+}

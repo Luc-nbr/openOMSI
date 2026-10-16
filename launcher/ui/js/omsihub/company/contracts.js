@@ -2,11 +2,14 @@
 // assignments and service contracts: the trophies to spend, the rating in stars, the goals
 // running and the trophies' bar to the next milestone; then the week's goals (on offer,
 // running, finished), the service contracts (the buses' internet from one of four providers, a
-// supplier's fixed diesel price, an outside cleaning company), or the tenders the company bid on.
+// supplier's fixed diesel price, an outside cleaning company), the tenders the company bid on,
+// or its bus contracts (`bus_contracts`): kind, payment and days, term and extensions, the rating
+// with its points, the journeys not paid, and the track record the next tenders score.
 
 import { html, ui, setUi, useSize, textW, Icon, Btn, Section, Figure, Seg, Slider, Plate, Meter, goTab } from './kit.js';
 import { WideBar, Trophies, Reward } from './inbox.js';
 import { useMore, actMore, TextIn, box } from './more.js';
+import { Badge } from './concessions.js';
 
 export function ContractsPage() {
   const st = ui('contracts', { part: 0, gb: null });
@@ -32,9 +35,15 @@ export function ContractsPage() {
         <${TextIn} x=${16} y=${13} w=${fw - 32} h=${16} px=${12.5} weight=${700} tone="dim" style="text-transform:uppercase">${f.milestone.label}</${TextIn}>
         <div style=${box(12, 46, fw - 24, 32)}><${Trophies} t=${f.milestone.bar} /></div>
       </div>
-      <${Seg} value=${v.part} options=${v.parts.map((p, k) => [k, p])} onChange=${(k) => setUi('contracts', { part: k })} style=${box(0, y, Math.min(600, W), 38) + ';height:38px'} />
+      <${Seg} value=${v.part} options=${v.parts.map((p, k) => [k, p])} onChange=${(k) => setUi('contracts', { part: k })} style=${box(0, y, Math.min(800, W), 38) + ';height:38px'} />
       <div style=${box(0, by, W, bh)}>
-        ${b.kind === 'goals' ? html`<${Goals} g=${b} W=${W} H=${bh} />` : b.kind === 'services' ? html`<${Services} s=${b} W=${W} H=${bh} st=${st} />` : html`<${Bids} b=${b} W=${W} H=${bh} />`}
+        ${b.kind === 'goals'
+          ? html`<${Goals} g=${b} W=${W} H=${bh} />`
+          : b.kind === 'services'
+            ? html`<${Services} s=${b} W=${W} H=${bh} st=${st} />`
+            : b.kind === 'buses'
+              ? html`<${BusContracts} b=${b} W=${W} H=${bh} />`
+              : html`<${Bids} b=${b} W=${W} H=${bh} />`}
       </div>`;
   }
   return html`<div class="cm-page" ref=${ref}>${body}</div>`;
@@ -225,4 +234,55 @@ function Bids({ b, W, H }) {
           })}
         </div></div>`}
   </${Section}>`;
+}
+
+// --- the bus contracts -------------------------------------------------------------------------
+
+/** The company's bus contracts (`contracts::bus_contracts`): the track record, each contract with
+ * its kind, payment and days, term and extensions, its rating and points, its journeys not paid
+ * and its month, and the way to hand it back; those ended in the last twelve months below. */
+function BusContracts({ b, W, H }) {
+  const iw = W - 36;
+  const plateW = (n) => Math.max(26 * 1.8, textW(n, 15.6, 900) + 18.2);
+  const cardH = 196;
+  const endedH = b.ended.length ? 30 + b.ended.length * 44 : 0;
+  return html`<${Section} title=${b.title} style=${box(0, 0, W, H)}><div class="cm-list" style="position:relative">
+    <p class="co-note t-dim" style="font-size:10.75px;height:34px;overflow:hidden">${b.record}</p>
+    ${!b.rows.length && !b.ended.length
+      ? html`<p class="co-para" style="font-size:var(--co-rows)">${b.empty}</p>`
+      : html`<div class="co-scroll cm-list" style="position:absolute;left:0;right:0;top:40px;bottom:0;height:auto"><div style=${`position:relative;height:${b.rows.length * (cardH + 8) + endedH}px`}>
+          ${b.rows.map((r, k) => {
+            const pw = plateW(r.number);
+            const w = iw - 10;
+            const tw = w - pw - 40;
+            const lines = [
+              [r.kind, 'dim', 500],
+              [r.pay, 'text', 700],
+              [r.days, 'dim', 400],
+              [r.term, 'dim', 400],
+              [r.points, r.rag.tone, 500],
+              [r.unpaid, 'dim', 400],
+              [r.month, 'soft', 400],
+            ];
+            return html`<div class="cm-row" style=${box(0, k * (cardH + 8), w, cardH)}>
+              <span class="cm-icon" style="left:10px;top:10px"><${Plate} p=${{ number: r.number }} h=${26} /></span>
+              <${TextIn} x=${10 + pw + 12} y=${8} w=${tw - 100} h=${22} px=${14.5} weight=${700}>${r.caption || r.line}</${TextIn}>
+              <${Badge} b=${r.rag} right=${10} y=${10} />
+              ${lines.map(([t, tone, weight], i) => html`<${TextIn} x=${10 + pw + 12} y=${34 + i * 20} w=${tw} h=${20} px=${13} weight=${weight} tone=${tone}>${t}</${TextIn}>`)}
+              <${Btn} kind="danger" icon="undo" label=${r.back} title=${r.back_tip} style=${box(w - 230, cardH - 40, 220, 32) + ';height:32px;padding:0 8px'} onClick=${() => actMore('contract_hand_back', { line: r.line })} />
+            </div>`;
+          })}
+          ${b.ended.length > 0 &&
+          html`<${TextIn} x=${0} y=${b.rows.length * (cardH + 8) + 6} w=${iw} h=${16} px=${12.5} weight=${700} tone="dim">${b.ended_title}</${TextIn}>
+            ${b.ended.map((r, k) => {
+              const y = b.rows.length * (cardH + 8) + 30 + k * 44;
+              const pw = plateW(r.number);
+              return html`<div class="cm-row" style=${box(0, y, iw - 10, 40)}>
+                <span class="cm-icon" style="left:10px;top:6px"><${Plate} p=${{ number: r.number }} h=${22} /></span>
+                <${TextIn} x=${10 + pw + 12} y=${2} w=${iw - pw - 40} h=${18} px=${13} weight=${500}>${r.text}</${TextIn}>
+                <${TextIn} x=${10 + pw + 12} y=${20} w=${iw - pw - 40} h=${18} px=${12.5} tone="dim">${r.points}</${TextIn}>
+              </div>`;
+            })}`}
+        </div></div>`}
+  </div></${Section}>`;
 }

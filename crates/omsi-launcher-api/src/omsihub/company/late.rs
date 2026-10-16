@@ -592,12 +592,14 @@ mod tests {
         // the money: the tiers and the causes the same trips, each once, the same total
         let sum = |s: &[lt::Sum]| (s.iter().map(|x| x.trips).sum::<u32>(), s.iter().map(|x| x.amount).sum::<Cents>());
         assert_eq!(l.tiers.iter().map(|t| t.trips).collect::<Vec<_>>(), [3, 2, 1]);
-        assert_eq!(sum(&l.tiers), (6, 3 * 10_00 + 17_20 + 35_20 + 100_00));
+        // (on a bus contract: the two journeys ten minutes late or more not paid)
+        assert_eq!(sum(&l.tiers), (6, 2 * 100_00));
         assert_eq!(sum(&l.causes), sum(&l.tiers));
-        assert_eq!(l.causes.iter().map(|s| (s.key.as_str(), s.trips)).collect::<Vec<_>>(), [("relief", 1), ("peak", 5)]);
+        // (by what they cost first: the peak's trips hold the journeys not paid)
+        assert_eq!(l.causes.iter().map(|s| (s.key.as_str(), s.trips)).collect::<Vec<_>>(), [("peak", 5), ("relief", 1)]);
         assert_eq!(v["money"]["total"], json!(eur(sum(&l.tiers).1)));
         let tiers: Vec<String> = v["money"]["tiers"].as_array().unwrap().iter().map(|t| t["label"].as_str().unwrap().to_string()).collect();
-        assert_eq!(tiers, ["3 to 5 min late: 10 %", "6 to 29 min late: 14 to 96 %", "30 min or more: the whole trip"]);
+        assert_eq!(tiers, ["3 to 5 min late", "6 to 29 min late", "30 min or more: weighed as a trip lost"]);
         // the trips that carried a delay on, as the advice for more layover counts them
         assert_eq!(l.carried.trips, 2);
         assert!(v["money"]["carried"].as_str().unwrap().starts_with("2 of these trips"));
