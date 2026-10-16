@@ -89,16 +89,16 @@ pub struct Sandbox {
     /// wanted, the map's lines without a tender, every driver qualified for every bus.
     pub unlock_all: bool,
     // the economy (factors: 1 is the game mode's)
-    /// Fares and the authority's compensation.
+    /// The income: fares, concession reimbursement, contract payments and BSOG (`econ_uk::factor`).
     pub income: f64,
     pub wages: f64,
     /// Fuel and power, maintenance and repairs.
     pub running: f64,
     /// New and used buses (and so their leasing).
     pub prices: f64,
-    /// What dropped and late trips cost under the contracts.
+    /// The bus contracts' deductions and default points (`bus_contracts::strictness`).
     pub penalties: f64,
-    /// Prices (and the contract's payment) rise over the years.
+    /// Prices rise over the years, and the contracts' payments are indexed with them.
     pub inflation: bool,
     // the operations (factors: 1 is the game mode's)
     pub breakdowns: f64,
@@ -210,16 +210,16 @@ const fn factor(key: &'static str, group: Group, least: f64, most: f64, label: &
 
 /// The knobs, group by group.
 pub const KNOBS: [Knob; 20] = [
-    switch("unlimited_money", Group::Money, "Unlimited money", "Spending never fails and the balance shows ∞. The books still count every euro."),
+    switch("unlimited_money", Group::Money, "Unlimited money", "Spending never fails and the balance shows ∞. The books still count every amount."),
     switch("no_bankruptcy", Group::Money, "Never go broke", "Spending may take the balance below zero, and nothing warns of the company being in the red."),
     switch("free_loans", Group::Money, "Loans without interest", "The bank charges no interest and no fee for paying back early, on new loans and on those running."),
     switch("unlock_all", Group::Unlocks, "Everything unlocked", "Every company level's features and courses, all research, every bus size at the dealers, as many concessions as you like, the map's lines without a tender, and every driver qualified for every bus."),
-    factor("income", Group::Economy, 0.0, 10.0, "Fares and compensation", "What the passengers pay, and what the authority pays per kilometre."),
+    factor("income", Group::Economy, 0.0, 10.0, "Income", "Fares, concession reimbursement, contract payments and the BSOG fuel grant."),
     factor("wages", Group::Economy, 0.0, 5.0, "Wages", "Every wage the company pays its people."),
     factor("running", Group::Economy, 0.0, 5.0, "Running costs", "Fuel and power, maintenance and repairs."),
     factor("prices", Group::Economy, 0.1, 5.0, "Bus prices", "New and used buses at the dealers, and so their leasing rates."),
-    factor("penalties", Group::Economy, 0.0, 5.0, "Contract penalties", "What dropped and late trips cost under the contracts."),
-    switch("inflation", Group::Economy, "Inflation", "Prices rise over the years, and the contract's payment with them. Off: prices stand still."),
+    factor("penalties", Group::Economy, 0.0, 5.0, "Contract penalties", "Deductions for dropped and late journeys under the bus contracts, and their default points."),
+    switch("inflation", Group::Economy, "Inflation", "Prices rise over the years, and the contracts' payments are indexed with them. Off: prices stand still."),
     factor("breakdowns", Group::Operations, 0.0, 5.0, "Breakdowns", "How often buses break down on their way."),
     factor("accidents", Group::Operations, 0.0, 5.0, "Accidents", "How often buses have accidents: the scrapes and the serious ones."),
     factor("lateness", Group::Operations, 0.0, 3.0, "Delays", "How late the buses run: the traffic, the drivers and the buses."),

@@ -303,3 +303,32 @@ _version: 2
   pl: "Badania trwają dalej."
   ru: "Исследование продолжается."
   uk: "Дослідження триває далі."
+# Sandbox: the knobs' texts on the UK-data economy (no payment per kilometre any more)
+"Fares, concession reimbursement, contract payments and the BSOG fuel grant.":
+  de: "Fahrgeld, Erstattungen für Ermäßigungen, Vertragszahlungen und der BSOG-Kraftstoffzuschuss."
+  fr: "Les recettes, le remboursement des tarifs réduits, les paiements des contrats et l'aide au carburant BSOG."
+  nl: "Ritprijzen, vergoeding voor kortingskaarten, contractbetalingen en de BSOG-brandstofsubsidie."
+  pl: "Opłaty za przejazd, refundacja ulg, płatności z umów i dopłata paliwowa BSOG."
+  ru: "Плата за проезд, возмещение за льготников, выплаты по контрактам и топливная субсидия BSOG."
+  uk: "Плата за проїзд, відшкодування за пільговиків, виплати за контрактами й паливна субсидія BSOG."
+"Deductions for dropped and late journeys under the bus contracts, and their default points.":
+  de: "Abzüge für ausgefallene und verspätete Fahrten unter den Busverträgen und ihre Strafpunkte."
+  fr: "Les retenues pour les trajets supprimés et en retard des contrats de bus, et leurs points de pénalité."
+  nl: "Inhoudingen voor uitgevallen en te late ritten onder de buscontracten, en hun strafpunten."
+  pl: "Potrącenia za odwołane i spóźnione kursy w umowach autobusowych oraz ich punkty karne."
+  ru: "Вычеты за отменённые и опоздавшие рейсы по автобусным контрактам и штрафные баллы."
+  uk: "Відрахування за скасовані й запізнілі рейси за автобусними контрактами та штрафні бали."
+"Prices rise over the years, and the contracts' payments are indexed with them. Off: prices stand still.":
+  de: "Die Preise steigen über die Jahre, und die Vertragszahlungen werden mit ihnen indexiert. Aus: Die Preise bleiben stehen."
+  fr: "Les prix montent au fil des ans, et les paiements des contrats sont indexés sur eux. Désactivé : les prix ne bougent pas."
+  nl: "Prijzen stijgen door de jaren heen, en de contractbetalingen worden ermee geïndexeerd. Uit: de prijzen staan stil."
+  pl: "Ceny rosną z latami, a płatności z umów są z nimi indeksowane. Wyłączone: ceny stoją w miejscu."
+  ru: "Цены растут с годами, и выплаты по контрактам индексируются вместе с ними. Выкл.: цены стоят на месте."
+  uk: "Ціни зростають з роками, і виплати за контрактами індексуються разом з ними. Вимк.: ціни стоять на місці."
+"Spending never fails and the balance shows ∞. The books still count every amount.":
+  de: "Ausgaben scheitern nie, und der Kontostand zeigt ∞. Die Bücher zählen trotzdem jeden Betrag."
+  fr: "Les dépenses n'échouent jamais et le solde affiche ∞. Les comptes notent quand même chaque montant."
+  nl: "Uitgaven lukken altijd en het saldo toont ∞. De boeken tellen toch elk bedrag."
+  pl: "Wydatki zawsze się udają, a saldo pokazuje ∞. Księgi i tak liczą każdą kwotę."
+  ru: "Траты всегда проходят, а баланс показывает ∞. Бухгалтерия всё равно учитывает каждую сумму."
+  uk: "Витрати завжди проходять, а баланс показує ∞. Бухгалтерія все одно враховує кожну суму."
