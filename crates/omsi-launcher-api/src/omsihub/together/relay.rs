@@ -10,8 +10,14 @@ use omsi_launcher_lib::company::together::Perm;
 use serde_json::{json, Value};
 
 /// The company's commands a player's launcher relays to the boss's (the rest run on his own:
-/// the installed buses, the map's roads, the portraits).
+/// the installed buses, the map's roads, the portraits) - and RosterFlow's (`relayed_rf`).
 pub const RELAYED: [&str; 6] = ["co_tick", "co_view", "co_act", "co_more_view", "co_more_act", "co_line_of"];
+
+/// Whether a player's launcher relays RosterFlow's command `cmd` (all but its tutorial, which is
+/// his launcher's own: what he has seen of it, his lessons' place).
+pub fn relayed_rf(cmd: &str) -> bool {
+    cmd.starts_with("rf_") && !cmd.starts_with("rf_tut")
+}
 
 /// Why a relayed command is refused (English: keys of the translations).
 pub const FROM_AFAR: &str = "Only the boss can do this, on his own launcher.";
@@ -38,6 +44,11 @@ const SERVICE: Need = Any(&[Perm::Service]);
 const SETTINGS: Need = Any(&[Perm::Settings]);
 /// The fleet's page: who buys, plans or runs the day's service.
 const FLEET: Need = Any(&[Perm::Spend, Perm::Plans, Perm::Service]);
+/// RosterFlow and the planning seen (changed: `PLANS`, a timetable `LINES`): who plans, runs the
+/// lines or the day's service, or gives and approves the players' duties.
+const RF_VIEW: Need = Any(&[Perm::Plans, Perm::Lines, Perm::Service, Perm::Assign, Perm::Approve]);
+/// A duty given to a player of the session.
+const ASSIGN: Need = Any(&[Perm::Assign]);
 
 impl Need {
     /// Whether `perms` meet it.
@@ -66,7 +77,9 @@ pub fn tab_need(tab: usize) -> Need {
         1 => FLEET,
         2 => STAFF,
         3 => LINES,
-        5 | 14 => PLANS,
+        // (the planning - RosterFlow with its add-on on - seen read-only without PLANS)
+        5 => RF_VIEW,
+        14 => PLANS,
         // the boss's own career
         6 => Never,
         DEPOT_TAB | CONCESSIONS_TAB | RESEARCH_TAB | WORKSHOP_TAB | CONTRACTS_TAB => SPEND,
@@ -99,7 +112,7 @@ fn more_view_need(view: &str) -> Need {
     match view {
         "depot" | "workshop" | "research" | "concessions" | "contracts" => SPEND,
         "fleetmap" => Member,
-        "planning" | "plan_edit" => PLANS,
+        "planning" | "plan_edit" => RF_VIEW,
         "service" => Any(&[Perm::Plans, Perm::Service]),
         _ => Never,
     }
@@ -146,13 +159,81 @@ fn act_need(act: &str, what: &str) -> Need {
 /// What an action on the company's later pages (`co_more_act`) needs.
 fn more_act_need(act: &str) -> Need {
     match act {
-        a if a.starts_with("pe_") => PLANS,
+        // (the planning's sheet of a line: what it shows is the player's own, its trips and times
+        // the lines' or the planners')
+        "pe_day" | "pe_sel" | "pe_pdir" | "pe_from" | "pe_close" => RF_VIEW,
+        a if a.starts_with("pe_") => Any(&[Perm::Lines, Perm::Plans]),
         "depot_build" | "depot_cancel" | "depot_order" | "parts_auto" | "parts_buy" | "research_info" | "research_start" | "research_stop" => SPEND,
         "tender_pick" | "tender_bid" | "tender_buy" | "tender_step" => SPEND,
         "goal_take" | "goal_give_up" | "net_take" | "net_cancel" | "net_top_up" | "fuel_sign" | "cleaning_sign" | "cleaning_end" => SPEND,
         "map_play" | "map_speed" | "map_now" | "map_pick" => Member,
         "plan_give_driver" | "plan_give_bus" | "plan_set_fill" | "plan_fill" | "plan_clear" | "plan_repeat" | "plan_fold" | "plan_fold_all" | "plan_stop" | "plan_start" => PLANS,
-        // (the boss drives, or opens the timetable's editor)
+        // (a line's trips and timetable: the planning's sheet of the player's own, or RosterFlow's
+        // Timeplan with the add-on on - its changes are checked as they are made)
+        "plan_timetable" => RF_VIEW,
+        // (the boss drives)
+        _ => Never,
+    }
+}
+
+/// What an action of RosterFlow's Vehicles and Drivers tabs (`rf_act`) needs.
+fn rf_act_need(act: &str) -> Need {
+    match act {
+        // (what the page holds or asks again: no change of the plan)
+        "pick" | "revalidate" | "keep_mine" => RF_VIEW,
+        // (the line's colour is the line's: plates and the map take it)
+        "colour" => LINES,
+        "undo" | "redo" | "back_to" | "save" | "day_reset" | "day_unfollow" | "copy_rows" | "discard" | "prefs" | "opt_flags" | "colour_by" => PLANS,
+        "optimise" | "accept" | "move" | "unassign" | "unassign_key" | "assign" | "swap" | "cut" | "uncut" | "cut_mid" | "join_piece" | "detach" | "link" | "unlink" => PLANS,
+        "lock_block" | "lock_duty" | "lock_rows" | "unassign_rows" | "spare" | "spare_name" | "spare_remove" | "custom_delete" | "note" | "travel_event" | "dismiss" | "drop" => PLANS,
+        _ => Never,
+    }
+}
+
+/// What an action of RosterFlow's Roster tab (`rf_roster_act`, `args` its arguments) needs.
+fn rf_roster_need(act: &str, args: &Value) -> Need {
+    match act {
+        // (the page's own: a line's tours folded)
+        "fold" | "fold_all" => RF_VIEW,
+        // (a duty given to a player of the session: who may give the players theirs)
+        "give_driver" if args.pointer("/who/guest").is_some() => ASSIGN,
+        // (a bus sent for one that broke down today: the day's service)
+        "break_choose" => Any(&[Perm::Service, Perm::Plans]),
+        "undo" | "redo" | "stop" | "set_fill" | "clear" | "repeat" | "fill" | "service_start" | "give_driver" | "give_bus" => PLANS,
+        "off_driver" | "off_bus" | "off_many" | "off_staff" | "off_vehicle" => PLANS,
+        _ => Never,
+    }
+}
+
+/// What an action of RosterFlow's Timeplan (`rf_tp_act`) needs: the line shown and its edits in
+/// hand are the player's own, what changes a timetable is the lines'.
+fn rf_tp_need(act: &str) -> Need {
+    match act {
+        "line" | "drop" | "undo" | "redo" | "from" => RF_VIEW,
+        "save" | "copy_to" | "template_save" | "template_rename" | "template_drop" | "refresh" | "apply" | "nudge" | "band_add" | "band_remove" | "timepoint" | "add_one" | "add_many" | "delete" => LINES,
+        "bulk_delete" | "bulk_shift" | "bulk_pattern" | "bulk_revert" | "revert" => LINES,
+        _ => Never,
+    }
+}
+
+/// What a view of RosterFlow's (`rf_view`) needs.
+fn rf_view_need(view: &str) -> Need {
+    match view {
+        "prefs" | "apply" | "candidates" | "zones" | "why" | "duty" | "prefs_check" => RF_VIEW,
+        _ => Never,
+    }
+}
+
+/// What a command of RosterFlow (`relayed_rf`) needs.
+fn rf_need(cmd: &str, args: &Value) -> Need {
+    let s = |k: &str| args.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+    match cmd {
+        "rf_on" | "rf_board" | "rf_here" | "rf_print" | "rf_roster" | "rf_roster_service" | "rf_tp" | "rf_tp_guide" => RF_VIEW,
+        "rf_view" => rf_view_need(&s("view")),
+        "rf_act" => rf_act_need(&s("act")),
+        "rf_roster_act" => rf_roster_need(&s("act"), args),
+        "rf_tp_act" => rf_tp_need(&s("act")),
+        // (the tutorial is the player's launcher's own; its lessons put the boss's company back)
         _ => Never,
     }
 }
@@ -166,6 +247,7 @@ pub fn need(cmd: &str, args: &Value) -> Need {
         "co_act" => act_need(&s("act"), &s("what")),
         "co_more_view" => more_view_need(&s("view")),
         "co_more_act" => more_act_need(&s("act")),
+        c if relayed_rf(c) => rf_need(c, args),
         _ => Never,
     }
 }
@@ -277,7 +359,7 @@ mod tests {
             ("planning", include_str!("../company_more/planning.rs")),
             ("plan_edit", include_str!("../company_more/plan_edit.rs")),
         ];
-        let own_more = ["plan_drive", "plan_timetable"];
+        let own_more = ["plan_drive"];
         for (page, src) in more {
             for a in acts_in(src) {
                 if more_act_need(&a) == Never && !own_more.contains(&a.as_str()) {
@@ -287,6 +369,91 @@ mod tests {
         }
         assert!(acts_in(include_str!("../company/people.rs")).len() > 10, "the actions are read");
         assert!(missing.is_empty(), "actions without a permission in together/relay.rs:\n{}", missing.join("\n"));
+    }
+
+    /// The names a function's outermost matches take (`"a" | "b" =>` at their least indent, the
+    /// matches inside an arm left out), read from its source (`head`: how the function begins).
+    fn arms_in(src: &str, head: &str) -> Vec<String> {
+        // (a Windows checkout has CRLF line ends)
+        let src = &src.replace("\r\n", "\n");
+        let Some(i) = src.find(head) else { return Vec::new() };
+        let body = &src[i..src[i..].find("\n}\n").map_or(src.len(), |j| i + j)];
+        let mut arms: Vec<(usize, Vec<String>)> = Vec::new();
+        for line in body.lines() {
+            let t = line.trim_start();
+            if !t.starts_with('"') || !t.contains("=>") {
+                continue;
+            }
+            let head = &t[..t.find("=>").unwrap()];
+            let names = head.split('|').filter_map(|p| p.trim().strip_prefix('"').and_then(|x| x.split('"').next())).map(str::to_string).collect();
+            arms.push((line.len() - t.len(), names));
+        }
+        let least = arms.iter().map(|a| a.0).min().unwrap_or(0);
+        arms.into_iter().filter(|a| a.0 == least).flat_map(|a| a.1).collect()
+    }
+
+    /// Every command of RosterFlow, every action of its tabs and every view of its cards has its
+    /// permission here (a new one is refused to the players until it is given one), and nothing
+    /// of the tutorial's goes to the boss's launcher.
+    #[test]
+    fn every_rosterflow_command_has_its_permission() {
+        let main = include_str!("../rosterflow.rs");
+        let roster = include_str!("../rosterflow/roster.rs");
+        let timeplan = include_str!("../rosterflow/timeplan.rs");
+        let tutorial = include_str!("../rosterflow/tutorial.rs");
+        let mut missing = Vec::new();
+        let mut cmds = arms_in(main, "fn run(");
+        cmds.extend(arms_in(roster, "pub(super) fn run("));
+        cmds.extend(arms_in(timeplan, "pub(super) fn run("));
+        // (the print, which `call` takes first)
+        cmds.push("rf_print".into());
+        assert!(cmds.len() >= 12, "the commands are read: {cmds:?}");
+        for c in &cmds {
+            if need(c, &json!({})) == Never && !["rf_view", "rf_act", "rf_roster_act", "rf_tp_act"].contains(&c.as_str()) {
+                missing.push(format!("command {c}"));
+            }
+        }
+        let checks: [(&str, &str, &str, &str); 5] = [
+            ("rf_act", "act", main, "fn act("),
+            ("rf_view", "view", main, "fn view("),
+            ("rf_roster_act", "act", roster, "fn act_on("),
+            ("rf_roster_act", "act", roster, "fn off("),
+            ("rf_tp_act", "act", timeplan, "fn act("),
+        ];
+        for (cmd, key, src, head) in checks {
+            let names = arms_in(src, head);
+            assert!(!names.is_empty(), "{cmd}: {head} is read");
+            for a in names {
+                let mut args = json!({});
+                args[key] = json!(a);
+                if need(cmd, &args) == Never {
+                    missing.push(format!("{cmd}: {a}"));
+                }
+            }
+        }
+        for a in ["undo", "redo"] {
+            assert_ne!(need("rf_roster_act", &json!({ "act": a })), Never);
+        }
+        assert!(missing.is_empty(), "RosterFlow without a permission in together/relay.rs:\n{}", missing.join("\n"));
+        // the tutorial is the player's launcher's own: never relayed, never run from afar
+        for c in arms_in(tutorial, "pub fn call(") {
+            assert!(!relayed_rf(&c) && need(&c, &json!({ "act": "end" })) == Never, "{c}");
+        }
+        let planner = omsi_launcher_lib::company::together::Role::Planner.preset();
+        let ask = |cmd: &str, args: Value, perms: &[Perm]| need(cmd, &args).met(perms);
+        // a planner plans; a dispatcher looks; a driver sees nothing of it
+        assert!(ask("rf_act", json!({ "act": "drop" }), planner) && ask("rf_roster_act", json!({ "act": "fill" }), planner));
+        assert!(ask("rf_board", json!({}), &[Perm::Service]) && !ask("rf_act", json!({ "act": "save" }), &[Perm::Service]));
+        assert!(!ask("rf_on", json!({}), &[Perm::Drive]));
+        // a timetable is the lines'; a duty given to a player, the assigner's
+        assert!(ask("rf_tp_act", json!({ "act": "save" }), &[Perm::Lines]) && !ask("rf_tp_act", json!({ "act": "save" }), &[Perm::Plans]));
+        assert!(ask("rf_tp_act", json!({ "act": "line" }), &[Perm::Plans]));
+        assert!(ask("rf_roster_act", json!({ "act": "give_driver", "who": { "guest": 2 } }), &[Perm::Assign]));
+        assert!(!ask("rf_roster_act", json!({ "act": "give_driver", "who": { "guest": 2 } }), &[Perm::Plans]));
+        assert!(ask("rf_roster_act", json!({ "act": "give_driver", "who": { "staff": 4 } }), &[Perm::Plans]));
+        // the planning's sheet of a line opens for who may look (its changes are the planners')
+        assert!(ask("co_more_act", json!({ "act": "plan_timetable" }), &[Perm::Lines]));
+        assert!(ask("co_more_view", json!({ "view": "planning" }), &[Perm::Service]));
     }
 
     #[test]

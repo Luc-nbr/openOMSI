@@ -39,6 +39,10 @@ mod breaks;
 /// The relief points (Preferences) and the reliefs on the way (the board).
 mod relief;
 
+/// Several planners at once (company multiplayer): who changed what, who is in RosterFlow, each
+/// one's undo kept clear of the others' changes.
+pub(crate) mod live;
+
 use super::company::words::{day_label, eur, tr, trf};
 use super::company::{self, Session};
 use crate::{Answer, Platform};
@@ -106,6 +110,8 @@ pub(crate) struct Rf {
     /// (`roster::Kept`).
     roster_undo: Vec<roster::Kept>,
     roster_redo: Vec<roster::Kept>,
+    /// What this editor knows of the others' changes (`live`).
+    live: live::Mine,
 }
 
 fn state() -> &'static Mutex<Rf> {
@@ -158,20 +164,106 @@ fn pairs(args: &Value, name: &str) -> Vec<(usize, usize)> {
     args.get(name).and_then(Value::as_array).map(|a| a.iter().filter_map(pair).collect()).unwrap_or_default()
 }
 
-/// A command of RosterFlow, or None when `cmd` is not one.
-pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Option<Answer> {
+/// A command of RosterFlow, or None when `cmd` is not one: the boss's own, on his launcher.
+pub fn call(cmd: &str, args: &Value, _p: &dyn Platform) -> Option<Answer> {
     company::words::set_language(args.get("lang").and_then(Value::as_str).unwrap_or(""));
-    Some(match cmd {
-        "rf_on" => with_rf(|s, _| Ok(on_json(s))),
-        "rf_board" => with_rf(|s, r| board_answer(s, r, args)),
-        "rf_view" => with_rf(|s, r| view(s, r, args)),
-        "rf_act" => with_rf(|s, r| act(s, r, args)),
-        "rf_print" => print::print(args),
-        c if c.starts_with("rf_tp") => return timeplan::call(c, args),
-        c if c.starts_with("rf_roster") => return roster::call(c, args, p),
+    match cmd {
+        "rf_print" => return Some(print::print(args)),
         c if c.starts_with("rf_tut") => return tutorial::call(c, args),
+        _ => {}
+    }
+    with_rf(|s, r| run_as(s, r, live::Editor::Boss, cmd, args))
+}
+
+/// A command of RosterFlow run for `by` on the session with his RosterFlow state: what the
+/// others changed meanwhile looked at first (`live::before`), a change of his kept for them
+/// after (`live::after`), and what he is to be told of theirs with the answers that tell it.
+fn run_as(s: &mut Session, r: &mut Rf, by: live::Editor, cmd: &str, args: &Value) -> Option<Answer> {
+    live::before(s, r, by);
+    let gen = s.generation;
+    let out = run(s, r, by, cmd, args)?;
+    let date = date_of(s, args).unwrap_or_default();
+    live::after(s, r, by, gen, change_of(cmd, args), &date);
+    Some(out.map(|mut v| {
+        if ["rf_board", "rf_act", "rf_roster_act", "rf_tp_act"].contains(&cmd) && v.is_object() {
+            if let Some(c) = s.company.as_ref() {
+                let told = live::told(c, r, by);
+                if !told.is_empty() {
+                    v["told"] = json!(told);
+                }
+            }
+        }
+        v
+    }))
+}
+
+/// The commands of RosterFlow (besides the print and the tutorial's), on any editor's state.
+fn run(s: &mut Session, r: &mut Rf, by: live::Editor, cmd: &str, args: &Value) -> Option<Answer> {
+    Some(match cmd {
+        "rf_on" => Ok(on_json(s)),
+        "rf_board" => board_answer(s, r, args),
+        "rf_view" => view(s, r, args),
+        "rf_act" => act(s, r, by, args),
+        // (the page's word every few seconds: who else is in RosterFlow, what they changed)
+        "rf_here" => Ok(live::here(s, r, by, args)),
+        c if c.starts_with("rf_tp") => return timeplan::run(s, r, c, args),
+        c if c.starts_with("rf_roster") => return roster::run(s, r, c, args),
         _ => return None,
     })
+}
+
+/// What kind of change of the plan a command makes, when it makes one (the rest show, or keep
+/// what is the page's own: a line folded, the Gantt's colours, Optimise's proposal).
+fn change_of(cmd: &str, args: &Value) -> Option<live::Kind> {
+    let what = str_arg(args, "act");
+    match cmd {
+        "rf_act" => match what.as_str() {
+            "save" | "discard" | "day_reset" | "day_unfollow" | "copy_rows" => Some(live::Kind::Saved),
+            "prefs" | "opt_flags" => Some(live::Kind::Prefs),
+            "colour_by" | "pick" | "revalidate" | "keep_mine" | "optimise" => None,
+            _ => Some(live::Kind::Blocks),
+        },
+        "rf_roster_act" if !what.starts_with("fold") => Some(live::Kind::Roster),
+        "rf_tp_act" => Some(live::Kind::Timetable),
+        _ => None,
+    }
+}
+
+/// A command of RosterFlow run for player `guest` of the company's session, relayed by his
+/// launcher (`together::relay`, which checked his permissions `perms`), on his own RosterFlow
+/// state `r` (`company::Viewer`). The print comes back as the file's bytes, saved on his
+/// launcher; the tutorial is his launcher's own.
+pub(crate) fn relayed(s: &mut Session, r: &mut Rf, guest: u32, cmd: &str, args: &Value, perms: &[omsi_launcher_lib::company::together::Perm]) -> Answer {
+    use omsi_launcher_lib::company::together::Perm;
+    let id = s.company.as_ref().map(|c| c.id.clone()).unwrap_or_default();
+    if r.company != id {
+        *r = Rf { company: id, ..Default::default() };
+    }
+    match cmd {
+        "rf_print" => print::for_afar(s, r, args),
+        _ => {
+            let mut v = run_as(s, r, live::Editor::Guest(guest), cmd, args).unwrap_or_else(|| Err(format!("no command {cmd}")))?;
+            if cmd == "rf_on" {
+                let may = |p: Perm| perms.contains(&p);
+                let why = (!may(Perm::Plans)).then(|| tr("Your role lets you look at the planning, not change it: the boss can give you \"Edit the planning\" on his Multiplayer page."));
+                v["remote"] = json!({ "plans": may(Perm::Plans), "lines": may(Perm::Lines), "assign": may(Perm::Assign), "why": why });
+            }
+            Ok(v)
+        }
+    }
+}
+
+/// A graph's PDF file made by the boss's launcher saved on a player's (`together::join`).
+pub(crate) fn save_pdf(name: &str, bytes: &[u8]) -> Value {
+    print::save(name, bytes)
+}
+
+/// A change of the planning made on its own pages by player `guest` (`together::host`), told to
+/// the planners in RosterFlow.
+pub(crate) fn planning_changed(s: &Session, guest: u32) {
+    if let Some(c) = s.company.as_ref() {
+        live::planning_changed(c, live::Editor::Guest(guest));
+    }
 }
 
 /// Whether the company open has RosterFlow on (the planning is RosterFlow then), its day and the
@@ -567,6 +659,9 @@ fn board_answer(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
     let prefs = &v.planning.flow.prefs;
     let proposal = r.proposal.clone();
     let rev = format!("{}|{}|{}|{}|{}", k.rev, proposal.is_some(), r.undo.len(), r.redo.len(), rf::has_draft(&c));
+    // (the day as his page shows it from now: an edit made on it after somebody else changed it
+    // is refused - `live::stale`)
+    live::shown(&c, r, &k.rev);
     if args.get("have").and_then(Value::as_str) == Some(rev.as_str()) {
         return Ok(json!({ "same": true, "head": head }));
     }
@@ -1171,7 +1266,7 @@ fn unassign_blocks(c: &mut Company, wd: u8, ids: &[String], again: &dyn Fn(&Comp
 }
 
 /// What a click, a drop or a menu's line does (`rf_act`: `act` and what it needs, `day` the day).
-fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
+fn act(s: &mut Session, r: &mut Rf, by: live::Editor, args: &Value) -> Answer {
     let what = str_arg(args, "act");
     let Some(date) = date_of(s, args) else { return Ok(json!({})) };
     // what needs no board
@@ -1268,6 +1363,15 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
         Some(Err(e)) => return Ok(said(e, true)),
         None => return Ok(said(tr("Reading the timetable…"), false)),
     };
+    // (an edit of the day as the page showed it, which somebody else changed meanwhile: not made
+    // on what the page's numbers point to now - the day shown anew, said by whom)
+    let shown = str_arg(args, "rev");
+    let was = shown.split('|').next().unwrap_or("");
+    if let Some(who) = s.company.as_ref().filter(|_| what != "optimise").and_then(|c| live::stale(c, r, by, was, &k.rev)) {
+        let mut out = said(trf("%{who} changed this day meanwhile: it is shown anew - do it once more.", &[("who", &who)]), true);
+        out["stale"] = json!(true);
+        return Ok(out);
+    }
     let board = k.board.clone();
     let tours = board.tours.clone();
     let wd = board.weekday;

@@ -147,9 +147,17 @@ export const handOverHooks = [];
  * editor, the livery studio) are this launcher's own. (The game draws no launcher of its own
  * any more: there is nowhere else to hand over to.) */
 export async function handOver(page, opts = {}) {
-  // (Beta 61: on a company joined with "Play together" only its own pages open; the editors,
-  // RosterFlow and the boss's game are his launcher's)
+  // (Beta 61: on a company joined with "Play together" only its own pages open, and RosterFlow
+  // on the boss's company - its commands relayed: `rosterflow/state.js`; the editors and the
+  // boss's game are his launcher's)
   if (S.co?.remote) {
+    for (const take of handOverHooks) {
+      try {
+        if (await take(page, opts)) return;
+      } catch {
+        /* (not taken) */
+      }
+    }
     if (/^\d+$/.test(String(page))) setCo({ tab: Number(page), dialog: null, popup: null });
     else toast(tr('Only the boss can do this, on his own launcher.'), 'error');
     return;

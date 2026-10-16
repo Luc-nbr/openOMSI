@@ -19,7 +19,7 @@ import { tr } from '../bits.js';
 import { HOME, setCo, handOverHooks, useSize } from '../company/kit.js';
 import { togetherOn, blockedLabel } from '../company/gate.js';
 import { pal } from './pal.js';
-import { fresh, setRf, setPart, rfCmd, rfAct, after, holds, letGo, toggle, panelIs, settle, rfOpen, ROSTER, VEHICLES, DRIVERS, TIMEPLAN } from './state.js';
+import { fresh, setRf, setPart, rfCmd, rfAct, rfRemote, after, told, holds, letGo, toggle, panelIs, settle, rfOpen, ROSTER, VEHICLES, DRIVERS, TIMEPLAN } from './state.js';
 import { Mark, Wordmark, Opening, SUBTITLE } from './brand.js';
 import { Icon, IconBtn } from './ui.js';
 import { Studio } from './studio.js';
@@ -51,7 +51,8 @@ export async function openRosterFlow(o = {}) {
   if (!on?.on) return false;
   const r = S.rf;
   const animate = S.settings?.animations !== false && !S.boot?.selftest;
-  const patch = { open: true, days: on.days, tripsToDuties: !!on.trips_to_duties, company: on.company };
+  // (company multiplayer: what the player's role lets him do on the boss's company)
+  const patch = { open: true, days: on.days, tripsToDuties: !!on.trips_to_duties, company: on.company, remote: on.remote || null };
   // (another company: begun anew)
   if (r.company && r.company !== on.company) Object.assign(patch, fresh({ ...patch }));
   if (!r.shown || r.company !== on.company) Object.assign(patch, { shown: true, intro: animate ? performance.now() : null });
@@ -71,6 +72,8 @@ export async function openRosterFlow(o = {}) {
 
 /** RosterFlow left for the company's start screen (its Back, Escape). */
 export function leaveRosterFlow() {
+  // (the other planners no longer see him in RosterFlow)
+  rfCmd('rf_here', { left: true }).catch(() => {});
   setRf({ open: false, shown: false, intro: null, hand: null, zones: null, card: null, menu: null, panel: null, prefs: null, sel: [] });
   setCo({ tab: HOME });
 }
@@ -114,6 +117,7 @@ function useBoard() {
     rfCmd('rf_board', { day: r.day, have: S.rf.rev })
       .then((v) => {
         if (gone) return;
+        told(v.told);
         if (v.same) setRf({ data: { ...S.rf.data, head: v.head } });
         else if (v.board) setRf({ data: v, rev: v.rev });
         else setRf({ data: { head: v.head, reading: v.reading }, rev: '' });
@@ -125,10 +129,38 @@ function useBoard() {
   }, [r.day, gen, r.bump, lang, r.view]);
 }
 
+/** How often the page says it is in RosterFlow (`rf_here`): who else is in it comes back, and
+ * what they changed. */
+const HERE_EVERY = 3000;
+
+/** Who else is in RosterFlow on this company now (company multiplayer: the boss and the players
+ * of his session), asked every few seconds; what they changed meanwhile said in the corner. */
+function useHere() {
+  useEffect(() => {
+    let gone = false;
+    const ask = () =>
+      rfCmd('rf_here', { view: S.rf.view, day: S.rf.day })
+        .then((v) => {
+          if (gone) return;
+          const here = v?.here || [];
+          if (JSON.stringify(here) !== JSON.stringify(S.rf.here || [])) setRf({ here });
+          told(v?.told);
+        })
+        .catch(() => {});
+    ask();
+    const t = setInterval(ask, HERE_EVERY);
+    return () => {
+      gone = true;
+      clearInterval(t);
+    };
+  }, []);
+}
+
 export function RosterFlowPage() {
   const r = S.rf;
   const p = pal();
   useBoard();
+  useHere();
   useOutsideClose();
   const [ref, size] = useSize();
   // Escape: the tutorial's menu or sheet, what is in hand, then back to the company's start
@@ -240,7 +272,8 @@ function TitleBar() {
   const ru = r.rosterUndo || {};
   const full = head?.name || '';
   const company = head?.company ?? full;
-  const [ref, fit] = useTitleFit([full, company, r.view, language()]);
+  const [ref, fit] = useTitleFit([full, company, r.view, language(), (r.here || []).length, !!rfRemote()]);
+  const remote = rfRemote();
   const tab = (v, icon, label, anchor) => html`<button type="button" class=${'rf-tab' + (r.view === v ? ' on' : '')} data-rf=${anchor} title=${fit >= 3 ? tr(label) : undefined} onClick=${() => r.view !== v && !holdChanges() && setRf({ view: v, hand: null, zones: null, sel: [], card: null, menu: null, panel: null, press: null, dragging: false, selRow: null })}><${Icon} name=${icon} size=${18} /><span>${tr(label)}</span></button>`;
   return html`<header class=${`rf-title fit${fit}`} ref=${ref}>
     <${IconBtn} icon="chevron_left" title="Back to the company's start screen (Esc)" onClick=${() => !holdChanges() && leaveRosterFlow()} />
@@ -252,7 +285,7 @@ function TitleBar() {
       <${IconBtn} icon="description" title="Print the bus graph or the duty graph as a PDF file" onClick=${() => toggle('print')} />
       <${IconBtn} icon="search" title="Go to a vehicle or a duty by its ID (G)" onClick=${() => toggle({ kind: 'goto', text: '' })} />
       <${IconBtn} icon="settings" title="Optimisation settings" onClick=${() => toggle('optimise')} />
-      <${IconBtn} icon="groups" disabled=${!togetherOn()} title=${togetherOn() ? 'Play together: friends drive duties of your company in your world' : blockedLabel()} onClick=${() => setCo({ dialog: { kind: 'together' } })} />
+      <${IconBtn} icon="groups" disabled=${!togetherOn() || !!remote} title=${remote ? 'Only the boss can do this, on his own launcher.' : togetherOn() ? 'Play together: friends drive duties of your company in your world' : blockedLabel()} onClick=${() => setCo({ dialog: { kind: 'together' } })} />
       <${IconBtn} icon="help" data="rf-help" title="Tutorial: a guided tour, lessons to try yourself and a help sheet" on=${r.tut.menu} onClick=${tutMenu} />
       <span class="rf-name" title=${full}>
         ${fit < 2 && html`<b class="cut">${fit === 0 ? full : company}</b>`}
@@ -260,6 +293,8 @@ function TitleBar() {
         <span class="rf-measure" aria-hidden="true"><b>${full}</b><b>${company}</b></span>
       </span>
     </span>
+    ${remote && !remote.plans && html`<span class="rf-readonly" title=${remote.why || ''}><${Icon} name="lock" size=${15} /><span>${tr('Read-only')}</span></span>`}
+    <${HereNow} />
     <span class="undo" data-rf="rf-undo">
       <${IconBtn} icon="livery_undo" title="Undo (Ctrl+Z)" disabled=${roster ? !ru.n : !undo || !studio} onClick=${() => (roster ? rosterUndo(true) : rfAct('undo'))} />
       <${IconBtn} icon="livery_redo" title="Redo (Ctrl+Y)" disabled=${roster ? !ru.redo : !head?.redo || !studio} onClick=${() => (roster ? rosterUndo(false) : rfAct('redo'))} />
@@ -276,6 +311,14 @@ function TitleBar() {
       ${tab(ROSTER, 'group', 'Roster', 'rf-tab-roster')}
     </span>
   </header>`;
+}
+
+/** Who else is in RosterFlow now (company multiplayer): a round mark each, with his name, his
+ * tab and his day on hover. */
+function HereNow() {
+  const here = S.rf.here || [];
+  if (!here.length) return null;
+  return html`<span class="rf-here">${here.slice(0, 5).map((h) => html`<i class=${h.boss ? 'boss' : ''} title=${`${h.name} · ${h.where}`}>${h.initial}</i>`)}${here.length > 5 && html`<i class="more" title=${here.slice(5).map((h) => h.name).join(', ')}>+${here.length - 5}</i>`}</span>`;
 }
 
 export { setPart, after, settle };

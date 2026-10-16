@@ -24,7 +24,7 @@ import { tr } from '../bits.js';
 import { pal, alpha } from './pal.js';
 import * as D from './draw.js';
 import { CHIP } from './draw.js';
-import { setRf, setPart, rfCmd, after, bump, ROSTER, VEHICLES, DRIVERS, TIMEPLAN } from './state.js';
+import { setRf, setPart, rfCmd, after, bump, say, ROSTER, VEHICLES, DRIVERS, TIMEPLAN } from './state.js';
 import { Icon } from './ui.js';
 import { anchored } from './anchors.js';
 import { drawMark } from './brand.js';
@@ -298,6 +298,13 @@ export function leaveTour(completed) {
 
 /** Begin lesson `id`: the company kept as it is now. */
 export async function beginLesson(id) {
+  // (company multiplayer: a lesson puts the company back as it found it - the boss's, which the
+  // others plan with too: his launcher's alone)
+  if (S.co?.remote) {
+    tutSet({ menu: false });
+    say(tr("Lessons change the company and put it back: they are for the boss's own launcher. The tour and the help sheet work here."), true);
+    return;
+  }
   await rfCmd('rf_tut_act', { act: 'begin', lesson: id }).catch(() => {});
   const p = probe();
   const steps = LESSONS.find((l) => l[0] === id)[2];

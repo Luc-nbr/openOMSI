@@ -187,6 +187,11 @@ export function TimeplanTab() {
  * is confirmed - the line editor of the desktop launcher (Trello "Tauri 5/6": `openLineEditor`)
  * where it is, else our game-drawn launcher's. */
 async function newLine() {
+  // (company multiplayer: a new line's route is drawn by the boss's line editor, on his map)
+  if (S.co?.remote) {
+    say(tr("The routes are drawn on the boss's map with his line editor: he changes them on his own launcher. The trips and their times you change in the Timeplan, as your role allows."), true);
+    return;
+  }
   const company = S.co.shell?.id;
   let m = null;
   try {

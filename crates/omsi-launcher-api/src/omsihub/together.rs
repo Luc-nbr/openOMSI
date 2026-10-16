@@ -12,6 +12,9 @@
 mod host;
 mod join;
 pub mod relay;
+/// RosterFlow in company multiplayer, over the loopback.
+#[cfg(test)]
+mod rf_tests;
 
 use super::company::words::{self, tr, trf};
 use crate::{Answer, Platform};
