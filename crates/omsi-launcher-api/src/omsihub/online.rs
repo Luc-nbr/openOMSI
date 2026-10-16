@@ -18,7 +18,11 @@
 //! * `ol_add {code}`, `ol_respond {id, accept}`, `ol_remove {id}`, `ol_block {id}`;
 //! * `ol_invite {id}` - the company session hosted now, to a friend; `ol_dismiss {id}`;
 //! * `ol_presence {away}`, `ol_seen`, `ol_refresh`;
-//! * `ol_privacy` - the privacy statement (`privacy.rs`); `ol_privacy_accept` - agreed to.
+//! * `ol_privacy` - the privacy statement (`privacy.rs`); `ol_privacy_accept` - agreed to;
+//! * `ol_oauth {provider, agree}` - signing in with Google, Discord or Steam: the listener started
+//!   (`omsihub_online::oauth`), the address the page opens in the system's browser answered with a
+//!   number; `ol_oauth_wait {id, agree}` - waits for the browser (a few minutes at most), then signs
+//!   in as `ol_sign_in` does; `ol_oauth_cancel` - the wait given up.
 //!
 //! The privacy statement (docs/omsihub/PRIVACY.md): signing in from the page comes with the
 //! player's tick (`agree`), which is sent as `accept_privacy` once signed in. At every sign-in and
@@ -36,10 +40,12 @@ use super::company::words::{self, tr, trf};
 use super::together;
 use crate::Answer;
 use omsi_launcher_lib as core;
-use omsihub_online::{codes, privacy, store, Client, Endpoints, Error, Friend, Invite, Profile};
+use omsihub_online::oauth::{self, Texts};
+use omsihub_online::{codes, privacy, store, Client, Endpoints, Error, Flow, Friend, Invite, Profile, Provider};
 use serde_json::{json, Value};
 use std::collections::HashSet;
-use std::sync::{LazyLock, Mutex, MutexGuard};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::time::Duration;
 
 /// What the page is shown, as the worker and the commands last saw it.
@@ -52,6 +58,8 @@ struct View {
     offline: bool,
     /// Signed in without a profile yet: the display name to choose.
     need_profile: bool,
+    /// The account has no password (Google, Discord, Steam): deleting it asks for none.
+    no_password: bool,
     /// Signed in, and the current privacy statement not agreed to: the account waits.
     need_privacy: bool,
     /// The version accepted before (0: none), while `need_privacy`: an amended statement, or none
@@ -161,6 +169,7 @@ fn answer(r: Result<Value, Error>) -> Value {
 fn signed_out(v: &mut View) {
     v.signed_in = false;
     v.need_profile = false;
+    v.no_password = false;
     v.need_privacy = false;
     v.privacy_before = 0;
     v.profile = None;
@@ -195,7 +204,7 @@ fn refresh(beat: bool) -> Result<(), Error> {
         }
         if c.privacy_needed() && c.check_privacy()? < privacy::VERSION {
             // (held: the version accepted before, if any)
-            return Ok(Some((c.lasting(), Err(c.privacy_agreed().unwrap_or(0)))));
+            return Ok(Some(((c.lasting(), !c.has_password()), Err(c.privacy_agreed().unwrap_or(0)))));
         }
         if beat {
             // (no profile yet: the heartbeat has nothing to tell)
@@ -206,14 +215,15 @@ fn refresh(beat: bool) -> Result<(), Error> {
         }
         let profile = c.profile()?;
         let (friends, invites) = if profile.is_some() { (c.friends()?, c.invites()?) } else { (Vec::new(), Vec::new()) };
-        Ok(Some((c.lasting(), Ok((profile, friends, invites)))))
+        Ok(Some(((c.lasting(), !c.has_password()), Ok((profile, friends, invites)))))
     });
     let mut v = view();
     match got {
-        Ok(Some((lasting, Err(agreed)))) => {
+        Ok(Some(((lasting, no_password), Err(agreed)))) => {
             // (the account waits for the player's agreement; asked again at the next beat)
             v.signed_in = true;
             v.lasting = lasting;
+            v.no_password = no_password;
             v.offline = false;
             v.need_privacy = true;
             v.privacy_before = agreed;
@@ -228,9 +238,10 @@ fn refresh(beat: bool) -> Result<(), Error> {
             }
             Ok(())
         }
-        Ok(Some((lasting, Ok((profile, friends, invites))))) => {
+        Ok(Some(((lasting, no_password), Ok((profile, friends, invites))))) => {
             v.signed_in = true;
             v.lasting = lasting;
+            v.no_password = no_password;
             v.offline = false;
             v.need_privacy = false;
             v.need_profile = profile.is_none();
@@ -399,6 +410,7 @@ fn state() -> Value {
         "offline": v.offline,
         "lasting": v.lasting,
         "need_profile": v.need_profile,
+        "no_password": v.signed_in && v.no_password,
         "me": v.profile.as_ref().map(|p| json!({ "name": p.display_name, "code": p.friend_code })),
         "friends": order.iter().map(|f| friend_json(f)).collect::<Vec<_>>(),
         "online_count": friends.iter().filter(|f| state_of(f) != "offline").count(),
@@ -538,6 +550,89 @@ fn reset(args: &Value) -> Value {
     }
 }
 
+// --- Google, Discord and Steam ---------------------------------------------------------------
+
+/// The sign-in waiting in the browser (one at a time): its number, the flow until `ol_oauth_wait`
+/// takes it, and its cancel.
+struct Pending {
+    id: u64,
+    flow: Option<Flow>,
+    cancel: Arc<AtomicBool>,
+}
+
+static OAUTH: Mutex<Option<Pending>> = Mutex::new(None);
+static OAUTH_ID: AtomicU64 = AtomicU64::new(1);
+
+fn pending() -> MutexGuard<'static, Option<Pending>> {
+    OAUTH.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The listener's page, in the page's language.
+fn oauth_texts() -> Texts {
+    let lang = words::language();
+    Texts {
+        lang: if lang.is_empty() { "en".into() } else { lang },
+        done_title: tr("You are signed in to Omsi-Hub"),
+        done_text: tr("You may close this tab and return to Omsi-Hub."),
+        failed_title: tr("The sign-in could not be completed"),
+        failed_text: tr("Please return to Omsi-Hub and try again."),
+        cancelled_text: tr("The sign-in was cancelled. Please return to Omsi-Hub."),
+        working: tr("Completing the sign-in…"),
+        no_script: tr("Please enable JavaScript for this page to complete the sign-in."),
+    }
+}
+
+/// The sign-in started: the listener, and the address for the page to open (an earlier one still
+/// waiting is given up).
+fn oauth_start(args: &Value) -> Value {
+    let Some(provider) = Provider::of(str_arg(args, "provider")) else { return fail(Error::Code("bad_input")) };
+    // (as with a password: only with the player's tick under the privacy statement)
+    if !agree(args) {
+        return fail(Error::Code("privacy"));
+    }
+    let flow = match Flow::start(&endpoints(), provider, oauth_texts()) {
+        Ok(f) => f,
+        Err(e) => return fail(e),
+    };
+    let id = OAUTH_ID.fetch_add(1, Ordering::Relaxed);
+    let url = flow.url().to_string();
+    let mut p = pending();
+    if let Some(old) = p.take() {
+        old.cancel.store(true, Ordering::Relaxed);
+    }
+    *p = Some(Pending { id, flow: Some(flow), cancel: Arc::new(AtomicBool::new(false)) });
+    json!({ "ok": true, "id": id, "url": url, "provider": provider.name() })
+}
+
+/// The browser waited for (this command's own worker, a few minutes at most), then signed in with
+/// what it handed back, as with a password.
+fn oauth_wait(args: &Value) -> Value {
+    let id = args.get("id").and_then(Value::as_u64).unwrap_or(0);
+    let taken = {
+        let mut p = pending();
+        p.as_mut().filter(|p| p.id == id).and_then(|p| p.flow.take().map(|f| (f, p.cancel.clone())))
+    };
+    let Some((flow, cancel)) = taken else { return fail(Error::Code("oauth_cancelled")) };
+    let got = flow.wait(oauth::TIMEOUT, &cancel);
+    {
+        let mut p = pending();
+        if p.as_ref().is_some_and(|p| p.id == id) {
+            *p = None;
+        }
+    }
+    match got.and_then(|h| with(|c| c.sign_in_with(&h))) {
+        Ok(()) => after_sign_in(agree(args)),
+        Err(e) => fail(e),
+    }
+}
+
+fn oauth_cancel() -> Value {
+    if let Some(p) = pending().as_ref() {
+        p.cancel.store(true, Ordering::Relaxed);
+    }
+    done("")
+}
+
 fn sign_out() -> Value {
     with(|c| {
         c.goodbye();
@@ -621,6 +716,9 @@ pub fn call(cmd: &str, args: &Value) -> Option<Answer> {
         "ol_forgot" => answer(with(|c| c.request_reset(str_arg(args, "email"))).map(|_| done(&tr("If an account has this address, a code is on its way to it.")))),
         "ol_reset" => reset(args),
         "ol_sign_out" => sign_out(),
+        "ol_oauth" => oauth_start(args),
+        "ol_oauth_wait" => oauth_wait(args),
+        "ol_oauth_cancel" => oauth_cancel(),
         "ol_privacy" => super::privacy::doc(),
         "ol_privacy_accept" => privacy_accept(),
         "ol_delete" => delete(args),
@@ -706,6 +804,28 @@ mod tests {
             }
         }
         assert!(missing.is_empty(), "{} missing (crates/omsi-app/locales/online.yml):\n{}", missing.len(), missing.join("\n"));
+    }
+
+    /// Google, Discord, Steam: only with the tick, the address for the browser answered, and a
+    /// cancel ends the wait at once.
+    #[test]
+    fn a_provider_sign_in_starts_waits_and_cancels() {
+        let v = call("ol_oauth", &json!({ "provider": "google", "lang": "de" })).unwrap().unwrap();
+        assert_eq!(v["code"], "privacy");
+        assert_eq!(call("ol_oauth", &json!({ "provider": "github", "agree": true })).unwrap().unwrap()["code"], "bad_input");
+        let v = call("ol_oauth", &json!({ "provider": "steam", "agree": true })).unwrap().unwrap();
+        assert!(v["url"].as_str().unwrap().starts_with("https://127.0.0.1:9/functions/v1/steam-auth?to=http%3A%2F%2F127.0.0.1%3A"), "{v}");
+        let v = call("ol_oauth", &json!({ "provider": "google", "agree": true })).unwrap().unwrap();
+        assert!(v["url"].as_str().unwrap().starts_with("https://127.0.0.1:9/auth/v1/authorize?provider=google&redirect_to="), "{v}");
+        let id = v["id"].as_u64().unwrap();
+        call("ol_oauth_cancel", &json!({})).unwrap().unwrap();
+        let t = std::time::Instant::now();
+        let w = call("ol_oauth_wait", &json!({ "id": id, "agree": true, "lang": "nl" })).unwrap().unwrap();
+        assert_eq!(w["code"], "oauth_cancelled");
+        assert_eq!(w["error"], crate::i18n::table("nl")["The sign-in was cancelled."]);
+        assert!(t.elapsed().as_secs() < 2);
+        // (a number that is not the one waiting)
+        assert_eq!(call("ol_oauth_wait", &json!({ "id": id + 100 })).unwrap().unwrap()["code"], "oauth_cancelled");
     }
 
     #[test]

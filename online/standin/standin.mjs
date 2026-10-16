@@ -299,11 +299,17 @@ const ANON = new Set(['hub_leaderboard', 'hub_board_counts']);
 
 // --- Google, Discord and Steam ---------------------------------------------------------------------
 
-/** Supabase's redirect globs (separators `.` and `/`): `**` anything, `*` and `?` no separator. */
+/** Supabase's redirect globs (separators `.` and `/`): `**` anything, `*` and `?` no separator,
+ * `[0-9]` / `[!a-z]` one character of (not of) a class. */
 function glob(g) {
   let re = '';
   for (let i = 0; i < g.length; i++) {
-    if (g.startsWith('**', i)) (re += '.*'), i++;
+    const end = g[i] === '[' ? g.indexOf(']', i + 2) : -1;
+    if (end > 0) {
+      const set = g.slice(i + 1, end);
+      re += set.startsWith('!') ? `[^${set.slice(1).replace(/[\\\]^]/g, '\\$&')}]` : `[${set.replace(/[\\\]^]/g, '\\$&')}]`;
+      i = end;
+    } else if (g.startsWith('**', i)) (re += '.*'), i++;
     else if (g[i] === '*') re += '[^./]*';
     else if (g[i] === '?') re += '[^./]';
     else re += g[i].replace(/[\\^$.|+()[\]{}]/g, '\\$&');
