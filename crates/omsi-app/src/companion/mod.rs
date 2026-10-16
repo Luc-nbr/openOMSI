@@ -55,7 +55,8 @@ mod http;
 mod nav;
 mod pairing;
 mod panels;
-mod qr;
+// (the encoder is the launcher core's: the bus company's duty card draws one too)
+use omsi_launcher_lib::qr;
 mod screens;
 mod server;
 mod signon;
