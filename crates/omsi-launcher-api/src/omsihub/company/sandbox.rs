@@ -119,6 +119,7 @@ fn knob_json(c: &Company, k: &sb::Knob) -> Value {
     let changed = !s.is_career(k.key);
     let mut v = json!({
         "key": k.key, "label": tr(k.label), "info": tr(k.info), "changed": changed,
+        "career_at": career,
         "career": trf("Career: %{value}", &[("value", &match k.kind {
             Kind::Switch => tr(if career != 0.0 { "On" } else { "Off" }),
             Kind::Factor { .. } => times(career),
@@ -151,7 +152,8 @@ pub fn view(s: &mut Session) -> Value {
         .iter()
         .map(|g| {
             let knobs: Vec<Value> = KNOBS.iter().filter(|k| k.group == *g).map(|k| knob_json(&c, k)).collect();
-            json!({ "label": tr(g.label()), "caps": tr(g.label()).to_uppercase(), "icon": g.icon(), "knobs": knobs })
+            let changed = KNOBS.iter().filter(|k| k.group == *g && !sb::of(&c).is_career(k.key)).count();
+            json!({ "label": tr(g.label()), "caps": tr(g.label()).to_uppercase(), "icon": g.icon(), "knobs": knobs, "changed": changed })
         })
         .collect();
     let changed = KNOBS.iter().filter(|k| !sb::of(&c).is_career(k.key)).count();
@@ -169,6 +171,12 @@ pub fn view(s: &mut Session) -> Value {
         "reputation": { "label": tr("Reputation"), "value": format!("{} %", num(c.reputation.clamp(0.0, 100.0), 1)), "points": (c.reputation * 10.0).round() / 10.0, "set": tr("Set the reputation") },
         "reset_all": (changed > 0).then(|| tr("Every setting back to the career's")),
         "on": tr("On"), "off": tr("Off"),
+        "set_label": tr("Set by hand"), "reset_career": tr("Reset to career"), "changed_n": changed,
+        "preset": {
+            "label": tr("Preset"), "value": sb::preset_of(sb::of(&c)).unwrap_or("custom"),
+            "options": sb::PRESETS.iter().map(|p| json!([p.0, tr(p.1)])).chain([json!(["custom", tr("Custom")])]).collect::<Vec<_>>(),
+            "tip": tr("A preset sets every setting at once; change any of them and it is Custom."),
+        },
     })
 }
 
@@ -203,6 +211,12 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Answer> {
             let value = number("value").unwrap_or(50.0);
             done(apply(s, |c| sb::set_reputation(c, value)))
         }
+        "sandbox_preset" => {
+            let key = args.get("key").and_then(Value::as_str).unwrap_or("").to_string();
+            let r = done(apply(s, |c| sb::set_preset(c, &key)));
+            s.plan = None;
+            r
+        }
         "sandbox_reset" => {
             let r = done(apply(s, sb::reset));
             s.say(tr("Every setting is back to the career's."), false);
@@ -222,6 +236,9 @@ pub fn texts() -> Vec<String> {
     }
     for g in Group::ALL {
         out.push(g.label().into());
+    }
+    for p in sb::PRESETS {
+        out.push(p.1.into());
     }
     for m in sb::CompanyMode::ALL {
         out.push(m.label().into());

@@ -613,3 +613,25 @@ _version: 2
   pl: "od %{time}"
   ru: "с %{time}"
   uk: "з %{time}"
+# Sandbox: the presets and the head
+"Relaxed":
+  de: "Entspannt"
+  fr: "Détendu"
+  nl: "Ontspannen"
+  pl: "Na luzie"
+  ru: "Расслабленно"
+  uk: "Невимушено"
+"Reset to career":
+  de: "Auf Karriere zurücksetzen"
+  fr: "Revenir à la carrière"
+  nl: "Terug naar carrière"
+  pl: "Przywróć karierę"
+  ru: "Вернуть как в карьере"
+  uk: "Повернути як у кар'єрі"
+"A preset sets every setting at once; change any of them and it is Custom.":
+  de: "Eine Vorgabe setzt alle Einstellungen auf einmal; änderst du eine davon, ist es Benutzerdefiniert."
+  fr: "Un préréglage règle tout d'un coup ; modifiez un réglage et il devient Personnalisé."
+  nl: "Een voorinstelling zet alles in één keer; verander er één en het wordt Aangepast."
+  pl: "Ustawienie wstępne zmienia wszystko naraz; zmień którekolwiek, a stanie się Własne."
+  ru: "Пресет задаёт все настройки сразу; измените любую — и он станет «Свой»."
+  uk: "Пресет задає всі налаштування одразу; змініть будь-яке — і він стане «Власний»."

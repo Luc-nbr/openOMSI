@@ -206,3 +206,55 @@
 .co .co-pgb .co-pgb-rs-kv b { color: var(--pgb-ink); font-variant-numeric: tabular-nums; text-align: right; }
 .co .co-pgb .co-pgb-rs-need { display: flex; align-items: center; gap: 6px; font-size: 10.8px; color: var(--pgb-soft); }
 .co .co-pgb .co-pgb-rs-detail .co-btn.co-pgb-big { width: 100%; }
+
+/* --- Sandbox (js/omsihub/company/sandbox.js) ------------------------------------------------------ */
+
+.co .co-pgb .co-pgb-sb-presets { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; padding: 10px 14px; }
+.co .co-pgb .co-pgb-sb-presets .co-seg { flex: 1 1 320px; max-width: 520px; height: 34px; }
+.co .co-pgb .co-pgb-sb-presets .co-seg button.on { background-color: var(--pgb-accent); color: var(--pgb-accent-ink); }
+.co .co-pgb .co-pgb-sb-presets .co-seg button:disabled:not(.on) { color: var(--pgb-faint); }
+.co .co-pgb .co-pgb-sb-presets .co-seg button.on:disabled { color: var(--pgb-accent-ink); }
+.co .co-pgb .co-pgb-sb-body { display: grid; grid-template-columns: minmax(170px, 220px) minmax(0, 1fr); gap: 16px; align-items: start; }
+@container pgb (max-width: 640px) {
+  .co .co-pgb .co-pgb-sb-body { grid-template-columns: minmax(0, 1fr); }
+  .co .co-pgb .co-pgb-sb-tabs { flex-direction: row; flex-wrap: wrap; }
+  .co .co-pgb .co-pgb-sb-tab { flex: 1 1 140px; }
+}
+.co .co-pgb .co-pgb-sb-tabs { display: flex; flex-direction: column; gap: 3px; padding: 8px; position: sticky; top: 0; }
+.co .co-pgb .co-pgb-sb-tab { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border: 0; border-radius: 9px; background-color: transparent; color: var(--pgb-soft); font-family: inherit; font-size: 11.2px; font-weight: 600; text-align: left; cursor: pointer; }
+.co .co-pgb .co-pgb-sb-tab:hover { background-color: var(--pgb-raise); color: var(--pgb-ink); }
+.co .co-pgb .co-pgb-sb-tab.on { background-color: var(--pgb-accent-tint); color: var(--pgb-accent-text); font-weight: 750; }
+.co .co-pgb .co-pgb-sb-count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; font-style: normal; font-size: 9.4px; font-weight: 800; line-height: 18px; text-align: center; color: var(--pgb-accent-ink); background-color: var(--pgb-accent); }
+
+.co .co-pgb .co-pgb-sb-form { padding: 14px 18px 6px; }
+.co .co-pgb .co-pgb-sb-row { padding: 12px 0; border-top: 1px solid var(--pgb-line); display: flex; flex-direction: column; gap: 8px; }
+.co .co-pgb .co-pgb-sb-form .co-pgb-card-h + .co-pgb-sb-row { border-top: 0; padding-top: 4px; }
+.co .co-pgb .co-pgb-sb-row-h { display: flex; align-items: flex-start; gap: 10px; }
+.co .co-pgb .co-pgb-sb-row-h .co-pgb-grow { display: flex; flex-direction: column; gap: 2px; }
+.co .co-pgb .co-pgb-sb-row-h b { font-size: 11.6px; font-weight: 700; color: var(--pgb-ink); }
+.co .co-pgb .co-pgb-sb-dot { flex: none; width: 7px; height: 7px; margin-top: 5px; border-radius: 50%; background-color: transparent; }
+.co .co-pgb .co-pgb-sb-row.changed .co-pgb-sb-dot { background-color: var(--pgb-accent); }
+.co .co-pgb .co-pgb-sb-career { flex: none; height: 20px; padding: 0 8px; border-radius: 10px; font-size: 9.6px; font-weight: 650; line-height: 20px; color: var(--pgb-dim); background-color: var(--pgb-field); white-space: nowrap; }
+.co .co-pgb .co-pgb-sb-big { flex: none; font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+.co .co-pgb .co-pgb-sb-slide { display: flex; align-items: center; gap: 12px; padding-left: 17px; }
+.co .co-pgb .co-pgb-sb-track { position: relative; flex: 1; min-width: 0; height: 30px; }
+.co .co-pgb .co-pgb-sb-track input[type=range] { -webkit-appearance: none; appearance: none; position: absolute; left: 0; right: 0; top: 2px; width: 100%; height: 20px; margin: 0; background-color: transparent; cursor: pointer; }
+.co .co-pgb .co-pgb-sb-track input[type=range]::-webkit-slider-runnable-track { height: 5px; border-radius: 3px; background-image: linear-gradient(to right, var(--pgb-accent) var(--fill, 50%), var(--pgb-field) var(--fill, 50%)); }
+.co .co-pgb .co-pgb-sb-track input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -5.5px; border-radius: 50%; background-color: var(--pgb-card); box-shadow: 0 0 0 2px var(--pgb-accent), var(--pgb-shadow); }
+.co .co-pgb .co-pgb-sb-ticks { position: absolute; left: 8px; right: 8px; top: 22px; height: 6px; pointer-events: none; }
+.co .co-pgb .co-pgb-sb-ticks i { position: absolute; top: 0; width: 1px; height: 5px; margin-left: -0.5px; background-color: var(--pgb-line-strong); }
+.co .co-pgb .co-pgb-sb-ticks i.career { width: 2px; height: 7px; margin-left: -1px; background-color: var(--pgb-dim); }
+.co .co-pgb .co-pgb-sb-val { flex: none; min-width: 52px; height: 24px; padding: 0 8px; border-radius: 7px; font-size: 11px; font-weight: 800; line-height: 24px; text-align: center; font-variant-numeric: tabular-nums; color: var(--pgb-ink); background-color: var(--pgb-field); }
+.co .co-pgb .co-pgb-sb-val.changed { color: var(--pgb-accent-text); background-color: var(--pgb-accent-tint); }
+
+.co .co-pgb .co-pgb-sb-toggle { align-self: flex-start; margin-left: 17px; position: relative; display: inline-flex; cursor: pointer; }
+.co .co-pgb .co-pgb-sb-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.co .co-pgb .co-pgb-sb-toggle i { width: 38px; height: 21px; border-radius: 11px; background-color: var(--pgb-line-strong); position: relative; transition: background-color 0.15s; }
+.co .co-pgb .co-pgb-sb-toggle i::after { content: ""; position: absolute; top: 3px; left: 3px; width: 15px; height: 15px; border-radius: 50%; background-color: var(--pgb-card); box-shadow: var(--pgb-shadow); transition: transform 0.2s cubic-bezier(0.3, 1.4, 0.5, 1); }
+.co .co-pgb .co-pgb-sb-toggle input:checked + i { background-color: var(--pgb-accent); }
+.co .co-pgb .co-pgb-sb-toggle input:checked + i::after { transform: translateX(17px); }
+.co .co-pgb .co-pgb-sb-toggle input:focus-visible + i { box-shadow: 0 0 0 2px rgba(var(--hub-accent-rgb), 0.5); }
+
+.co .co-pgb .co-pgb-sb-set { display: flex; align-items: center; gap: 10px; padding-left: 17px; }
+.co .co-pgb .co-pgb-sb-set .co-field { flex: 1; min-width: 0; max-width: 260px; height: 34px; }

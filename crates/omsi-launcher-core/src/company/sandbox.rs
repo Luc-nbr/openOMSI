@@ -142,6 +142,79 @@ pub const CAREER: Sandbox = Sandbox {
     free_hiring: false,
 };
 
+/// The Sandbox page's preset "Relaxed": a forgiving game - money easier to earn and to keep,
+/// fewer disruptions, the reputation quicker to win and slower to lose, hiring without limits.
+pub const RELAXED: Sandbox = Sandbox {
+    unlimited_money: false,
+    no_bankruptcy: true,
+    free_loans: true,
+    unlock_all: false,
+    income: 1.5,
+    wages: 0.8,
+    running: 0.8,
+    prices: 0.8,
+    penalties: 0.5,
+    inflation: false,
+    breakdowns: 0.5,
+    accidents: 0.5,
+    lateness: 0.7,
+    sickness: 0.5,
+    reputation_gain: 1.5,
+    reputation_loss: 0.5,
+    complaints: true,
+    morale: true,
+    holidays: true,
+    free_hiring: true,
+};
+
+/// The preset "Hard": tighter money and more disruptions, the reputation slower to win and
+/// quicker to lose.
+pub const HARD: Sandbox = Sandbox {
+    unlimited_money: false,
+    no_bankruptcy: false,
+    free_loans: false,
+    unlock_all: false,
+    income: 0.8,
+    wages: 1.2,
+    running: 1.25,
+    prices: 1.25,
+    penalties: 1.5,
+    inflation: true,
+    breakdowns: 1.5,
+    accidents: 1.5,
+    lateness: 1.3,
+    sickness: 1.5,
+    reputation_gain: 0.75,
+    reputation_loss: 1.5,
+    complaints: true,
+    morale: true,
+    holidays: true,
+    free_hiring: false,
+};
+
+/// The Sandbox page's presets: their key, name and knobs ("custom" is any other set).
+pub const PRESETS: [(&str, &str, Sandbox); 3] = [("relaxed", "Relaxed", RELAXED), ("career", "Career", CAREER), ("hard", "Hard", HARD)];
+
+/// The preset a sandbox's knobs are, if any.
+pub fn preset_of(s: &Sandbox) -> Option<&'static str> {
+    PRESETS.iter().find(|p| p.2 == *s).map(|p| p.0)
+}
+
+/// Set every knob of a sandbox company to a preset's.
+pub fn set_preset(c: &mut Company, key: &str) -> Result<(), &'static str> {
+    if !is_sandbox(c) {
+        return Err("Only a sandbox company has these settings.");
+    }
+    let Some(p) = PRESETS.iter().find(|p| p.0 == key) else { return Err("There is no such setting.") };
+    // (knob by knob, as the page sets them: what turning one on or off does goes with it)
+    for k in KNOBS {
+        if let Some(v) = p.2.get(k.key) {
+            set_knob(c, k.key, v)?;
+        }
+    }
+    Ok(())
+}
+
 impl Default for Sandbox {
     fn default() -> Self {
         CAREER
@@ -516,6 +589,28 @@ mod tests {
     }
 
     const SOLO: BusKind = BusKind { size: BusSize::Solo, drive: Drive::Diesel };
+
+    #[test]
+    fn a_preset_sets_every_knob_and_is_recognised() {
+        let mut c = super::super::found(&super::super::Founding { name: "P".into(), date: "2024-03-04".into(), company_mode: CompanyMode::Sandbox, ..Default::default() }, "Luc");
+        assert_eq!(preset_of(&c.sandbox), Some("career"));
+        set_preset(&mut c, "relaxed").unwrap();
+        assert_eq!(c.sandbox, RELAXED);
+        assert_eq!(preset_of(&c.sandbox), Some("relaxed"));
+        set_knob(&mut c, "wages", 2.0).unwrap();
+        assert_eq!(preset_of(&c.sandbox), None, "custom");
+        set_preset(&mut c, "hard").unwrap();
+        assert_eq!(preset_of(&c.sandbox), Some("hard"));
+        // (every preset's values are ones the knobs can hold)
+        for (_, _, p) in PRESETS {
+            let mut x = CAREER;
+            for k in KNOBS {
+                x.set(k.key, p.get(k.key).unwrap()).unwrap();
+            }
+            assert_eq!(x, p);
+        }
+        assert!(set_preset(&mut c, "nope").is_err());
+    }
 
     #[test]
     fn an_old_file_is_a_career_and_a_career_is_untouched() {
