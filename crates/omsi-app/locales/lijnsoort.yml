@@ -738,3 +738,25 @@ _version: 2
   ru: "Как в рекламе"
   uk: "Як у рекламі"
   pl: "Jak w reklamie"
+# (the line editor's estimate of a line on the UK income model: Omsi-Hub's `ownline::estimate`)
+"Concession reimbursement":
+  nl: "Vergoeding kortingspassen"
+  de: "Erstattung für Ermäßigungen"
+  fr: "Remboursement des réductions"
+  ru: "Возмещение льгот"
+  uk: "Відшкодування пільг"
+  pl: "Zwrot za ulgi"
+"School passes":
+  nl: "Schoolabonnementen"
+  de: "Schülerkarten"
+  fr: "Abonnements scolaires"
+  ru: "Школьные проездные"
+  uk: "Шкільні проїзні"
+  pl: "Bilety szkolne"
+"Fuel grant (BSOG)":
+  nl: "Brandstofsubsidie (BSOG)"
+  de: "Kraftstoffzuschuss (BSOG)"
+  fr: "Aide carburant (BSOG)"
+  ru: "Топливная субсидия (BSOG)"
+  uk: "Паливна субсидія (BSOG)"
+  pl: "Dopłata paliwowa (BSOG)"

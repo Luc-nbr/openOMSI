@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 pub type Cents = i64;
 
 /// The version of the saved file; raised when a field changes meaning (see `store::migrate`).
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 3;
 
 /// The company's game mode (Trello "Game modes 1/4"): one choice that sets both how much of
 /// the company the player runs himself and how hard its economy and its days are. It can be
@@ -201,8 +201,11 @@ pub enum BookingKind {
     Loan,
     Repayment,
     Interest,
+    /// Fares: the adults' tickets (singles, returns, day and period tickets).
     Fares,
-    /// The authority's payment per timetable kilometre (the public service contract).
+    /// A payment per kilometre: an own weekend line's tourism grant (`ownline::trip_payment`);
+    /// in older files the authority's payment per km of a concession line, which the bus
+    /// contracts replaced (`Contract`).
     Compensation,
     /// A grant towards a new bus.
     Subsidy,
@@ -246,10 +249,33 @@ pub enum BookingKind {
     Rewards,
     /// Agency drivers: sent on the day, or booked ahead (`agency`).
     Agency,
+    /// What the owned buses lose a month (`economy::depreciation_per_month`): a cost of the
+    /// result, not money paid (`is_cash`).
+    Depreciation,
+    /// The central overhead per bus (depot rent, management, admin, control, IT) and the buses'
+    /// ticket machines (`economy::bus_month`).
+    Overheads,
+    /// What the bus contracts pay (`bus_contracts`): gross cost by the day or week, net subsidy by
+    /// the month, private hire by the day - the journeys not paid taken off.
+    Contract,
+    /// The children's tickets (`income`).
+    ChildFares,
+    /// The operator's share of the multi-operator passes, a ride (`income`).
+    NetworkPasses,
+    /// The school term passes, spread over the pupils' rides (`income`).
+    SchoolPasses,
+    /// The concession reimbursement: the authority pays a share of the adult fare for every ride
+    /// on an elderly or disabled person's pass (`income`).
+    Reimbursement,
+    /// BSOG, the grant per live mile (`income`).
+    Bsog,
+    /// Fares a line under a gross-cost contract takes for the authority: collected and paid over
+    /// the same day (they come to nothing; `income`).
+    AuthorityFares,
 }
 
 impl BookingKind {
-    pub const ALL: [BookingKind; 32] = [
+    pub const ALL: [BookingKind; 41] = [
         BookingKind::Capital,
         BookingKind::Loan,
         BookingKind::Repayment,
@@ -282,6 +308,15 @@ impl BookingKind {
         BookingKind::Services,
         BookingKind::Rewards,
         BookingKind::Agency,
+        BookingKind::Depreciation,
+        BookingKind::Overheads,
+        BookingKind::Contract,
+        BookingKind::ChildFares,
+        BookingKind::NetworkPasses,
+        BookingKind::SchoolPasses,
+        BookingKind::Reimbursement,
+        BookingKind::Bsog,
+        BookingKind::AuthorityFares,
     ];
 
     pub fn label(self) -> &'static str {
@@ -297,12 +332,12 @@ impl BookingKind {
             BookingKind::Sale => "Bus sold",
             BookingKind::Lease => "Leasing",
             BookingKind::Rent => "Rental",
-            BookingKind::Energy => "Fuel and power",
-            BookingKind::Maintenance => "Maintenance",
+            BookingKind::Energy => "Fuel and energy",
+            BookingKind::Maintenance => "Workshop",
             BookingKind::Repair => "Repairs",
-            BookingKind::Insurance => "Insurance",
+            BookingKind::Insurance => "Insurance and tax",
             BookingKind::Depot => "Depot",
-            BookingKind::Wages => "Wages",
+            BookingKind::Wages => "Wages (paid hours)",
             BookingKind::Severance => "Severance",
             BookingKind::Recruitment => "Job adverts",
             BookingKind::Penalty => "Penalties",
@@ -318,6 +353,15 @@ impl BookingKind {
             BookingKind::Services => "Service contracts",
             BookingKind::Rewards => "Goal rewards",
             BookingKind::Agency => "Agency drivers",
+            BookingKind::Depreciation => "Depreciation",
+            BookingKind::Overheads => "Overheads",
+            BookingKind::Contract => "Contract payments",
+            BookingKind::ChildFares => "Fares: children",
+            BookingKind::NetworkPasses => "Network passes",
+            BookingKind::SchoolPasses => "School passes",
+            BookingKind::Reimbursement => "Concession reimbursement",
+            BookingKind::Bsog => "Fuel grant (BSOG)",
+            BookingKind::AuthorityFares => "Fares for the authority",
         }
     }
 
@@ -325,6 +369,12 @@ impl BookingKind {
     /// selling buses): not part of what running the lines earns. A purchase is no bad day.
     pub fn is_capital(self) -> bool {
         matches!(self, BookingKind::Capital | BookingKind::Loan | BookingKind::Repayment | BookingKind::Purchase | BookingKind::Sale | BookingKind::Subsidy | BookingKind::Construction)
+    }
+
+    /// Money that moves the cash: everything but the depreciation (what a bus bought loses is a
+    /// cost of the month's result; its price was paid when it was bought).
+    pub fn is_cash(self) -> bool {
+        self != BookingKind::Depreciation
     }
 }
 
@@ -477,8 +527,10 @@ pub struct Employee {
     /// bus is a warning, see `staff::qualified`).
     pub experience: f64,
     pub licence: Licence,
-    /// Monthly gross wage; the company pays the employer's share on top
-    /// (`economy::employer_cost`).
+    /// Monthly gross wage for the contracted hours (`econ_uk::CONTRACT_WEEK_HOURS`; an hour is
+    /// `staff::hourly`): the company pays the hours worked and the employer's share on top
+    /// (`economy::employer_cost`, `pay`). A file of version 1 had a flat monthly wage of the old
+    /// German reference: `store::migrate` brings it to the UK model's.
     pub wage: Cents,
     /// 0 to 1: how seldom they are ill or miss a duty.
     pub reliability: f64,
@@ -534,6 +586,12 @@ pub struct Employee {
     /// file's, whose name says it).
     #[serde(default)]
     pub agency_no: u32,
+    /// A driver's week so far (`pay`): the minutes of duty paid, and the minutes the weekly
+    /// guarantee owes for the days they were there.
+    #[serde(default)]
+    pub week_paid: f64,
+    #[serde(default)]
+    pub week_due: f64,
 }
 
 /// What an employee does.
@@ -673,6 +731,16 @@ pub struct CompanyLine {
     /// An own line in service changed in the line editor for a later day (`ownline::Pending`).
     #[serde(default)]
     pub pending: Option<super::ownline::Pending>,
+    /// The kind of line the player says it is (None: as its timetable shows it, `income::type_of`).
+    #[serde(default)]
+    pub line_type: Option<super::income::LineType>,
+    /// Its fares capped (`econ_uk::FARE_CAP`: an adult and a child single at most).
+    #[serde(default)]
+    pub fare_cap: bool,
+    /// What its days showed so far: its trips' length and stops, its hours, how often it ran late
+    /// (`income::LineStats`).
+    #[serde(default)]
+    pub stats: super::income::LineStats,
 }
 
 impl CompanyLine {
@@ -714,6 +782,12 @@ pub struct DayRecord {
     /// Each line's day (an older file has none).
     #[serde(default)]
     pub lines: Vec<LineTally>,
+    /// The bus-hours its passengers rode in (`econ_uk::BUS_HOUR_PER_RUNNING_HOUR`), and those a
+    /// full bus left at the stop.
+    #[serde(default)]
+    pub bus_hours: f64,
+    #[serde(default)]
+    pub left_behind: u32,
 }
 
 /// A line's closed day, kept with the day's record: its passengers and its crowded trips (the
@@ -727,6 +801,13 @@ pub struct LineTally {
     pub crowded: u32,
     #[serde(default)]
     pub crowded_morning: u32,
+    /// Its passengers by the part of the day (`income::BANDS`), its bus-hours, those left behind.
+    #[serde(default)]
+    pub bands: [u32; 5],
+    #[serde(default)]
+    pub bus_hours: f64,
+    #[serde(default)]
+    pub left_behind: u32,
 }
 
 /// What of the week's markets is gone (bought, hired): a new week brings new offers.
@@ -918,7 +999,9 @@ impl Company {
         if amount == 0 {
             return;
         }
-        self.cash += amount;
+        if kind.is_cash() {
+            self.cash += amount;
+        }
         let date = self.date.clone();
         let month = dates::month_of(&date);
         match self.months.iter_mut().find(|m| m.month == month) {

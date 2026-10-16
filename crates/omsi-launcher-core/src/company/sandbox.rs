@@ -15,7 +15,7 @@
 //!   `qualify` (every driver's licence, endorsements and bus types);
 //! - *economy*: `rules` (the game mode's `economy::Rules` as `economy::rules_for` hands them to
 //!   the company: bus prices, compensation, penalties, inflation, illness, applicants),
-//!   `fares::per_passenger` (fares), `booked` (wages, at `Company::book`) and the day close's
+//!   `econ_uk::factor` (the income: fares, concessions, contracts, grants), `booked` (wages, at `Company::book`) and the day close's
 //!   running costs (`day::close_day_with`);
 //! - *operations*: the breakdowns and accidents drawn (`clock`, `incidents::trip`), the delay
 //!   model (`lateness::model_with`, `staff::signs_on_late`), `reputation::change`,
@@ -422,13 +422,11 @@ pub fn set_reputation(c: &mut Company, value: f64) -> Result<(), &'static str> {
 // --- the economy -------------------------------------------------------------------------------
 
 /// The game mode's rules as the company's sandbox sets them (`economy::rules_for`): bus prices,
-/// the compensation, the penalties, inflation, the loans' interest, illness and the applicants.
+/// inflation, the loans' interest, illness and the applicants (the penalties are the bus
+/// contracts', `bus_contracts::strictness`; the income `econ_uk::factor`'s).
 pub fn rules(c: &Company, mut r: Rules) -> Rules {
     let s = of(c);
     r.price_factor *= s.prices;
-    r.compensation_per_km = (r.compensation_per_km as f64 * s.income).round() as Cents;
-    r.drop_per_trip = (r.drop_per_trip as f64 * s.penalties).round() as Cents;
-    r.drop_per_km = (r.drop_per_km as f64 * s.penalties).round() as Cents;
     if !s.inflation {
         r.inflation = 0.0;
         r.indexation = 0.0;
@@ -593,8 +591,10 @@ mod tests {
         }
         let r = economy::rules_for(&c);
         assert_eq!(economy::new_price(SOLO, &r, 1.0), economy::new_price(SOLO, &base, 1.0) / 2);
-        assert_eq!(r.compensation_per_km, base.compensation_per_km * 2);
-        assert_eq!((r.drop_per_trip, r.drop_per_km), (0, 0));
+        // (the income knob: the contracts' factor - and with it a weekend line's tourism grant)
+        assert!((economy::tourism_per_km(&c) - 2.0 * economy::tourism_per_km(&company(CompanyMode::Sandbox))).abs() < 1e-6);
+        // (no penalties: a bus contract deducts nothing and gives no default points)
+        assert_eq!(crate::company::bus_contracts::journey_value(&c, "Linie5", None), 0);
         assert_eq!((r.loan_rate, r.inflation, r.indexation), (0.0, 0.0, 0.0));
         assert!((r.sickness - base.sickness * 3.0).abs() < 1e-12);
         assert_eq!(r.applicants, base.applicants * 2);

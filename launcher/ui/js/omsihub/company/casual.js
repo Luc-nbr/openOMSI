@@ -9,7 +9,7 @@ import { html, useState, setCo, setUi, ui, act, useView, useSize, textW, handOve
 import { BusTile, initials } from './fleet.js';
 import { Portrait } from './people.js';
 import { ComingRows } from './agenda.js';
-import { money } from '../money.js';
+import { money, fare as fareText } from '../money.js';
 
 const PAGE = { [CASUAL.BUSES]: 'buses', [CASUAL.SHOP]: 'shop', [CASUAL.LINES]: 'lines', [CASUAL.NEW_LINE]: 'new_line', [CASUAL.DRIVERS]: 'drivers', [CASUAL.MONEY]: 'money', [CASUAL.COMPANY]: 'company', [CASUAL.SHIFTS]: 'shifts' };
 const GAP = 16;
@@ -183,7 +183,7 @@ function Lines({ v }) {
 function LineCard({ l }) {
   const [fare, setFare] = useState(null);
   const shown = fare ?? l.fare;
-  const eurc = (c) => money(c, true);
+  const eurc = (c) => fareText(c);
   const set = (cents) => act('set_fare', { line: l.name, fare: cents, casual: true }).then(() => (setFare(null), setUi('casual', { focus: null })));
   return html`<div class=${'co-casual-line' + (l.lit ? ' lit' : '')}>
     <div class="top"><${Plate} p=${l.plate} h=${30} /><b class="cut">${l.public}</b></div>

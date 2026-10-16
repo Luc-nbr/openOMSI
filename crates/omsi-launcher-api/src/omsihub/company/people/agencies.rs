@@ -184,7 +184,7 @@ pub fn part(c: &Company, plan: Option<&DayPlan>, ui: &Value) -> Value {
         "title": tr("Book agency drivers"),
         "calendar_title": tr("The coming weeks").to_uppercase(), "weekdays": WEEKDAYS.iter().map(|w| tr(w)).collect::<Vec<_>>(), "days": days, "day": day,
         "notes": [
-            trf("Booked ahead an agency driver costs %{rate} an hour; one sent on the day itself %{same}.", &[("rate", &eur_cents(ag::rate(c) as f64)), ("same", &eur_cents(pl::AGENCY_HOUR as f64 * c.price_index))]),
+            trf("Booked ahead an agency driver costs %{rate} an hour; one sent on the day itself %{same}.", &[("rate", &eur_cents(ag::rate(c) as f64)), ("same", &eur_cents(pl::agency_hour(c)))]),
             tr("On their day they are among the drivers of the Roster tab: give them duties there, or let the dispatcher and Fill the roster take them first for what is open."),
             tr("A booked driver is paid for what was booked even when he has no duty, as agencies bill. Cancelling is free until the day before; on the day itself the agency bills half."),
             tr("There is no limit to how many you book: only the cash."),

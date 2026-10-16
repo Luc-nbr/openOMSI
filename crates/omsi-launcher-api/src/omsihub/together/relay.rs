@@ -146,8 +146,8 @@ fn act_need(act: &str, what: &str) -> Need {
         // the staff
         "hire" | "raise" | "advertise" | "keep" | "grant_raise" | "refuse_raise" | "course_lock" | "book_course" | "train" | "set_hours" | "staff_rule" | "auto" | "follow" | "holiday_answer" | "holiday_limit" | "agency_book" | "agency_cancel" | "staff_minimum" => STAFF,
         // the lines, their fares
-        "line_title" | "line_hof" | "line_colour" | "add_line" | "remove_line" => LINES,
-        "set_fare" => Any(&[Perm::Lines, Perm::Spend]),
+        "line_title" | "line_type" | "line_hof" | "line_colour" | "add_line" | "remove_line" => LINES,
+        "set_fare" | "set_cap" => Any(&[Perm::Lines, Perm::Spend]),
         "inbox_read" | "inbox_unread" | "inbox_delete" | "inbox_mark_all" | "inbox_delete_read" => SETTINGS,
         "complaint_reply" | "ops_notice" | "ops_apply" | "ops_cover" | "ops_break" => SERVICE,
         "sandbox_knob" | "sandbox_balance" | "sandbox_reputation" | "sandbox_reset" => SETTINGS,
@@ -165,7 +165,7 @@ fn more_act_need(act: &str) -> Need {
         a if a.starts_with("pe_") => Any(&[Perm::Lines, Perm::Plans]),
         "depot_build" | "depot_cancel" | "depot_order" | "parts_auto" | "parts_buy" | "research_info" | "research_start" | "research_stop" => SPEND,
         "tender_pick" | "tender_bid" | "tender_buy" | "tender_step" => SPEND,
-        "goal_take" | "goal_give_up" | "net_take" | "net_cancel" | "net_top_up" | "fuel_sign" | "cleaning_sign" | "cleaning_end" => SPEND,
+        "goal_take" | "goal_give_up" | "net_take" | "net_cancel" | "net_top_up" | "fuel_sign" | "cleaning_sign" | "cleaning_end" | "contract_hand_back" => SPEND,
         "map_play" | "map_speed" | "map_now" | "map_pick" => Member,
         "plan_give_driver" | "plan_give_bus" | "plan_set_fill" | "plan_fill" | "plan_clear" | "plan_repeat" | "plan_fold" | "plan_fold_all" | "plan_stop" | "plan_start" => PLANS,
         // (a line's trips and timetable: the planning's sheet of the player's own, or RosterFlow's

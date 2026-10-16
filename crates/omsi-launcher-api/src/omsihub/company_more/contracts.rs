@@ -2,14 +2,18 @@
 //! assignments and service contracts: the trophies to spend, the rating, the goals running and
 //! the trophies' bar to the next milestone; then the week's goals (on offer, running,
 //! finished), the service contracts (the buses' internet from one of four providers once WLAN is
-//! researched, a supplier's fixed diesel price, an outside cleaning company) or the tenders the
-//! company bid on. The rules are `company::contracts`'.
+//! researched, a supplier's fixed diesel price, an outside cleaning company), the tenders the
+//! company bid on, or its bus contracts - each with its kind, its payment and days, its term
+//! and extensions, its rating (RAG) and default points, its journeys not paid, and the track
+//! record the next tenders score (`bus_contracts`). The rules are `company::contracts`' and
+//! `company::bus_contracts`'.
 
 use super::super::inbox::{goal_progress, trophy_bar, words};
 use super::super::words::{day_label, eur, eur_cents, grade, grouped, num, tr, trf};
 use super::super::{act as apply, Session};
 use super::{concessions, popup_answer, u32_arg};
 use crate::Answer;
+use omsi_launcher_lib::company::bus_contracts::{self as bc, Contract, End, Kind, Period, Rag};
 use omsi_launcher_lib::company::contracts::{self as ct, Goal, State, PROVIDERS};
 use omsi_launcher_lib::company::{self as co, Company};
 use serde_json::{json, Value};
@@ -38,7 +42,7 @@ fn goal_title(g: &Goal) -> String {
 pub fn view(s: &mut Session, args: &Value) -> Value {
     ensure(s);
     let Some(c) = s.company.clone() else { return Value::Null };
-    let part = args.get("part").and_then(Value::as_u64).unwrap_or(0).min(2) as usize;
+    let part = args.get("part").and_then(Value::as_u64).unwrap_or(0).min(3) as usize;
     let running = c.contracts.goals.iter().filter(|g| g.state == State::Running).count();
     let rating = ct::rating(&c);
     let figures = json!({
@@ -47,11 +51,12 @@ pub fn view(s: &mut Session, args: &Value) -> Value {
         "running": { "label": tr("Goals running"), "value": format!("{running} / {}", ct::RUNNING_MAX), "under": tr("at most three at once"), "tone": "text" },
         "milestone": { "label": tr("Trophy milestone"), "bar": trophy_bar(&c) },
     });
-    let parts = [tr("Goals"), tr("Service contracts"), tr("Tender bids")];
+    let parts = [tr("Goals"), tr("Service contracts"), tr("Tender bids"), tr("Bus contracts")];
     let body = match part {
         0 => goals(&c),
         1 => services(&c, args),
-        _ => concessions::bids(&c),
+        2 => concessions::bids(&c),
+        _ => bus_contracts(&c),
     };
     json!({ "figures": figures, "parts": parts, "part": part, "body": body })
 }
@@ -254,6 +259,133 @@ fn cleaning(c: &Company) -> Value {
     json!({ "title": tr("Cleaning company"), "text": text, "state": state, "tone": tone, "open": open, "end": tr("End the contract"), "sign": tr("Sign the contract") })
 }
 
+// --- the bus contracts -----------------------------------------------------------------------------
+
+/// A contract's kind and how it is paid, in words.
+pub fn kind_text(k: &Contract) -> String {
+    let per = match k.period {
+        Period::Day => tr("paid by the operating day"),
+        Period::Week => tr("paid by the week"),
+        Period::Month => tr("paid by the month"),
+    };
+    format!("{}  ·  {per}", tr(k.kind.label()))
+}
+
+/// What a contract pays now by its period, and a year.
+pub fn pay_text(c: &Company, k: &Contract) -> String {
+    let each = eur(bc::payment(c, k));
+    let year = eur(k.year_now(c.contract_index).round() as i64);
+    match k.period {
+        Period::Day => trf("%{amount} an operating day  ·  %{year} a year", &[("amount", &each), ("year", &year)]),
+        Period::Week => trf("%{amount} a week  ·  %{year} a year", &[("amount", &each), ("year", &year)]),
+        Period::Month => trf("%{amount} a month, %{n} months a year  ·  %{year} a year", &[("amount", &each), ("n", &k.months().to_string()), ("year", &year)]),
+    }
+}
+
+/// Its days, and whose the fares are.
+pub fn days_text(c: &Company, k: &Contract) -> String {
+    let days = match k.kind {
+        Kind::Hire => trf("%{n} set days a year", &[("n", &k.days_a_year.to_string())]),
+        _ => trf("%{n} operating days a year", &[("n", &k.days_a_year.to_string())]),
+    };
+    let fares = match k.kind {
+        Kind::Gross => tr("the fares go to the authority"),
+        Kind::Net => match bc::fare_cap(c, &k.line) {
+            Some(cap) => trf("the fares are yours, at most %{fare} on the line this year", &[("fare", &eur_cents(cap as f64))]),
+            None => tr("the fares are yours, rising by 15 % a year at most"),
+        },
+        Kind::Hire => tr("no fares: the hirer pays the day"),
+    };
+    format!("{days}  ·  {fares}")
+}
+
+/// Its term and extensions.
+pub fn term_text(k: &Contract) -> String {
+    let (_, max) = bc::term(k.kind);
+    trf("%{from} to %{until}  ·  %{n} of %{max} extension years earned", &[("from", &day_label(&k.from)), ("until", &day_label(&k.until)), ("n", &k.extended.to_string()), ("max", &max.to_string())])
+}
+
+/// Its rating as a badge.
+pub fn rag_json(r: Rag) -> Value {
+    let tone = match r {
+        Rag::Green => "ok",
+        Rag::Orange => "warn",
+        Rag::Red => "danger",
+    };
+    json!({ "text": tr(r.label()).to_uppercase(), "tone": tone })
+}
+
+/// Its points of the last twelve months.
+pub fn points_text(c: &Company, k: &Contract) -> String {
+    let (def, q, _) = k.points(&c.date);
+    trf("%{net} net default points over twelve months (%{def} default, %{q} quality)", &[("net", &num(k.net_points(&c.date), 0)), ("def", &num(def, 0)), ("q", &num(q, 0))])
+}
+
+/// Its journeys not paid in the last twelve months.
+pub fn unpaid_text(c: &Company, k: &Contract) -> String {
+    let (n, amount) = k.unpaid(&c.date);
+    if n == 0 {
+        tr("Every journey paid in twelve months")
+    } else {
+        trf("%{n} journeys not paid in twelve months: %{amount}", &[("n", &grouped(n as f64)), ("amount", &eur(amount))])
+    }
+}
+
+/// The company's track record in words: its quality points in the next tenders.
+pub fn record_text(c: &Company) -> String {
+    let pts = bc::scored_points(c);
+    let q = num(bc::quality_points(pts), 1);
+    match bc::track_record(c) {
+        Some(_) => trf("Your track record: %{pts} average net default points a contract over twelve months, %{q} of 30 quality points in the next tenders.", &[("pts", &num(pts, 1)), ("q", &q)]),
+        None => trf("No track record yet: the authority scores a newcomer as %{pts} points, %{q} of 30 quality points in the next tenders.", &[("pts", &num(pts, 1)), ("q", &q)]),
+    }
+}
+
+/// The bus contracts (`bus_contracts`): those running and to begin, with their terms, rating and
+/// points; those ended in the last twelve months; the track record.
+fn bus_contracts(c: &Company) -> Value {
+    let caption = |line: &str| c.lines.iter().find(|l| l.name.eq_ignore_ascii_case(line)).map(|l| l.caption.clone()).unwrap_or_default();
+    let mut live: Vec<&Contract> = bc::all(c).iter().filter(|k| k.live()).collect();
+    live.sort_by(|a, b| a.number.cmp(&b.number).then(a.from.cmp(&b.from)));
+    let rows: Vec<Value> = live
+        .iter()
+        .map(|k| {
+            let month = if k.month.month == co::dates::month_of(&c.date) && k.month.journeys > 0 {
+                trf("This month: %{paid} paid, %{n} journeys, %{p} % on time", &[("paid", &eur(k.month.paid)), ("n", &grouped(k.month.journeys as f64)), ("p", &format!("{:.0}", 100.0 * k.month.on_time as f64 / k.month.journeys as f64))])
+            } else {
+                tr("This month: no journey yet")
+            };
+            let later = co::dates::between(&c.date, &k.from) > 0;
+            let cost = bc::leaving_cost(c, k, co::econ_uk::EARLY_END_MONTHS);
+            json!({
+                "line": k.line, "number": k.number, "caption": caption(&k.line),
+                "kind": kind_text(k), "pay": pay_text(c, k), "days": days_text(c, k), "term": term_text(k),
+                "rag": rag_json(k.rag(&c.date)), "points": points_text(c, k), "unpaid": unpaid_text(c, k),
+                "month": if later { trf("Begins on %{date}", &[("date", &day_label(&k.from))]) } else { month },
+                "back": trf("Hand back (%{amount})", &[("amount", &eur(cost))]),
+                "back_tip": tr("Ends the contract today: it costs a month's average payment, and a map line goes with it."),
+            })
+        })
+        .collect();
+    let ended: Vec<Value> = bc::all(c)
+        .iter()
+        .filter(|k| !k.live())
+        .map(|k| {
+            let why = match k.end {
+                Some(End::HandedBack) => tr("handed back"),
+                Some(End::Terminated) => tr("ended by the authority for default"),
+                _ => tr("its term ran out"),
+            };
+            json!({ "number": k.number, "text": trf("Ended on %{date}: %{why}", &[("date", &day_label(k.ended.as_deref().unwrap_or(&k.until))), ("why", &why)]), "points": points_text(c, k) })
+        })
+        .collect();
+    json!({
+        "kind": "buses", "title": tr("Your bus contracts"), "record": record_text(c),
+        "rows": rows, "ended": ended, "ended_title": tr("Ended in the last twelve months").to_uppercase(),
+        "empty": tr("The company has no bus contract. Win a tender on the Concessions page; your own school lines run as a private hire."),
+    })
+}
+
 pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Answer> {
     let id = u32_arg(args, "id");
     let answer = |r: Result<(), Value>| -> Answer { Ok(r.err().map(|p| json!({ "popup": p })).unwrap_or(json!({}))) };
@@ -302,10 +434,60 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Answer> {
             }
         }
         "cleaning_sign" => answer(apply(s, ct::sign_cleaning)),
+        "contract_hand_back" => {
+            let line = args.get("line").and_then(Value::as_str).unwrap_or("").to_string();
+            match apply(s, |c| bc::hand_back(c, &line).ok_or("There is no such contract.")) {
+                Ok(cost) => {
+                    s.say(trf("The contract is handed back: %{amount}.", &[("amount", &eur(cost))]), false);
+                    Ok(json!({}))
+                }
+                Err(p) => popup_answer(p),
+            }
+        }
         "cleaning_end" => answer(apply(s, |c| {
             ct::cancel_cleaning(c);
             Ok(())
         })),
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    /// Every text of the contracts' and the concessions' pages is named in every language (the
+    /// bus contracts' in crates/omsihub-locales/locales/company-bus-contracts.yml), and so are the
+    /// contracts' kinds and ratings and the core's refusals the pages show.
+    #[test]
+    fn every_contract_text_is_translated() {
+        use omsi_launcher_lib::company::bus_contracts::{Kind, Rag};
+        let mut texts: Vec<String> = Vec::new();
+        for src in [include_str!("contracts.rs"), include_str!("concessions.rs")] {
+            for lead in ["tr(\"", "trf(\""] {
+                let mut rest = src;
+                while let Some(k) = rest.find(lead) {
+                    let after = &rest[k + lead.len()..];
+                    rest = after;
+                    let t: String = after.chars().take_while(|c| *c != '"').collect();
+                    if t.chars().any(char::is_alphabetic) && !t.contains('\\') {
+                        texts.push(t);
+                    }
+                }
+            }
+        }
+        texts.extend(Kind::ALL.iter().map(|k| k.label().to_string()));
+        texts.extend([Rag::Green, Rag::Orange, Rag::Red].iter().map(|r| r.label().to_string()));
+        texts.extend(["Above the authority's cap: a bid above it does not count.".to_string(), "There is no such contract.".to_string()]);
+        let mut missing = Vec::new();
+        for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
+            let table = crate::i18n::table(lang);
+            for t in &texts {
+                if !table.contains_key(t) {
+                    missing.push(format!("{lang}: {t:?}"));
+                }
+            }
+        }
+        missing.sort();
+        missing.dedup();
+        assert!(missing.is_empty(), "{} missing:\n{}", missing.len(), missing.join("\n"));
+    }
 }

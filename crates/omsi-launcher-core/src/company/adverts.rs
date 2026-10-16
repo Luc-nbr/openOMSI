@@ -4,21 +4,22 @@
 //! number of months at a monthly fee a bus; the company signs one as it signs the dealer's
 //! (the same paper, the same pen), and the money comes in at every month's end.
 //!
-//! The kinds, after what German operators sell (Verkehrsmittelwerbung, Realistic, net,
-//! founding day's prices, a bus a month): a poster on the rear (*Heckwerbung*) €90, the side
-//! panels (*Seitenflächen*) €220, a full wrap (*Ganzgestaltung*, the advertiser pays the foil)
-//! €600. A rear advert opens at level 2, side panels at 4, full wraps at 6 (`levels::Feature`);
-//! an offer of a kind not open yet is shown locked.
+//! The kinds, on the UK model (`econ_uk::ADVERTISING_PER_BUS_MONTH`: the data's operator took
+//! about £47 a bus a month; Realistic, a bus a month, at the company's country and prices): a
+//! poster on the rear £20, the side panels - the usual bus advert - £47, a full wrap (the
+//! advertiser pays the foil) £140. A rear advert opens at level 2, side panels at 4, full wraps
+//! at 6 (`levels::Feature`); an offer of a kind not open yet is shown locked.
 //!
 //! What an advertiser pays follows what the buses are seen by: the passengers a bus carries a
-//! day (the closed days' history), the company's reputation, and the difficulty (Easy 1.2,
-//! Hard 0.85 times). The week's offers are drawn from the company and the week, as the
+//! day (the closed days' history), the company's reputation (as usual at 50), and the game mode
+//! and the country as the fares do (`econ_uk::Item::Fares`). The week's offers are drawn from the company and the week, as the
 //! market's are. A bus carries one advert at a time; a contract ended early costs three months'
 //! fee (or what was left, if less).
 
 use super::dates;
 use super::levels::{self, Feature};
-use super::model::{BookingKind, Cents, Company, GameMode};
+use super::econ_uk::{self as uk, Item};
+use super::model::{BookingKind, Cents, Company};
 use super::rng::Rng;
 use serde::{Deserialize, Serialize};
 
@@ -61,12 +62,13 @@ impl AdKind {
         }
     }
 
-    /// What an advertiser pays for it a bus a month (Realistic, founding day's prices).
-    pub fn base(self) -> Cents {
+    /// What an advertiser pays for it a bus a month in the UK (pence, 2022): the side panels the
+    /// data's average a bus, a rear poster less, a full wrap three times it.
+    pub fn base(self) -> f64 {
         match self {
-            AdKind::Rear => 90_00,
-            AdKind::Sides => 220_00,
-            AdKind::FullWrap => 600_00,
+            AdKind::Rear => uk::ADVERTISING_PER_BUS_MONTH * 20.0 / 47.0,
+            AdKind::Sides => uk::ADVERTISING_PER_BUS_MONTH,
+            AdKind::FullWrap => uk::ADVERTISING_PER_BUS_MONTH * 3.0,
         }
     }
 
@@ -175,16 +177,12 @@ pub struct Adverts {
     pub taken: Vec<u32>,
 }
 
-fn factor(d: GameMode) -> f64 {
-    match d {
-        GameMode::Casual => 1.2,
-        GameMode::Normal => 1.0,
-        GameMode::Realistic => 0.85,
-    }
-}
+/// The passengers a bus carries a day that make the base price (the data's operator: some 2,900
+/// boardings a day on 30 buses).
+pub const REACH_PAX: f64 = 100.0;
 
 /// What the buses are seen by: the passengers a bus carried a day over the last closed days
-/// (up to thirty), against the 250 that make the base price; 0.7 to 1.4.
+/// (up to thirty), against the `REACH_PAX` that make the base price; 0.7 to 1.4.
 pub fn reach(c: &Company) -> f64 {
     let days: Vec<_> = c.history.iter().rev().take(30).collect();
     let buses = c.fleet.iter().filter(|v| v.held_on(&c.date)).count().max(1);
@@ -192,14 +190,15 @@ pub fn reach(c: &Company) -> f64 {
         return 0.8;
     }
     let per_bus = days.iter().map(|d| d.passengers as f64).sum::<f64>() / days.len() as f64 / buses as f64;
-    (0.6 + 0.4 * per_bus / 250.0).clamp(0.7, 1.4)
+    (0.6 + 0.4 * per_bus / REACH_PAX).clamp(0.7, 1.4)
 }
 
 /// An advertiser's price for an advert of `kind` on a bus of the company a month.
 pub fn price(c: &Company, kind: AdKind) -> Cents {
     let rep = 0.85 + 0.3 * c.reputation.clamp(0.0, 100.0) / 100.0;
-    let euros = kind.base() as f64 / 100.0 * reach(c) * rep * factor(c.game_mode) * c.price_index;
-    (euros.round() as Cents) * 100
+    let cents = uk::value(c, Item::Fares, kind.base()) * reach(c) * rep;
+    // (whole units of the company's currency)
+    c.currency.cents(c.currency.units(cents).round())
 }
 
 /// The week's offers: two, and one more at levels 3, 5 and 7; each of a kind (one not open
@@ -225,7 +224,7 @@ pub fn offers(c: &Company) -> Vec<AdOffer> {
         let buses = *rng.pick(sizes).unwrap_or(&1);
         let months = *rng.pick(terms).unwrap_or(&12);
         let noise = rng.range(0.9, 1.1);
-        let per_bus = ((price(c, kind) as f64 * noise / 100.0).round() as Cents) * 100;
+        let per_bus = c.currency.cents(c.currency.units(price(c, kind) as f64 * noise).round());
         let no = (week.rem_euclid(1_000_000) as u32) * 100 + k as u32;
         if c.adverts.taken.contains(&no) {
             continue;
@@ -391,8 +390,10 @@ mod tests {
         let big = company(levels::LEVEL_XP[6], 6);
         assert_eq!(offers(&big).len(), 5);
         assert!(levels::unlocked(&big, Feature::FullWraps) && levels::unlocked(&big, Feature::SideAdverts));
-        // the price: a rear advert about €90 a bus, a full wrap more
-        assert!((70_00..=110_00).contains(&price(&start, AdKind::Rear)), "{}", price(&start, AdKind::Rear));
+        // the price: side panels about the data's £47 a bus (a new company not seen much yet),
+        // a full wrap more than four rear adverts
+        let sides = crate::company::currency::Currency::Gbp.units(price(&start, AdKind::Sides) as f64) / uk::factor(&start, Item::Fares);
+        assert!((30.0..=55.0).contains(&sides), "{sides}");
         assert!(price(&start, AdKind::FullWrap) > 4 * price(&start, AdKind::Rear));
         let mut famous = start.clone();
         famous.reputation = 100.0;

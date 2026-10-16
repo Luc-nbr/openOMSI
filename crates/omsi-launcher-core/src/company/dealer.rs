@@ -1709,7 +1709,9 @@ mod tests {
         let mut c = company(GameMode::Normal, "2024-03-04");
         let l = listing("Citaro", "Mercedes-Benz", BusSize::Solo, Drive::Diesel);
         let q = Quote::new_bus(&c, &l, 1);
-        assert_eq!(q.list, 280_000_00);
+        assert_eq!(q.list, list_price(&c, l.bus.kind));
+        // (Normal: nine tenths of the UK's £200k)
+        assert!((super::super::currency::Currency::Gbp.units(q.list as f64) - 180_000.0).abs() < 1_000.0, "{}", q.list);
         // the room: a margin of some per cent, more for several buses and a customer of standing
         let r1 = room(&c, &q);
         assert!((0.03..0.2).contains(&r1), "{r1}");

@@ -94,14 +94,15 @@ pub fn cause_kind(key: &str) -> String {
     })
 }
 
-/// The tiers in words, each its own whole minutes (`economy::late_tier`: none in two).
+/// The tiers in words, each its own whole minutes (`economy::late_tier`: none in two). What a tier
+/// costs is what its trips cost on the bus contracts (`bus_contracts::unpaid_share`: a journey
+/// late enough is not paid; a commercial line's nothing).
 pub fn tier_text(t: usize) -> String {
-    let pc = |m: i32| format!("{:.0}", economy::late_share(m) * 100.0);
-    let (from, five, full) = (economy::LATE_FROM, 5, economy::LATE_FULL);
+    let (from, five, full) = (economy::LATE_FROM, economy::LATE_SLIGHT, economy::LATE_FULL);
     match t {
-        1 => trf("%{from} to %{to} min late: %{share} %", &[("from", &from.to_string()), ("to", &five.to_string()), ("share", &pc(five))]),
-        2 => trf("%{from} to %{to} min late: %{low} to %{high} %", &[("from", &(five + 1).to_string()), ("to", &(full - 1).to_string()), ("low", &pc(five + 1)), ("high", &pc(full - 1))]),
-        _ => trf("%{from} min or more: the whole trip", &[("from", &full.to_string())]),
+        1 => trf("%{from} to %{to} min late", &[("from", &from.to_string()), ("to", &five.to_string())]),
+        2 => trf("%{from} to %{to} min late", &[("from", &(five + 1).to_string()), ("to", &(full - 1).to_string())]),
+        _ => trf("%{from} min or more: weighed as a trip lost", &[("from", &full.to_string())]),
     }
 }
 
@@ -530,16 +531,16 @@ mod tests {
     fn day() -> Lateness {
         let trips: [(&str, usize, i32, i32); 13] = [
             ("02", 0, 8 * 60, 0),
-            ("02", 0, 8 * 60 + 30, 4),
-            ("02", 0, 9 * 60, 7),
+            ("02", 0, 8 * 60 + 30, 7),
+            ("02", 0, 9 * 60, 14),
             ("02", 0, 9 * 60 + 30, 2),
             ("02", 1, 13 * 60, 0),
             ("02", 1, 13 * 60 + 30, 1),
-            ("03", 0, 8 * 60 + 15, 3),
+            ("03", 0, 8 * 60 + 15, 6),
             ("03", 0, 8 * 60 + 45, 12),
             ("03", 0, 9 * 60 + 15, 31),
             ("03", 1, 13 * 60 + 15, 0),
-            ("03", 1, 13 * 60 + 45, 5),
+            ("03", 1, 13 * 60 + 45, 8),
             ("03", 1, 14 * 60 + 15, 0),
             ("03", 1, 14 * 60 + 45, 0),
         ];
@@ -548,7 +549,8 @@ mod tests {
         for (k, &(tour, duty, dep, minutes)) in trips.iter().enumerate() {
             l.count("C1", tour, duty, 7, dep, minutes);
             if minutes >= economy::LATE_FROM {
-                let share = economy::late_share(minutes);
+                // (on a bus contract: not paid from ten minutes, Realistic's)
+                let share = if minutes >= 10 { 1.0 } else { 0.0 };
                 let carried = k == 2 || k == 7;
                 let causes = if carried { vec![Cause::Carried { dep: dep - 30, arr: dep - 5, stop: "Totnes Castle".into(), late: minutes + 2, layover: 5, deadhead: false, minutes }] } else { vec![Cause::Traffic { peak: true, minutes }] };
                 out.push(Outcome { line: "C1".into(), number: "C1".into(), tour: tour.into(), duty: Some(duty), dep, arr: dep + 25, minutes, causes, value: 100_00, share, deduction: (100_00 as f64 * share).round() as Cents, root: if k == 8 { "relief".into() } else { "peak".into() }, ..Default::default() });
@@ -590,12 +592,14 @@ mod tests {
         // the money: the tiers and the causes the same trips, each once, the same total
         let sum = |s: &[lt::Sum]| (s.iter().map(|x| x.trips).sum::<u32>(), s.iter().map(|x| x.amount).sum::<Cents>());
         assert_eq!(l.tiers.iter().map(|t| t.trips).collect::<Vec<_>>(), [3, 2, 1]);
-        assert_eq!(sum(&l.tiers), (6, 3 * 10_00 + 17_20 + 35_20 + 100_00));
+        // (on a bus contract: the three journeys ten minutes late or more not paid)
+        assert_eq!(sum(&l.tiers), (6, 3 * 100_00));
         assert_eq!(sum(&l.causes), sum(&l.tiers));
-        assert_eq!(l.causes.iter().map(|s| (s.key.as_str(), s.trips)).collect::<Vec<_>>(), [("relief", 1), ("peak", 5)]);
+        // (by what they cost first: the peak's trips hold the journeys not paid)
+        assert_eq!(l.causes.iter().map(|s| (s.key.as_str(), s.trips)).collect::<Vec<_>>(), [("peak", 5), ("relief", 1)]);
         assert_eq!(v["money"]["total"], json!(eur(sum(&l.tiers).1)));
         let tiers: Vec<String> = v["money"]["tiers"].as_array().unwrap().iter().map(|t| t["label"].as_str().unwrap().to_string()).collect();
-        assert_eq!(tiers, ["3 to 5 min late: 10 %", "6 to 29 min late: 14 to 96 %", "30 min or more: the whole trip"]);
+        assert_eq!(tiers, ["6 to 10 min late", "11 to 29 min late", "30 min or more: weighed as a trip lost"]);
         // the trips that carried a delay on, as the advice for more layover counts them
         assert_eq!(l.carried.trips, 2);
         assert!(v["money"]["carried"].as_str().unwrap().starts_with("2 of these trips"));

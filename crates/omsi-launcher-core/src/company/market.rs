@@ -454,21 +454,17 @@ pub fn sale_offer(c: &Company, v: &Vehicle) -> Cents {
 }
 
 /// What a bus that leaves the fleet before the month's end owes for that month up to `last`:
-/// its lease and its insurance from the month's first day (or the day it came), pro rata as
-/// the month's end books them for the buses still in the fleet (`day::close_day`).
+/// its fixed costs (`economy::bus_month`: lease or depreciation, insurance and tax, ticket machine
+/// and overhead) from the month's first day (or the day it came), pro rata as the month's end
+/// books them for the buses still in the fleet (`day::close_day`).
 pub fn part_month(c: &Company, v: &Vehicle, last: &str) -> Vec<(BookingKind, Cents)> {
     let (Some(first), Some(end)) = (dates::parse(&format!("{}-01", dates::month_of(last))), dates::parse(last)) else { return Vec::new() };
     let (y, m, _) = dates::civil_from_days(end);
     let len = dates::days_in_month(y, m) as f64;
     let from = dates::parse(&v.acquired).unwrap_or(first).max(first);
     let days = (end - from + 1).max(0) as f64;
-    let share = |monthly: Cents| -(monthly as f64 * days / len).round() as Cents;
-    let insurance = share(economy::insurance_per_month(v.kind, c.price_index));
-    match &v.tenure {
-        Tenure::Leased { monthly, .. } => vec![(BookingKind::Lease, share(*monthly)), (BookingKind::Insurance, insurance)],
-        Tenure::Owned { .. } => vec![(BookingKind::Insurance, insurance)],
-        Tenure::Rented { .. } => Vec::new(),
-    }
+    let level = super::econ_uk::Level::of(c);
+    economy::bus_month(v, &level, last).into_iter().map(|(kind, monthly)| (kind, -(monthly as f64 * days / len).round() as Cents)).collect()
 }
 
 /// Book `part_month` for a bus that leaves the fleet (on the company's day).
@@ -667,15 +663,17 @@ pub(crate) mod tests {
         let mut c = company(GameMode::Normal);
         let cash = c.cash;
         let solo = bus("Citaro", BusSize::Solo, Drive::Diesel);
+        let (price, _) = new_offer(&c, &solo);
         let id = buy_new(&mut c, &solo, Payment::Cash, "Blue").unwrap();
-        assert_eq!(c.cash, cash - 280_000_00);
+        assert_eq!(c.cash, cash - price);
         let v = c.vehicle(id).unwrap();
         assert_eq!((v.number.as_str(), v.plate.as_str(), v.livery.as_str(), v.km, v.next_service_km), ("101", "SB-K 101", "Blue", 0.0, SERVICE_KM));
         // an electric bus with its grant (40 % of the extra cost on Realistic)
         let e = bus("eCitaro", BusSize::Solo, Drive::Electric);
         let before = c.cash;
+        let (price, grant) = new_offer(&c, &e);
         buy_new(&mut c, &e, Payment::Cash, "").unwrap();
-        assert_eq!(before - c.cash, 550_000_00 - 108_000_00);
+        assert!(grant > 0 && before - c.cash == price - grant);
         // the used market: the same offers all week, others the next
         let market = vec![solo.clone(), e.clone()];
         let offers = used_offers(&c, &market);
@@ -723,6 +721,7 @@ pub(crate) mod tests {
         // after 1, 5 and 12 years with the usual kilometres: down each time, to the residual,
         // never above the price, also when new buses cost much more by then
         let mut c = company(GameMode::Normal);
+        let (price, _) = new_offer(&c, &bus("Citaro", BusSize::Solo, Drive::Diesel));
         let id = buy_new(&mut c, &bus("Citaro", BusSize::Solo, Drive::Diesel), Payment::Cash, "").unwrap();
         let bought = c.date.clone();
         let mut last = value_of(&c, c.vehicle(id).unwrap());
@@ -735,7 +734,7 @@ pub(crate) mod tests {
             assert!(now < last, "{years}: {now} {last}");
             last = now;
         }
-        assert!((last as f64 - 280_000_00.0 * economy::age_factor(12.0)).abs() < 3_000_00.0, "{last}");
+        assert!((last as f64 - price as f64 * economy::age_factor(12.0)).abs() < 3_000_00.0, "{last}");
     }
 
     /// The player's own year of first registration overrides the plate's or the market's, its
@@ -792,9 +791,13 @@ pub(crate) mod tests {
         let cash = c.cash;
         let l = lease(&mut c, &solo, "").unwrap();
         assert_eq!(c.cash, cash);
-        assert!(matches!(c.vehicle(l).unwrap().tenure, Tenure::Leased { monthly, .. } if (3_400_00..3_800_00).contains(&monthly)));
+        // (the data's £1,983 a month for a new single-deck, Normal's nine tenths of it)
+        let want = lease_offer(&c, &solo).0;
+        assert!((super::super::currency::Currency::Gbp.units(want as f64) - 0.9 * 1_983.0).abs() < 20.0, "{want}");
+        assert!(matches!(c.vehicle(l).unwrap().tenure, Tenure::Leased { monthly, .. } if monthly == want));
         let r = rent(&mut c, &solo, 3, "").unwrap();
-        assert!(matches!(&c.vehicle(r).unwrap().tenure, Tenure::Rented { daily: 360_00, until } if until == "2024-03-06"));
+        let daily_want = economy::rent_per_day(solo.kind, &economy::rules_for(&c), c.price_index);
+        assert!(matches!(&c.vehicle(r).unwrap().tenure, Tenure::Rented { daily, until } if *daily == daily_want && until == "2024-03-06"));
         assert!(c.vehicle(r).unwrap().held_on("2024-03-06") && !c.vehicle(r).unwrap().held_on("2024-03-07"));
         // given back before the month's end: the month's lease and insurance up to the day,
         // pro rata (the month's end books them only for the buses still in the fleet)
@@ -803,7 +806,7 @@ pub(crate) mod tests {
         let Tenure::Leased { monthly, .. } = &v.tenure else { panic!() };
         let part = part_month(&c, &v, "2024-03-20");
         assert_eq!(part[0], (BookingKind::Lease, -(*monthly as f64 * 20.0 / 31.0).round() as Cents));
-        assert!(part.len() == 2 && part[1].0 == BookingKind::Insurance && part[1].1 < 0);
+        assert!(part.len() == 3 && part[1].0 == BookingKind::Insurance && part[1].1 < 0 && part[2].0 == BookingKind::Overheads && part[2].1 < 0, "{part:?}");
         // giving the lease back early costs three rates, and the day it was held
         let before = c.cash;
         let today = c.date.clone();
@@ -812,8 +815,10 @@ pub(crate) mod tests {
         assert!(got < 0 && owed < 0 && c.cash == before + got + owed);
         // a bus bought and sold the same day brings 85 % of what it is worth once registered:
         // some three quarters of its price
+        let (price, _) = new_offer(&c, &solo);
         let b = buy_new(&mut c, &solo, Payment::Cash, "").unwrap();
-        assert_eq!(sell(&mut c, b).unwrap(), 209_400_00);
+        let got = sell(&mut c, b).unwrap();
+        assert!((got as f64 / price as f64 - 0.85 * 0.88).abs() < 0.01, "{got} {price}");
         assert!(c.vehicle(b).is_none());
         // a service: the bus runs today, the night has it in the workshop tomorrow
         let s = buy_new(&mut c, &solo, Payment::Cash, "").unwrap();

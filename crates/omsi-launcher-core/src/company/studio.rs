@@ -1706,13 +1706,14 @@ pub fn kpis(c: &Company, tours: &[TourOfDay], duties: &[Duty]) -> Kpis {
     let paid: i32 = duties.iter().map(Duty::paid).sum();
     // (the drivers' hour as the company pays it, the employer's share in; the night half again)
     let drivers: Vec<Cents> = c.staff.iter().filter(|e| staff::drives(e)).map(|e| e.wage).collect();
-    let wage = if drivers.is_empty() { economy::market_wage(45.0, c.price_index) } else { drivers.iter().sum::<Cents>() / drivers.len() as Cents };
+    let level = super::econ_uk::Level::of(c);
+    let wage = if drivers.is_empty() { economy::market_wage(45.0, &level) } else { drivers.iter().sum::<Cents>() / drivers.len() as Cents };
     let hour = staff::hourly(economy::employer_cost(wage));
     let night: i32 = duties.iter().flat_map(|d| d.pieces.iter()).map(|p| staff::night_minutes(p.from, p.to)).sum();
     let people = (paid as f64 + night as f64 * staff::NIGHT_SUPPLEMENT) / 60.0 * hour;
     let bus = BusKind { size: BusSize::Solo, drive: Drive::Diesel };
-    let per_km = economy::energy_per_km(bus, c.price_index) + economy::maintenance_per_km(bus, 5.0, c.price_index);
-    let standing = economy::insurance_per_month(bus, c.price_index) as f64 / 30.0 * buses as f64;
+    let per_km = economy::energy_per_km(bus, &level) + economy::maintenance_per_km(bus, 5.0, &level);
+    let standing = economy::insurance_per_month(bus, &level) as f64 / 30.0 * buses as f64;
     Kpis { buses, duties: duties.len(), paid, deadhead_km: empty_km, cost: (people + km * per_km + standing).round() as Cents }
 }
 
@@ -2397,6 +2398,8 @@ mod tests {
         // (tour 2's automatic cut moved a trip earlier with its last trip gone: the afternoon's
         // driver stays with the afternoon)
         assert!(drivers_of(&c, &l, "2").iter().all(|d| d.1.is_some()));
+        // (the line under a bus contract: a journey not run is not paid)
+        super::super::bus_contracts::give(&mut c, &l.name);
         let left_out = super::super::day::close_day(&mut c.clone(), day(&c, &l), &[]);
         let r = close(&mut c, &l);
         assert_eq!(unplanned(&r), vec![(String::new(), None, 1)]);

@@ -8,9 +8,9 @@
 //! (`give`), and the dispatcher and "Fill the roster" take them first for what is open
 //! (`plan::day_plan`). They are paid at the day's close for the minutes booked, or for those worked
 //! when more: a booked driver left without a duty is paid in full, as agencies bill (`settle`).
-//! Booking ahead is cheaper by the hour (`AHEAD_HOUR`) than an agency driver sent on the day itself
-//! (`plan::AGENCY_HOUR`). Cancelled before its day a booking costs nothing; on the day itself the
-//! agency bills half of it (`LATE_FEE`). There is no limit to how many: only the cash.
+//! Booking ahead is cheaper by the hour (`rate`: `econ_uk::AGENCY_AHEAD` on a driver's hour) than
+//! an agency driver sent on the day itself (`plan::agency_hour`). Cancelled before its day a
+//! booking costs nothing; on the day itself the agency bills half of it (`LATE_FEE`). There is no limit to how many: only the cash.
 
 use super::dates;
 use super::model::{BookingKind, Cents, Company, Employee};
@@ -26,8 +26,6 @@ pub const BOOKED_BASE: u32 = 0xA000_0000;
 const PER_BOOKING: u32 = 256;
 /// Drivers in one booking at most (another booking for more).
 pub const MOST: u32 = 99;
-/// A booked agency driver's hour, the agency's margin included (founding day's prices).
-pub const AHEAD_HOUR: Cents = 36_00;
 /// What a driver booked for a whole day is paid for, and for some hours or duties at least.
 pub const DAY_MINUTES: i32 = 480;
 pub const MIN_MINUTES: i32 = 240;
@@ -192,7 +190,7 @@ pub fn minutes_booked(c: &Company, id: u32) -> i32 {
 
 /// The agency's hour for a booking now.
 pub fn rate(c: &Company) -> Cents {
-    (AHEAD_HOUR as f64 * c.price_index).round() as Cents
+    super::pay::agency_hour(c, true).round() as Cents
 }
 
 fn cost_of(rate: Cents, minutes: i32) -> Cents {

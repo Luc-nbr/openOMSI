@@ -229,7 +229,7 @@ fn note_text(n: &Note, easy: bool) -> (String, &'static str, Option<Go>) {
         Note::Service { number } => (trf("Bus %{n} is due for its service: in the workshop tomorrow.", &[("n", number)]), "soft", None),
         Note::Returned { number, name } => (trf("Bus %{n} (%{name}) went back: its lease or rental ended.", &[("n", number), ("name", name)]), "soft", Some(Go::Dealer)),
         Note::LoanPaid { purpose } => (trf("A loan is paid off: %{what}.", &[("what", purpose)]), "ok", None),
-        Note::Month { month, result } => (trf("%{month} is closed: wages, leases, insurance, the depot and loan rates are booked. The month's result: %{amount}.", &[("month", &month_label(month)), ("amount", &eur(*result))]), if *result >= 0 { "ok" } else { "warn" }, None),
+        Note::Month { month, result } => (trf("%{month} is closed: leases, depreciation, insurance and tax, overheads and loan rates are booked. The month's result: %{amount}.", &[("month", &month_label(month)), ("amount", &eur(*result))]), if *result >= 0 { "ok" } else { "warn" }, None),
         Note::Built { area } => (trf("The depot's building work is done: %{what}.", &[("what", &tr(area))]), "ok", None),
         Note::BayWait { number } => (trf("Bus %{n} waits for a free workshop bay.", &[("n", number)]), "warn", Some(Go::Depot)),
         Note::Won { number, until } => (trf("The concession for line %{n} is yours until %{date}. Plan its tours and start its service.", &[("n", number), ("date", &day_label(until))]), "ok", Some(Go::Planning)),
@@ -238,6 +238,9 @@ fn note_text(n: &Note, easy: bool) -> (String, &'static str, Option<Go>) {
         Note::NotStarted { number, days, charge } => (trf("Line %{n} is still not in service, %{days} days after it was taken on: the authority charged %{amount}. Plan its tours and start its service.", &[("n", number), ("days", &days.to_string()), ("amount", &eur(*charge))]), "danger", Some(Go::Planning)),
         Note::Accident { number, cost } => (trf("Bus %{n} had an accident on its tour: damage %{amount}.", &[("n", number), ("amount", &eur(*cost))]), "danger", Some(Go::Training)),
         Note::Unsaved => (tr("RosterFlow had changes of this day that were not saved: the day ran the saved blocks and duties. Save them in RosterFlow (or discard them) so the day runs what it shows."), "warn", Some(Go::Planning)),
+        Note::Extended { number, until } => (trf("The contract for line %{n} is green: it earned an extension year and runs until %{date}.", &[("n", number), ("date", &day_label(until))]), "ok", None),
+        Note::NotExtended { number, until } => (trf("The contract for line %{n} was not green when its extension was decided: it ends on %{date}, and the line is put out to tender again.", &[("n", number), ("date", &day_label(until))]), "warn", None),
+        Note::Terminated { number, cost } => (trf("The authority ended the contract for line %{n}: it was red. The company pays the replacement's extra cost, %{amount}.", &[("n", number), ("amount", &eur(*cost))]), "danger", None),
     }
 }
 
@@ -291,7 +294,7 @@ fn report(s: &mut Session) -> Value {
         json!({ "label": tr("Result"), "value": signed(result).0, "under": format!("{} {}  ·  {} {}", inc, tr("in"), out, tr("out")), "tone": if result >= 0 { "ok" } else { "danger" }, "tip": kinds.iter().map(|(k, a)| format!("{}: {}", tr(k.label()), signed(*a).0)).collect::<Vec<_>>().join("\n") }),
         json!({ "label": tr("Tours run"), "value": format!("{covered} / {tours}"), "under": trf("%{n} trips dropped", &[("n", &dropped.to_string())]), "tone": if covered == tours { "ok" } else { "warn" } }),
         json!({ "label": tr("On time"), "value": punct, "under": trf("%{n} trips late", &[("n", &late.to_string())]), "tone": "text" }),
-        json!({ "label": tr("Passengers"), "value": grouped(pax as f64), "under": format!("{} km", grouped(km.round())), "tone": "text" }),
+        json!({ "label": tr("Passengers"), "value": grouped(pax as f64), "under": passengers_under(km, pax, reports.iter().map(|r| r.bus_hours).sum()), "tone": "text" }),
     ];
     // what happened
     let mut facts: Vec<(String, &'static str, Vec<Go>)> = Vec::new();
@@ -312,7 +315,29 @@ fn report(s: &mut Session) -> Value {
         facts.push((text, "danger", fixes));
     }
     if penalties > 0 {
-        facts.push((trf("Contract penalties %{amount}: the authority charges for every trip dropped or late, and for a concession not started.", &[("amount", &signed(-penalties).0)]), "warn", vec![Go::Planning]));
+        facts.push((trf("Contract penalties %{amount}: the journeys of your bus contracts not run or too far off time are not paid, and the authority charges for a concession not started.", &[("amount", &signed(-penalties).0)]), "warn", vec![Go::Planning]));
+    }
+    // (the bus contracts: what they paid, the journeys not paid and the default points, the
+    // fares of gross-cost lines handed over: `bus_contracts`)
+    if reports.iter().any(|r| !r.contracts.lines.is_empty()) {
+        let paid = sum(&|r| r.contracts.paid);
+        let deducted = sum(&|r| r.contracts.deducted);
+        let unpaid = sum(&|r| r.contracts.unpaid as i64);
+        let points: f64 = reports.iter().map(|r| r.contracts.points).sum();
+        let tone = if unpaid > 0 || points > 0.0 { "warn" } else { "ok" };
+        facts.push((trf("Bus contracts paid %{amount}, less %{deducted} for %{n} journeys not paid. Default points: %{points}.", &[("amount", &eur(paid)), ("deducted", &eur(deducted)), ("n", &unpaid.to_string()), ("points", &num(points, 1))]), tone, Vec::new()));
+        let handed = sum(&|r| r.contracts.fares_handed);
+        if handed > 0 {
+            facts.push((trf("Fares of the gross-cost lines handed to the authority: %{amount}.", &[("amount", &eur(handed))]), "soft", Vec::new()));
+        }
+    }
+    // (the drivers paid by the hour of duty, overtime and the week's guarantee: `pay`)
+    let paid_hours: f64 = reports.iter().map(|r| r.paid_hours).sum();
+    let guaranteed: f64 = reports.iter().map(|r| r.guaranteed_hours).sum();
+    if paid_hours > 0.0 || guaranteed > 0.0 {
+        let over: f64 = reports.iter().map(|r| r.overtime_hours).sum();
+        let cost = sum(&|r| r.driver_wages);
+        facts.push((trf("Drivers' wages %{amount}: %{hours} hours of duty paid (%{over} overtime) and %{guaranteed} hours of the week's guarantee.", &[("amount", &eur(cost)), ("hours", &num(paid_hours, 0)), ("over", &num(over, 0)), ("guaranteed", &num(guaranteed, 0))]), "soft", vec![Go::Planning]));
     }
     if measured > 0 {
         facts.push((trf("You drove %{n} trips yourself: booked as measured.", &[("n", &measured.to_string())]), "accent2", Vec::new()));
@@ -320,7 +345,7 @@ fn report(s: &mut Session) -> Value {
     let crowded = sum(&|r| r.crowded as i64);
     if crowded > 0 {
         let left = sum(&|r| r.left_behind as i64);
-        facts.push((trf("%{n} trips of your own lines were full; %{p} passengers were left at the stop. Bigger buses help.", &[("n", &crowded.to_string()), ("p", &left.to_string())]), "warn", vec![Go::Dealer]));
+        facts.push((trf("%{n} trips were full; %{p} passengers were left at the stop - fares lost, and they complain. Bigger buses or more trips help.", &[("n", &crowded.to_string()), ("p", &left.to_string())]), "warn", vec![Go::Dealer]));
     }
     let fines = sum(&|r| r.incidents.fines as i64);
     if fines > 0 {
@@ -374,9 +399,13 @@ fn report(s: &mut Session) -> Value {
         passengers: u32,
         fares: i64,
         compensation: i64,
+        contract: i64,
         running: i64,
         penalty: i64,
         unplanned: bool,
+        takings: co::income::Tally,
+        bus_hours: f64,
+        left_behind: u32,
     }
     let mut lines_by: Vec<LineSum> = Vec::new();
     for r in &reports {
@@ -394,15 +423,20 @@ fn report(s: &mut Session) -> Value {
             x.dropped += ld.dropped;
             x.km += ld.km;
             x.passengers += ld.passengers;
-            if ld.fares == 0 && ld.compensation == 0 {
+            // (an older day's line: its revenue in one)
+            if ld.fares == 0 && ld.compensation == 0 && ld.contract == 0 && ld.takings == co::income::Tally::default() && ld.revenue > 0 {
                 x.fares += ld.revenue;
             } else {
                 x.fares += ld.fares;
                 x.compensation += ld.compensation;
             }
             x.running += ld.running;
+            x.contract += ld.contract;
             x.penalty += ld.penalty;
             x.unplanned &= ld.unplanned;
+            x.takings.add(&ld.takings);
+            x.bus_hours += ld.bus_hours;
+            x.left_behind += ld.left_behind;
         }
     }
     let open = s.report_line.clone();
@@ -411,19 +445,14 @@ fn report(s: &mut Session) -> Value {
         .map(|x| {
             let cl = c.lines.iter().find(|cl| cl.name == x.line);
             let text = if x.unplanned && x.tours == 0 { tr("Not in service: its tours did not run") } else { trf("%{c} of %{t} tours  ·  %{d} trips dropped  ·  %{p} passengers", &[("c", &x.covered.to_string()), ("t", &x.tours.to_string()), ("d", &x.dropped.to_string()), ("p", &grouped(x.passengers as f64))]) };
-            let net = x.fares + x.compensation - x.running - x.penalty;
+            let net = x.fares + x.takings.school + x.takings.reimbursement + x.takings.bsog + x.compensation + x.contract - x.running - x.penalty;
             let (t, tone) = signed(net);
             let is_open = open.as_deref() == Some(x.line.as_str());
             let per_km = if x.km > 0.0 { x.compensation as f64 / x.km } else { 0.0 };
             json!({
                 "line": x.line, "plate": super::lines::plate(&cl.map(|l| l.number.clone()).unwrap_or_else(|| x.number.clone()), cl.map(|l| l.colour.as_str()).unwrap_or("")),
                 "text": text, "net": format!("{t} {}", tr("for the line")), "tone": tone, "open": is_open,
-                "rows": is_open.then(|| json!([
-                    [trf("Fares: %{p} passengers", &[("p", &grouped(x.passengers as f64))]), signed(x.fares).0, signed(x.fares).1],
-                    [trf("The authority's payment: %{km} km at %{rate} a km", &[("km", &grouped(x.km)), ("rate", &eur_cents(per_km))]), signed(x.compensation).0, signed(x.compensation).1],
-                    [tr("Running costs: fuel or power, maintenance"), signed(-x.running).0, signed(-x.running).1],
-                    [tr("Penalties: trips dropped and late"), signed(-x.penalty).0, signed(-x.penalty).1],
-                ])),
+                "rows": is_open.then(|| line_rows(x.passengers, x.bus_hours, x.left_behind, x.km, per_km, x.fares, x.compensation, x.contract, x.running, x.penalty, &x.takings)),
                 "note": is_open.then(|| tr("Wages, insurance, leases and the depot are booked for the whole company at the month's end.")),
             })
         })
@@ -444,6 +473,55 @@ fn report(s: &mut Session) -> Value {
         "facts": facts.iter().map(|(t, tone, fixes)| json!({ "text": t, "tone": tone, "fixes": fixes.iter().map(|g| g.json()).collect::<Vec<_>>() })).collect::<Vec<_>>(),
         "close": tr("Close the report"),
     })
+}
+
+/// Under the report's passengers: the kilometres, and the passengers a bus-hour (`income`).
+fn passengers_under(km: f64, pax: i64, hours: f64) -> String {
+    let mut t = format!("{} km", grouped(km.round()));
+    if hours > 0.0 {
+        t.push_str("  ·  ");
+        t.push_str(&trf("%{n} a bus-hour", &[("n", &num(pax as f64 / hours, 1))]));
+    }
+    t
+}
+
+/// A line's money in the report, line by line of income (`income::Tally`): the tickets by kind,
+/// the passes, the reimbursement, BSOG, the authority's payment; the fares a gross-cost line took
+/// for the authority (dim: not the company's); the running costs and the penalties.
+#[allow(clippy::too_many_arguments)]
+fn line_rows(pax: u32, hours: f64, left: u32, km: f64, per_km: f64, fares: i64, comp: i64, contract: i64, running: i64, penalty: i64, t: &co::income::Tally) -> Value {
+    let row = |label: String, a: i64| json!([label, signed(a).0, signed(a).1]);
+    let mut rows = vec![json!([trf("%{p} passengers, %{h} a bus-hour, %{l} left at the stop", &[("p", &grouped(pax as f64)), ("h", &num(if hours > 0.0 { pax as f64 / hours } else { 0.0 }, 1)), ("l", &grouped(left as f64))]), "", "dim"])];
+    for (label, a) in [("Adult tickets", t.adult), ("Children's tickets", t.child), ("Network passes", t.network)] {
+        if a != 0 {
+            rows.push(row(tr(label), a));
+        }
+    }
+    // (an own line's fare association keeps its share of the farebox)
+    if t.fares() > fares {
+        rows.push(row(tr("The fare association's share"), fares - t.fares()));
+    }
+    for (label, a) in [("School passes", t.school), ("Concession reimbursement", t.reimbursement)] {
+        if a != 0 {
+            rows.push(row(tr(label), a));
+        }
+    }
+    if t.bsog != 0 {
+        rows.push(row(trf("Fuel grant (BSOG): %{km} km in service", &[("km", &grouped(km))]), t.bsog));
+    }
+    // (a weekend line's tourism grant: the one payment per km left)
+    if comp != 0 {
+        rows.push(row(trf("Tourism grant: %{km} km at %{rate} a km", &[("km", &grouped(km)), ("rate", &eur_cents(per_km))]), comp));
+    }
+    if contract != 0 {
+        rows.push(row(tr("Its bus contract's payment"), contract));
+    }
+    if t.for_authority != 0 {
+        rows.push(json!([tr("Fares collected for the authority (a gross-cost contract: not the company's)"), signed(t.for_authority).0, "dim"]));
+    }
+    rows.push(row(tr("Running costs: fuel or power, maintenance"), -running));
+    rows.push(row(tr("Journeys not paid and penalties"), -penalty));
+    json!(rows)
 }
 
 /// The report lists this many runs of trips dropped (the rest: "and n more").

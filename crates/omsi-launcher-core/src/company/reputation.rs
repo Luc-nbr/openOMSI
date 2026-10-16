@@ -12,7 +12,7 @@
 //! - **Game modes:** Casual loses half, Normal four fifths and Realistic the full amount, with
 //!   caps to match; Casual also recovers the fastest.
 //! - **What it drives** is softened below 40 (`effective`): the passengers (`demand_factor`)
-//!   and the authority's payment (`economy::compensation_per_km`) do not spiral down with it.
+//!   and a weekend line's tourism grant (`economy::tourism_per_km`) do not spiral down with it.
 
 use super::day::DayReport;
 use super::incidents::Tally;
@@ -21,9 +21,9 @@ use serde::{Deserialize, Serialize};
 
 /// Where the reputation goes back to on decent days.
 pub const BASELINE: f64 = 50.0;
-/// What a dropped trip costs, and a late one (`economy::LATE_FROM` minutes or more; from
-/// `economy::LATE_FULL` minutes on, as much as a dropped one). `control` weighs its ways with
-/// these too.
+/// What a dropped trip costs, and a late one (`economy::LATE_FROM` minutes or more: late by the UK
+/// standard, more than 5:59 behind; from `economy::LATE_FULL` minutes on, as much as a dropped
+/// one). `control` weighs its ways with these too.
 pub const DROP: f64 = 0.06;
 pub const LATE_TRIP: f64 = 0.01;
 /// What the late trips of a day cost at most.
@@ -207,9 +207,16 @@ pub fn close_day(c: &mut Company, date: &str, report: &DayReport, punctuality: O
     if report.dropped > 0 {
         change(c, date, Cause::Dropped, -(DROP * report.dropped as f64).min(1.2), report.dropped);
     }
-    // the late trips one by one, as the lateness model ran them (`lateness`): 0.01 a trip, a
-    // trip half an hour late as much as a dropped one, at most 0.6
-    let late: Vec<i32> = report.lateness.trips.iter().filter(|o| o.dropped.is_none() && o.minutes >= super::economy::LATE_FROM).map(|o| o.minutes).collect();
+    // the late trips one by one, as the lateness model ran them (`lateness`; late by the UK
+    // standard, `economy::LATE_FROM`): 0.01 a trip, a trip half an hour late as much as a dropped
+    // one, at most 0.6. The passengers forgive what a typical UK operator runs - up to
+    // `econ_uk::LATE_FORGIVEN` of the day's trips late, as they do in their numbers (`income`) -:
+    // the least late of those go uncounted; half an hour late always counts.
+    let mut late: Vec<i32> = report.lateness.trips.iter().filter(|o| o.dropped.is_none() && o.minutes >= super::economy::LATE_FROM).map(|o| o.minutes).collect();
+    late.sort_unstable();
+    let forgiven = ((report.trips.saturating_sub(report.dropped)) as f64 * super::econ_uk::LATE_FORGIVEN).floor() as usize;
+    let forgiven = forgiven.min(late.iter().filter(|m| **m < super::economy::LATE_FULL).count());
+    let late: Vec<i32> = late.split_off(forgiven);
     let per_trip = !late.is_empty();
     if per_trip {
         let cost: f64 = late.iter().map(|m| if *m >= super::economy::LATE_FULL { DROP } else { LATE_TRIP }).sum();

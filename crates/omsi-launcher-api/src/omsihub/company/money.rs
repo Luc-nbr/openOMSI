@@ -4,7 +4,7 @@
 //! line's fare dialog, and the ledger.
 
 use super::dealer::{percent, room_tone};
-use super::words::{day_label, eur, eur_cents, grouped, month_label, num, signed, tr, trf};
+use super::words::{day_label, eur, fare_text, grouped, month_label, num, signed, tr, trf};
 use super::{act as apply, Session};
 use omsi_launcher_lib::company::fares as fr;
 use omsi_launcher_lib::company::finance::{self as fi, Room};
@@ -25,7 +25,23 @@ fn month_part(c: &Company, chosen: Option<&str>) -> Value {
     rows.sort_by_key(|x| std::cmp::Reverse(x.1));
     let capital: Vec<(BookingKind, i64)> = BookingKind::ALL.iter().filter(|x| x.is_capital()).map(|x| (*x, m.get(*x))).filter(|x| x.1 != 0).collect();
     let (res, res_tone) = signed(m.result());
+    // (the month's passengers: per bus-hour, and those a full bus left at the stop - `income`)
+    let days: Vec<&co::model::DayRecord> = c.history.iter().filter(|d| d.date.starts_with(&months[k])).collect();
+    let pax: u32 = days.iter().map(|d| d.passengers).sum();
+    let hours: f64 = days.iter().map(|d| d.bus_hours).sum();
+    let left: u32 = days.iter().map(|d| d.left_behind).sum();
+    let pax = (pax > 0).then(|| {
+        let mut t = trf("%{n} passengers", &[("n", &grouped(pax as f64))]);
+        if hours > 0.0 {
+            t.push_str("  ·  ");
+            t.push_str(&trf("%{n} a bus-hour", &[("n", &num(pax as f64 / hours, 1))]));
+        }
+        t.push_str("  ·  ");
+        t.push_str(&trf("%{n} left at the stop", &[("n", &grouped(left as f64))]));
+        t
+    });
     json!({
+        "pax": pax,
         "title": tr("The month").to_uppercase(), "months": months.iter().map(|m| json!([m, month_label(m)])).collect::<Vec<_>>(), "month": months[k],
         "empty": (rows.is_empty() && capital.is_empty()).then(|| tr("Nothing booked this month yet.")),
         "rows": rows.iter().map(|(kind, a)| { let (t, tone) = signed(*a); json!([tr(kind.label()), t, tone]) }).collect::<Vec<_>>(),
@@ -92,16 +108,19 @@ fn fares(c: &Company) -> Value {
     if c.lines.is_empty() {
         return json!({ "title": tr("Ticket prices").to_uppercase(), "empty": tr("The company runs no line yet: each line's single ticket is set here and on the Lines page.") });
     }
-    let p0 = fr::association_fare(c);
     let rows: Vec<Value> = c
         .lines
         .iter()
         .map(|cl| {
             let fare = fr::fare_of(c, cl);
-            let rel = fare as f64 / p0.max(1) as f64 - 1.0;
+            let rel = fr::offset(c, cl, fare);
             let share = cl.demand.share();
             let (t, tone) = if (share - 1.0).abs() < 0.005 { (tr("passengers as usual"), "dim") } else { (trf("%{p} passengers", &[("p", &format!("{:+.0} %", (share - 1.0) * 100.0))]), if share > 1.0 { "ok" } else { "warn" }) };
-            json!({ "name": cl.name, "plate": super::lines::plate(&cl.number, &cl.colour), "fare": eur_cents(fare as f64), "vs": if rel.abs() < 0.005 { tr("the association's") } else { format!("{:+.0} %", rel * 100.0) }, "pax": t, "tone": tone })
+            let mut vs = if rel.abs() < 0.005 { tr("standard") } else { format!("{:+.0} %", rel * 100.0) };
+            if cl.fare_cap {
+                vs = format!("{vs} · {}", tr("capped"));
+            }
+            json!({ "name": cl.name, "plate": super::lines::plate(&cl.number, &cl.colour), "fare": fare_text(fare as f64), "vs": vs, "pax": t, "tone": tone })
         })
         .collect();
     json!({ "title": tr("Ticket prices").to_uppercase(), "rows": rows, "tip": tr("Change the fare: see what it does before it is set") })
@@ -134,10 +153,9 @@ pub fn view(s: &mut Session, ui: &Value) -> Value {
     })
 }
 
-/// A line's passengers a day at the association's fare, from today's tours (`fares::base_passengers`).
+/// A line's passengers a day at its standard fare, from today's tours (`income::expected`).
 fn base_passengers(s: &Session, c: &Company, line: &CompanyLine) -> Option<f64> {
     let plan = s.plan.as_ref()?;
-    let r = co::economy::rules_for(c);
     let mood = co::reputation::demand_factor(c.reputation);
     let mut sum = 0.0;
     let mut any = false;
@@ -145,7 +163,7 @@ fn base_passengers(s: &Session, c: &Company, line: &CompanyLine) -> Option<f64> 
         for trip in t.tour.trips.iter().filter(|x| x.counts()) {
             any = true;
             let own = line.plan.as_ref().and_then(|_| co::ownline::trip_boardings(line, &c.date, trip.dep));
-            sum += own.unwrap_or_else(|| co::economy::passengers_for(trip.km, trip.dep, &r)) * mood;
+            sum += own.unwrap_or_else(|| co::income::expected(Some(line), &c.date, trip.dep, trip.arr)) * mood;
         }
     }
     any.then_some(sum)
@@ -158,15 +176,23 @@ pub fn fare_view(s: &mut Session, args: &Value) -> Value {
     let name = args.get("line").and_then(Value::as_str).unwrap_or("").to_string();
     let Some(cl) = c.lines.iter().find(|x| x.name == name).cloned() else { return json!({ "gone": true }) };
     let (lo, hi) = fr::band(&c, &cl);
-    let p0 = fr::association_fare(&c);
+    let p0 = fr::standard_fare(&c, &cl);
     let best = fr::best_fare(&c, &cl);
     let cents = args.get("fare").and_then(Value::as_i64).unwrap_or_else(|| fr::fare_of(&c, &cl)).clamp(lo, hi);
-    let cents = ((cents as f64 / 10.0).round() * 10.0) as i64;
-    let band = if cl.own { tr("Your own line: its fare is yours to set, from %{lo} to %{hi}. The fare association's single ticket is %{p0}.") } else { tr("A concession line: the fare association allows %{lo} to %{hi} round its single ticket of %{p0}.") }.replace("%{lo}", &eur_cents(lo as f64)).replace("%{hi}", &eur_cents(hi as f64)).replace("%{p0}", &eur_cents(p0 as f64));
+    // (a round price of the company's currency: `currency::Currency::round_fare`)
+    let cents = (c.currency.round_fare(cents as f64).round() as i64).clamp(lo, hi);
+    let band = if cl.own { tr("Your own line: its adult single is yours to set, from %{lo} to %{hi}. Its standard fare, by the length of its trips, is %{p0}.") } else { tr("A map line: its adult single may be set from %{lo} to %{hi}, round its standard fare of %{p0} by the length of its trips.") }.replace("%{lo}", &fare_text(lo as f64)).replace("%{hi}", &fare_text(hi as f64)).replace("%{p0}", &fare_text(p0 as f64));
+    // (the line's fare table at the fare chosen, and its cap: `income::table`)
+    let mut at = cl.clone();
+    at.fare = Some(cents);
+    let t = co::income::table(&c, &at, fr::fare_of(&c, &at) as f64);
+    let cap = co::income::table(&c, &CompanyLine { fare_cap: true, ..cl.clone() }, cents as f64).cap.unwrap_or_default();
     let mut out = json!({
-        "title": trf("The fare of line %{n}", &[("n", &cl.number)]), "band": band, "lo": lo, "hi": hi, "fare": cents, "fare_text": eur_cents(cents as f64),
-        "slider": tr("Single ticket"), "p0": p0, "best": best,
-        "set": trf("Set %{fare}", &[("fare", &eur_cents(cents as f64))]), "cancel": tr("Cancel"), "p0_label": tr("The association's fare"), "best_label": tr("The most fares"),
+        "title": trf("The fare of line %{n}", &[("n", &cl.number)]), "band": band, "lo": lo, "hi": hi, "fare": cents, "fare_text": fare_text(cents as f64),
+        "slider": tr("Adult single"), "p0": p0, "best": best,
+        "set": trf("Set %{fare}", &[("fare", &fare_text(cents as f64))]), "cancel": tr("Cancel"), "p0_label": tr("Standard fare"), "best_label": tr("The most takings"),
+        "table": [[tr("Return ticket"), fare_text(t.ret)], [tr("Child single"), fare_text(t.child)], [tr("Day ticket"), fare_text(t.day)], [tr("Week ticket"), fare_text(t.week)]],
+        "cap": { "on": cl.fare_cap, "label": trf("Fare cap: at most %{adult} for an adult single, %{child} for a child's", &[("adult", &fare_text(cap.0)), ("child", &fare_text(cap.1))]) },
     });
     match base_passengers(s, &c, &cl) {
         Some(base) if base > 0.0 => {
@@ -174,29 +200,29 @@ pub fn fare_view(s: &mut Session, args: &Value) -> Value {
             let pts: Vec<Value> = (0..=n)
                 .map(|k| {
                     let p = lo + ((hi - lo) as f64 * k as f64 / n as f64).round() as i64;
-                    let (pax, rev) = fr::estimate(&c, base, p);
+                    let (pax, rev) = fr::estimate(&c, &cl, base, p);
                     json!([p, pax, rev])
                 })
                 .collect();
-            let (pax, rev) = fr::estimate(&c, base, cents);
-            let (pax0, rev0) = fr::estimate(&c, base, p0);
-            let first = base * fr::short_run_share(fr::offset(&c, cents));
+            let (pax, rev) = fr::estimate(&c, &cl, base, cents);
+            let (pax0, rev0) = fr::estimate(&c, &cl, base, p0);
+            let first = base * fr::short_run_share(fr::felt(&c, &at));
             let change = |a: f64, b: f64| if b > 0.0 { format!("{:+.0} %", (a / b - 1.0) * 100.0) } else { "–".into() };
             out["chart"] = json!({
-                "points": pts, "pax": pax, "rev": rev, "lo_text": eur_cents(lo as f64), "hi_text": eur_cents(hi as f64),
-                "pax_label": tr("Passengers a day"), "rev_label": tr("Fares a day"), "p0_mark": tr("Association"), "best_mark": tr("Most fares"),
+                "points": pts, "pax": pax, "rev": rev, "lo_text": fare_text(lo as f64), "hi_text": fare_text(hi as f64),
+                "pax_label": tr("Passengers a day"), "rev_label": tr("Takings a day"), "p0_mark": tr("Standard fare"), "best_mark": tr("Most takings"),
                 "scale": (0..=4).map(|k| { let f = 1.0 - k as f64 / 4.0; json!([grouped(pts.iter().filter_map(|p| p[1].as_f64()).fold(1.0, f64::max) * 1.08 * f), eur((pts.iter().filter_map(|p| p[2].as_f64()).fold(1.0, f64::max) * 1.08 * f).round() as i64)]) }).collect::<Vec<_>>(),
             });
-            out["says"] = json!(tr("At %{fare}: about %{pax} passengers a day (%{dp} against the association's fare) and %{rev} of fares a day (%{dr}), once they have got used to it - a few weeks. The first days: about %{first} passengers.").replace("%{fare}", &eur_cents(cents as f64)).replace("%{pax}", &grouped(pax)).replace("%{dp}", &change(pax, pax0)).replace("%{rev}", &eur(rev.round() as i64)).replace("%{dr}", &change(rev, rev0)).replace("%{first}", &grouped(first)));
+            out["says"] = json!(tr("At %{fare}: about %{pax} passengers a day (%{dp} against the standard fare) and %{rev} of takings a day - fares, passes and the concession reimbursement (%{dr}), once they have got used to it - a few weeks. The first days: about %{first} passengers.").replace("%{fare}", &fare_text(cents as f64)).replace("%{pax}", &grouped(pax)).replace("%{dp}", &change(pax, pax0)).replace("%{rev}", &eur(rev.round() as i64)).replace("%{dr}", &change(rev, rev0)).replace("%{first}", &grouped(first)));
         }
         _ => out["says"] = json!(tr("The line has no tour today: what the fare does is shown on a day it runs.")),
     }
-    if fr::reputation_cost(fr::offset(&c, cents)) > 0.0 {
-        out["warn"] = json!(tr("Far above the association's fare: every day of it costs reputation as well."));
+    if fr::reputation_cost(fr::felt(&c, &at)) > 0.0 {
+        out["warn"] = json!(tr("Far above the standard fare: every day of it costs reputation as well."));
     }
     let share = cl.demand.share();
     if (share - 1.0).abs() > 0.005 {
-        out["now"] = json!(trf("Its passengers now: %{p} of what the association's fare would bring.", &[("p", &format!("{:.0} %", share * 100.0))]));
+        out["now"] = json!(trf("Its passengers now: %{p} of what the standard fare would bring.", &[("p", &format!("{:.0} %", share * 100.0))]));
     }
     out
 }
@@ -212,13 +238,75 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Result<Value, St
             match apply(s, |c| fr::set_fare(c, &name, cents)) {
                 Ok(done) => {
                     let t = if casual { "Line %{n}: a ticket costs %{fare} from now on." } else { "Line %{n}: the single ticket costs %{fare} from now on." };
-                    let t = trf(t, &[("n", &number), ("fare", &eur_cents(done as f64))]);
+                    let t = trf(t, &[("n", &number), ("fare", &fare_text(done as f64))]);
                     s.say(t, false);
                     Ok(json!({ "done": true }))
                 }
                 Err(p) => Ok(json!({ "popup": p })),
             }
         }
+        "set_cap" => {
+            let name = args.get("line").and_then(Value::as_str).unwrap_or("").to_string();
+            let on = args.get("on").and_then(Value::as_bool).unwrap_or(false);
+            match apply(s, |c| fr::set_cap(c, &name, on)) {
+                Ok(_) => Ok(json!({ "done": true })),
+                Err(p) => Ok(json!({ "popup": p })),
+            }
+        }
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use omsi_launcher_lib::company::BookingKind;
+
+    /// Every line of the books is named in every language, and so are the cost texts of the UK
+    /// model (crates/omsihub-locales/locales/company-costs.yml).
+    #[test]
+    fn every_cost_line_is_translated() {
+        let mut texts: Vec<String> = BookingKind::ALL.iter().map(|k| k.label().to_string()).collect();
+        let src = [include_str!("dialogs.rs"), include_str!("people.rs")].concat();
+        for t in ["Drivers' wages %{amount}", "%{month} is closed: leases", "%{paid} of %{contract} hours paid", "This week"] {
+            let start = src.find(t).expect(t);
+            texts.push(src[start..].chars().take_while(|c| *c != '"').collect());
+        }
+        let mut missing = Vec::new();
+        for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
+            let table = crate::i18n::table(lang);
+            for t in &texts {
+                if !table.contains_key(t) {
+                    missing.push(format!("{lang}: {t:?}"));
+                }
+            }
+        }
+        assert!(missing.is_empty(), "{} missing:\n{}", missing.len(), missing.join("\n"));
+    }
+
+    /// The income model's texts too (crates/omsihub-locales/locales/company-income.yml): the
+    /// kinds of line, the parts of the day, and the money page's, the report's and the lines
+    /// page's words of the passengers and their takings.
+    #[test]
+    fn every_income_text_is_translated() {
+        use omsi_launcher_lib::company::income::{LineType, BANDS};
+        let mut texts: Vec<String> = LineType::ALL.iter().flat_map(|t| [t.label().to_string(), t.note().to_string()]).collect();
+        texts.extend(BANDS.iter().map(|b| b.to_string()));
+        // (money.rs without this test: its texts are the page's)
+        let money = include_str!("money.rs");
+        let src = [&money[..money.find("#[cfg(test)]").unwrap()], include_str!("lines.rs"), include_str!("dialogs.rs")].concat();
+        for t in ["%{n} a bus-hour", "%{n} left at the stop", "Your own line: its adult single", "A map line: its adult single", "At %{fare}: about %{pax} passengers a day (%{dp} against the standard", "Fare cap: at most", "A typical adult single costs", "Passengers and takings", "Its last day's takings", "%{p} passengers, %{h} a bus-hour", "%{n} trips were full;", "Fuel grant (BSOG): %{km}", "Tourism grant: %{km}", "Fares collected for the authority (a gross", "Adult tickets", "Children's tickets", "Return ticket", "Week ticket", "Standard fare", "Takings a day"] {
+            let start = src.find(t).expect(t);
+            texts.push(src[start..].chars().take_while(|c| *c != '"').collect());
+        }
+        let mut missing = Vec::new();
+        for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
+            let table = crate::i18n::table(lang);
+            for t in &texts {
+                if !table.contains_key(t) {
+                    missing.push(format!("{lang}: {t:?}"));
+                }
+            }
+        }
+        assert!(missing.is_empty(), "{} missing:\n{}", missing.len(), missing.join("\n"));
+    }
 }

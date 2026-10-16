@@ -190,6 +190,34 @@ impl Currency {
         }
         (units * 100.0 / self.rate()).round() as Cents
     }
+
+    /// The step its fares are priced in, in its units: 5p, 5 cents, 10 rappen or groszy, a whole
+    /// krona, ten forints (what a ticket machine of the country charges).
+    pub fn fare_step(self) -> f64 {
+        match self {
+            Currency::Eur | Currency::Gbp | Currency::Usd | Currency::Cad | Currency::Aud => 0.05,
+            Currency::Chf | Currency::Pln | Currency::Ron => 0.10,
+            Currency::Czk | Currency::Sek | Currency::Nok | Currency::Dkk | Currency::Try | Currency::Uah => 1.0,
+            Currency::Huf => 10.0,
+        }
+    }
+
+    /// A fare (euro cents) in its units, at its step: what the ticket says (£2.40, never £2.39).
+    /// A fare above nothing is at least one step.
+    pub fn fare_units(self, cents: f64) -> f64 {
+        let step = self.fare_step();
+        if !cents.is_finite() || cents <= 0.0 {
+            return 0.0;
+        }
+        ((self.units(cents) / step).round() * step).max(step)
+    }
+
+    /// A fare (euro cents) made the round price this currency asks, back in euro cents -
+    /// fractional, exactly that price (the economy books the passengers' fares from it; a fare
+    /// kept in a file is it rounded to whole cents, which shows back as the same price).
+    pub fn round_fare(self, cents: f64) -> f64 {
+        self.fare_units(cents) * 100.0 / self.rate()
+    }
 }
 
 /// A number with `places` decimals, grouped as `look` groups it ("-1,234.50").
@@ -293,6 +321,24 @@ mod tests {
         assert_eq!(parse("-12,5"), Some(-12.5));
         assert_eq!(parse("abc"), None);
         assert_eq!(Currency::Huf.cents(367.18), 1_00);
+    }
+
+    #[test]
+    fn fares_are_round_prices_of_the_currency() {
+        // £2.40 converted in and kept as whole euro cents shows as £2.40 again, never £2.39
+        for pence in (150..=750).step_by(5) {
+            let kept = Currency::Gbp.round_fare(Currency::Gbp.cents(pence as f64 / 100.0) as f64).round() as Cents;
+            let back = Currency::Gbp.fare_units(kept as f64);
+            assert!((back * 100.0 - pence as f64).abs() < 1e-6, "{pence} {back}");
+            assert_eq!(write(back, true, &Currency::Gbp.look()), format!("£{}.{:02}", pence / 100, pence % 100));
+        }
+        // any amount comes out at a 5p step, a euro amount at 5 cents, a forint one at ten
+        let p = Currency::Gbp.fare_units(279.0 * 1.013);
+        assert!(((p * 20.0).round() - p * 20.0).abs() < 1e-9, "{p}");
+        assert!((Currency::Eur.fare_units(243.0) - 2.45).abs() < 1e-9);
+        assert!((Currency::Huf.fare_units(243.0) - 890.0).abs() < 1e-9);
+        assert_eq!(Currency::Gbp.fare_units(0.0), 0.0);
+        assert!((Currency::Gbp.fare_units(1.0) - 0.05).abs() < 1e-9);
     }
 
     #[test]

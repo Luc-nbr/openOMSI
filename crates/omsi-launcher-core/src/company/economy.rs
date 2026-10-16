@@ -1,48 +1,39 @@
 //! The company's economy: what buses, people, energy and the depot cost, what the lines earn,
-//! and how loans and leases are paid off - for three difficulties.
+//! and how loans and leases are paid off - for three game modes.
 //!
-//! "Realistic" is calibrated on German urban bus operations of the mid-2020s. The figures are
-//! rounded reference values, not one operator's books; where they come from:
+//! **The costs are the UK model** (`econ_uk`): Realistic is real UK operator data at factor 1.0,
+//! Normal and Casual follow from the mode factors, a company's country scales the price levels,
+//! and a sandbox's knobs sit on top. Here are the functions that turn it into euro cents for a
+//! bus, a kilometre, a month: bus prices and their age (`new_price`, `age_factor`,
+//! `book_value`), leases and loans (`lease_monthly`, `annuity`), fuel and energy
+//! (`energy_per_km`), the workshop (`maintenance_per_km`), the fixed costs of a bus a month
+//! (`bus_month`: lease or depreciation, insurance and tax, the ticket machine, the overhead) and
+//! a driver's market wage (`market_wage`).
 //!
-//! - **Bus prices** (net, without VAT): tenders and press reports of German operators 2022-2024
-//!   put a 12 m diesel bus (Citaro, Lion's City, Urbino) at €260-300k, an 18 m articulated one
-//!   at €380-430k, a 12 m battery bus at €520-600k and an 18 m battery bus at €750-850k.
-//!   Midibuses (~10 m) about €200k (diesel), double-deckers €450k. We take €280k, €400k,
-//!   €550k, €800k, €200k and €450k.
-//! - **Depreciation**: German tax tables (AfA) write a bus off over 9 years; operators run them
-//!   12-15 years, and the used market pays for age (Luc, 2026-10-15): some 18 % is lost in the
-//!   first year, then 8-10 % of the new price a year, less later, to a 10 % residual at 15-18
-//!   years (`age_factor`) - corrected for the kilometres (60,000 a year is usual for a city
-//!   bus) and the condition.
-//! - **Fuel**: a 12 m diesel city bus uses 38-45 l/100 km, an articulated one 50-60, a midibus
-//!   25-30; diesel costs operators about €1.45/l net. A battery bus uses 1.0-1.4 kWh/km with
-//!   heating (articulated 1.5-1.9); depot charging at about €0.25/kWh net.
-//! - **Maintenance**: VDV cost comparisons put workshop, tyres and parts at €0.25-0.40 per km
-//!   for diesel buses and about a third less for battery buses, rising with age.
-//! - **Insurance**: liability and comprehensive cover for a city bus €3,000-6,000 a year.
-//! - **Depot**: yard, hall, power and cleaning - a fixed part and a part per parking space.
-//! - **Wages**: the German regional tariffs (TV-N, private bus tariffs) pay a driver about
-//!   €3,300 gross a month in 2024; the employer adds ~21 % social security.
-//! - **Revenue**: about €1.10 fare revenue per passenger (season tickets and the
-//!   Deutschlandticket bring the average far below a single fare), and the public authority
-//!   pays the rest of the cost per timetable kilometre under the public service contract:
-//!   farebox recovery in German cities is 40-50 %. Passengers per bus-km about 2 on average,
-//!   more at the peaks.
-//! - **Penalties**: contracts (Bonus/Malus) charge per trip dropped, and a share of that for a
-//!   trip late by its minutes (`late_share`: Luc's tiers, 2026-10-15).
+//! **The income is the UK model too** (`income`: passengers per bus-hour by the time of day and
+//! the kind of line, fares by ticket, concession reimbursement, BSOG). The bus contracts - their
+//! payments, deductions and default points - are `bus_contracts`': a line under one has no
+//! payment per km. What is left of a payment per km is an own weekend line's tourism grant
+//! (`tourism_per_km`).
 //!
-//! "Easy" pays generously (more compensation and passengers, grants on new buses, cheaper
-//! buses, fewer breakdowns, interest-free loans); "Hard" pays tightly, prices rise with
-//! inflation while the contract does not keep up, loans cost interest and buses break down
-//! more often.
+//! The age curve of a bus's value: the used market pays for age - some 18 % is lost in the first
+//! year, then 8-10 % of the new price a year, less later, to a 10 % residual at 15-18 years
+//! (`age_factor`), corrected for the kilometres (60,000 a year is usual for a city bus) and the
+//! condition (Luc, 2026-10-15). What a bus costs the company's result is its depreciation
+//! (`depreciation_per_month`), as an operator's books write it off.
 
-use super::model::{BusKind, BusSize, Cents, Company, GameMode, Drive};
+use super::econ_uk::{self, Item, Level};
+use super::model::{BookingKind, BusKind, Cents, Company, Drive, GameMode, Tenure, Vehicle};
 
-/// The numbers of one difficulty.
+/// The numbers of one game mode. The costs come from the UK model (`econ_uk`): a bus's price
+/// The numbers of one game mode. The costs come from the UK model (`econ_uk`): a bus's price
+/// and lease here, the running and fixed costs in the functions below; the income is `income`'s,
+/// the contracts' `bus_contracts`'.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rules {
     pub start_capital: Cents,
-    /// New bus prices against the reference.
+    /// New bus prices against the UK's (`econ_uk::new_price`): the mode's cost factor; for a
+    /// company (`rules_for`) its country's and its sandbox's too (`econ_uk::Item::Vehicles`).
     pub price_factor: f64,
     /// What a dealer asks for a used bus over its book value.
     pub used_markup: f64,
@@ -64,15 +55,7 @@ pub struct Rules {
     pub lease_residual: f64,
     /// Short-term rental per day, of the new price.
     pub rent_share: f64,
-    /// Revenue: per passenger, passengers per bus-km, and the compensation per km.
-    pub fare: Cents,
-    pub passengers_per_km: f64,
-    pub compensation_per_km: Cents,
-    /// Penalties: per trip dropped, per km dropped (a trip's value; a late one pays its share of
-    /// that, `late_share`).
-    pub drop_per_trip: Cents,
-    pub drop_per_km: Cents,
-    /// Breakdowns and wear against the reference.
+    /// Breakdowns and wear against the UK's (`econ_uk::BREAKDOWN_CHANCE`; Realistic 1.0).
     pub breakdown_factor: f64,
     /// Yearly rise of costs, and of the contract's payment.
     pub inflation: f64,
@@ -87,151 +70,88 @@ pub struct Rules {
     pub used_offers: usize,
 }
 
-/// From this many whole minutes behind a trip counts as late (`lateness::Timed::minutes`; as
-/// OMSI's 180 s: up to 2 min 59 s behind is on time).
-pub const LATE_FROM: i32 = 3;
-/// From this many minutes a late trip costs its whole value, as a trip dropped does.
+/// From this many whole minutes behind a trip counts as late (`lateness::Timed::minutes`): the UK
+/// standard's window (`econ_uk::ON_TIME_LATE`: up to 5 min 59 s behind is on time) - for the
+/// reputation, the day's punctuality, the late running's pages and the service control. (OMSI's
+/// own 180 s are its displays'; a bus contract's default points have their own tiers,
+/// `bus_contracts::time_points`.)
+pub const LATE_FROM: i32 = econ_uk::ON_TIME_LATE + 1;
+/// From this many minutes a late trip weighs as a trip lost: in the reputation, the service
+/// control's choices and the report's last tier. (What it costs on a bus contract is
+/// `bus_contracts::unpaid_at`'s; a commercial line pays in passengers and reputation only.)
 pub const LATE_FULL: i32 = 30;
 
-/// A trip's value under the contract: what dropping it costs (a late one pays a share of it).
-pub fn trip_value(r: &Rules, km: f64) -> Cents {
-    r.drop_per_trip + (km * r.drop_per_km as f64).round() as Cents
-}
+/// The minutes late up to which a late trip is in the first tier: the contracts' slightly late
+/// (`econ_uk::UNPAID_LATE`, 10).
+pub const LATE_SLIGHT: i32 = econ_uk::UNPAID_LATE;
 
-/// The share of its value a trip `minutes` late pays (Luc, 2026-10-15): nothing under
-/// `LATE_FROM`, 10 % up to five minutes, then rising linearly to the whole at `LATE_FULL`
-/// minutes and over (whole minutes: 10 % at 5, 28 % at 10, 64 % at 20, 100 % at 30).
-pub fn late_share(minutes: i32) -> f64 {
-    match minutes {
-        m if m < LATE_FROM => 0.0,
-        m if m <= 5 => 0.10,
-        m if m >= LATE_FULL => 1.0,
-        m => 0.10 + 0.90 * (m - 5) as f64 / (LATE_FULL - 5) as f64,
-    }
-}
-
-/// The tier of a trip `minutes` late: 0 on time, 1 up to five minutes, 2 under `LATE_FULL`,
-/// 3 from it (counted as a trip lost).
+/// The tier of a trip `minutes` late: 0 on time, 1 up to `LATE_SLIGHT` minutes, 2 under
+/// `LATE_FULL`, 3 from it (counted as a trip lost).
 pub fn late_tier(minutes: i32) -> usize {
     match minutes {
         m if m < LATE_FROM => 0,
-        m if m <= 5 => 1,
+        m if m <= LATE_SLIGHT => 1,
         m if m < LATE_FULL => 2,
         _ => 3,
     }
 }
 
-/// The rules of a difficulty.
+/// The rules of a game mode, all of them the UK model's (`econ_uk`): a bus's price, its lease and
+/// short-term rental at the mode's cost factor; the founders' capital, the bank, inflation and
+/// the contracts' indexation, grants, the used market, breakdowns by the mode's tables
+/// (`econ_uk::by_mode`). The running and fixed costs and the wages are in the functions below.
 pub fn rules(d: GameMode) -> Rules {
-    match d {
-        GameMode::Casual => Rules {
-            start_capital: 2_500_000_00,
-            price_factor: 0.85,
-            used_markup: 0.95,
-            sale_factor: 0.95,
-            grant_all: 0.30,
-            grant_electric: 0.80,
-            loan_rate: 0.0,
-            loan_months: 96,
-            credit_base: 1_500_000_00,
-            credit_share: 0.8,
-            lease_rate: 0.02,
-            lease_months: 72,
-            lease_residual: 0.25,
-            rent_share: 0.0010,
-            fare: 1_30,
-            passengers_per_km: 2.3,
-            compensation_per_km: 1_80,
-            drop_per_trip: 0,
-            drop_per_km: 0,
-            breakdown_factor: 0.3,
-            inflation: 0.0,
-            indexation: 0.0,
-            sickness: 0.006,
-            notice_days: 14,
-            severance_months_per_year: 0.0,
-            applicants: 8,
-            used_offers: 8,
-        },
-        GameMode::Normal => Rules {
-            start_capital: 1_200_000_00,
-            price_factor: 1.0,
-            used_markup: 1.10,
-            sale_factor: 0.85,
-            grant_all: 0.0,
-            grant_electric: 0.40,
-            loan_rate: 0.045,
-            loan_months: 72,
-            credit_base: 600_000_00,
-            credit_share: 0.6,
-            lease_rate: 0.045,
-            lease_months: 72,
-            lease_residual: 0.25,
-            rent_share: 0.0013,
-            fare: 1_10,
-            passengers_per_km: 2.0,
-            compensation_per_km: 1_20,
-            drop_per_trip: 80_00,
-            drop_per_km: 2_00,
-            breakdown_factor: 1.0,
-            inflation: 0.025,
-            indexation: 0.025,
-            sickness: 0.011,
-            notice_days: 28,
-            severance_months_per_year: 0.0,
-            applicants: 6,
-            used_offers: 6,
-        },
-        GameMode::Realistic => Rules {
-            start_capital: 600_000_00,
-            price_factor: 1.08,
-            used_markup: 1.20,
-            sale_factor: 0.75,
-            grant_all: 0.0,
-            grant_electric: 0.0,
-            loan_rate: 0.085,
-            loan_months: 60,
-            credit_base: 250_000_00,
-            credit_share: 0.5,
-            lease_rate: 0.075,
-            lease_months: 72,
-            lease_residual: 0.20,
-            rent_share: 0.0016,
-            fare: 1_05,
-            passengers_per_km: 1.9,
-            compensation_per_km: 1_00,
-            drop_per_trip: 150_00,
-            drop_per_km: 3_00,
-            breakdown_factor: 1.7,
-            inflation: 0.045,
-            indexation: 0.015,
-            sickness: 0.016,
-            notice_days: 28,
-            severance_months_per_year: 0.5,
-            applicants: 4,
-            used_offers: 4,
-        },
+    let pick = |v| econ_uk::by_mode(d, v);
+    // (sums of money to the hundred euros, as prices are)
+    let pounds = |pence: f64| round_to(econ_uk::gbp(pence), 100_00);
+    let (applicants, sickness, notice_days, severance, loan_months, credit_share) = match d {
+        GameMode::Casual => (8, 0.006, 14, 0.0, 96, 0.8),
+        GameMode::Normal => (6, 0.011, 28, 0.0, 72, 0.6),
+        GameMode::Realistic => (4, 0.016, 28, 0.5, 60, 0.5),
+    };
+    Rules {
+        start_capital: pounds(pick(econ_uk::START_CAPITAL)),
+        price_factor: econ_uk::mode(d).costs,
+        used_markup: pick(econ_uk::USED_MARKUP),
+        sale_factor: pick(econ_uk::SALE_FACTOR),
+        grant_all: pick(econ_uk::GRANT_ALL),
+        grant_electric: pick(econ_uk::GRANT_ELECTRIC),
+        loan_rate: pick(econ_uk::LOAN_RATE),
+        loan_months,
+        credit_base: pounds(pick(econ_uk::CREDIT_BASE)),
+        credit_share,
+        lease_rate: econ_uk::LEASE_RATE,
+        lease_months: econ_uk::LEASE_MONTHS,
+        lease_residual: econ_uk::LEASE_RESIDUAL,
+        rent_share: econ_uk::RENT_SHARE,
+        // (Realistic the UK's rate; Normal and Casual fewer, as their mode tables had them)
+        breakdown_factor: pick((1.0, 0.6, 0.18)),
+        inflation: pick(econ_uk::INFLATION),
+        indexation: pick(econ_uk::INDEXATION),
+        sickness,
+        notice_days,
+        severance_months_per_year: severance,
+        applicants,
+        used_offers: applicants,
     }
 }
 
 /// The rules the company plays by: its game mode's, as its sandbox sets them (`sandbox::rules`;
-/// a Career company's are its game mode's).
+/// a Career company's are its game mode's), its buses priced in its country
+/// (`econ_uk::Item::Vehicles`: the mode, the country and the sandbox's prices).
 pub fn rules_for(c: &Company) -> Rules {
-    super::sandbox::rules(c, rules(c.game_mode))
+    let mut r = super::sandbox::rules(c, rules(c.game_mode));
+    r.price_factor = econ_uk::factor(c, Item::Vehicles);
+    r
 }
 
-/// A new bus's reference price (Realistic, at founding).
+/// The speed a tendered timetabled hour runs at (km/h): what turns the data's tender payment per
+/// hour into one per km (the tourism grant's, `tourism_per_km`).
+pub const TENDER_KMH: f64 = 25.0;
+
+/// A new bus's reference price: the UK's (`econ_uk::new_price`), in euro cents, at founding.
 pub fn reference_price(kind: BusKind) -> Cents {
-    match (kind.size, kind.drive) {
-        (BusSize::Midi, Drive::Diesel) => 200_000_00,
-        (BusSize::Midi, Drive::Electric) => 400_000_00,
-        (BusSize::Solo, Drive::Diesel) => 280_000_00,
-        (BusSize::Solo, Drive::Electric) => 550_000_00,
-        (BusSize::Articulated, Drive::Diesel) => 400_000_00,
-        (BusSize::Articulated, Drive::Electric) => 800_000_00,
-        (BusSize::Double, Drive::Diesel) => 450_000_00,
-        (BusSize::Double, Drive::Electric) => 700_000_00,
-    }
+    econ_uk::gbp_cents(econ_uk::new_price(kind))
 }
 
 fn round_to(c: f64, step: Cents) -> Cents {
@@ -353,147 +273,208 @@ pub fn lease_monthly(price: Cents, r: &Rules) -> Cents {
     annuity((price as f64 - present).round() as Cents, r.lease_rate, r.lease_months)
 }
 
-/// What renting a bus costs a day (driver not included).
+/// What renting a bus costs a day (driver not included): a share of its price (the mode's, the
+/// country's and the sandbox's as a new one's), to the ten euros.
 pub fn rent_per_day(kind: BusKind, r: &Rules, price_index: f64) -> Cents {
-    round_to(reference_price(kind) as f64 * r.rent_share * price_index, 10_00)
+    round_to(reference_price(kind) as f64 * r.rent_share * r.price_factor * price_index, 10_00)
 }
 
-/// Fuel (l/100 km) or electricity (kWh/100 km) a bus of this kind uses.
+/// Fuel (l/100 km) or electricity (kWh/100 km) a bus of this kind uses (`econ_uk::consumption`).
 pub fn consumption(kind: BusKind) -> f64 {
-    match (kind.size, kind.drive) {
-        (BusSize::Midi, Drive::Diesel) => 28.0,
-        (BusSize::Solo, Drive::Diesel) => 40.0,
-        (BusSize::Articulated, Drive::Diesel) => 55.0,
-        (BusSize::Double, Drive::Diesel) => 50.0,
-        (BusSize::Midi, Drive::Electric) => 75.0,
-        (BusSize::Solo, Drive::Electric) => 120.0,
-        (BusSize::Articulated, Drive::Electric) => 170.0,
-        (BusSize::Double, Drive::Electric) => 150.0,
+    econ_uk::consumption(kind)
+}
+
+/// Diesel a litre, net, today (cents, fractional): the UK's at the company's level.
+pub fn diesel_per_litre(lv: &Level) -> f64 {
+    econ_uk::gbp(econ_uk::DIESEL_PER_LITRE) * lv.diesel * lv.price_index
+}
+
+/// Electricity a kWh, net, today (cents, fractional).
+pub fn power_per_kwh(lv: &Level) -> f64 {
+    econ_uk::gbp(econ_uk::POWER_PER_KWH) * lv.power * lv.price_index
+}
+
+/// Fuel or electricity per km (cents, fractional).
+pub fn energy_per_km(kind: BusKind, lv: &Level) -> f64 {
+    let unit = if kind.drive == Drive::Electric { power_per_kwh(lv) } else { diesel_per_litre(lv) };
+    consumption(kind) / 100.0 * unit
+}
+
+/// The workshop's routine per km (cents, fractional): servicing, tyres and parts - the UK's
+/// £0.22 a mile for a diesel single-deck of the fleet's average age less what the breakdowns
+/// take (`econ_uk::WORKSHOP_ROUTINE`, `breakdown_repair`), a quarter less electric, more for a
+/// bigger bus, 5 % more or less for every year older or younger.
+pub fn maintenance_per_km(kind: BusKind, age_years: f64, lv: &Level) -> f64 {
+    let drive = if kind.drive == Drive::Electric { econ_uk::WORKSHOP_ELECTRIC } else { 1.0 };
+    let age = (1.0 + econ_uk::WORKSHOP_PER_YEAR * (age_years.max(0.0) - econ_uk::WORKSHOP_AGE)).clamp(0.75, 1.6);
+    econ_uk::gbp(econ_uk::WORKSHOP_PER_KM * econ_uk::WORKSHOP_ROUTINE) * drive * econ_uk::size_factor(kind.size) * age * lv.workshop * lv.price_index
+}
+
+/// A breakdown's repair (whole euros, in cents): `draw` (0 to 1) between the least and the most
+/// a breakdown costs (`econ_uk::BREAKDOWN_REPAIR`), by the bus's size, at the company's level.
+pub fn breakdown_repair(draw: f64, kind: BusKind, lv: &Level) -> Cents {
+    let (low, high) = econ_uk::BREAKDOWN_REPAIR;
+    let pence = low + (high - low) * draw.clamp(0.0, 1.0);
+    ((econ_uk::gbp(pence) * econ_uk::size_factor(kind.size) * lv.workshop * lv.price_index / 100.0).round() as Cents) * 100
+}
+
+/// Insurance, road tax and the annual test of a bus a month.
+pub fn insurance_per_month(kind: BusKind, lv: &Level) -> Cents {
+    let year = econ_uk::INSURANCE_PER_YEAR * econ_uk::size_factor(kind.size) + econ_uk::TAX_PER_YEAR;
+    (econ_uk::gbp(year) / 12.0 * lv.insurance * lv.price_index).round() as Cents
+}
+
+/// What an accident that took a bus off the road costs the company (whole euros, in cents):
+/// `draw` (0 to 1) within the insurance's excess (`econ_uk::ACCIDENT_EXCESS`), by size.
+pub fn accident_damage(draw: f64, kind: BusKind, lv: &Level) -> Cents {
+    let (low, high) = econ_uk::ACCIDENT_EXCESS;
+    let pence = low + (high - low) * draw.clamp(0.0, 1.0);
+    ((econ_uk::gbp(pence) * econ_uk::size_factor(kind.size) * lv.insurance * lv.price_index / 100.0).round() as Cents) * 100
+}
+
+/// A bus's ticket machine a month.
+pub fn ticket_machine_per_month(lv: &Level) -> Cents {
+    (econ_uk::gbp(econ_uk::TICKET_MACHINE_PER_MONTH) * lv.insurance * lv.price_index).round() as Cents
+}
+
+/// The central overhead of a bus a month (depot rent, management, admin, control, IT): all of it
+/// Realistic, half Normal, none Casual.
+pub fn overhead_per_month(lv: &Level) -> Cents {
+    (econ_uk::gbp(econ_uk::OVERHEAD_PER_BUS_YEAR) / 12.0 * lv.overheads * lv.price_index).round() as Cents
+}
+
+/// An owned bus's depreciation a month: what was paid (`Tenure::Owned`'s `paid`), less a tenth
+/// left at the end, written off in a straight line until the bus is `DEPRECIATION_YEARS` old (a
+/// used one over what is left of that, `DEPRECIATION_MIN_YEARS` at least); nothing once that is
+/// done. `built` and `acquired` are the bus's dates, `today` the month's.
+pub fn depreciation_per_month(paid: Cents, built: &str, acquired: &str, today: &str) -> Cents {
+    let at_purchase = super::dates::years_between(built, acquired).max(0.0);
+    let years = (econ_uk::DEPRECIATION_YEARS - at_purchase).max(econ_uk::DEPRECIATION_MIN_YEARS);
+    if super::dates::years_between(acquired, today) >= years {
+        return 0;
     }
+    (paid.max(0) as f64 * (1.0 - econ_uk::DEPRECIATION_RESIDUAL) / (years * 12.0)).round() as Cents
 }
 
-/// Diesel per litre and electricity per kWh, net, at founding (cents).
-pub const DIESEL_PER_L: f64 = 145.0;
-pub const POWER_PER_KWH: f64 = 25.0;
-
-/// Energy per km (cents, fractional).
-pub fn energy_per_km(kind: BusKind, price_index: f64) -> f64 {
-    let unit = if kind.drive == Drive::Electric { POWER_PER_KWH } else { DIESEL_PER_L };
-    consumption(kind) / 100.0 * unit * price_index
-}
-
-fn size_factor(size: BusSize) -> f64 {
-    match size {
-        BusSize::Midi => 0.8,
-        BusSize::Solo => 1.0,
-        BusSize::Articulated => 1.35,
-        BusSize::Double => 1.3,
+/// What a bus of the fleet costs in a whole month besides its kilometres, by booking kind: a
+/// leased one its lease, an owned one its depreciation (not cash: `BookingKind::is_cash`); both
+/// their insurance and tax, the ticket machine and the overhead. A rented one nothing (its daily
+/// rent is all). `today`: a day of the month (for the depreciation's age).
+pub fn bus_month(v: &Vehicle, lv: &Level, today: &str) -> Vec<(BookingKind, Cents)> {
+    let fixed = |out: &mut Vec<(BookingKind, Cents)>| {
+        out.push((BookingKind::Insurance, insurance_per_month(v.kind, lv)));
+        out.push((BookingKind::Overheads, ticket_machine_per_month(lv) + overhead_per_month(lv)));
+    };
+    let mut out = Vec::new();
+    match &v.tenure {
+        Tenure::Leased { monthly, .. } => {
+            out.push((BookingKind::Lease, *monthly));
+            fixed(&mut out);
+        }
+        Tenure::Owned { paid, .. } => {
+            out.push((BookingKind::Depreciation, depreciation_per_month(*paid, &v.built, &v.acquired, today)));
+            fixed(&mut out);
+        }
+        Tenure::Rented { .. } => {}
     }
+    out.retain(|x| x.1 != 0);
+    out
 }
 
-/// Maintenance per km (cents, fractional): €0.30 for a diesel solo bus, a third less
-/// electric, more for a bigger bus, 5 % more for every year of age.
-pub fn maintenance_per_km(kind: BusKind, age_years: f64, price_index: f64) -> f64 {
-    let base = if kind.drive == Drive::Electric { 21.0 } else { 30.0 };
-    base * size_factor(kind.size) * (1.0 + 0.05 * age_years.max(0.0)) * price_index
+/// The driver wage the market pays for `experience` (0-100 points), monthly gross for the
+/// contracted hours (`econ_uk::CONTRACT_WEEK_HOURS`): the UK's £12.24 an hour (2022) from 94 %
+/// for a beginner to 108 % for the most experienced, at the company's level, to the ten euros.
+pub fn market_wage(experience: f64, lv: &Level) -> Cents {
+    let x = experience.clamp(0.0, 100.0) / 100.0;
+    let hour = econ_uk::DRIVER_BASE_HOUR * (econ_uk::DRIVER_LOW + (econ_uk::DRIVER_HIGH - econ_uk::DRIVER_LOW) * x);
+    round_to(econ_uk::gbp(hour) * econ_uk::contract_month_hours() * lv.wages * lv.price_index, 10_00)
 }
 
-/// Insurance a month.
-pub fn insurance_per_month(kind: BusKind, price_index: f64) -> Cents {
-    (4_000_00 as f64 * size_factor(kind.size) / 12.0 * price_index).round() as Cents
-}
-
-/// The depot a month: a fixed part and a part per bus.
-pub fn depot_per_month(buses: usize, price_index: f64) -> Cents {
-    ((2_500_00 + 150_00 * buses as Cents) as f64 * price_index).round() as Cents
-}
-
-/// The driver wage the market pays for `experience` (0-100 points), monthly gross:
-/// €2,900 for a beginner to €3,800 for the most experienced, €3,300 for a driver of some
-/// years.
-pub fn market_wage(experience: f64, price_index: f64) -> Cents {
-    round_to((2_900_00 as f64 + 900_00 as f64 * (experience.clamp(0.0, 100.0) / 100.0)) * price_index, 10_00)
-}
-
-/// The employer's share on a gross wage (social security, accident insurance, levies).
-pub const EMPLOYER_SHARE: f64 = 0.21;
+/// The employer's share on a wage: National Insurance and pension, holiday, sick pay and
+/// allowances (`econ_uk::ON_COSTS`, `econ_uk::ALLOWANCES`).
+pub const EMPLOYER_SHARE: f64 = econ_uk::ON_COSTS + econ_uk::ALLOWANCES;
 
 /// What a gross wage costs the company.
 pub fn employer_cost(wage: Cents) -> Cents {
     (wage as f64 * (1.0 + EMPLOYER_SHARE)).round() as Cents
 }
 
-/// The passengers' demand through the day against the average: the peaks in the morning
-/// and late afternoon, little at night.
-pub fn demand_at(minute: i32) -> f64 {
-    match minute.rem_euclid(1440) / 60 {
-        0..=4 => 0.25,
-        5 => 0.6,
-        6..=8 => 1.6,
-        9..=11 => 0.9,
-        12..=14 => 1.05,
-        15..=17 => 1.5,
-        18..=19 => 0.8,
-        20..=22 => 0.5,
-        _ => 0.35,
-    }
+/// The rate a kilometre an own weekend line's tourism grant is a share of
+/// (`ownline::LEISURE_COMPENSATION`): the data's tender payment per timetabled hour at
+/// `TENDER_KMH`, by the contracts' factor of the company's game (its mode, country and sandbox),
+/// ±10 % round a reputation of 50, and the contract index. A line under a bus contract has no
+/// payment per km - its contract pays (`bus_contracts`).
+pub fn tourism_per_km(c: &Company) -> f64 {
+    tourism_at(econ_uk::factor(c, Item::Contracts), c.reputation, c.contract_index)
 }
 
-/// Passengers a trip of `km` leaving at `minute` carries (before chance and reputation).
-pub fn passengers_for(km: f64, minute: i32, r: &Rules) -> f64 {
-    km.max(0.0) * r.passengers_per_km * demand_at(minute)
-}
-
-/// The authority's payment per km at a reputation (0-100): ±10 % around 50, as Omsi-Hub's.
-pub fn compensation_per_km(r: &Rules, reputation: f64, contract_index: f64) -> f64 {
+/// `tourism_per_km` of a factor, a reputation (0-100) and a contract index.
+pub fn tourism_at(factor: f64, reputation: f64, contract_index: f64) -> f64 {
     // (below 40 softened: `reputation::effective`)
-    r.compensation_per_km as f64 * (0.9 + 0.2 * super::reputation::effective(reputation) / 100.0) * contract_index
+    econ_uk::gbp(econ_uk::TENDER_PER_HOUR) / TENDER_KMH * factor * (0.9 + 0.2 * super::reputation::effective(reputation) / 100.0) * contract_index
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::company::currency::Currency;
+    use crate::company::model::BusSize;
 
     const SOLO: BusKind = BusKind { size: BusSize::Solo, drive: Drive::Diesel };
     const E_ART: BusKind = BusKind { size: BusSize::Articulated, drive: Drive::Electric };
+    const DD: BusKind = BusKind { size: BusSize::Double, drive: Drive::Diesel };
 
-    #[test]
-    fn late_trips_pay_their_tier() {
-        // (Luc: 10 % up to five minutes, the whole trip from thirty)
-        assert_eq!(late_share(2), 0.0);
-        assert_eq!(late_share(4), 0.10);
-        assert_eq!(late_share(5), 0.10);
-        assert!((late_share(10) - 0.28).abs() < 1e-9);
-        assert!(late_share(29) < 1.0 && late_share(29) > late_share(28));
-        assert_eq!((late_share(30), late_share(75)), (1.0, 1.0));
-        assert_eq!([2, 4, 6, 29, 30].map(late_tier), [0, 1, 2, 2, 3]);
-        // (a trip's value is what dropping it costs; Casual's is nothing)
-        assert_eq!(trip_value(&rules(GameMode::Normal), 15.0), 80_00 + 30_00);
-        assert_eq!(trip_value(&rules(GameMode::Casual), 15.0), 0);
+    /// Euro cents as pounds.
+    fn pounds(cents: f64) -> f64 {
+        Currency::Gbp.units(cents)
     }
 
     #[test]
-    fn prices_follow_the_difficulty() {
-        let r = rules(GameMode::Normal);
-        assert_eq!(new_price(SOLO, &r, 1.0), 280_000_00);
-        assert_eq!(new_price(E_ART, &r, 1.0), 800_000_00);
-        assert_eq!(new_price(BusKind { size: BusSize::Solo, drive: Drive::Electric }, &r, 1.0), 550_000_00);
-        assert_eq!(new_price(BusKind { size: BusSize::Articulated, drive: Drive::Diesel }, &r, 1.0), 400_000_00);
-        let easy = new_price(SOLO, &rules(GameMode::Casual), 1.0);
-        let hard = new_price(SOLO, &rules(GameMode::Realistic), 1.0);
-        assert!(easy < 280_000_00 && hard > 280_000_00);
+    fn late_trips_have_their_tier() {
+        assert_eq!([2, 5, 6, 10, 11, 29, 30].map(late_tier), [0, 0, 1, 1, 2, 2, 3]);
+    }
+
+    #[test]
+    fn the_companys_money_is_on_the_uk_footing() {
+        let (r, n, c) = (rules(GameMode::Realistic), rules(GameMode::Normal), rules(GameMode::Casual));
+        // the founders' £500k, a bank at 7.5 %, CPI-like 3 % and contracts indexed by 2.5 %
+        assert!((pounds(r.start_capital as f64) - 500_000.0).abs() < 100.0);
+        assert_eq!((r.loan_rate, r.inflation, r.indexation), (0.075, 0.03, 0.025));
+        assert!(n.loan_rate < r.loan_rate && c.loan_rate == 0.0 && c.inflation == 0.0);
+        // Realistic's breakdowns are the UK's rate (factor 1), the others fewer
+        assert_eq!(r.breakdown_factor, 1.0);
+        assert!(n.breakdown_factor < 1.0 && c.breakdown_factor < n.breakdown_factor);
+        // a dealer's margins on used buses, and a grant on a zero-emission bus's extra cost
+        assert!(r.used_markup > 1.0 && r.sale_factor < 1.0 && n.sale_factor > r.sale_factor);
+        assert!(r.grant_electric > 0.0 && r.grant_all == 0.0 && c.grant_all > 0.0);
+    }
+
+    #[test]
+    fn prices_are_the_uks_by_the_game_mode() {
+        let r = rules(GameMode::Realistic);
+        // a new single-deck £200k, a double-deck £300k (to the hundred euros)
+        assert!((pounds(new_price(SOLO, &r, 1.0) as f64) - 200_000.0).abs() < 100.0);
+        assert!((pounds(new_price(DD, &r, 1.0) as f64) - 300_000.0).abs() < 100.0);
+        assert!(new_price(E_ART, &r, 1.0) > new_price(BusKind { size: BusSize::Articulated, drive: Drive::Diesel }, &r, 1.0));
+        // Normal and Casual by the mode's cost factor
+        let normal = new_price(SOLO, &rules(GameMode::Normal), 1.0) as f64;
+        let casual = new_price(SOLO, &rules(GameMode::Casual), 1.0) as f64;
+        assert!((normal / new_price(SOLO, &r, 1.0) as f64 - 0.90).abs() < 0.001);
+        assert!((casual / new_price(SOLO, &r, 1.0) as f64 - 0.75).abs() < 0.001);
         // inflation raises them
-        assert_eq!(new_price(SOLO, &r, 1.1), 308_000_00);
-        // a grant only for the electric bus's extra cost on Realistic, on everything on Easy
-        assert_eq!(grant(SOLO, 280_000_00, &r, 1.0), 0);
-        assert_eq!(grant(E_ART, 800_000_00, &r, 1.0), 160_000_00);
-        assert!(grant(SOLO, easy, &rules(GameMode::Casual), 1.0) > 0);
-        assert_eq!(grant(E_ART, 800_000_00, &rules(GameMode::Realistic), 1.0), 0);
-        // a day's rental of a solo bus some €360
-        assert_eq!(rent_per_day(SOLO, &r, 1.0), 360_00);
+        assert!(new_price(SOLO, &r, 1.1) > new_price(SOLO, &r, 1.0));
+        // a grant on an electric bus's extra cost on Normal, on everything on Casual
+        let n = rules(GameMode::Normal);
+        assert_eq!(grant(SOLO, new_price(SOLO, &n, 1.0), &n, 1.0), 0);
+        assert!(grant(E_ART, new_price(E_ART, &n, 1.0), &n, 1.0) > 0);
+        assert!(grant(SOLO, casual as Cents, &rules(GameMode::Casual), 1.0) > 0);
+        // (Realistic counts on part of the zero-emission grant only)
+        assert!(grant(E_ART, new_price(E_ART, &r, 1.0), &r, 1.0) < grant(E_ART, new_price(E_ART, &n, 1.0), &n, 1.0) && grant(SOLO, new_price(SOLO, &r, 1.0), &r, 1.0) == 0);
+        // a day's rental of a single-deck some £200 (to the ten euros)
+        assert!((pounds(rent_per_day(SOLO, &r, 1.0) as f64) - 200.0).abs() < 10.0);
         // the start capital buys a few buses
-        assert!(r.start_capital > 3 * 280_000_00);
-        assert!(rules(GameMode::Casual).start_capital > r.start_capital && r.start_capital > rules(GameMode::Realistic).start_capital);
+        assert!(n.start_capital > 3 * new_price(SOLO, &n, 1.0));
+        assert!(rules(GameMode::Casual).start_capital > n.start_capital && n.start_capital > r.start_capital);
     }
 
     #[test]
@@ -505,12 +486,15 @@ mod tests {
         assert!((4_440_00..4_450_00).contains(&m), "{m}");
         // the rates add up to more than the principal, by the interest
         assert!(m * 72 > 280_000_00 && m * 72 < 330_000_00);
-        // a lease with a quarter left as residual costs less a month than the loan
-        let r = rules(GameMode::Normal);
-        let lease = lease_monthly(280_000_00, &r);
-        assert!(lease < m && (3_400_00..3_800_00).contains(&lease), "{lease}");
-        // a harder lease is dearer
-        assert!(lease_monthly(280_000_00, &rules(GameMode::Realistic)) > lease);
+        // a new single-deck leases at the data's £1,912-1,983 a month, a double-deck at £2,868-2,977
+        let r = rules(GameMode::Realistic);
+        let solo = pounds(lease_monthly(new_price(SOLO, &r, 1.0), &r) as f64);
+        assert!((1_900.0..2_000.0).contains(&solo), "{solo}");
+        let dd = pounds(lease_monthly(new_price(DD, &r, 1.0), &r) as f64);
+        assert!((2_850.0..3_000.0).contains(&dd), "{dd}");
+        // Normal's is cheaper by the factor
+        let n = rules(GameMode::Normal);
+        assert!(lease_monthly(new_price(SOLO, &n, 1.0), &n) < lease_monthly(new_price(SOLO, &r, 1.0), &r));
     }
 
     #[test]
@@ -547,38 +531,52 @@ mod tests {
     }
 
     #[test]
-    fn running_costs_are_those_of_a_city_bus() {
-        // 40 l/100 km at €1.45: 58 cents a km
-        assert!((energy_per_km(SOLO, 1.0) - 58.0).abs() < 1e-9);
-        // battery buses use less money a km
-        assert!(energy_per_km(BusKind { size: BusSize::Solo, drive: Drive::Electric }, 1.0) < 40.0);
-        assert!((maintenance_per_km(SOLO, 0.0, 1.0) - 30.0).abs() < 1e-9);
-        assert!(maintenance_per_km(SOLO, 10.0, 1.0) > 44.0);
-        assert_eq!(insurance_per_month(SOLO, 1.0), 333_33);
-        assert_eq!(depot_per_month(10, 1.0), 4_000_00);
-        // a driver of some experience earns about €3,300 and costs about €4,000
-        assert_eq!(market_wage(45.0, 1.0), 3_310_00);
-        assert_eq!(employer_cost(3_300_00), 3_993_00);
-        // the peaks bring more passengers than the night
-        let r = rules(GameMode::Normal);
-        assert!(passengers_for(10.0, 7 * 60, &r) > 4.0 * passengers_for(10.0, 1 * 60, &r));
-        assert!((compensation_per_km(&r, 50.0, 1.0) - 120.0).abs() < 1e-9);
-        assert!(compensation_per_km(&r, 100.0, 1.0) > compensation_per_km(&r, 0.0, 1.0));
+    fn an_owned_bus_is_written_off_as_the_books_do() {
+        // a new £200k bus: about £14k a year, until it is 13
+        let paid = econ_uk::gbp_cents(20_000_000.0);
+        let new = pounds(depreciation_per_month(paid, "2024-01-01", "2024-01-01", "2024-06-30") as f64) * 12.0;
+        assert!((13_000.0..15_000.0).contains(&new), "{new}");
+        assert_eq!(depreciation_per_month(paid, "2024-01-01", "2024-01-01", "2037-02-01"), 0);
+        // one bought used at ten years for £40k: about £750-1,000 a month over four years
+        let used = pounds(depreciation_per_month(econ_uk::gbp_cents(4_000_000.0), "2014-01-01", "2024-01-01", "2025-06-30") as f64);
+        assert!((700.0..1_000.0).contains(&used), "{used}");
+        assert_eq!(depreciation_per_month(econ_uk::gbp_cents(4_000_000.0), "2014-01-01", "2024-01-01", "2028-02-01"), 0);
     }
 
     #[test]
-    fn a_realistic_kilometre_earns_a_little_more_than_it_costs() {
-        // revenue a km on an average hour, against energy, maintenance, a driver's share
-        // (about €1.60 a km with days off and holidays) and the bus (leasing ~€0.55)
-        let r = rules(GameMode::Normal);
-        let revenue = r.passengers_per_km * r.fare as f64 + compensation_per_km(&r, 50.0, 1.0);
-        let cost = energy_per_km(SOLO, 1.0) + maintenance_per_km(SOLO, 3.0, 1.0) + 160.0 + 55.0;
-        let margin = (revenue - cost) / revenue;
-        assert!(margin > 0.0 && margin < 0.25, "{margin}");
-        let e = rules(GameMode::Casual);
-        let easy = e.passengers_per_km * e.fare as f64 + compensation_per_km(&e, 50.0, 1.0);
-        let h = rules(GameMode::Realistic);
-        let hard = h.passengers_per_km * h.fare as f64 + compensation_per_km(&h, 50.0, 1.0);
-        assert!(easy > revenue * 1.3 && hard < revenue);
+    fn running_costs_are_the_uk_operators() {
+        let uk = Level::uk(1.0);
+        // 29 l/100 km at £1.15: about 33p a km, £0.54 a mile
+        let fuel = pounds(energy_per_km(SOLO, &uk)) * econ_uk::KM_PER_MILE;
+        assert!((0.52..0.56).contains(&fuel), "{fuel}");
+        // an electric single-deck far less: 1.2 kWh at £0.10, about £0.19 a mile
+        let power = pounds(energy_per_km(BusKind { size: BusSize::Solo, drive: Drive::Electric }, &uk)) * econ_uk::KM_PER_MILE;
+        assert!((0.17..0.21).contains(&power), "{power}");
+        // the workshop's routine of £0.22 a mile at six years (the breakdowns' repairs apart),
+        // more when older, a quarter less electric
+        let shop = pounds(maintenance_per_km(SOLO, 6.0, &uk)) * econ_uk::KM_PER_MILE / econ_uk::WORKSHOP_ROUTINE;
+        assert!((0.215..0.225).contains(&shop), "{shop}");
+        let (low, high) = (pounds(breakdown_repair(0.0, SOLO, &uk) as f64), pounds(breakdown_repair(1.0, SOLO, &uk) as f64));
+        assert!((low - 150.0).abs() < 1.0 && (high - 900.0).abs() < 1.0, "{low} {high}");
+        assert!(maintenance_per_km(SOLO, 12.0, &uk) > maintenance_per_km(SOLO, 6.0, &uk));
+        assert!((maintenance_per_km(BusKind { size: BusSize::Solo, drive: Drive::Electric }, 6.0, &uk) / maintenance_per_km(SOLO, 6.0, &uk) - 0.75).abs() < 1e-9);
+        // insurance and tax about £255 a month, the ticket machine £60, the overhead £1,250
+        assert!((pounds(insurance_per_month(SOLO, &uk) as f64) - (2_500.0 + 560.0) / 12.0).abs() < 1.0);
+        assert!((pounds(ticket_machine_per_month(&uk) as f64) - 60.0).abs() < 0.01);
+        assert!((pounds(overhead_per_month(&uk) as f64) - 1_250.0).abs() < 0.01);
+        // a driver of some experience £12.24 an hour for 39 hours a week
+        let wage = pounds(market_wage(45.0, &uk) as f64);
+        assert!((wage / econ_uk::contract_month_hours() - 12.24).abs() < 0.1, "{wage}");
+        assert_eq!(employer_cost(1_000_00), 1_210_00);
+        // Normal at 0.9 of all of it, its overhead half; Casual's none
+        let career = super::super::sandbox::CAREER;
+        let normal = Level::at(GameMode::Normal, econ_uk::country("gb"), &career, 1.0);
+        assert!((energy_per_km(SOLO, &normal) / energy_per_km(SOLO, &uk) - 0.9).abs() < 1e-9);
+        assert_eq!(overhead_per_month(&normal), overhead_per_month(&uk) / 2);
+        assert_eq!(overhead_per_month(&Level::at(GameMode::Casual, econ_uk::country("gb"), &career, 1.0)), 0);
+        // the tourism grant's rate per km: the tender's hour at 25 km/h, by the mode's factor
+        let base = econ_uk::gbp(econ_uk::TENDER_PER_HOUR) / TENDER_KMH;
+        assert!((tourism_at(1.15, 50.0, 1.0) - base * 1.15).abs() < 1e-9);
+        assert!(tourism_at(1.0, 100.0, 1.0) > tourism_at(1.0, 0.0, 1.0));
     }
 }

@@ -267,7 +267,6 @@ fn driver_json(c: &Company, dp: &DayPlan, d: &ctl::LateDriver) -> Value {
 fn breaks_json(c: &Company, dp: &DayPlan) -> Vec<Value> {
     let Some(s) = c.clock.today.as_ref().filter(|s| s.date == c.date) else { return Vec::new() };
     let now = c.clock.minute as i32;
-    let r = co::economy::rules_for(c);
     let mut out = Vec::new();
     for (index, b) in s.breaks.iter().enumerate() {
         // (told when it comes, not before)
@@ -279,7 +278,11 @@ fn breaks_json(c: &Company, dp: &DayPlan) -> Vec<Value> {
             .tours
             .iter()
             .filter(|t| t.bus == Some(BusOf::Own(b.vehicle)))
-            .flat_map(|t| t.tour.trips.iter().filter(|x| x.counts() && x.dep >= b.at).map(move |x| (x.dep, r.drop_per_trip + (x.km * r.drop_per_km as f64).round() as i64)))
+            .flat_map(|t| {
+                // (on a bus contract each journey lost is not paid; a commercial line loses its passengers)
+                let value = co::bus_contracts::journey_value(c, &t.tour.line, None);
+                t.tour.trips.iter().filter(|x| x.counts() && x.dep >= b.at).map(move |x| (x.dep, value))
+            })
             .collect();
         let lost = |back: Option<i32>, until: Option<i32>| -> Effect {
             let mut e = Effect::default();

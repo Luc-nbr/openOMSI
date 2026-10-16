@@ -46,8 +46,11 @@ pub fn spare_of_cover(id: u32) -> Option<u32> {
     (SPARE_COVER..super::agency::BOOKED_BASE).contains(&id).then(|| id - SPARE_COVER)
 }
 
-/// An agency driver's hour, the agency's margin included (founding day's prices).
-pub const AGENCY_HOUR: Cents = 42_00;
+/// An agency driver's hour sent on the day itself, the agency's margin included: a premium on a
+/// driver's paid hour (`pay::agency_hour`, `econ_uk::AGENCY_SAME_DAY`).
+pub fn agency_hour(c: &Company) -> f64 {
+    super::pay::agency_hour(c, false)
+}
 
 /// The agency drivers a day's plan takes for what fell out or stayed free (not those fixed in the
 /// roster, nor those booked ahead: `agency`).
@@ -89,7 +92,7 @@ pub fn agency_room(_c: &Company, _dp: &DayPlan, _ti: usize, _k: usize) -> bool {
 /// joined with it (`settle_morning` pays each piece by its hours).
 pub fn agency_cost(c: &Company, dp: &DayPlan, ti: usize, k: usize) -> Cents {
     let slot = super::plandays::slot_of(c, &dp.date);
-    let hour = AGENCY_HOUR as f64 * c.price_index;
+    let hour = agency_hour(c);
     std::iter::once((ti, k))
         .chain(joined_pieces(c, slot, &dp.tours, ti, k))
         .filter_map(|(i, m)| dp.tours.get(i).and_then(|t| t.duties.get(m)))
@@ -830,7 +833,7 @@ pub fn disruptions(c: &Company, date: &str) -> Vec<Disruption> {
     }
     for v in c.fleet.iter().filter(|v| v.held_on(date) && !v.in_workshop(date) && v.condition >= 20.0) {
         let mut rng = Rng::of(&[&c.id, "start", &v.id.to_string()], day);
-        let p = (0.01 + (70.0 - v.condition).max(0.0) / 70.0 * 0.06) * (0.5 + 0.5 * r.breakdown_factor) * m.breakdowns;
+        let p = (0.01 + (70.0 - v.condition).max(0.0) / 70.0 * 0.06) * 1.35 * (0.37 + 0.63 * r.breakdown_factor) * m.breakdowns;
         if rng.chance(p) {
             let cost = (rng.range(200.0, 600.0) * c.price_index).round() as Cents * 100;
             out.push(Disruption::Breakdown { vehicle: v.id, cost });
@@ -1432,11 +1435,12 @@ pub fn late_covers(c: &Company, dp: &DayPlan, ti: usize, k: usize) -> Vec<(u32, 
     out.into_iter().map(|(_, busy, id)| (id, !busy)).collect()
 }
 
-/// What the trips of a duty (or a whole tour: `0..trips`) dropped cost in the contract's
-/// penalty.
+/// What the trips of a duty (or a whole tour: `0..trips`) dropped cost on the line's bus
+/// contract: each journey its share of the day's payment, not paid (`bus_contracts`; a
+/// commercial line's nothing - it loses the passengers and some reputation).
 pub fn drop_penalty(c: &Company, t: &TourOfDay, start: usize, end: usize) -> Cents {
-    let r = economy::rules_for(c);
-    t.trips[start.min(t.trips.len())..end.min(t.trips.len())].iter().filter(|x| x.counts()).map(|x| r.drop_per_trip + (x.km * r.drop_per_km as f64).round() as Cents).sum()
+    let value = super::bus_contracts::journey_value(c, &t.line, None);
+    t.trips[start.min(t.trips.len())..end.min(t.trips.len())].iter().filter(|x| x.counts()).map(|_| value).sum()
 }
 
 /// A way to cover a duty that fell out or stayed free on the company's day (testers: "when
@@ -1507,7 +1511,7 @@ pub fn spare_buses(c: &Company, dp: &DayPlan, ti: usize) -> Vec<u32> {
 /// and the cash).
 pub fn rental_for(c: &Company, dp: &DayPlan, ti: usize) -> (Cents, bool) {
     let wants = super::ownline::wanted(c, &dp.tours[ti].tour);
-    let rent = economy::rent_per_day(BusKind { size: wants.unwrap_or_default(), drive: Drive::Diesel }, &economy::rules(c.game_mode), c.price_index);
+    let rent = economy::rent_per_day(BusKind { size: wants.unwrap_or_default(), drive: Drive::Diesel }, &economy::rules_for(c), c.price_index);
     (rent, places_left(c) > 0 && c.can_pay(rent))
 }
 
@@ -1602,7 +1606,7 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
         let mut places = places_left(c);
         for t in out.iter_mut().filter(|t| !t.by_player && t.bus.is_none()) {
             let (from, to, wants) = (t.tour.from(), t.tour.to(), super::ownline::wanted(c, &t.tour));
-            let rent = economy::rent_per_day(BusKind { size: wants.unwrap_or_default(), drive: Drive::Diesel }, &economy::rules(c.game_mode), c.price_index);
+            let rent = economy::rent_per_day(BusKind { size: wants.unwrap_or_default(), drive: Drive::Diesel }, &economy::rules_for(c), c.price_index);
             match fill_of(c, date, &t.key()) {
                 Some(Fill::Bus { id }) if usable(id) && buses.free(id, from, to) => {
                     buses.take(id, from, to);
@@ -1980,6 +1984,8 @@ pub fn agency_driver() -> Employee {
         portrait: 0,
         leave: Default::default(),
         agency_no: 0,
+        week_paid: 0.0,
+        week_due: 0.0,
     }
 }
 
@@ -2015,7 +2021,7 @@ pub fn settle_morning(c: &mut Company, dp: &DayPlan) -> (Plan, Vec<Note>) {
             plan.tours[ti].bus = Some(id);
         }
     }
-    let hour = AGENCY_HOUR as f64 * c.price_index;
+    let hour = agency_hour(c);
     for t in &dp.tours {
         for d in t.duties.iter().filter(|d| d.who == Some(Who::Agency)) {
             let cost = ((d.to - d.from).max(0) as f64 / 60.0 * hour).round() as Cents;
@@ -2089,7 +2095,7 @@ impl LivePlan {
     pub fn trip_event(&self, line: &str, tour: &str, dep: i32, km: f64, stops: usize, delay: f64) -> Option<LiveEvent> {
         let t = self.tour(line, tour).filter(|t| !t.dropped)?;
         let km = if km.is_finite() { km.clamp(0.0, 200.0) } else { 0.0 };
-        let passengers = if stops >= 3 { economy::passengers_for(km, dep, &economy::rules(self.game_mode)).round().max(0.0) as u32 } else { 0 };
+        let passengers = if stops >= 3 { super::income::by_km(super::income::LineType::Typical, &self.date, dep, km).round().max(0.0) as u32 } else { 0 };
         Some(LiveEvent::Trip { line: t.line.clone(), tour: t.tour.clone(), vehicle: t.vehicle, km, passengers, delay, completed: true, dep: Some(dep) })
     }
 
@@ -2846,11 +2852,15 @@ mod tests {
         assert!(!covers.iter().any(|x| matches!(x, Cover::Colleague { id, .. } if *id == ids[2] || *id == ids[0])));
         assert!(covers.contains(&Cover::Agency { used: 0 }));
         assert_eq!(&covers[covers.len() - 2..], &[Cover::Player, Cover::Drop { penalty: drop_penalty(&c, &p.tours[0].tour, 0, 4) }]);
-        // the penalty shown is the contract's (none on an easy economy)
+        // the penalty shown is the bus contract's: none on a commercial line, the journeys not
+        // paid on a contract line (none on an easy economy)
         let mut hard = c.clone();
         hard.game_mode = GameMode::Normal;
-        let r = economy::rules(GameMode::Normal);
-        assert_eq!(drop_penalty(&hard, &p.tours[0].tour, 0, 4), 4 * (r.drop_per_trip + (15.0 * r.drop_per_km as f64).round() as Cents));
+        assert_eq!(drop_penalty(&hard, &p.tours[0].tour, 0, 4), 0);
+        crate::company::bus_contracts::give(&mut hard, "Linie5");
+        let value = crate::company::bus_contracts::journey_value(&hard, "Linie5", None);
+        assert!(value > 0);
+        assert_eq!(drop_penalty(&hard, &p.tours[0].tour, 0, 4), 4 * value);
         // each chosen runs the duty so
         for cv in &covers[..covers.len() - 1] {
             set_fill(&mut c, &duty_key("Linie5", "1", 0), Some(cv.fill()));
@@ -3046,7 +3056,7 @@ mod tests {
         assert_eq!((p.tours[0].duties[1].who, p.tours[1].duties[0].who), (Some(Who::Agency), Some(Who::Agency)));
         assert_eq!((agency_used(&p), agency_sent(&c, &p)), (2, 1));
         assert!(agency_room(&c, &p, 1, 0));
-        let hour = AGENCY_HOUR as f64 * c.price_index;
+        let hour = agency_hour(&c);
         let hours = |t: usize, k: usize| ((p.tours[t].duties[k].to - p.tours[t].duties[k].from) as f64 / 60.0 * hour).round() as Cents;
         assert_eq!(agency_cost(&c, &p, 1, 0), hours(0, 1) + hours(1, 0));
         // nothing open, and the close runs every trip

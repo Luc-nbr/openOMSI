@@ -11,7 +11,7 @@
 //!
 //! The controller's ways to bring a late bus back on time, as real controllers use them:
 //! - a short-turn: the trip turns back early, its last stops and the next trip's first are skipped
-//!   (lost passengers, a part of a trip's penalty: `part_penalty`), the next trip leaves on time;
+//!   (lost passengers, and on a bus contract the journey not paid: `part_penalty`), the next trip leaves on time;
 //! - running out of service to the terminus: the rest of the trip without stopping, quicker;
 //! - a shorter layover before the next trip, where the plan has one;
 //! - a spare bus swapped in at the terminus for the next trip: it runs the rest of the block on
@@ -28,13 +28,12 @@
 
 use super::clock::{self as ck, DayScript, Level, Run, World};
 use super::dates;
-use super::economy::{self, Rules};
+use super::economy;
 use super::inbox::{Kind, Message};
 use super::model::{Cents, Company, CompanyLine, GameMode};
 use super::network::{self, PlannedTrip, TourOfDay};
 use super::plan::{self, BusOf, DayPlan, Disruption, Fill, Who};
 use super::lateness;
-use crate::service::ServiceKind;
 use serde::{Deserialize, Serialize};
 
 /// A trip more than this many minutes behind is late (as the day's close counts a trip the game
@@ -55,8 +54,6 @@ const REP_VALUE: f64 = 100_00.0;
 /// `economy::LATE_FULL` minutes late or more is paid as lost and weighed as one).
 pub const REP_LATE: f64 = super::reputation::LATE_TRIP;
 pub const REP_DROP: f64 = super::reputation::DROP;
-/// A part of a trip cut short costs this share of a dropped trip's penalty for the part lost.
-const PART_SHARE: f64 = 0.5;
 /// A short-turn skips at least and at most this share of the trip and of the next.
 const SHORT_TURN_MIN: f64 = 0.1;
 const SHORT_TURN_MAX: f64 = 0.5;
@@ -230,12 +227,13 @@ pub fn of_model(t: &[Option<lateness::Timed>]) -> Vec<TripDelay> {
         .collect()
 }
 
-/// What the part of a trip cut short costs in the contract's penalty.
-pub fn part_penalty(r: &Rules, trip: &PlannedTrip, lost: f64) -> Cents {
+/// What a trip of a tour cut short costs on its line's bus contract: a journey run only in part
+/// is not paid (`bus_contracts`; a commercial line's nothing - it loses the passengers).
+pub fn part_penalty(c: &Company, t: &TourOfDay, trip: &PlannedTrip, lost: f64) -> Cents {
     if lost <= 0.0 || !trip.counts() {
         return 0;
     }
-    ((r.drop_per_trip as f64 + trip.km * r.drop_per_km as f64) * PART_SHARE * lost.min(1.0)).round() as Cents
+    super::bus_contracts::journey_value(c, &t.line, None)
 }
 
 // --- what it costs ------------------------------------------------------------------------------
@@ -275,17 +273,19 @@ fn line_of<'a>(c: &'a Company, t: &TourOfDay) -> Option<&'a CompanyLine> {
 }
 
 /// What a dropped trip costs in the contract's penalty.
-fn drop_cost(c: &Company, r: &Rules, t: &TourOfDay, trip: &PlannedTrip) -> Cents {
-    let strict = if line_of(c, t).is_some_and(|l| super::ownline::kind_of(l) == ServiceKind::School) { super::ownline::SCHOOL_DROP } else { 1 };
-    (r.drop_per_trip + (trip.km * r.drop_per_km as f64).round() as Cents) * strict
+fn drop_cost(c: &Company, t: &TourOfDay, trip: &PlannedTrip) -> Cents {
+    if trip.counts() {
+        super::bus_contracts::journey_value(c, &t.line, None)
+    } else {
+        0
+    }
 }
 
 /// The rest of a block's day from trip `cur` on: its trips not begun yet that run late, the parts
 /// cut short.
 fn effect(c: &Company, t: &TourOfDay, d: &[TripDelay], cur: usize) -> Effect {
-    let r = economy::rules_for(c);
     let line = line_of(c, t);
-    let strict = if line.is_some_and(|l| super::ownline::kind_of(l) == ServiceKind::School) { super::ownline::SCHOOL_DROP } else { 1 };
+    let value = super::bus_contracts::journey_value(c, &t.line, None);
     let fare = line.map_or(0.0, |l| super::fares::per_passenger(c, l));
     let mut e = Effect::default();
     for (trip, x) in t.trips.iter().zip(d).skip(cur) {
@@ -295,16 +295,16 @@ fn effect(c: &Company, t: &TourOfDay, d: &[TripDelay], cur: usize) -> Effect {
         if x.lost > 0.0 {
             e.parts += x.lost;
             e.part_trips += 1;
-            e.parts_cost += part_penalty(&r, trip, x.lost) + (x.lost * economy::passengers_for(trip.km, trip.dep, &r) * fare).round() as Cents;
+            e.parts_cost += part_penalty(c, t, trip, x.lost) + (x.lost * super::income::expected(line, &c.date, trip.dep, trip.arr) * fare).round() as Cents;
         }
         if x.known {
             continue;
         }
-        // (a late trip pays its tier's share of its value, `economy::late_share`; from
-        // `economy::LATE_FULL` minutes it is paid and weighed as a trip lost)
+        // (on a bus contract a journey late enough is not paid, `bus_contracts::unpaid_share`;
+        // from `economy::LATE_FULL` minutes it is weighed as a trip lost)
         if x.late >= economy::LATE_FROM {
             e.late_trips += 1;
-            e.penalty += (economy::trip_value(&r, trip.km) as f64 * strict as f64 * economy::late_share(x.late)).round() as Cents;
+            e.penalty += (value as f64 * super::bus_contracts::unpaid_share(c, x.late)).round() as Cents;
             e.rep += if x.late >= economy::LATE_FULL { REP_DROP } else { REP_LATE };
         } else if e.on_time_from.is_none() {
             e.on_time_from = Some(trip.dep);
@@ -473,8 +473,7 @@ pub fn live(c: &Company, dp: &DayPlan) -> Live {
     }
     out.buses.sort_by_key(|x| std::cmp::Reverse(x.minutes));
     // the late drivers nobody covers yet
-    let r = economy::rules_for(c);
-    let hour = plan::AGENCY_HOUR as f64 * c.price_index;
+    let hour = plan::agency_hour(c);
     // (the day's spare lines, and when each drives a late driver's first trips already)
     let spares = super::rosterflow::spare_lines(c, &dp.date);
     let tours: Vec<TourOfDay> = if spares.is_empty() { Vec::new() } else { dp.tours.iter().map(|t| t.tour.clone()).collect() };
@@ -505,7 +504,7 @@ pub fn live(c: &Company, dp: &DayPlan) -> Live {
                 let mut e = Effect::default();
                 for trip in t.tour.trips[d.start..d.end.min(t.tour.trips.len())].iter().filter(|x| x.counts() && x.dep >= now && x.dep < l.until && x.dep < from) {
                     e.lost_trips += 1;
-                    e.penalty += drop_cost(c, &r, &t.tour, trip);
+                    e.penalty += drop_cost(c, &t.tour, trip);
                 }
                 e.rep = e.lost_trips as f64 * REP_DROP;
                 e
@@ -553,7 +552,8 @@ pub fn live(c: &Company, dp: &DayPlan) -> Live {
 fn swap_cost(c: &Company, vehicle: u32) -> Cents {
     let Some(v) = c.vehicle(vehicle) else { return 0 };
     let age = dates::years_between(&v.built, &c.date);
-    (SWAP_KM * (economy::energy_per_km(v.kind, c.price_index) + economy::maintenance_per_km(v.kind, age, c.price_index))).round() as Cents
+    let level = super::econ_uk::Level::of(c);
+    (SWAP_KM * (economy::energy_per_km(v.kind, &level) + economy::maintenance_per_km(v.kind, age, &level))).round() as Cents
 }
 
 // --- doing it ------------------------------------------------------------------------------------
@@ -793,24 +793,27 @@ mod tests {
 
     #[test]
     fn a_short_turn_brings_the_next_trip_on_time() {
-        let (c, p, _, _) = day();
+        let (mut c, p, _, _) = day();
         let t = &p.tours[0].tour;
+        // (the line under a gross-cost contract: what a journey not paid costs)
+        crate::company::bus_contracts::give(&mut c, &t.line);
         let x = control(&p, 0, Act::ShortTurn { part: 0.2, saved: 20 });
         let d = run(&c, &p, None, &[&x]);
         assert_eq!((d[0].late, d[1].start, d[2].start), (0, 0, 0));
         assert_eq!(d[0].recovered, 20);
         // the end of the trip and the start of the next are lost, nothing else
         assert_eq!((d[0].lost, d[1].lost, d[2].lost), (0.2, 0.2, 0.0));
-        // what it costs: a part of a trip's penalty for each part lost
-        let r = economy::rules_for(&c);
-        assert_eq!(part_penalty(&r, &t.trips[0], 0.2), ((r.drop_per_trip as f64 + t.trips[0].km * r.drop_per_km as f64) * PART_SHARE * 0.2).round() as Cents);
-        assert_eq!(part_penalty(&r, &t.trips[0], 0.0), 0);
-        // against doing nothing: two late trips ahead avoided, a part-trip's cost instead; the
-        // late trips' penalty is their tier's share of their value
+        // what it costs: a journey run only in part is not paid on the contract
+        let value = crate::company::bus_contracts::journey_value(&c, &t.line, None);
+        assert!(value > 0);
+        assert_eq!(part_penalty(&c, t, &t.trips[0], 0.2), value);
+        assert_eq!(part_penalty(&c, t, &t.trips[0], 0.0), 0);
+        // against doing nothing: two late trips ahead avoided, a part-trip's cost instead; a late
+        // journey is not paid from the mode's minutes
         let seen = |x: &[&Control]| effect(&c, t, &run(&c, &p, Some(6 * 60 + 30), x), 0);
         let (before, after) = (seen(&[]), seen(&[&x]));
         assert_eq!((before.late_trips, after.late_trips), (2, 0));
-        let tier = |m: i32| (economy::trip_value(&r, t.trips[1].km) as f64 * economy::late_share(m)).round() as Cents;
+        let tier = |m: i32| (value as f64 * crate::company::bus_contracts::unpaid_share(&c, m)).round() as Cents;
         assert_eq!(before.penalty, tier(13) + tier(6));
         assert_eq!(after.on_time_from, Some(t.trips[1].dep));
         assert!(after.parts_cost > 0 && after.parts > 0.3);

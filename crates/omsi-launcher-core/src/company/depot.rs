@@ -6,7 +6,7 @@
 //! a diesel station and charging points (what is not filled or charged at the depot is
 //! bought dearer outside), and offices with rest rooms (the staff's satisfaction). Every level
 //! of an area costs money and days to build and something every month to keep; what the
-//! company was founded with is the rented yard `economy::depot_per_month` already pays for.
+//! company was founded with is the rented yard the overhead per bus already pays for (`economy::bus_month`).
 //!
 //! The workshop takes jobs - a service, a repair, an overhaul - one bus a bay; a job waits
 //! until a bay is free, and the bus is out of service only while it is worked on. The nightly
@@ -125,30 +125,32 @@ pub struct Step {
     pub days: i64,
 }
 
-/// The step that brings an area to `level` (1 = its first).
+/// The step that brings an area to `level` (1 = its first): the UK's build costs
+/// (`econ_uk::DEPOT_*`, to the hundred euros) and a month's upkeep of them (`DEPOT_UPKEEP`, a
+/// workshop's twice that).
 pub fn step(area: Area, level: u32) -> Step {
-    let (cost, upkeep, days) = match (area, level) {
-        (Area::Parking, _) => (90_000_00, 400_00, 14),
-        (Area::Workshop, _) => (250_000_00, 2_500_00, 30),
-        (Area::Wash, 1) => (120_000_00, 900_00, 21),
-        (Area::Wash, _) => (350_000_00, 1_800_00, 35),
-        (Area::Fuel, 1) => (150_000_00, 600_00, 21),
-        (Area::Fuel, _) => (40_000_00, 200_00, 7),
-        (Area::Charging, _) => (60_000_00, 250_00, 10),
-        (Area::Offices, 1) => (180_000_00, 700_00, 45),
-        (Area::Offices, 2) => (260_000_00, 1_100_00, 45),
-        (Area::Offices, _) => (320_000_00, 1_400_00, 50),
+    use super::econ_uk as uk;
+    let (pence, upkeep, days) = match (area, level) {
+        (Area::Parking, _) => (uk::DEPOT_PARKING, 1.0, 14),
+        (Area::Workshop, _) => (uk::DEPOT_WORKSHOP, 2.0, 30),
+        (Area::Wash, 1) => (uk::DEPOT_WASH.0, 1.0, 21),
+        (Area::Wash, _) => (uk::DEPOT_WASH.1, 1.0, 35),
+        (Area::Fuel, 1) => (uk::DEPOT_FUEL.0, 1.0, 21),
+        (Area::Fuel, _) => (uk::DEPOT_FUEL.1, 1.0, 7),
+        (Area::Charging, _) => (uk::DEPOT_CHARGER, 1.0, 10),
+        (Area::Offices, 1) => (uk::DEPOT_OFFICES.0, 1.0, 45),
+        (Area::Offices, 2) => (uk::DEPOT_OFFICES.1, 1.0, 45),
+        (Area::Offices, _) => (uk::DEPOT_OFFICES.2, 1.0, 50),
     };
-    Step { cost, upkeep, days }
+    let cents = uk::gbp(pence);
+    let to = |x: f64, step: f64| ((x / step).round() * step) as Cents;
+    Step { cost: to(cents, 100_00.0), upkeep: to(cents * uk::DEPOT_UPKEEP * upkeep, 10_00.0), days }
 }
 
-/// Building costs against the reference, by difficulty.
+/// Building costs against the UK's, by game mode: its cost factor (Realistic 1.0, Normal 0.9,
+/// Casual 0.75).
 fn cost_factor(d: GameMode) -> f64 {
-    match d {
-        GameMode::Casual => 0.7,
-        GameMode::Normal => 1.0,
-        GameMode::Realistic => 1.15,
-    }
+    super::econ_uk::mode(d).costs
 }
 
 /// Building work under way: the level it brings and its last day.
@@ -620,7 +622,7 @@ pub fn after_day(c: &mut Company, date: &str) -> Night {
     let fleet: Vec<_> = c.fleet.iter().filter(|v| v.held_on(date)).cloned().collect();
     let energy_today: Cents = -c.ledger.iter().filter(|b| b.date == date && b.kind == BookingKind::Energy).map(|b| b.amount).sum::<Cents>();
     if energy_today > 0 && !fleet.is_empty() {
-        let weight = |d: Drive| fleet.iter().filter(|v| v.kind.drive == d).map(|v| economy::energy_per_km(v.kind, 1.0)).sum::<f64>();
+        let weight = |d: Drive| fleet.iter().filter(|v| v.kind.drive == d).map(|v| economy::energy_per_km(v.kind, &super::econ_uk::Level::uk(1.0))).sum::<f64>();
         let (wd, we) = (weight(Drive::Diesel), weight(Drive::Electric));
         let all = (wd + we).max(1e-9);
         let n = |d: Drive| fleet.iter().filter(|v| v.kind.drive == d).count();
@@ -789,26 +791,32 @@ mod tests {
         let easy = company(GameMode::Casual, 0);
         let hard = company(GameMode::Realistic, 0);
         let mut c = company(GameMode::Normal, 0);
-        assert_eq!(next_cost(&c, Area::Wash), Some((120_000_00, 21)));
-        assert_eq!(next_cost(&easy, Area::Wash), Some((84_000_00, 11)));
-        assert_eq!(next_cost(&hard, Area::Wash), Some((138_000_00, 21)));
+        // (the UK's build cost at the mode's cost factor: Realistic 1, Normal 0.9, Casual 0.75)
+        let uk = step(Area::Wash, 1).cost as f64;
+        assert!((crate::company::currency::Currency::Gbp.units(uk) - 90_000.0).abs() < 100.0);
+        let at = |f: f64| ((uk * f / 100.0).round() as Cents) * 100;
+        assert_eq!(next_cost(&c, Area::Wash), Some((at(0.9), 21)));
+        assert_eq!(next_cost(&easy, Area::Wash), Some((at(0.75), 11)));
+        assert_eq!(next_cost(&hard, Area::Wash), Some((at(1.0), 21)));
         let cash = c.cash;
         build(&mut c, Area::Wash).unwrap();
-        assert_eq!(c.cash, cash - 120_000_00);
+        assert_eq!(c.cash, cash - at(0.9));
         assert_eq!(build(&mut c, Area::Wash), Err("This is being built already."));
         assert!(c.ledger.last().is_some_and(|b| b.kind == BookingKind::Construction && b.kind.is_capital()));
         nights(&mut c, 20);
         assert_eq!(c.site.wash, 0, "not done before its 21st day");
         nights(&mut c, 1);
         assert_eq!(c.site.wash, 1);
-        assert_eq!(upkeep_month(&c), 900_00);
+        let upkeep = step(Area::Wash, 1).upkeep;
+        assert!(upkeep > 0);
+        assert_eq!(upkeep_month(&c), upkeep);
         // the month's end books it
         while !dates::last_of_month(&c.date) {
             nights(&mut c, 1);
         }
         let month = dates::month_of(&c.date);
         nights(&mut c, 1);
-        assert_eq!(c.month(&month).get(BookingKind::Depot), -900_00);
+        assert_eq!(c.month(&month).get(BookingKind::Depot), -upkeep);
         // a top level is the top
         c.site.wash = 2;
         assert_eq!(build(&mut c, Area::Wash), Err("This is as big as it gets."));

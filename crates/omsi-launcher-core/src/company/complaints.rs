@@ -237,7 +237,7 @@ pub fn day(c: &mut Company, date: &str, report: &DayReport) {
         }
     }
     for l in c.lines.iter().filter(|l| !l.number.is_empty()) {
-        let x = super::fares::offset(c, super::fares::fare_of(c, l));
+        let x = super::fares::felt(c, l);
         if x > super::fares::FAIR && report.lines.iter().any(|d| d.line == l.name && d.passengers > 0) {
             cand.push((Kind::Fare, l.number.clone(), 0, None, 1, ((x - super::fares::FAIR) * 0.5).min(0.4), Late::default()));
         }
@@ -619,7 +619,9 @@ mod tests {
         assert_eq!((k.kind, k.time, k.minutes, k.cause.as_str(), k.bus, k.driver, k.severity), (Kind::Late, 8 * 60 + 10, 18, "sign_on", Some(3), Some(7), 2));
         assert!(k.talk[0].text.contains("%{minutes} minutes"));
         assert!(explain(&k).contains("signed on late") && promise(&k).1 == 2);
-        // the reputation counts the late trip once, by itself (not the punctuality band too)
+        // the reputation counts the late trip once, by itself (not the punctuality band too) - on
+        // a day of three trips, one late is more than the passengers forgive
+        let r = DayReport { trips: 3, ..r };
         let mut c = company(GameMode::Realistic);
         let taken = super::super::reputation::close_day(&mut c, "2024-03-04", &r, Some(50.0), &Default::default());
         assert!((taken + super::super::reputation::LATE_TRIP).abs() < 1e-9, "{taken}");
