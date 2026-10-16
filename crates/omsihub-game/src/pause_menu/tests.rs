@@ -64,14 +64,39 @@ fn the_lines_have_their_groups() {
 fn the_keys_are_the_games_own() {
     let mut v = game_menu(false);
     arrange(&mut v);
-    let (chips, hints) = keys(&v, |_| None);
+    let (chips, hints) = keys(&v, |_| None, |_| true);
     assert_eq!(chips, vec![("resume", "Esc".to_string()), ("map", "Shift+M".to_string()), ("skipstop", "Ctrl+Shift+H".to_string()), ("save", "Alt+S".to_string()), ("photo", "Ctrl+F12".to_string())]);
     assert_eq!(hints.iter().map(|h| h.1).collect::<Vec<_>>(), ["Resume", "Map", "Save", "Photo"]);
     // the player's own key for OMSI's quicksave; no city map without a navigator
     v.retain(|l| l.0 != "map");
-    let (chips, hints) = keys(&v, |a| (a == "quicksave").then(|| "Ctrl+S".to_string()));
+    let (chips, hints) = keys(&v, |a| (a == "quicksave").then(|| "Ctrl+S".to_string()), |_| true);
     assert!(chips.contains(&("save", "Ctrl+S".to_string())));
     assert!(!chips.iter().any(|c| c.0 == "map") && !hints.iter().any(|h| h.1 == "Map"));
+    // a built-in key the player gave to something else does nothing here: no chip, no hint
+    // (Alt+S on a door: the save keeps its line, without a key)
+    let (chips, hints) = keys(&v, |_| None, |id| !matches!(id, "save" | "skipstop"));
+    assert!(!chips.iter().any(|c| c.0 == "save" || c.0 == "skipstop"), "{chips:?}");
+    assert!(!hints.iter().any(|h| h.1 == "Save"));
+    assert!(chips.contains(&("photo", "Ctrl+F12".to_string())));
+    // (the player's own quicksave key stands whatever Alt+S is)
+    let (chips, _) = keys(&v, |a| (a == "quicksave").then(|| "F2".to_string()), |id| id != "save");
+    assert!(chips.contains(&("save", "F2".to_string())));
+}
+
+#[test]
+fn the_plate_has_the_lines_own_colour() {
+    use omsi_launcher_lib::lines::{LineDesign, Registry};
+    let mut reg = Registry::default();
+    let own = LineDesign { number: "N7".into(), colour: "#1f4fd8".into(), ..Default::default() };
+    reg.lines.push(own);
+    assert_eq!(line_colour(&reg, "N7 Nachtbus", "N7"), Some(Color::hex(0x1f4fd8)));
+    // a line without a colour of its own keeps the plates' yellow; a colour that is none too
+    assert_eq!(line_colour(&reg, "35", "35"), None);
+    reg.lines[0].colour = "blue".into();
+    assert_eq!(line_colour(&reg, "N7", "N7"), None);
+    // the ink: dark on yellow, white on blue
+    assert_eq!(plate_ink(LINE), ON_LINE);
+    assert_eq!(plate_ink(Color::hex(0x1f4fd8)), Color::WHITE);
 }
 
 #[test]
@@ -86,7 +111,7 @@ fn the_card_tells_the_trip_as_the_board_does() {
     assert_eq!(c.sub, "Tour 1  \u{b7}  trip 1 of 3");
     let stops: Vec<_> = c.stops.iter().map(|s| (s.name.as_str(), s.time.as_str(), s.next)).collect();
     assert_eq!(stops, [("Kirchweg", "11:32", true), ("Rathaus", "11:35", false), ("Schule", "11:38", false), ("Park", "11:41", false)]);
-    assert_eq!(c.stats, vec![("schedule", "Time", "11:35".to_string()), ("partly_cloudy_day", "Weather", "Rain".to_string()), ("speed", "Driving", "92 %".to_string())]);
+    assert_eq!(c.stats, vec![("schedule", "Time", "11:35".to_string()), ("partly_cloudy_day", "Weather", "Rain".to_string()), ("speed", "Score", "92 %".to_string())]);
     // on time, and early
     let c = card_of(&state(&trips, &tours, 0, 3, false, 30.0), false, 0.0, String::new(), 100.0).unwrap();
     assert_eq!(c.status.as_ref().map(|s| (s.0.as_str(), s.1)), Some(("On time", nav_duty::ON_TIME)));
@@ -135,7 +160,7 @@ fn the_wordmark_draws_in_the_accent() {
 
 #[test]
 fn every_text_is_translated() {
-    let keys = ["This trip", "Save", "Settings", "Multiplayer", "Resume", "Map", "Photo", "Time", "Weather", "Driving", "Paused", "Menu", "Free drive", "Tour %{tour}", "trip %{k} of %{n}", "on time"];
+    let keys = ["This trip", "Save", "Settings", "Multiplayer", "Resume", "Map", "Photo", "Time", "Weather", "Score", "Paused", "Menu", "Free drive", "Tour %{tour}", "trip %{k} of %{n}", "on time"];
     for language in ["nl", "de", "fr", "ru", "uk", "pl"] {
         for key in keys {
             let t = crate::_rust_i18n_try_translate(language, key);
@@ -165,7 +190,8 @@ fn menu<'a>(lines: &'a [(&'static str, &'static str)], trip: Option<&'a TripCard
 }
 
 /// Pictures of the menu over a stand-in for the street - on a duty, late, the mouse on a line;
-/// a LAN host's at 1920 x 1080 with the keyboard on "Options", no duty - written to the
+/// a LAN host's at 1920 x 1080 with the keyboard on "Options", no duty; on an ultrawide
+/// 3440 x 1440 on a line the player gave its own colour - written to the
 /// folder of `OMSI_UI_PREVIEW` (or `target/`):
 /// `cargo test -p omsihub-game --lib pause_menu -- --ignored`.
 #[test]
@@ -175,10 +201,15 @@ fn preview_pictures() {
     let dir = std::env::var("OMSI_UI_PREVIEW").ok().and_then(|p| std::path::Path::new(&p).parent().map(|d| d.to_path_buf())).unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target"));
     let (trips, tours) = duty();
     let card = card_of(&state(&trips, &tours, 0, 3, false, 250.0), false, 11.0 * 3600.0 + 35.0 * 60.0, "Rain".into(), 92.0).unwrap();
-    for (name, lan, (w, h), mouse, trip) in [("pause-menu.png", false, (1600.0, 900.0), Vec2::new(150.0, 420.0), Some(&card)), ("pause-menu-lan.png", true, (1920.0, 1080.0), Vec2::new(-1.0, -1.0), None)] {
+    let blue = TripCard { colour: Some(Color::hex(0x1f4fd8)), ..card_of(&state(&trips, &tours, 0, 3, false, -70.0), false, 11.0 * 3600.0 + 31.0 * 60.0, "Sunny".into(), 100.0).unwrap() };
+    for (name, lan, (w, h), mouse, trip) in [
+        ("pause-menu.png", false, (1600.0, 900.0), Vec2::new(150.0, 420.0), Some(&card)),
+        ("pause-menu-lan.png", true, (1920.0, 1080.0), Vec2::new(-1.0, -1.0), None),
+        ("pause-menu-ultrawide.png", false, (3440.0, 1440.0), Vec2::new(-1.0, -1.0), Some(&blue)),
+    ] {
         let mut lines = game_menu(lan);
         arrange(&mut lines);
-        let (chips, hints) = keys(&lines, |_| None);
+        let (chips, hints) = keys(&lines, |_| None, |_| true);
         let mut ui = Ui::new();
         ui.flat = true;
         let mut m = menu(&lines, trip);

@@ -27,10 +27,23 @@ impl Hub {
     /// a point; the gamepad read (`dt` s since the last frame).
     pub(crate) fn of(app: &App, lines: &[(&'static str, &'static str)], scale: f32, dt: f32) -> Hub {
         read_pad(app, dt);
-        let (chips, hints) = pause_menu::keys(lines, |action| {
-            app.input.game_keys.iter().find(|b| b.action.eq_ignore_ascii_case(action) && b.scan_code != 0).map(|b| crate::keys::key_name(b.scan_code as i64, b.modifier as i64))
-        });
-        let trip = app.session.duty.as_ref().and_then(|d| pause_menu::trip_card(d, app.clock.time, crate::game_lists::weather_shown(app), app.session.career.driving_rating()));
+        let (chips, hints) = pause_menu::keys(
+            lines,
+            |action| app.input.game_keys.iter().find(|b| b.action.eq_ignore_ascii_case(action) && b.scan_code != 0).map(|b| crate::keys::key_name(b.scan_code as i64, b.modifier as i64)),
+            // (a built-in key stands back for a key of the keyboard file on the same chord,
+            // `shortcut_key`: then it does nothing here and shows no chip)
+            |id| match id {
+                "map" => !app.chord_bound(KeyCode::KeyM, true, false, false),
+                "skipstop" => !app.chord_bound(KeyCode::KeyH, true, true, false),
+                "save" => !app.chord_bound(KeyCode::KeyS, false, false, true),
+                "photo" => !app.chord_bound(KeyCode::F12, false, true, false),
+                _ => true,
+            },
+        );
+        let mut trip = app.session.duty.as_ref().and_then(|d| pause_menu::trip_card(d, app.clock.time, crate::game_lists::weather_shown(app), app.session.career.driving_rating()));
+        if let (Some(t), Some(d)) = (trip.as_mut(), app.session.duty.as_ref()) {
+            t.colour = t.line.as_deref().and_then(|number| line_colour(&app.args.map, &d.line, number));
+        }
         // (the name the launcher gave, else the personnel file's)
         let driver = Some(app.args.lan_name.trim().to_string()).filter(|n| !n.is_empty()).unwrap_or_else(|| app.session.career.driver_name());
         // (on three screens the menu keeps to the middle one, as the rest of the interface)
@@ -53,7 +66,8 @@ pub(crate) fn draw(sh: &mut Shell, v: &PauseView, hub: &Hub) {
         version: crate::startup::VERSION,
         driver: &hub.driver,
         bus: &v.summary.bus,
-        chips: &hub.chips,
+        // (no keys on a touch screen)
+        chips: if v.keys { &hub.chips } else { &[] },
         hints: &hub.hints,
         trip: hub.trip.as_ref(),
         stage: hub.stage,
@@ -66,6 +80,25 @@ pub(crate) fn draw(sh: &mut Shell, v: &PauseView, hub: &Hub) {
     if let Some(k) = drawn.picked {
         sh.actions.push(if v.list.is_some() { Action::Rail(k) } else { Action::Choose(k) });
     }
+}
+
+/// The colour the player gave the duty's line (`ttl`, shown as `number`) in Omsi-Hub's line
+/// editor, from the map's registry - read once a map and line, not every frame.
+fn line_colour(map: &str, ttl: &str, number: &str) -> Option<omsi_ui::Color> {
+    thread_local! {
+        static SEEN: RefCell<Option<((String, String, String), Option<omsi_ui::Color>)>> = const { RefCell::new(None) };
+    }
+    let key = (map.to_string(), ttl.to_string(), number.to_string());
+    SEEN.with(|s| {
+        let mut s = s.borrow_mut();
+        if let Some((_, c)) = s.as_ref().filter(|(k, _)| *k == key) {
+            return *c;
+        }
+        let path = omsi_launcher_lib::lines::registry_path(&omsi_launcher_lib::lines::map_folder(map));
+        let c = path.is_file().then(|| omsi_launcher_lib::lines::load_registry(&path)).and_then(|r| pause_menu::line_colour(&r, ttl, number));
+        *s = Some((key, c));
+        c
+    })
 }
 
 /// The gamepad the menu listens to, and the keys it pressed for the next frame's start.

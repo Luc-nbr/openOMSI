@@ -91,18 +91,21 @@ fn plain(label: &str) -> (&str, bool) {
 
 /// The keys of the lines that have one, and the hints at the bottom (key, what it does), as
 /// the game has them: `bound(action)` is the player's own key for one of OMSI's [game]
-/// actions (keyboard.cfg), else the game's built-in key stands. Only for lines the menu has.
-pub fn keys(lines: &[(&'static str, &'static str)], bound: impl Fn(&str) -> Option<String>) -> (Vec<(&'static str, String)>, Vec<(String, &'static str)>) {
+/// actions (keyboard.cfg), else the game's built-in key stands - while `free(line)` says the
+/// player has not given that key to something else, which the built-in key then stands back
+/// for (`App::chord_bound`). Only for lines the menu has; no key is made up.
+pub fn keys(lines: &[(&'static str, &'static str)], bound: impl Fn(&str) -> Option<String>, free: impl Fn(&str) -> bool) -> (Vec<(&'static str, String)>, Vec<(String, &'static str)>) {
+    let built_in = |id: &str, key: &str| free(id).then(|| key.to_string());
     // (the city map is Shift+M and skipping a stop Ctrl+Shift+H, built in; saving is OMSI's
     // `quicksave`, built in on Alt+S; the photo mode Ctrl+F12, or the player's `photo_mode`)
-    let all: [(&'static str, String, Option<&'static str>); 5] = [
-        ("resume", "Esc".into(), Some("Resume")),
-        ("map", "Shift+M".into(), Some("Map")),
-        ("skipstop", "Ctrl+Shift+H".into(), None),
-        ("save", bound("quicksave").unwrap_or_else(|| "Alt+S".into()), Some("Save")),
-        ("photo", bound("photo_mode").unwrap_or_else(|| "Ctrl+F12".into()), Some("Photo")),
+    let all: [(&'static str, Option<String>, Option<&'static str>); 5] = [
+        ("resume", Some("Esc".into()), Some("Resume")),
+        ("map", built_in("map", "Shift+M"), Some("Map")),
+        ("skipstop", built_in("skipstop", "Ctrl+Shift+H"), None),
+        ("save", bound("quicksave").or_else(|| built_in("save", "Alt+S")), Some("Save")),
+        ("photo", bound("photo_mode").or_else(|| built_in("photo", "Ctrl+F12")), Some("Photo")),
     ];
-    let shown: Vec<_> = all.into_iter().filter(|k| lines.iter().any(|l| l.0 == k.0)).collect();
+    let shown: Vec<_> = all.into_iter().filter_map(|(id, key, what)| Some((id, key?, what))).filter(|k| lines.iter().any(|l| l.0 == k.0)).collect();
     let hints = shown.iter().filter_map(|(_, key, what)| what.map(|w| (key.clone(), w))).collect();
     (shown.into_iter().map(|(id, key, _)| (id, key)).collect(), hints)
 }
@@ -147,8 +150,10 @@ pub struct Drawn {
 /// The trip as the card shows it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TripCard {
-    /// The line (None: an empty run, which has none).
+    /// The line (None: an empty run, which has none), and its plate's colour where the player
+    /// gave the line one in Omsi-Hub's line editor ([`line_colour`]; else the plates' yellow).
     pub line: Option<String>,
+    pub colour: Option<Color>,
     /// Where the trip starts (empty where that is where it goes) and where it goes.
     pub from: String,
     pub to: String,
@@ -219,8 +224,23 @@ fn card_of(state: &nav_duty::DutyState, free: bool, now: f64, weather: String, d
     if !weather.trim().is_empty() {
         stats.push(("partly_cloudy_day", "Weather", weather.trim().to_string()));
     }
-    stats.push(("speed", "Driving", format!("{driving:.0} %")));
-    Some(TripCard { line, from: if from == to { String::new() } else { from }, to, status, sub, stops, stats })
+    stats.push(("speed", "Score", format!("{driving:.0} %")));
+    Some(TripCard { line, colour: None, from: if from == to { String::new() } else { from }, to, status, sub, stops, stats })
+}
+
+/// The colour the player gave line `number` - the map's line `ttl` - in Omsi-Hub's line editor
+/// (the map's registry, `lines::registry_path`): the edit of the map's line, else a line of the
+/// player's own with that number. None where it has none of its own.
+pub fn line_colour(reg: &omsi_launcher_lib::lines::Registry, ttl: &str, number: &str) -> Option<Color> {
+    let own = || reg.lines.iter().find(|l| l.map.is_none() && !number.trim().is_empty() && l.number.trim().eq_ignore_ascii_case(number.trim()));
+    omsi_ui::accent::parse_hex(&reg.map_line(ttl).or_else(own)?.colour).map(Color::hex)
+}
+
+/// The ink on a plate of colour `c`: the plates' dark one on a light plate, white on a dark one.
+fn plate_ink(c: Color) -> Color {
+    let to8 = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let rgb = [to8(c.0[0]), to8(c.0[1]), to8(c.0[2])];
+    if omsi_ui::accent::contrast(rgb, [26, 20, 0]) >= omsi_ui::accent::contrast(rgb, [255, 255, 255]) { ON_LINE } else { Color::WHITE }
 }
 
 /// `s` with its first letter a capital ("on time" on the card's chip).
@@ -313,6 +333,9 @@ const RADIUS: f32 = 16.0;
 const ROW_H: f32 = 34.0;
 const SECTION_H: f32 = 26.0;
 const SECTION_GAP: f32 = 17.0;
+/// Room under the last line (the panel makes room for it: a scroll bar shows only where the
+/// lines do not fit).
+const BODY_END: f32 = 4.0;
 /// The panel's head (the wordmark), Resume, its foot (the driver and the way out).
 const HEAD_H: f32 = 74.0;
 const RESUME_H: f32 = 48.0;
@@ -338,7 +361,7 @@ pub fn draw(ui: &mut Ui, m: &Menu) -> Drawn {
     ui.p().gradient_h(Rect::new(0.0, 0.0, (stage.x + PANEL_W + MARGIN * 6.0).min(size.x), size.y), VEIL.alpha(0.35), VEIL.alpha(0.0));
     let tall = Rect::new(stage.x + MARGIN, stage.y + MARGIN, PANEL_W.min(stage.w - MARGIN * 2.0), stage.h - MARGIN * 2.0);
     let rows = body_rows(m);
-    let panel = Rect::new(tall.x, tall.y, tall.w, tall.h.min(HEAD_H + RESUME_H + 14.0 + body_height(&rows) + 10.0 + FOOT_H));
+    let panel = Rect::new(tall.x, tall.y, tall.w, tall.h.min(HEAD_H + RESUME_H + 14.0 + body_height(&rows) + BODY_END + 10.0 + FOOT_H));
     let mut out = Drawn::default();
     if m.list {
         let room = stage.right() - MARGIN - (panel.right() + 16.0);
@@ -356,7 +379,7 @@ pub fn draw(ui: &mut Ui, m: &Menu) -> Drawn {
         card(ui, t, Vec2::new(stage.right() - MARGIN - CARD_W, stage.y + MARGIN));
     }
     if m.keyboard {
-        hints(ui, m.hints, free, stage.bottom() - MARGIN - 13.0);
+        hints(ui, m.hints, stage, panel.right() + MARGIN, stage.bottom() - MARGIN - 13.0);
     }
     out.picked = panel_draw(ui, m, &rows, panel);
     out
@@ -491,7 +514,7 @@ fn panel_draw(ui: &mut Ui, m: &Menu, rows: &[(usize, &'static str, &'static str,
             ui.text_in(text, Rect::new(row.x + 42.0, row.y, (right - row.x - 48.0).max(10.0), row.h), 14.0, Weight::Medium, ink, Align::Left);
             y += ROW_H;
         }
-        y - view.y + 4.0
+        y - view.y + BODY_END
     });
     if let (Some(y), true) = (sel_y, m.kbd) {
         ui.scroll_to("pause-rail", y, ROW_H, area.h);
@@ -552,9 +575,10 @@ fn card(ui: &mut Ui, t: &TripCard, at: Vec2) {
     glass(ui, Rect::new(x, at.y, w, pad + head_h + 16.0 + stops_h + stats_h));
     match t.line.as_deref() {
         Some(l) => {
-            ui.p().rounded(plate, 10.0, LINE);
+            let fill = t.colour.unwrap_or(LINE);
+            ui.p().rounded(plate, 10.0, fill);
             let px = if l.chars().count() > 3 { 15.0 } else { 20.0 };
-            ui.text_in(l, plate.pad(4.0, 0.0), px, Weight::Black, ON_LINE, Align::Center);
+            ui.text_in(l, plate.pad(4.0, 0.0), px, Weight::Black, plate_ink(fill), Align::Center);
         }
         None => {
             ui.p().rounded(plate, 10.0, Color::rgba(255, 255, 255, 0.08));
@@ -615,9 +639,10 @@ fn card(ui: &mut Ui, t: &TripCard, at: Vec2) {
     }
 }
 
-/// The key hints in a line at height `cy`, in the middle of `free`: each key's chip and what
+/// The key hints in a line at height `cy`, in the middle of the `stage` - or, where that would
+/// reach under the panel, in the middle of what is right of `left` - each key's chip and what
 /// it does, dots between them (none where they do not fit).
-fn hints(ui: &mut Ui, hints: &[(String, &'static str)], free: Rect, cy: f32) {
+fn hints(ui: &mut Ui, hints: &[(String, &'static str)], stage: Rect, left: f32, cy: f32) {
     if hints.is_empty() {
         return;
     }
@@ -626,10 +651,14 @@ fn hints(ui: &mut Ui, hints: &[(String, &'static str)], free: Rect, cy: f32) {
     let item_w = |ui: &Ui, k: usize| key_w(ui, k) + 8.0 + ui.width(&words[k], 13.0, Weight::Medium);
     let gap = 26.0;
     let total: f32 = (0..hints.len()).map(|k| item_w(ui, k)).sum::<f32>() + gap * (hints.len() - 1) as f32;
+    let free = Rect::new(left, stage.y, (stage.right() - left).max(0.0), stage.h);
     if total > free.w {
         return;
     }
-    let mut x = free.center().x - total * 0.5;
+    let mut x = stage.center().x - total * 0.5;
+    if x < left {
+        x = free.center().x - total * 0.5;
+    }
     for k in 0..hints.len() {
         let kw = key_w(ui, k);
         chip(ui, &hints[k].0, x + kw, cy, false);
