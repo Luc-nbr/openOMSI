@@ -2273,6 +2273,19 @@ mod record_tests {
         assert_eq!((v["navigator_corner"].clone(), v["nav_rect"].clone()), (json!("top-right"), json!("")));
     }
 
+    /// The bus company's look and feel: the sidebar layout, open, nothing pinned unless chosen;
+    /// what is chosen read back as written, anything else the default.
+    #[test]
+    fn the_company_layout_is_read_and_written() {
+        let v = settings_from_text(None);
+        assert_eq!((v["company_layout"].clone(), v["company_sidebar"].clone(), v["company_pins"].clone()), (json!("sidebar"), json!("open"), json!("")));
+        let v = settings_from_text(Some("company_layout=Palette\r\ncompany_sidebar=hidden\r\ncompany_pins=3, 1,3,x,15\r\n"));
+        assert_eq!((v["company_layout"].clone(), v["company_sidebar"].clone(), v["company_pins"].clone()), (json!("palette"), json!("hidden"), json!("3,1,15")));
+        let text = settings_to_text(&v, None);
+        assert!(text.contains("company_layout=palette\n") && text.contains("company_sidebar=hidden\n") && text.contains("company_pins=3,1,15\n"), "{text}");
+        assert_eq!((company_layout("tabs"), company_sidebar("rail"), company_sidebar("?")), ("sidebar", "rail", "open"));
+    }
+
     /// A deleted driver that has no file of openOMSI's own is hidden from the lists, whatever
     /// the case it is written in, and the list keeps the others in their order.
     #[test]
@@ -2792,6 +2805,36 @@ pub fn nav_rect(v: &str) -> String {
     nav_rect_text(at, size)
 }
 
+/// The bus company's layout (`company_layout`): "sidebar" unless "palette".
+pub fn company_layout(v: &str) -> &'static str {
+    if v.trim().eq_ignore_ascii_case("palette") {
+        "palette"
+    } else {
+        "sidebar"
+    }
+}
+
+/// The bus company's sidebar (`company_sidebar`): "open" unless "rail" (its icons) or "hidden".
+pub fn company_sidebar(v: &str) -> &'static str {
+    match v.trim().to_ascii_lowercase().as_str() {
+        "rail" => "rail",
+        "hidden" => "hidden",
+        _ => "open",
+    }
+}
+
+/// The pages pinned at the top of the bus company's sidebar (`company_pins`): their numbers,
+/// comma-separated, each once, at most twelve (anything else left out).
+pub fn company_pins(v: &str) -> String {
+    let mut out: Vec<u32> = Vec::new();
+    for n in v.split(',').filter_map(|x| x.trim().parse::<u32>().ok()) {
+        if n < 200 && !out.contains(&n) && out.len() < 12 {
+            out.push(n);
+        }
+    }
+    out.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(",")
+}
+
 /// A `navigator_corner` of the form `at x,y` (where the navigator was dragged to before
 /// `nav_rect`, #940).
 pub fn corner_placed_at(corner: &str) -> Option<[f64; 2]> {
@@ -2979,6 +3022,12 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
     // the player dragged them (`nav_rect`; empty: its corner and its own size)
     v["nav_board"] = json!(true);
     v["nav_rect"] = json!("");
+    // the bus company's look and feel (its Settings, Appearance): its pages round a sidebar or
+    // a command palette; the sidebar open, as a rail of icons or slid away (Ctrl+B); the pages
+    // pinned at its top (their numbers, `company::TABS`)
+    v["company_layout"] = json!("sidebar");
+    v["company_sidebar"] = json!("open");
+    v["company_pins"] = json!("");
     let Some(t) = text else { return v };
     let mut version = 0;
     let mut graphics: Option<&str> = None;
@@ -3037,6 +3086,9 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
             "accent" => v[&k] = json!(accent_text(val)),
             "nav_signon" | "nav_board" => v[&k] = json!(b(val)),
             "nav_rect" => v[&k] = json!(nav_rect(val)),
+            "company_layout" => v[&k] = json!(company_layout(val)),
+            "company_sidebar" => v[&k] = json!(company_sidebar(val)),
+            "company_pins" => v[&k] = json!(company_pins(val)),
             "touch_door_mode" => v[&k] = json!(if val.eq_ignore_ascii_case("direct") { "direct" } else { "standard" }),
             "photo_mode" => v[&k] = json!(if val.eq_ignore_ascii_case("advanced") { "advanced" } else { "simple" }),
             "passenger_animation" => v[&k] = json!(if val.eq_ignore_ascii_case("enhanced") { "enhanced" } else { "original" }),
@@ -3537,6 +3589,8 @@ pub fn settings_to_text(v: &Value, old: Option<&str>) -> String {
     text.push_str(&format!("accent={}\n", accent_text(v.get("accent").and_then(|x| x.as_str()).unwrap_or(ACCENT_DEFAULT))));
     text.push_str(&format!("nav_signon={}\n", b("nav_signon", false)));
     text.push_str(&format!("nav_board={}\nnav_rect={}\n", b("nav_board", true), nav_rect(v.get("nav_rect").and_then(|x| x.as_str()).unwrap_or(""))));
+    let st = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    text.push_str(&format!("company_layout={}\ncompany_sidebar={}\ncompany_pins={}\n", company_layout(&st("company_layout")), company_sidebar(&st("company_sidebar")), company_pins(&st("company_pins"))));
     text.push_str(&format!("photo_mode={}\n", if v.get("photo_mode").and_then(|x| x.as_str()) == Some("advanced") { "advanced" } else { "simple" }));
     text.push_str(&format!("passenger_animation={}\n", if v.get("passenger_animation").and_then(|x| x.as_str()) == Some("enhanced") { "enhanced" } else { "original" }));
     text.push_str(&format!("character_models={}\n", if v.get("character_models").and_then(|x| x.as_str()) == Some("improved") { "improved" } else { "original" }));
