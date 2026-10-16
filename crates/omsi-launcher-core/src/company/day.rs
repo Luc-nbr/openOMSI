@@ -894,16 +894,12 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
     // (the day's late and dropped trips kept for the planning and the advice: `lateness`)
     report.lateness = lat.finish(&outcomes);
     super::lateness::keep(c, &date, outcomes);
-    // (an accident that took a bus off the road: its damage, a bigger one than a scrape's)
+    // (an accident that took a bus off the road: what the insurance leaves the company, its
+    // excess - `economy::accident_damage`)
     for x in cut.iter().filter(|x| x.accident) {
         let Some(v) = c.vehicle(x.vehicle) else { continue };
-        let size = match v.kind.size {
-            BusSize::Midi => 0.8,
-            BusSize::Solo => 1.0,
-            _ => 1.35,
-        };
         let mut crash = Rng::of(&[&c.id, "crash-damage", &v.id.to_string()], dates::parse(&date).unwrap_or(0));
-        tally.accidents.push((v.number.clone(), ((crash.range(2_500.0, 9_000.0) * size * c.price_index).round() as Cents) * 100));
+        tally.accidents.push((v.number.clone(), economy::accident_damage(crash.range(0.0, 1.0), v.kind, &level)));
     }
     for (_, cost) in tally.accidents.iter_mut() {
         *cost = (*cost as f64 * run).round() as Cents;
@@ -938,7 +934,6 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
     let tomorrow = dates::add(&date, 1);
     let mut repairs: Vec<(Cents, String)> = Vec::new();
     let mut serviced: Vec<u32> = Vec::new();
-    let price_index = c.price_index;
     // (a bus under the dealer's warranty is repaired at the dealer's cost)
     let warranted = super::dealer::warranted(c, &date);
     // (the company's own mechanics have a broken-down bus back a day sooner)
@@ -959,12 +954,8 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
             let days = rng.int(1, 3);
             let days = if mechanics > 0 { (days - 1).max(1) } else { days };
             let until = dates::add(&date, days);
-            let size = match v.kind.size {
-                BusSize::Midi => 0.8,
-                BusSize::Solo => 1.0,
-                _ => 1.35,
-            };
-            let cost = ((rng.range(800.0, 5_000.0) * size * price_index * run).round() as Cents) * 100;
+            // (its repair at the company's level: `economy::breakdown_repair`)
+            let cost = economy::breakdown_repair(rng.range(0.0, 1.0), v.kind, &level);
             v.workshop_until = Some(until.clone());
             v.breakdowns += 1;
             v.condition = (v.condition - 5.0).max(0.0);

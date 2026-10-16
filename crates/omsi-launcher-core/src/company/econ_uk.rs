@@ -352,6 +352,14 @@ pub const WORKSHOP_AGE: f64 = 6.0;
 pub const WORKSHOP_PER_YEAR: f64 = 0.05;
 /// Electric buses need less workshop (20-30 % cheaper).
 pub const WORKSHOP_ELECTRIC: f64 = 0.75;
+/// The data's workshop per km is all of it, breakdowns included; the game books a breakdown's
+/// repair on its own (`BREAKDOWN_REPAIR`), so the routine per km is this share of it. The two
+/// are estimates set so that a Realistic fleet's workshop - routine, breakdowns and the parts
+/// they take - comes to the data's.
+pub const WORKSHOP_ROUTINE: f64 = 0.65;
+/// A breakdown's repair, a single-deck's, pence: from a road call and a small part to a major
+/// repair (an estimate; by size: `size_factor`; the parts fitted from the stores come off it).
+pub const BREAKDOWN_REPAIR: (f64, f64) = (15_000.0, 90_000.0);
 
 /// A size's share of a single-deck's workshop and insurance (estimates).
 pub fn size_factor(size: BusSize) -> f64 {
@@ -405,6 +413,9 @@ pub const DEPRECIATION_RESIDUAL: f64 = 0.10;
 pub const INSURANCE_PER_YEAR: f64 = 250_000.0;
 /// Road tax and the annual test a year, pence (£440 + £120).
 pub const TAX_PER_YEAR: f64 = 56_000.0;
+/// What an accident that takes a bus off the road costs the operator, pence: the insurance's
+/// excess (the insurance pays the rest; an estimate of a fleet policy's excess, by size).
+pub const ACCIDENT_EXCESS: (f64, f64) = (100_000.0, 250_000.0);
 /// The ticket machine a month, pence.
 pub const TICKET_MACHINE_PER_MONTH: f64 = 6_000.0;
 /// The central overhead per bus a year, pence (depot rent, management, admin, control, IT: 15-23
@@ -611,3 +622,7 @@ mod tests {
         assert!((WORKSHOP_PER_KM * KM_PER_MILE - 22.0).abs() < 0.5);
     }
 }
+
+#[cfg(test)]
+#[path = "econ_uk_tests.rs"]
+mod reference;

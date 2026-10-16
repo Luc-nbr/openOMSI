@@ -366,19 +366,36 @@ pub fn energy_per_km(kind: BusKind, lv: &Level) -> f64 {
     consumption(kind) / 100.0 * unit
 }
 
-/// The workshop per km (cents, fractional): maintenance, repairs, tyres and parts - the UK's
-/// £0.22 a mile for a diesel single-deck of the fleet's average age, a quarter less electric,
-/// more for a bigger bus, 5 % more or less for every year older or younger.
+/// The workshop's routine per km (cents, fractional): servicing, tyres and parts - the UK's
+/// £0.22 a mile for a diesel single-deck of the fleet's average age less what the breakdowns
+/// take (`econ_uk::WORKSHOP_ROUTINE`, `breakdown_repair`), a quarter less electric, more for a
+/// bigger bus, 5 % more or less for every year older or younger.
 pub fn maintenance_per_km(kind: BusKind, age_years: f64, lv: &Level) -> f64 {
     let drive = if kind.drive == Drive::Electric { econ_uk::WORKSHOP_ELECTRIC } else { 1.0 };
     let age = (1.0 + econ_uk::WORKSHOP_PER_YEAR * (age_years.max(0.0) - econ_uk::WORKSHOP_AGE)).clamp(0.75, 1.6);
-    econ_uk::gbp(econ_uk::WORKSHOP_PER_KM) * drive * econ_uk::size_factor(kind.size) * age * lv.workshop * lv.price_index
+    econ_uk::gbp(econ_uk::WORKSHOP_PER_KM * econ_uk::WORKSHOP_ROUTINE) * drive * econ_uk::size_factor(kind.size) * age * lv.workshop * lv.price_index
+}
+
+/// A breakdown's repair (whole euros, in cents): `draw` (0 to 1) between the least and the most
+/// a breakdown costs (`econ_uk::BREAKDOWN_REPAIR`), by the bus's size, at the company's level.
+pub fn breakdown_repair(draw: f64, kind: BusKind, lv: &Level) -> Cents {
+    let (low, high) = econ_uk::BREAKDOWN_REPAIR;
+    let pence = low + (high - low) * draw.clamp(0.0, 1.0);
+    ((econ_uk::gbp(pence) * econ_uk::size_factor(kind.size) * lv.workshop * lv.price_index / 100.0).round() as Cents) * 100
 }
 
 /// Insurance, road tax and the annual test of a bus a month.
 pub fn insurance_per_month(kind: BusKind, lv: &Level) -> Cents {
     let year = econ_uk::INSURANCE_PER_YEAR * econ_uk::size_factor(kind.size) + econ_uk::TAX_PER_YEAR;
     (econ_uk::gbp(year) / 12.0 * lv.insurance * lv.price_index).round() as Cents
+}
+
+/// What an accident that took a bus off the road costs the company (whole euros, in cents):
+/// `draw` (0 to 1) within the insurance's excess (`econ_uk::ACCIDENT_EXCESS`), by size.
+pub fn accident_damage(draw: f64, kind: BusKind, lv: &Level) -> Cents {
+    let (low, high) = econ_uk::ACCIDENT_EXCESS;
+    let pence = low + (high - low) * draw.clamp(0.0, 1.0);
+    ((econ_uk::gbp(pence) * econ_uk::size_factor(kind.size) * lv.insurance * lv.price_index / 100.0).round() as Cents) * 100
 }
 
 /// A bus's ticket machine a month.
@@ -607,9 +624,12 @@ mod tests {
         // an electric single-deck far less: 1.2 kWh at £0.10, about £0.19 a mile
         let power = pounds(energy_per_km(BusKind { size: BusSize::Solo, drive: Drive::Electric }, &uk)) * econ_uk::KM_PER_MILE;
         assert!((0.17..0.21).contains(&power), "{power}");
-        // the workshop £0.22 a mile at six years, more when older, a quarter less electric
-        let shop = pounds(maintenance_per_km(SOLO, 6.0, &uk)) * econ_uk::KM_PER_MILE;
+        // the workshop's routine of £0.22 a mile at six years (the breakdowns' repairs apart),
+        // more when older, a quarter less electric
+        let shop = pounds(maintenance_per_km(SOLO, 6.0, &uk)) * econ_uk::KM_PER_MILE / econ_uk::WORKSHOP_ROUTINE;
         assert!((0.215..0.225).contains(&shop), "{shop}");
+        let (low, high) = (pounds(breakdown_repair(0.0, SOLO, &uk) as f64), pounds(breakdown_repair(1.0, SOLO, &uk) as f64));
+        assert!((low - 150.0).abs() < 1.0 && (high - 900.0).abs() < 1.0, "{low} {high}");
         assert!(maintenance_per_km(SOLO, 12.0, &uk) > maintenance_per_km(SOLO, 6.0, &uk));
         assert!((maintenance_per_km(BusKind { size: BusSize::Solo, drive: Drive::Electric }, 6.0, &uk) / maintenance_per_km(SOLO, 6.0, &uk) - 0.75).abs() < 1e-9);
         // insurance and tax about £255 a month, the ticket machine £60, the overhead £1,250
