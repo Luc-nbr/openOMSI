@@ -19,6 +19,7 @@ import { Photo } from './fleet.js';
 import { cmd } from './kit.js';
 import { dark } from '../theme.js';
 import { S } from '../../store.js';
+import { useMemo } from '../../../vendor/preact-htm.js';
 
 /** A road at least this many points wide, its casing a hair round it (`mapview.rs`). */
 const ROAD_PX = 1.4;
@@ -82,9 +83,22 @@ export function FleetMapPage() {
     return () => clearInterval(t);
   }, []);
   const v = useMore('fleetmap', { tick });
-  const [map, setMap] = useState(null);
+  const map = useRoads(v);
   const [ref, size] = useSize();
-  // the map and the routes of today's trips, read by the game program once the timetable is
+  let body = null;
+  if (v?.reading) body = html`<${TextIn} x=${0} y=${0} w=${size.w} h=${24} px=${14.5} tone="dim">${v.reading}</${TextIn}>`;
+  else if (v && v.buses && size.w > 0) {
+    const pw = Math.min(360, size.w * 0.42);
+    body = html`<${MapCanvas} map=${map} v=${v} W=${size.w} H=${size.h} left=${12 + pw} />
+      <${Side} v=${v} r=${{ x: 12, y: 12, w: pw, h: Math.max(0, size.h - 24) }} />`;
+  }
+  return html`<div class="cm-page cm-fleetmap" ref=${ref}>${body}</div>`;
+}
+
+/** The map and the routes of today's trips (`co_more_map`), read by the game program once the
+ * timetable is, kept by company map and day. */
+function useRoads(v) {
+  const [map, setMap] = useState(null);
   useEffect(() => {
     if (!v || v.reading) return;
     const key = `${S.co.shell?.id}|${S.co.shell?.clock?.date}`;
@@ -109,14 +123,24 @@ export function FleetMapPage() {
         setMap(read.data);
       });
   }, [v?.reading, v?.built, S.co.shell?.clock?.date]);
-  let body = null;
-  if (v?.reading) body = html`<${TextIn} x=${0} y=${0} w=${size.w} h=${24} px=${14.5} tone="dim">${v.reading}</${TextIn}>`;
-  else if (v && v.buses && size.w > 0) {
-    const pw = Math.min(360, size.w * 0.42);
-    body = html`<${MapCanvas} map=${map} v=${v} W=${size.w} H=${size.h} left=${12 + pw} />
-      <${Side} v=${v} r=${{ x: 12, y: 12, w: pw, h: Math.max(0, size.h - 24) }} />`;
-  }
-  return html`<div class="cm-page cm-fleetmap" ref=${ref}>${body}</div>`;
+  return map;
+}
+
+/** The fleet map small (the Operations page's "Live network map"): the same roads, lines and
+ * buses, every bus in the colour `paint(bus)` gives it (its tag too), no panel and no card. `ctl`
+ * (a ref) gets `zoom(f)`, `fit()` and `focus(key)`, a bus centred. */
+export function MiniMap({ paint, ctl, W, H }) {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((x) => x + 1), 500);
+    return () => clearInterval(t);
+  }, []);
+  const v = useMore('fleetmap', { tick });
+  const map = useRoads(v);
+  const painted = useMemo(() => (v?.buses ? { ...v, picked: null, card: null, buses: v.buses.map((b) => ({ ...b, colour: paint(b) })) } : null), [v, paint]);
+  if (v?.reading) return html`<div class="cm-mapstate">${v.reading}</div>`;
+  if (!painted || !(W > 0) || !(H > 0)) return null;
+  return html`<${MapCanvas} map=${map} v=${painted} W=${W} H=${H} left=${0} mini ctl=${ctl} />`;
 }
 
 /** Where a bus is drawn at `t` (ms): on its way from where it was drawn to where the last answer
@@ -241,7 +265,7 @@ function drawTag(g, x, y, b, font, widths) {
 
 /** The map: its roads and the company's lines on one canvas (drawn when the map moves), the
  * buses on another (drawn every frame), and the card of the bus picked over them. */
-function MapCanvas({ map, v, W, H, left }) {
+function MapCanvas({ map, v, W, H, left, mini, ctl }) {
   const base = useRef();
   const top = useRef();
   const cardEl = useRef();
@@ -458,7 +482,32 @@ function MapCanvas({ map, v, W, H, left }) {
     cam.current = null;
   }, [map]);
   useEffect(drawBase, [map, W, H, left, look]);
+  // (the small map's buttons: zoom on its middle, the whole of it, a bus centred)
+  if (ctl)
+    ctl.current = {
+      zoom: (f) => {
+        if (!cam.current) return;
+        cam.current.mpp = Math.min(Math.max(cam.current.mpp * f, MPP_MIN), 400);
+        drawBase();
+      },
+      fit: () => {
+        if (!map?.roads) return;
+        cam.current = fit();
+        drawBase();
+      },
+      focus: (key) => {
+        const a = anim.current.get(key);
+        if (!a || !cam.current) return false;
+        const [x, y] = glide(a, performance.now());
+        cam.current.cx = x;
+        cam.current.cy = y;
+        cam.current.mpp = Math.min(cam.current.mpp, 6);
+        drawBase();
+        return true;
+      },
+    };
   const choose = (key) => {
+    if (mini) return;
     setPick(key);
     pickRef.current = key;
     pickRef.pending = true;
