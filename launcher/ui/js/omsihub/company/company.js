@@ -46,6 +46,8 @@ import { OnlineButton } from '../online.js';
 // (Beta 63: a cloud company's newer version or conflict, asked before it opens)
 import { cloudBeforeOpen } from '../cloud.js';
 import { MultiplayerPage } from './multiplayer.js';
+// (Beta 65: the sidebar, the slim bar, the command palette - and the layout chosen)
+import { Shell, shellClass, shellHooks, useNarrow } from './shell.js';
 
 // (the company's own look, loaded with its first page)
 const sheet = document.createElement('link');
@@ -205,7 +207,7 @@ export function CompanyScreen() {
   // the page or a field is being typed in (`escape_home`)
   useEffect(() => {
     const k = (e) => {
-      if (e.key !== 'Escape' || modalOpen() || !S.co.shell?.open || S.co.chooser || S.co.wizard || S.co.shell.launch) return;
+      if (e.key !== 'Escape' || modalOpen() || S.co.cmdk || !S.co.shell?.open || S.co.chooser || S.co.wizard || S.co.shell.launch) return;
       // (RosterFlow has its own Escape: Omsi-Hub 4/6)
       if (S.rf?.open && S.co.tab === 5) return;
       const el = document.activeElement;
@@ -215,6 +217,11 @@ export function CompanyScreen() {
     addEventListener('keydown', k);
     return () => removeEventListener('keydown', k);
   }, []);
+  // (Beta 65: the shell's way back and its tour; how wide the screen is for its sidebar)
+  shellHooks.back = () => leaveCompany();
+  shellHooks.tour = askTour;
+  const screen = useRef();
+  const narrow = useNarrow(screen);
   const read = sh && sh.companies != null;
   const choosing = read && c.chooser && !c.wizard;
   const founding = read && !choosing && (c.wizard || !sh.open);
@@ -263,20 +270,23 @@ export function CompanyScreen() {
   else if (choosing) body = html`<div class="co-body found"><${Chooser} /></div>`;
   else if (founding) body = html`<div class="co-body found"><${Wizard} /></div>`;
   else if (sh.launch) body = html`<div class="co-body full"><${LaunchPage} /></div>`;
-  else body = html`${sh.casual ? html`<${CasualNav} />` : html`<${Nav} />`}<div class="co-body" key=${'tab' + c.tab}><${Page} /></div>`;
+  else body = html`<div class="co-body" key=${'tab' + c.tab}><${Page} /></div>`;
   // (Omsi-Hub 4/6: RosterFlow an application of its own over the whole window, no company bar;
   // its dialogs and the popup still over it)
   const rosterflow = open && !sh.casual && !sh.launch && c.tab === 5 && s.rf?.open;
   if (rosterflow) {
-    return html`<div class="co" data-tab="5">
+    return html`<div class="co" data-tab="5" ref=${screen}>
       <${Guard}><${RosterFlowPage} /></${Guard}>
       <${Guard}><${Overlays} founding=${false} /></${Guard}>
       ${c.remote && html`<${SessionWatch} />`}
       ${c.notice && Date.now() - c.notice.at < 9000 && html`<div class=${'co-notice' + (c.notice.error ? ' error' : '')} key=${c.notice.at}>${c.notice.text}</div>`}
     </div>`;
   }
-  return html`<div class="co" data-tab=${open ? c.tab : ''}>
-    <${Guard}><${Bar} open=${open} choosing=${choosing} read=${read} /></${Guard}>
+  // (an open company's pages round the shell; the start, the founding and the duty launcher under
+  // the plain bar)
+  const shelled = open && !sh.launch;
+  return html`<div class=${'co' + (shelled ? ' ' + shellClass(narrow) : '')} data-tab=${open ? c.tab : ''} ref=${screen}>
+    ${shelled ? html`<${Guard}><${Shell} narrow=${narrow} /></${Guard}>` : html`<${Guard}><${Bar} open=${open} choosing=${choosing} read=${read} /></${Guard}>`}
     <${Guard}>${body}</${Guard}>
     ${read && html`<${Guard}><${Overlays} founding=${founding || choosing} /></${Guard}>`}
     ${c.remote && html`<${SessionWatch} />`}
@@ -321,7 +331,10 @@ function Page() {
   }
 }
 
-// --- the bar --------------------------------------------------------------------------------
+// --- the plain bar --------------------------------------------------------------------------
+
+// (the start, the founding and the duty launcher: an open company's pages have the shell's,
+// `shell.js`)
 
 function Bar({ open, choosing, read }) {
   const c = S.co;
@@ -431,60 +444,3 @@ function CasualClock() {
     <${Btn} kind="primary" class="co-next" icon="wb_sunny" label=${tr('Next day')} style="min-width:150px" title=${tr('Run the rest of the day: the buses drive, the money comes in, and you start the next morning')} onClick=${() => act('next_day')} />
   </span>`;
 }
-
-// --- the way round --------------------------------------------------------------------------
-
-/** The way round the company's pages under its bar (`company::nav`): the start screen's button
- * with the page one is on after it, and every page as an icon on the right, grouped as the
- * start screen groups them, a badge where something waits. */
-function Nav() {
-  const c = S.co;
-  const sh = c.shell;
-  const home = c.tab === HOME;
-  return html`<nav class="co-nav">
-    <${Btn} kind=${home ? 'primary' : ''} class="co-start" icon="apps" label=${tr('Start screen')} title=${tr('Every part of the company as a tile (Escape)')} onClick=${() => !home && setCo({ tab: HOME })} />
-    <span class="where">
-      ${home
-        ? html`<span class="home cut">${sh.home}</span>`
-        : html`<${Icon} name="chevron_right" size=${18} /><span class="page cut"><${Icon} name=${ICON_OF(sh, c.tab)} size=${20} />${sh.names?.[c.tab] || ''}</span>`}
-    </span>
-    <${Rail} groups=${sh.rail} on=${(t) => t === c.tab} />
-  </nav>`;
-}
-
-const ICON_OF = (sh, tab) => sh.rail.flat().find((x) => x.tab === tab)?.icon || 'apps';
-
-/** The pages as icons, grouped, a badge where something waits. */
-function Rail({ groups, on, casual }) {
-  return html`<span class=${'co-rail' + (casual ? ' casual' : '')}>
-    ${groups.map((g, k) => html`${k > 0 && html`<span class="sep"></span>`}<span class="group">
-      ${g.map((it) => html`<button type="button" class=${on(it.tab) ? 'on' : ''} title=${it.tip} onClick=${() => goTab(it.tab)}>
-        <${Icon} name=${it.icon} size=${casual ? 20 : 19} />
-        ${it.badge && html`<span class=${'badge ' + it.badge.tone}>${it.badge.n}</span>`}
-      </button>`)}
-    </span>`)}
-  </span>`;
-}
-
-/** Casual's way round (`casual::nav`): Home, the page one is on (the page above it a click
- * away), and the pages as icons. */
-function CasualNav() {
-  const c = S.co;
-  const sh = c.shell;
-  const tab = c.tab;
-  const home = tab === HOME;
-  const pages = sh.casual_pages?.pages || {};
-  const parent = parentOf(sh, tab);
-  const crumbs = [parent, tab].filter((t) => t !== HOME);
-  return html`<nav class="co-nav">
-    <${Btn} kind=${home ? 'primary' : ''} class="co-start" icon="home" label=${tr('Home')} style="min-width:110px" title=${tr("Back to your company's home (Escape)")} onClick=${() => !home && setCo({ tab: HOME })} />
-    <span class="where">
-      ${home
-        ? html`<span class="home cut">${sh.casual_pages?.home}</span>`
-        : crumbs.map((t) => html`<${Icon} name="chevron_right" size=${18} /><button type="button" class=${'crumb' + (t === tab ? ' last' : '')} onClick=${() => t !== tab && setCo({ tab: t })}>${pages[t]?.name}</button>`)}
-    </span>
-    <${Rail} casual groups=${sh.rail} on=${(t) => t === tab || parent === t} />
-  </nav>`;
-}
-
-
