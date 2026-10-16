@@ -360,3 +360,34 @@
 .cm-page.cm-fleetmap .fm-card .fm-links > * { height: 30px; }
 :root.hub[data-theme="light"] .cm-page.cm-fleetmap .fm-card { box-shadow: inset 0 0 0 1px var(--hub-edge), 0 8px 22px rgba(40, 32, 20, 0.18); }
 :root.hub[data-theme="light"] .cm-page.cm-fleetmap .fm-card .fm-bus .photo { background-color: #ece8e1; background-image: linear-gradient(#e0dbd4, #f8f6f0); color: var(--hub-text); }
+
+/* "Request a change" of a tendered line's contract (Beta 66, `company/variations.js`): the kinds of
+   change, their controls beside the price, the refusal, the offer and the history. */
+:root.hub .co-pg-vary .body { display: flex; flex-direction: column; gap: 14px; }
+:root.hub .co-pg-vary-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+:root.hub .co-pg-vary-head .grow { display: flex; flex-direction: column; gap: 2px; }
+:root.hub .co-pg-vary-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 16px; align-items: start; }
+:root.hub .co-pg-vary-fields { display: flex; flex-direction: column; gap: 14px; padding: 14px 16px; border-radius: 12px; background: var(--pg-soft); box-shadow: inset 0 0 0 1px var(--pg-line); }
+:root.hub .co-pg-vary-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+:root.hub .co-pg-vary-field > span { font-size: var(--pg-label); font-weight: 700; color: var(--pg-dim); }
+:root.hub .co-pg-vary-choices { display: flex; flex-wrap: wrap; gap: 6px; }
+:root.hub .co-pg-vary-choices button { height: 32px; padding: 0 12px; border-radius: 16px; border: 0; cursor: pointer; font: inherit; font-size: var(--co-rows); color: var(--hub-text-soft); background: var(--hub-field); box-shadow: inset 0 0 0 1px var(--pg-line); }
+:root.hub .co-pg-vary-choices button:hover { background: var(--hub-hover); }
+:root.hub .co-pg-vary-choices button.on { color: var(--hub-text); font-weight: 700; background: var(--pg-accent-soft); box-shadow: inset 0 0 0 1.5px var(--hub-accent); }
+:root.hub .co-pg-vary-price { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: 12px; background: var(--pg-soft); box-shadow: inset 0 0 0 1px var(--pg-line); min-width: 0; }
+:root.hub .co-pg-vary-rows td { padding: 3px 6px; font-size: var(--co-rows); }
+:root.hub .co-pg-vary-rows td:first-child { padding-left: 0; color: var(--pg-dim); }
+:root.hub .co-pg-vary-money { display: flex; flex-direction: column; gap: 4px; padding-top: 8px; border-top: 1px solid var(--hub-hairline); font-size: var(--co-rows); }
+:root.hub .co-pg-vary-money .total { padding-top: 4px; border-top: 1px dashed var(--hub-hairline); font-weight: 800; }
+:root.hub .co-pg-vary-pay { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 10px; background: var(--pg-accent-soft); }
+:root.hub .co-pg-vary-pay .co-pg-line { gap: 8px; font-size: 15px; }
+:root.hub .co-pg-vary-refused { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-radius: 10px; font-size: var(--co-rows); font-weight: 700; color: var(--co-danger-text); background: color-mix(in srgb, var(--co-danger) 14%, transparent); }
+:root.hub .co-pg-vary-offer { padding: 10px 14px; border-radius: 10px; box-shadow: inset 0 0 0 1px var(--pg-line); }
+:root.hub .co-pg-vary-offer > summary { cursor: pointer; font-weight: 800; font-size: var(--co-rows); color: var(--pg-head); }
+:root.hub .co-pg-vary-offer[open] > summary { margin-bottom: 8px; }
+:root.hub .co-pg-vary-offer .co-pg-line { gap: 10px; margin-top: 8px; }
+:root.hub .co-pg-vary-offer .co-pg-bidin { width: 160px; }
+:root.hub .co-pg-vary-history { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; font-size: var(--pg-small); color: var(--pg-dim); }
+@media (max-width: 900px) {
+  :root.hub .co-pg-vary-grid { grid-template-columns: minmax(0, 1fr); }
+}

@@ -384,12 +384,17 @@ fn bus_contracts(c: &Company) -> Value {
             };
             let later = co::dates::between(&c.date, &k.from) > 0;
             let cost = bc::leaving_cost(c, k, co::econ_uk::EARLY_END_MONTHS);
+            let changeable = matches!(k.kind, Kind::Gross | Kind::Net);
+            let history: Vec<String> = k.variations.iter().rev().take(3).map(super::variations::history_text).collect();
             json!({
                 "line": k.line, "number": k.number, "caption": caption(&k.line),
                 "kind": kind_text(k), "pay": pay_text(c, k), "days": days_text(c, k), "term": term_text(k),
                 "rag": rag_json(k.rag(&c.date)), "points": points_text(c, k), "unpaid": unpaid_text(c, k),
                 "month": if later { trf("Begins on %{date}", &[("date", &day_label(&k.from))]) } else { month },
                 "back": trf("Hand back (%{amount})", &[("amount", &eur(cost))]),
+                "change": changeable.then(|| tr("Request a change")),
+                "change_tip": tr("Change the timetable, the route, the days or the bus type by agreement with the authority: priced by the size of the change."),
+                "history": history,
                 "back_tip": tr("Ends the contract today: it costs a month's average payment, and a map line goes with it."),
             })
         })
@@ -488,7 +493,7 @@ mod tests {
     fn every_contract_text_is_translated() {
         use omsi_launcher_lib::company::bus_contracts::{Kind, Rag};
         let mut texts: Vec<String> = Vec::new();
-        for src in [include_str!("contracts.rs"), include_str!("concessions.rs")] {
+        for src in [include_str!("contracts.rs"), include_str!("concessions.rs"), include_str!("variations.rs")] {
             for lead in ["tr(\"", "trf(\""] {
                 let mut rest = src;
                 while let Some(k) = rest.find(lead) {
@@ -502,6 +507,25 @@ mod tests {
             }
         }
         texts.extend(Kind::ALL.iter().map(|k| k.label().to_string()));
+        {
+            use omsi_launcher_lib::company::variations::{Change, Class};
+            texts.extend([Change::Timetable, Change::Route, Change::Days, Change::Vehicle, Change::Edit, Change::Restore].iter().map(|x| x.label().to_string()));
+            texts.extend([Class::Minor, Class::Moderate, Class::Major].iter().map(|x| x.label().to_string()));
+            texts.extend(
+                [
+                    "This line has no tendered contract to change.",
+                    "The authority refuses a change this large: it would put the line out to tender again.",
+                    "The authority agrees no major change while the contract is red.",
+                    "Nothing changes: choose what the change is.",
+                    "The authority answers one offer a week on a contract.",
+                    "An offer cannot be less than nothing.",
+                    "A contracted line changed a great deal",
+                ]
+                .map(String::from),
+            );
+            // (the dialog's kinds and bus types: tr of a constant)
+            texts.extend(["Timetable", "Route", "Days of operation", "Vehicle type", "Midibus", "Standard bus (12 m)", "Articulated bus (18 m)", "Double-decker"].map(String::from));
+        }
         texts.extend([Rag::Green, Rag::Orange, Rag::Red].iter().map(|r| r.label().to_string()));
         texts.extend(["Above the authority's cap: a bid above it does not count.".to_string(), "There is no such contract.".to_string()]);
         let mut missing = Vec::new();

@@ -81,6 +81,7 @@ pub mod timeplan;
 pub mod together;
 pub mod training;
 pub mod unassign;
+pub mod variations;
 pub mod vehicles;
 
 pub use model::*;

@@ -102,18 +102,37 @@ function Settings() {
   </div>`;
 }
 
+/** A line of the map's under a tendered bus contract, changed (`company::variations`, Beta 66):
+ * the change is a variation of the contract, and what it costs is said before it is saved - its
+ * class and size, the fee or penalty, the payment a week after, the points and reputation. */
+function ContractNote({ va }) {
+  if (va.covered) return html`<p class="ed-para le-contract ok">${tr('The change agreed with the authority: nothing more to pay.')}</p>`;
+  const pay = tr(va.net ? 'Subsidy a week: %{before} → %{after}' : 'Payment a week: %{before} → %{after}', { before: va.week_before, after: va.week_after });
+  return html`<div class=${'le-contract ' + va.tone}>
+    <b>${tr('This line runs under a tendered contract')}</b>
+    <span>${tr('%{class} change, %{share} % of the service: %{amount}', { class: tr(va.class), share: va.share, amount: va.price })}</span>
+    ${va.penalty && html`<span>${tr('Penalty: %{amount}', { amount: va.penalty })}</span>`}
+    <span>${pay}</span>
+    ${va.points && html`<span>${tr('%{n} default points on the contract', { n: va.points })}</span>`}
+    ${va.reputation && html`<span>${tr('About %{n} points of reputation', { n: va.reputation })}</span>`}
+  </div>`;
+}
+
 /** The left panel's foot: save, delete and drive a line of the player's (`left_panel`), a line of
- * the map's (`maplines::foot`), a company's (`company_foot`). */
+ * the map's (`maplines::foot`) - under a bus contract with its price (`ContractNote`) -, a
+ * company's (`company_foot`). */
 function Foot() {
   const v = L.view;
   const line = v.line;
   if (line.map) {
     const company = !!v.company;
     const fee = v.company_view?.map_fee;
-    const why = v.map_problems[0] || fee?.why;
+    const va = v.company_view?.variation;
+    const why = v.map_problems[0] || (va?.refused && tr(va.refused)) || fee?.why;
     const dirty = v.dirty && !v.fresh;
     const label = fee && fee.fee > 0 && dirty ? tr('Pay %{amount} and save', { amount: fee.label }) : dirty ? tr('Save line') : tr('Saved');
     return html`<div class="le-foot">
+      ${va && dirty && html`<${ContractNote} va=${va} />`}
       ${why && html`<p class="ed-para ed-warn">${why}</p>`}
       <div class="le-save-row">
         <${Btn} kind=${dirty && !why ? 'primary' : ''} icon="save" raw label=${label} onClick=${() => dirty && (why ? status(why, true) : le('save_map'))} />

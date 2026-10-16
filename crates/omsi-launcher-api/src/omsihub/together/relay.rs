@@ -110,7 +110,7 @@ fn view_need(view: &str) -> Need {
 /// What a view of the company's later pages (`co_more_view`) needs.
 fn more_view_need(view: &str) -> Need {
     match view {
-        "depot" | "workshop" | "research" | "concessions" | "contracts" => SPEND,
+        "depot" | "workshop" | "research" | "concessions" | "contracts" | "variation" => SPEND,
         "fleetmap" => Member,
         "planning" | "plan_edit" => RF_VIEW,
         "service" => Any(&[Perm::Plans, Perm::Service]),
@@ -166,6 +166,8 @@ fn more_act_need(act: &str) -> Need {
         "depot_build" | "depot_cancel" | "depot_order" | "parts_auto" | "parts_buy" | "research_info" | "research_start" | "research_pause" | "research_stop" => SPEND,
         "tender_pick" | "tender_bid" | "tender_buy" | "tender_step" => SPEND,
         "goal_take" | "goal_give_up" | "net_take" | "net_cancel" | "net_top_up" | "fuel_sign" | "cleaning_sign" | "cleaning_end" | "contract_hand_back" => SPEND,
+        // (a tendered line's contract changed, or an offer for it: what the contracts cost)
+        "contract_vary" | "contract_offer" => SPEND,
         "map_play" | "map_speed" | "map_now" | "map_pick" => Member,
         "plan_give_driver" | "plan_give_bus" | "plan_set_fill" | "plan_fill" | "plan_clear" | "plan_repeat" | "plan_fold" | "plan_fold_all" | "plan_stop" | "plan_start" => PLANS,
         // (a line's trips and timetable: the planning's sheet of the player's own, or RosterFlow's
@@ -359,6 +361,7 @@ mod tests {
             ("research", include_str!("../company_more/research.rs")),
             ("concessions", include_str!("../company_more/concessions.rs")),
             ("contracts", include_str!("../company_more/contracts.rs")),
+            ("variations", include_str!("../company_more/variations.rs")),
             ("fleetmap", include_str!("../company_more/fleetmap.rs")),
             ("planning", include_str!("../company_more/planning.rs")),
             ("plan_edit", include_str!("../company_more/plan_edit.rs")),
