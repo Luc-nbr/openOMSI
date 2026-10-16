@@ -1,0 +1,50 @@
+{
+  "key": "no",
+  "flag": "🇳🇴",
+  "name": "Norway",
+  "groups": [
+    {
+      "share": 84,
+      "origin": "Norwegian",
+      "male": "Jan, Per, Bjørn, Ole, Lars, Kjell, Knut, Arne, Svein, Thomas, Hans, Geir, Tor, Morten, Terje, Odd, Erik, Martin, Andreas, John, Anders, Rune, Trond, Tore, Harald, Jon, Olav, Espen, Øyvind, Håkon, Stian, Eirik, Sindre, Magnus, Sander, Jonas, Emil, Henrik, Kristian, Vegard, Fredrik, Christoffer, Jakob, Filip, Aksel, Isak, Oskar, Mathias, Johannes, Sverre, Gaute, Torstein, Ivar, Leif, Einar, Sigurd, Halvor, Eivind, Even, Audun, Steinar, Asbjørn, Trygve, Ragnar, Gunnar, Sigmund, Kåre, Helge, Oddvar, Ingvar, Vidar, Tobias",
+      "female": "Anne, Inger, Kari, Marit, Ingrid, Liv, Eva, Berit, Astrid, Bjørg, Hilde, Anna, Solveig, Marianne, Randi, Ida, Nina, Ragnhild, Elisabeth, Kristin, Hege, Heidi, Silje, Ingeborg, Turid, Tone, Gro, Wenche, Grete, Torill, Unni, Siri, Kirsti, Elin, Cecilie, Camilla, Tonje, Line, Ingvild, Synnøve, Guro, Sigrid, Maren, Thea, Nora, Emma, Sofie, Ella, Olivia, Leah, Frida, Selma, Hedda, Tuva, Vilde, Maja, Iselin, Marte, Åse, Gunvor, Signe, Aud, Brit, Mona, Trine, Stine, Lene, Karoline, Helene, Julie, Ronja, Ylva",
+      "surnames": "Hansen, Johansen, Olsen, Larsen, Andersen, Pedersen, Nilsen, Kristiansen, Jensen, Karlsen, Johnsen, Pettersen, Eriksen, Berg, Haugen, Hagen, Johannessen, Andreassen, Jacobsen, Dahl, Jørgensen, Henriksen, Lund, Halvorsen, Sørensen, Jakobsen, Moen, Gundersen, Iversen, Strand, Solberg, Svendsen, Eide, Knutsen, Martinsen, Paulsen, Bakken, Kristoffersen, Mathisen, Lie, Amundsen, Rasmussen, Lunde, Solheim, Berge, Moe, Nygård, Bakke, Kristensen, Fredriksen, Holm, Lien, Hauge, Christensen, Andresen, Nielsen, Knudsen, Evensen, Sæther, Aas, Myhre, Hanssen, Haugland, Thomassen, Sivertsen, Simonsen, Danielsen, Berntsen, Sandvik, Rønning, Arnesen, Antonsen, Næss, Vik, Haug, Ellingsen, Thorsen, Edvardsen, Birkeland, Isaksen, Gulbrandsen, Ruud, Aasen, Strøm, Myklebust, Tangen, Ødegård, Eliassen, Helland, Bøe, Jenssen, Aune, Mikkelsen, Tveit, Brekke, Abrahamsen, Madsen, Sundby, Tvedt, Vold, Fjeld, Grønli, Hovland, Kvamme, Lindland, Mo, Nordby, Opsahl, Rød, Skaug, Stene, Tollefsen, Ulvestad, Vatne, Wiig, Aarnes, Bjerke, Dalen, Engen, Flaten, Gjerde, Holte, Jordet, Kolstad, Langeland, Lindstad, Nesheim, Olstad, Rustad, Skjelbred, Sollie, Teigen, Vestby, Østby, Årseth"
+    },
+    {
+      "share": 4,
+      "origin": "Polish heritage",
+      "feminine": "pl",
+      "male": "Piotr, Tomasz, Paweł, Krzysztof, Marcin, Kamil",
+      "female": "Agnieszka, Katarzyna, Magdalena, Joanna, Monika, Ewelina",
+      "surnames": "Nowak, Kowalski, Wiśniewski, Wójcik, Kowalczyk, Kamiński, Lewandowski, Zieliński"
+    },
+    {
+      "share": 3,
+      "origin": "Pakistani heritage",
+      "male": "Imran, Shahid, Tariq, Faisal, Usman, Zeeshan",
+      "female": "Shabana, Rukhsana, Sana, Nadia, Ayesha, Saima",
+      "surnames": "Khan, Ahmed, Ali, Hussain, Iqbal, Malik, Chaudhry, Butt"
+    },
+    {
+      "share": 3,
+      "origin": "Somali and Eritrean heritage",
+      "male": "Abdi, Abdirahman, Mohamud; Yonas, Tesfaye",
+      "female": "Hodan, Sahra, Asha; Hiwot, Selam",
+      "surnames": "Warsame, Abdullahi, Farah, Hussein; Tesfay, Gebremedhin"
+    },
+    {
+      "share": 3,
+      "origin": "Lithuanian and Swedish",
+      "male": "Mindaugas, Darius, Vytautas; Björn, Göran",
+      "female": "Rūta, Ieva, Agnė; Annika, Linnéa",
+      "surnames": "Kazlauskas|Kazlauskienė, Petrauskas|Petrauskienė; Johansson, Andersson, Lindqvist"
+    },
+    {
+      "share": 3,
+      "origin": "Vietnamese, Filipino and other heritage",
+      "male": "Minh, Tuấn; Rodel; Mohammed, Ahmad",
+      "female": "Linh, Thảo; Maricel; Fatima, Layla",
+      "surnames": "Nguyen, Tran, Pham; Santos, Reyes; Haddad, Ibrahim"
+    }
+  ]
+}

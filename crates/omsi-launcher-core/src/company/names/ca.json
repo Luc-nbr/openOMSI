@@ -1,0 +1,63 @@
+{
+  "key": "ca",
+  "flag": "🇨🇦",
+  "name": "Canada",
+  "groups": [
+    {
+      "share": 54,
+      "origin": "English Canadian",
+      "male": "James, John, Robert, Michael, William, David, Richard, Joseph, Thomas, Christopher, Daniel, Matthew, Mark, Steven, Paul, Andrew, Kevin, Brian, Ryan, Jason, Scott, Greg, Jeff, Darren, Trevor, Brent, Colin, Graham, Ian, Stuart, Liam, Noah, Benjamin, Lucas, Owen, Ethan, Logan, Jack, Nathan, Connor, Dylan, Wyatt, Carter, Hunter, Cole, Tyler, Brett, Wade, Curtis, Murray, Doug, Gordon, Bruce, Wayne, Dale, Glen, Lyle, Rodney, Shane, Kyle",
+      "female": "Mary, Jennifer, Lisa, Susan, Karen, Michelle, Sarah, Jessica, Amanda, Melissa, Stephanie, Heather, Nicole, Laura, Kimberly, Amy, Rebecca, Emily, Emma, Olivia, Charlotte, Ava, Amelia, Sophia, Chloe, Hannah, Abigail, Madison, Brooke, Megan, Kaitlyn, Brittany, Shannon, Tara, Erin, Kristen, Lindsay, Carrie, Tracy, Wendy, Donna, Brenda, Sheila, Debbie, Colleen, Maureen, Joanne, Dianne, Marlene, Bonnie, Charlene, Darlene, Holly, Paige, Kelsey, Natalie, Rachel, Sydney, Mackenzie",
+      "surnames": "Smith, Brown, Martin, Wilson, MacDonald, Taylor, Campbell, Anderson, Johnson, Jones, Williams, Thompson, White, Clark, Walker, Young, Scott, Stewart, Robinson, Mitchell, Reid, Murray, Ross, Fraser, MacLeod, McKenzie, Graham, Kennedy, Morrison, Grant, Hamilton, Henderson, Ferguson, Cameron, MacKay, Sinclair, Hughes, Evans, Bell, Wright, Cooper, Morgan, Kelly, Murphy, Ryan, O'Brien, Doyle, Walsh, Peterson, Hansen, Olson, Schmidt, Friesen, Penner, Klassen, Kozak, Kowalchuk, Hryniuk, Boychuk, Wiebe, Neufeld, Dueck, Harper, Lawson, Burke, Fleming, Patterson, Crawford, Stevens, Gibson, Hunter, Sutherland, McLean, Munro, Gillis, MacNeil, Chisholm, Doucette, Dunn, Watts, Spencer, Ellis"
+    },
+    {
+      "share": 21,
+      "origin": "French Canadian",
+      "male": "Jean-François, Jean-Philippe, Marc-André, Louis-Philippe, Pierre-Luc, Guillaume, Mathieu, Simon, Jérôme, Sébastien, Patrice, Benoît, Étienne, Félix, Gabriel, Samuel, Olivier, Raphaël, Alexis, Antoine, Réjean, Gaétan, Normand, Ghislain, Sylvain, Yvon, Luc, Denis",
+      "female": "Marie-Ève, Marie-Claude, Marie-Josée, Geneviève, Isabelle, Nathalie, Josée, Sylvie, Chantal, Manon, Mélanie, Julie, Catherine, Émilie, Audrey, Valérie, Annie, Maude, Rosalie, Florence, Léa, Jeanne, Béatrice, Lucie, Ginette, Pierrette, Francine, Micheline",
+      "surnames": "Tremblay, Gagnon, Roy, Côté, Bouchard, Gauthier, Morin, Lavoie, Fortin, Gagné, Ouellet, Pelletier, Bélanger, Lévesque, Bergeron, Leblanc, Paquette, Girard, Simard, Boucher, Caron, Beaulieu, Cloutier, Dubé, Poirier, Fournier, Lapointe, Leclerc, Lefebvre, Poulin, Thibault, St-Pierre, Nadeau, Martel, Gilbert, Hébert, Lachance, Desjardins, Turcotte, Vachon"
+    },
+    {
+      "share": 8,
+      "origin": "South Asian Canadian",
+      "male": "Harpreet, Gurpreet, Jaspreet; Rajesh, Arjun, Vikram, Sandeep; Imran, Ali, Hassan",
+      "female": "Simran, Navjot, Manpreet, Harleen; Priya, Anjali, Pooja; Ayesha, Fatima, Sana",
+      "surnames": "Singh|Kaur, Gill, Sandhu, Dhillon, Sidhu, Grewal; Patel, Sharma; Khan, Ahmed, Malik"
+    },
+    {
+      "share": 6,
+      "origin": "Chinese Canadian",
+      "male": "Wei, Jun, Hao, Ming, Kenny, Tony",
+      "female": "Mei, Xin, Yan, Ling, Hui, Jia",
+      "surnames": "Chen, Wong, Li, Zhang, Lam, Cheung, Liu, Leung, Chan, Ho"
+    },
+    {
+      "share": 4,
+      "origin": "Filipino Canadian",
+      "male": "Rodel, Arnel, Romeo, Jomar",
+      "female": "Maricel, Rowena, Jocelyn, Lorna, Mylene",
+      "surnames": "Santos, Reyes, Dela Cruz, Bautista, Garcia, Mendoza, Villanueva, Aquino"
+    },
+    {
+      "share": 3,
+      "origin": "Caribbean and African Canadian",
+      "male": "Delroy, Winston; Kwame, Emmanuel; Abdi",
+      "female": "Marcia, Beverley; Abena, Chioma; Hodan",
+      "surnames": "Francis, Grant, Joseph, Pierre; Mensah, Okafor; Abdullahi"
+    },
+    {
+      "share": 2,
+      "origin": "Indigenous",
+      "male": "Tecumseh, Wapun, Kanen, Ahanu",
+      "female": "Aiyana, Kateri, Nita, Winona",
+      "surnames": "Cardinal, Littlechild, Bearshirt, Okimaw, Thunderchild, Paul, Sappier"
+    },
+    {
+      "share": 2,
+      "origin": "Arab and Italian Canadian",
+      "male": "Omar, Khalil; Giuseppe, Antonio",
+      "female": "Layla, Amira; Giovanna, Francesca",
+      "surnames": "Haddad, Khoury, Nasser; Rossi, Ferrari, Russo"
+    }
+  ]
+}

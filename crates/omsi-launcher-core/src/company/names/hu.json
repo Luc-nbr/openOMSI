@@ -1,0 +1,22 @@
+{
+  "key": "hu",
+  "flag": "🇭🇺",
+  "name": "Hungary",
+  "family_first": true,
+  "groups": [
+    {
+      "share": 97,
+      "origin": "Hungarian",
+      "male": "László, István, József, János, Zoltán, Sándor, Ferenc, Gábor, Attila, Péter, Tamás, Zsolt, Tibor, András, Csaba, Imre, Lajos, György, Balázs, Gyula, Mihály, Róbert, Károly, Norbert, Dániel, Ádám, Bence, Máté, Dávid, Levente, Márk, Botond, Barnabás, Zalán, Olivér, Milán, Krisztián, Roland, Richárd, Árpád, Béla, Miklós, Géza, Pál, Antal, Kálmán, Ernő, Jenő, Dezső, Endre, Szabolcs, Gergely, Bálint, Áron, Marcell, Benedek, Kristóf, Vilmos, Lőrinc, Ottó, Zsigmond, Elemér, Tivadar, Huba, Kornél, Bertalan, Nándor, Ákos, Bulcsú, Vince, Hunor, Csongor",
+      "female": "Mária, Erzsébet, Katalin, Ilona, Éva, Anna, Zsuzsanna, Margit, Judit, Ágnes, Andrea, Erika, Krisztina, Edit, Ildikó, Tünde, Mónika, Gabriella, Anita, Szilvia, Eszter, Orsolya, Petra, Dóra, Réka, Viktória, Nikolett, Bianka, Hanna, Zsófia, Lili, Boglárka, Jázmin, Lilla, Csilla, Rita, Tímea, Melinda, Beáta, Henrietta, Brigitta, Noémi, Kitti, Fanni, Emese, Enikő, Piroska, Rozália, Gizella, Magdolna, Irén, Teréz, Rózsa, Etelka, Klára, Julianna, Borbála, Hajnalka, Kinga, Adrienn, Marianna, Valéria, Veronika, Barbara, Panna, Laura, Mira, Zita, Flóra, Gréta, Szonja, Vivien",
+      "surnames": "Nagy, Kovács, Tóth, Szabó, Horváth, Varga, Kiss, Molnár, Németh, Farkas, Balogh, Papp, Takács, Juhász, Lakatos, Mészáros, Oláh, Rácz, Fekete, Szilágyi, Török, Fehér, Kis, Szűcs, Kocsis, Orsós, Pintér, Fodor, Szalai, Sipos, Magyar, Gulyás, Biró, Király, Katona, Balog, Boros, Fazekas, Orosz, Somogyi, Veres, Budai, Vincze, Hegedűs, Deák, Pap, Vass, Szőke, Vörös, Lengyel, Bognár, Bodnár, Jónás, Hajdu, Halász, Székely, Kozma, Pásztor, Bakos, Dudás, Major, Orbán, Barta, Nemes, Pataki, Bencze, Soós, Vida, Szekeres, Csonka, Dobos, Kertész, Bárány, Varró, Szénási, Mohácsi, Ferenczi, Bozsó, Csizmadia, Erdős, Mezei, Ács, Bartos, Demeter, Erdélyi, Fejes, Gombos, Hevesi, Jenei, Kántor, Kardos, Kozák, Lakos, Madarász, Marton, Medve, Nyitrai, Pálfi, Pető, Rigó, Sárközi, Simonyi, Szabados, Szarka, Szűts, Tőkés, Ujvári, Vadász, Varjú, Vígh, Zsiga, Benkő, Berki, Czakó, Dósa, Dombi, Faragó, Gyurkó, Hídvégi, Huszár, Jakus, Kasza, Kollár, Kőszegi, Lőrincz, Nádasdi, Rostás, Sebők, Szilvási, Tarr, Ungvári, Völgyi, Zámbó, Bakó, Bánki, Bencsik, Bérczi, Bodó, Csordás, Dankó, Fenyvesi, Gazdag, Gecse, Gulácsi, Halmi, Iványi, Józsa, Kecskés, Kerekes, Kocsor, Lantos, Makai, Nyári, Pongrácz, Puskás, Sallai, Szántó, Szép, Tihanyi, Vajda, Vámos, Zsoldos, Weisz, Schmidt, Wágner"
+    },
+    {
+      "share": 3,
+      "origin": "Chinese and Vietnamese",
+      "male": "Wei, Jun; Minh, Tuấn",
+      "female": "Mei, Xin; Linh, Thảo",
+      "surnames": "Wang, Li, Zhang, Chen; Nguyen, Tran"
+    }
+  ]
+}

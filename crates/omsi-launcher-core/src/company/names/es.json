@@ -1,0 +1,36 @@
+{
+  "key": "es",
+  "flag": "🇪🇸",
+  "name": "Spain",
+  "double_surname": 1.0,
+  "groups": [
+    {
+      "share": 84,
+      "origin": "Spanish",
+      "male": "Antonio, José, Manuel, Francisco, David, Juan, Javier, José Luis, Daniel, Francisco Javier, Jesús, Carlos, Alejandro, Miguel, José Antonio, Rafael, Pedro, Ángel, Pablo, Miguel Ángel, Sergio, Fernando, Jorge, Luis, Alberto, Álvaro, Adrián, Diego, Raúl, Iván, Rubén, Enrique, Óscar, Ramón, Andrés, Vicente, Joaquín, Santiago, Víctor, Eduardo, Mario, Roberto, Jaime, Ignacio, Marcos, Alfonso, Hugo, Martín, Lucas, Mateo, Leo, Gonzalo, Iker, Unai, Aitor, Xabier, Jordi, Pau, Marc, Oriol, Xavier, Xoán, Íñigo, Borja, Guillermo, Emilio, Julián, Agustín, Salvador, Gregorio, Arnau, Nicolás",
+      "female": "María, Carmen, Ana, Isabel, Laura, Cristina, Marta, Lucía, Pilar, Dolores, Paula, Elena, Sara, Rosa, Raquel, Manuela, Mercedes, Rocío, Concepción, Julia, Beatriz, Silvia, Nuria, Irene, Patricia, Alba, Andrea, Rosario, Encarnación, Montserrat, Mónica, Sonia, Alicia, Sandra, Marina, Ángela, Sofía, Martina, Valeria, Daniela, Carla, Noa, Claudia, Inmaculada, Eva, Teresa, Victoria, Amparo, Esperanza, Remedios, Consuelo, Inés, Blanca, Leire, Ainhoa, Itziar, Nerea, Maite, Núria, Laia, Mireia, Montse, Uxía, Iria, Aitana, Lola, Paloma, Esther, Lorena, Verónica, Yolanda, Begoña",
+      "surnames": "García, Rodríguez, González, Fernández, López, Martínez, Sánchez, Pérez, Gómez, Martín, Jiménez, Hernández, Ruiz, Díaz, Moreno, Muñoz, Álvarez, Romero, Gutiérrez, Alonso, Navarro, Torres, Domínguez, Ramos, Vázquez, Ramírez, Gil, Serrano, Morales, Molina, Blanco, Suárez, Castro, Ortega, Delgado, Ortiz, Marín, Rubio, Núñez, Medina, Sanz, Castillo, Iglesias, Cortés, Garrido, Santos, Guerrero, Lozano, Cano, Cruz, Méndez, Flores, Prieto, Herrera, Peña, León, Márquez, Cabrera, Gallego, Calvo, Vidal, Campos, Reyes, Vega, Fuentes, Carrasco, Diez, Aguilar, Caballero, Nieto, Santana, Vargas, Pascual, Herrero, Giménez, Hidalgo, Montero, Lorenzo, Benítez, Santiago, Durán, Ibáñez, Arias, Mora, Ferrer, Carmona, Vicente, Rojas, Soto, Crespo, Román, Pastor, Velasco, Parra, Sáez, Moya, Bravo, Rivera, Gallardo, Soler, Esteban, Pardo, Franco, Lara, Espinosa, Izquierdo, Rivas, Casado, Sierra, Luque, Montes, Otero, Vila, Puig, Pujol, Roca, Font, Serra, Mas, Bosch, Sala, Rovira, Casas, Etxeberria, Goikoetxea, Aguirre, Arrieta, Zubizarreta, Urrutia, Bilbao, Iturralde, Castelo, Rey, Pazos, Souto, Seoane"
+    },
+    {
+      "share": 8,
+      "origin": "Latin American",
+      "male": "Juan Carlos, Luis Fernando, Wilson, Edwin, Jhon, Brayan, Yeison, Henry",
+      "female": "Yesenia, Leidy, Yuliana, Dayana, Marisol, Guadalupe, Ximena, Valentina",
+      "surnames": "Restrepo, Cárdenas, Quispe, Mamani, Zambrano, Villalobos, Benavides, Arango, Ospina, Salazar, Chávez, Mendoza"
+    },
+    {
+      "share": 5,
+      "origin": "Moroccan heritage",
+      "male": "Mohamed, Ahmed, Youssef, Said, Rachid, Hamza",
+      "female": "Fatima, Khadija, Naima, Samira, Nadia, Salma",
+      "surnames": "El Amrani, Benali, Bouzid, El Idrissi, Azzouzi, Tahiri, Chakir, Ziani"
+    },
+    {
+      "share": 3,
+      "origin": "Romanian heritage",
+      "male": "Ion, Gheorghe, Andrei, Mihai, Florin, Bogdan",
+      "female": "Elena, Ioana, Mihaela, Andreea, Alina, Cristina",
+      "surnames": "Popescu, Ionescu, Popa, Stan, Dumitru, Munteanu, Constantin, Rusu"
+    }
+  ]
+}

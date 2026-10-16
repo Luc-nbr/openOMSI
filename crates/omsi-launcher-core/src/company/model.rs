@@ -530,6 +530,10 @@ pub struct Employee {
     /// The holidays they asked for, and the answers (`holidays`; an older file: none).
     #[serde(default)]
     pub leave: super::holidays::Leave,
+    /// A booked agency driver's number of his day (`agency::number_of`; 0: none, or an older
+    /// file's, whose name says it).
+    #[serde(default)]
+    pub agency_no: u32,
 }
 
 /// What an employee does.
@@ -887,6 +891,10 @@ pub struct Company {
     /// A sandbox's knobs (a Career company reads the Career's whatever these say: `sandbox::of`).
     #[serde(default)]
     pub sandbox: super::sandbox::Sandbox,
+    /// The country it plays in: the names of the people it hires from then on (`names`; a file
+    /// of before: its map's, else International - `store::migrate`).
+    #[serde(default)]
+    pub country: String,
 }
 
 fn one() -> f64 {

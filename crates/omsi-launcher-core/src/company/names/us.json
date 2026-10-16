@@ -1,0 +1,42 @@
+{
+  "key": "us",
+  "flag": "🇺🇸",
+  "name": "United States",
+  "groups": [
+    {
+      "share": 57,
+      "origin": "White American",
+      "male": "James, John, Robert, Michael, William, David, Richard, Joseph, Thomas, Charles, Christopher, Daniel, Matthew, Anthony, Mark, Donald, Steven, Paul, Andrew, Joshua, Kenneth, Kevin, Brian, George, Timothy, Ronald, Edward, Jason, Jeffrey, Ryan, Jacob, Gary, Nicholas, Eric, Jonathan, Stephen, Larry, Justin, Scott, Brandon, Benjamin, Samuel, Gregory, Frank, Raymond, Patrick, Jack, Dennis, Jerry, Tyler, Aaron, Henry, Douglas, Peter, Adam, Nathan, Zachary, Walter, Kyle, Harold, Carl, Jeremy, Keith, Roger, Gerald, Ethan, Austin, Logan, Hunter, Cody, Dustin, Wyatt, Caleb, Bradley",
+      "female": "Mary, Patricia, Jennifer, Linda, Elizabeth, Barbara, Susan, Jessica, Sarah, Karen, Lisa, Nancy, Betty, Margaret, Sandra, Ashley, Kimberly, Emily, Donna, Michelle, Carol, Amanda, Melissa, Deborah, Stephanie, Rebecca, Sharon, Laura, Cynthia, Kathleen, Amy, Angela, Shirley, Anna, Brenda, Pamela, Emma, Nicole, Helen, Samantha, Katherine, Christine, Debra, Rachel, Carolyn, Janet, Catherine, Heather, Diane, Olivia, Julie, Joyce, Victoria, Christina, Lauren, Joan, Evelyn, Judith, Megan, Cheryl, Hannah, Martha, Jacqueline, Frances, Gloria, Ann, Teresa, Kathryn, Sara, Janice, Abigail, Madison, Brittany, Kayla, Courtney, Haley, Amber",
+      "surnames": "Smith, Johnson, Williams, Brown, Jones, Miller, Davis, Wilson, Anderson, Taylor, Thomas, Moore, Martin, Jackson, Thompson, White, Harris, Clark, Lewis, Robinson, Walker, Young, Allen, King, Wright, Scott, Hill, Green, Adams, Baker, Nelson, Mitchell, Campbell, Roberts, Carter, Phillips, Evans, Turner, Parker, Collins, Edwards, Stewart, Morris, Murphy, Cook, Rogers, Morgan, Cooper, Peterson, Bailey, Reed, Kelly, Howard, Cox, Ward, Richardson, Wood, Watson, Brooks, Bennett, Gray, Hughes, Price, Sanders, Myers, Long, Ross, Foster, Powell, Jenkins, Perry, Russell, Sullivan, Bell, Coleman, Butler, Henderson, Barnes, Fisher, Hayes, Graham, Wallace, Hamilton, Schmidt, Mueller, Schneider, Olson, Hansen, Larson, Swanson, Kowalski, Novak, Russo, Rossi, O'Brien, McCarthy, Fitzgerald, Murray, Stone, Hunt, Black, Hoffman, Wagner, Snyder, Becker, Schultz, Meyer, Klein, Zimmerman, Hartman, Weaver, Fox, Holt, Lambert, Dunn, Hawkins, Burns, Mason, Lawson, Cunningham, Spencer, Gardner, Stephens, Payne, Pierce, Berry, Matthews, Arnold, Webb, Tucker, Porter, Hunter, Hicks, Crawford, Boyd, Warren, Dixon, Ramsey, Ellis, Harrison, Fleming, Shaw, Holmes, Rice, Robertson, Hart, Lynch, Andrews, Ferguson, Nichols, Grant, Knight, Sherman, Wolfe, Carpenter, Hale, Morrison, Garrett, Bishop, Reynolds, Walsh, Kennedy, Quinn"
+    },
+    {
+      "share": 19,
+      "origin": "Hispanic and Latino",
+      "male": "José, Luis, Carlos, Juan, Jorge, Miguel, Alejandro, Javier, Jesús, Ricardo, Fernando, Roberto, Eduardo, Héctor, Raúl, Mario, Francisco, Manuel, Pedro, Angel, Diego, Adrián, Óscar, Rafael",
+      "female": "María, Guadalupe, Rosa, Ana, Carmen, Verónica, Gabriela, Alejandra, Leticia, Yolanda, Marisol, Lucía, Valeria, Ximena, Daniela, Isabel, Esperanza, Juana, Elena, Mariana",
+      "surnames": "García, Rodríguez, Martínez, Hernández, López, González, Pérez, Sánchez, Ramírez, Torres, Flores, Rivera, Gómez, Díaz, Reyes, Morales, Cruz, Ortiz, Gutiérrez, Chávez, Ramos, Ruiz, Mendoza, Álvarez, Castillo, Jiménez, Vásquez, Moreno, Herrera, Medina"
+    },
+    {
+      "share": 13,
+      "origin": "African American",
+      "male": "DeShawn, Jamal, Darnell, Terrell, Tyrone, Marcus, Andre, Malik, Darius, Jerome, Reginald, Cedric, Lamar, DeAndre, Isaiah, Elijah, Xavier, Jalen, Trevon; Kwame, Chinedu, Abdi",
+      "female": "Keisha, Latoya, Tamika, Shanice, Imani, Aaliyah, Jasmine, Ebony, Tiana, Monique, Shaniqua, Kiara, Destiny, Nia, Ayanna, Latasha, Precious, Jada; Ngozi, Amina",
+      "surnames": "Washington, Jefferson, Booker, Banks, Freeman, Mosley, Gaines, Battle, Dorsey, Bynum, Merriweather, Holloway, Glover, Harrell, Rivers, Byrd, Hairston, Mack, Pettiford; Okafor, Mensah, Diallo, Abdi"
+    },
+    {
+      "share": 7,
+      "origin": "Asian American",
+      "male": "Wei, Jun; Hiroshi, Kenji; Minh, Duc; Rajesh, Arjun, Sanjay; Jin-ho, Hyun; Rodel",
+      "female": "Mei, Xin, Jia; Yuki, Akiko; Linh, Thao; Priya, Anjali; Min-ji, Su-bin; Maricel",
+      "surnames": "Chen, Wang, Li, Wong, Liu; Tanaka, Yamamoto; Nguyen, Tran, Pham; Patel, Singh, Shah; Kim, Park; Santos, Reyes, Dela Cruz"
+    },
+    {
+      "share": 4,
+      "origin": "Middle Eastern, Native and other",
+      "male": "Omar, Khalil, Tariq, Hassan; Ahanu; Keoni",
+      "female": "Layla, Amira, Yasmin; Aiyana; Leilani",
+      "surnames": "Haddad, Khoury, Nasser, Mansour; Begay, Yazzie, Tsosie; Kealoha"
+    }
+  ]
+}

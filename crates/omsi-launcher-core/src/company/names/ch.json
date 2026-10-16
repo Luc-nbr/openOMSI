@@ -1,0 +1,56 @@
+{
+  "key": "ch",
+  "flag": "🇨🇭",
+  "name": "Switzerland",
+  "groups": [
+    {
+      "share": 50,
+      "origin": "Swiss German",
+      "male": "Daniel, Peter, Thomas, Martin, Hans, Christian, Andreas, Marco, Beat, Urs, Reto, Roger, Stefan, Bruno, Walter, Markus, René, Simon, Lukas, Matthias, Adrian, Patrick, Pascal, Fabian, Noah, Luca, Leon, Nico, Jonas, Samuel, Fritz, Ruedi, Kurt, Heinz, Werner, Ueli, Hansruedi, Jürg, Res, Dominik, Silvan, Remo, Cyril, Gian, Jan, Severin, Raphael, Matteo, Elias",
+      "female": "Maria, Ursula, Ruth, Elisabeth, Verena, Monika, Barbara, Daniela, Sandra, Nicole, Claudia, Karin, Brigitte, Esther, Regula, Susanne, Andrea, Franziska, Sarah, Laura, Anna, Lea, Mia, Lena, Nina, Jana, Corinne, Manuela, Silvia, Rosmarie, Heidi, Vreni, Beatrice, Dora, Margrit, Theres, Cornelia, Seraina, Ladina, Annina, Livia, Chiara, Carmen, Fabienne, Melanie, Tamara, Nadja, Petra, Rahel, Lara",
+      "surnames": "Müller, Meier, Schmid, Keller, Weber, Huber, Schneider, Meyer, Steiner, Fischer, Gerber, Brunner, Baumann, Frei, Zimmermann, Moser, Widmer, Wyss, Graf, Roth, Suter, Baumgartner, Bachmann, Studer, Bühler, Bucher, Berger, Kaufmann, Hofmann, Kälin, Lüthi, Marti, Schär, Zbinden, Bieri, Hess, Iten, Kunz, Wenger, Aebi, Egli, Ammann, Bösch, Imhof, Rüegg, Stucki, Zürcher, Hug, Lehmann, Sutter, Wälti, Flückiger, Hostettler, Blaser, Hauser, Kündig, Tschudi, Zollinger, Häfliger, Odermatt, Arnold, Gisler, Schnyder, Inäbnit, Glauser, Ruch, Burri, Rohner, Vogt, Zingg"
+    },
+    {
+      "share": 20,
+      "origin": "Romand",
+      "male": "Jean-Pierre, Philippe, Michel, Christophe, Olivier, Laurent, Pierre, François, Nicolas, Julien, Alain, Bernard, Jacques, Yves, Gilles, Sébastien, Cédric, Grégoire, Mathieu, Loïc, Joël, Raphaël",
+      "female": "Isabelle, Nathalie, Sophie, Valérie, Catherine, Christine, Martine, Véronique, Sylvie, Céline, Julie, Mélanie, Françoise, Delphine, Chloé, Camille, Léa, Océane, Coralie, Joëlle, Mireille, Murielle",
+      "surnames": "Favre, Rochat, Bonvin, Pittet, Rey, Perrin, Morand, Dubois, Mottier, Chappuis, Jaccard, Pasche, Vuilleumier, Monnier, Girard, Bovet, Cuendet, Python, Carrard, Berset, Crettenand, Fragnière, Dupasquier, Droz, Duc, Gaillard, Golay, Chevalley, Junod, Matthey"
+    },
+    {
+      "share": 9,
+      "origin": "Ticinese and Italian heritage",
+      "male": "Giuseppe, Giovanni, Antonio, Paolo, Roberto, Fabio, Stefano, Claudio, Mattia, Alessandro",
+      "female": "Giovanna, Francesca, Paola, Elena, Giulia, Sara, Silvana, Alessia, Federica, Rosa",
+      "surnames": "Bernasconi, Rossi, Ferrari, Bianchi, Fontana, Pedrazzini, Galli, Colombo, Moretti, Rezzonico, Lurati, Cattaneo, Bassi, Romano, Esposito"
+    },
+    {
+      "share": 7,
+      "origin": "Kosovar, Albanian and Balkan heritage",
+      "male": "Arben, Besnik, Driton, Fatmir, Ilir, Valon, Agron; Dragan, Goran, Nikola",
+      "female": "Arta, Blerta, Drita, Vjosa, Albana, Teuta; Jasmina, Ivana",
+      "surnames": "Krasniqi, Berisha, Gashi, Morina, Hoxha, Shala, Kastrati, Rexhepi; Jovanović, Petrović, Hodžić, Babić"
+    },
+    {
+      "share": 6,
+      "origin": "Portuguese and Spanish heritage",
+      "male": "João, José, Manuel, Rui, Nuno; Carlos, Miguel, Javier",
+      "female": "Ana, Mariana, Inês, Sofia; Carla, Lucía, Beatriz, Raquel",
+      "surnames": "Da Silva, Ferreira, Pereira, Rodrigues, Santos, Gonçalves, Martins, Fernandes; García, López"
+    },
+    {
+      "share": 5,
+      "origin": "German",
+      "male": "Jürgen, Uwe, Klaus, Frank, Holger, Sven",
+      "female": "Heike, Kerstin, Silke, Anke, Sabine, Katrin",
+      "surnames": "Schulz, Krüger, Becker, Richter, Hoffmann, Krause, Schröder, Neumann"
+    },
+    {
+      "share": 3,
+      "origin": "Turkish and Kurdish heritage",
+      "male": "Mehmet, Ahmet, Emre, Murat, Hakan, Yusuf",
+      "female": "Ayşe, Fatma, Elif, Zeynep, Merve, Aylin",
+      "surnames": "Yılmaz, Kaya, Demir, Şahin, Çelik, Aydın, Arslan, Doğan"
+    }
+  ]
+}

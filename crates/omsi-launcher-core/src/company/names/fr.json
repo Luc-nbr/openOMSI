@@ -1,0 +1,49 @@
+{
+  "key": "fr",
+  "flag": "🇫🇷",
+  "name": "France",
+  "groups": [
+    {
+      "share": 74,
+      "origin": "French",
+      "male": "Jean-Pierre, Jean-Luc, Jean-Marc, Philippe, Michel, Christophe, Olivier, Laurent, Pierre, François, Nicolas, Julien, Thibault, Arnaud, Sébastien, Maxime, Antoine, Guillaume, Damien, Jérôme, Didier, Alain, Bernard, Jacques, Quentin, Romain, Florian, Cédric, Xavier, Thierry, Éric, Patrick, Pascal, Stéphane, Frédéric, Vincent, David, Fabrice, Hervé, Gilles, Yves, Gérard, Daniel, Marcel, René, Lucas, Hugo, Louis, Gabriel, Arthur, Raphaël, Jules, Adam, Mathis, Théo, Nathan, Paul, Victor, Clément, Baptiste, Alexandre, Benjamin, Mathieu, Bastien, Loïc, Kévin, Anthony, Jonathan, Rémi, Yannick",
+      "female": "Marie, Nathalie, Isabelle, Sylvie, Catherine, Françoise, Christine, Valérie, Sandrine, Stéphanie, Véronique, Céline, Sophie, Aurélie, Émilie, Julie, Camille, Laura, Manon, Chloé, Léa, Emma, Jade, Louise, Alice, Lina, Rose, Anna, Inès, Juliette, Margaux, Pauline, Mathilde, Lucie, Clémence, Élodie, Audrey, Caroline, Hélène, Martine, Monique, Brigitte, Danielle, Jacqueline, Annie, Chantal, Mireille, Odile, Agnès, Corinne, Karine, Virginie, Laetitia, Delphine, Charlotte, Océane, Marine, Justine, Anaïs, Mélanie, Elsa, Coralie, Solène, Gwenaëlle, Maëlle, Morgane, Nadège, Sabrina",
+      "surnames": "Martin, Bernard, Thomas, Petit, Robert, Richard, Durand, Dubois, Moreau, Laurent, Simon, Michel, Lefebvre, Leroy, Roux, David, Bertrand, Morel, Fournier, Girard, Bonnet, Dupont, Lambert, Fontaine, Rousseau, Vincent, Muller, Lefèvre, Faure, André, Mercier, Blanc, Guérin, Boyer, Garnier, Chevalier, François, Legrand, Gauthier, Garcia, Perrin, Robin, Clément, Morin, Nicolas, Henry, Roussel, Mathieu, Gautier, Masson, Marchand, Duval, Denis, Dumont, Marie, Lemaire, Noël, Meyer, Dufour, Meunier, Brun, Blanchard, Giraud, Joly, Rivière, Lucas, Brunet, Gaillard, Barbier, Arnaud, Martinez, Gérard, Roche, Renard, Schmitt, Roy, Leroux, Colin, Vidal, Caron, Picard, Roger, Fabre, Aubert, Lemoine, Renaud, Dumas, Lacroix, Olivier, Philippe, Bourgeois, Pierre, Benoît, Rey, Leclerc, Payet, Rolland, Leclercq, Guillaume, Lecomte, Lopez, Jean, Dupuy, Guillot, Hubert, Berger, Carpentier, Sanchez, Dupuis, Moulin, Louis, Deschamps, Huet, Vasseur, Perez, Boucher, Fleury, Royer, Klein, Jacquet, Le Gall, Le Goff, Le Roux, Kerboriou, Tanguy"
+    },
+    {
+      "share": 12,
+      "origin": "Maghrebi heritage",
+      "male": "Mohamed, Karim, Mehdi, Samir, Nabil, Rachid, Sofiane, Yassine, Bilal, Hamza, Nassim, Farid, Mourad, Kamel, Djamel, Walid, Riyad, Amine",
+      "female": "Fatima, Samira, Nadia, Leïla, Yasmina, Lyna, Chaïma, Kenza, Myriam, Malika, Houria, Djamila, Souad, Nawel, Amel, Rania",
+      "surnames": "Benali, Bouzid, Belkacem, Haddad, Mansouri, Cherif, Boudiaf, Hamidi, Saidi, Amrani, Benaissa, Brahimi, Khelifi, Rahmani, Zerrouki, Meziane, Larbi, Ferhat"
+    },
+    {
+      "share": 5,
+      "origin": "West and Central African heritage",
+      "male": "Moussa, Mamadou, Ibrahima, Ousmane, Abdoulaye, Sékou, Cheikh",
+      "female": "Aminata, Fatoumata, Aïssatou, Mariam, Awa, Kadiatou, Ramatoulaye",
+      "surnames": "Diallo, Traoré, Diop, Ndiaye, Konaté, Coulibaly, Camara, Sow, Cissé, Keita, Touré, Mbappé"
+    },
+    {
+      "share": 4,
+      "origin": "Portuguese heritage",
+      "male": "João, José, Manuel, Carlos, Rui, Nuno",
+      "female": "Ana, Mariana, Sofia, Carla, Beatriz, Raquel",
+      "surnames": "Da Silva, Ferreira, Pereira, Rodrigues, Santos, Gonçalves, Fernandes, Teixeira"
+    },
+    {
+      "share": 3,
+      "origin": "Italian and Spanish heritage",
+      "male": "Giuseppe, Antonio, Salvatore; Javier, Alejandro",
+      "female": "Giovanna, Francesca; Lucía, Carmen, Pilar",
+      "surnames": "Rossi, Esposito, Romano, Ferrari; Fernández, Rodríguez, González, Sánchez"
+    },
+    {
+      "share": 2,
+      "origin": "Vietnamese and Chinese heritage",
+      "male": "Minh, Tuấn; Wei, Jun",
+      "female": "Linh, Thảo; Mei, Ling",
+      "surnames": "Nguyen, Tran, Le, Pham; Chen, Wang"
+    }
+  ]
+}

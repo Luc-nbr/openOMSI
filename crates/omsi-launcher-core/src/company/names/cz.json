@@ -1,0 +1,39 @@
+{
+  "key": "cz",
+  "flag": "🇨🇿",
+  "name": "Czechia",
+  "feminine": "cs",
+  "groups": [
+    {
+      "share": 92,
+      "origin": "Czech",
+      "male": "Jiří, Jan, Petr, Josef, Pavel, Martin, Tomáš, Jaroslav, Miroslav, Zdeněk, Václav, Michal, František, Karel, Milan, Vladimír, Lukáš, David, Jakub, Ladislav, Stanislav, Roman, Ondřej, Radek, Marek, Daniel, Antonín, Vojtěch, Filip, Adam, Matěj, Libor, Aleš, Vít, Dušan, Luboš, Radim, Bohumil, Oldřich, Vlastimil, Jindřich, Přemysl, Lubomír, Rostislav, Kamil, Šimon, Dominik, Štěpán, Viktor, Patrik, Ivo, Igor, Bořivoj, Bedřich, Kryštof, Vilém, Hynek, Jáchym, Eduard, Robert, Dalibor, Zbyněk, Svatopluk, Čeněk, Prokop, Ota, Emil, Denis, Marcel, Leoš",
+      "female": "Jana, Marie, Eva, Hana, Anna, Lenka, Kateřina, Lucie, Věra, Alena, Petra, Veronika, Jaroslava, Martina, Tereza, Michaela, Jitka, Helena, Ludmila, Zdeňka, Ivana, Monika, Eliška, Zuzana, Markéta, Barbora, Kristýna, Klára, Adéla, Natálie, Karolína, Simona, Dagmar, Libuše, Irena, Miroslava, Božena, Blanka, Renata, Šárka, Pavla, Romana, Radka, Vlasta, Olga, Gabriela, Dana, Iveta, Milada, Jiřina, Drahomíra, Zdenka, Vendula, Denisa, Aneta, Sabina, Magdaléna, Silvie, Ema, Sofie, Viktorie, Rozálie, Dominika, Nela, Johana",
+      "surnames": "Novák, Svoboda, Novotný, Dvořák, Černý, Procházka, Kučera, Veselý, Horák, Němec|Němcová, Marek|Marková, Pokorný, Pospíšil, Hájek, Král, Jelínek, Růžička, Beneš, Fiala, Sedláček, Doležal, Zeman, Kolář, Navrátil, Čermák, Vaněk|Vaňková, Urban, Blažek, Kříž, Kovář, Kratochvíl, Bartoš, Vlček, Polák, Musil, Kopecký, Šimek, Konečný, Malý, Holub, Štěpánek, Čech, Staněk|Staňková, Kadlec, Dostál, Soukup, Šťastný, Mareš, Moravec|Moravcová, Sýkora, Tichý, Valenta, Vávra, Matoušek, Bláha, Říha, Ševčík, Bureš, Hruška, Mašek, Pavlík, Dušek, Janda, Hrubý, Mach, Kubíček, Krejčí, Havlíček, Jirásek, Kohout, Holý, Šebek, Toman, Brož, Lukáš, Kalina, Vondráček, Hudec, Cibulka, Kraus, Petrák, Šindelář, Řezníček, Zedník, Kovařík, Charvát, Tůma, Kubát, Bednář, Šafránek, Strnad, Kašpar, Kubiček, Kalous, Houška, Hladík, Machala, Rybář, Vojtek, Smutný, Pešek, Šrámek, Hora, Klíma, Komárek, Jireš, Votava, Pražák, Svatoš, Skála, Zelenka, Formánek, Kolařík, Sládek, Kopal, Neumann, Hron, Lang, Vacek, Šulc, Holeček, Paur, Tomášek, Polívka, Hanák, Uher|Uhrová, Dolejš, Kolman, Šťovíček, Zíka, Vojáček, Kroupa, Sobotka, Vrba, Šimůnek, Jindra, Hejda, Michálek, Kotek, Řehák, Pešák, Wagner, Bauer, Kaiser, Richter"
+    },
+    {
+      "share": 4,
+      "origin": "Slovak",
+      "feminine": "sk",
+      "male": "Juraj, Ľubomír, Ján, Marián, Rastislav, Peter",
+      "female": "Mária, Ľubica, Katarína, Ľudmila, Lucia, Jarmila",
+      "surnames": "Horváth, Kováč, Varga, Tóth, Baláž, Szabó, Molnár, Lukáč, Kollár, Hudák"
+    },
+    {
+      "share": 2,
+      "origin": "Ukrainian",
+      "feminine": "",
+      "male": "Oleh, Andrij, Volodymyr, Serhij, Taras, Bohdan",
+      "female": "Olena, Natalija, Oksana, Tetjana, Svitlana, Iryna",
+      "surnames": "Ševčenko, Bondarenko, Kovalenko, Tkačenko, Melnyk, Kovalčuk, Lysenko, Ponomarenko"
+    },
+    {
+      "share": 2,
+      "origin": "Vietnamese",
+      "feminine": "",
+      "male": "Minh, Tuấn, Dũng, Hùng, Quang",
+      "female": "Linh, Thảo, Hương, Lan, Mai",
+      "surnames": "Nguyen, Tran, Le, Pham, Hoang, Vu"
+    }
+  ]
+}

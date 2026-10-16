@@ -70,6 +70,10 @@ pub fn migrate(mut c: Company) -> Company {
         super::licences::grant_fleet(&mut c);
         c.quals = 1;
     }
+    // (a company from before the countries: its map's, else International)
+    if !super::names::known(&c.country) {
+        c.country = super::names::guess(&c.map, &c.map_name).to_string();
+    }
     // (everyone a face of their own, the wages' price index)
     super::staff::migrate(&mut c);
     c.version = VERSION;

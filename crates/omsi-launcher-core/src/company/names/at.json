@@ -1,0 +1,49 @@
+{
+  "key": "at",
+  "flag": "🇦🇹",
+  "name": "Austria",
+  "groups": [
+    {
+      "share": 76,
+      "origin": "Austrian",
+      "male": "Thomas, Michael, Andreas, Stefan, Christian, Markus, Martin, Wolfgang, Gerhard, Franz, Johann, Josef, Karl, Alois, Herbert, Helmut, Günther, Manfred, Peter, Harald, Werner, Robert, Bernhard, Florian, Lukas, Tobias, David, Simon, Elias, Jakob, Maximilian, Paul, Felix, Leon, Fabian, Dominik, Patrick, Daniel, Philipp, Matthias, Georg, Leopold, Ferdinand, Anton, Rupert, Hubert, Reinhard, Roland, Kurt, Ernst, Erwin, Siegfried, Gottfried, Alexander, Clemens, Valentin, Raphael, Moritz, Jonas, Konstantin, Mario, René",
+      "female": "Maria, Anna, Elisabeth, Barbara, Christina, Sabine, Claudia, Andrea, Petra, Monika, Gabriele, Karin, Brigitte, Renate, Ingrid, Johanna, Theresa, Katharina, Magdalena, Sophie, Laura, Lena, Hannah, Sarah, Julia, Lisa, Valentina, Emma, Marie, Leonie, Anja, Martina, Silvia, Doris, Eva, Elfriede, Herta, Gertraud, Hildegard, Rosemarie, Stefanie, Verena, Bettina, Daniela, Nicole, Melanie, Carina, Viktoria, Michaela, Manuela, Waltraud, Theresia, Romana, Birgit, Kerstin, Tamara, Nina, Simone, Ulrike, Franziska, Christa, Helga",
+      "surnames": "Gruber, Huber, Bauer, Wagner, Müller, Pichler, Steiner, Moser, Mayer, Hofer, Leitner, Berger, Fuchs, Eder, Fischer, Schmid, Winkler, Weber, Schwarz, Maier, Schneider, Reiter, Mayr, Schmidt, Wimmer, Egger, Brunner, Lang, Baumgartner, Auer, Binder, Lechner, Wolf, Wallner, Aigner, Ebner, Koller, Lehner, Haas, Schuster, Holzer, Strasser, Hofmann, Huemer, Wieser, Lindner, Stadler, Mair, Brandstätter, Riegler, Hödl, Kogler, Pfeifer, Zauner, Weiß, Friedl, Schober, Kainz, Grabner, Hager, Gasser, Haider, Unterberger, Hackl, Rainer, Pirker, Kofler, Ortner, Wurm, Fink, Kaiser, Weinberger, Gratzer, Prem, Kern, Schweiger, Rauch, Schatz, Kirchmair, Hammerl, Thaler, Kurz, Posch, Kreuzer, Lackner, Pölzl, Url, Sommer, Neuhold, Reisinger, Tauber, Lackinger, Ploner, Haberl, Stöger, Rieder, Lugger, Trummer, Grill, Nagl, Hofbauer, Schachner, Wiesinger, Kalcher, Fasching, Spitzer, Gangl, Eichberger, Zach, Mörth, Dorfer, Sattler, Plank, Pölz, Feichtinger"
+    },
+    {
+      "share": 8,
+      "origin": "Bosnian, Croatian and Serbian heritage",
+      "male": "Admir, Emir, Haris, Edin, Mirza, Damir; Ivan, Tomislav, Mladen; Dragan, Goran, Zoran, Nikola, Marko, Dejan, Milan",
+      "female": "Amra, Lejla, Selma, Ajla, Jasmina; Ivana, Marija, Maja; Snežana, Mirjana, Dragana, Biljana",
+      "surnames": "Hodžić, Begić, Mehmedović, Hadžić; Kovačević, Babić, Horvat, Jurić, Kovač, Novak; Jovanović, Petrović, Nikolić, Marković, Ilić, Popović, Đorđević, Stojanović"
+    },
+    {
+      "share": 6,
+      "origin": "Turkish heritage",
+      "male": "Mehmet, Ahmet, Hüseyin, Mustafa, Emre, Burak, Murat, Kemal, Hakan, Yusuf",
+      "female": "Ayşe, Fatma, Elif, Zeynep, Emine, Hatice, Merve, Esra, Aylin, Selin",
+      "surnames": "Yılmaz, Kaya, Demir, Şahin, Çelik, Yıldız, Öztürk, Aydın, Arslan, Doğan, Kılıç, Polat"
+    },
+    {
+      "share": 4,
+      "origin": "German",
+      "male": "Jürgen, Uwe, Klaus, Frank, Holger, Sven, Torsten, Jens",
+      "female": "Heike, Kerstin, Silke, Anke, Wiebke, Svenja",
+      "surnames": "Schulz, Krüger, Becker, Richter, Hoffmann, Krause, Schröder, Neumann, Lehmann, Schulte"
+    },
+    {
+      "share": 3,
+      "origin": "Romanian heritage",
+      "male": "Ion, Gheorghe, Andrei, Mihai, Florin, Bogdan",
+      "female": "Elena, Ioana, Mihaela, Andreea, Alina, Cristina",
+      "surnames": "Popescu, Ionescu, Popa, Stan, Dumitru, Munteanu, Constantin, Rusu"
+    },
+    {
+      "share": 3,
+      "origin": "Polish, Czech and Hungarian heritage",
+      "male": "Piotr, Tomasz; Jiří, Petr; László, Zoltán",
+      "female": "Agnieszka, Katarzyna; Jana, Lucie; Erzsébet, Zsófia",
+      "surnames": "Nowak, Kowalczyk; Novotny, Dvorak, Svoboda; Horvath, Nagy, Kovacs"
+    }
+  ]
+}

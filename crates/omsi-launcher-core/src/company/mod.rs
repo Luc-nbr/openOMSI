@@ -44,6 +44,8 @@ pub mod licences;
 pub mod livery;
 pub mod market;
 pub mod model;
+// (the people's names by the country the company plays in)
+pub mod names;
 pub mod network;
 pub mod ownline;
 pub mod parts;
@@ -93,6 +95,8 @@ pub struct Founding {
     pub vehicles: vehicles::VehicleChoice,
     /// Career or Sandbox (`sandbox`).
     pub company_mode: sandbox::CompanyMode,
+    /// The country it plays in, its people's names (`names`; empty: the map's).
+    pub country: String,
 }
 
 /// A name as a file name: lower case, letters and digits, dashes between.
@@ -185,6 +189,7 @@ pub fn found(f: &Founding, profile: &str) -> Company {
         lateness: Default::default(),
         company_mode: f.company_mode,
         sandbox: sandbox::CAREER,
+        country: if names::known(&f.country) { names::pool(&f.country).key.clone() } else { names::guess(&f.map, &f.map_name).to_string() },
     };
     // (Casual buys quickly; the buying chosen is kept for the other modes)
     autopilot::set_game_mode(&mut c, f.game_mode);

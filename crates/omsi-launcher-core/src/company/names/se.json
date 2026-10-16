@@ -1,0 +1,57 @@
+{
+  "key": "se",
+  "flag": "🇸🇪",
+  "name": "Sweden",
+  "groups": [
+    {
+      "share": 78,
+      "origin": "Swedish",
+      "male": "Lars, Anders, Johan, Per, Erik, Karl, Peter, Thomas, Jan, Daniel, Fredrik, Hans, Bengt, Mikael, Magnus, Stefan, Mats, Nils, Andreas, Jonas, Björn, Göran, Ulf, Leif, Sven, Bo, Åke, Lennart, Kjell, Gunnar, Henrik, Martin, Mattias, Marcus, Patrik, Niklas, Joakim, Tobias, Oskar, William, Liam, Hugo, Elias, Alexander, Lucas, Adam, Axel, Ludvig, Viktor, Filip, Isak, Albin, Edvin, Olle, Gustav, Arvid, Melker, Vilgot, Sixten, Ebbe, Rune, Torbjörn, Roger, Håkan, Ingvar, Rolf, Kent, Pontus, Sebastian, Emil, Jesper",
+      "female": "Anna, Eva, Maria, Karin, Kristina, Lena, Kerstin, Sara, Ingrid, Emma, Birgitta, Malin, Marie, Elin, Linnéa, Ulla, Annika, Sofia, Hanna, Margareta, Elisabeth, Johanna, Katarina, Ida, Susanne, Camilla, Helena, Inger, Monica, Jenny, Linda, Åsa, Gunilla, Ann-Christin, Maja, Ebba, Alice, Astrid, Wilma, Saga, Signe, Selma, Freja, Elsa, Ella, Vera, Olivia, Agnes, Alva, Stina, Siv, Gun, Britt, Majken, Tove, Therese, Frida, Matilda, Moa, Klara, Lovisa, Tilda, Nathalie, Josefin, Cecilia, Louise, Emelie, Ylva, Pernilla, Ronja, Tyra, Märta",
+      "surnames": "Andersson, Johansson, Karlsson, Nilsson, Eriksson, Larsson, Olsson, Persson, Svensson, Gustafsson, Pettersson, Jonsson, Jansson, Hansson, Bengtsson, Jönsson, Lindberg, Jakobsson, Magnusson, Lindström, Olofsson, Lindqvist, Lindgren, Berg, Axelsson, Bergström, Lundberg, Lind, Lundgren, Lundqvist, Mattsson, Berglund, Fredriksson, Sandberg, Henriksson, Forsberg, Sjöberg, Wallin, Engström, Eklund, Danielsson, Lundin, Håkansson, Björk, Bergman, Gunnarsson, Holm, Wikström, Samuelsson, Isaksson, Fransson, Bergqvist, Nyström, Holmberg, Arvidsson, Löfgren, Söderberg, Nyberg, Blomqvist, Claesson, Nordström, Mårtensson, Lundström, Viklund, Björklund, Eliasson, Pålsson, Berggren, Sandström, Lund, Nordin, Ström, Åberg, Hermansson, Ekström, Holmgren, Sundberg, Hedlund, Dahlberg, Hellström, Sjögren, Abrahamsson, Falk, Martinsson, Öberg, Andreasson, Strömberg, Månsson, Hansen, Åkesson, Dahl, Lindholm, Norberg, Holmqvist, Ek, Sundqvist, Hedström, Strand, Nordqvist, Hägglund, Wallgren, Ekberg, Lilja, Sundström, Rosén, Hedberg, Borg, Forslund, Bäckström, Göransson, Ivarsson, Lindblom, Malmberg, Nordlund, Rydberg, Westerberg, Wiklund, Zetterberg, Ahlström, Brandt, Carlsson, Dahlgren, Edlund, Grahn, Hjalmarsson, Kvist, Lagerqvist, Mörk, Norén, Palm, Rask, Sjöström, Thorén, Vesterlund, Åström"
+    },
+    {
+      "share": 8,
+      "origin": "Middle Eastern heritage",
+      "male": "Mohammed, Ahmad, Ali, Hassan, Omar, Mahmoud, Karim, Rami, Hussein, Khaled",
+      "female": "Fatima, Aisha, Layla, Nour, Rania, Amal, Hiba, Zainab, Dalia",
+      "surnames": "Al-Hassan, Haddad, Khalil, Ibrahim, Saleh, Mansour, Darwish, Hamdan, Othman, Abdullah, Jaber, Al-Ali"
+    },
+    {
+      "share": 4,
+      "origin": "Finnish heritage",
+      "male": "Jari, Mika, Pekka, Timo, Juha, Esa",
+      "female": "Päivi, Tuula, Sirpa, Minna, Anneli, Riitta",
+      "surnames": "Korhonen, Virtanen, Mäkinen, Nieminen, Hämäläinen, Laine, Heikkinen, Koskinen"
+    },
+    {
+      "share": 3,
+      "origin": "From the former Yugoslavia",
+      "male": "Dragan, Goran, Zoran, Nikola; Admir, Emir",
+      "female": "Snežana, Mirjana, Ivana; Jasmina, Amra, Lejla",
+      "surnames": "Jovanović, Petrović, Nikolić, Ilić, Kovačević, Babić; Hodžić, Begić"
+    },
+    {
+      "share": 3,
+      "origin": "Polish heritage",
+      "feminine": "pl",
+      "male": "Piotr, Tomasz, Paweł, Krzysztof",
+      "female": "Agnieszka, Katarzyna, Magdalena, Joanna",
+      "surnames": "Nowak, Kowalski, Wiśniewski, Wójcik, Kamiński, Lewandowski"
+    },
+    {
+      "share": 2,
+      "origin": "Somali and Eritrean heritage",
+      "male": "Abdi, Abdirahman, Mohamud; Yonas, Tesfaye",
+      "female": "Hodan, Sahra, Asha; Hiwot, Selam",
+      "surnames": "Warsame, Abdullahi, Farah, Hussein; Tesfay, Gebremedhin"
+    },
+    {
+      "share": 2,
+      "origin": "Other Nordic",
+      "male": "Jens, Søren; Håkon, Øyvind",
+      "female": "Mette, Helle; Solveig, Ragnhild",
+      "surnames": "Jensen, Nielsen, Pedersen; Haugen, Solberg, Johansen"
+    }
+  ]
+}

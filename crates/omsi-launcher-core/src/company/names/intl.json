@@ -1,0 +1,6 @@
+{
+  "key": "intl",
+  "flag": "🌐",
+  "name": "International (mixed)",
+  "mix": ["nl", "be", "de", "at", "ch", "gb", "ie", "fr", "pl", "cz", "sk", "hu", "ro", "it", "es", "pt", "dk", "se", "no", "fi", "us", "ca", "au", "tr"]
+}

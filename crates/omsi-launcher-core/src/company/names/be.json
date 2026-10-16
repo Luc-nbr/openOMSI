@@ -1,0 +1,49 @@
+{
+  "key": "be",
+  "flag": "🇧🇪",
+  "name": "Belgium",
+  "groups": [
+    {
+      "share": 48,
+      "origin": "Flemish",
+      "male": "Jan, Wim, Geert, Koen, Bart, Tom, Steven, Kristof, Pieter, Jens, Wout, Arne, Brecht, Jef, Jos, Luc, Dirk, Marc, Filip, Frank, Stijn, Thijs, Seppe, Lowie, Warre, Mathis, Kobe, Vic, Tibo, Lander, Jonas, Senne, Ruben, Bert, Hendrik, Gert, Rik, Wannes, Joris, Ward, Sander, Dries, Michiel, Jozef, Herman, Rudi, Willy, Gilles",
+      "female": "Els, An, Katrien, Sofie, Lies, Hilde, Griet, Inge, Veerle, Leen, Sarah, Lotte, Ellen, Nele, Eline, Fien, Marie, Lisa, Hanne, Jana, Lore, Febe, Ine, Elke, Kaat, Mieke, Annemie, Rita, Martine, Gerda, Godelieve, Ilse, Kristien, Tine, Lien, Mira, Ona, Noor, Emma, Liv, Saar, Ruth, Sien",
+      "surnames": "Peeters, Janssens, Maes, Jacobs, Mertens, Willems, Claes, Goossens, Wouters, De Smet, Dubois, Hermans, Aerts, Pauwels, Michiels, Van de Velde, Desmet, Claeys, Verstraete, De Meyer, Vermeulen, Van Damme, Wuyts, Cools, De Backer, Lambrechts, Martens, Van den Broeck, Verhoeven, Smets, Van Dyck, Stevens, Leclercq, Coppens, De Clercq, Segers, Van Acker, Verbeke, Vandenberghe, De Coster, Bogaert, Verhaegen, Declercq, Van Hoof, Geerts, Hendrickx, Van Laere, Vermeiren, Cuypers, Moens, Thijs, Huybrechts, Van Hecke, Baert, Govaerts, Wauters, Van Gompel, Seghers, Daems, Verbruggen"
+    },
+    {
+      "share": 32,
+      "origin": "Walloon and Brussels French",
+      "male": "Jean-Pierre, Philippe, Michel, Christophe, Olivier, Laurent, Benoît, Pierre, François, Nicolas, Julien, Thibault, Arnaud, Sébastien, Grégory, Maxime, Antoine, Guillaume, Damien, Jérôme, Didier, Alain, Bernard, Jacques, Quentin, Romain, Florian, Cédric, Xavier, Hugues, Thierry, Éric",
+      "female": "Isabelle, Nathalie, Sophie, Valérie, Catherine, Anne-Sophie, Christine, Martine, Véronique, Sylvie, Aurélie, Céline, Julie, Charlotte, Manon, Pauline, Mélanie, Laurence, Françoise, Bernadette, Delphine, Amélie, Chloé, Louise, Juliette, Élise, Margaux, Justine, Caroline, Geneviève, Marie-Claire",
+      "surnames": "Dubois, Lambert, Dupont, Martin, Simon, Laurent, Leroy, Lejeune, Renard, Lemaire, Collin, Denis, Gilson, François, Mathieu, Henrard, Leclercq, Massart, Delvaux, Bodart, Charlier, Hubert, Remacle, Piron, Defourny, Gérard, Wilmotte, Lecomte, Delhaye, Baudoux, Thiry, Pirotte, Gillet, Dumont, Lhoest, Fontaine, Marchal, Robert, Noël, Lemmens, Sauvage, Wathelet, Michaux, Delforge, Hardy, Collard, Delcourt, Jacquemin, Hennuy, Demoulin"
+    },
+    {
+      "share": 8,
+      "origin": "Moroccan heritage",
+      "male": "Mohamed, Ahmed, Youssef, Said, Mustafa, Rachid, Karim, Bilal, Ayoub, Hamza, Ilias, Anouar",
+      "female": "Fatima, Khadija, Naima, Samira, Nadia, Malika, Yasmina, Hafsa, Imane, Salma",
+      "surnames": "El Amrani, Bouzid, El Idrissi, Benali, Azzouzi, El Khatib, Ouali, Ziani, Tahiri, Chakir, El Ouardi, Laaroussi"
+    },
+    {
+      "share": 5,
+      "origin": "Turkish heritage",
+      "male": "Mehmet, Ahmet, Emre, Burak, Murat, Kemal, Hakan, Yusuf",
+      "female": "Ayşe, Fatma, Elif, Zeynep, Merve, Esra, Aylin, Selin",
+      "surnames": "Yılmaz, Kaya, Demir, Şahin, Çelik, Yıldız, Öztürk, Aydın, Arslan, Doğan"
+    },
+    {
+      "share": 4,
+      "origin": "Italian heritage",
+      "male": "Giuseppe, Salvatore, Vincenzo, Antonio, Giovanni, Francesco",
+      "female": "Maria, Giovanna, Rosa, Francesca, Concetta, Lucia",
+      "surnames": "Russo, Esposito, Romano, Ferrara, Lombardo, Di Marco, Cannella, Caruso, Greco, Palumbo"
+    },
+    {
+      "share": 3,
+      "origin": "Congolese heritage",
+      "male": "Jean-Claude, Patrice, Désiré, Fiston, Junior, Papy",
+      "female": "Bénédicte, Pélagie, Gracia, Merveille, Ornella, Clarisse",
+      "surnames": "Mukendi, Kabongo, Tshibangu, Ilunga, Mbuyi, Lukusa, Kalonji, Ngoy, Mbala, Kasongo"
+    }
+  ]
+}

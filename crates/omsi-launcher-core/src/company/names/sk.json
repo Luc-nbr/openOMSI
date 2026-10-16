@@ -1,0 +1,38 @@
+{
+  "key": "sk",
+  "flag": "🇸🇰",
+  "name": "Slovakia",
+  "feminine": "sk",
+  "groups": [
+    {
+      "share": 85,
+      "origin": "Slovak",
+      "male": "Peter, Ján, Jozef, Martin, Michal, Tomáš, Marek, Milan, Miroslav, Ľubomír, Juraj, Štefan, Vladimír, Pavol, Jaroslav, Dušan, Marián, Róbert, Lukáš, Matej, Jakub, Samuel, Adam, Filip, Dávid, Šimon, Andrej, Igor, Roman, Rastislav, Branislav, Stanislav, Ladislav, Ivan, Karol, Anton, František, Viliam, Rudolf, Ondrej, Daniel, Patrik, Richard, Radoslav, Viktor, Matúš, Erik, Dominik, Kristián, Oliver, Alexander, Boris, Imrich, Ernest, Alojz, Emil, Ľudovít, Vojtech, Eduard, Gabriel, Dalibor, Zdenko, Bohumil, Kamil, Norbert, Tibor, Gejza, Miloš",
+      "female": "Mária, Anna, Zuzana, Katarína, Eva, Jana, Lucia, Martina, Ľudmila, Helena, Veronika, Monika, Ivana, Alžbeta, Dana, Viera, Magdaléna, Kristína, Barbora, Michaela, Simona, Petra, Silvia, Andrea, Daniela, Jarmila, Ľubica, Margita, Terézia, Agnesa, Emília, Božena, Oľga, Anežka, Dominika, Natália, Nina, Sofia, Ema, Nela, Viktória, Laura, Timea, Klaudia, Alexandra, Denisa, Gabriela, Renáta, Iveta, Blanka, Soňa, Miroslava, Stanislava, Marta, Žofia, Kamila, Lenka, Beáta, Erika, Adriána, Romana, Paulína, Vanda, Marcela, Kvetoslava, Bibiána, Hedviga, Jolana, Valéria, Tatiana",
+      "surnames": "Horváth, Kováč, Varga, Tóth, Nagy, Baláž, Szabó, Molnár, Balog, Lukáč, Novák, Kollár, Hudák, Gajdoš, Kováčik, Polák, Németh, Oravec|Oravcová, Kučera, Krajčovič, Šimko, Bartko, Michalík, Hrnčiar, Kmeť, Lacko, Marko, Rusnák, Kuruc, Mészáros, Biro, Fekete, Švec, Blaho, Vrabec|Vrabcová, Mrva, Benko, Urban, Sloboda, Kollárik, Pavlík, Jurík, Čierny|Čierna, Kubica, Hronec|Hroncová, Kráľ, Klimek, Juhás, Mikuš, Dudáš, Vaško, Hruška, Kováčovič, Danko, Matuš, Ondruš, Šoltés, Holub, Gregor, Cibula, Bednár, Ďurica, Zajac, Kozák, Šebo, Turčan, Hanko, Petráš, Jakubec|Jakubcová, Mikula, Kapusta, Halás, Rác, Bodnár, Sedlák, Majerník, Kuchár, Repka, Halama, Slovák, Palko, Fábry, Bača, Vlček, Uhrin, Kalina, Šuster, Medveď, Mihálik, Bielik, Petrovič, Ďuriš, Štefanko, Tomko, Valach, Kaplan, Belan, Herák, Masár, Kopecký, Šiška, Krajčí, Sokol, Bystrický, Štrba, Gábor, Hrubý, Šalát, Mesároš, Lehocký, Chovanec|Chovancová, Hudec, Pastorek, Ondrejka, Šramko, Laco, Kubiš, Babic, Jurčo, Ferenc, Bartoš, Benček, Mihál, Vozár, Pavlovič, Ivan, Rajnoha, Jánoš, Krupa, Kurek, Vojtko, Paulík, Jablonský, Košťál, Gašpar, Halenár, Pšenák, Zeman, Martinák, Mojžiš, Dvorský, Klučka, Valent, Horňák, Kováľ, Novotný, Dolinský, Štefánik, Hlinka, Janík, Hollý"
+    },
+    {
+      "share": 9,
+      "origin": "Hungarian",
+      "male": "László, Zoltán, Attila, Tibor, Gábor, Csaba, Árpád, Imre",
+      "female": "Erzsébet, Katalin, Ildikó, Éva, Zsuzsanna, Krisztina, Edit, Tünde",
+      "surnames": "Nagy, Kovács, Szabó, Tóth, Horváth, Varga, Kiss, Molnár, Németh, Farkas, Balogh, Papp"
+    },
+    {
+      "share": 4,
+      "origin": "Czech",
+      "feminine": "cs",
+      "male": "Jiří, Petr, Zdeněk, Václav, Vojtěch, Ondřej",
+      "female": "Kateřina, Lucie, Věra, Hana, Tereza, Markéta",
+      "surnames": "Dvořák, Černý, Procházka, Svoboda, Novotný, Pospíšil, Kratochvíl, Hájek"
+    },
+    {
+      "share": 2,
+      "origin": "Ukrainian",
+      "feminine": "",
+      "male": "Oleh, Andrij, Volodymyr, Serhij, Taras, Bohdan",
+      "female": "Olena, Natalija, Oksana, Tetjana, Svitlana, Iryna",
+      "surnames": "Ševčenko, Bondarenko, Kovalenko, Tkačenko, Melnyk, Kovalčuk"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "key": "pl",
+  "flag": "🇵🇱",
+  "name": "Poland",
+  "feminine": "pl",
+  "groups": [
+    {
+      "share": 95,
+      "origin": "Polish",
+      "male": "Piotr, Krzysztof, Andrzej, Tomasz, Paweł, Jan, Michał, Marcin, Stanisław, Jakub, Adam, Marek, Łukasz, Grzegorz, Mateusz, Wojciech, Mariusz, Dariusz, Zbigniew, Jerzy, Maciej, Józef, Ryszard, Kamil, Jacek, Tadeusz, Rafał, Robert, Mirosław, Dawid, Kacper, Szymon, Filip, Bartosz, Sebastian, Przemysław, Artur, Damian, Daniel, Karol, Henryk, Janusz, Waldemar, Sławomir, Leszek, Wiesław, Zdzisław, Bogdan, Kazimierz, Władysław, Czesław, Edward, Antoni, Franciszek, Aleksander, Wiktor, Igor, Oskar, Hubert, Patryk, Norbert, Arkadiusz, Krystian, Radosław, Sylwester, Witold, Bogusław, Ignacy, Tymon, Leon, Julian, Borys",
+      "female": "Anna, Maria, Katarzyna, Małgorzata, Agnieszka, Barbara, Ewa, Krystyna, Elżbieta, Magdalena, Joanna, Zofia, Monika, Teresa, Danuta, Natalia, Aleksandra, Karolina, Marta, Beata, Dorota, Halina, Jadwiga, Jolanta, Iwona, Grażyna, Bożena, Urszula, Renata, Justyna, Paulina, Agata, Sylwia, Patrycja, Kinga, Weronika, Julia, Zuzanna, Wiktoria, Oliwia, Alicja, Maja, Lena, Hanna, Amelia, Emilia, Gabriela, Izabela, Wanda, Stanisława, Genowefa, Irena, Lucyna, Mirosława, Bogumiła, Ewelina, Kamila, Dominika, Edyta, Aneta, Marzena, Wioletta, Żaneta, Milena, Klaudia, Martyna, Natasza, Roksana, Michalina, Antonina",
+      "surnames": "Nowak, Kowalski, Wiśniewski, Wójcik, Kowalczyk, Kamiński, Lewandowski, Zieliński, Szymański, Woźniak, Dąbrowski, Kozłowski, Jankowski, Mazur, Wojciechowski, Kwiatkowski, Krawczyk, Kaczmarek, Piotrowski, Grabowski, Zając, Pawłowski, Michalski, Król, Wieczorek, Jabłoński, Wróbel, Nowakowski, Majewski, Olszewski, Stępień, Malinowski, Jaworski, Adamczyk, Dudek, Nowicki, Pawlak, Górski, Witkowski, Walczak, Sikora, Baran, Rutkowski, Michalak, Szewczyk, Ostrowski, Tomaszewski, Pietrzak, Zalewski, Wróblewski, Marciniak, Jasiński, Zawadzki, Bąk, Jakubowski, Sadowski, Duda, Włodarczyk, Wilk, Chmielewski, Borkowski, Sokołowski, Szczepański, Sawicki, Lis, Kucharski, Kalinowski, Wysocki, Mazurek, Kubiak, Maciejewski, Czarnecki, Kołodziej, Kaźmierczak, Urbański, Sobczak, Konieczny|Konieczna, Głowacki, Zakrzewski, Krupa, Wasilewski, Kozieł, Kasprzak, Laskowski, Wawrzyniak, Sikorski, Mróz, Andrzejewski, Kurek, Ziółkowski, Czerwiński, Banaś, Kaczmarczyk, Przybylski, Cieślak, Leśniak, Domański, Kowalewski, Szulc, Kozak, Ziętek, Gajewski, Szczepaniak, Marczak, Kubacki, Wilczyński, Bielecki, Żak, Stachowiak, Chojnacki, Pietrzyk, Siwek, Bednarek, Fijałkowski, Kołakowski, Dziedzic, Grzelak, Bielawski, Nowacki, Zięba, Rogalski, Szymczak, Gołębiowski, Kowalik, Kosiński, Przybył, Tomczak, Kurowski, Mikołajczyk, Kisiel, Kalisz, Ciesielski, Wrona, Sowa, Śliwa, Sobczyk, Żukowski, Majchrzak, Białek, Dziuba, Grzybowski, Lipiński, Gajda, Kowal, Bednarz, Kaczor, Socha, Wojtowicz, Kujawa, Piątek"
+    },
+    {
+      "share": 4,
+      "origin": "Ukrainian",
+      "feminine": "",
+      "male": "Ołeh, Andrij, Wołodymyr, Serhij, Taras, Bohdan, Mykoła, Jurij",
+      "female": "Ołena, Natalija, Oksana, Tetiana, Switłana, Iryna, Hałyna, Łesia",
+      "surnames": "Szewczenko, Bondarenko, Kowalenko, Tkaczenko, Kraweć, Melnyk, Kowalczuk, Łysenko, Marczenko, Ponomarenko, Sawczuk, Oliynyk"
+    },
+    {
+      "share": 1,
+      "origin": "Belarusian and Vietnamese",
+      "feminine": "",
+      "male": "Aleh, Siarhiej; Minh, Tuan",
+      "female": "Alesia, Volha; Linh, Huong",
+      "surnames": "Iwanou, Karpowicz, Hryb, Nowik; Nguyen, Tran"
+    }
+  ]
+}

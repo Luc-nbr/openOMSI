@@ -166,8 +166,6 @@ const KEEP_DAYS: i64 = 21;
 /// Replies a talk has at most.
 pub const REPLIES: usize = 3;
 
-const FIRST: [&str; 16] = ["Anna", "Jonas", "Fatma", "Klaus", "Mia", "Lukas", "Elif", "Peter", "Sophie", "Murat", "Lea", "Thomas", "Ingrid", "Ben", "Olga", "Jan"];
-const LAST: [&str; 16] = ["Schmidt", "Yilmaz", "Becker", "Nowak", "Wagner", "Hoffmann", "Kaya", "Schulz", "Meyer", "Kowalski", "Krüger", "Weber", "Petrov", "Fischer", "Lange", "Demir"];
 
 /// The fare a refund pays back (the association's single ticket) and a day pass's.
 pub fn refund(c: &Company, k: &Complaint) -> Cents {
@@ -251,7 +249,9 @@ pub fn day(c: &mut Company, date: &str, report: &DayReport) {
     for (kind, line, time, why, severity, _, x) in drawn.into_iter().take(per_day(c.game_mode)) {
         c.complaints.counter += 1;
         let id = c.complaints.counter;
-        let passenger = format!("{} {}", FIRST[rng.int(0, 15) as usize], LAST[rng.int(0, 15) as usize]);
+        // (a passenger of the company's country: two draws, as the names of before took)
+        let seed = rng.next_u64() ^ rng.next_u64().rotate_left(32);
+        let passenger = super::names::draw(super::names::country_of(c), &mut Rng::new(seed), &mut Default::default()).name;
         let variant = rng.int(0, 1) as u32;
         let mood = (42.0 - 8.0 * severity as f64 + rng.range(-5.0, 5.0)).clamp(5.0, 60.0);
         let mut k = Complaint { id, date: date.to_string(), deadline: deadline.clone(), passenger, line, time, kind, why, severity, mood, used: Vec::new(), talk: Vec::new(), state: State::Open, reputation: 0.0, paid: 0, echo: false, variant, minutes: x.minutes, cause: x.cause, bus: x.bus, driver: x.driver };

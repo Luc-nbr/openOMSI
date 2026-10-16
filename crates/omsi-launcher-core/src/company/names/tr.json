@@ -1,0 +1,28 @@
+{
+  "key": "tr",
+  "flag": "🇹🇷",
+  "name": "Turkey",
+  "groups": [
+    {
+      "share": 80,
+      "origin": "Turkish",
+      "male": "Mehmet, Mustafa, Ahmet, Ali, Hüseyin, Hasan, İbrahim, İsmail, Osman, Yusuf, Murat, Ömer, Ramazan, Halil, Süleyman, Abdullah, Mahmut, Recep, Salih, Fatih, Kadir, Emre, Hakan, Burak, Serkan, Kemal, Orhan, Erkan, Volkan, Tolga, Cem, Can, Onur, Uğur, Barış, Selim, Sinan, Engin, Gökhan, Tuncay, Levent, Kaan, Mert, Berk, Arda, Emir, Efe, Eymen, Yiğit, Alperen, Furkan, Enes, Taha, Batuhan, Oğuz, Serdar, Sedat, Cengiz, Ercan, Erdem, Ferhat, Gürkan, İlker, Koray, Metin, Nihat, Okan, Özgür, Rıza, Şükrü, Tamer, Turgut, Yavuz, Zafer, Doğan, Bülent",
+      "female": "Fatma, Ayşe, Emine, Hatice, Zeynep, Elif, Meryem, Şerife, Zehra, Sultan, Hanife, Merve, Özlem, Esra, Büşra, Aylin, Selin, Derya, Gülay, Sevgi, Hülya, Nurcan, Songül, Gülsüm, Fadime, Havva, Leyla, Melek, Yasemin, Ebru, Tuğba, Gizem, Ceren, Pınar, Seda, Burcu, Duygu, Ece, İrem, Sena, Ecrin, Eylül, Defne, Azra, Nehir, Asel, Miray, Zümra, Ela, Hira, Nisanur, Kübra, Rabia, Sibel, Serap, Nermin, Necla, Filiz, Gönül, Dilek, Arzu, Aysel, Nazlı, Canan, Bahar, Sevda, Şule, Tülay, Yeliz, Gamze, Begüm, Damla, Melike, Nur",
+      "surnames": "Yılmaz, Kaya, Demir, Şahin, Çelik, Yıldız, Yıldırım, Öztürk, Aydın, Özdemir, Arslan, Doğan, Kılıç, Aslan, Çetin, Kara, Koç, Kurt, Özkan, Şimşek, Polat, Özcan, Korkmaz, Çakır, Erdoğan, Yavuz, Can, Acar, Şen, Aktaş, Güler, Yalçın, Güneş, Bozkurt, Bulut, Keskin, Ünal, Turan, Gül, Özer, Işık, Kaplan, Avcı, Sarı, Tekin, Taş, Köse, Yüksel, Ateş, Aksoy, Yücel, Altın, Toprak, Karakaya, Çiftçi, Akın, Uçar, Tunç, Erdem, Kurtuluş, Akgül, Kocabaş, Karaca, Kalkan, Sezer, Uysal, Ekinci, Durmaz, Başaran, Coşkun, Duman, Eren, Ergin, Gündoğdu, Akbulut, Bayram, Cömert, Dinç, Eroğlu, Gökçe, Karataş, Kocaman, Önal, Özgür, Sönmez, Tuna, Türkmen, Uslu, Vural, Yazıcı, Zengin, Akyüz, Bilgin, Ceylan, Çınar, Demirci, Duran, Elmas, Gürbüz, Kahraman, Kılınç, Mutlu, Okur, Oral, Özen, Parlak, Sağlam, Savaş, Soylu, Taşdemir, Tuncer, Ulusoy, Yaman, Yiğit, Akdağ, Altun, Arıkan, Boz, Cengiz, Çoban, Demirel, Ekici, Esen, Gezer, Güven, İnce, Karabulut, Kocak, Köksal, Mete, Nalbant, Orhon, Pala, Sevim, Şeker, Temel, Tok, Uğurlu, Yazar, Yeşil, Yurt"
+    },
+    {
+      "share": 16,
+      "origin": "Kurdish",
+      "male": "Welat, Berzan, Rojhat, Şivan, Azad, Delil, Serhat, Baran, Rêber, Diyar, Ciwan, Hogir, Mazlum, Zana",
+      "female": "Berivan, Rojda, Zelal, Dilan, Helin, Rojin, Şirin, Gulistan, Nergiz, Viyan, Ronahi, Hêvî",
+      "surnames": "Ay, Aydemir, Bingöl, Demirtaş, Özbek, Tatlıses, Ertaş, Yüksekdağ, Baydemir, Türk, Ölmez, Önen, Encü, Biçer, Kılıçaslan"
+    },
+    {
+      "share": 4,
+      "origin": "Arab, Laz and Circassian",
+      "male": "Halit, Yahya, Temur, Kerem",
+      "female": "Hamide, Sabiha, Nuriye, Fikriye",
+      "surnames": "Haddad, Abuzer, Lazoğlu, Çerkez, Abaza, Hapsoka"
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "key": "gb",
+  "flag": "🇬🇧",
+  "name": "United Kingdom",
+  "groups": [
+    {
+      "share": 74,
+      "origin": "British",
+      "male": "Oliver, George, Harry, Jack, Charlie, Thomas, James, William, Henry, Alfie, Joshua, Freddie, Archie, Arthur, Leo, Oscar, Theo, Daniel, Samuel, Joseph, David, John, Paul, Mark, Andrew, Richard, Stephen, Christopher, Peter, Michael, Robert, Ian, Gary, Darren, Wayne, Craig, Lee, Neil, Simon, Graham, Keith, Colin, Trevor, Nigel, Barry, Dean, Gareth, Rhys, Dylan, Owen, Callum, Ewan, Hamish, Fraser, Lewis, Kyle, Liam, Connor, Ryan, Nathan, Luke, Adam, Matthew, Benjamin, Edward, Alistair, Duncan, Rory, Euan, Iain, Dafydd, Aled",
+      "female": "Olivia, Amelia, Isla, Ava, Emily, Sophia, Grace, Lily, Freya, Ella, Poppy, Florence, Evie, Charlotte, Isabella, Mia, Ruby, Sophie, Jessica, Hannah, Lucy, Chloe, Megan, Lauren, Rebecca, Emma, Sarah, Laura, Amy, Rachel, Claire, Nicola, Joanne, Lisa, Michelle, Kelly, Karen, Julie, Susan, Tracey, Deborah, Helen, Alison, Gillian, Fiona, Kirsty, Ailsa, Morag, Eilidh, Catriona, Siân, Cerys, Bethan, Ffion, Rhiannon, Gwen, Margaret, Jean, Pauline, Janet, Sandra, Elaine, Shirley, Wendy, Hayley, Gemma, Kayleigh, Stacey, Zoe, Harriet, Imogen, Philippa",
+      "surnames": "Smith, Jones, Williams, Taylor, Brown, Davies, Evans, Wilson, Thomas, Johnson, Roberts, Robinson, Thompson, Wright, Walker, White, Edwards, Hughes, Green, Hall, Lewis, Harris, Clarke, Jackson, Wood, Turner, Martin, Cooper, Hill, Ward, Morris, Moore, Clark, Lee, King, Baker, Harrison, Morgan, Allen, James, Scott, Phillips, Watson, Davis, Parker, Price, Bennett, Young, Griffiths, Mitchell, Kelly, Cook, Carter, Richardson, Bailey, Collins, Bell, Shaw, Murphy, Miller, Cox, Richards, Marshall, Anderson, Simpson, Ellis, Adams, Wilkinson, Foster, Chapman, Powell, Webb, Rogers, Gray, Mason, Hunt, Campbell, Matthews, Owen, Palmer, Holmes, Mills, Barnes, Knight, Lloyd, Butler, Russell, Barker, Fisher, Stevens, Jenkins, Murray, Dixon, Harvey, Graham, Pearson, Fletcher, Walsh, Stewart, Reid, MacDonald, Robertson, Ross, Paterson, Fraser, McLean, Henderson, Hamilton, Sinclair, Pritchard, Rees, Vaughan, Llewellyn, Gough, Jenkinson, Atkinson, Pickering, Hartley, Booth, Whitehead, Dawson, Lambert"
+    },
+    {
+      "share": 10,
+      "origin": "South Asian heritage",
+      "male": "Mohammed, Muhammad, Ali, Imran, Amir, Hassan, Bilal, Zain, Abdul, Shahid, Tariq; Rahul, Arjun, Raj, Sanjay, Vikram, Rohan; Harpreet, Gurpreet, Jaspal",
+      "female": "Aisha, Fatima, Zara, Amina, Ayesha, Nadia, Shabana, Rukhsana, Sana; Priya, Anjali, Pooja, Anika; Simran, Harjit, Navjot",
+      "surnames": "Khan, Ahmed, Ali, Hussain, Begum, Rahman, Iqbal, Malik, Chaudhry, Islam, Uddin, Mahmood; Patel, Shah, Sharma, Mistry; Singh|Kaur, Gill, Sandhu"
+    },
+    {
+      "share": 6,
+      "origin": "Black British heritage",
+      "male": "Delroy, Winston, Leroy, Jermaine, Tyrone, Marcus; Tunde, Chidi, Femi, Emmanuel; Kwame, Kofi; Abdirahman",
+      "female": "Shanice, Marcia, Beverley; Chioma, Ngozi, Folake, Precious, Blessing; Abena, Ama; Hodan",
+      "surnames": "Francis, Grant, Johnson, Charles; Okafor, Adeyemi, Okonkwo, Nwosu; Mensah, Osei, Boateng; Mohamud, Abdi"
+    },
+    {
+      "share": 4,
+      "origin": "Polish and Eastern European heritage",
+      "feminine": "pl",
+      "male": "Piotr, Tomasz, Paweł, Krzysztof, Marcin; Andrei, Mihai; Mindaugas",
+      "female": "Agnieszka, Katarzyna, Magdalena, Joanna; Elena, Ioana; Rūta",
+      "surnames": "Nowak, Kowalski, Wiśniewski, Wójcik, Kamiński; Popescu, Ionescu; Kazlauskas|Kazlauskienė"
+    },
+    {
+      "share": 3,
+      "origin": "Irish heritage",
+      "male": "Seán, Ciarán, Declan, Niall, Eoin, Padraig",
+      "female": "Siobhán, Aoife, Niamh, Roisin, Orla, Mairead",
+      "surnames": "Murphy, O'Brien, O'Sullivan, Byrne, Ryan, O'Connor, Doyle, McCarthy, Gallagher, Kennedy"
+    },
+    {
+      "share": 3,
+      "origin": "Chinese and other heritage",
+      "male": "Wei, Jun, Hao, Ming; Kenji; Dimitri",
+      "female": "Mei, Xin, Yan, Ling, Hui; Yuki; Eleni",
+      "surnames": "Chen, Wong, Li, Zhang, Lam, Cheung, Liu, Yeung; Tanaka; Papadopoulos, Costa"
+    }
+  ]
+}
