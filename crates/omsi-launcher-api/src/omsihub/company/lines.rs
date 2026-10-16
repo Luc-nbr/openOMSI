@@ -283,11 +283,48 @@ fn line_income(c: &Company, line: &co::CompanyLine) -> Value {
     })
 }
 
+/// The stops of a company line's trips today (the timetable's), in the order its trips first
+/// call at them.
+pub fn stops_of(s: &Session, line: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let trips = s.map_lines().and_then(|ls| ls.iter().find(|x| x.name.eq_ignore_ascii_case(line))).map(|l| l.tours.iter().filter(|t| t.runs).flat_map(|t| t.trips.iter()).collect::<Vec<_>>()).unwrap_or_default();
+    for st in trips.iter().flat_map(|t| t.stops.iter()) {
+        let n = st.name.trim();
+        if !n.is_empty() && !out.iter().any(|x| x.eq_ignore_ascii_case(n)) {
+            out.push(n.to_string());
+        }
+    }
+    out
+}
+
+/// A line's protected connections (`ontime::Connection`): a small table per stop - what
+/// connects, its time, how long the bus waits for it at the most, or whether the bus's
+/// passengers change to it - which the driver is told of on the way and the day's delay model
+/// holds the buses for.
+fn connections_card(s: &Session, line: &co::CompanyLine) -> Value {
+    let rows: Vec<Value> = line.connections.iter().map(|k| json!({ "stop": k.stop, "what": k.what, "time": hhmm(k.time), "max_hold": k.max_hold, "onward": k.onward })).collect();
+    json!({
+        "title": tr("Protected connections").to_uppercase(),
+        "note": tr("A train or another line at a stop: the line's buses wait for its passengers, at the most the hold - or their passengers change to it. The driver is told on the way."),
+        "cols": [tr("Stop"), tr("What connects"), tr("Time"), tr("Max hold (min)"), tr("Passengers change to it")],
+        "rows": rows, "stops": stops_of(s, &line.name),
+        "add": tr("Add a connection"), "save": tr("Save"), "remove": tr("Remove"), "none": tr("No connection yet."),
+        "what_hint": tr("Train from Erfurt"),
+    })
+}
+
+/// "07:44" as minutes of the day (None: not a time).
+fn minutes_of(t: &str) -> Option<i32> {
+    let (h, m) = t.trim().split_once(':')?;
+    let (h, m): (i32, i32) = (h.trim().parse().ok()?, m.trim().parse().ok()?);
+    ((0..24).contains(&h) && (0..60).contains(&m)).then_some(h * 60 + m)
+}
+
 fn tours_of(s: &mut Session, c: &Company, name: &str) -> Value {
     let Some(line) = c.lines.iter().find(|x| x.name == name).cloned() else { return Value::Null };
     let card = line_card(s, c, &line);
     let easy = co::autopilot::on(c);
-    let mut out = json!({ "card": card, "income": line_income(c, &line), "title": trf("Line %{n} today", &[("n", &line.number)]).to_uppercase(), "planning": (!easy).then(|| tr("Open the planning")), "add": tr("Add lines") });
+    let mut out = json!({ "card": card, "income": line_income(c, &line), "connections": connections_card(s, &line), "title": trf("Line %{n} today", &[("n", &line.number)]).to_uppercase(), "planning": (!easy).then(|| tr("Open the planning")), "add": tr("Add lines") });
     let Some(plan) = s.plan.clone() else {
         out["reading"] = json!(tr("Reading the timetable…"));
         return out;
@@ -486,6 +523,27 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Result<Value, St
             done(apply(s, |c| {
                 if let Some(x) = c.lines.iter_mut().find(|x| x.name == name) {
                     x.hof = h;
+                }
+                Ok(())
+            }))
+        }
+        "line_connections" => {
+            let list: Vec<co::ontime::Connection> = args
+                .get("list")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| {
+                            let text = |k: &str| x.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+                            Some(co::ontime::Connection { stop: text("stop"), what: text("what"), time: minutes_of(&text("time"))?, max_hold: x.get("max_hold").and_then(Value::as_i64).unwrap_or(0) as i32, onward: x.get("onward").and_then(Value::as_bool).unwrap_or(false) })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let list = co::ontime::tidy(list);
+            done(apply(s, |c| {
+                if let Some(x) = c.lines.iter_mut().find(|x| x.name == name) {
+                    x.connections = list;
                 }
                 Ok(())
             }))

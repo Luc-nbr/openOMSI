@@ -108,6 +108,49 @@ function NetMap({ v, ctl }) {
   </${Card}>`;
 }
 
+/** The diversions and roadworks of the company's days (`ops::diversions_json`): those planned,
+ * the inbox's running today, and a simple entry - from, until, the lines, the stops closed, the
+ * way round. */
+function Diversions({ d }) {
+  const f = d.form;
+  const blank = { from: f.today, until: '', lines: [], closed: '', via: '', note: '' };
+  const [x, setX] = useState(blank);
+  const set = (patch) => setX({ ...x, ...patch });
+  const add = async () => {
+    const r = await act('ops_diversion_add', x);
+    if (r && r.id) setX({ ...blank, from: x.from });
+  };
+  const line = (name, on) => set({ lines: on ? [...x.lines, name] : x.lines.filter((n) => n !== name) });
+  const field = 'height:30px';
+  return html`<${Card} icon="alt_route" title=${d.title}>
+    <div class="co-pgb-note" style="margin-bottom:8px">${d.sub}</div>
+    ${d.events.map((t) => html`<div class="co-ops-done"><${Icon} name="construction" size=${14} /><span class="cut">${t}</span></div>`)}
+    ${d.rows.length === 0 && d.events.length === 0 && html`<div class="co-pgb-note">${d.none}</div>`}
+    ${d.rows.map(
+      (r) => html`<div class="co-ops-done" style=${r.today ? 'font-weight:600' : ''}>
+        <span class="time">${r.when}</span>
+        <span class="cut" style="flex:1" title=${r.note}>${r.lines} · <s>${r.closed}</s>${r.via && ' · ' + r.via}</span>
+        <button type="button" class="co-pgb-op-way" title=${f.remove} onClick=${() => act('ops_diversion_remove', { id: r.id })}><${Icon} name="close" size=${14} /></button>
+      </div>`,
+    )}
+    <datalist id="co-div-stops">${f.stops.map((s) => html`<option value=${s} />`)}</datalist>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:10px;align-items:end">
+      <label class="co-pgb-note">${f.from}<input class="co-field" style=${field} type="date" value=${x.from} onInput=${(e) => set({ from: e.currentTarget.value })} /></label>
+      <label class="co-pgb-note">${f.until}<input class="co-field" style=${field} type="date" value=${x.until} onInput=${(e) => set({ until: e.currentTarget.value })} /></label>
+      <label class="co-pgb-note" style="grid-column:span 2">${f.closed}<input class="co-field" style=${field} list="co-div-stops" placeholder=${f.closed_hint} value=${x.closed} onInput=${(e) => set({ closed: e.currentTarget.value })} /></label>
+      <label class="co-pgb-note">${f.via}<input class="co-field" style=${field} placeholder=${f.via_hint} value=${x.via} onInput=${(e) => set({ via: e.currentTarget.value })} /></label>
+      <label class="co-pgb-note">${f.note}<input class="co-field" style=${field} value=${x.note} onInput=${(e) => set({ note: e.currentTarget.value })} /></label>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:8px">
+      <span class="co-pgb-note">${f.lines}:</span>
+      ${f.options.map(([name, number]) => html`<label class="co-pgb-note"><input type="checkbox" checked=${x.lines.includes(name)} onChange=${(e) => line(name, e.currentTarget.checked)} /> ${number}</label>`)}
+      <span class="co-pgb-note">${x.lines.length === 0 ? '(' + f.all + ')' : ''}</span>
+      <span style="flex:1"></span>
+      <button type="button" class="co-pgb-op-way best" onClick=${add}><${Icon} name="add" size=${14} /><span>${f.add}</span></button>
+    </div>
+  </${Card}>`;
+}
+
 export function OpsPage() {
   const v = useView('ops');
   const advice = useView('late_advice');
@@ -157,6 +200,7 @@ export function OpsPage() {
         </${Card}>
         <${NetMap} v=${v} ctl=${ctl} />
       </div>`}
+      ${v.diversions && html`<${Diversions} d=${v.diversions} />`}
       ${v.done?.length > 0 && html`<${Card} icon="history" title=${v.caps.done}>
         ${v.done.map((d) => html`<div class="co-ops-done"><span class="time">${d.time}</span><span class="cut">${d.text}</span></div>`)}
       </${Card}>`}

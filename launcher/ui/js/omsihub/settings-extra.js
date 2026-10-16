@@ -65,6 +65,7 @@ if (HUB && !SETTINGS_TABS.omsihub) {
   // the navigator's own, after its AI vehicles
   insert('general', 0, [
     { type: 'toggle', key: 'nav_board', label: 'Duty board under the navigator' },
+    { type: 'toggle', key: 'nav_ontime', label: 'On-time card in the game', help: 'On a company duty: how you stand against the timetable, the gap to the buses ahead and behind, the connections to wait for and the diversions of the day.' },
     { type: 'slider', key: 'nav_scale', label: 'Navigator size', min: 0.6, max: 2, step: 0.05, def: 1, format: pct, store: (v) => Math.round(v * 20) / 20 },
     { type: 'select', key: 'stop_style', label: 'Bus stop signs', options: [['de', 'German (H)'], ['uk', 'British'], ['fr', 'French']] },
     { type: 'toggle', key: 'nav_signon', label: 'Sign on with personnel number and code', help: 'Before a duty the navigator asks for your number and code and for the duty order to be accepted. Off, the map and the duty show at once.' },

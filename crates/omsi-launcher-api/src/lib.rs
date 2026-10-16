@@ -664,6 +664,8 @@ pub fn call(cmd: &str, args: &Value, p: &dyn Platform) -> Answer {
         "poll" => {
             // Omsi-Hub: what its plugin reported, booked (`omsihub/addon.rs`)
             omsihub::addon::book();
+            // (and what the company tells the driver on the way: `omsihub/ontime.rs`)
+            omsihub::ontime::refresh();
             poll()
         }
         "stop_game" => stop_game(arg::<u32>(args, "pid")?),
