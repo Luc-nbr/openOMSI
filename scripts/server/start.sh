@@ -6,4 +6,7 @@ set -eu
 here="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 root="${1:?usage: start.sh /path/to/OMSI2 [server.cfg]}"
 cfg="${2:-$here/server.cfg}"
-exec "$here/openomsi" --root "$root" --server "$cfg" 2>&1 | tee -a "$here/server.log"
+# (Omsi-Hub's game, else a folder of the program's name before the rename)
+game="$here/omsi-hub-game"
+[ -x "$game" ] || game="$here/openomsi"
+exec "$game" --root "$root" --server "$cfg" 2>&1 | tee -a "$here/server.log"

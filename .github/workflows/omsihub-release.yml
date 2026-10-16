@@ -5,10 +5,17 @@
 # omsihub-sync.yml after that merged the project's main into beta (a push with the workflow's
 # own token starts no workflow). A version that already has its release is left alone.
 #
-# The Mac (job `mac`): builds openOMSI.app with the Omsi-Hub interface for Apple silicon and
-# Intel as upstream's release.yml does (scripts/build-macos.sh), signed ad hoc (no Apple
-# Developer account: the player opens it once with right-click > Open), as a .dmg and the zip
-# the updater knows (openOMSI-<v>-macos-<arch>.zip). On beta it carries the release's version,
+# The programs carry Omsi-Hub's names (Omsi-Hub.exe, omsi-hub-game.exe, omsi-hub-cli.exe;
+# docs/omsihub/RENAME.md): the release's Omsi-Hub-<v>-windows-x64.zip. Beside it,
+# openOMSI-<v>-windows-x64.zip holds the same files with the programs by their names before
+# the rename - the one archive the builds before it look for and can install; the new program
+# renames them at its first start.
+#
+# The Mac (job `mac`): builds Omsi-Hub.app for Apple silicon and Intel as upstream's
+# release.yml does (scripts/build-macos.sh), signed ad hoc (no Apple Developer account: the
+# player opens it once with right-click > Open), as a .dmg and the zips the updater knows
+# (Omsi-Hub-<v>-macos-<arch>.zip; openOMSI-<v>-macos-<arch>.zip with the binaries by their old
+# names, for the builds before the rename). On beta it carries the release's version,
 # and job `mac-publish` adds its files to beta's release beside the Windows zip (Luc,
 # 2026-10-14: "release voor windows en mac"). A push to the branch mac-test, or a run by hand
 # with "mac" ticked on any branch, is a test build instead (<v> like 0.2.48-hub-mac14.318,
@@ -70,9 +77,9 @@ jobs:
           echo "OPENOMSI_VERSION=$v" >> "$GITHUB_ENV"
           if gh release view "v$v" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "### openOMSI $v (Omsi-Hub) - already released" >> "$GITHUB_STEP_SUMMARY"
+            echo "### Omsi-Hub $v - already released" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "### openOMSI $v (Omsi-Hub)" >> "$GITHUB_STEP_SUMMARY"
+            echo "### Omsi-Hub $v" >> "$GITHUB_STEP_SUMMARY"
           fi
       - uses: dtolnay/rust-toolchain@stable
         if: steps.v.outputs.exists != 'true'
@@ -80,8 +87,8 @@ jobs:
         if: steps.v.outputs.exists != 'true'
         with:
           key: omsihub-x64
-          # (the desktop launcher - the only launcher, openomsi-launcher-app.exe beside the
-          # game - is a workspace of its own, as release.yml caches it)
+          # (the desktop launcher - the only launcher, Omsi-Hub.exe beside the game - is a
+          # workspace of its own, as release.yml caches it)
           workspaces: |
             . -> target
             launcher/src-tauri -> target
@@ -101,9 +108,9 @@ jobs:
           t=x86_64-pc-windows-msvc
           cargo build --locked --release --target $t -p omsi-app -p omsi-launcher-core
           mkdir -p dist/windows
-          cp target/$t/release/openomsi.exe target/$t/release/openomsi-launcher.exe dist/windows/
+          cp target/$t/release/omsi-hub-game.exe target/$t/release/omsi-hub-cli.exe dist/windows/
           TAURI_CONFIG="{\"version\":\"${OPENOMSI_VERSION%.*}\"}" cargo build --locked --release --target $t --manifest-path launcher/src-tauri/Cargo.toml
-          cp launcher/src-tauri/target/$t/release/openomsi-launcher-app.exe dist/windows/
+          cp launcher/src-tauri/target/$t/release/Omsi-Hub.exe dist/windows/
           cp assets/steam_redist/steam_api64.dll dist/windows/
       # (as release.yml: Microsoft's shader compiler for DirectX 12 beside the program -
       # without it the old FXC overflows its stack on the sky's shaders)
@@ -132,7 +139,15 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force out | Out-Null
           Copy-Item README.md, LICENSE dist/windows/
-          Compress-Archive -Path dist/windows/* -DestinationPath "out/openOMSI-$env:OPENOMSI_VERSION-windows-x64.zip"
+          Compress-Archive -Path dist/windows/* -DestinationPath "out/Omsi-Hub-$env:OPENOMSI_VERSION-windows-x64.zip"
+          # the same files with the programs by their names before the rename, for the
+          # builds before it (they look for openOMSI-<v>-windows-x64.zip only and start the
+          # program by its old name after the update; docs/omsihub/RENAME.md)
+          Copy-Item dist/windows -Destination compat -Recurse
+          Rename-Item compat/omsi-hub-game.exe openomsi.exe
+          Rename-Item compat/Omsi-Hub.exe openomsi-launcher-app.exe
+          Rename-Item compat/omsi-hub-cli.exe openomsi-launcher.exe
+          Compress-Archive -Path compat/* -DestinationPath "out/openOMSI-$env:OPENOMSI_VERSION-windows-x64.zip"
       - name: Publish
         if: steps.v.outputs.exists != 'true'
         shell: bash
@@ -141,21 +156,23 @@ jobs:
           base="${v%.*}"
           prev=$(gh release list -R "$GITHUB_REPOSITORY" --exclude-pre-releases --exclude-drafts --limit 30 --json tagName -q '.[].tagName' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
           {
-            echo "**openOMSI $base with the Omsi-Hub interface.** Builds from this fork install this release by themselves (Settings - updates); it holds openOMSI's own changes up to [openOMSI $base](https://github.com/openOMSI-Project/openOMSI/releases/tag/v$base)."
+            echo "**Omsi-Hub $v, built on openOMSI $base.** Builds from this fork install this release by themselves (Settings - updates); it holds openOMSI's own changes up to [openOMSI $base](https://github.com/openOMSI-Project/openOMSI/releases/tag/v$base)."
             echo
             echo "### Install"
-            echo "1. Download \`openOMSI-$v-windows-x64.zip\` below."
+            echo "1. Download \`Omsi-Hub-$v-windows-x64.zip\` below."
             echo "2. Unzip it into a **new, empty folder** (not over an official openOMSI)."
-            echo "3. Start \`openomsi.exe\`. openOMSI needs an installed **OMSI 2**: the first start asks for its folder."
+            echo "3. Start \`Omsi-Hub.exe\`. Omsi-Hub needs an installed **OMSI 2**: the first start asks for its folder."
+            echo
+            echo "\`openOMSI-$v-windows-x64.zip\` is the same release for the updater of older Omsi-Hub builds (its programs carry their old names until the first start renames them)."
             echo
             echo "### Mac"
             echo "The Mac files are added to this release a little after the Windows zip, once they are built."
             echo "1. Download \`Omsi-Hub-$v-macos-arm64.dmg\` for Apple silicon (M1 and later), or \`Omsi-Hub-$v-macos-x64.dmg\` for an Intel Mac (Apple menu > About This Mac shows the chip)."
             echo "2. Open the \`.dmg\` and drag the app to Applications."
-            echo "3. The app is not signed with an Apple Developer account: the first time, right-click it, choose **Open**, then **Open** again. If macOS says it \"is damaged\", run \`xattr -dr com.apple.quarantine /Applications/openOMSI.app\` once in Terminal."
-            echo "4. Copy OMSI 2's content (maps, buses, sceneries) into openOMSI's content folder: \"Read me first (Mac)\" in the \`.dmg\` says where."
+            echo "3. The app is not signed with an Apple Developer account: the first time, right-click it, choose **Open**, then **Open** again. If macOS says it \"is damaged\", run \`xattr -dr com.apple.quarantine /Applications/Omsi-Hub.app\` once in Terminal."
+            echo "4. Copy OMSI 2's content (maps, buses, sceneries) into Omsi-Hub's content folder: \"Read me first (Mac)\" in the \`.dmg\` says where."
             echo
-            echo "The \`openOMSI-$v-macos-*.zip\` files are the same app in the form the updater installs."
+            echo "The \`Omsi-Hub-$v-macos-*.zip\` files are the same app in the form the updater installs, the \`openOMSI-$v-macos-*.zip\` ones that for older Omsi-Hub builds."
             echo
             if [ -n "$prev" ]; then
               echo "### Changes since ${prev#v}"
@@ -164,8 +181,8 @@ jobs:
             echo
             echo "Bugs: the logs \`%USERPROFILE%\\.openomsi\\launcher.log\` and \`game.log\`, with what you did and what happened."
           } > notes.md
-          gh release create "v$v" "out/openOMSI-$v-windows-x64.zip" -R "$GITHUB_REPOSITORY" \
-            --target "$(git rev-parse HEAD)" --title "openOMSI $v (Omsi-Hub)" --notes-file notes.md --latest
+          gh release create "v$v" "out/Omsi-Hub-$v-windows-x64.zip" "out/openOMSI-$v-windows-x64.zip" -R "$GITHUB_REPOSITORY" \
+            --target "$(git rev-parse HEAD)" --title "Omsi-Hub $v" --notes-file notes.md --latest
 
   mac:
     # (beta: the release's Mac build; mac-test or "mac" ticked: a test build)
@@ -216,13 +233,11 @@ jobs:
             launcher/src-tauri -> target
       - name: Build
         run: scripts/build-macos.sh
-      # (the app's name where the Mac shows it - the Dock, the menu bar; the bundle's file name
-      # stays openOMSI.app), signed again ad hoc: no Apple Developer account
-      - name: Omsi-Hub's name, signed ad hoc
+      # (scripts/build-macos.sh names it Omsi-Hub.app, scripts/macos/Info.plist), signed again
+      # ad hoc: no Apple Developer account
+      - name: Signed ad hoc
         run: |
-          app=dist/macos/openOMSI.app
-          plutil -replace CFBundleName -string "Omsi-Hub" "$app/Contents/Info.plist"
-          plutil -replace CFBundleDisplayName -string "Omsi-Hub" "$app/Contents/Info.plist"
+          app=dist/macos/Omsi-Hub.app
           codesign --force --deep --sign - "$app"
           codesign --verify --deep --verbose=2 "$app"
       - name: Package (.dmg and the updater's zip)
@@ -230,8 +245,22 @@ jobs:
           mkdir -p out dmg
           v="$OPENOMSI_VERSION"
           cp README.md LICENSE dist/macos/
-          (cd dist/macos && ditto -c -k --sequesterRsrc --keepParent openOMSI.app "../../out/openOMSI-$v-macos-${{ matrix.arch }}.zip")
-          cp -R dist/macos/openOMSI.app dmg/
+          (cd dist/macos && ditto -c -k --sequesterRsrc --keepParent Omsi-Hub.app "../../out/Omsi-Hub-$v-macos-${{ matrix.arch }}.zip")
+          # the same app with its binaries by their names before the rename, for the builds
+          # before it: they look for openOMSI-<v>-macos-<arch>.zip only and start the bundle's
+          # openomsi after the update (docs/omsihub/RENAME.md); its bundle's name does not
+          # matter (the updater replaces the running bundle, whatever it is called)
+          mkdir -p compat
+          cp -R dist/macos/Omsi-Hub.app compat/
+          m=compat/Omsi-Hub.app/Contents/MacOS
+          mv "$m/omsi-hub-game" "$m/openomsi"
+          mv "$m/Omsi-Hub" "$m/openomsi-launcher-app"
+          mv "$m/omsi-hub-cli" "$m/openomsi-launcher"
+          plutil -replace CFBundleExecutable -string "openomsi" compat/Omsi-Hub.app/Contents/Info.plist
+          codesign --force --deep --sign - compat/Omsi-Hub.app
+          codesign --verify --deep --verbose=2 compat/Omsi-Hub.app
+          (cd compat && ditto -c -k --sequesterRsrc --keepParent Omsi-Hub.app "../out/openOMSI-$v-macos-${{ matrix.arch }}.zip")
+          cp -R dist/macos/Omsi-Hub.app dmg/
           cp docs/omsihub/MACOS.md "dmg/Read me first (Mac).md"
           ln -s /Applications dmg/Applications
           hdiutil create -volname "Omsi-Hub" -srcfolder dmg -ov -format UDZO "out/Omsi-Hub-$v-macos-${{ matrix.arch }}.dmg"
@@ -262,7 +291,7 @@ jobs:
         run: |
           ls -l out
           for a in arm64 x64; do
-            for f in "out/Omsi-Hub-$VERSION-macos-$a.dmg" "out/openOMSI-$VERSION-macos-$a.zip"; do
+            for f in "out/Omsi-Hub-$VERSION-macos-$a.dmg" "out/Omsi-Hub-$VERSION-macos-$a.zip" "out/openOMSI-$VERSION-macos-$a.zip"; do
               [ -f "$f" ] || { echo "missing $f: the Mac build's version differs from the release's" >&2; exit 1; }
             done
           done

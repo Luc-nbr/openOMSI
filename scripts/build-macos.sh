@@ -1,7 +1,8 @@
 #!/bin/sh
-# Build openOMSI for macOS (the Mac it runs on: Apple silicon or Intel) and pack it as
-# dist/macos/openOMSI.app. The game binary is the bundle's executable; started with no
-# arguments it opens the launcher window. Needs Rust (https://rustup.rs) and the Xcode
+# Build Omsi-Hub for macOS (the Mac it runs on: Apple silicon or Intel) and pack it as
+# dist/macos/Omsi-Hub.app. The game binary (omsi-hub-game) is the bundle's executable; started
+# with no arguments it opens the app (Omsi-Hub, the Tauri launcher beside it; the names are
+# docs/omsihub/RENAME.md's). Needs Rust (https://rustup.rs) and the Xcode
 # Command Line Tools (xcode-select --install).
 set -eu
 cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
@@ -16,19 +17,20 @@ export OPENOMSI_VERSION="$version"
 semver=$(printf '%s' "${version%%-*}" | cut -d. -f1-3)
 cargo build --locked --release --target "$target" -p omsi-app -p omsi-launcher-core
 out=dist/macos
-app="$out/openOMSI.app"
-# (only the bundle is replaced: the folders beside it are the content folder with the mods)
-rm -rf "$app"
+app="$out/Omsi-Hub.app"
+# (only the bundle is replaced: the folders beside it are the content folder with the mods;
+# a bundle of the old name, from a build before the rename, goes too)
+rm -rf "$app" "$out/openOMSI.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-cp "target/$target/release/openomsi" "$app/Contents/MacOS/openomsi"
-cp "target/$target/release/openomsi-launcher" "$app/Contents/MacOS/openomsi-launcher"
+cp "target/$target/release/omsi-hub-game" "$app/Contents/MacOS/omsi-hub-game"
+cp "target/$target/release/omsi-hub-cli" "$app/Contents/MacOS/omsi-hub-cli"
 cp "assets/steam_redist/libsteam_api.dylib" "$app/Contents/MacOS/"
 # the desktop launcher (launcher/, Tauri on WebKit), stamped with the release version (its
 # About window and the Info.plist inside it said tauri.conf.json's)
 TAURI_CONFIG="{\"version\":\"$semver\"}" cargo build --locked --release --target "$target" --manifest-path launcher/src-tauri/Cargo.toml
-cp "launcher/src-tauri/target/$target/release/openomsi-launcher-app" "$app/Contents/MacOS/openomsi-launcher-app"
+cp "launcher/src-tauri/target/$target/release/Omsi-Hub" "$app/Contents/MacOS/Omsi-Hub"
 cp assets/icons/app/openomsi.icns "$app/Contents/Resources/openomsi.icns"
 # (the bundle's version is numbers only: a test build's -pr<number> is left out there)
 sed -e "s/@VERSION@/$semver/g" scripts/macos/Info.plist > "$app/Contents/Info.plist"
 codesign --force --deep --sign - "$app" >/dev/null 2>&1 || true
-printf '\nopenOMSI %s built. Play: open "%s/%s"\n' "$version" "$PWD" "$app"
+printf '\nOmsi-Hub %s built. Play: open "%s/%s"\n' "$version" "$PWD" "$app"

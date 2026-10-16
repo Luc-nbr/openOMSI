@@ -1,6 +1,7 @@
 #!/bin/sh
-# Build openOMSI for Windows x64 on macOS or Linux (cross-compiled with MinGW) into
-# dist/windows. On Windows itself use scripts\build-windows.cmd.
+# Build Omsi-Hub for Windows x64 on macOS or Linux (cross-compiled with MinGW) into
+# dist/windows (the game omsi-hub-game.exe and the terminal tool omsi-hub-cli.exe, see
+# docs/omsihub/RENAME.md). On Windows itself use scripts\build-windows.cmd.
 # Needs: brew install mingw-w64 (or apt install mingw-w64); rustup target add x86_64-pc-windows-gnu
 set -eu
 cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
@@ -20,5 +21,5 @@ mkdir -p dist/windows   # (the folder is also the content folder: mods stay)
 # (the release package also carries Google's ANGLE - libEGL.dll, libGLESv2.dll and
 # LICENSE-ANGLE.txt from openOMSI-org/angle-openomsi, see .github/workflows/release.yml -
 # for the "ANGLE (DirectX 11)" graphics API; startup::backend_order skips it without them)
-cp target/x86_64-pc-windows-gnu/release/openomsi.exe target/x86_64-pc-windows-gnu/release/openomsi-launcher.exe assets/steam_redist/steam_api64.dll dist/windows/
-printf '\nopenOMSI %s built in dist/windows\n' "$OPENOMSI_VERSION"
+cp target/x86_64-pc-windows-gnu/release/omsi-hub-game.exe target/x86_64-pc-windows-gnu/release/omsi-hub-cli.exe assets/steam_redist/steam_api64.dll dist/windows/
+printf '\nOmsi-Hub %s built in dist/windows\n' "$OPENOMSI_VERSION"
