@@ -79,3 +79,10 @@ _version: 2
   pl: "Włącz pojazdy, służby albo oba: optymalizacja nie ma nic do zrobienia."
   ru: "Включите машины, смены или и то, и другое: оптимизации нечего делать."
   uk: "Увімкніть машини, зміни або обидва: оптимізації нічого робити."
+"Choose every trip of the day (Ctrl+A)":
+  de: "Jede Fahrt des Tages wählen (Strg+A)"
+  fr: "Choisir chaque course du jour (Ctrl+A)"
+  nl: "Elke rit van de dag kiezen (Ctrl+A)"
+  pl: "Wybierz każdy kurs dnia (Ctrl+A)"
+  ru: "Выбрать все рейсы дня (Ctrl+A)"
+  uk: "Вибрати всі рейси дня (Ctrl+A)"

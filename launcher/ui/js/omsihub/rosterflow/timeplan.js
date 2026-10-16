@@ -106,6 +106,8 @@ const refreshTp = () => tpSet((t) => ({ rev: (t.rev || 0) + 1 }));
 async function tpAct(act, args = {}) {
   const t = S.rf.tp;
   let r;
+  // (the Undo offered after trips were taken out goes with the next action)
+  if (t.undoable && act !== 'delete' && act !== 'bulk_delete') tpSet({ undoable: null });
   try {
     r = await rfCmd('rf_tp_act', { act, day: t.day, side: t.side, pattern: t.pattern, tab: t.tab, ...args });
   } catch (e) {
@@ -454,9 +456,10 @@ function pickRow(e, rows, row, keep = false) {
   tpSet({ ...only(alone ? null : row.i), cell: null });
 }
 
-/** The trips chosen taken out (one: as the trip's own Delete). */
+/** The trips chosen taken out (one: as the trip's own Delete) - Undo offered in the status bar
+ * (Ctrl+Z too). */
 function deleteChosen(chosen) {
-  const done = () => tpSet({ ...only(null), cell: null });
+  const done = (r) => tpSet({ ...only(null), cell: null, ...(r ? { undoable: { n: chosen.length, at: Date.now() } } : {}) });
   if (chosen.length === 1) return tpAct('delete', { i: chosen[0] }).then(done);
   return tpAct('bulk_delete', { trips: chosen }).then(done);
 }
@@ -519,6 +522,7 @@ function Timetable({ v }) {
   const tool = (anchor, icon, tip, on, click) => html`<button type="button" class=${'tp-tool' + (on ? ' on' : '')} data-rf=${anchor} title=${tr(tip)} onClick=${click}><${Icon} name=${icon} size=${18} /></button>`;
   const sel = t.sel;
   const chosen = chosenTrips(t);
+  const every = rows.length > 0 && rows.every((x) => chosen.includes(x.i));
   const needSel = () => say(tr('Choose a trip first: click its number.'));
   return html`<div class="tp-pane" ref=${ref} onWheel=${wheel}>
     <${Strip} dots=${tt.dots} cols=${cols} room=${room} railY=${railY} colour=${v.colour} />
@@ -533,7 +537,9 @@ function Timetable({ v }) {
       ${tool(null, 'flag', 'Timepoints only', t.pointsOnly, () => tpSet({ pointsOnly: !t.pointsOnly }))}
       ${tool('rf-tp-copy', 'content_copy', 'Copy to… other days: this day, the trips chosen or a template', !!t.copying, () => (t.copying ? tpSet({ copying: null }) : openCopy(chosen)))}
     </span>
-    <div class="tp-heads" style=${`top:${hy}px`}>${['#', 'Pattern', 'Vehicle type', 'Start', 'Headway'].map((h, k) => html`<span style=${`width:${FROZEN[k]}px`} class=${k === 0 ? 'c' : ''}>${k === 0 ? '#' : tr(h).toUpperCase()}</span>`)}</div>
+    <div class="tp-heads" style=${`top:${hy}px`}>${['#', 'Pattern', 'Vehicle type', 'Start', 'Headway'].map((h, k) => (k === 0
+      ? html`<button type="button" class="tp-checkall" style=${`width:${FROZEN[0]}px`} data-rf="rf-tp-checkall" title=${tr(every ? 'Choose none (Escape)' : 'Choose every trip of the day (Ctrl+A)')} disabled=${!rows.length} onClick=${() => tpSet(every ? { ...only(null), cell: null } : { picked: rows.map((x) => x.i), sel: rows[0].i, anchor: rows[0].i, cell: null })}><i class=${'tp-box' + (every ? ' on' : chosen.length ? ' some' : '')}></i></button>`
+      : html`<span style=${`width:${FROZEN[k]}px`}>${tr(h).toUpperCase()}</span>`))}</div>
     ${t.adding && html`<${AddForm} v=${v} top=${hy + 34} />`}
     ${!rows.length && html`<p class="tp-none" style=${`top:${y0 + 8}px`}>${tr('No trips on this day: add them by headway with the clock above, or one at a time with +.')}</p>`}
     <div class="tp-grid" style=${`top:${y0}px;height:${gridH}px`}>
@@ -542,7 +548,7 @@ function Timetable({ v }) {
         const y = kk * TT_ROW;
         const chosenRow = chosen.includes(row.i);
         return html`<div class=${'tp-row' + (chosenRow ? ' on' : '')} style=${`top:${y}px`}>
-          <button type="button" class="num" style=${`width:${FROZEN[0]}px`} title=${tr('Click to choose the trip: Shift+click a range, Ctrl+click one more, Ctrl+A all')} onMouseDown=${(e) => e.shiftKey && e.preventDefault()} onClick=${(e) => pickRow(e, rows, row)}>${k + 1}</button>
+          <button type="button" class="num" style=${`width:${FROZEN[0]}px`} title=${tr('Click to choose the trip: Shift+click a range, Ctrl+click one more, Ctrl+A all')} onMouseDown=${(e) => e.shiftKey && e.preventDefault()} onClick=${(e) => pickRow(e, rows, row)}><i class=${'tp-box' + (chosenRow ? ' on' : '')}></i><span>${k + 1}</span></button>
           <button type="button" class="pat" style=${`width:${FROZEN[1]}px`} onMouseDown=${(e) => e.shiftKey && e.preventDefault()} onClick=${(e) => pickRow(e, rows, row, true)}>${row.code}</button>
           <span class="vt" style=${`width:${FROZEN[2]}px`}>${tt.vt}</span>
           <button type="button" class=${'tp-cell rel' + (isCell({ kind: 'start', i: row.i }) ? ' on' : '')} style=${`width:${FROZEN[3]}px`} onClick=${() => choose({ kind: 'start', i: row.i }, row.i)}>${isCell({ kind: 'start', i: row.i }) && t.text ? html`<${Typed} text=${t.text} />` : row.start}</button>
@@ -640,7 +646,9 @@ function StatusBar({ v }) {
   const t = S.rf.tp;
   const tone = v.errors > 0 ? 'err' : v.warnings > 0 ? 'warn' : 'dim';
   let note;
+  const undo = t.undoable && Date.now() - t.undoable.at < 20000 ? t.undoable : null;
   if (t.leaving) note = [tr('Changes not saved: press again to leave without them.'), 'warn'];
+  else if (undo) note = [tr('%{n} trips taken out.', { n: undo.n }), 'sky'];
   else if (v.pending) note = [v.pending, 'dim'];
   else if (t.cell) note = [tr('Type and press Enter (Tab: the next cell, Escape: leave it). Up and Down change it by a minute.'), 'dim'];
   else if (t.tab === TIMETABLE && chosenTrips(t).length > 1) note = [tr('%{n} trips chosen: Shift+click a range, Ctrl+click one more or one less, Ctrl+A all, Escape none.', { n: chosenTrips(t).length }), 'sky'];
@@ -648,7 +656,7 @@ function StatusBar({ v }) {
   else if (v.dirty) note = [tr('Changes not saved yet.'), 'dim'];
   else note = [tr('Click a cell to type into it.'), 'dim'];
   return html`<div class="tp-status">
-    <span class=${'note ' + note[1]}>${note[1] === 'sky' && html`<${Icon} name="info" size=${16} />`}<span class="cut">${note[0]}</span></span>
+    <span class=${'note ' + note[1]}>${note[1] === 'sky' && html`<${Icon} name="info" size=${16} />`}<span class="cut">${note[0]}</span>${undo && !t.leaving && html`<button type="button" class="tp-undo" data-rf="rf-tp-undo" title=${tr('Undo (Ctrl+Z)')} onClick=${() => tpAct('undo').then(() => tpSet({ undoable: null, ...only(null), cell: null }))}><${Icon} name="undo" size=${15} /><span>${tr('Undo')}</span></button>`}</span>
     ${v.unsynced && html`<button type="button" class="tp-unsynced" data-rf="rf-tp-refresh" title=${tr('The timetable changed since the scheduling studio made the blocks of this line: make its blocks and duties anew')} onClick=${() => tpAct('refresh')}><${Icon} name="refresh" size=${16} />${tr('UNSYNCED')} – ${tr('Refresh')}</button>`}
     <button type="button" class=${'tp-issues ' + tone + (t.issuesOpen ? ' on' : '')} title=${tr('The issues of this day group')} onClick=${() => tpSet({ issuesOpen: !t.issuesOpen })}><${Icon} name=${v.errors > 0 ? 'error' : v.warnings > 0 ? 'warning' : 'check_circle'} size=${16} />${v.issues_label}</button>
   </div>`;
@@ -723,6 +731,13 @@ function useTpKeys(v) {
           tpSet({ text: '' });
           tpAct('nudge', { cell: t.cell, by: e.key === 'ArrowUp' ? 1 : -1 });
         }
+        return;
+      }
+      // (Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z: the context bar's undo and redo)
+      const key = e.key.toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && (key === 'z' || key === 'y') && !t.copying && !t.runCopy) {
+        e.preventDefault();
+        tpAct(key === 'z' && !e.shiftKey ? 'undo' : 'redo').then(() => tpSet({ cell: null, sel: null, picked: [], anchor: null, undoable: null }));
         return;
       }
       if (t.tab !== TIMETABLE || t.copying) return;

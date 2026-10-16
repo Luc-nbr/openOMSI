@@ -68,3 +68,17 @@
 .tp-copy .keep input { flex: 1; min-width: 0; height: 30px; padding: 0 8px; border: 0; border-radius: 4px; outline: none; background: var(--tp-field); box-shadow: inset 0 0 0 1px var(--tp-border); color: var(--tp-text); font-size: 9.98px; }
 .tp-copy .keep input:focus { box-shadow: inset 0 0 0 1.5px var(--tp-sky); }
 .tp-selbar .cut { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* the trips chosen as ticks: every one of the day in the head, each by its number */
+.tp-checkall { height: 34px; flex: none; display: flex; align-items: center; justify-content: center; background: var(--tp-cell); box-shadow: inset -1px 0 0 var(--tp-border); }
+.tp-checkall:hover:not(:disabled) { background: var(--tp-cell-hover); }
+.tp-row > .num { gap: 5px; }
+.tp-box { position: relative; width: 11px; height: 11px; flex: none; border-radius: 2px; box-shadow: inset 0 0 0 1.4px var(--tp-faint); }
+.tp-row > .num:hover .tp-box, .tp-checkall:hover .tp-box { box-shadow: inset 0 0 0 1.4px var(--tp-dim); }
+.tp-box.on, .tp-box.some { background: var(--tp-sky); box-shadow: none; }
+.tp-box.on::after { content: ""; position: absolute; left: 3.6px; top: 1.2px; width: 3px; height: 6px; border: solid #fff; border-width: 0 1.6px 1.6px 0; transform: rotate(45deg); }
+.tp-box.some::after { content: ""; position: absolute; left: 2.5px; right: 2.5px; top: 4.8px; height: 1.6px; background: #fff; }
+
+/* Undo after trips were taken out, in the status bar */
+.tp-undo { height: 24px; flex: none; display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 0 9px 0 7px; border-radius: 4px; background: var(--tp-cell); box-shadow: inset 0 0 0 1px var(--tp-border); color: var(--tp-text); font-size: 9.2px; font-weight: 700; }
+.tp-undo:hover { background: var(--tp-cell-hover); }
