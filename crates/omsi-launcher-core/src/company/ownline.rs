@@ -57,10 +57,9 @@
 //! **The kinds of service** (`crate::service::ServiceKind`) change who pays and who rides:
 //! - *School transport* carries pupils - about 45 a stop on a school day, before eight and
 //!   from noon on (`SCHOOL_HOURLY`), whatever the fare (they have passes) - and is paid by the
-//!   school authority per trip: €45 and €3 a kilometre (German districts pay some €2.50 to €4
-//!   a kilometre for their school runs). It runs on about 190 school days a year, and the
-//!   authority is strict: a dropped trip costs twice the contract's penalty, a late one its
-//!   share of that (`SCHOOL_DROP`, `economy::late_share`).
+//!   school authority's private-hire contract: a price a coach and school day (the UK's £333-352),
+//!   on about 190 school days a year, with its deductions and default points for journeys not
+//!   run or off time (`bus_contracts`).
 //! - *Weekend and leisure trips* carry people out for the day - 55 % of a regular line's riders
 //!   at the stops, Saturdays and Sundays, from the late morning to the evening
 //!   (`LEISURE_HOURLY`) - at one and a half times the fare (day tickets, visitors); a tourist
@@ -106,46 +105,32 @@ pub struct LineCosts {
     pub demand: f64,
 }
 
-const REALISTIC: LineCosts = LineCosts {
-    licence_base: 2_000_00,
-    licence_per_km: 150_00,
-    info_per_stop: 180_00,
-    live_display: 12_000_00,
-    timetable_per_group: 1_200_00,
-    association_entry: 6_000_00,
-    association_line: 800_00,
-    marketing_base: 1_000_00,
-    marketing_per_passenger: 2_00,
-    change_base: 600_00,
-    stop_fee: 25_00,
-    association_share: 0.06,
-    demand: 1.0,
-};
-
-/// The costs of a game_mode: Realistic's, about half on Easy, 1.4 times on Hard.
+/// The costs of a game mode: the UK's estimates (`econ_uk::LINE_*`) at the mode's cost factor
+/// (Realistic 1.0, Normal 0.9, Casual 0.75), to the ten euros; the fare association's share and
+/// the passengers by the mode as before (the income side's, wave 2b).
 pub fn costs(d: GameMode) -> LineCosts {
-    let scaled = |f: f64, share: f64, demand: f64| {
-        let s = |c: Cents| ((c as f64 * f / 10_00 as f64).round() as Cents) * 10_00;
-        LineCosts {
-            licence_base: s(REALISTIC.licence_base),
-            licence_per_km: s(REALISTIC.licence_per_km),
-            info_per_stop: s(REALISTIC.info_per_stop),
-            live_display: s(REALISTIC.live_display),
-            timetable_per_group: s(REALISTIC.timetable_per_group),
-            association_entry: s(REALISTIC.association_entry),
-            association_line: s(REALISTIC.association_line),
-            marketing_base: s(REALISTIC.marketing_base),
-            marketing_per_passenger: (REALISTIC.marketing_per_passenger as f64 * f).round() as Cents,
-            change_base: s(REALISTIC.change_base),
-            stop_fee: s(REALISTIC.stop_fee),
-            association_share: share,
-            demand,
-        }
+    let f = super::econ_uk::mode(d).costs;
+    let s = |pence: f64| ((super::econ_uk::gbp(pence) * f / 10_00 as f64).round() as Cents) * 10_00;
+    let (association_share, demand) = match d {
+        GameMode::Casual => (0.03, 1.2),
+        GameMode::Normal => (0.06, 1.0),
+        GameMode::Realistic => (0.09, 0.9),
     };
-    match d {
-        GameMode::Casual => scaled(0.5, 0.03, 1.2),
-        GameMode::Normal => REALISTIC,
-        GameMode::Realistic => scaled(1.4, 0.09, 0.9),
+    use super::econ_uk as uk;
+    LineCosts {
+        licence_base: s(uk::LINE_REGISTRATION),
+        licence_per_km: s(uk::LINE_PER_KM),
+        info_per_stop: s(uk::LINE_STOP_INFO),
+        live_display: s(uk::LINE_LIVE_DISPLAY),
+        timetable_per_group: s(uk::LINE_TIMETABLES),
+        association_entry: s(uk::LINE_SCHEME_ENTRY),
+        association_line: s(uk::LINE_SCHEME_LINE),
+        marketing_base: s(uk::LINE_MARKETING),
+        marketing_per_passenger: (super::econ_uk::gbp(uk::LINE_MARKETING_PER_PASSENGER) * f).round() as Cents,
+        change_base: s(uk::LINE_CHANGE),
+        stop_fee: s(uk::LINE_STOP_MONTH),
+        association_share,
+        demand,
     }
 }
 
@@ -197,19 +182,10 @@ pub fn is_peak(hour: usize) -> bool {
 
 // --- the kinds of service --------------------------------------------------------------------------
 
-/// The school authority's contract per school trip (Realistic, founding day's prices): a part
-/// for the bus and its driver kept for the school's times, and a part per kilometre.
-pub const SCHOOL_TRIP_BASE: Cents = 45_00;
-pub const SCHOOL_TRIP_PER_KM: Cents = 3_00;
 /// School days a year (about 190 in the German states and the Netherlands).
 pub const SCHOOL_DAYS: f64 = 190.0;
 /// Pupils a stop brings on a school day (both ways together).
 pub const PUPILS_PER_STOP: f64 = 45.0;
-/// The school authority is strict: a dropped school trip costs this many times the penalty for
-/// a dropped one, and a late one its share of that (`economy::late_share`). `SCHOOL_LATE` was
-/// the flat late penalty's (kept for what still names it).
-pub const SCHOOL_LATE: Cents = 3;
-pub const SCHOOL_DROP: Cents = 2;
 /// A weekend line's fare against the single ticket (day tickets, family tickets, visitors at
 /// the full fare), the share of the authority's payment per kilometre a tourist board pays for
 /// it, and its riders against a regular line's.
@@ -260,15 +236,11 @@ pub fn month_days(kind: ServiceKind, day: usize) -> f64 {
     }
 }
 
-/// What a school trip of `km` brings: the school authority's contract (indexed as the
-/// authority's payments are; more on Easy, less on Hard).
-pub fn school_trip_pay(c: &Company, km: f64) -> Cents {
-    let d = match c.game_mode {
-        GameMode::Casual => 1.25,
-        GameMode::Normal => 1.0,
-        GameMode::Realistic => 0.85,
-    };
-    ((SCHOOL_TRIP_BASE as f64 + SCHOOL_TRIP_PER_KM as f64 * km.max(0.0)) * c.contract_index * d).round() as Cents
+/// What a school trip itself brings: nothing - the school authority's private-hire contract pays
+/// the line by the school day (`bus_contracts`), its deductions and default points by the
+/// journey. (Kept for the trip's money, `trip_income`.)
+pub fn school_trip_pay(_c: &Company, _km: f64) -> Cents {
+    0
 }
 
 /// The weather of a day as people out for it feel it: a sunny day draws a quarter more, a wet
@@ -816,7 +788,10 @@ pub fn estimate(c: &Company, l: &LineDesign, shape: &Shape) -> Estimate {
     let per_km = economy::compensation_per_km(&r, c.reputation, c.contract_index);
     match kind {
         ServiceKind::School => {
-            let a_day: f64 = plan.iter().filter(|t| t.day == 0).flat_map(|t| t.trips.iter()).map(|x| school_trip_pay(c, shape.dir_km.get(x.dir).copied().unwrap_or(0.0)) as f64).sum();
+            // (the school authority's private hire: a coach - each tour of a school day - at its
+            // price a school day, `bus_contracts`)
+            let coaches = plan.iter().filter(|t| t.day == 0).count().max(1) as f64;
+            let a_day = super::bus_contracts::school_day_price(c) * coaches;
             e.monthly.push(("School contract", (a_day * month_days(kind, 0)).round() as Cents));
         }
         _ => {
@@ -1423,8 +1398,9 @@ mod tests {
         assert_eq!(trip_income(ServiceKind::School, 40.0, 5.0, 110.0, 200.0, 60_00), (0, 60_00));
         assert_eq!(trip_income(ServiceKind::Leisure, 10.0, 5.0, 110.0, 200.0, 0), (16_50, 5_00));
         assert_eq!(trip_income(ServiceKind::OnDemand, 2.0, 5.0, 110.0, 200.0, 0), (5_20, 10_00));
-        assert_eq!(school_trip_pay(&c, 10.0), 75_00);
-        assert!(school_trip_pay(&company(GameMode::Casual), 10.0) > school_trip_pay(&company(GameMode::Realistic), 10.0));
+        // (a school trip itself brings nothing: its contract pays by the school day)
+        assert_eq!(school_trip_pay(&c, 10.0), 0);
+        assert!(super::super::bus_contracts::school_day_price(&company(GameMode::Casual)) > super::super::bus_contracts::school_day_price(&company(GameMode::Realistic)));
         // bookings: a trip nobody rides is never booked, one with two riders mostly
         assert_eq!(booking(0.0).0, 0.0);
         let (p, riders) = booking(2.0);
@@ -1473,18 +1449,19 @@ mod tests {
     #[test]
     fn the_costs_follow_the_difficulty() {
         let (e, r, h) = (costs(GameMode::Casual), costs(GameMode::Normal), costs(GameMode::Realistic));
-        assert_eq!(r.licence_base, 2_000_00);
-        assert_eq!(e.licence_base, 1_000_00);
-        assert_eq!(h.licence_base, 2_800_00);
+        // (the UK's registration at the mode's cost factor, to the ten euros)
+        assert!((crate::company::currency::Currency::Gbp.units(h.licence_base as f64) - 600.0).abs() < 10.0);
+        assert!(e.licence_base < r.licence_base && r.licence_base < h.licence_base);
         assert!(e.association_share < r.association_share && r.association_share < h.association_share);
         assert!(e.demand > r.demand && r.demand > h.demand);
-        // a twenty-stop line of 7.6 km on Realistic: some €20,000-30,000 to start
+        // a twenty-stop line of 7.6 km: some £7,000-30,000 to start (registering it, its stops'
+        // timetables, the ticket scheme, its launch)
         let c = company(GameMode::Normal);
         let l = line(20);
         let s = shape_of(&l, &|_| 0);
         assert_eq!((s.stops, (s.route_km * 10.0).round()), (20, 76.0));
         let est = estimate(&c, &l, &s);
-        assert!((15_000_00..35_000_00).contains(&est.one_off_total()), "{}", est.one_off_total());
+        assert!((8_000_00..35_000_00).contains(&est.one_off_total()), "{}", est.one_off_total());
         assert!(est.one_off.iter().any(|x| x.0 == "Association entry"));
         // the same line costs less on Easy and more on Hard
         assert!(estimate(&company(GameMode::Casual), &l, &s).one_off_total() < est.one_off_total());
@@ -1659,7 +1636,8 @@ mod tests {
         later.directions[0].fit_legs();
         let s2 = shape_of(&later, &|_| 0);
         let fee = change_fee(&c, &later, &s2).unwrap();
-        assert_eq!(fee, 600_00 + 180_00);
+        let k = costs(c.game_mode);
+        assert_eq!(fee, k.change_base + k.info_per_stop);
         let cash = c.cash;
         assert_eq!(apply_change(&mut c, &later, "oo_9", &s2), Ok(fee));
         assert_eq!(c.cash, cash - fee);
@@ -1667,7 +1645,7 @@ mod tests {
         // the stop fees at the month's end
         let cash = c.cash;
         month_end(&mut c);
-        assert_eq!(cash - c.cash, 25_00 * 13);
+        assert_eq!(cash - c.cash, costs(c.game_mode).stop_fee * 13);
         // a line with a public title: its launch is advertised under it, and the company keeps it
         let mut d = company(GameMode::Normal);
         let titled = LineDesign { id: 10, title: "Shuttleverkehr Altenfeld - Wurzbach".into(), ..line(12) };

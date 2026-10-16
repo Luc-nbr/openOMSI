@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 pub type Cents = i64;
 
 /// The version of the saved file; raised when a field changes meaning (see `store::migrate`).
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 
 /// The company's game mode (Trello "Game modes 1/4"): one choice that sets both how much of
 /// the company the player runs himself and how hard its economy and its days are. It can be
@@ -252,10 +252,13 @@ pub enum BookingKind {
     /// The central overhead per bus (depot rent, management, admin, control, IT) and the buses'
     /// ticket machines (`economy::bus_month`).
     Overheads,
+    /// What the bus contracts pay (`bus_contracts`): gross cost by the day or week, net subsidy by
+    /// the month, private hire by the day - the journeys not paid taken off.
+    Contract,
 }
 
 impl BookingKind {
-    pub const ALL: [BookingKind; 34] = [
+    pub const ALL: [BookingKind; 35] = [
         BookingKind::Capital,
         BookingKind::Loan,
         BookingKind::Repayment,
@@ -290,6 +293,7 @@ impl BookingKind {
         BookingKind::Agency,
         BookingKind::Depreciation,
         BookingKind::Overheads,
+        BookingKind::Contract,
     ];
 
     pub fn label(self) -> &'static str {
@@ -328,6 +332,7 @@ impl BookingKind {
             BookingKind::Agency => "Agency drivers",
             BookingKind::Depreciation => "Depreciation",
             BookingKind::Overheads => "Overheads",
+            BookingKind::Contract => "Contract payments",
         }
     }
 

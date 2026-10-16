@@ -94,14 +94,15 @@ pub fn cause_kind(key: &str) -> String {
     })
 }
 
-/// The tiers in words, each its own whole minutes (`economy::late_tier`: none in two).
+/// The tiers in words, each its own whole minutes (`economy::late_tier`: none in two). What a tier
+/// costs is what its trips cost on the bus contracts (`bus_contracts::unpaid_share`: a journey
+/// late enough is not paid; a commercial line's nothing).
 pub fn tier_text(t: usize) -> String {
-    let pc = |m: i32| format!("{:.0}", economy::late_share(m) * 100.0);
     let (from, five, full) = (economy::LATE_FROM, 5, economy::LATE_FULL);
     match t {
-        1 => trf("%{from} to %{to} min late: %{share} %", &[("from", &from.to_string()), ("to", &five.to_string()), ("share", &pc(five))]),
-        2 => trf("%{from} to %{to} min late: %{low} to %{high} %", &[("from", &(five + 1).to_string()), ("to", &(full - 1).to_string()), ("low", &pc(five + 1)), ("high", &pc(full - 1))]),
-        _ => trf("%{from} min or more: the whole trip", &[("from", &full.to_string())]),
+        1 => trf("%{from} to %{to} min late", &[("from", &from.to_string()), ("to", &five.to_string())]),
+        2 => trf("%{from} to %{to} min late", &[("from", &(five + 1).to_string()), ("to", &(full - 1).to_string())]),
+        _ => trf("%{from} min or more: weighed as a trip lost", &[("from", &full.to_string())]),
     }
 }
 
@@ -548,7 +549,8 @@ mod tests {
         for (k, &(tour, duty, dep, minutes)) in trips.iter().enumerate() {
             l.count("C1", tour, duty, 7, dep, minutes);
             if minutes >= economy::LATE_FROM {
-                let share = economy::late_share(minutes);
+                // (on a bus contract: not paid from ten minutes, Realistic's)
+                let share = if minutes >= 10 { 1.0 } else { 0.0 };
                 let carried = k == 2 || k == 7;
                 let causes = if carried { vec![Cause::Carried { dep: dep - 30, arr: dep - 5, stop: "Totnes Castle".into(), late: minutes + 2, layover: 5, deadhead: false, minutes }] } else { vec![Cause::Traffic { peak: true, minutes }] };
                 out.push(Outcome { line: "C1".into(), number: "C1".into(), tour: tour.into(), duty: Some(duty), dep, arr: dep + 25, minutes, causes, value: 100_00, share, deduction: (100_00 as f64 * share).round() as Cents, root: if k == 8 { "relief".into() } else { "peak".into() }, ..Default::default() });

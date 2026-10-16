@@ -25,7 +25,9 @@
 //!   no longer takes every trip after the first late one; the trips that carried a delay on are
 //!   told apart (`Lateness::carried`), as the advice for more layover counts them.
 //!
-//! The close books each late trip's deduction (`economy::late_share` of its value), keeps the
+//! Each late trip carries what it costs on a bus contract (its journey's value when it is late
+//! enough not to be paid, `bus_contracts::unpaid_share`; a commercial line's nothing - the
+//! contracts' close books it, `bus_contracts::close_day`), and the close keeps the
 //! late and dropped trips of the last `KEPT_DAYS` days (`Store`, for RosterFlow and the advice),
 //! and the report sums them up (`Lateness`). `advice` turns the causes into what to change.
 
@@ -39,7 +41,6 @@ use super::network::PlannedTrip;
 use super::plan::{self, Problem, Who, AGENCY, PLAYER};
 use super::rng::Rng;
 use super::staff;
-use crate::service::ServiceKind;
 use serde::{Deserialize, Serialize};
 
 /// Minutes from signing on late in the morning (after the trips before were dropped) to the bus.
@@ -533,10 +534,12 @@ pub fn dropped(c: &Company, date: &str, tp: &TourPlan, k: usize, trip: &PlannedT
     Outcome { line: tp.tour.line.clone(), number: tp.tour.number.clone(), tour: tp.tour.tour.clone(), duty: Some(k), dep: trip.dep, arr: trip.arr, trip: trip.name.clone(), bus, driver, dropped: Some(why), problem, ..Default::default() }
 }
 
-/// A trip run late: its minutes and causes, and its deduction (its share of `value`).
-pub fn late(tp: &TourPlan, k: usize, trip: &PlannedTrip, bus: u32, driver: u32, t: Timed, value: Cents) -> Outcome {
+/// A trip run late: its minutes and causes, and its deduction (`value`, its journey's value on a
+/// bus contract, when it is late enough not to be paid: `bus_contracts::unpaid_share`).
+#[allow(clippy::too_many_arguments)]
+pub fn late(c: &Company, tp: &TourPlan, k: usize, trip: &PlannedTrip, bus: u32, driver: u32, t: Timed, value: Cents) -> Outcome {
     let minutes = t.minutes();
-    let share = economy::late_share(minutes);
+    let share = super::bus_contracts::unpaid_share(c, minutes);
     let root = t.root().unwrap_or_default().to_string();
     Outcome {
         line: tp.tour.line.clone(),
@@ -558,16 +561,6 @@ pub fn late(tp: &TourPlan, k: usize, trip: &PlannedTrip, bus: u32, driver: u32, 
         problem: None,
         root,
     }
-}
-
-fn hhmm(m: i32) -> String {
-    format!("{:02}:{:02}", m.rem_euclid(1440) / 60, m.rem_euclid(60))
-}
-
-/// A late trip's deduction as the ledger has it (English: bookings are not translated).
-pub fn booking_text(o: &Outcome) -> String {
-    let why = o.main().map_or("late", |c| c.words());
-    format!("Line {} {} (block {}): {} min late, {} - {:.0} % of the trip", o.number, hhmm(o.dep), o.tour, o.minutes, why, o.share * 100.0)
 }
 
 // --- what the day came to ------------------------------------------------------------------------
@@ -750,13 +743,11 @@ pub fn feed_live(c: &mut Company, o: Outcome) {
 /// reported over them.
 pub fn today(c: &Company, plan: &Plan, now: i32) -> Vec<Outcome> {
     let date = c.date.clone();
-    let r = economy::rules_for(c);
     let cut = clock::breakdowns(c, plan, &date, &[]);
     let controls = control::of_day(c, &date);
     let m = model_with(c, plan, &date, &cut, &controls, Some(now), None);
     let mut out: Vec<Outcome> = Vec::new();
     for (ti, tp) in plan.tours.iter().enumerate().filter(|(_, t)| !t.by_player) {
-        let school = c.lines.iter().find(|l| l.name.eq_ignore_ascii_case(&tp.tour.line)).is_some_and(|l| super::ownline::kind_of(l) == ServiceKind::School);
         let broken_at = tp.bus.and_then(|b| cut.iter().find(|x| x.vehicle == b)).copied();
         for (k, d) in tp.duties.iter().enumerate() {
             for j in d.start..d.end {
@@ -772,9 +763,9 @@ pub fn today(c: &Company, plan: &Plan, now: i32) -> Vec<Outcome> {
                 }
                 let Some(t) = whole(&m, ti, j, joined).filter(|t| t.minutes() >= economy::LATE_FROM) else { continue };
                 let Some(driver) = d.driver else { continue };
-                let value = economy::trip_value(&r, trip.km) * if school { super::ownline::SCHOOL_DROP } else { 1 };
+                let value = super::bus_contracts::journey_value(c, &tp.tour.line, None);
                 let bus = t.bus;
-                out.push(late(tp, k, &trip, bus, driver, t, value));
+                out.push(late(c, tp, k, &trip, bus, driver, t, value));
             }
         }
     }

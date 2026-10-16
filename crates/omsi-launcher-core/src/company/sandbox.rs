@@ -427,8 +427,6 @@ pub fn rules(c: &Company, mut r: Rules) -> Rules {
     let s = of(c);
     r.price_factor *= s.prices;
     r.compensation_per_km = (r.compensation_per_km as f64 * s.income).round() as Cents;
-    r.drop_per_trip = (r.drop_per_trip as f64 * s.penalties).round() as Cents;
-    r.drop_per_km = (r.drop_per_km as f64 * s.penalties).round() as Cents;
     if !s.inflation {
         r.inflation = 0.0;
         r.indexation = 0.0;
@@ -594,7 +592,8 @@ mod tests {
         let r = economy::rules_for(&c);
         assert_eq!(economy::new_price(SOLO, &r, 1.0), economy::new_price(SOLO, &base, 1.0) / 2);
         assert_eq!(r.compensation_per_km, base.compensation_per_km * 2);
-        assert_eq!((r.drop_per_trip, r.drop_per_km), (0, 0));
+        // (no penalties: a bus contract deducts nothing and gives no default points)
+        assert_eq!(crate::company::bus_contracts::journey_value(&c, "Linie5", None), 0);
         assert_eq!((r.loan_rate, r.inflation, r.indexation), (0.0, 0.0, 0.0));
         assert!((r.sickness - base.sickness * 3.0).abs() < 1e-12);
         assert_eq!(r.applicants, base.applicants * 2);

@@ -2,21 +2,23 @@
 //! may buy the line directly, or bid with the chance to lose it; and it lasts a few hours, not
 //! days).
 //!
-//! A line is auctioned for a few hours of the company's time. The bidders ask a sum for running
-//! the line over the term (the authority's compensation; at most the reference, the `ceiling`),
-//! and the authority scores every bid 70 % on price and 30 % on quality (Luc 2026-10-15:
-//! "30% quality and 70% price, lowest bid generally with quality wins"): the lowest ask gets
-//! the full 70 price points, the others `lowest / ask` of them; the quality points are the
-//! bidder's quality (its reputation, punctuality and fleet) of 30. The best total when the
-//! auction closes wins. Each new bid has to lead by `MARGIN` points, so the last bid placed
-//! always leads.
+//! A line is auctioned for a few hours of the company's time. The bidders ask a price a year for
+//! running the line (at most the authority's published cap, the `ceiling`: a bid above it does
+//! not count), and the authority scores every bid 70 % on price and 30 % on quality (Luc
+//! 2026-10-15, and a county council's terms): the lowest ask gets the full 70 price points, the
+//! others `lowest / ask` of them; the quality points are the bidder's performance - 100 % less
+//! 2 % for each average net default point of its contracts over the last twelve months
+//! (`bus_contracts::quality`) - of 30. The best total when the auction closes wins; on equal
+//! totals the better price points, then the better quality (`points`). Each new bid has to lead
+//! by `MARGIN` points, so the last bid placed always leads.
 //!
 //! The rivals are the map's other operators, each with a character: an aggressive one answers
-//! fast and goes low, a cautious one takes its time and stays near the reference, a big one
-//! can afford a thin margin, a small one not; some keep quiet until the last minutes and only
-//! then bid. Each knows how low it will go (its floor, drawn per tender and kept secret); the
-//! player sees their characters and their bids as they come, and what `chance` reckons from
-//! what he can know.
+//! fast and goes low, a cautious one takes its time and stays high, a big one can afford a thin
+//! margin, a small one not; some keep quiet until the last minutes and only then bid. Each knows
+//! how low it will go (its floor: the work's cost price on the UK operator's formula, within the
+//! game mode's band around it by its character - `Character::band`; drawn per tender and kept
+//! secret); the player sees their characters and their bids as they come, and what `chance`
+//! reckons from what he can know.
 //!
 //! Everything is replayed from the auction's start (`replay`): the same bids of the player
 //! give the same auction, and a bid of his changes only what comes after it (the rivals act
@@ -55,13 +57,15 @@ impl Character {
         }
     }
 
-    /// How low it goes, as a share of the reference (from, to).
-    pub fn floor(self) -> (f64, f64) {
+    /// Where its floor lies in the game mode's band of bids around the cost price
+    /// (`econ_uk::ModeFactors::rival_bids`): from, to, as fractions of the band (0 its lowest,
+    /// 1 its highest).
+    pub fn band(self) -> (f64, f64) {
         match self {
-            Character::Aggressive => (0.76, 0.90),
-            Character::Big => (0.80, 0.93),
-            Character::Cautious => (0.86, 0.99),
-            Character::Small => (0.84, 0.97),
+            Character::Aggressive => (0.0, 0.5),
+            Character::Big => (0.15, 0.65),
+            Character::Small => (0.35, 0.85),
+            Character::Cautious => (0.5, 1.0),
         }
     }
 
@@ -94,13 +98,14 @@ impl Character {
         }
     }
 
-    /// Its quality in the authority's eyes (from, to).
+    /// Its quality in the authority's eyes (from, to): its performance, 100 % less 2 % for each
+    /// average net default point (an aggressive one cuts corners, a cautious one runs clean).
     pub fn quality(self) -> (f64, f64) {
         match self {
-            Character::Aggressive => (45.0, 70.0),
-            Character::Big => (60.0, 85.0),
-            Character::Cautious => (50.0, 75.0),
-            Character::Small => (35.0, 60.0),
+            Character::Aggressive => (76.0, 94.0),
+            Character::Big => (84.0, 98.0),
+            Character::Cautious => (88.0, 100.0),
+            Character::Small => (78.0, 96.0),
         }
     }
 }
@@ -123,8 +128,8 @@ pub fn score(amount: Cents, quality: f64, lowest: Cents) -> f64 {
     price_points(amount, lowest) + quality_points(quality)
 }
 
-/// The auction's frame: when it runs (minutes), the most the authority pays (the reference
-/// over the term) and the step a rival may go lower by.
+/// The auction's frame: when it runs (minutes), the most the authority pays (its published cap,
+/// a year) and the step a rival may go lower by.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Lot {
     pub opens: i64,
@@ -315,34 +320,28 @@ pub fn points(placed: &[Placed], rivals: &[Bidder], player_quality: f64) -> Vec<
     all.extend(mine.map(|a| (Who::Player, a, player_quality)));
     let Some(lowest) = all.iter().map(|x| x.1).min() else { return Vec::new() };
     let mut out: Vec<Points> = all.into_iter().map(|(who, amount, q)| Points { who, amount, price: price_points(amount, lowest), quality: quality_points(q), total: score(amount, q, lowest) }).collect();
-    out.sort_by(|a, b| b.total.total_cmp(&a.total));
+    // (equal totals: the better price points, then the better quality)
+    out.sort_by(|a, b| b.total.total_cmp(&a.total).then(b.price.total_cmp(&a.price)).then(b.quality.total_cmp(&a.quality)));
     out
 }
 
-/// What a rival looks like to the player: its character, its quality and its last bid.
+/// What a rival looks like to the player: where its floor may lie (the cost price's band for its
+/// character, cents), its quality and its last bid.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Seen {
-    pub character: Character,
+    pub floor: (f64, f64),
     pub quality: f64,
     pub last: Option<Cents>,
 }
 
-/// A floor's share of the reference as a difficulty's `factor` draws it (a higher factor goes
-/// lower).
-pub fn floor_share(share: f64, factor: f64) -> f64 {
-    1.0 - (1.0 - share) * factor
-}
-
 /// The player's chance to win with an ask of `amount` now, as he can reckon it: every rival's
-/// floor lies somewhere in its character's range of the reference (`lot.ceiling`; its share
-/// drawn with the economy's `factor`), at most what it bid already; it beats him if it can ask
-/// low enough to lead his bid.
-pub fn chance(amount: Cents, player_quality: f64, rivals: &[Seen], factor: f64, lot: &Lot) -> f64 {
+/// floor lies somewhere in its range (`Seen::floor`), at most what it bid already; it beats him if
+/// it can ask low enough to lead his bid (a floor above the cap never bids).
+pub fn chance(amount: Cents, player_quality: f64, rivals: &[Seen], lot: &Lot) -> f64 {
     let mut p = 1.0;
     for r in rivals {
-        let (lo, hi) = r.character.floor();
-        let lo = floor_share(lo, factor) * lot.ceiling as f64;
-        let hi = (floor_share(hi, factor) * lot.ceiling as f64).min(r.last.map_or(f64::MAX, |l| l as f64));
+        let (lo, hi) = r.floor;
+        let hi = hi.min(r.last.map_or(f64::MAX, |l| l as f64));
         let need = to_lead(&[(amount, player_quality)], r.quality, lot) as f64;
         // (it beats him when its floor is at most what it needs)
         let above = if hi <= lo { if lo > need { 1.0 } else { 0.0 } } else { ((hi - need) / (hi - lo)).clamp(0.0, 1.0) };
@@ -440,9 +439,14 @@ mod tests {
     fn the_chance_is_what_comes_out() {
         let l = Lot { opens: 0, closes: 300, ceiling: 100_000_00, step: 1_000_00 };
         let chars = [Character::Aggressive, Character::Cautious, Character::Small];
+        // (floors within -15 % and +15 % of a cost price of 85,000, by character)
+        let range = |c: &Character| {
+            let (a, b) = c.band();
+            (85_000_00.0 * (0.85 + 0.3 * a), 85_000_00.0 * (0.85 + 0.3 * b))
+        };
         for amount in [95_000_00, 85_000_00, 75_000_00] {
-            let seen: Vec<Seen> = chars.iter().map(|c| Seen { character: *c, quality: 55.0, last: None }).collect();
-            let reckoned = chance(amount, 55.0, &seen, 1.0, &l);
+            let seen: Vec<Seen> = chars.iter().map(|c| Seen { floor: range(c), quality: 55.0, last: None }).collect();
+            let reckoned = chance(amount, 55.0, &seen, &l);
             let mut wins = 0;
             let n = 600;
             for k in 0..n {
@@ -451,8 +455,8 @@ mod tests {
                     .iter()
                     .enumerate()
                     .map(|(i, c)| {
-                        let (lo, hi) = c.floor();
-                        Bidder { character: *c, floor: (rng.range(lo, hi) * l.ceiling as f64) as Cents, quality: 55.0, seed: rng.next_u64() ^ i as u64, opening: None, quiet_until: None }
+                        let (lo, hi) = range(c);
+                        Bidder { character: *c, floor: rng.range(lo, hi) as Cents, quality: 55.0, seed: rng.next_u64() ^ i as u64, opening: None, quiet_until: None }
                     })
                     .collect();
                 let p = replay(&l, &rivals, &[(1, amount)], 55.0, l.closes);
@@ -464,9 +468,9 @@ mod tests {
             assert!((got - reckoned).abs() < 0.08, "{amount}: reckoned {reckoned:.2}, won {got:.2}");
         }
         // less is a better chance; below every floor it is certain
-        let seen = [Seen { character: Character::Big, quality: 55.0, last: Some(88_000_00) }];
-        assert!(chance(86_000_00, 55.0, &seen, 1.0, &l) < chance(80_000_00, 55.0, &seen, 1.0, &l));
-        assert_eq!(chance(60_000_00, 55.0, &seen, 1.0, &l), 1.0);
-        assert_eq!(chance(95_000_00, 55.0, &seen, 1.0, &l), 0.0, "above what it bid already");
+        let seen = [Seen { floor: range(&Character::Big), quality: 55.0, last: Some(88_000_00) }];
+        assert!(chance(86_000_00, 55.0, &seen, &l) < chance(80_000_00, 55.0, &seen, &l));
+        assert_eq!(chance(60_000_00, 55.0, &seen, &l), 1.0);
+        assert_eq!(chance(95_000_00, 55.0, &seen, &l), 0.0, "above what it bid already");
     }
 }

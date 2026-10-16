@@ -427,7 +427,7 @@ pub fn roll_breakdowns(c: &Company, date: &str, spans: &[(u32, i32, i32)]) -> Ve
         let Some(v) = c.vehicle(id) else { continue };
         let overdue = if v.km > v.next_service_km { 2.0 } else { 1.0 };
         // (a sandbox's breakdown factor: `sandbox::Sandbox::breakdowns`)
-        let p = 0.004 * r.breakdown_factor * c.game_mode.rules().breakdowns * super::sandbox::of(c).breakdowns * (1.0 + (100.0 - v.condition) / 25.0) * overdue;
+        let p = super::econ_uk::BREAKDOWN_CHANCE * r.breakdown_factor * c.game_mode.rules().breakdowns * super::sandbox::of(c).breakdowns * (1.0 + (100.0 - v.condition) / 25.0) * overdue;
         let mut rng = Rng::of(&[&c.id, "breakdown", &id.to_string()], day);
         if rng.chance(p) {
             out.push((id, rng.int(a as i64, b.max(a) as i64) as i32));
@@ -527,6 +527,9 @@ fn told_notes(c: &Company, date: &str) -> Vec<(i64, String, Vec<(String, String)
             Note::Ended { number } => (0, "Line %{n} is no longer the company's: its concession ended", vec![arg("n", number)], Level::Bad),
             Note::NotStarted { number, charge, .. } => (0, "Line %{n} is not in service yet: the authority charged %{amount}", vec![arg("n", number), arg("amount", charge)], Level::Bad),
             Note::Accident { number, cost } => (0, "Bus %{bus} had an accident yesterday: damage %{amount}", vec![arg("bus", number), arg("amount", cost)], Level::Bad),
+            Note::Extended { number, until } => (0, "The contract of line %{n} was extended until %{date}", vec![arg("n", number), arg("date", until)], Level::Good),
+            Note::NotExtended { number, until } => (0, "The contract of line %{n} is not extended: it ends on %{date}", vec![arg("n", number), arg("date", until)], Level::Warn),
+            Note::Terminated { number, cost } => (0, "The authority ended the contract of line %{n}: %{amount}", vec![arg("n", number), arg("amount", cost)], Level::Bad),
             Note::Breakdown { .. } | Note::LoanPaid { .. } | Note::Lost { .. } | Note::Unsaved => continue,
         };
         out.push((x.0, x.1.to_string(), x.2, x.3));

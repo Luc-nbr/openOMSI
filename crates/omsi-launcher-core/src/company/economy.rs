@@ -12,8 +12,8 @@
 //!
 //! **The income side is still the old reference** (German urban operations: an average fare per
 //! passenger, passengers per bus-km, the authority's payment per km; `Rules::fare`,
-//! `passengers_for`, `compensation_per_km`) until wave 2b replaces it with the UK income model;
-//! the contract penalties (`trip_value`, `late_share`) until wave 2a.
+//! `passengers_for`, `compensation_per_km`) until wave 2b replaces it with the UK income model.
+//! The bus contracts - their payments, deductions and default points - are `bus_contracts`'.
 //!
 //! The age curve of a bus's value: the used market pays for age - some 18 % is lost in the first
 //! year, then 8-10 % of the new price a year, less later, to a 10 % residual at 15-18 years
@@ -26,7 +26,7 @@ use super::model::{BookingKind, BusKind, Cents, Company, Drive, GameMode, Tenure
 
 /// The numbers of one game mode. The costs come from the UK model (`econ_uk`): a bus's price
 /// and lease here, the running and fixed costs in the functions below. The fields marked "wave
-/// 2a" and "wave 2b" are the old reference until those waves replace them.
+/// 2b" are the old reference until that wave replaces them.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rules {
     pub start_capital: Cents,
@@ -58,11 +58,7 @@ pub struct Rules {
     pub fare: Cents,
     pub passengers_per_km: f64,
     pub compensation_per_km: Cents,
-    /// Penalties: per trip dropped, per km dropped (a trip's value; a late one pays its share of
-    /// that, `late_share`; wave 2a: the contracts' deductions and default points replace them).
-    pub drop_per_trip: Cents,
-    pub drop_per_km: Cents,
-    /// Breakdowns and wear against the reference.
+    /// Breakdowns and wear against the UK's (`econ_uk::BREAKDOWN_CHANCE`; Realistic 1.0).
     pub breakdown_factor: f64,
     /// Yearly rise of costs, and of the contract's payment.
     pub inflation: f64,
@@ -78,27 +74,13 @@ pub struct Rules {
 }
 
 /// From this many whole minutes behind a trip counts as late (`lateness::Timed::minutes`; as
-/// OMSI's 180 s: up to 2 min 59 s behind is on time).
+/// OMSI's 180 s: up to 2 min 59 s behind is on time). A bus contract judges a journey by the UK
+/// standard instead (`bus_contracts`).
 pub const LATE_FROM: i32 = 3;
-/// From this many minutes a late trip costs its whole value, as a trip dropped does.
+/// From this many minutes a late trip weighs as a trip lost: in the reputation, the service
+/// control's choices and the report's last tier. (What it costs on a bus contract is
+/// `bus_contracts::unpaid_at`'s; a commercial line pays in passengers and reputation only.)
 pub const LATE_FULL: i32 = 30;
-
-/// A trip's value under the contract: what dropping it costs (a late one pays a share of it).
-pub fn trip_value(r: &Rules, km: f64) -> Cents {
-    r.drop_per_trip + (km * r.drop_per_km as f64).round() as Cents
-}
-
-/// The share of its value a trip `minutes` late pays (Luc, 2026-10-15): nothing under
-/// `LATE_FROM`, 10 % up to five minutes, then rising linearly to the whole at `LATE_FULL`
-/// minutes and over (whole minutes: 10 % at 5, 28 % at 10, 64 % at 20, 100 % at 30).
-pub fn late_share(minutes: i32) -> f64 {
-    match minutes {
-        m if m < LATE_FROM => 0.0,
-        m if m <= 5 => 0.10,
-        m if m >= LATE_FULL => 1.0,
-        m => 0.10 + 0.90 * (m - 5) as f64 / (LATE_FULL - 5) as f64,
-    }
-}
 
 /// The tier of a trip `minutes` late: 0 on time, 1 up to five minutes, 2 under `LATE_FULL`,
 /// 3 from it (counted as a trip lost).
@@ -111,98 +93,46 @@ pub fn late_tier(minutes: i32) -> usize {
     }
 }
 
-/// The rules of a game mode. The costs are the UK model's at the mode's factor (`econ_uk::mode`):
-/// a bus's price, its lease and short-term rental; the running and fixed costs, the wages are
-/// in the functions below and in `econ_uk`.
+/// The rules of a game mode, all of them the UK model's (`econ_uk`): a bus's price, its lease and
+/// short-term rental at the mode's cost factor; the founders' capital, the bank, inflation and
+/// the contracts' indexation, grants, the used market, breakdowns by the mode's tables
+/// (`econ_uk::by_mode`). The running and fixed costs and the wages are in the functions below.
 pub fn rules(d: GameMode) -> Rules {
-    match d {
-        GameMode::Casual => Rules {
-            start_capital: 2_500_000_00,
-            price_factor: econ_uk::mode(GameMode::Casual).costs,
-            used_markup: 0.95,
-            sale_factor: 0.95,
-            grant_all: 0.30,
-            grant_electric: 0.80,
-            loan_rate: 0.0,
-            loan_months: 96,
-            credit_base: 1_500_000_00,
-            credit_share: 0.8,
-            lease_rate: econ_uk::LEASE_RATE,
-            lease_months: econ_uk::LEASE_MONTHS,
-            lease_residual: econ_uk::LEASE_RESIDUAL,
-            rent_share: econ_uk::RENT_SHARE,
-            fare: 1_30, // wave 2b
-            passengers_per_km: 2.3, // wave 2b
-            compensation_per_km: 1_80, // wave 2b
-            drop_per_trip: 0, // wave 2a
-            drop_per_km: 0, // wave 2a
-            breakdown_factor: 0.3,
-            inflation: 0.0,
-            indexation: 0.0,
-            sickness: 0.006,
-            notice_days: 14,
-            severance_months_per_year: 0.0,
-            applicants: 8,
-            used_offers: 8,
-        },
-        GameMode::Normal => Rules {
-            start_capital: 1_200_000_00,
-            price_factor: econ_uk::mode(GameMode::Normal).costs,
-            used_markup: 1.10,
-            sale_factor: 0.85,
-            grant_all: 0.0,
-            grant_electric: 0.40,
-            loan_rate: 0.045,
-            loan_months: 72,
-            credit_base: 600_000_00,
-            credit_share: 0.6,
-            lease_rate: econ_uk::LEASE_RATE,
-            lease_months: econ_uk::LEASE_MONTHS,
-            lease_residual: econ_uk::LEASE_RESIDUAL,
-            rent_share: econ_uk::RENT_SHARE,
-            fare: 1_10, // wave 2b
-            passengers_per_km: 2.0, // wave 2b
-            compensation_per_km: 1_20, // wave 2b
-            drop_per_trip: 80_00, // wave 2a
-            drop_per_km: 2_00, // wave 2a
-            breakdown_factor: 1.0,
-            inflation: 0.025,
-            indexation: 0.025,
-            sickness: 0.011,
-            notice_days: 28,
-            severance_months_per_year: 0.0,
-            applicants: 6,
-            used_offers: 6,
-        },
-        GameMode::Realistic => Rules {
-            start_capital: 600_000_00,
-            price_factor: econ_uk::mode(GameMode::Realistic).costs,
-            used_markup: 1.20,
-            sale_factor: 0.75,
-            grant_all: 0.0,
-            grant_electric: 0.0,
-            loan_rate: 0.085,
-            loan_months: 60,
-            credit_base: 250_000_00,
-            credit_share: 0.5,
-            lease_rate: econ_uk::LEASE_RATE,
-            lease_months: econ_uk::LEASE_MONTHS,
-            lease_residual: econ_uk::LEASE_RESIDUAL,
-            rent_share: econ_uk::RENT_SHARE,
-            fare: 1_05, // wave 2b
-            passengers_per_km: 1.9, // wave 2b
-            compensation_per_km: 1_00, // wave 2b
-            drop_per_trip: 150_00, // wave 2a
-            drop_per_km: 3_00, // wave 2a
-            breakdown_factor: 1.7,
-            inflation: 0.045,
-            indexation: 0.015,
-            sickness: 0.016,
-            notice_days: 28,
-            severance_months_per_year: 0.5,
-            applicants: 4,
-            used_offers: 4,
-        },
+    let pick = |v| econ_uk::by_mode(d, v);
+    // (sums of money to the hundred euros, as prices are)
+    let pounds = |pence: f64| round_to(econ_uk::gbp(pence), 100_00);
+    let (applicants, sickness, notice_days, severance, loan_months, credit_share, fare, pax, comp) = match d {
+        GameMode::Casual => (8, 0.006, 14, 0.0, 96, 0.8, 1_30, 2.3, 1_80),
+        GameMode::Normal => (6, 0.011, 28, 0.0, 72, 0.6, 1_10, 2.0, 1_20),
+        GameMode::Realistic => (4, 0.016, 28, 0.5, 60, 0.5, 1_05, 1.9, 1_00),
+    };
+    Rules {
+        start_capital: pounds(pick(econ_uk::START_CAPITAL)),
+        price_factor: econ_uk::mode(d).costs,
+        used_markup: pick(econ_uk::USED_MARKUP),
+        sale_factor: pick(econ_uk::SALE_FACTOR),
+        grant_all: pick(econ_uk::GRANT_ALL),
+        grant_electric: pick(econ_uk::GRANT_ELECTRIC),
+        loan_rate: pick(econ_uk::LOAN_RATE),
+        loan_months,
+        credit_base: pounds(pick(econ_uk::CREDIT_BASE)),
+        credit_share,
+        lease_rate: econ_uk::LEASE_RATE,
+        lease_months: econ_uk::LEASE_MONTHS,
+        lease_residual: econ_uk::LEASE_RESIDUAL,
+        rent_share: econ_uk::RENT_SHARE,
+        fare,                      // wave 2b
+        passengers_per_km: pax,    // wave 2b
+        compensation_per_km: comp, // wave 2b
+        // (Realistic the UK's rate; Normal and Casual fewer, as their mode tables had them)
+        breakdown_factor: pick((1.0, 0.6, 0.18)),
+        inflation: pick(econ_uk::INFLATION),
+        indexation: pick(econ_uk::INDEXATION),
+        sickness,
+        notice_days,
+        severance_months_per_year: severance,
+        applicants,
+        used_offers: applicants,
     }
 }
 
@@ -508,18 +438,23 @@ mod tests {
     }
 
     #[test]
-    fn late_trips_pay_their_tier() {
-        // (Luc: 10 % up to five minutes, the whole trip from thirty)
-        assert_eq!(late_share(2), 0.0);
-        assert_eq!(late_share(4), 0.10);
-        assert_eq!(late_share(5), 0.10);
-        assert!((late_share(10) - 0.28).abs() < 1e-9);
-        assert!(late_share(29) < 1.0 && late_share(29) > late_share(28));
-        assert_eq!((late_share(30), late_share(75)), (1.0, 1.0));
+    fn late_trips_have_their_tier() {
         assert_eq!([2, 4, 6, 29, 30].map(late_tier), [0, 1, 2, 2, 3]);
-        // (a trip's value is what dropping it costs; Casual's is nothing)
-        assert_eq!(trip_value(&rules(GameMode::Normal), 15.0), 80_00 + 30_00);
-        assert_eq!(trip_value(&rules(GameMode::Casual), 15.0), 0);
+    }
+
+    #[test]
+    fn the_companys_money_is_on_the_uk_footing() {
+        let (r, n, c) = (rules(GameMode::Realistic), rules(GameMode::Normal), rules(GameMode::Casual));
+        // the founders' £500k, a bank at 7.5 %, CPI-like 3 % and contracts indexed by 2.5 %
+        assert!((pounds(r.start_capital as f64) - 500_000.0).abs() < 100.0);
+        assert_eq!((r.loan_rate, r.inflation, r.indexation), (0.075, 0.03, 0.025));
+        assert!(n.loan_rate < r.loan_rate && c.loan_rate == 0.0 && c.inflation == 0.0);
+        // Realistic's breakdowns are the UK's rate (factor 1), the others fewer
+        assert_eq!(r.breakdown_factor, 1.0);
+        assert!(n.breakdown_factor < 1.0 && c.breakdown_factor < n.breakdown_factor);
+        // a dealer's margins on used buses, and a grant on a zero-emission bus's extra cost
+        assert!(r.used_markup > 1.0 && r.sale_factor < 1.0 && n.sale_factor > r.sale_factor);
+        assert!(r.grant_electric > 0.0 && r.grant_all == 0.0 && c.grant_all > 0.0);
     }
 
     #[test]
@@ -541,7 +476,8 @@ mod tests {
         assert_eq!(grant(SOLO, new_price(SOLO, &n, 1.0), &n, 1.0), 0);
         assert!(grant(E_ART, new_price(E_ART, &n, 1.0), &n, 1.0) > 0);
         assert!(grant(SOLO, casual as Cents, &rules(GameMode::Casual), 1.0) > 0);
-        assert_eq!(grant(E_ART, new_price(E_ART, &r, 1.0), &r, 1.0), 0);
+        // (Realistic counts on part of the zero-emission grant only)
+        assert!(grant(E_ART, new_price(E_ART, &r, 1.0), &r, 1.0) < grant(E_ART, new_price(E_ART, &n, 1.0), &n, 1.0) && grant(SOLO, new_price(SOLO, &r, 1.0), &r, 1.0) == 0);
         // a day's rental of a single-deck some £200 (to the ten euros)
         assert!((pounds(rent_per_day(SOLO, &r, 1.0) as f64) - 200.0).abs() < 10.0);
         // the start capital buys a few buses

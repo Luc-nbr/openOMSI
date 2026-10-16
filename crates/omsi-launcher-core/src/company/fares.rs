@@ -142,6 +142,8 @@ pub fn set_fare(c: &mut Company, line: &str, fare: Cents) -> Result<Cents, &'sta
     let Some(k) = c.lines.iter().position(|l| l.name.eq_ignore_ascii_case(line)) else { return Err("The company does not run this line.") };
     let (lo, hi) = band(c, &c.lines[k]);
     let fare = round10(fare as f64).clamp(lo, hi);
+    // (a net-subsidy contract lets the fare rise by 15 % a year at most: `bus_contracts`)
+    let fare = super::bus_contracts::fare_cap(c, line).map_or(fare, |cap| fare.min(cap));
     let p0 = association_fare(c);
     c.lines[k].fare = (fare != p0).then_some(fare);
     Ok(fare)
