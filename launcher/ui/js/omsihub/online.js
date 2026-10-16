@@ -418,7 +418,7 @@ export function OnlineButton({ company }) {
   const s = useStore();
   const signed = v?.mode === 'in';
   const title = !signed ? tr('Account') : v.offline ? tr('Friends: offline') : tr('Friends: %{n} online', { n: v.online_count || 0 });
-  return html`<span class=${'ol-btn' + (company ? ' co' : '')}><button type="button" class=${(company ? 'co-btn sq' : 'hub-bar-btn') + (s.hub?.online ? ' on' : '')} title=${title} onClick=${() => (S.hub?.online ? closePanel() : openPanel())}>
+  return html`<span class=${'ol-btn' + (company ? ' in-co' : '')}><button type="button" class=${(company ? 'co-btn sq' : 'hub-bar-btn') + (s.hub?.online ? ' on' : '')} title=${title} onClick=${() => (S.hub?.online ? closePanel() : openPanel())}>
       <${Icon} name=${signed ? 'group' : 'account_circle'} size=${company ? 20 : 17} />
     </button>${v?.badge > 0 && html`<span class="ol-badge">${v.badge}</span>`}${signed && v.offline && html`<span class="ol-off"></span>`}</span>${company && html`<span class="gap8"></span>`}`;
 }

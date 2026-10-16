@@ -3,8 +3,8 @@
 
 .ol-btn { position: relative; display: inline-flex; flex: none; }
 .ol-btn .ol-badge { position: absolute; right: -4px; top: -4px; pointer-events: none; }
-.ol-btn.co .ol-badge { right: -5px; top: -5px; }
-.co-bar .ol-btn.co > .co-btn { width: 40px; height: 40px; padding: 0; }
+.ol-btn.in-co .ol-badge { right: -5px; top: -5px; }
+.co-bar .ol-btn.in-co > .co-btn { width: 40px; height: 40px; padding: 0; }
 .ol-badge { min-width: 14px; height: 14px; padding: 0 4px; border-radius: 7px; background: var(--hub-accent); color: var(--hub-on-accent); font-size: 8px; font-weight: 700; line-height: 14px; text-align: center; }
 .ol-badge.in { position: static; margin-left: 6px; }
 .ol-off { position: absolute; right: 2px; bottom: 2px; width: 6px; height: 6px; border-radius: 50%; background: var(--hub-text-dim); pointer-events: none; }
