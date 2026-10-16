@@ -1,19 +1,22 @@
 //! The concession market (`crates/omsi-launcher-ui/src/company/concessions.rs`): the map's
-//! lines out to tender with their week, the concessions the company holds, and the auction of
-//! the tender picked as it runs with the clock - the rivals and their bids, the least bid that
-//! leads now and its chance, buying the line outright - and how it ended. The rules are
-//! `company::concessions`'.
+//! lines out to tender with their week and the contract each lets, the concessions the company
+//! holds with their bus contracts (kind, payment, rating), and the auction of the tender picked
+//! as it runs with the clock - the authority's cap, the advice price, the rivals and their bids,
+//! the least bid that leads now and its chance, buying the line outright - and how it ended,
+//! every bid with its score. The rules are `company::concessions`' and `company::bus_contracts`'.
 //!
 //! The lines' weeks are read from the timetable of the company's week on a thread of their own
 //! (the page says so meanwhile). The Contracts page's "Tender bids" (`bids`) lists the tenders
 //! the company bid on.
 
-use super::super::words::{day_label, eur, eur_cents, tr, trf};
+use super::super::words::{day_label, eur, tr, trf};
 use super::super::{act as apply, busy, may_step, simulate, Session};
+use super::contracts as kc;
 use super::{more, more_state, u32_arg};
 use crate::Answer;
 use omsi_launcher_lib as core;
 use omsi_launcher_lib::company::auction::Who;
+use omsi_launcher_lib::company::bus_contracts::{self as bc, Period};
 use omsi_launcher_lib::company::clock::{self as ck, Step};
 use omsi_launcher_lib::company::concessions::{self as cn, Outcome, Tender, Week};
 use omsi_launcher_lib::company::{dates, Company};
@@ -117,8 +120,8 @@ pub fn state_of(c: &Company, t: &Tender) -> (String, &'static str) {
             };
             (format!("{}  ·  {}", trf("Running until %{time}", &[("time", &ck::hhmm(t.closes_at))]), lead), tone)
         }
-        Some(Outcome::Won { amount, bought, .. }) => (trf(if *bought { "Bought for %{amount}" } else if t.scored() { "Won with an ask of %{amount}" } else { "Won for %{amount}" }, &[("amount", &eur(*amount))]), "ok"),
-        Some(Outcome::Lost { winner, amount, .. }) => (trf(if t.scored() { "Lost to %{who}, who asked %{amount}" } else { "Lost to %{who} for %{amount}" }, &[("who", winner), ("amount", &eur(*amount))]), "warn"),
+        Some(Outcome::Won { amount, bought, .. }) => (trf(if *bought { "Bought for %{amount}" } else if t.scored() { "Won with an ask of %{amount} a year" } else { "Won for %{amount}" }, &[("amount", &eur(*amount))]), "ok"),
+        Some(Outcome::Lost { winner, amount, .. }) => (trf(if t.scored() { "Lost to %{who}, who asked %{amount} a year" } else { "Lost to %{who} for %{amount}" }, &[("who", winner), ("amount", &eur(*amount))]), "warn"),
         Some(Outcome::NoBid { winner, amount }) if !winner.is_empty() => (trf("Went to %{who} for %{amount}", &[("who", winner), ("amount", &eur(*amount))]), "faint"),
         Some(Outcome::NoBid { .. }) => (tr("Nobody bid"), "faint"),
     }
@@ -154,8 +157,8 @@ pub fn bids(c: &Company) -> Value {
 pub fn view(s: &mut Session, args: &Value) -> Value {
     weeks(s);
     let Some(c) = s.company.clone() else { return Value::Null };
-    let q = cn::quality(&c, false);
-    let foot = trf("Scored 70 % price, 30 % quality: the lowest ask gets all 70 price points, others lowest ÷ ask of them. Your quality %{q} of 100 (reputation, punctuality, fleet) is worth %{p} points. The best total wins.", &[("q", &format!("{q:.0}")), ("p", &format!("{:.1}", omsi_launcher_lib::company::auction::quality_points(q)))]);
+    let pts = bc::scored_points(&c);
+    let foot = trf("Scored 70 % price, 30 % quality: the lowest ask gets all 70 price points, others lowest ÷ ask of them; quality is your track record, 100 % less 2 % a default point - yours %{pts} points, %{p} of 30. Asks above the cap do not count; on equal totals the price decides, then quality.", &[("pts", &format!("{pts:.1}")), ("p", &format!("{:.1}", bc::quality_points(pts)))]);
     let mut list: Vec<Tender> = c.concessions.tenders.clone();
     list.sort_by(|a, b| b.open().cmp(&a.open()).then(if a.open() { a.opens_at.cmp(&b.opens_at) } else { b.closes_at.cmp(&a.closes_at) }));
     // (the panel shows the one picked, else the first running or announced)
@@ -186,10 +189,12 @@ fn tenders(c: &Company, list: &[Tender], weeks: &HashMap<String, Week>, reading:
             let week = t.week.or_else(|| weeks.get(&t.line.to_lowercase()).copied());
             let figures = match week {
                 Some(wk) if wk.km < 1.0 => trf("%{t} tours, %{n} trips a week", &[("t", &wk.tours.to_string()), ("n", &wk.trips.to_string())]),
-                Some(wk) => trf("%{t} tours, %{km} km a week  ·  about %{amount}", &[("t", &wk.tours.to_string()), ("km", &format!("{:.0}", wk.km)), ("amount", &eur(cn::week_revenue(c, &wk, 1.0)))]),
+                Some(wk) => trf("%{t} tours, %{km} km a week", &[("t", &wk.tours.to_string()), ("km", &format!("{:.0}", wk.km))]),
                 None if reading => tr("Reading its week…"),
                 None => trf("%{t} tours, %{km} km on the day it was offered", &[("t", &t.day_tours.to_string()), ("km", &format!("{:.0}", t.day_km))]),
             };
+            // (the contract it lets, and the authority's cap)
+            let figures = if t.scored() { format!("{}  ·  {figures}  ·  {}", tr(t.kind.label()), trf("cap %{amount} a year", &[("amount", &eur(t.reference))])) } else { figures };
             let (state, tone) = state_of(c, t);
             let (bid, bid_tone) = my_bid_text(c, t).unwrap_or_else(|| (tr("You have not bid"), "faint"));
             let badge = if t.renewal {
@@ -208,10 +213,10 @@ fn tenders(c: &Company, list: &[Tender], weeks: &HashMap<String, Week>, reading:
     json!({ "title": tr("Tenders"), "note": note, "empty": empty, "rows": rows })
 }
 
-/// The concessions the company holds and its own lines (`concessions::held`).
+/// The concessions the company holds and its own lines (`concessions::held`): each with its bus
+/// contract (kind, payment, term, rating and points) - or commercial, without one.
 fn held(c: &Company) -> Value {
     let today = c.date.clone();
-    let per_km = cn::reference_per_km(c);
     let rows: Vec<Value> = c
         .concessions
         .held
@@ -219,8 +224,13 @@ fn held(c: &Company) -> Value {
         .map(|h| {
             let left = dates::between(&today, &h.until);
             let until = if dates::between(&today, &h.from) > 0 { trf("from %{date}", &[("date", &day_label(&h.from))]) } else { trf("until %{date}", &[("date", &day_label(&h.until))]) };
-            let price = trf("%{p} % of the reference: %{km} a kilometre", &[("p", &format!("{:.0}", h.price * 100.0)), ("km", &eur_cents(per_km * h.price))]);
-            json!({ "number": h.number, "until": until, "tone": if left <= cn::RENEW_BEFORE { "warn" } else { "text" }, "price": price, "direct": h.direct.then(|| tr("direct").to_uppercase()) })
+            let k = bc::of_line(c, &h.line);
+            let price = match k {
+                Some(k) => format!("{}  ·  {}", tr(k.kind.label()), kc::pay_text(c, k)),
+                None => tr("Commercial: no contract, the fares are the company's"),
+            };
+            let more = k.map(|k| format!("{}  ·  {}", kc::points_text(c, k), kc::unpaid_text(c, k)));
+            json!({ "number": h.number, "until": until, "tone": if left <= cn::RENEW_BEFORE { "warn" } else { "text" }, "price": price, "more": more, "rag": k.map(|k| kc::rag_json(k.rag(&today))), "direct": (h.direct && k.is_none()).then(|| tr("commercial").to_uppercase()) })
         })
         .collect();
     let lic = eur((cn::LICENCE as f64 * c.price_index).round() as i64);
@@ -228,10 +238,25 @@ fn held(c: &Company) -> Value {
         .lines
         .iter()
         .filter(|x| x.own)
-        .map(|x| json!({ "number": x.number, "caption": x.caption, "text": trf("Your own line: no concession, a licence of %{amount} a month", &[("amount", &lic)]) }))
+        .map(|x| {
+            let text = match bc::of_line(c, &x.name) {
+                Some(k) => format!("{}  ·  {}", tr(k.kind.label()), kc::pay_text(c, k)),
+                None => trf("Your own line: no concession, a licence of %{amount} a month", &[("amount", &lic)]),
+            };
+            json!({ "number": x.number, "caption": x.caption, "text": text, "rag": bc::of_line(c, &x.name).map(|k| kc::rag_json(k.rag(&today))) })
+        })
         .collect();
     let empty = (rows.is_empty() && own.is_empty()).then(|| tr("The company holds no concession yet. Win a tender, or apply for a line of the map on the Lines page."));
     json!({ "title": tr("Your concessions"), "rows": rows, "own": own, "empty": empty })
+}
+
+/// How a tender's contract is paid, in words.
+fn per_text(p: Period) -> String {
+    match p {
+        Period::Day => tr("paid by the operating day"),
+        Period::Week => tr("paid by the week"),
+        Period::Month => tr("paid by the month"),
+    }
 }
 
 /// The auction of the tender picked (`concessions::auction`). `amount` (euros): the bid slider's
@@ -245,11 +270,15 @@ fn auction(c: &Company, selected: Option<u32>, args: &Value) -> Value {
     let (state, tone) = state_of(c, t);
     let mine = my_bid_text(c, t);
     let least = cn::min_bid(c, t);
+    let advice = cn::advice(c, t);
     let figures = json!([
-        { "label": tr("The reference").to_uppercase(), "value": eur(t.reference), "tone": "text" },
-        if t.open() { json!({ "label": tr("Ask at most now").to_uppercase(), "value": eur(least), "tone": "text" }) } else { json!({ "label": tr("Term").to_uppercase(), "value": trf("%{n} weeks", &[("n", &t.weeks.to_string())]), "tone": "text" }) },
+        { "label": tr("The cap").to_uppercase(), "value": eur(t.reference), "tone": "text", "tip": tr("The most the authority pays a year: an ask above it does not count.") },
+        { "label": tr("Advice").to_uppercase(), "value": eur(advice), "tone": "ok", "tip": tr("The work's cost price at your own costs, with a 5 % margin: drivers' paid hours, fuel, the workshop, a bus and its fixed costs, less BSOG.") },
+        if t.open() { json!({ "label": tr("Ask at most now").to_uppercase(), "value": eur(least), "tone": "text" }) } else { json!({ "label": tr("Term").to_uppercase(), "value": trf("%{n} years", &[("n", &t.term_years().to_string())]), "tone": "text" }) },
         { "label": tr("Buy outright").to_uppercase(), "value": eur(t.buy_out()), "tone": "accent2" },
     ]);
+    let (_, ext) = bc::term(t.kind);
+    let terms = t.scored().then(|| trf("%{kind}, %{per}  ·  %{years} years and up to %{ext} more  ·  asks are a price a year", &[("kind", &tr(t.kind.label())), ("per", &per_text(t.period)), ("years", &t.term_years().to_string()), ("ext", &ext.to_string())]));
     let len = (t.closes_at - t.opens_at).max(1);
     let frac = if t.open() { ((now - t.opens_at) as f64 / len as f64).clamp(0.0, 1.0) } else { 1.0 };
     let times = if !t.open() {
@@ -296,14 +325,14 @@ fn auction(c: &Company, selected: Option<u32>, args: &Value) -> Value {
         let amount = (a * 100.0).round() as i64;
         let chance = cn::chance(c, t, amount);
         let ctone = if chance >= 0.7 { "ok" } else if chance >= 0.35 { "warn" } else { "danger" };
-        let mut said = trf("%{s} % of the reference  ·  chance to win, as it looks now: about %{p} %", &[("s", &format!("{:.0}", t.share(amount) * 100.0)), ("p", &format!("{:.0}", chance * 100.0))]);
+        let mut said = trf("%{s} % of the cap  ·  chance to win, as it looks now: about %{p} %", &[("s", &format!("{:.0}", t.share(amount) * 100.0)), ("p", &format!("{:.0}", chance * 100.0))]);
         if !t.fee_paid && cn::fee(c, t) > 0 {
             said = format!("{said}  ·  {}", trf("taking part costs %{amount}", &[("amount", &eur(cn::fee(c, t)))]));
         }
         json!({
             "kind": "running", "id": t.id, "lo": lo, "hi": hi, "amount": a, "label": tr("Your ask"),
             "chance": said, "chance_tone": ctone,
-            "recommend": normal.then(|| trf("Recommended: %{amount} (%{s} % of the reference), about %{p} % to win", &[("amount", &eur(rec)), ("s", &format!("{:.0}", t.share(rec) * 100.0)), ("p", &format!("{:.0}", rec_chance * 100.0))])),
+            "recommend": normal.then(|| trf("Recommended: %{amount} (%{s} % of the cap), about %{p} % to win", &[("amount", &eur(rec)), ("s", &format!("{:.0}", t.share(rec) * 100.0)), ("p", &format!("{:.0}", rec_chance * 100.0))])),
             "recommend_amount": rec as f64 / 100.0,
             "bid": trf("Ask %{amount}", &[("amount", &eur(amount))]),
             "buy": trf("Buy outright, %{amount}", &[("amount", &eur(t.buy_out()))]), "buy_tip": tr("Certain: the auction ends at once in your favour"),
@@ -317,7 +346,10 @@ fn auction(c: &Company, selected: Option<u32>, args: &Value) -> Value {
             Some(Outcome::Won { .. }) => {
                 let text = match cn::of_line(c, &t.line) {
                     Some(h) if dates::between(&c.date, &h.from) > 0 => trf("The company runs the line from %{date}.", &[("date", &day_label(&h.from))]),
-                    Some(h) => trf("The concession runs until %{date}, at %{p} % of the reference.", &[("date", &day_label(&h.until)), ("p", &format!("{:.0}", h.price * 100.0))]),
+                    Some(h) => match bc::of_line(c, &h.line) {
+                        Some(k) => trf("The line runs until %{date} on its contract: %{amount} a year.", &[("date", &day_label(&h.until)), ("amount", &eur(k.year_now(c.contract_index).round() as i64))]),
+                        None => trf("The concession runs until %{date}.", &[("date", &day_label(&h.until))]),
+                    },
                     None => String::new(),
                 };
                 json!({ "kind": "said", "text": text, "tone": "ok" })
@@ -328,7 +360,7 @@ fn auction(c: &Company, selected: Option<u32>, args: &Value) -> Value {
     json!({
         "title": title, "id": t.id, "number": t.number, "caption": caption_of(t),
         "state": state, "tone": tone, "mine": mine.as_ref().map(|m| &m.0), "mine_tone": mine.map(|m| m.1),
-        "figures": figures, "frac": frac, "times": times, "bidders": bidders,
+        "figures": figures, "terms": terms, "frac": frac, "times": times, "bidders": bidders,
         "log_title": tr("Bids").to_uppercase(), "log": log, "no_log": tr("No bid yet."),
         "actions": actions,
     })

@@ -1,8 +1,11 @@
 // The concession market, as our game-drawn launcher's (`company/concessions.rs`): the map's
-// lines the authority puts out to tender with their week, the concessions the company holds
-// with their terms, and the auction of the tender picked beside them as it runs with the
-// company's clock - the rivals with their character and their bids, scored 70 % price and 30 %
-// quality, the most the company may ask to lead now, its chance and (Normal) the recommended ask, buying the line outright, the clock stepped on for it - and how it ended.
+// lines the authority puts out to tender with their week and the contract each lets, the
+// concessions the company holds with their bus contracts (kind, payment, rating and points),
+// and the auction of the tender picked beside them as it runs with the company's clock - the
+// authority's cap and the advice price, the rivals with their character and their bids, scored
+// 70 % price and 30 % quality (the track record), the most the company may ask to lead now, its
+// chance and (Normal) the recommended ask, buying the line outright, the clock stepped on for
+// it - and how it ended, every bid with its score.
 
 import { html, ui, setUi, useSize, textW, Icon, Btn, Section, Plate, Slider } from './kit.js';
 import { useMore, actMore, TextIn, box, eur, useListSize } from './more.js';
@@ -61,22 +64,27 @@ function Tenders({ t }) {
   </div>`;
 }
 
-/** The concessions the company holds and its own lines (`concessions::held`). */
+/** The concessions the company holds and its own lines (`concessions::held`): each with its
+ * bus contract - kind and payment, points and journeys not paid, its rating - or commercial. */
 function Held({ h }) {
   const [ref, size] = useListSize();
   const W = Math.max(0, size.w - 10);
   if (h.empty) return html`<p class="co-para" style="font-size:var(--co-rows)">${h.empty}</p>`;
   const rows = [...h.rows.map((r) => ({ ...r, own: false })), ...h.own.map((r) => ({ ...r, own: true }))];
+  const rowH = rows.some((r) => r.more) ? 78 : 60;
   return html`<div class="co-scroll cm-list" ref=${ref}>
-    <div style=${`position:relative;height:${rows.length * 60}px`}>
+    <div style=${`position:relative;height:${rows.length * rowH}px`}>
       ${size.w > 0 &&
       rows.map((r, k) => {
         const pw = plateW(r.number, 22);
-        return html`<div class="cm-row" style=${box(0, k * 60, W, 54)}>
+        const badge = r.rag || (r.direct && { text: r.direct, tone: 'dim' });
+        const tw = W - pw - 12 - (badge ? 96 : 0);
+        return html`<div class="cm-row" style=${box(0, k * rowH, W, rowH - 6)}>
           <span class="cm-icon" style="left:0;top:4px"><${Plate} p=${{ number: r.number }} h=${22} /></span>
-          <${TextIn} x=${pw + 12} y=${2} w=${W - pw - 12} h=${22} px=${14.5} weight=${700} tone=${r.own ? 'text' : r.tone}>${r.own ? r.caption : r.until}</${TextIn}>
+          <${TextIn} x=${pw + 12} y=${2} w=${tw} h=${22} px=${14.5} weight=${700} tone=${r.own ? 'text' : r.tone}>${r.own ? r.caption : r.until}</${TextIn}>
           <${TextIn} x=${pw + 12} y=${27} w=${W - pw - 12} h=${20} px=${13.5} tone="dim">${r.own ? r.text : r.price}</${TextIn}>
-          ${r.direct && html`<${Badge} b=${{ text: r.direct, tone: 'dim' }} x=${W - 80} y=${4} />`}
+          ${r.more && html`<${TextIn} x=${pw + 12} y=${49} w=${W - pw - 12} h=${20} px=${12.5} tone="dim">${r.more}</${TextIn}>`}
+          ${badge && html`<${Badge} b=${badge} right=${0} y=${4} />`}
         </div>`;
       })}
     </div>
@@ -102,11 +110,17 @@ function Auction({ a, st }) {
       parts.push(html`<${TextIn} x=${0} y=${y} w=${iw} h=${18} px=${14.5} weight=${700} tone=${a.mine_tone}>${a.mine}</${TextIn}>`);
       y += 26;
     }
-    const fw = (iw - 16) / 3;
+    if (a.terms) {
+      parts.push(html`<${TextIn} x=${0} y=${y} w=${iw} h=${18} px=${13.5} tone="dim">${a.terms}</${TextIn}>`);
+      y += 24;
+    }
+    // (the cap, the advice, the most that leads now, the buy-out: each its column)
+    const n = Math.max(1, a.figures.length);
+    const fw = (iw - 8 * (n - 1)) / n;
     a.figures.forEach((f, k) => {
       const x = k * (fw + 8);
-      parts.push(html`<${TextIn} x=${x} y=${y} w=${fw} h=${14} px=${12.5} weight=${700} tone="dim">${f.label}</${TextIn}>
-        <${TextIn} x=${x} y=${y + 18} w=${fw} h=${28} px=${19} weight=${700} tone=${f.tone}>${f.value}</${TextIn}>`);
+      parts.push(html`<div style=${box(x, y, fw, 46)} title=${f.tip || ''}><${TextIn} x=${0} y=${0} w=${fw} h=${14} px=${12.5} weight=${700} tone="dim">${f.label}</${TextIn}>
+        <${TextIn} x=${0} y=${18} w=${fw} h=${28} px=${n > 3 ? 16 : 19} weight=${700} tone=${f.tone}>${f.value}</${TextIn}></div>`);
     });
     y += 58;
     parts.push(html`<div class="cm-progress" style=${box(0, y, iw, 6)}><i style=${`width:${Math.max(6, iw * a.frac)}px`}></i></div>`);

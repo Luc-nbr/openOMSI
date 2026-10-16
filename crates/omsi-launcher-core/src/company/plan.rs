@@ -833,7 +833,7 @@ pub fn disruptions(c: &Company, date: &str) -> Vec<Disruption> {
     }
     for v in c.fleet.iter().filter(|v| v.held_on(date) && !v.in_workshop(date) && v.condition >= 20.0) {
         let mut rng = Rng::of(&[&c.id, "start", &v.id.to_string()], day);
-        let p = (0.01 + (70.0 - v.condition).max(0.0) / 70.0 * 0.06) * (0.5 + 0.5 * r.breakdown_factor) * m.breakdowns;
+        let p = (0.01 + (70.0 - v.condition).max(0.0) / 70.0 * 0.06) * 1.35 * (0.37 + 0.63 * r.breakdown_factor) * m.breakdowns;
         if rng.chance(p) {
             let cost = (rng.range(200.0, 600.0) * c.price_index).round() as Cents * 100;
             out.push(Disruption::Breakdown { vehicle: v.id, cost });
@@ -1435,11 +1435,12 @@ pub fn late_covers(c: &Company, dp: &DayPlan, ti: usize, k: usize) -> Vec<(u32, 
     out.into_iter().map(|(_, busy, id)| (id, !busy)).collect()
 }
 
-/// What the trips of a duty (or a whole tour: `0..trips`) dropped cost in the contract's
-/// penalty.
+/// What the trips of a duty (or a whole tour: `0..trips`) dropped cost on the line's bus
+/// contract: each journey its share of the day's payment, not paid (`bus_contracts`; a
+/// commercial line's nothing - it loses the passengers and some reputation).
 pub fn drop_penalty(c: &Company, t: &TourOfDay, start: usize, end: usize) -> Cents {
-    let r = economy::rules_for(c);
-    t.trips[start.min(t.trips.len())..end.min(t.trips.len())].iter().filter(|x| x.counts()).map(|x| r.drop_per_trip + (x.km * r.drop_per_km as f64).round() as Cents).sum()
+    let value = super::bus_contracts::journey_value(c, &t.line, None);
+    t.trips[start.min(t.trips.len())..end.min(t.trips.len())].iter().filter(|x| x.counts()).map(|_| value).sum()
 }
 
 /// A way to cover a duty that fell out or stayed free on the company's day (testers: "when
@@ -2851,11 +2852,15 @@ mod tests {
         assert!(!covers.iter().any(|x| matches!(x, Cover::Colleague { id, .. } if *id == ids[2] || *id == ids[0])));
         assert!(covers.contains(&Cover::Agency { used: 0 }));
         assert_eq!(&covers[covers.len() - 2..], &[Cover::Player, Cover::Drop { penalty: drop_penalty(&c, &p.tours[0].tour, 0, 4) }]);
-        // the penalty shown is the contract's (none on an easy economy)
+        // the penalty shown is the bus contract's: none on a commercial line, the journeys not
+        // paid on a contract line (none on an easy economy)
         let mut hard = c.clone();
         hard.game_mode = GameMode::Normal;
-        let r = economy::rules(GameMode::Normal);
-        assert_eq!(drop_penalty(&hard, &p.tours[0].tour, 0, 4), 4 * (r.drop_per_trip + (15.0 * r.drop_per_km as f64).round() as Cents));
+        assert_eq!(drop_penalty(&hard, &p.tours[0].tour, 0, 4), 0);
+        crate::company::bus_contracts::give(&mut hard, "Linie5");
+        let value = crate::company::bus_contracts::journey_value(&hard, "Linie5", None);
+        assert!(value > 0);
+        assert_eq!(drop_penalty(&hard, &p.tours[0].tour, 0, 4), 4 * value);
         // each chosen runs the duty so
         for cv in &covers[..covers.len() - 1] {
             set_fill(&mut c, &duty_key("Linie5", "1", 0), Some(cv.fill()));

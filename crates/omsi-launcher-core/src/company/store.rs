@@ -82,6 +82,12 @@ pub fn migrate(mut c: Company) -> Company {
     if c.version < 2 {
         super::staff::rebase_wages(&mut c);
     }
+    // (version 2: no bus contracts - a concession won in a tender becomes a gross-cost contract
+    // at its winning price, an own school line a private hire, open tenders are priced again on
+    // the UK footing; `bus_contracts::migrate`. Wave 2a's step: wave 2b may number its own)
+    if c.version < 3 {
+        super::bus_contracts::migrate(&mut c);
+    }
     c.version = VERSION;
     c
 }

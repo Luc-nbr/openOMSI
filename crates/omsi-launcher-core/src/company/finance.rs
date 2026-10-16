@@ -349,7 +349,7 @@ mod tests {
         }
         assert!(c.loans.is_empty(), "{:?}", c.loans);
         // the rates came to the principal and the interest on it
-        assert!(paid > 100_000_00 && paid < 115_000_00, "{paid}");
+        assert!(paid > 100_000_00 && paid < 120_000_00, "{paid}");
         assert_eq!(paid, 100_000_00 - interest);
         // an early repayment shortens it
         let id2 = take_loan(&mut c, 50_000_00, "more", 0).unwrap();
@@ -397,29 +397,31 @@ mod tests {
     fn the_credit_room_is_the_base_the_fleet_and_the_income_less_the_debt() {
         let mut c = found(&Founding { name: "Bank".into(), game_mode: GameMode::Normal, date: "2024-05-06".into(), ..Default::default() }, "Luc");
         let cr = credit(&c, 0);
-        assert_eq!((cr.base, cr.fleet_value, cr.income, cr.debt), (600_000_00, 0, 0, 0));
-        assert_eq!((cr.limit, cr.left), (600_000_00, 600_000_00));
+        let base = economy::rules(GameMode::Normal).credit_base;
+        assert_eq!((cr.base, cr.fleet_value, cr.income, cr.debt), (base, 0, 0, 0));
+        assert_eq!((cr.limit, cr.left), (base, base));
         assert_eq!(room(&cr), Room::Plenty);
         // what a loan buys counts for its share
-        assert_eq!(credit(&c, 100_000_00).limit, 660_000_00);
+        assert_eq!(credit(&c, 100_000_00).limit, base + 60_000_00);
         // three good months raise it; a bad one does not take it under nothing
         c.months.push(super::super::model::Month { month: "2024-02".into(), by_kind: vec![(BookingKind::Fares, 30_000_00)] });
         c.months.push(super::super::model::Month { month: "2024-04".into(), by_kind: vec![(BookingKind::Fares, 30_000_00)] });
         assert_eq!(monthly_income(&c), 20_000_00);
-        assert_eq!(credit(&c, 0).limit, 600_000_00 + 6 * 20_000_00);
+        assert_eq!(credit(&c, 0).limit, base + 6 * 20_000_00);
         c.months.push(super::super::model::Month { month: "2024-03".into(), by_kind: vec![(BookingKind::Wages, -200_000_00)] });
         assert_eq!(monthly_income(&c), 0);
         // the debt eats it: little left, then none
-        take_loan(&mut c, 500_000_00, "x", 0).unwrap();
+        take_loan(&mut c, base - 100_000_00, "x", 0).unwrap();
         assert_eq!(room(&credit(&c, 0)), Room::Little);
         take_loan(&mut c, 95_000_00, "y", 0).unwrap();
         let cr = credit(&c, 0);
         assert_eq!((cr.left, room(&cr)), (5_000_00, Room::None));
         assert!(take_loan(&mut c, 10_000_00, "z", 0).is_err());
         // a higher level lends cheaper
-        assert_eq!(rate_of(&c), 0.045);
+        let rate = economy::rules(GameMode::Normal).loan_rate;
+        assert_eq!(rate_of(&c), rate);
         c.progress.xp = levels::LEVEL_XP[9];
-        assert!((rate_of(&c) - 0.035).abs() < 1e-9 && (credit(&c, 0).discount - 0.01).abs() < 1e-9);
+        assert!((rate_of(&c) - (rate - 0.01)).abs() < 1e-9 && (credit(&c, 0).discount - 0.01).abs() < 1e-9);
         // the terms on offer, up to the difficulty's longest
         assert_eq!(terms_offered(&c), vec![12, 24, 36, 48, 60, 72]);
     }

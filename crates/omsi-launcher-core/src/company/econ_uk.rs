@@ -492,8 +492,33 @@ pub const QUALITY_PER_DEFAULT_POINT: f64 = 0.02;
 /// A real operator's margin on its cost price, and the share of a bid that is fixed per bus-year.
 pub const BID_MARGIN: f64 = 0.05;
 pub const BID_FIXED_SHARE: f64 = 0.70;
-/// Leaving a contract early costs a month's average payment.
+/// Leaving a contract early costs a month's average payment (of the last three months).
 pub const EARLY_END_MONTHS: f64 = 1.0;
+/// A contract the authority ends for default: the operator pays the authority's extra cost of
+/// a replacement (the data gives no figure: an estimate of a month's payment, as leaving early).
+pub const DEFAULT_END_MONTHS: f64 = 1.0;
+/// The authority's published cap over its own estimate of the work's cost price: a bid above it
+/// is not considered (the data's caps are some 15-25 % over a typical operator's price).
+pub const TENDER_CAP: f64 = 1.20;
+/// The share of a timetabled hour a bus runs in service (the rest positioning and dead runs):
+/// for the live miles BSOG is paid on (an estimate).
+pub const LIVE_SHARE: f64 = 0.92;
+/// A vehicle a bus-year in a bid, pence: between owning (a new single-deck's depreciation, about
+/// £14k) and leasing (about £23.8k); an estimate of an operator's mix.
+pub const BID_VEHICLE_YEAR: f64 = 1_900_000.0;
+/// A net-subsidy bid takes the fares and concession money it expects off its cost: tendered
+/// routes are the thin ones, carrying about half the passengers per bus-hour of a day's average
+/// (an estimate; the data: farebox on tendered routes covers a small part of the cost).
+pub const TENDERED_DEMAND: f64 = 0.5;
+/// Of the map's tenders, the share let as gross cost (the rest net subsidy), and of the gross
+/// cost ones the share paid by the week (the rest by the operating day). Estimates.
+pub const GROSS_SHARE: f64 = 0.6;
+pub const WEEKLY_SHARE: f64 = 0.3;
+/// An operator new to the authority has no record: it is scored as one with this many average
+/// net default points (92 % of the quality points: a fair record, below a clean one).
+pub const NEW_OPERATOR_POINTS: f64 = 4.0;
+/// Default points and quality points count over this many days (a rolling 12 months).
+pub const POINTS_DAYS: i64 = 365;
 
 // --- performance and deductions (§5; wave 2a) ----------------------------------------------------------------
 
@@ -517,6 +542,16 @@ pub const POINTS_LATE_REPORT: f64 = 5.0;
 pub const POINTS_ORANGE: f64 = 16.0;
 pub const POINTS_RED: f64 = 26.0;
 pub const QUALITY_CREDIT: (f64, f64) = (2.0, 10.0);
+/// The quality points of a month (within `QUALITY_CREDIT`): a clean roadside inspection, a month
+/// without a complaint about the line, `QUALITY_ON_TIME_SHARE` of its journeys on time. The
+/// authority inspects a contract's buses in a month with `INSPECTION_CHANCE`; a bus below
+/// `UNROADWORTHY` condition fails it (and is a serious default whenever it runs a journey).
+pub const QUALITY_INSPECTION: f64 = 5.0;
+pub const QUALITY_NO_COMPLAINTS: f64 = 2.0;
+pub const QUALITY_ON_TIME: f64 = 4.0;
+pub const QUALITY_ON_TIME_SHARE: f64 = 0.98;
+pub const INSPECTION_CHANCE: f64 = 0.35;
+pub const UNROADWORTHY: f64 = 30.0;
 /// Closures without notice are paid at half for a week; bad weather in full with best efforts,
 /// half when the bus could not run.
 pub const CLOSURE_PAID: f64 = 0.5;
@@ -548,6 +583,73 @@ pub const PER_JOURNEY_URBAN: (f64, f64) = (11.0, 43.0);
 pub const PER_JOURNEY_EVENING: f64 = 7.0;
 pub const PER_JOURNEY_SHUTTLE: f64 = 15.0;
 pub const PER_JOURNEY_SCHOOL: (f64, f64) = (20.0, 55.0);
+
+// --- the company's money, the depot and its own lines (wave 2a's re-basing) ------------------------------------
+
+/// What the founders put in, pence, by mode (Realistic, Normal, Casual): a small UK bus company's
+/// equity - a few used buses' worth and its first months' wages (an estimate); Normal and Casual
+/// twice and four times as much.
+pub const START_CAPITAL: (f64, f64, f64) = (50_000_000.0, 100_000_000.0, 200_000_000.0);
+/// What a bank lends without looking at the fleet, pence (an SME's overdraft and term loan;
+/// estimates in step with the capital).
+pub const CREDIT_BASE: (f64, f64, f64) = (20_000_000.0, 50_000_000.0, 125_000_000.0);
+/// A loan's yearly interest: a UK SME's asset finance at the base rate plus some 4 % (2022-24:
+/// 7-8 %); Normal a cheaper bank, Casual none.
+pub const LOAN_RATE: (f64, f64, f64) = (0.075, 0.05, 0.0);
+/// Yearly inflation of the costs (UK CPI-like over a run of years, 2.5-3 %) and the indexation
+/// of the contracts' payments (an index a little behind the costs, as the tender sheets' yearly
+/// uplifts are). Casual none.
+pub const INFLATION: (f64, f64, f64) = (0.03, 0.025, 0.0);
+pub const INDEXATION: (f64, f64, f64) = (0.025, 0.025, 0.0);
+/// The chance a bus breaks down on a day of service at its best condition (`clock`): the rate the
+/// workshop's data was calibrated on (wave 1; about one road call per 150 bus-days). The modes'
+/// `breakdown_factor` scales it (Realistic 1.0).
+pub const BREAKDOWN_CHANCE: f64 = 0.0068;
+/// Grants on a new bus, by mode: a share of every new bus (Casual only) and of a zero-emission
+/// bus's extra cost over a diesel one (England's ZEBRA scheme funds up to 75 % of it, when a bid
+/// wins: Realistic counts on two thirds of that).
+pub const GRANT_ALL: (f64, f64, f64) = (0.0, 0.0, 0.30);
+pub const GRANT_ELECTRIC: (f64, f64, f64) = (0.5, 0.75, 0.80);
+/// A dealer's used bus over its book value (the used market's), and what a dealer pays for one
+/// of ours of its book value (UK dealers' trade margins of some 10-20 %; estimates).
+pub const USED_MARKUP: (f64, f64, f64) = (1.10, 1.05, 0.95);
+pub const SALE_FACTOR: (f64, f64, f64) = (0.80, 0.85, 0.95);
+/// Building at the depot, pence (2022): a level of hardstanding for 12 buses, a workshop bay with
+/// its pit, a bus wash (a gantry, then a drive-through), the fuel tank with its pump (then one more
+/// pump), a depot charger, the offices (three levels). Estimates of UK build costs.
+pub const DEPOT_PARKING: f64 = 6_000_000.0;
+pub const DEPOT_WORKSHOP: f64 = 20_000_000.0;
+pub const DEPOT_WASH: (f64, f64) = (9_000_000.0, 28_000_000.0);
+pub const DEPOT_FUEL: (f64, f64) = (12_000_000.0, 3_000_000.0);
+pub const DEPOT_CHARGER: f64 = 5_000_000.0;
+pub const DEPOT_OFFICES: (f64, f64, f64) = (15_000_000.0, 22_000_000.0, 28_000_000.0);
+/// A month's upkeep of a building of `cost`: about 0.5 % of it (the workshop more, 1 %).
+pub const DEPOT_UPKEEP: f64 = 0.005;
+/// An own line's one-off costs, pence (2022): registering it with the Traffic Commissioner (the
+/// fee and the paperwork) and a route survey per km, a stop's flag and timetable case, a live
+/// display, the timetables of a day group, joining the area's multi-operator ticket scheme and
+/// each line in it after, its launch's marketing (a part and per expected passenger), a
+/// registration varied, and a stop's departure charge a month. Estimates.
+pub const LINE_REGISTRATION: f64 = 60_000.0;
+pub const LINE_PER_KM: f64 = 2_500.0;
+pub const LINE_STOP_INFO: f64 = 15_000.0;
+pub const LINE_LIVE_DISPLAY: f64 = 800_000.0;
+pub const LINE_TIMETABLES: f64 = 80_000.0;
+pub const LINE_SCHEME_ENTRY: f64 = 300_000.0;
+pub const LINE_SCHEME_LINE: f64 = 50_000.0;
+pub const LINE_MARKETING: f64 = 150_000.0;
+pub const LINE_MARKETING_PER_PASSENGER: f64 = 150.0;
+pub const LINE_CHANGE: f64 = 40_000.0;
+pub const LINE_STOP_MONTH: f64 = 2_000.0;
+
+/// A by-mode value of the tables above (Realistic, Normal, Casual).
+pub fn by_mode<T: Copy>(m: GameMode, v: (T, T, T)) -> T {
+    match m {
+        GameMode::Realistic => v.0,
+        GameMode::Normal => v.1,
+        GameMode::Casual => v.2,
+    }
+}
 
 // --- the yardstick (§1) -------------------------------------------------------------------------------------------
 

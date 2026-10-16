@@ -275,6 +275,8 @@ pub fn late_start(c: &Company, l: &CompanyLine, date: &str) -> Option<(i64, Cent
 /// Give up a line (a concession won for a day to come goes with it: its line was taken on at
 /// once, `concessions::take_on`; one that runs already is given up by `concessions::ensure`).
 pub fn remove_line(c: &mut Company, name: &str) {
+    // (its bus contract handed back early: a month's average payment, `bus_contracts`)
+    super::bus_contracts::hand_back(c, name);
     c.lines.retain(|l| !l.name.eq_ignore_ascii_case(name));
     let today = c.date.clone();
     c.concessions.held.retain(|h| !(h.line.eq_ignore_ascii_case(name) && dates::between(&today, &h.from) > 0));

@@ -1,36 +1,40 @@
 //! Concessions: the right to run a line of the map's timetable for a term, won in a tender
 //! against other operators (the Busbetrieb-Simulator's map concessions; Omsi-Hub's
-//! `Concessie` and `schrijfIn`).
+//! `Concessie` and `schrijfIn`), with the bus contract that pays for it (`bus_contracts`).
 //!
 //! Every four weeks the authority puts some of the map's lines out to tender, one after the
 //! other on the days of the round's first week; a line of the map can also be applied for on
-//! the Lines page (its tender opens at once). A tender is an auction of a few hours of the
-//! company's time (`auction`): the map's other operators - made up, each with a character,
-//! the same ones every time (`Rival`) - and the player ask a sum for running the line over the
-//! term (at most the authority's reference); the authority scores it 70 % on price (the lowest
-//! ask the full points) and 30 % on quality (reputation, punctuality and fleet; the incumbent
-//! knows the line), and the best total when it closes wins: the concession runs at its ask
-//! (`Concession::price`, its share of the reference). The player may also buy the line at once
-//! for the buy-out price (run at the reference). A won line is run from the next day for
-//! the term; towards its end the line is put out again (the renewal), and a concession not
-//! won again ends: the line goes to the winner. On an easy economy map lines are taken on
-//! directly and renewed by themselves; on Realistic and Hard adding a map line is applying
-//! for its concession.
+//! the Lines page (its tender opens at once). A tender lets the line as a gross-cost or a
+//! net-subsidy contract (`bus_contracts::Kind`, drawn per tender) for a term of years. It is an
+//! auction of a few hours of the company's time (`auction`): the map's other operators - made
+//! up, each with a character, the same ones every time (`Rival`) - and the player ask a price a
+//! year for running the line, at most the authority's published cap (`Tender::reference`: a bid
+//! above it does not count); the authority scores it 70 % on price (the lowest ask the full
+//! points) and 30 % on quality - the bidder's track record, the average net default points of its
+//! contracts over the last twelve months (`bus_contracts::quality`) - and the best total when it
+//! closes wins (equal totals: the better price points, then quality). The rivals bid around the
+//! work's cost price on the UK operator's formula (`bus_contracts::price_of`), within the game
+//! mode's band by their character (`auction::Character::band`); the player sees the cap and an
+//! advice price on the same formula at his own costs (`advice`). The player may also buy the
+//! line at once for the buy-out price (its contract at the cap). A won line is run from the next
+//! day; a green contract earns its extension years, and towards the end of its term the line is
+//! put out again (the renewal); a concession not won again ends: the line goes to the winner.
+//! On an easy economy map lines are taken on directly and renewed by themselves; on Realistic
+//! and Normal adding a map line is applying for its concession.
 //!
-//! The player's own lines from the line editor need no concession: the company runs them on
-//! its own account and pays the authority's licence for each month instead (`LICENCE`).
-//!
-//! Concessions of older files were bid as a price per kilometre (`Concession::price`): the
-//! day's close pays every line the reference per kilometre, and `after_day` books the
-//! difference; a concession won in an auction runs at the reference.
+//! A map line taken on without a tender (an easy economy, or run before there were
+//! concessions) is commercial: no contract, its fares its own. The player's own lines from the
+//! line editor need no concession: the company runs them on its own account and pays the
+//! authority's licence for each month instead (`LICENCE`).
 //!
 //! The company's clock (`clock`) opens and closes the tenders at their minutes and tells the
 //! rivals' bids as they come; `after_day` closes what the night finds still open.
 
 use super::auction::{self, Bidder, Character, Lot, Placed, Seen, Who};
+use super::bus_contracts::{self as bc, Kind, Period, Work};
 use super::clock;
 use super::dates;
-use super::economy;
+use super::econ_uk;
 use super::levels;
 use super::model::{BookingKind, Cents, Company, GameMode};
 use super::network;
@@ -47,17 +51,15 @@ pub const ROUND_WEEKS: i64 = 4;
 pub const HOURS: (i64, i64) = (2, 6);
 /// A concession is put out again this many days before it ends.
 pub const RENEW_BEFORE: i64 = 42;
-/// The share of the term's compensation a line is worth to the auction (its `value`).
+/// The share of the term's payments at the cap a line is worth to the auction (its `value`).
 pub const VALUE_SHARE: f64 = 0.05;
-/// The least first bid, the buy-out price and the least step, as shares of the value.
-pub const RESERVE: f64 = 0.4;
+/// The buy-out price, as a share of the value.
 pub const BUY_OUT: f64 = 1.4;
-pub const STEP: f64 = 0.03;
-/// The step a rival may go lower by, as a share of the reference.
+/// The step a rival may go lower by, as a share of the cap.
 pub const ASK_STEP: f64 = 0.01;
 /// The share of the reference the recommended ask wins with, at least (Normal).
 pub const RECOMMEND_CHANCE: f64 = 0.6;
-/// The recommended ask goes no lower than this share of the reference.
+/// The recommended ask goes no lower than this share of the cap.
 pub const RECOMMEND_FLOOR: f64 = 0.8;
 
 /// A concession the company holds.
@@ -69,8 +71,9 @@ pub struct Concession {
     pub from: String,
     /// The last day it runs.
     pub until: String,
-    /// The compensation per kilometre, of the authority's reference (1 = the reference; older
-    /// files bid it).
+    /// The winning ask's share of the cap (1: at the cap, or taken on directly; older files bid
+    /// a compensation per km by it). What the line is paid is its contract's
+    /// (`bus_contracts`).
     pub price: f64,
     /// Given without a tender (a line run before concessions, an easy economy).
     #[serde(default)]
@@ -86,6 +89,11 @@ pub struct Week {
     pub km: f64,
     /// The most tours of one day (the buses the line asks for).
     pub peak: u32,
+    /// The days it runs, and its timetabled bus-hours.
+    #[serde(default)]
+    pub days: u32,
+    #[serde(default)]
+    pub hours: f64,
 }
 
 /// A bidder's last bid when a tender closed.
@@ -186,13 +194,26 @@ pub struct Tender {
     pub opened: bool,
     #[serde(default)]
     pub told: usize,
-    /// The term's compensation at the reference: the most the authority pays, the ceiling of
-    /// the asks (0: a tender of an older file, bid as a sum paid for the concession).
+    /// The authority's published cap: the most it pays a year, the ceiling of the asks (0: a
+    /// tender of an older file, priced again by `ensure`).
     #[serde(default)]
     pub reference: Cents,
     /// Every bidder's points at the close, best first.
     #[serde(default)]
     pub standings: Vec<Standing>,
+    /// The contract it lets: its kind, how it is paid, its core years, the work (a day's hours,
+    /// kilometres, journeys, buses, the days a year) and the authority's reckoning of its cost
+    /// price a year (the rivals bid around it; cents).
+    #[serde(default)]
+    pub kind: Kind,
+    #[serde(default)]
+    pub period: Period,
+    #[serde(default)]
+    pub years: u32,
+    #[serde(default)]
+    pub work: Work,
+    #[serde(default)]
+    pub cost: Cents,
 }
 
 impl Tender {
@@ -215,7 +236,21 @@ impl Tender {
         self.reference > 0
     }
 
-    /// The share of the reference an ask is.
+    /// A bid of `amount` counts: at most the cap.
+    pub fn counts(&self, amount: Cents) -> bool {
+        amount <= self.reference
+    }
+
+    /// The core years of its contract (an older tender's: by its weeks).
+    pub fn term_years(&self) -> u32 {
+        if self.years > 0 {
+            self.years
+        } else {
+            ((self.weeks as f64 / 52.0).round() as u32).max(1)
+        }
+    }
+
+    /// The share of the cap an ask is.
     pub fn share(&self, amount: Cents) -> f64 {
         if self.reference > 0 {
             amount as f64 / self.reference as f64
@@ -249,15 +284,19 @@ pub struct Concessions {
     /// The map's other operators (made once, kept).
     #[serde(default)]
     pub rivals: Vec<Rival>,
+    /// The company's bus contracts, and those ended in the last twelve months
+    /// (`bus_contracts`).
+    #[serde(default)]
+    pub contracts: Vec<super::bus_contracts::Contract>,
+    #[serde(default)]
+    pub contract_counter: u32,
 }
 
-/// How a difficulty runs its tenders.
+/// How a game mode runs its tenders (how the rivals bid: `econ_uk::ModeFactors::rival_bids`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rules {
     /// How many rivals bid (from, to).
     pub rivals: (i64, i64),
-    /// How far the rivals go, against their character's range.
-    pub factor: f64,
     /// The fee for taking part: a fixed part and one per tour of the line's day.
     pub fee_base: Cents,
     pub fee_per_tour: Cents,
@@ -268,11 +307,15 @@ pub struct Rules {
     pub direct: bool,
 }
 
+/// A concession's term in weeks: a local bus contract's core years.
+pub const TERM_WEEKS: u32 = econ_uk::TERM_LOCAL.0 * 52;
+
 pub fn rules(d: GameMode) -> Rules {
     match d {
-        GameMode::Casual => Rules { rivals: (1, 2), factor: 0.8, fee_base: 0, fee_per_tour: 0, term_weeks: 104, offers: 4, direct: true },
-        GameMode::Normal => Rules { rivals: (2, 3), factor: 1.0, fee_base: 1_500_00, fee_per_tour: 150_00, term_weeks: 52, offers: 3, direct: false },
-        GameMode::Realistic => Rules { rivals: (3, 4), factor: 1.15, fee_base: 3_000_00, fee_per_tour: 250_00, term_weeks: 52, offers: 3, direct: false },
+        // (the term: a local bus contract's core years, `econ_uk::TERM_LOCAL`)
+        GameMode::Casual => Rules { rivals: (1, 2), fee_base: 0, fee_per_tour: 0, term_weeks: TERM_WEEKS, offers: 4, direct: true },
+        GameMode::Normal => Rules { rivals: (2, 3), fee_base: 1_500_00, fee_per_tour: 150_00, term_weeks: TERM_WEEKS, offers: 3, direct: false },
+        GameMode::Realistic => Rules { rivals: (3, 4), fee_base: 3_000_00, fee_per_tour: 250_00, term_weeks: TERM_WEEKS, offers: 3, direct: false },
     }
 }
 
@@ -335,23 +378,16 @@ pub fn rival(c: &Company, id: u32) -> Option<&Rival> {
     c.concessions.rivals.iter().find(|r| r.id == id)
 }
 
-/// The fleet's condition the authority sees (0-100; no bus yet: an average 60).
-pub fn fleet_quality(c: &Company) -> f64 {
-    if c.fleet.is_empty() {
-        return 60.0;
-    }
-    c.fleet.iter().map(|v| v.condition.clamp(0.0, 100.0)).sum::<f64>() / c.fleet.len() as f64
-}
-
-/// How the authority sees the company's quality for a tender: its reputation, punctuality and
-/// fleet (the incumbent knows the line).
-pub fn quality(c: &Company, renewal: bool) -> f64 {
-    (0.6 * c.reputation + 0.25 * c.punctuality + 0.15 * fleet_quality(c) + if renewal { 8.0 } else { 0.0 }).clamp(0.0, 100.0)
+/// How the authority sees the company's quality for a tender (0-100): its track record - 100 %
+/// less 2 % for each average net default point of its contracts over the last twelve months; a
+/// newcomer a fair record (`bus_contracts::quality`).
+pub fn quality(c: &Company) -> f64 {
+    bc::quality(c)
 }
 
 /// The company's quality in a tender.
-pub fn quality_in(c: &Company, t: &Tender) -> f64 {
-    quality(c, t.renewal)
+pub fn quality_in(c: &Company, _t: &Tender) -> f64 {
+    quality(c)
 }
 
 /// The fee for taking part in a tender (a tenth of the line's worth at most).
@@ -374,40 +410,28 @@ fn round(x: f64) -> Cents {
     ((x / auction::ROUND as f64).round() as Cents * auction::ROUND).max(auction::ROUND)
 }
 
-pub fn reserve(value: Cents) -> Cents {
-    round(value as f64 * RESERVE)
+/// What a line is worth to the auction: its share of the term's payments at the cap, at least
+/// 2 000 €.
+fn value_at(cap: Cents, years: u32) -> Cents {
+    round(cap as f64 * years.max(1) as f64 * VALUE_SHARE).max(2_000_00)
 }
 
-pub fn step(value: Cents) -> Cents {
-    round(value as f64 * STEP)
+/// A tender's contract priced: its work's cost price a year as the authority reckons it (a UK
+/// operator's formula in the company's world, `bus_contracts::price_of`), its cap
+/// (`econ_uk::TENDER_CAP` over that) and its worth.
+fn price(c: &Company, t: &mut Tender) {
+    let years = t.term_years();
+    let cost = bc::price_of(c, &t.work, t.kind, years as f64);
+    t.cost = round(cost);
+    t.reference = round(cost * econ_uk::TENDER_CAP);
+    t.value = value_at(t.reference, years);
 }
 
-/// What a line is worth to the auction: its share of the term's compensation at the reference
-/// (from the kilometres of a day, six such days a week), at least 2 000 €.
-pub fn value_of(c: &Company, day_km: f64, weeks: u32) -> Cents {
-    value_at(day_km, weeks, reference_per_km(c))
-}
-
-fn value_at(day_km: f64, weeks: u32, per_km: f64) -> Cents {
-    round(day_km.max(20.0) * 6.0 * weeks as f64 * per_km * VALUE_SHARE).max(2_000_00)
-}
-
-/// The term's compensation at the reference (the ceiling of the asks), at least 40 000 €.
-fn reference_at(day_km: f64, weeks: u32, per_km: f64) -> Cents {
-    round(day_km.max(20.0) * 6.0 * weeks as f64 * per_km).max(40_000_00)
-}
-
-/// The authority's reference compensation per kilometre now (cents).
-pub fn reference_per_km(c: &Company) -> f64 {
-    economy::compensation_per_km(&economy::rules_for(c), 50.0, c.contract_index)
-}
-
-/// What a line's week brings in at a price: the authority's payment and the fares.
-pub fn week_revenue(c: &Company, w: &Week, price: f64) -> Cents {
-    let r = economy::rules_for(c);
-    let comp = w.km * reference_per_km(c) * price;
-    let fares = w.km * r.passengers_per_km * r.fare as f64;
-    (comp + fares).round() as Cents
+/// The advice for the company's ask on a tender (a year): the work's cost price on the same
+/// formula at the company's own costs, with the operator's 5 % margin (`bus_contracts::advice`),
+/// at most the cap.
+pub fn advice(c: &Company, t: &Tender) -> Cents {
+    round(bc::advice(c, &t.work, t.kind, t.term_years() as f64)).min(t.reference)
 }
 
 /// A line's week from the timetable of seven days (`days`: each day's lines).
@@ -424,6 +448,16 @@ pub fn week_of(days: &[Vec<LineInfo>], line: &str) -> Week {
                 w.trips += 1;
             }
         }
+        if !runs.is_empty() {
+            w.days += 1;
+        }
+        for t in &runs {
+            let dep = t.trips.iter().map(|x| x.departure).fold(f64::MAX, f64::min);
+            let arr = t.trips.iter().map(|x| x.arrival).fold(f64::MIN, f64::max);
+            if arr > dep {
+                w.hours += (arr - dep) / 3600.0;
+            }
+        }
     }
     w
 }
@@ -433,11 +467,6 @@ pub fn week_of(days: &[Vec<LineInfo>], line: &str) -> Week {
 /// The Lines page offers only these (it offered the others too, and Apply refused them, Luc).
 pub fn is_line(c: &Company, l: &LineInfo) -> bool {
     specials::line_kind(l, &[&c.depot]).line()
-}
-
-fn day_figures(l: &LineInfo) -> (u32, f64) {
-    let runs: Vec<_> = l.tours.iter().filter(|t| t.runs).collect();
-    (runs.len() as u32, runs.iter().flat_map(|t| t.trips.iter()).map(|t| t.km).sum())
 }
 
 /// The held concession of a line.
@@ -460,8 +489,14 @@ pub fn ensure(c: &mut Company) -> bool {
     let lines = c.lines.clone();
     let today = c.date.clone();
     let n = c.concessions.held.len();
+    // (a line given up with a contract running hands the contract back: a month's payment)
+    let gone: Vec<String> = c.concessions.held.iter().filter(|h| !lines.iter().any(|l| !l.own && l.name.eq_ignore_ascii_case(&h.line)) && dates::between(&today, &h.from) <= 0).map(|h| h.line.clone()).collect();
+    for line in gone {
+        bc::hand_back(c, &line);
+    }
     c.concessions.held.retain(|h| lines.iter().any(|l| !l.own && l.name.eq_ignore_ascii_case(&h.line)) || dates::between(&today, &h.from) > 0);
     changed |= n != c.concessions.held.len();
+    changed |= bc::ensure_hires(c);
     for l in lines.iter().filter(|l| !l.own) {
         if of_line(c, &l.name).is_none() {
             let until = dates::add(&c.date, r.term_weeks as i64 * 7 - 1);
@@ -470,19 +505,25 @@ pub fn ensure(c: &mut Company) -> bool {
         }
     }
     let now = clock::now(c);
-    let per_km = reference_per_km(c);
     let pool: Vec<u32> = c.concessions.rivals.iter().map(|r| r.id).collect();
-    // (an open tender of an older file, bid as a sum paid: asked again from its reference, its
-    // old bids dropped - the fee stays paid)
+    // (an open tender of an older file: its contract priced on its day's figures, its old bids
+    // dropped - the fee stays paid)
     let mut asked_again = Vec::new();
-    for t in c.concessions.tenders.iter_mut().filter(|t| t.open() && t.reference == 0) {
-        t.reference = reference_at(t.day_km, t.weeks, per_km);
+    let old: Vec<u32> = c.concessions.tenders.iter().filter(|t| t.open() && t.reference == 0).map(|t| t.id).collect();
+    for id in old {
+        let Some(mut t) = c.concessions.tenders.iter().find(|t| t.id == id).cloned() else { continue };
+        if t.work == Work::default() {
+            t.work = bc::rough_work(t.day_tours, t.day_km);
+        }
+        price(c, &mut t);
         t.offers.clear();
-        asked_again.push(t.id);
+        if let Some(x) = c.concessions.tenders.iter_mut().find(|x| x.id == id) {
+            *x = t;
+        }
+        asked_again.push(id);
         changed = true;
     }
     for t in c.concessions.tenders.iter_mut().filter(|t| t.open() && t.closes_at == 0) {
-        t.value = value_at(t.day_km, t.weeks, per_km);
         t.opens_at = now;
         t.closes_at = now + 4 * 60;
         t.closes = clock::date_of(t.closes_at);
@@ -508,23 +549,30 @@ fn new_tender(c: &mut Company, l: &LineInfo, opens_at: i64, renewal: bool) -> u3
     let id = c.concessions.counter;
     let mut rng = Rng::of(&[&c.id, "tender", &l.name], id as i64);
     let closes_at = opens_at + rng.int(HOURS.0 * 4, HOURS.1 * 4) * 15;
-    let (day_tours, day_km) = day_figures(l);
+    let work = bc::work_of(l);
+    let (day_tours, day_km) = (work.buses, work.km);
     let mut pool: Vec<u32> = c.concessions.rivals.iter().map(|r| r.id).collect();
     let n = (rng.int(r.rivals.0, r.rivals.1).max(1) as usize).min(pool.len());
     let mut bidders = Vec::new();
     for _ in 0..n {
         bidders.push(pool.remove(rng.int(0, pool.len() as i64 - 1) as usize));
     }
-    let value = value_of(c, day_km, r.term_weeks);
-    let reference = reference_at(day_km, r.term_weeks, reference_per_km(c));
-    c.concessions.tenders.push(Tender {
+    // (gross cost or net subsidy, by the day or the week: drawn per tender)
+    let kind = if rng.chance(econ_uk::GROSS_SHARE) { Kind::Gross } else { Kind::Net };
+    let period = match kind {
+        Kind::Net => Period::Month,
+        _ if rng.chance(econ_uk::WEEKLY_SHARE) => Period::Week,
+        _ => Period::Day,
+    };
+    let years = bc::term(kind).0;
+    let mut t = Tender {
         id,
         line: l.name.clone(),
         number: specials::number_of(l, &[&c.depot]),
         caption: specials::caption_of(l, &[&c.depot]),
         offered: clock::date_of(opens_at),
         closes: clock::date_of(closes_at),
-        weeks: r.term_weeks,
+        weeks: years * 52,
         day_tours,
         day_km,
         week: None,
@@ -534,14 +582,21 @@ fn new_tender(c: &mut Company, l: &LineInfo, opens_at: i64, renewal: bool) -> u3
         outcome: None,
         opens_at,
         closes_at,
-        value,
+        value: 0,
         bidders,
         offers: Vec::new(),
         opened: false,
         told: 0,
-        reference,
+        reference: 0,
         standings: Vec::new(),
-    });
+        kind,
+        period,
+        years,
+        work,
+        cost: 0,
+    };
+    price(c, &mut t);
+    c.concessions.tenders.push(t);
     id
 }
 
@@ -554,6 +609,8 @@ pub fn refresh(c: &mut Company, lines: &[LineInfo]) -> bool {
     let mut changed = ensure(c);
     changed |= take_on(c, lines);
     changed |= mend_tenders(c, lines);
+    // (a green contract's extension year first: it is not put out again)
+    changed |= !bc::extend_due(c).is_empty();
     let today = c.date.clone();
     let now = clock::now(c);
     // renewals: on an easy economy they renew by themselves
@@ -712,18 +769,28 @@ pub fn apply(c: &mut Company, l: &LineInfo) -> Result<u32, &'static str> {
     Ok(id)
 }
 
-/// The rivals of a tender as its auction knows them: their floors drawn per tender (secret),
-/// when they open, who keeps quiet until the end.
+/// Where a rival's floor may lie on a tender (cents, from, to): the work's cost price as the
+/// authority reckons it, within the game mode's band around it (`econ_uk::ModeFactors::
+/// rival_bids`) where its character bids (`Character::band`).
+pub fn floor_range(c: &Company, t: &Tender, ch: Character) -> (f64, f64) {
+    let (lo, hi) = econ_uk::mode(c.game_mode).rival_bids;
+    let (a, b) = ch.band();
+    // (a tender of an older file, closed before there was a cost price: the cap's)
+    let cost = if t.cost > 0 { t.cost as f64 } else { t.reference.max(1) as f64 / econ_uk::TENDER_CAP };
+    (cost * (1.0 + lo + (hi - lo) * a), cost * (1.0 + lo + (hi - lo) * b))
+}
+
+/// The rivals of a tender as its auction knows them: their floors drawn per tender (secret;
+/// a floor above the cap never bids), when they open, who keeps quiet until the end.
 pub fn bidders(c: &Company, t: &Tender) -> Vec<Bidder> {
-    let r = rules_of(c);
     let mut nobody_opened = true;
     let mut out = Vec::new();
     for (k, id) in t.bidders.iter().enumerate() {
         let Some(rv) = rival(c, *id) else { continue };
         let mut rng = Rng::of(&[&c.id, "bidder", &rv.name], t.id as i64);
-        let (lo, hi) = rv.character.floor();
+        let (lo, hi) = floor_range(c, t, rv.character);
         // (in whole hundreds, as the bids go)
-        let floor = (t.reference as f64 * auction::floor_share(rng.range(lo, hi), r.factor) / auction::ROUND as f64).ceil() as Cents * auction::ROUND;
+        let floor = (rng.range(lo, hi) / auction::ROUND as f64).ceil() as Cents * auction::ROUND;
         let quiet = rng.chance(rv.character.quiet());
         let len = (t.closes_at - t.opens_at).max(30);
         let quiet_until = quiet.then(|| t.closes_at - rng.int(2, 12));
@@ -795,10 +862,10 @@ pub fn chance(c: &Company, t: &Tender, amount: Cents) -> f64 {
         .filter_map(|(i, id)| {
             let r = rival(c, *id)?;
             let last = placed.iter().rev().find(|p| p.who == Who::Rival(i)).map(|p| p.amount);
-            Some(Seen { character: r.character, quality: r.quality, last })
+            Some(Seen { floor: floor_range(c, t, r.character), quality: r.quality, last })
         })
         .collect();
-    auction::chance(amount, quality_in(c, t), &seen, rules_of(c).factor, &t.lot())
+    auction::chance(amount, quality_in(c, t), &seen, &t.lot())
 }
 
 /// The fee with the first bid.
@@ -831,6 +898,9 @@ pub fn bid(c: &mut Company, id: u32, amount: Cents) -> Result<(), &'static str> 
     level_allows(c, id)?;
     if amount < auction::ROUND {
         return Err("Ask at least 100 €.");
+    }
+    if !t.counts(amount) {
+        return Err("Above the authority's cap: a bid above it does not count.");
     }
     if amount > min_bid(c, &t) {
         return Err("Another bid scores better: ask at most the bid that leads.");
@@ -886,7 +956,7 @@ pub fn buy_out(c: &mut Company, id: u32) -> Result<Event, &'static str> {
     pay_fee(c, id)?;
     c.book(BookingKind::Concession, -price, format!("Concession line {} (bought)", t.number), false);
     let rivals = last_bids(c, &t, &bids(c, &t, now));
-    let ev = take(c, &t, 1.0);
+    let ev = take(c, &t, t.reference);
     let score = auction::PRICE_POINTS + auction::quality_points(quality_in(c, &t));
     let today = c.date.clone();
     if let Some(x) = c.concessions.tenders.iter_mut().find(|x| x.id == id) {
@@ -910,9 +980,11 @@ pub fn asking_price_of(c: &Company, l: &LineInfo) -> Cents {
     if let Some(t) = open_tender(c, &l.name) {
         return asking_price(c, t);
     }
-    let (tours, km) = day_figures(l);
-    let value = value_of(c, km, rules_of(c).term_weeks);
-    value + fee_of(c, tours, value)
+    let w = bc::work_of(l);
+    let years = bc::term(Kind::Gross).0;
+    let cap = round(bc::price_of(c, &w, Kind::Gross, years as f64) * econ_uk::TENDER_CAP);
+    let value = value_at(cap, years);
+    value + fee_of(c, w.buses, value)
 }
 
 /// Take a tender's line at the asking price, without its auction (the easy mode, whether the
@@ -930,7 +1002,7 @@ pub fn take_at_asking(c: &mut Company, id: u32) -> Result<(Event, Cents), &'stat
     }
     pay_fee(c, id)?;
     c.book(BookingKind::Concession, -t.value, format!("Concession line {} (asking price)", t.number), false);
-    let ev = take(c, &t, 1.0);
+    let ev = take(c, &t, t.reference);
     let now = clock::now(c);
     let score = auction::PRICE_POINTS + auction::quality_points(quality_in(c, &t));
     let today = c.date.clone();
@@ -974,18 +1046,29 @@ fn last_bids(c: &Company, t: &Tender, placed: &[Placed]) -> Vec<RivalBid> {
         .collect()
 }
 
-/// A tender won at `price` (the ask's share of the reference): the concession from tomorrow
-/// (its line taken on at once: `take_on`), or a renewal added to the old term.
-fn take(c: &mut Company, t: &Tender, price: f64) -> Event {
+/// A tender won at `amount` a year: the concession from tomorrow (its line taken on at once:
+/// `take_on`), or a renewal added to the old term; its bus contract for the term
+/// (`bus_contracts::make`: a renewal's from the old one's end).
+fn take(c: &mut Company, t: &Tender, amount: Cents) -> Event {
     let tomorrow = dates::add(&c.date, 1);
-    let price = (price * 1000.0).round() / 1000.0;
-    if let Some(h) = c.concessions.held.iter_mut().find(|h| h.line.eq_ignore_ascii_case(&t.line)) {
-        h.until = dates::add(&h.until, t.weeks as i64 * 7);
-        h.price = price;
-        h.direct = false;
-        return Event::Won { number: t.number.clone(), until: h.until.clone() };
+    let price = ((t.share(amount)) * 1000.0).round() / 1000.0;
+    let work = if t.work == Work::default() { bc::rough_work(t.day_tours, t.day_km) } else { t.work };
+    let days = t.term_years() as i64 * 365;
+    if let Some(h) = c.concessions.held.iter().find(|h| h.line.eq_ignore_ascii_case(&t.line)).cloned() {
+        let from = dates::add(&h.until, 1);
+        let until = dates::add(&h.until, days);
+        let k = bc::make(c, &t.line, &t.number, t.kind, t.period, amount, &work, &from, &until);
+        c.concessions.contracts.push(k);
+        if let Some(h) = c.concessions.held.iter_mut().find(|x| x.line.eq_ignore_ascii_case(&t.line)) {
+            h.until = until.clone();
+            h.price = price;
+            h.direct = false;
+        }
+        return Event::Won { number: t.number.clone(), until };
     }
-    let until = dates::add(&tomorrow, t.weeks as i64 * 7 - 1);
+    let until = dates::add(&tomorrow, days - 1);
+    let k = bc::make(c, &t.line, &t.number, t.kind, t.period, amount, &work, &tomorrow, &until);
+    c.concessions.contracts.push(k);
     c.concessions.held.push(Concession { line: t.line.clone(), number: t.number.clone(), from: tomorrow, until: until.clone(), price, direct: false });
     Event::Won { number: t.number.clone(), until }
 }
@@ -1000,7 +1083,7 @@ pub fn close(c: &mut Company, id: u32) -> Option<(Event, Cents)> {
     let mine = board.iter().find(|s| s.name.is_empty()).map_or(0.0, |s| s.total);
     let (outcome, event, amount) = match placed.last() {
         Some(p) if p.who == Who::Player => {
-            let ev = take(c, &t, t.share(p.amount));
+            let ev = take(c, &t, p.amount);
             (Outcome::Won { score: mine, rivals, amount: p.amount, bought: false }, ev, p.amount)
         }
         Some(p) => {
@@ -1029,24 +1112,14 @@ pub enum Event {
 /// The night after the day `date` was closed (the company's date is the next day already;
 /// what is booked here is booked on `date`): tenders that should have closed that day and did
 /// not (the clock closes them at their minute) are decided, lines won are taken on for
-/// tomorrow, concessions that ended given up, older concessions' prices settled with the
-/// authority for the day's kilometres (`km`: each company line's), and on a month's end the
-/// own lines' licences. `lines`: the timetable's lines of `date`.
-pub fn after_day(c: &mut Company, date: &str, km: &[(String, f64)], lines: &[LineInfo]) -> Vec<Event> {
+/// tomorrow, concessions that ended given up (their contracts with them), and on a month's end
+/// the own lines' licences. `lines`: the timetable's lines of `date`. (`_km`, each line's
+/// kilometres, settled the old per-km prices: a contract pays its line now, `bus_contracts`.)
+pub fn after_day(c: &mut Company, date: &str, _km: &[(String, f64)], lines: &[LineInfo]) -> Vec<Event> {
     let mut events = Vec::new();
     let tomorrow = c.date.clone();
     let keep = std::mem::replace(&mut c.date, date.to_string());
     let r = rules_of(c);
-
-    // older concessions' prices: the close paid the reference for every kilometre
-    let per_km = economy::compensation_per_km(&economy::rules_for(c), c.reputation, c.contract_index);
-    for (line, k) in km {
-        let Some(h) = of_line(c, line).cloned() else { continue };
-        let delta = (k * per_km * (h.price - 1.0)).round() as Cents;
-        if delta != 0 {
-            c.book(BookingKind::Compensation, delta, format!("Line {} (concession price)", h.number), false);
-        }
-    }
 
     // the tenders that should have closed today
     let end = clock::moment(&tomorrow, 0);
@@ -1071,6 +1144,7 @@ pub fn after_day(c: &mut Company, date: &str, km: &[(String, f64)], lines: &[Lin
             }
             continue;
         }
+        bc::expire(c, &h.line, date);
         c.concessions.held.retain(|x| x.line != h.line);
         network::remove_line(c, &h.line);
         events.push(Event::Ended { number: h.number.clone() });
@@ -1149,7 +1223,7 @@ pub(crate) mod tests {
             assert!((2.0..=6.0).contains(&hours), "{hours}");
             assert_eq!(clock::date_of(t.opens_at), dates::add(&c.date, k as i64));
             assert!(!t.bidders.is_empty() && t.bidders.iter().all(|id| rival(&c, *id).is_some()));
-            assert!(t.value >= 2_000_00 && t.buy_out() > t.value && reserve(t.value) < t.value);
+            assert!(t.value >= 2_000_00 && t.buy_out() > t.value);
             assert!(t.scored() && t.reference > t.buy_out());
         }
         assert_eq!(c.concessions.rivals.len(), 6);
@@ -1172,7 +1246,7 @@ pub(crate) mod tests {
         assert_eq!(apply(&mut c, &lines[0]), Ok(id), "one tender a line");
         let t = c.concessions.tenders[0].clone();
         assert!(t.running(clock::now(&c)) && t.applied);
-        assert_eq!(bid(&mut c, id, t.reference + auction::ROUND), Err("Another bid scores better: ask at most the bid that leads."));
+        assert_eq!(bid(&mut c, id, t.reference + auction::ROUND), Err("Above the authority's cap: a bid above it does not count."));
         let cash = c.cash;
         // an ask below every rival's floor
         let high = round(t.reference as f64 * 0.6);
@@ -1207,8 +1281,13 @@ pub(crate) mod tests {
         let h = of_line(&c, "Linie7").unwrap().clone();
         assert_eq!(h.from.as_str(), c.date.as_str());
         assert!((h.price - t.share(high)).abs() < 0.001, "run at its ask: {}", h.price);
-        assert_eq!(dates::between(&h.from, &h.until), 52 * 7 - 1);
-        // the renewal comes up; without a bid the line ends with the term
+        assert_eq!(dates::between(&h.from, &h.until), econ_uk::TERM_LOCAL.0 as i64 * 365 - 1);
+        // (its contract: gross cost or net subsidy at the winning ask, for the term)
+        let k = bc::of_line(&c, "Linie7").unwrap();
+        assert_eq!((k.year_price, k.from.as_str(), k.until.as_str()), (high, h.from.as_str(), h.until.as_str()));
+        // the renewal comes up (its extension years used up); without a bid the line ends with
+        // the term
+        c.concessions.contracts.iter_mut().for_each(|k| k.extensions_left = 0);
         c.date = dates::add(&h.until, -RENEW_BEFORE);
         refresh(&mut c, &lines);
         let renewal = open_tender(&c, "Linie7").unwrap().clone();
@@ -1343,22 +1422,24 @@ pub(crate) mod tests {
         c.clock.minute = 9 * 60;
         let id = apply(&mut c, &lines[0]).unwrap();
         let t = c.concessions.tenders[0].clone();
-        // the company's quality: reputation, punctuality and fleet
-        c.reputation = 40.0;
+        // the company's quality: its track record (a newcomer's fair one)
         let q = quality_in(&c, &t);
+        assert!((q - 92.0).abs() < 1e-9);
         let lot = t.lot();
         // a rival of quality 65 asks 90 %: 5 % below it wins for the company all the same
         let rival_ask = round(t.reference as f64 * 0.9);
         let mine = round(t.reference as f64 * 0.85);
         assert!(auction::score(mine, q, mine) > auction::score(rival_ask, 65.0, mine), "q {q}");
-        // ... but with a reputation run down to nothing, 2 % below it is not enough
-        c.reputation = 0.0;
-        c.punctuality = 20.0;
-        let q = quality_in(&c, &t);
+        // ... but with a record of 40 default points a contract, 2 % below it is not enough
+        let mut bad = c.clone();
+        bc::give(&mut bad, "Linie9");
+        let today = bad.date.clone();
+        bad.concessions.contracts[0].record.push(bc::PointsDay { date: today, default: 40.0, ..Default::default() });
+        let q = quality_in(&bad, &t);
+        assert!((q - 20.0).abs() < 1e-9);
         let mine = round(t.reference as f64 * 0.88);
         assert!(auction::score(mine, q, mine) < auction::score(rival_ask, 95.0, mine), "q {q}");
         // the recommended ask leads and wins with the chance it says
-        c.reputation = 50.0;
         let (ask, p) = recommended(&c, &t);
         assert!(ask <= min_bid(&c, &t) && ask >= round(t.reference as f64 * RECOMMEND_FLOOR).min(min_bid(&c, &t)));
         assert!((0.0..=1.0).contains(&p));

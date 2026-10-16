@@ -2398,6 +2398,8 @@ mod tests {
         // (tour 2's automatic cut moved a trip earlier with its last trip gone: the afternoon's
         // driver stays with the afternoon)
         assert!(drivers_of(&c, &l, "2").iter().all(|d| d.1.is_some()));
+        // (the line under a bus contract: a journey not run is not paid)
+        super::super::bus_contracts::give(&mut c, &l.name);
         let left_out = super::super::day::close_day(&mut c.clone(), day(&c, &l), &[]);
         let r = close(&mut c, &l);
         assert_eq!(unplanned(&r), vec![(String::new(), None, 1)]);

@@ -20,6 +20,7 @@ pub mod agenda;
 pub mod agency;
 pub mod auction;
 pub mod autopilot;
+pub mod bus_contracts;
 pub mod career;
 pub mod clock;
 pub mod concessions;
@@ -290,7 +291,7 @@ mod tests {
     #[test]
     fn a_company_is_founded_with_its_capital() {
         let c = found(&Founding { name: "Stadtbus Grundorf".into(), game_mode: GameMode::Realistic, date: "2024-05-06".into(), ..Default::default() }, "Luc");
-        assert_eq!((c.id.as_str(), c.short.as_str(), c.date.as_str(), c.cash), ("stadtbus-grundorf", "SG", "2024-05-06", 600_000_00));
+        assert_eq!((c.id.as_str(), c.short.as_str(), c.date.as_str(), c.cash), ("stadtbus-grundorf", "SG", "2024-05-06", economy::rules(GameMode::Realistic).start_capital));
         assert_eq!(c.ledger.len(), 1);
         assert!(c.ledger[0].kind.is_capital());
         assert_eq!(c.month("2024-05").result(), 0);
