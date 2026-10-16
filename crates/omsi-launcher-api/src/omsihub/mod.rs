@@ -38,6 +38,8 @@ pub mod together;
 pub mod addon;
 // Omsi-Hub online: the optional account and the friends (`online.rs`, docs/omsihub/ONLINE.md)
 pub mod online;
+// The privacy statement as the page shows it (`privacy.rs`, docs/omsihub/PRIVACY.md)
+pub mod privacy;
 // Omsi-Hub's cloud saves: a company kept in the account's cloud, synced (`cloud.rs`)
 pub mod cloud;
 

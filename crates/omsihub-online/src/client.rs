@@ -7,11 +7,16 @@
 //! 401, or the auth refusing the refresh token, signs out (the token taken from the store). Supabase
 //! hands out a new refresh token with every renewal, and the new one replaces the old one in the
 //! store at once. Every request carries the project's publishable key (`apikey`); no cookie is sent.
+//!
+//! The account's features wait for the privacy statement (`privacy.rs`): until the server says the
+//! player agreed to its current version (`my_privacy`, `accept_privacy`), every request with the
+//! access token is refused here with `privacy` and nothing is sent. Only those two functions and
+//! deleting the account go through.
 
 use crate::codes::{self, Error};
 use crate::http::{encode, Body, Http, Reply};
 use crate::store::SecretStore;
-use crate::{check, Endpoints};
+use crate::{check, privacy, Endpoints};
 use serde_json::{json, Value};
 
 /// The player's own profile.
@@ -93,6 +98,10 @@ pub struct Client {
     signed_up_name: Option<String>,
     /// The goodbye's short timeouts.
     quick: bool,
+    /// The privacy statement's version the server said this user agreed to (the user id with it).
+    pub(crate) privacy: Option<(String, u32)>,
+    /// A request the privacy hold lets through (`rpc_free`, the account deleted).
+    free: bool,
 }
 
 /// The access token is renewed this long before it expires.
@@ -118,7 +127,7 @@ impl Client {
     /// The client, with the session the store kept (if any).
     pub fn new(ep: Endpoints, store: Box<dyn SecretStore>) -> Self {
         let refresh = store.load();
-        Self { http: Http::new(!ep.plain), ep, store, refresh, access: None, signed_up_name: None, quick: false }
+        Self { http: Http::new(!ep.plain), ep, store, refresh, access: None, signed_up_name: None, quick: false, privacy: None, free: false }
     }
 
     pub fn signed_in(&self) -> bool {
@@ -133,6 +142,25 @@ impl Client {
     /// The player's user id (the access token's subject), once there is one.
     pub fn user_id(&self) -> Option<&str> {
         self.access.as_ref().map(|a| a.sub.as_str()).filter(|s| !s.is_empty())
+    }
+
+    /// Signed in, and the current privacy statement not agreed to (as far as this client knows:
+    /// `check_privacy` asks). The account's features wait meanwhile.
+    pub fn privacy_needed(&self) -> bool {
+        self.signed_in() && !self.agreed()
+    }
+
+    /// The newest version of the privacy statement this user accepted, as the server last said
+    /// (0: none); None before it was asked.
+    pub fn privacy_agreed(&self) -> Option<u32> {
+        match (&self.privacy, self.user_id()) {
+            (Some((user, v)), Some(me)) if user == me => Some(*v),
+            _ => None,
+        }
+    }
+
+    fn agreed(&self) -> bool {
+        matches!((&self.privacy, self.user_id()), (Some((user, v)), Some(me)) if user == me && *v >= privacy::VERSION)
     }
 
     /// The display name chosen on the website's sign-up, while the profile is still to be made.
@@ -173,6 +201,7 @@ impl Client {
         self.refresh = None;
         self.access = None;
         self.signed_up_name = None;
+        self.privacy = None;
         self.store.clear();
     }
 
@@ -256,10 +285,51 @@ impl Client {
         // (the address only for this, in memory)
         let email = r.body.get("email").and_then(Value::as_str).map(str::to_string).or_else(|| self.access.as_ref().map(|a| a.email.clone())).filter(|e| !e.is_empty()).ok_or(Error::Code("server"))?;
         self.sign_in(&email, password).map_err(|e| if e == Error::Code("invalid_credentials") { Error::Code("wrong_password") } else { e })?;
-        self.saves_delete_all()?;
-        self.rpc("delete_my_account", json!({}))?;
+        // (deleting is open whether the privacy statement was agreed to or not)
+        self.free = true;
+        let r = self.saves_delete_all().and_then(|_| self.rpc("delete_my_account", json!({})));
+        self.free = false;
+        r?;
         self.forget();
         Ok(())
+    }
+
+    // --- the privacy statement ----------------------------------------------------------------------
+
+    /// The newest version of the privacy statement the player agreed to (`my_privacy()`, 0: none),
+    /// kept for the hold.
+    pub fn check_privacy(&mut self) -> Result<u32, Error> {
+        let v = self.rpc_free("my_privacy", json!({}))?;
+        self.privacy_is(&v)
+    }
+
+    /// The player agrees to the current privacy statement (`accept_privacy`); the newest version
+    /// agreed to.
+    pub fn accept_privacy(&mut self) -> Result<u32, Error> {
+        let v = self.rpc_free("accept_privacy", json!({ "p_version": privacy::VERSION }))?;
+        self.privacy_is(&v)
+    }
+
+    fn privacy_is(&mut self, v: &Value) -> Result<u32, Error> {
+        // (PostgREST answers a scalar as it is; a row or a text is read too)
+        let n = match v {
+            Value::Array(a) => a.first().cloned().unwrap_or(Value::Null),
+            Value::Object(o) if o.len() == 1 => o.values().next().cloned().unwrap_or(Value::Null),
+            v => v.clone(),
+        };
+        let n = n.as_u64().or_else(|| n.as_str().and_then(|s| s.trim().parse().ok())).or(n.is_null().then_some(0)).ok_or(Error::Code("server"))?;
+        let n = u32::try_from(n).map_err(|_| Error::Code("server"))?;
+        let me = self.user_id().ok_or(Error::Code("server"))?.to_string();
+        self.privacy = Some((me, n));
+        Ok(n)
+    }
+
+    /// A function the privacy hold lets through.
+    fn rpc_free(&mut self, name: &str, args: Value) -> Result<Value, Error> {
+        self.free = true;
+        let r = self.rpc(name, args);
+        self.free = false;
+        r
     }
 
     // --- the access token and the database ---------------------------------------------------------
@@ -296,6 +366,10 @@ impl Client {
     pub(crate) fn authed(&mut self, method: &str, url: &str, body: Body, headers: &[(&str, &str)], file: bool) -> Result<Reply, Error> {
         for again in [false, true] {
             let t = self.access_token()?;
+            // (nothing goes out before the privacy statement is agreed to)
+            if !self.free && !self.agreed() {
+                return Err(Error::Code("privacy"));
+            }
             let r = self.send(method, url, Some(&t), body, headers, file)?;
             if !r.ok() && codes::is_unauthorized(r.status, &r.body) {
                 self.access = None;

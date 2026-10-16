@@ -1,0 +1,126 @@
+_version: 2
+# Beta 66: the Privacy Statement (docs/omsihub/PRIVACY.md, which stays English: the binding text) -
+# its dialog and links, the confirmation before an account is created or signed in to, the request
+# to a signed-in player who has not accepted its current version, the "Delete account" button
+# (launcher/ui/js/omsihub/privacy.js, online.js, cloud.js, settings-extra.js;
+# crates/omsi-launcher-api/src/omsihub/online.rs; the code `privacy` of crates/omsihub-online).
+# Formal register throughout, as the statement itself. ("Accept" is company-contracts.yml's.)
+"Privacy Statement":
+  de: "Datenschutzerklärung"
+  fr: "Déclaration de confidentialité"
+  nl: "Privacyverklaring"
+  pl: "Oświadczenie o ochronie prywatności"
+  ru: "Заявление о конфиденциальности"
+  uk: "Заява про конфіденційність"
+"Version %{n}":
+  de: "Version %{n}"
+  fr: "Version %{n}"
+  nl: "Versie %{n}"
+  pl: "Wersja %{n}"
+  ru: "Версия %{n}"
+  uk: "Версія %{n}"
+"This Privacy Statement is drawn up in English; the English text is binding.":
+  de: "Diese Datenschutzerklärung ist in englischer Sprache abgefasst; maßgeblich ist der englische Text."
+  fr: "La présente déclaration de confidentialité est rédigée en anglais ; seul le texte anglais fait foi."
+  nl: "Deze privacyverklaring is in het Engels opgesteld; de Engelse tekst is bindend."
+  pl: "Niniejsze oświadczenie o ochronie prywatności sporządzono w języku angielskim; wiążący jest tekst angielski."
+  ru: "Настоящее заявление о конфиденциальности составлено на английском языке; обязательную силу имеет английский текст."
+  uk: "Цю заяву про конфіденційність складено англійською мовою; обов'язковим є англійський текст."
+"I have read the Privacy Statement and agree to the processing of my personal data as described therein.":
+  de: "Ich habe die Datenschutzerklärung gelesen und stimme der darin beschriebenen Verarbeitung meiner personenbezogenen Daten zu."
+  fr: "J'ai lu la déclaration de confidentialité et j'accepte le traitement de mes données personnelles tel qu'il y est décrit."
+  nl: "Ik heb de privacyverklaring gelezen en stem in met de verwerking van mijn persoonsgegevens zoals daarin beschreven."
+  pl: "Zapoznałem(-am) się z oświadczeniem o ochronie prywatności i wyrażam zgodę na przetwarzanie moich danych osobowych w opisany w nim sposób."
+  ru: "Я ознакомился(-ась) с заявлением о конфиденциальности и даю согласие на обработку моих персональных данных в описанном в нём порядке."
+  uk: "Я ознайомився(-лася) із заявою про конфіденційність і даю згоду на обробку моїх персональних даних в описаний у ній спосіб."
+"Read the Privacy Statement":
+  de: "Datenschutzerklärung lesen"
+  fr: "Lire la déclaration de confidentialité"
+  nl: "Privacyverklaring lezen"
+  pl: "Przeczytaj oświadczenie o ochronie prywatności"
+  ru: "Прочитать заявление о конфиденциальности"
+  uk: "Прочитати заяву про конфіденційність"
+"Please confirm above that you accept the Privacy Statement.":
+  de: "Bitte bestätigen Sie oben, dass Sie die Datenschutzerklärung akzeptieren."
+  fr: "Veuillez confirmer ci-dessus que vous acceptez la déclaration de confidentialité."
+  nl: "Bevestigt u hierboven dat u de privacyverklaring aanvaardt."
+  pl: "Prosimy potwierdzić powyżej akceptację oświadczenia o ochronie prywatności."
+  ru: "Пожалуйста, подтвердите выше, что Вы принимаете заявление о конфиденциальности."
+  uk: "Будь ласка, підтвердьте вище, що Ви приймаєте заяву про конфіденційність."
+"The Privacy Statement has been amended (version %{n}). Please review and accept it to continue using your account.":
+  de: "Die Datenschutzerklärung wurde geändert (Version %{n}). Bitte lesen und akzeptieren Sie sie, um Ihr Konto weiterhin zu nutzen."
+  fr: "La déclaration de confidentialité a été modifiée (version %{n}). Veuillez en prendre connaissance et l'accepter pour continuer à utiliser votre compte."
+  nl: "De privacyverklaring is gewijzigd (versie %{n}). Lees en aanvaard deze om uw account te blijven gebruiken."
+  pl: "Oświadczenie o ochronie prywatności zostało zmienione (wersja %{n}). Prosimy zapoznać się z nim i je zaakceptować, aby dalej korzystać z konta."
+  ru: "Заявление о конфиденциальности изменено (версия %{n}). Пожалуйста, ознакомьтесь с ним и примите его, чтобы продолжить пользоваться аккаунтом."
+  uk: "Заяву про конфіденційність змінено (версія %{n}). Будь ласка, ознайомтеся з нею та прийміть її, щоб і надалі користуватися обліковим записом."
+"Please review and accept the Privacy Statement (version %{n}) to continue using your account.":
+  de: "Bitte lesen und akzeptieren Sie die Datenschutzerklärung (Version %{n}), um Ihr Konto weiterhin zu nutzen."
+  fr: "Veuillez prendre connaissance de la déclaration de confidentialité (version %{n}) et l'accepter pour continuer à utiliser votre compte."
+  nl: "Lees en aanvaard de privacyverklaring (versie %{n}) om uw account te blijven gebruiken."
+  pl: "Prosimy zapoznać się z oświadczeniem o ochronie prywatności (wersja %{n}) i je zaakceptować, aby dalej korzystać z konta."
+  ru: "Пожалуйста, ознакомьтесь с заявлением о конфиденциальности (версия %{n}) и примите его, чтобы продолжить пользоваться аккаунтом."
+  uk: "Будь ласка, ознайомтеся із заявою про конфіденційність (версія %{n}) та прийміть її, щоб і надалі користуватися обліковим записом."
+"Your account holds your email address, display name, friends, invitations, statistics and up to two cloud saves, stored on servers in the European Union.":
+  de: "Ihr Konto umfasst Ihre E-Mail-Adresse, Ihren Anzeigenamen, Freunde, Einladungen, Statistiken und bis zu zwei Cloud-Spielstände, gespeichert auf Servern in der Europäischen Union."
+  fr: "Votre compte comprend votre adresse e-mail, votre nom d'affichage, vos amis, vos invitations, vos statistiques et jusqu'à deux sauvegardes cloud, stockés sur des serveurs situés dans l'Union européenne."
+  nl: "Uw account bevat uw e-mailadres, weergavenaam, vrienden, uitnodigingen, statistieken en maximaal twee cloudopslagen, opgeslagen op servers in de Europese Unie."
+  pl: "Konto obejmuje adres e-mail, nazwę wyświetlaną, znajomych, zaproszenia, statystyki oraz maksymalnie dwa zapisy w chmurze, przechowywane na serwerach w Unii Europejskiej."
+  ru: "Аккаунт содержит Ваш адрес электронной почты, отображаемое имя, друзей, приглашения, статистику и не более двух облачных сохранений, которые хранятся на серверах в Европейском союзе."
+  uk: "Обліковий запис містить Вашу адресу електронної пошти, відображуване ім'я, друзів, запрошення, статистику та щонайбільше два хмарні збереження, що зберігаються на серверах у Європейському Союзі."
+"Personal data is not sold, and no advertising or tracking is used.":
+  de: "Personenbezogene Daten werden nicht verkauft; Werbung und Tracking werden nicht eingesetzt."
+  fr: "Les données personnelles ne sont pas vendues ; aucune publicité ni aucun pistage n'est utilisé."
+  nl: "Persoonsgegevens worden niet verkocht; er worden geen advertenties of tracking gebruikt."
+  pl: "Dane osobowe nie są sprzedawane; nie stosuje się reklam ani śledzenia."
+  ru: "Персональные данные не продаются; реклама и отслеживание не используются."
+  uk: "Персональні дані не продаються; реклама та стеження не використовуються."
+"You may delete your account at any time under Account → Delete account.":
+  de: "Sie können Ihr Konto jederzeit löschen, unter Konto → Konto löschen."
+  fr: "Vous pouvez supprimer votre compte à tout moment sous Compte → Supprimer le compte."
+  nl: "U kunt uw account op elk moment verwijderen via Account → Account verwijderen."
+  pl: "Konto można w każdej chwili usunąć w sekcji Konto → Usuń konto."
+  ru: "Вы можете в любой момент удалить аккаунт в разделе Аккаунт → Удалить аккаунт."
+  uk: "Ви можете будь-коли видалити обліковий запис у розділі Обліковий запис → Видалити обліковий запис."
+"Omsi-Hub can be used without an account. If you sign out, you can continue to play locally.":
+  de: "Omsi-Hub kann ohne Konto genutzt werden. Wenn Sie sich abmelden, können Sie lokal weiterspielen."
+  fr: "Omsi-Hub peut être utilisé sans compte. Si vous vous déconnectez, vous pouvez continuer à jouer en local."
+  nl: "Omsi-Hub kan zonder account worden gebruikt. Als u uitlogt, kunt u lokaal verder spelen."
+  pl: "Z Omsi-Hub można korzystać bez konta. Po wylogowaniu można kontynuować grę lokalnie."
+  ru: "Omsi-Hub можно использовать без аккаунта. Если Вы выйдете, игра продолжится локально."
+  uk: "Omsi-Hub можна використовувати без облікового запису. Якщо Ви вийдете, гра продовжиться локально."
+"Delete account":
+  de: "Konto löschen"
+  fr: "Supprimer le compte"
+  nl: "Account verwijderen"
+  pl: "Usuń konto"
+  ru: "Удалить аккаунт"
+  uk: "Видалити обліковий запис"
+"Please accept the Privacy Statement before using your account.":
+  de: "Bitte akzeptieren Sie die Datenschutzerklärung, bevor Sie Ihr Konto nutzen."
+  fr: "Veuillez accepter la déclaration de confidentialité avant d'utiliser votre compte."
+  nl: "Aanvaard de privacyverklaring voordat u uw account gebruikt."
+  pl: "Prosimy zaakceptować oświadczenie o ochronie prywatności przed skorzystaniem z konta."
+  ru: "Пожалуйста, примите заявление о конфиденциальности, прежде чем пользоваться аккаунтом."
+  uk: "Будь ласка, прийміть заяву про конфіденційність, перш ніж користуватися обліковим записом."
+"Signed in. Please accept the Privacy Statement to use your account.":
+  de: "Angemeldet. Bitte akzeptieren Sie die Datenschutzerklärung, um Ihr Konto zu nutzen."
+  fr: "Connecté. Veuillez accepter la déclaration de confidentialité pour utiliser votre compte."
+  nl: "Ingelogd. Aanvaard de privacyverklaring om uw account te gebruiken."
+  pl: "Zalogowano. Prosimy zaakceptować oświadczenie o ochronie prywatności, aby korzystać z konta."
+  ru: "Вход выполнен. Пожалуйста, примите заявление о конфиденциальности, чтобы пользоваться аккаунтом."
+  uk: "Вхід виконано. Будь ласка, прийміть заяву про конфіденційність, щоб користуватися обліковим записом."
+"The Privacy Statement has been accepted.":
+  de: "Die Datenschutzerklärung wurde akzeptiert."
+  fr: "La déclaration de confidentialité a été acceptée."
+  nl: "De privacyverklaring is aanvaard."
+  pl: "Oświadczenie o ochronie prywatności zostało zaakceptowane."
+  ru: "Заявление о конфиденциальности принято."
+  uk: "Заяву про конфіденційність прийнято."
+"Cloud saves are accessible to the account holder only.":
+  de: "Cloud-Spielstände sind ausschließlich für den Kontoinhaber zugänglich."
+  fr: "Les sauvegardes cloud ne sont accessibles qu'au titulaire du compte."
+  nl: "Cloudopslagen zijn uitsluitend toegankelijk voor de accounthouder."
+  pl: "Zapisy w chmurze są dostępne wyłącznie dla właściciela konta."
+  ru: "Облачные сохранения доступны только владельцу аккаунта."
+  uk: "Хмарні збереження доступні лише власникові облікового запису."

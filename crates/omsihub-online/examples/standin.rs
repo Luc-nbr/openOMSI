@@ -86,6 +86,15 @@ fn main() {
     bo.send_verification(&bo_mail).unwrap();
     assert_eq!(bo.verify_email(&bo_mail, &site.mail(&bo_mail)), Ok(true));
     step("a new code sent, and it confirms");
+    let v = omsihub_online::privacy::VERSION;
+    for c in [&mut ana, &mut bo] {
+        assert!(c.privacy_needed());
+        assert_eq!(c.profile(), Err(Error::Code("privacy")));
+        assert_eq!(c.check_privacy(), Ok(0));
+        assert_eq!(c.accept_privacy(), Ok(v));
+        assert!(!c.privacy_needed());
+    }
+    step("the account waits for the privacy statement: my_privacy 0, accept_privacy, then it works");
     for c in [&mut ana, &mut bo] {
         assert_eq!(c.profile(), Ok(None));
         let name = c.signed_up_name().unwrap().to_string();
@@ -171,7 +180,9 @@ fn main() {
     ana.sign_out();
     assert_eq!(ana.sign_in(&ana_mail, "ana password 1"), Err(Error::Code("invalid_credentials")));
     ana.sign_in(&ana_mail, "ana password 2").unwrap();
-    step("signed out; the password reset by a code, which signs in; the old one no longer works");
+    assert!(ana.privacy_needed());
+    assert_eq!(ana.check_privacy(), Ok(v));
+    step("signed out; the password reset by a code, which signs in; the old one no longer works; the agreement kept");
 
     // --- the account deleted -------------------------------------------------------------------------------
     assert_eq!(ana.delete_account("not the password"), Err(Error::Code("wrong_password")));

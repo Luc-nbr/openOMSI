@@ -17,7 +17,15 @@
 //!   (`cloud.rs` then makes every company here local);
 //! * `ol_add {code}`, `ol_respond {id, accept}`, `ol_remove {id}`, `ol_block {id}`;
 //! * `ol_invite {id}` - the company session hosted now, to a friend; `ol_dismiss {id}`;
-//! * `ol_presence {away}`, `ol_seen`, `ol_refresh`.
+//! * `ol_presence {away}`, `ol_seen`, `ol_refresh`;
+//! * `ol_privacy` - the privacy statement (`privacy.rs`); `ol_privacy_accept` - agreed to.
+//!
+//! The privacy statement (docs/omsihub/PRIVACY.md): signing in from the page comes with the
+//! player's tick (`agree`), which is sent as `accept_privacy` once signed in. At every sign-in and
+//! every restored session `my_privacy` is asked; below the current version the state says
+//! `privacy.needed`, the page asks (agree, or sign out), and the account's features - the
+//! heartbeat, the friends, the invites, the profile, the cloud saves - do nothing meanwhile (the
+//! client itself refuses them). Playing without an account asks nothing.
 //!
 //! Every answer is JSON with the texts in the page's language (`lang`): `{ok, message}` or
 //! `{error, code}`, the error one of `omsihub_online::codes`' never the server's own words. The
@@ -28,7 +36,7 @@ use super::company::words::{self, tr, trf};
 use super::together;
 use crate::Answer;
 use omsi_launcher_lib as core;
-use omsihub_online::{codes, store, Client, Endpoints, Error, Friend, Invite, Profile};
+use omsihub_online::{codes, privacy, store, Client, Endpoints, Error, Friend, Invite, Profile};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::sync::{LazyLock, Mutex, MutexGuard};
@@ -44,6 +52,11 @@ struct View {
     offline: bool,
     /// Signed in without a profile yet: the display name to choose.
     need_profile: bool,
+    /// Signed in, and the current privacy statement not agreed to: the account waits.
+    need_privacy: bool,
+    /// The version accepted before (0: none), while `need_privacy`: an amended statement, or none
+    /// accepted yet.
+    privacy_before: u32,
     profile: Option<Profile>,
     friends: Vec<Friend>,
     invites: Vec<Invite>,
@@ -148,6 +161,8 @@ fn answer(r: Result<Value, Error>) -> Value {
 fn signed_out(v: &mut View) {
     v.signed_in = false;
     v.need_profile = false;
+    v.need_privacy = false;
+    v.privacy_before = 0;
     v.profile = None;
     v.friends.clear();
     v.invites.clear();
@@ -169,13 +184,18 @@ fn presence(away: bool) -> (&'static str, Option<String>) {
     }
 }
 
-/// The heartbeat, then the profile, the friends and the invites, into the view.
+/// The heartbeat, then the profile, the friends and the invites, into the view; first, while the
+/// privacy statement is not agreed to, `my_privacy` (and nothing else).
 fn refresh(beat: bool) -> Result<(), Error> {
     let away = view().away;
     let now_state = presence(away);
     let got = with(|c| -> Result<_, Error> {
         if !c.signed_in() {
             return Ok(None);
+        }
+        if c.privacy_needed() && c.check_privacy()? < privacy::VERSION {
+            // (held: the version accepted before, if any)
+            return Ok(Some((c.lasting(), Err(c.privacy_agreed().unwrap_or(0)))));
         }
         if beat {
             // (no profile yet: the heartbeat has nothing to tell)
@@ -186,14 +206,33 @@ fn refresh(beat: bool) -> Result<(), Error> {
         }
         let profile = c.profile()?;
         let (friends, invites) = if profile.is_some() { (c.friends()?, c.invites()?) } else { (Vec::new(), Vec::new()) };
-        Ok(Some((profile, friends, invites, c.lasting())))
+        Ok(Some((c.lasting(), Ok((profile, friends, invites)))))
     });
     let mut v = view();
     match got {
-        Ok(Some((profile, friends, invites, lasting))) => {
+        Ok(Some((lasting, Err(agreed)))) => {
+            // (the account waits for the player's agreement; asked again at the next beat)
             v.signed_in = true;
             v.lasting = lasting;
             v.offline = false;
+            v.need_privacy = true;
+            v.privacy_before = agreed;
+            v.need_profile = false;
+            v.profile = None;
+            v.friends.clear();
+            v.invites.clear();
+            v.refreshed_at = unix_now();
+            if beat {
+                v.told = Some(now_state);
+                v.beat_at = unix_now();
+            }
+            Ok(())
+        }
+        Ok(Some((lasting, Ok((profile, friends, invites))))) => {
+            v.signed_in = true;
+            v.lasting = lasting;
+            v.offline = false;
+            v.need_privacy = false;
             v.need_profile = profile.is_none();
             v.profile = profile;
             v.friends = friends;
@@ -372,20 +411,68 @@ fn state() -> Value {
         "hosting": hosting,
         "together": together::enabled(),
         "sign_up_url": omsihub_online::sign_up_page(),
+        "privacy": { "version": privacy::VERSION, "needed": v.signed_in && v.need_privacy, "amended": v.privacy_before > 0 },
     })
 }
 
 // --- the account ------------------------------------------------------------------------------
 
-/// Signed in: the profile (made, when there is none, with the display name chosen on the
-/// website's sign-up), the friends, the heartbeat.
-fn after_sign_in() -> Value {
+/// The player's tick under the sign-in: "I have read and agree to the privacy statement".
+fn agree(args: &Value) -> bool {
+    args.get("agree").and_then(Value::as_bool).unwrap_or(false)
+}
+
+/// Signed in (`agree`: with the player's tick): `my_privacy` asked, and `accept_privacy` sent when
+/// it is below the current version and the player agreed. Then the account, or, not agreed, the
+/// page asks for the agreement first and the account waits.
+fn after_sign_in(agree: bool) -> Value {
     set_local(false);
     {
         let mut v = view();
         v.signed_in = true;
         v.seen.clear();
     }
+    // (Ok(None): accepted; Ok(Some(n)): held, version n accepted before)
+    let agreed = with(|c| -> Result<Option<u32>, Error> {
+        let before = c.check_privacy()?;
+        if before >= privacy::VERSION || (agree && c.accept_privacy()? >= privacy::VERSION) {
+            return Ok(None);
+        }
+        Ok(Some(before))
+    });
+    match agreed {
+        Ok(None) => start_account(),
+        Ok(Some(before)) => {
+            {
+                let mut v = view();
+                v.need_privacy = true;
+                v.privacy_before = before;
+            }
+            done(&tr("Signed in. Please accept the Privacy Statement to use your account."))
+        }
+        Err(e) => fail(e),
+    }
+}
+
+/// The privacy statement agreed to (the page's question): then the account.
+fn privacy_accept() -> Value {
+    match with(|c| c.accept_privacy()) {
+        Ok(n) if n >= privacy::VERSION => {
+            view().need_privacy = false;
+            let mut a = start_account();
+            if a.get("ok").is_some() {
+                a["message"] = json!(tr("The Privacy Statement has been accepted."));
+            }
+            a
+        }
+        Ok(_) => fail(Error::Code("server")),
+        Err(e) => fail(e),
+    }
+}
+
+/// The account in use: the profile (made, when there is none, with the display name chosen on
+/// the website's sign-up), the friends, the heartbeat.
+fn start_account() -> Value {
     let made = with(|c| -> Result<(), Error> {
         if let Some(n) = c.signed_up_name().map(str::to_string) {
             if c.profile()?.is_none() {
@@ -413,7 +500,7 @@ fn verify(args: &Value) -> Value {
     let (email, password) = (str_arg(args, "email"), str_arg(args, "password"));
     let signed = with(|c| c.verify_email(email, str_arg(args, "code")).and_then(|in_| if in_ || password.is_empty() { Ok(in_) } else { c.sign_in(email, password).map(|_| true) }));
     match signed {
-        Ok(true) => after_sign_in(),
+        Ok(true) => after_sign_in(agree(args)),
         Ok(false) => {
             let mut a = done(&tr("Email address confirmed. Sign in now."));
             a["step"] = json!("sign_in");
@@ -425,7 +512,7 @@ fn verify(args: &Value) -> Value {
 
 fn sign_in(args: &Value) -> Value {
     match with(|c| c.sign_in(str_arg(args, "email"), str_arg(args, "password"))) {
-        Ok(()) => after_sign_in(),
+        Ok(()) => after_sign_in(agree(args)),
         Err(e) => {
             let mut a = fail(e);
             if e == Error::Code("email_not_verified") {
@@ -441,7 +528,7 @@ fn reset(args: &Value) -> Value {
     // (the code signs in, and the new password is set with it)
     match with(|c| c.reset_password(email, str_arg(args, "code"), password)) {
         Ok(()) => {
-            let mut a = after_sign_in();
+            let mut a = after_sign_in(agree(args));
             if a.get("ok").is_some() {
                 a["message"] = json!(tr("Password changed. You are signed in."));
             }
@@ -534,6 +621,8 @@ pub fn call(cmd: &str, args: &Value) -> Option<Answer> {
         "ol_forgot" => answer(with(|c| c.request_reset(str_arg(args, "email"))).map(|_| done(&tr("If an account has this address, a code is on its way to it.")))),
         "ol_reset" => reset(args),
         "ol_sign_out" => sign_out(),
+        "ol_privacy" => super::privacy::doc(),
+        "ol_privacy_accept" => privacy_accept(),
         "ol_delete" => delete(args),
         "ol_profile" => profile(args),
         "ol_add" => friends_act(|c| c.send_friend_request(str_arg(args, "code")), |code| tr(codes::text(code))),
@@ -578,15 +667,16 @@ pub fn call(cmd: &str, args: &Value) -> Option<Answer> {
 mod tests {
     use super::*;
 
-    /// Every text of Omsi-Hub online - the codes, this file's, the page's (`online.js`) - in the
-    /// six languages.
+    /// Every text of Omsi-Hub online - the codes, this file's, the page's (`online.js`, and the
+    /// privacy statement's `privacy.js`) - in the six languages.
     #[test]
     fn every_online_text_is_translated() {
         let mut texts: Vec<String> = codes::TEXTS.iter().map(|(_, t)| t.to_string()).collect();
         let own = include_str!("online.rs").replace("\r\n", "\n");
         let own = own.split("#[cfg(test)]\nmod tests").next().unwrap_or("");
         let js = include_str!("../../../../launcher/ui/js/omsihub/online.js");
-        for (src, lead, end) in [(own, "tr(\"", '"'), (own, "trf(\"", '"'), (js, "tr('", '\'')] {
+        let pv = include_str!("../../../../launcher/ui/js/omsihub/privacy.js");
+        for (src, lead, end) in [(own, "tr(\"", '"'), (own, "trf(\"", '"'), (js, "tr('", '\''), (pv, "tr('", '\'')] {
             let mut rest = src;
             while let Some(k) = rest.find(lead) {
                 let after = &rest[k + lead.len()..];

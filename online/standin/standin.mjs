@@ -9,7 +9,7 @@
 //   confirmation is on; the codes it would mail are printed here and read back by tests at
 //   `GET /__mail?email=<address>`.
 // - The database (`/rest/v1`): the functions of online/supabase/schema.sql with the same checks and
-//   answers, and the tables' reads with the same row-level rules (profiles, invites).
+//   answers (the privacy statement's `accept_privacy` and `my_privacy` among them), and the tables' reads with the same row-level rules (profiles, invites).
 // - Storage (`/storage/v1`): the private bucket `saves`, each player only in users/<own id>/, only
 //   slot1 and slot2 written, 25 MB a file.
 //
@@ -37,6 +37,7 @@ const profiles = new Map(); // user id -> row
 const friendships = []; // { requester, addressee, status, created_at }
 const invites = []; // { id, from_user, to_user, session_code, created_at, expires_at }
 const files = new Map(); // 'users/<id>/slotN/<name>' -> { bytes, type, id, at }
+const consents = []; // { user_id, version, accepted_at } (privacy_consents)
 let inviteId = 0;
 
 const now = () => Date.now();
@@ -240,9 +241,19 @@ const FUNCTIONS = {
   },
   delete_my_account(me) {
     deleteUserData(me);
+    // (the consents go with the user: `on delete cascade` from auth.users)
+    for (let i = consents.length - 1; i >= 0; i--) if (consents[i].user_id === me) consents.splice(i, 1);
     users.delete(me);
     for (const [t, r] of refreshes) if (r.user === me) refreshes.delete(t);
     return null;
+  },
+  accept_privacy(me, { p_version }) {
+    if (!Number.isInteger(p_version) || p_version < 1 || p_version > 1000) throw new Pg('22023', 'bad version');
+    if (!consents.some((c) => c.user_id === me && c.version === p_version)) consents.push({ user_id: me, version: p_version, accepted_at: iso() });
+    return FUNCTIONS.my_privacy(me);
+  },
+  my_privacy(me) {
+    return Math.max(0, ...consents.filter((c) => c.user_id === me).map((c) => c.version));
   },
   set_leaderboard(me, { p_on }) {
     const p = profiles.get(me);

@@ -291,10 +291,43 @@ language sql stable security definer set search_path = public, pg_temp as $$
     from public.profiles
 $$;
 
+-- --- the privacy statement -------------------------------------------------------------------------
+-- (docs/omsihub/PRIVACY.md, its version in the `privacy-version` marker. The app and the website ask
+-- `my_privacy()` at every sign-in and hold the account's features until the player agrees to the
+-- current version with `accept_privacy`. A row is never changed or removed by the player; deleting
+-- the account removes them with it.)
+
+create table public.privacy_consents (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  version integer not null check (version between 1 and 1000),
+  accepted_at timestamptz not null default now(),
+  primary key (user_id, version)
+);
+alter table public.privacy_consents enable row level security;
+create policy privacy_consents_own on public.privacy_consents for select to authenticated
+  using (user_id = (select auth.uid()));
+
+/** The player agrees to version `p_version`; the newest version they agreed to. */
+create or replace function public.accept_privacy(p_version integer) returns integer
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare me uuid := (select auth.uid());
+begin
+  if me is null then raise exception 'not signed in' using errcode = '28000'; end if;
+  if p_version is null or p_version < 1 or p_version > 1000 then raise exception 'bad version' using errcode = '22023'; end if;
+  insert into public.privacy_consents (user_id, version) values (me, p_version) on conflict do nothing;
+  return (select max(version) from public.privacy_consents where user_id = me);
+end $$;
+
+/** The newest version the player agreed to, 0 when none. */
+create or replace function public.my_privacy() returns integer
+language sql stable security definer set search_path = public, pg_temp as $$
+  select coalesce(max(version), 0) from public.privacy_consents where user_id = (select auth.uid())
+$$;
+
 -- --- who may do what ------------------------------------------------------------------------------
 
-revoke all on public.profiles, public.friendships, public.invites from anon, authenticated;
-grant select on public.profiles, public.friendships, public.invites to authenticated;
+revoke all on public.profiles, public.friendships, public.invites, public.privacy_consents from anon, authenticated;
+grant select on public.profiles, public.friendships, public.invites, public.privacy_consents to authenticated;
 
 revoke all on all functions in schema public from public, anon, authenticated;
 grant execute on function
@@ -303,7 +336,8 @@ grant execute on function
   public.send_friend_request(text), public.respond_friend_request(uuid, boolean), public.remove_friend(uuid), public.block_player(uuid),
   public.send_invite(uuid, text), public.dismiss_invite(bigint), public.my_friends(),
   public.delete_my_data(), public.delete_my_account(), public.set_leaderboard(boolean),
-  public.report_stats(bigint, integer, integer, integer, integer)
+  public.report_stats(bigint, integer, integer, integer, integer),
+  public.accept_privacy(integer), public.my_privacy()
   to authenticated;
 grant execute on function public.hub_leaderboard(integer), public.hub_board_counts() to anon, authenticated;
 revoke all on all functions in schema private from public, anon;

@@ -5,6 +5,10 @@
 // requests, the invites to a company session - and the invites' notices over every page. An
 // account is optional: "Play without an account" is always there, and offline the panel says so
 // quietly. The email address and the password go to Rust and are kept nowhere on the page.
+// The privacy statement (`privacy.js`): ticked before an account is made or signed in to, and
+// asked of a signed-in player who has not agreed to its current version - agree, or sign out and
+// play on locally -, the account's features waiting meanwhile. Playing without an account asks
+// nothing.
 
 import { html, useEffect, useState } from '../../vendor/preact-htm.js';
 import { call } from '../api.js';
@@ -13,6 +17,7 @@ import { language } from '../i18n.js';
 import { Icon, tr } from './bits.js';
 // (the account's cloud saves: the 2 slots - `cloud.js`)
 import { CloudSaves } from './cloud.js';
+import { AgreeBox, PrivacyLink, Statement } from './privacy.js';
 
 // (the panel's own look, loaded with it)
 const sheet = document.createElement('link');
@@ -166,6 +171,9 @@ function SignedOut({ v }) {
   const [err, setErr] = useState('');
   const [info, setInfo] = useState('');
   const [busy, setBusy] = useState(false);
+  // (the privacy statement agreed to: needed to make an account and to sign in)
+  const [agreed, setAgreed] = useState(false);
+  const agree = html`<${AgreeBox} on=${agreed} set=${setAgreed} />`;
   const put = (k) => (x) => setF({ ...f, [k]: x });
   const go = (s) => {
     setStep(s);
@@ -186,19 +194,20 @@ function SignedOut({ v }) {
     }
     return r;
   };
-  const signIn = () => send('ol_sign_in', { email: f.email, password: f.password });
+  const signIn = () => agreed && send('ol_sign_in', { email: f.email, password: f.password, agree: true });
   // (an account is made on the website; its display name comes along at the first sign-in here)
   const create = () => {
+    if (!agreed) return;
     call('open_url', { url: v?.sign_up_url }).catch((e) => toast(String(e?.message || e), 'error'));
     setErr('');
     setInfo(tr('Create your account on the Omsi-Hub website, confirm your email address, then sign in here.'));
   };
-  const verify = () => send('ol_verify', { email: f.email, code: f.code, password: f.password });
+  const verify = () => agreed && send('ol_verify', { email: f.email, code: f.code, password: f.password, agree: true });
   const forgot = async () => {
     const r = await send('ol_forgot', { email: f.email });
     if (r.ok) setStep('reset');
   };
-  const reset = () => send('ol_reset', { email: f.email, code: f.code, password: f.password });
+  const reset = () => agreed && send('ol_reset', { email: f.email, code: f.code, password: f.password, agree: true });
   const local = async () => {
     await act('ol_local', { on: true }, true);
     closePanel();
@@ -211,7 +220,8 @@ function SignedOut({ v }) {
       ${!f.email && email}
       <${Field} label=${tr('Code')} value=${f.code} onInput=${put('code')} max=${10} auto="one-time-code" onEnter=${verify} />
       ${!f.password && html`<${Field} label=${tr('Password')} type="password" value=${f.password} onInput=${put('password')} max=${72} auto="current-password" />`}
-      <div class="ol-row"><${Btn} kind="primary" icon="check" label=${tr('Confirm')} busy=${busy} onClick=${verify} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Send a new code')} onClick=${() => send('ol_resend', { email: f.email })} /></div>`;
+      ${agree}
+      <div class="ol-row"><${Btn} kind="primary" icon="check" label=${tr('Confirm')} busy=${busy} disabled=${!agreed} onClick=${verify} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Send a new code')} onClick=${() => send('ol_resend', { email: f.email })} /></div>`;
   } else if (step === 'forgot') {
     body = html`<h3>${tr('Forgot your password?')}</h3>
       <p class="ol-text">${tr('We send a code to your email address. With it you choose a new password.')}</p>
@@ -222,13 +232,15 @@ function SignedOut({ v }) {
       <p class="ol-text">${tr('Enter the code we sent to %{email}.', { email: f.email })}</p>
       <${Field} label=${tr('Code')} value=${f.code} onInput=${put('code')} max=${10} auto="one-time-code" />
       <${Field} label=${tr('New password')} type="password" value=${f.password} onInput=${put('password')} max=${72} auto="new-password" onEnter=${reset} hint=${html`<${Strength} p=${f.password} />`} />
-      <div class="ol-row"><${Btn} kind="primary" icon="key" label=${tr('Change password')} busy=${busy} onClick=${reset} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Send a new code')} onClick=${forgot} /></div>`;
+      ${agree}
+      <div class="ol-row"><${Btn} kind="primary" icon="key" label=${tr('Change password')} busy=${busy} disabled=${!agreed} onClick=${reset} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Send a new code')} onClick=${forgot} /></div>`;
   } else {
     body = html`<h3>${tr('Sign in')}</h3>
       ${email}
       <${Field} label=${tr('Password')} type="password" value=${f.password} onInput=${put('password')} max=${72} auto="current-password" onEnter=${signIn} />
-      <div class="ol-row"><${Btn} kind="primary" icon="person" label=${tr('Sign in')} busy=${busy} onClick=${signIn} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Forgot your password?')} onClick=${() => go('forgot')} /></div>
-      <div class="ol-row"><span class="ol-text">${tr('New here?')}</span><${Btn} kind="ghost" icon="open_in_new" label=${tr('Create an account')} disabled=${!v?.sign_up_url} onClick=${create} /></div>`;
+      ${agree}
+      <div class="ol-row"><${Btn} kind="primary" icon="person" label=${tr('Sign in')} busy=${busy} disabled=${!agreed} onClick=${signIn} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Forgot your password?')} onClick=${() => go('forgot')} /></div>
+      <div class="ol-row"><span class="ol-text">${tr('New here?')}</span><${Btn} kind="ghost" icon="open_in_new" label=${tr('Create an account')} disabled=${!v?.sign_up_url || !agreed} title=${agreed ? '' : tr('Please confirm above that you accept the Privacy Statement.')} onClick=${create} /></div>`;
   }
   return html`<div class="ol-account">
     <p class="ol-lead">${tr('An account is optional. With one you add friends, see who is online and invite them to your company. Without one, everything else works as before.')}</p>
@@ -301,12 +313,12 @@ function Profile({ v }) {
         <em class="ol-hint">${tr('Give it to your friends: they add you with it.')}</em></div>
       ${err && html`<p class="ol-err">${err}</p>`}
       ${v.lasting === false && html`<${Note} text=${tr('This system has no credential store: you sign in again at the next start.')} />`}
-      <div class="ol-row"><${Btn} icon="logout" label=${tr('Sign out')} onClick=${() => act('ol_sign_out')} /></div>
+      <div class="ol-row"><${Btn} icon="logout" label=${tr('Sign out')} onClick=${() => act('ol_sign_out')} /><span class="ol-fill"></span><${PrivacyLink} /></div>
     </div>
     <${CloudSaves} />
     <div class="ol-danger">
       ${!del
-        ? html`<${Btn} kind="ghost" icon="delete" label=${tr('Delete my account')} onClick=${() => setDel(true)} />`
+        ? html`<${Btn} kind="ghost" icon="delete" label=${tr('Delete account')} onClick=${() => setDel(true)} />`
         : html`<h3>${tr('Delete my account')}</h3>
           <p class="ol-text">${tr('This deletes your profile, your friends, your invites, your cloud saves and then the account itself. Your companies on this PC stay, as local saves. It cannot be undone.')}</p>
           <${Field} label=${tr('Your password, to confirm')} type="password" value=${password} onInput=${setPassword} max=${72} auto="current-password" />
@@ -429,11 +441,52 @@ export function OnlineButton({ company }) {
     </button>${v?.badge > 0 && html`<span class="ol-badge">${v.badge}</span>`}${signed && v.offline && html`<span class="ol-off"></span>`}</span>${company && html`<span class="gap8"></span>`}`;
 }
 
-/** The invites' notices (new ones, over every page) and the panel when it is open. */
+/** Signed in, and the current privacy statement not agreed to (an amended version, or an account
+ * made before there was one): accept, or sign out and play on locally. The account does nothing
+ * until then. */
+function PrivacyAsk({ v }) {
+  const [busy, setBusy] = useState('');
+  const [err, setErr] = useState('');
+  const go = async (name) => {
+    setBusy(name);
+    const r = await act(name, {}, true);
+    setBusy('');
+    setErr(r.error || '');
+    if (r.ok && r.message) toast(r.message, 'ok');
+  };
+  const n = v.privacy?.version || 1;
+  return html`<div class="overlay ol-pv-overlay" role="dialog" aria-modal="true" aria-label=${tr('Privacy Statement')}>
+    <div class="ol-pv-box ask">
+      <header class="ol-pv-head"><${Icon} name="lock" size=${22} /><div class="t"><h2>${tr('Privacy Statement')}</h2><p>${tr('Version %{n}', { n })}</p></div></header>
+      <div class="ol-pv-scroll">
+        <p class="ol-pv-lead">${v.privacy?.amended
+          ? tr('The Privacy Statement has been amended (version %{n}). Please review and accept it to continue using your account.', { n })
+          : tr('Please review and accept the Privacy Statement (version %{n}) to continue using your account.', { n })}</p>
+        <ul class="ol-pv-sum">
+          <li>${tr('Your account holds your email address, display name, friends, invitations, statistics and up to two cloud saves, stored on servers in the European Union.')}</li>
+          <li>${tr('Personal data is not sold, and no advertising or tracking is used.')}</li>
+          <li>${tr('You may delete your account at any time under Account → Delete account.')}</li>
+          <li>${tr('Omsi-Hub can be used without an account. If you sign out, you can continue to play locally.')}</li>
+        </ul>
+        <${Statement} />
+      </div>
+      ${err && html`<p class="ol-err">${err}</p>`}
+      <div class="ol-pv-acts">
+        <${Btn} kind="primary" icon="check" label=${tr('Accept')} busy=${busy === 'ol_privacy_accept'} disabled=${!!busy} onClick=${() => go('ol_privacy_accept')} />
+        <span class="ol-fill"></span>
+        <${Btn} kind="ghost" icon="logout" label=${tr('Sign out')} busy=${busy === 'ol_sign_out'} disabled=${!!busy} onClick=${() => go('ol_sign_out')} />
+      </div>
+    </div>
+  </div>`;
+}
+
+/** The invites' notices (new ones, over every page) and the panel when it is open; signed in
+ * without the privacy statement agreed to, its question over everything instead. */
 export function OnlineLayer() {
   const v = useOnline();
   const s = useStore();
   const [hidden, setHidden] = useState([]);
+  if (v?.mode === 'in' && v.privacy?.needed) return html`<${PrivacyAsk} v=${v} />`;
   const fresh = (v?.invites || []).filter((i) => i.new && !hidden.includes(i.id)).slice(0, 2);
   const hide = (id) => setHidden([...hidden, id]);
   return html`${s.hub?.online && html`<${Panel} v=${v} tab=${s.hub.online} />`}
