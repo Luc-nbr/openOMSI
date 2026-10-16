@@ -13,6 +13,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("bedrijfsdienst.yml", include_str!("../locales/bedrijfsdienst.yml")),
     ("bugs-company.yml", include_str!("../locales/bugs-company.yml")),
     ("casual.yml", include_str!("../locales/casual.yml")),
+    ("cloud-saves.yml", include_str!("../locales/cloud-saves.yml")),
     ("company-agencies.yml", include_str!("../locales/company-agencies.yml")),
     ("company-agenda.yml", include_str!("../locales/company-agenda.yml")),
     ("company-breakdowns.yml", include_str!("../locales/company-breakdowns.yml")),

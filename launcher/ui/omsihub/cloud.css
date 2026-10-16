@@ -1,0 +1,47 @@
+/* Omsi-Hub's cloud saves (launcher/ui/js/omsihub/cloud.js): a company tile's badge, the question
+   before a cloud company opens, the account panel's "Cloud saves". Every class is `hubcs-`. */
+
+.hubcs-badge { position: absolute; right: 12px; bottom: 4px; max-width: 160px; height: 16px; display: inline-flex; align-items: center; gap: 4px; padding: 0 7px; border-radius: 8px; background: var(--hub-lift); color: var(--hub-text-dim); font-size: 8.4px; font-weight: 700; line-height: 16px; pointer-events: auto; }
+.hubcs-badge .hub-icon { flex: none; }
+.hubcs-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hubcs-badge.s-synced { color: var(--hub-ok); background: rgba(var(--hub-accent-rgb), 0.08); }
+.hubcs-badge.s-uploading { color: var(--hub-accent-text); background: rgba(var(--hub-accent-rgb), 0.14); }
+.hubcs-badge.s-newer { color: var(--hub-accent-text); background: rgba(var(--hub-accent-rgb), 0.2); }
+.hubcs-badge.s-conflict, .hubcs-badge.s-error { color: var(--hub-warn); background: rgba(var(--hub-accent-rgb), 0.12); }
+.hubcs-badge.s-offline { opacity: 0.75; }
+:root.hub[data-theme="light"] .hubcs-badge.s-uploading, :root.hub[data-theme="light"] .hubcs-badge.s-newer { color: var(--hub-accent-deep); }
+.hubcs-pulse { animation: hubcs-pulse 1.2s ease-in-out infinite; }
+@keyframes hubcs-pulse { 50% { opacity: 0.35; } }
+
+.hubcs-overlay { z-index: 60; }
+.hubcs-ask { width: min(520px, 100%); display: flex; flex-direction: column; gap: 12px; padding: 18px 20px; background: var(--hub-panel); color: var(--hub-text); border: 1px solid var(--hub-edge); border-radius: var(--hub-r-sheet); box-shadow: var(--hub-shadow); animation: hub-rise 0.14s ease-out; }
+.hubcs-ask header { display: flex; align-items: center; gap: 10px; }
+.hubcs-ask header .hub-icon { color: var(--hub-accent); flex: none; }
+.hubcs-ask h2 { font-size: 13px; font-weight: 700; }
+.hubcs-ask p { font-size: 10px; line-height: 1.5; color: var(--hub-text-dim); }
+.hubcs-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.hubcs-side { display: flex; gap: 10px; padding: 10px 12px; border-radius: var(--hub-r); background: var(--hub-lift); }
+.hubcs-side > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 9.6px; color: var(--hub-text-dim); }
+.hubcs-side b { font-size: 10.4px; color: var(--hub-text); }
+.hubcs-acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hubcs-fill { flex: 1; }
+.hubcs-note { font-size: 9px; line-height: 1.45; color: var(--hub-text-dim); }
+
+.hubcs-panel { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--hub-hairline); display: flex; flex-direction: column; gap: 8px; }
+.hubcs-quiet { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: var(--hub-r); background: var(--hub-lift); font-size: 9.2px; color: var(--hub-text-dim); }
+.hubcs-slot { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: var(--hub-r); background: var(--hub-lift); min-width: 0; flex-wrap: wrap; }
+.hubcs-slot.empty { background: none; box-shadow: inset 0 0 0 1px var(--hub-hairline); }
+.hubcs-num { width: 22px; height: 22px; flex: none; border-radius: 50%; background: rgba(var(--hub-accent-rgb), 0.18); color: var(--hub-text); font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+.hubcs-who { flex: 1; min-width: 140px; display: flex; flex-direction: column; gap: 1px; font-size: 9px; color: var(--hub-text-dim); }
+.hubcs-who b { font-size: 10.4px; color: var(--hub-text); }
+.hubcs-cut { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hubcs-btns { display: flex; gap: 4px; flex: none; justify-content: flex-end; }
+.hubcs-btns.wrap { flex-wrap: wrap; justify-content: flex-start; }
+.hubcs-panel .hub-btn.small, .hubcs-ask .hub-btn.small { height: 26px; padding: 0 9px; font-size: 9px; gap: 4px; }
+.hubcs-put { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.hubcs-select { flex: 1; min-width: 0; height: 28px; border: 0; outline: none; border-radius: var(--hub-r); background: var(--hub-field); color: var(--hub-text); padding: 0 8px; font-size: 10px; }
+.hubcs-select:focus { box-shadow: 0 0 0 2px rgba(var(--hub-accent-rgb), 0.45); }
+.hubcs-limit { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: var(--hub-r); background: rgba(var(--hub-accent-rgb), 0.1); }
+.hubcs-limit > p:first-child { font-size: 10px; line-height: 1.45; }
+
+@media (max-width: 520px) { .hubcs-sides { grid-template-columns: 1fr; } }

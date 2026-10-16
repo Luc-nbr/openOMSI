@@ -43,6 +43,8 @@ import { SessionWatch } from './session.js';
 // who joined one - `S.co.remote`, its commands relayed to the boss's launcher)
 import { TogetherButton, TOGETHER_TAB, backToMenu } from './together.js';
 import { OnlineButton } from '../online.js';
+// (Beta 63: a cloud company's newer version or conflict, asked before it opens)
+import { cloudBeforeOpen } from '../cloud.js';
 import { MultiplayerPage } from './multiplayer.js';
 
 // (the company's own look, loaded with its first page)
@@ -154,8 +156,12 @@ async function boot() {
     const list = b.chooser?.companies?.tiles || [];
     setCo({ list: b.chooser });
     const want = S.co.want && list.find((c) => c.id === S.co.want) ? S.co.want : null;
-    if (S.co.chooser == null && !b.open && list.length) await cmd('co_open', { id: want || list[0].id });
-    else if (want && b.open !== want) await cmd('co_open', { id: want });
+    // (a cloud company: a newer version or a conflict is asked before it opens - `cloud.js`)
+    const opening = S.co.chooser == null && !b.open && list.length ? want || list[0].id : want && b.open !== want ? want : null;
+    if (opening) {
+      await cloudBeforeOpen(opening);
+      await cmd('co_open', { id: opening });
+    }
     takeShell(await cmd('co_tick', { modal: true, still: true }));
   } catch (e) {
     setCo({ failed: e.message });

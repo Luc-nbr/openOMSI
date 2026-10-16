@@ -11,6 +11,8 @@ import { call } from '../api.js';
 import { S, set, useStore, toast } from '../store.js';
 import { language } from '../i18n.js';
 import { Icon, tr } from './bits.js';
+// (the account's cloud saves: the 2 slots - `cloud.js`)
+import { CloudSaves } from './cloud.js';
 
 // (the panel's own look, loaded with it)
 const sheet = document.createElement('link');
@@ -298,11 +300,12 @@ function Profile({ v }) {
       ${v.lasting === false && html`<${Note} text=${tr('This system has no credential store: you sign in again at the next start.')} />`}
       <div class="ol-row"><${Btn} icon="logout" label=${tr('Sign out')} onClick=${() => act('ol_sign_out')} /></div>
     </div>
+    <${CloudSaves} />
     <div class="ol-danger">
       ${!del
         ? html`<${Btn} kind="ghost" icon="delete" label=${tr('Delete my account')} onClick=${() => setDel(true)} />`
         : html`<h3>${tr('Delete my account')}</h3>
-          <p class="ol-text">${tr('This deletes your profile, your friends, your invites and then the account itself. It cannot be undone.')}</p>
+          <p class="ol-text">${tr('This deletes your profile, your friends, your invites, your cloud saves and then the account itself. Your companies on this PC stay, as local saves. It cannot be undone.')}</p>
           <${Field} label=${tr('Your password, to confirm')} type="password" value=${password} onInput=${setPassword} max=${128} auto="current-password" />
           <div class="ol-row"><${Btn} kind="danger" icon="delete" label=${tr('Delete for good')} busy=${busy} disabled=${!password} onClick=${remove} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Cancel')} onClick=${() => (setDel(false), setPassword(''))} /></div>`}
     </div>

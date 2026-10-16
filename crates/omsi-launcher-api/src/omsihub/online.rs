@@ -12,7 +12,8 @@
 //! * `ol_local {on}` - "Play without an account" (only that choice is kept, in
 //!   `~/.openomsi/omsihub-online.json`);
 //! * `ol_profile {name}` - the display name chosen or changed;
-//! * `ol_delete {password}` - the account and everything of it deleted;
+//! * `ol_delete {password}` - the account and everything of it deleted, its cloud saves first
+//!   (`cloud.rs` then makes every company here local);
 //! * `ol_add {code}`, `ol_respond {id, accept}`, `ol_remove {id}`, `ol_block {id}`;
 //! * `ol_invite {id}` - the company session hosted now, to a friend; `ol_dismiss {id}`;
 //! * `ol_presence {away}`, `ol_seen`, `ol_refresh`.
@@ -84,7 +85,7 @@ fn new_store() -> Box<dyn store::SecretStore> {
 }
 
 /// `f` with the client, made (and the stored session read) on the first call.
-fn with<T>(f: impl FnOnce(&mut Client) -> T) -> T {
+pub(super) fn with<T>(f: impl FnOnce(&mut Client) -> T) -> T {
     let mut g = client();
     let c = g.get_or_insert_with(|| Client::new(endpoints(), new_store()));
     f(c)
@@ -255,7 +256,7 @@ pub fn goodbye() {
 // --- the page's view ----------------------------------------------------------------------------
 
 /// Seconds since the Unix epoch of an RFC 3339 time (`2026-10-16T10:00:00.123+02:00`).
-fn unix_of(ts: &str) -> Option<i64> {
+pub(super) fn unix_of(ts: &str) -> Option<i64> {
     let ts = ts.trim();
     let n = |a: usize, b: usize| ts.get(a..b).and_then(|s| s.parse::<i64>().ok());
     let (y, mo, d, h, mi, s) = (n(0, 4)?, n(5, 7)?, n(8, 10)?, n(11, 13)?, n(14, 16)?, n(17, 19)?);
@@ -456,6 +457,8 @@ fn delete(args: &Value) -> Value {
     match with(|c| c.delete_account(str_arg(args, "password"))) {
         Ok(()) => {
             signed_out(&mut view());
+            // (its cloud saves went with it: the companies here are local saves now)
+            super::cloud::forget_account();
             done(&tr("Your account and everything of it are deleted."))
         }
         Err(e) => fail(e),
