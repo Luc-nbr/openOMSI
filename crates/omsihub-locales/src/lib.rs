@@ -57,6 +57,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("planning-studio.yml", include_str!("../locales/planning-studio.yml")),
     ("rename.yml", include_str!("../locales/rename.yml")),
     ("ritkaart.yml", include_str!("../locales/ritkaart.yml")),
+    ("rosterflow-beta66.yml", include_str!("../locales/rosterflow-beta66.yml")),
     ("rosterflow-breaks.yml", include_str!("../locales/rosterflow-breaks.yml")),
     ("rosterflow-days.yml", include_str!("../locales/rosterflow-days.yml")),
     ("rosterflow-gantt.yml", include_str!("../locales/rosterflow-gantt.yml")),

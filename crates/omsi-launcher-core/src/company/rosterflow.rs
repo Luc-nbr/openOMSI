@@ -910,9 +910,119 @@ pub fn draft_differs(c: &Company, weekday: u8) -> bool {
     lay(&d.layouts) != lay(&c.planning.layouts) || joined(&d.joined) != joined(&c.planning.joined)
 }
 
-/// "Discard": the draft forgotten, back to what was saved.
+/// "Discard": the draft forgotten, back to what was saved - but what the draft locks stays as the
+/// draft has it (Luc, Beta 65: "a locked duty can still be changed by Discard"): the locks, the
+/// locked buses' blocks and those with a piece of a locked duty, the locked duties' joins and
+/// notes, the locked spare duties (`keep_locked`). Returns whether there was a draft; the draft
+/// left is what was kept that the saved planning has otherwise.
 pub fn discard_draft(c: &mut Company) -> bool {
-    c.planning.flow.draft.take().is_some()
+    let Some(d) = c.planning.flow.draft.take() else { return false };
+    let mut v = view(c);
+    keep_locked(&mut v, &d);
+    keep_draft(c, &v);
+    true
+}
+
+/// What draft `d` locks put into `v` (the saved planning) as `d` has it (`discard_draft`).
+fn keep_locked(v: &mut Company, d: &Draft) {
+    // the draft's locked duties: their notes and their pieces
+    let locked: Vec<(&DutyNote, Vec<PieceRef>)> = d
+        .sheet
+        .notes
+        .iter()
+        .filter(|n| n.locked)
+        .map(|n| {
+            let group = d.joined.iter().find(|j| j.weekday == n.weekday && j.pieces.iter().any(|p| p.is(&n.key)));
+            (n, group.map(|j| j.pieces.clone()).unwrap_or_else(|| vec![n.key.clone()]))
+        })
+        .collect();
+    // the buses kept as the draft has them: those locked, those with a piece of a locked duty
+    let mut buses: Vec<(u8, String, String)> = d.sheet.locks.iter().map(|l| (l.weekday, l.line.clone(), l.tour.clone())).collect();
+    for (n, pieces) in &locked {
+        buses.extend(pieces.iter().map(|p| (n.weekday, p.line.clone(), p.tour.clone())));
+    }
+    let mut lines: Vec<(u8, String)> = Vec::new();
+    for (w, line, _) in &buses {
+        if !lines.iter().any(|(w2, l2)| w2 == w && same(l2, line)) {
+            lines.push((*w, line.clone()));
+        }
+    }
+    let p = &mut v.planning;
+    for (w, line) in lines {
+        let names: Vec<&str> = buses.iter().filter(|b| b.0 == w && same(&b.1, &line)).map(|b| b.2.as_str()).collect();
+        let draft = d.layouts.iter().find(|l| l.weekday == w && same(&l.line, &line));
+        let saved = p.layouts.iter().position(|l| l.weekday == w && same(&l.line, &line));
+        match (draft, saved) {
+            (None, None) => {}
+            // (one of them the automatic blocks, which are not known here: the draft's line)
+            (Some(dl), None) => p.layouts.push(dl.clone()),
+            (None, Some(k)) => {
+                p.layouts.remove(k);
+            }
+            (Some(dl), Some(k)) => {
+                let mixed = mix_line(&p.layouts[k], dl, &names);
+                p.layouts[k] = mixed;
+            }
+        }
+    }
+    p.joined.retain(|j| !locked.iter().any(|(n, ps)| n.weekday == j.weekday && j.pieces.iter().any(|x| ps.iter().any(|y| y.is(x)))));
+    p.joined.extend(locked.iter().filter(|(_, ps)| ps.len() > 1).map(|(n, ps)| JoinedDuty { weekday: n.weekday, pieces: ps.clone() }));
+    let sh = &mut p.flow.sheet;
+    for l in &d.sheet.locks {
+        if !sh.locks.iter().any(|x| x.weekday == l.weekday && same(&x.line, &l.line) && same(&x.tour, &l.tour)) {
+            sh.locks.push(l.clone());
+        }
+    }
+    for (n, _) in &locked {
+        sh.notes.retain(|x| !(x.weekday == n.weekday && x.key.is(&n.key)));
+        sh.notes.push((*n).clone());
+    }
+    for sp in d.sheet.spares.iter().filter(|x| x.locked) {
+        sh.spares.retain(|x| !(x.weekday == sp.weekday && x.id == sp.id));
+        sh.spares.push(sp.clone());
+    }
+}
+
+/// Line layout `saved` with its buses `names` as `draft` has them: their trips taken off the
+/// other buses and the stack, and a trip one of them ran as saved but not in the draft put where
+/// the draft has it - on a bus the saved layout has too, on the stack, or on a bus of the
+/// draft's own.
+fn mix_line(saved: &LineLayout, draft: &LineLayout, names: &[&str]) -> LineLayout {
+    let mut out = saved.clone();
+    for n in names {
+        let Some(db) = draft.blocks.iter().find(|b| same(&b.tour, n)) else { continue };
+        let was: Vec<TripRef> = out.blocks.iter().find(|b| same(&b.tour, n)).map(|b| b.trips.clone()).unwrap_or_default();
+        for b in out.blocks.iter_mut().filter(|b| !same(&b.tour, n)) {
+            b.trips.retain(|r| !db.trips.contains(r));
+            if let Some(cuts) = b.cuts.as_mut() {
+                cuts.retain(|r| !db.trips.contains(r));
+            }
+            b.reliefs.retain(|x| !db.trips.contains(&x.trip));
+        }
+        out.stack.retain(|r| !db.trips.contains(r));
+        match out.blocks.iter_mut().find(|b| same(&b.tour, n)) {
+            Some(b) => *b = db.clone(),
+            None => out.blocks.push(db.clone()),
+        }
+        for r in was.iter().filter(|r| !db.trips.contains(r)) {
+            if out.blocks.iter().any(|b| b.trips.contains(r)) || out.stack.contains(r) {
+                continue;
+            }
+            if draft.stack.contains(r) {
+                out.stack.push(r.clone());
+                continue;
+            }
+            let Some(home) = draft.blocks.iter().find(|b| b.trips.contains(r)).map(|b| b.tour.clone()) else { continue };
+            match out.blocks.iter_mut().find(|b| same(&b.tour, &home)) {
+                Some(b) => {
+                    b.trips.push(r.clone());
+                    b.trips.sort_by_key(|t| t.dep);
+                }
+                None => out.blocks.push(st::BlockLayout { tour: home, trips: vec![r.clone()], cuts: None, reliefs: Vec::new() }),
+            }
+        }
+    }
+    out
 }
 
 // --- locks, links and notes ---------------------------------------------------------------------

@@ -1334,11 +1334,13 @@ fn act(s: &mut Session, r: &mut Rf, by: live::Editor, args: &Value) -> Answer {
         // (the selection bar's "Copy to…", Ctrl+C and Ctrl+V: `days`)
         "copy_rows" => return Ok(days::copy_rows(s, r, &date, args)),
         "discard" => {
-            return Ok(match company::act(s, |c| Ok(rf::discard_draft(c))) {
-                Ok(true) => {
+            // (what the draft locks stays as the draft has it: `rf::discard_draft`)
+            return Ok(match company::act(s, |c| Ok(rf::discard_draft(c).then(|| rf::has_draft(c)))) {
+                Ok(Some(kept)) => {
                     r.undo.clear();
                     r.redo.clear();
-                    said(tr("Discarded: back to the saved planning."), false)
+                    let words = if kept { tr("Discarded: back to the saved planning - the locked vehicles and duties stay as they are.") } else { tr("Discarded: back to the saved planning.") };
+                    said(words, false)
                 }
                 _ => json!({}),
             });

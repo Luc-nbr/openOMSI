@@ -1,0 +1,11 @@
+_version: 2
+# RosterFlow, Beta 66 (Luc's Beta 65 reports): Discard leaving what is locked, the reason a link
+# is refused, unassigning the duties ticked, the Optimise settings, the Timeplan's trips chosen
+# and its running times copied to other days.
+"Discarded: back to the saved planning - the locked vehicles and duties stay as they are.":
+  de: "Verworfen: zurück zur gespeicherten Planung - die gesperrten Fahrzeuge und Dienste bleiben, wie sie sind."
+  fr: "Abandonné : retour à la planification enregistrée - les véhicules et services verrouillés restent tels quels."
+  nl: "Verworpen: terug naar de opgeslagen planning - de vergrendelde voertuigen en diensten blijven zoals ze zijn."
+  pl: "Odrzucono: powrót do zapisanego planu - zablokowane pojazdy i służby pozostają bez zmian."
+  ru: "Отменено: возврат к сохранённому плану - заблокированные машины и смены остаются как есть."
+  uk: "Скасовано: повернення до збереженого плану - заблоковані машини та зміни залишаються як є."

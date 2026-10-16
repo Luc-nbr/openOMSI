@@ -195,3 +195,76 @@ fn a_locked_duty_keeps_its_own_pieces_and_the_rest_of_its_bus_can_be_cut() {
     let tours = day(&c, &l);
     assert_eq!(st::cut(&mut c, w, &tours, at(&tours, "1"), 6), Err(st::LOCKED));
 }
+
+#[test]
+fn optimise_leaves_a_locked_duty_as_it_is_and_in_its_row() {
+    let l = line5();
+    let mut c = two_buses_one_joined(&l);
+    let w = wd(&c);
+    // the bus-2 duty from 06:30 locked: the second row
+    let rows = row_duties(&board_of_day(&c, &l));
+    let (key, trips) = rows[1].clone();
+    set_duty_lock(&mut c, w, &key, true);
+    for (vehicles, duties) in [(true, true), (false, true), (true, false)] {
+        let (layouts, joined) = optimise_with(&c, std::slice::from_ref(&l), &c.date, vehicles, duties);
+        let mut v = c.clone();
+        apply(&mut v, w, layouts, joined);
+        let tours = day(&v, &l);
+        pin_rows(&mut v, w, &tours, &rows);
+        let after = row_duties(&board_of_day(&v, &l));
+        let k = after.iter().position(|(x, _)| x.is(&key)).unwrap_or_else(|| panic!("the locked duty is there ({vehicles}, {duties}): {after:?}"));
+        assert_eq!(after[k].1, trips, "its trips as they were ({vehicles}, {duties})");
+        assert_eq!(k, 1, "its row and number as they were ({vehicles}, {duties})");
+        assert!(duty_locked(&v, w, &key));
+    }
+    // what Optimise proposes for the day, whatever it found
+    let o = optimise_day(&c, std::slice::from_ref(&l), &c.date);
+    let mine = row_duties(&o.board).into_iter().find(|(x, _)| x.is(&key)).expect("the locked duty");
+    assert_eq!(mine.1, trips);
+}
+
+#[test]
+fn discard_leaves_what_the_draft_locks_as_the_draft_has_it() {
+    let l = line5();
+    let mut c = two_buses_one_joined(&l);
+    let w = wd(&c);
+    let saved_key = joined_key(&c, &l);
+    // the draft: bus 2's last trip to a new bus, bus 2 locked; bus 1's last trip to a new bus
+    // too, bus 1 not locked; the duty from 06:00 locked
+    let mut v = view(&c);
+    let tours = day(&v, &l);
+    st::move_trip(&mut v, w, &tours, at(&tours, "2"), 7, Target::New).unwrap();
+    set_block_lock(&mut v, w, "Linie5", "2", true);
+    let tours = day(&v, &l);
+    st::move_trip(&mut v, w, &tours, at(&tours, "1"), 7, Target::New).unwrap();
+    let locked_duty = duties_now(&v, &l).into_iter().find(|(_, t)| t.contains(&"5 1-0".to_string())).unwrap();
+    set_duty_lock(&mut v, w, &locked_duty.0, true);
+    keep_draft(&mut c, &v);
+    assert!(has_draft(&c));
+    assert!(discard_draft(&mut c));
+    let shown = view(&c);
+    let tours = day(&shown, &l);
+    let names = |no: &str| tours.iter().find(|t| t.tour == no).map(|t| t.trips.iter().map(|x| x.name.clone()).collect::<Vec<_>>()).unwrap_or_default();
+    // the locked bus as the draft has it, the trip it gave off on the draft's new bus
+    assert_eq!(names("2").len(), 7, "{tours:?}");
+    assert!(block_locked(&shown, w, "Linie5", "2"));
+    let off = tours.iter().find(|t| t.trips.iter().any(|x| x.name == "5 2-7")).expect("bus 2's last trip runs");
+    assert_ne!(off.tour, "2");
+    // bus 1 is not locked, but the locked duty has a piece of it: as the draft has it too
+    assert_eq!(names("1").len(), 7);
+    assert!(duties_now(&shown, &l).iter().any(|(k, t)| k.is(&locked_duty.0) && *t == locked_duty.1));
+    assert!(duty_locked(&shown, w, &locked_duty.0));
+    assert_eq!(saved_key, locked_duty.0);
+    // every trip still runs, and the draft left is what was kept
+    assert_eq!(tours.iter().map(|t| t.trips.len()).sum::<usize>(), 16);
+    assert!(has_draft(&c));
+    // nothing locked: back to the saved planning
+    let mut c2 = two_buses_one_joined(&l);
+    let mut v2 = view(&c2);
+    let tours = day(&v2, &l);
+    st::move_trip(&mut v2, w, &tours, at(&tours, "2"), 7, Target::New).unwrap();
+    keep_draft(&mut c2, &v2);
+    assert!(discard_draft(&mut c2));
+    assert!(!has_draft(&c2));
+    assert_eq!(day(&c2, &l).len(), 2);
+}
