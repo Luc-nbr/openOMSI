@@ -83,6 +83,10 @@ async function act(name, args = {}, quiet = false) {
 }
 
 const openPanel = (tab) => set({ hub: { ...S.hub, online: tab || 'auto' } });
+
+// (for the company's Multiplayer page: the friends online and an invite to the session shared)
+export { useOnline as useOnlineState, openPanel as openOnline };
+export const inviteFriend = (id) => act('ol_invite', { id });
 const closePanel = () => set({ hub: { ...S.hub, online: null } });
 
 /** Join a friend's company session with its code, through "Play together"'s own join. */

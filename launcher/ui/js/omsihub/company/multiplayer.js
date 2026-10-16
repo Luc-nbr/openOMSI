@@ -7,6 +7,8 @@
 
 import { toast } from '../../store.js';
 import { html, useEffect, useRef, useState, tr, setCo, cmd, refresh, Icon, Btn, Switch, Dialog, inkOn, rgbOf } from './kit.js';
+import { Card, Empty } from './pagesb.js';
+import { useOnlineState, openOnline, inviteFriend } from '../online.js';
 
 // (the page's own look, loaded with it)
 const sheet = document.createElement('link');
@@ -182,6 +184,59 @@ function Activity({ v, go }) {
   </div>`;
 }
 
+/** The friends online (Omsi-Hub online's state), each with Invite: sharing started first when it
+ * is not on, then the session code sent. Not signed in: the way to sign in or make an account. */
+function FriendsOnline({ w, go }) {
+  const o = useOnlineState();
+  const signed = o?.mode === 'in' && !o.need_profile;
+  const online = (o?.friends || []).filter((f) => f.state !== 'offline').slice(0, 6);
+  const invite = async (f) => {
+    if (!o.hosting) await go('tg_host_start');
+    inviteFriend(f.id);
+  };
+  let body;
+  if (!signed) {
+    body = html`<p class="co-pgb-note">${w.sign_in_text}</p>
+      <div><${Btn} kind="primary" small=${true} icon="person" label=${w.sign_in} onClick=${() => openOnline('account')} /></div>`;
+  } else if (o.offline) body = html`<${Empty} icon="wifi" text=${w.friends_off} />`;
+  else if (!online.length) body = html`<${Empty} icon="group" text=${w.no_friends} />`;
+  else {
+    body = online.map((f) => html`<div class="co-pgb-mp-friend">
+      <span class="co-pgb-mp-face">${(f.name || '?').slice(0, 1).toUpperCase()}<i class=${f.state}></i></span>
+      <span class="co-pgb-grow"><b class="co-pgb-cut">${f.name}</b><span class="co-pgb-note co-pgb-cut">${f.state_label}</span></span>
+      ${o.together && html`<${Btn} small=${true} icon="wifi_tethering" label=${w.invite} title=${w.invite_tip} onClick=${() => invite(f)} />`}
+    </div>`);
+  }
+  return html`<${Card} class="co-pgb-mp-friends" icon="group" title=${w.friends_caps} aside=${signed && !o.offline ? String(online.length) : null}>${body}</${Card}>`;
+}
+
+/** The page not shared (Beta 65): the hero with Start sharing, the three steps, the friends
+ * online, the roles, and the players the company keeps. */
+function NotShared({ v, w, go, players, inDialog }) {
+  return html`<div class=${'co-pgb co-pgb-mp' + (inDialog ? ' in-dialog' : '')}>
+    <div class="co-pgb-stack">
+      <section class="co-pgb-card co-pgb-mp-hero">
+        <span class="co-pgb-mp-hero-ic"><${Icon} name="wifi_tethering" size=${30} /></span>
+        <span class="co-pgb-grow"><h2 class="co-pgb-h1">${w.hero}</h2><p class="co-pgb-text">${w.intro}</p>
+          <span class="co-pgb-note">${w.not_shared}</span>
+          ${v.other && html`<span class="co-pgb-note co-pgb-t-warn">${v.other}</span>`}</span>
+        <${Btn} kind="primary" class="co-pgb-big" icon="wifi_tethering" label=${w.start} onClick=${() => go('tg_host_start')} />
+      </section>
+      <div class="co-pgb-mp-steps">${(w.how || []).map((t, k) => html`<section class="co-pgb-card co-pgb-mp-step">
+        <span class="co-pgb-mp-n">${k + 1}</span><span class="co-pgb-caps">${(w.step || '').replace('%{n}', k + 1)}</span><p class="co-pgb-text">${t}</p>
+      </section>`)}</div>
+      <div class="co-pgb-mp-two">
+        <${FriendsOnline} w=${w} go=${go} />
+        <${Card} class="co-pgb-mp-roles" icon="users" title=${w.roles_caps}>
+          ${(v.roles?.roles || []).map((r) => html`<div class="co-pgb-mp-role"><span class="co-pgb-mp-role-ic"><${Icon} name=${r.icon} size=${16} /></span><span class="co-pgb-grow"><b>${r.label}</b><span class="co-pgb-note">${r.about}</span></span></div>`)}
+          <p class="co-pgb-note co-pgb-mp-rnote">${w.roles_note}</p>
+        </${Card}>
+      </div>
+      ${v.players.length > 0 && html`<div class="tg-page co-pgb-mp-players">${players}</div>`}
+    </div>
+  </div>`;
+}
+
 /** The Multiplayer page (`together::host::view`); `inDialog`: shown in a dialog over another
  * page (RosterFlow's button). */
 export function MultiplayerPage({ inDialog }) {
@@ -204,17 +259,7 @@ export function MultiplayerPage({ inDialog }) {
   const players = html`<section class="co-section"><div class="co-caps">${w.players_caps}</div>
     ${v.players.length ? html`<div class="tg-players">${v.players.map((p) => html`<${PlayerCard} key=${p.no} p=${p} v=${v} go=${go} />`)}</div>` : html`<p class="dim">${w.no_players}</p>`}
   </section>`;
-  if (!v.on) {
-    return html`<div class=${'tg-page' + (inDialog ? ' in-dialog' : '')}>
-      ${head}
-      <div class="co-scroll tg-scroll">
-        <section class="co-section tg-intro"><p class="co-para">${w.intro}</p>
-          <ol class="tg-how">${(w.how || []).map((t) => html`<li>${t}</li>`)}</ol>
-          ${v.other && html`<p class="co-para t-warn">${v.other}</p>`}</section>
-        ${v.players.length > 0 && players}
-      </div>
-    </div>`;
-  }
+  if (!v.on) return html`<${NotShared} v=${v} w=${w} go=${go} players=${players} inDialog=${inDialog} />`;
   return html`<div class=${'tg-page' + (inDialog ? ' in-dialog' : '')}>
     ${head}
     <div class="tg-grid">
