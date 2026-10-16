@@ -23,8 +23,10 @@ pub struct Seen {
     pub casual: bool,
 }
 
-/// The company's layout now (`tutorial::LAYOUT`): the start screen with a tile for every page.
-const LAYOUT: u32 = 1;
+/// The company's layout now (`tutorial::LAYOUT`): 1 the start screen with a tile for every page,
+/// 2 the sidebar, the slim bar and the command palette (Beta 65) - a driver who saw an older
+/// one is shown round its pages once more.
+const LAYOUT: u32 = 2;
 
 fn file() -> PathBuf {
     omsi_launcher_lib::data_dir().join("company-tour.json")
@@ -81,7 +83,7 @@ fn casual_due(s: &Seen, casual: bool) -> Option<(usize, bool)> {
 fn resume_at(s: &Seen) -> usize {
     if s.done {
         0
-    } else if s.layout < LAYOUT {
+    } else if s.layout < 1 {
         from_tabs(s.at)
     } else {
         s.at
@@ -150,5 +152,8 @@ mod tests {
         assert_eq!(casual_due(&Seen { done: true, ..skipped }, true), Some((1, false)));
         let old: Seen = serde_json::from_str(r#"{ "seen": true, "at": 3, "done": false, "pages_to_come": false }"#).unwrap();
         assert_eq!((on_open(&old, true), resume_at(&old)), (Some((1, false)), 5));
+        // (the tiles' layout seen, not the sidebar's: round the pages once more, its stops as they are)
+        let tiles = Seen { seen: true, done: true, at: 4, layout: 1, ..Default::default() };
+        assert_eq!((on_open(&tiles, true), resume_at(&Seen { done: false, ..tiles })), (Some((1, false)), 4));
     }
 }
