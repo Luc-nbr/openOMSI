@@ -228,7 +228,9 @@ fn rf_view_need(view: &str) -> Need {
 fn rf_need(cmd: &str, args: &Value) -> Need {
     let s = |k: &str| args.get(k).and_then(Value::as_str).unwrap_or("").to_string();
     match cmd {
-        "rf_on" | "rf_board" | "rf_here" | "rf_print" | "rf_roster" | "rf_roster_service" | "rf_tp" | "rf_tp_guide" => RF_VIEW,
+        "rf_on" | "rf_board" | "rf_here" | "rf_print" | "rf_roster" | "rf_roster_service" | "rf_tp" | "rf_tp_guide" | "rf_tp_route" => RF_VIEW,
+        // (the Routes strip's run times are the Timeplan's: set by who may edit the timetables)
+        "rf_tp_route_act" => LINES,
         "rf_view" => rf_view_need(&s("view")),
         "rf_act" => rf_act_need(&s("act")),
         "rf_roster_act" => rf_roster_need(&s("act"), args),
