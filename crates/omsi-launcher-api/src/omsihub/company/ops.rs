@@ -233,7 +233,12 @@ pub fn view(s: &mut Session) -> Value {
         row["cause"] = json!(if b.accident { tr("Accident") } else { tr("Breakdown") });
         row["detail"] = row["where"].clone();
         row["map"] = json!(tour.map(|t| format!("{}|{}|broken", t.tour.line, t.tour.tour)));
+        if let Some(t) = tour {
+            row["to"] = to_json(&c, &dp, t);
+        }
     }
+    // a driver's messages control has not seen to: rows of their own
+    let msgs = super::messages::incident_rows(&c, &dp);
     // the KPI cards
     let mut trips = 0u32;
     let mut on_time = 0u32;
@@ -285,7 +290,13 @@ pub fn view(s: &mut Session) -> Value {
     out["buses"] = json!(buses);
     out["drivers"] = json!(drivers);
     out["breaks"] = json!(breaks);
+    out["msgs"] = json!(msgs);
     out["done"] = json!(done_json(&c));
+    // the control room's messages: the compose box, today's list
+    out["compose"] = super::messages::compose_json();
+    out["log"] = json!(super::messages::log_json(&c, Some(&dp)));
+    out["log_caps"] = json!({ "title": tr("Messages"), "empty": tr("No messages yet: the Message button of a row writes to its driver."), "all": tr("Message every driver"),
+        "cols": [tr("Time"), tr("From"), tr("To"), tr("Message"), tr("State")], "all_to": { "kind": "all", "label": tr("Every driver") } });
     out
 }
 
@@ -296,7 +307,7 @@ fn alert_minutes(c: &Company) -> u32 {
     (if n == 0 { ctl::NOTICE_MINUTES } else { n }).max(ctl::LATE_AT as u32 + 1)
 }
 
-fn hex(c: [u8; 3]) -> String {
+pub(super) fn hex(c: [u8; 3]) -> String {
     format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2])
 }
 
@@ -354,14 +365,24 @@ fn bus_json(c: &Company, dp: &DayPlan, b: &ctl::LateBus) -> Value {
                 "args": apply_args(&t.tour.line, &t.tour.tour, o.dep, &o.act) })
         })
         .collect();
+    // (its driver told, the ways out as instructions to accept: the "Message" button)
+    let ways: Vec<(i32, Act)> = b.options.iter().map(|o| (o.dep, o.act)).collect();
     json!({
         "key": pl::tour_key(&t.tour.line, &t.tour.tour),
+        "to": to_json(c, dp, t), "min": b.minutes,
+        "instr": super::messages::instructions(c, dp, &t.tour.line, &t.tour.tour, trip.dep, &ways),
         "title": trf("Bus %{bus} · line %{n} tour %{tour}", &[("bus", &bus_number(c, b.vehicle)), ("n", &t.tour.number), ("tour", &t.tour.tour)]),
         "minutes": trf("+%{n} min", &[("n", &b.minutes.to_string())]), "tone": tone, "where": where_,
         "nothing": nothing_words(&dp.date, &b.nothing), "options": options,
         "none": options.is_empty().then(|| tr("No way to bring it back sooner now: no slack, no spare bus free.")),
         "done": done_of(c, &dp.date, &t.tour.line, &t.tour.tour, b.nothing.on_time_from.filter(|_| b.nothing.late_trips == 0)),
     })
+}
+
+/// Who the "Message" button of a tour's row writes to: its driver.
+fn to_json(c: &Company, dp: &DayPlan, t: &pl::DayTour) -> Value {
+    let to = co::messages::To::Duty { line: t.tour.line.clone(), tour: t.tour.tour.clone() };
+    json!({ "kind": "duty", "line": t.tour.line, "tour": t.tour.tour, "label": super::messages::to_label(c, &to, Some(dp)) })
 }
 
 /// What "Do it" sends for a way out of a late bus (`ops_apply`): the act under "how", never "act" -
@@ -391,6 +412,7 @@ fn mended_json(c: &Company, dp: &DayPlan, ti: usize) -> Value {
     };
     json!({
         "key": pl::tour_key(&t.tour.line, &t.tour.tour),
+        "to": to_json(c, dp, t),
         "title": trf("Bus %{bus} · line %{n} tour %{tour}", &[("bus", &bus_number(c, bus)), ("n", &t.tour.number), ("tour", &t.tour.tour)]),
         "minutes": tr("On time"), "tone": "ok", "where": "", "nothing": "", "options": [],
         "done": done_of(c, &dp.date, &t.tour.line, &t.tour.tour, None),
@@ -442,6 +464,7 @@ fn driver_json(c: &Company, dp: &DayPlan, d: &ctl::LateDriver) -> Value {
         })
         .collect();
     json!({
+        "to": to_json(c, dp, t),
         "title": trf("%{name} · line %{n} tour %{tour}", &[("name", &name), ("n", &t.tour.number), ("tour", &t.tour.tour)]),
         "minutes": trf("+%{n} min", &[("n", &d.minutes.to_string())]), "tone": "warn",
         "where": trf("Comes at %{time}: the first trips of the duty wait for him", &[("time", &hm(&dp.date, d.until))]),
@@ -553,6 +576,20 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Result<Value, St
             super::changed(s);
             Ok(json!({}))
         }
+        "ops_msg" | "ops_msg_ack" => {
+            let r = if what == "ops_msg" { super::messages::send(s, args) } else { super::messages::acknowledge(s, args) };
+            match r {
+                Ok(said) => {
+                    super::changed(s);
+                    s.say(said.clone(), false);
+                    Ok(json!({ "said": said }))
+                }
+                Err(e) => {
+                    s.say(e.clone(), true);
+                    Ok(json!({ "error": e }))
+                }
+            }
+        }
         "ops_apply" | "ops_cover" | "ops_break" => match take(s, what, args) {
             Ok((said, to)) => {
                 super::changed(s);
@@ -642,7 +679,9 @@ mod tests {
     #[test]
     fn every_ops_text_is_translated() {
         let mut texts: Vec<String> = ctl::texts().into_iter().map(String::from).collect();
-        for src in [include_str!("ops.rs")] {
+        // (the control room's messages: the core's words and the launcher's - Messages.yml)
+        texts.extend(super::super::messages::texts().into_iter().map(String::from));
+        for src in [include_str!("ops.rs"), include_str!("messages.rs")] {
             for lead in ["tr(\"", "trf(\""] {
                 let mut rest = src;
                 while let Some(k) = rest.find(lead) {

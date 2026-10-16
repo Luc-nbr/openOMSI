@@ -200,6 +200,10 @@ fn a_declined_instruction_is_seen_by_control_and_not_applied() {
     assert_eq!(c.messages.get(i).unwrap().reply, "understood");
     assert_eq!(Answer::of("on_my_way"), Some(Answer::Reply(Canned::OnMyWay)));
     assert_eq!(Answer::of("rm -rf"), None);
+    // (as the devices send them: a key)
+    assert_eq!(serde_json::to_string(&Answer::Reply(Canned::CallMe)).unwrap(), "\"call_me\"");
+    assert_eq!(serde_json::from_str::<Answer>("\"decline\"").unwrap(), Answer::Decline);
+    assert!(serde_json::from_str::<Answer>("\"x\"").is_err());
 }
 
 #[test]
@@ -231,6 +235,8 @@ fn a_driver_s_breakdown_is_the_day_s_incident() {
     let (mut c, dp, bus, _) = day();
     let mut run = Run::default();
     let id = driver_says(&mut c, "Linie5", "1", "Luc", Quick::Breakdown, Some(&dp), &mut run);
+    assert!(c.clock.today.as_ref().unwrap().breaks.is_empty());
+    assert_eq!(carry_out(&mut c, &dp, &mut run), Vec::<u64>::new());
     let m = c.messages.get(id).unwrap();
     assert_eq!((m.to.clone(), m.priority, m.quick, m.text.as_str()), (To::Control, Priority::Urgent, Some(Quick::Breakdown), "Breakdown"));
     let b = &c.clock.today.as_ref().unwrap().breaks;
@@ -238,10 +244,13 @@ fn a_driver_s_breakdown_is_the_day_s_incident() {
     assert_eq!((b[0].vehicle, b[0].at, b[0].choice, b[0].accident), (bus, 6 * 60 + 30, None, false));
     // told once: a second button press is a message, not a second incident
     driver_says(&mut c, "Linie5", "1", "Luc", Quick::Accident, Some(&dp), &mut run);
+    carry_out(&mut c, &dp, &mut run);
     assert_eq!(c.clock.today.as_ref().unwrap().breaks.len(), 1);
     // the rest are messages only
     driver_says(&mut c, "Linie5", "1", "Luc", Quick::DelayTraffic, Some(&dp), &mut run);
+    carry_out(&mut c, &dp, &mut run);
     assert_eq!(c.clock.today.as_ref().unwrap().breaks.len(), 1);
+    assert!(carry_out(&mut c, &dp, &mut run).is_empty());
     // control sees to it: done, and the driver told
     acknowledge(&mut c, id, From::Control, false).unwrap();
     assert!(c.messages.get(id).unwrap().done);

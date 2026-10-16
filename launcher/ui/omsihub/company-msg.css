@@ -1,0 +1,35 @@
+/* The control room's messages on the Operations page (`company/messages.js`): the rows'
+   "Message" button, the compose box and the day's list. Only the company's own tokens
+   (company.css, company-pages-b.css), so the light and the dark look both follow. */
+
+.co-msg-btn { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px; border: 0; border-radius: 12px; background: var(--hub-field); color: var(--hub-text-soft); font: inherit; font-size: 10.5px; font-weight: 600; cursor: pointer; box-shadow: inset 0 0 0 1px var(--hub-edge); }
+.co-msg-btn:hover { background: var(--hub-hover); color: var(--hub-text); }
+
+/* the compose box */
+.co-msg-form { display: flex; flex-direction: column; gap: 14px; }
+.co-msg-to { display: flex; align-items: baseline; gap: 10px; font-size: var(--co-rows); }
+.co-msg-field { display: flex; flex-direction: column; gap: 6px; }
+.co-msg-label { font-size: var(--co-note); color: var(--hub-text-dim); font-weight: 600; }
+.co-msg-text { height: auto; min-height: 58px; padding: 8px 12px; resize: vertical; line-height: 1.4; }
+
+/* the day's messages */
+.co-msg-empty { padding: 14px 16px; font-size: var(--co-note); color: var(--hub-text-dim); }
+.co-msg-table { display: flex; flex-direction: column; }
+.co-msg-row { display: grid; grid-template-columns: 44px minmax(70px, 0.8fr) minmax(70px, 0.8fr) minmax(140px, 2.4fr) 86px; gap: 10px; align-items: start; padding: 8px 16px; border-top: 1px solid var(--hub-hairline); font-size: 11px; line-height: 16px; min-width: 0; }
+.co-msg-row.head { font-size: 10px; font-weight: 600; color: var(--hub-text-dim); }
+.co-msg-row > span { min-width: 0; }
+.co-msg-row.mine { background: color-mix(in srgb, var(--hub-field) 60%, transparent); }
+.co-msg-time { color: var(--hub-text-dim); font-variant-numeric: tabular-nums; }
+.co-msg-who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.co-msg-body { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; }
+.co-msg-prio { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--hub-text-faint); transform: translateY(-1px); }
+.co-msg-row.prio-instruction .co-msg-prio { background: var(--hub-accent); }
+.co-msg-row.prio-urgent .co-msg-prio { background: var(--hub-danger); }
+.co-msg-row.prio-urgent .co-msg-body > span { font-weight: 700; }
+.co-msg-reply, .co-msg-outcome { flex-basis: 100%; font-style: normal; color: var(--hub-text-dim); font-size: 10.5px; }
+.co-msg-outcome { color: var(--co-warn); }
+.co-msg-state { font-weight: 600; color: var(--hub-text-soft); }
+.co-msg-state.st-sent { color: var(--hub-text-dim); }
+.co-msg-state.st-accepted { color: var(--hub-ok); }
+.co-msg-state.st-declined { color: var(--hub-danger); }
+.co-msg-row.open .co-msg-state { color: var(--hub-accent); }

@@ -25,7 +25,7 @@ local PANEL = "omsihub_msgs"
 -- (the messages the panel shows, the newest first)
 local SHOWN = 5
 local COLOR = { info = "#4DA3FF", instruction = "#F0B429", urgent = "#FF5F57" }
-local ICON = { info = "chat", instruction = "assignment", urgent = "warning" }
+local ICON = { info = "chat", instruction = "campaign", urgent = "warning" }
 -- the sound of a message (a file of the plugin's folder, Omsi-Hub puts them there) and how loud
 local SOUND = { info = { "msg_info.wav", 0.45 }, instruction = { "msg_instruction.wav", 0.75 }, urgent = { "msg_urgent.wav", 1.0 } }
 local DIM = "#9AA3AD"
@@ -281,7 +281,7 @@ local function children()
     local m = list[k]
     out[#out + 1] = { type = "divider" }
     out[#out + 1] = { type = "row", children = {
-      { type = "icon", name = m.mine and "outbox" or (ICON[m.priority] or "chat"), size = 16, color = COLOR[m.priority] or DIM },
+      { type = "icon", name = m.mine and "near_me" or (ICON[m.priority] or "chat"), size = 16, color = COLOR[m.priority] or DIM },
       { type = "text", text = (m.time or "") .. "  ·  " .. (m.from or ""), size = 12, color = DIM, grow = true, wrap = false },
       { type = "text", text = answered[m.id] and tr(answered[m.id]) or (m.state_label or ""), size = 12, color = DIM, wrap = false },
     } }

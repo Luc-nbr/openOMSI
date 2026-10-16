@@ -307,16 +307,16 @@ impl Quick {
         }
     }
 
-    /// The material icon the buttons show.
+    /// The Material Symbol the buttons show (one the game and the launcher both have).
     pub fn icon(self) -> &'static str {
         match self {
             Quick::DelayTraffic => "traffic",
-            Quick::Breakdown => "car_repair",
-            Quick::Accident => "car_crash",
-            Quick::AggressivePassenger => "report",
-            Quick::RoadClosed => "block",
+            Quick::Breakdown => "construction",
+            Quick::Accident => "warning",
+            Quick::AggressivePassenger => "emergency_home",
+            Quick::RoadClosed => "back_hand",
             Quick::RequestRelief => "group",
-            Quick::RequestTalk => "call",
+            Quick::RequestTalk => "chat",
         }
     }
 }
@@ -583,8 +583,9 @@ pub fn clean(text: &str) -> String {
     t.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(240).collect()
 }
 
-/// How a driver answers a message.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// How a driver answers a message (as a key, `Answer::of`, in what his devices send).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(into = "String", try_from = "String")]
 pub enum Answer {
     /// It reached his screen.
     Delivered,
@@ -593,6 +594,25 @@ pub enum Answer {
     Decline,
     /// A canned reply (an info message read with it).
     Reply(Canned),
+}
+
+impl std::convert::From<Answer> for String {
+    fn from(a: Answer) -> String {
+        match a {
+            Answer::Delivered => "delivered".into(),
+            Answer::Read => "read".into(),
+            Answer::Accept => "accept".into(),
+            Answer::Decline => "decline".into(),
+            Answer::Reply(c) => c.key().into(),
+        }
+    }
+}
+
+impl TryFrom<String> for Answer {
+    type Error = &'static str;
+    fn try_from(key: String) -> Result<Answer, &'static str> {
+        Answer::of(&key).ok_or("no such answer")
+    }
 }
 
 impl Answer {
@@ -654,6 +674,12 @@ pub fn answer(c: &mut Company, id: u64, a: Answer, by: Option<(&str, &str)>) -> 
     Ok(state)
 }
 
+/// The driver's inbox beside the company (`companies/<id>.inbox.json`), in the player's language:
+/// the phone reads it (the launcher writes it as it writes the plugin's).
+pub fn inbox_file(data: &std::path::Path, id: &str) -> std::path::PathBuf {
+    super::store::dir(data).join(format!("{id}.inbox.json"))
+}
+
 /// The tour of the day plan an action is for.
 fn tour_of(dp: &DayPlan, a: &Action) -> Option<usize> {
     dp.tours.iter().position(|t| ctl::same(&t.tour.line, &a.line) && ctl::same(&t.tour.tour, &a.tour))
@@ -669,6 +695,23 @@ fn number_of(dp: Option<&DayPlan>, line: &str, tour: &str) -> String {
 /// hold or a relief told in the feed. Each once; one that cannot be done (any more) says so. The
 /// messages carried out.
 pub fn carry_out(c: &mut Company, dp: &DayPlan, run: &mut Run) -> Vec<u64> {
+    // (a driver's breakdown or accident: the day's incident)
+    let told: Vec<(u64, String, String, bool)> = c
+        .messages
+        .list
+        .iter()
+        .filter(|m| !m.applied && matches!(m.quick, Some(Quick::Breakdown | Quick::Accident)))
+        .filter_map(|m| match &m.from {
+            From::Driver { line, tour, .. } => Some((m.id, line.clone(), tour.clone(), m.quick == Some(Quick::Accident))),
+            _ => None,
+        })
+        .collect();
+    for (id, line, tour, accident) in told {
+        broken(c, dp, &line, &tour, accident);
+        if let Some(m) = c.messages.get_mut(id) {
+            m.applied = true;
+        }
+    }
     let todo: Vec<(u64, Action)> = c.messages.list.iter().filter(|m| m.state == State::Accepted && !m.applied).filter_map(|m| m.action.clone().map(|a| (m.id, a))).collect();
     let mut out = Vec::new();
     for (id, a) in todo {
@@ -753,9 +796,9 @@ pub fn ai_answers(c: &mut Company, dp: &DayPlan, run: &mut Run) -> Vec<u64> {
 // --- the driver tells control ---------------------------------------------------------------------
 
 /// A driver's quick button (`q`) from his duty (`line`, `tour`; `name` where known): a message to
-/// control, and for a breakdown or an accident the day's incident for his bus - the Operations
-/// page's spare, rental or drop, as for the clock's own (unless one is open for it already).
-/// `dp`: the company's day plan (his bus and its tours), where it is at hand. Its id.
+/// control, told in the feed; a breakdown or an accident becomes the day's incident for his bus
+/// with the day's plan (`carry_out`). `dp`: the plan, where it is at hand (the line's number).
+/// Its id.
 pub fn driver_says(c: &mut Company, line: &str, tour: &str, name: &str, q: Quick, dp: Option<&DayPlan>, run: &mut Run) -> u64 {
     let n = number_of(dp, line, tour);
     let id = send(c, From::Driver { line: line.to_string(), tour: tour.to_string(), name: name.to_string() }, To::Control, q.priority(), q.label(), vec![ck::arg("n", &n), ck::arg("tour", tour)], false, None);
@@ -764,15 +807,12 @@ pub fn driver_says(c: &mut Company, line: &str, tour: &str, name: &str, q: Quick
     }
     let at = ck::now(c);
     ck::tell(c, run, at, DRIVER_TOLD, vec![ck::arg("n", &n), ck::arg("tour", tour), ck::arg("why", q.label())], if q.priority() == Priority::Urgent { Level::Bad } else { Level::Warn });
-    if matches!(q, Quick::Breakdown | Quick::Accident) {
-        if let Some(dp) = dp {
-            broken(c, dp, line, tour, q == Quick::Accident);
-        }
-    }
     id
 }
 
-/// The bus of a tour broke down (or had an accident) now, as its driver says: the day's incident.
+/// The bus of a tour broke down (or had an accident) now, as its driver says: the day's incident
+/// - the Operations page's spare, rental or drop, as for the clock's own (unless one is open for
+/// it already).
 fn broken(c: &mut Company, dp: &DayPlan, line: &str, tour: &str, accident: bool) -> bool {
     let now = c.clock.minute as i32;
     let Some(t) = dp.tours.iter().find(|t| ctl::same(&t.tour.line, line) && ctl::same(&t.tour.tour, tour)) else { return false };

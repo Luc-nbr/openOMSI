@@ -800,3 +800,58 @@ fn two_players_leaving_at_once_each_leave_theirs_to_the_ai_whatever_the_companys
     let (report, _) = close(&mut b);
     assert_eq!((report.measured, report.dropped), (1, 0), "{report:?}");
 }
+
+#[test]
+fn a_driver_answers_the_control_room_s_messages_to_the_duty_his_game_drives_and_no_other() {
+    use super::super::messages::{self as msg, Priority, State, To};
+    let mut b = boss();
+    let v = ask(&mut b, "jan", "hello", |_| {});
+    let duty = snap(&v).duties[0].duty.clone();
+    ask(&mut b, "piet", "hello", |_| {});
+    assert_eq!(ask(&mut b, "jan", "take", |r| r.duty = Some(duty.clone()))["ok"], true);
+    assert_eq!(ask(&mut b, "jan", "start", |r| r.duty = Some(duty.clone()))["ok"], true);
+    // a manager on the boss's side writes to the duty: it waits for Jan, no AI answers it
+    let to = To::Duty { line: duty.line.clone(), tour: duty.tour.clone() };
+    let id = msg::send(&mut b.c, msg::From::Manager { name: "Luc".into() }, to, Priority::Instruction, msg::CALL_CONTROL, Vec::new(), false, None);
+    assert!(msg::human(&b.c, &duty.line, &duty.tour));
+    // his snapshot while his game drives it carries it
+    let driving = |r: &mut Request| {
+        r.driving = Some(duty.clone());
+        r.in_game = true;
+    };
+    let v = ask(&mut b, "jan", "snapshot", driving);
+    assert_eq!(snap(&v).messages.iter().map(|m| m.id).collect::<Vec<_>>(), vec![id]);
+    // Piet's does not, and he may not answer it: it is not his duty
+    let v = ask(&mut b, "piet", "msg_reply", |r| {
+        driving(r);
+        r.msg = id;
+        r.text = "read".into();
+    });
+    assert_eq!(v["error"].as_str(), Some(book::NO_DUTY), "{v}");
+    assert!(snap(&v).messages.is_empty());
+    // Jan reads it, then tells control his road is closed
+    let v = ask(&mut b, "jan", "msg_reply", |r| {
+        driving(r);
+        r.msg = id;
+        r.text = "read".into();
+    });
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(b.c.messages.get(id).unwrap().state, State::Read);
+    let v = ask(&mut b, "jan", "msg_tell", |r| {
+        driving(r);
+        r.text = "road_closed".into();
+    });
+    assert_eq!(v["ok"], true, "{v}");
+    let told = b.c.messages.list.last().unwrap();
+    assert_eq!((told.quick, told.to.clone()), (Some(msg::Quick::RoadClosed), To::Control));
+    assert!(matches!(&told.from, msg::From::Driver { name, .. } if name == "JAN"));
+    // a driver the boss took driving from answers nothing
+    let jan = guest_no(&b, "jan");
+    let now = now();
+    assert!(b.st.set_role(&mut b.c, now, jan, Role::Driver, &[]));
+    let v = ask(&mut b, "jan", "msg_tell", |r| {
+        driving(r);
+        r.text = "breakdown".into();
+    });
+    assert_eq!(v["perm"].as_str(), Some("drive"), "{v}");
+}

@@ -9,6 +9,7 @@
 //! (`wire::DriveStart`), and his launcher reports the trips as they end.
 
 use super::super::clock;
+use super::super::messages;
 use super::super::duty_launch::{self as dl, DutyRef, Hitch};
 use super::super::model::Company;
 use super::super::plan::{BusOf, DayPlan, Who};
@@ -225,8 +226,9 @@ impl HostState {
     /// Answer a message of a friend's launcher (its body: a `Request` as JSON).
     pub fn answer(&mut self, c: &mut Company, here: &Here, body: &str) -> Answered {
         let before = c.together.clone();
+        let said = c.messages.clone();
         let body = self.answer_inner(c, here, body);
-        Answered { changed: c.together != before, body }
+        Answered { changed: c.together != before || c.messages != said, body }
     }
 
     /// Whether a message comes with the session's code (else the refusal, saying nothing else).
@@ -412,6 +414,28 @@ impl HostState {
                 Ok(()) => {
                     self.send_away(c, now, req.target, req.ban);
                     Ok(())
+                }
+            },
+            // (the control room's messages to the duty his game drives: answered, and told from it)
+            "msg_reply" | "msg_tell" if !can(Perm::Drive) => Err(not_allowed(Perm::Drive)),
+            "msg_reply" | "msg_tell" => match req.driving.as_ref().filter(|r| c.together.claim_of(r).is_some_and(|x| x.guest == guest)) {
+                None => Err(refusal(book::NO_DUTY)),
+                Some(r) => {
+                    let (line, tour) = (r.line.clone(), r.tour.clone());
+                    if req.what == "msg_tell" {
+                        match messages::Quick::of(&req.text) {
+                            Some(q) => {
+                                messages::driver_says(c, &line, &tour, &name, q, p, &mut clock::Run::default());
+                                Ok(())
+                            }
+                            None => Err(refusal(UNKNOWN)),
+                        }
+                    } else {
+                        match messages::Answer::of(&req.text) {
+                            Some(a) => messages::answer(c, req.msg, a, Some((&line, &tour))).map(|_| ()).map_err(refusal),
+                            None => Err(refusal(UNKNOWN)),
+                        }
+                    }
                 }
             },
             "say" => {
@@ -880,8 +904,16 @@ pub fn snapshot(c: &Company, here: &Here, st: &HostState, guest: Option<u32>, si
             .map(|x| SnapAsk { duty: x.duty.clone(), number: x.number.clone(), from: x.from, to: x.to, no: x.guest, name: c.together.name_of(x.guest) })
             .collect();
     }
+    // the control room's messages of the duty his game drives (his own claim)
+    let driving = guest.and_then(|g| st.online.iter().find(|o| o.guest == g && o.in_game)).and_then(|o| o.driving.as_ref()).filter(|r| c.together.claim_of(r).is_some_and(|x| Some(x.guest) == guest));
+    if let Some(r) = driving {
+        s.messages = c.messages.of_driver(&r.line, &r.tour, None, MESSAGES_SHOWN).into_iter().cloned().collect();
+    }
     s
 }
+
+/// How many of the control room's messages a driver's snapshot carries.
+const MESSAGES_SHOWN: usize = 12;
 
 /// How a duty a player has stands, as his page shows it.
 fn state_of(x: &book::Claim) -> DutyState {

@@ -133,7 +133,7 @@ pub fn delete(data: &Path, id: &str) -> Result<()> {
     std::fs::remove_file(path_of(data, id)).with_context(|| format!("cannot delete {id}"))?;
     // (and what lies beside it: a company founded later under the same id starts without the
     // phone's orders, the game's plan and what the game reported of this one)
-    let beside = [live_file(data, id), super::remote::orders_file(data, id), super::plan::live_plan_file(data, id), dir(data).join(format!("{id}.json.tmp"))];
+    let beside = [live_file(data, id), super::remote::orders_file(data, id), super::plan::live_plan_file(data, id), super::messages::inbox_file(data, id), dir(data).join(format!("{id}.json.tmp"))];
     for p in beside.into_iter().chain(taken_files(data, id).into_iter().map(|x| x.1)) {
         let _ = std::fs::remove_file(p);
     }
