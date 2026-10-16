@@ -201,7 +201,7 @@ pub fn status() -> Answer {
 }
 
 fn reason(e: &str) -> &str {
-    e.split_once(": ").filter(|(head, _)| (head.starts_with("openOMSI was not updated to") || head.starts_with(&format!("{} was not updated to", omsi_cfg::product::NAME)))).map_or(e, |(_, why)| why)
+    e.split_once(": ").filter(|(head, _)| head.starts_with("openOMSI was not updated to") || head.starts_with(&format!("{} was not updated to", omsi_cfg::product::NAME))).map_or(e, |(_, why)| why)
 }
 
 fn program(place: &updater::Place) -> PathBuf {
