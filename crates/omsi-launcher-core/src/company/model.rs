@@ -980,6 +980,10 @@ pub struct Company {
     /// a file of before: the euro).
     #[serde(default)]
     pub currency: super::currency::Currency,
+    /// The drivers' side: handover notes, defects reported, duty swaps, the player's holidays and
+    /// sick calls (`crew`; a file of before: none).
+    #[serde(default)]
+    pub crew: super::crew::Crew,
 }
 
 fn one() -> f64 {

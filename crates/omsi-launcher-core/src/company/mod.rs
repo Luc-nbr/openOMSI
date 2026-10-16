@@ -31,6 +31,7 @@ pub mod contracts;
 // (Beta 62: the money shown and typed in the company's own currency)
 pub mod currency;
 pub mod control;
+pub mod crew;
 pub mod dates;
 pub mod day;
 pub mod dealer;
@@ -205,6 +206,7 @@ pub fn found(f: &Founding, profile: &str) -> Company {
         sandbox: sandbox::CAREER,
         country: if names::known(&f.country) { names::pool(&f.country).key.clone() } else { names::guess(&f.map, &f.map_name).to_string() },
         currency: f.currency,
+        crew: Default::default(),
     };
     // (Casual buys quickly; the buying chosen is kept for the other modes)
     autopilot::set_game_mode(&mut c, f.game_mode);
