@@ -61,6 +61,12 @@ impl App {
         let (w, h) = (s.config.width as f32, s.config.height as f32);
         let dpi = self.window.as_ref().map(|w| w.scale_factor() as f32).unwrap_or(1.0);
         let scale = dpi * ui::size_factor(h, dpi, self.settings.ui_scale, self.settings.ui_scale_window);
+        self.draw_pause(w, h, scale, dt);
+    }
+
+    /// The pause menu as it is now, drawn into the screens for a window of `w` x `h` physical
+    /// pixels at `scale` of them a point (also the preview's, `shell::preview`).
+    pub(crate) fn draw_pause(&mut self, w: f32, h: f32, scale: f32, dt: f32) {
         let rail = self.game_menu_items();
         let tabs = match self.menus.list_kind.as_ref() {
             Some(k) if self.menus.chooser.is_some() => crate::game_lists::page_titles(self, k),
@@ -91,7 +97,7 @@ impl App {
             summary: self.pause_summary(),
         };
         // Omsi-Hub: its own pause menu in place of openOMSI's rail (`shell::hub`)
-        let hub = crate::shell::hub::Hub::of(self, &rail, scale, dt);
+        let hub = crate::shell::hub::Hub::of(self, &rail, (w, h), scale, dt);
         self.shell.begin(w, h, scale, dt);
         crate::shell::hub::draw(&mut self.shell, &view, &hub);
         self.shell.finish();

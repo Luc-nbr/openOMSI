@@ -18,6 +18,8 @@ use omsi_ui::kit::Ui;
 
 pub(crate) mod hub;
 pub(crate) mod pause;
+#[cfg(test)]
+mod preview;
 
 /// What a click on one of the screens asks of the game.
 #[derive(Clone, Debug, PartialEq)]

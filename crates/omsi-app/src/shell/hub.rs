@@ -23,9 +23,9 @@ pub(crate) struct Hub {
 }
 
 impl Hub {
-    /// The session as the menu shows it, for the game menu's `lines`; `scale` physical pixels
-    /// a point; the gamepad read (`dt` s since the last frame).
-    pub(crate) fn of(app: &App, lines: &[(&'static str, &'static str)], scale: f32, dt: f32) -> Hub {
+    /// The session as the menu shows it, for the game menu's `lines`, in a window of `size`
+    /// physical pixels, `scale` of them a point; the gamepad read (`dt` s since the last frame).
+    pub(crate) fn of(app: &App, lines: &[(&'static str, &'static str)], size: (f32, f32), scale: f32, dt: f32) -> Hub {
         read_pad(app, dt);
         let (chips, hints) = pause_menu::keys(
             lines,
@@ -47,7 +47,7 @@ impl Hub {
         // (the name the launcher gave, else the personnel file's)
         let driver = Some(app.args.lan_name.trim().to_string()).filter(|n| !n.is_empty()).unwrap_or_else(|| app.session.career.driver_name());
         // (on three screens the menu keeps to the middle one, as the rest of the interface)
-        let stage = app.gfx.surface.as_ref().map(|s| app.settings.hud_viewport((s.config.width, s.config.height))).unwrap_or([0.0, 0.0, 1.0, 1.0]);
+        let stage = app.settings.hud_viewport((size.0 as u32, size.1 as u32));
         let stage = omsi_ui::Rect::new(stage[0] / scale, stage[1] / scale, stage[2] / scale, stage[3] / scale);
         Hub { chips, hints, trip, driver, stage }
     }
