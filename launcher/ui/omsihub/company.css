@@ -1396,3 +1396,12 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 @container (max-width: 820px) {
   .co.co-shell .co-bar .co-status { display: none; }
 }
+
+/* the dashboard's "Needs you" */
+.co .co-dash-needs { display: flex; flex-direction: column; }
+.co .co-dash-count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; margin-left: 8px; border-radius: 9px; background-color: var(--hub-accent); color: var(--hub-on-accent); font-size: 8.4px; vertical-align: middle; }
+.co .co-dash-list { flex: 1; min-height: 0; overflow-y: auto; margin: 0 -6px; }
+.co .co-dash-row { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 4px 6px; border-radius: 10px; font-size: var(--co-rows); }
+.co .co-dash-row + .co-dash-row { box-shadow: 0 -1px 0 var(--hub-hairline); }
+.co .co-dash-row:hover { background-color: rgba(var(--co-white), var(--aw-03)); }
+.co .co-dash-row .co-btn { flex: none; }
