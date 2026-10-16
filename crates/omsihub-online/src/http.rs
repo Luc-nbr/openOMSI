@@ -25,12 +25,16 @@ impl Reply {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct Http {
     agent: ureq::Agent,
 }
 
 /// The longest an answer may be (the friends list is the largest: 500 rows).
 const MAX_BODY: usize = 2 << 20;
+
+/// How long a cloud save's transfer may take (25 MB on a slow line).
+const TRANSFER: Duration = Duration::from_secs(300);
 
 impl Http {
     pub fn new(https_only: bool) -> Self {
@@ -75,6 +79,37 @@ impl Http {
         std::io::Read::read_to_string(&mut std::io::Read::take(res.into_reader(), MAX_BODY as u64), &mut text).map_err(|_| Error::Offline)?;
         let body = if text.trim().is_empty() { Value::Null } else { serde_json::from_str(&text).unwrap_or(Value::Null) };
         Ok(Reply { status, body, auth_token, auth_jwt, cookie_token })
+    }
+
+    /// A presigned upload: `PUT` the bytes with exactly the `headers` the function returned
+    /// (they are part of the signature) and nothing of ours - no token goes to the storage.
+    /// Its status, or `Error::Offline`.
+    pub fn put_bytes(&self, url: &str, headers: &[(String, String)], body: &[u8]) -> Result<u16, Error> {
+        let mut req = self.agent.put(url).timeout(TRANSFER);
+        for (k, v) in headers {
+            req = req.set(k, v);
+        }
+        match req.send_bytes(body) {
+            Ok(r) => Ok(r.status()),
+            Err(ureq::Error::Status(code, _)) => Ok(code),
+            Err(ureq::Error::Transport(_)) => Err(Error::Offline),
+        }
+    }
+
+    /// A presigned download: its status and at most `max` bytes (more is `too_large`).
+    pub fn get_bytes(&self, url: &str, max: u64) -> Result<(u16, Vec<u8>), Error> {
+        let res = match self.agent.get(url).timeout(TRANSFER).call() {
+            Ok(r) => r,
+            Err(ureq::Error::Status(code, _)) => return Ok((code, Vec::new())),
+            Err(ureq::Error::Transport(_)) => return Err(Error::Offline),
+        };
+        let status = res.status();
+        let mut out = Vec::new();
+        std::io::Read::read_to_end(&mut std::io::Read::take(res.into_reader(), max + 1), &mut out).map_err(|_| Error::Offline)?;
+        if out.len() as u64 > max {
+            return Err(Error::Code("too_large"));
+        }
+        Ok((status, out))
     }
 }
 

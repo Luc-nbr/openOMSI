@@ -71,7 +71,7 @@ fn client() -> MutexGuard<'static, Option<Client>> {
 fn endpoints() -> Endpoints {
     // (the tests reach nothing: an HTTPS address nobody answers on)
     #[cfg(test)]
-    return Endpoints::new("https://127.0.0.1:9/auth", "https://127.0.0.1:9/rest/v1").unwrap();
+    return Endpoints::new("https://127.0.0.1:9/auth", "https://127.0.0.1:9/rest/v1", "https://127.0.0.1:9/saves").unwrap();
     #[cfg(not(test))]
     return Endpoints::neon();
 }

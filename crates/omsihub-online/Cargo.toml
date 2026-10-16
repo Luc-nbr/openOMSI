@@ -3,13 +3,17 @@ name = "omsihub-online"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Omsi-Hub online, the client: the optional account (email and password on Neon Auth) and the friends (Neon's Data API), the session token in the OS's credential store (docs/omsihub/ONLINE.md)"
+description = "Omsi-Hub online, the client: the optional account (email and password on Neon Auth), the friends (Neon's Data API) and the cloud saves (the Neon Function `saves`), the session token in the OS's credential store (docs/omsihub/ONLINE.md)"
 
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
 # (HTTPS with rustls and the Mozilla roots: the certificates are checked, no OpenSSL)
 ureq.workspace = true
+# The cloud saves (`saves.rs`): a company's save compressed with zstd before it is uploaded, its
+# sha256 checked both ways. (zstd builds its C library with `cc`: MSVC, clang and gcc alike.)
+sha2.workspace = true
+zstd = { version = "0.13", default-features = false }
 
 # The session token lives in the OS's own store only: Windows' Credential Manager, macOS's
 # Keychain, Linux's kernel keyring. Elsewhere (Android, iOS) nothing is kept between runs.

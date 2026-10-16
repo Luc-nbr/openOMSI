@@ -1,5 +1,6 @@
 //! The tests' server: plain HTTP on 127.0.0.1, one answer per request from a function of the
 //! request, every request kept for the tests to look at. Nothing here reaches the real project.
+//! (The cloud saves' storage answers bytes: `start_raw`.)
 
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -13,6 +14,8 @@ pub struct Req {
     /// The header names in lower case.
     pub headers: Vec<(String, String)>,
     pub body: Value,
+    /// The body as it came (a save's bytes).
+    pub raw: Vec<u8>,
 }
 
 impl Req {
@@ -27,6 +30,12 @@ impl Req {
 /// An answer: status, extra headers, JSON body.
 pub type Answer = (u16, Vec<(&'static str, String)>, Value);
 
+/// An answer's body: JSON, or bytes as they are.
+pub enum Body {
+    Json(Value),
+    Raw(Vec<u8>),
+}
+
 pub struct Mock {
     pub base: String,
     pub seen: Arc<Mutex<Vec<Req>>>,
@@ -34,6 +43,13 @@ pub struct Mock {
 
 impl Mock {
     pub fn start(answer: impl Fn(&Req) -> Answer + Send + Sync + 'static) -> Mock {
+        Self::start_raw(move |r| {
+            let (status, extra, out) = answer(r);
+            (status, extra, Body::Json(out))
+        })
+    }
+
+    pub fn start_raw(answer: impl Fn(&Req) -> (u16, Vec<(&'static str, String)>, Body) + Send + Sync + 'static) -> Mock {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let seen = Arc::new(Mutex::new(Vec::new()));
@@ -62,15 +78,19 @@ impl Mock {
                 let mut buf = vec![0; len];
                 let _ = reader.read_exact(&mut buf);
                 let body = serde_json::from_slice(&buf).unwrap_or(Value::Null);
-                let req = Req { method, path, headers, body };
+                let req = Req { method, path, headers, body, raw: buf };
                 let (status, extra, out) = answer(&req);
                 kept.lock().unwrap().push(req);
-                let text = if out.is_null() { String::new() } else { out.to_string() };
-                let mut head = format!("HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n", text.len());
+                let (kind, bytes) = match out {
+                    Body::Json(v) if v.is_null() => ("application/json", Vec::new()),
+                    Body::Json(v) => ("application/json", v.to_string().into_bytes()),
+                    Body::Raw(b) => ("application/octet-stream", b),
+                };
+                let mut head = format!("HTTP/1.1 {status} X\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n", bytes.len());
                 for (k, v) in extra {
                     head.push_str(&format!("{k}: {v}\r\n"));
                 }
-                let _ = stream.write_all(format!("{head}\r\n{text}").as_bytes());
+                let _ = stream.write_all(&[format!("{head}\r\n").into_bytes(), bytes].concat());
             }
         });
         Mock { base, seen }
