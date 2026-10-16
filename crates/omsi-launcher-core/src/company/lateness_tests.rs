@@ -175,20 +175,21 @@ fn a_layover_takes_up_all_but_the_rest_and_a_delay_neither_grows_nor_counts_twic
 }
 
 #[test]
-fn on_time_is_under_three_whole_minutes_and_pays_nothing() {
+fn on_time_is_under_six_whole_minutes_and_pays_nothing() {
     let (c, bus, driver) = company();
     let p = plan(10 * 60, 1, 0, bus, driver);
     let minutes = |m: f64| timed(&run(&c, &p, &move |_, _| m), 0)[0].minutes();
-    // (2 min 59 s behind is on time, as the live day's 180 s; 3 minutes is late)
+    // (whole minutes as a clock shows them: 2 min 59 s behind is 2; late from 6, the UK standard's
+    // window - 5 min 59 s behind is on time)
     assert_eq!([minutes(0.0), minutes(1.0), minutes(2.6), minutes(2.99), minutes(3.0), minutes(5.9), minutes(6.0)], [0, 1, 2, 2, 3, 5, 6]);
     // (on a bus contract a journey is not paid from the mode's minutes late: Realistic's 10)
     let from = crate::company::econ_uk::mode(c.game_mode).unpaid_late_from.unwrap_or(i32::MAX);
-    for (m, tier) in [(0, 0), (1, 0), (2, 0), (3, 1), (5, 1), (6, 2), (29, 2), (30, 3)] {
+    for (m, tier) in [(0, 0), (1, 0), (2, 0), (3, 0), (5, 0), (6, 1), (10, 1), (11, 2), (29, 2), (30, 3)] {
         assert_eq!(economy::late_tier(m), tier, "{m} min");
         assert_eq!(crate::company::bus_contracts::unpaid_share(&c, m), if m >= from { 1.0 } else { 0.0 }, "{m} min");
     }
     // a trip on time is timed, but in no tier and in no cause
-    let (l, out) = close(&c, &p, &run(&c, &p, &|_, _| 2.5));
+    let (l, out) = close(&c, &p, &run(&c, &p, &|_, _| 5.5));
     assert!(out.is_empty());
     assert_eq!((l.lines[0].timed, l.lines[0].late), (1, 0));
     assert_eq!(l.tiers.iter().map(|t| t.trips).sum::<u32>(), 0);
@@ -202,27 +203,29 @@ fn a_late_trip_counts_once_in_a_tier_and_once_under_the_cause_it_began_with() {
     // block 1 on one bus to 10:50, then the driver walks to block 2 on another bus leaving at 10:50
     // (no time planned for the relief), and block 2 goes on after five minutes' layover
     let p = Plan { tours: vec![tour("1", &[(600, 650)], bus, driver), tour("2", &[(650, 700), (705, 755), (760, 810)], other, driver)] };
-    // the trip of block 1 loses two minutes on the way
-    let m = run(&c, &p, &|ti, _| if ti == 0 { 2.0 } else { 0.0 });
+    // the trip of block 1 loses five minutes on the way
+    let m = run(&c, &p, &|ti, _| if ti == 0 { 5.0 } else { 0.0 });
     let b = timed(&m, 1);
-    // the relief: the two minutes the driver came in late, and the walk (`RELIEF_WALK`)
-    assert_eq!(b[0].minutes(), 2 + RELIEF_WALK);
-    assert!(matches!(b[0].causes[0], Cause::Relief { gap: 0, minutes: 5, .. }));
-    assert_eq!(b[0].root(), Some("relief"), "{:?}", b[0].roots);
+    // the relief: the five minutes the driver came in late, and the walk (`RELIEF_WALK`) - traced
+    // to what began it, block 1's own five minutes more than the walk's three
+    assert_eq!(b[0].minutes(), 5 + RELIEF_WALK);
+    assert!(matches!(b[0].causes[0], Cause::Relief { gap: 0, minutes: 8, .. }));
+    assert_eq!(b[0].roots, vec![("chance", 5.0), ("relief", RELIEF_WALK as f64)]);
+    assert_eq!(b[0].root(), Some("chance"), "{:?}", b[0].roots);
     // carried on to the next trip, less the two minutes the layover takes up
-    assert_eq!(b[1].minutes(), 3);
-    assert!(matches!(b[1].causes[0], Cause::Carried { late: 5, layover: 5, minutes: 3, .. }));
-    assert_eq!(b[1].root(), Some("relief"));
-    assert_eq!(b[2].minutes(), 1);
+    assert_eq!(b[1].minutes(), 6);
+    assert!(matches!(b[1].causes[0], Cause::Carried { late: 8, layover: 5, minutes: 6, .. }));
+    assert_eq!(b[1].root(), Some("chance"));
+    assert_eq!(b[2].minutes(), 4);
     let (l, out) = close(&c, &p, &m);
     assert_eq!(out.len(), 2);
-    assert!(out.iter().all(|o| o.root == "relief"));
+    assert!(out.iter().all(|o| o.root == "chance"));
     // the tiers and the causes: the same trips and the same money, each trip once
     let sum = |s: &[Sum]| (s.iter().map(|x| x.trips).sum::<u32>(), s.iter().map(|x| x.amount).sum::<Cents>());
     // (a commercial line: the late trips cost nothing on a contract)
     assert_eq!(sum(&l.tiers), (2, 0));
     assert_eq!(sum(&l.causes), sum(&l.tiers));
-    assert_eq!(l.causes, vec![Sum { key: "relief".into(), trips: 2, minutes: 8, amount: 0 }]);
+    assert_eq!(l.causes, vec![Sum { key: "chance".into(), trips: 2, minutes: 14, amount: 0 }]);
     // one of them carried its delay on from the trip before, as the advice for more layover says
     assert_eq!(l.carried.trips, 1);
     let layover: u32 = advice(&c, &l).iter().map(|a| if let Advice::Layover { trips, .. } = a { *trips } else { 0 }).sum();

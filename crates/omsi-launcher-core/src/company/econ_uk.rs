@@ -33,7 +33,7 @@
 //!
 //! What the sandbox knob of each item is: `Wages` none here (the sandbox's wage factor is applied
 //! when wages are booked, `sandbox::booked`); `Diesel`, `Power` and `Workshop` its running costs;
-//! `Vehicles` its prices; `Fares`, `Concessions` and `Contracts` its income; `Insurance` and
+//! `Vehicles` its prices; `Fares`, `Concessions`, `Contracts` and `Grants` its income; `Insurance` and
 //! `Overheads` none.
 
 use super::currency::Currency;
@@ -198,6 +198,9 @@ pub enum Item {
     Concessions,
     /// Contract and tender payments (wave 2a).
     Contracts,
+    /// BSOG, the fuel grant per live mile (it began as a fuel duty rebate: it follows the diesel's
+    /// price; the sandbox's knob on income).
+    Grants,
 }
 
 /// The factor of `item` for a game mode, a country and a sandbox's knobs: mode × country ×
@@ -215,6 +218,7 @@ pub fn factor_at(m: GameMode, land: &Country, s: &Sandbox, item: Item) -> f64 {
         Item::Fares => f.income * land.fares * s.income,
         Item::Concessions => f.income * land.fares * s.income,
         Item::Contracts => f.income * land.running() * s.income,
+        Item::Grants => f.income * land.diesel * s.income,
     }
 }
 
@@ -449,8 +453,9 @@ pub const MIX_NETWORK: f64 = 0.11;
 pub const MIX_PAYING: f64 = 0.16;
 pub const MIX_SHUTTLE: f64 = 0.09;
 pub const CONCESSION_RANGE: (f64, f64) = (0.10, 0.66);
-/// Concession reimbursement per boarding: about 60 % (53-72 %) of the adult fare, £1.95 typical.
-pub const CONCESSION_SHARE: f64 = 0.60;
+/// Concession reimbursement per boarding: about 60 % (53-72 %) of the adult fare, £1.95 typical
+/// (the data: £1.97 a ride, 63 % of its mean adult single).
+pub const CONCESSION_SHARE: f64 = 0.63;
 pub const CONCESSION_PER_BOARDING: f64 = 195.0;
 /// BSOG, pence per live (in-service) mile: £0.059; none on dead mileage.
 pub const BSOG_PER_LIVE_MILE: f64 = 5.9;
@@ -458,6 +463,31 @@ pub const BSOG_PER_LIVE_MILE: f64 = 5.9;
 pub const ADVERTISING_PER_BUS_MONTH: f64 = 4_700.0;
 /// Kilometres in a mile.
 pub const KM_PER_MILE: f64 = 1.609_344;
+/// An adult single by distance, pence: a base and a rate per kilometre of the line's trip, within
+/// `ADULT_SINGLE_RANGE` - £2.40 for a 10 km town trip, some £3.65 at 24 km, £4.65 at 35 km (the
+/// data's routes: town £2.20-2.30, rural £3.75-4.15, long rural £5.50-6.40).
+pub const SINGLE_BASE: f64 = 150.0;
+pub const SINGLE_PER_KM: f64 = 9.0;
+/// The typical trip of a line, km (what `ADULT_SINGLE` is for), when a line has run none yet.
+pub const TYPICAL_TRIP_KM: f64 = 10.0;
+/// The mean adult single the data's yield goes with (£3.13): the yield per paying boarding is
+/// `YIELD_PER_PAYING / MEAN_SINGLE` of a line's single (returns, day and period tickets
+/// averaged in).
+pub const MEAN_SINGLE: f64 = 313.0;
+/// A multi-operator (network) pass's boarding, pence: what the operator's share of the pass pool
+/// comes to a ride (an estimate; the data's pool paid £0.42, a third-party card £2.10).
+pub const NETWORK_PER_BOARDING: f64 = 100.0;
+/// A school term (days) and the rides a pupil takes a school day: the term pass's income spread
+/// over its rides; and the share of the pupils' rides on passes the operator sells (the rest is
+/// paid inside a school contract) - together about £1.00 a pupil's ride, as the data's £1.02.
+pub const SCHOOL_TERM_DAYS: f64 = 61.0;
+pub const SCHOOL_RIDES_A_DAY: f64 = 2.0;
+pub const SCHOOL_PASS_PAID: f64 = 0.66;
+
+/// A pupil's ride on a school pass, pence (`SCHOOL_TERM_PASS` spread over the term's rides).
+pub fn school_pass_per_ride() -> f64 {
+    SCHOOL_TERM_PASS / (SCHOOL_TERM_DAYS * SCHOOL_RIDES_A_DAY) * SCHOOL_PASS_PAID
+}
 
 // --- contracts and tenders (§2.5, §4; wave 2a) ------------------------------------------------------------
 
@@ -541,6 +571,12 @@ pub const POINTS_LATE_REPORT: f64 = 5.0;
 /// offset them (2-10).
 pub const POINTS_ORANGE: f64 = 16.0;
 pub const POINTS_RED: f64 = 26.0;
+/// The journeys of a contract the authority's monitoring observes a week (an inspector on the
+/// street, an audit of the real-time data; an estimate): the points for journeys off time or not
+/// run are found on those, not on every journey run - the thresholds above are a year's observed
+/// defaults. At it a contract run at the 95 % target earns some 8 points a year, one at a typical
+/// operator's 80 % some 30 before its quality points (24-45 a year) offset them, one at 60 % red.
+pub const MONITORED_A_WEEK: f64 = 1.0;
 pub const QUALITY_CREDIT: (f64, f64) = (2.0, 10.0);
 /// The quality points of a month (within `QUALITY_CREDIT`): a clean roadside inspection, a month
 /// without a complaint about the line, `QUALITY_ON_TIME_SHARE` of its journeys on time. The
@@ -583,6 +619,32 @@ pub const PER_JOURNEY_URBAN: (f64, f64) = (11.0, 43.0);
 pub const PER_JOURNEY_EVENING: f64 = 7.0;
 pub const PER_JOURNEY_SHUTTLE: f64 = 15.0;
 pub const PER_JOURNEY_SCHOOL: (f64, f64) = (20.0, 55.0);
+/// The data's passengers per bus-hour count the hours a bus is out on its tour, its stand
+/// between trips included: an hour of running is this much of a bus-hour (a trip of 50 minutes
+/// an hour apart).
+pub const BUS_HOUR_PER_RUNNING_HOUR: f64 = 1.2;
+/// Passengers per bus-hour through a weekday by the hour (0-23): the bands above, the 07:00 hour
+/// at 2.2 times an interpeak hour (the data: 2.18-2.25), the school-out hour almost as big; the
+/// night (0-4) an assumption - the data's operator ran 05:00 to 20:00.
+pub const WEEKDAY_HOURS: [f64; 24] = [3.0, 3.0, 3.0, 3.0, 3.0, 5.0, 5.0, 19.8, 12.2, 9.5, 9.5, 9.0, 9.0, 8.5, 8.5, 17.5, 12.0, 8.0, 6.5, 5.5, 4.5, 4.5, 4.5, 4.5];
+/// A Saturday's (about `PAX_SATURDAY` through the day, its interpeak the data's 9.6); a Sunday's
+/// and a public holiday's are a Saturday's at `PAX_SUNDAY / PAX_SATURDAY` (an assumption, see
+/// `SUNDAY_SHARE`).
+pub const SATURDAY_HOURS: [f64; 24] = [2.0, 2.0, 2.0, 2.0, 2.0, 3.0, 4.0, 5.0, 7.0, 9.5, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 9.5, 9.0, 7.0, 6.0, 4.5, 4.5, 4.0, 4.0];
+/// The passengers of a works shuttle's and a school run's trip (the middle of the data's
+/// ranges), and off their peaks the share of it that still rides.
+pub const PER_TRIP_SHUTTLE: f64 = PER_JOURNEY_SHUTTLE;
+pub const PER_TRIP_SCHOOL: f64 = 37.0;
+pub const OFF_PEAK_SHUTTLE: f64 = 0.35;
+/// A line late often loses passengers, slowly (an estimate, kept gentle): late by the UK standard
+/// (more than `ON_TIME_LATE` minutes), the share of its trips late it is forgiven - the target is
+/// 95 % on time, operators run some 75-85 % - what each share above that costs, the most it can
+/// cost, and the days over which the passengers remember (they come back as slowly when it runs
+/// on time again).
+pub const LATE_FORGIVEN: f64 = 0.25;
+pub const LATE_LOSS: f64 = 0.40;
+pub const LATE_MOST: f64 = 0.25;
+pub const LATE_MEMORY_DAYS: f64 = 30.0;
 
 // --- the company's money, the depot and its own lines (wave 2a's re-basing) ------------------------------------
 
@@ -657,6 +719,10 @@ pub fn by_mode<T: Copy>(m: GameMode, v: (T, T, T)) -> T {
 /// £300k a month (pence), and the shares of it (drivers, fuel).
 pub const YARDSTICK_BUSES: usize = 30;
 pub const YARDSTICK_DIRECT_MONTH: f64 = 30_000_000.0;
+/// Its turnover a month (pence: about £312.5k), and the share of it its contracts and tenders
+/// bring (55-60 %; the rest is the farebox, the concession reimbursement, school passes, BSOG).
+pub const YARDSTICK_TURNOVER_MONTH: f64 = 31_250_000.0;
+pub const YARDSTICK_CONTRACTS: (f64, f64) = (0.55, 0.60);
 pub const YARDSTICK_DRIVERS: (f64, f64) = (0.45, 0.48);
 pub const YARDSTICK_FUEL: (f64, f64) = (0.24, 0.26);
 
@@ -676,7 +742,7 @@ mod tests {
     #[test]
     fn realistic_in_the_uk_is_the_data() {
         let uk = country("gb");
-        for item in [Item::Wages, Item::Diesel, Item::Power, Item::Workshop, Item::Vehicles, Item::Insurance, Item::Overheads, Item::Fares, Item::Concessions, Item::Contracts] {
+        for item in [Item::Wages, Item::Diesel, Item::Power, Item::Workshop, Item::Vehicles, Item::Insurance, Item::Overheads, Item::Fares, Item::Concessions, Item::Contracts, Item::Grants] {
             assert!((factor_at(GameMode::Realistic, uk, &CAREER, item) - 1.0).abs() < 1e-12, "{item:?}");
         }
         // an unknown country is the reference
@@ -727,4 +793,4 @@ mod tests {
 
 #[cfg(test)]
 #[path = "econ_uk_tests.rs"]
-mod reference;
+pub(crate) mod reference;

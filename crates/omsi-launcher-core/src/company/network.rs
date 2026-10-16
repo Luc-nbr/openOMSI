@@ -5,7 +5,6 @@
 //! stands long enough (Omsi-Hub's `omlopenVanDag` and `knipOmloop`).
 
 use super::dates;
-use super::economy;
 use super::model::{BusSize, Cents, Company, CompanyLine, GameMode, LEGACY_SERVICE};
 use super::staff::{DUTY_MAX, SPLIT_PAUSE};
 use crate::lines::OwnLine;
@@ -211,6 +210,9 @@ pub fn add_line(c: &mut Company, line: &LineInfo, own: Option<&OwnLine>) -> Resu
         title: String::new(),
         hof: String::new(),
         pending: None,
+        line_type: None,
+        fare_cap: false,
+        stats: Default::default(),
     });
     Ok(())
 }
@@ -252,8 +254,8 @@ pub fn start_grace(d: GameMode) -> Option<(i64, f64)> {
 }
 
 /// What a concession line not in service on `date` costs that day: after its grace, a share
-/// of what the authority pays for its kilometres (an own line costs nothing). (days since it
-/// was taken on, the charge)
+/// of its bus contract's operating day (`bus_contracts::day_value`; an own line, and a line
+/// without a contract - commercial - cost nothing). (days since it was taken on, the charge)
 pub fn late_start(c: &Company, l: &CompanyLine, date: &str) -> Option<(i64, Cents)> {
     if l.own {
         return None;
@@ -267,8 +269,8 @@ pub fn late_start(c: &Company, l: &CompanyLine, date: &str) -> Option<(i64, Cent
     if days < grace {
         return None;
     }
-    let r = economy::rules_for(c);
-    let charge = (economy::compensation_per_km(&r, c.reputation, c.contract_index) * l.km * share).round() as Cents;
+    let k = super::bus_contracts::of_line(c, &l.name)?;
+    let charge = (super::bus_contracts::day_value(c, k) * share).round() as Cents;
     (charge > 0).then_some((days, charge))
 }
 

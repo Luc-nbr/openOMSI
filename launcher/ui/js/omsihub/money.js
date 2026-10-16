@@ -30,8 +30,21 @@ export function cents(x) {
  * its decimals when `fine` (a fare; none in a currency without them). */
 export function money(c, fine = false) {
   const l = look();
-  const places = fine ? l.places : 0;
-  const x = fine ? units(c) : Math.round(units(c));
+  return write(fine ? units(c) : Math.round(units(c)), fine ? l.places : 0);
+}
+
+/** A fare in the company's currency at the step its fares are priced in (`fare_step`: 5p, 5
+ * cents, ten forints - £2.40, never £2.39), with its decimals. */
+export function fare(c) {
+  const l = look();
+  const step = l.fare_step || 0.05;
+  const u = units(c);
+  return write(u > 0 ? Math.max(step, Math.round(u / step) * step) : 0, l.places);
+}
+
+/** An amount in units of the company's currency written as it writes money. */
+function write(x, places) {
+  const l = look();
   const text = Math.abs(x).toFixed(places);
   const [whole, frac] = text.split('.');
   let n = '';

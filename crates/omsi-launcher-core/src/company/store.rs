@@ -82,10 +82,14 @@ pub fn migrate(mut c: Company) -> Company {
     if c.version < 2 {
         super::staff::rebase_wages(&mut c);
     }
-    // (version 2: no bus contracts - a concession won in a tender becomes a gross-cost contract
-    // at its winning price, an own school line a private hire, open tenders are priced again on
-    // the UK footing; `bus_contracts::migrate`. Wave 2a's step: wave 2b may number its own)
+    // (version 2: the old reference's income and no bus contracts. Version 3 is both halves of
+    // the UK economy's second wave, in this order: a line's fare was a single against the old
+    // reference's association fare - it keeps its distance from the UK model's standard fare
+    // (`income::migrate`); then a concession won in a tender becomes a gross-cost contract at its
+    // winning price, an own school line a private hire, open tenders are priced again on the UK
+    // footing (`bus_contracts::migrate`) - a net subsidy's first fare is the line's new one)
     if c.version < 3 {
+        super::income::migrate(&mut c);
         super::bus_contracts::migrate(&mut c);
     }
     c.version = VERSION;

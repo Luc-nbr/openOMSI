@@ -691,10 +691,9 @@ fn bus_card(c: &Company, plan: &Plan, d: &Day, m: &MapState, mk: &Marker, clock:
     rows.push(row(&tr("Duty"), &duty.map(|k| format!("{} / {}", k + 1, tp.duties.len())).unwrap_or_else(|| "—".into()), "text"));
     rows.push(row(&tr("Driver"), &driver_text, "text"));
     // what it carries, its state, and its day
-    let r = co::economy::rules_for(c);
     let pax = match (&mk.telemetry, trip, mk.live.doing) {
         (Some(t), _, _) if t.passengers.is_some() => Some(num(t.passengers.unwrap_or(0.0), 0)),
-        (_, Some(x), Doing::Service) if x.counts() => Some(format!("≈ {:.0}", co::economy::passengers_for(x.km, x.dep, &r))),
+        (_, Some(x), Doing::Service) if x.counts() => Some(format!("≈ {:.0}", co::income::expected(c.lines.iter().find(|l| l.name.eq_ignore_ascii_case(&tp.tour.line)), &c.date, x.dep, x.arr))),
         _ => None,
     };
     rows.push(row(&tr("Passengers"), &pax.unwrap_or_else(|| "—".into()), "text"));
@@ -708,7 +707,7 @@ fn bus_card(c: &Company, plan: &Plan, d: &Day, m: &MapState, mk: &Marker, clock:
     };
     let km = fm::km_by(&refs, &mine, &b.km, until);
     rows.push(row(&tr("Kilometres today"), &format!("{} km", num(km, 1)), "text"));
-    rows.push(row(&tr("Earned today (est.)"), &eur(earned(c, &r, tp, &refs, &mine, until)), "ok"));
+    rows.push(row(&tr("Earned today (est.)"), &eur(earned(c, tp, &refs, &mine, until)), "ok"));
     if let Some(v) = bus {
         rows.push(json!({ "label": tr("Condition"), "value": format!("{:.0} %", v.condition), "tone": grade(v.condition), "meter": v.condition / 100.0 }));
         rows.push(json!({ "label": tr("Cleanliness"), "value": format!("{:.0} %", v.clean), "tone": grade(v.clean), "meter": v.clean / 100.0 }));
@@ -744,13 +743,16 @@ fn row(label: &str, value: &str, tone: &str) -> Value {
     json!({ "label": label, "value": value, "tone": tone })
 }
 
-/// What a block's bus has earned today by `until`: the fares and the authority's payment of the
-/// trips it ran, a trip under way by how far along it is (the day's close books the real sums).
-fn earned(c: &Company, r: &co::economy::Rules, tp: &co::day::TourPlan, trips: &[&TripShape], runs: &[Run], until: f64) -> co::model::Cents {
+/// What a block's bus has earned today by `until`: its passengers' takings (`income`; none on a
+/// gross-cost line, the authority's), a weekend line's tourism grant and on a bus contract each
+/// journey's share of the contract's operating day, a trip under way by how far along it is (the
+/// day's close books the real sums).
+fn earned(c: &Company, tp: &co::day::TourPlan, trips: &[&TripShape], runs: &[Run], until: f64) -> co::model::Cents {
     let Some(cl) = c.lines.iter().find(|l| l.name.eq_ignore_ascii_case(&tp.tour.line)) else { return 0 };
     let kind = co::ownline::kind_of(cl);
-    let fare = co::fares::per_passenger(c, cl);
-    let per_km = co::economy::compensation_per_km(r, c.reputation, c.contract_index);
+    let rates = co::income::Rates::of(c, cl, &c.date);
+    let per_km = co::ownline::per_km_of(c, cl);
+    let journey = co::bus_contracts::on_line(c, &cl.name, &c.date).map_or(0.0, |k| co::bus_contracts::day_value(c, k) / k.journeys.max(1) as f64);
     let mut sum = 0;
     for (j, x) in tp.tour.trips.iter().enumerate().filter(|(_, x)| x.counts()) {
         let (Some(t), Some(run)) = (trips.get(j), runs.get(j)) else { continue };
@@ -760,10 +762,9 @@ fn earned(c: &Company, r: &co::economy::Rules, tp: &co::day::TourPlan, trips: &[
             continue;
         }
         let share = if x.km > 0.0 { km / x.km } else { 0.0 };
-        let pax = co::economy::passengers_for(x.km, x.dep, r) * share;
-        let (fares, comp) = co::ownline::trip_income(kind, pax, km, fare, per_km, co::ownline::school_trip_pay(c, x.km));
-        // (a school trip is paid as a whole: its share of that)
-        let comp = if kind == ServiceKind::School { (comp as f64 * share).round() as co::model::Cents } else { comp };
+        let pax = co::income::expected(Some(cl), &c.date, x.dep, x.arr) * share;
+        let fares = if kind == ServiceKind::School || rates.to_authority { 0 } else { rates.takings(pax, km).total().round() as co::model::Cents };
+        let comp = co::ownline::trip_payment(km, per_km) + (journey * share).round() as co::model::Cents;
         sum += fares + comp;
     }
     sum
@@ -861,9 +862,11 @@ mod tests {
     #[test]
     fn a_delay_takes_the_late_runnings_colours() {
         assert_eq!(delay_tone(0.0), "ok");
-        assert_eq!(delay_tone(179.0), "ok");
-        assert_eq!(delay_tone(180.0), "warn");
-        assert_eq!(delay_tone(600.0), "orange");
+        // (late by the UK standard: from six minutes; the contracts' slightly late to ten)
+        assert_eq!(delay_tone(359.0), "ok");
+        assert_eq!(delay_tone(360.0), "warn");
+        assert_eq!(delay_tone(600.0), "warn");
+        assert_eq!(delay_tone(660.0), "orange");
         assert_eq!(delay_tone(1800.0), "danger");
         assert_eq!(delay_tone(-120.0), "early");
         assert_eq!(offset(-45.0), "−0:45");

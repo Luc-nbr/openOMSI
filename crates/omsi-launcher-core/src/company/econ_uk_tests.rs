@@ -20,18 +20,26 @@ fn trip(name: String, dep: i32, arr: i32, km: f64, empty: bool) -> PlannedTrip {
 /// its buses' time) an hour apart from `from`, with a depot run (6 km, empty) before and after it:
 /// one duty of some eight hours.
 fn tour(no: String, from: i32) -> TourOfDay {
+    tour_on(LINE, "5", no, from)
+}
+
+/// `tour` on a line of the company's (its timetable name and number).
+pub(crate) fn tour_on(line: &str, number: &str, no: String, from: i32) -> TourOfDay {
     let mut trips = vec![trip(format!("{no}-out"), from - 10, from, 6.0, true)];
     for k in 0..8 {
         trips.push(trip(format!("{no}-{k}"), from + 60 * k, from + 60 * k + 50, 24.0, false));
     }
     let end = from + 60 * 7 + 50;
     trips.push(trip(format!("{no}-in"), end, end + 10, 6.0, true));
-    TourOfDay { line: LINE.into(), number: "5".into(), tour: no, ai_group: String::new(), trips, unplanned: false, cuts: None }
+    for t in trips.iter_mut() {
+        t.line = number.into();
+    }
+    TourOfDay { line: line.into(), number: number.into(), tour: no, ai_group: String::new(), trips, unplanned: false, cuts: None }
 }
 
 /// The day's tours: an early and a late tour for each bus out - 22 on a weekday, 18 on a
 /// Saturday, 4 on a Sunday (the data's operator: 26-29 buses at the peak, few on Sundays).
-fn tours_of(date: &str) -> Vec<TourOfDay> {
+pub(crate) fn tours_of(date: &str) -> Vec<TourOfDay> {
     let buses = match dates::parse(date).map(dates::weekday) {
         Some(5) => 18,
         Some(6) => 4,
@@ -47,7 +55,7 @@ fn reference(mode: GameMode, country: &str) -> Company {
     reference_from(mode, country, "2024-04-01")
 }
 
-fn reference_from(mode: GameMode, country: &str, date: &str) -> Company {
+pub(crate) fn reference_from(mode: GameMode, country: &str, date: &str) -> Company {
     let mut c = found(&Founding { name: "Reference".into(), game_mode: mode, date: date.into(), country: country.into(), ..Default::default() }, "Luc");
     c.cash += 100_000_000_00;
     c.site.set_level(depot::Area::Parking, 3);

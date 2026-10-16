@@ -67,6 +67,7 @@ function Tours({ t, name }) {
   if (!t) return null;
   return html`<div style="display:flex;flex-direction:column;min-height:0;gap:12px">
     <${Card} c=${t.card} name=${name} />
+    <${Income} i=${t.income} name=${name} />
     <section class="co-section" style="flex:1;min-height:80px">
       <div class="co-caps" style="display:flex;align-items:center;margin:-6px 0 8px">
         <span class="grow">${t.title}</span>
@@ -83,6 +84,40 @@ function Tours({ t, name }) {
             )}</div>`}
     </section>
   </div>`;
+}
+
+/** A line's passengers and what they bring (`lines::line_income`): its kind of line (the player
+ * may say another), its fare table (a click opens the fare), its passengers by the time of day,
+ * and its last day's takings line by line of income. */
+function Income({ i, name }) {
+  if (!i) return null;
+  const k = Math.max(0, i.types.findIndex(([key]) => key === i.type));
+  return html`<section class="co-section co-lineincome">
+    <div class="co-caps" style="margin-bottom:12px">${i.title}</div>
+    <div class="thirds">
+      <div>
+        <div class="co-caps">${i.type_caps}</div>
+        <${Select} value=${k} h=${32} options=${i.types.map(([, l]) => l)} onChange=${(x) => act('line_type', { name, type: i.types[x][0] })} style="margin-top:4px" />
+        <p class="co-note" style="margin-top:6px">${i.type_note}</p>
+        ${i.authority && html`<p class="co-note t-warn" style="margin-top:4px">${i.authority}</p>`}
+        ${i.figures && html`<p class="co-note t-soft" style="margin-top:4px">${i.figures}</p>`}
+      </div>
+      <div>
+        <div class="co-caps">${i.fares_caps}</div>
+        <button type="button" class="rows" title=${i.fare_tip} onClick=${() => setCo({ dialog: { kind: 'fare', line: name } })}>
+          ${i.fares.map(([l, t]) => html`<div class="row"><span class="cut">${l}</span><b>${t}</b></div>`)}
+        </button>
+      </div>
+      <div>
+        <div class="co-caps" title=${i.bands_note}>${i.bands_caps}</div>
+        ${i.none
+          ? html`<p class="co-note" style="margin-top:6px">${i.none}</p>`
+          : i.bands.map(([l, n, f]) => html`<div class="band" title=${i.bands_note}><span class="cut">${l}</span><b>${n}</b><i style=${`width:${Math.max(2, Math.round(f * 64))}px`}></i></div>`)}
+      </div>
+    </div>
+    ${i.money.length > 0 &&
+    html`<div class="money"><span class="co-caps">${i.money_caps}</span>${i.money.map(([l, t, tone]) => html`<span class="cut">${l} <b class=${'t-' + tone}>${t}</b></span>`)}</div>`}
+  </section>`;
 }
 
 /** The line in public (`lines::line_card`): its title, its depot file, and how it is

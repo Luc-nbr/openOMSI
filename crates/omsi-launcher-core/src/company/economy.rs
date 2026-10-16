@@ -10,10 +10,11 @@
 //! (`bus_month`: lease or depreciation, insurance and tax, the ticket machine, the overhead) and
 //! a driver's market wage (`market_wage`).
 //!
-//! **The income side is still the old reference** (German urban operations: an average fare per
-//! passenger, passengers per bus-km, the authority's payment per km; `Rules::fare`,
-//! `passengers_for`, `compensation_per_km`) until wave 2b replaces it with the UK income model.
-//! The bus contracts - their payments, deductions and default points - are `bus_contracts`'.
+//! **The income is the UK model too** (`income`: passengers per bus-hour by the time of day and
+//! the kind of line, fares by ticket, concession reimbursement, BSOG). The bus contracts - their
+//! payments, deductions and default points - are `bus_contracts`': a line under one has no
+//! payment per km. What is left of a payment per km is an own weekend line's tourism grant
+//! (`tourism_per_km`).
 //!
 //! The age curve of a bus's value: the used market pays for age - some 18 % is lost in the first
 //! year, then 8-10 % of the new price a year, less later, to a 10 % residual at 15-18 years
@@ -25,8 +26,9 @@ use super::econ_uk::{self, Item, Level};
 use super::model::{BookingKind, BusKind, Cents, Company, Drive, GameMode, Tenure, Vehicle};
 
 /// The numbers of one game mode. The costs come from the UK model (`econ_uk`): a bus's price
-/// and lease here, the running and fixed costs in the functions below. The fields marked "wave
-/// 2b" are the old reference until that wave replaces them.
+/// The numbers of one game mode. The costs come from the UK model (`econ_uk`): a bus's price
+/// and lease here, the running and fixed costs in the functions below; the income is `income`'s,
+/// the contracts' `bus_contracts`'.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rules {
     pub start_capital: Cents,
@@ -53,11 +55,6 @@ pub struct Rules {
     pub lease_residual: f64,
     /// Short-term rental per day, of the new price.
     pub rent_share: f64,
-    /// Revenue: per passenger, passengers per bus-km, and the compensation per km (wave 2b: the
-    /// UK income model replaces them).
-    pub fare: Cents,
-    pub passengers_per_km: f64,
-    pub compensation_per_km: Cents,
     /// Breakdowns and wear against the UK's (`econ_uk::BREAKDOWN_CHANCE`; Realistic 1.0).
     pub breakdown_factor: f64,
     /// Yearly rise of costs, and of the contract's payment.
@@ -73,21 +70,27 @@ pub struct Rules {
     pub used_offers: usize,
 }
 
-/// From this many whole minutes behind a trip counts as late (`lateness::Timed::minutes`; as
-/// OMSI's 180 s: up to 2 min 59 s behind is on time). A bus contract judges a journey by the UK
-/// standard instead (`bus_contracts`).
-pub const LATE_FROM: i32 = 3;
+/// From this many whole minutes behind a trip counts as late (`lateness::Timed::minutes`): the UK
+/// standard's window (`econ_uk::ON_TIME_LATE`: up to 5 min 59 s behind is on time) - for the
+/// reputation, the day's punctuality, the late running's pages and the service control. (OMSI's
+/// own 180 s are its displays'; a bus contract's default points have their own tiers,
+/// `bus_contracts::time_points`.)
+pub const LATE_FROM: i32 = econ_uk::ON_TIME_LATE + 1;
 /// From this many minutes a late trip weighs as a trip lost: in the reputation, the service
 /// control's choices and the report's last tier. (What it costs on a bus contract is
 /// `bus_contracts::unpaid_at`'s; a commercial line pays in passengers and reputation only.)
 pub const LATE_FULL: i32 = 30;
 
-/// The tier of a trip `minutes` late: 0 on time, 1 up to five minutes, 2 under `LATE_FULL`,
-/// 3 from it (counted as a trip lost).
+/// The minutes late up to which a late trip is in the first tier: the contracts' slightly late
+/// (`econ_uk::UNPAID_LATE`, 10).
+pub const LATE_SLIGHT: i32 = econ_uk::UNPAID_LATE;
+
+/// The tier of a trip `minutes` late: 0 on time, 1 up to `LATE_SLIGHT` minutes, 2 under
+/// `LATE_FULL`, 3 from it (counted as a trip lost).
 pub fn late_tier(minutes: i32) -> usize {
     match minutes {
         m if m < LATE_FROM => 0,
-        m if m <= 5 => 1,
+        m if m <= LATE_SLIGHT => 1,
         m if m < LATE_FULL => 2,
         _ => 3,
     }
@@ -101,10 +104,10 @@ pub fn rules(d: GameMode) -> Rules {
     let pick = |v| econ_uk::by_mode(d, v);
     // (sums of money to the hundred euros, as prices are)
     let pounds = |pence: f64| round_to(econ_uk::gbp(pence), 100_00);
-    let (applicants, sickness, notice_days, severance, loan_months, credit_share, fare, pax, comp) = match d {
-        GameMode::Casual => (8, 0.006, 14, 0.0, 96, 0.8, 1_30, 2.3, 1_80),
-        GameMode::Normal => (6, 0.011, 28, 0.0, 72, 0.6, 1_10, 2.0, 1_20),
-        GameMode::Realistic => (4, 0.016, 28, 0.5, 60, 0.5, 1_05, 1.9, 1_00),
+    let (applicants, sickness, notice_days, severance, loan_months, credit_share) = match d {
+        GameMode::Casual => (8, 0.006, 14, 0.0, 96, 0.8),
+        GameMode::Normal => (6, 0.011, 28, 0.0, 72, 0.6),
+        GameMode::Realistic => (4, 0.016, 28, 0.5, 60, 0.5),
     };
     Rules {
         start_capital: pounds(pick(econ_uk::START_CAPITAL)),
@@ -121,9 +124,6 @@ pub fn rules(d: GameMode) -> Rules {
         lease_months: econ_uk::LEASE_MONTHS,
         lease_residual: econ_uk::LEASE_RESIDUAL,
         rent_share: econ_uk::RENT_SHARE,
-        fare,                      // wave 2b
-        passengers_per_km: pax,    // wave 2b
-        compensation_per_km: comp, // wave 2b
         // (Realistic the UK's rate; Normal and Casual fewer, as their mode tables had them)
         breakdown_factor: pick((1.0, 0.6, 0.18)),
         inflation: pick(econ_uk::INFLATION),
@@ -144,6 +144,10 @@ pub fn rules_for(c: &Company) -> Rules {
     r.price_factor = econ_uk::factor(c, Item::Vehicles);
     r
 }
+
+/// The speed a tendered timetabled hour runs at (km/h): what turns the data's tender payment per
+/// hour into one per km (the tourism grant's, `tourism_per_km`).
+pub const TENDER_KMH: f64 = 25.0;
 
 /// A new bus's reference price: the UK's (`econ_uk::new_price`), in euro cents, at founding.
 pub fn reference_price(kind: BusKind) -> Cents {
@@ -395,31 +399,19 @@ pub fn employer_cost(wage: Cents) -> Cents {
     (wage as f64 * (1.0 + EMPLOYER_SHARE)).round() as Cents
 }
 
-/// The passengers' demand through the day against the average: the peaks in the morning
-/// and late afternoon, little at night.
-pub fn demand_at(minute: i32) -> f64 {
-    match minute.rem_euclid(1440) / 60 {
-        0..=4 => 0.25,
-        5 => 0.6,
-        6..=8 => 1.6,
-        9..=11 => 0.9,
-        12..=14 => 1.05,
-        15..=17 => 1.5,
-        18..=19 => 0.8,
-        20..=22 => 0.5,
-        _ => 0.35,
-    }
+/// The rate a kilometre an own weekend line's tourism grant is a share of
+/// (`ownline::LEISURE_COMPENSATION`): the data's tender payment per timetabled hour at
+/// `TENDER_KMH`, by the contracts' factor of the company's game (its mode, country and sandbox),
+/// ±10 % round a reputation of 50, and the contract index. A line under a bus contract has no
+/// payment per km - its contract pays (`bus_contracts`).
+pub fn tourism_per_km(c: &Company) -> f64 {
+    tourism_at(econ_uk::factor(c, Item::Contracts), c.reputation, c.contract_index)
 }
 
-/// Passengers a trip of `km` leaving at `minute` carries (before chance and reputation).
-pub fn passengers_for(km: f64, minute: i32, r: &Rules) -> f64 {
-    km.max(0.0) * r.passengers_per_km * demand_at(minute)
-}
-
-/// The authority's payment per km at a reputation (0-100): ±10 % around 50, as Omsi-Hub's.
-pub fn compensation_per_km(r: &Rules, reputation: f64, contract_index: f64) -> f64 {
+/// `tourism_per_km` of a factor, a reputation (0-100) and a contract index.
+pub fn tourism_at(factor: f64, reputation: f64, contract_index: f64) -> f64 {
     // (below 40 softened: `reputation::effective`)
-    r.compensation_per_km as f64 * (0.9 + 0.2 * super::reputation::effective(reputation) / 100.0) * contract_index
+    econ_uk::gbp(econ_uk::TENDER_PER_HOUR) / TENDER_KMH * factor * (0.9 + 0.2 * super::reputation::effective(reputation) / 100.0) * contract_index
 }
 
 #[cfg(test)]
@@ -439,7 +431,7 @@ mod tests {
 
     #[test]
     fn late_trips_have_their_tier() {
-        assert_eq!([2, 4, 6, 29, 30].map(late_tier), [0, 1, 2, 2, 3]);
+        assert_eq!([2, 5, 6, 10, 11, 29, 30].map(late_tier), [0, 0, 1, 1, 2, 2, 3]);
     }
 
     #[test]
@@ -582,10 +574,9 @@ mod tests {
         assert!((energy_per_km(SOLO, &normal) / energy_per_km(SOLO, &uk) - 0.9).abs() < 1e-9);
         assert_eq!(overhead_per_month(&normal), overhead_per_month(&uk) / 2);
         assert_eq!(overhead_per_month(&Level::at(GameMode::Casual, econ_uk::country("gb"), &career, 1.0)), 0);
-        // the peaks bring more passengers than the night
-        let r = rules(GameMode::Normal);
-        assert!(passengers_for(10.0, 7 * 60, &r) > 4.0 * passengers_for(10.0, 60, &r));
-        assert!((compensation_per_km(&r, 50.0, 1.0) - 120.0).abs() < 1e-9);
-        assert!(compensation_per_km(&r, 100.0, 1.0) > compensation_per_km(&r, 0.0, 1.0));
+        // the tourism grant's rate per km: the tender's hour at 25 km/h, by the mode's factor
+        let base = econ_uk::gbp(econ_uk::TENDER_PER_HOUR) / TENDER_KMH;
+        assert!((tourism_at(1.15, 50.0, 1.0) - base * 1.15).abs() < 1e-9);
+        assert!(tourism_at(1.0, 100.0, 1.0) > tourism_at(1.0, 0.0, 1.0));
     }
 }

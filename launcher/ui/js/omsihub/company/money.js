@@ -55,9 +55,10 @@ function Month({ m, style }) {
     tools=${html`<span style="width:200px;margin:-7px 0 -9px;text-transform:none;font-weight:400"><${Select} value=${k} h=${32} options=${m.months.map(([, l]) => l)} onChange=${(i) => setUi('money', { month: i > 0 ? m.months[i][0] : null })} /></span>`}>
     ${m.empty
       ? html`<p class="co-para">${m.empty}</p>`
-      : html`<div style="overflow:hidden;flex:1;min-height:0">
+      : html`<div class="co-scroll" style="flex:1;min-height:0">
           ${m.rows.map(([label, t, tone]) => html`<div class="co-monthrow"><span class="cut">${label}</span><b class=${'t-' + tone}>${t}</b></div>`)}
           <div class="co-monthrow result"><span>${m.result_label}</span><b class=${'t-' + m.result_tone}>${m.result}</b></div>
+          ${m.pax && html`<p class="co-note" style="margin-top:8px">${m.pax}</p>`}
           ${m.capital && html`<p class="co-note" style="margin-top:12px">${m.capital}</p>`}
           ${m.late && html`<button type="button" class="late-how" style="margin-top:10px" onClick=${() => setCo({ dialog: { kind: 'late' } })}><${Icon} name="schedule" size=${15} />${m.late}</button>`}
         </div>`}
@@ -130,9 +131,11 @@ export function FareDialog({ d }) {
   };
   const foot = html`<${Btn} kind="ghost" label=${v.p0_label} onClick=${() => setFare(v.p0)} /><${Btn} kind="ghost" label=${v.best_label} onClick=${() => setFare(v.best)} />
     <span class="rest"></span><${Btn} label=${v.cancel} onClick=${close} /><${Btn} kind="primary" icon="check_circle" label=${v.set} onClick=${set} />`;
-  return html`<${Dialog} icon="confirmation_number" title=${v.title} w=${860} h=${640} onClose=${close} foot=${foot}>
+  return html`<${Dialog} icon="confirmation_number" title=${v.title} w=${860} h=${700} onClose=${close} foot=${foot}>
     <p class="co-para" style="margin-bottom:14px">${v.band}</p>
-    <${Slider} label=${v.slider} value=${v.fare / 100} min=${v.lo / 100} max=${v.hi / 100} step=${0.1} format=${() => v.fare_text} onChange=${(x) => setFare(Math.round(x * 10) * 10)} style="height:40px" />
+    <${Slider} label=${v.slider} value=${v.fare / 100} min=${v.lo / 100} max=${v.hi / 100} step=${0.05} format=${() => v.fare_text} onChange=${(x) => setFare(Math.round(x * 20) * 5)} style="height:40px" />
+    ${v.table && html`<div class="co-faretable">${v.table.map(([l, t]) => html`<span>${l} <b>${t}</b></span>`)}</div>`}
+    ${v.cap && html`<label class="co-farecap"><input type="checkbox" checked=${v.cap.on} onChange=${(e) => act('set_cap', { line: d.line, on: e.currentTarget.checked })} /><span>${v.cap.label}</span></label>`}
     ${v.chart && html`<${Curves} c=${v.chart} v=${v} />`}
     <p class="co-para" style="color:var(--hub-text);margin-top:${v.chart ? 16 : 14}px">${v.says}</p>
     ${v.warn && html`<div class="co-iconline t-warn" style="font-size:var(--co-body);margin-top:8px"><${Icon} name="warning" size=${18} /><span>${v.warn}</span></div>`}

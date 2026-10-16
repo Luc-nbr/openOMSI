@@ -4,7 +4,7 @@
 //! with what one needs against what the company has (`add_view`). The line editor and the
 //! RosterFlow Timeplan are the game-drawn launcher's until their phase: the page hands over.
 
-use super::words::{day_label, eur, eur_cents, grouped, share_tone, tr, trf};
+use super::words::{day_label, eur, eur_cents, fare_text, grouped, num, share_tone, signed, tr, trf};
 use super::{act as apply, Session};
 use omsi_launcher_lib as core;
 use omsi_launcher_lib::company::{self as co, Company};
@@ -159,7 +159,7 @@ fn ours(s: &mut Session, c: &Company, selected: Option<&str>) -> Value {
             };
             json!({
                 "name": line.name, "plate": plate(&line.number, &line.colour), "caption": caption, "on": selected == Some(line.name.as_str()),
-                "fare": format!("{} {}", tr("Fare"), eur_cents(co::fares::fare_of(c, line) as f64)), "fare_tip": tr("The single ticket this line asks: change it, and see what it does to passengers and fares"),
+                "fare": format!("{} {}", tr("Fare"), fare_text(co::fares::fare_of(c, line) as f64)), "fare_tip": tr("The adult single this line asks: change it, and see what it does to passengers and takings"),
                 "pending": pending, "pending_tip": tr("Saved in the line editor: today's tours run as they are; from that day the line runs its new timetable and its changed tours are planned anew."),
                 "own": own,
                 "timetable": (rf && (line.plan.is_some() || !line.own)).then(|| tr("Timetable: the line's running times and departures in RosterFlow's Timeplan")),
@@ -220,11 +220,74 @@ fn line_card(s: &mut Session, c: &Company, line: &co::CompanyLine) -> Value {
     })
 }
 
+/// A line's passengers and what they bring (`lines::Income`): its kind of line (the player may
+/// say another), its fare table, its passengers by the part of the day and a bus-hour over its
+/// last days, and the takings of its last day line by line of income (`income`).
+fn line_income(c: &Company, line: &co::CompanyLine) -> Value {
+    use co::income::{self as inc, LineType};
+    let key = |t: LineType| serde_json::to_value(t).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
+    let derived = inc::derived(line);
+    let mut types = vec![json!(["", trf("As its timetable shows: %{type}", &[("type", &tr(derived.label()))])])];
+    types.extend(LineType::ALL.iter().map(|t| json!([key(*t), tr(t.label())])));
+    let t = inc::type_of(line);
+    let fare = co::fares::fare_of(c, line);
+    let table = inc::table(c, line, fare as f64);
+    let mut fares = vec![json!([tr("Adult single"), fare_text(table.single)]), json!([tr("Return ticket"), fare_text(table.ret)]), json!([tr("Child single"), fare_text(table.child)]), json!([tr("Day ticket"), fare_text(table.day)]), json!([tr("Week ticket"), fare_text(table.week)])];
+    if let Some((a, k)) = table.cap {
+        fares.push(json!([tr("Fare cap"), format!("{} / {}", fare_text(a), fare_text(k))]));
+    }
+    // (its last four weeks: the days it ran)
+    let days: Vec<&co::model::LineTally> = c.history.iter().rev().take(28).flat_map(|d| d.lines.iter().filter(|x| x.line == line.name)).filter(|x| x.passengers > 0).collect();
+    let n = days.len().max(1) as f64;
+    let mut bands = [0.0f64; 5];
+    for d in &days {
+        for (b, x) in bands.iter_mut().zip(d.bands) {
+            *b += x as f64 / n;
+        }
+    }
+    let most = bands.iter().cloned().fold(1.0, f64::max);
+    let pax: u32 = days.iter().map(|d| d.passengers).sum();
+    let hours: f64 = days.iter().map(|d| d.bus_hours).sum();
+    let left: u32 = days.iter().map(|d| d.left_behind).sum();
+    let figures = (!days.is_empty()).then(|| {
+        let mut t = trf("%{n} passengers a day", &[("n", &grouped(pax as f64 / n))]);
+        if hours > 0.0 {
+            t.push_str("  ·  ");
+            t.push_str(&trf("%{n} a bus-hour", &[("n", &num(pax as f64 / hours, 1))]));
+        }
+        t.push_str("  ·  ");
+        t.push_str(&trf("%{n} left at the stop", &[("n", &grouped(left as f64))]));
+        t
+    });
+    // (its last day's takings)
+    let last = c.last_report.as_ref().and_then(|r| r.lines.iter().find(|x| x.line == line.name));
+    let money: Vec<Value> = last
+        .map(|x| {
+            let k = &x.takings;
+            [("Adult tickets", k.adult), ("Children's tickets", k.child), ("Network passes", k.network), ("School passes", k.school), ("Concession reimbursement", k.reimbursement), ("Fuel grant (BSOG)", k.bsog), ("Compensation", x.compensation), ("Fares for the authority", k.for_authority)]
+                .into_iter()
+                .filter(|(_, a)| *a != 0)
+                .map(|(l, a)| json!([tr(l), signed(a).0, if l == "Fares for the authority" { "dim" } else { signed(a).1 }]))
+                .collect()
+        })
+        .unwrap_or_default();
+    json!({
+        "title": tr("Passengers and takings").to_uppercase(),
+        "type_caps": tr("Kind of line").to_uppercase(), "types": types, "type": if line.line_type.is_some() { key(t) } else { String::new() }, "type_note": tr(t.note()),
+        "fares_caps": tr("Fare table").to_uppercase(), "fares": fares, "fare_tip": tr("Change the fare: see what it does before it is set"),
+        "bands_caps": tr("Passengers by the time of day").to_uppercase(), "bands_note": tr("A day's average over its last four weeks"),
+        "bands": inc::BANDS.iter().zip(bands).map(|(b, x)| json!([tr(b), grouped(x), x / most])).collect::<Vec<_>>(),
+        "figures": figures, "none": days.is_empty().then(|| tr("No passengers yet: the line has not run.")),
+        "money_caps": tr("Its last day's takings").to_uppercase(), "money": money,
+        "authority": co::bus_contracts::fares_to_authority(c, &line.name).then(|| tr("Run under a gross-cost contract: its fares are the authority's, collected for it.")),
+    })
+}
+
 fn tours_of(s: &mut Session, c: &Company, name: &str) -> Value {
     let Some(line) = c.lines.iter().find(|x| x.name == name).cloned() else { return Value::Null };
     let card = line_card(s, c, &line);
     let easy = co::autopilot::on(c);
-    let mut out = json!({ "card": card, "title": trf("Line %{n} today", &[("n", &line.number)]).to_uppercase(), "planning": (!easy).then(|| tr("Open the planning")), "add": tr("Add lines") });
+    let mut out = json!({ "card": card, "income": line_income(c, &line), "title": trf("Line %{n} today", &[("n", &line.number)]).to_uppercase(), "planning": (!easy).then(|| tr("Open the planning")), "add": tr("Add lines") });
     let Some(plan) = s.plan.clone() else {
         out["reading"] = json!(tr("Reading the timetable…"));
         return out;
@@ -342,9 +405,8 @@ fn to_add(s: &mut Session, c: &Company, mine_chosen: bool) -> Value {
 /// to add; what a line earns under both.
 pub fn view(s: &mut Session, ui: &Value) -> Value {
     let Some(c) = s.company.clone() else { return Value::Null };
-    let r = co::economy::rules_for(&c);
-    let pay = co::economy::compensation_per_km(&r, c.reputation, c.contract_index);
-    let foot = trf("A single ticket of the fare association costs %{single} (a passenger pays %{fare} on average, with day and season tickets); the authority pays %{km} for every kilometre run, more the better your reputation.", &[("single", &eur_cents(co::fares::association_fare(&c) as f64)), ("fare", &eur_cents(r.fare as f64)), ("km", &eur_cents(pay))]);
+    let bsog = co::income::Rates::of(&c, &co::CompanyLine::default(), &c.date).bsog_km;
+    let foot = trf("A typical adult single costs %{single}, more for longer trips; most passengers ride on passes. The authority reimburses %{share} of the fare for every ride on a concession pass and pays a grant of %{bsog} for every kilometre in service.", &[("single", &fare_text(co::fares::association_fare(&c) as f64)), ("share", &format!("{:.0} %", co::econ_uk::CONCESSION_SHARE * 100.0)), ("bsog", &eur_cents(bsog))]);
     let selected = ui.get("selected").and_then(Value::as_str).filter(|n| c.lines.iter().any(|x| x.name == *n)).map(str::to_string);
     let mine = ui.get("mine").and_then(Value::as_bool).unwrap_or(false);
     let right = match &selected {
@@ -406,6 +468,15 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Result<Value, St
             done(apply(s, |c| {
                 if let Some(x) = c.lines.iter_mut().find(|x| x.name == name) {
                     x.title = text;
+                }
+                Ok(())
+            }))
+        }
+        "line_type" => {
+            let t: Option<co::income::LineType> = args.get("type").and_then(Value::as_str).filter(|k| !k.is_empty()).and_then(|k| serde_json::from_value(json!(k)).ok());
+            done(apply(s, |c| {
+                if let Some(x) = c.lines.iter_mut().find(|x| x.name == name) {
+                    x.line_type = t;
                 }
                 Ok(())
             }))

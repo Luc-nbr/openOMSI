@@ -8,7 +8,7 @@
 mod logic;
 
 use super::kit::Go;
-use super::words::{count_text, day_label, eur, eur_cents, grouped, short_date, signed, tr, trf, units};
+use super::words::{count_text, day_label, eur, grouped, short_date, signed, tr, trf, units};
 use super::{act as apply, Session, HOME_TAB};
 use logic::{Act, Freq, Pick};
 use omsi_launcher_lib::company::clock::{self as ck, Step};
@@ -318,9 +318,9 @@ fn lines_page(s: &mut Session, c: &Company, ui: &Value) -> Value {
             let (advice, tone) = if (fare - advised).abs() <= 10 {
                 (tr("Good: this is the advised fare."), "ok")
             } else if fare > advised {
-                (trf("Advice: %{fare}. Higher fares drive passengers away.", &[("fare", &eur_cents(advised as f64))]), "warn")
+                (trf("Advice: %{fare}. Higher fares drive passengers away.", &[("fare", &super::words::fare_text(advised as f64))]), "warn")
             } else {
-                (trf("Advice: %{fare}. The line could earn more.", &[("fare", &eur_cents(advised as f64))]), "accent2")
+                (trf("Advice: %{fare}. The line could earn more.", &[("fare", &super::words::fare_text(advised as f64))]), "accent2")
             };
             json!({
                 "name": line.name, "plate": super::lines::plate(&line.number, &line.colour), "public": line.public_name(), "lit": focus.eq_ignore_ascii_case(&line.name),

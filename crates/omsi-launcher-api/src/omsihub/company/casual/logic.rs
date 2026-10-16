@@ -283,14 +283,14 @@ pub(crate) fn idle_buses(c: &Company, plan: &Plan) -> usize {
     c.fleet.iter().filter(|v| v.held_on(&c.date) && !v.in_workshop(&c.date) && !used.contains(&v.id)).count()
 }
 
-/// The fare a Casual player is advised: a tenth above the fare association's single ticket -
-/// more money, few passengers lost and no reputation - within the line's band.
+/// The fare a Casual player is advised: a tenth above the line's standard single - more money,
+/// few passengers lost and no reputation - within the line's band, a round price.
 pub(crate) fn advised_fare(c: &Company, l: &co::CompanyLine) -> Cents {
     let (lo, hi) = co::fares::band(c, l);
-    let p0 = co::fares::association_fare(c) as f64;
+    let p0 = co::fares::standard_fare(c, l) as f64;
     let best = co::fares::best_fare(c, l) as f64;
     let x = (p0 * 1.1).min(best);
-    (((x / 10.0).round() as Cents) * 10).clamp(lo, hi)
+    (c.currency.round_fare(x).round() as Cents).clamp(lo, hi)
 }
 
 /// The passengers of a line on the last seven days closed.
@@ -345,7 +345,7 @@ pub(crate) fn tips(c: &Company, plan: Option<&Plan>) -> Vec<Tip> {
         let advised = advised_fare(c, l);
         if fare > advised + 5 {
             out.push(tip(format!("fare-{}", l.name), Words::new("Your fare on line %{n} is high: fewer people ride.").with("n", &l.number), ("Set the fare", "confirmation_number", Act::Fare(l.name.clone())), false));
-        } else if (fare as f64) < co::fares::association_fare(c) as f64 * 0.9 {
+        } else if (fare as f64) < co::fares::standard_fare(c, l) as f64 * 0.9 {
             out.push(tip(format!("fare-{}", l.name), Words::new("Your fare on line %{n} is low: it could earn more.").with("n", &l.number), ("Set the fare", "confirmation_number", Act::Fare(l.name.clone())), false));
         }
     }

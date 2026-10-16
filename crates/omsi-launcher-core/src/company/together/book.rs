@@ -553,15 +553,24 @@ fn safe_trip(c: &Company, s: &Sheet, x: &PlannedTrip, run: &TripRun, name: &str,
     r
 }
 
-/// What a trip of a player brings the company in fares and the authority's payment (cents), as
-/// the day's close books it (`day::close_day_with`).
+/// What a trip of a player brings the company (cents), as the day's close books it
+/// (`day::close_day_with`): its passengers' takings (none on a gross-cost line: the authority's)
+/// and a weekend line's tourism grant; on a bus contract its journey's share of the contract's
+/// operating day (`bus_contracts`).
 pub fn trip_money(c: &Company, t: &TripRun) -> Cents {
+    use super::super::{bus_contracts as bc, ownline};
     let Some(l) = super::super::network::line_of_number(c, &t.line) else { return 0 };
-    let r = super::super::economy::rules_for(c);
-    let per_km = super::super::economy::compensation_per_km(&r, c.reputation, c.contract_index);
     let km = super::super::career::believable_km(t);
-    let (fares, comp) = super::super::ownline::trip_income(super::super::ownline::kind_of(l), t.passengers.max(0) as f64, km, super::super::fares::per_passenger(c, l), per_km, super::super::ownline::school_trip_pay(c, km));
-    fares + comp
+    // (the takings of its passengers, `income`, and what the trip is paid besides)
+    let ol = ownline::kind_of(l);
+    let pax = t.passengers.max(0) as f64;
+    let rates = super::super::income::Rates::of(c, l, &c.date);
+    let mut take = if ol == crate::service::ServiceKind::School { Default::default() } else { rates.takings(pax, km) };
+    ownline::kind_takings(ol, &mut take, pax, c.price_index);
+    let comp = ownline::trip_payment(km, ownline::per_km_of(c, l));
+    let fares = if rates.to_authority { 0 } else { take.total().round() as Cents };
+    let contract = bc::on_line(c, &l.name, &c.date).map_or(0, |k| (bc::day_value(c, k) / k.journeys.max(1) as f64).round() as Cents);
+    fares + comp + contract
 }
 
 /// A trip taken into a player's figures (`late`: after its day closed, when its fares were not

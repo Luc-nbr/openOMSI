@@ -44,6 +44,8 @@ pub mod inbox;
 pub mod lateness;
 pub mod fleetmap;
 pub mod incidents;
+// (the lines' income and passengers on the UK model: fares by ticket, concessions, BSOG)
+pub mod income;
 pub mod levels;
 pub mod licences;
 pub mod livery;

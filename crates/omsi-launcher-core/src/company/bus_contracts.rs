@@ -6,7 +6,8 @@
 //!
 //! * **Gross cost** (`Kind::Gross`): the authority pays a fixed price per operating day or per
 //!   week and keeps the fares - the company carries only the cost risk. The fares taken on the
-//!   bus are handed over (`fares_to_authority`: the flag the income side asks).
+//!   bus are handed over as they are booked (`fares_to_authority`, which the income side asks:
+//!   `income::book`), and the BSOG on its miles is the authority's.
 //! * **Net subsidy** (`Kind::Net`): a fixed sum a month (eleven months for a school run, no
 //!   August); the company keeps the fares, and may raise them on the line by at most 15 % a year
 //!   (`fare_cap`).
@@ -36,7 +37,9 @@
 //!   best: late journeys are paid, journeys not run half (`econ_uk::WEATHER_PAID`).
 //! * **Default points** (`econ_uk::POINTS_*`, by the mode's `default_points`): 3 for 2-4 minutes
 //!   early or 5-10 late, 5 beyond that, 10 for a missed journey or a smaller bus than the tour
-//!   asks for, 20 for a bus run unroadworthy or a driver without the licence for it.
+//!   asks for, 20 for a bus run unroadworthy or a driver without the licence for it. The
+//!   journeys off time or not run count as the authority's monitoring finds them: a day's at the
+//!   share of its journeys it observes (`observed`; the thresholds are a year's observed defaults).
 //! * **Quality points** at the month's end: a clean roadside inspection, a month without a
 //!   complaint about the line, 98 % of its journeys on time. They offset the default points.
 //! * **RAG:** the net points of the last twelve months make a contract green, orange (16) or red
@@ -308,7 +311,8 @@ pub fn of_line<'a>(c: &'a Company, line: &str) -> Option<&'a Contract> {
 }
 
 /// The fares of the line belong to the authority (a gross-cost contract today): the income side
-/// books them, and the day's close hands them over (`close_day`).
+/// books them as collected for it and paid over the same day (`income::book`) - the one place
+/// they leave the company -, and the BSOG on its miles is the authority's (not booked).
 pub fn fares_to_authority(c: &Company, line: &str) -> bool {
     on_line(c, line, &c.date).is_some_and(|k| k.kind == Kind::Gross)
 }
@@ -398,6 +402,17 @@ pub fn time_points(minutes: i32) -> f64 {
     }
 }
 
+/// The share of a day's `n` journeys of a contract the authority observes
+/// (`econ_uk::MONITORED_A_WEEK` a week, at most all of them): a day's default points for journeys
+/// off time or not run are their points at this share - what its monitoring finds on average.
+pub fn observed(n: u32) -> f64 {
+    if n == 0 {
+        0.0
+    } else {
+        (econ_uk::MONITORED_A_WEEK / 7.0 / n as f64).min(1.0)
+    }
+}
+
 /// On time as the standard has it: from a minute early to 5:59 late.
 pub fn on_time(minutes: i32) -> bool {
     (-econ_uk::ON_TIME_EARLY..=econ_uk::ON_TIME_LATE).contains(&minutes)
@@ -482,8 +497,10 @@ const SOLO: BusKind = BusKind { size: BusSize::Solo, drive: Drive::Diesel };
 /// The operator's cost price of the work a year, pence at 2022 prices (§4): the drivers' paid
 /// hours (1.5 a timetabled hour) at their all-in rate, fuel and the workshop by the kilometre, a
 /// vehicle and the fixed costs (insurance and tax, the ticket machine, the overhead) per bus-year,
-/// risen by half the term's inflation and the operator's 5 % margin, less the BSOG on the live
-/// miles; a net-subsidy bid also less the fares and concession money it expects.
+/// risen by half the term's inflation and the operator's 5 % margin; a net-subsidy bid less the
+/// BSOG on the live miles and the fares and concession money it expects - the operator keeps
+/// them. (A gross-cost line's fares and BSOG are the authority's, `income::book`, and a private
+/// hire is no local bus service: neither bid counts on them.)
 pub fn cost_pence(w: &Work, kind: Kind, years: f64, b: &Basis) -> f64 {
     let lv = &b.level;
     let days = w.days as f64;
@@ -494,8 +511,7 @@ pub fn cost_pence(w: &Work, kind: Kind, years: f64, b: &Basis) -> f64 {
     let vehicle = buses * econ_uk::BID_VEHICLE_YEAR * lv.vehicles;
     let fixed = buses * ((econ_uk::INSURANCE_PER_YEAR + econ_uk::TAX_PER_YEAR + 12.0 * econ_uk::TICKET_MACHINE_PER_MONTH) * lv.insurance + econ_uk::OVERHEAD_PER_BUS_YEAR * lv.overheads);
     let subtotal = (driver + fuel + shop + vehicle + fixed) * (1.0 + b.inflation.max(0.0)).powf(years.max(0.0) / 2.0) * (1.0 + econ_uk::BID_MARGIN);
-    let bsog = km * econ_uk::LIVE_SHARE / econ_uk::KM_PER_MILE * econ_uk::BSOG_PER_LIVE_MILE * b.income;
-    let revenue = if kind == Kind::Net { expected_revenue(w) * b.income } else { 0.0 };
+    let (bsog, revenue) = if kind == Kind::Net { (km * econ_uk::LIVE_SHARE / econ_uk::KM_PER_MILE * econ_uk::BSOG_PER_LIVE_MILE * b.income, expected_revenue(w) * b.income) } else { (0.0, 0.0) };
     (subtotal - bsog - revenue).max(0.0)
 }
 
@@ -851,8 +867,8 @@ pub fn bad_weather(c: &Company, date: &str) -> bool {
 /// The contracts' day, as the day's close runs it after its lines are booked (`lines`: the
 /// day's lines, their fares and payments): every contract line's journeys judged - unpaid, default
 /// points -, its payment by its period booked (`BookingKind::Contract`) with the journeys not
-/// paid off it, a gross-cost line's fares handed to the authority, and no payment per kilometre
-/// on a contract line (the contract is its pay). On the month's last day the quality points and
+/// paid off it (a gross-cost line's fares were handed to the authority as they were booked,
+/// `income::book`: counted here for the report). On the month's last day the quality points and
 /// the authority's verdict on a red contract (`month_end`). Extensions due are decided
 /// (`extend_due`). The report gets the sums and notes.
 pub fn close_day(c: &mut Company, date: &str, journeys: &Journeys, lines: &mut [LineDay], report: &mut DayReport) {
@@ -922,8 +938,11 @@ pub fn close_day(c: &mut Company, date: &str, journeys: &Journeys, lines: &mut [
                 }
             }
         }
-        // (the points by the game's strictness; on a day of storm or snow none for the time)
-        let raw = pd.slight as f64 * econ_uk::POINTS_SLIGHT + pd.far as f64 * econ_uk::POINTS_FAR + (pd.missed + pd.vehicle) as f64 * econ_uk::POINTS_MISSED + pd.serious as f64 * econ_uk::POINTS_SERIOUS;
+        // (the points by the game's strictness; on a day of storm or snow none for the time. The
+        // journeys off time or not run are found on the journeys the authority observes - its
+        // share of today's, `observed` -; a smaller bus and the serious defaults on every one)
+        let timing = pd.slight as f64 * econ_uk::POINTS_SLIGHT + pd.far as f64 * econ_uk::POINTS_FAR + pd.missed as f64 * econ_uk::POINTS_MISSED;
+        let raw = timing * observed(n) + pd.vehicle as f64 * econ_uk::POINTS_MISSED + pd.serious as f64 * econ_uk::POINTS_SERIOUS;
         pd.default = raw * strict;
         // (what it pays today by its period)
         let pay = match k.period {
@@ -954,20 +973,12 @@ pub fn close_day(c: &mut Company, date: &str, journeys: &Journeys, lines: &mut [
         if deducted != 0 {
             c.book(BookingKind::Contract, -deducted, format!("Line {}: {} journeys not paid", k.number, pd.unpaid), false);
         }
-        // (the line's day: a gross-cost line's fares to the authority, no payment per km)
+        // (the line's day: a gross-cost line's takings went to the authority as they were booked -
+        // collected and paid over, `income::book` - so they are only counted here; a contract
+        // line has no payment per km, `ownline::per_km_of`)
         if let Some(l) = lines.iter_mut().find(|l| l.line.eq_ignore_ascii_case(&k.line)) {
-            if k.kind == Kind::Gross && l.fares != 0 {
-                c.book(BookingKind::Fares, -l.fares, format!("Line {}: fares to the authority (gross cost)", k.number), false);
-                out.fares_handed += l.fares;
-                l.revenue -= l.fares;
-                l.fares = 0;
-            }
-            // (the old payment per km, until the income model of wave 2b replaces it: a contract
-            // line is paid by its contract)
-            if l.compensation != 0 {
-                c.book(BookingKind::Compensation, -l.compensation, format!("Line {}: paid by its contract, not per km", k.number), false);
-                l.revenue -= l.compensation;
-                l.compensation = 0;
+            if k.kind == Kind::Gross {
+                out.fares_handed += l.takings.for_authority;
             }
             l.contract += pay;
             l.revenue += pay - deducted;

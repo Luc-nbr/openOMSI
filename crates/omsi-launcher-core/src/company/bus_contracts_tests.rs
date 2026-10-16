@@ -29,10 +29,17 @@ fn with_contract(c: &mut Company, kind: Kind, period: Period, year: Cents, from:
     id
 }
 
-/// The day's close of the contracts with these journeys (the line took 100 € in fares and 50 €
-/// a km's payment).
+/// The day's close of the contracts with these journeys (the line took 100 € in fares, booked as
+/// the day's close books them, `income::book`: a gross-cost line's collected for the authority and
+/// paid over, any other line's its own).
 fn close(c: &mut Company, journeys: &Journeys) -> (DayReport, LineDay) {
-    let mut lines = vec![LineDay { line: "Linie5".into(), number: "5".into(), fares: 100_00, compensation: 50_00, revenue: 150_00, ..Default::default() }];
+    let mut l = LineDay { line: "Linie5".into(), number: "5".into(), ..Default::default() };
+    if fares_to_authority(c, "Linie5") {
+        l.takings.for_authority = 100_00;
+    } else {
+        (l.fares, l.revenue) = (100_00, 100_00);
+    }
+    let mut lines = vec![l];
     let mut r = DayReport::default();
     let date = c.date.clone();
     close_day(c, &date, journeys, &mut lines, &mut r);
@@ -186,12 +193,20 @@ fn a_gross_cost_contract_is_paid_by_the_day_less_its_journeys_not_paid() {
     assert_eq!(r.contracts.paid, day.round() as Cents);
     assert_eq!((r.contracts.unpaid, r.contracts.deducted), (2, deducted));
     assert_eq!(booked(&c, BookingKind::Contract), day.round() as Cents - deducted);
-    // the fares go to the authority, and no payment per km besides the contract
-    assert_eq!((booked(&c, BookingKind::Fares), booked(&c, BookingKind::Compensation)), (-100_00, -50_00));
+    // the fares went to the authority as they were booked (`income::book`): counted, not taken
+    // off a second time; and no payment per km besides the contract
+    assert_eq!(r.contracts.fares_handed, 100_00);
+    assert_eq!((booked(&c, BookingKind::Fares), booked(&c, BookingKind::Compensation)), (0, 0));
     assert_eq!((l.fares, l.compensation, l.contract, l.penalty), (0, 0, day.round() as Cents, deducted));
-    // the points: 10 for the journey not run, 5 for 12 late, 3 for 7 late
-    assert_eq!(r.contracts.points, 18.0);
-    assert_eq!(r.contracts.lines[0].rag, Rag::Orange);
+    assert_eq!(l.revenue, day.round() as Cents - deducted);
+    // the points: 10 for the journey not run, 5 for 12 late, 3 for 7 late - as the authority's
+    // monitoring finds them, on its share of the day's journeys (a week's one of 20 a day)
+    assert!((observed(20) - 1.0 / 140.0).abs() < 1e-12 && observed(0) == 0.0);
+    assert!((r.contracts.points - 18.0 * observed(20)).abs() < 1e-12);
+    assert_eq!(r.contracts.lines[0].rag, Rag::Green);
+    // such a day every day: some 33 points a year, red before its quality points (a month's 2 for
+    // no complaints - 98 % on time it is not)
+    assert!(Rag::of(r.contracts.points * 260.0) == Rag::Red && Rag::of(r.contracts.points * 260.0 - 24.0) == Rag::Green);
     // a day the line does not run pays nothing
     let (r, _) = close(&mut c, &Journeys::default());
     assert_eq!(r.contracts.paid, 0);
@@ -252,7 +267,7 @@ fn normal_and_casual_are_milder() {
     let (r, _) = close(&mut n, &a_day());
     // Normal: a journey 12 minutes late is paid (unpaid from 15), the points halved
     assert_eq!(r.contracts.unpaid, 1);
-    assert_eq!(r.contracts.points, 9.0);
+    assert!((r.contracts.points - 9.0 * observed(20)).abs() < 1e-12);
     let mut c = company(GameMode::Casual);
     with_contract(&mut c, Kind::Gross, Period::Day, 312_000_00, &today);
     let (r, _) = close(&mut c, &a_day());
@@ -410,4 +425,191 @@ fn an_older_file_gets_its_contracts() {
     let again: Company = serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();
     assert_eq!(again.concessions.contracts, c.concessions.contracts);
     let _ = Outcome::NoBid { winner: String::new(), amount: 0 };
+}
+
+// --- the whole company -------------------------------------------------------------------------
+
+/// The wave-1 reference company's network split over three lines - the buses of a day (`b`, as
+/// `econ_uk::reference::tours_of` numbers them) on a net-subsidy line, a gross-cost line and a
+/// commercial one - its weekday's 22 buses, Saturday's 18 and Sunday's 4 (the commercial line's).
+/// As the data's operator: most of its work tendered and supported, the fares of it its own (a
+/// net subsidy: the farebox, concessions and BSOG are 40-45 % of its turnover), a small
+/// gross-cost route and a commercial core.
+const NET_BUSES: u32 = 12;
+const GROSS_BUSES: u32 = 1;
+
+fn line_of_bus(date: &str, b: u32) -> (&'static str, &'static str) {
+    let sunday = dates::parse(date).map(dates::weekday) == Some(6);
+    match b {
+        _ if sunday => ("Linie5", "5"),
+        b if b < NET_BUSES => ("Linie6", "6"),
+        b if b < NET_BUSES + GROSS_BUSES => ("Linie7", "7"),
+        _ => ("Linie5", "5"),
+    }
+}
+
+fn split_tours(date: &str) -> Vec<crate::company::network::TourOfDay> {
+    use crate::company::econ_uk::reference::{tour_on, tours_of};
+    let buses = tours_of(date).len() as u32 / 2;
+    (0..buses)
+        .flat_map(|b| {
+            let (line, number) = line_of_bus(date, b);
+            [tour_on(line, number, format!("E{b}"), 6 * 60), tour_on(line, number, format!("L{b}"), 14 * 60 + 30)]
+        })
+        .collect()
+}
+
+/// A line's operating day as the tender would describe it: its weekday's tours (a Monday's).
+fn work_of_line(line: &str) -> Work {
+    let tours: Vec<_> = split_tours("2024-06-03").into_iter().filter(|t| t.line == line).collect();
+    let mut w = Work { buses: tours.len() as u32 / 2, days: 6 * 52, ..Default::default() };
+    for t in &tours {
+        let dep = t.trips.iter().map(|x| x.dep).min().unwrap_or(0);
+        let arr = t.trips.iter().map(|x| x.arr).max().unwrap_or(0);
+        w.hours += (arr - dep) as f64 / 60.0;
+        w.km += t.trips.iter().map(|x| x.km).sum::<f64>();
+        w.journeys += t.trips.iter().filter(|x| !x.empty).count() as u32;
+    }
+    w
+}
+
+#[test]
+fn the_reference_company_with_its_contracts_breaks_even() {
+    use crate::company::day;
+    use crate::company::econ_uk::reference::reference_from;
+    let start = "2024-05-13";
+    let mut c = reference_from(GameMode::Realistic, "gb", start);
+    c.currency = Currency::Gbp;
+    for (name, number) in [("Linie6", "6"), ("Linie7", "7")] {
+        c.lines.push(CompanyLine { name: name.into(), number: number.into(), numbers: vec![number.into()], added: c.date.clone(), service_from: Some(0), ..Default::default() });
+    }
+    // two tendered lines won at what a typical UK operator bids (the authority's cost price,
+    // `price_of`: the operator's 5 % margin in it) for three years: the net subsidy paid by the
+    // month (the company keeps the fares), the gross cost by the operating day (the fares the
+    // authority's)
+    let until = dates::add(start, 3 * 365 - 1);
+    for (line, number, kind, period) in [("Linie6", "6", Kind::Net, Period::Month), ("Linie7", "7", Kind::Gross, Period::Day)] {
+        let w = work_of_line(line);
+        let price = (price_of(&c, &w, kind, 3.0) / 100_00.0).round() as Cents * 100_00;
+        let k = make(&mut c, line, number, kind, period, price, &w, start, &until);
+        c.concessions.contracts.push(k);
+    }
+    // June 2024 (school days all through), after May's last fortnight to settle in; the
+    // reputation as the days make it
+    while c.date.as_str() <= "2024-06-30" {
+        let date = c.date.clone();
+        day::close_day(&mut c, split_tours(&date), &[]);
+    }
+    let m = c.month("2024-06");
+    let pounds = |cents: i64| Currency::Gbp.units(cents as f64);
+    let rows: Vec<(BookingKind, i64)> = BookingKind::ALL.iter().filter(|k| !k.is_capital()).map(|k| (*k, m.get(*k))).filter(|x| x.1 != 0).collect();
+    let income: i64 = rows.iter().filter(|x| x.1 > 0).map(|x| x.1).sum();
+    let costs: i64 = -rows.iter().filter(|x| x.1 < 0).map(|x| x.1).sum::<i64>();
+    // (the direct costs as the data's books count them: all but the central overhead, the
+    // contract penalties and interest - its gross margin is the turnover less these)
+    let direct: i64 = -rows.iter().filter(|x| x.1 < 0 && !matches!(x.0, BookingKind::Overheads | BookingKind::Penalty | BookingKind::Interest)).map(|x| x.1).sum::<i64>();
+    let of = |kinds: &[BookingKind]| rows.iter().filter(|x| kinds.contains(&x.0)).map(|x| x.1).sum::<i64>();
+    let contracts = of(&[BookingKind::Contract]);
+    let farebox = of(&[BookingKind::Fares, BookingKind::ChildFares, BookingKind::NetworkPasses]);
+    let result = m.result();
+    let mut text = String::from("The reference company with its contracts, June 2024 (Realistic, UK, 30 buses)\nINCOME\n");
+    for (k, a) in rows.iter().filter(|x| x.1 > 0) {
+        text += &format!("  {:<28} £{:>9.0}  {:>5.1} %\n", k.label(), pounds(*a), 100.0 * *a as f64 / income as f64);
+    }
+    text += &format!("  {:<28} £{:>9.0}\nCOSTS\n", "Turnover", pounds(income));
+    for (k, a) in rows.iter().filter(|x| x.1 < 0) {
+        text += &format!("  {:<28} £{:>9.0}  {:>5.1} %\n", k.label(), pounds(-*a), 100.0 * -*a as f64 / costs as f64);
+    }
+    text += &format!("  {:<28} £{:>9.0}\n  {:<28} £{:>9.0}\n", "Direct (no overhead, penalties, interest)", pounds(direct), "All costs", pounds(costs));
+    let margin = income - direct;
+    text += &format!("GROSS MARGIN (turnover less direct costs) £{:.0} ({:+.1} % of turnover)\n", pounds(margin), 100.0 * margin as f64 / income as f64);
+    text += &format!("RESULT after the overhead, penalties and interest £{:.0} ({:+.1} % of turnover)\n", pounds(result), 100.0 * result as f64 / income as f64);
+    let causes: Vec<String> = crate::company::reputation::lately(&c, &c.date.clone(), 31).iter().map(|x| format!("{:?} {:+.1} ({})", x.0, x.1, x.2)).collect();
+    let rag: Vec<String> = c.concessions.contracts.iter().map(|k| format!("{} {:?} {:.1} points {:?}", k.number, k.kind, k.net_points(&c.date), k.rag(&c.date))).collect();
+    text += &format!(
+        "contracts {:.1} %, farebox {:.1} %; reputation {:.1} (June: {}); share of trips late by line {:?}; contracts {}",
+        100.0 * contracts as f64 / income as f64,
+        100.0 * farebox as f64 / income as f64,
+        c.reputation,
+        causes.join(", "),
+        c.lines.iter().map(|l| (l.number.clone(), (l.stats.late * 100.0).round())).collect::<Vec<_>>(),
+        rag.join(", ")
+    );
+    println!("{text}");
+    // the data's operator: a turnover of about £312k a month, 55-60 % of it the contracts'
+    assert!((pounds(income) / 312_500.0 - 1.0).abs() <= 0.10, "{text}");
+    let share = contracts as f64 / income as f64;
+    assert!((0.53..=0.62).contains(&share), "contracts {share}\n{text}");
+    // the direct costs £300-345k, and the month about break-even: a gross margin of -5 % to +5 %
+    // of the turnover (the data's +1 % to -3 %; the central overhead on top)
+    assert!((300_000.0..=345_000.0).contains(&pounds(direct)), "{text}");
+    assert!((margin as f64 / income as f64).abs() <= 0.05, "{text}");
+    // its contracts run on - none red, none ended - and the reputation is not sunk by a typical
+    // plan's punctuality: June's late trips cost it little (its dropped trips and complaints are
+    // the days' own)
+    assert!(c.concessions.contracts.iter().all(|k| k.live() && k.rag(&c.date) != Rag::Red), "{text}");
+    let late: f64 = crate::company::reputation::lately(&c, &c.date.clone(), 31).iter().filter(|x| x.0 == crate::company::reputation::Cause::Late).map(|x| x.1).sum();
+    assert!(late > -3.0, "{text}");
+    assert!(c.reputation >= 30.0, "{text}");
+}
+
+/// Saves of before the UK economy (version 1: the German reference's flat monthly wages) and of
+/// its first wave (version 2: its fares on the old association fare, no bus contracts) load on
+/// the whole of it: each migration step runs in turn (`store::migrate`: wages, then fares, then
+/// contracts) and the company runs a day.
+#[test]
+fn older_saves_of_version_1_and_2_arrive_valid() {
+    use crate::company::day;
+    use crate::company::econ_uk::reference::{reference_from, tours_of};
+    use crate::company::model::{Role, VERSION};
+    let mut c = reference_from(GameMode::Realistic, "gb", "2024-06-03");
+    // a concession of the line won in a tender (the old per-km asks: 95 % of the reference)
+    c.concessions.held.push(Concession { line: "Linie5".into(), number: "5".into(), from: "2024-01-01".into(), until: "2026-12-31".into(), price: 0.95, direct: false });
+    let today = c.date.clone();
+    day::close_day(&mut c, tours_of(&today), &[]);
+    let saved = serde_json::to_value(&c).unwrap();
+    for version in [1, 2] {
+        let mut v = saved.clone();
+        v["version"] = serde_json::json!(version);
+        // (no contracts, a line's fare a single of the old reference - 20 % above its €1.90 -,
+        // no kind of line nor its stats)
+        v["concessions"].as_object_mut().unwrap().remove("contracts");
+        v["concessions"].as_object_mut().unwrap().remove("contract_counter");
+        v["lines"][0]["fare"] = serde_json::json!(228);
+        for k in ["stats", "line_type", "fare_cap"] {
+            v["lines"][0].as_object_mut().unwrap().remove(k);
+        }
+        if version == 1 {
+            // (the German reference's flat monthly wage)
+            for e in v["staff"].as_array_mut().unwrap() {
+                e["wage"] = serde_json::json!(3_310_00);
+                e.as_object_mut().unwrap().remove("week_paid");
+                e.as_object_mut().unwrap().remove("week_due");
+            }
+        }
+        let old: Company = serde_json::from_value(v).unwrap();
+        let mut new = crate::company::store::migrate(old);
+        assert_eq!(new.version, VERSION, "v{version}");
+        // wave 1: the drivers on the UK market's wage (a version 2 kept its own)
+        let lv = econ_uk::Level::of(&new);
+        let driver = new.staff.iter().find(|e| e.role == Role::Driver).unwrap();
+        assert_eq!(driver.wage, crate::company::economy::market_wage(45.0, &lv), "v{version}");
+        // wave 2b: the fare 20 % above the line's standard UK fare, a round price
+        let p0 = crate::company::fares::standard_fare(&new, &new.lines[0]) as f64;
+        let fare = new.lines[0].fare.unwrap() as f64;
+        assert!((fare / p0 - 1.2).abs() < 0.03, "v{version}: {fare} {p0}");
+        // wave 2a: the concession won a gross-cost contract, its fares the authority's
+        let k = of_line(&new, "Linie5").expect("a contract");
+        assert_eq!((k.kind, k.until.as_str()), (Kind::Gross, "2026-12-31"), "v{version}");
+        assert!(k.year_price > 0 && fares_to_authority(&new, "Linie5"));
+        // and it runs a day: the contract pays, the fares are collected for the authority and
+        // paid over, read again it is the same
+        new.planning.auto = true;
+        let date = new.date.clone();
+        let r = day::close_day(&mut new, tours_of(&date), &[]);
+        assert!(r.passengers > 0 && r.contracts.paid > 0 && r.takings.for_authority > 0, "v{version}");
+        assert_eq!(r.takings.income(), 0);
+        let again: Company = serde_json::from_str(&serde_json::to_string(&new).unwrap()).unwrap();
+        assert_eq!(again.concessions.contracts, new.concessions.contracts);
+    }
 }

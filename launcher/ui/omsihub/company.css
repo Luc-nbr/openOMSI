@@ -758,6 +758,24 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 .co-ledgerrow .mark { font-size: 9.98px; font-weight: 500; padding-left: 0; }
 .co-ledgerrow b { text-align: right; font-size: var(--co-rows); }
 .co-farerow { height: 40px; margin-bottom: 4px; gap: 0; padding-right: 2px; font-size: var(--co-note); }
+/* a line's fare table and its cap in the fare dialog (`money::fare_view`) */
+.co-faretable { display: flex; flex-wrap: wrap; gap: 6px 22px; margin-top: 10px; font-size: var(--co-note); color: var(--hub-text-soft); }
+.co-faretable b { color: var(--hub-text); font-weight: 600; margin-left: 4px; }
+.co-farecap { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: var(--co-note); color: var(--hub-text-soft); cursor: pointer; }
+/* a line's passengers and takings on the Lines page (`lines::line_income`) */
+.co-lineincome { flex: none; }
+.co-lineincome .thirds { display: grid; grid-template-columns: 1.1fr 0.9fr 1fr; gap: 18px; margin-top: -4px; }
+.co-lineincome .thirds > div { min-width: 0; display: flex; flex-direction: column; }
+.co-lineincome .rows { background: none; border: 0; padding: 0; margin-top: 2px; text-align: left; color: inherit; font: inherit; cursor: pointer; width: 100%; }
+.co-lineincome .row { display: flex; justify-content: space-between; gap: 8px; height: 22px; align-items: center; font-size: var(--co-note); }
+.co-lineincome .row span { color: var(--hub-text-soft); }
+.co-lineincome .row b { font-weight: 500; }
+.co-lineincome .band { display: grid; grid-template-columns: minmax(0, 1fr) 44px 66px; gap: 8px; align-items: center; height: 22px; font-size: var(--co-note); }
+.co-lineincome .band span { color: var(--hub-text-soft); }
+.co-lineincome .band b { font-weight: 500; text-align: right; }
+.co-lineincome .band i { display: block; height: 6px; border-radius: 3px; background: var(--hub-accent); }
+.co-lineincome .money { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--hub-hairline); font-size: var(--co-note); color: var(--hub-text-soft); }
+.co-lineincome .money b { font-weight: 500; margin-left: 3px; }
 .co-farerow b { font-size: var(--co-rows); width: 92px; margin-left: 12px; }
 .co-farerow .vs { width: 130px; color: var(--hub-text-soft); }
 .co-farerow .pax { flex: 1; text-align: right; font-weight: 500; margin-right: 18px; }
