@@ -72,4 +72,8 @@ late, `m`), `together/relay.rs` (permissions of `research_pause` and `sandbox_pr
 
 ## Tests
 
-See the end of this file.
+`cargo test --release --no-fail-fast -p omsi-launcher-core -p omsi-launcher-api -p omsihub-locales`
+passes on Linux (core 635 passed, api 146 passed, locales 1 passed; the ignored ones as before).
+New tests: `research::a_paused_research_waits_and_goes_on_where_it_was`,
+`sandbox::a_preset_sets_every_knob_and_is_recognised`. `node --check` passes on every changed
+script. Not yet built or run on Windows.
