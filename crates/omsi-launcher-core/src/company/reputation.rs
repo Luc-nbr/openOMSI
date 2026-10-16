@@ -30,6 +30,8 @@ pub const LATE_TRIP: f64 = 0.01;
 pub const LATE_MOST: f64 = 0.6;
 /// Days of log kept.
 pub const KEEP_DAYS: i64 = 35;
+/// Weeks of the weekly history kept.
+pub const KEEP_WEEKS: usize = 26;
 
 /// What moved the reputation.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -102,6 +104,10 @@ pub struct Log {
     pub days_without_drops: u32,
     #[serde(default)]
     pub history: Vec<(String, f64)>,
+    /// The reputation at the last close of each week, by the week's Monday (the Reputation
+    /// page's eight weeks; the daily history keeps only `KEEP_DAYS`).
+    #[serde(default)]
+    pub weeks: Vec<(String, f64)>,
 }
 
 /// How a game mode treats the reputation.
@@ -278,6 +284,15 @@ pub fn close_day(c: &mut Company, date: &str, report: &DayReport, punctuality: O
     if n > KEEP_DAYS as usize {
         h.drain(..n - KEEP_DAYS as usize);
     }
+    let monday = super::dates::fmt(super::dates::week_of(date));
+    let w = &mut c.reputation_log.weeks;
+    w.retain(|(d, _)| *d != monday);
+    w.push((monday, (rep * 10.0).round() / 10.0));
+    w.sort_by(|a, b| a.0.cmp(&b.0));
+    let n = w.len();
+    if n > KEEP_WEEKS {
+        w.drain(..n - KEEP_WEEKS);
+    }
     c.reputation - before
 }
 
@@ -310,6 +325,21 @@ pub fn lately(c: &Company, date: &str, days: i64) -> Vec<(Cause, f64, u32)> {
 mod tests {
     use super::super::{found, Founding};
     use super::*;
+
+    /// Every day's close keeps the week's reputation too, one value a week (its last close).
+    #[test]
+    fn the_weeks_are_kept() {
+        let mut c = company(GameMode::Normal);
+        for k in 0..20 {
+            let date = super::super::dates::add("2024-03-04", k);
+            close_day(&mut c, &date, &day(100, 0, 0), Some(95.0), &Default::default());
+        }
+        let w = &c.reputation_log.weeks;
+        assert_eq!(w.len(), 3, "{w:?}");
+        assert_eq!(w[0].0, "2024-03-04");
+        assert_eq!(w[2].0, "2024-03-18");
+        assert_eq!(w[2].1, c.reputation_log.history.last().unwrap().1);
+    }
 
     fn company(m: GameMode) -> Company {
         found(&Founding { name: "Rep".into(), game_mode: m, date: "2024-03-04".into(), ..Default::default() }, "Luc")
