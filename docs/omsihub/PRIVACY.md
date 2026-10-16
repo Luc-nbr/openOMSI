@@ -5,7 +5,7 @@
 
 This statement explains which personal data Omsi-Hub (the app, the game and omsihub.com) processes, why, and what your rights are. The app and the website show this same text. When it changes in a way that matters, the version number goes up and you will be asked to agree again.
 
-> Note for the maintainer: this text was written to match what the code does. Have it checked by someone who knows the GDPR before you treat it as final.
+<!-- Maintainer: written to match what the code does; have it checked by someone who knows the GDPR. -->
 
 ## Who we are
 
