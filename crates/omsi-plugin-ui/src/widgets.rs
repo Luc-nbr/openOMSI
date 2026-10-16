@@ -33,7 +33,7 @@ impl Layout<'_> {
             Kind::Tabs { tabs, .. } => tabs.iter().map(|t| self.width(t, CONTROL_PX, Weight::Medium) + 24.0).sum::<f32>().ceil(),
             Kind::Chart { .. } => CHART_W,
             Kind::Table { columns, size, .. } => columns.iter().map(|c| self.width(c, *size, Weight::Bold) + 12.0).sum::<f32>().ceil(),
-            _ => 0.0,
+            _ => self.nav_natural(e),
         }
     }
 
@@ -50,7 +50,7 @@ impl Layout<'_> {
                 let head = if columns.is_empty() { 0.0 } else { size * LINE + 3.0 };
                 head + rows.len() as f32 * size * LINE
             }
-            _ => 0.0,
+            _ => self.nav_height(e, w),
         }
     }
 
@@ -138,7 +138,7 @@ impl Layout<'_> {
             }
             Kind::Chart { values, min, max, style, fill, .. } => self.chart(r, values, *min, *max, *style, *fill, accent),
             Kind::Table { columns, rows, widths, size } => self.table(r, columns, rows, widths, *size, e.color.map(color)),
-            _ => {}
+            _ => self.nav_emit(e, r),
         }
     }
 

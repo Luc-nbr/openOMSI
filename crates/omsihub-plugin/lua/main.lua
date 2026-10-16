@@ -10,7 +10,7 @@
 --   data/reports.jsonl    plugin -> Omsi-Hub: the duty taken, each trip done, the duty ended
 -- A game without the file functions gets the handshake and the reports in its log instead.
 
-local VERSION = "1.5.0"
+local VERSION = "1.6.0"
 local BRIDGE = 1
 local PANEL = "omsihub"
 
@@ -167,7 +167,15 @@ end
 
 local signon = require("signon")
 local board = require("board")
+local company = require("company")
 board.setup(tr)
+
+-- the board's company parts the driver switched on and off (all on until they chose; kept for
+-- the next drive)
+omsi.data.board_parts = omsi.data.board_parts or {}
+local function parts()
+  return company.parts(omsi.data.board_parts)
+end
 if company_duty() then signon.setup(tr, assignment) end
 
 local function panel()
@@ -183,7 +191,7 @@ local function panel()
   local can_start = work and not d and has["duty.start"] and (assignment.line or "") ~= ""
   local children = {
     { type = "row", children = {
-      { type = "icon", name = "business", color = "#F47F30" },
+      { type = "icon", name = "business", color = "#F58620" },
       { type = "text", text = assignment.company ~= "" and assignment.company or "Omsi-Hub", weight = "bold", grow = true, wrap = false },
     } },
     { type = "text", text = tr("Duty %{duty}: line %{line}, tour %{tour}", { duty = assignment.duty, line = assignment.line, tour = assignment.tour }) },
@@ -196,7 +204,16 @@ local function panel()
     for _, c in ipairs(signon.children(assignment)) do children[#children + 1] = c end
   end
   children[#children + 1] = { type = "text", text = tr("F10: use the panel with the mouse"), size = 12, color = "#9AA3AD", visible = can_start or not work }
-  omsi.ui.set(PANEL, { anchor = "right", x = 16, y = 0, width = 300, accent = "#F47F30", draggable = true, children = children })
+  -- (while the panels have the mouse: the board's company parts, to switch on and off)
+  if work and fn("ui.focused") and omsi.ui.focused() then
+    local on = parts()
+    children[#children + 1] = { type = "divider" }
+    children[#children + 1] = { type = "text", text = tr("On the duty board"), size = 12, weight = "bold", color = "#9AA3AD" }
+    for _, p in ipairs(company.PARTS) do
+      children[#children + 1] = { type = "checkbox", id = "part_" .. p, text = tr(company.LABELS[p]), checked = on[p], color = "#F58620" }
+    end
+  end
+  omsi.ui.set(PANEL, { anchor = "right", x = 16, y = 0, width = 300, accent = "#F58620", draggable = true, children = children })
 end
 
 -- the IBIS: typed by the game as each trip begins, unless Omsi-Hub says the driver types it -
@@ -258,7 +275,7 @@ card.setup(tr)
 -- the drive watch's notices: a card for a while, or a line of text in a game without panels
 watch.setup(tr, function(icon, title, text)
   if has["ui.toast"] then
-    omsi.ui.toast(text, { title = title, icon = icon, seconds = 5 })
+    omsi.ui.toast(text, { title = title, icon = icon, seconds = 5, color = icon == "traffic" and "#D93A30" or "#E8AA46" })
   else
     omsi.message(title .. ": " .. text, 5)
   end
@@ -398,21 +415,53 @@ end)
 
 omsi.on("ui_change", function(p, element, value)
   if card.change(p, element, value) then return end
+  local part = p == PANEL and type(element) == "string" and element:match("^part_(%w+)$")
+  if part and company.LABELS[part] then
+    omsi.data.board_parts[part] = value == true
+    panel()
+    return
+  end
   if p == PANEL and signon.change(element, value) then panel() end
 end)
 
 omsi.on("key", function(key, down)
   if card.key(key, down) then return end
-  if key == "F10" and down and (company_duty() or duty_now()) and fn("ui.focus") then omsi.ui.focus(not omsi.ui.focused()) end
+  if key == "F10" and down and (company_duty() or duty_now()) and fn("ui.focus") then
+    omsi.ui.focus(not omsi.ui.focused())
+    panel()
+  end
 end)
 
 omsi.on("stop", function()
   if has["ui.remove"] then omsi.ui.remove(PANEL) end
 end)
 
+-- service control's messages for the duty (`company.lua`), each once, when they are due
+omsi.data.dispatched = omsi.data.dispatched or {}
+local function dispatch()
+  if not (company_duty() and parts().dispatch and signon.at_work() and duty_now()) then return end
+  local c = clock()
+  if not c then return end
+  -- (said once for this assignment: a drive started again does not say them twice)
+  local seen = omsi.data.dispatched
+  if seen.issued ~= issued() then
+    seen = { issued = issued() }
+    omsi.data.dispatched = seen
+  end
+  for _, m in ipairs(company.messages(assignment, math.floor(c / 60), seen)) do
+    seen[m.id] = true
+    if has["ui.toast"] then
+      omsi.ui.toast(m.text, { title = m.title, icon = "support_agent", color = "#F58620", seconds = 12 })
+    else
+      omsi.message(m.title .. ": " .. m.text, 10)
+    end
+  end
+end
+
 -- (the duty board: wanted unless Omsi-Hub says not, and not before the driver signed on)
 omsi.every(1, function()
-  board.update((not assignment or assignment.board ~= false) and signon.at_work())
+  board.update((not assignment or assignment.board ~= false) and signon.at_work(), company_duty() and parts() or {}, assignment, { trip.boarded_on_trip(), trip.boarded_total() })
+  dispatch()
 end)
 
 omsi.every(2, function()

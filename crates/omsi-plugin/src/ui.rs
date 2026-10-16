@@ -15,7 +15,9 @@ use std::rc::Rc;
 
 /// `omsi.ui.version`: raised when something is added a plugin may want to test for.
 /// 2: images, checkboxes, sliders, text fields, tabs, charts, tables, draggable panels.
-pub const VERSION: i64 = 2;
+/// 3: the navigator's board (`anchor = "navigator"`, `ui.dock`), the launcher's typeface
+/// (`font`), boxes, stop lists, bars of several parts, a badge's weight.
+pub const VERSION: i64 = 3;
 /// Most panels of one plugin.
 pub const MAX_PANELS: usize = 16;
 /// Most elements of one panel, those in rows included.
@@ -65,6 +67,11 @@ pub enum Anchor {
     BottomLeft,
     Bottom,
     BottomRight,
+    /// In the navigator, as its board: under its next-stop bar (beside the map on a wide
+    /// one), as wide as it and drawn at its scale, on its own background. Shown only while the
+    /// navigator shows its board (Shift+N, the handle on its bar), which its own schedule
+    /// leaves to it meanwhile.
+    Navigator,
 }
 
 impl Anchor {
@@ -79,6 +86,7 @@ impl Anchor {
             "bottom_left" => Anchor::BottomLeft,
             "bottom" => Anchor::Bottom,
             "bottom_right" => Anchor::BottomRight,
+            "navigator" => Anchor::Navigator,
             _ => return None,
         })
     }
@@ -95,6 +103,8 @@ impl Anchor {
             Anchor::BottomLeft => (0.0, 1.0),
             Anchor::Bottom => (0.5, 1.0),
             Anchor::BottomRight => (1.0, 1.0),
+            // (in the navigator, where the game puts it; on the screen's own, top left)
+            Anchor::Navigator => (0.0, 0.0),
         }
     }
 }
@@ -105,6 +115,16 @@ pub enum Weight {
     Regular,
     Medium,
     Bold,
+}
+
+/// The typeface a panel is written in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Font {
+    /// The game's interface's (Inter).
+    #[default]
+    Interface,
+    /// The launcher's and the navigator's (Hanken Grotesk).
+    Launcher,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -147,12 +167,13 @@ pub struct Panel {
     /// While the panels have the mouse it can be moved by dragging it (where it has nothing
     /// clickable); the place it is moved to stays when it is set again.
     pub draggable: bool,
+    pub font: Font,
     pub children: Vec<Element>,
 }
 
 impl Default for Panel {
     fn default() -> Panel {
-        Panel { anchor: Anchor::TopLeft, x: 0.0, y: 0.0, width: 300.0, padding: 12.0, gap: 6.0, background: None, radius: 12.0, accent: None, visible: true, clickable: false, draggable: false, children: Vec::new() }
+        Panel { anchor: Anchor::TopLeft, x: 0.0, y: 0.0, width: 300.0, padding: 12.0, gap: 6.0, background: None, radius: 12.0, accent: None, visible: true, clickable: false, draggable: false, font: Font::Interface, children: Vec::new() }
     }
 }
 
@@ -199,14 +220,39 @@ pub enum ChartStyle {
     Bars,
 }
 
+/// Where a stop of a `stops` list is for the bus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StopState {
+    /// Behind it.
+    Done,
+    /// The one it heads for, or stands at.
+    Now,
+    #[default]
+    Ahead,
+}
+
+/// A stop of a `stops` list: its name and time, when the bus will be there (in its colour),
+/// where it is for the bus and a tag after its name ("terminus").
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Stop {
+    pub name: String,
+    pub time: String,
+    pub expected: String,
+    pub expected_color: Option<Rgba>,
+    pub state: StopState,
+    pub tag: String,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Kind {
     Text { text: String, size: f32, weight: Weight, align: Align, wrap: bool },
     /// A Material Symbols name of the game's icons; one it has not draws nothing.
     Icon { name: String, size: f32 },
     Row { children: Vec<Element>, gap: f32, align: RowAlign },
-    Bar { value: f32, height: f32, background: Option<Rgba> },
-    Badge { text: String, text_color: Option<Rgba> },
+    /// `segments` (shares and colours, side by side): a bar of several parts in place of
+    /// `value`'s one.
+    Bar { value: f32, height: f32, background: Option<Rgba>, segments: Vec<(f32, Rgba)> },
+    Badge { text: String, text_color: Option<Rgba>, weight: Weight },
     Divider,
     Space { size: f32 },
     Button { text: String, icon: Option<String> },
@@ -222,6 +268,11 @@ pub enum Kind {
     Chart { values: Vec<f32>, min: Option<f32>, max: Option<f32>, height: f32, style: ChartStyle, fill: bool },
     /// Columns of texts: the header row bold; `widths` shares of the width (none: alike).
     Table { columns: Vec<String>, rows: Vec<Vec<String>>, widths: Vec<f32>, size: f32 },
+    /// Its children stacked in a tinted box with a stripe on the left (the element's colour).
+    Box { children: Vec<Element>, gap: f32 },
+    /// Stops on a rail: the ones behind the bus grey, the one it heads for marked, a time on
+    /// the right (and before it when the bus will be there).
+    Stops { stops: Vec<Stop>, size: f32 },
 }
 
 /// A notification card of `omsi.ui.toast`.
@@ -291,12 +342,16 @@ pub struct UiState {
     screen: [f32; 3],
     serial: u64,
     typing: Option<Typing>,
+    /// The navigator's board as a panel there has it (its own pixels): the width, the most
+    /// height there is room for, and the height the panel there came to (0: none there).
+    /// None: the navigator shows no board.
+    dock: Option<[f32; 3]>,
 }
 
 impl Default for UiState {
     fn default() -> Self {
         // (until the game has drawn a frame: a 1080p screen)
-        UiState { panels: Vec::new(), toasts: Vec::new(), clicks: Vec::new(), changes: Vec::new(), focus: None, shown: true, screen: [1920.0, 1080.0, 1.0], serial: 0, typing: None }
+        UiState { panels: Vec::new(), toasts: Vec::new(), clicks: Vec::new(), changes: Vec::new(), focus: None, shown: true, screen: [1920.0, 1080.0, 1.0], serial: 0, typing: None, dock: None }
     }
 }
 
@@ -458,6 +513,17 @@ impl UiState {
     /// `omsi.ui.screen()`: logical width, height, and the interface's scale.
     pub fn screen(&self) -> [f32; 3] {
         self.screen
+    }
+
+    /// The game says where the navigator's board is: its width and room, and the height of
+    /// the panel in it (`Anchor::Navigator`), in that panel's pixels; None: no board shown.
+    pub fn set_dock(&mut self, dock: Option<[f32; 3]>) {
+        self.dock = dock;
+    }
+
+    /// `omsi.ui.dock()`: the navigator's board (width, room, height), None without one.
+    pub fn dock(&self) -> Option<[f32; 3]> {
+        self.dock
     }
 
     pub fn panels(&self) -> &[PanelEntry] {
@@ -633,7 +699,7 @@ fn find_element<'a>(list: &'a mut [Element], id: &str) -> Option<&'a mut Element
         if e.id.as_deref() == Some(id) {
             return Some(e);
         }
-        if let Kind::Row { children, .. } = &mut e.kind {
+        if let Kind::Row { children, .. } | Kind::Box { children, .. } = &mut e.kind {
             if let Some(f) = find_element(children, id) {
                 return Some(f);
             }
@@ -647,7 +713,7 @@ fn find_in<'a>(list: &'a [Element], id: &str) -> Option<&'a Element> {
         if e.id.as_deref() == Some(id) {
             return Some(e);
         }
-        if let Kind::Row { children, .. } = &e.kind {
+        if let Kind::Row { children, .. } | Kind::Box { children, .. } = &e.kind {
             if let Some(f) = find_in(children, id) {
                 return Some(f);
             }
@@ -677,11 +743,12 @@ pub fn parse_panel(t: &Value, folder: Option<&Path>) -> Result<Panel, String> {
         return Err("the panel is a table".into());
     }
     let mut count = 0;
+    let anchor = match r.string("anchor")? {
+        None => Anchor::TopLeft,
+        Some(a) => Anchor::parse(&a).ok_or_else(|| format!("anchor: \"{a}\" is no anchor (top_left, top, top_right, left, center, right, bottom_left, bottom, bottom_right, navigator)"))?,
+    };
     Ok(Panel {
-        anchor: match r.string("anchor")? {
-            None => Anchor::TopLeft,
-            Some(a) => Anchor::parse(&a).ok_or_else(|| format!("anchor: \"{a}\" is no anchor (top_left, top, top_right, left, center, right, bottom_left, bottom, bottom_right)"))?,
-        },
+        anchor,
         x: r.number("x", 0.0, -10000.0, 10000.0)?,
         y: r.number("y", 0.0, -10000.0, 10000.0)?,
         width: r.number("width", 300.0, 40.0, 4000.0)?,
@@ -693,6 +760,13 @@ pub fn parse_panel(t: &Value, folder: Option<&Path>) -> Result<Panel, String> {
         visible: r.boolean("visible", true)?,
         clickable: r.boolean("clickable", false)?,
         draggable: r.boolean("draggable", false)?,
+        // (the navigator's board is in the navigator's typeface unless it says otherwise)
+        font: match r.string("font")?.as_deref() {
+            None if anchor == Anchor::Navigator => Font::Launcher,
+            None | Some("interface") => Font::Interface,
+            Some("launcher") => Font::Launcher,
+            Some(f) => return Err(format!("font: \"{f}\" is no font (interface, launcher)")),
+        },
         children: r.children("children", 0, &mut count)?,
     })
 }
@@ -753,6 +827,8 @@ fn patch(e: &mut Element, fields: &Value, folder: Option<&Path>) -> Result<(), S
     }
     match &mut e.kind {
         Kind::Bar { value, .. } if has("value") => *value = r.number("value", 0.0, 0.0, 1.0)?,
+        Kind::Bar { segments, .. } if has("segments") => *segments = r.segments("segments")?,
+        Kind::Stops { stops, .. } if has("stops") => *stops = r.stops("stops")?,
         Kind::Slider { value, min, max, .. } if has("value") => *value = r.number("value", *min, min.min(*max), max.max(*min))?,
         Kind::Checkbox { checked, .. } if has("checked") => *checked = r.boolean("checked", false)?,
         Kind::Tabs { selected, tabs } if has("selected") => *selected = (r.number("selected", 1.0, 1.0, tabs.len().max(1) as f32)? as usize).saturating_sub(1),
@@ -887,6 +963,65 @@ impl Reader<'_> {
         Ok(out)
     }
 
+    fn weight(&self, default: Weight) -> Result<Weight, String> {
+        Ok(match self.string("weight")?.as_deref() {
+            None => default,
+            Some("regular") => Weight::Regular,
+            Some("medium") => Weight::Medium,
+            Some("bold") => Weight::Bold,
+            Some(w) => return Err(format!("{}: \"{w}\" is no weight (regular, medium, bold)", self.at("weight"))),
+        })
+    }
+
+    /// A bar's parts: `{ { value = 0.6, color = "#34B26E" }, ... }`.
+    fn segments(&self, key: &str) -> Result<Vec<(f32, Rgba)>, String> {
+        let l = self.list(key)?;
+        if l.len() > 16 {
+            return Err(format!("{}: at most 16 parts", self.at(key)));
+        }
+        l.iter()
+            .enumerate()
+            .map(|(i, t)| {
+                let r = Reader { t, path: format!("{}[{}]", self.at(key), i + 1), folder: None };
+                if !t.is_table() {
+                    return Err(format!("{}: a part is a table", r.path));
+                }
+                Ok((r.number("value", 0.0, 0.0, 1e9)?, r.color("color")?.unwrap_or(Rgba([232, 160, 48, 255]))))
+            })
+            .collect()
+    }
+
+    /// A list of stops: `{ { name = "Rathaus", time = "07:45", expected = "07:49",
+    /// expected_color = "#FF5F57", state = "now", tag = "terminus" }, ... }`.
+    fn stops(&self, key: &str) -> Result<Vec<Stop>, String> {
+        let l = self.list(key)?;
+        if l.len() > MAX_POINTS / 4 {
+            return Err(format!("{}: at most {} stops", self.at(key), MAX_POINTS / 4));
+        }
+        l.iter()
+            .enumerate()
+            .map(|(i, t)| {
+                let r = Reader { t, path: format!("{}[{}]", self.at(key), i + 1), folder: None };
+                if !t.is_table() {
+                    return Err(format!("{}: a stop is a table", r.path));
+                }
+                Ok(Stop {
+                    name: r.string("name")?.unwrap_or_default(),
+                    time: r.string("time")?.unwrap_or_default(),
+                    expected: r.string("expected")?.unwrap_or_default(),
+                    expected_color: r.color("expected_color")?,
+                    state: match r.string("state")?.as_deref() {
+                        None | Some("ahead") => StopState::Ahead,
+                        Some("now") => StopState::Now,
+                        Some("done") => StopState::Done,
+                        Some(s) => return Err(format!("{}: \"{s}\" is no state (done, now, ahead)", r.at("state"))),
+                    },
+                    tag: r.string("tag")?.unwrap_or_default(),
+                })
+            })
+            .collect()
+    }
+
     /// An image of the plugin's folder: the file when it is there.
     fn image(&self, key: &str) -> Result<Option<PathBuf>, String> {
         let Some(src) = self.string(key)? else { return Ok(None) };
@@ -940,12 +1075,7 @@ impl Reader<'_> {
             "text" => Kind::Text {
                 text: text()?,
                 size: self.number("size", 14.0, 6.0, 96.0)?,
-                weight: match self.string("weight")?.as_deref() {
-                    None | Some("regular") => Weight::Regular,
-                    Some("medium") => Weight::Medium,
-                    Some("bold") => Weight::Bold,
-                    Some(w) => return Err(format!("{}: \"{w}\" is no weight (regular, medium, bold)", self.at("weight"))),
-                },
+                weight: self.weight(Weight::Regular)?,
                 align: match self.string("align")?.as_deref() {
                     None | Some("left") => Align::Left,
                     Some("center") => Align::Center,
@@ -966,8 +1096,10 @@ impl Reader<'_> {
                     Some(a) => return Err(format!("{}: \"{a}\" is no alignment (start, center, end, between)", self.at("align"))),
                 },
             },
-            "bar" => Kind::Bar { value: self.number("value", 0.0, 0.0, 1.0)?, height: self.number("height", 6.0, 1.0, 64.0)?, background: self.color("background")? },
-            "badge" => Kind::Badge { text: text()?, text_color: self.color("text_color")? },
+            "bar" => Kind::Bar { value: self.number("value", 0.0, 0.0, 1.0)?, height: self.number("height", 6.0, 1.0, 64.0)?, background: self.color("background")?, segments: self.segments("segments")? },
+            "badge" => Kind::Badge { text: text()?, text_color: self.color("text_color")?, weight: self.weight(Weight::Medium)? },
+            "box" => Kind::Box { children: self.children("children", depth + 1, count)?, gap: self.number("gap", 4.0, 0.0, 64.0)? },
+            "stops" => Kind::Stops { stops: self.stops("stops")?, size: self.number("size", 13.0, 6.0, 48.0)? },
             "divider" => Kind::Divider,
             "space" => Kind::Space { size: self.number("size", 8.0, 0.0, 1000.0)? },
             "button" => {

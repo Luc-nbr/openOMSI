@@ -220,13 +220,76 @@ fn start(s: &mut Session, args: &Value, p: &dyn crate::Platform) -> Result<Value
     }
     core::log_to_file(&format!("company duty launcher: {} {} duty {} on {} with {}", st.line, st.tour, sheet.duty.duty + 1, st.date, st.bus));
     // (the add-on's plugin told of the company's duty: `addon.rs`)
-    super::super::addon::assign_duty(&d, Some((&c.name, &format!("{} {} {}", st.line, st.tour, sheet.duty.duty + 1))));
+    super::super::addon::assign_duty(&d, Some((&c.name, &format!("{} {} {}", st.line, st.tour, sheet.duty.duty + 1), plugin_parts(&c, &sheet))));
     let launched = core::launch(&d).map_err(|e| format!("{e:#}"))?;
     core::log_to_file(&format!("game {}: {}", launched.pid, launched.command));
     p.launched();
     let t = tr("Starting your company's duty…");
     s.say(t, false);
     Ok(json!({ "launched": serde_json::to_value(launched).unwrap_or(Value::Null) }))
+}
+
+/// The company's side of the duty for the plugin's board in the game: its sheet (signing on,
+/// the trips, the breaks, the reliefs, signing off), what service control decided today for its
+/// tour within its time, what a boarding brings (where the company keeps the fares) and the
+/// line's contract with the authority.
+pub(crate) fn plugin_parts(c: &Company, sheet: &Sheet) -> super::super::addon::Parts {
+    use omsihub_plugin::bridge::{ContractNote, ControlNote, Fare, SheetRow};
+    let rows = sheet
+        .rows
+        .iter()
+        .map(|r| match r {
+            Row::SignOn { at, time, relief } => SheetRow { kind: "sign_on".into(), at: at.clone(), from: *time, to: *time, relief: *relief, ..SheetRow::default() },
+            Row::Trip { dep, arr, line, to, empty, .. } => SheetRow { kind: "trip".into(), at: to.clone(), from: *dep, to: *arr, line: line.clone(), empty: *empty, ..SheetRow::default() },
+            Row::Break { at, from, to } => SheetRow { kind: "break".into(), at: at.clone(), from: *from, to: *to, ..SheetRow::default() },
+            Row::SignOff { at, time, relief } => SheetRow { kind: "sign_off".into(), at: at.clone(), from: *time, to: *time, relief: *relief, ..SheetRow::default() },
+        })
+        .collect();
+    let same = |a: &str, b: &str| a.trim().eq_ignore_ascii_case(b.trim());
+    let controls = if sheet.duty.date == c.date {
+        co::control::of_day(c, &sheet.duty.date)
+            .into_iter()
+            .filter(|x| same(&x.line, &sheet.duty.line) && same(&x.tour, &sheet.duty.tour) && x.dep >= sheet.from && x.dep <= sheet.to)
+            .filter_map(|x| {
+                let note = |minutes: i32| ControlNote { kind: x.act.key().into(), at: x.at, dep: x.dep, minutes, bus: String::new() };
+                Some(match x.act {
+                    co::control::Act::ShortTurn { saved, .. } | co::control::Act::Express { saved, .. } | co::control::Act::Layover { saved } => note(saved),
+                    co::control::Act::Swap { vehicle, .. } => ControlNote { bus: c.vehicle(vehicle).map(|v| v.number.clone()).filter(|n| !n.trim().is_empty()).unwrap_or_default(), ..note(0) },
+                    // (a cover is another driver's: it says nothing to this one)
+                    co::control::Act::Cover { .. } => return None,
+                })
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let line = c.lines.iter().find(|l| same(&l.name, &sheet.duty.line));
+    let fare = line.map(|l| co::income::Rates::of(c, l, &sheet.duty.date)).filter(|r| !r.to_authority).map(|r| {
+        let look = c.currency.look();
+        Fare {
+            per_boarding: c.currency.units(r.per_boarding()),
+            symbol: look.symbol.to_string(),
+            after: matches!(look.at, co::currency::SymbolAt::After),
+            places: look.places as u32,
+        }
+    });
+    let contract = co::bus_contracts::on_line(c, &sheet.duty.line, &sheet.duty.date).map(|k| ContractNote {
+        kind: match k.kind {
+            co::bus_contracts::Kind::Gross => "gross",
+            co::bus_contracts::Kind::Net => "net",
+            co::bus_contracts::Kind::Hire => "hire",
+        }
+        .into(),
+        rag: match k.rag(&sheet.duty.date) {
+            co::bus_contracts::Rag::Green => "green",
+            co::bus_contracts::Rag::Orange => "orange",
+            co::bus_contracts::Rag::Red => "red",
+        }
+        .into(),
+        early: co::econ_uk::ON_TIME_EARLY,
+        late: co::econ_uk::ON_TIME_LATE,
+    });
+    super::super::addon::Parts { sheet: rows, controls, fare, contract }
 }
 
 /// What the duty launcher does.

@@ -295,6 +295,15 @@ pub struct Navigator {
     /// The schedule under the map: the next stops with their times (Shift+N cycles map, map
     /// and schedule, off; the handle on the panel shows and hides it).
     pub schedule: bool,
+    /// A plugin's board for the navigator (`omsi.ui`'s `anchor = "navigator"`, Omsi-Hub's duty
+    /// board) and its height as last laid out (physical pixels; 0 before it was): it goes
+    /// where the schedule goes, in its place. None: no plugin has one.
+    pub dock: Option<f32>,
+    /// Where that board goes this frame (window pixels: x, y, width, the most height it may
+    /// take) and the navigator's scale it is drawn at; None while no board is shown.
+    pub dock_slot: Option<([f32; 4], f32, bool)>,
+    /// A plugin's board has been seen: the schedule's step opened for it once.
+    dock_seen: bool,
     /// The panel's size as the player dragged it, as shares of the window's height (the
     /// `nav_rect` setting's); None: its own size, from the interface's and `size`.
     pub custom: Option<[f32; 2]>,
@@ -488,6 +497,9 @@ impl Navigator {
             frames_since_drawn: u32::MAX,
             enabled,
             schedule: false,
+            dock: None,
+            dock_slot: None,
+            dock_seen: false,
             custom: None,
             rect_changed: false,
             layout: None,
@@ -1234,6 +1246,9 @@ impl Navigator {
         let start = scene.overlays.len();
         self.frame(renderer, scene, f);
         crate::ui::shift_overlays(scene, start, origin_x);
+        if let Some((r, _, _)) = self.dock_slot.as_mut() {
+            r[0] += origin_x;
+        }
         for rect in [&mut self.panel_rect, &mut self.city.rect] {
             rect[0] += origin_x;
             rect[2] += origin_x;
@@ -1243,6 +1258,7 @@ impl Navigator {
 
     pub fn frame(&mut self, renderer: &Renderer, scene: &mut Scene, f: &NavFrame) {
         self.panel_overlay = None;
+        self.dock_slot = None;
         // (with the navigator off the route is still followed for OMSI 2's arrows)
         if !self.enabled && !self.city.open && !self.arrows && self.shown < 0.01 {
             return;
@@ -1367,26 +1383,57 @@ impl Navigator {
             None => (base * f.ui_scale * size).min((sh * 0.7).max(300.0)).min((sw * 0.9).max(300.0)).round(),
         };
         // the schedule under the map (Shift+N's second step, the handle on the bar): the next
-        // stops with their times, as many as there is room for, five at most
-        let handle = !f.stops.is_empty() || self.schedule;
-        let (ph, sched) = if let Some((cw, ch)) = custom {
+        // stops with their times, as many as there is room for, five at most - or a plugin's
+        // board in its place, as tall as it came to (Omsi-Hub's duty board: on a duty it opens
+        // by itself once, as the game's own did before it was the plugin's)
+        if self.dock.is_some() && !self.dock_seen {
+            self.dock_seen = true;
+            self.schedule = true;
+        }
+        let board = self.dock.filter(|_| self.schedule && !self.cockpit_display && self.shown > 0.99);
+        let handle = !f.stops.is_empty() || self.schedule || self.dock.is_some();
+        // (a board not laid out yet gets a pixel: where it goes, and how wide, is known then)
+        let board_h = |room: f32| board.map(|h| h.max(1.0).min(room.max(1.0)).round());
+        let (ph, sched, room) = if let Some((cw, ch)) = custom {
             // (the navigator's own size on top: its texts as large as they fit in the shape)
             let (s, beside) = crate::nav_panel::scale(cw, ch, unit * size, self.schedule);
-            let (rows, bh) = if self.schedule { schedule_fitting(f.stops.len(), s, crate::nav_panel::board_room(ch, s, beside)) } else { (0, 0.0) };
-            self.layout = Some(crate::nav_panel::layout(cw, ch, s, (rows > 0).then_some(bh), beside, handle));
-            (ch, rows)
+            let room = crate::nav_panel::board_room(ch, s, beside);
+            let (rows, bh) = match board_h(room) {
+                Some(h) => (0, Some(h)),
+                None if self.schedule => {
+                    let (rows, bh) = schedule_fitting(f.stops.len(), s, room);
+                    (rows, (rows > 0).then_some(bh))
+                }
+                None => (0, None),
+            };
+            self.layout = Some(crate::nav_panel::layout(cw, ch, s, bh, beside, handle));
+            (ch, rows, room)
         } else {
             let s = pw / crate::nav_panel::WIDTH;
             let map_h = (pw * 0.62).round();
             let bars = (crate::nav_panel::HEAD * s).round() + (crate::nav_panel::NEXT * s).round();
             let room = sh - 2.0 * margin - map_h - bars;
-            let (rows, sched_h) = if self.schedule { schedule_fitting(f.stops.len(), s, room) } else { (0, 0.0) };
-            let ph = (map_h + bars + sched_h).round();
-            self.layout = Some(crate::nav_panel::layout(pw, ph, s, (rows > 0).then_some(sched_h), false, handle));
-            (ph, rows)
+            let (rows, sched_h) = match board_h(room) {
+                Some(h) => (0, Some(h)),
+                None if self.schedule => {
+                    let (rows, h) = schedule_fitting(f.stops.len(), s, room);
+                    (rows, (rows > 0).then_some(h))
+                }
+                None => (0, None),
+            };
+            let ph = (map_h + bars + sched_h.unwrap_or(0.0)).round();
+            self.layout = Some(crate::nav_panel::layout(pw, ph, s, sched_h, false, handle));
+            (ph, rows, room)
         };
         let (w, h) = (pw as u32, ph as u32);
         let (x0, y0) = self.panel_origin((sw, sh), (pw, ph), crate::platform::touch_controls(), f.info_rect, f.touch_gap);
+        // (the plugin's board: where it goes on the window - beside the map it has the column)
+        if let (Some(lay), Some(_), false) = (self.layout, board, self.city.open) {
+            if let Some(b) = lay.board {
+                let room = if lay.beside { b.h } else { room };
+                self.dock_slot = Some(([x0 + b.x, y0 + b.y, b.w, room.max(b.h)], lay.s, self.dock.is_some_and(|h| h > 0.0)));
+            }
+        }
 
         if self.gpu.is_none() {
             self.gpu = Some(Gpu::new(&renderer.device, renderer.format(), map_samples(renderer.format()), self.atlas.size));
@@ -1754,12 +1801,18 @@ impl Navigator {
             ui.icon(&mut self.atlas, icon, h.center(), h.w * 0.8, if on { TEXT_DIM } else { crate::nav_duty::NOW });
         }
         // the schedule: the next stops with their planned times - under the bar, or beside
-        // the map
-        if let Some(area) = lay.board.filter(|_| self.schedule && sched > 0) {
+        // the map; or a plugin's board there, which the plugins' panels draw over it (a
+        // hairline over it, as over the schedule)
+        if let Some(area) = lay.board.filter(|_| self.schedule && (sched > 0 || self.dock.is_some())) {
             if lay.beside {
                 ui.rect(Rect::new(area.x, area.y, 1.0, area.h), Color::WHITE.alpha(0.1));
             }
-            self.paint_schedule(&mut ui, f, area, sched, s);
+            if sched > 0 {
+                self.paint_schedule(&mut ui, f, area, sched, s);
+            } else if !lay.beside {
+                let pad = 11.0 * s;
+                ui.rect(Rect::new(area.x + pad, area.y, area.w - 2.0 * pad, 1.0), Color::WHITE.alpha(0.06));
+            }
         }
         // (the size just changed with Ctrl + the wheel: the new one, over the map)
         self.size_note(&mut ui, Vec2::new(map.center().x, map.y + 22.0 * s), s);
@@ -1982,8 +2035,8 @@ impl Navigator {
                         ui.text_in(&mut self.atlas, &self.fonts, &line2, 12.5 * s, Weight::Medium, y2, Align::Left, if diverted { crate::nav_duty::NOW } else { TEXT_DIM });
                     }
                 }
-                // (OMSI 2's punctuality)
-                if let Some(d) = f.delay {
+                // (OMSI 2's punctuality; a plugin's board under the bar says it on its own)
+                if let Some(d) = f.delay.filter(|_| !(self.schedule && self.dock.is_some())) {
                     let (txt, c) = match crate::nav_duty::punctuality(d) {
                         crate::nav_duty::Punctuality::Late => (crate::nav_duty::offset(d), LATE),
                         crate::nav_duty::Punctuality::Early => (crate::nav_duty::offset(d), EARLY),

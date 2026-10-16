@@ -412,8 +412,11 @@ fn the_driver_signs_on_accepts_the_duty_and_has_the_board() {
     ps.frame(&mut game);
     ps.frame(&mut game);
     let board = panel_text(&ps, "omsihub_board").expect("the duty board");
-    // (the stop it heads for marked, four minutes late: when it will be there)
-    assert!(board.contains("▶ Markt") && board.contains("+4:00") && board.contains("08:09"), "{board}");
+    // (in the navigator's board: the stop it heads for marked on the rail, four minutes late:
+    // when it will be there)
+    assert!(board.contains("anchor: Navigator") && board.contains("name: \"Markt\", time: \"08:05\", expected: \"08:09\"") && board.contains("state: Now") && board.contains("+4:00"), "{board}");
+    // (the coach: late on the duty's last trip)
+    assert!(board.contains("last trip of the duty"), "{board}");
 }
 
 #[test]
@@ -433,4 +436,64 @@ fn the_display_font_goes_on_the_drive_s_bus_and_the_editor_opens() {
     let mut other = Game::default();
     ps.frame(&mut other);
     assert!(other.asked.is_empty(), "{:?}", other.asked);
+}
+
+#[test]
+fn the_board_carries_the_company_s_parts_and_service_control_speaks() {
+    use omsihub_plugin::bridge::{ContractNote, ControlNote, Fare, SheetRow};
+    let plugins = plugins_dir("company");
+    install::install(&plugins).unwrap();
+    let dir = install::plugin_dir(&plugins);
+    let row = |kind: &str, at: &str, from: i32, to: i32, relief: bool| SheetRow { kind: kind.into(), at: at.into(), from, to, relief, ..SheetRow::default() };
+    let a = Assignment {
+        // (08:00 on the game's clock: the short-turn is for the 08:02 trip, the relief at 08:05;
+        // the break at ten is not due yet)
+        sheet: vec![row("sign_on", "Depot", 470, 470, false), row("break", "Rathaus", 600, 620, false), row("sign_off", "Markt", 485, 485, true)],
+        controls: vec![ControlNote { kind: "short_turn".into(), at: 470, dep: 482, minutes: 6, bus: String::new() }],
+        fare: Some(Fare { per_boarding: 1.85, symbol: "€".into(), after: false, places: 2 }),
+        contract: Some(ContractNote { kind: "gross".into(), rag: "orange".into(), early: 1, late: 5 }),
+        ..assignment()
+    };
+    bridge::write_assignment(&dir, &a).unwrap();
+    let mut ps = Plugins::load(&[plugins.clone()], &HostConfig::default());
+    let trip = three_stops();
+    let mut game = Game { trips: vec![trip.clone()], ..Game::default() };
+    ps.frame(&mut game);
+    // at Markt five and a half minutes before it is due to leave: four passengers in
+    game.duty = Some(io::Duty { line: "10".into(), tour: "2".into(), trip: 0, trips: 1, next: 1, at_stop: true, delay: -300.0, current: trip, ..io::Duty::default() });
+    for _ in 0..3 {
+        ps.frame(&mut game);
+    }
+    game.events = vec![GameEvent { name: "passenger_board", args: vec![InfoValue::Num(4.0)] }];
+    ps.frame(&mut game);
+    game.events.clear();
+    for _ in 0..3 {
+        ps.frame(&mut game);
+    }
+    let board = panel_text(&ps, "omsihub_board").expect("the duty board");
+    // the coach: hold, and why
+    assert!(board.contains("Hold 5:30 here · leave at 08:05") && board.contains("Leaving now counts as early"), "{board}");
+    // the duty strip, the fare box, the contract
+    assert!(board.contains("Relief 08:05 · Markt"), "{board}");
+    assert!(board.contains("Fare box €7.40 · 4 boarded this trip · €7.40 today"), "{board}");
+    assert!(board.contains("Gross cost contract · rated Amber · on time −1 to +5 min"), "{board}");
+    // service control: the short-turn and the relief, once each; the break later
+    let said = |ps: &Plugins| ps.ui.borrow().toasts().iter().map(|t| t.text.clone()).collect::<Vec<_>>();
+    let toasts = said(&ps);
+    assert!(toasts.iter().any(|t| t == "Short-turn the 08:02 trip: turn back early (6 min saved)"), "{toasts:?}");
+    assert!(toasts.iter().any(|t| t == "You are relieved at Markt at 08:05"), "{toasts:?}");
+    assert!(!toasts.iter().any(|t| t.contains("Rathaus")), "{toasts:?}");
+    for _ in 0..3 {
+        ps.frame(&mut game);
+    }
+    assert_eq!(said(&ps).iter().filter(|t| t.starts_with("Short-turn")).count(), 1);
+    // the driver switches the fare box off: it goes, the rest stays
+    game.events = vec![GameEvent { name: "ui_change", args: vec![InfoValue::Text("omsihub".into()), InfoValue::Text("part_fares".into()), InfoValue::Bool(false)] }];
+    ps.frame(&mut game);
+    game.events.clear();
+    for _ in 0..3 {
+        ps.frame(&mut game);
+    }
+    let board = panel_text(&ps, "omsihub_board").unwrap();
+    assert!(!board.contains("Fare box") && board.contains("Relief 08:05"), "{board}");
 }

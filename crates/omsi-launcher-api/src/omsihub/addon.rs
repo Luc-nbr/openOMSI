@@ -291,11 +291,22 @@ fn assign(a: Assignment, lang: &str) -> Answer {
     Ok(json!({ "issued": a.issued }))
 }
 
+/// The company's side of a duty for the plugin's board (`company::launch`'s `plugin_parts`):
+/// the duty's sheet, service control's decisions for its tour, the fare box, the contract.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Parts {
+    pub sheet: Vec<bridge::SheetRow>,
+    pub controls: Vec<bridge::ControlNote>,
+    pub fare: Option<bridge::Fare>,
+    pub contract: Option<bridge::ContractNote>,
+}
+
 /// Give the plugin the duty of a drive about to start, where the plugin is on (otherwise
 /// nothing happens): `company` names the company's duty (its name and the duty's
-/// id); a drive of the player's own gets an assignment as well, so that its trips are booked
-/// for the right driver. Said in the launcher's log when it fails: the drive starts anyway.
-pub fn assign_duty(d: &core::Duty, company: Option<(&str, &str)>) {
+/// id) and gives its `Parts`; a drive of the player's own gets an assignment as well, so that
+/// its trips are booked for the right driver. Said in the launcher's log when it fails: the
+/// drive starts anyway.
+pub fn assign_duty(d: &core::Duty, company: Option<(&str, &str, Parts)>) {
     let mut c = load();
     let Ok(dir) = game_plugins_dir(&c) else { return };
     if install::status(&dir).state != install::State::On {
@@ -303,7 +314,7 @@ pub fn assign_duty(d: &core::Duty, company: Option<(&str, &str)>) {
     }
     let config = core::load_config();
     let driver = d.profile.clone().filter(|p| !p.trim().is_empty()).unwrap_or(config.profile);
-    let (name, duty) = company.unwrap_or_default();
+    let (name, duty, parts) = company.unwrap_or_default();
     // (the navigator's settings of Omsi-Hub's game: signing on before a company's duty, the
     // duty board)
     let settings = core::get_settings().unwrap_or_else(|_| core::settings_from_text(None));
@@ -323,6 +334,10 @@ pub fn assign_duty(d: &core::Duty, company: Option<(&str, &str)>) {
         bus: d.bus.clone(),
         display_font: d.display_font.clone().unwrap_or_default(),
         editor: d.editor,
+        sheet: parts.sheet,
+        controls: parts.controls,
+        fare: parts.fare,
+        contract: parts.contract,
         ..Assignment::default()
     };
     write_texts(&install::plugin_dir(&dir));

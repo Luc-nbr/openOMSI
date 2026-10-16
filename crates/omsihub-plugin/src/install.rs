@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 /// The plugin's name: its folder in the plugins folder.
 pub const NAME: &str = "omsihub";
 /// The plugin's version; `lua/main.lua` says the same (a test keeps the two the same).
-pub const VERSION: &str = "1.5.0";
+pub const VERSION: &str = "1.6.0";
 /// The plugin's files.
 pub const FILES: &[(&str, &str)] = &[
     ("main.lua", include_str!("../lua/main.lua")),
@@ -30,6 +30,7 @@ pub const FILES: &[(&str, &str)] = &[
     ("watch.lua", include_str!("../lua/watch.lua")),
     ("board.lua", include_str!("../lua/board.lua")),
     ("signon.lua", include_str!("../lua/signon.lua")),
+    ("company.lua", include_str!("../lua/company.lua")),
 ];
 /// The texts the plugin shows (`tr` in `lua/main.lua`), in English: Omsi-Hub puts their
 /// translations into the assignment (`bridge::Assignment::texts`).
@@ -102,6 +103,42 @@ pub const TEXTS: &[&str] = &[
     "and %{n} more to %{terminus}",
     "Next %{time}",
     "%{m} min break",
+    "arrives %{time}",
+    "leaves %{time}",
+    "terminus",
+    // the board's company parts (`lua/company.lua`) and their switches (`lua/main.lua`)
+    "On the duty board",
+    "Punctuality coach",
+    "Duty strip",
+    "Service control messages",
+    "Fare box",
+    "Contract",
+    "Hold %{s} here · leave at %{time}",
+    "Leaving now counts as early",
+    "Running %{s} early · ease off",
+    "Late %{s} · last trip of the duty",
+    "Late %{s} · the %{m} min layover brings the %{time} back on time",
+    "Late %{s} · still %{left} late for the %{time} after the layover",
+    "Break until %{time} · %{place}",
+    "Break %{from}–%{to} · %{place}",
+    "Relief %{time} · %{place}",
+    "Sign off %{time} · %{place}",
+    "Service control",
+    "Short-turn the %{time} trip: turn back early (%{m} min saved)",
+    "Run the %{time} trip out of service to the terminus (%{m} min saved)",
+    "The layover before the %{time} trip is cut by %{m} min",
+    "Bus %{bus} takes over from the %{time} trip",
+    "Another bus takes over from the %{time} trip",
+    "Your break at %{place}: %{from}–%{to}",
+    "You are relieved at %{place} at %{time}",
+    "Fare box %{amount} · %{n} boarded this trip · %{total} today",
+    "Gross cost contract",
+    "Net cost contract",
+    "Hire contract",
+    "Green",
+    "Amber",
+    "Red",
+    "%{kind} · rated %{rag} · on time −%{early} to +%{late} min",
     // signing on (`lua/signon.lua`)
     "Not signed on",
     "Personnel number",

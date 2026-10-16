@@ -325,4 +325,10 @@ pub static FNS: &[ApiFn] = &[
         let [w, h, s] = c.state().ui().screen();
         Value::List(vec![Value::Num(w as f64), Value::Num(h as f64), Value::Num(s as f64)])
     }),
+    def!("ui.dock", "ui", [], "width, room, height, or nil", "The navigator's board, where a panel with `anchor = \"navigator\"` goes, in that panel's pixels: its width, the most height there is room for, and the height the panel there came to (0 before it was laid out); `nil` while the navigator shows no board (it is off, or Shift+N or the handle on its bar put the board away).", NEW, None, true, |c, a| {
+        match c.state().ui().dock() {
+            Some([w, room, h]) => Value::List(vec![Value::Num(w as f64), Value::Num(room as f64), Value::Num(h as f64)]),
+            None => Value::Nil,
+        }
+    }),
 ];
