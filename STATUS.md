@@ -16,7 +16,8 @@ The cloud session (branch `r67-pause-cloud`) took over the local session's snaps
   - the stage (a triple screen's middle one);
   - the gamepad.
   An open list is drawn by openOMSI's `pause::list_page` in a sheet beside the panel.
-- Picture: `cargo test --release -p omsihub-game --lib pause_menu::tests::preview_pictures -- --ignored` writes `pause-menu.png`, `pause-menu-lan.png` and `pause-menu-ultrawide.png` next to `OMSI_UI_PREVIEW` (or into `target/`). It is CPU-rasterised and needs no graphics card.
+- The logo is the app's own (`assets/logos/omsi-hub-wordmark-light.svg`: the ring opening into the line, the stops). Its ring and line, Resume, the chosen and keyboard rows, the next stop and the driver's ring are drawn in the accent chosen in the app (`accent=` in settings.cfg). The game reads that setting again each time the menu opens.
+- Picture: `cargo test --release -p omsihub-game --lib pause_menu::tests::preview_pictures -- --ignored` writes `pause-menu.png`, `pause-menu-lan.png`, `pause-menu-ultrawide.png` and `pause-menu-green.png` (a green accent) next to `OMSI_UI_PREVIEW` (or into `target/`). It is CPU-rasterised and needs no graphics card.
 
 ## Left open
 

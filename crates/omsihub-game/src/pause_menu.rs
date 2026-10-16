@@ -251,17 +251,17 @@ fn capitalised(s: &str) -> String {
 
 // --- the wordmark -------------------------------------------------------------------------------
 
-/// The wordmark - the bus in its ring, "Omsi-" and "Hub" - made from the launcher's mark
-/// (`launcher/ui/js/omsihub/logo.js`, without the line and its stops).
-const WORDMARK: &str = include_str!("pause_menu/wordmark.svg");
-/// Its height in the panel (points), and its width to that.
-pub const MARK_H: f32 = 34.0;
-pub const MARK_ASPECT: f32 = 1614.6 / 388.0;
+/// The wordmark as the app has it (`assets/logos`, the launcher's `logo.js`): the bus in the
+/// ring that opens into the line, the stops on it, "Omsi-" and "Hub".
+const WORDMARK: &str = include_str!("../../../assets/logos/omsi-hub-wordmark-light.svg");
+/// Its height in the panel (points), and its width to that (its view box).
+pub const MARK_H: f32 = 56.0;
+pub const MARK_ASPECT: f32 = 1654.1 / 468.0;
 
 /// What the wordmark's texture is drawn for at `scale` physical pixels a point: its height in
 /// pixels (as large as it is shown - a larger texture squeezed without mipmaps comes out
-/// blurred and jagged) and the player's accent, which its ring is drawn in as the launcher's
-/// ("Hub" keeps the logo's orange).
+/// blurred and jagged) and the player's accent, which its ring and line are drawn in as the
+/// app's (`--hub-accent-chosen`; "Hub" keeps the logo's orange there too).
 pub fn wordmark_key(scale: f32) -> (u32, u32) {
     ((MARK_H * scale).round().max(8.0) as u32, omsi_ui::accent::chosen())
 }
@@ -320,9 +320,11 @@ impl PadKeys {
 const GLASS: Color = Color::rgba(18, 21, 27, 0.90);
 const GLASS_EDGE: Color = Color::rgba(255, 255, 255, 0.08);
 const RULE: Color = Color::rgba(255, 255, 255, 0.07);
-/// A row under the mouse or the keyboard, and the row whose list is open.
+/// A row under the mouse; the row the keyboard is on and the row whose list is open take the
+/// player's accent (as the launcher's chosen row), this much of it.
 const ROW_HOT: Color = Color::rgba(255, 255, 255, 0.06);
-const ROW_OPEN: Color = Color::rgba(255, 255, 255, 0.10);
+const ROW_LIT: f32 = 0.14;
+const ROW_OPEN: f32 = 0.20;
 /// What lies over the game: everywhere, more behind an open list, more towards the panel.
 const VEIL: Color = Color::rgba(6, 8, 12, 1.0);
 /// The way from the window's edges, the panel's width and corners.
@@ -337,7 +339,7 @@ const SECTION_GAP: f32 = 17.0;
 /// lines do not fit).
 const BODY_END: f32 = 4.0;
 /// The panel's head (the wordmark), Resume, its foot (the driver and the way out).
-const HEAD_H: f32 = 74.0;
+const HEAD_H: f32 = 92.0;
 const RESUME_H: f32 = 48.0;
 const FOOT_H: f32 = 72.0;
 /// The trip card's width.
@@ -435,7 +437,7 @@ fn panel_draw(ui: &mut Ui, m: &Menu, rows: &[(usize, &'static str, &'static str,
     let lit = |k: usize| m.kbd && !any_hover && !m.list && m.sel == Some(k);
     let mut picked: Option<usize> = None;
     // the head: the wordmark, the version and the state small beside it
-    let mark = Rect::new(panel.x + 20.0, panel.y + 20.0, MARK_H * MARK_ASPECT, MARK_H);
+    let mark = Rect::new(panel.x + 18.0, panel.y + 20.0, MARK_H * MARK_ASPECT, MARK_H);
     match m.mark {
         Some(tex) => ui.image(mark, tex, 0.0),
         None => {
@@ -443,10 +445,10 @@ fn panel_draw(ui: &mut Ui, m: &Menu, rows: &[(usize, &'static str, &'static str,
         }
     }
     let vx = panel.right() - 20.0;
-    ui.text_as_is(m.version, Vec2::new(vx, mark.y + 14.0), 11.0, Weight::Medium, INK_MUTED, Align::Right);
+    ui.text_as_is(m.version, Vec2::new(vx, mark.y + 22.0), 11.0, Weight::Medium, INK_MUTED, Align::Right);
     // (in a LAN session the game runs on under the menu)
     let state = omsi_ui::tr(if m.paused { "Paused" } else { "Menu" }).into_owned();
-    ui.text_as_is(&state, Vec2::new(vx, mark.y + 30.0), 11.0, Weight::Medium, INK_2, Align::Right);
+    ui.text_as_is(&state, Vec2::new(vx, mark.y + 38.0), 11.0, Weight::Medium, INK_2, Align::Right);
     // Resume
     let b = Rect::new(panel.x + 16.0, panel.y + HEAD_H, panel.w - 32.0, RESUME_H);
     if let Some(k) = m.lines.iter().position(|l| l.0 == "resume") {
@@ -494,8 +496,9 @@ fn panel_draw(ui: &mut Ui, m: &Menu, rows: &[(usize, &'static str, &'static str,
             }
             let open = m.open == Some(id);
             let t = ui.anim(id_of(&format!("pause-hl-{id}")), if h || lit(k) { 1.0 } else { 0.0 }, 0.06);
-            if open {
-                ui.p().rounded(row, 8.0, ROW_OPEN);
+            if open || lit(k) {
+                ui.p().rounded(row, 8.0, accent().alpha(if open { ROW_OPEN } else { ROW_LIT }));
+                ui.p().rounded(Rect::new(row.x, row.y + 8.0, 3.0, row.h - 16.0), 1.5, accent());
             } else if t > 0.01 {
                 ui.p().rounded(row, 8.0, ROW_HOT.alpha(ROW_HOT.0[3] * t));
             }
@@ -546,7 +549,7 @@ fn panel_draw(ui: &mut Ui, m: &Menu, rows: &[(usize, &'static str, &'static str,
     }
     let av = Vec2::new(panel.x + 40.0, cy);
     ui.p().circle(av, 20.0, Color::rgba(255, 255, 255, 0.10));
-    ui.p().rounded_border(Rect::new(av.x - 20.0, av.y - 20.0, 40.0, 40.0), 20.0, 1.0, Color::rgba(255, 255, 255, 0.10));
+    ui.p().rounded_border(Rect::new(av.x - 20.0, av.y - 20.0, 40.0, 40.0), 20.0, 1.5, accent().alpha(0.7));
     let initial = m.driver.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_else(|| "?".into());
     ui.text_as_is(&initial, Vec2::new(av.x, av.y + 5.5), 15.0, Weight::Bold, INK_2, Align::Center);
     let tx = av.x + 30.0;

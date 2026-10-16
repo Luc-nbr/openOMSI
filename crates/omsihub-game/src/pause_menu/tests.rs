@@ -146,16 +146,21 @@ fn a_gamepad_presses_keys_and_a_held_direction_repeats() {
 
 #[test]
 fn the_wordmark_draws_in_the_accent() {
-    let (w, h, px) = wordmark_pixels((34, omsi_ui::accent::DEFAULT)).unwrap();
-    assert_eq!((w, h), (141, 34));
+    let (w, h, px) = wordmark_pixels((56, omsi_ui::accent::DEFAULT)).unwrap();
+    assert_eq!((w, h), (198, 56));
     assert_eq!(px.len(), (w * h * 4) as usize);
     // the ring's orange on the left, white letters, the background open
     let at = |x: u32, y: u32| &px[((y * w + x) * 4) as usize..((y * w + x) * 4 + 4) as usize];
     assert!(px.chunks(4).any(|p| p[3] > 200 && p[0] > 230 && p[1] > 110 && p[1] < 150 && p[2] < 60), "orange");
     assert!(px.chunks(4).any(|p| p[3] > 200 && p[0] > 240 && p[1] > 240 && p[2] > 240), "white");
     assert_eq!(at(w - 1, 0)[3], 0);
-    let (_, _, blue) = wordmark_pixels((34, 0x2A75F7)).unwrap();
+    let (_, _, blue) = wordmark_pixels((56, 0x2A75F7)).unwrap();
     assert!(blue.chunks(4).any(|p| p[3] > 200 && p[2] > 200 && p[0] < 80), "a blue accent's ring");
+    // the app's logo: the ring opens into the line under the words, in the accent too
+    let line = |px: &[u8], x: u32| px[(((h as f32 * 0.814) as u32 * w + x) * 4) as usize..][..4].to_vec();
+    let x = (w as f32 * 0.8) as u32;
+    assert!(line(&px, x)[0] > 230 && line(&px, x)[2] < 60, "the orange line: {:?}", line(&px, x));
+    assert!(line(&blue, x)[2] > 200 && line(&blue, x)[0] < 80, "the blue line: {:?}", line(&blue, x));
 }
 
 #[test]
@@ -191,7 +196,8 @@ fn menu<'a>(lines: &'a [(&'static str, &'static str)], trip: Option<&'a TripCard
 
 /// Pictures of the menu over a stand-in for the street - on a duty, late, the mouse on a line;
 /// a LAN host's at 1920 x 1080 with the keyboard on "Options", no duty; on an ultrawide
-/// 3440 x 1440 on a line the player gave its own colour - written to the
+/// 3440 x 1440 on a line the player gave its own colour; with a green accent chosen in the app
+/// - written to the
 /// folder of `OMSI_UI_PREVIEW` (or `target/`):
 /// `cargo test -p omsihub-game --lib pause_menu -- --ignored`.
 #[test]
@@ -202,11 +208,14 @@ fn preview_pictures() {
     let (trips, tours) = duty();
     let card = card_of(&state(&trips, &tours, 0, 3, false, 250.0), false, 11.0 * 3600.0 + 35.0 * 60.0, "Rain".into(), 92.0).unwrap();
     let blue = TripCard { colour: Some(Color::hex(0x1f4fd8)), ..card_of(&state(&trips, &tours, 0, 3, false, -70.0), false, 11.0 * 3600.0 + 31.0 * 60.0, "Sunny".into(), 100.0).unwrap() };
-    for (name, lan, (w, h), mouse, trip) in [
-        ("pause-menu.png", false, (1600.0, 900.0), Vec2::new(150.0, 420.0), Some(&card)),
-        ("pause-menu-lan.png", true, (1920.0, 1080.0), Vec2::new(-1.0, -1.0), None),
-        ("pause-menu-ultrawide.png", false, (3440.0, 1440.0), Vec2::new(-1.0, -1.0), Some(&blue)),
+    for (name, lan, (w, h), mouse, trip, colour) in [
+        ("pause-menu.png", false, (1600.0, 900.0), Vec2::new(150.0, 420.0), Some(&card), omsi_ui::accent::DEFAULT),
+        ("pause-menu-lan.png", true, (1920.0, 1080.0), Vec2::new(-1.0, -1.0), None, omsi_ui::accent::DEFAULT),
+        ("pause-menu-ultrawide.png", false, (3440.0, 1440.0), Vec2::new(-1.0, -1.0), Some(&blue), omsi_ui::accent::DEFAULT),
+        // (the accent chosen in the app: green, the keyboard on "Options")
+        ("pause-menu-green.png", true, (1920.0, 1080.0), Vec2::new(-1.0, -1.0), Some(&card), 0x23A65A),
     ] {
+        omsi_ui::accent::set(colour);
         let mut lines = game_menu(lan);
         arrange(&mut lines);
         let (chips, hints) = keys(&lines, |_| None, |_| true);
@@ -242,7 +251,7 @@ fn preview_pictures() {
                 raster(vs, &ui.atlas, &mut img, clip);
             } else if let Some(v) = vs.first() {
                 // the wordmark, from its own pixels
-                let (mw, mh, px) = wordmark_pixels((MARK_H as u32, omsi_ui::accent::DEFAULT)).unwrap();
+                let (mw, mh, px) = wordmark_pixels(wordmark_key(1.0)).unwrap();
                 let (x0, y0) = (v.pos[0].round() as u32, v.pos[1].round() as u32);
                 for y in 0..mh {
                     for x in 0..mw {

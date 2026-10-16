@@ -9,6 +9,9 @@ impl App {
     /// for the other players).
     pub(crate) fn open_game_menu(&mut self) {
         self.menus.menu_prev_pause = self.paused;
+        // Omsi-Hub: the accent as the app has it now (`accent=` in settings.cfg, which the game
+        // only reads): a colour chosen there while the game ran shows in the menu at once
+        crate::accent::set_from_setting(Some(&crate::settings::Settings::load().accent));
         // the menu takes the keys, their key-ups too: what is held now is let go here, or a
         // steering key let go in the menu went on turning the wheel to full lock once the
         // menu closed (a throttle key went on accelerating, a door button stayed pressed)
