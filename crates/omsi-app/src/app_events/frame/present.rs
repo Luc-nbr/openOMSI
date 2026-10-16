@@ -702,7 +702,9 @@ impl App {
                 .unwrap_or_default();
             self.perf.fps = self.perf.frames as f32;
             let title = format!(
-                "openOMSI - {} fps{speed} - {:.0},{:.0},{:.0} yaw {:.0}",
+                // (Omsi-Hub, fork-local: the distribution's name)
+                "{} - {} fps{speed} - {:.0},{:.0},{:.0} yaw {:.0}",
+                omsi_cfg::product::NAME,
                 self.perf.frames,
                 cam.position.x,
                 cam.position.y,

@@ -132,7 +132,7 @@ fn rail(sh: &mut Shell, v: &PauseView) {
     if let Some(tex) = logo {
         ui.image(Rect::new(18.0, 16.0, 32.0, 32.0), tex, 7.0);
     }
-    ui.text("openOMSI", Vec2::new(58.0, 31.0), 17.0, Weight::Bold, INK, Align::Left);
+    ui.text(omsi_cfg::product::NAME, Vec2::new(58.0, 31.0), 17.0, Weight::Bold, INK, Align::Left);
     let state = omsi_ui::tr(if v.paused { "Paused" } else { "Menu" }).into_owned();
     ui.text(&format!("{}  -  {state}", crate::startup::VERSION), Vec2::new(58.0, 46.0), 11.5, Weight::Medium, INK_MUTED, Align::Left);
     // the items

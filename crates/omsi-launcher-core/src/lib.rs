@@ -114,47 +114,58 @@ pub fn without_own_args(args: &[String]) -> Vec<String> {
 }
 
 /// Where the game binary is: the game chosen in its place (`choose_game`), the configured
-/// path, next to the launcher, or the development build in the source tree.
+/// path, next to the launcher, or the development build in the source tree. Omsi-Hub: the
+/// game by its name now (`omsi-hub-game`) first, then by openOMSI's (`openomsi`) - an install
+/// of the old names, or a folder of openOMSI's own (`omsi_cfg::product`).
 fn find_game(configured: &str) -> Option<PathBuf> {
+    game_candidates(configured, chosen_game().map(|g| g.exe), std::env::current_exe().ok(), std::env::current_dir().ok()).into_iter().find(|p| p.is_file())
+}
+
+/// The places `find_game` tries, in its order.
+fn game_candidates(configured: &str, chosen: Option<PathBuf>, exe: Option<PathBuf>, cwd: Option<PathBuf>) -> Vec<PathBuf> {
+    use omsi_cfg::product;
+    let names = [product::GAME, product::LEGACY_GAME];
     let mut cands: Vec<PathBuf> = Vec::new();
-    if let Some(g) = chosen_game() {
-        cands.push(g.exe);
-    }
+    cands.extend(chosen);
     // the game that came with this launcher first: a path remembered from an older
     // installation (`target/release/omsi` of the days before the rename) kept starting an
     // old build after every update - the new pause menu "was not there" on macOS
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            cands.push(dir.join(if cfg!(windows) { "openomsi.exe" } else { "openomsi" }));
-        }
+    if let Some(dir) = exe.as_deref().and_then(Path::parent) {
+        cands.extend(product::game_files().map(|f| dir.join(f)));
     }
     if !configured.trim().is_empty() {
         let c = PathBuf::from(configured.trim());
-        // (only a game of today's name: the old `omsi` binary is not taken any more)
-        let stem = c.file_stem().map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-        if stem == "openomsi" {
+        // (only a game of today's names: the old `omsi` binary is not taken any more)
+        let stem = c.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        if product::is_game_stem(&stem) {
             cands.push(c);
         }
     }
     if let Some(p) = std::env::var_os("OPENOMSI_BIN") {
         cands.push(PathBuf::from(p));
     }
-    if let Ok(exe) = std::env::current_exe() {
+    if let Some(exe) = &exe {
         for a in exe.ancestors().skip(1).take(7) {
-            cands.push(a.join("openomsi"));
-            cands.push(a.join("openomsi.exe"));
-            cands.push(a.join("target").join("release").join("openomsi"));
-            cands.push(a.join("target").join("release").join("openomsi.exe"));
-            cands.push(a.join("Resources").join("openomsi"));
+            for n in names {
+                cands.push(a.join(n));
+                cands.push(a.join(format!("{n}.exe")));
+                cands.push(a.join("target").join("release").join(n));
+                cands.push(a.join("target").join("release").join(format!("{n}.exe")));
+                cands.push(a.join("Resources").join(n));
+            }
         }
     }
-    if let Ok(cwd) = std::env::current_dir() {
+    if let Some(cwd) = &cwd {
         for a in cwd.ancestors().take(4) {
-            cands.push(a.join("target").join("release").join("openomsi"));
+            for n in names {
+                cands.push(a.join("target").join("release").join(n));
+            }
         }
     }
-    cands.push(data_dir().join("openomsi"));
-    cands.into_iter().find(|p| p.is_file())
+    for n in names {
+        cands.push(data_dir().join(n));
+    }
+    cands
 }
 
 /// The last search for the OMSI folder: (the places given first, what was found).
@@ -3773,6 +3784,40 @@ mod chosen_game_tests {
         assert_eq!(without_own_args(&free), s(&["--map", "maps/Grundorf/global.cfg", "--schedule", "--traffic", "30"]));
         let plain = s(&["--map", "m", "--line", "5", "--tour", "1"]);
         assert_eq!(without_own_args(&plain), plain);
+    }
+}
+
+#[cfg(test)]
+mod game_name_tests {
+    use super::*;
+    use omsi_cfg::product;
+
+    fn first(dir: &Path, configured: &str) -> Option<PathBuf> {
+        game_candidates(configured, None, Some(dir.join(product::exe(product::APP))), None).into_iter().find(|p| p.is_file())
+    }
+
+    #[test]
+    fn the_game_is_found_by_its_new_name_first_and_by_openomsi_s_name_after() {
+        let dir = std::env::temp_dir().join(format!("omsi_game_names_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let new = dir.join(product::exe(product::GAME));
+        let old = dir.join(product::exe(product::LEGACY_GAME));
+        // an install of the old names (or openOMSI's own): its `openomsi`
+        std::fs::write(&old, b"old").unwrap();
+        assert_eq!(first(&dir, ""), Some(old.clone()));
+        // both there: Omsi-Hub's own game
+        std::fs::write(&new, b"new").unwrap();
+        assert_eq!(first(&dir, ""), Some(new.clone()));
+        // a configured game of either name is taken, another program is not
+        let elsewhere = dir.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        for name in [product::exe(product::GAME), product::exe(product::LEGACY_GAME)] {
+            let c = elsewhere.join(&name);
+            assert!(game_candidates(c.to_str().unwrap(), None, None, None).contains(&c), "{name}");
+        }
+        assert!(!game_candidates(elsewhere.join("omsi").to_str().unwrap(), None, None, None).contains(&elsewhere.join("omsi")));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 

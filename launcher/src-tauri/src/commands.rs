@@ -163,8 +163,8 @@ fn fit_zoom(window: tauri::WebviewWindow, size: f64) -> Answer {
 #[tauri::command]
 fn update_relaunch(app: AppHandle) -> Answer {
     let place = omsi_platform::updater::install_place().map_err(err)?;
-    let game = place.exe.with_file_name(if cfg!(windows) { "openomsi.exe" } else { "openomsi" });
-    let program = if game.is_file() { game } else { place.exe.clone() };
+    // (Omsi-Hub's game, or openOMSI's name of it when the version installed has that)
+    let program = omsi_platform::updater::game_program(&place);
     omsi_launcher_lib::log_to_file(&format!("update: starting {} after the update", program.display()));
     std::process::Command::new(&program).current_dir(&place.dir).spawn().map_err(err)?;
     app.exit(0);

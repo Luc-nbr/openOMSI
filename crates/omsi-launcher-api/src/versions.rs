@@ -205,12 +205,8 @@ fn reason(e: &str) -> &str {
 }
 
 fn program(place: &updater::Place) -> PathBuf {
-    let game = place.exe.with_file_name(if cfg!(windows) { "openomsi.exe" } else { "openomsi" });
-    if game.is_file() {
-        game
-    } else {
-        place.exe.clone()
-    }
+    // (Omsi-Hub's game, or openOMSI's name of it: a version before the rename was chosen)
+    updater::game_program(place)
 }
 
 pub fn restart(p: &dyn Platform) -> Answer {

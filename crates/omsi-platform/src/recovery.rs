@@ -84,14 +84,15 @@ impl std::fmt::Display for SelfTestFailed {
 
 impl std::error::Error for SelfTestFailed {}
 
-/// The program an unpacked release holds in `staging`: `openomsi(.exe)` at its top, or the
-/// one inside its `.app` on macOS.
+/// The program an unpacked release holds in `staging`: the game at its top, or the one inside
+/// its `.app` on macOS - by Omsi-Hub's name (`omsi-hub-game`) or by openOMSI's (`openomsi`).
 pub(crate) fn staged_program(staging: &Path) -> Option<PathBuf> {
-    let exe = if cfg!(windows) { "openomsi.exe" } else { "openomsi" };
-    if staging.join(exe).is_file() {
-        return Some(staging.join(exe));
+    if let Some(p) = omsi_cfg::product::game_files().into_iter().map(|f| staging.join(f)).find(|p| p.is_file()) {
+        return Some(p);
     }
-    std::fs::read_dir(staging).ok()?.flatten().map(|e| e.path()).find(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("app"))).map(|app| app.join("Contents").join("MacOS").join("openomsi")).filter(|p| p.is_file())
+    let app = std::fs::read_dir(staging).ok()?.flatten().map(|e| e.path()).find(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("app")))?;
+    let macos = app.join("Contents").join("MacOS");
+    [omsi_cfg::product::GAME, omsi_cfg::product::LEGACY_GAME].into_iter().map(|n| macos.join(n)).find(|p| p.is_file())
 }
 
 /// Start `program --self-test` and wait for it (at most `limit`): it must exit 0 and say

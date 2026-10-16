@@ -588,7 +588,7 @@ pub(crate) fn present_clear(surface: &mut SurfaceState<'_>, device: &wgpu::Devic
 /// everywhere).
 pub(crate) fn fatal_message(text: &str) {
     log::error!("{text}");
-    eprintln!("openOMSI: {text}");
+    eprintln!("{}: {text}", omsi_cfg::product::NAME);
     #[cfg(target_os = "linux")]
     linux_message(text);
     #[cfg(windows)]
@@ -596,7 +596,7 @@ pub(crate) fn fatal_message(text: &str) {
         use windows::core::PCWSTR;
         use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
         let wide = |s: &str| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
-        let (t, c) = (wide(text), wide("openOMSI"));
+        let (t, c) = (wide(text), wide(omsi_cfg::product::NAME));
         unsafe {
             MessageBoxW(None, PCWSTR(t.as_ptr()), PCWSTR(c.as_ptr()), MB_OK | MB_ICONERROR);
         }
@@ -613,9 +613,10 @@ fn linux_message(text: &str) {
     if !desktop || std::env::var_os("OMSI_BACKGROUND").is_some_and(|v| !v.is_empty() && v != "0") {
         return;
     }
+    let title = format!("--title={}", omsi_cfg::product::NAME);
     let tries: [(&str, Vec<&str>); 3] = [
-        ("zenity", vec!["--error", "--title=openOMSI", "--width=520", "--no-markup", "--text", text]),
-        ("kdialog", vec!["--title", "openOMSI", "--error", text]),
+        ("zenity", vec!["--error", &title, "--width=520", "--no-markup", "--text", text]),
+        ("kdialog", vec!["--title", omsi_cfg::product::NAME, "--error", text]),
         ("xmessage", vec!["-center", text]),
     ];
     for (program, args) in tries {

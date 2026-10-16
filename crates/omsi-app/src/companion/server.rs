@@ -578,8 +578,8 @@ pub(crate) fn handle(req: &Request, shared: &Shared, lookup: Lookup, stop: &Atom
             200,
             "application/manifest+json",
             json!({
-                "name": "openOMSI",
-                "short_name": "openOMSI",
+                "name": omsi_cfg::product::NAME,
+                "short_name": omsi_cfg::product::NAME,
                 "start_url": "./",
                 "scope": "./",
                 "display": "standalone",

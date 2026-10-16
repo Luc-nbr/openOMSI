@@ -1301,7 +1301,7 @@ pub fn root_problem(root: &str) -> String {
         "The original OMSI 2 was not found automatically: choose its folder (the one with Omsi.exe, maps and Vehicles in it) under Setup and press Save.".to_string()
     } else if !p.exists() {
         format!("{root} does not exist: choose the folder of the original OMSI 2 (with Omsi.exe, maps and Vehicles in it) under Setup.")
-    } else if missing.iter().any(|m| m.contains("content folder")) || p.join("openomsi.exe").exists() || p.join("openomsi").is_file() {
+    } else if missing.iter().any(|m| m.contains("content folder")) || omsi_cfg::product::holds_game(p) {
         format!("{root} is openOMSI's own folder, not OMSI 2's: choose the folder of the original game (with Omsi.exe in it) under Setup.")
     } else if missing.is_empty() {
         String::new()

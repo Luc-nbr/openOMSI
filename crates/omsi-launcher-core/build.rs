@@ -1,4 +1,4 @@
-//! On Windows, the application icon goes into `openomsi-launcher.exe`.
+//! On Windows, the application icon goes into `omsi-hub-cli.exe`.
 
 fn main() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
@@ -6,7 +6,7 @@ fn main() {
     }
     println!("cargo:rerun-if-changed=../../assets/icons/app/openomsi.ico");
     let mut res = winresource::WindowsResource::new();
-    res.set_icon("../../assets/icons/app/openomsi.ico").set("ProductName", "Omsi-Hub").set("FileDescription", "Omsi-Hub launcher tools (openOMSI)");
+    res.set_icon("../../assets/icons/app/openomsi.ico").set("ProductName", "Omsi-Hub").set("FileDescription", "Omsi-Hub command line");
     if let Err(e) = res.compile() {
         println!("cargo:warning=no icon in the executable: {e}");
     }

@@ -9,7 +9,7 @@ fn main() {
     // (the executable exports the two switchable-graphics hints of main.rs, see there)
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
         for sym in ["NvOptimusEnablement", "AmdPowerXpressRequestHighPerformance"] {
-            println!("cargo:rustc-link-arg-bin=openomsi=/EXPORT:{sym},DATA");
+            println!("cargo:rustc-link-arg-bins=/EXPORT:{sym},DATA");
         }
     }
 }
@@ -31,7 +31,7 @@ fn steam() {
     };
     println!("cargo:rustc-cfg=steam");
     if os == "linux" {
-        println!("cargo:rustc-link-arg-bin=openomsi=-Wl,-rpath,$ORIGIN");
+        println!("cargo:rustc-link-arg-bins=-Wl,-rpath,$ORIGIN");
     }
     let src = std::path::Path::new("../../assets/steam_redist").join(lib);
     println!("cargo:rerun-if-changed={}", src.display());
@@ -48,8 +48,9 @@ fn windows_icon() {
     println!("cargo:rerun-if-changed=../../assets/icons/app/openomsi.ico");
     let mut res = winresource::WindowsResource::new();
     res.set_icon("../../assets/icons/app/openomsi.ico")
-        .set("ProductName", "openOMSI")
-        .set("FileDescription", "openOMSI")
+        // Omsi-Hub (fork-local): the distribution's name in the file's properties
+        .set("ProductName", "Omsi-Hub")
+        .set("FileDescription", "Omsi-Hub")
         .set("ProductVersion", &std::env::var("OPENOMSI_VERSION").unwrap_or_default());
     if let Err(e) = res.compile() {
         println!("cargo:warning=no icon in the executable: {e}");

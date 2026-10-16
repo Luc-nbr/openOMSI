@@ -34,6 +34,8 @@ pub mod radio;
 pub mod panic_guard;
 pub mod vfs;
 pub mod install_search;
+// Omsi-Hub (fork-local): the distribution's name and its programs' file names
+pub mod product;
 mod walk;
 use walk::{pop_within, resolve_existing};
 pub use install_search::find_original_install;
@@ -1109,7 +1111,7 @@ fn sibling_installs(here: &Path) -> Vec<PathBuf> {
     entries
         .flatten()
         .map(|e| e.path())
-        .filter(|d| ["openomsi", "openomsi.exe", "openOMSI.app"].iter().any(|p| d.join(p).exists()))
+        .filter(|d| ["omsi-hub-game", "omsi-hub-game.exe", "Omsi-Hub.app", "openomsi", "openomsi.exe", "openOMSI.app"].iter().any(|p| d.join(p).exists()))
         .map(|d| content_folder_of(&d))
         .collect()
 }
