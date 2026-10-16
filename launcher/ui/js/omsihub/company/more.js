@@ -13,6 +13,7 @@ import { useCallback } from '../../../vendor/preact-htm.js';
 import { toast } from '../../store.js';
 import { dark, lightGround, chosen } from '../theme.js';
 import { SYMBOLS } from './symbols.js';
+import { money } from '../money.js';
 
 // (this part's own look, loaded with its first page)
 const sheet = document.createElement('link');
@@ -87,12 +88,9 @@ export function num(x, places = 0) {
   return frac ? out + dec + frac : out;
 }
 
-/** Whole euros of `cents` (`words::eur`). */
+/** Whole units of the company's currency of `cents` (`words::eur`, `money.js`). */
 export function eur(cents) {
-  const n = num(Math.round(cents / 100), 0);
-  const [sign, rest] = n.startsWith('-') ? ['-', n.slice(1)] : ['', n];
-  const at = style()[2];
-  return at === 'before' ? `${sign}€${rest}` : at === 'spaced' ? `${sign}€ ${rest}` : `${sign}${rest} €`;
+  return money(cents);
 }
 
 // --- colours -------------------------------------------------------------------------------

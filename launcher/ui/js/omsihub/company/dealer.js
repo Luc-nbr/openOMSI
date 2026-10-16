@@ -10,6 +10,7 @@ import { start } from '../../data.js';
 import { html, useEffect, useRef, useState, tr, setCo, setUi, ui, act, useView, useSize, textW, Icon, Btn, Seg, Chips, Select, Dialog, Meter, Slider, Crumbs, T } from './kit.js';
 import { layout, BusTile, PriceRow, Photo, AgeSet } from './fleet.js';
 import { Bar } from './overview.js';
+import { thousands } from '../money.js';
 
 const PRICE_ANY = 1000;
 
@@ -54,7 +55,7 @@ function Showroom({ s, st }) {
       <label class="co-label" style="margin-top:16px">${f.drive_label}</label>
       <div style="margin-top:4px"><${Chips} value=${st.drive} options=${f.drives.map((x, k) => [k, x])} onChange=${(k) => setUi('dealer', { drive: k })} /></div>
       <label class="co-label" style="margin-top:16px">${f.price_label}</label>
-      <${Slider} value=${st.max_price} min=${100} max=${PRICE_ANY} step=${10} format=${(x) => (x >= PRICE_ANY ? f.any : `${x}k`)} onChange=${(x) => setUi('dealer', { max_price: x })} style="margin-top:2px" />
+      <${Slider} value=${st.max_price} min=${100} max=${PRICE_ANY} step=${10} format=${(x) => (x >= PRICE_ANY ? f.any : thousands(x * 100000))} onChange=${(x) => setUi('dealer', { max_price: x })} style="margin-top:2px" />
     </div>
     <div style="display:flex;flex-direction:column;min-width:0">
       <div style="display:flex;align-items:center;gap:10px;height:28px;flex:none">
@@ -345,7 +346,7 @@ function LoanSheet({ v, sheet, close }) {
     ${v.for && html`<p class="co-para" style="margin-bottom:10px">${v.for}</p>`}
     <div class="co-caps">${v.amount_caps}</div>
     <div class="co-loanamount"><b>${v.amount_text}</b><span class=${'t-' + v.left_tone}>${v.left}</span></div>
-    ${!v.fixed && html`<${Slider} value=${Math.round(v.amount / 100)} min=${Math.round(v.min / 100)} max=${Math.round(v.max / 100)} step=${5000} format=${(x) => `${Math.round(x / 1000)}k`} onChange=${(x) => sheet('set', { amount: x * 100 })} style="height:36px;margin:6px 0 10px" />
+    ${!v.fixed && html`<${Slider} value=${Math.round(v.amount / 100)} min=${Math.round(v.min / 100)} max=${Math.round(v.max / 100)} step=${5000} format=${(x) => thousands(x * 100)} onChange=${(x) => sheet('set', { amount: x * 100 })} style="height:36px;margin:6px 0 10px" />
       <${Chips} value=${k} options=${v.presets.map(([, l], i) => [i, l])} onChange=${(i) => sheet('set', { amount: v.presets[i][0] })} /><div style="height:16px"></div>`}
     <label class="co-label">${v.term_label}</label>
     <div style="margin:4px 0 16px"><${Chips} value=${v.term} options=${v.terms.map((t, i) => [i, t])} onChange=${(i) => sheet('set', { term: i })} /></div>

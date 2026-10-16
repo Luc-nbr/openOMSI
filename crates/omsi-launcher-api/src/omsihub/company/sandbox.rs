@@ -4,11 +4,11 @@
 //! every knob back to the Career's. Only a sandbox company has it (`company::pages_for`); the
 //! rules are `omsi_launcher_lib::company::sandbox`'s, read where each value is used.
 
-use super::words::{eur, num, tr, trf};
+use super::words::{eur, money_cents, num, tr, trf, units};
 use super::{act as apply, Session};
 use crate::Answer;
 use omsi_launcher_lib::company::sandbox::{self as sb, Group, Kind, KNOBS};
-use omsi_launcher_lib::company::{self as co, Company};
+use omsi_launcher_lib::company::Company;
 use serde_json::{json, Value};
 
 /// The Sandbox page's tab (`company::TABS`).
@@ -162,7 +162,7 @@ pub fn view(s: &mut Session) -> Value {
         "groups": groups,
         "set_caps": tr("Set by hand").to_uppercase(),
         "balance": {
-            "label": tr("Balance"), "value": cash(&c), "tone": cash_tone(&c), "euros": (c.cash as f64 / 100.0).round(),
+            "label": tr("Balance"), "value": cash(&c), "tone": cash_tone(&c), "euros": units(c.cash).round(),
             "note": tr(if sb::unlimited(&c) { "With unlimited money the balance shows ∞; this is what the books count." } else { "The difference is booked as capital: it is not what running the lines earned." }),
             "booked": eur(c.cash), "set": tr("Set the balance"),
         },
@@ -188,10 +188,11 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Answer> {
             .inspect(|_| s.plan = None)
         }
         "sandbox_balance" => {
-            let euros = number("euros").unwrap_or(0.0);
-            match apply(s, |c| sb::set_balance(c, (euros * 100.0).round() as co::Cents)) {
+            // (typed in the company's currency: `euros` is of before the currencies)
+            let cents = money_cents(number("euros").unwrap_or(0.0));
+            match apply(s, |c| sb::set_balance(c, cents)) {
                 Ok(_) => {
-                    let t = trf("The balance is %{amount} now.", &[("amount", &eur((euros * 100.0).round() as co::Cents))]);
+                    let t = trf("The balance is %{amount} now.", &[("amount", &eur(cents))]);
                     s.say(t, false);
                     Ok(json!({}))
                 }

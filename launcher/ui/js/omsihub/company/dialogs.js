@@ -92,7 +92,7 @@ function SettingsDialog({ d }) {
     <span class="rest"></span>
     <${Btn} kind=${v.move ? '' : 'primary'} label=${v.close} onClick=${close} />
     ${v.move && html`<${Btn} kind="primary" icon="calendar_month" label=${v.move} onClick=${moveTo} />`}`;
-  const h = (v.buying ? 786 : 722) + (v.addons ? 40 : 0) + (v.vehicles ? 132 : 0) + (v.company_mode ? 112 : 0);
+  const h = (v.buying ? 786 : 722) + (v.addons ? 40 : 0) + (v.vehicles ? 132 : 0) + (v.company_mode ? 112 : 0) + (v.currency ? 84 : 0);
   // (Beta 61: a career or a sandbox - turned into a sandbox once, after a confirmation)
   const cm = v.company_mode;
   const vh = v.vehicles;
@@ -122,6 +122,9 @@ function SettingsDialog({ d }) {
       ${v.buying && html`<div class="co-caps">${v.buying.caps}</div>
         <div class="pair"><${Seg} value=${v.buying.mode} options=${v.buying.modes.map((m, i) => [i, m])} onChange=${(i) => act('buying_mode', { mode: i })} style="width:320px;height:40px" />
           <p class="co-note">${v.buying.say}</p></div>`}
+      ${v.currency && html`<div class="co-caps">${v.currency.caps}</div>
+        <div class="pair"><${Select} value=${v.currency.value} options=${v.currency.options} onChange=${(i) => act('currency', { code: v.currency.codes[i] })} style="width:320px;flex:none" />
+          <p class="co-note">${v.currency.say}</p></div>`}
       ${vh && html`<div class="co-caps">${vh.caps}</div>
         <div class="pair"><${Seg} value=${vh.mode} options=${vh.modes} onChange=${vmode} style="width:560px;max-width:100%;height:40px" />
           <span class="co-note">${vh.count}</span></div>

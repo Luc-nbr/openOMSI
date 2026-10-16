@@ -120,7 +120,7 @@ fn act_need(act: &str, what: &str) -> Need {
             "game_mode" | "sandbox" => SETTINGS,
             _ => Never,
         },
-        "logo_remove" | "rosterflow" | "realtime" | "game_mode" | "sandbox" => SETTINGS,
+        "logo_remove" | "rosterflow" | "realtime" | "game_mode" | "sandbox" | "currency" => SETTINGS,
         "sell" => SPEND,
         "dismiss" | "holiday" => STAFF,
         "ask_spare" | "ask_rental" | "ask_drop" | "ask_on" | "ask_dispatcher" => SERVICE,
