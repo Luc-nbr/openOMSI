@@ -801,6 +801,11 @@ fn crew_notices(s: &mut Session) {
     super::addon::notify_game(game);
 }
 
+/// A defect as the pages show it (`fleet::defect_json`), for the Workshop page.
+pub fn fleet_defect(c: &Company, d: &co::crew::Defect) -> Value {
+    fleet::defect_json(c, d)
+}
+
 // --- the clock (`clock.rs` of the game-drawn launcher) ------------------------------------------
 
 fn realtime(c: &Company) -> bool {

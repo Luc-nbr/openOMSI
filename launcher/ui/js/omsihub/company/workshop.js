@@ -10,6 +10,7 @@
 import { html, ui, setUi, goTab, Icon, Btn, Seg, Switch } from './kit.js';
 import { useMore, actMore } from './more.js';
 import { Kpi, Card, Bar } from './pagesb.js';
+import { DefectRow } from './fleet.js';
 
 const MOST = 30;
 
@@ -34,6 +35,7 @@ export function WorkshopPage() {
         <aside class="co-pgb-ws-side">
           <${Summary} v=${v} st=${st} />
           <${Repair} s=${v.side} />
+          ${v.side.defects && html`<${Defects} d=${v.side.defects} />`}
           <${Auto} a=${v.side.auto} />
           <${Mechanics} m=${v.side.mechanics} />
         </aside>
@@ -111,6 +113,14 @@ function Repair({ s }) {
         <span class="co-pgb-ws-tag co-pgb-num">${w.number}</span>
         <span class="co-pgb-grow"><b class="co-pgb-cut co-pgb-t-warn" title=${w.parts}>${w.parts}</b><span class="co-pgb-note">${w.since}</span></span>
       </div>`)}
+  </${Card}>`;
+}
+
+/** The defects the drivers reported (the walk-around at sign-off) or that were logged on the way. */
+function Defects({ d }) {
+  return html`<${Card} icon="build" title=${d.title}>
+    <p class="co-pgb-note">${d.sub}</p>
+    <div class="co-crew">${d.rows.length ? d.rows.map((x) => html`<${DefectRow} d=${x} bus />`) : html`<div class="co-crew-none">${d.none}</div>`}</div>
   </${Card}>`;
 }
 

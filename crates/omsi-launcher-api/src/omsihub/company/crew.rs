@@ -70,6 +70,15 @@ pub fn view(s: &mut Session, guest: u32) -> Value {
         "templates": NoteTemplate::ALL.iter().map(|t| json!([t.key(), tr(t.text())])).collect::<Vec<_>>(),
         "checks": DefectKind::ALL.iter().map(|k| json!([k.key(), tr(k.label())])).collect::<Vec<_>>(),
         "reasons": Reason::ALL.iter().map(|r| json!([r, tr(r.label())])).collect::<Vec<_>>(),
+        "words": {
+            "caps": tr("My duties").to_uppercase(), "swaps": tr("Swap requests"), "asked_of_me": tr("%{name} asks you to swap duty %{mine}"),
+            "accept": tr("Accept"), "refuse": tr("Refuse"), "swap": tr("Swap"), "with": tr("Ask to swap with"), "ask": tr("Ask"),
+            "asked": tr("asked"), "accepted": tr("accepted"), "refused": tr("refused"),
+            "sick": tr("Call in sick"), "sick_confirm": tr("Your duties of those days go to the dispatcher. Call in sick?"),
+            "bus": tr("Bus %{bus} today"), "notes": tr("Handover notes"), "no_notes": tr("No notes for today."), "note": tr("Leave a note"), "note_ph": tr("Or type a note"), "none": tr("None"),
+            "defect": tr("Report a defect"), "defect_ph": tr("What is wrong (optional)"), "report": tr("Report"), "no_bus": tr("No duty with a bus today."),
+            "sent": tr("Sent: the boss's launcher carries it out."),
+        },
     })
 }
 

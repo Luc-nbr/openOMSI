@@ -15,6 +15,7 @@ use crate::Answer;
 use omsi_launcher_lib::company::clock;
 use omsi_launcher_lib::company::depot::JobKind;
 use omsi_launcher_lib::company::parts::{self as pt, Part};
+use omsi_launcher_lib::company::crew as co_crew;
 use omsi_launcher_lib::company::{dates, research, Company};
 use omsi_launcher_lib::company::model::Role;
 use serde_json::{json, Value};
@@ -141,6 +142,11 @@ pub fn view(s: &mut Session, args: &Value) -> Value {
     sd["repair"] = json!({ "title": tr("Buses in repair"), "rows": repair, "none": tr("No buses are currently in repair."), "none_sub": tr("Once a bus is in the workshop, it will appear here.") });
     sd["auto"]["row"] = json!(if short == 0 { tr("Every part is above its minimum.") } else { trf("Under their minimum now: %{n} parts", &[("n", &short.to_string())]) });
     sd["auto"]["row_tone"] = json!(if short == 0 { "ok" } else if c.stores.auto { "accent" } else { "warn" });
+    // (the defects the drivers reported or that were logged on the way: `crew`)
+    let mut defects: Vec<&co_crew::Defect> = c.crew.defects.iter().filter(|d| d.open(&c)).collect();
+    defects.reverse();
+    let rows: Vec<Value> = defects.iter().take(20).map(|d| super::super::fleet_defect(&c, d)).collect();
+    sd["defects"] = json!({ "title": tr("Defects reported"), "rows": rows, "none": tr("No open defects."), "sub": tr("From the drivers' walk-around checks and what went wrong on the way: each is a repair job here.") });
     sd["mechanics"]["link"] = json!(tr("Staff page"));
     sd["mechanics"]["tab"] = json!(STAFF_TAB);
     json!({

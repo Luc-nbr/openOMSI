@@ -60,7 +60,9 @@
     companyAt: 0,
     companyBusy: false,
     companySending: false,
-    companyNote: null
+    companyNote: null,
+    /* the crew card's forms: the duty a swap is asked for, and what is typed or chosen */
+    crew: { swap: null, with: '', from: '', until: '', reason: 'break', days: 1, tpl: '', note: '', kind: 'doors', defect: '' }
   };
 
   /* A pairing code in the address (the game's QR code): paired with at once. */
@@ -975,8 +977,110 @@
           h('button', { type: 'button', class: 'action co-small', disabled: sending, onclick: function () { companyOrder({ do: 'job', bus: b.id, job: b.job }); } }, t(b.job_label)));
       })) : null);
 
-    return [head, note, tiles, alertCard, today, money6, depot, shop,
-      h('p', { class: 'explain small' }, t('The company is the launcher’s: what you order here is carried out there.'))];
+    return [head, note, tiles, alertCard, today].concat(crewCards(co.crew, sending)).concat([money6, depot, shop,
+      h('p', { class: 'explain small' }, t('The company is the launcher’s: what you order here is carried out there.'))]);
+  }
+
+  // ---- the crew: the driver's own side (his week, swaps, holidays, a sick call, his bus)
+
+  /* A select of [value, label] pairs, its choice kept in ui.crew[key]. */
+  function crewSelect(key, options) {
+    var sel = h('select', { class: 'cw-select', onchange: function (e) { ui.crew[key] = e.target.value; } },
+      options.map(function (o) { return h('option', { value: o[0], selected: String(ui.crew[key]) === String(o[0]) }, o[1]); }));
+    return sel;
+  }
+
+  function crewInput(key, attrs) {
+    var a = { class: 'cw-input', value: ui.crew[key], oninput: function (e) { ui.crew[key] = e.target.value; } };
+    Object.keys(attrs || {}).forEach(function (k) { a[k] = attrs[k]; });
+    return h('input', a);
+  }
+
+  function crewState(s) {
+    return s === 'accepted' || s === 'approved' ? 'co-good' : s === 'refused' || s === 'rejected' ? 'co-bad' : 'co-warn';
+  }
+
+  function crewCards(cw, sending) {
+    if (!cw) return [];
+    var f = ui.crew;
+    /* the week: each day's duties, a swap asked for one not begun */
+    var days = (cw.week || []).filter(function (d) { return d.off || d.duties.length; });
+    var week = h('section', { class: 'card co-card cw-week' },
+      h('h2', null, t('My week')),
+      days.length ? h('ul', { class: 'co-rows' }, days.map(function (d) {
+        return h('li', { class: 'cw-day' },
+          h('div', null, h('b', null, dayText(d.date)), d.off ? h('small', { class: 'co-warn' }, t(d.off)) : null),
+          h('div', { class: 'cw-duties' }, d.duties.map(function (x) {
+            var key = d.date + '|' + x.line + '|' + x.tour + '|' + x.duty;
+            var open = f.swap === key;
+            return h('div', { class: 'cw-duty' },
+              h('div', { class: 'cw-duty-line' },
+                h('span', { class: 'plate' }, x.number),
+                h('span', null, t('Tour') + ' ' + x.tour + ' · ' + x.from + '–' + x.to + (x.bus ? ' · ' + x.bus : '')),
+                x.begun ? h('em', null, t('begun')) : h('button', { type: 'button', class: 'action co-small', disabled: sending, onclick: function () { f.swap = open ? null : key; render(true); } }, t('Swap'))),
+              (x.changes || []).map(function (c) { return h('small', { class: 'co-warn cw-change' }, t(c.text, c.args)); }),
+              open ? h('div', { class: 'cw-form' },
+                h('label', null, t('Ask to swap with')),
+                crewSelect('with', [['', '—']].concat((cw.colleagues || []).map(function (c) { return [c.id, c.name]; }))),
+                h('div', { class: 'cw-buttons' },
+                  h('button', { type: 'button', class: 'action co-small', disabled: sending || !f.with, onclick: function () { f.swap = null; companyOrder({ do: 'swap', date: d.date, line: x.line, tour: x.tour, duty: x.duty, with: Number(f.with) }); } }, t('Ask')),
+                  h('button', { type: 'button', class: 'action co-small cw-quiet', onclick: function () { f.swap = null; render(true); } }, t('Cancel')))) : null);
+          })));
+      })) : h('p', { class: 'explain small' }, t('No duty in the week ahead.')),
+      (cw.swaps || []).length ? h('div', null, h('h3', { class: 'cw-sub' }, t('Swap requests')), h('ul', { class: 'co-list' }, cw.swaps.map(function (x) {
+        return h('li', null, h('b', null, dayText(x.date)), h('span', null, x.line + ' ' + x.tour + ' #' + (x.duty + 1) + ' · ' + x.with), h('em', { class: crewState(x.state) }, t(x.state) + (x.why ? ': ' + t(x.why) : '')));
+      }))) : null);
+
+    /* a holiday: the days and why, answered at once by the planner */
+    var leave = h('section', { class: 'card co-card cw-leave' },
+      h('h2', null, t('Holiday')),
+      h('div', { class: 'cw-form' },
+        h('label', null, t('From')), crewInput('from', { type: 'date' }),
+        h('label', null, t('Until')), crewInput('until', { type: 'date' }),
+        h('label', null, t('Reason')), crewSelect('reason', (cw.reasons || []).map(function (r) { return [r.key, t(r.label)]; })),
+        h('button', { type: 'button', class: 'action co-small', disabled: sending, onclick: function () { if (f.from && f.until) companyOrder({ do: 'leave', from: f.from, until: f.until, reason: f.reason }); } }, t('Ask for these days'))),
+      (cw.leave || []).length ? h('ul', { class: 'co-list' }, cw.leave.map(function (r) {
+        return h('li', null, h('b', null, dayText(r.from) + ' – ' + dayText(r.until)), h('span', null, t(r.reason)), h('em', { class: crewState(r.state === 'approved' ? 'approved' : 'rejected') }, t(r.state === 'approved' ? 'approved' : 'rejected')));
+      })) : null);
+
+    /* a sick call: the dispatcher covers the duties of those days */
+    var dayOptions = [];
+    for (var n = 1; n <= (cw.sick_max || 7); n++) dayOptions.push([n, String(n)]);
+    var sick = h('section', { class: 'card co-card cw-sick' },
+      h('h2', null, t('Sick call')),
+      cw.sick_until
+        ? h('div', null, h('p', { class: 'co-warn' }, t('You are reported ill until %{date}.', { date: dayText(cw.sick_until) })),
+          h('button', { type: 'button', class: 'action co-small', disabled: sending, onclick: function () { companyOrder({ do: 'well' }); } }, t('I am well again')))
+        : h('div', { class: 'cw-form' }, h('label', null, t('Days')), crewSelect('days', dayOptions),
+          h('button', { type: 'button', class: 'action co-small cw-danger', disabled: sending, onclick: function () { if (window.confirm(t('Your duties of those days go to the dispatcher. Call in sick?'))) companyOrder({ do: 'sick', days: Number(f.days) || 1 }); } }, t('Call in sick'))));
+
+    /* the bus of today's duty: its notes and defects, a note and a defect of one's own */
+    var b = cw.bus;
+    var bus = h('section', { class: 'card co-card cw-bus' },
+      h('h2', null, b ? t('Bus %{bus} today', { bus: b.number }) : t('Handover notes')),
+      !b ? h('p', { class: 'explain small' }, t('No duty with a bus today.')) : [
+        h('h3', { class: 'cw-sub' }, t('Handover notes')),
+        b.notes.length ? h('ul', { class: 'co-list' }, b.notes.map(function (x) { return h('li', null, h('b', null, x.at), h('span', null, x.says.split(': ').map(function (p, i) { return i ? p : t(p); }).join(': ')), h('em', null, x.by)); })) : h('p', { class: 'explain small' }, t('No notes for today.')),
+        h('div', { class: 'cw-form' },
+          h('label', null, t('Leave a note')),
+          crewSelect('tpl', [['', t('None')]].concat((cw.templates || []).map(function (x) { return [x.key, t(x.label)]; }))),
+          crewInput('note', { maxlength: cw.text_max || 140, placeholder: t('Or type a note') }),
+          h('button', { type: 'button', class: 'action co-small', disabled: sending, onclick: function () {
+            if (!f.tpl && !f.note.trim()) return;
+            companyOrder({ do: 'note', bus: b.id, template: f.tpl || null, text: f.note.trim() });
+            f.tpl = ''; f.note = '';
+          } }, t('Leave a note'))),
+        h('h3', { class: 'cw-sub' }, t('Defects')),
+        b.defects.length ? h('ul', { class: 'co-list' }, b.defects.map(function (x) { return h('li', null, h('b', { class: 'co-bad' }, t(x.kind)), h('span', null, t(x.text)), h('em', null, dayText(x.date))); })) : h('p', { class: 'explain small' }, t('No open defects.')),
+        h('div', { class: 'cw-form' },
+          h('label', null, t('Report a defect')),
+          crewSelect('kind', (cw.defects || []).map(function (x) { return [x.key, t(x.label)]; })),
+          crewInput('defect', { maxlength: cw.text_max || 140, placeholder: t('What is wrong (optional)') }),
+          h('button', { type: 'button', class: 'action co-small', disabled: sending, onclick: function () {
+            companyOrder({ do: 'defect', bus: b.id, kind: f.kind, text: f.defect.trim(), fault: false });
+            f.defect = '';
+          } }, t('Report')))]);
+    return [week, bus, leave, sick];
   }
 
   // ---- the map and what lies over it (as the game's small navigator)

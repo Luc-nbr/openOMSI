@@ -2085,3 +2085,90 @@ h1 .plate {
   height: 0.625rem;
   border-radius: 0.1875rem;
 }
+
+/* the Company tab's crew card: the driver's week, swaps, holidays, a sick call, his bus */
+.cw-sub {
+  margin: 0.75rem 0 0.25rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cw-day {
+  align-items: flex-start;
+}
+
+.cw-duties {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.cw-duty-line {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.cw-duty-line > span:not(.plate) {
+  flex: 1;
+  min-width: 0;
+  color: var(--soft);
+}
+
+.cw-change {
+  display: block;
+  font-size: 0.8rem;
+}
+
+.cw-form {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.4rem 0.6rem;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+
+.cw-form > label {
+  color: var(--dim);
+  font-size: 0.85rem;
+}
+
+.cw-form > .action,
+.cw-form > .cw-buttons {
+  grid-column: 1 / -1;
+  justify-self: end;
+}
+
+.cw-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.cw-select,
+.cw-input {
+  width: 100%;
+  min-width: 0;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-small);
+  background: var(--field);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.action.cw-quiet {
+  background: var(--hover);
+  color: var(--soft);
+}
+
+.action.cw-danger {
+  background: var(--late);
+  color: #fff;
+}
