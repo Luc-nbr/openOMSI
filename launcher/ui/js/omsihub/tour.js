@@ -216,7 +216,7 @@ function part(name) {
     case 'company-status':
       return visible($('.co-bar .co-status'));
     case 'company-nav':
-      return visible($('.co-nav'));
+      return visible($('.co-nav-side'));
     case 'company-figures':
       return [...document.querySelectorAll('.co-overview .co-figure')].map(visible).reduce(union, null);
     case 'company-today':
@@ -226,7 +226,7 @@ function part(name) {
     case 'company-career-parts':
       return visible($('.co-body .co-seg'));
     case 'company-help':
-      return visible($('.co-bar .co-help'));
+      return visible($('.co-bar .co-top-me') || $('.co-bar .co-help'));
     case 'company-casual-today':
       return visible($('.co-casual-home section.today'));
     case 'company-casual-drive':
@@ -238,7 +238,7 @@ function part(name) {
     case 'company-casual-next':
       return visible($('.co-bar .co-next'));
     case 'company-mode':
-      return visible($('.co-bar .co-pill'));
+      return visible($('.co-nav-side .co-nav-chip') || $('.co-nav-side .co-nav-brand') || $('.co-bar .co-pill'));
     case 'company-casual-help':
       return visible($('.co-casual-head .co-iconbtn'));
     default:
