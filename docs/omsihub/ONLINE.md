@@ -31,6 +31,26 @@ What changed for the app's client ("The app's side" below):
 - cloud saves: Storage objects under `saves/users/<user id>/slot1|slot2/` instead of the `saves`
   function; deleting the account removes them first, then calls `delete_my_account`.
 
+### Google, Discord and Steam
+
+Besides email and a password, a player can sign in with Google, Discord or Steam (Luc's call,
+2026-10-16; it replaces the earlier "email only").
+
+- **Google and Discord** are Supabase Auth providers. The website sends the player to
+  `/auth/v1/authorize?provider=google|discord&redirect_to=<page>` and gets the session back in the
+  address. A provider shows on the site only when `/auth/v1/settings` says it is switched on.
+- **Steam** has no Supabase provider, so the Edge Function `steam-auth`
+  (`online/supabase/functions/steam-auth`, deployed with `verify_jwt` off) does it: Steam's OpenID 2.0
+  sign-in, the answer checked with Steam (`check_authentication`), then the Supabase user for that
+  Steam id (`steam-<id>@steam.omsihub.com`, confirmed, never mailed, `app_metadata.steam_id`) and a
+  one-time magic link through which Supabase hands the session to the page. Only the pages in its
+  `PAGES` list may receive a session. Its secret key comes from the function's own environment.
+  Tests: `node online/supabase/functions/steam-auth/test.mjs`.
+- An account made this way has no password: the website hides changing it, and deleting the account
+  needs only the tick box.
+- For the app: sign in with these through the system browser and a way back to the app (a loopback
+  address or a deep link that is on the redirect list), the same `#access_token` hand-over.
+
 ## Where it runs (Neon, until the app moves)
 
 | What | Value |
