@@ -112,10 +112,9 @@
 .ol-pv-agree input { flex: none; margin: 1px 0 0; accent-color: var(--hub-accent); }
 .ol-pv-agree .ol-pv-link { align-self: flex-start; margin-left: 21px; }
 
-/* Google, Discord and Steam (online.js' Providers): the buttons with their marks, the "or" between
-   the ways to sign in, the wait while the browser has the sign-in, the tick that deletes an account
-   without a password */
-.ol-oa { display: flex; flex-direction: column; gap: 6px; }
+/* Google (online.js' GoogleSignIn): the button with its mark, the "or" between the ways to sign
+   in, the wait while the browser has the sign-in, the tick that deletes an account without a
+   password */
 .ol-oa-btn { display: flex; align-items: center; justify-content: center; gap: 9px; width: 100%; height: 34px; padding: 0 12px; font-size: 10.4px; font-weight: 700; background: var(--hub-field); color: var(--hub-text); border: 1px solid var(--hub-hairline); }
 .ol-oa-btn:hover:not(:disabled) { border-color: rgba(var(--hub-accent-rgb), 0.6); background: var(--hub-lift); }
 .ol-oa-btn:disabled { opacity: 0.5; cursor: not-allowed; }

@@ -8,15 +8,12 @@
 //   one refused), resend, verify (email, signup, recovery), recover, GET/PUT user, logout. Email
 //   confirmation is on; the codes it would mail are printed here and read back by tests at
 //   `GET /__mail?email=<address>`. Token also takes `grant_type=pkce`.
-// - Google and Discord (`GET /auth/v1/authorize?provider=…&redirect_to=…&code_challenge=…`): no
-//   provider's page; the player "signs in" at once as <provider>-player@<provider>.standin and is
-//   sent to redirect_to with `?code=`, exchanged at `POST /token?grant_type=pkce` with the verifier
-//   (S256 checked, the code good once, for five minutes). redirect_to must match STANDIN_REDIRECTS
-//   (Supabase's globs, comma-separated; default `http://127.0.0.1:*/callback*`), as Supabase's
-//   allow-list. `&standin_answer=deny` plays a player who says no (`?error=access_denied`).
-// - Steam (`GET /functions/v1/steam-auth?to=<page>`): the Edge Function's check of `to` (its own
-//   `allowed`), then, without Steam, the session in the fragment as Supabase's one-time link hands it
-//   over (`#access_token=…&refresh_token=…`), for steam-76561198000000001@steam.omsihub.com.
+// - Google (`GET /auth/v1/authorize?provider=google&redirect_to=…&code_challenge=…`): no Google
+//   page; the player "signs in" at once as google-player@google.standin and is sent to redirect_to
+//   with `?code=`, exchanged at `POST /token?grant_type=pkce` with the verifier (S256 checked, the
+//   code good once, for five minutes). redirect_to must match STANDIN_REDIRECTS (Supabase's globs,
+//   comma-separated; default `http://127.0.0.1:*/callback*`), as Supabase's allow-list.
+//   `&standin_answer=deny` plays a player who says no (`?error=access_denied`).
 // - The database (`/rest/v1`): the functions of online/supabase/schema.sql with the same checks and
 //   answers (the privacy statement's `accept_privacy` and `my_privacy` among them), and the tables' reads with the same row-level rules (profiles, invites).
 // - Storage (`/storage/v1`): the private bucket `saves`, each player only in users/<own id>/, only
@@ -28,7 +25,6 @@
 
 import http from 'node:http';
 import crypto from 'node:crypto';
-import { allowed as steamAllowed } from '../supabase/functions/steam-auth/steam.mjs';
 
 const PORT = Number(process.argv[2] || process.env.STANDIN_PORT || 54321);
 const KEY = process.env.STANDIN_KEY || 'sb_publishable_standin';
@@ -297,7 +293,7 @@ const FUNCTIONS = {
 };
 const ANON = new Set(['hub_leaderboard', 'hub_board_counts']);
 
-// --- Google, Discord and Steam ---------------------------------------------------------------------
+// --- Google ----------------------------------------------------------------------------------------
 
 /** Supabase's redirect globs (separators `.` and `/`): `**` anything, `*` and `?` no separator,
  * `[0-9]` / `[!a-z]` one character of (not of) a class. */
@@ -318,7 +314,7 @@ function glob(g) {
 }
 const redirectAllowed = (url) => REDIRECTS.some((g) => glob(g).test(url));
 
-/** The user a provider signs in (made the first time, confirmed, without a password). */
+/** The user Google signs in (made the first time, confirmed, without a password). */
 function providerUser(email, app, meta = {}) {
   let u = userByEmail(email);
   if (!u) {
@@ -332,26 +328,16 @@ const withQuery = (url, q) => `${url}${url.includes('?') ? '&' : '?'}${q}`;
 
 function authorize(res, q) {
   const provider = q.get('provider');
-  if (!['google', 'discord'].includes(provider)) return authError(res, 400, 'validation_failed', 'Unsupported provider: provider is not enabled');
+  if (provider !== 'google') return authError(res, 400, 'validation_failed', 'Unsupported provider: provider is not enabled');
   const to = q.get('redirect_to') || '';
   if (!redirectAllowed(to)) return authError(res, 400, 'validation_failed', `redirect_to is not on the allow-list: ${to}`);
   if (q.get('standin_answer') === 'deny') return go(res, withQuery(to, 'error=access_denied&error_code=provider_error&error_description=The+user+denied+access'));
   const challenge = q.get('code_challenge');
   if (!challenge || String(q.get('code_challenge_method')).toLowerCase() !== 's256') return authError(res, 400, 'validation_failed', 'the stand-in takes PKCE with S256 only');
-  const name = `${provider[0].toUpperCase()}${provider.slice(1)} Player`;
-  const u = providerUser(`${provider}-player@${provider}.standin`, { provider, providers: [provider] }, { full_name: name });
+  const u = providerUser('google-player@google.standin', { provider: 'google', providers: ['google'] }, { full_name: 'Google Player' });
   const code = crypto.randomUUID();
   flows.set(code, { user: u.id, challenge, until: now() + 5 * 60e3 });
   return go(res, withQuery(to, `code=${code}`));
-}
-
-function steamAuth(res, q) {
-  const page = q.get('to') || '';
-  if (!steamAllowed(page)) return send(res, 400, Buffer.from('This page may not sign in with Steam.'), { 'content-type': 'text/plain' });
-  const u = providerUser('steam-76561198000000001@steam.omsihub.com', { provider: 'email', providers: ['email'], steam_id: '76561198000000001' });
-  const s = session(u);
-  const hash = new URLSearchParams({ access_token: s.access_token, expires_at: s.expires_at, expires_in: s.expires_in, refresh_token: s.refresh_token, token_type: 'bearer', type: 'magiclink' });
-  return go(res, `${page}#${hash}`);
 }
 
 // --- the routes -------------------------------------------------------------------------------------
@@ -518,7 +504,6 @@ http
       if (path === '/__mail') return send(res, 200, codes.get(String(url.searchParams.get('email')).toLowerCase()) || {});
       // (the browser's: no apikey, as on Supabase)
       if (req.method === 'GET' && path === '/auth/v1/authorize') return authorize(res, url.searchParams);
-      if (req.method === 'GET' && path === '/functions/v1/steam-auth') return steamAuth(res, url.searchParams);
       if (req.headers.apikey !== KEY) return send(res, 401, { message: 'No API key found in request', hint: 'No `apikey` request header or url param was found.' });
       let body = {};
       if (raw.length && String(req.headers['content-type'] || '').includes('json')) body = JSON.parse(raw.toString());

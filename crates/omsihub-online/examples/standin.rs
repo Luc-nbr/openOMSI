@@ -6,7 +6,7 @@
 
 use omsihub_online::store::{MemoryStore, SecretStore};
 use omsihub_online::oauth::Texts;
-use omsihub_online::{Client, Endpoints, Error, Flow, Provider, SaveError, Stats};
+use omsihub_online::{Client, Endpoints, Error, Flow, SaveError, Stats};
 use serde_json::{json, Value};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -198,60 +198,50 @@ fn main() {
     bo.goodbye();
     bo.sign_out();
 
-    // --- Google, Discord and Steam, through "the browser" -------------------------------------------------
-    for provider in [Provider::Google, Provider::Discord, Provider::Steam] {
-        let mut c = Client::new(ep.clone(), Box::new(Shared::default()));
-        let flow = Flow::start(&ep, provider, Texts::default()).unwrap();
-        let url = flow.url().to_string();
-        let waiting = std::thread::spawn(move || flow.wait(Duration::from_secs(30), &AtomicBool::new(false)));
-        browser(&url);
-        let handoff = waiting.join().unwrap().expect("the browser handed the sign-in back");
-        c.sign_in_with(&handoff).unwrap();
-        assert!(c.signed_in() && !c.has_password());
-        if c.check_privacy().unwrap() < v {
-            c.accept_privacy().unwrap();
-        }
-        if c.profile().unwrap().is_none() {
-            c.create_profile(&format!("{} {}", provider.name(), run % 10000)).unwrap();
-        }
-        assert!(c.profile().unwrap().is_some());
-        c.delete_account("").unwrap();
-        assert!(!c.signed_in());
-        step(&format!("signed in with {} through the browser, the profile made, deleted without a password", provider.name()));
+    // --- Google, through "the browser" ----------------------------------------------------------------------
+    let mut c = Client::new(ep.clone(), Box::new(Shared::default()));
+    let flow = Flow::start(&ep, Texts::default()).unwrap();
+    let url = flow.url().to_string();
+    let waiting = std::thread::spawn(move || flow.wait(Duration::from_secs(30), &AtomicBool::new(false)));
+    browser(&url);
+    let handoff = waiting.join().unwrap().expect("the browser handed the sign-in back");
+    c.sign_in_with(&handoff).unwrap();
+    assert!(c.signed_in() && !c.has_password());
+    if c.check_privacy().unwrap() < v {
+        c.accept_privacy().unwrap();
     }
-    // (a player who says no at the provider)
-    let flow = Flow::start(&ep, Provider::Google, Texts::default()).unwrap();
+    if c.profile().unwrap().is_none() {
+        c.create_profile(&format!("Google {}", run % 10000)).unwrap();
+    }
+    assert!(c.profile().unwrap().is_some());
+    c.delete_account("").unwrap();
+    assert!(!c.signed_in());
+    step("signed in with Google through the browser, the profile made, deleted without a password");
+    // (a player who says no at Google)
+    let flow = Flow::start(&ep, Texts::default()).unwrap();
     let url = format!("{}&standin_answer=deny", flow.url());
     let waiting = std::thread::spawn(move || flow.wait(Duration::from_secs(30), &AtomicBool::new(false)));
     browser(&url);
     assert_eq!(waiting.join().unwrap(), Err(Error::Code("oauth_cancelled")));
-    step("a player who says no at the provider: cancelled");
+    step("a player who says no at Google: cancelled");
     println!("All flows work against the stand-in.");
 }
 
 /// What the system's browser does with the sign-in's address: the redirects followed to the app's
-/// listener, and there, for a session in the fragment, the page's script played (the fragment
-/// posted back with the page's state).
+/// listener.
 fn browser(start: &str) {
     let agent = ureq::AgentBuilder::new().redirects(0).build();
     let mut url = start.to_string();
     for _ in 0..5 {
-        let r = match agent.get(url.split('#').next().unwrap()).call() {
+        let r = match agent.get(&url).call() {
             Ok(r) => r,
             Err(ureq::Error::Status(_, r)) => r,
             Err(e) => panic!("{e}"),
         };
-        if let Some(next) = r.header("location").map(str::to_string) {
-            url = next;
-            continue;
+        match r.header("location") {
+            Some(next) => url = next.to_string(),
+            None => return,
         }
-        let page = r.into_string().unwrap();
-        if let Some(state) = page.split(r#"name="state" value=""#).nth(1).and_then(|r| r.split('"').next()) {
-            let hash = url.split_once('#').map_or("", |(_, h)| h);
-            let origin = url.split("/callback").next().unwrap().to_string();
-            let _ = agent.post(url.split('#').next().unwrap()).set("Origin", &origin).send_form(&[("state", state), ("hash", &format!("#{hash}"))]);
-        }
-        return;
     }
     panic!("too many redirects");
 }

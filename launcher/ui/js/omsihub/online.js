@@ -9,9 +9,9 @@
 // asked of a signed-in player who has not agreed to its current version - agree, or sign out and
 // play on locally -, the account's features waiting meanwhile. Playing without an account asks
 // nothing.
-// Google, Discord and Steam sign in through the system's browser (`ol_oauth`: Rust's listener on
-// 127.0.0.1 takes the answer back), with the same tick; the panel waits meanwhile, and the player
-// may cancel. Such an account has no password: deleting it asks for a tick instead.
+// Google signs in through the system's browser (`ol_oauth`: Rust's listener on 127.0.0.1 takes the
+// answer back), with the same tick; the panel waits meanwhile, and the player may cancel. Such an
+// account has no password: deleting it asks for a tick instead.
 
 import { html, useEffect, useState } from '../../vendor/preact-htm.js';
 import { call } from '../api.js';
@@ -164,33 +164,23 @@ function Note({ icon = 'info', text, kind = '' }) {
   return html`<p class=${'ol-note ' + kind}><${Icon} name=${icon} size=${14} /><span>${text}</span></p>`;
 }
 
-// --- Google, Discord and Steam -----------------------------------------------------------------------
+// --- Google ----------------------------------------------------------------------------------------
 
-const PROVIDERS = [
-  ['google', 'Google'],
-  ['discord', 'Discord'],
-  ['steam', 'Steam'],
-];
+/** Google's mark, in the button's own colour. */
+const GoogleMark = () =>
+  html`<svg class="ol-oa-mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21.6 10.2H12v3.9h5.5c-.5 2.5-2.7 4.3-5.5 4.3a6.4 6.4 0 1 1 4.2-11.2l2.8-2.8A10.3 10.3 0 0 0 12 1.7a10.3 10.3 0 1 0 0 20.6c5.6 0 10-3.9 10-10.3 0-.6-.1-1.2-.4-1.8z" /></svg>`;
 
-/** A provider's mark, in the button's own colour. */
-function Mark({ id }) {
-  if (id === 'google')
-    return html`<svg class="ol-oa-mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21.6 10.2H12v3.9h5.5c-.5 2.5-2.7 4.3-5.5 4.3a6.4 6.4 0 1 1 4.2-11.2l2.8-2.8A10.3 10.3 0 0 0 12 1.7a10.3 10.3 0 1 0 0 20.6c5.6 0 10-3.9 10-10.3 0-.6-.1-1.2-.4-1.8z" /></svg>`;
-  if (id === 'discord')
-    return html`<svg class="ol-oa-mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M19.6 5.3A16.6 16.6 0 0 0 15.5 4l-.5 1a15.4 15.4 0 0 0-6 0l-.5-1a16.6 16.6 0 0 0-4.1 1.3C1.8 9.2 1.1 13 1.4 16.8a16.7 16.7 0 0 0 5 2.5l1.1-1.7c-.6-.2-1.2-.5-1.7-.8l.4-.3a11.9 11.9 0 0 0 11.6 0l.4.3c-.5.3-1.1.6-1.7.8l1.1 1.7a16.6 16.6 0 0 0 5-2.5c.4-4.4-.7-8.2-2.9-11.5zM8.7 14.6c-1 0-1.8-.9-1.8-2.1s.8-2.1 1.8-2.1 1.8.9 1.8 2.1-.8 2.1-1.8 2.1zm6.6 0c-1 0-1.8-.9-1.8-2.1s.8-2.1 1.8-2.1 1.8.9 1.8 2.1-.8 2.1-1.8 2.1z" /></svg>`;
-  return html`<svg class="ol-oa-mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M12 1.5a10.5 10.5 0 1 1-10.2 13l4.4 1.8a3 3 0 0 0 5.9-.6l3.6-2.6a4.1 4.1 0 1 0-4.1-4.1v.1l-2.6 3.7a3 3 0 0 0-1.8.5L1.6 11A10.5 10.5 0 0 1 12 1.5zm3.6 4.9a2.6 2.6 0 1 1 0 5.2 2.6 2.6 0 0 1 0-5.2zM9.2 14.2a1.6 1.6 0 1 1 0 3.2 1.6 1.6 0 0 1 0-3.2z" /></svg>`;
-}
-
-/** The three buttons, or, while the browser has the sign-in, the wait with a cancel. */
-function Providers({ agreed, onDone, onError, disabled }) {
+/** The Google button, or, while the browser has the sign-in, the wait with a cancel. */
+function GoogleSignIn({ agreed, onDone, onError, disabled }) {
   const [wait, setWait] = useState(null);
-  const go = async (id, name) => {
+  const name = 'Google';
+  const go = async () => {
     if (!agreed) return;
     onError('');
-    const r = await act('ol_oauth', { provider: id, agree: true }, true);
+    const r = await act('ol_oauth', { agree: true }, true);
     if (r.error) return onError(r.error);
     call('open_url', { url: r.url }).catch((e) => toast(String(e?.message || e), 'error'));
-    setWait({ name, url: r.url });
+    setWait({ url: r.url });
     const a = await act('ol_oauth_wait', { id: r.id, agree: true }, true);
     setWait(null);
     if (a.error) {
@@ -200,15 +190,13 @@ function Providers({ agreed, onDone, onError, disabled }) {
   if (wait)
     return html`<div class="ol-oa-wait" role="status">
       <div class="ol-row"><${Icon} name="refresh" size=${16} class="ol-spin" /><b>${tr('Continue in your browser')}</b></div>
-      <p class="ol-text">${tr('Please sign in with %{name} in the browser window that has opened. Omsi-Hub continues automatically afterwards.', { name: wait.name })}</p>
+      <p class="ol-text">${tr('Please sign in with %{name} in the browser window that has opened. Omsi-Hub continues automatically afterwards.', { name })}</p>
       <div class="ol-row"><${Btn} kind="ghost" icon="open_in_new" label=${tr('Open the page again')} onClick=${() => call('open_url', { url: wait.url }).catch(() => {})} /><span class="ol-fill"></span><${Btn} kind="ghost" icon="close" label=${tr('Cancel')} onClick=${() => act('ol_oauth_cancel', {}, true)} /></div>
     </div>`;
   const hint = agreed ? '' : tr('Please confirm above that you accept the Privacy Statement.');
-  return html`<div class="ol-oa">
-    ${PROVIDERS.map(([id, name]) => html`<button type="button" class=${'hub-btn ol-oa-btn ' + id} disabled=${!agreed || disabled} title=${hint} onClick=${() => go(id, name)}>
-      <${Mark} id=${id} /><span>${tr('Sign in with %{name}', { name })}</span>
-    </button>`)}
-  </div>`;
+  return html`<button type="button" class="hub-btn ol-oa-btn" disabled=${!agreed || disabled} title=${hint} onClick=${go}>
+    <${GoogleMark} /><span>${tr('Sign in with %{name}', { name })}</span>
+  </button>`;
 }
 
 // --- the account --------------------------------------------------------------------------------
@@ -291,7 +279,7 @@ function SignedOut({ v }) {
       ${agree}
       <div class="ol-row"><${Btn} kind="primary" icon="person" label=${tr('Sign in')} busy=${busy} disabled=${!agreed} onClick=${signIn} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Forgot your password?')} onClick=${() => go('forgot')} /></div>
       <div class="ol-oa-or"><span>${tr('or')}</span></div>
-      <${Providers} agreed=${agreed} disabled=${busy} onError=${(e) => (setErr(e), setInfo(''))} onDone=${(r) => (setErr(''), setInfo(r.message || ''), r.message && toast(r.message, 'ok'))} />
+      <${GoogleSignIn} agreed=${agreed} disabled=${busy} onError=${(e) => (setErr(e), setInfo(''))} onDone=${(r) => (setErr(''), setInfo(r.message || ''), r.message && toast(r.message, 'ok'))} />
       <div class="ol-oa-or"><span>${tr('or')}</span></div>
       <div class="ol-row"><span class="ol-text">${tr('New here?')}</span><${Btn} kind="ghost" icon="open_in_new" label=${tr('Create an account')} disabled=${!v?.sign_up_url || !agreed} title=${agreed ? '' : tr('Please confirm above that you accept the Privacy Statement.')} onClick=${create} /></div>`;
   }
@@ -329,7 +317,7 @@ function Profile({ v }) {
   const [err, setErr] = useState('');
   const [del, setDel] = useState(false);
   const [password, setPassword] = useState('');
-  // (an account without a password - Google, Discord, Steam - is deleted after a tick)
+  // (an account without a password - made with Google - is deleted after a tick)
   const [sure, setSure] = useState(false);
   const [busy, setBusy] = useState(false);
   useEffect(() => setName(me.name || ''), [me.name]);

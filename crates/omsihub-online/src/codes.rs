@@ -65,7 +65,7 @@ pub const TEXTS: &[(&str, &str)] = &[
     ("code_expired", "That code has expired. Ask for a new one."),
     ("too_many_attempts", "Too many wrong codes. Ask for a new one."),
     ("reauth", "Sign in again first, then try once more."),
-    // (Google, Discord and Steam, through the browser: `oauth.rs`)
+    // (Google, through the browser: `oauth.rs`)
     ("oauth_cancelled", "The sign-in was cancelled."),
     ("oauth_timeout", "The sign-in in the browser took too long. Please try again."),
     ("oauth_failed", "The sign-in could not be completed. Please try again."),

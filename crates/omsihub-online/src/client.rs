@@ -13,9 +13,9 @@
 //! access token is refused here with `privacy` and nothing is sent. Only those two functions and
 //! deleting the account go through.
 //!
-//! Google, Discord and Steam sign in through the browser (`oauth.rs`); what it hands back becomes a
-//! session here (`sign_in_with`) as a password's does. Such an account has no password: deleting it
-//! asks for none (`has_password`), as on the website.
+//! Google signs in through the browser (`oauth.rs`); what it hands back becomes a session here
+//! (`sign_in_with`) as a password's does. Such an account has no password: deleting it asks for
+//! none (`has_password`), as on the website.
 
 use crate::codes::{self, Error};
 use crate::http::{encode, Body, Http, Reply};
@@ -90,7 +90,7 @@ struct Access {
     exp: u64,
     sub: String,
     email: String,
-    /// The account has a password (an email sign-in among its providers, and no Steam id).
+    /// The account has a password (an email sign-in among its providers).
     password: bool,
 }
 
@@ -227,14 +227,10 @@ impl Client {
     }
 
     /// Signing in with what the browser handed back (`oauth::Flow::wait`): Supabase's PKCE code
-    /// exchanged with its verifier (`POST /token?grant_type=pkce`), or Steam's session renewed with
-    /// the auth at once (`grant_type=refresh_token`: the token checked, a new one kept). An answer
-    /// the auth does not take is `oauth_failed`.
+    /// exchanged with its verifier (`POST /token?grant_type=pkce`). A code the auth does not take
+    /// is `oauth_failed`.
     pub fn sign_in_with(&mut self, h: &Handoff) -> Result<(), Error> {
-        let s = match h {
-            Handoff::Code { code, verifier } => self.auth("POST", "/token?grant_type=pkce", Some(json!({ "auth_code": code, "code_verifier": verifier })), None),
-            Handoff::Refresh(t) => self.auth("POST", "/token?grant_type=refresh_token", Some(json!({ "refresh_token": t })), None),
-        };
+        let s = self.auth("POST", "/token?grant_type=pkce", Some(json!({ "auth_code": h.code, "code_verifier": h.verifier })), None);
         let s = s.map_err(|e| match e {
             Error::Offline | Error::Code("too_many") => e,
             _ => Error::Code("oauth_failed"),
@@ -246,8 +242,8 @@ impl Client {
         }
     }
 
-    /// Whether the account signed in has a password (an account made with Google, Discord or
-    /// Steam has none). True while it is not known.
+    /// Whether the account signed in has a password (an account made with Google has none). True
+    /// while it is not known.
     pub fn has_password(&self) -> bool {
         self.access.as_ref().is_none_or(|a| a.password)
     }
@@ -305,8 +301,8 @@ impl Client {
     /// it), the cloud saves deleted through Storage, then `delete_my_account()` (the user, and with
     /// it the profile, the friendships and the invites), then signed out here. Nothing is deleted
     /// when the password is wrong; a cloud save that will not go keeps the account. An account
-    /// without a password (Google, Discord, Steam: the server's own word on it) is deleted with the
-    /// session it has, as on the website.
+    /// without a password (Google: the server's own word on it) is deleted with the session it
+    /// has, as on the website.
     pub fn delete_account(&mut self, password: &str) -> Result<(), Error> {
         let t = self.access_token()?;
         let r = self.send("GET", &self.ep.auth("/user"), Some(&t), Body::None, &[], false)?;
@@ -597,12 +593,8 @@ fn claims(jwt: &str) -> Option<(u64, String, String, Value)> {
 }
 
 /// Whether a user's `app_metadata` says the account has a password: `email` among its providers
-/// (Supabase's own sign-up), and no Steam id (`steam-auth` makes its users with an address of
-/// ours but no password). Not said at all: it has.
+/// (Supabase's own sign-up; a Google account joined to one has both). Not said at all: it has.
 fn has_password(app: &Value) -> bool {
-    if app.get("steam_id").is_some_and(|v| !v.is_null()) {
-        return false;
-    }
     match app.get("providers").and_then(Value::as_array) {
         Some(p) => p.iter().any(|p| p.as_str() == Some("email")),
         None => app.get("provider").and_then(Value::as_str).is_none_or(|p| p == "email"),
@@ -638,7 +630,7 @@ pub(crate) fn test_jwt(sub: &str, exp: u64) -> String {
     test_jwt_with(sub, exp, json!({ "provider": "email", "providers": ["email"] }))
 }
 
-/// One with this `app_metadata` (a Google or a Steam account's).
+/// One with this `app_metadata` (a Google account's).
 #[cfg(test)]
 pub(crate) fn test_jwt_with(sub: &str, exp: u64, app: Value) -> String {
     fn b64(b: &[u8]) -> String {

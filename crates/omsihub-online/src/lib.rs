@@ -1,5 +1,5 @@
 //! Omsi-Hub online, the client side (docs/omsihub/ONLINE.md): the optional account - email and
-//! password, or Google, Discord or Steam, on Supabase Auth - the friends, their online state, the
+//! password, or Google, on Supabase Auth - the friends, their online state, the
 //! invites to a company session and the opt-in leaderboard (the database's `SECURITY DEFINER`
 //! functions, through PostgREST), and the cloud saves (Supabase Storage).
 //!
@@ -15,9 +15,8 @@
 //! * `check` - the lengths and shapes checked before anything is sent;
 //! * `privacy` - the privacy statement and its version: the account's features wait until the
 //!   player agreed to it;
-//! * `oauth` - signing in with Google, Discord or Steam through the system's browser and a
-//!   one-shot listener on 127.0.0.1 (PKCE for Supabase's providers, the `steam-auth` function for
-//!   Steam).
+//! * `oauth` - signing in with Google through the system's browser and a one-shot listener on
+//!   127.0.0.1 (PKCE).
 //!
 //! No network is no error of the player's: every call then answers `Error::Offline` at once
 //! (the connection's own timeouts), and the launcher plays on locally. Nothing here logs.
@@ -41,7 +40,7 @@ mod tests;
 
 pub use client::{Client, Friend, Invite, Profile, Stats};
 pub use codes::Error;
-pub use oauth::{Flow, Handoff, Provider};
+pub use oauth::{Flow, Handoff};
 pub use saves::{Cloud, SaveError, Slot};
 
 /// The Supabase project `omsi-hub-online` (public, as every client uses it; not a secret).
@@ -97,10 +96,6 @@ impl Endpoints {
 
     pub(crate) fn rest(&self, path: &str) -> String {
         format!("{}/rest/v1{path}", self.base)
-    }
-
-    pub(crate) fn functions(&self, path: &str) -> String {
-        format!("{}/functions/v1{path}", self.base)
     }
 
     pub(crate) fn storage(&self, path: &str) -> String {

@@ -1,9 +1,9 @@
 _version: 2
-# Beta 67: signing in with Google, Discord or Steam through the system's browser - the buttons and
-# the wait in the account panel, the page the browser shows afterwards, the codes of the browser's
-# sign-in, deleting an account without a password (launcher/ui/js/omsihub/online.js;
+# Beta 67: signing in with Google through the system's browser - the button and the wait in the
+# account panel, the page the browser shows afterwards, the codes of the browser's sign-in, deleting
+# an account without a password (launcher/ui/js/omsihub/online.js;
 # crates/omsi-launcher-api/src/omsihub/online.rs; crates/omsihub-online/src/codes.rs). Formal
-# register, as the privacy texts. Google, Discord and Steam stay as they are (%{name}).
+# register, as the privacy texts. Google stays as it is (%{name}).
 "Sign in with %{name}":
   de: "Mit %{name} anmelden"
   fr: "Se connecter avec %{name}"
@@ -82,20 +82,6 @@ _version: 2
   pl: "Logowanie zostało anulowane. Proszę wrócić do Omsi-Hub."
   ru: "Вход был отменён. Пожалуйста, вернитесь в Omsi-Hub."
   uk: "Вхід було скасовано. Будь ласка, поверніться до Omsi-Hub."
-"Completing the sign-in…":
-  de: "Die Anmeldung wird abgeschlossen …"
-  fr: "Finalisation de la connexion…"
-  nl: "De aanmelding wordt voltooid…"
-  pl: "Trwa kończenie logowania…"
-  ru: "Завершение входа…"
-  uk: "Завершення входу…"
-"Please enable JavaScript for this page to complete the sign-in.":
-  de: "Bitte aktivieren Sie JavaScript für diese Seite, um die Anmeldung abzuschließen."
-  fr: "Veuillez activer JavaScript pour cette page afin de finaliser la connexion."
-  nl: "Schakel JavaScript in voor deze pagina om de aanmelding te voltooien."
-  pl: "Aby dokończyć logowanie, proszę włączyć JavaScript dla tej strony."
-  ru: "Пожалуйста, включите JavaScript для этой страницы, чтобы завершить вход."
-  uk: "Будь ласка, увімкніть JavaScript для цієї сторінки, щоб завершити вхід."
 # (the codes of crates/omsihub-online)
 "The sign-in was cancelled.":
   de: "Die Anmeldung wurde abgebrochen."
