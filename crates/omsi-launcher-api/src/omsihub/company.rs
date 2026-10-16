@@ -23,6 +23,7 @@ pub mod casual;
 mod chooser;
 // (Beta 62: the country the company plays in - its people's names)
 mod country;
+pub mod crew;
 // (Beta 62: the company's currency chosen)
 mod currency;
 mod dealer;
@@ -735,6 +736,8 @@ fn depot_tick(s: &mut Session) {
         s.orders_at = Some(Instant::now());
         let d = data();
         let done = s.company.as_mut().map(|c| co::remote::take(&d, c)).unwrap_or_default();
+        // (the crew's notifications: the corner's toast and the game's cards, `crew::notify`)
+        crew_notices(s);
         if !done.is_empty() {
             changed(s);
             match done.iter().find_map(|x| x.1.err()) {
@@ -763,6 +766,39 @@ fn depot_tick(s: &mut Session) {
     if s.company.as_mut().is_some_and(|c| co::concessions::refresh(c, &lines)) {
         changed(s);
     }
+}
+
+/// The crew's notifications (`crew::notify`) shown: each as the corner's toast and, for the
+/// company's driver, as a card in the game Omsi-Hub started (`addon::notify_game`). The one place
+/// they are shown until the company has a message system (r67-messages: `crew::notify` then posts
+/// there instead, and this takes nothing).
+fn crew_notices(s: &mut Session) {
+    let Some(c) = s.company.as_mut() else { return };
+    let list = co::crew::take_notifications(c);
+    if list.is_empty() {
+        return;
+    }
+    let id = c.id.clone();
+    let mut game = Vec::new();
+    for n in list {
+        // (an argument may be an English text of the company's - a note's template, a refusal -
+        // or one with a typed text after it: "A door sticks: rear door")
+        let words = |v: &str| match v.split_once(": ") {
+            Some((head, rest)) if tr(v) == v => format!("{}: {rest}", tr(head)),
+            _ => tr(v),
+        };
+        let args: Vec<(&str, String)> = n.args.iter().map(|(k, v)| (k.as_str(), words(v))).collect();
+        let args: Vec<(&str, &str)> = args.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let text = trf(&n.template, &args);
+        let alert = n.priority == co::crew::Priority::High;
+        // (a player of the session hears it on his own launcher, not in the boss's corner)
+        if matches!(n.to, Some(co::plan::Who::Guest(_))) {
+            continue;
+        }
+        game.push(omsihub_plugin::bridge::Notice { id: format!("crew-{id}-{}", n.id), title: tr("Omsi-Hub"), text: text.clone(), kind: if alert { "warning".into() } else { "info".into() } });
+        s.say(text, alert);
+    }
+    super::addon::notify_game(game);
 }
 
 // --- the clock (`clock.rs` of the game-drawn launcher) ------------------------------------------
@@ -1327,6 +1363,8 @@ pub fn relayed(s: &mut Session, v: &mut Viewer, cmd: &str, args: &Value, perms: 
             Ok(json!({ "name": s.company.as_ref().and_then(|c| co::ownline::line_of(c, id)).map(|x| x.name.clone()) }))
         }
         c if c.starts_with("co_more_") => more::relayed(s, c, args),
+        // (the player's own side: his duty, his bus - `crew`)
+        "co_crew" => crew::act(s, v.guest, args),
         // (RosterFlow, on the boss's company with the player's own RosterFlow state)
         c if c.starts_with("rf_") => super::rosterflow::relayed(s, &mut v.rf, v.guest, c, args, perms),
         other => Err(format!("no command {other}")),

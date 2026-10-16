@@ -105,6 +105,51 @@ pub struct Assignment {
     pub editor: bool,
     /// The plugin's texts in the player's language: English text -> translation.
     pub texts: BTreeMap<String, String>,
+    /// The duty strip, the bus's handover notes and the walk-around of a company's duty
+    /// (`lua/duty_strip.lua`; None: a drive of the player's own).
+    pub crew: Option<Crew>,
+}
+
+/// A piece of the duty as the duty strip shows it: signing on, a trip, a break, signing off
+/// (`kind`: `"sign_on"`, `"trip"`, `"break"`, `"sign_off"`), where and when (minutes of the
+/// day), whether a driver is relieved there, the line of a trip and whether it is an empty run.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StripRow {
+    pub kind: String,
+    pub at: String,
+    pub to_place: String,
+    pub from: i32,
+    pub to: i32,
+    pub relief: bool,
+    pub line: String,
+    pub empty: bool,
+}
+
+/// What the driver's side of a company's duty gives the plugin.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Crew {
+    /// The duty strip on the screen (None: shown; false: another strip has the place).
+    pub strip: Option<bool>,
+    /// The duty's pieces in the order they are driven.
+    pub rows: Vec<StripRow>,
+    /// What changed on the duty today, in the player's language (an extra duty, overtime, a
+    /// changed relief, a swap).
+    pub changes: Vec<String>,
+    /// The company's bus of the duty: its id (the reports name it) and fleet number.
+    pub bus: u32,
+    pub bus_number: String,
+    /// The handover notes left on it today, in the player's language: shown at sign-on.
+    pub notes: Vec<String>,
+    /// The notes' ready-made texts and the walk-around's checks: (key, label in the player's
+    /// language).
+    pub templates: Vec<(String, String)>,
+    pub checks: Vec<(String, String)>,
+    /// The longest note the driver may type.
+    pub text_max: u32,
+    /// The fuel or charge left (0 to 1) under which the strip says to refuel at the depot.
+    pub low_fuel: f64,
 }
 
 /// The plugin's handshake.
@@ -167,11 +212,25 @@ pub struct Report {
     /// The real time (Unix seconds) and the game's clock (seconds since midnight).
     pub at: f64,
     pub clock: Option<f64>,
+    /// A handover note (`"note"`): its template's key and what was typed. A defect of the
+    /// walk-around (`"defect"`) or one the plugin saw on the way (`"fault"`): its check's key
+    /// (`defect`), what was typed, and for a collision the repair's minutes the game gives.
+    pub template: String,
+    pub defect: String,
+    pub text: String,
+    pub minutes: Option<f64>,
+    /// The company's bus it is about (`Crew::bus`).
+    pub bus_id: u32,
 }
 
 impl Report {
     pub fn is_trip(&self) -> bool {
         self.kind == "trip"
+    }
+
+    /// A handover note, a defect or a fault: what the driver's side of the company books.
+    pub fn is_crew(&self) -> bool {
+        matches!(self.kind.as_str(), "note" | "defect" | "fault")
     }
 }
 
@@ -375,6 +434,18 @@ mod tests {
         // (the file started again)
         std::fs::write(&file, "{\"kind\":\"duty_end\"}\n").unwrap();
         assert_eq!(r.read_new(&d)[0].kind, "duty_end");
+    }
+
+    #[test]
+    fn the_crew_of_a_duty_reaches_the_plugin_and_its_reports_come_back() {
+        let crew = Crew { rows: vec![StripRow { kind: "break".into(), at: "Rathaus".into(), from: 600, to: 620, ..StripRow::default() }], templates: vec![("door_sticks".into(), "Eine Tür klemmt".into())], bus: 4, ..Crew::default() };
+        let lua = Assignment { crew: Some(crew), ..Assignment::default() }.to_lua();
+        assert!(lua.contains("[\"kind\"] = \"break\"") && lua.contains("\"door_sticks\",") && lua.contains("[\"bus\"] = 4"), "{lua}");
+        // (an older assignment has none)
+        assert!(Assignment::default().to_lua().contains("[\"crew\"] = nil"));
+        let r: Report = serde_json::from_str("{\"kind\":\"defect\",\"defect\":\"tyres\",\"text\":\"front left\"}").unwrap();
+        assert!(r.is_crew() && !r.is_trip());
+        assert_eq!((r.defect.as_str(), r.text.as_str(), r.minutes), ("tyres", "front left", None));
     }
 
     #[test]

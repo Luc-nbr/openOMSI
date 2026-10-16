@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 
 /// The company's commands a player's launcher relays to the boss's (the rest run on his own:
 /// the installed buses, the map's roads, the portraits) - and RosterFlow's (`relayed_rf`).
-pub const RELAYED: [&str; 6] = ["co_tick", "co_view", "co_act", "co_more_view", "co_more_act", "co_line_of"];
+pub const RELAYED: [&str; 7] = ["co_tick", "co_view", "co_act", "co_more_view", "co_more_act", "co_line_of", "co_crew"];
 
 /// Whether a player's launcher relays RosterFlow's command `cmd` (all but its tutorial, which is
 /// his launcher's own: what he has seen of it, his lessons' place).
@@ -242,6 +242,15 @@ fn rf_need(cmd: &str, args: &Value) -> Need {
     }
 }
 
+/// What a driver's own action (`co_crew`'s `act`, `company/crew.rs`) needs: a driver acts on
+/// his own duty and his own bus only, which the boss's launcher checks besides.
+fn crew_need(act: &str) -> Need {
+    match act {
+        "view" | "note" | "defect" | "swap" | "swap_answer" | "sick" | "leave" => Any(&[Perm::Drive]),
+        _ => Never,
+    }
+}
+
 /// What a relayed command needs (`args`: its arguments).
 pub fn need(cmd: &str, args: &Value) -> Need {
     let s = |k: &str| args.get(k).and_then(Value::as_str).unwrap_or("").to_string();
@@ -251,6 +260,7 @@ pub fn need(cmd: &str, args: &Value) -> Need {
         "co_act" => act_need(&s("act"), &s("what")),
         "co_more_view" => more_view_need(&s("view")),
         "co_more_act" => more_act_need(&s("act")),
+        "co_crew" => crew_need(&s("act")),
         c if relayed_rf(c) => rf_need(c, args),
         _ => Never,
     }
@@ -461,6 +471,19 @@ mod tests {
         // the planning's sheet of a line opens for who may look (its changes are the planners')
         assert!(ask("co_more_act", json!({ "act": "plan_timetable" }), &[Perm::Lines]));
         assert!(ask("co_more_view", json!({ "view": "planning" }), &[Perm::Service]));
+    }
+
+    /// Every action of a driver's own side has its permission, a driver's: none beyond it.
+    #[test]
+    fn a_driver_acts_on_his_own_duty_and_bus() {
+        let acts = arms_in(include_str!("../company/crew.rs"), "pub fn act(");
+        assert!(acts.len() >= 6, "the actions are read: {acts:?}");
+        for a in &acts {
+            assert!(need("co_crew", &json!({ "act": a })).met(&[Perm::Drive]), "{a}");
+            assert!(!need("co_crew", &json!({ "act": a })).met(&[Perm::Finances]), "{a}");
+        }
+        assert_eq!(need("co_crew", &json!({ "act": "pay_me" })), Never);
+        assert!(RELAYED.contains(&"co_crew"));
     }
 
     #[test]

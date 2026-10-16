@@ -385,6 +385,8 @@ pub fn report_defect(c: &mut Company, vehicle: u32, kind: DefectKind, text: &str
 
 /// What a fault the company's own model logs says.
 pub const BREAKDOWN: &str = "Broke down on the way";
+/// What a collision the game saw (the plugin's fault report) says.
+pub const COLLISION: &str = "Collision damage";
 pub const ACCIDENT: &str = "Damaged in an accident";
 
 /// A fault of the company's own breakdown model (`day::close_day`): logged with the bus's
@@ -857,7 +859,7 @@ pub fn night(c: &mut Company, closed: &str) {
 /// Every English text this module writes, for the translations.
 pub fn texts() -> Vec<&'static str> {
     let mut v = vec![
-        NOTE_LEFT, DEFECT_LOGGED, BREAKDOWN, ACCIDENT, NO_DUTY, NOT_YOURS, BEGUN, ASKED_ALREADY, NO_COLLEAGUE, MIXED, NO_SWAP, OFF_THAT_DAY, TWO_DUTIES, CANNOT_DRIVE, YOU_CANNOT, RATHER_NOT, SWAP_ACCEPTED, SWAP_TAKEN, SWAP_REFUSED, SWAP_ASKED, SICK_TODAY, BAD_DAYS, TOO_LONG, HAVE_THOSE, NO_DAYS, ILL_ALREADY, LEAVE_YES, LEAVE_NO, SICK_CALLED, GUEST_SICK, GUEST_LEAVE,
+        NOTE_LEFT, DEFECT_LOGGED, BREAKDOWN, ACCIDENT, COLLISION, NO_DUTY, NOT_YOURS, BEGUN, ASKED_ALREADY, NO_COLLEAGUE, MIXED, NO_SWAP, OFF_THAT_DAY, TWO_DUTIES, CANNOT_DRIVE, YOU_CANNOT, RATHER_NOT, SWAP_ACCEPTED, SWAP_TAKEN, SWAP_REFUSED, SWAP_ASKED, SICK_TODAY, BAD_DAYS, TOO_LONG, HAVE_THOSE, NO_DAYS, ILL_ALREADY, LEAVE_YES, LEAVE_NO, SICK_CALLED, GUEST_SICK, GUEST_LEAVE,
         "The note is empty.", "This bus has enough notes for today.",
     ];
     v.extend(NoteTemplate::ALL.iter().map(|t| t.text()));

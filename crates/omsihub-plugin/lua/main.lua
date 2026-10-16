@@ -10,7 +10,7 @@
 --   data/reports.jsonl    plugin -> Omsi-Hub: the duty taken, each trip done, the duty ended
 -- A game without the file functions gets the handshake and the reports in its log instead.
 
-local VERSION = "1.5.0"
+local VERSION = "1.6.0"
 local BRIDGE = 1
 local PANEL = "omsihub"
 
@@ -170,6 +170,13 @@ local board = require("board")
 board.setup(tr)
 if company_duty() then signon.setup(tr, assignment) end
 
+-- the duty strip, the handover notes and the walk-around of a company's duty (duty_strip.lua):
+-- its notes and defects go to Omsi-Hub as reports, its notices as cards
+local strip = require("duty_strip")
+strip.setup(tr, company_duty() and assignment.crew or nil, function(kind, fields) report(kind, fields) end, function(icon, title, text)
+  if has["ui.toast"] then omsi.ui.toast(text, { title = title, icon = icon, seconds = 8 }) else omsi.message(title .. ": " .. text, 8) end
+end)
+
 local function panel()
   if not (company_duty() and has["ui.set"]) then return end
   local d = duty_now()
@@ -307,6 +314,8 @@ end
 
 omsi.on("duty", function(line, tour)
   if state.line then report("duty_end", { line = state.line, tour = state.tour }) end
+  -- (the company's duty ended: the walk-around before the driver leaves the bus)
+  if state.line and not line then strip.sign_off() end
   state.line, state.tour, state.last_trip = line, tour, nil
   if line then report("duty_start", { line = line, tour = tour }) end
   panel()
@@ -339,6 +348,7 @@ omsi.on("frame", function(dt)
   if fn("has_vehicle") and not omsi.has_vehicle() then return end
   trip.frame(dt)
   watch.frame(dt)
+  strip.frame(dt)
   follow_trip(dt)
   card.frame(dt, standing())
 end)
@@ -370,6 +380,7 @@ omsi.on("vehicle", function(name)
   if name then display_font() end
   -- (the notices once the player is in the bus and sees them)
   if name and assignment then show_notices(assignment.notices) end
+  if name and signon.at_work() then strip.signed_on() end
   if name then ibis_rule() end
   if name and assignment and assignment.auto_start and signon.at_work() and not state.started then
     state.started = true
@@ -380,6 +391,8 @@ end)
 
 omsi.on("ui_click", function(p, element)
   if card.click(p, element) then return end
+  if strip.click(p, element) then return end
+  if p == PANEL and element == "signoff" and signon.signed() then strip.sign_off() end
   if p == PANEL and element == "start" then start_duty() end
   -- (signed on and the duty accepted: taken now where it was to start by itself)
   if p == PANEL and signon.click(element, function()
@@ -387,7 +400,8 @@ omsi.on("ui_click", function(p, element)
       state.started = true
       start_duty()
     end
-    -- (the duty's codes go to the IBIS as the order is accepted)
+    -- (the duty's codes go to the IBIS as the order is accepted; the bus's notes are shown)
+    strip.signed_on()
     ibis_rule()
     if has["duty.type_ibis"] and assignment.ibis ~= false then omsi.duty.type_ibis() end
   end) then
@@ -398,6 +412,7 @@ end)
 
 omsi.on("ui_change", function(p, element, value)
   if card.change(p, element, value) then return end
+  if strip.change(p, element, value) then return end
   if p == PANEL and signon.change(element, value) then panel() end
 end)
 
@@ -408,11 +423,13 @@ end)
 
 omsi.on("stop", function()
   if has["ui.remove"] then omsi.ui.remove(PANEL) end
+  strip.stop()
 end)
 
 -- (the duty board: wanted unless Omsi-Hub says not, and not before the driver signed on)
 omsi.every(1, function()
   board.update((not assignment or assignment.board ~= false) and signon.at_work())
+  strip.update(company_duty() and signon.at_work())
 end)
 
 omsi.every(2, function()
