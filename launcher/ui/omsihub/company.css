@@ -1299,7 +1299,7 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 }
 @keyframes co-side-in { from { transform: translateX(-24px); opacity: 0; } to { transform: none; opacity: 1; } }
 .co-side-brand { flex: none; height: 60px; display: flex; align-items: center; padding: 0 20px; }
-.co-side-brand .hub-logo { height: 26px; width: auto; display: block; }
+.co-side-brand .hub-logo { height: 32px; width: auto; display: block; }
 .co-side-busmark { width: 34px; height: 34px; display: block; }
 .co-side.rail .co-side-brand { padding: 0; justify-content: center; }
 .co-side-co { flex: none; display: flex; align-items: center; gap: 11px; margin: 4px 12px 10px; padding: 10px; border-radius: var(--hub-r-sheet); background: var(--co-side-hover); min-width: 0; }
@@ -1308,6 +1308,7 @@ select.co-field { appearance: none; -webkit-appearance: none; padding-right: 36p
 .co-side-who b { font-size: 11.5px; font-weight: 700; max-width: 100%; }
 .co-mode-chip { display: inline-flex; align-items: center; gap: 5px; height: 20px; max-width: 100%; padding: 0 9px 0 7px; border-radius: 10px; font-size: 8.8px; font-weight: 700; white-space: nowrap; cursor: pointer;
   background: rgba(var(--hub-accent-rgb), 0.16); color: var(--hub-accent-text); }
+.co-side .co-mode-chip { color: color-mix(in srgb, var(--hub-accent) 62%, white); }
 :root.hub[data-theme="light"] .co-top .co-mode-chip { color: var(--hub-accent-deep); }
 .co-mode-chip:hover { background: rgba(var(--hub-accent-rgb), 0.28); }
 .co-mode-chip.still { cursor: default; }

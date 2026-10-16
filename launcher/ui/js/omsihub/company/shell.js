@@ -583,7 +583,8 @@ function entries(narrow) {
     icon: p.icon,
     title: p.name,
     sub: p.head || (p.tab === HOME ? '' : pageName(sh, HOME)),
-    hint: p.tab === HOME ? 'Esc' : p.badge ? String(p.badge.n) : '',
+    hint: p.tab === HOME ? 'Esc' : '',
+    badge: p.badge,
     run: () => goPage(p.tab),
   });
   const out = [];
@@ -696,6 +697,7 @@ function Palette({ narrow }) {
             <button type="button" class=${'co-cmdk-row' + (i === k ? ' on' : '')} key=${e.key} onMouseMove=${() => i !== k && setAt(i)} onClick=${() => run(e)}>
               <span class="co-cmdk-icon"><${Icon} name=${e.icon} size=${18} /></span>
               <span class="co-cmdk-words"><b class="cut">${e.title}</b>${e.sub && html`<span class="cut">${e.sub}</span>`}</span>
+              ${e.badge && html`<span class=${'co-side-badge ' + (e.badge.tone || 'accent')}>${e.badge.n}</span>`}
               ${i === k ? html`<kbd>↵</kbd>` : e.hint && html`<kbd class="soft">${e.hint}</kbd>`}
             </button>`;
         })}
