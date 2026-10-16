@@ -9,7 +9,8 @@
 //!   carries on along the block, and the layover in between absorbs it), when its driver is
 //!   there (signed on - a few minutes late now and then, `staff::signs_on_late`, or much later
 //!   after the morning's `plan::Disruption::Late` -, or came from another duty, `RELIEF_WALK`
-//!   on), and when the spare sent for a broken-down bus came;
+//!   on), and when the spare sent for a broken-down bus came; where it begins it waits for a
+//!   protected connection running late, at the most the connection's hold (`ontime::model_hold`);
 //! - on the way it loses (or makes up) time: the traffic of the hour (the rush hours most,
 //!   `band`), the driver's punctuality and experience, the bus's condition, the day's events on
 //!   the line (`inbox::line_effect`), and a small part of chance; a bus breaking down on the way
@@ -76,6 +77,8 @@ pub enum Cause {
     Bus { bus: u32, minutes: i32 },
     /// The day's events on the line (roadworks, a diversion, the weather).
     Event { minutes: i32 },
+    /// The bus waited at `stop` for a protected connection (`what`: `ontime::model_hold`).
+    Hold { stop: String, what: String, minutes: i32 },
     /// The way itself (passengers, lights).
     Chance { minutes: i32 },
 }
@@ -83,13 +86,13 @@ pub enum Cause {
 impl Cause {
     pub fn minutes(&self) -> i32 {
         match self {
-            Cause::SignOn { minutes, .. } | Cause::Carried { minutes, .. } | Cause::Relief { minutes, .. } | Cause::Breakdown { minutes, .. } | Cause::Traffic { minutes, .. } | Cause::Driver { minutes, .. } | Cause::Bus { minutes, .. } | Cause::Event { minutes } | Cause::Chance { minutes } => *minutes,
+            Cause::SignOn { minutes, .. } | Cause::Carried { minutes, .. } | Cause::Relief { minutes, .. } | Cause::Breakdown { minutes, .. } | Cause::Traffic { minutes, .. } | Cause::Driver { minutes, .. } | Cause::Bus { minutes, .. } | Cause::Event { minutes } | Cause::Hold { minutes, .. } | Cause::Chance { minutes } => *minutes,
         }
     }
 
     fn set_minutes(&mut self, m: i32) {
         match self {
-            Cause::SignOn { minutes, .. } | Cause::Carried { minutes, .. } | Cause::Relief { minutes, .. } | Cause::Breakdown { minutes, .. } | Cause::Traffic { minutes, .. } | Cause::Driver { minutes, .. } | Cause::Bus { minutes, .. } | Cause::Event { minutes } | Cause::Chance { minutes } => *minutes = m,
+            Cause::SignOn { minutes, .. } | Cause::Carried { minutes, .. } | Cause::Relief { minutes, .. } | Cause::Breakdown { minutes, .. } | Cause::Traffic { minutes, .. } | Cause::Driver { minutes, .. } | Cause::Bus { minutes, .. } | Cause::Event { minutes } | Cause::Hold { minutes, .. } | Cause::Chance { minutes } => *minutes = m,
         }
     }
 
@@ -105,6 +108,7 @@ impl Cause {
             Cause::Driver { .. } => "driver",
             Cause::Bus { .. } => "bus",
             Cause::Event { .. } => "event",
+            Cause::Hold { .. } => "hold",
             Cause::Chance { .. } => "chance",
         }
     }
@@ -121,6 +125,7 @@ impl Cause {
             Cause::Driver { .. } => "slow driving",
             Cause::Bus { .. } => "bus in poor condition",
             Cause::Event { .. } => "event on the line",
+            Cause::Hold { .. } => "held for a connection",
             Cause::Chance { .. } => "delays on the way",
         }
     }
@@ -357,6 +362,15 @@ pub fn model_with(c: &Company, plan: &Plan, date: &str, cut: &[Cut], controls: &
                     if let Some(prev) = prev {
                         earlier = prev.causes.iter().chain(prev.earlier.iter()).filter(|c| !matches!(c, Cause::Carried { .. } | Cause::Relief { .. })).cloned().take(3).collect();
                     }
+                }
+            }
+            // (a protected connection where the trip begins: the bus waits for its passengers, at
+            // the most the connection's hold - a cause of its own, `ontime::model_hold`)
+            if let Some((stop, what, m)) = super::ontime::model_hold(c, date, &tp.tour.line, x, dep_delay.max(0.0)) {
+                dep_delay += m;
+                add_root(&mut roots, "hold", m);
+                if m.round() >= 1.0 {
+                    causes.push(Cause::Hold { stop, what, minutes: m.round() as i32 });
                 }
             }
             // on the way (known once the trip has begun)

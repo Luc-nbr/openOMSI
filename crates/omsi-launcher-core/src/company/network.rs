@@ -213,6 +213,7 @@ pub fn add_line(c: &mut Company, line: &LineInfo, own: Option<&OwnLine>) -> Resu
         line_type: None,
         fare_cap: false,
         stats: Default::default(),
+        connections: Vec::new(),
     });
     Ok(())
 }

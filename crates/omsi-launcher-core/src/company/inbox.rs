@@ -478,8 +478,8 @@ pub fn demand_factor(c: &Company, date: &str) -> f64 {
 }
 
 /// What the events running on `date` do to the line `number`: the chance a trip runs late,
-/// added (the weather's everywhere, roadworks on the line), and how many ride on it against
-/// the usual (a diversion).
+/// added (the weather's everywhere, roadworks on the line, a diversion of the company's), and how
+/// many ride on it against the usual (a diversion).
 pub fn line_effect(c: &Company, date: &str, number: &str) -> (f64, f64) {
     let mut late = 0.0;
     let mut demand = 1.0;
@@ -493,6 +493,8 @@ pub fn line_effect(c: &Company, date: &str, number: &str) -> (f64, f64) {
             Some(_) => {}
         }
     }
+    // (and the company's own diversions on it: `ontime`)
+    late += super::ontime::diversion_late(c, date, number);
     (late, demand)
 }
 

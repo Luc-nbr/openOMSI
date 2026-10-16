@@ -56,6 +56,7 @@ pub mod model;
 // (the people's names by the country the company plays in)
 pub mod names;
 pub mod network;
+pub mod ontime;
 pub mod ownline;
 pub mod parts;
 // (drivers paid by the hour of duty)
@@ -205,6 +206,7 @@ pub fn found(f: &Founding, profile: &str) -> Company {
         sandbox: sandbox::CAREER,
         country: if names::known(&f.country) { names::pool(&f.country).key.clone() } else { names::guess(&f.map, &f.map_name).to_string() },
         currency: f.currency,
+        ontime: Default::default(),
     };
     // (Casual buys quickly; the buying chosen is kept for the other modes)
     autopilot::set_game_mode(&mut c, f.game_mode);
