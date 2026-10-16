@@ -22,12 +22,11 @@
 //!   it on), the QR code a device scans to pair, the address and pairing code to type on one
 //!   instead, the devices paired.
 //!
-//! While a duty waits to be signed for, the page is the navigator's whole interface rather
-//! than a part of it (Omsi-Hub's duty panel was "sign on first" and nothing else until then):
-//! the small navigator is the page from edge to edge ([`Room::Panel`]: the pass as one line,
-//! the devices as one block where there is room) and the city map's view is the page in two
-//! cards, the devices' beside it ([`Room::Full`]); signed, the duty board and the duty sheet
-//! come. At work the page is a column beside the city map again ([`Room::Column`]).
+//! While a duty waits to be signed for, the city map's view is the page in two cards, the
+//! devices' beside it ([`Room::Full`]); at work the page is a column beside the city map
+//! ([`Room::Column`]). The game itself no longer asks the driver to sign on (the Omsi-Hub
+//! plugin does: docs/omsihub/ADDON_PLAN.md, step 4), so in the game the page is the companion's
+//! - the phones and tablets, the duty menu, the break - and its sign-on stages are a phone's.
 //!
 //! The state is the game's: signing on here or on a phone shows on both. Everything is
 //! worked out by pure functions from the companion's state into items, their places and what
@@ -51,21 +50,12 @@ fn pass_line(st: &CompanionState) -> String {
     tr_with("Personnel no. %{number} · code %{code}", &[("number", st.personnel_number.clone()), ("code", st.personnel_code.clone())])
 }
 
-/// The duty waits to be signed for: the game knows the driver, who has not signed on yet or
-/// not signed the duty order. Until then the navigator is the sign-on page and nothing else.
-pub(crate) fn waiting(st: &CompanionState) -> bool {
-    !st.personnel_number.is_empty() && matches!(st.stage, Stage::SignOn | Stage::DutyOrder)
-}
-
 /// Where the page is shown, and so how much it says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum Room {
     /// A column beside the city map (at work: the break, another duty, signing off).
     #[default]
     Column,
-    /// The whole small navigator, while the duty waits: the pass as one line under the
-    /// keypad, the devices as one block beside the QR code (left out when there is no room).
-    Panel,
     /// The city map's whole view, while the duty waits: the page in a card, the pass large,
     /// and the devices in a card of their own beside it.
     Full,
@@ -342,9 +332,6 @@ pub(crate) enum Item {
     /// The QR code a phone or tablet scans to pair, at most `max` points wide, with a line
     /// under it saying so.
     Qr { qr: Arc<Qr>, max: f32 },
-    /// The devices as one block (the small navigator): the QR code when there is one, and
-    /// where a device opens the page with the code it pairs with.
-    Pairing { qr: Option<Arc<Qr>>, address: String, code: String },
     /// The address, the pairing code and the QR code covered (for streaming): a blank in
     /// their place.
     Hidden,
@@ -399,10 +386,7 @@ pub(crate) fn page_in(st: &CompanionState, ui: &Phone, duty: Option<&DutyState>,
         }
     };
     let devices = items.len();
-    match room {
-        Room::Panel => pairing_items(st, qr, &mut items),
-        Room::Column | Room::Full => device_items(st, qr, room, &mut items),
-    }
+    device_items(st, qr, room, &mut items);
     Page { icon, title, sub: st.driver.trim().to_string(), signed_on: st.signed_on, items, devices }
 }
 
@@ -426,14 +410,9 @@ fn sign_on_items(st: &CompanionState, ui: &Phone, room: Room, items: &mut Vec<It
     }
     items.push(Item::Keypad);
     if !st.personnel_number.is_empty() {
-        // (the small navigator has room for the pass as one line)
-        if room == Room::Panel {
-            items.push(Item::Gap(4.0));
-            items.push(Item::PassLine(pass_line(st)));
-        } else {
-            items.push(Item::Caption(tr("Your pass")));
-            items.push(Item::Pass { number: st.personnel_number.clone(), code: st.personnel_code.clone() });
-        }
+        let _ = room;
+        items.push(Item::Caption(tr("Your pass")));
+        items.push(Item::Pass { number: st.personnel_number.clone(), code: st.personnel_code.clone() });
     }
 }
 
@@ -557,11 +536,6 @@ fn hidden_items(st: &CompanionState, items: &mut Vec<Item>) {
     }
 }
 
-/// The companion is listening with an address and a code: a device can pair.
-fn pairable(st: &CompanionState) -> bool {
-    st.enabled && st.error.is_none() && st.listening.is_some() && !st.pairing_code.is_empty() && !st.addresses.is_empty()
-}
-
 /// Phones and tablets: on or how to turn it on, the QR code to scan, where a device opens the
 /// page and the code it pairs with, the devices.
 fn device_items(st: &CompanionState, qr: Option<&Arc<Qr>>, room: Room, items: &mut Vec<Item>) {
@@ -603,18 +577,6 @@ fn device_items(st: &CompanionState, qr: Option<&Arc<Qr>>, room: Room, items: &m
     items.push(button("New pairing code", Some("refresh"), Action::NewCode, Style::Quiet));
     if st.paired > 0 {
         items.push(button("Forget devices", Some("delete"), Action::Forget, Style::Quiet));
-    }
-}
-
-/// The devices on the small navigator: one block to pair with, while a device can (a
-/// companion that is off or starting says nothing there - the city map's view says it).
-fn pairing_items(st: &CompanionState, qr: Option<&Arc<Qr>>, items: &mut Vec<Item>) {
-    if pairable(st) {
-        if st.hidden {
-            hidden_items(st, items);
-        } else {
-            items.push(Item::Pairing { qr: qr.cloned(), address: address(&st.addresses[0]), code: st.pairing_code.clone() });
-        }
     }
 }
 
@@ -674,7 +636,6 @@ pub(crate) fn layout(items: &[Item], w: f32, s: f32, fonts: &Fonts) -> (Vec<Plac
             }
             // (the code in whole pixels a module: its height is no multiple of the scale's)
             Item::Qr { qr, max } => qr_px(qr.side, (*max * s).min(w)) + QR_CAPTION * s,
-            Item::Pairing { qr, .. } => pairing_height(qr.as_deref(), w, s),
             other => {
                 s * match other {
                     Item::Caption(_) => 26.0,
@@ -693,7 +654,7 @@ pub(crate) fn layout(items: &[Item], w: f32, s: f32, fonts: &Fonts) -> (Vec<Plac
                     Item::Hidden => 64.0,
                     Item::Device { .. } => 40.0,
                     Item::Gap(g) => *g,
-                    Item::Text(..) | Item::Qr { .. } | Item::Pairing { .. } => 0.0,
+                    Item::Text(..) | Item::Qr { .. } => 0.0,
                 }
             }
         };
@@ -759,22 +720,6 @@ pub(crate) fn draw_qr(p: &mut Painter, q: &Qr, at: Vec2, m: f32) {
     }
 }
 
-/// The small navigator's block for the devices: the code (at most 124 points, and two fifths
-/// of the width) beside four lines, or two lines without a code.
-const PAIRING_QR: f32 = 124.0;
-
-fn pairing_qr_px(q: &Qr, w: f32, s: f32) -> (f32, f32) {
-    let m = qr_module(q.side, (PAIRING_QR * s).min(w * 0.42));
-    (m, m * (q.side + 2 * QR_QUIET) as f32)
-}
-
-fn pairing_height(qr: Option<&Qr>, w: f32, s: f32) -> f32 {
-    match qr {
-        Some(q) => 14.0 * s + pairing_qr_px(q, w, s).1.max(78.0 * s) + 4.0 * s,
-        None => (14.0 + 44.0 + 4.0) * s,
-    }
-}
-
 /// The keypad's twelve keys in its place `r`: 1-9, then Clear, 0 and the key that takes the
 /// last digit away (Omsi-Hub's `cijferblok`).
 pub(crate) fn keypad_keys(r: Rect, s: f32) -> Vec<(Rect, Action)> {
@@ -805,28 +750,6 @@ pub(crate) fn hits(items: &[Item], placed: &[Placed], s: f32) -> Vec<(Rect, Acti
         }
     }
     out
-}
-
-/// The keypad's action for a key of the keyboard: digits (the number row and the numpad),
-/// Backspace and Delete.
-pub(crate) fn key_action(code: winit::keyboard::KeyCode) -> Option<Action> {
-    use winit::keyboard::KeyCode as K;
-    let digit = match code {
-        K::Digit0 | K::Numpad0 => 0,
-        K::Digit1 | K::Numpad1 => 1,
-        K::Digit2 | K::Numpad2 => 2,
-        K::Digit3 | K::Numpad3 => 3,
-        K::Digit4 | K::Numpad4 => 4,
-        K::Digit5 | K::Numpad5 => 5,
-        K::Digit6 | K::Numpad6 => 6,
-        K::Digit7 | K::Numpad7 => 7,
-        K::Digit8 | K::Numpad8 => 8,
-        K::Digit9 | K::Numpad9 => 9,
-        K::Backspace => return Some(Action::Erase),
-        K::Delete | K::NumpadClear => return Some(Action::Clear),
-        _ => return None,
-    };
-    Some(Action::Digit(digit))
 }
 
 // --- drawing ---------------------------------------------------------------------------------
@@ -883,94 +806,6 @@ pub(crate) fn draw_head(pen: &mut Pen, page: &Page, r: Rect, s: f32) -> Rect {
 /// Space between the head and the first item, and under the last (at scale 1).
 pub(crate) const TOP: f32 = 6.0;
 const BOTTOM: f32 = 14.0;
-
-/// Where the small navigator's items begin (at scale `s`): under its head, inside its edge.
-pub(crate) fn panel_origin(s: f32) -> Vec2 {
-    Vec2::new(PAD * s, (HEAD + TOP) * s)
-}
-
-/// The smallest the small navigator's page is made to fit its window (a share of its scale):
-/// smaller, it scrolls instead.
-const PANEL_SMALLEST: f32 = 0.75;
-
-/// The page as the small navigator shows it ([`Room::Panel`]), `w` pixels wide at scale `s`.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Fitted {
-    pub page: Page,
-    /// Where its items go (from [`panel_origin`]).
-    pub placed: Vec<Placed>,
-    /// The scale it is drawn at.
-    pub s: f32,
-    /// How tall the navigator is (at most the room it has), and how tall the page would be:
-    /// taller, it scrolls under its head.
-    pub height: f32,
-    pub content: f32,
-}
-
-/// The page as the small navigator shows it, `w` pixels wide at scale `s` and at most `room`
-/// pixels tall: the devices left out when they do not fit, then the page made smaller (to
-/// three quarters at the most: a small window, a large interface), and what still does not
-/// fit scrolls (a long duty menu).
-pub(crate) fn fit_panel(mut page: Page, w: f32, s: f32, room: f32, fonts: &Fonts) -> Fitted {
-    let measure = |page: &Page, s: f32| {
-        let (placed, h) = layout(&page.items, w - 2.0 * PAD * s, s, fonts);
-        (placed, ((HEAD + TOP + BOTTOM) * s + h).ceil())
-    };
-    let (placed, h) = measure(&page, s);
-    if h <= room {
-        return Fitted { page, placed, s, height: h, content: h };
-    }
-    page.items.truncate(page.devices);
-    let (mut placed, mut h) = measure(&page, s);
-    let (mut k, smallest) = (s, s * PANEL_SMALLEST);
-    // (smaller text wraps into fewer lines: a step or two finds the scale that fits)
-    for _ in 0..4 {
-        if h <= room || k <= smallest {
-            break;
-        }
-        k = (k * (room / h).clamp(0.5, 0.99)).max(smallest);
-        (placed, h) = measure(&page, k);
-    }
-    Fitted { page, placed, s: k, height: h.min(room.max((HEAD + TOP + BOTTOM) * k)), content: h }
-}
-
-/// Where a press on the small navigator's page does what (the panel's pixels), its items
-/// scrolled up by `scroll` under the head: those out of sight are none.
-pub(crate) fn panel_hits(f: &Fitted, scroll: f32) -> Vec<(Rect, Action)> {
-    let o = panel_origin(f.s) - Vec2::new(0.0, scroll);
-    let view = Rect::new(0.0, HEAD * f.s, f32::MAX, (f.height - HEAD * f.s).max(0.0));
-    hits(&f.page.items, &f.placed, f.s).into_iter().map(|(r, a)| (Rect::new(r.x + o.x, r.y + o.y, r.w, r.h), a)).filter(|(r, _)| view.contains(r.center())).collect()
-}
-
-/// Where the small navigator's items show (`panel`'s pixels): under its head, to its foot.
-pub(crate) fn panel_view(f: &Fitted, panel: Rect) -> Rect {
-    Rect::new(panel.x, panel.y + HEAD * f.s, panel.w, (f.height - HEAD * f.s).max(0.0))
-}
-
-/// The most the small navigator's page scrolls.
-pub(crate) fn panel_scroll_max(f: &Fitted) -> f32 {
-    (f.content - f.height).max(0.0)
-}
-
-/// Draw the small navigator's head into `panel` (its background is the navigator's), and a
-/// scroll bar beside its items when they scroll (`scroll` of the most there is).
-pub(crate) fn draw_panel_head(pen: &mut Pen, f: &Fitted, panel: Rect, scroll: f32) {
-    draw_page_head(pen, &f.page, panel, f.s);
-    let max = panel_scroll_max(f);
-    if max > 0.0 {
-        let view = panel_view(f, panel);
-        let thumb = (view.h * view.h / (view.h + max)).max(24.0 * f.s);
-        let y = view.y + (view.h - thumb) * (scroll / max).clamp(0.0, 1.0);
-        pen.p.rounded(Rect::new(view.right() - 5.0 * f.s, y, 3.0 * f.s, thumb), 1.5 * f.s, Color::WHITE.alpha(0.2));
-    }
-}
-
-/// Draw the small navigator's items into `panel`, scrolled up by `scroll` (drawn in a layer
-/// clipped to [`panel_view`]).
-pub(crate) fn draw_panel_items(pen: &mut Pen, f: &Fitted, panel: Rect, scroll: f32) {
-    let o = Vec2::new(panel.x, panel.y - scroll) + panel_origin(f.s);
-    draw_items(pen, &f.page.items, &f.placed, o, panel_view(f, panel), f.s);
-}
 
 /// The full view's two cards ([`Room::Full`]): the page's own and the devices' (the page's
 /// part from [`Page::devices`], its section the card's head), where their items go, and how
@@ -1258,29 +1093,6 @@ fn draw_item(pen: &mut Pen, item: &Item, lines: &[String], r: Rect, s: f32) {
             draw_qr(pen.p, qr, at, m);
             pen.text_in("Scan with your phone or tablet", 12.5 * s, Weight::Bold, Rect::new(r.x, at.y + side + 8.0 * s, r.w, 18.0 * s), Align::Center, TEXT_SOFT);
         }
-        Item::Pairing { qr, address, code } => {
-            pen.p.rect(Rect::new(r.x, r.y + 6.0 * s, r.w, 1.0), HAIRLINE);
-            let mut y = r.y + 14.0 * s;
-            let (tx, lines) = match qr.as_deref() {
-                Some(q) => {
-                    let (m, side) = pairing_qr_px(q, r.w, s);
-                    draw_qr(pen.p, q, Vec2::new(r.x, y), m);
-                    let tx = r.x + side + 12.0 * s;
-                    // (the four lines down the middle of the code beside them)
-                    y += ((side - 77.0 * s) * 0.5).max(0.0);
-                    (tx, vec![("Scan with your phone or tablet".to_string(), 11.5 * s, Weight::Medium, TEXT_DIM), (address.clone(), 13.0 * s, Weight::Bold, TEXT), (tr_with("Pairing code %{code}", &[("code", code.clone())]), 12.5 * s, Weight::Bold, accent_ink())])
-                }
-                None => {
-                    pen.p.icon(pen.atlas, "wifi_tethering", Vec2::new(r.x + 9.0 * s, y + 10.0 * s), 17.0 * s, TEXT);
-                    (r.x + 26.0 * s, vec![(format!("{address}  ·  {}", tr_with("Pairing code %{code}", &[("code", code.clone())])), 12.5 * s, Weight::Bold, TEXT_SOFT)])
-                }
-            };
-            let tw = (r.right() - tx).max(0.0);
-            pen.text_in("Phone & tablet", 13.5 * s, Weight::Bold, Rect::new(tx, y, tw, 20.0 * s), Align::Left, TEXT);
-            for (k, (t, px, weight, c)) in lines.iter().enumerate() {
-                pen.text_in(t, *px, *weight, Rect::new(tx, y + (22.0 + k as f32 * 19.0) * s, tw, 18.0 * s), Align::Left, *c);
-            }
-        }
         Item::Hidden => {
             // (a covered field where the address and the codes would be)
             let b = Rect::new(r.x, r.y + 4.0 * s, r.w, r.h - 8.0 * s);
@@ -1342,9 +1154,9 @@ pub(crate) mod tests {
     #[test]
     fn the_address_and_codes_are_covered_while_streaming_until_shown() {
         let qr = made_up_qr(25);
-        let shows_secrets = |p: &Page| p.items.iter().any(|i| matches!(i, Item::Address(_) | Item::Code(_) | Item::Qr { .. } | Item::Pairing { .. }));
+        let shows_secrets = |p: &Page| p.items.iter().any(|i| matches!(i, Item::Address(_) | Item::Code(_) | Item::Qr { .. }));
         let covered = CompanionState { hide: true, hidden: true, ..listening(hans()) };
-        for room in [Room::Column, Room::Full, Room::Panel] {
+        for room in [Room::Column, Room::Full] {
             let p = page_in(&covered, &Phone::default(), None, 0.0, room, Some(&qr));
             assert!(!shows_secrets(&p), "{room:?} shows the address or a code while streaming");
             assert!(p.items.contains(&Item::Hidden), "{room:?}");
@@ -1448,8 +1260,6 @@ pub(crate) mod tests {
         assert!(p.items.contains(&Item::Pass { number: "482913".into(), code: "5821".into() }));
         // nothing to accept or choose before signing on
         assert!(!actions(&p).iter().any(|a| matches!(a, Action::Accept | Action::OpenMenu | Action::Free | Action::SignOff)));
-        assert!(waiting(&st), "the navigator is the page until the duty is signed for");
-        assert!(!waiting(&CompanionState { personnel_number: String::new(), ..hans() }), "not before the game knows the driver");
     }
 
     /// Signed on without a duty: the duty menu - the lines, asked for once; a line's tours;
@@ -1478,7 +1288,6 @@ pub(crate) mod tests {
         // it did not work: back at the lines, saying so
         st.menu.failed = true;
         assert!(texts(&page(&st, &ui, None, 0.0)).contains(&"That did not work. Try again.".to_string()));
-        assert!(!waiting(&st), "signed on, no duty to sign");
     }
 
     /// A duty waiting: its order with the times, accepted with one press; another duty can
@@ -1500,7 +1309,6 @@ pub(crate) mod tests {
         let p = page(&st, &ui, None, 0.0);
         assert_eq!(p.title, "Choose a duty");
         assert_eq!(actions(&p), [Action::CloseMenu, Action::SignOff], "no driving freely with a duty there");
-        assert!(waiting(&st), "the duty order is part of signing on");
         // the duty signed (here or on a phone): the page starts afresh at work
         ui.follow(&at(Stage::OnDuty));
         assert!(!ui.menu);
@@ -1512,7 +1320,6 @@ pub(crate) mod tests {
     #[test]
     fn without_signing_on_nothing_waits_and_nothing_signs_off() {
         let st = CompanionState { auto_sign_on: true, ..at(Stage::OnDuty) };
-        assert!(!waiting(&st));
         let mut ui = Phone::default();
         ui.follow(&st);
         let p = page(&st, &ui, None, 0.0);
@@ -1558,7 +1365,6 @@ pub(crate) mod tests {
         assert!(p.items.contains(&Item::Duty { line: None, title: "Driving without a duty".into(), sub: String::new() }));
         assert!(p.items.contains(&Item::Break { minutes: 0, part: 0.0, label: String::new(), within: None }));
         assert_eq!(actions(&p), [Action::Break(true), Action::OpenMenu, Action::SignOff]);
-        assert!(!waiting(&st));
     }
 
     /// The devices: off, how to turn it on; on, where to go and the code, the devices.
@@ -1599,59 +1405,6 @@ pub(crate) mod tests {
     /// The small navigator is the page from edge to edge while the duty waits: the keypad,
     /// the pass as one line under it, and the devices as one block - the QR code beside where
     /// to go and the code - which a short window leaves out before the page is made smaller.
-    #[test]
-    fn the_small_navigator_is_the_page() {
-        let fonts = Fonts::hanken();
-        let qr = made_up_qr(29);
-        let st = listening(hans());
-        let p = page_in(&st, &Phone::default(), None, 0.0, Room::Panel, Some(&qr));
-        assert!(p.items.contains(&Item::Keypad));
-        assert!(p.items.contains(&Item::PassLine("Personnel no. 482913 · code 5821".into())));
-        assert!(!p.items.iter().any(|i| matches!(i, Item::Pass { .. } | Item::Section { .. } | Item::Button { .. })), "{:?}", p.items);
-        assert_eq!(&p.items[p.devices..], [Item::Pairing { qr: Some(qr.clone()), address: "192.168.1.20:47811".into(), code: "731904".into() }]);
-        // (a companion that is off says nothing here)
-        let off = page_in(&hans(), &Phone::default(), None, 0.0, Room::Panel, None);
-        assert_eq!(off.devices, off.items.len());
-        // room enough: all of it at the panel's scale
-        let (w, s) = (360.0 * 1.2, 1.2);
-        let all = fit_panel(p.clone(), w, s, 2000.0, &fonts);
-        assert_eq!((all.page.items.len(), all.s, all.height), (p.items.len(), s, all.content));
-        assert!((all.height - ((HEAD + TOP + BOTTOM) * s + all.placed.last().unwrap().rect.bottom()).ceil()).abs() < 1e-3);
-        assert_eq!(panel_scroll_max(&all), 0.0);
-        // a little short: the devices go first
-        let less = fit_panel(p.clone(), w, s, all.height - 20.0, &fonts);
-        assert_eq!((less.page.items.len(), less.s), (p.devices, s));
-        assert!(less.height <= all.height - 20.0 && less.height == less.content);
-        // short: the page made smaller to fit
-        let small = fit_panel(p.clone(), w, s, 470.0, &fonts);
-        assert!(small.s < s && small.s >= s * PANEL_SMALLEST && small.height <= 470.0 && small.height == small.content, "{} {}", small.s, small.height);
-        assert!(small.page.items.contains(&Item::Keypad));
-        // very short: three quarters, and the rest scrolls - its keys out of sight are none
-        let tiny = fit_panel(p.clone(), w, s, 300.0, &fonts);
-        assert!((tiny.s - s * PANEL_SMALLEST).abs() < 1e-4 && tiny.height == 300.0 && tiny.content > 300.0, "{} {} {}", tiny.s, tiny.height, tiny.content);
-        let max = panel_scroll_max(&tiny);
-        let top = panel_hits(&tiny, 0.0);
-        let bottom = panel_hits(&tiny, max);
-        assert!(top.iter().any(|h| h.1 == Action::Digit(1)) && !top.iter().any(|h| h.1 == Action::Erase));
-        assert!(bottom.iter().any(|h| h.1 == Action::Erase));
-        for (r, _) in top.iter().chain(&bottom) {
-            assert!(r.center().y >= HEAD * tiny.s && r.center().y <= tiny.height);
-        }
-        // the order to sign on the small navigator too: accepted there
-        let order = page_in(&listening(at(Stage::DutyOrder)), &Phone::default(), None, 0.0, Room::Panel, None);
-        assert_eq!(actions(&order), [Action::Accept, Action::OpenMenu, Action::SignOff]);
-        // its presses land on their keys, inside the panel
-        let f = fit_panel(p, w, s, 2000.0, &fonts);
-        let hits = panel_hits(&f, 0.0);
-        assert_eq!(hits.len(), 12, "the keypad's keys");
-        assert!(hits.iter().all(|(r, _)| r.x >= 0.0 && r.right() <= w && r.y >= HEAD * f.s && r.bottom() <= f.height));
-        let five = hits.iter().find(|h| h.1 == Action::Digit(5)).unwrap().0;
-        assert_eq!(hits.iter().find(|h| h.0.contains(five.center())).map(|h| h.1), Some(Action::Digit(5)));
-    }
-
-    /// The city map's whole view: the page's card and the devices' beside it when the view is
-    /// wide enough, one under the other when not; in the middle; a press lands on its key in
-    /// the window's pixels, scrolled or not.
     #[test]
     fn the_full_view_puts_the_devices_beside_the_page() {
         let fonts = Fonts::hanken();
@@ -1759,10 +1512,6 @@ pub(crate) mod tests {
                 }
             }
         }
-        assert_eq!(key_action(winit::keyboard::KeyCode::Numpad7), Some(Action::Digit(7)));
-        assert_eq!(key_action(winit::keyboard::KeyCode::Digit0), Some(Action::Digit(0)));
-        assert_eq!(key_action(winit::keyboard::KeyCode::Backspace), Some(Action::Erase));
-        assert_eq!(key_action(winit::keyboard::KeyCode::KeyA), None);
         // long text wraps to the page
         let lines = wrap(&fonts, "Phone & tablet is off. Turn it on in the settings to have the duty and the bus's screens on a phone or tablet.", 12.5, Weight::Medium, 300.0);
         assert!(lines.len() >= 2 && lines.iter().all(|l| fonts.width(l, 12.5, Weight::Medium) <= 300.0));
@@ -1922,26 +1671,6 @@ pub(crate) mod tests {
             crate::nav_duty::tests::raster(&body.verts, &atlas, &mut img, view);
         }
         img.save(format!("{dir}/signon.png")).unwrap();
-
-        // the small navigator as the page, over a stand-in for the cab: with the devices, in a
-        // window too short for them, and the duty order (at 1.2: a 1080p window's navigator)
-        let s: f32 = 1.2;
-        let pw = (360.0 * s).round();
-        let panels = [(listening(hans()), typing, 2000.0), (listening(hans()), Phone::default(), 560.0), (listening(at(Stage::DutyOrder)), Phone::default(), 2000.0)];
-        let fitted: Vec<_> = panels.iter().map(|(st, ui, room)| fit_panel(page_in(st, ui, None, 0.0, Room::Panel, Some(&qr)), pw, s, *room, &fonts)).collect();
-        let tallest = fitted.iter().map(|f| f.height).fold(0.0, f32::max);
-        let mut img = image::RgbaImage::from_pixel(((pw + 30.0) * panels.len() as f32 + 30.0) as u32, (tallest + 40.0) as u32, image::Rgba([70, 84, 96, 255]));
-        for (k, f) in fitted.iter().enumerate() {
-            let r = Rect::new(30.0 + k as f32 * (pw + 30.0), 20.0, pw, f.height);
-            let mut p = Painter::new();
-            p.rounded(r, 7.0 * s, SHEET.alpha(0.94));
-            draw_panel_head(&mut Pen { p: &mut p, atlas: &mut atlas, fonts: &fonts }, f, r, 0.0);
-            crate::nav_duty::tests::raster(&p.verts, &atlas, &mut img, r);
-            let mut items = Painter::new();
-            draw_panel_items(&mut Pen { p: &mut items, atlas: &mut atlas, fonts: &fonts }, f, r, 0.0);
-            crate::nav_duty::tests::raster(&items.verts, &atlas, &mut img, panel_view(f, r));
-        }
-        img.save(format!("{dir}/panel.png")).unwrap();
 
         // the city map's whole view (a 1080p window's: 1536 x 886, the interface at 1.17),
         // then a narrow one that scrolls

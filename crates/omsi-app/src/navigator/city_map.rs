@@ -35,21 +35,16 @@ pub struct CityMap {
     pub(super) extent: (DVec2, DVec2),
     /// "Centre on the bus" and zoom buttons (window pixels).
     pub(super) buttons: Vec<(Rect, u8)>,
-    /// The left column: the duty sheet (`nav_duty`) or the sign-on page (`nav_signon`), each
-    /// with its button in the header (a second press puts the column away). The player's
-    /// choice holds while the companion's stage is the one it was made at; otherwise the
-    /// sign-on page shows until the duty is signed - the map's whole view then, not a
-    /// column - and the sheet after (Omsi-Hub's duty panel said "sign on first" until then).
-    /// What it showed last, at which stage.
+    /// The left column: the companion's page (`nav_signon`: phones and tablets, the duty menu,
+    /// the break), with its button in the header (a second press puts the column away). The
+    /// player's choice holds while the companion's stage is the one it was made at. What it
+    /// showed last, at which stage.
     pub(super) left: Option<(Left, Stage)>,
     pub(super) shown: Left,
     pub(super) stage: Stage,
-    /// The column: where it is (window pixels, empty when not shown), how far the sheet's
-    /// list is scrolled (points), the trip and stop it last scrolled to, and the interface
-    /// scale it was drawn at.
+    /// The column: where it is (window pixels, empty when not shown), and the interface scale
+    /// it was drawn at.
     pub(super) sheet: Rect,
-    pub(super) sheet_scroll: f32,
-    pub(super) sheet_at: Option<(usize, usize, bool)>,
     pub(super) sheet_scale: f32,
     /// The sign-on page: its own state, where a press does what (window pixels), and the
     /// part of it that scrolls.
@@ -106,24 +101,19 @@ pub(super) struct CityPaint {
 pub(super) enum Left {
     #[default]
     Nothing,
-    Duty,
     SignOn,
 }
 
 /// What the left column shows at the companion's `stage`, with a duty or without: the
-/// player's `choice` while it was made at this stage, else the sign-on page until the duty is
-/// signed and then the duty sheet (nothing on a free drive). Until the duty is signed the
-/// sign-on page is the map's whole view, so a driver who has no duty to sign for and has not
-/// signed on gets the map (the badge's amber dot says signing on can be done).
+/// player's `choice` while it was made at this stage, else the companion's page while a phone
+/// has a duty waiting to be signed for, else nothing.
 pub(super) fn left_page(choice: Option<(Left, Stage)>, stage: Stage, duty: bool) -> Left {
-    let want = match choice {
+    match choice {
         Some((l, at)) if at == stage => l,
         _ if stage == Stage::SignOn && !duty => Left::Nothing,
         _ if stage != Stage::OnDuty => Left::SignOn,
-        _ if duty => Left::Duty,
         _ => Left::Nothing,
-    };
-    if want == Left::Duty && !duty { Left::Nothing } else { want }
+    }
 }
 
 impl CityMap {
@@ -268,31 +258,13 @@ impl Navigator {
         }
     }
 
-    /// What a press at (`x`, `y`) does on the small navigator while it is the sign-on page: a
-    /// key of its keypad, a button.
-    pub(super) fn panel_action(&self, x: f32, y: f32) -> Option<crate::nav_signon::Action> {
-        let p = self.signing.as_ref()?;
-        let local = Vec2::new(x - self.panel_rect[0], y - self.panel_rect[1]);
-        p.hits.iter().find(|h| h.0.contains(local)).map(|h| h.1)
-    }
-
     /// The mouse button went down on the small navigator: a click opens the city map, a
-    /// drag moves the navigator (see [`Navigator::panel_move`]). While it is the sign-on page
-    /// a press on a key or a button works it there and then (as on the city map), and is no
-    /// click nor drag.
-    /// A press on the board's handle shows or hides the board (the setting kept, see
-    /// [`Navigator::take_board`]); on an edge or a corner a drag sizes the panel by it.
+    /// drag moves the navigator (see [`Navigator::panel_move`]). A press on the schedule's
+    /// handle shows or hides the schedule; on an edge or a corner a drag sizes the panel by it.
     pub fn panel_press(&mut self, x: f32, y: f32) {
-        if let Some(a) = self.panel_action(x, y) {
-            self.panel_drag = None;
-            self.phone_act(a);
-            // (drawn again at once: the digit shows in its box)
-            self.drawn_at = f32::MIN;
-            return;
-        }
         if self.over_handle(x, y) {
             self.panel_drag = None;
-            self.toggle_board();
+            self.toggle_schedule();
             return;
         }
         let r = self.panel_rect;
@@ -318,32 +290,17 @@ impl Navigator {
         [crate::nav_panel::MIN_SIZE[0] * u, crate::nav_panel::MIN_SIZE[1] * u]
     }
 
-    /// The point (physical pixels) is on the duty board's handle.
+    /// The point (physical pixels) is on the schedule's handle.
     pub(super) fn over_handle(&self, x: f32, y: f32) -> bool {
-        let Some(l) = self.layout.filter(|_| self.signing.is_none() && self.enabled && !self.city.open) else { return false };
+        let Some(l) = self.layout.filter(|_| self.enabled && !self.city.open) else { return false };
         let local = Vec2::new(x - self.panel_rect[0], y - self.panel_rect[1]);
         l.handle.is_some_and(|h| h.inset(-4.0 * l.s).contains(local))
     }
 
-    /// The board under the map shown or put away (its handle): kept as the player's choice,
-    /// for Shift+N and the next game too.
-    pub fn toggle_board(&mut self) {
+    /// The schedule under the map shown or put away (its handle, as Shift+N's step does).
+    pub fn toggle_schedule(&mut self) {
         self.schedule = !self.schedule;
-        self.board = self.schedule;
-        self.board_changed = Some(self.board);
         self.drawn_at = f32::MIN;
-    }
-
-    /// The board wanted under the map or not (the game's settings): shown or put away at once.
-    pub fn set_board(&mut self, on: bool) {
-        self.board = on;
-        self.schedule = on;
-        self.drawn_at = f32::MIN;
-    }
-
-    /// The board was shown or put away on the panel: the `nav_board` setting to keep.
-    pub fn take_board(&mut self) -> Option<bool> {
-        self.board_changed.take()
     }
 
     /// The cursor moved with the button held on the navigator: past a few pixels the panel
@@ -430,15 +387,12 @@ impl Navigator {
         std::mem::take(&mut self.rect_changed).then(|| self.rect_setting())
     }
 
-    /// The navigator as it came: in the bottom-left corner at its own size, at 100 %, the
-    /// board under the map (shown again when a duty runs).
+    /// The navigator as it came: in the bottom-left corner at its own size, at 100 %.
     pub fn reset_panel(&mut self) {
         self.at = None;
         self.custom = None;
         self.corner = "bottom-left".into();
         self.size = 1.0;
-        self.board = true;
-        self.schedule = self.duty_seen;
         self.panel_drag = None;
         self.drawn_at = f32::MIN;
     }
@@ -464,7 +418,6 @@ impl Navigator {
             Some(1) => self.city.mpp = (self.city.mpp / 1.6).max(0.25),
             Some(2) => self.city.mpp = (self.city.mpp * 1.6).min(self.max_mpp()),
             Some(3) => self.city.open = false,
-            Some(4) => self.city.choose(Left::Duty),
             Some(5) => self.city.choose(Left::SignOn),
             // (the sign-on page's whole view: the map instead, until the stage changes - the
             // badge brings the page back)
@@ -553,29 +506,6 @@ impl Navigator {
         })
     }
 
-    /// A key for the sign-on page's keypad: it takes the digits, Backspace and Delete while
-    /// it asks for the number or the code - on the city map, or on the small navigator while
-    /// that is the page. True when the key was used (the caller then gives it to nothing
-    /// else).
-    pub fn page_key(&mut self, code: winit::keyboard::KeyCode) -> bool {
-        if !self.keypad_shown() {
-            return false;
-        }
-        let Some(a) = crate::nav_signon::key_action(code) else { return false };
-        self.phone_act(a);
-        self.drawn_at = f32::MIN;
-        true
-    }
-
-    /// The sign-on page's keypad is on the screen: the city map's page, or the small
-    /// navigator as the page, asking for the number or the code.
-    pub fn keypad_shown(&self) -> bool {
-        if self.city.open {
-            return self.city.shown == Left::SignOn && self.city.stage == Stage::SignOn;
-        }
-        self.enabled && self.signing.as_ref().is_some_and(|p| p.stage == Stage::SignOn)
-    }
-
     /// The city map is the sign-on page, its whole view (no map to point at).
     pub(super) fn full_view(&self) -> bool {
         self.city.shown == Left::SignOn && self.city.stage != Stage::OnDuty
@@ -661,8 +591,7 @@ impl Navigator {
         // the left column dragged: its list or page follows the cursor (kept in range when it
         // is drawn)
         if let Some(py) = self.city.column_drag {
-            let scroll = if self.city.shown == Left::SignOn { &mut self.city.phone.scroll } else { &mut self.city.sheet_scroll };
-            *scroll = (*scroll - (y - py)).max(0.0);
+            self.city.phone.scroll = (self.city.phone.scroll - (y - py)).max(0.0);
             self.city.column_drag = Some(y);
             return;
         }
@@ -685,12 +614,10 @@ impl Navigator {
         if self.city.card.contains(Vec2::new(x - r[0], y - r[1])) {
             return;
         }
-        // over the left column: the duty sheet's list or the sign-on page scrolls (kept in
-        // range when it is drawn)
+        // over the left column: the companion's page scrolls (kept in range when it is drawn)
         if self.city.sheet.contains(Vec2::new(x - r[0], y - r[1])) {
             let by = amount * 48.0 * self.city.sheet_scale.max(0.5);
-            let scroll = if self.city.shown == Left::SignOn { &mut self.city.phone.scroll } else { &mut self.city.sheet_scroll };
-            *scroll = (*scroll - by).max(0.0);
+            self.city.phone.scroll = (self.city.phone.scroll - by).max(0.0);
             return;
         }
         let (w, h) = ((r[2] - r[0]) as f64, (r[3] - r[1]) as f64);
@@ -734,8 +661,7 @@ impl Navigator {
         }
         // (the navigator's own size on top of the interface's: the panels, texts and buttons)
         let s = (h / 760.0).clamp(0.95, 2.0) * f.ui_scale * if self.cockpit_display { 1.0 } else { self.size };
-        // the left column: the duty sheet (Omsi-Hub's live duty) or the sign-on page
-        // (Omsi-Hub's phone), as `left_page` has it
+        // the left column: the companion's page (Omsi-Hub's phone), as `left_page` has it
         let duty = f.duty.and_then(|d| crate::nav_duty::DutyState::of(d, f.time));
         let companion = crate::companion::state();
         let left = left_page(self.city.left, companion.stage, duty.is_some());
@@ -998,7 +924,7 @@ impl Navigator {
             ui.text_in(&mut self.atlas, &self.fonts, &name, px, Weight::Bold, r, Align::Center, LINE_TEXT);
         }
         arrow(&mut ui, to_screen(f.bus), (f.heading as f32).to_radians(), 10.0 * s, 1.3, Color::rgba(10, 10, 10, 0.9), TEXT);
-        // the duty sheet: its frame and head here, its list in a layer of its own clipped to
+        // the left column: its frame and head here, its list in a layer of its own clipped to
         // it (the list scrolls)
         let mut list = Painter::new();
         let mut list_clip = [0.0; 4];
@@ -1028,27 +954,6 @@ impl Navigator {
             self.city.phone_view = view;
             list_clip = [view.x, view.y, view.right(), view.bottom()];
         }
-        if let (Left::Duty, Some(d)) = (left, duty) {
-            let view = crate::nav_duty::draw_sheet_head(&mut crate::nav_duty::Pen { p: &mut ui, atlas: &mut self.atlas, fonts: &self.fonts }, d, sheet, f.time, s);
-            let rows = crate::nav_duty::sheet(d);
-            let content = (crate::nav_duty::sheet_height(&rows) + 12.0) * s;
-            let max = (content - view.h).max(0.0);
-            // (it follows the duty: when the trip or the stop changes it scrolls there, a
-            // third down the list, as Omsi-Hub's live duty keeps the trip under way in view)
-            let key = (d.focus(), d.next_stop, d.done);
-            if self.city.sheet_at != Some(key) {
-                self.city.sheet_at = Some(key);
-                self.city.sheet_scroll = crate::nav_duty::sheet_focus(&rows) * s - view.h * 0.3;
-            }
-            self.city.sheet_scroll = self.city.sheet_scroll.clamp(0.0, max);
-            crate::nav_duty::draw_sheet_list(&mut crate::nav_duty::Pen { p: &mut list, atlas: &mut self.atlas, fonts: &self.fonts }, &rows, view, self.city.sheet_scroll, s);
-            if max > 0.0 {
-                let thumb = (view.h * view.h / content).max(24.0 * s);
-                let y = view.y + (view.h - thumb) * self.city.sheet_scroll / max;
-                ui.rounded(Rect::new(view.right() - 6.0 * s, y, 3.0 * s, thumb), 1.5 * s, Color::WHITE.alpha(0.18));
-            }
-            list_clip = [view.x, view.y, view.right(), view.bottom()];
-        }
         // the pins' card, and a note of theirs under the header (in the middle of the map the
         // column and the card leave)
         self.city.card_hits.clear();
@@ -1062,8 +967,8 @@ impl Navigator {
             crate::nav_pins::draw_note(&mut crate::nav_duty::Pen { p: &mut ui, atlas: &mut self.atlas, fonts: &self.fonts }, note, Vec2::new((lo + hi) * 0.5, head_h + 34.0 * s), s, (t / 0.3).min(1.0));
         }
         // header: the line and where it goes, the next stop; the size and the buttons on the
-        // right (the pin tool's; the duty sheet's only on a duty; the sign-on page's always)
-        let buttons: &[(&str, u8)] = if f.duty.is_some() { &[("close", 3), ("zoom_out", 2), ("zoom_in", 1), ("my_location", 0), ("location_on", 9), ("view_list", 4), ("badge", 5)] } else { &[("close", 3), ("zoom_out", 2), ("zoom_in", 1), ("my_location", 0), ("location_on", 9), ("badge", 5)] };
+        // right (the pin tool's, the companion's page's)
+        let buttons: &[(&str, u8)] = &[("close", 3), ("zoom_out", 2), ("zoom_in", 1), ("my_location", 0), ("location_on", 9), ("badge", 5)];
         self.city_head(&mut ui, f, w, s, buttons, left, companion.stage, true);
         let pad = 16.0 * s;
         self.draw_credit(&mut ui, w, h, s);
@@ -1072,7 +977,7 @@ impl Navigator {
         let metres = nice.iter().copied().find(|m| m / self.city.mpp > 70.0 * s as f64).unwrap_or(5000.0);
         let len = (metres / self.city.mpp) as f32;
         let by = h - 22.0 * s;
-        // (right of the duty sheet when it is there)
+        // (right of the left column when it is there)
         let sx = if sheet.w > 0.0 { sheet.right() + pad } else { pad };
         ui.rect(Rect::new(sx, by, len, 2.0 * s), TEXT_DIM);
         ui.text(&mut self.atlas, &self.fonts, &if metres >= 1000.0 { format!("{:.0} km", metres / 1000.0) } else { format!("{metres:.0} m") }, 12.0 * s, Weight::Medium, Vec2::new(sx + len + 8.0 * s, by + 4.0 * s), Align::Left, TEXT_DIM);
@@ -1147,7 +1052,7 @@ impl Navigator {
         let mut bx = w - pad - bs;
         for &(icon, id) in buttons {
             let r = Rect::new(bx, head.y + (head.h - bs) * 0.5, bs, bs);
-            let on = (id == 0 && self.city.follow) || (id == 4 && left == Left::Duty) || (id == 5 && left == Left::SignOn) || (id == 9 && self.city.pin_tool);
+            let on = (id == 0 && self.city.follow) || (id == 5 && left == Left::SignOn) || (id == 9 && self.city.pin_tool);
             ui.rounded(r, 5.0 * s, if on { crate::nav_duty::accent() } else { Color::rgba(36, 44, 62, 1.0) });
             ui.icon(&mut self.atlas, icon, r.center(), 18.0 * s, TEXT);
             // (an amber dot while the duty is not signed and the page is put away)

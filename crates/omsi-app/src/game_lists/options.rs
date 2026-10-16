@@ -380,7 +380,6 @@ pub(super) fn toggle_now(app: &App, id: &str) -> Option<bool> {
     Some(match id {
         "navigator" => if app.vr_active() { app.vr_nav_profile().enabled } else { app.menus.navigator.as_ref().is_some_and(|n| n.enabled) },
         "nav_ai" => app.menus.navigator.as_ref().map_or(s.nav_ai, |n| n.show_ai),
-        "nav_board" => app.menus.navigator.as_ref().map_or(s.nav_board, |n| n.board),
         "nav_surface" => app.menus.navigator.as_ref().map_or(s.nav_surface, |n| n.show_surface),
         "nav_light" => app.menus.navigator.as_ref().map_or(s.nav_light, |n| n.light),
         "shadows" => s.shadows,
@@ -484,14 +483,6 @@ pub(super) fn toggle_set(app: &mut App, id: &str, on: bool) -> Option<(&'static 
             }
             app.settings.nav_ai = on;
             Some(("nav_ai", bit))
-        }
-        "nav_board" => {
-            // (on, it shows at once; off, it goes)
-            if let Some(n) = app.menus.navigator.as_mut() {
-                n.set_board(on);
-            }
-            app.settings.nav_board = on;
-            Some(("nav_board", bit))
         }
         "nav_surface" => {
             if let Some(n) = app.menus.navigator.as_mut() {

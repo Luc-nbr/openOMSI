@@ -68,40 +68,42 @@ fn the_navigator_keeps_where_it_was_dragged_on_a_phone_and_clear_of_the_informat
 use super::*;
 use omsi_sim::traffic::Lane;
 
-/// Over the duty sheet beside the city map the wheel scrolls its list and a press does
-/// not drag the map; its button in the header puts it away.
+/// Over the companion's page beside the city map the wheel scrolls it and a press does not
+/// drag the map; its button in the header puts it away.
 #[test]
-fn the_duty_sheet_takes_the_wheel_and_the_press() {
+fn the_left_column_takes_the_wheel_and_the_press() {
     let mut n = Navigator::new(true, 0.85, "bottom-left");
     n.toggle_map();
     n.city.rect = [100.0, 50.0, 1100.0, 850.0];
     n.city.sheet = Rect::new(12.0, 56.0, 340.0, 700.0);
     n.city.sheet_scale = 1.0;
-    n.city.sheet_scroll = 100.0;
+    // (a column beside the map, at work: no whole view)
+    n.city.stage = Stage::OnDuty;
+    n.city.shown = Left::SignOn;
+    n.city.phone.scroll = 100.0;
     let mpp = n.city.mpp;
     n.map_wheel(1.0, 200.0, 300.0);
-    assert_eq!((n.city.sheet_scroll, n.city.mpp), (52.0, mpp));
+    assert_eq!((n.city.phone.scroll, n.city.mpp), (52.0, mpp));
     n.map_wheel(5.0, 200.0, 300.0);
-    assert_eq!(n.city.sheet_scroll, 0.0);
+    assert_eq!(n.city.phone.scroll, 0.0);
     n.map_press(200.0, 300.0);
     assert!(n.city.drag.is_none() && n.city.open);
     // (dragged with a finger, as a list on a phone)
     n.map_move(200.0, 260.0);
-    assert_eq!((n.city.sheet_scroll, n.city.center), (40.0, DVec2::ZERO));
+    assert_eq!((n.city.phone.scroll, n.city.center), (40.0, DVec2::ZERO));
     n.map_release();
     n.map_press(800.0, 300.0);
     assert!(n.city.drag.is_some());
     n.map_release();
-    n.city.buttons = vec![(Rect::new(900.0, 7.0, 30.0, 30.0), 4)];
-    n.city.shown = Left::Duty;
+    n.city.buttons = vec![(Rect::new(900.0, 7.0, 30.0, 30.0), 5)];
     n.map_press(1015.0, 72.0);
     assert!(n.city.shown == Left::Nothing && n.city.drag.is_none());
     assert_eq!(left_page(n.city.left, n.city.stage, true), Left::Nothing, "put away");
 }
 
-/// The left column shows the sign-on page until the duty is signed, then the duty
-/// sheet; a button chooses for as long as the stage is the same, a second press on it
-/// puts the column away.
+/// The left column shows the companion's page while a phone has a duty waiting to be
+/// signed for; a button chooses for as long as the stage is the same, a second press on it
+/// puts the column away. At work the map has the whole view.
 #[test]
 fn the_left_column_follows_the_signing_on() {
     assert_eq!(left_page(None, Stage::SignOn, true), Left::SignOn);
@@ -109,14 +111,12 @@ fn the_left_column_follows_the_signing_on() {
     assert_eq!(left_page(None, Stage::SignOn, false), Left::Nothing);
     assert_eq!(left_page(None, Stage::DutyMenu, false), Left::SignOn);
     assert_eq!(left_page(None, Stage::DutyOrder, true), Left::SignOn);
-    assert_eq!(left_page(None, Stage::OnDuty, true), Left::Duty);
+    assert_eq!(left_page(None, Stage::OnDuty, true), Left::Nothing);
     assert_eq!(left_page(None, Stage::OnDuty, false), Left::Nothing, "a free drive: the whole map");
-    let mut c = CityMap { stage: Stage::SignOn, shown: Left::SignOn, ..CityMap::default() };
-    c.choose(Left::Duty);
-    assert_eq!(left_page(c.left, Stage::SignOn, true), Left::Duty);
-    // (no duty: no sheet)
-    assert_eq!(left_page(c.left, Stage::SignOn, false), Left::Nothing);
+    let mut c = CityMap { stage: Stage::SignOn, shown: Left::Nothing, ..CityMap::default() };
     // signed on (here or on a phone): the choice was for the stage before
+    c.choose(Left::Nothing);
+    assert_eq!(left_page(c.left, Stage::SignOn, true), Left::Nothing);
     assert_eq!(left_page(c.left, Stage::DutyOrder, true), Left::SignOn);
     c.shown = Left::SignOn;
     c.choose(Left::SignOn);
@@ -125,12 +125,11 @@ fn the_left_column_follows_the_signing_on() {
     assert_eq!(c.shown, Left::SignOn);
 }
 
-/// On the sign-on page a press works its key, as the keyboard's digits do while it asks
-/// for the number; a press beside the page's scrolling part does nothing.
+/// On the sign-on page a press works its key; a press beside the page's scrolling part does
+/// nothing.
 #[test]
-fn the_sign_on_page_takes_presses_and_keys() {
+fn the_sign_on_page_takes_presses() {
     use crate::nav_signon::Action;
-    use winit::keyboard::KeyCode;
     let mut n = Navigator::new(true, 0.85, "bottom-left");
     n.toggle_map();
     n.city.rect = [100.0, 50.0, 1100.0, 850.0];
@@ -144,77 +143,6 @@ fn the_sign_on_page_takes_presses_and_keys() {
     // (above the scrolling part: the key scrolled out of view under the head)
     n.map_press(100.0 + 60.0, 50.0 + 100.0);
     assert_eq!(n.city.phone.typed, "4");
-    assert!(n.page_key(KeyCode::Digit8));
-    assert!(n.page_key(KeyCode::Numpad2));
-    assert!(n.page_key(KeyCode::Backspace));
-    assert_eq!(n.city.phone.typed, "48");
-    assert!(!n.page_key(KeyCode::KeyW), "not the keypad's");
-    n.city.stage = Stage::OnDuty;
-    assert!(!n.page_key(KeyCode::Digit1), "nothing to type at work");
-    n.city.open = false;
-    n.city.stage = Stage::SignOn;
-    assert!(!n.page_key(KeyCode::Digit1), "the map is shut");
-}
-
-/// The small navigator as the sign-on page (while a duty waits to be signed for): a press
-/// on its keypad's key works it - no click that opens the city map, no drag - and the
-/// digit keys work it while it asks for the number or the code; elsewhere on it a press is
-/// the navigator's as ever.
-#[test]
-fn the_small_navigator_signs_on_too() {
-    use crate::nav_signon::{self as signon, Action, Room};
-    use winit::keyboard::KeyCode;
-    let mut n = Navigator::new(true, 0.85, "bottom-left");
-    let fonts = Fonts::hanken();
-    let st = crate::companion::CompanionState { personnel_number: "482913".into(), personnel_code: "5821".into(), ..Default::default() };
-    assert!(signon::waiting(&st));
-    let page = signon::page_in(&st, &n.city.phone, None, 0.0, Room::Panel, None);
-    let fit = signon::fit_panel(page, 360.0, 1.0, 900.0, &fonts);
-    let height = fit.height;
-    let hits = signon::panel_hits(&fit, 0.0);
-    let four = hits.iter().find(|h| h.1 == Action::Digit(4)).unwrap().0.center();
-    n.signing = Some(PanelPage { fit, hits, stage: Stage::SignOn });
-    n.panel_rect = [10.0, 300.0, 370.0, 300.0 + height];
-    n.panel_room = [1240.0, 600.0];
-    // a press on the 4: typed, and nothing else
-    n.panel_press(10.0 + four.x, 300.0 + four.y);
-    assert_eq!(n.city.phone.typed, "4");
-    assert_eq!(n.panel_release(), None, "no click, no drag");
-    assert!(!n.city.open);
-    // the keys, as on the city map
-    assert!(n.keypad_shown());
-    assert!(n.page_key(KeyCode::Digit8) && n.page_key(KeyCode::Numpad2));
-    assert_eq!(n.city.phone.typed, "482");
-    assert!(!n.page_key(KeyCode::KeyW));
-    // the head is no key: a click there opens the city map, as on the map
-    n.panel_press(30.0, 310.0);
-    assert_eq!(n.panel_release(), Some(false));
-    // the duty order on it: no keypad for the keys
-    n.signing.as_mut().unwrap().stage = Stage::DutyOrder;
-    assert!(!n.page_key(KeyCode::Digit1));
-    // the navigator off: none
-    n.signing.as_mut().unwrap().stage = Stage::SignOn;
-    n.enabled = false;
-    assert!(!n.keypad_shown());
-}
-
-/// The small navigator's page is laid out every frame, the city map open or not: while the
-/// map is open its page is the one scrolled, further than the small one's goes, and the
-/// small one leaves that alone; shut, the small one keeps it in its own range again.
-#[test]
-fn the_small_page_leaves_the_city_maps_scroll_alone() {
-    let mut n = Navigator::new(true, 0.85, "bottom-left");
-    let st = crate::companion::CompanionState { personnel_number: "482913".into(), personnel_code: "5821".into(), ..Default::default() };
-    n.qr = (qr_key(&st), 0.0, None);
-    n.toggle_map();
-    n.city.phone.scroll = 300.0;
-    // (a tall window: the small page has nothing to scroll)
-    let page = n.panel_page(&st, None, 0.0, 360.0, 1.0, 2000.0, false);
-    assert_eq!(crate::nav_signon::panel_scroll_max(&page.fit), 0.0);
-    assert_eq!(n.city.phone.scroll, 300.0, "the city map's page keeps its scroll");
-    n.toggle_map();
-    n.panel_page(&st, None, 0.0, 360.0, 1.0, 2000.0, false);
-    assert_eq!(n.city.phone.scroll, 0.0);
 }
 
 /// Ctrl + the wheel over the small navigator or the city map sizes the navigator by the
@@ -355,27 +283,6 @@ fn preview_sign_on_pictures() {
         raster(&bg.verts, &n.atlas, &mut img, all);
         raster(&list.verts, &n.atlas, &mut img, body);
         raster(&ui.verts, &n.atlas, &mut img, all);
-        img.save(format!("{dir}/{name}.png")).unwrap();
-    }
-    // the small navigator: as the frame lays it out at a 1080p window
-    let mut n = Navigator::new(true, 0.85, "bottom-left");
-    n.atlas = Atlas::new(2048);
-    n.qr = (qr_key(&st), 0.0, Some(made_up_qr(29)));
-    let pw = (1080.0f32 * 0.33).round();
-    // (and in a short window, its page scrolled a little: the bar says so)
-    for (name, room, scroll) in [("panel-live", 1080.0 - 2.0 * 19.0, 0.0), ("panel-short", 330.0, 40.0)] {
-        n.city.phone.scroll = scroll;
-        let page = n.panel_page(&st, None, 0.0, pw, pw / 360.0, room, false);
-        let ph = page.fit.height.round();
-        n.signing = Some(page);
-        n.size_at = if scroll > 0.0 { f32::MIN } else { 0.0 };
-        n.atlas.begin_frame();
-        let (bg, ui, list, view) = n.paint_signon(pw, ph).unwrap();
-        let mut img = image::RgbaImage::from_pixel(pw as u32 + 40, ph as u32 + 40, image::Rgba([70, 84, 96, 255]));
-        let shift = |p: Painter| p.verts.into_iter().map(|mut v| { v.pos[0] += 20.0; v.pos[1] += 20.0; v }).collect::<Vec<_>>();
-        raster(&shift(bg), &n.atlas, &mut img, all);
-        raster(&shift(list), &n.atlas, &mut img, Rect::new(view.x + 20.0, view.y + 20.0, view.w, view.h));
-        raster(&shift(ui), &n.atlas, &mut img, all);
         img.save(format!("{dir}/{name}.png")).unwrap();
     }
 }
@@ -879,7 +786,7 @@ fn the_bottom_bar_says_where_the_pins_lead() {
     for s in [0.9f32, 1.0, 2.0] {
         let bottom = Rect::new(0.0, 200.0, 360.0 * s, 46.0 * s);
         let mut ui = Painter::new();
-        n.paint_next(&mut ui, &f, bottom, s, &[]);
+        n.paint_next(&mut ui, &f, bottom, s);
         // (the bar, the flag, the name, the way there and the via: a quad each)
         assert_eq!(ui.len(), 5 * 6);
         // (a letter's sprite has a little room round it)
@@ -963,7 +870,7 @@ fn preview_pin_pictures() {
         n.atlas.begin_frame();
         let sb = 1.6f32;
         let mut ui = Painter::new();
-        n.paint_next(&mut ui, f, Rect::new(20.0, y, 360.0 * sb, 46.0 * sb), sb, &[]);
+        n.paint_next(&mut ui, f, Rect::new(20.0, y, 360.0 * sb, 46.0 * sb), sb);
         raster(&ui.verts, &n.atlas, img, all);
     };
     let mut img = image::RgbaImage::from_pixel(620, 4 * 90 + 20, image::Rgba([70, 84, 96, 255]));
@@ -995,7 +902,7 @@ fn preview_pin_pictures() {
     d.city.center = DVec2::new(285.0, 290.0);
     let (trips, tours) = crate::nav_duty::tests::duty();
     let state = crate::nav_duty::tests::state(&trips, &tours, 0, 3, false, 40.0);
-    picture(&mut d, &f, Some(&state), Left::Duty, "pins-diversion");
+    picture(&mut d, &f, Some(&state), Left::Nothing, "pins-diversion");
     bars(&mut d, &f, &mut img, 290.0);
     img.save(format!("{dir}/pins-bar.png")).unwrap();
 }
@@ -1083,8 +990,6 @@ fn preview_panel_shapes() {
     n.next_dist = Some(160.0);
     // (as the camera stands at 34 km/h)
     n.zoom = 110.0 + 34.0 * 2.2;
-    let (trips, tours) = crate::nav_duty::tests::duty();
-    let duty = crate::nav_duty::tests::state(&trips, &tours, 0, 3, false, 20.0);
     let vehicles = traffic_round();
     let unit = 1.0;
     // (the panel painted as the game does, flattened on the CPU over a cab-grey ground)
@@ -1093,18 +998,18 @@ fn preview_panel_shapes() {
         n.route_mesh.0 = u64::MAX;
         let lay = if auto {
             let s = w / np::WIDTH;
-            let (rows, bh) = if board_on { crate::nav_duty::board_fitting(Some(&duty), s, 1e4) } else { (Vec::new(), 0.0) };
+            let (rows, bh) = if board_on { schedule_fitting(f.stops.len(), s, 1e4) } else { (0, 0.0) };
             let ph = ((w * 0.62).round() + (np::HEAD * s).round() + (np::NEXT * s).round() + bh).round();
             (np::layout(w, ph, s, board_on.then_some(bh), false, true), rows)
         } else {
             let (s, beside) = np::scale(w, h, unit, board_on);
-            let (rows, bh) = if board_on { crate::nav_duty::board_within(Some(&duty), s, np::board_room(h, s, beside)) } else { (Vec::new(), 0.0) };
-            (np::layout(w, h, s, (!rows.is_empty()).then_some(bh), beside, true), rows)
+            let (rows, bh) = if board_on { schedule_fitting(f.stops.len(), s, np::board_room(h, s, beside)) } else { (0, 0.0) };
+            (np::layout(w, h, s, (rows > 0).then_some(bh), beside, true), rows)
         };
         let (lay, rows) = lay;
         let h = if auto { lay.next.bottom() + lay.board.map(|b| b.h).unwrap_or(0.0) } else { h };
         n.schedule = board_on;
-        let p = n.paint_panel((w, h), &lay, &f, &rows, &vehicles);
+        let p = n.paint_panel((w, h), &lay, &f, rows, &vehicles);
         let mut panel = image::RgbaImage::from_pixel(w as u32, h as u32, image::Rgba([70, 84, 96, 255]));
         let all = Rect::new(0.0, 0.0, w, h);
         raster(&p.bg.verts, &n.atlas, &mut panel, all);
@@ -1149,29 +1054,28 @@ fn preview_panel_shapes() {
     img.save(format!("{dir}/vehicles.png")).unwrap();
 }
 
-/// The board's handle shows and hides the board and is kept; an edge of the panel sizes
-/// it (the place following when the top or left edge goes), a corner both ways, held to
-/// the smallest size and the window; the place and size are kept as `nav_rect` and read
-/// back; Ctrl + the wheel leaves a sized panel's size; the reset forgets it all.
+/// The schedule's handle shows and hides the schedule; an edge of the panel sizes it (the
+/// place following when the top or left edge goes), a corner both ways, held to the
+/// smallest size and the window; the place and size are kept as `nav_rect` and read back;
+/// Ctrl + the wheel leaves a sized panel's size; the reset forgets it all.
 #[test]
-fn the_navigator_is_sized_by_its_edges_and_its_board_switched() {
+fn the_navigator_is_sized_by_its_edges_and_its_schedule_switched() {
     let mut n = Navigator::new(true, 0.85, "bottom-left");
     n.window = [1920.0, 1080.0];
     n.unit = 1.0;
     n.panel_rect = [20.0, 500.0, 380.0, 1060.0];
     n.panel_room = [1560.0, 520.0];
     n.layout = Some(crate::nav_panel::layout(360.0, 560.0, 1.0, Some(240.0), false, true));
-    // the handle: the board away and back, kept each time; no click, no drag
+    // the handle: the schedule away and back; no click, no drag
     let hd = n.layout.unwrap().handle.unwrap();
     let (hx, hy) = (20.0 + hd.center().x, 500.0 + hd.center().y);
     assert_eq!(n.hover(hx, hy), Some(1));
     n.schedule = true;
     n.panel_press(hx, hy);
     assert_eq!(n.panel_release(), None);
-    assert!(!n.schedule && !n.board);
-    assert_eq!(n.take_board(), Some(false));
+    assert!(!n.schedule);
     n.panel_press(hx, hy);
-    assert!(n.schedule && n.board && n.take_board() == Some(true) && n.take_board().is_none());
+    assert!(n.schedule);
     // the right edge: wider, the place where it was
     assert_eq!(n.hover(378.0, 800.0), Some(5));
     n.panel_press(378.0, 800.0);
@@ -1205,7 +1109,7 @@ fn the_navigator_is_sized_by_its_edges_and_its_board_switched() {
     assert_eq!(n.hover(378.0, 800.0), Some(0));
     n.cockpit_display = false;
     n.reset_panel();
-    assert!(n.custom.is_none() && n.at.is_none() && n.board && n.size == 1.0);
+    assert!(n.custom.is_none() && n.at.is_none() && n.size == 1.0);
     assert_eq!(n.rect_setting(), "");
 }
 

@@ -50,19 +50,6 @@ impl App {
                 return;
             }
         }
-        // the sign-on page's keypad takes the digits while it asks for the personnel number or
-        // the code (else they went to the bus's keys as well): on the city map, or on the small
-        // navigator while that is the page - there not with Shift, Ctrl or Alt held (Shift+1
-        // works a door), nor while the menu or the chat's line has the keys
-        if pressed {
-            let held = [KeyCode::ShiftLeft, KeyCode::ShiftRight, KeyCode::ControlLeft, KeyCode::ControlRight, KeyCode::AltLeft, KeyCode::AltRight].iter().any(|k| self.input.keys.contains(k));
-            let busy = held || self.menus.game_menu.is_some() || self.menus.menu.is_some() || lan::chat_open(&self.net.remotes);
-            if let Some(n) = self.menus.navigator.as_mut().filter(|n| n.map_open() || !busy) {
-                if n.page_key(code) {
-                    return;
-                }
-            }
-        }
         let event_key = PhysicalKey::Code(code);
         if self.start_menu_key(event_loop, event_key, pressed) {
             return;
@@ -156,15 +143,10 @@ impl App {
             self.settings.nav_scale = v;
             crate::game_lists::remember_setting("nav_scale", &v.to_string());
         }
-        // (moved, sized by its edges, or a sized one grown with the size: its place and size;
-        // the board shown or put away with its handle)
+        // (moved, sized by its edges, or a sized one grown with the size: its place and size)
         if let Some(r) = self.menus.navigator.as_mut().and_then(|n| n.take_rect()) {
             self.settings.nav_rect = r.clone();
             crate::game_lists::remember_setting("nav_rect", &r);
-        }
-        if let Some(on) = self.menus.navigator.as_mut().and_then(|n| n.take_board()) {
-            self.settings.nav_board = on;
-            crate::game_lists::remember_setting("nav_board", if on { "1" } else { "0" });
         }
     }
 

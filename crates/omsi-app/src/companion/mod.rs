@@ -180,8 +180,9 @@ pub(crate) struct CompanionState {
     pub signed_on: bool,
     pub accepted: bool,
     pub free: bool,
-    /// Signing on with the number and the code is not asked for (the setting `nav_signon`
-    /// off): signed on and signed for by itself, nothing to sign off from.
+    /// Signing on with the number and the code is not asked for (the game never asks: the
+    /// Omsi-Hub plugin signs the driver on): signed on and signed for by itself, nothing to
+    /// sign off from.
     pub auto_sign_on: bool,
     /// When the break began (seconds of the day, the game's clock).
     pub break_since: Option<f64>,
@@ -316,7 +317,7 @@ struct Companion {
     /// worked out for, and the codes).
     watch: nav::TripWatch,
     ibis: Option<(String, Value)>,
-    /// A duty came that signed for itself (signing on not asked for, `nav_signon` off): its
+    /// A duty came that signed for itself (signing on not asked for): its
     /// codes go to the IBIS as an accepted duty order's do, once there is a bus for them.
     ibis_due: bool,
     /// The Cloudflare tunnel's cloudflared while it runs; why there is none (and since when,
@@ -570,8 +571,9 @@ impl Companion {
             self.published = None;
         }
         self.phone.follow_driver(&key);
-        // (signing on with the number and the code only when the settings ask for it)
-        self.phone.ask_sign_on(app.settings.nav_signon);
+        // (signing on with the number and the code is the Omsi-Hub plugin's: the game's
+        // companion counts the driver as signed on)
+        self.phone.ask_sign_on(false);
         let before = self.phone.stage();
         let duty = duty_key_of(app);
         if duty != self.duty_for || self.duty.is_some() != app.session.duty.is_some() {

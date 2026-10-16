@@ -292,13 +292,9 @@ pub struct Navigator {
     /// Frames since the last drawing (see `NAV_REDRAW_FRAMES`).
     frames_since_drawn: u32,
     pub enabled: bool,
-    /// The duty board under the map (`nav_duty`; Shift+N cycles map, map and board, off).
+    /// The schedule under the map: the next stops with their times (Shift+N cycles map, map
+    /// and schedule, off; the handle on the panel shows and hides it).
     pub schedule: bool,
-    /// The board is wanted under the map (the `nav_board` setting, and its handle on the
-    /// panel): it opens by itself on a duty and is a step of Shift+N; off, the map alone.
-    pub board: bool,
-    /// The board's handle was pressed: the setting to keep (taken by [`Navigator::take_board`]).
-    board_changed: Option<bool>,
     /// The panel's size as the player dragged it, as shares of the window's height (the
     /// `nav_rect` setting's); None: its own size, from the interface's and `size`.
     pub custom: Option<[f32; 2]>,
@@ -311,8 +307,6 @@ pub struct Navigator {
     /// The window (physical pixels) and the interface's pixels a point, when last placed.
     window: [f32; 2],
     unit: f32,
-    /// A duty has been seen: the board opened by itself for it once.
-    duty_seen: bool,
     /// Smoothed speed (m/s) for the time to the next stop.
     speed_avg: f32,
     pub opacity: f32,
@@ -405,10 +399,6 @@ pub struct Navigator {
     resized: Option<f32>,
     /// When the size last changed (the navigator's clock): it says so for a moment.
     size_at: f32,
-    /// While the duty waits to be signed for, the small navigator is the sign-on page from
-    /// edge to edge (`nav_signon`, [`crate::nav_signon::Room::Panel`]): the page as it is laid
-    /// out and where a press on it does what. None: the map.
-    signing: Option<PanelPage>,
     /// The pairing QR code ([`crate::companion::pair_qr`]), and the address, code and time it
     /// was asked for (it is asked again when they change, and now and then).
     qr: (String, f32, Option<std::sync::Arc<crate::nav_signon::Qr>>),
@@ -427,14 +417,6 @@ struct PanelGrab {
     rect: [f32; 4],
     grip: crate::nav_panel::Grip,
     moved: bool,
-}
-
-/// The small navigator as the sign-on page: the page as it fits, where a press does what
-/// (the panel's pixels), and the stage it was laid out at.
-struct PanelPage {
-    fit: crate::nav_signon::Fitted,
-    hits: Vec<(Rect, crate::nav_signon::Action)>,
-    stage: Stage,
 }
 
 /// Each notch of Ctrl + the wheel, and each press of the city map's - and +, changes the
@@ -506,15 +488,12 @@ impl Navigator {
             frames_since_drawn: u32::MAX,
             enabled,
             schedule: false,
-            board: true,
-            board_changed: None,
             custom: None,
             rect_changed: false,
             layout: None,
             panel_hover: None,
             window: [0.0; 2],
             unit: 1.0,
-            duty_seen: false,
             speed_avg: 8.0,
             opacity: opacity.clamp(0.2, 1.0),
             corner: corner.to_string(),
@@ -565,7 +544,6 @@ impl Navigator {
             size_wheel: 0.0,
             resized: None,
             size_at: f32::MIN,
-            signing: None,
             qr: (String::new(), f32::MIN, None),
             pins: crate::nav_pins::Pins::default(),
             stop_names: None,
@@ -1351,7 +1329,6 @@ impl Navigator {
         self.first = false;
         if !self.enabled && self.shown < 0.01 {
             self.panel_rect = [0.0; 4];
-            self.signing = None;
             // (followed for the route arrows alone, with the city map shut: nothing to draw)
             if self.city.open {
                 self.city(renderer, scene, f);
@@ -1389,49 +1366,23 @@ impl Navigator {
             Some((w, _)) => w,
             None => (base * f.ui_scale * size).min((sh * 0.7).max(300.0)).min((sw * 0.9).max(300.0)).round(),
         };
-        // the duty board under the map (Shift+N's second step, the handle on the bar): as
-        // many stops ahead as there is room for, four at most
-        let duty = f.duty.and_then(|d| crate::nav_duty::DutyState::of(d, f.time));
-        // (on a duty the board opens by itself, once - Omsi-Hub's duty overlay was there
-        // whenever a duty ran - unless the player wants the map alone; Shift+N and the
-        // handle put it away)
-        if duty.is_some() && !self.duty_seen {
-            self.duty_seen = true;
-            self.schedule = self.board;
-        }
-        // (until the duty is signed for the whole navigator is the sign-on page - Omsi-Hub's
-        // duty panel was "sign on first" and nothing else until then; signed, the map and the
-        // board. Shift+N's map alone leaves it out, as it leaves out the board)
-        self.signing = None;
-        if self.schedule && duty.is_some() {
-            let companion = crate::companion::state();
-            if crate::nav_signon::waiting(&companion) {
-                let (s, room) = match custom {
-                    Some((cw, ch)) => (crate::nav_panel::scale(cw, ch, unit * size, false).0, ch),
-                    None => (pw / crate::nav_panel::WIDTH, sh - 2.0 * margin),
-                };
-                self.signing = Some(self.panel_page(&companion, duty.as_ref(), f.time, pw, s, room, custom.is_some()));
-            }
-        }
-        let handle = duty.is_some() || self.schedule;
-        let (ph, board) = if let Some(p) = self.signing.as_ref() {
-            self.layout = None;
-            (p.fit.height.round(), Vec::new())
-        } else if let Some((cw, ch)) = custom {
+        // the schedule under the map (Shift+N's second step, the handle on the bar): the next
+        // stops with their times, as many as there is room for, five at most
+        let handle = !f.stops.is_empty() || self.schedule;
+        let (ph, sched) = if let Some((cw, ch)) = custom {
             // (the navigator's own size on top: its texts as large as they fit in the shape)
             let (s, beside) = crate::nav_panel::scale(cw, ch, unit * size, self.schedule);
-            let (rows, bh) = if self.schedule { crate::nav_duty::board_within(duty.as_ref(), s, crate::nav_panel::board_room(ch, s, beside)) } else { (Vec::new(), 0.0) };
-            let shown = !rows.is_empty();
-            self.layout = Some(crate::nav_panel::layout(cw, ch, s, shown.then_some(bh), beside, handle));
+            let (rows, bh) = if self.schedule { schedule_fitting(f.stops.len(), s, crate::nav_panel::board_room(ch, s, beside)) } else { (0, 0.0) };
+            self.layout = Some(crate::nav_panel::layout(cw, ch, s, (rows > 0).then_some(bh), beside, handle));
             (ch, rows)
         } else {
             let s = pw / crate::nav_panel::WIDTH;
             let map_h = (pw * 0.62).round();
             let bars = (crate::nav_panel::HEAD * s).round() + (crate::nav_panel::NEXT * s).round();
             let room = sh - 2.0 * margin - map_h - bars;
-            let (rows, sched) = if self.schedule { crate::nav_duty::board_fitting(duty.as_ref(), s, room) } else { (Vec::new(), 0.0) };
-            let ph = (map_h + bars + sched).round();
-            self.layout = Some(crate::nav_panel::layout(pw, ph, s, (!rows.is_empty()).then_some(sched), false, handle));
+            let (rows, sched_h) = if self.schedule { schedule_fitting(f.stops.len(), s, room) } else { (0, 0.0) };
+            let ph = (map_h + bars + sched_h).round();
+            self.layout = Some(crate::nav_panel::layout(pw, ph, s, (rows > 0).then_some(sched_h), false, handle));
             (ph, rows)
         };
         let (w, h) = (pw as u32, ph as u32);
@@ -1457,9 +1408,8 @@ impl Navigator {
         if !self.city.open && (resized || due) {
             self.drawn_at = self.time;
             self.frames_since_drawn = 0;
-            match self.layout {
-                Some(lay) if self.signing.is_none() => self.draw(renderer, &view, (w, h), &lay, f, &board),
-                _ => self.draw_signon(renderer, &view, (w, h)),
+            if let Some(lay) = self.layout {
+                self.draw(renderer, &view, (w, h), &lay, f, sched);
             }
         }
         // (the small navigator steps aside while the city map is open)
@@ -1474,10 +1424,10 @@ impl Navigator {
     }
 
     /// Draw the small navigator into its texture (`size` pixels), laid out as `lay`.
-    fn draw(&mut self, renderer: &Renderer, target: &wgpu::TextureView, size: (u32, u32), lay: &crate::nav_panel::Layout, f: &NavFrame, board: &[crate::nav_duty::Row]) {
+    fn draw(&mut self, renderer: &Renderer, target: &wgpu::TextureView, size: (u32, u32), lay: &crate::nav_panel::Layout, f: &NavFrame, sched: usize) {
         let reach = self.map_zoom(lay) * 3.5 + 150.0;
         let vehicles = map_vehicles(f.traffic.filter(|_| self.show_ai), f.bus, reach);
-        let p = self.paint_panel((size.0 as f32, size.1 as f32), lay, f, board, &vehicles);
+        let p = self.paint_panel((size.0 as f32, size.1 as f32), lay, f, sched, &vehicles);
         let (Some(gpu), device, queue) = (self.gpu.as_mut(), &renderer.device, &renderer.queue) else { return };
         if let Some(v) = p.roads {
             if let Some(r) = self.roads.as_mut() {
@@ -1532,8 +1482,8 @@ impl Navigator {
     }
 
     /// The small navigator as painted, before it goes to the GPU (`size` pixels, laid out as
-    /// `lay`), with the other `vehicles` on the map.
-    fn paint_panel(&mut self, size: (f32, f32), lay: &crate::nav_panel::Layout, f: &NavFrame, board: &[crate::nav_duty::Row], vehicles: &[MapVehicle]) -> PanelPaint {
+    /// `lay`, `sched` stops in the schedule), with the other `vehicles` on the map.
+    fn paint_panel(&mut self, size: (f32, f32), lay: &crate::nav_panel::Layout, f: &NavFrame, sched: usize, vehicles: &[MapVehicle]) -> PanelPaint {
         let (pw, ph) = size;
         let s = lay.s;
         let wd = words(f.language);
@@ -1787,9 +1737,9 @@ impl Navigator {
         // bottom bar: the next stop (or the player's own destination); its distance, the time
         // to it, the planned time and whether the bus is early or late
         let next = lay.next_text();
-        self.paint_next(&mut ui, f, next, s, board);
-        // (the board's handle at the bar's right end: a chevron - down to show the board,
-        // up to put it away; beside the map, towards it)
+        self.paint_next(&mut ui, f, next, s);
+        // (the schedule's handle at the bar's right end: a chevron - down to show it, up to
+        // put it away; beside the map, towards it)
         if let Some(h) = lay.handle {
             ui.rect(Rect::new(next.right(), lay.next.y, lay.next.right() - next.right(), lay.next.h), BAR);
             let on = self.schedule;
@@ -1803,13 +1753,13 @@ impl Navigator {
             };
             ui.icon(&mut self.atlas, icon, h.center(), h.w * 0.8, if on { TEXT_DIM } else { crate::nav_duty::NOW });
         }
-        // the duty board (Omsi-Hub's duty overlay): the trip, its stops behind and ahead
-        // with their times, and what comes after it - under the bar, or beside the map
-        if let Some(area) = lay.board.filter(|_| self.schedule && !board.is_empty()) {
+        // the schedule: the next stops with their planned times - under the bar, or beside
+        // the map
+        if let Some(area) = lay.board.filter(|_| self.schedule && sched > 0) {
             if lay.beside {
                 ui.rect(Rect::new(area.x, area.y, 1.0, area.h), Color::WHITE.alpha(0.1));
             }
-            crate::nav_duty::draw_board(&mut crate::nav_duty::Pen { p: &mut ui, atlas: &mut self.atlas, fonts: &self.fonts }, board, area, s);
+            self.paint_schedule(&mut ui, f, area, sched, s);
         }
         // (the size just changed with Ctrl + the wheel: the new one, over the map)
         self.size_note(&mut ui, Vec2::new(map.center().x, map.y + 22.0 * s), s);
@@ -1960,13 +1910,13 @@ impl MapVehicle {
 
 impl Navigator {
     /// The small navigator's bottom bar `bottom` at scale `s`: the next stop with its distance,
-    /// the time to it and its planned time, and how the bus stands against the timetable
-    /// (unless the duty board under it - `board` - says so on its chip); on a diversion of the
+    /// the time to it and its planned time, and how the bus stands against the timetable; on
+    /// a diversion of the
     /// player's own, that and its next via in place of the way to the stop. On a free drive
     /// the player's own destination where the next stop goes, with how far, how long and when
     /// there, and the next via on the right; else what the drive is. A note of the pins' or of
     /// the route's takes the second line for a moment.
-    fn paint_next(&mut self, ui: &mut Painter, f: &NavFrame, bottom: Rect, s: f32, board: &[crate::nav_duty::Row]) {
+    fn paint_next(&mut self, ui: &mut Painter, f: &NavFrame, bottom: Rect, s: f32) {
         use crate::nav_pins as pins;
         let wd = words(f.language);
         let pad = 11.0 * s;
@@ -2032,10 +1982,8 @@ impl Navigator {
                         ui.text_in(&mut self.atlas, &self.fonts, &line2, 12.5 * s, Weight::Medium, y2, Align::Left, if diverted { crate::nav_duty::NOW } else { TEXT_DIM });
                     }
                 }
-                // (OMSI 2's punctuality, as the duty board's; the board's chip says it when it
-                // is there)
-                let on_board = board.iter().any(|r| matches!(r, crate::nav_duty::Row::Head { .. }));
-                if let Some(d) = f.delay.filter(|_| !on_board) {
+                // (OMSI 2's punctuality)
+                if let Some(d) = f.delay {
                     let (txt, c) = match crate::nav_duty::punctuality(d) {
                         crate::nav_duty::Punctuality::Late => (crate::nav_duty::offset(d), LATE),
                         crate::nav_duty::Punctuality::Early => (crate::nav_duty::offset(d), EARLY),
@@ -2086,7 +2034,40 @@ impl Navigator {
     }
 }
 
-// --- the sign-on page as the navigator, and its size ----------------------------------------
+impl Navigator {
+    /// The schedule under the bar, in `area` at scale `s`: the next `rows` stops with their
+    /// planned times, and when the bus will be there at its lateness (upstream's schedule).
+    fn paint_schedule(&mut self, ui: &mut Painter, f: &NavFrame, area: Rect, rows: usize, s: f32) {
+        let pad = 11.0 * s;
+        let mut y = area.y + 6.0 * s;
+        ui.rect(Rect::new(area.x + pad, area.y, area.w - 2.0 * pad, 1.0), Color::WHITE.alpha(0.06));
+        let late = f.delay.unwrap_or(0.0);
+        for st in f.stops.iter().take(rows) {
+            let r = Rect::new(area.x + pad, y, area.w - 2.0 * pad, 22.0 * s);
+            let planned = format!("{:02}:{:02}", (st.arrival / 3600.0) as i32 % 24, ((st.arrival % 3600.0) / 60.0) as i32);
+            ui.text_in(&mut self.atlas, &self.fonts, &planned, 12.5 * s, Weight::Bold, r, Align::Left, TEXT_DIM);
+            ui.text_in(&mut self.atlas, &self.fonts, st.name.trim(), 13.0 * s, Weight::Medium, Rect::new(r.x + 46.0 * s, r.y, r.w - 100.0 * s, r.h), Align::Left, TEXT);
+            // when the bus will be there at this lateness
+            let exp = st.arrival + late;
+            let e = format!("{:02}:{:02}", (exp / 3600.0).rem_euclid(24.0) as i32, ((exp.rem_euclid(3600.0)) / 60.0) as i32);
+            ui.text_in(&mut self.atlas, &self.fonts, &e, 12.5 * s, Weight::Medium, r, Align::Right, if late > 59.0 { LATE } else if late < -59.0 { EARLY } else { TEXT_DIM });
+            y += 22.0 * s;
+        }
+    }
+}
+
+/// How many of `stops` the schedule shows in `room` points at scale `s` (five at most), and
+/// its height in points.
+pub(crate) fn schedule_fitting(stops: usize, s: f32, room: f32) -> (usize, f32) {
+    let height = |n: usize| ((n as f32 * 22.0 + 12.0) * s).round();
+    let mut n = stops.min(5);
+    while n > 0 && height(n) > room {
+        n -= 1;
+    }
+    (n, if n > 0 { height(n) } else { 0.0 })
+}
+
+// --- the companion's pairing code, and the navigator's size ----------------------------------
 
 impl Navigator {
     /// The pairing QR code for a device ([`crate::companion::pair_qr`]): asked again when the
@@ -2103,82 +2084,6 @@ impl Navigator {
             self.qr = (key, self.time, qr);
         }
         self.qr.2.clone()
-    }
-
-    /// The small navigator as the sign-on page, `pw` pixels wide at scale `s` and at most
-    /// `room` tall - all of it when `fill` (a panel the player sized: its height is theirs).
-    #[allow(clippy::too_many_arguments)]
-    fn panel_page(&mut self, st: &crate::companion::CompanionState, duty: Option<&crate::nav_duty::DutyState>, time: f64, pw: f32, s: f32, room: f32, fill: bool) -> PanelPage {
-        use crate::nav_signon as signon;
-        self.city.phone.follow(st);
-        if let Some(r) = self.city.phone.wants(st) {
-            crate::companion::request(r);
-        }
-        let qr = self.pair_qr(st);
-        let page = signon::page_in(st, &self.city.phone, duty, time, signon::Room::Panel, qr.as_ref());
-        let mut fit = signon::fit_panel(page, pw, s, room, &self.fonts);
-        if fill {
-            fit.height = room.round();
-        }
-        // (a page that is taller than the window scrolls: the wheel over it - held to this
-        // page's range only while it is the one on the screen; the city map's page scrolls by
-        // the same, further, and is kept in its own range where it is drawn)
-        if !self.city.open {
-            self.city.phone.scroll = self.city.phone.scroll.clamp(0.0, signon::panel_scroll_max(&fit)).round();
-        }
-        let hits = signon::panel_hits(&fit, self.city.phone.scroll);
-        PanelPage { fit, hits, stage: st.stage }
-    }
-
-    /// The small navigator as the sign-on page, painted for a panel `pw` x `ph`: its
-    /// background (drawn at the opacity setting's), its head, and its items (to be clipped to
-    /// the part under the head, which they scroll in: the last).
-    fn paint_signon(&mut self, pw: f32, ph: f32) -> Option<(Painter, Painter, Painter, Rect)> {
-        use crate::nav_signon as signon;
-        let sp = self.signing.take()?;
-        let panel = Rect::new(0.0, 0.0, pw, ph);
-        let scroll = self.city.phone.scroll;
-        let mut bg = Painter::new();
-        bg.rounded(panel, 7.0 * (pw / 360.0), if self.cockpit_display { Color::rgba(10, 10, 10, 1.0) } else { crate::nav_duty::SHEET.alpha(0.86) });
-        let mut ui = Painter::new();
-        signon::draw_panel_head(&mut crate::nav_duty::Pen { p: &mut ui, atlas: &mut self.atlas, fonts: &self.fonts }, &sp.fit, panel, scroll);
-        let mut list = Painter::new();
-        signon::draw_panel_items(&mut crate::nav_duty::Pen { p: &mut list, atlas: &mut self.atlas, fonts: &self.fonts }, &sp.fit, panel, scroll);
-        self.size_note(&mut ui, Vec2::new(pw * 0.5, ph * 0.5), sp.fit.s);
-        let view = signon::panel_view(&sp.fit, panel);
-        self.signing = Some(sp);
-        Some((bg, ui, list, view))
-    }
-
-    /// Draw the small navigator as the sign-on page into its texture: its background (the
-    /// opacity setting's, as the map's), the page's head and items.
-    fn draw_signon(&mut self, renderer: &Renderer, target: &wgpu::TextureView, size: (u32, u32)) {
-        let (pw, ph) = (size.0 as f32, size.1 as f32);
-        self.atlas.begin_frame();
-        let Some((bg, ui, list, view)) = self.paint_signon(pw, ph) else { return };
-        let radius = 7.0 * (pw / 360.0);
-        let (Some(gpu), device, queue) = (self.gpu.as_mut(), &renderer.device, &renderer.queue) else { return };
-        let n_bg = bg.len();
-        let mut all = bg.verts;
-        all.extend(list.verts);
-        let n_list = all.len() as u32;
-        all.extend(ui.verts);
-        gpu.upload(device, queue, 2, &all);
-        gpu.upload_atlas(queue, &mut self.atlas);
-        let clip = [0.0, 0.0, pw, ph];
-        let backdrop = Layer::flat(clip, radius, if self.cockpit_display { self.opacity } else { crate::ui::backdrop(self.opacity).min(1.0) });
-        let mut layers = [Layer::flat(clip, radius, 1.0), backdrop, Layer::flat([view.x, view.y, view.right(), view.bottom()], radius, 1.0)];
-        for l in layers.iter_mut() {
-            l.opacity *= self.shown;
-        }
-        let draws = [
-            Draw { buffer: 2, range: 0..n_bg, layer: 1, texture: 0 },
-            Draw { buffer: 2, range: n_bg..n_list, layer: 2, texture: 0 },
-            Draw { buffer: 2, range: n_list..all.len() as u32, layer: 0, texture: 0 },
-        ];
-        let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("navigator sign-on") });
-        gpu.render(device, queue, &mut enc, target, size, Some(wgpu::Color::TRANSPARENT), &layers, &draws);
-        queue.submit([enc.finish()]);
     }
 
     /// The size, for a moment after it changed: "110 %" in a dark pill centred on `at`.
@@ -2251,12 +2156,7 @@ impl Navigator {
             self.size_wheel(amount);
             return true;
         }
-        // (the sign-on page taller than the window: the wheel scrolls it)
-        let Some(fit) = self.signing.as_ref().map(|p| &p.fit).filter(|f| crate::nav_signon::panel_scroll_max(f) > 0.0) else { return false };
-        let (by, max) = (amount * 48.0 * fit.s, crate::nav_signon::panel_scroll_max(fit));
-        self.city.phone.scroll = (self.city.phone.scroll - by).clamp(0.0, max);
-        self.drawn_at = f32::MIN;
-        true
+        false
     }
 }
 

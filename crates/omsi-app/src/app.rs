@@ -578,7 +578,6 @@ impl App {
                     n.arrows = self.settings.nav_arrows;
                     n.show_ai = self.settings.nav_ai;
                     n.size = self.settings.nav_scale;
-                    n.board = self.settings.nav_board;
                     n.set_rect(&self.settings.nav_rect);
                     n.show_surface = self.settings.nav_surface;
                     n.light = self.settings.nav_light;
