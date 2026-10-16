@@ -11,7 +11,7 @@ This statement explains which personal data Omsi-Hub (the app, the game and omsi
 
 Omsi-Hub is a free, non-commercial add-on for the bus simulator openOMSI. Omsi-Hub is the controller for the data described here.
 
-**Contact:** privacy@omsihub.com
+**Contact:** info@omsihub.com
 
 ## Playing without an account
 
@@ -66,7 +66,7 @@ You have the right to:
 - object to its use, or restrict it;
 - withdraw your consent.
 
-You can do most of this yourself in the app or on the website. For anything else, email privacy@omsihub.com.
+You can do most of this yourself in the app or on the website. For anything else, email info@omsihub.com.
 
 You may also complain to a data protection authority. In the Netherlands that is the Autoriteit Persoonsgegevens.
 
