@@ -82,6 +82,11 @@ pub fn migrate(mut c: Company) -> Company {
     if c.version < 2 {
         super::staff::rebase_wages(&mut c);
     }
+    // (version 2: a line's fare was a single against the old reference's association fare;
+    // version 3 asks the UK model's fares, `income` - the same distance from its standard)
+    if c.version < 3 {
+        super::income::migrate(&mut c);
+    }
     c.version = VERSION;
     c
 }

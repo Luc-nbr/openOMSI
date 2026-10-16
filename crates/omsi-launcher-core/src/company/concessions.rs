@@ -404,9 +404,9 @@ pub fn reference_per_km(c: &Company) -> f64 {
 
 /// What a line's week brings in at a price: the authority's payment and the fares.
 pub fn week_revenue(c: &Company, w: &Week, price: f64) -> Cents {
-    let r = economy::rules_for(c);
     let comp = w.km * reference_per_km(c) * price;
-    let fares = w.km * r.passengers_per_km * r.fare as f64;
+    // (the takings of a typical line a kilometre: `income::per_km`)
+    let fares = w.km * super::income::per_km(c, &super::model::CompanyLine::default());
     (comp + fares).round() as Cents
 }
 

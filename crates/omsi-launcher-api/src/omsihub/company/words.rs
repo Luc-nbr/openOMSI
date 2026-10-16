@@ -154,6 +154,13 @@ pub fn eur_cents(c: f64) -> String {
     money_in(c, true, currency(), &language())
 }
 
+/// A fare with its decimals at the step the company's currency prices fares in (£2.40, never
+/// £2.39: `currency::Currency::fare_units`).
+pub fn fare_text(c: f64) -> String {
+    let cur = currency();
+    cur::write(cur.fare_units(c), true, &look_in(cur, &language()))
+}
+
 /// Euro cents in units of the company's currency (a chart's scale, "+12k").
 pub fn units(c: Cents) -> f64 {
     currency().units(c as f64)
@@ -180,7 +187,7 @@ pub fn money_json() -> serde_json::Value {
         SymbolAt::BeforeSpaced => "spaced",
         SymbolAt::After => "after",
     };
-    serde_json::json!({ "code": c.code(), "rate": c.rate(), "symbol": l.symbol, "at": at, "thousands": l.thousands.to_string(), "decimal": l.decimal.to_string(), "places": l.places })
+    serde_json::json!({ "code": c.code(), "rate": c.rate(), "symbol": l.symbol, "at": at, "thousands": l.thousands.to_string(), "decimal": l.decimal.to_string(), "places": l.places, "fare_step": c.fare_step() })
 }
 
 /// A whole number grouped like money (kilometres, passengers).

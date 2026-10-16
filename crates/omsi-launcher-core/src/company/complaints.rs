@@ -237,7 +237,7 @@ pub fn day(c: &mut Company, date: &str, report: &DayReport) {
         }
     }
     for l in c.lines.iter().filter(|l| !l.number.is_empty()) {
-        let x = super::fares::offset(c, super::fares::fare_of(c, l));
+        let x = super::fares::felt(c, l);
         if x > super::fares::FAIR && report.lines.iter().any(|d| d.line == l.name && d.passengers > 0) {
             cand.push((Kind::Fare, l.number.clone(), 0, None, 1, ((x - super::fares::FAIR) * 0.5).min(0.4), Late::default()));
         }

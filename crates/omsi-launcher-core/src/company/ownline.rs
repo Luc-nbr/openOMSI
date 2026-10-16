@@ -158,8 +158,9 @@ pub const DAY_TYPES: [&str; 3] = ["Working days", "Saturdays", "Sundays and holi
 /// public holidays a year.
 pub const MONTH_DAYS: [f64; 3] = [250.0 / 12.0, 52.0 / 12.0, 63.0 / 12.0];
 
-/// A day type's passengers against a working day's.
-pub const DAY_LEVEL: [f64; 3] = [1.0, 0.6, 0.4];
+/// A day type's passengers against a working day's (the UK data's Saturday; its Sunday an
+/// assumption, `econ_uk::SUNDAY_SHARE`).
+pub const DAY_LEVEL: [f64; 3] = [1.0, super::econ_uk::SATURDAY_SHARE, super::econ_uk::SUNDAY_SHARE];
 
 /// How a day's passengers spread over its hours (per cent, made to add up in `share`): public
 /// transport in the German mobility survey MiD 2017.
@@ -296,16 +297,36 @@ pub fn booking(boardings: f64) -> (f64, f64) {
     (p, if p > 1e-9 { b / p } else { 1.0 })
 }
 
-/// What a trip of a line of `kind` brings: (fares, the payment for it). `per_passenger` is what
-/// a passenger pays on the line, `per_km` the authority's payment a kilometre, `school` the
-/// school authority's for the trip (`school_trip_pay`).
-pub fn trip_income(kind: ServiceKind, pax: f64, km: f64, per_passenger: f64, per_km: f64, school: Cents) -> (Cents, Cents) {
-    let (pax, km) = (pax.max(0.0), km.max(0.0));
+/// What a trip of a line of `kind` is paid besides its takings (`income`): a school line's
+/// contract for the trip (`school`, `school_trip_pay`), a weekend line's tourism grant and a
+/// concession line's payment per kilometre (`per_km`: the line's, `per_km_of`).
+pub fn trip_payment(kind: ServiceKind, km: f64, per_km: f64, school: Cents) -> Cents {
+    let km = km.max(0.0);
     match kind {
-        ServiceKind::Regular => ((pax * per_passenger).round() as Cents, (km * per_km).round() as Cents),
-        ServiceKind::School => (0, school),
-        ServiceKind::Leisure => ((pax * per_passenger * LEISURE_FARE).round() as Cents, (km * per_km * LEISURE_COMPENSATION).round() as Cents),
-        ServiceKind::OnDemand => ((pax * (per_passenger + BOOKING_FEE as f64)).round() as Cents, (km * per_km).round() as Cents),
+        ServiceKind::School => school,
+        ServiceKind::Leisure => (km * per_km * LEISURE_COMPENSATION).round() as Cents,
+        ServiceKind::Regular | ServiceKind::OnDemand => (km * per_km).round() as Cents,
+    }
+}
+
+/// The payment per kilometre a company line has (`comp_km`: the authority's,
+/// `economy::compensation_per_km`): a line held under a concession its contract's, a weekend
+/// line its tourism grant's base; a commercial line none (its passengers pay, `income`).
+pub fn per_km_of(c: &Company, cl: &CompanyLine, comp_km: f64) -> f64 {
+    if kind_of(cl) == ServiceKind::Leisure || concessions::of_line(c, &cl.name).is_some() {
+        comp_km
+    } else {
+        0.0
+    }
+}
+
+/// A weekend line's and an on-demand line's tickets: the weekend's day and family tickets at
+/// `LEISURE_FARE`, an on-demand ride's booking fee on top (cents, at the company's prices).
+pub fn kind_takings(kind: ServiceKind, t: &mut super::income::Takings, pax: f64, price_index: f64) {
+    match kind {
+        ServiceKind::Leisure => t.tickets_by(LEISURE_FARE),
+        ServiceKind::OnDemand => t.adult += pax.max(0.0) * BOOKING_FEE as f64 * price_index,
+        _ => {}
     }
 }
 
@@ -714,7 +735,8 @@ pub fn estimate(c: &Company, l: &LineDesign, shape: &Shape) -> Estimate {
     let level = super::econ_uk::Level::of(c);
     let kind = l.service;
     let mut e = Estimate::default();
-    let f = forecast(l, potential_of(kind, shape, &k, r.fare, l.live_displays));
+    // (the fare's own effect is the line's, `fares::Demand`: the potential at the reference)
+    let f = forecast(l, potential_of(kind, shape, &k, REF_FARE as Cents, l.live_displays));
     let run = lines::run_minutes(l);
     let plan = lines::tour_plan(l);
     let allowed = l.vehicles.sizes();
@@ -820,16 +842,28 @@ pub fn estimate(c: &Company, l: &LineDesign, shape: &Shape) -> Estimate {
             e.monthly.push(("School contract", (a_day * month_days(kind, 0)).round() as Cents));
         }
         _ => {
-            let (label, per) = match kind {
-                ServiceKind::Leisure => ("Fares", r.fare as f64 * LEISURE_FARE * OUTING_WEATHER),
-                ServiceKind::OnDemand => ("Fares and booking fees", (r.fare + BOOKING_FEE) as f64),
-                _ => ("Fares", r.fare as f64),
-            };
-            let fares = (pax * per).round() as Cents;
+            // (the takings of a passenger of such a line on a school day: `income`; the line's
+            // trips as long as its route, its stops its own)
+            let mut cl = CompanyLine { own: true, plan: Some(OwnPlan { service: kind, ..Default::default() }), ..Default::default() };
+            let dirs = shape.dir_km.iter().filter(|x| **x > 0.0).count().max(1) as f64;
+            cl.stats.trip_km = shape.dir_km.iter().sum::<f64>() / dirs;
+            cl.stats.stops = shape.stops as f64;
+            let rates = super::income::Rates::at(c, &cl, super::income::DayOf { kind: 0, school: true });
+            let mut one = rates.takings(1.0, 0.0);
+            kind_takings(kind, &mut one, 1.0, pi);
+            if kind == ServiceKind::Leisure {
+                one.tickets_by(OUTING_WEATHER);
+            }
+            let label = if kind == ServiceKind::OnDemand { "Fares and booking fees" } else { "Fares" };
+            let fares = (pax * one.fares()).round() as Cents;
             e.monthly.push((label, fares));
             e.monthly.push(("Association share", -(fares as f64 * k.association_share).round() as Cents));
-            let (what, share) = if kind == ServiceKind::Leisure { ("Tourism grant per km", LEISURE_COMPENSATION) } else { ("Payment per km", 1.0) };
-            e.monthly.push((what, (km * per_km * share).round() as Cents));
+            e.monthly.push(("Concession reimbursement", (pax * one.reimbursement).round() as Cents));
+            e.monthly.push(("School passes", (pax * one.school).round() as Cents));
+            e.monthly.push(("Fuel grant (BSOG)", (km * rates.bsog_km).round() as Cents));
+            if kind == ServiceKind::Leisure {
+                e.monthly.push(("Tourism grant per km", (km * per_km * LEISURE_COMPENSATION).round() as Cents));
+            }
         }
     }
     let (mut energy, mut upkeep, mut hours) = (0.0, 0.0, 0.0);
@@ -957,7 +991,7 @@ pub fn caption(l: &LineDesign) -> String {
 
 fn plan_of(c: &Company, l: &LineDesign, shape: &Shape) -> OwnPlan {
     let k = costs(c.game_mode);
-    let f = forecast(l, potential_of(l.service, shape, &k, economy::rules(c.game_mode).fare, l.live_displays));
+    let f = forecast(l, potential_of(l.service, shape, &k, REF_FARE as Cents, l.live_displays));
     let allowed = l.vehicles.sizes();
     let mut per_trip = [[0.0f32; 24]; 3];
     for (d, row) in per_trip.iter_mut().enumerate() {
@@ -1043,6 +1077,10 @@ pub fn confirm(c: &mut Company, l: &LineDesign, stem: &str, shape: &Shape) -> Re
         title: l.title.trim().to_string(),
         hof: String::new(),
         pending: None,
+        line_type: None,
+        fare_cap: false,
+        fares_to_authority: false,
+        stats: Default::default(),
     });
     Ok(total)
 }
@@ -1418,11 +1456,17 @@ mod tests {
         let all = LineDesign { service: ServiceKind::Regular, ..l.clone() };
         let fuel = |e: &Estimate| e.monthly.iter().find(|x| x.0 == "Fuel").unwrap().1;
         assert!(fuel(&od) > fuel(&estimate(&c, &all, &s)), "less fuel (a cost: negative)");
-        // a trip's money by its kind
-        assert_eq!(trip_income(ServiceKind::Regular, 10.0, 5.0, 110.0, 200.0, 0), (11_00, 10_00));
-        assert_eq!(trip_income(ServiceKind::School, 40.0, 5.0, 110.0, 200.0, 60_00), (0, 60_00));
-        assert_eq!(trip_income(ServiceKind::Leisure, 10.0, 5.0, 110.0, 200.0, 0), (16_50, 5_00));
-        assert_eq!(trip_income(ServiceKind::OnDemand, 2.0, 5.0, 110.0, 200.0, 0), (5_20, 10_00));
+        // a trip's payment by its kind (its passengers' takings are `income`'s): a school trip
+        // its contract, a weekend line half the per-km rate, the others the line's rate
+        assert_eq!(trip_payment(ServiceKind::Regular, 5.0, 200.0, 0), 10_00);
+        assert_eq!(trip_payment(ServiceKind::School, 5.0, 200.0, 60_00), 60_00);
+        assert_eq!(trip_payment(ServiceKind::Leisure, 5.0, 200.0, 0), 5_00);
+        assert_eq!(trip_payment(ServiceKind::OnDemand, 5.0, 0.0, 0), 0);
+        let mut t = super::super::income::Takings { adult: 100.0, child: 10.0, ..Default::default() };
+        kind_takings(ServiceKind::Leisure, &mut t, 2.0, 1.0);
+        assert!((t.adult - 100.0 * LEISURE_FARE).abs() < 1e-9);
+        kind_takings(ServiceKind::OnDemand, &mut t, 2.0, 1.0);
+        assert!((t.adult - 100.0 * LEISURE_FARE - 2.0 * BOOKING_FEE as f64).abs() < 1e-9);
         assert_eq!(school_trip_pay(&c, 10.0), 75_00);
         assert!(school_trip_pay(&company(GameMode::Casual), 10.0) > school_trip_pay(&company(GameMode::Realistic), 10.0));
         // bookings: a trip nobody rides is never booked, one with two riders mostly

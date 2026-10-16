@@ -2094,7 +2094,7 @@ impl LivePlan {
     pub fn trip_event(&self, line: &str, tour: &str, dep: i32, km: f64, stops: usize, delay: f64) -> Option<LiveEvent> {
         let t = self.tour(line, tour).filter(|t| !t.dropped)?;
         let km = if km.is_finite() { km.clamp(0.0, 200.0) } else { 0.0 };
-        let passengers = if stops >= 3 { economy::passengers_for(km, dep, &economy::rules(self.game_mode)).round().max(0.0) as u32 } else { 0 };
+        let passengers = if stops >= 3 { super::income::by_km(super::income::LineType::Typical, &self.date, dep, km).round().max(0.0) as u32 } else { 0 };
         Some(LiveEvent::Trip { line: t.line.clone(), tour: t.tour.clone(), vehicle: t.vehicle, km, passengers, delay, completed: true, dep: Some(dep) })
     }
 

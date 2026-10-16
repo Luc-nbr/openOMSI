@@ -295,7 +295,7 @@ fn effect(c: &Company, t: &TourOfDay, d: &[TripDelay], cur: usize) -> Effect {
         if x.lost > 0.0 {
             e.parts += x.lost;
             e.part_trips += 1;
-            e.parts_cost += part_penalty(&r, trip, x.lost) + (x.lost * economy::passengers_for(trip.km, trip.dep, &r) * fare).round() as Cents;
+            e.parts_cost += part_penalty(&r, trip, x.lost) + (x.lost * super::income::expected(line, &c.date, trip.dep, trip.arr) * fare).round() as Cents;
         }
         if x.known {
             continue;

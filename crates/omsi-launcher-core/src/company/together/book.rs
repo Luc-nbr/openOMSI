@@ -560,7 +560,14 @@ pub fn trip_money(c: &Company, t: &TripRun) -> Cents {
     let r = super::super::economy::rules_for(c);
     let per_km = super::super::economy::compensation_per_km(&r, c.reputation, c.contract_index);
     let km = super::super::career::believable_km(t);
-    let (fares, comp) = super::super::ownline::trip_income(super::super::ownline::kind_of(l), t.passengers.max(0) as f64, km, super::super::fares::per_passenger(c, l), per_km, super::super::ownline::school_trip_pay(c, km));
+    // (the takings of its passengers, `income`, and what the trip is paid besides)
+    let ol = &super::super::ownline::kind_of(l);
+    let pax = t.passengers.max(0) as f64;
+    let rates = super::super::income::Rates::of(c, l, &c.date);
+    let mut take = if *ol == crate::service::ServiceKind::School { Default::default() } else { rates.takings(pax, km) };
+    super::super::ownline::kind_takings(*ol, &mut take, pax, c.price_index);
+    let comp = super::super::ownline::trip_payment(*ol, km, super::super::ownline::per_km_of(c, l, per_km), super::super::ownline::school_trip_pay(c, km));
+    let fares = if rates.to_authority { 0 } else { take.total().round() as Cents };
     fares + comp
 }
 

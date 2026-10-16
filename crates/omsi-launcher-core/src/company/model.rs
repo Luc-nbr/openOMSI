@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 pub type Cents = i64;
 
 /// The version of the saved file; raised when a field changes meaning (see `store::migrate`).
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 
 /// The company's game mode (Trello "Game modes 1/4"): one choice that sets both how much of
 /// the company the player runs himself and how hard its economy and its days are. It can be
@@ -201,6 +201,7 @@ pub enum BookingKind {
     Loan,
     Repayment,
     Interest,
+    /// Fares: the adults' tickets (singles, returns, day and period tickets).
     Fares,
     /// The authority's payment per timetable kilometre (the public service contract).
     Compensation,
@@ -252,10 +253,24 @@ pub enum BookingKind {
     /// The central overhead per bus (depot rent, management, admin, control, IT) and the buses'
     /// ticket machines (`economy::bus_month`).
     Overheads,
+    /// The children's tickets (`income`).
+    ChildFares,
+    /// The operator's share of the multi-operator passes, a ride (`income`).
+    NetworkPasses,
+    /// The school term passes, spread over the pupils' rides (`income`).
+    SchoolPasses,
+    /// The concession reimbursement: the authority pays a share of the adult fare for every ride
+    /// on an elderly or disabled person's pass (`income`).
+    Reimbursement,
+    /// BSOG, the grant per live mile (`income`).
+    Bsog,
+    /// Fares a line under a gross-cost contract takes for the authority: collected and paid over
+    /// the same day (they come to nothing; `income`).
+    AuthorityFares,
 }
 
 impl BookingKind {
-    pub const ALL: [BookingKind; 34] = [
+    pub const ALL: [BookingKind; 40] = [
         BookingKind::Capital,
         BookingKind::Loan,
         BookingKind::Repayment,
@@ -290,6 +305,12 @@ impl BookingKind {
         BookingKind::Agency,
         BookingKind::Depreciation,
         BookingKind::Overheads,
+        BookingKind::ChildFares,
+        BookingKind::NetworkPasses,
+        BookingKind::SchoolPasses,
+        BookingKind::Reimbursement,
+        BookingKind::Bsog,
+        BookingKind::AuthorityFares,
     ];
 
     pub fn label(self) -> &'static str {
@@ -328,6 +349,12 @@ impl BookingKind {
             BookingKind::Agency => "Agency drivers",
             BookingKind::Depreciation => "Depreciation",
             BookingKind::Overheads => "Overheads",
+            BookingKind::ChildFares => "Fares: children",
+            BookingKind::NetworkPasses => "Network passes",
+            BookingKind::SchoolPasses => "School passes",
+            BookingKind::Reimbursement => "Concession reimbursement",
+            BookingKind::Bsog => "Fuel grant (BSOG)",
+            BookingKind::AuthorityFares => "Fares for the authority",
         }
     }
 
@@ -697,6 +724,20 @@ pub struct CompanyLine {
     /// An own line in service changed in the line editor for a later day (`ownline::Pending`).
     #[serde(default)]
     pub pending: Option<super::ownline::Pending>,
+    /// The kind of line the player says it is (None: as its timetable shows it, `income::type_of`).
+    #[serde(default)]
+    pub line_type: Option<super::income::LineType>,
+    /// Its fares capped (`econ_uk::FARE_CAP`: an adult and a child single at most).
+    #[serde(default)]
+    pub fare_cap: bool,
+    /// Run under a gross-cost contract: its fares are the authority's - collected for it, not the
+    /// company's income (wave 2a's contracts set it; `income`).
+    #[serde(default)]
+    pub fares_to_authority: bool,
+    /// What its days showed so far: its trips' length and stops, its hours, how often it ran late
+    /// (`income::LineStats`).
+    #[serde(default)]
+    pub stats: super::income::LineStats,
 }
 
 impl CompanyLine {
@@ -738,6 +779,12 @@ pub struct DayRecord {
     /// Each line's day (an older file has none).
     #[serde(default)]
     pub lines: Vec<LineTally>,
+    /// The bus-hours its passengers rode in (`econ_uk::BUS_HOUR_PER_RUNNING_HOUR`), and those a
+    /// full bus left at the stop.
+    #[serde(default)]
+    pub bus_hours: f64,
+    #[serde(default)]
+    pub left_behind: u32,
 }
 
 /// A line's closed day, kept with the day's record: its passengers and its crowded trips (the
@@ -751,6 +798,13 @@ pub struct LineTally {
     pub crowded: u32,
     #[serde(default)]
     pub crowded_morning: u32,
+    /// Its passengers by the part of the day (`income::BANDS`), its bus-hours, those left behind.
+    #[serde(default)]
+    pub bands: [u32; 5],
+    #[serde(default)]
+    pub bus_hours: f64,
+    #[serde(default)]
+    pub left_behind: u32,
 }
 
 /// What of the week's markets is gone (bought, hired): a new week brings new offers.

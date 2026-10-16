@@ -10,10 +10,11 @@
 //! (`bus_month`: lease or depreciation, insurance and tax, the ticket machine, the overhead) and
 //! a driver's market wage (`market_wage`).
 //!
-//! **The income side is still the old reference** (German urban operations: an average fare per
-//! passenger, passengers per bus-km, the authority's payment per km; `Rules::fare`,
-//! `passengers_for`, `compensation_per_km`) until wave 2b replaces it with the UK income model;
-//! the contract penalties (`trip_value`, `late_share`) until wave 2a.
+//! **The income is the UK model too** (`income`: passengers per bus-hour by the time of day and
+//! the kind of line, fares by ticket, concession reimbursement, BSOG). What is left of the old
+//! reference is the contracts' (wave 2a): a concession line's payment per km
+//! (`Rules::tender_per_km`, `compensation_per_km`) and the penalties (`trip_value`,
+//! `late_share`).
 //!
 //! The age curve of a bus's value: the used market pays for age - some 18 % is lost in the first
 //! year, then 8-10 % of the new price a year, less later, to a 10 % residual at 15-18 years
@@ -25,8 +26,8 @@ use super::econ_uk::{self, Item, Level};
 use super::model::{BookingKind, BusKind, Cents, Company, Drive, GameMode, Tenure, Vehicle};
 
 /// The numbers of one game mode. The costs come from the UK model (`econ_uk`): a bus's price
-/// and lease here, the running and fixed costs in the functions below. The fields marked "wave
-/// 2a" and "wave 2b" are the old reference until those waves replace them.
+/// and lease here, the running and fixed costs in the functions below; the income is `income`'s.
+/// The fields marked "wave 2a" are the old reference until that wave replaces them.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rules {
     pub start_capital: Cents,
@@ -53,11 +54,11 @@ pub struct Rules {
     pub lease_residual: f64,
     /// Short-term rental per day, of the new price.
     pub rent_share: f64,
-    /// Revenue: per passenger, passengers per bus-km, and the compensation per km (wave 2b: the
-    /// UK income model replaces them).
-    pub fare: Cents,
-    pub passengers_per_km: f64,
-    pub compensation_per_km: Cents,
+    /// The authority's payment per km of a line held under a concession (cents; wave 2a: the
+    /// contracts' own payments replace it): the data's tender payment per timetabled hour at
+    /// `TENDER_KMH`, by the mode's income factor (a company's: `rules_for`, its country's and its
+    /// sandbox's too, `econ_uk::Item::Contracts`).
+    pub tender_per_km: f64,
     /// Penalties: per trip dropped, per km dropped (a trip's value; a late one pays its share of
     /// that, `late_share`; wave 2a: the contracts' deductions and default points replace them).
     pub drop_per_trip: Cents,
@@ -131,9 +132,7 @@ pub fn rules(d: GameMode) -> Rules {
             lease_months: econ_uk::LEASE_MONTHS,
             lease_residual: econ_uk::LEASE_RESIDUAL,
             rent_share: econ_uk::RENT_SHARE,
-            fare: 1_30, // wave 2b
-            passengers_per_km: 2.3, // wave 2b
-            compensation_per_km: 1_80, // wave 2b
+            tender_per_km: tender_base() * econ_uk::mode(GameMode::Casual).income, // wave 2a
             drop_per_trip: 0, // wave 2a
             drop_per_km: 0, // wave 2a
             breakdown_factor: 0.3,
@@ -160,9 +159,7 @@ pub fn rules(d: GameMode) -> Rules {
             lease_months: econ_uk::LEASE_MONTHS,
             lease_residual: econ_uk::LEASE_RESIDUAL,
             rent_share: econ_uk::RENT_SHARE,
-            fare: 1_10, // wave 2b
-            passengers_per_km: 2.0, // wave 2b
-            compensation_per_km: 1_20, // wave 2b
+            tender_per_km: tender_base() * econ_uk::mode(GameMode::Normal).income, // wave 2a
             drop_per_trip: 80_00, // wave 2a
             drop_per_km: 2_00, // wave 2a
             breakdown_factor: 1.0,
@@ -189,9 +186,7 @@ pub fn rules(d: GameMode) -> Rules {
             lease_months: econ_uk::LEASE_MONTHS,
             lease_residual: econ_uk::LEASE_RESIDUAL,
             rent_share: econ_uk::RENT_SHARE,
-            fare: 1_05, // wave 2b
-            passengers_per_km: 1.9, // wave 2b
-            compensation_per_km: 1_00, // wave 2b
+            tender_per_km: tender_base() * econ_uk::mode(GameMode::Realistic).income, // wave 2a
             drop_per_trip: 150_00, // wave 2a
             drop_per_km: 3_00, // wave 2a
             breakdown_factor: 1.7,
@@ -212,7 +207,17 @@ pub fn rules(d: GameMode) -> Rules {
 pub fn rules_for(c: &Company) -> Rules {
     let mut r = super::sandbox::rules(c, rules(c.game_mode));
     r.price_factor = econ_uk::factor(c, Item::Vehicles);
+    r.tender_per_km = tender_base() * econ_uk::factor(c, Item::Contracts);
     r
+}
+
+/// The speed a tender's timetabled hour runs at (km/h): what turns the data's payment per hour
+/// into one per km (wave 2a).
+pub const TENDER_KMH: f64 = 25.0;
+
+/// A concession line's payment per km at Realistic in the UK (euro cents, wave 2a).
+pub fn tender_base() -> f64 {
+    econ_uk::gbp(econ_uk::TENDER_PER_HOUR) / TENDER_KMH
 }
 
 /// A new bus's reference price: the UK's (`econ_uk::new_price`), in euro cents, at founding.
@@ -465,31 +470,11 @@ pub fn employer_cost(wage: Cents) -> Cents {
     (wage as f64 * (1.0 + EMPLOYER_SHARE)).round() as Cents
 }
 
-/// The passengers' demand through the day against the average: the peaks in the morning
-/// and late afternoon, little at night.
-pub fn demand_at(minute: i32) -> f64 {
-    match minute.rem_euclid(1440) / 60 {
-        0..=4 => 0.25,
-        5 => 0.6,
-        6..=8 => 1.6,
-        9..=11 => 0.9,
-        12..=14 => 1.05,
-        15..=17 => 1.5,
-        18..=19 => 0.8,
-        20..=22 => 0.5,
-        _ => 0.35,
-    }
-}
-
-/// Passengers a trip of `km` leaving at `minute` carries (before chance and reputation).
-pub fn passengers_for(km: f64, minute: i32, r: &Rules) -> f64 {
-    km.max(0.0) * r.passengers_per_km * demand_at(minute)
-}
-
-/// The authority's payment per km at a reputation (0-100): ±10 % around 50, as Omsi-Hub's.
+/// The authority's payment per km of a concession line at a reputation (0-100): ±10 % around
+/// 50, as Omsi-Hub's (wave 2a: the contracts' payments replace it).
 pub fn compensation_per_km(r: &Rules, reputation: f64, contract_index: f64) -> f64 {
     // (below 40 softened: `reputation::effective`)
-    r.compensation_per_km as f64 * (0.9 + 0.2 * super::reputation::effective(reputation) / 100.0) * contract_index
+    r.tender_per_km * (0.9 + 0.2 * super::reputation::effective(reputation) / 100.0) * contract_index
 }
 
 #[cfg(test)]
@@ -646,10 +631,9 @@ mod tests {
         assert!((energy_per_km(SOLO, &normal) / energy_per_km(SOLO, &uk) - 0.9).abs() < 1e-9);
         assert_eq!(overhead_per_month(&normal), overhead_per_month(&uk) / 2);
         assert_eq!(overhead_per_month(&Level::at(GameMode::Casual, econ_uk::country("gb"), &career, 1.0)), 0);
-        // the peaks bring more passengers than the night
+        // a concession line's payment per km: the tender's hour at 25 km/h, by the mode
         let r = rules(GameMode::Normal);
-        assert!(passengers_for(10.0, 7 * 60, &r) > 4.0 * passengers_for(10.0, 60, &r));
-        assert!((compensation_per_km(&r, 50.0, 1.0) - 120.0).abs() < 1e-9);
+        assert!((compensation_per_km(&r, 50.0, 1.0) - tender_base() * 1.15).abs() < 1e-9);
         assert!(compensation_per_km(&r, 100.0, 1.0) > compensation_per_km(&r, 0.0, 1.0));
     }
 }

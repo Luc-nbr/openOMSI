@@ -31,7 +31,7 @@ fn tour(no: String, from: i32) -> TourOfDay {
 
 /// The day's tours: an early and a late tour for each bus out - 22 on a weekday, 18 on a
 /// Saturday, 4 on a Sunday (the data's operator: 26-29 buses at the peak, few on Sundays).
-fn tours_of(date: &str) -> Vec<TourOfDay> {
+pub(crate) fn tours_of(date: &str) -> Vec<TourOfDay> {
     let buses = match dates::parse(date).map(dates::weekday) {
         Some(5) => 18,
         Some(6) => 4,
@@ -47,7 +47,7 @@ fn reference(mode: GameMode, country: &str) -> Company {
     reference_from(mode, country, "2024-04-01")
 }
 
-fn reference_from(mode: GameMode, country: &str, date: &str) -> Company {
+pub(crate) fn reference_from(mode: GameMode, country: &str, date: &str) -> Company {
     let mut c = found(&Founding { name: "Reference".into(), game_mode: mode, date: date.into(), country: country.into(), ..Default::default() }, "Luc");
     c.cash += 100_000_000_00;
     c.site.set_level(depot::Area::Parking, 3);

@@ -211,6 +211,10 @@ pub fn add_line(c: &mut Company, line: &LineInfo, own: Option<&OwnLine>) -> Resu
         title: String::new(),
         hof: String::new(),
         pending: None,
+        line_type: None,
+        fare_cap: false,
+        fares_to_authority: false,
+        stats: Default::default(),
     });
     Ok(())
 }
