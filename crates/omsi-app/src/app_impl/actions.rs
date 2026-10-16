@@ -131,6 +131,8 @@ impl App {
                 }
             }
             "screenshot" => self.take_screenshot(),
+            // the map's object editor on or off, as Ctrl+Shift+E does
+            "object_editor" => self.toggle_editor(),
             "photo_mode" => self.enter_photo(),
             "quicksave" => self.quick_save(),
             "view_set_ego" => {

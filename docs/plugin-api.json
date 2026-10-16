@@ -1587,7 +1587,7 @@
       "name": "game.action",
       "group": "game",
       "since": "0.2.22",
-      "doc": "A game action of keyboard.cfg's `[game]` (`sim_pause`, `view_set_map`, `view_toggle_informationdisplay`, `view_set_schedule`, ...), as its key does; `true` when the game knows it.",
+      "doc": "A game action of keyboard.cfg's `[game]` (`sim_pause`, `view_set_map`, `view_toggle_informationdisplay`, `view_set_schedule`, ...), as its key does, or `object_editor` (the map's object editor on or off, as Ctrl+Shift+E); `true` when the game knows it.",
       "params": [
         {
           "name": "name",
