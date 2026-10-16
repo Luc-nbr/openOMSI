@@ -57,5 +57,7 @@ mirror to the corner). The arguments map as follows (r67-messages as of 2026-10-
 | `to`: `Some(Who::Guest(_))` | `To::All` (or leave it to the player's own launcher) |
 | `priority`: `Low`, `Normal` / `High` | `Priority::Info` / `Priority::Urgent` |
 | `template`, `args` | the same (`args.into_iter().map(...).collect()` into its `Vec<(String, String)>`) |
-| `action` (`"phone"`, `"fleet"`, `"workshop"`, `"ops"`: a page) | `None` - its `Action` is service control's way out, not a page | The in-game "relief due" and "fuel low" cards are the strip's own (the game's clock
+| `action` (`"phone"`, `"fleet"`, `"workshop"`, `"ops"`: a page) | `None` - its `Action` is service control's way out, not a page |
+
+The in-game "relief due" and "fuel low" cards are the strip's own (the game's clock
 and the bus): they stay the plugin's toasts (`duty_strip.lua`'s `notify`).
