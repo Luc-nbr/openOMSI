@@ -536,3 +536,267 @@ fn a_duty_whose_day_closed_before_it_was_driven_stays_the_players_and_books_what
     book::after_close(&mut b.c, &today);
     assert!(b.c.together.claims.is_empty());
 }
+
+// --- Beta 63: the session closed, a host lost, a player sent away; the AI on a duty a player left
+
+/// A link of a friend's launcher (`client::Link`) to the boss's, joined now.
+fn link_of(v: &Value) -> client::Link {
+    let mut l = client::Link::new(now());
+    assert_eq!(l.answer(v, now()), None, "{v}");
+    l
+}
+
+#[test]
+fn the_host_closing_the_session_tells_every_player_and_his_launcher_goes_back_to_the_menu() {
+    let (c, tours) = setup();
+    let secret = [4, 4, 2, 2, 1, 1, 7, 7];
+    let boss = Arc::new(Mutex::new(Boss { st: HostState::new(&c.id, "Luc", secret), c, tours }));
+    let server = serve(boss.clone());
+    let id = boss.lock().unwrap().c.id.clone();
+    let code = CompanyCode { secret, session: 1, version: code::VERSION, port: server.port(), company: code::tag_of(&id), ips: vec![Ipv4Addr::LOCALHOST] };
+    let (base, hello) = client::connect(&code, &req(&code, "jan-1", "Jan", "hello", None)).unwrap();
+    let mut link = link_of(&hello);
+    assert_eq!(link.company, "Stadtbus");
+    // Jan drives his duty in his own game, one trip reported
+    let duty = snap(&hello).duties[0].duty.clone();
+    assert_eq!(client::send(&base, &req(&code, "jan-1", "Jan", "take", Some(&duty)), client::TIMEOUT).unwrap()["ok"], true);
+    assert_eq!(client::send(&base, &req(&code, "jan-1", "Jan", "start", Some(&duty)), client::TIMEOUT).unwrap()["ok"], true);
+    let mut r = req(&code, "jan-1", "Jan", "report", Some(&duty));
+    r.trips = vec![run(360, 20, 0)];
+    assert_eq!(client::send(&base, &r, client::TIMEOUT).unwrap()["taken"], 1);
+    // the boss stops sharing: said to every message from now on, with the company's name
+    {
+        let mut b = boss.lock().unwrap();
+        let p = b.plan();
+        let lines = timetable();
+        let Boss { c, st, .. } = &mut *b;
+        let here = Here { plan: Some(&p), lines: &lines, now: now(), lead: 10 };
+        assert!(st.close(c, &here));
+        // (his duty's results can no longer come: the AI finishes it, his trip stays his)
+        let x = c.together.claim_of(&duty).unwrap();
+        assert_eq!(x.ai_now().map(|a| (a.from, a.why)), Some((2, book::LeftWhy::Closed)), "{x:?}");
+        assert_eq!(c.together.trips.len(), 1);
+    }
+    let v = client::send(&base, &req(&code, "jan-1", "Jan", "snapshot", None), client::TIMEOUT).unwrap();
+    assert_eq!((v["error"].as_str(), v["company"].as_str(), v.get("snapshot").is_none()), (Some(host::CLOSED), Some("Stadtbus"), true), "{v}");
+    assert!(host::ending(host::CLOSED));
+    assert_eq!(link.answer(&v, now()), Some(client::Ended::Closed));
+    assert_eq!(link.company, "Stadtbus");
+    // (the trips of his game are not taken any more: his launcher stops sending them)
+    r.trips = vec![run(400, 20, 0)];
+    let v = client::send(&base, &r, client::TIMEOUT).unwrap();
+    assert_eq!(v["error"].as_str(), Some(host::CLOSED));
+    assert_eq!(boss.lock().unwrap().c.together.trips.len(), 1);
+    // ended for good: nothing he hears later opens it again (back to the menu, a new code)
+    assert_eq!(link.answer(&hello, now()), Some(client::Ended::Closed));
+    drop(server);
+}
+
+#[test]
+fn a_host_that_stops_answering_is_lost_on_the_players_side_after_a_while() {
+    let (c, tours) = setup();
+    let secret = [5, 5, 5, 5, 1, 2, 3, 4];
+    let boss = Arc::new(Mutex::new(Boss { st: HostState::new(&c.id, "Luc", secret), c, tours }));
+    let server = serve(boss.clone());
+    let id = boss.lock().unwrap().c.id.clone();
+    let code = CompanyCode { secret, session: 1, version: code::VERSION, port: server.port(), company: code::tag_of(&id), ips: vec![Ipv4Addr::LOCALHOST] };
+    let (base, hello) = client::connect(&code, &req(&code, "jan-1", "Jan", "hello", None)).unwrap();
+    let mut link = link_of(&hello);
+    let t = now();
+    // the boss's launcher is gone without a word (it crashed, the network dropped)
+    drop(server);
+    assert!(client::send(&base, &req(&code, "jan-1", "Jan", "snapshot", None), std::time::Duration::from_secs(2)).is_err());
+    assert_eq!(link.failed(t + 5), None, "a moment without an answer is not lost yet");
+    // (a refusal that passes is heard: the boss's day being simulated)
+    assert_eq!(link.answer(&host::refusal(host::BUSY), t + 10), None);
+    assert_eq!(link.failed(t + 10 + client::HOST_LOST - 1), None);
+    assert_eq!(link.failed(t + 10 + client::HOST_LOST), Some(client::Ended::Lost));
+    // (a code no longer valid answers, but is no session: lost the same way)
+    let mut other = client::Link::new(t);
+    assert_eq!(other.answer(&host::refusal(host::BAD_SECRET), t + client::HOST_LOST), Some(client::Ended::Lost));
+}
+
+#[test]
+fn a_player_sent_away_or_removed_is_told_so() {
+    let mut b = boss();
+    let mut bert = link_of(&ask(&mut b, "bert", "hello", |_| {}));
+    let mut anna = link_of(&ask(&mut b, "anna", "hello", |_| {}));
+    let now = now();
+    let (bert_no, anna_no) = (guest_no(&b, "bert"), guest_no(&b, "anna"));
+    b.st.send_away(&mut b.c, now, bert_no, false);
+    b.st.send_away(&mut b.c, now, anna_no, true);
+    let v = ask(&mut b, "bert", "snapshot", |_| {});
+    assert_eq!(v["error"].as_str(), Some(host::KICKED));
+    assert_eq!(bert.answer(&v, now), Some(client::Ended::Removed));
+    let v = ask(&mut b, "anna", "snapshot", |_| {});
+    assert_eq!(v["error"].as_str(), Some(host::BANNED));
+    assert_eq!(anna.answer(&v, now), Some(client::Ended::Removed));
+}
+
+/// Jan has the duty of `b` and drives it in his game: the trips of `deps` reported.
+fn jan_drives(b: &mut Boss, deps: &[i32]) -> DutyRef {
+    let duty = snap(&ask(b, "jan", "hello", |_| {})).duties[0].duty.clone();
+    assert_eq!(ask(b, "jan", "take", |r| r.duty = Some(duty.clone()))["ok"], true);
+    assert_eq!(ask(b, "jan", "start", |r| r.duty = Some(duty.clone()))["ok"], true);
+    if !deps.is_empty() {
+        let v = ask(b, "jan", "report", |r| {
+            r.duty = Some(duty.clone());
+            r.trips = deps.iter().map(|d| run(*d, 30, 0)).collect();
+        });
+        assert_eq!(v["taken"].as_u64(), Some(deps.len() as u64), "{v}");
+    }
+    duty
+}
+
+/// The boss's day closed: its report, what the modelled trips brought (fares, not measured).
+fn close(b: &mut Boss) -> (super::super::day::DayReport, i64) {
+    let closed = b.c.date.clone();
+    let trips = book::trips_for_close(&b.c);
+    let tours = b.tours.clone();
+    let report = super::super::day::close_day_with(&mut b.c, tours, &[], &trips);
+    let fares = b.c.ledger.iter().filter(|x| x.date == closed && x.kind == super::super::model::BookingKind::Fares && !x.measured).map(|x| x.amount).sum();
+    (report, fares)
+}
+
+#[test]
+fn a_player_leaving_mid_duty_leaves_the_rest_to_the_ai_and_keeps_what_he_drove() {
+    let mut b = boss();
+    let duty = jan_drives(&mut b, &[360]);
+    ask(&mut b, "piet", "hello", |_| {});
+    b.c.clock.minute = 395;
+    // Jan quits in the layover after his first trip: back in the menu, out of the session
+    assert_eq!(ask(&mut b, "jan", "leave", |_| {})["ok"], true);
+    let x = b.c.together.claim_of(&duty).cloned().unwrap();
+    let a = x.ai_now().cloned().unwrap();
+    assert_eq!((a.from, a.until, a.why, a.minute), (2, None, book::LeftWhy::Left, 395), "from the trip after his last: the 06:40");
+    assert_eq!(x.state, ClaimState::Driving, "nobody else takes it: the bus and the route carry on");
+    // everyone sees the AI on it, said in the news
+    let s = snap(&ask(&mut b, "piet", "snapshot", |_| {}));
+    let d = &s.duties[0];
+    assert_eq!((d.state, d.who.as_str(), d.ai, d.ai_from, d.back), (DutyState::Player, "JAN", true, Some(400), false));
+    assert!(s.notices.iter().any(|n| n.text == host::AI_REST));
+    assert!(book::guest_left(&b.c, guest_no(&b, "jan")));
+    // the plan keeps him on it: the AI drives it for him, and his game's later trips are the AI's
+    let p = b.plan();
+    assert_eq!(p.tours[0].duties[0].who, Some(Who::Guest(guest_no(&b, "jan"))));
+    let v = ask(&mut b, "jan", "report", |r| {
+        r.duty = Some(duty.clone());
+        r.trips = vec![run(400, 30, 0)];
+    });
+    assert_eq!((v["taken"].as_u64(), v["refused"].as_u64()), (Some(0), Some(1)), "{v}");
+    // back in the session, he sees that the AI drove the rest
+    let s = snap(&ask(&mut b, "jan", "snapshot", |_| {}));
+    assert_eq!((s.duties[0].state, s.results[0].trips, s.results[0].ai_trips), (DutyState::Ai, 1, 2));
+    // the close: his trip measured (his passengers), the AI's two modelled - nothing dropped
+    let (report, fares) = close(&mut b);
+    assert_eq!((report.measured, report.dropped, report.covered), (1, 0, 1), "{report:?}");
+    assert!(fares > 0, "the AI's trips bring their fares");
+    assert!(!b.c.ledger.iter().any(|x| x.kind == super::super::model::BookingKind::Agency), "the AI costs nothing");
+    let g = b.c.together.guest(guest_no(&b, "jan")).unwrap().stats.clone();
+    assert_eq!((g.trips, g.passengers), (1, 30), "his own results are his trip's");
+}
+
+#[test]
+fn a_player_back_takes_his_duty_back_from_the_ai_at_its_next_trip() {
+    let mut b = boss();
+    let duty = jan_drives(&mut b, &[360]);
+    // his launcher is not heard from: after a while the AI drives on from where he got to
+    let lines = timetable();
+    let p = b.plan();
+    let later = Here { plan: Some(&p), lines: &lines, now: now() + host::LEFT_AFTER + 5, lead: 10 };
+    assert!(!b.st.watch(&mut b.c, &Here { now: now(), ..later }), "not yet");
+    assert!(b.st.watch(&mut b.c, &later));
+    assert_eq!(b.c.together.claim_of(&duty).and_then(|x| x.ai_now()).map(|a| (a.from, a.why)), Some((2, book::LeftWhy::Silent)));
+    // he comes back when the company's clock is in the 06:40 trip: the AI hands back after it
+    b.c.clock.minute = 405;
+    let s = snap(&ask(&mut b, "jan", "snapshot", |_| {}));
+    assert_eq!((s.duties[0].state, s.duties[0].back), (DutyState::Ai, true));
+    assert_eq!(ask(&mut b, "jan", "start", |r| r.duty = Some(duty.clone()))["error"].as_str(), Some(book::AI_DRIVES));
+    let v = ask(&mut b, "jan", "take_back", |r| r.duty = Some(duty.clone()));
+    assert_eq!((v["ok"].as_bool(), v["back"].as_u64()), (Some(true), Some(3)), "{v}");
+    let start: DriveStart = serde_json::from_value(v["start"].clone()).unwrap();
+    assert_eq!((start.first, start.legs.clone()), (3, vec!["Linie5|2|3|1".to_string()]), "his game starts at the 07:20");
+    let x = b.c.together.claim_of(&duty).cloned().unwrap();
+    assert_eq!((x.state, x.ai.len(), x.ai[0].from, x.ai[0].until), (ClaimState::Driving, 1, 2, Some(3)));
+    assert!(snap(&v).notices.iter().any(|n| n.text == host::TOOK_BACK));
+    // the AI's trip is the AI's, the next is his again
+    let v = ask(&mut b, "jan", "report", |r| {
+        r.duty = Some(duty.clone());
+        r.trips = vec![run(400, 30, 0), run(440, 25, 0)];
+        r.done = true;
+    });
+    assert_eq!((v["taken"].as_u64(), v["refused"].as_u64()), (Some(1), Some(1)), "{v}");
+    assert_eq!(b.c.together.claim_of(&duty).map(|x| x.state), Some(ClaimState::Done));
+    // too late to take back: the AI finished it
+    let (report, fares) = close(&mut b);
+    assert_eq!((report.measured, report.dropped), (2, 0), "{report:?}");
+    assert!(fares > 0, "the AI's 06:40");
+}
+
+#[test]
+fn a_player_leaving_before_his_first_trip_leaves_all_of_it_to_the_ai_or_open_as_the_boss_says() {
+    let mut b = boss();
+    let duty = jan_drives(&mut b, &[]);
+    assert_eq!(ask(&mut b, "jan", "leave", |_| {})["ok"], true);
+    let x = b.c.together.claim_of(&duty).cloned().unwrap();
+    assert_eq!(x.ai_now().map(|a| a.from), Some(0), "all of it");
+    assert!(b.st.notices.iter().any(|n| n.text == host::AI_ALL));
+    let (report, fares) = close(&mut b);
+    assert_eq!((report.measured, report.dropped, report.covered), (0, 0, 1), "{report:?}");
+    assert!(fares > 0);
+    assert!(!b.c.ledger.iter().any(|x| x.kind == super::super::model::BookingKind::Agency));
+    // the boss would rather have it open for another player
+    let mut b = boss();
+    b.c.together.left_open = true;
+    let duty = jan_drives(&mut b, &[]);
+    assert_eq!(ask(&mut b, "jan", "leave", |_| {})["ok"], true);
+    assert!(b.c.together.claim_of(&duty).is_none());
+    assert!(b.st.notices.iter().any(|n| n.text == host::LEFT_OPEN));
+    let s = snap(&ask(&mut b, "piet", "hello", |_| {}));
+    assert_eq!(s.duties[0].state, DutyState::Open);
+    assert_eq!(ask(&mut b, "piet", "take", |r| r.duty = Some(duty.clone()))["ok"], true);
+    // (a saved company of before reads with the AI as the default)
+    let mut v = serde_json::to_value(&b.c).unwrap();
+    v["together"].as_object_mut().unwrap().remove("left_open");
+    let back: Company = serde_json::from_value(v).unwrap();
+    assert!(!back.together.left_open);
+}
+
+#[test]
+fn two_players_leaving_at_once_each_leave_theirs_to_the_ai_whatever_the_companys_clock() {
+    let mut b = boss();
+    b.tours[0].cuts = Some(vec![3]);
+    let s = snap(&ask(&mut b, "jan", "hello", |_| {}));
+    let (first, second) = (s.duties[0].duty.clone(), s.duties[1].duty.clone());
+    ask(&mut b, "piet", "hello", |_| {});
+    for (who, d) in [("jan", &first), ("piet", &second)] {
+        assert_eq!(ask(&mut b, who, "take", |r| r.duty = Some(d.clone()))["ok"], true);
+        assert_eq!(ask(&mut b, who, "start", |r| r.duty = Some(d.clone()))["ok"], true);
+    }
+    ask(&mut b, "jan", "report", |r| {
+        r.duty = Some(first.clone());
+        r.trips = vec![run(360, 30, 0)];
+    });
+    // the company's clock stands still (paused) before either duty: silence alone counts
+    b.c.clock.minute = 300;
+    let lines = timetable();
+    let p = b.plan();
+    let later = Here { plan: Some(&p), lines: &lines, now: now() + host::LEFT_AFTER + 5, lead: 10 };
+    assert!(b.st.watch(&mut b.c, &later));
+    let ai = |d: &DutyRef| b.c.together.claim_of(d).and_then(|x| x.ai_now()).map(|a| a.from);
+    assert_eq!((ai(&first), ai(&second)), (Some(2), Some(0)));
+    // (a second watch changes nothing)
+    assert!(!b.st.watch(&mut b.c, &later));
+    // both come back - Piet still driving his in his game: his again at once
+    let v = ask(&mut b, "piet", "snapshot", |r| {
+        r.driving = Some(second.clone());
+        r.in_game = true;
+    });
+    assert_eq!(snap(&v).duties.iter().find(|d| d.duty == second).map(|d| (d.state, d.ai)), Some((DutyState::Driving, false)));
+    assert!(b.st.notices.iter().any(|n| n.text == host::BACK_AGAIN));
+    // the clock runs on fast past Jan's duty: nothing left to take back
+    b.c.clock.minute = 435;
+    assert_eq!(ask(&mut b, "jan", "take_back", |r| r.duty = Some(first.clone()))["error"].as_str(), Some(book::AI_DONE));
+    let (report, _) = close(&mut b);
+    assert_eq!((report.measured, report.dropped), (1, 0), "{report:?}");
+}

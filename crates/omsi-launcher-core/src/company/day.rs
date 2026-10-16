@@ -463,7 +463,8 @@ pub(super) fn why_not(c: &Company, tp: &TourPlan, k: usize, j: usize, broken_at:
     let d = tp.duties.get(k)?;
     let (trip, rest) = whole_trip(tp, j)?;
     let has_bus = tp.bus.and_then(|b| c.vehicle(b)).is_some();
-    let has_driver = d.driver.is_some_and(|id| id == super::plan::AGENCY || c.employee(id).is_some());
+    // (Beta 63: the AI drives what a player of "Play together" left of his duty)
+    let has_driver = d.driver.is_some_and(|id| id == super::plan::AGENCY || c.employee(id).is_some()) || super::together::book::ai_on(c, &c.date, &tp.tour.line, &tp.tour.tour, k);
     let broke = broken_at.is_some_and(|x| x.lost(trip.dep));
     let late = d.dropped_before.is_some_and(|t| trip.dep < t);
     let rest_runs = rest.is_none_or(|(d2, at)| d2.driver.is_some() && d2.dropped_before.is_none_or(|t| at >= t));
@@ -678,11 +679,13 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
         // (a spare bus sent for it runs the trips after it came: its kilometres, its wear)
         let spare = tp.bus.and_then(|b| super::clock::spare_of(c, &date, b)).and_then(|id| c.vehicle(id)).cloned();
         for (k, d) in tp.duties.iter().enumerate() {
-            // (a duty a player of "Play together" drove: booked with the measured trips, Beta 61)
-            if super::together::book::drove(c, &date, &tp.tour.line, &tp.tour.tour, k) {
+            // (a duty a player of "Play together" drove: booked with the measured trips, Beta 61;
+            // what he left of it the AI drives, Beta 63)
+            let ai = super::together::book::ai_on(c, &date, &tp.tour.line, &tp.tour.tour, k);
+            if !ai && super::together::book::drove(c, &date, &tp.tour.line, &tp.tour.tour, k) {
                 continue;
             }
-            let driver = d.driver.and_then(|id| if id == super::plan::AGENCY { Some(super::plan::agency_driver()) } else { c.employee(id).cloned() });
+            let driver = if ai { Some(super::together::book::ai_driver()) } else { d.driver.and_then(|id| if id == super::plan::AGENCY { Some(super::plan::agency_driver()) } else { c.employee(id).cloned() }) };
             if let Some(e) = driver.as_ref().filter(|e| e.id != super::plan::AGENCY && !super::agency::is_booked(e.id)) {
                 match worked.iter_mut().find(|w| w.0 == e.id) {
                     Some(w) => {
@@ -694,6 +697,10 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
                 }
             }
             for j in d.start..d.end {
+                // (the player's own trips of a duty the AI finished: booked as measured)
+                if ai && !super::together::book::ai_runs(c, &date, &tp.tour.line, &tp.tour.tour, k, j - d.start, tp.tour.trips[j].whole_dep()) {
+                    continue;
+                }
                 // (a trip two duties share, cut at a relief point on the way: one trip, booked
                 // with its first part, run only when the duties of both parts are)
                 let Some((trip, rest)) = whole_trip(tp, j) else { continue };

@@ -15,7 +15,7 @@ const ALPHABET: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 /// What every company code begins with.
 pub const PREFIX: &str = "HUB-";
 /// The version of the company session (raised when its messages change shape).
-pub const VERSION: u8 = 2;
+pub const VERSION: u8 = 3;
 /// At most this many addresses go into a code.
 pub const MAX_ADDRS: usize = 3;
 /// The bytes besides the addresses.

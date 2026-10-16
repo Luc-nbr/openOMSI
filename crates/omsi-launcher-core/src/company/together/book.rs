@@ -35,13 +35,17 @@ pub const UNDER_WAY: &str = "You are driving this duty: it stays yours until you
 pub const DONE: &str = "This duty is finished: what was driven stays.";
 pub const TOO_MANY: &str = "The company has as many players as it can take.";
 pub const CLOSED_DAY: &str = "The company's day closed before this duty could be driven.";
+/// A duty the AI drives (its player left it) is taken back only from a trip it has not begun.
+pub const AI_DRIVES: &str = "The AI drives the rest of this duty: take it back from the next trip.";
+pub const AI_DONE: &str = "The AI has finished this duty: no trip is left to take back.";
+pub const NO_AI: &str = "The AI does not drive this duty.";
 
 /// How many days a duty whose day closed before it was driven stays its player's.
 pub const LATE_DAYS: i64 = 3;
 
 /// Every English text of this file (for the translations' check).
-pub fn texts() -> [&'static str; 12] {
-    [NO_DUTY, NOT_TODAY, NOT_OPEN, NO_BUS, BEGUN, DRIVEN, NOT_YOURS, OVERLAP, UNDER_WAY, DONE, TOO_MANY, CLOSED_DAY]
+pub fn texts() -> [&'static str; 15] {
+    [NO_DUTY, NOT_TODAY, NOT_OPEN, NO_BUS, BEGUN, DRIVEN, NOT_YOURS, OVERLAP, UNDER_WAY, DONE, TOO_MANY, CLOSED_DAY, AI_DRIVES, AI_DONE, NO_AI]
 }
 
 /// A player who came to the company: known by the id his launcher keeps, numbered by the
@@ -152,6 +156,59 @@ pub struct Claim {
     /// Its day closed before he drove it (`after_close`): the company had it covered, what he
     /// drives of it still counts for him and its fines and bonus for the company.
     pub late: bool,
+    /// The parts of it the AI drives because he left it (Beta 63: "the route still carries on").
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ai: Vec<AiPart>,
+}
+
+impl Claim {
+    /// The AI drives it now (from where he left it, not handed back yet).
+    pub fn ai_now(&self) -> Option<&AiPart> {
+        self.ai.last().filter(|a| a.until.is_none())
+    }
+
+    /// The AI drives (or drove) trip `i` of it (an index into its trips).
+    pub fn ai_drives(&self, i: usize) -> bool {
+        self.ai.iter().any(|a| a.has(i))
+    }
+}
+
+/// Why the AI took over a player's duty.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LeftWhy {
+    /// He left the session (or his launcher was closed).
+    #[default]
+    Left,
+    /// His game ended before the duty did.
+    Quit,
+    /// His launcher was not heard from for `host::LEFT_AFTER`.
+    Silent,
+    /// He was sent away from the session.
+    Removed,
+    /// The boss's session ended.
+    Closed,
+}
+
+/// A part of a player's duty the AI drives: its trips from `from` (an index into the duty's
+/// trips, deadheads counted) to `until` (None: to its end, or until he takes it back). The same
+/// model as the company's own drivers drives it (`day::close_day_with`, `lateness::model`); the
+/// trips he reported stay his.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct AiPart {
+    pub from: usize,
+    pub until: Option<usize>,
+    pub why: LeftWhy,
+    /// When it was handed over (Unix seconds) and the company's clock then (minutes of its day).
+    pub at: u64,
+    pub minute: i32,
+}
+
+impl AiPart {
+    pub fn has(&self, i: usize) -> bool {
+        i >= self.from && self.until.is_none_or(|u| i < u)
+    }
 }
 
 /// A trip a player drove for the company, kept for the day's close.
@@ -171,11 +228,15 @@ pub struct Together {
     pub guests: Vec<Guest>,
     pub claims: Vec<Claim>,
     pub trips: Vec<GuestTrip>,
+    /// A duty its player left before driving a trip of it goes back open for another player;
+    /// else (the default) the AI drives all of it.
+    #[serde(default)]
+    pub left_open: bool,
 }
 
 impl Default for Together {
     fn default() -> Self {
-        Together { open_claims: true, guests: Vec::new(), claims: Vec::new(), trips: Vec::new() }
+        Together { open_claims: true, guests: Vec::new(), claims: Vec::new(), trips: Vec::new(), left_open: false }
     }
 }
 
@@ -264,6 +325,12 @@ pub fn guest_name(c: &Company, no: u32) -> String {
     c.together.name_of(no)
 }
 
+/// The AI drives a duty of player `no` of the company's day now: he left it (the pages say "AI
+/// (his name left)" for him).
+pub fn guest_left(c: &Company, no: u32) -> bool {
+    c.together.claims.iter().any(|x| x.guest == no && x.duty.date == c.date && x.ai_now().is_some())
+}
+
 /// The tour and duty `r` names in `p`, with the tour.
 fn find<'a>(p: &'a DayPlan, r: &DutyRef) -> Result<(usize, usize, &'a DayTour), &'static str> {
     let (ti, k) = r.find(p).ok_or(NO_DUTY)?;
@@ -298,7 +365,7 @@ fn bus_file(c: &Company, t: &DayTour) -> String {
 /// A claim of duty `k` of `t` (its sheet as the plan has it now).
 fn claim_of_plan(c: &Company, t: &DayTour, k: usize, r: &DutyRef, guest: u32, state: ClaimState, given: bool) -> Claim {
     let d = &t.duties[k];
-    Claim { duty: r.clone(), guest, state, given, number: t.tour.number.clone(), from: d.from, to: d.to, sheet: t.tour.trips[d.start..d.end].to_vec(), bus: bus_file(c, t), start: None, late: false }
+    Claim { duty: r.clone(), guest, state, given, number: t.tour.number.clone(), from: d.from, to: d.to, sheet: t.tour.trips[d.start..d.end].to_vec(), bus: bus_file(c, t), start: None, late: false, ai: Vec::new() }
 }
 
 /// A player takes duty `r` of the company's day (`p`, at `now` on the company's clock): his at
@@ -551,7 +618,9 @@ pub fn report(c: &mut Company, p: Option<&DayPlan>, r: &DutyRef, guest: u32, run
         };
         let dep = px.whole_dep();
         let again = c.together.trips.iter().any(|g| same_duty(&g.duty, r) && (g.trip.departure / 60.0).round() as i32 == dep);
-        if again {
+        // (a trip the AI drives since he left: the AI's, not his)
+        let ai = planned.iter().position(|y| std::ptr::eq(y, px)).is_some_and(|i| x.ai_drives(i));
+        if again || ai {
             refused += 1;
             continue;
         }
@@ -589,7 +658,8 @@ pub fn drove(c: &Company, date: &str, line: &str, tour: &str, k: usize) -> bool 
 pub fn after_close(c: &mut Company, closed: &str) {
     let driven: Vec<DutyRef> = c.together.trips.iter().filter(|t| t.duty.date.as_str() <= closed).map(|t| t.duty.clone()).collect();
     for x in c.together.claims.iter_mut().filter(|x| x.duty.date.as_str() <= closed) {
-        if matches!(x.state, ClaimState::Planned | ClaimState::Driving) && !driven.iter().any(|d| same_duty(d, &x.duty)) {
+        // (one the AI drove for him since he left it was driven)
+        if matches!(x.state, ClaimState::Planned | ClaimState::Driving) && x.ai.is_empty() && !driven.iter().any(|d| same_duty(d, &x.duty)) {
             x.late = true;
         }
     }
@@ -601,4 +671,128 @@ pub fn after_close(c: &mut Company, closed: &str) {
 /// A player's trips of a duty, as reported.
 pub fn trips_of<'a>(c: &'a Company, r: &'a DutyRef) -> impl Iterator<Item = &'a GuestTrip> + 'a {
     c.together.trips.iter().filter(move |t| same_duty(&t.duty, r))
+}
+
+// --- the AI on a duty its player left (Beta 63) -------------------------------------------------
+
+/// The trips of duty `r`: as the plan has them today, else as they were when it became its
+/// player's (`Claim::sheet`).
+fn trips_now(c: &Company, p: Option<&DayPlan>, r: &DutyRef) -> Vec<PlannedTrip> {
+    let today = p.filter(|p| p.today && r.date == c.date).and_then(|p| find(p, r).ok()).map(|(_, k, t)| t.tour.trips[t.duties[k].start..t.duties[k].end].to_vec());
+    today.or_else(|| c.together.claim_of(r).map(|x| x.sheet.clone())).unwrap_or_default()
+}
+
+/// The departures (whole minutes) of the trips its player reported of duty `r`.
+fn reported(c: &Company, r: &DutyRef) -> Vec<i32> {
+    trips_of(c, r).map(|t| (t.trip.departure / 60.0).round() as i32).collect()
+}
+
+/// A trip a player reports (with passengers, not a trip's second part).
+fn reportable(x: &PlannedTrip) -> bool {
+    x.counts() && !x.is_second()
+}
+
+/// Where its player got to on duty `r` (`trips`: its trips): the trip after the last he reported
+/// (an index into them; 0: he reported none).
+pub fn reached(c: &Company, trips: &[PlannedTrip], r: &DutyRef) -> usize {
+    let deps = reported(c, r);
+    trips.iter().rposition(|x| reportable(x) && deps.contains(&x.whole_dep())).map_or(0, |i| i + 1)
+}
+
+/// What became of a duty its player left.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Handed {
+    /// The AI drives its trips from this one on (an index into its trips).
+    Ai(usize),
+    /// He drove all of it: nothing is left.
+    Over,
+    /// He drove none of it, and it went back open for another player (`Together::left_open`).
+    Open,
+}
+
+/// Player `guest` left his duty `r` (planned for him, or driving it) while it runs: the AI drives
+/// the rest of it - from the trip after the last he reported, or all of it when he reported none
+/// (or it goes back open, when the boss says so) -, with the same model as the company's own
+/// drivers. Nothing of it is dropped, and the trips he reported stay his. `now_unix` and `minute`
+/// (the company's clock) say when.
+pub fn hand_to_ai(c: &mut Company, p: Option<&DayPlan>, r: &DutyRef, guest: u32, why: LeftWhy, now_unix: u64, minute: i32) -> Result<Handed, &'static str> {
+    let x = c.together.claim_of(r).filter(|x| x.guest == guest).ok_or(NOT_YOURS)?;
+    match x.state {
+        ClaimState::Asked => return Err(NOT_YOURS),
+        ClaimState::Done => return Err(DONE),
+        _ => {}
+    }
+    // (a duty whose day closed was covered by the company already)
+    if x.late {
+        return Err(CLOSED_DAY);
+    }
+    if let Some(a) = x.ai_now() {
+        return Ok(Handed::Ai(a.from));
+    }
+    let trips = trips_now(c, p, r);
+    // (taken back from the AI before: from where he drove again)
+    let from = reached(c, &trips, r).max(x.ai.last().and_then(|a| a.until).unwrap_or(0));
+    if !trips.iter().skip(from).any(reportable) {
+        return Ok(Handed::Over);
+    }
+    if from == 0 && x.ai.is_empty() && c.together.left_open {
+        c.together.claims.retain(|x| !same_duty(&x.duty, r));
+        return Ok(Handed::Open);
+    }
+    if let Some(x) = c.together.claim_mut(r) {
+        x.ai.push(AiPart { from, until: None, why, at: now_unix, minute });
+    }
+    Ok(Handed::Ai(from))
+}
+
+/// Player `guest` takes his duty `r` back from the AI, at a trip's end: from its next trip with
+/// passengers the AI has not begun on the company's clock (`now`, `clock::now`) - the AI drives
+/// those before it. The trip he drives from (an index into its trips).
+pub fn take_back(c: &mut Company, p: Option<&DayPlan>, r: &DutyRef, guest: u32, now: i64) -> Result<usize, &'static str> {
+    let x = c.together.claim_of(r).filter(|x| x.guest == guest).ok_or(NOT_YOURS)?;
+    let a = x.ai_now().ok_or(NO_AI)?.clone();
+    let trips = trips_now(c, p, r);
+    let back = (a.from..trips.len()).find(|&i| reportable(&trips[i]) && clock::moment(&r.date, trips[i].dep as i64) >= now).ok_or(AI_DONE)?;
+    if let Some(x) = c.together.claim_mut(r) {
+        // (the AI drove none of it yet: as if it never had it)
+        if back == a.from {
+            x.ai.pop();
+        } else if let Some(last) = x.ai.last_mut() {
+            last.until = Some(back);
+        }
+    }
+    Ok(back)
+}
+
+/// The next trip of duty `r` the AI would hand back at (`take_back`), if it drives the duty now
+/// and a trip of it is still to begin on the company's clock (`now`).
+pub fn back_at(c: &Company, p: Option<&DayPlan>, r: &DutyRef, now: i64) -> Option<usize> {
+    let a = c.together.claim_of(r)?.ai_now()?;
+    let trips = trips_now(c, p, r);
+    (a.from..trips.len()).find(|&i| reportable(&trips[i]) && clock::moment(&r.date, trips[i].dep as i64) >= now)
+}
+
+fn duty_ref(date: &str, line: &str, tour: &str, k: usize) -> DutyRef {
+    DutyRef { date: date.to_string(), line: line.to_string(), tour: tour.to_string(), duty: k }
+}
+
+/// The AI drives a part of duty `k` of `line`/`tour` on `date`, the company's day: its player
+/// left it. The day's close and its model drive that part with `ai_driver` (`ai_runs`).
+pub fn ai_on(c: &Company, date: &str, line: &str, tour: &str, k: usize) -> bool {
+    date == c.date && c.together.claim_of(&duty_ref(date, line, tour, k)).is_some_and(|x| !x.ai.is_empty() && !x.late && x.state != ClaimState::Asked)
+}
+
+/// Trip `i` of that duty (an index into its trips, `dep` its departure) is the AI's: in a part
+/// the AI drives, and not one its player reported.
+pub fn ai_runs(c: &Company, date: &str, line: &str, tour: &str, k: usize, i: usize, dep: i32) -> bool {
+    let r = duty_ref(date, line, tour, k);
+    ai_on(c, date, line, tour, k) && c.together.claim_of(&r).is_some_and(|x| x.ai_drives(i)) && !reported(c, &r).contains(&dep)
+}
+
+/// The AI as the day's model has it drive a duty its player left: a driver of average skills (as
+/// an agency's), under `plan::AGENCY` - nobody's employee, paid by nobody.
+pub fn ai_driver() -> super::super::model::Employee {
+    let mut e = super::super::plan::agency_driver();
+    e.name = "AI driver".into();
+    e
 }

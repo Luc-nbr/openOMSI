@@ -8,7 +8,9 @@
 //!
 //! What a player asks (`Request::what`): `hello`, `snapshot`, `take` / `release` a duty,
 //! `start` driving it (answered with the duty's start in his own game), `report` its trips
-//! (`done` at its end), `say` a line to everyone, `leave`; with the permission for it, `assign`
+//! (`done` at its end; ended early, the AI drives the rest), `take_back` a duty the AI drives
+//! since he left it (from its next trip), `say` a line to everyone, `leave`; with the permission
+//! for it, `assign`
 //! / `unassign` a duty of a player (`target`), `answer` a request (`yes`), `set_role` of a
 //! player (`role`, `perms`), `kick` one (`ban`), and `page`: a page of the company's own,
 //! relayed to the boss's launcher (`page`: its command and arguments).
@@ -99,6 +101,8 @@ pub enum DutyState {
     Done,
     /// Mine, its day closed before I drove it: still mine to drive (`book::Claim::late`).
     Late,
+    /// Mine, and the AI drives it since I left it (`book::AiPart`): taken back from its next trip.
+    Ai,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -125,6 +129,11 @@ pub struct SnapDuty {
     pub guest: u32,
     /// Why it cannot be taken (`Closed`: English, a key of the translations).
     pub why: String,
+    /// The AI drives it now: its player (`who`) left it (Beta 63). From which departure (minutes
+    /// of the day), and whether its player may take it back at a trip still to come.
+    pub ai: bool,
+    pub ai_from: Option<i32>,
+    pub back: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -170,6 +179,8 @@ pub struct SnapResult {
     /// payment (cents).
     pub fares: i64,
     pub done: bool,
+    /// The trips of the duty the AI drives since he left it (Beta 63).
+    pub ai_trips: usize,
 }
 
 /// The player himself: his role, what he may do, what he drove for the company.
