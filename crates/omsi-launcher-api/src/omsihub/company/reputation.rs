@@ -4,7 +4,7 @@
 //! and by how much, what the player can do (each a way to its page); and the passengers'
 //! complaints with their talk (`company::complaints`).
 
-use super::words::{day_label, num, tr, trf};
+use super::words::{day_label, eur_cents, num, tr, trf};
 use super::{act as apply, Session, CONTRACTS_TAB, DEPOT_TAB, RESEARCH_TAB, WORKSHOP_TAB};
 use crate::Answer;
 use omsi_launcher_lib::company::complaints::{self as cp, Choice, Complaint, Kind, State};
@@ -85,7 +85,10 @@ fn state_text(k: &Complaint) -> (String, &'static str) {
 }
 
 fn words(text: &str, args: &[(String, String)]) -> String {
-    let a: Vec<(&str, &str)> = args.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    // (a complaint's fare and refund are kept as "1.45 \u{20AC}": in the company's currency)
+    let money = |v: &str| v.strip_suffix(" \u{20AC}").and_then(|e| e.parse::<f64>().ok()).map(|e| eur_cents(e * 100.0));
+    let shown: Vec<(&str, String)> = args.iter().map(|(k, v)| (k.as_str(), money(v).unwrap_or_else(|| v.clone()))).collect();
+    let a: Vec<(&str, &str)> = shown.iter().map(|(k, v)| (*k, v.as_str())).collect();
     trf(text, &a)
 }
 

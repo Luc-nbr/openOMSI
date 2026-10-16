@@ -8,6 +8,7 @@ import { S, set } from '../../store.js';
 import { call } from '../../api.js';
 import { language } from '../../i18n.js';
 import { setCo, refresh as coRefresh } from '../company/kit.js';
+import { money } from '../money.js';
 
 /** The views of the title bar's tabs (`rosterflow::ROSTER` ...). */
 export const ROSTER = 0;
@@ -233,15 +234,10 @@ export function hm(m) {
   return `${Math.floor(v / 60)}:${String(v % 60).padStart(2, '0')}`;
 }
 
-/** Whole euros as the page's language writes them (`words::eur`: "€1,234", "€ 1.234",
- * "1.234 €", "1 234 €"). */
+/** Whole units of the company's currency (`words::eur`, `money.js`: "€1,234", "£1,061",
+ * "1.234 €"). */
 export function eur(cents) {
-  const lang = language();
-  const [th, euro] = lang === 'en' ? [',', 'before'] : lang === 'nl' ? ['.', 'spaced'] : ['de', 'it', 'es', 'pt', 'pt-pt', 'tr', 'da', 'id'].includes(lang) ? ['.', 'after'] : [' ', 'after'];
-  const v = Math.round((cents || 0) / 100);
-  const n = String(Math.abs(v)).replace(/\B(?=(\d{3})+(?!\d))/g, th);
-  const sign = v < 0 ? '-' : '';
-  return euro === 'before' ? `${sign}€${n}` : euro === 'spaced' ? `${sign}€ ${n}` : `${sign}${n} €`;
+  return money(cents || 0);
 }
 
 /** The ids of the rows (`RowId`): a bus's block, a duty. */

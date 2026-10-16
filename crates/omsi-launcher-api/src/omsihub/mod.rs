@@ -135,6 +135,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("vertalingen.yml", include_str!("../../../omsi-app/locales/vertalingen.yml")),
     ("verwijderen.yml", include_str!("../../../omsi-app/locales/verwijderen.yml")),
     ("sandbox.yml", include_str!("../../../omsi-app/locales/sandbox.yml")),
+    ("company-currency.yml", include_str!("../../../omsi-app/locales/company-currency.yml")),
     ("tauri-addon.yml", include_str!("../../../omsi-app/locales/tauri-addon.yml")),
 ];
 

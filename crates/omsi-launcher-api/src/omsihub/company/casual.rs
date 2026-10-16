@@ -8,7 +8,7 @@
 mod logic;
 
 use super::kit::Go;
-use super::words::{count_text, day_label, eur, eur_cents, grouped, short_date, signed, tr, trf};
+use super::words::{count_text, day_label, eur, eur_cents, grouped, short_date, signed, tr, trf, units};
 use super::{act as apply, Session, HOME_TAB};
 use logic::{Act, Freq, Pick};
 use omsi_launcher_lib::company::clock::{self as ck, Step};
@@ -477,7 +477,7 @@ fn drivers(s: &mut Session, c: &Company) -> Value {
 
 /// A week's result, short: "+12k", "−3k".
 fn short_money(c: i64) -> String {
-    let e = c as f64 / 100.0;
+    let e = units(c);
     let sign = if c >= 0 { "+" } else { "−" };
     let a = e.abs();
     if a >= 1_000_000.0 {

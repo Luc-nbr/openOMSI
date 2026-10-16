@@ -23,6 +23,8 @@ pub mod casual;
 mod chooser;
 // (Beta 62: the country the company plays in - its people's names)
 mod country;
+// (Beta 62: the company's currency chosen)
+mod currency;
 mod dealer;
 mod dialogs;
 // (an own line's change taking effect on its day, Trello "Tauri 6/6")
@@ -354,6 +356,8 @@ fn session() -> &'static Mutex<Session> {
 pub(crate) fn with<T>(f: impl FnOnce(&mut Session) -> T) -> T {
     let mut s = session().lock().unwrap_or_else(|e| e.into_inner());
     work(&mut s);
+    // (money in the open company's currency, as the language is the page's)
+    words::set_currency(s.company.as_ref().map(|c| c.currency).unwrap_or_default());
     f(&mut s)
 }
 
@@ -1154,6 +1158,7 @@ fn shell(s: &mut Session) -> Value {
     let Some(c) = s.company.clone() else {
         return json!({ "open": false, "gen": base["gen"], "notices": base["notices"], "popup": base["popup"], "companies": base["companies"] });
     };
+    words::set_currency(c.currency);
     let in_game = game_leads(s);
     let casual = c.game_mode.casual();
     // what the company has: cash, trophies, reputation, each a click from the page about it
@@ -1237,6 +1242,7 @@ fn shell(s: &mut Session) -> Value {
         "sheet": s.dealer.sheet.is_some(),
         "casual_pages": if casual { together_page(sandbox::casual_pages(&c, casual::pages_json(&c.name))) } else { Value::Null },
         "today_read": s.map_lines().is_some(),
+        "money": words::money_json(),
     })
 }
 
@@ -1301,6 +1307,7 @@ pub fn relayed(s: &mut Session, v: &mut Viewer, cmd: &str, args: &Value, perms: 
     if s.company.is_none() {
         return Ok(json!({ "none": true }));
     }
+    words::set_currency(s.company.as_ref().map(|c| c.currency).unwrap_or_default());
     v.swap(s);
     let r = match cmd {
         "co_tick" => Ok(super::together::relay::shell_for(shell(s), perms)),
@@ -1326,6 +1333,7 @@ pub fn relayed(s: &mut Session, v: &mut Viewer, cmd: &str, args: &Value, perms: 
 fn switch_company(s: &mut Session, to: Option<Company>) {
     play(s, 0.0);
     s.company = to;
+    words::set_currency(s.company.as_ref().map(|c| c.currency).unwrap_or_default());
     s.plan = None;
     s.reports = None;
     s.launch = None;

@@ -895,6 +895,10 @@ pub struct Company {
     /// of before: its map's, else International - `store::migrate`).
     #[serde(default)]
     pub country: String,
+    /// The currency its money is shown and typed in; kept in euro cents all the same (`currency`;
+    /// a file of before: the euro).
+    #[serde(default)]
+    pub currency: super::currency::Currency,
 }
 
 fn one() -> f64 {

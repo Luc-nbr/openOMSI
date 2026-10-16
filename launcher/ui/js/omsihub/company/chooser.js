@@ -101,7 +101,7 @@ function CompanyTile({ t, tip, onOpen, onDelete }) {
 /** A new founding (`Wizard::new`): no name, orange and blue, the map of the last duty, today,
  * buying by contract, the mode of the company open (Casual else). */
 export function newWizard() {
-  return { name: '', short: '', colours: [0, 4], logo: null, map: null, depot: 0, when: 0, date: null, buying: 1, mode: S.co.shell?.mode?.key || null, company_mode: 'career', country: null };
+  return { name: '', short: '', colours: [0, 4], logo: null, map: null, depot: 0, when: 0, date: null, buying: 1, mode: S.co.shell?.mode?.key || null, company_mode: 'career', country: null, currency: 'EUR' };
 }
 
 /** The founding wizard (`wizard::draw`): laid out for the room it has, scrolled whole when the
@@ -131,7 +131,7 @@ export function Wizard() {
       setCo({ popup: v.maps.length ? v.popup_name : v.popup_map });
       return;
     }
-    const r = await cmd('co_found', { name: w.name, short: w.short, colours: w.colours, logo: w.logo, map: w.map ?? v.map, depot: w.depot, when: w.when, date: w.date ?? v.date, mode: w.mode || v.mode, buying: w.buying, vehicles: w.vehicles || null, company_mode: w.company_mode || 'career', country: w.country || v.country.key });
+    const r = await cmd('co_found', { name: w.name, short: w.short, colours: w.colours, logo: w.logo, map: w.map ?? v.map, depot: w.depot, when: w.when, date: w.date ?? v.date, mode: w.mode || v.mode, buying: w.buying, vehicles: w.vehicles || null, company_mode: w.company_mode || 'career', country: w.country || v.country.key, currency: w.currency || 'EUR' });
     if (r?.refused) {
       setCo({ popup: r.refused === 'map' ? v.popup_map : v.popup_name });
       return;
@@ -180,6 +180,8 @@ export function Wizard() {
                 <${Select} value=${w.map ?? v.map} options=${v.maps} onChange=${(m) => put({ map: m, depot: 0 })} />
                 ${v.depots.length ? html`<${Select} value=${Math.min(w.depot, v.depots.length - 1)} options=${v.depots} onChange=${(d) => put({ depot: d })} />` : html`<span class="co-para" style="line-height:40px">${v.no_depot}</span>`}</div>`
             : html`<p class="co-para t-warn">${v.no_maps}</p>`}
+          ${v.currency && html`<div class="row currency" style="margin-top:12px"><label class="co-label">${v.currency.label}</label>
+            <${Select} value=${Math.max(0, v.currency.codes.indexOf(w.currency || 'EUR'))} options=${v.currency.options} onChange=${(i) => put({ currency: v.currency.codes[i] })} style="display:block;margin-top:4px;width:calc(50% - 6px)" /></div>`}
         </section>
         <section class="co-section" style="display:flex;flex-direction:column">
           <div class="co-caps" style="margin-bottom:14px">${v.mode_caps}</div>

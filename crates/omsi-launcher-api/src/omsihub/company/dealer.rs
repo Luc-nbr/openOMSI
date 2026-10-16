@@ -949,15 +949,9 @@ pub fn sheet_view(s: &mut Session, _ui: &Value) -> Value {
 
 // --- the sheets: what is done --------------------------------------------------------------------------
 
-/// Euros typed ("245000", "245.000", "€ 245,000") as cents.
+/// A price typed in the company's currency ("245000", "245.000", "£ 245,000") as euro cents.
 pub fn typed_euros(s: &str) -> Option<i64> {
-    let t: String = s.chars().filter(|c| c.is_ascii_digit() || *c == ',' || *c == '.').collect();
-    let whole = match t.rfind([',', '.']) {
-        Some(p) if t.len() - p - 1 <= 2 => &t[..p],
-        _ => t.as_str(),
-    };
-    let digits: String = whole.chars().filter(|c| c.is_ascii_digit()).collect();
-    digits.parse::<i64>().ok().filter(|v| *v > 0).map(|v| v * 100)
+    super::words::typed_money(s).filter(|v| *v > 0)
 }
 
 /// Buses joined the fleet: say so.
@@ -1373,7 +1367,7 @@ fn sheet_act(s: &mut Session, c: &Company, what: &str, args: &Value) -> Result<V
                 "ask" => Some(Move::AskDiscount),
                 "bid" => match typed_euros(&str_of("bid")) {
                     Some(v) => Some(Move::Offer(v)),
-                    None => return popup_of(super::popup(s, Popup::new("payments", "No price typed", tr("Type the price you offer for one bus in the field beside the button."), tr("For example 245000 - or ask for a discount first."), None))),
+                    None => return popup_of(super::popup(s, Popup::new("payments", "No price typed", tr("Type the price you offer for one bus in the field beside the button."), trf("For example %{amount} - or ask for a discount first.", &[("amount", &grouped(super::words::units(245_000_00)))]), None))),
                 },
                 "extra" => Extra::ALL.iter().copied().find(|e| format!("{e:?}") == str_of("extra")).filter(|e| !talk.extras.contains(e)).map(Move::AskExtra),
                 "deal" if talk.agreed => {
@@ -1650,7 +1644,7 @@ mod tests {
     fn typed_euros_are_read_and_names_in_natural_order() {
         assert_eq!(typed_euros("245000"), Some(245_000_00));
         assert_eq!(typed_euros("€ 245.000"), Some(245_000_00));
-        assert_eq!(typed_euros("245000,50"), Some(245_000_00));
+        assert_eq!(typed_euros("245000,50"), Some(245_000_50));
         assert_eq!(typed_euros("abc"), None);
         assert_eq!(name_cmp("DL9", "dl10"), Ordering::Less);
         let f = filter_of(&json!({ "size": 3, "drive": 2, "max_price": 400.0 }));

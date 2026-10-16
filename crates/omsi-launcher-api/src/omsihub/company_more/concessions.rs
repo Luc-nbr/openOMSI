@@ -346,6 +346,11 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Answer> {
                 return Some(Ok(json!({ "popup": busy(s) })));
             }
             let amount = args.get("amount").and_then(Value::as_i64).unwrap_or(0);
+            // (the least bid in the company's currency: the rules' own words say euros)
+            if amount < omsi_launcher_lib::company::auction::ROUND && s.company.is_some() {
+                let least = trf("Ask at least %{amount}.", &[("amount", &eur(omsi_launcher_lib::company::auction::ROUND))]);
+                return Some(Ok(json!({ "popup": super::super::kit::Popup::new("error", "This cannot be done", least, "", None).json(false) })));
+            }
             match apply(s, |c| cn::bid(c, id, amount)) {
                 Ok(_) => {
                     s.say(tr("Your bid is in. The rivals answer as the clock goes on."), false);

@@ -82,6 +82,7 @@ fn settings(s: &mut Session, args: &Value) -> Value {
         "addons": c.game_mode.rules().rosterflow.then(|| json!({ "caps": tr("Add-ons").to_uppercase(), "label": tr(ROSTERFLOW), "note": tr(ROSTERFLOW_NOTE), "on": co::autopilot::rosterflow(&c) })),
         "company_mode": super::sandbox::settings_part(&c),
         "country": super::country::settings_part(&c),
+        "currency": super::currency::settings_part(&c),
         "buying": (!easy).then(|| {
             let mode = BuyingMode::ALL.iter().position(|m| *m == c.dealer.mode).unwrap_or(1);
             json!({ "caps": tr("Buying buses").to_uppercase(), "modes": BuyingMode::ALL.iter().map(|m| tr(m.label())).collect::<Vec<_>>(), "mode": mode, "say": tr(if mode == 0 { "A model, a number, the list price: the buses are yours at once." } else { "Haggle with the dealer, agree on extras and sign a contract; new buses are delivered." }) })
@@ -802,6 +803,7 @@ pub fn act(s: &mut Session, what: &str, args: &Value, _p: &dyn crate::Platform) 
                 None => Ok(json!({})),
             }
         }
+        "currency" => super::currency::set(s, &str_of("code")),
         "logo_remove" => done(apply(s, |c| {
             c.logo = None;
             Ok(())
