@@ -4,7 +4,7 @@ This document is for an AI assistant that takes over this project with no prior 
 
 ## 1. What this is
 
-**Omsi-Hub** is Luc's fork of **openOMSI**, an open-source Rust remake of the bus simulator OMSI 2. The upstream project is `openOMSI-org/openOMSI` (formerly `openOMSI-Project`), and the fork is `Luc-nbr/openOMSI` on GitHub. On top of openOMSI the fork adds:
+**Omsi-Hub** is Luc's fork of **openOMSI**, an open-source Rust remake of the bus simulator OMSI 2. The upstream project is `openOMSI-org/openOMSI` (formerly `openOMSI-Project`), and the fork is `Luc-nbr/omsi-hub` on GitHub. On top of openOMSI the fork adds:
 
 - **The Omsi-Hub launcher:** a Tauri 2 desktop app whose UI is Preact + htm with **no build step**. It is the only launcher; the old Rust/egui launcher was removed in Beta 52.
 - **The bus company mode** ("career"):
@@ -48,7 +48,7 @@ The owner is **Luc** (GitHub `Luc-nbr`). He tests every build himself. Testers g
 | `C:\oo-wt\samen`, `fonts`, `route`, `hof`, `vertaal` | worktrees for builders. Each has a warm `target\`, except `hof`, which uses `C:\oo-wt\font\target`. Make a new branch from `beta` per task (`git checkout -b rNN-topic beta`) |
 | `C:\OMSI Career` | the old Electron app ("OMSI Enhancer"), reference only |
 
-Remotes: `origin` = Luc-nbr/openOMSI, `upstream` = openOMSI-org/openOMSI. The workflow `omsihub-sync.yml` merges upstream `main` into `beta` on a schedule.
+Remotes: `origin` = Luc-nbr/omsi-hub, `upstream` = openOMSI-org/openOMSI. The workflow `omsihub-sync.yml` merges upstream `main` into `beta` on a schedule.
 
 ## 4. Code map
 
@@ -113,8 +113,8 @@ Build notes:
    - **job `release`** (Windows) runs the workspace tests and publishes `v0.2.48.N` (N counts the fork's commits) with `Omsi-Hub-<v>-windows-x64.zip` and, for the updaters of the builds before Beta 65, `openOMSI-<v>-windows-x64.zip` (the programs by their old names);
    - **job `mac`** builds arm64 and x64 (`scripts/build-macos.sh`, ad-hoc signed);
    - **job `mac-publish`** attaches `Omsi-Hub-<v>-macos-*.dmg` and the updater zips to the same release.
-2. Watch it: `gh run list -R Luc-nbr/openOMSI`, then `gh run view <id>`. If a Mac runner flakes ("lost communication"), run `gh run rerun <id> --failed`.
-3. If a push starts no run, start it by hand: `gh workflow run omsihub-release.yml -R Luc-nbr/openOMSI --ref beta`. Do **not** tick "mac" for a release; that input means "Mac test build only, no release".
+2. Watch it: `gh run list -R Luc-nbr/omsi-hub`, then `gh run view <id>`. If a Mac runner flakes ("lost communication"), run `gh run rerun <id> --failed`.
+3. If a push starts no run, start it by hand: `gh workflow run omsihub-release.yml -R Luc-nbr/omsi-hub --ref beta`. Do **not** tick "mac" for a release; that input means "Mac test build only, no release".
 4. **GitHub disabled Actions on this fork once** "due to the scale of GitHub Actions usage". Luc re-enabled them on the Actions page. To avoid it, reduce the hourly sync and switch off the unused upstream workflows (Apple, Website, PR test builds, PR checks, Issue triage, Security audit). Ask Luc first; he hasn't decided yet.
 
 The latest public release is **v0.2.48.397**, which equals Beta 57. Beta 58–60 are local only.

@@ -7,7 +7,7 @@ the run for 14 days, not published as a release.
 
 ## 1. Start a Mac build
 
-Either of these, on GitHub (github.com/Luc-nbr/openOMSI):
+Either of these, on GitHub (github.com/Luc-nbr/omsi-hub):
 
 - **Push to the branch `mac-test`.** Every push builds it (`git push origin <commit>:mac-test`).
 - **By hand:** *Actions* > *Omsi-Hub release* > *Run workflow*, choose the branch, tick

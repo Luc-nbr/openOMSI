@@ -20,7 +20,7 @@ How to resolve:
   the project's new structure. When both added to a list, a match, a struct or a test, keep
   both. When the project fixed something the fork also touched, keep the fix.
 - Never drop a feature of either side silently. The updater must keep pointing at the fork
-  (Luc-nbr/openOMSI). The fork's launcher look (its theme: `accent()` and the other functions
+  (Luc-nbr/omsi-hub). The fork's launcher look (its theme: `accent()` and the other functions
   and constants of launcher/theme.rs) stays; code of the project that uses theme names the
   fork does not have gets the fork's equivalents.
 - Interface texts (crates/omsi-app/locales/*.yml) are merged by a merge driver already; if one

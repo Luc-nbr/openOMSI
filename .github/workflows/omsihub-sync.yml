@@ -1,4 +1,4 @@
-# Omsi-Hub (this fork, github.com/Luc-nbr/openOMSI): takes the openOMSI project's new
+# Omsi-Hub (this fork, github.com/Luc-nbr/omsi-hub): takes the openOMSI project's new
 # commits (github.com/openOMSI-Project/openOMSI, main) into beta every hour - when they merge
 # and the workspace tests pass - and publishes the result (omsihub-release.yml). So the
 # project's updates reach the fork's players with the Omsi-Hub interface kept.

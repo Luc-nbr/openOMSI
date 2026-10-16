@@ -25,7 +25,7 @@ fn language() -> String {
 }
 
 // Omsi-Hub (fork-local): the fork's releases, and its name in the dialogs
-const DOWNLOADS: &str = "https://github.com/Luc-nbr/openOMSI/releases/latest";
+const DOWNLOADS: &str = "https://github.com/Luc-nbr/omsi-hub/releases/latest";
 
 impl Message {
     /// The text in the settings' language.

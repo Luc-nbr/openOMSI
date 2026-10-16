@@ -87,7 +87,7 @@ whole start-up by itself (main switch, ignition, starter, gearbox to neutral); `
 is the same thing for an offscreen run.
 
 **Updates.** When the desktop launcher starts it asks
-[github.com/Luc-nbr/openOMSI](https://github.com/Luc-nbr/openOMSI) for the latest release
+[github.com/Luc-nbr/omsi-hub](https://github.com/Luc-nbr/omsi-hub) for the latest release
 and, when there is a newer one, offers it: **Update now** downloads it (checked against the
 SHA-256 GitHub lists), puts the new program in place of the old one and starts the launcher
 again - on Windows `omsi-hub-game.exe`, `Omsi-Hub.exe` and `omsi-hub-cli.exe`, on macOS the `Omsi-Hub.app`

@@ -5,7 +5,7 @@ This file explains what the **bus company mode** of the Omsi-Hub fork of openOMS
 ## 1. Context
 
 - **openOMSI** is an open-source re-implementation of the bus simulator OMSI 2, written in Rust. It reads OMSI 2's maps, buses and timetables.
-- **Omsi-Hub** is Luc's fork, `github.com/Luc-nbr/openOMSI`, release branch `beta`. It adds its own launcher with:
+- **Omsi-Hub** is Luc's fork, `github.com/Luc-nbr/omsi-hub`, release branch `beta`. It adds its own launcher with:
   - four ways to play: Work shift, Tour, Free drive and **Bus company**;
   - editors for lines, liveries and depots;
   - the bus company mode with its planning program **RosterFlow**.
