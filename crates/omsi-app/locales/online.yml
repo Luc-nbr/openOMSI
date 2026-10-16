@@ -72,13 +72,6 @@ _version: 2
   pl: "Hasło jest nieprawidłowe."
   ru: "Неверный пароль."
   uk: "Неправильний пароль."
-"Confirm your email address first: enter the code we sent you.":
-  de: "Bestätige zuerst deine E-Mail-Adresse: Gib den Code ein, den wir dir geschickt haben."
-  fr: "Confirmez d'abord votre adresse e-mail : saisissez le code que nous vous avons envoyé."
-  nl: "Bevestig eerst je e-mailadres: vul de code in die we je hebben gestuurd."
-  pl: "Najpierw potwierdź adres e-mail: wpisz kod, który ci wysłaliśmy."
-  ru: "Сначала подтвердите адрес почты: введите код, который мы вам отправили."
-  uk: "Спершу підтвердьте адресу пошти: введіть код, який ми вам надіслали."
 "There is an account with this email address already. Sign in, or reset its password.":
   de: "Mit dieser E-Mail-Adresse gibt es schon ein Konto. Melde dich an oder setze sein Passwort zurück."
   fr: "Un compte existe déjà avec cette adresse e-mail. Connectez-vous, ou réinitialisez son mot de passe."
@@ -310,13 +303,6 @@ _version: 2
   pl: "Potwierdź adres e-mail"
   ru: "Подтвердите адрес почты"
   uk: "Підтвердьте адресу пошти"
-"Enter the code we sent to %{email}.":
-  de: "Gib den Code ein, den wir an %{email} geschickt haben."
-  fr: "Saisissez le code envoyé à %{email}."
-  nl: "Vul de code in die we naar %{email} hebben gestuurd."
-  pl: "Wpisz kod wysłany na %{email}."
-  ru: "Введите код, отправленный на %{email}."
-  uk: "Введіть код, надісланий на %{email}."
 "your email address":
   de: "deine E-Mail-Adresse"
   fr: "votre adresse e-mail"
@@ -331,13 +317,6 @@ _version: 2
   pl: "Potwierdź"
   ru: "Подтвердить"
   uk: "Підтвердити"
-"Send a new code":
-  de: "Neuen Code senden"
-  fr: "Envoyer un nouveau code"
-  nl: "Nieuwe code sturen"
-  pl: "Wyślij nowy kod"
-  ru: "Отправить новый код"
-  uk: "Надіслати новий код"
 "Forgot your password?":
   de: "Passwort vergessen?"
   fr: "Mot de passe oublié ?"
@@ -345,20 +324,6 @@ _version: 2
   pl: "Nie pamiętasz hasła?"
   ru: "Забыли пароль?"
   uk: "Забули пароль?"
-"We send a code to your email address. With it you choose a new password.":
-  de: "Wir schicken einen Code an deine E-Mail-Adresse. Damit wählst du ein neues Passwort."
-  fr: "Nous envoyons un code à votre adresse e-mail. Avec lui, vous choisissez un nouveau mot de passe."
-  nl: "We sturen een code naar je e-mailadres. Daarmee kies je een nieuw wachtwoord."
-  pl: "Wyślemy kod na twój adres e-mail. Dzięki niemu ustawisz nowe hasło."
-  ru: "Мы отправим код на вашу почту. С ним вы выберете новый пароль."
-  uk: "Ми надішлемо код на вашу пошту. З ним ви виберете новий пароль."
-"Send a code":
-  de: "Code senden"
-  fr: "Envoyer un code"
-  nl: "Code sturen"
-  pl: "Wyślij kod"
-  ru: "Отправить код"
-  uk: "Надіслати код"
 "Choose a new password":
   de: "Neues Passwort wählen"
   fr: "Choisir un nouveau mot de passe"
@@ -737,20 +702,6 @@ _version: 2
   pl: "Zapisano nazwę wyświetlaną."
   ru: "Отображаемое имя сохранено."
   uk: "Ім'я для показу збережено."
-"A new code is on its way.":
-  de: "Ein neuer Code ist unterwegs."
-  fr: "Un nouveau code est en route."
-  nl: "Er is een nieuwe code onderweg."
-  pl: "Nowy kod jest w drodze."
-  ru: "Новый код уже в пути."
-  uk: "Новий код уже в дорозі."
-"If an account has this address, a code is on its way to it.":
-  de: "Wenn ein Konto diese Adresse hat, ist ein Code dorthin unterwegs."
-  fr: "Si un compte a cette adresse, un code est en route vers elle."
-  nl: "Als een account dit adres heeft, is er een code naar onderweg."
-  pl: "Jeśli jakieś konto ma ten adres, wysłaliśmy na niego kod."
-  ru: "Если у аккаунта есть этот адрес, код уже отправлен на него."
-  uk: "Якщо обліковий запис має цю адресу, код уже надіслано на неї."
 "Request declined.":
   de: "Anfrage abgelehnt."
   fr: "Demande refusée."
