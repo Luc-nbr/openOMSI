@@ -28,7 +28,7 @@ for (const href of ['omsihub/company.css', 'omsihub/company-dutycard.css']) {
 }
 
 /** The papers: their width (mm) and the slip's own measures on them. */
-const PAPERS = { 58: { w: 58, pad: 2, logo: 34 }, 80: { w: 80, pad: 4, logo: 44 }, a4: { w: 150, pad: 8, logo: 50 } };
+const PAPERS = { 58: { w: 58, pad: 2, logo: 34 }, 80: { w: 80, pad: 4, logo: 44 }, a4: { w: 186, pad: 4, logo: 32 } };
 const KEPT = 'omsihub.dutycard';
 
 function kept() {
@@ -159,7 +159,7 @@ function Row({ r, v, all, ibis }) {
   return html`<div class=${'co-dp-trip' + (r.empty ? ' co-dp-dead' : '')}>
     <div class="co-dp-row"><span class="co-dp-t">${r.time}</span><span class="co-dp-w">${r.empty ? html`<span>${r.line}</span>` : html`<b class="co-dp-line">${r.line}</b>`} ${r.route}<em>→ ${r.until}</em></span></div>
     ${!r.empty && ibis && html`<${IbisLine} i=${r.ibis} w=${v.ibis_words} />`}
-    ${!r.empty && stops.length > 0 && html`<div class="co-dp-stops">${stops.map((s) => html`<div class=${s.timing ? 'tp' : ''}><span class="co-dp-t">${s.arr ? html`<small>${s.arr}</small>` : null}${s.time}</span><span>${s.name}</span></div>`)}</div>`}
+    ${!r.empty && stops.length > 0 && html`<div class=${'co-dp-stops' + (stops.length > 8 ? ' many' : '')}>${stops.map((s) => html`<div class=${s.timing ? 'tp' : ''}><span class="co-dp-t">${s.arr ? html`<small>${s.arr}</small>` : null}${s.time}</span><span>${s.name}</span></div>`)}</div>`}
   </div>`;
 }
 
@@ -174,14 +174,20 @@ function Slip({ v, o, printed, slipRef }) {
     <div class="co-dp-title">${both}</div>
     <div class="co-dp-date">${v.date}</div>
     <div class="co-dp-rule"></div>
-    <div class="co-dp-caps">${v.driver_caps}</div>
-    ${v.driver ? html`<${Pair} a=${v.driver.name} b=${v.driver.staff || ''} />` : html`<div class="co-dp-pair"><span>—</span></div>`}
-    <div class="co-dp-rule"></div>
-    <div class="co-dp-caps">${v.codes_caps}</div>
-    ${v.codes.map(([a, b]) => html`<${Pair} a=${a} b=${b} />`)}
-    <div class="co-dp-rule"></div>
-    <div class="co-dp-caps">${v.times_caps}</div>
-    ${v.times.map(([a, b, c]) => html`<${Pair} a=${a} b=${b} c=${c} />`)}
+    <div class="co-dp-cols">
+      <div>
+        <div class="co-dp-caps">${v.driver_caps}</div>
+        ${v.driver ? html`<${Pair} a=${v.driver.name} b=${v.driver.staff || ''} />` : html`<div class="co-dp-pair"><span>—</span></div>`}
+        <div class="co-dp-rule"></div>
+        <div class="co-dp-caps">${v.codes_caps}</div>
+        ${v.codes.map(([a, b]) => html`<${Pair} a=${a} b=${b} />`)}
+      </div>
+      <div>
+        <div class="co-dp-rule co-dp-r2"></div>
+        <div class="co-dp-caps">${v.times_caps}</div>
+        ${v.times.map(([a, b, c]) => html`<${Pair} a=${a} b=${b} c=${c} />`)}
+      </div>
+    </div>
     ${v.pieces.map((x, k) => html`
       <div class=${'co-dp-rule' + (k === 0 ? ' double' : ' cut')}></div>
       <div class="co-dp-piece"><b>${x.head.toUpperCase()}</b><span>${x.what}</span>${x.bus && html`<span>${x.bus}</span>`}</div>

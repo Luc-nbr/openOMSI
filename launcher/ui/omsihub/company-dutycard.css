@@ -58,8 +58,21 @@
 .co-dp-foot .co-dp-pair { width: 100%; }
 .co-dp-qr { display: block; }
 
+/* nothing cut in two where a page ends (A4) */
+.co-dp-trip, .co-dp-foot, .co-dp-cols > div, .co-dp-stops > div { break-inside: avoid; }
+.co-dp-piece { break-after: avoid; }
+
+/* A4: the sheet's width, the driver and the codes beside the times, the stops in two columns */
+.co-dp-pa4 .co-dp-cols { display: grid; grid-template-columns: 1fr 1fr; column-gap: 10mm; }
+.co-dp-pa4 .co-dp-r2 { display: none; }
+.co-dp-pa4 .co-dp-stops.many { columns: 2; column-gap: 8mm; }
+.co-dp-pa4 .co-dp-foot { display: grid; grid-template-columns: 1fr auto; column-gap: 8mm; justify-items: start; align-items: center; text-align: left; }
+.co-dp-pa4 .co-dp-foot .co-dp-pair { width: auto; }
+.co-dp-pa4 .co-dp-foot .co-dp-qr { grid-column: 2; grid-row: 1 / span 3; }
+
 /* printing: the slip alone, at its width, black on white */
 @media print {
+  html.co-dp-printing { color-scheme: light !important; }
   html.co-dp-printing, html.co-dp-printing body { height: auto !important; min-height: 0 !important; overflow: visible !important; background: #fff !important; margin: 0 !important; padding: 0 !important; }
   html.co-dp-printing body > *:not(#co-dp-host) { display: none !important; }
   html.co-dp-printing .co-dp-scrim { position: static; inset: auto; padding: 0; background: none; display: block; }
