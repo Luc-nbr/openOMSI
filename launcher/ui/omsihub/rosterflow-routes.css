@@ -112,11 +112,17 @@
 .rt-strip .seg { position: absolute; top: 88px; width: 56px; height: 30px; margin-left: -28px; padding: 0; border: 0; border-radius: 4px; background: var(--tp-cell); box-shadow: inset 0 0 0 1px var(--tp-border); color: var(--tp-text); font: inherit; font-size: 9.98px; font-weight: 700; text-align: center; white-space: nowrap; }
 .rt-strip button.seg:hover { background: var(--tp-cell-hover); }
 .rt-strip .seg.on { outline: none; background: var(--tp-field); box-shadow: inset 0 0 0 1.5px var(--tp-sky); }
-.rt-total { width: 196px; flex: none; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 5px; padding: 0 16px; box-shadow: inset 1px 0 0 var(--tp-border); }
+.rt-total { width: 228px; flex: none; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 5px; padding: 0 16px; box-shadow: inset 1px 0 0 var(--tp-border); }
 .rt-total .cap { font-size: 8.45px; font-weight: 700; color: var(--tp-dim); }
 .rt-total b { font-size: 17.65px; font-weight: 400; color: var(--tp-sky); white-space: nowrap; }
 .rt-total .src { font-size: 8.45px; line-height: 1.35; color: var(--tp-dim); }
 .rt-link { display: flex; align-items: center; gap: 5px; padding: 0; font-size: 8.8px; font-weight: 700; color: var(--tp-sky); }
 .rt-link:hover { text-decoration: underline; }
+.rt-strip .rt-link span { text-align: left; }
+.rt-strip .rt-link.armed, .rt-strip .rt-link.warn { color: var(--tp-orange); }
+.rt-strip .rt-total-head { display: flex; align-items: center; gap: 8px; width: 100%; }
+.rt-strip .rt-tpday { height: 24px; flex: 1 1 auto; min-width: 0; }
+.rt-strip .rt-tpday select { border-radius: 4px; padding: 0 22px 0 7px; font-size: 8.8px; }
+.rt-strip .rt-tpday .hub-icon { right: 4px; }
 /* (RosterFlow's page takes no selection; what is typed here does) */
 .rf-tp.rt input { user-select: text; -webkit-user-select: text; }

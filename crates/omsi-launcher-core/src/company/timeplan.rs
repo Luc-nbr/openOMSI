@@ -75,6 +75,23 @@ pub fn base_run(d: &Direction) -> Vec<f32> {
     t.windows(2).map(|w| (w[1] - w[0]).max(0.0)).collect()
 }
 
+/// The minutes from each stop to the next as the roads give them: the legs' lengths (metres,
+/// one fewer than the stops) at the usual speed, as the line editor's "Times from the roads"
+/// makes a direction's times (`lines::auto_times`).
+pub fn road_run(lengths: &[f32]) -> Vec<f32> {
+    let legs: Vec<reg::Leg> = lengths.iter().map(|&length| reg::Leg { length, ..Default::default() }).collect();
+    let t = reg::auto_times(&legs);
+    t.windows(2).map(|w| (w[1] - w[0]).max(0.0)).collect()
+}
+
+/// A direction's minutes from the roads (`road_run` of its own legs).
+pub fn road_run_of(d: &Direction) -> Vec<f32> {
+    let lengths: Vec<f32> = d.legs.iter().map(|g| g.length).collect();
+    let mut run = road_run(&lengths);
+    run.resize(d.stops.len().saturating_sub(1), 0.0);
+    run
+}
+
 impl RunSet {
     /// One band, all day, with the direction's own times.
     pub fn fresh(day: usize, dir: usize, d: &Direction) -> RunSet {
@@ -100,6 +117,14 @@ impl RunSet {
         self.bands.sort_by(|a, b| a.from.total_cmp(&b.from));
         self.bands.dedup_by(|a, b| (a.from - b.from).abs() < 0.5);
         self.bands[0].from = 0.0;
+    }
+
+    /// Every band's minutes of each segment made `run` (the Routes tab's times, the roads'): the
+    /// bands keep where they begin. `fit` makes them fit the stops after.
+    pub fn take_run(&mut self, run: &[f32]) {
+        for b in &mut self.bands {
+            b.run = run.to_vec();
+        }
     }
 
     /// The band a minute of the day is in.
@@ -790,6 +815,24 @@ mod tests {
             Direction { stops, legs: (0..4).map(|_| Leg { ok: true, ..Default::default() }).collect(), times: vec![0.0, 2.0, 4.0, 6.0, 8.0], manual_times: true, ..Default::default() }
         };
         LineDesign { id: 3, number: "3".into(), ai_group: "Busse".into(), directions: vec![dir(false), dir(true)], ..Default::default() }
+    }
+
+    #[test]
+    fn the_roads_times_go_into_every_band() {
+        // 500 m legs: 20 s at the stop and 60 s on the road, a minute and a third each - the
+        // sum rounded to whole minutes, so the rounding does not pile up
+        assert_eq!(road_run(&[500.0; 4]), vec![1.0, 2.0, 1.0, 1.0]);
+        let mut l = line();
+        for g in &mut l.directions[0].legs {
+            g.length = 500.0;
+        }
+        assert_eq!(road_run_of(&l.directions[0]), vec![1.0, 2.0, 1.0, 1.0]);
+        let mut s = peak_set();
+        s.take_run(&road_run_of(&l.directions[0]));
+        s.fit(&l.directions[0]);
+        assert_eq!(s.bands.len(), 3);
+        assert!(s.bands.iter().all(|b| b.run == vec![1.0, 2.0, 1.0, 1.0]));
+        assert_eq!(s.bands[1].from, 420.0);
     }
 
     fn peak_set() -> RunSet {

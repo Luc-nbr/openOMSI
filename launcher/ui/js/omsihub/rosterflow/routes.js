@@ -27,7 +27,7 @@ import { L, le, redraw } from '../editors/lines/state.js';
 import { LineMap } from '../editors/lines/map.js';
 import { EstimateCard, ChangeDialog } from '../editors/lines/company.js';
 import { inkOn } from '../editors/lines/plate.js';
-import { setRf, setPart, bump, say, TIMEPLAN } from './state.js';
+import { setRf, setPart, rfCmd, after, bump, say, TIMEPLAN } from './state.js';
 import { Icon } from './ui.js';
 
 // (its own look, beside rosterflow.css)
@@ -151,8 +151,8 @@ export function holdChanges() {
  * said first. Returns whether it took the key. */
 export function rtEscape() {
   const t = rt();
-  if (t.cell != null || t.colour || t.search) {
-    rtSet({ cell: null, text: '', colour: false, search: '' });
+  if (t.cell != null || t.colour || t.search || t.roadArm) {
+    rtSet({ cell: null, text: '', colour: false, search: '', roadArm: null });
     return true;
   }
   return holdChanges();
@@ -186,13 +186,17 @@ function distance(m) {
   return tr(miles ? '%{n} mi' : '%{n} km', { n });
 }
 
-/** The minutes of each segment of a direction (stop to next stop), from its times. */
+/** The minutes of each segment of a direction (stop to next stop), from its times (to a tenth). */
 function segments(d) {
   const t = d?.times || [];
   const n = d?.stops?.length || 0;
   const at = (k) => t[Math.min(k, t.length - 1)] ?? 0;
-  return Array.from({ length: Math.max(0, n - 1) }, (_, k) => Math.max(0, Math.round(at(k + 1) - at(k))));
+  return Array.from({ length: Math.max(0, n - 1) }, (_, k) => Math.max(0, Math.round((at(k + 1) - at(k)) * 10) / 10));
 }
+
+/** Minutes as the Timeplan's running-time cells show them (`timeplan::minutes_text`): whole, else
+ * with one decimal. */
+const minText = (m) => (Math.abs(m - Math.round(m)) < 0.05 ? String(Math.round(m)) : m.toFixed(1));
 
 /** The camera on the route shown (both its directions) with some air round it; the farthest out
  * the whole map's (as `map.js` fits it). Whether there was a route to put it on. */
@@ -323,8 +327,8 @@ function RouteBar({ v }) {
       ${options.map(([k, label]) => html`<option value=${k}>${label}</option>`)}
     </select><${Icon} name="expand_more" size=${18} /></span>
     <button type="button" class="tp-new narrow" title=${tr('New route: click its stops on the map')} onClick=${fresh}><${Icon} name="add" size=${20} /></button>
-    <span class="tp-select" style="flex:0 1 200px;min-width:110px" title=${tr('The days the route runs, as its kind of service has them: the Timeplan makes its trips on these days')}>
-      <select value=${line?.service || 'regular'} disabled=${!line || !!line.map} onChange=${(e) => le('kind', { kind: e.currentTarget.value })}>
+    <span class="tp-select rt-days" style="flex:0 1 200px;min-width:110px" title=${tr('The days the route runs, as its kind of service has them: the Timeplan makes its trips on these days')}>
+      <select value=${line?.service || 'regular'} disabled=${!line} onChange=${(e) => le('kind', { kind: e.currentTarget.value })}>
         ${KINDS.map(([k, label]) => html`<option value=${k}>${tr(label)}</option>`)}
       </select><${Icon} name="expand_more" size=${18} /></span>
     ${line && html`<span class="rt-colour-wrap">
@@ -587,29 +591,104 @@ function StopSearch({ v }) {
 
 // --- the trip-time strip ---------------------------------------------------------------------------
 
+/** The route's timetable name in the company (a line of the map's by its own, an own line asked of
+ * the company by the line editor's id); none for a draft. */
+function useLineName(line) {
+  const [name, setName] = useState(null);
+  const ttl = line?.map?.ttl || null;
+  const id = ttl ? null : line?.id ?? null;
+  useEffect(() => {
+    let gone = false;
+    if (ttl || id == null) setName(ttl);
+    else coCmd('co_line_of', { id }).then((x) => !gone && setName(x?.name || null)).catch(() => !gone && setName(null));
+    return () => {
+      gone = true;
+    };
+  }, [ttl, id, S.rf.bump]);
+  return name;
+}
+
+/** The Timeplan's running times of the route's direction on the day group the Timeplan shows
+ * (`rf_tp_route`): its draft is where the strip's minutes are kept, so that a running time typed
+ * here or there is the same one. Not `linked`: the route's own minutes (a draft, stops not saved
+ * yet). */
+function useTimeplanRun(name, dir, stops, day) {
+  const [x, setX] = useState(null);
+  useEffect(() => {
+    let gone = false;
+    if (!name) setX(null);
+    else {
+      rfCmd('rf_tp_route', { line: name, dir, day, stops: stops ? stops.split(',').map(Number) : [] })
+        .then((r) => !gone && setX(r))
+        .catch(() => !gone && setX(null));
+    }
+    return () => {
+      gone = true;
+    };
+  }, [name, dir, stops, day, S.rf.bump, S.rf.tp.rev, S.co.shell?.gen]);
+  return [x, setX];
+}
+
 /** The direction's stops along the foot with their codes, the minutes of each segment under them
- * (clicked: typed anew, `shift`) and the trip's time - from the roads (the length of each leg at
- * the usual speed) until one is typed. */
+ * (clicked: typed anew) and the trip's time. For a route the company runs they are the Timeplan's
+ * running times of the day group chosen (its band from 00:00), changed in the Timeplan's draft -
+ * saved, and undone, with it; "Times from the roads" puts the roads' minutes into every band of it.
+ * For a route not saved yet they are its own times (`shift`, `times_auto`), which the Timeplan
+ * starts from. */
 function TripStrip({ v }) {
   const line = v.line;
   const d = line?.directions?.[v.dir];
   const t = rt();
   const input = useRef(null);
+  const name = useLineName(line);
+  const stops = (d?.stops || []).map((s) => s.id).join(',');
+  const day = S.rf.tp.day || 0;
+  const [tpr, setTpr] = useTimeplanRun(name, v.dir, stops, day);
   useEffect(() => {
     if (t.cell != null) input.current?.select();
   }, [t.cell]);
   const n = d?.stops?.length || 0;
   if (n < 2) return html`<div class="rt-strip"><p class="rt-strip-empty">${tr('Two stops at least: then the minutes from stop to stop are here.')}</p></div>`;
-  const seg = segments(d);
-  const total = seg.reduce((a, m) => a + m, 0);
+  const linked = !!tpr?.linked && tpr.run?.length === n - 1;
+  const seg = linked ? tpr.run : segments(d);
+  const texts = linked ? tpr.texts : seg.map(minText);
+  const total = linked ? tpr.total : minText(seg.reduce((a, m) => a + m, 0));
   const colour = line.colour;
+  const days = tpr?.days || [];
+  const dayName = days[day] || '';
+  const dirName = d.stops.length >= 2 ? (isLoop(d) ? destination(d) : tr('To %{stop}', { stop: destination(d) })) : '';
+  // (a change of the Timeplan's: the Timeplan opens on the direction and its running times)
+  const tpDone = (r) => {
+    after(r);
+    if (r?.linked) {
+      setTpr(r);
+      setPart('tp', (p) => ({ side: r.side, pattern: r.pattern, tab: 0, cell: null, text: '', rev: (p.rev || 0) + 1 }));
+    } else if (r) setTpr(r);
+  };
+  const tpRoute = (act, args = {}) => rfCmd('rf_tp_route_act', { act, line: name, dir: v.dir, day, stops: d.stops.map((s) => s.id), ...args }).then(tpDone, (e) => say(e.message, true));
   const commit = () => {
     const k = S.rf.rt?.cell;
-    const m = parseFloat(String(S.rf.rt?.text ?? '').replace(',', '.'));
+    const m = Math.round(parseFloat(String(S.rf.rt?.text ?? '').replace(',', '.')) * 10) / 10;
     rtSet({ cell: null, text: '' });
-    if (k == null || !(m >= 0 && m <= 600) || Math.round(m) === seg[k]) return;
-    le('shift', { i: k + 1, by: Math.round(m) - seg[k] });
+    if (k == null || !(m >= 0 && m <= 600) || Math.abs(m - seg[k]) < 0.05) return;
+    if (linked) tpRoute('seg', { seg: k, minutes: m });
+    else le('shift', { i: k + 1, by: m - seg[k] });
   };
+  // (the Timeplan's running times replaced: said first, done on the second press)
+  const armKey = `${name}|${v.dir}|${day}`;
+  const armed = linked && t.roadArm === armKey;
+  const road = () => {
+    if (!linked) return le('times_auto');
+    if (!armed) return rtSet({ roadArm: armKey });
+    rtSet({ roadArm: null });
+    tpRoute('road', { lengths: (d.legs || []).map((g) => g.length || 0) });
+  };
+  const pickDay = (k) => setPart('tp', { day: k, cell: null, text: '', adding: null, chart: null, issuesOpen: false, sel: null, picked: [], scroll: 0 });
+  const replaces = tr("Press again: the roads' minutes replace the running times of every time band of %{day}, %{dir}, in the Timeplan", { day: dayName, dir: dirName });
+  let src;
+  if (linked) src = tr("The Timeplan's running times: %{day}, the band from 00:00", { day: dayName }) + (tpr.bands > 1 ? `  ·  ${tr('%{n} more bands', { n: tpr.bands - 1 })}` : '');
+  else if (tpr?.why) src = tpr.why;
+  else src = tr(d.manual_times ? 'Typed in: the Timeplan starts its running times from these' : 'From the roads: the Timeplan starts its running times from these');
   return html`<div class="rt-strip" data-rf="rf-routes-strip">
     <div class="rt-strip-scroll">
       <div class="rt-strip-row" style=${`width:${n * COL}px`}>
@@ -618,22 +697,26 @@ function TripStrip({ v }) {
         ${d.stops.map((s, j) => html`<span class=${'dot' + (j === 0 || j + 1 === n ? ' end' : '')} style=${`left:${j * COL + COL / 2}px;--c:${colour}`}><i></i></span>`)}
         ${seg.map((m, k) =>
           t.cell === k
-            ? html`<input class="seg on" ref=${input} style=${`left:${(k + 1) * COL}px`} value=${t.text} inputmode="numeric"
+            ? html`<input class="seg on" ref=${input} style=${`left:${(k + 1) * COL}px`} value=${t.text} inputmode="decimal"
                 onInput=${(e) => rtSet({ text: e.currentTarget.value })} onBlur=${commit}
                 onKeyDown=${(e) => {
                   if (e.key === 'Enter') commit();
                   else if (e.key === 'Escape') (e.stopPropagation(), rtSet({ cell: null, text: '' }));
                 }} />`
             : html`<button type="button" class="seg" style=${`left:${(k + 1) * COL}px`} title=${tr('The minutes from %{a} to %{b}: click to change them', { a: d.stops[k].name, b: d.stops[k + 1].name })}
-                onClick=${() => rtSet({ cell: k, text: String(m) })}>${tr('%{n} min', { n: m })}</button>`,
+                onClick=${() => rtSet({ cell: k, text: texts[k] })}>${tr('%{n} min', { n: texts[k] })}</button>`,
         )}
       </div>
     </div>
     <div class="rt-total">
-      <span class="cap">${tr('Trip time').toUpperCase()}</span>
+      <span class="rt-total-head"><span class="cap">${tr('Trip time').toUpperCase()}</span>
+        ${linked && days.length > 0 && html`<span class="tp-select rt-tpday" title=${tr('The day group whose running times these are, as the Timeplan shows it')}><select value=${String(day)} onChange=${(e) => pickDay(Number(e.currentTarget.value))}>
+          ${days.map((label, k) => html`<option value=${String(k)}>${tpr.closed?.[k] ? `${label} (${tr('no service')})` : label}</option>`)}
+        </select><${Icon} name="expand_more" size=${16} /></span>`}</span>
       <b>= ${tr('%{n} min', { n: total })}</b>
-      <span class="src">${tr(d.manual_times ? 'Typed in: the Timeplan starts its running times from these' : 'From the roads: the Timeplan starts its running times from these')}</span>
-      ${d.manual_times && html`<button type="button" class="rt-link" onClick=${() => le('times_auto')}><${Icon} name="schedule" size=${14} /><span>${tr('Times from the roads')}</span></button>`}
+      <span class="src">${src}</span>
+      ${(linked || d.manual_times) && html`<button type="button" class=${'rt-link' + (armed ? ' armed' : '')} onClick=${road}><${Icon} name="schedule" size=${14} /><span>${armed ? replaces : tr('Times from the roads')}</span></button>`}
+      ${linked && tpr.dirty && html`<button type="button" class="rt-link warn" title=${tr('The running times changed here are in the Timeplan, not saved yet')} onClick=${() => !holdChanges() && setRf({ view: TIMEPLAN, hand: null, zones: null, sel: [], card: null, menu: null, panel: null })}><${Icon} name="save" size=${14} /><span>${tr('Not saved: save in the Timeplan')}</span></button>`}
     </div>
   </div>`;
 }

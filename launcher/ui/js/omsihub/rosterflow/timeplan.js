@@ -269,14 +269,16 @@ function ContextBar({ v }) {
 
 /** The days of the coming week that use the timetable shown (Trello #100): each day lit when it
  * runs this day group's timetable, marked when it runs another than its weekday's (a holiday's);
- * a click shows the day group it runs. */
+ * a click shows the day group it runs - its weekday's when it runs none of the line's trips (or
+ * is still being read). */
 function DayStrip({ v }) {
   const t = S.rf.tp;
   return html`<span class="tp-days" data-rf="rf-tp-days" title=${tr('The days of the coming week that run this timetable')}>
     ${v.calendar.map((d) => {
       const [day, num] = String(d.label).split(' ');
       const cls = 'd' + (d.on ? ' on' : '') + (d.odd ? ' odd' : '') + (!d.read ? ' wait' : d.group == null ? ' none' : '');
-      return html`<button type="button" class=${cls} title=${`${d.label}: ${d.tip}`} onClick=${() => d.group != null && d.group !== t.day && tpSet({ day: d.group, cell: null, text: '', adding: null, chart: null, issuesOpen: false, sel: null, picked: [], scroll: 0 })}><b>${(day || '').slice(0, 2)}</b><small>${num || ''}</small></button>`;
+      const group = d.group ?? d.natural;
+      return html`<button type="button" class=${cls} title=${`${d.label}: ${d.tip}`} onClick=${() => group != null && group !== t.day && tpSet({ day: group, cell: null, text: '', adding: null, chart: null, issuesOpen: false, sel: null, picked: [], scroll: 0 })}><b>${(day || '').slice(0, 2)}</b><small>${num || ''}</small></button>`;
     })}
   </span>`;
 }
