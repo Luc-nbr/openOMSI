@@ -14,8 +14,10 @@ description = "The openOMSI application: loads a map and renders it"
 name = "openomsi_game"
 path = "src/lib.rs"
 
+# Omsi-Hub (fork-local): the game's file name, openOMSI's `openomsi` (see omsi_cfg::product
+# and docs/omsihub/ADDON_PLAN.md, "Fork differences")
 [[bin]]
-name = "openomsi"
+name = "omsi-hub-game"
 path = "src/main.rs"
 
 [build-dependencies]

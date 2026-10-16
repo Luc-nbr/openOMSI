@@ -10,8 +10,10 @@ publish = false
 # and a webview's dependencies stay out of the game's build)
 [workspace]
 
+# Omsi-Hub (fork-local): the program the player opens, `Omsi-Hub.exe` (openOMSI's
+# `openomsi-launcher-app`; the package keeps its name, see omsi_cfg::product)
 [[bin]]
-name = "openomsi-launcher-app"
+name = "Omsi-Hub"
 path = "src/main.rs"
 
 [build-dependencies]

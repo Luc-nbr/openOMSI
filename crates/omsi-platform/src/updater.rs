@@ -173,7 +173,7 @@ impl Updater {
             let result = download_and_install(&r, &status);
             if let Err(e) = result {
                 log::warn!("update to {}: {e:#}", r.version);
-                *lock(&status) = Status::Failed(format!("openOMSI was not updated to {}: {e}", r.version));
+                *lock(&status) = Status::Failed(format!("{} was not updated to {}: {e}", omsi_cfg::product::NAME, r.version));
             }
         });
     }
@@ -195,7 +195,7 @@ impl Updater {
                 }
                 Err(e) => {
                     log::warn!("update {}: background download: {e:#}", r.version);
-                    *lock(&status) = Status::Failed(format!("openOMSI {} could not be downloaded: {e}", r.version));
+                    *lock(&status) = Status::Failed(format!("{} {} could not be downloaded: {e}", omsi_cfg::product::NAME, r.version));
                 }
             }
         });
@@ -270,8 +270,18 @@ fn compare(a: &str, b: &str) -> std::cmp::Ordering {
     a.cmp(&b)
 }
 
-/// The release file for this platform, as `release.yml` names it.
+/// The release file for this platform, as `omsihub-release.yml` names it: Omsi-Hub's name
+/// (`Omsi-Hub-<v>-windows-x64.zip`). See `asset_names`.
 pub fn asset_name(version: &str) -> Option<String> {
+    asset_names(version).into_iter().next()
+}
+
+/// The release files for this platform this build installs, the one to take first first:
+/// Omsi-Hub's (`Omsi-Hub-<v>-...`, its programs by Omsi-Hub's names), then openOMSI's
+/// (`openOMSI-<v>-...`: the releases before the rename have only that one; the releases
+/// since have it too, with the programs by their old names, for the builds before the rename,
+/// which know no other - see docs/omsihub/RENAME.md).
+pub fn asset_names(version: &str) -> Vec<String> {
     let suffix = if cfg!(target_os = "android") {
         "android-arm64.apk"
     } else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
@@ -287,9 +297,9 @@ pub fn asset_name(version: &str) -> Option<String> {
     } else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
         "linux-arm64.zip"
     } else {
-        return None;
+        return Vec::new();
     };
-    Some(format!("openOMSI-{version}-{suffix}"))
+    vec![format!("{}-{version}-{suffix}", omsi_cfg::product::NAME), format!("openOMSI-{version}-{suffix}")]
 }
 
 // --- the release ----------------------------------------------------------------------------
@@ -403,15 +413,18 @@ fn latest_from_site() -> anyhow::Result<Option<Release>> {
     if !newer(&version, current_version()) || crate::recovery::is_bad(&version) {
         return Ok(None);
     }
-    let Some(name) = asset_name(&version) else { return Ok(None) };
-    let url = format!("{REPO_URL}/releases/download/{tag}/{name}");
-    // (the files come a few minutes after the tag: not there yet, nothing to offer yet)
-    let size = match with_retries("looking for the file", || agent().head(&url).call()) {
-        Ok(r) => r.header("Content-Length").and_then(|v| v.parse().ok()).unwrap_or(0),
-        Err(ureq::Error::Status(404, _)) => return Ok(None),
-        Err(e) => anyhow::bail!("{}", short_error(&e)),
-    };
-    Ok(Some(Release { version, page: format!("{REPO_URL}/releases/tag/{tag}"), notes: String::new(), asset_name: name, asset_url: url, size, sha256: None }))
+    // (Omsi-Hub's name first, then openOMSI's, see `asset_names`)
+    for name in asset_names(&version) {
+        let url = format!("{REPO_URL}/releases/download/{tag}/{name}");
+        // (the files come a few minutes after the tag: not there yet, nothing to offer yet)
+        let size = match with_retries("looking for the file", || agent().head(&url).call()) {
+            Ok(r) => r.header("Content-Length").and_then(|v| v.parse().ok()).unwrap_or(0),
+            Err(ureq::Error::Status(404, _)) => continue,
+            Err(e) => anyhow::bail!("{}", short_error(&e)),
+        };
+        return Ok(Some(Release { version, page: format!("{REPO_URL}/releases/tag/{tag}"), notes: String::new(), asset_name: name, asset_url: url, size, sha256: None }));
+    }
+    Ok(None)
 }
 
 /// A version of the fork's own releases: the openOMSI version and the fork's commits on top
@@ -472,8 +485,9 @@ fn parse_release(v: &serde_json::Value, current: &str) -> anyhow::Result<Option<
 fn release_of(v: &serde_json::Value) -> anyhow::Result<Option<Release>> {
     let tag = v["tag_name"].as_str().ok_or_else(|| anyhow::anyhow!("the release has no tag"))?;
     let version = tag.trim_start_matches(['v', 'V']).to_string();
-    let Some(want) = asset_name(&version) else { return Ok(None) };
-    let Some(a) = v["assets"].as_array().and_then(|a| a.iter().find(|a| a["name"].as_str() == Some(want.as_str()))) else { return Ok(None) };
+    // (Omsi-Hub's file first, then openOMSI's, see `asset_names`)
+    let assets = v["assets"].as_array().map(Vec::as_slice).unwrap_or_default();
+    let Some((want, a)) = asset_names(&version).into_iter().find_map(|want| assets.iter().find(|a| a["name"].as_str() == Some(want.as_str())).map(|a| (want, a))) else { return Ok(None) };
     Ok(Some(Release {
         version,
         page: v["html_url"].as_str().map(str::to_string).unwrap_or_else(|| format!("{REPO_URL}/releases/tag/{tag}")),
@@ -578,7 +592,7 @@ fn download(r: &Release, to: &Path, status: &Mutex<Status>) -> anyhow::Result<()
     }
     let part = to.with_extension("part");
     if std::fs::metadata(&part).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age < std::time::Duration::from_secs(15)) {
-        anyhow::bail!("another download of openOMSI {} is under way; try again in a moment", r.version);
+        anyhow::bail!("another download of {} {} is under way; try again in a moment", omsi_cfg::product::NAME, r.version);
     }
     let _ = std::fs::remove_file(checked_note(to));
     let mut hasher = sha2::Sha256::new();
@@ -673,7 +687,7 @@ fn download_and_install(r: &Release, status: &Mutex<Status>) -> anyhow::Result<(
         let place = install_place()?;
         if !writable(&place.dir) {
             let admin = if cfg!(windows) { " (or start it once as administrator)" } else { "" };
-            anyhow::bail!("the folder {} cannot be written. Put openOMSI in a folder of yours{admin} and update again", short_path(&place.dir));
+            anyhow::bail!("the folder {} cannot be written. Put {} in a folder of yours{admin} and update again", short_path(&place.dir), omsi_cfg::product::NAME);
         }
     }
     let file = download_dir().join(&r.asset_name);
@@ -734,9 +748,11 @@ pub fn install_place() -> anyhow::Result<Place> {
     if is_dev_build(&exe) {
         anyhow::bail!("this is a development build ({}); update it with git and cargo", short_path(&exe));
     }
+    // (Omsi-Hub: a program started by its old name that the rename moved since, see `rename`)
+    let exe = if exe.exists() { exe } else { renamed_program(&exe).unwrap_or(exe) };
     // (macOS runs an app opened straight from Downloads from a read-only copy elsewhere)
     if exe.to_string_lossy().contains("/AppTranslocation/") {
-        anyhow::bail!("macOS runs openOMSI from a temporary read-only copy. Move openOMSI.app into your Applications folder (or any folder), start it from there and update again");
+        anyhow::bail!("macOS runs {} from a temporary read-only copy. Move the app into your Applications folder (or any folder), start it from there and update again", omsi_cfg::product::NAME);
     }
     let bundle = exe.ancestors().find(|p| p.extension().map(|e| e.eq_ignore_ascii_case("app")).unwrap_or(false)).map(Path::to_path_buf);
     let dir = bundle.as_deref().unwrap_or(&exe).parent().ok_or_else(|| anyhow::anyhow!("no folder around {}", exe.display()))?.to_path_buf();
@@ -763,6 +779,33 @@ fn program_path(exe: &Path) -> PathBuf {
     } else {
         PathBuf::from(s)
     }
+}
+
+/// The program `exe` names by its other name (`openomsi.exe` <-> `omsi-hub-game.exe`), when
+/// that one is there.
+fn renamed_program(exe: &Path) -> Option<PathBuf> {
+    let other = omsi_cfg::product::counterpart(&exe.file_name()?.to_string_lossy(), omsi_cfg::product::EXE_SUFFIX)?;
+    Some(exe.with_file_name(other)).filter(|p| p.is_file())
+}
+
+/// The game program of the installation at `place`, beside the running program (inside the
+/// bundle on macOS): by Omsi-Hub's name, else by openOMSI's - the version just installed may
+/// be one of either - else the running program itself.
+pub fn game_program(place: &Place) -> PathBuf {
+    omsi_cfg::product::game_files().into_iter().map(|f| place.exe.with_file_name(f)).find(|p| p.is_file()).unwrap_or_else(|| program_after_update(place))
+}
+
+/// The program to start after an update: the running one's file, or - when the version
+/// installed names its programs the other way (a release before Omsi-Hub's rename, or after)
+/// - the same program by its other name, else the game.
+pub fn program_after_update(place: &Place) -> PathBuf {
+    if place.exe.is_file() {
+        return place.exe.clone();
+    }
+    if let Some(p) = renamed_program(&place.exe) {
+        return p;
+    }
+    omsi_cfg::product::game_files().into_iter().map(|f| place.exe.with_file_name(f)).find(|p| p.is_file()).unwrap_or_else(|| place.exe.clone())
 }
 
 /// A path short enough for a dialog's line: its end, where the telling part is.
@@ -800,7 +843,7 @@ fn in_cargo_target_dir(exe: &Path) -> bool {
     exe.ancestors().skip(2).take(2).any(|d| std::fs::read_to_string(d.join("CACHEDIR.TAG")).is_ok_and(|t| t.contains("cargo")))
 }
 
-const STAGING: &str = ".openomsi-update";
+pub(crate) const STAGING: &str = ".openomsi-update";
 pub(crate) const MANIFEST: &str = ".openomsi-files";
 const OLD: &str = ".old-update";
 
@@ -904,13 +947,14 @@ pub(crate) fn install_archive_with(zip: &Path, place: &Place, self_test: bool) -
     if items.is_empty() {
         anyhow::bail!("the update archive is empty");
     }
-    // a program must be among them: a wrong archive must not replace anything
+    // a program must be among them: a wrong archive must not replace anything (the game by
+    // Omsi-Hub's name or by openOMSI's)
     let has_program = items.iter().any(|n| {
         let l = n.to_ascii_lowercase();
-        l == "openomsi" || l == "openomsi.exe" || l.ends_with(".app")
+        omsi_cfg::product::is_game_stem(l.strip_suffix(".exe").unwrap_or(&l)) || l.ends_with(".app")
     });
     if !has_program {
-        anyhow::bail!("the update archive holds no openOMSI program");
+        anyhow::bail!("the update archive holds no {} program", omsi_cfg::product::NAME);
     }
     // the new program must start before it replaces the old one: a build that cannot even
     // be loaded here (a library missing, a broken file) stops now, with nothing replaced
@@ -923,7 +967,14 @@ pub(crate) fn install_archive_with(zip: &Path, place: &Place, self_test: bool) -
     }
     // what an earlier update put here and this one no longer brings
     let before: Vec<String> = std::fs::read_to_string(place.dir.join(MANIFEST)).map(|t| t.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty() && !l.contains(['/', '\\']) && l != ".." && l != ".").collect()).unwrap_or_default();
-    let gone: Vec<String> = before.into_iter().filter(|n| !items.iter().any(|i| i.eq_ignore_ascii_case(n))).collect();
+    let mut gone: Vec<String> = before.into_iter().filter(|n| !items.iter().any(|i| i.eq_ignore_ascii_case(n))).collect();
+    // Omsi-Hub: a program the archive brings by one name goes by its other (a release before
+    // the rename installed over one after it, or the other way): one name of each program
+    for other in items.iter().filter_map(|n| omsi_cfg::product::counterpart(n, omsi_cfg::product::EXE_SUFFIX)) {
+        if !items.iter().any(|i| i.eq_ignore_ascii_case(&other)) && !gone.iter().any(|g| g.eq_ignore_ascii_case(&other)) && place.dir.join(&other).is_file() {
+            gone.push(other);
+        }
+    }
     // the version these files are, for going back to it; and the earlier list of what an
     // update brought, set aside with the files it lists
     let _ = std::fs::write(place.dir.join(crate::recovery::PREVIOUS), current_version());
@@ -1000,9 +1051,10 @@ fn remove_any(p: &Path) {
 
 /// Start the new launcher (after `install_archive`): the program file at the same place -
 /// on macOS inside the bundle, which makes it the app with its icon - with this process's
-/// environment.
+/// environment (by its other name when the version installed names it so,
+/// `program_after_update`).
 pub fn relaunch(place: &Place) -> anyhow::Result<()> {
-    let mut cmd = std::process::Command::new(&place.exe);
+    let mut cmd = std::process::Command::new(program_after_update(place));
     cmd.current_dir(&place.dir);
     cmd.spawn()?;
     Ok(())
@@ -1335,6 +1387,67 @@ mod tests {
         }
         assert!(install_archive_with(&bad, &place, false).is_err());
         assert_eq!(std::fs::read_to_string(dir.join("openomsi")).unwrap(), "new game");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+    #[test]
+    fn the_release_file_by_omsi_hub_s_name_or_else_by_openomsi_s() {
+        let [new, old] = [0, 1].map(|i| asset_names("0.2.48.7")[i].clone());
+        assert!(new.starts_with("Omsi-Hub-0.2.48.7-") && old.starts_with("openOMSI-0.2.48.7-"));
+        assert_eq!(asset_name("0.2.48.7").as_deref(), Some(new.as_str()));
+        let release = |names: &[&str]| serde_json::json!({
+            "tag_name": "v0.2.48.7",
+            "assets": names.iter().map(|n| serde_json::json!({"name": n, "browser_download_url": format!("https://x/{n}"), "size": 1})).collect::<Vec<_>>()
+        });
+        // a release before the rename: openOMSI's name only
+        assert_eq!(release_of(&release(&[&old])).unwrap().unwrap().asset_name, old);
+        // since: both, and Omsi-Hub's is taken
+        assert_eq!(release_of(&release(&[&old, &new])).unwrap().unwrap().asset_name, new);
+        assert!(release_of(&release(&["Omsi-Hub-0.2.48.7-server.zip"])).unwrap().is_none());
+    }
+
+    /// A release whose programs have the other names (one from before Omsi-Hub's rename chosen
+    /// in the list of versions, or one after it over an old install): one name of each program
+    /// is left, set aside to go back to, and the program started after it is found.
+    #[test]
+    fn a_release_of_the_other_names_takes_the_programs_places() {
+        let root = std::env::temp_dir().join(format!("omsi_update_names_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join("install");
+        std::fs::create_dir_all(&dir).unwrap();
+        let x = omsi_cfg::product::exe;
+        use omsi_cfg::product::{APP, CLI, GAME, LEGACY_APP, LEGACY_GAME};
+        for n in [GAME, APP, CLI] {
+            std::fs::write(dir.join(x(n)), "new names").unwrap();
+        }
+        let zip_of = |path: &Path, names: &[String]| {
+            let mut z = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+            for n in names {
+                z.start_file(n.as_str(), zip::write::SimpleFileOptions::default().unix_permissions(0o755)).unwrap();
+                z.write_all(b"old release").unwrap();
+            }
+            z.finish().unwrap();
+        };
+        let old_zip = root.join("old.zip");
+        zip_of(&old_zip, &[x(LEGACY_GAME), x(LEGACY_APP)]);
+        let place = Place { dir: dir.clone(), bundle: None, exe: dir.join(x(APP)) };
+        install_archive_with(&old_zip, &place, false).unwrap();
+        assert_eq!(std::fs::read_to_string(dir.join(x(LEGACY_GAME))).unwrap(), "old release");
+        assert!(!dir.join(x(GAME)).exists() && !dir.join(x(APP)).exists());
+        assert!(dir.join(format!("{}{OLD}", x(GAME))).exists());
+        // (the terminal tool the release does not bring stays as it is)
+        assert_eq!(std::fs::read_to_string(dir.join(x(CLI))).unwrap(), "new names");
+        // the app that ran the update starts again by its old name; the game is the old one
+        assert_eq!(program_after_update(&place), dir.join(x(LEGACY_APP)));
+        assert_eq!(game_program(&place), dir.join(x(LEGACY_GAME)));
+        // and back: a release of the new names over the old ones
+        let new_zip = root.join("new.zip");
+        zip_of(&new_zip, &[x(GAME), x(APP)]);
+        let place = Place { dir: dir.clone(), bundle: None, exe: dir.join(x(LEGACY_APP)) };
+        install_archive_with(&new_zip, &place, false).unwrap();
+        assert!(dir.join(x(GAME)).is_file() && dir.join(x(APP)).is_file());
+        assert!(!dir.join(x(LEGACY_GAME)).exists() && !dir.join(x(LEGACY_APP)).exists());
+        assert_eq!(program_after_update(&place), dir.join(x(APP)));
+        assert_eq!(game_program(&place), dir.join(x(GAME)));
         let _ = std::fs::remove_dir_all(&root);
     }
 }

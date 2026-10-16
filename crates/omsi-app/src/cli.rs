@@ -6,7 +6,7 @@ use super::*;
 pub(crate) const DEFAULT_SIZE: &str = "1600x900";
 
 #[derive(Parser, Debug, Clone)]
-#[command(name = "openomsi", version = crate::startup::VERSION, about = "openOMSI")]
+#[command(name = "omsi-hub-game", version = crate::startup::VERSION, about = omsi_cfg::product::NAME)]
 pub(crate) struct Args {
     /// Write a support package (a ZIP for a GitHub issue: the system, the graphics device and
     /// settings, no paths, names or log text) to this file and end, without starting the game.

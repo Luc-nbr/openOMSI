@@ -9,8 +9,10 @@ description = "The launcher's data side: maps, buses, lines, profiles, settings,
 name = "omsi_launcher_lib"
 path = "src/lib.rs"
 
+# Omsi-Hub (fork-local): the terminal tool's name, openOMSI's `openomsi-launcher` (see
+# omsi_cfg::product)
 [[bin]]
-name = "openomsi-launcher"
+name = "omsi-hub-cli"
 path = "src/main.rs"
 
 [build-dependencies]

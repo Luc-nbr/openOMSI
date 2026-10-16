@@ -1,6 +1,7 @@
-//! `openomsi-launcher`: the launcher's commands for a terminal (`--cli <command> [json]`), and
-//! otherwise the game binary beside this one with the same arguments (a plain start of it
-//! opens the desktop launcher, `openomsi-launcher-app`).
+//! `omsi-hub-cli` (Omsi-Hub's name for openOMSI's `openomsi-launcher`): the launcher's commands
+//! for a terminal (`--cli <command> [json]`), and otherwise the game binary beside this one
+//! with the same arguments (a plain start of it opens the app, `Omsi-Hub`). Nothing starts it
+//! by itself: it is for a terminal and for scripts.
 
 fn main() {
     omsi_cfg::migrate_legacy_data_dir();
@@ -19,7 +20,14 @@ fn main() {
     }
     let game = omsi_launcher_lib::load_config().game;
     let game = if game.trim().is_empty() {
-        std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join(if cfg!(windows) { "openomsi.exe" } else { "openomsi" }))).unwrap_or_default()
+        // (Omsi-Hub's game, else one of openOMSI's name)
+        let dir = std::env::current_exe().ok().and_then(|e| e.parent().map(std::path::Path::to_path_buf)).unwrap_or_default();
+        let [game, legacy] = omsi_cfg::product::game_files().map(|f| dir.join(f));
+        if game.is_file() || !legacy.is_file() {
+            game
+        } else {
+            legacy
+        }
     } else {
         std::path::PathBuf::from(game)
     };

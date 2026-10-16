@@ -1,11 +1,14 @@
-//! openOMSI's desktop launcher: a Tauri window whose page (`launcher/ui`) puts the duty
-//! together, keeps the driver's profile, the settings, key bindings and mods, and starts the
-//! game. Everything it knows comes from `omsi-launcher-core` (the same functions the old
-//! launcher window and `openomsi-launcher --cli` use), called here as Tauri commands.
+//! Omsi-Hub (`Omsi-Hub.exe`; openOMSI's desktop launcher, `openomsi-launcher-app`): a Tauri
+//! window whose page (`launcher/ui`) puts the duty together, keeps the driver's profile, the
+//! settings, key bindings and mods, and starts the game. Everything it knows comes from
+//! `omsi-launcher-core` (the same functions the old launcher window and `omsi-hub-cli --cli`
+//! use), called here as Tauri commands.
 //!
 //! The game program finds this launcher beside itself and opens it on a plain start; when
 //! the webview cannot start here (no WebView2 runtime on an old Windows, no WebKitGTK), the
-//! program ends with an error, which the game tells the player about.
+//! program ends with an error, which the game tells the player about. Started by the player
+//! (Omsi-Hub: this is the program they open), it hands over to the game's plain start first
+//! (`hand_over_to_game`), so that the start guard and those checks run as before.
 
 // a window, not a console program, on Windows
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
@@ -70,8 +73,35 @@ fn remember_screen(window: &tauri::Window) {
     }
 }
 
+/// Omsi-Hub: started by the player (not by the game, which names itself in `OPENOMSI_BIN`), with
+/// the game beside it - the game's plain start opens this program again, after its start guard
+/// (an update or a version to go back to when this one keeps failing) and its checks of the
+/// web view (WebView2 offered where it is missing). True when the game took over.
+fn hand_over_to_game(args: &[String]) -> bool {
+    if args.len() > 1 || selftest() || std::env::var_os("OPENOMSI_BIN").is_some() || omsi_cfg::flags::OMSI_BACKGROUND.is_set() {
+        return false;
+    }
+    let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(std::path::Path::to_path_buf)) else { return false };
+    let Some(game) = omsi_cfg::product::game_files().into_iter().map(|f| dir.join(f)).find(|p| p.is_file()) else { return false };
+    match std::process::Command::new(&game).current_dir(&dir).spawn() {
+        Ok(_) => {
+            omsi_launcher_lib::log_to_file(&format!("launcher (Tauri): started by the player, {} opens it", game.display()));
+            true
+        }
+        Err(e) => {
+            omsi_launcher_lib::log_to_file(&format!("launcher (Tauri): {} could not be started ({e}), opening without it", game.display()));
+            false
+        }
+    }
+}
+
 fn main() {
     omsi_cfg::migrate_legacy_data_dir();
+    // Omsi-Hub (fork-local): an installation of openOMSI's program names takes Omsi-Hub's
+    // (docs/omsihub/RENAME.md)
+    for m in omsi_platform::rename::migrate_install() {
+        omsi_launcher_lib::log_to_file(&format!("rename: {} is {} now", m.from.display(), m.to.display()));
+    }
     omsi_launcher_lib::adopt_own_inputs();
     let args: Vec<String> = std::env::args().collect();
     // (the terminal commands of the old launcher binary work here too)
@@ -85,6 +115,9 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        return;
+    }
+    if hand_over_to_game(&args) {
         return;
     }
     omsi_launcher_lib::log_to_file(&format!("launcher (Tauri) {} starting", omsi_platform::VERSION));

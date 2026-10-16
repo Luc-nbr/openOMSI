@@ -1,18 +1,19 @@
 //! The launcher is another program: the desktop launcher (`launcher/`, a Tauri window over
-//! omsi-launcher-core, `openomsi-launcher-app`) beside the game, or any program
-//! `OMSI_LAUNCHER` names. A plain start opens it; the game has no launcher window of its own.
+//! omsi-launcher-core, Omsi-Hub's app `Omsi-Hub`, openOMSI's `openomsi-launcher-app`) beside
+//! the game, or any program `OMSI_LAUNCHER` names. A plain start opens it; the game has no
+//! launcher window of its own.
 
 use super::*;
 
-/// The desktop launcher's program name.
-const APP_LAUNCHER: &str = if cfg!(windows) { "openomsi-launcher-app.exe" } else { "openomsi-launcher-app" };
+/// The desktop launcher's program name (Omsi-Hub's; openOMSI's is looked for after it).
+const APP_LAUNCHER: &str = if cfg!(windows) { "Omsi-Hub.exe" } else { "Omsi-Hub" };
 
 /// The desktop launcher: beside this program (in the same bundle on macOS; a development
 /// build's folder when it was built into the same target folder, see docs/BUILDING.md).
 pub(crate) fn find_app_launcher() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
-    let bin = exe.parent()?.join(APP_LAUNCHER);
-    bin.is_file().then_some(bin)
+    let dir = exe.parent()?;
+    omsi_cfg::product::app_files().into_iter().map(|f| dir.join(f)).find(|bin| bin.is_file())
 }
 
 /// A plain start: the desktop launcher. Where it is missing, or ends at once with an error
@@ -25,7 +26,7 @@ pub(crate) fn open_app_launcher() -> Result<()> {
     let dir = exe.parent().map(Path::to_path_buf).unwrap_or_default();
     let Some(bin) = find_app_launcher() else {
         let text = format!(
-            "The openOMSI launcher ({APP_LAUNCHER}) was not found. It belongs in the same folder as the game ({}).\n\nPlease download openOMSI again and keep all of its files together.",
+            "{APP_LAUNCHER} was not found. It belongs in the same folder as the game ({}).\n\nPlease download Omsi-Hub again and keep all of its files together.",
             dir.display()
         );
         fatal_message(&text);
@@ -38,7 +39,7 @@ pub(crate) fn open_app_launcher() -> Result<()> {
         None => None,
     };
     if let Some(why) = failed {
-        let text = format!("The openOMSI launcher ({}) {why}.\n\n{}", bin.display(), webview_hint());
+        let text = format!("Omsi-Hub ({}) {why}.\n\n{}", bin.display(), webview_hint());
         fatal_message(&text);
         anyhow::bail!("{text}");
     }
@@ -117,7 +118,7 @@ fn offer_webview2() -> bool {
     use windows::core::PCWSTR;
     use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, IDYES, MB_ICONQUESTION, MB_YESNO};
     let wide = |s: &str| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
-    let (t, c) = (wide("The openOMSI launcher shows its window with Microsoft Edge WebView2, which this Windows does not have yet.\n\nInstall it now with Microsoft's installer?"), wide("openOMSI"));
+    let (t, c) = (wide("Omsi-Hub shows its window with Microsoft Edge WebView2, which this Windows does not have yet.\n\nInstall it now with Microsoft's installer?"), wide(omsi_cfg::product::NAME));
     // SAFETY: both strings are NUL-terminated and live for the call
     if unsafe { MessageBoxW(None, PCWSTR(t.as_ptr()), PCWSTR(c.as_ptr()), MB_YESNO | MB_ICONQUESTION) } != IDYES {
         return false;
@@ -136,7 +137,7 @@ fn offer_webview2() -> bool {
 fn webview_hint() -> String {
     if cfg!(windows) {
         match omsi_platform::webview2::runtime() {
-            Some(rt) if rt.present => format!("Its log is in the openOMSI data folder (launcher.log); Microsoft Edge WebView2 {} is installed.", rt.version),
+            Some(rt) if rt.present => format!("Its log is in the Omsi-Hub data folder (launcher.log); Microsoft Edge WebView2 {} is installed.", rt.version),
             _ => "The launcher's window needs Microsoft Edge WebView2 (part of Windows 10 and 11; for older systems: https://developer.microsoft.com/microsoft-edge/webview2/).".to_string(),
         }
     } else if cfg!(target_os = "linux") {
@@ -149,7 +150,7 @@ fn webview_hint() -> String {
             base.to_string()
         }
     } else {
-        "Its log is in the openOMSI data folder (launcher.log).".to_string()
+        "Its log is in the Omsi-Hub data folder (launcher.log).".to_string()
     }
 }
 

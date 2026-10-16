@@ -48,7 +48,7 @@ Start the game, point the launcher to your OMSI 2 folder once, pick a map, a bus
 and drive. Mods go into the folder next to the game (or through the launcher's **Mods**
 page); the original installation is never written to.
 
-The launcher opens in a window of its own (`openomsi-launcher-app`, beside the game), in this
+The launcher opens in a window of its own (`Omsi-Hub`, beside the game), in this
 fork's Omsi-Hub look; it is the only launcher - the game draws none of its own. Where it is
 missing, or its window cannot open (a Windows without WebView2: the game offers Microsoft's
 installer), the game says so. See [the launcher](docs/USER_GUIDE.md#the-launcher).
@@ -72,12 +72,12 @@ brings no game content of its own; it plays the original's maps, buses and mods.
    into a folder of its own that you can write to - your Documents, a games folder, or the
    OMSI 2 folder itself. Not `Program Files`: the launcher could not update itself there.
 2. **Start it.**
-   * **Windows:** `openomsi.exe`. Windows SmartScreen may warn about an unknown app: *More
+   * **Windows:** `Omsi-Hub.exe`. Windows SmartScreen may warn about an unknown app: *More
      info* → *Run anyway*.
-   * **macOS:** open `openOMSI.app`. The first time, macOS may refuse an app from the
+   * **macOS:** open `Omsi-Hub.app`. The first time, macOS may refuse an app from the
      internet: right-click → *Open* → *Open*, or run
-     `xattr -dr com.apple.quarantine /path/to/openOMSI.app` once.
-   * **Linux:** `./openomsi` (run `chmod +x openomsi` if it does not start). It needs a
+     `xattr -dr com.apple.quarantine /path/to/Omsi-Hub.app` once.
+   * **Linux:** `./omsi-hub-game` (run `chmod +x omsi-hub-game` if it does not start). It needs a
      Vulkan or OpenGL driver (Mesa: `mesa-vulkan-drivers`, or your GPU vendor's driver).
    * **Android:** see [docs/ANDROID.md](docs/ANDROID.md) - the OMSI 2 folder is copied onto the
      phone first.
@@ -111,7 +111,7 @@ to.
   a key you change there takes effect at once.
 * **Anything else:** when the game ends on an error, the launcher shows it with *Copy report*
   and *Report on GitHub*. The logs are in `~/.openomsi` (Windows: `C:\Users\<you>\.openomsi`),
-  `game.log` for the last game. Setup → *Export diagnostics* (or `openomsi --export-diagnostics
+  `game.log` for the last game. Setup → *Export diagnostics* (or `omsi-hub-game --export-diagnostics
   <file.zip>`) saves a support package for an issue on this computer: the program, the system,
   the graphics card, driver and settings, the controllers and the last game's map and bus, but
   no folder paths, names, chat, LAN codes or addresses, and of the logs only which events
@@ -153,9 +153,9 @@ pages live in [`docs/`](docs):
 
 ```sh
 git clone https://github.com/openOMSI-org/openOMSI.git && cd openOMSI
-scripts/build-macos.sh        # macOS   → dist/macos/openOMSI.app
-scripts\build-windows.cmd     # Windows → dist\windows\openomsi.exe
-scripts/build-linux.sh        # Linux   → dist/linux/openomsi
+scripts/build-macos.sh        # macOS   → dist/macos/Omsi-Hub.app
+scripts\build-windows.cmd     # Windows → dist\windows\Omsi-Hub.exe
+scripts/build-linux.sh        # Linux   → dist/linux/omsi-hub-game
 scripts/build-android.sh      # Android → dist/android/openOMSI-<version>.apk
 scripts/build-server.sh       # server  → dist/server
 ```
@@ -169,8 +169,8 @@ Needs the latest [Rust stable](https://rustup.rs) and the platform's C toolchain
 openOMSI/
 ├── VERSION            MAJOR.MINOR of the next release (edited by hand)
 ├── crates/            the engine, one crate per subsystem of the original
-│   ├── omsi-app/        the game binary `openomsi` (window, launcher, HUD, server mode)
-│   ├── omsi-launcher-core/  launcher data side + `openomsi-launcher` terminal tool
+│   ├── omsi-app/        the game binary `omsi-hub-game` (window, launcher, HUD, server mode)
+│   ├── omsi-launcher-core/  launcher data side + `omsi-hub-cli` terminal tool
 │   ├── omsi-cfg/        text files, code pages, virtual file system, content roots
 │   ├── omsi-script/     the OMSI script language (compiler + VM)
 │   ├── omsi-o3d/ omsi-model/ omsi-texture/ omsi-geometry/   meshes, models, textures, splines

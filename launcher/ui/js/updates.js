@@ -29,7 +29,7 @@ async function refresh() {
   if (u.state === 'restarting' && !relaunching && !onPhone) {
     relaunching = true;
     call('update_relaunch').catch((e) => {
-      relaunchError = t('openOMSI {version} is installed: start it again yourself ({e}).', { version: u.release.version, e: e.message });
+      relaunchError = t('Omsi-Hub {version} is installed: start it again yourself ({e}).', { version: u.release.version, e: e.message });
       set({ updateAsked: true, update: { ...u, state: 'failed', message: relaunchError } });
     });
   }
@@ -52,7 +52,7 @@ async function dismissUpdate() {
 }
 
 export function startUpdates() {
-  if (S.boot?.updated) toast(t('Updated to openOMSI {version}', { version: S.boot.updated }), 'ok');
+  if (S.boot?.updated) toast(t('Updated to Omsi-Hub {version}', { version: S.boot.updated }), 'ok');
   refresh();
   setTimeout(() => looking() && checkUpdates(), 1000);
   setInterval(() => {
@@ -74,10 +74,10 @@ export function UpdateDialog() {
   if (!shown) return null;
   const busy = u.state !== 'available' && u.state !== 'failed';
   const open = (url) => call('open_url', { url }).catch((e) => toast(e.message, 'error'));
-  const title = u.state === 'available' ? t('openOMSI {version} is available', { version: r.version })
-    : u.state === 'downloading' ? t('Downloading openOMSI {version}', { version: r.version })
+  const title = u.state === 'available' ? t('Omsi-Hub {version} is available', { version: r.version })
+    : u.state === 'downloading' ? t('Downloading Omsi-Hub {version}', { version: r.version })
     : u.state === 'failed' ? t('Not updated')
-    : t('Installing openOMSI {version}', { version: r.version });
+    : t('Installing Omsi-Hub {version}', { version: r.version });
   const footer = u.state === 'available'
     ? html`<${Button} kind="ghost" icon="external" label="What's new" onClick=${() => open(r.page)} />
         <${Button} label="Not now" onClick=${dismissUpdate} />
@@ -111,10 +111,10 @@ export function UpdateRow() {
   const u = s.update;
   if (!u?.allowed) return null;
   const line = u.state === 'checking' ? t('Looking for updates…')
-    : u.state === 'up_to_date' ? t('openOMSI {version} is the latest version.', { version: u.current })
-    : u.state === 'available' ? t('openOMSI {version} is available', { version: u.release.version })
-    : u.state === 'downloading' ? `${t('Downloading openOMSI {version}', { version: u.release.version })} (${t('{done} of {total} from GitHub', { done: mb(u.done), total: mb(u.total) })})`
-    : u.state === 'installing' || u.state === 'installer' || u.state === 'restarting' ? t('Installing openOMSI {version}', { version: u.release.version })
+    : u.state === 'up_to_date' ? t('Omsi-Hub {version} is the latest version.', { version: u.current })
+    : u.state === 'available' ? t('Omsi-Hub {version} is available', { version: u.release.version })
+    : u.state === 'downloading' ? `${t('Downloading Omsi-Hub {version}', { version: u.release.version })} (${t('{done} of {total} from GitHub', { done: mb(u.done), total: mb(u.total) })})`
+    : u.state === 'installing' || u.state === 'installer' || u.state === 'restarting' ? t('Installing Omsi-Hub {version}', { version: u.release.version })
     : u.state === 'failed' ? u.message
     : '';
   return html`<div class="setting-row full">

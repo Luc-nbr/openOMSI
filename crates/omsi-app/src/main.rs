@@ -1,4 +1,4 @@
-//! `openomsi` - the game and its launcher (the game itself is the `openomsi_game` library).
+//! `omsi-hub-game` (openOMSI's `openomsi`) - the game and its launcher (the game itself is the `openomsi_game` library).
 
 // a game, not a console program: no console window opens beside it on Windows (a start
 // from a terminal still prints there, see attach_parent_console)
@@ -34,6 +34,9 @@ fn main() -> anyhow::Result<()> {
         std::process::exit(code);
     }
     omsi_guard::apply_safe_mode();
+    // Omsi-Hub (fork-local): an installation of openOMSI's program names takes Omsi-Hub's
+    // (an update by a build before the rename installs them so, docs/omsihub/RENAME.md)
+    omsi_platform::rename::migrate_install();
     // A launcher start (a double click: no arguments) gets its watcher, or is healed right
     // now when this version failed here before.
     if std::env::args_os().len() == 1 {

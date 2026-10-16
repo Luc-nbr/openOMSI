@@ -378,17 +378,18 @@ pub(crate) fn prepare(mut args: Args, bare: bool) -> Result<Option<(Args, Option
                 let missing = omsi_cfg::missing_original_essentials(&args.root);
                 let text = format!(
                     "The original OMSI 2 was not found.\n\n\
-                     openOMSI needs a complete installation of the original game (any version). \
+                     {} needs a complete installation of the original game (any version). \
                      Choose its folder in the launcher (Setup), or start once with \
                      --root \"/path/to/OMSI 2\", the folder with Omsi.exe, maps and Vehicles in it.\n\n\
                      Missing in {}: {}",
+                    omsi_cfg::product::NAME,
                     args.root.display(),
                     missing.join(", ")
                 );
                 if server_cfg.is_some() {
                     eprintln!("{text}");
                 } else {
-                    fatal_dialog("openOMSI cannot start", &text);
+                    fatal_dialog(&format!("{} cannot start", omsi_cfg::product::NAME), &text);
                 }
                 if cfg!(any(target_os = "android", target_os = "ios")) {
                     // (a phone's app is not ended from inside: back to the launcher)

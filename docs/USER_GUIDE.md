@@ -17,7 +17,7 @@ This loads every content file in the install with the new loaders and reports wh
 ## Running
 
 ```bash
-openomsi --root "/path/to/OMSI 2"
+omsi-hub-game --root "/path/to/OMSI 2"
 ```
 
 `--root` is only needed once: the path is remembered, so afterwards the program can be
@@ -90,7 +90,7 @@ is the same thing for an offscreen run.
 [github.com/Luc-nbr/openOMSI](https://github.com/Luc-nbr/openOMSI) for the latest release
 and, when there is a newer one, offers it: **Update now** downloads it (checked against the
 SHA-256 GitHub lists), puts the new program in place of the old one and starts the launcher
-again - on Windows `openomsi.exe`, `openomsi-launcher-app.exe` and `openomsi-launcher.exe`, on macOS the `openOMSI.app`
+again - on Windows `omsi-hub-game.exe`, `Omsi-Hub.exe` and `omsi-hub-cli.exe`, on macOS the `Omsi-Hub.app`
 you started, on Linux the program files; mods, content and settings stay. On Android the
 system's installer asks "Do you want to update this app?"; Update replaces openOMSI and starts
 it again, Cancel leaves it as it was. Settings → General → Updates: look for updates at the start (on
@@ -244,8 +244,8 @@ nothing - what virtual bus companies ask their drivers for.
 
 ## The launcher
 
-The launcher is a program of its own beside the game, `openomsi-launcher-app` (a Tauri window,
-`launcher/`, see its README): `openomsi` started without arguments opens it, and where it is
+The launcher is a program of its own beside the game, `Omsi-Hub` (a Tauri window,
+`launcher/`, see its README): `omsi-hub-game` started without arguments opens it, and where it is
 missing - or its window cannot open, for want of WebView2 on an old Windows (the game offers
 Microsoft's installer) or of WebKitGTK 4.1 on Linux - the game says so and where it belongs
 (on Linux in a dialog of the desktop as well as in the terminal).
@@ -266,7 +266,7 @@ update can remove the package again, then run the same commands once more).
 On Android the same page shows in a web view over the game's window; iPhone, iPad and the Mac
 app have a launcher of their own (SwiftUI). The Drive page shows the chosen bus as a picture
 **drawn by the game's renderer** (the game program runs beside the launcher as its helper,
-`openomsi --launcher-service`) - its model, paint, materials, reflections and shadows exactly
+`omsi-hub-game --launcher-service`) - its model, paint, materials, reflections and shadows exactly
 as in the game, under the light of the chosen time and weather; drag on it to turn the bus,
 scroll to zoom. Its pages:
 
@@ -347,12 +347,12 @@ scroll to zoom. Its pages:
 scripts/build-macos.sh   # or build-windows.cmd / build-linux.sh: the game opens the launcher
 ```
 
-Without a person at it: `OPENOMSI_LAUNCHER_SELFTEST=1 openomsi-launcher-app` checks the page in
+Without a person at it: `OPENOMSI_LAUNCHER_SELFTEST=1 Omsi-Hub` checks the page in
 a hidden window and prints a report (see `launcher/README.md`); `OMSI_LAUNCHER_PAGE=drive:2`
 opens the window on a page (a Drive step, `settings`, `bus company:7` a page of the bus company,
 `bus company:home` its start screen) and `OMSI_LAUNCHER_SIZE=1440x820` gives it a size, for
 pictures. The data side is `crates/omsi-launcher-core`:
-`openomsi-launcher --cli lines '{"map":"maps/Grundorf/global.cfg"}'` runs any of its commands
+`omsi-hub-cli --cli lines '{"map":"maps/Grundorf/global.cfg"}'` runs any of its commands
 from a terminal - `config`, `maps`, `vehicles`, `weather`, `lines`, `ibis`, `profiles`,
 `profile`, `mods`, `modinfo`, `install`, `instances`, `stop`, `log`, `join`, `settings`,
 `save_settings`, `keybindings`, `save_keybindings`, `preview`, `args`, `launch`. `lines`
@@ -431,7 +431,7 @@ OpenGL ES through Google's ANGLE on the card's DirectX 11 driver: for graphics c
 DirectX 12, Vulkan and OpenGL drivers are missing or broken (Intel HD Graphics 2000-4000, AMD
 Radeon HD 5000/6000). It is tried last, after the other three failed, and only when
 `libEGL.dll` and `libGLESv2.dll` (Google's ANGLE, BSD licence, with its Direct3D 11 renderer)
-are next to `openomsi.exe`; without them it is skipped (the log says so). The Windows package
+are next to `omsi-hub-game.exe`; without them it is skipped (the log says so). The Windows package
 is to ship them, built from ANGLE's own source by
 [angle-openomsi](https://github.com/openOMSI-org/angle-openomsi); with them the log names the
 adapter `ANGLE (…Direct3D11…)` on the `Gl` backend.
@@ -596,7 +596,7 @@ The choice is saved as `right_stick_look=0` (off) or `right_stick_look=1` (on) i
 
 ## Mods and the content folder
 
-The folder of the game binary (`dist/<platform>` in a build; beside `openOMSI.app` on macOS) is laid out like an OMSI 2
+The folder of the game binary (`dist/<platform>` in a build; beside `Omsi-Hub.app` on macOS) is laid out like an OMSI 2
 installation - `Vehicles`, `maps`, `Sceneryobjects`, `Splines`, `Texture`, `Fonts`,
 `Plugins`, `TicketPacks`, `Drivers`, `Weather`, … - and is searched *before* the original
 folder (`omsi_cfg::content_roots`): whatever a mod puts there is found exactly as if it had
@@ -613,7 +613,7 @@ Installing a mod: the launcher's **Mods** page opens the system's folder / file 
 into place (OMSI-style folders anywhere inside are merged; a lone bus, map, object or
 spline folder is recognised by its `.bus` / `global.cfg` / `.sco` / `.sli` files and put
 under the right folder), or drop it into `Mods/` next to the binary and open the page.
-`openomsi-launcher --cli install '{"path":"/path/to/mod.7z"}'` and `--cli mods` do the same
+`omsi-hub-cli --cli install '{"path":"/path/to/mod.7z"}'` and `--cli mods` do the same
 from a shell. An installation is a background job: the archive's table of contents becomes
 a plan, the disk is checked for room, everything is unpacked into a staging folder on the
 content volume and moved into place in one step, and it can be cancelled and cleaned up at
@@ -951,5 +951,5 @@ platform.
 Windows, macOS and Linux run the same code (wgpu, winit, cpal, std UDP);
 paths are resolved case-insensitively so Windows-style `\` references in mods work
 everywhere; settings live under `$HOME` / `%USERPROFILE%`. The same `cargo build --release`
-produces `openomsi.exe` / `openomsi`, and the scripts in `scripts/` build the launcher tools alongside it. Stopping a game from the launcher uses `WM_CLOSE` on Windows where it
+produces `omsi-hub-game.exe` / `omsi-hub-game`, and the scripts in `scripts/` build the launcher tools alongside it. Stopping a game from the launcher uses `WM_CLOSE` on Windows where it
 sends SIGTERM elsewhere.

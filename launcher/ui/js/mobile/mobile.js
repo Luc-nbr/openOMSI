@@ -59,7 +59,7 @@ function More() {
       ${item('tutorials', 'Tutorials', 'book')}
       ${item('setup', 'Setup', 'folder')}
     </div>
-    <p class="m-foot">openOMSI ${s.boot?.version || ''}</p>
+    <p class="m-foot">Omsi-Hub ${s.boot?.version || ''}</p>
   </div>`;
 }
 

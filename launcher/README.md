@@ -8,9 +8,9 @@ game's window; iPhone, iPad and the Mac app have a SwiftUI launcher (`apple/`) o
 window-free model `crates/omsi-launcher-model`. The game has no launcher window of its own.
 
 * `src-tauri/` - the program. Its commands (`src/commands.rs`) call `omsi-launcher-core`
-  directly, the same functions `openomsi-launcher --cli` offers a terminal; `src/protocol.rs`
+  directly, the same functions `omsi-hub-cli --cli` offers a terminal; `src/protocol.rs`
   serves the content's pictures to the page as `omsi://localhost/…`; `src/service.rs` keeps
-  the game program running beside it as a helper with no window (`openomsi
+  the game program running beside it as a helper with no window (`omsi-hub-game
   --launcher-service`, `crates/omsi-app/src/launcher/service.rs`), which draws the bus preview
   with the game's own renderer - the game's showroom, sent as JPEG pictures while it turns -
   and reads the city map with a trip's route the way the
@@ -28,12 +28,12 @@ window-free model `crates/omsi-launcher-model`. The game has no launcher window 
 
 ## How the game and the launcher find each other
 
-A plain start of `openomsi` (a double click) opens `openomsi-launcher-app` beside it; where it
+A plain start of `omsi-hub-game` (a double click) opens `Omsi-Hub` beside it; where it
 is missing, or its window cannot open (no WebView2 on an old Windows - the game offers
 Microsoft's installer -, no WebKitGTK 4.1 on Linux), the game says so and ends. A development
 build finds it when the launcher is built into the game's target folder
 (`CARGO_TARGET_DIR=target cargo build --manifest-path launcher/src-tauri/Cargo.toml`). The
-launcher starts each duty as `openomsi` with a full command line, and rests out of sight
+launcher starts each duty as `omsi-hub-game` with a full command line, and rests out of sight
 while a game it started runs when the setting "The launcher rests while a game runs" is on. The duty chosen is kept in
 `~/.openomsi/launcher-duty.json`, which the Swift launcher reads as well.
 
@@ -56,7 +56,7 @@ without one.
 
 ## Checking it
 
-* **Without a window on the screen**: `OPENOMSI_LAUNCHER_SELFTEST=1 openomsi-launcher-app`
+* **Without a window on the screen**: `OPENOMSI_LAUNCHER_SELFTEST=1 Omsi-Hub`
   keeps the window hidden (and out of the Dock), lets the page check itself - the commands,
   the content lists, a map picture through `omsi://`, the Inter font, every page drawn without
   a script error - prints the report as JSON and exits with 0 when everything passed.
@@ -66,7 +66,7 @@ without one.
 * **The layout in a browser**: serve `launcher/` (`python3 -m http.server -d launcher`) and open
   `/ui/`; outside Tauri the commands answer from `launcher/mock/<command>.json` (not in the
   repository). Most can be made with the terminal commands, e.g.
-  `openomsi-launcher-app --cli maps > launcher/mock/maps.json` (also `vehicles`, `weather`,
+  `Omsi-Hub --cli maps > launcher/mock/maps.json` (also `vehicles`, `weather`,
   `profiles`, `settings` → `settings_get.json`, `keybindings` → `keybindings_get.json`,
   `lines '{"map":"maps/Grundorf/global.cfg","date":"1989-05-30"}'`); `bootstrap.json` is
   written by hand. In the browser console, `missingTexts()` lists the texts the translation

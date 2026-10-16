@@ -158,7 +158,7 @@ export function DisplayFont({ bus, text }) {
   }
   return html`<div class="hub-df">
     <div class="hub-bo-head"><b>${tr('Display font')}</b>
-      <button type="button" class="hub-bo-reset" title=${tr("Copy a font into openOMSI's content folder: an OMSI .oft with its bitmaps, or a TrueType / OpenType font (.ttf, .otf, .ttc)")} onClick=${add}><${Icon} name="add" size=${16} />${tr('Add font…')}</button></div>
+      <button type="button" class="hub-bo-reset" title=${tr("Copy a font into Omsi-Hub's content folder: an OMSI .oft with its bitmaps, or a TrueType / OpenType font (.ttf, .otf, .ttc)")} onClick=${add}><${Icon} name="add" size=${16} />${tr('Add font…')}</button></div>
     ${body}
     ${note && html`<p class=${'hub-df-note ' + (note[1] ? 'warn' : 'ok')}>${note[0]}</p>`}
   </div>

@@ -34,6 +34,8 @@ pub mod radio;
 pub mod panic_guard;
 pub mod vfs;
 pub mod install_search;
+// Omsi-Hub (fork-local): the distribution's name and its programs' file names
+pub mod product;
 mod walk;
 use walk::{pop_within, resolve_existing};
 pub use install_search::find_original_install;
@@ -941,7 +943,7 @@ pub fn missing_original_essentials(root: &Path) -> Vec<String> {
     // that said the game was not there)
     let marked = root.join(CONTENT_MARKER).exists() || root.join(LEGACY_CONTENT_MARKER).exists();
     if marked && resolve_existing(root, &["Omsi.exe"]).is_none() {
-        return vec![format!("{} (this is the openOMSI content folder, not the original game)", root.display())];
+        return vec![format!("{} (this is the {} content folder, not the original game)", root.display(), crate::product::NAME)];
     }
     ORIGINAL_ESSENTIALS
         .iter()
@@ -1109,7 +1111,7 @@ fn sibling_installs(here: &Path) -> Vec<PathBuf> {
     entries
         .flatten()
         .map(|e| e.path())
-        .filter(|d| ["openomsi", "openomsi.exe", "openOMSI.app"].iter().any(|p| d.join(p).exists()))
+        .filter(|d| ["omsi-hub-game", "omsi-hub-game.exe", "Omsi-Hub.app", "openomsi", "openomsi.exe", "openOMSI.app"].iter().any(|p| d.join(p).exists()))
         .map(|d| content_folder_of(&d))
         .collect()
 }

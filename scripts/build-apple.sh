@@ -56,21 +56,21 @@ rust() {
             MACOSX_DEPLOYMENT_TARGET=15.0 cargo rustc --locked $(cargo_flags) --manifest-path "$root/crates/omsi-app/Cargo.toml" --lib --crate-type staticlib --target "$t"
             MACOSX_DEPLOYMENT_TARGET=11.0 cargo build --locked $(cargo_flags) --manifest-path "$root/Cargo.toml" -p omsi-app -p omsi-launcher-core --target "$t"
             libs="$libs $target_dir/$t/$profile/libopenomsi_game.a"
-            games="$games $target_dir/$t/$profile/openomsi"
+            games="$games $target_dir/$t/$profile/omsi-hub-game"
         done
         out="$target_dir/universal-apple-darwin/$profile"
         mkdir -p "$out"
         # shellcheck disable=SC2086
         lipo -create $libs -output "$out/libopenomsi_game.a"
         # shellcheck disable=SC2086
-        lipo -create $games -output "$out/openomsi"
+        lipo -create $games -output "$out/omsi-hub-game"
         launchers=""
         for a in $archs; do
             case "$a" in arm64 | aarch64) t=aarch64-apple-darwin ;; *) t=x86_64-apple-darwin ;; esac
-            launchers="$launchers $target_dir/$t/$profile/openomsi-launcher"
+            launchers="$launchers $target_dir/$t/$profile/omsi-hub-cli"
         done
         # shellcheck disable=SC2086
-        lipo -create $launchers -output "$out/openomsi-launcher"
+        lipo -create $launchers -output "$out/omsi-hub-cli"
         ;;
     *)
         echo "rust: ios, ios-sim or macos" >&2
@@ -91,23 +91,24 @@ rust_for_xcode() {
 }
 
 # Called by Xcode after the Mac app is linked: the game program and the Steam library go
+# (Omsi-Hub's names, docs/omsihub/RENAME.md: omsi-hub-game, omsi-hub-cli)
 # beside the launcher in Contents/MacOS, signed as the app is.
 embed_game() {
     dir="$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH"
     src="$target_dir/universal-apple-darwin/$profile"
-    cp "$src/openomsi" "$dir/openomsi"
-    cp "$src/openomsi-launcher" "$dir/openomsi-launcher"
+    cp "$src/omsi-hub-game" "$dir/omsi-hub-game"
+    cp "$src/omsi-hub-cli" "$dir/omsi-hub-cli"
     cp "$root/assets/steam_redist/libsteam_api.dylib" "$dir/"
     identity="${EXPANDED_CODE_SIGN_IDENTITY:-}"
     if [ -n "$identity" ] && [ "$identity" != "-" ]; then
         ent="$apple/macOS/openOMSI.entitlements"
         [ "${OPENOMSI_STORE:-}" = 1 ] && ent="$apple/macOS/openomsi-game-AppStore.entitlements"
         codesign --force --options runtime --timestamp --sign "$identity" "$dir/libsteam_api.dylib"
-        for b in openomsi openomsi-launcher; do
+        for b in omsi-hub-game omsi-hub-cli; do
             codesign --force --options runtime --timestamp --entitlements "$ent" --sign "$identity" "$dir/$b"
         done
     else
-        codesign --force --sign - "$dir/libsteam_api.dylib" "$dir/openomsi" "$dir/openomsi-launcher" 2>/dev/null || true
+        codesign --force --sign - "$dir/libsteam_api.dylib" "$dir/omsi-hub-game" "$dir/omsi-hub-cli" 2>/dev/null || true
     fi
 }
 

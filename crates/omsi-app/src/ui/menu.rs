@@ -761,7 +761,7 @@ impl Ui {
                 head = my + mh + 12.0 * s;
             }
             None => {
-                self.put(r, scene, "openOMSI", (20.0 * s) as u32 | BOLD, WHITE, bx, head);
+                self.put(r, scene, omsi_cfg::product::NAME, (20.0 * s) as u32 | BOLD, WHITE, bx, head);
                 head += 20.0 * s;
             }
         }

@@ -84,8 +84,8 @@ function refusalText(r) {
     case 'has': return tr('This bus has it already: %{file}', { file: r.what });
     case 'taken': return tr('A file called %{file} lies beside this bus already, and is never written over', { file: r.what });
     case 'no_source': return tr('No copy of it on this computer');
-    case 'no_folder': return tr('openOMSI has no folder of its own to put it in');
-    case 'original': return tr('That would be in the OMSI 2 folder, which openOMSI does not write to');
+    case 'no_folder': return tr('Omsi-Hub has no folder of its own to put it in');
+    case 'original': return tr('That would be in the OMSI 2 folder, which Omsi-Hub does not write to');
     case 'unreadable': return tr('The copy found cannot be read: %{why}', { why: r.what });
     default: return tr('Writing it failed: %{why}', { why: r?.what || '' });
   }
@@ -215,7 +215,7 @@ function cardsOf(m) {
     const extra = [];
     if (m.recommended === i && !r.maps) extra.push(tr('best for this map'));
     if (chosen && auto) extra.push(tr('automatic'));
-    if (r.added) extra.push(tr('added by openOMSI'));
+    if (r.added) extra.push(tr('added by Omsi-Hub'));
     out.push([{ key: r.file.toLowerCase(), title: r.name, file: r.file, line, tag: r.fit.kind !== 'unknown' ? [tag, col] : null, extra: extra.join(' · ') || null, chosen, icon: 'garage', enabled: true }, () => select(r)]);
   });
   if (m.want.trim()) {
@@ -292,7 +292,7 @@ function askOf(m, mode, bus) {
     : [tr("Add the map's depot file"), tr('%{hof} is the depot file of %{map}: with it beside the bus, its IBIS and destination displays know the map\'s codes and destinations.', { hof: m.want, map: m.map })];
   const u = used(m);
   let now;
-  if (u.borrowed) now = tr("For this drive openOMSI borrows it from %{folder}, which carries it. Beside this bus it is the bus's own, in its list of depot files.", { folder: u.borrowed });
+  if (u.borrowed) now = tr("For this drive Omsi-Hub borrows it from %{folder}, which carries it. Beside this bus it is the bus's own, in its list of depot files.", { folder: u.borrowed });
   else if (u.row != null) {
     const r = m.rows[u.row];
     now = r.known != null && m.total != null ? tr('Without it the bus takes %{file}, which knows %{known} of the %{total} destinations here.', { file: r.name, known: r.known, total: m.total }) : tr('Without it the bus takes %{file}.', { file: r.name });
@@ -309,7 +309,7 @@ function askOf(m, mode, bus) {
   else offer = refusalText(m.refusal);
   const picks = mode === 'missing' ? m.choices : [];
   const choices = picks.map((i) => [m.rows[i].name, fitText(m.rows[i].fit, m.rows[i].destinations)[0]]);
-  const noteText = addLabel ? tr("The copy goes into openOMSI's own folder, beside this bus. Nothing in OMSI 2 is changed or written over.") : null;
+  const noteText = addLabel ? tr("The copy goes into Omsi-Hub's own folder, beside this bus. Nothing in OMSI 2 is changed or written over.") : null;
   return { title, body, now, offer, warn, choices, picks, note: noteText, place: addLabel ? m.place : null, add: addLabel };
 }
 

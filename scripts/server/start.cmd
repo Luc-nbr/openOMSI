@@ -11,4 +11,7 @@ if "%~1"=="" (
 set "CFG=%~2"
 if "%CFG%"=="" set "CFG=%HERE%server.cfg"
 rem (the output stays in this window, as start.sh shows it)
-"%HERE%openomsi.exe" --root "%~1" --server "%CFG%"
+rem (Omsi-Hub's game, else a folder of the program's name before the rename)
+set "GAME=%HERE%omsi-hub-game.exe"
+if not exist "%GAME%" set "GAME=%HERE%openomsi.exe"
+"%GAME%" --root "%~1" --server "%CFG%"

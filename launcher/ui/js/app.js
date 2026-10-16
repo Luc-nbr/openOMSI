@@ -50,7 +50,7 @@ function Sidebar() {
   const p = s.profile;
   const name = s.config?.profile || '';
   return html`<nav class="sidebar">
-    <div class="brand"><img src="logo.svg" alt="" /><div><b>openOMSI</b><small>${t('Launcher')} ${s.boot?.version || ''}</small></div></div>
+    <div class="brand"><img src="logo.svg" alt="" /><div><b>Omsi-Hub</b><small>${t('Launcher')} ${s.boot?.version || ''}</small></div></div>
     ${PAGES.map((x) => {
       if (!x) return html`<div class="nav-sep"></div>`;
       const [id, label, icon] = x;

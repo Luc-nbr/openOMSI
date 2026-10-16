@@ -2,7 +2,9 @@
 //! read its plugins from.
 //!
 //! The game is `openomsi.exe` (Windows), `openomsi` (Linux) or the bundle's
-//! `Contents/MacOS/openomsi` (macOS: the folder holding `openOMSI.app`, or the bundle itself).
+//! `Contents/MacOS/openomsi` (macOS: the folder holding `openOMSI.app`, or the bundle itself) -
+//! or, in an Omsi-Hub folder, the same by Omsi-Hub's name, `omsi-hub-game` (looked for first,
+//! see `omsi_cfg::product`).
 //! Its version is read without starting it where the system keeps one: the Windows
 //! executable's `ProductVersion` (every release build stamps it, `crates/omsi-app/build.rs`) and
 //! the bundle's `Info.plist`; else from the folder's name as a release archive unpacks
@@ -84,27 +86,34 @@ fn child(dir: &Path, name: &str) -> Option<PathBuf> {
     listed.or_else(|| Some(dir.join(name)).filter(|p| p.exists()))
 }
 
-fn is_bundle(p: &Path) -> bool {
-    p.extension().is_some_and(|x| x.eq_ignore_ascii_case("app")) && p.join("Contents/MacOS/openomsi").is_file()
+/// The game's names without an extension: Omsi-Hub's first, then openOMSI's.
+const GAME_NAMES: [&str; 2] = ["omsi-hub-game", "openomsi"];
+
+/// The game inside the bundle `p` (`Contents/MacOS/omsi-hub-game` or `.../openomsi`).
+fn bundle_game(p: &Path) -> Option<PathBuf> {
+    if !p.extension().is_some_and(|x| x.eq_ignore_ascii_case("app")) {
+        return None;
+    }
+    GAME_NAMES.iter().map(|n| p.join("Contents/MacOS").join(n)).find(|e| e.is_file())
 }
 
 /// The game's program in `folder`: the folder's own, a bundle the folder is or holds.
 pub fn find_exe(folder: &Path) -> Option<PathBuf> {
-    for name in ["openomsi.exe", "openomsi"] {
+    for name in ["omsi-hub-game.exe", "omsi-hub-game", "openomsi.exe", "openomsi"] {
         if let Some(p) = child(folder, name).filter(|p| p.is_file()) {
             return Some(p);
         }
     }
-    if is_bundle(folder) {
-        return Some(folder.join("Contents/MacOS/openomsi"));
+    if let Some(exe) = bundle_game(folder) {
+        return Some(exe);
     }
     // (openOMSI.app, or an Omsi-Hub.app: whichever bundle holds the game)
-    let mut bundles: Vec<PathBuf> = std::fs::read_dir(folder).ok()?.flatten().map(|e| e.path()).filter(|p| is_bundle(p)).collect();
+    let mut bundles: Vec<PathBuf> = std::fs::read_dir(folder).ok()?.flatten().map(|e| e.path()).filter(|p| bundle_game(p).is_some()).collect();
     bundles.sort();
-    bundles.into_iter().next().map(|b| b.join("Contents/MacOS/openomsi"))
+    bundles.into_iter().next().and_then(|b| bundle_game(&b))
 }
 
-/// The bundle an executable is in (`X.app/Contents/MacOS/openomsi`).
+/// The bundle an executable is in (`X.app/Contents/MacOS/omsi-hub-game`).
 fn bundle_of(exe: &Path) -> Option<&Path> {
     let macos = exe.parent()?;
     (macos.ends_with("Contents/MacOS")).then(|| macos.parent()?.parent()).flatten()
@@ -149,9 +158,10 @@ pub fn plist_string(text: &str, key: &str) -> Option<String> {
     Some(rest[open..open + close].trim().to_string()).filter(|s| !s.is_empty())
 }
 
-/// The version `openomsi --version` printed ("openomsi 0.2.1234").
+/// The version `openomsi --version` printed ("openomsi 0.2.1234"; Omsi-Hub's game says
+/// "omsi-hub-game 0.2.1234").
 pub fn version_from_output(out: &str) -> Option<GameVersion> {
-    out.lines().find_map(|l| l.trim().strip_prefix("openomsi ").and_then(GameVersion::find))
+    out.lines().find_map(|l| GAME_NAMES.iter().find_map(|n| l.trim().strip_prefix(n).and_then(|r| r.strip_prefix(' '))).and_then(GameVersion::find))
 }
 
 /// The version of the game at `exe`, without starting it.
@@ -274,6 +284,7 @@ mod tests {
         assert_eq!(plist_string(plist, "CFBundleShortVersionString").as_deref(), Some("0.3.12"));
         assert_eq!(plist_string(plist, "CFBundleVersion"), None);
         assert_eq!(version_from_output("openomsi 0.2.1500\n"), Some(GameVersion::new(0, 2, 1500)));
+        assert_eq!(version_from_output("omsi-hub-game 0.2.1501\n"), Some(GameVersion::new(0, 2, 1501)));
         assert_eq!(version_from_output("error: unexpected argument '--version'"), None);
     }
 
@@ -328,6 +339,28 @@ mod tests {
         std::fs::write(linux.join("openomsi"), b"\x7fELF").unwrap();
         let i = inspect(&linux, &home).unwrap();
         assert_eq!((i.version, i.plugins_dir), (None, linux.join("Plugins")));
+    }
+
+    #[test]
+    fn omsi_hub_s_game_is_found_first_and_openomsi_s_after() {
+        let home = dir("home-n");
+        let folder = dir("names");
+        std::fs::write(folder.join("openomsi.exe"), b"MZ").unwrap();
+        assert!(inspect(&folder, &home).unwrap().exe.ends_with("openomsi.exe"));
+        std::fs::write(folder.join("omsi-hub-game.exe"), b"MZ").unwrap();
+        assert!(inspect(&folder, &home).unwrap().exe.ends_with("omsi-hub-game.exe"));
+        // (an Omsi-Hub folder of the new names only)
+        std::fs::remove_file(folder.join("openomsi.exe")).unwrap();
+        assert!(inspect(&folder, &home).unwrap().exe.ends_with("omsi-hub-game.exe"));
+        // macOS: the bundle's game by either name
+        let apps = dir("mac-names");
+        let macos = apps.join("Omsi-Hub.app/Contents/MacOS");
+        std::fs::create_dir_all(&macos).unwrap();
+        std::fs::write(macos.join("openomsi"), b"\xcf\xfa\xed\xfe").unwrap();
+        assert_eq!(find_exe(&apps), Some(macos.join("openomsi")));
+        std::fs::write(macos.join("omsi-hub-game"), b"\xcf\xfa\xed\xfe").unwrap();
+        assert_eq!(find_exe(&apps), Some(macos.join("omsi-hub-game")));
+        assert_eq!(find_exe(&apps.join("Omsi-Hub.app")), Some(macos.join("omsi-hub-game")));
     }
 
     #[test]

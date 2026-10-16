@@ -356,7 +356,7 @@ fn folder_verdict(root: &str, exists: bool, own: bool, missing: &[String]) -> (&
 fn folder(args: &Value) -> Answer {
     let root: String = arg::<Option<String>>(args, "root")?.unwrap_or_default();
     let p = Path::new(root.trim());
-    let (verdict, what) = folder_verdict(&root, p.is_dir(), p.join("openomsi.exe").exists() || p.join("openomsi").is_file(), &omsi_cfg::missing_original_essentials(p));
+    let (verdict, what) = folder_verdict(&root, p.is_dir(), omsi_cfg::product::holds_game(p), &omsi_cfg::missing_original_essentials(p));
     Ok(json!({ "verdict": verdict, "what": what }))
 }
 

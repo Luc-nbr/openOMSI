@@ -19,8 +19,10 @@ Neither publishes a release or touches `beta`. The run builds for Apple silicon 
 - `omsihub-macos-arm64` - Apple silicon (M1, M2, M3, M4 ...)
 - `omsihub-macos-x64` - Intel Macs
 
-each a zip with `Omsi-Hub-<version>-macos-<arch>.dmg` (to install) and
-`openOMSI-<version>-macos-<arch>.zip` (the same app as the updater's release file would be).
+each a zip with `Omsi-Hub-<version>-macos-<arch>.dmg` (to install),
+`Omsi-Hub-<version>-macos-<arch>.zip` (the same app as the updater's release file would be) and
+`openOMSI-<version>-macos-<arch>.zip` (the same app with its binaries by their names before
+the rename, for the updaters of older builds; `docs/omsihub/RENAME.md`).
 Which Mac you have: Apple menu > *About This Mac* > *Chip* (Apple M...) or *Processor* (Intel).
 
 ## 2. Install and open it (signed ad hoc, no Apple Developer account)
@@ -28,9 +30,9 @@ Which Mac you have: Apple menu > *About This Mac* > *Chip* (Apple M...) or *Proc
 The app is signed ad hoc (free, no Apple Developer account), not notarised: macOS does not know
 who made it and asks before it opens the first time.
 
-1. Unzip the artifact and open the `.dmg`. Drag **openOMSI.app** onto **Applications** (or
+1. Unzip the artifact and open the `.dmg`. Drag **Omsi-Hub.app** onto **Applications** (or
    into any folder you can write to - not the `.dmg` itself, or it cannot update or keep mods).
-2. In Applications, **right-click** (or Ctrl-click) **openOMSI.app** > **Open**, then **Open**
+2. In Applications, **right-click** (or Ctrl-click) **Omsi-Hub.app** > **Open**, then **Open**
    again in the dialog. From then on it opens with a double-click. (macOS 15 and newer: if
    there is no Open button, go to *System Settings* > *Privacy & Security*, scroll down to
    "openOMSI was blocked" and choose **Open Anyway**.)
@@ -38,12 +40,13 @@ who made it and asks before it opens the first time.
    flag is in the way. In Terminal:
 
    ```
-   xattr -dr com.apple.quarantine /Applications/openOMSI.app
+   xattr -dr com.apple.quarantine /Applications/Omsi-Hub.app
    ```
 
    then open it again.
 
-The app shows itself as **Omsi-Hub** (Dock, menu bar); its file stays `openOMSI.app`.
+The app shows itself as **Omsi-Hub** (Dock, menu bar); its file is `Omsi-Hub.app` (an install from before Beta 65 keeps the name
+`openOMSI.app`, see `docs/omsihub/RENAME.md`).
 
 ## 3. OMSI 2's content
 
@@ -56,7 +59,7 @@ OMSI 2 runs on Windows only, so on a Mac there is no Steam OMSI 2 to find. Copy 
 3. Start Omsi-Hub. The welcome asks where OMSI 2 is: **Browse** to the copied folder (or type
    its path) and choose **Use this folder**. Later: *Settings* > *Setup*.
 
-Omsi-Hub only reads that folder. Mods go into the content folder beside `openOMSI.app`
+Omsi-Hub only reads that folder. Mods go into the content folder beside `Omsi-Hub.app`
 (the *Mods* page, or *Setup* > *Open the content folder*), as on Windows.
 
 ## 4. Test on your Mac

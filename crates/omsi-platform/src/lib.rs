@@ -11,6 +11,8 @@ pub mod discord;
 pub mod presence;
 pub mod proxy;
 pub mod recovery;
+// Omsi-Hub (fork-local): an installation of openOMSI's program names moved to Omsi-Hub's
+pub mod rename;
 pub mod updater;
 pub mod webview2;
 
