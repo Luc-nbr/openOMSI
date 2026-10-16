@@ -39,9 +39,23 @@ const fn version_of(text: &str) -> u32 {
     panic!("PRIVACY.md has no privacy-version marker")
 }
 
-/// The statement's Markdown, its line ends as "\n" and without the version marker.
+/// The statement's Markdown, its line ends as "\n", without its HTML comments (the version
+/// marker, the maintainer's notes): what a player reads.
 pub fn text() -> String {
-    RAW.replace("\r\n", "\n").lines().filter(|l| !l.trim_start().starts_with("<!--")).collect::<Vec<_>>().join("\n").trim().to_string()
+    without_comments(&RAW.replace("\r\n", "\n")).trim().to_string()
+}
+
+/// `md` without its `<!-- … -->` comments, over several lines too (one never closed runs to the
+/// end). The blank line a comment leaves only parts blocks, as any blank line does.
+pub fn without_comments(md: &str) -> String {
+    let mut out = String::with_capacity(md.len());
+    let mut rest = md;
+    while let Some(k) = rest.find("<!--") {
+        out.push_str(&rest[..k]);
+        rest = rest[k..].find("-->").map_or("", |e| &rest[k + e + 3..]);
+    }
+    out.push_str(rest);
+    out
 }
 
 #[cfg(test)]
@@ -61,11 +75,14 @@ mod tests {
         assert_eq!(version_of("x\r\n<!-- privacy-version: 12 -->\r\n# T"), 12);
     }
 
+    /// What a player reads: no "\r", no comment - neither the marker nor the maintainer's note.
     #[test]
-    fn the_text_has_plain_line_ends_and_no_marker() {
+    fn the_text_has_plain_line_ends_and_no_comments() {
         let t = text();
         assert!(!t.contains('\r'));
-        assert!(!t.contains("privacy-version"));
+        assert!(!t.contains("privacy-version") && !t.contains("<!--") && !t.contains("-->"));
+        assert!(!t.to_lowercase().contains("maintainer"), "a note for the maintainer is shown");
         assert!(t.starts_with("# "));
+        assert_eq!(without_comments("a <!-- x -->b\n<!-- one\ntwo -->\nc<!-- open"), "a b\n\nc");
     }
 }

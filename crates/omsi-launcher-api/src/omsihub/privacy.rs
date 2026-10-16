@@ -24,7 +24,8 @@ fn cells(line: &str) -> Vec<Value> {
 /// The Markdown as blocks: `{h: level, text}`, `{p}`, `{ul: [..]}`, `{quote}`, `{table: {head, rows}}`
 /// (every text as `spans`).
 pub fn blocks(md: &str) -> Vec<Value> {
-    let md = md.replace("\r\n", "\n");
+    // (comments - the version marker, the maintainer's notes - are never shown)
+    let md = omsihub_online::privacy::without_comments(&md.replace("\r\n", "\n"));
     let mut out: Vec<Value> = Vec::new();
     let mut para: Vec<&str> = Vec::new();
     let mut list: Vec<Value> = Vec::new();
@@ -47,9 +48,6 @@ pub fn blocks(md: &str) -> Vec<Value> {
     }
     for line in md.lines() {
         let t = line.trim();
-        if t.starts_with("<!--") {
-            continue;
-        }
         if t.starts_with('|') {
             if table.is_empty() {
                 flush(&mut out, &mut para, &mut list, &mut table);
@@ -96,7 +94,7 @@ mod tests {
 
     #[test]
     fn the_markdown_is_read_into_blocks() {
-        let md = "<!-- privacy-version: 3 -->\r\n# Title\r\n\r\n**Version 3.** More\r\ntext.\r\n\r\n> A note\r\n\r\n## Data\r\n\r\n| Data | Why |\r\n| --- | --- |\r\n| **Email** | To sign in |\r\n| Name | Friends |\r\n\r\n- one\r\n- **two** too\r\nAfter.";
+        let md = "<!-- privacy-version: 3 -->\r\n<!-- Maintainer: a\r\nnote -->\r\n# Title\r\n\r\n**Version 3.** More\r\ntext.\r\n\r\n> A note\r\n\r\n## Data\r\n\r\n| Data | Why |\r\n| --- | --- |\r\n| **Email** | To sign in |\r\n| Name | Friends |\r\n\r\n- one\r\n- **two** too\r\nAfter.";
         let b = blocks(md);
         assert_eq!(b[0], json!({ "h": 1, "text": [["Title", false]] }));
         assert_eq!(b[1], json!({ "p": [["Version 3.", true], [" More text.", false]] }));
@@ -120,5 +118,7 @@ mod tests {
         assert!(b.iter().any(|x| x.get("ul").is_some()));
         let all = d.to_string();
         assert!(all.contains("Delete account") && !all.contains("<!--") && !all.contains('\r'));
+        assert!(!all.to_lowercase().contains("maintainer"), "a note for the maintainer is shown");
+        assert!(all.contains("info@omsihub.com") && !all.contains("privacy@omsihub.com"));
     }
 }
