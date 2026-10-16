@@ -83,6 +83,8 @@ jobs:
           # (the interface texts merge by text and language: .gitattributes names the driver)
           git config merge.omsihub-locales.name "Omsi-Hub interface texts"
           git config merge.omsihub-locales.driver "python scripts/merge_locales.py %O %A %B"
+          # (Omsi-Hub keeps its own README.md: .gitattributes names the "ours" driver)
+          git config merge.ours.driver true
           git remote add upstream https://github.com/openOMSI-Project/openOMSI.git
           git fetch --no-tags upstream main
           last=$(git log -1 --format=%H upstream/main -- VERSION)

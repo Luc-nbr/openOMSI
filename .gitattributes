@@ -1,3 +1,5 @@
 
 # the interface texts merge by text and language (scripts/merge_locales.py, set up by the sync)
 crates/omsi-app/locales/*.yml merge=omsihub-locales
+# Omsi-Hub keeps its own README and logo when openOMSI is merged in (the "ours" driver, set up by the sync)
+README.md merge=ours
