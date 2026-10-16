@@ -39,8 +39,8 @@ pub const URL: &str = "https://mlatjtjjdfifbgddcxzu.supabase.co";
 /// Its publishable key, the `apikey` header of every request: public by design. What a request may
 /// do is decided by the row-level security and the functions' grants (online/supabase/schema.sql).
 pub const KEY: &str = "sb_publishable_LF17d5vnctmpyH1h6dRprw_s3CGcD-P";
-/// The website (DEPLOY STEP: its live address, as in the website's `og:url`).
-pub const SITE: &str = "https://example.invalid";
+/// The website (its live address, as in the website's `og:url`).
+pub const SITE: &str = "https://omsihub.com";
 
 /// Where an account is made: the website's sign-up (the app has no form of its own).
 pub fn sign_up_page() -> String {
