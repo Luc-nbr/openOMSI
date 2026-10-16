@@ -387,3 +387,38 @@
 :root.hub .co-pg-rep .co-rep .co-section { background: var(--pg-card); border-radius: var(--pg-r); box-shadow: var(--pg-shadow); max-height: 720px; }
 @container (max-width: 760px) { :root.hub .co-pg-rep .co-rep-split { grid-template-columns: minmax(0, 1fr); } }
 
+/* --- career ------------------------------------------------------------------------------- */
+
+:root.hub .co-pg-career { display: flex; flex-direction: column; gap: 14px; overflow: hidden; }
+:root.hub .co-pg-careertabs { flex: none; }
+:root.hub .co-pg-careerbody { flex: 1; min-height: 0; }
+:root.hub .co-pg-profile { flex: none; flex-direction: row; align-items: center; gap: 18px; padding: 14px 18px; flex-wrap: wrap; }
+:root.hub .co-pg-avatar { flex: none; width: 60px; height: 60px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 900; color: var(--hub-on-accent); background-color: var(--hub-accent); box-shadow: 0 0 0 4px rgba(var(--hub-accent-rgb), 0.2); }
+:root.hub .co-pg-profilemain { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+:root.hub .co-pg-profilename { font-size: 16px; font-weight: 900; color: var(--pg-head); }
+:root.hub .co-pg-levelchip { flex: none; padding: 2px 10px; border-radius: 11px; font-size: var(--pg-small); font-weight: 900; color: var(--hub-accent); background: var(--pg-accent-soft); }
+:root.hub[data-theme="light"] .co-pg-levelchip { color: var(--hub-accent-deep); }
+:root.hub .co-pg-profilestats { flex: 1 1 360px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; min-width: 0; }
+:root.hub .co-pg-profilestats > div { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 6px; border-radius: 10px; background: var(--pg-soft); min-width: 0; text-align: center; }
+:root.hub .co-pg-profilestats b { font-size: 15px; font-weight: 900; color: var(--pg-head); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+:root.hub .co-pg-profilestats span:last-child { font-size: var(--pg-small); color: var(--pg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+:root.hub .co-pg-duties { height: 100%; overflow-y: auto; display: grid; grid-template-columns: minmax(0, 1fr) clamp(260px, 30%, 380px); gap: var(--pg-gap); align-items: start; padding: 2px 4px 16px 2px; }
+:root.hub .co-pg-duties.easy { grid-template-columns: minmax(0, 1fr) clamp(320px, 40%, 540px); }
+@container (max-width: 820px) { :root.hub .co-pg-duties, :root.hub .co-pg-duties.easy { grid-template-columns: minmax(0, 1fr); } }
+:root.hub .co-pg-weekstrip { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+@container (max-width: 560px) { :root.hub .co-pg-weekstrip { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+:root.hub .co-pg-weekday { display: flex; flex-direction: column; gap: 2px; padding: 10px 8px; min-height: 104px; border-radius: 11px; background: var(--pg-soft); min-width: 0; }
+:root.hub .co-pg-weekday.weekend { background: color-mix(in srgb, var(--hub-text) 2%, transparent); }
+:root.hub .co-pg-weekday.today { box-shadow: inset 0 0 0 2px var(--hub-accent); background: var(--pg-accent-soft); }
+:root.hub .co-pg-weekname { font-size: var(--pg-small); font-weight: 900; color: var(--pg-head); text-transform: uppercase; letter-spacing: 0.04em; }
+:root.hub .co-pg-weekdate { font-size: var(--pg-small); color: var(--pg-dim); }
+:root.hub .co-pg-weekchips { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+:root.hub .co-pg-dutychip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 5px; border-radius: 7px; background: var(--pg-card); box-shadow: var(--pg-shadow); font-size: var(--pg-small); font-weight: 800; color: var(--pg-head); font-variant-numeric: tabular-nums; min-width: 0; overflow: hidden; white-space: nowrap; }
+:root.hub .co-pg-dutychip .co-plate { min-width: 0 !important; flex: none; }
+:root.hub .co-takerow.co-pg-item { height: auto; margin: 0; border-bottom: 0; }
+:root.hub .co-myduty.co-pg-myduty { margin: 0; height: auto; min-height: 72px; padding: 10px 14px; border-radius: 12px; }
+:root.hub .co-pg-steplist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+:root.hub .co-pg-steplist li { display: flex; gap: 12px; align-items: flex-start; }
+:root.hub .co-pg-steplist b { display: block; font-size: var(--co-rows); font-weight: 900; color: var(--pg-head); }
+:root.hub .co-pg-steplist p { margin: 2px 0 0; font-size: var(--pg-small); color: var(--pg-dim); line-height: 1.6; }
+:root.hub .co-pg-stepno { flex: none; width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--co-rows); font-weight: 900; color: var(--hub-on-accent); background-color: var(--hub-accent); }

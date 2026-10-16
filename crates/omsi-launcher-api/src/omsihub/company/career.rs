@@ -124,7 +124,7 @@ fn duty_row(c: &Company, d: &MyDuty) -> Value {
         "time": format!("{} – {}", co::clock::hhmm(d.from as i64), co::clock::hhmm(d.to as i64)),
         "plate": plate_of(c, &d.line, &d.number),
         "words": trf("Tour %{t} · %{n} trips", &[("t", &d.tour_no), ("n", &d.trips.to_string())]),
-        "bus": bus, "bus_tone": tone, "duty": duty_key(d),
+        "bus": bus, "bus_tone": tone, "duty": duty_key(d), "day": d.date,
     })
 }
 
@@ -139,8 +139,17 @@ fn duties_part(s: &mut Session, c: &Company) -> Value {
     } else if easy {
         json!({ "icon": "play_arrow", "title": tr("No duty of yours in the coming week"), "text": tr("Take one of the company's duties in the list beside: it is yours on that weekday every week, and the company's drivers take the others.") })
     } else {
-        json!({ "icon": "event", "title": tr("No duty of yours in the coming week"), "text": tr("Plan yourself as a driver in the Planning: choose a duty there and \"You\". It is yours on that weekday every week."), "button": tr("To the planning") })
+        json!({ "icon": "event", "title": tr("No duty of yours in the coming week"), "text": tr("Plan yourself as a driver in the Planning: choose a duty there and \"You\". It is yours on that weekday every week."), "button": tr("Plan yourself a duty") })
     };
+    // (Luc 2026-10-16: the coming seven days as a strip, each with its duties as chips)
+    let week: Vec<Value> = (0..7)
+        .map(|k| {
+            let date = co::dates::add(&c.date, k);
+            let wd = co::dates::parse(&date).map(co::dates::weekday).unwrap_or(0) as usize;
+            let chips: Vec<Value> = duties.iter().enumerate().filter(|(_, d)| d.date == date).map(|(i, d)| json!({ "k": i, "plate": plate_of(c, &d.line, &d.number), "time": co::clock::hhmm(d.from as i64), "tip": format!("{}  ·  {} – {}", trf("Tour %{t} · %{n} trips", &[("t", &d.tour_no), ("n", &d.trips.to_string())]), co::clock::hhmm(d.from as i64), co::clock::hhmm(d.to as i64)) })).collect();
+            json!({ "day": tr(super::words::WEEKDAYS[wd.min(6)]), "date": short_date(&date), "today": k == 0, "weekend": wd >= 5, "duties": chips })
+        })
+        .collect();
     let side = if easy {
         let now = (co::clock::now(c) - co::clock::moment(&c.date, 0)).clamp(0, 48 * 60) as i32;
         let open = co::plan::takeable(&plans, &c.date, now);
@@ -160,10 +169,15 @@ fn duties_part(s: &mut Session, c: &Company) -> Value {
         };
         json!({ "title": tr("Duties you can take"), "none": none, "take": tr("Take it"), "take_tip": tr("Yours on this weekday every week: drive it from your duties"), "rows": open.iter().map(|d| duty_row(c, d)).collect::<Vec<_>>() })
     } else {
-        json!({ "title": tr("How it works"), "text": tr("The duties here are those the Planning gives you yourself (\"You\" as the driver): the same weekday every week. \"Drive\" opens the start of the drive with everything set; what you drive counts for the company as measured when its day is closed, and a duty of yours not driven is open for the central to fill.") })
+        // (the way it works as three steps, Luc 2026-10-16)
+        json!({ "title": tr("How it works"), "steps": [
+            { "title": tr("Plan yourself"), "text": tr("In the Planning, choose a duty and \"You\" as its driver: it is yours on that weekday every week.") },
+            { "title": tr("Drive it"), "text": tr("\"Drive\" opens the start of the drive with everything set: the map, the line and tour, the company's bus in its livery, the day and the time.") },
+            { "title": tr("It counts"), "text": tr("What you drive counts for the company, as measured, when its day is closed; a duty of yours not driven is open for the central to fill.") },
+        ] })
     };
     json!({
-        "title": tr("My duties"), "rows": rows, "empty": empty, "easy": easy, "side": side,
+        "title": tr("My duties"), "rows": rows, "empty": empty, "easy": easy, "side": side, "week": week, "week_title": tr("Your week"),
         "drive": tr("Drive"), "up": tr("Up next"),
         "drive_tip": tr("Sets the drive to this duty - the map, the line and tour, the company's bus in its livery, the day and the time - and opens its start: you start it there."),
         "back_tip": tr("Give the duty back: the company's drivers drive it again"),
@@ -433,7 +447,30 @@ pub fn view(s: &mut Session, args: &Value) -> Value {
             body["game"] = super::repair::view(g);
         }
     }
-    json!({ "parts": PARTS.iter().map(|p| tr(p)).collect::<Vec<_>>(), "part": part, "level": format!("{}  ·  {}", trf("Level %{n}", &[("n", &lv.to_string())]), tr(levels::title_of(lv))), "body": body })
+    json!({ "parts": PARTS.iter().map(|p| tr(p)).collect::<Vec<_>>(), "part": part, "level": format!("{}  ·  {}", trf("Level %{n}", &[("n", &lv.to_string())]), tr(levels::title_of(lv))), "body": body, "profile": profile(s, &c) })
+}
+
+/// The driver's card over every part (Luc 2026-10-16): who, the rank and level with the bar of
+/// points, and four figures - trips, hours, kilometres, punctuality; the company's level beside.
+fn profile(s: &mut Session, c: &Company) -> Value {
+    let name = core::load_config().profile.trim().to_string();
+    let lv = levels::level(c);
+    let company = format!("{}  ·  {}", trf("Company level %{n}", &[("n", &lv.to_string())]), tr(levels::title_of(lv)));
+    let Some(d) = driver(s) else { return json!({ "none": tr("Choose a driver on the start page: the career is the driver's own."), "company": company }) };
+    let sm = &d.summary;
+    let initials: String = name.split_whitespace().filter_map(|w| w.chars().next()).take(2).collect::<String>().to_uppercase();
+    json!({
+        "name": name, "initials": if initials.is_empty() { "?".to_string() } else { initials },
+        "rank": tr(sm.rank), "level": trf("Level %{n}", &[("n", &sm.progress.level.to_string())]),
+        "bar": level_bar(sm.progress.xp, sm.progress.floor, sm.progress.next, "accent"),
+        "company": company,
+        "stats": [
+            { "icon": "directions_bus", "label": tr("Trips"), "value": grouped(sm.trips as f64) },
+            { "icon": "schedule", "label": tr("Hours"), "value": num(sm.hours, 0) },
+            { "icon": "route", "label": tr("Kilometres"), "value": grouped(sm.km.round()) },
+            { "icon": "speed", "label": tr("On time"), "value": sm.punctuality.map_or("–".into(), |p| format!("{p:.0} %")) },
+        ],
+    })
 }
 
 fn class_of(name: &str) -> Option<LicenceClass> {
