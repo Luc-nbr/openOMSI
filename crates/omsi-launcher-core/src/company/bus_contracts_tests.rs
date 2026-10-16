@@ -369,6 +369,11 @@ fn an_own_school_line_runs_as_a_private_hire() {
     // two coaches at the data's £333-352 a school day each
     let day = Currency::Gbp.units(day_value(&c, k));
     assert!((666.0..704.0).contains(&day), "£{day}");
+    // handed back, the school takes another operator: no new hire for a year
+    hand_back(&mut c, "oo_1").unwrap();
+    assert!(!ensure_hires(&mut c));
+    c.date = dates::add(&c.date, 366);
+    assert!(ensure_hires(&mut c));
 }
 
 #[test]

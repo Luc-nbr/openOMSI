@@ -775,7 +775,8 @@ pub fn apply(c: &mut Company, l: &LineInfo) -> Result<u32, &'static str> {
 pub fn floor_range(c: &Company, t: &Tender, ch: Character) -> (f64, f64) {
     let (lo, hi) = econ_uk::mode(c.game_mode).rival_bids;
     let (a, b) = ch.band();
-    let cost = t.cost.max(1) as f64;
+    // (a tender of an older file, closed before there was a cost price: the cap's)
+    let cost = if t.cost > 0 { t.cost as f64 } else { t.reference.max(1) as f64 / econ_uk::TENDER_CAP };
     (cost * (1.0 + lo + (hi - lo) * a), cost * (1.0 + lo + (hi - lo) * b))
 }
 

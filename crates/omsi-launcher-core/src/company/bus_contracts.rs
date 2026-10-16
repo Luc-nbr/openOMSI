@@ -622,8 +622,8 @@ pub const SCHOOL_DAYS: u32 = 190;
 
 /// The company's own school lines get a private-hire contract with the school authority: a
 /// coach (each of the line's tours) at the data's school-day price, for the school days of a
-/// term (3 + 2 years). A line whose contract was ended for default gets none for a year.
-/// Returns whether any was made.
+/// term (3 + 2 years). A line whose contract was ended for default, or handed back, gets none for
+/// a year (the school found another operator). Returns whether any was made.
 pub fn ensure_hires(c: &mut Company) -> bool {
     let today = c.date.clone();
     let year_ago = dates::add(&today, -econ_uk::POINTS_DAYS);
@@ -631,7 +631,8 @@ pub fn ensure_hires(c: &mut Company) -> bool {
     let mut made = false;
     for (line, number, coaches) in school {
         let mine = |k: &&Contract| k.line.eq_ignore_ascii_case(&line);
-        if c.concessions.contracts.iter().filter(mine).any(|k| k.live() || (k.end == Some(End::Terminated) && k.ended.as_deref().is_some_and(|e| dates::between(&year_ago, e) >= 0))) {
+        let left = |k: &Contract| matches!(k.end, Some(End::Terminated | End::HandedBack)) && k.ended.as_deref().is_some_and(|e| dates::between(&year_ago, e) >= 0);
+        if c.concessions.contracts.iter().filter(mine).any(|k| k.live() || left(k)) {
             continue;
         }
         let w = Work { days: SCHOOL_DAYS, buses: coaches, journeys: coaches * 2, ..Default::default() };
