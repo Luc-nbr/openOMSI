@@ -212,6 +212,16 @@ function TripCard({ data, c, drivers, size }) {
   </div>`;
 }
 
+/** Why the trips chosen (`sel`, (block, trip) pairs) cannot be linked, as `rosterflow::link`
+ * refuses it - or null: two trips or more with passengers, all of one bus. A trip cut on the way
+ * counts once. (The Link button of the Drivers tab was always off: Luc, Beta 65.) */
+export function linkWhy(b, sel) {
+  if (new Set(sel.map(([i]) => i)).size > 1) return 'Only trips of one bus can be linked.';
+  const xs = sel.map(([i, j]) => b.blocks[i]?.trips[j]).filter((x) => x?.counts);
+  if (new Set(xs.map((x) => `${x.origin}|${x.name}`)).size < 2) return 'Pick two trips or more to link.';
+  return null;
+}
+
 /** Link the trip with the trips chosen, or take its link apart. */
 function linkOrUnlink(tour, trip, linked) {
   if (linked) {
@@ -408,6 +418,7 @@ function SelectionCard({ data, c, drivers, size }) {
   const duty = drivers && S.rf.tripsToDuties ? dutyOfPiece(b, tour, pieceOf(b, tour, sel[0][1])) : null;
   // (trips of several duties: how many, dragged up or down together)
   const many = duty ? new Set(sel.map(([i, j]) => dutyOfPiece(b, i, pieceOf(b, i, j))?.[0])).size : 1;
+  const why = linkWhy(b, sel);
   return html`<div class="rf-over rf-card" style=${place(c.at, 380, 196, size)}>
     <div class="head"><${Icon} name=${duty ? 'person' : 'directions_bus'} size=${17} /><b>${many > 1 ? tr('%{n} duties', { n: many }) : duty ? duty[1] : t.label}  ·  ${tr('%{n} trips chosen', { n: xs.length })}</b></div>
     <div class="body">
@@ -415,7 +426,7 @@ function SelectionCard({ data, c, drivers, size }) {
       <div class="tl wide"><${TimeLine} from=${from} to=${to} mid=${`${tr('span')} ${hm(to - from)}`} /></div>
     </div>
     <div class="foot">
-      <${RfButton} label="Link" disabled=${drivers || xs.length < 2} style="width:100px;height:30px" onClick=${() => edit('link', { tour, trips })} />
+      <${RfButton} label="Link" disabled=${!!why} title=${why || 'Link the trips chosen: they stay together on one bus, and Optimise keeps them so'} style="width:100px;height:30px" onClick=${() => edit('link', { tour, trips })} />
       <span class="grow"></span>
       <${RfButton} label=${`${tr('Move')} ${xs.length}`} raw solid disabled=${drivers && !S.rf.tripsToDuties} style="width:124px;height:30px" onClick=${() => pick(tripHand(b, drivers, tour, trips, trips[0], duty?.[0] ?? null, sel), false)} />
     </div>

@@ -9,3 +9,10 @@ _version: 2
   pl: "Odrzucono: powrót do zapisanego planu - zablokowane pojazdy i służby pozostają bez zmian."
   ru: "Отменено: возврат к сохранённому плану - заблокированные машины и смены остаются как есть."
   uk: "Скасовано: повернення до збереженого плану - заблоковані машини та зміни залишаються як є."
+"Link the trips chosen: they stay together on one bus, and Optimise keeps them so":
+  de: "Die gewählten Fahrten verknüpfen: Sie bleiben zusammen auf einem Bus, und Optimieren behält das bei"
+  fr: "Lier les courses choisies : elles restent ensemble sur un même bus, et l'optimisation les garde ainsi"
+  nl: "De gekozen ritten koppelen: ze blijven samen op één bus, en Optimaliseren houdt ze zo"
+  pl: "Połącz wybrane kursy: zostają razem na jednym autobusie, a optymalizacja tak je zachowuje"
+  ru: "Связать выбранные рейсы: они остаются вместе на одном автобусе, и оптимизация сохраняет это"
+  uk: "Зв'язати вибрані рейси: вони залишаються разом на одному автобусі, і оптимізація це зберігає"
