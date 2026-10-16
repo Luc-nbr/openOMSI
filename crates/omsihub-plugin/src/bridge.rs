@@ -57,6 +57,14 @@ pub struct Notice {
     pub kind: String,
 }
 
+/// A driver's pass.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Personnel {
+    pub number: String,
+    pub code: String,
+}
+
 /// The duty the company assigned, for the plugin.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -81,6 +89,11 @@ pub struct Assignment {
     /// A port on this computer Omsi-Hub listens to for the reports as they happen (0: none).
     pub udp_port: u16,
     pub notices: Vec<Notice>,
+    /// The driver's pass, when the driver signs on before the duty (Omsi-Hub's sign-on): the
+    /// personnel number and the code. None: no sign-on.
+    pub personnel: Option<Personnel>,
+    /// The duty board on the screen (None: shown).
+    pub board: Option<bool>,
     /// The plugin's texts in the player's language: English text -> translation.
     pub texts: BTreeMap<String, String>,
 }

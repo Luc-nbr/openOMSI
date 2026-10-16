@@ -2,7 +2,7 @@
 //! fake bus with a duty, a few frames, and what reaches Omsi-Hub through the bridge.
 
 use omsi_plugin::{io, GameEvent, HostConfig, InfoValue, PluginIo, Plugins};
-use omsihub_plugin::bridge::{self, Assignment, Notice, ReportReader};
+use omsihub_plugin::bridge::{self, Assignment, Notice, Personnel, ReportReader};
 use omsihub_plugin::{compat, install};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -344,4 +344,47 @@ fn the_drive_watch_fines_a_red_light_and_counts_hard_braking_into_the_trip() {
     let run = reports.iter().find(|r| r.is_trip()).and_then(|r| r.record.clone()).expect("the trip's record");
     assert_eq!((run["watched"].as_bool(), run["red_lights"].as_i64(), run["fines"].as_i64(), run["hard_brakes"].as_i64()), (Some(true), Some(1), Some(20_000), Some(1)));
     assert_eq!(run["offences"][0]["kind"].as_str(), Some("red_light"));
+}
+
+fn ui(name: &'static str, args: &[&str]) -> GameEvent {
+    GameEvent { name, args: args.iter().map(|a| InfoValue::Text(a.to_string())).collect() }
+}
+
+fn panel_text(ps: &Plugins, id: &str) -> Option<String> {
+    ps.ui.borrow().panels().iter().find(|p| p.id == id).map(|p| format!("{:?}", p.panel))
+}
+
+#[test]
+fn the_driver_signs_on_accepts_the_duty_and_has_the_board() {
+    let plugins = plugins_dir("signon");
+    install::install(&plugins).unwrap();
+    let dir = install::plugin_dir(&plugins);
+    bridge::write_assignment(&dir, &Assignment { personnel: Some(Personnel { number: "482913".into(), code: "5821".into() }), ..assignment() }).unwrap();
+    let mut ps = Plugins::load(&[plugins.clone()], &HostConfig::default());
+    let mut game = Game { trips: vec![three_stops()], ..Game::default() };
+    ps.frame(&mut game);
+    ps.frame(&mut game);
+    // not signed on: the duty waits, though it was to start by itself
+    assert!(game.started.is_empty());
+    assert!(panel_text(&ps, "omsihub").unwrap().contains("Not signed on"));
+    // a wrong code, then the right one
+    for events in [vec![ui("ui_change", &["omsihub", "signon_number", "482913"]), ui("ui_change", &["omsihub", "signon_code", "1111"]), ui("ui_click", &["omsihub", "signon"])], vec![ui("ui_change", &["omsihub", "signon_code", "5821"]), ui("ui_click", &["omsihub", "signon"])]] {
+        game.events = events;
+        ps.frame(&mut game);
+    }
+    game.events.clear();
+    assert!(game.started.is_empty());
+    assert!(panel_text(&ps, "omsihub").unwrap().contains("Accept duty"));
+    // the duty order accepted: the duty is taken, and the board comes
+    game.events = vec![ui("ui_click", &["omsihub", "accept"])];
+    ps.frame(&mut game);
+    game.events.clear();
+    assert_eq!(game.started.len(), 1);
+    let trip = three_stops();
+    game.duty = Some(io::Duty { line: "10".into(), tour: "2".into(), trip: 0, trips: 1, next: 1, delay: 240.0, current: trip, ..io::Duty::default() });
+    ps.frame(&mut game);
+    ps.frame(&mut game);
+    let board = panel_text(&ps, "omsihub_board").expect("the duty board");
+    // (the stop it heads for marked, four minutes late: when it will be there)
+    assert!(board.contains("▶ Markt") && board.contains("+4:00") && board.contains("08:09"), "{board}");
 }

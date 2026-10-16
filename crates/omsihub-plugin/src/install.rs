@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 /// The plugin's name: its folder in the plugins folder.
 pub const NAME: &str = "omsihub";
 /// The plugin's version; `lua/main.lua` says the same (a test keeps the two the same).
-pub const VERSION: &str = "1.2.0";
+pub const VERSION: &str = "1.3.0";
 /// The plugin's files.
 pub const FILES: &[(&str, &str)] = &[
     ("main.lua", include_str!("../lua/main.lua")),
@@ -28,6 +28,8 @@ pub const FILES: &[(&str, &str)] = &[
     ("trip.lua", include_str!("../lua/trip.lua")),
     ("card.lua", include_str!("../lua/card.lua")),
     ("watch.lua", include_str!("../lua/watch.lua")),
+    ("board.lua", include_str!("../lua/board.lua")),
+    ("signon.lua", include_str!("../lua/signon.lua")),
 ];
 /// The texts the plugin shows (`tr` in `lua/main.lua`), in English: Omsi-Hub puts their
 /// translations into the assignment (`bridge::Assignment::texts`).
@@ -89,6 +91,32 @@ pub const TEXTS: &[&str] = &[
     "Speed camera",
     "%{speed} km/h where %{limit} is allowed · fine %{amount}",
     "%{speed} mph where %{limit} is allowed · fine %{amount}",
+    // the duty board (`lua/board.lua`)
+    "Duty finished",
+    "break, %{m} min left",
+    "%{m} min over",
+    "leaves in %{m} min",
+    "on time",
+    "Empty run",
+    "Continue on line %{line}, tour %{tour}",
+    "and %{n} more to %{terminus}",
+    "Next %{time}",
+    "%{m} min break",
+    // signing on (`lua/signon.lua`)
+    "Not signed on",
+    "Personnel number",
+    "Code",
+    "Not known here. Your number and code are on your pass below.",
+    "Sign on",
+    "Your pass",
+    "Personnel no. %{number} · code %{code}",
+    "Duty assignment",
+    "Line",
+    "Tour",
+    "Departure",
+    "The duty's codes go to the IBIS as soon as you accept it.",
+    "Accept duty",
+    "Sign off",
 ];
 /// What Omsi-Hub put there, beside the plugin's files.
 pub const STAMP: &str = "omsihub-plugin.json";

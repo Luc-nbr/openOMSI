@@ -10,7 +10,7 @@
 --   data/reports.jsonl    plugin -> Omsi-Hub: the duty taken, each trip done, the duty ended
 -- A game without the file functions gets the handshake and the reports in its log instead.
 
-local VERSION = "1.2.0"
+local VERSION = "1.3.0"
 local BRIDGE = 1
 local PANEL = "omsihub"
 
@@ -164,6 +164,11 @@ local function company_duty()
   return assignment and (assignment.duty or "") ~= ""
 end
 
+local signon = require("signon")
+local board = require("board")
+board.setup(tr)
+if company_duty() then signon.setup(tr, assignment) end
+
 local function panel()
   if not (company_duty() and has["ui.set"]) then return end
   local d = duty_now()
@@ -173,20 +178,24 @@ local function panel()
   else
     status = tr("Not started yet")
   end
-  local can_start = not d and has["duty.start"] and (assignment.line or "") ~= ""
-  omsi.ui.set(PANEL, {
-    anchor = "right", x = 16, y = 0, width = 300, accent = "#F47F30", draggable = true,
-    children = {
-      { type = "row", children = {
-        { type = "icon", name = "business", color = "#F47F30" },
-        { type = "text", text = assignment.company ~= "" and assignment.company or "Omsi-Hub", weight = "bold", grow = true, wrap = false },
-      } },
-      { type = "text", text = tr("Duty %{duty}: line %{line}, tour %{tour}", { duty = assignment.duty, line = assignment.line, tour = assignment.tour }) },
-      { type = "text", id = "status", text = status, size = 13 },
-      { type = "button", id = "start", text = tr("Start duty"), icon = "play_arrow", visible = can_start },
-      { type = "text", text = tr("F10: use the panel with the mouse"), size = 12, color = "#9AA3AD", visible = can_start },
-    },
-  })
+  local work = signon.at_work()
+  local can_start = work and not d and has["duty.start"] and (assignment.line or "") ~= ""
+  local children = {
+    { type = "row", children = {
+      { type = "icon", name = "business", color = "#F47F30" },
+      { type = "text", text = assignment.company ~= "" and assignment.company or "Omsi-Hub", weight = "bold", grow = true, wrap = false },
+    } },
+    { type = "text", text = tr("Duty %{duty}: line %{line}, tour %{tour}", { duty = assignment.duty, line = assignment.line, tour = assignment.tour }) },
+  }
+  if work then
+    children[#children + 1] = { type = "text", id = "status", text = status, size = 13 }
+    children[#children + 1] = { type = "button", id = "start", text = tr("Start duty"), icon = "play_arrow", visible = can_start }
+    children[#children + 1] = { type = "button", id = "signoff", text = tr("Sign off"), icon = "logout", visible = signon.signed() }
+  else
+    for _, c in ipairs(signon.children(assignment)) do children[#children + 1] = c end
+  end
+  children[#children + 1] = { type = "text", text = tr("F10: use the panel with the mouse"), size = 12, color = "#9AA3AD", visible = can_start or not work }
+  omsi.ui.set(PANEL, { anchor = "right", x = 16, y = 0, width = 300, accent = "#F47F30", draggable = true, children = children })
 end
 
 local function start_duty()
@@ -335,7 +344,7 @@ end
 omsi.on("vehicle", function(name)
   -- (the notices once the player is in the bus and sees them)
   if name and assignment then show_notices(assignment.notices) end
-  if name and assignment and assignment.auto_start and not state.started then
+  if name and assignment and assignment.auto_start and signon.at_work() and not state.started then
     state.started = true
     start_duty()
   end
@@ -345,17 +354,32 @@ end)
 omsi.on("ui_click", function(p, element)
   if card.click(p, element) then return end
   if p == PANEL and element == "start" then start_duty() end
+  -- (signed on and the duty accepted: taken now where it was to start by itself)
+  if p == PANEL and signon.click(element, function()
+    if assignment.auto_start and not state.started then
+      state.started = true
+      start_duty()
+    end
+  end) then panel() end
 end)
 
-omsi.on("ui_change", function(p, element, value) card.change(p, element, value) end)
+omsi.on("ui_change", function(p, element, value)
+  if card.change(p, element, value) then return end
+  if p == PANEL and signon.change(element, value) then panel() end
+end)
 
 omsi.on("key", function(key, down)
   if card.key(key, down) then return end
-  if key == "F10" and down and company_duty() and fn("ui.focus") then omsi.ui.focus(not omsi.ui.focused()) end
+  if key == "F10" and down and (company_duty() or duty_now()) and fn("ui.focus") then omsi.ui.focus(not omsi.ui.focused()) end
 end)
 
 omsi.on("stop", function()
   if has["ui.remove"] then omsi.ui.remove(PANEL) end
+end)
+
+-- (the duty board: wanted unless Omsi-Hub says not, and not before the driver signed on)
+omsi.every(1, function()
+  board.update((not assignment or assignment.board ~= false) and signon.at_work())
 end)
 
 omsi.every(2, function()

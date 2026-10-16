@@ -304,6 +304,11 @@ pub fn assign_duty(d: &core::Duty, company: Option<(&str, &str)>) {
     let config = core::load_config();
     let driver = d.profile.clone().filter(|p| !p.trim().is_empty()).unwrap_or(config.profile);
     let (name, duty) = company.unwrap_or_default();
+    // (the navigator's settings of Omsi-Hub's game: signing on before a company's duty, the
+    // duty board)
+    let settings = core::get_settings().unwrap_or_else(|_| core::settings_from_text(None));
+    let on = |k: &str, default: bool| settings.get(k).and_then(Value::as_bool).unwrap_or(default);
+    let personnel = (company.is_some() && on("nav_signon", false)).then(|| super::hub_more::personnel_of(&driver)).flatten().map(|(number, code)| bridge::Personnel { number, code });
     let a = Assignment {
         company: name.to_string(),
         duty: duty.to_string(),
@@ -312,6 +317,8 @@ pub fn assign_duty(d: &core::Duty, company: Option<(&str, &str)>) {
         line: d.line.clone().unwrap_or_default(),
         tour: d.tour.clone().unwrap_or_default(),
         trip: d.trip.as_deref().and_then(|t| t.trim().parse().ok()).unwrap_or(0),
+        personnel,
+        board: Some(on("nav_board", true)),
         ..Assignment::default()
     };
     write_texts(&install::plugin_dir(&dir));
