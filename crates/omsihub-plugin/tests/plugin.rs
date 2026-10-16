@@ -17,6 +17,8 @@ struct Game {
     messages: Vec<String>,
     /// The duty's trips with their stops (none: two trips without stops).
     trips: Vec<io::Trip>,
+    /// The bus's speed, km/h.
+    speed: f32,
 }
 
 impl PluginIo for Game {
@@ -27,8 +29,8 @@ impl PluginIo for Game {
     fn has_vehicle(&self) -> bool {
         true
     }
-    fn var(&mut self, _: &str) -> Option<f32> {
-        None
+    fn var(&mut self, name: &str) -> Option<f32> {
+        (name == "Velocity").then_some(self.speed)
     }
     fn set_var(&mut self, _: &str, _: f32) {}
     fn string(&mut self, _: &str) -> Option<String> {
@@ -300,4 +302,46 @@ fn a_trip_is_recorded_stop_by_stop_and_its_card_shown() {
     let card = ui.panels().iter().find(|p| p.id == "omsihub_trip").expect("the trip's card");
     let text = format!("{:?}", card.panel);
     assert!(text.contains("Hauptbahnhof") && text.contains("Größte Verspätung"), "{text}");
+}
+
+#[test]
+fn the_drive_watch_fines_a_red_light_and_counts_hard_braking_into_the_trip() {
+    let plugins = plugins_dir("watch");
+    install::install(&plugins).unwrap();
+    let dir = install::plugin_dir(&plugins);
+    bridge::write_assignment(&dir, &Assignment { auto_start: false, ..assignment() }).unwrap();
+    let mut ps = Plugins::load(&[plugins.clone()], &HostConfig::default());
+    let trip = three_stops();
+    let mut game = Game { trips: vec![trip.clone()], ..Game::default() };
+    let at = |game: &mut Game, next: usize, at_stop: bool| {
+        game.duty = Some(io::Duty { line: "10".into(), tour: "2".into(), trip: 0, trips: 1, next, at_stop, current: trip.clone(), ..io::Duty::default() });
+    };
+    at(&mut game, 0, true);
+    ps.frame(&mut game);
+    at(&mut game, 1, false);
+    game.speed = 50.0;
+    ps.frame(&mut game);
+    ps.frame(&mut game);
+    // a light turns red ahead; two seconds later the bus runs it at 45 km/h
+    game.events = vec![GameEvent { name: "light_ahead", args: vec![InfoValue::Text("red".into()), InfoValue::Num(30.0)] }];
+    ps.frame(&mut game);
+    game.events.clear();
+    ps.frame(&mut game);
+    game.events = vec![GameEvent { name: "red_light", args: vec![InfoValue::Num(45.0)] }];
+    ps.frame(&mut game);
+    game.events.clear();
+    // braking hard from 50 to 10 km/h in two seconds
+    for kmh in [30.0, 10.0, 10.0] {
+        game.speed = kmh;
+        ps.frame(&mut game);
+    }
+    assert!(ps.ui.borrow().toasts().iter().any(|t| t.text.contains("€200")), "the red light's notice");
+    game.speed = 0.0;
+    at(&mut game, 2, true);
+    game.events = vec![trip_done(1.0)];
+    ps.frame(&mut game);
+    let reports = ReportReader::default().read_new(&dir);
+    let run = reports.iter().find(|r| r.is_trip()).and_then(|r| r.record.clone()).expect("the trip's record");
+    assert_eq!((run["watched"].as_bool(), run["red_lights"].as_i64(), run["fines"].as_i64(), run["hard_brakes"].as_i64()), (Some(true), Some(1), Some(20_000), Some(1)));
+    assert_eq!(run["offences"][0]["kind"].as_str(), Some("red_light"));
 }

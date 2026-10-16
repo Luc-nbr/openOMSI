@@ -10,7 +10,7 @@
 --   data/reports.jsonl    plugin -> Omsi-Hub: the duty taken, each trip done, the duty ended
 -- A game without the file functions gets the handshake and the reports in its log instead.
 
-local VERSION = "1.1.0"
+local VERSION = "1.2.0"
 local BRIDGE = 1
 local PANEL = "omsihub"
 
@@ -235,7 +235,21 @@ local trip_events = fn("game.has") ~= nil
 
 local trip = require("trip")
 local card = require("card")
+local watch = require("watch")
 card.setup(tr)
+
+-- the drive watch's notices: a card for a while, or a line of text in a game without panels
+watch.setup(tr, function(icon, title, text)
+  if has["ui.toast"] then
+    omsi.ui.toast(text, { title = title, icon = icon, seconds = 5 })
+  else
+    omsi.message(title .. ": " .. text, 5)
+  end
+end)
+if fn("game.settings") then
+  local s = omsi.game.settings()
+  if type(s) == "table" then watch.units = s.units end
+end
 
 local function standing()
   return not omsi.speed or omsi.speed() < 1
@@ -284,7 +298,7 @@ end)
 omsi.on("trip_done", function(n, how, driving, comfort, tickets)
   local fields = { trip = n, how = how, driving = driving, comfort = comfort, tickets = tickets, delay = delay() }
   local c = trip.current()
-  local run = c and c.n == n and trip.finish(how == "arrived", delay()) or nil
+  local run = c and c.n == n and trip.finish(how == "arrived", delay(), watch) or nil
   trip_ended(run, fields)
   panel()
 end)
@@ -294,10 +308,13 @@ omsi.on("stop_depart", function(_, _, number, d) trip.depart(number, d) end)
 omsi.on("jolt", function() trip.jolt() end)
 omsi.on("crash", function() trip.crash() end)
 omsi.on("passenger_board", function(count) trip.boarded(count) end)
+omsi.on("light_ahead", function(aspect) watch.light_ahead(aspect) end)
+omsi.on("red_light", function(kmh) watch.red_light(kmh) end)
 
 omsi.on("frame", function(dt)
   if fn("has_vehicle") and not omsi.has_vehicle() then return end
   trip.frame(dt)
+  watch.frame(dt)
   follow_trip(dt)
   card.frame(dt, standing())
 end)
@@ -308,7 +325,7 @@ local function watch_trips()
   if not d then return end
   if state.last_trip and d.trip > state.last_trip then
     local c = trip.current()
-    local run = c and c.n == state.last_trip and trip.moved_on() or nil
+    local run = c and c.n == state.last_trip and trip.moved_on(watch) or nil
     trip_ended(run, { trip = state.last_trip, how = "arrived", delay = d.delay })
     trip.begin(d.trip, d.line, d.tour)
   end

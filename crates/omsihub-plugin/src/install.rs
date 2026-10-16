@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 /// The plugin's name: its folder in the plugins folder.
 pub const NAME: &str = "omsihub";
 /// The plugin's version; `lua/main.lua` says the same (a test keeps the two the same).
-pub const VERSION: &str = "1.1.0";
+pub const VERSION: &str = "1.2.0";
 /// The plugin's files.
 pub const FILES: &[(&str, &str)] = &[
     ("main.lua", include_str!("../lua/main.lua")),
@@ -27,6 +27,7 @@ pub const FILES: &[(&str, &str)] = &[
     ("career.lua", include_str!("../lua/career.lua")),
     ("trip.lua", include_str!("../lua/trip.lua")),
     ("card.lua", include_str!("../lua/card.lua")),
+    ("watch.lua", include_str!("../lua/watch.lua")),
 ];
 /// The texts the plugin shows (`tr` in `lua/main.lua`), in English: Omsi-Hub puts their
 /// translations into the assignment (`bridge::Assignment::texts`).
@@ -82,6 +83,12 @@ pub const TEXTS: &[&str] = &[
     "The trip could not be saved",
     "Enter or × to close",
     "Click to keep it open",
+    // the drive watch's notices (`lua/watch.lua`)
+    "Red light",
+    "You crossed the stop line on red · fine %{amount}",
+    "Speed camera",
+    "%{speed} km/h where %{limit} is allowed · fine %{amount}",
+    "%{speed} mph where %{limit} is allowed · fine %{amount}",
 ];
 /// What Omsi-Hub put there, beside the plugin's files.
 pub const STAMP: &str = "omsihub-plugin.json";
