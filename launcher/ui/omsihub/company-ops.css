@@ -1,38 +1,96 @@
 /* The company's Operations page (`company/ops.js`): service control on the company's day - the
-   buses running late, the late drivers, the breakdowns, each with its ways out. Only the
-   company's own tokens (company.css), so the light and the dark look both follow. */
+   clock and the alert's threshold, the KPIs, the live incidents beside the small fleet map (under
+   it on a narrow page), what was done today and the last day's advice. The cards, KPIs and chips
+   are the set-B pages' (company-pages-b.css); every colour here is a brand token (omsihub.css),
+   so the light and the dark look both follow. */
 
-.co-ops { height: 100%; display: flex; flex-direction: column; min-height: 0; }
-.co-ops .head { flex: none; display: flex; align-items: center; gap: 20px; min-height: 44px; flex-wrap: wrap; }
-.co-ops .head .names { flex: 1; min-width: 220px; }
-.co-ops .head b { display: block; font-size: var(--co-title); line-height: 22px; }
-.co-ops .head span { display: block; font-size: var(--co-note); color: var(--hub-text-dim); line-height: 18px; }
-.co-ops .head .notice { display: flex; align-items: center; gap: 10px; font-size: var(--co-note); color: var(--hub-text-soft); }
-.co-ops .body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 10px 10px 0; display: flex; flex-direction: column; gap: 14px; }
-.co-ops .co-section > .co-caps { margin-bottom: 8px; }
-.co-ops .empty { font-size: var(--co-rows); color: var(--hub-text-dim); line-height: 22px; }
+/* the head: the clock, the alert's threshold, the bell */
+.co .co-pgb.co-pgb-ops .co-ops-head { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 22px; }
+.co .co-pgb.co-pgb-ops .co-ops-clock { display: flex; align-items: center; gap: 12px; flex: 1 1 auto; min-width: 0; }
+.co .co-pgb.co-pgb-ops .co-ops-clock > b { font-size: 26px; font-weight: 800; line-height: 1; letter-spacing: -0.02em; color: var(--hub-text); }
+.co .co-pgb.co-pgb-ops .co-ops-clock > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.co .co-pgb.co-pgb-ops .co-ops-date { font-size: 11px; font-weight: 600; color: var(--hub-text-soft); white-space: nowrap; }
+.co .co-pgb.co-pgb-ops .co-ops-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; min-width: 0; }
+.co .co-pgb.co-pgb-ops .co-ops-notice .co-seg { min-width: 250px; }
+.co .co-pgb.co-pgb-ops .co-ops-notice .co-seg button.on { background-color: var(--hub-accent); color: var(--hub-on-accent); }
+.co .co-pgb.co-pgb-ops .co-ops-bell { position: relative; flex: none; width: 36px; height: 36px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: var(--hub-text-dim); background-color: var(--hub-panel); box-shadow: var(--pgb-shadow); }
+.co .co-pgb.co-pgb-ops .co-ops-bell.on { color: var(--hub-accent); }
+.co .co-pgb.co-pgb-ops .co-ops-bell > i { position: absolute; top: -4px; right: -4px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; font-style: normal; font-size: 9.4px; font-weight: 800; line-height: 17px; text-align: center; color: var(--hub-on-accent); background-color: var(--hub-accent); }
 
-/* a bus, a driver, a breakdown */
-.co-ops-card { padding: 10px 0 12px; border-top: 1px solid var(--hub-hairline); }
-.co-ops-card:first-of-type { border-top: 0; padding-top: 2px; }
-.co-ops-card .top { display: flex; align-items: baseline; gap: 12px; }
-.co-ops-card .top b { font-size: var(--co-head); }
-.co-ops-card .top .min { font-size: var(--co-head); font-weight: 800; font-variant-numeric: tabular-nums; }
-.co-ops-card .where { font-size: var(--co-rows); color: var(--hub-text-soft); line-height: 18px; margin-top: 2px; }
-.co-ops-card .nothing { font-size: var(--co-note); color: var(--hub-text-dim); line-height: 17px; margin: 2px 0 6px; }
-.co-ops-card .none { font-size: var(--co-note); color: var(--hub-text-dim); font-style: italic; }
+/* the two columns: the incidents and the map (one under the other when narrow) */
+.co .co-pgb.co-pgb-ops .co-ops-cols { display: grid; grid-template-columns: minmax(0, 3fr) minmax(260px, 2fr); gap: 16px; align-items: start; }
+@container pgb (max-width: 900px) {
+  .co .co-pgb.co-pgb-ops .co-ops-cols { grid-template-columns: minmax(0, 1fr); }
+}
+.co .co-pgb.co-pgb-ops .co-ops-card-h { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
+.co .co-pgb.co-pgb-ops .co-ops-card-h .co-pgb-grow { display: flex; flex-direction: column; gap: 2px; }
+.co .co-pgb.co-pgb-ops .co-ops-card-h h3 { margin: 0; font-size: 12.6px; font-weight: 750; color: var(--hub-text); }
+.co .co-pgb.co-pgb-ops .co-ops-live { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 11px; font-size: 9.8px; font-weight: 700; color: var(--hub-ok); background-color: color-mix(in srgb, var(--hub-ok) 14%, transparent); white-space: nowrap; }
+.co .co-pgb.co-pgb-ops .co-ops-live > i { width: 7px; height: 7px; border-radius: 50%; background-color: var(--hub-ok); animation: co-ops-pulse 1.6s ease-in-out infinite; }
+@keyframes co-ops-pulse { 50% { opacity: 0.35; } }
 
-/* a way out */
-.co-ops-opt { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 44px; padding: 5px 8px; border-radius: var(--hub-r); }
-.co-ops-opt:hover { background: var(--hub-hover); }
-.co-ops-opt.best { box-shadow: inset 0 0 0 1px var(--hub-accent); }
-.co-ops-opt .ic { width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--hub-field); }
-.co-ops-opt .words { display: flex; flex-direction: column; min-width: 0; font-size: var(--co-rows); font-weight: 600; line-height: 17px; }
-.co-ops-opt .words .effect { font-size: var(--co-note); font-weight: 400; color: var(--hub-text-dim); }
-.co-ops-opt .words .tag { font-size: 9.2px; font-weight: 700; color: var(--hub-accent); text-transform: uppercase; letter-spacing: 0.04em; }
-.co-ops-opt.bad .words .effect { color: var(--co-warn); }
+/* the incidents' table: a row each (a card each when narrow) */
+.co .co-pgb.co-pgb-ops .co-ops-table { display: flex; flex-direction: column; margin: 0 -6px 12px; }
+.co .co-pgb.co-pgb-ops .co-ops-row { display: grid; grid-template-columns: 78px 52px minmax(44px, 60px) minmax(78px, 100px) minmax(110px, 1fr) minmax(0, 1.3fr); align-items: center; gap: 10px; padding: 9px 6px; border-top: 1px solid var(--pgb-line); cursor: pointer; border-radius: 8px; }
+.co .co-pgb.co-pgb-ops .co-ops-row:hover { background-color: var(--pgb-raise); }
+.co .co-pgb.co-pgb-ops .co-ops-row.co-ops-th { border-top: 0; cursor: default; padding-top: 0; padding-bottom: 6px; font-size: 9.4px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--hub-text-dim); }
+.co .co-pgb.co-pgb-ops .co-ops-row.co-ops-th:hover { background-color: transparent; }
+.co .co-pgb.co-pgb-ops .co-ops-sev { display: inline-flex; align-items: center; gap: 7px; font-size: 10.4px; font-weight: 700; color: var(--hub-text-soft); }
+.co .co-pgb.co-pgb-ops .co-ops-sev > i { flex: none; width: 4px; height: 26px; border-radius: 2px; background-color: var(--hub-warn); }
+.co .co-pgb.co-pgb-ops .co-ops-row.sev-high .co-ops-sev > i { background-color: var(--hub-danger); }
+.co .co-pgb.co-pgb-ops .co-ops-row.sev-medium .co-ops-sev > i { background-color: var(--hub-accent); }
+.co .co-pgb.co-pgb-ops .co-ops-row.sev-low .co-ops-sev > i { background-color: var(--hub-line); }
+.co .co-pgb.co-pgb-ops .co-ops-row.sev-high .co-ops-sev { color: var(--hub-danger); }
+.co .co-pgb.co-pgb-ops .co-ops-bus { font-size: 11.4px; font-weight: 700; color: var(--hub-text); }
+.co .co-pgb.co-pgb-ops .co-ops-delay { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
+.co .co-pgb.co-pgb-ops .co-ops-delay > b { font-size: 12px; font-weight: 800; color: var(--hub-accent); font-variant-numeric: tabular-nums; }
+.co .co-pgb.co-pgb-ops .co-ops-row.sev-ok .co-ops-delay > b { color: var(--hub-ok); }
+.co .co-pgb.co-pgb-ops .co-ops-delay > span { font-size: 9.8px; color: var(--hub-text-dim); }
+.co .co-pgb.co-pgb-ops .co-ops-cause { display: flex; flex-direction: column; min-width: 0; line-height: 1.35; }
+.co .co-pgb.co-pgb-ops .co-ops-cause > b { font-size: 11px; font-weight: 700; color: var(--hub-text); }
+.co .co-pgb.co-pgb-ops .co-ops-detail { font-size: 9.8px; color: var(--hub-text-dim); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.co .co-pgb.co-pgb-ops .co-ops-done-line { display: inline-flex; align-items: center; gap: 4px; font-size: 9.8px; font-weight: 650; color: var(--hub-ok); }
+.co .co-pgb.co-pgb-ops .co-ops-ways { display: flex; flex-wrap: wrap; gap: 5px; min-width: 0; }
+.co .co-pgb.co-pgb-ops .co-ops-way { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; height: 26px; padding: 0 9px; border-radius: 8px; border: 1px solid var(--pgb-line-strong); background-color: transparent; color: var(--hub-text); font-family: inherit; font-size: 10px; font-weight: 650; cursor: pointer; }
+.co .co-pgb.co-pgb-ops .co-ops-way:hover:not(:disabled) { border-color: var(--hub-accent); color: var(--hub-accent); }
+.co .co-pgb.co-pgb-ops .co-ops-way.best { border-color: var(--hub-accent); background-color: var(--hub-accent); color: var(--hub-on-accent); }
+.co .co-pgb.co-pgb-ops .co-ops-way.best:hover:not(:disabled) { background-color: var(--hub-accent-hover); color: var(--hub-on-accent); }
+.co .co-pgb.co-pgb-ops .co-ops-way.bad:not(.best) { color: var(--hub-text-dim); }
+.co .co-pgb.co-pgb-ops .co-ops-way:disabled { opacity: 0.5; cursor: default; }
+@container pgb (max-width: 640px) {
+  .co .co-pgb.co-pgb-ops .co-ops-row { grid-template-columns: auto auto minmax(0, 1fr) auto; grid-template-areas: "sev line bus delay" "cause cause cause cause" "ways ways ways ways"; row-gap: 6px; }
+  .co .co-pgb.co-pgb-ops .co-ops-row.co-ops-th { display: none; }
+  .co .co-pgb.co-pgb-ops .co-ops-sev { grid-area: sev; }
+  .co .co-pgb.co-pgb-ops .co-ops-line { grid-area: line; }
+  .co .co-pgb.co-pgb-ops .co-ops-bus { grid-area: bus; }
+  .co .co-pgb.co-pgb-ops .co-ops-delay { grid-area: delay; text-align: right; }
+  .co .co-pgb.co-pgb-ops .co-ops-cause { grid-area: cause; }
+  .co .co-pgb.co-pgb-ops .co-ops-ways { grid-area: ways; }
+}
 
-/* what was done today */
-.co-ops-done { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 8px; font-size: var(--co-rows); line-height: 22px; }
-.co-ops-done .time { color: var(--hub-text-dim); font-variant-numeric: tabular-nums; }
-.co-ops-card .done { display: flex; align-items: center; gap: 6px; font-size: var(--co-rows); font-weight: 600; line-height: 18px; margin-top: 2px; }
+/* all clear, and the lines running normally (the longer unseen, the fainter) */
+.co .co-pgb.co-pgb-ops .co-ops-clear { display: flex; flex-direction: column; gap: 10px; }
+.co .co-pgb.co-pgb-ops .co-ops-normal { display: flex; flex-direction: column; gap: 7px; }
+.co .co-pgb.co-pgb-ops .co-ops-normal-list { display: flex; flex-wrap: wrap; gap: 8px 14px; }
+.co .co-pgb.co-pgb-ops .co-ops-normal-item { display: inline-flex; align-items: center; gap: 6px; }
+
+/* the map */
+.co .co-pgb.co-pgb-ops .co-ops-mapbox { position: relative; height: 340px; border-radius: var(--hub-r); overflow: hidden; background-color: var(--hub-field); }
+.co .co-pgb.co-pgb-ops .co-ops-mapbox .cm-page.fm-embed { height: 100%; }
+.co .co-pgb.co-pgb-ops .fm-zoom { position: absolute; right: 8px; top: 8px; z-index: 2; display: flex; flex-direction: column; gap: 4px; }
+.co .co-pgb.co-pgb-ops .fm-zoom button { width: 28px; height: 28px; border: 0; padding: 0; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; color: var(--hub-text); background-color: var(--hub-panel); box-shadow: var(--pgb-shadow); cursor: pointer; }
+.co .co-pgb.co-pgb-ops .fm-zoom button:hover { color: var(--hub-accent); }
+.co .co-pgb.co-pgb-ops .co-ops-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: 10px; color: var(--hub-text-soft); }
+.co .co-pgb.co-pgb-ops .co-ops-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.co .co-pgb.co-pgb-ops .co-ops-legend i { width: 9px; height: 9px; border-radius: 50%; }
+.co .co-pgb.co-pgb-ops .co-ops-legend i.ok { background-color: var(--hub-ok); }
+.co .co-pgb.co-pgb-ops .co-ops-legend i.slight { background-color: var(--hub-accent); }
+.co .co-pgb.co-pgb-ops .co-ops-legend i.late { background-color: var(--hub-danger); }
+.co .co-pgb.co-pgb-ops .co-ops-legend i.out { background-color: var(--hub-text-faint); }
+
+/* what was done today; the last day's advice, folded */
+.co .co-pgb.co-pgb-ops .co-ops-done { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 8px; font-size: 11px; line-height: 22px; color: var(--hub-text-soft); }
+.co .co-pgb.co-pgb-ops .co-ops-done .time { color: var(--hub-text-dim); font-variant-numeric: tabular-nums; }
+.co .co-pgb.co-pgb-ops .co-ops-advice { padding: 8px 12px; }
+.co .co-pgb.co-pgb-ops .co-ops-fold { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; border: 0; padding: 0 4px; background-color: transparent; color: var(--hub-text); font-family: inherit; font-size: 11.6px; cursor: pointer; text-align: left; }
+.co .co-pgb.co-pgb-ops .co-ops-advice-body { padding: 4px 4px 8px; }

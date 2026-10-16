@@ -75,7 +75,10 @@ const TONES = { ok: '#34b26e', warn: '#e8aa46', orange: '#ee7a22', danger: '#d93
 /** The map read, by company map and day (read again when the page is opened anew). */
 let read = null;
 
-export function FleetMapPage() {
+/** The fleet map (`embed`: the Operations page's small one - no panel, no bus card, the buses
+ * coloured by their delay against `embed.threshold`, centred on `embed.focus.key` whenever
+ * `embed.focus.n` changes, with its own zoom and locate buttons and their `embed.tips`). */
+export function FleetMapPage({ embed = null } = {}) {
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setTick((x) => x + 1), 250);
@@ -111,12 +114,23 @@ export function FleetMapPage() {
   }, [v?.reading, v?.built, S.co.shell?.clock?.date]);
   let body = null;
   if (v?.reading) body = html`<${TextIn} x=${0} y=${0} w=${size.w} h=${24} px=${14.5} tone="dim">${v.reading}</${TextIn}>`;
+  else if (v && v.buses && size.w > 0 && embed) body = html`<${MapCanvas} map=${map} v=${v} W=${size.w} H=${size.h} left=${0} embed=${embed} />`;
   else if (v && v.buses && size.w > 0) {
     const pw = Math.min(360, size.w * 0.42);
     body = html`<${MapCanvas} map=${map} v=${v} W=${size.w} H=${size.h} left=${12 + pw} />
       <${Side} v=${v} r=${{ x: 12, y: 12, w: pw, h: Math.max(0, size.h - 24) }} />`;
   }
-  return html`<div class="cm-page cm-fleetmap" ref=${ref}>${body}</div>`;
+  return html`<div class=${'cm-page cm-fleetmap' + (embed ? ' fm-embed' : '')} ref=${ref}>${body}</div>`;
+}
+
+/** A bus's colour by its delay on the Operations page's map (the brand's meanings, read from the
+ * page): not in service grey, on time green, a slight delay orange, at the threshold red. */
+function delayColour(b, threshold) {
+  if (b.state !== 'service') return css('--hub-text-faint') || css('--hub-text-dim');
+  const m = Number(b.m) || 0;
+  if (m >= threshold) return css('--hub-danger');
+  if (m >= 2) return css('--hub-accent');
+  return css('--hub-ok');
 }
 
 /** Where a bus is drawn at `t` (ms): on its way from where it was drawn to where the last answer
@@ -241,7 +255,7 @@ function drawTag(g, x, y, b, font, widths) {
 
 /** The map: its roads and the company's lines on one canvas (drawn when the map moves), the
  * buses on another (drawn every frame), and the card of the bus picked over them. */
-function MapCanvas({ map, v, W, H, left }) {
+function MapCanvas({ map, v, W, H, left, embed = null }) {
   const base = useRef();
   const top = useRef();
   const cardEl = useRef();
@@ -381,10 +395,11 @@ function MapCanvas({ map, v, W, H, left }) {
     // (the one picked and the one under the mouse on top)
     const rank = (e) => (e.a.b.key === pickRef.current ? 2 : e.a.b.key === hover.current ? 1 : 0);
     list.sort((p, q) => rank(p) - rank(q));
-    for (const e of list) if (!e.off) drawBus(g, e.x, e.y, e.hd, e.a.b, pal, e.a.b.key === pickRef.current, accent);
+    const shown = (b) => (embed ? { ...b, colour: delayColour(b, embed.threshold || 5) } : b);
+    for (const e of list) if (!e.off) drawBus(g, e.x, e.y, e.hd, shown(e.a.b), pal, e.a.b.key === pickRef.current, accent);
     for (const e of list) {
       if (e.off) continue;
-      const tag = drawTag(g, e.x, e.y, e.a.b, font, widths);
+      const tag = drawTag(g, e.x, e.y, shown(e.a.b), font, widths);
       out.push({ key: e.a.b.key, x: e.x, y: e.y, tag });
     }
     // the card beside its bus, a line from the bus to it
@@ -458,6 +473,24 @@ function MapCanvas({ map, v, W, H, left }) {
     cam.current = null;
   }, [map]);
   useEffect(drawBase, [map, W, H, left, look]);
+  // (embedded: centred on the bus of the incident clicked)
+  useEffect(() => {
+    const key = embed?.focus?.key;
+    if (!key || !cam.current) return;
+    const a = anim.current.get(key);
+    if (!a) return;
+    const [mx, my] = glide(a, performance.now());
+    cam.current.cx = mx;
+    cam.current.cy = my;
+    cam.current.mpp = Math.min(cam.current.mpp, 3);
+    pickRef.current = key;
+    drawBase();
+  }, [embed?.focus?.n]);
+  const zoom = (f) => {
+    if (!cam.current) return;
+    cam.current.mpp = Math.min(Math.max(cam.current.mpp * f, MPP_MIN), 400);
+    drawBase();
+  };
   const choose = (key) => {
     setPick(key);
     pickRef.current = key;
@@ -523,7 +556,7 @@ function MapCanvas({ map, v, W, H, left }) {
         const moved = ptr.current.moved;
         const down = ptr.current.down;
         ptr.current = { down: null, moved: 0 };
-        if (!down || moved >= 5) return;
+        if (!down || moved >= 5 || embed) return;
         const key = busAt(at(e));
         if (key !== pick) choose(key);
       }}
@@ -544,6 +577,17 @@ function MapCanvas({ map, v, W, H, left }) {
     <canvas ref=${top} class="fm-buses" style=${`width:${W}px;height:${H}px;cursor:grab`}></canvas>
     ${!map && html`<div class="cm-mapstate">${tr('Reading the map…')}</div>`}
     ${map?.error && html`<div class="cm-mapstate t-danger">${map.error}</div>`}
+    ${embed && html`<div class="fm-zoom">
+      <button type="button" title=${embed.tips?.zoom_in} onClick=${() => zoom(1 / 1.5)}><${Icon} name="add" size=${16} /></button>
+      <button type="button" title=${embed.tips?.zoom_out} onClick=${() => zoom(1.5)}><${Icon} name="remove" size=${16} /></button>
+      <button type="button" title=${embed.tips?.locate} onClick=${() => {
+        if (map?.roads) {
+          cam.current = fit();
+          pickRef.current = null;
+          drawBase();
+        }
+      }}><${Icon} name="my_location" size=${16} /></button>
+    </div>`}
     <div class="fm-card" ref=${cardEl} style=${`width:${CARD_W}px;max-height:${Math.max(160, H - 16)}px;display:${card ? 'flex' : 'none'}`}>
       ${card && html`<${Card} c=${card} tip=${v.tips.close} onClose=${() => choose(null)} />`}
     </div>

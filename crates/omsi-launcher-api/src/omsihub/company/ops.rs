@@ -183,6 +183,17 @@ fn option_words(date: &str, o: &Effect, base: &Effect) -> String {
     s
 }
 
+/// A way out's short name, for its compact button (the whole of it is its tooltip).
+fn act_short(c: &Company, act: &Act) -> String {
+    match act {
+        Act::ShortTurn { .. } => tr("Short-turn"),
+        Act::Express { .. } => tr("Out of service"),
+        Act::Layover { .. } => tr("Shorter layover"),
+        Act::Swap { vehicle, .. } => trf("Swap in %{bus}", &[("bus", &bus_number(c, Some(*vehicle)))]),
+        Act::Cover { .. } => tr("Cover"),
+    }
+}
+
 fn act_label(c: &Company, dp: &DayPlan, act: &Act, dep: i32) -> (String, &'static str) {
     let time = hm(&dp.date, dep);
     match act {
@@ -271,7 +282,7 @@ fn bus_json(c: &Company, dp: &DayPlan, b: &ctl::LateBus) -> Value {
         .iter()
         .map(|o| {
             let (label, icon) = act_label(c, dp, &o.act, o.dep);
-            json!({ "label": label, "icon": icon, "effect": option_words(&dp.date, &o.effect, &b.nothing), "best": o.best, "good": o.gain > 0.0,
+            json!({ "label": label, "short": act_short(c, &o.act), "icon": icon, "effect": option_words(&dp.date, &o.effect, &b.nothing), "best": o.best, "good": o.gain > 0.0,
                 "args": apply_args(&t.tour.line, &t.tour.tour, o.dep, &o.act) })
         })
         .collect();
@@ -353,12 +364,17 @@ fn driver_json(c: &Company, dp: &DayPlan, d: &ctl::LateDriver) -> Value {
                 Fill::Spare { id } => trf("The driver of spare line %{spare} covers them (there at %{time})", &[("spare", &co::rosterflow::spare_label(c, id)), ("time", &hm(&dp.date, x.from))]),
                 _ => trf("The agency sends a driver (there at %{time})", &[("time", &hm(&dp.date, x.from))]),
             };
+            let short = match x.fill {
+                Fill::Colleague { id } => c.employee(id).map(|e| if co::agency::is_booked(e.id) { tr("Agency") } else { e.name.clone() }).unwrap_or_default(),
+                Fill::Spare { .. } => tr("Spare driver"),
+                _ => tr("Agency"),
+            };
             let fill = match x.fill {
                 Fill::Colleague { id } => json!({ "kind": "colleague", "id": id }),
                 Fill::Spare { id } => json!({ "kind": "spare", "id": id }),
                 _ => json!({ "kind": "agency" }),
             };
-            json!({ "label": label, "icon": if matches!(x.fill, Fill::Agency) { "badge" } else { "person" }, "effect": option_words(&dp.date, &x.effect, &d.nothing), "best": x.best, "good": true,
+            json!({ "label": label, "short": short, "icon": if matches!(x.fill, Fill::Agency) { "badge" } else { "person" }, "effect": option_words(&dp.date, &x.effect, &d.nothing), "best": x.best, "good": true,
                 "args": { "line": t.tour.line, "tour": t.tour.tour, "duty": d.duty, "fill": fill, "from": x.from } })
         })
         .collect();
@@ -429,12 +445,21 @@ fn breaks_json(c: &Company, dp: &DayPlan) -> Vec<Value> {
                 let e = lost(Some(spare_at), x.until);
                 let label = super::spare_label(&bus_number(c, Some(x.vehicle)), &hm(&s.date, spare_at), x.until);
                 out_option(&mut options, label, "directions_bus", option_words(&s.date, &e, &base), json!({ "index": index, "choice": "spare", "vehicle": x.vehicle }));
+                if let Some(o) = options.last_mut() {
+                    o["short"] = json!(trf("Spare %{bus}", &[("bus", &bus_number(c, Some(x.vehicle)))]));
+                }
             }
             let mut e = lost(Some(rental_at), None);
             e.cost = ck::rental_cost(c, index);
             out_option(&mut options, trf("Rental bus from %{time}", &[("time", &hm(&s.date, rental_at))]), "airport_shuttle", option_words(&s.date, &e, &base), json!({ "index": index, "choice": "rental" }));
+            if let Some(o) = options.last_mut() {
+                o["short"] = json!(tr("Rental bus"));
+            }
             if b.choice.is_none() {
                 out_option(&mut options, tr("Drop its trips"), "close", nothing_words(&s.date, &base), json!({ "index": index, "choice": "drop" }));
+                if let Some(o) = options.last_mut() {
+                    o["short"] = json!(tr("Drop trips"));
+                }
             }
             // (the dispatcher's way first: Normal's suggestion)
             if c.game_mode != GameMode::Realistic {
