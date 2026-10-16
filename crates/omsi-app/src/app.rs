@@ -137,8 +137,7 @@ impl App {
             .unwrap_or((1600, 900));
         let (fit, at) = crate::startup::fit_window(event_loop, lw as f64, lh as f64);
         let mut attrs = Window::default_attributes()
-            // Omsi-Hub: the app's name on the game's window
-            .with_title(omsihub_game::APP_NAME)
+            .with_title("openOMSI")
             .with_inner_size(fit)
             .with_window_icon(crate::startup::window_icon());
         if let Some(at) = at {
