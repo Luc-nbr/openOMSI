@@ -12,6 +12,7 @@ import { applyHubTheme, PRESETS, chosen, dark, hexOf, parseHex } from './theme.j
 import { go } from './hub.js';
 import { stepsOf, goStep, canGo, chosenLine } from './flow.js';
 import { startTour } from './tour.js';
+import { OnlineButton } from './online.js';
 
 /** The languages with a flag in the bar (`flow::FLAGS`); the others are in the globe's menu. */
 const FLAGS = ['ENG', 'DEU', 'FRA', 'NLD'];
@@ -145,6 +146,7 @@ export function Bar() {
     <button type="button" class=${'hub-bar-btn hub-bar-help' + (s.hubTour && !s.hubTour.closing ? ' on' : '')} title=${tr('Show the tour')} onClick=${() => startTour()}><${Icon} name="help" size=${17} /></button>
     <button type="button" class="hub-bar-btn" title=${tr(isDark ? 'Switch to the light mode' : 'Switch to the dark mode')} onClick=${(e) => flipLook(e)}><${Icon} name=${isDark ? 'dark_mode' : 'light_mode'} size=${17} /></button>
     <button type="button" class=${'hub-bar-btn' + (s.hub.palette ? ' on' : '')} title=${tr('Accent colour')} onClick=${() => set({ hub: { ...S.hub, palette: !S.hub.palette } })}><${Icon} name="palette" size=${17} /></button>
+    <${OnlineButton} />
     <button type="button" class=${'hub-bar-btn' + (s.page === 'settings' ? ' on' : '')} title=${tr('Settings')} onClick=${() => go('settings')}><${Icon} name="settings" size=${17} /></button>
     ${running > 0 && html`<button type="button" class=${'hub-bar-btn' + (s.page === 'games' ? ' on' : '')} title=${tr('Sessions')} onClick=${() => go('games')}><${Icon} name="sports_esports" size=${17} /><span class="count">${running}</span></button>`}
     ${!plain && html`<span class="hub-version" style="margin:0 4px 0 8px">${version}</span>`}
