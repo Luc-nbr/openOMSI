@@ -77,11 +77,6 @@ impl App {
             }
             self.service_msg = Some(("On foot: Esc menu, Place a vehicle..., then G at its driver's door to drive it".into(), 8.0));
         }
-        // --editor: the object editor on, once the world is there
-        if self.args.editor && self.world.is_some() {
-            self.args.editor = false;
-            self.toggle_editor();
-        }
     }
 }
 

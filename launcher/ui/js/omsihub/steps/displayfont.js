@@ -4,7 +4,7 @@
 // own sign - the chosen one's sign large, and its settings: how tall its letters are, the dots
 // between them, bold. "Add font…" copies a font into the content folder. The previews are drawn
 // on the game's side as the game draws them (`hub_more_font_pic`); the choice is kept per bus
-// and goes to the game as `--display-font`.
+// and goes to the game through the Omsi-Hub plugin (`bus.set_display_font`).
 
 import { html, useEffect, useRef, useState } from '../../../vendor/preact-htm.js';
 import { useStore } from '../../store.js';

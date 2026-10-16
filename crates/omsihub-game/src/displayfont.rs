@@ -2,7 +2,7 @@
 //! bus's own font, a line of its height, its capitals as tall as the bus's and about as wide
 //! (`omsi_content::dotfont`, `omsi_sim::texttex::substitute` - the same atlas the game draws
 //! with), or in a font chosen for the bus (`omsi_launcher_lib::busfonts`, the bus step's display
-//! font, which goes to the game as `--display-font`). The desktop launcher's depot and line
+//! font, which the Omsi-Hub plugin puts on the game's bus). The desktop launcher's depot and line
 //! editors and its bus step show such a sign (`service::display`).
 //!
 //! What a font changes on the bus is said as it is ([`Plan`]): its text displays a font draws

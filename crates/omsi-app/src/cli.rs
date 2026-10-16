@@ -58,10 +58,6 @@ pub(crate) struct Args {
     /// from the game menu, or a placed one taken over at its driver's door (G).
     #[arg(long)]
     pub(crate) on_foot: bool,
-    /// Start with the object editor on (the map's objects and terrain, as Ctrl+Shift+E turns it
-    /// on), once the world is loaded: the launcher's editor hub starts the game so.
-    #[arg(long)]
-    pub(crate) editor: bool,
     /// Control preset: `simple` (W/S/A/D and Up/Down drive, Left/Right switch the interior
     /// camera as in OMSI; the default), `wasd`,
     /// `arrows` (leaves W, S and D to the jobs `Inputs/keyboard.cfg` gives them - wipers,
@@ -114,14 +110,6 @@ pub(crate) struct Args {
     /// variable and, unless the plate is free, gives the plate that list pairs with it.
     #[arg(long)]
     pub(crate) number: Option<String>,
-    /// Display font of the player vehicle's destination displays, e.g. `--display-font
-    /// "Annax Small"`: a `[newfont]` name from a `Fonts/*.oft` of any content root, or a
-    /// TrueType/OpenType font with its settings after it (`"Arial Bold|file=C:/Windows/Fonts/
-    /// arialbd.ttf|rows=16|bold|spacing=1"`, see `omsi_content::dotfont::DisplayFontSpec`),
-    /// drawn in place of the bus's own display fonts in their grid of dots - on its text
-    /// displays and on the matrices its scripts draw (the launcher's bus step).
-    #[arg(long)]
-    pub(crate) display_font: Option<String>,
     /// Time of day at start, HH:MM (default 09:00).
     #[arg(long, default_value = "09:00")]
     pub(crate) time: String,

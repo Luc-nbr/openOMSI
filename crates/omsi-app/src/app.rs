@@ -552,9 +552,8 @@ impl App {
                         trip: None,
                         autostart: false,
                         situation_next_stop: None,
-                        // (the bus options are the player's bus's, as is its display font)
+                        // (the bus options are the player's bus's)
                         setvar: None,
-                        display_font: None,
                         ..self.args.clone()
                     };
                     match spawn_player(&one, &w, &renderer, &mut scene) {
