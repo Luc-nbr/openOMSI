@@ -1,0 +1,36 @@
+{
+  "key": "pt",
+  "flag": "🇵🇹",
+  "name": "Portugal",
+  "double_surname": 0.7,
+  "groups": [
+    {
+      "share": 88,
+      "origin": "Portuguese",
+      "male": "João, José, António, Manuel, Francisco, Luís, Carlos, Pedro, Paulo, Rui, Nuno, Jorge, Miguel, Tiago, Ricardo, Bruno, André, Diogo, Rafael, Gonçalo, Duarte, Tomás, Afonso, Rodrigo, Martim, Santiago, Guilherme, Lourenço, Gustavo, Henrique, Salvador, Vasco, Simão, Dinis, Fernando, Joaquim, Mário, Vítor, Sérgio, Hugo, Fábio, Hélder, Filipe, Marco, Alexandre, Armando, Abílio, Albano, Alberto, Américo, Artur, Belmiro, Custódio, Domingos, Eduardo, Fausto, Gaspar, Horácio, Inácio, Jaime, Leonel, Márcio, Norberto, Óscar, Raul, Renato, Samuel, Valter, Xavier, Zeferino",
+      "female": "Maria, Ana, Joana, Inês, Mariana, Beatriz, Sofia, Catarina, Rita, Sara, Marta, Carla, Patrícia, Sandra, Paula, Cláudia, Susana, Teresa, Isabel, Fernanda, Fátima, Conceição, Rosa, Lurdes, Graça, Helena, Margarida, Leonor, Matilde, Carolina, Francisca, Madalena, Benedita, Constança, Alice, Laura, Lara, Diana, Filipa, Raquel, Andreia, Vânia, Tânia, Sílvia, Cristina, Lúcia, Manuela, Glória, Ermelinda, Adelaide, Amélia, Aurora, Celeste, Clara, Natália, Olga, Odete, Rosário, Salomé, Vera, Daniela, Bárbara, Mafalda, Íris, Luísa, Irene, Graciete, Judite, Noémia, Rafaela",
+      "surnames": "Silva, Santos, Ferreira, Pereira, Oliveira, Costa, Rodrigues, Martins, Jesus, Sousa, Fernandes, Gonçalves, Gomes, Lopes, Marques, Alves, Almeida, Ribeiro, Pinto, Carvalho, Teixeira, Moreira, Correia, Mendes, Nunes, Soares, Vieira, Monteiro, Cardoso, Rocha, Raposo, Neves, Coelho, Cruz, Cunha, Pires, Ramos, Reis, Simões, Antunes, Matos, Fonseca, Machado, Araújo, Barbosa, Tavares, Lourenço, Castro, Figueiredo, Azevedo, Freitas, Henriques, Paiva, Sá, Brito, Campos, Batista, Leite, Guerreiro, Faria, Loureiro, Pinheiro, Miranda, Lima, Valente, Magalhães, Caldeira, Moura, Nogueira, Morais, Vaz, Garcia, Domingues, Esteves, Brandão, Mota, Borges, Amaral, Andrade, Barros, Branco, Calado, Carneiro, Coutinho, Dias, Duarte, Estêvão, Fontes, Franco, Freire, Furtado, Gaspar, Gouveia, Jorge, Leal, Macedo, Madeira, Maia, Matias, Medeiros, Melo, Mesquita, Moreno, Neto, Novais, Pacheco, Patrício, Peixoto, Quintas, Rebelo, Resende, Sampaio, Sequeira, Serrano, Tomé, Torres, Vasconcelos, Veloso, Xavier, Abreu, Aguiar, Baptista, Bento, Bessa, Bettencourt, Cabral, Carrilho, Cerqueira, Couto, Cordeiro, Diniz, Espinho, Falcão, Ferraz, Frade, Goulart, Guimarães, Jardim, Lemos, Lobo, Malheiro, Nóbrega, Quaresma, Seixas, Teles"
+    },
+    {
+      "share": 6,
+      "origin": "Brazilian",
+      "male": "Thiago, Gabriel, Lucas, Matheus, Felipe, Leandro, Wesley, Anderson",
+      "female": "Fernanda, Juliana, Camila, Larissa, Letícia, Thaís, Jéssica, Bruna",
+      "surnames": "Souza, Oliveira, Santana, Nascimento, Rezende, Cavalcanti, Assis, Siqueira, Bezerra, Albuquerque"
+    },
+    {
+      "share": 4,
+      "origin": "Cape Verdean, Angolan and Guinean",
+      "male": "Edson, Nelson, Adilson, Ivanildo, Kiala; Mamadu",
+      "female": "Djamila, Edna, Kátia, Nádia, Neusa; Aissatu",
+      "surnames": "Semedo, Varela, Fortes, Delgado, Spencer, Rosário, Évora, Lopes da Graça; Baldé, Embaló, Djaló"
+    },
+    {
+      "share": 2,
+      "origin": "Ukrainian and South Asian",
+      "male": "Oleksandr, Andriy, Serhiy; Rajesh, Sandeep; Mohammad",
+      "female": "Olena, Oksana, Tetiana; Priya, Sunita; Nasreen",
+      "surnames": "Shevchenko, Bondarenko, Kovalenko, Melnyk; Singh, Kumar; Hossain, Rahman"
+    }
+  ]
+}

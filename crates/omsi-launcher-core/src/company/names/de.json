@@ -1,0 +1,64 @@
+{
+  "key": "de",
+  "flag": "🇩🇪",
+  "name": "Germany",
+  "groups": [
+    {
+      "share": 74,
+      "origin": "German",
+      "male": "Thomas, Michael, Andreas, Stefan, Christian, Markus, Frank, Jürgen, Uwe, Klaus, Wolfgang, Peter, Dieter, Bernd, Ralf, Jörg, Torsten, Sven, Matthias, Holger, Dirk, Carsten, Martin, Tobias, Florian, Daniel, Sebastian, Jan, Lukas, Jonas, Leon, Finn, Paul, Felix, Maximilian, Niklas, Moritz, Tim, Philipp, Benjamin, Kevin, Dennis, Marcel, Patrick, René, Heiko, Volker, Rainer, Detlef, Horst, Günter, Manfred, Helmut, Werner, Karl-Heinz, Hans-Jürgen, Gerd, Lars, Kai, Jens, Björn, Malte, Jannik, Henrik, Ole, Till, Fabian, Dominik, Timo, Hendrik, Steffen, Ingo",
+      "female": "Sabine, Petra, Andrea, Claudia, Susanne, Monika, Birgit, Gabriele, Martina, Heike, Kerstin, Karin, Ute, Stefanie, Nicole, Katrin, Anja, Silke, Tanja, Sandra, Julia, Anna, Laura, Lea, Lena, Sarah, Lisa, Hannah, Leonie, Marie, Johanna, Sophie, Emilia, Mia, Lina, Charlotte, Franziska, Katharina, Christina, Melanie, Jessica, Jennifer, Vanessa, Jacqueline, Doris, Renate, Ingrid, Ursula, Brigitte, Elke, Dagmar, Heidi, Bärbel, Antje, Wiebke, Svenja, Jana, Nadine, Simone, Daniela, Manuela, Carina, Merle, Greta, Frieda, Ida, Annika, Inga",
+      "surnames": "Müller, Schmidt, Schneider, Fischer, Weber, Meyer, Wagner, Becker, Schulz, Hoffmann, Schäfer, Koch, Bauer, Richter, Klein, Wolf, Schröder, Neumann, Schwarz, Zimmermann, Braun, Krüger, Hofmann, Hartmann, Lange, Schmitt, Werner, Schmitz, Krause, Meier, Lehmann, Schmid, Schulze, Maier, Köhler, Herrmann, König, Walter, Mayer, Huber, Kaiser, Fuchs, Peters, Lang, Scholz, Möller, Weiß, Jung, Hahn, Schubert, Vogel, Friedrich, Keller, Günther, Frank, Berger, Winkler, Roth, Beck, Lorenz, Baumann, Franke, Albrecht, Schuster, Simon, Ludwig, Böhm, Winter, Kraus, Martin, Schumacher, Krämer, Vogt, Stein, Jäger, Otto, Sommer, Groß, Seidel, Heinrich, Brandt, Haas, Schreiber, Graf, Schulte, Dietrich, Ziegler, Kuhn, Kühn, Pohl, Engel, Horn, Busch, Bergmann, Thomas, Voigt, Sauer, Arnold, Wolff, Pfeiffer, Brinkmann, Janssen, Ahrens, Hinrichs, Petersen, Jürgens, von Berg, von Ahlen, Thiele, Wendt, Ernst, Kunz, Haase, Lindner, Beyer, Döring, Böttcher, Ebert, Fiedler, Rademacher, Heinze"
+    },
+    {
+      "share": 7,
+      "origin": "Turkish heritage",
+      "male": "Mehmet, Ahmet, Hüseyin, Mustafa, Emre, Burak, Murat, Kemal, Hakan, Yusuf, Ömer, Ali, Cem, Serkan, Deniz, Tolga",
+      "female": "Ayşe, Fatma, Elif, Zeynep, Emine, Hatice, Merve, Büşra, Esra, Özlem, Aylin, Selin, Derya, Gülay",
+      "surnames": "Yılmaz, Kaya, Demir, Şahin, Çelik, Yıldız, Öztürk, Aydın, Arslan, Doğan, Kılıç, Aslan, Polat, Koç, Kurt, Özdemir"
+    },
+    {
+      "share": 4,
+      "origin": "Polish heritage",
+      "feminine": "pl",
+      "male": "Piotr, Tomasz, Paweł, Krzysztof, Marcin, Kamil, Łukasz, Grzegorz",
+      "female": "Agnieszka, Katarzyna, Magdalena, Joanna, Monika, Ewelina, Dorota, Beata",
+      "surnames": "Nowak, Kowalski, Wiśniewski, Wójcik, Kowalczyk, Kamiński, Lewandowski, Zieliński, Szymański, Dąbrowski"
+    },
+    {
+      "share": 4,
+      "origin": "From the former Soviet Union",
+      "male": "Waldemar, Viktor, Alexander, Eduard, Dmitri, Sergej, Andrej, Wladimir, Juri, Igor",
+      "female": "Natalia, Swetlana, Olga, Tatjana, Irina, Ljudmila, Jelena, Galina",
+      "surnames": "Reimer, Unruh, Friesen, Dück, Dyck, Penner, Wiens, Klassen, Rempel, Iwanow, Petrow, Smirnow, Kusnezow, Sawatzky, Hildebrandt"
+    },
+    {
+      "share": 3,
+      "origin": "From the Balkans",
+      "male": "Dragan, Goran, Zoran, Nikola, Marko, Dejan; Admir, Emir, Haris; Ivan",
+      "female": "Snežana, Mirjana, Dragana; Amra, Lejla, Selma, Jasmina; Ivana",
+      "surnames": "Jovanović, Petrović, Nikolić, Marković, Ilić, Popović; Hodžić, Begić, Mehmedović; Kovačević, Babić, Horvat"
+    },
+    {
+      "share": 3,
+      "origin": "Arab and Kurdish heritage",
+      "male": "Mohammed, Ahmad, Khaled, Omar, Hassan, Mahmoud, Rami, Tarek",
+      "female": "Fatima, Aisha, Rania, Rana, Nour, Amal, Layla, Hiba",
+      "surnames": "Al-Hassan, Haddad, Khalil, Ibrahim, Saleh, Mansour, Darwish, Hamdan, Othman, Abdullah"
+    },
+    {
+      "share": 3,
+      "origin": "Italian and Greek heritage",
+      "male": "Giuseppe, Salvatore, Vincenzo, Antonio; Dimitrios, Georgios, Konstantinos",
+      "female": "Maria, Giovanna, Francesca, Rosa; Eleni, Sofia, Konstantina",
+      "surnames": "Russo, Esposito, Romano, Ferrara, Lombardo, Caruso; Papadopoulos, Georgiou, Nikolaidis, Papadakis"
+    },
+    {
+      "share": 2,
+      "origin": "African heritage",
+      "male": "Kwame, Kofi, Emmanuel; Chukwuemeka, Samuel; Ousmane",
+      "female": "Ama, Abena, Grace; Ngozi; Aminata, Fatoumata",
+      "surnames": "Mensah, Asante, Boateng; Okafor, Adeyemi, Nwosu; Diallo, Traoré"
+    }
+  ]
+}

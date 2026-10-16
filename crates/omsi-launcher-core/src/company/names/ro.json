@@ -1,0 +1,28 @@
+{
+  "key": "ro",
+  "flag": "🇷🇴",
+  "name": "Romania",
+  "groups": [
+    {
+      "share": 88,
+      "origin": "Romanian",
+      "male": "Ion, Gheorghe, Vasile, Constantin, Nicolae, Mihai, Andrei, Alexandru, Ștefan, Florin, Bogdan, Cristian, Adrian, Marian, Dumitru, Petru, Daniel, Ionuț, Gabriel, Dan, Răzvan, Cătălin, Sorin, Lucian, Mircea, Radu, Sebastian, Ovidiu, Valentin, Cosmin, Marius, Viorel, Costel, Emil, Iulian, Vlad, Tudor, Darius, Matei, Rareș, Sabin, Eduard, Robert, Silviu, Liviu, Claudiu, Dorin, Laurențiu, Aurel, Traian, Horia, Octavian, Doru, Remus, Sergiu, Alin, Ciprian, Tiberiu, Paul, Dragoș, Teodor, Victor, Anton, Ilie, Grigore, Toma, Virgil, Costin, Nelu, Fănel, Iosif, Cezar",
+      "female": "Maria, Elena, Ioana, Ana, Andreea, Mihaela, Cristina, Alina, Gabriela, Daniela, Mariana, Georgiana, Alexandra, Adriana, Simona, Florentina, Nicoleta, Ramona, Larisa, Bianca, Irina, Diana, Roxana, Oana, Monica, Raluca, Corina, Loredana, Camelia, Carmen, Viorica, Ileana, Rodica, Aurelia, Lucia, Doina, Florica, Gheorghița, Ecaterina, Valentina, Denisa, Antonia, Teodora, Sofia, Iulia, Lavinia, Sorina, Delia, Cătălina, Anca, Angela, Violeta, Laura, Claudia, Liliana, Dana, Mirela, Silvia, Luminița, Tatiana, Adela, Medeea, Ilinca, Smaranda, Sânziana, Ruxandra, Brândușa, Rebeca, Miruna, Ariana, Petronela, Natalia",
+      "surnames": "Popa, Popescu, Pop, Radu, Dumitru, Stan, Stoica, Gheorghe, Matei, Ciobanu, Ionescu, Rusu, Mihai, Constantin, Munteanu, Florea, Marin, Ion, Lazăr, Moldovan, Toma, Dinu, Ștefan, Andrei, Barbu, Tudor, Nistor, Cristea, Dobre, Ilie, Georgescu, Diaconu, Moraru, Neagu, Ene, Oprea, Vasile, Dragomir, Sandu, Anghel, Iordache, Coman, Constantinescu, Mocanu, Nedelcu, Voicu, Grigore, Ungureanu, Lungu, Enache, Bălan, Preda, Lupu, Manea, Dumitrescu, Croitoru, Ilieș, Sârbu, Roman, Pavel, Tănase, Zamfir, Avram, Pătrașcu, Popovici, Badea, Petrescu, Iliescu, Nica, Cojocaru, Vlad, Căpraru, Surdu, Bucur, Mitrea, Olteanu, Rotaru, Petcu, Bogdan, Sima, Pană, Nicolae, Paraschiv, Stoian, Ardeleanu, Bratu, Chirilă, Costache, Cozma, Dima, Drăgan, Filip, Gavrilă, Ionită, Lăzărescu, Manole, Marinescu, Mihăilă, Neacșu, Niculescu, Pârvu, Pîrvu, Răducanu, Stanciu, Suciu, Talpă, Tănăsescu, Tudose, Vasilescu, Voinea, Zaharia, Bălănescu, Bârsan, Cârstea, Crăciun, Dobrescu, Gavrilescu, Husar, Ivan, Jitaru, Leahu, Mareș, Mustață, Oancea, Pascu, Răileanu, Șerban, Tița, Vlaicu"
+    },
+    {
+      "share": 8,
+      "origin": "Hungarian",
+      "male": "László, István, Zoltán, Csaba, Attila, Levente, Szabolcs, Lóránd",
+      "female": "Erzsébet, Katalin, Ildikó, Éva, Enikő, Tünde, Emese, Hajnal",
+      "surnames": "Kovács, Szabó, Nagy, Tóth, Fazakas, Bíró, Kiss, Farkas, Kelemen, Fülöp, Szász, Bartha"
+    },
+    {
+      "share": 4,
+      "origin": "Roma, German and other",
+      "male": "Hans, Werner, Dieter; Cengiz, Ilias; Costică, Ionel",
+      "female": "Hildegard, Gerda, Elfriede; Ayten, Leman; Florica, Lenuța",
+      "surnames": "Schuster, Klein, Mayer, Fleischer, Kraus; Kurt, Memet; Cerchez, Rostaș, Cârpaci"
+    }
+  ]
+}

@@ -15,6 +15,7 @@
 use super::dates;
 use super::model::{BookingKind, Cents, Company, Employee};
 use super::plan::{self, DayPlan, Who};
+use super::rng::Rng;
 use super::staff::{self, Block};
 use super::studio::PieceRef;
 use serde::{Deserialize, Serialize};
@@ -53,7 +54,8 @@ pub fn texts() -> Vec<&'static str> {
     vec![NOT_AHEAD, TOO_FAR, COUNT, HOURS, NO_CASH, GONE, NOT_FOUND, NAME]
 }
 
-/// A booked driver's name: "Agency driver" and his number of the day.
+/// What a booked driver is called where his number is shown ("Agency driver 3"); his own name
+/// is one of the company's country (`names`; an older file's: this and his number).
 pub const NAME: &str = "Agency driver";
 
 /// Agency drivers booked for a day.
@@ -159,8 +161,11 @@ pub fn drivers_on<'a>(c: &'a Company, date: &str) -> Vec<&'a Employee> {
     v
 }
 
-/// A booked driver's number of his day ("Agency driver 3": 3).
+/// A booked driver's number of his day (an older file's by his name, "Agency driver 3": 3).
 pub fn number_of(e: &Employee) -> u32 {
+    if e.agency_no > 0 {
+        return e.agency_no;
+    }
     e.name.rsplit(' ').next().and_then(|n| n.parse().ok()).unwrap_or(0)
 }
 
@@ -266,13 +271,18 @@ pub fn book(c: &mut Company, date: &str, count: u32, hours: Option<(i32, i32)>, 
     prune(c);
     let no = c.planning.agency.iter().map(|b| b.no).max().unwrap_or(0) + 1;
     let first = c.planning.agency.iter().filter(|b| b.date == date).flat_map(|b| b.drivers.iter()).map(|d| number_of(&d.employee)).max().unwrap_or(0);
+    // (each a name of the company's country, none of its people's or the other drivers')
+    let mut used = super::names::used_in(c);
+    let mut rng = Rng::of(&[&c.id, "agency", date], no as i64);
+    let country = super::names::country_of(c);
     let drivers: Vec<Booked> = given
         .iter()
         .enumerate()
         .map(|(k, g)| {
             let mut e = plan::agency_driver();
             e.id = BOOKED_BASE + no * PER_BOOKING + k as u32;
-            e.name = format!("{NAME} {}", first + 1 + k as u32);
+            e.agency_no = first + 1 + k as u32;
+            e.name = super::names::draw(country, &mut rng, &mut used).name;
             e.hired = date.to_string();
             e.notice_until = Some(date.to_string());
             e.types = vec![ANY_TYPE.to_string()];
@@ -419,8 +429,14 @@ mod tests {
         assert_eq!(a.cost, 3 * quote(&c, 1, DAY_MINUTES));
         let b = book(&mut c, &tomorrow, 2, Some((6 * 60, 10 * 60)), &[]).unwrap();
         assert_eq!(b.cost, 2 * cost_of(rate(&c), MIN_MINUTES));
-        let names: Vec<String> = drivers_on(&c, &tomorrow).iter().map(|e| e.name.clone()).collect();
-        assert_eq!(names, (1..=5).map(|n| format!("{NAME} {n}")).collect::<Vec<_>>());
+        let numbers: Vec<u32> = drivers_on(&c, &tomorrow).iter().map(|e| number_of(e)).collect();
+        assert_eq!(numbers, (1..=5).collect::<Vec<_>>());
+        // (each a name of his own, none twice: Beta 62's names)
+        let mut names: Vec<String> = drivers_on(&c, &tomorrow).iter().map(|e| e.name.clone()).collect();
+        assert!(names.iter().all(|n| !n.starts_with(NAME) && n.contains(' ')), "{names:?}");
+        names.sort();
+        names.dedup();
+        assert_eq!(names.len(), 5);
         let id = drivers_on(&c, &tomorrow)[3].id;
         assert!(is_booked(id) && c.employee(id).is_some_and(|e| e.employed_on(&tomorrow) && !e.employed_on(&today)));
         assert_eq!(window(&c, id), Some((360, 600)));

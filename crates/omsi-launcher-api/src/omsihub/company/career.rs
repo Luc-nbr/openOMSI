@@ -345,7 +345,7 @@ fn rankings_part(s: &mut Session, c: &Company) -> Value {
     let place = rankings::place_of(&companies).unwrap_or(0);
     let profile = core::load_config().profile;
     let drivers = driver(s).map(|d| d.summary.clone()).map(|sm| {
-        let t = rankings::driver_table(&c.map, &profile, &sm);
+        let t = rankings::driver_table(&c.map, omsi_launcher_lib::company::names::country_of(c), &profile, &sm);
         let place = rankings::place_of(&t).unwrap_or(0);
         json!({ "place": trf("Place %{n} of %{all}", &[("n", &place.to_string()), ("all", &t.len().to_string())]), "rows": table(&t), "heads": ["#", tr("Name").to_uppercase(), tr("Level").to_uppercase(), tr("Points").to_uppercase(), tr("Score").to_uppercase(), tr("Trips").to_uppercase()] })
     });

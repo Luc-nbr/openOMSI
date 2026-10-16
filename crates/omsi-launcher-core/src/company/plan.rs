@@ -1978,6 +1978,7 @@ pub fn agency_driver() -> Employee {
         friendliness: 60.0,
         portrait: 0,
         leave: Default::default(),
+        agency_no: 0,
     }
 }
 

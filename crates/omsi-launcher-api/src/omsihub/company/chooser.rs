@@ -121,6 +121,8 @@ pub fn wizard(s: &mut Session, args: &Value) -> Result<Value, String> {
     v["mode_note"] = json!(tr(if mode.rules().rosterflow { "Switch the game mode at any time in the company's settings. RosterFlow, the professional scheduling studio, can be switched on there as an add-on." } else { "Switch the game mode at any time in the company's settings: nothing is lost." }));
     // (Beta 61: a career, or a sandbox whose rules the player sets)
     v["company_mode"] = super::sandbox::wizard_part(args);
+    // (Beta 62: the country, its people's names - the map's proposed)
+    v["country"] = super::country::wizard_part(args, &maps.get(k).map(|m| m.file.clone()).unwrap_or_default(), &maps.get(k).map(map_label).unwrap_or_default());
     v["first_label"] = json!(tr("First company day"));
     v["whens"] = json!([tr("Today"), tr("The map's date"), tr("A date of my own")]);
     v["when"] = json!(when);
@@ -175,6 +177,7 @@ pub fn found(s: &mut Session, args: &Value) -> Result<Value, String> {
         // (the wizard's choice, else the map's region)
         vehicles: args.get("vehicles").filter(|v| !v.is_null()).and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_else(|| co::vehicles::VehicleChoice::for_region(super::vehicles::region_of_map(s, &m.file))),
         company_mode: args.get("company_mode").and_then(Value::as_str).and_then(co::sandbox::CompanyMode::of_key).unwrap_or_default(),
+        country: super::country::founding(args),
     };
     let mut c = co::found(&f, &core::load_config().profile);
     c.id = co::store::unused_id(&data(), &c.name);

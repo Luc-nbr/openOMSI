@@ -1,0 +1,50 @@
+{
+  "key": "dk",
+  "flag": "🇩🇰",
+  "name": "Denmark",
+  "groups": [
+    {
+      "share": 86,
+      "origin": "Danish",
+      "male": "Peter, Jens, Lars, Michael, Henrik, Søren, Thomas, Jan, Niels, Anders, Morten, Jesper, Mads, Martin, Rasmus, Christian, Hans, Jørgen, Ole, Per, Poul, Erik, Bent, Frank, Brian, Torben, Steen, Flemming, Bjarne, Carsten, Claus, Allan, Kasper, Jacob, Mikkel, Frederik, Emil, Oliver, William, Noah, Lucas, Victor, Magnus, Oscar, Malthe, Alfred, Carl, Aksel, Valdemar, Villads, Asger, Bo, Uffe, Kåre, Knud, Leif, Svend, Preben, Finn, Gunnar, Esben, Troels, Jeppe, Kristoffer, Simon, Nikolaj, Tobias, Sebastian, Jonas, Laurits",
+      "female": "Anne, Kirsten, Mette, Hanne, Helle, Susanne, Lene, Maria, Marianne, Lone, Camilla, Pia, Louise, Charlotte, Tina, Gitte, Bente, Inge, Karen, Birgit, Lis, Ulla, Jette, Dorthe, Rikke, Trine, Sanne, Line, Julie, Sofie, Ida, Emma, Freja, Clara, Alma, Ella, Agnes, Karla, Josefine, Mathilde, Laura, Signe, Cecilie, Maja, Nanna, Amalie, Frida, Astrid, Esther, Johanne, Vibeke, Merete, Grethe, Ingrid, Ellen, Else, Kamilla, Stine, Tanja, Majbritt, Christina, Malene, Pernille, Katrine, Sidsel, Mie, Silje, Liva, Ditte, Rebekka",
+      "surnames": "Nielsen, Jensen, Hansen, Pedersen, Andersen, Christensen, Larsen, Sørensen, Rasmussen, Jørgensen, Petersen, Madsen, Kristensen, Olsen, Thomsen, Christiansen, Poulsen, Johansen, Møller, Mortensen, Knudsen, Jakobsen, Jacobsen, Mikkelsen, Olesen, Frederiksen, Laursen, Henriksen, Lund, Schmidt, Eriksen, Holm, Kristiansen, Clausen, Simonsen, Svendsen, Andreasen, Iversen, Jeppesen, Mogensen, Jespersen, Nissen, Lauridsen, Kjær, Østergaard, Jepsen, Vestergaard, Mathiesen, Thorsen, Bach, Dahl, Lassen, Søndergaard, Damgaard, Krogh, Berg, Nygaard, Brandt, Bertelsen, Kjeldsen, Overgaard, Bundgaard, Holst, Toft, Winther, Lindberg, Bisgaard, Høj, Skov, Bang, Juhl, Mølgaard, Lauritsen, Friis, Ravn, Bech, Dam, Bruun, Lindholm, Kofoed, Steffensen, Lorentzen, Bjerre, Gregersen, Due, Ebbesen, Fisker, Gade, Hald, Hviid, Krag, Lynge, Mørch, Qvist, Riis, Storm, Thygesen, Udsen, Vinther, Bonde, Brix, Dalgaard, Eskildsen, Frandsen, Gram, Hjorth, Kirkegaard, Lykke, Munk, Nørgaard, Palm, Rosenberg, Sloth, Tang, Villadsen, Wulff, Aagaard, Bøgh, Carstensen, Dahlgaard, Emborg, Fog, Graversen, Hedegaard, Ibsen, Juul, Kirk, Lind, Mosegaard, Nordahl, Pallesen, Rask, Stampe, Thrane, Ulrich, Vang, Abildgaard, Birk, Busk"
+    },
+    {
+      "share": 4,
+      "origin": "Middle Eastern and Somali heritage",
+      "male": "Mohammed, Ahmad, Ali, Hassan, Omar, Mahmoud; Abdi, Yusuf",
+      "female": "Fatima, Aisha, Amina, Layla, Nour; Hodan, Sahra, Asha",
+      "surnames": "Hussein, Ahmed, Hassan, Omar, Al-Hassan, Khalil, Saleh; Mohamed, Abdullahi, Warsame"
+    },
+    {
+      "share": 3,
+      "origin": "Turkish heritage",
+      "male": "Mehmet, Ahmet, Emre, Murat, Hakan, Yusuf",
+      "female": "Ayşe, Fatma, Elif, Zeynep, Merve, Aylin",
+      "surnames": "Yılmaz, Kaya, Demir, Şahin, Çelik, Aydın, Arslan, Doğan"
+    },
+    {
+      "share": 3,
+      "origin": "Polish, Romanian and Lithuanian heritage",
+      "feminine": "pl",
+      "male": "Piotr, Tomasz, Paweł; Andrei, Mihai; Tomas",
+      "female": "Agnieszka, Katarzyna, Magdalena; Elena, Ioana; Rūta",
+      "surnames": "Nowak, Kowalski, Wiśniewski, Wójcik; Popescu, Ionescu; Petrauskas|Petrauskienė, Jankauskas|Jankauskienė"
+    },
+    {
+      "share": 2,
+      "origin": "German, Swedish and Norwegian",
+      "male": "Jürgen, Klaus; Björn, Göran; Håkon, Øyvind",
+      "female": "Sabine, Heike; Annika, Linnéa; Solveig, Ragnhild",
+      "surnames": "Müller, Schulz; Lindqvist, Johansson, Bergström; Haugen, Solberg, Strand"
+    },
+    {
+      "share": 2,
+      "origin": "Asian heritage",
+      "male": "Thanh; Wei, Jun; Rodel",
+      "female": "Linh, Thảo; Mei; Maricel",
+      "surnames": "Nguyen, Tran, Le; Chen, Wang; Santos"
+    }
+  ]
+}

@@ -28,9 +28,11 @@ use super::economy;
 use super::inbox::{self, Kind, Message};
 use super::licences::Endorsement;
 use super::model::{BookingKind, BusSize, Cents, Company, Employee, Licence, Role, Skills, Taken, PORTRAITS};
+use super::names;
 use super::rng::Rng;
 use super::training::CourseKind;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 // --- working time (planregels.ts) ----------------------------------------------------------
 
@@ -455,6 +457,9 @@ pub struct StaffRules {
     /// How many may be off on holiday a day, and the requests' numbers (`holidays`).
     #[serde(default)]
     pub holidays: super::holidays::HolidayRules,
+    /// The names of everyone it ever hired: no new applicant gets one of them (`names::used_in`).
+    #[serde(default)]
+    pub names_given: Vec<String>,
 }
 
 fn yes() -> bool {
@@ -463,7 +468,7 @@ fn yes() -> bool {
 
 impl Default for StaffRules {
     fn default() -> Self {
-        StaffRules { hours: Vec::new(), auto_hire: false, minimum: Vec::new(), follow_prices: true, wage_index: 0.0, grant_small: false, asks: Vec::new(), portraits_used: Vec::new(), last: None, holidays: Default::default() }
+        StaffRules { hours: Vec::new(), auto_hire: false, minimum: Vec::new(), follow_prices: true, wage_index: 0.0, grant_small: false, asks: Vec::new(), portraits_used: Vec::new(), last: None, holidays: Default::default(), names_given: Vec::new() }
     }
 }
 
@@ -1032,10 +1037,11 @@ pub fn female_portrait(p: u32) -> bool {
 }
 
 /// Whether the person called `name` is a woman (by their first name: Some(true)), a man
-/// (Some(false)), or the name says nothing (None: any face).
+/// (Some(false)), or the name says nothing (None: any face). The names of before the countries
+/// first, then every country's (`names::female`: also "Nagy Anna", the family name first).
 pub fn female_name(name: &str) -> Option<bool> {
     let first = name.split_whitespace().next()?;
-    FIRST.iter().chain(OLDER_FIRST.iter()).find(|(n, _)| n.eq_ignore_ascii_case(first)).map(|(_, f)| *f)
+    FIRST.iter().chain(OLDER_FIRST.iter()).find(|(n, _)| n.eq_ignore_ascii_case(first)).map(|(_, f)| *f).or_else(|| names::female(name))
 }
 
 /// Whether face `p` suits the person called `name`.
@@ -1142,7 +1148,8 @@ pub fn migrate(c: &mut Company) {
 
 // --- the labour market ---------------------------------------------------------------------
 
-/// The applicants' first names, each with whether it is a woman's (their face follows it).
+/// The applicants' first names of before the countries (`names`), each with whether it is a
+/// woman's: people of older companies still carry them, and their face follows them.
 const FIRST: [(&str, bool); 40] = [
     ("Anna", true), ("Ben", false), ("Carla", true), ("Dennis", false), ("Elif", true), ("Frank", false), ("Greta", true), ("Hakan", false), ("Ines", true), ("Jan", false),
     ("Klaus", false), ("Lena", true), ("Mehmet", false), ("Nina", true), ("Olaf", false), ("Petra", true), ("Rainer", false), ("Sanne", true), ("Tobias", false), ("Ute", true),
@@ -1154,10 +1161,6 @@ const FIRST: [(&str, bool); 40] = [
 const OLDER_FIRST: [(&str, bool); 12] = [
     ("Mia", true), ("Lea", true), ("Clara", true), ("Nora", true), ("Lisa", true), ("Julia", true),
     ("Paul", false), ("Felix", false), ("Lukas", false), ("Tim", false), ("Max", false), ("Erik", false),
-];
-const LAST: [&str; 32] = [
-    "Becker", "de Vries", "Fischer", "Hoffmann", "Jansen", "Kaya", "Krüger", "Meijer", "Müller", "Peters", "Richter", "Schmidt", "Schulz", "van Dijk", "Vogel", "Wagner", "Weber", "Wolf", "Yilmaz", "Zimmermann",
-    "Bakker", "Visser", "Smit", "Mulder", "Kowalski", "Nowak", "Shevchenko", "Bondarenko", "Rossi", "Demir", "Lange", "Koch",
 ];
 
 /// Someone applying this week.
@@ -1213,9 +1216,11 @@ pub fn applicants_of(c: &Company, role: Role) -> Vec<Applicant> {
 
 /// Every applicant of the week, the drivers first, each with a face of their own.
 pub fn market(c: &Company) -> Vec<Applicant> {
-    let mut out = drivers_market(c);
+    // (no name twice: none the company has given, none of another applicant)
+    let mut used = names::used_in(c);
+    let mut out = drivers_market(c, &mut used);
     for role in OTHERS {
-        out.extend(role_market(c, role));
+        out.extend(role_market(c, role, &mut used));
     }
     // (a face of their gender's: the men's faces for men's names, the women's for women's)
     let mut free = free_portraits(c, &held_portraits(c));
@@ -1311,7 +1316,18 @@ fn new_round(c: &mut Company, role: Role) {
     }
 }
 
-fn drivers_market(c: &Company) -> Vec<Applicant> {
+/// An applicant's name of the company's country, drawn on a chance of its own (seeded with two
+/// draws of `rng`, as the first name and the surname took before: the rest of the applicant is
+/// drawn as it was); a name in `used` is drawn again. None for an applicant hired already.
+fn applicant_name(c: &Company, rng: &mut Rng, used: &mut HashSet<String>, hired: bool) -> String {
+    let seed = rng.next_u64() ^ rng.next_u64().rotate_left(32);
+    if hired {
+        return String::new();
+    }
+    names::draw(names::country_of(c), &mut Rng::new(seed), used).name
+}
+
+fn drivers_market(c: &Company, used: &mut HashSet<String>) -> Vec<Applicant> {
     let r = economy::rules_for(c);
     let week = dates::week_of(&c.date);
     // (a round of adverts its own applicants, numbered from a thousand a round: Beta 54)
@@ -1320,7 +1336,7 @@ fn drivers_market(c: &Company) -> Vec<Applicant> {
     let mut out = Vec::new();
     for k in 0..r.applicants as u32 {
         let no = round * 1000 + k;
-        let name = format!("{} {}", rng.pick(&FIRST).map(|f| f.0).unwrap_or("Alex"), rng.pick(&LAST).unwrap_or(&"Weber"));
+        let name = applicant_name(c, &mut rng, used, taken(c, week, no));
         let experience = (rng.f64().powf(1.5) * 90.0 + 3.0).round();
         let age = (21.0 + experience * 0.35 + rng.range(0.0, 18.0)).round().min(63.0) as u32;
         let licence = if rng.chance(0.1) { Licence::D1 } else { Licence::D };
@@ -1344,7 +1360,7 @@ fn drivers_market(c: &Company) -> Vec<Applicant> {
 
 /// The applicants of a role besides the drivers: fewer of them (Easy four a week, Realistic
 /// three, Hard two), numbered from a hundred for each role.
-fn role_market(c: &Company, role: Role) -> Vec<Applicant> {
+fn role_market(c: &Company, role: Role, used: &mut HashSet<String>) -> Vec<Applicant> {
     let r = economy::rules_for(c);
     let week = dates::week_of(&c.date);
     let round = round_of(c, role);
@@ -1352,7 +1368,7 @@ fn role_market(c: &Company, role: Role) -> Vec<Applicant> {
     let mut out = Vec::new();
     for k in 0..(r.applicants / 2).max(2) as u32 {
         let no = round * 1000 + 100 * role_index(role) + k;
-        let name = format!("{} {}", rng.pick(&FIRST).map(|f| f.0).unwrap_or("Alex"), rng.pick(&LAST).unwrap_or(&"Weber"));
+        let name = applicant_name(c, &mut rng, used, taken(c, week, no));
         let experience = (rng.f64().powf(1.3) * 90.0 + 3.0).round();
         let age = (19.0 + experience * 0.35 + rng.range(0.0, 20.0)).round().min(64.0) as u32;
         let skill = |rng: &mut Rng, base: f64| (base + experience * 0.3 + rng.range(-15.0, 22.0)).clamp(10.0, 100.0).round();
@@ -1390,6 +1406,10 @@ pub fn hire(c: &mut Company, a: &Applicant) -> Result<u32, &'static str> {
     let held = held_portraits(c);
     let portrait = if valid(a.portrait) && !held.contains(&a.portrait) { a.portrait } else { free_portraits(c, &held).first().copied().unwrap_or(0) };
     note_portrait(c, portrait);
+    // (their name is the company's for good: no later applicant gets it)
+    if !c.staff_rules.names_given.contains(&a.name) {
+        c.staff_rules.names_given.push(a.name.clone());
+    }
     c.staff.push(Employee {
         id,
         name: a.name.clone(),
@@ -1417,6 +1437,7 @@ pub fn hire(c: &mut Company, a: &Applicant) -> Result<u32, &'static str> {
         friendliness: a.friendliness(),
         portrait,
         leave: Default::default(),
+        agency_no: 0,
     });
     // (the induction: the fleet's models)
     if a.role == Role::Driver {
@@ -1915,12 +1936,14 @@ mod tests {
         for e in old.staff.iter_mut() {
             e.portrait = 0;
         }
-        old.staff[1].portrait = 7;
-        old.staff[2].portrait = 7;
+        // (a face of the first one's gender: 7 a woman's, 1 a man's)
+        let face = if female_name(&old.staff[1].name) == Some(true) { 7 } else { 1 };
+        old.staff[1].portrait = face;
+        old.staff[2].portrait = face;
         old.staff_rules = StaffRules::default();
         migrate(&mut old);
         let held: Vec<u32> = old.staff.iter().map(|e| e.portrait).collect();
-        assert!(held.iter().all(|p| valid(*p)) && unique(&held) && held[1] == 7);
+        assert!(held.iter().all(|p| valid(*p)) && unique(&held) && held[1] == face);
         assert!(unique(&faces(&old)));
         assert_eq!(old.staff_rules.portraits_used.len(), old.staff.len());
         // a face comes free when its person leaves, but a face never given comes first

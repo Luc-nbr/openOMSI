@@ -1,0 +1,49 @@
+{
+  "key": "it",
+  "flag": "🇮🇹",
+  "name": "Italy",
+  "groups": [
+    {
+      "share": 89,
+      "origin": "Italian",
+      "male": "Giuseppe, Giovanni, Antonio, Mario, Francesco, Luigi, Angelo, Vincenzo, Pietro, Salvatore, Carlo, Franco, Domenico, Bruno, Paolo, Michele, Giorgio, Aldo, Sergio, Luciano, Roberto, Stefano, Massimo, Alessandro, Marco, Fabio, Claudio, Maurizio, Daniele, Davide, Matteo, Lorenzo, Leonardo, Ruggero, Riccardo, Tommaso, Edoardo, Federico, Filippo, Emanuele, Pierluigi, Giacomo, Nicolò, Alberto, Enrico, Raffaele, Gianluca, Gianni, Mauro, Fabrizio, Cristiano, Diego, Elia, Pasquale, Gennaro, Ciro, Rocco, Carmine, Gaetano, Nunzio, Ettore, Umberto, Renato, Silvio, Valerio, Ivano, Dario, Mirko, Samuele, Christian, Alessio, Jacopo",
+      "female": "Maria, Anna, Giuseppina, Rosa, Angela, Giovanna, Teresa, Lucia, Carmela, Caterina, Francesca, Antonella, Barbara, Elena, Laura, Paola, Sara, Silvia, Valentina, Chiara, Federica, Giulia, Alessia, Martina, Sofia, Aurora, Ginevra, Beatrice, Alice, Ludovica, Emma, Greta, Vittoria, Gaia, Bianca, Matilde, Elisa, Serena, Roberta, Daniela, Monica, Claudia, Cristina, Simona, Patrizia, Rita, Rosaria, Concetta, Assunta, Immacolata, Annunziata, Graziella, Loredana, Ornella, Marisa, Gabriella, Luisa, Alessandra, Michela, Ilaria, Erica, Arianna, Noemi, Camilla, Rebecca, Viola, Benedetta, Agnese, Irene, Marta, Stefania, Debora",
+      "surnames": "Rossi, Russo, Ferrari, Esposito, Bianchi, Romano, Colombo, Ricci, Marino, Greco, Bruno, Gallo, Conti, De Luca, Mancini, Costa, Giordano, Rizzo, Lombardi, Moretti, Barbieri, Fontana, Santoro, Mariani, Rinaldi, Caruso, Ferrara, Galli, Martini, Leone, Longo, Gentile, Martinelli, Vitale, Lombardo, Serra, Coppola, De Santis, D'Angelo, Marchetti, Parisi, Villa, Conte, Ferraro, Ferri, Fabbri, Bianco, Marini, Grasso, Valentini, Messina, Sala, De Angelis, Gatti, Pellegrini, Palumbo, Sanna, Farina, Rizzi, Monti, Cattaneo, Morelli, Amato, Silvestri, Mazza, Testa, Grassi, Pellegrino, Carbone, Giuliani, Benedetti, Barone, Rossetti, Caputo, Montanari, Guerra, Palmieri, Bernardi, Martino, Fiore, De Rosa, Ferretti, Bellini, Basile, Riva, Donati, Piras, Vitali, Battaglia, Sartori, Neri, Costantini, Milani, Pagano, Ruggiero, Sorrentino, D'Amico, Orlando, Negri, Mele, Fumagalli, Brambilla, Cocco, Melis, Pisano, Bassi, Cirillo, Piazza, Catalano, Gualtieri, Ricciardi, Bertolini, Zanetti, Zanella, Bortolotti, Pozzi, Mancuso, Lupo, Di Stefano, La Rosa, Lo Russo, Lo Bianco, Del Prete, Di Pietro, Iannone, Aiello, Bonetti, Crippa, Ferrero, Gallina, Giacomelli, Marchi, Nardi, Orsini, Pace, Raimondi, Santini, Tedesco, Valenti, Vinci, Zamboni, Zito, Bocchino, Fadda, Murgia, Puddu"
+    },
+    {
+      "share": 4,
+      "origin": "Romanian heritage",
+      "male": "Ion, Gheorghe, Andrei, Mihai, Florin, Bogdan",
+      "female": "Elena, Ioana, Mihaela, Andreea, Alina, Cristina",
+      "surnames": "Popescu, Ionescu, Popa, Stan, Dumitru, Munteanu, Constantin, Rusu"
+    },
+    {
+      "share": 2,
+      "origin": "Albanian heritage",
+      "male": "Arben, Besnik, Ilir, Gentian, Erion, Kledi",
+      "female": "Arta, Blerta, Albana, Ermira, Klodiana, Enkelejda",
+      "surnames": "Hoxha, Shehu, Dervishi, Leka, Gjoka, Prifti, Kola, Çela"
+    },
+    {
+      "share": 2,
+      "origin": "Moroccan and Tunisian heritage",
+      "male": "Mohamed, Youssef, Hamza, Karim, Mehdi, Amine",
+      "female": "Fatima, Khadija, Salma, Imane, Meriem, Asmae",
+      "surnames": "El Amrani, Benali, Bouzid, Ben Salah, Trabelsi, Haddad, El Idrissi, Chakir"
+    },
+    {
+      "share": 2,
+      "origin": "Ukrainian and Moldovan heritage",
+      "male": "Oleksandr, Andriy, Serhiy, Vasyl; Vasile, Dumitru",
+      "female": "Olena, Oksana, Tetiana; Natalia, Svetlana, Lilia",
+      "surnames": "Shevchenko, Bondarenko, Kovalenko, Melnyk; Ciobanu, Rotaru, Cebotari, Lungu"
+    },
+    {
+      "share": 1,
+      "origin": "Chinese, Filipino and South Asian heritage",
+      "male": "Wei, Jun; Rodel; Rahul, Sandeep; Mohammad",
+      "female": "Mei, Xin; Maricel, Rowena; Priya; Nasreen",
+      "surnames": "Hu, Chen, Zhou; Santos, Reyes; Singh, Kumar; Hossain"
+    }
+  ]
+}

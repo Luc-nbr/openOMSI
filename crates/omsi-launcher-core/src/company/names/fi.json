@@ -1,0 +1,42 @@
+{
+  "key": "fi",
+  "flag": "🇫🇮",
+  "name": "Finland",
+  "groups": [
+    {
+      "share": 90,
+      "origin": "Finnish",
+      "male": "Juha, Timo, Matti, Mikko, Jari, Antti, Kimmo, Pekka, Jukka, Mika, Markku, Hannu, Heikki, Petri, Sami, Janne, Ari, Seppo, Esa, Tapio, Pentti, Jorma, Kalevi, Erkki, Olavi, Raimo, Veikko, Tuomas, Ville, Teemu, Joonas, Lauri, Eero, Aleksi, Elias, Onni, Väinö, Eino, Leo, Oliver, Niilo, Aatu, Akseli, Juho, Otto, Arttu, Iiro, Jesse, Riku, Toni, Marko, Jussi, Harri, Kai, Ilkka, Jarmo, Pasi, Reijo, Risto, Vesa, Arto, Jouni, Lassi, Severi, Aapo, Eemeli, Valtteri, Paavo, Topias, Ilmari, Unto, Kauko",
+      "female": "Anne, Päivi, Tuula, Sirpa, Minna, Anneli, Riitta, Pirjo, Marja, Leena, Tiina, Sari, Satu, Johanna, Kaisa, Hanna, Heidi, Laura, Elina, Jenni, Katja, Merja, Maarit, Pia, Tarja, Arja, Seija, Ritva, Eila, Aino, Helmi, Eevi, Venla, Siiri, Ella, Emma, Sofia, Aada, Lilja, Olivia, Iida, Pihla, Enni, Vilma, Veera, Saana, Noora, Emilia, Milla, Jenna, Henna, Suvi, Outi, Kirsi, Taina, Hilkka, Aulikki, Kaarina, Liisa, Annikki, Inkeri, Irja, Kerttu, Lempi, Sanna, Mervi, Terhi, Heli, Tanja, Elisa, Oona, Kukka",
+      "surnames": "Korhonen, Virtanen, Mäkinen, Nieminen, Mäkelä, Hämäläinen, Laine, Heikkinen, Koskinen, Järvinen, Lehtonen, Lehtinen, Saarinen, Salminen, Heinonen, Niemi, Heikkilä, Kinnunen, Salonen, Turunen, Salo, Laitinen, Tuominen, Rantanen, Karjalainen, Jokinen, Mattila, Savolainen, Lahtinen, Ahonen, Hiltunen, Hirvonen, Leinonen, Miettinen, Pitkänen, Aaltonen, Manninen, Kallio, Leppänen, Hakala, Väisänen, Lindholm, Mustonen, Laaksonen, Peltonen, Koivisto, Anttila, Räsänen, Lappalainen, Kärkkäinen, Toivonen, Koponen, Seppälä, Huttunen, Hyvönen, Kettunen, Ojala, Väänänen, Kiiskinen, Rautio, Pelkonen, Moilanen, Nurmi, Rissanen, Honkanen, Pesonen, Kokkonen, Hautala, Halonen, Partanen, Ikonen, Vainio, Holopainen, Tikkanen, Oksanen, Kivelä, Kurki, Lammi, Nyström, Vuorinen, Rinne, Peltola, Suominen, Juntunen, Tiainen, Nyman, Ruotsalainen, Mäki, Kauppinen, Hänninen, Keränen, Kemppainen, Kokko, Lindroos, Ranta, Tolonen, Lindqvist, Mäkipää, Pulkkinen, Pursiainen, Sirviö, Sundström, Takala, Toivola, Uusitalo, Valtonen, Vartiainen, Ylönen, Aalto, Hakkarainen, Ilvonen, Jääskeläinen, Kivinen, Kuusisto, Laakso, Lehto, Luoma, Mononen, Nousiainen, Paananen, Penttinen, Rantala, Salmi, Tuomi, Viitanen, Westerlund, Ahola, Backman, Eskola, Fagerström, Hakanen, Immonen, Jalonen, Kantola, Lindberg, Mikkola, Nurminen, Pajunen, Rämö, Saari, Tamminen, Uotila, Vesterinen, Wikström, Öhman"
+    },
+    {
+      "share": 5,
+      "origin": "Swedish-speaking Finns",
+      "male": "Johan, Mats, Fredrik, Henrik, Björn, Kristian",
+      "female": "Linnéa, Annika, Malin, Ebba, Ulrika, Camilla",
+      "surnames": "Lindström, Sjöberg, Forsman, Holmström, Wiklund, Ekholm, Granholm, Söderlund"
+    },
+    {
+      "share": 2,
+      "origin": "Russian and Estonian heritage",
+      "male": "Dmitri, Sergei, Aleksei; Andrus, Toomas, Rein",
+      "female": "Natalia, Svetlana, Olga; Tiiu, Kadri, Maarja",
+      "surnames": "Ivanov|Ivanova, Petrov|Petrova, Smirnov|Smirnova; Tamm, Saar, Kask, Mägi, Sepp"
+    },
+    {
+      "share": 2,
+      "origin": "Somali and Middle Eastern heritage",
+      "male": "Abdi, Mohamud; Ahmad, Ali, Hassan",
+      "female": "Hodan, Sahra; Fatima, Nour, Layla",
+      "surnames": "Warsame, Abdullahi, Farah, Hussein; Al-Hassan, Ibrahim"
+    },
+    {
+      "share": 1,
+      "origin": "Asian heritage",
+      "male": "Minh; Wei, Jun",
+      "female": "Linh, Thảo; Mei",
+      "surnames": "Nguyen, Tran; Chen, Wang"
+    }
+  ]
+}

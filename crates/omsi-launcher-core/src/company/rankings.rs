@@ -40,7 +40,6 @@ pub fn place_of(table: &[(usize, Entry)]) -> Option<usize> {
 const KINDS: [&str; 8] = ["Verkehrsbetriebe", "Regiobus", "Stadtbus", "Omnibus", "Busverkehr", "Linienverkehr", "Reisedienst", "Kraftverkehr"];
 const FAMILIES: [&str; 16] = ["Müller", "Schulte", "Krause", "Becker", "Hoffmann", "Wagner", "Peters", "Vogel", "Lehmann", "Brandt", "Jansen", "Kowalski", "Fischer", "Roth", "Albers", "Hahn"];
 const PLACES: [&str; 10] = ["Nord", "Süd", "Land", "Kreis", "Mitte", "Ost", "West", "Tal", "Heide", "Berg"];
-const FIRST: [&str; 16] = ["Anna", "Jonas", "Lea", "Felix", "Mia", "Lukas", "Emma", "Paul", "Sophie", "Ben", "Lena", "Tim", "Clara", "Max", "Nora", "Erik"];
 
 /// A map's file as the rivals are drawn for it (either slash, any case).
 fn map_key(map: &str) -> String {
@@ -106,17 +105,14 @@ pub fn company_table(c: &Company) -> Vec<(usize, Entry)> {
 }
 
 /// The rival drivers of a map when the player has driven `trips` trips (eight of them, each
-/// at his own pace per trip).
-pub fn rival_drivers(map: &str, trips: usize) -> Vec<Entry> {
+/// at his own pace per trip), people of `country` (`names`).
+pub fn rival_drivers(map: &str, country: &str, trips: usize) -> Vec<Entry> {
     let mut rng = Rng::of(&["drivers", &map_key(map)], 0);
-    let mut used: Vec<String> = Vec::new();
+    let mut names = Rng::of(&["drivers", &map_key(map), country], 0);
+    let mut used = std::collections::HashSet::new();
     let mut out = Vec::new();
     while out.len() < 8 {
-        let name = format!("{} {}", rng.pick(&FIRST).unwrap_or(&"Anna"), rng.pick(&FAMILIES).unwrap_or(&"Müller"));
-        if used.contains(&name) {
-            continue;
-        }
-        used.push(name.clone());
+        let name = super::names::draw(country, &mut names, &mut used).name;
         let start = rng.range(0.0, 4_000.0);
         let rate = rng.range(90.0, 260.0);
         let driven = (trips as f64 * rng.range(0.6, 1.4)).round();
@@ -128,9 +124,9 @@ pub fn rival_drivers(map: &str, trips: usize) -> Vec<Entry> {
 }
 
 /// The table of the drivers: the player (`you`, his experience, average score and trips)
-/// among the map's rivals.
-pub fn driver_table(map: &str, you: &str, summary: &career::Summary) -> Vec<(usize, Entry)> {
-    let mut all = rival_drivers(map, summary.trips);
+/// among the map's rivals, people of `country`.
+pub fn driver_table(map: &str, country: &str, you: &str, summary: &career::Summary) -> Vec<(usize, Entry)> {
+    let mut all = rival_drivers(map, country, summary.trips);
     all.push(Entry { name: you.to_string(), you: true, points: summary.progress.xp, level: summary.progress.level, quality: summary.average_score.unwrap_or(0.0), count: summary.trips as u32 });
     rank(all)
 }
@@ -154,7 +150,7 @@ mod tests {
         // never the player's own name
         let mine = a[0].name.clone();
         assert!(rival_companies("maps/Grundorf/global.cfg", 0, &mine.to_uppercase()).iter().all(|e| e.name != mine));
-        assert_eq!(rival_drivers("maps/Grundorf/global.cfg", 10).len(), 8);
+        assert_eq!(rival_drivers("maps/Grundorf/global.cfg", "de", 10).len(), 8);
     }
 
     #[test]

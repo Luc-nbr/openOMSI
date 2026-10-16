@@ -1,0 +1,63 @@
+{
+  "key": "au",
+  "flag": "🇦🇺",
+  "name": "Australia",
+  "groups": [
+    {
+      "share": 68,
+      "origin": "Anglo-Celtic Australian",
+      "male": "Jack, Oliver, William, Noah, Thomas, James, Lucas, Henry, Ethan, Cooper, Lachlan, Max, Charlie, Harrison, Hamish, Angus, Archie, Leo, Mitchell, Jake, Joshua, Matthew, Daniel, Ryan, Luke, Benjamin, Nathan, Samuel, Liam, Brodie, Bailey, Kane, Jarrod, Shane, Darren, Craig, Brett, Glenn, Wayne, Bruce, Graeme, Kevin, Barry, Trevor, Neville, Warren, Dean, Troy, Scott, Adam, Peter, Andrew, Mark, Paul, Stephen, David, Michael, John, Robert, Ian, Rodney, Clint, Damien, Corey, Jayden, Kieran, Dylan, Flynn, Hugh, Fraser, Toby",
+      "female": "Charlotte, Olivia, Amelia, Isla, Mia, Ava, Grace, Chloe, Sophie, Ella, Willow, Matilda, Ruby, Zoe, Emily, Jessica, Sarah, Rebecca, Hannah, Georgia, Lucy, Ashleigh, Brooke, Kylie, Tegan, Jacinta, Bronwyn, Leanne, Kerry, Narelle, Sharon, Michelle, Lisa, Nicole, Melissa, Tanya, Rachel, Danielle, Natalie, Kristy, Belinda, Megan, Courtney, Kayla, Tahlia, Sienna, Harper, Evie, Scarlett, Poppy, Holly, Abbey, Jasmine, Caitlin, Shannon, Kate, Elizabeth, Margaret, Patricia, Judith, Heather, Gwen, Joy, Robyn, Dianne, Janine, Lorraine, Wendy, Bree, Imogen, Annabelle, Phoebe",
+      "surnames": "Smith, Jones, Williams, Brown, Wilson, Taylor, Johnson, White, Martin, Anderson, Thompson, Walker, Harris, Lee, Ryan, Robinson, Kelly, King, Davis, Wright, Evans, Roberts, Green, Hall, Wood, Jackson, Clarke, Lewis, Hill, Scott, Mitchell, Murphy, Campbell, Edwards, Turner, Cooper, Ward, Morris, Moore, Young, Baker, Hughes, Phillips, Stewart, Watson, Kennedy, Bennett, Morgan, Cook, Bell, Murray, Collins, Graham, Reid, Russell, Gray, Simpson, Carter, Richardson, Marshall, Ross, Price, Hunt, Cox, Dawson, Fraser, Hamilton, Henderson, Johnston, McDonald, Grant, Sullivan, O'Brien, O'Connor, Byrne, Doyle, Gallagher, McCarthy, Fitzgerald, Walsh, Quinn, Burke, Brennan, Hayes, Lynch, Kerr, Burns, Dunn, Ellis, Ferguson, Fisher, Hart, Holmes, Jenkins, Knight, Lawrence, Mason, Matthews, Mills, Nicholson, Parker, Pearce, Pearson, Rogers, Saunders, Shaw, Spencer, Stevens, Sutherland, Tucker, Webb, Wells, Wheeler, Whitfield, Wilkinson, Woods, Barker, Bishop, Blackwell, Boyd, Bradley, Carroll, Chapman, Crawford"
+    },
+    {
+      "share": 7,
+      "origin": "Italian and Greek Australian",
+      "male": "Giuseppe, Antonio, Salvatore, Vincenzo; Dimitrios, Georgios, Konstantinos, Nikolaos",
+      "female": "Giovanna, Francesca, Rosa, Concetta; Eleni, Sofia, Konstantina, Despina",
+      "surnames": "Russo, Esposito, Romano, Ferrara, Lombardo, Caruso; Papadopoulos, Georgiou, Nikolaidis, Papadakis, Karagiannis, Vlahos"
+    },
+    {
+      "share": 6,
+      "origin": "Chinese Australian",
+      "male": "Wei, Jun, Hao, Ming, Tony, Kenny",
+      "female": "Mei, Xin, Yan, Ling, Hui, Jia",
+      "surnames": "Chen, Wong, Li, Zhang, Lam, Cheung, Liu, Wang, Zhou, Huang"
+    },
+    {
+      "share": 5,
+      "origin": "Indian Australian",
+      "male": "Rahul, Arjun, Raj, Sanjay, Vikram; Harpreet",
+      "female": "Priya, Anjali, Pooja, Deepika; Simran, Navjot",
+      "surnames": "Patel, Sharma, Kumar, Gupta, Reddy, Nair, Iyer; Singh|Kaur"
+    },
+    {
+      "share": 4,
+      "origin": "Vietnamese and Filipino Australian",
+      "male": "Minh, Tuấn, Dũng; Rodel, Arnel",
+      "female": "Linh, Thảo, Hương; Maricel, Jocelyn",
+      "surnames": "Nguyen, Tran, Le, Pham, Huynh; Santos, Reyes, Bautista"
+    },
+    {
+      "share": 3,
+      "origin": "Aboriginal and Torres Strait Islander",
+      "male": "Jarrah, Jandamarra, Bunji, Yindi",
+      "female": "Kirra, Alinta, Jedda, Tjanara",
+      "surnames": "Mundine, Goodes, Pearson, Watego, Yunupingu, Mabo, Djerrkura, Bropho"
+    },
+    {
+      "share": 3,
+      "origin": "Lebanese and New Zealand Australian",
+      "male": "Khalil, Omar; Tane, Wiremu",
+      "female": "Layla, Amira; Aroha, Mere",
+      "surnames": "Haddad, Khoury, Nasser; Ngata, Parata, Tuhiwai"
+    },
+    {
+      "share": 2,
+      "origin": "British and South African migrants",
+      "male": "Callum, Rhys; Ruan, Johan",
+      "female": "Siân, Fiona; Annelie, Marelize",
+      "surnames": "Llewellyn, MacLeod; Van der Merwe, Botha, Pretorius, Du Plessis"
+    }
+  ]
+}

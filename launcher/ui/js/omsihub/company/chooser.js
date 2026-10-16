@@ -13,6 +13,8 @@ import { VehiclePicker } from './vehicles.js';
 import { SandboxBadge } from './sandbox.js';
 // (Beta 58: a friend's company joined with its session code)
 import { JoinPage } from './together.js';
+// (Beta 62: the country the company plays in, its people's names)
+import { CountryPick } from './country.js';
 
 /** The companies as the chooser's view lists them (boot keeps one too). */
 export const readCompanies = () => S.co.list?.companies?.tiles || [];
@@ -99,7 +101,7 @@ function CompanyTile({ t, tip, onOpen, onDelete }) {
 /** A new founding (`Wizard::new`): no name, orange and blue, the map of the last duty, today,
  * buying by contract, the mode of the company open (Casual else). */
 export function newWizard() {
-  return { name: '', short: '', colours: [0, 4], logo: null, map: null, depot: 0, when: 0, date: null, buying: 1, mode: S.co.shell?.mode?.key || null, company_mode: 'career' };
+  return { name: '', short: '', colours: [0, 4], logo: null, map: null, depot: 0, when: 0, date: null, buying: 1, mode: S.co.shell?.mode?.key || null, company_mode: 'career', country: null };
 }
 
 /** The founding wizard (`wizard::draw`): laid out for the room it has, scrolled whole when the
@@ -129,7 +131,7 @@ export function Wizard() {
       setCo({ popup: v.maps.length ? v.popup_name : v.popup_map });
       return;
     }
-    const r = await cmd('co_found', { name: w.name, short: w.short, colours: w.colours, logo: w.logo, map: w.map ?? v.map, depot: w.depot, when: w.when, date: w.date ?? v.date, mode: w.mode || v.mode, buying: w.buying, vehicles: w.vehicles || null, company_mode: w.company_mode || 'career' });
+    const r = await cmd('co_found', { name: w.name, short: w.short, colours: w.colours, logo: w.logo, map: w.map ?? v.map, depot: w.depot, when: w.when, date: w.date ?? v.date, mode: w.mode || v.mode, buying: w.buying, vehicles: w.vehicles || null, company_mode: w.company_mode || 'career', country: w.country || v.country.key });
     if (r?.refused) {
       setCo({ popup: r.refused === 'map' ? v.popup_map : v.popup_name });
       return;
@@ -164,6 +166,9 @@ export function Wizard() {
             <input class="co-field" style="margin-top:4px" value=${w.name} placeholder=${v.name_hint} onInput=${(e) => put({ name: e.currentTarget.value })} /></div>
           <div class="row"><label class="co-label">${v.short_label}</label>
             <input class="co-field" style="margin-top:4px;width:calc(50% - 6px)" maxlength="4" value=${w.short} placeholder=${v.short_hint} onInput=${(e) => put({ short: e.currentTarget.value.slice(0, 4) })} /></div>
+          <div class="row"><label class="co-label">${v.country.caps}</label>
+            <${CountryPick} c=${v.country} value=${w.country || v.country.key} onChange=${(k) => put({ country: k })} style="margin-top:4px" />
+            <p class="co-note" style="margin-top:6px">${v.country.note}</p></div>
           ${[0, 1].map((k) => html`<div class="row"><label class="co-label">${v.colours[k]}</label>
             <div class="swatches">${palette.map((hex, i) => html`<span class=${'swatch' + (w.colours[k] === i ? ' on' : '')} style=${`background:${hex}`} onClick=${() => put({ colours: k === 0 ? [i, w.colours[1]] : [w.colours[0], i] })}></span>`)}</div></div>`)}
           <div class="logo"><${Mark} mark=${{ short, colours: [palette[w.colours[0]], palette[w.colours[1]]], logo: (w.logo && v.logo) || null }} size=${68} />

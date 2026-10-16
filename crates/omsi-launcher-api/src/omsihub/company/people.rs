@@ -142,15 +142,20 @@ fn needs(e: &Employee) -> Value {
     ])
 }
 
+/// By the family name (the Dutch "van der Berg" under B, "Nagy Anna" under N: `names::sort_key`).
+fn by_name(a: &Employee, b: &Employee) -> std::cmp::Ordering {
+    omsi_launcher_lib::company::names::sort_key(&a.name).cmp(&omsi_launcher_lib::company::names::sort_key(&b.name)).then_with(|| a.name.cmp(&b.name))
+}
+
 fn sort(list: &mut [Employee], by: usize, descending: bool) {
     list.sort_by(|a, b| {
         let o = match by {
-            1 => Role::ALL.iter().position(|r| *r == a.role).cmp(&Role::ALL.iter().position(|r| *r == b.role)).then(a.name.cmp(&b.name)),
+            1 => Role::ALL.iter().position(|r| *r == a.role).cmp(&Role::ALL.iter().position(|r| *r == b.role)).then_with(|| by_name(a, b)),
             2 => a.wage.cmp(&b.wage),
             3 => a.experience.total_cmp(&b.experience),
             4 => a.satisfaction.total_cmp(&b.satisfaction),
             5 => a.stress.total_cmp(&b.stress),
-            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+            _ => by_name(a, b),
         };
         if descending {
             o.reverse()
