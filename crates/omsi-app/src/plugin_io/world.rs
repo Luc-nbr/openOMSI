@@ -289,6 +289,8 @@ pub(crate) fn settings(app: &App) -> Vec<(&'static str, op::InfoValue)> {
         ("time_sync", Bool(s.time_sync)),
         ("people", Num(s.pax_density as f64)),
         ("units", Text("metric".into())),
+        // (the units the player reads: the API's own values stay metric)
+        ("display_units", Text(crate::units::Units::from_setting(&s.units).setting().into())),
         ("mobile", Bool(crate::platform::MOBILE)),
         ("vr", Bool(app.vr_active())),
     ]

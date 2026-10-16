@@ -39,6 +39,23 @@ pub fn moved(at: Vec2, by: (f32, f32), w: f32, h: f32, screen: Vec2) -> Vec2 {
 }
 
 impl PluginPanels {
+    /// Whether a press at `(x, y)` (physical pixels on the window) while the panels do not
+    /// have the mouse is theirs all the same: the topmost panel there takes its clicks
+    /// (`grab = true`).
+    pub fn grabs_at(&self, ui: &UiState, x: f32, y: f32) -> bool {
+        for e in ui.panels().iter().rev().filter(|e| e.panel.visible) {
+            let Some(card) = self.cards.get(&Key::Panel(e.owner, e.id.clone())) else { continue };
+            if card.seen != self.frame {
+                continue;
+            }
+            let local = (Vec2::new(x, y) - card.origin) / card.scale.max(0.25);
+            if Rect::new(0.0, 0.0, card.laid.w, card.laid.h).contains(local) {
+                return e.panel.grab;
+            }
+        }
+        false
+    }
+
     /// What a press at `(x, y)` (physical pixels on the window) is on: the topmost panel's
     /// part there.
     pub fn press_at(&self, ui: &UiState, x: f32, y: f32) -> Option<Press> {

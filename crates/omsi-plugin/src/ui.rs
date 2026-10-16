@@ -16,7 +16,8 @@ use std::rc::Rc;
 /// `omsi.ui.version`: raised when something is added a plugin may want to test for.
 /// 2: images, checkboxes, sliders, text fields, tabs, charts, tables, draggable panels.
 /// 3: the navigator's board (`anchor = "navigator"`, `ui.dock`), the launcher's typeface
-/// (`font`), boxes, stop lists, bars of several parts, a badge's weight.
+/// (`font`), boxes, stop lists, bars of several parts, a badge's weight, a table's column
+/// alignments and coloured cells, panels that take a click without the mouse (`grab`).
 pub const VERSION: i64 = 3;
 /// Most panels of one plugin.
 pub const MAX_PANELS: usize = 16;
@@ -167,13 +168,16 @@ pub struct Panel {
     /// While the panels have the mouse it can be moved by dragging it (where it has nothing
     /// clickable); the place it is moved to stays when it is set again.
     pub draggable: bool,
+    /// A click over it is its own even while the panels do not have the mouse (a card the
+    /// driver clicks to keep or to close, as the game's own did): the cab behind it gets none.
+    pub grab: bool,
     pub font: Font,
     pub children: Vec<Element>,
 }
 
 impl Default for Panel {
     fn default() -> Panel {
-        Panel { anchor: Anchor::TopLeft, x: 0.0, y: 0.0, width: 300.0, padding: 12.0, gap: 6.0, background: None, radius: 12.0, accent: None, visible: true, clickable: false, draggable: false, font: Font::Interface, children: Vec::new() }
+        Panel { anchor: Anchor::TopLeft, x: 0.0, y: 0.0, width: 300.0, padding: 12.0, gap: 6.0, background: None, radius: 12.0, accent: None, visible: true, clickable: false, draggable: false, grab: false, font: Font::Interface, children: Vec::new() }
     }
 }
 
@@ -266,8 +270,10 @@ pub enum Kind {
     Tabs { tabs: Vec<String>, selected: usize },
     /// Values over time, as a line or as bars; `min`/`max` None: the values' own.
     Chart { values: Vec<f32>, min: Option<f32>, max: Option<f32>, height: f32, style: ChartStyle, fill: bool },
-    /// Columns of texts: the header row bold; `widths` shares of the width (none: alike).
-    Table { columns: Vec<String>, rows: Vec<Vec<String>>, widths: Vec<f32>, size: f32 },
+    /// Columns of texts: the header row bold; `widths` shares of the width (none: alike),
+    /// `aligns` each column's alignment (none: left), `inks` a colour of each cell's own
+    /// (row by row; none: the element's).
+    Table { columns: Vec<String>, rows: Vec<Vec<String>>, widths: Vec<f32>, size: f32, aligns: Vec<Align>, inks: Vec<Vec<Option<Rgba>>> },
     /// Its children stacked in a tinted box with a stripe on the left (the element's colour).
     Box { children: Vec<Element>, gap: f32 },
     /// Stops on a rail: the ones behind the bus grey, the one it heads for marked, a time on
@@ -760,6 +766,7 @@ pub fn parse_panel(t: &Value, folder: Option<&Path>) -> Result<Panel, String> {
         visible: r.boolean("visible", true)?,
         clickable: r.boolean("clickable", false)?,
         draggable: r.boolean("draggable", false)?,
+        grab: r.boolean("grab", false)?,
         // (the navigator's board is in the navigator's typeface unless it says otherwise)
         font: match r.string("font")?.as_deref() {
             None if anchor == Anchor::Navigator => Font::Launcher,
@@ -834,7 +841,7 @@ fn patch(e: &mut Element, fields: &Value, folder: Option<&Path>) -> Result<(), S
         Kind::Tabs { selected, tabs } if has("selected") => *selected = (r.number("selected", 1.0, 1.0, tabs.len().max(1) as f32)? as usize).saturating_sub(1),
         Kind::Icon { name, .. } if has("name") => *name = r.string("name")?.unwrap_or_default(),
         Kind::Chart { values, .. } if has("values") => *values = r.numbers("values")?,
-        Kind::Table { rows, .. } if has("rows") => *rows = r.rows("rows")?,
+        Kind::Table { rows, inks, .. } if has("rows") => (*rows, *inks) = r.rows("rows")?,
         Kind::Image { path, .. } if has("src") => *path = r.image("src")?,
         _ => {}
     }
@@ -944,23 +951,52 @@ impl Reader<'_> {
         l.iter().enumerate().map(|(i, v)| v.as_f64().filter(|n| n.is_finite()).map(|n| n as f32).ok_or_else(|| format!("{}[{}]: a number is expected", self.at(key), i + 1))).collect()
     }
 
-    fn rows(&self, key: &str) -> Result<Vec<Vec<String>>, String> {
+    /// A table's rows, and the colours of the cells that have their own (none at all: an
+    /// empty list). A cell is a text, or `{ text = "+3:12", color = "#FF5F57" }`.
+    fn rows(&self, key: &str) -> Result<(Vec<Vec<String>>, Vec<Vec<Option<Rgba>>>), String> {
         let l = self.list(key)?;
         let mut cells = 0;
         let mut out = Vec::new();
+        let mut inks = Vec::new();
         for (i, row) in l.iter().enumerate() {
             let r = Reader { t: row, path: format!("{}[{}]", self.at(key), i + 1), folder: None };
-            let cols: Vec<String> = match row {
-                Value::List(c) => c.iter().map(|v| v.to_text().unwrap_or_default().chars().take(MAX_TEXT).collect()).collect(),
-                _ => return Err(format!("{}: a row is a list of texts", r.path)),
-            };
+            let Value::List(c) = row else { return Err(format!("{}: a row is a list of texts", r.path)) };
+            let mut cols = Vec::with_capacity(c.len());
+            let mut colors = Vec::with_capacity(c.len());
+            for (j, v) in c.iter().enumerate() {
+                let (text, ink) = if v.is_table() {
+                    let cell = Reader { t: v, path: format!("{}[{}]", r.path, j + 1), folder: None };
+                    (cell.string("text")?.unwrap_or_default(), cell.color("color")?)
+                } else {
+                    (v.to_text().unwrap_or_default(), None)
+                };
+                cols.push(text.chars().take(MAX_TEXT).collect());
+                colors.push(ink);
+            }
             cells += cols.len();
             if cells > MAX_POINTS {
                 return Err(format!("{}: a table has at most {MAX_POINTS} cells", self.at(key)));
             }
             out.push(cols);
+            inks.push(colors);
         }
-        Ok(out)
+        if inks.iter().flatten().all(Option::is_none) {
+            inks.clear();
+        }
+        Ok((out, inks))
+    }
+
+    /// A table's column alignments: `{ "left", "right", "center" }`.
+    fn aligns(&self, key: &str) -> Result<Vec<Align>, String> {
+        self.texts(key)?
+            .iter()
+            .map(|a| match a.as_str() {
+                "left" => Ok(Align::Left),
+                "center" => Ok(Align::Center),
+                "right" => Ok(Align::Right),
+                _ => Err(format!("{}: \"{a}\" is no alignment (left, center, right)", self.at(key))),
+            })
+            .collect()
     }
 
     fn weight(&self, default: Weight) -> Result<Weight, String> {
@@ -1140,7 +1176,10 @@ impl Reader<'_> {
                 },
                 fill: self.boolean("fill", false)?,
             },
-            "table" => Kind::Table { columns: self.texts("columns")?, rows: self.rows("rows")?, widths: self.numbers("widths")?, size: self.number("size", 13.0, 6.0, 48.0)? },
+            "table" => {
+                let (rows, inks) = self.rows("rows")?;
+                Kind::Table { columns: self.texts("columns")?, rows, widths: self.numbers("widths")?, size: self.number("size", 13.0, 6.0, 48.0)?, aligns: self.aligns("aligns")?, inks }
+            }
             // (an element of a later version of the API: left out)
             _ => return Ok(None),
         };
@@ -1195,8 +1234,47 @@ mod tests {
         assert!(children[1].grow);
         assert_eq!(children[1].kind, Kind::Text { text: "12.5".into(), size: 14.0, weight: Weight::Regular, align: Align::Left, wrap: true });
         // (held to its range)
-        assert_eq!(p.children[2].kind, Kind::Bar { value: 1.0, height: 6.0, background: None });
+        assert_eq!(p.children[2].kind, Kind::Bar { value: 1.0, height: 6.0, background: None, segments: Vec::new() });
         assert!(p.children[3].takes_clicks() && !p.children[0].takes_clicks());
+    }
+
+    /// Version 3: the navigator's board, boxes, stop lists, bars of parts, tables with
+    /// aligned columns and cells of their own colour, panels that take clicks without the mouse.
+    #[test]
+    fn the_navigator_s_look_is_read() {
+        let p = panel(
+            r##"{ anchor = "navigator", grab = true, children = {
+                { type = "box", color = "#F58620", children = { { type = "text", text = "Next 08:10" } } },
+                { type = "stops", stops = { { name = "Markt", time = "08:05", expected = "08:09", expected_color = "#FF5F57", state = "now" }, { name = "Rathaus", time = "08:12", tag = "terminus" } } },
+                { type = "bar", segments = { { value = 2, color = "#2A75F7" }, { value = 5 } } },
+                { type = "table", aligns = { "left", "right" }, rows = { { "Zoo", { text = "+3:12", color = "#FF5F57" } }, { "Markt", "12:05" } } },
+                { type = "table", rows = { { "Zoo", "12:01" } } },
+            } }"##,
+        )
+        .unwrap();
+        assert_eq!((p.anchor, p.font, p.grab), (Anchor::Navigator, Font::Launcher, true));
+        let Kind::Box { children, .. } = &p.children[0].kind else { panic!("{:?}", p.children[0]) };
+        assert_eq!(children.len(), 1);
+        let Kind::Stops { stops, size } = &p.children[1].kind else { panic!("{:?}", p.children[1]) };
+        assert_eq!((stops[0].state, stops[1].state, stops[1].tag.as_str(), *size), (StopState::Now, StopState::Ahead, "terminus", 13.0));
+        assert_eq!(stops[0].expected_color, Rgba::parse("#FF5F57"));
+        let Kind::Bar { segments, .. } = &p.children[2].kind else { panic!("{:?}", p.children[2]) };
+        assert_eq!(segments, &[(2.0, Rgba([0x2A, 0x75, 0xF7, 255])), (5.0, Rgba([232, 160, 48, 255]))]);
+        let Kind::Table { rows, aligns, inks, .. } = &p.children[3].kind else { panic!("{:?}", p.children[3]) };
+        assert_eq!(rows, &[vec!["Zoo".to_string(), "+3:12".into()], vec!["Markt".into(), "12:05".into()]]);
+        assert_eq!(aligns, &[Align::Left, Align::Right]);
+        assert_eq!(inks, &[vec![None, Rgba::parse("#FF5F57")], vec![None, None]]);
+        // (a table without a coloured cell keeps no colours)
+        let Kind::Table { inks, .. } = &p.children[4].kind else { panic!("{:?}", p.children[4]) };
+        assert!(inks.is_empty());
+        for (src, want) in [
+            (r#"{ children = { { type = "table", aligns = { "middle" } } } }"#, "children[1].aligns: \"middle\" is no alignment"),
+            (r#"{ children = { { type = "stops", stops = { { state = "gone" } } } } }"#, "children[1].stops[1].state: \"gone\" is no state"),
+            (r#"{ font = "comic" }"#, "font: \"comic\" is no font"),
+        ] {
+            let e = panel(src).unwrap_err();
+            assert!(e.contains(want), "{src}: {e}");
+        }
     }
 
     #[test]

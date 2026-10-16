@@ -761,6 +761,7 @@ pub fn toast_panel(t: &Toast) -> Panel {
         visible: true,
         clickable: false,
         draggable: false,
+        grab: false,
         font: pui::Font::Interface,
         children,
     }
@@ -1023,6 +1024,9 @@ pub struct PluginPanels {
     pub drag: Option<input::Drag>,
     /// The field typed into when the cards were last laid out.
     typing: Option<(u64, String, String)>,
+    /// The left button went down on a panel that takes clicks without the mouse (`grab`):
+    /// its release is the panel's too, not the cab's.
+    pub grabbed: bool,
     /// The height of the panel in the navigator's board as last laid out (physical pixels):
     /// the room the navigator makes for it. None: no such panel shown.
     pub docked: Option<f32>,

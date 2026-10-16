@@ -107,6 +107,8 @@ impl TripPanel {
                 rows,
                 widths: vec![0.36, 0.15, 0.15, 0.16, 0.18],
                 size: 13.0,
+                aligns: Vec::new(),
+                inks: Vec::new(),
             },
         ));
         children.push(grow_row(vec![button("copy", &tr("Copy"), Some("content_copy")), button("save", &tr("Save"), Some("save")), button("close", &tr("Close"), Some("close"))]));
