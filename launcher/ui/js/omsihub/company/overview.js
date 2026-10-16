@@ -1,9 +1,11 @@
 // The company's overview, as our game-drawn launcher's (`company/overview.rs`): six figures
-// across the top, the last days' results as a chart, today (the tours covered, the driver's next
-// duty, what wants attention), the company's day as it was told, the last day closed and the
-// way to the other companies.
+// across the top, the last days' results as a chart beside what needs the player (Beta 65's
+// dashboard: each with the button that does it), the company's day as it was told, today (the
+// tours covered, the driver's next duty) and the last day closed. (Another company: the round
+// menu and the command palette.)
 
-import { html, setCo, setUi, act, cmd, useView, useSize, textW, goTab, Icon, Btn, Figure, Section, Meter, Switch, seen } from './kit.js';
+import { html, setUi, act, useView, useSize, textW, goTab, Icon, Btn, Figure, Section, Meter, Switch, seen } from './kit.js';
+import { follow } from './agenda.js';
 
 export function OverviewPage() {
   const v = useView('overview');
@@ -20,21 +22,18 @@ export function OverviewPage() {
     const h1 = Math.max(220, (size.h - y - gap) * 0.52);
     const y2 = y + h1 + gap;
     const h2 = Math.max(140, size.h - y2);
-    const h3 = Math.max(170, h2 * 0.6);
-    const h4 = Math.max(80, h2 - h3 - gap);
+    const h3 = Math.max(150, (h2 - gap) * 0.5);
+    const h4 = Math.max(130, h2 - h3 - gap);
     // (how tall it all is: on a low window more than the page - then the page scrolls)
     tall = Math.max(y2 + h2, y2 + h3 + gap + h4);
     const box =(x, yy, w, h) => `position:absolute;left:${x}px;top:${yy}px;width:${w}px;height:${h}px`;
     body = html`
       ${v.figures.map((f, k) => html`<div style=${box(k * (fw + gap), 0, fw, fh)} title=${f.tip}><${Figure} f=${f} small=${fw < 170} /></div>`)}
       <${Section} title=${v.chart_title} style=${box(0, y, leftW, h1)}><${Chart} c=${v.chart} w=${leftW - 36} h=${h1 - 58} /></${Section}>
-      <${Today} t=${v.today} style=${box(leftW + gap, y, rightW, h1)} />
+      <${NeedsYou} n=${v.needs} style=${box(leftW + gap, y, rightW, h1)} />
       <${Feed} f=${v.feed} style=${box(0, y2, leftW, h2)} />
-      <${LastDay} l=${v.last} style=${box(leftW + gap, y2, rightW, h3)} h=${h3 - 58} />
-      <${Section} title=${v.companies.title} style=${box(leftW + gap, y2 + h3 + gap, rightW, h4)}>
-        <div style="display:flex;align-items:center;gap:12px;margin-top:-4px"><span class="co-para grow cut">${v.companies.text}</span>
-          <${Btn} icon="sync_alt" label=${v.companies.button} style="height:38px" onClick=${() => cmd('co_act', { act: 'play', speed: 0 }).finally(() => setCo({ chooser: 'companies' }))} /></div>
-      </${Section}>`;
+      <${Today} t=${v.today} style=${box(leftW + gap, y2, rightW, h3)} />
+      <${LastDay} l=${v.last} style=${box(leftW + gap, y2 + h3 + gap, rightW, h4)} h=${h4 - 58} />`;
   }
   // (the cards keep their least heights: on a low window - a small one, or a large Launcher size -
   // they run past the page's foot and the page scrolls to them; Beta 53's layout check)
@@ -90,7 +89,26 @@ export function Bar({ b, onClick }) {
   </div>`;
 }
 
-/** Today (`overview::today`): the tours covered, the driver's next duty, what wants attention. */
+/** What needs the player (`overview::needs_you`): the alerts, the bus contracts rated orange or
+ * red, service control's waiting (the breakdowns among it), the complaints and the agenda's
+ * coming week - each with the button that leads to where it is done. */
+function NeedsYou({ n, style }) {
+  if (!n) return null;
+  return html`<${Section} class="co-dash-needs" title=${n.list.length ? `${n.title} · ${n.list.length}` : n.title} style=${style}>
+    <div class="co-dash-list">
+      ${n.list.length
+        ? n.list.map((it) => html`<div class=${'co-dash-row ' + it.tone} title=${it.text}>
+            <span class=${'co-dash-dot t-' + it.tone}><${Icon} name=${it.icon} size=${17} /></span>
+            <span class="grow co-dash-text">${it.text}</span>
+            <${Btn} small label=${it.button} class="co-dash-go" onClick=${() => follow(it.go)} />
+          </div>`)
+        : html`<div class="co-dash-calm"><${Icon} name="check_circle" size=${30} class="t-ok" /><span>${n.none}</span></div>`}
+    </div>
+  </${Section}>`;
+}
+
+/** Today (`overview::today`): the tours covered and the driver's next duty (what wants attention
+ * is the dashboard's "Needs you"). */
 function Today({ t, style }) {
   const c = t.covered;
   const n = t.next;
@@ -105,10 +123,6 @@ function Today({ t, style }) {
         <span class="words"><${Icon} name="person" size=${18} class="t-dim" /><span class="cut t-soft">${n.none}</span></span>
         <${Btn} icon=${n.icon} label=${n.button} style="height:34px" onClick=${() => (n.easy ? (setUi('career', { part: 0 }), goTab(6)) : goTab(5))} />
       </div>`}
-      ${t.alerts.length
-        ? t.alerts.map((a) => html`<button type="button" class="co-row co-alert" title=${a.text} onClick=${() => goTab(a.tab)}>
-            <${Icon} name=${a.icon} size=${18} class=${'t-' + a.tone} /><span class="cut grow">${a.text}</span><${Icon} name="chevron_right" size=${18} class="t-dim" /></button>`)
-        : html`<div class="co-para" style="line-height:24px">${t.calm}</div>`}
     </div>
   </${Section}>`;
 }
