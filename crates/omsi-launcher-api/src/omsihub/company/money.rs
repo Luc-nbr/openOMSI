@@ -40,7 +40,37 @@ fn month_part(c: &Company, chosen: Option<&str>) -> Value {
         t.push_str(&trf("%{n} left at the stop", &[("n", &grouped(left as f64))]));
         t
     });
+    // (Luc 2026-10-16: the month as a profit and loss - its income and its costs by kind, each
+    // with its share, and the waterfall from the income to the result)
+    let income: Vec<&(BookingKind, i64)> = rows.iter().filter(|x| x.1 > 0).collect();
+    let mut costs: Vec<&(BookingKind, i64)> = rows.iter().filter(|x| x.1 < 0).collect();
+    costs.sort_by_key(|x| x.1);
+    let earned: i64 = income.iter().map(|x| x.1).sum();
+    let spent: i64 = -costs.iter().map(|x| x.1).sum::<i64>();
+    let bars = |list: &[&(BookingKind, i64)], total: i64, tone: &str| -> Vec<Value> {
+        let most = list.iter().map(|x| x.1.abs()).max().unwrap_or(1).max(1);
+        list.iter()
+            .map(|(kind, a)| json!({ "label": tr(kind.label()), "amount": eur(a.abs()), "frac": a.abs() as f64 / most as f64, "share": if total > 0 { format!("{:.0} %", a.abs() as f64 * 100.0 / total as f64) } else { String::new() }, "tone": tone }))
+            .collect()
+    };
+    let mut fall = vec![json!({ "label": tr("Income"), "amount": eur(earned), "from": 0, "to": earned, "tone": "ok" })];
+    let mut at = earned;
+    for (k, (kind, a)) in costs.iter().enumerate() {
+        // (the five largest costs each a step, the rest one)
+        if k == 5 {
+            let rest: i64 = costs[5..].iter().map(|x| x.1).sum();
+            fall.push(json!({ "label": tr("Other costs"), "amount": eur(-rest), "from": at, "to": at + rest, "tone": "danger" }));
+            break;
+        }
+        fall.push(json!({ "label": tr(kind.label()), "amount": eur(-a), "from": at, "to": at + a, "tone": "danger" }));
+        at += a;
+    }
+    fall.push(json!({ "label": tr("Result"), "amount": signed(m.result()).0, "from": 0, "to": m.result(), "tone": if m.result() >= 0 { "ok" } else { "danger" }, "total": true }));
     json!({
+        "pl_title": tr("Profit & loss"), "pl_sub": month_label(&months[k]),
+        "income_title": tr("Income"), "income_total": eur(earned), "income": bars(&income, earned, "ok"),
+        "costs_title": tr("Costs"), "costs_total": eur(spent), "costs": bars(&costs, spent, "danger"),
+        "waterfall": fall, "no_income": tr("No income booked this month."), "no_costs": tr("No costs booked this month."),
         "pax": pax,
         "title": tr("The month").to_uppercase(), "months": months.iter().map(|m| json!([m, month_label(m)])).collect::<Vec<_>>(), "month": months[k],
         "empty": (rows.is_empty() && capital.is_empty()).then(|| tr("Nothing booked this month yet.")),
@@ -59,7 +89,7 @@ fn credit(c: &Company) -> Value {
     let used = if cr.limit > 0 { (cr.debt as f64 / cr.limit as f64).clamp(0.0, 1.0) } else { 1.0 };
     let rate = if cr.discount > 0.0 { trf("Interest %{rate} a year (%{discount} less for the company's level)", &[("rate", &percent(cr.rate)), ("discount", &percent(cr.discount))]) } else { trf("Interest %{rate} a year", &[("rate", &percent(cr.rate))]) };
     json!({
-        "caps": tr("Credit room").to_uppercase(), "tone": room_tone(room),
+        "caps": tr("Credit room"), "tone": room_tone(room),
         "value": if room == Room::None { trf("%{amount} left", &[("amount", &eur(cr.left))]) } else { eur(cr.left) },
         "say": tr(match room { Room::Plenty => "the bank lends this much more", Room::Little => "little left: the bank is careful", Room::None => "used up: the bank lends nothing more" }),
         "bar": { "frac": 1.0 - used, "label": trf("%{debt} of %{limit} used", &[("debt", &eur(cr.debt)), ("limit", &eur(cr.limit))]), "right": format!("{:.0} % {}", (1.0 - used) * 100.0, tr("free")), "tip": tr("What the bank still lends, of all it would lend the company: its base, a share of the fleet's value and six months of the result, less what is owed.") },
@@ -86,7 +116,7 @@ fn loans(c: &Company) -> Value {
             })
         })
         .collect();
-    json!({ "title": tr("Loans").to_uppercase(), "credit": credit(c), "list": list, "none": tr("The company owes nothing."), "repay": tr("Pay back…"), "contract": tr("Contract"), "take": tr("Take a loan…") })
+    json!({ "title": tr("Loans"), "credit": credit(c), "list": list, "none": tr("The company owes nothing."), "repay": tr("Pay back…"), "contract": tr("Contract"), "take": tr("Take a loan…") })
 }
 
 fn ledger(c: &Company) -> Value {
@@ -98,15 +128,21 @@ fn ledger(c: &Company) -> Value {
         .map(|b| {
             let (t, tone) = signed(b.amount);
             let mark = (!b.kind.is_capital()).then(|| if b.measured { json!([tr("driven"), "accent2", tr("Measured: from a trip really driven")]) } else { json!([tr("modelled"), "dim", tr("Modelled: worked out by the company's day")]) });
-            json!({ "date": day_label(&b.date), "kind": tr(b.kind.label()), "text": b.text, "mark": mark, "amount": t, "tone": tone })
+            let cat = if b.kind.is_capital() { "invest" } else if b.amount > 0 { "income" } else { "cost" };
+            json!({ "date": day_label(&b.date), "kind": tr(b.kind.label()), "text": b.text, "mark": mark, "amount": t, "tone": tone, "cat": cat })
         })
         .collect();
-    json!({ "title": tr("Ledger").to_uppercase(), "rows": rows })
+    json!({
+        "title": tr("Ledger"), "rows": rows,
+        "filters": [["all", tr("All")], ["income", tr("Income")], ["cost", tr("Costs")], ["invest", tr("Investments")]],
+        "search": tr("Search the ledger"), "none": tr("No booking matches."),
+        "heads": [tr("Date"), tr("Kind"), tr("What"), "", tr("Amount")],
+    })
 }
 
 fn fares(c: &Company) -> Value {
     if c.lines.is_empty() {
-        return json!({ "title": tr("Ticket prices").to_uppercase(), "empty": tr("The company runs no line yet: each line's single ticket is set here and on the Lines page.") });
+        return json!({ "title": tr("Ticket prices"), "empty": tr("The company runs no line yet: each line's single ticket is set here and on the Lines page.") });
     }
     let rows: Vec<Value> = c
         .lines
@@ -123,7 +159,7 @@ fn fares(c: &Company) -> Value {
             json!({ "name": cl.name, "plate": super::lines::plate(&cl.number, &cl.colour), "fare": fare_text(fare as f64), "vs": vs, "pax": t, "tone": tone })
         })
         .collect();
-    json!({ "title": tr("Ticket prices").to_uppercase(), "rows": rows, "tip": tr("Change the fare: see what it does before it is set") })
+    json!({ "title": tr("Ticket prices"), "rows": rows, "tip": tr("Change the fare: see what it does before it is set") })
 }
 
 /// The Finances page (`money::draw`): the figures, the month, the loans, the ledger, the fares
@@ -136,15 +172,17 @@ pub fn view(s: &mut Session, ui: &Value) -> Value {
     let fleet_value = fi::fleet_value(&c);
     let tone = |r: i64| if r >= 0 { "ok" } else { "danger" };
     let easy = co::autopilot::on(&c);
+    // (the gross margin: what is left of the month's income when its running costs are paid)
+    let margin = (this.income() > 0).then(|| this.result() as f64 / this.income() as f64);
     let mut figures = vec![
-        json!({ "label": tr("Cash"), "value": super::sandbox::cash(&c), "under": "", "tone": super::sandbox::cash_tone(&c) }),
-        json!({ "label": tr("Debt"), "value": eur(c.debt()), "under": trf("%{n} loans", &[("n", &c.loans.len().to_string())]), "tone": "text" }),
-        json!({ "label": tr("Fleet value"), "value": eur(fleet_value), "under": tr("the buses owned"), "tone": "text", "open": "fleet_value", "tip": tr("By age band: what the buses cost new, are worth and lost") }),
-        json!({ "label": tr("This month"), "value": signed(this.result()).0, "under": month_label(&this.month), "tone": tone(this.result()) }),
-        json!({ "label": tr("Last month"), "value": signed(prev.result()).0, "under": month_label(&prev.month), "tone": tone(prev.result()) }),
+        json!({ "key": "cash", "icon": "payments", "label": tr("Cash"), "value": super::sandbox::cash(&c), "under": tr("in the bank"), "tone": super::sandbox::cash_tone(&c) }),
+        json!({ "key": "month", "icon": "trending_up", "label": tr("This month"), "value": signed(this.result()).0, "under": trf("Last month: %{amount}", &[("amount", &signed(prev.result()).0)]), "tone": tone(this.result()), "tip": month_label(&this.month) }),
+        json!({ "key": "margin", "icon": "speed", "label": tr("Gross margin"), "value": margin.map_or("–".to_string(), |m| percent(m)), "under": tr("of the month's income"), "tone": match margin { Some(m) if m >= 0.1 => "ok", Some(m) if m >= 0.0 => "warn", Some(_) => "danger", None => "text" }, "tip": tr("The month's result as a share of its income: what is left of the takings once the running costs are paid") }),
+        json!({ "key": "debt", "icon": "receipt_long", "label": tr("Debt"), "value": eur(c.debt()), "under": trf("%{n} loans", &[("n", &c.loans.len().to_string())]), "tone": "text" }),
+        json!({ "key": "fleet", "icon": "directions_bus", "label": tr("Fleet value"), "value": eur(fleet_value), "under": tr("the buses owned"), "tone": "text", "open": "fleet_value", "tip": tr("By age band: what the buses cost new, are worth and lost") }),
     ];
     if easy {
-        figures.remove(2);
+        figures.remove(4);
     }
     let month = ui.get("month").and_then(Value::as_str).map(str::to_string);
     json!({
