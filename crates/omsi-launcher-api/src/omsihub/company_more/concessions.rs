@@ -9,13 +9,13 @@
 //! (the page says so meanwhile). The Contracts page's "Tender bids" (`bids`) lists the tenders
 //! the company bid on.
 
-use super::super::words::{day_label, eur, tr, trf};
+use super::super::words::{day_label, eur, grouped, num, span_text, tr, trf};
 use super::super::{act as apply, busy, may_step, simulate, Session};
 use super::contracts as kc;
 use super::{more, more_state, u32_arg};
 use crate::Answer;
 use omsi_launcher_lib as core;
-use omsi_launcher_lib::company::auction::Who;
+use omsi_launcher_lib::company::auction::{Placed, Who};
 use omsi_launcher_lib::company::bus_contracts::{self as bc, Period};
 use omsi_launcher_lib::company::clock::{self as ck, Step};
 use omsi_launcher_lib::company::concessions::{self as cn, Outcome, Tender, Week};
@@ -157,8 +157,6 @@ pub fn bids(c: &Company) -> Value {
 pub fn view(s: &mut Session, args: &Value) -> Value {
     weeks(s);
     let Some(c) = s.company.clone() else { return Value::Null };
-    let pts = bc::scored_points(&c);
-    let foot = trf("Scored 70 % price, 30 % quality: the lowest ask gets all 70 price points, others lowest ÷ ask of them; quality is your track record, 100 % less 2 % a default point - yours %{pts} points, %{p} of 30. Asks above the cap do not count; on equal totals the price decides, then quality.", &[("pts", &format!("{pts:.1}")), ("p", &format!("{:.1}", bc::quality_points(pts)))]);
     let mut list: Vec<Tender> = c.concessions.tenders.clone();
     list.sort_by(|a, b| b.open().cmp(&a.open()).then(if a.open() { a.opens_at.cmp(&b.opens_at) } else { b.closes_at.cmp(&a.closes_at) }));
     // (the panel shows the one picked, else the first running or announced)
@@ -171,7 +169,6 @@ pub fn view(s: &mut Session, args: &Value) -> Value {
     };
     let today_read = s.today.is_some();
     json!({
-        "foot": foot,
         "tenders": tenders(&c, &list, &weeks, reading, today_read, selected),
         "held": held(&c),
         "auction": auction(&c, selected, args),
@@ -187,6 +184,28 @@ fn tenders(c: &Company, list: &[Tender], weeks: &HashMap<String, Week>, reading:
         .iter()
         .map(|t| {
             let week = t.week.or_else(|| weeks.get(&t.line.to_lowercase()).copied());
+            // (Luc 2026-10-16: the tender's card - its contract, tours, km a week and cap as chips)
+            let mut chips = Vec::new();
+            if t.scored() {
+                chips.push(json!({ "text": tr(t.kind.label()), "tone": "accent", "icon": "description" }));
+            }
+            match week {
+                Some(wk) => {
+                    chips.push(json!({ "text": trf("%{n} tours", &[("n", &wk.tours.to_string())]), "tone": "dim", "icon": "directions_bus" }));
+                    chips.push(json!({ "text": if wk.km < 1.0 { trf("%{n} trips a week", &[("n", &wk.trips.to_string())]) } else { trf("%{km} km a week", &[("km", &grouped(wk.km))]) }, "tone": "dim", "icon": "route" }));
+                }
+                None => chips.push(json!({ "text": trf("%{n} tours", &[("n", &t.day_tours.to_string())]), "tone": "dim", "icon": "directions_bus" })),
+            }
+            if t.scored() {
+                chips.push(json!({ "text": trf("cap %{amount}", &[("amount", &eur(t.reference))]), "tone": "early", "icon": "payments" }));
+            }
+            let countdown = if !t.open() {
+                None
+            } else if now < t.opens_at {
+                Some(json!([trf("opens in %{span}", &[("span", &span_text(t.opens_at - now))]), "early"]))
+            } else {
+                Some(json!([trf("closes in %{span}", &[("span", &span_text(t.closes_at - now))]), if t.closes_at - now < 60 { "warn" } else { "ok" }]))
+            };
             let figures = match week {
                 Some(wk) if wk.km < 1.0 => trf("%{t} tours, %{n} trips a week", &[("t", &wk.tours.to_string()), ("n", &wk.trips.to_string())]),
                 Some(wk) => trf("%{t} tours, %{km} km a week", &[("t", &wk.tours.to_string()), ("km", &format!("{:.0}", wk.km))]),
@@ -207,10 +226,12 @@ fn tenders(c: &Company, list: &[Tender], weeks: &HashMap<String, Week>, reading:
             json!({
                 "id": t.id, "number": t.number, "caption": caption_of(t), "dim": !t.open(), "on": selected == Some(t.id),
                 "figures": figures, "state": state, "tone": tone, "bid": bid, "bid_tone": bid_tone, "badge": badge,
+                "chips": chips, "countdown": countdown,
             })
         })
         .collect();
-    json!({ "title": tr("Tenders"), "note": note, "empty": empty, "rows": rows })
+    let open = list.iter().filter(|t| t.open()).count();
+    json!({ "title": tr("Open tenders"), "count": open, "note": note, "empty": empty, "rows": rows })
 }
 
 /// The concessions the company holds and its own lines (`concessions::held`): each with its bus
@@ -230,7 +251,8 @@ fn held(c: &Company) -> Value {
                 None => tr("Commercial: no contract, the fares are the company's"),
             };
             let more = k.map(|k| format!("{}  ·  {}", kc::points_text(c, k), kc::unpaid_text(c, k)));
-            json!({ "number": h.number, "until": until, "tone": if left <= cn::RENEW_BEFORE { "warn" } else { "text" }, "price": price, "more": more, "rag": k.map(|k| kc::rag_json(k.rag(&today))), "direct": (h.direct && k.is_none()).then(|| tr("commercial").to_uppercase()) })
+            let caption = c.lines.iter().find(|l| l.name.eq_ignore_ascii_case(&h.line)).map(|l| l.caption.clone()).filter(|x| !x.is_empty()).unwrap_or_else(|| h.line.clone());
+            json!({ "number": h.number, "caption": caption, "until": until, "tone": if left <= cn::RENEW_BEFORE { "warn" } else { "text" }, "price": price, "more": more, "points": k.map(|k| kc::points_text(c, k)), "unpaid": k.map(|k| kc::unpaid_text(c, k)), "rag": k.map(|k| kc::rag_json(k.rag(&today))), "direct": (h.direct && k.is_none()).then(|| tr("commercial").to_uppercase()) })
         })
         .collect();
     let lic = eur((cn::LICENCE as f64 * c.price_index).round() as i64);
@@ -243,11 +265,19 @@ fn held(c: &Company) -> Value {
                 Some(k) => format!("{}  ·  {}", tr(k.kind.label()), kc::pay_text(c, k)),
                 None => trf("Your own line: no concession, a licence of %{amount} a month", &[("amount", &lic)]),
             };
-            json!({ "number": x.number, "caption": x.caption, "text": text, "rag": bc::of_line(c, &x.name).map(|k| kc::rag_json(k.rag(&today))) })
+            let k = bc::of_line(c, &x.name);
+            json!({ "number": x.number, "caption": x.caption, "text": text, "points": k.map(|k| kc::points_text(c, k)), "rag": k.map(|k| kc::rag_json(k.rag(&today))) })
         })
         .collect();
     let empty = (rows.is_empty() && own.is_empty()).then(|| tr("The company holds no concession yet. Win a tender, or apply for a line of the map on the Lines page."));
-    json!({ "title": tr("Your concessions"), "rows": rows, "own": own, "empty": empty })
+    json!({ "title": tr("Your contracts"), "sub": record_short(c), "rows": rows, "own": own, "empty": empty, "own_label": tr("own line") })
+}
+
+/// The track record in a few words: the default points a contract and the quality points they
+/// give in the next tenders.
+fn record_short(c: &Company) -> String {
+    let pts = bc::scored_points(c);
+    trf("Track record: %{pts} default points a contract  ·  %{q} of 30 quality points", &[("pts", &num(pts, 1)), ("q", &num(bc::quality_points(pts), 1))])
 }
 
 /// How a tender's contract is paid, in words.
@@ -308,6 +338,25 @@ fn auction(c: &Company, selected: Option<u32>, args: &Value) -> Value {
     let mine_last = placed.iter().rev().find(|p| p.who == Who::Player).map(|p| p.amount);
     let kind = points_of("").unwrap_or_else(|| trf("your quality %{q}", &[("q", &format!("{:.0}", cn::quality_in(c, t)))]));
     bidders.push(json!({ "name": tr("You"), "kind": kind, "value": mine_last.map(eur).unwrap_or_else(|| tr("no bid")), "has": mine_last.is_some(), "leads": leader == Some(Who::Player) }));
+    // (Luc 2026-10-16: the rivals as a table - their kind, quality and where their bid stands)
+    let rivals: Vec<Value> = t
+        .bidders
+        .iter()
+        .enumerate()
+        .filter_map(|(i, id)| {
+            let r = cn::rival(c, *id)?;
+            let last = placed.iter().rev().find(|p| p.who == Who::Rival(i)).map(|p| p.amount);
+            let leads = leader == Some(Who::Rival(i));
+            let (bid, tone) = match last {
+                _ if !t.open() && !t.scored() && last.is_none() => (tr("no bid"), "dim"),
+                Some(a) if leads => (trf("%{amount}, leads", &[("amount", &eur(a))]), "warn"),
+                Some(a) => (eur(a), "text"),
+                None if now < t.opens_at => (tr("waits for the opening"), "dim"),
+                None => (tr("no bid"), "dim"),
+            };
+            Some(json!({ "name": r.name, "kind": tr(r.character.label()), "quality": r.quality / 100.0, "quality_text": format!("{:.0}", r.quality), "bid": bid, "tone": tone, "leads": leads, "points": points_of(&r.name) }))
+        })
+        .collect();
     let log: Vec<Value> = placed.iter().rev().take(30).map(|p| json!({ "at": ck::hhmm(p.at), "who": if p.who == Who::Player { tr("You") } else { cn::bidder_name(c, t, p.who) }, "amount": eur(p.amount), "me": p.who == Who::Player })).collect();
     // what to do
     let actions = if t.running(now) {
@@ -357,7 +406,41 @@ fn auction(c: &Company, selected: Option<u32>, args: &Value) -> Value {
             _ => json!({ "kind": "none" }),
         }
     };
+    // the timeline: open, bidding, award
+    let stage = if !t.open() { 2 } else if now < t.opens_at { 0 } else { 1 };
+    let timeline = json!([
+        { "label": tr("Open"), "sub": when(c, t.opens_at), "state": if stage == 0 { "now" } else { "done" } },
+        { "label": tr("Bidding"), "sub": trf("until %{time}", &[("time", &when(c, t.closes_at))]), "state": match stage { 0 => "next", 1 => "now", _ => "done" } },
+        { "label": tr("Award"), "sub": match &t.outcome { Some(Outcome::Won { .. }) => tr("you won"), Some(_) => tr("decided"), None => tr("at the close") }, "state": if stage == 2 { "now" } else { "next" } },
+    ]);
+    // the score the company's ask would get (the slider's while it runs, else its last bid)
+    let mine_amount = match actions.get("kind").and_then(Value::as_str) {
+        Some("running") => actions.get("amount").and_then(Value::as_f64).map(|a| (a * 100.0).round() as i64),
+        _ => mine_last,
+    };
+    let score = t.scored().then(|| {
+        let me = mine_amount.and_then(|a| {
+            let mut with: Vec<Placed> = placed.iter().filter(|p| p.who != Who::Player).copied().collect();
+            with.push(Placed { at: now.max(t.opens_at), who: Who::Player, amount: a });
+            cn::standings(c, t, &with).into_iter().find(|s| s.name.is_empty())
+        });
+        let q = bc::quality_points(bc::scored_points(c));
+        let (price, quality) = me.as_ref().map_or((0.0, q), |s| (s.price, s.quality));
+        json!({
+            "title": tr("How bids are scored"), "head": tr("70 % price + 30 % quality"),
+            "price": price, "quality": quality, "has": me.is_some(),
+            "price_label": trf("Price %{p} of 70", &[("p", &format!("{price:.1}"))]), "quality_label": trf("Quality %{q} of 30", &[("q", &format!("{quality:.1}"))]),
+            "total": me.as_ref().map(|s| trf("Your expected score: %{t} of 100", &[("t", &format!("{:.1}", s.total))])).unwrap_or_else(|| tr("Set an ask to see your expected score.")),
+            "lines": [
+                tr("Price: the lowest ask gets all 70 points, every other ask lowest ÷ ask of them."),
+                trf("Quality: your track record, 100 % less 2 % a default point - yours %{pts} points, %{q} of 30.", &[("pts", &num(bc::scored_points(c), 1)), ("q", &num(q, 1))]),
+                tr("Asks above the cap do not count; on equal totals the price decides, then quality."),
+            ],
+        })
+    });
     json!({
+        "timeline": timeline, "score": score, "rivals": rivals,
+        "rivals_title": tr("Rivals"), "rivals_heads": [tr("Bidder"), tr("Kind"), tr("Quality"), tr("Bid")],
         "title": title, "id": t.id, "number": t.number, "caption": caption_of(t),
         "state": state, "tone": tone, "mine": mine.as_ref().map(|m| &m.0), "mine_tone": mine.map(|m| m.1),
         "figures": figures, "terms": terms, "frac": frac, "times": times, "bidders": bidders,
