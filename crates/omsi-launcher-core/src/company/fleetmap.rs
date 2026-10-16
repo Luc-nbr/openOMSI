@@ -285,6 +285,197 @@ pub fn delay_of(date: &str, tour: &str, trip: usize, experience: f64, condition:
     minutes * 60.0
 }
 
+// --- the live map ----------------------------------------------------------------------------
+//
+// The fleet map's live buses (Luc: "a smooth display of all the buses the company has driving"):
+// a block of today's plan - its trips in order, each with how the day's one delay model runs it
+// (`lateness::model_with`) - and where its bus is at a moment of the day. A trip it runs leaves
+// as late as the model has it and comes in as late, the delay growing (or shrinking) evenly on
+// the way; between two trips it waits at the last stop; a depot run or a positioning trip goes
+// along its route, or straight from where the bus stood to where it goes next when the map has
+// none; a bus broken down stays where it broke down.
+
+/// How a trip of a block runs today (the lateness model's `Timed`): whether a bus runs it, and
+/// its seconds behind the timetable leaving and arriving (negative: early).
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct Run {
+    pub runs: bool,
+    pub dep: f64,
+    pub arr: f64,
+}
+
+impl Run {
+    pub const ON_TIME: Run = Run { runs: true, dep: 0.0, arr: 0.0 };
+
+    pub fn late(dep: f64, arr: f64) -> Run {
+        Run { runs: true, dep, arr }
+    }
+}
+
+/// What a bus on the live map is doing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Doing {
+    /// Before its first trip: in the depot, or waiting at the first stop.
+    Depot,
+    /// On a trip with passengers.
+    Service,
+    /// On a depot run or a positioning trip (no passengers).
+    Deadhead,
+    /// At the terminus between two trips.
+    Layover,
+    /// Broken down (or crashed), where it happened.
+    Broken,
+    /// Its day is done (or none of its trips runs).
+    Done,
+}
+
+/// Where a bus is on the live map, and what it is doing.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Live {
+    pub doing: Doing,
+    /// The block's trip it drives, the one it waits for (the depot, a layover), or the last it
+    /// drove (done, broken down).
+    pub trip: usize,
+    /// None: the map has no place for it.
+    pub at: Option<P>,
+    pub heading: f64,
+    /// How far along its trip it is (0 to 1; at a layover or in the depot 0).
+    pub progress: f64,
+    /// Seconds behind the timetable now (waiting: what its next trip leaves with).
+    pub delay: f64,
+    /// The trip's next stop and when the bus is there, the delay counted in (waiting: when it
+    /// leaves).
+    pub next_stop: Option<usize>,
+    pub next_time: Option<f64>,
+}
+
+impl Live {
+    fn done(trip: usize) -> Live {
+        Live { doing: Doing::Done, trip, at: None, heading: 0.0, progress: 0.0, delay: 0.0, next_stop: None, next_time: None }
+    }
+}
+
+/// Where each trip of a block begins and ends on the map: its own first and last place, else
+/// where the trip before ended or the next begins (a depot run the map has no stop of).
+fn ends(trips: &[&TripShape]) -> Vec<(Option<(P, f64)>, Option<(P, f64)>)> {
+    let own: Vec<(Option<(P, f64)>, Option<(P, f64)>)> = trips.iter().map(|t| (t.at(f64::NEG_INFINITY), t.at(f64::INFINITY))).collect();
+    (0..trips.len())
+        .map(|j| {
+            let before = (0..j).rev().find_map(|i| own[i].1.or(own[i].0));
+            let after = (j + 1..trips.len()).find_map(|i| own[i].0.or(own[i].1));
+            (own[j].0.or(before).or(after), own[j].1.or(after).or(before))
+        })
+        .collect()
+}
+
+/// Where the bus of a block (`trips` in order, `runs` how each runs: one a trip, a missing one
+/// on time) is at `clock` (seconds of the day). The trips it does not run are left out: it waits
+/// where it was.
+pub fn live_at(trips: &[&TripShape], runs: &[Run], clock: f64) -> Live {
+    let run = |j: usize| runs.get(j).copied().unwrap_or(Run::ON_TIME);
+    let ran: Vec<usize> = (0..trips.len()).filter(|&j| run(j).runs).collect();
+    let Some(&first) = ran.first() else { return Live::done(trips.len().saturating_sub(1)) };
+    let places = ends(trips);
+    // (as it runs: when it leaves and when it is in)
+    let leaves = |j: usize| trips[j].dep + run(j).dep;
+    let arrives = |j: usize| (trips[j].arr + run(j).arr).max(leaves(j));
+    let waiting = |doing: Doing, at: Option<(P, f64)>, next: usize| Live {
+        doing,
+        trip: next,
+        at: at.map(|x| x.0),
+        heading: at.map(|x| x.1).unwrap_or(0.0),
+        progress: 0.0,
+        delay: run(next).dep,
+        next_stop: Some(0),
+        next_time: Some(leaves(next)),
+    };
+    if clock < leaves(first) {
+        return waiting(Doing::Depot, places[first].0, first);
+    }
+    for (n, &j) in ran.iter().enumerate() {
+        let (a, b) = (leaves(j), arrives(j));
+        if clock <= b {
+            let t = trips[j];
+            let r = run(j);
+            let f = if b > a { ((clock - a) / (b - a)).clamp(0.0, 1.0) } else { 1.0 };
+            // (where the timetable has the bus that far along its trip)
+            let span = t.arr - t.dep;
+            let tau = t.dep + f * span;
+            let at = t.at(tau).or_else(|| match places[j] {
+                (Some((p, _)), Some((q, _))) => Some(([p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f], heading(q[0] - p[0], q[1] - p[1]))),
+                (p, q) => p.or(q),
+            });
+            let delay_at = |s: f64| r.dep + (r.arr - r.dep) * if span > 0.0 { ((s - t.dep) / span).clamp(0.0, 1.0) } else { 1.0 };
+            let k = t.times.iter().position(|x| *x > tau);
+            return Live {
+                doing: if t.empty { Doing::Deadhead } else { Doing::Service },
+                trip: j,
+                at: at.map(|x| x.0),
+                heading: at.map(|x| x.1).unwrap_or(0.0),
+                progress: f,
+                delay: delay_at(tau),
+                next_stop: k,
+                next_time: Some(k.and_then(|k| t.times.get(k)).map_or(b, |x| x + delay_at(*x))),
+            };
+        }
+        if let Some(&next) = ran.get(n + 1) {
+            if clock < leaves(next) {
+                return waiting(Doing::Layover, places[j].1, next);
+            }
+        }
+    }
+    let last = *ran.last().unwrap_or(&first);
+    let mut out = Live::done(last);
+    out.at = places[last].1.map(|x| x.0);
+    out.heading = places[last].1.map(|x| x.1).unwrap_or(0.0);
+    out
+}
+
+/// The buses of a block at `clock`: the one running its trips (`Doing::Done` when none does
+/// now) and, its bus broken down at `broke` (seconds of the day) by then, that bus where it broke
+/// down. From the breakdown on the block's trips are the bus sent's (a spare, a rental: the
+/// lateness model's runs leave out those lost); the trip it broke down on counts as running on
+/// with the delay it left with until then (the passengers' wait for the bus sent is not driving).
+pub fn block_at(trips: &[&TripShape], runs: &[Run], clock: f64, broke: Option<f64>) -> (Live, Option<Live>) {
+    let Some(b) = broke else { return (live_at(trips, runs, clock), None) };
+    let run = |j: usize| runs.get(j).copied().unwrap_or(Run::ON_TIME);
+    // (the trips before it broke down, the one it broke down on driven as it left)
+    let before: Vec<Run> = (0..trips.len())
+        .map(|j| {
+            let r = run(j);
+            match trips[j].dep + r.dep {
+                d if d >= b => Run::default(),
+                _ if b <= trips[j].arr + r.arr => Run { arr: r.dep, ..r },
+                _ => r,
+            }
+        })
+        .collect();
+    if clock < b {
+        return (live_at(trips, &before, clock), None);
+    }
+    let mut broken = live_at(trips, &before, b);
+    broken.doing = Doing::Broken;
+    broken.progress = 0.0;
+    broken.next_stop = None;
+    broken.next_time = None;
+    let after: Vec<Run> = (0..trips.len()).map(|j| if trips[j].dep >= b { run(j) } else { Run::default() }).collect();
+    (live_at(trips, &after, clock), Some(broken))
+}
+
+/// The kilometres the bus of a block has driven by `clock` (`km`: each trip's), a trip under way
+/// by how far along it is.
+pub fn km_by(trips: &[&TripShape], runs: &[Run], km: &[f64], clock: f64) -> f64 {
+    let run = |j: usize| runs.get(j).copied().unwrap_or(Run::ON_TIME);
+    (0..trips.len())
+        .filter(|&j| run(j).runs)
+        .map(|j| {
+            let (a, b) = (trips[j].dep + run(j).dep, trips[j].arr + run(j).arr);
+            let f = if clock >= b { 1.0 } else if clock <= a || b <= a { 0.0 } else { (clock - a) / (b - a) };
+            km.get(j).copied().unwrap_or(0.0) * f
+        })
+        .sum()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -354,5 +545,125 @@ mod tests {
         assert_eq!(a, delay_of("2024-03-04", "5/1", 2, 80.0, 95.0));
         assert!((-60.0..=240.0).contains(&a));
         assert!(delay_of("2024-03-04", "5/1", 2, 10.0, 40.0) > a + 60.0);
+    }
+
+    /// A block: out east A-B-C from 06:00, back west C-B-A from 06:30, an empty run without a
+    /// route from A north to E at 07:00, and a trip north E-F-G at 07:40.
+    fn block() -> Vec<TripShape> {
+        let east: Vec<P> = vec![[0.0, 0.0], [1200.0, 0.0]];
+        let west: Vec<P> = vec![[1200.0, 0.0], [0.0, 0.0]];
+        let north: Vec<P> = vec![[0.0, 900.0], [0.0, 2100.0]];
+        let out = TripShape::new(&trip(21600.0, &[(21600.0, "A"), (21660.0, "B"), (21720.0, "C")], false), Some(&east), vec![Some([0.0, 0.0]), Some([600.0, 0.0]), Some([1200.0, 0.0])]);
+        let back = TripShape::new(&trip(23400.0, &[(23400.0, "C"), (23460.0, "B"), (23520.0, "A")], false), Some(&west), vec![Some([1200.0, 0.0]), Some([600.0, 0.0]), Some([0.0, 0.0])]);
+        let empty = TripShape { dep: 25200.0, arr: 25500.0, times: vec![25200.0, 25500.0], names: vec!["A".into(), "E".into()], track: None, along: vec![None, None], places: vec![None, None], empty: true };
+        let up = TripShape::new(&trip(27600.0, &[(27600.0, "E"), (27660.0, "F"), (27720.0, "G")], false), Some(&north), vec![Some([0.0, 900.0]), Some([0.0, 1500.0]), Some([0.0, 2100.0])]);
+        vec![out, back, empty, up]
+    }
+
+    fn near(p: Option<P>, q: P) -> bool {
+        p.is_some_and(|p| (p[0] - q[0]).abs() < 1e-6 && (p[1] - q[1]).abs() < 1e-6)
+    }
+
+    #[test]
+    fn a_bus_between_two_stops_goes_along_its_route_on_time() {
+        let b = block();
+        let trips: Vec<&TripShape> = b.iter().collect();
+        let p = live_at(&trips, &[], 21630.0);
+        assert_eq!((p.doing, p.trip, p.next_stop, p.next_time), (Doing::Service, 0, Some(1), Some(21660.0)));
+        assert!(near(p.at, [300.0, 0.0]), "{:?}", p.at);
+        assert_eq!((p.heading, p.delay), (90.0, 0.0));
+        assert!((p.progress - 0.25).abs() < 1e-9);
+        // (before the first trip it waits at its first stop; after the last it is done at the end)
+        let p = live_at(&trips, &[], 20000.0);
+        assert_eq!((p.doing, p.trip, p.next_time), (Doing::Depot, 0, Some(21600.0)));
+        assert!(near(p.at, [0.0, 0.0]));
+        let p = live_at(&trips, &[], 30000.0);
+        assert_eq!((p.doing, p.trip), (Doing::Done, 3));
+        assert!(near(p.at, [0.0, 2100.0]));
+    }
+
+    #[test]
+    fn a_delayed_bus_leaves_late_and_loses_more_on_the_way() {
+        let b = block();
+        let trips: Vec<&TripShape> = b.iter().collect();
+        // two minutes late leaving, four at the end: it leaves at 06:02 and is in at 06:06
+        let runs = [Run::late(120.0, 240.0), Run::late(60.0, 60.0)];
+        let p = live_at(&trips, &runs, 21660.0);
+        assert_eq!(p.doing, Doing::Depot, "still waiting for its late start");
+        assert_eq!(p.next_time, Some(21720.0));
+        // half way in its own time: where the timetable had it at 06:01, three minutes behind
+        let p = live_at(&trips, &runs, 21840.0);
+        assert_eq!((p.doing, p.trip), (Doing::Service, 0));
+        assert!(near(p.at, [600.0, 0.0]), "{:?}", p.at);
+        assert!((p.delay - 180.0).abs() < 1e-9);
+        // its next stop, C, at 06:02 by the timetable, four minutes late
+        assert_eq!((p.next_stop, p.next_time), (Some(2), Some(21720.0 + 240.0)));
+        assert!(live_at(&trips, &runs, 21950.0).doing == Doing::Service, "in at 06:06, not 06:02");
+    }
+
+    #[test]
+    fn a_bus_at_its_layover_waits_at_the_terminus_until_its_next_trip() {
+        let b = block();
+        let trips: Vec<&TripShape> = b.iter().collect();
+        let p = live_at(&trips, &[], 22500.0);
+        assert_eq!((p.doing, p.trip, p.next_stop, p.next_time), (Doing::Layover, 1, Some(0), Some(23400.0)));
+        assert!(near(p.at, [1200.0, 0.0]));
+        assert_eq!(p.heading, 90.0, "facing the way it came in");
+        // a late next trip: it waits longer, and says what it leaves with
+        let p = live_at(&trips, &[Run::ON_TIME, Run::late(300.0, 300.0)], 23500.0);
+        assert_eq!((p.doing, p.delay, p.next_time), (Doing::Layover, 300.0, Some(23700.0)));
+        // a trip it does not run: it stays where it was until the next it runs
+        let p = live_at(&trips, &[Run::ON_TIME, Run::default()], 24000.0);
+        assert_eq!((p.doing, p.trip), (Doing::Layover, 2));
+        assert!(near(p.at, [1200.0, 0.0]));
+    }
+
+    #[test]
+    fn a_broken_down_bus_stays_where_it_broke_down_and_the_bus_sent_runs_on() {
+        let b = block();
+        let trips: Vec<&TripShape> = b.iter().collect();
+        // broke down at 06:01:30 between B and C; its trip back is lost, the bus sent runs the rest
+        let runs = [Run::late(0.0, 1200.0), Run::default(), Run::ON_TIME, Run::ON_TIME];
+        let (bus, broken) = block_at(&trips, &runs, 21660.0, Some(21690.0));
+        assert_eq!((bus.doing, broken), (Doing::Service, None));
+        assert!(near(bus.at, [600.0, 0.0]), "before, it drives as it left (the wait is not counted)");
+        let (bus, broken) = block_at(&trips, &runs, 24000.0, Some(21690.0));
+        let broken = broken.expect("the broken-down bus is shown");
+        assert_eq!((broken.doing, broken.trip, broken.next_time), (Doing::Broken, 0, None));
+        assert!(near(broken.at, [900.0, 0.0]), "{:?}", broken.at);
+        assert_eq!(broken.heading, 90.0);
+        // the bus sent waits for the empty run, where the lost trip would have ended
+        assert_eq!((bus.doing, bus.trip, bus.next_time), (Doing::Depot, 2, Some(25200.0)));
+        assert!(near(bus.at, [0.0, 0.0]));
+        assert_eq!(block_at(&trips, &runs, 26000.0, Some(21690.0)).0.doing, Doing::Layover);
+        // nothing sent and nothing after: no bus runs the block any more
+        let lost = [Run::ON_TIME, Run::default(), Run::default(), Run::default()];
+        assert_eq!(block_at(&trips, &lost, 24000.0, Some(21690.0)).0.doing, Doing::Done);
+    }
+
+    #[test]
+    fn a_bus_on_a_deadhead_goes_straight_where_the_map_has_no_route() {
+        let b = block();
+        let trips: Vec<&TripShape> = b.iter().collect();
+        let p = live_at(&trips, &[], 25350.0);
+        assert_eq!((p.doing, p.trip, p.next_stop, p.next_time), (Doing::Deadhead, 2, Some(1), Some(25500.0)));
+        assert!(near(p.at, [0.0, 450.0]), "half way from A to E: {:?}", p.at);
+        assert_eq!(p.heading, 0.0, "north");
+        // (the trip after it goes along its own route)
+        let p = live_at(&trips, &[], 27630.0);
+        assert_eq!(p.doing, Doing::Service);
+        assert!(near(p.at, [0.0, 1200.0]));
+    }
+
+    #[test]
+    fn the_kilometres_of_the_day_grow_along_the_trips_run() {
+        let b = block();
+        let trips: Vec<&TripShape> = b.iter().collect();
+        let km = [1.2, 1.2, 0.9, 1.2];
+        assert_eq!(km_by(&trips, &[], &km, 20000.0), 0.0);
+        assert!((km_by(&trips, &[], &km, 21690.0) - 0.9).abs() < 1e-9);
+        assert!((km_by(&trips, &[], &km, 26000.0) - 3.3).abs() < 1e-9);
+        // (a trip not run is not driven)
+        assert!((km_by(&trips, &[Run::ON_TIME, Run::default()], &km, 26000.0) - 2.1).abs() < 1e-9);
     }
 }

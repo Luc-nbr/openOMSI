@@ -115,6 +115,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("company-lateness.yml", include_str!("../../../omsi-app/locales/company-lateness.yml")),
     ("vehicle-age.yml", include_str!("../../../omsi-app/locales/vehicle-age.yml")),
     ("company-ops.yml", include_str!("../../../omsi-app/locales/company-ops.yml")),
+    ("company-livemap.yml", include_str!("../../../omsi-app/locales/company-livemap.yml")),
     ("rosterflow-roster-tab.yml", include_str!("../../../omsi-app/locales/rosterflow-roster-tab.yml")),
     ("rosterflow-routes.yml", include_str!("../../../omsi-app/locales/rosterflow-routes.yml")),
     ("rosterflow-timeplan.yml", include_str!("../../../omsi-app/locales/rosterflow-timeplan.yml")),
