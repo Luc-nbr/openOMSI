@@ -38,6 +38,9 @@ if (HUB && !SETTINGS_TABS.omsihub) {
     { type: 'toggle', key: 'animations', label: 'Animations' },
     { type: 'select', key: 'accent', label: 'Accent colour', options: PRESETS.map(([name, c]) => [hexOf(c), name]) },
     { type: 'toggle', key: 'dark_mode', label: 'Dark mode' },
+    // (Beta 65: the bus company's look and feel - its pages round a sidebar, or found with the
+    // command palette; `company/shell.js`)
+    { type: 'select', key: 'company_layout', label: 'Company layout', options: [['sidebar', 'Sidebar'], ['palette', 'Command palette']] },
     // (phase 3: the first start's welcome and the tour through the launcher once more, as our
     // game-drawn launcher's General tab has them; no setting changes by them - the welcome's
     // own `welcome_done` written a moment after the page's save of the unchanged ones)
