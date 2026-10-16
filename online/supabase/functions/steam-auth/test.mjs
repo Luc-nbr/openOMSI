@@ -1,6 +1,6 @@
 // node online/supabase/functions/steam-auth/test.mjs
 import assert from 'node:assert/strict';
-import { handle, STEAM } from './steam.mjs';
+import { allowed, handle, STEAM } from './steam.mjs';
 
 const env = { url: 'https://proj.supabase.co', key: 'sb_secret_test' };
 const PAGE = 'https://omsihub.com/account.html';
@@ -67,6 +67,39 @@ await test('the start goes to Steam with our return address', async () => {
 await test('a page not on the list is refused (no open redirect)', async () => {
   const r = await handle(get(`to=${encodeURIComponent('https://evil.example/x')}`), env, world().fetcher);
   assert.equal(r.status, 400);
+});
+
+await test("the app's listener on 127.0.0.1 may sign in, on any port, with the path fixed", async () => {
+  for (const ok of ['http://127.0.0.1:49152/callback', 'http://127.0.0.1:1/callback', 'http://127.0.0.1:65535/callback']) assert.equal(allowed(ok), true, ok);
+  for (const no of [
+    'http://127.0.0.1:65536/callback',
+    'http://127.0.0.1:0/callback',
+    'http://127.0.0.1:080/callback',
+    'http://127.0.0.1/callback',
+    'http://127.0.0.1:5000/callback/',
+    'http://127.0.0.1:5000/callback?x=1',
+    'http://127.0.0.1:5000/callback#x',
+    'http://127.0.0.1:5000/other',
+    'https://127.0.0.1:5000/callback',
+    'http://localhost:5000/callback',
+    'http://127.0.0.1.evil.example:5000/callback',
+    'http://127.0.0.1:5000@evil.example/callback',
+    'http://evil.example/http://127.0.0.1:5000/callback',
+    'http://127.0.0.2:5000/callback',
+  ])
+    assert.equal(allowed(no), false, no);
+  const page = 'http://127.0.0.1:50123/callback';
+  const r = await handle(get(`to=${encodeURIComponent(page)}`), env, world().fetcher);
+  assert.equal(r.status, 302);
+  const back = new URL(r.headers.get('location')).searchParams.get('openid.return_to');
+  assert.equal(back, `${SELF}?step=back&to=${encodeURIComponent(page)}`);
+  // (and back from Steam, the one-time link is made for it)
+  const w = world();
+  const done = await handle(get(answer({ to: page, 'openid.return_to': back })), env, w.fetcher);
+  assert.match(done.headers.get('location'), /\/auth\/v1\/verify\?/);
+  assert.equal(JSON.parse(w.calls[2].init.body).redirect_to, page);
+  const bad = await handle(get(`to=${encodeURIComponent('http://127.0.0.1:50123/elsewhere')}`), env, world().fetcher);
+  assert.equal(bad.status, 400);
 });
 
 await test("a checked answer makes the user and hands over Supabase's one-time link", async () => {

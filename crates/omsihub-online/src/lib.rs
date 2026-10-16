@@ -1,7 +1,7 @@
 //! Omsi-Hub online, the client side (docs/omsihub/ONLINE.md): the optional account - email and
-//! password only, on Supabase Auth - the friends, their online state, the invites to a company
-//! session and the opt-in leaderboard (the database's `SECURITY DEFINER` functions, through
-//! PostgREST), and the cloud saves (Supabase Storage).
+//! password, or Google, Discord or Steam, on Supabase Auth - the friends, their online state, the
+//! invites to a company session and the opt-in leaderboard (the database's `SECURITY DEFINER`
+//! functions, through PostgREST), and the cloud saves (Supabase Storage).
 //!
 //! * `Client` - signing in and out, the email confirmed and the password reset by a code, the
 //!   account deleted; the access token renewed with the refresh token a minute before it expires
@@ -14,7 +14,10 @@
 //!   text for the launcher to translate: nothing the server says is shown as it is;
 //! * `check` - the lengths and shapes checked before anything is sent;
 //! * `privacy` - the privacy statement and its version: the account's features wait until the
-//!   player agreed to it.
+//!   player agreed to it;
+//! * `oauth` - signing in with Google, Discord or Steam through the system's browser and a
+//!   one-shot listener on 127.0.0.1 (PKCE for Supabase's providers, the `steam-auth` function for
+//!   Steam).
 //!
 //! No network is no error of the player's: every call then answers `Error::Offline` at once
 //! (the connection's own timeouts), and the launcher plays on locally. Nothing here logs.
@@ -23,11 +26,14 @@ pub mod check;
 mod client;
 pub mod codes;
 mod http;
+pub mod oauth;
 pub mod privacy;
 pub mod saves;
 pub mod store;
 #[cfg(test)]
 mod mock;
+#[cfg(test)]
+mod oauth_tests;
 #[cfg(test)]
 mod saves_tests;
 #[cfg(test)]
@@ -35,6 +41,7 @@ mod tests;
 
 pub use client::{Client, Friend, Invite, Profile, Stats};
 pub use codes::Error;
+pub use oauth::{Flow, Handoff, Provider};
 pub use saves::{Cloud, SaveError, Slot};
 
 /// The Supabase project `omsi-hub-online` (public, as every client uses it; not a secret).
@@ -90,6 +97,10 @@ impl Endpoints {
 
     pub(crate) fn rest(&self, path: &str) -> String {
         format!("{}/rest/v1{path}", self.base)
+    }
+
+    pub(crate) fn functions(&self, path: &str) -> String {
+        format!("{}/functions/v1{path}", self.base)
     }
 
     pub(crate) fn storage(&self, path: &str) -> String {

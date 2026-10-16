@@ -9,7 +9,9 @@
 //      which the player cannot change), and a one-time sign-in link is made for it;
 //   4. the player goes through that link, and Supabase hands the session to <page>
 //      (#access_token=...), the same way as after Google or Discord.
-// <page> must be one of PAGES (no open redirect). Something wrong ends on <page>#error_code=steam_failed.
+// <page> must be one of PAGES, or the app's one-shot listener on this computer
+// (http://127.0.0.1:<port>/callback, LOOPBACK: that exact host and path, any port, nothing after it):
+// no open redirect. Something wrong ends on <page>#error_code=steam_failed.
 //
 // The secret key comes from the function's own environment (SUPABASE_SECRET_KEYS), never from a
 // request, and nothing it gives is returned except the one-time link.
@@ -20,6 +22,14 @@ const SELECT = 'http://specs.openid.net/auth/2.0/identifier_select';
 const ID = /^https:\/\/steamcommunity\.com\/openid\/id\/(\d{17})$/;
 /** Where a session may be handed over. */
 export const PAGES = ['https://omsihub.com/account.html', 'https://www.omsihub.com/account.html', 'http://localhost:5182/account.html', 'http://127.0.0.1:5182/account.html'];
+/** The app's listener (crates/omsihub-online/src/oauth.rs): 127.0.0.1 only, the path fixed. */
+export const LOOPBACK = /^http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})\/callback$/;
+/** Whether a session may be handed over to `page`. */
+export function allowed(page) {
+  if (PAGES.includes(page)) return true;
+  const m = LOOPBACK.exec(page);
+  return !!m && Number(m[1]) <= 65535;
+}
 
 const go = (url) => new Response(null, { status: 302, headers: { location: url, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
 const failed = (page, why) => {
@@ -35,7 +45,7 @@ export async function handle(req, env, fetcher = fetch) {
   if (req.method !== 'GET') return new Response('Only GET', { status: 405 });
   const q = new URL(req.url).searchParams;
   const page = q.get('to') || PAGES[0];
-  if (!PAGES.includes(page)) return new Response('This page may not sign in with Steam.', { status: 400 });
+  if (!allowed(page)) return new Response('This page may not sign in with Steam.', { status: 400 });
   const self = `${env.url}/functions/v1/steam-auth`;
   const back = `${self}?step=back&to=${encodeURIComponent(page)}`;
 

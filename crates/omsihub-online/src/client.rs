@@ -12,9 +12,14 @@
 //! player agreed to its current version (`my_privacy`, `accept_privacy`), every request with the
 //! access token is refused here with `privacy` and nothing is sent. Only those two functions and
 //! deleting the account go through.
+//!
+//! Google, Discord and Steam sign in through the browser (`oauth.rs`); what it hands back becomes a
+//! session here (`sign_in_with`) as a password's does. Such an account has no password: deleting it
+//! asks for none (`has_password`), as on the website.
 
 use crate::codes::{self, Error};
 use crate::http::{encode, Body, Http, Reply};
+use crate::oauth::Handoff;
 use crate::store::SecretStore;
 use crate::{check, privacy, Endpoints};
 use serde_json::{json, Value};
@@ -85,6 +90,8 @@ struct Access {
     exp: u64,
     sub: String,
     email: String,
+    /// The account has a password (an email sign-in among its providers, and no Steam id).
+    password: bool,
 }
 
 pub struct Client {
@@ -186,10 +193,10 @@ impl Client {
     /// the store, the access token in memory. Whether there was one.
     fn keep(&mut self, s: &Value) -> bool {
         let (Some(token), Some(refresh)) = (s.get("access_token").and_then(Value::as_str), s.get("refresh_token").and_then(Value::as_str).filter(|t| !t.is_empty())) else { return false };
-        let Some((exp, sub, email)) = claims(token) else { return false };
+        let Some((exp, sub, email, app)) = claims(token) else { return false };
         self.store.save(refresh);
         self.refresh = Some(refresh.to_string());
-        self.access = Some(Access { token: token.to_string(), exp, sub, email });
+        self.access = Some(Access { token: token.to_string(), exp, sub, email, password: has_password(&app) });
         if let Some(n) = s.pointer("/user/user_metadata/display_name").and_then(Value::as_str).filter(|n| !n.trim().is_empty()) {
             self.signed_up_name = Some(n.trim().to_string());
         }
@@ -217,6 +224,32 @@ impl Client {
         } else {
             Err(Error::Code("server"))
         }
+    }
+
+    /// Signing in with what the browser handed back (`oauth::Flow::wait`): Supabase's PKCE code
+    /// exchanged with its verifier (`POST /token?grant_type=pkce`), or Steam's session renewed with
+    /// the auth at once (`grant_type=refresh_token`: the token checked, a new one kept). An answer
+    /// the auth does not take is `oauth_failed`.
+    pub fn sign_in_with(&mut self, h: &Handoff) -> Result<(), Error> {
+        let s = match h {
+            Handoff::Code { code, verifier } => self.auth("POST", "/token?grant_type=pkce", Some(json!({ "auth_code": code, "code_verifier": verifier })), None),
+            Handoff::Refresh(t) => self.auth("POST", "/token?grant_type=refresh_token", Some(json!({ "refresh_token": t })), None),
+        };
+        let s = s.map_err(|e| match e {
+            Error::Offline | Error::Code("too_many") => e,
+            _ => Error::Code("oauth_failed"),
+        })?;
+        if self.keep(&s) {
+            Ok(())
+        } else {
+            Err(Error::Code("server"))
+        }
+    }
+
+    /// Whether the account signed in has a password (an account made with Google, Discord or
+    /// Steam has none). True while it is not known.
+    pub fn has_password(&self) -> bool {
+        self.access.as_ref().is_none_or(|a| a.password)
     }
 
     /// A new code to confirm the email (`POST /resend`, the sign-up's mail).
@@ -271,7 +304,9 @@ impl Client {
     /// The account deleted, after the password typed again: signed in afresh with it (which checks
     /// it), the cloud saves deleted through Storage, then `delete_my_account()` (the user, and with
     /// it the profile, the friendships and the invites), then signed out here. Nothing is deleted
-    /// when the password is wrong; a cloud save that will not go keeps the account.
+    /// when the password is wrong; a cloud save that will not go keeps the account. An account
+    /// without a password (Google, Discord, Steam: the server's own word on it) is deleted with the
+    /// session it has, as on the website.
     pub fn delete_account(&mut self, password: &str) -> Result<(), Error> {
         let t = self.access_token()?;
         let r = self.send("GET", &self.ep.auth("/user"), Some(&t), Body::None, &[], false)?;
@@ -282,9 +317,11 @@ impl Client {
         if !r.ok() {
             return Err(codes::of_auth(r.status, &r.body));
         }
-        // (the address only for this, in memory)
-        let email = r.body.get("email").and_then(Value::as_str).map(str::to_string).or_else(|| self.access.as_ref().map(|a| a.email.clone())).filter(|e| !e.is_empty()).ok_or(Error::Code("server"))?;
-        self.sign_in(&email, password).map_err(|e| if e == Error::Code("invalid_credentials") { Error::Code("wrong_password") } else { e })?;
+        if r.body.get("app_metadata").is_none_or(has_password) {
+            // (the address only for this, in memory)
+            let email = r.body.get("email").and_then(Value::as_str).map(str::to_string).or_else(|| self.access.as_ref().map(|a| a.email.clone())).filter(|e| !e.is_empty()).ok_or(Error::Code("server"))?;
+            self.sign_in(&email, password).map_err(|e| if e == Error::Code("invalid_credentials") { Error::Code("wrong_password") } else { e })?;
+        }
         // (deleting is open whether the privacy statement was agreed to or not)
         self.free = true;
         let r = self.saves_delete_all().and_then(|_| self.rpc("delete_my_account", json!({})));
@@ -550,12 +587,26 @@ fn invite_of(row: &Value) -> Option<Invite> {
     })
 }
 
-/// An access token's expiry, subject and email (read, not checked: the server checks it).
-fn claims(jwt: &str) -> Option<(u64, String, String)> {
+/// An access token's expiry, subject, email and `app_metadata` (read, not checked: the server
+/// checks it).
+fn claims(jwt: &str) -> Option<(u64, String, String, Value)> {
     let payload = jwt.split('.').nth(1)?;
     let v: Value = serde_json::from_slice(&base64url(payload)?).ok()?;
     let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
-    Some((v.get("exp")?.as_u64()?, s("sub"), s("email")))
+    Some((v.get("exp")?.as_u64()?, s("sub"), s("email"), v.get("app_metadata").cloned().unwrap_or(Value::Null)))
+}
+
+/// Whether a user's `app_metadata` says the account has a password: `email` among its providers
+/// (Supabase's own sign-up), and no Steam id (`steam-auth` makes its users with an address of
+/// ours but no password). Not said at all: it has.
+fn has_password(app: &Value) -> bool {
+    if app.get("steam_id").is_some_and(|v| !v.is_null()) {
+        return false;
+    }
+    match app.get("providers").and_then(Value::as_array) {
+        Some(p) => p.iter().any(|p| p.as_str() == Some("email")),
+        None => app.get("provider").and_then(Value::as_str).is_none_or(|p| p == "email"),
+    }
 }
 
 fn base64url(s: &str) -> Option<Vec<u8>> {
@@ -584,6 +635,12 @@ fn base64url(s: &str) -> Option<Vec<u8>> {
 /// An access token as Supabase's look (the tests'; the signature is not read here).
 #[cfg(test)]
 pub(crate) fn test_jwt(sub: &str, exp: u64) -> String {
+    test_jwt_with(sub, exp, json!({ "provider": "email", "providers": ["email"] }))
+}
+
+/// One with this `app_metadata` (a Google or a Steam account's).
+#[cfg(test)]
+pub(crate) fn test_jwt_with(sub: &str, exp: u64, app: Value) -> String {
     fn b64(b: &[u8]) -> String {
         const A: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
         let mut s = String::new();
@@ -595,7 +652,7 @@ pub(crate) fn test_jwt(sub: &str, exp: u64) -> String {
         }
         s
     }
-    let claims = json!({ "sub": sub, "exp": exp, "email": "a@b.example", "role": "authenticated", "aud": "authenticated" });
+    let claims = json!({ "sub": sub, "exp": exp, "email": "a@b.example", "role": "authenticated", "aud": "authenticated", "app_metadata": app });
     format!("{}.{}.sig", b64(br#"{"alg":"ES256","typ":"JWT"}"#), b64(claims.to_string().as_bytes()))
 }
 

@@ -14,6 +14,9 @@ ureq.workspace = true
 # sha256 checked both ways. (zstd builds its C library with `cc`: MSVC, clang and gcc alike.)
 sha2.workspace = true
 zstd = { version = "0.13", default-features = false }
+# Signing in with Google, Discord or Steam (`oauth.rs`): the PKCE verifier and the state from the
+# system's generator (ring, which omsi-net has in the tree already)
+ring.workspace = true
 
 # The refresh token lives in the OS's own store only: Windows' Credential Manager, macOS's
 # Keychain, Linux's kernel keyring. Elsewhere (Android, iOS) nothing is kept between runs.
