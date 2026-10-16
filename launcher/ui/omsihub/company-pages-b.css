@@ -467,3 +467,63 @@
 
 /* set by hand */
 .co .co-pgb .co-pgb-sb-set .co-field { width: 130px; height: 30px; }
+
+/* --- Research after Luc's reference (Beta 65): the head, the tinted current card, the tiles' states,
+   the detail panel's rows ------------------------------------------------------------------------- */
+
+.co .co-pgb .co-pgb-rs-hic { flex: none; color: var(--pgb-accent); display: inline-flex; }
+.co .co-pgb .co-pgb-rs-now { background-color: color-mix(in srgb, var(--pgb-accent) 7%, var(--pgb-card)); box-shadow: inset 0 0 0 1px rgba(var(--hub-accent-rgb), 0.2), var(--pgb-shadow); }
+.co .co-pgb .co-pgb-rs-now.none { background-color: var(--pgb-card); box-shadow: var(--pgb-shadow); }
+.co .co-pgb .co-pgb-rs-now .co-pgb-rs-now-ic { width: 58px; height: 58px; border-radius: 50%; }
+.co .co-pgb .co-pgb-rs-now.none .co-pgb-rs-now-ic { border-radius: 50%; }
+.co .co-pgb .co-pgb-rs-now-mid { gap: 5px; }
+.co .co-pgb .co-pgb-rs-now-bar .co-pgb-bar { height: 12px; border-radius: 6px; background-color: color-mix(in srgb, var(--pgb-field) 80%, var(--pgb-card)); }
+.co .co-pgb .co-btn.co-pgb-outline:not(.primary):not(.danger) { background-color: var(--pgb-card); box-shadow: inset 0 0 0 1px var(--pgb-line-strong); }
+.co .co-pgb .co-btn.co-pgb-outline:not(.primary):not(.danger):hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--pgb-accent); color: var(--pgb-accent-text); background-color: var(--pgb-card); }
+
+.co .co-pgb .co-pgb-rs-body.wide { grid-template-columns: minmax(0, 1fr); }
+.co .co-pgb .co-pgb-rs-grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.co .co-pgb .co-pgb-rs-tile { position: relative; }
+.co .co-pgb .co-pgb-rs-tic { border-radius: 50%; }
+.co .co-pgb .co-pgb-rs-tic.big { border-radius: 50%; }
+.co .co-pgb .co-pgb-rs-eff { color: var(--pgb-soft); font-weight: 600; }
+/* researched: a green tile, its pill, a faint check in its corner */
+.co .co-pgb .co-pgb-rs-tile.done { background-color: color-mix(in srgb, var(--pgb-ok) 8%, var(--pgb-card)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pgb-ok) 22%, transparent); }
+.co .co-pgb .co-pgb-rs-tile.done .co-pgb-rs-tile-t { color: var(--pgb-ink); }
+.co .co-pgb .co-pgb-rs-tile.done .co-pgb-rs-eff { color: var(--pgb-soft); }
+.co .co-pgb .co-pgb-rs-tile.done.on { box-shadow: 0 0 0 2px var(--pgb-accent); }
+.co .co-pgb .co-pgb-rs-tick { position: absolute; top: 9px; right: 9px; color: var(--pgb-ok); opacity: 0.45; display: inline-flex; }
+.co .co-pgb .co-pgb-rs-tile.done .co-pgb-rs-tile-h { padding-right: 18px; }
+.co .co-pgb .co-pgb-rs-done { display: inline-flex; align-items: center; justify-content: center; gap: 5px; width: 100%; height: 26px; border-radius: 8px; font-size: 10.4px; font-weight: 700; color: var(--pgb-ok); background-color: var(--pgb-ok-tint); }
+/* available: Start, in a light accent (the first one filled while nothing runs) */
+.co .co-pgb .co-pgb-rs-go { display: inline-flex; align-items: center; justify-content: center; gap: 5px; width: 100%; height: 26px; padding: 0 8px; border: 0; border-radius: 8px; font: inherit; font-size: 10.2px; font-weight: 700; color: var(--pgb-accent-text); background-color: var(--pgb-accent-tint); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.co .co-pgb .co-pgb-rs-go:hover { color: var(--pgb-accent-ink); background-color: var(--pgb-accent); }
+.co .co-pgb .co-pgb-rs-go.on { color: var(--pgb-accent-ink); background-color: var(--pgb-accent); }
+.co .co-pgb .co-pgb-rs-go.on:hover { background-color: var(--pgb-accent-hover); }
+/* locked: a greyed tile */
+.co .co-pgb .co-pgb-rs-tile.locked { background-color: var(--pgb-raise); box-shadow: none; }
+.co .co-pgb .co-pgb-rs-tile.locked .co-pgb-rs-tile-t, .co .co-pgb .co-pgb-rs-tile.locked .co-pgb-rs-eff { color: var(--pgb-dim); }
+.co .co-pgb .co-pgb-rs-tile.locked.on { box-shadow: 0 0 0 2px var(--pgb-accent); }
+.co .co-pgb .co-pgb-rs-lock { width: 100%; height: 26px; padding: 0 8px; border-radius: 8px; background-color: var(--pgb-field); }
+
+/* the detail panel */
+.co .co-pgb .co-pgb-rs-det-h { align-items: flex-start; }
+.co .co-pgb .co-pgb-rs-det-h .co-pgb-grow { gap: 3px; align-items: flex-start; }
+.co .co-pgb .co-pgb-rs-det-h .co-pgb-chip { margin-top: 3px; }
+.co .co-pgb .co-pgb-rs-det-h .co-pgb-chip.dim { color: var(--pgb-dim); }
+.co .co-pgb .co-pgb-rs-facts { display: flex; flex-direction: column; }
+.co .co-pgb .co-pgb-rs-fact { display: flex; align-items: flex-start; gap: 10px; padding: 9px 0; border-top: 1px solid var(--pgb-line); }
+.co .co-pgb .co-pgb-rs-fact .co-pgb-grow { display: flex; flex-direction: column; gap: 3px; font-size: 11.2px; }
+.co .co-pgb .co-pgb-rs-fact b { font-weight: 700; color: var(--pgb-ink); font-variant-numeric: tabular-nums; }
+.co .co-pgb .co-pgb-rs-fact-ic { flex: none; width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: var(--pgb-soft); background-color: var(--pgb-field); }
+.co .co-pgb .co-pgb-rs-fact.big .co-pgb-rs-fact-ic { color: var(--pgb-accent); background-color: var(--pgb-accent-tint); }
+.co .co-pgb .co-pgb-rs-fact.ok .co-pgb-rs-fact-ic { color: var(--pgb-ok); background-color: var(--pgb-ok-tint); }
+.co .co-pgb .co-pgb-rs-det-eff { font-size: 14px; font-weight: 800; color: var(--pgb-accent-text); }
+.co .co-pgb .co-pgb-rs-fact .co-pgb-note .hub-icon { vertical-align: -2px; }
+.co .co-pgb .co-pgb-rs-need { display: block; font-weight: 650; }
+.co .co-pgb .co-pgb-rs-infobox { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border-radius: var(--pgb-r-sm); font-size: 10.8px; line-height: 1.5; color: var(--pgb-soft); background-color: var(--pgb-raise); }
+.co .co-pgb .co-pgb-rs-infobox .hub-icon { flex: none; margin-top: 1px; color: var(--pgb-dim); }
+.co .co-pgb .co-pgb-rs-infobox.ok { color: var(--pgb-ink); background-color: var(--pgb-ok-tint); }
+.co .co-pgb .co-pgb-rs-infobox.ok .hub-icon { color: var(--pgb-ok); }
+.co .co-pgb .co-pgb-rs-infobox.accent { color: var(--pgb-ink); background-color: var(--pgb-accent-tint); }
+.co .co-pgb .co-pgb-rs-infobox.accent .hub-icon { color: var(--pgb-accent); }

@@ -126,7 +126,15 @@ pub fn view(s: &mut Session, _args: &Value) -> Value {
         "strip": strip, "banner": banner(&c), "sections": sections, "info_tip": tr("What it does"),
         "title": tr("Research"), "detail_caps": tr("Details").to_uppercase(), "pick": tr("Choose a research to see what it does."),
         "cost_caps": tr("Next stage").to_uppercase(), "needs_caps": tr("Needs first").to_uppercase(),
-        "words": { "money": tr("Money"), "trophies": tr("Trophies"), "work": tr("Work"), "done": tr("Researched"), "locked": tr("Locked") },
+        "words": { "money": tr("Money"), "trophies": tr("Trophies"), "work": tr("Work"), "done": tr("Researched"), "locked": tr("Locked"),
+            // (the page as Beta 65 draws it, after Luc's reference)
+            "now": tr("Current research"), "available": tr("Available"), "running": tr("Under way"), "locked_needs": tr("Locked: needs %{what}"),
+            "effect": tr("Effect"), "cost": tr("Cost"), "duration": tr("Duration"), "researchers": tr("Researchers"), "needs": tr("Prerequisites"), "none": tr("None"), "close": tr("Close"),
+            "info_done": tr("This research has already been completed. Its benefits are now active in your operations."),
+            "info_running": tr("This research is under way: its benefits come when its stage is done."),
+            "info_open": tr("Everything it needs is there: start it when you like. One research runs at a time."),
+            "info_locked": tr("It waits for what it needs: research that first, or reach the level it asks.") },
+        "sub": tr("Invest in new technologies and improvements to make your operations more efficient, sustainable and profitable."),
     })
 }
 
