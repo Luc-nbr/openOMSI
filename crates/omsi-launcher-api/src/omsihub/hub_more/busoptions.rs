@@ -370,6 +370,13 @@ pub fn vars_for(bus: &str, paint: &str) -> Vec<(String, f32)> {
     setvars(cat.as_deref(), paint, &picks)
 }
 
+/// What the game gets for `bus` in `paint` with the choices `picks`, the bus read here and now
+/// (`vars_for` without the file the choices are kept in: the checks).
+#[cfg(test)]
+pub(crate) fn vars_with(root: &Path, bus: &str, paint: &str, picks: &BTreeMap<String, f32>) -> Vec<(String, f32)> {
+    setvars(read(root, bus).ok().as_ref(), paint, picks)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

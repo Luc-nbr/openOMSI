@@ -3,6 +3,7 @@
 
 use super::pack::{self, Head};
 use super::scramble;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// An `.o3d`: its version, flags and key, its vertices, its triangles (three indices and a
@@ -167,6 +168,42 @@ fn a_bus_is_read_packed_and_its_look_worked_out_as_the_game_puts_it_down() {
     // ... and shown with the bus option that switches it on
     let (on, _) = super::look::look_of(&read, &built.head, m, None, &[("vis_mirror".into(), 1.0)]);
     assert_eq!(&on.visible[mirror..mirror + 1], "1");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The bus options as the bus step keeps them and the game gets them (`--setvar`, after the
+/// livery's `[setvar]`s), in the look the preview draws: "As the livery" shows what the livery
+/// sets, "Off" and "On" win over it (one look for the outside and the inside views).
+#[test]
+fn the_bus_options_chosen_show_in_the_look_as_the_game_gets_them() {
+    let root = sandbox("options");
+    let cfg = root.join("Vehicles/Test/model/model.cfg");
+    let mut text = std::fs::read_to_string(&cfg).unwrap();
+    // two liveries: one with the mirror, one leaving it to the model (0)
+    text.push_str("\n[item]\nMirror\nbody.tga\nbody.tga\n[setvar]\nvis_mirror\n1\n\n[item]\nBare\nbody.tga\nbody.tga\n");
+    std::fs::write(&cfg, text).unwrap();
+    let bus = "Vehicles/Test/test.bus";
+    let read = std::sync::Arc::new(pack::read_bus(&root, bus).unwrap());
+    let built = pack::build(read.clone()).unwrap();
+    let m = &built.manifest;
+    let at = |file: &str| built.head.entries.iter().position(|e| built.head.pieces[e.piece].file == file).unwrap();
+    let (mirror, other) = (at("mirror.o3d"), at("nomirror.o3d"));
+    let shown = |paint: &str, pick: Option<f32>| {
+        let picks: BTreeMap<String, f32> = pick.map(|v| ("VIS_Mirror".to_string(), v)).into_iter().collect();
+        let options = super::super::hub_more::busoptions::vars_with(&root, bus, paint, &picks);
+        let (look, _) = super::look::look_of(&read, &built.head, m, Some(paint), &options);
+        let v = look.visible.as_bytes();
+        assert_ne!(v[mirror], v[other], "{paint} {pick:?}: one of the two");
+        (v[mirror] == b'1', options)
+    };
+    // as the livery
+    assert_eq!(shown("Mirror", None), (true, vec![]));
+    assert_eq!(shown("Bare", None), (false, vec![]));
+    // off and on over the livery's
+    assert_eq!(shown("Mirror", Some(0.0)), (false, vec![("vis_mirror".to_string(), 0.0)]));
+    assert_eq!(shown("Bare", Some(1.0)), (true, vec![("vis_mirror".to_string(), 1.0)]));
+    // what the livery sets the same is not passed, and shows all the same
+    assert_eq!(shown("Mirror", Some(1.0)), (true, vec![]));
     let _ = std::fs::remove_dir_all(&root);
 }
 
