@@ -2649,3 +2649,5 @@ mod tests;
 mod relief_tests;
 #[cfg(test)]
 mod optimise_tests;
+#[cfg(test)]
+mod lock_tests;

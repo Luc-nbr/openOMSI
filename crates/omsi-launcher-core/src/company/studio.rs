@@ -1220,8 +1220,31 @@ fn set_cuts(c: &mut Company, weekday: u8, tours: &[TourOfDay], i: usize, at: &[u
         // (a relief on the way no duty begins at any more: the trip whole again)
         set_block_cuts(b, t, at);
     }
-    unjoin_blocks(c, weekday, &t.line, &[t.tour.as_str()]);
+    rejoin_cut(c, weekday, tours, i, at);
     save(c, lay);
+}
+
+/// The joined duties of `weekday` after block `i` (`tours` as they were) is cut anew at `at`:
+/// only a piece that is gone (no duty begins with its first trip any more) leaves the duty it
+/// was joined into, and only a duty with a piece of this bus that then breaks a hard rule, or
+/// keeps one piece, is taken apart. Every other duty stays as it is (Luc, Beta 65: "splitting a
+/// duty throws everything off" - every duty with a piece of the bus was taken apart).
+fn rejoin_cut(c: &mut Company, weekday: u8, tours: &[TourOfDay], i: usize, at: &[usize]) {
+    let mut now = tours.to_vec();
+    now[i].cuts = Some(at.to_vec());
+    let t = &now[i];
+    let alive: Vec<PieceRef> = network::duties_of(t).iter().map(|r| PieceRef::of(t, r)).collect();
+    let mine = |p: &PieceRef| same(&p.line, &t.line) && same(&p.tour, &t.tour);
+    for j in c.planning.joined.iter_mut().filter(|j| j.weekday == weekday) {
+        j.pieces.retain(|p| !mine(p) || alive.iter().any(|a| a.same(p)));
+    }
+    c.planning.joined.retain(|j| {
+        if j.weekday != weekday || !j.pieces.iter().any(|p| mine(p)) {
+            return true;
+        }
+        let blocks: Vec<Block> = j.pieces.iter().filter_map(|p| find_piece(&now, p)).map(|(a, k)| piece_block(&now, a, k)).collect();
+        blocks.len() > 1 && !rules_of(&blocks).into_iter().any(Rule::hard)
+    });
 }
 
 /// Whether block `i` may be cut before its trip `at` (a driver takes over there).
@@ -1322,8 +1345,9 @@ pub fn can_cut_mid(c: &Company, tours: &[TourOfDay], info: &[LineInfo], i: usize
     }
 }
 
-/// Cut block `i` inside its trip `j` at its stop `stop` (`can_cut_mid`): a new duty begins there,
-/// the duties the block's pieces were joined into taken apart (their pieces change).
+/// Cut block `i` inside its trip `j` at its stop `stop` (`can_cut_mid`): a new duty begins there.
+/// Every other piece of the bus begins where it did, so the duties they are joined into stay as
+/// they are (the piece cut keeps its first trip: its duty keeps the first half).
 pub fn cut_mid(c: &mut Company, weekday: u8, tours: &[TourOfDay], info: &[LineInfo], i: usize, j: usize, stop: usize) -> Result<(), &'static str> {
     can_cut_mid(c, tours, info, i, j, stop)?;
     guard_block(c, weekday, tours, i)?;
@@ -1335,7 +1359,6 @@ pub fn cut_mid(c: &mut Company, weekday: u8, tours: &[TourOfDay], info: &[LineIn
     // (the cuts as they are now, the automatic ones too, and the relief on the way)
     set_block_cuts(b, t, &starts(t));
     b.reliefs.push(MidRelief { trip: whole_ref(x), stop, name });
-    unjoin_blocks(c, weekday, &t.line, &[t.tour.as_str()]);
     save(c, lay);
     Ok(())
 }
