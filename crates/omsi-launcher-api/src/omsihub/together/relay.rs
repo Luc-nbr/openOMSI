@@ -211,7 +211,7 @@ fn rf_tp_need(act: &str) -> Need {
     match act {
         "line" | "drop" | "undo" | "redo" | "from" => RF_VIEW,
         "save" | "copy_to" | "template_save" | "template_rename" | "template_drop" | "refresh" | "apply" | "nudge" | "band_add" | "band_remove" | "timepoint" | "add_one" | "add_many" | "delete" => LINES,
-        "bulk_delete" | "bulk_shift" | "bulk_pattern" | "bulk_revert" | "revert" => LINES,
+        "bulk_delete" | "bulk_shift" | "bulk_pattern" | "bulk_revert" | "revert" | "copy_run" => LINES,
         _ => Never,
     }
 }

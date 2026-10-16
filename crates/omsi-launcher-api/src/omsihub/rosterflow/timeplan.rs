@@ -1046,6 +1046,25 @@ fn act(s: &mut Session, r: &mut Rf, args: &Value) -> Answer {
             }
             json!({})
         }
+        "copy_run" => {
+            // (the running times of the day group shown to other day groups: "Copy timings to…"
+            // beside the day group - Luc, Beta 65; the direction shown, or every one)
+            let to: Vec<usize> = args.get("to").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_u64).map(|x| x as usize).filter(|&d| d != day && d < DAY_GROUPS.len()).collect()).unwrap_or_default();
+            if to.is_empty() {
+                return Ok(said(tr("Choose the days to copy to."), true));
+            }
+            let dirs: Vec<usize> = if args.get("both").and_then(Value::as_bool).unwrap_or(false) { (0..line.directions.len()).collect() } else { shown_dir(&line, &sh).into_iter().collect() };
+            let mut n = 0;
+            v.change(|l| n = tp::copy_runs(l, day, &to, &dirs));
+            let days = to.iter().map(|&d| day_name(d)).collect::<Vec<_>>().join(", ");
+            if n == 0 {
+                said(tr("There are no running times to copy."), true)
+            } else if dirs.len() > 1 {
+                said(trf("The running times of %{from}, both directions, copied to %{days}: their trips follow them. Save keeps them, Undo takes them back.", &[("from", &day_name(day)), ("days", &days)]), false)
+            } else {
+                said(trf("The running times of %{from}, this direction, copied to %{days}: their trips follow them. Save keeps them, Undo takes them back.", &[("from", &day_name(day)), ("days", &days)]), false)
+            }
+        }
         "band_add" => {
             let Some(dir) = shown_dir(&line, &sh) else { return Ok(json!({})) };
             let set = tp::run_set(&line, day, dir);

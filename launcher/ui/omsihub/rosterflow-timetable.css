@@ -80,6 +80,19 @@
 .tp-runcopy:hover, .tp-runcopy.on { background: var(--tp-cell-hover); }
 .tp-runcopy.on { box-shadow: inset 0 0 0 1.5px var(--tp-sky); }
 
+/* "Copy timings to…": the day groups ticked, both directions or the one shown */
+.tp-runcopy-card { position: absolute; z-index: 30; width: 264px; padding: 12px 14px 10px; border-radius: 6px; background: var(--tp-panel); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35), inset 0 0 0 1px var(--tp-border); color: var(--tp-text); font-size: 9.6px; }
+.tp-runcopy-card .title { display: block; font-size: 10.5px; font-weight: 700; margin-bottom: 4px; }
+.tp-runcopy-card .from { margin: 0 0 6px; color: var(--tp-dim); }
+.tp-runcopy-card .row { display: flex; align-items: center; gap: 8px; min-height: 24px; cursor: pointer; }
+.tp-runcopy-card .row input { margin: 0; accent-color: var(--tp-sky); }
+.tp-runcopy-card hr { border: 0; border-top: 1px solid var(--tp-border); margin: 6px 0; }
+.tp-runcopy-card .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.tp-runcopy-btn { height: 28px; padding: 0 14px; border-radius: 4px; background: var(--tp-cell); box-shadow: inset 0 0 0 1px var(--tp-border); color: var(--tp-text); font-size: 9.6px; font-weight: 700; }
+.tp-runcopy-btn:hover:not(:disabled) { background: var(--tp-cell-hover); }
+.tp-runcopy-btn.solid { background: var(--tp-sky); box-shadow: none; color: #fff; }
+.tp-runcopy-btn:disabled { opacity: 0.45; cursor: default; }
+
 /* the trips chosen as ticks: every one of the day in the head, each by its number */
 .tp-checkall { height: 34px; flex: none; display: flex; align-items: center; justify-content: center; background: var(--tp-cell); box-shadow: inset -1px 0 0 var(--tp-border); }
 .tp-checkall:hover:not(:disabled) { background: var(--tp-cell-hover); }

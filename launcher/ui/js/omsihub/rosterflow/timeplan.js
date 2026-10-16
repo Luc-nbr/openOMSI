@@ -128,8 +128,8 @@ export function tpEscape() {
     tpSet({ cell: null, text: '' });
     return true;
   }
-  if (t.copying) {
-    tpSet({ copying: null });
+  if (t.copying || t.runCopy) {
+    tpSet({ copying: null, runCopy: null });
     return true;
   }
   if (t.adding || t.chart != null || t.issuesOpen || t.sel != null || t.picked?.length) {
@@ -182,6 +182,7 @@ export function TimeplanTab() {
     ${t.issuesOpen && v.ready && html`<${IssuesPanel} v=${v} />`}
     ${t.chart != null && v.tt && html`<${ChartCard} v=${v} />`}
     ${t.copying && v.ready && v.copy && html`<${CopyPanel} v=${v} act=${tpAct} />`}
+    ${t.runCopy && v.ready && !v.no_side && html`<${RunCopy} v=${v} top=${barH + 18} />`}
   </div>`;
 }
 
@@ -286,7 +287,8 @@ function ContextBar({ v, onHeight }) {
       tpSet({ leaving: false });
       newLine();
     }}><${Icon} name="add" size=${wide ? 18 : 20} />${wide && html`<span>${tr('New line')}</span>`}</button>
-    <span class="tp-select" style="flex:0 1 150px;min-width:96px"><select value=${String(t.day)} onChange=${(e) => tpSet({ day: Number(e.currentTarget.value), cell: null, text: '', adding: null, chart: null, issuesOpen: false, sel: null, picked: [], scroll: 0 })}>${v.days.map((d, k) => html`<option value=${String(k)}>${d}</option>`)}</select><${Icon} name="expand_more" size=${18} /></span>
+    <span class="tp-select" style="flex:0 1 150px;min-width:96px"><select value=${String(t.day)} onChange=${(e) => tpSet({ day: Number(e.currentTarget.value), cell: null, text: '', adding: null, chart: null, issuesOpen: false, sel: null, picked: [], scroll: 0, runCopy: null })}>${v.days.map((d, k) => html`<option value=${String(k)}>${d}</option>`)}</select><${Icon} name="expand_more" size=${18} /></span>
+    <button type="button" class=${'tp-runcopy' + (t.runCopy ? ' on' : '') + (wide ? '' : ' narrow')} data-rf="rf-tp-runcopy" title=${tr('Copy timings to… other day groups: the running times of this one, for both directions or the one shown')} onClick=${(e) => tpSet({ copying: null, runCopy: t.runCopy ? null : { x: e.currentTarget.offsetLeft, to: [], both: true } })}><${Icon} name="content_copy" size=${16} />${wide && html`<span>${tr('Copy timings to…')}</span>`}</button>
     ${v.calendar?.length > 0 && fit < 2 && html`<${DayStrip} v=${v} />`}
     <button type="button" class="tp-ib" title=${tr('Undo')} onClick=${() => tpAct('undo').then(() => tpSet({ cell: null, sel: null, picked: [] }))}><${Icon} name="turn_left" size=${15} /></button>
     <button type="button" class="tp-ib" title=${tr('Redo')} onClick=${() => tpAct('redo').then(() => tpSet({ cell: null, sel: null, picked: [] }))}><${Icon} name="turn_right" size=${15} /></button>
@@ -307,6 +309,30 @@ function ContextBar({ v, onHeight }) {
   </div>`;
 }
 
+/** "Copy timings to…" beside the day group (Luc, Beta 65): the running times of the day group
+ * shown copied to the other day groups ticked, for both directions or the one shown - their trips
+ * following them, as a change of the running times moves them (`timeplan::copy_runs`). */
+function RunCopy({ v, top }) {
+  const t = S.rf.tp;
+  const c = t.runCopy;
+  const put = (patch) => tpSet({ runCopy: { ...c, ...patch } });
+  const others = v.days.map((label, k) => [label, k]).filter(([, k]) => k !== t.day);
+  const shown = v.patterns?.length > 1 ? v.patterns[Math.min(t.pattern, v.patterns.length - 1)]?.label : '';
+  const side = tr(t.side ? 'Inbound' : 'Outbound');
+  const go = () => tpAct('copy_run', { to: c.to, both: c.both }).then((x) => x && !x.say?.error && tpSet({ runCopy: null }));
+  return html`<div class="tp-runcopy-card" style=${`left:${Math.max(14, 14 + c.x - 40)}px;top:${top}px`} data-rf="rf-tp-runcopy-card">
+    <b class="title">${tr('Copy timings to…')}</b>
+    <p class="from">${tr('The running times of %{day}, to:', { day: v.days[t.day] })}</p>
+    ${others.map(([label, k]) => html`<label class="row"><input type="checkbox" checked=${c.to.includes(k)} onChange=${(e) => put({ to: e.currentTarget.checked ? [...c.to, k] : c.to.filter((x) => x !== k) })} /><span>${label}</span></label>`)}
+    <hr />
+    <label class="row"><input type="radio" name="tp-runcopy-dirs" checked=${c.both} onChange=${() => put({ both: true })} /><span>${tr('Both directions')}</span></label>
+    <label class="row"><input type="radio" name="tp-runcopy-dirs" checked=${!c.both} onChange=${() => put({ both: false })} /><span>${tr('Only the direction shown')} (${side}${shown ? ` · ${shown}` : ''})</span></label>
+    <div class="foot">
+      <button type="button" class="tp-runcopy-btn" onClick=${() => tpSet({ runCopy: null })}>${tr('Cancel')}</button>
+      <button type="button" class="tp-runcopy-btn solid" disabled=${!c.to.length} title=${c.to.length ? undefined : tr('Choose the days to copy to.')} onClick=${go}>${tr('Copy')}</button>
+    </div>
+  </div>`;
+}
 
 /** The days of the coming week that use the timetable shown (Trello #100): each day lit when it
  * runs this day group's timetable, marked when it runs another than its weekday's (a holiday's);
