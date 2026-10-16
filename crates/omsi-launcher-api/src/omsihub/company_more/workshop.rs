@@ -60,7 +60,14 @@ pub fn view(s: &mut Session, args: &Value) -> Value {
             let (list_price, price) = (pt::list_price(&c, *p), pt::price(&c, *p));
             let stock = c.stores.count(*p);
             let line = price * *n as i64;
+            let keep = pt::keep_of(&c, *p);
+            let ordered = c.stores.on_order(*p);
             json!({
+                "keep": keep, "on_order": ordered,
+                "level": if keep == 0 { 1.0 } else { (stock as f64 / (keep as f64 * 2.0)).min(1.0) },
+                "level_tone": if stock == 0 { "danger" } else if stock * 2 < keep { "warn" } else if stock < keep { "accent" } else { "ok" },
+                "min": trf("min. %{n}", &[("n", &keep.to_string())]),
+                "ordered": (ordered > 0).then(|| trf("%{n} on order", &[("n", &ordered.to_string())])),
                 "label": tr(p.label()), "icon": p.icon(),
                 "price": eur(price), "was": (price < list_price).then(|| eur(list_price)),
                 "count": n, "stock": stock, "line": eur(line), "line_on": line > 0,
@@ -79,7 +86,14 @@ pub fn view(s: &mut Session, args: &Value) -> Value {
         "chosen": n,
         "buy": tr("Buy"), "clear": tr("Choose nothing"),
     });
-    json!({ "figures": figures, "cards": cards, "most": MOST, "foot": foot, "side": side(&c), "in_store": tr("In store") })
+    let short = Part::ALL.iter().filter(|p| c.stores.count(**p) < pt::keep_of(&c, **p)).count();
+    json!({
+        "figures": figures, "cards": cards, "most": MOST, "foot": foot, "side": side(&c), "in_store": tr("In store"),
+        "title": tr("Workshop"), "parts_title": tr("Spare parts"),
+        "parts_sub": if short == 0 { tr("Every part is at its minimum stock or above.") } else { trf("%{n} parts under their minimum stock", &[("n", &short.to_string())]) },
+        "cols": { "part": tr("Part"), "stock": tr("Stock"), "price": tr("Price"), "qty": tr("Quantity"), "total": tr("Total") },
+        "order_title": tr("Your order"), "delivery": tr("Delivery"), "chosen": trf("%{n} parts chosen", &[("n", &n.to_string())]),
+    })
 }
 
 /// The rest of the stores (`workshop::side`): the buses waiting for parts, what is on order, the
