@@ -1,0 +1,8 @@
+[package]
+name = "omsihub-locales"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Omsi-Hub's own translations: the texts of its launcher page (the bus company, RosterFlow, the editors' page parts) in the languages it is kept in"
+
+[dependencies]

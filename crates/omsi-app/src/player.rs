@@ -256,7 +256,8 @@ pub(crate) struct Player {
     /// The IBIS typing looks for its keys on a worker thread (in the window: the trials
     /// would hold a frame up to a second and a half; an offscreen run waits for them).
     pub(crate) ibis_background: bool,
-    /// The game types the duty into the IBIS (the `ibis_auto` setting); off, the driver does.
+    /// The game types the duty into the IBIS (a plugin may leave it to the driver:
+    /// `duty.set_auto_ibis`); off, the driver does.
     pub(crate) ibis_auto: bool,
     /// The outside camera's arm (how far out it is swung right now).
     pub(crate) arm: camera_arm::SpringArm,

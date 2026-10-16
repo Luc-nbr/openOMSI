@@ -207,6 +207,12 @@ pub trait PluginIo {
     fn bus_set_line(&mut self, _line: &str) -> bool {
         false
     }
+    /// Draw the bus's destination displays in another font: a `[newfont]` name of the
+    /// game's fonts, or a TrueType/OpenType font with its settings. How many displays (and
+    /// script-drawn matrices) took it.
+    fn bus_set_display_font(&mut self, _font: &str) -> usize {
+        0
+    }
     /// The fleet number and the `.bus` file (relative to the game folder).
     fn bus_ident(&self) -> Option<(String, String)> {
         None
@@ -307,6 +313,17 @@ pub trait PluginIo {
         Err("the game has no timetable".into())
     }
     fn duty_end(&mut self) -> bool {
+        false
+    }
+    /// Whether the game types each trip of the duty into the player's bus's IBIS as it begins
+    /// (line, route and destination); off, the driver types them. Whether the game has a bus
+    /// to keep it for.
+    fn duty_set_auto_ibis(&mut self, _on: bool) -> bool {
+        false
+    }
+    /// Type the trip under way into the player's bus's IBIS now, as the game does when a trip
+    /// begins. Whether there was one to type.
+    fn duty_type_ibis(&mut self) -> bool {
         false
     }
     fn timetable_lines(&self) -> Vec<Line> {

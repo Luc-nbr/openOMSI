@@ -428,6 +428,7 @@ declared to call the function (a plain `.lua` file has them all).
 | `omsi.bus.rpm()` | number or nil | The engine's revolutions per minute. | 0.2.22 |
 | `omsi.bus.sales()` | tickets, money | Tickets sold this session and the money taken (the game knows no currency). | 0.2.22 |
 | `omsi.bus.set_destination(index)` | boolean | Shows destination `index` (from 1, as `destinations` lists them). *Permission: `vehicle_write`.* | 0.2.22 |
+| `omsi.bus.set_display_font(font)` | integer | Draws the bus's destination displays (and the matrices its scripts draw) in another font: a `[newfont]` name from a `Fonts/*.oft` of the game, or a TrueType/OpenType font with its settings after it (`"Arial Bold\|file=C:/Windows/Fonts/arialbd.ttf\|rows=16\|bold"`), in the displays' grid of dots, from the next text they show. How many displays took it (0: the font is not there). *Permission: `vehicle_write`.* | 0.2.22 |
 | `omsi.bus.set_indicator(state)` | boolean | Sets the indicators: `"off"`, `"left"`, `"right"` or `"hazard"`. *Permission: `vehicle_write`.* | 0.2.22 |
 | `omsi.bus.set_interior_light(on)` | boolean | Switches the passenger room's light on or off. *Permission: `vehicle_write`.* | 0.2.22 |
 | `omsi.bus.set_line(line)` | boolean | Types a line (route) into the bus's IBIS, as the player would. *Permission: `vehicle_write`.* | 0.2.22 |
@@ -475,12 +476,14 @@ declared to call the function (a plain `.lua` file has them all).
 | `omsi.duty.finish()` | boolean | Gives the duty up (the bus drives on without a timetable); `true` when there was one. *Permission: `world_write`.* | 0.2.22 |
 | `omsi.duty.get()` | table or nil | The duty now: `line`, `tour`, `trip` (its number in the duty, from 1), `trips`, `trip_name`, `terminus`, `departure`, `arrival`, `stops`, `next_stop` and `previous_stop` (each a stop: `{number, name, id, arrival, departure, stops, x, y, z}`), `at_stop`, `trip_done`, `delay` (seconds, late positive). | 0.2.22 |
 | `omsi.duty.next_stop()` | table or nil | The next stop of the trip (as `duty.stops` gives them). | 0.2.22 |
+| `omsi.duty.set_auto_ibis(on)` | boolean | Whether the game types each trip of the duty into the bus's IBIS as it begins (line, route and destination) - on as the game starts; off, the driver types them (or the plugin, with `duty.type_ibis`). For the bus the player drives now; `true` when there is one. *Permission: `vehicle_write`.* | 0.2.22 |
 | `omsi.duty.skip_stop()` | string or nil | Skips the next stop (the duty goes on to the one after); the name of the stop skipped. *Permission: `world_write`.* | 0.2.22 |
 | `omsi.duty.skip_to(stop)` | boolean | Makes stop `stop` (from 1) of the trip the next one, forwards or back. *Permission: `world_write`.* | 0.2.22 |
 | `omsi.duty.start(line, tour, [trip], [stop])` | true, or false and the reason | Takes a duty, as the game menu's "Line and tour" does: a line and tour of `timetable.lines`, its trip (from 1 in the order they leave; default the first) and the stop to start at (from 1 among those the trip calls at; default the first). The bus stays where it is. *Permission: `world_write`.* | 0.2.22 |
 | `omsi.duty.stops()` | list of tables | The stops of the trip now: `{number, name, id, arrival, departure, stops, passed, x, y, z}` (`stops` false: the bus passes it; `x, y, z` where the stop's place is known; `id` the map's object id). | 0.2.22 |
 | `omsi.duty.trip_stops(trip)` | list of tables or nil | The stops of a trip of the duty (from 1), as `duty.stops` gives them. | 0.2.22 |
 | `omsi.duty.trips()` | list of tables | The trips of the duty: `{number, name, line, terminus, departure, arrival, stops}`. | 0.2.22 |
+| `omsi.duty.type_ibis()` | boolean | Types the trip under way into the bus's IBIS now (line, route and destination), as the game does when a trip begins; `true` when there was a duty and a bus. *Permission: `vehicle_write`.* | 0.2.22 |
 | `omsi.timetable.buses()` | list of tables | The timetable buses of the AI on the road: `{id, line, tour, trip, terminus, departure, next_stop_id, at_stop, trip_done, delay, x, y, number}`. | 0.2.22 |
 | `omsi.timetable.lines()` | list of tables | The map's lines: `{name, user_allowed, tours}`, each tour `{number, today, trips}` (`today`: it runs on the game's date). | 0.2.22 |
 | `omsi.timetable.stop_names()` | list of tables | The stops the timetable knows: `{id, name}` (`id` the map's object id). | 0.2.22 |
@@ -700,7 +703,7 @@ declared to call the function (a plain `.lua` file has them all).
 | `omsi.command(name)` | boolean | Does what a line of the game menu does: `refuel`, `wash`, `repair`, `shot`, `save`, `load`, `weather`, `later`, `earlier`, `info`, `timetable`, `reset`, `couple`, `uncouple`; `true` when the game knows it (it runs after the frame). *Permission: `world_write`.* | 0.1.10 |
 | `omsi.debug([...])` | nil | A line of the log's debug level (shown with `RUST_LOG=debug`). | 0.2.22 |
 | `omsi.error([...])` | nil | The same as an error line (the plugin goes on). | 0.2.22 |
-| `omsi.game.action(name)` | boolean | A game action of keyboard.cfg's `[game]` (`sim_pause`, `view_set_map`, `view_toggle_informationdisplay`, `view_set_schedule`, ...), as its key does; `true` when the game knows it. *Permission: `world_write`.* | 0.2.22 |
+| `omsi.game.action(name)` | boolean | A game action of keyboard.cfg's `[game]` (`sim_pause`, `view_set_map`, `view_toggle_informationdisplay`, `view_set_schedule`, ...), as its key does, or `object_editor` (the map's object editor on or off, as Ctrl+Shift+E); `true` when the game knows it. *Permission: `world_write`.* | 0.2.22 |
 | `omsi.game.api()` | integer | The version of the plugin interface (`api_abi` of an `.oop`; raised only when something is taken away or changes). | 0.2.22 |
 | `omsi.game.fps()` | number or nil | Frames a second now. | 0.2.22 |
 | `omsi.game.has(name)` | boolean | Whether this game has an API function (`"weather.set"`): for a plugin that should also run in an older openOMSI. | 0.2.22 |

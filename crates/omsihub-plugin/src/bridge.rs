@@ -34,6 +34,8 @@ pub const BRIDGE: u32 = 1;
 
 /// The assignment's file, beside the plugin's `main.lua`.
 pub const ASSIGNMENT_FILE: &str = "assignment.lua";
+/// The texts' file, beside it.
+pub const TEXTS_FILE: &str = "texts.lua";
 /// The plugin's data folder (openOMSI's, for a folder plugin) and the files in it.
 pub const DATA_DIR: &str = "data";
 pub const NOTICES_FILE: &str = "notices.json";
@@ -53,6 +55,14 @@ pub struct Notice {
     pub text: String,
     /// `"info"`, `"warning"` or `"alert"` (as `omsi.game.notify` takes them).
     pub kind: String,
+}
+
+/// A driver's pass.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Personnel {
+    pub number: String,
+    pub code: String,
 }
 
 /// The duty the company assigned, for the plugin.
@@ -79,6 +89,20 @@ pub struct Assignment {
     /// A port on this computer Omsi-Hub listens to for the reports as they happen (0: none).
     pub udp_port: u16,
     pub notices: Vec<Notice>,
+    /// The driver's pass, when the driver signs on before the duty (Omsi-Hub's sign-on): the
+    /// personnel number and the code. None: no sign-on.
+    pub personnel: Option<Personnel>,
+    /// The duty board on the screen (None: shown).
+    pub board: Option<bool>,
+    /// The game types the duty's trips into the IBIS (None: as the game does; false: the
+    /// driver types them). With a sign-on they wait for the duty order in any case.
+    pub ibis: Option<bool>,
+    /// The bus of the drive (its `.bus` file), and the font its destination displays are drawn
+    /// in ("": its own; `bus.set_display_font`).
+    pub bus: String,
+    pub display_font: String,
+    /// The map's object editor on once the world is there (the editors' "edit this map").
+    pub editor: bool,
     /// The plugin's texts in the player's language: English text -> translation.
     pub texts: BTreeMap<String, String>,
 }
@@ -118,6 +142,20 @@ pub struct Report {
     /// The trip's number in the duty (from 1) and the timetable's name of it.
     pub trip: u32,
     pub trip_name: String,
+    /// The duty's trips, and the trip's line as its displays show it, its terminus and when it
+    /// was to leave its first stop and reach its last (seconds of the day): `duty.trips`.
+    pub trips: u32,
+    pub number: String,
+    pub terminus: String,
+    pub departure: Option<f64>,
+    pub arrival: Option<f64>,
+    /// The bus driven, its `.bus` file (`bus.file`) and the map's `global.cfg` (`map.info`).
+    pub bus: String,
+    pub map: String,
+    /// A trip's record as the driver's record keeps it (Omsi-Hub's `TripRun`: the stops served,
+    /// early and late, when the bus was at each, the distance, the drive watch's findings),
+    /// where the plugin followed the trip from its start.
+    pub record: Option<serde_json::Value>,
     /// How the trip ended: `"arrived"`, `"skipped"`, `"given_up"`.
     pub how: String,
     /// The trip's ratings in per cent, where the game gives them.
@@ -219,6 +257,15 @@ pub fn write_assignment(plugin_dir: &Path, a: &Assignment) -> std::io::Result<()
 /// Take the assignment back (the plugin then drives without one).
 pub fn clear_assignment(plugin_dir: &Path) -> std::io::Result<()> {
     write_atomic(&plugin_dir.join(ASSIGNMENT_FILE), "-- Written by Omsi-Hub: no duty assigned.\nreturn nil\n")
+}
+
+/// The plugin's texts in the player's language (English text -> translation), beside its
+/// `main.lua` (`texts.lua`): read when the plugin starts, assignment or none.
+pub fn write_texts(plugin_dir: &Path, texts: &BTreeMap<String, String>) -> std::io::Result<()> {
+    let mut out = String::from("-- Written by Omsi-Hub: the plugin's texts in the player's language. Changed by Omsi-Hub, not by hand.\nreturn ");
+    lua_value(&serde_json::to_value(texts).unwrap_or_default(), 0, &mut out);
+    out.push('\n');
+    write_atomic(&plugin_dir.join(TEXTS_FILE), &out)
 }
 
 /// The notices for a game that reads them while it runs.

@@ -17,12 +17,10 @@ impl App {
             }
             return true;
         }
-        // (the board is a step only for a player who wants it under the map - the setting and
-        // the handle on the panel: else the map, off)
         if let Some(n) = self.menus.navigator.as_mut() {
             match (n.enabled, n.schedule) {
-                (true, false) if n.board => n.schedule = true,
-                (true, _) => {
+                (true, false) => n.schedule = true,
+                (true, true) => {
                     n.enabled = false;
                     n.schedule = false;
                 }
@@ -133,6 +131,8 @@ impl App {
                 }
             }
             "screenshot" => self.take_screenshot(),
+            // the map's object editor on or off, as Ctrl+Shift+E does
+            "object_editor" => self.toggle_editor(),
             "photo_mode" => self.enter_photo(),
             "quicksave" => self.quick_save(),
             "view_set_ego" => {

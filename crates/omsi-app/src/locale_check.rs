@@ -25,8 +25,6 @@ const SCOPE: &[&str] = &[
     "nav_pins.rs",
     "nav_signon.rs",
     "vr_navigator.rs",
-    "trip_report.rs",
-    "drive_watch.rs",
     "game_lists.rs",
     "ui.rs",
     "touch.rs",

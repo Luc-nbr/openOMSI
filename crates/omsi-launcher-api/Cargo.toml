@@ -36,6 +36,8 @@ omsihub-livery = { path = "../omsihub-livery" }
 omsihub-plugin = { path = "../omsihub-plugin" }
 # Omsi-Hub online: the account and the friends' client (`src/omsihub/online.rs`)
 omsihub-online = { path = "../omsihub-online" }
+# Omsi-Hub: the page's own translations, kept out of the game's tables (`src/omsihub/mod.rs`)
+omsihub-locales = { path = "../omsihub-locales" }
 glam.workspace = true
 sha2.workspace = true
 anyhow.workspace = true
@@ -43,3 +45,6 @@ anyhow.workspace = true
 [dev-dependencies]
 # (the livery studio's tests write a picture)
 image.workspace = true
+# (the add-on plugin's Lua judgement of a trip held against the company's: `omsihub/addon.rs`;
+# the same Lua as openOMSI's plugin runtime)
+mlua = { version = "0.10", features = ["lua54", "vendored"] }

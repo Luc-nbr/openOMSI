@@ -48,9 +48,8 @@ fn windows_icon() {
     println!("cargo:rerun-if-changed=../../assets/icons/app/openomsi.ico");
     let mut res = winresource::WindowsResource::new();
     res.set_icon("../../assets/icons/app/openomsi.ico")
-        // Omsi-Hub: the app's name in the file's properties (the file's own name stays)
-        .set("ProductName", "Omsi-Hub")
-        .set("FileDescription", "Omsi-Hub (openOMSI)")
+        .set("ProductName", "openOMSI")
+        .set("FileDescription", "openOMSI")
         .set("ProductVersion", &std::env::var("OPENOMSI_VERSION").unwrap_or_default());
     if let Err(e) = res.compile() {
         println!("cargo:warning=no icon in the executable: {e}");

@@ -3008,6 +3008,7 @@ dependencies = [
  "omsi-vehicle",
  "omsi-weather",
  "omsihub-livery",
+ "omsihub-locales",
  "omsihub-online",
  "omsihub-plugin",
  "serde",
@@ -3220,6 +3221,10 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
 ]
+
+[[package]]
+name = "omsihub-locales"
+version = "0.1.0"
 
 [[package]]
 name = "omsihub-online"

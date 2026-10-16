@@ -5,7 +5,8 @@
 //! store; it goes as `Authorization: Bearer` to the auth only. The Data API gets the JWT
 //! (`GET /token`), kept in memory, fetched again a minute before it expires and once more on a
 //! 401; a second 401, or the auth refusing the session, signs out (the token taken from the
-//! store). No cookie and no `Origin` is sent, so Better Auth's CSRF check has nothing to check.
+//! store). No cookie is sent; the auth's calls carry its own origin as `Origin`, which Better
+//! Auth trusts (a sign-up without one is refused: `MISSING_ORIGIN`).
 
 use crate::codes::{self, Error};
 use crate::http::{encode, Http, Reply};
@@ -125,7 +126,10 @@ impl Client {
     }
 
     fn send(&self, method: &str, url: &str, bearer: Option<&str>, body: Option<&Value>) -> Result<Reply, Error> {
-        self.http.send(method, url, bearer, body, self.quick)
+        // (Better Auth refuses a sign-up without an Origin it trusts - "MISSING_ORIGIN": its own
+        // origin is one, and the auth's calls carry it; the Data API and the saves need none)
+        let origin = url.starts_with(&self.ep.auth).then(|| origin_of(&self.ep.auth));
+        self.http.send(method, url, bearer, body, origin.as_deref(), self.quick)
     }
 
     /// A POST to the auth, its error as ours.
@@ -452,4 +456,10 @@ pub(crate) fn test_jwt(sub: &str, exp: u64) -> String {
 #[cfg(test)]
 pub(crate) fn test_now() -> u64 {
     now()
+}
+
+/// The origin of a URL: its scheme and host (`https://a.example/b/c` → `https://a.example`).
+fn origin_of(url: &str) -> String {
+    let rest = url.find("://").map_or(0, |i| i + 3);
+    url[..url[rest..].find('/').map_or(url.len(), |j| rest + j)].to_string()
 }

@@ -128,14 +128,6 @@ impl App {
         let vr_active = self.vr_active();
         let menu = self.menus.game_menu.is_some();
         let nav_cursor = self.menus.navigator.as_mut().filter(|_| !vr_active && !menu).and_then(|n| n.hover(cx, cy));
-        // (over a trip's card: its own cursor, and no switch of the cab behind it offered)
-        let trip_cursor = (!vr_active && !menu).then(|| self.session.trip_report.hover(cx, cy)).flatten();
-        if trip_cursor.is_some() {
-            self.menus.hover = None;
-            self.menus.hover_part = None;
-            self.menus.hover_hand = false;
-        }
-        let nav_cursor = trip_cursor.or(nav_cursor);
         // the cursor itself says when it is over something that can be operated
         // (steering with the mouse: a cross, as OMSI shows it; turning the view with the
         // right button held: the four arrows OMSI shows then, #185)

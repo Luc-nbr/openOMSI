@@ -44,15 +44,18 @@ impl Http {
         Self { agent }
     }
 
-    /// One request; `bearer` goes as `Authorization: Bearer`, `body` as JSON. `quick` keeps it
+    /// One request; `bearer` goes as `Authorization: Bearer`, `body` as JSON, `origin` as `Origin`. `quick` keeps it
     /// to a few seconds (the goodbye as the launcher closes).
-    pub fn send(&self, method: &str, url: &str, bearer: Option<&str>, body: Option<&Value>, quick: bool) -> Result<Reply, Error> {
+    pub fn send(&self, method: &str, url: &str, bearer: Option<&str>, body: Option<&Value>, origin: Option<&str>, quick: bool) -> Result<Reply, Error> {
         let mut req = self.agent.request(method, url).set("Accept", "application/json");
         if quick {
             req = req.timeout(Duration::from_secs(3));
         }
         if let Some(t) = bearer {
             req = req.set("Authorization", &format!("Bearer {t}"));
+        }
+        if let Some(o) = origin {
+            req = req.set("Origin", o);
         }
         let res = match body {
             Some(b) => req.set("Content-Type", "application/json").send_string(&b.to_string()),

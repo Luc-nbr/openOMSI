@@ -47,6 +47,7 @@ fn the_bus() {
         local name, i = omsi.bus.destination(); assert(name == "Rathaus" and i == 1)
         assert(omsi.bus.set_destination(2) and not omsi.bus.set_destination(0))
         assert(omsi.bus.set_line("136"))
+        assert(omsi.bus.set_display_font("Annax Small") == 2)
         assert(omsi.bus.number() == "2711" and omsi.bus.file():find("SD202"))
         local all, seated, standing = omsi.bus.passengers(); assert(all == 3 and seated == 2 and standing == 1)
         assert(omsi.bus.tickets()[1].price == 2.1)
@@ -82,6 +83,7 @@ fn duty_and_timetable() {
         assert(#omsi.duty.trips() == 1 and omsi.duty.trip_stops(1)[3].name == "Rathaus" and omsi.duty.trip_stops(9) == nil)
         assert(omsi.duty.skip_stop() == "Markt" and omsi.duty.next_stop().name == "Rathaus")
         assert(omsi.duty.skip_to(1) and not omsi.duty.skip_to(10))
+        assert(omsi.duty.set_auto_ibis(false) and omsi.duty.type_ibis())
         assert(omsi.duty.start("136", "3", 2, 1))
         local ok, why = omsi.duty.start("999", "1"); assert(not ok and why:find("999"))
         local l = omsi.timetable.lines()[1]; assert(l.name == "136" and l.tours[1].today)
@@ -95,6 +97,7 @@ fn duty_and_timetable() {
     );
     assert_eq!(out, ["ok"]);
     assert!(g.log.borrow().iter().any(|l| l == "duty 136/3 1 0"));
+    assert!(g.log.borrow().iter().any(|l| l == "auto ibis false") && g.log.borrow().iter().any(|l| l == "type ibis"));
 }
 
 #[test]

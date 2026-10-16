@@ -642,6 +642,9 @@ impl PluginIo for Io<'_> {
         crate::game_lists::set_route_by_hand(app, line);
         true
     }
+    fn bus_set_display_font(&mut self, font: &str) -> usize {
+        self.app_mut().map_or(0, |a| pbus::set_display_font(a, font))
+    }
     fn bus_ident(&self) -> Option<(String, String)> {
         let app = self.app()?;
         let v = pbus::veh(app)?;
@@ -743,6 +746,12 @@ impl PluginIo for Io<'_> {
     }
     fn duty_end(&mut self) -> bool {
         self.app_mut().is_some_and(pduty::finish)
+    }
+    fn duty_set_auto_ibis(&mut self, on: bool) -> bool {
+        self.app_mut().is_some_and(|a| pduty::set_auto_ibis(a, on))
+    }
+    fn duty_type_ibis(&mut self) -> bool {
+        self.app_mut().is_some_and(pduty::type_ibis)
     }
     fn timetable_lines(&self) -> Vec<op::Line> {
         self.app().map(pduty::lines).unwrap_or_default()

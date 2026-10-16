@@ -7,7 +7,7 @@
 //! settings that matter on a display: how tall its letters are, bold, the spacing. "Add font…"
 //! copies a font into the content folder's `Fonts`. The choice is kept per bus file
 //! (`omsi_launcher_lib::busfonts`, the file the game-drawn launcher keeps it in) and goes to the
-//! game as `--display-font` (`hub_duty_extras`).
+//! game through the Omsi-Hub plugin, `bus.set_display_font` (`hub_duty_extras`).
 //!
 //! The previews are drawn on a worker and handed to the page as pixels (`hub_more_font_pic`:
 //! width and height, then RGBA); what a font changes on the bus is answered as what it is, the

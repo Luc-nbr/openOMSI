@@ -281,7 +281,7 @@ mod tests {
                 }
             }
         }
-        assert!(missing.is_empty(), "{} missing (crates/omsi-app/locales/company-holidays.yml):
+        assert!(missing.is_empty(), "{} missing (crates/omsihub-locales/locales/company-holidays.yml):
 {}", missing.len(), missing.join("
 "));
     }

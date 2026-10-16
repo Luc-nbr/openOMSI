@@ -380,7 +380,6 @@ pub(super) fn toggle_now(app: &App, id: &str) -> Option<bool> {
     Some(match id {
         "navigator" => if app.vr_active() { app.vr_nav_profile().enabled } else { app.menus.navigator.as_ref().is_some_and(|n| n.enabled) },
         "nav_ai" => app.menus.navigator.as_ref().map_or(s.nav_ai, |n| n.show_ai),
-        "nav_board" => app.menus.navigator.as_ref().map_or(s.nav_board, |n| n.board),
         "nav_surface" => app.menus.navigator.as_ref().map_or(s.nav_surface, |n| n.show_surface),
         "nav_light" => app.menus.navigator.as_ref().map_or(s.nav_light, |n| n.light),
         "shadows" => s.shadows,
@@ -396,7 +395,6 @@ pub(super) fn toggle_now(app: &App, id: &str) -> Option<bool> {
         "blinker_cancel" => s.blinker_cancel,
         "fps" => s.show_fps,
         "get_up" => s.get_up,
-        "ibis_auto" => s.ibis_auto,
         "trip_summary" => s.trip_summary,
         "time_sync" => s.time_sync,
         "metar_sync" => s.metar_sync,
@@ -485,14 +483,6 @@ pub(super) fn toggle_set(app: &mut App, id: &str, on: bool) -> Option<(&'static 
             app.settings.nav_ai = on;
             Some(("nav_ai", bit))
         }
-        "nav_board" => {
-            // (on, it shows at once; off, it goes)
-            if let Some(n) = app.menus.navigator.as_mut() {
-                n.set_board(on);
-            }
-            app.settings.nav_board = on;
-            Some(("nav_board", bit))
-        }
         "nav_surface" => {
             if let Some(n) = app.menus.navigator.as_mut() {
                 n.show_surface = on;
@@ -565,13 +555,6 @@ pub(super) fn toggle_set(app: &mut App, id: &str, on: bool) -> Option<(&'static 
         "get_up" => {
             app.settings.get_up = on;
             Some(("get_up", bit))
-        }
-        "ibis_auto" => {
-            app.settings.ibis_auto = on;
-            if let Some(p) = app.player.as_mut() {
-                p.ibis_auto = on;
-            }
-            Some(("ibis_auto", bit))
         }
         "trip_summary" => { app.settings.trip_summary = on; Some(("trip_summary", bit)) }
         // the real-time sync: the clock takes the device's date and time at once (a host's

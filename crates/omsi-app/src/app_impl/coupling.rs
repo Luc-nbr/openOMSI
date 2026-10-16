@@ -70,7 +70,6 @@ impl App {
             autostart: false,
             paint: None,
             setvar: None,
-            display_font: None,
             ..self.args.clone()
         };
         match spawn_player(&one, &w, r, scene) {

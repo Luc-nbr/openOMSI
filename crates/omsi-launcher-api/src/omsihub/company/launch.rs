@@ -219,6 +219,8 @@ fn start(s: &mut Session, args: &Value, p: &dyn crate::Platform) -> Result<Value
         }
     }
     core::log_to_file(&format!("company duty launcher: {} {} duty {} on {} with {}", st.line, st.tour, sheet.duty.duty + 1, st.date, st.bus));
+    // (the add-on's plugin told of the company's duty: `addon.rs`)
+    super::super::addon::assign_duty(&d, Some((&c.name, &format!("{} {} {}", st.line, st.tour, sheet.duty.duty + 1))));
     let launched = core::launch(&d).map_err(|e| format!("{e:#}"))?;
     core::log_to_file(&format!("game {}: {}", launched.pid, launched.command));
     p.launched();

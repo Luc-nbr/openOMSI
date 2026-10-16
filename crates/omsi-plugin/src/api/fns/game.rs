@@ -50,7 +50,7 @@ pub static FNS: &[ApiFn] = &[
         let s = a.opt_num(2)?.unwrap_or(6.0).clamp(1.0, 60.0) as f32;
         Ok(c.io().notify(&t, kind, s))
     }),
-    def!("game.action", "game", [p("name", "string")], "boolean", "A game action of keyboard.cfg's `[game]` (`sim_pause`, `view_set_map`, `view_toggle_informationdisplay`, `view_set_schedule`, ...), as its key does; `true` when the game knows it.", NEW, WorldWrite, false, |c, a| {
+    def!("game.action", "game", [p("name", "string")], "boolean", "A game action of keyboard.cfg's `[game]` (`sim_pause`, `view_set_map`, `view_toggle_informationdisplay`, `view_set_schedule`, ...), as its key does, or `object_editor` (the map's object editor on or off, as Ctrl+Shift+E); `true` when the game knows it.", NEW, WorldWrite, false, |c, a| {
         let n = a.str(0)?;
         Ok::<_, ApiError>(c.io().game_action(&n))
     }),

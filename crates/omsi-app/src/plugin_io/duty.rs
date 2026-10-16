@@ -83,6 +83,24 @@ pub(crate) fn finish(app: &mut App) -> bool {
     true
 }
 
+/// The game types the duty's trips into the player's bus's IBIS, or leaves that to the
+/// driver (`Player::ibis_auto`).
+pub(crate) fn set_auto_ibis(app: &mut App, on: bool) -> bool {
+    let Some(p) = app.player.as_mut() else { return false };
+    p.ibis_auto = on;
+    true
+}
+
+/// The trip under way typed into the player's bus's IBIS now, as at a trip's start.
+pub(crate) fn type_ibis(app: &mut App) -> bool {
+    let (Some(d), Some(p)) = (app.session.duty.as_ref(), app.player.as_mut()) else { return false };
+    let (trip, stop) = d.trip_for_ibis();
+    let auto = std::mem::replace(&mut p.ibis_auto, true);
+    p.set_duty_destination(trip, stop);
+    p.ibis_auto = auto;
+    true
+}
+
 pub(crate) fn lines(app: &App) -> Vec<op::Line> {
     let Some(sch) = crate::duty_book::timetable(app) else { return Vec::new() };
     sch.data

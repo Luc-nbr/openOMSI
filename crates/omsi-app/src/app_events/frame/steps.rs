@@ -296,8 +296,7 @@ pub(crate) fn career_from_humans(career: &mut career::Career, h: &humans::Humans
 /// `game_clock`: the clock the journey's head line is written with (none: the bus's own).
 /// `learn_loaded`: the stops of the tiles loaded are learnt first. `plugin_events`: where
 /// skipped stops and the end of a trip are told to the plugins (none: a trip's end is
-/// dropped, the skipped stops are kept). The stop served in this step (its arrival and
-/// departure), for the trip's report (`trip_report`).
+/// dropped, the skipped stops are kept).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn duty_step(
     d: &mut schedule::PlayerDuty,
@@ -310,7 +309,7 @@ pub(crate) fn duty_step(
     game_clock: Option<&omsi_sim::SimClock>,
     learn_loaded: bool,
     plugin_events: Option<&mut Vec<omsi_plugin::GameEvent>>,
-) -> Option<(f64, f64)> {
+) {
     if let Some(stop) = p.html_next_stop.take() {
         if d.skip_to(stop) {
             let (trip, k) = d.trip_for_ibis();
@@ -367,7 +366,6 @@ pub(crate) fn duty_step(
     ) {
         log::warn!("driver timetable paper: {e:#}");
     }
-    served
 }
 
 /// The tyres' spray (see `puddles`): what every vehicle's tyres throw up from the water on

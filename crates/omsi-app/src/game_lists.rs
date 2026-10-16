@@ -916,8 +916,8 @@ pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -
                         n.reset_panel();
                     }
                     let s = &mut app.settings;
-                    (s.navigator_corner, s.nav_rect, s.nav_scale, s.nav_board) = ("bottom-left".into(), String::new(), 1.0, true);
-                    for (k, v) in [("navigator_corner", "bottom-left"), ("nav_rect", ""), ("nav_scale", "1"), ("nav_board", "1")] {
+                    (s.navigator_corner, s.nav_rect, s.nav_scale) = ("bottom-left".into(), String::new(), 1.0);
+                    for (k, v) in [("navigator_corner", "bottom-left"), ("nav_rect", ""), ("nav_scale", "1")] {
                         remember_setting(k, v);
                     }
                     app.menus.list_dirty = true;

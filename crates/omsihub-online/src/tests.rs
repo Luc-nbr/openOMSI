@@ -48,7 +48,7 @@ fn token_route(r: &Req) -> Option<Answer> {
 }
 
 #[test]
-fn signing_in_keeps_the_signed_token_in_the_store_and_sends_no_cookie_or_origin() {
+fn signing_in_keeps_the_signed_token_in_the_store_and_sends_the_auths_own_origin_and_no_cookie() {
     let m = Mock::start(|r| match r.path.as_str() {
         "/auth/sign-in/email" if r.body["password"] == "correct horse" => (200, vec![("set-auth-token", "tok.sig".into())], json!({ "token": "tok", "user": { "id": "me" } })),
         "/auth/sign-in/email" => (401, vec![], json!({ "code": "INVALID_EMAIL_OR_PASSWORD", "message": "Invalid email or password" })),
@@ -66,7 +66,9 @@ fn signing_in_keeps_the_signed_token_in_the_store_and_sends_no_cookie_or_origin(
     assert_eq!(reqs[1].body["email"], "a@b.example");
     assert_eq!(reqs[1].body["rememberMe"], true);
     for r in &reqs {
-        assert!(r.header("cookie").is_none() && r.header("origin").is_none(), "{r:?}");
+        assert!(r.header("cookie").is_none(), "{r:?}");
+        // (Better Auth refuses a sign-up without an Origin it trusts: the auth's own)
+        assert!(m.base.starts_with(r.header("origin").unwrap_or("-")), "{r:?}");
     }
     // (a password too short to be one never leaves the computer)
     assert_eq!(c.sign_in("a@b.example", "short"), Err(Error::Code("invalid_credentials")));
@@ -254,7 +256,8 @@ fn without_a_network_every_call_is_offline_and_the_session_stays() {
     assert_eq!(c.friends(), Err(Error::Offline));
     assert_eq!(c.heartbeat("online", None), Err(Error::Offline));
     assert_eq!(c.sign_in("a@b.example", "12345678"), Err(Error::Offline));
-    assert!(t.elapsed().as_secs() < 5);
+    // (Windows refuses a closed local port only after about 2 s of retries, Linux at once)
+    assert!(t.elapsed().as_secs() < if cfg!(windows) { 10 } else { 5 });
     assert!(c.signed_in() && store.load().is_some(), "offline is no reason to sign out");
     c.goodbye();
 }

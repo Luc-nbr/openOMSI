@@ -477,7 +477,7 @@ mod tests {
                 }
             }
         }
-        assert!(missing.is_empty(), "{} missing (crates/omsi-app/locales/company-ops.yml):
+        assert!(missing.is_empty(), "{} missing (crates/omsihub-locales/locales/company-ops.yml):
 {}", missing.len(), missing.join("
 "));
     }

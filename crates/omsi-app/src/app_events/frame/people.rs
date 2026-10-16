@@ -21,9 +21,7 @@ impl App {
             self.world.as_ref(),
             self.paused,
         ) {
-            // (the stop the bus is at before the update: the one `served` is of)
-            let due = (d.trip_index, d.next_stop);
-            let served = steps::duty_step(
+            steps::duty_step(
                 d,
                 p,
                 w,
@@ -35,26 +33,12 @@ impl App {
                 true,
                 Some(&mut self.integrations.plugin_events),
             );
-            // (a trip that ended: it into the driver's record, and its card once the bus stands)
-            let standing = p.vehicle.physics.velocity_kmh().abs() < crate::trip_report::STANDING_KMH;
-            self.session.trip_report.observe(d, due, served, &self.session.career, &self.session.drive_watch, &self.args.map, self.args.bus.as_deref().unwrap_or_default(), standing);
         }
-        if self.session.duty.is_none() {
-            self.session.trip_report.forget();
-        }
-        // (a trip's card waiting for the bus to stand: the duty may have ended meanwhile)
-        let standing = self.player.as_ref().is_some_and(|p| p.vehicle.physics.velocity_kmh().abs() < crate::trip_report::STANDING_KMH);
-        self.session.trip_report.standing(standing);
         if let Some(p) = self.player.as_mut() {
             let riders = self.session.humans.as_ref().map(|h| h.riding()).unwrap_or(0);
             // (a frame after the session was written must not start another one)
             let tick = !self.exiting && !self.paused;
             let crash = steps::career_step(&mut self.session.career, p, riders, self.session.duty.is_some(), dt, tick);
-            // red lights, speed cameras, comfort (`drive_watch`), on the career's clock
-            if tick {
-                let outline = crate::traffic_link::player_outline(p);
-                self.session.drive_watch.tick(self.session.career.seconds, dt, outline, self.session.traffic.as_ref());
-            }
             if crash > 0.0 {
                 self.service_msg = Some((format!("Crash: {:.0} kJ", crash / 1000.0), 6.0));
                 use omsi_plugin::InfoValue::Num;
@@ -92,11 +76,6 @@ impl App {
                 self.start_on_foot(glam::DVec3::new(p.x, p.y, z), yaw);
             }
             self.service_msg = Some(("On foot: Esc menu, Place a vehicle..., then G at its driver's door to drive it".into(), 8.0));
-        }
-        // --editor: the object editor on, once the world is there
-        if self.args.editor && self.world.is_some() {
-            self.args.editor = false;
-            self.toggle_editor();
         }
     }
 }

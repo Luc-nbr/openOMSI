@@ -361,21 +361,6 @@ pub(crate) fn spawn_player_prepared(
                 .map(|i| (i.width, i.height, i.rgba))
         });
     }
-    // the display font the player chose for the bus (`--display-font`, the launcher's bus
-    // step) on its destination displays
-    if let Some(font) = args.display_font.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
-        let n = vehicle.apply_display_font(font, &mut world.fonts.lock(), &|p| {
-            omsi_texture::decode_file(p)
-                .ok()
-                .map(|i| (i.width, i.height, i.rgba))
-        });
-        log::info!("display font \"{font}\": {n} destination display(s) of the bus");
-        // and the matrices its scripts draw with fonts they ask for by name (the Krüger
-        // matrices): the chosen font takes those fonts' places
-        for (script, fonts) in vehicle.apply_script_display_font(Some(font)) {
-            log::info!("display font \"{font}\": the {fonts} letter font(s) of {} (a matrix the bus's script draws)", script.display());
-        }
-    }
     // number / ident were installed before {init}; do not rewrite them here.
     // ground following through the loaded tiles (road surfaces first, then terrain)
     let data = world.data.clone();
@@ -670,7 +655,7 @@ fn new_player(vehicle: omsi_sim::VehicleInstance, render: scene::VehicleRender, 
         duty_typed: false,
         html_next_stop: None,
         ibis_background: false,
-        ibis_auto: crate::settings::Settings::load().ibis_auto,
+        ibis_auto: true,
         arm: Default::default(),
         blinker_key_state: 0,
         blinker_cancel: crate::settings::Settings::load().blinker_cancel,

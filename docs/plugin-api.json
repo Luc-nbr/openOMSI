@@ -519,6 +519,22 @@
       "permission": "vehicle_write"
     },
     {
+      "name": "bus.set_display_font",
+      "group": "vehicle",
+      "since": "0.2.22",
+      "doc": "Draws the bus's destination displays (and the matrices its scripts draw) in another font: a `[newfont]` name from a `Fonts/*.oft` of the game, or a TrueType/OpenType font with its settings after it (`\"Arial Bold|file=C:/Windows/Fonts/arialbd.ttf|rows=16|bold\"`), in the displays' grid of dots, from the next text they show. How many displays took it (0: the font is not there).",
+      "params": [
+        {
+          "name": "font",
+          "type": "string",
+          "optional": false
+        }
+      ],
+      "returns": "integer",
+      "multi": false,
+      "permission": "vehicle_write"
+    },
+    {
       "name": "bus.set_indicator",
       "group": "vehicle",
       "since": "0.2.22",
@@ -1075,6 +1091,22 @@
       "permission": null
     },
     {
+      "name": "duty.set_auto_ibis",
+      "group": "duty",
+      "since": "0.2.22",
+      "doc": "Whether the game types each trip of the duty into the bus's IBIS as it begins (line, route and destination) - on as the game starts; off, the driver types them (or the plugin, with `duty.type_ibis`). For the bus the player drives now; `true` when there is one.",
+      "params": [
+        {
+          "name": "on",
+          "type": "bool",
+          "optional": false
+        }
+      ],
+      "returns": "boolean",
+      "multi": false,
+      "permission": "vehicle_write"
+    },
+    {
       "name": "duty.skip_stop",
       "group": "duty",
       "since": "0.2.22",
@@ -1166,6 +1198,16 @@
       "returns": "list of tables",
       "multi": false,
       "permission": null
+    },
+    {
+      "name": "duty.type_ibis",
+      "group": "duty",
+      "since": "0.2.22",
+      "doc": "Types the trip under way into the bus's IBIS now (line, route and destination), as the game does when a trip begins; `true` when there was a duty and a bus.",
+      "params": [],
+      "returns": "boolean",
+      "multi": false,
+      "permission": "vehicle_write"
     },
     {
       "name": "emit",
@@ -1561,7 +1603,7 @@
       "name": "game.action",
       "group": "game",
       "since": "0.2.22",
-      "doc": "A game action of keyboard.cfg's `[game]` (`sim_pause`, `view_set_map`, `view_toggle_informationdisplay`, `view_set_schedule`, ...), as its key does; `true` when the game knows it.",
+      "doc": "A game action of keyboard.cfg's `[game]` (`sim_pause`, `view_set_map`, `view_toggle_informationdisplay`, `view_set_schedule`, ...), as its key does, or `object_editor` (the map's object editor on or off, as Ctrl+Shift+E); `true` when the game knows it.",
       "params": [
         {
           "name": "name",

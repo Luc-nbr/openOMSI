@@ -2,8 +2,8 @@
 // Settings page's "Your openOMSI" tab - the folder chosen with the system's picker, checked and
 // remembered, the version read from it, how well Omsi-Hub works with it (supported, with limits,
 // not supported, or checked at the first drive) and the Omsi-Hub plugin switched on or off there.
-// The Rust side is `crates/omsi-launcher-api/src/omsihub/addon.rs`; Omsi-Hub still starts its own
-// copy of the game until phase 2.
+// The Rust side is `crates/omsi-launcher-api/src/omsihub/addon.rs`. The add-on mode (phase 2) makes
+// Omsi-Hub start the chosen openOMSI for every drive instead of its own copy of the game.
 
 import { html, useEffect, useState } from '../../vendor/preact-htm.js';
 import { call } from '../api.js';
@@ -48,7 +48,7 @@ export function AddonPanel() {
   const level = s.compat && LEVELS[s.compat.level];
   const plugin = s.plugin;
   return html`<div class="setting-row full hub-addon">
-    <p class="muted small" style="margin:0 0 10px">${tr('Omsi-Hub can join an openOMSI you installed yourself. Choose its folder: Omsi-Hub checks its version and puts the Omsi-Hub plugin into it. For now Omsi-Hub still starts its own copy of the game.')}</p>
+    <p class="muted small" style="margin:0 0 10px">${tr('Omsi-Hub can join an openOMSI you installed yourself. Choose its folder: Omsi-Hub checks its version and puts the Omsi-Hub plugin into it.')}</p>
     <div class="row wrap" style="gap:12px;align-items:center">
       <${Icon} name="folder" />
       <span class="grow" style="word-break:break-all">${s.folder || tr('No folder chosen: Omsi-Hub uses its own copy of the game.')}</span>
@@ -85,6 +85,14 @@ export function AddonPanel() {
         ${plugin?.state === 'outdated' && html`<${Button} icon="download" label="Update the plugin" disabled=${busy} onClick=${() => run('addon_enable', { on: true })} />`}
       </div>
       <p class="muted small" style="margin:4px 0 0">${plugin ? pluginLine(plugin, s.plugin_version) : ''}</p>
+      <div class="row wrap" style="gap:12px;align-items:center;margin-top:12px">
+        <span class="grow"><${Switch}
+          checked=${!!s.use_folder}
+          label="Start this openOMSI for my drives"
+          onChange=${(on) => run('addon_set_mode', { on })}
+        /></span>
+      </div>
+      <p class="muted small" style="margin:4px 0 0">${s.use_folder ? tr('Omsi-Hub starts this openOMSI with its plugin. Only the company\'s buses on the map, duties of several tours and the display font still need Omsi-Hub\'s own copy of the game.') : tr('Omsi-Hub starts its own copy of the game.')}</p>
       <p class="muted small" style="margin:4px 0 0;word-break:break-all">${tr('Plugins folder: %{dir}', { dir: inst.plugins_dir })}</p>
     </div>`}
   </div>`;

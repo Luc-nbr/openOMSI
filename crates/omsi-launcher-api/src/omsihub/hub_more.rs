@@ -384,6 +384,13 @@ fn random_u64() -> u64 {
     h.finish()
 }
 
+/// A driver's personnel number and code, made and written down the first time (for the
+/// add-on's sign-on: `addon::assign_duty`).
+pub(crate) fn personnel_of(driver: &str) -> Option<(String, String)> {
+    let v = personnel(&json!({ "name": driver, "make": true })).ok()?;
+    Some((v.get("number")?.as_str()?.to_string(), v.get("code")?.as_str()?.to_string()))
+}
+
 /// A driver's personnel number and code (`~/.openomsi/personnel.json`): read, and with `make`
 /// made and written down when the driver has none yet - as the game-drawn launcher's welcome
 /// does for a new driver (`companion::personnel_of_driver`), so they are known before the first

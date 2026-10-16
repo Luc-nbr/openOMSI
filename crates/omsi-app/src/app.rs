@@ -137,8 +137,7 @@ impl App {
             .unwrap_or((1600, 900));
         let (fit, at) = crate::startup::fit_window(event_loop, lw as f64, lh as f64);
         let mut attrs = Window::default_attributes()
-            // Omsi-Hub: the app's name on the game's window
-            .with_title(omsihub_game::APP_NAME)
+            .with_title("openOMSI")
             .with_inner_size(fit)
             .with_window_icon(crate::startup::window_icon());
         if let Some(at) = at {
@@ -552,9 +551,8 @@ impl App {
                         trip: None,
                         autostart: false,
                         situation_next_stop: None,
-                        // (the bus options are the player's bus's, as is its display font)
+                        // (the bus options are the player's bus's)
                         setvar: None,
-                        display_font: None,
                         ..self.args.clone()
                     };
                     match spawn_player(&one, &w, &renderer, &mut scene) {
@@ -578,7 +576,6 @@ impl App {
                     n.arrows = self.settings.nav_arrows;
                     n.show_ai = self.settings.nav_ai;
                     n.size = self.settings.nav_scale;
-                    n.board = self.settings.nav_board;
                     n.set_rect(&self.settings.nav_rect);
                     n.show_surface = self.settings.nav_surface;
                     n.light = self.settings.nav_light;
