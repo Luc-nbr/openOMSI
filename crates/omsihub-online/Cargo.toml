@@ -1,0 +1,21 @@
+[package]
+name = "omsihub-online"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Omsi-Hub online, the client: the optional account (email and password on Neon Auth) and the friends (Neon's Data API), the session token in the OS's credential store (docs/omsihub/ONLINE.md)"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+# (HTTPS with rustls and the Mozilla roots: the certificates are checked, no OpenSSL)
+ureq.workspace = true
+
+# The session token lives in the OS's own store only: Windows' Credential Manager, macOS's
+# Keychain, Linux's kernel keyring. Elsewhere (Android, iOS) nothing is kept between runs.
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3.6", features = ["windows-native"] }
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6", features = ["apple-native"] }
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3.6", features = ["linux-native"] }
