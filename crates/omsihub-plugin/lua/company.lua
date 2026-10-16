@@ -262,7 +262,7 @@ function M.elements(on, assignment, d, trips, clock, boarded, room)
     local text, color = M.contract(contract)
     if text then
       out[#out + 1] = { type = "row", gap = 8, children = {
-        { type = "icon", name = "verified", size = 15, color = color },
+        { type = "icon", name = "description", size = 15, color = color },
         { type = "text", text = text, size = 11.5, color = DIM, grow = true },
       } }
     end

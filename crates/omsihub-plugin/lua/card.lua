@@ -103,6 +103,16 @@ local function figure(value, color, label)
   } }
 end
 
+-- the grade's five stars, those earned in the plate's yellow (the game's typeface has no star:
+-- its icons)
+local function stars(n)
+  local row = { type = "row", gap = 1, grow = true, children = {} }
+  for i = 1, 5 do
+    row.children[i] = { type = "icon", name = "star", size = 13, color = i <= n and PLATE or FAINT .. "99" }
+  end
+  return row
+end
+
 local function panel(s)
   local run, e = s.run, s.judged
   local timed = not run.free and run.stops > 0
@@ -162,7 +172,7 @@ local function panel(s)
     add({ type = "divider", color = HAIRLINE })
     add({ type = "row", gap = 8, children = {
       { type = "badge", text = tr(e.grade), color = ink, weight = "bold" },
-      { type = "text", text = string.rep("★", e.stars) .. string.rep("☆", 5 - e.stars), color = ink, grow = true },
+      stars(e.stars),
       { type = "text", text = string.format("%d / 100", e.score), weight = "bold", color = TEXT },
       { type = "text", text = tr("+%{n} XP", { n = e.xp }), weight = "bold", color = ACCENT_INK },
     } })

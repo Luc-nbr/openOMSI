@@ -455,7 +455,7 @@ local function dispatch()
   for _, m in ipairs(company.messages(assignment, math.floor(c / 60), seen)) do
     seen[m.id] = true
     if has["ui.toast"] then
-      omsi.ui.toast(m.text, { title = m.title, icon = "support_agent", color = "#F58620", seconds = 12 })
+      omsi.ui.toast(m.text, { title = m.title, icon = "campaign", color = "#F58620", seconds = 12 })
     else
       omsi.message(m.title .. ": " .. m.text, 10)
     end
