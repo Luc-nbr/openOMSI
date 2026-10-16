@@ -22,3 +22,25 @@ _version: 2
   pl: "Ostatnio grana"
   ru: "Последняя игра"
   uk: "Остання гра"
+# --- the chooser ------------------------------------------------------------------------------
+"In-game %{date}":
+  de: "Im Spiel %{date}"
+  fr: "En jeu : %{date}"
+  nl: "In het spel %{date}"
+  pl: "W grze %{date}"
+  ru: "В игре: %{date}"
+  uk: "У грі: %{date}"
+"Start a new bus company and build your network from scratch.":
+  de: "Gründe ein neues Busunternehmen und baue dein Netz von Grund auf."
+  fr: "Créez une nouvelle compagnie de bus et bâtissez votre réseau de zéro."
+  nl: "Begin een nieuw busbedrijf en bouw je netwerk vanaf nul op."
+  pl: "Załóż nową firmę autobusową i zbuduj swoją sieć od zera."
+  ru: "Основайте новую автобусную компанию и постройте свою сеть с нуля."
+  uk: "Заснуйте нову автобусну компанію й побудуйте свою мережу з нуля."
+"Join a friend's company with a session code":
+  de: "Mit einem Sitzungscode dem Unternehmen eines Freundes beitreten"
+  fr: "Rejoindre la compagnie d'un ami avec un code de session"
+  nl: "Met een sessiecode bij het bedrijf van een vriend aansluiten"
+  pl: "Dołącz do firmy znajomego kodem sesji"
+  ru: "Присоединиться к компании друга по коду сессии"
+  uk: "Приєднатися до компанії друга за кодом сесії"

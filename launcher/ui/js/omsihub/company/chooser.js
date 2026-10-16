@@ -8,7 +8,7 @@ import { S } from '../../store.js';
 import { call } from '../../api.js';
 import { html, useEffect, useState, tr, HOME, setCo, cmd, refresh, takeShell, useView, Icon, Mark, Btn, Seg, Chips, Select, Dialog, IconBtn, rgbOf } from './kit.js';
 // (Luc 2026-10-16: the companies as cards of the pages' shared look; the map's picture)
-import { Chip } from './pages-a.js';
+import { Chip, Glyph } from './pages-a.js';
 import { mapPicture } from '../../pages/drive.js';
 // (the buses the company works with: Beta 54)
 import { VehiclePicker } from './vehicles.js';
@@ -49,17 +49,16 @@ export function Chooser() {
   // (Luc 2026-10-16: the last played company first, with "Continue")
   const tiles = [...cv.tiles].sort((a, b) => (b.last ? 1 : 0) - (a.last ? 1 : 0));
   return html`<div class="co-pg co-pg-choose">
-    <div class="co-pg-choosehead">
-      <${Btn} icon="chevron_left" label=${cv.back} style="height:36px" onClick=${() => setCo({ chooser: 'mode' })} />
-      <div class="co-pg-choosetitle"><h1 class="co-pg-title">${cv.title}</h1><p class="co-pg-lead">${cv.text}</p></div>
-    </div>
+    <button type="button" class="co-pg-back" onClick=${() => setCo({ chooser: 'mode' })}><${Icon} name="arrow_back" size=${18} />${cv.back}</button>
+    <div class="co-pg-choosetitle"><h1 class="co-pg-title">${cv.title}</h1><p class="co-pg-lead">${cv.text}</p></div>
     <div class="co-pg-companies">
       ${tiles.map((t) => html`<${CompanyCard} t=${t} cv=${cv} cloud=${cloud} onOpen=${() => open(t.id)} onDelete=${() => setAsking(t.id)} />`)}
       <button type="button" class="co-pg-company new" onClick=${() => setCo({ wizard: newWizard() })}>
-        <span class="co-pg-emptyicon"><${Icon} name="add" size=${30} /></span>
+        <span class="co-pg-plus"><${Icon} name="add" size=${30} /></span>
         <b>${cv.new}</b><span class="co-pg-muted">${cv.new_sub}</span>
       </button>
     </div>
+    ${cv.join && html`<button type="button" class="co-pg-joinlink" onClick=${() => setCo({ chooser: 'join' })}><${Icon} name="groups" size=${17} />${cv.join}</button>`}
     ${victim && html`<${Dialog} icon="warning" title=${cv.ask_title.replace('%{name}', victim.name)} w=${560} onClose=${() => setAsking(null)}
       foot=${html`<span class="rest"></span><${Btn} label=${cv.ask_no} onClick=${() => setAsking(null)} /><${Btn} kind="danger" label=${cv.ask_yes} onClick=${() => del(victim.id)} />`}>
       <p class="co-para">${cv.ask_text}</p>
@@ -86,9 +85,11 @@ function Modes({ v }) {
   </div>`;
 }
 
-/** A company's card (Luc 2026-10-16): the map's picture as its banner (else its colours), its
- * mark, name, map and mode, four figures - cash, buses, lines, this month -, its day and when it
- * was played, its cloud or local save; the last played one marked, with "Continue". */
+/** A company's card (Luc 2026-10-16, after his reference): the map's picture as its header
+ * (else its colours), its mark in a circle over the header's edge, its name, map and country,
+ * one mode pill, four figures with their icons - cash, buses, lines, this month -, its day and
+ * when it was played, its cloud or local save; the last played one in the accent with
+ * "Continue", the others' button shown on hover or focus. */
 function CompanyCard({ t, cv, cloud, onOpen, onDelete }) {
   const [pic, setPic] = useState(true);
   const c1 = rgbOf(t.colours?.[0]).join(',');
@@ -97,24 +98,24 @@ function CompanyCard({ t, cv, cloud, onOpen, onDelete }) {
   return html`<div role="button" tabindex="0" class=${'co-pg-company' + (t.last ? ' last' : '')} data-company=${t.id} onClick=${onOpen} onKeyDown=${key}>
     <div class="co-pg-banner" style=${`--c1:${c1};--c2:${c2}`}>
       ${pic && t.map_file && html`<img src=${mapPicture(t.map_file)} alt="" onError=${() => setPic(false)} />`}
-      ${t.last && html`<span class="co-pg-lastchip"><${Icon} name="history" size=${13} />${cv.last_label}</span>`}
+      <span class="co-pg-bannerchips">
+        ${t.last && html`<span class="co-pg-lastchip"><${Icon} name="history" size=${13} />${cv.last_label}</span>`}
+        ${t.clock && html`<span class="co-pg-clockchip" title=${t.clock[0]}><i class=${'t-' + t.clock[1]}></i>${t.clock[0]}</span>`}
+      </span>
       <span class="co-pg-bin" onClick=${(e) => (e.stopPropagation(), onDelete())}><${IconBtn} icon="delete" size=${16} title=${cv.delete_tip} style="width:30px;height:30px" /></span>
     </div>
+    <span class="co-pg-companymark"><${Mark} mark=${t.mark} size=${64} /></span>
     <div class="co-pg-companybody">
-      <div class="co-pg-companyhead">
-        <span class="co-pg-companymark"><${Mark} mark=${t.mark} size=${52} /></span>
-        <div class="co-pg-companyname"><b class="co-pg-cut" title=${t.name}>${t.name}</b><span class="co-pg-cut co-pg-muted" title=${t.home}>${t.map}</span></div>
-      </div>
-      <div class="co-pg-chips">
-        <${Chip} text=${t.pill.text} icon=${t.pill.icon} tone=${t.sandbox ? 'accent2' : 'dim'} />
+      <div class="co-pg-companyname"><b class="co-pg-cut" title=${t.name}>${t.name}</b><span class="co-pg-cut co-pg-muted" title=${t.home}>${t.map}</span></div>
+      <div class="co-pg-chips"><${Chip} text=${t.pill.text} tone=${t.pill.tone} /></div>
+      <div class="co-pg-ministats">${t.stats.map(
+        (s) => html`<div title=${s.full || s.value}><span class=${'co-pg-ministaticon' + (s.tone === 'danger' ? ' t-danger' : s.tone === 'ok' ? ' t-ok' : '')}><${Glyph} name=${s.icon} size=${18} /></span><span>${s.label}</span><b class=${'t-' + s.tone}>${s.value}</b></div>`,
+      )}</div>
+      <div class="co-pg-companyfoot">
+        <span class="co-pg-when"><${Icon} name="schedule" size=${14} /><span>${t.when}</span></span>
         <${CloudBadge} cloud=${cloud} id=${t.id} />
       </div>
-      <div class="co-pg-ministats">${t.stats.map((s) => html`<div><span>${s.label}</span><b class=${'t-' + s.tone} title=${s.value}>${s.value}</b></div>`)}</div>
-      <div class="co-pg-companyfoot">
-        <span class="co-pg-cut co-pg-muted grow"><${Icon} name="event" size=${14} /> ${t.when}</span>
-        ${t.clock && html`<span class=${'co-pg-cut t-' + t.clock[1]} title=${t.clock[0]}>${t.clock[0]}</span>`}
-      </div>
-      <${Btn} kind=${t.last ? 'primary' : ''} icon=${t.last ? 'play_arrow' : 'chevron_right'} label=${t.last ? cv.continue : cv.open} class="co-pg-companygo" onClick=${(e) => (e.stopPropagation(), onOpen())} />
+      <${Btn} kind="primary" icon=${t.last ? 'play_arrow' : 'chevron_right'} label=${t.last ? cv.continue : cv.open} class="co-pg-companygo" onClick=${(e) => (e.stopPropagation(), onOpen())} />
     </div>
   </div>`;
 }

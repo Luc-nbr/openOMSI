@@ -212,6 +212,38 @@ pub fn signed(c: Cents) -> (String, &'static str) {
     }
 }
 
+/// Money short, in the company's currency as it is written: "£1.2M", "€8.4k", "−£950"; `sign`:
+/// a "+" before what is not below nought (the chooser's cards, Luc 2026-10-16).
+pub fn compact(c: Cents, sign: bool) -> String {
+    let lang = language();
+    let look = look_in(currency(), &lang);
+    let u = currency().units(c as f64);
+    let a = u.abs();
+    let (x, places, unit) = if a >= 999_500.0 {
+        (a / 1_000_000.0, 1, "M")
+    } else if a >= 99_950.0 {
+        (a / 1_000.0, 0, "k")
+    } else if a >= 1_000.0 {
+        (a / 1_000.0, 1, "k")
+    } else {
+        (a, 0, "")
+    };
+    let mut n = cur::number(x, places, &look);
+    if places > 0 {
+        let zero = format!("{}0", look.decimal);
+        if let Some(whole) = n.strip_suffix(&zero) {
+            n = whole.to_string();
+        }
+    }
+    let n = format!("{n}{unit}");
+    let s = if u < 0.0 && a >= 0.5 { "−" } else if sign { "+" } else { "" };
+    match look.at {
+        SymbolAt::Before => format!("{s}{}{n}", look.symbol),
+        SymbolAt::BeforeSpaced => format!("{s}{} {n}", look.symbol),
+        SymbolAt::After => format!("{s}{n} {}", look.symbol),
+    }
+}
+
 // --- dates --------------------------------------------------------------------------------------
 
 pub const WEEKDAYS: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];

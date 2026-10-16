@@ -14,6 +14,13 @@ if (!document.querySelector('link[data-co-pages-a-css]')) {
   document.head.append(sheet);
 }
 
+/** An icon, with the few the symbols lack drawn from those they have (a falling trend: the
+ * rising one upside down). */
+export function Glyph({ name, size = 20, class: cls = '' }) {
+  if (name === 'trending_down') return html`<span class=${'co-pg-flip ' + cls}><${Icon} name="trending_up" size=${size} /></span>`;
+  return html`<${Icon} name=${name} size=${size} class=${cls} />`;
+}
+
 /** A card: its title (and an icon, the tools on the right), its body. */
 export function Card({ title, icon, tools, children, class: cls = '', style, sub }) {
   return html`<section class=${'co-pg-card ' + cls} style=${style}>
