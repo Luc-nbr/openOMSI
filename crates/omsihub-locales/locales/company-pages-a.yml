@@ -1,0 +1,24 @@
+_version: 2
+# The company's chooser, finances, tenders, goals and contracts, reputation and career pages,
+# redesigned after the approved concepts (Luc 2026-10-16).
+"played just now":
+  de: "gerade gespielt"
+  fr: "joué à l'instant"
+  nl: "zojuist gespeeld"
+  pl: "grano przed chwilą"
+  ru: "играли только что"
+  uk: "грали щойно"
+"played %{span} ago":
+  de: "vor %{span} gespielt"
+  fr: "joué il y a %{span}"
+  nl: "%{span} geleden gespeeld"
+  pl: "grano %{span} temu"
+  ru: "играли %{span} назад"
+  uk: "грали %{span} тому"
+"Last played":
+  de: "Zuletzt gespielt"
+  fr: "Dernière partie"
+  nl: "Laatst gespeeld"
+  pl: "Ostatnio grana"
+  ru: "Последняя игра"
+  uk: "Остання гра"

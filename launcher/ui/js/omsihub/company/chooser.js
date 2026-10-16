@@ -6,11 +6,12 @@
 
 import { S } from '../../store.js';
 import { call } from '../../api.js';
-import { html, useEffect, useState, tr, HOME, setCo, cmd, refresh, takeShell, useView, Icon, Mark, ModePill, Btn, Seg, Chips, Select, Dialog, IconBtn } from './kit.js';
+import { html, useEffect, useState, tr, HOME, setCo, cmd, refresh, takeShell, useView, Icon, Mark, Btn, Seg, Chips, Select, Dialog, IconBtn, rgbOf } from './kit.js';
+// (Luc 2026-10-16: the companies as cards of the pages' shared look; the map's picture)
+import { Chip } from './pages-a.js';
+import { mapPicture } from '../../pages/drive.js';
 // (the buses the company works with: Beta 54)
 import { VehiclePicker } from './vehicles.js';
-// (Beta 61: a sandbox company's tile says it is one)
-import { SandboxBadge } from './sandbox.js';
 // (Beta 58: a friend's company joined with its session code)
 import { JoinPage } from './together.js';
 // (Beta 62: the country the company plays in, its people's names)
@@ -45,19 +46,19 @@ export function Chooser() {
     refresh();
   };
   const victim = asking && cv.tiles.find((t) => t.id === asking);
-  return html`<div class="co-choose">
-    <div style="flex:none"><${Btn} icon="chevron_left" label=${cv.back} style="width:180px;height:38px" onClick=${() => setCo({ chooser: 'mode' })} /></div>
-    <div class="co-scroll" style="flex:1;margin-top:12px;display:flex;flex-direction:column">
-      <span style="flex:0.35 1 0"></span>
-      <div class="head"><h1>${cv.title}</h1><p>${cv.text}</p></div>
-      <div class="co-companies">
-        ${cv.tiles.map((t) => html`<${CompanyTile} t=${t} cloud=${cloud} tip=${cv.delete_tip} onOpen=${() => open(t.id)} onDelete=${() => setAsking(t.id)} />`)}
-        <button type="button" class="co-tile co-company new" onClick=${() => setCo({ wizard: newWizard() })}>
-          <span class="plus"><${Icon} name="add" size=${28} /></span>
-          <b>${cv.new}</b><div class="home">${cv.new_sub}</div>
-        </button>
-      </div>
-      <span style="flex:0.65 1 0"></span>
+  // (Luc 2026-10-16: the last played company first, with "Continue")
+  const tiles = [...cv.tiles].sort((a, b) => (b.last ? 1 : 0) - (a.last ? 1 : 0));
+  return html`<div class="co-pg co-pg-choose">
+    <div class="co-pg-choosehead">
+      <${Btn} icon="chevron_left" label=${cv.back} style="height:36px" onClick=${() => setCo({ chooser: 'mode' })} />
+      <div class="co-pg-choosetitle"><h1 class="co-pg-title">${cv.title}</h1><p class="co-pg-lead">${cv.text}</p></div>
+    </div>
+    <div class="co-pg-companies">
+      ${tiles.map((t) => html`<${CompanyCard} t=${t} cv=${cv} cloud=${cloud} onOpen=${() => open(t.id)} onDelete=${() => setAsking(t.id)} />`)}
+      <button type="button" class="co-pg-company new" onClick=${() => setCo({ wizard: newWizard() })}>
+        <span class="co-pg-emptyicon"><${Icon} name="add" size=${30} /></span>
+        <b>${cv.new}</b><span class="co-pg-muted">${cv.new_sub}</span>
+      </button>
     </div>
     ${victim && html`<${Dialog} icon="warning" title=${cv.ask_title.replace('%{name}', victim.name)} w=${560} onClose=${() => setAsking(null)}
       foot=${html`<span class="rest"></span><${Btn} label=${cv.ask_no} onClick=${() => setAsking(null)} /><${Btn} kind="danger" label=${cv.ask_yes} onClick=${() => del(victim.id)} />`}>
@@ -85,21 +86,37 @@ function Modes({ v }) {
   </div>`;
 }
 
-/** A company's tile: its mark, mode and clock, its name, where it is at home, its day and
- * cash, a cloud or local save; the bin under the mouse. */
-function CompanyTile({ t, cloud, tip, onOpen, onDelete }) {
-  return html`<button type="button" class="co-tile co-company" data-company=${t.id} onClick=${onOpen}>
-    <div class="top"><${Mark} mark=${t.mark} size=${56} />
-      <span class="side"><${ModePill} mode=${t.mode} />
-        <${SandboxBadge} b=${t.sandbox} small />
-        ${t.clock && html`<span class=${'clockline t-' + t.clock[1]}><i></i>${t.clock[0]}</span>`}</span>
+/** A company's card (Luc 2026-10-16): the map's picture as its banner (else its colours), its
+ * mark, name, map and mode, four figures - cash, buses, lines, this month -, its day and when it
+ * was played, its cloud or local save; the last played one marked, with "Continue". */
+function CompanyCard({ t, cv, cloud, onOpen, onDelete }) {
+  const [pic, setPic] = useState(true);
+  const c1 = rgbOf(t.colours?.[0]).join(',');
+  const c2 = rgbOf(t.colours?.[1]).join(',');
+  const key = (e) => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && (e.preventDefault(), onOpen());
+  return html`<div role="button" tabindex="0" class=${'co-pg-company' + (t.last ? ' last' : '')} data-company=${t.id} onClick=${onOpen} onKeyDown=${key}>
+    <div class="co-pg-banner" style=${`--c1:${c1};--c2:${c2}`}>
+      ${pic && t.map_file && html`<img src=${mapPicture(t.map_file)} alt="" onError=${() => setPic(false)} />`}
+      ${t.last && html`<span class="co-pg-lastchip"><${Icon} name="history" size=${13} />${cv.last_label}</span>`}
+      <span class="co-pg-bin" onClick=${(e) => (e.stopPropagation(), onDelete())}><${IconBtn} icon="delete" size=${16} title=${cv.delete_tip} style="width:30px;height:30px" /></span>
     </div>
-    <b class="cut">${t.name}</b>
-    <div class="home cut">${t.home}</div>
-    <div class=${'day cut' + (t.negative ? ' negative' : '')}>${t.day}</div>
-    <${CloudBadge} cloud=${cloud} id=${t.id} />
-    <span class="bin" onClick=${(e) => (e.stopPropagation(), onDelete())}><${IconBtn} icon="delete" size=${16} title=${tip} style="width:28px;height:28px" /></span>
-  </button>`;
+    <div class="co-pg-companybody">
+      <div class="co-pg-companyhead">
+        <span class="co-pg-companymark"><${Mark} mark=${t.mark} size=${52} /></span>
+        <div class="co-pg-companyname"><b class="co-pg-cut" title=${t.name}>${t.name}</b><span class="co-pg-cut co-pg-muted" title=${t.home}>${t.map}</span></div>
+      </div>
+      <div class="co-pg-chips">
+        <${Chip} text=${t.pill.text} icon=${t.pill.icon} tone=${t.sandbox ? 'accent2' : 'dim'} />
+        <${CloudBadge} cloud=${cloud} id=${t.id} />
+      </div>
+      <div class="co-pg-ministats">${t.stats.map((s) => html`<div><span>${s.label}</span><b class=${'t-' + s.tone} title=${s.value}>${s.value}</b></div>`)}</div>
+      <div class="co-pg-companyfoot">
+        <span class="co-pg-cut co-pg-muted grow"><${Icon} name="event" size=${14} /> ${t.when}</span>
+        ${t.clock && html`<span class=${'co-pg-cut t-' + t.clock[1]} title=${t.clock[0]}>${t.clock[0]}</span>`}
+      </div>
+      <${Btn} kind=${t.last ? 'primary' : ''} icon=${t.last ? 'play_arrow' : 'chevron_right'} label=${t.last ? cv.continue : cv.open} class="co-pg-companygo" onClick=${(e) => (e.stopPropagation(), onOpen())} />
+    </div>
+  </div>`;
 }
 
 // --- the founding ---------------------------------------------------------------------------

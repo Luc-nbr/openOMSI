@@ -16,18 +16,44 @@ pub const PALETTE: [&str; 12] = ["#f28c28", "#e03c31", "#c2185b", "#7b1fa2", "#2
 pub fn view(s: &mut Session) -> Value {
     let list = s.companies.clone().unwrap_or_default();
     let n = list.len();
+    // (Luc 2026-10-16: the last played company first in the eye - its save's time)
+    let played: Vec<Option<u64>> = list.iter().map(|c| played_at(&c.id)).collect();
+    let last = played.iter().enumerate().filter_map(|(k, t)| t.map(|t| (k, t))).max_by_key(|x| x.1).map(|x| x.0);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let shown = super::words::currency();
     let tiles: Vec<Value> = list
         .iter()
-        .map(|c| {
+        .enumerate()
+        .map(|(k, c)| {
+            // (each company's money in its own currency)
+            super::words::set_currency(c.currency);
             let map = if c.map_name.is_empty() { short_map(&c.map) } else { c.map_name.clone() };
-            let home = if c.depot.is_empty() { map } else { format!("{map}  ·  {}", c.depot) };
+            let home = if c.depot.is_empty() { map.clone() } else { format!("{map}  ·  {}", c.depot) };
+            let month = c.month(&co::dates::month_of(&c.date)).result();
+            let (month_text, month_tone) = super::words::signed(month);
+            let pill = format!("{}  ·  {}", tr(c.company_mode.label()), tr(c.game_mode.label()));
+            let ago = played[k].map(|t| {
+                let minutes = (now.saturating_sub(t) / 60) as i64;
+                if minutes < 1 { tr("played just now") } else { trf("played %{span} ago", &[("span", &super::words::span_text(minutes))]) }
+            });
             json!({
                 "id": c.id, "name": c.name, "mark": mark_json(c), "mode": mode_json(c.game_mode),
                 "clock": tile_line(c).map(|(t, tone)| json!([t, tone])), "home": home,
                 "day": format!("{}  ·  {}", day_label(&c.date), super::sandbox::cash(c)), "negative": super::sandbox::cash_tone(c) == "danger", "sandbox": super::sandbox::badge(c),
+                "map": map, "map_file": c.map, "colours": c.colours,
+                "pill": { "text": pill, "icon": if c.company_mode == co::sandbox::CompanyMode::Sandbox { "sports_esports" } else { super::mode_icon(c.game_mode) } },
+                "stats": [
+                    { "label": tr("Cash"), "value": super::sandbox::cash(c), "tone": super::sandbox::cash_tone(c) },
+                    { "label": tr("Buses"), "value": c.fleet.iter().filter(|v| v.held_on(&c.date)).count().to_string(), "tone": "text" },
+                    { "label": tr("Lines"), "value": c.lines.len().to_string(), "tone": "text" },
+                    { "label": tr("This month"), "value": month_text, "tone": month_tone },
+                ],
+                "when": match &ago { Some(a) => format!("{}  ·  {a}", day_label(&c.date)), None => day_label(&c.date) },
+                "last": last == Some(k) && list.len() > 1,
             })
         })
         .collect();
+    super::words::set_currency(shown);
     json!({
         "modes": {
             "title": tr("How do you want to play?"), "text": tr("Your own company in a time of its own, or one run together with others."),
@@ -39,11 +65,17 @@ pub fn view(s: &mut Session) -> Value {
             "back": tr("Play mode"),
             "title": tr(if list.is_empty() { "Found your first company" } else { "Your companies" }),
             "text": tr(if list.is_empty() { "You have no company yet: give it a name, colours, a map and a depot." } else { "Choose the company to open, or found a new one." }),
-            "tiles": tiles, "new": tr("New company"), "new_sub": tr("Its name, colours, map and depot"), "delete_tip": tr("Delete this company"),
+            "tiles": tiles, "continue": tr("Continue"), "open": tr("Open"), "last_label": tr("Last played"), "new": tr("New company"), "new_sub": tr("Its name, colours, map and depot"), "delete_tip": tr("Delete this company"),
             "ask_title": tr("Delete %{name}?"), "ask_text": tr("The company is deleted for good: its buses, staff, lines, money and history. Your service record as a driver stays. This cannot be undone."),
             "ask_yes": tr("Delete for good"), "ask_no": tr("Cancel"),
         },
     })
+}
+
+/// When a company's save was last written (Unix seconds): the last time it was played.
+fn played_at(id: &str) -> Option<u64> {
+    let m = std::fs::metadata(co::store::path_of(&data(), id)).ok()?.modified().ok()?;
+    m.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs())
 }
 
 /// The date a map is set in (`wizard::map_date`).
