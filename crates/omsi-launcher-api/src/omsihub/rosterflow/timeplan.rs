@@ -173,6 +173,140 @@ impl Tp {
     }
 }
 
+// --- the Routes tab's trip-time strip ---------------------------------------------------------------
+
+/// Said in the Routes tab when its strip shows the route's own minutes, not the Timeplan's.
+const ROUTE_UNSAVED: &str = "The route's stops are not saved yet: these are its own minutes, the Timeplan's running times once it is saved.";
+const ROUTE_HELD: &str = "The Timeplan has changes to another line not saved: save them there first, then these minutes are the Timeplan's.";
+const ROUTE_ROAD: &str = "Line %{n}, %{day}: every time band of the direction runs on the minutes from the roads now - save them in the Timeplan.";
+
+/// What the Routes tab does to the running times of a direction on a day group: the roads'
+/// minutes into every time band (`Road`: the legs' lengths as the Routes tab has the route, else
+/// the line's own legs), or one segment's minutes typed into the band from 00:00 (`Seg`).
+pub(crate) enum RouteAct {
+    Road(Option<Vec<f32>>),
+    Seg(usize, f32),
+}
+
+impl Tp {
+    /// The Timeplan taken to the line `name` for the Routes tab - not while changes of another
+    /// line are in hand. Whether it plans that line now.
+    fn follow(&mut self, c: &Company, name: &str) -> bool {
+        if !c.lines.iter().any(|x| x.name.eq_ignore_ascii_case(name)) {
+            return false;
+        }
+        if self.company != c.id || !self.line.eq_ignore_ascii_case(name) {
+            if self.company == c.id && self.dirty() {
+                return false;
+            }
+            self.company = c.id.clone();
+            self.line = name.to_string();
+            self.loaded = None;
+        }
+        load_shown(self, c);
+        self.work.is_some()
+    }
+
+    /// Direction `dir` of the line in hand if its stops are `stops` (object ids, as the Routes
+    /// tab has the route; none given: any).
+    fn route_dir(&self, dir: usize, stops: &[i64]) -> Option<&reg::Direction> {
+        let d = self.draft()?.directions.get(dir)?;
+        (stops.is_empty() || d.stops.iter().map(|s| s.id).eq(stops.iter().copied())).then_some(d)
+    }
+
+    /// The running times of direction `dir` on day group `day` as the Routes tab's strip shows
+    /// them: the band from 00:00 - its minutes, as the running-time cells show them, and the
+    /// trip's time - and how many bands there are; the side and pattern the Timeplan shows the
+    /// direction as. None: the line in hand has other stops than `stops`.
+    pub(crate) fn route_view(&self, dir: usize, day: usize, stops: &[i64]) -> Option<Value> {
+        let n = self.route_dir(dir, stops)?.stops.len();
+        let line = self.draft()?;
+        let set = tp::run_set(line, day, dir);
+        let band = set.bands.first()?;
+        let run: Vec<f32> = (0..n.saturating_sub(1)).map(|i| band.run.get(i).copied().unwrap_or(0.0)).collect();
+        let sides = tp::sides(line);
+        let (side, pattern) = (0..2).find_map(|k| sides[k].pattern(dir).map(|p| (k, p))).unwrap_or((0, 0));
+        Some(json!({
+            "texts": run.iter().map(|m| tp::minutes_text(*m)).collect::<Vec<_>>(), "run": run,
+            "total": tp::minutes_text(set.total(band.from, n)), "bands": set.bands.len(),
+            "closed": (0..DAY_GROUPS.len()).map(|d| !line.service.allows(d)).collect::<Vec<_>>(),
+            "dirty": self.dirty(), "side": side, "pattern": pattern,
+        }))
+    }
+
+    /// The Routes tab's change of the running times of direction `dir` on day group `day`,
+    /// made in the draft as any change of the Timeplan's: undone with its undo, saved with its
+    /// Save. Whether the line in hand has that direction with the stops `stops`.
+    pub(crate) fn route_act(&mut self, dir: usize, day: usize, stops: &[i64], act: RouteAct) -> bool {
+        let Some(d) = self.route_dir(dir, stops).cloned() else { return false };
+        match act {
+            RouteAct::Road(lengths) => {
+                let run = match lengths {
+                    Some(l) if l.len() + 1 == d.stops.len() => tp::road_run(&l),
+                    _ => tp::road_run_of(&d),
+                };
+                self.change_run(day, dir, |s| s.take_run(&run));
+            }
+            RouteAct::Seg(seg, m) => self.change_run(day, dir, |s| {
+                if let Some(x) = s.bands.get_mut(0).and_then(|b| b.run.get_mut(seg)) {
+                    *x = m.max(0.0);
+                }
+            }),
+        }
+        true
+    }
+}
+
+/// The Routes tab's trip-time strip on the Timeplan's running times (`rf_tp_route`; changed by
+/// `rf_tp_route_act`): the line `line` (its timetable name), its direction `dir` with the stops
+/// `stops`, the day group `day`. Not `linked`: the strip keeps the route's own minutes, `why`.
+fn route(s: &mut Session, r: &mut Rf, cmd: &str, args: &Value) -> Answer {
+    let days: Vec<String> = (0..DAY_GROUPS.len()).map(day_name).collect();
+    let Some(c) = s.company.clone() else { return Ok(json!({ "linked": false, "days": days })) };
+    let name = str_arg(args, "line");
+    let (dir, day) = (usize_arg(args, "dir"), usize_arg(args, "day").min(DAY_GROUPS.len() - 1));
+    let stops: Vec<i64> = args.get("stops").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_i64).collect()).unwrap_or_default();
+    let v = &mut r.tp;
+    if !v.follow(&c, &name) {
+        let why = if !c.lines.iter().any(|x| x.name.eq_ignore_ascii_case(&name)) {
+            None
+        } else if !v.line.eq_ignore_ascii_case(&name) {
+            Some(ROUTE_HELD)
+        } else {
+            v.why
+        };
+        return Ok(json!({ "linked": false, "days": days, "why": why.map(tr) }));
+    }
+    let mut said_now = Value::Null;
+    if cmd == "rf_tp_route_act" {
+        let what = str_arg(args, "act");
+        let act = match what.as_str() {
+            "road" => RouteAct::Road(args.get("lengths").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).map(|x| x as f32).collect())),
+            "seg" => match args.get("minutes").and_then(Value::as_f64).filter(|m| (0.0..=600.0).contains(m)) {
+                Some(m) => RouteAct::Seg(usize_arg(args, "seg"), m as f32),
+                None => return Ok(said(tr("Type the minutes, such as 7"), true)),
+            },
+            other => return Err(format!("no action {other}")),
+        };
+        if !v.route_act(dir, day, &stops, act) {
+            return Ok(json!({ "linked": false, "days": days, "why": tr(ROUTE_UNSAVED) }));
+        }
+        if what == "road" {
+            let number = v.draft().map(|l| l.number.trim().to_string()).unwrap_or_default();
+            said_now = json!({ "text": trf(ROUTE_ROAD, &[("n", &number), ("day", &day_name(day))]), "error": false });
+        }
+    }
+    Ok(match v.route_view(dir, day, &stops) {
+        Some(mut x) => {
+            x["linked"] = json!(true);
+            x["days"] = json!(days);
+            x["say"] = said_now;
+            x
+        }
+        None => json!({ "linked": false, "days": days, "why": tr(ROUTE_UNSAVED) }),
+    })
+}
+
 // --- reading the line -------------------------------------------------------------------------------
 
 /// The company line's own line in the line editor's registry (`plan_edit::load`).
@@ -421,6 +555,7 @@ pub fn call(cmd: &str, args: &Value) -> Option<Answer> {
     Some(match cmd {
         "rf_tp" => with_rf(|s, r| view(s, r, args)),
         "rf_tp_act" => with_rf(|s, r| act(s, r, args)),
+        "rf_tp_route" | "rf_tp_route_act" => with_rf(|s, r| route(s, r, cmd, args)),
         "rf_tp_guide" => with_rf(|s, r| {
             let Some(c) = s.company.as_ref() else { return Ok(json!({})) };
             let line = str_arg(args, "line");
@@ -1334,6 +1469,9 @@ pub fn texts() -> Vec<&'static str> {
         MAP_LINE_HINT,
         NEW_LINE_HINT,
         NOT_FOUND,
+        ROUTE_UNSAVED,
+        ROUTE_HELD,
+        ROUTE_ROAD,
         "All",
         "Save",
         "Saved",
@@ -1383,6 +1521,76 @@ mod tests {
         let mut l = LineDesign::default();
         l.vehicles.classes = vec![VehicleClass::Solo, VehicleClass::Double];
         assert_eq!(vehicle_types(&l), "SD,DD");
+    }
+
+    /// The Timeplan with line 7 in hand: four stops out and back, its Sunday's outbound in two
+    /// time bands (a slower one from 07:00).
+    fn planning() -> Tp {
+        let dir = |rev: bool| {
+            let mut stops: Vec<StopRef> = (0..4).map(|i| StopRef { id: 10 + i, name: format!("Stop {i}"), ..Default::default() }).collect();
+            if rev {
+                stops.reverse();
+            }
+            reg::Direction { stops, legs: (0..3).map(|_| reg::Leg { ok: true, length: 500.0, ..Default::default() }).collect(), times: vec![0.0, 3.0, 3.5, 5.0], manual_times: true, ..Default::default() }
+        };
+        let mut line = LineDesign { id: 7, number: "7".into(), directions: vec![dir(false), dir(true)], ..Default::default() };
+        let sunday = RunSet { day: 2, dir: 0, bands: vec![tp::Band { from: 0.0, run: vec![3.0, 0.5, 1.5] }, tp::Band { from: 420.0, run: vec![4.0, 1.0, 2.0] }] };
+        line.timeplan = Some(tp::RunPlan { sets: vec![sunday], timepoints: Vec::new() });
+        let mut v = Tp { company: "c".into(), line: "oo_7".into(), ..Default::default() };
+        v.work = Some(Work { own: own_of(7, PathBuf::new(), "oo_7".into(), line), map: false, fresh: false });
+        v
+    }
+
+    #[test]
+    fn the_roads_times_from_the_routes_tab_are_the_timeplans_running_times() {
+        let mut v = planning();
+        let stops = [10, 11, 12, 13];
+        // the Routes tab's "Times from the roads": the legs as the route is drawn there
+        assert!(v.route_act(0, 2, &stops, RouteAct::Road(Some(vec![500.0, 500.0, 1000.0]))));
+        let run = tp::road_run(&[500.0, 500.0, 1000.0]);
+        let line = v.draft().unwrap().clone();
+        let sunday = tp::run_set(&line, 2, 0);
+        assert_eq!(sunday.bands.len(), 2);
+        assert!(sunday.bands.iter().all(|b| b.run == run), "every band of the direction and day group");
+        assert_eq!(sunday.bands[1].from, 420.0);
+        // the other day groups and the other direction keep theirs
+        assert_eq!(tp::run_set(&line, 0, 0).bands[0].run, vec![3.0, 0.5, 1.5]);
+        assert_eq!(tp::run_set(&line, 2, 1).bands[0].run, vec![3.0, 0.5, 1.5]);
+        // in the draft, with the Timeplan's undo
+        assert!(v.dirty());
+        v.undo();
+        assert_eq!(tp::run_set(v.draft().unwrap(), 2, 0).bands[1].run, vec![4.0, 1.0, 2.0]);
+        // without the line's own legs given: its own legs
+        assert!(v.route_act(0, 2, &[], RouteAct::Road(None)));
+        assert_eq!(tp::run_set(v.draft().unwrap(), 2, 0).bands[0].run, tp::road_run(&[500.0; 3]));
+        // a route whose stops are not saved yet: nothing changed
+        let before = v.draft().unwrap().clone();
+        assert!(!v.route_act(0, 2, &[10, 12, 13], RouteAct::Road(None)));
+        assert!(v.route_view(0, 2, &[10, 12, 13]).is_none());
+        assert_eq!(v.draft().unwrap(), &before);
+    }
+
+    #[test]
+    fn a_timeplan_edit_shows_in_the_routes_strip_and_back() {
+        let mut v = planning();
+        let stops = [10, 11, 12, 13];
+        let x = v.route_view(0, 2, &stops).unwrap();
+        assert_eq!(x["texts"], json!(["3", "0.5", "1.5"]));
+        assert_eq!(x["total"], json!("5"));
+        assert_eq!(x["bands"], json!(2));
+        // a running time typed in the Timeplan (`apply` of a "run" cell, band 00:00)
+        v.change_run(2, 0, |s| s.bands[0].run[1] = 2.0);
+        let x = v.route_view(0, 2, &stops).unwrap();
+        assert_eq!(x["texts"], json!(["3", "2", "1.5"]));
+        assert_eq!(x["total"], json!("6.5"));
+        // one typed in the Routes strip: in the Timeplan's band 00:00, the later band as it was
+        assert!(v.route_act(0, 2, &stops, RouteAct::Seg(0, 2.5)));
+        let set = tp::run_set(v.draft().unwrap(), 2, 0);
+        assert_eq!(set.bands[0].run, vec![2.5, 2.0, 1.5]);
+        assert_eq!(set.bands[1].run, vec![4.0, 1.0, 2.0]);
+        // the way back is the inbound side's first pattern
+        let back = v.route_view(1, 2, &[13, 12, 11, 10]).unwrap();
+        assert_eq!((back["side"].clone(), back["pattern"].clone()), (json!(1), json!(0)));
     }
 
     #[test]
