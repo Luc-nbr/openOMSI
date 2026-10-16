@@ -99,18 +99,18 @@ Build notes:
 - This PC has **no cmake**, so a cold target fails on `openxr-sys`. Always use a warm target (`samen\target`).
 - `node --check` misses some errors that WebView2 rejects, such as a raw line break inside a quoted string.
 
-**Smoke test before deploying (mandatory):** start the new `openomsi-launcher-app.exe` with a sandbox home (`HOME`/`USERPROFILE`/`APPDATA`/`LOCALAPPDATA` pointing to a scratch folder) and `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9391`. Connect over CDP (`/json`, then `Runtime.enable`, `Page.reload`) and make sure there is no `Runtime.exceptionThrown`. Then stop that process.
+**Smoke test before deploying (mandatory):** start the new `Omsi-Hub.exe` (Beta 65 on; before it `openomsi-launcher-app.exe`) with a sandbox home (`HOME`/`USERPROFILE`/`APPDATA`/`LOCALAPPDATA` pointing to a scratch folder) and `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9391`. Connect over CDP (`/json`, then `Runtime.enable`, `Page.reload`) and make sure there is no `Runtime.exceptionThrown`. Then stop that process. Start it where no game is beside it (`launcher\src-tauri\target\release`), or with `OPENOMSI_BIN` set to the game: a plain start of `Omsi-Hub.exe` beside the game hands over to the game (`docs/omsihub/RENAME.md`), and the process you started ends at once.
 
 **Deploy** to `C:\openOMSI\dist\windows` with backups, then verify:
-- for each of `openomsi.exe`, `openomsi-launcher.exe` and `openomsi-launcher-app.exe`: move `X.vorige` to `X.vorige2`, move `X` to `X.vorige`, copy in the new `X`;
-- check the sha256 matches the build, and `grep -c 0.2.48-betaN` finds the version string (`openomsi-launcher.exe` has none);
+- for each of `omsi-hub-game.exe`, `omsi-hub-cli.exe` and `Omsi-Hub.exe` (Beta 65 renamed `openomsi.exe`, `openomsi-launcher.exe` and `openomsi-launcher-app.exe`; remove those and their `.vorige` copies once, `docs/omsihub/RENAME.md`): move `X.vorige` to `X.vorige2`, move `X` to `X.vorige`, copy in the new `X`;
+- check the sha256 matches the build, and `grep -c 0.2.48-betaN` finds the version string (`omsi-hub-cli.exe` has none);
 - renaming a running exe works on Windows;
 - never put a Beta beside the exe under another name.
 
 ## 6. Releasing (only after Luc's yes)
 
 1. `git -C C:/openOMSI push origin beta`. That triggers `.github/workflows/omsihub-release.yml`:
-   - **job `release`** (Windows) runs the workspace tests and publishes `v0.2.48.N` (N counts the fork's commits) with `openOMSI-<v>-windows-x64.zip`;
+   - **job `release`** (Windows) runs the workspace tests and publishes `v0.2.48.N` (N counts the fork's commits) with `Omsi-Hub-<v>-windows-x64.zip` and, for the updaters of the builds before Beta 65, `openOMSI-<v>-windows-x64.zip` (the programs by their old names);
    - **job `mac`** builds arm64 and x64 (`scripts/build-macos.sh`, ad-hoc signed);
    - **job `mac-publish`** attaches `Omsi-Hub-<v>-macos-*.dmg` and the updater zips to the same release.
 2. Watch it: `gh run list -R Luc-nbr/openOMSI`, then `gh run view <id>`. If a Mac runner flakes ("lost communication"), run `gh run rerun <id> --failed`.

@@ -315,7 +315,7 @@ the same. The phase 1 upstream commits cherry-pick onto upstream main and pass i
 2. **The player chooses the openOMSI folder.** This is done in Settings ▸ Your openOMSI, built
    in phase 1.
    - Omsi-Hub checks for the program in it:
-     - `openomsi.exe`;
+     - `openomsi.exe` (Beta 65 on: `omsi-hub-game.exe` first, §11);
      - `openomsi`;
      - a bundle `*.app/Contents/MacOS/openomsi`, or the bundle itself.
    - It refuses an OMSI 2 folder.
@@ -798,3 +798,18 @@ copy UI were left alone, with two exceptions forced by the move of the locales (
    that depend on openOMSI's library crates and on the launcher crates' public API only.
 6. **Releases (§8 step 11):** the app and the plugin only; `omsihub-sync.yml` and the fork's
    copy of the game retired.
+
+## 11. Fork differences
+
+Deliberate differences from upstream openOMSI that stay until Omsi-Hub moves to its own
+repository. Each is marked "Omsi-Hub (fork-local)" in the code.
+
+- **The program names and the branding (Beta 65, docs/omsihub/RENAME.md).** Luc reversed step 8
+  of §8 for this distribution: everything a player sees is called Omsi-Hub.
+  - The Cargo bins are `omsi-hub-game` (`crates/omsi-app`, upstream's `openomsi`) and
+    `omsi-hub-cli` (`crates/omsi-launcher-core`, upstream's `openomsi-launcher`). The Tauri
+    app's bin is `Omsi-Hub` (upstream's `openomsi-launcher-app`).
+  - `crates/omsi-cfg/src/product.rs` holds the names, the old names and the display name. A
+    merge of upstream meets the rename there and in the few places that use it.
+  - Everything that looks for a program falls back to the old name, so a folder of openOMSI's
+    own still works as the chosen game (§3, step 2).
