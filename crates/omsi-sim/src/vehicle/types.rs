@@ -908,7 +908,10 @@ mod start_var_tests {
     /// A bus whose `{init}` takes its fitting over into a variable of its own (as the
     /// Kajosoft O530's `setvar_reset` does), with one livery that sets the fitting to 1.
     fn bus() -> Arc<VehicleType> {
-        let dir = std::env::temp_dir().join(format!("omsi_start_vars_{}", std::process::id()));
+        // (a folder per call: the checks run side by side)
+        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("omsi_start_vars_{}_{n}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let script = dir.join("setvar.osc");
         std::fs::write(&script, "{init}\n(L.L.fitting) (S.L.in_fitting)\n{end}\n").unwrap();
@@ -947,5 +950,25 @@ mod start_var_tests {
         let chosen = VehicleInstance::new(ty, host);
         assert_eq!(chosen.var("in_fitting"), Some(2.0), "the option, seen by {{init}}");
         assert_eq!(chosen.var("Colorscheme"), Some(0.0));
+    }
+
+    #[test]
+    fn a_bus_option_keeps_over_the_liverys_setvar_frame_after_frame() {
+        let ty = bus();
+        let mut host = VehicleHost::new(Default::default());
+        host.paint_scheme = Some(Some(0));
+        host.start_vars = vec![("FITTING".into(), 0.0)];
+        let mut v = VehicleInstance::new(ty.clone(), host);
+        for _ in 0..3 {
+            v.update(1.0 / 30.0);
+        }
+        assert_eq!(v.var("fitting"), Some(0.0), "the option, not the livery's 1 written each frame");
+        // without an option the livery's own still comes back each frame
+        let mut host = VehicleHost::new(Default::default());
+        host.paint_scheme = Some(Some(0));
+        let mut v = VehicleInstance::new(ty, host);
+        v.set_var("fitting", 3.0);
+        v.update(1.0 / 30.0);
+        assert_eq!(v.var("fitting"), Some(1.0));
     }
 }
